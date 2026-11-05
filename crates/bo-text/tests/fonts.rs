@@ -64,5 +64,5 @@ fn outlines() {
     let path = outline_svg_path(&fm.outline(f, g));
     assert!(path.starts_with('M') && path.ends_with('Z'));
     let space = fm.shape(f, " ")[0].glyph_id;
-    assert!(fm.outline(f, space).is_empty());
+    assert_eq!(fm.outline(f, space).len(), 0);
 }

@@ -48,7 +48,8 @@ pub fn layout_document(
         let bottom = setup.height.to_pt() - setup.margin_bottom.to_pt();
         let content_left = setup.margin_left.to_pt();
         let content_width =
-            (setup.width.to_pt() - setup.margin_left.to_pt() - setup.margin_right.to_pt()).max(36.0);
+            (setup.width.to_pt() - setup.margin_left.to_pt() - setup.margin_right.to_pt())
+                .max(36.0);
 
         for block in &section.blocks {
             let Block::Paragraph(p) = block;

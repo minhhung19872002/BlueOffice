@@ -6,7 +6,10 @@ export type ResolvedTheme = 'light' | 'dark';
 /** Resolve `auto` with the OS preference and keep it in sync. */
 export function useResolvedTheme(setting: ThemeSetting): ResolvedTheme {
   const query = useMemo(
-    () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null),
+    () =>
+      typeof window !== 'undefined' && window.matchMedia
+        ? window.matchMedia('(prefers-color-scheme: dark)')
+        : null,
     [],
   );
   const [osDark, setOsDark] = useState(query?.matches ?? false);

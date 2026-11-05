@@ -9,16 +9,26 @@ use bo_model::{
 };
 
 fn rp(size: u32) -> RunProps {
-    RunProps { size: Some(HalfPoints(size)), ..Default::default() }
+    RunProps {
+        size: Some(HalfPoints(size)),
+        ..Default::default()
+    }
 }
 
 fn bold(size: u32) -> RunProps {
-    RunProps { bold: Some(true), ..rp(size) }
+    RunProps {
+        bold: Some(true),
+        ..rp(size)
+    }
 }
 
 fn p(align: Alignment, runs: Vec<Run>) -> Block {
     Block::Paragraph(Paragraph {
-        props: ParaProps { align: Some(align), space_after: Some(Twips(0)), ..Default::default() },
+        props: ParaProps {
+            align: Some(align),
+            space_after: Some(Twips(0)),
+            ..Default::default()
+        },
         runs,
     })
 }
@@ -46,20 +56,54 @@ const ARTICLES: &[&str] = &[
 
 /// Build the sample document.
 pub fn document() -> Document {
-    let navy = Color { r: 0x1F, g: 0x3A, b: 0x68 };
+    let navy = Color {
+        r: 0x1F,
+        g: 0x3A,
+        b: 0x68,
+    };
     let mut blocks = vec![
-        p(Alignment::Center, vec![Run::text("CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM", bold(26))]),
+        p(
+            Alignment::Center,
+            vec![Run::text("CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM", bold(26))],
+        ),
         p(
             Alignment::Center,
             vec![Run::text(
                 "Độc lập - Tự do - Hạnh phúc",
-                RunProps { underline: Some(Underline::Single), ..bold(28) },
+                RunProps {
+                    underline: Some(Underline::Single),
+                    ..bold(28)
+                },
             )],
         ),
-        p(Alignment::Right, vec![Run::text("Hà Nội, ngày 05 tháng 11 năm 2026", RunProps { italic: Some(true), ..rp(28) })]),
+        p(
+            Alignment::Right,
+            vec![Run::text(
+                "Hà Nội, ngày 05 tháng 11 năm 2026",
+                RunProps {
+                    italic: Some(true),
+                    ..rp(28)
+                },
+            )],
+        ),
         p(Alignment::Left, vec![Run::text("", rp(28))]),
-        p(Alignment::Center, vec![Run::text("THÔNG BÁO", RunProps { color: Some(navy), ..bold(32) })]),
-        p(Alignment::Center, vec![Run::text("Về việc thử nghiệm bộ ứng dụng văn phòng BlueOffice", bold(28))]),
+        p(
+            Alignment::Center,
+            vec![Run::text(
+                "THÔNG BÁO",
+                RunProps {
+                    color: Some(navy),
+                    ..bold(32)
+                },
+            )],
+        ),
+        p(
+            Alignment::Center,
+            vec![Run::text(
+                "Về việc thử nghiệm bộ ứng dụng văn phòng BlueOffice",
+                bold(28),
+            )],
+        ),
         p(Alignment::Center, vec![Run::text("________", rp(28))]),
     ];
     for (i, a) in ARTICLES.iter().enumerate() {
@@ -70,33 +114,89 @@ pub fn document() -> Document {
                 space_before: Some(Twips(120)),
                 ..Default::default()
             },
-            runs: vec![Run::text(format!("Điều {}. ", i + 1), bold(28)), Run::text(*a, rp(28))],
+            runs: vec![
+                Run::text(format!("Điều {}. ", i + 1), bold(28)),
+                Run::text(*a, rp(28)),
+            ],
         }));
     }
     blocks.push(Block::Paragraph(Paragraph {
-        props: ParaProps { align: Some(Alignment::Left), indent_left: Some(Twips(567)), ..Default::default() },
+        props: ParaProps {
+            align: Some(Alignment::Left),
+            indent_left: Some(Twips(567)),
+            ..Default::default()
+        },
         runs: vec![
             Run::text("Định dạng ký tự: ", rp(28)),
             Run::text("đậm", bold(28)),
             Run::text(", ", rp(28)),
-            Run::text("nghiêng", RunProps { italic: Some(true), ..rp(28) }),
+            Run::text(
+                "nghiêng",
+                RunProps {
+                    italic: Some(true),
+                    ..rp(28)
+                },
+            ),
             Run::text(", ", rp(28)),
-            Run::text("gạch chân", RunProps { underline: Some(Underline::Single), ..rp(28) }),
+            Run::text(
+                "gạch chân",
+                RunProps {
+                    underline: Some(Underline::Single),
+                    ..rp(28)
+                },
+            ),
             Run::text(", ", rp(28)),
-            Run::text("gạch kép", RunProps { underline: Some(Underline::Double), ..rp(28) }),
+            Run::text(
+                "gạch kép",
+                RunProps {
+                    underline: Some(Underline::Double),
+                    ..rp(28)
+                },
+            ),
             Run::text(", ", rp(28)),
-            Run::text("gạch ngang", RunProps { strike: Some(true), ..rp(28) }),
+            Run::text(
+                "gạch ngang",
+                RunProps {
+                    strike: Some(true),
+                    ..rp(28)
+                },
+            ),
             Run::text(", ", rp(28)),
-            Run::text("màu đỏ", RunProps { color: Some(Color { r: 0xC0, g: 0, b: 0 }), ..rp(28) }),
+            Run::text(
+                "màu đỏ",
+                RunProps {
+                    color: Some(Color {
+                        r: 0xC0,
+                        g: 0,
+                        b: 0,
+                    }),
+                    ..rp(28)
+                },
+            ),
             Run::text(", ", rp(28)),
-            Run::text("Arial", RunProps { font: Some("Arial".into()), ..rp(26) }),
+            Run::text(
+                "Arial",
+                RunProps {
+                    font: Some("Arial".into()),
+                    ..rp(26)
+                },
+            ),
             Run::text(", ", rp(28)),
-            Run::text("Calibri", RunProps { font: Some("Calibri".into()), ..rp(26) }),
+            Run::text(
+                "Calibri",
+                RunProps {
+                    font: Some("Calibri".into()),
+                    ..rp(26)
+                },
+            ),
             Run::text(".", rp(28)),
         ],
     }));
     blocks.push(Block::Paragraph(Paragraph {
-        props: ParaProps { indent_left: Some(Twips(567)), ..Default::default() },
+        props: ParaProps {
+            indent_left: Some(Twips(567)),
+            ..Default::default()
+        },
         runs: vec![Run {
             props: rp(28),
             content: vec![
@@ -119,11 +219,34 @@ pub fn document() -> Document {
         )));
     }
     blocks.push(Block::Paragraph(Paragraph {
-        props: ParaProps { align: Some(Alignment::Right), indent_right: Some(Twips(567)), page_break_before: Some(true), ..Default::default() },
+        props: ParaProps {
+            align: Some(Alignment::Right),
+            indent_right: Some(Twips(567)),
+            page_break_before: Some(true),
+            ..Default::default()
+        },
         runs: vec![Run::text("TM. BAN THỬ NGHIỆM", bold(28))],
     }));
-    blocks.push(p(Alignment::Right, vec![Run::text("(Ký, ghi rõ họ tên)   ", RunProps { italic: Some(true), ..rp(28) })]));
-    blocks.push(p(Alignment::Left, vec![Run::text("Nơi nhận:", RunProps { italic: Some(true), ..bold(24) })]));
+    blocks.push(p(
+        Alignment::Right,
+        vec![Run::text(
+            "(Ký, ghi rõ họ tên)   ",
+            RunProps {
+                italic: Some(true),
+                ..rp(28)
+            },
+        )],
+    ));
+    blocks.push(p(
+        Alignment::Left,
+        vec![Run::text(
+            "Nơi nhận:",
+            RunProps {
+                italic: Some(true),
+                ..bold(24)
+            },
+        )],
+    ));
     for line in ["- Như Điều 4;", "- Lưu: VT, BTN."] {
         blocks.push(p(Alignment::Left, vec![Run::text(line, rp(22))]));
     }
@@ -136,8 +259,22 @@ pub fn document() -> Document {
         ],
     };
     Document {
-        sections: vec![Section { page: PageSetup::default(), blocks }, landscape],
-        default_run: RunProps { font: Some("Times New Roman".into()), size: Some(HalfPoints(28)), ..Default::default() },
-        default_para: ParaProps { space_after: Some(Twips(0)), line_spacing: Some(LineSpacing::Auto(240)), ..Default::default() },
+        sections: vec![
+            Section {
+                page: PageSetup::default(),
+                blocks,
+            },
+            landscape,
+        ],
+        default_run: RunProps {
+            font: Some("Times New Roman".into()),
+            size: Some(HalfPoints(28)),
+            ..Default::default()
+        },
+        default_para: ParaProps {
+            space_after: Some(Twips(0)),
+            line_spacing: Some(LineSpacing::Auto(240)),
+            ..Default::default()
+        },
     }
 }

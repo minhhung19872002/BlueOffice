@@ -82,7 +82,12 @@ export class GlyphStore {
  * Draw a page display list. `scale` = device pixels per point.
  * The page background is painted white first (documents are always on paper).
  */
-export function renderPage(ctx: CanvasLike, page: PageDisplayList, glyphs: GlyphStore, scale: number): void {
+export function renderPage(
+  ctx: CanvasLike,
+  page: PageDisplayList,
+  glyphs: GlyphStore,
+  scale: number,
+): void {
   ctx.save();
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.fillStyle = '#ffffff';

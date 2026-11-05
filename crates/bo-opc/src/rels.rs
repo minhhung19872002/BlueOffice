@@ -64,8 +64,10 @@ pub fn parse(data: &[u8], part: &str) -> Result<Vec<Relationship>> {
     let mut r = XmlReader::new(data, part);
     let mut v = Vec::new();
     loop {
-        match r.next()? {
-            Event::Start(e) | Event::Empty(e) if e.local_name().as_ref().as_bytes() == b"Relationship" => {
+        match r.read()? {
+            Event::Start(e) | Event::Empty(e)
+                if e.local_name().as_ref().as_bytes() == b"Relationship" =>
+            {
                 let (Some(id), Some(rel_type), Some(target)) =
                     (attr(&e, b"Id"), attr(&e, b"Type"), attr(&e, b"Target"))
                 else {
@@ -75,7 +77,12 @@ pub fn parse(data: &[u8], part: &str) -> Result<Vec<Relationship>> {
                     Some("External") => TargetMode::External,
                     _ => TargetMode::Internal,
                 };
-                v.push(Relationship { id, rel_type, target, mode });
+                v.push(Relationship {
+                    id,
+                    rel_type,
+                    target,
+                    mode,
+                });
             }
             Event::Eof => break,
             _ => {}
@@ -95,7 +102,11 @@ pub fn to_xml(rels: &[Relationship]) -> String {
             escape(&r.id),
             escape(&r.rel_type),
             escape(&r.target),
-            if r.mode == TargetMode::External { " TargetMode=\"External\"" } else { "" }
+            if r.mode == TargetMode::External {
+                " TargetMode=\"External\""
+            } else {
+                ""
+            }
         ));
     }
     s.push_str("</Relationships>");
@@ -109,18 +120,43 @@ mod tests {
     #[test]
     fn names_and_resolution() {
         assert_eq!(rels_part_name("/"), "/_rels/.rels");
-        assert_eq!(rels_part_name("/word/document.xml"), "/word/_rels/document.xml.rels");
-        assert_eq!(resolve_target("/", "word/document.xml"), "/word/document.xml");
-        assert_eq!(resolve_target("/word/document.xml", "styles.xml"), "/word/styles.xml");
-        assert_eq!(resolve_target("/word/document.xml", "../customXml/item1.xml"), "/customXml/item1.xml");
-        assert_eq!(resolve_target("/word/document.xml", "/word/media/a.png"), "/word/media/a.png");
+        assert_eq!(
+            rels_part_name("/word/document.xml"),
+            "/word/_rels/document.xml.rels"
+        );
+        assert_eq!(
+            resolve_target("/", "word/document.xml"),
+            "/word/document.xml"
+        );
+        assert_eq!(
+            resolve_target("/word/document.xml", "styles.xml"),
+            "/word/styles.xml"
+        );
+        assert_eq!(
+            resolve_target("/word/document.xml", "../customXml/item1.xml"),
+            "/customXml/item1.xml"
+        );
+        assert_eq!(
+            resolve_target("/word/document.xml", "/word/media/a.png"),
+            "/word/media/a.png"
+        );
     }
 
     #[test]
     fn parse_roundtrip() {
         let rels = vec![
-            Relationship { id: "rId1".into(), rel_type: "t".into(), target: "a&b.xml".into(), mode: TargetMode::Internal },
-            Relationship { id: "rId2".into(), rel_type: "h".into(), target: "https://x".into(), mode: TargetMode::External },
+            Relationship {
+                id: "rId1".into(),
+                rel_type: "t".into(),
+                target: "a&b.xml".into(),
+                mode: TargetMode::Internal,
+            },
+            Relationship {
+                id: "rId2".into(),
+                rel_type: "h".into(),
+                target: "https://x".into(),
+                mode: TargetMode::External,
+            },
         ];
         let xml = to_xml(&rels);
         assert_eq!(parse(xml.as_bytes(), "/_rels/.rels").unwrap(), rels);

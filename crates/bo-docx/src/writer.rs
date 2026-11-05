@@ -16,7 +16,11 @@ const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main
 /// Serialize a document to `.docx` bytes.
 pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
     let mut pkg = Package::new();
-    pkg.add_part("/word/document.xml", CT_DOCUMENT, document_xml(doc).into_bytes())?;
+    pkg.add_part(
+        "/word/document.xml",
+        CT_DOCUMENT,
+        document_xml(doc).into_bytes(),
+    )?;
     pkg.add_part("/word/styles.xml", CT_STYLES, styles_xml(doc).into_bytes())?;
     pkg.set_relationships(
         "/",
@@ -163,7 +167,10 @@ fn rpr(p: &RunProps) -> String {
     let mut s = String::new();
     if let Some(f) = &p.font {
         let f = escape(f);
-        let _ = write!(s, "<w:rFonts w:ascii=\"{f}\" w:hAnsi=\"{f}\" w:cs=\"{f}\"/>");
+        let _ = write!(
+            s,
+            "<w:rFonts w:ascii=\"{f}\" w:hAnsi=\"{f}\" w:cs=\"{f}\"/>"
+        );
     }
     let flag = |s: &mut String, name: &str, v: Option<bool>| match v {
         Some(true) => {
@@ -204,7 +211,11 @@ mod tests {
         let bold = RunProps {
             bold: Some(true),
             size: Some(HalfPoints(28)),
-            color: Some(Color { r: 0x1F, g: 0x4E, b: 0x99 }),
+            color: Some(Color {
+                r: 0x1F,
+                g: 0x4E,
+                b: 0x99,
+            }),
             ..Default::default()
         };
         Document {

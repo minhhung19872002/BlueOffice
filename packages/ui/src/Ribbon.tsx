@@ -72,7 +72,12 @@ function RibbonButton({ item }: { item: RibbonItem }) {
 export function Ribbon({ tabs, value, onValueChange, trailing }: RibbonProps) {
   return (
     <Tooltip.Provider delayDuration={400}>
-      <Tabs.Root className={styles.ribbon} value={value} defaultValue={tabs[0]?.id} onValueChange={onValueChange}>
+      <Tabs.Root
+        className={styles.ribbon}
+        value={value}
+        defaultValue={tabs[0]?.id}
+        onValueChange={onValueChange}
+      >
         <div style={{ display: 'flex', background: 'var(--bo-brand)', alignItems: 'center' }}>
           <Tabs.List className={styles.tabList} style={{ flex: 1 }}>
             {tabs.map((t) => (

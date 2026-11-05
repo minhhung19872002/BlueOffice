@@ -32,9 +32,22 @@ pub struct Glyph(pub u16, pub f32, pub f32, pub u32);
 #[serde(tag = "op", rename_all = "camelCase")]
 pub enum Command {
     /// Filled axis-aligned rectangle.
-    FillRect { x: f32, y: f32, w: f32, h: f32, color: Rgba },
+    FillRect {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        color: Rgba,
+    },
     /// Straight line segment.
-    Line { x1: f32, y1: f32, x2: f32, y2: f32, width: f32, color: Rgba },
+    Line {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        width: f32,
+        color: Rgba,
+    },
     /// Glyph run: `face` indexes the engine's font list; `size` in points.
     Glyphs {
         face: u32,
@@ -46,7 +59,12 @@ pub enum Command {
         glyphs: Vec<Glyph>,
     },
     /// Intersect the clip with a rectangle (paired with `PopClip`).
-    PushClip { x: f32, y: f32, w: f32, h: f32 },
+    PushClip {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    },
     PopClip,
 }
 
@@ -89,7 +107,11 @@ pub fn build_display_list(layout: &LayoutDocument, fonts: &FontManager) -> Displ
                             y: f.y,
                             color,
                             text: f.text.clone(),
-                            glyphs: f.glyphs.iter().map(|g| Glyph(g.id, g.x, g.y, g.cluster)).collect(),
+                            glyphs: f
+                                .glyphs
+                                .iter()
+                                .map(|g| Glyph(g.id, g.x, g.y, g.cluster))
+                                .collect(),
                         });
                     }
                     let info = fonts.info(f.face);

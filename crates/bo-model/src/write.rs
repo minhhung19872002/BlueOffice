@@ -257,7 +257,11 @@ mod tests {
     fn hex_color() {
         assert_eq!(
             Color::from_hex("FF0080"),
-            Some(Color { r: 255, g: 0, b: 128 })
+            Some(Color {
+                r: 255,
+                g: 0,
+                b: 128
+            })
         );
         assert_eq!(Color::from_hex("auto"), None);
         assert_eq!(Color::from_hex("éé"), None);

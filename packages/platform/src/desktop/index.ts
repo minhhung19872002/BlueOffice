@@ -5,7 +5,13 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { AnonymousSession, BrowserClipboard, FileAccessStorage, IndexedDbCache, LocalRecentFiles } from '../shared';
+import {
+  AnonymousSession,
+  BrowserClipboard,
+  FileAccessStorage,
+  IndexedDbCache,
+  LocalRecentFiles,
+} from '../shared';
 import type {
   DocInfo,
   DocumentStorage,
@@ -24,7 +30,11 @@ import type {
 } from '../types';
 
 /** Minimal `invoke` signature so tests can inject a fake. */
-export type Invoke = <T>(cmd: string, args?: Record<string, unknown> | Uint8Array, options?: { headers: Record<string, string> }) => Promise<T>;
+export type Invoke = <T>(
+  cmd: string,
+  args?: Record<string, unknown> | Uint8Array,
+  options?: { headers: Record<string, string> },
+) => Promise<T>;
 
 const toBytes = (v: ArrayBuffer | Uint8Array | number[]): Uint8Array =>
   v instanceof Uint8Array ? v : v instanceof ArrayBuffer ? new Uint8Array(v) : Uint8Array.from(v);
@@ -37,13 +47,17 @@ export class NativeEngineHost implements EngineHost {
     await this.call<number>('engine_init');
   }
   open(bytes: Uint8Array, name: string): Promise<DocInfo> {
-    return this.call<DocInfo>('engine_open', bytes, { headers: { 'x-file-name': encodeURIComponent(name) } });
+    return this.call<DocInfo>('engine_open', bytes, {
+      headers: { 'x-file-name': encodeURIComponent(name) },
+    });
   }
   async getPage(index: number): Promise<PageDisplayList> {
     return JSON.parse(await this.call<string>('engine_page', { index })) as PageDisplayList;
   }
   async getGlyphOutlines(face: number, glyphs: number[]): Promise<GlyphOutline[]> {
-    return JSON.parse(await this.call<string>('engine_glyph_outlines', { face, glyphs })) as GlyphOutline[];
+    return JSON.parse(
+      await this.call<string>('engine_glyph_outlines', { face, glyphs }),
+    ) as GlyphOutline[];
   }
   async exportPdf(): Promise<Uint8Array> {
     return toBytes(await this.call<ArrayBuffer>('engine_export_pdf'));

@@ -62,7 +62,12 @@ impl LayoutDocument {
         self.pages[page]
             .lines
             .iter()
-            .map(|l| l.fragments.iter().map(|f| f.text.as_str()).collect::<String>())
+            .map(|l| {
+                l.fragments
+                    .iter()
+                    .map(|f| f.text.as_str())
+                    .collect::<String>()
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }

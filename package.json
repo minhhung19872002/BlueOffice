@@ -26,7 +26,6 @@
     "eslint": "^10.14.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.14.0",
-    "license-checker-rseidelsohn": "^5.0.1",
     "prettier": "^3.9.10",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.72.1"

@@ -25,7 +25,8 @@ export interface OpenOptions {
   editorOrigin?: string;
 }
 
-export type EditorEvent = 'saved' | 'dirty' | 'closed' | 'share-requested' | 'error' | 'collaborators-changed';
+export type EditorEvent =
+  'saved' | 'dirty' | 'closed' | 'share-requested' | 'error' | 'collaborators-changed';
 export type EditorCommand = 'save' | 'print' | 'export-pdf' | 'close';
 
 export interface EditorHandle {

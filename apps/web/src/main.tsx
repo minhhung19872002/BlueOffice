@@ -14,6 +14,11 @@ const language = params.get('lang') === 'en-US' ? 'en-US' : 'vi-VN';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BlueEditor platform={platform} app={app} language={language} sampleUrl={`${base}samples/phase1-sample.docx`} />
+    <BlueEditor
+      platform={platform}
+      app={app}
+      language={language}
+      sampleUrl={`${base}samples/phase1-sample.docx`}
+    />
   </StrictMode>,
 );

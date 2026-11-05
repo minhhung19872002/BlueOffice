@@ -36,7 +36,9 @@ export class DocumentView {
   private zoomValue = 1;
   private frame = 0;
   private currentPage = -1;
-  private readonly opts: Required<Omit<DocumentViewOptions, 'onPageChange' | 'onZoomChange' | 'onInput'>> &
+  private readonly opts: Required<
+    Omit<DocumentViewOptions, 'onPageChange' | 'onZoomChange' | 'onInput'>
+  > &
     DocumentViewOptions;
 
   constructor(
@@ -50,7 +52,8 @@ export class DocumentView {
     this.scroller.className = 'bo-doc-scroller';
     this.scroller.tabIndex = 0;
     this.scroller.setAttribute('role', 'document');
-    this.scroller.style.cssText = 'position:relative;overflow:auto;width:100%;height:100%;outline:none;';
+    this.scroller.style.cssText =
+      'position:relative;overflow:auto;width:100%;height:100%;outline:none;';
     this.content = document.createElement('div');
     this.content.style.cssText = `position:relative;display:flex;flex-direction:column;align-items:center;gap:${this.opts.pageGap}px;padding:${this.opts.pageGap}px 0;min-width:min-content;`;
     this.scroller.appendChild(this.content);
@@ -76,7 +79,8 @@ export class DocumentView {
       el.className = 'bo-page';
       el.dataset.page = String(i + 1);
       el.setAttribute('aria-label', `page ${i + 1}`);
-      el.style.cssText = 'position:relative;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.06);flex:none;';
+      el.style.cssText =
+        'position:relative;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.06);flex:none;';
       this.content.appendChild(el);
       return { el, canvas: null, renderedAt: null };
     });
@@ -90,7 +94,9 @@ export class DocumentView {
     const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 100) / 100));
     if (next === this.zoomValue) return;
     // Keep the point at the viewport centre stable.
-    const cy = (this.scroller.scrollTop + this.scroller.clientHeight / 2) / Math.max(1, this.content.scrollHeight);
+    const cy =
+      (this.scroller.scrollTop + this.scroller.clientHeight / 2) /
+      Math.max(1, this.content.scrollHeight);
     this.zoomValue = next;
     this.layoutSlots();
     this.scroller.scrollTop = cy * this.content.scrollHeight - this.scroller.clientHeight / 2;

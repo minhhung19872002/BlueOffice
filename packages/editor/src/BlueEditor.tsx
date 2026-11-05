@@ -1,7 +1,13 @@
 import { DocumentView } from '@blueoffice/canvas-host';
 import { createI18n, I18nextProvider, type Language } from '@blueoffice/i18n';
 import type { OpenedFile, Platform, RecentFile } from '@blueoffice/platform';
-import { Ribbon, StatusBar, useResolvedTheme, type RibbonTab, type ThemeSetting } from '@blueoffice/ui';
+import {
+  Ribbon,
+  StatusBar,
+  useResolvedTheme,
+  type RibbonTab,
+  type ThemeSetting,
+} from '@blueoffice/ui';
 import {
   AlignCenter,
   AlignJustify,
@@ -94,7 +100,9 @@ function EditorInner({
 
   const fail = useCallback(
     (key: string, e: unknown) =>
-      store.setState({ status: { kind: 'error', key, message: e instanceof Error ? e.message : String(e) } }),
+      store.setState({
+        status: { kind: 'error', key, message: e instanceof Error ? e.message : String(e) },
+      }),
     [store],
   );
 
@@ -106,7 +114,12 @@ function EditorInner({
         store.setState({ doc: info, page: 0, status: { kind: 'idle' } });
         view.current?.setDocument(info);
         platform.window.setTitle(`${info.name} — ${t('app.write')}`);
-        if (file.path) await platform.shell.addRecentFile({ name: file.name, path: file.path, openedAt: Date.now() });
+        if (file.path)
+          await platform.shell.addRecentFile({
+            name: file.name,
+            path: file.path,
+            openedAt: Date.now(),
+          });
         onDocumentOpened?.(info.name, info.pageCount);
       } catch (e) {
         fail('errors.open', e);
@@ -142,6 +155,8 @@ function EditorInner({
     };
   }, [app, platform, store, fail]);
 
+  // Command callbacks only dereference the view when executed (event time), never during render.
+  /* eslint-disable react-hooks/refs */
   const registry: Registry = useMemo(() => {
     const r = new CommandRegistry<EditorState>();
     const hasDoc = (s: EditorState) => !!s.doc;
@@ -151,7 +166,11 @@ function EditorInner({
         const pdf = await platform.engine.exportPdf();
         const name = (store.getState().doc?.name ?? 'document').replace(/\.[^.]+$/, '') + '.pdf';
         const saved = await platform.files.saveFile(pdf, name, 'application/pdf');
-        store.setState({ status: saved ? { kind: 'info', key: 'status.saved', params: { name } } : { kind: 'idle' } });
+        store.setState({
+          status: saved
+            ? { kind: 'info', key: 'status.saved', params: { name } }
+            : { kind: 'idle' },
+        });
       } catch (e) {
         fail('errors.export', e);
       }
@@ -175,13 +194,21 @@ function EditorInner({
         try {
           const res = await fetch(sampleUrl!);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          await openFile({ name: sampleUrl!.split('/').pop() ?? 'sample.docx', bytes: new Uint8Array(await res.arrayBuffer()) });
+          await openFile({
+            name: sampleUrl!.split('/').pop() ?? 'sample.docx',
+            bytes: new Uint8Array(await res.arrayBuffer()),
+          });
         } catch (e) {
           fail('errors.open', e);
         }
       },
     });
-    r.register({ id: 'file.exportPdf', shortcut: 'Ctrl+Shift+E', isEnabled: hasDoc, run: exportPdf });
+    r.register({
+      id: 'file.exportPdf',
+      shortcut: 'Ctrl+Shift+E',
+      isEnabled: hasDoc,
+      run: exportPdf,
+    });
     r.register({
       id: 'file.print',
       shortcut: 'Ctrl+P',
@@ -194,9 +221,25 @@ function EditorInner({
         }
       },
     });
-    r.register({ id: 'view.zoomIn', shortcut: 'Ctrl+=', isEnabled: hasDoc, run: (s) => view.current?.setZoom(s.zoom * 1.1) });
-    r.register({ id: 'view.zoomOut', shortcut: 'Ctrl+-', isEnabled: hasDoc, run: (s) => view.current?.setZoom(s.zoom / 1.1) });
-    r.register({ id: 'view.zoomReset', shortcut: 'Ctrl+0', isEnabled: hasDoc, isChecked: (s) => s.zoom === 1, run: () => view.current?.setZoom(1) });
+    r.register({
+      id: 'view.zoomIn',
+      shortcut: 'Ctrl+=',
+      isEnabled: hasDoc,
+      run: (s) => view.current?.setZoom(s.zoom * 1.1),
+    });
+    r.register({
+      id: 'view.zoomOut',
+      shortcut: 'Ctrl+-',
+      isEnabled: hasDoc,
+      run: (s) => view.current?.setZoom(s.zoom / 1.1),
+    });
+    r.register({
+      id: 'view.zoomReset',
+      shortcut: 'Ctrl+0',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.zoom === 1,
+      run: () => view.current?.setZoom(1),
+    });
     r.register({ id: 'view.fitWidth', isEnabled: hasDoc, run: () => view.current?.fitWidth() });
     r.register({
       id: 'view.toggleTheme',
@@ -213,16 +256,28 @@ function EditorInner({
     });
     // Editing commands exist in the registry so menus/shortcuts are wired; they turn on in Phase 2.
     for (const id of [
-      'edit.paste', 'edit.cut', 'edit.copy',
-      'format.bold', 'format.italic', 'format.underline',
-      'format.alignLeft', 'format.alignCenter', 'format.alignRight', 'format.justify',
-      'insert.table', 'insert.image', 'insert.pageBreak',
-      'layout.margins', 'layout.orientation', 'layout.size',
+      'edit.paste',
+      'edit.cut',
+      'edit.copy',
+      'format.bold',
+      'format.italic',
+      'format.underline',
+      'format.alignLeft',
+      'format.alignCenter',
+      'format.alignRight',
+      'format.justify',
+      'insert.table',
+      'insert.image',
+      'insert.pageBreak',
+      'layout.margins',
+      'layout.orientation',
+      'layout.size',
     ]) {
       r.register({ id, isEnabled: () => false, run: () => {} });
     }
     return r;
   }, [platform, store, sampleUrl, openFile, fail, i18nInstance]);
+  /* eslint-enable react-hooks/refs */
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -236,7 +291,12 @@ function EditorInner({
     return () => window.removeEventListener('keydown', onKey);
   }, [registry, store]);
 
-  const item = (id: string, labelKey: string, icon: ReactNode, size: 'large' | 'small' = 'large') => {
+  const item = (
+    id: string,
+    labelKey: string,
+    icon: ReactNode,
+    size: 'large' | 'small' = 'large',
+  ) => {
     const cmd = registry.get(id);
     const enabled = registry.isEnabled(id, state);
     return {
@@ -247,7 +307,10 @@ function EditorInner({
       enabled,
       checked: cmd?.isChecked ? registry.isChecked(id, state) : undefined,
       shortcut: cmd?.shortcut,
-      tooltip: enabled || id.startsWith('view.') || id.startsWith('file.') ? t(labelKey) : t('ribbon.comingLater'),
+      tooltip:
+        enabled || id.startsWith('view.') || id.startsWith('file.')
+          ? t(labelKey)
+          : t('ribbon.comingLater'),
       onSelect: () => void registry.execute(id, store.getState()),
     };
   };
@@ -257,41 +320,161 @@ function EditorInner({
       id: 'file',
       label: t('ribbon.tabs.file'),
       groups: [
-        { id: 'document', label: t('ribbon.groups.document'), items: [item('file.open', 'commands.file.open', <FolderOpen size={ICON} />), item('file.openSample', 'commands.file.openSample', <FileText size={ICON} />)] },
-        { id: 'output', label: t('ribbon.groups.output'), items: [item('file.exportPdf', 'commands.file.exportPdf', <FileDown size={ICON} />), item('file.print', 'commands.file.print', <Printer size={ICON} />)] },
+        {
+          id: 'document',
+          label: t('ribbon.groups.document'),
+          items: [
+            item('file.open', 'commands.file.open', <FolderOpen size={ICON} />),
+            item('file.openSample', 'commands.file.openSample', <FileText size={ICON} />),
+          ],
+        },
+        {
+          id: 'output',
+          label: t('ribbon.groups.output'),
+          items: [
+            item('file.exportPdf', 'commands.file.exportPdf', <FileDown size={ICON} />),
+            item('file.print', 'commands.file.print', <Printer size={ICON} />),
+          ],
+        },
       ],
     },
     {
       id: 'home',
       label: t('ribbon.tabs.home'),
       groups: [
-        { id: 'clipboard', label: t('ribbon.groups.clipboard'), items: [item('edit.paste', 'commands.edit.paste', <ClipboardPaste size={ICON} />), item('edit.cut', 'commands.edit.cut', <Scissors size={SMALL} />, 'small'), item('edit.copy', 'commands.edit.copy', <Copy size={SMALL} />, 'small')] },
-        { id: 'font', label: t('ribbon.groups.font'), items: [item('format.bold', 'commands.format.bold', <Bold size={SMALL} />, 'small'), item('format.italic', 'commands.format.italic', <Italic size={SMALL} />, 'small'), item('format.underline', 'commands.format.underline', <Underline size={SMALL} />, 'small')] },
-        { id: 'paragraph', label: t('ribbon.groups.paragraph'), items: [item('format.alignLeft', 'commands.format.alignLeft', <AlignLeft size={SMALL} />, 'small'), item('format.alignCenter', 'commands.format.alignCenter', <AlignCenter size={SMALL} />, 'small'), item('format.alignRight', 'commands.format.alignRight', <AlignRight size={SMALL} />, 'small'), item('format.justify', 'commands.format.justify', <AlignJustify size={SMALL} />, 'small')] },
-        { id: 'document', label: t('ribbon.groups.document'), items: [item('file.open', 'commands.file.open', <FolderOpen size={ICON} />), item('file.exportPdf', 'commands.file.exportPdf', <FileDown size={ICON} />)] },
+        {
+          id: 'clipboard',
+          label: t('ribbon.groups.clipboard'),
+          items: [
+            item('edit.paste', 'commands.edit.paste', <ClipboardPaste size={ICON} />),
+            item('edit.cut', 'commands.edit.cut', <Scissors size={SMALL} />, 'small'),
+            item('edit.copy', 'commands.edit.copy', <Copy size={SMALL} />, 'small'),
+          ],
+        },
+        {
+          id: 'font',
+          label: t('ribbon.groups.font'),
+          items: [
+            item('format.bold', 'commands.format.bold', <Bold size={SMALL} />, 'small'),
+            item('format.italic', 'commands.format.italic', <Italic size={SMALL} />, 'small'),
+            item(
+              'format.underline',
+              'commands.format.underline',
+              <Underline size={SMALL} />,
+              'small',
+            ),
+          ],
+        },
+        {
+          id: 'paragraph',
+          label: t('ribbon.groups.paragraph'),
+          items: [
+            item(
+              'format.alignLeft',
+              'commands.format.alignLeft',
+              <AlignLeft size={SMALL} />,
+              'small',
+            ),
+            item(
+              'format.alignCenter',
+              'commands.format.alignCenter',
+              <AlignCenter size={SMALL} />,
+              'small',
+            ),
+            item(
+              'format.alignRight',
+              'commands.format.alignRight',
+              <AlignRight size={SMALL} />,
+              'small',
+            ),
+            item(
+              'format.justify',
+              'commands.format.justify',
+              <AlignJustify size={SMALL} />,
+              'small',
+            ),
+          ],
+        },
+        {
+          id: 'document',
+          label: t('ribbon.groups.document'),
+          items: [
+            item('file.open', 'commands.file.open', <FolderOpen size={ICON} />),
+            item('file.exportPdf', 'commands.file.exportPdf', <FileDown size={ICON} />),
+          ],
+        },
       ],
     },
     {
       id: 'insert',
       label: t('ribbon.tabs.insert'),
       groups: [
-        { id: 'objects', label: t('ribbon.groups.insertObjects'), items: [item('insert.table', 'commands.insert.table', <Table size={ICON} />), item('insert.image', 'commands.insert.image', <Image size={ICON} />)] },
-        { id: 'pages', label: t('ribbon.groups.pages'), items: [item('insert.pageBreak', 'commands.insert.pageBreak', <SquareSplitVertical size={ICON} />)] },
+        {
+          id: 'objects',
+          label: t('ribbon.groups.insertObjects'),
+          items: [
+            item('insert.table', 'commands.insert.table', <Table size={ICON} />),
+            item('insert.image', 'commands.insert.image', <Image size={ICON} />),
+          ],
+        },
+        {
+          id: 'pages',
+          label: t('ribbon.groups.pages'),
+          items: [
+            item(
+              'insert.pageBreak',
+              'commands.insert.pageBreak',
+              <SquareSplitVertical size={ICON} />,
+            ),
+          ],
+        },
       ],
     },
     {
       id: 'layout',
       label: t('ribbon.tabs.layout'),
       groups: [
-        { id: 'pageSetup', label: t('ribbon.groups.pageSetup'), items: [item('layout.margins', 'commands.layout.margins', <Ruler size={ICON} />), item('layout.orientation', 'commands.layout.orientation', <RectangleHorizontal size={ICON} />), item('layout.size', 'commands.layout.size', <Scaling size={ICON} />)] },
+        {
+          id: 'pageSetup',
+          label: t('ribbon.groups.pageSetup'),
+          items: [
+            item('layout.margins', 'commands.layout.margins', <Ruler size={ICON} />),
+            item(
+              'layout.orientation',
+              'commands.layout.orientation',
+              <RectangleHorizontal size={ICON} />,
+            ),
+            item('layout.size', 'commands.layout.size', <Scaling size={ICON} />),
+          ],
+        },
       ],
     },
     {
       id: 'view',
       label: t('ribbon.tabs.view'),
       groups: [
-        { id: 'zoom', label: t('ribbon.groups.zoom'), items: [item('view.zoomIn', 'commands.view.zoomIn', <ZoomIn size={ICON} />), item('view.zoomOut', 'commands.view.zoomOut', <ZoomOut size={ICON} />), item('view.zoomReset', 'commands.view.zoomReset', <span style={{ fontWeight: 700, fontSize: 13 }}>1:1</span>), item('view.fitWidth', 'commands.view.fitWidth', <Maximize2 size={ICON} />)] },
-        { id: 'appearance', label: t('ribbon.groups.appearance'), items: [item('view.toggleTheme', 'commands.view.toggleTheme', <MoonStar size={ICON} />), item('view.toggleLanguage', 'commands.view.toggleLanguage', <Languages size={ICON} />)] },
+        {
+          id: 'zoom',
+          label: t('ribbon.groups.zoom'),
+          items: [
+            item('view.zoomIn', 'commands.view.zoomIn', <ZoomIn size={ICON} />),
+            item('view.zoomOut', 'commands.view.zoomOut', <ZoomOut size={ICON} />),
+            item(
+              'view.zoomReset',
+              'commands.view.zoomReset',
+              <span style={{ fontWeight: 700, fontSize: 13 }}>1:1</span>,
+            ),
+            item('view.fitWidth', 'commands.view.fitWidth', <Maximize2 size={ICON} />),
+          ],
+        },
+        {
+          id: 'appearance',
+          label: t('ribbon.groups.appearance'),
+          items: [
+            item('view.toggleTheme', 'commands.view.toggleTheme', <MoonStar size={ICON} />),
+            item('view.toggleLanguage', 'commands.view.toggleLanguage', <Languages size={ICON} />),
+          ],
+        },
       ],
     },
   ];
@@ -299,10 +482,16 @@ function EditorInner({
   const status = state.status;
   const appName = t(`app.${app}`);
   return (
-    <div className={`bo-root ${styles.root}`} data-theme={resolvedTheme} data-app={app} lang={state.language}>
+    <div
+      className={`bo-root ${styles.root}`}
+      data-theme={resolvedTheme}
+      data-app={app}
+      lang={state.language}
+    >
       <header className={styles.titleBar}>
         <span className={styles.logo}>
-          <FileText size={18} aria-hidden /> {host?.brandName ? `${host.brandName} · ${appName}` : appName}
+          <FileText size={18} aria-hidden />{' '}
+          {host?.brandName ? `${host.brandName} · ${appName}` : appName}
         </span>
         <span className={styles.docName} data-testid="doc-name">
           {state.doc?.name ?? ''}
@@ -313,7 +502,12 @@ function EditorInner({
           </button>
         )}
         {host?.showClose && (
-          <button type="button" className={styles.hostButton} onClick={host.onClose} aria-label={t('host.close')}>
+          <button
+            type="button"
+            className={styles.hostButton}
+            onClick={host.onClose}
+            aria-label={t('host.close')}
+          >
             <X size={16} />
           </button>
         )}
@@ -329,7 +523,11 @@ function EditorInner({
                   <h1>{t('start.title')}</h1>
                   <p>{t('start.subtitle')}</p>
                   <div className={styles.actions}>
-                    <button type="button" className={styles.primary} onClick={() => void registry.execute('file.open', state)}>
+                    <button
+                      type="button"
+                      className={styles.primary}
+                      onClick={() => void registry.execute('file.open', state)}
+                    >
                       <FolderOpen size={18} /> {t('start.open')}
                     </button>
                     {sampleUrl && (
@@ -346,14 +544,22 @@ function EditorInner({
                   <div className={styles.recent}>
                     {t('start.recent')}
                     <ul>
-                      {recent.length === 0 ? <li>{t('start.noRecent')}</li> : recent.slice(0, 5).map((r) => <li key={r.path}>{r.name}</li>)}
+                      {recent.length === 0 ? (
+                        <li>{t('start.noRecent')}</li>
+                      ) : (
+                        recent.slice(0, 5).map((r) => <li key={r.path}>{r.name}</li>)
+                      )}
                     </ul>
                   </div>
                 </div>
               </div>
             )}
             {status.kind === 'error' && (
-              <div className={styles.error} role="alert" onClick={() => store.setState({ status: { kind: 'idle' } })}>
+              <div
+                className={styles.error}
+                role="alert"
+                onClick={() => store.setState({ status: { kind: 'idle' } })}
+              >
                 {t(status.key, { message: status.message })}
               </div>
             )}
@@ -373,7 +579,9 @@ function EditorInner({
         left={
           <>
             <span data-testid="status-page">
-              {state.doc ? t('status.page', { current: state.page + 1, total: state.doc.pageCount }) : t('status.ready')}
+              {state.doc
+                ? t('status.page', { current: state.page + 1, total: state.doc.pageCount })
+                : t('status.ready')}
             </span>
             {state.doc && <span>{t('status.words', { count: state.doc.wordCount })}</span>}
             {status.kind === 'busy' && <span>{t(status.key)}</span>}
@@ -382,12 +590,28 @@ function EditorInner({
         }
         right={
           <>
-            <span data-testid="status-engine">{t('status.engine', { backend: platform.engine.backend === 'wasm' ? 'WASM' : 'native' })}</span>
-            <button type="button" className={styles.statusButton} onClick={() => void registry.execute('view.zoomOut', state)} aria-label={t('commands.view.zoomOut')}>
+            <span data-testid="status-engine">
+              {t('status.engine', {
+                backend: platform.engine.backend === 'wasm' ? 'WASM' : 'native',
+              })}
+            </span>
+            <button
+              type="button"
+              className={styles.statusButton}
+              onClick={() => void registry.execute('view.zoomOut', state)}
+              aria-label={t('commands.view.zoomOut')}
+            >
               −
             </button>
-            <span data-testid="status-zoom">{t('status.zoom', { value: Math.round(state.zoom * 100) })}</span>
-            <button type="button" className={styles.statusButton} onClick={() => void registry.execute('view.zoomIn', state)} aria-label={t('commands.view.zoomIn')}>
+            <span data-testid="status-zoom">
+              {t('status.zoom', { value: Math.round(state.zoom * 100) })}
+            </span>
+            <button
+              type="button"
+              className={styles.statusButton}
+              onClick={() => void registry.execute('view.zoomIn', state)}
+              aria-label={t('commands.view.zoomIn')}
+            >
               +
             </button>
           </>

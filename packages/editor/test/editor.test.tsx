@@ -30,17 +30,35 @@ function fakePlatform(): Platform & { opened: string[] } {
       init: async () => {},
       open: async (_b, name) => {
         opened.push(name);
-        return { name, pageCount: 3, pages: [{ width: 595, height: 842 }, { width: 595, height: 842 }, { width: 595, height: 842 }], wordCount: 42 };
+        return {
+          name,
+          pageCount: 3,
+          pages: [
+            { width: 595, height: 842 },
+            { width: 595, height: 842 },
+            { width: 595, height: 842 },
+          ],
+          wordCount: 42,
+        };
       },
       getPage: async () => ({ width: 595, height: 842, commands: [] }),
       getGlyphOutlines: async () => [],
       exportPdf: async () => new Uint8Array([37]),
       dispose: () => {},
     },
-    auth: { user: null, getAccessToken: async () => null, signIn: async () => {}, signOut: async () => {} },
+    auth: {
+      user: null,
+      getAccessToken: async () => null,
+      signIn: async () => {},
+      signOut: async () => {},
+    },
     window: { setTitle: vi.fn(), openNew: async () => {} },
     offline: { get: async () => null, put: async () => {}, delete: async () => {} },
-    shell: { recentFiles: async () => [], addRecentFile: async () => {}, onOpenRequest: () => () => {} },
+    shell: {
+      recentFiles: async () => [],
+      addRecentFile: async () => {},
+      onOpenRequest: () => () => {},
+    },
   };
 }
 
@@ -71,7 +89,12 @@ describe('BlueEditor', () => {
 
   it('honours host configuration', () => {
     const onClose = vi.fn();
-    render(<BlueEditor platform={fakePlatform()} host={{ brandName: 'BlueDrive', showShare: true, showClose: true, onClose }} />);
+    render(
+      <BlueEditor
+        platform={fakePlatform()}
+        host={{ brandName: 'BlueDrive', showShare: true, showClose: true, onClose }}
+      />,
+    );
     expect(screen.getByText(/BlueDrive · BlueWrite/)).toBeTruthy();
     expect(screen.getByText('Chia sẻ')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('Đóng'));

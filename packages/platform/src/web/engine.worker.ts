@@ -42,7 +42,11 @@ self.onmessage = async (ev: MessageEvent<EngineRequest>) => {
     const msg: EngineResponse = { id: req.id, ok: true, result };
     self.postMessage(msg, transfer ?? []);
   } catch (e) {
-    const msg: EngineResponse = { id: req.id, ok: false, error: e instanceof Error ? e.message : String(e) };
+    const msg: EngineResponse = {
+      id: req.id,
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
     self.postMessage(msg);
   }
 };

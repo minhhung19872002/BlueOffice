@@ -1,0 +1,24 @@
+[package]
+name = "bo-desktop"
+description = "BlueOffice desktop shell (Tauri 2) hosting the native engine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "blueoffice"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+bo-engine = { workspace = true, features = ["bundled-fonts"] }
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+
+[lints]
+workspace = true

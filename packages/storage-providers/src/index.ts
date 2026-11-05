@@ -1,4 +1,9 @@
-import type { DocumentRef, DocumentStorage, FileAccess, StoredDocument } from '@blueoffice/platform';
+import type {
+  DocumentRef,
+  DocumentStorage,
+  FileAccess,
+  StoredDocument,
+} from '@blueoffice/platform';
 
 const LOCAL_PERMISSIONS = { edit: true, download: true, share: false } as const;
 

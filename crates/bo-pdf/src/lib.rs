@@ -37,7 +37,11 @@ fn compress(data: &[u8]) -> Vec<u8> {
 }
 
 /// Write the display list as a PDF document.
-pub fn write_pdf(list: &DisplayList, fonts: &FontManager, meta: &PdfMeta) -> Result<Vec<u8>, PdfError> {
+pub fn write_pdf(
+    list: &DisplayList,
+    fonts: &FontManager,
+    meta: &PdfMeta,
+) -> Result<Vec<u8>, PdfError> {
     let mut pdf = Pdf::new();
     let mut next = 1;
     let mut alloc = || {
@@ -54,12 +58,19 @@ pub fn write_pdf(list: &DisplayList, fonts: &FontManager, meta: &PdfMeta) -> Res
     let mut face_order: Vec<u32> = Vec::new();
     for page in &list.pages {
         for cmd in &page.commands {
-            if let Command::Glyphs { face, text, glyphs, .. } = cmd {
+            if let Command::Glyphs {
+                face, text, glyphs, ..
+            } = cmd
+            {
                 let u = uses.entry(*face).or_insert_with(|| {
                     face_order.push(*face);
                     let mut remapper = subsetter::GlyphRemapper::new();
                     remapper.remap(0); // .notdef must stay glyph 0
-                    FontUse { remapper, to_unicode: BTreeMap::new(), font_ref: Ref::new(1) }
+                    FontUse {
+                        remapper,
+                        to_unicode: BTreeMap::new(),
+                        font_ref: Ref::new(1),
+                    }
                 });
                 for (i, g) in glyphs.iter().enumerate() {
                     let new = u.remapper.remap(g.0);
@@ -96,19 +107,44 @@ pub fn write_pdf(list: &DisplayList, fonts: &FontManager, meta: &PdfMeta) -> Res
         let mut used_fonts: Vec<u32> = Vec::new();
         for cmd in &page.commands {
             match cmd {
-                Command::FillRect { x, y, w, h: rh, color } => {
+                Command::FillRect {
+                    x,
+                    y,
+                    w,
+                    h: rh,
+                    color,
+                } => {
                     set_fill(&mut c, *color);
                     c.rect(*x, h - y - rh, *w, *rh);
                     c.fill_nonzero();
                 }
-                Command::Line { x1, y1, x2, y2, width, color } => {
-                    c.set_stroke_rgb(f32::from(color.0) / 255.0, f32::from(color.1) / 255.0, f32::from(color.2) / 255.0);
+                Command::Line {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    width,
+                    color,
+                } => {
+                    c.set_stroke_rgb(
+                        f32::from(color.0) / 255.0,
+                        f32::from(color.1) / 255.0,
+                        f32::from(color.2) / 255.0,
+                    );
                     c.set_line_width(*width);
                     c.move_to(*x1, h - y1);
                     c.line_to(*x2, h - y2);
                     c.stroke();
                 }
-                Command::Glyphs { face, size, x, y, color, glyphs, .. } => {
+                Command::Glyphs {
+                    face,
+                    size,
+                    x,
+                    y,
+                    color,
+                    glyphs,
+                    ..
+                } => {
                     let u = &uses[face];
                     if !used_fonts.contains(face) {
                         used_fonts.push(*face);
@@ -198,15 +234,17 @@ pub fn write_pdf(list: &DisplayList, fonts: &FontManager, meta: &PdfMeta) -> Res
         cid.widths().consecutive(0, widths.iter().copied());
         cid.finish();
 
-        let bbox = face_parsed.as_ref().map_or(Rect::new(0.0, -200.0, 1000.0, 900.0), |f| {
-            let b = f.global_bounding_box();
-            Rect::new(
-                to_pdf(f32::from(b.x_min)),
-                to_pdf(f32::from(b.y_min)),
-                to_pdf(f32::from(b.x_max)),
-                to_pdf(f32::from(b.y_max)),
-            )
-        });
+        let bbox = face_parsed
+            .as_ref()
+            .map_or(Rect::new(0.0, -200.0, 1000.0, 900.0), |f| {
+                let b = f.global_bounding_box();
+                Rect::new(
+                    to_pdf(f32::from(b.x_min)),
+                    to_pdf(f32::from(b.y_min)),
+                    to_pdf(f32::from(b.x_max)),
+                    to_pdf(f32::from(b.y_max)),
+                )
+            });
         let mut flags = FontFlags::NON_SYMBOLIC;
         if info.italic {
             flags |= FontFlags::ITALIC;
@@ -233,7 +271,9 @@ pub fn write_pdf(list: &DisplayList, fonts: &FontManager, meta: &PdfMeta) -> Res
         pdf.stream(cmap_id, &cmap.finish());
     }
 
-    pdf.pages(pages_id).kids(page_ids.iter().copied()).count(page_ids.len() as i32);
+    pdf.pages(pages_id)
+        .kids(page_ids.iter().copied())
+        .count(page_ids.len() as i32);
     pdf.catalog(catalog_id).pages(pages_id);
     let mut info = pdf.document_info(info_id);
     info.producer(pdf_writer::TextStr("BlueOffice"));
@@ -245,7 +285,11 @@ pub fn write_pdf(list: &DisplayList, fonts: &FontManager, meta: &PdfMeta) -> Res
 }
 
 fn set_fill(c: &mut Content, color: Rgba) {
-    c.set_fill_rgb(f32::from(color.0) / 255.0, f32::from(color.1) / 255.0, f32::from(color.2) / 255.0);
+    c.set_fill_rgb(
+        f32::from(color.0) / 255.0,
+        f32::from(color.1) / 255.0,
+        f32::from(color.2) / 255.0,
+    );
 }
 
 /// Six-letter subset tag (ISO 32000-1 §9.6.4).
@@ -268,7 +312,11 @@ mod tests {
     #[test]
     fn empty_document_is_valid_pdf() {
         let list = DisplayList {
-            pages: vec![PageList { width: 595.0, height: 842.0, commands: vec![] }],
+            pages: vec![PageList {
+                width: 595.0,
+                height: 842.0,
+                commands: vec![],
+            }],
         };
         let bytes = write_pdf(&list, &FontManager::new(), &PdfMeta::default()).unwrap();
         assert!(bytes.starts_with(b"%PDF-"));

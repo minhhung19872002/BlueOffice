@@ -82,19 +82,29 @@ type R = Result<(), Box<dyn std::error::Error>>;
 fn open(input: &Path) -> Result<Engine, Box<dyn std::error::Error>> {
     let bytes = std::fs::read(input).map_err(|e| format!("{}: {e}", input.display()))?;
     let mut engine = Engine::with_bundled_fonts();
-    let name = input.file_name().and_then(|n| n.to_str()).unwrap_or("document");
+    let name = input
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("document");
     engine.open(&bytes, name)?;
     Ok(engine)
 }
 
 fn run(cli: Cli) -> R {
     match cli.cmd {
-        Cmd::Render { input, out, scale, page } => {
+        Cmd::Render {
+            input,
+            out,
+            scale,
+            page,
+        } => {
             let engine = open(&input)?;
             let info = engine.info()?;
             let pages: Vec<usize> = match page {
                 Some(p) if p >= 1 && p <= info.page_count => vec![p - 1],
-                Some(p) => return Err(format!("page {p} out of range 1..={}", info.page_count).into()),
+                Some(p) => {
+                    return Err(format!("page {p} out of range 1..={}", info.page_count).into())
+                }
                 None => (0..info.page_count).collect(),
             };
             for i in pages {
@@ -110,7 +120,12 @@ fn run(cli: Cli) -> R {
             let pdf = engine.export_pdf()?;
             let out = out.unwrap_or_else(|| input.with_extension("pdf"));
             write_file(&out, &pdf)?;
-            println!("{} ({} pages, {} bytes)", out.display(), engine.info()?.page_count, pdf.len());
+            println!(
+                "{} ({} pages, {} bytes)",
+                out.display(),
+                engine.info()?.page_count,
+                pdf.len()
+            );
         }
         Cmd::Dump { input, page } => {
             let engine = open(&input)?;
@@ -141,7 +156,11 @@ fn run(cli: Cli) -> R {
         }
         Cmd::Bench { input, iterations } => {
             let bytes = std::fs::read(&input)?;
-            let name = input.file_name().and_then(|n| n.to_str()).unwrap_or("doc").to_owned();
+            let name = input
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("doc")
+                .to_owned();
             let t0 = Instant::now();
             let mut engine = Engine::with_bundled_fonts();
             let t_fonts = t0.elapsed();
@@ -162,8 +181,16 @@ fn run(cli: Cli) -> R {
             times.sort();
             println!("pages: {pages}");
             println!("font load: {:.1} ms", t_fonts.as_secs_f64() * 1e3);
-            println!("open+layout+display list (median of {}): {:.1} ms", times.len(), times[times.len() / 2].as_secs_f64() * 1e3);
-            println!("open+export pdf: {:.1} ms ({} bytes)", t_pdf.as_secs_f64() * 1e3, pdf.len());
+            println!(
+                "open+layout+display list (median of {}): {:.1} ms",
+                times.len(),
+                times[times.len() / 2].as_secs_f64() * 1e3
+            );
+            println!(
+                "open+export pdf: {:.1} ms ({} bytes)",
+                t_pdf.as_secs_f64() * 1e3,
+                pdf.len()
+            );
         }
     }
     Ok(())
@@ -175,7 +202,11 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) -> std::io
         if p.is_dir() {
             collect(root, &p, out)?;
         } else {
-            let rel = p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('\\', "/");
+            let rel = p
+                .strip_prefix(root)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .replace('\\', "/");
             out.push((format!("/{rel}"), p));
         }
     }

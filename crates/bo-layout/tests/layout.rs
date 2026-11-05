@@ -51,17 +51,29 @@ fn lines_fit_in_content_box() {
     let left = setup.margin_left.to_pt();
     let right = setup.width.to_pt() - setup.margin_right.to_pt();
     let page = &l.pages[0];
-    assert!(page.lines.len() >= 3, "expected wrapping, got {}", page.lines.len());
+    assert!(
+        page.lines.len() >= 3,
+        "expected wrapping, got {}",
+        page.lines.len()
+    );
     for line in &page.lines {
         for f in &line.fragments {
             assert!(f.x >= left - 0.01);
             // Trailing spaces may hang past the margin (one space ≈ 3.3 pt at 13 pt).
             let hang = if f.text.ends_with(' ') { 4.0 } else { 0.5 };
-            assert!(f.x + f.width <= right + hang, "overflow {} > {right}", f.x + f.width);
+            assert!(
+                f.x + f.width <= right + hang,
+                "overflow {} > {right}",
+                f.x + f.width
+            );
         }
     }
     // No text lost.
-    let joined: String = page.lines.iter().flat_map(|l| l.fragments.iter().map(|f| f.text.clone())).collect();
+    let joined: String = page
+        .lines
+        .iter()
+        .flat_map(|l| l.fragments.iter().map(|f| f.text.clone()))
+        .collect();
     assert_eq!(joined, LOREM);
 }
 
@@ -70,7 +82,15 @@ fn alignment_positions() {
     let setup = PageSetup::default();
     let left = setup.margin_left.to_pt();
     let right = setup.width.to_pt() - setup.margin_right.to_pt();
-    let mk = |a| doc(vec![para("Quốc hiệu", ParaProps { align: Some(a), ..Default::default() })]);
+    let mk = |a| {
+        doc(vec![para(
+            "Quốc hiệu",
+            ParaProps {
+                align: Some(a),
+                ..Default::default()
+            },
+        )])
+    };
     let l = run(&mk(Alignment::Left));
     let f = &l.pages[0].lines[0].fragments[0];
     assert!((f.x - left).abs() < 0.01);
@@ -79,12 +99,18 @@ fn alignment_positions() {
     assert!((f.x + f.width - right).abs() < 0.05);
     let c = run(&mk(Alignment::Center));
     let f = &c.pages[0].lines[0].fragments[0];
-    assert!(((f.x + f.width / 2.0) - (left + right) / 2.0).abs() < 0.05);
+    assert!(((f.x + f.width / 2.0) - f32::midpoint(left, right)).abs() < 0.05);
 }
 
 #[test]
 fn justify_fills_all_but_last_line() {
-    let d = doc(vec![para(LOREM, ParaProps { align: Some(Alignment::Justify), ..Default::default() })]);
+    let d = doc(vec![para(
+        LOREM,
+        ParaProps {
+            align: Some(Alignment::Justify),
+            ..Default::default()
+        },
+    )]);
     let l = run(&d);
     let setup = PageSetup::default();
     let right = setup.width.to_pt() - setup.margin_right.to_pt();
@@ -93,7 +119,7 @@ fn justify_fills_all_but_last_line() {
         let last = line.fragments.last().unwrap();
         // Last glyph's right edge reaches the margin (trailing space excluded).
         let trimmed = last.text.trim_end();
-        assert!(!trimmed.is_empty());
+        assert_ne!(trimmed, "");
         let end = last.x + last.width;
         assert!(end >= right - 6.0, "line ends at {end}, margin {right}");
     }
@@ -122,7 +148,13 @@ fn indents_and_hanging() {
 #[test]
 fn line_spacing_rules() {
     let h = |ls| {
-        let d = doc(vec![para(LOREM, ParaProps { line_spacing: Some(ls), ..Default::default() })]);
+        let d = doc(vec![para(
+            LOREM,
+            ParaProps {
+                line_spacing: Some(ls),
+                ..Default::default()
+            },
+        )]);
         let l = run(&d);
         let lines = &l.pages[0].lines;
         lines[1].top - lines[0].top
@@ -138,7 +170,9 @@ fn line_spacing_rules() {
 
 #[test]
 fn pagination_and_breaks() {
-    let many: Vec<Block> = (0..120).map(|i| para(&format!("Đoạn {i}"), ParaProps::default())).collect();
+    let many: Vec<Block> = (0..120)
+        .map(|i| para(&format!("Đoạn {i}"), ParaProps::default()))
+        .collect();
     let l = run(&doc(many));
     assert!(l.pages.len() >= 2);
     let setup = PageSetup::default();
@@ -154,10 +188,20 @@ fn pagination_and_breaks() {
             props: ParaProps::default(),
             runs: vec![Run {
                 props: RunProps::default(),
-                content: vec![RunContent::Text("A".into()), RunContent::PageBreak, RunContent::Text("B".into())],
+                content: vec![
+                    RunContent::Text("A".into()),
+                    RunContent::PageBreak,
+                    RunContent::Text("B".into()),
+                ],
             }],
         }),
-        para("C", ParaProps { page_break_before: Some(true), ..Default::default() }),
+        para(
+            "C",
+            ParaProps {
+                page_break_before: Some(true),
+                ..Default::default()
+            },
+        ),
     ]);
     let l = run(&d);
     assert_eq!(l.pages.len(), 3);
@@ -171,13 +215,20 @@ fn overlong_word_is_broken() {
     let word = "x".repeat(400);
     let l = run(&doc(vec![para(&word, ParaProps::default())]));
     assert!(l.pages[0].lines.len() > 1);
-    let joined: String = l.pages[0].lines.iter().flat_map(|l| l.fragments.iter().map(|f| f.text.clone())).collect();
+    let joined: String = l.pages[0]
+        .lines
+        .iter()
+        .flat_map(|l| l.fragments.iter().map(|f| f.text.clone()))
+        .collect();
     assert_eq!(joined, word);
 }
 
 #[test]
 fn empty_paragraph_takes_a_line() {
-    let l = run(&doc(vec![para("", ParaProps::default()), para("x", ParaProps::default())]));
+    let l = run(&doc(vec![
+        para("", ParaProps::default()),
+        para("x", ParaProps::default()),
+    ]));
     let lines = &l.pages[0].lines;
     assert_eq!(lines.len(), 2);
     assert!(lines[1].top > lines[0].top);
@@ -185,7 +236,10 @@ fn empty_paragraph_takes_a_line() {
 
 #[test]
 fn cache_hits_on_relayout() {
-    let d = doc(vec![para(LOREM, ParaProps::default()), para("hai", ParaProps::default())]);
+    let d = doc(vec![
+        para(LOREM, ParaProps::default()),
+        para("hai", ParaProps::default()),
+    ]);
     let mut fm = fonts();
     let mut cache = LayoutCache::new();
     layout_document(&d, &mut fm, &mut cache).unwrap();
@@ -196,9 +250,28 @@ fn cache_hits_on_relayout() {
 #[test]
 fn snapshot_sample_layout() {
     let d = doc(vec![
-        para("CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM", ParaProps { align: Some(Alignment::Center), ..Default::default() }),
-        para("Độc lập - Tự do - Hạnh phúc", ParaProps { align: Some(Alignment::Center), ..Default::default() }),
-        para(LOREM, ParaProps { align: Some(Alignment::Justify), indent_first_line: Some(Twips(567)), ..Default::default() }),
+        para(
+            "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM",
+            ParaProps {
+                align: Some(Alignment::Center),
+                ..Default::default()
+            },
+        ),
+        para(
+            "Độc lập - Tự do - Hạnh phúc",
+            ParaProps {
+                align: Some(Alignment::Center),
+                ..Default::default()
+            },
+        ),
+        para(
+            LOREM,
+            ParaProps {
+                align: Some(Alignment::Justify),
+                indent_first_line: Some(Twips(567)),
+                ..Default::default()
+            },
+        ),
     ]);
     let l = run(&d);
     let summary: Vec<(String, i32, i32)> = l.pages[0]
@@ -206,7 +279,10 @@ fn snapshot_sample_layout() {
         .iter()
         .map(|line| {
             (
-                line.fragments.iter().map(|f| f.text.as_str()).collect::<String>(),
+                line.fragments
+                    .iter()
+                    .map(|f| f.text.as_str())
+                    .collect::<String>(),
                 (line.top * 10.0).round() as i32,
                 (line.fragments[0].x * 10.0).round() as i32,
             )

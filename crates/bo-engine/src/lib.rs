@@ -120,7 +120,10 @@ impl Engine {
         let lower = name.to_ascii_lowercase();
         let doc = if bytes.starts_with(b"PK\x03\x04") {
             bo_docx::read_docx(bytes)?
-        } else if lower.ends_with(".txt") || lower.ends_with(".md") || std::str::from_utf8(bytes).is_ok() {
+        } else if lower.ends_with(".txt")
+            || lower.ends_with(".md")
+            || std::str::from_utf8(bytes).is_ok()
+        {
             plain_text_document(&String::from_utf8_lossy(bytes))
         } else {
             return Err(EngineError::Unsupported(name.to_owned()));
@@ -149,7 +152,10 @@ impl Engine {
             pages: display
                 .pages
                 .iter()
-                .map(|p| PageSize { width: p.width, height: p.height })
+                .map(|p| PageSize {
+                    width: p.width,
+                    height: p.height,
+                })
                 .collect(),
             word_count: doc.plain_text().split_whitespace().count(),
         })
@@ -201,13 +207,24 @@ impl Engine {
     /// Export the whole document as PDF.
     pub fn export_pdf(&self) -> Result<Vec<u8>> {
         let display = self.display.as_ref().ok_or(EngineError::NoDocument)?;
-        let title = self.name.rsplit_once('.').map_or(self.name.clone(), |(b, _)| b.to_owned());
-        Ok(bo_pdf::write_pdf(display, &self.fonts, &bo_pdf::PdfMeta { title: Some(title) })?)
+        let title = self
+            .name
+            .rsplit_once('.')
+            .map_or(self.name.clone(), |(b, _)| b.to_owned());
+        Ok(bo_pdf::write_pdf(
+            display,
+            &self.fonts,
+            &bo_pdf::PdfMeta { title: Some(title) },
+        )?)
     }
 
     /// Render one page to PNG at `scale` pixels per point.
     pub fn render_png(&self, index: usize, scale: f32) -> Result<Vec<u8>> {
-        Ok(bo_raster::render_page_png(self.page(index)?, &self.fonts, scale)?)
+        Ok(bo_raster::render_page_png(
+            self.page(index)?,
+            &self.fonts,
+            scale,
+        )?)
     }
 }
 
@@ -218,12 +235,19 @@ pub fn plain_text_document(text: &str) -> Document {
         .map(|l| {
             Block::Paragraph(Paragraph {
                 props: bo_model::ParaProps::default(),
-                runs: if l.is_empty() { vec![] } else { vec![Run::text(l, RunProps::default())] },
+                runs: if l.is_empty() {
+                    vec![]
+                } else {
+                    vec![Run::text(l, RunProps::default())]
+                },
             })
         })
         .collect();
     Document {
-        sections: vec![Section { page: bo_model::PageSetup::default(), blocks }],
+        sections: vec![Section {
+            page: bo_model::PageSetup::default(),
+            blocks,
+        }],
         default_run: RunProps {
             font: Some("Times New Roman".into()),
             size: Some(bo_model::HalfPoints(26)),

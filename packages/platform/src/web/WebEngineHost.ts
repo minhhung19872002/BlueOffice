@@ -3,7 +3,11 @@ import type { EngineRequest, EngineResponse } from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 // Distributive Omit so each union member keeps its own fields.
-type RequestBody = EngineRequest extends infer R ? (R extends EngineRequest ? Omit<R, 'id'> : never) : never;
+type RequestBody = EngineRequest extends infer R
+  ? R extends EngineRequest
+    ? Omit<R, 'id'>
+    : never
+  : never;
 
 /** Engine running as WASM inside a dedicated Web Worker. */
 export class WebEngineHost implements EngineHost {
@@ -47,7 +51,10 @@ export class WebEngineHost implements EngineHost {
     this.ready ??= (async () => {
       const list = await this.fonts.list();
       const fonts = await Promise.all(list.map((f) => this.fonts.load(f.file)));
-      await this.call<number>({ method: 'init', fonts }, fonts.map((f) => f.buffer as ArrayBuffer));
+      await this.call<number>(
+        { method: 'init', fonts },
+        fonts.map((f) => f.buffer as ArrayBuffer),
+      );
     })();
     return this.ready;
   }

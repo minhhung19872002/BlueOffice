@@ -40,7 +40,11 @@ fn paint(c: Rgba) -> Paint<'static> {
 }
 
 /// Render a page at `scale` pixels per point (1.0 = 72 dpi, 96/72 = 96 dpi).
-pub fn render_page(page: &PageList, fonts: &FontManager, scale: f32) -> Result<Pixmap, RasterError> {
+pub fn render_page(
+    page: &PageList,
+    fonts: &FontManager,
+    scale: f32,
+) -> Result<Pixmap, RasterError> {
     let w = (page.width * scale).ceil() as u32;
     let h = (page.height * scale).ceil() as u32;
     if w == 0 || h == 0 || w > MAX_DIMENSION || h > MAX_DIMENSION {
@@ -60,16 +64,34 @@ pub fn render_page(page: &PageList, fonts: &FontManager, scale: f32) -> Result<P
                     pm.fill_rect(r, &paint(*color), base, mask.as_ref());
                 }
             }
-            Command::Line { x1, y1, x2, y2, width, color } => {
+            Command::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                width,
+                color,
+            } => {
                 let mut pb = PathBuilder::new();
                 pb.move_to(*x1, *y1);
                 pb.line_to(*x2, *y2);
                 if let Some(path) = pb.finish() {
-                    let stroke = Stroke { width: *width, ..Stroke::default() };
+                    let stroke = Stroke {
+                        width: *width,
+                        ..Stroke::default()
+                    };
                     pm.stroke_path(&path, &paint(*color), &stroke, base, mask.as_ref());
                 }
             }
-            Command::Glyphs { face, size, x, y, color, glyphs, .. } => {
+            Command::Glyphs {
+                face,
+                size,
+                x,
+                y,
+                color,
+                glyphs,
+                ..
+            } => {
                 let upem = f32::from(fonts.info(FaceId(*face)).units_per_em);
                 let s = size / upem;
                 let p = paint(*color);
@@ -140,7 +162,11 @@ fn glyph_path(fonts: &FontManager, face: FaceId, gid: u16) -> Option<tiny_skia::
 }
 
 /// Render a page and encode it as PNG.
-pub fn render_page_png(page: &PageList, fonts: &FontManager, scale: f32) -> Result<Vec<u8>, RasterError> {
+pub fn render_page_png(
+    page: &PageList,
+    fonts: &FontManager,
+    scale: f32,
+) -> Result<Vec<u8>, RasterError> {
     render_page(page, fonts, scale)?
         .encode_png()
         .map_err(|e| RasterError::Encode(e.to_string()))
@@ -155,7 +181,13 @@ mod tests {
         let page = PageList {
             width: 100.0,
             height: 50.0,
-            commands: vec![Command::FillRect { x: 10.0, y: 10.0, w: 20.0, h: 20.0, color: Rgba(255, 0, 0, 255) }],
+            commands: vec![Command::FillRect {
+                x: 10.0,
+                y: 10.0,
+                w: 20.0,
+                h: 20.0,
+                color: Rgba(255, 0, 0, 255),
+            }],
         };
         let pm = render_page(&page, &FontManager::new(), 2.0).unwrap();
         assert_eq!((pm.width(), pm.height()), (200, 100));
@@ -173,8 +205,19 @@ mod tests {
             width: 100.0,
             height: 100.0,
             commands: vec![
-                Command::PushClip { x: 0.0, y: 0.0, w: 50.0, h: 100.0 },
-                Command::FillRect { x: 0.0, y: 0.0, w: 100.0, h: 100.0, color: Rgba(0, 0, 255, 255) },
+                Command::PushClip {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 50.0,
+                    h: 100.0,
+                },
+                Command::FillRect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 100.0,
+                    h: 100.0,
+                    color: Rgba(0, 0, 255, 255),
+                },
                 Command::PopClip,
             ],
         };
@@ -185,7 +228,11 @@ mod tests {
 
     #[test]
     fn rejects_huge() {
-        let page = PageList { width: 1e6, height: 10.0, commands: vec![] };
+        let page = PageList {
+            width: 1e6,
+            height: 10.0,
+            commands: vec![],
+        };
         assert!(render_page(&page, &FontManager::new(), 1.0).is_err());
     }
 }

@@ -9,7 +9,8 @@ fn docx(body: &str) -> Vec<u8> {
     let xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"><w:body>{body}</w:body></w:document>"#
     );
-    p.add_part("/word/document.xml", CT_DOCUMENT, xml.into_bytes()).unwrap();
+    p.add_part("/word/document.xml", CT_DOCUMENT, xml.into_bytes())
+        .unwrap();
     p.set_relationships(
         "/",
         &[Relationship {
@@ -61,7 +62,7 @@ fn section_break_in_paragraph() {
 
 #[test]
 fn unknown_elements_are_ignored() {
-    let body = r#"<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:drawing><x/></w:drawing><w:t>after</w:t></w:r></w:p>"#;
+    let body = r"<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:drawing><x/></w:drawing><w:t>after</w:t></w:r></w:p>";
     let doc = read_docx(&docx(body)).unwrap();
     assert_eq!(doc.plain_text(), "after");
 }

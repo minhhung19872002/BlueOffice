@@ -53,7 +53,10 @@ impl Package {
         let mut p = Package { parts: Vec::new() };
         p.set_content_types(&ContentTypes {
             defaults: vec![
-                ("rels".into(), "application/vnd.openxmlformats-package.relationships+xml".into()),
+                (
+                    "rels".into(),
+                    "application/vnd.openxmlformats-package.relationships+xml".into(),
+                ),
                 ("xml".into(), "application/xml".into()),
             ],
             overrides: vec![],
@@ -81,7 +84,9 @@ impl Package {
             let declared = f.size();
             let compressed = f.compressed_size().max(1);
             if declared > limits.max_part_size {
-                return Err(OpcError::LimitExceeded(format!("part {name} is {declared} bytes")));
+                return Err(OpcError::LimitExceeded(format!(
+                    "part {name} is {declared} bytes"
+                )));
             }
             if declared > 1024 * 1024 && declared / compressed > limits.max_ratio {
                 return Err(OpcError::LimitExceeded(format!(
@@ -91,9 +96,13 @@ impl Package {
             }
             // Do not trust the declared size: cap the actual read as well.
             let mut data = Vec::with_capacity(declared.min(64 * 1024 * 1024) as usize);
-            (&mut f).take(limits.max_part_size + 1).read_to_end(&mut data)?;
+            (&mut f)
+                .take(limits.max_part_size + 1)
+                .read_to_end(&mut data)?;
             if data.len() as u64 > limits.max_part_size {
-                return Err(OpcError::LimitExceeded(format!("part {name} exceeds size limit")));
+                return Err(OpcError::LimitExceeded(format!(
+                    "part {name} exceeds size limit"
+                )));
             }
             total += data.len() as u64;
             if total > limits.max_total_size {
@@ -133,15 +142,24 @@ impl Package {
 
     /// Look up a part by name (ASCII case-insensitive, §9.1.1.1).
     pub fn part(&self, name: &str) -> Option<&Part> {
-        self.parts.iter().find(|p| p.name.eq_ignore_ascii_case(name))
+        self.parts
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(name))
     }
 
     /// Insert or replace a part's bytes (keeps the original position when replacing).
     pub fn put_part(&mut self, name: &str, data: Vec<u8>) {
-        if let Some(p) = self.parts.iter_mut().find(|p| p.name.eq_ignore_ascii_case(name)) {
+        if let Some(p) = self
+            .parts
+            .iter_mut()
+            .find(|p| p.name.eq_ignore_ascii_case(name))
+        {
             p.data = data;
         } else {
-            self.parts.push(Part { name: name.to_owned(), data });
+            self.parts.push(Part {
+                name: name.to_owned(),
+                data,
+            });
         }
     }
 
@@ -162,7 +180,10 @@ impl Package {
 
     /// Remove a part (and nothing else).
     pub fn remove_part(&mut self, name: &str) -> Option<Part> {
-        let i = self.parts.iter().position(|p| p.name.eq_ignore_ascii_case(name))?;
+        let i = self
+            .parts
+            .iter()
+            .position(|p| p.name.eq_ignore_ascii_case(name))?;
         Some(self.parts.remove(i))
     }
 
@@ -235,18 +256,28 @@ mod tests {
         let p = sample();
         let bytes = p.write().unwrap();
         let q = Package::read(&bytes, &Limits::default()).unwrap();
-        assert_eq!(q.part("/custom/blob.bin").unwrap().data, vec![0, 1, 2, 255, 254]);
+        assert_eq!(
+            q.part("/custom/blob.bin").unwrap().data,
+            vec![0, 1, 2, 255, 254]
+        );
         assert_eq!(
             q.related_part("/", REL_OFFICE_DOCUMENT).unwrap().as_deref(),
             Some("/word/document.xml")
         );
         assert_eq!(
             q.content_types().unwrap().get("/word/document.xml"),
-            Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml")
+            Some(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+            )
         );
         // Second round trip is stable at the part level.
         let r = Package::read(&q.write().unwrap(), &Limits::default()).unwrap();
-        let names = |p: &Package| p.parts().iter().map(|x| (x.name.clone(), x.data.clone())).collect::<Vec<_>>();
+        let names = |p: &Package| {
+            p.parts()
+                .iter()
+                .map(|x| (x.name.clone(), x.data.clone()))
+                .collect::<Vec<_>>()
+        };
         let mut a = names(&q);
         let mut b = names(&r);
         a.sort();
@@ -259,10 +290,22 @@ mod tests {
         let mut p = Package::new();
         p.put_part("/big.xml", vec![b'a'; 4 * 1024 * 1024]);
         let bytes = p.write().unwrap();
-        let limits = Limits { max_ratio: 50, ..Limits::default() };
-        assert!(matches!(Package::read(&bytes, &limits), Err(OpcError::LimitExceeded(_))));
-        let limits = Limits { max_part_size: 1024, ..Limits::default() };
-        assert!(matches!(Package::read(&bytes, &limits), Err(OpcError::LimitExceeded(_))));
+        let limits = Limits {
+            max_ratio: 50,
+            ..Limits::default()
+        };
+        assert!(matches!(
+            Package::read(&bytes, &limits),
+            Err(OpcError::LimitExceeded(_))
+        ));
+        let limits = Limits {
+            max_part_size: 1024,
+            ..Limits::default()
+        };
+        assert!(matches!(
+            Package::read(&bytes, &limits),
+            Err(OpcError::LimitExceeded(_))
+        ));
     }
 
     #[test]
@@ -273,7 +316,8 @@ mod tests {
     #[test]
     fn requires_content_types() {
         let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        w.start_file("a.xml", zip::write::SimpleFileOptions::default()).unwrap();
+        w.start_file("a.xml", zip::write::SimpleFileOptions::default())
+            .unwrap();
         w.write_all(b"<a/>").unwrap();
         let bytes = w.finish().unwrap().into_inner();
         assert!(matches!(

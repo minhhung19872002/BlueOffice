@@ -19,11 +19,11 @@ const ALLOWED = [
   'Unlicense',
 ];
 
-const out = execFileSync(
-  'pnpm',
-  ['licenses', 'list', '--json', '--long'],
-  { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, shell: process.platform === 'win32' },
-);
+const out = execFileSync('pnpm', ['licenses', 'list', '--json', '--long'], {
+  encoding: 'utf8',
+  maxBuffer: 64 * 1024 * 1024,
+  shell: process.platform === 'win32',
+});
 const byLicense = JSON.parse(out);
 const isAllowed = (expr) => {
   // SPDX expressions: accept "A OR B" if any side is allowed; "A AND B" if all are.
@@ -34,7 +34,8 @@ const isAllowed = (expr) => {
 };
 const bad = [];
 for (const [license, pkgs] of Object.entries(byLicense)) {
-  if (!isAllowed(license)) for (const p of pkgs) bad.push(`${p.name}@${p.versions ?? p.version}: ${license}`);
+  if (!isAllowed(license))
+    for (const p of pkgs) bad.push(`${p.name}@${p.versions ?? p.version}: ${license}`);
 }
 if (bad.length) {
   console.error('Disallowed licenses:\n' + bad.join('\n'));

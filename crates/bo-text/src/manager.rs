@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Index of a face inside a [`FontManager`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct FaceId(pub u32);
 
 /// Metadata and metrics of a loaded face (metrics in font units).
@@ -97,14 +99,23 @@ impl FontManager {
                 ascender: face.ascender(),
                 descender: face.descender(),
                 line_gap: face.line_gap(),
-                underline_position: underline.map_or(-(face.units_per_em() as i16) / 10, |m| m.position),
-                underline_thickness: underline.map_or((face.units_per_em() / 20) as i16, |m| m.thickness),
+                underline_position: underline
+                    .map_or(-(face.units_per_em() as i16) / 10, |m| m.position),
+                underline_thickness: underline
+                    .map_or((face.units_per_em() / 20) as i16, |m| m.thickness),
                 strikeout_position: strike.map_or((face.units_per_em() / 4) as i16, |m| m.position),
                 family,
             };
             let id = FaceId(self.faces.len() as u32);
-            self.by_family.entry(info.family.to_lowercase()).or_default().push(id);
-            self.faces.push(Face { data: data.clone(), index, info });
+            self.by_family
+                .entry(info.family.to_lowercase())
+                .or_default()
+                .push(id);
+            self.faces.push(Face {
+                data: data.clone(),
+                index,
+                info,
+            });
             ids.push(id);
         }
         self.resolve_cache.clear();
@@ -120,7 +131,11 @@ impl FontManager {
         let mut n = 0;
         for entry in rd.flatten() {
             let p = entry.path();
-            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+            let ext = p
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
             if matches!(ext.as_str(), "ttf" | "otf" | "ttc") {
                 if let Ok(bytes) = std::fs::read(&p) {
                     n += self.add_font(bytes).len();
@@ -169,7 +184,13 @@ impl FontManager {
                 return Some(self.best_style(ids, bold, italic));
             }
         }
-        self.faces.first().map(|_| self.best_style(&(0..self.faces.len() as u32).map(FaceId).collect::<Vec<_>>(), bold, italic))
+        self.faces.first().map(|_| {
+            self.best_style(
+                &(0..self.faces.len() as u32).map(FaceId).collect::<Vec<_>>(),
+                bold,
+                italic,
+            )
+        })
     }
 
     fn best_style(&self, ids: &[FaceId], bold: bool, italic: bool) -> FaceId {
@@ -198,7 +219,9 @@ impl FontManager {
         for (pos, c) in text.char_indices() {
             let covered = c.is_control()
                 || is_mark(c)
-                || primary_face.as_ref().is_some_and(|f| f.glyph_index(c).is_some());
+                || primary_face
+                    .as_ref()
+                    .is_some_and(|f| f.glyph_index(c).is_some());
             let face = if covered {
                 // Combining marks stay with the preceding run's face.
                 if is_mark(c) {
@@ -221,7 +244,9 @@ impl FontManager {
     fn fallback_for(&self, c: char, (bold, italic): (bool, bool)) -> Option<FaceId> {
         let mut best: Option<(u8, FaceId)> = None;
         for (i, f) in self.faces.iter().enumerate() {
-            let Ok(face) = ttf_parser::Face::parse(&f.data, f.index) else { continue };
+            let Ok(face) = ttf_parser::Face::parse(&f.data, f.index) else {
+                continue;
+            };
             if face.glyph_index(c).is_some() {
                 let score = (f.info.italic != italic) as u8 * 2 + (f.info.bold != bold) as u8;
                 if best.is_none_or(|(s, _)| score < s) {
@@ -260,7 +285,8 @@ impl FontManager {
         if self.shape_cache.len() > 200_000 {
             self.shape_cache.clear();
         }
-        self.shape_cache.insert((id, text.to_owned()), glyphs.clone());
+        self.shape_cache
+            .insert((id, text.to_owned()), glyphs.clone());
         glyphs
     }
 

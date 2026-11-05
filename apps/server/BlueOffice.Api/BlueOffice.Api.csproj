@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\BlueOffice.Domain\BlueOffice.Domain.csproj" />
+    <ProjectReference Include="..\BlueOffice.Infrastructure\BlueOffice.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+  </ItemGroup>
+</Project>

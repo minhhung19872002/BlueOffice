@@ -1,6 +1,6 @@
 # Phase 1 — Nền tảng (Foundation)
 
-Trạng thái: **đang thực hiện** · Prompt gốc: [`BlueOffice-PROMPT.md`](../../BlueOffice-PROMPT.md) §6 Phase 1, §10.
+Trạng thái: **hoàn thành — chờ duyệt** (kết quả: [PROGRESS.md](../PROGRESS.md)) · Prompt gốc: [`BlueOffice-PROMPT.md`](../../BlueOffice-PROMPT.md) §6 Phase 1, §10.
 
 ## 1. Mục tiêu
 

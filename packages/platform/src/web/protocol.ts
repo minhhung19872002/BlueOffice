@@ -7,5 +7,4 @@ export type EngineRequest =
   | { id: number; method: 'pdf' };
 
 export type EngineResponse =
-  | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; error: string };
+  { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };

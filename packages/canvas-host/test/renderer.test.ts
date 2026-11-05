@@ -29,7 +29,19 @@ const page: PageDisplayList = {
   width: 100,
   height: 200,
   commands: [
-    { op: 'glyphs', face: 0, size: 10, x: 5, y: 20, color: [255, 0, 0, 255], text: 'AB', glyphs: [[36, 0, 0, 0], [37, 6, 0, 1]] },
+    {
+      op: 'glyphs',
+      face: 0,
+      size: 10,
+      x: 5,
+      y: 20,
+      color: [255, 0, 0, 255],
+      text: 'AB',
+      glyphs: [
+        [36, 0, 0, 0],
+        [37, 6, 0, 1],
+      ],
+    },
     { op: 'line', x1: 5, y1: 22, x2: 17, y2: 22, width: 0.5, color: [0, 0, 0, 255] },
     { op: 'pushClip', x: 0, y: 0, w: 50, h: 50 },
     { op: 'fillRect', x: 1, y: 2, w: 3, h: 4, color: [0, 0, 255, 128] },
@@ -44,7 +56,12 @@ describe('canvas renderer', () => {
       {
         getGlyphOutlines: async (face, glyphs): Promise<GlyphOutline[]> => {
           requests.push(glyphs);
-          return glyphs.map((g) => ({ face, glyph: g, unitsPerEm: 1000, path: g === 37 ? '' : `P${g}` }));
+          return glyphs.map((g) => ({
+            face,
+            glyph: g,
+            unitsPerEm: 1000,
+            path: g === 37 ? '' : `P${g}`,
+          }));
         },
       },
       (d) => `path(${d})`,
@@ -58,7 +75,10 @@ describe('canvas renderer', () => {
 
   it('draws commands in points scaled to device pixels', async () => {
     const store = new GlyphStore(
-      { getGlyphOutlines: async (face, glyphs) => glyphs.map((g) => ({ face, glyph: g, unitsPerEm: 1000, path: `P${g}` })) },
+      {
+        getGlyphOutlines: async (face, glyphs) =>
+          glyphs.map((g) => ({ face, glyph: g, unitsPerEm: 1000, path: `P${g}` })),
+      },
       (d) => d,
     );
     await store.ensure(page);

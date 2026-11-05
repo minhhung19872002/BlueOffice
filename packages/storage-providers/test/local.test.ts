@@ -5,7 +5,8 @@ import { LocalStorageProvider } from '../src';
 function fakeFiles(cancel = false) {
   const saves: { name: string; mime: string; size: number }[] = [];
   const files: FileAccess = {
-    openFile: async () => (cancel ? null : { name: 'Báo cáo.docx', bytes: new Uint8Array([80, 75]) }),
+    openFile: async () =>
+      cancel ? null : { name: 'Báo cáo.docx', bytes: new Uint8Array([80, 75]) },
     saveFile: async (bytes, name, mime) => {
       saves.push({ name, mime, size: bytes.length });
       return cancel ? null : `/home/u/${name}`;

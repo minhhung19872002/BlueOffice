@@ -26,20 +26,29 @@ function cli(): string {
 let engine: WasmEngine;
 
 beforeAll(() => {
-  initSync({ module: readFileSync(join(root, 'packages', 'engine-wasm', 'pkg', 'bo_wasm_bg.wasm')) });
+  initSync({
+    module: readFileSync(join(root, 'packages', 'engine-wasm', 'pkg', 'bo_wasm_bg.wasm')),
+  });
   engine = new WasmEngine();
   const fontsDir = join(root, 'assets', 'fonts');
-  const manifest = JSON.parse(readFileSync(join(fontsDir, 'manifest.json'), 'utf8')) as { fonts: string[] };
+  const manifest = JSON.parse(readFileSync(join(fontsDir, 'manifest.json'), 'utf8')) as {
+    fonts: string[];
+  };
   for (const f of manifest.fonts) engine.addFont(readFileSync(join(fontsDir, f)));
 });
 
 describe('web (WASM) vs desktop (native) engine parity', () => {
   it('produces identical display lists for every page of the sample', () => {
-    const info = JSON.parse(engine.open(readFileSync(sample), 'phase1-sample.docx')) as { pageCount: number };
+    const info = JSON.parse(engine.open(readFileSync(sample), 'phase1-sample.docx')) as {
+      pageCount: number;
+    };
     expect(info.pageCount).toBeGreaterThanOrEqual(3);
     const bin = cli();
     for (let i = 0; i < info.pageCount; i++) {
-      const native = execFileSync(bin, ['dump', sample, '--page', String(i)], { encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
+      const native = execFileSync(bin, ['dump', sample, '--page', String(i)], {
+        encoding: 'utf8',
+        maxBuffer: 64 << 20,
+      }).trim();
       const wasm = engine.pageJson(i);
       expect(wasm.length).toBeGreaterThan(1000);
       expect(wasm === native, `page ${i + 1} differs`).toBe(true);

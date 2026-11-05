@@ -55,7 +55,9 @@ pub fn unescape(s: &str) -> String {
                 "quot" => Some('"'),
                 "apos" => Some('\''),
                 _ if ent.starts_with("#x") || ent.starts_with("#X") => {
-                    u32::from_str_radix(&ent[2..], 16).ok().and_then(char::from_u32)
+                    u32::from_str_radix(&ent[2..], 16)
+                        .ok()
+                        .and_then(char::from_u32)
                 }
                 _ if ent.starts_with('#') => ent[1..].parse().ok().and_then(char::from_u32),
                 _ => None,
@@ -98,8 +100,11 @@ impl<'a> XmlReader<'a> {
     }
 
     /// Read the next event; `Empty` elements are reported as-is (no matching End).
-    pub fn next(&mut self) -> crate::Result<Event<'a>> {
-        let ev = self.inner.read_event().map_err(|e| self.err(&e.to_string()))?;
+    pub fn read(&mut self) -> crate::Result<Event<'a>> {
+        let ev = self
+            .inner
+            .read_event()
+            .map_err(|e| self.err(&e.to_string()))?;
         match &ev {
             Event::Start(_) => {
                 self.depth += 1;
@@ -117,7 +122,7 @@ impl<'a> XmlReader<'a> {
     pub fn skip_element(&mut self) -> crate::Result<()> {
         let target = self.depth - 1;
         loop {
-            match self.next()? {
+            match self.read()? {
                 Event::End(_) if self.depth == target => return Ok(()),
                 Event::Eof => return Err(self.err("unexpected end of document")),
                 _ => {}
@@ -152,7 +157,7 @@ mod tests {
         let mut r = XmlReader::new(deep.as_bytes(), "/deep.xml");
         let mut failed = false;
         for _ in 0..=MAX_DEPTH + 1 {
-            if r.next().is_err() {
+            if r.read().is_err() {
                 failed = true;
                 break;
             }

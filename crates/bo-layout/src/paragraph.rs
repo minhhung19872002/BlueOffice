@@ -222,24 +222,23 @@ fn layout_uncached(
         }
     }
     // Style of the paragraph mark (empty paragraphs still take a line).
-    let mark_style = match styles.last() {
-        Some(s) => s.clone(),
-        None => {
-            let rp = &doc.default_run;
-            let face = fonts
-                .resolve(
-                    rp.font.as_deref().unwrap_or(DEFAULT_FONT),
-                    rp.bold.unwrap_or(false),
-                    rp.italic.unwrap_or(false),
-                )
-                .ok_or(LayoutError::NoFonts)?;
-            Style {
-                face,
-                size: rp.size.map_or(DEFAULT_SIZE_PT, bo_model::HalfPoints::to_pt),
-                color: Color::BLACK,
-                underline: Underline::None,
-                strike: false,
-            }
+    let mark_style = if let Some(s) = styles.last() {
+        s.clone()
+    } else {
+        let rp = &doc.default_run;
+        let face = fonts
+            .resolve(
+                rp.font.as_deref().unwrap_or(DEFAULT_FONT),
+                rp.bold.unwrap_or(false),
+                rp.italic.unwrap_or(false),
+            )
+            .ok_or(LayoutError::NoFonts)?;
+        Style {
+            face,
+            size: rp.size.map_or(DEFAULT_SIZE_PT, bo_model::HalfPoints::to_pt),
+            color: Color::BLACK,
+            underline: Underline::None,
+            strike: false,
         }
     };
     if styles.is_empty() {
@@ -348,7 +347,11 @@ fn layout_uncached(
         } else {
             0
         };
-        let per_space = if space_count > 0 { slack / space_count as f32 } else { 0.0 };
+        let per_space = if space_count > 0 {
+            slack / space_count as f32
+        } else {
+            0.0
+        };
         let offset = match align {
             Alignment::Center => slack / 2.0,
             Alignment::Right => slack,
@@ -428,13 +431,17 @@ fn layout_uncached(
                 glyphs,
             });
         }
-        if pieces.iter().all(|p| p.kind != Kind::Text && p.kind != Kind::Space) {
+        if pieces
+            .iter()
+            .all(|p| p.kind != Kind::Text && p.kind != Kind::Space)
+        {
             let info = fonts.info(mark_style.face);
             let scale = mark_style.size / f32::from(info.units_per_em);
             ascent = ascent.max(f32::from(info.ascender) * scale);
             descent = descent.max(-f32::from(info.descender) * scale);
             natural = natural.max(
-                (f32::from(info.ascender) - f32::from(info.descender) + f32::from(info.line_gap)) * scale,
+                (f32::from(info.ascender) - f32::from(info.descender) + f32::from(info.line_gap))
+                    * scale,
             );
         }
         // Line height (ECMA-376 Part 1, §17.3.1.33 spacing/@line, @lineRule).
@@ -554,7 +561,9 @@ fn explode(word: &Word, fonts: &mut FontManager) -> Vec<Word> {
         if p.kind != Kind::Text {
             match out.last_mut() {
                 Some(Word { pieces }) => pieces.push(p.clone()),
-                None => out.push(Word { pieces: vec![p.clone()] }),
+                None => out.push(Word {
+                    pieces: vec![p.clone()],
+                }),
             }
             continue;
         }

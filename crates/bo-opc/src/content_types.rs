@@ -19,17 +19,21 @@ impl ContentTypes {
         let mut r = XmlReader::new(data, "/[Content_Types].xml");
         let mut ct = ContentTypes::default();
         loop {
-            match r.next()? {
+            match r.read()? {
                 Event::Start(e) | Event::Empty(e) => match e.local_name().as_ref().as_bytes() {
                     // §10.1.2.2.2 Default
                     b"Default" => {
-                        if let (Some(ext), Some(t)) = (attr(&e, b"Extension"), attr(&e, b"ContentType")) {
+                        if let (Some(ext), Some(t)) =
+                            (attr(&e, b"Extension"), attr(&e, b"ContentType"))
+                        {
                             ct.defaults.push((ext.to_ascii_lowercase(), t));
                         }
                     }
                     // §10.1.2.2.3 Override
                     b"Override" => {
-                        if let (Some(p), Some(t)) = (attr(&e, b"PartName"), attr(&e, b"ContentType")) {
+                        if let (Some(p), Some(t)) =
+                            (attr(&e, b"PartName"), attr(&e, b"ContentType"))
+                        {
                             ct.overrides.push((p, t));
                         }
                     }
@@ -51,8 +55,13 @@ impl ContentTypes {
         {
             return Some(t);
         }
-        let ext = part_name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase())?;
-        self.defaults.iter().find(|(e, _)| *e == ext).map(|(_, t)| t.as_str())
+        let ext = part_name
+            .rsplit_once('.')
+            .map(|(_, e)| e.to_ascii_lowercase())?;
+        self.defaults
+            .iter()
+            .find(|(e, _)| *e == ext)
+            .map(|(_, t)| t.as_str())
     }
 
     /// Set an override for `part_name`.
@@ -62,9 +71,10 @@ impl ContentTypes {
             .iter_mut()
             .find(|(p, _)| p.eq_ignore_ascii_case(part_name))
         {
-            o.1 = content_type.to_owned();
+            content_type.clone_into(&mut o.1);
         } else {
-            self.overrides.push((part_name.to_owned(), content_type.to_owned()));
+            self.overrides
+                .push((part_name.to_owned(), content_type.to_owned()));
         }
     }
 

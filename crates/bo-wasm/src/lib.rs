@@ -23,7 +23,9 @@ impl WasmEngine {
     /// Create an engine without fonts.
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmEngine {
-        WasmEngine { inner: Engine::new() }
+        WasmEngine {
+            inner: Engine::new(),
+        }
     }
 
     /// Register a font file; returns the number of faces added.

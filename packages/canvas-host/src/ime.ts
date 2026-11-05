@@ -13,7 +13,10 @@ export class ImeInput {
   readonly element: HTMLTextAreaElement;
   private composing = false;
 
-  constructor(parent: HTMLElement, private readonly onEvent: (e: ImeEvent) => void) {
+  constructor(
+    parent: HTMLElement,
+    private readonly onEvent: (e: ImeEvent) => void,
+  ) {
     const ta = document.createElement('textarea');
     ta.setAttribute('aria-hidden', 'true');
     ta.setAttribute('autocapitalize', 'off');
@@ -24,7 +27,9 @@ export class ImeInput {
     ta.addEventListener('compositionstart', () => {
       this.composing = true;
     });
-    ta.addEventListener('compositionupdate', (e) => this.onEvent({ type: 'composition', text: e.data ?? '' }));
+    ta.addEventListener('compositionupdate', (e) =>
+      this.onEvent({ type: 'composition', text: e.data ?? '' }),
+    );
     ta.addEventListener('compositionend', (e) => {
       this.composing = false;
       this.commit(e.data || ta.value);
@@ -36,7 +41,13 @@ export class ImeInput {
     ta.addEventListener('keydown', (e) => {
       if (this.composing || e.isComposing) return;
       if (e.key.length > 1 || e.ctrlKey || e.metaKey || e.altKey) {
-        this.onEvent({ type: 'key', key: e.key, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey, alt: e.altKey });
+        this.onEvent({
+          type: 'key',
+          key: e.key,
+          ctrl: e.ctrlKey || e.metaKey,
+          shift: e.shiftKey,
+          alt: e.altKey,
+        });
       }
     });
     parent.appendChild(ta);

@@ -2,7 +2,12 @@
 
 macro_rules! font {
     ($f:literal) => {
-        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/fonts/", $f)).as_slice()
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../assets/fonts/",
+            $f
+        ))
+        .as_slice()
     };
 }
 

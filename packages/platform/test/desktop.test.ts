@@ -8,7 +8,12 @@ describe('DesktopPlatform', () => {
       calls.push({ cmd, args, options });
       switch (cmd) {
         case 'engine_open':
-          return { name: 'a.docx', pageCount: 1, pages: [{ width: 595, height: 842 }], wordCount: 2 };
+          return {
+            name: 'a.docx',
+            pageCount: 1,
+            pages: [{ width: 595, height: 842 }],
+            wordCount: 2,
+          };
         case 'engine_page':
           return '{"width":595,"height":842,"commands":[]}';
         case 'engine_glyph_outlines':
@@ -27,7 +32,9 @@ describe('DesktopPlatform', () => {
     expect(info.pageCount).toBe(1);
     const open = calls.find((c) => c.cmd === 'engine_open')!;
     expect(open.args).toBeInstanceOf(Uint8Array);
-    expect(open.options).toEqual({ headers: { 'x-file-name': encodeURIComponent('Tài liệu.docx') } });
+    expect(open.options).toEqual({
+      headers: { 'x-file-name': encodeURIComponent('Tài liệu.docx') },
+    });
 
     expect((await p.engine.getPage(0)).width).toBe(595);
     expect((await p.engine.getGlyphOutlines(0, [36]))[0]!.unitsPerEm).toBe(2048);

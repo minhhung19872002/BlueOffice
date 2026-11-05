@@ -51,7 +51,9 @@ export class CommandRegistry<S> {
   }
 
   /** Find the command bound to a keyboard event. */
-  match(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>): Command<S> | undefined {
+  match(
+    e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>,
+  ): Command<S> | undefined {
     const combo = shortcutOf(e);
     for (const c of this.commands.values()) {
       if (c.shortcut && normalize(c.shortcut) === combo) return c;
@@ -67,7 +69,9 @@ function normalize(s: string): string {
   return [...mods, key].join('+');
 }
 
-function shortcutOf(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>): string {
+function shortcutOf(
+  e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>,
+): string {
   const mods: string[] = [];
   if (e.ctrlKey || e.metaKey) mods.push('ctrl');
   if (e.shiftKey) mods.push('shift');

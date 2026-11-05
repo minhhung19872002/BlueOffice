@@ -47,5 +47,27 @@ Kế hoạch: [`plan/phase-1.md`](plan/phase-1.md).
 - E2E desktop (Tauri WebDriver) chưa có; desktop được kiểm bằng parity test + chạy tay (ảnh chụp).
 - Font có thể khác hình chữ nhỏ so với font gốc (metric giống) — visual diff với ảnh tham chiếu bắt đầu Phase 2.
 
-### Việc tiếp theo
-Phase 2 — BlueDoc MVP (đọc/ghi .docx đầy đủ, chỉnh sửa). **Chờ duyệt trước khi bắt đầu.**
+## Đổi tên sản phẩm · ✅ (2026-11-05)
+BlueWrite → **BlueDoc**; route `/doc` `/sheet` `/slide` (route cũ chuyển hướng); desktop `vn.bluestar.bluedoc|bluesheet|blueslide`,
+binary `bluedoc.exe`; corpus `tests/corpus/doc`; quy tắc đặt tên ở `CLAUDE.md` và ADR-0006; Phase 7 (BlueForm, BlueNote) chỉ có kế hoạch.
+Toàn bộ test xanh sau khi đổi tên (Rust 53, TS 28, E2E web 5, .NET 6, smoke test desktop BlueDoc/BlueSheet).
+
+## Phase 2–6A · ⏸ đang làm dở, tạm dừng theo yêu cầu (2026-11-05)
+
+`main` chỉ chứa phần đã kiểm thử (Phase 1 + đổi tên). Phần dở dang nằm ở các nhánh riêng trên GitHub,
+**chưa được kiểm thử/hợp nhất** — cần review, chạy test và merge từng nhánh:
+
+| Nhánh | Phạm vi | Tình trạng khi dừng |
+|---|---|---|
+| `wip/phase2-bluedoc` | Phase 2: model mở rộng (styles, numbering, bảng, ảnh, header/footer, field, footnote, XML gốc), reader/writer `.docx` lossless, `bo_model::index`, phân giải style, layout đoạn văn mới | Model + `bo-docx` biên dịch và **test xanh** (round-trip lossless, sửa 1 đoạn giữ nguyên các đoạn khác). `bo-layout` đang viết lại: `paragraph.rs`/`style.rs`/`types.rs` mới xong, **chưa có** `lib.rs` (phân trang, bảng, header/footer, cột, footnote) → crate chưa biên dịch. Chưa làm: render ảnh/bảng, `bo-edit` (chỉnh sửa, undo/redo), UI caret/selection, clipboard, find/replace, lưu .docx từ editor |
+| `wip/phase3-formula` | `bo-formula`: lexer/parser, giá trị, hàm | Dừng khi đang viết workbook (dependency graph, spill); chưa xác minh build/test |
+| `wip/phase3-xlsx-sheet` | `bo-xlsx` + `bo-sheet` + `bo_model::sheet` | Dừng khi đang viết grid geometry; chưa xác minh |
+| `wip/phase4-pptx-drawingml` | `bo-pptx` + `bo-drawingml` + `bo_model::slide` | Đã biên dịch được; đang làm writer giữ thứ tự relationship, chưa có corpus |
+| `wip/phase5-legacy-crypto-odf` | `bo-binary`, `bo-crypto`, `bo-odf`, `bo-encoding` (TCVN3/VNI) | Dừng khi đang làm bảng hàm `.xls` (Ptg → text); chưa xác minh |
+| `wip/phase6-server-bohp` | Server .NET Phase 6/6A, BOHP, mock BlueDrive | Dừng khi đang viết test conversion job; chưa xác minh |
+
+### Khi tiếp tục
+1. Phase 2: viết `bo-layout/src/lib.rs` (flow/pagination theo `ParaLayout`), bảng, header/footer → cập nhật `bo-render` (Image/PageItem),
+   `bo-engine`; rồi `bo-edit` + editor UI. Kế hoạch: `docs/plan/phase-2.md`.
+2. Mỗi nhánh `wip/*` của phase 3–6: checkout, `cargo test`/`dotnet test`, sửa đến khi xanh, cập nhật tên sản phẩm mới (BlueDoc…) nếu còn sót, rồi merge vào `main`.
+3. Phase 6A: xác nhận API thật của BlueDrive (prompt §6A yêu cầu hỏi trước) — nhánh server hiện cài BOHP đúng như mô tả trong prompt.

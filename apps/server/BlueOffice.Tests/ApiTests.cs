@@ -2,15 +2,16 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using BlueOffice.Domain;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace BlueOffice.Tests;
 
-public sealed class ApiTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public sealed class ApiTests : IDisposable
 {
+    private readonly TestApp _app = new();
+
     private sealed class FakeConverter : IDocumentConverter
     {
         public Task<ConversionResult> ConvertAsync(Stream input, string fileName, ConversionTarget target, CancellationToken ct)
@@ -24,26 +25,38 @@ public sealed class ApiTests(WebApplicationFactory<Program> factory) : IClassFix
         }
     }
 
-    private HttpClient Client() => factory.WithWebHostBuilder(b => b.ConfigureServices(s =>
+    public void Dispose() => _app.Dispose();
+
+    private HttpClient Client(bool authenticated = true)
     {
-        s.RemoveAll<IDocumentConverter>();
-        s.AddSingleton<IDocumentConverter, FakeConverter>();
-    })).CreateClient();
+        var c = _app.WithWebHostBuilder(b => b.ConfigureServices(s =>
+        {
+            s.RemoveAll<IDocumentConverter>();
+            s.AddSingleton<IDocumentConverter, FakeConverter>();
+        })).CreateClient();
+        if (authenticated)
+        {
+            c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestApp.UserToken("alice", "Alice"));
+        }
+
+        return c;
+    }
 
     [Fact]
     public async Task HealthIsOk()
     {
-        var res = await Client().GetAsync(new Uri("/health", UriKind.Relative));
-        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var c = Client(authenticated: false);
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync(new Uri("/health", UriKind.Relative))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync(new Uri("/health/ready", UriKind.Relative))).StatusCode);
     }
 
     [Fact]
     public async Task VersionReportsPhase()
     {
-        var v = await Client().GetFromJsonAsync<VersionDto>(new Uri("/api/version", UriKind.Relative));
+        var v = await Client(false).GetFromJsonAsync<VersionDto>(new Uri("/api/version", UriKind.Relative));
         Assert.NotNull(v);
         Assert.Equal("BlueOffice", v.Name);
-        Assert.Equal(1, v.Phase);
+        Assert.Equal(6, v.Phase);
     }
 
     [Fact]
@@ -60,12 +73,29 @@ public sealed class ApiTests(WebApplicationFactory<Program> factory) : IClassFix
     }
 
     [Fact]
+    public async Task ConvertRequiresAuthentication()
+    {
+        using var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent([1]), "file", "a.docx");
+        var res = await Client(authenticated: false).PostAsync(new Uri("/api/convert/pdf", UriKind.Relative), form);
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    [Fact]
     public async Task ConvertRejectsUnsupportedInput()
     {
         using var form = new MultipartFormDataContent();
         form.Add(new ByteArrayContent([1]), "file", "virus.exe");
         var res = await Client().PostAsync(new Uri("/api/convert/pdf", UriKind.Relative), form);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task SecurityHeadersAreSet()
+    {
+        var res = await Client(false).GetAsync(new Uri("/api/version", UriKind.Relative));
+        Assert.Equal("nosniff", res.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Contains("https://drive.mock", res.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
     }
 
     private sealed record VersionDto(string Name, string Version, int Phase);

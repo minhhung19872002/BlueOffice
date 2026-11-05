@@ -606,6 +606,16 @@ dependencies = [
 [[package]]
 name = "bo-pptx"
 version = "0.1.0"
+dependencies = [
+ "bo-drawingml",
+ "bo-model",
+ "bo-opc",
+ "bo-render",
+ "bo-text",
+ "serde_json",
+ "thiserror 2.0.21",
+ "unicode-linebreak",
+]
 
 [[package]]
 name = "bo-raster"

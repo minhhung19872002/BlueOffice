@@ -826,6 +826,8 @@ pub struct Slide {
     pub notes: Option<Notes>,
     /// `p:sldId@id` in presentation.xml.
     pub slide_id: u32,
+    /// Relationship id from presentation.xml (kept stable on save when possible).
+    pub pres_rel_id: String,
 }
 
 /// §19.3.1.26 notes.
@@ -881,20 +883,33 @@ pub struct TextStyles {
     pub extra: Vec<Extra>,
 }
 
+/// §19.3.1.41 sldLayoutId: a layout owned by a master.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct LayoutRef {
+    /// Index into [`Presentation::layouts`].
+    pub layout: usize,
+    /// `p:sldLayoutId@id`.
+    pub id: u32,
+    /// Relationship id from the master part.
+    pub rel_id: String,
+}
+
 /// §19.3.1.42 sldMaster.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SlideMaster {
     pub info: PartInfo,
     pub data: CommonSlideData,
     pub clr_map: ColorMap,
-    /// Indices into [`Presentation::layouts`], in sldLayoutIdLst order, with their ids.
-    pub layouts: Vec<(usize, u32)>,
+    /// Layouts of this master in sldLayoutIdLst order.
+    pub layouts: Vec<LayoutRef>,
     /// Index into [`Presentation::themes`].
     pub theme: usize,
     pub text_styles: TextStyles,
     pub extra: Vec<Extra>,
     /// `p:sldMasterId@id` in presentation.xml.
     pub master_id: u32,
+    /// Relationship id from presentation.xml.
+    pub pres_rel_id: String,
 }
 
 // ---------------------------------------------------------------------------

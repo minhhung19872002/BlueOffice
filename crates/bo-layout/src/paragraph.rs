@@ -1,22 +1,45 @@
-//! Paragraph layout: itemization, shaping, line breaking, alignment, line height.
+//! Paragraph layout: itemization, shaping, line breaking, tabs, alignment, line height.
+//! Output is position-independent (relative to the content box) and cacheable.
 
-use crate::types::{Fragment, GlyphPos, Line};
+use crate::style::{para_style_run, run_props, run_style, RunStyle};
+use crate::types::{Fragment, GlyphPos};
 use crate::LayoutError;
-use bo_model::{Alignment, Color, Document, LineSpacing, Paragraph, RunContent, Twips, Underline};
+use bo_model::index::para_index;
+use bo_model::{
+    Alignment, Borders, Color, Document, Image, LineSpacing, ParaProps, Paragraph, RunContent,
+    RunProps, TabAlign, TabLeader, TabStop, Twips,
+};
 use bo_text::{FaceId, FontManager, ShapedGlyph};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-/// Word-processor defaults when neither the run nor `docDefaults` specify a value
-/// (ECMA-376 Part 1, §17.7.5.5: 10 pt; the application default face).
-const DEFAULT_FONT: &str = "Times New Roman";
-const DEFAULT_SIZE_PT: f32 = 10.0;
-/// Default tab stop interval (ECMA-376 Part 1, §17.15.1.25 defaultTabStop default 720 twips).
-const DEFAULT_TAB_PT: f32 = 36.0;
-
 const LINE_SEP: char = '\u{2028}';
 const PAGE_SEP: char = '\u{000C}';
+const COL_SEP: char = '\u{000B}';
+
+/// Values of page-dependent fields.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct FieldContext {
+    pub page: u32,
+    pub pages: u32,
+    pub section_pages: u32,
+}
+
+/// Inputs of a paragraph layout.
+pub(crate) struct ParaInput<'a> {
+    pub doc: &'a Document,
+    pub para: &'a Paragraph,
+    /// Effective paragraph properties.
+    pub props: ParaProps,
+    /// List label (text, level run props, suffix).
+    pub label: Option<(String, RunProps, String)>,
+    pub width: f32,
+    pub fields: FieldContext,
+    pub default_tab: f32,
+    /// Note numbering: id → displayed number.
+    pub note_numbers: &'a HashMap<i32, u32>,
+}
 
 /// Cache of laid-out paragraphs (see crate docs, "Incremental layout").
 #[derive(Default)]
@@ -41,6 +64,15 @@ impl LayoutCache {
     }
 }
 
+/// An inline picture positioned in a line (bottom on the baseline).
+#[derive(Debug, Clone)]
+pub(crate) struct RelObject {
+    pub x: f32,
+    pub w: f32,
+    pub h: f32,
+    pub image: Image,
+}
+
 /// Lines of one paragraph, positioned relative to the content box.
 #[derive(Debug)]
 pub(crate) struct ParaLayout {
@@ -48,44 +80,38 @@ pub(crate) struct ParaLayout {
     pub space_before: f32,
     pub space_after: f32,
     pub page_break_before: bool,
+    pub keep_next: bool,
+    pub keep_lines: bool,
+    pub widow_control: bool,
+    pub contextual_spacing: bool,
+    pub style: Option<String>,
+    pub shading: Option<Color>,
+    pub borders: Option<Borders>,
+    pub indent_left: f32,
+    pub indent_right: f32,
+    /// Anchored (floating) pictures of this paragraph.
+    pub floats: Vec<Image>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct RelLine {
     pub height: f32,
     /// Baseline offset from line top.
     pub baseline: f32,
-    pub fragments: Vec<Fragment>, // x relative to content left, y = 0
+    /// x relative to content left, y = 0 (baseline-relative glyph offsets).
+    pub fragments: Vec<Fragment>,
+    pub carets: Vec<(u32, f32)>,
+    pub objects: Vec<RelObject>,
+    /// Highlight rectangles: (x, w, color) spanning ascent..descent.
+    pub highlights: Vec<(f32, f32, Color)>,
+    pub ascent: f32,
+    pub descent: f32,
+    pub start: u32,
+    pub end: u32,
     pub page_break_after: bool,
-}
-
-impl RelLine {
-    pub(crate) fn place(&self, left: f32, top: f32) -> Line {
-        let baseline = top + self.baseline;
-        Line {
-            top,
-            height: self.height,
-            baseline,
-            fragments: self
-                .fragments
-                .iter()
-                .map(|f| Fragment {
-                    x: f.x + left,
-                    y: baseline,
-                    ..f.clone()
-                })
-                .collect(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Style {
-    face: FaceId,
-    size: f32,
-    color: Color,
-    underline: Underline,
-    strike: bool,
+    pub column_break_after: bool,
+    /// Notes referenced on this line.
+    pub notes: Vec<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +121,8 @@ enum Kind {
     Tab,
     LineBreak,
     PageBreak,
+    ColumnBreak,
+    Object,
 }
 
 #[derive(Debug, Clone)]
@@ -102,9 +130,27 @@ struct Piece {
     style: usize,
     face: FaceId,
     kind: Kind,
+    /// Display text (after caps transform).
     text: String,
     glyphs: Arc<[ShapedGlyph]>,
     width: f32,
+    /// Original byte offsets of each display char start, plus the end offset.
+    offsets: Vec<u32>,
+    /// Label pieces have no caret positions.
+    virtual_: bool,
+    image: Option<Image>,
+    /// Object height above baseline (pictures).
+    obj_h: f32,
+    note: Option<i32>,
+}
+
+impl Piece {
+    fn start(&self) -> u32 {
+        self.offsets.first().copied().unwrap_or(0)
+    }
+    fn end(&self) -> u32 {
+        self.offsets.last().copied().unwrap_or(0)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -113,235 +159,282 @@ struct Word {
 }
 
 impl Word {
-    /// Width that must fit on the line (trailing spaces / breaks excluded), starting at `x`.
-    fn fit_width(&self, x: f32, tab_origin: f32) -> f32 {
-        let mut cx = x;
-        let mut last_ink = x;
-        for p in &self.pieces {
-            match p.kind {
-                Kind::Tab => {
-                    cx = next_tab(cx, tab_origin);
-                    last_ink = cx;
-                }
-                Kind::Space => cx += p.width,
-                Kind::Text => {
-                    cx += p.width;
-                    last_ink = cx;
-                }
-                Kind::LineBreak | Kind::PageBreak => {}
-            }
-        }
-        last_ink - x
-    }
     fn brk(&self) -> Option<Kind> {
         self.pieces
             .iter()
             .rev()
-            .find(|p| matches!(p.kind, Kind::LineBreak | Kind::PageBreak))
+            .find(|p| matches!(p.kind, Kind::LineBreak | Kind::PageBreak | Kind::ColumnBreak))
             .map(|p| p.kind)
+    }
+    fn char_count(&self) -> usize {
+        self.pieces
+            .iter()
+            .filter(|p| p.kind == Kind::Text)
+            .map(|p| p.text.chars().count())
+            .sum()
     }
 }
 
-fn next_tab(x: f32, origin: f32) -> f32 {
-    let rel = x - origin;
-    origin + ((rel / DEFAULT_TAB_PT).floor() + 1.0) * DEFAULT_TAB_PT
-}
-
-fn hash_inputs(doc: &Document, p: &Paragraph, width: f32) -> u64 {
+fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    p.hash(&mut h);
-    doc.default_run.hash(&mut h);
-    doc.default_para.hash(&mut h);
-    width.to_bits().hash(&mut h);
+    inp.para.props.hash(&mut h);
+    inp.para.runs.hash(&mut h);
+    inp.props.hash(&mut h);
+    inp.label.hash(&mut h);
+    inp.width.to_bits().hash(&mut h);
+    inp.default_tab.to_bits().hash(&mut h);
+    inp.doc.default_run.hash(&mut h);
+    // Page-dependent fields and note numbers only matter when present.
+    if inp.para.runs.iter().any(|r| {
+        r.content.iter().any(|c| {
+            matches!(
+                c,
+                RunContent::Field { .. } | RunContent::FootnoteRef(_) | RunContent::EndnoteRef(_)
+            )
+        })
+    }) {
+        inp.fields.hash(&mut h);
+        let mut notes: Vec<_> = inp.note_numbers.iter().collect();
+        notes.sort();
+        notes.hash(&mut h);
+    }
     h.finish()
 }
 
 pub(crate) fn layout_paragraph(
-    doc: &Document,
-    p: &Paragraph,
-    width: f32,
+    inp: &ParaInput<'_>,
     fonts: &mut FontManager,
     cache: &mut LayoutCache,
 ) -> Result<Arc<ParaLayout>, LayoutError> {
-    let key = hash_inputs(doc, p, width);
+    let key = hash_inputs(inp);
     if let Some(l) = cache.map.get(&key) {
         cache.hits += 1;
         return Ok(l.clone());
     }
     cache.misses += 1;
-    let l = Arc::new(layout_uncached(doc, p, width, fonts)?);
+    let l = Arc::new(layout_uncached(inp, fonts)?);
+    if cache.map.len() > 100_000 {
+        cache.map.clear();
+    }
     cache.map.insert(key, l.clone());
     Ok(l)
 }
 
+fn field_text(instr: &str, cached: &str, f: FieldContext) -> String {
+    let kind = instr
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    match kind.as_str() {
+        "PAGE" if f.page > 0 => f.page.to_string(),
+        "NUMPAGES" if f.pages > 0 => f.pages.to_string(),
+        "SECTIONPAGES" if f.section_pages > 0 => f.section_pages.to_string(),
+        _ => cached.to_owned(),
+    }
+}
+
+fn kind_of(c: char) -> Kind {
+    match c {
+        ' ' | '\u{3000}' | '\u{00A0}' => Kind::Space,
+        '\t' => Kind::Tab,
+        LINE_SEP | '\n' | '\r' => Kind::LineBreak,
+        PAGE_SEP => Kind::PageBreak,
+        COL_SEP => Kind::ColumnBreak,
+        _ => Kind::Text,
+    }
+}
+
+/// An atom of paragraph content between index offsets.
+struct Atom {
+    start: usize,
+    end: usize,
+    style: usize,
+    /// Display text (text items, field results, note numbers).
+    text: String,
+    /// Atomic object (picture, field, note reference): one caret unit.
+    object: bool,
+    image: Option<Image>,
+    note: Option<i32>,
+}
+
 fn layout_uncached(
-    doc: &Document,
-    p: &Paragraph,
-    width: f32,
+    inp: &ParaInput<'_>,
     fonts: &mut FontManager,
 ) -> Result<ParaLayout, LayoutError> {
-    let props = p.props.inherit(&doc.default_para);
+    let props = &inp.props;
+    let doc = inp.doc;
     let indent_left = props.indent_left.unwrap_or(Twips(0)).to_pt();
     let indent_right = props.indent_right.unwrap_or(Twips(0)).to_pt();
     let first = props.indent_first_line.unwrap_or(Twips(0)).to_pt();
     let align = props.align.unwrap_or_default();
     let spacing = props.line_spacing.unwrap_or_default();
+    let base_run = para_style_run(doc, props);
 
-    // 1. Resolve styles and build the paragraph text with style spans.
-    let mut styles: Vec<Style> = Vec::new();
-    let mut text = String::new();
-    let mut spans: Vec<(std::ops::Range<usize>, usize)> = Vec::new();
-    for run in &p.runs {
-        let rp = run.props.inherit(&doc.default_run);
-        let face = fonts
-            .resolve(
-                rp.font.as_deref().unwrap_or(DEFAULT_FONT),
-                rp.bold.unwrap_or(false),
-                rp.italic.unwrap_or(false),
-            )
-            .ok_or(LayoutError::NoFonts)?;
-        styles.push(Style {
-            face,
-            size: rp.size.map_or(DEFAULT_SIZE_PT, bo_model::HalfPoints::to_pt),
-            color: rp.color.unwrap_or(Color::BLACK),
-            underline: rp.underline.unwrap_or(Underline::None),
-            strike: rp.strike.unwrap_or(false),
-        });
-        let si = styles.len() - 1;
-        let start = text.len();
-        for c in &run.content {
-            match c {
-                RunContent::Text(t) => text.push_str(&bo_text::nfc(t)),
-                RunContent::Tab => text.push('\t'),
-                RunContent::LineBreak => text.push(LINE_SEP),
-                RunContent::PageBreak => text.push(PAGE_SEP),
-            }
-        }
-        if text.len() > start {
-            spans.push((start..text.len(), si));
-        }
+    // 1. Styles per run, atoms over the index text.
+    let (index_text, spans) = para_index(inp.para);
+    let mut styles: Vec<RunStyle> = Vec::new();
+    let mut run_style_idx: Vec<usize> = Vec::new();
+    for r in &inp.para.runs {
+        let rp = run_props(doc, &base_run, &r.props);
+        styles.push(run_style(fonts, &rp).ok_or(LayoutError::NoFonts)?);
+        run_style_idx.push(styles.len() - 1);
     }
-    // Style of the paragraph mark (empty paragraphs still take a line).
-    let mark_style = if let Some(s) = styles.last() {
-        s.clone()
-    } else {
-        let rp = &doc.default_run;
-        let face = fonts
-            .resolve(
-                rp.font.as_deref().unwrap_or(DEFAULT_FONT),
-                rp.bold.unwrap_or(false),
-                rp.italic.unwrap_or(false),
-            )
-            .ok_or(LayoutError::NoFonts)?;
-        Style {
-            face,
-            size: rp.size.map_or(DEFAULT_SIZE_PT, bo_model::HalfPoints::to_pt),
-            color: Color::BLACK,
-            underline: Underline::None,
-            strike: false,
-        }
+    let mark_style = match styles.last() {
+        Some(s) => s.clone(),
+        None => run_style(fonts, &base_run).ok_or(LayoutError::NoFonts)?,
     };
     if styles.is_empty() {
         styles.push(mark_style.clone());
     }
+    let mut atoms: Vec<Atom> = Vec::new();
+    let mut floats = Vec::new();
+    for sp in &spans {
+        let run = &inp.para.runs[sp.run];
+        let style = run_style_idx[sp.run];
+        let item = &run.content[sp.item];
+        if let RunContent::Image(img) = item {
+            if img.anchor.is_some() {
+                floats.push((**img).clone());
+                continue;
+            }
+        }
+        if styles[style].hidden || sp.start == sp.end {
+            continue;
+        }
+        let (text, object, image, note) = match item {
+            RunContent::Image(img) => (String::new(), true, Some((**img).clone()), None),
+            RunContent::Field { instr, cached } => {
+                (field_text(instr, cached, inp.fields), true, None, None)
+            }
+            RunContent::FootnoteRef(id) | RunContent::EndnoteRef(id) => (
+                inp.note_numbers
+                    .get(id)
+                    .map_or_else(|| "*".to_owned(), ToString::to_string),
+                true,
+                None,
+                Some(*id),
+            ),
+            RunContent::NoteMark => (String::new(), true, None, None),
+            _ => (index_text[sp.start..sp.end].to_owned(), false, None, None),
+        };
+        atoms.push(Atom {
+            start: sp.start,
+            end: sp.end,
+            style,
+            text,
+            object,
+            image,
+            note,
+        });
+    }
 
-    // 2. Split into words at UAX #14 break opportunities, then into pieces.
+    // 2. Words at UAX #14 break opportunities, then pieces.
     let mut words: Vec<Word> = Vec::new();
+    if let Some((label, lrp, suffix)) = &inp.label {
+        let lstyle = run_style(fonts, &lrp.inherit(&base_run)).ok_or(LayoutError::NoFonts)?;
+        styles.push(lstyle);
+        let si = styles.len() - 1;
+        let mut pieces = Vec::new();
+        if !label.is_empty() {
+            pieces.extend(text_pieces(label, &[], si, &styles, fonts, true));
+        }
+        match suffix.as_str() {
+            "space" => pieces.extend(text_pieces(" ", &[], si, &styles, fonts, true)),
+            "nothing" => {}
+            _ => pieces.push(special_piece(Kind::Tab, si, &styles, 0, true)),
+        }
+        if !pieces.is_empty() {
+            words.push(Word { pieces });
+        }
+    }
     let mut prev = 0;
-    for (idx, _opp) in unicode_linebreak::linebreaks(&text) {
+    let breaks: Vec<usize> = unicode_linebreak::linebreaks(&index_text)
+        .map(|(i, _)| i)
+        .collect();
+    for idx in breaks {
         if idx > prev {
-            words.push(build_word(&text, prev..idx, &spans, &styles, fonts));
+            let pieces = word_pieces(&atoms, prev, idx, &styles, fonts);
+            if !pieces.is_empty() {
+                words.push(Word { pieces });
+            }
         }
         prev = idx;
     }
 
     // 3. Greedy line filling.
+    let tabs: Vec<TabStop> = props.tabs.clone().unwrap_or_default();
+    let tab_ctx = TabCtx {
+        stops: &tabs,
+        default: inp.default_tab.max(1.0),
+        hanging_at: if first < 0.0 { Some(indent_left) } else { None },
+    };
+    let avail = |first_line: bool| {
+        (inp.width - indent_left - indent_right - if first_line { first } else { 0.0 }).max(1.0)
+    };
     let mut lines: Vec<Vec<Piece>> = Vec::new();
     let mut line_breaks: Vec<Option<Kind>> = Vec::new();
     let mut cur: Vec<Piece> = Vec::new();
-    let mut x = 0.0f32;
-    let avail = |first_line: bool| {
-        (width - indent_left - indent_right - if first_line { first } else { 0.0 }).max(1.0)
-    };
     let mut queue: std::collections::VecDeque<Word> = words.into();
     while let Some(word) = queue.pop_front() {
-        let line_start = if lines.is_empty() { first } else { 0.0 };
-        let max = avail(lines.is_empty());
-        let w = word.fit_width(x, -line_start);
-        if x + w > max + 0.01 && !cur.is_empty() {
+        let is_first = lines.is_empty();
+        let start_x = indent_left + if is_first { first } else { 0.0 };
+        let max = avail(is_first);
+        let mut trial = cur.clone();
+        trial.extend(word.pieces.iter().cloned());
+        let (_, ink) = position(&trial, start_x, &tab_ctx);
+        if ink > max + 0.01 && !cur.is_empty() {
             lines.push(std::mem::take(&mut cur));
             line_breaks.push(None);
-            x = 0.0;
             queue.push_front(word);
             continue;
         }
-        if cur.is_empty() && w > max + 0.01 && word_char_count(&word) > 1 {
-            // Emergency break: explode the word into grapheme-sized words.
+        if cur.is_empty() && ink > max + 0.01 && word.char_count() > 1 {
             for w2 in explode(&word, fonts).into_iter().rev() {
                 queue.push_front(w2);
             }
             continue;
-        }
-        for piece in &word.pieces {
-            x = match piece.kind {
-                Kind::Tab => next_tab(x, -line_start),
-                _ => x + piece.width,
-            };
         }
         let brk = word.brk();
         cur.extend(word.pieces);
         if brk.is_some() {
             lines.push(std::mem::take(&mut cur));
             line_breaks.push(brk);
-            x = 0.0;
         }
     }
-    if !cur.is_empty() || lines.is_empty() {
+    let ended_with_line_break = line_breaks.last().copied().flatten() == Some(Kind::LineBreak);
+    if !cur.is_empty() || lines.is_empty() || ended_with_line_break {
         lines.push(cur);
         line_breaks.push(None);
     }
     let n_lines = lines.len();
 
-    // 4. Position pieces → fragments, apply alignment and line height.
-    let mut out = Vec::with_capacity(n_lines);
+    // 4. Position pieces → fragments, carets, alignment and line height.
+    let mut out: Vec<RelLine> = Vec::with_capacity(n_lines);
+    let para_end = index_text.len() as u32;
     for (li, pieces) in lines.into_iter().enumerate() {
         let is_first = li == 0;
         let is_last = li + 1 == n_lines;
         let start_x = indent_left + if is_first { first } else { 0.0 };
         let max = avail(is_first);
         let brk = line_breaks[li];
-
-        // Natural width excluding trailing spaces/breaks.
-        let mut xs = Vec::with_capacity(pieces.len());
-        let mut cx = 0.0f32;
-        let mut ink_end = 0.0f32;
-        let mut last_tab_idx: Option<usize> = None;
-        for (i, p) in pieces.iter().enumerate() {
-            xs.push(cx);
-            cx = match p.kind {
-                Kind::Tab => {
-                    last_tab_idx = Some(i);
-                    next_tab(cx, -(start_x - indent_left))
-                }
-                _ => cx + p.width,
-            };
-            if matches!(p.kind, Kind::Text | Kind::Tab) {
-                ink_end = cx;
-            }
-        }
+        let (xs, ink_end) = position(&pieces, start_x, &tab_ctx);
         let slack = (max - ink_end).max(0.0);
         let justify = align == Alignment::Justify && !is_last && brk.is_none();
-        // Spaces after the last tab and before the last ink participate in justification.
-        let ink_last_piece = pieces.iter().rposition(|p| p.kind == Kind::Text);
+        let last_tab = pieces.iter().rposition(|p| p.kind == Kind::Tab);
+        let last_ink = pieces
+            .iter()
+            .rposition(|p| matches!(p.kind, Kind::Text | Kind::Object));
+        let stretchable = |i: usize, p: &Piece| {
+            p.kind == Kind::Space
+                && last_tab.is_none_or(|t| i > t)
+                && last_ink.is_some_and(|l| i < l)
+        };
         let space_count: usize = if justify {
             pieces
                 .iter()
                 .enumerate()
-                .filter(|(i, p)| {
-                    p.kind == Kind::Space
-                        && last_tab_idx.is_none_or(|t| *i > t)
-                        && ink_last_piece.is_some_and(|l| *i < l)
-                })
+                .filter(|(i, p)| stretchable(*i, p))
                 .map(|(_, p)| p.text.chars().count())
                 .sum()
         } else {
@@ -352,61 +445,105 @@ fn layout_uncached(
         } else {
             0.0
         };
-        let offset = match align {
-            Alignment::Center => slack / 2.0,
-            Alignment::Right => slack,
-            _ => 0.0,
+        let offset = if last_tab.is_some() {
+            0.0
+        } else {
+            match align {
+                Alignment::Center => slack / 2.0,
+                Alignment::Right => slack,
+                _ => 0.0,
+            }
         };
 
         let mut ascent = 0.0f32;
         let mut descent = 0.0f32;
-        let mut natural = 0.0f32;
+        let mut gap = 0.0f32;
         let mut frags: Vec<Fragment> = Vec::new();
+        let mut carets: Vec<(u32, f32)> = Vec::new();
+        let mut objects = Vec::new();
+        let mut highlights = Vec::new();
+        let mut notes = Vec::new();
         let mut extra = 0.0f32;
         for (i, p) in pieces.iter().enumerate() {
             let st = &styles[p.style];
             let info = fonts.info(p.face);
             let scale = st.size / f32::from(info.units_per_em);
-            let asc = f32::from(info.ascender) * scale;
-            let desc = -f32::from(info.descender) * scale;
-            ascent = ascent.max(asc);
-            descent = descent.max(desc);
-            natural = natural.max(asc + desc + f32::from(info.line_gap) * scale);
-            if matches!(p.kind, Kind::LineBreak | Kind::PageBreak | Kind::Tab) {
-                continue;
+            if p.kind == Kind::Object && p.image.is_some() {
+                ascent = ascent.max(p.obj_h);
+            } else {
+                ascent = ascent.max(f32::from(info.ascender) * scale - st.shift.min(0.0));
+                descent = descent.max(-f32::from(info.descender) * scale + st.shift.max(0.0));
+                gap = gap.max(f32::from(info.line_gap) * scale);
             }
-            let justify_here = per_space > 0.0
-                && p.kind == Kind::Space
-                && last_tab_idx.is_none_or(|t| i > t)
-                && ink_last_piece.is_some_and(|l| i < l);
+            let x0 = offset + xs[i] + extra;
+            let x_next = offset + xs[i + 1] + extra;
+            if p.kind == Kind::Tab {
+                if let Some(leader) = leader_at(&tab_ctx, xs[i + 1]) {
+                    if let Some(f) = leader_fragment(fonts, st, p.face, leader, x0, x_next) {
+                        frags.push(f);
+                    }
+                }
+            }
+            if !p.virtual_ {
+                let w = if p.kind == Kind::Tab {
+                    x_next - x0
+                } else {
+                    p.width
+                };
+                push_carets(&mut carets, p, x0, w, scale, st.spacing);
+            }
+            if let Some(n) = p.note {
+                notes.push(n);
+            }
+            match p.kind {
+                Kind::Object if p.image.is_some() => {
+                    if let Some(img) = &p.image {
+                        objects.push(RelObject {
+                            x: x0,
+                            w: p.width,
+                            h: p.obj_h,
+                            image: img.clone(),
+                        });
+                    }
+                    continue;
+                }
+                Kind::LineBreak | Kind::PageBreak | Kind::ColumnBreak | Kind::Tab => continue,
+                _ => {}
+            }
+            let stretch_here = per_space > 0.0 && stretchable(i, p);
             let mut glyphs = Vec::with_capacity(p.glyphs.len());
             let mut gx = 0.0f32;
             for g in p.glyphs.iter() {
                 glyphs.push(GlyphPos {
                     id: g.glyph_id,
                     x: gx + g.x_offset as f32 * scale,
-                    y: -(g.y_offset as f32) * scale,
+                    y: -(g.y_offset as f32) * scale + st.shift,
                     cluster: g.cluster,
                 });
-                gx += g.x_advance as f32 * scale;
-                if justify_here {
+                gx += g.x_advance as f32 * scale + st.spacing;
+                if stretch_here {
                     gx += per_space;
                 }
             }
-            let frag_x = start_x + offset + xs[i] + extra;
-            if justify_here {
+            if stretch_here {
                 extra += per_space * p.text.chars().count() as f32;
             }
-            // Merge with the previous fragment when face/style continue.
+            if let Some(h) = st.highlight {
+                highlights.push((x0, gx, h));
+            }
             if let Some(last) = frags.last_mut() {
-                if last.face == p.face
+                let same = last.face == p.face
                     && last.size == st.size
                     && last.color == st.color
                     && last.underline == st.underline
                     && last.strike == st.strike
-                    && (last.x + last.width - frag_x).abs() < 0.001
-                {
-                    let dx = frag_x - last.x;
+                    && last.double_strike == st.double_strike
+                    && last.link == st.link
+                    && (last.x + last.width - x0).abs() < 0.001
+                    && last.glyphs.iter().all(|g| (g.y - st.shift).abs() < 1e-4)
+                    && glyphs.iter().all(|g| (g.y - st.shift).abs() < 1e-4);
+                if same {
+                    let dx = x0 - last.x;
                     let base = last.text.len() as u32;
                     last.glyphs.extend(glyphs.into_iter().map(|g| GlyphPos {
                         x: g.x + dx,
@@ -421,29 +558,29 @@ fn layout_uncached(
             frags.push(Fragment {
                 face: p.face,
                 size: st.size,
-                x: frag_x,
+                x: x0,
                 y: 0.0,
                 width: gx,
                 color: st.color,
                 underline: st.underline,
                 strike: st.strike,
+                double_strike: st.double_strike,
                 text: p.text.clone(),
                 glyphs,
+                link: st.link.clone(),
             });
         }
         if pieces
             .iter()
-            .all(|p| p.kind != Kind::Text && p.kind != Kind::Space)
+            .all(|p| !matches!(p.kind, Kind::Text | Kind::Space | Kind::Object))
         {
             let info = fonts.info(mark_style.face);
             let scale = mark_style.size / f32::from(info.units_per_em);
             ascent = ascent.max(f32::from(info.ascender) * scale);
             descent = descent.max(-f32::from(info.descender) * scale);
-            natural = natural.max(
-                (f32::from(info.ascender) - f32::from(info.descender) + f32::from(info.line_gap))
-                    * scale,
-            );
+            gap = gap.max(f32::from(info.line_gap) * scale);
         }
+        let natural = ascent + descent + gap;
         // Line height (ECMA-376 Part 1, §17.3.1.33 spacing/@line, @lineRule).
         let (height, baseline) = match spacing {
             LineSpacing::Auto(v) => {
@@ -456,14 +593,38 @@ fn layout_uncached(
             }
             LineSpacing::AtLeast(t) => {
                 let h = natural.max(t.to_pt());
-                (h, h - descent)
+                (h, h - descent - gap)
             }
         };
+        let real: Vec<&Piece> = pieces.iter().filter(|p| !p.virtual_).collect();
+        let (start, end) = if real.is_empty() {
+            let at = out.last().map_or(0, |l| l.end).min(para_end);
+            (at, at)
+        } else {
+            (
+                real.iter().map(|p| p.start()).min().unwrap_or(0),
+                real.iter().map(|p| p.end()).max().unwrap_or(0),
+            )
+        };
+        if carets.is_empty() {
+            carets.push((start, start_x + offset));
+        }
+        carets.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        carets.dedup_by_key(|c| c.0);
         out.push(RelLine {
             height,
             baseline,
             fragments: frags,
+            carets,
+            objects,
+            highlights,
+            ascent,
+            descent,
+            start,
+            end,
             page_break_after: brk == Some(Kind::PageBreak),
+            column_break_after: brk == Some(Kind::ColumnBreak),
+            notes,
         });
     }
 
@@ -472,85 +633,364 @@ fn layout_uncached(
         space_before: props.space_before.unwrap_or(Twips(0)).to_pt(),
         space_after: props.space_after.unwrap_or(Twips(0)).to_pt(),
         page_break_before: props.page_break_before.unwrap_or(false),
+        keep_next: props.keep_next.unwrap_or(false),
+        keep_lines: props.keep_lines.unwrap_or(false),
+        widow_control: props.widow_control.unwrap_or(true),
+        contextual_spacing: props.contextual_spacing.unwrap_or(false),
+        style: props.style.clone(),
+        shading: props.shading,
+        borders: props.borders.clone(),
+        indent_left,
+        indent_right,
+        floats,
     })
 }
 
-fn word_char_count(w: &Word) -> usize {
-    w.pieces
-        .iter()
-        .filter(|p| p.kind == Kind::Text)
-        .map(|p| p.text.chars().count())
-        .sum()
+/// Caret stops for a piece: one per original char boundary.
+fn push_carets(
+    carets: &mut Vec<(u32, f32)>,
+    p: &Piece,
+    x0: f32,
+    width: f32,
+    scale: f32,
+    spacing: f32,
+) {
+    if p.offsets.len() < 2 {
+        return;
+    }
+    let shaped_text = matches!(p.kind, Kind::Text | Kind::Space) && !p.glyphs.is_empty();
+    let char_count = p.text.chars().count();
+    if !shaped_text || p.offsets.len() != char_count + 1 {
+        // Atomic: start and end.
+        carets.push((p.start(), x0));
+        carets.push((p.end(), x0 + width));
+        return;
+    }
+    let mut adv_before: Vec<f32> = Vec::with_capacity(p.glyphs.len());
+    let mut x = 0.0;
+    for g in p.glyphs.iter() {
+        adv_before.push(x);
+        x += g.x_advance as f32 * scale + spacing;
+    }
+    for (k, (cb, _)) in p.text.char_indices().enumerate() {
+        let gi = p.glyphs.iter().position(|g| g.cluster as usize >= cb);
+        let cx = gi.map_or(x, |i| adv_before[i]);
+        carets.push((p.offsets[k], x0 + cx.min(width)));
+    }
+    carets.push((p.end(), x0 + width));
 }
 
-fn kind_of(c: char) -> Kind {
-    match c {
-        ' ' | '\u{3000}' => Kind::Space,
-        '\t' => Kind::Tab,
-        LINE_SEP | '\n' | '\r' => Kind::LineBreak,
-        PAGE_SEP => Kind::PageBreak,
-        _ => Kind::Text,
+struct TabCtx<'a> {
+    stops: &'a [TabStop],
+    default: f32,
+    hanging_at: Option<f32>,
+}
+
+/// Next tab stop after `x` (content-relative): custom stops, the hanging-indent stop, then defaults
+/// (ECMA-376 Part 1, §17.3.1.37 tab; §17.15.1.25 defaultTabStop).
+fn next_stop(t: &TabCtx<'_>, x: f32) -> (f32, TabAlign) {
+    let mut best: Option<(f32, TabAlign)> = None;
+    for s in t.stops {
+        if s.align == TabAlign::Clear || s.align == TabAlign::Bar {
+            continue;
+        }
+        let p = s.pos.to_pt();
+        if p > x + 0.01 && best.is_none_or(|b| p < b.0) {
+            best = Some((p, s.align));
+        }
+    }
+    if let Some(h) = t.hanging_at {
+        if h > x + 0.01 && best.is_none_or(|b| h < b.0) {
+            best = Some((h, TabAlign::Left));
+        }
+    }
+    best.unwrap_or_else(|| {
+        (
+            ((x / t.default).floor() + 1.0) * t.default,
+            TabAlign::Left,
+        )
+    })
+}
+
+/// Leader of the custom stop located at `stop_x`.
+fn leader_at(t: &TabCtx<'_>, stop_x: f32) -> Option<TabLeader> {
+    t.stops
+        .iter()
+        .filter(|s| s.leader != TabLeader::None)
+        .find(|s| (s.pos.to_pt() - stop_x).abs() < 0.5 || s.pos.to_pt() >= stop_x - 0.5)
+        .map(|s| s.leader)
+}
+
+fn leader_fragment(
+    fonts: &mut FontManager,
+    st: &RunStyle,
+    face: FaceId,
+    leader: TabLeader,
+    x0: f32,
+    x1: f32,
+) -> Option<Fragment> {
+    let ch = match leader {
+        TabLeader::Dot => ".",
+        TabLeader::Hyphen => "-",
+        TabLeader::Underscore => "_",
+        TabLeader::None => return None,
+    };
+    let shaped = fonts.shape(face, ch);
+    let g = shaped.first()?;
+    let scale = st.size / f32::from(fonts.info(face).units_per_em);
+    let adv = g.x_advance as f32 * scale;
+    if adv <= 0.1 || x1 - x0 < adv * 2.0 {
+        return None;
+    }
+    // Align leader glyphs to a grid so consecutive leaders line up.
+    let start = (x0 / adv).ceil() * adv;
+    let mut glyphs = Vec::new();
+    let mut x = start;
+    let mut text = String::new();
+    while x + adv <= x1 - adv * 0.5 {
+        glyphs.push(GlyphPos {
+            id: g.glyph_id,
+            x: x - start,
+            y: 0.0,
+            cluster: text.len() as u32,
+        });
+        text.push_str(ch);
+        x += adv;
+    }
+    Some(Fragment {
+        face,
+        size: st.size,
+        x: start,
+        y: 0.0,
+        width: x - start,
+        color: st.color,
+        underline: bo_model::Underline::None,
+        strike: false,
+        double_strike: false,
+        text,
+        glyphs,
+        link: None,
+    })
+}
+
+/// Content-relative x of each piece start (plus the end) and the ink end relative to `start_x`
+/// (trailing spaces and breaks excluded). Right/center/decimal tabs align the following segment.
+fn position(pieces: &[Piece], start_x: f32, t: &TabCtx<'_>) -> (Vec<f32>, f32) {
+    let mut xs = Vec::with_capacity(pieces.len() + 1);
+    let mut x = start_x;
+    let mut ink = start_x;
+    for (i, p) in pieces.iter().enumerate() {
+        xs.push(x);
+        match p.kind {
+            Kind::Tab => {
+                let (stop, al) = next_stop(t, x);
+                let mut seg = 0.0;
+                let mut dec = None;
+                for q in &pieces[i + 1..] {
+                    if matches!(
+                        q.kind,
+                        Kind::Tab | Kind::LineBreak | Kind::PageBreak | Kind::ColumnBreak
+                    ) {
+                        break;
+                    }
+                    if dec.is_none() && al == TabAlign::Decimal {
+                        if let Some(pos) = q.text.find(['.', ',']) {
+                            let frac = pos as f32 / q.text.len().max(1) as f32;
+                            dec = Some(seg + q.width * frac);
+                        }
+                    }
+                    seg += q.width;
+                }
+                x = match al {
+                    TabAlign::Right => (stop - seg).max(x),
+                    TabAlign::Center => (stop - seg / 2.0).max(x),
+                    TabAlign::Decimal => (stop - dec.unwrap_or(seg)).max(x),
+                    _ => stop,
+                };
+                ink = ink.max(x);
+            }
+            Kind::LineBreak | Kind::PageBreak | Kind::ColumnBreak => {}
+            Kind::Space => x += p.width,
+            Kind::Text | Kind::Object => {
+                x += p.width;
+                ink = ink.max(x);
+            }
+        }
+    }
+    xs.push(x);
+    (xs, ink - start_x)
+}
+
+fn special_piece(kind: Kind, style: usize, styles: &[RunStyle], at: u32, virtual_: bool) -> Piece {
+    Piece {
+        style,
+        face: styles[style].face,
+        kind,
+        text: String::new(),
+        glyphs: Arc::from(Vec::new()),
+        width: 0.0,
+        offsets: vec![at, at + u32::from(!virtual_)],
+        virtual_,
+        image: None,
+        obj_h: 0.0,
+        note: None,
     }
 }
 
-fn build_word(
+/// Shape `text` (one style) into Text/Space pieces. `offsets` gives the original byte
+/// offset of each char plus the end (empty → all zero, used for virtual pieces).
+fn text_pieces(
     text: &str,
-    range: std::ops::Range<usize>,
-    spans: &[(std::ops::Range<usize>, usize)],
-    styles: &[Style],
+    offsets: &[u32],
+    style: usize,
+    styles: &[RunStyle],
     fonts: &mut FontManager,
-) -> Word {
+    virtual_: bool,
+) -> Vec<Piece> {
+    let st = &styles[style];
+    let display: String = if st.caps {
+        text.chars()
+            .map(|c| c.to_uppercase().next().unwrap_or(c))
+            .collect()
+    } else {
+        text.to_owned()
+    };
+    let n_chars = display.chars().count();
+    let offs: Vec<u32> = if offsets.len() == n_chars + 1 {
+        offsets.to_vec()
+    } else {
+        vec![offsets.first().copied().unwrap_or(0); n_chars + 1]
+    };
+    let class = |c: char| {
+        if kind_of(c) == Kind::Space {
+            Kind::Space
+        } else {
+            Kind::Text
+        }
+    };
+    let chars: Vec<(usize, char)> = display.char_indices().collect();
+    let mut out = Vec::new();
+    let mut k = 0;
+    while k < chars.len() {
+        let kind = class(chars[k].1);
+        let mut j = k + 1;
+        while j < chars.len() && class(chars[j].1) == kind {
+            j += 1;
+        }
+        let b0 = chars[k].0;
+        let b1 = if j < chars.len() {
+            chars[j].0
+        } else {
+            display.len()
+        };
+        let group = &display[b0..b1];
+        let mut cursor = k;
+        for (r, face) in fonts.itemize(st.face, group) {
+            let t = &group[r];
+            let nc = t.chars().count();
+            let glyphs = fonts.shape(face, t);
+            let upem = f32::from(fonts.info(face).units_per_em);
+            let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32 * st.size / upem
+                + st.spacing * glyphs.len() as f32;
+            out.push(Piece {
+                style,
+                face,
+                kind,
+                text: t.to_owned(),
+                glyphs,
+                width,
+                offsets: offs[cursor..=cursor + nc].to_vec(),
+                virtual_,
+                image: None,
+                obj_h: 0.0,
+                note: None,
+            });
+            cursor += nc;
+        }
+        k = j;
+    }
+    out
+}
+
+fn word_pieces(
+    atoms: &[Atom],
+    a: usize,
+    b: usize,
+    styles: &[RunStyle],
+    fonts: &mut FontManager,
+) -> Vec<Piece> {
     let mut pieces = Vec::new();
-    for (span, si) in spans {
-        let s = span.start.max(range.start);
-        let e = span.end.min(range.end);
+    for at in atoms {
+        let s = at.start.max(a);
+        let e = at.end.min(b);
         if s >= e {
             continue;
         }
-        let sub = &text[s..e];
-        // Group consecutive chars of the same kind.
-        let mut groups: Vec<(Kind, usize, usize)> = Vec::new();
-        for (i, c) in sub.char_indices() {
+        if at.object {
+            if let Some(img) = &at.image {
+                pieces.push(Piece {
+                    style: at.style,
+                    face: styles[at.style].face,
+                    kind: Kind::Object,
+                    text: "\u{FFFC}".into(),
+                    glyphs: Arc::from(Vec::new()),
+                    width: img.width.to_pt(),
+                    offsets: vec![at.start as u32, at.end as u32],
+                    virtual_: false,
+                    image: Some(img.clone()),
+                    obj_h: img.height.to_pt(),
+                    note: None,
+                });
+                continue;
+            }
+            // Field result / note number: shaped text mapped to one caret unit.
+            let mut sub = text_pieces(&at.text, &[], at.style, styles, fonts, false);
+            if sub.is_empty() {
+                let mut p = special_piece(Kind::Object, at.style, styles, at.start as u32, false);
+                p.offsets = vec![at.start as u32, at.end as u32];
+                sub.push(p);
+            }
+            let n = sub.len();
+            for (i, p) in sub.iter_mut().enumerate() {
+                let o0 = if i == 0 { at.start as u32 } else { at.end as u32 };
+                p.offsets = vec![o0, at.end as u32];
+                p.note = if i + 1 == n { at.note } else { None };
+            }
+            pieces.extend(sub);
+            continue;
+        }
+        let sub = &at.text[s - at.start..e - at.start];
+        let mut buf = String::new();
+        let mut buf_offs: Vec<u32> = Vec::new();
+        for (bi, c) in sub.char_indices() {
+            let off = (s + bi) as u32;
             let k = kind_of(c);
-            let end = i + c.len_utf8();
-            match groups.last_mut() {
-                Some(g) if g.0 == k && matches!(k, Kind::Text | Kind::Space) => g.2 = end,
-                _ => groups.push((k, i, end)),
+            match k {
+                Kind::Tab | Kind::LineBreak | Kind::PageBreak | Kind::ColumnBreak => {
+                    if !buf.is_empty() {
+                        buf_offs.push(off);
+                        pieces.extend(text_pieces(&buf, &buf_offs, at.style, styles, fonts, false));
+                        buf.clear();
+                        buf_offs.clear();
+                    }
+                    let mut sp = special_piece(k, at.style, styles, off, false);
+                    sp.offsets = vec![off, off + c.len_utf8() as u32];
+                    pieces.push(sp);
+                }
+                // Soft hyphen: invisible (§17.3.3.29), no break rendering in this version.
+                _ if c == '\u{00AD}' => {}
+                _ => {
+                    buf.push(c);
+                    buf_offs.push(off);
+                }
             }
         }
-        for (kind, gs, ge) in groups {
-            let gtext = &sub[gs..ge];
-            match kind {
-                Kind::Text | Kind::Space => {
-                    for (r, face) in fonts.itemize(styles[*si].face, gtext) {
-                        let t = &gtext[r];
-                        let glyphs = fonts.shape(face, t);
-                        let upem = f32::from(fonts.info(face).units_per_em);
-                        let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32
-                            * styles[*si].size
-                            / upem;
-                        pieces.push(Piece {
-                            style: *si,
-                            face,
-                            kind,
-                            text: t.to_owned(),
-                            glyphs,
-                            width,
-                        });
-                    }
-                }
-                _ => pieces.push(Piece {
-                    style: *si,
-                    face: styles[*si].face,
-                    kind,
-                    text: String::new(),
-                    glyphs: Arc::from(Vec::new()),
-                    width: 0.0,
-                }),
-            }
+        if !buf.is_empty() {
+            buf_offs.push(e as u32);
+            pieces.extend(text_pieces(&buf, &buf_offs, at.style, styles, fonts, false));
         }
     }
-    Word { pieces }
+    pieces
 }
 
 /// Split a word into one word per grapheme cluster (emergency breaking).
@@ -558,7 +998,7 @@ fn explode(word: &Word, fonts: &mut FontManager) -> Vec<Word> {
     use unicode_segmentation::UnicodeSegmentation;
     let mut out = Vec::new();
     for p in &word.pieces {
-        if p.kind != Kind::Text {
+        if p.kind != Kind::Text || p.glyphs.is_empty() || p.offsets.len() != p.text.chars().count() + 1 {
             match out.last_mut() {
                 Some(Word { pieces }) => pieces.push(p.clone()),
                 None => out.push(Word {
@@ -567,22 +1007,22 @@ fn explode(word: &Word, fonts: &mut FontManager) -> Vec<Word> {
             }
             continue;
         }
-        let size_per_unit = if p.glyphs.is_empty() {
-            0.0
-        } else {
-            p.width / p.glyphs.iter().map(|g| g.x_advance).sum::<i32>().max(1) as f32
-        };
+        let per_unit = p.width / p.glyphs.iter().map(|g| g.x_advance).sum::<i32>().max(1) as f32;
+        let mut ci = 0usize;
         for g in p.text.graphemes(true) {
+            let nc = g.chars().count();
             let glyphs = fonts.shape(p.face, g);
-            let width = glyphs.iter().map(|x| x.x_advance).sum::<i32>() as f32 * size_per_unit;
+            let width = glyphs.iter().map(|x| x.x_advance).sum::<i32>() as f32 * per_unit;
             out.push(Word {
                 pieces: vec![Piece {
                     text: g.to_owned(),
                     glyphs,
                     width,
+                    offsets: p.offsets[ci..=ci + nc].to_vec(),
                     ..p.clone()
                 }],
             });
+            ci += nc;
         }
     }
     out
@@ -591,19 +1031,41 @@ fn explode(word: &Word, fonts: &mut FontManager) -> Vec<Word> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use unicode_linebreak::BreakOpportunity;
 
     #[test]
     fn tab_stops() {
-        assert_eq!(next_tab(0.0, 0.0), 36.0);
-        assert_eq!(next_tab(36.0, 0.0), 72.0);
-        assert_eq!(next_tab(10.0, -18.0), 18.0);
+        let t = TabCtx {
+            stops: &[],
+            default: 36.0,
+            hanging_at: None,
+        };
+        assert_eq!(next_stop(&t, 0.0).0, 36.0);
+        assert_eq!(next_stop(&t, 36.0).0, 72.0);
+        let stops = [TabStop {
+            pos: Twips(2000),
+            align: TabAlign::Right,
+            leader: TabLeader::Dot,
+        }];
+        let t = TabCtx {
+            stops: &stops,
+            default: 36.0,
+            hanging_at: Some(18.0),
+        };
+        assert_eq!(next_stop(&t, 0.0), (18.0, TabAlign::Left));
+        assert_eq!(next_stop(&t, 20.0), (100.0, TabAlign::Right));
+        assert_eq!(next_stop(&t, 120.0).0, 144.0);
+        assert_eq!(leader_at(&t, 100.0), Some(TabLeader::Dot));
     }
 
     #[test]
-    fn break_opportunities_are_allowed_or_mandatory() {
-        let v: Vec<_> = unicode_linebreak::linebreaks("a b\u{2028}c").collect();
-        assert_eq!(v[0], (2, BreakOpportunity::Allowed));
-        assert_eq!(v[1].1, BreakOpportunity::Mandatory);
+    fn fields() {
+        let f = FieldContext {
+            page: 3,
+            pages: 9,
+            section_pages: 2,
+        };
+        assert_eq!(field_text("PAGE \\* MERGEFORMAT", "1", f), "3");
+        assert_eq!(field_text("NUMPAGES", "1", f), "9");
+        assert_eq!(field_text("DATE \\@ dd/MM/yyyy", "05/11/2026", f), "05/11/2026");
     }
 }

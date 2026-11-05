@@ -8,11 +8,16 @@
 //! sections with page setup, paragraphs and runs with basic formatting.
 #![forbid(unsafe_code)]
 
+pub mod index;
 pub mod units;
 pub mod write;
 
 pub use units::{Emu, HalfPoints, Twips};
 pub use write::{
-    Alignment, Block, Color, Document, LineSpacing, PageSetup, ParaProps, Paragraph, Run,
-    RunContent, RunProps, Section, Underline,
+    fingerprint, format_number, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell,
+    CellProps, CellVAlign, Color, Columns, Document, HeaderFooter, HeightRule, Image, Level,
+    LineSpacing, Num, NumFormat, NumRef, Numbering, PageSetup, ParaProps, Paragraph, Raw, Row,
+    RowProps, Run, RunContent, RunProps, Section, SectionBreak, SourcePackage, Style, StyleKind,
+    StyleSheet, TabAlign, TabLeader, TabStop, Table, TableProps, TableWidth, Underline, VMerge,
+    VertAlign, Wrap,
 };

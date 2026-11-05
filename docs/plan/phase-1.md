@@ -85,7 +85,7 @@ exportPdf(): Promise<Uint8Array>
   reader docx (căn lề, thụt lề, run props, sectPr), font fallback, shaping tiếng Việt (NFC, dấu tổ hợp),
   layout (căn đều, ngắt trang, line spacing), PDF hợp lệ (header, xref, font nhúng), PNG đúng kích thước.
 - Property-based (`proptest`): ngắt dòng không làm mất/nhân đôi ký tự; layout không panic với input ngẫu nhiên.
-- Snapshot (`insta`): layout của file mẫu `tests/corpus/write/phase1-sample.docx`.
+- Snapshot (`insta`): layout của file mẫu `tests/corpus/doc/phase1-sample.docx`.
 - Parity web/desktop: Vitest nạp `bo-wasm` (WASM) và so display list JSON với `bo-cli dump` (native) → phải giống hệt.
 - TS: Vitest cho canvas renderer (mock context), i18n (đủ key 2 ngôn ngữ), LocalStorageProvider, command registry.
 - E2E: Playwright mở web, nạp file mẫu, chụp ảnh, kiểm tra số trang trên status bar.

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BlueSheet",
+  "identifier": "vn.bluestar.bluesheet",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "BlueSheet – Bảng tính",
+        "url": "index.html?app=sheet",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 720,
+        "minHeight": 480
+      }
+    ]
+  },
+  "bundle": {
+    "shortDescription": "BlueSheet – Bảng tính",
+    "fileAssociations": [
+      {
+        "ext": ["xlsx"],
+        "name": "BlueSheet workbook",
+        "description": "Tương thích định dạng Microsoft Excel (.xlsx)",
+        "role": "Editor",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      }
+    ]
+  }
+}

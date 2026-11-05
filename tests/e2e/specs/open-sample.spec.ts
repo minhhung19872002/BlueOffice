@@ -8,7 +8,7 @@ const outDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fideli
 test('opens the sample .docx and renders it with the WASM engine', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/write');
+  await page.goto('/doc');
   await expect(page.getByRole('tab', { name: 'Trang đầu' })).toBeVisible();
   await expect(page.getByTestId('status-engine')).toHaveText('Lõi: WASM');
 
@@ -35,7 +35,7 @@ test('opens the sample .docx and renders it with the WASM engine', async ({ page
 });
 
 test('zoom changes the page size and the status bar', async ({ page }) => {
-  await page.goto('/write');
+  await page.goto('/doc');
   await page.getByTestId('open-sample').click();
   const firstPage = page.locator('.bo-page[data-page="1"]');
   await expect(firstPage).toHaveAttribute('data-rendered', 'true');
@@ -47,7 +47,7 @@ test('zoom changes the page size and the status bar', async ({ page }) => {
 });
 
 test('switches to English and dark theme', async ({ page }) => {
-  await page.goto('/write');
+  await page.goto('/doc');
   await page.getByRole('tab', { name: 'Xem' }).click();
   await page.getByRole('button', { name: 'English' }).click();
   await expect(page.getByRole('tab', { name: 'View' })).toBeVisible();
@@ -56,7 +56,7 @@ test('switches to English and dark theme', async ({ page }) => {
 });
 
 test('exports a PDF', async ({ page }) => {
-  await page.goto('/write');
+  await page.goto('/doc');
   await page.getByTestId('open-sample').click();
   await expect(page.locator('.bo-page[data-page="1"]')).toHaveAttribute('data-rendered', 'true');
   await page.getByRole('tab', { name: 'Tệp' }).click();
@@ -64,4 +64,17 @@ test('exports a PDF', async ({ page }) => {
   await page.getByRole('button', { name: 'Xuất PDF' }).click();
   const d = await download;
   expect(d.suggestedFilename()).toBe('phase1-sample.pdf');
+});
+
+test('legacy routes redirect to the new app routes', async ({ page }) => {
+  for (const [from, to] of [
+    ['/write', '/doc'],
+    ['/docs', '/doc'],
+    ['/sheets', '/sheet'],
+    ['/slides', '/slide'],
+  ] as const) {
+    await page.goto(from);
+    await expect(page).toHaveURL(new RegExp(`${to}$`));
+  }
+  await expect(page.locator('.bo-root')).toHaveAttribute('data-app', 'slide');
 });

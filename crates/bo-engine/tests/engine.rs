@@ -4,7 +4,7 @@ use bo_engine::Engine;
 
 fn sample() -> Vec<u8> {
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/corpus/write/phase1-sample.docx");
+        .join("../../tests/corpus/doc/phase1-sample.docx");
     std::fs::read(&p).unwrap_or_else(|e| {
         panic!(
             "{}: {e} (run `cargo run -p bo-cli -- sample` first)",

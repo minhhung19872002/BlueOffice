@@ -11,6 +11,7 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/pkg/**',
       'target/**',
+      '.claude/**',
       'apps/desktop/src-tauri/**',
       'apps/server/**',
       'tests/e2e/test-results/**',

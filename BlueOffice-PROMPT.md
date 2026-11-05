@@ -41,9 +41,16 @@ Ba ứng dụng dùng chung core:
 
 | App | Định dạng | Ghi chú |
 |---|---|---|
-| **BlueWrite** (văn bản) | .docx đọc/ghi, .doc đọc, .odt, .rtf, .txt, .md, xuất PDF | Ưu tiên số 1 |
+| **BlueDoc** (văn bản) | .docx đọc/ghi, .doc đọc, .odt, .rtf, .txt, .md, xuất PDF | Ưu tiên số 1 |
 | **BlueSheet** (bảng tính) | .xlsx đọc/ghi, .xls & .xlsb đọc, .csv, .ods, xuất PDF | Ưu tiên số 2 |
 | **BlueSlide** (trình chiếu) | .pptx đọc/ghi, .ppt đọc, .odp, xuất PDF/PNG | Ưu tiên số 3 |
+
+### Quy tắc đặt tên sản phẩm
+- Họ sản phẩm: **BlueDrive · BlueDoc · BlueSheet · BlueSlide**; giai đoạn sau: **BlueForm**, **BlueNote**. Không có chữ "s" ở cuối.
+- Tên hiển thị tiếng Việt: "BlueDoc – Soạn thảo văn bản", "BlueSheet – Bảng tính", "BlueSlide – Trình chiếu".
+- App id desktop: `vn.bluestar.bluedoc`, `vn.bluestar.bluesheet`, `vn.bluestar.blueslide`. Route web: `/doc`, `/sheet`, `/slide` (route cũ `/write`, `/docs`, `/sheets`, `/slides` chuyển hướng).
+- KHÔNG dùng tên, nhãn hiệu, icon hay màu nhận diện của Microsoft hoặc Google (Word, Excel, PowerPoint, Office, Google Docs/Sheets/Slides/Drive) làm tên sản phẩm, tính năng hay icon; chỉ được nhắc ở dạng mô tả tương thích, ví dụ "Tương thích định dạng Microsoft Word (.docx)".
+- Icon và bảng màu của từng app là thiết kế riêng của Bluestar.
 
 Mục tiêu tương thích: mở → chỉnh sửa → lưu file mà Microsoft Office mở lại không báo lỗi, không mất dữ liệu (lossless round-trip), hiển thị sai lệch tối thiểu.
 
@@ -142,7 +149,7 @@ interface Platform {
   auth: AuthSession;          // OIDC: web = redirect; desktop = PKCE qua trình duyệt hệ thống + deep link
   window: WindowManager;      // web = tab trình duyệt; desktop = nhiều cửa sổ native
   offline: OfflineCache;      // web = IndexedDB + Service Worker (PWA); desktop = thư mục cache cục bộ
-  shell: ShellIntegration;    // desktop: file association, recent files, deep link `blueoffice://`; web: no-op
+  shell: ShellIntegration;    // desktop: file association, recent files, deep link `bluedoc://` · `bluesheet://` · `blueslide://`; web: no-op
 }
 ```
 
@@ -190,7 +197,7 @@ blueoffice/
 │  ├─ bo-wasm/         # bindings cho web
 │  └─ bo-cli/          # công cụ dòng lệnh: convert, render, validate, fidelity-report
 ├─ apps/
-│  ├─ web/             # React app (3 app chung shell, route /write /sheet /slide)
+│  ├─ web/             # React app (3 app chung shell, route /doc /sheet /slide)
 │  ├─ desktop/         # Tauri 2
 │  └─ server/          # ASP.NET Core
 │     ├─ BlueOffice.Api/
@@ -255,7 +262,7 @@ blueoffice/
 - Interface `DocumentStorage` + `LocalStorageProvider` (mở/lưu file cục bộ).
 - `bo-cli render input.docx --out page-%d.png` và `convert --to pdf`.
 
-### Phase 2 — BlueWrite MVP
+### Phase 2 — BlueDoc MVP
 **Đọc/ghi .docx**
 - styles.xml: docDefaults, kế thừa style (basedOn), paragraph/character/table/numbering style, latentStyles giữ nguyên
 - Thuộc tính run: font (ascii/hAnsi/eastAsia/cs), size, bold, italic, underline (các kiểu), strike, màu, highlight, shading, sup/sub, caps, small caps, spacing, kerning
@@ -277,7 +284,7 @@ blueoffice/
 - Undo/redo, autosave, khôi phục khi crash
 - Xuất PDF, in (desktop: hộp thoại in hệ điều hành; web: in PDF)
 
-**Tiêu chí hoàn thành**: 95% file trong `tests/corpus/write` round-trip không mất dữ liệu; visual diff trung bình < 2% pixel.
+**Tiêu chí hoàn thành**: 95% file trong `tests/corpus/doc` round-trip không mất dữ liệu; visual diff trung bình < 2% pixel.
 
 ### Phase 3 — BlueSheet MVP
 **Đọc/ghi .xlsx**
@@ -388,7 +395,7 @@ editor.command('save' | 'print' | 'export-pdf' | 'close');
 - Nút Share, Close, Back trong editor gửi sự kiện để BlueDrive tự xử lý bằng UI của nó.
 
 **3. Desktop**
-- Deep link `blueoffice://open?host=bluedrive&file={id}&token=...`: từ BlueDrive web bấm "Mở bằng ứng dụng desktop" → app desktop mở file trực tiếp từ BlueDrive (tải về cache, lưu ngược lên qua BOHP).
+- Deep link `bluedoc://open?host=bluedrive&file={id}&token=...` (tương tự `bluesheet://`, `blueslide://` theo loại file): từ BlueDrive web bấm "Mở bằng ứng dụng desktop" → app desktop mở file trực tiếp từ BlueDrive (tải về cache, lưu ngược lên qua BOHP).
 - Nếu BlueDrive có client đồng bộ thư mục: file mở từ thư mục đồng bộ là file cục bộ bình thường; khi phát hiện file nằm trong thư mục BlueDrive, desktop chuyển sang chế độ cộng tác online (hỏi người dùng).
 - Màn hình Start của desktop: tab "BlueDrive" duyệt file/thư mục, file gần đây, file được chia sẻ với tôi (đăng nhập SSO chung).
 - Sửa offline: lưu cục bộ, đồng bộ khi có mạng; xung đột → tạo bản "(xung đột - tên người dùng - thời gian)" thay vì ghi đè.
@@ -411,6 +418,11 @@ editor.command('save' | 'print' | 'export-pdf' | 'close');
 **Tiêu chí hoàn thành**: một BlueDrive giả lập (`tests/mock-bluedrive`, cài BOHP tối thiểu) dùng để test E2E: mở file từ web, mở từ desktop qua deep link, 2 người cùng sửa, lưu tạo version, thu hồi quyền giữa chừng, sửa offline rồi đồng bộ.
 
 > Khi bắt đầu Phase 6A, hỏi tôi về stack và API hiện có của BlueDrive để điều chỉnh BOHP cho khớp trước khi code.
+
+### Phase 7 — BlueForm & BlueNote (chỉ kế hoạch)
+- **BlueForm**: biểu mẫu/khảo sát; kết quả trả lời đổ vào một workbook BlueSheet.
+- **BlueNote**: sổ ghi chú dùng lại engine BlueDoc (bo-model/bo-layout/bo-edit) và cộng tác bo-collab.
+- Kế hoạch chi tiết: `docs/plan/phase-7.md`. Chưa code.
 
 ---
 

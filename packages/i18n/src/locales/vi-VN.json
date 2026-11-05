@@ -1,7 +1,7 @@
 {
   "app": {
     "suite": "BlueOffice",
-    "write": "BlueWrite",
+    "doc": "BlueDoc",
     "sheet": "BlueSheet",
     "slide": "BlueSlide",
     "untitled": "Tài liệu chưa đặt tên"
@@ -79,7 +79,7 @@
     "saved": "Đã lưu {{name}}"
   },
   "start": {
-    "title": "Chào mừng đến với BlueWrite",
+    "title": "Chào mừng đến với BlueDoc",
     "subtitle": "Mở tài liệu .docx để xem — chỉnh sửa sẽ có ở Phase 2.",
     "open": "Mở tệp từ máy",
     "sample": "Mở tài liệu mẫu",
@@ -98,6 +98,6 @@
   "placeholder": {
     "sheet": "BlueSheet (bảng tính) sẽ được phát triển ở Phase 3.",
     "slide": "BlueSlide (trình chiếu) sẽ được phát triển ở Phase 4.",
-    "back": "Về BlueWrite"
+    "back": "Về BlueDoc"
   }
 }

@@ -19,7 +19,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'pnpm --filter @blueoffice/web preview',
-    url: 'http://localhost:4173/write',
+    url: 'http://localhost:4173/doc',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },

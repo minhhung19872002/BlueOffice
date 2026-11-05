@@ -54,7 +54,7 @@ export interface HostConfig {
 
 export interface BlueEditorProps {
   platform: Platform;
-  app?: 'write' | 'sheet' | 'slide';
+  app?: 'doc' | 'sheet' | 'slide';
   language?: Language;
   theme?: ThemeSetting;
   host?: HostConfig;
@@ -81,7 +81,7 @@ export function BlueEditor(props: BlueEditorProps) {
 
 function EditorInner({
   platform,
-  app = 'write',
+  app = 'doc',
   language = 'vi-VN',
   theme = 'light',
   host,
@@ -113,7 +113,7 @@ function EditorInner({
         const info = await platform.engine.open(file.bytes, file.name);
         store.setState({ doc: info, page: 0, status: { kind: 'idle' } });
         view.current?.setDocument(info);
-        platform.window.setTitle(`${info.name} — ${t('app.write')}`);
+        platform.window.setTitle(`${info.name} — ${t('app.doc')}`);
         if (file.path)
           await platform.shell.addRecentFile({
             name: file.name,
@@ -136,7 +136,7 @@ function EditorInner({
 
   // Engine + view lifecycle.
   useEffect(() => {
-    if (app !== 'write' || !viewHost.current) return;
+    if (app !== 'doc' || !viewHost.current) return;
     const v = new DocumentView(viewHost.current, platform.engine, {
       onPageChange: (page) => store.setState({ page }),
       onZoomChange: (zoom) => store.setState({ zoom }),
@@ -512,7 +512,7 @@ function EditorInner({
           </button>
         )}
       </header>
-      {app === 'write' ? (
+      {app === 'doc' ? (
         <>
           <Ribbon tabs={tabs} value={tab} onValueChange={setTab} />
           <main className={styles.workspace}>

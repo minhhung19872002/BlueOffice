@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BlueSlide",
+  "identifier": "vn.bluestar.blueslide",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "BlueSlide – Trình chiếu",
+        "url": "index.html?app=slide",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 720,
+        "minHeight": 480
+      }
+    ]
+  },
+  "bundle": {
+    "shortDescription": "BlueSlide – Trình chiếu",
+    "fileAssociations": [
+      {
+        "ext": ["pptx"],
+        "name": "BlueSlide presentation",
+        "description": "Tương thích định dạng Microsoft PowerPoint (.pptx)",
+        "role": "Editor",
+        "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      }
+    ]
+  }
+}

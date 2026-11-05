@@ -9,6 +9,8 @@
     "prebuild": "node ../../scripts/sync-assets.mjs public",
     "build": "vite build",
     "tauri": "tauri",
+    "build:bluesheet": "tauri build --no-bundle --config src-tauri/tauri.bluesheet.conf.json",
+    "build:blueslide": "tauri build --no-bundle --config src-tauri/tauri.blueslide.conf.json",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

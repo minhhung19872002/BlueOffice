@@ -45,7 +45,7 @@ public sealed class BoCliConverterTests
         }
 
         var c = new BoCliConverter(Options.Create(new BoCliOptions { ExecutablePath = cli }), NullLogger<BoCliConverter>.Instance);
-        await using var input = File.OpenRead(Path.Combine(RepoRoot(), "tests", "corpus", "write", "phase1-sample.docx"));
+        await using var input = File.OpenRead(Path.Combine(RepoRoot(), "tests", "corpus", "doc", "phase1-sample.docx"));
         var result = await c.ConvertAsync(input, "phase1-sample.docx", ConversionTarget.Pdf, CancellationToken.None);
         Assert.Equal("phase1-sample.pdf", result.FileName);
         Assert.Equal("%PDF-"u8.ToArray(), result.Content.Take(5).ToArray());

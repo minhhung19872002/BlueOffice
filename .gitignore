@@ -20,3 +20,4 @@ Thumbs.db
 .idea/
 /apps/*/public/fonts/
 /apps/*/public/samples/
+/.claude/worktrees/

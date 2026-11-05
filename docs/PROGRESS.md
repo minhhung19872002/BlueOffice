@@ -22,7 +22,7 @@ Kế hoạch: [`plan/phase-1.md`](plan/phase-1.md).
 | `pnpm lint` / `pnpm typecheck` / `pnpm license-check` | ✅ |
 | Playwright E2E (web) | 4 test ✅ |
 | `dotnet test` | 6 test ✅ |
-| `pnpm tauri build --no-bundle` | ✅ `blueoffice.exe` 21 MB (kèm 6,5 MB font) |
+| `pnpm tauri build --no-bundle` | ✅ `bluedoc.exe` 21 MB (kèm 6,5 MB font) |
 
 ### Benchmark
 | Phép đo | Kết quả | Mục tiêu (§5) |
@@ -48,4 +48,4 @@ Kế hoạch: [`plan/phase-1.md`](plan/phase-1.md).
 - Font có thể khác hình chữ nhỏ so với font gốc (metric giống) — visual diff với ảnh tham chiếu bắt đầu Phase 2.
 
 ### Việc tiếp theo
-Phase 2 — BlueWrite MVP (đọc/ghi .docx đầy đủ, chỉnh sửa). **Chờ duyệt trước khi bắt đầu.**
+Phase 2 — BlueDoc MVP (đọc/ghi .docx đầy đủ, chỉnh sửa). **Chờ duyệt trước khi bắt đầu.**

@@ -1,7 +1,7 @@
 {
   "app": {
     "suite": "BlueOffice",
-    "write": "BlueWrite",
+    "doc": "BlueDoc",
     "sheet": "BlueSheet",
     "slide": "BlueSlide",
     "untitled": "Untitled document"
@@ -79,7 +79,7 @@
     "saved": "Saved {{name}}"
   },
   "start": {
-    "title": "Welcome to BlueWrite",
+    "title": "Welcome to BlueDoc",
     "subtitle": "Open a .docx document to view it — editing arrives in Phase 2.",
     "open": "Open a file",
     "sample": "Open the sample document",
@@ -98,6 +98,6 @@
   "placeholder": {
     "sheet": "BlueSheet (spreadsheets) is developed in Phase 3.",
     "slide": "BlueSlide (presentations) is developed in Phase 4.",
-    "back": "Back to BlueWrite"
+    "back": "Back to BlueDoc"
   }
 }

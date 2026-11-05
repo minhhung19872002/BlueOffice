@@ -67,13 +67,13 @@ describe('BlueEditor', () => {
     const p = fakePlatform();
     render(<BlueEditor platform={p} />);
     expect(screen.getByRole('tab', { name: 'Trang đầu' })).toBeTruthy();
-    expect(screen.getByText('Chào mừng đến với BlueWrite')).toBeTruthy();
+    expect(screen.getByText('Chào mừng đến với BlueDoc')).toBeTruthy();
     expect(screen.getByTestId('status-engine').textContent).toBe('Lõi: WASM');
     fireEvent.click(screen.getByText('Mở tệp từ máy'));
     await waitFor(() => expect(screen.getByTestId('status-page').textContent).toBe('Trang 1/3'));
     expect(p.opened).toEqual(['a.docx']);
     expect(screen.getByTestId('doc-name').textContent).toBe('a.docx');
-    expect(p.window.setTitle).toHaveBeenCalledWith('a.docx — BlueWrite');
+    expect(p.window.setTitle).toHaveBeenCalledWith('a.docx — BlueDoc');
   });
 
   it('switches language and theme through commands', async () => {
@@ -95,7 +95,7 @@ describe('BlueEditor', () => {
         host={{ brandName: 'BlueDrive', showShare: true, showClose: true, onClose }}
       />,
     );
-    expect(screen.getByText(/BlueDrive · BlueWrite/)).toBeTruthy();
+    expect(screen.getByText(/BlueDrive · BlueDoc/)).toBeTruthy();
     expect(screen.getByText('Chia sẻ')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('Đóng'));
     expect(onClose).toHaveBeenCalled();

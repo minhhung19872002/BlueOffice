@@ -48,7 +48,7 @@ fn body(text: &str) -> Block {
 }
 
 const ARTICLES: &[&str] = &[
-    "Văn bản này được soạn thảo bằng BlueWrite để kiểm tra khả năng hiển thị tiếng Việt có dấu, căn lề đều hai bên, thụt lề dòng đầu và giãn dòng theo bội số. Mọi tên cơ quan, số hiệu và nội dung trong văn bản đều là giả định, chỉ phục vụ mục đích kiểm thử.",
+    "Văn bản này được soạn thảo bằng BlueDoc để kiểm tra khả năng hiển thị tiếng Việt có dấu, căn lề đều hai bên, thụt lề dòng đầu và giãn dòng theo bội số. Mọi tên cơ quan, số hiệu và nội dung trong văn bản đều là giả định, chỉ phục vụ mục đích kiểm thử.",
     "Phạm vi kiểm thử gồm: ngắt dòng theo chuẩn Unicode, đo chữ bằng phông chữ tương thích kích thước (Tinos thay cho Times New Roman, Liberation Sans thay cho Arial, Carlito thay cho Calibri), phân trang tự động khi nội dung vượt quá chiều cao vùng soạn thảo và ngắt trang thủ công.",
     "Các đơn vị chủ trì phối hợp với bộ phận công nghệ thông tin rà soát kết quả hiển thị trên trình duyệt và ứng dụng máy tính để bàn; kết quả phải giống nhau tuyệt đối vì cùng sử dụng một lõi dàn trang. Tệp PDF xuất ra phải nhúng phông chữ và giữ được khả năng tìm kiếm văn bản.",
     "Trong quá trình thực hiện, nếu phát sinh vướng mắc, đề nghị các cơ quan, tổ chức, cá nhân phản ánh kịp thời về đầu mối tiếp nhận để tổng hợp, báo cáo cấp có thẩm quyền xem xét, quyết định.",

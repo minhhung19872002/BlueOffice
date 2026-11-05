@@ -9,7 +9,8 @@
     "prebuild": "node ../../scripts/sync-assets.mjs public",
     "build": "vite build",
     "preview": "vite preview --port 4173 --strictPort",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
   },
   "dependencies": {
     "@blueoffice/editor": "workspace:*",
@@ -23,6 +24,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^6.2.1",
     "typescript": "~5.9.3",
-    "vite": "^8.3.6"
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
   }
 }

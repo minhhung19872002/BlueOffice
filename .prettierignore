@@ -12,3 +12,4 @@ docs
 *.md
 BlueOffice-PROMPT.md
 assets/fonts/*.json
+.claude

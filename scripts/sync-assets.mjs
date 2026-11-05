@@ -15,7 +15,7 @@ for (const f of manifest.fonts) copyFileSync(join(fontsDir, f), join(target, 'fo
 
 mkdirSync(join(target, 'samples'), { recursive: true });
 copyFileSync(
-  join(root, 'tests', 'corpus', 'write', 'phase1-sample.docx'),
+  join(root, 'tests', 'corpus', 'doc', 'phase1-sample.docx'),
   join(target, 'samples', 'phase1-sample.docx'),
 );
 console.log(`assets → ${target}`);

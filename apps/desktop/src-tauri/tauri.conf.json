@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "BlueOffice",
+  "productName": "BlueDoc",
   "version": "0.1.0",
-  "identifier": "vn.bluestar.blueoffice",
+  "identifier": "vn.bluestar.bluedoc",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,8 @@
     "windows": [
       {
         "label": "main",
-        "title": "BlueWrite",
+        "title": "BlueDoc – Soạn thảo văn bản",
+        "url": "index.html?app=doc",
         "width": 1280,
         "height": 860,
         "minWidth": 720,
@@ -27,12 +28,16 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "shortDescription": "BlueDoc – Soạn thảo văn bản",
+    "publisher": "Bluestar",
+    "copyright": "© Bluestar",
+    "category": "Productivity",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
     "fileAssociations": [
       {
         "ext": ["docx"],
-        "name": "Word document",
-        "description": "Office Open XML document",
+        "name": "BlueDoc document",
+        "description": "Tương thích định dạng Microsoft Word (.docx)",
         "role": "Editor",
         "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       }

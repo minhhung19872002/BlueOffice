@@ -11,7 +11,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { initSync, WasmEngine } from '@blueoffice/engine-wasm';
 
 const root = join(__dirname, '..', '..', '..');
-const sample = join(root, 'tests', 'corpus', 'write', 'phase1-sample.docx');
+const sample = join(root, 'tests', 'corpus', 'doc', 'phase1-sample.docx');
 const exe = process.platform === 'win32' ? 'bo-cli.exe' : 'bo-cli';
 
 function cli(): string {

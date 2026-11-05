@@ -1,0 +1,28 @@
+{
+  "name": "@blueoffice/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "node ../../scripts/sync-assets.mjs public",
+    "dev": "vite",
+    "prebuild": "node ../../scripts/sync-assets.mjs public",
+    "build": "vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@blueoffice/editor": "workspace:*",
+    "@blueoffice/platform": "workspace:*",
+    "@blueoffice/storage-providers": "workspace:*",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^6.2.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.6"
+  }
+}

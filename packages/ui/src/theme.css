@@ -1,0 +1,52 @@
+/* BlueOffice design tokens. Light is the default; [data-theme='dark'] switches. */
+:root {
+  --bo-font: 'Segoe UI', system-ui, -apple-system, 'Noto Sans', Roboto, sans-serif;
+  --bo-brand: #1d4f91;
+  --bo-brand-strong: #133a6e;
+  --bo-brand-contrast: #ffffff;
+  --bo-accent: #2f80ed;
+  --bo-bg: #eef1f6;
+  --bo-surface: #ffffff;
+  --bo-surface-2: #f6f8fb;
+  --bo-border: #d7dde7;
+  --bo-text: #1b2430;
+  --bo-text-muted: #5b6878;
+  --bo-hover: rgba(29, 79, 145, 0.08);
+  --bo-active: rgba(29, 79, 145, 0.16);
+  --bo-focus: #2f80ed;
+  --bo-danger: #b42318;
+  --bo-canvas-bg: #e3e7ee;
+  --bo-radius: 6px;
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bo-brand: #16304f;
+  --bo-brand-strong: #0e2238;
+  --bo-brand-contrast: #e8eef7;
+  --bo-accent: #6aa8ff;
+  --bo-bg: #12171f;
+  --bo-surface: #1a212b;
+  --bo-surface-2: #212a36;
+  --bo-border: #2e3a49;
+  --bo-text: #e3e9f1;
+  --bo-text-muted: #9aa8b9;
+  --bo-hover: rgba(106, 168, 255, 0.1);
+  --bo-active: rgba(106, 168, 255, 0.2);
+  --bo-focus: #6aa8ff;
+  --bo-danger: #ff8a80;
+  --bo-canvas-bg: #0d1117;
+  color-scheme: dark;
+}
+
+.bo-root {
+  font-family: var(--bo-font);
+  font-size: 13px;
+  color: var(--bo-text);
+  background: var(--bo-bg);
+}
+
+.bo-root *:focus-visible {
+  outline: 2px solid var(--bo-focus);
+  outline-offset: 1px;
+}

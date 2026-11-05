@@ -1,0 +1,128 @@
+.ribbon {
+  background: var(--bo-surface);
+  border-bottom: 1px solid var(--bo-border);
+}
+
+.tabList {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  background: var(--bo-brand);
+}
+
+.tab {
+  all: unset;
+  cursor: pointer;
+  padding: 7px 14px 6px;
+  color: var(--bo-brand-contrast);
+  opacity: 0.85;
+  border-radius: var(--bo-radius) var(--bo-radius) 0 0;
+  font-size: 13px;
+}
+
+.tab:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tab[data-state='active'] {
+  opacity: 1;
+  background: var(--bo-surface);
+  color: var(--bo-text);
+  font-weight: 600;
+}
+
+.panel {
+  display: flex;
+  align-items: stretch;
+  min-height: 84px;
+  padding: 6px 8px 2px;
+  overflow-x: auto;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  padding: 0 10px;
+  border-right: 1px solid var(--bo-border);
+}
+
+.group:last-child {
+  border-right: 0;
+}
+
+.groupItems {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  flex: 1;
+}
+
+.groupLabel {
+  text-align: center;
+  color: var(--bo-text-muted);
+  font-size: 11px;
+  padding: 2px 0;
+  white-space: nowrap;
+}
+
+.button {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  min-width: 56px;
+  max-width: 84px;
+  padding: 6px 6px 4px;
+  border-radius: var(--bo-radius);
+  cursor: pointer;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--bo-text);
+}
+
+.button.small {
+  flex-direction: row;
+  min-width: 0;
+  max-width: none;
+  padding: 5px 6px;
+}
+
+.button:hover:not([aria-disabled='true']) {
+  background: var(--bo-hover);
+}
+
+.button[aria-pressed='true'] {
+  background: var(--bo-active);
+}
+
+.button[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.icon {
+  display: flex;
+  color: var(--bo-brand);
+}
+
+[data-theme='dark'] .icon {
+  color: var(--bo-accent);
+}
+
+.tooltip {
+  background: var(--bo-text);
+  color: var(--bo-surface);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  z-index: 50;
+}

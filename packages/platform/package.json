@@ -1,0 +1,27 @@
+{
+  "name": "@blueoffice/platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Platform Abstraction Layer: one API for web (WASM) and desktop (Tauri).",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./web": "./src/web/index.ts",
+    "./desktop": "./src/desktop/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@blueoffice/engine-wasm": "workspace:*",
+    "@tauri-apps/api": "^2.12.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

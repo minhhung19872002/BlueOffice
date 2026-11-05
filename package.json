@@ -1,0 +1,34 @@
+{
+  "name": "blueoffice",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "sync:assets": "node scripts/sync-assets.mjs",
+    "dev": "pnpm --filter @blueoffice/web dev",
+    "build": "pnpm build:wasm && pnpm --filter @blueoffice/web build",
+    "desktop:dev": "pnpm --filter @blueoffice/desktop tauri dev",
+    "desktop:build": "pnpm --filter @blueoffice/desktop tauri build",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "pnpm -r --filter=!@blueoffice/e2e test",
+    "test:e2e": "pnpm --filter @blueoffice/e2e test",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "license-check": "node scripts/license-check.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "license-checker-rseidelsohn": "^5.0.1",
+    "prettier": "^3.9.10",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.1"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "@blueoffice/engine-wasm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Generated wasm-bindgen output of crates/bo-wasm (run `pnpm build:wasm`).",
+  "exports": {
+    ".": "./pkg/bo_wasm.js",
+    "./wasm": "./pkg/bo_wasm_bg.wasm"
+  },
+  "types": "./pkg/bo_wasm.d.ts",
+  "scripts": {
+    "typecheck": "node -e \"process.exit(require('fs').existsSync('pkg/bo_wasm.js')?0:(console.error('run pnpm build:wasm'),1))\""
+  }
+}

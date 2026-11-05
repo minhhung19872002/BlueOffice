@@ -1,0 +1,103 @@
+{
+  "app": {
+    "suite": "BlueOffice",
+    "write": "BlueWrite",
+    "sheet": "BlueSheet",
+    "slide": "BlueSlide",
+    "untitled": "Tài liệu chưa đặt tên"
+  },
+  "ribbon": {
+    "tabs": {
+      "file": "Tệp",
+      "home": "Trang đầu",
+      "insert": "Chèn",
+      "layout": "Bố cục",
+      "view": "Xem"
+    },
+    "groups": {
+      "document": "Tài liệu",
+      "output": "Xuất bản",
+      "clipboard": "Bộ nhớ tạm",
+      "font": "Phông chữ",
+      "paragraph": "Đoạn văn",
+      "insertObjects": "Đối tượng",
+      "pages": "Trang",
+      "pageSetup": "Thiết lập trang",
+      "zoom": "Thu phóng",
+      "appearance": "Giao diện"
+    },
+    "comingLater": "Sẽ có ở phiên bản sau"
+  },
+  "commands": {
+    "file": {
+      "open": "Mở tệp",
+      "openSample": "Tài liệu mẫu",
+      "exportPdf": "Xuất PDF",
+      "print": "In"
+    },
+    "edit": {
+      "paste": "Dán",
+      "copy": "Sao chép",
+      "cut": "Cắt"
+    },
+    "format": {
+      "bold": "Đậm",
+      "italic": "Nghiêng",
+      "underline": "Gạch chân",
+      "alignLeft": "Căn trái",
+      "alignCenter": "Căn giữa",
+      "alignRight": "Căn phải",
+      "justify": "Căn đều"
+    },
+    "insert": {
+      "table": "Bảng",
+      "image": "Ảnh",
+      "pageBreak": "Ngắt trang"
+    },
+    "layout": {
+      "margins": "Lề",
+      "orientation": "Hướng giấy",
+      "size": "Khổ giấy"
+    },
+    "view": {
+      "zoomIn": "Phóng to",
+      "zoomOut": "Thu nhỏ",
+      "zoomReset": "100%",
+      "fitWidth": "Vừa chiều rộng",
+      "toggleTheme": "Sáng / Tối",
+      "toggleLanguage": "English"
+    }
+  },
+  "status": {
+    "page": "Trang {{current}}/{{total}}",
+    "words": "{{count}} từ",
+    "zoom": "{{value}}%",
+    "engine": "Lõi: {{backend}}",
+    "ready": "Sẵn sàng",
+    "loading": "Đang mở…",
+    "exporting": "Đang xuất PDF…",
+    "saved": "Đã lưu {{name}}"
+  },
+  "start": {
+    "title": "Chào mừng đến với BlueWrite",
+    "subtitle": "Mở tài liệu .docx để xem — chỉnh sửa sẽ có ở Phase 2.",
+    "open": "Mở tệp từ máy",
+    "sample": "Mở tài liệu mẫu",
+    "recent": "Gần đây",
+    "noRecent": "Chưa có tệp nào"
+  },
+  "host": {
+    "share": "Chia sẻ",
+    "close": "Đóng"
+  },
+  "errors": {
+    "open": "Không mở được tệp: {{message}}",
+    "export": "Không xuất được PDF: {{message}}",
+    "engine": "Không khởi động được lõi xử lý: {{message}}"
+  },
+  "placeholder": {
+    "sheet": "BlueSheet (bảng tính) sẽ được phát triển ở Phase 3.",
+    "slide": "BlueSlide (trình chiếu) sẽ được phát triển ở Phase 4.",
+    "back": "Về BlueWrite"
+  }
+}

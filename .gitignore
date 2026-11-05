@@ -18,3 +18,5 @@
 Thumbs.db
 .vs/
 .idea/
+/apps/*/public/fonts/
+/apps/*/public/samples/

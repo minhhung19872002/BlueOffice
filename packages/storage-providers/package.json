@@ -1,0 +1,23 @@
+{
+  "name": "@blueoffice/storage-providers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DocumentStorage implementations (Local now; BlueOfficeServer, BlueDrive, WOPI later).",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@blueoffice/platform": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

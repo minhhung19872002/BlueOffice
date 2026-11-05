@@ -1,0 +1,17 @@
+{
+  "comment": "Load order defines face ids and MUST match crates/bo-engine/src/bundled.rs.",
+  "fonts": [
+    "Tinos-Regular.ttf",
+    "Tinos-Bold.ttf",
+    "Tinos-Italic.ttf",
+    "Tinos-BoldItalic.ttf",
+    "LiberationSans-Regular.ttf",
+    "LiberationSans-Bold.ttf",
+    "LiberationSans-Italic.ttf",
+    "LiberationSans-BoldItalic.ttf",
+    "Carlito-Regular.ttf",
+    "Carlito-Bold.ttf",
+    "Carlito-Italic.ttf",
+    "Carlito-BoldItalic.ttf"
+  ]
+}

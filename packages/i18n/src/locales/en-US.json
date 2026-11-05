@@ -1,0 +1,103 @@
+{
+  "app": {
+    "suite": "BlueOffice",
+    "write": "BlueWrite",
+    "sheet": "BlueSheet",
+    "slide": "BlueSlide",
+    "untitled": "Untitled document"
+  },
+  "ribbon": {
+    "tabs": {
+      "file": "File",
+      "home": "Home",
+      "insert": "Insert",
+      "layout": "Layout",
+      "view": "View"
+    },
+    "groups": {
+      "document": "Document",
+      "output": "Output",
+      "clipboard": "Clipboard",
+      "font": "Font",
+      "paragraph": "Paragraph",
+      "insertObjects": "Objects",
+      "pages": "Pages",
+      "pageSetup": "Page setup",
+      "zoom": "Zoom",
+      "appearance": "Appearance"
+    },
+    "comingLater": "Coming in a later release"
+  },
+  "commands": {
+    "file": {
+      "open": "Open file",
+      "openSample": "Sample document",
+      "exportPdf": "Export PDF",
+      "print": "Print"
+    },
+    "edit": {
+      "paste": "Paste",
+      "copy": "Copy",
+      "cut": "Cut"
+    },
+    "format": {
+      "bold": "Bold",
+      "italic": "Italic",
+      "underline": "Underline",
+      "alignLeft": "Align left",
+      "alignCenter": "Center",
+      "alignRight": "Align right",
+      "justify": "Justify"
+    },
+    "insert": {
+      "table": "Table",
+      "image": "Picture",
+      "pageBreak": "Page break"
+    },
+    "layout": {
+      "margins": "Margins",
+      "orientation": "Orientation",
+      "size": "Size"
+    },
+    "view": {
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "zoomReset": "100%",
+      "fitWidth": "Fit width",
+      "toggleTheme": "Light / Dark",
+      "toggleLanguage": "Tiếng Việt"
+    }
+  },
+  "status": {
+    "page": "Page {{current}} of {{total}}",
+    "words": "{{count}} words",
+    "zoom": "{{value}}%",
+    "engine": "Engine: {{backend}}",
+    "ready": "Ready",
+    "loading": "Opening…",
+    "exporting": "Exporting PDF…",
+    "saved": "Saved {{name}}"
+  },
+  "start": {
+    "title": "Welcome to BlueWrite",
+    "subtitle": "Open a .docx document to view it — editing arrives in Phase 2.",
+    "open": "Open a file",
+    "sample": "Open the sample document",
+    "recent": "Recent",
+    "noRecent": "No files yet"
+  },
+  "host": {
+    "share": "Share",
+    "close": "Close"
+  },
+  "errors": {
+    "open": "Could not open the file: {{message}}",
+    "export": "Could not export PDF: {{message}}",
+    "engine": "Could not start the engine: {{message}}"
+  },
+  "placeholder": {
+    "sheet": "BlueSheet (spreadsheets) is developed in Phase 3.",
+    "slide": "BlueSlide (presentations) is developed in Phase 4.",
+    "back": "Back to BlueWrite"
+  }
+}

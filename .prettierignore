@@ -1,0 +1,14 @@
+target
+pnpm-lock.yaml
+**/pkg
+**/dist
+**/node_modules
+apps/server
+apps/desktop/src-tauri
+tests/e2e/test-results
+tests/e2e/playwright-report
+crates
+docs
+*.md
+BlueOffice-PROMPT.md
+assets/fonts/*.json

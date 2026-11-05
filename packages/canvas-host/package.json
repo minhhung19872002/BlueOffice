@@ -1,0 +1,24 @@
+{
+  "name": "@blueoffice/canvas-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Draws engine display lists on <canvas>, virtualized page view, zoom, IME input.",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@blueoffice/platform": "workspace:*"
+  },
+  "devDependencies": {
+    "happy-dom": "^21.0.4",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

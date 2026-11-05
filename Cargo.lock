@@ -312,6 +312,10 @@ dependencies = [
 [[package]]
 name = "bo-formula"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+ "proptest",
+]
 
 [[package]]
 name = "bo-layout"

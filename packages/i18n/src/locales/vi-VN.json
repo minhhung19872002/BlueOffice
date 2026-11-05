@@ -6,6 +6,11 @@
     "slide": "BlueSlide",
     "untitled": "Tài liệu chưa đặt tên"
   },
+  "appTitle": {
+    "doc": "BlueDoc – Soạn thảo văn bản",
+    "sheet": "BlueSheet – Bảng tính",
+    "slide": "BlueSlide – Trình chiếu"
+  },
   "ribbon": {
     "tabs": {
       "file": "Tệp",

@@ -481,6 +481,11 @@ function EditorInner({
 
   const status = state.status;
   const appName = t(`app.${app}`);
+  const appTitle = t(`appTitle.${app}`);
+  // Window title before a document is opened: the product's display name (ADR-0006).
+  useEffect(() => {
+    if (!state.doc) platform.window.setTitle(appTitle);
+  }, [platform, appTitle, state.doc]);
   return (
     <div
       className={`bo-root ${styles.root}`}

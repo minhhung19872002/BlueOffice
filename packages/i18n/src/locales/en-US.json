@@ -6,6 +6,11 @@
     "slide": "BlueSlide",
     "untitled": "Untitled document"
   },
+  "appTitle": {
+    "doc": "BlueDoc – Documents",
+    "sheet": "BlueSheet – Spreadsheets",
+    "slide": "BlueSlide – Presentations"
+  },
   "ribbon": {
     "tabs": {
       "file": "File",

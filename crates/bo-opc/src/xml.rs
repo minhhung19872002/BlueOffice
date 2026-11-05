@@ -78,6 +78,7 @@ pub fn unescape(s: &str) -> String {
 /// A depth-limited pull reader over an in-memory XML buffer.
 pub struct XmlReader<'a> {
     inner: Reader<&'a [u8]>,
+    data: &'a [u8],
     depth: usize,
     part: String,
 }
@@ -89,9 +90,22 @@ impl<'a> XmlReader<'a> {
         inner.config_mut().trim_text(false);
         XmlReader {
             inner,
+            data,
             depth: 0,
             part: part.to_owned(),
         }
+    }
+
+    /// Byte offset just after the last event read.
+    pub fn pos(&self) -> usize {
+        usize::try_from(self.inner.buffer_position()).unwrap_or(usize::MAX)
+    }
+
+    /// Source text between two offsets (lossy for invalid UTF-8).
+    pub fn slice(&self, start: usize, end: usize) -> String {
+        let end = end.min(self.data.len());
+        let start = start.min(end);
+        String::from_utf8_lossy(&self.data[start..end]).into_owned()
     }
 
     /// Current element depth (number of open elements).

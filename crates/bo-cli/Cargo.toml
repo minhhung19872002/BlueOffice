@@ -1,0 +1,21 @@
+[package]
+name = "bo-cli"
+description = "BlueOffice command-line tool: render, convert, dump, pack/unpack, bench."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "bo-cli"
+path = "src/main.rs"
+
+[dependencies]
+bo-engine = { workspace = true, features = ["bundled-fonts"] }
+bo-model.workspace = true
+bo-docx.workspace = true
+bo-opc.workspace = true
+clap.workspace = true
+
+[lints]
+workspace = true

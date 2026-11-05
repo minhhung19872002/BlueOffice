@@ -1,0 +1,12 @@
+[package]
+name = "bo-edit"
+description = "Editing commands, selection, transactions and undo/redo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

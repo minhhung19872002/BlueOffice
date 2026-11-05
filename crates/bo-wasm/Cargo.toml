@@ -1,0 +1,17 @@
+[package]
+name = "bo-wasm"
+description = "wasm-bindgen bindings of bo-engine for the web editor."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bo-engine.workspace = true
+wasm-bindgen.workspace = true
+
+[lints]
+workspace = true

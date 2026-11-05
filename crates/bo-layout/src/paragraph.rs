@@ -383,6 +383,7 @@ fn layout_uncached(
                     id: g.glyph_id,
                     x: gx + g.x_offset as f32 * scale,
                     y: -(g.y_offset as f32) * scale,
+                    cluster: g.cluster,
                 });
                 gx += g.x_advance as f32 * scale;
                 if justify_here {
@@ -403,7 +404,12 @@ fn layout_uncached(
                     && (last.x + last.width - frag_x).abs() < 0.001
                 {
                     let dx = frag_x - last.x;
-                    last.glyphs.extend(glyphs.into_iter().map(|g| GlyphPos { x: g.x + dx, ..g }));
+                    let base = last.text.len() as u32;
+                    last.glyphs.extend(glyphs.into_iter().map(|g| GlyphPos {
+                        x: g.x + dx,
+                        cluster: g.cluster + base,
+                        ..g
+                    }));
                     last.width = dx + gx;
                     last.text.push_str(&p.text);
                     continue;

@@ -52,6 +52,8 @@ pub struct GlyphPos {
     pub id: u16,
     pub x: f32,
     pub y: f32,
+    /// Byte offset of the glyph's cluster in [Fragment::text].
+    pub cluster: u32,
 }
 
 impl LayoutDocument {

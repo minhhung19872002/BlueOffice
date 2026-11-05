@@ -15,6 +15,8 @@ mod outline;
 
 pub use manager::{FaceId, FaceInfo, FontManager, ShapedGlyph};
 pub use outline::{outline_svg_path, PathCmd};
+/// Re-export of the font parser used by this crate.
+pub use ttf_parser as ttf;
 
 /// Normalize text to Unicode NFC (Vietnamese text often arrives decomposed).
 pub fn nfc(s: &str) -> String {

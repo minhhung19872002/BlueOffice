@@ -1,0 +1,17 @@
+[package]
+name = "bo-render"
+description = "Backend-independent display list built from layout results."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bo-layout.workspace = true
+bo-model.workspace = true
+bo-text.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

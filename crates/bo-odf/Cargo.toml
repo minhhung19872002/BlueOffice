@@ -1,0 +1,12 @@
+[package]
+name = "bo-odf"
+description = "OpenDocument ("
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -20,7 +20,7 @@
 //! charts; no font or proprietary converter was consulted.
 #![forbid(unsafe_code)]
 
-mod cp1252;
+pub mod cp1252;
 mod tables;
 
 use bo_model::{Document, RunContent};

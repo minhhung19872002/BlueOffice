@@ -1,0 +1,17 @@
+[package]
+name = "bo-encoding"
+description = "Legacy Vietnamese encodings (TCVN3/ABC, VNI-Windows) to Unicode NFC."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bo-model.workspace = true
+
+[dev-dependencies]
+unicode-normalization.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

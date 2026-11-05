@@ -1,5 +1,25 @@
-//! DrawingML: shapes, preset geometry, themes and charts. Planned for Phases 2-4.
+//! DrawingML (ECMA-376 Part 1, §20.1 and §21.1): shared by the presentation,
+//! spreadsheet and word-processing crates.
 //!
-//! This crate is a placeholder that reserves its place in the workspace layout
-//! (prompt section 4). It intentionally exposes no API yet.
+//! * [`dom`] — small DOM over `quick-xml` with helpers that keep unknown
+//!   children in place for lossless round trips.
+//! * [`color`] — colour models and transforms (§20.1.2.3) and their resolution.
+//! * [`props`], [`text`], [`table`] — readers/writers for shape properties,
+//!   text bodies and tables, mapping to [`bo_model::slide`].
+//! * [`theme`] — theme parts (§20.1.6).
+//! * [`geom`], [`presets`] — guide formulas, path evaluation and the preset
+//!   shape definitions (§20.1.9).
 #![forbid(unsafe_code)]
+
+pub mod color;
+pub mod dom;
+pub mod geom;
+pub mod presets;
+pub mod props;
+pub mod table;
+pub mod text;
+pub mod theme;
+
+pub use color::{resolve as resolve_color, ColorContext, Rgba};
+pub use geom::{evaluate as evaluate_geometry, Evaluated, FillMode, Seg, ShapePath};
+pub use presets::{preset, preset_names};

@@ -8,6 +8,7 @@
 //! sections with page setup, paragraphs and runs with basic formatting.
 #![forbid(unsafe_code)]
 
+pub mod slide;
 pub mod units;
 pub mod write;
 

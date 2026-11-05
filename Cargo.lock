@@ -287,6 +287,11 @@ dependencies = [
 [[package]]
 name = "bo-drawingml"
 version = "0.1.0"
+dependencies = [
+ "bo-model",
+ "bo-opc",
+ "quick-xml",
+]
 
 [[package]]
 name = "bo-edit"

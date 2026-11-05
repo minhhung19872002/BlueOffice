@@ -1,0 +1,18 @@
+[package]
+name = "bo-opc"
+description = "Open Packaging Conventions (ECMA-376 Part 2) reader/writer that preserves unknown parts."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+quick-xml.workspace = true
+zip.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,36 @@
+---
+source: crates/bo-layout/tests/layout.rs
+expression: summary
+---
+[
+  [
+    "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM",
+    567,
+    1895
+  ],
+  [
+    "Độc lập - Tự do - Hạnh phúc",
+    716,
+    2437
+  ],
+  [
+    "Căn cứ Luật Tổ chức Chính phủ ngày 19 tháng 6 năm 2015; Căn cứ Luật sửa đổi, ",
+    866,
+    1134
+  ],
+  [
+    "bổ sung một số điều của Luật Tổ chức Chính phủ và Luật Tổ chức chính quyền địa ",
+    1015,
+    851
+  ],
+  [
+    "phương ngày 22 tháng 11 năm 2019; Theo đề nghị của Bộ trưởng Bộ Nội vụ; Chính phủ ",
+    1165,
+    851
+  ],
+  [
+    "ban hành Nghị định về công tác văn thư.",
+    1314,
+    851
+  ]
+]

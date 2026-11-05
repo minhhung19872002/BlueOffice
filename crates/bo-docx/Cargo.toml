@@ -1,0 +1,19 @@
+[package]
+name = "bo-docx"
+description = "WordprocessingML (.docx) reader/writer for the BlueOffice document model."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bo-model.workspace = true
+bo-opc.workspace = true
+quick-xml.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

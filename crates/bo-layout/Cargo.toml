@@ -1,0 +1,28 @@
+[package]
+name = "bo-layout"
+description = "Word-processing layout: line breaking, alignment, spacing and pagination."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bo-model.workspace = true
+bo-text.workspace = true
+unicode-linebreak.workspace = true
+unicode-segmentation.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+insta.workspace = true
+serde_json.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "layout"
+harness = false
+
+[lints]
+workspace = true

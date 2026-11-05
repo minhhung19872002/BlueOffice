@@ -1,0 +1,16 @@
+[package]
+name = "bo-text"
+description = "Font management, metric-compatible fallback and text shaping for BlueOffice."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+ttf-parser.workspace = true
+rustybuzz.workspace = true
+unicode-normalization.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

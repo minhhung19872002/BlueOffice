@@ -1,0 +1,13 @@
+[package]
+name = "bo-model"
+description = "BlueOffice document model: documents, sections, paragraphs, runs and units."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,68 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "LicenseRef-BlueOffice-Proprietary"
+repository = "https://github.com/bluestar/blueoffice"
+rust-version = "1.85"
+
+[workspace.dependencies]
+bo-model = { path = "crates/bo-model" }
+bo-opc = { path = "crates/bo-opc" }
+bo-docx = { path = "crates/bo-docx" }
+bo-text = { path = "crates/bo-text" }
+bo-layout = { path = "crates/bo-layout" }
+bo-render = { path = "crates/bo-render" }
+bo-raster = { path = "crates/bo-raster" }
+bo-pdf = { path = "crates/bo-pdf" }
+bo-engine = { path = "crates/bo-engine" }
+
+quick-xml = "0.42"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+ttf-parser = "0.25"
+rustybuzz = "0.20"
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "png-format"] }
+pdf-writer = "0.15"
+subsetter = "0.2"
+unicode-linebreak = "0.1"
+unicode-normalization = "0.1"
+unicode-segmentation = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wasm-bindgen = "=0.2.130"
+clap = { version = "4", features = ["derive"] }
+insta = { version = "1", features = ["json"] }
+proptest = "1"
+criterion = { version = "0.8", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+float_cmp = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+
+[profile.release.package.bo-wasm]
+opt-level = "s"
+
+[profile.dev.package."*"]
+opt-level = 2

@@ -1,12 +1,21 @@
 [package]
 name = "bo-binary"
-description = "Legacy binary formats ("
+description = "Legacy binary formats (.doc, .xls, .xlsb, .ppt) readers per [MS-DOC]/[MS-XLS]/[MS-XLSB]/[MS-PPT]."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
 
 [dependencies]
+bo-model.workspace = true
+bo-opc.workspace = true
+bo-encoding = { path = "../bo-encoding" }
+cfb = "0.14"
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+zip.workspace = true
 
 [lints]
 workspace = true

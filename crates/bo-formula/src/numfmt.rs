@@ -253,7 +253,146 @@ fn group_thousands(digits: &str) -> String {
     out
 }
 
+/// Best rational approximation `n/d` of `x` in `[0, 1]` with `d <= max_den`.
+fn best_fraction(x: f64, max_den: u64) -> (u64, u64) {
+    let mut best = (0u64, 1u64);
+    let mut best_err = f64::INFINITY;
+    for d in 1..=max_den.max(1) {
+        let n = (x * d as f64).round();
+        let err = (x - n / d as f64).abs();
+        if err < best_err - 1e-12 {
+            best_err = err;
+            best = (n as u64, d);
+        }
+    }
+    best
+}
+
+fn pad_left(s: &str, width: usize) -> String {
+    let n = s.chars().count();
+    if n >= width {
+        s.to_owned()
+    } else {
+        " ".repeat(width - n) + s
+    }
+}
+
+fn pad_right(s: &str, width: usize) -> String {
+    let n = s.chars().count();
+    if n >= width {
+        s.to_owned()
+    } else {
+        s.to_owned() + &" ".repeat(width - n)
+    }
+}
+
+/// Fraction formats such as `# ?/?`, `# ??/??`, `?/4` (ECMA-376 Part 1, §18.8.31:
+/// `/` between digit placeholders; a literal denominator fixes the denominator).
+fn format_fraction(x: f64, toks: &[Tok], auto_minus: bool) -> Option<String> {
+    let is_lit_digit = |t: &Tok| matches!(t, Tok::Lit(s) if s.len() == 1 && s.as_bytes()[0].is_ascii_digit());
+    let slash = toks.iter().enumerate().position(|(i, t)| {
+        *t == Tok::Lit("/".into())
+            && i > 0
+            && matches!(toks[i - 1], Tok::Digit(_))
+            && toks.get(i + 1).is_some_and(|n| matches!(n, Tok::Digit(_)) || is_lit_digit(n))
+    })?;
+    let mut num_start = slash;
+    while num_start > 0 && matches!(toks[num_start - 1], Tok::Digit(_)) {
+        num_start -= 1;
+    }
+    let num_width = slash - num_start;
+    let first_digit = toks.iter().position(|t| matches!(t, Tok::Digit(_)))?;
+    let int_toks: Vec<char> = toks[first_digit..num_start]
+        .iter()
+        .filter_map(|t| if let Tok::Digit(c) = t { Some(*c) } else { None })
+        .collect();
+    let has_int = !int_toks.is_empty();
+    let mut den_end = slash + 1;
+    let (max_den, fixed_den, den_width) = if matches!(toks[slash + 1], Tok::Digit(_)) {
+        while den_end < toks.len() && matches!(toks[den_end], Tok::Digit(_)) {
+            den_end += 1;
+        }
+        let w = den_end - slash - 1;
+        (10u64.pow(w.min(4) as u32) - 1, None, w)
+    } else {
+        let mut s = String::new();
+        while den_end < toks.len() && is_lit_digit(&toks[den_end]) {
+            if let Tok::Lit(l) = &toks[den_end] {
+                s.push_str(l);
+            }
+            den_end += 1;
+        }
+        let d: u64 = s.parse().ok().filter(|d| *d > 0)?;
+        (d, Some(d), s.len())
+    };
+    let negative = x < 0.0;
+    let a = x.abs();
+    let (mut int, frac) = if has_int { (a.trunc(), a.fract()) } else { (0.0, a) };
+    let (mut n, d) = match fixed_den {
+        Some(d) => ((frac * d as f64).round() as u64, d),
+        None if has_int => best_fraction(frac, max_den),
+        None => {
+            // Improper fraction: approximate the whole value.
+            let (bn, bd) = best_fraction(frac.fract(), max_den);
+            (bn + frac.trunc() as u64 * bd, bd)
+        }
+    };
+    if has_int && n == d {
+        int += 1.0;
+        n = 0;
+    }
+    let mut out = String::new();
+    if negative && auto_minus && (int > 0.0 || n > 0) {
+        out.push('-');
+    }
+    for t in &toks[..first_digit] {
+        if let Tok::Lit(s) = t {
+            out.push_str(s);
+        }
+    }
+    if has_int {
+        let min_int = int_toks.iter().filter(|c| **c == '0').count();
+        let mut s = if int == 0.0 { String::new() } else { format!("{int:.0}") };
+        while s.len() < min_int {
+            s.insert(0, '0');
+        }
+        let width = int_toks.iter().filter(|c| **c != '#').count();
+        out.push_str(&pad_left(&s, width));
+    }
+    let mut frac_str = String::new();
+    for t in &toks[first_digit..num_start] {
+        if let Tok::Lit(s) = t {
+            frac_str.push_str(s);
+        }
+    }
+    let between = frac_str.clone();
+    frac_str.push_str(&pad_left(&n.to_string(), num_width));
+    frac_str.push('/');
+    frac_str.push_str(&pad_right(&d.to_string(), den_width));
+    if has_int && n == 0 {
+        if int == 0.0 {
+            out.push('0');
+        }
+        out.push_str(&" ".repeat(frac_str.chars().count()));
+    } else if has_int && int == 0.0 {
+        out.push_str(&frac_str[between.len()..]);
+    } else {
+        out.push_str(&frac_str);
+    }
+    for t in &toks[den_end..] {
+        match t {
+            Tok::Lit(s) => out.push_str(s),
+            Tok::Percent => out.push('%'),
+            _ => {}
+        }
+    }
+    Some(out)
+}
+
 fn format_numeric(x: f64, toks: &[Tok], auto_minus: bool) -> String {
+    if let Some(s) = format_fraction(x, toks, auto_minus) {
+        return s;
+    }
     let mut x = x;
     let first_digit = toks.iter().position(|t| matches!(t, Tok::Digit(_)));
     let last_digit = toks.iter().rposition(|t| matches!(t, Tok::Digit(_)));
@@ -566,6 +705,18 @@ mod tests {
         assert_eq!(format_number(1.5, "#.##", s), "1.5");
         assert_eq!(format_number(1_234_567.0, "#,##0,", s), "1,235");
         assert_eq!(format_number(3.0, "\"$\"0.00", s), "$3.00");
+    }
+
+    #[test]
+    fn fraction_formats() {
+        let s = DateSystem::Date1900;
+        assert_eq!(format_number(4.34, "# ?/?", s), "4 1/3");
+        assert_eq!(format_number(1.25, "# ?/4", s), "1 1/4");
+        assert_eq!(format_number(0.5, "?/4", s), "2/4");
+        assert_eq!(format_number(5.75, "?/?", s), "23/4");
+        assert_eq!(format_number(3.0, "# ?/?", s), "3    ");
+        assert_eq!(format_number(-1.5, "# ?/?", s), "-1 1/2");
+        assert_eq!(format_number(0.3125, "# ??/??", s), " 5/16");
     }
 
     #[test]

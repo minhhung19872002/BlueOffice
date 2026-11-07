@@ -108,7 +108,8 @@ public sealed class HostIntegrationTests : IAsyncLifetime
     public async Task ListsTheOriginsAllowedToEmbedTheEditor()
     {
         var body = await _app.CreateClient().GetFromJsonAsync<JsonElement>(new Uri("/api/hosting/origins", UriKind.Relative));
-        Assert.Equal(["https://drive.mock"], body.GetProperty("origins").EnumerateArray().Select(o => o.GetString()).ToArray());
+        var origins = body.GetProperty("origins").EnumerateArray().Select(o => o.GetString() ?? "").ToList();
+        Assert.Equal(new List<string> { "https://drive.mock" }, origins);
     }
 
     [Fact]

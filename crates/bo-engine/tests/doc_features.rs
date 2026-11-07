@@ -164,6 +164,99 @@ fn footnotes_in_a_read_document() {
     assert!(f.page_json(0).unwrap().contains("Ghi"));
 }
 
+fn note_runs(e: &Engine, id: i32) -> Vec<bo_model::Run> {
+    doc(e).footnotes[&id]
+        .iter()
+        .filter_map(Block::as_paragraph)
+        .flat_map(|p| p.runs.clone())
+        .collect()
+}
+
+#[test]
+fn footnote_edited_in_place_on_the_page() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Văn bản"}"#);
+    // Inserting a footnote puts the caret into it at the page bottom.
+    let r = cmd(&mut e, r#"{"cmd":"insertNote","endnote":false,"text":""}"#);
+    assert_eq!(r["story"]["kind"], "footnote");
+    let id = r["story"]["note"].as_i64().unwrap() as i32;
+    let caret_y = r["caret"]["y"].as_f64().unwrap();
+    assert!(caret_y > 600.0, "caret in the footnote area: {caret_y}");
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Chú thích đậm"}"#);
+    // Rich text: bold the last word (selection inside the note).
+    cmd(
+        &mut e,
+        r#"{"cmd":"move","motion":"wordLeft","extend":true}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"formatText","format":{"kind":"bold"}}"#);
+    assert!(!r["rects"].as_array().unwrap().is_empty());
+    assert!(e.page_json(0).unwrap().contains("thích"));
+    // A click in the body closes the note: one undoable change.
+    let r = cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":80}"#);
+    assert!(r.get("story").is_none());
+    let runs = note_runs(&e, id);
+    assert!(runs
+        .iter()
+        .any(|r| r.props.bold == Some(true) && r.plain_text() == "đậm"));
+    // A single click on the footnote line edits it again.
+    let r = cmd(
+        &mut e,
+        &format!(r#"{{"cmd":"click","page":0,"x":200,"y":{caret_y}}}"#),
+    );
+    assert_eq!(r["story"]["note"], id);
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"!"}"#);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    let f = reopen(&e);
+    let text: String = note_runs(&f, *doc(&f).footnotes.keys().max().unwrap())
+        .iter()
+        .map(bo_model::Run::plain_text)
+        .collect();
+    assert!(text.ends_with("Chú thích đậm!"), "{text}");
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert!(!note_runs(&e, id)
+        .iter()
+        .any(|r| r.plain_text().contains('!')));
+    // Deleting the reference mark deletes the note; undo brings it back.
+    cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":80}"#);
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"deleteBackward"}"#);
+    assert!(!doc(&e).footnotes.contains_key(&id));
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert!(doc(&e).footnotes.contains_key(&id));
+}
+
+#[test]
+fn footnote_options_and_copy_paste() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Một"}"#);
+    cmd(&mut e, r#"{"cmd":"insertNote","text":"Ghi chú"}"#);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"setNoteOptions","options":{"restart":"eachPage","pos":"beneathText","fmt":"lowerLetter"}}"#,
+    );
+    assert_eq!(r["format"]["section"]["footnoteRestart"], "eachPage");
+    let f = reopen(&e);
+    let np = &doc(&f).sections[0].footnote_pr;
+    assert_eq!(np.restart, Some(bo_model::NoteRestart::EachPage));
+    assert_eq!(np.pos, Some(bo_model::NotePos::BeneathText));
+    assert_eq!(np.fmt, Some(bo_model::NumFormat::LowerLetter));
+    // Copying the reference carries the note: pasting creates a second note.
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"move","motion":"left","extend":true}"#);
+    let r = cmd(&mut e, r#"{"cmd":"copy"}"#);
+    let internal = r["clip"]["internal"].as_str().unwrap().to_owned();
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    let paste = serde_json::json!({"cmd": "paste", "internal": internal}).to_string();
+    cmd(&mut e, &paste);
+    assert_eq!(doc(&e).footnotes.len(), 2);
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(doc(&e).footnotes.len(), 1);
+}
+
 #[test]
 fn header_link_to_previous_per_section() {
     let mut e = Engine::with_bundled_fonts();
@@ -172,7 +265,10 @@ fn header_link_to_previous_per_section() {
     cmd(&mut e, r#"{"cmd":"insertSectionBreak","kind":"nextPage"}"#);
     cmd(&mut e, r#"{"cmd":"insertText","text":"Hai"}"#);
     // Header of section 1 (page 0).
-    cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":30,"count":2}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"click","page":0,"x":100,"y":30,"count":2}"#,
+    );
     cmd(&mut e, r#"{"cmd":"insertText","text":"Đầu A"}"#);
     // Section 2 is linked: same header, editing it changes section 1's (§17.10.5).
     let r = cmd(

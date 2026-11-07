@@ -218,10 +218,9 @@ export interface SectionState {
   columnSpace: number;
   titlePage: boolean;
   evenAndOdd: boolean;
-  /** Linked to the previous section's header/footer (§17.10.5). */
-  linked: boolean;
-  /** The section has a previous section to link to. */
-  canLink: boolean;
+  /** §17.11.19 numRestart / §17.11.21 pos of the section's footnotes. */
+  footnoteRestart?: NoteRestart;
+  footnotePos?: NotePos;
 }
 
 /** Page setup sent with `setPageSetup` (twips). */
@@ -253,14 +252,28 @@ export type TableEdit =
   | { kind: 'properties'; widthPct?: number | null; width?: number | null; align?: Alignment }
   | { kind: 'headerRow'; on: boolean };
 
-/** Open header/footer editor (mirrors `bo_engine::story::StoryState`). */
+/** §17.18.30 / §17.18.21 note placement. */
+export type NotePos = 'pageBottom' | 'beneathText' | 'sectEnd' | 'docEnd';
+/** §17.18.74 note numbering restart. */
+export type NoteRestart = 'continuous' | 'eachSect' | 'eachPage';
+
+/**
+ * Open header/footer or footnote/endnote editor, edited in place on the page
+ * (mirrors `bo_engine::story::StoryState`).
+ */
 export interface StoryState {
-  kind: 'header' | 'footer';
+  kind: 'header' | 'footer' | 'footnote' | 'endnote';
+  /** Id of the note being edited (`footnote` / `endnote`). */
+  note?: number;
   section: number;
   variant: 'default' | 'first' | 'even';
   page: number;
   titlePage: boolean;
   evenAndOdd: boolean;
+  /** Linked to the previous section's header/footer (§17.10.5). */
+  linked: boolean;
+  /** The section has a previous section to link to. */
+  canLink: boolean;
 }
 
 /** A footnote or endnote (mirrors `bo_edit::section::NoteInfo`). */
@@ -415,6 +428,18 @@ export type EditCommand =
   | { cmd: 'setPageSetup'; setup: PageSetupSpec; scope?: 'section' | 'document' }
   | { cmd: 'setHeaderOptions'; titlePage?: boolean; evenAndOdd?: boolean }
   | { cmd: 'setHeaderLink'; linked: boolean }
+  | { cmd: 'editNote'; endnote?: boolean; id: number }
+  | {
+      cmd: 'setNoteOptions';
+      endnote?: boolean;
+      options: {
+        pos?: NotePos;
+        fmt?: string;
+        start?: number;
+        restart?: NoteRestart;
+      };
+      scope?: 'section' | 'document';
+    }
   | { cmd: 'editHeaderFooter'; page: number; header: boolean }
   | { cmd: 'closeHeaderFooter' | 'notes' | 'clearFormatting' | 'fontList' }
   | { cmd: 'pickFormat' | 'applyFormat' | 'cancelFormat' }

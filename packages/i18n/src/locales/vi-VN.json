@@ -1045,6 +1045,17 @@
     "none": "Chưa có chú thích.",
     "footnote": "Chú thích cuối trang {{n}}",
     "endnote": "Chú thích cuối văn bản {{n}}",
-    "save": "Lưu"
+    "restart": "Đánh số",
+    "position": "Vị trí chú thích",
+    "goTo": "Sửa trên trang",
+    "restarts": {
+      "continuous": "Liên tục",
+      "eachSect": "Bắt đầu lại mỗi phần",
+      "eachPage": "Bắt đầu lại mỗi trang"
+    },
+    "positions": {
+      "pageBottom": "Cuối trang",
+      "beneathText": "Ngay dưới văn bản"
+    }
   }
 }

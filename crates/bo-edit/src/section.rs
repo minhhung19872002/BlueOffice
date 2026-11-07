@@ -9,8 +9,8 @@ use crate::para::{self, Atom};
 use crate::{effective_run, html, EditError, Op, Result, SectionState, Selection, Session};
 use bo_model::index::{body_paragraphs, para_at};
 use bo_model::{
-    Block, Columns, HalfPoints, PageSetup, ParaProps, Paragraph, Run, RunContent, RunProps, Twips,
-    Underline, VertAlign,
+    Block, Columns, HalfPoints, NotePos, NoteProps, NoteRestart, NumFormat, PageSetup, ParaProps,
+    Paragraph, Run, RunContent, RunProps, Twips, Underline, VertAlign,
 };
 use serde::{Deserialize, Serialize};
 
@@ -78,6 +78,24 @@ pub struct NoteInfo {
     pub text: String,
     /// Body paragraph holding the reference (when referenced).
     pub para: Option<usize>,
+}
+
+/// Footnote/endnote options sent by hosts (§17.11.11 footnotePr, §17.11.4 endnotePr).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteOptions {
+    /// §17.11.21 / §17.11.22 pos.
+    #[serde(default)]
+    pub pos: Option<NotePos>,
+    /// §17.11.17 numFmt (`ST_NumberFormat` name, e.g. `lowerRoman`).
+    #[serde(default)]
+    pub fmt: Option<String>,
+    /// §17.11.20 numStart.
+    #[serde(default)]
+    pub start: Option<u32>,
+    /// §17.11.19 numRestart.
+    #[serde(default)]
+    pub restart: Option<NoteRestart>,
 }
 
 /// Formatting picked by the Format Painter.
@@ -179,9 +197,64 @@ pub fn hf_source(doc: &bo_model::Document, si: usize, header: bool, v: HfVariant
 /// The variant of section `si` is linked to the previous section (no own reference).
 pub fn hf_linked(doc: &bo_model::Document, si: usize, header: bool, v: HfVariant) -> bool {
     si > 0
-        && doc.sections.get(si).is_some_and(|s| {
-            hf_slot(if header { &s.headers } else { &s.footers }, v).is_none()
-        })
+        && doc
+            .sections
+            .get(si)
+            .is_some_and(|s| hf_slot(if header { &s.headers } else { &s.footers }, v).is_none())
+}
+
+/// Note references (endnote?, id) in `blocks`, table cells included.
+pub fn note_refs(blocks: &[Block], out: &mut Vec<(bool, i32)>) {
+    for b in blocks {
+        match b {
+            Block::Paragraph(p) => {
+                for r in &p.runs {
+                    for c in &r.content {
+                        match c {
+                            RunContent::FootnoteRef(id) => out.push((false, *id)),
+                            RunContent::EndnoteRef(id) => out.push((true, *id)),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Block::Table(t) => {
+                for row in &t.rows {
+                    for cell in &row.cells {
+                        note_refs(&cell.blocks, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Point references to note `from` at note `to`.
+pub(crate) fn renumber_note_ref(blocks: &mut [Block], endnote: bool, from: i32, to: i32) {
+    for b in blocks {
+        match b {
+            Block::Paragraph(p) => {
+                for r in &mut p.runs {
+                    for c in &mut r.content {
+                        match c {
+                            RunContent::FootnoteRef(id) if !endnote && *id == from => *id = to,
+                            RunContent::EndnoteRef(id) if endnote && *id == from => *id = to,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Block::Table(t) => {
+                for row in &mut t.rows {
+                    for cell in &mut row.cells {
+                        renumber_note_ref(&mut cell.blocks, endnote, from, to);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Text of note blocks without the note mark.
@@ -276,7 +349,50 @@ impl Session {
             column_space: s.columns.space.0,
             title_page: s.title_page,
             even_and_odd: self.doc.even_and_odd_headers,
+            footnote_restart: s.footnote_pr.restart,
+            footnote_pos: s.footnote_pr.pos,
         }
+    }
+
+    /// Footnote (`endnote` false) or endnote numbering and placement of the caret's
+    /// section or every section (§17.11.11 footnotePr, §17.11.4 endnotePr; one undo step).
+    pub fn set_note_options(
+        &mut self,
+        endnote: bool,
+        spec: &NoteOptions,
+        scope: SetupScope,
+    ) -> Result<()> {
+        let current = self.section_state().index;
+        let targets: Vec<usize> = match scope {
+            SetupScope::Section => vec![current],
+            SetupScope::Document => (0..self.doc.sections.len()).collect(),
+        };
+        let np = NoteProps {
+            pos: spec.pos,
+            fmt: spec.fmt.as_deref().map(NumFormat::parse),
+            start: spec.start,
+            restart: spec.restart,
+        };
+        self.edit(|tx, sel| {
+            for si in targets {
+                let old = tx.doc.sections.get(si).cloned().ok_or(EditError::BadPath)?;
+                let mut new = old.clone();
+                if endnote {
+                    new.endnote_pr = np.clone();
+                } else {
+                    new.footnote_pr = np.clone();
+                }
+                if new != old {
+                    tx.push(Op::Sections {
+                        index: si,
+                        remove: vec![old],
+                        insert: vec![new],
+                    })?;
+                }
+            }
+            Ok(sel)
+        })?;
+        Ok(())
     }
 
     /// Apply a page setup to the caret's section or the whole document (one undo step).
@@ -526,6 +642,58 @@ impl Session {
             Ok(Selection::caret(tx.insert_atoms(at, vec![(props, c)])?))
         })?;
         Ok(id)
+    }
+
+    /// Content of a footnote or endnote.
+    pub fn note_blocks(&self, endnote: bool, id: i32) -> Option<&Vec<Block>> {
+        if endnote {
+            self.doc.endnotes.get(&id)
+        } else {
+            self.doc.footnotes.get(&id)
+        }
+    }
+
+    /// Replace the content of a note (one undo step; edited in place on the page).
+    pub fn set_note_blocks(&mut self, endnote: bool, id: i32, blocks: Vec<Block>) -> Result<()> {
+        let map = if endnote {
+            &self.doc.endnotes
+        } else {
+            &self.doc.footnotes
+        };
+        if !map.contains_key(&id) {
+            return Err(EditError::Unsupported(format!("no note {id}")));
+        }
+        if map.get(&id) == Some(&blocks) {
+            return Ok(());
+        }
+        let old_map = map.clone();
+        let mut new_map = old_map.clone();
+        new_map.insert(id, blocks);
+        self.edit(|tx, sel| {
+            tx.push(Op::Notes {
+                endnote,
+                old: old_map,
+                new: new_map,
+            })?;
+            Ok(sel)
+        })?;
+        Ok(())
+    }
+
+    /// Show `blocks` as the content of a note without recording history (live display
+    /// while the note is edited; [`Session::set_note_blocks`] records the change).
+    pub fn preview_note(&mut self, endnote: bool, id: i32, blocks: Vec<Block>) {
+        let map = if endnote {
+            &mut self.doc.endnotes
+        } else {
+            &mut self.doc.footnotes
+        };
+        if let Some(b) = map.get_mut(&id) {
+            *b = blocks;
+            self.version += 1;
+            // Not an op: the incremental layout must redo everything.
+            self.changes.mark_all();
+        }
     }
 
     /// Replace the text of a note (one paragraph per line, the note mark is kept).

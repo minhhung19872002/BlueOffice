@@ -695,6 +695,30 @@ impl Writer<'_> {
                 "<w:{el} xmlns:r=\"{R_NS}\" w:type=\"{kind}\" r:id=\"{id}\"/>"
             );
         }
+        // §17.11.11 footnotePr, §17.11.4 endnotePr (CT_FtnProps / CT_EdnProps order:
+        // pos, numFmt, numStart, numRestart).
+        for (tag, np) in [
+            ("footnotePr", &sec.footnote_pr),
+            ("endnotePr", &sec.endnote_pr),
+        ] {
+            if np.is_empty() {
+                continue;
+            }
+            let _ = write!(s, "<w:{tag}>");
+            if let Some(p) = np.pos {
+                let _ = write!(s, "<w:pos w:val=\"{}\"/>", p.as_str());
+            }
+            if let Some(f) = &np.fmt {
+                let _ = write!(s, "<w:numFmt w:val=\"{}\"/>", escape(f.as_str()));
+            }
+            if let Some(n) = np.start {
+                let _ = write!(s, "<w:numStart w:val=\"{n}\"/>");
+            }
+            if let Some(r) = np.restart {
+                let _ = write!(s, "<w:numRestart w:val=\"{}\"/>", r.as_str());
+            }
+            let _ = write!(s, "</w:{tag}>");
+        }
         let bt = match sec.break_type {
             SectionBreak::NextPage => None,
             SectionBreak::Continuous => Some("continuous"),

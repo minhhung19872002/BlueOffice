@@ -242,6 +242,7 @@ fn new_ctx<'a>(
         id_origin: 0,
         endnote_order: sc.endnote_order.clone(),
         view: opts.view,
+        note: None,
     }
 }
 
@@ -398,6 +399,17 @@ impl IncrementalLayout {
             flow.built = built;
             flow.run(&mut ctx, None)?;
         }
+        // §17.11.19 numRestart eachPage: number the footnotes per page, lay out again.
+        if let Some(map) = crate::page_note_numbers(doc, &flow.pages, &ctx.notes) {
+            if map != ctx.notes {
+                ctx.notes = map;
+                ctx.lists = ListCounters::default();
+                ctx.other_lists = ListCounters::default();
+                ctx.next_id = 0;
+                flow = new_flow(doc, hf.clone());
+                flow.run(&mut ctx, None)?;
+            }
+        }
         let end_other_lists = ctx.other_lists.clone();
         let origins = vec![Origin::Fresh; flow.pages.len()];
         let mut st = State {
@@ -411,7 +423,8 @@ impl IncrementalLayout {
             end_other_lists,
             section_start: std::mem::take(&mut flow.section_start),
             hf_heights: hf,
-            notes: sc.notes.clone(),
+            // Differs from the scan with per-page numbering: later updates are full.
+            notes: ctx.notes.clone(),
             endnote_order: sc.endnote_order.clone(),
             needs_total: sc.needs_total,
             hf_fields,

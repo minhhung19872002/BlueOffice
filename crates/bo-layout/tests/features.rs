@@ -284,6 +284,85 @@ fn footnotes_at_page_bottom() {
         .any(|i| matches!(i, PageItem::Rule { x2, x1, .. } if (x2 - x1 - 144.0).abs() < 0.1)));
 }
 
+fn note(text: &str) -> Vec<Block> {
+    vec![Block::Paragraph(Paragraph::new(
+        ParaProps::default(),
+        vec![Run {
+            props: RunProps::default(),
+            content: vec![RunContent::NoteMark, RunContent::Text(format!(" {text}"))],
+        }],
+    ))]
+}
+
+fn note_marks(l: &LayoutDocument) -> Vec<(usize, i32, String)> {
+    let mut v = Vec::new();
+    for (pi, p) in l.pages.iter().enumerate() {
+        for line in &p.lines {
+            if let LineSource::Note {
+                endnote: false,
+                id,
+                para: 0,
+            } = line.source
+            {
+                let t: String = line.fragments.iter().map(|f| f.text.as_str()).collect();
+                v.push((pi, id, t.split(' ').next().unwrap_or("").to_owned()));
+            }
+        }
+    }
+    v
+}
+
+#[test]
+fn footnote_numbering_restarts_per_section_and_page() {
+    use bo_model::{NotePos, NoteProps, NoteRestart, NumFormat};
+    let referencing = |id: i32| {
+        runs(vec![
+            RunContent::Text("Văn bản".into()),
+            RunContent::FootnoteRef(id),
+        ])
+    };
+    let mut s1 = Section::new(vec![referencing(1), referencing(2)]);
+    s1.break_type = SectionBreak::NextPage;
+    let mut s2 = Section::new(vec![referencing(3)]);
+    s2.footnote_pr = NoteProps {
+        restart: Some(NoteRestart::EachSect),
+        fmt: Some(NumFormat::LowerLetter),
+        ..NoteProps::default()
+    };
+    let mut d = doc(vec![s1, s2]);
+    for id in 1..=3 {
+        d.footnotes.insert(id, note(&format!("Ghi chú {id}")));
+    }
+    // Section 2 restarts at "a" (§17.11.19 eachSect, §17.11.17 numFmt).
+    assert_eq!(
+        note_marks(&run(&d)),
+        vec![(0, 1, "1".into()), (0, 2, "2".into()), (1, 3, "a".into())]
+    );
+    // eachPage: a long first section puts note 2 on page 2, numbered 1 again.
+    let mut blocks = vec![referencing(1)];
+    blocks.extend((0..60).map(|i| p(&format!("Dòng {i}"))));
+    blocks.push(referencing(2));
+    let mut s = Section::new(blocks);
+    s.footnote_pr.restart = Some(NoteRestart::EachPage);
+    s.footnote_pr.pos = Some(NotePos::BeneathText);
+    let mut d = doc(vec![s]);
+    d.footnotes.insert(1, note("một"));
+    d.footnotes.insert(2, note("hai"));
+    let l = run(&d);
+    let marks = note_marks(&l);
+    assert_eq!(marks.len(), 2);
+    assert_eq!((marks[1].0, marks[1].2.as_str()), (1, "1"));
+    // §17.11.21 beneathText: the note follows the text instead of the page bottom.
+    let last = l.pages.len() - 1;
+    let note_top = l.pages[last]
+        .lines
+        .iter()
+        .find(|x| matches!(x.source, LineSource::Note { .. }))
+        .unwrap()
+        .top;
+    assert!(note_top < 400.0, "note at {note_top}");
+}
+
 #[test]
 fn two_columns() {
     let mut sec = Section::new((0..80).map(|i| p(&format!("Cột {i}"))).collect());

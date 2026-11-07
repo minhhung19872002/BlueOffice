@@ -22,6 +22,7 @@ pub mod edit;
 pub mod fonts;
 pub mod merge;
 pub mod nav;
+mod notes;
 pub mod review;
 pub mod sheet;
 pub mod slide_edit;
@@ -219,6 +220,8 @@ pub struct Engine {
     deck_seq: u64,
     /// Open header/footer editor (BlueDoc).
     hf: Option<story::HfEdit>,
+    /// Open footnote/endnote editor (BlueDoc).
+    note: Option<notes::NoteEdit>,
 }
 
 impl Engine {
@@ -364,6 +367,7 @@ impl Engine {
         self.collab = None;
         self.slide_collab = None;
         self.hf = None;
+        self.note = None;
         self.info()
     }
 

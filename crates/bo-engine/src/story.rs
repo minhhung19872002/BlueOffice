@@ -53,6 +53,9 @@ pub struct StoryState {
     pub linked: bool,
     /// The section has a previous section to link to.
     pub can_link: bool,
+    /// Id of the footnote/endnote being edited (`kind` footnote/endnote).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<i32>,
 }
 
 /// Height (twips) of the scratch page the story is laid out on.
@@ -260,6 +263,7 @@ impl Engine {
             even_and_odd: doc.even_and_odd_headers,
             linked: bo_edit::section::hf_linked(doc, hf.section, hf.header, hf.variant),
             can_link: hf.section > 0,
+            note: None,
         })
     }
 
@@ -322,151 +326,23 @@ impl Engine {
         let Some(mut hf) = self.hf.take() else {
             return Ok(None);
         };
-        let dy = hf.dy;
         let mut error = None;
         let mut clip = None;
-        let handled = {
-            let s = &mut hf.sub;
-            let layout = &hf.layout;
-            let sel = s.selection();
-            let res: bo_edit::Result<bool> = (|| {
-                match cmd {
-                    Command::State => {}
-                    Command::Click {
-                        page,
-                        x,
-                        y,
-                        extend,
-                        count,
-                    } => {
-                        hf.page = *page;
-                        if let Some(p) = nav::hit_test(layout, 0, *x, *y - dy) {
-                            s.set_selection(match count {
-                                2 => s.word_at(p),
-                                3.. => s.paragraph_at(p),
-                                _ if *extend => Selection {
-                                    anchor: sel.anchor,
-                                    focus: p,
-                                },
-                                _ => Selection::caret(p),
-                            });
-                        }
-                    }
-                    Command::DragTo { x, y, .. } => {
-                        if let Some(p) = nav::hit_test(layout, 0, *x, *y - dy) {
-                            s.set_selection(Selection {
-                                anchor: sel.anchor,
-                                focus: p,
-                            });
-                        }
-                    }
-                    Command::Move { motion, extend } => {
-                        let from = sel.focus;
-                        let to = match motion {
-                            Motion::Left if !extend && !sel.is_collapsed() => sel.ordered().0,
-                            Motion::Right if !extend && !sel.is_collapsed() => sel.ordered().1,
-                            Motion::Left => s.char_step(from, false),
-                            Motion::Right => s.char_step(from, true),
-                            Motion::WordLeft => s.word_boundary(from, false),
-                            Motion::WordRight => s.word_boundary(from, true),
-                            Motion::DocStart => Pos::new(0, 0),
-                            Motion::DocEnd => {
-                                let last = s.paragraph_count().saturating_sub(1);
-                                Pos::new(last, s.para_text(last).map_or(0, |t| t.len()))
-                            }
-                            _ => nav::vertical(layout, from, *motion, None).map_or(from, |v| v.0),
-                        };
-                        s.set_selection(if *extend {
-                            Selection {
-                                anchor: sel.anchor,
-                                focus: to,
-                            }
-                        } else {
-                            Selection::caret(to)
-                        });
-                    }
-                    Command::SetSelection { selection } => s.set_selection(*selection),
-                    Command::SelectAll => {
-                        s.select_all();
-                    }
-                    Command::InsertText { text } => {
-                        s.insert_text(text)?;
-                    }
-                    Command::Tab { .. } => {
-                        s.insert_text("\t")?;
-                    }
-                    Command::DeleteBackward => {
-                        s.delete_backward()?;
-                    }
-                    Command::DeleteForward => {
-                        s.delete_forward()?;
-                    }
-                    Command::SplitParagraph => {
-                        s.split_paragraph()?;
-                    }
-                    Command::FormatText { format } => {
-                        s.format_text(format)?;
-                    }
-                    Command::FormatParagraph { format } => {
-                        s.format_paragraphs(format)?;
-                    }
-                    Command::ApplyStyle { id } => {
-                        s.apply_style(id)?;
-                    }
-                    Command::ClearFormatting => {
-                        s.clear_formatting()?;
-                    }
-                    Command::InsertField { instr } => {
-                        s.insert_field(instr, "1")?;
-                    }
-                    Command::Undo => {
-                        s.undo();
-                    }
-                    Command::Redo => {
-                        s.redo();
-                    }
-                    Command::Copy | Command::Cut => {
-                        let c = if matches!(cmd, Command::Cut) {
-                            s.cut()?
-                        } else {
-                            s.copy()
-                        };
-                        clip = Some(crate::edit::ClipOut {
-                            text: c.text,
-                            html: c.html,
-                            internal: c.internal,
-                        });
-                    }
-                    Command::Paste {
-                        internal,
-                        html,
-                        text,
-                        mode,
-                    } => {
-                        s.paste_with(
-                            mode.unwrap_or_default(),
-                            internal.as_deref(),
-                            html.as_deref(),
-                            text.as_deref(),
-                        )?;
-                    }
-                    Command::PickFormat => {
-                        s.pick_format();
-                    }
-                    Command::ApplyFormat => {
-                        s.apply_picked_format()?;
-                    }
-                    Command::CancelFormat => s.clear_picked_format(),
-                    _ => return Ok(false),
-                }
-                Ok(true)
-            })();
-            match res {
-                Ok(h) => h,
-                Err(e) => {
-                    error = Some(e.to_string());
-                    true
-                }
+        let mut cur_page = hf.page;
+        let res = sub_command(
+            &mut hf.sub,
+            &hf.layout,
+            (hf.dy, Some(0)),
+            cmd,
+            &mut clip,
+            &mut cur_page,
+        );
+        hf.page = cur_page;
+        let handled = match res {
+            Ok(h) => h,
+            Err(e) => {
+                error = Some(e.to_string());
+                true
             }
         };
         if !handled {
@@ -524,4 +400,148 @@ impl Engine {
     fn page_count(&self) -> usize {
         self.layout().map_or(0, |l| l.pages.len())
     }
+}
+
+/// Run an editing command in a story session laid out as `layout`: story y = page y
+/// − `dy`; hit tests use page `hit_page` (`None`: the clicked page). Returns `false`
+/// for commands that are not story commands.
+pub(crate) fn sub_command(
+    s: &mut Session,
+    layout: &LayoutDocument,
+    (dy, hit_page): (f32, Option<usize>),
+    cmd: &Command,
+    clip: &mut Option<crate::edit::ClipOut>,
+    cur_page: &mut usize,
+) -> bo_edit::Result<bool> {
+    let sel = s.selection();
+    match cmd {
+        Command::State => {}
+        Command::Click {
+            page,
+            x,
+            y,
+            extend,
+            count,
+        } => {
+            *cur_page = *page;
+            if let Some(p) = nav::hit_test(layout, hit_page.unwrap_or(*page), *x, *y - dy) {
+                s.set_selection(match count {
+                    2 => s.word_at(p),
+                    3.. => s.paragraph_at(p),
+                    _ if *extend => Selection {
+                        anchor: sel.anchor,
+                        focus: p,
+                    },
+                    _ => Selection::caret(p),
+                });
+            }
+        }
+        Command::DragTo { page, x, y, .. } => {
+            if let Some(p) = nav::hit_test(layout, hit_page.unwrap_or(*page), *x, *y - dy) {
+                s.set_selection(Selection {
+                    anchor: sel.anchor,
+                    focus: p,
+                });
+            }
+        }
+        Command::Move { motion, extend } => {
+            let from = sel.focus;
+            let to = match motion {
+                Motion::Left if !extend && !sel.is_collapsed() => sel.ordered().0,
+                Motion::Right if !extend && !sel.is_collapsed() => sel.ordered().1,
+                Motion::Left => s.char_step(from, false),
+                Motion::Right => s.char_step(from, true),
+                Motion::WordLeft => s.word_boundary(from, false),
+                Motion::WordRight => s.word_boundary(from, true),
+                Motion::DocStart => Pos::new(0, 0),
+                Motion::DocEnd => {
+                    let last = s.paragraph_count().saturating_sub(1);
+                    Pos::new(last, s.para_text(last).map_or(0, |t| t.len()))
+                }
+                _ => nav::vertical(layout, from, *motion, None).map_or(from, |v| v.0),
+            };
+            s.set_selection(if *extend {
+                Selection {
+                    anchor: sel.anchor,
+                    focus: to,
+                }
+            } else {
+                Selection::caret(to)
+            });
+        }
+        Command::SetSelection { selection } => s.set_selection(*selection),
+        Command::SelectAll => {
+            s.select_all();
+        }
+        Command::InsertText { text } => {
+            s.insert_text(text)?;
+        }
+        Command::Tab { .. } => {
+            s.insert_text("\t")?;
+        }
+        Command::DeleteBackward => {
+            s.delete_backward()?;
+        }
+        Command::DeleteForward => {
+            s.delete_forward()?;
+        }
+        Command::SplitParagraph => {
+            s.split_paragraph()?;
+        }
+        Command::FormatText { format } => {
+            s.format_text(format)?;
+        }
+        Command::FormatParagraph { format } => {
+            s.format_paragraphs(format)?;
+        }
+        Command::ApplyStyle { id } => {
+            s.apply_style(id)?;
+        }
+        Command::ClearFormatting => {
+            s.clear_formatting()?;
+        }
+        Command::InsertField { instr } => {
+            s.insert_field(instr, "1")?;
+        }
+        Command::Undo => {
+            s.undo();
+        }
+        Command::Redo => {
+            s.redo();
+        }
+        Command::Copy | Command::Cut => {
+            let c = if matches!(cmd, Command::Cut) {
+                s.cut()?
+            } else {
+                s.copy()
+            };
+            *clip = Some(crate::edit::ClipOut {
+                text: c.text,
+                html: c.html,
+                internal: c.internal,
+            });
+        }
+        Command::Paste {
+            internal,
+            html,
+            text,
+            mode,
+        } => {
+            s.paste_with(
+                mode.unwrap_or_default(),
+                internal.as_deref(),
+                html.as_deref(),
+                text.as_deref(),
+            )?;
+        }
+        Command::PickFormat => {
+            s.pick_format();
+        }
+        Command::ApplyFormat => {
+            s.apply_picked_format()?;
+        }
+        Command::CancelFormat => s.clear_picked_format(),
+        _ => return Ok(false),
+    }
+    Ok(true)
 }

@@ -1158,19 +1158,14 @@ function EditorInner({
       id: 'insert.footnote',
       shortcut: 'Ctrl+Alt+F',
       isEnabled: (s) => hasDoc(s) && !s.edit?.story,
-      run: async () => {
-        await run({ cmd: 'insertNote', endnote: false, text: '' });
-        store.setState({ panel: 'notes' });
-      },
+      // The caret goes into the new footnote at the page bottom (edited in place).
+      run: () => run({ cmd: 'insertNote', endnote: false, text: '' }),
     });
     r.register({
       id: 'insert.endnote',
       shortcut: 'Ctrl+Alt+D',
       isEnabled: (s) => hasDoc(s) && !s.edit?.story,
-      run: async () => {
-        await run({ cmd: 'insertNote', endnote: true, text: '' });
-        store.setState({ panel: 'notes' });
-      },
+      run: () => run({ cmd: 'insertNote', endnote: true, text: '' }),
     });
     r.register({
       id: 'references.notes',
@@ -1825,8 +1820,16 @@ function EditorInner({
               className={`${styles.viewHost} ${state.showRuler && state.doc ? styles.withRulers : ''}`}
               data-testid="document-view"
             />
-            {state.edit?.story && <HeaderFooterBar story={state.edit.story} run={runCommand} />}
-            {state.panel === 'notes' && <NotesPanel run={runCommand} onClose={closePanel} />}
+            {(state.edit?.story?.kind === 'header' || state.edit?.story?.kind === 'footer') && (
+              <HeaderFooterBar story={state.edit.story} run={runCommand} />
+            )}
+            {state.panel === 'notes' && (
+              <NotesPanel
+                run={runCommand}
+                onClose={closePanel}
+                section={state.edit?.format.section}
+              />
+            )}
             {state.dialog === 'pageSetup' && (
               <PageSetupDialog
                 format={fs}

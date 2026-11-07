@@ -273,6 +273,11 @@ pub struct SectionState {
     pub title_page: bool,
     /// §17.15.1.35 evenAndOddHeaders (document setting).
     pub even_and_odd: bool,
+    /// §17.11.19 numRestart / §17.11.21 pos of the section's footnotes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub footnote_restart: Option<bo_model::NoteRestart>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub footnote_pos: Option<bo_model::NotePos>,
 }
 
 /// The table holding the caret.
@@ -342,6 +347,16 @@ pub struct Clip {
     pub html: String,
     /// Lossless internal format (JSON of model blocks).
     pub internal: String,
+}
+
+/// Internal clipboard content with the footnotes/endnotes its blocks reference.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct ClipBlocks {
+    blocks: Vec<Block>,
+    #[serde(default)]
+    footnotes: std::collections::BTreeMap<i32, Vec<Block>>,
+    #[serde(default)]
+    endnotes: std::collections::BTreeMap<i32, Vec<Block>>,
 }
 
 /// Mime type used for the internal clipboard format.
@@ -455,6 +470,45 @@ impl Tx<'_> {
     fn push(&mut self, op: Op) -> Result<()> {
         op.apply(self.doc)?;
         self.ops.push(op);
+        Ok(())
+    }
+
+    /// Remove the notes whose last reference this transaction removed.
+    fn drop_orphan_notes(&mut self) -> Result<()> {
+        let mut removed = Vec::new();
+        for op in &self.ops {
+            if let Op::Blocks { remove, .. } = op {
+                section::note_refs(remove, &mut removed);
+            }
+        }
+        if removed.is_empty() {
+            return Ok(());
+        }
+        let mut present = Vec::new();
+        for s in &self.doc.sections {
+            section::note_refs(&s.blocks, &mut present);
+        }
+        for endnote in [false, true] {
+            let map = if endnote {
+                &self.doc.endnotes
+            } else {
+                &self.doc.footnotes
+            };
+            let gone: Vec<i32> = removed
+                .iter()
+                .filter(|k| k.0 == endnote && !present.contains(k) && map.contains_key(&k.1))
+                .map(|k| k.1)
+                .collect();
+            if gone.is_empty() {
+                continue;
+            }
+            let old = map.clone();
+            let mut new = old.clone();
+            for id in gone {
+                new.remove(&id);
+            }
+            self.push(Op::Notes { endnote, old, new })?;
+        }
         Ok(())
     }
 
@@ -1387,7 +1441,13 @@ impl Session {
             ops: Vec::new(),
             track,
         };
-        let res = f(&mut tx, before);
+        let mut res = f(&mut tx, before);
+        if res.is_ok() {
+            // Deleting a note reference deletes its note (§17.11.14, §17.11.7).
+            if let Err(e) = tx.drop_orphan_notes() {
+                res = Err(e);
+            }
+        }
         for op in &tx.ops {
             op.record(&mut self.changes);
         }
@@ -2338,9 +2398,33 @@ impl Session {
             .collect::<Vec<_>>()
             .join("\n")
             .replace('\u{FFFC}', "");
+        let mut refs = Vec::new();
+        section::note_refs(&blocks, &mut refs);
+        let internal = if refs.is_empty() {
+            serde_json::to_string(&blocks).unwrap_or_default()
+        } else {
+            // Blocks with the notes they reference (pasted as new notes).
+            let pick = |endnote: bool| -> std::collections::BTreeMap<i32, Vec<Block>> {
+                let map = if endnote {
+                    &self.doc.endnotes
+                } else {
+                    &self.doc.footnotes
+                };
+                refs.iter()
+                    .filter(|k| k.0 == endnote)
+                    .filter_map(|k| map.get(&k.1).map(|b| (k.1, b.clone())))
+                    .collect()
+            };
+            serde_json::to_string(&ClipBlocks {
+                blocks: blocks.clone(),
+                footnotes: pick(false),
+                endnotes: pick(true),
+            })
+            .unwrap_or_default()
+        };
         Clip {
             html: html::to_html(&self.doc, &blocks),
-            internal: serde_json::to_string(&blocks).unwrap_or_default(),
+            internal,
             text,
         }
     }
@@ -2356,9 +2440,60 @@ impl Session {
 
     /// Paste blocks produced by [`Session::copy`] (internal format).
     pub fn paste_internal(&mut self, json: &str) -> Result<Selection> {
-        let blocks: Vec<Block> =
-            serde_json::from_str(json).map_err(|e| EditError::Clipboard(e.to_string()))?;
-        self.paste_blocks(blocks)
+        let clip: ClipBlocks = match serde_json::from_str::<Vec<Block>>(json) {
+            Ok(blocks) => ClipBlocks {
+                blocks,
+                ..ClipBlocks::default()
+            },
+            Err(_) => {
+                serde_json::from_str(json).map_err(|e| EditError::Clipboard(e.to_string()))?
+            }
+        };
+        if clip.footnotes.is_empty() && clip.endnotes.is_empty() {
+            return self.paste_blocks(clip.blocks);
+        }
+        // Copied notes become new notes with fresh ids, then the blocks are pasted;
+        // both are one undo step.
+        let mut blocks = clip.blocks;
+        let mut maps = [self.doc.footnotes.clone(), self.doc.endnotes.clone()];
+        for (endnote, src) in [(false, &clip.footnotes), (true, &clip.endnotes)] {
+            let map = &mut maps[usize::from(endnote)];
+            for (old_id, content) in src {
+                let id = map.keys().copied().max().unwrap_or(0).max(1) + 1;
+                map.insert(id, content.clone());
+                section::renumber_note_ref(&mut blocks, endnote, *old_id, id);
+            }
+        }
+        let [foot, end] = maps;
+        let before = self.undo.len();
+        self.edit(|tx, sel| {
+            for (endnote, new) in [(false, foot), (true, end)] {
+                let old = if endnote {
+                    tx.doc.endnotes.clone()
+                } else {
+                    tx.doc.footnotes.clone()
+                };
+                if old != new {
+                    tx.push(Op::Notes { endnote, old, new })?;
+                }
+            }
+            Ok(sel)
+        })?;
+        let res = self.paste_blocks(blocks);
+        if res.is_err() {
+            if self.undo.len() > before {
+                self.undo();
+                self.redo.clear();
+            }
+            return res;
+        }
+        if self.undo.len() >= before + 2 {
+            if let (Some(last), Some(prev)) = (self.undo.pop(), self.undo.last_mut()) {
+                prev.ops.extend(last.ops);
+                prev.after = last.after;
+            }
+        }
+        res
     }
 
     /// Paste HTML (from browsers and other applications).

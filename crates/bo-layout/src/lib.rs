@@ -34,7 +34,7 @@ pub use types::{
 };
 
 use bo_model::change::BlockChanges;
-use bo_model::{Block, Document, NumFormat, RunContent};
+use bo_model::{Block, Document, NoteRestart, NumFormat, RunContent};
 use bo_text::FontManager;
 use std::collections::HashMap;
 
@@ -69,28 +69,39 @@ fn visit_body(blocks: &[Block], f: &mut impl FnMut(&RunContent)) {
 }
 
 /// Note numbers in order of first reference: footnotes decimal, endnotes lower-roman
-/// (ECMA-376 Part 1, §17.11.11 numFmt defaults); whether the body shows the total
-/// page count; whether the body has fields at all.
+/// by default (ECMA-376 Part 1, §17.11.17 numFmt), from §17.11.20 numStart, restarted
+/// per section with §17.11.19 numRestart `eachSect` (`eachPage` is applied after
+/// pagination, see [`page_note_numbers`]); whether the body shows the total page
+/// count; whether the body has fields at all.
 fn number_notes(doc: &Document) -> (HashMap<NoteKey, String>, Vec<i32>, bool, bool) {
     let mut map = HashMap::new();
-    let mut foot = 0;
-    let mut end = 0;
+    let mut foot = 0i32;
+    let mut end = 0i32;
     let mut end_order = Vec::new();
     let mut needs_total = false;
     let mut fields = false;
-    for s in &doc.sections {
+    for (si, s) in doc.sections.iter().enumerate() {
+        let (fp, ep) = (&s.footnote_pr, &s.endnote_pr);
+        if si == 0 || fp.restart == Some(NoteRestart::EachSect) {
+            foot = fp.start.map_or(0, |n| n as i32 - 1);
+        }
+        if si == 0 || ep.restart == Some(NoteRestart::EachSect) {
+            end = ep.start.map_or(0, |n| n as i32 - 1);
+        }
+        let ffmt = fp.fmt.clone().unwrap_or(NumFormat::Decimal);
+        let efmt = ep.fmt.clone().unwrap_or(NumFormat::LowerRoman);
         visit_body(&s.blocks, &mut |c| match c {
             RunContent::FootnoteRef(id) => {
                 map.entry((false, *id)).or_insert_with(|| {
                     foot += 1;
-                    foot.to_string()
+                    bo_model::format_number(foot, &ffmt)
                 });
             }
             RunContent::EndnoteRef(id) => {
                 map.entry((true, *id)).or_insert_with(|| {
                     end += 1;
                     end_order.push(*id);
-                    bo_model::format_number(end, &NumFormat::LowerRoman)
+                    bo_model::format_number(end, &efmt)
                 });
             }
             RunContent::Field { instr, .. } => {
@@ -104,6 +115,57 @@ fn number_notes(doc: &Document) -> (HashMap<NoteKey, String>, Vec<i32>, bool, bo
         });
     }
     (map, end_order, needs_total, fields)
+}
+
+/// Footnote numbers restarted on every page of the sections with §17.11.19 numRestart
+/// `eachPage`, from the footnotes placed on each page of a layout (`None`: no such
+/// section).
+fn page_note_numbers(
+    doc: &Document,
+    pages: &[Page],
+    numbers: &HashMap<NoteKey, String>,
+) -> Option<HashMap<NoteKey, String>> {
+    let each = |si: usize| {
+        doc.sections
+            .get(si)
+            .is_some_and(|s| s.footnote_pr.restart == Some(NoteRestart::EachPage))
+    };
+    if !(0..doc.sections.len()).any(each) {
+        return None;
+    }
+    let mut map = numbers.clone();
+    for p in pages.iter().filter(|p| each(p.section)) {
+        let s = &doc.sections[p.section].footnote_pr;
+        let fmt = s.fmt.clone().unwrap_or(NumFormat::Decimal);
+        let mut n = s.start.map_or(0, |n| n as i32 - 1);
+        let mut seen = Vec::new();
+        for l in &p.lines {
+            if let LineSource::Note {
+                endnote: false, id, ..
+            } = l.source
+            {
+                if !seen.contains(&id) {
+                    seen.push(id);
+                    n += 1;
+                    map.insert((false, id), bo_model::format_number(n, &fmt));
+                }
+            }
+        }
+    }
+    Some(map)
+}
+
+/// Endnotes referenced in `blocks`, in order.
+fn endnotes_in(blocks: &[Block]) -> Vec<i32> {
+    let mut v = Vec::new();
+    visit_body(blocks, &mut |c| {
+        if let RunContent::EndnoteRef(id) = c {
+            if !v.contains(id) {
+                v.push(*id);
+            }
+        }
+    });
+    v
 }
 
 /// Content width of a section in points.

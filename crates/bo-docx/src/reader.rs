@@ -7,10 +7,11 @@ use crate::{DocxError, Result};
 use bo_model::{
     fingerprint, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellProps,
     CellVAlign, Color, Columns, Comment, Document, Emu, HalfPoints, HeaderFooter, HeightRule,
-    Image, Level, LineSpacing, Num, NumFormat, NumRef, Numbering, ParaProps, ParaPropsChange,
-    Paragraph, Raw, RevMark, RevisionInfo, Row, Run, RunContent, RunProps, RunPropsChange, Section,
-    SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table,
-    TableProps, TableWidth, Twips, Underline, VMerge, VertAlign, Wrap, WrapText,
+    Image, Level, LineSpacing, NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering,
+    ParaProps, ParaPropsChange, Paragraph, Raw, RevMark, RevisionInfo, Row, Run, RunContent,
+    RunProps, RunPropsChange, Section, SectionBreak, SourcePackage, Style, StyleKind, StyleSheet,
+    TabAlign, TabLeader, TabStop, Table, TableProps, TableWidth, Twips, Underline, VMerge,
+    VertAlign, Wrap, WrapText,
 };
 use bo_opc::xml::{attr, unescape, XmlReader};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -1746,7 +1747,7 @@ fn read_sect_pr(
 ) -> Result<Section> {
     let mut s = Section::default();
     let mut hf: Vec<(bool, String, String)> = Vec::new(); // (is_header, type, rId)
-    children(r, |_, e, st, _| {
+    children(r, |rr, e, st, _| {
         match name(e).as_slice() {
             // §17.10.5 headerReference / §17.10.3 footerReference
             n @ (b"headerReference" | b"footerReference") => {
@@ -1793,6 +1794,16 @@ fn read_sect_pr(
             }
             // §17.6.12 pgNumType
             b"pgNumType" => s.page_number_start = int(e, b"start").map(|v| v.max(0) as u32),
+            // §17.11.11 footnotePr / §17.11.4 endnotePr
+            n @ (b"footnotePr" | b"endnotePr") if st => {
+                let np = read_note_pr(rr)?;
+                if n == b"footnotePr" {
+                    s.footnote_pr = np;
+                } else {
+                    s.endnote_pr = np;
+                }
+                return Ok(true);
+            }
             _ => {}
         }
         Ok(!st)
@@ -1819,6 +1830,27 @@ fn read_sect_pr(
     }
     s.src = Some(Raw::new(r.slice(before, r.pos()), s.props_fingerprint()));
     Ok(s)
+}
+
+/// Children of §17.11.11 footnotePr / §17.11.4 endnotePr in a section.
+fn read_note_pr(r: &mut XmlReader<'_>) -> Result<NoteProps> {
+    let mut np = NoteProps::default();
+    children(r, |_, e, st, _| {
+        let val = attr(e, b"val");
+        match name(e).as_slice() {
+            // §17.11.21 / §17.11.22 pos
+            b"pos" => np.pos = val.as_deref().and_then(NotePos::parse),
+            // §17.11.17 numFmt
+            b"numFmt" => np.fmt = val.as_deref().map(NumFormat::parse),
+            // §17.11.20 numStart
+            b"numStart" => np.start = int(e, b"val").map(|v| v.max(0) as u32),
+            // §17.11.19 numRestart
+            b"numRestart" => np.restart = val.as_deref().and_then(NoteRestart::parse),
+            _ => {}
+        }
+        Ok(!st)
+    })?;
+    Ok(np)
 }
 
 /// §17.10.4 hdr / §17.10.2 ftr

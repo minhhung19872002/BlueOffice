@@ -77,7 +77,19 @@ impl Engine {
                 return Ok(Some(r));
             }
         }
+        if self.note.is_some() {
+            if let Some(r) = self.note_command(cmd)? {
+                return Ok(Some(r));
+            }
+        }
         match cmd {
+            // A click on a footnote/endnote edits it in place (§17.11).
+            Command::Click { page, y, .. } if self.note_at(*page, *y).is_some() => {
+                if let Some((endnote, id)) = self.note_at(*page, *y) {
+                    self.open_note(endnote, id, *page)?;
+                }
+                self.note_command(cmd)
+            }
             Command::EditHeaderFooter { page, header } => {
                 self.open_header_footer(*page, *header)?;
                 Ok(Some(self.story_result(Vec::new(), None)?))
@@ -91,11 +103,24 @@ impl Engine {
             },
             Command::CloseHeaderFooter => {
                 self.close_header_footer()?;
+                self.close_note()?;
                 Ok(Some(self.edit_result(
                     Vec::new(),
                     (None, None, None),
                     None,
                 )?))
+            }
+            Command::EditNote { endnote, id } => {
+                self.close_header_footer()?;
+                self.close_note()?;
+                match self.open_new_note(*endnote, *id, Vec::new())? {
+                    Some(r) => Ok(Some(r)),
+                    None => Ok(Some(self.edit_result(
+                        Vec::new(),
+                        (None, None, None),
+                        Some(format!("no note {id}")),
+                    )?)),
+                }
             }
             Command::Notes => {
                 let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;

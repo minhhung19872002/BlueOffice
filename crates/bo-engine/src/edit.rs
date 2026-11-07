@@ -278,6 +278,21 @@ pub enum Command {
     },
     /// List the footnotes and endnotes.
     Notes,
+    /// Edit a footnote/endnote in place on its page (caret at the end of its text).
+    EditNote {
+        #[serde(default)]
+        endnote: bool,
+        id: i32,
+    },
+    /// Footnote/endnote numbering and placement of the caret's section or the document
+    /// (§17.11.11 footnotePr, §17.11.4 endnotePr).
+    SetNoteOptions {
+        #[serde(default)]
+        endnote: bool,
+        options: bo_edit::section::NoteOptions,
+        #[serde(default)]
+        scope: SetupScope,
+    },
     /// Clear character and paragraph formatting of the selection.
     ClearFormatting,
     /// Format Painter: pick the formatting at the selection.
@@ -417,7 +432,9 @@ impl crate::Engine {
         }
         let note_cmd = matches!(
             cmd,
-            Command::InsertNote { .. } | Command::SetNoteText { .. }
+            Command::InsertNote { .. }
+                | Command::SetNoteText { .. }
+                | Command::SetNoteOptions { .. }
         );
         let merge_cmd = matches!(
             cmd,
@@ -481,6 +498,7 @@ impl crate::Engine {
             }
         );
         let mut targets = None;
+        let mut new_note = None;
         {
             let layout = self.layout.document();
             let s = self
@@ -521,6 +539,7 @@ impl crate::Engine {
                     | Command::EditHeaderFooter { .. }
                     | Command::CloseHeaderFooter
                     | Command::SetHeaderLink { .. }
+                    | Command::EditNote { .. }
                     | Command::Notes
                     | Command::FontList => {}
                     Command::Tab { back } => {
@@ -548,11 +567,16 @@ impl crate::Engine {
                         s.insert_field(&instr, &cached)?;
                     }
                     Command::InsertNote { endnote, text } => {
-                        s.insert_note(endnote, &text)?;
+                        new_note = Some((endnote, s.insert_note(endnote, &text)?));
                     }
                     Command::SetNoteText { endnote, id, text } => {
                         s.set_note_text(endnote, id, &text)?;
                     }
+                    Command::SetNoteOptions {
+                        endnote,
+                        options,
+                        scope,
+                    } => s.set_note_options(endnote, &options, scope)?,
                     Command::ClearFormatting => {
                         s.clear_formatting()?;
                     }
@@ -797,6 +821,14 @@ impl crate::Engine {
         } else {
             Vec::new()
         };
+        if let Some((endnote, id)) = new_note {
+            // The caret goes into the new note on the page.
+            if let Some(mut r) = self.open_new_note(endnote, id, dirty.clone())? {
+                r.notes = self.session.as_ref().map(bo_edit::Session::notes);
+                r.collab = self.collab_after_edit();
+                return Ok(r);
+            }
+        }
         let mut r = self.edit_result(dirty, extra, error)?;
         r.targets = targets;
         if note_cmd {

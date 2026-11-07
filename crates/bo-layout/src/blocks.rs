@@ -41,6 +41,9 @@ pub(crate) struct Ctx<'a> {
     pub endnote_order: Vec<i32>,
     /// How tracked changes are shown.
     pub view: RevisionView,
+    /// Note being stacked and its next paragraph index (note lines carry
+    /// [`LineSource::Note`]).
+    pub note: Option<(NoteKey, u32)>,
 }
 
 /// Break requested after a band.
@@ -92,10 +95,13 @@ impl Band {
         b
     }
 
-    /// Mark all lines as non-body (repeated header rows, notes, headers).
+    /// Mark all body lines as non-body (repeated header rows, notes, headers); note
+    /// lines keep their note source.
     pub fn set_other(&mut self) {
         for l in &mut self.lines {
-            l.source = LineSource::Other;
+            if matches!(l.source, LineSource::Body(_)) {
+                l.source = LineSource::Other;
+            }
         }
     }
 
@@ -241,6 +247,14 @@ pub(crate) fn build_para(
         let id = ctx.next_id - ctx.id_origin;
         ctx.next_id += 1;
         LineSource::Body(id)
+    } else if let Some(((endnote, id), next)) = ctx.note.as_mut() {
+        let para = *next;
+        *next += 1;
+        LineSource::Note {
+            endnote: *endnote,
+            id: *id,
+            para,
+        }
     } else {
         LineSource::Other
     };
@@ -385,6 +399,20 @@ pub(crate) struct Stack {
     pub h: f32,
     /// Anchored pictures with the top of their anchor paragraph.
     pub floats: Vec<(f32, Image)>,
+}
+
+/// Stack the blocks of note `key` (its lines carry [`LineSource::Note`]).
+pub(crate) fn stack_note(
+    ctx: &mut Ctx<'_>,
+    key: NoteKey,
+    blocks: &[Block],
+    width: f32,
+    note_mark: Option<&str>,
+) -> Result<Stack, LayoutError> {
+    let saved = ctx.note.replace((key, 0));
+    let st = stack_blocks(ctx, blocks, width, false, note_mark);
+    ctx.note = saved;
+    st
 }
 
 /// Stack `blocks` in a box `width` points wide.

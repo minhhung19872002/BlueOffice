@@ -1002,6 +1002,17 @@ fn read_run(
                     None => run.content.push(RunContent::Opaque(raw)),
                 }
             }
+            // ECMA-376 Part 3, §10.2.1 AlternateContent: picture fallback, else verbatim.
+            b"AlternateContent" if s => {
+                let raw = capture(r, true, before)?;
+                match alternate_content_picture(&raw.xml, ctx, media) {
+                    Some(mut img) => {
+                        img.src = Some(raw);
+                        run.content.push(RunContent::Image(Box::new(img)));
+                    }
+                    None => run.content.push(RunContent::Opaque(raw)),
+                }
+            }
             // §17.16.18 fldChar
             _ => {
                 let raw = capture(r, s, before)?;
@@ -1030,6 +1041,42 @@ fn read_text(r: &mut XmlReader<'_>) -> Result<String> {
     }
 }
 
+/// Part name of the drawing fallback of a SmartArt whose data model is relationship `dm`.
+fn diagram_drawing_part(ctx: &Ctx<'_>, dm: &str) -> Option<String> {
+    let data = ctx.pkg.part(&ctx.target(dm)?)?;
+    let mut r = XmlReader::new(&data.data, &data.name);
+    loop {
+        match r.read().ok()? {
+            Event::Start(e) | Event::Empty(e) if name(&e) == b"dataModelExt" => {
+                return attr(&e, b"relId").and_then(|id| ctx.target(&id));
+            }
+            Event::Eof => return None,
+            _ => {}
+        }
+    }
+}
+
+/// `mc:AlternateContent` in a run (ECMA-376 Part 3, §10.2.1): when its `mc:Fallback`
+/// holds a picture (e.g. the image fallback of a SmartArt or shape), show that.
+fn alternate_content_picture(
+    xml: &str,
+    ctx: &Ctx<'_>,
+    media: &mut BTreeMap<String, Arc<Vec<u8>>>,
+) -> Option<Image> {
+    let mut r = XmlReader::new(xml.as_bytes(), &ctx.part);
+    let mut in_fallback = false;
+    loop {
+        match r.read().ok()? {
+            Event::Start(e) if name(&e) == b"Fallback" => in_fallback = true,
+            Event::Start(e) if in_fallback && name(&e) == b"drawing" => {
+                return read_drawing(&mut r, ctx, media).ok().flatten();
+            }
+            Event::Eof => return None,
+            _ => {}
+        }
+    }
+}
+
 /// `w:drawing` → picture (ECMA-376 Part 1, §20.4 DrawingML WordprocessingML Drawing).
 fn read_drawing(
     r: &mut XmlReader<'_>,
@@ -1049,6 +1096,8 @@ fn read_drawing(
     };
     let mut anchor: Option<Anchor> = None;
     let mut axis = 0u8; // 1 = positionH, 2 = positionV
+                        // SmartArt ([MS-ODRAWXML] dgm:relIds): data model part relationship id.
+    let mut diagram_data: Option<String> = None;
     loop {
         let ev = r.read()?;
         let (e, is_start) = match &ev {
@@ -1141,10 +1190,24 @@ fn read_drawing(
             }
             // §20.1.7.6 xfrm
             b"xfrm" => img.rotation = int(&e, b"rot").unwrap_or(0) as i32,
+            // ECMA-376 Part 1, §21.4.2.6 relIds (SmartArt parts).
+            b"relIds" => diagram_data = attr(&e, b"dm"),
             _ => {}
         }
     }
     img.anchor = anchor;
+    // SmartArt: show the pre-rendered drawing ([MS-ODRAWXML] §2.3.2 diagramDrawing,
+    // referenced by `dsp:dataModelExt/@relId` of the data model part).
+    if img.media.is_empty() {
+        if let Some(drawing) = diagram_data.and_then(|dm| diagram_drawing_part(ctx, &dm)) {
+            if let Some(p) = ctx.pkg.part(&drawing) {
+                media
+                    .entry(drawing.clone())
+                    .or_insert_with(|| Arc::new(p.data.clone()));
+                img.media = drawing;
+            }
+        }
+    }
     Ok(if img.media.is_empty() {
         None
     } else {

@@ -58,6 +58,10 @@ const CT_ENDNOTES: &str =
 const CT_SETTINGS: &str =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml";
 const CT_CORE: &str = "application/vnd.openxmlformats-package.core-properties+xml";
+// SmartArt namespaces (ECMA-376 Part 1, §21.4; [MS-ODRAWXML] dsp).
+const DGM: &str = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
+const DSP: &str = "http://schemas.microsoft.com/office/drawing/2008/diagram";
+const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const REL_COMMENTS: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
 const REL_COMMENTS_EXT: &str =
@@ -1026,6 +1030,108 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         hf: vec![("rId20".into(), "header", format!("<w:p>{}</w:p>", mf("DonVi", "")))],
         ..Doc::default()
     }));
+
+    // ---- SmartArt fallbacks: mc:Fallback picture (Part 3 §10.2.1) and the diagram
+    // drawing part ([MS-ODRAWXML] dsp:drawing) referenced through dgm:relIds (§21.4.2.6).
+    let alt_pic = |id: u32, rid: &str| {
+        let pic = inline_pic(id, rid, 2_160_000, 1_080_000, "", "");
+        let drawing = pic
+            .trim_start_matches(r#"<w:r><w:rPr><w:noProof/></w:rPr>"#)
+            .trim_end_matches("</w:r>");
+        format!(
+            r#"<w:r><mc:AlternateContent><mc:Choice Requires="w14"><w14:dummy/><w:t>[SmartArt]</w:t></mc:Choice><mc:Fallback>{drawing}</mc:Fallback></mc:AlternateContent></w:r>"#
+        )
+    };
+    let diagram_ref = |id: u32, cx: i64, cy: i64| {
+        format!(
+            r#"<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="{id}" name="Sơ đồ {id}"/><wp:cNvGraphicFramePr/><a:graphic><a:graphicData uri="{DGM}"><dgm:relIds xmlns:dgm="{DGM}" r:dm="rIdX1" r:lo="rIdX2" r:qs="rIdX3" r:cs="rIdX4"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"#
+        )
+    };
+    let dsp_sp = |n: u32, x: i64, y: i64, cx: i64, cy: i64, rgb: &str, text: &str| {
+        format!(
+            r#"<dsp:sp modelId="{{00000000-0000-0000-0000-0000000000{n:02}}}"><dsp:nvSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvSpPr/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="{rgb}"/></a:solidFill><a:ln w="12700"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln></dsp:spPr><dsp:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="vi-VN" sz="1400"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:rPr><a:t>{text}</a:t></a:r></a:p></dsp:txBody></dsp:sp>"#
+        )
+    };
+    let diagram_parts = |shapes: &str| {
+        let x = |root: &str, inner: &str| {
+            format!(
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<{root} xmlns:dgm="{DGM}" xmlns:a="{A}">{inner}</{}>"#,
+                root.split(' ').next().unwrap_or(root)
+            )
+        };
+        vec![
+            ("diagrams/data1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramData",
+                x("dgm:dataModel", &format!(r#"<dgm:ptLst><dgm:pt modelId="{{00000000-0000-0000-0000-000000000001}}" type="doc"/></dgm:ptLst><dgm:extLst><a:ext uri="http://schemas.microsoft.com/office/drawing/2008/diagram"><dsp:dataModelExt xmlns:dsp="{DSP}" relId="rIdX5" minVer="http://schemas.openxmlformats.org/drawingml/2006/diagram"/></a:ext></dgm:extLst>"#))),
+            ("diagrams/layout1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramLayout+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramLayout",
+                x("dgm:layoutDef", "<dgm:layoutNode/>")),
+            ("diagrams/quickStyle1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramStyle+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramQuickStyle",
+                x("dgm:styleDef", r#"<dgm:styleLbl name="node0"/>"#)),
+            ("diagrams/colors1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramColors+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramColors",
+                x("dgm:colorsDef", "")),
+            ("diagrams/drawing1.xml", "application/vnd.ms-office.drawingml.diagramDrawing+xml", "http://schemas.microsoft.com/office/2007/relationships/diagramDrawing",
+                format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<dsp:drawing xmlns:dgm="{DGM}" xmlns:dsp="{DSP}" xmlns:a="{A}"><dsp:spTree><dsp:nvGrpSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvGrpSpPr/></dsp:nvGrpSpPr><dsp:grpSpPr/>{shapes}</dsp:spTree></dsp:drawing>"#)),
+        ]
+    };
+    v.push(("smartart-01-fallback-picture.docx", "smartart", "mc:AlternateContent có mc:Fallback là ảnh (hiển thị ảnh thay cho Choice), trong đoạn và trong ô bảng", Doc {
+        body: [
+            format!("<w:p>{}</w:p>", alt_pic(31, "rId30")),
+            table(&[9355], &[row("", &[format!(r#"<w:tc><w:tcPr><w:tcW w:w="9355" w:type="dxa"/></w:tcPr><w:p>{}</w:p></w:tc>"#, alt_pic(32, "rId30"))])], r#"<w:tblW w:w="0" w:type="auto"/>"#),
+            lorem(1),
+        ].concat(),
+        sect: s.clone(),
+        images: vec![("rId30".into(), png(8, 4, [46, 117, 182]))],
+        ..Doc::default()
+    }));
+    v.push(("smartart-02-process.docx", "smartart", "SmartArt quy trình 3 bước: dgm:relIds + dsp:drawing (hình vẽ sẵn) — hiển thị bằng drawing fallback", Doc {
+        body: [
+            p("Quy trình xử lý hồ sơ:"),
+            format!("<w:p>{}</w:p>", diagram_ref(41, 5_400_000, 900_000)),
+            lorem(1),
+        ].concat(),
+        sect: s.clone(),
+        extra: diagram_parts(&[
+            dsp_sp(1, 0, 0, 1_700_000, 900_000, "2E75B6", "Tiếp nhận"),
+            dsp_sp(2, 1_850_000, 0, 1_700_000, 900_000, "548235", "Thẩm định"),
+            dsp_sp(3, 3_700_000, 0, 1_700_000, 900_000, "C55A11", "Trả kết quả"),
+        ].concat()),
+        ..Doc::default()
+    }));
+    v.push((
+        "smartart-03-grid.docx",
+        "smartart",
+        "SmartArt dạng lưới 2×2 có chữ tiếng Việt, đặt giữa trang (dsp:drawing)",
+        Doc {
+            body: [
+                format!(
+                    r#"<w:p><w:pPr><w:jc w:val="center"/></w:pPr>{}</w:p>"#,
+                    diagram_ref(51, 3_600_000, 2_000_000)
+                ),
+                lorem(1),
+            ]
+            .concat(),
+            sect: s.clone(),
+            extra: diagram_parts(
+                &[
+                    dsp_sp(1, 0, 0, 1_750_000, 950_000, "7030A0", "Mục tiêu"),
+                    dsp_sp(2, 1_850_000, 0, 1_750_000, 950_000, "2E75B6", "Nhiệm vụ"),
+                    dsp_sp(3, 0, 1_050_000, 1_750_000, 950_000, "548235", "Giải pháp"),
+                    dsp_sp(
+                        4,
+                        1_850_000,
+                        1_050_000,
+                        1_750_000,
+                        950_000,
+                        "C55A11",
+                        "Kết quả",
+                    ),
+                ]
+                .concat(),
+            ),
+            ..Doc::default()
+        },
+    ));
 
     // ---- comments (§17.13.4) with replies ([MS-DOCX] commentsExtended / commentsIds)
     let comments_part = |inner: &str| {

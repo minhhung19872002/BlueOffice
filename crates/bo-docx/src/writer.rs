@@ -383,7 +383,11 @@ impl Writer<'_> {
                 RunContent::Opaque(r) => cur.push_str(&r.xml),
                 RunContent::Image(img) => {
                     let xml = match &img.src {
-                        Some(r) if !r.xml.is_empty() && !Self::image_changed(img) => {
+                        // SmartArt / fallback pictures (media is a drawing part) stay verbatim.
+                        Some(r)
+                            if !r.xml.is_empty()
+                                && (!Self::image_changed(img) || img.media.ends_with(".xml")) =>
+                        {
                             r.xml.to_string()
                         }
                         _ => self.drawing(img),

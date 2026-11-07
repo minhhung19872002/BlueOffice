@@ -16,6 +16,7 @@ bo-model.workspace = true
 bo-docx.workspace = true
 bo-edit.workspace = true
 bo-pptx = { path = "../bo-pptx" }
+bo-drawingml = { path = "../bo-drawingml" }
 bo-text.workspace = true
 bo-layout.workspace = true
 bo-render.workspace = true
@@ -25,12 +26,14 @@ bo-sheet.workspace = true
 bo-xlsx.workspace = true
 bo-binary = { path = "../bo-binary" }
 bo-odf = { path = "../bo-odf" }
+bo-crypto = { path = "../bo-crypto" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 png.workspace = true
+bo-opc.workspace = true
 bo-engine = { path = ".", features = ["bundled-fonts"] }
 insta.workspace = true
 

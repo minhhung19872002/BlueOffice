@@ -1,6 +1,7 @@
 # Phase 5 — Định dạng cũ & tính năng nâng cao (phần định dạng)
 
-Trạng thái: **phần định dạng hoàn thành — chờ duyệt** (nhánh `wip/phase5-legacy-crypto-odf`).
+Trạng thái: **phần định dạng hoàn thành — chờ duyệt** (nhánh `wip/phase5-legacy-crypto-odf`);
+**tính năng tài liệu BlueDoc (§5) hoàn thành — chờ duyệt**.
 Prompt gốc: [`BlueOffice-PROMPT.md`](../../BlueOffice-PROMPT.md) §6 Phase 5, §5 (giới hạn an toàn), §7 (fuzz).
 
 Nguồn kỹ thuật duy nhất: [MS-DOC], [MS-XLS], [MS-XLSB], [MS-PPT], [MS-CFB], [MS-OFFCRYPTO],
@@ -56,10 +57,35 @@ Kiểu trung gian `bo_binary::Workbook`/`PptDeck` và `bo_odf::SpreadsheetDoc`/`
   Công thức A1 chưa dịch sang OpenFormula khi xuất `.ods`.
 - **Xuất `.xlsx`/`.pptx`**: writer `bo-xlsx`/`bo-pptx` không có trên nhánh này → `bo-cli` xuất CSV/ODS
   và ODP; nối vào writer Phase 3/4 khi merge.
-- **Tính năng tài liệu (chưa làm, thuộc Phase 5 nhưng phụ thuộc mô hình/editor Phase 2–4)**:
-  track changes (ins/del/rPrChange/pPrChange: hiển thị, accept/reject, ghi nhận), comments có luồng
-  trả lời, TOC tự động/caption/cross-reference, mail merge (CSV/XLSX), PivotTable (đọc cache, tạo pivot
-  cơ bản), SmartArt (hiển thị drawing fallback). Cần `bo-model` có revision/comment/field/pivot và
-  `bo-edit` có transaction trước.
-- UI cảnh báo macro (dùng `has_macros`) và hộp thoại mật khẩu (dùng `open_package`/`save_package`)
-  chưa nối vào editor.
+- **Tính năng tài liệu**: xem §5 (BlueDoc). PivotTable (đọc cache, tạo pivot cơ bản) thuộc BlueSheet —
+  chưa làm.
+
+## 5. Tính năng tài liệu (BlueDoc) — hoàn thành, chờ duyệt
+
+| Tính năng | Mô hình / định dạng | Core (`bo-edit` / `bo-engine`) | Editor |
+|---|---|---|---|
+| Track changes (ECMA-376 Part 1 §17.13.5) | `RunProps.ins/del` (`w:ins`, `w:del` + `w:delText`/`delInstrText`, `w:moveTo`/`moveFrom`, ins ⊃ del lồng), `RunProps.change` (`rPrChange`), `ParaProps.mark_ins/mark_del` (`pPr/rPr/ins|del`), `ParaProps.change` (`pPrChange`); đọc/ghi lossless, field trong vùng theo dõi ghi dạng field phức | `revisions`: liệt kê, chấp nhận/từ chối theo id / vùng chọn / tất cả (1 bước undo, nối đoạn khi dấu đoạn mất); chế độ theo dõi ghi nhận gõ, xoá (xoá phần mình chèn thì xoá thật), Enter/Backspace qua dấu đoạn, định dạng ký tự/đoạn, tìm-thay, dán; tác giả = `Platform.auth.user` (mặc định "BlueOffice"), ngày từ đồng hồ host (`now` trong lệnh JSON). Layout: hiển thị *Mọi đánh dấu* (chèn gạch chân, xoá gạch ngang, màu theo tác giả), *Không đánh dấu* (bản cuối), *Bản gốc* (định dạng cũ của `rPrChange`) | Tab **Xem lại**: bật/tắt theo dõi (Ctrl+Shift+R), 3 chế độ hiển thị, chấp nhận/từ chối, tất cả, thay đổi trước/tiếp, ngăn xem lại liệt kê thay đổi |
+| Chú thích có trả lời (§17.13.4, [MS-DOCX] §2.5.2) | `Document.comments` (`comments.xml`), neo `CommentStart/End/Ref`; `commentsExtended` (`paraIdParent`, `done`), `commentsIds` (`durableId`); part giữ nguyên khi không đổi | thêm (vùng chọn hoặc từ tại con trỏ), trả lời (neo cạnh chú thích gốc), đánh dấu đã xử lý / mở lại, xoá cả luồng và neo, chọn neo, chú thích trước/tiếp | Ngăn **Chú thích**: luồng + trả lời, đã xử lý, xoá; nút ribbon |
+| Mục lục / tiêu đề hình / tham chiếu chéo (§17.16) | TOC giữ dạng field phức nhiều đoạn; SEQ/REF/PAGEREF/MERGEFIELD phức "sạch" gộp thành `RunContent::Field` khi đọc | `fields::update`: dựng lại TOC từ outline level (`\o`, `\h`, thêm bookmark `_Toc`, PAGEREF), đánh số SEQ (`\*` ARABIC/ROMAN/alphabetic, `\r`, `\c`, `\h`), REF/PAGEREF theo bookmark; dàn trang lặp tới khi số trang ổn định (≤ 3 lượt), 1 bước undo; chèn TOC, chèn tiêu đề hình/bảng, tham chiếu chéo (tự thêm bookmark `_Ref` cho tiêu đề hình) | Tab **Tham chiếu**: mục lục, cập nhật mục lục, tiêu đề hình/bảng, tham chiếu chéo, **Cập nhật trường (F9)**; `bo-cli fields` |
+| Trộn thư (§17.16.5.35) | MERGEFIELD (tên có dấu cách, `\b`, `\f`, `\* Upper/Lower/Caps/FirstCap`) | nguồn CSV (RFC 4180, tự nhận `,` `;` tab) hoặc XLSX (sheet hiện đầu tiên, định dạng số của `bo-sheet`); xem trước bản ghi N (layout hiển thị giá trị), trộn thành 1 .docx (mỗi bản ghi một lượt section, header/footer được điền) hoặc PDF | Tab **Gửi thư**: chọn nguồn dữ liệu, chèn trường, xem trước/bản ghi trước-tiếp, trộn thành tài liệu / PDF; `bo-cli merge` |
+| Macro, mật khẩu, định dạng cũ | `DocInfo.macros` (`bo-binary::has_macros`), `vbaProject.bin` giữ nguyên khi lưu .docm; `.doc` (`bo-binary::read_doc`) và `.odt` (`bo-odf::read_odt`) mở thành mô hình BlueDoc, lưu .docx | `Engine::open_with_password` ([MS-OFFCRYPTO] Standard/Agile qua `bo-crypto`; lỗi `password required` / `wrong password`), lưu kèm mật khẩu (Agile AES-256/SHA-512, `setSavePassword`); file mã hoá mở ra được lưu lại với cùng mật khẩu. `bo-crypto` dùng `getrandom` 0.4 (`wasm_js` trên web) | Thanh cảnh báo "Tài liệu chứa macro — macro sẽ được giữ nguyên nhưng không chạy", hộp thoại mật khẩu (thử lại khi sai), **Lưu kèm mật khẩu** (Tệp và Xem lại), trạng thái "Có mật khẩu" |
+| SmartArt (hiển thị) | `mc:AlternateContent` có `mc:Fallback` là ảnh → hiện ảnh (XML gốc giữ nguyên); SmartArt `dgm:relIds` → part `dsp:drawing` ([MS-ODRAWXML]) theo `dsp:dataModelExt/@relId` | engine vẽ các hình của drawing part bằng renderer BlueSlide (`bo-pptx`) thành PNG trong bộ nhớ; part gốc giữ nguyên khi lưu | — |
+
+Corpus mới (`tests/corpus/doc`, OpenXmlValidator hợp lệ, round-trip 100 %): `review-01..03`, `comments-01..03`,
+`fields-04..06`, `merge-01..03` (+ `merge-data.csv`/`.xlsx`), `smartart-01..03`. Kiểm thử: `bo-edit` (đơn vị + proptest
+theo dõi thay đổi: từ chối tất cả trả về văn bản gốc, chấp nhận tất cả = bản cuối, undo chính xác), `bo-engine`
+(`tests/editing.rs`, `tests/security.rs`: cầu JSON, lưu/mở lại, corpus fields/merge/SmartArt, mật khẩu, macro, .odt),
+Playwright `tests/e2e/specs/review.spec.ts` (chấp nhận/từ chối, luồng chú thích).
+
+### Hạn chế còn lại
+- TOC nằm trong `w:sdt` cấp khối (cách nhiều trình soạn thảo lưu) chưa cập nhật được vì nội dung sdt cấp khối còn là
+  `Block::Opaque` (Phase 2); TOC ngoài sdt và mọi field khác cập nhật bình thường.
+- Theo dõi thay đổi chưa ghi nhận chèn/xoá bảng, ảnh nổi, thay đổi thuộc tính bảng/ô (`tblPrChange`, `cellIns`… được
+  giữ nguyên khi đọc/ghi nhưng không hiển thị/chấp nhận); chế độ *Bản gốc* chưa dùng `pPrChange` cho định dạng đoạn;
+  chưa có vạch thay đổi ở lề. Trạng thái bật theo dõi không lưu vào `settings.xml` (`w:trackRevisions`).
+- Chú thích: chưa tô vùng được chú thích trên trang, chưa sửa nội dung chú thích đã có, chú thích trong header/footer
+  không hiển thị; `commentsExtensible`/`people.xml` giữ nguyên (không cập nhật).
+- Trộn thư: chỉ MERGEFIELD (chưa IF/NEXT/ASK/FILLIN, chưa lọc/sắp xếp bản ghi); "Trộn thành PDF" = trộn rồi xuất PDF.
+- Macro của file `.doc` không được chuyển sang .docm khi lưu (chỉ cảnh báo); `.xls`/`.ppt` không mở trong BlueDoc.
+- SmartArt: chỉ hiển thị (không sửa); drawing fallback vẽ theo màu/hình khai báo trực tiếp, `schemeClr` lấy theo
+  theme mặc định của renderer.

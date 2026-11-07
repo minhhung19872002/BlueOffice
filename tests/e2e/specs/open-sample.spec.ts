@@ -48,9 +48,9 @@ test('zoom changes the page size and the status bar', async ({ page }) => {
 
 test('switches to English and dark theme', async ({ page }) => {
   await page.goto('/doc');
-  await page.getByRole('tab', { name: 'Xem' }).click();
+  await page.getByRole('tab', { name: 'Xem', exact: true }).click();
   await page.getByRole('button', { name: 'English' }).click();
-  await expect(page.getByRole('tab', { name: 'View' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'View', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Light / Dark' }).click();
   await expect(page.locator('.bo-root')).toHaveAttribute('data-theme', 'dark');
 });

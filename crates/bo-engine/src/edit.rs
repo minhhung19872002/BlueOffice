@@ -213,6 +213,11 @@ pub enum Command {
     },
     /// Replace the open document by the merged one (one section per record).
     MergeToDocument,
+    /// Password for saving ([MS-OFFCRYPTO] Agile Encryption); empty or absent: none.
+    SetSavePassword {
+        #[serde(default)]
+        password: Option<String>,
+    },
 }
 
 fn yes() -> bool {
@@ -327,6 +332,9 @@ impl crate::Engine {
                 | Command::MergeInsertField { .. }
         );
         match &cmd {
+            Command::SetSavePassword { password } => {
+                self.set_save_password(password.as_deref());
+            }
             Command::MergeData { name, base64 } => {
                 match crate::merge::base64_decode(base64)
                     .ok_or_else(|| crate::EngineError::BadCommand("base64".into()))
@@ -403,7 +411,8 @@ impl crate::Engine {
                     | Command::SetRevisionView { .. }
                     | Command::MergeData { .. }
                     | Command::MergePreview { .. }
-                    | Command::MergeToDocument => {}
+                    | Command::MergeToDocument
+                    | Command::SetSavePassword { .. } => {}
                     Command::SetSelection { selection } => s.set_selection(selection),
                     Command::Click {
                         page,

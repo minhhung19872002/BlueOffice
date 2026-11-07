@@ -50,10 +50,10 @@ export class NativeEngineHost implements EngineHost {
   async init(): Promise<void> {
     await this.call<number>('engine_init');
   }
-  open(bytes: Uint8Array, name: string): Promise<DocInfo> {
-    return this.call<DocInfo>('engine_open', bytes, {
-      headers: { 'x-file-name': encodeURIComponent(name) },
-    });
+  open(bytes: Uint8Array, name: string, password?: string): Promise<DocInfo> {
+    const headers: Record<string, string> = { 'x-file-name': encodeURIComponent(name) };
+    if (password) headers['x-password'] = encodeURIComponent(password);
+    return this.call<DocInfo>('engine_open', bytes, { headers });
   }
   async getPage(index: number): Promise<PageDisplayList> {
     return JSON.parse(await this.call<string>('engine_page', { index })) as PageDisplayList;

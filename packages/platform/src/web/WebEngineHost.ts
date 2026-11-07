@@ -67,9 +67,9 @@ export class WebEngineHost implements EngineHost {
     return this.ready;
   }
 
-  async open(bytes: Uint8Array, name: string): Promise<DocInfo> {
+  async open(bytes: Uint8Array, name: string, password?: string): Promise<DocInfo> {
     await this.init();
-    return this.call<DocInfo>({ method: 'open', bytes, name });
+    return this.call<DocInfo>({ method: 'open', bytes, name, password });
   }
 
   async getPage(index: number): Promise<PageDisplayList> {

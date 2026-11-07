@@ -23,7 +23,15 @@ export interface DocInfo {
   wordCount: number;
   /** `slide` for presentations (pages are slides), `doc` otherwise. */
   kind?: 'doc' | 'slide';
+  /** The file has macros: they are kept when saving but never run. */
+  macros?: boolean;
+  /** Saved with a password ([MS-OFFCRYPTO]). */
+  protected?: boolean;
 }
+
+/** Error messages of `EngineHost.open` for protected files. */
+export const PASSWORD_REQUIRED = 'password required';
+export const WRONG_PASSWORD = 'wrong password';
 
 export type Rgba = [number, number, number, number];
 /** `[glyphId, x, y, cluster]` relative to the run origin. */
@@ -304,7 +312,8 @@ export type EditCommand =
   | { cmd: 'mergeData'; name: string; base64: string }
   | { cmd: 'mergeInsertField'; name: string }
   | { cmd: 'mergePreview'; record: number | null }
-  | { cmd: 'mergeToDocument' };
+  | { cmd: 'mergeToDocument' }
+  | { cmd: 'setSavePassword'; password?: string };
 
 /** A command plus the host clock (Unix ms) used to date new revisions and comments. */
 export type TimedCommand = EditCommand & { now?: number };
@@ -344,7 +353,11 @@ export interface EngineHost {
   readonly backend: 'wasm' | 'native';
   /** Load fonts and get ready. Idempotent. */
   init(): Promise<void>;
-  open(bytes: Uint8Array, name: string): Promise<DocInfo>;
+  /**
+   * Open a file (`.docx`/`.docm`, `.doc`, `.odt`, `.pptx`, text). Protected files need
+   * `password`: the promise rejects with {@link PASSWORD_REQUIRED} / {@link WRONG_PASSWORD}.
+   */
+  open(bytes: Uint8Array, name: string, password?: string): Promise<DocInfo>;
   getPage(index: number): Promise<PageDisplayList>;
   getGlyphOutlines(face: number, glyphs: number[]): Promise<GlyphOutline[]>;
   exportPdf(): Promise<Uint8Array>;

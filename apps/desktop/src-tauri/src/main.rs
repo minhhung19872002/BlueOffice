@@ -61,8 +61,15 @@ fn engine_init(state: State<'_, EngineState>) -> usize {
 fn engine_open(state: State<'_, EngineState>, request: Request<'_>) -> Result<DocInfo, String> {
     let bytes = raw_body(&request)?;
     let name = header_name(&request);
+    // Password of a protected file ([MS-OFFCRYPTO]), percent-encoded.
+    let password = request
+        .headers()
+        .get("x-password")
+        .and_then(|v| v.to_str().ok())
+        .map(percent_decode);
     let mut e = state.0.lock().map_err(|e| e.to_string())?;
-    e.open(&bytes, &name).map_err(|e| e.to_string())
+    e.open_with_password(&bytes, &name, password.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

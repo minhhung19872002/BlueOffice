@@ -9,6 +9,7 @@ import type {
   RecentFile,
   StoredDocument,
 } from '@blueoffice/platform';
+import { PASSWORD_REQUIRED, WRONG_PASSWORD } from '@blueoffice/platform';
 import {
   Ribbon,
   StatusBar,
@@ -46,6 +47,7 @@ import {
   Highlighter,
   Image,
   Italic,
+  KeyRound,
   Languages,
   Link2,
   List,
@@ -53,6 +55,7 @@ import {
   ListIndentIncrease,
   ListOrdered,
   ListTree,
+  Lock,
   Mails,
   Maximize2,
   MessageSquarePlus,
@@ -96,6 +99,7 @@ import styles from './Editor.module.css';
 import { FindPanel, SymbolPanel } from './Panels';
 import { CaptionPanel, CrossRefPanel, MergeFieldPanel } from './ReferencePanels';
 import { CommentsPanel, ReviewPanel } from './ReviewPanel';
+import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
 import { createEditorStore, type EditorState } from './store';
 
 /** Options controlled by the embedding host (prompt §3.5). */
@@ -175,7 +179,14 @@ function EditorInner({
   /** Show a freshly loaded document and fetch its editing state. */
   const loaded = useCallback(
     async (info: Awaited<ReturnType<Platform['engine']['open']>>) => {
-      store.setState({ doc: info, page: 0, status: { kind: 'idle' }, edit: null, panel: null });
+      store.setState({
+        doc: info,
+        page: 0,
+        status: { kind: 'idle' },
+        edit: null,
+        panel: null,
+        macroWarning: !!info.macros,
+      });
       view.current?.setDocument(info);
       platform.window.setTitle(`${info.name} — ${t('app.doc')}`);
       // New revisions and comments are attributed to the signed-in user (fallback "BlueOffice").
@@ -188,10 +199,10 @@ function EditorInner({
   );
 
   const openFile = useCallback(
-    async (file: OpenedFile, doc?: StoredDocument) => {
+    async (file: OpenedFile, doc?: StoredDocument, password?: string) => {
       store.setState({ status: { kind: 'busy', key: 'status.loading' } });
       try {
-        const info = await platform.engine.open(file.bytes, file.name);
+        const info = await platform.engine.open(file.bytes, file.name, password);
         stored.current = doc ?? null;
         await loaded(info);
         if (file.path)
@@ -201,6 +212,15 @@ function EditorInner({
             openedAt: Date.now(),
           });
       } catch (e) {
+        // Encrypted file ([MS-OFFCRYPTO]): ask for the password and retry.
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes(PASSWORD_REQUIRED) || msg.includes(WRONG_PASSWORD)) {
+          store.setState({
+            status: { kind: 'idle' },
+            passwordPrompt: { file, doc: doc ?? null, wrong: msg.includes(WRONG_PASSWORD) },
+          });
+          return;
+        }
         fail('errors.open', e);
       }
     },
@@ -337,9 +357,11 @@ function EditorInner({
       try {
         await controller.current?.idle();
         const bytes = await platform.engine.saveDocx();
-        const name = s.doc.name.replace(/\.(txt|md)$/i, '.docx');
+        const name = s.doc.name.replace(/\.(txt|md|doc|odt)$/i, '.docx');
+        // Files opened from another format (.doc, .odt, .txt) are saved as a new .docx.
+        const sameFormat = !!stored.current && /\.(docx|docm)$/i.test(stored.current.ref.name);
         const doc =
-          stored.current && !as
+          stored.current && !as && sameFormat
             ? await platform.storage.save(stored.current, bytes)
             : await platform.storage.saveAs(name.endsWith('.docx') ? name : `${name}.docx`, bytes);
         if (!doc) {
@@ -390,6 +412,12 @@ function EditorInner({
       },
     });
     r.register({ id: 'file.save', shortcut: 'Ctrl+S', isEnabled: hasDoc, run: () => save(false) });
+    r.register({
+      id: 'review.savePassword',
+      isEnabled: hasDoc,
+      isChecked: (s) => !!s.doc?.protected,
+      run: () => store.setState({ panel: 'savePassword' }),
+    });
     r.register({
       id: 'file.saveAs',
       shortcut: 'Ctrl+Shift+S',
@@ -932,6 +960,7 @@ function EditorInner({
             item('file.open', 'commands.file.open', <FolderOpen size={ICON} />),
             item('file.save', 'commands.file.save', <Save size={ICON} />),
             item('file.saveAs', 'commands.file.saveAs', <Save size={ICON} />),
+            item('review.savePassword', 'commands.review.savePassword', <Lock size={ICON} />),
             item('file.openSample', 'commands.file.openSample', <FileText size={ICON} />),
           ],
         },
@@ -1212,6 +1241,13 @@ function EditorInner({
             s('review.nextComment', 'commands.review.nextComment', <ChevronRight size={SMALL} />),
           ],
         },
+        {
+          id: 'protect',
+          label: t('ribbon.groups.protect'),
+          items: [
+            item('review.savePassword', 'commands.review.savePassword', <KeyRound size={ICON} />),
+          ],
+        },
       ],
     },
     {
@@ -1313,6 +1349,32 @@ function EditorInner({
               />
             )}
             {state.panel === 'caption' && <CaptionPanel run={runCommand} onClose={closePanel} />}
+            {state.panel === 'savePassword' && (
+              <SavePasswordPanel
+                onSet={(password) => void runCommand({ cmd: 'setSavePassword', password })}
+                onClose={closePanel}
+              />
+            )}
+            {state.passwordPrompt && (
+              <PasswordDialog
+                name={state.passwordPrompt.file.name}
+                wrong={state.passwordPrompt.wrong}
+                onSubmit={(pw) => {
+                  const p = store.getState().passwordPrompt;
+                  store.setState({ passwordPrompt: null });
+                  if (p) void openFile(p.file, p.doc ?? undefined, pw);
+                }}
+                onCancel={() => store.setState({ passwordPrompt: null })}
+              />
+            )}
+            {state.macroWarning && (
+              <div className={styles.macroBar} role="status" data-testid="macro-warning">
+                <span>{t('security.macroWarning')}</span>
+                <button type="button" onClick={() => store.setState({ macroWarning: false })}>
+                  {t('security.dismiss')}
+                </button>
+              </div>
+            )}
             {state.panel === 'merge' && (
               <MergeFieldPanel merge={state.merge} run={runCommand} onClose={closePanel} />
             )}
@@ -1426,6 +1488,9 @@ function EditorInner({
             )}
             {state.edit?.modified && (
               <span data-testid="status-modified">{t('status.modified')}</span>
+            )}
+            {state.doc?.protected && (
+              <span data-testid="status-protected">{t('security.protected')}</span>
             )}
             {status.kind === 'busy' && <span>{t(status.key)}</span>}
             {status.kind === 'info' && (

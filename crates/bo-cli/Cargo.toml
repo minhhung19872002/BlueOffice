@@ -16,6 +16,7 @@ bo-model.workspace = true
 bo-docx.workspace = true
 bo-opc.workspace = true
 clap.workspace = true
+png.workspace = true
 
 [lints]
 workspace = true

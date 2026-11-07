@@ -39,6 +39,14 @@ const CT_SETTINGS: &str =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml";
 const CT_HEADER: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
 const CT_FOOTER: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml";
+const REL_FOOTNOTES: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes";
+const REL_ENDNOTES: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes";
+const CT_FOOTNOTES: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml";
+const CT_ENDNOTES: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml";
 
 /// Relationships of the main document part being written.
 struct Rels {
@@ -82,6 +90,8 @@ struct Writer<'d> {
     rels: Rels,
     hf_counter: usize,
     drawing_id: u32,
+    /// Writing endnote content (`NoteMark` becomes `w:endnoteRef`).
+    in_endnote: bool,
 }
 
 /// Serialize a document to `.docx` bytes.
@@ -104,12 +114,14 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
         },
         hf_counter: 0,
         drawing_id: 1000,
+        in_endnote: false,
     };
     w.write_main(&main)?;
     w.write_styles(&main)?;
     w.write_numbering(&main)?;
     if doc.source.is_none() {
         w.write_settings(&main)?;
+        w.write_notes()?;
         w.pkg.set_relationships(
             "/",
             &[Relationship {
@@ -293,7 +305,11 @@ impl Writer<'_> {
                 RunContent::EndnoteRef(id) => {
                     let _ = write!(cur, "<w:endnoteReference w:id=\"{id}\"/>");
                 }
-                RunContent::NoteMark => cur.push_str("<w:footnoteRef/>"),
+                RunContent::NoteMark => cur.push_str(if self.in_endnote {
+                    "<w:endnoteRef/>"
+                } else {
+                    "<w:footnoteRef/>"
+                }),
                 RunContent::Opaque(r) => cur.push_str(&r.xml),
                 RunContent::Image(img) => {
                     let xml = match &img.src {
@@ -546,12 +562,15 @@ impl Writer<'_> {
         if let Some(st) = sec.page_number_start {
             let _ = write!(s, "<w:pgNumType w:start=\"{st}\"/>");
         }
+        // §17.6.4 cols: @num defaults to 1, @space to 720.
         if sec.columns.count > 1 {
             let _ = write!(
                 s,
                 "<w:cols w:num=\"{}\" w:space=\"{}\"/>",
                 sec.columns.count, sec.columns.space.0
             );
+        } else if sec.columns.space.0 != 720 {
+            let _ = write!(s, "<w:cols w:space=\"{}\"/>", sec.columns.space.0);
         }
         if sec.title_page {
             s.push_str("<w:titlePg/>");
@@ -698,13 +717,67 @@ impl Writer<'_> {
         Ok(())
     }
 
+    /// Footnote and endnote parts of a new document (§17.11.15 footnotes, §17.11.8 endnotes).
+    /// Documents read from a package keep their note parts verbatim.
+    fn write_notes(&mut self) -> Result<()> {
+        let doc = self.doc;
+        for (end, notes) in [(false, &doc.footnotes), (true, &doc.endnotes)] {
+            if notes.is_empty() {
+                continue;
+            }
+            let (root, item, ct, rel, part) = if end {
+                (
+                    "endnotes",
+                    "endnote",
+                    CT_ENDNOTES,
+                    REL_ENDNOTES,
+                    "/word/endnotes.xml",
+                )
+            } else {
+                (
+                    "footnotes",
+                    "footnote",
+                    CT_FOOTNOTES,
+                    REL_FOOTNOTES,
+                    "/word/footnotes.xml",
+                )
+            };
+            self.in_endnote = end;
+            let mut s = format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:{root} xmlns:w=\"{W_NS}\" xmlns:r=\"{R_NS}\" xmlns:wp=\"{WP_NS}\" xmlns:a=\"{A_NS}\" xmlns:pic=\"{PIC_NS}\">"
+            );
+            // §17.11.23 separator / §17.11.1 continuationSeparator.
+            let _ = write!(
+                s,
+                "<w:{item} w:type=\"separator\" w:id=\"-1\"><w:p><w:r><w:separator/></w:r></w:p></w:{item}><w:{item} w:type=\"continuationSeparator\" w:id=\"0\"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:{item}>"
+            );
+            for (id, blocks) in notes {
+                let body = self.blocks(blocks);
+                let body = if body.is_empty() {
+                    "<w:p/>".to_owned()
+                } else {
+                    body
+                };
+                let _ = write!(s, "<w:{item} w:id=\"{id}\">{body}</w:{item}>");
+            }
+            let _ = write!(s, "</w:{root}>");
+            self.pkg.add_part(part, ct, s.into_bytes())?;
+            self.rels.id_for(rel, part, false);
+        }
+        self.in_endnote = false;
+        Ok(())
+    }
+
     fn write_settings(&mut self, _main: &str) -> Result<()> {
-        let tab = self.doc.default_tab_stop.map_or(720, |t| t.0);
         let mut s = format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:settings xmlns:w=\"{W_NS}\">");
         if self.doc.even_and_odd_headers {
             s.push_str("<w:evenAndOddHeaders/>");
         }
-        let _ = write!(s, "<w:defaultTabStop w:val=\"{tab}\"/><w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/></w:compat></w:settings>");
+        // §17.15.1.25 defaultTabStop (omitted ⇒ 720).
+        if let Some(t) = self.doc.default_tab_stop {
+            let _ = write!(s, "<w:defaultTabStop w:val=\"{}\"/>", t.0);
+        }
+        let _ = write!(s, "<w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/></w:compat></w:settings>");
         self.pkg
             .add_part("/word/settings.xml", CT_SETTINGS, s.into_bytes())?;
         self.rels.id_for(REL_SETTINGS, "/word/settings.xml", false);

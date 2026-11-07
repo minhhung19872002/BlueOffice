@@ -18,8 +18,9 @@ public sealed class HostsOptions
 /// <summary>Lookup of configured hosts.</summary>
 public sealed class HostRegistry(IOptionsMonitor<HostsOptions> options)
 {
-    /// <summary>All hosts.</summary>
-    public IReadOnlyList<HostConfig> All => options.CurrentValue.Items;
+    /// <summary>All hosts (entries without a name or base URL — e.g. unset deployment variables — are ignored).</summary>
+    public IReadOnlyList<HostConfig> All =>
+        options.CurrentValue.Items.Where(h => !string.IsNullOrWhiteSpace(h.Name) && !string.IsNullOrWhiteSpace(h.BaseUrl)).ToList();
 
     /// <summary>Host by name (case-insensitive).</summary>
     public HostConfig? Find(string? name) =>

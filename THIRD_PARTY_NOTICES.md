@@ -5,7 +5,8 @@ BlueOffice chỉ dùng thành phần bên thứ ba có license MIT / Apache-2.0 
 
 - Rust: `cargo deny check licenses bans sources` (cấu hình `deny.toml`) — bao gồm toàn bộ dependency bắc cầu.
 - npm: `pnpm license-check` (`scripts/license-check.mjs`, dựa trên `pnpm licenses list`).
-- .NET: chỉ dùng gói Microsoft (MIT), Serilog (Apache-2.0), xUnit (Apache-2.0).
+- .NET: gói Microsoft (MIT), Serilog / OpenTelemetry / Minio / xUnit (Apache-2.0), StackExchange.Redis (MIT),
+  Npgsql (PostgreSQL License — permissive kiểu BSD/MIT); danh sách bắc cầu: `dotnet list package --include-transitive`.
 
 Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ (bắc cầu) sinh bằng
 `cargo deny list` và `pnpm licenses list`.
@@ -65,7 +66,16 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | Gói | Phiên bản | License | Mục đích |
 |---|---|---|---|
 | Serilog.AspNetCore | 8.0.3 | Apache-2.0 | Logging |
-| Microsoft.Extensions.* | 8.0.x | MIT | Options, logging |
+| Microsoft.Extensions.* | 8.0.x | MIT | Options, logging, HttpClient, hosting |
+| Microsoft.AspNetCore.Authentication.JwtBearer | 8.0.11 | MIT | OIDC / JWT |
+| Microsoft.IdentityModel.JsonWebTokens | 7.1.2 | MIT | JWT host (JWKS), mock BlueDrive |
+| Microsoft.EntityFrameworkCore (+ .Sqlite) | 8.0.11 | MIT | ORM, SQLite (dev/test) |
+| Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore | 8.0.11 | MIT | Health check |
+| Npgsql.EntityFrameworkCore.PostgreSQL (Npgsql) | 8.0.11 (8.0.6) | PostgreSQL License | PostgreSQL |
+| Minio (CommunityToolkit.HighPerformance, System.Reactive) | 6.0.4 | Apache-2.0 (MIT) | Object store |
+| StackExchange.Redis (Pipelines.Sockets.Unofficial) | 2.8.16 | MIT | Hàng đợi job |
+| OpenTelemetry.Extensions.Hosting, .Instrumentation.AspNetCore/Http, .Exporter.OpenTelemetryProtocol | 1.20.1 | Apache-2.0 | Trace / metric |
+| SQLitePCLRaw.* (bắc cầu) | 2.1.6 | Apache-2.0 (SQLite: public domain) | SQLite native |
 | Microsoft.AspNetCore.Mvc.Testing (dev) | 8.0.11 | MIT | Integration test |
 | xunit, xunit.runner.visualstudio (dev) | 2.9.2 / 2.8.2 | Apache-2.0 | Unit test |
 | Microsoft.NET.Test.Sdk (dev) | 17.11.1 | MIT | Test host |

@@ -19,6 +19,20 @@ using Serilog;
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
 
+// Role: "all" (default: API + worker), "api" or "worker" (conversion worker only; see deploy/docker-compose.yml).
+var role = (config["Role"] ?? "all").ToLowerInvariant();
+if (role is not ("all" or "api" or "worker"))
+{
+    throw new InvalidOperationException($"Unknown Role '{role}' (expected all, api or worker).");
+}
+
+var serveApi = role != "worker";
+if (role != "all" && !string.Equals(config["Jobs:Provider"], "Redis", StringComparison.OrdinalIgnoreCase))
+{
+    // Split api/worker processes only share jobs through Redis.
+    throw new InvalidOperationException($"Role '{role}' requires Jobs:Provider=Redis.");
+}
+
 builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configuration).Enrich.FromLogContext().WriteTo.Console());
 builder.Services.Configure<BoCliOptions>(config.GetSection("BoCli"));
 builder.Services.AddSingleton<IDocumentConverter, BoCliConverter>();
@@ -50,9 +64,13 @@ builder.Services.AddSingleton<LocalHostStorage>();
 builder.Services.Configure<CollabOptions>(config.GetSection("Collab"));
 builder.Services.AddSingleton<RoomManager>();
 builder.Services.AddSingleton<CollabMaintenanceService>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<CollabMaintenanceService>());
+if (serveApi)
+{
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<CollabMaintenanceService>());
+}
+
 builder.Services.Configure<WorkerOptions>(config.GetSection("Worker"));
-if (config.GetValue("Worker:Enabled", true))
+if (role == "worker" || (role == "all" && config.GetValue("Worker:Enabled", true)))
 {
     builder.Services.AddHostedService<ConversionWorker>();
 }
@@ -67,14 +85,14 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
 {
     var origins = config.GetSection("Cors:Origins").Get<string[]>() ?? [];
     var hostOrigins = config.GetSection("Hosts").GetChildren().SelectMany(h => h.GetSection("AllowedOrigins").Get<string[]>() ?? []);
-    p.WithOrigins([.. origins.Concat(hostOrigins).Distinct()]).AllowAnyHeader().AllowAnyMethod().WithExposedHeaders("ETag", "X-Version", "Location");
+    p.WithOrigins([.. origins.Concat(hostOrigins).Where(o => !string.IsNullOrWhiteSpace(o)).Distinct()]).AllowAnyHeader().AllowAnyMethod().WithExposedHeaders("ETag", "X-Version", "Location");
 }));
 
 var app = builder.Build();
 
 if (config.GetValue("Database:AutoCreate", true))
 {
-    // Schema creation for dev/test and first start; see docs/deploy.md for production upgrades.
+    // Schema creation for dev/test and first start; see docs/deploy/upgrade.md for production upgrades.
     using var scope = app.Services.CreateScope();
     scope.ServiceProvider.GetRequiredService<BlueOfficeDbContext>().Database.EnsureCreated();
 }
@@ -86,7 +104,7 @@ app.Use(async (ctx, next) =>
     var h = ctx.Response.Headers;
     h.XContentTypeOptions = "nosniff";
     h["Referrer-Policy"] = "no-referrer";
-    var frameAncestors = string.Join(' ', ctx.RequestServices.GetRequiredService<HostRegistry>().All.SelectMany(x => x.AllowedOrigins).Distinct());
+    var frameAncestors = string.Join(' ', ctx.RequestServices.GetRequiredService<HostRegistry>().All.SelectMany(x => x.AllowedOrigins).Where(o => !string.IsNullOrWhiteSpace(o)).Distinct());
     h.ContentSecurityPolicy = $"frame-ancestors 'self' {frameAncestors}".TrimEnd();
     await next();
 });
@@ -104,7 +122,15 @@ app.MapGet("/api/version", () => Results.Ok(new
     name = "BlueOffice",
     version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
     phase = 6,
+    role,
 }));
+
+if (!serveApi)
+{
+    // Worker role: only health/version endpoints; jobs come from the Redis queue.
+    app.Run();
+    return;
+}
 
 // Synchronous conversion through bo-cli (Phase 1 API, kept for compatibility; prefer POST /convert).
 app.MapPost("/api/convert/pdf", async (IFormFile file, IDocumentConverter converter, CancellationToken ct) =>

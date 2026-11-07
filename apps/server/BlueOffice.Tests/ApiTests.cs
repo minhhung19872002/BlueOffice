@@ -100,3 +100,21 @@ public sealed class ApiTests : IDisposable
 
     private sealed record VersionDto(string Name, string Version, int Phase);
 }
+
+public sealed class RoleTests
+{
+    [Fact]
+    public void SplitRolesRequireRedisQueue()
+    {
+        using var app = new TestApp(settings: new() { ["Role"] = "worker" });
+        var e = Assert.ThrowsAny<Exception>(() => app.CreateClient());
+        Assert.Contains("Jobs:Provider=Redis", e.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnknownRoleIsRejected()
+    {
+        using var app = new TestApp(settings: new() { ["Role"] = "everything" });
+        Assert.ThrowsAny<Exception>(() => app.CreateClient());
+    }
+}

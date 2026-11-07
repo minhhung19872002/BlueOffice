@@ -11,6 +11,7 @@
 //!   shape definitions (§20.1.9).
 #![forbid(unsafe_code)]
 
+pub mod chart;
 pub mod color;
 pub mod dom;
 pub mod geom;

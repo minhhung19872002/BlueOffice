@@ -454,6 +454,8 @@ fn paint_fill(
             }
         }
         // §20.1.8.47 pattFill: drawn as the blend of foreground and background.
+        // §20.1.8.47 pattFill / §20.1.10.51 ST_PresetPatternVal: hatch presets are
+        // drawn as clipped lines over the background; dot/percent presets as a blend.
         Fill::Pattern(p) => {
             let fg =
                 p.fg.as_ref()
@@ -461,15 +463,8 @@ fn paint_fill(
             let bg =
                 p.bg.as_ref()
                     .map_or(Rgba(255, 255, 255, 255), |c| cx.color(c, ph));
-            let mix = |a: u8, b: u8| u16::midpoint(u16::from(a), u16::from(b)) as u8;
-            Some(Paint::Solid {
-                color: Rgba(
-                    mix(fg.0, bg.0),
-                    mix(fg.1, bg.1),
-                    mix(fg.2, bg.2),
-                    fg.3.max(bg.3),
-                ),
-            })
+            pattern_fill(p.preset.as_deref().unwrap_or("pct50"), fg, bg, segs, out);
+            None
         }
         Fill::Picture(b) => {
             out.push(Command::PushClipPath {
@@ -487,6 +482,111 @@ fn paint_fill(
             stroke: None,
         });
     }
+}
+
+/// Blend `fg` over `bg` with coverage `k` (0..1).
+fn blend(fg: Rgba, bg: Rgba, k: f64) -> Rgba {
+    let m = |a: u8, b: u8| (f64::from(b) + (f64::from(a) - f64::from(b)) * k).round() as u8;
+    Rgba(m(fg.0, bg.0), m(fg.1, bg.1), m(fg.2, bg.2), fg.3.max(bg.3))
+}
+
+fn pattern_fill(preset: &str, fg: Rgba, bg: Rgba, segs: &[PathSeg], out: &mut Vec<Command>) {
+    // (horizontal, vertical, down-diagonal, up-diagonal, spacing pt, width pt)
+    let hatch = match preset {
+        "horz" => Some((true, false, false, false, 4.0, 0.75)),
+        "ltHorz" | "narHorz" => Some((true, false, false, false, 3.0, 0.5)),
+        "dkHorz" => Some((true, false, false, false, 4.0, 1.5)),
+        "wdHorz" | "dashHorz" => Some((true, false, false, false, 6.0, 0.75)),
+        "vert" => Some((false, true, false, false, 4.0, 0.75)),
+        "ltVert" | "narVert" => Some((false, true, false, false, 3.0, 0.5)),
+        "dkVert" => Some((false, true, false, false, 4.0, 1.5)),
+        "wdVert" | "dashVert" => Some((false, true, false, false, 6.0, 0.75)),
+        "dnDiag" | "ltDnDiag" | "dashDnDiag" => Some((false, false, true, false, 4.0, 0.6)),
+        "dkDnDiag" | "wdDnDiag" => Some((false, false, true, false, 4.0, 1.5)),
+        "upDiag" | "ltUpDiag" | "dashUpDiag" => Some((false, false, false, true, 4.0, 0.6)),
+        "dkUpDiag" | "wdUpDiag" => Some((false, false, false, true, 4.0, 1.5)),
+        "cross" | "smGrid" | "lgGrid" => Some((true, true, false, false, 4.0, 0.6)),
+        "diagCross" | "openDmnd" => Some((false, false, true, true, 4.0, 0.6)),
+        _ => None,
+    };
+    let Some((h, v, dn, up, gap, width)) = hatch else {
+        // Percent / dotted presets: average coverage.
+        let k = preset
+            .strip_prefix("pct")
+            .and_then(|n| n.parse::<f64>().ok())
+            .map_or(0.5, |n| n / 100.0);
+        out.push(Command::Path {
+            segs: segs.to_vec(),
+            fill: Some(Paint::Solid {
+                color: blend(fg, bg, k),
+            }),
+            stroke: None,
+        });
+        return;
+    };
+    out.push(Command::Path {
+        segs: segs.to_vec(),
+        fill: Some(Paint::Solid { color: bg }),
+        stroke: None,
+    });
+    let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+    for s in segs {
+        let pts: &[(f32, f32)] = &match *s {
+            PathSeg::M(x, y) | PathSeg::L(x, y) => [(x, y), (x, y), (x, y)],
+            PathSeg::Q(a, c, x, y) => [(a, c), (x, y), (x, y)],
+            PathSeg::C(a, c, d, e, x, y) => [(a, c), (d, e), (x, y)],
+            PathSeg::Z => continue,
+        };
+        for (x, y) in pts {
+            b = [b[0].min(*x), b[1].min(*y), b[2].max(*x), b[3].max(*y)];
+        }
+    }
+    if b[0] > b[2] {
+        return;
+    }
+    let (x0, y0, x1, y1) = (
+        f64::from(b[0]),
+        f64::from(b[1]),
+        f64::from(b[2]),
+        f64::from(b[3]),
+    );
+    let mut lines: Vec<PathSeg> = Vec::new();
+    let mut seg = |ax: f64, ay: f64, bx: f64, by: f64| {
+        lines.push(PathSeg::M(ax as f32, ay as f32));
+        lines.push(PathSeg::L(bx as f32, by as f32));
+    };
+    let span = (x1 - x0) + (y1 - y0);
+    let n = ((span / gap).ceil() as usize).min(2000);
+    for i in 0..=n {
+        let d = i as f64 * gap;
+        if h && y0 + d <= y1 {
+            seg(x0, y0 + d, x1, y0 + d);
+        }
+        if v && x0 + d <= x1 {
+            seg(x0 + d, y0, x0 + d, y1);
+        }
+        if dn {
+            seg(x0 + d - (y1 - y0), y0, x0 + d, y1);
+        }
+        if up {
+            seg(x0 + d - (y1 - y0), y1, x0 + d, y0);
+        }
+    }
+    out.push(Command::PushClipPath {
+        segs: segs.to_vec(),
+    });
+    out.push(Command::Path {
+        segs: lines,
+        fill: None,
+        stroke: Some(Stroke {
+            width: width as f32,
+            color: fg,
+            dash: vec![],
+            cap: "butt".into(),
+            join: "miter".into(),
+        }),
+    });
+    out.push(Command::PopClip);
 }
 
 fn draw_image(
@@ -972,16 +1072,113 @@ fn draw_frame(
     fonts: &mut FontManager,
     out: &mut Vec<Command>,
 ) {
-    let GraphicContent::Table(t) = &f.content else {
-        return;
-    };
     let Some(r) = frame.rect(&f.xfrm) else {
         return;
     };
     let aff = frame.shape_aff(&f.xfrm, r);
     let mut cmds = Vec::new();
-    draw_table(cx, t, fonts, &mut cmds);
+    match &f.content {
+        GraphicContent::Table(t) => draw_table(cx, t, fonts, &mut cmds),
+        // §21.2.2.27 chart reference → chart part (cached values).
+        GraphicContent::Other(gd) if f.uri == bo_drawingml::chart::URI_CHART => {
+            let chart = bo_drawingml::chart::chart_rel_id(gd)
+                .and_then(|rid| cx.image_part(rid))
+                .and_then(|part| {
+                    let data = cx.pres.part_data(&part)?;
+                    bo_drawingml::chart::parse_chart(data, &part).ok()
+                });
+            if let Some(chart) = chart {
+                draw_chart_frame(cx, &chart, r.2, r.3, fonts, &mut cmds);
+            }
+        }
+        GraphicContent::Other(_) => {}
+    }
     wrap_transform(aff, cmds, out);
+}
+
+fn draw_chart_frame(
+    cx: &Ctx<'_>,
+    chart: &bo_drawingml::chart::Chart,
+    w: f64,
+    h: f64,
+    fonts: &mut FontManager,
+    out: &mut Vec<Command>,
+) {
+    use bo_model::slide::{ParaProps, Paragraph, RunProps, TextRun};
+    let env = TextEnv {
+        theme: cx.theme,
+        colors: cx.colors(None),
+        slide_number: cx.slide_number,
+    };
+    let stack = TextStyleStack::default();
+    let series_color = |s: &bo_drawingml::chart::Series, si: usize, pt: Option<usize>| -> Rgba {
+        let own = match pt {
+            Some(i) => s
+                .point_fills
+                .iter()
+                .find(|(p, _)| *p == i)
+                .map(|(_, f)| f)
+                .or(
+                    if chart.vary_colors
+                        || chart.series.len() == 1
+                            && matches!(chart.kind, bo_drawingml::chart::ChartKind::Pie { .. })
+                    {
+                        None
+                    } else {
+                        s.fill.as_ref()
+                    },
+                ),
+            None => {
+                if chart.kind == bo_drawingml::chart::ChartKind::Line {
+                    s.line_fill.as_ref().or(s.fill.as_ref())
+                } else {
+                    s.fill.as_ref()
+                }
+            }
+        };
+        if let Some(Fill::Solid(c)) = own {
+            return cx.color(c, None);
+        }
+        // Default series colours cycle through accent1..accent6 (§20.1.6.2 clrScheme).
+        let n = pt.unwrap_or(si) % 6 + 1;
+        cx.color(&Color::scheme(&format!("accent{n}")), None)
+    };
+    let mut label = |text: &str, rect: [f64; 4], algn: &str, size: f64, out: &mut Vec<Command>| {
+        let tb = TextBody {
+            body_pr: bo_model::slide::BodyProps {
+                l_ins: Some(0),
+                t_ins: Some(0),
+                r_ins: Some(0),
+                b_ins: Some(0),
+                anchor: Some("ctr".into()),
+                wrap: Some("none".into()),
+                ..Default::default()
+            },
+            list_style: None,
+            paragraphs: vec![Paragraph {
+                props: Some(ParaProps {
+                    algn: Some(algn.into()),
+                    ..ParaProps::default()
+                }),
+                runs: vec![TextRun::Run {
+                    props: RunProps {
+                        sz: Some((size * 100.0) as i32),
+                        fill: Some(Fill::Solid(Color::srgb(0x59_5959))),
+                        ..RunProps::default()
+                    },
+                    text: text.to_owned(),
+                }],
+                end_props: None,
+            }],
+        };
+        let bp = tb.body_pr.clone();
+        draw_text(&tb, &bp, &stack, rect, &env, fonts, out);
+    };
+    let mut host = crate::chart_render::ChartHost {
+        series_color: &series_color,
+        label: &mut label,
+    };
+    crate::chart_render::draw_chart(chart, w, h, &mut host, out);
 }
 
 /// §21.1.3 table: cell fills, borders and text (table styles are not applied).

@@ -8,6 +8,8 @@
 //! * [`render_slide`] / [`render_thumbnail`]: slide → [`bo_render::PageList`].
 #![forbid(unsafe_code)]
 
+pub mod anim;
+mod chart_render;
 pub mod inherit;
 mod pml;
 mod read;

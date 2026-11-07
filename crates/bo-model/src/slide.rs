@@ -830,7 +830,11 @@ pub struct Slide {
     /// `None` = no clrMapOvr element.
     pub clr_map_ovr: Option<ColorMapOverride>,
     pub show: Option<bool>,
-    /// Transitions, timing, extLst… kept opaque.
+    /// §19.3.1.50 transition.
+    pub transition: Option<Transition>,
+    /// §19.3.1.48 timing (main animation sequence).
+    pub timing: Option<Timing>,
+    /// extLst and other unmodelled children.
     pub extra: Vec<Extra>,
     pub notes: Option<Notes>,
     /// `p:sldId@id` in presentation.xml.
@@ -986,6 +990,159 @@ impl Theme {
             .iter()
             .find(|(k, _)| k == slot)
             .map(|(_, c)| c)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Transitions and animations — §19.3.1.50 transition, §19.5 (timing)
+// ---------------------------------------------------------------------------
+
+/// Slide transition effect (children of §19.3.1.50 transition).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TransitionKind {
+    /// §19.3.1.15 cut.
+    Cut,
+    /// §19.3.1.20 fade.
+    Fade,
+    /// §19.3.1.39 push.
+    Push,
+    /// §19.3.1.53 wipe.
+    Wipe,
+    /// §19.3.1.17 cover.
+    Cover,
+    /// §19.3.1.40 pull.
+    Pull,
+    /// §19.3.1.47 split.
+    Split,
+    /// §19.3.1.41 random.
+    Random,
+    /// Any other effect, by local element name (`dissolve`, `p14:vortex`, …).
+    Other(String),
+}
+
+/// §19.3.1.50 transition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct Transition {
+    /// `None` = transition element without an effect child.
+    pub kind: Option<TransitionKind>,
+    /// Effect direction (`l`/`r`/`u`/`d`, `horz`/`vert`, `in`/`out`).
+    pub dir: Option<String>,
+    /// ST_TransitionSpeed: `fast` | `med` | `slow`.
+    pub speed: Option<String>,
+    /// Explicit duration in ms ([MS-PPTX] p14:dur).
+    pub dur_ms: Option<u32>,
+    /// `advClick` (default true).
+    pub advance_on_click: Option<bool>,
+    /// `advTm` in ms.
+    pub advance_after_ms: Option<u32>,
+    /// Element as read (`p:transition` or the `mc:AlternateContent` wrapping it).
+    /// Written back verbatim while the modelled fields are unchanged.
+    pub source: Option<Extra>,
+}
+
+/// §19.5.29 cTn@presetClass.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnimClass {
+    Entrance,
+    Exit,
+    Emphasis,
+    Path,
+    Other(String),
+}
+
+/// Recognised animation effect (from the time-node behaviours).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnimEffect {
+    /// Visibility set only (§19.5.66 set of `style.visibility`).
+    Appear,
+    /// §19.5.3 animEffect filter `fade`.
+    Fade,
+    /// §19.5.1 anim of `ppt_x` / `ppt_y` from off-slide.
+    FlyIn,
+    /// §19.5.3 animEffect filter `wipe(…)`.
+    Wipe,
+    Other,
+}
+
+/// §19.5.29 cTn@nodeType of an effect node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnimTrigger {
+    OnClick,
+    WithPrevious,
+    AfterPrevious,
+}
+
+/// One effect of the main sequence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Animation {
+    /// Target shape (`p:spTgt@spid` = cNvPr id).
+    pub shape_id: u32,
+    pub class: AnimClass,
+    pub effect: AnimEffect,
+    /// `l` | `r` | `t` | `b` (where the shape comes from / the wipe starts).
+    pub direction: Option<String>,
+    pub trigger: AnimTrigger,
+    pub delay_ms: u32,
+    pub dur_ms: u32,
+    pub preset_id: Option<u32>,
+    pub preset_subtype: Option<u32>,
+}
+
+/// §19.3.1.48 timing reduced to the main sequence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct Timing {
+    pub animations: Vec<Animation>,
+    /// `p:timing` as read; written back verbatim while `animations` is unchanged.
+    pub source: Option<Extra>,
+}
+
+/// An animation placed on the slide's timeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimelineEntry {
+    /// Index into [`Timing::animations`].
+    pub animation: usize,
+    /// 0 = starts with the slide, n = after the n-th click.
+    pub click: usize,
+    /// Start / end in ms, relative to the click.
+    pub start_ms: u32,
+    pub end_ms: u32,
+}
+
+impl Timing {
+    /// Simple timeline: `OnClick` opens a new click step, `WithPrevious`
+    /// starts with the previous effect, `AfterPrevious` when it ends.
+    pub fn timeline(&self) -> Vec<TimelineEntry> {
+        let mut out: Vec<TimelineEntry> = Vec::new();
+        let mut click = 0;
+        let mut prev_start = 0;
+        let mut prev_end = 0;
+        for (i, a) in self.animations.iter().enumerate() {
+            let base = match a.trigger {
+                AnimTrigger::OnClick => {
+                    click += 1;
+                    prev_end = 0;
+                    0
+                }
+                AnimTrigger::WithPrevious => prev_start,
+                AnimTrigger::AfterPrevious => prev_end,
+            };
+            let start = base + a.delay_ms;
+            let end = start + a.dur_ms;
+            out.push(TimelineEntry {
+                animation: i,
+                click,
+                start_ms: start,
+                end_ms: end,
+            });
+            prev_start = start;
+            prev_end = prev_end.max(end);
+        }
+        out
+    }
+
+    /// Number of clicks needed to play every effect.
+    pub fn click_count(&self) -> usize {
+        self.timeline().last().map_or(0, |e| e.click)
     }
 }
 

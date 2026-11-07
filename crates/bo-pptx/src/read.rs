@@ -1,6 +1,7 @@
 //! `.pptx` → [`Presentation`] (ECMA-376 Part 1, §13.3.6 Presentation part and
 //! its related slide, layout, master, theme and notes parts).
 
+use crate::anim;
 use crate::pml::{parse_clr_map_ovr, parse_csld};
 use crate::{rel_is, PptxError, Result};
 use bo_drawingml::dom::{self, attr_int, walk, AttrBag};
@@ -285,6 +286,15 @@ pub fn read_pptx(bytes: &[u8]) -> Result<Presentation> {
             }
             true
         });
+        // §19.3.1.50 transition (possibly inside mc:AlternateContent), §19.3.1.48 timing.
+        if let Some(i) = s.extra.iter().position(|x| anim::is_transition(&x.xml)) {
+            let x = s.extra.remove(i);
+            s.transition = anim::parse_transition(&x.xml, x.key);
+        }
+        if let Some(i) = s.extra.iter().position(|x| x.xml.name == "p:timing") {
+            let x = s.extra.remove(i);
+            s.timing = Some(anim::parse_timing(&x.xml, x.key));
+        }
         if let Some(ln) = target_of(&s.info, |r| rel_is(&r.rel_type, "slideLayout")) {
             s.layout = load_layout(&mut cx, &mut pres, &mut layout_index, &ln, 0)?;
         }

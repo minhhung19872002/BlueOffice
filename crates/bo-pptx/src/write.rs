@@ -99,6 +99,47 @@ fn set_rel(rels: &mut Vec<Rel>, kind: &str, target: String) -> String {
     id
 }
 
+/// Structural relationship placement that keeps the original relationship
+/// order: a relationship of type `kind` with id `want` is re-targeted in
+/// place; otherwise a new one is appended. Returns the id used.
+fn place_rel(
+    rels: &mut Vec<Rel>,
+    placed: &mut HashSet<String>,
+    want: &str,
+    kind: &str,
+    target: String,
+) -> String {
+    if !want.is_empty() && !placed.contains(want) {
+        if let Some(r) = rels
+            .iter_mut()
+            .find(|r| r.id == want && rel_is(&r.rel_type, kind))
+        {
+            r.target = target;
+            r.external = false;
+            placed.insert(want.to_owned());
+            return want.to_owned();
+        }
+    }
+    let id = if !want.is_empty() && !placed.contains(want) && rels.iter().all(|r| r.id != want) {
+        want.to_owned()
+    } else {
+        next_rel_id(rels, placed)
+    };
+    placed.insert(id.clone());
+    rels.push(Rel {
+        id: id.clone(),
+        rel_type: format!("{REL_NS}{kind}"),
+        target,
+        external: false,
+    });
+    id
+}
+
+/// Drop relationships of the given kinds that were not placed.
+fn drop_unplaced(rels: &mut Vec<Rel>, placed: &HashSet<String>, kinds: &[&str]) {
+    rels.retain(|r| placed.contains(&r.id) || !kinds.iter().any(|k| rel_is(&r.rel_type, k)));
+}
+
 fn put(pkg: &mut Package, name: &str, root: &bo_model::slide::XmlElement, rels: &[Rel]) {
     pkg.put_part(name, dom::to_part_xml(root));
     let r: Vec<Relationship> = rels
@@ -216,18 +257,12 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
 
     // Masters.
     for (mi, (m, name)) in pres.masters.iter().zip(&master_names).enumerate() {
-        let mut rels: Vec<Rel> = m
-            .info
-            .rels
-            .iter()
-            .filter(|r| !rel_is(&r.rel_type, "slideLayout"))
-            .cloned()
-            .collect();
+        let mut rels: Vec<Rel> = m.info.rels.clone();
         if let Some(tn) = theme_names.get(m.theme) {
             set_rel(&mut rels, "theme", relative(name, tn));
         }
         let mut lst = El::new("p:sldLayoutIdLst");
-        let mut used: HashSet<String> = rels.iter().map(|r| r.id.clone()).collect();
+        let mut placed: HashSet<String> = HashSet::new();
         let mut next_id =
             2_147_483_649_u32.max(m.layouts.iter().map(|l| l.id).max().unwrap_or(0) + 1);
         // Layouts owned by this master: the recorded list, plus layouts pointing here.
@@ -245,18 +280,13 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
             let Some(ln) = layout_names.get(lr.layout) else {
                 continue;
             };
-            let rid = if !lr.rel_id.is_empty() && !used.contains(&lr.rel_id) {
-                lr.rel_id.clone()
-            } else {
-                next_rel_id(&rels, &used)
-            };
-            used.insert(rid.clone());
-            rels.push(Rel {
-                id: rid.clone(),
-                rel_type: format!("{REL_NS}slideLayout"),
-                target: relative(name, ln),
-                external: false,
-            });
+            let rid = place_rel(
+                &mut rels,
+                &mut placed,
+                &lr.rel_id,
+                "slideLayout",
+                relative(name, ln),
+            );
             let id = if lr.id == 0 {
                 next_id += 1;
                 next_id - 1
@@ -265,6 +295,7 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
             };
             lst = lst.child(El::new("p:sldLayoutId").a("id", id).a("r:id", rid).done());
         }
+        drop_unplaced(&mut rels, &placed, &["slideLayout"]);
         let mut tk = Kids::new(TX_STYLES);
         let ts = &m.text_styles;
         tk.push_opt(
@@ -334,6 +365,12 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         let mut k = Kids::new(SLD);
         k.push(write_csld(&s.data));
         k.push_opt(s.clr_map_ovr.as_ref().map(write_clr_map_ovr));
+        if let Some(t) = &s.transition {
+            k.extras(&[crate::anim::write_transition(t)]);
+        }
+        if let Some(x) = s.timing.as_ref().and_then(crate::anim::write_timing) {
+            k.extras(&[x]);
+        }
         k.extras(&s.extra);
         let root = k.build(
             El::new("p:sld")
@@ -345,28 +382,10 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
     }
 
     // presentation.xml
-    let mut rels: Vec<Rel> = pres
-        .info
-        .rels
-        .iter()
-        .filter(|r| !rel_is(&r.rel_type, "slide") && !rel_is(&r.rel_type, "slideMaster"))
-        .cloned()
-        .collect();
-    let mut used: HashSet<String> = rels.iter().map(|r| r.id.clone()).collect();
+    let mut rels: Vec<Rel> = pres.info.rels.clone();
+    let mut placed: HashSet<String> = HashSet::new();
     let mut claim = |rels: &mut Vec<Rel>, want: &str, kind: &str, target: String| -> String {
-        let id = if !want.is_empty() && !used.contains(want) {
-            want.to_owned()
-        } else {
-            next_rel_id(rels, &used)
-        };
-        used.insert(id.clone());
-        rels.push(Rel {
-            id: id.clone(),
-            rel_type: format!("{REL_NS}{kind}"),
-            target,
-            external: false,
-        });
-        id
+        place_rel(rels, &mut placed, want, kind, target)
     };
     let mut mlst = El::new("p:sldMasterIdLst");
     let mut next_master_id = 2_147_483_648_u32;
@@ -398,6 +417,7 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         };
         slst = slst.child(El::new("p:sldId").a("id", id).a("r:id", rid).done());
     }
+    drop_unplaced(&mut rels, &placed, &["slide", "slideMaster"]);
     let mut k = Kids::new(PRES);
     k.push(mlst.done());
     if !pres.slides.is_empty() {

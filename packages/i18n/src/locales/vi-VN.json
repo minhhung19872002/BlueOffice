@@ -4,7 +4,8 @@
     "doc": "BlueDoc",
     "sheet": "BlueSheet",
     "slide": "BlueSlide",
-    "untitled": "Tài liệu chưa đặt tên"
+    "untitled": "Tài liệu chưa đặt tên",
+    "newDocName": "Tài liệu mới.docx"
   },
   "appTitle": {
     "doc": "BlueDoc – Soạn thảo văn bản",
@@ -29,7 +30,10 @@
       "pages": "Trang",
       "pageSetup": "Thiết lập trang",
       "zoom": "Thu phóng",
-      "appearance": "Giao diện"
+      "appearance": "Giao diện",
+      "editing": "Chỉnh sửa",
+      "styles": "Kiểu",
+      "history": "Lịch sử"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -38,12 +42,20 @@
       "open": "Mở tệp",
       "openSample": "Tài liệu mẫu",
       "exportPdf": "Xuất PDF",
-      "print": "In"
+      "print": "In",
+      "new": "Mới",
+      "save": "Lưu",
+      "saveAs": "Lưu thành…"
     },
     "edit": {
       "paste": "Dán",
       "copy": "Sao chép",
-      "cut": "Cắt"
+      "cut": "Cắt",
+      "undo": "Hoàn tác",
+      "redo": "Làm lại",
+      "selectAll": "Chọn tất cả",
+      "find": "Tìm",
+      "replace": "Thay thế"
     },
     "format": {
       "bold": "Đậm",
@@ -52,12 +64,30 @@
       "alignLeft": "Căn trái",
       "alignCenter": "Căn giữa",
       "alignRight": "Căn phải",
-      "justify": "Căn đều"
+      "justify": "Căn đều",
+      "strike": "Gạch ngang",
+      "subscript": "Chỉ số dưới",
+      "superscript": "Chỉ số trên",
+      "grow": "Tăng cỡ chữ",
+      "shrink": "Giảm cỡ chữ",
+      "color": "Màu chữ",
+      "highlight": "Tô sáng",
+      "clear": "Xoá định dạng",
+      "bullets": "Gạch đầu dòng",
+      "numbering": "Đánh số",
+      "indent": "Tăng thụt lề",
+      "outdent": "Giảm thụt lề",
+      "styleNormal": "Bình thường",
+      "styleTitle": "Tiêu đề",
+      "styleHeading1": "Đề mục 1",
+      "styleHeading2": "Đề mục 2"
     },
     "insert": {
       "table": "Bảng",
       "image": "Ảnh",
-      "pageBreak": "Ngắt trang"
+      "pageBreak": "Ngắt trang",
+      "sectionBreak": "Ngắt phần",
+      "symbol": "Ký tự đặc biệt"
     },
     "layout": {
       "margins": "Lề",
@@ -81,15 +111,19 @@
     "ready": "Sẵn sàng",
     "loading": "Đang mở…",
     "exporting": "Đang xuất PDF…",
-    "saved": "Đã lưu {{name}}"
+    "saved": "Đã lưu {{name}}",
+    "modified": "Chưa lưu",
+    "saving": "Đang lưu…",
+    "autosaved": "Đã tự lưu lúc {{time}}"
   },
   "start": {
     "title": "Chào mừng đến với BlueDoc",
-    "subtitle": "Mở tài liệu .docx để xem — chỉnh sửa sẽ có ở Phase 2.",
+    "subtitle": "Tạo tài liệu mới hoặc mở tệp .docx để soạn thảo.",
     "open": "Mở tệp từ máy",
     "sample": "Mở tài liệu mẫu",
     "recent": "Gần đây",
-    "noRecent": "Chưa có tệp nào"
+    "noRecent": "Chưa có tệp nào",
+    "blank": "Tài liệu trống"
   },
   "host": {
     "share": "Chia sẻ",
@@ -98,11 +132,35 @@
   "errors": {
     "open": "Không mở được tệp: {{message}}",
     "export": "Không xuất được PDF: {{message}}",
-    "engine": "Không khởi động được lõi xử lý: {{message}}"
+    "engine": "Không khởi động được lõi xử lý: {{message}}",
+    "save": "Không lưu được tệp: {{message}}",
+    "edit": "Không thực hiện được: {{message}}",
+    "image": "Không chèn được ảnh: {{message}}"
   },
   "placeholder": {
     "sheet": "BlueSheet (bảng tính) sẽ được phát triển ở Phase 3.",
     "slide": "BlueSlide (trình chiếu) sẽ được phát triển ở Phase 4.",
     "back": "Về BlueDoc"
+  },
+  "recovery": {
+    "title": "Có bản tự lưu chưa được lưu của “{{name}}”.",
+    "restore": "Khôi phục",
+    "discard": "Bỏ qua"
+  },
+  "find": {
+    "title": "Tìm",
+    "replaceTitle": "Tìm và thay thế",
+    "query": "Tìm gì",
+    "with": "Thay bằng",
+    "next": "Tìm tiếp",
+    "replace": "Thay",
+    "replaceAll": "Thay tất cả",
+    "matchCase": "Phân biệt hoa thường",
+    "wholeWord": "Cả từ",
+    "regex": "Biểu thức chính quy",
+    "count": "{{count}} kết quả",
+    "none": "Không tìm thấy",
+    "replaced": "Đã thay {{count}} chỗ",
+    "invalid": "Biểu thức không hợp lệ"
   }
 }

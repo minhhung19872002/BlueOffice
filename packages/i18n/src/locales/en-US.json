@@ -4,7 +4,8 @@
     "doc": "BlueDoc",
     "sheet": "BlueSheet",
     "slide": "BlueSlide",
-    "untitled": "Untitled document"
+    "untitled": "Untitled document",
+    "newDocName": "New document.docx"
   },
   "appTitle": {
     "doc": "BlueDoc – Documents",
@@ -29,7 +30,10 @@
       "pages": "Pages",
       "pageSetup": "Page setup",
       "zoom": "Zoom",
-      "appearance": "Appearance"
+      "appearance": "Appearance",
+      "editing": "Editing",
+      "styles": "Styles",
+      "history": "History"
     },
     "comingLater": "Coming in a later release"
   },
@@ -38,12 +42,20 @@
       "open": "Open file",
       "openSample": "Sample document",
       "exportPdf": "Export PDF",
-      "print": "Print"
+      "print": "Print",
+      "new": "New",
+      "save": "Save",
+      "saveAs": "Save as…"
     },
     "edit": {
       "paste": "Paste",
       "copy": "Copy",
-      "cut": "Cut"
+      "cut": "Cut",
+      "undo": "Undo",
+      "redo": "Redo",
+      "selectAll": "Select all",
+      "find": "Find",
+      "replace": "Replace"
     },
     "format": {
       "bold": "Bold",
@@ -52,12 +64,30 @@
       "alignLeft": "Align left",
       "alignCenter": "Center",
       "alignRight": "Align right",
-      "justify": "Justify"
+      "justify": "Justify",
+      "strike": "Strikethrough",
+      "subscript": "Subscript",
+      "superscript": "Superscript",
+      "grow": "Grow font",
+      "shrink": "Shrink font",
+      "color": "Font colour",
+      "highlight": "Highlight",
+      "clear": "Clear formatting",
+      "bullets": "Bullets",
+      "numbering": "Numbering",
+      "indent": "Increase indent",
+      "outdent": "Decrease indent",
+      "styleNormal": "Normal",
+      "styleTitle": "Title",
+      "styleHeading1": "Heading 1",
+      "styleHeading2": "Heading 2"
     },
     "insert": {
       "table": "Table",
       "image": "Picture",
-      "pageBreak": "Page break"
+      "pageBreak": "Page break",
+      "sectionBreak": "Section break",
+      "symbol": "Symbol"
     },
     "layout": {
       "margins": "Margins",
@@ -81,15 +111,19 @@
     "ready": "Ready",
     "loading": "Opening…",
     "exporting": "Exporting PDF…",
-    "saved": "Saved {{name}}"
+    "saved": "Saved {{name}}",
+    "modified": "Unsaved",
+    "saving": "Saving…",
+    "autosaved": "Autosaved at {{time}}"
   },
   "start": {
     "title": "Welcome to BlueDoc",
-    "subtitle": "Open a .docx document to view it — editing arrives in Phase 2.",
+    "subtitle": "Create a new document or open a .docx file to edit.",
     "open": "Open a file",
     "sample": "Open the sample document",
     "recent": "Recent",
-    "noRecent": "No files yet"
+    "noRecent": "No files yet",
+    "blank": "Blank document"
   },
   "host": {
     "share": "Share",
@@ -98,11 +132,35 @@
   "errors": {
     "open": "Could not open the file: {{message}}",
     "export": "Could not export PDF: {{message}}",
-    "engine": "Could not start the engine: {{message}}"
+    "engine": "Could not start the engine: {{message}}",
+    "save": "Could not save the file: {{message}}",
+    "edit": "Could not do that: {{message}}",
+    "image": "Could not insert the picture: {{message}}"
   },
   "placeholder": {
     "sheet": "BlueSheet (spreadsheets) is developed in Phase 3.",
     "slide": "BlueSlide (presentations) is developed in Phase 4.",
     "back": "Back to BlueDoc"
+  },
+  "recovery": {
+    "title": "An unsaved autosave of “{{name}}” is available.",
+    "restore": "Restore",
+    "discard": "Discard"
+  },
+  "find": {
+    "title": "Find",
+    "replaceTitle": "Find and replace",
+    "query": "Find what",
+    "with": "Replace with",
+    "next": "Find next",
+    "replace": "Replace",
+    "replaceAll": "Replace all",
+    "matchCase": "Match case",
+    "wholeWord": "Whole word",
+    "regex": "Regular expression",
+    "count": "{{count}} results",
+    "none": "No results",
+    "replaced": "Replaced {{count}}",
+    "invalid": "Invalid expression"
   }
 }

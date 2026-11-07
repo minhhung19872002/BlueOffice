@@ -32,6 +32,23 @@ async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?:
       const pdf = engine.exportPdf();
       return { result: pdf, transfer: [pdf.buffer] };
     }
+    case 'new':
+      return { result: JSON.parse(engine.newDocument(req.name)) };
+    case 'command':
+      return { result: JSON.parse(engine.command(req.json)) };
+    case 'insertImage':
+      return { result: JSON.parse(engine.insertImage(req.bytes, req.name)) };
+    case 'media': {
+      const bytes = engine.media(req.name);
+      return { result: bytes, transfer: [bytes.buffer] };
+    }
+    case 'saveDocx': {
+      const bytes = engine.saveDocx();
+      return { result: bytes, transfer: [bytes.buffer] };
+    }
+    case 'markSaved':
+      engine.markSaved();
+      return { result: null };
   }
 }
 

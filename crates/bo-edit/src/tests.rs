@@ -165,6 +165,13 @@ fn paragraph_formatting_lists_and_styles() {
     let p = bo_model::index::para_at(s.doc(), &[0, 1]).unwrap();
     assert_eq!(p.props.style.as_deref(), Some("Normal"));
     assert!(s.apply_style("Missing").is_err());
+    // Built-in styles are created on first use and removed again by undo.
+    let mut s = Session::new(doc(&["x"]));
+    s.apply_style("Heading2").unwrap();
+    assert!(s.doc().style("Heading2").is_some());
+    assert!(s.format_state().bold);
+    s.undo();
+    assert_eq!(s.doc().styles.styles.len(), 0);
 }
 
 #[test]

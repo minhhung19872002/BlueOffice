@@ -354,6 +354,45 @@ impl Tx<'_> {
     }
 }
 
+/// Built-in paragraph styles offered by the style gallery (BlueDoc's own definitions;
+/// ids follow the conventional `Heading1`… so other applications map them to outline levels).
+pub fn builtin_style(id: &str) -> Option<bo_model::Style> {
+    use bo_model::Style;
+    let mut s = match id {
+        "Normal" => {
+            let mut s = Style::new("Normal", "Normal", StyleKind::Paragraph);
+            s.is_default = true;
+            return Some(s);
+        }
+        "Title" => Style::new("Title", "Title", StyleKind::Paragraph),
+        "Heading1" => Style::new("Heading1", "heading 1", StyleKind::Paragraph),
+        "Heading2" => Style::new("Heading2", "heading 2", StyleKind::Paragraph),
+        "Heading3" => Style::new("Heading3", "heading 3", StyleKind::Paragraph),
+        _ => return None,
+    };
+    s.based_on = Some("Normal".into());
+    s.next = Some("Normal".into());
+    s.rpr.bold = Some(true);
+    s.ppr.keep_next = Some(true);
+    s.ppr.space_before = Some(Twips(240));
+    s.ppr.space_after = Some(Twips(120));
+    let (size, level) = match id {
+        "Title" => (40, None),
+        "Heading1" => (32, Some(0)),
+        "Heading2" => (28, Some(1)),
+        _ => (26, Some(2)),
+    };
+    s.rpr.size = Some(HalfPoints(size));
+    s.ppr.outline_level = level;
+    if id == "Title" {
+        s.ppr.align = Some(Alignment::Center);
+    }
+    if id == "Heading3" {
+        s.rpr.italic = Some(true);
+    }
+    Some(s)
+}
+
 // ------------------------------------------------------------------ session
 
 /// An editing session: the document, its selection and the undo history.
@@ -904,6 +943,38 @@ impl Session {
 
     /// Apply a style: paragraph styles to the touched paragraphs, character styles to the selection.
     pub fn apply_style(&mut self, id: &str) -> Result<Selection> {
+        if self.doc.style(id).is_none() {
+            let Some(builtin) = builtin_style(id) else {
+                return Err(EditError::Unsupported(format!("unknown style {id}")));
+            };
+            // Add the built-in definition first (same undo step as applying it).
+            let old = self.doc.styles.clone();
+            let mut new = old.clone();
+            if builtin.based_on.as_deref() == Some("Normal") && self.doc.style("Normal").is_none() {
+                if let Some(n) = builtin_style("Normal") {
+                    new.styles.push(n);
+                }
+            }
+            new.styles.push(builtin);
+            let sid = id.to_owned();
+            let ids: Vec<usize> = {
+                let (a, b) = self.selection.ordered();
+                (a.para..=b.para).collect()
+            };
+            return self.edit(move |tx, sel| {
+                tx.push(Op::Styles {
+                    old: Box::new(old),
+                    new: Box::new(new),
+                })?;
+                for pid in ids {
+                    let (path, p, _) = tx.atoms(pid)?;
+                    let mut q = p.clone();
+                    q.props.style = Some(sid.clone());
+                    tx.replace_para(&path, q)?;
+                }
+                Ok(sel)
+            });
+        }
         let Some(style) = self.doc.style(id).cloned() else {
             return Err(EditError::Unsupported(format!("unknown style {id}")));
         };

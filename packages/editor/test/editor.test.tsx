@@ -1,15 +1,58 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Platform } from '@blueoffice/platform';
+import type { DocInfo, EditCommand, EditResult, Platform } from '@blueoffice/platform';
 import { BlueEditor } from '../src/BlueEditor';
 
 afterEach(cleanup);
 
-function fakePlatform(): Platform & { opened: string[] } {
+const info = (name: string): DocInfo => ({
+  name,
+  pageCount: 1,
+  pages: [{ width: 595, height: 842 }],
+  wordCount: 0,
+});
+
+function result(name: string, bold: boolean, modified: boolean): EditResult {
+  return {
+    info: info(name),
+    selection: { anchor: { p: 0, o: 0 }, focus: { p: 0, o: 0 } },
+    caret: { page: 0, x: 85, y: 56, h: 15 },
+    rects: [],
+    dirty: [0],
+    format: {
+      bold,
+      italic: false,
+      underline: false,
+      strike: false,
+      superscript: false,
+      subscript: false,
+      font: null,
+      sizeHalfPoints: 26,
+      color: null,
+      highlight: null,
+      align: 'Left',
+      style: null,
+      bullets: false,
+      numbering: false,
+      canUndo: modified,
+      canRedo: false,
+    },
+    modified,
+  };
+}
+
+function fakePlatform(): Platform & { opened: string[]; commands: EditCommand[]; saved: string[] } {
   const opened: string[] = [];
+  const commands: EditCommand[] = [];
+  const saved: string[] = [];
+  let bold = false;
+  let modified = false;
+  let current = '';
   return {
     opened,
+    commands,
+    saved,
     kind: 'web',
     files: { openFile: async () => null, saveFile: async (_b, n) => n },
     storage: {
@@ -20,7 +63,14 @@ function fakePlatform(): Platform & { opened: string[] } {
         permissions: { edit: true, download: true, share: false },
       }),
       save: async (d) => d,
-      saveAs: async () => null,
+      saveAs: async (name, bytes) => {
+        saved.push(name);
+        return {
+          ref: { provider: 'local', id: name, name },
+          bytes,
+          permissions: { edit: true, download: true, share: false },
+        };
+      },
     },
     clipboard: { readText: async () => '', writeText: async () => {}, writeHtml: async () => {} },
     fonts: { list: async () => [], load: async () => new Uint8Array() },
@@ -30,6 +80,7 @@ function fakePlatform(): Platform & { opened: string[] } {
       init: async () => {},
       open: async (_b, name) => {
         opened.push(name);
+        current = name;
         return {
           name,
           pageCount: 3,
@@ -44,6 +95,22 @@ function fakePlatform(): Platform & { opened: string[] } {
       getPage: async () => ({ width: 595, height: 842, commands: [] }),
       getGlyphOutlines: async () => [],
       exportPdf: async () => new Uint8Array([37]),
+      newDocument: async (name) => {
+        current = name;
+        return info(name);
+      },
+      command: async (cmd) => {
+        commands.push(cmd);
+        if (cmd.cmd === 'insertText') modified = true;
+        if (cmd.cmd === 'formatText') bold = !bold;
+        return result(current, bold, modified);
+      },
+      insertImage: async () => result('x', bold, modified),
+      getMedia: async () => new Uint8Array(),
+      saveDocx: async () => new Uint8Array([80, 75]),
+      markSaved: async () => {
+        modified = false;
+      },
       dispose: () => {},
     },
     auth: {
@@ -99,6 +166,47 @@ describe('BlueEditor', () => {
     expect(screen.getByText('Chia sẻ')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('Đóng'));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('creates a blank document, types, formats via the ribbon and saves', async () => {
+    const p = fakePlatform();
+    render(<BlueEditor platform={p} autosaveMs={0} />);
+    fireEvent.click(screen.getByTestId('new-document'));
+    await waitFor(() =>
+      expect(screen.getByTestId('doc-name').textContent).toBe('Tài liệu mới.docx'),
+    );
+    const ime = document.querySelector('textarea')!;
+    ime.value = 'Việt';
+    fireEvent.input(ime);
+    await waitFor(() => expect(p.commands).toContainEqual({ cmd: 'insertText', text: 'Việt' }));
+    await waitFor(() => expect(screen.getByTestId('status-modified')).toBeTruthy());
+    fireEvent.keyDown(ime, { key: 'Backspace' });
+    await waitFor(() => expect(p.commands).toContainEqual({ cmd: 'deleteBackward' }));
+    const bold = document.querySelector('[data-command="format.bold"]')!;
+    fireEvent.click(bold);
+    await waitFor(() => expect(bold.getAttribute('aria-pressed')).toBe('true'));
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+    await waitFor(() => expect(p.saved).toEqual(['Tài liệu mới.docx']));
+    await waitFor(() => expect(screen.queryByTestId('status-modified')).toBeNull());
+  });
+
+  it('opens the find panel and offers crash recovery', async () => {
+    const p = fakePlatform();
+    p.offline.get = async (k) =>
+      k.endsWith('name') ? new TextEncoder().encode('báo cáo.docx') : new Uint8Array([1]);
+    render(<BlueEditor platform={p} autosaveMs={0} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('recovery').textContent).toContain('báo cáo.docx'),
+    );
+    fireEvent.click(screen.getByText('Khôi phục'));
+    await waitFor(() => expect(p.opened).toEqual(['báo cáo.docx']));
+    fireEvent.keyDown(window, { key: 'h', ctrlKey: true });
+    const q = await screen.findByTestId('find-query');
+    fireEvent.change(q, { target: { value: 'abc' } });
+    fireEvent.click(screen.getByText('Thay tất cả'));
+    await waitFor(() =>
+      expect(p.commands).toContainEqual({ cmd: 'replaceAll', query: 'abc', options: {}, with: '' }),
+    );
   });
 
   it('shows placeholders for sheet and slide apps', () => {

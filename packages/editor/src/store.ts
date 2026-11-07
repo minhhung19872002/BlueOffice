@@ -1,11 +1,11 @@
 import type { Language } from '@blueoffice/i18n';
-import type { DocInfo } from '@blueoffice/platform';
+import type { DocInfo, EditResult } from '@blueoffice/platform';
 import type { ThemeSetting } from '@blueoffice/ui';
 import { createStore } from 'zustand/vanilla';
 
 export type Status =
   | { kind: 'idle' }
-  | { kind: 'busy'; key: 'status.loading' | 'status.exporting' }
+  | { kind: 'busy'; key: 'status.loading' | 'status.exporting' | 'status.saving' }
   | { kind: 'info'; key: string; params?: Record<string, string> }
   | { kind: 'error'; key: string; message: string };
 
@@ -17,6 +17,11 @@ export interface EditorState {
   language: Language;
   status: Status;
   engineReady: boolean;
+  /** Latest editing result (selection, ribbon state, modified flag). */
+  edit: EditResult | null;
+  panel: 'find' | 'replace' | 'symbols' | null;
+  /** Name of a document with an autosave waiting to be restored. */
+  recovery: string | null;
 }
 
 export const initialState = (language: Language, theme: ThemeSetting): EditorState => ({
@@ -27,6 +32,9 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   language,
   status: { kind: 'idle' },
   engineReady: false,
+  edit: null,
+  panel: null,
+  recovery: null,
 });
 
 export const createEditorStore = (language: Language, theme: ThemeSetting) =>

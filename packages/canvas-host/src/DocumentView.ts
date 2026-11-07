@@ -1,6 +1,23 @@
-import type { DocInfo, EngineHost, PageDisplayList } from '@blueoffice/platform';
+import type {
+  CaretRect,
+  DocInfo,
+  EngineHost,
+  PageDisplayList,
+  SelRect,
+} from '@blueoffice/platform';
 import { ImeInput, type ImeEvent } from './ime';
-import { GlyphStore, PX_PER_PT, renderPage } from './renderer';
+import { GlyphStore, ImageStore, PX_PER_PT, renderPage } from './renderer';
+
+/** Pointer input on a page, in points relative to the page's top-left corner. */
+export interface PagePointer {
+  type: 'down' | 'drag' | 'up';
+  page: number;
+  x: number;
+  y: number;
+  shift: boolean;
+  /** Click count (1 caret, 2 word, 3 paragraph). */
+  count: number;
+}
 
 export interface DocumentViewOptions {
   /** Gap between pages in CSS pixels. */
@@ -10,6 +27,7 @@ export interface DocumentViewOptions {
   onPageChange?: (page: number) => void;
   onZoomChange?: (zoom: number) => void;
   onInput?: (e: ImeEvent) => void;
+  onPointer?: (e: PagePointer) => void;
 }
 
 export const MIN_ZOOM = 0.25;
@@ -17,6 +35,7 @@ export const MAX_ZOOM = 5;
 
 interface PageSlot {
   el: HTMLDivElement;
+  overlay: HTMLDivElement;
   canvas: HTMLCanvasElement | null;
   renderedAt: string | null;
 }
@@ -29,6 +48,9 @@ export class DocumentView {
   readonly scroller: HTMLDivElement;
   private readonly content: HTMLDivElement;
   private readonly glyphs: GlyphStore;
+  private readonly images: ImageStore;
+  private dragging = false;
+  private caret: CaretRect | null = null;
   private readonly ime: ImeInput;
   private slots: PageSlot[] = [];
   private lists = new Map<number, Promise<PageDisplayList>>();
@@ -37,7 +59,7 @@ export class DocumentView {
   private frame = 0;
   private currentPage = -1;
   private readonly opts: Required<
-    Omit<DocumentViewOptions, 'onPageChange' | 'onZoomChange' | 'onInput'>
+    Omit<DocumentViewOptions, 'onPageChange' | 'onZoomChange' | 'onInput' | 'onPointer'>
   > &
     DocumentViewOptions;
 
@@ -48,6 +70,7 @@ export class DocumentView {
   ) {
     this.opts = { pageGap: 16, overscan: 1, ...opts };
     this.glyphs = new GlyphStore(engine);
+    this.images = new ImageStore(engine);
     this.scroller = document.createElement('div');
     this.scroller.className = 'bo-doc-scroller';
     this.scroller.tabIndex = 0;
@@ -61,8 +84,17 @@ export class DocumentView {
     this.ime = new ImeInput(this.scroller, (e) => this.opts.onInput?.(e));
     this.scroller.addEventListener('scroll', this.schedule);
     this.scroller.addEventListener('wheel', this.onWheel, { passive: false });
-    this.scroller.addEventListener('mousedown', () => this.ime.focus());
+    this.scroller.addEventListener('mousedown', this.onMouseDown);
+    window.addEventListener('mousemove', this.onMouseMove);
+    window.addEventListener('mouseup', this.onMouseUp);
     window.addEventListener('resize', this.schedule);
+    if (!document.getElementById('bo-caret-style')) {
+      const st = document.createElement('style');
+      st.id = 'bo-caret-style';
+      st.textContent =
+        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1.5px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(51,120,220,.32);pointer-events:none}';
+      document.head.appendChild(st);
+    }
   }
 
   get zoom(): number {
@@ -71,6 +103,13 @@ export class DocumentView {
 
   /** Show a newly opened document. */
   setDocument(info: DocInfo): void {
+    this.images.clear();
+    this.buildSlots(info);
+    this.scroller.scrollTop = 0;
+    this.schedule();
+  }
+
+  private buildSlots(info: DocInfo): void {
     this.info = info;
     this.lists.clear();
     this.content.replaceChildren();
@@ -80,15 +119,131 @@ export class DocumentView {
       el.dataset.page = String(i + 1);
       el.setAttribute('aria-label', `page ${i + 1}`);
       el.style.cssText =
-        'position:relative;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.06);flex:none;';
+        'position:relative;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.06);flex:none;cursor:text;';
+      const overlay = document.createElement('div');
+      overlay.className = 'bo-overlay';
+      overlay.style.cssText = 'position:absolute;inset:0;z-index:2;pointer-events:none;';
+      el.appendChild(overlay);
       this.content.appendChild(el);
-      return { el, canvas: null, renderedAt: null };
+      return { el, overlay, canvas: null, renderedAt: null };
     });
     this.currentPage = -1;
     this.layoutSlots();
-    this.scroller.scrollTop = 0;
+  }
+
+  /**
+   * Repaint after an edit: `dirty` pages are fetched again; a changed page
+   * count or size rebuilds the page slots (scroll position is kept).
+   */
+  refresh(info: DocInfo, dirty: number[]): void {
+    const old = this.info;
+    const same =
+      old &&
+      old.pages.length === info.pages.length &&
+      old.pages.every(
+        (p, i) => p.width === info.pages[i]?.width && p.height === info.pages[i]?.height,
+      );
+    if (!same) {
+      const top = this.scroller.scrollTop;
+      this.buildSlots(info);
+      this.scroller.scrollTop = top;
+    } else {
+      this.info = info;
+      for (const i of dirty) {
+        this.lists.delete(i);
+        const s = this.slots[i];
+        if (s) s.renderedAt = null;
+      }
+    }
     this.schedule();
   }
+
+  /** Show the caret (collapsed selection) or the selection rectangles. */
+  setSelection(caret: CaretRect | null, rects: SelRect[], scrollIntoView = true): void {
+    this.caret = caret;
+    this.lastRects = rects;
+    for (const s of this.slots) s.overlay.replaceChildren();
+    const k = PX_PER_PT * this.zoomValue;
+    for (const r of rects) {
+      const slot = this.slots[r.page];
+      if (!slot) continue;
+      const d = document.createElement('div');
+      d.className = 'bo-sel';
+      d.style.cssText = `left:${r.x * k}px;top:${r.y * k}px;width:${r.w * k}px;height:${r.h * k}px;`;
+      slot.overlay.appendChild(d);
+    }
+    if (caret && rects.length === 0) {
+      const slot = this.slots[caret.page];
+      if (slot) {
+        const c = document.createElement('div');
+        c.className = 'bo-caret';
+        c.dataset.testid = 'caret';
+        c.style.left = `${caret.x * k}px`;
+        c.style.top = `${caret.y * k}px`;
+        c.style.height = `${caret.h * k}px`;
+        slot.overlay.appendChild(c);
+      }
+    }
+    if (caret) {
+      const slot = this.slots[caret.page];
+      if (slot) {
+        const x = this.content.offsetLeft + slot.el.offsetLeft + caret.x * k;
+        const y = this.content.offsetTop + slot.el.offsetTop + caret.y * k;
+        this.ime.moveTo(x, y, caret.h * k);
+        if (scrollIntoView) {
+          const h = caret.h * k;
+          const st = this.scroller.scrollTop;
+          const vh = this.scroller.clientHeight;
+          if (y < st) this.scroller.scrollTop = y - 24;
+          else if (y + h > st + vh) this.scroller.scrollTop = y + h - vh + 24;
+        }
+      }
+    }
+  }
+
+  private pointAt(e: MouseEvent): { page: number; x: number; y: number } | null {
+    const k = PX_PER_PT * this.zoomValue;
+    let best: { page: number; x: number; y: number; d: number } | null = null;
+    this.slots.forEach((s, i) => {
+      const r = s.el.getBoundingClientRect();
+      const d =
+        e.clientY < r.top ? r.top - e.clientY : e.clientY > r.bottom ? e.clientY - r.bottom : 0;
+      if (!best || d < best.d)
+        best = { page: i, x: (e.clientX - r.left) / k, y: (e.clientY - r.top) / k, d };
+    });
+    if (!best) return null;
+    const { page, x, y } = best;
+    return { page, x, y };
+  }
+
+  private onMouseDown = (e: MouseEvent) => {
+    if (e.button !== 0) return;
+    const p = this.pointAt(e);
+    if (p && this.info) {
+      e.preventDefault();
+      this.dragging = true;
+      this.opts.onPointer?.({
+        type: 'down',
+        ...p,
+        shift: e.shiftKey,
+        count: Math.min(3, e.detail || 1),
+      });
+    }
+    this.ime.focus();
+  };
+
+  private onMouseMove = (e: MouseEvent) => {
+    if (!this.dragging || (e.buttons & 1) === 0) return;
+    const p = this.pointAt(e);
+    if (p) this.opts.onPointer?.({ type: 'drag', ...p, shift: true, count: 1 });
+  };
+
+  private onMouseUp = (e: MouseEvent) => {
+    if (!this.dragging) return;
+    this.dragging = false;
+    const p = this.pointAt(e);
+    if (p) this.opts.onPointer?.({ type: 'up', ...p, shift: e.shiftKey, count: 1 });
+  };
 
   setZoom(z: number): void {
     const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 100) / 100));
@@ -100,6 +255,7 @@ export class DocumentView {
     this.zoomValue = next;
     this.layoutSlots();
     this.scroller.scrollTop = cy * this.content.scrollHeight - this.scroller.clientHeight / 2;
+    this.redrawSelection();
     this.opts.onZoomChange?.(next);
     this.schedule();
   }
@@ -119,9 +275,17 @@ export class DocumentView {
     this.ime.focus();
   }
 
+  private lastRects: SelRect[] = [];
+
+  private redrawSelection(): void {
+    this.setSelection(this.caret, this.lastRects, false);
+  }
+
   dispose(): void {
     cancelAnimationFrame(this.frame);
     window.removeEventListener('resize', this.schedule);
+    window.removeEventListener('mousemove', this.onMouseMove);
+    window.removeEventListener('mouseup', this.onMouseUp);
     this.ime.dispose();
     this.scroller.remove();
   }
@@ -197,7 +361,7 @@ export class DocumentView {
         const slot = this.slots[i];
         if (!slot || slot.renderedAt === key) return;
         const list = await this.pageList(i);
-        await this.glyphs.ensure(list);
+        await Promise.all([this.glyphs.ensure(list), this.images.ensure(list)]);
         const scale = PX_PER_PT * this.zoomValue * dpr;
         const canvas = slot.canvas ?? document.createElement('canvas');
         canvas.width = Math.round(list.width * scale);
@@ -205,9 +369,9 @@ export class DocumentView {
         canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
-        renderPage(ctx, list, this.glyphs, scale);
+        renderPage(ctx, list, this.glyphs, scale, this.images);
         if (!slot.canvas) {
-          slot.el.appendChild(canvas);
+          slot.el.insertBefore(canvas, slot.overlay);
           slot.canvas = canvas;
         }
         slot.renderedAt = key;

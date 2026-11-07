@@ -30,7 +30,30 @@ export type Glyph = [number, number, number, number];
 /** Display list command (mirrors `bo_render::Command`). Units: points, y down. */
 export type DisplayCommand =
   | { op: 'fillRect'; x: number; y: number; w: number; h: number; color: Rgba }
-  | { op: 'line'; x1: number; y1: number; x2: number; y2: number; width: number; color: Rgba }
+  | {
+      op: 'line';
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      width: number;
+      color: Rgba;
+      /** (on, off) dash lengths. */
+      dash?: [number, number];
+    }
+  | {
+      op: 'image';
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      /** Media part name, bytes via `EngineHost.getMedia`. */
+      media: string;
+      /** l, t, r, b fractions cut away. */
+      crop?: [number, number, number, number];
+      /** Degrees clockwise. */
+      rotation?: number;
+    }
   | {
       op: 'glyphs';
       face: number;
@@ -59,6 +82,137 @@ export interface GlyphOutline {
   path: string;
 }
 
+// ---------------------------------------------------------------- editing (mirrors bo_engine::edit)
+
+/** Caret position: body paragraph id and byte offset in its text. */
+export interface Pos {
+  p: number;
+  o: number;
+}
+
+export interface Selection {
+  anchor: Pos;
+  focus: Pos;
+}
+
+export interface CaretRect {
+  page: number;
+  x: number;
+  y: number;
+  h: number;
+}
+
+export interface SelRect {
+  page: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export type Alignment = 'Left' | 'Center' | 'Right' | 'Justify';
+
+/** Formatting at the selection (ribbon toggle states). */
+export interface FormatState {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strike: boolean;
+  superscript: boolean;
+  subscript: boolean;
+  font: string | null;
+  sizeHalfPoints: number | null;
+  color: string | null;
+  highlight: string | null;
+  align: Alignment;
+  style: string | null;
+  bullets: boolean;
+  numbering: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+export interface FindOptions {
+  matchCase?: boolean;
+  wholeWord?: boolean;
+  regex?: boolean;
+}
+
+export interface FindMatch {
+  p: number;
+  start: number;
+  end: number;
+}
+
+export type CharFormat =
+  | { kind: 'bold' | 'italic' | 'underline' | 'strike' | 'superscript' | 'subscript' | 'clear' }
+  | { kind: 'font'; name: string }
+  | { kind: 'size'; halfPoints: number }
+  | { kind: 'color'; hex: string | null }
+  | { kind: 'highlight'; hex: string | null };
+
+export type ParaFormat =
+  | { kind: 'align'; align: Alignment }
+  | { kind: 'increaseIndent' | 'decreaseIndent' | 'bullets' | 'numbering' | 'clear' }
+  | { kind: 'lineSpacing'; value: number }
+  | { kind: 'style'; id: string };
+
+export type Motion =
+  | 'left'
+  | 'right'
+  | 'wordLeft'
+  | 'wordRight'
+  | 'up'
+  | 'down'
+  | 'lineStart'
+  | 'lineEnd'
+  | 'pageUp'
+  | 'pageDown'
+  | 'docStart'
+  | 'docEnd';
+
+/** Editing command sent to the engine (JSON bridge, ADR-0007). */
+export type EditCommand =
+  | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
+  | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
+  | { cmd: 'setSelection'; selection: Selection }
+  | { cmd: 'click'; page: number; x: number; y: number; extend?: boolean; count?: number }
+  | { cmd: 'dragTo'; page: number; x: number; y: number }
+  | { cmd: 'move'; motion: Motion; extend?: boolean }
+  | { cmd: 'insertText'; text: string }
+  | { cmd: 'formatText'; format: CharFormat }
+  | { cmd: 'formatParagraph'; format: ParaFormat }
+  | { cmd: 'applyStyle'; id: string }
+  | { cmd: 'insertTable'; rows: number; cols: number }
+  | { cmd: 'insertSectionBreak'; kind: 'nextPage' | 'continuous' | 'evenPage' | 'oddPage' }
+  | { cmd: 'find'; query: string; options?: FindOptions }
+  | { cmd: 'selectMatch'; match: FindMatch }
+  | { cmd: 'replace'; match: FindMatch; with: string }
+  | { cmd: 'replaceAll'; query: string; options?: FindOptions; with: string }
+  | { cmd: 'paste'; internal?: string; html?: string; text?: string };
+
+export interface ClipPayload {
+  text: string;
+  html: string;
+  internal: string;
+}
+
+/** Result of an editing command. */
+export interface EditResult {
+  info: DocInfo;
+  selection: Selection;
+  caret: CaretRect | null;
+  rects: SelRect[];
+  /** Pages whose display list changed. */
+  dirty: number[];
+  format: FormatState;
+  modified: boolean;
+  matches?: FindMatch[];
+  count?: number;
+  clip?: ClipPayload;
+  error?: string;
+}
+
 // ---------------------------------------------------------------- services
 
 /** The core engine. Same API whether it runs as WASM (web) or natively (desktop). */
@@ -70,6 +224,18 @@ export interface EngineHost {
   getPage(index: number): Promise<PageDisplayList>;
   getGlyphOutlines(face: number, glyphs: number[]): Promise<GlyphOutline[]>;
   exportPdf(): Promise<Uint8Array>;
+  /** Start a blank document. */
+  newDocument(name: string): Promise<DocInfo>;
+  /** Run an editing command. */
+  command(cmd: EditCommand): Promise<EditResult>;
+  /** Insert a PNG/JPEG picture at the selection. */
+  insertImage(bytes: Uint8Array, name: string): Promise<EditResult>;
+  /** Bytes of a media part referenced by an `image` display command. */
+  getMedia(name: string): Promise<Uint8Array>;
+  /** Serialize the open document as .docx. */
+  saveDocx(): Promise<Uint8Array>;
+  /** Mark the current state as saved. */
+  markSaved(): Promise<void>;
   dispose(): void;
 }
 

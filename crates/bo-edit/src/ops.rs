@@ -7,7 +7,7 @@
 
 use crate::EditError;
 use bo_model::index::blocks_at_mut;
-use bo_model::{Block, Document, Numbering, Section};
+use bo_model::{Block, Document, Numbering, Section, StyleSheet};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -37,6 +37,11 @@ pub enum Op {
     Numbering {
         old: Box<Numbering>,
         new: Box<Numbering>,
+    },
+    /// Replace the style sheet.
+    Styles {
+        old: Box<StyleSheet>,
+        new: Box<StyleSheet>,
     },
 }
 
@@ -71,6 +76,10 @@ impl Op {
                 new: old.clone(),
             },
             Op::Numbering { old, new } => Op::Numbering {
+                old: new.clone(),
+                new: old.clone(),
+            },
+            Op::Styles { old, new } => Op::Styles {
                 old: new.clone(),
                 new: old.clone(),
             },
@@ -118,6 +127,12 @@ impl Op {
                     return Err(EditError::Conflict);
                 }
                 doc.numbering = (**new).clone();
+            }
+            Op::Styles { old, new } => {
+                if doc.styles != **old {
+                    return Err(EditError::Conflict);
+                }
+                doc.styles = (**new).clone();
             }
         }
         Ok(())

@@ -110,7 +110,9 @@ jobs:
         with:
           node-version: 22
       - run: cargo build -p bo-cli
+      - run: npm i -g pnpm@9 && pnpm install --frozen-lockfile
       - run: node scripts/fidelity-report.mjs
+      - run: node scripts/visual-diff.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -119,6 +121,8 @@ jobs:
             docs/fidelity-report.md
             tests/fidelity/history.csv
             tests/fidelity/output/roundtrip
+            tests/fidelity/output/diff
+            docs/fidelity-visual.md
 
   desktop:
     name: Desktop (Tauri build)
@@ -134,3 +138,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @blueoffice/desktop tauri build --no-bundle
+      # Desktop E2E through Tauri WebDriver (runner ships Edge + msedgedriver in EDGEWEBDRIVER).
+      - run: cargo install tauri-driver --locked
+      - run: pnpm test:e2e:desktop
+        env:
+          MSEDGEDRIVER: ${{ env.EDGEWEBDRIVER }}\msedgedriver.exe

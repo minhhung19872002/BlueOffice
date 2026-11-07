@@ -61,6 +61,8 @@ pnpm desktop:dev                               # Tauri dev (port 1420)
 pnpm --filter @blueoffice/desktop tauri build --no-bundle   # BlueDoc → target/release/bluedoc.exe
 pnpm --filter @blueoffice/desktop build:bluesheet          # BlueSheet (vn.bluestar.bluesheet)
 pnpm --filter @blueoffice/desktop build:blueslide          # BlueSlide (vn.bluestar.blueslide)
+cargo install tauri-driver --locked                        # E2E desktop (WebDriver), cần msedgedriver khớp WebView2
+MSEDGEDRIVER=<msedgedriver.exe> pnpm test:e2e:desktop      # chạy trên target/release/bluedoc.exe
 
 # Server (gồm tests/mock-bluedrive, tools/BlueOffice.Validate = bo-validate)
 dotnet test BlueOffice.sln

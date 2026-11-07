@@ -147,6 +147,8 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         comments_fingerprint: fingerprint(&doc.comments),
         comments_root,
         comments_ids,
+        notes_fingerprint: crate::writer::notes_fingerprint(&doc),
+        even_and_odd_headers: doc.even_and_odd_headers,
     }));
     Ok(doc)
 }

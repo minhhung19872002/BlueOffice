@@ -21,7 +21,8 @@
       "view": "Xem",
       "references": "Tham chiếu",
       "mailings": "Gửi thư",
-      "review": "Xem lại"
+      "review": "Xem lại",
+      "table": "Bảng"
     },
     "groups": {
       "document": "Tài liệu",
@@ -46,7 +47,12 @@
       "fields": "Trường",
       "mergeData": "Nguồn dữ liệu",
       "mergePreview": "Xem trước",
-      "mergeFinish": "Hoàn tất"
+      "mergeFinish": "Hoàn tất",
+      "rowsColumns": "Hàng và cột",
+      "merge": "Gộp",
+      "tableStyle": "Kiểu bảng",
+      "headerFooter": "Đầu và chân trang",
+      "footnotes": "Chú thích"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -58,7 +64,8 @@
       "print": "In",
       "new": "Mới",
       "save": "Lưu",
-      "saveAs": "Lưu thành…"
+      "saveAs": "Lưu thành…",
+      "newFromTemplate": "Mới từ mẫu"
     },
     "edit": {
       "paste": "Dán",
@@ -68,7 +75,8 @@
       "redo": "Làm lại",
       "selectAll": "Chọn tất cả",
       "find": "Tìm",
-      "replace": "Thay thế"
+      "replace": "Thay thế",
+      "pasteSpecial": "Dán đặc biệt…"
     },
     "format": {
       "bold": "Đậm",
@@ -93,19 +101,27 @@
       "styleNormal": "Bình thường",
       "styleTitle": "Tiêu đề",
       "styleHeading1": "Đề mục 1",
-      "styleHeading2": "Đề mục 2"
+      "styleHeading2": "Đề mục 2",
+      "painter": "Sao định dạng"
     },
     "insert": {
       "table": "Bảng",
       "image": "Ảnh",
       "pageBreak": "Ngắt trang",
       "sectionBreak": "Ngắt phần",
-      "symbol": "Ký tự đặc biệt"
+      "symbol": "Ký tự đặc biệt",
+      "header": "Đầu trang",
+      "footer": "Chân trang",
+      "pageNumber": "Số trang",
+      "footnote": "Chèn chú thích cuối trang",
+      "endnote": "Chèn chú thích cuối văn bản"
     },
     "layout": {
       "margins": "Lề",
       "orientation": "Hướng giấy",
-      "size": "Khổ giấy"
+      "size": "Khổ giấy",
+      "columns": "Cột",
+      "pageSetup": "Thiết lập trang…"
     },
     "view": {
       "zoomIn": "Phóng to",
@@ -114,7 +130,8 @@
       "fitWidth": "Vừa chiều rộng",
       "collaborators": "Người cùng sửa",
       "toggleTheme": "Sáng / Tối",
-      "toggleLanguage": "English"
+      "toggleLanguage": "English",
+      "ruler": "Thước kẻ"
     },
     "review": {
       "trackChanges": "Theo dõi thay đổi",
@@ -141,7 +158,8 @@
       "updateToc": "Cập nhật mục lục",
       "insertCaption": "Chèn tiêu đề hình/bảng",
       "crossReference": "Tham chiếu chéo",
-      "updateFields": "Cập nhật trường"
+      "updateFields": "Cập nhật trường",
+      "notes": "Ngăn chú thích"
     },
     "mailings": {
       "selectRecipients": "Chọn nguồn dữ liệu",
@@ -151,6 +169,24 @@
       "previousRecord": "Bản ghi trước",
       "mergeDocument": "Trộn thành tài liệu",
       "mergePdf": "Trộn thành PDF"
+    },
+    "table": {
+      "insertRowAbove": "Chèn hàng phía trên",
+      "insertRowBelow": "Chèn hàng phía dưới",
+      "insertColumnLeft": "Chèn cột bên trái",
+      "insertColumnRight": "Chèn cột bên phải",
+      "deleteRow": "Xoá hàng",
+      "deleteColumn": "Xoá cột",
+      "deleteTable": "Xoá bảng",
+      "mergeCells": "Gộp ô",
+      "splitCell": "Tách ô",
+      "bordersAll": "Tất cả đường viền",
+      "bordersOutside": "Viền ngoài",
+      "bordersInside": "Viền trong",
+      "bordersNone": "Không viền",
+      "shading": "Tô nền ô",
+      "headerRow": "Lặp hàng tiêu đề",
+      "properties": "Thuộc tính bảng…"
     }
   },
   "status": {
@@ -173,7 +209,8 @@
     "sample": "Mở tài liệu mẫu",
     "recent": "Gần đây",
     "noRecent": "Chưa có tệp nào",
-    "blank": "Tài liệu trống"
+    "blank": "Tài liệu trống",
+    "template": "Mới từ mẫu"
   },
   "host": {
     "share": "Chia sẻ",
@@ -815,5 +852,129 @@
     "editing": "{{name}} đang sửa",
     "anonymous": "Khách",
     "selected": "{{name}} đang chọn"
+  },
+  "font": {
+    "family": "Phông chữ",
+    "default": "(Phông mặc định)",
+    "substitute": "{{name}} → {{substitute}}",
+    "size": "Cỡ chữ",
+    "automatic": "Tự động",
+    "noFill": "Không màu",
+    "customColor": "Mã màu tuỳ chọn",
+    "apply": "Áp dụng",
+    "lineSpacing": "Giãn dòng",
+    "lineExact": "Hiện tại: chính xác {{value}} pt",
+    "lineAtLeast": "Hiện tại: tối thiểu {{value}} pt",
+    "spaceBefore": "Khoảng cách trước đoạn",
+    "spaceAfter": "Khoảng cách sau đoạn",
+    "points": "{{value}} pt"
+  },
+  "ruler": {
+    "horizontal": "Thước ngang",
+    "vertical": "Thước dọc",
+    "tabType": "Loại điểm dừng tab: {{kind}} (bấm để đổi)",
+    "tab": {
+      "left": "Tab trái",
+      "center": "Tab giữa",
+      "right": "Tab phải",
+      "decimal": "Tab thập phân",
+      "bar": "Tab vạch"
+    },
+    "marginLeft": "Lề trái: {{value}}",
+    "marginRight": "Lề phải: {{value}}",
+    "marginTop": "Lề trên: {{value}}",
+    "marginBottom": "Lề dưới: {{value}}",
+    "firstLine": "Thụt dòng đầu",
+    "hanging": "Thụt treo",
+    "leftIndent": "Thụt lề trái",
+    "rightIndent": "Thụt lề phải"
+  },
+  "pageSetup": {
+    "title": "Thiết lập trang",
+    "ok": "Đồng ý",
+    "paper": "Khổ giấy",
+    "papers": {
+      "a4": "A4 (21 × 29,7 cm)",
+      "a5": "A5 (14,8 × 21 cm)",
+      "letter": "Letter (21,59 × 27,94 cm)",
+      "legal": "Legal (21,59 × 35,56 cm)",
+      "custom": "Tuỳ chỉnh"
+    },
+    "orientation": "Hướng giấy",
+    "portrait": "Dọc",
+    "landscape": "Ngang",
+    "width": "Rộng",
+    "height": "Cao",
+    "margins": "Lề",
+    "presets": {
+      "nd30": "Văn bản hành chính (NĐ 30/2020)",
+      "normal": "Thông thường (2,54 cm)",
+      "narrow": "Hẹp (1,27 cm)",
+      "wide": "Rộng",
+      "custom": "Tuỳ chỉnh"
+    },
+    "nd30Hint": "Nghị định 30/2020/NĐ-CP: lề trên 20–25 mm, dưới 20–25 mm, trái 30–35 mm, phải 15–20 mm.",
+    "top": "Trên",
+    "bottom": "Dưới",
+    "left": "Trái",
+    "right": "Phải",
+    "columns": "Số cột",
+    "columnSpace": "Khoảng cách cột",
+    "header": "Đầu trang cách mép",
+    "footer": "Chân trang cách mép",
+    "applyTo": "Áp dụng cho",
+    "thisSection": "Phần này",
+    "wholeDocument": "Toàn bộ văn bản"
+  },
+  "paste": {
+    "title": "Dán đặc biệt",
+    "ok": "Dán",
+    "as": "Dán dưới dạng",
+    "html": "Văn bản có định dạng (HTML)",
+    "text": "Văn bản không định dạng",
+    "formatting": "Định dạng",
+    "keep": "Giữ định dạng nguồn",
+    "merge": "Hợp nhất với định dạng đích",
+    "empty": "Bộ nhớ tạm không có nội dung có thể dán (hoặc trình duyệt chưa cho phép đọc)."
+  },
+  "table": {
+    "properties": "Thuộc tính bảng",
+    "width": "Chiều rộng",
+    "widthAuto": "Tự động",
+    "widthPct": "Theo phần trăm",
+    "widthFixed": "Cố định",
+    "align": "Căn lề bảng"
+  },
+  "templates": {
+    "title": "Mới từ mẫu",
+    "nd30": {
+      "name": "Văn bản hành chính (Nghị định 30/2020)",
+      "description": "Quốc hiệu, tiêu ngữ, số/ký hiệu, nơi nhận; khổ A4, lề trên/dưới 20 mm, trái 30 mm, phải 15 mm; Times New Roman 13.",
+      "file": "Văn bản hành chính.docx"
+    }
+  },
+  "hf": {
+    "header": "Đầu trang",
+    "footer": "Chân trang",
+    "section": "Phần {{n}}",
+    "variants": {
+      "default": "Mọi trang",
+      "first": "Trang đầu",
+      "even": "Trang chẵn"
+    },
+    "differentFirst": "Trang đầu khác",
+    "differentOddEven": "Trang chẵn lẻ khác",
+    "pageNumber": "Chèn số trang",
+    "pageCount": "Chèn tổng số trang",
+    "close": "Đóng đầu/chân trang"
+  },
+  "notes": {
+    "title": "Chú thích",
+    "insertFootnote": "Chú thích cuối trang",
+    "insertEndnote": "Chú thích cuối văn bản",
+    "none": "Chưa có chú thích.",
+    "footnote": "Chú thích cuối trang {{n}}",
+    "endnote": "Chú thích cuối văn bản {{n}}",
+    "save": "Lưu"
   }
 }

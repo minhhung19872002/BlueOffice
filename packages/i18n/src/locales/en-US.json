@@ -21,7 +21,8 @@
       "view": "View",
       "references": "References",
       "mailings": "Mailings",
-      "review": "Review"
+      "review": "Review",
+      "table": "Table"
     },
     "groups": {
       "document": "Document",
@@ -46,7 +47,12 @@
       "fields": "Fields",
       "mergeData": "Recipients",
       "mergePreview": "Preview",
-      "mergeFinish": "Finish"
+      "mergeFinish": "Finish",
+      "rowsColumns": "Rows & columns",
+      "merge": "Merge",
+      "tableStyle": "Table style",
+      "headerFooter": "Header & footer",
+      "footnotes": "Notes"
     },
     "comingLater": "Coming in a later release"
   },
@@ -58,7 +64,8 @@
       "print": "Print",
       "new": "New",
       "save": "Save",
-      "saveAs": "Save as…"
+      "saveAs": "Save as…",
+      "newFromTemplate": "New from template"
     },
     "edit": {
       "paste": "Paste",
@@ -68,7 +75,8 @@
       "redo": "Redo",
       "selectAll": "Select all",
       "find": "Find",
-      "replace": "Replace"
+      "replace": "Replace",
+      "pasteSpecial": "Paste special…"
     },
     "format": {
       "bold": "Bold",
@@ -93,19 +101,27 @@
       "styleNormal": "Normal",
       "styleTitle": "Title",
       "styleHeading1": "Heading 1",
-      "styleHeading2": "Heading 2"
+      "styleHeading2": "Heading 2",
+      "painter": "Format Painter"
     },
     "insert": {
       "table": "Table",
       "image": "Picture",
       "pageBreak": "Page break",
       "sectionBreak": "Section break",
-      "symbol": "Symbol"
+      "symbol": "Symbol",
+      "header": "Header",
+      "footer": "Footer",
+      "pageNumber": "Page number",
+      "footnote": "Insert footnote",
+      "endnote": "Insert endnote"
     },
     "layout": {
       "margins": "Margins",
       "orientation": "Orientation",
-      "size": "Size"
+      "size": "Size",
+      "columns": "Columns",
+      "pageSetup": "Page setup…"
     },
     "view": {
       "zoomIn": "Zoom in",
@@ -114,7 +130,8 @@
       "fitWidth": "Fit width",
       "collaborators": "Collaborators",
       "toggleTheme": "Light / Dark",
-      "toggleLanguage": "Tiếng Việt"
+      "toggleLanguage": "Tiếng Việt",
+      "ruler": "Ruler"
     },
     "review": {
       "trackChanges": "Track changes",
@@ -141,7 +158,8 @@
       "updateToc": "Update table",
       "insertCaption": "Insert caption",
       "crossReference": "Cross-reference",
-      "updateFields": "Update fields"
+      "updateFields": "Update fields",
+      "notes": "Notes pane"
     },
     "mailings": {
       "selectRecipients": "Select recipients",
@@ -151,6 +169,24 @@
       "previousRecord": "Previous record",
       "mergeDocument": "Merge to document",
       "mergePdf": "Merge to PDF"
+    },
+    "table": {
+      "insertRowAbove": "Insert row above",
+      "insertRowBelow": "Insert row below",
+      "insertColumnLeft": "Insert column left",
+      "insertColumnRight": "Insert column right",
+      "deleteRow": "Delete row",
+      "deleteColumn": "Delete column",
+      "deleteTable": "Delete table",
+      "mergeCells": "Merge cells",
+      "splitCell": "Split cell",
+      "bordersAll": "All borders",
+      "bordersOutside": "Outside borders",
+      "bordersInside": "Inside borders",
+      "bordersNone": "No borders",
+      "shading": "Cell shading",
+      "headerRow": "Repeat header row",
+      "properties": "Table properties…"
     }
   },
   "status": {
@@ -173,7 +209,8 @@
     "sample": "Open the sample document",
     "recent": "Recent",
     "noRecent": "No files yet",
-    "blank": "Blank document"
+    "blank": "Blank document",
+    "template": "New from template"
   },
   "host": {
     "share": "Share",
@@ -815,5 +852,129 @@
     "editing": "{{name}} is editing",
     "anonymous": "Guest",
     "selected": "Selected by {{name}}"
+  },
+  "font": {
+    "family": "Font",
+    "default": "(Default font)",
+    "substitute": "{{name}} → {{substitute}}",
+    "size": "Font size",
+    "automatic": "Automatic",
+    "noFill": "No colour",
+    "customColor": "Custom colour code",
+    "apply": "Apply",
+    "lineSpacing": "Line spacing",
+    "lineExact": "Current: exactly {{value}} pt",
+    "lineAtLeast": "Current: at least {{value}} pt",
+    "spaceBefore": "Space before paragraph",
+    "spaceAfter": "Space after paragraph",
+    "points": "{{value}} pt"
+  },
+  "ruler": {
+    "horizontal": "Horizontal ruler",
+    "vertical": "Vertical ruler",
+    "tabType": "Tab stop type: {{kind}} (click to change)",
+    "tab": {
+      "left": "Left tab",
+      "center": "Center tab",
+      "right": "Right tab",
+      "decimal": "Decimal tab",
+      "bar": "Bar tab"
+    },
+    "marginLeft": "Left margin: {{value}}",
+    "marginRight": "Right margin: {{value}}",
+    "marginTop": "Top margin: {{value}}",
+    "marginBottom": "Bottom margin: {{value}}",
+    "firstLine": "First line indent",
+    "hanging": "Hanging indent",
+    "leftIndent": "Left indent",
+    "rightIndent": "Right indent"
+  },
+  "pageSetup": {
+    "title": "Page setup",
+    "ok": "OK",
+    "paper": "Paper size",
+    "papers": {
+      "a4": "A4 (8.27 × 11.69 in)",
+      "a5": "A5 (5.83 × 8.27 in)",
+      "letter": "Letter (8.5 × 11 in)",
+      "legal": "Legal (8.5 × 14 in)",
+      "custom": "Custom"
+    },
+    "orientation": "Orientation",
+    "portrait": "Portrait",
+    "landscape": "Landscape",
+    "width": "Width",
+    "height": "Height",
+    "margins": "Margins",
+    "presets": {
+      "nd30": "Vietnamese administrative (Decree 30/2020)",
+      "normal": "Normal (1 in)",
+      "narrow": "Narrow (0.5 in)",
+      "wide": "Wide",
+      "custom": "Custom"
+    },
+    "nd30Hint": "Decree 30/2020/NĐ-CP: top 20–25 mm, bottom 20–25 mm, left 30–35 mm, right 15–20 mm.",
+    "top": "Top",
+    "bottom": "Bottom",
+    "left": "Left",
+    "right": "Right",
+    "columns": "Columns",
+    "columnSpace": "Column spacing",
+    "header": "Header from edge",
+    "footer": "Footer from edge",
+    "applyTo": "Apply to",
+    "thisSection": "This section",
+    "wholeDocument": "Whole document"
+  },
+  "paste": {
+    "title": "Paste special",
+    "ok": "Paste",
+    "as": "Paste as",
+    "html": "Formatted text (HTML)",
+    "text": "Unformatted text",
+    "formatting": "Formatting",
+    "keep": "Keep source formatting",
+    "merge": "Merge with destination formatting",
+    "empty": "The clipboard has nothing to paste (or the browser does not allow reading it yet)."
+  },
+  "table": {
+    "properties": "Table properties",
+    "width": "Width",
+    "widthAuto": "Automatic",
+    "widthPct": "Percent",
+    "widthFixed": "Fixed",
+    "align": "Table alignment"
+  },
+  "templates": {
+    "title": "New from template",
+    "nd30": {
+      "name": "Vietnamese administrative document (Decree 30/2020)",
+      "description": "National title and motto, number/symbol, recipients; A4, margins top/bottom 20 mm, left 30 mm, right 15 mm; Times New Roman 13.",
+      "file": "Administrative document.docx"
+    }
+  },
+  "hf": {
+    "header": "Header",
+    "footer": "Footer",
+    "section": "Section {{n}}",
+    "variants": {
+      "default": "All pages",
+      "first": "First page",
+      "even": "Even pages"
+    },
+    "differentFirst": "Different first page",
+    "differentOddEven": "Different odd & even pages",
+    "pageNumber": "Insert page number",
+    "pageCount": "Insert page count",
+    "close": "Close header/footer"
+  },
+  "notes": {
+    "title": "Notes",
+    "insertFootnote": "Footnote",
+    "insertEndnote": "Endnote",
+    "none": "No notes yet.",
+    "footnote": "Footnote {{n}}",
+    "endnote": "Endnote {{n}}",
+    "save": "Save"
   }
 }

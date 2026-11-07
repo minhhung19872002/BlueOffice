@@ -335,7 +335,7 @@ describe('BlueSheetEditor', () => {
     await waitFor(() =>
       expect((screen.getByTestId('pivot-source') as HTMLInputElement).value).toBe('A1:B5'),
     );
-    fireEvent.click(screen.getByTestId('pivot-ok'));
+    fireEvent.click(await screen.findByTestId('pivot-ok'));
     await waitFor(() =>
       expect(host.exec).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -348,13 +348,13 @@ describe('BlueSheetEditor', () => {
     );
     // The selection moves into the new pivot table: its field list opens.
     await screen.findByTestId('pivot-panel');
-    fireEvent.click(screen.getByTestId('pivot-field-0'));
+    fireEvent.click(await screen.findByTestId('pivot-field-0'));
     await waitFor(() =>
       expect(host.exec).toHaveBeenCalledWith(
         expect.objectContaining({ cmd: 'pivotUpdate', index: 0, rows: [0], values: [] }),
       ),
     );
-    fireEvent.click(screen.getByTestId('pivot-field-1'));
+    fireEvent.click(await screen.findByTestId('pivot-field-1'));
     await waitFor(() =>
       expect(host.exec).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -364,7 +364,7 @@ describe('BlueSheetEditor', () => {
         }),
       ),
     );
-    fireEvent.change(screen.getByTestId('pivot-fn-0'), { target: { value: 'average' } });
+    fireEvent.change(await screen.findByTestId('pivot-fn-0'), { target: { value: 'average' } });
     await waitFor(() =>
       expect(host.exec).toHaveBeenCalledWith(
         expect.objectContaining({

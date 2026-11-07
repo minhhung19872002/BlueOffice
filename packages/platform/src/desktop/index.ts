@@ -117,7 +117,9 @@ export class NativeEngineHost implements EngineHost {
     return JSON.parse(await this.call<string>('engine_collab_start', { seed })) as CollabChange;
   }
   async collabApply(change: string): Promise<EditResult> {
-    return JSON.parse(await this.call<string>('engine_collab_apply', { json: change })) as EditResult;
+    return JSON.parse(
+      await this.call<string>('engine_collab_apply', { json: change }),
+    ) as EditResult;
   }
   async collabPeers(selections: [number, number][]): Promise<PeerRects[]> {
     return JSON.parse(

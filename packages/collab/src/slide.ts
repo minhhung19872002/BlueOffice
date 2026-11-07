@@ -147,7 +147,11 @@ export function collabSlideHost<H extends SlideEngineLike>(
       }),
     slideCommand: (cmd: { cmd: string }) =>
       local(async () => {
-        if (phase === 'live' && (cmd.cmd === 'undo' || cmd.cmd === 'redo') && host.slideCollabApply) {
+        if (
+          phase === 'live' &&
+          (cmd.cmd === 'undo' || cmd.cmd === 'redo') &&
+          host.slideCollabApply
+        ) {
           // Collaborative undo: only this user's changes are reverted.
           const done = cmd.cmd === 'undo' ? replica.undo() : replica.redo();
           const ch = done ? replica.takeRemote() : '';

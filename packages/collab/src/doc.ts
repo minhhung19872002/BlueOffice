@@ -113,8 +113,8 @@ export function collabDocHost<H extends DocEngineLike>(
 
   const refreshPeers = async () => {
     if (phase !== 'live' || !host.collabPeers || !peerListeners.size) return;
-    const peers = (JSON.parse(replica.peersJson()) as [number, Presence][]).filter(
-      ([, p]) => Array.isArray(p.selection),
+    const peers = (JSON.parse(replica.peersJson()) as [number, Presence][]).filter(([, p]) =>
+      Array.isArray(p.selection),
     );
     const geo = peers.length
       ? ((await host.collabPeers(peers.map(([, p]) => p.selection!))) as PeersOf<H>)

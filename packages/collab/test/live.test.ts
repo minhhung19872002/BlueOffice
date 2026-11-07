@@ -146,9 +146,9 @@ describe('BlueDoc collaboration over bo-collab', () => {
     await a.doc.command(sel(0, enc.encode('Xin chào').length));
     await a.doc.command({ cmd: 'insertText', text: ' các bạn' } as { cmd: string });
     // B types while A's frames arrive mid-command: they are held, then applied.
-    const typing = b.doc.command(sel(1, 0)).then(() =>
-      b.doc.command({ cmd: 'insertText', text: 'Nước ' } as { cmd: string }),
-    );
+    const typing = b.doc
+      .command(sel(1, 0))
+      .then(() => b.doc.command({ cmd: 'insertText', text: 'Nước ' } as { cmd: string }));
     send(a, b, 'doc');
     await typing;
     await settle(a, b, 'doc');

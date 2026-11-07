@@ -165,6 +165,81 @@ fn footnotes_in_a_read_document() {
 }
 
 #[test]
+fn header_link_to_previous_per_section() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Một"}"#);
+    cmd(&mut e, r#"{"cmd":"insertSectionBreak","kind":"nextPage"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Hai"}"#);
+    // Header of section 1 (page 0).
+    cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":30,"count":2}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Đầu A"}"#);
+    // Section 2 is linked: same header, editing it changes section 1's (§17.10.5).
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"click","page":1,"x":100,"y":30,"count":2}"#,
+    );
+    assert_eq!(r["story"]["section"], 1);
+    assert_eq!(r["story"]["linked"], true);
+    assert_eq!(r["story"]["canLink"], true);
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":" chung"}"#);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    assert_eq!(
+        hf_text(doc(&e).sections[0].headers.default.as_ref()),
+        "Đầu A chung"
+    );
+    assert!(doc(&e).sections[1].headers.default.is_none());
+    // Unlink section 2 and give it its own header.
+    cmd(
+        &mut e,
+        r#"{"cmd":"click","page":1,"x":100,"y":30,"count":2}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"setHeaderLink","linked":false}"#);
+    assert_eq!(r["story"]["linked"], false);
+    cmd(&mut e, r#"{"cmd":"selectAll"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Đầu B"}"#);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    assert_eq!(
+        hf_text(doc(&e).sections[0].headers.default.as_ref()),
+        "Đầu A chung"
+    );
+    assert_eq!(
+        hf_text(doc(&e).sections[1].headers.default.as_ref()),
+        "Đầu B"
+    );
+    assert!(e.page_json(1).unwrap().contains("Đầu B"));
+    let f = reopen(&e);
+    assert_eq!(
+        hf_text(doc(&f).sections[1].headers.default.as_ref()),
+        "Đầu B"
+    );
+    // Link again: section 2 shows section 1's header; undo restores its own.
+    cmd(
+        &mut e,
+        r#"{"cmd":"click","page":1,"x":100,"y":30,"count":2}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"setHeaderLink","linked":true}"#);
+    assert_eq!(r["story"]["linked"], true);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    assert!(doc(&e).sections[1].headers.default.is_none());
+    assert!(e.page_json(1).unwrap().contains("chung"));
+    let f = reopen(&e);
+    assert!(doc(&f).sections[1].headers.default.is_none());
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(
+        hf_text(doc(&e).sections[1].headers.default.as_ref()),
+        "Đầu B"
+    );
+    // The first section cannot be linked.
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"click","page":0,"x":100,"y":30,"count":2}"#,
+    );
+    assert_eq!(r["story"]["canLink"], false);
+}
+
+#[test]
 fn table_tab_adds_rows_and_commands() {
     let mut e = Engine::with_bundled_fonts();
     e.new_document("a.docx").unwrap();

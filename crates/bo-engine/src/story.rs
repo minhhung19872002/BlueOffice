@@ -20,7 +20,11 @@ use serde::Serialize;
 
 /// The open header/footer editor.
 pub(crate) struct HfEdit {
+    /// Section of the page the header/footer is edited on.
     pub section: usize,
+    /// Section whose header/footer is changed: `section` itself, or the one it is
+    /// linked to (§17.10.5 "link to previous").
+    pub target: usize,
     pub header: bool,
     pub variant: HfVariant,
     /// Page the header/footer is edited on.
@@ -45,6 +49,10 @@ pub struct StoryState {
     pub page: usize,
     pub title_page: bool,
     pub even_and_odd: bool,
+    /// Linked to the previous section's header/footer (§17.10.5).
+    pub linked: bool,
+    /// The section has a previous section to link to.
+    pub can_link: bool,
 }
 
 /// Height (twips) of the scratch page the story is laid out on.
@@ -124,10 +132,11 @@ impl Engine {
         let (si, variant) = self.variant_of(pi).ok_or(EngineError::NoDocument)?;
         let s = self.session.as_ref().ok_or(EngineError::NoDocument)?;
         let doc = s.doc();
+        let target = bo_edit::section::hf_source(doc, si, header, variant);
         let set = if header {
-            &doc.sections[si].headers
+            &doc.sections[target].headers
         } else {
-            &doc.sections[si].footers
+            &doc.sections[target].footers
         };
         let original = bo_edit::section::hf_slot(set, variant).cloned();
         let mut blocks = effective_hf(doc, si, header, variant).unwrap_or_default();
@@ -143,6 +152,7 @@ impl Engine {
         sub.set_author(s.author());
         let mut hf = HfEdit {
             section: si,
+            target,
             header,
             variant,
             page: pi,
@@ -219,9 +229,9 @@ impl Engine {
         let blocks = story_blocks(&hf.sub);
         let s = self.session.as_mut().ok_or(EngineError::NoDocument)?;
         // Back to the state before editing, then the real (undoable) change.
-        s.preview_header_footer(hf.section, hf.header, hf.variant, hf.original.clone());
+        s.preview_header_footer(hf.target, hf.header, hf.variant, hf.original.clone());
         let unchanged_default = hf.original.is_none()
-            && effective_hf(s.doc(), hf.section, hf.header, hf.variant).as_ref() == Some(&blocks);
+            && effective_hf(s.doc(), hf.target, hf.header, hf.variant).as_ref() == Some(&blocks);
         let empty = blocks.iter().all(|b| match b {
             Block::Paragraph(p) => p.runs.is_empty(),
             _ => false,
@@ -230,7 +240,7 @@ impl Engine {
             && !unchanged_default
             && !(hf.original.is_none() && empty)
         {
-            s.set_header_footer(hf.section, hf.header, hf.variant, blocks)
+            s.set_header_footer(hf.target, hf.header, hf.variant, blocks)
                 .map_err(|e| EngineError::BadCommand(e.to_string()))?;
         }
         self.relayout()?;
@@ -248,6 +258,8 @@ impl Engine {
             page: hf.page,
             title_page: doc.sections.get(hf.section).is_some_and(|s| s.title_page),
             even_and_odd: doc.even_and_odd_headers,
+            linked: bo_edit::section::hf_linked(doc, hf.section, hf.header, hf.variant),
+            can_link: hf.section > 0,
         })
     }
 
@@ -287,6 +299,25 @@ impl Engine {
             let dirty = self.relayout()?;
             self.open_header_footer(page.min(self.page_count().saturating_sub(1)), header)?;
             return self.story_result(dirty, None).map(Some);
+        }
+        if let Command::SetHeaderLink { linked } = cmd {
+            let Some((page, header, si, v)) = self
+                .hf
+                .as_ref()
+                .map(|h| (h.page, h.header, h.section, h.variant))
+            else {
+                return Ok(None);
+            };
+            self.close_header_footer()?;
+            let mut error = None;
+            if let Some(s) = self.session.as_mut() {
+                if let Err(e) = s.set_header_link(si, header, v, *linked) {
+                    error = Some(e.to_string());
+                }
+            }
+            let dirty = self.relayout()?;
+            self.open_header_footer(page.min(self.page_count().saturating_sub(1)), header)?;
+            return self.story_result(dirty, error).map(Some);
         }
         let Some(mut hf) = self.hf.take() else {
             return Ok(None);
@@ -447,7 +478,7 @@ impl Engine {
         if hf.sub.version() != hf.version {
             let blocks = story_blocks(&hf.sub);
             if let Some(s) = self.session.as_mut() {
-                s.preview_header_footer(hf.section, hf.header, hf.variant, Some(blocks));
+                s.preview_header_footer(hf.target, hf.header, hf.variant, Some(blocks));
             }
             dirty = self.relayout()?;
             self.hf_layout(&mut hf)?;

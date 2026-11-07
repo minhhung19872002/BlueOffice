@@ -218,6 +218,10 @@ export interface SectionState {
   columnSpace: number;
   titlePage: boolean;
   evenAndOdd: boolean;
+  /** Linked to the previous section's header/footer (§17.10.5). */
+  linked: boolean;
+  /** The section has a previous section to link to. */
+  canLink: boolean;
 }
 
 /** Page setup sent with `setPageSetup` (twips). */
@@ -410,6 +414,7 @@ export type EditCommand =
   | { cmd: 'tableEdit'; edit: TableEdit }
   | { cmd: 'setPageSetup'; setup: PageSetupSpec; scope?: 'section' | 'document' }
   | { cmd: 'setHeaderOptions'; titlePage?: boolean; evenAndOdd?: boolean }
+  | { cmd: 'setHeaderLink'; linked: boolean }
   | { cmd: 'editHeaderFooter'; page: number; header: boolean }
   | { cmd: 'closeHeaderFooter' | 'notes' | 'clearFormatting' | 'fontList' }
   | { cmd: 'pickFormat' | 'applyFormat' | 'cancelFormat' }

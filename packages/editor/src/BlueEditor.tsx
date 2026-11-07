@@ -1136,6 +1136,13 @@ function EditorInner({
         run: (s) => run({ cmd: 'editHeaderFooter', page: caretPage(s), header }),
       });
     }
+    // "Link to previous" (§17.10.5) of the header/footer being edited.
+    r.register({
+      id: 'hf.linkToPrevious',
+      isEnabled: (s) => !!s.edit?.story?.canLink,
+      isChecked: (s) => !!s.edit?.story?.linked,
+      run: (s) => run({ cmd: 'setHeaderLink', linked: !s.edit?.story?.linked }),
+    });
     r.register({
       id: 'insert.pageNumber',
       isEnabled: hasDoc,

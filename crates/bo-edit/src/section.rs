@@ -159,6 +159,31 @@ pub fn effective_hf(
         .find_map(|s| hf_slot(if header { &s.headers } else { &s.footers }, v).cloned())
 }
 
+/// The section a header/footer variant of section `si` is taken from (§17.10.5):
+/// the nearest section at or before `si` defining it, the first section when none
+/// does (editing a linked header changes the one it is linked to).
+pub fn hf_source(doc: &bo_model::Document, si: usize, header: bool, v: HfVariant) -> usize {
+    let n = doc.sections.len();
+    if n == 0 {
+        return 0;
+    }
+    (0..=si.min(n - 1))
+        .rev()
+        .find(|&i| {
+            let s = &doc.sections[i];
+            hf_slot(if header { &s.headers } else { &s.footers }, v).is_some()
+        })
+        .unwrap_or(0)
+}
+
+/// The variant of section `si` is linked to the previous section (no own reference).
+pub fn hf_linked(doc: &bo_model::Document, si: usize, header: bool, v: HfVariant) -> bool {
+    si > 0
+        && doc.sections.get(si).is_some_and(|s| {
+            hf_slot(if header { &s.headers } else { &s.footers }, v).is_none()
+        })
+}
+
 /// Text of note blocks without the note mark.
 fn note_text(blocks: &[Block]) -> String {
     blocks
@@ -330,6 +355,57 @@ impl Session {
                 &mut new.footers
             };
             *hf_slot_mut(set, v) = Some(blocks);
+            if new != old {
+                tx.push(Op::Sections {
+                    index: si,
+                    remove: vec![old],
+                    insert: vec![new],
+                })?;
+            }
+            Ok(sel)
+        })?;
+        Ok(())
+    }
+
+    /// "Link to previous" for a header/footer variant of section `si` (one undo step).
+    ///
+    /// ECMA-376 Part 1, §17.10.5 headerReference: a section without a reference of a
+    /// type inherits that type from the previous section. Linking removes the
+    /// section's own reference; unlinking gives it a copy of the inherited content.
+    /// The first section has no previous one.
+    pub fn set_header_link(
+        &mut self,
+        si: usize,
+        header: bool,
+        v: HfVariant,
+        linked: bool,
+    ) -> Result<()> {
+        if si == 0 {
+            return Err(EditError::Unsupported(
+                "the first section has no previous section".into(),
+            ));
+        }
+        let content = if linked {
+            None
+        } else {
+            let mut b = effective_hf(&self.doc, si, header, v).unwrap_or_default();
+            if b.is_empty() {
+                b.push(Block::Paragraph(Paragraph::default()));
+            }
+            Some(b)
+        };
+        self.edit(|tx, sel| {
+            let old = tx.doc.sections.get(si).cloned().ok_or(EditError::BadPath)?;
+            let mut new = old.clone();
+            let set = if header {
+                &mut new.headers
+            } else {
+                &mut new.footers
+            };
+            let slot = hf_slot_mut(set, v);
+            if slot.is_some() != content.is_some() {
+                *slot = content;
+            }
             if new != old {
                 tx.push(Op::Sections {
                     index: si,

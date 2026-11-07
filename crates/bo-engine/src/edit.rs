@@ -247,6 +247,10 @@ pub enum Command {
         #[serde(default)]
         even_and_odd: Option<bool>,
     },
+    /// "Link to previous" for the open header/footer (§17.10.5 headerReference inheritance).
+    SetHeaderLink {
+        linked: bool,
+    },
     /// Open the header (`header`) or footer of a page for editing (§17.10).
     EditHeaderFooter {
         page: usize,
@@ -516,6 +520,7 @@ impl crate::Engine {
                     // Handled by `special_command`.
                     | Command::EditHeaderFooter { .. }
                     | Command::CloseHeaderFooter
+                    | Command::SetHeaderLink { .. }
                     | Command::Notes
                     | Command::FontList => {}
                     Command::Tab { back } => {

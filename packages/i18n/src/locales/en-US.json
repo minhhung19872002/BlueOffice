@@ -1033,6 +1033,7 @@
     },
     "differentFirst": "Different first page",
     "differentOddEven": "Different odd & even pages",
+    "linkToPrevious": "Link to previous",
     "pageNumber": "Insert page number",
     "pageCount": "Insert page count",
     "close": "Close header/footer"

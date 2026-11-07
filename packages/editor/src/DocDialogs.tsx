@@ -545,6 +545,16 @@ export function HeaderFooterBar({ story, run }: { story: StoryState; run: Run })
         />{' '}
         {t('hf.differentOddEven')}
       </label>
+      <label>
+        <input
+          type="checkbox"
+          data-testid="hf-link"
+          checked={story.linked}
+          disabled={!story.canLink}
+          onChange={(e) => void run({ cmd: 'setHeaderLink', linked: e.target.checked })}
+        />{' '}
+        {t('hf.linkToPrevious')}
+      </label>
       <button
         type="button"
         data-testid="hf-page-number"

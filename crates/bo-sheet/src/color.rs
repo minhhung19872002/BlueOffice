@@ -38,8 +38,9 @@ pub fn indexed_rgb(i: u32) -> (u8, u8, u8) {
     }
 }
 
-fn parse_hex(s: &str) -> Option<(u8, u8, u8)> {
-    let s = s.trim_start_matches('#');
+/// Parse `RRGGBB` or `AARRGGBB` (an optional `#` is ignored).
+pub fn parse_hex(s: &str) -> Option<(u8, u8, u8)> {
+    let s = s.trim().trim_start_matches('#');
     let s = if s.len() == 8 { &s[2..] } else { s };
     if s.len() != 6 || !s.is_ascii() {
         return None;
@@ -153,6 +154,45 @@ pub fn resolve_color(c: &SheetColor, theme: Option<&ThemeColors>) -> Option<Rgba
     };
     let (r, g, b) = apply_tint(base, c.tint.unwrap_or(0.0));
     Some(Rgba(r, g, b, 255))
+}
+
+/// Fill colour of a cell (§18.8.32 patternFill foreground, §18.8.24 first gradient
+/// stop); `None` when the cell has no fill.
+pub fn cell_fill_rgb(
+    wb: &bo_model::sheet::Workbook,
+    cell: &bo_model::sheet::Cell,
+) -> Option<(u8, u8, u8)> {
+    use bo_model::sheet::Fill;
+    let xf = wb.styles.xf(cell.style)?;
+    let theme = wb.theme.as_ref();
+    let c = match wb.styles.fills.get(xf.fill_id as usize)? {
+        Fill::Pattern(pf) => match pf.pattern.as_deref() {
+            None | Some("none" | "gray125") => return None,
+            _ => pf
+                .fg
+                .as_ref()
+                .and_then(|c| resolve_color(c, theme))
+                .unwrap_or(Rgba(0, 0, 0, 255)),
+        },
+        Fill::Gradient(g) => g.stops.first().and_then(|(_, c)| resolve_color(c, theme))?,
+    };
+    Some((c.0, c.1, c.2))
+}
+
+/// Font colour of a cell (§18.8.22 font/color); `None` = automatic.
+pub fn cell_font_rgb(
+    wb: &bo_model::sheet::Workbook,
+    cell: &bo_model::sheet::Cell,
+) -> Option<(u8, u8, u8)> {
+    let xf = wb.styles.xf(cell.style)?;
+    let font = wb.styles.fonts.get(xf.font_id as usize)?;
+    let c = resolve_color(font.color.as_ref()?, wb.theme.as_ref())?;
+    Some((c.0, c.1, c.2))
+}
+
+/// `RRGGBB` of a colour.
+pub fn hex((r, g, b): (u8, u8, u8)) -> String {
+    format!("{r:02X}{g:02X}{b:02X}")
 }
 
 #[cfg(test)]

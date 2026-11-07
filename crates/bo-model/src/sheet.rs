@@ -976,9 +976,42 @@ pub enum ColumnFilter {
         /// `filterVal`: the cut-off value cached by the writing application.
         filter_val: Option<f64>,
     },
-    /// Any other criterion (dynamicFilter, colorFilter, iconFilter, dateGroupItem…)
+    /// `filters` with `dateGroupItem` children (§18.3.2.4): rows whose date falls
+    /// into one of `groups`, or whose text is one of `values`.
+    DateGroups {
+        values: Vec<String>,
+        blank: bool,
+        groups: Vec<DateGroup>,
+    },
+    /// `dynamicFilter` (§18.3.2.5): `kind` is an `ST_DynamicFilterType` (§18.18.26)
+    /// such as `today`, `thisMonth`, `lastYear`, `Q1`, `M12`, `aboveAverage`.
+    Dynamic {
+        kind: String,
+        val: Option<f64>,
+        max_val: Option<f64>,
+    },
+    /// `colorFilter` (§18.3.2.1): cells whose fill (`cell_color`, default) or font
+    /// colour is the one of differential format `dxf_id`.
+    Color {
+        dxf_id: Option<u32>,
+        cell_color: bool,
+    },
+    /// Any other criterion (iconFilter, extension elements, unknown attributes…)
     /// kept as the verbatim child element.
     Raw(String),
+}
+
+/// A date group of an AutoFilter (§18.3.2.4 `dateGroupItem`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct DateGroup {
+    pub year: u32,
+    pub month: Option<u32>,
+    pub day: Option<u32>,
+    pub hour: Option<u32>,
+    pub minute: Option<u32>,
+    pub second: Option<u32>,
+    /// `dateTimeGrouping` (§18.18.20): year, month, day, hour, minute, second.
+    pub grouping: String,
 }
 
 /// `customFilter` (§18.3.2.2): `operator` (§18.18.31 `ST_FilterOperator`, default

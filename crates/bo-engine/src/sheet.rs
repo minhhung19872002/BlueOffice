@@ -84,9 +84,11 @@ pub enum HitInfo {
         row: u32,
         col: u32,
     },
-    /// A chart placed on the sheet.
+    /// A chart placed on the sheet, and the cell under the point.
     Chart {
         index: usize,
+        row: u32,
+        col: u32,
     },
     Corner,
     None,
@@ -574,7 +576,12 @@ impl SheetEngine {
                     continue;
                 };
                 if x >= a.x && x < b.x && y >= a.y && y < b.y {
-                    return Ok(HitInfo::Chart { index: i });
+                    let Hit::Cell(under) = hit else { break };
+                    return Ok(HitInfo::Chart {
+                        index: i,
+                        row: under.row,
+                        col: under.col,
+                    });
                 }
             }
         }

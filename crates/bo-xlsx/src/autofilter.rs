@@ -10,7 +10,9 @@ use crate::xml::{
     push_unknown, root, take, take_bool, take_f64, take_u32,
 };
 use crate::Result;
-use bo_model::sheet::{AutoFilter, CellRange, ColumnFilter, CustomFilter, FilterColumn, RawXml};
+use bo_model::sheet::{
+    AutoFilter, CellRange, ColumnFilter, CustomFilter, DateGroup, FilterColumn, RawXml,
+};
 use bo_opc::xml::XmlReader;
 use quick_xml::events::BytesStart;
 
@@ -103,19 +105,66 @@ fn parse_criterion(xml: &str) -> Option<ColumnFilter> {
                 return None;
             }
             let mut values = Vec::new();
+            let mut groups = Vec::new();
             let mut ok = true;
             if !empty {
                 for_children(&mut r, |_, c, _| {
                     let mut ca = attrs(c);
-                    match (lname(c).as_str(), take(&mut ca, "val")) {
-                        ("filter", Some(v)) if ca.is_empty() => values.push(v),
+                    match lname(c).as_str() {
+                        "filter" => match take(&mut ca, "val") {
+                            Some(v) if ca.is_empty() => values.push(v),
+                            _ => ok = false,
+                        },
+                        // §18.3.2.4 dateGroupItem
+                        "dateGroupItem" => {
+                            let g = DateGroup {
+                                year: take_u32(&mut ca, "year").unwrap_or(0),
+                                month: take_u32(&mut ca, "month"),
+                                day: take_u32(&mut ca, "day"),
+                                hour: take_u32(&mut ca, "hour"),
+                                minute: take_u32(&mut ca, "minute"),
+                                second: take_u32(&mut ca, "second"),
+                                grouping: take(&mut ca, "dateTimeGrouping").unwrap_or_default(),
+                            };
+                            if ca.is_empty() && !g.grouping.is_empty() {
+                                groups.push(g);
+                            } else {
+                                ok = false;
+                            }
+                        }
                         _ => ok = false,
                     }
                     Ok(())
                 })
                 .ok()?;
             }
-            ok.then_some(ColumnFilter::Values { values, blank })
+            if !ok {
+                return None;
+            }
+            Some(if groups.is_empty() {
+                ColumnFilter::Values { values, blank }
+            } else {
+                ColumnFilter::DateGroups {
+                    values,
+                    blank,
+                    groups,
+                }
+            })
+        }
+        // §18.3.2.5 dynamicFilter
+        "dynamicFilter" if empty => {
+            let kind = take(&mut at, "type")?;
+            let val = take_f64(&mut at, "val");
+            let max_val = take_f64(&mut at, "maxVal");
+            at.is_empty()
+                .then_some(ColumnFilter::Dynamic { kind, val, max_val })
+        }
+        // §18.3.2.1 colorFilter
+        "colorFilter" if empty => {
+            let dxf_id = take_u32(&mut at, "dxfId");
+            let cell_color = take_bool(&mut at, "cellColor").unwrap_or(true);
+            at.is_empty()
+                .then_some(ColumnFilter::Color { dxf_id, cell_color })
         }
         // §18.3.2.3 customFilters / §18.3.2.2 customFilter
         "customFilters" => {
@@ -236,6 +285,51 @@ fn write_filter_column(out: &mut String, fc: &FilterColumn) {
             }
             out.push_str("/>");
         }
+        ColumnFilter::DateGroups {
+            values,
+            blank,
+            groups,
+        } => {
+            out.push_str("<filters");
+            a_true(out, "blank", *blank);
+            out.push('>');
+            for v in values {
+                out.push_str("<filter");
+                a(out, "val", v);
+                out.push_str("/>");
+            }
+            for g in groups {
+                out.push_str("<dateGroupItem");
+                a(out, "year", &g.year.to_string());
+                a_opt(out, "month", g.month.as_ref());
+                a_opt(out, "day", g.day.as_ref());
+                a_opt(out, "hour", g.hour.as_ref());
+                a_opt(out, "minute", g.minute.as_ref());
+                a_opt(out, "second", g.second.as_ref());
+                a(out, "dateTimeGrouping", &g.grouping);
+                out.push_str("/>");
+            }
+            out.push_str("</filters>");
+        }
+        ColumnFilter::Dynamic { kind, val, max_val } => {
+            out.push_str("<dynamicFilter");
+            a(out, "type", kind);
+            if let Some(v) = val {
+                a(out, "val", &fmt_f64(*v));
+            }
+            if let Some(v) = max_val {
+                a(out, "maxVal", &fmt_f64(*v));
+            }
+            out.push_str("/>");
+        }
+        ColumnFilter::Color { dxf_id, cell_color } => {
+            out.push_str("<colorFilter");
+            a_opt(out, "dxfId", dxf_id.as_ref());
+            if !*cell_color {
+                a(out, "cellColor", "0");
+            }
+            out.push_str("/>");
+        }
         ColumnFilter::Raw(xml) => out.push_str(xml),
     }
     out.push_str("</filterColumn>");
@@ -278,19 +372,50 @@ mod tests {
                 filter_val: Some(45.0)
             }
         );
-        assert!(
-            matches!(af.columns[3].filter, ColumnFilter::Raw(ref s) if s.contains("dynamicFilter"))
+        assert_eq!(
+            af.columns[3].filter,
+            ColumnFilter::Dynamic {
+                kind: "aboveAverage".into(),
+                val: Some(3.5),
+                max_val: None
+            }
         );
         assert_eq!(af.unknown.len(), 1);
         assert_eq!(out, xml);
     }
 
     #[test]
-    fn date_group_items_stay_raw() {
-        let xml = r#"<autoFilter ref="A1:A5"><filterColumn colId="0"><filters><dateGroupItem year="2024" dateTimeGrouping="year"/></filters></filterColumn></autoFilter>"#;
+    fn date_groups_dynamic_and_colour_filters() {
+        let xml = r#"<autoFilter ref="A1:C5"><filterColumn colId="0"><filters blank="1"><filter val="x"/><dateGroupItem year="2024" month="3" dateTimeGrouping="month"/><dateGroupItem year="2025" dateTimeGrouping="year"/></filters></filterColumn><filterColumn colId="1"><colorFilter dxfId="2"/></filterColumn><filterColumn colId="2"><dynamicFilter type="thisMonth"/></filterColumn></autoFilter>"#;
         let (af, out) = rt(xml);
-        assert!(matches!(af.columns[0].filter, ColumnFilter::Raw(_)));
+        match &af.columns[0].filter {
+            ColumnFilter::DateGroups {
+                values,
+                blank,
+                groups,
+            } => {
+                assert_eq!((values.len(), *blank, groups.len()), (1, true, 2));
+                assert_eq!((groups[0].year, groups[0].month), (2024, Some(3)));
+                assert_eq!(groups[1].grouping, "year");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(
+            af.columns[1].filter,
+            ColumnFilter::Color {
+                dxf_id: Some(2),
+                cell_color: true
+            }
+        );
+        assert!(
+            matches!(&af.columns[2].filter, ColumnFilter::Dynamic { kind, .. } if kind == "thisMonth")
+        );
         assert_eq!(out, xml);
+        // ISO values are not modelled: kept raw.
+        let raw = r#"<autoFilter ref="A1:A5"><filterColumn colId="0"><dynamicFilter type="aboveAverage" valIso="2024-01-01T00:00:00"/></filterColumn></autoFilter>"#;
+        let (af, out) = rt(raw);
+        assert!(matches!(af.columns[0].filter, ColumnFilter::Raw(_)));
+        assert_eq!(out, raw);
         let (_, out) = rt(r#"<autoFilter ref="A1:B2"/>"#);
         assert_eq!(out, r#"<autoFilter ref="A1:B2"/>"#);
     }

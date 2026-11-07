@@ -46,15 +46,39 @@ impl Rng {
 }
 
 /// One sort level from the sort dialog.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SortKeySpec {
-    /// Absolute column.
+    /// Absolute column (row when sorting left to right).
     pub col: u32,
     #[serde(default)]
     pub descending: bool,
     #[serde(default)]
     pub case_sensitive: bool,
+    /// `value` (default), `cellColor` or `fontColor` (§18.18.79 `ST_SortBy`).
+    #[serde(default)]
+    pub by: Option<String>,
+    /// `RRGGBB` of a colour key.
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+impl SortKeySpec {
+    fn key(&self) -> bo_sheet::sort::SortKey {
+        use bo_sheet::sort::SortBy;
+        let color = self.color.as_deref().and_then(bo_sheet::color::parse_hex);
+        let by = match (self.by.as_deref(), color) {
+            (Some("cellColor"), Some(c)) => SortBy::CellColor(c),
+            (Some("fontColor"), Some(c)) => SortBy::FontColor(c),
+            _ => SortBy::Value,
+        };
+        bo_sheet::sort::SortKey {
+            col: self.col,
+            descending: self.descending,
+            case_sensitive: self.case_sensitive,
+            by,
+        }
+    }
 }
 
 /// A custom AutoFilter condition (§18.3.2.2 `customFilter`).
@@ -76,6 +100,23 @@ pub struct FilterSpec {
     pub conditions: Vec<CondSpec>,
     /// Join two conditions with AND (default OR).
     pub and: bool,
+    /// Dates to keep, by year or month (§18.3.2.4 `dateGroupItem`), with `values`.
+    pub dates: Option<Vec<DateSel>>,
+    /// Relative date or average filter (§18.18.26 `ST_DynamicFilterType`).
+    pub dynamic: Option<String>,
+    /// Keep cells filled with this colour (`RRGGBB`).
+    pub cell_color: Option<String>,
+    /// Keep cells whose text has this colour (`RRGGBB`).
+    pub font_color: Option<String>,
+}
+
+/// A year, or a month of a year, of a date filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DateSel {
+    pub year: u32,
+    #[serde(default)]
+    pub month: Option<u32>,
 }
 
 /// What a paste brings over.
@@ -209,6 +250,17 @@ pub enum SheetCommand {
         keys: Vec<SortKeySpec>,
         #[serde(default)]
         has_header: bool,
+        /// Sort columns left to right by key rows (§18.3.1.92 `columnSort`).
+        #[serde(default)]
+        left_to_right: bool,
+    },
+    /// Fill and font colours present in a key column (row) of the sort range.
+    SortColors {
+        sheet: usize,
+        range: Rng,
+        key: u32,
+        #[serde(default)]
+        left_to_right: bool,
     },
     /// The range sort / filter / chart would use for a selection (a single
     /// cell expands to its current region).
@@ -291,10 +343,18 @@ pub enum SheetCommand {
         #[serde(default)]
         y_title: Option<String>,
     },
-    /// Removes a chart inserted in this session (charts from the file stay).
+    /// Removes a chart (charts read from the file lose their drawing anchor and parts).
     DeleteChart {
         sheet: usize,
         index: usize,
+    },
+    /// Moves / resizes a chart: top-left cell `from` and the cell holding its
+    /// bottom-right corner `to` (`[row, col]`, zero-based).
+    MoveChart {
+        sheet: usize,
+        index: usize,
+        from: [u32; 2],
+        to: [u32; 2],
     },
     Find {
         query: String,
@@ -345,6 +405,10 @@ pub enum SheetCommand {
         transpose: bool,
         #[serde(default)]
         skip_blanks: bool,
+        /// Selected target range: a copy is repeated to fill it when its size
+        /// is a multiple of the copied block.
+        #[serde(default)]
+        range: Option<Rng>,
     },
     PageSetup {
         sheet: usize,
@@ -763,26 +827,26 @@ impl SheetEngine {
                 range,
                 keys,
                 has_header,
+                left_to_right,
             } => {
                 let r = current_region(self.sheet(sheet)?, range.range());
                 self.edit(sheet, Recalc::All, |wb, adj| {
-                    let keys: Vec<bo_sheet::sort::SortKey> = keys
-                        .iter()
-                        .map(|k| bo_sheet::sort::SortKey {
-                            col: k.col,
-                            descending: k.descending,
-                            case_sensitive: k.case_sensitive,
-                        })
-                        .collect();
-                    bo_sheet::sort::sort_range_with(
-                        &mut wb.sheets[sheet],
-                        r,
-                        &keys,
-                        has_header,
-                        adj,
-                    );
+                    let keys: Vec<bo_sheet::sort::SortKey> =
+                        keys.iter().map(SortKeySpec::key).collect();
+                    bo_sheet::sort::sort_lines(wb, sheet, r, &keys, has_header, left_to_right, adj);
                     Ok(serde_json::to_value(Rng::of(r)).unwrap_or(Value::Null))
                 })
+            }
+            C::SortColors {
+                sheet,
+                range,
+                key,
+                left_to_right,
+            } => {
+                let r = current_region(self.sheet(sheet)?, range.range());
+                let (fills, fonts) =
+                    bo_sheet::sort::line_colors(self.wb()?, sheet, r, key, left_to_right);
+                Ok(json!({ "cell": fills, "font": fonts }))
             }
             C::ToggleFilter { sheet, range } => {
                 let r = current_region(self.sheet(sheet)?, range.range());
@@ -832,58 +896,167 @@ impl SheetEngine {
                     None | Some(ColumnFilter::None) => "none",
                     Some(ColumnFilter::Values { .. }) => "values",
                     Some(ColumnFilter::Custom { .. }) => "custom",
+                    Some(ColumnFilter::DateGroups { .. }) => "dates",
+                    Some(ColumnFilter::Dynamic { .. }) => "dynamic",
+                    Some(ColumnFilter::Color { .. }) => "color",
                     Some(_) => "other",
                 };
+                let dates = bo_sheet::filter::column_dates(wb, ws, af, col_id);
+                let picked = |y: i32, m: Option<u32>| match current {
+                    Some(ColumnFilter::DateGroups { groups, .. }) => groups.iter().any(|g| {
+                        i64::from(g.year) == i64::from(y)
+                            && (g.month.is_none() || m.is_none() || g.month == m)
+                    }),
+                    _ => true,
+                };
+                let data = CellRange::new(
+                    CellRef::new(af.range.first.row + 1, af.range.first.col),
+                    af.range.last,
+                );
+                let (cell_colors, font_colors) =
+                    bo_sheet::sort::line_colors(wb, sheet, data, col, false);
                 Ok(json!({
                     "kind": kind,
                     "values": values
                         .iter()
                         .map(|v| json!({ "text": v, "checked": checked(v) }))
                         .collect::<Vec<_>>(),
+                    "dates": dates.iter().map(|(y, months)| json!({
+                        "year": y,
+                        "checked": picked(*y, None),
+                        "months": months.iter().map(|m| json!({
+                            "month": m,
+                            "checked": picked(*y, Some(*m)),
+                        })).collect::<Vec<_>>(),
+                    })).collect::<Vec<_>>(),
+                    "dynamic": match current {
+                        Some(ColumnFilter::Dynamic { kind, .. }) => Value::from(kind.clone()),
+                        _ => Value::Null,
+                    },
+                    "colors": { "cell": cell_colors, "font": font_colors },
                 }))
             }
-            C::SetFilter { sheet, col, filter } => self.edit(sheet, Recalc::All, |wb, _| {
-                let ws = &mut wb.sheets[sheet];
-                let af = ws
-                    .auto_filter
-                    .as_mut()
-                    .ok_or_else(|| bad("no AutoFilter"))?;
-                if col < af.range.first.col || col > af.range.last.col {
-                    return Err(bad("column outside the AutoFilter"));
-                }
-                let col_id = col - af.range.first.col;
-                af.columns.retain(|c| c.col_id != col_id);
-                let crit = match filter {
-                    Some(FilterSpec {
-                        values: Some(values),
-                        ..
-                    }) => {
-                        let blank = values.iter().any(String::is_empty);
-                        Some(ColumnFilter::Values {
-                            values: values.into_iter().filter(|v| !v.is_empty()).collect(),
-                            blank,
-                        })
+            C::SetFilter { sheet, col, filter } => {
+                let now = self.live.now();
+                self.edit(sheet, Recalc::All, |wb, _| {
+                    let range = wb.sheets[sheet]
+                        .auto_filter
+                        .as_ref()
+                        .ok_or_else(|| bad("no AutoFilter"))?
+                        .range;
+                    if col < range.first.col || col > range.last.col {
+                        return Err(bad("column outside the AutoFilter"));
                     }
-                    Some(FilterSpec {
-                        conditions, and, ..
-                    }) if !conditions.is_empty() => Some(ColumnFilter::Custom {
-                        and,
-                        conditions: conditions.iter().take(2).map(custom_of).collect(),
-                    }),
-                    _ => None,
-                };
-                if let Some(filter) = crit {
-                    af.columns.push(FilterColumn {
-                        col_id,
-                        hidden_button: false,
-                        show_button: None,
-                        filter,
-                    });
-                    af.columns.sort_by_key(|c| c.col_id);
-                }
-                let hidden = bo_sheet::filter::apply_auto_filter(wb, sheet, &locale);
-                Ok(json!({ "hidden": hidden }))
-            }),
+                    let col_id = col - range.first.col;
+                    let color_dxf = |wb: &mut Workbook, hex: &str, cell: bool| -> Option<u32> {
+                        let c = bo_model::sheet::SheetColor::rgb(hex.trim_start_matches('#'));
+                        let dxf = if cell {
+                            bo_model::sheet::Dxf {
+                                fill: Some(bo_model::sheet::Fill::Pattern(
+                                    bo_model::sheet::PatternFill {
+                                        pattern: Some("solid".into()),
+                                        fg: None,
+                                        bg: Some(c),
+                                    },
+                                )),
+                                ..bo_model::sheet::Dxf::default()
+                            }
+                        } else {
+                            bo_model::sheet::Dxf {
+                                font: Some(bo_model::sheet::Font {
+                                    color: Some(c),
+                                    ..bo_model::sheet::Font::default()
+                                }),
+                                ..bo_model::sheet::Dxf::default()
+                            }
+                        };
+                        let dxfs = &mut wb.styles.dxfs;
+                        let i = dxfs.iter().position(|d| *d == dxf).unwrap_or_else(|| {
+                            dxfs.push(dxf);
+                            dxfs.len() - 1
+                        });
+                        Some(i as u32)
+                    };
+                    let crit = match filter {
+                        Some(FilterSpec {
+                            dynamic: Some(kind),
+                            ..
+                        }) => Some(ColumnFilter::Dynamic {
+                            kind,
+                            val: None,
+                            max_val: None,
+                        }),
+                        Some(FilterSpec {
+                            cell_color: Some(hex),
+                            ..
+                        }) => Some(ColumnFilter::Color {
+                            dxf_id: color_dxf(wb, &hex, true),
+                            cell_color: true,
+                        }),
+                        Some(FilterSpec {
+                            font_color: Some(hex),
+                            ..
+                        }) => Some(ColumnFilter::Color {
+                            dxf_id: color_dxf(wb, &hex, false),
+                            cell_color: false,
+                        }),
+                        Some(FilterSpec {
+                            values,
+                            dates: Some(dates),
+                            ..
+                        }) => {
+                            let values = values.unwrap_or_default();
+                            let blank = values.iter().any(String::is_empty);
+                            Some(ColumnFilter::DateGroups {
+                                values: values.into_iter().filter(|v| !v.is_empty()).collect(),
+                                blank,
+                                groups: dates
+                                    .iter()
+                                    .map(|d| bo_model::sheet::DateGroup {
+                                        year: d.year,
+                                        month: d.month,
+                                        grouping: if d.month.is_some() { "month" } else { "year" }
+                                            .into(),
+                                        ..bo_model::sheet::DateGroup::default()
+                                    })
+                                    .collect(),
+                            })
+                        }
+                        Some(FilterSpec {
+                            values: Some(values),
+                            ..
+                        }) => {
+                            let blank = values.iter().any(String::is_empty);
+                            Some(ColumnFilter::Values {
+                                values: values.into_iter().filter(|v| !v.is_empty()).collect(),
+                                blank,
+                            })
+                        }
+                        Some(FilterSpec {
+                            conditions, and, ..
+                        }) if !conditions.is_empty() => Some(ColumnFilter::Custom {
+                            and,
+                            conditions: conditions.iter().take(2).map(custom_of).collect(),
+                        }),
+                        _ => None,
+                    };
+                    let Some(af) = wb.sheets[sheet].auto_filter.as_mut() else {
+                        return Err(bad("no AutoFilter"));
+                    };
+                    af.columns.retain(|c| c.col_id != col_id);
+                    if let Some(filter) = crit {
+                        af.columns.push(FilterColumn {
+                            col_id,
+                            hidden_button: false,
+                            show_button: None,
+                            filter,
+                        });
+                        af.columns.sort_by_key(|c| c.col_id);
+                    }
+                    let hidden = bo_sheet::filter::apply_auto_filter_at(wb, sheet, &locale, now);
+                    Ok(json!({ "hidden": hidden }))
+                })
+            }
             C::Autofill {
                 sheet,
                 source,
@@ -1037,6 +1210,7 @@ impl SheetEngine {
                                 "xTitle": c.x_title,
                                 "yTitle": c.y_title,
                                 "from": [c.from.row, c.from.col],
+                                "to": c.to.map_or([c.from.row + 15, c.from.col + 8], |t| [t.row, t.col]),
                                 "series": c.plots.iter().map(|p| p.series.len()).sum::<usize>(),
                                 "editable": true,
                             })
@@ -1077,14 +1251,26 @@ impl SheetEngine {
                 Ok(json!({ "ok": true }))
             }),
             C::DeleteChart { sheet, index } => self.edit(sheet, Recalc::No, |wb, _| {
-                let charts = &mut wb.sheets[sheet].charts;
-                match charts.get(index) {
-                    Some(c) if c.part.is_empty() => {
-                        charts.remove(index);
-                        Ok(json!({ "ok": true }))
-                    }
-                    Some(_) => Err(bad("charts from the file cannot be deleted yet")),
-                    None => Err(bad("no such chart")),
+                if bo_xlsx::chart_write::remove_chart(wb, sheet, index) {
+                    Ok(json!({ "ok": true }))
+                } else {
+                    Err(bad("no such chart"))
+                }
+            }),
+            C::MoveChart {
+                sheet,
+                index,
+                from,
+                to,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                let cl = |[r, c]: [u32; 2]| CellRef::new(r.min(MAX_ROWS - 1), c.min(MAX_COLS - 1));
+                let (from, to) = (cl(from), cl(to));
+                // At least one cell wide and tall.
+                let to = CellRef::new(to.row.max(from.row + 1), to.col.max(from.col + 1));
+                if bo_xlsx::chart_write::move_chart(wb, sheet, index, from, to) {
+                    Ok(json!({ "ok": true }))
+                } else {
+                    Err(bad("this chart cannot be moved"))
                 }
             }),
             C::Find {
@@ -1129,7 +1315,8 @@ impl SheetEngine {
                 mode,
                 transpose,
                 skip_blanks,
-            } => self.paste(sheet, row, col, mode, transpose, skip_blanks),
+                range,
+            } => self.paste(sheet, row, col, mode, transpose, skip_blanks, range),
             C::PageSetup { sheet } => {
                 let ws = self.sheet(sheet)?;
                 let p = &ws.page_setup;
@@ -1561,7 +1748,7 @@ impl SheetEngine {
         Ok(json!({ "text": text }))
     }
 
-    #[allow(clippy::fn_params_excessive_bools)]
+    #[allow(clippy::fn_params_excessive_bools, clippy::too_many_arguments)]
     fn paste(
         &mut self,
         sheet: usize,
@@ -1570,6 +1757,7 @@ impl SheetEngine {
         mode: PasteMode,
         transpose: bool,
         skip_blanks: bool,
+        target: Option<Rng>,
     ) -> Result<Value> {
         let Some(clip) = self.clip.clone() else {
             return Ok(Value::Null);
@@ -1579,35 +1767,36 @@ impl SheetEngine {
         } else {
             (clip.range.rows(), clip.range.cols())
         };
-        let last_r = row.saturating_add(h - 1);
-        let last_c = col.saturating_add(w - 1);
-        if last_r >= MAX_ROWS || last_c >= MAX_COLS {
+        // A copy fills a larger selection whose size is a multiple of the block.
+        let (tiles_r, tiles_c) = match target.map(Rng::range) {
+            Some(t) if !clip.cut && t.first == CellRef::new(row, col) => {
+                if t.rows() % h == 0 && t.cols() % w == 0 {
+                    (t.rows() / h, t.cols() / w)
+                } else {
+                    (1, 1)
+                }
+            }
+            _ => (1, 1),
+        };
+        if u64::from(tiles_r) * u64::from(tiles_c) * u64::from(h) * u64::from(w) > 4_000_000 {
+            return Err(bad("paste area too large"));
+        }
+        let last_r = u64::from(row) + u64::from(h) * u64::from(tiles_r) - 1;
+        let last_c = u64::from(col) + u64::from(w) * u64::from(tiles_c) - 1;
+        if last_r >= u64::from(MAX_ROWS) || last_c >= u64::from(MAX_COLS) {
             return Err(bad("paste area outside the sheet"));
         }
-        let target = CellRange::new(CellRef::new(row, col), CellRef::new(last_r, last_c));
-        let recalc = if clip.cut && clip.sheet != sheet {
-            Recalc::All
-        } else {
-            Recalc::Range(
-                sheet,
-                CellRange::new(
-                    CellRef::new(
-                        target.first.row.min(clip.range.first.row),
-                        target.first.col.min(clip.range.first.col),
-                    ),
-                    CellRef::new(
-                        target.last.row.max(clip.range.last.row),
-                        target.last.col.max(clip.range.last.col),
-                    ),
-                ),
-            )
-        };
-        let recalc = if clip.sheet == sheet || !clip.cut {
-            recalc
-        } else {
-            Recalc::All
-        };
+        let target = CellRange::new(
+            CellRef::new(row, col),
+            CellRef::new(last_r as u32, last_c as u32),
+        );
         let cut = clip.cut;
+        let recalc = if cut {
+            // References elsewhere follow the moved cells.
+            Recalc::All
+        } else {
+            Recalc::Range(sheet, target)
+        };
         let out = self.edit(sheet, recalc, |wb, adj| {
             // Cut: clear the source first (cells under the target are written again).
             if cut {
@@ -1618,67 +1807,109 @@ impl SheetEngine {
                     }
                 }
             }
-            let ws = &mut wb.sheets[sheet];
             let by_pos: std::collections::HashMap<(u32, u32), &Cell> = clip
                 .cells
                 .iter()
                 .map(|(r, c, cell)| ((*r, *c), cell))
                 .collect();
-            for dr in 0..clip.range.rows() {
-                for dc in 0..clip.range.cols() {
-                    let (tr, tc) = if transpose {
-                        (row + dc, col + dr)
-                    } else {
-                        (row + dr, col + dc)
-                    };
-                    let src = by_pos.get(&(dr, dc)).copied();
-                    if skip_blanks && src.is_none_or(|c| !non_empty(c)) {
-                        continue;
+            for ti in 0..tiles_r {
+                for tj in 0..tiles_c {
+                    let (row, col) = (row + ti * h, col + tj * w);
+                    let ws = &mut wb.sheets[sheet];
+                    for dr in 0..clip.range.rows() {
+                        for dc in 0..clip.range.cols() {
+                            let (tr, tc) = if transpose {
+                                (row + dc, col + dr)
+                            } else {
+                                (row + dr, col + dc)
+                            };
+                            let src = by_pos.get(&(dr, dc)).copied();
+                            if skip_blanks && src.is_none_or(|c| !non_empty(c)) {
+                                continue;
+                            }
+                            let old = ws.cells.get(&(tr, tc)).cloned();
+                            let moved_formula = |c: &Cell| {
+                                c.formula.as_ref().map(|f| {
+                                    let mut f = f.clone();
+                                    // A cut keeps its formulas; references are
+                                    // re-pointed below. A copy shifts relative ones.
+                                    if !cut {
+                                        let d_r =
+                                            i64::from(tr) - i64::from(clip.range.first.row + dr);
+                                        let d_c =
+                                            i64::from(tc) - i64::from(clip.range.first.col + dc);
+                                        if let Some(t) = adj.translate(&f.text, d_r, d_c) {
+                                            f.text = t;
+                                        }
+                                    }
+                                    f.kind = bo_model::sheet::FormulaKind::Normal;
+                                    f
+                                })
+                            };
+                            let new = match (mode, src) {
+                                (PasteMode::All, Some(c)) => Some(Cell {
+                                    formula: moved_formula(c),
+                                    ..c.clone()
+                                }),
+                                (PasteMode::All, None) => None,
+                                (PasteMode::Values, s) => {
+                                    let mut n = old.clone().unwrap_or_default();
+                                    n.formula = None;
+                                    n.value = s.map_or(CellValue::Empty, |c| c.value.clone());
+                                    Some(n)
+                                }
+                                (PasteMode::Formulas, s) => {
+                                    let mut n = old.clone().unwrap_or_default();
+                                    n.formula = s.and_then(moved_formula);
+                                    n.value = s.map_or(CellValue::Empty, |c| c.value.clone());
+                                    Some(n)
+                                }
+                                (PasteMode::Formats, s) => {
+                                    let mut n = old.clone().unwrap_or_default();
+                                    n.style = s.map_or(0, |c| c.style);
+                                    Some(n)
+                                }
+                            };
+                            match new {
+                                Some(c) if non_empty(&c) || c.style != 0 => {
+                                    ws.cells.insert((tr, tc), c);
+                                }
+                                _ => {
+                                    ws.cells.remove(&(tr, tc));
+                                }
+                            }
+                        }
                     }
-                    let old = ws.cells.get(&(tr, tc)).cloned();
-                    let moved_formula = |c: &Cell| {
-                        c.formula.as_ref().map(|f| {
-                            let mut f = f.clone();
-                            let d_r = i64::from(tr) - i64::from(clip.range.first.row + dr);
-                            let d_c = i64::from(tc) - i64::from(clip.range.first.col + dc);
-                            if let Some(t) = adj.translate(&f.text, d_r, d_c) {
+                }
+            }
+            if cut && !transpose {
+                let mv = bo_sheet::calc::CellMove {
+                    from_sheet: wb
+                        .sheets
+                        .get(clip.sheet)
+                        .map(|s| s.name.clone())
+                        .unwrap_or_default(),
+                    to_sheet: wb.sheets[sheet].name.clone(),
+                    first_row: clip.range.first.row,
+                    first_col: clip.range.first.col,
+                    last_row: clip.range.last.row,
+                    last_col: clip.range.last.col,
+                    d_rows: i64::from(row) - i64::from(clip.range.first.row),
+                    d_cols: i64::from(col) - i64::from(clip.range.first.col),
+                };
+                for ws in &mut wb.sheets {
+                    let name = ws.name.clone();
+                    for cell in ws.cells.values_mut() {
+                        if let Some(f) = cell.formula.as_mut().filter(|f| !f.text.is_empty()) {
+                            if let Some(t) = adj.moved(&f.text, &name, &mv) {
                                 f.text = t;
                             }
-                            f.kind = bo_model::sheet::FormulaKind::Normal;
-                            f
-                        })
-                    };
-                    let new = match (mode, src) {
-                        (PasteMode::All, Some(c)) => Some(Cell {
-                            formula: moved_formula(c),
-                            ..c.clone()
-                        }),
-                        (PasteMode::All, None) => None,
-                        (PasteMode::Values, s) => {
-                            let mut n = old.clone().unwrap_or_default();
-                            n.formula = None;
-                            n.value = s.map_or(CellValue::Empty, |c| c.value.clone());
-                            Some(n)
                         }
-                        (PasteMode::Formulas, s) => {
-                            let mut n = old.clone().unwrap_or_default();
-                            n.formula = s.and_then(moved_formula);
-                            n.value = s.map_or(CellValue::Empty, |c| c.value.clone());
-                            Some(n)
-                        }
-                        (PasteMode::Formats, s) => {
-                            let mut n = old.clone().unwrap_or_default();
-                            n.style = s.map_or(0, |c| c.style);
-                            Some(n)
-                        }
-                    };
-                    match new {
-                        Some(c) if non_empty(&c) || c.style != 0 => {
-                            ws.cells.insert((tr, tc), c);
-                        }
-                        _ => {
-                            ws.cells.remove(&(tr, tc));
-                        }
+                    }
+                }
+                for d in &mut wb.defined_names {
+                    if let Some(t) = adj.moved(&d.formula, "", &mv) {
+                        d.formula = t;
                     }
                 }
             }
@@ -1690,7 +1921,6 @@ impl SheetEngine {
         }
         Ok(out)
     }
-
     /// Current internal clipboard (tests, hosts).
     pub fn clipboard(&self) -> Option<&Clip> {
         self.clip.as_ref()
@@ -2069,7 +2299,11 @@ mod tests {
         let r = e.range_rect(&req, (2, 5), (2, 5)).unwrap().unwrap();
         assert_eq!(
             e.hit_test(&req, r.x + 2.0, r.y + 2.0).unwrap(),
-            HitInfo::Chart { index: 0 }
+            HitInfo::Chart {
+                index: 0,
+                row: 2,
+                col: 5
+            }
         );
         let mut back = reopen(&mut e);
         let list = run(&mut back, json!({ "cmd": "charts", "sheet": 0 }));
@@ -2085,7 +2319,27 @@ mod tests {
         let c = &again.workbook().unwrap().sheets[0].charts[0];
         assert_eq!(c.plots[0].kind, bo_model::sheet::ChartKind::Line);
         assert!(c.title.is_none());
-        assert!(back
+        // Charts read from the file move, resize and delete too.
+        let mut again = again;
+        run(
+            &mut again,
+            json!({ "cmd": "moveChart", "sheet": 0, "index": 0, "from": [5, 1], "to": [12, 6] }),
+        );
+        let list = run(&mut again, json!({ "cmd": "charts", "sheet": 0 }));
+        assert_eq!(
+            (list[0]["from"].clone(), list[0]["to"].clone()),
+            (json!([5, 1]), json!([12, 6]))
+        );
+        let mut moved = reopen(&mut again);
+        let list = run(&mut moved, json!({ "cmd": "charts", "sheet": 0 }));
+        assert_eq!(list[0]["to"], json!([12, 6]));
+        run(
+            &mut moved,
+            json!({ "cmd": "deleteChart", "sheet": 0, "index": 0 }),
+        );
+        let mut gone = reopen(&mut moved);
+        assert!(gone.workbook().unwrap().sheets[0].charts.is_empty());
+        assert!(gone
             .exec(SheetCommand::DeleteChart { sheet: 0, index: 0 })
             .is_err());
     }
@@ -2343,5 +2597,123 @@ mod tests {
         assert_eq!(again.cell(1, 3, 1).unwrap().display, "30");
         let info = run(&mut back, json!({ "cmd": "pivots", "sheet": 1 }));
         assert_eq!(info[0]["filters"][0]["items"], json!([1]));
+    }
+
+    #[test]
+    fn cut_paste_moves_references_and_paste_fills_selection() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "5").unwrap(); // A1
+        e.set_input(0, 1, 0, "7").unwrap(); // A2
+        e.set_input(0, 0, 2, "=A1*2").unwrap(); // C1
+        e.set_input(0, 1, 2, "=SUM(A1:A2)").unwrap(); // C2
+        e.set_input(0, 2, 2, "=$A$1+1").unwrap(); // C3
+        e.add_sheet(Some("Khác")).unwrap();
+        e.set_input(1, 0, 0, "=Sheet1!A2").unwrap();
+        // Cut A1:A2 → E5:E6.
+        run(
+            &mut e,
+            json!({ "cmd": "copy", "sheet": 0, "range": rng(0, 0, 1, 0), "cut": true }),
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "paste", "sheet": 0, "row": 4, "col": 4 }),
+        );
+        assert_eq!(e.cell(0, 0, 2).unwrap().input, "=E5*2");
+        assert_eq!(e.cell(0, 1, 2).unwrap().input, "=SUM(E5:E6)");
+        assert_eq!(e.cell(0, 2, 2).unwrap().input, "=$E$5+1");
+        assert_eq!(e.cell(1, 0, 0).unwrap().input, "=Sheet1!E6");
+        assert_eq!(e.cell(0, 1, 2).unwrap().display, "12");
+        // Copy one cell, paste into a 2×3 selection: repeated (relative refs shift).
+        e.set_input(0, 9, 0, "1").unwrap();
+        e.set_input(0, 9, 1, "=A10+1").unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "copy", "sheet": 0, "range": rng(9, 0, 9, 1) }),
+        );
+        let r = run(
+            &mut e,
+            json!({ "cmd": "paste", "sheet": 0, "row": 11, "col": 0, "range": rng(11, 0, 12, 3) }),
+        );
+        assert_eq!(r["range"], rng(11, 0, 12, 3));
+        assert_eq!(e.cell(0, 12, 2).unwrap().input, "1");
+        assert_eq!(e.cell(0, 12, 3).unwrap().input, "=C13+1");
+        // Not a multiple: pasted once.
+        let r = run(
+            &mut e,
+            json!({ "cmd": "paste", "sheet": 0, "row": 20, "col": 0, "range": rng(20, 0, 20, 2) }),
+        );
+        assert_eq!(r["range"], rng(20, 0, 20, 1));
+    }
+
+    #[test]
+    fn sort_left_to_right_and_filters_by_date_and_colour() {
+        let mut e = engine();
+        e.set_now_ms(1_736_935_200_000); // 2025-01-15 10:00 UTC
+        for (c, v) in ["Mã", "30", "10", "20"].iter().enumerate() {
+            e.set_input(0, 0, c as u32, v).unwrap();
+        }
+        run(
+            &mut e,
+            json!({ "cmd": "sort", "sheet": 0, "range": rng(0, 0, 0, 3), "hasHeader": true,
+                "leftToRight": true, "keys": [{ "col": 0 }] }),
+        );
+        assert_eq!(e.cell(0, 0, 1).unwrap().input, "10");
+        assert_eq!(e.cell(0, 0, 3).unwrap().input, "30");
+        // Dates: 2024-03-05, 2025-01-02, 2025-01-14 in B2:B4 with a fill on B3.
+        e.set_input(0, 1, 5, "Ngày").unwrap();
+        for (r, d) in ["45356", "45659", "45671"].iter().enumerate() {
+            e.set_input(0, r as u32 + 2, 5, d).unwrap();
+        }
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(2, 5, 4, 5), "patch": { "numFmt": "dd/mm/yyyy" } }),
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(3, 5, 3, 5), "patch": { "fillColor": "FFEE00" } }),
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "toggleFilter", "sheet": 0, "range": rng(1, 5, 4, 5) }),
+        );
+        let fv = run(
+            &mut e,
+            json!({ "cmd": "filterValues", "sheet": 0, "col": 5 }),
+        );
+        assert_eq!(fv["dates"][0]["year"], 2024);
+        assert_eq!(fv["dates"][1]["months"][0]["month"], 1);
+        assert_eq!(fv["colors"]["cell"], json!(["FFEE00"]));
+        let hidden = |e: &mut SheetEngine| e.info().unwrap().sheets[0].hidden_rows.clone();
+        run(
+            &mut e,
+            json!({ "cmd": "setFilter", "sheet": 0, "col": 5, "filter": { "dates": [{ "year": 2025 }] } }),
+        );
+        assert_eq!(hidden(&mut e), vec![(2, 2)]);
+        run(
+            &mut e,
+            json!({ "cmd": "setFilter", "sheet": 0, "col": 5, "filter": { "dynamic": "thisWeek" } }),
+        );
+        assert_eq!(hidden(&mut e), vec![(2, 3)]);
+        run(
+            &mut e,
+            json!({ "cmd": "setFilter", "sheet": 0, "col": 5, "filter": { "cellColor": "FFEE00" } }),
+        );
+        assert_eq!(hidden(&mut e), vec![(2, 2), (4, 4)]);
+        let fv = run(
+            &mut e,
+            json!({ "cmd": "filterValues", "sheet": 0, "col": 5 }),
+        );
+        assert_eq!(fv["kind"], "color");
+        // The criterion survives a save.
+        let back = reopen(&mut e);
+        assert!(matches!(
+            back.workbook().unwrap().sheets[0]
+                .auto_filter
+                .as_ref()
+                .unwrap()
+                .columns[0]
+                .filter,
+            ColumnFilter::Color { .. }
+        ));
     }
 }

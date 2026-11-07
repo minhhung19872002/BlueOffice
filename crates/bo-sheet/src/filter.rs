@@ -5,13 +5,16 @@
 //! text case-insensitively (§18.3.2.6 `filter/@val`); custom filters
 //! (§18.3.2.2) compare numerically when both sides are numbers and as text with
 //! `*` / `?` wildcards otherwise; `top10` (§18.3.2.10) keeps the N largest /
-//! smallest numbers (or N percent). Criteria kept as raw XML are not evaluated
-//! (rows stay visible).
+//! smallest numbers (or N percent); date groups (§18.3.2.4 `dateGroupItem`),
+//! dynamic filters (§18.3.2.5, relative dates and above/below average) and
+//! colour filters (§18.3.2.1) are evaluated too. Criteria kept as raw XML are
+//! not evaluated (rows stay visible).
 
 use crate::numfmt::Locale;
 use crate::render::format_cell;
 use bo_model::sheet::{
-    AutoFilter, CellValue, ColumnFilter, CustomFilter, RowInfo, Workbook, Worksheet,
+    AutoFilter, Cell, CellValue, ColumnFilter, CustomFilter, DateGroup, Fill, RowInfo, Workbook,
+    Worksheet,
 };
 
 /// `*` / `?` wildcard match (`~` escapes), case-insensitive.
@@ -87,8 +90,145 @@ fn custom_match(c: &CustomFilter, value: &CellValue, text: &str) -> bool {
     }
 }
 
+/// Serial date of a cell value (numbers and ISO `t="d"` dates).
+fn date_of(wb: &Workbook, v: &CellValue) -> Option<f64> {
+    match v {
+        CellValue::Number(n) => Some(*n),
+        CellValue::Date(iso) => {
+            let (d, t) = iso.split_once('T').unwrap_or((iso, ""));
+            let mut p = d.split('-').map(|x| x.parse::<u32>().ok());
+            let (y, m, dd) = (p.next()??, p.next()??, p.next()??);
+            let mut tp = t
+                .split(':')
+                .map(|x| x.trim_end_matches('Z').parse::<f64>().ok());
+            let h = tp.next().flatten().unwrap_or(0.0);
+            let mi = tp.next().flatten().unwrap_or(0.0);
+            let s = tp.next().flatten().unwrap_or(0.0);
+            crate::numfmt::datetime_to_serial(y as i32, m, dd, h as u32, mi as u32, s, wb.date1904)
+        }
+        _ => None,
+    }
+}
+
+/// §18.3.2.4: does the date fall into the group (fields up to its grouping match)?
+fn in_group(wb: &Workbook, serial: f64, g: &DateGroup) -> bool {
+    let Some(d) = crate::numfmt::serial_to_datetime(serial, wb.date1904, 0) else {
+        return false;
+    };
+    let depth = match g.grouping.as_str() {
+        "year" => 1,
+        "month" => 2,
+        "day" => 3,
+        "hour" => 4,
+        "minute" => 5,
+        _ => 6,
+    };
+    let parts = [
+        (Some(g.year), d.year as u32),
+        (g.month, d.month),
+        (g.day, d.day),
+        (g.hour, d.hour),
+        (g.minute, d.minute),
+        (g.second, d.second),
+    ];
+    parts
+        .iter()
+        .take(depth)
+        .all(|(want, got)| want.is_none_or(|w| w == *got))
+}
+
+/// Serial-day range `[from, to)` of a relative date filter (§18.18.26
+/// `ST_DynamicFilterType`), relative to `now`; weeks start on Sunday.
+fn dynamic_range(kind: &str, now: f64, date1904: bool) -> Option<(f64, f64)> {
+    let today = now.floor();
+    let d = crate::numfmt::serial_to_datetime(today, date1904, 0)?;
+    // Month numbers may overflow (0 = previous December, 13 = next January).
+    let serial = |y: i32, m: i32, day: u32| {
+        let (y, m) = (
+            y + (m - 1).div_euclid(12),
+            (m - 1).rem_euclid(12) as u32 + 1,
+        );
+        crate::numfmt::datetime_to_serial(y, m, day, 0, 0, 0.0, date1904)
+    };
+    let month = d.month as i32;
+    let months = |from: i32, n: i32| -> Option<(f64, f64)> {
+        Some((serial(d.year, from, 1)?, serial(d.year, from + n, 1)?))
+    };
+    let quarter_start = (month - 1) / 3 * 3 + 1;
+    let year = |off: i32| Some((serial(d.year + off, 1, 1)?, serial(d.year + off + 1, 1, 1)?));
+    let week_start = today - f64::from(d.weekday);
+    Some(match kind {
+        "today" => (today, today + 1.0),
+        "yesterday" => (today - 1.0, today),
+        "tomorrow" => (today + 1.0, today + 2.0),
+        "thisWeek" => (week_start, week_start + 7.0),
+        "lastWeek" => (week_start - 7.0, week_start),
+        "nextWeek" => (week_start + 7.0, week_start + 14.0),
+        "thisMonth" => months(month, 1)?,
+        "lastMonth" => months(month - 1, 1)?,
+        "nextMonth" => months(month + 1, 1)?,
+        "thisQuarter" => months(quarter_start, 3)?,
+        "lastQuarter" => months(quarter_start - 3, 3)?,
+        "nextQuarter" => months(quarter_start + 3, 3)?,
+        "thisYear" => year(0)?,
+        "lastYear" => year(-1)?,
+        "nextYear" => year(1)?,
+        "yearToDate" => (serial(d.year, 1, 1)?, today + 1.0),
+        _ => return None,
+    })
+}
+
+/// Month (`M1`–`M12`) or quarter (`Q1`–`Q4`) of any year.
+fn period_match(kind: &str, serial: f64, date1904: bool) -> Option<bool> {
+    let d = crate::numfmt::serial_to_datetime(serial, date1904, 0)?;
+    if let Some(m) = kind.strip_prefix('M').and_then(|m| m.parse::<u32>().ok()) {
+        return Some(d.month == m);
+    }
+    if let Some(q) = kind.strip_prefix('Q').and_then(|q| q.parse::<u32>().ok()) {
+        return Some((d.month - 1) / 3 + 1 == q);
+    }
+    None
+}
+
+/// Colour a colour filter looks for: the dxf's fill (`cell_color`) or font colour.
+fn filter_color(wb: &Workbook, dxf_id: Option<u32>, cell_color: bool) -> Option<(u8, u8, u8)> {
+    let dxf = wb.styles.dxfs.get(dxf_id? as usize)?;
+    let theme = wb.theme.as_ref();
+    let c = if cell_color {
+        match dxf.fill.as_ref()? {
+            // Differential solid fills carry their colour in bgColor (§18.8.14).
+            Fill::Pattern(p) => p.bg.as_ref().or(p.fg.as_ref())?,
+            Fill::Gradient(g) => &g.stops.first()?.1,
+        }
+    } else {
+        dxf.font.as_ref()?.color.as_ref()?
+    };
+    let c = crate::color::resolve_color(c, theme)?;
+    Some((c.0, c.1, c.2))
+}
+
 /// Zero-based rows (absolute) that the AutoFilter `af` hides.
 pub fn hidden_rows(wb: &Workbook, ws: &Worksheet, af: &AutoFilter, locale: &Locale) -> Vec<u32> {
+    hidden_rows_at(wb, ws, af, locale, None)
+}
+
+/// [`hidden_rows`] with an explicit "now" (serial) for relative date filters;
+/// `None` reads the system clock.
+#[allow(clippy::too_many_lines)]
+pub fn hidden_rows_at(
+    wb: &Workbook,
+    ws: &Worksheet,
+    af: &AutoFilter,
+    locale: &Locale,
+    now: Option<f64>,
+) -> Vec<u32> {
+    let now = now.unwrap_or_else(|| {
+        bo_formula::date::now_serial(if wb.date1904 {
+            bo_formula::DateSystem::Date1904
+        } else {
+            bo_formula::DateSystem::Date1900
+        })
+    });
     let first = af.range.first.row + 1;
     let last = af.range.last.row;
     if first > last {
@@ -124,48 +264,120 @@ pub fn hidden_rows(wb: &Workbook, ws: &Worksheet, af: &AutoFilter, locale: &Loca
                 let cut = nums[n.min(nums.len()) - 1];
                 Some((top, cut))
             }
+            ColumnFilter::Dynamic { ref kind, .. }
+                if kind == "aboveAverage" || kind == "belowAverage" =>
+            {
+                // §18.3.2.5: the average of the column's numbers.
+                let col = af.range.first.col + fc.col_id;
+                let nums: Vec<f64> = (first..=last)
+                    .filter_map(|r| match ws.cell(r, col).map(|c| &c.value) {
+                        Some(CellValue::Number(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .collect();
+                (!nums.is_empty()).then(|| {
+                    (
+                        kind == "aboveAverage",
+                        nums.iter().sum::<f64>() / nums.len() as f64,
+                    )
+                })
+            }
             _ => None,
         })
         .collect();
+    let colors: Vec<Option<(u8, u8, u8)>> = af
+        .columns
+        .iter()
+        .map(|fc| match fc.filter {
+            ColumnFilter::Color { dxf_id, cell_color } => filter_color(wb, dxf_id, cell_color),
+            _ => None,
+        })
+        .collect();
+    let cell_rgb = |cell: Option<&Cell>, fill: bool| -> Option<(u8, u8, u8)> {
+        let cell = cell?;
+        if fill {
+            crate::color::cell_fill_rgb(wb, cell)
+        } else {
+            Some(crate::color::cell_font_rgb(wb, cell).unwrap_or((0, 0, 0)))
+        }
+    };
     let mut hidden = Vec::new();
     for r in first..=last {
-        let visible = af.columns.iter().zip(&thresholds).all(|(fc, th)| {
-            let col = af.range.first.col + fc.col_id;
-            let cell = ws.cell(r, col);
-            let value = cell.map_or(CellValue::Empty, |c| c.value.clone());
-            let text = cell
-                .map(|c| format_cell(wb, c, locale).text)
-                .unwrap_or_default();
-            let blank = text.is_empty();
-            match &fc.filter {
-                ColumnFilter::None | ColumnFilter::Raw(_) => true,
-                ColumnFilter::Values {
-                    values,
-                    blank: show_blank,
-                } => {
-                    if blank {
-                        *show_blank
-                    } else {
-                        values
-                            .iter()
-                            .any(|v| v.to_lowercase() == text.to_lowercase())
+        let visible = af
+            .columns
+            .iter()
+            .zip(&thresholds)
+            .zip(&colors)
+            .all(|((fc, th), want)| {
+                let col = af.range.first.col + fc.col_id;
+                let cell = ws.cell(r, col);
+                let value = cell.map_or(CellValue::Empty, |c| c.value.clone());
+                let text = cell
+                    .map(|c| format_cell(wb, c, locale).text)
+                    .unwrap_or_default();
+                let blank = text.is_empty();
+                match &fc.filter {
+                    ColumnFilter::None | ColumnFilter::Raw(_) => true,
+                    ColumnFilter::Values {
+                        values,
+                        blank: show_blank,
+                    } => {
+                        if blank {
+                            *show_blank
+                        } else {
+                            values
+                                .iter()
+                                .any(|v| v.to_lowercase() == text.to_lowercase())
+                        }
+                    }
+                    ColumnFilter::Custom { and, conditions } => {
+                        let mut it = conditions.iter().map(|c| custom_match(c, &value, &text));
+                        if *and {
+                            it.all(|b| b)
+                        } else {
+                            conditions.is_empty() || it.any(|b| b)
+                        }
+                    }
+                    ColumnFilter::Top10 { .. } => match (th, &value) {
+                        (Some((true, cut)), CellValue::Number(n)) => n >= cut,
+                        (Some((false, cut)), CellValue::Number(n)) => n <= cut,
+                        _ => false,
+                    },
+                    ColumnFilter::DateGroups {
+                        values,
+                        blank: show_blank,
+                        groups,
+                    } => {
+                        if blank {
+                            *show_blank
+                        } else {
+                            values
+                                .iter()
+                                .any(|v| v.to_lowercase() == text.to_lowercase())
+                                || date_of(wb, &value)
+                                    .is_some_and(|d| groups.iter().any(|g| in_group(wb, d, g)))
+                        }
+                    }
+                    ColumnFilter::Dynamic { kind, .. } => match (kind.as_str(), &value) {
+                        ("aboveAverage" | "belowAverage", CellValue::Number(n)) => match th {
+                            Some((true, avg)) => n > avg,
+                            Some((false, avg)) => n < avg,
+                            None => false,
+                        },
+                        ("null", _) => true,
+                        (k, v) => match date_of(wb, v) {
+                            Some(d) => match dynamic_range(k, now, wb.date1904) {
+                                Some((a, b)) => d >= a && d < b,
+                                None => period_match(k, d, wb.date1904).unwrap_or(true),
+                            },
+                            None => false,
+                        },
+                    },
+                    ColumnFilter::Color { cell_color, .. } => {
+                        want.is_some_and(|w| cell_rgb(cell, *cell_color) == Some(w))
                     }
                 }
-                ColumnFilter::Custom { and, conditions } => {
-                    let mut it = conditions.iter().map(|c| custom_match(c, &value, &text));
-                    if *and {
-                        it.all(|b| b)
-                    } else {
-                        conditions.is_empty() || it.any(|b| b)
-                    }
-                }
-                ColumnFilter::Top10 { .. } => match (th, &value) {
-                    (Some((true, cut)), CellValue::Number(n)) => n >= cut,
-                    (Some((false, cut)), CellValue::Number(n)) => n <= cut,
-                    _ => false,
-                },
-            }
-        });
+            });
         if !visible {
             hidden.push(r);
         }
@@ -176,13 +388,23 @@ pub fn hidden_rows(wb: &Workbook, ws: &Worksheet, af: &AutoFilter, locale: &Loca
 /// Apply the sheet's AutoFilter: rows inside the range are hidden or shown.
 /// Returns the number of hidden rows.
 pub fn apply_auto_filter(wb: &mut Workbook, sheet: usize, locale: &Locale) -> usize {
+    apply_auto_filter_at(wb, sheet, locale, None)
+}
+
+/// [`apply_auto_filter`] with an explicit "now" (serial) for relative date filters.
+pub fn apply_auto_filter_at(
+    wb: &mut Workbook,
+    sheet: usize,
+    locale: &Locale,
+    now: Option<f64>,
+) -> usize {
     let Some(ws) = wb.sheets.get(sheet) else {
         return 0;
     };
     let Some(af) = ws.auto_filter.clone() else {
         return 0;
     };
-    let hidden = hidden_rows(wb, ws, &af, locale);
+    let hidden = hidden_rows_at(wb, ws, &af, locale, now);
     let Some(ws) = wb.sheets.get_mut(sheet) else {
         return 0;
     };
@@ -223,6 +445,44 @@ pub fn column_values(
     v
 }
 
+/// Years and months of the date-formatted numbers of filter column `col_id`
+/// (for the date tree of the dropdown), ascending.
+pub fn column_dates(
+    wb: &Workbook,
+    ws: &Worksheet,
+    af: &AutoFilter,
+    col_id: u32,
+) -> Vec<(i32, Vec<u32>)> {
+    let col = af.range.first.col + col_id;
+    let mut out: std::collections::BTreeMap<i32, std::collections::BTreeSet<u32>> =
+        std::collections::BTreeMap::new();
+    for r in af.range.first.row + 1..=af.range.last.row {
+        let Some(cell) = ws.cell(r, col) else {
+            continue;
+        };
+        let serial = match &cell.value {
+            CellValue::Number(n) => {
+                let id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
+                let code = crate::numfmt::format_code(&wb.styles, id, &Locale::VI_VN);
+                if !crate::numfmt::NumberFormat::parse(&code).is_date() {
+                    continue;
+                }
+                *n
+            }
+            v @ CellValue::Date(_) => match date_of(wb, v) {
+                Some(s) => s,
+                None => continue,
+            },
+            _ => continue,
+        };
+        if let Some(d) = crate::numfmt::serial_to_datetime(serial, wb.date1904, 0) {
+            out.entry(d.year).or_default().insert(d.month);
+        }
+    }
+    out.into_iter()
+        .map(|(y, m)| (y, m.into_iter().collect()))
+        .collect()
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,5 +629,92 @@ mod tests {
         let a = wb.sheets[0].auto_filter.clone().unwrap();
         let vals = column_values(&wb, &wb.sheets[0], &a, 0, &Locale::VI_VN);
         assert_eq!(vals, ["", "Cần Thơ", "Đà Nẵng", "Hà Nội", "Huế"]);
+    }
+
+    #[test]
+    fn date_groups_dynamic_and_colour() {
+        use crate::numfmt::datetime_to_serial;
+        use bo_model::sheet::{Cell, CellXf, DateGroup, Dxf, Fill};
+        let mut wb = Workbook::new();
+        let red = wb.styles.add_fill(Fill::solid("FF0000"));
+        let red_xf = wb.styles.add_xf(CellXf {
+            fill_id: red,
+            ..CellXf::default()
+        });
+        wb.styles.dxfs.push(Dxf {
+            fill: Some(Fill::Pattern(bo_model::sheet::PatternFill {
+                pattern: Some("solid".into()),
+                fg: None,
+                bg: Some(bo_model::sheet::SheetColor::rgb("FF0000")),
+            })),
+            ..Dxf::default()
+        });
+        let ws = &mut wb.sheets[0];
+        ws.set_a1("A1", CellValue::Text("Ngày".into()));
+        let dates = [(2024, 3, 5), (2024, 7, 10), (2025, 1, 2), (2025, 1, 20)];
+        for (i, (y, m, d)) in dates.iter().enumerate() {
+            let s = datetime_to_serial(*y, *m, *d, 0, 0, 0.0, false).unwrap();
+            let style = if i % 2 == 0 { red_xf } else { 0 };
+            ws.set_cell(
+                i as u32 + 1,
+                0,
+                Cell::new(CellValue::Number(s)).with_style(style),
+            );
+        }
+        let mk = |filter: ColumnFilter| AutoFilter {
+            range: bo_model::sheet::CellRange::parse("A1:A5").unwrap(),
+            columns: vec![bo_model::sheet::FilterColumn {
+                col_id: 0,
+                filter,
+                ..Default::default()
+            }],
+            ..AutoFilter::default()
+        };
+        let now = datetime_to_serial(2025, 1, 15, 10, 0, 0.0, false);
+        let hid = |f: ColumnFilter| hidden_rows_at(&wb, &wb.sheets[0], &mk(f), &Locale::VI_VN, now);
+        // Year 2024 or March 2024 (month grouping).
+        let groups = vec![
+            DateGroup {
+                year: 2024,
+                month: Some(7),
+                grouping: "month".into(),
+                ..DateGroup::default()
+            },
+            DateGroup {
+                year: 2025,
+                grouping: "year".into(),
+                ..DateGroup::default()
+            },
+        ];
+        assert_eq!(
+            hid(ColumnFilter::DateGroups {
+                values: Vec::new(),
+                blank: false,
+                groups
+            }),
+            vec![1]
+        );
+        let dynamic = |kind: &str| ColumnFilter::Dynamic {
+            kind: kind.into(),
+            val: None,
+            max_val: None,
+        };
+        assert_eq!(hid(dynamic("thisMonth")), vec![1, 2]);
+        assert_eq!(hid(dynamic("lastYear")), vec![3, 4]);
+        assert_eq!(hid(dynamic("thisWeek")), vec![1, 2, 3, 4]);
+        // Weeks start on Sunday: last week 2025-01-05..11, next week 01-19..25.
+        assert_eq!(hid(dynamic("lastWeek")), vec![1, 2, 3, 4]);
+        assert_eq!(hid(dynamic("nextWeek")), vec![1, 2, 3]);
+        assert_eq!(hid(dynamic("M7")), vec![1, 3, 4]);
+        assert_eq!(hid(dynamic("Q1")), vec![2]);
+        assert_eq!(hid(dynamic("aboveAverage")), vec![1, 2]);
+        // Colour filter: red cells (rows 1 and 3) stay.
+        assert_eq!(
+            hid(ColumnFilter::Color {
+                dxf_id: Some(0),
+                cell_color: true
+            }),
+            vec![2, 4]
+        );
     }
 }

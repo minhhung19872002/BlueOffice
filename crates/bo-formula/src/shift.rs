@@ -4,7 +4,7 @@
 //! formula cell; absolute `$` components are fixed).
 
 use crate::ast::Expr;
-use crate::reference::{CellAddr, RefKind, Reference, MAX_COLS, MAX_ROWS};
+use crate::reference::{CellAddr, RefKind, Reference, SheetRef, MAX_COLS, MAX_ROWS};
 use crate::value::ErrorKind;
 
 /// A structural change to one worksheet. `at` is 0-based.
@@ -282,6 +282,85 @@ pub fn offset_relative(expr: &Expr, d_row: i64, d_col: i64) -> Expr {
             match kind {
                 Some(kind) => Expr::Ref(Reference {
                     sheet: r.sheet,
+                    kind,
+                }),
+                None => Expr::Error(ErrorKind::Ref),
+            }
+        }
+        other => other,
+    })
+}
+
+/// A block of cells moved by cut and paste: `rows` × `cols` starting at
+/// (`row`, `col`) of sheet `from_sheet`, now at (`row + d_row`, `col + d_col`)
+/// of sheet `to_sheet`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MovedBlock {
+    pub from_sheet: String,
+    pub to_sheet: String,
+    pub first_row: u32,
+    pub first_col: u32,
+    pub last_row: u32,
+    pub last_col: u32,
+    pub d_row: i64,
+    pub d_col: i64,
+}
+
+impl MovedBlock {
+    fn contains(&self, a: CellAddr) -> bool {
+        (self.first_row..=self.last_row).contains(&a.row)
+            && (self.first_col..=self.last_col).contains(&a.col)
+    }
+
+    fn shift(&self, a: CellAddr) -> Option<CellAddr> {
+        let r = i64::from(a.row) + self.d_row;
+        let c = i64::from(a.col) + self.d_col;
+        ((0..i64::from(MAX_ROWS)).contains(&r) && (0..i64::from(MAX_COLS)).contains(&c)).then(
+            || CellAddr {
+                row: r as u32,
+                col: c as u32,
+                ..a
+            },
+        )
+    }
+}
+
+/// Re-point references to cells moved by cut and paste (the moved cells keep
+/// their identity): a cell reference inside the block, or a range whose both
+/// corners are inside it, follows the block — absolute or relative alike —
+/// and gets the destination sheet name when the block changed sheets.
+/// Other references (and 3-D references) are unchanged.
+pub fn adjust_for_move(expr: &Expr, formula_sheet: &str, block: &MovedBlock) -> Expr {
+    let target_sheet = |r: &Reference| -> Option<SheetRef> {
+        if block.to_sheet.eq_ignore_ascii_case(&block.from_sheet) {
+            r.sheet.clone()
+        } else if block.to_sheet.eq_ignore_ascii_case(formula_sheet) {
+            None
+        } else {
+            Some(SheetRef::single(block.to_sheet.clone()))
+        }
+    };
+    expr.map(&mut |e| match e {
+        Expr::Ref(r) => {
+            let sheet = match &r.sheet {
+                None => formula_sheet,
+                Some(s) if s.last.is_none() => s.first.as_str(),
+                Some(_) => return Expr::Ref(r),
+            };
+            if !sheet.eq_ignore_ascii_case(&block.from_sheet) {
+                return Expr::Ref(r);
+            }
+            let kind = match r.kind {
+                RefKind::Cell(a) if block.contains(a) => block.shift(a).map(RefKind::Cell),
+                RefKind::Range(a, b) if block.contains(a) && block.contains(b) => block
+                    .shift(a)
+                    .zip(block.shift(b))
+                    .map(|(a, b)| RefKind::Range(a, b)),
+                _ => return Expr::Ref(r),
+            };
+            match kind {
+                Some(kind) => Expr::Ref(Reference {
+                    sheet: target_sheet(&r),
                     kind,
                 }),
                 None => Expr::Error(ErrorKind::Ref),

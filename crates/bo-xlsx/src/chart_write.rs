@@ -7,7 +7,7 @@
 //! sheet has none).
 
 use crate::xml::fmt_f64;
-use bo_model::sheet::{Chart, ChartKind, ChartPlot, ChartSeries};
+use bo_model::sheet::{CellRef, Chart, ChartKind, ChartPlot, ChartSeries, Workbook};
 use bo_opc::xml::escape;
 use std::fmt::Write as _;
 
@@ -441,6 +441,212 @@ pub fn add_relationships(existing: Option<&[u8]>, targets: &[String]) -> (Vec<u8
     (out.into_bytes(), ids)
 }
 
+/// The drawing part and relationship id anchoring chart `index` of `sheet`
+/// (a chart read from the file).
+fn chart_anchor(wb: &Workbook, sheet: usize, index: usize) -> Option<(String, String)> {
+    let ws = wb.sheets.get(sheet)?;
+    let chart = ws.charts.get(index)?;
+    if chart.part.is_empty() {
+        return None;
+    }
+    for rel in ws
+        .rels
+        .iter()
+        .filter(|r| !r.external && r.rel_type.ends_with("/drawing"))
+    {
+        let rels_name = bo_opc::rels_part_name(&rel.target);
+        let Some(rels) = wb.opaque.parts.iter().find(|p| p.name == rels_name) else {
+            continue;
+        };
+        let text = std::str::from_utf8(&rels.data).ok()?;
+        for (id, target) in relationship_targets(text) {
+            if bo_opc::resolve_target(&rel.target, &target) == chart.part {
+                return Some((rel.target.clone(), id));
+            }
+        }
+    }
+    None
+}
+
+/// `(Id, Target)` of every `Relationship` element of a `.rels` part.
+fn relationship_targets(text: &str) -> Vec<(String, String)> {
+    let attr = |el: &str, name: &str| -> Option<String> {
+        let at = el.find(&format!(" {name}=\""))? + name.len() + 3;
+        let end = el[at..].find('"')? + at;
+        Some(bo_opc::xml::unescape(&el[at..end]))
+    };
+    text.split("<Relationship ")
+        .skip(1)
+        .filter_map(|el| {
+            let el = &format!(" {}", el.split('>').next().unwrap_or(""));
+            Some((attr(el, "Id")?, attr(el, "Target")?))
+        })
+        .collect()
+}
+
+/// Byte range of the drawing anchor (§20.5.2.1 absoluteAnchor, §20.5.2.24
+/// oneCellAnchor, §20.5.2.33 twoCellAnchor) holding the chart with `rel_id`,
+/// with the anchor's qualified name.
+fn anchor_span(text: &str, rel_id: &str) -> Option<(usize, usize, String)> {
+    let needle = format!(":id=\"{rel_id}\"");
+    let id_at = text.find(&needle)?;
+    let head = &text[..id_at];
+    let (start, qname) = ["twoCellAnchor", "oneCellAnchor", "absoluteAnchor"]
+        .iter()
+        .filter_map(|n| {
+            let mut best = None;
+            let mut from = 0;
+            while let Some(p) = head[from..].find(n) {
+                let at = from + p;
+                // `<n` or `<prefix:n` followed by a space or `>`.
+                let lt = head[..at].rfind('<')?;
+                let q = &head[lt + 1..at + n.len()];
+                let next = head[at + n.len()..].chars().next();
+                if !q.starts_with('/')
+                    && q.chars()
+                        .all(|c| c.is_alphanumeric() || c == ':' || c == '_')
+                    && matches!(next, Some(' ' | '>'))
+                {
+                    best = Some((lt, q.to_owned()));
+                }
+                from = at + n.len();
+            }
+            best
+        })
+        .max_by_key(|(lt, _)| *lt)?;
+    let close = format!("</{qname}>");
+    let end = text[id_at..].find(&close)? + id_at + close.len();
+    Some((start, end, qname))
+}
+
+/// Element `<p:name>…</p:name>` (prefix taken from `qname`) of an anchor:
+/// `(start, end)` byte range.
+fn element_span(text: &str, prefix: &str, name: &str) -> Option<(usize, usize)> {
+    let open = format!("<{prefix}{name}>");
+    let close = format!("</{prefix}{name}>");
+    let s = text.find(&open)?;
+    let e = text[s..].find(&close)? + s + close.len();
+    Some((s, e))
+}
+
+/// Move / resize chart `index` of `sheet` to the cell anchors `from`..`to`
+/// (zero-based; `to` is the cell holding the bottom-right corner). Charts read
+/// from the file get their drawing anchor rewritten (§20.5.2.15 from,
+/// §20.5.2.32 to). Returns `false` when the chart cannot be moved.
+pub fn move_chart(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    from: CellRef,
+    to: CellRef,
+) -> bool {
+    let Some(chart) = wb.sheets.get(sheet).and_then(|s| s.charts.get(index)) else {
+        return false;
+    };
+    if !chart.part.is_empty() {
+        let Some((drawing, rel_id)) = chart_anchor(wb, sheet, index) else {
+            return false;
+        };
+        let Some(part) = wb.opaque.parts.iter_mut().find(|p| p.name == drawing) else {
+            return false;
+        };
+        let Ok(text) = std::str::from_utf8(&part.data) else {
+            return false;
+        };
+        let Some((s, e, qname)) = anchor_span(text, &rel_id) else {
+            return false;
+        };
+        let prefix = qname
+            .rsplit_once(':')
+            .map_or(String::new(), |(p, _)| format!("{p}:"));
+        let mut anchor = text[s..e].to_owned();
+        let cell = |tag: &str, at: CellRef| {
+            format!(
+                "<{prefix}{tag}><{prefix}col>{}</{prefix}col><{prefix}colOff>0</{prefix}colOff><{prefix}row>{}</{prefix}row><{prefix}rowOff>0</{prefix}rowOff></{prefix}{tag}>",
+                at.col, at.row
+            )
+        };
+        if qname.ends_with("absoluteAnchor") {
+            return false;
+        }
+        if let Some((a, b)) = element_span(&anchor, &prefix, "from") {
+            anchor.replace_range(a..b, &cell("from", from));
+        }
+        if qname.ends_with("twoCellAnchor") {
+            if let Some((a, b)) = element_span(&anchor, &prefix, "to") {
+                anchor.replace_range(a..b, &cell("to", to));
+            }
+        }
+        let mut out = String::with_capacity(text.len());
+        out.push_str(&text[..s]);
+        out.push_str(&anchor);
+        out.push_str(&text[e..]);
+        part.data = out.into_bytes();
+    }
+    let chart = &mut wb.sheets[sheet].charts[index];
+    chart.from = from;
+    chart.to = Some(to);
+    true
+}
+
+/// Delete chart `index` of `sheet`. For a chart read from the file its drawing
+/// anchor and relationship are removed, together with the chart part and the
+/// parts only it referenced (style / colour parts). Returns `false` when not found.
+pub fn remove_chart(wb: &mut Workbook, sheet: usize, index: usize) -> bool {
+    let Some(chart) = wb.sheets.get(sheet).and_then(|s| s.charts.get(index)) else {
+        return false;
+    };
+    if !chart.part.is_empty() {
+        let part_name = chart.part.clone();
+        let Some((drawing, rel_id)) = chart_anchor(wb, sheet, index) else {
+            return false;
+        };
+        // Drawing: drop the anchor.
+        if let Some(p) = wb.opaque.parts.iter_mut().find(|p| p.name == drawing) {
+            if let Ok(text) = std::str::from_utf8(&p.data) {
+                if let Some((s, e, _)) = anchor_span(text, &rel_id) {
+                    let mut t = text.to_owned();
+                    t.replace_range(s..e, "");
+                    p.data = t.into_bytes();
+                }
+            }
+        }
+        // Drawing relationships: drop the chart relationship.
+        let rels_name = bo_opc::rels_part_name(&drawing);
+        if let Some(p) = wb.opaque.parts.iter_mut().find(|p| p.name == rels_name) {
+            if let Ok(text) = std::str::from_utf8(&p.data) {
+                let mut t = text.to_owned();
+                if let Some(at) = t.find(&format!("Id=\"{rel_id}\"")) {
+                    if let (Some(s), Some(e)) = (t[..at].rfind('<'), t[at..].find("/>")) {
+                        t.replace_range(s..at + e + 2, "");
+                    }
+                }
+                p.data = t.into_bytes();
+            }
+        }
+        // The chart part, its relationships and the parts only they reference.
+        let chart_rels = bo_opc::rels_part_name(&part_name);
+        let owned: Vec<String> = wb
+            .opaque
+            .parts
+            .iter()
+            .find(|p| p.name == chart_rels)
+            .and_then(|p| std::str::from_utf8(&p.data).ok().map(str::to_owned))
+            .map(|t| {
+                relationship_targets(&t)
+                    .into_iter()
+                    .map(|(_, target)| bo_opc::resolve_target(&part_name, &target))
+                    .filter(|target| target.contains("/charts/"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        wb.opaque
+            .parts
+            .retain(|p| p.name != part_name && p.name != chart_rels && !owned.contains(&p.name));
+    }
+    wb.sheets[sheet].charts.remove(index);
+    true
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -550,5 +756,57 @@ mod tests {
         // Untouched charts stay byte-for-byte.
         let third = crate::read_xlsx(&crate::write_xlsx(&again).unwrap()).unwrap();
         assert_eq!(third.sheets[0].charts, again.sheets[0].charts);
+    }
+
+    #[test]
+    fn file_charts_move_and_delete() {
+        use bo_model::sheet::{Cell, CellValue, Workbook};
+        let mut wb = Workbook::new();
+        wb.sheets[0].set_cell(1, 1, Cell::new(CellValue::Number(1.5)));
+        wb.sheets[0].charts.push(chart(ChartKind::Bar));
+        let mut second = chart(ChartKind::Line);
+        second.from = CellRef::new(20, 4);
+        wb.sheets[0].charts.push(second);
+        let mut back = crate::read_xlsx(&crate::write_xlsx(&wb).unwrap()).unwrap();
+        assert_eq!(back.sheets[0].charts.len(), 2);
+        // Move + resize the first chart (a chart read from the file).
+        assert!(move_chart(
+            &mut back,
+            0,
+            0,
+            CellRef::new(3, 2),
+            CellRef::new(10, 7)
+        ));
+        let moved = crate::read_xlsx(&crate::write_xlsx(&back).unwrap()).unwrap();
+        let c = &moved.sheets[0].charts[0];
+        assert_eq!(
+            (c.from, c.to),
+            (CellRef::new(3, 2), Some(CellRef::new(10, 7)))
+        );
+        assert_eq!(moved.sheets[0].charts[1].from, CellRef::new(20, 4));
+        // Delete it: anchor, relationship and part go away.
+        let mut del = moved.clone();
+        let part = del.sheets[0].charts[0].part.clone();
+        assert!(remove_chart(&mut del, 0, 0));
+        let bytes = crate::write_xlsx(&del).unwrap();
+        let again = crate::read_xlsx(&bytes).unwrap();
+        assert_eq!(again.sheets[0].charts.len(), 1);
+        assert_eq!(again.sheets[0].charts[0].plots[0].kind, ChartKind::Line);
+        assert!(again.opaque.parts.iter().all(|p| p.name != part));
+        let pkg = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+        assert!(pkg.part(&part).is_none());
+        // New (unsaved) charts move and delete in the model only.
+        let mut fresh = Workbook::new();
+        fresh.sheets[0].charts.push(chart(ChartKind::Pie));
+        assert!(move_chart(
+            &mut fresh,
+            0,
+            0,
+            CellRef::new(0, 0),
+            CellRef::new(5, 5)
+        ));
+        assert_eq!(fresh.sheets[0].charts[0].to, Some(CellRef::new(5, 5)));
+        assert!(remove_chart(&mut fresh, 0, 0));
+        assert!(fresh.sheets[0].charts.is_empty());
     }
 }

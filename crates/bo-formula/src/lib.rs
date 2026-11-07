@@ -55,6 +55,8 @@ pub use parser::{
 };
 pub use provider::{CellProvider, TableInfo};
 pub use reference::{CellAddr, RefKind, Reference, SheetRef};
-pub use shift::{adjust_for_change, offset_relative, StructuralChange};
+pub use shift::{
+    adjust_for_change, adjust_for_move, offset_relative, MovedBlock, StructuralChange,
+};
 pub use value::{Area, Array, ErrorKind, Lambda, Value};
 pub use workbook::{CellId, IterativeConfig, Workbook};

@@ -13,6 +13,7 @@
 //! bo-cli sample <out.docx>                   # generate the Phase 1 corpus sample
 //! bo-cli corpus <dir>                         # generate the Phase 2 round-trip corpus
 //! bo-cli roundtrip <file.docx> --out <out>    # open and save again (lossless check)
+//! bo-cli fields <file.docx> --out <out.docx>  # update TOC / SEQ / REF / PAGEREF fields
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli bench input.docx [--iterations 5]
 //! ```
@@ -110,6 +111,12 @@ enum Cmd {
     Corpus { dir: PathBuf },
     /// Open a document and save it again.
     Roundtrip {
+        input: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Update fields (TOC, SEQ, REF, PAGEREF) and save as .docx.
+    Fields {
         input: PathBuf,
         #[arg(long)]
         out: PathBuf,
@@ -323,6 +330,19 @@ fn run(cli: Cli) -> R {
             let engine = open(&input)?;
             write_file(&out, &engine.save_docx()?)?;
             println!("{}", out.display());
+        }
+        Cmd::Fields { input, out } => {
+            let mut engine = open(&input)?;
+            let r = engine.command(bo_engine::Command::UpdateFields)?;
+            if let Some(e) = r.error {
+                return Err(e.into());
+            }
+            write_file(&out, &engine.save_docx()?)?;
+            println!(
+                "{} fields updated → {}",
+                r.count.unwrap_or(0),
+                out.display()
+            );
         }
         Cmd::SampleSlides { dir } => {
             for (name, bytes) in slide_samples::decks() {

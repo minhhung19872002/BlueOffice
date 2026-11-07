@@ -930,6 +930,64 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
     // ---- review: tracked changes (ECMA-376 Part 1, §17.13.5)
     let d1 = r#"w:author="Nguyễn Văn An" w:date="2026-11-07T08:00:00Z""#;
     let d2 = r#"w:author="Trần Thị Bình" w:date="2026-11-07T09:15:00Z""#;
+    // ---- fields to update: TOC (§17.16.5.68), SEQ (§17.16.5.56), REF/PAGEREF (§17.16.5.49/42)
+    let fld = |instr: &str, cached: &str| field_complex(instr, cached);
+    let toc_entry = |style: &str, bm: &str, text: &str, page: &str, head: &str, tail: &str| {
+        format!(
+            r#"<w:p><w:pPr><w:pStyle w:val="{style}"/><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="9345"/></w:tabs></w:pPr>{head}<w:hyperlink w:anchor="{bm}" w:history="1"><w:r><w:t>{text}</w:t></w:r><w:r><w:tab/></w:r>{}</w:hyperlink>{tail}</w:p>"#,
+            fld(&format!("PAGEREF {bm} \\h"), page)
+        )
+    };
+    let toc_head = r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \o "1-3" \h \z \u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>"#;
+    let toc_tail = r#"<w:r><w:fldChar w:fldCharType="end"/></w:r>"#;
+    let bm_heading = |ppr: &str, id: i32, bm: &str, text: &str| {
+        format!(
+            r#"<w:p><w:pPr>{ppr}</w:pPr><w:bookmarkStart w:id="{id}" w:name="{bm}"/><w:r><w:t>{text}</w:t></w:r><w:bookmarkEnd w:id="{id}"/></w:p>"#
+        )
+    };
+    let h1 = r#"<w:pStyle w:val="Heading1"/>"#;
+    let h2 = r#"<w:pStyle w:val="Heading1"/><w:outlineLvl w:val="1"/>"#;
+    let h3 = r#"<w:outlineLvl w:val="2"/>"#;
+    let pb = r#"<w:p><w:r><w:br w:type="page"/></w:r></w:p>"#;
+    v.push(("fields-04-toc-stale.docx", "fields", "Mục lục TOC (fldChar nhiều đoạn, hyperlink + PAGEREF lồng) với mục cũ/sai trang, tiêu đề cấp 1–3 (style + outlineLvl) có bookmark _Toc — cần “Cập nhật trường”", Doc {
+        body: [
+            toc_entry("TOC1", "_Toc100000001", "Chương cũ", "9", toc_head, ""),
+            toc_entry("TOC2", "_Toc100000002", "Mục đã xoá", "9", "", toc_tail),
+            bm_heading(h1, 1, "_Toc100000001", "Chương I. Quy định chung"),
+            lorem(2),
+            bm_heading(h2, 2, "_Toc100000002", "1. Phạm vi điều chỉnh"),
+            pb.to_owned(),
+            pr(h3, "", "1.1. Đối tượng áp dụng"),
+            pr(h1, "", "Chương II. Tổ chức thực hiện"),
+            lorem(1),
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+    v.push(("fields-05-captions-seq.docx", "fields", "Tiêu đề hình/bảng: SEQ Hình/Bảng (field phức và fldSimple) có số cũ, \\* ROMAN, \\r đặt lại, \\c lặp", Doc {
+        body: [
+            format!(r#"<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t xml:space="preserve">Hình </w:t></w:r>{}<w:r><w:t>: Sơ đồ tổ chức</w:t></w:r></w:p>"#, fld("SEQ Hình \\* ARABIC", "7")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Bảng </w:t></w:r>{}<w:r><w:t>: Dự toán</w:t></w:r></w:p>"#, field_simple("SEQ Bảng \\* ROMAN", "V")),
+            lorem(1),
+            format!(r#"<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t xml:space="preserve">Hình </w:t></w:r>{}<w:r><w:t>: Quy trình</w:t></w:r></w:p>"#, fld("SEQ Hình \\* ARABIC", "1")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">(nhắc lại số hình: </w:t></w:r>{}<w:r><w:t>)</w:t></w:r></w:p>"#, fld("SEQ Hình \\c", "0")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Bảng </w:t></w:r>{}<w:r><w:t>: Phụ lục, đánh lại từ 10</w:t></w:r></w:p>"#, fld("SEQ Bảng \\r 10", "2")),
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+    v.push(("fields-06-crossref.docx", "fields", "Tham chiếu chéo REF/PAGEREF tới bookmark _Ref của tiêu đề hình và bookmark người dùng, kết quả cache cũ", Doc {
+        body: [
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Xem </w:t></w:r>{}<w:r><w:t xml:space="preserve"> ở trang </w:t></w:r>{}<w:r><w:t xml:space="preserve">; điều khoản: </w:t></w:r>{}<w:r><w:t>.</w:t></w:r></w:p>"#, fld("REF _Ref200000001 \\h", "Hình 9"), fld("PAGEREF _Ref200000001 \\h", "9"), fld("REF DieuKhoan \\h", "cũ")),
+            lorem(1),
+            pb.to_owned(),
+            format!(r#"<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:bookmarkStart w:id="11" w:name="_Ref200000001"/><w:r><w:t xml:space="preserve">Hình </w:t></w:r>{}<w:bookmarkEnd w:id="11"/><w:r><w:t>: Mặt bằng</w:t></w:r></w:p>"#, fld("SEQ Hình \\* ARABIC", "3")),
+            r#"<w:p><w:bookmarkStart w:id="12" w:name="DieuKhoan"/><w:r><w:t>Điều 5 – Hiệu lực thi hành</w:t></w:r><w:bookmarkEnd w:id="12"/></w:p>"#.to_owned(),
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+
     // ---- comments (§17.13.4) with replies ([MS-DOCX] commentsExtended / commentsIds)
     let comments_part = |inner: &str| {
         (

@@ -21,7 +21,17 @@ export interface EditorState {
   edit: EditResult | null;
   /** Latest review state (track changes, revisions, comments). */
   review: ReviewState | null;
-  panel: 'find' | 'replace' | 'symbols' | 'review' | 'comments' | null;
+  panel:
+    | 'find'
+    | 'replace'
+    | 'symbols'
+    | 'review'
+    | 'comments'
+    | 'caption'
+    | 'crossref'
+    | 'merge'
+    | 'savePassword'
+    | null;
   /** Name of a document with an autosave waiting to be restored. */
   recovery: string | null;
 }

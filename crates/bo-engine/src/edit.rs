@@ -7,7 +7,7 @@
 use crate::nav::{self, CaretRect, Motion, SelRect};
 use crate::review::ReviewState;
 use bo_edit::{CharFormat, FindOptions, FormatState, Match, ParaFormat, Pos, Selection};
-use bo_layout::RevisionView;
+use bo_layout::{LayoutOptions, RevisionView};
 use bo_model::SectionBreak;
 use serde::{Deserialize, Serialize};
 
@@ -179,6 +179,24 @@ pub enum Command {
         #[serde(default = "yes")]
         forward: bool,
     },
+    /// Update TOC, SEQ, REF and PAGEREF fields (ECMA-376 Part 1, §17.16).
+    UpdateFields,
+    /// Insert a table of contents at the caret.
+    InsertToc,
+    /// Insert a caption (`label n: text`) after the caret's paragraph.
+    InsertCaption {
+        label: String,
+        #[serde(default)]
+        text: String,
+    },
+    /// List the cross-reference targets (bookmarks and captions).
+    CrossReferenceTargets,
+    /// Insert a cross-reference to a target: its text or (`page`) its page number.
+    InsertCrossReference {
+        target: String,
+        #[serde(default)]
+        page: bool,
+    },
 }
 
 fn yes() -> bool {
@@ -222,6 +240,9 @@ pub struct EditResult {
     /// Review pane state; present after document changes and review commands.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review: Option<ReviewState>,
+    /// Cross-reference targets (`crossReferenceTargets`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub targets: Option<Vec<bo_edit::RefTarget>>,
 }
 
 impl crate::Engine {
@@ -288,12 +309,25 @@ impl crate::Engine {
                 ..
             }
         );
+        let mut targets = None;
         {
             let layout = self.layout.as_ref().ok_or(crate::EngineError::NoDocument)?;
             let s = self
                 .session
                 .as_mut()
                 .ok_or(crate::EngineError::NoDocument)?;
+            let (fonts, cache, opts) = (
+                &mut self.fonts,
+                &mut self.cache,
+                LayoutOptions { view: self.view },
+            );
+            // Lays a document out for field updates (page numbers per body paragraph).
+            let mut pages_of = |doc: &bo_model::Document| -> Vec<u32> {
+                let n = bo_model::index::body_paragraphs(doc).len();
+                bo_layout::layout_document_with(doc, fonts, cache, opts)
+                    .map(|l| page_numbers(&l, n))
+                    .unwrap_or_default()
+            };
             let before_version = s.version();
             let sel = s.selection();
             let cmd_kind = if matches!(cmd, Command::AcceptRevision { .. }) {
@@ -488,6 +522,19 @@ impl crate::Engine {
                     Command::NextComment { forward } => {
                         extra.1 = s.next_comment(forward).map(|i| i.max(0) as usize);
                     }
+                    Command::UpdateFields => {
+                        extra.1 = Some(s.update_fields(&mut pages_of)?);
+                    }
+                    Command::InsertToc => {
+                        extra.1 = Some(s.insert_toc(&mut pages_of)?);
+                    }
+                    Command::InsertCaption { label, text } => {
+                        s.insert_caption(&label, &text)?;
+                    }
+                    Command::CrossReferenceTargets => targets = Some(s.ref_targets()),
+                    Command::InsertCrossReference { target, page } => {
+                        s.insert_cross_reference(&target, page, &mut pages_of)?;
+                    }
                 }
                 Ok(())
             })();
@@ -505,6 +552,7 @@ impl crate::Engine {
             Vec::new()
         };
         let mut r = self.edit_result(dirty, extra, error)?;
+        r.targets = targets;
         if changed || relayout || review {
             if let Some(s) = self.session.as_ref() {
                 r.review = Some(crate::review::review_state(s, self.view));
@@ -566,8 +614,26 @@ impl crate::Engine {
             clip: extra.2,
             error,
             review: None,
+            targets: None,
         })
     }
+}
+
+/// Displayed page number of every body paragraph (0 when not laid out).
+pub fn page_numbers(layout: &bo_layout::LayoutDocument, paragraphs: usize) -> Vec<u32> {
+    let mut v = vec![0u32; paragraphs];
+    for p in &layout.pages {
+        for l in &p.lines {
+            if let bo_layout::LineSource::Body(id) = l.source {
+                if let Some(slot) = v.get_mut(id as usize) {
+                    if *slot == 0 {
+                        *slot = p.number;
+                    }
+                }
+            }
+        }
+    }
+    v
 }
 
 /// Distinguishes commands sharing a match arm.

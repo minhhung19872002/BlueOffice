@@ -877,17 +877,20 @@ fn collapse_simple_fields(runs: &mut Vec<Run>) {
         let mut in_result = false;
         let mut end = None;
         let mut nested = false;
+        // Only field structure and result text inside the range (nothing would be lost).
+        let mut clean = true;
         for (j, run) in runs.iter().enumerate().skip(i) {
             for c in &run.content {
                 match c {
                     c if is_fld(c, "begin") && j != i => nested = true,
+                    c if is_fld(c, "begin") => {}
                     c if is_fld(c, "separate") => in_result = true,
                     c if is_fld(c, "end") => end = Some(j),
                     RunContent::Opaque(raw) if raw.xml.contains("instrText") => {
                         instr.push_str(&instr_text(&raw.xml));
                     }
                     RunContent::Text(t) if in_result => cached.push_str(t),
-                    _ => {}
+                    _ => clean = false,
                 }
                 if end.is_some() {
                     break;
@@ -902,10 +905,14 @@ fn collapse_simple_fields(runs: &mut Vec<Run>) {
             .next()
             .unwrap_or("")
             .to_ascii_uppercase();
+        // Page fields are computed by layout; SEQ (§17.16.5.56), REF (§17.16.5.49),
+        // PAGEREF (§17.16.5.42) and MERGEFIELD (§17.16.5.35) by "update fields" and
+        // mail merge — those only when the range holds nothing else.
         let simple = matches!(
             kind.as_str(),
             "PAGE" | "NUMPAGES" | "SECTIONPAGES" | "DATE" | "TIME"
-        );
+        ) || (clean
+            && matches!(kind.as_str(), "SEQ" | "REF" | "PAGEREF" | "MERGEFIELD"));
         match end {
             Some(j) if simple && !nested => {
                 let props = runs[i].props.clone();

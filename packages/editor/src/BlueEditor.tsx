@@ -45,10 +45,12 @@ import {
   Image,
   Italic,
   Languages,
+  Link2,
   List,
   ListIndentDecrease,
   ListIndentIncrease,
   ListOrdered,
+  ListTree,
   Maximize2,
   MessageSquarePlus,
   MessagesSquare,
@@ -59,6 +61,7 @@ import {
   Printer,
   Redo2,
   RectangleHorizontal,
+  RefreshCw,
   RemoveFormatting,
   Replace,
   Ruler,
@@ -74,6 +77,7 @@ import {
   Subscript,
   Superscript,
   Table,
+  Tag,
   Type,
   Underline,
   Undo2,
@@ -87,6 +91,7 @@ import { CommandRegistry } from './commands';
 import { DocController } from './controller';
 import styles from './Editor.module.css';
 import { FindPanel, SymbolPanel } from './Panels';
+import { CaptionPanel, CrossRefPanel } from './ReferencePanels';
 import { CommentsPanel, ReviewPanel } from './ReviewPanel';
 import { createEditorStore, type EditorState } from './store';
 
@@ -631,6 +636,41 @@ function EditorInner({
         store.setState({ language: next });
       },
     });
+    // References: TOC, captions, cross-references (ECMA-376 Part 1, §17.16).
+    const updateFields = async () => {
+      const res = await controller.current?.run({ cmd: 'updateFields' });
+      if (res && !res.error)
+        store.setState({
+          status: {
+            kind: 'info',
+            key: 'references.fieldsUpdated',
+            params: { count: String(res.count ?? 0) },
+          },
+        });
+      view.current?.focus();
+    };
+    r.register({
+      id: 'references.insertToc',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'insertToc' }),
+    });
+    r.register({ id: 'references.updateToc', isEnabled: hasDoc, run: updateFields });
+    r.register({
+      id: 'references.updateFields',
+      shortcut: 'F9',
+      isEnabled: hasDoc,
+      run: updateFields,
+    });
+    r.register({
+      id: 'references.insertCaption',
+      isEnabled: hasDoc,
+      run: () => store.setState({ panel: 'caption' }),
+    });
+    r.register({
+      id: 'references.crossReference',
+      isEnabled: hasDoc,
+      run: () => store.setState({ panel: 'crossref' }),
+    });
     // Review: track changes (ECMA-376 Part 1, §17.13.5).
     const rv = (s: EditorState) => s.review;
     r.register({
@@ -942,6 +982,47 @@ function EditorInner({
       ],
     },
     {
+      id: 'references',
+      label: t('ribbon.tabs.references'),
+      groups: [
+        {
+          id: 'toc',
+          label: t('ribbon.groups.toc'),
+          items: [
+            item('references.insertToc', 'commands.references.insertToc', <ListTree size={ICON} />),
+            s('references.updateToc', 'commands.references.updateToc', <RefreshCw size={SMALL} />),
+          ],
+        },
+        {
+          id: 'captions',
+          label: t('ribbon.groups.captions'),
+          items: [
+            item(
+              'references.insertCaption',
+              'commands.references.insertCaption',
+              <Tag size={ICON} />,
+            ),
+            item(
+              'references.crossReference',
+              'commands.references.crossReference',
+              <Link2 size={ICON} />,
+            ),
+          ],
+        },
+        {
+          id: 'fields',
+          label: t('ribbon.groups.fields'),
+          items: [
+            item(
+              'references.updateFields',
+              'commands.references.updateFields',
+              <RefreshCw size={ICON} />,
+            ),
+          ],
+        },
+      ],
+    },
+    {
       id: 'review',
       label: t('ribbon.tabs.review'),
       groups: [
@@ -1028,6 +1109,10 @@ function EditorInner({
     },
   ];
 
+  const runCommand = useCallback(
+    (c: EditCommand) => controller.current?.run(c) ?? Promise.resolve(null),
+    [],
+  );
   const status = state.status;
   const appName = t(`app.${app}`);
   const appTitle = t(`appTitle.${app}`);
@@ -1035,7 +1120,7 @@ function EditorInner({
   useEffect(() => {
     if (!state.doc) platform.window.setTitle(appTitle);
   }, [platform, appTitle, state.doc]);
-  const runCommand = (c: EditCommand) => controller.current?.run(c) ?? Promise.resolve(null);
+
   const closePanel = () => {
     store.setState({ panel: null });
     view.current?.focus();
@@ -1092,6 +1177,8 @@ function EditorInner({
                 onClose={closePanel}
               />
             )}
+            {state.panel === 'caption' && <CaptionPanel run={runCommand} onClose={closePanel} />}
+            {state.panel === 'crossref' && <CrossRefPanel run={runCommand} onClose={closePanel} />}
             {state.panel === 'comments' && (
               <CommentsPanel
                 review={state.review}

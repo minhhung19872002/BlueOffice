@@ -243,6 +243,13 @@ export interface CommentInfo {
   quote: string;
 }
 
+/** A cross-reference target (mirrors `bo_edit::RefTarget`). */
+export interface RefTarget {
+  /** Bookmark name or `caption:<paragraph id>`. */
+  id: string;
+  label: string;
+}
+
 /** Review pane state (mirrors `bo_engine::review::ReviewState`). */
 export interface ReviewState {
   trackChanges: boolean;
@@ -281,7 +288,10 @@ export type EditCommand =
   | { cmd: 'replyComment'; id: number; text: string }
   | { cmd: 'resolveComment'; id: number; done: boolean }
   | { cmd: 'deleteComment' | 'selectComment'; id: number }
-  | { cmd: 'nextComment'; forward: boolean };
+  | { cmd: 'nextComment'; forward: boolean }
+  | { cmd: 'updateFields' | 'insertToc' | 'crossReferenceTargets' }
+  | { cmd: 'insertCaption'; label: string; text: string }
+  | { cmd: 'insertCrossReference'; target: string; page: boolean };
 
 /** A command plus the host clock (Unix ms) used to date new revisions and comments. */
 export type TimedCommand = EditCommand & { now?: number };
@@ -308,6 +318,8 @@ export interface EditResult {
   error?: string;
   /** Present after document changes and review commands. */
   review?: ReviewState;
+  /** Cross-reference targets (`crossReferenceTargets`). */
+  targets?: RefTarget[];
 }
 
 // ---------------------------------------------------------------- services

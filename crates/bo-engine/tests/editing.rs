@@ -167,6 +167,160 @@ fn track_changes_over_the_bridge_and_docx() {
 }
 
 #[test]
+fn toc_captions_and_cross_references() {
+    let mut e = Engine::with_bundled_fonts();
+    e.open("Mở đầu\nChương I\nNội dung\nChương II".as_bytes(), "a.txt")
+        .unwrap();
+    // Headings: paragraphs 1 and 3; a page break puts "Chương II" on page 2.
+    let sel = |p: usize, o: usize| {
+        format!(
+            r#"{{"cmd":"setSelection","selection":{{"anchor":{{"p":{p},"o":{o}}},"focus":{{"p":{p},"o":{o}}}}}}}"#
+        )
+    };
+    cmd(&mut e, &sel(1, 0));
+    cmd(&mut e, r#"{"cmd":"applyStyle","id":"Heading1"}"#);
+    cmd(&mut e, &sel(3, 0));
+    cmd(&mut e, r#"{"cmd":"applyStyle","id":"Heading1"}"#);
+    cmd(&mut e, &sel(2, "Nội dung".len()));
+    cmd(&mut e, r#"{"cmd":"insertPageBreak"}"#);
+    // TOC at the very start (ECMA-376 Part 1, §17.16.5.68).
+    cmd(&mut e, &sel(0, 0));
+    let r = cmd(&mut e, r#"{"cmd":"insertToc"}"#);
+    assert!(r["error"].is_null(), "{r}");
+    let text = e.document().unwrap().plain_text();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0], "Chương I\t1");
+    // The TOC pushes nothing to a new page here: Chương II stays on page 2.
+    assert_eq!(lines[1], "Chương II\t2");
+    // Captions number themselves (SEQ) and can be cross-referenced (REF / PAGEREF).
+    let last = e.session().unwrap().paragraph_count() - 1;
+    cmd(&mut e, &sel(last, 0));
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertCaption","label":"Hình","text":"Sơ đồ"}"#,
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertCaption","label":"Hình","text":"Bảng giá"}"#,
+    );
+    let text = e.document().unwrap().plain_text();
+    assert!(text.contains("Hình 1: Sơ đồ\nHình 2: Bảng giá"), "{text}");
+    let r = cmd(&mut e, r#"{"cmd":"crossReferenceTargets"}"#);
+    let targets = r["targets"].as_array().unwrap();
+    let t = targets
+        .iter()
+        .find(|t| t["label"] == "Hình 2: Bảng giá")
+        .unwrap();
+    cmd(&mut e, &sel(2, 0));
+    let r = cmd(
+        &mut e,
+        &format!(r#"{{"cmd":"insertCrossReference","target":{}}}"#, t["id"]),
+    );
+    assert!(r["error"].is_null(), "{r}");
+    let r = cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"insertCrossReference","target":{},"page":true}}"#,
+            t["id"]
+        ),
+    );
+    assert!(r["error"].is_null(), "{r}");
+    let p2 = e
+        .document()
+        .unwrap()
+        .paragraphs()
+        .nth(2)
+        .unwrap()
+        .plain_text();
+    assert!(p2.starts_with("Hình 22"), "{p2}");
+    // A caption inserted before renumbers after "update fields".
+    cmd(&mut e, &sel(2, 0));
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertCaption","label":"Hình","text":"Mới"}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"updateFields"}"#);
+    assert!(r["count"].as_u64().unwrap() >= 3, "{r}");
+    let text = e.document().unwrap().plain_text();
+    assert!(text.contains("Hình 2: Sơ đồ\nHình 3: Bảng giá"), "{text}");
+    let p2 = e
+        .document()
+        .unwrap()
+        .paragraphs()
+        .nth(2)
+        .unwrap()
+        .plain_text();
+    assert!(p2.starts_with("Hình 32"), "{p2}");
+    // Saved and read back with the TOC as a complex field and SEQ/REF as fields.
+    let saved = e.save_docx().unwrap();
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "a.docx").unwrap();
+    assert_eq!(
+        f.document().unwrap().plain_text(),
+        e.document().unwrap().plain_text()
+    );
+    let r = cmd(&mut f, r#"{"cmd":"updateFields"}"#);
+    assert_eq!(r["count"], 0);
+}
+
+fn corpus(name: &str) -> Vec<u8> {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/doc")
+        .join(name);
+    std::fs::read(p).unwrap()
+}
+
+#[test]
+fn update_fields_on_corpus_files() {
+    let lines = |e: &Engine| -> Vec<String> {
+        e.document()
+            .unwrap()
+            .plain_text()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    };
+    // Stale TOC → regenerated from headings with page numbers from layout.
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&corpus("fields-04-toc-stale.docx"), "toc.docx")
+        .unwrap();
+    let r = cmd(&mut e, r#"{"cmd":"updateFields"}"#);
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(
+        lines(&e)[..4],
+        [
+            "Chương I. Quy định chung\t1",
+            "1. Phạm vi điều chỉnh\t1",
+            "1.1. Đối tượng áp dụng\t2",
+            "Chương II. Tổ chức thực hiện\t2"
+        ]
+    );
+    // Undo restores the stale table in one step.
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(lines(&e)[0], "Chương cũ\t9");
+    // SEQ: ARABIC / ROMAN numbering, \c repeats, \r restarts.
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&corpus("fields-05-captions-seq.docx"), "seq.docx")
+        .unwrap();
+    cmd(&mut e, r#"{"cmd":"updateFields"}"#);
+    let l = lines(&e);
+    assert_eq!(l[0], "Hình 1: Sơ đồ tổ chức");
+    assert_eq!(l[1], "Bảng I: Dự toán");
+    assert_eq!(l[3], "Hình 2: Quy trình");
+    assert_eq!(l[4], "(nhắc lại số hình: 2)");
+    assert_eq!(l[5], "Bảng 10: Phụ lục, đánh lại từ 10");
+    // REF / PAGEREF follow their bookmarks.
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&corpus("fields-06-crossref.docx"), "ref.docx")
+        .unwrap();
+    cmd(&mut e, r#"{"cmd":"updateFields"}"#);
+    assert_eq!(
+        lines(&e)[0],
+        "Xem Hình 1 ở trang 2; điều khoản: Điều 5 – Hiệu lực thi hành."
+    );
+}
+
+#[test]
 fn comment_threads_save_and_reopen() {
     let mut e = Engine::with_bundled_fonts();
     e.open("Quyết định số 12".as_bytes(), "a.txt").unwrap();

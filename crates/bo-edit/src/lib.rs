@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 pub mod comments;
+pub mod fields;
 pub mod find;
 pub mod html;
 mod ops;
@@ -17,6 +18,7 @@ pub mod para;
 pub mod revisions;
 
 pub use comments::CommentInfo;
+pub use fields::RefTarget;
 pub use find::{find, FindOptions, Match};
 pub use ops::{Op, Pos, Selection, Transaction};
 use revisions::Tracker;
@@ -376,6 +378,63 @@ impl Tx<'_> {
         props.mark_del = None;
     }
 
+    /// Replace the blocks of section `si` (one op for the changed middle part).
+    fn set_section_blocks(&mut self, si: usize, new: &[Block]) -> Result<()> {
+        let old = self
+            .doc
+            .sections
+            .get(si)
+            .map(|s| s.blocks.clone())
+            .ok_or(EditError::BadPath)?;
+        if old == new {
+            return Ok(());
+        }
+        let pre = old.iter().zip(new).take_while(|(x, y)| x == y).count();
+        let suf = old[pre..]
+            .iter()
+            .rev()
+            .zip(new[pre..].iter().rev())
+            .take_while(|(x, y)| x == y)
+            .count();
+        self.push(Op::Blocks {
+            path: vec![si],
+            index: pre,
+            remove: old[pre..old.len() - suf].to_vec(),
+            insert: new[pre..new.len() - suf].to_vec(),
+        })
+    }
+
+    /// Recompute fields until page numbers settle (at most three layouts).
+    fn update_fields(&mut self, pages_of: &mut dyn FnMut(&Document) -> Vec<u32>) -> Result<usize> {
+        let mut total = 0;
+        for round in 0..3 {
+            let pages = pages_of(self.doc);
+            let up = fields::update(self.doc, &pages);
+            let unchanged = up.styles.is_none()
+                && up
+                    .sections
+                    .iter()
+                    .zip(&self.doc.sections)
+                    .all(|(b, s)| *b == s.blocks);
+            if round == 0 {
+                total = up.count;
+            }
+            if unchanged {
+                break;
+            }
+            if let Some(st) = up.styles {
+                self.push(Op::Styles {
+                    old: Box::new(self.doc.styles.clone()),
+                    new: Box::new(st),
+                })?;
+            }
+            for (si, blocks) in up.sections.into_iter().enumerate() {
+                self.set_section_blocks(si, &blocks)?;
+            }
+        }
+        Ok(total)
+    }
+
     /// Insert zero-width marks (comment ranges and references) at `at`.
     fn insert_marks(&mut self, at: Pos, marks: Vec<RunContent>) -> Result<()> {
         let (path, p, mut a) = self.atoms(at.para)?;
@@ -617,24 +676,8 @@ impl Session {
         let caret = self.selection.ordered().0;
         self.edit(|tx, _| {
             for si in 0..tx.doc.sections.len() {
-                let old = tx.doc.sections[si].blocks.clone();
-                let new = revisions::resolve_blocks(&old, &filter, accept);
-                if old == new {
-                    continue;
-                }
-                let pre = old.iter().zip(&new).take_while(|(x, y)| x == y).count();
-                let suf = old[pre..]
-                    .iter()
-                    .rev()
-                    .zip(new[pre..].iter().rev())
-                    .take_while(|(x, y)| x == y)
-                    .count();
-                tx.push(Op::Blocks {
-                    path: vec![si],
-                    index: pre,
-                    remove: old[pre..old.len() - suf].to_vec(),
-                    insert: new[pre..new.len() - suf].to_vec(),
-                })?;
+                let new = revisions::resolve_blocks(&tx.doc.sections[si].blocks, &filter, accept);
+                tx.set_section_blocks(si, &new)?;
             }
             Ok(Selection::caret(caret))
         })?;
@@ -644,6 +687,152 @@ impl Session {
             t.after = self.selection;
         }
         Ok(n)
+    }
+
+    // -------------------------------------------------------------- fields
+
+    /// Update every field (TOC, SEQ, REF, PAGEREF; ECMA-376 Part 1, §17.16) in one
+    /// undo step. `pages_of(doc)` lays a document out and returns the displayed page
+    /// number of each body paragraph; it is called again until page numbers settle.
+    /// Returns the number of fields whose result changed.
+    pub fn update_fields(
+        &mut self,
+        pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
+    ) -> Result<usize> {
+        let mut n = 0;
+        let sel = self.selection;
+        self.edit(|tx, _| {
+            n = tx.update_fields(pages_of)?;
+            Ok(sel)
+        })?;
+        self.fix_selection();
+        Ok(n)
+    }
+
+    /// Insert a table of contents (`TOC \o "1-3" \h \z \u`, §17.16.5.68) at the caret
+    /// and fill it.
+    pub fn insert_toc(&mut self, pages_of: &mut dyn FnMut(&Document) -> Vec<u32>) -> Result<usize> {
+        let mut n = 0;
+        self.edit(|tx, sel| {
+            let (a, b) = sel.ordered();
+            let at = tx.delete_range(a, b)?;
+            let paths = tx.paths();
+            let path = path_of(tx.doc, &paths, at.para)?;
+            if path.len() != 2 {
+                return Err(EditError::Unsupported(
+                    "table of contents inside a table".into(),
+                ));
+            }
+            let p = para_clone(tx.doc, &path)?;
+            let len = para_len(&p);
+            let (prefix, index) = split_path(&path);
+            let insert_at = if at.offset == 0 {
+                index
+            } else {
+                if at.offset < len {
+                    tx.split(at)?;
+                }
+                index + 1
+            };
+            let toc = fields::new_toc_paragraph("TOC \\o \"1-3\" \\h \\z \\u");
+            tx.insert_blocks(prefix, insert_at, vec![Block::Paragraph(toc)])?;
+            n = tx.update_fields(pages_of)?;
+            let caret = Pos::new(at.para.min(tx.paths().len().saturating_sub(1)), 0);
+            Ok(Selection::caret(caret))
+        })?;
+        self.fix_selection();
+        Ok(n)
+    }
+
+    /// Insert a caption paragraph after the caret's paragraph: `label n: text` with a
+    /// `SEQ label` field (§17.16.5.56).
+    pub fn insert_caption(&mut self, label: &str, text: &str) -> Result<Selection> {
+        let label = label.trim();
+        if label.is_empty() || label.contains(char::is_whitespace) {
+            return Err(EditError::Unsupported("caption label".into()));
+        }
+        let at = self.selection.ordered().1;
+        let n = fields::next_seq(&self.doc, label, at.para);
+        let cap = fields::caption_paragraph(label, n, text);
+        let need = fields::ensure_styles(&self.doc.styles, &["Caption".to_owned()]);
+        self.edit(|tx, _| {
+            if let Some(new) = need {
+                tx.push(Op::Styles {
+                    old: Box::new(tx.doc.styles.clone()),
+                    new: Box::new(new),
+                })?;
+            }
+            let paths = tx.paths();
+            let path = path_of(tx.doc, &paths, at.para)?;
+            let (prefix, index) = split_path(&path);
+            let mut cap = cap;
+            tx.new_mark(&mut cap.props);
+            cap.runs = para::rebuild(tx.mark_new(&[], 0, para::flatten(&cap)));
+            let len = para_len(&cap);
+            tx.insert_blocks(prefix, index + 1, vec![Block::Paragraph(cap)])?;
+            Ok(Selection::caret(Pos::new(at.para + 1, len)))
+        })
+    }
+
+    /// Bookmarks and captions that can be cross-referenced.
+    pub fn ref_targets(&self) -> Vec<RefTarget> {
+        fields::ref_targets(&self.doc)
+    }
+
+    /// Insert a cross-reference to `target` (a bookmark name or `caption:<id>` from
+    /// [`Session::ref_targets`]): its text (`REF`) or page number (`PAGEREF`).
+    pub fn insert_cross_reference(
+        &mut self,
+        target: &str,
+        page: bool,
+        pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
+    ) -> Result<Selection> {
+        let target = target.to_owned();
+        self.edit(|tx, sel| {
+            let name = if let Some(pid) = target.strip_prefix("caption:") {
+                let pid: usize = pid.parse().map_err(|_| EditError::BadPosition)?;
+                let paths = tx.paths();
+                let path = path_of(tx.doc, &paths, pid)?;
+                let p = para_clone(tx.doc, &path)?;
+                let (atoms, name) = fields::bookmark_caption(tx.doc, &p, pid);
+                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+                name
+            } else {
+                target.clone()
+            };
+            let (a, b) = sel.ordered();
+            let at = tx.delete_range(a, b)?;
+            let (_, _, atoms) = tx.atoms(at.para)?;
+            let props = para::props_at(&atoms, at.offset);
+            let instr = if page {
+                format!("PAGEREF {name} \\h")
+            } else {
+                format!("REF {name} \\h")
+            };
+            let caret = tx.insert_atoms(
+                at,
+                vec![(
+                    props,
+                    RunContent::Field {
+                        instr,
+                        cached: String::new(),
+                    },
+                )],
+            )?;
+            tx.update_fields(pages_of)?;
+            Ok(Selection::caret(caret))
+        })
+    }
+
+    fn fix_selection(&mut self) {
+        let s = Selection {
+            anchor: self.clamp(self.selection.anchor),
+            focus: self.clamp(self.selection.focus),
+        };
+        self.selection = s;
+        if let Some(t) = self.undo.last_mut() {
+            t.after = s;
+        }
     }
 
     // -------------------------------------------------------------- comments

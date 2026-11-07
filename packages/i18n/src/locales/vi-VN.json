@@ -567,6 +567,61 @@
       "gridLines": "In đường lưới",
       "setArea": "Đặt vùng in",
       "clearArea": "Xoá vùng in"
+    },
+    "groupTables": "Bảng",
+    "pivot": {
+      "insert": "Bảng tổng hợp (Pivot)",
+      "insertTitle": "Tạo bảng tổng hợp",
+      "source": "Vùng dữ liệu nguồn",
+      "fieldsFound": "{{n}} trường, {{records}} dòng dữ liệu",
+      "noFields": "Vùng chọn không có dòng tiêu đề.",
+      "destination": "Đặt bảng tổng hợp tại:",
+      "newSheet": "Trang tính mới",
+      "existingSheet": "Trang tính hiện có",
+      "sheet": "Trang tính",
+      "location": "Ô bắt đầu",
+      "badRef": "Địa chỉ ô hoặc vùng không hợp lệ.",
+      "panelTitle": "Trường của bảng tổng hợp",
+      "chooseFields": "Chọn trường để thêm vào báo cáo:",
+      "dragHint": "Kéo trường giữa các vùng bên dưới:",
+      "areas": {
+        "filters": "Bộ lọc",
+        "cols": "Cột",
+        "rows": "Hàng",
+        "values": "Giá trị"
+      },
+      "remove": "Bỏ trường",
+      "refresh": "Làm mới bảng tổng hợp",
+      "fieldList": "Danh sách trường",
+      "close": "Đóng",
+      "summarize": "Tóm tắt theo",
+      "filterItems": "Chọn mục hiển thị",
+      "valueName": "{{fn}} của {{field}}",
+      "empty": "Thêm trường vào Hàng, Cột hoặc Giá trị để dựng báo cáo.",
+      "created": "Đã tạo bảng tổng hợp",
+      "refreshed": "Đã làm mới bảng tổng hợp",
+      "fn": {
+        "sum": "Tổng",
+        "count": "Đếm",
+        "average": "Trung bình",
+        "max": "Lớn nhất",
+        "min": "Nhỏ nhất",
+        "product": "Tích",
+        "countNums": "Đếm số",
+        "stdDev": "Độ lệch chuẩn mẫu",
+        "stdDevp": "Độ lệch chuẩn tổng thể",
+        "var": "Phương sai mẫu",
+        "varp": "Phương sai tổng thể"
+      },
+      "labels": {
+        "grandTotal": "Tổng cộng",
+        "values": "Giá trị",
+        "all": "(Tất cả)",
+        "multiple": "(Nhiều mục)",
+        "blank": "(trống)",
+        "column": "Cột",
+        "name": "BangTongHop"
+      }
     }
   },
   "recovery": {

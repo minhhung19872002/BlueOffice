@@ -20,6 +20,8 @@ export interface SheetSummary {
   /** Merged ranges `[r0, c0, r1, c1]`. */
   merges: [number, number, number, number][];
   charts: number;
+  /** Number of pivot tables on the sheet. */
+  pivots: number;
 }
 
 export interface WorkbookInfo {
@@ -160,6 +162,66 @@ export interface FilterSpec {
 
 export type PasteMode = 'all' | 'values' | 'formats' | 'formulas';
 
+/** Aggregation of a pivot value field (ECMA-376 `ST_DataConsolidateFunction`). */
+export type PivotFunction =
+  | 'sum'
+  | 'count'
+  | 'average'
+  | 'max'
+  | 'min'
+  | 'product'
+  | 'countNums'
+  | 'stdDev'
+  | 'stdDevp'
+  | 'var'
+  | 'varp';
+
+export interface PivotValueSpec {
+  field: number;
+  function?: PivotFunction;
+  /** Caption; omitted = "<Function> of <field>". */
+  name?: string;
+}
+
+/** Report filter: shown item indices (empty = all). */
+export interface PivotFilterSpec {
+  field: number;
+  items?: number[];
+}
+
+/** Captions written into pivot report cells (localized by the UI). */
+export interface PivotLabels {
+  grandTotal?: string;
+  values?: string;
+  all?: string;
+  multiple?: string;
+  blank?: string;
+  column?: string;
+  name?: string;
+}
+
+export interface PivotAreas {
+  rows: number[];
+  cols: number[];
+  values: PivotValueSpec[];
+  filters: PivotFilterSpec[];
+}
+
+/** A pivot table and its field list (`pivots` command). */
+export interface PivotInfo {
+  index: number;
+  name: string;
+  location: SheetRange;
+  /** Cells taken by the report, report filters included. */
+  area: SheetRange;
+  source: string | null;
+  fields: { name: string; items: string[] }[];
+  rows: number[];
+  cols: number[];
+  values: { field: number; function: PivotFunction; name: string | null }[];
+  filters: { field: number; items: number[] }[];
+}
+
 export interface CellAt {
   sheet: number;
   row: number;
@@ -242,6 +304,18 @@ export type SheetCommand =
       skipBlanks?: boolean;
     }
   | { cmd: 'pageSetup'; sheet: number }
+  | { cmd: 'pivotSource'; sheet: number; range: SheetRange }
+  | ({
+      cmd: 'pivotCreate';
+      sheet: number;
+      range: SheetRange;
+      /** Top-left of the report on an existing sheet; omitted = new sheet. */
+      dest?: CellAt | null;
+      labels?: PivotLabels;
+    } & Partial<PivotAreas>)
+  | { cmd: 'pivots'; sheet: number }
+  | ({ cmd: 'pivotUpdate'; sheet: number; index: number; labels?: PivotLabels } & PivotAreas)
+  | { cmd: 'pivotRefresh'; sheet: number; index: number; labels?: PivotLabels }
   | {
       cmd: 'setPageSetup';
       sheet: number;

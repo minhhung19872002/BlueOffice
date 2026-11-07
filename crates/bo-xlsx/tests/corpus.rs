@@ -1235,12 +1235,108 @@ fn writer_charts(i: usize) -> m::Workbook {
     wb
 }
 
+/// PivotTables created with "Insert → Pivot table" (`bo_sheet::pivot`): cache
+/// definition + records + pivot table definition parts (§18.10).
+fn writer_pivots(i: usize) -> m::Workbook {
+    use bo_sheet::pivot::{create_pivot, PivotLabels, PivotSpec};
+    let mut wb = m::Workbook::new();
+    wb.sheets[0].name = "Dữ liệu".into();
+    let ws = &mut wb.sheets[0];
+    for (c, h) in ["Vùng", "Sản phẩm", "Năm", "Doanh thu", "Số lượng"]
+        .iter()
+        .enumerate()
+    {
+        ws.set_cell(0, c as u32, m::Cell::new(m::CellValue::Text((*h).into())));
+    }
+    let regions = ["Bắc", "Trung", "Nam"];
+    let products = ["Gạo", "Cà phê", "Chè", "Tiêu"];
+    for r in 0..24u32 {
+        let row = r + 1;
+        let t = |s: &str| m::Cell::new(m::CellValue::Text(s.into()));
+        let n = |v: f64| m::Cell::new(m::CellValue::Number(v));
+        ws.set_cell(row, 0, t(regions[(r % 3) as usize]));
+        ws.set_cell(row, 1, t(products[(r % 4) as usize]));
+        ws.set_cell(row, 2, n(f64::from(2023 + r % 2)));
+        ws.set_cell(row, 3, n(f64::from(r * 37 % 100) * 1.5));
+        ws.set_cell(row, 4, n(f64::from(r % 7 + 1)));
+    }
+    let source = m::CellRange::parse("A1:E25").unwrap();
+    let labels = PivotLabels {
+        grand_total: "Tổng cộng".into(),
+        values: "Giá trị".into(),
+        all: "(Tất cả)".into(),
+        multiple: "(Nhiều mục)".into(),
+        blank: "(trống)".into(),
+        column: "Cột".into(),
+        name: "BangTongHop".into(),
+    };
+    let value = |field: u32, function: m::PivotFunction, name: &str| m::PivotDataField {
+        field,
+        function,
+        name: Some(name.into()),
+    };
+    let (dest_sheet, dest, spec) = match i {
+        1 => (
+            0,
+            m::CellRef::new(0, 7),
+            PivotSpec {
+                rows: vec![0],
+                values: vec![value(3, m::PivotFunction::Sum, "Tổng Doanh thu")],
+                ..PivotSpec::default()
+            },
+        ),
+        2 => {
+            wb.sheets.push(m::Worksheet::new("Tổng hợp"));
+            (
+                1,
+                m::CellRef::new(0, 0),
+                PivotSpec {
+                    rows: vec![0],
+                    cols: vec![1],
+                    values: vec![value(3, m::PivotFunction::Sum, "Tổng Doanh thu")],
+                    filters: vec![m::PivotFilter {
+                        field: 2,
+                        selected: vec![m::CellValue::Number(2024.0)],
+                    }],
+                },
+            )
+        }
+        _ => {
+            wb.sheets.push(m::Worksheet::new("Báo cáo"));
+            (
+                1,
+                m::CellRef::new(2, 1),
+                PivotSpec {
+                    rows: vec![1, 0],
+                    values: vec![
+                        value(3, m::PivotFunction::Sum, "Tổng Doanh thu"),
+                        value(4, m::PivotFunction::Average, "TB Số lượng"),
+                        value(4, m::PivotFunction::Count, "Số dòng"),
+                        value(3, m::PivotFunction::Max, "Lớn nhất"),
+                    ],
+                    filters: vec![m::PivotFilter {
+                        field: 0,
+                        selected: vec![
+                            m::CellValue::Text("Bắc".into()),
+                            m::CellValue::Text("Nam".into()),
+                        ],
+                    }],
+                    ..PivotSpec::default()
+                },
+            )
+        }
+    };
+    create_pivot(&mut wb, 0, source, dest_sheet, dest, &spec, &labels).unwrap();
+    wb
+}
+
 type WriterFeature = (&'static str, &'static str, fn(usize) -> m::Workbook);
 
 const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-format", "BlueSheet writer: cell formats (vi-VN number formats, fonts, fills, borders, alignment) and a gallery cell style", writer_format),
     ("writer-sheet", "BlueSheet writer: column width / row height, freeze panes, merge, AutoFilter, conditional formats, list validation, page setup + print titles", writer_sheet),
     ("writer-charts", "BlueSheet writer: inserted charts (column, column+line combo, doughnut, scatter) with axis titles and legend", writer_charts),
+    ("writer-pivots", "BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter)", writer_pivots),
 ];
 
 fn corpus_dir() -> PathBuf {
@@ -1547,6 +1643,45 @@ fn corpus_roundtrip() {
         "lossless {ok}/{total} < 95 %:\n{}",
         failures.join("\n")
     );
+}
+
+#[test]
+fn corpus_pivots_are_summarized() {
+    for i in 1..=3 {
+        let bytes = write_xlsx(&writer_pivots(i)).unwrap();
+        let wb = read_xlsx(&bytes).unwrap();
+        assert_eq!(wb.pivot_caches.len(), 1, "variant {i}");
+        let cache = &wb.pivot_caches[0];
+        assert_eq!(cache.source_sheet.as_deref(), Some("Dữ liệu"));
+        assert_eq!(cache.source_ref.as_deref(), Some("A1:E25"));
+        assert_eq!(cache.fields.len(), 5);
+        assert_eq!(cache.fields[0].items.len(), 3, "regions");
+        assert!(cache.records_part.is_some());
+        let ws = wb.sheets.iter().find(|s| !s.pivots.is_empty()).unwrap();
+        let pt = &ws.pivots[0];
+        assert_eq!(pt.cache_id, cache.cache_id);
+        assert_ne!(pt.part, "");
+        match i {
+            1 => {
+                assert_eq!((pt.rows.clone(), pt.values.len()), (vec![0], 1));
+                assert_eq!(pt.location.to_string(), "H1:I5");
+            }
+            2 => {
+                assert_eq!(pt.cols, vec![1]);
+                assert_eq!(pt.filters.len(), 1);
+                assert_eq!(pt.filters[0].selected, vec![m::CellValue::Number(2024.0)]);
+            }
+            _ => {
+                assert_eq!(pt.rows, vec![1, 0]);
+                assert_eq!(pt.values.len(), 4);
+                assert_eq!(pt.values[1].function, m::PivotFunction::Average);
+                assert_eq!(pt.filters[0].selected.len(), 2);
+            }
+        }
+        // A saved pivot reopens unchanged.
+        let again = read_xlsx(&write_xlsx(&wb).unwrap()).unwrap();
+        assert_eq!(again, wb);
+    }
 }
 
 #[test]

@@ -398,3 +398,126 @@
   border-bottom: 2px solid var(--bo-sheet-accent, #1f7a4d);
   font-weight: 600;
 }
+
+/* Grid + side panel (pivot table field list). */
+.workArea {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.workArea > .scroller {
+  min-width: 0;
+}
+
+.pivotPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 270px;
+  flex: none;
+  padding: 8px;
+  overflow: auto;
+  border-left: 1px solid var(--bo-border, #d0d7de);
+  background: var(--bo-surface-alt, #f3f5f7);
+  font-size: 12px;
+}
+
+.pivotHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pivotTools {
+  display: flex;
+  gap: 2px;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  background: var(--bo-hover, rgb(0 0 0 / 8%));
+}
+
+.pivotFields {
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  background: var(--bo-surface, #fff);
+}
+
+.pivotField {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  cursor: grab;
+}
+
+.pivotAreas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.pivotArea,
+.pivotAreaOver {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 84px;
+  padding: 4px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  background: var(--bo-surface, #fff);
+}
+
+.pivotAreaOver {
+  border-color: var(--bo-sheet-accent, #1f7a4d);
+  background: color-mix(in srgb, var(--bo-sheet-accent, #1f7a4d) 8%, var(--bo-surface, #fff));
+}
+
+.pivotAreaTitle {
+  font-weight: 600;
+  color: var(--bo-text-muted, #5b6878);
+}
+
+.pivotChip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: 3px;
+  background: var(--bo-surface-2, #f6f8fb);
+  cursor: grab;
+}
+
+.pivotChip select {
+  max-width: 78px;
+  font: inherit;
+  font-size: 11px;
+}
+
+.pivotChipLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -11,8 +11,10 @@ use bo_model::sheet::{
     AutoFilter, Cell, CellRange, CellRef, CellValue, ColumnFilter, CustomFilter, FilterColumn,
     PageMargins, Workbook, Worksheet,
 };
+use bo_model::sheet::{PivotDataField, PivotFilter, PivotFunction};
 use bo_sheet::calc::FormulaAdjuster;
 use bo_sheet::cf::CfRuleSpec;
+use bo_sheet::pivot::{PivotLabels, PivotSpec};
 use bo_sheet::style::{BorderSpec, StylePatch};
 use bo_sheet::validation::ValidationSpec;
 use serde::{Deserialize, Serialize};
@@ -103,6 +105,28 @@ pub struct At {
     pub sheet: usize,
     pub row: u32,
     pub col: u32,
+}
+
+/// A value field of a pivot table from the UI.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PivotValueSpec {
+    pub field: u32,
+    #[serde(default)]
+    pub function: PivotFunction,
+    /// Caption; `None` = "<Function> of <field>".
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// A report filter from the UI: shown items by index into the field's items
+/// (as listed by `pivots`); empty = all items.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PivotFilterSpec {
+    pub field: u32,
+    #[serde(default)]
+    pub items: Vec<usize>,
 }
 
 /// A sheet editing command.
@@ -325,6 +349,56 @@ pub enum SheetCommand {
     PageSetup {
         sheet: usize,
     },
+    /// Source range (current region of the selection) and field names for
+    /// the "Insert pivot table" dialog.
+    PivotSource {
+        sheet: usize,
+        range: Rng,
+    },
+    /// Creates a pivot table over `range` (header row included). `dest` = top-left
+    /// on an existing sheet; `None` = a new sheet.
+    PivotCreate {
+        sheet: usize,
+        range: Rng,
+        #[serde(default)]
+        dest: Option<At>,
+        #[serde(default)]
+        rows: Vec<u32>,
+        #[serde(default)]
+        cols: Vec<u32>,
+        #[serde(default)]
+        values: Vec<PivotValueSpec>,
+        #[serde(default)]
+        filters: Vec<PivotFilterSpec>,
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Pivot tables of a sheet with their field lists.
+    Pivots {
+        sheet: usize,
+    },
+    /// Moves fields between the areas of a pivot table.
+    PivotUpdate {
+        sheet: usize,
+        index: usize,
+        #[serde(default)]
+        rows: Vec<u32>,
+        #[serde(default)]
+        cols: Vec<u32>,
+        #[serde(default)]
+        values: Vec<PivotValueSpec>,
+        #[serde(default)]
+        filters: Vec<PivotFilterSpec>,
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Recomputes a pivot table (and others sharing its cache) from the source.
+    PivotRefresh {
+        sheet: usize,
+        index: usize,
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
     SetPageSetup {
         sheet: usize,
         #[serde(default)]
@@ -455,6 +529,69 @@ fn replace_text(hay: &str, needle: &str, with: &str, match_case: bool) -> (Strin
     }
     out.push_str(&hay[i..]);
     (out, n)
+}
+
+fn data_field(v: PivotValueSpec) -> PivotDataField {
+    PivotDataField {
+        field: v.field,
+        function: v.function,
+        name: v.name.filter(|n| !n.trim().is_empty()),
+    }
+}
+
+/// Field list and areas of a pivot table for the side panel.
+fn pivot_json(wb: &Workbook, index: usize, p: &bo_model::sheet::PivotTable) -> Value {
+    let cache = wb.pivot_caches.iter().find(|c| c.cache_id == p.cache_id);
+    let fields: Vec<Value> = cache
+        .map(|c| {
+            c.fields
+                .iter()
+                .map(|f| {
+                    json!({
+                        "name": f.name,
+                        "items": f.items.iter().map(bo_sheet::pivot::value_text).collect::<Vec<_>>(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let item_index = |field: u32, v: &CellValue| -> Option<usize> {
+        let key = bo_model::sheet::PivotItemKey::of(v);
+        cache?
+            .fields
+            .get(field as usize)?
+            .items
+            .iter()
+            .position(|x| bo_model::sheet::PivotItemKey::of(x) == key)
+    };
+    let source = cache.and_then(|c| {
+        c.source_name.clone().or_else(|| {
+            Some(format!(
+                "{}!{}",
+                bo_sheet::cells::quote_sheet(c.source_sheet.as_deref()?),
+                c.source_ref.as_deref()?
+            ))
+        })
+    });
+    json!({
+        "index": index,
+        "name": p.name,
+        "location": Rng::of(p.location),
+        "area": Rng::of(bo_sheet::pivot::occupied(p)),
+        "source": source,
+        "fields": fields,
+        "rows": p.rows,
+        "cols": p.cols,
+        "values": p.values.iter().map(|d| json!({
+            "field": d.field,
+            "function": d.function,
+            "name": cache.map(|c| bo_sheet::pivot::value_name(c, d)),
+        })).collect::<Vec<_>>(),
+        "filters": p.filters.iter().map(|f| json!({
+            "field": f.field,
+            "items": f.selected.iter().filter_map(|v| item_index(f.field, v)).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
+    })
 }
 
 impl SheetEngine {
@@ -1012,6 +1149,144 @@ impl SheetEngine {
                     "titleRows": rows.map(|(a, b)| [a, b]),
                     "gridLines": p.print_grid_lines,
                 }))
+            }
+            C::PivotSource { sheet, range } => {
+                let ws = self.sheet(sheet)?;
+                let r = current_region(ws, range.range());
+                let (names, records) =
+                    bo_sheet::pivot::source_data(ws, r, &PivotLabels::default()).map_err(bad)?;
+                Ok(json!({ "range": Rng::of(r), "fields": names, "records": records.len() }))
+            }
+            C::PivotCreate {
+                sheet,
+                range,
+                dest,
+                rows,
+                cols,
+                values,
+                filters,
+                labels,
+            } => {
+                let r = current_region(self.sheet(sheet)?, range.range());
+                let labels = labels.unwrap_or_default();
+                let spec = PivotSpec {
+                    rows,
+                    cols,
+                    values: values.into_iter().map(data_field).collect(),
+                    filters: filters
+                        .iter()
+                        .map(|f| PivotFilter {
+                            field: f.field,
+                            selected: Vec::new(),
+                        })
+                        .collect(),
+                };
+                let out = self.edit(sheet, Recalc::All, |wb, _| {
+                    let (dest_sheet, at) = if let Some(a) = dest {
+                        if a.sheet >= wb.sheets.len() {
+                            return Err(bad("no such sheet"));
+                        }
+                        (a.sheet, CellRef::new(a.row, a.col))
+                    } else {
+                        {
+                            let mut n = wb.sheets.len() + 1;
+                            let name = loop {
+                                let cand = format!("Sheet{n}");
+                                if wb
+                                    .sheets
+                                    .iter()
+                                    .all(|s| !s.name.eq_ignore_ascii_case(&cand))
+                                {
+                                    break cand;
+                                }
+                                n += 1;
+                            };
+                            let mut ws = Worksheet::new(&name);
+                            ws.sheet_id =
+                                wb.sheets.iter().map(|s| s.sheet_id).max().unwrap_or(0) + 1;
+                            wb.sheets.push(ws);
+                            (wb.sheets.len() - 1, CellRef::new(2, 0))
+                        }
+                    };
+                    let index =
+                        bo_sheet::pivot::create_pivot(wb, sheet, r, dest_sheet, at, &spec, &labels)
+                            .map_err(bad)?;
+                    Ok(json!({ "sheet": dest_sheet, "index": index }))
+                })?;
+                // A new sheet needs its own geometry slot.
+                self.invalidate(None);
+                Ok(out)
+            }
+            C::Pivots { sheet } => {
+                let wb = self.wb()?;
+                let ws = self.sheet(sheet)?;
+                Ok(Value::Array(
+                    ws.pivots
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| pivot_json(wb, i, p))
+                        .collect(),
+                ))
+            }
+            C::PivotUpdate {
+                sheet,
+                index,
+                rows,
+                cols,
+                values,
+                filters,
+                labels,
+            } => {
+                let labels = labels.unwrap_or_default();
+                let selected = {
+                    let wb = self.wb()?;
+                    let pt = self
+                        .sheet(sheet)?
+                        .pivots
+                        .get(index)
+                        .ok_or_else(|| bad("no such pivot table"))?;
+                    let cache = wb.pivot_caches.iter().find(|c| c.cache_id == pt.cache_id);
+                    filters
+                        .iter()
+                        .map(|f| PivotFilter {
+                            field: f.field,
+                            selected: f
+                                .items
+                                .iter()
+                                .filter_map(|i| {
+                                    cache
+                                        .and_then(|c| c.fields.get(f.field as usize))
+                                        .and_then(|fl| fl.items.get(*i))
+                                        .cloned()
+                                })
+                                .collect(),
+                        })
+                        .collect::<Vec<_>>()
+                };
+                let spec = PivotSpec {
+                    rows,
+                    cols,
+                    values: values.into_iter().map(data_field).collect(),
+                    filters: selected,
+                };
+                self.edit(sheet, Recalc::All, |wb, _| {
+                    bo_sheet::pivot::update_pivot(wb, sheet, index, &spec, &labels).map_err(bad)?;
+                    Ok(json!({ "ok": true }))
+                })
+            }
+            C::PivotRefresh {
+                sheet,
+                index,
+                labels,
+            } => {
+                let labels = labels.unwrap_or_default();
+                let out = self.edit(sheet, Recalc::All, |wb, _| {
+                    bo_sheet::pivot::refresh_pivot(wb, sheet, index, &labels).map_err(bad)?;
+                    Ok(json!({ "ok": true }))
+                })?;
+                // Pivots on other sheets may share the cache.
+                self.invalidate(None);
+                Ok(out)
             }
             C::SetPageSetup {
                 sheet,
@@ -1979,5 +2254,94 @@ mod tests {
         assert_eq!(e.cell(0, 100, 1).unwrap().display, "1001");
         // Target (BlueOffice-PROMPT §5): < 100 ms, met even by debug builds.
         assert!(took.as_millis() < 100, "{took:?}");
+    }
+
+    #[test]
+    fn pivot_create_update_save_reopen_refresh() {
+        let mut e = engine();
+        let data = [
+            ("Vùng", "Sản phẩm", "Doanh thu"),
+            ("Bắc", "Gạo", "10"),
+            ("Nam", "Gạo", "5"),
+            ("Bắc", "Chè", "7"),
+            ("Nam", "Chè", "1"),
+        ];
+        let mut cells = Vec::new();
+        for (r, (a, b, c)) in data.iter().enumerate() {
+            let r = r as u32;
+            cells.push((r, 0, (*a).to_owned()));
+            cells.push((r, 1, (*b).to_owned()));
+            cells.push((r, 2, (*c).to_owned()));
+        }
+        e.set_inputs(0, &cells).unwrap();
+        let src = run(
+            &mut e,
+            json!({ "cmd": "pivotSource", "sheet": 0, "range": rng(1, 1, 1, 1) }),
+        );
+        assert_eq!(src["fields"], json!(["Vùng", "Sản phẩm", "Doanh thu"]));
+        assert_eq!(src["range"], rng(0, 0, 4, 2));
+        let labels = json!({ "grandTotal": "Tổng cộng", "values": "Giá trị", "name": "BTH" });
+        let made = run(
+            &mut e,
+            json!({ "cmd": "pivotCreate", "sheet": 0, "range": rng(0, 0, 0, 0),
+                "rows": [0], "values": [{ "field": 2, "function": "sum", "name": "Tổng Doanh thu" }],
+                "labels": labels }),
+        );
+        let ps = made["sheet"].as_u64().unwrap() as usize;
+        assert_eq!(ps, 1, "new sheet");
+        assert_eq!(e.info().unwrap().sheets[1].pivots, 1);
+        assert_eq!(e.cell(1, 2, 1).unwrap().display, "Tổng Doanh thu");
+        assert_eq!(e.cell(1, 3, 0).unwrap().display, "Bắc");
+        assert_eq!(e.cell(1, 3, 1).unwrap().display, "17");
+        assert_eq!(e.cell(1, 5, 0).unwrap().display, "Tổng cộng");
+        assert_eq!(e.cell(1, 5, 1).unwrap().display, "23");
+        // Change the aggregation to Average and add a column field.
+        run(
+            &mut e,
+            json!({ "cmd": "pivotUpdate", "sheet": 1, "index": 0, "rows": [0], "cols": [1],
+                "values": [{ "field": 2, "function": "average" }], "labels": labels }),
+        );
+        let info = run(&mut e, json!({ "cmd": "pivots", "sheet": 1 }));
+        assert_eq!(info[0]["values"][0]["function"], "average");
+        assert_eq!(info[0]["values"][0]["name"], "Average of Doanh thu");
+        assert_eq!(info[0]["fields"][1]["items"], json!(["Chè", "Gạo"]));
+        assert_eq!(info[0]["source"], "Sheet1!A1:C5");
+        // Header rows: caption, column items; Bắc row: Chè 7, Gạo 10, total 8.5.
+        assert_eq!(e.cell(1, 3, 1).unwrap().display, "Chè");
+        assert_eq!(e.cell(1, 4, 0).unwrap().display, "Bắc");
+        assert_eq!(e.cell(1, 4, 3).unwrap().display, "8,5");
+        // Undo restores the Sum layout.
+        assert!(e.undo().unwrap());
+        assert_eq!(e.cell(1, 3, 1).unwrap().display, "17");
+        assert!(e.redo().unwrap());
+        // Save, reopen: the pivot is read back from its parts.
+        let mut back = reopen(&mut e);
+        let info = run(&mut back, json!({ "cmd": "pivots", "sheet": 1 }));
+        assert_eq!(info[0]["cols"], json!([1]));
+        assert_eq!(info[0]["values"][0]["function"], "average");
+        assert_eq!(back.cell(1, 4, 3).unwrap().display, "8,5");
+        // Edit the source, refresh the reopened pivot (records reloaded from the source).
+        back.set_input(0, 1, 2, "30").unwrap();
+        run(
+            &mut back,
+            json!({ "cmd": "pivotRefresh", "sheet": 1, "index": 0, "labels": labels }),
+        );
+        assert_eq!(back.cell(1, 4, 3).unwrap().display, "18,5");
+        // Filter to Gạo only through the side panel's item indices.
+        run(
+            &mut back,
+            json!({ "cmd": "pivotUpdate", "sheet": 1, "index": 0, "rows": [0],
+                "values": [{ "field": 2, "function": "max" }],
+                "filters": [{ "field": 1, "items": [1] }], "labels": labels }),
+        );
+        let info = run(&mut back, json!({ "cmd": "pivots", "sheet": 1 }));
+        assert_eq!(info[0]["filters"], json!([{ "field": 1, "items": [1] }]));
+        assert_eq!(back.cell(1, 0, 1).unwrap().display, "Gạo");
+        assert_eq!(back.cell(1, 2, 1).unwrap().display, "Max of Doanh thu");
+        assert_eq!(back.cell(1, 3, 1).unwrap().display, "30");
+        let again = reopen(&mut back);
+        assert_eq!(again.cell(1, 3, 1).unwrap().display, "30");
+        let info = run(&mut back, json!({ "cmd": "pivots", "sheet": 1 }));
+        assert_eq!(info[0]["filters"][0]["items"], json!([1]));
     }
 }

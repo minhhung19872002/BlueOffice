@@ -242,8 +242,11 @@ pub struct Workbook {
     pub root_attrs: Vec<RawAttr>,
     /// Attributes of `workbookPr` other than `date1904`.
     pub workbook_pr_attrs: Vec<RawAttr>,
-    /// Unknown children of `workbook` (fileVersion, bookViews, calcPr, pivotCaches, extLst, …).
+    /// Unknown children of `workbook` (fileVersion, bookViews, calcPr, extLst, …).
     pub unknown: Vec<RawXml>,
+    /// Pivot caches (`pivotCaches`, §18.2.22), in file order.
+    #[serde(default)]
+    pub pivot_caches: Vec<PivotCache>,
     /// Preserved package content.
     pub opaque: Opaque,
 }
@@ -364,6 +367,9 @@ pub struct Worksheet {
     pub auto_filter: Option<AutoFilter>,
     /// Charts found in the sheet's drawing (read-only, see [`Chart`]).
     pub charts: Vec<Chart>,
+    /// Pivot tables of the sheet (see [`PivotTable`]).
+    #[serde(default)]
+    pub pivots: Vec<PivotTable>,
     /// Print area formula (defined name `_xlnm.Print_Area`, §18.2.6).
     pub print_area: Option<String>,
     /// Print titles formula (defined name `_xlnm.Print_Titles`).
@@ -1060,6 +1066,207 @@ pub struct ChartSeries {
     pub categories: Vec<String>,
     /// Cached values (`None` = missing point).
     pub values: Vec<Option<f64>>,
+}
+
+// ---------------------------------------------------------------------------
+// PivotTables (summary of the pivot parts, ECMA-376 Part 1, §18.10)
+// ---------------------------------------------------------------------------
+
+/// A pivot cache (§18.10.1.67 `pivotCacheDefinition`, referenced from the
+/// workbook's `pivotCaches/pivotCache` §18.2.21).
+///
+/// Caches read from a file keep their definition and records parts opaque
+/// (written back byte-for-byte). A cache with an empty `part` (created by the
+/// user) or with `dirty` set (refreshed) is regenerated from [`PivotCache::fields`]
+/// and [`PivotCache::records`] on write.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PivotCache {
+    /// `pivotCache/@cacheId`, unique in the workbook.
+    pub cache_id: u32,
+    /// Workbook relationship id (`pivotCache/@r:id`); empty for a new cache.
+    pub rel_id: String,
+    /// Absolute name of the definition part; empty for a new cache.
+    pub part: String,
+    /// Absolute name of the records part (§18.10.1.68), if any.
+    pub records_part: Option<String>,
+    /// `worksheetSource/@sheet` (§18.10.1 `cacheSource/worksheetSource`).
+    pub source_sheet: Option<String>,
+    /// `worksheetSource/@ref`: the source range including the header row.
+    pub source_ref: Option<String>,
+    /// `worksheetSource/@name`: a defined name or table used as the source.
+    pub source_name: Option<String>,
+    /// `cacheFields/cacheField` (§18.10.1.3) with their shared items.
+    pub fields: Vec<PivotCacheField>,
+    /// Source records (one value per field) of a new or refreshed cache; empty
+    /// for caches read from a file (their records part stays opaque).
+    pub records: Vec<Vec<CellValue>>,
+    /// Regenerate the cache parts on write.
+    pub dirty: bool,
+}
+
+/// A cache field (§18.10.1.3 `cacheField`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PivotCacheField {
+    pub name: String,
+    /// Shared items (§18.10.1.90 `sharedItems`) in file order; empty when the
+    /// field's values are stored inline in the records.
+    pub items: Vec<CellValue>,
+}
+
+/// Grouping key of a pivot item: values that compare equal (numbers by value,
+/// text case-insensitively) share one item (§18.10.1.90 `sharedItems`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PivotItemKey {
+    Number(u64),
+    Text(String),
+    Bool(bool),
+    Error(String),
+    Blank,
+}
+
+impl PivotItemKey {
+    /// Key of a cell value (rich text and dates by their text).
+    pub fn of(v: &CellValue) -> PivotItemKey {
+        match v {
+            CellValue::Empty => PivotItemKey::Blank,
+            CellValue::Number(n) => PivotItemKey::Number(if *n == 0.0 { 0 } else { n.to_bits() }),
+            CellValue::Bool(b) => PivotItemKey::Bool(*b),
+            CellValue::Error(e) => PivotItemKey::Error(e.as_str().to_owned()),
+            CellValue::Date(d) => PivotItemKey::Text(d.to_lowercase()),
+            other => PivotItemKey::Text(other.as_text().unwrap_or_default().to_lowercase()),
+        }
+    }
+}
+
+/// Display order of pivot items: numbers ascending, then text (case-insensitive),
+/// booleans, errors and blanks last.
+pub fn pivot_item_cmp(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let rank = |k: &PivotItemKey| match k {
+        PivotItemKey::Number(_) => 0,
+        PivotItemKey::Text(_) => 1,
+        PivotItemKey::Bool(_) => 2,
+        PivotItemKey::Error(_) => 3,
+        PivotItemKey::Blank => 4,
+    };
+    let (ka, kb) = (PivotItemKey::of(a), PivotItemKey::of(b));
+    match (&ka, &kb, a, b) {
+        (
+            PivotItemKey::Number(_),
+            PivotItemKey::Number(_),
+            CellValue::Number(x),
+            CellValue::Number(y),
+        ) => x.partial_cmp(y).unwrap_or(Ordering::Equal),
+        (PivotItemKey::Text(x), PivotItemKey::Text(y), ..)
+        | (PivotItemKey::Error(x), PivotItemKey::Error(y), ..) => x.cmp(y),
+        (PivotItemKey::Bool(x), PivotItemKey::Bool(y), ..) => x.cmp(y),
+        _ => rank(&ka).cmp(&rank(&kb)),
+    }
+}
+
+/// Aggregation of a data field (§18.18.17 `ST_DataConsolidateFunction`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PivotFunction {
+    #[default]
+    Sum,
+    Count,
+    Average,
+    Max,
+    Min,
+    Product,
+    CountNums,
+    StdDev,
+    StdDevp,
+    Var,
+    Varp,
+}
+
+impl PivotFunction {
+    /// The `ST_DataConsolidateFunction` token.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PivotFunction::Sum => "sum",
+            PivotFunction::Count => "count",
+            PivotFunction::Average => "average",
+            PivotFunction::Max => "max",
+            PivotFunction::Min => "min",
+            PivotFunction::Product => "product",
+            PivotFunction::CountNums => "countNums",
+            PivotFunction::StdDev => "stdDev",
+            PivotFunction::StdDevp => "stdDevp",
+            PivotFunction::Var => "var",
+            PivotFunction::Varp => "varp",
+        }
+    }
+
+    /// Parse a token (unknown tokens fall back to `sum`, the default).
+    pub fn parse(s: &str) -> PivotFunction {
+        match s {
+            "count" => PivotFunction::Count,
+            "average" => PivotFunction::Average,
+            "max" => PivotFunction::Max,
+            "min" => PivotFunction::Min,
+            "product" => PivotFunction::Product,
+            "countNums" => PivotFunction::CountNums,
+            "stdDev" => PivotFunction::StdDev,
+            "stdDevp" => PivotFunction::StdDevp,
+            "var" => PivotFunction::Var,
+            "varp" => PivotFunction::Varp,
+            _ => PivotFunction::Sum,
+        }
+    }
+}
+
+/// A data (values) field of a pivot table (§18.10.1.21 `dataField`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct PivotDataField {
+    /// Cache field index (`fld`).
+    pub field: u32,
+    /// `subtotal` (default `sum`).
+    pub function: PivotFunction,
+    /// Caption (`name`), e.g. "Sum of Sales".
+    pub name: Option<String>,
+}
+
+/// A report filter (page field, §18.10.1 `pageField` in `pageFields`) and its selection.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PivotFilter {
+    /// Cache field index.
+    pub field: u32,
+    /// Shown items (by value); empty = all items.
+    pub selected: Vec<CellValue>,
+}
+
+/// A pivot table placed on a worksheet (§18.10.1.73 `pivotTableDefinition`).
+///
+/// The rendered report itself consists of ordinary cells of the sheet. Pivot
+/// tables read from a file keep their part opaque unless edited ([`PivotTable::dirty`]);
+/// new ones (empty `part`) are written from this summary.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PivotTable {
+    /// Absolute part name; empty for a new pivot table.
+    pub part: String,
+    pub name: String,
+    pub cache_id: u32,
+    /// `location/@ref` (§18.10.1.49): the report body, page fields excluded.
+    pub location: CellRange,
+    /// `location/@firstHeaderRow`, `@firstDataRow`, `@firstDataCol` (relative).
+    pub first_header_row: u32,
+    pub first_data_row: u32,
+    pub first_data_col: u32,
+    /// `rowFields/field/@x` (cache field indices; the values pseudo-field excluded).
+    pub rows: Vec<u32>,
+    /// `colFields/field/@x`.
+    pub cols: Vec<u32>,
+    /// The values pseudo-field (`x = -2`) is on the row axis (`dataOnRows`).
+    pub data_on_rows: bool,
+    pub values: Vec<PivotDataField>,
+    pub filters: Vec<PivotFilter>,
+    /// `dataCaption` (required, e.g. "Values").
+    pub data_caption: String,
+    /// Regenerate the part on write.
+    pub dirty: bool,
 }
 
 // ---------------------------------------------------------------------------

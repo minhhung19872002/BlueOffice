@@ -567,6 +567,61 @@
       "gridLines": "Print gridlines",
       "setArea": "Set print area",
       "clearArea": "Clear print area"
+    },
+    "groupTables": "Tables",
+    "pivot": {
+      "insert": "Pivot table",
+      "insertTitle": "Create pivot table",
+      "source": "Source range",
+      "fieldsFound": "{{n}} fields, {{records}} records",
+      "noFields": "The selection has no header row.",
+      "destination": "Place the pivot table in:",
+      "newSheet": "New sheet",
+      "existingSheet": "Existing sheet",
+      "sheet": "Sheet",
+      "location": "Top-left cell",
+      "badRef": "Invalid cell or range reference.",
+      "panelTitle": "Pivot table fields",
+      "chooseFields": "Choose fields to add to the report:",
+      "dragHint": "Drag fields between the areas below:",
+      "areas": {
+        "filters": "Filters",
+        "cols": "Columns",
+        "rows": "Rows",
+        "values": "Values"
+      },
+      "remove": "Remove field",
+      "refresh": "Refresh pivot table",
+      "fieldList": "Field list",
+      "close": "Close",
+      "summarize": "Summarize by",
+      "filterItems": "Select items to show",
+      "valueName": "{{fn}} of {{field}}",
+      "empty": "Add fields to Rows, Columns or Values to build the report.",
+      "created": "Pivot table created",
+      "refreshed": "Pivot table refreshed",
+      "fn": {
+        "sum": "Sum",
+        "count": "Count",
+        "average": "Average",
+        "max": "Max",
+        "min": "Min",
+        "product": "Product",
+        "countNums": "Count numbers",
+        "stdDev": "Sample std. deviation",
+        "stdDevp": "Population std. deviation",
+        "var": "Sample variance",
+        "varp": "Population variance"
+      },
+      "labels": {
+        "grandTotal": "Grand Total",
+        "values": "Values",
+        "all": "(All)",
+        "multiple": "(Multiple Items)",
+        "blank": "(blank)",
+        "column": "Column",
+        "name": "Pivot"
+      }
     }
   },
   "recovery": {

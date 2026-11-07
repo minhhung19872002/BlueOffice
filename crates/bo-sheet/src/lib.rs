@@ -20,6 +20,7 @@ pub mod icons;
 pub mod live;
 pub mod numfmt;
 pub mod ops;
+pub mod pivot;
 pub mod render;
 pub mod rowcol;
 pub mod sort;

@@ -122,7 +122,19 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
                     }
                     RelKind::Comments if rel.mode == TargetMode::Internal => {
                         if let Some(p) = pkg.part(&abs) {
-                            (ws.comment_authors, ws.comments) = read_comments(&p.data, &abs)?;
+                            let (authors, comments) = read_comments(&p.data, &abs)?;
+                            // Keep the author list only when it is not the one the writer
+                            // derives anyway (distinct authors in comment order).
+                            let mut derived: Vec<&str> = Vec::new();
+                            for c in &comments {
+                                if !derived.contains(&c.author.as_str()) {
+                                    derived.push(&c.author);
+                                }
+                            }
+                            if authors != derived {
+                                ws.comment_authors = authors;
+                            }
+                            ws.comments = comments;
                         }
                         mark(&abs);
                     }

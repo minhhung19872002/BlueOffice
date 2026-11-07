@@ -544,7 +544,9 @@ dependencies = [
 name = "bo-engine"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "bo-binary",
+ "bo-collab",
  "bo-crypto",
  "bo-docx",
  "bo-drawingml",

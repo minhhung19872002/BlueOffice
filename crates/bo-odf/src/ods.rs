@@ -346,7 +346,7 @@ fn write_cell(out: &mut String, c: &Cell) {
 }
 
 /// Text with spaces/tabs encoded so that they survive white-space collapsing.
-fn write_text(out: &mut String, s: &str) {
+pub(crate) fn write_text(out: &mut String, s: &str) {
     let chars: Vec<char> = s.chars().collect();
     let mut ws = true;
     let mut i = 0;

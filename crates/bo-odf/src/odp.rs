@@ -1,9 +1,9 @@
-//! `.odp` slide text (ODF 1.3 Part 3, §10.1 `draw:page`, §10.4 frames).
+//! `.odp` slide text (ODF 1.3 Part 3, §10.1 `draw:page`, §10.4 frames): read and write.
 
 use crate::dom::{self, Element};
 use crate::ns::{DRAW, OFFICE, PRESENTATION, TEXT};
-use crate::ods::paragraph_text;
-use crate::package::OdfPackage;
+use crate::ods::{paragraph_text, write_text};
+use crate::package::{meta_xml, OdfPackage};
 use crate::{OdfError, Result, MIME_ODP};
 
 /// Text content of a presentation (intermediate type).
@@ -120,9 +120,144 @@ pub fn read_odp(bytes: &[u8]) -> Result<Presentation> {
     Ok(out)
 }
 
+const NS_PRESENTATION: &str =
+    r#"xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0""#;
+
+/// Page size written by [`write_odp`]: 16:9, 28 cm × 15.75 cm.
+const PAGE_W_CM: f64 = 28.0;
+const PAGE_H_CM: f64 = 15.75;
+
+/// Paragraphs as `text:p` elements; `\n` / U+2028 become `text:line-break` (§6.1.5).
+fn write_paragraphs(out: &mut String, paragraphs: &[String]) {
+    for p in paragraphs {
+        out.push_str("<text:p>");
+        for (i, line) in p.split(['\n', '\u{2028}']).enumerate() {
+            if i > 0 {
+                out.push_str("<text:line-break/>");
+            }
+            write_text(out, line);
+        }
+        out.push_str("</text:p>");
+    }
+}
+
+/// One `draw:frame` with a `draw:text-box` (§10.4.2, §10.4.3) at a vertical slot.
+fn write_frame(out: &mut String, frame: &TextFrame, y_cm: f64, h_cm: f64) {
+    out.push_str("<draw:frame");
+    if let Some(c) = &frame.class {
+        // §19.392 presentation:class
+        out.push_str(&format!(r#" presentation:class="{}""#, dom::escape(c)));
+    }
+    out.push_str(&format!(
+        r#" svg:x="1cm" svg:y="{y_cm:.2}cm" svg:width="{:.2}cm" svg:height="{h_cm:.2}cm"><draw:text-box>"#,
+        PAGE_W_CM - 2.0
+    ));
+    write_paragraphs(out, &frame.paragraphs);
+    out.push_str("</draw:text-box></draw:frame>");
+}
+
+/// Serialize slide text as an `.odp` package (ODF 1.3): one `draw:page` per
+/// slide on a single master page, frames stacked top to bottom, notes in
+/// `presentation:notes`.
+pub fn write_odp(pres: &Presentation) -> Result<Vec<u8>> {
+    let mut content = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content {} {NS_PRESENTATION}><office:body><office:presentation>",
+        crate::odt_write::XMLNS
+    );
+    for (i, slide) in pres.slides.iter().enumerate() {
+        let name = if slide.name.is_empty() {
+            format!("page{}", i + 1)
+        } else {
+            slide.name.clone()
+        };
+        // §10.1 draw:page requires draw:master-page-name
+        content.push_str(&format!(
+            r#"<draw:page draw:name="{}" draw:master-page-name="Default">"#,
+            dom::escape(&name)
+        ));
+        let n = slide.frames.len().max(1) as f64;
+        let slot = (PAGE_H_CM - 1.0) / n;
+        for (k, f) in slide.frames.iter().enumerate() {
+            write_frame(&mut content, f, 0.5 + slot * k as f64, slot);
+        }
+        if !slide.notes.is_empty() {
+            // §16.33 presentation:notes
+            content.push_str(r#"<presentation:notes><draw:page-thumbnail presentation:class="page" svg:x="2cm" svg:y="1cm" svg:width="16cm" svg:height="9cm"/>"#);
+            write_frame(
+                &mut content,
+                &TextFrame {
+                    class: Some("notes".into()),
+                    paragraphs: slide.notes.clone(),
+                },
+                11.0,
+                12.0,
+            );
+            content.push_str("</presentation:notes>");
+        }
+        content.push_str("</draw:page>");
+    }
+    content.push_str("</office:presentation></office:body></office:document-content>");
+
+    // styles.xml: page layout (§16.5) and the master page (§16.9).
+    let styles = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles {} {NS_PRESENTATION}><office:styles/><office:automatic-styles><style:page-layout style:name=\"PM1\"><style:page-layout-properties fo:page-width=\"{PAGE_W_CM}cm\" fo:page-height=\"{PAGE_H_CM}cm\" style:print-orientation=\"landscape\"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name=\"Default\" style:page-layout-name=\"PM1\"/></office:master-styles></office:document-styles>",
+        crate::odt_write::XMLNS
+    );
+    OdfPackage::write(
+        MIME_ODP,
+        &[
+            ("content.xml", "text/xml", content.into_bytes()),
+            ("styles.xml", "text/xml", styles.into_bytes()),
+            ("meta.xml", "text/xml", meta_xml()),
+        ],
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn write_read_round_trip() {
+        let pres = Presentation {
+            slides: vec![
+                Slide {
+                    name: "Mở đầu".into(),
+                    frames: vec![
+                        TextFrame {
+                            class: Some("title".into()),
+                            paragraphs: vec!["Báo cáo <năm> & \"kế hoạch\"".into()],
+                        },
+                        TextFrame {
+                            class: Some("outline".into()),
+                            paragraphs: vec![
+                                "Một".into(),
+                                "Hai  cách\tnhau".into(),
+                                "dòng 1\ndòng 2".into(),
+                            ],
+                        },
+                    ],
+                    notes: vec!["Ghi chú cho người trình bày".into()],
+                },
+                Slide {
+                    name: String::new(),
+                    frames: vec![TextFrame {
+                        class: None,
+                        paragraphs: vec!["Hộp chữ".into()],
+                    }],
+                    notes: Vec::new(),
+                },
+            ],
+        };
+        let bytes = write_odp(&pres).unwrap();
+        assert_eq!(crate::detect_mimetype(&bytes).as_deref(), Some(MIME_ODP));
+        let back = read_odp(&bytes).unwrap();
+        let mut expected = pres.clone();
+        expected.slides[1].name = "page2".into();
+        assert_eq!(back, expected);
+        // A second round trip is a fixed point.
+        assert_eq!(read_odp(&write_odp(&back).unwrap()).unwrap(), back);
+    }
 
     pub(crate) fn sample_bytes() -> Vec<u8> {
         let xml = format!(

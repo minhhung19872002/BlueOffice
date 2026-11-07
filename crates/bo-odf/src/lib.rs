@@ -6,7 +6,8 @@
 //!   indents, spacing, line height, page breaks and page layout per section.
 //! * `.ods` — cells of every table into [`SpreadsheetDoc`] and back
 //!   ([`read_ods`], [`write_ods`]).
-//! * `.odp` — text frames of every slide into [`Presentation`] ([`read_odp`]).
+//! * `.odp` — text frames and notes of every slide into [`Presentation`] and
+//!   back ([`read_odp`], [`write_odp`]).
 //!
 //! Packages follow ODF 1.3 Part 2 (Packages): the `mimetype` entry is written
 //! first and uncompressed, and `META-INF/manifest.xml` lists every file.
@@ -20,7 +21,7 @@ mod odt_write;
 mod package;
 mod units;
 
-pub use odp::{read_odp, Presentation, Slide, TextFrame};
+pub use odp::{read_odp, write_odp, Presentation, Slide, TextFrame};
 pub use ods::{read_ods, write_ods, Cell, CellValue, Sheet, SpreadsheetDoc};
 pub use odt_read::read_odt;
 pub use odt_write::write_odt;

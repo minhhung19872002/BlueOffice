@@ -26,11 +26,12 @@ use crate::functions::is_volatile_function;
 use crate::fxhash::{FxHashMap, FxHashSet};
 use crate::parser::{parse_with, ParseError, ParseOptions};
 use crate::provider::{CellProvider, TableInfo};
+use crate::rangeindex::RangeIndex;
 use crate::reference::{parse_a1_cell, MAX_COLS, MAX_ROWS};
 use crate::shift::{
     adjust_for_change, adjust_span, is_row_change, offset_relative, StructuralChange,
 };
-use crate::value::{parse_number_text, Area, ErrorKind, Value};
+use crate::value::{parse_number_text, Area, Array, ErrorKind, Value};
 
 /// Address of a cell in a workbook.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -104,7 +105,7 @@ pub struct Workbook {
     rng: Cell<u64>,
     precedents: FxHashMap<CellId, Vec<Area>>,
     dependents: FxHashMap<CellId, Vec<CellId>>,
-    range_deps: Vec<(Area, CellId)>,
+    range_deps: RangeIndex,
     volatile: FxHashSet<CellId>,
     changed: Vec<CellId>,
     spills: FxHashMap<CellId, Area>,
@@ -113,6 +114,8 @@ pub struct Workbook {
     spill_changed: Vec<CellId>,
     circular: FxHashSet<CellId>,
     evaluations: Cell<usize>,
+    /// Materialized large areas, valid during one recalculation pass.
+    area_cache: RefCell<FxHashMap<Area, Arc<Array>>>,
 }
 
 impl Default for Workbook {
@@ -133,7 +136,7 @@ impl Workbook {
             rng: Cell::new(0x2545_F491_4F6C_DD1D),
             precedents: FxHashMap::default(),
             dependents: FxHashMap::default(),
-            range_deps: Vec::new(),
+            range_deps: RangeIndex::default(),
             volatile: FxHashSet::default(),
             changed: Vec::new(),
             spills: FxHashMap::default(),
@@ -142,6 +145,7 @@ impl Workbook {
             spill_changed: Vec::new(),
             circular: FxHashSet::default(),
             evaluations: Cell::new(0),
+            area_cache: RefCell::new(FxHashMap::default()),
         }
     }
 
@@ -602,7 +606,7 @@ impl Workbook {
                     }
                 }
             } else {
-                self.range_deps.push((*a, id));
+                self.range_deps.insert(*a, id);
             }
         }
         self.precedents.insert(id, areas);
@@ -612,7 +616,6 @@ impl Workbook {
         let Some(areas) = self.precedents.remove(&id) else {
             return;
         };
-        let mut has_large = false;
         for a in &areas {
             if a.size() <= SMALL_AREA {
                 for r in a.r1..=a.r2 {
@@ -626,13 +629,9 @@ impl Workbook {
                         }
                     }
                 }
-            } else {
-                has_large = true;
             }
         }
-        if has_large {
-            self.range_deps.retain(|(_, d)| *d != id);
-        }
+        self.range_deps.remove_owner(id);
     }
 
     /// Static precedents of the formula in cell `id` and whether it is volatile.
@@ -734,8 +733,22 @@ impl Workbook {
             .is_some_and(|c| c.formula.is_some())
     }
 
+    /// Formula cells reading `cell` directly (static precedents).
+    fn for_each_reader(&self, cell: CellId, f: &mut dyn FnMut(CellId)) {
+        if let Some(ds) = self.dependents.get(&cell) {
+            for d in ds {
+                f(*d);
+            }
+        }
+        self.range_deps.for_each_reader(cell, f);
+    }
+
     /// Formula cells depending (transitively) on the seeds, plus seed formula cells.
     fn propagate(&self, seeds: Vec<CellId>) -> FxHashSet<CellId> {
+        // Bulk edits (loading a sheet): everything is dirty anyway.
+        if seeds.len() >= self.precedents.len().max(1) * 4 {
+            return self.precedents.keys().copied().collect();
+        }
         let mut dirty = FxHashSet::default();
         let mut seen = FxHashSet::default();
         let mut stack = seeds;
@@ -746,14 +759,11 @@ impl Workbook {
             if self.is_formula(c) {
                 dirty.insert(c);
             }
-            if let Some(ds) = self.dependents.get(&c) {
-                stack.extend(ds.iter().filter(|d| !seen.contains(d)));
-            }
-            for (a, d) in &self.range_deps {
-                if a.contains(c.sheet, c.row, c.col) && !seen.contains(d) {
-                    stack.push(*d);
+            self.for_each_reader(c, &mut |d| {
+                if !seen.contains(&d) {
+                    stack.push(d);
                 }
-            }
+            });
         }
         dirty
     }
@@ -791,37 +801,22 @@ impl Workbook {
         self.recalculate();
     }
 
-    /// Successor lists (dirty precedents) for Tarjan ordering.
+    /// Successor lists (dirty precedents) for Tarjan ordering, built by
+    /// inverting the reader relation restricted to the dirty nodes.
     fn adjacency(&self, nodes: &[CellId], index: &FxHashMap<CellId, usize>) -> Vec<Vec<usize>> {
-        nodes
-            .iter()
-            .map(|id| {
-                let mut out = Vec::new();
-                if let Some(areas) = self.precedents.get(id) {
-                    for a in areas {
-                        if a.size() <= nodes.len() as u64 {
-                            for r in a.r1..=a.r2 {
-                                for c in a.c1..=a.c2 {
-                                    if let Some(&j) = index.get(&CellId::new(a.sheet, r, c)) {
-                                        out.push(j);
-                                    }
-                                }
-                            }
-                        } else {
-                            for (j, n) in nodes.iter().enumerate() {
-                                if a.contains(n.sheet, n.row, n.col) {
-                                    out.push(j);
-                                }
-                            }
-                        }
-                    }
+        let mut adj = vec![Vec::new(); nodes.len()];
+        for (j, n) in nodes.iter().enumerate() {
+            self.for_each_reader(*n, &mut |reader| {
+                if let Some(&i) = index.get(&reader) {
+                    adj[i].push(j);
                 }
-                out
-            })
-            .collect()
+            });
+        }
+        adj
     }
 
     fn calc_set(&mut self, dirty: FxHashSet<CellId>) {
+        self.area_cache.borrow_mut().clear();
         if dirty.is_empty() {
             return;
         }
@@ -882,6 +877,7 @@ impl Workbook {
                     pending,
                     in_progress,
                     misses: RefCell::new(Vec::new()),
+                    cache: true,
                 };
                 let v = self.eval_cell(top, &view);
                 (v, view.misses.into_inner())
@@ -921,6 +917,7 @@ impl Workbook {
                         pending: &empty,
                         in_progress: pending,
                         misses: RefCell::new(Vec::new()),
+                        cache: false,
                     };
                     self.eval_cell(*id, &view)
                 };
@@ -990,6 +987,7 @@ impl Workbook {
             cell.value = v;
         }
         if spilled_changed {
+            self.area_cache.borrow_mut().clear();
             for a in [old_area, new_area].into_iter().flatten() {
                 for r in a.r1..=a.r2 {
                     for c in a.c1..=a.c2 {
@@ -1195,6 +1193,8 @@ struct RecalcView<'a> {
     pending: &'a FxHashSet<CellId>,
     in_progress: &'a FxHashSet<CellId>,
     misses: RefCell<Vec<CellId>>,
+    /// Whether materialized areas may be cached (not during iteration).
+    cache: bool,
 }
 
 impl CellProvider for RecalcView<'_> {
@@ -1245,5 +1245,28 @@ impl CellProvider for RecalcView<'_> {
 
     fn spill_area(&self, sheet: usize, row: u32, col: u32) -> Option<Area> {
         self.wb.spill_area(sheet, row, col)
+    }
+
+    fn area_array(&self, area: &Area) -> Option<Arc<Array>> {
+        if !self.cache {
+            return None;
+        }
+        if let Some(a) = self.wb.area_cache.borrow().get(area) {
+            return Some(a.clone());
+        }
+        // Only areas whose cells are all final in this pass can be cached.
+        let mut data = Vec::with_capacity(area.size() as usize);
+        for r in area.r1..=area.r2 {
+            for c in area.c1..=area.c2 {
+                let id = CellId::new(area.sheet, r, c);
+                if self.pending.contains(&id) {
+                    return None;
+                }
+                data.push(self.wb.read(id));
+            }
+        }
+        let arr = Arc::new(Array::new(area.rows() as usize, area.cols() as usize, data));
+        self.wb.area_cache.borrow_mut().insert(*area, arr.clone());
+        Some(arr)
     }
 }

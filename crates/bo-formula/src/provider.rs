@@ -2,7 +2,9 @@
 
 use crate::ast::Expr;
 use crate::reference::{MAX_COLS, MAX_ROWS};
-use crate::value::{Area, Value};
+use std::sync::Arc;
+
+use crate::value::{Area, Array, Value};
 
 /// Geometry of a table (ListObject) used to resolve structured references
 /// (ECMA-376 Part 1, §18.5 tables).
@@ -103,6 +105,13 @@ pub trait CellProvider {
     /// The area spilled by the dynamic-array formula anchored at a cell, if any
     /// (target of the `A1#` spill-range operator).
     fn spill_area(&self, _sheet: usize, _row: u32, _col: u32) -> Option<Area> {
+        None
+    }
+
+    /// Values of a multi-cell area if the provider has them materialized
+    /// (an optimization for repeated lookups into the same table); `None`
+    /// means the evaluator reads the cells one by one.
+    fn area_array(&self, _area: &Area) -> Option<Arc<Array>> {
         None
     }
 

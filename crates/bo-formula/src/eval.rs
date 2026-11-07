@@ -26,6 +26,8 @@ pub struct EvalConfig {
 const MAX_DEPTH: u32 = 200;
 /// Areas larger than this are clipped to the sheet's used extent when iterated.
 const CLIP_THRESHOLD: u64 = 1 << 20;
+/// Areas at least this large are materialized through [`CellProvider::area_array`].
+const AREA_CACHE_MIN: u64 = 256;
 
 /// Evaluate an expression as the formula of cell (`sheet`, `row`, `col`).
 ///
@@ -501,6 +503,11 @@ impl Ctx<'_> {
             return self.provider.cell_value(a.sheet, a.r1, a.c1);
         }
         let a = self.clip(a);
+        if a.size() >= AREA_CACHE_MIN {
+            if let Some(arr) = self.provider.area_array(&a) {
+                return Value::Array(arr);
+            }
+        }
         let mut data = Vec::with_capacity(a.size() as usize);
         for r in a.r1..=a.r2 {
             for c in a.c1..=a.c2 {

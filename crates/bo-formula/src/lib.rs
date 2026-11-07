@@ -35,6 +35,7 @@ mod lexer;
 mod numfmt;
 mod parser;
 pub mod provider;
+mod rangeindex;
 pub mod reference;
 mod shift;
 pub mod value;

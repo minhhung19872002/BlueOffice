@@ -479,7 +479,17 @@ pub fn round_sig15(x: f64) -> f64 {
 
 /// Equality of two numbers at 15 significant digits.
 pub fn num_eq(a: f64, b: f64) -> bool {
-    a == b || round_sig15(a) == round_sig15(b)
+    if a == b {
+        return true;
+    }
+    // Two numbers with the same 15-significant-digit rounding differ by less than
+    // one unit in the 15th digit, i.e. by less than 1e-14 of the larger magnitude;
+    // anything further apart is unequal without the (slow) decimal rounding.
+    let scale = a.abs().max(b.abs());
+    if (a - b).abs() >= 1e-14 * scale || a.is_nan() || b.is_nan() {
+        return false;
+    }
+    round_sig15(a) == round_sig15(b)
 }
 
 /// Rank of a scalar type in sort/compare order: numbers < text < booleans.

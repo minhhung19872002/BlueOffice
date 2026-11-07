@@ -37,11 +37,23 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | thiserror | 2.0.21 | MIT OR Apache-2.0 | Kiểu lỗi |
 | wasm-bindgen | 0.2.130 | MIT OR Apache-2.0 | Binding WASM cho web |
 | clap | 4.6.7 | MIT OR Apache-2.0 | CLI `bo-cli` |
+| cfb | 0.14.0 | MIT | Compound File Binary ([MS-CFB]) cho .doc/.xls/.ppt, vbaProject.bin, file mã hoá |
+| aes / cbc / ecb | 0.8.4 / 0.1.2 / 0.1.2 | MIT OR Apache-2.0 / MIT OR Apache-2.0 / MIT | AES-CBC/ECB cho [MS-OFFCRYPTO] |
+| sha1 / sha2 / hmac | 0.10.7 / 0.10.9 / 0.12.1 | MIT OR Apache-2.0 | Băm khoá, HMAC toàn vẹn dữ liệu, hash bảo vệ sheet |
+| base64 | 0.22.1 | MIT OR Apache-2.0 | Thuộc tính base64 trong EncryptionInfo / sheetProtection |
+| getrandom | 0.3.4 | MIT OR Apache-2.0 | Salt / khoá ngẫu nhiên khi mã hoá |
 | tauri / tauri-build | 2.12.5 / 2.7.4 | Apache-2.0 OR MIT | Vỏ desktop |
 | tauri-plugin-dialog | 2.8.4 | Apache-2.0 OR MIT | Hộp thoại mở/lưu file native |
 | insta (dev) | 1.49.0 | Apache-2.0 | Snapshot test |
 | proptest (dev) | 1.12.0 | MIT OR Apache-2.0 | Property-based test |
 | criterion (dev) | 0.8.2 | Apache-2.0 OR MIT | Benchmark |
+
+Công cụ fuzz (`fuzz/`, workspace riêng, không đóng gói vào sản phẩm, không chạy trong CI Windows):
+
+| Crate | Phiên bản | License | Mục đích |
+|---|---|---|---|
+| libfuzzer-sys | 0.4.13 | (MIT OR Apache-2.0) AND NCSA | Harness `cargo fuzz` (NCSA: giấy phép kiểu BSD của LLVM libFuzzer) |
+| arbitrary | 1.5.0 | MIT OR Apache-2.0 | Phụ thuộc của libfuzzer-sys |
 
 ## TypeScript / npm
 

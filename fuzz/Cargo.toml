@@ -1,0 +1,96 @@
+[package]
+name = "bo-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "LicenseRef-BlueOffice-Proprietary"
+
+# cargo-fuzz targets (prompt §7). Not part of the product workspace and not
+# run in CI on Windows: `cargo +nightly fuzz run <target>` on Linux/macOS.
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+bo-binary = { path = "../crates/bo-binary" }
+bo-crypto = { path = "../crates/bo-crypto" }
+bo-odf = { path = "../crates/bo-odf" }
+bo-encoding = { path = "../crates/bo-encoding" }
+bo-opc = { path = "../crates/bo-opc" }
+
+# Keep this crate out of the root workspace.
+[workspace]
+members = []
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "doc"
+path = "fuzz_targets/doc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xls"
+path = "fuzz_targets/xls.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xlsb"
+path = "fuzz_targets/xlsb.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ppt"
+path = "fuzz_targets/ppt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xls_formula"
+path = "fuzz_targets/xls_formula.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vba"
+path = "fuzz_targets/vba.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crypto"
+path = "fuzz_targets/crypto.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "odf"
+path = "fuzz_targets/odf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "opc"
+path = "fuzz_targets/opc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "encoding"
+path = "fuzz_targets/encoding.rs"
+test = false
+doc = false
+bench = false

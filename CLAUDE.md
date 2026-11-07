@@ -84,3 +84,4 @@ Package TS: `platform` (PAL) → `canvas-host`, `ui`, `i18n` → `editor` → `a
 - [0003](docs/adr/0003-deterministic-bundled-fonts.md) Font đóng gói mặc định để hiển thị tất định
 - [0004](docs/adr/0004-windows-msvc-toolchain.md) Toolchain MSVC trên Windows
 - [0006](docs/adr/0006-product-naming.md) Đặt tên sản phẩm BlueDoc / BlueSheet / BlueSlide
+- [0007](docs/adr/0007-digital-signatures.md) Ký số PAdES / OOXML qua trait `Signer` (USB token, ký từ xa)

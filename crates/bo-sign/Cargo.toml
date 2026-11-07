@@ -1,0 +1,27 @@
+[package]
+name = "bo-sign"
+description = "Digital signatures: PAdES (PDF) and ECMA-376 Part 2 package signatures (OOXML), with pluggable signers (USB token / remote CA)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bo-opc.workspace = true
+thiserror.workspace = true
+sha2 = "0.10"
+rsa = { version = "0.9", features = ["sha2"] }
+x509-cert = { version = "0.2", features = ["builder"] }
+cms = "0.2"
+der = { version = "0.7", features = ["alloc", "derive", "oid", "std"] }
+spki = "0.7"
+const-oid = { version = "0.9", features = ["db"] }
+base64 = "0.22"
+
+[dev-dependencies]
+rand = "0.8"
+lopdf = { version = "0.38", default-features = false }
+pdf-writer.workspace = true
+
+[lints]
+workspace = true

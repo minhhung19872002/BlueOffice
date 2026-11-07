@@ -42,6 +42,9 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | tauri-plugin-deep-link | 2.6.3 | Apache-2.0 OR MIT | Deep link `bluedoc://` · `bluesheet://` · `blueslide://` |
 | tauri-plugin-single-instance | 2.5.5 | Apache-2.0 OR MIT | Chuyển file/deep link sang tiến trình đang chạy |
 | tauri-plugin-updater (feature `updater`) | 2.14.1 | Apache-2.0 OR MIT | Tự cập nhật bản desktop |
+| rsa, sha2, x509-cert, cms, der, spki, const-oid (bo-sign) | 0.9.10, 0.10.9, 0.2.5, 0.2.3, 0.7.10, 0.7.3, 0.9.6 | Apache-2.0 OR MIT | Ký số PAdES / OOXML (RustCrypto) |
+| base64 (bo-sign) | 0.22 | Apache-2.0 OR MIT | Mã hoá chữ ký XML-DSig |
+| lopdf, rand (dev, bo-sign) | 0.38.0, 0.8.8 | MIT, Apache-2.0 OR MIT | Kiểm tra PDF đã ký, sinh khoá test |
 | insta (dev) | 1.49.0 | Apache-2.0 | Snapshot test |
 | proptest (dev) | 1.12.0 | MIT OR Apache-2.0 | Property-based test |
 | criterion (dev) | 0.8.2 | Apache-2.0 OR MIT | Benchmark |

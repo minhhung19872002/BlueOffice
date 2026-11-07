@@ -178,7 +178,9 @@ fn weeknum(ctx: &mut Ctx, args: &[Value]) -> R {
     let jan1 = year_start(y, ctx.date_system).unwrap_or(0.0);
     let jan1_dow = i64::from(weekday_sun0(jan1, ctx.date_system));
     let offset = (jan1_dow - start_dow).rem_euclid(7) as f64;
-    Ok(Value::Number(((n.floor() - jan1 + offset) / 7.0).floor() + 1.0))
+    Ok(Value::Number(
+        ((n.floor() - jan1 + offset) / 7.0).floor() + 1.0,
+    ))
 }
 
 fn isoweeknum(ctx: &mut Ctx, args: &[Value]) -> R {
@@ -195,7 +197,7 @@ fn add_months(ctx: &Ctx, args: &[Value], end_of_month: bool) -> R {
     let total = y * 12 + i64::from(mo) - 1 + months as i64;
     let ny = total.div_euclid(12);
     let nm = (total.rem_euclid(12) + 1) as u32;
-    if !(1900..=9999).contains(&ny) && !(ctx.date_system == DateSystem::Date1904 && ny >= 1904) {
+    if !((1900..=9999).contains(&ny) || ctx.date_system == DateSystem::Date1904 && ny >= 1904) {
         return Err(ErrorKind::Num);
     }
     let dim = days_in_month(ny, nm);
@@ -362,7 +364,13 @@ fn is_workday(day: i64, mask: &[bool; 7], hol: &HashSet<i64>, system: DateSystem
     !mask[weekday_sun0(day as f64, system) as usize] && !hol.contains(&day)
 }
 
-fn count_workdays(ctx: &Ctx, start: &Value, end: &Value, mask: &[bool; 7], hol: &HashSet<i64>) -> R {
+fn count_workdays(
+    ctx: &Ctx,
+    start: &Value,
+    end: &Value,
+    mask: &[bool; 7],
+    hol: &HashSet<i64>,
+) -> R {
     let a = serial(ctx, start)?.floor() as i64;
     let b = serial(ctx, end)?.floor() as i64;
     let (lo, hi, sign) = if a <= b { (a, b, 1.0) } else { (b, a, -1.0) };
@@ -461,7 +469,8 @@ fn yearfrac(ctx: &mut Ctx, args: &[Value]) -> R {
                 let leap = if y1 == y2 {
                     is_leap_year(y1)
                 } else {
-                    (is_leap_year(y1) && (m1, d1) <= (2, 29)) || (is_leap_year(y2) && (m2, d2) >= (2, 29))
+                    (is_leap_year(y1) && (m1, d1) <= (2, 29))
+                        || (is_leap_year(y2) && (m2, d2) >= (2, 29))
                 };
                 (b - a) / if leap { 366.0 } else { 365.0 }
             } else {

@@ -3,7 +3,9 @@
 //! Parentheses are emitted only where precedence requires them, so
 //! `parse(format(e)) == e` for every parsed expression.
 
-use crate::ast::{BinaryOp, Expr, StructItem, StructRef, UnaryOp, PERCENT_PRECEDENCE, PREFIX_PRECEDENCE};
+use crate::ast::{
+    BinaryOp, Expr, StructItem, StructRef, UnaryOp, PERCENT_PRECEDENCE, PREFIX_PRECEDENCE,
+};
 use crate::parser::{ParseOptions, RefStyle};
 use crate::reference::{col_to_letters, letters_to_col, CellAddr, RefKind, Reference, SheetRef};
 
@@ -119,7 +121,8 @@ fn write_expr(out: &mut String, e: &Expr, opts: &ParseOptions) {
             // when the outer operator binds tighter than the prefix.
             let bp = precedence(b);
             let rhs_paren = bp <= p
-                || (matches!(**b, Expr::Unary(UnaryOp::Neg | UnaryOp::Plus, _)) && p > PREFIX_PRECEDENCE);
+                || (matches!(**b, Expr::Unary(UnaryOp::Neg | UnaryOp::Plus, _))
+                    && p > PREFIX_PRECEDENCE);
             write_child(out, b, opts, rhs_paren);
             if wrap {
                 out.push(')');
@@ -158,7 +161,10 @@ fn needs_quotes(name: &str) -> bool {
     if first.is_ascii_digit() || first == '.' {
         return true;
     }
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.') {
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+    {
         return true;
     }
     // Names that look like cell references (A1, R1C1) or booleans need quoting.
@@ -175,7 +181,9 @@ fn needs_quotes(name: &str) -> bool {
     {
         return true;
     }
-    up.starts_with('R') && up[1..].chars().any(|c| c == 'C') && up.chars().skip(1).all(|c| c.is_ascii_digit() || c == 'C')
+    up.starts_with('R')
+        && up[1..].chars().any(|c| c == 'C')
+        && up.chars().skip(1).all(|c| c.is_ascii_digit() || c == 'C')
 }
 
 fn write_sheet(out: &mut String, s: &SheetRef) {
@@ -237,7 +245,10 @@ pub fn format_reference(r: &Reference, opts: &ParseOptions) -> String {
             last_abs,
         } => match opts.style {
             RefStyle::A1 => {
-                for (i, (c, abs)) in [(first, first_abs), (last, last_abs)].into_iter().enumerate() {
+                for (i, (c, abs)) in [(first, first_abs), (last, last_abs)]
+                    .into_iter()
+                    .enumerate()
+                {
                     if i > 0 {
                         out.push(':');
                     }
@@ -262,7 +273,10 @@ pub fn format_reference(r: &Reference, opts: &ParseOptions) -> String {
             last_abs,
         } => match opts.style {
             RefStyle::A1 => {
-                for (i, (r, abs)) in [(first, first_abs), (last, last_abs)].into_iter().enumerate() {
+                for (i, (r, abs)) in [(first, first_abs), (last, last_abs)]
+                    .into_iter()
+                    .enumerate()
+                {
                     if i > 0 {
                         out.push(':');
                     }

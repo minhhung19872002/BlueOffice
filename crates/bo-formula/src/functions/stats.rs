@@ -118,7 +118,7 @@ fn median_of(v: Vec<f64>) -> Result<f64, ErrorKind> {
     Ok(if n % 2 == 1 {
         v[n / 2]
     } else {
-        (v[n / 2 - 1] + v[n / 2]) / 2.0
+        f64::midpoint(v[n / 2 - 1], v[n / 2])
     })
 }
 
@@ -267,13 +267,15 @@ fn extreme(v: &[f64], largest: bool) -> f64 {
     if v.is_empty() {
         return 0.0;
     }
-    v.iter().copied().fold(if largest { f64::MIN } else { f64::MAX }, |a, b| {
-        if largest {
-            a.max(b)
-        } else {
-            a.min(b)
-        }
-    })
+    v.iter()
+        .copied()
+        .fold(if largest { f64::MIN } else { f64::MAX }, |a, b| {
+            if largest {
+                a.max(b)
+            } else {
+                a.min(b)
+            }
+        })
 }
 
 fn max(ctx: &mut Ctx, args: &[Value]) -> R {
@@ -297,7 +299,10 @@ fn extreme_ifs(ctx: &Ctx, args: &[Value], largest: bool) -> R {
     if super::shape(ctx, &args[0]) != shp {
         return Err(ErrorKind::Value);
     }
-    num(extreme(&masked_numbers(&flatten(ctx, &args[0]), &mask), largest))
+    num(extreme(
+        &masked_numbers(&flatten(ctx, &args[0]), &mask),
+        largest,
+    ))
 }
 
 fn maxifs(ctx: &mut Ctx, args: &[Value]) -> R {
@@ -355,7 +360,7 @@ fn rank_common(ctx: &Ctx, args: &[Value], avg: bool) -> R {
         .count() as f64;
     let ties = v.iter().filter(|y| num_eq(**y, x)).count() as f64;
     Ok(Value::Number(if avg {
-        better + (ties + 1.0) / 2.0
+        better + f64::midpoint(ties, 1.0)
     } else {
         better + 1.0
     }))
@@ -563,8 +568,9 @@ pub(crate) fn norm_s_inv_f(p: f64) -> Result<f64, ErrorKind> {
     }
     let q = if p < 0.5 { p } else { 1.0 - p };
     let t = (-2.0 * q.ln()).sqrt();
-    let mut x = t - (2.515_517 + 0.802_853 * t + 0.010_328 * t * t)
-        / (1.0 + 1.432_788 * t + 0.189_269 * t * t + 0.001_308 * t * t * t);
+    let mut x = t
+        - (2.515_517 + 0.802_853 * t + 0.010_328 * t * t)
+            / (1.0 + 1.432_788 * t + 0.189_269 * t * t + 0.001_308 * t * t * t);
     if p < 0.5 {
         x = -x;
     }
@@ -674,10 +680,13 @@ fn count_nonblank(ctx: &Ctx, args: &[Value], opt: Gather) -> f64 {
                     return;
                 }
                 if opt.skip_nested
-                    && ctx.provider.cell_formula(area.sheet, r, c).is_some_and(|f| {
-                        let u = f.to_uppercase();
-                        u.contains("SUBTOTAL(") || u.contains("AGGREGATE(")
-                    })
+                    && ctx
+                        .provider
+                        .cell_formula(area.sheet, r, c)
+                        .is_some_and(|f| {
+                            let u = f.to_uppercase();
+                            u.contains("SUBTOTAL(") || u.contains("AGGREGATE(")
+                        })
                 {
                     return;
                 }
@@ -690,7 +699,7 @@ fn count_nonblank(ctx: &Ctx, args: &[Value], opt: Gather) -> f64 {
             });
         } else {
             ctx.for_each_value(a, &mut |v, in_range| {
-                if !(in_range && matches!(v, Value::Empty)) && !(opt.skip_errors && v.is_error()) {
+                if !(in_range && matches!(v, Value::Empty) || opt.skip_errors && v.is_error()) {
                     n += 1;
                 }
             });
@@ -700,18 +709,22 @@ fn count_nonblank(ctx: &Ctx, args: &[Value], opt: Gather) -> f64 {
 }
 
 /// Apply statistic `code` (SUBTOTAL 1-11 numbering) to gathered numbers.
-fn basic_stat(code: i64, v: Vec<f64>) -> Result<f64, ErrorKind> {
+fn basic_stat(code: i64, v: &[f64]) -> Result<f64, ErrorKind> {
     match code {
-        1 => mean(&v),
+        1 => mean(v),
         2 => Ok(v.len() as f64),
-        4 => Ok(extreme(&v, true)),
-        5 => Ok(extreme(&v, false)),
-        6 => Ok(if v.is_empty() { 0.0 } else { v.iter().product() }),
-        7 => variance(&v, true).map(f64::sqrt),
-        8 => variance(&v, false).map(f64::sqrt),
+        4 => Ok(extreme(v, true)),
+        5 => Ok(extreme(v, false)),
+        6 => Ok(if v.is_empty() {
+            0.0
+        } else {
+            v.iter().product()
+        }),
+        7 => variance(v, true).map(f64::sqrt),
+        8 => variance(v, false).map(f64::sqrt),
         9 => Ok(v.iter().sum()),
-        10 => variance(&v, true),
-        11 => variance(&v, false),
+        10 => variance(v, true),
+        11 => variance(v, false),
         _ => Err(ErrorKind::Value),
     }
 }
@@ -734,7 +747,7 @@ fn subtotal(ctx: &mut Ctx, args: &[Value]) -> R {
         return Ok(Value::Number(count_nonblank(ctx, refs, opt)));
     }
     let v = gather(ctx, refs, opt)?;
-    num(basic_stat(base, v)?)
+    num(basic_stat(base, &v)?)
 }
 
 fn aggregate(ctx: &mut Ctx, args: &[Value]) -> R {
@@ -760,7 +773,7 @@ fn aggregate(ctx: &mut Ctx, args: &[Value]) -> R {
             }
             let v = gather(ctx, refs, opt)?;
             let r = match code {
-                1..=11 => basic_stat(code, v)?,
+                1..=11 => basic_stat(code, &v)?,
                 12 => median_of(v)?,
                 _ => mode_of(&v)?,
             };

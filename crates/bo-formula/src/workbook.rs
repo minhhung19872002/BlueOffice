@@ -245,7 +245,13 @@ impl Workbook {
     }
 
     /// Set a formula (with or without leading `=`).
-    pub fn set_formula(&mut self, sheet: usize, row: u32, col: u32, formula: &str) -> Result<(), ParseError> {
+    pub fn set_formula(
+        &mut self,
+        sheet: usize,
+        row: u32,
+        col: u32,
+        formula: &str,
+    ) -> Result<(), ParseError> {
         let opts = ParseOptions {
             origin_row: row,
             origin_col: col,
@@ -256,7 +262,14 @@ impl Workbook {
         Ok(())
     }
 
-    fn set_formula_expr(&mut self, sheet: usize, row: u32, col: u32, expr: Expr, text: Option<String>) {
+    fn set_formula_expr(
+        &mut self,
+        sheet: usize,
+        row: u32,
+        col: u32,
+        expr: Expr,
+        text: Option<String>,
+    ) {
         if sheet >= self.sheets.len() {
             return;
         }
@@ -268,7 +281,11 @@ impl Workbook {
         if volatile {
             self.volatile.insert(id);
         }
-        let old = self.sheets[sheet].cells.remove(&(row, col)).map(|c| c.value).unwrap_or_default();
+        let old = self.sheets[sheet]
+            .cells
+            .remove(&(row, col))
+            .map(|c| c.value)
+            .unwrap_or_default();
         self.sheets[sheet].cells.insert(
             (row, col),
             CellData {
@@ -282,7 +299,13 @@ impl Workbook {
 
     /// Set a cell from user input: `=...` is a formula, numbers/booleans/error
     /// literals are parsed, empty clears, anything else is text.
-    pub fn set_input(&mut self, sheet: usize, row: u32, col: u32, input: &str) -> Result<(), ParseError> {
+    pub fn set_input(
+        &mut self,
+        sheet: usize,
+        row: u32,
+        col: u32,
+        input: &str,
+    ) -> Result<(), ParseError> {
         if input.starts_with('=') && input.len() > 1 {
             return self.set_formula(sheet, row, col, input);
         }
@@ -347,7 +370,12 @@ impl Workbook {
     }
 
     /// Define a name (workbook scope when `scope` is `None`).
-    pub fn define_name(&mut self, name: &str, scope: Option<usize>, formula: &str) -> Result<(), ParseError> {
+    pub fn define_name(
+        &mut self,
+        name: &str,
+        scope: Option<usize>,
+        formula: &str,
+    ) -> Result<(), ParseError> {
         let expr = parse_with(formula, &ParseOptions::default())?;
         self.names.insert((scope, name.to_uppercase()), expr);
         self.rebuild_dependencies();
@@ -356,7 +384,8 @@ impl Workbook {
 
     /// Register a table for structured references.
     pub fn add_table(&mut self, table: TableInfo) {
-        self.tables.retain(|t| !t.name.eq_ignore_ascii_case(&table.name));
+        self.tables
+            .retain(|t| !t.name.eq_ignore_ascii_case(&table.name));
         self.tables.push(table);
         self.rebuild_dependencies();
     }
@@ -370,7 +399,13 @@ impl Workbook {
 
     /// Evaluate an ad-hoc formula as if it were in (`sheet`, `row`, `col`)
     /// against current values (no spilling, nothing stored).
-    pub fn evaluate(&self, sheet: usize, row: u32, col: u32, formula: &str) -> Result<Value, ParseError> {
+    pub fn evaluate(
+        &self,
+        sheet: usize,
+        row: u32,
+        col: u32,
+        formula: &str,
+    ) -> Result<Value, ParseError> {
         let opts = ParseOptions {
             origin_row: row,
             origin_col: col,
@@ -393,8 +428,12 @@ impl Workbook {
         let mut moved = FxHashMap::default();
         for ((r, c), data) in old {
             let pos = match change {
-                StructuralChange::InsertRows { at, count } => Some((if r >= at { r + count } else { r }, c)),
-                StructuralChange::InsertCols { at, count } => Some((r, if c >= at { c + count } else { c })),
+                StructuralChange::InsertRows { at, count } => {
+                    Some((if r >= at { r + count } else { r }, c))
+                }
+                StructuralChange::InsertCols { at, count } => {
+                    Some((r, if c >= at { c + count } else { c }))
+                }
                 StructuralChange::DeleteRows { at, count } => {
                     if r >= at && r < at + count {
                         None
@@ -468,7 +507,10 @@ impl Workbook {
             if a.size() <= SMALL_AREA {
                 for r in a.r1..=a.r2 {
                     for c in a.c1..=a.c2 {
-                        self.dependents.entry(CellId::new(a.sheet, r, c)).or_default().push(id);
+                        self.dependents
+                            .entry(CellId::new(a.sheet, r, c))
+                            .or_default()
+                            .push(id);
                     }
                 }
             } else {
@@ -513,7 +555,14 @@ impl Workbook {
         (areas, volatile)
     }
 
-    fn collect_into(&self, expr: &Expr, sheet: usize, areas: &mut Vec<Area>, volatile: &mut bool, depth: u32) {
+    fn collect_into(
+        &self,
+        expr: &Expr,
+        sheet: usize,
+        areas: &mut Vec<Area>,
+        volatile: &mut bool,
+        depth: u32,
+    ) {
         if depth > 32 {
             return;
         }
@@ -534,11 +583,23 @@ impl Workbook {
                     None => None,
                 };
                 if let Some(t) = t {
-                    areas.push(Area::new(t.sheet, t.first_row, t.first_col, t.last_row, t.last_col()));
+                    areas.push(Area::new(
+                        t.sheet,
+                        t.first_row,
+                        t.first_col,
+                        t.last_row,
+                        t.last_col(),
+                    ));
                 } else if s.table.is_none() {
                     // In-table shorthand: depend on every table on this sheet.
                     for t in self.tables.iter().filter(|t| t.sheet == sheet) {
-                        areas.push(Area::new(t.sheet, t.first_row, t.first_col, t.last_row, t.last_col()));
+                        areas.push(Area::new(
+                            t.sheet,
+                            t.first_row,
+                            t.first_col,
+                            t.last_row,
+                            t.last_col(),
+                        ));
                     }
                 }
             }
@@ -682,7 +743,8 @@ impl Workbook {
         }
         let mut nodes: Vec<CellId> = dirty.iter().copied().collect();
         nodes.sort_unstable();
-        let index: FxHashMap<CellId, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+        let index: FxHashMap<CellId, usize> =
+            nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
         let adj = self.adjacency(&nodes, &index);
         let sccs = tarjan(&adj);
         let mut pending = dirty;
@@ -716,7 +778,12 @@ impl Workbook {
     }
 
     /// Evaluate one cell; dynamic reads of uncomputed cells are computed first.
-    fn calc_one(&mut self, id: CellId, pending: &mut FxHashSet<CellId>, in_progress: &mut FxHashSet<CellId>) {
+    fn calc_one(
+        &mut self,
+        id: CellId,
+        pending: &mut FxHashSet<CellId>,
+        in_progress: &mut FxHashSet<CellId>,
+    ) {
         let mut stack = vec![id];
         while let Some(&top) = stack.last() {
             if !pending.contains(&top) {
@@ -826,10 +893,14 @@ impl Workbook {
             v => v,
         };
         let new_area = self.spills.get(&id).copied();
-        let spilled_changed = old_area != new_area || (new_area.is_some() && {
-            let cur = self.sheets[id.sheet].cells.get(&(id.row, id.col)).map(|c| &c.value);
-            cur != Some(&v)
-        });
+        let spilled_changed = old_area != new_area
+            || (new_area.is_some() && {
+                let cur = self.sheets[id.sheet]
+                    .cells
+                    .get(&(id.row, id.col))
+                    .map(|c| &c.value);
+                cur != Some(&v)
+            });
         if let Some(cell) = self.sheets[id.sheet].cells.get_mut(&(id.row, id.col)) {
             cell.value = v;
         }
@@ -1002,7 +1073,11 @@ impl CellProvider for Workbook {
         self.tables
             .iter()
             .find(|t| {
-                t.sheet == sheet && row >= t.first_row && row <= t.last_row && col >= t.first_col && col <= t.last_col()
+                t.sheet == sheet
+                    && row >= t.first_row
+                    && row <= t.last_row
+                    && col >= t.first_col
+                    && col <= t.last_col()
             })
             .cloned()
     }
@@ -1042,7 +1117,8 @@ impl CellProvider for RecalcView<'_> {
 
     fn cell_value(&self, sheet: usize, row: u32, col: u32) -> Value {
         let id = CellId::new(sheet, row, col);
-        if !self.pending.is_empty() && self.pending.contains(&id) && !self.in_progress.contains(&id) {
+        if !self.pending.is_empty() && self.pending.contains(&id) && !self.in_progress.contains(&id)
+        {
             self.misses.borrow_mut().push(id);
         }
         self.wb.read(id)

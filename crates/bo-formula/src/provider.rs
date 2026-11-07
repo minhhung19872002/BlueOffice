@@ -64,8 +64,9 @@ pub trait CellProvider {
     /// Find a sheet by name (case-insensitive).
     fn sheet_index(&self, name: &str) -> Option<usize> {
         (0..self.sheet_count()).find(|&i| {
-            self.sheet_name(i)
-                .is_some_and(|n| n.eq_ignore_ascii_case(name) || n.to_lowercase() == name.to_lowercase())
+            self.sheet_name(i).is_some_and(|n| {
+                n.eq_ignore_ascii_case(name) || n.to_lowercase() == name.to_lowercase()
+            })
         })
     }
 

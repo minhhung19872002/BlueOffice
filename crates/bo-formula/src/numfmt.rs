@@ -190,14 +190,21 @@ pub fn format_number(x: f64, fmt: &str, system: DateSystem) -> String {
     if toks.is_empty() {
         return String::new();
     }
-    if toks.iter().any(|t| matches!(t, Tok::Date(_) | Tok::AmPm(_))) {
+    if toks
+        .iter()
+        .any(|t| matches!(t, Tok::Date(_) | Tok::AmPm(_)))
+    {
         return format_date(value, &toks, system);
     }
     if toks.iter().any(|t| matches!(t, Tok::General)) {
         let mut out = String::new();
         for t in &toks {
             match t {
-                Tok::General => out.push_str(&number_to_text(if auto_minus { value } else { value.abs() })),
+                Tok::General => out.push_str(&number_to_text(if auto_minus {
+                    value
+                } else {
+                    value.abs()
+                })),
                 Tok::Lit(s) => out.push_str(s),
                 _ => {}
             }
@@ -238,7 +245,7 @@ fn group_thousands(digits: &str) -> String {
     let mut out = String::new();
     let n = digits.len();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (n - i) % 3 == 0 {
+        if i > 0 && (n - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -270,7 +277,10 @@ fn format_numeric(x: f64, toks: &[Tok], auto_minus: bool) -> String {
         x *= 100.0;
     }
     let exp_pos = toks.iter().position(|t| matches!(t, Tok::Exp(_)));
-    let dot_pos = toks[first..=last].iter().position(|t| *t == Tok::Dot).map(|p| p + first);
+    let dot_pos = toks[first..=last]
+        .iter()
+        .position(|t| *t == Tok::Dot)
+        .map(|p| p + first);
     let int_end = dot_pos.or(exp_pos).unwrap_or(last + 1);
     // Commas right after the last integer placeholder scale by 1000.
     let mut scale_commas = 0;
@@ -291,14 +301,26 @@ fn format_numeric(x: f64, toks: &[Tok], auto_minus: bool) -> String {
     }
     let int_toks: Vec<char> = toks[first..int_end]
         .iter()
-        .filter_map(|t| if let Tok::Digit(c) = t { Some(*c) } else { None })
+        .filter_map(|t| {
+            if let Tok::Digit(c) = t {
+                Some(*c)
+            } else {
+                None
+            }
+        })
         .collect();
     let thousands = toks[first..j].contains(&Tok::Comma);
     let frac_end = exp_pos.unwrap_or(last + 1);
     let frac_toks: Vec<char> = match dot_pos {
         Some(d) => toks[d + 1..frac_end]
             .iter()
-            .filter_map(|t| if let Tok::Digit(c) = t { Some(*c) } else { None })
+            .filter_map(|t| {
+                if let Tok::Digit(c) = t {
+                    Some(*c)
+                } else {
+                    None
+                }
+            })
             .collect(),
         None => Vec::new(),
     };
@@ -316,7 +338,11 @@ fn format_numeric(x: f64, toks: &[Tok], auto_minus: bool) -> String {
         a /= 10f64.powi(e);
         // Rounding may push the mantissa to the next power of ten.
         let r = round_half_away(a, frac_toks.len());
-        let (a2, e2) = if r >= 10f64.powi(int_count) { (r / 10.0, e + 1) } else { (r, e) };
+        let (a2, e2) = if r >= 10f64.powi(int_count) {
+            (r / 10.0, e + 1)
+        } else {
+            (r, e)
+        };
         a = a2;
         let plus = matches!(toks[ep], Tok::Exp(true));
         let exp_digits = toks[ep + 1..]
@@ -381,7 +407,11 @@ fn format_numeric(x: f64, toks: &[Tok], auto_minus: bool) -> String {
     }
     out.push_str(&exp_str);
     let after = exp_pos.map_or(last + 1, |e| {
-        e + 1 + toks[e + 1..].iter().take_while(|t| matches!(t, Tok::Digit(_))).count()
+        e + 1
+            + toks[e + 1..]
+                .iter()
+                .take_while(|t| matches!(t, Tok::Digit(_)))
+                .count()
     });
     for t in toks[first..].iter().take(after.saturating_sub(first)) {
         if let Tok::Lit(s) = t {
@@ -410,15 +440,13 @@ fn format_date(x: f64, toks: &[Tok], system: DateSystem) -> String {
             [Tok::Date(s), Tok::Dot] if s.starts_with('s') => Some(()),
             _ => None,
         })
-        .map(|()| {
-            let start = toks
+        .map_or(0, |()| {
+            let start = toks.iter().position(|t| *t == Tok::Dot).unwrap_or(0) + 1;
+            toks[start..]
                 .iter()
-                .position(|t| *t == Tok::Dot)
-                .unwrap_or(0)
-                + 1;
-            toks[start..].iter().take_while(|t| **t == Tok::Digit('0')).count()
-        })
-        .unwrap_or(0);
+                .take_while(|t| **t == Tok::Digit('0'))
+                .count()
+        });
     let total_secs = if frac_digits > 0 {
         (x - x.floor()) * 86_400.0
     } else {
@@ -438,7 +466,9 @@ fn format_date(x: f64, toks: &[Tok], system: DateSystem) -> String {
                     .iter()
                     .rev()
                     .find(|t| matches!(t, Tok::Date(_)))
-                    .is_some_and(|t| matches!(t, Tok::Date(c) if c.starts_with('h') || c.starts_with("[h")));
+                    .is_some_and(
+                        |t| matches!(t, Tok::Date(c) if c.starts_with('h') || c.starts_with("[h")),
+                    );
                 let next_is_sec = toks[i + 1..]
                     .iter()
                     .find(|t| matches!(t, Tok::Date(_)))
@@ -461,7 +491,9 @@ fn format_date(x: f64, toks: &[Tok], system: DateSystem) -> String {
                     "d" => d.to_string(),
                     "dd" => format!("{d:02}"),
                     "ddd" => DAY_NAMES[weekday_sun0(x, system) as usize][..3].to_owned(),
-                    c if c.starts_with('d') => DAY_NAMES[weekday_sun0(x, system) as usize].to_owned(),
+                    c if c.starts_with('d') => {
+                        DAY_NAMES[weekday_sun0(x, system) as usize].to_owned()
+                    }
                     "h" | "hh" => {
                         let hh = if has_ampm {
                             if h % 12 == 0 {
@@ -498,7 +530,7 @@ fn format_date(x: f64, toks: &[Tok], system: DateSystem) -> String {
             }
             Tok::Dot if frac_digits > 0 => {
                 let frac = total_secs - total_secs.floor();
-                let digits = format!("{:.*}", frac_digits, frac);
+                let digits = format!("{frac:.frac_digits$}");
                 out.push_str(digits.trim_start_matches('0'));
                 i += 1 + frac_digits;
                 continue;

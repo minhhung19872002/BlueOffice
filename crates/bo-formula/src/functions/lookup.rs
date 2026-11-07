@@ -123,7 +123,11 @@ fn find_nearest(needle: &Value, vals: &[Value], larger: bool, reverse: bool) -> 
             continue;
         }
         let ord = compare_values(v, needle);
-        let ok = if larger { ord == Ordering::Greater } else { ord == Ordering::Less };
+        let ok = if larger {
+            ord == Ordering::Greater
+        } else {
+            ord == Ordering::Less
+        };
         if !ok {
             continue;
         }
@@ -182,7 +186,9 @@ impl Grid {
     }
 
     fn column(&self, c: usize) -> Vec<Value> {
-        (0..self.rows()).map(|r| self.arr.get(r, c).clone()).collect()
+        (0..self.rows())
+            .map(|r| self.arr.get(r, c).clone())
+            .collect()
     }
 
     fn row(&self, r: usize) -> Vec<Value> {
@@ -297,11 +303,17 @@ fn match_fn(ctx: &mut Ctx, args: &[Value]) -> R {
     } else {
         find_ge_sorted(&needle, &vals)
     };
-    pos.map(|p| Value::Number((p + 1) as f64)).ok_or(ErrorKind::NA)
+    pos.map(|p| Value::Number((p + 1) as f64))
+        .ok_or(ErrorKind::NA)
 }
 
 /// XLOOKUP/XMATCH search over a vector.
-fn x_find(needle: &Value, vals: &[Value], match_mode: i64, search_mode: i64) -> Result<Option<usize>, ErrorKind> {
+fn x_find(
+    needle: &Value,
+    vals: &[Value],
+    match_mode: i64,
+    search_mode: i64,
+) -> Result<Option<usize>, ErrorKind> {
     let reverse = match search_mode {
         1 | 2 => false,
         -1 | -2 => true,
@@ -371,12 +383,24 @@ fn index(ctx: &mut Ctx, args: &[Value]) -> R {
     let (r, c) = (r as usize, c as usize);
     let (rows, cols) = (grid.rows(), grid.cols());
     // A single index into a 1-D vector selects along its length.
-    let (r, c) = if args.len() == 2 && rows == 1 && cols > 1 { (1, r) } else { (r, c) };
+    let (r, c) = if args.len() == 2 && rows == 1 && cols > 1 {
+        (1, r)
+    } else {
+        (r, c)
+    };
     if r > rows || c > cols {
         return Err(ErrorKind::Ref);
     }
-    let (r1, r2) = if r == 0 { (0, rows - 1) } else { (r - 1, r - 1) };
-    let (c1, c2) = if c == 0 { (0, cols - 1) } else { (c - 1, c - 1) };
+    let (r1, r2) = if r == 0 {
+        (0, rows - 1)
+    } else {
+        (r - 1, r - 1)
+    };
+    let (c1, c2) = if c == 0 {
+        (0, cols - 1)
+    } else {
+        (c - 1, c - 1)
+    };
     Ok(grid.block(r1, c1, r2, c2))
 }
 
@@ -434,12 +458,22 @@ fn offset(ctx: &mut Ctx, args: &[Value]) -> R {
     let r1 = i64::from(a.r1) + dr;
     let c1 = i64::from(a.c1) + dc;
     // Negative height/width extend upward/leftward.
-    let (r1, r2) = if h > 0 { (r1, r1 + h - 1) } else { (r1 + h + 1, r1) };
-    let (c1, c2) = if w > 0 { (c1, c1 + w - 1) } else { (c1 + w + 1, c1) };
+    let (r1, r2) = if h > 0 {
+        (r1, r1 + h - 1)
+    } else {
+        (r1 + h + 1, r1)
+    };
+    let (c1, c2) = if w > 0 {
+        (c1, c1 + w - 1)
+    } else {
+        (c1 + w + 1, c1)
+    };
     if r1 < 0 || c1 < 0 || r2 >= i64::from(MAX_ROWS) || c2 >= i64::from(MAX_COLS) {
         return Err(ErrorKind::Ref);
     }
-    Ok(Value::Ref(Area::new(a.sheet, r1 as u32, c1 as u32, r2 as u32, c2 as u32)))
+    Ok(Value::Ref(Area::new(
+        a.sheet, r1 as u32, c1 as u32, r2 as u32, c2 as u32,
+    )))
 }
 
 fn indirect(ctx: &mut Ctx, args: &[Value]) -> R {
@@ -451,7 +485,10 @@ fn indirect(ctx: &mut Ctx, args: &[Value]) -> R {
         origin_col: ctx.col,
     };
     let expr = parse_with(text.trim(), &opts).map_err(|_| ErrorKind::Ref)?;
-    if !matches!(expr, Expr::Ref(_) | Expr::Name { .. } | Expr::Binary(..) | Expr::Structured(_)) {
+    if !matches!(
+        expr,
+        Expr::Ref(_) | Expr::Name { .. } | Expr::Binary(..) | Expr::Structured(_)
+    ) {
         return Err(ErrorKind::Ref);
     }
     match ctx.eval(&expr) {
@@ -478,7 +515,9 @@ fn row(ctx: &mut Ctx, args: &[Value]) -> R {
     if a.r1 == a.r2 {
         return Ok(Value::Number(f64::from(a.r1 + 1)));
     }
-    let data = (a.r1..=a.r2).map(|r| Value::Number(f64::from(r + 1))).collect();
+    let data = (a.r1..=a.r2)
+        .map(|r| Value::Number(f64::from(r + 1)))
+        .collect();
     Ok(Array::new(a.rows() as usize, 1, data).into())
 }
 
@@ -490,7 +529,9 @@ fn column(ctx: &mut Ctx, args: &[Value]) -> R {
     if a.c1 == a.c2 {
         return Ok(Value::Number(f64::from(a.c1 + 1)));
     }
-    let data = (a.c1..=a.c2).map(|c| Value::Number(f64::from(c + 1))).collect();
+    let data = (a.c1..=a.c2)
+        .map(|c| Value::Number(f64::from(c + 1)))
+        .collect();
     Ok(Array::new(1, a.cols() as usize, data).into())
 }
 
@@ -515,7 +556,9 @@ fn columns(_ctx: &mut Ctx, args: &[Value]) -> R {
 }
 
 fn quote_sheet(name: &str) -> String {
-    if name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+    if name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
         && !name.starts_with(|c: char| c.is_ascii_digit())
     {
         name.to_owned()
@@ -529,7 +572,12 @@ fn address(ctx: &mut Ctx, args: &[Value]) -> R {
     let c = ctx.num(&args[1])?.trunc();
     let abs = opt_num(ctx, args, 2, 1.0)?.trunc() as i64;
     let a1 = opt_bool(ctx, args, 3, true)?;
-    if r < 1.0 || c < 1.0 || r > f64::from(MAX_ROWS) || c > f64::from(MAX_COLS) || !(1..=4).contains(&abs) {
+    if r < 1.0
+        || c < 1.0
+        || r > f64::from(MAX_ROWS)
+        || c > f64::from(MAX_COLS)
+        || !(1..=4).contains(&abs)
+    {
         return Err(ErrorKind::Value);
     }
     let (row_abs, col_abs) = match abs {
@@ -595,7 +643,9 @@ fn rows_of(a: &Array) -> Vec<Vec<Value>> {
 }
 
 fn from_rows(rows: Vec<Vec<Value>>) -> R {
-    Array::from_rows(rows).map(Value::from).ok_or(ErrorKind::Calc)
+    Array::from_rows(rows)
+        .map(Value::from)
+        .ok_or(ErrorKind::Calc)
 }
 
 fn filter(ctx: &mut Ctx, args: &[Value]) -> R {
@@ -693,7 +743,9 @@ fn sort(ctx: &mut Ctx, args: &[Value]) -> R {
             })
             .collect::<Result<_, _>>()?,
     };
-    if idx.iter().any(|i| *i < 1 || *i > a.cols()) || (orders.len() != idx.len() && orders.len() != 1) {
+    if idx.iter().any(|i| *i < 1 || *i > a.cols())
+        || (orders.len() != idx.len() && orders.len() != 1)
+    {
         return Err(ErrorKind::Value);
     }
     let orders: Vec<bool> = if orders.len() == idx.len() {
@@ -706,7 +758,8 @@ fn sort(ctx: &mut Ctx, args: &[Value]) -> R {
         .map(|r| (idx.iter().map(|i| r[i - 1].clone()).collect(), r))
         .collect();
     sort_keyed(&mut keyed, &orders);
-    let out = Array::from_rows(keyed.into_iter().map(|(_, r)| r).collect()).ok_or(ErrorKind::Calc)?;
+    let out =
+        Array::from_rows(keyed.into_iter().map(|(_, r)| r).collect()).ok_or(ErrorKind::Calc)?;
     Ok(if by_col { out.transpose() } else { out }.into())
 }
 
@@ -728,7 +781,9 @@ fn sortby(ctx: &mut Ctx, args: &[Value]) -> R {
         orders.push(asc);
         i += 2;
     }
-    let by_col = keys.first().is_some_and(|k| k.rows() == 1 && k.cols() == a.cols() && a.rows() != k.cols());
+    let by_col = keys
+        .first()
+        .is_some_and(|k| k.rows() == 1 && k.cols() == a.cols() && a.rows() != k.cols());
     let a = if by_col { Arc::new(a.transpose()) } else { a };
     let n = a.rows();
     let key_vals: Vec<Vec<Value>> = keys
@@ -748,7 +803,8 @@ fn sortby(ctx: &mut Ctx, args: &[Value]) -> R {
         .map(|(r, row)| (key_vals.iter().map(|k| k[r].clone()).collect(), row))
         .collect();
     sort_keyed(&mut keyed, &orders);
-    let out = Array::from_rows(keyed.into_iter().map(|(_, r)| r).collect()).ok_or(ErrorKind::Calc)?;
+    let out =
+        Array::from_rows(keyed.into_iter().map(|(_, r)| r).collect()).ok_or(ErrorKind::Calc)?;
     Ok(if by_col { out.transpose() } else { out }.into())
 }
 
@@ -783,7 +839,10 @@ fn transpose(ctx: &mut Ctx, args: &[Value]) -> R {
 }
 
 fn stack(ctx: &Ctx, args: &[Value], horizontal: bool) -> R {
-    let arrays: Vec<Arc<Array>> = args.iter().map(|v| array_arg(ctx, v)).collect::<Result<_, _>>()?;
+    let arrays: Vec<Arc<Array>> = args
+        .iter()
+        .map(|v| array_arg(ctx, v))
+        .collect::<Result<_, _>>()?;
     let pad = Value::Error(ErrorKind::NA);
     if horizontal {
         let rows = arrays.iter().map(|a| a.rows()).max().unwrap_or(1);
@@ -792,7 +851,13 @@ fn stack(ctx: &Ctx, args: &[Value], horizontal: bool) -> R {
                 arrays
                     .iter()
                     .flat_map(|a| (0..a.cols()).map(move |c| (a, c)))
-                    .map(|(a, c)| if r < a.rows() { a.get(r, c).clone() } else { pad.clone() })
+                    .map(|(a, c)| {
+                        if r < a.rows() {
+                            a.get(r, c).clone()
+                        } else {
+                            pad.clone()
+                        }
+                    })
                     .collect()
             })
             .collect();

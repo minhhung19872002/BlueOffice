@@ -85,7 +85,12 @@ fn len(ctx: &mut Ctx, args: &[Value]) -> R {
 }
 
 /// Character index of `needle` in `hay` starting at char `start` (0-based).
-fn char_find(hay: &[char], needle: &[char], start: usize, eq: impl Fn(&[char], usize) -> bool) -> Option<usize> {
+fn char_find(
+    hay: &[char],
+    needle: &[char],
+    start: usize,
+    eq: impl Fn(&[char], usize) -> bool,
+) -> Option<usize> {
     if needle.is_empty() {
         return (start <= hay.len()).then_some(start);
     }
@@ -99,8 +104,11 @@ fn find(ctx: &mut Ctx, args: &[Value]) -> R {
     if start < 1.0 || start as usize > hay.len() + 1 {
         return Err(ErrorKind::Value);
     }
-    let pos = char_find(&hay, &needle, start as usize - 1, |h, i| h[i..].starts_with(&needle));
-    pos.map(|p| Value::Number((p + 1) as f64)).ok_or(ErrorKind::Value)
+    let pos = char_find(&hay, &needle, start as usize - 1, |h, i| {
+        h[i..].starts_with(&needle)
+    });
+    pos.map(|p| Value::Number((p + 1) as f64))
+        .ok_or(ErrorKind::Value)
 }
 
 fn search(ctx: &mut Ctx, args: &[Value]) -> R {
@@ -201,13 +209,18 @@ fn proper(ctx: &mut Ctx, args: &[Value]) -> R {
 fn trim(ctx: &mut Ctx, args: &[Value]) -> R {
     let s = txt(ctx, args, 0)?;
     Ok(Value::Text(
-        s.split(' ').filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" "),
+        s.split(' ')
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .join(" "),
     ))
 }
 
 fn clean(ctx: &mut Ctx, args: &[Value]) -> R {
     let s = txt(ctx, args, 0)?;
-    Ok(Value::Text(s.chars().filter(|c| u32::from(*c) >= 32).collect()))
+    Ok(Value::Text(
+        s.chars().filter(|c| u32::from(*c) >= 32).collect(),
+    ))
 }
 
 fn text(ctx: &mut Ctx, args: &[Value]) -> R {
@@ -215,17 +228,15 @@ fn text(ctx: &mut Ctx, args: &[Value]) -> R {
     let n = match &args[0] {
         Value::Error(e) => return Err(*e),
         Value::Number(n) => Some(*n),
-        Value::Bool(_) => None,
         Value::Empty => Some(0.0),
         Value::Text(s) => text_to_number(s, ctx.date_system),
         _ => None,
     };
-    match n {
-        Some(n) => Ok(Value::Text(format_number(n, &fmt, ctx.date_system))),
-        None => {
-            let s = txt(ctx, args, 0)?;
-            Ok(Value::Text(crate::numfmt::format_text(&s, &fmt)))
-        }
+    if let Some(n) = n {
+        Ok(Value::Text(format_number(n, &fmt, ctx.date_system)))
+    } else {
+        let s = txt(ctx, args, 0)?;
+        Ok(Value::Text(crate::numfmt::format_text(&s, &fmt)))
     }
 }
 
@@ -344,7 +355,9 @@ fn textsplit(ctx: &mut Ctx, args: &[Value]) -> R {
     for r in &mut rows {
         r.resize(width, pad.clone());
     }
-    Array::from_rows(rows).map(Value::from).ok_or(ErrorKind::Calc)
+    Array::from_rows(rows)
+        .map(Value::from)
+        .ok_or(ErrorKind::Calc)
 }
 
 /// Shared implementation of TEXTBEFORE / TEXTAFTER.
@@ -406,7 +419,11 @@ fn text_around(ctx: &Ctx, args: &[Value], before: bool) -> R {
     let Some(&(a, b)) = matches.get(idx) else {
         return not_found();
     };
-    Ok(Value::Text(if before { s[..a].to_owned() } else { s[b..].to_owned() }))
+    Ok(Value::Text(if before {
+        s[..a].to_owned()
+    } else {
+        s[b..].to_owned()
+    }))
 }
 
 fn textbefore(ctx: &mut Ctx, args: &[Value]) -> R {

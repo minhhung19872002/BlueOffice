@@ -49,7 +49,9 @@ fn iserror(_ctx: &mut Ctx, args: &[Value]) -> R {
 }
 
 fn iserr(_ctx: &mut Ctx, args: &[Value]) -> R {
-    Ok(Value::Bool(matches!(args[0], Value::Error(e) if e != ErrorKind::NA)))
+    Ok(Value::Bool(
+        matches!(args[0], Value::Error(e) if e != ErrorKind::NA),
+    ))
 }
 
 fn isna(_ctx: &mut Ctx, args: &[Value]) -> R {
@@ -61,12 +63,17 @@ fn islogical(_ctx: &mut Ctx, args: &[Value]) -> R {
 }
 
 fn isref(_ctx: &mut Ctx, args: &[Value]) -> R {
-    Ok(Value::Bool(matches!(args[0], Value::Ref(_) | Value::Refs(_))))
+    Ok(Value::Bool(matches!(
+        args[0],
+        Value::Ref(_) | Value::Refs(_)
+    )))
 }
 
 fn isformula(ctx: &mut Ctx, args: &[Value]) -> R {
     match &args[0] {
-        Value::Ref(a) => Ok(Value::Bool(ctx.provider.cell_formula(a.sheet, a.r1, a.c1).is_some())),
+        Value::Ref(a) => Ok(Value::Bool(
+            ctx.provider.cell_formula(a.sheet, a.r1, a.c1).is_some(),
+        )),
         Value::Error(e) => Err(*e),
         _ => Err(ErrorKind::Value),
     }

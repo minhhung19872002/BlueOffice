@@ -126,8 +126,7 @@ impl Parser {
     /// Parse an expression whose operators all bind tighter than `min`.
     fn expr(&mut self, min: u8, allow_union: bool) -> Result<Expr, ParseError> {
         let mut lhs = self.prefix(allow_union)?;
-        loop {
-            let Some(tok) = self.peek() else { break };
+        while let Some(tok) = self.peek() {
             let op = match &tok.tok {
                 Tok::Colon => Some(BinaryOp::Range),
                 Tok::Comma if allow_union => Some(BinaryOp::Union),
@@ -333,8 +332,14 @@ mod tests {
             RefKind::Range(CellAddr::absolute(0, 0), CellAddr::new(1, 1))
         );
         assert!(parse("LOG10(100)").is_ok());
-        assert!(matches!(parse("A1 B1").unwrap(), Expr::Binary(BinaryOp::Intersect, ..)));
-        assert!(matches!(parse("(A1,B1)").unwrap(), Expr::Binary(BinaryOp::Union, ..)));
+        assert!(matches!(
+            parse("A1 B1").unwrap(),
+            Expr::Binary(BinaryOp::Intersect, ..)
+        ));
+        assert!(matches!(
+            parse("(A1,B1)").unwrap(),
+            Expr::Binary(BinaryOp::Union, ..)
+        ));
     }
 
     #[test]

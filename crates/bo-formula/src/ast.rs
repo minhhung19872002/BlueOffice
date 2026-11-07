@@ -184,16 +184,23 @@ impl Expr {
                 a.walk(f);
                 b.walk(f);
             }
-            Expr::Call { args, .. } => args.iter().for_each(|e| e.walk(f)),
+            Expr::Call { args, .. } => {
+                for e in args {
+                    e.walk(f);
+                }
+            }
             Expr::Invoke { callee, args } => {
                 callee.walk(f);
-                args.iter().for_each(|e| e.walk(f));
+                for e in args {
+                    e.walk(f);
+                }
             }
             _ => {}
         }
     }
 
     /// Rebuild the expression bottom-up, replacing nodes with `f`'s result.
+    #[must_use]
     pub fn map(&self, f: &mut dyn FnMut(Expr) -> Expr) -> Expr {
         let rebuilt = match self {
             Expr::Array(rows) => Expr::Array(

@@ -170,7 +170,7 @@ pub fn letters_to_col(s: &str) -> Option<u32> {
         }
         n = n * 26 + u32::from(c.to_ascii_uppercase() - b'A' + 1);
     }
-    (n >= 1 && n <= MAX_COLS).then(|| n - 1)
+    (1..=MAX_COLS).contains(&n).then(|| n - 1)
 }
 
 /// Parse an A1 cell address like `$B$3` occupying the whole string.
@@ -286,7 +286,14 @@ mod tests {
 
     #[test]
     fn letters_roundtrip() {
-        for (c, s) in [(0, "A"), (25, "Z"), (26, "AA"), (701, "ZZ"), (702, "AAA"), (16_383, "XFD")] {
+        for (c, s) in [
+            (0, "A"),
+            (25, "Z"),
+            (26, "AA"),
+            (701, "ZZ"),
+            (702, "AAA"),
+            (16_383, "XFD"),
+        ] {
             assert_eq!(col_to_letters(c), s);
             assert_eq!(letters_to_col(s), Some(c));
         }
@@ -298,6 +305,13 @@ mod tests {
         assert_eq!(parse_a1_cell("$B$3"), Some(CellAddr::absolute(2, 1)));
         assert_eq!(parse_a1_cell("A0"), None);
         assert_eq!(parse_a1_cell("A1048577"), None);
-        assert!(matches!(parse_a1_area("A:C"), Some(RefKind::Cols { first: 0, last: 2, .. })));
+        assert!(matches!(
+            parse_a1_area("A:C"),
+            Some(RefKind::Cols {
+                first: 0,
+                last: 2,
+                ..
+            })
+        ));
     }
 }

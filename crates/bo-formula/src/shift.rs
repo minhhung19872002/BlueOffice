@@ -51,7 +51,14 @@ fn axis(change: StructuralChange) -> (bool, bool, u32, u32) {
 }
 
 /// Adjust an interval `[lo, hi]` on one axis. Returns `None` when it is deleted entirely.
-fn adjust_interval(lo: u32, hi: u32, insert: bool, at: u32, count: u32, max: u32) -> Option<(u32, u32)> {
+fn adjust_interval(
+    lo: u32,
+    hi: u32,
+    insert: bool,
+    at: u32,
+    count: u32,
+    max: u32,
+) -> Option<(u32, u32)> {
     if count == 0 {
         return Some((lo, hi));
     }
@@ -111,8 +118,16 @@ fn adjust_kind(kind: RefKind, change: StructuralChange) -> Option<RefKind> {
             };
             (lo, hi) = adjust_interval(lo, hi, insert, at, count, max)?;
             let (mut x, mut y) = (a, b);
-            let a_is_lo = if rows_axis { a.row <= b.row } else { a.col <= b.col };
-            let (lo_ref, hi_ref) = if a_is_lo { (&mut x, &mut y) } else { (&mut y, &mut x) };
+            let a_is_lo = if rows_axis {
+                a.row <= b.row
+            } else {
+                a.col <= b.col
+            };
+            let (lo_ref, hi_ref) = if a_is_lo {
+                (&mut x, &mut y)
+            } else {
+                (&mut y, &mut x)
+            };
             if rows_axis {
                 lo_ref.row = lo;
                 hi_ref.row = hi;
@@ -131,7 +146,8 @@ fn adjust_kind(kind: RefKind, change: StructuralChange) -> Option<RefKind> {
             if !rows_axis {
                 return Some(kind);
             }
-            let (lo, hi) = adjust_interval(first.min(last), first.max(last), insert, at, count, max)?;
+            let (lo, hi) =
+                adjust_interval(first.min(last), first.max(last), insert, at, count, max)?;
             Some(RefKind::Rows {
                 first: lo,
                 last: hi,
@@ -148,7 +164,8 @@ fn adjust_kind(kind: RefKind, change: StructuralChange) -> Option<RefKind> {
             if rows_axis {
                 return Some(kind);
             }
-            let (lo, hi) = adjust_interval(first.min(last), first.max(last), insert, at, count, max)?;
+            let (lo, hi) =
+                adjust_interval(first.min(last), first.max(last), insert, at, count, max)?;
             Some(RefKind::Cols {
                 first: lo,
                 last: hi,
@@ -175,7 +192,9 @@ pub fn adjust_for_change(
                 None => formula_sheet.eq_ignore_ascii_case(changed_sheet),
                 Some(s) => {
                     s.first.eq_ignore_ascii_case(changed_sheet)
-                        || s.last.as_deref().is_some_and(|l| l.eq_ignore_ascii_case(changed_sheet))
+                        || s.last
+                            .as_deref()
+                            .is_some_and(|l| l.eq_ignore_ascii_case(changed_sheet))
                 }
             };
             if !affected {

@@ -282,39 +282,49 @@ fn parse_date_part(s: &str, system: DateSystem) -> Option<f64> {
     for sep in ['-', '/'] {
         let parts: Vec<&str> = t.split(sep).collect();
         if parts.len() == 3 {
-            if let (Some((a, la)), Some((b, _)), Some((c, lc))) =
-                (num_with_len(parts[0]), num_with_len(parts[1]), num_with_len(parts[2]))
-            {
+            if let (Some((a, la)), Some((b, _)), Some((c, lc))) = (
+                num_with_len(parts[0]),
+                num_with_len(parts[1]),
+                num_with_len(parts[2]),
+            ) {
                 // yyyy-mm-dd / yyyy/mm/dd
                 if la == 4 {
-                    return ymd_to_serial(a, u32::try_from(b).ok()?, u32::try_from(c).ok()?, system);
+                    return ymd_to_serial(
+                        a,
+                        u32::try_from(b).ok()?,
+                        u32::try_from(c).ok()?,
+                        system,
+                    );
                 }
                 // m/d/yyyy (en-US default locale)
                 let y = expand_year(c, lc);
                 return ymd_to_serial(y, u32::try_from(a).ok()?, u32::try_from(b).ok()?, system);
             }
             // d-Mon-yyyy
-            if let (Some((d, _)), Some(m), Some((y, ly))) =
-                (num_with_len(parts[0]), month_from_name(parts[1]), num_with_len(parts[2]))
-            {
+            if let (Some((d, _)), Some(m), Some((y, ly))) = (
+                num_with_len(parts[0]),
+                month_from_name(parts[1]),
+                num_with_len(parts[2]),
+            ) {
                 return ymd_to_serial(expand_year(y, ly), m, u32::try_from(d).ok()?, system);
             }
         }
     }
     // "15 January 2020", "January 15, 2020", "Jan 15 2020"
-    let words: Vec<&str> = t
-        .split(|c: char| c == ' ' || c == ',')
-        .filter(|w| !w.is_empty())
-        .collect();
+    let words: Vec<&str> = t.split([' ', ',']).filter(|w| !w.is_empty()).collect();
     if words.len() == 3 {
-        if let (Some((d, _)), Some(m), Some((y, ly))) =
-            (num_with_len(words[0]), month_from_name(words[1]), num_with_len(words[2]))
-        {
+        if let (Some((d, _)), Some(m), Some((y, ly))) = (
+            num_with_len(words[0]),
+            month_from_name(words[1]),
+            num_with_len(words[2]),
+        ) {
             return ymd_to_serial(expand_year(y, ly), m, u32::try_from(d).ok()?, system);
         }
-        if let (Some(m), Some((d, _)), Some((y, ly))) =
-            (month_from_name(words[0]), num_with_len(words[1]), num_with_len(words[2]))
-        {
+        if let (Some(m), Some((d, _)), Some((y, ly))) = (
+            month_from_name(words[0]),
+            num_with_len(words[1]),
+            num_with_len(words[2]),
+        ) {
             return ymd_to_serial(expand_year(y, ly), m, u32::try_from(d).ok()?, system);
         }
     }
@@ -340,7 +350,8 @@ pub fn parse_datetime_text(s: &str, system: DateSystem) -> Option<f64> {
     let split = if let Some(i) = t.find('T').filter(|&i| i == 10) {
         Some((&t[..i], &t[i + 1..]))
     } else {
-        t.find(':').and_then(|colon| t[..colon].rfind(' ').map(|sp| (&t[..sp], &t[sp + 1..])))
+        t.find(':')
+            .and_then(|colon| t[..colon].rfind(' ').map(|sp| (&t[..sp], &t[sp + 1..])))
     };
     let (dp, tp) = split?;
     let d = parse_date_part(dp, system)?;
@@ -408,9 +419,18 @@ mod tests {
     #[test]
     fn text_parsing() {
         let s = DateSystem::Date1900;
-        assert_eq!(parse_datetime_text("2020-01-15", s), ymd_to_serial(2020, 1, 15, s));
-        assert_eq!(parse_datetime_text("1/15/2020", s), ymd_to_serial(2020, 1, 15, s));
-        assert_eq!(parse_datetime_text("15-Jan-2020", s), ymd_to_serial(2020, 1, 15, s));
+        assert_eq!(
+            parse_datetime_text("2020-01-15", s),
+            ymd_to_serial(2020, 1, 15, s)
+        );
+        assert_eq!(
+            parse_datetime_text("1/15/2020", s),
+            ymd_to_serial(2020, 1, 15, s)
+        );
+        assert_eq!(
+            parse_datetime_text("15-Jan-2020", s),
+            ymd_to_serial(2020, 1, 15, s)
+        );
         assert_eq!(parse_datetime_text("12:00", s), Some(0.5));
         assert_eq!(parse_datetime_text("6:00 PM", s), Some(0.75));
         assert_eq!(

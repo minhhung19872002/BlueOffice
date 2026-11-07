@@ -134,7 +134,11 @@ fn sumproduct(ctx: &mut Ctx, args: &[Value]) -> R {
 
 /// Pairs (criteria-range value, sum-range value) where the sum range is resized
 /// to the shape of the criteria range from its top-left cell.
-pub(crate) fn resized_range(ctx: &Ctx, base: &Value, other: &Value) -> Result<Vec<Value>, ErrorKind> {
+pub(crate) fn resized_range(
+    ctx: &Ctx,
+    base: &Value,
+    other: &Value,
+) -> Result<Vec<Value>, ErrorKind> {
     let (rows, cols) = shape(ctx, base);
     match other {
         Value::Ref(a) => {
@@ -153,8 +157,11 @@ pub(crate) fn resized_range(ctx: &Ctx, base: &Value, other: &Value) -> Result<Ve
 }
 
 /// Indices of cells satisfying all (range, criterion) pairs; ranges must share a shape.
-pub(crate) fn ifs_mask(ctx: &Ctx, pairs: &[Value]) -> Result<(Vec<bool>, (usize, usize)), ErrorKind> {
-    if pairs.len() % 2 != 0 || pairs.is_empty() {
+pub(crate) fn ifs_mask(
+    ctx: &Ctx,
+    pairs: &[Value],
+) -> Result<(Vec<bool>, (usize, usize)), ErrorKind> {
+    if !pairs.len().is_multiple_of(2) || pairs.is_empty() {
         return Err(ErrorKind::Value);
     }
     let shp = shape(ctx, &pairs[0]);
@@ -338,7 +345,11 @@ fn log(ctx: &mut Ctx, args: &[Value]) -> R {
     if b == 1.0 {
         return Err(ErrorKind::Div0);
     }
-    let r = if b == 10.0 { x.log10() } else { x.ln() / b.ln() };
+    let r = if b == 10.0 {
+        x.log10()
+    } else {
+        x.ln() / b.ln()
+    };
     num(r)
 }
 
@@ -781,14 +792,22 @@ pub(crate) fn paired_numbers(ctx: &Ctx, args: &[Value]) -> Result<Vec<(f64, f64)
 }
 
 fn sumx2my2(ctx: &mut Ctx, args: &[Value]) -> R {
-    num(paired_numbers(ctx, args)?.iter().map(|(x, y)| x * x - y * y).sum())
+    num(paired_numbers(ctx, args)?
+        .iter()
+        .map(|(x, y)| x * x - y * y)
+        .sum())
 }
 
 fn sumx2py2(ctx: &mut Ctx, args: &[Value]) -> R {
-    num(paired_numbers(ctx, args)?.iter().map(|(x, y)| x * x + y * y).sum())
+    num(paired_numbers(ctx, args)?
+        .iter()
+        .map(|(x, y)| x * x + y * y)
+        .sum())
 }
 
 fn sumxmy2(ctx: &mut Ctx, args: &[Value]) -> R {
-    num(paired_numbers(ctx, args)?.iter().map(|(x, y)| (x - y) * (x - y)).sum())
+    num(paired_numbers(ctx, args)?
+        .iter()
+        .map(|(x, y)| (x - y) * (x - y))
+        .sum())
 }
-

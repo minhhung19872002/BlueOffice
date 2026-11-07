@@ -365,7 +365,9 @@ impl<'a> Lexer<'a> {
     fn scan_ref(&self, s: &str) -> Option<(RefKind, usize)> {
         let found = match self.opts.style {
             RefStyle::A1 => scan_a1_ref(s.as_bytes()),
-            RefStyle::R1C1 => scan_r1c1_ref(s.as_bytes(), self.opts.origin_row, self.opts.origin_col),
+            RefStyle::R1C1 => {
+                scan_r1c1_ref(s.as_bytes(), self.opts.origin_row, self.opts.origin_col)
+            }
         }?;
         // A reference must not run into an identifier or a call: `LOG10(`, `A1B`.
         let next = s[found.1..].chars().next();

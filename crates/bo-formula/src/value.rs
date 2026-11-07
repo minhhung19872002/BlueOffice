@@ -188,7 +188,10 @@ pub struct Array {
 impl Array {
     /// Create an array; `data.len()` must equal `rows * cols` and both dimensions must be > 0.
     pub fn new(rows: usize, cols: usize, data: Vec<Value>) -> Self {
-        assert!(rows > 0 && cols > 0 && data.len() == rows * cols, "bad array shape");
+        assert!(
+            rows > 0 && cols > 0 && data.len() == rows * cols,
+            "bad array shape"
+        );
         Array { rows, cols, data }
     }
 
@@ -261,6 +264,7 @@ impl Array {
     }
 
     /// Transposed copy.
+    #[must_use]
     pub fn transpose(&self) -> Array {
         let mut data = Vec::with_capacity(self.data.len());
         for c in 0..self.cols {
@@ -548,7 +552,12 @@ pub fn parse_number_text(s: &str) -> Option<f64> {
     } else {
         (neg, body)
     };
-    if body.is_empty() || !body.bytes().next().is_some_and(|c| c.is_ascii_digit() || c == b'.') {
+    if body.is_empty()
+        || !body
+            .bytes()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit() || c == b'.')
+    {
         return None;
     }
     let mut cleaned = String::with_capacity(body.len());
@@ -673,7 +682,10 @@ mod tests {
 
     #[test]
     fn compare_rules() {
-        assert_eq!(compare_values(&"abc".into(), &"ABC".into()), Ordering::Equal);
+        assert_eq!(
+            compare_values(&"abc".into(), &"ABC".into()),
+            Ordering::Equal
+        );
         assert_eq!(compare_values(&1.0.into(), &"a".into()), Ordering::Less);
         assert_eq!(compare_values(&"z".into(), &true.into()), Ordering::Less);
         assert_eq!(compare_values(&Value::Empty, &0.0.into()), Ordering::Equal);

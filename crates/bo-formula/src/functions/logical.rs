@@ -67,7 +67,7 @@ fn if_fn(ctx: &mut Ctx, args: &[Expr]) -> R {
 }
 
 fn ifs(ctx: &mut Ctx, args: &[Expr]) -> R {
-    if args.len() % 2 != 0 {
+    if !args.len().is_multiple_of(2) {
         return Err(ErrorKind::Value);
     }
     for pair in args.chunks(2) {

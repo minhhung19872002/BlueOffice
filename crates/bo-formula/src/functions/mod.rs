@@ -1,5 +1,9 @@
 //! Built-in function registry (ECMA-376 Part 1, §18.17.7 predefined function definitions).
 
+// Every built-in shares the registry signature `fn(&mut Ctx, &[Value]) -> R`,
+// so infallible functions still return `Result` and take `&mut Ctx`.
+#![allow(clippy::unnecessary_wraps, clippy::trivially_copy_pass_by_ref)]
+
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -15,7 +19,6 @@ mod lookup;
 mod math;
 mod stats;
 mod text;
-
 
 /// Which arguments are scalar (array arguments in those positions are broadcast).
 #[derive(Clone, Copy, Debug)]
@@ -85,7 +88,13 @@ pub(crate) const fn s(name: &'static str, min: usize, max: usize, func: EagerFn)
 }
 
 /// Eager function with a scalar-argument mask.
-pub(crate) const fn m(name: &'static str, min: usize, max: usize, mask: u32, func: EagerFn) -> FnSpec {
+pub(crate) const fn m(
+    name: &'static str,
+    min: usize,
+    max: usize,
+    mask: u32,
+    func: EagerFn,
+) -> FnSpec {
     FnSpec {
         name,
         min,
@@ -164,7 +173,12 @@ pub(crate) fn opt_num(ctx: &Ctx, args: &[Value], i: usize, default: f64) -> Resu
 }
 
 /// Optional boolean argument.
-pub(crate) fn opt_bool(ctx: &Ctx, args: &[Value], i: usize, default: bool) -> Result<bool, ErrorKind> {
+pub(crate) fn opt_bool(
+    ctx: &Ctx,
+    args: &[Value],
+    i: usize,
+    default: bool,
+) -> Result<bool, ErrorKind> {
     match args.get(i) {
         None | Some(Value::Empty) => Ok(default),
         Some(v) => ctx.boolean(v),
@@ -172,7 +186,12 @@ pub(crate) fn opt_bool(ctx: &Ctx, args: &[Value], i: usize, default: bool) -> Re
 }
 
 /// Optional text argument.
-pub(crate) fn opt_text(ctx: &Ctx, args: &[Value], i: usize, default: &str) -> Result<String, ErrorKind> {
+pub(crate) fn opt_text(
+    ctx: &Ctx,
+    args: &[Value],
+    i: usize,
+    default: &str,
+) -> Result<String, ErrorKind> {
     match args.get(i) {
         None | Some(Value::Empty) => Ok(default.to_owned()),
         Some(v) => ctx.text(v),
@@ -180,6 +199,7 @@ pub(crate) fn opt_text(ctx: &Ctx, args: &[Value], i: usize, default: &str) -> Re
 }
 
 /// How numbers are gathered from aggregate arguments.
+#[allow(clippy::struct_excessive_bools)] // independent option flags
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Gather {
     /// "A" functions: text in ranges counts as 0, booleans as 1/0.
@@ -227,10 +247,8 @@ pub(crate) fn gather(ctx: &Ctx, args: &[Value], opt: Gather) -> Result<Vec<f64>,
                     }
                 }
             }
-            Value::Empty => {
-                if !in_range {
-                    out.push(0.0);
-                }
+            Value::Empty if !in_range => {
+                out.push(0.0);
             }
             _ => {}
         }

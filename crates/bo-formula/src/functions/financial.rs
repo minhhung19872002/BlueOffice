@@ -29,7 +29,11 @@ pub(super) const FUNCTIONS: &[FnSpec] = &[
 ];
 
 fn pay_type(ctx: &Ctx, args: &[Value], i: usize) -> Result<f64, ErrorKind> {
-    Ok(if opt_num(ctx, args, i, 0.0)? == 0.0 { 0.0 } else { 1.0 })
+    Ok(if opt_num(ctx, args, i, 0.0)? == 0.0 {
+        0.0
+    } else {
+        1.0
+    })
 }
 
 pub(crate) fn pmt_f(r: f64, n: f64, pv: f64, fv: f64, t: f64) -> Result<f64, ErrorKind> {
@@ -142,7 +146,11 @@ fn npv(ctx: &mut Ctx, args: &[Value]) -> R {
         .sum())
 }
 
-fn dated_flows(ctx: &Ctx, values: &Value, dates: &Value) -> Result<(Vec<f64>, Vec<f64>), ErrorKind> {
+fn dated_flows(
+    ctx: &Ctx,
+    values: &Value,
+    dates: &Value,
+) -> Result<(Vec<f64>, Vec<f64>), ErrorKind> {
     let to_nums = |v: &Value| -> Result<Vec<f64>, ErrorKind> {
         flatten(ctx, v)
             .iter()
@@ -225,7 +233,7 @@ fn solve(f: &dyn Fn(f64) -> f64, guess: f64, lo: f64, hi: f64) -> Result<f64, Er
     let mut b = b.ok_or(ErrorKind::Num)?;
     let mut fa = f(a);
     for _ in 0..200 {
-        let m = 0.5 * (a + b);
+        let m = f64::midpoint(a, b);
         let fm = f(m);
         if fm.abs() < 1e-12 || (b - a).abs() < 1e-15 {
             return Ok(m);
@@ -237,7 +245,7 @@ fn solve(f: &dyn Fn(f64) -> f64, guess: f64, lo: f64, hi: f64) -> Result<f64, Er
             b = m;
         }
     }
-    Ok(0.5 * (a + b))
+    Ok(f64::midpoint(a, b))
 }
 
 fn irr(ctx: &mut Ctx, args: &[Value]) -> R {
@@ -335,7 +343,8 @@ fn db(ctx: &mut Ctx, args: &[Value]) -> R {
     let life = ctx.num(&args[2])?.trunc();
     let period = ctx.num(&args[3])?.trunc();
     let month = opt_num(ctx, args, 4, 12.0)?.trunc();
-    if cost < 0.0 || salvage < 0.0 || life <= 0.0 || period <= 0.0 || !(1.0..=12.0).contains(&month) {
+    if cost < 0.0 || salvage < 0.0 || life <= 0.0 || period <= 0.0 || !(1.0..=12.0).contains(&month)
+    {
         return Err(ErrorKind::Num);
     }
     let max_period = if month < 12.0 { life + 1.0 } else { life };
@@ -370,7 +379,8 @@ fn ddb(ctx: &mut Ctx, args: &[Value]) -> R {
     let life = ctx.num(&args[2])?;
     let period = ctx.num(&args[3])?;
     let factor = opt_num(ctx, args, 4, 2.0)?;
-    if cost < 0.0 || salvage < 0.0 || life <= 0.0 || period <= 0.0 || period > life || factor <= 0.0 {
+    if cost < 0.0 || salvage < 0.0 || life <= 0.0 || period <= 0.0 || period > life || factor <= 0.0
+    {
         return Err(ErrorKind::Num);
     }
     let rate = (factor / life).min(1.0);
@@ -410,7 +420,14 @@ fn cumulative(ctx: &Ctx, args: &[Value], interest: bool) -> R {
     let start = ctx.num(&args[3])?.trunc();
     let end = ctx.num(&args[4])?.trunc();
     let t = ctx.num(&args[5])?;
-    if r <= 0.0 || n <= 0.0 || pv <= 0.0 || start < 1.0 || end < start || end > n || (t != 0.0 && t != 1.0) {
+    if r <= 0.0
+        || n <= 0.0
+        || pv <= 0.0
+        || start < 1.0
+        || end < start
+        || end > n
+        || (t != 0.0 && t != 1.0)
+    {
         return Err(ErrorKind::Num);
     }
     let p = pmt_f(r, n, pv, 0.0, t)?;

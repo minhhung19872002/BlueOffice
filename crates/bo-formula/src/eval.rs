@@ -359,7 +359,12 @@ impl<'a> Ctx<'a> {
                 (Ok(a), Ok(b)) => Value::Text(a + &b),
                 (Err(e), _) | (_, Err(e)) => Value::Error(e),
             },
-            BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+            BinaryOp::Eq
+            | BinaryOp::Ne
+            | BinaryOp::Lt
+            | BinaryOp::Le
+            | BinaryOp::Gt
+            | BinaryOp::Ge => {
                 let ord = compare_values(x, y);
                 Value::Bool(match op {
                     BinaryOp::Eq => ord.is_eq(),
@@ -395,7 +400,11 @@ impl<'a> Ctx<'a> {
     // ------------------------------------------------------------ helpers
 
     /// Apply `f` to each element of an array, or to a scalar.
-    pub(crate) fn map_scalar(&mut self, v: &Value, f: impl Fn(&mut Self, &Value) -> Value) -> Value {
+    pub(crate) fn map_scalar(
+        &mut self,
+        v: &Value,
+        f: impl Fn(&mut Self, &Value) -> Value,
+    ) -> Value {
         match v {
             Value::Array(a) => {
                 let data = a.data().iter().map(|x| f(self, x)).collect();
@@ -671,7 +680,7 @@ impl<'a> Ctx<'a> {
 
     /// `LET(name1, value1, ..., body)`.
     pub(crate) fn eval_let(&mut self, args: &[Expr]) -> R {
-        if args.len() < 3 || args.len() % 2 == 0 {
+        if args.len() < 3 || args.len().is_multiple_of(2) {
             return Err(ErrorKind::Value);
         }
         let saved = self.scopes.len();

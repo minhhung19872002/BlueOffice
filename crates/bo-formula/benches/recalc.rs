@@ -13,7 +13,8 @@ fn chain() -> Workbook {
     let mut wb = Workbook::with_sheets(&["Sheet1"]);
     wb.set_value(0, 0, 0, 1.0);
     for r in 1..N {
-        wb.set_formula(0, r, 0, &format!("=A{}+1", r)).expect("valid formula");
+        wb.set_formula(0, r, 0, &format!("=A{r}+1"))
+            .expect("valid formula");
     }
     wb
 }

@@ -1,3 +1,4 @@
+export { Dialog, type DialogProps } from './Dialog';
 export {
   Ribbon,
   type RibbonGroup,

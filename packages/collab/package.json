@@ -1,0 +1,20 @@
+{
+  "name": "@blueoffice/collab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Real-time collaboration client: y-sync over WebSocket to the BlueOffice server (docs/bohp.md §C).",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

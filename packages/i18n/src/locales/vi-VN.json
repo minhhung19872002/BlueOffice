@@ -1045,5 +1045,18 @@
     "footnote": "Chú thích cuối trang {{n}}",
     "endnote": "Chú thích cuối văn bản {{n}}",
     "save": "Lưu"
+  },
+  "hosted": {
+    "view": "Chỉ xem",
+    "comment": "Chỉ xem (được bình luận)",
+    "viewRevoked": "Chỉ xem — quyền sửa tệp này đã bị thu hồi",
+    "revoked": "Bạn không còn quyền truy cập tệp này",
+    "offline": "Mất kết nối — thay đổi sẽ được đồng bộ khi có mạng",
+    "connecting": "Đang kết nối…",
+    "reload": "Tệp đã được khôi phục về phiên bản khác — đang tải lại",
+    "expired": "Phiên làm việc đã hết hạn — hãy mở lại tệp",
+    "opening": "Đang mở {{name}}…",
+    "openFailed": "Không mở được tệp: {{message}}",
+    "noServer": "Chưa cấu hình máy chủ BlueOffice (BLUEOFFICE_SERVER)"
   }
 }

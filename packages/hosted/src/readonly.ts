@@ -1,0 +1,125 @@
+/**
+ * View mode of a hosted file: while the session is not editable (opened
+ * read-only, or the edit permission was revoked mid-session), commands that
+ * would change the document are not run. Navigation, selection, copy, find
+ * and export keep working. The editors stay unchanged; the guard wraps the
+ * platform's engines (outermost, in front of the collaboration bindings).
+ */
+import { overlay } from '@blueoffice/collab';
+import type {
+  EditResult,
+  EngineHost,
+  Platform,
+  SheetCommand,
+  SheetHost,
+  SlideCommand,
+  SlideEditResult,
+  TimedCommand,
+} from '@blueoffice/platform';
+import type { SessionMode } from './mode';
+
+/** BlueDoc commands that do not change the document. */
+export const DOC_READ_COMMANDS: ReadonlySet<string> = new Set([
+  'state',
+  'selectAll',
+  'setSelection',
+  'click',
+  'dragTo',
+  'move',
+  'copy',
+  'find',
+  'selectMatch',
+  'fontList',
+  'notes',
+  'review',
+  'setRevisionView',
+  'nextRevision',
+  'nextComment',
+  'selectComment',
+  'crossReferenceTargets',
+  'closeHeaderFooter',
+  'cancelFormat',
+]);
+
+/** BlueSlide commands that do not change the presentation. */
+export const SLIDE_READ_COMMANDS: ReadonlySet<string> = new Set([
+  'state',
+  'goTo',
+  'select',
+  'selectRect',
+  'selectNext',
+  'click',
+  'hitTest',
+  'textSelect',
+  'textHit',
+  'textExit',
+  'copy',
+  'copySlides',
+  'tableSelect',
+  'tableHit',
+  'tableExit',
+]);
+
+/** BlueSheet `exec` commands that only read. */
+export const SHEET_READ_COMMANDS: ReadonlySet<string> = new Set([
+  'presets',
+  'formatState',
+  'region',
+  'filterValues',
+  'validation',
+  'charts',
+  'find',
+  'names',
+  'resolve',
+  'copy',
+  'pageSetup',
+  'pivotSource',
+  'pivots',
+]);
+
+export const READ_ONLY_ERROR = 'session.readOnly';
+
+/** Wraps the platform's engines so that edits are ignored while `mode` is not editable. */
+export function guardPlatform(p: Platform, mode: SessionMode): Platform {
+  const engine = p.engine;
+  const docState = () => engine.command({ cmd: 'state' });
+  const slideState = () => engine.slideCommand({ cmd: 'state' });
+  const guardedEngine = overlay(engine, {
+    command: (cmd: TimedCommand): Promise<EditResult> =>
+      mode.editable || DOC_READ_COMMANDS.has(cmd.cmd) ? engine.command(cmd) : docState(),
+    insertImage: (bytes: Uint8Array, name: string): Promise<EditResult> =>
+      mode.editable ? engine.insertImage(bytes, name) : docState(),
+    slideCommand: (cmd: SlideCommand): Promise<SlideEditResult> =>
+      mode.editable || SLIDE_READ_COMMANDS.has(cmd.cmd) ? engine.slideCommand(cmd) : slideState(),
+    slideInsertPicture: (bytes: Uint8Array, name: string): Promise<SlideEditResult> =>
+      mode.editable ? engine.slideInsertPicture(bytes, name) : slideState(),
+  }) as EngineHost;
+  const sheet = p.sheet;
+  const guardedSheet: SheetHost | undefined = sheet
+    ? (overlay(sheet, {
+        setInputs: async (s: number, cells: [number, number, string][]) => {
+          if (mode.editable) await sheet.setInputs(s, cells);
+        },
+        structural: async (...args: Parameters<SheetHost['structural']>) => {
+          if (mode.editable) await sheet.structural(...args);
+        },
+        undo: async () => (mode.editable ? sheet.undo() : false),
+        redo: async () => (mode.editable ? sheet.redo() : false),
+        addSheet: async (name?: string) => {
+          if (!mode.editable) throw new Error(READ_ONLY_ERROR);
+          return sheet.addSheet(name);
+        },
+        renameSheet: async (s: number, name: string) => {
+          if (mode.editable) await sheet.renameSheet(s, name);
+        },
+        deleteSheet: async (s: number) => {
+          if (mode.editable) await sheet.deleteSheet(s);
+        },
+        exec: <T = unknown>(cmd: SheetCommand): Promise<T> =>
+          mode.editable || SHEET_READ_COMMANDS.has(cmd.cmd)
+            ? sheet.exec<T>(cmd)
+            : Promise.reject(new Error(READ_ONLY_ERROR)),
+      }) as SheetHost)
+    : undefined;
+  return { ...p, engine: guardedEngine, ...(guardedSheet ? { sheet: guardedSheet } : {}) };
+}

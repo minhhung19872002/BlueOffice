@@ -158,6 +158,13 @@ public static class SessionEndpoints
             return Results.Accepted(value: new { sessions = count });
         }).RequireAuthorization(AuthSetup.HostPolicy);
 
+        // Origins allowed to embed the editor (the web shell whitelists them for postMessage before the host is known;
+        // the same list is sent as CSP frame-ancestors, so it is not secret).
+        app.MapGet("/api/hosting/origins", (HostRegistry hosts) => Results.Ok(new
+        {
+            origins = hosts.All.SelectMany(h => h.AllowedOrigins).Where(o => !string.IsNullOrWhiteSpace(o) && o != "*").Distinct(StringComparer.Ordinal).ToList(),
+        })).AllowAnonymous();
+
         // Collaboration WebSocket.
         app.Map("/collab/{fileId}", CollabAsync).AllowAnonymous();
 

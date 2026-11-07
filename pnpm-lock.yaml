@@ -96,6 +96,9 @@ importers:
       '@blueoffice/engine-wasm':
         specifier: workspace:*
         version: link:../../packages/engine-wasm
+      '@blueoffice/hosted':
+        specifier: workspace:*
+        version: link:../../packages/hosted
       '@blueoffice/platform':
         specifier: workspace:*
         version: link:../../packages/platform
@@ -233,6 +236,37 @@ importers:
         version: 5.1.0(@types/node@26.6.6)(happy-dom@21.0.4)(vite@8.3.6(@types/node@26.6.6))
 
   packages/engine-wasm: {}
+
+  packages/hosted:
+    dependencies:
+      '@blueoffice/collab':
+        specifier: workspace:*
+        version: link:../collab
+      '@blueoffice/engine-wasm':
+        specifier: workspace:*
+        version: link:../engine-wasm
+      '@blueoffice/i18n':
+        specifier: workspace:*
+        version: link:../i18n
+      '@blueoffice/platform':
+        specifier: workspace:*
+        version: link:../platform
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.12
+        version: 18.3.31
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vite:
+        specifier: ^8.3.6
+        version: 8.3.6(@types/node@26.6.6)
+      vitest:
+        specifier: ^5.1.0
+        version: 5.1.0(@types/node@26.6.6)(happy-dom@21.0.4)(vite@8.3.6(@types/node@26.6.6))
 
   packages/i18n:
     dependencies:
@@ -437,12 +471,18 @@ importers:
 
   tests/e2e:
     devDependencies:
+      '@blueoffice/editor-sdk':
+        specifier: workspace:*
+        version: link:../../packages/editor-sdk
       '@playwright/test':
         specifier: ^1.64.1
         version: 1.64.1
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+      vite:
+        specifier: ^8.3.6
+        version: 8.3.6(@types/node@26.6.6)
 
 packages:
 

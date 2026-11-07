@@ -1,29 +1,29 @@
 import { BlueEditor } from '@blueoffice/editor';
 import { connectHost } from '@blueoffice/editor-sdk';
-import type { EngineHost, Platform, SheetHost } from '@blueoffice/platform';
+import {
+  HostedBanner,
+  HostedStatus,
+  SessionMode,
+  appForFile,
+  commandHandler,
+  fetchAllowedOrigins,
+  guardPlatform,
+  hostedPlatform,
+  loadWasmReplica,
+  openSession,
+  parseMode,
+  serverBase,
+  startCollab,
+  type FetchLike,
+  type HostCommand,
+} from '@blueoffice/hosted';
+import type { Platform } from '@blueoffice/platform';
 import { createWebPlatform } from '@blueoffice/platform/web';
 import { BlueSheetEditor } from '@blueoffice/sheet-editor';
 import { BlueSlideEditor } from '@blueoffice/slide-editor';
 import { LocalStorageProvider } from '@blueoffice/storage-providers';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import {
-  CollabClient,
-  collabDocHost,
-  collabSheetHost,
-  collabSlideHost,
-  colorFor,
-  wasmEngine,
-  type CollabEngine,
-} from '@blueoffice/collab';
-import {
-  appForFile,
-  commandHandler,
-  embedPlatform,
-  openSession,
-  type EmbedSession,
-  type FetchLike,
-} from './embed';
 import { resolveRoute, type AppId } from './routes';
 
 // The web app is only a shell: it builds the WebPlatform and embeds the editor.
@@ -35,7 +35,7 @@ if (redirect) {
   window.history.replaceState(null, '', redirect + window.location.search + window.location.hash);
 }
 const params = new URLSearchParams(window.location.search);
-const language = params.get('lang') === 'en-US' ? 'en-US' : 'vi-VN';
+let language: 'vi-VN' | 'en-US' = params.get('lang') === 'en-US' ? 'en-US' : 'vi-VN';
 
 function Editor({ app, platform }: { app: AppId; platform: Platform }) {
   return app === 'sheet' ? (
@@ -60,99 +60,85 @@ const root = createRoot(document.getElementById('root')!);
 const isEmbed = window.location.pathname.replace(base, '/').startsWith('/edit');
 
 /**
- * Joins the session's collaboration room (`@blueoffice/collab`): BlueDoc text,
- * BlueSlide objects and BlueSheet cell inputs sync live with presence; every app
- * answers the server's autosave requests.
+ * Hosted in an iframe (BlueDrive, …, prompt §6A.2): the token arrives via
+ * postMessage, the file comes from the server session, saves become host
+ * versions and the session's collaboration room is joined
+ * (`@blueoffice/hosted`).
  */
-async function startCollab(
-  hosted: Platform,
-  app: AppId,
-  session: EmbedSession,
-  saveNow: () => void,
-): Promise<Platform> {
-  const wasm = await import('@blueoffice/engine-wasm');
-  const wasmUrl = (await import('@blueoffice/engine-wasm/wasm?url')).default;
-  await wasm.default({ module_or_path: wasmUrl });
-  const replica = new wasm.WasmCollab(crypto.getRandomValues(new Uint32Array(1))[0] ?? 1);
-  const url = new URL(session.collab!.url, window.location.href);
-  url.protocol =
-    url.protocol === 'https:' ? 'wss:' : url.protocol === 'http:' ? 'ws:' : url.protocol;
-  let client: CollabClient | null = null;
-  let shared: { remoteApplied(): Promise<void>; seed(): Promise<void> } | null = null;
-  let engine: CollabEngine = wasmEngine(replica);
-  const flush = () => client?.flush();
-  const id = replica.clientId();
-  const user = {
-    userId: hosted.auth.user?.id ?? `guest-${id}`,
-    name: hosted.auth.user?.name ?? '',
-    color: colorFor(id),
-  };
-  if (app === 'sheet' && hosted.sheet) {
-    const sheet = collabSheetHost<SheetHost>(hosted.sheet, replica, flush);
-    shared = sheet;
-    hosted = { ...hosted, sheet };
-  } else if (app === 'slide') {
-    // BlueSlide: slides and objects (last writer wins per object), selected object.
-    const live = collabSlideHost<EngineHost>(hosted.engine, replica, flush, user);
-    shared = live;
-    engine = live.engine;
-    hosted = { ...hosted, engine: live };
-  } else {
-    // BlueDoc: the body text with formatting, collaborators' carets.
-    const live = collabDocHost<EngineHost>(hosted.engine, replica, flush, user);
-    shared = live;
-    engine = live.engine;
-    hosted = { ...hosted, engine: live };
-  }
-  client = new CollabClient({
-    url: url.toString(),
-    sessionId: session.sessionId,
-    sessionToken: session.sessionToken,
-    engine,
-  });
-  // BlueDoc / BlueSlide pull remote changes through their frame gate.
-  if (app === 'sheet') client.on('remote', () => void shared?.remoteApplied());
-  client.on('control', (m) => {
-    if (m.type === 'seed') void shared?.seed();
-    else if (m.type === 'save-request') saveNow();
-  });
-  client.connect();
-  return hosted;
-}
-
-if (isEmbed) {
-  // Hosted in an iframe (BlueDrive, …): token via postMessage, file from the session.
-  const api = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
-  const allowedOrigins = String(import.meta.env.VITE_EMBED_ORIGINS ?? '')
+async function embed(): Promise<void> {
+  const api = serverBase((import.meta.env.VITE_API_BASE as string | undefined) ?? '');
+  const fetchImpl = window.fetch.bind(window) as FetchLike;
+  // Hosts allowed to embed: fixed at build time, or the server's configured hosts.
+  const built = String(import.meta.env.VITE_EMBED_ORIGINS ?? '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
+  const allowedOrigins = built.length
+    ? built
+    : await fetchAllowedOrigins(api, fetchImpl).catch(() => []);
   const conn = connectHost({
     parent: window.parent,
     self: window as unknown as Parameters<typeof connectHost>[0]['self'],
     allowedOrigins,
   });
-  const fetchImpl = window.fetch.bind(window) as FetchLike;
-  void conn.ready
-    .then(async (init) => {
-      const { session, file } = await openSession(api, init, fetchImpl);
-      const app = appForFile(file.name);
-      let hosted = embedPlatform(platform, { api, session, file, app, conn, fetchImpl });
-      const save = commandHandler(hosted, app, file.name);
-      conn.onCommand(save);
-      if (session.collab?.url) {
-        hosted = await startCollab(hosted, app, session, () => void save('save'));
-      }
-      root.render(
-        <StrictMode>
-          <Editor app={app} platform={hosted} />
-        </StrictMode>,
-      );
-      conn.emit('ready', { mode: session.mode });
-    })
-    .catch((e: unknown) =>
-      conn.emit('error', { message: e instanceof Error ? e.message : String(e) }),
+  try {
+    const init = await conn.ready;
+    if (init.lang === 'en-US' || init.lang === 'vi-VN') language = init.lang;
+    const { session, file } = await openSession(api, init, fetchImpl);
+    const app = appForFile(file.name);
+    const mode = new SessionMode(parseMode(session.mode));
+    const status = new HostedStatus();
+    let hosted = hostedPlatform(platform, {
+      api,
+      session,
+      file,
+      app,
+      mode,
+      fetchImpl,
+      onSaved: (r) => conn.emit('saved', r),
+    });
+    // Commands run against the final platform (collaborative + view-mode guard).
+    let final: Platform = hosted;
+    const run = (cmd: HostCommand) => commandHandler(final, app, file.name)(cmd);
+    conn.onCommand(run);
+    if (session.collab?.url) {
+      const h = startCollab({
+        platform: hosted,
+        app,
+        session,
+        base: api || window.location.href,
+        replica: await loadWasmReplica(),
+        mode,
+        saveNow: () => void run('save').catch(() => {}),
+        onStatus: (s) => status.setStatus(s),
+        onEnded: (r) => {
+          status.setEnded(r);
+          // After a restore the host content is authoritative: start over.
+          if (r === 'reload') window.location.reload();
+        },
+      });
+      h.client.on('control', (m) => {
+        if (m.type === 'collaborators-changed') {
+          conn.emit('collaborators-changed', m.collaborators);
+        }
+      });
+      hosted = h.platform;
+    }
+    final = guardPlatform(hosted, mode);
+    root.render(
+      <StrictMode>
+        <HostedBanner mode={mode} status={status} language={language} />
+        <Editor app={app} platform={final} />
+      </StrictMode>,
     );
+    conn.emit('ready', { mode: session.mode });
+  } catch (e: unknown) {
+    conn.emit('error', { message: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+if (isEmbed) {
+  void embed();
 } else {
   root.render(
     <StrictMode>

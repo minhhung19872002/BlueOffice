@@ -1045,5 +1045,18 @@
     "footnote": "Footnote {{n}}",
     "endnote": "Endnote {{n}}",
     "save": "Save"
+  },
+  "hosted": {
+    "view": "View only",
+    "comment": "View only (comments allowed)",
+    "viewRevoked": "View only — your permission to edit this file was revoked",
+    "revoked": "You no longer have access to this file",
+    "offline": "Offline — changes will sync when the connection is back",
+    "connecting": "Connecting…",
+    "reload": "The file was restored to another version — reloading",
+    "expired": "The session has expired — open the file again",
+    "opening": "Opening {{name}}…",
+    "openFailed": "Could not open the file: {{message}}",
+    "noServer": "No BlueOffice server is configured (BLUEOFFICE_SERVER)"
   }
 }

@@ -16,6 +16,7 @@
     "@blueoffice/collab": "workspace:*",
     "@blueoffice/editor": "workspace:*",
     "@blueoffice/editor-sdk": "workspace:*",
+    "@blueoffice/hosted": "workspace:*",
     "@blueoffice/engine-wasm": "workspace:*",
     "@blueoffice/platform": "workspace:*",
     "@blueoffice/sheet-editor": "workspace:*",

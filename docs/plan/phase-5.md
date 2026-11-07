@@ -89,3 +89,11 @@ Playwright `tests/e2e/specs/review.spec.ts` (chấp nhận/từ chối, luồng 
 - Macro của file `.doc` không được chuyển sang .docm khi lưu (chỉ cảnh báo); `.xls`/`.ppt` không mở trong BlueDoc.
 - SmartArt: chỉ hiển thị (không sửa); drawing fallback vẽ theo màu/hình khai báo trực tiếp, `schemeClr` lấy theo
   theme mặc định của renderer.
+
+
+## Kiểm chéo mã hoá với bản cài đặt độc lập (2026-11-08)
+- msoffcrypto-tool 6.1.0 (MIT, Python) mã hoá Agile → `bo-crypto` giải mã ra đúng từng byte bản gốc
+  (`crates/bo-crypto/tests/interop.rs`, vector `tests/vectors/msoffcrypto-agile.docx`).
+- `bo-cli convert in.docx --to docx --protect <mật khẩu>` → msoffcrypto-tool giải mã thành công (gói OOXML hợp lệ).
+- Ghi chú: msoffcrypto-tool ghi compound file sai khi gói < 4096 byte (chính nó cũng không giải mã được), nên không dùng
+  trường hợp đó làm vector.

@@ -11,5 +11,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\BlueOffice.Api\BlueOffice.Api.csproj" />
+    <ProjectReference Include="..\..\..\tests\mock-bluedrive\MockBlueDrive.csproj" />
   </ItemGroup>
 </Project>

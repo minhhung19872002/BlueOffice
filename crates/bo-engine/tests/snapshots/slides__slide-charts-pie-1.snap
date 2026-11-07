@@ -1,0 +1,32 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Biểu "
+  text 28.0pt 65.2,30.3 #000000ff "đồ "
+  text 28.0pt 102.5,30.3 #000000ff "tròn"
+pop transform
+transform [1.000 0.000 0.000 1.000 72.0 100.8]
+  text 19.6pt 328.4,23.3 #595959ff "Doanh "
+  text 19.6pt 385.2,23.3 #595959ff "thu "
+  text 19.6pt 416.8,23.3 #595959ff "theo "
+  text 19.6pt 458.1,23.3 #595959ff "quý"
+  path n=5 [636.5 175.5 647.7 186.7] fill=#2e75b6ff
+  text 14.0pt 651.9,184.8 #595959ff "Quý "
+  text 14.0pt 678.2,184.8 #595959ff "I"
+  path n=5 [636.5 197.9 647.7 209.1] fill=#ed7d31ff
+  text 14.0pt 651.9,207.2 #595959ff "Quý "
+  text 14.0pt 678.2,207.2 #595959ff "II"
+  path n=5 [636.5 220.3 647.7 231.5] fill=#a5a5a5ff
+  text 14.0pt 651.9,229.6 #595959ff "Quý "
+  text 14.0pt 678.2,229.6 #595959ff "III"
+  path n=5 [636.5 242.7 647.7 253.9] fill=#ffc000ff
+  text 14.0pt 651.9,252.0 #595959ff "Quý "
+  text 14.0pt 678.2,252.0 #595959ff "IV"
+  path n=5 [318.2 33.2 508.2 381.3] fill=#2e75b6ff stroke=#ffffffff w0.75
+  path n=4 [148.6 211.6 373.4 411.7] fill=#ed7d31ff stroke=#ffffffff w0.75
+  path n=4 [124.7 67.3 318.2 266.7] fill=#a5a5a5ff stroke=#ffffffff w0.75
+  path n=4 [213.4 33.2 318.2 211.6] fill=#ffc000ff stroke=#ffffffff w0.75
+pop transform

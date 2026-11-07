@@ -47,8 +47,8 @@ export type DisplayCommand =
       y: number;
       w: number;
       h: number;
-      /** Media part name, bytes via `EngineHost.getMedia`. */
-      media: string;
+      /** Image id (document media part or slide image), bytes via `EngineHost.getMedia`. */
+      image: string;
       /** l, t, r, b fractions cut away. */
       crop?: [number, number, number, number];
       /** Degrees clockwise. */
@@ -171,7 +171,7 @@ export type Motion =
   | 'docStart'
   | 'docEnd';
 
-/** Editing command sent to the engine (JSON bridge, ADR-0007). */
+/** Editing command sent to the engine (JSON bridge, ADR-0008). */
 export type EditCommand =
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
@@ -331,11 +331,24 @@ export interface RecentFile {
   openedAt: number;
 }
 
+/**
+ * A `bluedoc://open?host=…&file=…&token=…` deep link (prompt §6A.3); the
+ * same fields as the web embed URL `/edit?file=…&host=…`.
+ */
+export interface HostFileLink {
+  app: 'doc' | 'sheet' | 'slide';
+  host: string;
+  fileId: string;
+  token?: string;
+}
+
 export interface ShellIntegration {
   recentFiles(): Promise<RecentFile[]>;
   addRecentFile(file: RecentFile): Promise<void>;
-  /** Register a handler for files opened by the OS (file association, deep link). */
+  /** Register a handler for local files opened by the OS (file association, second instance). */
   onOpenRequest(handler: (file: OpenedFile) => void): () => void;
+  /** Register a handler for host-file deep links (desktop only; web: never fires). */
+  onOpenLink?(handler: (link: HostFileLink) => void): () => void;
 }
 
 /** Everything platform-specific, in one object. */
@@ -351,4 +364,6 @@ export interface Platform {
   window: WindowManager;
   offline: OfflineCache;
   shell: ShellIntegration;
+  /** BlueSheet engine (absent in hosts that only embed BlueDoc). */
+  sheet?: import('./sheet').SheetHost;
 }

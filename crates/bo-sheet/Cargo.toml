@@ -1,0 +1,21 @@
+[package]
+name = "bo-sheet"
+description = "BlueSheet core: number formats, grid geometry, viewport rendering and sheet editing operations."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bo-formula.workspace = true
+bo-model.workspace = true
+bo-render.workspace = true
+bo-text.workspace = true
+serde.workspace = true
+unicode-normalization.workspace = true
+
+[dev-dependencies]
+bo-xlsx.workspace = true
+
+[lints]
+workspace = true

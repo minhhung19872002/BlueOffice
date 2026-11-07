@@ -16,6 +16,9 @@ public sealed class BoCliOptions
 
     /// <summary>Maximum accepted input size in bytes.</summary>
     public long MaxInputBytes { get; set; } = 100 * 1024 * 1024;
+
+    /// <summary>Input extensions accepted by the conversion worker.</summary>
+    public List<string> AllowedExtensions { get; set; } = [".docx", ".txt", ".md"];
 }
 
 /// <summary>Runs <c>bo-cli convert</c> in an isolated temp directory.</summary>

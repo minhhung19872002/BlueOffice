@@ -1,5 +1,6 @@
 import { BlueEditor } from '@blueoffice/editor';
 import { createDesktopPlatform } from '@blueoffice/platform/desktop';
+import { BlueSheetEditor } from '@blueoffice/sheet-editor';
 import { LocalStorageProvider } from '@blueoffice/storage-providers';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -12,10 +13,14 @@ const platform = createDesktopPlatform({ storage: (files) => new LocalStoragePro
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BlueEditor
-      platform={platform}
-      app={app}
-      sampleUrl={`${import.meta.env.BASE_URL}samples/phase1-sample.docx`}
-    />
+    {app === 'sheet' ? (
+      <BlueSheetEditor platform={platform} />
+    ) : (
+      <BlueEditor
+        platform={platform}
+        app={app}
+        sampleUrl={`${import.meta.env.BASE_URL}samples/phase1-sample.docx`}
+      />
+    )}
   </StrictMode>,
 );

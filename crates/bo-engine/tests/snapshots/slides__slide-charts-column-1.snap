@@ -1,0 +1,55 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Biểu "
+  text 28.0pt 65.2,30.3 #000000ff "đồ "
+  text 28.0pt 102.5,30.3 #000000ff "cột"
+pop transform
+transform [1.000 0.000 0.000 1.000 72.0 100.8]
+  text 19.6pt 328.4,23.3 #595959ff "Doanh "
+  text 19.6pt 385.2,23.3 #595959ff "thu "
+  text 19.6pt 416.8,23.3 #595959ff "theo "
+  text 19.6pt 458.1,23.3 #595959ff "quý"
+  path n=5 [636.5 186.7 647.7 197.9] fill=#2e75b6ff
+  text 14.0pt 651.9,196.0 #595959ff "2024"
+  path n=5 [636.5 209.1 647.7 220.3] fill=#ed7d31ff
+  text 14.0pt 651.9,218.4 #595959ff "2025"
+  path n=5 [636.5 231.5 647.7 242.7] fill=#70ad47ff
+  text 14.0pt 651.9,240.8 #595959ff "2026"
+  path n=2 [55.0 369.6 630.5 369.6] stroke=#d9d9d9ff w0.50
+  text 14.0pt 44.9,374.4 #595959ff "0"
+  path n=2 [55.0 303.3 630.5 303.3] stroke=#d9d9d9ff w0.50
+  text 14.0pt 44.9,308.1 #595959ff "5"
+  path n=2 [55.0 237.0 630.5 237.0] stroke=#d9d9d9ff w0.50
+  text 14.0pt 37.8,241.8 #595959ff "10"
+  path n=2 [55.0 170.8 630.5 170.8] stroke=#d9d9d9ff w0.50
+  text 14.0pt 37.8,175.5 #595959ff "15"
+  path n=2 [55.0 104.5 630.5 104.5] stroke=#d9d9d9ff w0.50
+  text 14.0pt 37.8,109.3 #595959ff "20"
+  path n=2 [55.0 38.2 630.5 38.2] stroke=#d9d9d9ff w0.50
+  text 14.0pt 37.8,43.0 #595959ff "25"
+  path n=2 [55.0 369.6 630.5 369.6] stroke=#868686ff w0.75
+  text 14.0pt 112.0,386.1 #595959ff "Quý "
+  text 14.0pt 138.3,386.1 #595959ff "I"
+  text 14.0pt 254.1,386.1 #595959ff "Quý "
+  text 14.0pt 280.4,386.1 #595959ff "II"
+  text 14.0pt 396.2,386.1 #595959ff "Quý "
+  text 14.0pt 422.5,386.1 #595959ff "III"
+  text 14.0pt 539.7,386.1 #595959ff "Quý "
+  text 14.0pt 565.9,386.1 #595959ff "IV"
+  path n=5 [98.2 210.5 117.3 369.6] fill=#2e75b6ff
+  path n=5 [117.3 184.0 136.5 369.6] fill=#ed7d31ff
+  path n=5 [136.5 157.5 155.7 369.6] fill=#70ad47ff
+  path n=5 [242.0 164.1 261.2 369.6] fill=#2e75b6ff
+  path n=5 [261.2 144.2 280.4 369.6] fill=#ed7d31ff
+  path n=5 [280.4 111.1 299.6 369.6] fill=#70ad47ff
+  path n=5 [385.9 184.0 405.1 369.6] fill=#2e75b6ff
+  path n=5 [405.1 150.9 424.3 369.6] fill=#ed7d31ff
+  path n=5 [424.3 104.5 443.4 369.6] fill=#70ad47ff
+  path n=5 [529.8 131.0 549.0 369.6] fill=#2e75b6ff
+  path n=5 [549.0 91.2 568.1 369.6] fill=#ed7d31ff
+  path n=5 [568.1 51.5 587.3 369.6] fill=#70ad47ff
+pop transform

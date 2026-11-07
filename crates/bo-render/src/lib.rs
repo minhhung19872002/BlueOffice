@@ -10,7 +10,7 @@
 
 pub mod image;
 
-pub use image::Media;
+pub use image::{ImageSource, Media};
 
 use bo_layout::{Layer, LayoutDocument, Line, PageItem};
 use bo_model::Underline;
@@ -54,20 +54,7 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         dash: Option<[f32; 2]>,
     },
-    /// Picture: `media` names the image part (fetched by hosts via the engine),
-    /// drawn into the `w`×`h` box at (`x`, `y`); `crop` = l,t,r,b fractions of the
-    /// source to cut away; `rotation` in degrees clockwise about the box centre.
-    Image {
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        media: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        crop: Option<[f32; 4]>,
-        #[serde(default, skip_serializing_if = "is_zero")]
-        rotation: f32,
-    },
+
     /// Glyph run: `face` indexes the engine's font list; `size` in points.
     Glyphs {
         face: u32,
@@ -86,6 +73,96 @@ pub enum Command {
         h: f32,
     },
     PopClip,
+    /// Picture drawn into the `w`×`h` box at (`x`, `y`). `image` is an id the host
+    /// resolves to PNG/JPEG bytes (`Engine::image_bytes`: a slide media id or a
+    /// document media part such as `/word/media/image1.png`); `crop` = l,t,r,b
+    /// fractions of the source cut away; `rotation` in degrees clockwise about the box centre.
+    Image {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        image: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        crop: Option<[f32; 4]>,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        rotation: f32,
+    },
+    /// Filled and/or stroked vector path (DrawingML shapes, ECMA-376 Part 1, §20.1.9).
+    /// Coordinates are already in page points (after the current transform).
+    Path {
+        segs: Vec<PathSeg>,
+        fill: Option<Paint>,
+        stroke: Option<Stroke>,
+    },
+    /// Concatenate an affine transform `[a, b, c, d, e, f]`
+    /// (`x' = a·x + c·y + e`, `y' = b·x + d·y + f`) onto the current one (paired with `PopTransform`).
+    PushTransform {
+        m: [f32; 6],
+    },
+    /// Restore the transform saved by the matching `PushTransform`.
+    PopTransform,
+    /// Intersect the clip with a path (nonzero rule; paired with `PopClip`).
+    PushClipPath {
+        segs: Vec<PathSeg>,
+    },
+}
+
+/// Path segment; JSON: `{"M":[x,y]}`, `{"L":[x,y]}`, `{"C":[x1,y1,x2,y2,x,y]}`, `{"Q":[x1,y1,x,y]}`, `"Z"`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum PathSeg {
+    /// Move to.
+    M(f32, f32),
+    /// Line to.
+    L(f32, f32),
+    /// Quadratic Bézier.
+    Q(f32, f32, f32, f32),
+    /// Cubic Bézier.
+    C(f32, f32, f32, f32, f32, f32),
+    /// Close subpath.
+    Z,
+}
+
+/// Gradient colour stop; `offset` in 0..=1.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct GradientStop {
+    pub offset: f32,
+    pub color: Rgba,
+}
+
+/// Fill paint.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum Paint {
+    /// Uniform colour.
+    Solid { color: Rgba },
+    /// Linear gradient from (x1,y1) to (x2,y2), pad spread.
+    Linear {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        stops: Vec<GradientStop>,
+    },
+    /// Radial gradient centred at (cx,cy) with radius r, pad spread.
+    Radial {
+        cx: f32,
+        cy: f32,
+        r: f32,
+        stops: Vec<GradientStop>,
+    },
+}
+
+/// Stroke style. `dash` lengths are in points (empty = solid).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stroke {
+    pub width: f32,
+    pub color: Rgba,
+    pub dash: Vec<f32>,
+    /// `"butt" | "round" | "square"`.
+    pub cap: String,
+    /// `"miter" | "round" | "bevel"`.
+    pub join: String,
 }
 
 /// Commands of one page.
@@ -184,7 +261,7 @@ fn item_commands(item: &PageItem, out: &mut Vec<Command>) {
             y: *y,
             w: *w,
             h: *h,
-            media: media.clone(),
+            image: media.clone(),
             crop: *crop,
             rotation: *rotation,
         }),
@@ -281,7 +358,7 @@ pub fn media_of(page: &PageList) -> Vec<&str> {
         .commands
         .iter()
         .filter_map(|c| match c {
-            Command::Image { media, .. } => Some(media.as_str()),
+            Command::Image { image, .. } => Some(image.as_str()),
             _ => None,
         })
         .collect();
@@ -314,7 +391,7 @@ mod tests {
                     y: 0.0,
                     w: 10.0,
                     h: 10.0,
-                    media: "/word/media/a.png".into(),
+                    image: "/word/media/a.png".into(),
                     crop: None,
                     rotation: 0.0,
                 },
@@ -331,13 +408,58 @@ mod tests {
         };
         let j = p.to_json();
         assert!(j.contains(
-            r#"{"op":"image","x":0.0,"y":0.0,"w":10.0,"h":10.0,"media":"/word/media/a.png"}"#
+            r#"{"op":"image","x":0.0,"y":0.0,"w":10.0,"h":10.0,"image":"/word/media/a.png"}"#
         ));
         assert!(!j.contains("dash"));
         assert_eq!(media_of(&p), vec!["/word/media/a.png"]);
         assert!(j.contains(r#""op":"glyphs""#));
         assert!(j.contains(r#""glyphs":[[36,0.0,0.0,0]]"#));
         assert!(j.contains(r#"{"op":"popClip"}"#));
+        let back: PageList = serde_json::from_str(&j).unwrap();
+        assert_eq!(back, p);
+    }
+
+    #[test]
+    fn json_shape_vector_commands() {
+        let p = PageList {
+            width: 10.0,
+            height: 20.0,
+            commands: vec![
+                Command::Image {
+                    x: 1.0,
+                    y: 2.0,
+                    w: 3.0,
+                    h: 4.0,
+                    image: "/ppt/media/image1.png".into(),
+                    crop: Some([0.1, 0.0, 0.0, 0.2]),
+                    rotation: 0.0,
+                },
+                Command::PushTransform {
+                    m: [1.0, 0.0, 0.0, 1.0, 5.0, 6.0],
+                },
+                Command::Path {
+                    segs: vec![PathSeg::M(0.0, 0.0), PathSeg::L(1.0, 0.0), PathSeg::Z],
+                    fill: Some(Paint::Solid {
+                        color: Rgba(1, 2, 3, 255),
+                    }),
+                    stroke: Some(Stroke {
+                        width: 1.0,
+                        color: Rgba(0, 0, 0, 255),
+                        dash: vec![],
+                        cap: "butt".into(),
+                        join: "miter".into(),
+                    }),
+                },
+                Command::PopTransform,
+            ],
+        };
+        let j = p.to_json();
+        assert!(j.contains(r#""op":"image""#));
+        assert!(j.contains(r#""image":"/ppt/media/image1.png""#));
+        assert!(j.contains(r#""op":"pushTransform","m":[1.0,0.0,0.0,1.0,5.0,6.0]"#));
+        assert!(j.contains(r#""segs":[{"M":[0.0,0.0]},{"L":[1.0,0.0]},"Z"]"#));
+        assert!(j.contains(r#""fill":{"type":"solid","color":[1,2,3,255]}"#));
+        assert!(j.contains(r#"{"op":"popTransform"}"#));
         let back: PageList = serde_json::from_str(&j).unwrap();
         assert_eq!(back, p);
     }

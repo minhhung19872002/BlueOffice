@@ -1,12 +1,19 @@
 [package]
 name = "bo-odf"
-description = "OpenDocument ("
+description = "OpenDocument (ODF 1.3) .odt/.ods/.odp reader and writer."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
 
 [dependencies]
+bo-model.workspace = true
+quick-xml.workspace = true
+zip.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

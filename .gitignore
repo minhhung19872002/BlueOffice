@@ -7,6 +7,8 @@
 *.snap.new
 /apps/server/**/bin/
 /apps/server/**/obj/
+/tools/**/bin/
+/tools/**/obj/
 /apps/desktop/src-tauri/target/
 /apps/desktop/src-tauri/gen/
 /packages/engine-wasm/pkg/
@@ -21,3 +23,4 @@ Thumbs.db
 /apps/*/public/fonts/
 /apps/*/public/samples/
 /.claude/worktrees/
+/deploy/.env

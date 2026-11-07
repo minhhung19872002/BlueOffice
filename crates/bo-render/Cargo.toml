@@ -12,8 +12,6 @@ bo-model.workspace = true
 bo-text.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-png.workspace = true
-jpeg-decoder.workspace = true
 
 [lints]
 workspace = true

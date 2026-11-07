@@ -8,5 +8,13 @@ publish = false
 
 [dependencies]
 
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "recalc"
+harness = false
+
 [lints]
 workspace = true

@@ -22,6 +22,7 @@ import type {
   FontDescriptor,
   FontSource,
   GlyphOutline,
+  HostFileLink,
   OpenedFile,
   PageDisplayList,
   Platform,
@@ -30,6 +31,7 @@ import type {
   ShellIntegration,
   WindowManager,
 } from '../types';
+import { RpcSheetHost, type SheetMethod } from '../sheet';
 
 /** Minimal `invoke` signature so tests can inject a fake. */
 export type Invoke = <T>(
@@ -91,6 +93,21 @@ export class NativeEngineHost implements EngineHost {
   dispose(): void {}
 }
 
+/** BlueSheet engine running natively (apps/desktop/src-tauri/src/sheet_cmds.rs). */
+export function createNativeSheetHost(call: Invoke = invoke as Invoke): RpcSheetHost {
+  return new RpcSheetHost(async (method: SheetMethod, args: unknown[]) => {
+    if (method === 'open') {
+      return call('sheet_open', args[0] as Uint8Array, {
+        headers: { 'x-file-name': encodeURIComponent(String(args[1])) },
+      });
+    }
+    if (method === 'save' || method === 'exportPdf') {
+      return toBytes(await call<ArrayBuffer>('sheet_binary', { method, args }));
+    }
+    return call('sheet_call', { method, args });
+  });
+}
+
 /** Real disk access through native dialogs. */
 export class DesktopFileAccess implements FileAccess {
   constructor(private readonly call: Invoke = invoke as Invoke) {}
@@ -135,8 +152,10 @@ class DesktopWindow implements WindowManager {
     document.title = title;
     void this.call('set_title', { title }).catch(() => {});
   }
+  /** Opens a native window; `url` is an app query such as `?app=sheet`. */
   async openNew(url: string): Promise<void> {
-    window.open(url, '_blank');
+    const query = url.includes('?') ? url.slice(url.indexOf('?') + 1) : url;
+    await this.call<string>('open_window', { query });
   }
 }
 
@@ -148,6 +167,19 @@ class DesktopShell implements ShellIntegration {
   }
   async addRecentFile(file: RecentFile): Promise<void> {
     this.recent.add(file);
+  }
+  onOpenLink(handler: (link: HostFileLink) => void): () => void {
+    let disposed = false;
+    void this.call<HostFileLink | null>('startup_link').then((l) => {
+      if (l && !disposed) handler(l);
+    });
+    const un = listen<HostFileLink>('open-link', (e) => {
+      if (!disposed) handler(e.payload);
+    });
+    return () => {
+      disposed = true;
+      void un.then((f) => f());
+    };
   }
   onOpenRequest(handler: (file: OpenedFile) => void): () => void {
     let disposed = false;
@@ -189,5 +221,6 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Platfo
     window: new DesktopWindow(call),
     offline: new IndexedDbCache('blueoffice-desktop-offline'),
     shell: new DesktopShell(call),
+    sheet: createNativeSheetHost(call),
   };
 }

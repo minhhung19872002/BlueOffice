@@ -3,16 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Host SDK (BlueDrive, …) controlling an embedded BlueOffice editor over postMessage. Implemented in Phase 6A.",
+  "description": "Host SDK (BlueDrive, …) controlling an embedded BlueOffice editor over postMessage (prompt §6A.2).",
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
   },
   "devDependencies": {
     "typescript": "~5.9.3",
-    "vite": "^8.3.6"
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
   }
 }

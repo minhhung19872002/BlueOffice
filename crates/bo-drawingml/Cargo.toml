@@ -7,6 +7,9 @@ license.workspace = true
 publish = false
 
 [dependencies]
+bo-model.workspace = true
+bo-opc.workspace = true
+quick-xml.workspace = true
 
 [lints]
 workspace = true

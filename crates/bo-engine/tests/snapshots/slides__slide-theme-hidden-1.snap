@@ -1,0 +1,14 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 108.0 81.0]
+  text 60.0pt 125.9,145.4 #000000ff "Ẩn "
+  text 60.0pt 214.2,145.4 #000000ff "hình "
+  text 60.0pt 335.9,145.4 #000000ff "của "
+  text 60.0pt 434.2,145.4 #000000ff "master"
+pop transform
+transform [1.000 0.000 0.000 1.000 108.0 252.0]
+  text 24.0pt 267.0,22.6 #595959ff "showMasterSp=0"
+pop transform

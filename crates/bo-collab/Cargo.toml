@@ -1,12 +1,16 @@
 [package]
 name = "bo-collab"
-description = "Mapping between bo-model and Yrs (CRDT), operations and collaborative undo"
+description = "Collaboration core on Yrs (CRDT, Yjs-compatible): shared document/sheet/slide structures, y-sync protocol, awareness, collaborative undo"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
 
 [dependencies]
+yrs = { version = "0.25", features = ["sync"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

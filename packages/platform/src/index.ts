@@ -7,3 +7,4 @@ export {
   LocalRecentFiles,
   mimeFor,
 } from './shared';
+export * from './sheet';

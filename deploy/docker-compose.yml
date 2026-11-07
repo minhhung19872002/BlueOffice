@@ -1,0 +1,145 @@
+# BlueOffice on-premise stack. Guide: docs/deploy/README.md (tiếng Việt).
+#   cp deploy/.env.example deploy/.env   # then set every CHANGE_ME value
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile sso up -d   # + Keycloak
+#
+# Services: api (HTTP + WebSocket collaboration), worker (bo-cli conversions from the Redis queue),
+# postgres (metadata, versions, audit), minio (file contents, collaboration snapshots), redis (job queue),
+# keycloak (optional OIDC provider, profile "sso").
+name: blueoffice
+
+x-server-env: &server-env
+  Database__Provider: Postgres
+  Database__AutoCreate: 'true'
+  ConnectionStrings__Default: Host=postgres;Database=blueoffice;Username=blueoffice;Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+  ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD}
+  Storage__Provider: Minio
+  Storage__Endpoint: minio:9000
+  Storage__AccessKey: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+  Storage__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+  Storage__Bucket: blueoffice
+  Storage__MaxUploadBytes: ${MAX_UPLOAD_BYTES:-209715200}
+  Jobs__Provider: Redis
+  Auth__Authority: ${OIDC_AUTHORITY:?set OIDC_AUTHORITY}
+  Auth__Audience: ${OIDC_AUDIENCE:-blueoffice-api}
+  Auth__RequireHttpsMetadata: ${OIDC_REQUIRE_HTTPS:-true}
+  Otel__Endpoint: ${OTEL_ENDPOINT:-}
+  # BlueDrive (BOHP) host — see docs/bohp.md.
+  Hosts__0__Name: bluedrive
+  Hosts__0__Protocol: Bohp
+  Hosts__0__BaseUrl: ${BLUEDRIVE_BOHP_URL:-}
+  Hosts__0__JwksUrl: ${BLUEDRIVE_JWKS_URL:-}
+  Hosts__0__Issuer: ${BLUEDRIVE_ISSUER:-}
+  Hosts__0__Audience: blueoffice
+  Hosts__0__WebhookUrl: ${BLUEDRIVE_WEBHOOK_URL:-}
+  Hosts__0__WebhookSecret: ${BLUEDRIVE_WEBHOOK_SECRET:-}
+  Hosts__0__AllowedOrigins__0: ${BLUEDRIVE_ORIGIN:-}
+  Cors__Origins__0: ${PUBLIC_ORIGIN:-}
+
+services:
+  api:
+    image: ${BLUEOFFICE_IMAGE:-blueoffice/server:0.6.0}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *server-env
+      Role: api
+    ports:
+      - '${API_BIND:-127.0.0.1}:${API_PORT:-8080}:8080'
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+
+  worker:
+    image: ${BLUEOFFICE_IMAGE:-blueoffice/server:0.6.0}
+    restart: unless-stopped
+    environment:
+      <<: *server-env
+      Role: worker
+      Jobs__Concurrency: ${WORKER_CONCURRENCY:-2}
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
+    depends_on:
+      api: { condition: service_started }
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: blueoffice
+      POSTGRES_USER: blueoffice
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro # creates the "keycloak" database on first start
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U blueoffice -d blueoffice']
+      interval: 10s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    ports:
+      - '127.0.0.1:9001:9001' # admin console, local only
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--requirepass',
+        '${REDIS_PASSWORD:?set REDIS_PASSWORD}',
+      ]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep PONG']
+      interval: 10s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+
+  keycloak:
+    profiles: ['sso']
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    command:
+      [
+        'start',
+        '--hostname=${KEYCLOAK_HOSTNAME:-localhost}',
+        '--http-enabled=true',
+        '--proxy-headers=xforwarded',
+      ]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: blueoffice
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
+    ports:
+      - '${API_BIND:-127.0.0.1}:8180:8080'
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  postgres-data:
+  minio-data:
+  redis-data:

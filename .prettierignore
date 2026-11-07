@@ -13,3 +13,7 @@ docs
 BlueOffice-PROMPT.md
 assets/fonts/*.json
 .claude
+**/bin
+**/obj
+tests/mock-bluedrive
+tools

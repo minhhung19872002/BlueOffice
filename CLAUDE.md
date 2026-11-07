@@ -75,7 +75,7 @@ Package TS: `platform` (PAL) → `canvas-host`, `ui`, `i18n` → `editor` → `a
 - Rust: `#![forbid(unsafe_code)]`, không `unwrap()` trên dữ liệu từ file, clippy pedantic (các lint được cho phép nằm ở `[workspace.lints]`).
 - TS: `strict`, không `any`; không hard-code chuỗi UI — thêm key vào **cả** `packages/i18n/src/locales/vi-VN.json` và `en-US.json` (có test so khớp).
 - Mọi chức năng là command trong `CommandRegistry` (`packages/editor/src/commands.ts`); lệnh sửa tài liệu đi qua
-  `DocController.run` → `EngineHost.command` (JSON `bo_engine::edit::Command`, ADR-0007). Thêm lệnh mới: variant
+  `DocController.run` → `EngineHost.command` (JSON `bo_engine::edit::Command`, ADR-0008). Thêm lệnh mới: variant
   trong `Command` (Rust) + type `EditCommand` (`packages/platform/src/types.ts`).
 - Vị trí = (id đoạn thân văn bản, offset byte index text); mô hình là nguồn sự thật, UI không giữ văn bản.
 - Code UI/editor không gọi API trình duyệt/Tauri trực tiếp cho việc phụ thuộc nền tảng → đi qua `Platform`.
@@ -93,4 +93,5 @@ Package TS: `platform` (PAL) → `canvas-host`, `ui`, `i18n` → `editor` → `a
 - [0004](docs/adr/0004-windows-msvc-toolchain.md) Toolchain MSVC trên Windows
 - [0005](docs/adr/0005-lossless-docx-round-trip.md) Round-trip `.docx` lossless (XML gốc + fingerprint)
 - [0006](docs/adr/0006-product-naming.md) Đặt tên sản phẩm BlueDoc / BlueSheet / BlueSlide
-- [0007](docs/adr/0007-editing-transactions-and-command-bridge.md) Transaction op khả nghịch + cầu lệnh JSON cho chỉnh sửa
+- [0007](docs/adr/0007-digital-signatures.md) Ký số PAdES / OOXML qua trait `Signer` (USB token, ký từ xa)
+- [0008](docs/adr/0008-editing-transactions-and-command-bridge.md) Transaction op khả nghịch + cầu lệnh JSON cho chỉnh sửa

@@ -1,4 +1,4 @@
-# ADR-0007: Chỉnh sửa qua `Transaction` của `Op` khả nghịch và cầu lệnh JSON
+# ADR-0008: Chỉnh sửa qua `Transaction` của `Op` khả nghịch và cầu lệnh JSON
 
 - Trạng thái: Chấp nhận · Ngày: 2026-11-07
 

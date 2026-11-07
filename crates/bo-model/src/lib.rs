@@ -9,6 +9,8 @@
 #![forbid(unsafe_code)]
 
 pub mod index;
+pub mod sheet;
+pub mod slide;
 pub mod units;
 pub mod write;
 

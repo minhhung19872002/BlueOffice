@@ -19,12 +19,23 @@
     "shortDescription": "BlueSlide – Trình chiếu",
     "fileAssociations": [
       {
-        "ext": ["pptx"],
+        "ext": [
+          "pptx"
+        ],
         "name": "BlueSlide presentation",
         "description": "Tương thích định dạng Microsoft PowerPoint (.pptx)",
         "role": "Editor",
         "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
       }
     ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "blueslide"
+        ]
+      }
+    }
   }
 }

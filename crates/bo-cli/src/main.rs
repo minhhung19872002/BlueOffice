@@ -1,19 +1,27 @@
 //! `bo-cli` — headless BlueOffice tool.
 //!
 //! ```text
-//! bo-cli render input.docx --out page-%d.png [--scale 2]
-//! bo-cli convert input.docx --to pdf [--out output.pdf]
+//! bo-cli render input.docx|deck.pptx --out page-%d.png [--scale 2]
+//! bo-cli convert input.docx|deck.pptx --to pdf [--out output.pdf]
+//! bo-cli convert old.doc --to docx|odt|txt|pdf     # also .odt / .docx input
+//! bo-cli convert book.xls --to csv|ods [--sheet 1]  # also .xlsb / .ods input
+//! bo-cli convert deck.ppt --to odp|txt              # also .odp input
+//! bo-cli convert secret.docx --password pw --to docx --protect newpw
+//! bo-cli inspect file                               # format, encryption, macros
 //! bo-cli dump input.docx [--page 0]          # display list JSON (parity tests)
 //! bo-cli pack <dir> <out.docx> | unpack <file> <dir>
 //! bo-cli sample <out.docx>                   # generate the Phase 1 corpus sample
 //! bo-cli corpus <dir>                         # generate the Phase 2 round-trip corpus
 //! bo-cli roundtrip <file.docx> --out <out>    # open and save again (lossless check)
+//! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli bench input.docx [--iterations 5]
 //! ```
 #![forbid(unsafe_code)]
 
+mod convert;
 mod corpus;
 mod sample;
+mod slide_samples;
 
 use bo_engine::Engine;
 use clap::{Parser, Subcommand};
@@ -45,10 +53,25 @@ enum Cmd {
     /// Convert to another format.
     Convert {
         input: PathBuf,
-        #[arg(long, value_parser = ["pdf"])]
+        #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx"])]
         to: String,
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Password of an encrypted input.
+        #[arg(long)]
+        password: Option<String>,
+        /// Encrypt a .docx output with this password (Agile Encryption).
+        #[arg(long)]
+        protect: Option<String>,
+        /// Sheet for CSV output (1-based).
+        #[arg(long, default_value_t = 1)]
+        sheet: usize,
+    },
+    /// Report the detected format, encryption and macro presence (macros are never run).
+    Inspect {
+        input: PathBuf,
+        #[arg(long)]
+        password: Option<String>,
     },
     /// Print the display list of a page as JSON.
     Dump {
@@ -70,6 +93,8 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Write the BlueSlide corpus decks into a directory.
+    SampleSlides { dir: PathBuf },
     /// Measure open + layout + display list time.
     Bench {
         input: PathBuf,
@@ -125,18 +150,47 @@ fn run(cli: Cli) -> R {
                 println!("{path}");
             }
         }
-        Cmd::Convert { input, to, out } => {
-            let engine = open(&input)?;
-            debug_assert_eq!(to, "pdf");
-            let pdf = engine.export_pdf()?;
-            let out = out.unwrap_or_else(|| input.with_extension("pdf"));
-            write_file(&out, &pdf)?;
-            println!(
-                "{} ({} pages, {} bytes)",
-                out.display(),
-                engine.info()?.page_count,
-                pdf.len()
-            );
+        Cmd::Convert {
+            input,
+            to,
+            out,
+            password,
+            protect,
+            sheet,
+        } => run_convert(
+            &input,
+            &to,
+            out,
+            password.as_deref(),
+            protect.as_deref(),
+            sheet,
+        )?,
+        Cmd::Inspect { input, password } => {
+            let bytes = std::fs::read(&input).map_err(|e| format!("{}: {e}", input.display()))?;
+            let (loaded, facts) = convert::load(&bytes, password.as_deref())?;
+            println!("format: {}", facts.format);
+            println!("encrypted: {}", facts.encrypted);
+            println!("macros: {}", facts.has_macros);
+            match loaded {
+                convert::Loaded::Document { doc, .. } => {
+                    println!("paragraphs: {}", doc.paragraphs().count());
+                }
+                convert::Loaded::Workbook(wb) => {
+                    for s in &wb.sheets {
+                        println!("sheet: {} ({} cells)", s.name, s.cells.len());
+                    }
+                }
+                convert::Loaded::Spreadsheet(d) => {
+                    for s in &d.sheets {
+                        println!("sheet: {} ({} cells)", s.name, s.cells.len());
+                    }
+                }
+                convert::Loaded::Deck(p) => println!("slides: {}", p.slides.len()),
+                convert::Loaded::Pptx(b) => {
+                    let mut engine = Engine::with_bundled_fonts();
+                    println!("slides: {}", engine.open_pptx(&b, "deck.pptx")?.page_count);
+                }
+            }
         }
         Cmd::Dump { input, page } => {
             let engine = open(&input)?;
@@ -172,6 +226,13 @@ fn run(cli: Cli) -> R {
             let engine = open(&input)?;
             write_file(&out, &engine.save_docx()?)?;
             println!("{}", out.display());
+        }
+        Cmd::SampleSlides { dir } => {
+            for (name, bytes) in slide_samples::decks() {
+                let path = dir.join(name);
+                write_file(&path, &bytes)?;
+                println!("{}", path.display());
+            }
         }
         Cmd::Bench { input, iterations } => {
             let bytes = std::fs::read(&input)?;
@@ -212,6 +273,90 @@ fn run(cli: Cli) -> R {
             );
         }
     }
+    Ok(())
+}
+
+fn run_convert(
+    input: &Path,
+    to: &str,
+    out: Option<PathBuf>,
+    password: Option<&str>,
+    protect: Option<&str>,
+    sheet: usize,
+) -> R {
+    use convert::Loaded;
+    let bytes = std::fs::read(input).map_err(|e| format!("{}: {e}", input.display()))?;
+    let name = input
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("document")
+        .to_owned();
+    let (loaded, facts) = convert::load(&bytes, password)?;
+    if facts.has_macros {
+        eprintln!("note: the input contains macros; they are preserved where the output format allows and never executed");
+    }
+    let mut out_ext = to.to_owned();
+    let data: Vec<u8> = match (loaded, to) {
+        (Loaded::Document { doc, .. }, "pdf") => {
+            let mut engine = Engine::with_bundled_fonts();
+            engine.load(doc, &name)?;
+            engine.export_pdf()?
+        }
+        (Loaded::Document { doc, source }, "docx") => {
+            let (docx, carried) = convert::document_to_docx(&doc, source.as_ref())?;
+            if carried {
+                out_ext = "docm".into();
+            }
+            docx
+        }
+        (Loaded::Document { doc, .. }, "odt") => bo_odf::write_odt(&doc)?,
+        (Loaded::Document { doc, .. }, "txt") => doc.plain_text().into_bytes(),
+        (Loaded::Workbook(wb), "csv") => {
+            let s = wb
+                .sheets
+                .get(sheet.saturating_sub(1))
+                .ok_or_else(|| format!("sheet {sheet} out of range 1..={}", wb.sheets.len()))?;
+            s.to_csv().into_bytes()
+        }
+        (Loaded::Workbook(wb), "ods") => bo_odf::write_ods(&convert::workbook_to_ods(&wb))?,
+        (Loaded::Spreadsheet(d), "csv") => {
+            let s = d
+                .sheets
+                .get(sheet.saturating_sub(1))
+                .ok_or_else(|| format!("sheet {sheet} out of range 1..={}", d.sheets.len()))?;
+            convert::ods_sheet_to_worksheet(s).to_csv().into_bytes()
+        }
+        (Loaded::Spreadsheet(d), "ods") => bo_odf::write_ods(&d)?,
+        (Loaded::Pptx(b), "pdf") => {
+            let mut engine = Engine::with_bundled_fonts();
+            engine.open_pptx(&b, &name)?;
+            engine.export_pdf()?
+        }
+        (Loaded::Pptx(b), "pptx") => {
+            let mut engine = Engine::with_bundled_fonts();
+            engine.open_pptx(&b, &name)?;
+            engine.save_pptx()?
+        }
+        (Loaded::Deck(p), "odp") => bo_odf::write_odp(&p)?,
+        (Loaded::Deck(p), "txt") => convert::presentation_text(&p).into_bytes(),
+        (_, other) => {
+            return Err(format!("cannot convert {} to {other}", facts.format).into());
+        }
+    };
+    let data = if let Some(pw) = protect {
+        if !matches!(to, "docx") {
+            return Err("--protect is only supported for docx output".into());
+        }
+        bo_crypto::save_package(&data, Some(pw))?
+    } else {
+        data
+    };
+    let out = out.unwrap_or_else(|| input.with_extension(&out_ext));
+    if out == input {
+        return Err("output would overwrite the input; pass --out".into());
+    }
+    write_file(&out, &data)?;
+    println!("{} ({} bytes)", out.display(), data.len());
     Ok(())
 }
 

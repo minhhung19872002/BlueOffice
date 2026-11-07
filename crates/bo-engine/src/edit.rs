@@ -1,4 +1,4 @@
-//! Editing commands over the JSON bridge (ADR-0002, ADR-0007).
+//! Editing commands over the JSON bridge (ADR-0002, ADR-0008).
 //!
 //! Hosts send one [`Command`] as JSON and receive an [`EditResult`]: the new
 //! selection with its geometry, ribbon state and the pages whose display list

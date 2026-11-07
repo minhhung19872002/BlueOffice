@@ -8,11 +8,16 @@
 // Tauri command handlers must take their arguments by value.
 #![allow(clippy::needless_pass_by_value)]
 
+mod sheet_cmds;
+mod shell;
+
 use bo_engine::{DocInfo, Engine};
+use shell::{percent_decode, LaunchRequest};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::ipc::{InvokeBody, Request, Response};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
 
 struct EngineState(Mutex<Engine>);
@@ -45,25 +50,6 @@ fn header_name(req: &Request<'_>) -> String {
         .get("x-file-name")
         .and_then(|v| v.to_str().ok())
         .map_or_else(|| "document".into(), percent_decode)
-}
-
-/// Decode `encodeURIComponent` output.
-fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(v);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(b[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[tauri::command]
@@ -238,12 +224,59 @@ fn open_with_system(path: &std::path::Path) -> Result<(), String> {
     r.map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// File passed on the command line (file association: `blueoffice.exe file.docx`).
+/// File passed on the command line (file association: `bluedoc.exe file.docx`).
 #[tauri::command]
 fn startup_file() -> Option<String> {
-    std::env::args()
-        .skip(1)
-        .find(|a| !a.starts_with('-') && std::path::Path::new(a).is_file())
+    shell::classify_args(std::env::args().skip(1))
+        .into_iter()
+        .find_map(|r| match r {
+            LaunchRequest::File { path } => Some(path),
+            LaunchRequest::Link(_) => None,
+        })
+}
+
+/// Deep link passed on the command line (`bluedoc://open?host=…&file=…`).
+#[tauri::command]
+fn startup_link() -> Option<shell::DeepLink> {
+    shell::classify_args(std::env::args().skip(1))
+        .into_iter()
+        .find_map(|r| match r {
+            LaunchRequest::Link(l) => Some(l),
+            LaunchRequest::File { .. } => None,
+        })
+}
+
+/// Opens another native document window (`query` e.g. `app=sheet`).
+#[tauri::command]
+async fn open_window(app: tauri::AppHandle, query: String) -> Result<String, String> {
+    let url = shell::window_url(&query)?;
+    let label = shell::next_window_label();
+    let title = app
+        .config()
+        .product_name
+        .clone()
+        .unwrap_or_else(|| "BlueOffice".into());
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
+        .title(title)
+        .inner_size(1280.0, 860.0)
+        .min_inner_size(720.0, 480.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(label)
+}
+
+/// Forwards OS open requests (second instance, deep link) to the focused UI.
+fn dispatch_requests(app: &tauri::AppHandle, requests: Vec<LaunchRequest>) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    for r in requests {
+        let _ = match r {
+            LaunchRequest::File { path } => app.emit("open-file", path),
+            LaunchRequest::Link(link) => app.emit("open-link", link),
+        };
+    }
 }
 
 #[tauri::command]
@@ -252,10 +285,32 @@ fn set_title(window: tauri::WebviewWindow, title: String) -> Result<(), String> 
 }
 
 fn main() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+    let builder = tauri::Builder::default()
+        // Must be the first plugin: a second launch forwards its args here.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            dispatch_requests(app, shell::classify_args(argv.iter().skip(1)));
+        }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_dialog::init());
+    #[cfg(feature = "updater")]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    builder
         .setup(|app| {
             app.manage(EngineState(Mutex::new(Engine::with_bundled_fonts())));
+            app.manage(sheet_cmds::SheetState::new());
+            // Windows/Linux dev builds: register schemes at runtime (installers do it at install time).
+            #[cfg(all(debug_assertions, any(windows, target_os = "linux")))]
+            let _ = app.deep_link().register_all();
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                let reqs = event
+                    .urls()
+                    .iter()
+                    .filter_map(|u| shell::parse_deep_link(u.as_str()).ok())
+                    .map(LaunchRequest::Link)
+                    .collect();
+                dispatch_requests(&handle, reqs);
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -276,6 +331,11 @@ fn main() {
             save_file,
             print_pdf,
             startup_file,
+            startup_link,
+            open_window,
+            sheet_cmds::sheet_open,
+            sheet_cmds::sheet_call,
+            sheet_cmds::sheet_binary,
             set_title
         ])
         .run(tauri::generate_context!())
@@ -285,15 +345,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn decodes_uri_components() {
-        assert_eq!(
-            percent_decode("T%C3%A0i%20li%E1%BB%87u.docx"),
-            "Tài liệu.docx"
-        );
-        assert_eq!(percent_decode("a%2"), "a%2");
-    }
 
     #[test]
     fn font_list_matches_web_manifest() {

@@ -19,6 +19,9 @@ bo-render = { path = "crates/bo-render" }
 bo-raster = { path = "crates/bo-raster" }
 bo-pdf = { path = "crates/bo-pdf" }
 bo-engine = { path = "crates/bo-engine" }
+bo-xlsx = { path = "crates/bo-xlsx" }
+bo-sheet = { path = "crates/bo-sheet" }
+bo-formula = { path = "crates/bo-formula" }
 
 quick-xml = "0.42"
 zip = { version = "9", default-features = false, features = ["deflate"] }
@@ -39,7 +42,6 @@ insta = { version = "1", features = ["json"] }
 proptest = "1"
 criterion = { version = "0.8", default-features = false }
 png = "0.18"
-jpeg-decoder = { version = "0.3", default-features = false }
 regex = { version = "1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
 bo-edit = { path = "crates/bo-edit" }
 

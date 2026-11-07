@@ -6,9 +6,12 @@
 //! Reference: ISO 32000-1:2008 §9.7 (Composite fonts), §9.10.3 (ToUnicode).
 #![forbid(unsafe_code)]
 
-use bo_render::{image, Command, DisplayList, Media, Rgba};
+use bo_render::{Command, DisplayList, GradientStop, ImageSource, Paint, PathSeg, Rgba, Stroke};
 use bo_text::{FaceId, FontManager};
-use pdf_writer::types::{CidFontType, FontFlags, SystemInfo, UnicodeCmap};
+use pdf_writer::types::{
+    CidFontType, FontFlags, FunctionShadingType, LineCapStyle, LineJoinStyle, SystemInfo,
+    UnicodeCmap,
+};
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str};
 use std::collections::{BTreeMap, HashMap};
 
@@ -40,8 +43,18 @@ fn compress(data: &[u8]) -> Vec<u8> {
 pub fn write_pdf(
     list: &DisplayList,
     fonts: &FontManager,
-    media: &Media,
     meta: &PdfMeta,
+) -> Result<Vec<u8>, PdfError> {
+    write_pdf_with_images(list, fonts, meta, &BTreeMap::<String, Vec<u8>>::new())
+}
+
+/// Write the display list as PDF, embedding the PNG/JPEG bytes that `Image`
+/// commands reference by id.
+pub fn write_pdf_with_images(
+    list: &DisplayList,
+    fonts: &FontManager,
+    meta: &PdfMeta,
+    images: &dyn ImageSource,
 ) -> Result<Vec<u8>, PdfError> {
     let mut pdf = Pdf::new();
     let mut next = 1;
@@ -94,31 +107,13 @@ pub fn write_pdf(
         }
     }
     for f in &face_order {
-        if let Some(u) = uses.get_mut(f) {
-            u.font_ref = alloc();
-        }
-    }
-
-    // Pictures: one image XObject per media part (ISO 32000-1 §8.9.5).
-    let mut xobjects: BTreeMap<String, Option<(Ref, String)>> = BTreeMap::new();
-    for page in &list.pages {
-        for cmd in &page.commands {
-            if let Command::Image { media: name, .. } = cmd {
-                if xobjects.contains_key(name) {
-                    continue;
-                }
-                let n = xobjects.len();
-                let entry = media
-                    .get(name)
-                    .and_then(|bytes| write_image(&mut pdf, &mut alloc, bytes))
-                    .map(|r| (r, format!("Im{n}")));
-                xobjects.insert(name.clone(), entry);
-            }
-        }
+        uses.get_mut(f).expect("face registered").font_ref = alloc();
     }
 
     // Pages.
     let mut page_ids = Vec::new();
+    let mut image_refs: HashMap<String, Option<Ref>> = HashMap::new();
+    let mut alpha_refs: BTreeMap<u8, Ref> = BTreeMap::new();
     for page in &list.pages {
         let page_id = alloc();
         let content_id = alloc();
@@ -126,7 +121,8 @@ pub fn write_pdf(
         let h = page.height;
         let mut c = Content::new();
         let mut used_fonts: Vec<u32> = Vec::new();
-        let mut used_images: Vec<(String, Ref)> = Vec::new();
+        let mut res = PageRes::default();
+        let mut pending: Vec<PendingShading> = Vec::new();
         for cmd in &page.commands {
             match cmd {
                 Command::FillRect {
@@ -165,50 +161,6 @@ pub fn write_pdf(
                         c.set_dash_pattern([], 0.0);
                     }
                 }
-                Command::Image {
-                    x,
-                    y,
-                    w,
-                    h: ih,
-                    media: name,
-                    crop,
-                    rotation,
-                } => {
-                    let (cx, cy) = (x + w / 2.0, h - (y + ih / 2.0));
-                    let a = -rotation.to_radians();
-                    c.save_state();
-                    c.transform([1.0, 0.0, 0.0, 1.0, cx, cy]);
-                    c.transform([a.cos(), a.sin(), -a.sin(), a.cos(), 0.0, 0.0]);
-                    c.rect(-w / 2.0, -ih / 2.0, *w, *ih);
-                    c.clip_nonzero();
-                    c.end_path();
-                    if let Some((r, xname)) = xobjects.get(name).cloned().flatten() {
-                        {
-                            let [l, t, rr, b] = crop.unwrap_or([0.0; 4]);
-                            let fw = w / (1.0 - l - rr).max(0.01);
-                            let fh = ih / (1.0 - t - b).max(0.01);
-                            c.transform([
-                                fw,
-                                0.0,
-                                0.0,
-                                fh,
-                                -w / 2.0 - l * fw,
-                                ih / 2.0 + t * fh - fh,
-                            ]);
-                            c.x_object(Name(xname.as_bytes()));
-                            if !used_images.iter().any(|(n, _)| *n == xname) {
-                                used_images.push((xname, r));
-                            }
-                        }
-                    } else {
-                        {
-                            set_fill(&mut c, Rgba(224, 224, 224, 255));
-                            c.rect(-w / 2.0, -ih / 2.0, *w, *ih);
-                            c.fill_nonzero();
-                        }
-                    }
-                    c.restore_state();
-                }
                 Command::Glyphs {
                     face,
                     size,
@@ -222,6 +174,8 @@ pub fn write_pdf(
                     if !used_fonts.contains(face) {
                         used_fonts.push(*face);
                     }
+                    c.save_state();
+                    use_alpha(&mut c, &mut res, color.3);
                     set_fill(&mut c, *color);
                     c.begin_text();
                     let name = format!("F{face}");
@@ -232,6 +186,7 @@ pub fn write_pdf(
                         c.show(Str(&new.to_be_bytes()));
                     }
                     c.end_text();
+                    c.restore_state();
                 }
                 Command::PushClip { x, y, w, h: rh } => {
                     c.save_state();
@@ -239,9 +194,75 @@ pub fn write_pdf(
                     c.clip_nonzero();
                     c.end_path();
                 }
-                Command::PopClip => {
+                Command::PopClip | Command::PopTransform => {
                     c.restore_state();
                 }
+                Command::PushTransform { m } => {
+                    c.save_state();
+                    c.transform(flip_matrix(*m, h));
+                }
+                Command::PushClipPath { segs } => {
+                    c.save_state();
+                    emit_path(&mut c, segs, h);
+                    c.clip_nonzero();
+                    c.end_path();
+                }
+                Command::Path { segs, fill, stroke } => {
+                    emit_vector_path(
+                        &mut c,
+                        &mut res,
+                        &mut pending,
+                        &mut alloc,
+                        segs,
+                        fill.as_ref(),
+                        stroke.as_ref(),
+                        h,
+                    );
+                }
+                Command::Image {
+                    x,
+                    y,
+                    w,
+                    h: ih,
+                    image,
+                    crop,
+                    rotation,
+                } => {
+                    let r = if let Some(r) = image_refs.get(image) {
+                        *r
+                    } else {
+                        let r = images.image(image).and_then(load_image).map(|img| {
+                            let id = alloc();
+                            write_image(&mut pdf, &mut alloc, id, &img);
+                            id
+                        });
+                        image_refs.insert(image.clone(), r);
+                        r
+                    };
+                    let Some(r) = r else {
+                        // Missing image: light grey placeholder.
+                        set_fill(&mut c, Rgba(220, 220, 220, 255));
+                        c.rect(*x, h - y - ih, *w, *ih);
+                        c.fill_nonzero();
+                        continue;
+                    };
+                    let name = format!("Im{}", r.get());
+                    if !res.images.iter().any(|(n, _)| *n == name) {
+                        res.images.push((name.clone(), r));
+                    }
+                    emit_image(&mut c, &name, [*x, *y, *w, *ih], *crop, *rotation, h);
+                }
+            }
+        }
+        for s in &pending {
+            write_shading(&mut pdf, &mut alloc, s);
+        }
+        for a in &res.alphas {
+            if !alpha_refs.contains_key(a) {
+                let id = alloc();
+                let v = f32::from(*a) / 255.0;
+                pdf.ext_graphics(id).non_stroking_alpha(v).stroking_alpha(v);
+                alpha_refs.insert(*a, id);
             }
         }
         let data = compress(&c.finish());
@@ -250,20 +271,33 @@ pub fn write_pdf(
         p.media_box(Rect::new(0.0, 0.0, page.width, page.height));
         p.parent(pages_id);
         p.contents(content_id);
-        let mut res = p.resources();
-        let mut fdict = res.fonts();
+        let mut resources = p.resources();
+        let mut fdict = resources.fonts();
         for f in &used_fonts {
             fdict.pair(Name(format!("F{f}").as_bytes()), uses[f].font_ref);
         }
         fdict.finish();
-        if !used_images.is_empty() {
-            let mut xo = res.x_objects();
-            for (n, r) in &used_images {
-                xo.pair(Name(n.as_bytes()), *r);
+        if !res.shadings.is_empty() {
+            let mut d = resources.shadings();
+            for (n, r) in &res.shadings {
+                d.pair(Name(n.as_bytes()), *r);
             }
-            xo.finish();
         }
-        res.finish();
+        if !res.images.is_empty() {
+            let mut d = resources.x_objects();
+            for (n, r) in &res.images {
+                d.pair(Name(n.as_bytes()), *r);
+            }
+        }
+        if !res.alphas.is_empty() {
+            let mut d = resources.ext_g_states();
+            for a in &res.alphas {
+                if let Some(r) = alpha_refs.get(a) {
+                    d.pair(Name(alpha_name(*a).as_bytes()), *r);
+                }
+            }
+        }
+        resources.finish();
         p.finish();
     }
 
@@ -364,60 +398,459 @@ pub fn write_pdf(
     Ok(pdf.finish())
 }
 
-/// Write an image XObject: JPEG passes through (`DCTDecode`), PNG is decoded and
-/// re-encoded with `FlateDecode` plus an `SMask` for transparency.
-fn write_image(pdf: &mut Pdf, alloc: &mut impl FnMut() -> Ref, bytes: &[u8]) -> Option<Ref> {
+// ---------------------------------------------------------------------------
+// Vector graphics, transforms and images (ISO 32000-1 §8.4 graphics state,
+// §8.5 path construction, §8.7.4.5 shadings, §8.9 images, §11.6.4.3 soft masks).
+//
+// The display list is y-down with origin top-left; PDF user space is y-up.
+// Every command flips its own coordinates (`y → h − y`). A display-list
+// transform M is therefore emitted as F·M·F (F = the flip), which composes
+// correctly with the flipped coordinates of the commands inside it.
+// ---------------------------------------------------------------------------
+
+/// Resources referenced by one page's content stream.
+#[derive(Default)]
+struct PageRes {
+    alphas: Vec<u8>,
+    shadings: Vec<(String, Ref)>,
+    images: Vec<(String, Ref)>,
+}
+
+/// A shading to be written after the page content.
+struct PendingShading {
+    id: Ref,
+    radial: bool,
+    coords: [f32; 6],
+    stops: Vec<GradientStop>,
+}
+
+/// Image XObject ready to be written (decoded once per document).
+enum ImageData {
+    /// Baseline JPEG passed through with `DCTDecode`.
+    Jpeg {
+        data: Vec<u8>,
+        width: u32,
+        height: u32,
+        components: u8,
+    },
+    /// Decoded samples (8 bit) plus an optional alpha channel for the soft mask.
+    Raw {
+        rgb: Vec<u8>,
+        gray: bool,
+        alpha: Option<Vec<u8>>,
+        width: u32,
+        height: u32,
+    },
+}
+
+/// Conjugate a y-down transform by the page flip (see module note above).
+fn flip_matrix(m: [f32; 6], h: f32) -> [f32; 6] {
+    let [a, b, c, d, e, f] = m;
+    [a, -b, -c, d, c * h + e, h - d * h - f]
+}
+
+fn alpha_name(a: u8) -> String {
+    format!("A{a}")
+}
+
+/// Append path segments (flipped) to the content stream.
+fn emit_path(c: &mut Content, segs: &[PathSeg], h: f32) {
+    let mut cur = (0.0_f32, 0.0_f32);
+    let mut start = cur;
+    for s in segs {
+        match *s {
+            PathSeg::M(x, y) => {
+                c.move_to(x, h - y);
+                cur = (x, y);
+                start = cur;
+            }
+            PathSeg::L(x, y) => {
+                c.line_to(x, h - y);
+                cur = (x, y);
+            }
+            // PDF has no quadratic segments: elevate to cubic.
+            PathSeg::Q(qx, qy, x, y) => {
+                let c1 = (
+                    cur.0 + 2.0 / 3.0 * (qx - cur.0),
+                    cur.1 + 2.0 / 3.0 * (qy - cur.1),
+                );
+                let c2 = (x + 2.0 / 3.0 * (qx - x), y + 2.0 / 3.0 * (qy - y));
+                c.cubic_to(c1.0, h - c1.1, c2.0, h - c2.1, x, h - y);
+                cur = (x, y);
+            }
+            PathSeg::C(x1, y1, x2, y2, x, y) => {
+                c.cubic_to(x1, h - y1, x2, h - y2, x, h - y);
+                cur = (x, y);
+            }
+            PathSeg::Z => {
+                c.close_path();
+                cur = start;
+            }
+        }
+    }
+}
+
+fn set_stroke(c: &mut Content, s: &Stroke) {
+    c.set_stroke_rgb(
+        f32::from(s.color.0) / 255.0,
+        f32::from(s.color.1) / 255.0,
+        f32::from(s.color.2) / 255.0,
+    );
+    c.set_line_width(s.width);
+    c.set_line_cap(match s.cap.as_str() {
+        "round" => LineCapStyle::RoundCap,
+        "square" => LineCapStyle::ProjectingSquareCap,
+        _ => LineCapStyle::ButtCap,
+    });
+    c.set_line_join(match s.join.as_str() {
+        "miter" => LineJoinStyle::MiterJoin,
+        "bevel" => LineJoinStyle::BevelJoin,
+        _ => LineJoinStyle::RoundJoin,
+    });
+    if s.dash.len() >= 2 {
+        c.set_dash_pattern(s.dash.iter().copied(), 0.0);
+    }
+}
+
+/// Use an alpha ExtGState inside the current `q … Q` when `a < 255`.
+fn use_alpha(c: &mut Content, res: &mut PageRes, a: u8) {
+    if a == 255 {
+        return;
+    }
+    if !res.alphas.contains(&a) {
+        res.alphas.push(a);
+    }
+    c.set_parameters(Name(alpha_name(a).as_bytes()));
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_vector_path(
+    c: &mut Content,
+    res: &mut PageRes,
+    pending: &mut Vec<PendingShading>,
+    alloc: &mut dyn FnMut() -> Ref,
+    segs: &[PathSeg],
+    fill: Option<&Paint>,
+    stroke: Option<&Stroke>,
+    h: f32,
+) {
+    match fill {
+        Some(Paint::Solid { color }) => {
+            c.save_state();
+            use_alpha(c, res, color.3);
+            set_fill(c, *color);
+            emit_path(c, segs, h);
+            c.fill_nonzero();
+            c.restore_state();
+        }
+        Some(Paint::Linear {
+            x1,
+            y1,
+            x2,
+            y2,
+            stops,
+        }) => {
+            shade(
+                c,
+                res,
+                pending,
+                alloc,
+                segs,
+                h,
+                false,
+                [*x1, h - y1, *x2, h - y2, 0.0, 0.0],
+                stops,
+            );
+        }
+        Some(Paint::Radial { cx, cy, r, stops }) => {
+            shade(
+                c,
+                res,
+                pending,
+                alloc,
+                segs,
+                h,
+                true,
+                [*cx, h - cy, 0.0, *cx, h - cy, *r],
+                stops,
+            );
+        }
+        None => {}
+    }
+    if let Some(s) = stroke {
+        c.save_state();
+        use_alpha(c, res, s.color.3);
+        set_stroke(c, s);
+        emit_path(c, segs, h);
+        c.stroke();
+        c.restore_state();
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn shade(
+    c: &mut Content,
+    res: &mut PageRes,
+    pending: &mut Vec<PendingShading>,
+    alloc: &mut dyn FnMut() -> Ref,
+    segs: &[PathSeg],
+    h: f32,
+    radial: bool,
+    coords: [f32; 6],
+    stops: &[GradientStop],
+) {
+    if stops.is_empty() {
+        return;
+    }
+    if stops.len() == 1 {
+        emit_vector_path(
+            c,
+            res,
+            pending,
+            alloc,
+            segs,
+            Some(&Paint::Solid {
+                color: stops[0].color,
+            }),
+            None,
+            h,
+        );
+        return;
+    }
     let id = alloc();
-    if image::sniff(bytes) == image::Format::Jpeg {
-        {
-            let (w, h, n) = image::jpeg_info(bytes)?;
-            let mut x = pdf.image_xobject(id, bytes);
+    let name = format!("Sh{}", res.shadings.len());
+    res.shadings.push((name.clone(), id));
+    pending.push(PendingShading {
+        id,
+        radial,
+        coords,
+        stops: stops.to_vec(),
+    });
+    c.save_state();
+    emit_path(c, segs, h);
+    c.clip_nonzero();
+    c.end_path();
+    c.shading(Name(name.as_bytes()));
+    c.restore_state();
+}
+
+fn rgb(c: Rgba) -> [f32; 3] {
+    [
+        f32::from(c.0) / 255.0,
+        f32::from(c.1) / 255.0,
+        f32::from(c.2) / 255.0,
+    ]
+}
+
+/// Write an axial/radial shading with an exponential (2 stops) or stitching
+/// (n stops) function, ISO 32000-1 §7.10.3 / §7.10.4.
+fn write_shading(pdf: &mut Pdf, alloc: &mut dyn FnMut() -> Ref, s: &PendingShading) {
+    let mut stops = s.stops.clone();
+    stops.sort_by(|a, b| a.offset.total_cmp(&b.offset));
+    if let Some(first) = stops.first().copied() {
+        if first.offset > 0.0 {
+            stops.insert(
+                0,
+                GradientStop {
+                    offset: 0.0,
+                    ..first
+                },
+            );
+        }
+    }
+    if let Some(last) = stops.last().copied() {
+        if last.offset < 1.0 {
+            stops.push(GradientStop {
+                offset: 1.0,
+                ..last
+            });
+        }
+    }
+    let mut fns = Vec::new();
+    for w in stops.windows(2) {
+        let id = alloc();
+        pdf.exponential_function(id)
+            .domain([0.0, 1.0])
+            .c0(rgb(w[0].color))
+            .c1(rgb(w[1].color))
+            .n(1.0);
+        fns.push(id);
+    }
+    let func = if fns.len() == 1 {
+        fns[0]
+    } else {
+        let id = alloc();
+        let bounds: Vec<f32> = stops[1..stops.len() - 1].iter().map(|s| s.offset).collect();
+        pdf.stitching_function(id)
+            .domain([0.0, 1.0])
+            .functions(fns.iter().copied())
+            .bounds(bounds)
+            .encode(fns.iter().flat_map(|_| [0.0, 1.0]));
+        id
+    };
+    let mut sh = pdf.function_shading(s.id);
+    sh.shading_type(if s.radial {
+        FunctionShadingType::Radial
+    } else {
+        FunctionShadingType::Axial
+    });
+    sh.color_space().device_rgb();
+    sh.function(func);
+    if s.radial {
+        sh.coords(s.coords);
+    } else {
+        sh.coords(s.coords[..4].iter().copied());
+    }
+    sh.extend([true, true]);
+}
+
+/// Size and component count of a baseline/progressive JPEG (SOFn marker, ITU-T T.81 §B.2.2).
+fn jpeg_info(data: &[u8]) -> Option<(u32, u32, u8)> {
+    let mut i = 2;
+    while i + 9 < data.len() {
+        if data[i] != 0xFF {
+            return None;
+        }
+        let marker = data[i + 1];
+        let len = usize::from(u16::from_be_bytes([data[i + 2], data[i + 3]]));
+        if matches!(marker, 0xC0..=0xCF) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
+            let h = u32::from(u16::from_be_bytes([data[i + 5], data[i + 6]]));
+            let w = u32::from(u16::from_be_bytes([data[i + 7], data[i + 8]]));
+            return Some((w, h, data[i + 9]));
+        }
+        i += 2 + len;
+    }
+    None
+}
+
+fn decode_png(data: &[u8]) -> Option<ImageData> {
+    let mut dec = png::Decoder::new(std::io::Cursor::new(data));
+    dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = dec.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut buf).ok()?;
+    buf.truncate(info.buffer_size());
+    let (n, gray, has_alpha) = match info.color_type {
+        png::ColorType::Grayscale => (1, true, false),
+        png::ColorType::GrayscaleAlpha => (2, true, true),
+        png::ColorType::Rgb => (3, false, false),
+        png::ColorType::Rgba => (4, false, true),
+        png::ColorType::Indexed => return None,
+    };
+    let color_n = if gray { 1 } else { 3 };
+    let mut rgb = Vec::with_capacity(buf.len() / n * color_n);
+    let mut alpha = has_alpha.then(|| Vec::with_capacity(buf.len() / n));
+    for px in buf.chunks_exact(n) {
+        rgb.extend_from_slice(&px[..color_n]);
+        if let Some(a) = alpha.as_mut() {
+            a.push(px[n - 1]);
+        }
+    }
+    Some(ImageData::Raw {
+        rgb,
+        gray,
+        alpha,
+        width: info.width,
+        height: info.height,
+    })
+}
+
+fn load_image(data: &[u8]) -> Option<ImageData> {
+    if data.starts_with(&[0xFF, 0xD8]) {
+        let (width, height, components) = jpeg_info(data)?;
+        return Some(ImageData::Jpeg {
+            data: data.to_vec(),
+            width,
+            height,
+            components,
+        });
+    }
+    if data.starts_with(b"\x89PNG") {
+        return decode_png(data);
+    }
+    None
+}
+
+fn write_image(pdf: &mut Pdf, alloc: &mut dyn FnMut() -> Ref, id: Ref, img: &ImageData) {
+    match img {
+        ImageData::Jpeg {
+            data,
+            width,
+            height,
+            components,
+        } => {
+            let mut x = pdf.image_xobject(id, data);
             x.filter(Filter::DctDecode);
-            x.width(w as i32);
-            x.height(h as i32);
-            match n {
+            x.width(*width as i32).height(*height as i32);
+            match components {
                 1 => x.color_space().device_gray(),
                 4 => x.color_space().device_cmyk(),
                 _ => x.color_space().device_rgb(),
             }
             x.bits_per_component(8);
         }
-    } else {
-        {
-            let d = image::decode(bytes)?;
-            let rgb: Vec<u8> = d
-                .rgba
-                .chunks_exact(4)
-                .flat_map(|p| [p[0], p[1], p[2]])
-                .collect();
-            let alpha: Vec<u8> = d.rgba.chunks_exact(4).map(|p| p[3]).collect();
-            let smask = if alpha.iter().any(|&a| a < 255) {
-                let sid = alloc();
-                let data = compress(&alpha);
-                let mut s = pdf.image_xobject(sid, &data);
-                s.filter(Filter::FlateDecode);
-                s.width(d.width as i32);
-                s.height(d.height as i32);
-                s.color_space().device_gray();
-                s.bits_per_component(8);
-                s.finish();
-                Some(sid)
-            } else {
-                None
-            };
-            let data = compress(&rgb);
+        ImageData::Raw {
+            rgb,
+            gray,
+            alpha,
+            width,
+            height,
+        } => {
+            let mask = alpha.as_ref().map(|a| {
+                let mid = alloc();
+                let data = compress(a);
+                let mut m = pdf.image_xobject(mid, &data);
+                m.filter(Filter::FlateDecode);
+                m.width(*width as i32).height(*height as i32);
+                m.color_space().device_gray();
+                m.bits_per_component(8);
+                mid
+            });
+            let data = compress(rgb);
             let mut x = pdf.image_xobject(id, &data);
             x.filter(Filter::FlateDecode);
-            x.width(d.width as i32);
-            x.height(d.height as i32);
-            x.color_space().device_rgb();
+            x.width(*width as i32).height(*height as i32);
+            if *gray {
+                x.color_space().device_gray();
+            } else {
+                x.color_space().device_rgb();
+            }
             x.bits_per_component(8);
-            if let Some(s) = smask {
-                x.s_mask(s);
+            if let Some(m) = mask {
+                x.s_mask(m);
             }
         }
     }
-    Some(id)
+}
+
+/// Draw an image XObject into the destination rect (crop = l,t,r,b fractions).
+fn emit_image(
+    c: &mut Content,
+    name: &str,
+    [x, y, w, hh]: [f32; 4],
+    crop: Option<[f32; 4]>,
+    rotation: f32,
+    h: f32,
+) {
+    let [cl, ct, cr, cb] = crop.unwrap_or([0.0; 4]);
+    let fw = w / (1.0 - cl - cr).max(1e-3);
+    let fh = hh / (1.0 - ct - cb).max(1e-3);
+    let x0 = x - cl * fw;
+    let y0 = y - ct * fh;
+    c.save_state();
+    if rotation != 0.0 {
+        let (s, co) = rotation.to_radians().sin_cos();
+        let (cx, cy) = (x + w / 2.0, y + hh / 2.0);
+        // Rotation about the centre in y-down space, conjugated by the flip.
+        let m = [co, s, -s, co, cx - co * cx + s * cy, cy - s * cx - co * cy];
+        c.transform(flip_matrix(m, h));
+    }
+    c.rect(x, h - y - hh, w, hh);
+    c.clip_nonzero();
+    c.end_path();
+    c.transform([fw, 0.0, 0.0, fh, x0, h - y0 - fh]);
+    c.x_object(Name(name.as_bytes()));
+    c.restore_state();
 }
 
 fn set_fill(c: &mut Content, color: Rgba) {
@@ -454,13 +887,7 @@ mod tests {
                 commands: vec![],
             }],
         };
-        let bytes = write_pdf(
-            &list,
-            &FontManager::new(),
-            &Media::new(),
-            &PdfMeta::default(),
-        )
-        .unwrap();
+        let bytes = write_pdf(&list, &FontManager::new(), &PdfMeta::default()).unwrap();
         assert!(bytes.starts_with(b"%PDF-"));
         let s = String::from_utf8_lossy(&bytes);
         assert!(s.contains("/MediaBox [0 0 595 842]"));
@@ -468,43 +895,99 @@ mod tests {
     }
 
     #[test]
-    fn embeds_png_with_smask() {
-        let mut png = Vec::new();
-        {
-            let mut enc = png::Encoder::new(&mut png, 1, 1);
-            enc.set_color(png::ColorType::Rgba);
-            let mut w = enc.write_header().unwrap();
-            w.write_image_data(&[1, 2, 3, 128]).unwrap();
-        }
-        let mut media = Media::new();
-        media.insert("/m.png".into(), std::sync::Arc::new(png));
-        let img = |name: &str| Command::Image {
-            x: 10.0,
-            y: 10.0,
-            w: 20.0,
-            h: 20.0,
-            media: name.into(),
-            crop: Some([0.1, 0.0, 0.0, 0.0]),
-            rotation: 90.0,
-        };
-        let list = DisplayList {
-            pages: vec![PageList {
-                width: 100.0,
-                height: 100.0,
-                commands: vec![img("/m.png"), img("/m.png"), img("/missing.gif")],
-            }],
-        };
-        let bytes = write_pdf(&list, &FontManager::new(), &media, &PdfMeta::default()).unwrap();
-        let s = String::from_utf8_lossy(&bytes);
-        assert_eq!(s.matches("/Subtype /Image").count(), 2, "image + soft mask");
-        assert!(s.contains("/SMask"));
-        assert!(s.contains("/Im0"));
-    }
-
-    #[test]
     fn subset_tags_are_uppercase() {
         let t = subset_tag(3);
         assert_eq!(t.len(), 6);
         assert!(t.chars().all(|c| c.is_ascii_uppercase()));
+    }
+    fn tiny_png() -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut out, 2, 1);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut w = enc.write_header().unwrap();
+            w.write_image_data(&[255, 0, 0, 255, 0, 0, 255, 128])
+                .unwrap();
+        }
+        out
+    }
+
+    #[test]
+    fn vector_commands_and_images() {
+        let tri = vec![
+            PathSeg::M(0.0, 0.0),
+            PathSeg::Q(50.0, 0.0, 50.0, 50.0),
+            PathSeg::L(0.0, 50.0),
+            PathSeg::Z,
+        ];
+        let stop = |offset, c| GradientStop {
+            offset,
+            color: Rgba(c, c, c, 255),
+        };
+        let list = DisplayList {
+            pages: vec![PageList {
+                width: 200.0,
+                height: 100.0,
+                commands: vec![
+                    Command::PushTransform {
+                        m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0],
+                    },
+                    Command::Path {
+                        segs: tri.clone(),
+                        fill: Some(Paint::Linear {
+                            x1: 0.0,
+                            y1: 0.0,
+                            x2: 50.0,
+                            y2: 0.0,
+                            stops: vec![stop(0.0, 0), stop(0.5, 128), stop(1.0, 255)],
+                        }),
+                        stroke: Some(Stroke {
+                            width: 1.0,
+                            color: Rgba(0, 0, 0, 128),
+                            dash: vec![3.0, 1.0],
+                            cap: "round".into(),
+                            join: "miter".into(),
+                        }),
+                    },
+                    Command::PopTransform,
+                    Command::PushClipPath { segs: tri },
+                    Command::Image {
+                        x: 0.0,
+                        y: 0.0,
+                        w: 40.0,
+                        h: 20.0,
+                        image: "a.png".into(),
+                        crop: Some([0.1, 0.0, 0.0, 0.0]),
+                        rotation: 0.0,
+                    },
+                    Command::PopClip,
+                ],
+            }],
+        };
+        let mut images = BTreeMap::new();
+        images.insert("a.png".to_owned(), tiny_png());
+        let bytes = write_pdf_with_images(&list, &FontManager::new(), &PdfMeta::default(), &images)
+            .unwrap();
+        let s = String::from_utf8_lossy(&bytes);
+        assert!(s.contains("/ShadingType 2"));
+        assert!(s.contains("/FunctionType 3"));
+        assert!(s.contains("/Subtype /Image"));
+        assert!(s.contains("/SMask"));
+        assert!(s.contains("/ca 0.5"));
+        assert!(s.trim_end().ends_with("%%EOF"));
+    }
+
+    #[test]
+    fn flip_matrix_conjugates() {
+        // Translation by (10, 20) in y-down space is (10, −20) in PDF space.
+        assert_eq!(
+            flip_matrix([1.0, 0.0, 0.0, 1.0, 10.0, 20.0], 100.0),
+            [1.0, 0.0, 0.0, 1.0, 10.0, -20.0]
+        );
+        assert_eq!(
+            jpeg_info(&[0xFF, 0xD8, 0xFF, 0xC0, 0, 17, 8, 0, 4, 0, 3, 3]),
+            Some((3, 4, 3))
+        );
     }
 }

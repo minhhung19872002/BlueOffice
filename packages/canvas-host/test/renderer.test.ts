@@ -111,11 +111,11 @@ describe('canvas renderer', () => {
           y: 10,
           w: 20,
           h: 10,
-          media: '/a.png',
+          image: '/a.png',
           crop: [0.5, 0, 0, 0],
           rotation: 90,
         },
-        { op: 'image', x: 0, y: 50, w: 5, h: 5, media: '/b.emf' },
+        { op: 'image', x: 0, y: 50, w: 5, h: 5, image: '/b.emf' },
         { op: 'line', x1: 0, y1: 0, x2: 9, y2: 0, width: 1, color: [0, 0, 0, 255], dash: [3, 2] },
       ],
     };

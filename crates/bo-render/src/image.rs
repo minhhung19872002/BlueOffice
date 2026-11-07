@@ -1,7 +1,4 @@
-//! Picture decoding shared by the raster and PDF backends.
-//!
-//! Supported: PNG (ISO/IEC 15948) and baseline/progressive JPEG (ITU T.81).
-//! Other formats (EMF/WMF, GIF, TIFF) are drawn as a grey placeholder box.
+//! Picture sources and format sniffing shared by the raster and PDF backends.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -9,15 +6,30 @@ use std::sync::Arc;
 /// Binary parts keyed by part name (`/word/media/image1.png`).
 pub type Media = BTreeMap<String, Arc<Vec<u8>>>;
 
-/// Decoding limits (prompt §5.9: reject absurd sizes instead of allocating them).
-pub const MAX_PIXELS: u64 = 64 * 1024 * 1024;
+/// Where backends find the encoded bytes of `Image` commands (by `image` id).
+pub trait ImageSource {
+    fn image(&self, id: &str) -> Option<&[u8]>;
+}
 
-/// A decoded image, straight (non-premultiplied) RGBA8.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Decoded {
-    pub width: u32,
-    pub height: u32,
-    pub rgba: Vec<u8>,
+impl ImageSource for BTreeMap<String, Vec<u8>> {
+    fn image(&self, id: &str) -> Option<&[u8]> {
+        self.get(id).map(Vec::as_slice)
+    }
+}
+
+impl ImageSource for Media {
+    fn image(&self, id: &str) -> Option<&[u8]> {
+        self.get(id).map(|b| b.as_slice())
+    }
+}
+
+/// Look up in several sources in order.
+pub struct Chain<'a>(pub &'a dyn ImageSource, pub &'a dyn ImageSource);
+
+impl ImageSource for Chain<'_> {
+    fn image(&self, id: &str) -> Option<&[u8]> {
+        self.0.image(id).or_else(|| self.1.image(id))
+    }
 }
 
 /// Container format sniffed from magic bytes.
@@ -65,109 +77,9 @@ pub fn jpeg_info(bytes: &[u8]) -> Option<(u32, u32, u8)> {
     None
 }
 
-/// Decode a PNG or JPEG picture.
-pub fn decode(bytes: &[u8]) -> Option<Decoded> {
-    match sniff(bytes) {
-        Format::Png => decode_png(bytes),
-        Format::Jpeg => decode_jpeg(bytes),
-        Format::Other => None,
-    }
-}
-
-fn decode_png(bytes: &[u8]) -> Option<Decoded> {
-    let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
-    dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-    let mut reader = dec.read_info().ok()?;
-    let (w, h) = {
-        let info = reader.info();
-        (info.width, info.height)
-    };
-    if u64::from(w) * u64::from(h) > MAX_PIXELS {
-        return None;
-    }
-    let mut buf = vec![0; reader.output_buffer_size()?];
-    let frame = reader.next_frame(&mut buf).ok()?;
-    let data = &buf[..frame.buffer_size()];
-    let rgba = match frame.color_type {
-        png::ColorType::Rgba => data.to_vec(),
-        png::ColorType::Rgb => data
-            .chunks_exact(3)
-            .flat_map(|p| [p[0], p[1], p[2], 255])
-            .collect(),
-        png::ColorType::GrayscaleAlpha => data
-            .chunks_exact(2)
-            .flat_map(|p| [p[0], p[0], p[0], p[1]])
-            .collect(),
-        png::ColorType::Grayscale => data.iter().flat_map(|&g| [g, g, g, 255]).collect(),
-        png::ColorType::Indexed => return None,
-    };
-    (rgba.len() == (w * h * 4) as usize).then_some(Decoded {
-        width: w,
-        height: h,
-        rgba,
-    })
-}
-
-fn decode_jpeg(bytes: &[u8]) -> Option<Decoded> {
-    let (w, h, _) = jpeg_info(bytes)?;
-    if u64::from(w) * u64::from(h) > MAX_PIXELS {
-        return None;
-    }
-    let mut dec = jpeg_decoder::Decoder::new(std::io::Cursor::new(bytes));
-    let px = dec.decode().ok()?;
-    let info = dec.info()?;
-    let rgba: Vec<u8> = match info.pixel_format {
-        jpeg_decoder::PixelFormat::RGB24 => px
-            .chunks_exact(3)
-            .flat_map(|p| [p[0], p[1], p[2], 255])
-            .collect(),
-        jpeg_decoder::PixelFormat::L8 => px.iter().flat_map(|&g| [g, g, g, 255]).collect(),
-        jpeg_decoder::PixelFormat::L16 => px
-            .chunks_exact(2)
-            .flat_map(|p| [p[0], p[0], p[0], 255])
-            .collect(),
-        jpeg_decoder::PixelFormat::CMYK32 => px
-            .chunks_exact(4)
-            .flat_map(|p| {
-                // Adobe JPEGs store inverted CMYK; approximate conversion to sRGB.
-                let k = u16::from(p[3]);
-                let f = |c: u8| ((u16::from(c) * k) / 255) as u8;
-                [f(p[0]), f(p[1]), f(p[2]), 255]
-            })
-            .collect(),
-    };
-    Some(Decoded {
-        width: u32::from(info.width),
-        height: u32::from(info.height),
-        rgba,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// 2×1 RGB PNG built with the `png` encoder.
-    pub(crate) fn tiny_png() -> Vec<u8> {
-        let mut out = Vec::new();
-        {
-            let mut enc = png::Encoder::new(&mut out, 2, 1);
-            enc.set_color(png::ColorType::Rgb);
-            enc.set_depth(png::BitDepth::Eight);
-            let mut w = enc.write_header().unwrap();
-            w.write_image_data(&[255, 0, 0, 0, 0, 255]).unwrap();
-        }
-        out
-    }
-
-    #[test]
-    fn png_roundtrip() {
-        let d = decode(&tiny_png()).unwrap();
-        assert_eq!((d.width, d.height), (2, 1));
-        assert_eq!(d.rgba, vec![255, 0, 0, 255, 0, 0, 255, 255]);
-        assert_eq!(sniff(b"GIF89a"), Format::Other);
-        assert!(decode(b"\x89PNG\r\n\x1a\nbroken").is_none());
-    }
 
     #[test]
     fn jpeg_header() {

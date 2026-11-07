@@ -55,7 +55,7 @@ Toàn bộ test xanh sau khi đổi tên (Rust 53, TS 28, E2E web 5, .NET 6, smo
 ## Phase 2 — BlueDoc MVP · ✅ phần cốt lõi hoàn thành, chờ duyệt (2026-11-07)
 
 Kế hoạch và hạn chế: [`plan/phase-2.md`](plan/phase-2.md). ADR mới: [0005](adr/0005-lossless-docx-round-trip.md) (lossless),
-[0007](adr/0007-editing-transactions-and-command-bridge.md) (transaction + cầu lệnh JSON). Nhánh `wip/phase2-bluedoc` (rebase trên `main`).
+[0008](adr/0008-editing-transactions-and-command-bridge.md) (transaction + cầu lệnh JSON). Nhánh `wip/phase2-bluedoc` (rebase trên `main`).
 
 ### Đã làm
 - `bo-layout` viết lại: phân trang, keep rules, bảng, ảnh, header/footer, cột, footnote/endnote, field trang.

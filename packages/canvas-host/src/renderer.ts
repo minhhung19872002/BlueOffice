@@ -76,7 +76,7 @@ export class ImageStore {
   async ensure(page: PageDisplayList): Promise<void> {
     const missing = new Set<string>();
     for (const c of page.commands) {
-      if (c.op === 'image' && !this.images.has(c.media)) missing.add(c.media);
+      if (c.op === 'image' && !this.images.has(c.image)) missing.add(c.image);
     }
     await Promise.all(
       [...missing].map(async (m) => {
@@ -183,7 +183,7 @@ function drawCommand(
       if (cmd.dash) ctx.setLineDash?.([]);
       break;
     case 'image': {
-      const img = images?.get(cmd.media);
+      const img = images?.get(cmd.image);
       ctx.save();
       ctx.translate(cmd.x + cmd.w / 2, cmd.y + cmd.h / 2);
       if (cmd.rotation) ctx.rotate?.((cmd.rotation * Math.PI) / 180);

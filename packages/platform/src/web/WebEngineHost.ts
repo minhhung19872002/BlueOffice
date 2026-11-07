@@ -105,6 +105,14 @@ export class WebEngineHost implements EngineHost {
     return this.call<Uint8Array>({ method: 'saveDocx' });
   }
 
+  getSlideNotes(index: number): Promise<string> {
+    return this.call<string>({ method: 'notes', index });
+  }
+
+  savePptx(): Promise<Uint8Array> {
+    return this.call<Uint8Array>({ method: 'savePptx' });
+  }
+
   async markSaved(): Promise<void> {
     await this.call<null>({ method: 'markSaved' });
   }

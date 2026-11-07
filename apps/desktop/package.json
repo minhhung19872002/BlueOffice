@@ -17,6 +17,7 @@
     "@blueoffice/editor": "workspace:*",
     "@blueoffice/platform": "workspace:*",
     "@blueoffice/sheet-editor": "workspace:*",
+    "@blueoffice/slide-editor": "workspace:*",
     "@blueoffice/storage-providers": "workspace:*",
     "@tauri-apps/api": "^2.12.4",
     "react": "18.3.1",

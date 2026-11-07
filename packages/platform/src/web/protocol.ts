@@ -10,7 +10,9 @@ export type EngineRequest =
   | { id: number; method: 'insertImage'; bytes: Uint8Array; name: string }
   | { id: number; method: 'media'; name: string }
   | { id: number; method: 'saveDocx' }
-  | { id: number; method: 'markSaved' };
+  | { id: number; method: 'markSaved' }
+  | { id: number; method: 'notes'; index: number }
+  | { id: number; method: 'savePptx' };
 
 export type EngineResponse =
   { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };

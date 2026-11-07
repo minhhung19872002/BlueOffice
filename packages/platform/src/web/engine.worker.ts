@@ -46,6 +46,12 @@ async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?:
       const bytes = engine.saveDocx();
       return { result: bytes, transfer: [bytes.buffer] };
     }
+    case 'notes':
+      return { result: engine.slideNotes(req.index) };
+    case 'savePptx': {
+      const bytes = engine.savePptx();
+      return { result: bytes, transfer: [bytes.buffer] };
+    }
     case 'markSaved':
       engine.markSaved();
       return { result: null };

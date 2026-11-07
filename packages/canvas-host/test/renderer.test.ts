@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { GlyphOutline, PageDisplayList } from '@blueoffice/platform';
-import { GlyphStore, ImageStore, renderPage, rgba, type CanvasLike } from '../src/renderer';
+import type { GlyphOutline, PageDisplayList, PathSeg } from '@blueoffice/platform';
+import {
+  GlyphStore,
+  ImageStore,
+  renderPage,
+  rgba,
+  segsToSvg,
+  type CanvasLike,
+} from '../src/renderer';
 
 function recorder() {
   const ops: string[] = [];
@@ -18,8 +25,13 @@ function recorder() {
     moveTo: (x, y) => ops.push(`moveTo ${x} ${y}`),
     lineTo: (x, y) => ops.push(`lineTo ${x} ${y}`),
     rect: (x, y, w, h) => ops.push(`rect ${x} ${y} ${w} ${h}`),
-    stroke: () => ops.push('stroke'),
-    clip: () => ops.push('clip'),
+    stroke: (p?: unknown) => ops.push(p ? `stroke ${String(p)}` : 'stroke'),
+    clip: (p?: unknown) => ops.push(p ? `clip ${String(p)}` : 'clip'),
+    transform: (a, b, c, d, e, f) => ops.push(`transform ${[a, b, c, d, e, f].join(' ')}`),
+    createLinearGradient: () => ({
+      addColorStop: (o: number, c: string) => ops.push(`stop ${o} ${c}`),
+      toString: () => 'gradient',
+    }),
     fill: (p) => ops.push(`fill ${String(p)}`),
     setLineDash: (d) => ops.push(`dash ${d.join(',')}`),
     rotate: (a) => ops.push(`rotate ${a.toFixed(3)}`),
@@ -140,6 +152,50 @@ describe('canvas renderer', () => {
     expect(ops).toContain('fillRect -2.5 -2.5 5 5 #e0e0e0');
     expect(ops).toContain('dash 3,2');
     expect(ops).toContain('dash ');
+  });
+
+  it('draws slide paths, gradients, transforms and clip paths', async () => {
+    const { ctx, ops } = recorder();
+    const glyphs = new GlyphStore({ getGlyphOutlines: async () => [] }, (d) => `P(${d})`);
+    const tri: PathSeg[] = [{ M: [0, 0] }, { L: [10, 0] }, { C: [1, 2, 3, 4, 5, 6] }, 'Z'];
+    expect(segsToSvg(tri)).toBe('M0 0L10 0C1 2 3 4 5 6Z');
+    renderPage(
+      ctx,
+      {
+        width: 10,
+        height: 10,
+        commands: [
+          { op: 'pushTransform', m: [1, 0, 0, 1, 50, 50] },
+          { op: 'pushClipPath', segs: [{ M: [0, 0] }, { L: [5, 5] }, 'Z'] },
+          {
+            op: 'path',
+            segs: tri,
+            fill: {
+              type: 'linear',
+              x1: 0,
+              y1: 0,
+              x2: 10,
+              y2: 0,
+              stops: [{ offset: 0, color: [255, 0, 0, 255] }],
+            },
+            stroke: { width: 2, color: [0, 0, 0, 255], dash: [3, 1], cap: 'round', join: 'miter' },
+          },
+          { op: 'popClip' },
+          { op: 'popTransform' },
+        ],
+      },
+      glyphs,
+      1,
+    );
+    expect(ops).toContain('transform 1 0 0 1 50 50');
+    expect(ops).toContain('clip P(M0 0L5 5Z)');
+    expect(ops).toContain('stop 0 rgba(255,0,0,1.000)');
+    expect(ops).toContain('fill P(M0 0L10 0C1 2 3 4 5 6Z)');
+    expect(ops).toContain('stroke P(M0 0L10 0C1 2 3 4 5 6Z)');
+    expect(ops).toContain('dash 3,1');
+    expect(ctx.lineCap).toBe('round');
+    // Every push is balanced by a restore.
+    expect(ops.filter((o) => o === 'save').length).toBe(ops.filter((o) => o === 'restore').length);
   });
 
   it('formats colours', () => {

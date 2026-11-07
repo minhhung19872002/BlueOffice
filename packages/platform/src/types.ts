@@ -21,6 +21,8 @@ export interface DocInfo {
   pageCount: number;
   pages: PageSize[];
   wordCount: number;
+  /** `slide` for presentations (pages are slides), `doc` otherwise. */
+  kind?: 'doc' | 'slide';
 }
 
 export type Rgba = [number, number, number, number];
@@ -65,7 +67,39 @@ export type DisplayCommand =
       glyphs: Glyph[];
     }
   | { op: 'pushClip'; x: number; y: number; w: number; h: number }
-  | { op: 'popClip' };
+  | { op: 'popClip' }
+  | { op: 'path'; segs: PathSeg[]; fill: Paint | null; stroke: Stroke | null }
+  /** Pre-multiply the transform `[a, b, c, d, e, f]` (canvas `transform()` order). */
+  | { op: 'pushTransform'; m: [number, number, number, number, number, number] }
+  | { op: 'popTransform' }
+  /** Intersect the clip with a path (nonzero rule; paired with `popClip`). */
+  | { op: 'pushClipPath'; segs: PathSeg[] };
+
+/** Path segment as serialised by serde (`bo_render::PathSeg`). */
+export type PathSeg =
+  | { M: [number, number] }
+  | { L: [number, number] }
+  | { Q: [number, number, number, number] }
+  | { C: [number, number, number, number, number, number] }
+  | 'Z';
+
+export interface GradientStop {
+  offset: number;
+  color: Rgba;
+}
+
+export type Paint =
+  | { type: 'solid'; color: Rgba }
+  | { type: 'linear'; x1: number; y1: number; x2: number; y2: number; stops: GradientStop[] }
+  | { type: 'radial'; cx: number; cy: number; r: number; stops: GradientStop[] };
+
+export interface Stroke {
+  width: number;
+  color: Rgba;
+  dash: number[];
+  cap: string;
+  join: string;
+}
 
 /** Display list of a page (mirrors `bo_render::PageList`). */
 export interface PageDisplayList {
@@ -236,6 +270,10 @@ export interface EngineHost {
   saveDocx(): Promise<Uint8Array>;
   /** Mark the current state as saved. */
   markSaved(): Promise<void>;
+  /** Speaker notes of a slide (presentations; empty for documents). */
+  getSlideNotes(index: number): Promise<string>;
+  /** Saves the open presentation as `.pptx`. */
+  savePptx(): Promise<Uint8Array>;
   dispose(): void;
 }
 

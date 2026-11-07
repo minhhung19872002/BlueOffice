@@ -1,4 +1,11 @@
-import type { DisplayCommand, EngineHost, PageDisplayList, Rgba } from '@blueoffice/platform';
+import type {
+  DisplayCommand,
+  EngineHost,
+  PageDisplayList,
+  Paint,
+  PathSeg,
+  Rgba,
+} from '@blueoffice/platform';
 
 /** CSS pixels per point at 100 % zoom (96 dpi screen). */
 export const PX_PER_PT = 96 / 72;
@@ -15,14 +22,28 @@ export interface CanvasLike {
   moveTo(x: number, y: number): void;
   lineTo(x: number, y: number): void;
   rect(x: number, y: number, w: number, h: number): void;
-  stroke(): void;
-  clip(): void;
+  /** Without argument: the current path; with a Path2D: that path. */
+  stroke(path?: unknown): void;
+  clip(path?: unknown): void;
   fill(path: unknown): void;
   fillStyle: unknown;
   strokeStyle: unknown;
   lineWidth: number;
   setLineDash?(segments: number[]): void;
   rotate?(angle: number): void;
+  /** Multiply the current transform (slides: shape/group transforms). */
+  transform?(a: number, b: number, c: number, d: number, e: number, f: number): void;
+  createLinearGradient?(x0: number, y0: number, x1: number, y1: number): GradientLike;
+  createRadialGradient?(
+    x0: number,
+    y0: number,
+    r0: number,
+    x1: number,
+    y1: number,
+    r1: number,
+  ): GradientLike;
+  lineCap?: string;
+  lineJoin?: string;
   drawImage?(
     img: unknown,
     sx: number,
@@ -89,6 +110,23 @@ export class ImageStore {
 
 export type PathFactory = (svgPath: string) => unknown;
 
+export interface GradientLike {
+  addColorStop(offset: number, color: string): void;
+}
+
+/** `bo_render::PathSeg` list → SVG path data. */
+export function segsToSvg(segs: PathSeg[]): string {
+  const out: string[] = [];
+  for (const s of segs) {
+    if (s === 'Z') out.push('Z');
+    else if ('M' in s) out.push(`M${s.M[0]} ${s.M[1]}`);
+    else if ('L' in s) out.push(`L${s.L[0]} ${s.L[1]}`);
+    else if ('Q' in s) out.push(`Q${s.Q.join(' ')}`);
+    else out.push(`C${s.C.join(' ')}`);
+  }
+  return out.join('');
+}
+
 const defaultPathFactory: PathFactory = (d) => new Path2D(d);
 
 export const rgba = (c: Rgba): string => `rgba(${c[0]},${c[1]},${c[2]},${(c[3] / 255).toFixed(3)})`;
@@ -109,6 +147,11 @@ export class GlyphStore {
 
   get size(): number {
     return this.glyphs.size;
+  }
+
+  /** Builds a path object from SVG path data (shared with shape drawing). */
+  path(d: string): unknown {
+    return this.makePath(d);
   }
 
   get(face: number, glyph: number): CachedGlyph | undefined {
@@ -232,5 +275,44 @@ function drawCommand(
     case 'popClip':
       ctx.restore();
       break;
+    case 'path': {
+      const path = glyphs.path(segsToSvg(cmd.segs));
+      if (cmd.fill) {
+        ctx.fillStyle = paintStyle(ctx, cmd.fill);
+        ctx.fill(path);
+      }
+      if (cmd.stroke && cmd.stroke.width > 0) {
+        ctx.strokeStyle = rgba(cmd.stroke.color);
+        ctx.lineWidth = cmd.stroke.width;
+        ctx.lineCap = cmd.stroke.cap;
+        ctx.lineJoin = cmd.stroke.join;
+        ctx.setLineDash?.(cmd.stroke.dash);
+        ctx.stroke(path);
+        ctx.setLineDash?.([]);
+      }
+      break;
+    }
+    case 'pushTransform':
+      ctx.save();
+      ctx.transform?.(...cmd.m);
+      break;
+    case 'popTransform':
+      ctx.restore();
+      break;
+    case 'pushClipPath':
+      ctx.save();
+      ctx.clip(glyphs.path(segsToSvg(cmd.segs)));
+      break;
   }
+}
+
+function paintStyle(ctx: CanvasLike, p: Paint): unknown {
+  if (p.type === 'solid') return rgba(p.color);
+  const g =
+    p.type === 'linear'
+      ? ctx.createLinearGradient?.(p.x1, p.y1, p.x2, p.y2)
+      : ctx.createRadialGradient?.(p.cx, p.cy, 0, p.cx, p.cy, p.r);
+  if (!g) return rgba(p.stops[0]?.color ?? [0, 0, 0, 255]);
+  for (const s of p.stops) g.addColorStop(Math.min(1, Math.max(0, s.offset)), rgba(s.color));
+  return g;
 }

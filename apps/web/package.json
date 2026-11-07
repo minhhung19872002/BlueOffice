@@ -16,6 +16,7 @@
     "@blueoffice/editor": "workspace:*",
     "@blueoffice/platform": "workspace:*",
     "@blueoffice/sheet-editor": "workspace:*",
+    "@blueoffice/slide-editor": "workspace:*",
     "@blueoffice/storage-providers": "workspace:*",
     "react": "18.3.1",
     "react-dom": "18.3.1"

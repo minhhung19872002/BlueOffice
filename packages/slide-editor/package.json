@@ -1,0 +1,38 @@
+{
+  "name": "@blueoffice/slide-editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "BlueSlide editor (React component): slide views, slide show and presenter view. Embedded by apps/web and apps/desktop.",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@blueoffice/canvas-host": "workspace:*",
+    "@blueoffice/i18n": "workspace:*",
+    "@blueoffice/platform": "workspace:*",
+    "@blueoffice/ui": "workspace:*",
+    "lucide-react": "^1.69.0",
+    "@blueoffice/editor": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "happy-dom": "^21.0.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

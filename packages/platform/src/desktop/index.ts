@@ -87,6 +87,12 @@ export class NativeEngineHost implements EngineHost {
   async saveDocx(): Promise<Uint8Array> {
     return toBytes(await this.call<ArrayBuffer>('engine_save_docx'));
   }
+  getSlideNotes(index: number): Promise<string> {
+    return this.call<string>('engine_slide_notes', { index });
+  }
+  async savePptx(): Promise<Uint8Array> {
+    return toBytes(await this.call<ArrayBuffer>('engine_save_pptx'));
+  }
   async markSaved(): Promise<void> {
     await this.call<null>('engine_mark_saved');
   }

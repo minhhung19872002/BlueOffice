@@ -108,6 +108,8 @@ function fakePlatform(): Platform & { opened: string[]; commands: EditCommand[];
       insertImage: async () => result('x', bold, modified),
       getMedia: async () => new Uint8Array(),
       saveDocx: async () => new Uint8Array([80, 75]),
+      getSlideNotes: async () => '',
+      savePptx: async () => new Uint8Array([80, 75]),
       markSaved: async () => {
         modified = false;
       },

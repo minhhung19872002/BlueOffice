@@ -127,6 +127,18 @@ fn engine_save_docx(state: State<'_, EngineState>) -> Result<Response, String> {
 }
 
 #[tauri::command]
+fn engine_slide_notes(state: State<'_, EngineState>, index: usize) -> Result<String, String> {
+    let e = state.0.lock().map_err(|e| e.to_string())?;
+    e.slide_notes(index).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn engine_save_pptx(state: State<'_, EngineState>) -> Result<Response, String> {
+    let e = state.0.lock().map_err(|e| e.to_string())?;
+    e.save_pptx().map(Response::new).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn engine_mark_saved(state: State<'_, EngineState>) -> Result<(), String> {
     state.0.lock().map_err(|e| e.to_string())?.mark_saved();
     Ok(())
@@ -324,6 +336,8 @@ fn main() {
             engine_insert_image,
             engine_media,
             engine_save_docx,
+            engine_slide_notes,
+            engine_save_pptx,
             engine_mark_saved,
             bundled_fonts,
             pick_file,

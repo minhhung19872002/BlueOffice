@@ -11,6 +11,8 @@ export {
   PX_PER_PT,
   renderPage,
   rgba,
+  segsToSvg,
+  type GradientLike,
   type CanvasLike,
   type ImageDecoder,
   type LoadedImage,

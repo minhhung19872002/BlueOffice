@@ -1,6 +1,7 @@
 import { BlueEditor } from '@blueoffice/editor';
 import { createDesktopPlatform } from '@blueoffice/platform/desktop';
 import { BlueSheetEditor } from '@blueoffice/sheet-editor';
+import { BlueSlideEditor } from '@blueoffice/slide-editor';
 import { LocalStorageProvider } from '@blueoffice/storage-providers';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -15,6 +16,8 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {app === 'sheet' ? (
       <BlueSheetEditor platform={platform} />
+    ) : app === 'slide' ? (
+      <BlueSlideEditor platform={platform} />
     ) : (
       <BlueEditor
         platform={platform}

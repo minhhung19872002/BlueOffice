@@ -69,9 +69,6 @@ impl<'a> Rd<'a> {
     pub fn new(b: &'a [u8]) -> Self {
         Rd { b, pos: 0 }
     }
-    pub fn remaining(&self) -> usize {
-        self.b.len().saturating_sub(self.pos)
-    }
     pub fn u8(&mut self) -> Result<u8> {
         let v = u8_at(self.b, self.pos)?;
         self.pos += 1;
@@ -80,16 +77,6 @@ impl<'a> Rd<'a> {
     pub fn u16(&mut self) -> Result<u16> {
         let v = u16_at(self.b, self.pos)?;
         self.pos += 2;
-        Ok(v)
-    }
-    pub fn i16(&mut self) -> Result<i16> {
-        let v = i16_at(self.b, self.pos)?;
-        self.pos += 2;
-        Ok(v)
-    }
-    pub fn u32(&mut self) -> Result<u32> {
-        let v = u32_at(self.b, self.pos)?;
-        self.pos += 4;
         Ok(v)
     }
     pub fn f64(&mut self) -> Result<f64> {

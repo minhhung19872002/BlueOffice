@@ -57,6 +57,16 @@ pub fn is_pptx(bytes: &[u8]) -> bool {
         .unwrap_or(false)
 }
 
+/// Wrap an unmodelled child of `p:presentation` (e.g. `p:notesMasterIdLst`)
+/// so the writer puts it at its schema position (§19.2.1.26 CT_Presentation).
+pub fn presentation_extra(xml: bo_model::slide::XmlElement) -> bo_model::slide::Extra {
+    let key = bo_drawingml::dom::key_for(read::PRES, &xml.name, 0);
+    bo_model::slide::Extra { key, xml }
+}
+
+/// Relationship type namespace, for parts created by editors.
+pub const RELATIONSHIP_NS: &str = REL_NS;
+
 /// Does a relationship type end with `/kind` (transitional or strict namespace)?
 pub(crate) fn rel_is(rel_type: &str, kind: &str) -> bool {
     rel_type.rsplit('/').next().is_some_and(|last| last == kind)

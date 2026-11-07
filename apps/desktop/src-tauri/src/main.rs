@@ -10,6 +10,7 @@
 
 mod sheet_cmds;
 mod shell;
+mod slide_cmds;
 
 use bo_engine::{DocInfo, Engine};
 use shell::{percent_decode, LaunchRequest};
@@ -20,7 +21,7 @@ use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
 
-struct EngineState(Mutex<Engine>);
+pub(crate) struct EngineState(pub(crate) Mutex<Engine>);
 
 /// Fonts compiled into the engine, in face-id order (same as the web manifest).
 const FONT_FILES: &[&str] = &[
@@ -38,14 +39,14 @@ const FONT_FILES: &[&str] = &[
     "Carlito-BoldItalic.ttf",
 ];
 
-fn raw_body(req: &Request<'_>) -> Result<Vec<u8>, String> {
+pub(crate) fn raw_body(req: &Request<'_>) -> Result<Vec<u8>, String> {
     match req.body() {
         InvokeBody::Raw(b) => Ok(b.clone()),
         InvokeBody::Json(_) => Err("expected a binary request body".into()),
     }
 }
 
-fn header_name(req: &Request<'_>) -> String {
+pub(crate) fn header_name(req: &Request<'_>) -> String {
     req.headers()
         .get("x-file-name")
         .and_then(|v| v.to_str().ok())
@@ -339,6 +340,8 @@ fn main() {
             engine_slide_notes,
             engine_save_pptx,
             engine_mark_saved,
+            slide_cmds::engine_slide_command,
+            slide_cmds::engine_slide_insert_picture,
             bundled_fonts,
             pick_file,
             read_file,

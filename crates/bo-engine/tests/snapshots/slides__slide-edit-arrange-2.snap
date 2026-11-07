@@ -1,0 +1,79 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 35.2 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Hình "
+  text 28.0pt 68.1,30.3 #000000ff "preset "
+  text 28.0pt 148.0,30.3 #000000ff "(2)"
+pop transform
+path n=5 [24.0 90.0 124.6 162.0] fill=#5b9bd5ff
+path n=5 [24.0 90.0 124.6 162.0] stroke=#1f5485ff w1.00
+path n=8 [141.4 90.0 242.0 162.0] fill=#2e75b6ff
+path n=8 [141.4 90.0 242.0 162.0] stroke=#1f5485ff w1.00
+path n=5 [258.7 90.0 359.3 169.7] fill=#5b9bd5ff
+path n=5 [258.7 90.0 359.3 169.7] stroke=#1f5485ff w1.00
+path n=19 [376.1 90.0 476.7 168.5] fill=#2e75b6ff
+path n=15 [376.1 90.0 476.7 168.5] stroke=#1f5485ff w1.00
+path n=7 [493.5 90.0 594.1 162.0] fill=#5b9bd5ff
+path n=3 [493.5 102.0 594.1 114.0] stroke=#1f5485ff w1.00
+path n=7 [493.5 90.0 594.1 162.0] stroke=#1f5485ff w1.00
+path n=17 [610.8 90.0 711.5 162.0] fill=#2e75b6ff
+path n=14 [640.9 102.4 681.4 153.0] fill=#255e92ff
+path n=9 [634.2 99.0 688.2 153.0] fill=#1c466dff
+path n=20 [634.2 99.0 688.2 153.0] stroke=#1f5485ff w1.00
+path n=5 [610.8 90.0 711.5 162.0] stroke=#1f5485ff w1.00
+path n=13 [741.6 99.5 815.5 152.5] fill=#5b9bd5ff
+path n=13 [741.6 99.5 815.5 152.5] stroke=#1f5485ff w1.00
+path n=13 [43.2 196.4 105.4 247.6] fill=#2e75b6ff
+path n=13 [43.2 196.4 105.4 247.6] stroke=#1f5485ff w1.00
+path n=10 [154.7 200.8 228.6 243.2] fill=#5b9bd5ff
+path n=10 [154.7 200.8 228.6 243.2] stroke=#1f5485ff w1.00
+path n=5 [267.7 195.0 350.3 249.0] fill=#2e75b6ff
+path n=5 [258.7 186.0 359.3 195.0] fill=#5891c5ff
+path n=5 [258.7 249.0 359.3 258.0] fill=#255e92ff
+path n=5 [258.7 186.0 267.7 258.0] fill=#82acd3ff
+path n=5 [350.3 186.0 359.3 258.0] fill=#1c466dff
+path n=18 [258.7 186.0 359.3 258.0] stroke=#1f5485ff w1.00
+path n=10 [402.0 186.0 510.0 258.0] fill=#5b9bd5ff
+path n=10 [402.0 186.0 510.0 258.0] stroke=#1f5485ff w1.00
+path n=7 [493.5 186.0 594.1 258.0] fill=#2e75b6ff
+path n=7 [493.5 186.0 594.1 258.0] stroke=#1f5485ff w1.00
+path n=6 [610.8 186.0 711.5 258.0] fill=#5b9bd5ff
+path n=6 [610.8 186.0 711.5 258.0] stroke=#1f5485ff w1.00
+path n=4 [778.5 186.0 828.8 222.0] fill=#2e75b6ff
+path n=2 [778.5 186.0 828.8 222.0] stroke=#1f5485ff w1.00
+path n=7 [24.0 282.0 124.6 318.0] fill=#5b9bd5ff
+path n=7 [24.0 282.0 124.6 318.0] stroke=#1f5485ff w1.00
+path n=5 [137.1 282.0 220.9 356.3] fill=#2e75b6ff
+path n=5 [137.1 282.0 220.9 356.3] stroke=#1f5485ff w1.00
+path n=8 [258.7 304.5 359.3 353.6] fill=#5b9bd5ff
+path n=5 [253.6 282.0 359.3 313.5] fill=#497caaff
+path n=12 [258.7 282.0 359.3 353.6] stroke=#1f5485ff w1.00
+path n=16 [376.1 282.0 476.7 354.0] fill=#2e75b6ff
+path n=16 [376.1 282.0 476.7 354.0] stroke=#1f5485ff w1.00
+path n=10 [498.0 284.1 589.3 318.0] fill=#5b9bd5ff
+path n=10 [498.0 284.1 589.3 318.0] stroke=#1f5485ff w1.00
+path n=25 [610.8 282.0 711.5 354.0] fill=#2e75b6ff
+path n=14 [636.0 342.0 686.3 351.0] fill=#255e92ff
+path n=34 [610.8 282.0 711.5 354.0] stroke=#1f5485ff w1.00
+path n=15 [728.2 282.0 828.8 356.2] fill=#5b9bd5ff
+path n=8 [753.4 290.4 803.7 302.2] fill=#497caaff
+path n=23 [728.2 282.0 828.8 356.2] stroke=#1f5485ff w1.00
+path n=20 [24.0 382.5 124.6 450.0] fill=#2e75b6ff
+path n=12 [28.5 378.0 124.6 396.0] fill=#255e92ff
+path n=28 [24.0 378.0 124.6 450.0] stroke=#1f5485ff w1.00
+path n=20 [145.9 378.0 242.0 450.0] fill=#5b9bd5ff
+path n=12 [141.4 382.5 159.4 450.0] fill=#497caaff
+path n=28 [141.4 378.0 242.0 450.0] stroke=#1f5485ff w1.00
+path n=7 [258.7 367.5 359.3 460.5] fill=#2e75b6ff
+path n=7 [258.7 367.5 359.3 460.5] stroke=#1f5485ff w1.00
+path n=25 [376.1 378.0 476.7 450.0] fill=#5b9bd5ff
+path n=25 [376.1 378.0 476.7 450.0] stroke=#1f5485ff w1.00
+path n=29 [493.5 378.0 594.1 450.0] fill=#2e75b6ff
+path n=29 [493.5 378.0 594.1 450.0] stroke=#1f5485ff w1.00
+path n=65 [610.8 378.0 711.5 450.0] fill=#5b9bd5ff
+path n=65 [610.8 378.0 711.5 450.0] stroke=#1f5485ff w1.00
+path n=14 [726.0 377.1 831.1 450.0] fill=#2e75b6ff
+path n=14 [726.0 377.1 831.1 450.0] stroke=#1f5485ff w1.00

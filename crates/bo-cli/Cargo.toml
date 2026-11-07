@@ -22,5 +22,9 @@ bo-sign = { path = "../bo-sign" }
 clap.workspace = true
 png.workspace = true
 
+[dev-dependencies]
+bo-pptx = { path = "../bo-pptx" }
+serde_json.workspace = true
+
 [lints]
 workspace = true

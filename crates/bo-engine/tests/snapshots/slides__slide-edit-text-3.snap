@@ -1,0 +1,66 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 24.0]
+  text 44.0pt 7.2,57.4 #000000ff "Slide "
+  text 44.0pt 102.6,57.4 #000000ff "mới "
+  text 44.0pt 183.2,57.4 #000000ff "từ "
+  text 44.0pt 234.4,57.4 #000000ff "bố "
+  text 44.0pt 290.7,57.4 #000000ff "cục"
+pop transform
+transform [1.000 0.000 0.000 1.000 80.0 160.0]
+  path n=5 [0.0 0.0 200.0 29.2] fill=#2e75b6ff
+  path n=2 [0.0 0.0 0.0 29.2] stroke=#000000ff w1.00
+  path n=2 [200.0 0.0 200.0 29.2] stroke=#000000ff w1.00
+  path n=2 [0.0 0.0 200.0 0.0] stroke=#000000ff w1.00
+  path n=2 [0.0 29.2 200.0 29.2] stroke=#000000ff w1.00
+  path n=5 [200.0 0.0 400.0 29.2] fill=#2e75b6ff
+  path n=2 [200.0 0.0 200.0 29.2] stroke=#000000ff w1.00
+  path n=2 [400.0 0.0 400.0 29.2] stroke=#000000ff w1.00
+  path n=2 [200.0 0.0 400.0 0.0] stroke=#000000ff w1.00
+  path n=2 [200.0 29.2 400.0 29.2] stroke=#000000ff w1.00
+  path n=5 [400.0 0.0 600.0 29.2] fill=#2e75b6ff
+  path n=2 [400.0 0.0 400.0 29.2] stroke=#000000ff w1.00
+  path n=2 [600.0 0.0 600.0 29.2] stroke=#000000ff w1.00
+  path n=2 [400.0 0.0 600.0 0.0] stroke=#000000ff w1.00
+  path n=2 [400.0 29.2 600.0 29.2] stroke=#000000ff w1.00
+  path n=5 [600.0 0.0 800.0 29.2] fill=#2e75b6ff
+  path n=2 [600.0 0.0 600.0 29.2] stroke=#000000ff w1.00
+  path n=2 [800.0 0.0 800.0 29.2] stroke=#000000ff w1.00
+  path n=2 [600.0 0.0 800.0 0.0] stroke=#000000ff w1.00
+  path n=2 [600.0 29.2 800.0 29.2] stroke=#000000ff w1.00
+  path n=2 [0.0 29.2 0.0 58.4] stroke=#000000ff w1.00
+  path n=2 [200.0 29.2 200.0 58.4] stroke=#000000ff w1.00
+  path n=2 [0.0 29.2 200.0 29.2] stroke=#000000ff w1.00
+  path n=2 [0.0 58.4 200.0 58.4] stroke=#000000ff w1.00
+  path n=2 [200.0 29.2 200.0 58.4] stroke=#000000ff w1.00
+  path n=2 [400.0 29.2 400.0 58.4] stroke=#000000ff w1.00
+  path n=2 [200.0 29.2 400.0 29.2] stroke=#000000ff w1.00
+  path n=2 [200.0 58.4 400.0 58.4] stroke=#000000ff w1.00
+  path n=2 [400.0 29.2 400.0 58.4] stroke=#000000ff w1.00
+  path n=2 [600.0 29.2 600.0 58.4] stroke=#000000ff w1.00
+  path n=2 [400.0 29.2 600.0 29.2] stroke=#000000ff w1.00
+  path n=2 [400.0 58.4 600.0 58.4] stroke=#000000ff w1.00
+  path n=2 [600.0 29.2 600.0 58.4] stroke=#000000ff w1.00
+  path n=2 [800.0 29.2 800.0 58.4] stroke=#000000ff w1.00
+  path n=2 [600.0 29.2 800.0 29.2] stroke=#000000ff w1.00
+  path n=2 [600.0 58.4 800.0 58.4] stroke=#000000ff w1.00
+  path n=2 [0.0 58.4 0.0 87.6] stroke=#000000ff w1.00
+  path n=2 [200.0 58.4 200.0 87.6] stroke=#000000ff w1.00
+  path n=2 [0.0 58.4 200.0 58.4] stroke=#000000ff w1.00
+  path n=2 [0.0 87.6 200.0 87.6] stroke=#000000ff w1.00
+  path n=2 [200.0 58.4 200.0 87.6] stroke=#000000ff w1.00
+  path n=2 [400.0 58.4 400.0 87.6] stroke=#000000ff w1.00
+  path n=2 [200.0 58.4 400.0 58.4] stroke=#000000ff w1.00
+  path n=2 [200.0 87.6 400.0 87.6] stroke=#000000ff w1.00
+  path n=2 [400.0 58.4 400.0 87.6] stroke=#000000ff w1.00
+  path n=2 [600.0 58.4 600.0 87.6] stroke=#000000ff w1.00
+  path n=2 [400.0 58.4 600.0 58.4] stroke=#000000ff w1.00
+  path n=2 [400.0 87.6 600.0 87.6] stroke=#000000ff w1.00
+  path n=2 [600.0 58.4 600.0 87.6] stroke=#000000ff w1.00
+  path n=2 [800.0 58.4 800.0 87.6] stroke=#000000ff w1.00
+  path n=2 [600.0 58.4 800.0 58.4] stroke=#000000ff w1.00
+  path n=2 [600.0 87.6 800.0 87.6] stroke=#000000ff w1.00
+pop transform

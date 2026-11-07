@@ -1,0 +1,35 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 24.0]
+  text 44.0pt 7.2,57.4 #000000ff "Nội "
+  text 44.0pt 78.9,57.4 #000000ff "dung "
+  text 44.0pt 178.9,57.4 #000000ff "chính"
+pop transform
+transform [1.000 0.000 0.000 1.000 36.0 126.0]
+  text 28.0pt 7.2,26.8 #000000ff "Mục "
+  text 28.0pt 64.0,26.8 #000000ff "tiêu "
+  text 28.0pt 114.6,26.8 #000000ff "năm "
+  text 28.0pt 171.4,26.8 #000000ff "2026"
+  text 24.0pt 43.2,64.3 #000000ff "Tăng "
+  text 24.0pt 93.8,64.3 #000000ff "doanh "
+  text 24.0pt 161.3,64.3 #000000ff "thu "
+  text 24.0pt 199.9,64.3 #000000ff "20%"
+  text 24.0pt 43.2,100.7 #000000ff "Mở "
+  text 24.0pt 83.0,100.7 #000000ff "rộng "
+  text 24.0pt 133.0,100.7 #000000ff "thị "
+  text 24.0pt 164.6,100.7 #000000ff "trường "
+  text 24.0pt 238.6,100.7 #000000ff "miền "
+  text 24.0pt 293.3,100.7 #000000ff "Trung"
+  text 20.0pt 79.2,133.7 #000000ff "Đà "
+  text 20.0pt 105.8,133.7 #000000ff "Nẵng, "
+  text 20.0pt 157.9,133.7 #000000ff "Huế, "
+  text 20.0pt 200.4,133.7 #000000ff "Quảng "
+  text 20.0pt 258.4,133.7 #000000ff "Nam"
+  text 28.0pt 7.2,172.3 #000000ff "Kế "
+  text 28.0pt 41.5,172.3 #000000ff "hoạch "
+  text 28.0pt 117.3,172.3 #000000ff "triển "
+  text 28.0pt 177.8,172.3 #000000ff "khai"
+pop transform

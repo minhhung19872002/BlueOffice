@@ -197,6 +197,17 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         }
     }
     let mut overrides: Vec<(String, String)> = Vec::new();
+    // Parts added after reading (e.g. an inserted picture) carry their own
+    // content type; declare it when the package does not (or not with that
+    // type) yet (ECMA-376 Part 2, §10.1.2.2 Override). Parts read from a file always
+    // match the existing declarations, so this changes nothing for them.
+    for p in &pres.parts {
+        if let Some(t) = &p.content_type {
+            if ct.get(&p.name) != Some(t.as_str()) {
+                overrides.push((p.name.clone(), t.clone()));
+            }
+        }
+    }
 
     // Part names.
     let pres_name = names.claim(&pres.info.part_name, "/ppt/presentation.xml");

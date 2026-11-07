@@ -21,6 +21,7 @@
 mod convert;
 mod corpus;
 mod sample;
+mod slide_edits;
 mod slide_samples;
 
 use bo_engine::Engine;

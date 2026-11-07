@@ -447,9 +447,11 @@ dependencies = [
  "bo-model",
  "bo-odf",
  "bo-opc",
+ "bo-pptx",
  "bo-sign",
  "clap",
  "png",
+ "serde_json",
 ]
 
 [[package]]
@@ -543,11 +545,13 @@ version = "0.1.0"
 dependencies = [
  "bo-binary",
  "bo-docx",
+ "bo-drawingml",
  "bo-edit",
  "bo-engine",
  "bo-layout",
  "bo-model",
  "bo-odf",
+ "bo-opc",
  "bo-pdf",
  "bo-pptx",
  "bo-raster",
@@ -557,6 +561,7 @@ dependencies = [
  "bo-xlsx",
  "insta",
  "png",
+ "proptest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

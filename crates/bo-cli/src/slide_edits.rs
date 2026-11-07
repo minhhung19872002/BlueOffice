@@ -184,6 +184,14 @@ const SCRIPTS: &[Script] = &[
             r#"{"cmd":"tableExit"}"#,
         ],
     },
+    // Slides pasted from another deck (pictures copied, layout matched by name or
+    // placeholder types): the clipboard is filled from `slide-images-crop.pptx`
+    // and `slide-tables-basic.pptx` first (see `open_script`).
+    Script {
+        base: "slide-text-bullets.pptx",
+        name: PASTE_DECK,
+        commands: &[r#"{"cmd":"goTo","slide":0}"#, r#"{"cmd":"paste"}"#],
+    },
     // Slides: duplicate, reorder, delete, notes and a picture.
     Script {
         base: "slide-notes-basic.pptx",
@@ -201,15 +209,33 @@ const SCRIPTS: &[Script] = &[
     },
 ];
 
+/// Deck receiving slides copied from other decks.
+const PASTE_DECK: &str = "slide-edit-paste-other-deck.pptx";
+
+/// Open a script's base deck; for [`PASTE_DECK`] the slide clipboard is first filled
+/// with slides of other decks (one engine keeps its clipboard across decks).
+fn open_script(e: &mut Engine, s: &Script, base: &[(&'static str, Vec<u8>)]) -> bool {
+    if s.name == PASTE_DECK {
+        let Some((_, src)) = base.iter().find(|(n, _)| *n == "slide-images-crop.pptx") else {
+            return false;
+        };
+        if e.open(src, "src.pptx").is_err() {
+            return false;
+        }
+        let _ = e.slide_command_json(r#"{"cmd":"copySlides","indices":[0,1]}"#);
+    }
+    let Some((_, bytes)) = base.iter().find(|(n, _)| *n == s.base) else {
+        return false;
+    };
+    e.open(bytes, s.base).is_ok()
+}
+
 /// Edited decks, built from the generated base decks.
 pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static str, Vec<u8>)> {
     let mut out = Vec::new();
     for s in SCRIPTS {
-        let Some((_, bytes)) = base.iter().find(|(n, _)| *n == s.base) else {
-            continue;
-        };
         let mut e = Engine::with_bundled_fonts();
-        if e.open(bytes, s.base).is_err() {
+        if !open_script(&mut e, s, base) {
             continue;
         }
         for c in s.commands {
@@ -235,9 +261,8 @@ mod tests {
     fn every_scripted_command_applies() {
         let base = crate::slide_samples::base_decks();
         for s in SCRIPTS {
-            let (_, bytes) = base.iter().find(|(n, _)| *n == s.base).unwrap();
             let mut e = Engine::with_bundled_fonts();
-            e.open(bytes, s.base).unwrap();
+            assert!(open_script(&mut e, s, &base), "{}", s.name);
             for c in s.commands {
                 let r: serde_json::Value =
                     serde_json::from_str(&e.slide_command_json(c).unwrap()).unwrap();

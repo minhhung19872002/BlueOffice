@@ -397,11 +397,112 @@ fn copy_cut_paste_slides() {
     assert_eq!(title(&e, 1), t0);
     let bytes = e.save_pptx().unwrap();
     assert_eq!(bo_pptx::read_pptx(&bytes).unwrap().slides.len(), n + 1);
-    // Slides cannot go to another deck.
+    // Slides go to another deck too (layout matched or imported).
     e.open(&deck("slide-shapes-presets.pptx"), "b.pptx")
         .unwrap();
-    let r = try_run(&mut e, r#"{"cmd":"paste"}"#);
-    assert_eq!(r.error.as_deref(), Some("clipOtherDeck"));
+    let m = e.presentation().unwrap().slides.len();
+    run(&mut e, r#"{"cmd":"paste"}"#);
+    assert_eq!(e.presentation().unwrap().slides.len(), m + 1);
+}
+
+/// Every internal relationship of slides, layouts, masters and themes targets an
+/// existing part, and every slide's layout / layout's master / master's theme exists.
+fn assert_rels_valid(bytes: &[u8]) -> bo_model::slide::Presentation {
+    let p = bo_pptx::read_pptx(bytes).unwrap();
+    let pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).unwrap();
+    let names: Vec<String> = pkg.parts().iter().map(|p| p.name.clone()).collect();
+    for name in names {
+        let Ok(rels) = pkg.relationships(&name) else {
+            continue;
+        };
+        for r in rels {
+            if r.mode == bo_opc::TargetMode::External {
+                continue;
+            }
+            let target = bo_opc::resolve_target(&name, &r.target);
+            assert!(
+                pkg.part(&target).is_some(),
+                "{name}: {} → {target} missing",
+                r.id
+            );
+        }
+    }
+    for s in &p.slides {
+        assert!(s.layout < p.layouts.len());
+    }
+    for l in &p.layouts {
+        assert!(l.master < p.masters.len());
+    }
+    for m in &p.masters {
+        assert!(m.theme < p.themes.len());
+    }
+    p
+}
+
+#[test]
+fn paste_slides_into_another_deck_maps_or_imports_layouts() {
+    // Pictures come along; the layout is matched by name or placeholder types.
+    let mut e = open("slide-images-crop.pptx");
+    run(&mut e, r#"{"cmd":"copySlides","indices":[0]}"#);
+    let src_pics = pictures(&e, 0).len();
+    assert!(src_pics > 0);
+    e.open(&deck("slide-text-bullets.pptx"), "b.pptx").unwrap();
+    let layouts = e.presentation().unwrap().layouts.len();
+    let n = e.presentation().unwrap().slides.len();
+    let r = run(&mut e, r#"{"cmd":"paste"}"#);
+    assert_eq!(r.slide, 1);
+    assert_eq!(e.presentation().unwrap().slides.len(), n + 1);
+    assert_eq!(e.presentation().unwrap().layouts.len(), layouts);
+    let pics = pictures(&e, 1);
+    assert_eq!(pics.len(), src_pics);
+    let bytes = e.save_pptx().unwrap();
+    let p = assert_rels_valid(&bytes);
+    assert_eq!(p.slides.len(), n + 1);
+    // Undo removes the slide and the copied pictures again.
+    let parts = e.presentation().unwrap().parts.len();
+    run(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(e.presentation().unwrap().slides.len(), n);
+    assert!(e.presentation().unwrap().parts.len() < parts);
+
+    // A deck without a fitting layout imports the source layout, master and theme.
+    let mut target = bo_pptx::read_pptx(&deck("slide-shapes-presets.pptx")).unwrap();
+    for l in &mut target.layouts {
+        l.data.name = Some("Riêng".into());
+        l.data.shapes.clear();
+    }
+    let bare = bo_pptx::write_pptx(&target).unwrap();
+    let mut e = open("slide-text-bullets.pptx");
+    run(&mut e, r#"{"cmd":"copySlides","indices":[1]}"#);
+    let title =
+        bo_engine::slide_edit::clip::plain_text(&e.presentation().unwrap().slides[1].data.shapes);
+    e.open(&bare, "bare.pptx").unwrap();
+    let (l0, m0, t0) = {
+        let p = e.presentation().unwrap();
+        (p.layouts.len(), p.masters.len(), p.themes.len())
+    };
+    run(&mut e, r#"{"cmd":"paste"}"#);
+    let p = e.presentation().unwrap();
+    assert_eq!(
+        (p.layouts.len(), p.masters.len(), p.themes.len()),
+        (l0 + 1, m0 + 1, t0 + 1)
+    );
+    assert_eq!(p.slides[1].layout, l0);
+    assert_eq!(p.layouts[l0].master, m0);
+    assert_eq!(p.masters[m0].theme, t0);
+    let bytes = e.save_pptx().unwrap();
+    let p = assert_rels_valid(&bytes);
+    assert_eq!(
+        bo_engine::slide_edit::clip::plain_text(&p.slides[1].data.shapes),
+        title
+    );
+    assert_eq!(p.masters.len(), m0 + 1);
+    // Rendering the pasted slide uses its imported layout's placeholders.
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&bytes, "x.pptx").unwrap();
+    assert!(!f.slide_json(1).unwrap().is_empty());
+    // Undo removes the imported design too.
+    run(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(e.presentation().unwrap().layouts.len(), l0);
 }
 
 #[test]

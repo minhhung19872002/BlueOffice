@@ -2245,6 +2245,7 @@ fn copy_shapes(pres: &Presentation, sel: &SlideSel, deck: u64) -> R<(clip::Clip,
     Ok((
         clip::Clip {
             deck,
+            source: None,
             kind: clip::ClipKind::Shapes {
                 slide: sel.slide,
                 nodes,
@@ -2385,7 +2386,11 @@ fn paste_slides(tx: &mut Tx<'_>, sel: &mut SlideSel, c: &clip::Clip, deck: u64) 
         return refuse("noClip");
     };
     if c.deck != deck {
-        return refuse("clipOtherDeck");
+        let src = c
+            .source
+            .as_deref()
+            .ok_or(EditError::Refused("clipOtherDeck"))?;
+        return paste_slides_from(tx, sel, slides, src);
     }
     let first = if tx.pres.slides.is_empty() {
         0
@@ -2403,6 +2408,286 @@ fn paste_slides(tx: &mut Tx<'_>, sel: &mut SlideSel, c: &clip::Clip, deck: u64) 
             insert: vec![copy],
         })?;
     }
+    *sel = SlideSel {
+        slide: first,
+        ids: vec![],
+    };
+    Ok(())
+}
+
+/// Placeholder types of shapes (§19.3.1.36 ph@type; absent = `obj`), `body` and
+/// `obj` counted as one.
+fn ph_types(nodes: &[ShapeNode]) -> Vec<String> {
+    let mut v: Vec<String> = Vec::new();
+    bo_pptx::visit(nodes, &mut |n| {
+        let nv = match n {
+            ShapeNode::Shape(s) => Some(&s.nv),
+            ShapeNode::Picture(p) => Some(&p.nv),
+            ShapeNode::Frame(f) => Some(&f.nv),
+            _ => None,
+        };
+        if let Some(ph) = nv.and_then(|nv| nv.placeholder.as_ref()) {
+            let k = match ph.kind.as_deref() {
+                None | Some("obj" | "body") => "body",
+                Some("ctrTitle" | "title") => "title",
+                Some("subTitle") => "subTitle",
+                Some(o) => o,
+            };
+            if !v.iter().any(|x| x == k) {
+                v.push(k.to_owned());
+            }
+        }
+    });
+    v
+}
+
+/// Layout of the target deck for a slide pasted from another deck (§19.3.1.39):
+/// the layout with the same name, else the one whose placeholder types cover the
+/// slide's best; `None` when none covers them (the source layout is imported).
+fn match_layout(
+    pres: &Presentation,
+    src_layout: &bo_model::slide::SlideLayout,
+    slide: &bo_model::slide::Slide,
+) -> Option<usize> {
+    if let Some(name) = src_layout.data.name.as_deref().filter(|n| !n.is_empty()) {
+        if let Some(i) = pres.layouts.iter().position(|l| {
+            l.data
+                .name
+                .as_deref()
+                .is_some_and(|m| m.eq_ignore_ascii_case(name))
+        }) {
+            return Some(i);
+        }
+    }
+    let need = ph_types(&slide.data.shapes);
+    let want = ph_types(&src_layout.data.shapes);
+    let mut best: Option<(usize, i64)> = None;
+    for (i, l) in pres.layouts.iter().enumerate() {
+        let have = ph_types(&l.data.shapes);
+        if !need.iter().all(|t| have.contains(t)) {
+            continue;
+        }
+        // Same kind first, then the most shared placeholder types, the fewest extra.
+        let same_kind = i64::from(l.kind.is_some() && l.kind == src_layout.kind);
+        let shared = want.iter().filter(|t| have.contains(t)).count() as i64;
+        let extra = have.iter().filter(|t| !want.contains(t)).count() as i64;
+        let score = same_kind * 1000 + shared * 10 - extra;
+        if best.is_none_or(|b| score > b.1) {
+            best = Some((i, score));
+        }
+    }
+    best.map(|b| b.0)
+}
+
+/// Copies parts targeted by the relationships of imported parts under new names.
+struct PartCarrier<'a> {
+    src: &'a clip::SlideSource,
+    /// Source part name → new part name.
+    map: Vec<(String, String)>,
+    taken: Vec<String>,
+    new_parts: Vec<bo_model::slide::RawPart>,
+}
+
+impl PartCarrier<'_> {
+    fn unique(&mut self, pres: &Presentation, name: &str) -> String {
+        let (dir, file) = name.rsplit_once('/').unwrap_or(("/ppt/media", name));
+        let (stem, ext) = file.rsplit_once('.').unwrap_or((file, "bin"));
+        let stem = stem.trim_end_matches(|c: char| c.is_ascii_digit());
+        let mut n = build::unique_part(pres, &format!("{dir}/{stem}"), ext);
+        while self.taken.iter().any(|t| t.eq_ignore_ascii_case(&n)) {
+            n = format!("{dir}/{stem}{}.{ext}", self.taken.len() + 100);
+        }
+        self.taken.push(n.clone());
+        n
+    }
+
+    /// Relationships of a part moved from `old_owner` to `new_owner`: structural ones
+    /// are kept (the writer re-targets them), the others get a copy of their part;
+    /// relationships to parts the source does not have are dropped.
+    fn rels(
+        &mut self,
+        pres: &Presentation,
+        old_owner: &str,
+        new_owner: &str,
+        rels: &[Rel],
+    ) -> Vec<Rel> {
+        let mut out = Vec::new();
+        for r in rels {
+            if r.external || clip::is_structural(&r.rel_type) {
+                out.push(r.clone());
+                continue;
+            }
+            let Some(old) = clip::rel_part(old_owner, r) else {
+                continue;
+            };
+            let new =
+                if let Some((_, n)) = self.map.iter().find(|(o, _)| o.eq_ignore_ascii_case(&old)) {
+                    n.clone()
+                } else {
+                    let Some(p) = self
+                        .src
+                        .parts
+                        .iter()
+                        .find(|p| p.name.eq_ignore_ascii_case(&old))
+                        .cloned()
+                    else {
+                        continue;
+                    };
+                    let n = self.unique(pres, &p.name);
+                    self.new_parts.push(bo_model::slide::RawPart {
+                        name: n.clone(),
+                        ..p
+                    });
+                    self.map.push((old, n.clone()));
+                    n
+                };
+            out.push(Rel {
+                target: clip::relative_target(new_owner, &new),
+                ..r.clone()
+            });
+        }
+        out
+    }
+}
+
+/// Paste slides copied from another deck: each slide gets the target deck's
+/// layout of the same name, else the closest by placeholder types, else its own
+/// layout imported with its master and theme (§19.3.1.39, §19.3.1.42, §20.1.6.9);
+/// pictures and media come along; relationships stay valid.
+fn paste_slides_from(
+    tx: &mut Tx<'_>,
+    sel: &mut SlideSel,
+    slides: &[bo_model::slide::Slide],
+    src: &clip::SlideSource,
+) -> R<()> {
+    let before = ops::PresFields::of(tx.pres);
+    let mut after = before.clone();
+    let mut carrier = PartCarrier {
+        src,
+        map: Vec::new(),
+        taken: Vec::new(),
+        new_parts: Vec::new(),
+    };
+    // Source index → target index of imported layouts / masters / themes.
+    let mut layouts: Vec<(usize, usize)> = Vec::new();
+    let mut masters: Vec<(usize, usize)> = Vec::new();
+    let mut themes: Vec<(usize, usize)> = Vec::new();
+    let notes_master = build::notes_master(tx.pres);
+    let mut out_slides = Vec::new();
+    for s in slides {
+        let sl = src
+            .layouts
+            .get(s.layout)
+            .ok_or(EditError::Refused("noLayout"))?;
+        let layout = if let Some(&(_, t)) = layouts.iter().find(|(o, _)| *o == s.layout) {
+            t
+        } else if let Some(t) = match_layout(tx.pres, sl, s) {
+            t
+        } else {
+            // Import the layout, its master and the master's theme.
+            let sm = src
+                .masters
+                .get(sl.master)
+                .ok_or(EditError::Refused("noMaster"))?;
+            let master = if let Some(&(_, t)) = masters.iter().find(|(o, _)| *o == sl.master) {
+                t
+            } else {
+                let theme = if let Some(&(_, t)) = themes.iter().find(|(o, _)| *o == sm.theme) {
+                    t
+                } else {
+                    let st = src
+                        .themes
+                        .get(sm.theme)
+                        .ok_or(EditError::Refused("noTheme"))?;
+                    let mut t = st.clone();
+                    let name = carrier.unique(tx.pres, "/ppt/theme/theme1.xml");
+                    t.info.rels = carrier.rels(tx.pres, &st.info.part_name, &name, &st.info.rels);
+                    t.info.part_name = name;
+                    after.themes.push(t);
+                    themes.push((sm.theme, after.themes.len() - 1));
+                    after.themes.len() - 1
+                };
+                let mut m = sm.clone();
+                let name = carrier.unique(tx.pres, "/ppt/slideMasters/slideMaster1.xml");
+                m.info.rels = carrier.rels(tx.pres, &sm.info.part_name, &name, &sm.info.rels);
+                m.info.part_name = name;
+                m.theme = theme;
+                // The writer lists the layouts pointing to it (§19.3.1.41 sldLayoutId).
+                m.layouts = Vec::new();
+                m.master_id = 0;
+                m.pres_rel_id = String::new();
+                after.masters.push(m);
+                masters.push((sl.master, after.masters.len() - 1));
+                after.masters.len() - 1
+            };
+            let mut l = sl.clone();
+            let name = carrier.unique(tx.pres, "/ppt/slideLayouts/slideLayout1.xml");
+            l.info.rels = carrier.rels(tx.pres, &sl.info.part_name, &name, &sl.info.rels);
+            l.info.part_name = name;
+            l.master = master;
+            after.layouts.push(l);
+            after.layouts.len() - 1
+        };
+        layouts.push((s.layout, layout));
+        let mut d = s.clone();
+        let name = carrier.unique(tx.pres, "/ppt/slides/slide1.xml");
+        d.info.rels = carrier.rels(tx.pres, &s.info.part_name, &name, &s.info.rels);
+        d.info.part_name = name;
+        d.layout = layout;
+        d.slide_id = 0;
+        d.pres_rel_id = String::new();
+        // Notes: kept when the deck has a notes master (§19.3.1.28), linked to it.
+        d.notes = match (&d.notes, &notes_master) {
+            (Some(n), Some(nm)) => {
+                let mut n = n.clone();
+                let nn = carrier.unique(tx.pres, "/ppt/notesSlides/notesSlide1.xml");
+                n.info.rels = n
+                    .info
+                    .rels
+                    .iter()
+                    .filter(|r| clip::is_structural(&r.rel_type))
+                    .map(|r| {
+                        if r.rel_type.ends_with("/notesMaster") {
+                            Rel {
+                                target: clip::relative_target(&nn, nm),
+                                ..r.clone()
+                            }
+                        } else {
+                            r.clone()
+                        }
+                    })
+                    .collect();
+                n.info.part_name = nn;
+                Some(n)
+            }
+            _ => None,
+        };
+        out_slides.push(d);
+    }
+    if !carrier.new_parts.is_empty() {
+        let at = tx.pres.parts.len();
+        tx.op(SlideOp::Parts {
+            index: at,
+            remove: vec![],
+            insert: std::mem::take(&mut carrier.new_parts),
+        })?;
+    }
+    if after != before {
+        tx.op(SlideOp::Pres {
+            before: Box::new(before),
+            after: Box::new(after),
+        })?;
+    }
+    let first = if tx.pres.slides.is_empty() {
+        0
+    } else {
+        sel.slide + 1
+    };
+    tx.op(SlideOp::Slides {
+        index: first,
+        remove: vec![],
+        insert: out_slides,
+    })?;
     *sel = SlideSel {
         slide: first,
         ids: vec![],
@@ -3079,6 +3364,7 @@ impl Engine {
                                 v.iter().map(|&i| pres.slides[i].clone()).collect(),
                             ),
                             pastes: 0,
+                            source: Some(Box::new(clip::slide_source(pres, &v))),
                         });
                         if matches!(cmd, SlideCommand::CutSlides { .. }) {
                             ed.mutate(pres, &mut out, |tx, sel| {

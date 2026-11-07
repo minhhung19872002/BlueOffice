@@ -15,15 +15,16 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
   path n=2 [0.0 0.0 480.0 0.0] stroke=#000000ff w1.00
   path n=2 [0.0 29.2 480.0 29.2] stroke=#000000ff w1.00
   transform [1.000 0.000 0.000 1.000 0.0 0.0]
-    text 18.0pt 7.2,20.7 #000000ff "Gộp "
-    text 18.0pt 41.6,20.7 #000000ff "ngang"
+    text 18.0pt 7.2,20.7 #ffffffff "Gộp "
+    text 18.0pt 42.1,20.7 #ffffffff "ngang"
   pop transform
+  path n=5 [480.0 0.0 720.0 29.2] fill=#2e75b6ff
   path n=2 [480.0 0.0 480.0 29.2] stroke=#000000ff w1.00
   path n=2 [720.0 0.0 720.0 29.2] stroke=#000000ff w1.00
   path n=2 [480.0 0.0 720.0 0.0] stroke=#000000ff w1.00
   path n=2 [480.0 29.2 720.0 29.2] stroke=#000000ff w1.00
   transform [1.000 0.000 0.000 1.000 480.0 0.0]
-    text 18.0pt 7.2,20.7 #000000ff "C"
+    text 18.0pt 7.2,20.7 #ffffffff "C"
   pop transform
   path n=5 [0.0 29.2 240.0 87.6] fill=#e2efdaff
   path n=2 [0.0 29.2 0.0 87.6] stroke=#000000ff w1.00
@@ -34,6 +35,7 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
     text 18.0pt 7.2,35.4 #000000ff "Gộp "
     text 18.0pt 41.6,35.4 #000000ff "dọc"
   pop transform
+  path n=5 [240.0 29.2 480.0 58.4] fill=#d8dfebff
   path n=2 [240.0 29.2 240.0 58.4] stroke=#000000ff w1.00
   path n=2 [480.0 29.2 480.0 58.4] stroke=#000000ff w1.00
   path n=2 [240.0 29.2 480.0 29.2] stroke=#000000ff w1.00
@@ -41,6 +43,7 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
   transform [1.000 0.000 0.000 1.000 240.0 29.2]
     text 18.0pt 7.2,20.7 #000000ff "B2"
   pop transform
+  path n=5 [480.0 29.2 720.0 58.4] fill=#d8dfebff
   path n=2 [480.0 29.2 480.0 58.4] stroke=#000000ff w1.00
   path n=2 [720.0 29.2 720.0 58.4] stroke=#000000ff w1.00
   path n=2 [480.0 29.2 720.0 29.2] stroke=#000000ff w1.00
@@ -48,6 +51,7 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
   transform [1.000 0.000 0.000 1.000 480.0 29.2]
     text 18.0pt 7.2,20.7 #000000ff "C2"
   pop transform
+  path n=5 [240.0 58.4 480.0 87.6] fill=#eef1f6ff
   path n=2 [240.0 58.4 240.0 87.6] stroke=#000000ff w1.00
   path n=2 [480.0 58.4 480.0 87.6] stroke=#000000ff w1.00
   path n=2 [240.0 58.4 480.0 58.4] stroke=#000000ff w1.00
@@ -55,6 +59,7 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
   transform [1.000 0.000 0.000 1.000 240.0 58.4]
     text 18.0pt 7.2,20.7 #000000ff "B3"
   pop transform
+  path n=5 [480.0 58.4 720.0 87.6] fill=#eef1f6ff
   path n=2 [480.0 58.4 480.0 87.6] stroke=#000000ff w1.00
   path n=2 [720.0 58.4 720.0 87.6] stroke=#000000ff w1.00
   path n=2 [480.0 58.4 720.0 58.4] stroke=#000000ff w1.00

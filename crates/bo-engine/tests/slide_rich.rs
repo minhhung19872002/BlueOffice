@@ -570,3 +570,103 @@ fn connectors_attach_to_sites_and_follow_shapes() {
     assert_eq!(cxn_ref(&c, 0).map(|r| r.0), Some(a));
     assert_eq!(cxn_ref(&c, 1).map(|r| r.0), Some(b));
 }
+
+fn table_of(e: &Engine, id: u32) -> bo_model::slide::Table {
+    e.presentation().unwrap().slides[0]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            ShapeNode::Frame(f) if f.nv.id == id => match &f.content {
+                bo_model::slide::GraphicContent::Table(t) => Some(t.clone()),
+                bo_model::slide::GraphicContent::Other(_) => None,
+            },
+            _ => None,
+        })
+        .expect("table")
+}
+
+#[test]
+fn table_cells_rows_columns_merge_fill_and_style() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let r = run(
+        &mut e,
+        r#"{"cmd":"insertTable","rows":3,"cols":3,"rect":{"x":100,"y":100,"w":300,"h":90}}"#,
+    );
+    let id = r.selection[0].id;
+    // The built-in style is written to the deck's table styles part.
+    let styles = e
+        .presentation()
+        .unwrap()
+        .part_data(bo_pptx::table_style::TABLE_STYLES_PART)
+        .map(|d| String::from_utf8_lossy(d).into_owned())
+        .unwrap();
+    assert!(
+        styles.contains(bo_pptx::table_style::BUILTIN_IDS[0]),
+        "{styles}"
+    );
+    // Click a cell and type.
+    let r = run(&mut e, r#"{"cmd":"tableHit","x":150,"y":140}"#);
+    let t = r.table.expect("table state");
+    assert_eq!((t.rows, t.cols, t.sel), (3, 3, [1, 0, 1, 0]));
+    assert_eq!(t.cells.len(), 9);
+    for (i, text) in ["H", "Hà", "Hà Nội"].iter().enumerate() {
+        let _ = i;
+        run(
+            &mut e,
+            &format!(r#"{{"cmd":"setCellText","text":"{text}","merge":true}}"#),
+        );
+    }
+    let tb = table_of(&e, id);
+    assert_eq!(tb.rows[1].cells[0].text.as_ref().unwrap().text(), "Hà Nội");
+    // Rows and columns grow the frame.
+    run(&mut e, r#"{"cmd":"tableInsertRow","below":true}"#);
+    let r = run(&mut e, r#"{"cmd":"tableInsertCol","right":true}"#);
+    let t = r.table.unwrap();
+    assert_eq!((t.rows, t.cols), (4, 4));
+    assert!(
+        (r.selection[0].rect.w - 400.0).abs() < 0.1,
+        "{:?}",
+        r.selection[0].rect
+    );
+    // Merge 2×2, then split again.
+    run(
+        &mut e,
+        r#"{"cmd":"tableSelect","r0":1,"c0":0,"r1":2,"c1":1}"#,
+    );
+    let r = run(&mut e, r#"{"cmd":"tableMerge"}"#);
+    assert_eq!(r.table.unwrap().cells.len(), 13);
+    let tb = table_of(&e, id);
+    assert_eq!(tb.rows[1].cells[0].grid_span, Some(2));
+    assert_eq!(tb.rows[1].cells[0].row_span, Some(2));
+    let r = run(&mut e, r#"{"cmd":"tableSplit"}"#);
+    assert_eq!(r.table.unwrap().cells.len(), 16);
+    // Cell fill and style options.
+    run(&mut e, r#"{"cmd":"tableFill","color":"FFC000"}"#);
+    run(
+        &mut e,
+        r#"{"cmd":"tableOptions","firstRow":false,"bandRow":false}"#,
+    );
+    let r = run(&mut e, r#"{"cmd":"state"}"#);
+    let t = r.table.unwrap();
+    assert!(!t.first_row && !t.band_row);
+    let tb = table_of(&e, id);
+    assert!(matches!(
+        tb.rows[1].cells[0].props.as_ref().unwrap().fill,
+        Some(bo_model::slide::Fill::Solid(_))
+    ));
+    // Delete a row and a column.
+    run(&mut e, r#"{"cmd":"tableSelect","r0":3,"c0":3}"#);
+    run(&mut e, r#"{"cmd":"tableDeleteRows"}"#);
+    let r = run(&mut e, r#"{"cmd":"tableDeleteCols"}"#);
+    let t = r.table.unwrap();
+    assert_eq!((t.rows, t.cols), (3, 3));
+    // Saved and reopened.
+    let bytes = e.save_pptx().unwrap();
+    let mut e2 = Engine::with_bundled_fonts();
+    e2.open(&bytes, "t.pptx").unwrap();
+    assert_eq!(table_of(&e2, id), table_of(&e, id));
+    // Leaving: another command ends table editing.
+    let r = run(&mut e, r#"{"cmd":"select","ids":[]}"#);
+    assert!(r.table.is_none());
+}

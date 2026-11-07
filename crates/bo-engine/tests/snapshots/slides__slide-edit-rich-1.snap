@@ -1,0 +1,46 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 108.0 81.0]
+  text 60.0pt 24.1,142.3 #000000ff "Báo "
+  text 60.0pt 130.6,142.3 #000000ff "cáo "
+  text 60.0pt 229.5,142.3 #000000ff "kết "
+  text 60.0pt 318.0,142.3 #000000ff "quả "
+  text 60.0pt 423.3,142.3 #000000ff "kinh "
+  text 60.0pt 541.0,142.3 #000000ff "doanh"
+pop transform
+transform [1.000 0.000 0.000 1.000 108.0 252.0]
+  text 24.0pt 223.3,23.5 #595959ff "Công "
+  text 24.0pt 278.1,23.5 #595959ff "ty "
+  text 24.0pt 302.4,23.5 #595959ff "giả "
+  text 24.0pt 336.1,23.5 #595959ff "định "
+  text 24.0pt 385.5,23.5 #595959ff "ABC "
+  text 24.0pt 430.7,23.5 #595959ff "– "
+  text 24.0pt 448.1,23.5 #595959ff "2026"
+pop transform
+transform [1.000 0.000 0.000 1.000 60.0 300.0]
+  text 18.0pt 7.2,28.9 #1f4e79ff "Định "
+  text 18.0pt 46.5,28.9 #1f4e79ff "dạng"
+  text 28.0pt 87.3,28.9 #000000ff "một"
+  line 87.3,21.7 → 134.0,21.7 w2.05
+  text 18.0pt 138.1,28.9 #000000ff "phần "
+  text 18.0pt 179.1,28.9 #000000ff "đoạn "
+  text 18.0pt 220.7,28.9 #000000ff "chữ"
+  text 18.0pt 34.2,63.0 #000000ff "•"
+  text 18.0pt 188.6,63.0 #000000ff "Dòng "
+  text 18.0pt 231.2,63.0 #000000ff "hai "
+  text 18.0pt 257.5,63.0 #000000ff "có "
+  text 18.0pt 278.5,63.0 #000000ff "gạch "
+  text 18.0pt 316.4,63.0 #000000ff "đầu "
+  text 18.0pt 348.5,63.0 #000000ff "dòng"
+  text 18.0pt 7.2,85.0 #000000ff "1."
+  text 18.0pt 34.2,85.0 #000000ff "Dòng "
+  text 18.0pt 76.8,85.0 #000000ff "ba"
+  text 18.0pt 7.2,107.0 #000000ff "2."
+  text 18.0pt 34.2,107.0 #000000ff "Dòng "
+  text 18.0pt 76.8,107.0 #000000ff "bốn "
+  text 18.0pt 109.2,107.0 #000000ff "gõ "
+  text 18.0pt 131.2,107.0 #000000ff "thêm"
+pop transform

@@ -1246,7 +1246,7 @@ fn draw_chart_frame(
     crate::chart_render::draw_chart(chart, w, h, &mut host, out);
 }
 
-/// §21.1.3 table: cell fills, borders and text (table styles are not applied).
+/// §21.1.3 table: cell fills, borders and text, with the table style (§20.1.4.2.26).
 fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Command>) {
     let cols: Vec<f64> = t.grid.iter().map(|c| c.w as f64 / EMU_PT).collect();
     let mut col_x = vec![0.0];
@@ -1279,6 +1279,12 @@ fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Co
         master_layers: 0,
     };
     let mut images = BTreeMap::new();
+    // §21.1.3.15 tblPr: table style (tableStyleId) and banding flags.
+    let (flags, style_id) = crate::table_style::table_props(t.props.as_ref());
+    let style = style_id
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .map(|id| crate::table_style::resolve(cx.pres, id));
     for (ri, row) in t.rows.iter().enumerate() {
         for (this, cell) in row.cells.iter().enumerate() {
             let span = cell.grid_span.unwrap_or(1).max(1) as usize;
@@ -1292,7 +1298,22 @@ fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Co
             let y1 = row_y[(ri + rspan).min(rows.len())];
             let (w, h) = (x1 - x0, y1 - y0);
             let aff = Aff::translate(x0, y0);
-            let props = cell.props.clone().unwrap_or_default();
+            let mut props = cell.props.clone().unwrap_or_default();
+            // Style values fill in what the cell does not set itself.
+            let mut text_style = (None, None, None);
+            if let Some(st) = &style {
+                let (fill, color, bold, italic, b) =
+                    crate::table_style::cell_style(st, flags, ri, this, rows.len(), cols.len());
+                if props.fill.is_none() {
+                    props.fill = fill;
+                }
+                let [l, r, tp, bt] = b;
+                props.ln_l = props.ln_l.or(l);
+                props.ln_r = props.ln_r.or(r);
+                props.ln_t = props.ln_t.or(tp);
+                props.ln_b = props.ln_b.or(bt);
+                text_style = (color, bold, italic);
+            }
             if let Some(fill) = &props.fill {
                 let segs = rect_segs(aff, w, h);
                 paint_fill(
@@ -1328,6 +1349,13 @@ fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Co
                 }
             }
             if let Some(tb) = &cell.text {
+                let styled;
+                let tb = if text_style == (None, None, None) {
+                    tb
+                } else {
+                    styled = styled_text(tb, &text_style);
+                    &styled
+                };
                 // §21.1.3.17 tcPr margins (defaults 0.1" / 0.05").
                 let mut bp = tb.body_pr.clone();
                 bp.l_ins = Some(props.mar_l.unwrap_or(91_440));
@@ -1341,6 +1369,43 @@ fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Co
             }
         }
     }
+}
+
+/// Apply a table style's text colour / bold / italic (tcTxStyle) to runs that
+/// do not set them.
+fn styled_text(
+    tb: &TextBody,
+    (color, bold, italic): &(Option<Color>, Option<bool>, Option<bool>),
+) -> TextBody {
+    use bo_model::slide::{RunProps, TextRun};
+    let apply = |p: &mut RunProps| {
+        if p.fill.is_none() {
+            if let Some(c) = color {
+                p.fill = Some(Fill::Solid(c.clone()));
+            }
+        }
+        if p.b.is_none() {
+            p.b = *bold;
+        }
+        if p.i.is_none() {
+            p.i = *italic;
+        }
+    };
+    let mut out = tb.clone();
+    for para in &mut out.paragraphs {
+        for r in &mut para.runs {
+            match r {
+                TextRun::Run { props, .. }
+                | TextRun::Break { props }
+                | TextRun::Field { props, .. } => apply(props),
+                TextRun::Other(_) => {}
+            }
+        }
+        if let Some(p) = &mut para.end_props {
+            apply(p);
+        }
+    }
+    out
 }
 
 #[cfg(test)]

@@ -9,38 +9,43 @@ transform [1.000 0.000 0.000 1.000 36.0 18.0]
   text 28.0pt 98.7,30.3 #000000ff "ô"
 pop transform
 transform [1.000 0.000 0.000 1.000 36.0 108.0]
+  path n=5 [0.0 0.0 204.0 29.2] fill=#2e75b6ff
   path n=2 [0.0 0.0 0.0 29.2] stroke=#7f7f7fff w1.00
   path n=2 [204.0 0.0 204.0 29.2] stroke=#7f7f7fff w1.00
   path n=2 [0.0 0.0 204.0 0.0] stroke=#7f7f7fff w1.00
   path n=2 [0.0 29.2 204.0 29.2] stroke=#7f7f7fff w1.00
   transform [1.000 0.000 0.000 1.000 0.0 0.0]
-    text 18.0pt 7.2,20.7 #000000ff "STT"
+    text 18.0pt 7.2,20.7 #ffffffff "STT"
   pop transform
+  path n=5 [204.0 0.0 408.0 29.2] fill=#2e75b6ff
   path n=2 [204.0 0.0 204.0 29.2] stroke=#7f7f7fff w1.00
   path n=2 [408.0 0.0 408.0 29.2] stroke=#7f7f7fff w1.00
   path n=2 [204.0 0.0 408.0 0.0] stroke=#7f7f7fff w1.00
   path n=2 [204.0 29.2 408.0 29.2] stroke=#7f7f7fff w1.00
   transform [1.000 0.000 0.000 1.000 204.0 0.0]
-    text 18.0pt 7.2,20.7 #000000ff "Họ "
-    text 18.0pt 32.0,20.7 #000000ff "và "
-    text 18.0pt 52.5,20.7 #000000ff "tên"
+    text 18.0pt 7.2,20.7 #ffffffff "Họ "
+    text 18.0pt 32.3,20.7 #ffffffff "và "
+    text 18.0pt 53.5,20.7 #ffffffff "tên"
   pop transform
+  path n=5 [408.0 0.0 612.0 29.2] fill=#2e75b6ff
   path n=2 [408.0 0.0 408.0 29.2] stroke=#7f7f7fff w1.00
   path n=2 [612.0 0.0 612.0 29.2] stroke=#7f7f7fff w1.00
   path n=2 [408.0 0.0 612.0 0.0] stroke=#7f7f7fff w1.00
   path n=2 [408.0 29.2 612.0 29.2] stroke=#7f7f7fff w1.00
   transform [1.000 0.000 0.000 1.000 408.0 0.0]
-    text 18.0pt 7.2,20.7 #000000ff "Đơn "
-    text 18.0pt 42.4,20.7 #000000ff "vị"
+    text 18.0pt 7.2,20.7 #ffffffff "Đơn "
+    text 18.0pt 43.8,20.7 #ffffffff "vị"
   pop transform
+  path n=5 [612.0 0.0 816.0 29.2] fill=#2e75b6ff
   path n=2 [612.0 0.0 612.0 29.2] stroke=#7f7f7fff w1.00
   path n=2 [816.0 0.0 816.0 29.2] stroke=#7f7f7fff w1.00
   path n=2 [612.0 0.0 816.0 0.0] stroke=#7f7f7fff w1.00
   path n=2 [612.0 29.2 816.0 29.2] stroke=#7f7f7fff w1.00
   transform [1.000 0.000 0.000 1.000 612.0 0.0]
-    text 18.0pt 7.2,20.7 #000000ff "Ghi "
-    text 18.0pt 36.2,20.7 #000000ff "chú"
+    text 18.0pt 7.2,20.7 #ffffffff "Ghi "
+    text 18.0pt 36.8,20.7 #ffffffff "chú"
   pop transform
+  path n=5 [0.0 29.2 204.0 58.4] fill=#d8dfebff
   path n=2 [0.0 29.2 0.0 58.4] stroke=#7f7f7fff w1.00
   path n=2 [204.0 29.2 204.0 58.4] stroke=#7f7f7fff w1.00
   path n=2 [0.0 29.2 204.0 29.2] stroke=#7f7f7fff w1.00
@@ -48,6 +53,7 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
   transform [1.000 0.000 0.000 1.000 0.0 29.2]
     text 18.0pt 7.2,20.7 #000000ff "1"
   pop transform
+  path n=5 [204.0 29.2 408.0 58.4] fill=#d8dfebff
   path n=2 [204.0 29.2 204.0 58.4] stroke=#7f7f7fff w1.00
   path n=2 [408.0 29.2 408.0 58.4] stroke=#7f7f7fff w1.00
   path n=2 [204.0 29.2 408.0 29.2] stroke=#7f7f7fff w1.00
@@ -57,6 +63,7 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
     text 18.0pt 67.2,20.7 #000000ff "Văn "
     text 18.0pt 98.5,20.7 #000000ff "An"
   pop transform
+  path n=5 [408.0 29.2 612.0 58.4] fill=#d8dfebff
   path n=2 [408.0 29.2 408.0 58.4] stroke=#7f7f7fff w1.00
   path n=2 [612.0 29.2 612.0 58.4] stroke=#7f7f7fff w1.00
   path n=2 [408.0 29.2 612.0 29.2] stroke=#7f7f7fff w1.00
@@ -66,6 +73,7 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
     text 18.0pt 57.4,20.7 #000000ff "Kế "
     text 18.0pt 79.5,20.7 #000000ff "hoạch"
   pop transform
+  path n=5 [612.0 29.2 816.0 58.4] fill=#d8dfebff
   path n=2 [612.0 29.2 612.0 58.4] stroke=#7f7f7fff w1.00
   path n=2 [816.0 29.2 816.0 58.4] stroke=#7f7f7fff w1.00
   path n=2 [612.0 29.2 816.0 29.2] stroke=#7f7f7fff w1.00
@@ -74,6 +82,7 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
     text 18.0pt 14.4,17.2 #000000ff "Lề "
     text 18.0pt 35.0,17.2 #000000ff "rộng"
   pop transform
+  path n=5 [0.0 58.4 204.0 87.6] fill=#eef1f6ff
   path n=2 [0.0 58.4 0.0 87.6] stroke=#7f7f7fff w1.00
   path n=2 [204.0 58.4 204.0 87.6] stroke=#7f7f7fff w1.00
   path n=2 [0.0 58.4 204.0 58.4] stroke=#7f7f7fff w1.00
@@ -81,6 +90,7 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
   transform [1.000 0.000 0.000 1.000 0.0 58.4]
     text 18.0pt 7.2,20.7 #000000ff "2"
   pop transform
+  path n=5 [204.0 58.4 408.0 87.6] fill=#eef1f6ff
   path n=2 [204.0 58.4 204.0 87.6] stroke=#7f7f7fff w1.00
   path n=2 [408.0 58.4 408.0 87.6] stroke=#7f7f7fff w1.00
   path n=2 [204.0 58.4 408.0 58.4] stroke=#7f7f7fff w1.00
@@ -90,6 +100,7 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
     text 18.0pt 42.9,20.7 #000000ff "Thị "
     text 18.0pt 69.3,20.7 #000000ff "Bình"
   pop transform
+  path n=5 [408.0 58.4 612.0 87.6] fill=#eef1f6ff
   path n=2 [408.0 58.4 408.0 87.6] stroke=#7f7f7fff w1.00
   path n=2 [612.0 58.4 612.0 87.6] stroke=#7f7f7fff w1.00
   path n=2 [408.0 58.4 612.0 58.4] stroke=#7f7f7fff w1.00
@@ -99,6 +110,7 @@ transform [1.000 0.000 0.000 1.000 36.0 108.0]
     text 18.0pt 57.4,20.7 #000000ff "Kỹ "
     text 18.0pt 78.3,20.7 #000000ff "thuật"
   pop transform
+  path n=5 [612.0 58.4 816.0 87.6] fill=#eef1f6ff
   path n=2 [612.0 58.4 612.0 87.6] stroke=#7f7f7fff w1.00
   path n=2 [816.0 58.4 816.0 87.6] stroke=#7f7f7fff w1.00
   path n=2 [612.0 58.4 816.0 58.4] stroke=#7f7f7fff w1.00

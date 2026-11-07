@@ -518,6 +518,16 @@ export type SlideCommand =
       tolerance?: number;
     }
   | { cmd: 'insertConnector'; preset?: string }
+  | { cmd: 'tableSelect'; id?: number; r0: number; c0: number; r1?: number; c1?: number }
+  | { cmd: 'tableHit'; x: number; y: number; extend?: boolean }
+  | { cmd: 'setCellText'; row?: number; col?: number; text: string; merge?: boolean }
+  | { cmd: 'tableInsertRow'; below?: boolean }
+  | { cmd: 'tableInsertCol'; right?: boolean }
+  | {
+      cmd: 'tableDeleteRows' | 'tableDeleteCols' | 'tableMerge' | 'tableSplit' | 'tableExit';
+    }
+  | { cmd: 'tableFill'; color: string | null }
+  | { cmd: 'tableOptions'; firstRow?: boolean; bandRow?: boolean }
   | { cmd: 'setFill'; color: string | null }
   | { cmd: 'setLine'; color: string | null; width?: number }
   | { cmd: 'addSlide'; after?: number; layout?: number }
@@ -557,6 +567,19 @@ export interface SlideEditResult {
   collab?: { change: CollabChange; shape?: string };
   /** Text editing inside a shape. */
   textEdit?: SlideTextEdit;
+  /** Table being edited: anchor cells (merged cells once) and the selection. */
+  table?: {
+    id: number;
+    rows: number;
+    cols: number;
+    /** `[r0, c0, r1, c1]`, inclusive. */
+    sel: [number, number, number, number];
+    cells: { row: number; col: number; rowSpan: number; colSpan: number; rect: SlideBox }[];
+    firstRow: boolean;
+    bandRow: boolean;
+    /** Text of the first selected cell. */
+    text: string;
+  };
   /** Adjust handles of the selected preset shape (§20.1.9.5 avLst). */
   adjust: { index: number; x: number; y: number }[];
   /** The selected connector: ends and whether each is attached to a shape. */

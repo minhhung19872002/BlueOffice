@@ -1,0 +1,27 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Ảnh, "
+  text 28.0pt 67.8,30.3 #000000ff "cắt "
+  text 28.0pt 108.9,30.3 #000000ff "ảnh, "
+  text 28.0pt 166.3,30.3 #000000ff "ảnh "
+  text 28.0pt 216.5,30.3 #000000ff "trong "
+  text 28.0pt 285.5,30.3 #000000ff "suốt"
+pop transform
+image /ppt/media/image1.png 36.0,90.0 288.0x216.0 crop=None
+image /ppt/media/image1.png 360.0,90.0 216.0x216.0 crop=Some([0.25, 0.1, 0.25, 0.1])
+image /ppt/media/image2.png 648.0,90.0 216.0x216.0 crop=None
+transform [1.000 0.000 0.000 1.000 48.0 30.0]
+  text 28.0pt 7.2,30.3 #000000ff "Ảnh, "
+  text 28.0pt 67.8,30.3 #000000ff "cắt "
+  text 28.0pt 108.9,30.3 #000000ff "ảnh, "
+  text 28.0pt 166.3,30.3 #000000ff "ảnh "
+  text 28.0pt 216.5,30.3 #000000ff "trong "
+  text 28.0pt 285.5,30.3 #000000ff "suốt"
+pop transform
+image /ppt/media/image1.png 48.0,94.5 258.0x193.5 crop=None
+image /ppt/media/image1.png 338.2,94.5 193.5x193.5 crop=Some([0.25, 0.1, 0.25, 0.1])
+image /ppt/media/image2.png 596.2,94.5 193.5x193.5 crop=None

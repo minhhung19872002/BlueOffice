@@ -27,8 +27,12 @@ import {
   AlignStartVertical,
   AlignVerticalDistributeCenter,
   ArrowDown,
+  ArrowDownToLine,
+  ArrowLeftToLine,
   ArrowRight,
+  ArrowRightToLine,
   ArrowUp,
+  ArrowUpToLine,
   Baseline,
   Bold,
   BookOpen,
@@ -36,6 +40,7 @@ import {
   Circle,
   ClipboardPaste,
   Copy,
+  Columns3,
   CopyPlus,
   CornerDownRight,
   Eraser,
@@ -51,8 +56,10 @@ import {
   LayoutGrid,
   List,
   ListOrdered,
+  Merge,
   MonitorPlay,
   PaintBucket,
+  PanelTop,
   PenLine,
   Play,
   Presentation,
@@ -64,6 +71,7 @@ import {
   SendToBack,
   Slash,
   Spline,
+  Split,
   Square,
   SquarePlus,
   Strikethrough,
@@ -102,11 +110,15 @@ export interface SlideEditorState {
   canRedo: boolean;
   /** What the internal clipboard holds. */
   clip?: 'shapes' | 'slides';
+  /** A table is being edited (cells selected). */
+  hasTable?: boolean;
+  firstRow?: boolean;
+  bandRow?: boolean;
 }
 
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
-type ColorTarget = 'font' | 'fill' | 'line' | 'highlight';
+type ColorTarget = 'font' | 'fill' | 'line' | 'highlight' | 'cell';
 
 /** Attribute marking BlueSlide's own copies in the system clipboard's HTML. */
 const CLIP_MARK = 'data-bo-slide-clip';
@@ -686,6 +698,30 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
         }),
     });
 
+    // Table (while cells are selected).
+    const tbl = (s: SlideEditorState) => !!s.hasTable;
+    simple('table.insertRowAbove', { cmd: 'tableInsertRow', below: false }, tbl);
+    simple('table.insertRowBelow', { cmd: 'tableInsertRow', below: true }, tbl);
+    simple('table.insertColLeft', { cmd: 'tableInsertCol', right: false }, tbl);
+    simple('table.insertColRight', { cmd: 'tableInsertCol', right: true }, tbl);
+    simple('table.deleteRows', { cmd: 'tableDeleteRows' }, tbl);
+    simple('table.deleteCols', { cmd: 'tableDeleteCols' }, tbl);
+    simple('table.merge', { cmd: 'tableMerge' }, tbl);
+    simple('table.split', { cmd: 'tableSplit' }, tbl);
+    reg.register({ id: 'table.fill', isEnabled: tbl, run: () => pickColor('cell') });
+    reg.register({
+      id: 'table.headerRow',
+      isEnabled: tbl,
+      isChecked: (s) => !!s.firstRow,
+      run: (s) => run({ cmd: 'tableOptions', firstRow: !s.firstRow }),
+    });
+    reg.register({
+      id: 'table.bandedRows',
+      isEnabled: tbl,
+      isChecked: (s) => !!s.bandRow,
+      run: (s) => run({ cmd: 'tableOptions', bandRow: !s.bandRow }),
+    });
+
     // Arrange.
     simple('arrange.front', { cmd: 'zOrder', to: 'front' }, sel);
     simple('arrange.back', { cmd: 'zOrder', to: 'back' }, sel);
@@ -727,6 +763,9 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       canUndo: edit?.canUndo ?? false,
       canRedo: edit?.canRedo ?? false,
       clip: edit?.clip,
+      hasTable: !!edit?.table,
+      firstRow: edit?.table?.firstRow,
+      bandRow: edit?.table?.bandRow,
     };
   }, [count, current, edit]);
   const exec = useCallback((id: string) => void registry.execute(id, state), [registry, state]);
@@ -1086,6 +1125,70 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
           },
         ],
       },
+      ...(state.hasTable
+        ? [
+            {
+              id: 'table',
+              label: t('slideEditor.tableTab'),
+              groups: [
+                {
+                  id: 'rowsCols',
+                  label: t('slideEditor.groupRowsCols'),
+                  items: [
+                    item(
+                      'table.insertRowAbove',
+                      t('slideEditor.insertRowAbove'),
+                      <ArrowUpToLine size={16} />,
+                      sm,
+                    ),
+                    item(
+                      'table.insertRowBelow',
+                      t('slideEditor.insertRowBelow'),
+                      <ArrowDownToLine size={16} />,
+                      sm,
+                    ),
+                    item(
+                      'table.insertColLeft',
+                      t('slideEditor.insertColLeft'),
+                      <ArrowLeftToLine size={16} />,
+                      sm,
+                    ),
+                    item(
+                      'table.insertColRight',
+                      t('slideEditor.insertColRight'),
+                      <ArrowRightToLine size={16} />,
+                      sm,
+                    ),
+                    item('table.deleteRows', t('slideEditor.deleteRow'), <Rows3 size={16} />, sm),
+                    item(
+                      'table.deleteCols',
+                      t('slideEditor.deleteCol'),
+                      <Columns3 size={16} />,
+                      sm,
+                    ),
+                  ],
+                },
+                {
+                  id: 'merge',
+                  label: t('slideEditor.groupMerge'),
+                  items: [
+                    item('table.merge', t('slideEditor.mergeCells'), <Merge size={16} />, sm),
+                    item('table.split', t('slideEditor.splitCell'), <Split size={16} />, sm),
+                  ],
+                },
+                {
+                  id: 'tableStyle',
+                  label: t('slideEditor.groupTableStyle'),
+                  items: [
+                    item('table.headerRow', t('slideEditor.headerRow'), <PanelTop size={16} />, sm),
+                    item('table.bandedRows', t('slideEditor.bandedRows'), <Rows3 size={16} />, sm),
+                    item('table.fill', t('slideEditor.cellFill'), <PaintBucket size={16} />, sm),
+                  ],
+                },
+              ],
+            },
+          ]
+        : []),
       {
         id: 'view',
         label: t('slideEditor.viewTab'),
@@ -1243,6 +1346,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
                     editorLabel={t('slideEditor.textEditor')}
                     adjustLabel={t('slideEditor.adjustHandle')}
                     connectorLabel={t('slideEditor.connectorEnd')}
+                    cellLabel={t('slideEditor.cellEditor')}
                     peers={peers
                       .filter((p) => p.slide === shown)
                       .map((p) => {
@@ -1367,6 +1471,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
           if (!hex) return;
           const target = colorTarget;
           if (target === 'font') run({ cmd: 'formatText', format: { kind: 'color', hex } });
+          else if (target === 'cell') run({ cmd: 'tableFill', color: hex });
           else if (target === 'highlight') {
             run({ cmd: 'formatText', format: { kind: 'highlight', hex } });
           } else if (target === 'fill') run({ cmd: 'setFill', color: hex });

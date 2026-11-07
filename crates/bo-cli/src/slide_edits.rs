@@ -136,6 +136,30 @@ const SCRIPTS: &[Script] = &[
             r#"{"cmd":"insertConnector","preset":"bentConnector3"}"#,
         ],
     },
+    // Tables: cell text, rows/columns, merge, cell fill, style options.
+    Script {
+        base: "slide-tables-basic.pptx",
+        name: "slide-edit-tables.pptx",
+        commands: &[
+            r#"{"cmd":"addSlide"}"#,
+            r#"{"cmd":"insertTable","rows":3,"cols":3,"rect":{"x":80,"y":150,"w":600,"h":90}}"#,
+            r#"{"cmd":"tableSelect","r0":0,"c0":0}"#,
+            r#"{"cmd":"setCellText","text":"Tỉnh"}"#,
+            r#"{"cmd":"tableSelect","r0":0,"c0":1}"#,
+            r#"{"cmd":"setCellText","text":"Dân số"}"#,
+            r#"{"cmd":"tableSelect","r0":1,"c0":0}"#,
+            r#"{"cmd":"setCellText","text":"Đà Nẵng"}"#,
+            r#"{"cmd":"tableInsertRow","below":true}"#,
+            r#"{"cmd":"tableInsertCol","right":true}"#,
+            r#"{"cmd":"tableSelect","r0":2,"c0":0,"r1":3,"c1":1}"#,
+            r#"{"cmd":"tableMerge"}"#,
+            r#"{"cmd":"tableFill","color":"FFF2CC"}"#,
+            r#"{"cmd":"tableSelect","r0":0,"c0":3}"#,
+            r#"{"cmd":"tableDeleteCols"}"#,
+            r#"{"cmd":"tableOptions","bandRow":false}"#,
+            r#"{"cmd":"tableExit"}"#,
+        ],
+    },
     // Slides: duplicate, reorder, delete, notes and a picture.
     Script {
         base: "slide-notes-basic.pptx",

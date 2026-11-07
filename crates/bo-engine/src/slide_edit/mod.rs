@@ -19,6 +19,7 @@ pub mod geom;
 pub mod guides;
 pub mod ops;
 pub mod rich;
+pub mod table;
 pub mod text;
 
 use crate::{DocInfo, Engine, EngineError};
@@ -233,6 +234,58 @@ pub enum SlideCommand {
     },
     /// Leave text editing.
     TextExit,
+    /// Select cells `(r0, c0)..=(r1, c1)` of a table (default: the selected one).
+    TableSelect {
+        #[serde(default)]
+        id: Option<u32>,
+        r0: usize,
+        c0: usize,
+        #[serde(default)]
+        r1: Option<usize>,
+        #[serde(default)]
+        c1: Option<usize>,
+    },
+    /// Select the cell at a slide point (`extend` = Shift grows the range).
+    TableHit {
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        extend: bool,
+    },
+    /// Text of a cell (default: the first selected cell); `merge` joins typing.
+    SetCellText {
+        #[serde(default)]
+        row: Option<usize>,
+        #[serde(default)]
+        col: Option<usize>,
+        text: String,
+        #[serde(default)]
+        merge: bool,
+    },
+    TableInsertRow {
+        #[serde(default)]
+        below: bool,
+    },
+    TableInsertCol {
+        #[serde(default)]
+        right: bool,
+    },
+    TableDeleteRows,
+    TableDeleteCols,
+    TableMerge,
+    TableSplit,
+    /// Fill of the selected cells: `RRGGBB` or `None` (back to the style).
+    TableFill {
+        color: Option<String>,
+    },
+    /// Table style options (§21.1.3.15 tblPr firstRow / bandRow).
+    TableOptions {
+        #[serde(default)]
+        first_row: Option<bool>,
+        #[serde(default)]
+        band_row: Option<bool>,
+    },
+    TableExit,
     /// Drag adjust handle `index` of the selected preset shape to slide point
     /// (x, y) (§20.1.9.5 avLst); `merge` joins the previous drag step.
     Adjust {
@@ -329,6 +382,119 @@ impl SlideCommand {
                 | SlideCommand::Redo
         )
     }
+
+    /// Commands that keep the table cell selection.
+    fn keeps_table_selection(&self) -> bool {
+        matches!(
+            self,
+            SlideCommand::State
+                | SlideCommand::TableSelect { .. }
+                | SlideCommand::TableHit { .. }
+                | SlideCommand::SetCellText { .. }
+                | SlideCommand::TableInsertRow { .. }
+                | SlideCommand::TableInsertCol { .. }
+                | SlideCommand::TableDeleteRows
+                | SlideCommand::TableDeleteCols
+                | SlideCommand::TableMerge
+                | SlideCommand::TableSplit
+                | SlideCommand::TableFill { .. }
+                | SlideCommand::TableOptions { .. }
+                | SlideCommand::FormatText { .. }
+                | SlideCommand::Undo
+                | SlideCommand::Redo
+        )
+    }
+}
+
+/// Add or replace a package part; a new table styles part is also related
+/// from the presentation part (ECMA-376 Part 1, §13.3.11).
+fn ensure_part(tx: &mut Tx<'_>, part: bo_model::slide::RawPart) -> R<()> {
+    if let Some(i) = tx
+        .pres
+        .parts
+        .iter()
+        .position(|p| p.name.eq_ignore_ascii_case(&part.name))
+    {
+        let old = tx.pres.parts[i].clone();
+        tx.op(SlideOp::Parts {
+            index: i,
+            remove: vec![old],
+            insert: vec![part],
+        })?;
+        return Ok(());
+    }
+    let target = part.name.trim_start_matches("/ppt/").to_owned();
+    let at = tx.pres.parts.len();
+    tx.op(SlideOp::Parts {
+        index: at,
+        remove: vec![],
+        insert: vec![part],
+    })?;
+    let before = ops::PresFields::of(tx.pres);
+    if !before.rels.iter().any(|r| r.target == target) {
+        let mut after = before.clone();
+        let mut n = 1;
+        let id = loop {
+            let id = format!("rId{n}");
+            let taken = tx.pres.info.rels.iter().any(|r| r.id == id)
+                || tx.pres.slides.iter().any(|s| s.pres_rel_id == id)
+                || tx.pres.masters.iter().any(|m| m.pres_rel_id == id);
+            if !taken {
+                break id;
+            }
+            n += 1;
+        };
+        after.rels.push(Rel {
+            id,
+            rel_type: format!("{}tableStyles", bo_pptx::RELATIONSHIP_NS),
+            target,
+            external: false,
+        });
+        tx.op(SlideOp::Pres {
+            before: Box::new(before),
+            after: Box::new(after),
+        })?;
+    }
+    Ok(())
+}
+
+/// Table of a graphic frame on a slide.
+fn table_of(pres: &Presentation, slide: usize, id: u32) -> Option<bo_model::slide::Table> {
+    let placed = place_slide(pres, slide);
+    let p = find(&placed, id)?;
+    match ops::node_at(pres, slide, &p.path)? {
+        ShapeNode::Frame(f) => match &f.content {
+            bo_model::slide::GraphicContent::Table(t) => Some(t.clone()),
+            bo_model::slide::GraphicContent::Other(_) => None,
+        },
+        _ => None,
+    }
+}
+
+/// Change the table of frame `id`; the frame keeps the grid's size.
+fn edit_table(
+    tx: &mut Tx<'_>,
+    sel: &SlideSel,
+    id: u32,
+    f: impl FnOnce(&mut bo_model::slide::Table) -> bool,
+) -> R<()> {
+    let placed = place_slide(tx.pres, sel.slide);
+    let p = find(&placed, id).ok_or(EditError::Refused("noTable"))?;
+    let mut n = node_clone(tx.pres, sel.slide, &p.path)?;
+    let ShapeNode::Frame(fr) = &mut n else {
+        return refuse("noTable");
+    };
+    let bo_model::slide::GraphicContent::Table(t) = &mut fr.content else {
+        return refuse("noTable");
+    };
+    if !f(t) {
+        return refuse("tableEdit");
+    }
+    // §21.1.3.2 gridCol / §21.1.3.18 tr@h define the frame size.
+    let (w, h) = table::size(t);
+    fr.xfrm.ext = Some((w, h));
+    tx.replace_node(sel.slide, &p.path, n)?;
+    Ok(())
 }
 
 /// The only selected id.
@@ -426,6 +592,9 @@ pub struct SlideEditResult {
     /// Text being edited inside a shape: selection, caret and highlight.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_edit: Option<rich::TextEditOut>,
+    /// Table being edited: cells and selection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub table: Option<table::TableOut>,
     /// Adjust handles of the selected preset shape (slide points).
     pub adjust: Vec<connect::AdjustOut>,
     /// The selected connector's ends and attachment.
@@ -485,6 +654,8 @@ pub struct SlideEditor {
     saved: u64,
     /// Text selection while a shape's text is edited.
     text: Option<rich::TextSel>,
+    /// Selected cells while a table is edited.
+    table: Option<table::TableSel>,
 }
 
 #[derive(Default)]
@@ -2147,6 +2318,9 @@ impl Engine {
             if !cmd.keeps_text_selection() {
                 ed.text = None;
             }
+            if !cmd.keeps_table_selection() {
+                ed.table = None;
+            }
             match cmd {
                 SlideCommand::State => {}
                 SlideCommand::GoTo { slide } => {
@@ -2298,7 +2472,12 @@ impl Engine {
                         let (sw, _) = slide_size(tx.pres);
                         let r = place_new(tx.pres, rect, sw * 0.6, 120.0);
                         let id = next_shape_id(tx.pres, sel.slide);
-                        let n = build::table(id, rows, cols, r.x, r.y, r.w);
+                        // The built-in style goes into the deck's table styles part.
+                        if let Some(part) = build::table_styles_with(tx.pres, 0) {
+                            ensure_part(tx, part)?;
+                        }
+                        let style = bo_pptx::table_style::BUILTIN_IDS[0];
+                        let n = build::table(id, rows, cols, r.x, r.y, r.w, style);
                         insert_top(tx, sel, n)
                     });
                 }
@@ -2387,6 +2566,174 @@ impl Engine {
                     }
                 }
                 SlideCommand::TextExit => ed.text = None,
+                SlideCommand::TableExit => ed.table = None,
+                SlideCommand::TableSelect { id, r0, c0, r1, c1 } => {
+                    let id = id.or(single(&ed.sel.ids)).or(ed.table.map(|t| t.id));
+                    match id.and_then(|id| Some((id, table_of(pres, ed.sel.slide, id)?))) {
+                        Some((id, t)) => {
+                            let (rows, cols) = table::dims(&t);
+                            if r0 >= rows || c0 >= cols {
+                                out.error = Some("noCell".into());
+                            } else {
+                                ed.sel.ids = vec![id];
+                                let s = table::TableSel {
+                                    id,
+                                    r0,
+                                    c0,
+                                    r1: r1.unwrap_or(r0).min(rows - 1),
+                                    c1: c1.unwrap_or(c0).min(cols - 1),
+                                };
+                                ed.table = Some(table::expand(&t, s));
+                            }
+                        }
+                        None => out.error = Some("noTable".into()),
+                    }
+                }
+                SlideCommand::TableHit { x, y, extend } => {
+                    let placed = place_slide(pres, ed.sel.slide);
+                    let id = ed.table.map(|t| t.id).or(single(&ed.sel.ids));
+                    let hit = id.and_then(|id| {
+                        let p = find(&placed, id)?;
+                        let t = table_of(pres, ed.sel.slide, id)?;
+                        let (lx, ly) = p.b.to_local(x, y);
+                        let (r, c) = table::cell_at(&t, lx + p.b.w / 2.0, ly + p.b.h / 2.0)?;
+                        Some((id, t, r, c))
+                    });
+                    match hit {
+                        Some((id, t, r, c)) => {
+                            let s = match ed.table {
+                                Some(cur) if extend && cur.id == id => table::TableSel {
+                                    r1: r,
+                                    c1: c,
+                                    ..cur
+                                },
+                                _ => table::TableSel {
+                                    id,
+                                    r0: r,
+                                    c0: c,
+                                    r1: r,
+                                    c1: c,
+                                },
+                            };
+                            ed.sel.ids = vec![id];
+                            ed.table = Some(table::expand(&t, s));
+                        }
+                        None => out.error = Some("noCell".into()),
+                    }
+                }
+                SlideCommand::SetCellText {
+                    row,
+                    col,
+                    ref text,
+                    merge,
+                } => match ed.table {
+                    Some(ts) => {
+                        let (r, c) = (row.unwrap_or(ts.r0), col.unwrap_or(ts.c0));
+                        let key = merge.then_some((ed.sel.slide, ts.id, 3));
+                        ed.mutate_as(pres, &mut out, key, |tx, sel| {
+                            edit_table(tx, sel, ts.id, |t| table::set_cell_text(t, r, c, text))
+                        });
+                    }
+                    None => out.error = Some("noTable".into()),
+                },
+                SlideCommand::TableInsertRow { .. }
+                | SlideCommand::TableInsertCol { .. }
+                | SlideCommand::TableDeleteRows
+                | SlideCommand::TableDeleteCols
+                | SlideCommand::TableMerge
+                | SlideCommand::TableSplit
+                | SlideCommand::TableFill { .. }
+                | SlideCommand::TableOptions { .. } => match ed.table.map(table::TableSel::norm) {
+                    Some(ts) => {
+                        let fill = match &cmd {
+                            SlideCommand::TableFill { color } => {
+                                match color.as_deref().map(|h| fill_of(Some(h))) {
+                                    Some(Ok(f)) => Some(Some(f)),
+                                    Some(Err(_)) => None,
+                                    None => Some(None),
+                                }
+                            }
+                            _ => Some(None),
+                        };
+                        let mut next = ts;
+                        ed.mutate(pres, &mut out, |tx, sel| {
+                            edit_table(tx, sel, ts.id, |t| match &cmd {
+                                SlideCommand::TableInsertRow { below } => {
+                                    let at = if *below { ts.r1 + 1 } else { ts.r0 };
+                                    table::insert_row(t, at);
+                                    next = table::TableSel {
+                                        r0: at,
+                                        r1: at,
+                                        ..ts
+                                    };
+                                    true
+                                }
+                                SlideCommand::TableInsertCol { right } => {
+                                    let at = if *right { ts.c1 + 1 } else { ts.c0 };
+                                    table::insert_col(t, at);
+                                    next = table::TableSel {
+                                        c0: at,
+                                        c1: at,
+                                        ..ts
+                                    };
+                                    true
+                                }
+                                SlideCommand::TableDeleteRows => {
+                                    let ok = table::delete_rows(t, ts.r0, ts.r1);
+                                    let r = ts.r0.min(t.rows.len().saturating_sub(1));
+                                    next = table::TableSel { r0: r, r1: r, ..ts };
+                                    ok
+                                }
+                                SlideCommand::TableDeleteCols => {
+                                    let ok = table::delete_cols(t, ts.c0, ts.c1);
+                                    let c = ts.c0.min(t.grid.len().saturating_sub(1));
+                                    next = table::TableSel { c0: c, c1: c, ..ts };
+                                    ok
+                                }
+                                SlideCommand::TableMerge => table::merge(t, ts),
+                                SlideCommand::TableSplit => table::split(t, ts),
+                                SlideCommand::TableFill { .. } => match &fill {
+                                    Some(f) => {
+                                        table::set_fill(t, ts, f.as_ref());
+                                        true
+                                    }
+                                    None => false,
+                                },
+                                SlideCommand::TableOptions {
+                                    first_row,
+                                    band_row,
+                                } => {
+                                    if let Some(v) = first_row {
+                                        table::set_flag(t, "firstRow", *v);
+                                    }
+                                    if let Some(v) = band_row {
+                                        table::set_flag(t, "bandRow", *v);
+                                    }
+                                    true
+                                }
+                                _ => false,
+                            })
+                        });
+                        if out.error.is_none() {
+                            ed.table = Some(next);
+                            if let Some(t) = table_of(pres, ed.sel.slide, ts.id) {
+                                let (rows, cols) = table::dims(&t);
+                                let n = next.norm();
+                                ed.table = Some(table::expand(
+                                    &t,
+                                    table::TableSel {
+                                        r0: n.r0.min(rows - 1),
+                                        r1: n.r1.min(rows - 1),
+                                        c0: n.c0.min(cols - 1),
+                                        c1: n.c1.min(cols - 1),
+                                        ..n
+                                    },
+                                ));
+                            }
+                        }
+                    }
+                    None => out.error = Some("noTable".into()),
+                },
                 SlideCommand::Adjust { index, x, y, merge } => {
                     let key = single(&ed.sel.ids)
                         .filter(|_| merge)
@@ -2671,6 +3018,18 @@ impl Engine {
                 editable_text: editable,
             });
         }
+        let table_state = ed.table.and_then(|ts| {
+            let p = find(&placed, ts.id)?;
+            match ops::node_at(pres, slide, &p.path)? {
+                ShapeNode::Frame(f) => match &f.content {
+                    bo_model::slide::GraphicContent::Table(t) => {
+                        Some(table::table_out(t, &p.b, ts))
+                    }
+                    bo_model::slide::GraphicContent::Other(_) => None,
+                },
+                _ => None,
+            }
+        });
         let mut adjust = Vec::new();
         let mut connector = None;
         let mut sites = Vec::new();
@@ -2746,6 +3105,7 @@ impl Engine {
             error: out.error,
             collab: None,
             text_edit,
+            table: table_state,
             adjust,
             connector,
             sites,

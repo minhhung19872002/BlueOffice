@@ -14,6 +14,7 @@ pub mod inherit;
 mod pml;
 mod read;
 mod render;
+pub mod table_style;
 mod text_layout;
 mod write;
 

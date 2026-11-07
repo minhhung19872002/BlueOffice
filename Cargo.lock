@@ -307,6 +307,7 @@ name = "bo-engine"
 version = "0.1.0"
 dependencies = [
  "bo-docx",
+ "bo-edit",
  "bo-engine",
  "bo-layout",
  "bo-model",
@@ -314,6 +315,7 @@ dependencies = [
  "bo-raster",
  "bo-render",
  "bo-text",
+ "png",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -415,6 +417,7 @@ name = "bo-wasm"
 version = "0.1.0"
 dependencies = [
  "bo-engine",
+ "serde_json",
  "wasm-bindgen",
 ]
 

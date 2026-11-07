@@ -14,6 +14,10 @@ use serde::Serialize;
 
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
+pub mod edit;
+pub mod nav;
+
+pub use edit::{Command, EditResult};
 
 /// Engine errors (surfaced to JS / Tauri as strings).
 #[derive(Debug, thiserror::Error)]
@@ -32,6 +36,8 @@ pub enum EngineError {
     Pdf(#[from] bo_pdf::PdfError),
     #[error("rendering failed: {0}")]
     Raster(#[from] bo_raster::RasterError),
+    #[error("invalid command: {0}")]
+    BadCommand(String),
 }
 
 /// Result alias.
@@ -77,9 +83,13 @@ pub struct Engine {
     fonts: FontManager,
     cache: LayoutCache,
     name: String,
-    doc: Option<Document>,
+    session: Option<bo_edit::Session>,
+    /// Document as last opened/saved (`modified` flag).
+    saved_doc: Option<Document>,
     layout: Option<LayoutDocument>,
     display: Option<DisplayList>,
+    /// Column kept across vertical caret moves.
+    goal_x: Option<f32>,
 }
 
 impl Engine {
@@ -136,16 +146,46 @@ impl Engine {
         let layout = layout_document(&doc, &mut self.fonts, &mut self.cache)?;
         let display = build_display_list(&layout, &self.fonts);
         self.name = name.to_owned();
-        self.doc = Some(doc);
+        self.saved_doc = Some(doc.clone());
+        self.session = Some(bo_edit::Session::new(doc));
         self.layout = Some(layout);
         self.display = Some(display);
+        self.goal_x = None;
         self.info()
+    }
+
+    /// Start a new blank document (A4, Times New Roman 13 pt).
+    pub fn new_document(&mut self, name: &str) -> Result<DocInfo> {
+        self.load(plain_text_document(""), name)
+    }
+
+    /// Lay out again after an edit; returns the pages whose display list changed.
+    fn relayout(&mut self) -> Result<Vec<usize>> {
+        let doc = self.session.as_ref().ok_or(EngineError::NoDocument)?.doc();
+        let layout = layout_document(doc, &mut self.fonts, &mut self.cache)?;
+        let display = build_display_list(&layout, &self.fonts);
+        let old = self.display.take().unwrap_or_default();
+        let dirty = if old.pages.len() == display.pages.len() {
+            (0..display.pages.len())
+                .filter(|&i| old.pages[i] != display.pages[i])
+                .collect()
+        } else {
+            (0..display.pages.len()).collect()
+        };
+        self.layout = Some(layout);
+        self.display = Some(display);
+        Ok(dirty)
+    }
+
+    /// Mark the current state as saved (clears `modified`).
+    pub fn mark_saved(&mut self) {
+        self.saved_doc = self.session.as_ref().map(|s| s.doc().clone());
     }
 
     /// Summary of the open document.
     pub fn info(&self) -> Result<DocInfo> {
         let display = self.display.as_ref().ok_or(EngineError::NoDocument)?;
-        let doc = self.doc.as_ref().ok_or(EngineError::NoDocument)?;
+        let doc = self.document().ok_or(EngineError::NoDocument)?;
         Ok(DocInfo {
             name: self.name.clone(),
             page_count: display.pages.len(),
@@ -163,7 +203,17 @@ impl Engine {
 
     /// The open document model.
     pub fn document(&self) -> Option<&Document> {
-        self.doc.as_ref()
+        self.session.as_ref().map(bo_edit::Session::doc)
+    }
+
+    /// The editing session of the open document.
+    pub fn session(&self) -> Option<&bo_edit::Session> {
+        self.session.as_ref()
+    }
+
+    /// The current layout.
+    pub fn layout(&self) -> Option<&LayoutDocument> {
+        self.layout.as_ref()
     }
 
     /// Display list of a page.
@@ -211,7 +261,7 @@ impl Engine {
             .name
             .rsplit_once('.')
             .map_or(self.name.clone(), |(b, _)| b.to_owned());
-        let doc = self.doc.as_ref().ok_or(EngineError::NoDocument)?;
+        let doc = self.document().ok_or(EngineError::NoDocument)?;
         Ok(bo_pdf::write_pdf(
             display,
             &self.fonts,
@@ -222,7 +272,7 @@ impl Engine {
 
     /// Render one page to PNG at `scale` pixels per point.
     pub fn render_png(&self, index: usize, scale: f32) -> Result<Vec<u8>> {
-        let doc = self.doc.as_ref().ok_or(EngineError::NoDocument)?;
+        let doc = self.document().ok_or(EngineError::NoDocument)?;
         Ok(bo_raster::render_page_png(
             self.page(index)?,
             &self.fonts,
@@ -233,19 +283,20 @@ impl Engine {
 
     /// Bytes of a media part referenced by an `image` display command.
     pub fn media(&self, name: &str) -> Option<&[u8]> {
-        self.doc.as_ref()?.media.get(name).map(|b| b.as_slice())
+        self.document()?.media.get(name).map(|b| b.as_slice())
     }
 
     /// Serialize the open document as `.docx` (lossless for unchanged parts, ADR-0005).
     pub fn save_docx(&self) -> Result<Vec<u8>> {
-        let doc = self.doc.as_ref().ok_or(EngineError::NoDocument)?;
+        // Hosts call `mark_saved` once the bytes are stored.
+        let doc = self.document().ok_or(EngineError::NoDocument)?;
         Ok(bo_docx::write_docx(doc)?)
     }
 }
 
 /// Build a document from plain text: one paragraph per line, default page setup.
 pub fn plain_text_document(text: &str) -> Document {
-    let blocks = text
+    let mut blocks: Vec<Block> = text
         .lines()
         .map(|l| {
             Block::Paragraph(Paragraph::new(
@@ -258,6 +309,9 @@ pub fn plain_text_document(text: &str) -> Document {
             ))
         })
         .collect();
+    if blocks.is_empty() {
+        blocks.push(Block::Paragraph(Paragraph::default()));
+    }
     Document {
         sections: vec![Section::new(blocks)],
 

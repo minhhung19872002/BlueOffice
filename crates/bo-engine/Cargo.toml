@@ -14,6 +14,7 @@ bundled-fonts = []
 [dependencies]
 bo-model.workspace = true
 bo-docx.workspace = true
+bo-edit.workspace = true
 bo-text.workspace = true
 bo-layout.workspace = true
 bo-render.workspace = true
@@ -24,6 +25,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+png.workspace = true
 bo-engine = { path = ".", features = ["bundled-fonts"] }
 
 [lints]

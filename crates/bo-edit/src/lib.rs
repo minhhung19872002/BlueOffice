@@ -366,6 +366,7 @@ pub struct Session {
     /// Formatting applied to the next typed text (collapsed-selection formatting).
     pending: Option<RunProps>,
     typing: bool,
+    version: u64,
 }
 
 impl Session {
@@ -378,6 +379,7 @@ impl Session {
             redo: Vec::new(),
             pending: None,
             typing: false,
+            version: 0,
         }
     }
 
@@ -392,6 +394,11 @@ impl Session {
 
     pub fn selection(&self) -> Selection {
         self.selection
+    }
+
+    /// Incremented by every change of the document (edit, undo, redo).
+    pub fn version(&self) -> u64 {
+        self.version
     }
 
     pub fn can_undo(&self) -> bool {
@@ -456,6 +463,7 @@ impl Session {
             Ok(after) => {
                 let ops = tx.ops;
                 if !ops.is_empty() {
+                    self.version += 1;
                     self.undo.push(Transaction { ops, before, after });
                     self.redo.clear();
                 }
@@ -481,6 +489,7 @@ impl Session {
             return false;
         }
         self.selection = t.before;
+        self.version += 1;
         self.redo.push(t);
         self.typing = false;
         true
@@ -495,6 +504,7 @@ impl Session {
             return false;
         }
         self.selection = t.after;
+        self.version += 1;
         self.undo.push(t);
         self.typing = false;
         true
@@ -785,10 +795,16 @@ impl Session {
         let Some(p) = paths.get(at.para).and_then(|p| para_at(&self.doc, p)) else {
             return self.doc.default_run.clone();
         };
+        // With a selection, report the formatting of its first character.
+        let probe = if self.selection.is_collapsed() {
+            at.offset
+        } else {
+            at.offset + 1
+        };
         let direct = self
             .pending
             .clone()
-            .unwrap_or_else(|| para::props_at(&para::flatten(p), at.offset));
+            .unwrap_or_else(|| para::props_at(&para::flatten(p), probe));
         effective_run(&self.doc, p, &direct)
     }
 

@@ -394,4 +394,176 @@ proptest! {
         while s.redo() {}
         prop_assert_eq!(s.doc(), &edited);
     }
+
+    /// Track changes (ECMA-376 Part 1, §17.13.5): text edits recorded as revisions are
+    /// undone exactly, rejecting all of them restores the original text and accepting all
+    /// of them gives the text shown by the "final" view.
+    #[test]
+    fn tracked_edits_reject_restores_text(actions in proptest::collection::vec(action(), 1..30)) {
+        let d = doc(&["Căn cứ Luật", "Tổ chức Chính phủ", ""]);
+        let original = d.clone();
+        let mut s = Session::new(d);
+        s.set_track_changes(true);
+        s.set_author("Người duyệt");
+        for a in &actions {
+            let _ = match a {
+                Action::Caret(p, o) => { caret(&mut s, *p, *o); Ok(s.selection()) }
+                Action::Select(a, b, c, d) => { select(&mut s, (*a, *b), (*c, *d)); Ok(s.selection()) }
+                Action::Type(t) => s.insert_text(t),
+                Action::Backspace => s.delete_backward(),
+                Action::Delete => s.delete_forward(),
+                Action::Enter => s.split_paragraph(),
+                Action::Bold => s.format_text(&CharFormat::Bold),
+                Action::Align(k) => s.format_paragraphs(&ParaFormat::Align { align: [Alignment::Left, Alignment::Center, Alignment::Right, Alignment::Justify][usize::from(*k)] }),
+                Action::Paste => { let c = s.copy(); s.paste_internal(&c.internal) }
+                Action::Replace => s.replace_all("a", &FindOptions::default(), "ă").map(|_| s.selection()),
+                _ => Ok(s.selection()),
+            };
+            let sel = s.selection();
+            prop_assert_eq!(s.clamp(sel.anchor), sel.anchor);
+            prop_assert_eq!(s.clamp(sel.focus), sel.focus);
+        }
+        let edited = s.doc().clone();
+        let final_text = edited.plain_text();
+        let mut accepted = Session::new(edited.clone());
+        accepted.resolve_revisions(None, true).unwrap();
+        prop_assert!(accepted.revisions().is_empty());
+        prop_assert_eq!(accepted.doc().plain_text(), final_text);
+        let n = s.resolve_revisions(None, false).unwrap();
+        prop_assert!(s.revisions().is_empty());
+        prop_assert_eq!(s.doc().plain_text(), original.plain_text());
+        // Accepting/rejecting is one undo step.
+        if n > 0 {
+            prop_assert!(s.undo());
+            prop_assert_eq!(s.doc(), &edited);
+        }
+        while s.undo() {}
+        prop_assert_eq!(s.doc(), &original);
+    }
+}
+
+#[test]
+fn comments_threads_resolve_delete_and_undo() {
+    let mut s = Session::new(doc(&["Điều 1. Phạm vi điều chỉnh", "Điều 2."]));
+    s.set_author("Nguyễn Văn An");
+    s.set_clock(Some("2026-11-08T10:00:00Z".into()));
+    select(&mut s, (0, "Điều 1. ".len()), (0, "Điều 1. Phạm vi".len()));
+    let id = s.add_comment("Làm rõ phạm vi").unwrap();
+    // Marks are zero-width: the text is unchanged.
+    assert_eq!(texts(&s)[0], "Điều 1. Phạm vi điều chỉnh");
+    let c = &s.comments()[0];
+    assert_eq!(c.id, id);
+    assert_eq!(c.text, "Làm rõ phạm vi");
+    assert_eq!(c.quote, "Phạm vi");
+    assert_eq!(c.initials.as_deref(), Some("NVA"));
+    assert_eq!(c.date.as_deref(), Some("2026-11-08T10:00:00Z"));
+    assert_eq!(c.start, Some(Pos::new(0, "Điều 1. ".len())));
+    // A reply is threaded under its parent ([MS-DOCX] paraIdParent).
+    s.set_author("Trần Thị Bình");
+    let reply = s.reply_comment(id, "Đã sửa").unwrap();
+    let list = s.comments();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[1].parent, Some(id));
+    assert_eq!(list[1].quote, "Phạm vi");
+    s.resolve_comment(id, true).unwrap();
+    assert!(s.comments()[0].done);
+    // Collapsed selection: the word at the caret.
+    caret(&mut s, 1, 2);
+    let second = s.add_comment("Thiếu nội dung").unwrap();
+    assert_eq!(s.comments()[2].quote, "Điều");
+    caret(&mut s, 0, 0);
+    assert_eq!(s.next_comment(true), Some(id));
+    assert_eq!(s.next_comment(true), Some(second));
+    // Deleting a thread removes the replies and every mark.
+    s.delete_comment(id).unwrap();
+    assert_eq!(s.comments().len(), 1);
+    assert!(s.select_comment(second));
+    assert!(!s.select_comment(reply));
+    while s.undo() {}
+    assert_eq!(s.doc().comments.len(), 0);
+    assert_eq!(texts(&s), vec!["Điều 1. Phạm vi điều chỉnh", "Điều 2."]);
+    assert_eq!(s.doc(), &doc(&["Điều 1. Phạm vi điều chỉnh", "Điều 2."]));
+}
+
+fn tracked(paras: &[&str]) -> Session {
+    let mut s = Session::new(doc(paras));
+    s.set_track_changes(true);
+    s.set_author("An");
+    s.set_clock(Some("2026-11-08T09:00:00Z".into()));
+    s
+}
+
+#[test]
+fn track_changes_records_insertions_and_deletions() {
+    let mut s = tracked(&["Xin chào"]);
+    caret(&mut s, 0, 3);
+    for c in "XYZ".chars() {
+        s.insert_text(&c.to_string()).unwrap();
+    }
+    // One insertion revision per typing burst, attributed to the author.
+    let revs = s.revisions();
+    assert_eq!(revs.len(), 1);
+    assert_eq!(revs[0].kind, RevKind::Insert);
+    assert_eq!(revs[0].author, "An");
+    assert_eq!(revs[0].date.as_deref(), Some("2026-11-08T09:00:00Z"));
+    assert_eq!(revs[0].text, "XYZ");
+    // Backspace inside one's own insertion really removes it.
+    s.delete_backward().unwrap();
+    assert_eq!(texts(&s), vec!["XinXY chào"]);
+    // Deleting original text keeps it, marked deleted; the caret moves before it.
+    caret(&mut s, 0, "XinXY ".len());
+    s.delete_forward().unwrap();
+    assert_eq!(texts(&s), vec!["XinXY chào"]);
+    assert_eq!(s.doc().plain_text(), "XinXY hào");
+    assert_eq!(s.selection().focus, Pos::new(0, "XinXY c".len()));
+    let kinds: Vec<RevKind> = s.revisions().iter().map(|r| r.kind).collect();
+    assert_eq!(kinds, vec![RevKind::Insert, RevKind::Delete]);
+    // Accept one (the deletion), reject the other.
+    let del_id = s.revisions()[1].id;
+    s.resolve_revisions(Some(&[del_id]), true).unwrap();
+    assert_eq!(texts(&s), vec!["XinXY hào"]);
+    s.resolve_revisions(None, false).unwrap();
+    assert_eq!(texts(&s), vec!["Xin hào"]);
+    assert_eq!(s.revisions().len(), 0);
+}
+
+#[test]
+fn track_changes_paragraph_marks_and_formatting() {
+    let mut s = tracked(&["Một hai", "ba"]);
+    caret(&mut s, 0, "Một".len());
+    s.split_paragraph().unwrap();
+    assert_eq!(texts(&s), vec!["Một", " hai", "ba"]);
+    let r = s.revisions();
+    assert_eq!(r[0].kind, RevKind::ParagraphInsert);
+    // Rejecting the inserted mark joins the paragraphs again.
+    s.resolve_revisions(None, false).unwrap();
+    assert_eq!(texts(&s), vec!["Một hai", "ba"]);
+    // Backspace at a paragraph start marks the previous mark deleted; accepting merges.
+    caret(&mut s, 1, 0);
+    s.delete_backward().unwrap();
+    assert_eq!(s.paragraph_count(), 2);
+    assert_eq!(s.selection().focus, Pos::new(0, "Một hai".len()));
+    assert_eq!(s.revisions()[0].kind, RevKind::ParagraphDelete);
+    s.resolve_revisions(None, true).unwrap();
+    assert_eq!(texts(&s), vec!["Một haiba"]);
+    // Formatting is recorded with the previous properties (rPrChange / pPrChange).
+    select(&mut s, (0, 0), (0, "Một".len()));
+    s.format_text(&CharFormat::Bold).unwrap();
+    s.format_paragraphs(&ParaFormat::Align {
+        align: Alignment::Center,
+    })
+    .unwrap();
+    let kinds: Vec<RevKind> = s.revisions().iter().map(|r| r.kind).collect();
+    assert_eq!(kinds, vec![RevKind::ParagraphFormat, RevKind::Format]);
+    s.resolve_revisions(None, false).unwrap();
+    let p = s.doc().paragraphs().next().unwrap();
+    assert_eq!(p.props.align, None);
+    assert!(p.runs.iter().all(|r| r.props.bold.is_none()));
+    // Without track changes, typing next to an insertion is not tracked.
+    let mut s = tracked(&["ab"]);
+    caret(&mut s, 0, 1);
+    s.insert_text("x").unwrap();
+    s.set_track_changes(false);
+    s.insert_text("y").unwrap();
+    assert_eq!(s.revisions()[0].text, "x");
 }

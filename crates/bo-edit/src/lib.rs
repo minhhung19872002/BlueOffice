@@ -9,13 +9,21 @@
 //! order, table cells included) and matches `bo_layout::LineSource::Body`.
 #![forbid(unsafe_code)]
 
+pub mod comments;
+pub mod fields;
 pub mod find;
 pub mod html;
+pub mod merge;
 mod ops;
 pub mod para;
+pub mod revisions;
 
+pub use comments::CommentInfo;
+pub use fields::RefTarget;
 pub use find::{find, FindOptions, Match};
 pub use ops::{Op, Pos, Selection, Transaction};
+use revisions::Tracker;
+pub use revisions::{RevKind, RevisionItem};
 
 use bo_model::index::{blocks_at, body_paragraphs, para_at, ParaPath};
 use bo_model::{
@@ -209,6 +217,8 @@ pub fn effective_run(doc: &Document, p: &Paragraph, direct: &RunProps) -> RunPro
 struct Tx<'a> {
     doc: &'a mut Document,
     ops: Vec<Op>,
+    /// Set in track-changes mode: edits are recorded as revisions (§17.13.5).
+    track: Option<Tracker>,
 }
 
 impl Tx<'_> {
@@ -244,11 +254,60 @@ impl Tx<'_> {
         Ok((path, p, a))
     }
 
-    /// Delete `a..b` (document order). Returns the caret.
+    /// Delete `a..b` (document order). Returns where new content goes: `a`, or the
+    /// end of the (kept) deleted text in track-changes mode.
     fn delete_range(&mut self, a: Pos, b: Pos) -> Result<Pos> {
+        Ok(self.delete_span(a, b)?.1)
+    }
+
+    /// Delete `a..b`; returns the positions before and after what remains of the range
+    /// (equal unless deletions are tracked).
+    fn delete_span(&mut self, a: Pos, b: Pos) -> Result<(Pos, Pos)> {
         if a >= b {
-            return Ok(a.min(b));
+            let p = a.min(b);
+            return Ok((p, p));
         }
+        if self.track.is_some() {
+            return self.tracked_delete(a, b);
+        }
+        let p = self.untracked_delete(a, b)?;
+        Ok((p, p))
+    }
+
+    /// Track-changes deletion: text is marked deleted (§17.13.5.14), paragraph marks in
+    /// the range too (§17.13.5.15); the author's own insertions are really removed.
+    fn tracked_delete(&mut self, a: Pos, b: Pos) -> Result<(Pos, Pos)> {
+        let Some(mut tr) = self.track.take() else {
+            return Err(EditError::BadPosition);
+        };
+        let mark = tr.mark();
+        let res = (|| {
+            let paths = self.paths();
+            let mut end = b;
+            for id in a.para..=b.para {
+                let path = path_of(self.doc, &paths, id)?;
+                let p = para_clone(self.doc, &path)?;
+                let mut atoms = para::flatten(&p);
+                let l = para::len(&atoms);
+                let s = if id == a.para { a.offset } else { 0 };
+                let e = if id == b.para { b.offset } else { l };
+                let removed = revisions::mark_deleted(&mut atoms, s, e, &tr, &mark);
+                if id == b.para {
+                    end = Pos::new(id, e - removed);
+                }
+                let mut q = para::with_atoms(&p, atoms);
+                if id < b.para && q.props.mark_del.is_none() {
+                    q.props.mark_del = Some(mark.clone());
+                }
+                self.replace_para(&path, q)?;
+            }
+            Ok((a, end))
+        })();
+        self.track = Some(tr);
+        res
+    }
+
+    fn untracked_delete(&mut self, a: Pos, b: Pos) -> Result<Pos> {
         let paths = self.paths();
         let pa = path_of(self.doc, &paths, a.para)?;
         let pb = path_of(self.doc, &paths, b.para)?;
@@ -295,8 +354,115 @@ impl Tx<'_> {
         Ok(a)
     }
 
+    /// New content never inherits revision marks from its neighbours; in
+    /// track-changes mode it becomes an insertion (§17.13.5.18).
+    fn mark_new(&mut self, existing: &[Atom], off: usize, atoms: Vec<Atom>) -> Vec<Atom> {
+        let mark = self
+            .track
+            .as_mut()
+            .map(|t| revisions::insertion_mark(existing, off, t));
+        atoms
+            .into_iter()
+            .map(|(p, c)| {
+                let mut p = p.without_revisions();
+                if para::atom_len(&c) > 0 {
+                    p.ins.clone_from(&mark);
+                }
+                (p, c)
+            })
+            .collect()
+    }
+
+    /// A new paragraph mark (tracked as inserted in track-changes mode, §17.13.5.16).
+    fn new_mark(&mut self, props: &mut ParaProps) {
+        props.mark_ins = self.track.as_mut().map(Tracker::mark);
+        props.mark_del = None;
+    }
+
+    /// Replace the blocks of section `si` (one op for the changed middle part).
+    fn set_section_blocks(&mut self, si: usize, new: &[Block]) -> Result<()> {
+        let old = self
+            .doc
+            .sections
+            .get(si)
+            .map(|s| s.blocks.clone())
+            .ok_or(EditError::BadPath)?;
+        if old == new {
+            return Ok(());
+        }
+        let pre = old.iter().zip(new).take_while(|(x, y)| x == y).count();
+        let suf = old[pre..]
+            .iter()
+            .rev()
+            .zip(new[pre..].iter().rev())
+            .take_while(|(x, y)| x == y)
+            .count();
+        self.push(Op::Blocks {
+            path: vec![si],
+            index: pre,
+            remove: old[pre..old.len() - suf].to_vec(),
+            insert: new[pre..new.len() - suf].to_vec(),
+        })
+    }
+
+    /// Recompute fields until page numbers settle (at most three layouts).
+    fn update_fields(&mut self, pages_of: &mut dyn FnMut(&Document) -> Vec<u32>) -> Result<usize> {
+        let mut total = 0;
+        for round in 0..3 {
+            let pages = pages_of(self.doc);
+            let up = fields::update(self.doc, &pages);
+            let unchanged = up.styles.is_none()
+                && up
+                    .sections
+                    .iter()
+                    .zip(&self.doc.sections)
+                    .all(|(b, s)| *b == s.blocks);
+            if round == 0 {
+                total = up.count;
+            }
+            if unchanged {
+                break;
+            }
+            if let Some(st) = up.styles {
+                self.push(Op::Styles {
+                    old: Box::new(self.doc.styles.clone()),
+                    new: Box::new(st),
+                })?;
+            }
+            for (si, blocks) in up.sections.into_iter().enumerate() {
+                self.set_section_blocks(si, &blocks)?;
+            }
+        }
+        Ok(total)
+    }
+
+    /// Insert zero-width marks (comment ranges and references) at `at`.
+    fn insert_marks(&mut self, at: Pos, marks: Vec<RunContent>) -> Result<()> {
+        let (path, p, mut a) = self.atoms(at.para)?;
+        let props = para::props_at(&a, at.offset).without_revisions();
+        let new: Vec<Atom> = marks
+            .into_iter()
+            .map(|m| {
+                let pr = match m {
+                    RunContent::CommentRef(_) => RunProps {
+                        style: Some("CommentReference".into()),
+                        ..RunProps::default()
+                    },
+                    _ => RunProps {
+                        link: props.link.clone(),
+                        ..RunProps::default()
+                    },
+                };
+                (pr, m)
+            })
+            .collect();
+        para::insert(&mut a, at.offset, new);
+        self.replace_para(&path, para::with_atoms(&p, a))
+    }
+
     fn insert_atoms(&mut self, at: Pos, atoms: Vec<Atom>) -> Result<Pos> {
         let (path, p, mut a) = self.atoms(at.para)?;
+        let atoms = self.mark_new(&a, at.offset, atoms);
         let n = para::len(&atoms);
         para::insert(&mut a, at.offset, atoms);
         self.replace_para(&path, para::with_atoms(&p, a))?;
@@ -323,7 +489,9 @@ impl Tx<'_> {
             }
         }
         right_props.unknown.clear();
-        let first = para::with_atoms(&p, left);
+        let mut first = para::with_atoms(&p, left);
+        // The original mark stays with the second part; the first one gets a new mark.
+        self.new_mark(&mut first.props);
         let second = Paragraph {
             props: right_props,
             runs: para::rebuild(right),
@@ -406,7 +574,16 @@ pub struct Session {
     pending: Option<RunProps>,
     typing: bool,
     version: u64,
+    /// Track-changes mode (§17.13.5): new edits are recorded as revisions.
+    track: bool,
+    /// Author of new revisions and comments.
+    author: String,
+    /// `ST_DateTime` stamped on new revisions and comments.
+    clock: Option<String>,
 }
+
+/// Author used when the host does not know the user.
+pub const DEFAULT_AUTHOR: &str = "BlueOffice";
 
 impl Session {
     /// Start editing `doc` with the caret at the beginning.
@@ -419,7 +596,466 @@ impl Session {
             pending: None,
             typing: false,
             version: 0,
+            track: false,
+            author: DEFAULT_AUTHOR.to_owned(),
+            clock: None,
         }
+    }
+
+    /// Turn track-changes mode on or off.
+    pub fn set_track_changes(&mut self, on: bool) {
+        self.track = on;
+        self.typing = false;
+    }
+
+    /// Whether new edits are recorded as revisions.
+    pub fn track_changes(&self) -> bool {
+        self.track
+    }
+
+    /// Author of new revisions and comments (empty → [`DEFAULT_AUTHOR`]).
+    pub fn set_author(&mut self, author: &str) {
+        let a = author.trim();
+        self.author = if a.is_empty() {
+            DEFAULT_AUTHOR.to_owned()
+        } else {
+            a.to_owned()
+        };
+    }
+
+    pub fn author(&self) -> &str {
+        &self.author
+    }
+
+    /// Date stamped on new revisions and comments (`ST_DateTime`, e.g. `2026-11-08T09:30:00Z`).
+    pub fn set_clock(&mut self, date: Option<String>) {
+        self.clock = date;
+    }
+
+    pub fn clock(&self) -> Option<&str> {
+        self.clock.as_deref()
+    }
+
+    /// Revisions of the main text (review pane).
+    pub fn revisions(&self) -> Vec<RevisionItem> {
+        revisions::list(&self.doc)
+    }
+
+    /// Ids of the revisions touching the selection (or containing the caret).
+    pub fn revisions_at_selection(&self) -> Vec<i32> {
+        let (a, b) = self.selection.ordered();
+        let mut ids: Vec<i32> = self
+            .revisions()
+            .into_iter()
+            .filter(|r| {
+                if a == b {
+                    r.start <= a && a <= r.end
+                } else {
+                    r.start < b && a < r.end
+                }
+            })
+            .map(|r| r.id)
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+    /// Accept (`accept`) or reject revisions: `ids = None` resolves all of them.
+    /// Returns the number of revisions resolved (one undo step).
+    pub fn resolve_revisions(&mut self, ids: Option<&[i32]>, accept: bool) -> Result<usize> {
+        let all = self.revisions();
+        let n = match ids {
+            None => all.len(),
+            Some(ids) => all.iter().filter(|r| ids.contains(&r.id)).count(),
+        };
+        if n == 0 {
+            return Ok(0);
+        }
+        let set: Option<std::collections::HashSet<i32>> = ids.map(|v| v.iter().copied().collect());
+        let filter = |id: i32| set.as_ref().is_none_or(|s| s.contains(&id));
+        let caret = self.selection.ordered().0;
+        self.edit(|tx, _| {
+            for si in 0..tx.doc.sections.len() {
+                let new = revisions::resolve_blocks(&tx.doc.sections[si].blocks, &filter, accept);
+                tx.set_section_blocks(si, &new)?;
+            }
+            Ok(Selection::caret(caret))
+        })?;
+        let c = self.clamp(caret);
+        self.selection = Selection::caret(c);
+        if let Some(t) = self.undo.last_mut() {
+            t.after = self.selection;
+        }
+        Ok(n)
+    }
+
+    // -------------------------------------------------------------- fields
+
+    /// Update every field (TOC, SEQ, REF, PAGEREF; ECMA-376 Part 1, §17.16) in one
+    /// undo step. `pages_of(doc)` lays a document out and returns the displayed page
+    /// number of each body paragraph; it is called again until page numbers settle.
+    /// Returns the number of fields whose result changed.
+    pub fn update_fields(
+        &mut self,
+        pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
+    ) -> Result<usize> {
+        let mut n = 0;
+        let sel = self.selection;
+        self.edit(|tx, _| {
+            n = tx.update_fields(pages_of)?;
+            Ok(sel)
+        })?;
+        self.fix_selection();
+        Ok(n)
+    }
+
+    /// Insert a table of contents (`TOC \o "1-3" \h \z \u`, §17.16.5.68) at the caret
+    /// and fill it.
+    pub fn insert_toc(&mut self, pages_of: &mut dyn FnMut(&Document) -> Vec<u32>) -> Result<usize> {
+        let mut n = 0;
+        self.edit(|tx, sel| {
+            let (a, b) = sel.ordered();
+            let at = tx.delete_range(a, b)?;
+            let paths = tx.paths();
+            let path = path_of(tx.doc, &paths, at.para)?;
+            if path.len() != 2 {
+                return Err(EditError::Unsupported(
+                    "table of contents inside a table".into(),
+                ));
+            }
+            let p = para_clone(tx.doc, &path)?;
+            let len = para_len(&p);
+            let (prefix, index) = split_path(&path);
+            let insert_at = if at.offset == 0 {
+                index
+            } else {
+                if at.offset < len {
+                    tx.split(at)?;
+                }
+                index + 1
+            };
+            let toc = fields::new_toc_paragraph("TOC \\o \"1-3\" \\h \\z \\u");
+            tx.insert_blocks(prefix, insert_at, vec![Block::Paragraph(toc)])?;
+            n = tx.update_fields(pages_of)?;
+            let caret = Pos::new(at.para.min(tx.paths().len().saturating_sub(1)), 0);
+            Ok(Selection::caret(caret))
+        })?;
+        self.fix_selection();
+        Ok(n)
+    }
+
+    /// Insert a caption paragraph after the caret's paragraph: `label n: text` with a
+    /// `SEQ label` field (§17.16.5.56).
+    pub fn insert_caption(&mut self, label: &str, text: &str) -> Result<Selection> {
+        let label = label.trim();
+        if label.is_empty() || label.contains(char::is_whitespace) {
+            return Err(EditError::Unsupported("caption label".into()));
+        }
+        let at = self.selection.ordered().1;
+        let n = fields::next_seq(&self.doc, label, at.para);
+        let cap = fields::caption_paragraph(label, n, text);
+        let need = fields::ensure_styles(&self.doc.styles, &["Caption".to_owned()]);
+        self.edit(|tx, _| {
+            if let Some(new) = need {
+                tx.push(Op::Styles {
+                    old: Box::new(tx.doc.styles.clone()),
+                    new: Box::new(new),
+                })?;
+            }
+            let paths = tx.paths();
+            let path = path_of(tx.doc, &paths, at.para)?;
+            let (prefix, index) = split_path(&path);
+            let mut cap = cap;
+            tx.new_mark(&mut cap.props);
+            cap.runs = para::rebuild(tx.mark_new(&[], 0, para::flatten(&cap)));
+            let len = para_len(&cap);
+            tx.insert_blocks(prefix, index + 1, vec![Block::Paragraph(cap)])?;
+            Ok(Selection::caret(Pos::new(at.para + 1, len)))
+        })
+    }
+
+    /// Insert a simple field (§17.16.19 fldSimple) with its current result at the caret.
+    pub fn insert_field(&mut self, instr: &str, cached: &str) -> Result<Selection> {
+        let field = RunContent::Field {
+            instr: instr.trim().to_owned(),
+            cached: cached.to_owned(),
+        };
+        self.edit(|tx, sel| {
+            let (a, b) = sel.ordered();
+            let at = tx.delete_range(a, b)?;
+            let (_, _, atoms) = tx.atoms(at.para)?;
+            let props = para::props_at(&atoms, at.offset);
+            Ok(Selection::caret(tx.insert_atoms(at, vec![(props, field)])?))
+        })
+    }
+
+    /// Bookmarks and captions that can be cross-referenced.
+    pub fn ref_targets(&self) -> Vec<RefTarget> {
+        fields::ref_targets(&self.doc)
+    }
+
+    /// Insert a cross-reference to `target` (a bookmark name or `caption:<id>` from
+    /// [`Session::ref_targets`]): its text (`REF`) or page number (`PAGEREF`).
+    pub fn insert_cross_reference(
+        &mut self,
+        target: &str,
+        page: bool,
+        pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
+    ) -> Result<Selection> {
+        let target = target.to_owned();
+        self.edit(|tx, sel| {
+            let name = if let Some(pid) = target.strip_prefix("caption:") {
+                let pid: usize = pid.parse().map_err(|_| EditError::BadPosition)?;
+                let paths = tx.paths();
+                let path = path_of(tx.doc, &paths, pid)?;
+                let p = para_clone(tx.doc, &path)?;
+                let (atoms, name) = fields::bookmark_caption(tx.doc, &p, pid);
+                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+                name
+            } else {
+                target.clone()
+            };
+            let (a, b) = sel.ordered();
+            let at = tx.delete_range(a, b)?;
+            let (_, _, atoms) = tx.atoms(at.para)?;
+            let props = para::props_at(&atoms, at.offset);
+            let instr = if page {
+                format!("PAGEREF {name} \\h")
+            } else {
+                format!("REF {name} \\h")
+            };
+            let caret = tx.insert_atoms(
+                at,
+                vec![(
+                    props,
+                    RunContent::Field {
+                        instr,
+                        cached: String::new(),
+                    },
+                )],
+            )?;
+            tx.update_fields(pages_of)?;
+            Ok(Selection::caret(caret))
+        })
+    }
+
+    fn fix_selection(&mut self) {
+        let s = Selection {
+            anchor: self.clamp(self.selection.anchor),
+            focus: self.clamp(self.selection.focus),
+        };
+        self.selection = s;
+        if let Some(t) = self.undo.last_mut() {
+            t.after = s;
+        }
+    }
+
+    // -------------------------------------------------------------- comments
+
+    /// Comments with their anchors (comments pane).
+    pub fn comments(&self) -> Vec<CommentInfo> {
+        comments::list(&self.doc)
+    }
+
+    /// Comment on the selection (the word at the caret when collapsed); returns its id.
+    pub fn add_comment(&mut self, text: &str) -> Result<i32> {
+        let sel = if self.selection.is_collapsed() {
+            self.word_at(self.selection.focus)
+        } else {
+            self.selection
+        };
+        let (a, b) = sel.ordered();
+        let id = comments::next_id(&self.doc);
+        let c = comments::make(
+            &self.doc,
+            id,
+            &self.author,
+            self.clock.as_deref(),
+            text,
+            None,
+        );
+        self.edit(|tx, sel| {
+            let mut list = tx.doc.comments.clone();
+            list.push(c);
+            tx.push(Op::Comments {
+                old: tx.doc.comments.clone(),
+                new: list,
+            })?;
+            tx.insert_marks(
+                b,
+                vec![RunContent::CommentEnd(id), RunContent::CommentRef(id)],
+            )?;
+            tx.insert_marks(a, vec![RunContent::CommentStart(id)])?;
+            Ok(sel)
+        })?;
+        Ok(id)
+    }
+
+    /// Reply to a comment (anchored next to it); returns the reply's id.
+    pub fn reply_comment(&mut self, parent: i32, text: &str) -> Result<i32> {
+        let Some(pi) = self.doc.comments.iter().position(|c| c.id == parent) else {
+            return Err(EditError::Unsupported(format!("no comment {parent}")));
+        };
+        let anchors = comments::anchors(&self.doc);
+        let [start, end, reference] = anchors.get(&parent).copied().unwrap_or_default();
+        let id = comments::next_id(&self.doc);
+        let mut list = self.doc.comments.clone();
+        if list[pi].para_id.is_none() {
+            list[pi].para_id = Some(comments::new_para_id(&self.doc, &(parent, "parent")));
+        }
+        let reply = comments::make(
+            &self.doc,
+            id,
+            &self.author,
+            self.clock.as_deref(),
+            text,
+            Some(&list[pi]),
+        );
+        // Replies follow the thread they belong to.
+        let thread = comments::thread_ids(&self.doc, parent);
+        let at = list
+            .iter()
+            .rposition(|c| thread.contains(&c.id))
+            .map_or(list.len(), |i| i + 1);
+        list.insert(at, reply);
+        self.edit(|tx, sel| {
+            tx.push(Op::Comments {
+                old: tx.doc.comments.clone(),
+                new: list,
+            })?;
+            if let Some(e) = end.or(reference) {
+                tx.insert_marks(
+                    e,
+                    vec![RunContent::CommentEnd(id), RunContent::CommentRef(id)],
+                )?;
+            }
+            if let Some(s) = start.or(reference) {
+                tx.insert_marks(s, vec![RunContent::CommentStart(id)])?;
+            }
+            Ok(sel)
+        })?;
+        Ok(id)
+    }
+
+    /// Mark a comment thread resolved (`done`) or open again ([MS-DOCX] `w15:done`).
+    pub fn resolve_comment(&mut self, id: i32, done: bool) -> Result<()> {
+        let mut list = self.doc.comments.clone();
+        let Some(c) = list.iter_mut().find(|c| c.id == id) else {
+            return Err(EditError::Unsupported(format!("no comment {id}")));
+        };
+        if c.done == done {
+            return Ok(());
+        }
+        c.done = done;
+        if c.para_id.is_none() {
+            c.para_id = Some(comments::new_para_id(&self.doc, &(id, "done")));
+        }
+        self.edit(|tx, sel| {
+            tx.push(Op::Comments {
+                old: tx.doc.comments.clone(),
+                new: list,
+            })?;
+            Ok(sel)
+        })?;
+        Ok(())
+    }
+
+    /// Delete a comment with its replies and their marks in the text.
+    pub fn delete_comment(&mut self, id: i32) -> Result<()> {
+        if !self.doc.comments.iter().any(|c| c.id == id) {
+            return Err(EditError::Unsupported(format!("no comment {id}")));
+        }
+        let ids = comments::thread_ids(&self.doc, id);
+        let list: Vec<bo_model::Comment> = self
+            .doc
+            .comments
+            .iter()
+            .filter(|c| !ids.contains(&c.id))
+            .cloned()
+            .collect();
+        self.edit(|tx, sel| {
+            tx.push(Op::Comments {
+                old: tx.doc.comments.clone(),
+                new: list,
+            })?;
+            let paths = tx.paths();
+            for path in paths {
+                let p = para_clone(tx.doc, &path)?;
+                let all = para::flatten(&p);
+                let n = all.len();
+                let atoms: Vec<Atom> = all
+                    .into_iter()
+                    .filter(|(_, c)| {
+                        !matches!(c, RunContent::CommentStart(i) | RunContent::CommentEnd(i)
+                            | RunContent::CommentRef(i) if ids.contains(i))
+                    })
+                    .collect();
+                if atoms.len() != n {
+                    tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+                }
+            }
+            Ok(sel)
+        })?;
+        Ok(())
+    }
+
+    /// Select the text a comment is anchored to.
+    pub fn select_comment(&mut self, id: i32) -> bool {
+        let Some(c) = self.comments().into_iter().find(|c| c.id == id) else {
+            return false;
+        };
+        match (c.start, c.end) {
+            (Some(s), Some(e)) => {
+                let (s, e) = (self.clamp(s), self.clamp(e));
+                self.set_selection(Selection {
+                    anchor: s,
+                    focus: e,
+                });
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Select the next (`forward`) or previous top-level comment; returns its id.
+    pub fn next_comment(&mut self, forward: bool) -> Option<i32> {
+        let (a, _) = self.selection.ordered();
+        let list: Vec<CommentInfo> = self
+            .comments()
+            .into_iter()
+            .filter(|c| c.parent.is_none() && c.start.is_some())
+            .collect();
+        let c = if forward {
+            list.iter()
+                .filter(|c| c.start > Some(a))
+                .min_by_key(|c| c.start)
+        } else {
+            list.iter()
+                .filter(|c| c.start < Some(a))
+                .max_by_key(|c| c.start)
+        }?;
+        let id = c.id;
+        self.select_comment(id);
+        Some(id)
+    }
+
+    /// Select the next (or previous) revision relative to the selection; returns it.
+    pub fn select_revision(&mut self, forward: bool) -> Option<RevisionItem> {
+        let (a, _) = self.selection.ordered();
+        let all = self.revisions();
+        let r = if forward {
+            all.into_iter().find(|r| r.start > a)
+        } else {
+            all.into_iter().rev().find(|r| r.start < a)
+        }?;
+        let start = self.clamp(r.start);
+        let end = self.clamp(r.end);
+        self.set_selection(Selection {
+            anchor: start,
+            focus: end,
+        });
+        Some(r)
     }
 
     pub fn doc(&self) -> &Document {
@@ -494,9 +1130,15 @@ impl Session {
         f: impl FnOnce(&mut Tx<'_>, Selection) -> Result<Selection>,
     ) -> Result<Selection> {
         let before = self.selection;
+        let track = self.track.then(|| Tracker {
+            author: self.author.clone(),
+            date: self.clock.clone(),
+            next_id: revisions::max_id(&self.doc),
+        });
         let mut tx = Tx {
             doc: &mut self.doc,
             ops: Vec::new(),
+            track,
         };
         match f(&mut tx, before) {
             Ok(after) => {
@@ -597,13 +1239,13 @@ impl Session {
         self.edit(|tx, sel| {
             let (a, b) = sel.ordered();
             if a != b {
-                return Ok(Selection::caret(tx.delete_range(a, b)?));
+                return Ok(Selection::caret(tx.delete_span(a, b)?.0));
             }
             if a.offset > 0 {
                 let (_, p, _) = tx.atoms(a.para)?;
                 let text = bo_model::index::para_index_text(&p);
                 let s = prev_boundary(&text, a.offset);
-                return Ok(Selection::caret(tx.delete_range(Pos::new(a.para, s), a)?));
+                return Ok(Selection::caret(tx.delete_span(Pos::new(a.para, s), a)?.0));
             }
             let (path, p, atoms) = tx.atoms(a.para)?;
             // Backspace at the start of a list item removes the numbering first.
@@ -621,6 +1263,18 @@ impl Session {
             let Some(Block::Paragraph(prev)) = blocks.get(index - 1).cloned() else {
                 return Ok(sel);
             };
+            if tx.track.is_some() {
+                // §17.13.5.15: the previous paragraph mark is marked deleted.
+                let caret = Pos::new(a.para - 1, para_len(&prev));
+                if prev.props.mark_del.is_none() {
+                    let mut path_prev = prefix;
+                    path_prev.push(index - 1);
+                    let mut q = prev.clone();
+                    q.props.mark_del = tx.track.as_mut().map(Tracker::mark);
+                    tx.replace_para(&path_prev, q)?;
+                }
+                return Ok(Selection::caret(caret));
+            }
             let mut merged = para::flatten(&prev);
             let caret = para::len(&merged);
             merged.extend(atoms);
@@ -639,20 +1293,29 @@ impl Session {
         self.edit(|tx, sel| {
             let (a, b) = sel.ordered();
             if a != b {
-                return Ok(Selection::caret(tx.delete_range(a, b)?));
+                return Ok(Selection::caret(tx.delete_span(a, b)?.1));
             }
             let (path, p, atoms) = tx.atoms(a.para)?;
             let len = para::len(&atoms);
             if a.offset < len {
                 let text = bo_model::index::para_index_text(&p);
                 let e = next_boundary(&text, a.offset);
-                return Ok(Selection::caret(tx.delete_range(a, Pos::new(a.para, e))?));
+                return Ok(Selection::caret(tx.delete_span(a, Pos::new(a.para, e))?.1));
             }
             let (prefix, index) = split_path(&path);
             let blocks = blocks_at(tx.doc, &prefix).ok_or(EditError::BadPath)?;
             let Some(Block::Paragraph(next)) = blocks.get(index + 1).cloned() else {
                 return Ok(sel);
             };
+            if tx.track.is_some() {
+                // §17.13.5.15: this paragraph's mark is marked deleted.
+                if p.props.mark_del.is_none() {
+                    let mut q = p.clone();
+                    q.props.mark_del = tx.track.as_mut().map(Tracker::mark);
+                    tx.replace_para(&path, q)?;
+                }
+                return Ok(Selection::caret(Pos::new(a.para + 1, 0)));
+            }
             let mut merged = atoms;
             merged.extend(para::flatten(&next));
             tx.push(Op::Blocks {
@@ -811,7 +1474,26 @@ impl Session {
                     continue;
                 }
                 let (path, p, mut atoms) = tx.atoms(id)?;
-                para::format(&mut atoms, s, e, &*change);
+                if let Some(tr) = tx.track.as_mut() {
+                    // §17.13.5.31 rPrChange keeps the properties before the change.
+                    let i = para::split_at(&mut atoms, s);
+                    let j = para::split_at(&mut atoms, e);
+                    let mut info = None;
+                    for at in &mut atoms[i..j] {
+                        let before = at.0.clone();
+                        change(&mut at.0);
+                        if at.0 == before || tr.owns(&before) || before.change.is_some() {
+                            continue;
+                        }
+                        let info = info.get_or_insert_with(|| tr.mark().info).clone();
+                        at.0.change = Some(Box::new(bo_model::RunPropsChange {
+                            info,
+                            old: before.without_revisions(),
+                        }));
+                    }
+                } else {
+                    para::format(&mut atoms, s, e, &*change);
+                }
                 tx.replace_para(&path, para::with_atoms(&p, atoms))?;
             }
             Ok(sel)
@@ -922,8 +1604,26 @@ impl Session {
                         let unknown = std::mem::take(&mut pr.unknown);
                         *pr = ParaProps {
                             unknown,
+                            mark_ins: pr.mark_ins.take(),
+                            mark_del: pr.mark_del.take(),
+                            change: pr.change.take(),
                             ..ParaProps::default()
                         };
+                    }
+                }
+                if q.props != p.props && p.props.change.is_none() {
+                    // §17.13.5.29 pPrChange keeps the properties before the change.
+                    if let Some(info) = tx.track.as_mut().map(|t| t.mark().info) {
+                        q.props.change = Some(Box::new(bo_model::ParaPropsChange {
+                            info,
+                            old: ParaProps {
+                                mark_ins: None,
+                                mark_del: None,
+                                change: None,
+                                unknown: Vec::new(),
+                                ..p.props.clone()
+                            },
+                        }));
                     }
                 }
                 tx.replace_para(&path, q)?;
@@ -1228,12 +1928,21 @@ impl Session {
                     None => with.to_owned(),
                 };
                 let props = para::props_at(&atoms, (m.start + 1).min(m.end.max(m.start)));
-                para::delete(&mut atoms, m.start, m.end);
-                para::insert(&mut atoms, m.start, para::text_atoms(&replacement, &props));
+                let at = if let Some(tr) = tx.track.as_mut() {
+                    let mark = tr.mark();
+                    let removed = revisions::mark_deleted(&mut atoms, m.start, m.end, tr, &mark);
+                    m.end - removed
+                } else {
+                    para::delete(&mut atoms, m.start, m.end);
+                    m.start
+                };
+                let new = tx.mark_new(&atoms, at, para::text_atoms(&replacement, &props));
+                para::insert(&mut atoms, at, new);
                 tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+                let start = if tx.track.is_some() { at } else { m.start };
                 last = Selection {
-                    anchor: Pos::new(m.para, m.start),
-                    focus: Pos::new(m.para, m.start + replacement.len()),
+                    anchor: Pos::new(m.para, start),
+                    focus: Pos::new(m.para, start + replacement.len()),
                 };
             }
             Ok(last)
@@ -1252,7 +1961,15 @@ impl Session {
             };
             let atoms: Vec<Atom> = para::slice(&para::flatten(p), s, e)
                 .into_iter()
-                .filter(|a| !matches!(a.1, RunContent::Markup(_)))
+                .filter(|a| {
+                    !matches!(
+                        a.1,
+                        RunContent::Markup(_)
+                            | RunContent::CommentStart(_)
+                            | RunContent::CommentEnd(_)
+                            | RunContent::CommentRef(_)
+                    )
+                })
                 .collect();
             out.push(Block::Paragraph(Paragraph {
                 props: ParaProps {
@@ -1370,8 +2087,11 @@ impl Session {
             let n = paras.len();
             let mut out = Vec::with_capacity(n);
             let mut first = atoms;
-            first.extend(para::flatten(&paras[0]));
-            out.push(Block::Paragraph(para::with_atoms(&p, first)));
+            let pasted = tx.mark_new(&first, at.offset, para::flatten(&paras[0]));
+            first.extend(pasted);
+            let mut first = para::with_atoms(&p, first);
+            tx.new_mark(&mut first.props);
+            out.push(Block::Paragraph(first));
             for q in &paras[1..n - 1] {
                 let mut q = q.clone();
                 if keep_para_props {
@@ -1380,10 +2100,12 @@ impl Session {
                         ..p.props.clone()
                     };
                 }
+                q.runs = para::rebuild(tx.mark_new(&[], 0, para::flatten(&q)));
+                tx.new_mark(&mut q.props);
                 out.push(Block::Paragraph(q));
             }
             let last_src = &paras[n - 1];
-            let mut last = para::flatten(last_src);
+            let mut last = tx.mark_new(&[], 0, para::flatten(last_src));
             let caret = para::len(&last);
             last.extend(right);
             let last_props = if keep_para_props {

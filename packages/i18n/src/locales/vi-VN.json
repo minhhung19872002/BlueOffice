@@ -18,7 +18,10 @@
       "home": "Trang đầu",
       "insert": "Chèn",
       "layout": "Bố cục",
-      "view": "Xem"
+      "view": "Xem",
+      "references": "Tham chiếu",
+      "mailings": "Gửi thư",
+      "review": "Xem lại"
     },
     "groups": {
       "document": "Tài liệu",
@@ -33,7 +36,17 @@
       "appearance": "Giao diện",
       "editing": "Chỉnh sửa",
       "styles": "Kiểu",
-      "history": "Lịch sử"
+      "history": "Lịch sử",
+      "tracking": "Theo dõi",
+      "changes": "Thay đổi",
+      "comments": "Chú thích",
+      "protect": "Bảo vệ",
+      "toc": "Mục lục",
+      "captions": "Tiêu đề hình/bảng",
+      "fields": "Trường",
+      "mergeData": "Nguồn dữ liệu",
+      "mergePreview": "Xem trước",
+      "mergeFinish": "Hoàn tất"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -101,6 +114,42 @@
       "fitWidth": "Vừa chiều rộng",
       "toggleTheme": "Sáng / Tối",
       "toggleLanguage": "English"
+    },
+    "review": {
+      "trackChanges": "Theo dõi thay đổi",
+      "accept": "Chấp nhận",
+      "reject": "Từ chối",
+      "acceptAll": "Chấp nhận tất cả",
+      "rejectAll": "Từ chối tất cả",
+      "next": "Thay đổi tiếp",
+      "previous": "Thay đổi trước",
+      "viewMarkup": "Mọi đánh dấu",
+      "viewFinal": "Không đánh dấu",
+      "viewOriginal": "Bản gốc",
+      "pane": "Ngăn xem lại",
+      "newComment": "Chú thích mới",
+      "deleteComment": "Xoá chú thích",
+      "resolveComment": "Đánh dấu đã xử lý",
+      "nextComment": "Chú thích tiếp",
+      "previousComment": "Chú thích trước",
+      "comments": "Hiện chú thích",
+      "savePassword": "Lưu kèm mật khẩu"
+    },
+    "references": {
+      "insertToc": "Mục lục",
+      "updateToc": "Cập nhật mục lục",
+      "insertCaption": "Chèn tiêu đề hình/bảng",
+      "crossReference": "Tham chiếu chéo",
+      "updateFields": "Cập nhật trường"
+    },
+    "mailings": {
+      "selectRecipients": "Chọn nguồn dữ liệu",
+      "insertField": "Chèn trường trộn",
+      "preview": "Xem trước kết quả",
+      "nextRecord": "Bản ghi tiếp",
+      "previousRecord": "Bản ghi trước",
+      "mergeDocument": "Trộn thành tài liệu",
+      "mergePdf": "Trộn thành PDF"
     }
   },
   "status": {
@@ -633,5 +682,77 @@
     "textEditor": "Sửa văn bản của hình",
     "refused": "Không thực hiện được ({{code}})",
     "unsaved": "Bản trình chiếu có thay đổi chưa lưu"
+  },
+  "review": {
+    "title": "Xem lại",
+    "view": "Hiển thị",
+    "count": "{{count}} thay đổi",
+    "kind": {
+      "insert": "Chèn",
+      "delete": "Xoá",
+      "moveTo": "Chuyển đến",
+      "moveFrom": "Chuyển đi",
+      "format": "Định dạng",
+      "paragraphFormat": "Định dạng đoạn",
+      "paragraphInsert": "Thêm đoạn",
+      "paragraphDelete": "Nối đoạn"
+    }
+  },
+  "comments": {
+    "title": "Chú thích",
+    "placeholder": "Nhập chú thích…",
+    "add": "Thêm",
+    "reply": "Trả lời",
+    "replyPlaceholder": "Trả lời…",
+    "resolve": "Đã xử lý",
+    "reopen": "Mở lại",
+    "delete": "Xoá",
+    "resolved": "Đã xử lý",
+    "none": "Chưa có chú thích",
+    "count": "{{count}} chú thích",
+    "cancel": "Huỷ"
+  },
+  "references": {
+    "captionTitle": "Chèn tiêu đề hình/bảng",
+    "label": "Nhãn",
+    "figure": "Hình",
+    "table": "Bảng",
+    "equation": "Công thức",
+    "captionText": "Nội dung",
+    "insert": "Chèn",
+    "cancel": "Huỷ",
+    "crossRefTitle": "Tham chiếu chéo",
+    "target": "Tham chiếu tới",
+    "refText": "Nội dung",
+    "refPage": "Số trang",
+    "noTargets": "Chưa có dấu trang hoặc tiêu đề hình/bảng để tham chiếu",
+    "fieldsUpdated": "Đã cập nhật {{count}} trường"
+  },
+  "merge": {
+    "title": "Trộn thư",
+    "source": "{{name}}: {{count}} bản ghi",
+    "record": "Bản ghi {{n}}/{{total}}",
+    "noData": "Hãy chọn nguồn dữ liệu CSV hoặc XLSX trước",
+    "field": "Trường",
+    "insert": "Chèn",
+    "close": "Đóng",
+    "off": "Hiện tên trường",
+    "done": "Đã trộn {{count}} bản ghi vào {{name}}"
+  },
+  "security": {
+    "macroWarning": "Tài liệu chứa macro — macro sẽ được giữ nguyên nhưng không chạy",
+    "dismiss": "Đóng",
+    "passwordTitle": "Cần mật khẩu",
+    "passwordPrompt": "“{{name}}” được bảo vệ bằng mật khẩu. Nhập mật khẩu để mở.",
+    "password": "Mật khẩu",
+    "open": "Mở",
+    "cancel": "Huỷ",
+    "wrongPassword": "Sai mật khẩu, hãy thử lại.",
+    "savePasswordTitle": "Lưu kèm mật khẩu",
+    "savePasswordHint": "Để trống để lưu không có mật khẩu.",
+    "confirm": "Nhập lại mật khẩu",
+    "mismatch": "Mật khẩu không khớp",
+    "set": "Đặt",
+    "protected": "Có mật khẩu"
   }
 }

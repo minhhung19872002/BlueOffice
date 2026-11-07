@@ -7,7 +7,7 @@
 
 use crate::EditError;
 use bo_model::index::blocks_at_mut;
-use bo_model::{Block, Document, Numbering, Section, StyleSheet};
+use bo_model::{Block, Comment, Document, Numbering, Section, StyleSheet};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -42,6 +42,11 @@ pub enum Op {
     Styles {
         old: Box<StyleSheet>,
         new: Box<StyleSheet>,
+    },
+    /// Replace the comments (§17.13.4).
+    Comments {
+        old: Vec<Comment>,
+        new: Vec<Comment>,
     },
 }
 
@@ -80,6 +85,10 @@ impl Op {
                 new: old.clone(),
             },
             Op::Styles { old, new } => Op::Styles {
+                old: new.clone(),
+                new: old.clone(),
+            },
+            Op::Comments { old, new } => Op::Comments {
                 old: new.clone(),
                 new: old.clone(),
             },
@@ -133,6 +142,12 @@ impl Op {
                     return Err(EditError::Conflict);
                 }
                 doc.styles = (**new).clone();
+            }
+            Op::Comments { old, new } => {
+                if doc.comments != *old {
+                    return Err(EditError::Conflict);
+                }
+                doc.comments.clone_from(new);
             }
         }
         Ok(())

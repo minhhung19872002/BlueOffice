@@ -18,7 +18,10 @@
       "home": "Home",
       "insert": "Insert",
       "layout": "Layout",
-      "view": "View"
+      "view": "View",
+      "references": "References",
+      "mailings": "Mailings",
+      "review": "Review"
     },
     "groups": {
       "document": "Document",
@@ -33,7 +36,17 @@
       "appearance": "Appearance",
       "editing": "Editing",
       "styles": "Styles",
-      "history": "History"
+      "history": "History",
+      "tracking": "Tracking",
+      "changes": "Changes",
+      "comments": "Comments",
+      "protect": "Protect",
+      "toc": "Table of contents",
+      "captions": "Captions",
+      "fields": "Fields",
+      "mergeData": "Recipients",
+      "mergePreview": "Preview",
+      "mergeFinish": "Finish"
     },
     "comingLater": "Coming in a later release"
   },
@@ -101,6 +114,42 @@
       "fitWidth": "Fit width",
       "toggleTheme": "Light / Dark",
       "toggleLanguage": "Tiếng Việt"
+    },
+    "review": {
+      "trackChanges": "Track changes",
+      "accept": "Accept",
+      "reject": "Reject",
+      "acceptAll": "Accept all",
+      "rejectAll": "Reject all",
+      "next": "Next change",
+      "previous": "Previous change",
+      "viewMarkup": "All markup",
+      "viewFinal": "No markup",
+      "viewOriginal": "Original",
+      "pane": "Review pane",
+      "newComment": "New comment",
+      "deleteComment": "Delete comment",
+      "resolveComment": "Resolve comment",
+      "nextComment": "Next comment",
+      "previousComment": "Previous comment",
+      "comments": "Show comments",
+      "savePassword": "Save with password"
+    },
+    "references": {
+      "insertToc": "Table of contents",
+      "updateToc": "Update table",
+      "insertCaption": "Insert caption",
+      "crossReference": "Cross-reference",
+      "updateFields": "Update fields"
+    },
+    "mailings": {
+      "selectRecipients": "Select recipients",
+      "insertField": "Insert merge field",
+      "preview": "Preview results",
+      "nextRecord": "Next record",
+      "previousRecord": "Previous record",
+      "mergeDocument": "Merge to document",
+      "mergePdf": "Merge to PDF"
     }
   },
   "status": {
@@ -633,5 +682,77 @@
     "textEditor": "Edit shape text",
     "refused": "Cannot do that ({{code}})",
     "unsaved": "The presentation has unsaved changes"
+  },
+  "review": {
+    "title": "Review",
+    "view": "Show",
+    "count": "{{count}} changes",
+    "kind": {
+      "insert": "Inserted",
+      "delete": "Deleted",
+      "moveTo": "Moved here",
+      "moveFrom": "Moved away",
+      "format": "Formatted",
+      "paragraphFormat": "Paragraph formatted",
+      "paragraphInsert": "Paragraph inserted",
+      "paragraphDelete": "Paragraphs joined"
+    }
+  },
+  "comments": {
+    "title": "Comments",
+    "placeholder": "Write a comment…",
+    "add": "Add",
+    "reply": "Reply",
+    "replyPlaceholder": "Reply…",
+    "resolve": "Resolve",
+    "reopen": "Reopen",
+    "delete": "Delete",
+    "resolved": "Resolved",
+    "none": "No comments",
+    "count": "{{count}} comments",
+    "cancel": "Cancel"
+  },
+  "references": {
+    "captionTitle": "Insert caption",
+    "label": "Label",
+    "figure": "Figure",
+    "table": "Table",
+    "equation": "Equation",
+    "captionText": "Caption text",
+    "insert": "Insert",
+    "cancel": "Cancel",
+    "crossRefTitle": "Cross-reference",
+    "target": "Refer to",
+    "refText": "Text",
+    "refPage": "Page number",
+    "noTargets": "No bookmarks or captions to refer to",
+    "fieldsUpdated": "Updated {{count}} fields"
+  },
+  "merge": {
+    "title": "Mail merge",
+    "source": "{{name}}: {{count}} records",
+    "record": "Record {{n}} of {{total}}",
+    "noData": "Select a CSV or XLSX data source first",
+    "field": "Field",
+    "insert": "Insert",
+    "close": "Close",
+    "off": "Show fields",
+    "done": "Merged {{count}} records into {{name}}"
+  },
+  "security": {
+    "macroWarning": "This document contains macros — they are kept but never run.",
+    "dismiss": "Close",
+    "passwordTitle": "Password required",
+    "passwordPrompt": "“{{name}}” is password protected. Enter the password to open it.",
+    "password": "Password",
+    "open": "Open",
+    "cancel": "Cancel",
+    "wrongPassword": "Wrong password, try again.",
+    "savePasswordTitle": "Save with password",
+    "savePasswordHint": "Leave empty to save without a password.",
+    "confirm": "Confirm password",
+    "mismatch": "Passwords do not match",
+    "set": "Set",
+    "protected": "Password protected"
   }
 }

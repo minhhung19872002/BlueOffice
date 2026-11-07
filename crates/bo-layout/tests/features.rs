@@ -466,3 +466,58 @@ fn body_ids_follow_document_order() {
         assert_eq!(line.fragments[0].text, text);
     }
 }
+
+#[test]
+fn tracked_changes_markup_final_and_original_views() {
+    use bo_layout::{layout_document_with, LayoutOptions, RevisionView};
+    use bo_model::{RevMark, RevisionInfo, Underline};
+    let mark = |id, author: &str| RevMark {
+        info: RevisionInfo {
+            id,
+            author: author.into(),
+            date: None,
+        },
+        moved: false,
+    };
+    let d = doc(vec![Section::new(vec![Block::Paragraph(Paragraph::new(
+        ParaProps::default(),
+        vec![
+            Run::text("Giữ ", RunProps::default()),
+            Run::text(
+                "chèn",
+                RunProps {
+                    ins: Some(mark(1, "An")),
+                    ..Default::default()
+                },
+            ),
+            Run::text(
+                "xoá",
+                RunProps {
+                    del: Some(mark(2, "Bình")),
+                    ..Default::default()
+                },
+            ),
+        ],
+    ))])]);
+    let view = |v| {
+        layout_document_with(
+            &d,
+            &mut fonts(),
+            &mut LayoutCache::new(),
+            LayoutOptions { view: v },
+        )
+        .unwrap()
+    };
+    // ECMA-376 Part 1, §17.13.5: markup shows both sides, coloured per author.
+    let m = view(RevisionView::Markup);
+    assert_eq!(m.page_text(0), "Giữ chènxoá");
+    let frags = &m.pages[0].lines[0].fragments;
+    let ins = frags.iter().find(|f| f.text.contains("chèn")).unwrap();
+    let del = frags.iter().find(|f| f.text.contains("xoá")).unwrap();
+    assert_eq!(ins.underline, Underline::Single);
+    assert!(del.strike);
+    assert_eq!(ins.color, bo_layout::author_color("An"));
+    assert_eq!(del.color, bo_layout::author_color("Bình"));
+    assert_eq!(view(RevisionView::Final).page_text(0), "Giữ chèn");
+    assert_eq!(view(RevisionView::Original).page_text(0), "Giữ xoá");
+}

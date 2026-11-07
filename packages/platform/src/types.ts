@@ -23,7 +23,15 @@ export interface DocInfo {
   wordCount: number;
   /** `slide` for presentations (pages are slides), `doc` otherwise. */
   kind?: 'doc' | 'slide';
+  /** The file has macros: they are kept when saving but never run. */
+  macros?: boolean;
+  /** Saved with a password ([MS-OFFCRYPTO]). */
+  protected?: boolean;
 }
+
+/** Error messages of `EngineHost.open` for protected files. */
+export const PASSWORD_REQUIRED = 'password required';
+export const WRONG_PASSWORD = 'wrong password';
 
 export type Rgba = [number, number, number, number];
 /** `[glyphId, x, y, cluster]` relative to the run origin. */
@@ -205,6 +213,69 @@ export type Motion =
   | 'docStart'
   | 'docEnd';
 
+/** How tracked changes are displayed (mirrors `bo_layout::RevisionView`). */
+export type RevisionView = 'markup' | 'final' | 'original';
+
+export type RevisionKind =
+  | 'insert'
+  | 'delete'
+  | 'moveTo'
+  | 'moveFrom'
+  | 'format'
+  | 'paragraphFormat'
+  | 'paragraphInsert'
+  | 'paragraphDelete';
+
+/** A tracked change of the main text (mirrors `bo_edit::RevisionItem`). */
+export interface RevisionItem {
+  id: number;
+  kind: RevisionKind;
+  author: string;
+  date: string | null;
+  start: Pos;
+  end: Pos;
+  text: string;
+}
+
+/** A comment (mirrors `bo_edit::CommentInfo`); threads are rebuilt from `parent`. */
+export interface CommentInfo {
+  id: number;
+  author: string;
+  initials: string | null;
+  date: string | null;
+  text: string;
+  done: boolean;
+  parent: number | null;
+  start: Pos | null;
+  end: Pos | null;
+  quote: string;
+}
+
+/** A cross-reference target (mirrors `bo_edit::RefTarget`). */
+export interface RefTarget {
+  /** Bookmark name or `caption:<paragraph id>`. */
+  id: string;
+  label: string;
+}
+
+/** Mail-merge state (mirrors `bo_engine::merge::MergeState`). */
+export interface MergeState {
+  name: string;
+  fields: string[];
+  count: number;
+  /** Previewed record (0-based) or null when field names are shown. */
+  preview: number | null;
+}
+
+/** Review pane state (mirrors `bo_engine::review::ReviewState`). */
+export interface ReviewState {
+  trackChanges: boolean;
+  author: string;
+  view: RevisionView;
+  revisions: RevisionItem[];
+  comments: CommentInfo[];
+}
+
 /** Editing command sent to the engine (JSON bridge, ADR-0008). */
 export type EditCommand =
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
@@ -223,7 +294,29 @@ export type EditCommand =
   | { cmd: 'selectMatch'; match: FindMatch }
   | { cmd: 'replace'; match: FindMatch; with: string }
   | { cmd: 'replaceAll'; query: string; options?: FindOptions; with: string }
-  | { cmd: 'paste'; internal?: string; html?: string; text?: string };
+  | { cmd: 'paste'; internal?: string; html?: string; text?: string }
+  | { cmd: 'review' | 'acceptAllRevisions' | 'rejectAllRevisions' }
+  | { cmd: 'setTrackChanges'; on: boolean }
+  | { cmd: 'setAuthor'; name: string }
+  | { cmd: 'setRevisionView'; view: RevisionView }
+  | { cmd: 'acceptRevision' | 'rejectRevision'; id?: number }
+  | { cmd: 'nextRevision'; forward: boolean }
+  | { cmd: 'addComment'; text: string }
+  | { cmd: 'replyComment'; id: number; text: string }
+  | { cmd: 'resolveComment'; id: number; done: boolean }
+  | { cmd: 'deleteComment' | 'selectComment'; id: number }
+  | { cmd: 'nextComment'; forward: boolean }
+  | { cmd: 'updateFields' | 'insertToc' | 'crossReferenceTargets' }
+  | { cmd: 'insertCaption'; label: string; text: string }
+  | { cmd: 'insertCrossReference'; target: string; page: boolean }
+  | { cmd: 'mergeData'; name: string; base64: string }
+  | { cmd: 'mergeInsertField'; name: string }
+  | { cmd: 'mergePreview'; record: number | null }
+  | { cmd: 'mergeToDocument' }
+  | { cmd: 'setSavePassword'; password?: string };
+
+/** A command plus the host clock (Unix ms) used to date new revisions and comments. */
+export type TimedCommand = EditCommand & { now?: number };
 
 export interface ClipPayload {
   text: string;
@@ -245,6 +338,12 @@ export interface EditResult {
   count?: number;
   clip?: ClipPayload;
   error?: string;
+  /** Present after document changes and review commands. */
+  review?: ReviewState;
+  /** Cross-reference targets (`crossReferenceTargets`). */
+  targets?: RefTarget[];
+  /** Mail-merge state (after merge commands and `state`). */
+  merge?: MergeState;
 }
 
 // ---------------------------------------------------------------- slide editing (mirrors bo_engine::slide_edit)
@@ -384,14 +483,18 @@ export interface EngineHost {
   readonly backend: 'wasm' | 'native';
   /** Load fonts and get ready. Idempotent. */
   init(): Promise<void>;
-  open(bytes: Uint8Array, name: string): Promise<DocInfo>;
+  /**
+   * Open a file (`.docx`/`.docm`, `.doc`, `.odt`, `.pptx`, text). Protected files need
+   * `password`: the promise rejects with {@link PASSWORD_REQUIRED} / {@link WRONG_PASSWORD}.
+   */
+  open(bytes: Uint8Array, name: string, password?: string): Promise<DocInfo>;
   getPage(index: number): Promise<PageDisplayList>;
   getGlyphOutlines(face: number, glyphs: number[]): Promise<GlyphOutline[]>;
   exportPdf(): Promise<Uint8Array>;
   /** Start a blank document. */
   newDocument(name: string): Promise<DocInfo>;
   /** Run an editing command. */
-  command(cmd: EditCommand): Promise<EditResult>;
+  command(cmd: TimedCommand): Promise<EditResult>;
   /** Insert a PNG/JPEG picture at the selection. */
   insertImage(bytes: Uint8Array, name: string): Promise<EditResult>;
   /** Bytes of a media part referenced by an `image` display command. */

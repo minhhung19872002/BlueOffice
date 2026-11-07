@@ -23,7 +23,7 @@ async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?:
   if (!engine) throw new Error('engine.notInitialized');
   switch (req.method) {
     case 'open':
-      return { result: JSON.parse(engine.open(req.bytes, req.name)) };
+      return { result: JSON.parse(engine.open(req.bytes, req.name, req.password)) };
     case 'page':
       return { result: JSON.parse(engine.pageJson(req.index)) };
     case 'glyphs':

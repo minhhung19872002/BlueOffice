@@ -9,6 +9,7 @@ import type {
   RecentFile,
   StoredDocument,
 } from '@blueoffice/platform';
+import { PASSWORD_REQUIRED, WRONG_PASSWORD } from '@blueoffice/platform';
 import {
   Ribbon,
   StatusBar,
@@ -25,9 +26,19 @@ import {
   AlignRight,
   Baseline,
   Bold,
+  Check,
+  CheckCheck,
+  ChevronLeft,
+  ChevronRight,
+  CircleX,
   ClipboardPaste,
+  CircleCheck,
   Copy,
+  Eye,
   FileDown,
+  FilePenLine,
+  FileSpreadsheet,
+  Files,
   FilePlus,
   FileText,
   FolderOpen,
@@ -36,18 +47,27 @@ import {
   Highlighter,
   Image,
   Italic,
+  KeyRound,
   Languages,
+  Link2,
   List,
   ListIndentDecrease,
   ListIndentIncrease,
   ListOrdered,
+  ListTree,
+  Lock,
+  Mails,
   Maximize2,
+  MessageSquarePlus,
+  MessagesSquare,
   MoonStar,
   Omega,
+  PanelRight,
   Pilcrow,
   Printer,
   Redo2,
   RectangleHorizontal,
+  RefreshCw,
   RemoveFormatting,
   Replace,
   Ruler,
@@ -63,6 +83,7 @@ import {
   Subscript,
   Superscript,
   Table,
+  Tag,
   Type,
   Underline,
   Undo2,
@@ -76,6 +97,9 @@ import { CommandRegistry } from './commands';
 import { DocController } from './controller';
 import styles from './Editor.module.css';
 import { FindPanel, SymbolPanel } from './Panels';
+import { CaptionPanel, CrossRefPanel, MergeFieldPanel } from './ReferencePanels';
+import { CommentsPanel, ReviewPanel } from './ReviewPanel';
+import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
 import { createEditorStore, type EditorState } from './store';
 
 /** Options controlled by the embedding host (prompt §3.5). */
@@ -155,9 +179,18 @@ function EditorInner({
   /** Show a freshly loaded document and fetch its editing state. */
   const loaded = useCallback(
     async (info: Awaited<ReturnType<Platform['engine']['open']>>) => {
-      store.setState({ doc: info, page: 0, status: { kind: 'idle' }, edit: null, panel: null });
+      store.setState({
+        doc: info,
+        page: 0,
+        status: { kind: 'idle' },
+        edit: null,
+        panel: null,
+        macroWarning: !!info.macros,
+      });
       view.current?.setDocument(info);
       platform.window.setTitle(`${info.name} — ${t('app.doc')}`);
+      // New revisions and comments are attributed to the signed-in user (fallback "BlueOffice").
+      await controller.current?.run({ cmd: 'setAuthor', name: platform.auth.user?.name ?? '' });
       await controller.current?.run({ cmd: 'state' });
       view.current?.focus();
       onDocumentOpened?.(info.name, info.pageCount);
@@ -166,10 +199,10 @@ function EditorInner({
   );
 
   const openFile = useCallback(
-    async (file: OpenedFile, doc?: StoredDocument) => {
+    async (file: OpenedFile, doc?: StoredDocument, password?: string) => {
       store.setState({ status: { kind: 'busy', key: 'status.loading' } });
       try {
-        const info = await platform.engine.open(file.bytes, file.name);
+        const info = await platform.engine.open(file.bytes, file.name, password);
         stored.current = doc ?? null;
         await loaded(info);
         if (file.path)
@@ -179,6 +212,15 @@ function EditorInner({
             openedAt: Date.now(),
           });
       } catch (e) {
+        // Encrypted file ([MS-OFFCRYPTO]): ask for the password and retry.
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes(PASSWORD_REQUIRED) || msg.includes(WRONG_PASSWORD)) {
+          store.setState({
+            status: { kind: 'idle' },
+            passwordPrompt: { file, doc: doc ?? null, wrong: msg.includes(WRONG_PASSWORD) },
+          });
+          return;
+        }
         fail('errors.open', e);
       }
     },
@@ -216,7 +258,12 @@ function EditorInner({
       v,
       platform.clipboard,
       (r) => {
-        store.setState({ edit: r, doc: r.info });
+        store.setState({
+          edit: r,
+          doc: r.info,
+          ...(r.review ? { review: r.review } : {}),
+          ...(r.merge ? { merge: r.merge } : {}),
+        });
         if (r.error) fail('errors.edit', r.error);
       },
       (e) => fail('errors.edit', e),
@@ -310,9 +357,11 @@ function EditorInner({
       try {
         await controller.current?.idle();
         const bytes = await platform.engine.saveDocx();
-        const name = s.doc.name.replace(/\.(txt|md)$/i, '.docx');
+        const name = s.doc.name.replace(/\.(txt|md|doc|odt)$/i, '.docx');
+        // Files opened from another format (.doc, .odt, .txt) are saved as a new .docx.
+        const sameFormat = !!stored.current && /\.(docx|docm)$/i.test(stored.current.ref.name);
         const doc =
-          stored.current && !as
+          stored.current && !as && sameFormat
             ? await platform.storage.save(stored.current, bytes)
             : await platform.storage.saveAs(name.endsWith('.docx') ? name : `${name}.docx`, bytes);
         if (!doc) {
@@ -363,6 +412,12 @@ function EditorInner({
       },
     });
     r.register({ id: 'file.save', shortcut: 'Ctrl+S', isEnabled: hasDoc, run: () => save(false) });
+    r.register({
+      id: 'review.savePassword',
+      isEnabled: hasDoc,
+      isChecked: (s) => !!s.doc?.protected,
+      run: () => store.setState({ panel: 'savePassword' }),
+    });
     r.register({
       id: 'file.saveAs',
       shortcut: 'Ctrl+Shift+S',
@@ -615,12 +670,243 @@ function EditorInner({
         store.setState({ language: next });
       },
     });
+    // Mailings: mail merge from CSV / XLSX (ECMA-376 Part 1, §17.16.5.35 MERGEFIELD).
+    const mg = (s: EditorState) => s.merge;
+    const hasData = (s: EditorState) => hasDoc(s) && (mg(s)?.count ?? 0) > 0;
+    const toBase64 = (bytes: Uint8Array) => {
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      }
+      return btoa(bin);
+    };
+    r.register({
+      id: 'mailings.selectRecipients',
+      isEnabled: hasDoc,
+      run: async () => {
+        try {
+          const file = await platform.files.openFile(['.csv', '.xlsx']);
+          if (!file) return;
+          const res = await controller.current?.run({
+            cmd: 'mergeData',
+            name: file.name,
+            base64: toBase64(file.bytes),
+          });
+          if (res?.merge)
+            store.setState({
+              panel: 'merge',
+              status: {
+                kind: 'info',
+                key: 'merge.source',
+                params: { name: res.merge.name, count: String(res.merge.count) },
+              },
+            });
+        } catch (e) {
+          fail('errors.open', e);
+        }
+      },
+    });
+    r.register({
+      id: 'mailings.insertField',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.panel === 'merge',
+      run: (s) => store.setState({ panel: s.panel === 'merge' ? null : 'merge' }),
+    });
+    r.register({
+      id: 'mailings.preview',
+      isEnabled: hasData,
+      isChecked: (s) => mg(s)?.preview != null,
+      run: (s) => run({ cmd: 'mergePreview', record: mg(s)?.preview != null ? null : 0 }),
+    });
+    r.register({
+      id: 'mailings.nextRecord',
+      isEnabled: hasData,
+      run: (s) => run({ cmd: 'mergePreview', record: (mg(s)?.preview ?? -1) + 1 }),
+    });
+    r.register({
+      id: 'mailings.previousRecord',
+      isEnabled: hasData,
+      run: (s) => run({ cmd: 'mergePreview', record: Math.max(0, (mg(s)?.preview ?? 1) - 1) }),
+    });
+    const mergeToDocument = async (): Promise<boolean> => {
+      const res = await controller.current?.run({ cmd: 'mergeToDocument' });
+      if (!res || res.error) return false;
+      stored.current = null;
+      await loaded(res.info);
+      store.setState({
+        status: {
+          kind: 'info',
+          key: 'merge.done',
+          params: { count: String(store.getState().merge?.count ?? 0), name: res.info.name },
+        },
+      });
+      return true;
+    };
+    r.register({
+      id: 'mailings.mergeDocument',
+      isEnabled: hasData,
+      run: async () => {
+        await mergeToDocument();
+      },
+    });
+    r.register({
+      id: 'mailings.mergePdf',
+      isEnabled: hasData,
+      run: async () => {
+        if (await mergeToDocument()) await exportPdf();
+      },
+    });
+    // References: TOC, captions, cross-references (ECMA-376 Part 1, §17.16).
+    const updateFields = async () => {
+      const res = await controller.current?.run({ cmd: 'updateFields' });
+      if (res && !res.error)
+        store.setState({
+          status: {
+            kind: 'info',
+            key: 'references.fieldsUpdated',
+            params: { count: String(res.count ?? 0) },
+          },
+        });
+      view.current?.focus();
+    };
+    r.register({
+      id: 'references.insertToc',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'insertToc' }),
+    });
+    r.register({ id: 'references.updateToc', isEnabled: hasDoc, run: updateFields });
+    r.register({
+      id: 'references.updateFields',
+      shortcut: 'F9',
+      isEnabled: hasDoc,
+      run: updateFields,
+    });
+    r.register({
+      id: 'references.insertCaption',
+      isEnabled: hasDoc,
+      run: () => store.setState({ panel: 'caption' }),
+    });
+    r.register({
+      id: 'references.crossReference',
+      isEnabled: hasDoc,
+      run: () => store.setState({ panel: 'crossref' }),
+    });
+    // Review: track changes (ECMA-376 Part 1, §17.13.5).
+    const rv = (s: EditorState) => s.review;
+    r.register({
+      id: 'review.trackChanges',
+      shortcut: 'Ctrl+Shift+R',
+      isEnabled: hasDoc,
+      isChecked: (s) => !!rv(s)?.trackChanges,
+      run: (s) => run({ cmd: 'setTrackChanges', on: !rv(s)?.trackChanges }),
+    });
+    const hasRevisions = (s: EditorState) => hasDoc(s) && (rv(s)?.revisions.length ?? 0) > 0;
+    r.register({
+      id: 'review.accept',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'acceptRevision' }),
+    });
+    r.register({
+      id: 'review.reject',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'rejectRevision' }),
+    });
+    r.register({
+      id: 'review.acceptAll',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'acceptAllRevisions' }),
+    });
+    r.register({
+      id: 'review.rejectAll',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'rejectAllRevisions' }),
+    });
+    r.register({
+      id: 'review.next',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'nextRevision', forward: true }),
+    });
+    r.register({
+      id: 'review.previous',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'nextRevision', forward: false }),
+    });
+    for (const [id, view] of [
+      ['review.viewMarkup', 'markup'],
+      ['review.viewFinal', 'final'],
+      ['review.viewOriginal', 'original'],
+    ] as const) {
+      r.register({
+        id,
+        isEnabled: hasDoc,
+        isChecked: (s) => (rv(s)?.view ?? 'markup') === view,
+        run: () => run({ cmd: 'setRevisionView', view }),
+      });
+    }
+    r.register({
+      id: 'review.pane',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.panel === 'review',
+      run: (s) => store.setState({ panel: s.panel === 'review' ? null : 'review' }),
+    });
+    // Comments (ECMA-376 Part 1, §17.13.4) with replies.
+    const hasComments = (s: EditorState) => hasDoc(s) && (rv(s)?.comments.length ?? 0) > 0;
+    // The comment whose range holds the caret (else the first one).
+    const current = (s: EditorState) => {
+      const list = rv(s)?.comments ?? [];
+      const at = s.edit?.selection.focus;
+      const le = (a: { p: number; o: number }, b: { p: number; o: number }) =>
+        a.p < b.p || (a.p === b.p && a.o <= b.o);
+      return (
+        list.find(
+          (c) => c.parent === null && at && c.start && c.end && le(c.start, at) && le(at, c.end),
+        ) ?? list.find((c) => c.parent === null)
+      );
+    };
+    r.register({
+      id: 'review.newComment',
+      shortcut: 'Ctrl+Alt+M',
+      isEnabled: hasDoc,
+      run: () => store.setState({ panel: 'comments' }),
+    });
+    r.register({
+      id: 'review.comments',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.panel === 'comments',
+      run: (s) => store.setState({ panel: s.panel === 'comments' ? null : 'comments' }),
+    });
+    r.register({
+      id: 'review.deleteComment',
+      isEnabled: hasComments,
+      run: async (s) => {
+        const c = current(s);
+        if (c) await run({ cmd: 'deleteComment', id: c.id });
+      },
+    });
+    r.register({
+      id: 'review.resolveComment',
+      isEnabled: hasComments,
+      run: async (s) => {
+        const c = current(s);
+        if (c) await run({ cmd: 'resolveComment', id: c.id, done: !c.done });
+      },
+    });
+    r.register({
+      id: 'review.nextComment',
+      isEnabled: hasComments,
+      run: () => run({ cmd: 'nextComment', forward: true }),
+    });
+    r.register({
+      id: 'review.previousComment',
+      isEnabled: hasComments,
+      run: () => run({ cmd: 'nextComment', forward: false }),
+    });
     // Page setup dialogs arrive with the ruler (see docs/plan/phase-2.md, "Hạn chế").
     for (const id of ['layout.margins', 'layout.orientation', 'layout.size']) {
       r.register({ id, isEnabled: () => false, run: () => {} });
     }
     return r;
-  }, [platform, store, sampleUrl, openFile, newDocument, fail, i18nInstance]);
+  }, [platform, store, sampleUrl, openFile, newDocument, fail, i18nInstance, loaded]);
   /* eslint-enable react-hooks/refs */
 
   // Keyboard shortcuts (registry); plain typing and caret keys go through the IME textarea.
@@ -674,6 +960,7 @@ function EditorInner({
             item('file.open', 'commands.file.open', <FolderOpen size={ICON} />),
             item('file.save', 'commands.file.save', <Save size={ICON} />),
             item('file.saveAs', 'commands.file.saveAs', <Save size={ICON} />),
+            item('review.savePassword', 'commands.review.savePassword', <Lock size={ICON} />),
             item('file.openSample', 'commands.file.openSample', <FileText size={ICON} />),
           ],
         },
@@ -816,6 +1103,154 @@ function EditorInner({
       ],
     },
     {
+      id: 'references',
+      label: t('ribbon.tabs.references'),
+      groups: [
+        {
+          id: 'toc',
+          label: t('ribbon.groups.toc'),
+          items: [
+            item('references.insertToc', 'commands.references.insertToc', <ListTree size={ICON} />),
+            s('references.updateToc', 'commands.references.updateToc', <RefreshCw size={SMALL} />),
+          ],
+        },
+        {
+          id: 'captions',
+          label: t('ribbon.groups.captions'),
+          items: [
+            item(
+              'references.insertCaption',
+              'commands.references.insertCaption',
+              <Tag size={ICON} />,
+            ),
+            item(
+              'references.crossReference',
+              'commands.references.crossReference',
+              <Link2 size={ICON} />,
+            ),
+          ],
+        },
+        {
+          id: 'fields',
+          label: t('ribbon.groups.fields'),
+          items: [
+            item(
+              'references.updateFields',
+              'commands.references.updateFields',
+              <RefreshCw size={ICON} />,
+            ),
+          ],
+        },
+      ],
+    },
+    {
+      id: 'mailings',
+      label: t('ribbon.tabs.mailings'),
+      groups: [
+        {
+          id: 'mergeData',
+          label: t('ribbon.groups.mergeData'),
+          items: [
+            item(
+              'mailings.selectRecipients',
+              'commands.mailings.selectRecipients',
+              <FileSpreadsheet size={ICON} />,
+            ),
+            item('mailings.insertField', 'commands.mailings.insertField', <Mails size={ICON} />),
+          ],
+        },
+        {
+          id: 'mergePreview',
+          label: t('ribbon.groups.mergePreview'),
+          items: [
+            item('mailings.preview', 'commands.mailings.preview', <Eye size={ICON} />),
+            s(
+              'mailings.previousRecord',
+              'commands.mailings.previousRecord',
+              <ChevronLeft size={SMALL} />,
+            ),
+            s('mailings.nextRecord', 'commands.mailings.nextRecord', <ChevronRight size={SMALL} />),
+          ],
+        },
+        {
+          id: 'mergeFinish',
+          label: t('ribbon.groups.mergeFinish'),
+          items: [
+            item(
+              'mailings.mergeDocument',
+              'commands.mailings.mergeDocument',
+              <Files size={ICON} />,
+            ),
+            item('mailings.mergePdf', 'commands.mailings.mergePdf', <FileDown size={ICON} />),
+          ],
+        },
+      ],
+    },
+    {
+      id: 'review',
+      label: t('ribbon.tabs.review'),
+      groups: [
+        {
+          id: 'tracking',
+          label: t('ribbon.groups.tracking'),
+          items: [
+            item(
+              'review.trackChanges',
+              'commands.review.trackChanges',
+              <FilePenLine size={ICON} />,
+            ),
+            s('review.viewMarkup', 'commands.review.viewMarkup', <Eye size={SMALL} />),
+            s('review.viewFinal', 'commands.review.viewFinal', <Eye size={SMALL} />),
+            s('review.viewOriginal', 'commands.review.viewOriginal', <Eye size={SMALL} />),
+            item('review.pane', 'commands.review.pane', <PanelRight size={ICON} />),
+          ],
+        },
+        {
+          id: 'changes',
+          label: t('ribbon.groups.changes'),
+          items: [
+            item('review.accept', 'commands.review.accept', <Check size={ICON} />),
+            item('review.reject', 'commands.review.reject', <CircleX size={ICON} />),
+            s('review.acceptAll', 'commands.review.acceptAll', <CheckCheck size={SMALL} />),
+            s('review.rejectAll', 'commands.review.rejectAll', <X size={SMALL} />),
+            s('review.previous', 'commands.review.previous', <ChevronLeft size={SMALL} />),
+            s('review.next', 'commands.review.next', <ChevronRight size={SMALL} />),
+          ],
+        },
+        {
+          id: 'comments',
+          label: t('ribbon.groups.comments'),
+          items: [
+            item(
+              'review.newComment',
+              'commands.review.newComment',
+              <MessageSquarePlus size={ICON} />,
+            ),
+            item('review.comments', 'commands.review.comments', <MessagesSquare size={ICON} />),
+            s(
+              'review.resolveComment',
+              'commands.review.resolveComment',
+              <CircleCheck size={SMALL} />,
+            ),
+            s('review.deleteComment', 'commands.review.deleteComment', <X size={SMALL} />),
+            s(
+              'review.previousComment',
+              'commands.review.previousComment',
+              <ChevronLeft size={SMALL} />,
+            ),
+            s('review.nextComment', 'commands.review.nextComment', <ChevronRight size={SMALL} />),
+          ],
+        },
+        {
+          id: 'protect',
+          label: t('ribbon.groups.protect'),
+          items: [
+            item('review.savePassword', 'commands.review.savePassword', <KeyRound size={ICON} />),
+          ],
+        },
+      ],
+    },
+    {
       id: 'view',
       label: t('ribbon.tabs.view'),
       groups: [
@@ -845,6 +1280,10 @@ function EditorInner({
     },
   ];
 
+  const runCommand = useCallback(
+    (c: EditCommand) => controller.current?.run(c) ?? Promise.resolve(null),
+    [],
+  );
   const status = state.status;
   const appName = t(`app.${app}`);
   const appTitle = t(`appTitle.${app}`);
@@ -852,7 +1291,7 @@ function EditorInner({
   useEffect(() => {
     if (!state.doc) platform.window.setTitle(appTitle);
   }, [platform, appTitle, state.doc]);
-  const runCommand = (c: EditCommand) => controller.current?.run(c) ?? Promise.resolve(null);
+
   const closePanel = () => {
     store.setState({ panel: null });
     view.current?.focus();
@@ -898,6 +1337,53 @@ function EditorInner({
               <FindPanel
                 run={runCommand}
                 replace={state.panel === 'replace'}
+                onClose={closePanel}
+              />
+            )}
+            {state.panel === 'review' && (
+              <ReviewPanel
+                review={state.review}
+                run={runCommand}
+                language={state.language}
+                onClose={closePanel}
+              />
+            )}
+            {state.panel === 'caption' && <CaptionPanel run={runCommand} onClose={closePanel} />}
+            {state.panel === 'savePassword' && (
+              <SavePasswordPanel
+                onSet={(password) => void runCommand({ cmd: 'setSavePassword', password })}
+                onClose={closePanel}
+              />
+            )}
+            {state.passwordPrompt && (
+              <PasswordDialog
+                name={state.passwordPrompt.file.name}
+                wrong={state.passwordPrompt.wrong}
+                onSubmit={(pw) => {
+                  const p = store.getState().passwordPrompt;
+                  store.setState({ passwordPrompt: null });
+                  if (p) void openFile(p.file, p.doc ?? undefined, pw);
+                }}
+                onCancel={() => store.setState({ passwordPrompt: null })}
+              />
+            )}
+            {state.macroWarning && (
+              <div className={styles.macroBar} role="status" data-testid="macro-warning">
+                <span>{t('security.macroWarning')}</span>
+                <button type="button" onClick={() => store.setState({ macroWarning: false })}>
+                  {t('security.dismiss')}
+                </button>
+              </div>
+            )}
+            {state.panel === 'merge' && (
+              <MergeFieldPanel merge={state.merge} run={runCommand} onClose={closePanel} />
+            )}
+            {state.panel === 'crossref' && <CrossRefPanel run={runCommand} onClose={closePanel} />}
+            {state.panel === 'comments' && (
+              <CommentsPanel
+                review={state.review}
+                run={runCommand}
+                language={state.language}
                 onClose={closePanel}
               />
             )}
@@ -1002,6 +1488,9 @@ function EditorInner({
             )}
             {state.edit?.modified && (
               <span data-testid="status-modified">{t('status.modified')}</span>
+            )}
+            {state.doc?.protected && (
+              <span data-testid="status-protected">{t('security.protected')}</span>
             )}
             {status.kind === 'busy' && <span>{t(status.key)}</span>}
             {status.kind === 'info' && (

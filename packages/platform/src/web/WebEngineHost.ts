@@ -1,6 +1,5 @@
 import type {
   DocInfo,
-  EditCommand,
   EditResult,
   EngineHost,
   FontSource,
@@ -8,6 +7,7 @@ import type {
   PageDisplayList,
   SlideCommand,
   SlideEditResult,
+  TimedCommand,
 } from '../types';
 import type { EngineRequest, EngineResponse } from './protocol';
 
@@ -69,9 +69,9 @@ export class WebEngineHost implements EngineHost {
     return this.ready;
   }
 
-  async open(bytes: Uint8Array, name: string): Promise<DocInfo> {
+  async open(bytes: Uint8Array, name: string, password?: string): Promise<DocInfo> {
     await this.init();
-    return this.call<DocInfo>({ method: 'open', bytes, name });
+    return this.call<DocInfo>({ method: 'open', bytes, name, password });
   }
 
   async getPage(index: number): Promise<PageDisplayList> {
@@ -91,7 +91,7 @@ export class WebEngineHost implements EngineHost {
     return this.call<DocInfo>({ method: 'new', name });
   }
 
-  command(cmd: EditCommand): Promise<EditResult> {
+  command(cmd: TimedCommand): Promise<EditResult> {
     return this.call<EditResult>({ method: 'command', json: JSON.stringify(cmd) });
   }
 

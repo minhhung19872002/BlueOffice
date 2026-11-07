@@ -26,7 +26,11 @@ pub fn item_text(c: &RunContent) -> String {
         | RunContent::FootnoteRef(_)
         | RunContent::EndnoteRef(_)
         | RunContent::NoteMark => OBJECT.to_string(),
-        RunContent::Opaque(_) | RunContent::Markup(_) => String::new(),
+        RunContent::Opaque(_)
+        | RunContent::Markup(_)
+        | RunContent::CommentStart(_)
+        | RunContent::CommentEnd(_)
+        | RunContent::CommentRef(_) => String::new(),
     }
 }
 

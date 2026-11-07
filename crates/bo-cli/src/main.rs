@@ -13,6 +13,8 @@
 //! bo-cli sample <out.docx>                   # generate the Phase 1 corpus sample
 //! bo-cli corpus <dir>                         # generate the Phase 2 round-trip corpus
 //! bo-cli roundtrip <file.docx> --out <out>    # open and save again (lossless check)
+//! bo-cli fields <file.docx> --out <out.docx>  # update TOC / SEQ / REF / PAGEREF fields
+//! bo-cli merge <template.docx> <data.csv|xlsx> --to docx|pdf --out <out>  # mail merge
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli bench input.docx [--iterations 5]
 //! ```
@@ -115,6 +117,21 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Update fields (TOC, SEQ, REF, PAGEREF) and save as .docx.
+    Fields {
+        input: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Mail merge: one section per data record, saved as .docx or PDF.
+    Merge {
+        template: PathBuf,
+        data: PathBuf,
+        #[arg(long, value_parser = ["docx", "pdf"], default_value = "docx")]
+        to: String,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Write the BlueSlide corpus decks into a directory.
     SampleSlides { dir: PathBuf },
     /// Measure open + layout + display list time.
@@ -126,7 +143,17 @@ enum Cmd {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    let cli = Cli::parse();
+    // The recursive parsers need more than the 1 MiB main-thread stack of Windows in
+    // unoptimised builds: run the command on a thread with a roomy stack.
+    let worker = std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(move || run(cli).map_err(|e| e.to_string()));
+    let result = match worker {
+        Ok(h) => h.join().unwrap_or_else(|_| Err("internal error".into())),
+        Err(e) => Err(e.to_string()),
+    };
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e}");
@@ -324,6 +351,45 @@ fn run(cli: Cli) -> R {
             let engine = open(&input)?;
             write_file(&out, &engine.save_docx()?)?;
             println!("{}", out.display());
+        }
+        Cmd::Fields { input, out } => {
+            let mut engine = open(&input)?;
+            let r = engine.command(bo_engine::Command::UpdateFields)?;
+            if let Some(e) = r.error {
+                return Err(e.into());
+            }
+            write_file(&out, &engine.save_docx()?)?;
+            println!(
+                "{} fields updated → {}",
+                r.count.unwrap_or(0),
+                out.display()
+            );
+        }
+        Cmd::Merge {
+            template,
+            data,
+            to,
+            out,
+        } => {
+            let mut engine = open(&template)?;
+            let bytes = std::fs::read(&data).map_err(|e| format!("{}: {e}", data.display()))?;
+            let name = data
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("data")
+                .to_owned();
+            let records = engine.set_merge_data(&bytes, &name)?;
+            let r = engine.command(bo_engine::Command::MergeToDocument)?;
+            if let Some(e) = r.error {
+                return Err(e.into());
+            }
+            let bytes = if to == "pdf" {
+                engine.export_pdf()?
+            } else {
+                engine.save_docx()?
+            };
+            write_file(&out, &bytes)?;
+            println!("{records} records → {}", out.display());
         }
         Cmd::SampleSlides { dir } => {
             for (name, bytes) in slide_samples::decks() {

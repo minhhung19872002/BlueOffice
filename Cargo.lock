@@ -449,6 +449,7 @@ dependencies = [
  "bo-opc",
  "bo-pptx",
  "bo-sign",
+ "bo-xlsx",
  "clap",
  "png",
  "serde_json",
@@ -473,7 +474,7 @@ dependencies = [
  "cbc",
  "cfb",
  "ecb",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "hmac",
  "proptest",
  "quick-xml",
@@ -544,6 +545,7 @@ name = "bo-engine"
 version = "0.1.0"
 dependencies = [
  "bo-binary",
+ "bo-crypto",
  "bo-docx",
  "bo-drawingml",
  "bo-edit",

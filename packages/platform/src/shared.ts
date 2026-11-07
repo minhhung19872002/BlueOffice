@@ -120,7 +120,7 @@ export class FileAccessStorage implements DocumentStorage {
   readonly id = 'local';
   constructor(
     private readonly files: FileAccess,
-    private readonly accept: string[] = ['.docx', '.txt', '.md'],
+    private readonly accept: string[] = ['.docx', '.docm', '.doc', '.odt', '.txt', '.md'],
   ) {}
   async open(_ref?: DocumentRef): Promise<StoredDocument | null> {
     const f = await this.files.openFile(this.accept);

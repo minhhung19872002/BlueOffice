@@ -26,16 +26,17 @@ bo-sheet.workspace = true
 bo-xlsx.workspace = true
 bo-binary = { path = "../bo-binary" }
 bo-odf = { path = "../bo-odf" }
+bo-crypto = { path = "../bo-crypto" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 png.workspace = true
+bo-opc.workspace = true
 bo-engine = { path = ".", features = ["bundled-fonts"] }
 insta.workspace = true
 proptest.workspace = true
-bo-opc.workspace = true
 criterion.workspace = true
 
 [[bench]]

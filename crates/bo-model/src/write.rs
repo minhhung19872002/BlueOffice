@@ -153,6 +153,12 @@ pub struct SourcePackage {
     /// Fingerprint of styles / numbering as read (unchanged ⇒ keep the parts).
     pub styles_fingerprint: u64,
     pub numbering_fingerprint: u64,
+    /// Fingerprint of [`Document::comments`] as read (unchanged ⇒ keep the comment parts).
+    pub comments_fingerprint: u64,
+    /// Root start tag of the source `comments.xml` (its namespace declarations).
+    pub comments_root: Option<String>,
+    /// The source has a `commentsIds` part ([MS-DOCX] durable ids).
+    pub comments_ids: bool,
 }
 
 /// A whole word-processing document.
@@ -175,7 +181,70 @@ pub struct Document {
     pub even_and_odd_headers: bool,
     /// `w:defaultTabStop` (§17.15.1.25), default 720.
     pub default_tab_stop: Option<Twips>,
+    /// Comments (ECMA-376 Part 1, §17.13.4 `comments.xml`), in part order.
+    pub comments: Vec<Comment>,
     pub source: Option<Arc<SourcePackage>>,
+}
+
+/// Attribution of a tracked change (ECMA-376 Part 1, §17.13.5 `CT_TrackChange`:
+/// `w:id`, `w:author`, `w:date`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct RevisionInfo {
+    pub id: i32,
+    pub author: String,
+    /// `ST_DateTime` (ISO 8601, e.g. `2026-11-08T09:30:00Z`).
+    pub date: Option<String>,
+}
+
+/// Insertion or deletion of content (§17.13.5.18 ins, §17.13.5.14 del) or one side of
+/// a move (§17.13.5.25 moveTo, §17.13.5.22 moveFrom) when `moved`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct RevMark {
+    pub info: RevisionInfo,
+    pub moved: bool,
+}
+
+/// Previous run properties of a formatting revision (§17.13.5.31 rPrChange).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct RunPropsChange {
+    pub info: RevisionInfo,
+    pub old: RunProps,
+}
+
+/// Previous paragraph properties of a formatting revision (§17.13.5.29 pPrChange).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct ParaPropsChange {
+    pub info: RevisionInfo,
+    pub old: ParaProps,
+}
+
+/// A comment (ECMA-376 Part 1, §17.13.4.2 comment) with the threading extension of
+/// [MS-DOCX] §2.5.2 (`w15:commentEx`: `paraId`, `paraIdParent`, `done`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct Comment {
+    pub id: i32,
+    pub author: String,
+    pub initials: Option<String>,
+    pub date: Option<String>,
+    pub blocks: Vec<Block>,
+    /// `w14:paraId` of the comment's last paragraph (key of `w15:commentEx`).
+    pub para_id: Option<String>,
+    /// `w15:paraIdParent`: the comment this one replies to.
+    pub parent_para_id: Option<String>,
+    /// `w15:done`: the thread is resolved.
+    pub done: bool,
+    /// `w16cid:durableId` ([MS-DOCX] §2.6.x commentsIds), kept when present.
+    pub durable_id: Option<String>,
+}
+
+impl Comment {
+    /// Plain text of the comment (paragraphs joined with `\n`; the annotation mark and
+    /// other verbatim objects are left out).
+    pub fn text(&self) -> String {
+        let mut v = Vec::new();
+        blocks_text(&self.blocks, &mut v);
+        v.join("\n").replace('\u{FFFC}', "")
+    }
 }
 
 impl Document {
@@ -205,9 +274,18 @@ impl Document {
 }
 
 fn blocks_text(blocks: &[Block], out: &mut Vec<String>) {
-    for b in blocks {
+    // Text of paragraphs whose mark is a tracked deletion (§17.13.5.15) joins the next one.
+    let mut carry = String::new();
+    for (i, b) in blocks.iter().enumerate() {
         match b {
-            Block::Paragraph(p) => out.push(p.plain_text()),
+            Block::Paragraph(p) => {
+                carry.push_str(&p.plain_text());
+                let joins = p.props.mark_del.is_some()
+                    && matches!(blocks.get(i + 1), Some(Block::Paragraph(_)));
+                if !joins {
+                    out.push(std::mem::take(&mut carry));
+                }
+            }
             Block::Table(t) => {
                 for r in &t.rows {
                     let cells: Vec<String> = r
@@ -384,10 +462,11 @@ impl Paragraph {
         fingerprint(&(&self.props, &self.runs))
     }
 
-    /// Concatenated text; tabs as `\t`, line breaks as `\u{2028}`.
+    /// Concatenated text; tabs as `\t`, line breaks as `\u{2028}`. Tracked deletions
+    /// (§17.13.5.14) are left out, i.e. this is the text with all changes accepted.
     pub fn plain_text(&self) -> String {
         let mut s = String::new();
-        for r in &self.runs {
+        for r in self.runs.iter().filter(|r| r.props.del.is_none()) {
             for c in &r.content {
                 c.push_text(&mut s);
             }
@@ -535,6 +614,12 @@ pub struct ParaProps {
     pub shading: Option<Color>,
     pub borders: Option<Borders>,
     pub outline_level: Option<u8>,
+    /// Tracked insertion / deletion of the paragraph mark (§17.13.5.16 / §17.13.5.15,
+    /// children of `w:pPr/w:rPr`). Never inherited.
+    pub mark_ins: Option<RevMark>,
+    pub mark_del: Option<RevMark>,
+    /// Tracked paragraph formatting change (§17.13.5.29 pPrChange). Never inherited.
+    pub change: Option<Box<ParaPropsChange>>,
     /// Unknown `w:pPr` children kept verbatim.
     pub unknown: Vec<Raw>,
 }
@@ -562,6 +647,9 @@ impl ParaProps {
             shading: self.shading.or(base.shading),
             borders: self.borders.clone().or_else(|| base.borders.clone()),
             outline_level: self.outline_level.or(base.outline_level),
+            mark_ins: self.mark_ins.clone(),
+            mark_del: self.mark_del.clone(),
+            change: self.change.clone(),
             unknown: if self.unknown.is_empty() {
                 base.unknown.clone()
             } else {
@@ -639,11 +727,33 @@ pub struct RunProps {
     pub hidden: Option<bool>,
     /// Hyperlink target (URL or `#bookmark`) when the run is inside `w:hyperlink`.
     pub link: Option<String>,
+    /// The run is inside `w:ins` / `w:moveTo` (§17.13.5.18, §17.13.5.25). Never inherited.
+    pub ins: Option<RevMark>,
+    /// The run is inside `w:del` / `w:moveFrom` (§17.13.5.14, §17.13.5.22). Never inherited.
+    pub del: Option<RevMark>,
+    /// Tracked formatting change (§17.13.5.31 rPrChange). Never inherited.
+    pub change: Option<Box<RunPropsChange>>,
     /// Unknown `w:rPr` children kept verbatim.
     pub unknown: Vec<Raw>,
 }
 
 impl RunProps {
+    /// True when the run carries any tracked change.
+    pub fn has_revision(&self) -> bool {
+        self.ins.is_some() || self.del.is_some() || self.change.is_some()
+    }
+
+    /// Copy without revision marks.
+    #[must_use]
+    pub fn without_revisions(&self) -> RunProps {
+        RunProps {
+            ins: None,
+            del: None,
+            change: None,
+            ..self.clone()
+        }
+    }
+
     /// Overlay `self` on top of `base`.
     #[must_use]
     pub fn inherit(&self, base: &RunProps) -> RunProps {
@@ -671,6 +781,9 @@ impl RunProps {
             kern: self.kern.or(base.kern),
             hidden: self.hidden.or(base.hidden),
             link: self.link.clone().or_else(|| base.link.clone()),
+            ins: self.ins.clone(),
+            del: self.del.clone(),
+            change: self.change.clone(),
             unknown: if self.unknown.is_empty() {
                 base.unknown.clone()
             } else {
@@ -777,8 +890,14 @@ pub enum RunContent {
     /// Unknown run child kept verbatim (e.g. `w:object`, `mc:AlternateContent`, `w:fldChar`).
     Opaque(Raw),
     /// Paragraph-level markup kept verbatim and written *outside* `w:r`
-    /// (bookmarks, comment ranges, permission marks, `w:proofErr`).
+    /// (bookmarks, permission marks, `w:proofErr`).
     Markup(Raw),
+    /// Start of a commented range (§17.13.4.4 commentRangeStart), written outside `w:r`.
+    CommentStart(i32),
+    /// End of a commented range (§17.13.4.3 commentRangeEnd), written outside `w:r`.
+    CommentEnd(i32),
+    /// Comment reference mark inside a run (§17.13.4.5 commentReference).
+    CommentRef(i32),
 }
 
 impl RunContent {
@@ -790,6 +909,8 @@ impl RunContent {
             RunContent::LineBreak => s.push('\u{2028}'),
             RunContent::NoBreakHyphen => s.push('\u{2011}'),
             RunContent::Field { cached, .. } => s.push_str(cached),
+            // Complex-field structure (§17.16.18 fldChar, §17.16.23 instrText) is not text.
+            RunContent::Opaque(r) if r.xml.contains("fldChar") || r.xml.contains("instrText") => {}
             RunContent::Image(_) | RunContent::Opaque(_) => s.push('\u{FFFC}'),
             RunContent::PageBreak
             | RunContent::ColumnBreak
@@ -797,7 +918,10 @@ impl RunContent {
             | RunContent::FootnoteRef(_)
             | RunContent::EndnoteRef(_)
             | RunContent::NoteMark
-            | RunContent::Markup(_) => {}
+            | RunContent::Markup(_)
+            | RunContent::CommentStart(_)
+            | RunContent::CommentEnd(_)
+            | RunContent::CommentRef(_) => {}
         }
     }
 }

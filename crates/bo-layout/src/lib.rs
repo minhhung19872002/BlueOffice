@@ -24,6 +24,7 @@ mod style;
 mod types;
 
 pub use paragraph::{FieldContext, LayoutCache};
+pub use style::author_color;
 pub use types::{
     Fragment, GlyphPos, Layer, LayoutDocument, Line, LineSource, NoteKey, Page, PageItem,
 };
@@ -118,11 +119,42 @@ fn variant_for(doc: &Document, flow: &Flow, page_index: usize) -> u8 {
     }
 }
 
+/// How tracked changes (ECMA-376 Part 1, §17.13.5) are displayed.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum RevisionView {
+    /// All markup: insertions underlined, deletions struck through, coloured per author.
+    #[default]
+    Markup,
+    /// The document as if every change were accepted.
+    Final,
+    /// The document as if every change were rejected.
+    Original,
+}
+
+/// Layout options that are not part of the document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LayoutOptions {
+    pub view: RevisionView,
+}
+
 /// Lay out a whole document.
 pub fn layout_document(
     doc: &Document,
     fonts: &mut FontManager,
     cache: &mut LayoutCache,
+) -> Result<LayoutDocument, LayoutError> {
+    layout_document_with(doc, fonts, cache, LayoutOptions::default())
+}
+
+/// Lay out a whole document with explicit [`LayoutOptions`].
+pub fn layout_document_with(
+    doc: &Document,
+    fonts: &mut FontManager,
+    cache: &mut LayoutCache,
+    opts: LayoutOptions,
 ) -> Result<LayoutDocument, LayoutError> {
     if fonts.is_empty() {
         return Err(LayoutError::NoFonts);
@@ -139,6 +171,7 @@ pub fn layout_document(
         default_tab: doc.default_tab_stop.unwrap_or(Twips(720)).to_pt(),
         next_id: 0,
         endnote_order,
+        view: opts.view,
     };
     if doc.sections.is_empty() {
         let mut flow = Flow::new(Vec::new(), 0);

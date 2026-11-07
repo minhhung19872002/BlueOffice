@@ -6,7 +6,7 @@
 //! desktop produce byte-identical display lists (see ADR-0002).
 #![forbid(unsafe_code)]
 
-use bo_layout::{layout_document, LayoutCache, LayoutDocument};
+use bo_layout::{layout_document_with, LayoutCache, LayoutDocument, LayoutOptions, RevisionView};
 use bo_model::{Block, Document, Paragraph, Run, RunProps, Section};
 use bo_render::{build_display_list, DisplayList, PageList};
 use bo_text::{outline_svg_path, FaceId, FontManager};
@@ -16,9 +16,12 @@ use std::collections::BTreeMap;
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
 pub mod edit;
+pub mod merge;
 pub mod nav;
+pub mod review;
 pub mod sheet;
 pub mod slide_edit;
+pub mod smartart;
 
 pub use edit::{Command, EditResult};
 pub use sheet::SheetEngine;
@@ -47,7 +50,21 @@ pub enum EngineError {
     Raster(#[from] bo_raster::RasterError),
     #[error("invalid command: {0}")]
     BadCommand(String),
+    /// The file is encrypted ([MS-OFFCRYPTO]) and no password was given.
+    /// Hosts match the message `password required`.
+    #[error("password required")]
+    PasswordRequired,
+    /// Hosts match the message `wrong password`.
+    #[error("wrong password")]
+    WrongPassword,
+    #[error("encryption error: {0}")]
+    Crypto(String),
+    #[error("cannot read document: {0}")]
+    Format(String),
 }
+
+/// [MS-CFB] §2.2 compound file signature.
+const CFB_SIGNATURE: &[u8] = &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 
 /// Result alias.
 pub type Result<T> = std::result::Result<T, EngineError>;
@@ -69,6 +86,10 @@ pub struct DocInfo {
     pub page_count: usize,
     pub pages: Vec<PageSize>,
     pub word_count: usize,
+    /// The file contains a VBA project or XLM macros ([MS-OVBA]); kept, never run.
+    pub macros: bool,
+    /// The document is saved with a password ([MS-OFFCRYPTO] Agile Encryption).
+    pub protected: bool,
 }
 
 impl DocInfo {
@@ -107,6 +128,17 @@ pub struct Engine {
     images: BTreeMap<String, Vec<u8>>,
     /// Selection and undo history of the open presentation.
     slides: slide_edit::SlideEditor,
+    /// How tracked changes are displayed.
+    view: RevisionView,
+    /// Author of new revisions and comments (kept across documents).
+    author: Option<String>,
+    /// Mail-merge data source and the previewed record.
+    merge: Option<bo_edit::merge::MergeData>,
+    merge_preview: Option<usize>,
+    /// The open file has macros (warning bar; they are preserved, never executed).
+    macros: bool,
+    /// Password used by `save_docx` (Agile Encryption); `None` saves unencrypted.
+    save_password: Option<String>,
 }
 
 impl Engine {
@@ -144,13 +176,51 @@ impl Engine {
 
     /// Open a document from bytes. The format is detected from content, then the name.
     pub fn open(&mut self, bytes: &[u8], name: &str) -> Result<DocInfo> {
+        self.open_with_password(bytes, name, None)
+    }
+
+    /// Open a document, decrypting it with `password` when it is an encrypted package
+    /// ([MS-OFFCRYPTO] §2.3.4.10 Agile / §2.3.4.5 Standard Encryption). Formats:
+    /// `.docx`/`.docm`, `.doc` ([MS-DOC], `bo-binary`), `.odt` (ODF 1.3, `bo-odf`),
+    /// `.pptx`, plain text.
+    pub fn open_with_password(
+        &mut self,
+        bytes: &[u8],
+        name: &str,
+        password: Option<&str>,
+    ) -> Result<DocInfo> {
         let lower = name.to_ascii_lowercase();
+        let mut plain = None;
+        if bytes.starts_with(CFB_SIGNATURE) && bo_crypto::is_encrypted(bytes) {
+            let pw = password
+                .filter(|p| !p.is_empty())
+                .ok_or(EngineError::PasswordRequired)?;
+            plain = Some(bo_crypto::decrypt(bytes, pw).map_err(|e| match e {
+                bo_crypto::CryptoError::WrongPassword
+                | bo_crypto::CryptoError::IntegrityCheckFailed => EngineError::WrongPassword,
+                other => EngineError::Crypto(other.to_string()),
+            })?);
+        }
+        let encrypted = plain.is_some();
+        let bytes = plain.as_deref().unwrap_or(bytes);
+        let macros = bo_binary::has_macros(bytes);
         let is_zip = bytes.starts_with(b"PK\x03\x04");
         if is_zip && bo_pptx::is_pptx(bytes) {
             return self.open_pptx(bytes, name);
         }
-        let doc = if is_zip {
-            bo_docx::read_docx(bytes)?
+        let doc = if is_zip && bo_odf::detect_mimetype(bytes).as_deref() == Some(bo_odf::MIME_ODT) {
+            bo_odf::read_odt(bytes).map_err(|e| EngineError::Format(e.to_string()))?
+        } else if is_zip {
+            let mut d = bo_docx::read_docx(bytes)?;
+            smartart::render_smartart(&mut d, &mut self.fonts);
+            d
+        } else if bytes.starts_with(CFB_SIGNATURE) {
+            match bo_binary::detect(bytes) {
+                Some(bo_binary::LegacyKind::Doc) => {
+                    bo_binary::read_doc(bytes).map_err(|e| EngineError::Format(e.to_string()))?
+                }
+                _ => return Err(EngineError::Unsupported(name.to_owned())),
+            }
         } else if lower.ends_with(".txt")
             || lower.ends_with(".md")
             || std::str::from_utf8(bytes).is_ok()
@@ -159,16 +229,44 @@ impl Engine {
         } else {
             return Err(EngineError::Unsupported(name.to_owned()));
         };
-        self.load(doc, name)
+        // Legacy and ODF documents are saved as .docx.
+        let name = match lower.rsplit_once('.') {
+            Some((_, "doc" | "odt")) => {
+                format!("{}.docx", name.rsplit_once('.').map_or(name, |(b, _)| b))
+            }
+            _ => name.to_owned(),
+        };
+        self.load(doc, &name)?;
+        self.macros = macros;
+        // An encrypted document is saved with the same password unless changed.
+        self.save_password = if encrypted {
+            password.map(str::to_owned)
+        } else {
+            None
+        };
+        self.info()
+    }
+
+    /// Password for the next `.docx` saves (`None` or empty: no encryption).
+    pub fn set_save_password(&mut self, password: Option<&str>) {
+        self.save_password = password.filter(|p| !p.is_empty()).map(str::to_owned);
     }
 
     /// Load an in-memory document model.
     pub fn load(&mut self, doc: Document, name: &str) -> Result<DocInfo> {
-        let layout = layout_document(&doc, &mut self.fonts, &mut self.cache)?;
+        let opts = self.options();
+        let layout = layout_document_with(&doc, &mut self.fonts, &mut self.cache, opts)?;
         let display = build_display_list(&layout, &self.fonts);
         self.name = name.to_owned();
         self.saved_doc = Some(doc.clone());
-        self.session = Some(bo_edit::Session::new(doc));
+        let mut session = bo_edit::Session::new(doc);
+        if let Some(a) = &self.author {
+            session.set_author(a);
+        }
+        self.session = Some(session);
+        self.merge_preview = None;
+        self.macros = false;
+        self.save_password = None;
         self.layout = Some(layout);
         self.display = Some(display);
         self.goal_x = None;
@@ -182,10 +280,27 @@ impl Engine {
         self.load(plain_text_document(""), name)
     }
 
+    /// Layout options from the view settings.
+    fn options(&self) -> LayoutOptions {
+        LayoutOptions { view: self.view }
+    }
+
+    /// How tracked changes are displayed.
+    pub fn revision_view(&self) -> RevisionView {
+        self.view
+    }
+
     /// Lay out again after an edit; returns the pages whose display list changed.
     fn relayout(&mut self) -> Result<Vec<usize>> {
+        let opts = self.options();
         let doc = self.session.as_ref().ok_or(EngineError::NoDocument)?.doc();
-        let layout = layout_document(doc, &mut self.fonts, &mut self.cache)?;
+        // Mail-merge preview: the record's values in the merge fields (§17.16.5.35).
+        let preview = match (&self.merge, self.merge_preview) {
+            (Some(m), Some(r)) => Some(bo_edit::merge::preview(doc, m, Some(r))),
+            _ => None,
+        };
+        let doc = preview.as_ref().unwrap_or(doc);
+        let layout = layout_document_with(doc, &mut self.fonts, &mut self.cache, opts)?;
         let display = build_display_list(&layout, &self.fonts);
         let old = self.display.take().unwrap_or_default();
         let dirty = if old.pages.len() == display.pages.len() {
@@ -343,6 +458,8 @@ impl Engine {
                 })
                 .collect(),
             word_count: words,
+            macros: self.macros,
+            protected: self.save_password.is_some(),
         })
     }
 
@@ -432,11 +549,26 @@ impl Engine {
             .or_else(|| self.images.get(name).map(Vec::as_slice))
     }
 
-    /// Serialize the open document as `.docx` (lossless for unchanged parts, ADR-0005).
+    /// Set the mail-merge data source (CSV or XLSX); returns the number of records.
+    pub fn set_merge_data(&mut self, bytes: &[u8], name: &str) -> Result<usize> {
+        let d = merge::read_data(bytes, name)?;
+        let n = d.rows.len();
+        self.merge = Some(d);
+        Ok(n)
+    }
+
+    /// Serialize the open document as `.docx` (lossless for unchanged parts, ADR-0005),
+    /// encrypted with the save password when one is set ([MS-OFFCRYPTO] §2.3.4.10).
     pub fn save_docx(&self) -> Result<Vec<u8>> {
         // Hosts call `mark_saved` once the bytes are stored.
         let doc = self.document().ok_or(EngineError::NoDocument)?;
-        Ok(bo_docx::write_docx(doc)?)
+        let bytes = bo_docx::write_docx(doc)?;
+        match &self.save_password {
+            Some(pw) => {
+                bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))
+            }
+            None => Ok(bytes),
+        }
     }
 }
 

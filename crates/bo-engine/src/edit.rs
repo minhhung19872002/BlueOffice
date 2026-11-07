@@ -5,7 +5,9 @@
 //! changed (so the canvas only repaints those).
 
 use crate::nav::{self, CaretRect, Motion, SelRect};
+use crate::review::ReviewState;
 use bo_edit::{CharFormat, FindOptions, FormatState, Match, ParaFormat, Pos, Selection};
+use bo_layout::{LayoutOptions, RevisionView};
 use bo_model::SectionBreak;
 use serde::{Deserialize, Serialize};
 
@@ -118,6 +120,108 @@ pub enum Command {
         #[serde(default)]
         text: Option<String>,
     },
+    /// Review state only (track changes, revisions, comments).
+    Review,
+    /// Track-changes mode on/off (ECMA-376 Part 1, §17.13.5).
+    SetTrackChanges {
+        on: bool,
+    },
+    /// Author of new revisions and comments (the signed-in user; empty = "BlueOffice").
+    SetAuthor {
+        name: String,
+    },
+    /// Markup / final / original display of tracked changes.
+    SetRevisionView {
+        view: RevisionView,
+    },
+    /// Accept one revision by id, or those at the selection when `id` is absent.
+    AcceptRevision {
+        #[serde(default)]
+        id: Option<i32>,
+    },
+    /// Reject one revision by id, or those at the selection when `id` is absent.
+    RejectRevision {
+        #[serde(default)]
+        id: Option<i32>,
+    },
+    AcceptAllRevisions,
+    RejectAllRevisions,
+    /// Select the next (`forward`) or previous revision.
+    NextRevision {
+        #[serde(default = "yes")]
+        forward: bool,
+    },
+    /// Comment on the selection (ECMA-376 Part 1, §17.13.4).
+    AddComment {
+        text: String,
+    },
+    /// Reply to comment `id` ([MS-DOCX] threading).
+    ReplyComment {
+        id: i32,
+        text: String,
+    },
+    /// Mark a thread resolved or open again.
+    ResolveComment {
+        id: i32,
+        #[serde(default = "yes")]
+        done: bool,
+    },
+    /// Delete a comment and its replies.
+    DeleteComment {
+        id: i32,
+    },
+    /// Select the text a comment is anchored to.
+    SelectComment {
+        id: i32,
+    },
+    /// Select the next (`forward`) or previous comment.
+    NextComment {
+        #[serde(default = "yes")]
+        forward: bool,
+    },
+    /// Update TOC, SEQ, REF and PAGEREF fields (ECMA-376 Part 1, §17.16).
+    UpdateFields,
+    /// Insert a table of contents at the caret.
+    InsertToc,
+    /// Insert a caption (`label n: text`) after the caret's paragraph.
+    InsertCaption {
+        label: String,
+        #[serde(default)]
+        text: String,
+    },
+    /// List the cross-reference targets (bookmarks and captions).
+    CrossReferenceTargets,
+    /// Insert a cross-reference to a target: its text or (`page`) its page number.
+    InsertCrossReference {
+        target: String,
+        #[serde(default)]
+        page: bool,
+    },
+    /// Mail-merge data source (CSV or XLSX bytes, base64).
+    MergeData {
+        name: String,
+        base64: String,
+    },
+    /// Insert `MERGEFIELD name` (ECMA-376 Part 1, §17.16.5.35) at the caret.
+    MergeInsertField {
+        name: String,
+    },
+    /// Show record `record` (0-based) in the merge fields, or the field names.
+    MergePreview {
+        #[serde(default)]
+        record: Option<usize>,
+    },
+    /// Replace the open document by the merged one (one section per record).
+    MergeToDocument,
+    /// Password for saving ([MS-OFFCRYPTO] Agile Encryption); empty or absent: none.
+    SetSavePassword {
+        #[serde(default)]
+        password: Option<String>,
+    },
+}
+
+fn yes() -> bool {
+    true
 }
 
 fn one() -> u8 {
@@ -154,22 +258,118 @@ pub struct EditResult {
     /// Error message of a command that could not be applied (state is unchanged).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Review pane state; present after document changes and review commands.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review: Option<ReviewState>,
+    /// Cross-reference targets (`crossReferenceTargets`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub targets: Option<Vec<bo_edit::RefTarget>>,
+    /// Mail-merge state (after merge commands and `state`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge: Option<crate::merge::MergeState>,
 }
 
 impl crate::Engine {
-    /// Run a JSON command and return the [`EditResult`] as JSON.
+    /// Run a JSON command and return the [`EditResult`] as JSON. Besides the command
+    /// fields the object may carry `now` (Unix milliseconds): the host clock used to date
+    /// new revisions and comments (browser WASM has no clock of its own).
     pub fn command_json(&mut self, json: &str) -> crate::Result<String> {
-        let cmd: Command = serde_json::from_str(json)
+        let mut v: serde_json::Value = serde_json::from_str(json)
             .map_err(|e| crate::EngineError::BadCommand(e.to_string()))?;
-        let r = self.command(cmd)?;
+        let now = v
+            .as_object_mut()
+            .and_then(|o| o.remove("now"))
+            .and_then(|n| n.as_f64());
+        let cmd: Command =
+            serde_json::from_value(v).map_err(|e| crate::EngineError::BadCommand(e.to_string()))?;
+        let r = self.command_at(cmd, now.map(|ms| ms as i64))?;
         Ok(serde_json::to_string(&r).unwrap_or_default())
     }
 
     /// Run a command.
     pub fn command(&mut self, cmd: Command) -> crate::Result<EditResult> {
+        self.command_at(cmd, None)
+    }
+
+    /// Set the clock (Unix milliseconds) used to date new revisions and comments.
+    pub fn set_clock_ms(&mut self, ms: i64) {
+        if let Some(s) = self.session.as_mut() {
+            s.set_clock(Some(crate::review::iso_date(ms)));
+        }
+    }
+
+    /// Run a command at host time `now` (Unix ms; the system clock when absent).
+    fn command_at(&mut self, cmd: Command, now: Option<i64>) -> crate::Result<EditResult> {
         let mut extra = (None, None, None);
         let mut error = None;
         let mut changed = false; // set when the document version moves
+        let mut relayout = false; // display options changed
+        let review = matches!(
+            cmd,
+            Command::State
+                | Command::Review
+                | Command::SetTrackChanges { .. }
+                | Command::SetAuthor { .. }
+                | Command::SetRevisionView { .. }
+                | Command::NextRevision { .. }
+                | Command::SelectComment { .. }
+                | Command::NextComment { .. }
+        );
+        if let Command::SetRevisionView { view } = cmd {
+            relayout = self.view != view;
+            self.view = view;
+        }
+        if let Command::SetAuthor { name } = &cmd {
+            let n = name.trim();
+            self.author = (!n.is_empty()).then(|| n.to_owned());
+        }
+        let merge_cmd = matches!(
+            cmd,
+            Command::State
+                | Command::MergeData { .. }
+                | Command::MergePreview { .. }
+                | Command::MergeToDocument
+                | Command::MergeInsertField { .. }
+        );
+        match &cmd {
+            Command::SetSavePassword { password } => {
+                self.set_save_password(password.as_deref());
+            }
+            Command::MergeData { name, base64 } => {
+                match crate::merge::base64_decode(base64)
+                    .ok_or_else(|| crate::EngineError::BadCommand("base64".into()))
+                    .and_then(|b| crate::merge::read_data(&b, name))
+                {
+                    Ok(d) => {
+                        self.merge = Some(d);
+                        relayout |= self.merge_preview.is_some();
+                    }
+                    Err(e) => error = Some(e.to_string()),
+                }
+            }
+            Command::MergePreview { record } => {
+                let n = self.merge.as_ref().map_or(0, |m| m.rows.len());
+                let r = record.filter(|_| n > 0).map(|r| r.min(n - 1));
+                relayout |= r != self.merge_preview;
+                self.merge_preview = r;
+            }
+            Command::MergeToDocument => match (&self.merge, self.session.as_ref()) {
+                (Some(m), Some(s)) if !m.rows.is_empty() => {
+                    let merged = bo_edit::merge::merge_all(s.doc(), m);
+                    let stem = self
+                        .name
+                        .rsplit_once('.')
+                        .map_or(self.name.clone(), |(b, _)| b.to_owned());
+                    self.load(merged, &format!("{stem}-merged.docx"))?;
+                    changed = true;
+                }
+                _ => error = Some("mail merge: no data source".into()),
+            },
+            _ => {}
+        }
+        if let Some(ms) = now.or_else(crate::review::system_ms) {
+            self.set_clock_ms(ms);
+        }
         let keep_goal = matches!(
             cmd,
             Command::Move {
@@ -177,17 +377,42 @@ impl crate::Engine {
                 ..
             }
         );
+        let mut targets = None;
         {
             let layout = self.layout.as_ref().ok_or(crate::EngineError::NoDocument)?;
             let s = self
                 .session
                 .as_mut()
                 .ok_or(crate::EngineError::NoDocument)?;
+            let (fonts, cache, opts) = (
+                &mut self.fonts,
+                &mut self.cache,
+                LayoutOptions { view: self.view },
+            );
+            // Lays a document out for field updates (page numbers per body paragraph).
+            let mut pages_of = |doc: &bo_model::Document| -> Vec<u32> {
+                let n = bo_model::index::body_paragraphs(doc).len();
+                bo_layout::layout_document_with(doc, fonts, cache, opts)
+                    .map(|l| page_numbers(&l, n))
+                    .unwrap_or_default()
+            };
             let before_version = s.version();
             let sel = s.selection();
+            let cmd_kind = if matches!(cmd, Command::AcceptRevision { .. }) {
+                CmdKind::Accept
+            } else {
+                CmdKind::Other
+            };
             let res: bo_edit::Result<()> = (|| {
                 match cmd {
-                    Command::State => {}
+                    // Handled outside the session (view options, merge state).
+                    Command::State
+                    | Command::Review
+                    | Command::SetRevisionView { .. }
+                    | Command::MergeData { .. }
+                    | Command::MergePreview { .. }
+                    | Command::MergeToDocument
+                    | Command::SetSavePassword { .. } => {}
                     Command::SetSelection { selection } => s.set_selection(selection),
                     Command::Click {
                         page,
@@ -340,6 +565,63 @@ impl crate::Engine {
                             s.paste_text(&t)?;
                         }
                     }
+                    Command::SetTrackChanges { on } => s.set_track_changes(on),
+                    Command::SetAuthor { name } => s.set_author(&name),
+                    Command::AcceptRevision { id } | Command::RejectRevision { id } => {
+                        let accept = matches!(cmd_kind, CmdKind::Accept);
+                        let ids = id.map_or_else(|| s.revisions_at_selection(), |i| vec![i]);
+                        if !ids.is_empty() {
+                            extra.1 = Some(s.resolve_revisions(Some(&ids), accept)?);
+                        }
+                    }
+                    Command::AcceptAllRevisions => {
+                        extra.1 = Some(s.resolve_revisions(None, true)?);
+                    }
+                    Command::RejectAllRevisions => {
+                        extra.1 = Some(s.resolve_revisions(None, false)?);
+                    }
+                    Command::NextRevision { forward } => {
+                        extra.1 = Some(usize::from(s.select_revision(forward).is_some()));
+                    }
+                    Command::AddComment { text } => {
+                        extra.1 = Some(s.add_comment(&text)?.max(0) as usize);
+                    }
+                    Command::ReplyComment { id, text } => {
+                        extra.1 = Some(s.reply_comment(id, &text)?.max(0) as usize);
+                    }
+                    Command::ResolveComment { id, done } => s.resolve_comment(id, done)?,
+                    Command::DeleteComment { id } => s.delete_comment(id)?,
+                    Command::SelectComment { id } => {
+                        extra.1 = Some(usize::from(s.select_comment(id)));
+                    }
+                    Command::NextComment { forward } => {
+                        extra.1 = s.next_comment(forward).map(|i| i.max(0) as usize);
+                    }
+                    Command::UpdateFields => {
+                        extra.1 = Some(s.update_fields(&mut pages_of)?);
+                    }
+                    Command::InsertToc => {
+                        extra.1 = Some(s.insert_toc(&mut pages_of)?);
+                    }
+                    Command::InsertCaption { label, text } => {
+                        s.insert_caption(&label, &text)?;
+                    }
+                    Command::CrossReferenceTargets => targets = Some(s.ref_targets()),
+                    Command::InsertCrossReference { target, page } => {
+                        s.insert_cross_reference(&target, page, &mut pages_of)?;
+                    }
+                    Command::MergeInsertField { name } => {
+                        let n = name.trim();
+                        let quoted = if n.contains(' ') {
+                            format!("\"{n}\"")
+                        } else {
+                            n.to_owned()
+                        };
+                        s.insert_field(
+                            &format!("MERGEFIELD {quoted} \\* MERGEFORMAT"),
+                            &bo_edit::merge::placeholder(n),
+                        )?;
+                    }
                 }
                 Ok(())
             })();
@@ -351,12 +633,26 @@ impl crate::Engine {
         if !keep_goal {
             self.goal_x = None;
         }
-        let dirty = if changed {
+        let dirty = if changed || relayout {
             self.relayout()?
         } else {
             Vec::new()
         };
-        let r = self.edit_result(dirty, extra, error)?;
+        let mut r = self.edit_result(dirty, extra, error)?;
+        r.targets = targets;
+        if merge_cmd {
+            r.merge = self.merge.as_ref().map(|m| crate::merge::MergeState {
+                name: m.name.clone(),
+                fields: m.fields.clone(),
+                count: m.rows.len(),
+                preview: self.merge_preview,
+            });
+        }
+        if changed || relayout || review {
+            if let Some(s) = self.session.as_ref() {
+                r.review = Some(crate::review::review_state(s, self.view));
+            }
+        }
         Ok(r)
     }
 
@@ -412,8 +708,34 @@ impl crate::Engine {
             count: extra.1,
             clip: extra.2,
             error,
+            review: None,
+            targets: None,
+            merge: None,
         })
     }
+}
+
+/// Displayed page number of every body paragraph (0 when not laid out).
+pub fn page_numbers(layout: &bo_layout::LayoutDocument, paragraphs: usize) -> Vec<u32> {
+    let mut v = vec![0u32; paragraphs];
+    for p in &layout.pages {
+        for l in &p.lines {
+            if let bo_layout::LineSource::Body(id) = l.source {
+                if let Some(slot) = v.get_mut(id as usize) {
+                    if *slot == 0 {
+                        *slot = p.number;
+                    }
+                }
+            }
+        }
+    }
+    v
+}
+
+/// Distinguishes commands sharing a match arm.
+enum CmdKind {
+    Accept,
+    Other,
 }
 
 /// Pixel size of a PNG (IHDR) or JPEG (SOFn) picture.

@@ -1,9 +1,10 @@
 //! Paragraph layout: itemization, shaping, line breaking, tabs, alignment, line height.
 //! Output is position-independent (relative to the content box) and cacheable.
 
-use crate::style::{para_style_run, run_props, run_style, RunStyle};
+use crate::style::{para_style_run, revision_style, run_props, run_style, RunStyle};
 use crate::types::{Fragment, GlyphPos, NoteKey};
 use crate::LayoutError;
+use crate::RevisionView;
 use bo_model::index::para_index;
 use bo_model::{
     Alignment, Borders, Color, Document, Image, LineSpacing, ParaProps, Paragraph, RunContent,
@@ -41,6 +42,8 @@ pub(crate) struct ParaInput<'a> {
     pub note_numbers: &'a HashMap<NoteKey, String>,
     /// Number shown by a `footnoteRef` mark inside a note's own text.
     pub note_mark: Option<&'a str>,
+    /// How tracked changes are shown.
+    pub view: RevisionView,
 }
 
 /// Cache of laid-out paragraphs (see crate docs, "Incremental layout").
@@ -192,6 +195,7 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     inp.default_tab.to_bits().hash(&mut h);
     inp.doc.default_run.hash(&mut h);
     inp.note_mark.hash(&mut h);
+    inp.view.hash(&mut h);
     // Page-dependent fields and note numbers only matter when present.
     if inp.para.runs.iter().any(|r| {
         r.content.iter().any(|c| {
@@ -284,8 +288,22 @@ fn layout_uncached(
     let mut styles: Vec<RunStyle> = Vec::new();
     let mut run_style_idx: Vec<usize> = Vec::new();
     for r in &inp.para.runs {
-        let rp = run_props(doc, &base_run, &r.props);
-        styles.push(run_style(fonts, &rp).ok_or(LayoutError::NoFonts)?);
+        // The original view shows the formatting before a tracked change (§17.13.5.31).
+        let direct = match (&r.props.change, inp.view) {
+            (Some(c), RevisionView::Original) => RunProps {
+                ins: r.props.ins.clone(),
+                del: r.props.del.clone(),
+                link: r.props.link.clone(),
+                ..c.old.clone()
+            },
+            _ => r.props.clone(),
+        };
+        let rp = run_props(doc, &base_run, &direct);
+        styles.push(revision_style(
+            run_style(fonts, &rp).ok_or(LayoutError::NoFonts)?,
+            &rp,
+            inp.view,
+        ));
         run_style_idx.push(styles.len() - 1);
     }
     let mark_style = match styles.last() {

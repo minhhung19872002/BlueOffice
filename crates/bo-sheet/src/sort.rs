@@ -1,4 +1,6 @@
-//! Multi-level sort of a cell range (rows reordered top-to-bottom).
+//! Multi-level sort of a cell range: rows reordered top-to-bottom, or columns
+//! left-to-right (ECMA-376 Part 1, §18.3.1.92 `sortState/@columnSort`), by
+//! value or by cell / font colour (§18.3.1.91 `sortCondition/@sortBy`).
 //!
 //! Ascending order follows the usual spreadsheet convention: numbers, then text
 //! (case-insensitive unless requested), then logical values (FALSE < TRUE), then
@@ -7,16 +9,28 @@
 //! references are not rewritten here (see [`crate::calc`]).
 
 use crate::calc::{FormulaAdjuster, NoFormulas};
-use bo_model::sheet::{Cell, CellRange, CellValue, Worksheet};
+use bo_model::sheet::{Cell, CellRange, CellValue, Workbook, Worksheet};
 use std::cmp::Ordering;
+
+/// What a sort level compares (§18.18.79 `ST_SortBy`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortBy {
+    #[default]
+    Value,
+    /// Cells filled with this colour first (last when descending).
+    CellColor((u8, u8, u8)),
+    /// Cells whose font has this colour first (last when descending).
+    FontColor((u8, u8, u8)),
+}
 
 /// One sort level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SortKey {
-    /// Absolute zero-based column of the key.
+    /// Absolute zero-based column of the key (the key row when sorting left to right).
     pub col: u32,
     pub descending: bool,
     pub case_sensitive: bool,
+    pub by: SortBy,
 }
 
 impl SortKey {
@@ -26,6 +40,7 @@ impl SortKey {
             col,
             descending: false,
             case_sensitive: false,
+            by: SortBy::Value,
         }
     }
 
@@ -35,6 +50,7 @@ impl SortKey {
             col,
             descending: true,
             case_sensitive: false,
+            by: SortBy::Value,
         }
     }
 }
@@ -101,10 +117,8 @@ pub fn text_key(s: &str) -> String {
         .collect()
 }
 
-fn value_at(row: &[(u32, Cell)], col: u32) -> Option<&CellValue> {
-    row.iter()
-        .find(|(c, _)| *c == col)
-        .map(|(_, cell)| &cell.value)
+fn cell_at(line: &[(u32, Cell)], pos: u32) -> Option<&Cell> {
+    line.iter().find(|(c, _)| *c == pos).map(|(_, cell)| cell)
 }
 
 fn key_cmp(a: Option<&CellValue>, b: Option<&CellValue>, k: SortKey) -> Ordering {
@@ -136,6 +150,7 @@ pub fn sort_range(ws: &mut Worksheet, range: CellRange, keys: &[SortKey], has_he
 /// [`sort_range`] that rewrites the formulas of moved rows through `adj`
 /// ([`FormulaAdjuster::translate`] by the row distance), so relative
 /// references keep pointing at the same row, as when the row is cut and pasted.
+/// Colour keys are ignored (they need the stylesheet, see [`sort_lines`]).
 pub fn sort_range_with(
     ws: &mut Worksheet,
     range: CellRange,
@@ -146,50 +161,159 @@ pub fn sort_range_with(
     let keys: Vec<SortKey> = keys
         .iter()
         .copied()
-        .filter(|k| k.col >= range.first.col && k.col <= range.last.col)
+        .filter(|k| k.by == SortBy::Value)
         .collect();
-    let first = range.first.row + u32::from(has_header);
-    if keys.is_empty() || first >= range.last.row {
+    let mut wb = Workbook {
+        sheets: vec![std::mem::take(ws)],
+        ..Workbook::default()
+    };
+    sort_lines(&mut wb, 0, range, &keys, has_header, false, adj);
+    *ws = wb.sheets.pop().unwrap_or_default();
+}
+
+/// Sort `range` of sheet `sheet`: rows by key columns, or with `by_columns`
+/// the columns left to right by key rows. With `has_header` the first row
+/// (first column) stays in place. Colour keys use the workbook's styles.
+pub fn sort_lines(
+    wb: &mut Workbook,
+    sheet: usize,
+    range: CellRange,
+    keys: &[SortKey],
+    has_header: bool,
+    by_columns: bool,
+    adj: &dyn FormulaAdjuster,
+) {
+    let (lo, hi) = if by_columns {
+        (range.first.row, range.last.row)
+    } else {
+        (range.first.col, range.last.col)
+    };
+    let keys: Vec<SortKey> = keys
+        .iter()
+        .copied()
+        .filter(|k| k.col >= lo && k.col <= hi)
+        .collect();
+    let (start, end) = if by_columns {
+        (range.first.col + u32::from(has_header), range.last.col)
+    } else {
+        (range.first.row + u32::from(has_header), range.last.row)
+    };
+    if keys.is_empty() || start >= end || sheet >= wb.sheets.len() {
         return;
     }
-    let (c0, c1) = (range.first.col, range.last.col);
-    // Take the rows out.
-    let mut rows: Vec<(u32, Vec<(u32, Cell)>)> =
-        Vec::with_capacity((range.last.row - first + 1) as usize);
-    for r in first..=range.last.row {
-        let cols: Vec<u32> = ws
-            .cells
-            .range((r, c0)..=(r, c1))
-            .map(|(&(_, c), _)| c)
-            .collect();
-        let row = cols
-            .into_iter()
-            .filter_map(|c| ws.cells.remove(&(r, c)).map(|cell| (c, cell)))
-            .collect();
-        rows.push((r, row));
+    // Take the lines out: (original index, [(position across the line, cell)]).
+    let mut lines: Vec<(u32, Vec<(u32, Cell)>)> = Vec::with_capacity((end - start + 1) as usize);
+    {
+        let ws = &mut wb.sheets[sheet];
+        for i in start..=end {
+            let keys_in_line: Vec<(u32, u32)> = if by_columns {
+                (range.first.row..=range.last.row)
+                    .filter(|r| ws.cells.contains_key(&(*r, i)))
+                    .map(|r| (r, i))
+                    .collect()
+            } else {
+                ws.cells
+                    .range((i, range.first.col)..=(i, range.last.col))
+                    .map(|(&k, _)| k)
+                    .collect()
+            };
+            let line = keys_in_line
+                .into_iter()
+                .filter_map(|k| {
+                    let pos = if by_columns { k.0 } else { k.1 };
+                    ws.cells.remove(&k).map(|cell| (pos, cell))
+                })
+                .collect();
+            lines.push((i, line));
+        }
     }
-    rows.sort_by(|(_, a), (_, b)| {
+    let colour_of = |cell: Option<&Cell>, by: SortBy| -> bool {
+        let Some(cell) = cell else { return false };
+        match by {
+            SortBy::Value => false,
+            SortBy::CellColor(c) => crate::color::cell_fill_rgb(wb, cell) == Some(c),
+            SortBy::FontColor(c) => crate::color::cell_font_rgb(wb, cell).unwrap_or((0, 0, 0)) == c,
+        }
+    };
+    let cmp = |a: &[(u32, Cell)], b: &[(u32, Cell)]| -> Ordering {
         keys.iter()
-            .map(|k| key_cmp(value_at(a, k.col), value_at(b, k.col), *k))
+            .map(|k| {
+                let (ca, cb) = (cell_at(a, k.col), cell_at(b, k.col));
+                match k.by {
+                    SortBy::Value => key_cmp(ca.map(|c| &c.value), cb.map(|c| &c.value), *k),
+                    by => {
+                        // Matching cells on top (descending: at the bottom).
+                        let o = colour_of(cb, by).cmp(&colour_of(ca, by));
+                        if k.descending {
+                            o.reverse()
+                        } else {
+                            o
+                        }
+                    }
+                }
+            })
             .find(|o| *o != Ordering::Equal)
             .unwrap_or(Ordering::Equal)
-    });
-    for (i, (from, row)) in rows.into_iter().enumerate() {
-        let r = first + i as u32;
-        let d = i64::from(r) - i64::from(from);
-        for (c, mut cell) in row {
+    };
+    lines.sort_by(|(_, a), (_, b)| cmp(a, b));
+    let ws = &mut wb.sheets[sheet];
+    for (n, (from, line)) in lines.into_iter().enumerate() {
+        let to = start + n as u32;
+        let d = i64::from(to) - i64::from(from);
+        for (pos, mut cell) in line {
             if let Some(f) = &mut cell.formula {
                 if d != 0 && !f.text.is_empty() {
-                    if let Some(t) = adj.translate(&f.text, d, 0) {
+                    let (dr, dc) = if by_columns { (0, d) } else { (d, 0) };
+                    if let Some(t) = adj.translate(&f.text, dr, dc) {
                         f.text = t;
                     }
                 }
             }
-            ws.cells.insert((r, c), cell);
+            let key = if by_columns { (pos, to) } else { (to, pos) };
+            ws.cells.insert(key, cell);
         }
     }
 }
 
+/// Distinct fill and font colours (`RRGGBB`) in one column (row when
+/// `by_columns`) of `range`, for the "sort by colour" choices.
+pub fn line_colors(
+    wb: &Workbook,
+    sheet: usize,
+    range: CellRange,
+    key: u32,
+    by_columns: bool,
+) -> (Vec<String>, Vec<String>) {
+    let mut fills = Vec::new();
+    let mut fonts = Vec::new();
+    let Some(ws) = wb.sheets.get(sheet) else {
+        return (fills, fonts);
+    };
+    let cells: Vec<&Cell> = if by_columns {
+        (range.first.col..=range.last.col)
+            .filter_map(|c| ws.cell(key, c))
+            .collect()
+    } else {
+        (range.first.row..=range.last.row)
+            .filter_map(|r| ws.cell(r, key))
+            .collect()
+    };
+    for cell in cells.into_iter().take(100_000) {
+        if let Some(c) = crate::color::cell_fill_rgb(wb, cell) {
+            let h = crate::color::hex(c);
+            if !fills.contains(&h) {
+                fills.push(h);
+            }
+        }
+        if !matches!(cell.value, CellValue::Empty) {
+            let h = crate::color::hex(crate::color::cell_font_rgb(wb, cell).unwrap_or((0, 0, 0)));
+            if !fonts.contains(&h) {
+                fonts.push(h);
+            }
+        }
+    }
+    (fills, fonts)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,5 +393,96 @@ mod tests {
             compare_values(&Text("a".into()), &Text("A".into()), true),
             Ordering::Less
         );
+    }
+
+    #[test]
+    fn left_to_right_and_by_colour() {
+        use bo_model::sheet::{CellXf, Fill, Font, SheetColor};
+        let mut wb = Workbook::new();
+        let red = wb.styles.add_fill(Fill::solid("FF0000"));
+        let red_xf = wb.styles.add_xf(CellXf {
+            fill_id: red,
+            ..CellXf::default()
+        });
+        let blue_font = wb.styles.add_font(Font {
+            color: Some(SheetColor::rgb("0000FF")),
+            ..Font::default()
+        });
+        let blue_xf = wb.styles.add_xf(CellXf {
+            font_id: blue_font,
+            ..CellXf::default()
+        });
+        let ws = &mut wb.sheets[0];
+        // Header column A, then three columns sorted by row 2 (left to right).
+        for (c, (name, v)) in [("Năm", 0.0), ("c", 3.0), ("a", 1.0), ("b", 2.0)]
+            .iter()
+            .enumerate()
+        {
+            ws.set_cell(0, c as u32, Cell::new(CellValue::Text((*name).into())));
+            ws.set_cell(1, c as u32, Cell::new(CellValue::Number(*v)));
+        }
+        let range = CellRange::parse("A1:D2").unwrap();
+        let by_row2 = SortKey::asc(1);
+        sort_lines(&mut wb, 0, range, &[by_row2], true, true, &NoFormulas);
+        let ws = &wb.sheets[0];
+        let row0: Vec<String> = (0..4)
+            .map(|c| {
+                ws.cell(0, c)
+                    .and_then(|x| x.value.as_text())
+                    .unwrap_or_default()
+            })
+            .collect();
+        assert_eq!(row0, ["Năm", "a", "b", "c"]);
+        // Colour sort: red-filled rows first, then blue text.
+        let ws = &mut wb.sheets[0];
+        ws.cells.clear();
+        for (r, (v, style)) in [(1.0, 0), (2.0, red_xf), (3.0, blue_xf), (4.0, red_xf)]
+            .iter()
+            .enumerate()
+        {
+            ws.set_cell(
+                r as u32,
+                0,
+                Cell::new(CellValue::Number(*v)).with_style(*style),
+            );
+        }
+        let range = CellRange::parse("A1:A4").unwrap();
+        let red_key = SortKey {
+            by: SortBy::CellColor((255, 0, 0)),
+            ..SortKey::asc(0)
+        };
+        let blue_key = SortKey {
+            by: SortBy::FontColor((0, 0, 255)),
+            ..SortKey::asc(0)
+        };
+        sort_lines(
+            &mut wb,
+            0,
+            range,
+            &[red_key, blue_key],
+            false,
+            false,
+            &NoFormulas,
+        );
+        assert_eq!(col_vals(&wb.sheets[0]), [2.0, 4.0, 3.0, 1.0]);
+        let (fills, fonts) = line_colors(&wb, 0, range, 0, false);
+        assert_eq!(fills, ["FF0000"]);
+        assert_eq!(fonts, ["000000", "0000FF"]);
+        // Descending colour key: red at the bottom.
+        let red_desc = SortKey {
+            descending: true,
+            ..red_key
+        };
+        sort_lines(&mut wb, 0, range, &[red_desc], false, false, &NoFormulas);
+        assert_eq!(col_vals(&wb.sheets[0])[2..], [2.0, 4.0]);
+    }
+
+    fn col_vals(ws: &Worksheet) -> Vec<f64> {
+        (0..4)
+            .map(|r| match ws.cell(r, 0).map(|c| &c.value) {
+                Some(CellValue::Number(n)) => *n,
+                _ => f64::NAN,
+            })
+            .collect()
     }
 }

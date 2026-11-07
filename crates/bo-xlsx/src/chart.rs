@@ -16,15 +16,15 @@ const MAX_NODES: usize = 200_000;
 
 /// A tiny element tree (local names only), enough for chart summaries.
 #[derive(Debug, Default)]
-struct Node {
-    name: String,
-    attrs: Vec<RawAttr>,
-    children: Vec<Node>,
-    text: String,
+pub(crate) struct Node {
+    pub(crate) name: String,
+    pub(crate) attrs: Vec<RawAttr>,
+    pub(crate) children: Vec<Node>,
+    pub(crate) text: String,
 }
 
 impl Node {
-    fn child(&self, name: &str) -> Option<&Node> {
+    pub(crate) fn child(&self, name: &str) -> Option<&Node> {
         self.children.iter().find(|c| c.name == name)
     }
 
@@ -32,7 +32,7 @@ impl Node {
         names.iter().try_fold(self, |n, name| n.child(name))
     }
 
-    fn attr(&self, local: &str) -> Option<&str> {
+    pub(crate) fn attr(&self, local: &str) -> Option<&str> {
         self.attrs
             .iter()
             .find(|(k, _)| k.rsplit_once(':').map_or(k.as_str(), |(_, l)| l) == local)
@@ -64,7 +64,7 @@ impl Node {
 }
 
 /// Parse a part into a [`Node`] tree. Depth is bounded by [`XmlReader`].
-fn parse_dom(data: &[u8], part: &str) -> Option<Node> {
+pub(crate) fn parse_dom(data: &[u8], part: &str) -> Option<Node> {
     let mut r = XmlReader::new(data, part);
     let mut stack: Vec<Node> = vec![Node::default()];
     let mut count = 0usize;

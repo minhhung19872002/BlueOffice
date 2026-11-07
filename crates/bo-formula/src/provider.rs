@@ -1,6 +1,7 @@
 //! The data source an evaluation reads from.
 
 use crate::ast::Expr;
+use crate::lookupindex::ExactIndex;
 use crate::reference::{MAX_COLS, MAX_ROWS};
 use std::sync::Arc;
 
@@ -112,6 +113,13 @@ pub trait CellProvider {
     /// (an optimization for repeated lookups into the same table); `None`
     /// means the evaluator reads the cells one by one.
     fn area_array(&self, _area: &Area) -> Option<Arc<Array>> {
+        None
+    }
+
+    /// Hashed exact-match index of a one-row or one-column area whose values
+    /// are final (an optimization for many exact lookups into the same table);
+    /// `None` means the lookup scans the values.
+    fn exact_index(&self, _area: &Area) -> Option<Arc<ExactIndex>> {
         None
     }
 

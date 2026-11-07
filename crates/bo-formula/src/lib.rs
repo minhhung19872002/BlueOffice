@@ -32,6 +32,7 @@ mod format;
 mod functions;
 mod fxhash;
 mod lexer;
+mod lookupindex;
 mod numfmt;
 mod parser;
 pub mod provider;
@@ -46,6 +47,7 @@ pub use date::DateSystem;
 pub use eval::{evaluate, EvalConfig};
 pub use format::{format, format_reference, format_with};
 pub use functions::{function_names, is_volatile_function};
+pub use lookupindex::ExactIndex;
 pub use numfmt::{format_number, format_text};
 pub use parser::{
     parse, parse_with, ParseError, ParseOptions, RefStyle, MAX_FORMULA_CHARS, MAX_NESTING,
@@ -53,6 +55,8 @@ pub use parser::{
 };
 pub use provider::{CellProvider, TableInfo};
 pub use reference::{CellAddr, RefKind, Reference, SheetRef};
-pub use shift::{adjust_for_change, offset_relative, StructuralChange};
+pub use shift::{
+    adjust_for_change, adjust_for_move, offset_relative, MovedBlock, StructuralChange,
+};
 pub use value::{Area, Array, ErrorKind, Lambda, Value};
 pub use workbook::{CellId, IterativeConfig, Workbook};

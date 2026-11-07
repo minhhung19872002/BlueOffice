@@ -72,6 +72,22 @@ impl FormulaAdjuster for BoFormula {
         let moved = offset_relative(&expr, d_rows, d_cols);
         (moved != expr).then(|| format(&moved))
     }
+
+    fn moved(&self, formula: &str, host_sheet: &str, mv: &crate::calc::CellMove) -> Option<String> {
+        let expr = parse(formula).ok()?;
+        let block = bo_formula::MovedBlock {
+            from_sheet: mv.from_sheet.clone(),
+            to_sheet: mv.to_sheet.clone(),
+            first_row: mv.first_row,
+            first_col: mv.first_col,
+            last_row: mv.last_row,
+            last_col: mv.last_col,
+            d_row: mv.d_rows,
+            d_col: mv.d_cols,
+        };
+        let out = bo_formula::adjust_for_move(&expr, host_sheet, &block);
+        (out != expr).then(|| format(&out))
+    }
 }
 
 pub(crate) fn to_value(v: &CellValue, system: DateSystem) -> Value {

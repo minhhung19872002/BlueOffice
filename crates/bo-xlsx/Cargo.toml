@@ -13,6 +13,7 @@ quick-xml.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+bo-sheet.workspace = true
 proptest.workspace = true
 zip.workspace = true
 

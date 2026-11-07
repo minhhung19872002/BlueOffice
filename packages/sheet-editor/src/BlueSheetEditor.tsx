@@ -4,7 +4,9 @@ import type {
   BorderPreset,
   BorderSpec,
   CellFormatState,
+  ChartInfo,
   PasteMode,
+  PivotInfo,
   Platform,
   Rejection,
   SheetCommand,
@@ -49,6 +51,7 @@ import {
   Italic,
   ListIndentDecrease,
   ListIndentIncrease,
+  ListTree,
   LocateFixed,
   MoveHorizontal,
   MoveVertical,
@@ -62,6 +65,7 @@ import {
   Plus,
   Printer,
   Redo2,
+  RefreshCw,
   Replace,
   Rows2,
   Rows3,
@@ -72,6 +76,7 @@ import {
   Snowflake,
   Strikethrough,
   Table2,
+  TableProperties,
   TableCellsMerge,
   TableCellsSplit,
   TextAlignCenter,
@@ -113,6 +118,7 @@ import {
   type MenuItem,
 } from './dialogs';
 import { FormatCellsDialog, type NumberPreset } from './FormatCellsDialog';
+import { PivotDialog, PivotPanel, pivotAt, usePivotLabels } from './pivot';
 import {
   advance,
   cellsOf,
@@ -149,6 +155,8 @@ export interface SheetEditorState {
   fmt: CellFormatState | null;
   /** Selected chart (click on a chart). */
   chart: number | null;
+  /** Pivot table containing the active cell. */
+  pivot: number | null;
 }
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -201,6 +209,7 @@ type DialogState =
   | { kind: 'goto' }
   | { kind: 'pasteSpecial' }
   | { kind: 'pageSetup' }
+  | { kind: 'pivot' }
   | { kind: 'message'; title: string; message: string };
 
 type MenuState = { kind: string; x: number; y: number };
@@ -208,7 +217,17 @@ type MenuState = { kind: string; x: number; y: number };
 type Drag =
   | { kind: 'select' }
   | { kind: 'fill'; source: Range }
-  | { kind: 'resize'; rows: boolean; index: number; start: number; size: number };
+  | { kind: 'resize'; rows: boolean; index: number; start: number; size: number }
+  /** Moving (or, with 
+esize, sizing) a chart: anchors in cells. */
+  | {
+      kind: 'chart';
+      index: number;
+      resize: boolean;
+      start: CellPos;
+      from: [number, number];
+      to: [number, number];
+    };
 
 interface Rect {
   x: number;
@@ -259,9 +278,20 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
   const [hasRule, setHasRule] = useState(false);
   const [painter, setPainter] = useState<Range | null>(null);
   const [fillRect, setFillRect] = useState<Rect | null>(null);
+  /** Selected chart: its anchors and on-screen box (px). */
+  const [chartInfo, setChartInfo] = useState<ChartInfo | null>(null);
+  const [chartBox, setChartBox] = useState<Rect | null>(null);
+  const chartTarget = useRef<{ from: [number, number]; to: [number, number] } | null>(null);
   const [guide, setGuide] = useState<{ x?: number; y?: number } | null>(null);
   const [cursor, setCursor] = useState('cell');
   const [chart, setChart] = useState<number | null>(null);
+  const [pivots, setPivots] = useState<{ sheet: number; list: PivotInfo[] }>({
+    sheet: -1,
+    list: [],
+  });
+  /** The field list shows when the active cell is inside a pivot table. */
+  const [pivotPanel, setPivotPanel] = useState(true);
+  const pivotLabels = usePivotLabels();
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -448,6 +478,41 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
       cancelled = true;
     };
   }, [host, info, sheet, selection.active, revision]);
+
+  // Selected chart: anchors and selection box.
+  useEffect(() => {
+    if (!host || chart === null) return;
+    let cancelled = false;
+    void (async () => {
+      const list = await host.exec<ChartInfo[]>({ cmd: 'charts', sheet });
+      const c = list?.[chart];
+      if (cancelled || !c) return;
+      const r = await host.rangeRect(view, c.from[0], c.from[1], c.to[0] - 1, c.to[1] - 1);
+      if (cancelled) return;
+      setChartInfo(c);
+      setChartBox(px(r));
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, chart, sheet, view, px, revision]);
+
+  // Pivot tables of the sheet (field list panel).
+  useEffect(() => {
+    if (!host || !info?.sheets[sheet]?.pivots) return;
+    let cancelled = false;
+    void host
+      .exec<PivotInfo[]>({ cmd: 'pivots', sheet })
+      .then((list) => !cancelled && setPivots({ sheet, list: list ?? [] }))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, info, sheet, revision]);
+  const activePivot =
+    summary?.pivots && pivots.sheet === sheet
+      ? pivotAt(pivots.list, selection.active.row, selection.active.col)
+      : null;
 
   // Status-bar statistics of the selection.
   useEffect(() => {
@@ -666,6 +731,7 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
         mode,
         transpose,
         skipBlanks,
+        range: toRange(r),
       });
       if (!res) return false;
       setSelection(
@@ -992,6 +1058,25 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
 
     // Insert
     add('insert.chart', popup('chart', 'insert.chart'), has);
+    add('insert.pivot', open({ kind: 'pivot' }), has);
+    add(
+      'pivot.refresh',
+      async (s) => {
+        if (s.pivot === null) return;
+        const done = await exec({
+          cmd: 'pivotRefresh',
+          sheet: s.sheet,
+          index: s.pivot,
+          labels: pivotLabels,
+        });
+        if (done) setStatus(t('sheetEditor.pivot.refreshed'));
+      },
+      { isEnabled: (s) => s.pivot !== null },
+    );
+    add('pivot.fieldList', async () => setPivotPanel((v) => !v), {
+      isEnabled: (s) => s.pivot !== null,
+      isChecked: (s) => s.pivot !== null && pivotPanel,
+    });
     add('chart.edit', async (s) => setDialog({ kind: 'chart', index: s.chart }), {
       isEnabled: () => (summary?.charts ?? 0) > 0,
     });
@@ -1070,11 +1155,24 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
     painter,
     summary,
     axisSpan,
+    pivotLabels,
+    pivotPanel,
   ]);
 
   const state: SheetEditorState | null = useMemo(
-    () => (host ? { host, sheet, selection, hasWorkbook: !!info, fmt, chart } : null),
-    [host, sheet, selection, info, fmt, chart],
+    () =>
+      host
+        ? {
+            host,
+            sheet,
+            selection,
+            hasWorkbook: !!info,
+            fmt,
+            chart,
+            pivot: activePivot?.index ?? null,
+          }
+        : null,
+    [host, sheet, selection, info, fmt, chart, activePivot?.index],
   );
   const run = useCallback(
     (id: string) => {
@@ -1215,6 +1313,18 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
       setFilterMenu({ col: hit.col, x: e.clientX, y: e.clientY + 4 });
     } else if (hit.kind === 'chart') {
       setChart(hit.index);
+      const list = await host.exec<ChartInfo[]>({ cmd: 'charts', sheet });
+      const c = list?.[hit.index];
+      if (c) {
+        drag.current = {
+          kind: 'chart',
+          index: hit.index,
+          resize: false,
+          start: { row: hit.row, col: hit.col },
+          from: c.from,
+          to: c.to,
+        };
+      }
     } else if (hit.kind === 'columnHeader') {
       const to = { row: Math.max(last?.lastRow ?? 0, 999), col: hit.col };
       setSelection(
@@ -1247,6 +1357,23 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
       if (hit?.kind === 'cell') {
         setSelection((s) => ({ ...s, focus: { row: hit.row, col: hit.col } }));
       }
+      return;
+    }
+    if (d?.kind === 'chart') {
+      const hit = await hitAt(e);
+      if (!hit || (hit.kind !== 'cell' && hit.kind !== 'chart') || !host) return;
+      const dr = d.resize ? 0 : Math.max(hit.row - d.start.row, -d.from[0]);
+      const dc = d.resize ? 0 : Math.max(hit.col - d.start.col, -d.from[1]);
+      const from: [number, number] = [d.from[0] + dr, d.from[1] + dc];
+      const to: [number, number] = d.resize
+        ? [Math.max(hit.row + 1, from[0] + 1), Math.max(hit.col + 1, from[1] + 1)]
+        : [d.to[0] + dr, d.to[1] + dc];
+      const same =
+        from[0] === d.from[0] && from[1] === d.from[1] && to[0] === d.to[0] && to[1] === d.to[1];
+      chartTarget.current = same ? null : { from, to };
+      setFillRect(
+        same ? null : px(await host.rangeRect(view, from[0], from[1], to[0] - 1, to[1] - 1)),
+      );
       return;
     }
     if (d?.kind === 'fill') {
@@ -1299,6 +1426,13 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
         whole && inSel ? (d.rows ? [r.r0, r.r1] : [r.c0, r.c1]) : [d.index, d.index];
       if (Math.abs(delta) > 0.5)
         void exec({ cmd: 'resize', sheet, rows: d.rows, first, last, size: sizePt });
+    } else if (d.kind === 'chart') {
+      const target = chartTarget.current;
+      chartTarget.current = null;
+      setFillRect(null);
+      if (target) {
+        void exec({ cmd: 'moveChart', sheet, index: d.index, from: target.from, to: target.to });
+      }
     } else if (d.kind === 'fill') {
       const target = fillTo.current;
       fillTo.current = null;
@@ -1626,6 +1760,25 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
               item('chart.delete', t('sheetEditor.chart.delete'), <Trash size={s} />, 'small'),
             ],
           },
+          {
+            id: 'tables',
+            label: t('sheetEditor.groupTables'),
+            items: [
+              item('insert.pivot', t('sheetEditor.pivot.insert'), <TableProperties size={18} />),
+              item(
+                'pivot.refresh',
+                t('sheetEditor.pivot.refresh'),
+                <RefreshCw size={s} />,
+                'small',
+              ),
+              item(
+                'pivot.fieldList',
+                t('sheetEditor.pivot.fieldList'),
+                <ListTree size={s} />,
+                'small',
+              ),
+            ],
+          },
         ],
       },
       {
@@ -1814,136 +1967,179 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
           }}
         />
       </div>
-      <div
-        className={styles.scroller}
-        ref={scrollerRef}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          setScroll({ x: el.scrollLeft / scale, y: el.scrollTop / scale });
-        }}
-      >
-        <div className={styles.sticky}>
-          <canvas
-            ref={canvasRef}
-            role="grid"
-            aria-label={t('sheetEditor.grid')}
-            data-testid="sheet-canvas"
-            style={{ cursor }}
-            onMouseDown={(e) => void onMouseDown(e)}
-            onMouseMove={(e) => void onMouseMove(e)}
-            onDoubleClick={(e) => void onDoubleClick(e)}
-          />
-          {selRect && chart === null && (
-            <div
-              className={painter ? styles.selectionPainter : styles.selection}
-              style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h }}
-            >
+      <div className={styles.workArea}>
+        <div
+          className={styles.scroller}
+          ref={scrollerRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            setScroll({ x: el.scrollLeft / scale, y: el.scrollTop / scale });
+          }}
+        >
+          <div className={styles.sticky}>
+            <canvas
+              ref={canvasRef}
+              role="grid"
+              aria-label={t('sheetEditor.grid')}
+              data-testid="sheet-canvas"
+              style={{ cursor }}
+              onMouseDown={(e) => void onMouseDown(e)}
+              onMouseMove={(e) => void onMouseMove(e)}
+              onDoubleClick={(e) => void onDoubleClick(e)}
+            />
+            {selRect && chart === null && (
               <div
-                className={styles.fillHandle}
-                data-testid="fill-handle"
-                title={t('sheetEditor.fillHandle')}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  drag.current = { kind: 'fill', source: rangeOf(selection) };
-                }}
-              />
-            </div>
-          )}
-          {fillRect && (
-            <div
-              className={styles.fillPreview}
-              style={{ left: fillRect.x, top: fillRect.y, width: fillRect.w, height: fillRect.h }}
-            />
-          )}
-          {guide && (
-            <div
-              className={guide.x !== undefined ? styles.guideV : styles.guideH}
-              style={guide.x !== undefined ? { left: guide.x } : { top: guide.y }}
-            />
-          )}
-          {dvList && activeRect && !edit && (
-            <button
-              type="button"
-              className={styles.dvButton}
-              data-testid="dv-button"
-              aria-label={t('sheetEditor.dv.choose')}
-              style={{
-                left: activeRect.x + activeRect.w + 1,
-                top: activeRect.y,
-                height: activeRect.h,
-              }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                setDvOpen((o) => !o);
-              }}
-            >
-              ▾
-            </button>
-          )}
-          {dvOpen && dvList && activeRect && (
-            <div
-              className={styles.dvList}
-              role="listbox"
-              data-testid="dv-list"
-              style={{
-                left: activeRect.x,
-                top: activeRect.y + activeRect.h + 1,
-                minWidth: activeRect.w,
-              }}
-            >
-              {dvList.map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  role="option"
-                  aria-selected={false}
-                  className={styles.menuItem}
+                className={painter ? styles.selectionPainter : styles.selection}
+                style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h }}
+              >
+                <div
+                  className={styles.fillHandle}
+                  data-testid="fill-handle"
+                  title={t('sheetEditor.fillHandle')}
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    setDvOpen(false);
-                    void exec({
-                      cmd: 'setInputs',
-                      sheet,
-                      cells: [[selection.active.row, selection.active.col, v]],
-                    }).then(focusInput);
+                    e.stopPropagation();
+                    drag.current = { kind: 'fill', source: rangeOf(selection) };
                   }}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-          )}
-          <input
-            ref={inputRef}
-            className={edit ? styles.cellEditorActive : styles.cellEditor}
-            aria-label={t('sheetEditor.cellEditor')}
-            style={
-              activeRect
-                ? {
-                    left: activeRect.x,
-                    top: activeRect.y,
-                    minWidth: activeRect.w,
-                    height: activeRect.h,
-                    fontSize: 11 * scale,
-                  }
-                : { left: -9999, top: 0 }
-            }
-            autoComplete="off"
-            spellCheck={false}
-            onKeyDown={onKeyDown}
-            onInput={(e) => onInput(e.currentTarget.value)}
-            onCompositionStart={() => {
-              composing.current = true;
-              if (!edit) setEdit({ pos: selection.active, text: '', inPlace: false });
-            }}
-            onCompositionEnd={(e) => {
-              composing.current = false;
-              onInput(e.currentTarget.value);
-            }}
-          />
+                />
+              </div>
+            )}
+            {chart !== null && chartBox && (
+              <div
+                className={styles.chartSelection}
+                data-testid="chart-selection"
+                style={{ left: chartBox.x, top: chartBox.y, width: chartBox.w, height: chartBox.h }}
+              >
+                <div
+                  className={styles.chartHandle}
+                  data-testid="chart-resize"
+                  title={t('sheetEditor.chart.resize')}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!chartInfo) return;
+                    drag.current = {
+                      kind: 'chart',
+                      index: chart,
+                      resize: true,
+                      start: { row: chartInfo.to[0], col: chartInfo.to[1] },
+                      from: chartInfo.from,
+                      to: chartInfo.to,
+                    };
+                  }}
+                />
+              </div>
+            )}
+            {fillRect && (
+              <div
+                className={styles.fillPreview}
+                style={{ left: fillRect.x, top: fillRect.y, width: fillRect.w, height: fillRect.h }}
+              />
+            )}
+            {guide && (
+              <div
+                className={guide.x !== undefined ? styles.guideV : styles.guideH}
+                style={guide.x !== undefined ? { left: guide.x } : { top: guide.y }}
+              />
+            )}
+            {dvList && activeRect && !edit && (
+              <button
+                type="button"
+                className={styles.dvButton}
+                data-testid="dv-button"
+                aria-label={t('sheetEditor.dv.choose')}
+                style={{
+                  left: activeRect.x + activeRect.w + 1,
+                  top: activeRect.y,
+                  height: activeRect.h,
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setDvOpen((o) => !o);
+                }}
+              >
+                ▾
+              </button>
+            )}
+            {dvOpen && dvList && activeRect && (
+              <div
+                className={styles.dvList}
+                role="listbox"
+                data-testid="dv-list"
+                style={{
+                  left: activeRect.x,
+                  top: activeRect.y + activeRect.h + 1,
+                  minWidth: activeRect.w,
+                }}
+              >
+                {dvList.map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    className={styles.menuItem}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setDvOpen(false);
+                      void exec({
+                        cmd: 'setInputs',
+                        sheet,
+                        cells: [[selection.active.row, selection.active.col, v]],
+                      }).then(focusInput);
+                    }}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            )}
+            <input
+              ref={inputRef}
+              className={edit ? styles.cellEditorActive : styles.cellEditor}
+              aria-label={t('sheetEditor.cellEditor')}
+              style={
+                activeRect
+                  ? {
+                      left: activeRect.x,
+                      top: activeRect.y,
+                      minWidth: activeRect.w,
+                      height: activeRect.h,
+                      fontSize: 11 * scale,
+                    }
+                  : { left: -9999, top: 0 }
+              }
+              autoComplete="off"
+              spellCheck={false}
+              onKeyDown={onKeyDown}
+              onInput={(e) => onInput(e.currentTarget.value)}
+              onCompositionStart={() => {
+                composing.current = true;
+                if (!edit) setEdit({ pos: selection.active, text: '', inPlace: false });
+              }}
+              onCompositionEnd={(e) => {
+                composing.current = false;
+                onInput(e.currentTarget.value);
+              }}
+            />
+          </div>
+          <div style={{ width: content.w * scale, height: content.h * scale }} />
         </div>
-        <div style={{ width: content.w * scale, height: content.h * scale }} />
+        {activePivot && pivotPanel && (
+          <PivotPanel
+            host={host}
+            sheet={sheet}
+            pivot={activePivot}
+            labels={pivotLabels}
+            onChanged={refreshInfo}
+            onRefresh={() => run('pivot.refresh')}
+            onClose={() => {
+              setPivotPanel(false);
+              focusInput();
+            }}
+            fail={fail}
+          />
+        )}
       </div>
       <div className={styles.tabs} role="tablist" aria-label={t('sheetEditor.tabs')}>
         {info?.sheets.map((s, i) =>
@@ -2080,6 +2276,26 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
       {dialog?.kind === 'cf' && <CfDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'dv' && <ValidationDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'chart' && <ChartDialog {...common} index={dialog.index} />}
+      {dialog?.kind === 'pivot' && (
+        <PivotDialog
+          {...common}
+          range={toRange(rangeOf(selection))}
+          sheets={info?.sheets.map((s) => s.name) ?? []}
+          labels={pivotLabels}
+          onCreated={(s, index) => {
+            void host
+              .exec<PivotInfo[]>({ cmd: 'pivots', sheet: s })
+              .then((list) => {
+                const p = list?.[index];
+                setSheet(s);
+                setPivotPanel(true);
+                if (p) setSelection(single({ row: p.location.r0, col: p.location.c0 }));
+                setStatus(t('sheetEditor.pivot.created'));
+              })
+              .catch(fail);
+          }}
+        />
+      )}
       {dialog?.kind === 'pageSetup' && <PageSetupDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'find' && (
         <FindDialog

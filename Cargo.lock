@@ -732,6 +732,7 @@ version = "0.1.0"
 dependencies = [
  "bo-model",
  "bo-opc",
+ "bo-sheet",
  "proptest",
  "quick-xml",
  "thiserror 2.0.21",

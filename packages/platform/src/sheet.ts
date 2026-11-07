@@ -20,6 +20,8 @@ export interface SheetSummary {
   /** Merged ranges `[r0, c0, r1, c1]`. */
   merges: [number, number, number, number][];
   charts: number;
+  /** Number of pivot tables on the sheet. */
+  pivots: number;
 }
 
 export interface WorkbookInfo {
@@ -35,7 +37,8 @@ export type SheetHit =
   | { kind: 'columnEdge'; col: number }
   | { kind: 'rowEdge'; row: number }
   | { kind: 'filterButton'; row: number; col: number }
-  | { kind: 'chart'; index: number }
+  /** A chart, and the cell under the point. */
+  | { kind: 'chart'; index: number; row: number; col: number }
   | { kind: 'corner' }
   | { kind: 'none' };
 
@@ -156,9 +159,87 @@ export interface FilterSpec {
   values?: string[];
   conditions?: { operator: string; value: string }[];
   and?: boolean;
+  /** Years (or months of a year) to keep. */
+  dates?: { year: number; month?: number }[];
+  /** Relative date / average filter (`today`, `thisMonth`, `lastYear`, `aboveAverage`, …). */
+  dynamic?: string;
+  /** Keep cells filled with / written in this `RRGGBB` colour. */
+  cellColor?: string;
+  fontColor?: string;
+}
+
+/** One sort level; `col` is the key row when sorting left to right. */
+export interface SortKeySpec {
+  col: number;
+  descending?: boolean;
+  caseSensitive?: boolean;
+  by?: 'value' | 'cellColor' | 'fontColor';
+  /** `RRGGBB` of a colour key. */
+  color?: string;
 }
 
 export type PasteMode = 'all' | 'values' | 'formats' | 'formulas';
+
+/** Aggregation of a pivot value field (ECMA-376 `ST_DataConsolidateFunction`). */
+export type PivotFunction =
+  | 'sum'
+  | 'count'
+  | 'average'
+  | 'max'
+  | 'min'
+  | 'product'
+  | 'countNums'
+  | 'stdDev'
+  | 'stdDevp'
+  | 'var'
+  | 'varp';
+
+export interface PivotValueSpec {
+  field: number;
+  function?: PivotFunction;
+  /** Caption; omitted = "<Function> of <field>". */
+  name?: string;
+}
+
+/** Report filter: shown item indices (empty = all). */
+export interface PivotFilterSpec {
+  field: number;
+  items?: number[];
+}
+
+/** Captions written into pivot report cells (localized by the UI). */
+export interface PivotLabels {
+  grandTotal?: string;
+  values?: string;
+  all?: string;
+  multiple?: string;
+  blank?: string;
+  column?: string;
+  name?: string;
+}
+
+/** A type alias (not an interface) so commands keep an implicit index signature. */
+export type PivotAreas = {
+  rows: number[];
+  cols: number[];
+  values: PivotValueSpec[];
+  filters: PivotFilterSpec[];
+};
+
+/** A pivot table and its field list (`pivots` command). */
+export interface PivotInfo {
+  index: number;
+  name: string;
+  location: SheetRange;
+  /** Cells taken by the report, report filters included. */
+  area: SheetRange;
+  source: string | null;
+  fields: { name: string; items: string[] }[];
+  rows: number[];
+  cols: number[];
+  values: { field: number; function: PivotFunction; name: string | null }[];
+  filters: { field: number; items: number[] }[];
+}
 
 export interface CellAt {
   sheet: number;
@@ -185,9 +266,11 @@ export type SheetCommand =
       cmd: 'sort';
       sheet: number;
       range: SheetRange;
-      keys: { col: number; descending?: boolean; caseSensitive?: boolean }[];
+      keys: SortKeySpec[];
       hasHeader?: boolean;
+      leftToRight?: boolean;
     }
+  | { cmd: 'sortColors'; sheet: number; range: SheetRange; key: number; leftToRight?: boolean }
   | { cmd: 'region'; sheet: number; range: SheetRange }
   | { cmd: 'toggleFilter'; sheet: number; range: SheetRange }
   | { cmd: 'filterValues'; sheet: number; col: number }
@@ -212,6 +295,13 @@ export type SheetCommand =
       yTitle?: string;
     }
   | { cmd: 'deleteChart'; sheet: number; index: number }
+  | {
+      cmd: 'moveChart';
+      sheet: number;
+      index: number;
+      from: [number, number];
+      to: [number, number];
+    }
   | {
       cmd: 'find';
       query: string;
@@ -240,8 +330,22 @@ export type SheetCommand =
       mode?: PasteMode;
       transpose?: boolean;
       skipBlanks?: boolean;
+      /** Selected target: a copy repeats to fill it. */
+      range?: SheetRange;
     }
   | { cmd: 'pageSetup'; sheet: number }
+  | { cmd: 'pivotSource'; sheet: number; range: SheetRange }
+  | ({
+      cmd: 'pivotCreate';
+      sheet: number;
+      range: SheetRange;
+      /** Top-left of the report on an existing sheet; omitted = new sheet. */
+      dest?: CellAt | null;
+      labels?: PivotLabels;
+    } & Partial<PivotAreas>)
+  | { cmd: 'pivots'; sheet: number }
+  | ({ cmd: 'pivotUpdate'; sheet: number; index: number; labels?: PivotLabels } & PivotAreas)
+  | { cmd: 'pivotRefresh'; sheet: number; index: number; labels?: PivotLabels }
   | {
       cmd: 'setPageSetup';
       sheet: number;
@@ -263,6 +367,8 @@ export interface ChartInfo {
   xTitle: string | null;
   yTitle: string | null;
   from: [number, number];
+  /** Cell holding the bottom-right corner. */
+  to: [number, number];
   series: number;
 }
 

@@ -211,6 +211,8 @@ export function ColorMenu({
 interface SortLevel {
   col: number;
   descending: boolean;
+  by?: 'value' | 'cellColor' | 'fontColor';
+  color?: string;
 }
 
 export function SortDialog({
@@ -226,6 +228,9 @@ export function SortDialog({
   const [header, setHeader] = useState(true);
   const [levels, setLevels] = useState<SortLevel[]>([{ col: range.c0, descending: false }]);
   const [names, setNames] = useState<string[]>([]);
+  const [leftToRight, setLeftToRight] = useState(false);
+  /** Colours present per key (column, or row when sorting left to right). */
+  const [colors, setColors] = useState<Record<number, { cell: string[]; font: string[] }>>({});
 
   useEffect(() => {
     void (async () => {
@@ -240,16 +245,39 @@ export function SortDialog({
     })().catch(fail);
   }, [host, sheet, range, fail]);
 
+  const keyColors = (key: number) => {
+    if (colors[key]) return;
+    void host
+      .exec<{ cell: string[]; font: string[] }>({
+        cmd: 'sortColors',
+        sheet,
+        range: region,
+        key,
+        leftToRight,
+      })
+      .then((r) => r && setColors((c) => ({ ...c, [key]: r })))
+      .catch(fail);
+  };
+
   const colLabel = (c: number) => {
+    if (leftToRight) return t('sheetEditor.sort.row', { n: c + 1 });
     const name = names[c - region.c0];
     return header && name ? name : t('sheetEditor.sort.column', { name: colName(c) });
   };
   const cols: number[] = [];
-  for (let c = region.c0; c <= region.c1 && c < region.c0 + 200; c++) cols.push(c);
+  const [lo, hi] = leftToRight ? [region.r0, region.r1] : [region.c0, region.c1];
+  for (let c = lo; c <= hi && c < lo + 200; c++) cols.push(c);
 
   const ok = async () => {
     try {
-      await host.exec({ cmd: 'sort', sheet, range: region, keys: levels, hasHeader: header });
+      await host.exec({
+        cmd: 'sort',
+        sheet,
+        range: region,
+        keys: levels,
+        hasHeader: header,
+        leftToRight,
+      });
       await onDone();
       onClose();
     } catch (e) {
@@ -271,7 +299,21 @@ export function SortDialog({
       </p>
       <label className={styles.check}>
         <input type="checkbox" checked={header} onChange={(e) => setHeader(e.target.checked)} />
-        {t('sheetEditor.sort.header')}
+        {leftToRight ? t('sheetEditor.sort.headerCol') : t('sheetEditor.sort.header')}
+      </label>
+      <label className={styles.check}>
+        <input
+          type="checkbox"
+          data-testid="sort-left-to-right"
+          checked={leftToRight}
+          onChange={(e) => {
+            const on = e.target.checked;
+            setLeftToRight(on);
+            setColors({});
+            setLevels([{ col: on ? region.r0 : region.c0, descending: false }]);
+          }}
+        />
+        {t('sheetEditor.sort.leftToRight')}
       </label>
       {levels.map((l, i) => (
         <div key={i} className={styles.row}>
@@ -307,6 +349,37 @@ export function SortDialog({
             <option value="asc">{t('sheetEditor.sort.asc')}</option>
             <option value="desc">{t('sheetEditor.sort.desc')}</option>
           </select>
+          <select
+            aria-label={t('sheetEditor.sort.sortOn')}
+            data-testid={`sort-by-${i}`}
+            value={l.by ?? 'value'}
+            onChange={(e) => {
+              const by = e.target.value as SortLevel['by'];
+              keyColors(l.col);
+              setLevels(levels.map((x, j) => (j === i ? { ...x, by, color: undefined } : x)));
+            }}
+          >
+            <option value="value">{t('sheetEditor.sort.onValue')}</option>
+            <option value="cellColor">{t('sheetEditor.sort.onCellColor')}</option>
+            <option value="fontColor">{t('sheetEditor.sort.onFontColor')}</option>
+          </select>
+          {l.by && l.by !== 'value' && (
+            <select
+              aria-label={t('sheetEditor.sort.color')}
+              data-testid={`sort-color-${i}`}
+              value={l.color ?? ''}
+              onChange={(e) =>
+                setLevels(levels.map((x, j) => (j === i ? { ...x, color: e.target.value } : x)))
+              }
+            >
+              <option value="">—</option>
+              {(l.by === 'cellColor' ? colors[l.col]?.cell : colors[l.col]?.font)?.map((h) => (
+                <option key={h} value={h} style={{ background: `#${h}` }}>
+                  #{h}
+                </option>
+              ))}
+            </select>
+          )}
           {levels.length > 1 && (
             <button
               type="button"
@@ -323,7 +396,9 @@ export function SortDialog({
           type="button"
           className={styles.btn}
           disabled={levels.length >= 8}
-          onClick={() => setLevels([...levels, { col: region.c0, descending: false }])}
+          onClick={() =>
+            setLevels([...levels, { col: leftToRight ? region.r0 : region.c0, descending: false }])
+          }
         >
           {t('sheetEditor.sort.addLevel')}
         </button>
@@ -333,6 +408,31 @@ export function SortDialog({
 }
 
 // ----------------------------------------------------------------- AutoFilter menu
+
+type FilterDates = {
+  year: number;
+  checked: boolean;
+  months: { month: number; checked: boolean }[];
+}[];
+
+/** Relative date and average filters offered by the menu (§18.18.26). */
+const DYNAMIC_FILTERS = [
+  'today',
+  'yesterday',
+  'tomorrow',
+  'thisWeek',
+  'lastWeek',
+  'nextWeek',
+  'thisMonth',
+  'lastMonth',
+  'nextMonth',
+  'thisQuarter',
+  'thisYear',
+  'lastYear',
+  'yearToDate',
+  'aboveAverage',
+  'belowAverage',
+];
 
 export function FilterMenu({
   host,
@@ -346,14 +446,26 @@ export function FilterMenu({
 }: Common & { col: number; x: number; y: number }) {
   const { t } = useTranslation();
   const [values, setValues] = useState<{ text: string; checked: boolean }[]>([]);
+  const [dates, setDates] = useState<FilterDates>([]);
+  const [colors, setColors] = useState<{ cell: string[]; font: string[] }>({ cell: [], font: [] });
   const [search, setSearch] = useState('');
   const [op, setOp] = useState('');
   const [arg, setArg] = useState('');
 
   useEffect(() => {
     void host
-      .exec<{ values: { text: string; checked: boolean }[] }>({ cmd: 'filterValues', sheet, col })
-      .then((r) => setValues(r.values))
+      .exec<{
+        values: { text: string; checked: boolean }[];
+        dates?: FilterDates;
+        dynamic?: string | null;
+        colors?: { cell: string[]; font: string[] };
+      }>({ cmd: 'filterValues', sheet, col })
+      .then((r) => {
+        setValues(r.values);
+        setDates(r.dates ?? []);
+        if (r.colors) setColors(r.colors);
+        if (r.dynamic) setOp(`dyn:${r.dynamic}`);
+      })
       .catch(fail);
   }, [host, sheet, col, fail]);
 
@@ -371,6 +483,10 @@ export function FilterMenu({
     }
   };
   const apply = () => {
+    if (op.startsWith('dyn:')) {
+      void run({ cmd: 'setFilter', sheet, col, filter: { dynamic: op.slice(4) } });
+      return;
+    }
     if (op) {
       void run({
         cmd: 'setFilter',
@@ -378,6 +494,16 @@ export function FilterMenu({
         col,
         filter: { conditions: [{ operator: op, value: arg }] },
       });
+      return;
+    }
+    const datesAll = dates.every((y) => y.checked && y.months.every((m) => m.checked));
+    if (dates.length > 0 && !datesAll) {
+      const picked = dates.flatMap((y) =>
+        y.months.every((m) => m.checked)
+          ? [{ year: y.year }]
+          : y.months.filter((m) => m.checked).map((m) => ({ year: y.year, month: m.month })),
+      );
+      void run({ cmd: 'setFilter', sheet, col, filter: { dates: picked } });
       return;
     }
     const all = values.every((v) => v.checked);
@@ -454,8 +580,15 @@ export function FilterMenu({
                 {t(`sheetEditor.op.${o}`)}
               </option>
             ))}
+            <optgroup label={t('sheetEditor.filter.dynamic')}>
+              {DYNAMIC_FILTERS.map((d) => (
+                <option key={d} value={`dyn:${d}`}>
+                  {t(`sheetEditor.filter.dyn.${d}`)}
+                </option>
+              ))}
+            </optgroup>
           </select>
-          {op && (
+          {op && !op.startsWith('dyn:') && (
             <input
               aria-label={t('sheetEditor.filter.value')}
               value={arg}
@@ -463,7 +596,91 @@ export function FilterMenu({
             />
           )}
         </div>
-        {!op && (
+        {(colors.cell.length > 0 || colors.font.length > 1) && (
+          <div className={styles.row} data-testid="filter-colors">
+            <span>{t('sheetEditor.filter.byColor')}</span>
+            {colors.cell.map((h) => (
+              <button
+                key={`c${h}`}
+                type="button"
+                className={styles.swatch}
+                title={t('sheetEditor.filter.cellColor', { color: `#${h}` })}
+                aria-label={t('sheetEditor.filter.cellColor', { color: `#${h}` })}
+                data-color={h}
+                style={{ background: `#${h}` }}
+                onClick={() => void run({ cmd: 'setFilter', sheet, col, filter: { cellColor: h } })}
+              />
+            ))}
+            {colors.font.length > 1 &&
+              colors.font.map((h) => (
+                <button
+                  key={`f${h}`}
+                  type="button"
+                  className={styles.swatch}
+                  title={t('sheetEditor.filter.fontColor', { color: `#${h}` })}
+                  aria-label={t('sheetEditor.filter.fontColor', { color: `#${h}` })}
+                  style={{ color: `#${h}`, fontWeight: 700 }}
+                  onClick={() =>
+                    void run({ cmd: 'setFilter', sheet, col, filter: { fontColor: h } })
+                  }
+                >
+                  A
+                </button>
+              ))}
+          </div>
+        )}
+        {!op && dates.length > 0 && (
+          <div className={styles.valueList} data-testid="filter-dates">
+            {dates.map((y, yi) => (
+              <div key={y.year}>
+                <label className={styles.check}>
+                  <input
+                    type="checkbox"
+                    checked={y.months.every((m) => m.checked)}
+                    onChange={(e) =>
+                      setDates(
+                        dates.map((d, j) =>
+                          j === yi
+                            ? {
+                                ...d,
+                                checked: e.target.checked,
+                                months: d.months.map((m) => ({ ...m, checked: e.target.checked })),
+                              }
+                            : d,
+                        ),
+                      )
+                    }
+                  />
+                  {y.year}
+                </label>
+                {y.months.map((m, mi) => (
+                  <label key={m.month} className={styles.check} style={{ paddingLeft: 18 }}>
+                    <input
+                      type="checkbox"
+                      checked={m.checked}
+                      onChange={(e) =>
+                        setDates(
+                          dates.map((d, j) =>
+                            j === yi
+                              ? {
+                                  ...d,
+                                  months: d.months.map((x, k) =>
+                                    k === mi ? { ...x, checked: e.target.checked } : x,
+                                  ),
+                                }
+                              : d,
+                          ),
+                        )
+                      }
+                    />
+                    {t('sheetEditor.filter.month', { n: m.month })}
+                  </label>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+        {!op && dates.length === 0 && (
           <>
             <input
               placeholder={t('sheetEditor.filter.search')}

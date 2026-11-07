@@ -182,6 +182,17 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
         sheet_ids.push(id);
     }
 
+    // Pivot caches (§18.10): new and refreshed caches get regenerated parts.
+    let (cache_rids, cache_parts) = write_pivot_caches(
+        wb,
+        &wb_path,
+        &mut names,
+        &mut wb_ids,
+        &mut wb_rels,
+        &mut out_parts,
+        &mut overrides,
+    );
+
     let mut sheet_rel_ids = Vec::with_capacity(wb.sheets.len());
     for ws in &wb.sheets {
         let rid = wb_ids.alloc();
@@ -238,6 +249,18 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                     wb,
                     ws,
                     &path,
+                    &mut names,
+                    &mut ids,
+                    &mut rels,
+                    &mut out_parts,
+                    &mut overrides,
+                );
+                // Pivot tables (§18.10.1.73).
+                write_pivot_tables(
+                    wb,
+                    ws,
+                    &path,
+                    &cache_parts,
                     &mut names,
                     &mut ids,
                     &mut rels,
@@ -325,7 +348,7 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
     out_parts.push((
         wb_path.clone(),
         Some(wb_ct),
-        workbook_xml(wb, &sheet_ids, &sheet_rel_ids).into_bytes(),
+        workbook_xml(wb, &sheet_ids, &sheet_rel_ids, &cache_rids).into_bytes(),
     ));
     out_parts.push((
         "/_rels/.rels".into(),
@@ -476,6 +499,134 @@ fn write_charts(
     }
 }
 
+/// Writes the parts of new and refreshed pivot caches; returns the workbook
+/// relationship id of every cache (in [`Workbook::pivot_caches`] order) and the
+/// definition part of each cache id.
+#[allow(clippy::too_many_arguments)]
+fn write_pivot_caches(
+    wb: &Workbook,
+    wb_path: &str,
+    names: &mut Names,
+    wb_ids: &mut RelIds,
+    wb_rels: &mut Vec<Relationship>,
+    out_parts: &mut Vec<(String, Option<String>, Vec<u8>)>,
+    overrides: &mut HashMap<String, Vec<u8>>,
+) -> (Vec<String>, HashMap<u32, String>) {
+    use crate::pivot_write::{
+        cache_definition_xml, cache_records_xml, single_rels_xml, CT_PIVOT_CACHE_DEFINITION,
+        CT_PIVOT_CACHE_RECORDS, REL_PIVOT_CACHE_DEFINITION, REL_PIVOT_CACHE_RECORDS,
+    };
+    let opaque = |name: &str| wb.opaque.parts.iter().any(|p| p.name == name);
+    let mut put = |name: String, ct: &str, data: Vec<u8>, out_parts: &mut Vec<_>| {
+        if opaque(&name) {
+            overrides.insert(name, data);
+        } else {
+            out_parts.push((name, (!ct.is_empty()).then(|| ct.to_owned()), data));
+        }
+    };
+    let mut rids = Vec::with_capacity(wb.pivot_caches.len());
+    let mut parts = HashMap::new();
+    for c in &wb.pivot_caches {
+        let new = c.part.is_empty() && c.rel_id.is_empty();
+        if new || (c.dirty && !c.part.is_empty()) {
+            let def = if new {
+                names.fresh(|n| format!("/xl/pivotCache/pivotCacheDefinition{n}.xml"))
+            } else {
+                c.part.clone()
+            };
+            let rec = c.records_part.clone().filter(|_| !new).unwrap_or_else(|| {
+                names.fresh(|n| format!("/xl/pivotCache/pivotCacheRecords{n}.xml"))
+            });
+            put(
+                def.clone(),
+                CT_PIVOT_CACHE_DEFINITION,
+                cache_definition_xml(c, "rId1").into_bytes(),
+                out_parts,
+            );
+            put(
+                rec.clone(),
+                CT_PIVOT_CACHE_RECORDS,
+                cache_records_xml(c).into_bytes(),
+                out_parts,
+            );
+            put(
+                bo_opc::rels_part_name(&def),
+                "",
+                single_rels_xml(REL_PIVOT_CACHE_RECORDS, &relative_target(&def, &rec)).into_bytes(),
+                out_parts,
+            );
+            if new {
+                let id = wb_ids.alloc();
+                wb_rels.push(Relationship {
+                    id: id.clone(),
+                    rel_type: REL_PIVOT_CACHE_DEFINITION.into(),
+                    target: relative_target(wb_path, &def),
+                    mode: TargetMode::Internal,
+                });
+                rids.push(id);
+            } else {
+                rids.push(c.rel_id.clone());
+            }
+            parts.insert(c.cache_id, def);
+        } else {
+            rids.push(c.rel_id.clone());
+            if !c.part.is_empty() {
+                parts.insert(c.cache_id, c.part.clone());
+            }
+        }
+    }
+    (rids, parts)
+}
+
+/// Writes new and edited pivot tables of `ws`.
+#[allow(clippy::too_many_arguments)]
+fn write_pivot_tables(
+    wb: &Workbook,
+    ws: &Worksheet,
+    sheet_path: &str,
+    cache_parts: &HashMap<u32, String>,
+    names: &mut Names,
+    ids: &mut RelIds,
+    rels: &mut Vec<Relationship>,
+    out_parts: &mut Vec<(String, Option<String>, Vec<u8>)>,
+    overrides: &mut HashMap<String, Vec<u8>>,
+) {
+    use crate::pivot_write::{
+        pivot_table_xml, single_rels_xml, CT_PIVOT_TABLE, REL_PIVOT_CACHE_DEFINITION,
+        REL_PIVOT_TABLE,
+    };
+    for pt in &ws.pivots {
+        let Some(cache) = wb.pivot_caches.iter().find(|c| c.cache_id == pt.cache_id) else {
+            continue;
+        };
+        if pt.part.is_empty() {
+            let Some(def) = cache_parts.get(&pt.cache_id) else {
+                continue;
+            };
+            let path = names.fresh(|n| format!("/xl/pivotTables/pivotTable{n}.xml"));
+            rels.push(Relationship {
+                id: ids.alloc(),
+                rel_type: REL_PIVOT_TABLE.into(),
+                target: relative_target(sheet_path, &path),
+                mode: TargetMode::Internal,
+            });
+            out_parts.push((
+                bo_opc::rels_part_name(&path),
+                None,
+                single_rels_xml(REL_PIVOT_CACHE_DEFINITION, &relative_target(&path, def))
+                    .into_bytes(),
+            ));
+            out_parts.push((
+                path,
+                Some(CT_PIVOT_TABLE.into()),
+                pivot_table_xml(pt, cache).into_bytes(),
+            ));
+        } else if pt.dirty && wb.opaque.parts.iter().any(|p| p.name == pt.part) {
+            overrides.insert(pt.part.clone(), pivot_table_xml(pt, cache).into_bytes());
+        }
+    }
+}
+
 fn bo_opc_rels_xml(rels: &[Relationship]) -> String {
     // Same serialization as bo-opc's relationships writer.
     let mut p = Package::new();
@@ -486,7 +637,12 @@ fn bo_opc_rels_xml(rels: &[Relationship]) -> String {
 }
 
 /// §18.2.27 workbook.
-fn workbook_xml(wb: &Workbook, sheet_ids: &[u32], rel_ids: &[String]) -> String {
+fn workbook_xml(
+    wb: &Workbook,
+    sheet_ids: &[u32],
+    rel_ids: &[String],
+    cache_rids: &[String],
+) -> String {
     let mut out = String::from(XML_DECL);
     out.push_str("<workbook");
     root_attrs(&mut out, &wb.root_attrs, true);
@@ -546,6 +702,17 @@ fn workbook_xml(wb: &Workbook, sheet_ids: &[u32], rel_ids: &[String]) -> String 
                 if !items.is_empty() {
                     let _ = write!(out, "<definedNames>{items}</definedNames>");
                 }
+            }
+            // §18.2.22 pivotCaches
+            "pivotCaches" if !wb.pivot_caches.is_empty() => {
+                out.push_str("<pivotCaches>");
+                for (c, rid) in wb.pivot_caches.iter().zip(cache_rids) {
+                    out.push_str("<pivotCache");
+                    a(out, "cacheId", &c.cache_id.to_string());
+                    a(out, "r:id", rid);
+                    out.push_str("/>");
+                }
+                out.push_str("</pivotCaches>");
             }
             _ => {}
         },

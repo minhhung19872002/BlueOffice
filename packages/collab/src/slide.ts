@@ -77,7 +77,12 @@ export function collabSlideHost<H extends SlideEngineLike>(
       }
       await refreshPeers();
     });
-  const queue = new LiveQueue(replica, flush, () => void pull().catch(() => {}));
+  const queue = new LiveQueue(
+    replica,
+    flush,
+    () =>
+      void pull().catch((e: unknown) => console.warn('bo-collab: remote change not applied', e)),
+  );
 
   const share = <T extends SlideResultLike>(r: T): T => {
     const c = r.collab;

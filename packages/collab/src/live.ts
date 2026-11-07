@@ -15,6 +15,8 @@ export interface ReplicaLike {
   start(): Uint8Array;
   receive(frame: Uint8Array): Uint8Array;
   drainOutbox(): Uint8Array;
+  /** Full state as one Yjs v1 update. */
+  snapshot?(): Uint8Array;
   setPresence(json: string): void;
   peersJson(): string;
   clientId(): number;
@@ -86,6 +88,7 @@ export class LiveQueue {
         return replies;
       },
       drainOutbox: () => [...this.replies.splice(0), ...unpack(replica.drainOutbox())],
+      ...(replica.snapshot ? { snapshot: () => replica.snapshot!() } : {}),
     };
   }
 

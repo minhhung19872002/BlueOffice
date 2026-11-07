@@ -267,6 +267,14 @@ fn startup_link() -> Option<shell::DeepLink> {
         })
 }
 
+/// BlueOffice server for host files (`BLUEOFFICE_SERVER`), if configured.
+#[tauri::command]
+fn server_url() -> Option<String> {
+    std::env::var(shell::SERVER_ENV)
+        .ok()
+        .and_then(|v| shell::normalize_server_url(&v))
+}
+
 /// Opens another native document window (`query` e.g. `app=sheet`).
 #[tauri::command]
 async fn open_window(app: tauri::AppHandle, query: String) -> Result<String, String> {
@@ -364,6 +372,7 @@ fn main() {
             print_pdf,
             startup_file,
             startup_link,
+            server_url,
             open_window,
             sheet_cmds::sheet_open,
             sheet_cmds::sheet_call,

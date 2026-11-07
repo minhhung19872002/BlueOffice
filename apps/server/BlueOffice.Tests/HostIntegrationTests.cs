@@ -105,6 +105,14 @@ public sealed class HostIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ListsTheOriginsAllowedToEmbedTheEditor()
+    {
+        var body = await _app.CreateClient().GetFromJsonAsync<JsonElement>(new Uri("/api/hosting/origins", UriKind.Relative));
+        var origins = body.GetProperty("origins").EnumerateArray().Select(o => o.GetString() ?? "").ToList();
+        Assert.Equal(new List<string> { "https://drive.mock" }, origins);
+    }
+
+    [Fact]
     public async Task TwoUsersShareOneSessionLockAndSaveCreatesVersionWithEditors()
     {
         var id = await SharedFileAsync();

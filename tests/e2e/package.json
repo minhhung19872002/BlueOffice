@@ -4,11 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "playwright test",
+    "test": "playwright test && playwright test -c playwright.collab.config.ts",
+    "test:web": "playwright test",
+    "test:collab": "playwright test -c playwright.collab.config.ts",
+    "collab:stack": "node collab/stack.mjs",
     "install-browsers": "playwright install chromium"
   },
   "devDependencies": {
+    "@blueoffice/editor-sdk": "workspace:*",
     "@playwright/test": "^1.64.1",
-    "@types/node": "^26.6.6"
+    "@types/node": "^26.6.6",
+    "vite": "^8.3.6"
   }
 }

@@ -287,6 +287,41 @@ fn split_and_merge_paragraphs_converge() {
         .any(|s| s.id == "Heading1"));
 }
 
+/// A late joiner whose editor opened the file before the room's state arrived
+/// types at its caret right away; a later edit of the other user keeps it.
+#[test]
+fn late_joiner_typing_at_its_first_caret_is_shared() {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus/doc/phase1-sample.docx");
+    let bytes = std::fs::read(path).unwrap();
+    let open = |id| {
+        let mut engine = Engine::with_bundled_fonts();
+        engine.open(&bytes, "mẫu.docx").unwrap();
+        Peer {
+            engine,
+            replica: Session::with_client_id(id),
+            slides: false,
+        }
+    };
+    let (mut a, mut b) = (open(71), open(72));
+    a.start(true);
+    b.start(false);
+    connect(&mut a, &mut b);
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    b.cmd(&insert("Bình gõ ngay "));
+    settle(&mut a, &mut b);
+    a.cmd(&sel(0, 0));
+    a.cmd(&insert("An "));
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    for p in [&a, &b] {
+        let all = p.text().join("\n");
+        assert!(all.contains("Bình gõ ngay"), "{all}");
+        assert!(all.starts_with("An "), "{all}");
+    }
+}
+
 #[test]
 fn tables_are_shared_as_one_object() {
     let (mut a, mut b) = pair("trước\nsau");

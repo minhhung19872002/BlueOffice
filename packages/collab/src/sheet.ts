@@ -12,6 +12,7 @@ export interface WasmCollabLike {
   start(): Uint8Array;
   receive(frame: Uint8Array): Uint8Array;
   drainOutbox(): Uint8Array;
+  snapshot?(): Uint8Array;
   setCell(sheet: string, cell: string, input: string): void;
   cellsJson(): string;
   setPresence(json: string): void;
@@ -54,6 +55,7 @@ export function wasmEngine(w: WasmCollabLike): CollabEngine {
       return unpack(w.receive(frame));
     },
     drainOutbox: () => unpack(w.drainOutbox()),
+    ...(w.snapshot ? { snapshot: () => w.snapshot!() } : {}),
   };
 }
 

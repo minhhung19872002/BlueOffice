@@ -4,8 +4,11 @@
  * (`WS /collab/{fileId}?session=&token=`, docs/bohp.md §C).
  *
  * Binary frames are y-protocols messages produced/consumed by the engine;
- * text frames are JSON control messages. Offline edits need no queue: on
- * reconnect the engine's sync step 1/2 exchange sends everything missing.
+ * text frames are JSON control messages. Offline edits need no queue: the
+ * server only relays (it has no Yjs document to answer a client's sync step 1
+ * with a diff), so after a reconnect the client re-publishes its whole state
+ * (`snapshot`) when it changed anything since the previous connection opened;
+ * receivers drop what they already have.
  */
 
 /** The replica side (implemented by `bo-collab::Session`). */
@@ -16,6 +19,52 @@ export interface CollabEngine {
   receive(frame: Uint8Array): Uint8Array[];
   /** Pending broadcasts (local updates, presence). */
   drainOutbox(): Uint8Array[];
+  /** Full replica state as one Yjs v1 update (re-published after a reconnect). */
+  snapshot?(): Uint8Array;
+}
+
+/** Connectivity of the device (browser `online` / `offline` events). */
+export interface NetworkLike {
+  online(): boolean;
+  /** Calls `fn` on every change; returns the unsubscribe function. */
+  onChange(fn: (online: boolean) => void): () => void;
+}
+
+/** `navigator.onLine` + window events, when running in a browser / web view. */
+export function browserNetwork(): NetworkLike | undefined {
+  const w = (globalThis as { window?: Window }).window;
+  if (!w || typeof w.addEventListener !== 'function') return undefined;
+  return {
+    online: () => w.navigator.onLine !== false,
+    onChange: (fn) => {
+      const on = () => fn(true);
+      const off = () => fn(false);
+      w.addEventListener('online', on);
+      w.addEventListener('offline', off);
+      return () => {
+        w.removeEventListener('online', on);
+        w.removeEventListener('offline', off);
+      };
+    },
+  };
+}
+
+/** y-protocols `messageSync` / `messageYjsUpdate` frame around a v1 update. */
+export function encodeSyncUpdate(update: Uint8Array): Uint8Array {
+  const len: number[] = [];
+  let n = update.length;
+  // lib0 var-uint: 7 bits per byte, little end first.
+  while (n > 0x7f) {
+    len.push((n & 0x7f) | 0x80);
+    n = Math.floor(n / 128);
+  }
+  len.push(n);
+  const out = new Uint8Array(2 + len.length + update.length);
+  out[0] = 0;
+  out[1] = 2;
+  out.set(len, 2);
+  out.set(update, 2 + len.length);
+  return out;
 }
 
 /** JSON control message from the server. */
@@ -70,6 +119,12 @@ export interface CollabOptions {
   pingMs?: number;
   /** Reconnect backoff: first delay and maximum, ms (defaults 500 / 30 000). */
   backoff?: { initialMs: number; maxMs: number };
+  /**
+   * Device connectivity (default: browser events). Going offline closes the
+   * socket at once (a dead socket may otherwise look open for a long time);
+   * coming back online reconnects without waiting for the backoff.
+   */
+  network?: NetworkLike | null;
 }
 
 export interface CollabEvents {
@@ -89,6 +144,11 @@ export class CollabClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
+  private opened = false;
+  /** Local document updates were produced since the current/last socket opened. */
+  private localSinceOpen = false;
+  private readonly network: NetworkLike | undefined;
+  private unNetwork: (() => void) | null = null;
   private readonly listeners: { [K in keyof CollabEvents]: Set<CollabEvents[K]> } = {
     status: new Set(),
     control: new Set(),
@@ -96,7 +156,9 @@ export class CollabClient {
     ended: new Set(),
   };
 
-  constructor(private readonly o: CollabOptions) {}
+  constructor(private readonly o: CollabOptions) {
+    this.network = o.network === null ? undefined : (o.network ?? browserNetwork());
+  }
 
   on<K extends keyof CollabEvents>(event: K, fn: CollabEvents[K]): () => void {
     this.listeners[event].add(fn);
@@ -117,6 +179,14 @@ export class CollabClient {
 
   connect(): void {
     if (this.stopped || this.socket) return;
+    if (this.network && !this.unNetwork) {
+      this.unNetwork = this.network.onChange((online) => this.onNetwork(online));
+    }
+    if (this.network && !this.network.online()) {
+      // Wait for the `online` event.
+      this.setStatus('offline');
+      return;
+    }
     this.setStatus('connecting');
     const factory: SocketFactory =
       this.o.socket ?? ((url) => new WebSocket(url) as unknown as SocketLike);
@@ -127,7 +197,13 @@ export class CollabClient {
       this.retry = 0;
       this.setStatus('online');
       ws.send(this.o.engine.start());
+      const resync = this.opened && this.localSinceOpen;
+      this.opened = true;
+      this.localSinceOpen = false;
       this.flush();
+      const snapshot = resync ? this.o.engine.snapshot?.() : undefined;
+      // Changes made offline (or lost with the previous socket) reach the room.
+      if (snapshot && snapshot.length > 2) ws.send(encodeSyncUpdate(snapshot));
       this.pingTimer = setInterval(() => this.sendJson({ type: 'ping' }), this.o.pingMs ?? 25_000);
     };
     ws.onmessage = (ev) => this.onMessage(ev.data);
@@ -138,6 +214,8 @@ export class CollabClient {
   /** Sends the engine's pending broadcasts (call after each local edit). */
   flush(): void {
     const frames = this.o.engine.drainOutbox();
+    // Sync frames (type 0) carry document changes; awareness (1) only presence.
+    if (frames.some((f) => f[0] === 0)) this.localSinceOpen = true;
     const ws = this.socket;
     // While offline the frames are dropped on purpose: reconnect re-syncs by state vector.
     if (!ws || ws.readyState !== OPEN) return;
@@ -151,6 +229,8 @@ export class CollabClient {
 
   close(): void {
     this.stopped = true;
+    this.unNetwork?.();
+    this.unNetwork = null;
     this.clearTimers();
     this.socket?.close(1000, 'closed');
     this.socket = null;
@@ -183,6 +263,25 @@ export class CollabClient {
     this.emit('remote');
   }
 
+  private onNetwork(online: boolean): void {
+    if (this.stopped) return;
+    if (!online) {
+      const ws = this.socket;
+      this.clearTimers();
+      this.socket = null;
+      if (ws) {
+        ws.onclose = null;
+        ws.onmessage = null;
+        ws.close(1000, 'offline');
+      }
+      this.setStatus('offline');
+    } else if (!this.socket) {
+      this.clearTimers();
+      this.retry = 0;
+      this.connect();
+    }
+  }
+
   private onClose(code: number): void {
     this.clearTimers();
     this.socket = null;
@@ -197,6 +296,8 @@ export class CollabClient {
             : null;
     if (final) {
       this.stopped = true;
+      this.unNetwork?.();
+      this.unNetwork = null;
       this.setStatus('closed');
       this.emit('ended', final);
       return;

@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CollabClient, type CollabEngine, type SocketLike } from '../src';
+import {
+  CollabClient,
+  encodeSyncUpdate,
+  type CollabEngine,
+  type NetworkLike,
+  type SocketLike,
+} from '../src';
 
 class FakeSocket implements SocketLike {
   static all: FakeSocket[] = [];
@@ -35,6 +41,7 @@ function engine(): CollabEngine & { received: Uint8Array[]; outbox: Uint8Array[]
     received: [] as Uint8Array[],
     outbox: [] as Uint8Array[],
     start: () => new Uint8Array([0, 0, 1, 0]),
+    snapshot: () => new Uint8Array([1, 1, 5, 0, 0]),
     receive(f: Uint8Array) {
       e.received.push(f);
       return [new Uint8Array([9])];
@@ -48,7 +55,24 @@ function engine(): CollabEngine & { received: Uint8Array[]; outbox: Uint8Array[]
   return e;
 }
 
-function client(eng = engine()) {
+function fakeNetwork() {
+  let online = true;
+  const fns = new Set<(o: boolean) => void>();
+  const net: NetworkLike & { set(o: boolean): void } = {
+    online: () => online,
+    onChange: (fn) => {
+      fns.add(fn);
+      return () => fns.delete(fn);
+    },
+    set(o) {
+      online = o;
+      fns.forEach((f) => f(o));
+    },
+  };
+  return net;
+}
+
+function client(eng = engine(), network: NetworkLike | null = null) {
   const c = new CollabClient({
     url: 'wss://office.example.vn/collab/F1',
     sessionId: 'S1',
@@ -56,6 +80,7 @@ function client(eng = engine()) {
     engine: eng,
     socket: (u) => new FakeSocket(u),
     backoff: { initialMs: 100, maxMs: 400 },
+    network,
   });
   return { c, eng };
 }
@@ -151,6 +176,79 @@ describe('CollabClient', () => {
     ]);
     c.close();
     vi.advanceTimersByTime(60_000);
+    expect(FakeSocket.all).toHaveLength(1);
+  });
+
+  it('re-publishes its state after a reconnect when it changed something', () => {
+    const { c, eng } = client();
+    c.connect();
+    FakeSocket.all[0]!.open();
+    // No local change: a reconnect only sends sync step 1.
+    FakeSocket.all[0]!.serverClose(1006);
+    vi.advanceTimersByTime(100);
+    FakeSocket.all[1]!.open();
+    expect(FakeSocket.all[1]!.sent).toEqual([new Uint8Array([0, 0, 1, 0])]);
+    // A local update (sync frame) is dropped while offline …
+    FakeSocket.all[1]!.serverClose(1006);
+    eng.outbox.push(new Uint8Array([0, 2, 3, 1, 2, 3]));
+    c.flush();
+    vi.advanceTimersByTime(100);
+    FakeSocket.all[2]!.open();
+    // … and the full state follows sync step 1 on the next connection.
+    expect(FakeSocket.all[2]!.sent).toEqual([
+      new Uint8Array([0, 0, 1, 0]),
+      encodeSyncUpdate(new Uint8Array([1, 1, 5, 0, 0])),
+    ]);
+    // Presence (awareness frames) alone does not trigger a re-publish.
+    eng.outbox.push(new Uint8Array([1, 4, 0]));
+    c.flush();
+    FakeSocket.all[2]!.serverClose(1006);
+    vi.advanceTimersByTime(100);
+    FakeSocket.all[3]!.open();
+    expect(FakeSocket.all[3]!.sent).toEqual([new Uint8Array([0, 0, 1, 0])]);
+  });
+
+  it('encodes long updates with a var-uint length', () => {
+    const big = new Uint8Array(300).fill(7);
+    const f = encodeSyncUpdate(big);
+    expect([...f.slice(0, 4)]).toEqual([0, 2, 0xac, 0x02]);
+    expect(f.length).toBe(304);
+  });
+
+  it('closes the socket when the device goes offline and reconnects when back online', () => {
+    const net = fakeNetwork();
+    const { c, eng } = client(engine(), net);
+    c.connect();
+    FakeSocket.all[0]!.open();
+    net.set(false);
+    expect(c.currentStatus).toBe('offline');
+    expect(FakeSocket.all[0]!.readyState).toBe(3);
+    // Offline edits; no reconnect attempts while offline.
+    eng.outbox.push(new Uint8Array([0, 2, 1, 9]));
+    c.flush();
+    vi.advanceTimersByTime(60_000);
+    expect(FakeSocket.all).toHaveLength(1);
+    net.set(true);
+    expect(FakeSocket.all).toHaveLength(2);
+    FakeSocket.all[1]!.open();
+    expect(c.currentStatus).toBe('online');
+    expect(FakeSocket.all[1]!.sent.at(-1)).toEqual(
+      encodeSyncUpdate(new Uint8Array([1, 1, 5, 0, 0])),
+    );
+    c.close();
+    net.set(false);
+    net.set(true);
+    expect(FakeSocket.all).toHaveLength(2);
+  });
+
+  it('starts offline without a socket and connects on the online event', () => {
+    const net = fakeNetwork();
+    net.set(false);
+    const { c } = client(engine(), net);
+    c.connect();
+    expect(FakeSocket.all).toHaveLength(0);
+    expect(c.currentStatus).toBe('offline');
+    net.set(true);
     expect(FakeSocket.all).toHaveLength(1);
   });
 });

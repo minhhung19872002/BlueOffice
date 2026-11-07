@@ -84,7 +84,12 @@ export function collabDocHost<H extends DocEngineLike>(
       }
       await refreshPeers();
     });
-  const queue = new LiveQueue(replica, flush, () => void pull().catch(() => {}));
+  const queue = new LiveQueue(
+    replica,
+    flush,
+    () =>
+      void pull().catch((e: unknown) => console.warn('bo-collab: remote change not applied', e)),
+  );
 
   /** Shares a result's change and presence. */
   const share = <T extends DocResultLike>(r: T): T => {

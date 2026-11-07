@@ -29,6 +29,8 @@ import type {
   PrintService,
   RecentFile,
   ShellIntegration,
+  SlideCommand,
+  SlideEditResult,
   WindowManager,
 } from '../types';
 import { RpcSheetHost, type SheetMethod } from '../sheet';
@@ -92,6 +94,18 @@ export class NativeEngineHost implements EngineHost {
   }
   async savePptx(): Promise<Uint8Array> {
     return toBytes(await this.call<ArrayBuffer>('engine_save_pptx'));
+  }
+  async slideCommand(cmd: SlideCommand): Promise<SlideEditResult> {
+    return JSON.parse(
+      await this.call<string>('engine_slide_command', { json: JSON.stringify(cmd) }),
+    ) as SlideEditResult;
+  }
+  async slideInsertPicture(bytes: Uint8Array, name: string): Promise<SlideEditResult> {
+    return JSON.parse(
+      await this.call<string>('engine_slide_insert_picture', bytes, {
+        headers: { 'x-file-name': encodeURIComponent(name) },
+      }),
+    ) as SlideEditResult;
   }
   async markSaved(): Promise<void> {
     await this.call<null>('engine_mark_saved');

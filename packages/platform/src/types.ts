@@ -247,6 +247,136 @@ export interface EditResult {
   error?: string;
 }
 
+// ---------------------------------------------------------------- slide editing (mirrors bo_engine::slide_edit)
+
+/** Box in slide points: centre, size, rotation (degrees clockwise). */
+export interface SlideBox {
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+  rot: number;
+}
+
+export interface SlideRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export type HandleKind = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'rot';
+
+export interface SlideHandle {
+  kind: HandleKind;
+  x: number;
+  y: number;
+}
+
+export interface SlideGuide {
+  /** `v`: vertical line at x = pos; `h`: horizontal line at y = pos. */
+  axis: 'v' | 'h';
+  pos: number;
+  from: number;
+  to: number;
+}
+
+export interface SlideShapeInfo {
+  id: number;
+  name: string;
+  kind: 'shape' | 'picture' | 'group' | 'connector' | 'table' | 'graphic';
+  rect: SlideBox;
+  /** Text in the editing format: `\n` paragraphs, `\u000b` line breaks. */
+  text: string | null;
+  placeholder: string | null;
+  lockAspect: boolean;
+  editableText: boolean;
+}
+
+export type SlideAlign = 'left' | 'center' | 'right' | 'justify';
+
+export interface SlideFormatState {
+  hasText: boolean;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  size: number | null;
+  color: string | null;
+  align: SlideAlign | null;
+  bullets: boolean;
+}
+
+export type SlideTransform =
+  | { kind: 'move'; dx: number; dy: number }
+  | { kind: 'resize'; handle: HandleKind; dx: number; dy: number; keepAspect?: boolean }
+  | { kind: 'rotate'; x: number; y: number; step?: boolean };
+
+export type SlideTextFormat =
+  | { kind: 'bold' | 'italic' | 'underline' | 'bullets'; value?: boolean }
+  | { kind: 'size' | 'sizeBy'; points: number }
+  | { kind: 'color'; hex: string | null }
+  | { kind: 'align'; align: SlideAlign };
+
+/** Slide editing command (JSON bridge, ADR-0008). */
+export type SlideCommand =
+  | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
+  | { cmd: 'undo' | 'redo' }
+  | { cmd: 'goTo'; slide: number }
+  | { cmd: 'select'; ids: number[] }
+  | { cmd: 'click'; x: number; y: number; extend?: boolean; deep?: boolean }
+  | { cmd: 'hitTest'; x: number; y: number; deep?: boolean }
+  | {
+      cmd: 'transform';
+      transform: SlideTransform;
+      snap?: boolean;
+      tolerance?: number;
+      preview?: boolean;
+    }
+  | { cmd: 'zOrder'; to: 'front' | 'back' | 'forward' | 'backward' }
+  | { cmd: 'align'; to: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' }
+  | { cmd: 'distribute'; axis: 'horizontal' | 'vertical' }
+  | { cmd: 'insertShape'; preset: string; rect?: SlideRect }
+  | { cmd: 'insertTextBox'; text?: string; rect?: SlideRect }
+  | { cmd: 'insertTable'; rows: number; cols: number; rect?: SlideRect }
+  | { cmd: 'setText'; id?: number; text: string }
+  | { cmd: 'formatText'; format: SlideTextFormat }
+  | { cmd: 'setFill'; color: string | null }
+  | { cmd: 'setLine'; color: string | null; width?: number }
+  | { cmd: 'addSlide'; after?: number; layout?: number }
+  | { cmd: 'deleteSlide' | 'duplicateSlide'; index?: number }
+  | { cmd: 'moveSlide'; from: number; to: number }
+  | { cmd: 'setNotes'; slide?: number; text: string };
+
+export interface SlidePreview {
+  boxes: SlideBox[];
+  bounds: SlideBox | null;
+  guides: SlideGuide[];
+  dx: number;
+  dy: number;
+  angle: number | null;
+}
+
+/** Result of a slide command. */
+export interface SlideEditResult {
+  info: DocInfo;
+  slide: number;
+  selection: SlideShapeInfo[];
+  bounds: SlideBox | null;
+  handles: SlideHandle[];
+  placeholders: SlideBox[];
+  dirty: number[];
+  slidesChanged: boolean;
+  modified: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  format: SlideFormatState;
+  notes: string;
+  layouts: { index: number; name: string; kind: string | null }[];
+  preview?: SlidePreview;
+  hits?: number[];
+  error?: string;
+}
+
 // ---------------------------------------------------------------- services
 
 /** The core engine. Same API whether it runs as WASM (web) or natively (desktop). */
@@ -274,6 +404,10 @@ export interface EngineHost {
   getSlideNotes(index: number): Promise<string>;
   /** Saves the open presentation as `.pptx`. */
   savePptx(): Promise<Uint8Array>;
+  /** Run a slide editing command (presentations). */
+  slideCommand(cmd: SlideCommand): Promise<SlideEditResult>;
+  /** Insert a PNG/JPEG picture on the current slide. */
+  slideInsertPicture(bytes: Uint8Array, name: string): Promise<SlideEditResult>;
   dispose(): void;
 }
 

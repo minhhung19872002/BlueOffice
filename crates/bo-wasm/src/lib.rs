@@ -146,6 +146,19 @@ impl WasmEngine {
         self.inner.save_pptx().map_err(err)
     }
 
+    /// Run a slide editing command (JSON `SlideCommand`); returns `SlideEditResult` as JSON.
+    #[wasm_bindgen(js_name = slideCommand)]
+    pub fn slide_command(&mut self, json: &str) -> Result<String, JsError> {
+        self.inner.slide_command_json(json).map_err(err)
+    }
+
+    /// Insert a PNG/JPEG picture on the current slide; returns `SlideEditResult` as JSON.
+    #[wasm_bindgen(js_name = slideInsertPicture)]
+    pub fn slide_insert_picture(&mut self, bytes: Vec<u8>, name: &str) -> Result<String, JsError> {
+        let r = self.inner.slide_insert_picture(bytes, name).map_err(err)?;
+        Ok(serde_json::to_string(&r).unwrap_or_default())
+    }
+
     /// Render a page to PNG bytes.
     #[wasm_bindgen(js_name = renderPng)]
     pub fn render_png(&self, index: usize, scale: f32) -> Result<Vec<u8>, JsError> {

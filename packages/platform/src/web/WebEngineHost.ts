@@ -6,6 +6,8 @@ import type {
   FontSource,
   GlyphOutline,
   PageDisplayList,
+  SlideCommand,
+  SlideEditResult,
 } from '../types';
 import type { EngineRequest, EngineResponse } from './protocol';
 
@@ -111,6 +113,14 @@ export class WebEngineHost implements EngineHost {
 
   savePptx(): Promise<Uint8Array> {
     return this.call<Uint8Array>({ method: 'savePptx' });
+  }
+
+  slideCommand(cmd: SlideCommand): Promise<SlideEditResult> {
+    return this.call<SlideEditResult>({ method: 'slideCommand', json: JSON.stringify(cmd) });
+  }
+
+  slideInsertPicture(bytes: Uint8Array, name: string): Promise<SlideEditResult> {
+    return this.call<SlideEditResult>({ method: 'slideInsertPicture', bytes, name });
   }
 
   async markSaved(): Promise<void> {

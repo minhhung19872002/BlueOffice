@@ -110,6 +110,12 @@ function fakePlatform(): Platform & { opened: string[]; commands: EditCommand[];
       saveDocx: async () => new Uint8Array([80, 75]),
       getSlideNotes: async () => '',
       savePptx: async () => new Uint8Array([80, 75]),
+    slideCommand: async () => {
+      throw new Error('not a presentation');
+    },
+    slideInsertPicture: async () => {
+      throw new Error('not a presentation');
+    },
       markSaved: async () => {
         modified = false;
       },

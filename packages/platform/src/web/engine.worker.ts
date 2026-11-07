@@ -52,6 +52,10 @@ async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?:
       const bytes = engine.savePptx();
       return { result: bytes, transfer: [bytes.buffer] };
     }
+    case 'slideCommand':
+      return { result: JSON.parse(engine.slideCommand(req.json)) };
+    case 'slideInsertPicture':
+      return { result: JSON.parse(engine.slideInsertPicture(req.bytes, req.name)) };
     case 'markSaved':
       engine.markSaved();
       return { result: null };

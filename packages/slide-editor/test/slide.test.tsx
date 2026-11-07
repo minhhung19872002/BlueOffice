@@ -9,6 +9,7 @@ import type {
   SlideShapeInfo,
 } from '@blueoffice/platform';
 import {
+  AudienceLink,
   BlueSlideEditor,
   fit,
   formatElapsed,
@@ -495,5 +496,70 @@ describe('BlueSlideEditor', () => {
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'moveSlide', from: 0, to: 2 }));
     fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'undo' }));
+  });
+});
+
+/** In-memory window channels: every bus of a name hears the others. */
+function memoryChannels() {
+  const subs = new Map<string, Set<(m: unknown) => void>>();
+  const sent: unknown[] = [];
+  const channel = (name: string) => {
+    const mine = new Set<(m: unknown) => void>();
+    let set = subs.get(name);
+    if (!set) subs.set(name, (set = new Set()));
+    const all = set;
+    return {
+      post: (m: unknown) => {
+        sent.push(m);
+        for (const f of all) if (!mine.has(f)) f(m);
+      },
+      onMessage: (f: (m: unknown) => void) => {
+        mine.add(f);
+        all.add(f);
+        return () => {
+          mine.delete(f);
+          all.delete(f);
+        };
+      },
+      close: () => {
+        for (const f of mine) all.delete(f);
+      },
+    };
+  };
+  return { channel, sent };
+}
+
+describe('audience screen', () => {
+  it('opens a second window and keeps it on the presenter slide', async () => {
+    const { channel, sent } = memoryChannels();
+    const opened: string[] = [];
+    const presenter = {
+      channel,
+      window: { openNew: async (u: string) => void opened.push(u), setTitle: () => {} },
+    } as unknown as Platform;
+    const link = new AudienceLink(presenter, async () => ({
+      name: 'a.pptx',
+      bytes: new Uint8Array([80, 75, 3]),
+    }));
+    await link.start(1);
+    expect(opened[0]).toMatch(/^\?app=slide&audience=audience-/);
+    const id = decodeURIComponent(opened[0]!.split('audience=')[1]!);
+
+    // The audience window (same editor with `audience`) asks for the deck.
+    const { p, engine } = fakePlatform();
+    const audiencePlatform = { ...p, channel } as Platform;
+    render(<BlueSlideEditor platform={audiencePlatform} language="vi-VN" audience={id} />);
+    await waitFor(() =>
+      expect(engine.open).toHaveBeenCalledWith(new Uint8Array([80, 75, 3]), 'a.pptx'),
+    );
+    expect(sent).toContainEqual({ type: 'hello' });
+    await screen.findByRole('img', { name: 'Slide 2 / 3' });
+    act(() => link.update(2, false, false));
+    await screen.findByRole('img', { name: 'Slide 3 / 3' });
+    act(() => link.update(2, true, false));
+    await waitFor(() => expect(screen.queryByRole('img', { name: /Slide/ })).toBeNull());
+    act(() => link.update(2, false, true));
+    await screen.findByText('Kết thúc trình chiếu');
+    link.stop();
   });
 });

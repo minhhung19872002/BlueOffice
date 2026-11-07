@@ -874,6 +874,14 @@ export interface AuthSession {
   signOut(): Promise<void>;
 }
 
+/** Messages between windows of the app (presenter ↔ audience screen). */
+export interface MessageBus {
+  /** Send to the other windows on this channel (not to this one). */
+  post(msg: unknown): void;
+  onMessage(handler: (msg: unknown) => void): () => void;
+  close(): void;
+}
+
 export interface WindowManager {
   setTitle(title: string): void;
   openNew(url: string): Promise<void>;
@@ -924,6 +932,8 @@ export interface Platform {
   window: WindowManager;
   offline: OfflineCache;
   shell: ShellIntegration;
+  /** Channel between windows (web: BroadcastChannel, desktop: Tauri events). */
+  channel?(name: string): MessageBus;
   /** BlueSheet engine (absent in hosts that only embed BlueDoc). */
   sheet?: import('./sheet').SheetHost;
 }

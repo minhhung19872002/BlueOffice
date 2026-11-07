@@ -37,6 +37,7 @@ import {
   Bold,
   BookOpen,
   BringToFront,
+  Cast,
   Circle,
   ClipboardPaste,
   Copy,
@@ -84,6 +85,8 @@ import {
   Ungroup,
 } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AudienceLink } from './audience';
+import { AudienceView } from './AudienceView';
 import { SlideController } from './controller';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
 import { fit, formatElapsed, showAction, step } from './show';
@@ -94,6 +97,8 @@ import { SlideOverlay, type TextEditing } from './SlideOverlay';
 export interface BlueSlideEditorProps {
   platform: Platform;
   language?: Language;
+  /** Open as the audience screen of a presenter window (channel id). */
+  audience?: string;
 }
 
 export type SlideView = 'normal' | 'sorter' | 'reading' | 'show' | 'presenter';
@@ -151,7 +156,11 @@ export function BlueSlideEditor(props: BlueSlideEditorProps) {
   const [i18n] = useState(() => createI18n(props.language));
   return (
     <I18nextProvider i18n={i18n}>
-      <SlideEditorInner {...props} />
+      {props.audience ? (
+        <AudienceView platform={props.platform} channel={props.audience} />
+      ) : (
+        <SlideEditorInner {...props} />
+      )}
     </I18nextProvider>
   );
 }
@@ -320,6 +329,25 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     },
     [count, run],
   );
+
+  // Audience screen (second window) of the presenter view.
+  const audience = useMemo(
+    () =>
+      new AudienceLink(platform, async () => ({
+        name: fileName || 'deck.pptx',
+        bytes: await engine.savePptx(),
+      })),
+    [platform, engine, fileName],
+  );
+  useEffect(() => () => audience.stop(), [audience]);
+  useEffect(() => {
+    if (!audience.open) return;
+    if (view === 'show' || view === 'presenter') audience.update(current, black, false);
+    else {
+      audience.update(current, false, true);
+      audience.stop();
+    }
+  }, [audience, view, current, black]);
 
   const startShow = useCallback(
     (from: number, presenter: boolean) => {
@@ -547,6 +575,16 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       isEnabled: deck,
       run: (s) => startShow(s.current, true),
     });
+    reg.register({
+      id: 'show.audience',
+      isEnabled: (s) => s.hasDeck && !!platform.channel,
+      run: (s) =>
+        guard(async () => {
+          await ctrl.idle();
+          await audience.start(s.current);
+          startShow(s.current, true);
+        }),
+    });
 
     // History and selection.
     simple('edit.undo', { cmd: 'undo' }, (s) => s.canUndo, 'Ctrl+Z');
@@ -749,6 +787,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     pickColor,
     toSystem,
     pasteFrom,
+    audience,
   ]);
 
   const state: SlideEditorState = useMemo(() => {
@@ -994,6 +1033,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
               item('show.fromStart', t('slideEditor.fromStart'), <Play size={18} />),
               item('show.fromCurrent', t('slideEditor.fromCurrent'), <MonitorPlay size={16} />, sm),
               item('show.presenter', t('slideEditor.presenter'), <Presentation size={16} />, sm),
+              item('show.audience', t('slideEditor.audienceWindow'), <Cast size={16} />, sm),
             ],
           },
         ],
@@ -1453,6 +1493,11 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
               <button type="button" onClick={() => setBlack((b) => !b)}>
                 {t('slideEditor.blackScreen')}
               </button>
+              {!audience.open && platform.channel && (
+                <button type="button" onClick={() => exec('show.audience')}>
+                  {t('slideEditor.audienceWindow')}
+                </button>
+              )}
               <button type="button" onClick={endShow}>
                 {t('slideEditor.exit')}
               </button>

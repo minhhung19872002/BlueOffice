@@ -6,6 +6,7 @@ import type {
   DocumentRef,
   DocumentStorage,
   FileAccess,
+  MessageBus,
   OfflineCache,
   RecentFile,
   StoredDocument,
@@ -192,5 +193,24 @@ export function mimeFor(name: string): string {
       return 'image/png';
     default:
       return 'application/octet-stream';
+  }
+}
+
+/** Window channel over `BroadcastChannel` (same-origin windows and tabs). */
+export class BroadcastBus implements MessageBus {
+  private readonly ch: BroadcastChannel;
+  constructor(name: string) {
+    this.ch = new BroadcastChannel(`blueoffice:${name}`);
+  }
+  post(msg: unknown): void {
+    this.ch.postMessage(msg);
+  }
+  onMessage(handler: (msg: unknown) => void): () => void {
+    const f = (e: MessageEvent) => handler(e.data);
+    this.ch.addEventListener('message', f);
+    return () => this.ch.removeEventListener('message', f);
+  }
+  close(): void {
+    this.ch.close();
   }
 }

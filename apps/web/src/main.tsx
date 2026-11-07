@@ -41,7 +41,11 @@ function Editor({ app, platform }: { app: AppId; platform: Platform }) {
   return app === 'sheet' ? (
     <BlueSheetEditor platform={platform} language={language} />
   ) : app === 'slide' ? (
-    <BlueSlideEditor platform={platform} language={language} />
+    <BlueSlideEditor
+      platform={platform}
+      language={language}
+      audience={params.get('audience') ?? undefined}
+    />
   ) : (
     <BlueEditor
       platform={platform}

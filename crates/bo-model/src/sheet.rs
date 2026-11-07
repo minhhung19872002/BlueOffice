@@ -990,12 +990,22 @@ pub struct CustomFilter {
 /// A chart placed on a worksheet, parsed from its drawing (ECMA-376 Part 1,
 /// §20.5 SpreadsheetML Drawing) and chart part (§21.2 DrawingML Charts, `c:chartSpace`).
 ///
-/// This is a **read-only** summary for rendering: the drawing and chart parts stay
-/// opaque and are written back byte-for-byte, so edits to this struct are not saved.
+/// Charts read from a file keep their drawing and chart parts opaque (written back
+/// byte-for-byte). A chart with an empty `part` (inserted by the user) or with
+/// `dirty` set (edited) is regenerated as a `c:chartSpace` part on write.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Chart {
-    /// Absolute name of the chart part, e.g. `/xl/charts/chart1.xml`.
+    /// Absolute name of the chart part, e.g. `/xl/charts/chart1.xml`; empty for a new chart.
     pub part: String,
+    /// Regenerate the chart part on write (title, legend, axis titles or type changed).
+    #[serde(default)]
+    pub dirty: bool,
+    /// Category (horizontal) axis title (§21.2.2.211 `title` of `c:catAx` / `c:valAx`).
+    #[serde(default)]
+    pub x_title: Option<String>,
+    /// Value (vertical) axis title.
+    #[serde(default)]
+    pub y_title: Option<String>,
     /// Anchor cells (zero-based) of the drawing anchor (§20.5.2.33 twoCellAnchor).
     pub from: CellRef,
     pub to: Option<CellRef>,

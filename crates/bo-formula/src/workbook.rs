@@ -114,6 +114,8 @@ pub struct Workbook {
     spill_changed: Vec<CellId>,
     circular: FxHashSet<CellId>,
     evaluations: Cell<usize>,
+    /// Cells (re)calculated by the last [`Workbook::recalculate`].
+    recalculated: Vec<CellId>,
     /// Materialized large areas, valid during one recalculation pass.
     area_cache: RefCell<FxHashMap<Area, Arc<Array>>>,
 }
@@ -145,6 +147,7 @@ impl Workbook {
             spill_changed: Vec::new(),
             circular: FxHashSet::default(),
             evaluations: Cell::new(0),
+            recalculated: Vec::new(),
             area_cache: RefCell::new(FxHashMap::default()),
         }
     }
@@ -777,6 +780,7 @@ impl Workbook {
         let mut seeds = std::mem::take(&mut self.changed);
         seeds.extend(self.volatile.iter().copied());
         let dirty = self.propagate(seeds);
+        self.recalculated = dirty.iter().copied().collect();
         self.calc_set(dirty);
         for _ in 0..SPILL_PASSES {
             if self.spill_changed.is_empty() {
@@ -784,8 +788,11 @@ impl Workbook {
             }
             let seeds = std::mem::take(&mut self.spill_changed);
             let dirty = self.propagate(seeds);
+            self.recalculated.extend(dirty.iter().copied());
             self.calc_set(dirty);
         }
+        self.recalculated.sort_unstable();
+        self.recalculated.dedup();
         self.spill_changed.clear();
     }
 
@@ -793,6 +800,12 @@ impl Workbook {
     /// [`Workbook::recalculate`] (diagnostics for incremental recalculation).
     pub fn last_recalc_evaluations(&self) -> usize {
         self.evaluations.get()
+    }
+
+    /// Cells whose value the last [`Workbook::recalculate`] may have changed
+    /// (formula cells that were evaluated, plus edited cells), sorted.
+    pub fn last_recalculated(&self) -> &[CellId] {
+        &self.recalculated
     }
 
     /// Recalculate every formula.

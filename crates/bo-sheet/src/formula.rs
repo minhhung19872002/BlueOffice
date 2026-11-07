@@ -74,7 +74,7 @@ impl FormulaAdjuster for BoFormula {
     }
 }
 
-fn to_value(v: &CellValue, system: DateSystem) -> Value {
+pub(crate) fn to_value(v: &CellValue, system: DateSystem) -> Value {
     match v {
         CellValue::Empty => Value::Empty,
         CellValue::Number(n) => Value::Number(*n),
@@ -86,7 +86,7 @@ fn to_value(v: &CellValue, system: DateSystem) -> Value {
     }
 }
 
-fn to_cell_value(v: &Value) -> CellValue {
+pub(crate) fn to_cell_value(v: &Value) -> CellValue {
     match v.first() {
         Value::Number(n) => CellValue::Number(*n),
         Value::Text(s) => CellValue::Text(s.clone()),
@@ -119,14 +119,14 @@ fn formula_text(
     Some(format(&moved))
 }
 
-fn array_range(f: &bo_model::sheet::Formula) -> Option<CellRange> {
+pub(crate) fn array_range(f: &bo_model::sheet::Formula) -> Option<CellRange> {
     match &f.kind {
         FormulaKind::Array { range } => CellRange::parse(range),
         _ => None,
     }
 }
 
-fn load(wb: &Workbook, now: Option<f64>) -> bo_formula::Workbook {
+pub(crate) fn load(wb: &Workbook, now: Option<f64>) -> bo_formula::Workbook {
     let system = if wb.date1904 {
         DateSystem::Date1904
     } else {
@@ -208,68 +208,89 @@ impl FormulaEngine for BoFormula {
     fn recalculate(&mut self, wb: &mut Workbook) {
         let mut fw = load(wb, self.now);
         fw.recalculate();
-        for (si, ws) in wb.sheets.iter_mut().enumerate() {
-            let anchors: Vec<(u32, u32)> = ws
+        for si in 0..wb.sheets.len() {
+            let anchors: Vec<(u32, u32)> = wb.sheets[si]
                 .cells
                 .iter()
                 .filter(|(_, c)| c.formula.is_some())
                 .map(|(&k, _)| k)
                 .collect();
-            for (r, c) in anchors {
-                let value = fw.value(si, r, c);
-                let spill = fw.spill_range(si, r, c);
-                let old = ws
-                    .cells
-                    .get(&(r, c))
-                    .and_then(|cell| cell.formula.as_ref())
-                    .and_then(array_range);
-                // Clear results of the previous array that are no longer covered.
-                if let Some(old) = old {
-                    for rr in old.first.row..=old.last.row {
-                        for cc in old.first.col..=old.last.col {
-                            let inside = spill.is_some_and(|a| a.contains(si, rr, cc));
-                            if (rr, cc) != (r, c) && !inside {
-                                if let Some(cell) = ws.cells.get_mut(&(rr, cc)) {
-                                    if cell.formula.is_none() {
-                                        cell.value = CellValue::Empty;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                if let Some(cell) = ws.cells.get_mut(&(r, c)) {
-                    cell.value = to_cell_value(&value);
-                    if let (Some(a), Some(f)) = (spill, cell.formula.as_mut()) {
-                        if !f.text.is_empty() {
-                            let range = CellRange::new(
-                                bo_model::sheet::CellRef {
-                                    row: a.r1,
-                                    col: a.c1,
-                                },
-                                bo_model::sheet::CellRef {
-                                    row: a.r2,
-                                    col: a.c2,
-                                },
-                            );
-                            f.kind = FormulaKind::Array {
-                                range: range.to_string(),
-                            };
-                        }
-                    }
-                }
-                if let Some(a) = spill {
-                    for rr in a.r1..=a.r2 {
-                        for cc in a.c1..=a.c2 {
-                            if (rr, cc) == (r, c) {
-                                continue;
-                            }
-                            let v = to_cell_value(&fw.value(si, rr, cc));
-                            let cell = ws.cells.entry((rr, cc)).or_insert_with(Cell::default);
+            write_back(&fw, wb, si, &anchors);
+        }
+    }
+}
+
+/// Copies calculated values of formula cells `anchors` of sheet `si` from the
+/// engine into the model (spilled results included).
+pub(crate) fn write_back(
+    fw: &bo_formula::Workbook,
+    wb: &mut Workbook,
+    si: usize,
+    anchors: &[(u32, u32)],
+) {
+    let Some(ws) = wb.sheets.get_mut(si) else {
+        return;
+    };
+    for &(r, c) in anchors {
+        if ws
+            .cells
+            .get(&(r, c))
+            .is_none_or(|cell| cell.formula.is_none())
+        {
+            continue;
+        }
+        let value = fw.value(si, r, c);
+        let spill = fw.spill_range(si, r, c);
+        let old = ws
+            .cells
+            .get(&(r, c))
+            .and_then(|cell| cell.formula.as_ref())
+            .and_then(array_range);
+        // Clear results of the previous array that are no longer covered.
+        if let Some(old) = old {
+            for rr in old.first.row..=old.last.row {
+                for cc in old.first.col..=old.last.col {
+                    let inside = spill.is_some_and(|a| a.contains(si, rr, cc));
+                    if (rr, cc) != (r, c) && !inside {
+                        if let Some(cell) = ws.cells.get_mut(&(rr, cc)) {
                             if cell.formula.is_none() {
-                                cell.value = v;
+                                cell.value = CellValue::Empty;
                             }
                         }
+                    }
+                }
+            }
+        }
+        if let Some(cell) = ws.cells.get_mut(&(r, c)) {
+            cell.value = to_cell_value(&value);
+            if let (Some(a), Some(f)) = (spill, cell.formula.as_mut()) {
+                if !f.text.is_empty() {
+                    let range = CellRange::new(
+                        bo_model::sheet::CellRef {
+                            row: a.r1,
+                            col: a.c1,
+                        },
+                        bo_model::sheet::CellRef {
+                            row: a.r2,
+                            col: a.c2,
+                        },
+                    );
+                    f.kind = FormulaKind::Array {
+                        range: range.to_string(),
+                    };
+                }
+            }
+        }
+        if let Some(a) = spill {
+            for rr in a.r1..=a.r2 {
+                for cc in a.c1..=a.c2 {
+                    if (rr, cc) == (r, c) {
+                        continue;
+                    }
+                    let v = to_cell_value(&fw.value(si, rr, cc));
+                    let cell = ws.cells.entry((rr, cc)).or_insert_with(Cell::default);
+                    if cell.formula.is_none() {
+                        cell.value = v;
                     }
                 }
             }

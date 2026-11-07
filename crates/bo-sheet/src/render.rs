@@ -5,9 +5,13 @@
 //! gridlines, as fills do in common spreadsheet applications), text, borders.
 //! Headers (column letters, row numbers) are drawn last. Coordinates are points.
 //!
-//! Not yet rendered: conditional formatting, row/column default styles on empty
-//! cells, dashed/dotted border patterns (drawn solid), rotated text, charts.
+//! Conditional formatting (§18.3.1.18) overlays fills, font changes, data bars
+//! and icons; AutoFilter header buttons (§18.3.1.2) and charts placed on the
+//! sheet (§20.5 drawing anchors) are drawn on top of the cells.
+//!
+//! Not yet rendered: row/column default styles on empty cells, rotated text.
 
+use crate::cf::CellFormat;
 use crate::color::resolve_color;
 use crate::geometry::{col_to_letters, Rect, SheetGeometry, PT_PER_PX};
 use crate::numfmt::{format_code, FormatOptions, Formatted, Locale, NumberFormat};
@@ -35,6 +39,12 @@ pub struct RenderOptions {
     pub header_line: Rgba,
     /// Font size of header labels in points.
     pub header_font_size: f32,
+    /// Serial date-time for `TODAY()`/`NOW()` in conditional formats.
+    pub now: Option<f64>,
+    /// Draw charts placed on the sheet.
+    pub charts: bool,
+    /// Lay the sheet out without its frozen panes (printing).
+    pub ignore_frozen: bool,
 }
 
 impl Default for RenderOptions {
@@ -49,6 +59,9 @@ impl Default for RenderOptions {
             header_text: Rgba(0x3C, 0x40, 0x43, 255),
             header_line: Rgba(0xC0, 0xC4, 0xC8, 255),
             header_font_size: 9.0,
+            now: None,
+            charts: true,
+            ignore_frozen: false,
         }
     }
 }
@@ -63,6 +76,46 @@ pub fn format_cell(wb: &Workbook, cell: &Cell, locale: &Locale) -> Formatted {
             locale: *locale,
             date1904: wb.date1904,
         },
+    )
+}
+
+/// Width and height in points that the displayed text of `cell` needs,
+/// cell padding included (column / row AutoFit).
+pub fn measure_cell(
+    wb: &Workbook,
+    cell: &Cell,
+    fonts: &mut FontManager,
+    locale: &Locale,
+) -> (f64, f64) {
+    let text = format_cell(wb, cell, locale).text;
+    let font = wb
+        .styles
+        .xf(cell.style)
+        .and_then(|x| wb.styles.fonts.get(x.font_id as usize))
+        .or_else(|| wb.styles.fonts.first())
+        .cloned()
+        .unwrap_or_default();
+    let size = font.size.unwrap_or(11.0);
+    let name = font.name.unwrap_or_else(|| "Calibri".into());
+    let lines: Vec<&str> = text.split('\n').collect();
+    let n = lines.len() as f64;
+    let Some(face) = fonts.resolve(&name, font.bold, font.italic) else {
+        let chars = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f64;
+        return (chars * size * 0.55 + 6.0, n * size * 1.3 + 2.0);
+    };
+    let w = lines
+        .iter()
+        .map(|l| f64::from(fonts.measure(face, l, size as f32)))
+        .fold(0.0, f64::max);
+    let info = fonts.info(face);
+    let upem = f64::from(info.units_per_em.max(1));
+    let line_h = f64::from(
+        i32::from(info.ascender) - i32::from(info.descender) + i32::from(info.line_gap.max(0)),
+    ) * size
+        / upem;
+    (
+        w + 6.0 * PT_PER_PX,
+        ((line_h * n) / PT_PER_PX).ceil() * PT_PER_PX + 2.0 * PT_PER_PX,
     )
 }
 
@@ -98,10 +151,16 @@ pub fn render_viewport(
         vp.header_width = 0.0;
         vp.header_height = 0.0;
     }
-    let layout = ViewLayout::for_sheet(geom, ws, &vp);
+    let layout = if opts.ignore_frozen {
+        ViewLayout::compute(geom, &vp, 0, 0)
+    } else {
+        ViewLayout::for_sheet(geom, ws, &vp)
+    };
     let mut r = Renderer {
         wb,
         ws,
+        sheet,
+        cf: std::collections::HashMap::new(),
         geom,
         opts,
         fonts,
@@ -120,6 +179,9 @@ pub fn render_viewport(
 struct Renderer<'a> {
     wb: &'a Workbook,
     ws: &'a Worksheet,
+    sheet: usize,
+    /// Conditional formatting of the pane being drawn.
+    cf: std::collections::HashMap<(u32, u32), CellFormat>,
     geom: &'a SheetGeometry,
     opts: &'a RenderOptions,
     fonts: &'a mut FontManager,
@@ -228,9 +290,58 @@ impl Renderer<'_> {
                 }
             }
         }
+        self.cf = crate::cf::evaluate(
+            self.wb,
+            self.sheet,
+            p.rows.clone(),
+            p.cols.clone(),
+            self.opts.now,
+        );
         for &(at, cell) in &cells {
             let rect = Self::screen_rect(p, self.geom.cell_rect(at.row, at.col));
             self.cell_fill(cell, rect);
+        }
+        // Conditional fills (also on positions without a cell).
+        let mut cf: Vec<((u32, u32), CellFormat)> =
+            self.cf.iter().map(|(k, v)| (*k, v.clone())).collect();
+        cf.sort_by_key(|(k, _)| *k);
+        for ((r, c), f) in &cf {
+            let at = CellRef::new(*r, *c);
+            if self.geom.row_height(*r) <= 0.0 || self.geom.col_width(*c) <= 0.0 {
+                continue;
+            }
+            if merges.iter().any(|m| m.contains(at) && m.first != at) {
+                continue;
+            }
+            let rect = Self::screen_rect(p, self.geom.cell_rect(*r, *c));
+            if let Some(color) = f.fill {
+                self.fill_rect(rect, color);
+            }
+            if let Some(bar) = f.bar {
+                let pad = 2.0 * PT_PER_PX;
+                let Rgba(rr, gg, bb, _) = bar.color;
+                self.fill_rect(
+                    Rect {
+                        x: rect.x + pad,
+                        y: rect.y + pad,
+                        w: ((rect.w - 2.0 * pad) * bar.fraction).max(0.0),
+                        h: (rect.h - 2.0 * pad).max(0.0),
+                    },
+                    Rgba(rr, gg, bb, 170),
+                );
+            }
+            if let Some(icon) = &f.icon {
+                let s = (rect.h - 4.0).clamp(4.0, 12.0);
+                let cmds = crate::icons::icon(
+                    &icon.set,
+                    icon.index,
+                    icon.count,
+                    rect.x + 2.0,
+                    rect.y + (rect.h - s) / 2.0,
+                    s,
+                );
+                self.out.extend(cmds);
+            }
         }
         for &(at, cell) in &cells {
             self.cell_text(p, at, cell, &merges);
@@ -239,7 +350,172 @@ impl Renderer<'_> {
             let rect = Self::screen_rect(p, self.geom.cell_rect(at.row, at.col));
             self.cell_borders(cell, rect);
         }
+        self.filter_buttons(p);
+        if self.opts.charts {
+            self.charts(p);
+        }
         self.out.push(Command::PopClip);
+    }
+
+    /// AutoFilter dropdown buttons on the header row (§18.3.1.2 `autoFilter`,
+    /// §18.3.2.7 `filterColumn/@hiddenButton`).
+    fn filter_buttons(&mut self, p: &PaneRegion) {
+        let Some(af) = &self.ws.auto_filter else {
+            return;
+        };
+        let row = af.range.first.row;
+        if !p.rows.contains(&row) || self.geom.row_height(row) <= 0.0 {
+            return;
+        }
+        for col in af.range.first.col..=af.range.last.col {
+            if !p.cols.contains(&col) || self.geom.col_width(col) <= 0.0 {
+                continue;
+            }
+            let fc = af
+                .columns
+                .iter()
+                .find(|c| af.range.first.col + c.col_id == col);
+            if fc.is_some_and(|c| c.hidden_button || c.show_button == Some(false)) {
+                continue;
+            }
+            let active =
+                fc.is_some_and(|c| !matches!(c.filter, bo_model::sheet::ColumnFilter::None));
+            let r = Self::screen_rect(p, self.geom.cell_rect(row, col));
+            let s = (r.h - 3.0).clamp(6.0, 12.0);
+            let b = Rect {
+                x: r.x + r.w - s - 1.5,
+                y: r.y + (r.h - s) / 2.0,
+                w: s,
+                h: s,
+            };
+            self.fill_rect(b, Rgba(0xF3, 0xF4, 0xF6, 255));
+            let edge = Rgba(0xA0, 0xA6, 0xAD, 255);
+            self.line(b.x, b.y, b.x + b.w, b.y, 0.5, edge);
+            self.line(b.x, b.y + b.h, b.x + b.w, b.y + b.h, 0.5, edge);
+            self.line(b.x, b.y, b.x, b.y + b.h, 0.5, edge);
+            self.line(b.x + b.w, b.y, b.x + b.w, b.y + b.h, 0.5, edge);
+            let color = if active {
+                Rgba(0x1F, 0x7A, 0x4D, 255)
+            } else {
+                Rgba(0x3C, 0x40, 0x43, 255)
+            };
+            let (cx, cy, h) = (b.x + b.w / 2.0, b.y + b.h / 2.0, b.w * 0.28);
+            // Down triangle (a funnel stem is added when a criterion is active).
+            self.out.push(Command::Path {
+                segs: vec![
+                    bo_render::PathSeg::M(f(cx - h), f(cy - h * 0.6)),
+                    bo_render::PathSeg::L(f(cx + h), f(cy - h * 0.6)),
+                    bo_render::PathSeg::L(f(cx), f(cy + h * 0.6)),
+                    bo_render::PathSeg::Z,
+                ],
+                fill: Some(bo_render::Paint::Solid { color }),
+                stroke: None,
+            });
+            if active {
+                self.line(cx, cy + h * 0.5, cx, cy + h * 1.3, 1.0, color);
+            }
+        }
+    }
+
+    /// Charts anchored on the sheet (§20.5.2.33 `twoCellAnchor`), clipped to the pane.
+    fn charts(&mut self, p: &PaneRegion) {
+        for chart in &self.ws.charts {
+            let x0 = self.geom.col_x(chart.from.col);
+            let y0 = self.geom.row_y(chart.from.row);
+            let to = chart.to.unwrap_or(CellRef::new(
+                chart.from.row.saturating_add(15),
+                chart.from.col.saturating_add(8),
+            ));
+            let (x1, y1) = (self.geom.col_x(to.col), self.geom.row_y(to.row));
+            let (w, h) = ((x1 - x0).max(60.0), (y1 - y0).max(40.0));
+            let sx = p.to_screen_x(x0);
+            let sy = p.to_screen_y(y0);
+            let s = p.screen;
+            if sx > s.x + s.w || sy > s.y + s.h || sx + w < s.x || sy + h < s.y {
+                continue;
+            }
+            self.out.push(Command::PushClip {
+                x: f(sx),
+                y: f(sy),
+                w: f(w),
+                h: f(h),
+            });
+            self.out.push(Command::PushTransform {
+                m: [1.0, 0.0, 0.0, 1.0, f(sx), f(sy)],
+            });
+            let mut cmds = Vec::new();
+            let name = self
+                .wb
+                .styles
+                .fonts
+                .first()
+                .and_then(|f| f.name.clone())
+                .unwrap_or_else(|| "Calibri".into());
+            let face = self.fonts.resolve(&name, false, false);
+            let locale = self.opts.locale;
+            {
+                let fonts = &mut *self.fonts;
+                let mut label = |text: &str,
+                                 [l, t, r, b]: [f64; 4],
+                                 align: crate::chart::Align,
+                                 size: f64,
+                                 color: Rgba,
+                                 out: &mut Vec<Command>| {
+                    let Some(face) = face else { return };
+                    let size32 = size as f32;
+                    let width = f64::from(fonts.measure(face, text, size32));
+                    let info = fonts.info(face).clone();
+                    let upem = f64::from(info.units_per_em.max(1));
+                    let asc = f64::from(info.ascender) * size / upem;
+                    let desc = -f64::from(info.descender) * size / upem;
+                    let x = match align {
+                        crate::chart::Align::Left => l,
+                        crate::chart::Align::Center => f64::midpoint(l, r) - width / 2.0,
+                        crate::chart::Align::Right => r - width,
+                    };
+                    let baseline = t + ((b - t) - asc - desc) / 2.0 + asc;
+                    let mut gx = 0f32;
+                    let mut x_run = x;
+                    for (range, fid) in fonts.itemize(face, text) {
+                        let part = &text[range];
+                        let fscale = size32 / f32::from(fonts.info(fid).units_per_em.max(1));
+                        let shaped = fonts.shape(fid, part);
+                        let start = gx;
+                        let glyphs: Vec<Glyph> = shaped
+                            .iter()
+                            .map(|g| {
+                                let gl = Glyph(
+                                    g.glyph_id,
+                                    gx - start + g.x_offset as f32 * fscale,
+                                    -(g.y_offset as f32) * fscale,
+                                    g.cluster,
+                                );
+                                gx += g.x_advance as f32 * fscale;
+                                gl
+                            })
+                            .collect();
+                        if !part.trim().is_empty() {
+                            out.push(Command::Glyphs {
+                                face: fid.0,
+                                size: size32,
+                                x: f(x_run),
+                                y: f(baseline),
+                                color,
+                                text: part.to_owned(),
+                                glyphs,
+                            });
+                        }
+                        x_run = x + f64::from(gx);
+                    }
+                };
+                crate::chart::draw_chart(
+                    self.wb, self.sheet, chart, w, h, &locale, &mut label, &mut cmds,
+                );
+            }
+            self.out.extend(cmds);
+            self.out.push(Command::PopTransform);
+            self.out.push(Command::PopClip);
+        }
     }
 
     fn gridlines(&mut self, p: &PaneRegion, merges: &[CellRange]) {
@@ -325,7 +601,25 @@ impl Renderer<'_> {
                 self.line(x1, y1 + d, x2, y2 + d, PT_PER_PX, color);
             }
         } else {
-            self.line(x1, y1, x2, y2, width, color);
+            // §18.18.3 dashed / dotted styles.
+            let dash = match e.style.as_deref() {
+                Some("dotted" | "hair") => Some([1.0, 1.0]),
+                Some("dashed" | "mediumDashed") => Some([3.0, 1.5]),
+                Some(
+                    "dashDot" | "mediumDashDot" | "dashDotDot" | "mediumDashDotDot"
+                    | "slantDashDot",
+                ) => Some([3.0, 1.0]),
+                _ => None,
+            };
+            self.out.push(Command::Line {
+                x1: f(x1),
+                y1: f(y1),
+                x2: f(x2),
+                y2: f(y2),
+                width: f(width),
+                color,
+                dash,
+            });
         }
     }
 
@@ -427,17 +721,36 @@ impl Renderer<'_> {
         if fmt.text.is_empty() {
             return;
         }
-        let font = self.font_of(cell);
+        let cf = self.cf.get(&(at.row, at.col)).cloned().unwrap_or_default();
+        if cf.hide_value {
+            return;
+        }
+        let mut font = self.font_of(cell);
+        // Conditional formatting font overrides (§18.8.14 dxf font).
+        if let Some(b) = cf.bold {
+            font.bold = b;
+        }
+        if let Some(i) = cf.italic {
+            font.italic = i;
+        }
+        if let Some(s) = cf.strike {
+            font.strike = s;
+        }
+        if let Some(u) = cf.underline {
+            font.underline = u.then(|| "single".to_owned());
+        }
         let size = font.size.unwrap_or(11.0) as f32;
         let name = font.name.clone().unwrap_or_else(|| "Calibri".into());
         let Some(face) = self.fonts.resolve(&name, font.bold, font.italic) else {
             return;
         };
-        let color = fmt
-            .color
-            .map(|c| {
-                let (r, g, b) = c.rgb();
-                Rgba(r, g, b, 255)
+        let color = cf
+            .font_color
+            .or_else(|| {
+                fmt.color.map(|c| {
+                    let (r, g, b) = c.rgb();
+                    Rgba(r, g, b, 255)
+                })
             })
             .or_else(|| {
                 font.color

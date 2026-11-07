@@ -123,6 +123,18 @@ pub enum SlideCommand {
         ids: Vec<u32>,
     },
     SelectAll,
+    /// Marquee: select the top-level shapes lying entirely inside `rect`
+    /// (`extend` adds them to the selection).
+    SelectRect {
+        rect: Rect,
+        #[serde(default)]
+        extend: bool,
+    },
+    /// Select the next (or previous) shape in z-order (Tab / Shift+Tab).
+    SelectNext {
+        #[serde(default)]
+        back: bool,
+    },
     /// Select the topmost shape at a slide point; `extend` (Shift) toggles it;
     /// `deep` selects inside groups.
     Click {
@@ -1985,6 +1997,47 @@ impl Engine {
                         .iter()
                         .map(|p| p.id)
                         .collect();
+                }
+                SlideCommand::SelectRect { rect, extend } => {
+                    let placed = place_slide(pres, ed.sel.slide);
+                    let inside: Vec<u32> = placed
+                        .iter()
+                        .filter(|p| {
+                            let b = p.b.bounds();
+                            b.x >= rect.x - 0.01
+                                && b.y >= rect.y - 0.01
+                                && b.right() <= rect.right() + 0.01
+                                && b.bottom() <= rect.bottom() + 0.01
+                        })
+                        .map(|p| p.id)
+                        .collect();
+                    if extend {
+                        for id in inside {
+                            if !ed.sel.ids.contains(&id) {
+                                ed.sel.ids.push(id);
+                            }
+                        }
+                    } else {
+                        ed.sel.ids = inside;
+                    }
+                }
+                SlideCommand::SelectNext { back } => {
+                    let placed = place_slide(pres, ed.sel.slide);
+                    let n = placed.len();
+                    if n > 0 {
+                        let cur = ed
+                            .sel
+                            .ids
+                            .last()
+                            .and_then(|id| placed.iter().position(|p| p.id == *id));
+                        let i = match (cur, back) {
+                            (None, false) => 0,
+                            (None, true) => n - 1,
+                            (Some(i), false) => (i + 1) % n,
+                            (Some(i), true) => (i + n - 1) % n,
+                        };
+                        ed.sel.ids = vec![placed[i].id];
+                    }
                 }
                 SlideCommand::Click { x, y, extend, deep } => {
                     let placed = place_slide(pres, ed.sel.slide);

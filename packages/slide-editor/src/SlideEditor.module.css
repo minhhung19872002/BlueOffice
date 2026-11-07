@@ -409,3 +409,10 @@ circle.handle {
   font-size: 12px;
   padding: 2px 4px;
 }
+
+.marquee {
+  fill: rgb(37 99 235 / 10%);
+  stroke: #2563eb;
+  stroke-width: 1px;
+  stroke-dasharray: 4 2;
+}

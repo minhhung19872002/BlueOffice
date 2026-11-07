@@ -403,3 +403,49 @@ fn copy_cut_paste_slides() {
     let r = try_run(&mut e, r#"{"cmd":"paste"}"#);
     assert_eq!(r.error.as_deref(), Some("clipOtherDeck"));
 }
+
+#[test]
+fn marquee_select_all_and_tab_cycle() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let all = run(&mut e, r#"{"cmd":"selectAll"}"#).selection;
+    assert!(all.len() > 3);
+    // A box around the first two shapes selects exactly those inside it.
+    let b0 = all[0].rect;
+    let b1 = all[1].rect;
+    let x0 = (b0.cx - b0.w / 2.0).min(b1.cx - b1.w / 2.0) - 1.0;
+    let y0 = (b0.cy - b0.h / 2.0).min(b1.cy - b1.h / 2.0) - 1.0;
+    let x1 = (b0.cx + b0.w / 2.0).max(b1.cx + b1.w / 2.0) + 1.0;
+    let y1 = (b0.cy + b0.h / 2.0).max(b1.cy + b1.h / 2.0) + 1.0;
+    let r = run(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"selectRect","rect":{{"x":{x0},"y":{y0},"w":{},"h":{}}}}}"#,
+            x1 - x0,
+            y1 - y0
+        ),
+    );
+    let ids: Vec<u32> = r.selection.iter().map(|s| s.id).collect();
+    assert!(
+        ids.contains(&all[0].id) && ids.contains(&all[1].id),
+        "{ids:?}"
+    );
+    // Empty box: nothing; extend keeps the selection.
+    let r = run(
+        &mut e,
+        r#"{"cmd":"selectRect","rect":{"x":0,"y":0,"w":1,"h":1},"extend":true}"#,
+    );
+    assert_eq!(r.selection.len(), ids.len());
+    let r = run(
+        &mut e,
+        r#"{"cmd":"selectRect","rect":{"x":0,"y":0,"w":1,"h":1}}"#,
+    );
+    assert!(r.selection.is_empty());
+    // Tab cycles in z-order, Shift+Tab goes back and wraps.
+    let r = run(&mut e, r#"{"cmd":"selectNext"}"#);
+    assert_eq!(r.selection[0].id, all[0].id);
+    let r = run(&mut e, r#"{"cmd":"selectNext"}"#);
+    assert_eq!(r.selection[0].id, all[1].id);
+    run(&mut e, r#"{"cmd":"selectNext","back":true}"#);
+    let r = run(&mut e, r#"{"cmd":"selectNext","back":true}"#);
+    assert_eq!(r.selection[0].id, all.last().unwrap().id);
+}

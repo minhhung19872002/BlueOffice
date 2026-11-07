@@ -61,7 +61,7 @@ export interface SlideOverlayProps {
 }
 
 interface Drag {
-  mode: 'move' | 'resize' | 'rotate';
+  mode: 'move' | 'resize' | 'rotate' | 'marquee';
   handle?: HandleKind;
   sx: number;
   sy: number;
@@ -114,6 +114,9 @@ export function SlideOverlay({
   const drag = useRef<Drag | null>(null);
   const textDrag = useRef<{ busy: boolean; pending: { x: number; y: number } | null } | null>(null);
   const [hitSeq, setHitSeq] = useState(0);
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(
+    null,
+  );
   const textEdit: SlideTextEdit | null =
     editing && edit?.textEdit?.id === editing.id ? edit.textEdit : null;
   const scale = slide.width > 0 ? width / slide.width : 1;
@@ -194,11 +197,25 @@ export function SlideOverlay({
     const d: Drag = { mode: 'move', sx: p.x, sy: p.y, started: false, ready: false, last: null };
     drag.current = d;
     const extend = e.shiftKey;
-    void controller.run({ cmd: 'click', x: p.x, y: p.y, extend }).then((r) => {
-      if (drag.current !== d) return;
-      if (!r || extend || r.selection.length === 0) drag.current = null;
-      else d.ready = true;
-    });
+    void controller
+      .run({ cmd: 'hitTest', x: p.x, y: p.y })
+      .then((h) => {
+        // Empty space: a drag draws a selection box (marquee).
+        if (h?.hits && h.hits.length === 0) {
+          if (!extend) void controller.run({ cmd: 'select', ids: [] });
+          if (drag.current === d) {
+            d.mode = 'marquee';
+            d.ready = true;
+          }
+          return null;
+        }
+        return controller.run({ cmd: 'click', x: p.x, y: p.y, extend });
+      })
+      .then((r) => {
+        if (drag.current !== d || d.mode === 'marquee') return;
+        if (!r || extend || r.selection.length === 0) drag.current = null;
+        else d.ready = true;
+      });
   };
 
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
@@ -212,8 +229,19 @@ export function SlideOverlay({
     const d = drag.current;
     if (!d || !d.ready) return;
     const p = toPt(e);
-    if (!d.started && Math.hypot(p.x - d.sx, p.y - d.sy) * scale < DRAG_THRESHOLD_PX) return;
+    if (!d.started && Math.hypot(p.x - d.sx, p.y - d.sy) * (scale || 1) < DRAG_THRESHOLD_PX) {
+      return;
+    }
     d.started = true;
+    if (d.mode === 'marquee') {
+      setMarquee({
+        x: Math.min(d.sx, p.x),
+        y: Math.min(d.sy, p.y),
+        w: Math.abs(p.x - d.sx),
+        h: Math.abs(p.y - d.sy),
+      });
+      return;
+    }
     d.last = transformOf(d, p.x, p.y, e.shiftKey);
     controller.preview(d.last, !e.altKey, SNAP_PX / scale);
   };
@@ -229,6 +257,17 @@ export function SlideOverlay({
     svgRef.current?.releasePointerCapture?.(e.pointerId);
     if (!d?.started) return;
     const p = toPt(e);
+    if (d.mode === 'marquee') {
+      setMarquee(null);
+      const rect = {
+        x: Math.min(d.sx, p.x),
+        y: Math.min(d.sy, p.y),
+        w: Math.abs(p.x - d.sx),
+        h: Math.abs(p.y - d.sy),
+      };
+      void controller.run({ cmd: 'selectRect', rect, extend: e.shiftKey });
+      return;
+    }
     const t = d.ready ? transformOf(d, p.x, p.y, e.shiftKey) : d.last;
     controller.cancelPreview();
     if (t) {
@@ -276,6 +315,7 @@ export function SlideOverlay({
         onPointerUp={onPointerUp}
         onPointerCancel={() => {
           drag.current = null;
+          setMarquee(null);
           controller.cancelPreview();
         }}
         onDoubleClick={onDoubleClick}
@@ -356,6 +396,17 @@ export function SlideOverlay({
             ),
           )}
         {preview?.boxes.map((b, i) => boxRect(b, styles.ghost, `g${i}`))}
+        {marquee && (
+          <rect
+            className={styles.marquee}
+            data-testid="marquee"
+            x={marquee.x}
+            y={marquee.y}
+            width={marquee.w}
+            height={marquee.h}
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
         {preview?.guides.map((g, i) =>
           g.axis === 'v' ? (
             <line

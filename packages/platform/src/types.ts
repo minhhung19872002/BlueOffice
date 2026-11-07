@@ -485,6 +485,8 @@ export type SlideCommand =
   | { cmd: 'undo' | 'redo' }
   | { cmd: 'goTo'; slide: number }
   | { cmd: 'select'; ids: number[] }
+  | { cmd: 'selectRect'; rect: SlideRect; extend?: boolean }
+  | { cmd: 'selectNext'; back?: boolean }
   | { cmd: 'click'; x: number; y: number; extend?: boolean; deep?: boolean }
   | { cmd: 'hitTest'; x: number; y: number; deep?: boolean }
   | {

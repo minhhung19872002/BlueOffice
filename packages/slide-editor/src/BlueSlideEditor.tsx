@@ -759,6 +759,15 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
         exec(cmd.id);
         return;
       }
+      // Tab / Shift+Tab cycle through the shapes of the slide.
+      if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && view === 'normal' && count > 0) {
+        const a = document.activeElement;
+        if (!a || a === document.body || slideRef.current?.contains(a)) {
+          e.preventDefault();
+          run({ cmd: 'selectNext', back: e.shiftKey });
+          return;
+        }
+      }
       const sel = edit?.selection ?? [];
       if (view === 'normal' && sel.length > 0) {
         const n = nudgeCommand(e.key, e.shiftKey);

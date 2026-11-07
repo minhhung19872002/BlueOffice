@@ -108,6 +108,7 @@ function fakePlatform() {
     editing: null as number | null,
     ts: [0, 0] as [number, number],
     clip: undefined as 'shapes' | 'slides' | undefined,
+    emptyHit: false,
     clipboard: undefined as { text: string; png?: string } | undefined,
   };
   const info = (name = 'Báo cáo.pptx') => ({
@@ -194,6 +195,7 @@ function fakePlatform() {
       const keep = ['state', 'setText', 'formatText', 'textSelect', 'textHit', 'undo', 'redo'];
       if (!keep.includes(c.cmd)) st.editing = null;
       st.clipboard = undefined;
+      if (c.cmd === 'hitTest') return { ...result(), hits: st.emptyHit ? [] : [7] };
       switch (c.cmd) {
         case 'copy':
         case 'copySlides':
@@ -422,6 +424,33 @@ describe('BlueSlideEditor', () => {
     screen.getByTestId('thumb-1').focus();
     fireEvent.keyDown(screen.getByTestId('thumb-1'), { key: 'c', ctrlKey: true });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'copySlides', indices: [0] }));
+  });
+
+  it('selects with a marquee and cycles shapes with Tab', async () => {
+    const { p, cmds, st } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    const overlay = screen.getByTestId('slide-overlay');
+    overlay.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 960, height: 540, right: 960, bottom: 540 }) as DOMRect;
+    st.emptyHit = true;
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 700, clientY: 400, pointerId: 1 });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'select', ids: [] }));
+    fireEvent.pointerMove(overlay, { clientX: 900, clientY: 500, pointerId: 1 });
+    await screen.findByTestId('marquee');
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 900, clientY: 500, pointerId: 1 });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({
+        cmd: 'selectRect',
+        rect: { x: 700, y: 400, w: 200, h: 100 },
+        extend: false,
+      }),
+    );
+    expect(screen.queryByTestId('marquee')).toBeNull();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'selectNext', back: false }));
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'selectNext', back: true }));
   });
 
   it('edits notes, inserts shapes and adds slides', async () => {

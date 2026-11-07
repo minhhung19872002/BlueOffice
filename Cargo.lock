@@ -448,6 +448,7 @@ dependencies = [
  "bo-odf",
  "bo-opc",
  "clap",
+ "png",
 ]
 
 [[package]]
@@ -535,9 +536,11 @@ dependencies = [
  "bo-layout",
  "bo-model",
  "bo-pdf",
+ "bo-pptx",
  "bo-raster",
  "bo-render",
  "bo-text",
+ "insta",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -599,6 +602,7 @@ dependencies = [
  "bo-text",
  "miniz_oxide 0.8.9",
  "pdf-writer",
+ "png",
  "subsetter",
  "thiserror 2.0.21",
 ]
@@ -624,6 +628,7 @@ dependencies = [
  "bo-render",
  "bo-text",
  "tiny-skia",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -6909,6 +6914,21 @@ dependencies = [
  "crc32fast",
  "log",
  "simd-adler32",
+]
+
+[[package]]
+name = "zune-core"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f423a2c17029964870cfaabb1f13dfab7d092a62a29a89264f4d36990ca414a"
+
+[[package]]
+name = "zune-jpeg"
+version = "0.4.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29ce2c8a9384ad323cf564b67da86e21d3cfdff87908bc1223ed5c99bc792713"
+dependencies = [
+ "zune-core",
 ]
 
 [[package]]

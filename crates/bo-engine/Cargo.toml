@@ -14,6 +14,7 @@ bundled-fonts = []
 [dependencies]
 bo-model.workspace = true
 bo-docx.workspace = true
+bo-pptx = { path = "../bo-pptx" }
 bo-text.workspace = true
 bo-layout.workspace = true
 bo-render.workspace = true
@@ -25,6 +26,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 bo-engine = { path = ".", features = ["bundled-fonts"] }
+insta.workspace = true
 
 [lints]
 workspace = true

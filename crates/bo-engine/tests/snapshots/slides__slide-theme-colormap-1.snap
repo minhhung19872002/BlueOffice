@@ -1,0 +1,22 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=linear(2)
+transform [1.000 0.000 0.000 1.000 36.0 24.0]
+  text 44.0pt 7.2,57.4 #ffffffff "Nền "
+  text 44.0pt 91.5,57.4 #ffffffff "gradient, "
+  text 44.0pt 257.7,57.4 #ffffffff "đổi "
+  text 44.0pt 324.9,57.4 #ffffffff "bảng "
+  text 44.0pt 421.4,57.4 #ffffffff "màu"
+pop transform
+transform [1.000 0.000 0.000 1.000 36.0 126.0]
+  text 28.0pt 7.2,25.8 #ffffffff "•"
+  text 28.0pt 25.2,25.8 #ffffffff "Chữ "
+  text 28.0pt 87.5,25.8 #ffffffff "dùng "
+  text 28.0pt 157.6,25.8 #ffffffff "tx1 "
+  text 28.0pt 202.7,25.8 #ffffffff "(đã "
+  text 28.0pt 251.0,25.8 #ffffffff "đổi "
+  text 28.0pt 296.1,25.8 #ffffffff "sang "
+  text 28.0pt 364.6,25.8 #ffffffff "lt1)"
+pop transform

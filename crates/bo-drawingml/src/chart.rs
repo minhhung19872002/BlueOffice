@@ -72,15 +72,13 @@ fn all_text(el: &XmlElement, out: &mut String) {
 
 /// Points of a §21.2.2.172 strCache / §21.2.2.120 numCache, by `idx`.
 fn cache_points(el: &XmlElement) -> Vec<(usize, String)> {
-    let cache = el
-        .elements()
-        .find_map(|r| match r.local() {
-            "strRef" | "numRef" | "multiLvlStrRef" => r
-                .elements()
-                .find(|c| matches!(c.local(), "strCache" | "numCache" | "multiLvlStrCache")),
-            "strLit" | "numLit" => Some(r),
-            _ => None,
-        });
+    let cache = el.elements().find_map(|r| match r.local() {
+        "strRef" | "numRef" | "multiLvlStrRef" => r
+            .elements()
+            .find(|c| matches!(c.local(), "strCache" | "numCache" | "multiLvlStrCache")),
+        "strLit" | "numLit" => Some(r),
+        _ => None,
+    });
     let Some(cache) = cache else {
         return Vec::new();
     };
@@ -98,7 +96,9 @@ fn cache_points(el: &XmlElement) -> Vec<(usize, String)> {
 }
 
 fn sp_fill(sp: &XmlElement) -> Option<Fill> {
-    sp.elements().find(|c| is_fill(&c.name)).and_then(parse_fill)
+    sp.elements()
+        .find(|c| is_fill(&c.name))
+        .and_then(parse_fill)
 }
 
 fn parse_series(ser: &XmlElement) -> Series {

@@ -1,0 +1,18 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 24.0]
+  text 44.0pt 7.2,57.4 #000000ff "Slide "
+  text 44.0pt 108.6,57.4 #000000ff "không "
+  text 44.0pt 229.6,57.4 #000000ff "ghi "
+  text 44.0pt 296.9,57.4 #000000ff "chú"
+pop transform
+transform [1.000 0.000 0.000 1.000 36.0 126.0]
+  text 28.0pt 7.2,25.8 #000000ff "•"
+  text 28.0pt 25.2,25.8 #000000ff "Không "
+  text 28.0pt 113.9,25.8 #000000ff "có "
+  text 28.0pt 151.3,25.8 #000000ff "ghi "
+  text 28.0pt 196.4,25.8 #000000ff "chú"
+pop transform

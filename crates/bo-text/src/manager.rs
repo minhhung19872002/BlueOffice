@@ -46,6 +46,14 @@ const FALLBACKS: &[(&str, &[&str])] = &[
     ("arial", &["liberation sans", "arimo"]),
     ("helvetica", &["liberation sans", "arimo"]),
     ("calibri", &["carlito"]),
+    ("calibri light", &["carlito"]),
+    // Common presentation theme fonts without a metric-compatible substitute:
+    // nearest bundled sans / serif design.
+    ("aptos", &["carlito"]),
+    ("segoe ui", &["carlito", "liberation sans"]),
+    ("verdana", &["liberation sans", "arimo"]),
+    ("tahoma", &["liberation sans", "arimo"]),
+    ("georgia", &["liberation serif", "tinos"]),
     ("cambria", &["caladea"]),
     ("courier new", &["liberation mono", "cousine"]),
 ];

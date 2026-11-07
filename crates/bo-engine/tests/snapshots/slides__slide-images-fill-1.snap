@@ -1,0 +1,24 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+clip path n=5 [0.0 0.0 960.0 540.0]
+  image /ppt/media/image1.png 0.0,0.0 960.0x540.0 crop=None
+pop clip
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Ảnh "
+  text 28.0pt 60.5,30.3 #000000ff "làm "
+  text 28.0pt 110.4,30.3 #000000ff "nền "
+  text 28.0pt 160.8,30.3 #000000ff "hình "
+  text 28.0pt 219.1,30.3 #000000ff "và "
+  text 28.0pt 252.1,30.3 #000000ff "nền "
+  text 28.0pt 302.6,30.3 #000000ff "slide"
+pop transform
+clip path n=5 [72.0 45.0 432.0 387.0]
+  image /ppt/media/image2.png 72.0,108.0 360.0x216.0 crop=None
+pop clip
+transform [1.000 0.000 0.000 1.000 72.0 108.0]
+  text 18.0pt 7.2,114.2 #000000ff "Chữ "
+  text 18.0pt 41.2,114.2 #000000ff "trên "
+  text 18.0pt 75.7,114.2 #000000ff "ảnh"
+pop transform

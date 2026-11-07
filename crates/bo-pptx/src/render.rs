@@ -929,7 +929,19 @@ fn draw_node(
             );
             if !cx.opts.skip_text {
                 if let Some(tb) = &s.text {
-                    draw_shape_text(cx, &ch, tb, &geom, aff, fonts, out);
+                    // Text follows the shape rotation but is never mirrored: a vertical
+                    // flip turns it upside down, a horizontal flip leaves it as is.
+                    let text_rot = x.rot.unwrap_or(0)
+                        + if x.flip_v == Some(true) {
+                            10_800_000
+                        } else {
+                            0
+                        };
+                    let text_aff = frame
+                        .aff
+                        .then(Aff::translate(r.0, r.1))
+                        .then(Aff::rot_flip(r.2, r.3, text_rot, false, false));
+                    draw_shape_text(cx, &ch, tb, &geom, text_aff, fonts, out);
                 }
             }
         }

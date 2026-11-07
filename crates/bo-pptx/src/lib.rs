@@ -42,6 +42,21 @@ pub enum PptxError {
 /// Result alias.
 pub type Result<T> = std::result::Result<T, PptxError>;
 
+/// Is `bytes` a PresentationML package (`.pptx`, `.pptm`, `.potx`, `.ppsx`)?
+/// Decided by the content type of the main part (ECMA-376 Part 1, §13.3.6).
+pub fn is_pptx(bytes: &[u8]) -> bool {
+    let Ok(pkg) = bo_opc::Package::read(bytes, &bo_opc::Limits::default()) else {
+        return false;
+    };
+    let Ok(Some(main)) = pkg.related_part("/", bo_opc::REL_OFFICE_DOCUMENT) else {
+        return false;
+    };
+    pkg.content_types()
+        .ok()
+        .and_then(|ct| ct.get(&main).map(|t| t.contains("presentationml")))
+        .unwrap_or(false)
+}
+
 /// Does a relationship type end with `/kind` (transitional or strict namespace)?
 pub(crate) fn rel_is(rel_type: &str, kind: &str) -> bool {
     rel_type.rsplit('/').next().is_some_and(|last| last == kind)

@@ -69,6 +69,42 @@ impl WasmEngine {
         self.inner.export_pdf().map_err(err)
     }
 
+    /// Number of slides of the open presentation (0 for documents).
+    #[wasm_bindgen(js_name = slideCount)]
+    pub fn slide_count(&self) -> usize {
+        self.inner.slide_count()
+    }
+
+    /// Display list of a slide as JSON.
+    #[wasm_bindgen(js_name = slideJson)]
+    pub fn slide_json(&self, index: usize) -> Result<String, JsError> {
+        self.inner.slide_json(index).map_err(err)
+    }
+
+    /// Thumbnail display list of a slide (scaled to `width` points) as JSON.
+    #[wasm_bindgen(js_name = slideThumbnailJson)]
+    pub fn slide_thumbnail_json(&mut self, index: usize, width: f32) -> Result<String, JsError> {
+        self.inner.slide_thumbnail_json(index, width).map_err(err)
+    }
+
+    /// Speaker notes of a slide.
+    #[wasm_bindgen(js_name = slideNotes)]
+    pub fn slide_notes(&self, index: usize) -> Result<String, JsError> {
+        self.inner.slide_notes(index).map_err(err)
+    }
+
+    /// Bytes of an image referenced by an `image` display-list command.
+    #[wasm_bindgen(js_name = imageBytes)]
+    pub fn image_bytes(&self, id: &str) -> Option<Vec<u8>> {
+        self.inner.image_bytes(id).map(<[u8]>::to_vec)
+    }
+
+    /// Save the open presentation as `.pptx` bytes.
+    #[wasm_bindgen(js_name = savePptx)]
+    pub fn save_pptx(&self) -> Result<Vec<u8>, JsError> {
+        self.inner.save_pptx().map_err(err)
+    }
+
     /// Render a page to PNG bytes.
     #[wasm_bindgen(js_name = renderPng)]
     pub fn render_png(&self, index: usize, scale: f32) -> Result<Vec<u8>, JsError> {

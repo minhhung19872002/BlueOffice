@@ -520,7 +520,13 @@ pub(crate) fn draw_text(
         for (ly, line) in col {
             let top = t + dy + ly;
             let baseline = top + line.height - line.descent;
-            let extra = (line.avail - line.width).max(0.0);
+            // Unwrapped text (wrap="none") aligns within the box, not the unbounded line.
+            let avail = if wrap {
+                line.avail
+            } else {
+                (col_w - line.indent).max(0.0)
+            };
+            let extra = (avail - line.width).max(0.0);
             let x_start = x0
                 + line.indent
                 + match line.align.as_str() {

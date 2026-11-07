@@ -17,6 +17,7 @@ unicode-linebreak.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+bo-opc.workspace = true
 
 [lints]
 workspace = true

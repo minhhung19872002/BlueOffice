@@ -9,7 +9,8 @@
 //! and icons; AutoFilter header buttons (§18.3.1.2) and charts placed on the
 //! sheet (§20.5 drawing anchors) are drawn on top of the cells.
 //!
-//! Not yet rendered: row/column default styles on empty cells, rotated text.
+//! Row/column default styles are drawn on empty cells; rotated (and stacked) text is drawn
+//! with a transform (§18.8.1 	extRotation).
 
 use crate::cf::CellFormat;
 use crate::color::resolve_color;
@@ -290,6 +291,10 @@ impl Renderer<'_> {
                 }
             }
         }
+        // Empty positions take the row style (§18.3.1.73 `row/@s` with
+        // `customFormat`), else the column style (§18.3.1.13 `col/@style`).
+        let synth = self.default_styled_cells(p, &merges);
+        cells.extend(synth.iter().map(|(at, c)| (*at, c)));
         self.cf = crate::cf::evaluate(
             self.wb,
             self.sheet,
@@ -355,6 +360,50 @@ impl Renderer<'_> {
             self.charts(p);
         }
         self.out.push(Command::PopClip);
+    }
+
+    /// Style-only cells for visible empty positions of styled rows / columns.
+    fn default_styled_cells(&self, p: &PaneRegion, merges: &[CellRange]) -> Vec<(CellRef, Cell)> {
+        let col_styles: Vec<(u32, u32)> = p
+            .cols
+            .clone()
+            .filter_map(|c| {
+                let s = self.ws.col_info(c)?.style?;
+                (s != 0 && self.geom.col_width(c) > 0.0).then_some((c, s))
+            })
+            .collect();
+        let mut out = Vec::new();
+        for row in p.rows.clone() {
+            if self.geom.row_height(row) <= 0.0 {
+                continue;
+            }
+            let row_style = self
+                .ws
+                .rows
+                .get(&row)
+                .and_then(|r| r.style)
+                .filter(|s| *s != 0);
+            let candidates: Vec<(u32, u32)> = match row_style {
+                Some(s) => p
+                    .cols
+                    .clone()
+                    .filter(|c| self.geom.col_width(*c) > 0.0)
+                    .map(|c| (c, s))
+                    .collect(),
+                None => col_styles.clone(),
+            };
+            for (c, style) in candidates {
+                let at = CellRef::new(row, c);
+                if self.ws.cell(row, c).is_some() || merges.iter().any(|m| m.contains(at)) {
+                    continue;
+                }
+                out.push((at, Cell::new(CellValue::Empty).with_style(style)));
+                if out.len() >= 200_000 {
+                    return out;
+                }
+            }
+        }
+        out
     }
 
     /// AutoFilter dropdown buttons on the header row (§18.3.1.2 `autoFilter`,
@@ -784,6 +833,81 @@ impl Renderer<'_> {
         let ascent = f64::from(info.ascender) * f64::from(size) / upem;
         let descent = -f64::from(info.descender) * f64::from(size) / upem;
         let line_h = ascent + descent + f64::from(info.line_gap.max(0)) * f64::from(size) / upem;
+
+        // §18.8.1 alignment/@textRotation: 1–90 counter-clockwise, 91–180 clockwise
+        // by (value − 90) degrees, 255 = vertical (stacked) text.
+        if let Some(rot) = align
+            .text_rotation
+            .filter(|r| *r != 0 && (*r <= 180 || *r == 255))
+        {
+            let v = align.vertical.as_deref();
+            let text = fmt.text.replace('\n', " ");
+            self.out.push(Command::PushClip {
+                x: f(rect.x),
+                y: f(rect.y),
+                w: f(rect.w),
+                h: f(rect.h),
+            });
+            if rot == 255 {
+                let chars: Vec<char> = text.chars().filter(|c| *c != ' ').take(1000).collect();
+                let total = line_h * chars.len() as f64;
+                let top = match v {
+                    Some("top") => rect.y + pad / 2.0,
+                    Some("center" | "justify" | "distributed") => rect.y + (rect.h - total) / 2.0,
+                    _ => rect.y + rect.h - total - pad / 2.0,
+                };
+                for (i, ch) in chars.iter().enumerate() {
+                    let s = ch.to_string();
+                    let w = self.measure(face, &s, size);
+                    let x = match halign {
+                        HAlign::Left => rect.x + pad + indent,
+                        HAlign::Right => rect.x + rect.w - pad - w,
+                        HAlign::Center => rect.x + (rect.w - w) / 2.0,
+                    };
+                    self.emit_text(face, &s, size, x, top + line_h * i as f64 + ascent, color);
+                }
+            } else {
+                let deg = if rot <= 90 {
+                    f64::from(rot)
+                } else {
+                    -f64::from(rot - 90)
+                };
+                let (sin, cos) = deg.to_radians().sin_cos();
+                let w = self.measure(face, &text, size);
+                let h = ascent + descent;
+                // Bounding box of the rotated line, placed by the cell alignment.
+                let bw = (w * cos).abs() + (h * sin).abs();
+                let bh = (w * sin).abs() + (h * cos).abs();
+                let cx = match halign {
+                    HAlign::Left => rect.x + pad + indent + bw / 2.0,
+                    HAlign::Right => rect.x + rect.w - pad - bw / 2.0,
+                    HAlign::Center => rect.x + rect.w / 2.0,
+                };
+                let cy = match v {
+                    Some("top") => rect.y + pad / 2.0 + bh / 2.0,
+                    Some("center" | "justify" | "distributed") => rect.y + rect.h / 2.0,
+                    _ => rect.y + rect.h - pad / 2.0 - bh / 2.0,
+                };
+                // Counter-clockwise on screen (y down): x' = cos·x + sin·y, y' = −sin·x + cos·y.
+                self.out.push(Command::PushTransform {
+                    m: [f(cos), f(-sin), f(sin), f(cos), f(cx), f(cy)],
+                });
+                let baseline = ascent - h / 2.0;
+                let width = self.emit_text(face, &text, size, -w / 2.0, baseline, color);
+                let thick = (f64::from(info.underline_thickness) * f64::from(size) / upem).max(0.5);
+                if font.underline.as_deref().is_some_and(|u| u != "none") {
+                    let y = baseline - f64::from(info.underline_position) * f64::from(size) / upem;
+                    self.line(-w / 2.0, y, -w / 2.0 + width, y, thick, color);
+                }
+                if font.strike {
+                    let y = baseline - f64::from(info.strikeout_position) * f64::from(size) / upem;
+                    self.line(-w / 2.0, y, -w / 2.0 + width, y, thick, color);
+                }
+                self.out.push(Command::PopTransform);
+            }
+            self.out.push(Command::PopClip);
+            return;
+        }
 
         // Lines: wrapped text or a single line.
         let avail = (rect.w - 2.0 * pad - indent).max(0.0);
@@ -1241,5 +1365,101 @@ mod tests {
             &mut FontManager::new(),
         );
         assert_eq!(empty.commands.len(), 0);
+    }
+
+    #[test]
+    fn row_and_column_styles_fill_empty_cells() {
+        let mut wb = workbook();
+        let blue = wb.styles.add_fill(Fill::solid("0000FF"));
+        let green = wb.styles.add_fill(Fill::solid("00FF00"));
+        let row_xf = wb.styles.add_xf(CellXf {
+            fill_id: blue,
+            ..CellXf::default()
+        });
+        let col_xf = wb.styles.add_xf(CellXf {
+            fill_id: green,
+            ..CellXf::default()
+        });
+        let ws = &mut wb.sheets[0];
+        ws.rows.insert(
+            6,
+            bo_model::sheet::RowInfo {
+                style: Some(row_xf),
+                ..Default::default()
+            },
+        );
+        ws.cols.push(bo_model::sheet::ColInfo {
+            min: 5,
+            max: 5,
+            style: Some(col_xf),
+            ..Default::default()
+        });
+        let geom = SheetGeometry::with_metrics(&wb.sheets[0], SheetMetrics::default());
+        let vp = Viewport::new(600.0, 200.0);
+        let page = render_viewport(&wb, 0, &geom, &vp, &RenderOptions::default(), &mut fonts());
+        let fill = |r: u8, g: u8, b: u8| {
+            page.commands
+                .iter()
+                .filter(|c| matches!(c, Command::FillRect { color, .. } if *color == Rgba(r, g, b, 255)))
+                .count()
+        };
+        // Row 7 is blue across the visible columns; column F green on the other rows.
+        assert!(fill(0, 0, 255) >= 5, "row style");
+        assert!(fill(0, 255, 0) >= 5, "column style");
+    }
+
+    #[test]
+    fn rotated_text_is_drawn_rotated() {
+        let mut wb = workbook();
+        let up = wb.styles.add_xf(CellXf {
+            alignment: Some(CellAlignment {
+                text_rotation: Some(45),
+                ..CellAlignment::default()
+            }),
+            ..CellXf::default()
+        });
+        let stacked = wb.styles.add_xf(CellXf {
+            alignment: Some(CellAlignment {
+                text_rotation: Some(255),
+                ..CellAlignment::default()
+            }),
+            ..CellXf::default()
+        });
+        let ws = &mut wb.sheets[0];
+        ws.set_cell(
+            7,
+            1,
+            Cell::new(CellValue::Text("Xoay".into())).with_style(up),
+        );
+        ws.set_cell(
+            7,
+            2,
+            Cell::new(CellValue::Text("Dọc".into())).with_style(stacked),
+        );
+        let geom = SheetGeometry::with_metrics(&wb.sheets[0], SheetMetrics::default());
+        let vp = Viewport::new(400.0, 200.0);
+        let mut fm = fonts();
+        if fm.is_empty() {
+            return;
+        }
+        let page = render_viewport(&wb, 0, &geom, &vp, &RenderOptions::default(), &mut fm);
+        let i = page
+            .commands
+            .iter()
+            .position(|c| matches!(c, Command::PushTransform { .. }))
+            .expect("rotation transform");
+        let Command::PushTransform { m } = &page.commands[i] else {
+            unreachable!()
+        };
+        let s = std::f32::consts::FRAC_1_SQRT_2;
+        assert!((m[0] - s).abs() < 1e-3 && (m[1] + s).abs() < 1e-3, "{m:?}");
+        assert!(matches!(&page.commands[i + 1], Command::Glyphs { text, .. } if text == "Xoay"));
+        // Stacked text: one glyph run per character.
+        for ch in ["D", "ọ", "c"] {
+            assert!(page
+                .commands
+                .iter()
+                .any(|c| matches!(c, Command::Glyphs { text, .. } if text == ch)));
+        }
     }
 }

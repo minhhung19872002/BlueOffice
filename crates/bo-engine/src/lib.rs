@@ -18,9 +18,11 @@ mod bundled;
 pub mod edit;
 pub mod nav;
 pub mod sheet;
+pub mod slide_edit;
 
 pub use edit::{Command, EditResult};
 pub use sheet::SheetEngine;
+pub use slide_edit::{SlideCommand, SlideEditResult};
 
 /// Engine errors (surfaced to JS / Tauri as strings).
 #[derive(Debug, thiserror::Error)]
@@ -103,6 +105,8 @@ pub struct Engine {
     pres: Option<bo_model::slide::Presentation>,
     /// Images referenced by slide `Image` commands (part name -> bytes).
     images: BTreeMap<String, Vec<u8>>,
+    /// Selection and undo history of the open presentation.
+    slides: slide_edit::SlideEditor,
 }
 
 impl Engine {
@@ -199,6 +203,7 @@ impl Engine {
     /// Mark the current state as saved (clears `modified`).
     pub fn mark_saved(&mut self) {
         self.saved_doc = self.session.as_ref().map(|s| s.doc().clone());
+        self.slides.mark_saved();
     }
 
     /// Open a `.pptx` presentation (BlueSlide).
@@ -231,6 +236,7 @@ impl Engine {
         self.display = Some(DisplayList { pages });
         self.pres = Some(pres);
         self.images = images;
+        self.slides = slide_edit::SlideEditor::default();
         self.info()
     }
 

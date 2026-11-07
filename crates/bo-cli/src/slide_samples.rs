@@ -1657,8 +1657,22 @@ fn replace_in_part(pkg: &[u8], part: &str, from: &str, to: &str) -> Vec<u8> {
     p.write().unwrap_or_else(|_| pkg.to_vec())
 }
 
-/// Every corpus deck: (file name, bytes).
+/// Every corpus deck: (file name, bytes) — generated decks plus decks
+/// edited through the slide edit API (`slide_edits`).
 pub fn decks() -> Vec<(&'static str, Vec<u8>)> {
+    let mut v = base_decks();
+    let edited = crate::slide_edits::decks(&v, &sample_png());
+    v.extend(edited);
+    v
+}
+
+/// Picture inserted by the edited decks.
+pub fn sample_png() -> Vec<u8> {
+    png_image(48, 32, false, [46, 117, 182])
+}
+
+/// Decks generated from markup.
+pub fn base_decks() -> Vec<(&'static str, Vec<u8>)> {
     let mut v = Vec::new();
     v.extend(text_decks());
     v.extend(shape_decks());

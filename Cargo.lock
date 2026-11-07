@@ -447,9 +447,11 @@ dependencies = [
  "bo-model",
  "bo-odf",
  "bo-opc",
+ "bo-pptx",
  "bo-sign",
  "clap",
  "png",
+ "serde_json",
 ]
 
 [[package]]

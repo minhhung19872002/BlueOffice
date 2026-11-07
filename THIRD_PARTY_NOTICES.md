@@ -77,6 +77,7 @@ Công cụ fuzz (`fuzz/`, workspace riêng, không đóng gói vào sản phẩm
 | @radix-ui/react-tabs, @radix-ui/react-tooltip, @radix-ui/react-dialog | 1.2.1 / 1.4.1 / 1.3.1 | MIT | Primitive ribbon/tooltip/dialog |
 | @tauri-apps/api | 2.12.4 | Apache-2.0 OR MIT | IPC desktop |
 | @tauri-apps/cli (dev) | 2.12.4 | Apache-2.0 OR MIT | Build desktop |
+| pixelmatch, pngjs (dev, scripts/visual-diff.mjs) | 7.2.0, 7.0.0 | ISC, MIT | So sánh ảnh visual regression (§7) |
 | vite, @vitejs/plugin-react (dev) | 8.3.6 / 6.2.1 | MIT | Bundler |
 | typescript (dev) | 5.9.3 | Apache-2.0 | Ngôn ngữ |
 | vitest, happy-dom, @testing-library/react (dev) | 5.1.0 / 21.0.4 / 16.3.3 | MIT | Unit test |

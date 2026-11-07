@@ -20,13 +20,16 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "license-check": "node scripts/license-check.mjs",
-    "fidelity": "cargo build -p bo-cli && node scripts/fidelity-report.mjs"
+    "fidelity": "cargo build -p bo-cli && node scripts/fidelity-report.mjs && node scripts/visual-diff.mjs",
+    "fidelity:update-baseline": "cargo build -p bo-cli && node scripts/visual-diff.mjs --update-baseline"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.14.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.14.0",
+    "pixelmatch": "^7",
+    "pngjs": "^7",
     "prettier": "^3.9.10",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.72.1"

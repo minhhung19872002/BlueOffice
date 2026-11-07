@@ -183,6 +183,28 @@ fn run(cli: Cli) -> R {
             scale,
             page,
         } => {
+            let lower = input.to_string_lossy().to_ascii_lowercase();
+            if [".xlsx", ".xlsm", ".xlsb", ".xls", ".ods", ".csv"]
+                .iter()
+                .any(|e| lower.ends_with(e))
+            {
+                // Spreadsheets: printed pages (page setup, print area/titles).
+                let mut sheet = bo_engine::SheetEngine::with_bundled_fonts();
+                sheet.open(&std::fs::read(&input)?, &lower)?;
+                let count = sheet.print_page_count()?;
+                let pages: Vec<usize> = match page {
+                    Some(p) if p >= 1 && p <= count => vec![p - 1],
+                    Some(p) => return Err(format!("page {p} out of range 1..={count}").into()),
+                    None => (0..count).collect(),
+                };
+                for i in pages {
+                    let png = sheet.render_print_png(i, scale)?;
+                    let path = out.replace("%d", &(i + 1).to_string());
+                    write_file(Path::new(&path), &png)?;
+                    println!("{path}");
+                }
+                return Ok(());
+            }
             let engine = open(&input)?;
             let info = engine.info()?;
             let pages: Vec<usize> = match page {

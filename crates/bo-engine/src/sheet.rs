@@ -19,6 +19,7 @@ use bo_text::FontManager;
 use serde::Serialize;
 
 mod cmd;
+mod png;
 mod print;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};

@@ -149,6 +149,35 @@ fn find_nearest(needle: &Value, vals: &[Value], larger: bool, reverse: bool) -> 
     best
 }
 
+/// Vectors at least this long use the provider's hashed exact-match index.
+const INDEX_MIN_LEN: u32 = 32;
+
+/// Outcome of a lookup through the provider's index: the position, if found.
+struct Found(Option<usize>);
+
+/// Exact match through the provider's cached index of the key vector `keys`
+/// (a one-row or one-column reference). `None` when no index is available or
+/// the needle is a wildcard pattern; the caller then scans.
+fn indexed_exact(
+    ctx: &Ctx,
+    keys: Option<Area>,
+    needle: &Value,
+    wildcards: bool,
+    reverse: bool,
+) -> Option<Found> {
+    let a = keys?;
+    if a.rows().max(a.cols()) < INDEX_MIN_LEN || (a.rows() > 1 && a.cols() > 1) {
+        return None;
+    }
+    if let Value::Text(p) = needle {
+        if wildcards && has_wildcards(p) {
+            return None;
+        }
+    }
+    let ix = ctx.provider.exact_index(&a)?;
+    Some(Found(ix.find(needle, reverse)))
+}
+
 fn lookup_value(ctx: &Ctx, v: &Value) -> Result<Value, ErrorKind> {
     match ctx.scalar(v) {
         Value::Error(e) => Err(e),
@@ -218,6 +247,21 @@ impl Grid {
         Array::new(r2 - r1 + 1, c2 - c1 + 1, data).into()
     }
 
+    /// Reference of the first column (`vertical`) or first row, when backed by one.
+    fn key_area(&self, vertical: bool) -> Option<Area> {
+        let a = self.area?;
+        Some(if vertical {
+            Area::new(a.sheet, a.r1, a.c1, a.r2, a.c1)
+        } else {
+            Area::new(a.sheet, a.r1, a.c1, a.r1, a.c2)
+        })
+    }
+
+    /// Reference of a 1-D vector, when backed by one.
+    fn vector_area(&self) -> Option<Area> {
+        self.area.filter(|a| a.rows() == 1 || a.cols() == 1)
+    }
+
     /// Values of a 1-D vector, or `None` when 2-D.
     fn vector(&self) -> Option<Vec<Value>> {
         if self.cols() == 1 {
@@ -241,18 +285,28 @@ fn v_or_h_lookup(ctx: &Ctx, args: &[Value], vertical: bool) -> R {
         return Err(ErrorKind::Value);
     }
     let idx = idx as usize - 1;
-    let (keys, limit) = if vertical {
-        (grid.column(0), grid.cols())
-    } else {
-        (grid.row(0), grid.rows())
-    };
+    let limit = if vertical { grid.cols() } else { grid.rows() };
     if idx >= limit {
         return Err(ErrorKind::Ref);
     }
-    let pos = if approx {
-        find_le_sorted(&needle, &keys)
+    let indexed = if approx {
+        None
     } else {
-        find_exact(&needle, &keys, true, false)
+        indexed_exact(ctx, grid.key_area(vertical), &needle, true, false)
+    };
+    let pos = if let Some(Found(p)) = indexed {
+        p
+    } else {
+        let keys = if vertical {
+            grid.column(0)
+        } else {
+            grid.row(0)
+        };
+        if approx {
+            find_le_sorted(&needle, &keys)
+        } else {
+            find_exact(&needle, &keys, true, false)
+        }
     }
     .ok_or(ErrorKind::NA)?;
     Ok(if vertical {
@@ -295,6 +349,13 @@ fn match_fn(ctx: &mut Ctx, args: &[Value]) -> R {
     let needle = lookup_value(ctx, &args[0])?;
     let grid = Grid::new(ctx, &args[1])?;
     let kind = opt_num(ctx, args, 2, 1.0)?;
+    if kind == 0.0 {
+        if let Some(Found(pos)) = indexed_exact(ctx, grid.vector_area(), &needle, true, false) {
+            return pos
+                .map(|p| Value::Number((p + 1) as f64))
+                .ok_or(ErrorKind::NA);
+        }
+    }
     let vals = grid.vector().ok_or(ErrorKind::NA)?;
     let pos = if kind == 0.0 {
         find_exact(&needle, &vals, true, false)
@@ -305,6 +366,26 @@ fn match_fn(ctx: &mut Ctx, args: &[Value]) -> R {
     };
     pos.map(|p| Value::Number((p + 1) as f64))
         .ok_or(ErrorKind::NA)
+}
+
+/// XLOOKUP/XMATCH exact search through the provider's index, when available.
+fn x_find_indexed(
+    ctx: &Ctx,
+    grid: &Grid,
+    needle: &Value,
+    match_mode: i64,
+    search_mode: i64,
+) -> Option<Found> {
+    let reverse = match search_mode {
+        1 | 2 => false,
+        -1 | -2 => true,
+        _ => return None,
+    };
+    match match_mode {
+        0 => indexed_exact(ctx, grid.vector_area(), needle, false, reverse),
+        2 => indexed_exact(ctx, grid.vector_area(), needle, true, reverse),
+        _ => None,
+    }
 }
 
 /// XLOOKUP/XMATCH search over a vector.
@@ -335,11 +416,25 @@ fn xlookup(ctx: &mut Ctx, args: &[Value]) -> R {
     let match_mode = opt_num(ctx, args, 4, 0.0)?.trunc() as i64;
     let search_mode = opt_num(ctx, args, 5, 1.0)?.trunc() as i64;
     let vertical = keys_grid.cols() == 1;
-    let keys = keys_grid.vector().ok_or(ErrorKind::Value)?;
-    if (vertical && ret.rows() != keys.len()) || (!vertical && ret.cols() != keys.len()) {
+    if keys_grid.cols() != 1 && keys_grid.rows() != 1 {
         return Err(ErrorKind::Value);
     }
-    match x_find(&needle, &keys, match_mode, search_mode)? {
+    let len = if vertical {
+        keys_grid.rows()
+    } else {
+        keys_grid.cols()
+    };
+    if (vertical && ret.rows() != len) || (!vertical && ret.cols() != len) {
+        return Err(ErrorKind::Value);
+    }
+    let found =
+        if let Some(Found(p)) = x_find_indexed(ctx, &keys_grid, &needle, match_mode, search_mode) {
+            p
+        } else {
+            let keys = keys_grid.vector().ok_or(ErrorKind::Value)?;
+            x_find(&needle, &keys, match_mode, search_mode)?
+        };
+    match found {
         Some(p) => Ok(if vertical {
             ret.block(p, 0, p, ret.cols() - 1)
         } else {
@@ -357,6 +452,11 @@ fn xmatch(ctx: &mut Ctx, args: &[Value]) -> R {
     let grid = Grid::new(ctx, &args[1])?;
     let match_mode = opt_num(ctx, args, 2, 0.0)?.trunc() as i64;
     let search_mode = opt_num(ctx, args, 3, 1.0)?.trunc() as i64;
+    if let Some(Found(p)) = x_find_indexed(ctx, &grid, &needle, match_mode, search_mode) {
+        return p
+            .map(|p| Value::Number((p + 1) as f64))
+            .ok_or(ErrorKind::NA);
+    }
     let vals = grid.vector().ok_or(ErrorKind::Value)?;
     x_find(&needle, &vals, match_mode, search_mode)?
         .map(|p| Value::Number((p + 1) as f64))

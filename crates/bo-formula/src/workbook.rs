@@ -15,8 +15,9 @@
 //! * Array results spill into neighbouring cells; a non-empty cell in the way
 //!   yields `#SPILL!`.
 
-use std::cell::{Cell, RefCell};
-use std::sync::Arc;
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
 
 use crate::ast::Expr;
 use crate::date::DateSystem;
@@ -24,6 +25,7 @@ use crate::eval::{static_areas, struct_area, Ctx, EvalConfig};
 use crate::format::format;
 use crate::functions::is_volatile_function;
 use crate::fxhash::{FxHashMap, FxHashSet};
+use crate::lookupindex::ExactIndex;
 use crate::parser::{parse_with, ParseError, ParseOptions};
 use crate::provider::{CellProvider, TableInfo};
 use crate::rangeindex::RangeIndex;
@@ -102,7 +104,7 @@ pub struct Workbook {
     tables: Vec<TableInfo>,
     config: EvalConfig,
     iterative: Option<IterativeConfig>,
-    rng: Cell<u64>,
+    rng: AtomicU64,
     precedents: FxHashMap<CellId, Vec<Area>>,
     dependents: FxHashMap<CellId, Vec<CellId>>,
     range_deps: RangeIndex,
@@ -113,11 +115,13 @@ pub struct Workbook {
     spill_blocked: FxHashSet<CellId>,
     spill_changed: Vec<CellId>,
     circular: FxHashSet<CellId>,
-    evaluations: Cell<usize>,
+    evaluations: AtomicUsize,
     /// Cells (re)calculated by the last [`Workbook::recalculate`].
     recalculated: Vec<CellId>,
     /// Materialized large areas, valid during one recalculation pass.
-    area_cache: RefCell<FxHashMap<Area, Arc<Array>>>,
+    area_cache: RwLock<FxHashMap<Area, Arc<Array>>>,
+    /// Exact-match indexes of lookup vectors, valid during one recalculation pass.
+    index_cache: RwLock<FxHashMap<Area, Arc<ExactIndex>>>,
 }
 
 impl Default for Workbook {
@@ -135,7 +139,7 @@ impl Workbook {
             tables: Vec::new(),
             config: EvalConfig::default(),
             iterative: None,
-            rng: Cell::new(0x2545_F491_4F6C_DD1D),
+            rng: AtomicU64::new(0x2545_F491_4F6C_DD1D),
             precedents: FxHashMap::default(),
             dependents: FxHashMap::default(),
             range_deps: RangeIndex::default(),
@@ -146,9 +150,10 @@ impl Workbook {
             spill_blocked: FxHashSet::default(),
             spill_changed: Vec::new(),
             circular: FxHashSet::default(),
-            evaluations: Cell::new(0),
+            evaluations: AtomicUsize::new(0),
             recalculated: Vec::new(),
-            area_cache: RefCell::new(FxHashMap::default()),
+            area_cache: RwLock::new(FxHashMap::default()),
+            index_cache: RwLock::new(FxHashMap::default()),
         }
     }
 
@@ -188,7 +193,7 @@ impl Workbook {
 
     /// Seed the generator used by `RAND`/`RANDBETWEEN`/`RANDARRAY`.
     pub fn seed_random(&mut self, seed: u64) {
-        self.rng.set(seed.max(1));
+        self.rng.store(seed.max(1), Ordering::Relaxed);
     }
 
     /// Enable or disable iterative calculation of circular references.
@@ -746,50 +751,70 @@ impl Workbook {
         self.range_deps.for_each_reader(cell, f);
     }
 
-    /// Formula cells depending (transitively) on the seeds, plus seed formula cells.
-    fn propagate(&self, seeds: Vec<CellId>) -> FxHashSet<CellId> {
-        // Bulk edits (loading a sheet): everything is dirty anyway.
-        if seeds.len() >= self.precedents.len().max(1) * 4 {
-            return self.precedents.keys().copied().collect();
-        }
-        let mut dirty = FxHashSet::default();
-        let mut seen = FxHashSet::default();
+    /// Formula cells depending (transitively) on the seeds, plus seed formula
+    /// cells, with the reader edges between them.
+    fn propagate(&self, seeds: Vec<CellId>) -> DirtyGraph {
+        // Bulk edits (loading a sheet): every formula is dirty; start from the
+        // formulas instead of the (many more) edited constants.
+        let seeds = if seeds.len() >= self.precedents.len().max(1) * 4 {
+            self.precedents.keys().copied().collect()
+        } else {
+            seeds
+        };
+        // Visited cell → node index (`u32::MAX` for non-formula cells).
+        let mut seen: FxHashMap<CellId, u32> = FxHashMap::default();
+        let mut nodes = Vec::new();
+        let mut edges: Vec<(u32, CellId)> = Vec::new();
         let mut stack = seeds;
         while let Some(c) = stack.pop() {
-            if !seen.insert(c) {
+            if seen.contains_key(&c) {
                 continue;
             }
-            if self.is_formula(c) {
-                dirty.insert(c);
-            }
+            let ci = if self.is_formula(c) {
+                nodes.push(c);
+                (nodes.len() - 1) as u32
+            } else {
+                u32::MAX
+            };
+            seen.insert(c, ci);
             self.for_each_reader(c, &mut |d| {
-                if !seen.contains(&d) {
+                if ci != u32::MAX {
+                    edges.push((ci, d));
+                }
+                if !seen.contains_key(&d) {
                     stack.push(d);
                 }
             });
         }
-        dirty
+        let mut succ = vec![Vec::new(); nodes.len()];
+        for (ci, d) in edges {
+            if let Some(&di) = seen.get(&d) {
+                if di != u32::MAX {
+                    succ[ci as usize].push(di);
+                }
+            }
+        }
+        DirtyGraph { nodes, succ }
     }
-
     // ------------------------------------------------------------ recalc
 
     /// Recalculate cells affected by edits since the last recalculation, plus
     /// volatile cells.
     pub fn recalculate(&mut self) {
-        self.evaluations.set(0);
+        self.evaluations.store(0, Ordering::Relaxed);
         let mut seeds = std::mem::take(&mut self.changed);
         seeds.extend(self.volatile.iter().copied());
         let dirty = self.propagate(seeds);
-        self.recalculated = dirty.iter().copied().collect();
-        self.calc_set(dirty);
+        self.recalculated = dirty.nodes.clone();
+        self.calc_set(&dirty);
         for _ in 0..SPILL_PASSES {
             if self.spill_changed.is_empty() {
                 break;
             }
             let seeds = std::mem::take(&mut self.spill_changed);
             let dirty = self.propagate(seeds);
-            self.recalculated.extend(dirty.iter().copied());
-            self.calc_set(dirty);
+            self.recalculated.extend(dirty.nodes.iter().copied());
+            self.calc_set(&dirty);
         }
         self.recalculated.sort_unstable();
         self.recalculated.dedup();
@@ -799,7 +824,7 @@ impl Workbook {
     /// Number of formula evaluations performed by the last
     /// [`Workbook::recalculate`] (diagnostics for incremental recalculation).
     pub fn last_recalc_evaluations(&self) -> usize {
-        self.evaluations.get()
+        self.evaluations.load(Ordering::Relaxed)
     }
 
     /// Cells whose value the last [`Workbook::recalculate`] may have changed
@@ -814,47 +839,143 @@ impl Workbook {
         self.recalculate();
     }
 
-    /// Successor lists (dirty precedents) for Tarjan ordering, built by
-    /// inverting the reader relation restricted to the dirty nodes.
-    fn adjacency(&self, nodes: &[CellId], index: &FxHashMap<CellId, usize>) -> Vec<Vec<usize>> {
-        let mut adj = vec![Vec::new(); nodes.len()];
-        for (j, n) in nodes.iter().enumerate() {
-            self.for_each_reader(*n, &mut |reader| {
-                if let Some(&i) = index.get(&reader) {
-                    adj[i].push(j);
-                }
-            });
+    fn clear_pass_caches(&self) {
+        if let Ok(mut c) = self.area_cache.write() {
+            c.clear();
         }
-        adj
+        if let Ok(mut c) = self.index_cache.write() {
+            c.clear();
+        }
     }
 
-    fn calc_set(&mut self, dirty: FxHashSet<CellId>) {
-        self.area_cache.borrow_mut().clear();
-        if dirty.is_empty() {
+    fn calc_set(&mut self, dirty: &DirtyGraph) {
+        self.clear_pass_caches();
+        if dirty.nodes.is_empty() {
             return;
         }
-        let mut nodes: Vec<CellId> = dirty.iter().copied().collect();
-        nodes.sort_unstable();
-        let index: FxHashMap<CellId, usize> =
-            nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-        let adj = self.adjacency(&nodes, &index);
-        let sccs = tarjan(&adj);
-        let mut pending = dirty;
+        let order = dirty.order(PAR_MIN_LEVEL);
+        let mut pending: FxHashSet<CellId> = dirty.nodes.iter().copied().collect();
         let mut in_progress = FxHashSet::default();
-        for scc in sccs {
-            let cyclic = scc.len() > 1 || adj[scc[0]].contains(&scc[0]);
-            if cyclic {
-                let ids: Vec<CellId> = scc.iter().map(|&i| nodes[i]).collect();
-                self.calc_cycle(&ids, &pending);
-                for id in ids {
-                    pending.remove(&id);
+        for step in order {
+            match step {
+                Step::Seq(list) => {
+                    for i in list {
+                        self.calc_one(dirty.nodes[i as usize], &mut pending, &mut in_progress);
+                    }
                 }
-            } else {
-                self.calc_one(nodes[scc[0]], &mut pending, &mut in_progress);
+                Step::Level(list) => {
+                    let ids: Vec<CellId> = list.iter().map(|&i| dirty.nodes[i as usize]).collect();
+                    self.calc_level(&ids, &mut pending, &mut in_progress);
+                }
+                Step::Cycle(scc) => {
+                    let ids: Vec<CellId> = scc.iter().map(|&i| dirty.nodes[i as usize]).collect();
+                    self.calc_cycle(&ids, &pending);
+                    for id in ids {
+                        pending.remove(&id);
+                    }
+                }
             }
         }
     }
 
+    /// Evaluate one topological level: the cells do not read each other
+    /// statically, so they are evaluated in parallel on native targets (not
+    /// when a volatile function is involved, to keep `RAND` sequences
+    /// deterministic). Cells whose dynamic references hit uncomputed cells
+    /// fall back to [`Workbook::calc_one`].
+    fn calc_level(
+        &mut self,
+        ids: &[CellId],
+        pending: &mut FxHashSet<CellId>,
+        in_progress: &mut FxHashSet<CellId>,
+    ) {
+        let parallel = ids.iter().all(|id| !self.volatile.contains(id));
+        let results = if parallel {
+            self.eval_parallel(ids, pending)
+        } else {
+            None
+        };
+        let Some(results) = results else {
+            for id in ids {
+                self.calc_one(*id, pending, in_progress);
+            }
+            return;
+        };
+        let mut retry = Vec::new();
+        for (id, (v, missed)) in ids.iter().zip(results) {
+            if missed {
+                retry.push(*id);
+            } else {
+                self.store(*id, v);
+                if !self.circular.is_empty() {
+                    self.circular.remove(id);
+                }
+                pending.remove(id);
+            }
+        }
+        for id in retry {
+            self.calc_one(id, pending, in_progress);
+        }
+    }
+
+    /// Evaluate independent cells on worker threads; `None` when threads are
+    /// unavailable. Each result tells whether a not-yet-computed cell was read.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn eval_parallel(
+        &self,
+        ids: &[CellId],
+        pending: &FxHashSet<CellId>,
+    ) -> Option<Vec<(Value, bool)>> {
+        let threads = std::thread::available_parallelism()
+            .map_or(1, std::num::NonZeroUsize::get)
+            .min(MAX_THREADS);
+        if threads < 2 {
+            return None;
+        }
+        let chunk = ids.len().div_ceil(threads);
+        let empty = FxHashSet::default();
+        let eval_chunk = |part: &[CellId]| -> Vec<(Value, bool)> {
+            part.iter()
+                .map(|&id| {
+                    let view = RecalcView {
+                        wb: self,
+                        pending,
+                        in_progress: &empty,
+                        misses: RefCell::new(Vec::new()),
+                        cache: true,
+                    };
+                    let v = self.eval_cell(id, &view);
+                    let missed = view
+                        .misses
+                        .into_inner()
+                        .iter()
+                        .any(|m| *m != id && pending.contains(m));
+                    (v, missed)
+                })
+                .collect()
+        };
+        std::thread::scope(|s| {
+            let handles: Vec<_> = ids
+                .chunks(chunk)
+                .map(|part| s.spawn(move || eval_chunk(part)))
+                .collect();
+            let mut out = Vec::with_capacity(ids.len());
+            for h in handles {
+                out.extend(h.join().ok()?);
+            }
+            Some(out)
+        })
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[allow(clippy::unused_self)]
+    fn eval_parallel(
+        &self,
+        _ids: &[CellId],
+        _pending: &FxHashSet<CellId>,
+    ) -> Option<Vec<(Value, bool)>> {
+        None
+    }
     fn eval_cell(&self, id: CellId, view: &dyn CellProvider) -> Value {
         let Some(f) = self
             .sheets
@@ -864,7 +985,7 @@ impl Workbook {
         else {
             return Value::Empty;
         };
-        self.evaluations.set(self.evaluations.get() + 1);
+        self.evaluations.fetch_add(1, Ordering::Relaxed);
         let mut ctx = Ctx::new(view, id.sheet, id.row, id.col, &self.config, &self.rng);
         let v = ctx.eval(&f.expr);
         ctx.finalize(v)
@@ -901,7 +1022,9 @@ impl Workbook {
                 .collect();
             if fresh.is_empty() || stack.len() > 100_000 {
                 self.store(top, v);
-                self.circular.remove(&top);
+                if !self.circular.is_empty() {
+                    self.circular.remove(&top);
+                }
                 pending.remove(&top);
                 in_progress.remove(&top);
                 stack.pop();
@@ -951,8 +1074,17 @@ impl Workbook {
 
     /// Store a computed value, placing or clearing its spill range.
     fn store(&mut self, id: CellId, v: Value) {
+        // Fast path: a scalar result for a cell that does not spill.
+        if !matches!(v, Value::Array(_)) && !self.spills.contains_key(&id) {
+            if !self.spill_blocked.is_empty() {
+                self.spill_blocked.remove(&id);
+            }
+            if let Some(cell) = self.sheets[id.sheet].cells.get_mut(&(id.row, id.col)) {
+                cell.value = v;
+            }
+            return;
+        }
         let old_area = self.spills.get(&id).copied();
-        let old_value = self.read(id);
         self.clear_spill_silent(id);
         self.spill_blocked.remove(&id);
         let v = match v {
@@ -1000,7 +1132,7 @@ impl Workbook {
             cell.value = v;
         }
         if spilled_changed {
-            self.area_cache.borrow_mut().clear();
+            self.clear_pass_caches();
             for a in [old_area, new_area].into_iter().flatten() {
                 for r in a.r1..=a.r2 {
                     for c in a.c1..=a.c2 {
@@ -1012,7 +1144,6 @@ impl Workbook {
                 }
             }
         }
-        let _ = old_value;
     }
 
     fn clear_spill_silent(&mut self, id: CellId) {
@@ -1075,6 +1206,103 @@ impl Workbook {
             }
         }
         Value::Empty
+    }
+}
+
+/// Topological levels at least this large are evaluated in parallel.
+const PAR_MIN_LEVEL: usize = 512;
+/// Upper bound on worker threads for one level.
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_THREADS: usize = 8;
+
+/// Dirty formula cells of one recalculation pass and the edges between them.
+struct DirtyGraph {
+    nodes: Vec<CellId>,
+    /// `succ[i]`: dirty formula cells reading node `i` (one entry per reference).
+    succ: Vec<Vec<u32>>,
+}
+
+/// One evaluation step of a recalculation pass.
+enum Step {
+    /// Nodes evaluated one by one, in order.
+    Seq(Vec<u32>),
+    /// A large topological level: independent nodes.
+    Level(Vec<u32>),
+    /// A circular reference (strongly connected component).
+    Cycle(Vec<u32>),
+}
+
+impl DirtyGraph {
+    /// Evaluation order: Kahn's topological sort by levels for the acyclic
+    /// part (small consecutive levels merged into one sequential step), then
+    /// the remaining nodes (cycles and their dependents) ordered by Tarjan SCC
+    /// with precedents first.
+    fn order(&self, par_min: usize) -> Vec<Step> {
+        let n = self.nodes.len();
+        let mut indeg = vec![0u32; n];
+        for s in &self.succ {
+            for &d in s {
+                indeg[d as usize] += 1;
+            }
+        }
+        let mut steps = Vec::new();
+        let mut seq: Vec<u32> = Vec::new();
+        let mut level: Vec<u32> = (0..n as u32).filter(|&i| indeg[i as usize] == 0).collect();
+        let mut done = 0;
+        while !level.is_empty() {
+            done += level.len();
+            let mut next = Vec::new();
+            for &i in &level {
+                for &d in &self.succ[i as usize] {
+                    let e = &mut indeg[d as usize];
+                    *e -= 1;
+                    if *e == 0 {
+                        next.push(d);
+                    }
+                }
+            }
+            if level.len() >= par_min {
+                if !seq.is_empty() {
+                    steps.push(Step::Seq(std::mem::take(&mut seq)));
+                }
+                steps.push(Step::Level(level));
+            } else {
+                seq.extend(level);
+            }
+            level = next;
+        }
+        if done < n {
+            // Remaining nodes: build their precedent lists and order the SCCs.
+            let rest: Vec<u32> = (0..n as u32).filter(|&i| indeg[i as usize] > 0).collect();
+            let mut local = vec![u32::MAX; n];
+            for (k, &i) in rest.iter().enumerate() {
+                local[i as usize] = k as u32;
+            }
+            let mut preds = vec![Vec::new(); rest.len()];
+            for (k, &i) in rest.iter().enumerate() {
+                for &d in &self.succ[i as usize] {
+                    let ld = local[d as usize];
+                    if ld != u32::MAX {
+                        preds[ld as usize].push(k);
+                    }
+                }
+            }
+            for scc in tarjan(&preds) {
+                let cyclic = scc.len() > 1 || preds[scc[0]].contains(&scc[0]);
+                if cyclic {
+                    if !seq.is_empty() {
+                        steps.push(Step::Seq(std::mem::take(&mut seq)));
+                    }
+                    steps.push(Step::Cycle(scc.iter().map(|&k| rest[k]).collect()));
+                } else {
+                    seq.push(rest[scc[0]]);
+                }
+            }
+        }
+        if !seq.is_empty() {
+            steps.push(Step::Seq(seq));
+        }
+        steps
     }
 }
 
@@ -1264,7 +1492,7 @@ impl CellProvider for RecalcView<'_> {
         if !self.cache {
             return None;
         }
-        if let Some(a) = self.wb.area_cache.borrow().get(area) {
+        if let Some(a) = self.wb.area_cache.read().ok()?.get(area) {
             return Some(a.clone());
         }
         // Only areas whose cells are all final in this pass can be cached.
@@ -1279,7 +1507,34 @@ impl CellProvider for RecalcView<'_> {
             }
         }
         let arr = Arc::new(Array::new(area.rows() as usize, area.cols() as usize, data));
-        self.wb.area_cache.borrow_mut().insert(*area, arr.clone());
+        if let Ok(mut c) = self.wb.area_cache.write() {
+            c.insert(*area, arr.clone());
+        }
         Some(arr)
+    }
+
+    fn exact_index(&self, area: &Area) -> Option<Arc<ExactIndex>> {
+        if !self.cache {
+            return None;
+        }
+        if let Some(ix) = self.wb.index_cache.read().ok()?.get(area) {
+            return Some(ix.clone());
+        }
+        // Like `area_array`: only vectors whose cells are all final.
+        let mut data = Vec::with_capacity(area.size() as usize);
+        for r in area.r1..=area.r2 {
+            for c in area.c1..=area.c2 {
+                let id = CellId::new(area.sheet, r, c);
+                if self.pending.contains(&id) {
+                    return None;
+                }
+                data.push(self.wb.read(id));
+            }
+        }
+        let ix = Arc::new(ExactIndex::build(data.iter()));
+        if let Ok(mut c) = self.wb.index_cache.write() {
+            c.insert(*area, ix.clone());
+        }
+        Some(ix)
     }
 }

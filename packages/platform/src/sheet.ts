@@ -218,12 +218,13 @@ export interface PivotLabels {
   name?: string;
 }
 
-export interface PivotAreas {
+/** A type alias (not an interface) so commands keep an implicit index signature. */
+export type PivotAreas = {
   rows: number[];
   cols: number[];
   values: PivotValueSpec[];
   filters: PivotFilterSpec[];
-}
+};
 
 /** A pivot table and its field list (`pivots` command). */
 export interface PivotInfo {

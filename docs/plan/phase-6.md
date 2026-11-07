@@ -50,6 +50,49 @@ Triển khai: [`docs/deploy/`](../deploy/README.md).
 hạ quyền giữa phiên, các kịch bản BlueDrive (mở file, 2 người cùng phiên + một khoá, lưu tạo version kèm người sửa, autosave,
 lưu khi rời phiên, thu hồi quyền, sửa offline → bản xung đột, khoá bởi client khác), WOPI host giả, job chuyển đổi.
 
+## Cộng tác thời gian thực (BlueDoc, BlueSlide)
+
+Cả ba ứng dụng dùng chung một replica `bo-collab` (Yrs, offset UTF-16 như Yjs) trong chế độ nhúng
+(`apps/web/src/main.tsx` → `startCollab`). Binding TS ở `packages/collab`: `collabDocHost`, `collabSlideHost`
+(bọc `EngineHost`, cùng khuôn với `collabSheetHost`). Lõi ánh xạ ở `bo-engine`: `collab.rs` (BlueDoc) và
+`slide_edit/collab.rs` (BlueSlide); WASM `WasmEngine.collab*` / `WasmCollab.applyLocal|takeRemote|fullState|seed`,
+Tauri `engine_collab_*`.
+
+**Đồng bộ những gì**
+- BlueDoc — `body` Y.Text: mỗi block cấp section là một dòng kết thúc bằng `\n`. Định dạng run là thuộc tính:
+  `bold`, `italic`, `underline`, `strike`, `size` (half-point), `color`, `font`, `highlight` + `r` (JSON phần `RunProps`
+  còn lại, gồm cả dấu track changes). Thuộc tính đoạn nằm trên `\n`: `style`, `align`, `list` + `p` (phần `ParaProps`
+  còn lại); `\n` cuối mỗi section mang `sect` (JSON sectPr: khổ giấy, lề, cột, header/footer). Tab, ngắt dòng/trang,
+  ảnh, field, bookmark… là embed một vị trí `{"c": JSON}`; bảng và block lạ là embed `{"b": JSON}` + `\n`.
+- Sau mỗi lệnh cục bộ engine so mô hình với *shadow* của văn bản chung (so block, rồi tiền tố/hậu tố theo ký tự) và
+  trả `collab.change` (delta Quill) trong `EditResult`; delta từ xa áp vào shadow rồi dựng lại các block đổi, áp như
+  một transaction **ngoài lịch sử cục bộ** (`bo_edit::Session::apply_external`); con trỏ của mình được dời theo delta.
+- Undo/redo khi cộng tác đi qua `UndoManager` của replica (chỉ hoàn tác thay đổi của chính mình).
+- BlueSlide — `slides` Y.Map (khoá `sldId`, giá trị `{"pos","slide"}`: thuộc tính slide + vị trí) và `shapes` Y.Map
+  (khoá `"<sldId>/<cNvPr id>"`, giá trị `{"z","node"}`), last-writer-wins theo đối tượng; slide thêm trong phiên được
+  cấp `sldId` theo client id. Ảnh/part mới (doc media, pptx part) đi qua `blobs` (base64).
+- Người vào đầu tiên nhận `seed` và đăng toàn bộ thân văn bản/deck; người vào sau thay nội dung bằng trạng thái chung
+  sau lần đồng bộ đầu (`fullState`). Khung nhận được khi engine đang bận được giữ lại (`LiveQueue`) để engine và
+  replica luôn thấy thay đổi theo cùng thứ tự.
+- Presence: BlueDoc gửi vùng chọn (offset UTF-16) → caret màu kèm tên (`DocumentView.setPeers`, lệnh
+  `view.collaborators` bật/tắt); BlueSlide gửi đối tượng đang chọn → khung nét đứt màu trên slide.
+
+**Hạn chế**
+- Bảng là một đối tượng: hai người sửa cùng bảng thì người ghi sau thắng cả bảng; văn bản lạc cạnh embed bảng (do sửa
+  đồng thời) bị bỏ như nhau trên mọi replica.
+- Không đồng bộ trực tiếp: định nghĩa style (chỉ tự thêm style dựng sẵn khi được tham chiếu), numbering ngoài kiểu
+  bullet/number, comment, footnote/endnote, header/footer ngoài thuộc tính section; slide master/layout/theme, phần
+  trình bày cấp presentation (notes master). Những phần này đến người khác với version đã lưu.
+- Danh sách tạo trong phiên được chia sẻ theo kiểu (`bullet:<lvl>`/`number:<lvl>`): các danh sách mới cùng kiểu dùng
+  chung một định nghĩa ở replica nhận.
+- Vị trí caret của người khác tính theo offset tuyệt đối (chưa dùng relative position của Yjs) nên có thể lệch tạm thời
+  cho tới khi họ gửi presence mới; caret trong ô bảng hiển thị ở đầu bảng.
+- Sửa trước lần đồng bộ đầu tiên của người vào sau không được chia sẻ (bị nội dung chung thay thế).
+- Mỗi lệnh cục bộ so toàn bộ danh sách block với shadow (O(số block), không cấp phát) — đủ nhanh cho tài liệu
+  thường; tài liệu rất dài cần đánh dấu block bẩn từ op.
+- Hai người cùng thêm slide cùng lúc nhận `sldId` khác nhau, nhưng tên part `/ppt/slides/slideN.xml` có thể trùng
+  (được đặt lại khi lưu).
+- Desktop (Tauri) đã có lệnh engine nhưng chưa có client WebSocket (chỉ chế độ nhúng web dùng `startCollab`).
 ## Còn lại (ngoài phạm vi lần này)
 
 - **Ký số** (Phase 6): ký PDF PAdES và OOXML XML-DSig; điểm tích hợp dự kiến: một `ISignatureProvider` (USB token qua agent

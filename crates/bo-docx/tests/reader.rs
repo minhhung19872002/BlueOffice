@@ -35,7 +35,9 @@ fn paragraph_and_run_properties() {
     let sec = &doc.sections[0];
     assert_eq!(sec.page.width, Twips(16_838));
     assert_eq!(sec.page.margin_left, Twips(1440));
-    let Block::Paragraph(p) = &sec.blocks[0];
+    let Block::Paragraph(p) = &sec.blocks[0] else {
+        panic!("expected paragraph")
+    };
     assert_eq!(p.props.align, Some(Alignment::Justify));
     assert_eq!(p.props.indent_left, Some(Twips(720)));
     assert_eq!(p.props.indent_first_line, Some(Twips(-360)));
@@ -64,7 +66,8 @@ fn section_break_in_paragraph() {
 fn unknown_elements_are_ignored() {
     let body = r"<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:drawing><x/></w:drawing><w:t>after</w:t></w:r></w:p>";
     let doc = read_docx(&docx(body)).unwrap();
-    assert_eq!(doc.plain_text(), "after");
+    // The unknown drawing is kept as an object placeholder (U+FFFC).
+    assert_eq!(doc.plain_text(), "cell\n\u{FFFC}after");
 }
 
 #[test]

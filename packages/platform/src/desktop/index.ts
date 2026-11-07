@@ -15,6 +15,8 @@ import {
 import type {
   DocInfo,
   DocumentStorage,
+  EditCommand,
+  EditResult,
   EngineHost,
   FileAccess,
   FontDescriptor,
@@ -63,6 +65,30 @@ export class NativeEngineHost implements EngineHost {
   }
   async exportPdf(): Promise<Uint8Array> {
     return toBytes(await this.call<ArrayBuffer>('engine_export_pdf'));
+  }
+  newDocument(name: string): Promise<DocInfo> {
+    return this.call<DocInfo>('engine_new', { name });
+  }
+  async command(cmd: EditCommand): Promise<EditResult> {
+    return JSON.parse(
+      await this.call<string>('engine_command', { json: JSON.stringify(cmd) }),
+    ) as EditResult;
+  }
+  async insertImage(bytes: Uint8Array, name: string): Promise<EditResult> {
+    return JSON.parse(
+      await this.call<string>('engine_insert_image', bytes, {
+        headers: { 'x-file-name': encodeURIComponent(name) },
+      }),
+    ) as EditResult;
+  }
+  async getMedia(name: string): Promise<Uint8Array> {
+    return toBytes(await this.call<ArrayBuffer>('engine_media', { name }));
+  }
+  async saveDocx(): Promise<Uint8Array> {
+    return toBytes(await this.call<ArrayBuffer>('engine_save_docx'));
+  }
+  async markSaved(): Promise<void> {
+    await this.call<null>('engine_mark_saved');
   }
   dispose(): void {}
 }

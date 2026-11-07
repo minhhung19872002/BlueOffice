@@ -4,7 +4,7 @@
 //! regression tests.
 #![forbid(unsafe_code)]
 
-use bo_render::{Command, GradientStop, PageList, PathSeg, Rgba};
+use bo_render::{Command, GradientStop, ImageSource, PageList, PathSeg, Rgba};
 use bo_text::{FaceId, FontManager, PathCmd};
 use std::collections::{BTreeMap, HashMap};
 use tiny_skia::{
@@ -65,7 +65,7 @@ pub fn render_page_with(
     page: &PageList,
     fonts: &FontManager,
     scale: f32,
-    images: &Images,
+    images: &dyn ImageSource,
 ) -> Result<Pixmap, RasterError> {
     let w = (page.width * scale).ceil() as u32;
     let h = (page.height * scale).ceil() as u32;
@@ -94,6 +94,7 @@ pub fn render_page_with(
                 y2,
                 width,
                 color,
+                dash,
             } => {
                 let mut pb = PathBuilder::new();
                 pb.move_to(*x1, *y1);
@@ -101,6 +102,8 @@ pub fn render_page_with(
                 if let Some(path) = pb.finish() {
                     let stroke = Stroke {
                         width: *width,
+                        dash: dash
+                            .and_then(|[on, off]| tiny_skia::StrokeDash::new(vec![on, off], 0.0)),
                         ..Stroke::default()
                     };
                     pm.stroke_path(&path, &paint(*color), &stroke, t, mask.as_ref());
@@ -176,7 +179,7 @@ pub fn render_page_with(
             } => {
                 let img = decoded
                     .entry(image.as_str())
-                    .or_insert_with(|| images.get(image).and_then(|b| decode_image(b)));
+                    .or_insert_with(|| images.image(image).and_then(decode_image));
                 let Some(img) = img.as_ref() else {
                     // Missing or undecodable image: light grey placeholder.
                     if let Some(r) = Rect::from_xywh(*x, *y, *w, *h) {
@@ -413,7 +416,7 @@ pub fn render_page_png_with(
     page: &PageList,
     fonts: &FontManager,
     scale: f32,
-    images: &Images,
+    images: &dyn ImageSource,
 ) -> Result<Vec<u8>, RasterError> {
     render_page_with(page, fonts, scale, images)?
         .encode_png()

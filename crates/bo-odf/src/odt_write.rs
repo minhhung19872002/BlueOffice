@@ -103,11 +103,12 @@ fn text_attrs(r: &RunProps) -> String {
     match r.underline {
         // §20.389 / §20.390
         Some(Underline::None) => a.push_str(r#" style:text-underline-style="none""#),
-        Some(Underline::Single) => a.push_str(
-            r#" style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color""#,
-        ),
         Some(Underline::Double) => a.push_str(
             r#" style:text-underline-style="solid" style:text-underline-type="double" style:text-underline-width="auto" style:text-underline-color="font-color""#,
+        ),
+        // Single and other underline kinds are written as a single solid line.
+        Some(_) => a.push_str(
+            r#" style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color""#,
         ),
         None => {}
     }
@@ -178,7 +179,9 @@ fn write_inline(out: &mut String, runs: &[bo_model::Run], text_styles: &HashMap<
                 RunContent::Text(t) => atoms.extend(t.chars().map(Atom::Char)),
                 RunContent::Tab => atoms.push(Atom::Tab),
                 RunContent::LineBreak => atoms.push(Atom::LineBreak),
-                RunContent::PageBreak => {}
+                RunContent::Field { cached, .. } => atoms.extend(cached.chars().map(Atom::Char)),
+                // Breaks are paragraph-level; other objects are not written to ODT in this version.
+                _ => {}
             }
         }
     }
@@ -274,9 +277,11 @@ pub fn write_odt(doc: &Document) -> Result<Vec<u8>> {
     let mut body = String::new();
     for (si, section) in doc.sections.iter().enumerate() {
         for (bi, block) in section.blocks.iter().enumerate() {
-            let Block::Paragraph(p) = block;
+            let Block::Paragraph(p) = block else {
+                continue;
+            };
             let key = ParaKey {
-                props: p.props,
+                props: p.props.clone(),
                 master: (si > 0 && bi == 0).then(|| format!("Section{}", si + 1)),
                 break_after: p
                     .runs
@@ -387,7 +392,7 @@ mod tests {
     }
 
     pub(crate) fn sample() -> Document {
-        let para = |props: ParaProps, runs: Vec<Run>| Block::Paragraph(Paragraph { props, runs });
+        let para = |props: ParaProps, runs: Vec<Run>| Block::Paragraph(Paragraph::new(props, runs));
         Document {
             default_run: rp(|r| {
                 r.font = Some("Times New Roman".into());
@@ -465,6 +470,7 @@ mod tests {
                         ),
                         para(ParaProps::default(), vec![]),
                     ],
+                    ..Section::default()
                 },
                 Section {
                     page: PageSetup {
@@ -480,8 +486,10 @@ mod tests {
                         },
                         vec![Run::text("Ngang", rp(|r| r.italic = Some(false)))],
                     )],
+                    ..Section::default()
                 },
             ],
+            ..Document::default()
         }
     }
 

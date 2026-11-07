@@ -10,6 +10,8 @@ use bo_opc::{Limits, Package};
 pub type Error = Box<dyn std::error::Error>;
 
 /// What an input file turned out to be.
+// One value per CLI invocation: the size difference between variants does not matter.
+#[allow(clippy::large_enum_variant)]
 pub enum Loaded {
     /// A word-processing document; `source` is the OPC package it came from
     /// (kept so VBA projects can be carried over on save).

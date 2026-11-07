@@ -21,6 +21,70 @@ export interface CanvasLike {
   fillStyle: unknown;
   strokeStyle: unknown;
   lineWidth: number;
+  setLineDash?(segments: number[]): void;
+  rotate?(angle: number): void;
+  drawImage?(
+    img: unknown,
+    sx: number,
+    sy: number,
+    sw: number,
+    sh: number,
+    dx: number,
+    dy: number,
+    dw: number,
+    dh: number,
+  ): void;
+}
+
+/** A decoded picture. */
+export interface LoadedImage {
+  image: unknown;
+  width: number;
+  height: number;
+}
+
+export type ImageDecoder = (bytes: Uint8Array) => Promise<LoadedImage | null>;
+
+const defaultDecoder: ImageDecoder = async (bytes) => {
+  if (typeof createImageBitmap === 'undefined') return null;
+  try {
+    const bmp = await createImageBitmap(new Blob([bytes as BlobPart]));
+    return { image: bmp, width: bmp.width, height: bmp.height };
+  } catch {
+    return null; // unsupported format (EMF/WMF…): placeholder box
+  }
+};
+
+/** Caches pictures referenced by `image` commands (bytes fetched from the engine). */
+export class ImageStore {
+  private images = new Map<string, LoadedImage | null>();
+
+  constructor(
+    private readonly engine: Pick<EngineHost, 'getMedia'>,
+    private readonly decode: ImageDecoder = defaultDecoder,
+  ) {}
+
+  get(media: string): LoadedImage | null | undefined {
+    return this.images.get(media);
+  }
+
+  /** Forget everything (new document). */
+  clear(): void {
+    this.images.clear();
+  }
+
+  async ensure(page: PageDisplayList): Promise<void> {
+    const missing = new Set<string>();
+    for (const c of page.commands) {
+      if (c.op === 'image' && !this.images.has(c.image)) missing.add(c.image);
+    }
+    await Promise.all(
+      [...missing].map(async (m) => {
+        const bytes = await this.engine.getMedia(m);
+        this.images.set(m, bytes.length ? await this.decode(bytes) : null);
+      }),
+    );
+  }
 }
 
 export type PathFactory = (svgPath: string) => unknown;
@@ -87,16 +151,22 @@ export function renderPage(
   page: PageDisplayList,
   glyphs: GlyphStore,
   scale: number,
+  images?: ImageStore,
 ): void {
   ctx.save();
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, page.width, page.height);
-  for (const cmd of page.commands) drawCommand(ctx, cmd, glyphs);
+  for (const cmd of page.commands) drawCommand(ctx, cmd, glyphs, images);
   ctx.restore();
 }
 
-function drawCommand(ctx: CanvasLike, cmd: DisplayCommand, glyphs: GlyphStore): void {
+function drawCommand(
+  ctx: CanvasLike,
+  cmd: DisplayCommand,
+  glyphs: GlyphStore,
+  images?: ImageStore,
+): void {
   switch (cmd.op) {
     case 'fillRect':
       ctx.fillStyle = rgba(cmd.color);
@@ -108,8 +178,37 @@ function drawCommand(ctx: CanvasLike, cmd: DisplayCommand, glyphs: GlyphStore): 
       ctx.beginPath();
       ctx.moveTo(cmd.x1, cmd.y1);
       ctx.lineTo(cmd.x2, cmd.y2);
+      if (cmd.dash) ctx.setLineDash?.(cmd.dash);
       ctx.stroke();
+      if (cmd.dash) ctx.setLineDash?.([]);
       break;
+    case 'image': {
+      const img = images?.get(cmd.image);
+      ctx.save();
+      ctx.translate(cmd.x + cmd.w / 2, cmd.y + cmd.h / 2);
+      if (cmd.rotation) ctx.rotate?.((cmd.rotation * Math.PI) / 180);
+      if (img && ctx.drawImage) {
+        const [l, t, r, b] = cmd.crop ?? [0, 0, 0, 0];
+        const sw = img.width * Math.max(0.0001, 1 - l - r);
+        const sh = img.height * Math.max(0.0001, 1 - t - b);
+        ctx.drawImage(
+          img.image,
+          img.width * l,
+          img.height * t,
+          sw,
+          sh,
+          -cmd.w / 2,
+          -cmd.h / 2,
+          cmd.w,
+          cmd.h,
+        );
+      } else {
+        ctx.fillStyle = '#e0e0e0';
+        ctx.fillRect(-cmd.w / 2, -cmd.h / 2, cmd.w, cmd.h);
+      }
+      ctx.restore();
+      break;
+    }
     case 'glyphs': {
       ctx.fillStyle = rgba(cmd.color);
       for (const g of cmd.glyphs) {

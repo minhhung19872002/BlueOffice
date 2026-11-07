@@ -16,10 +16,10 @@ fn fonts() -> FontManager {
 }
 
 fn para(text: &str, props: ParaProps) -> Block {
-    Block::Paragraph(Paragraph {
+    Block::Paragraph(Paragraph::new(
         props,
-        runs: vec![Run::text(text, RunProps::default())],
-    })
+        vec![Run::text(text, RunProps::default())],
+    ))
 }
 
 fn doc(blocks: Vec<Block>) -> Document {
@@ -29,10 +29,7 @@ fn doc(blocks: Vec<Block>) -> Document {
             size: Some(HalfPoints(26)),
             ..Default::default()
         },
-        sections: vec![Section {
-            page: PageSetup::default(),
-            blocks,
-        }],
+        sections: vec![Section::new(blocks)],
         ..Default::default()
     }
 }
@@ -184,9 +181,9 @@ fn pagination_and_breaks() {
     }
     // Manual page break and pageBreakBefore.
     let d = doc(vec![
-        Block::Paragraph(Paragraph {
-            props: ParaProps::default(),
-            runs: vec![Run {
+        Block::Paragraph(Paragraph::new(
+            ParaProps::default(),
+            vec![Run {
                 props: RunProps::default(),
                 content: vec![
                     RunContent::Text("A".into()),
@@ -194,7 +191,7 @@ fn pagination_and_breaks() {
                     RunContent::Text("B".into()),
                 ],
             }],
-        }),
+        )),
         para(
             "C",
             ParaProps {

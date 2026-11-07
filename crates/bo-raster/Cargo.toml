@@ -12,5 +12,8 @@ bo-text.workspace = true
 tiny-skia.workspace = true
 zune-jpeg = { version = "0.4", default-features = false, features = ["std"] }
 
+[dev-dependencies]
+png.workspace = true
+
 [lints]
 workspace = true

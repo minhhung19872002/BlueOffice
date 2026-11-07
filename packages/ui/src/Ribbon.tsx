@@ -46,12 +46,17 @@ function RibbonButton({ item }: { item: RibbonItem }) {
       aria-disabled={disabled}
       aria-pressed={item.checked ?? undefined}
       aria-keyshortcuts={item.shortcut}
+      // Keep keyboard focus in the document (caret, IME) when clicking the ribbon.
+      onMouseDown={(e) => e.preventDefault()}
       onClick={() => {
         if (!disabled) item.onSelect();
       }}
     >
       {item.icon && <span className={styles.icon}>{item.icon}</span>}
-      <span>{item.label}</span>
+      {/* Small buttons show only their icon; the label stays for screen readers and tests. */}
+      <span className={item.size === 'small' && item.icon ? styles.srOnly : undefined}>
+        {item.label}
+      </span>
     </button>
   );
   const tip = [item.tooltip, item.shortcut].filter(Boolean).join(' · ');
@@ -92,7 +97,13 @@ export function Ribbon({ tabs, value, onValueChange, trailing }: RibbonProps) {
           <Tabs.Content key={t.id} value={t.id} className={styles.panel}>
             {t.groups.map((g) => (
               <div key={g.id} className={styles.group} role="group" aria-label={g.label}>
-                <div className={styles.groupItems}>
+                <div
+                  className={`${styles.groupItems} ${
+                    g.items.length > 3 && g.items.every((i) => i.size === 'small')
+                      ? styles.compact
+                      : ''
+                  }`}
+                >
                   {g.items.map((i) => (
                     <RibbonButton key={i.id} item={i} />
                   ))}

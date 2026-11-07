@@ -1,4 +1,12 @@
-import type { DocInfo, EngineHost, FontSource, GlyphOutline, PageDisplayList } from '../types';
+import type {
+  DocInfo,
+  EditCommand,
+  EditResult,
+  EngineHost,
+  FontSource,
+  GlyphOutline,
+  PageDisplayList,
+} from '../types';
 import type { EngineRequest, EngineResponse } from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
@@ -74,6 +82,31 @@ export class WebEngineHost implements EngineHost {
 
   async exportPdf(): Promise<Uint8Array> {
     return this.call<Uint8Array>({ method: 'pdf' });
+  }
+
+  async newDocument(name: string): Promise<DocInfo> {
+    await this.init();
+    return this.call<DocInfo>({ method: 'new', name });
+  }
+
+  command(cmd: EditCommand): Promise<EditResult> {
+    return this.call<EditResult>({ method: 'command', json: JSON.stringify(cmd) });
+  }
+
+  insertImage(bytes: Uint8Array, name: string): Promise<EditResult> {
+    return this.call<EditResult>({ method: 'insertImage', bytes, name });
+  }
+
+  getMedia(name: string): Promise<Uint8Array> {
+    return this.call<Uint8Array>({ method: 'media', name });
+  }
+
+  saveDocx(): Promise<Uint8Array> {
+    return this.call<Uint8Array>({ method: 'saveDocx' });
+  }
+
+  async markSaved(): Promise<void> {
+    await this.call<null>({ method: 'markSaved' });
   }
 
   dispose(): void {

@@ -232,7 +232,10 @@ pub fn convert_document(doc: &mut Document) -> usize {
     let mut count = 0;
     for section in &mut doc.sections {
         for block in &mut section.blocks {
-            let bo_model::Block::Paragraph(p) = block;
+            let bo_model::Block::Paragraph(p) = block else {
+                // Tables and opaque blocks: legacy fonts there are left unchanged in this version.
+                continue;
+            };
             for run in &mut p.runs {
                 let legacy = match run.props.font.as_deref() {
                     Some(f) => legacy_from_font(f),

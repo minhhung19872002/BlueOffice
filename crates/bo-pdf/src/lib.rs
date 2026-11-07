@@ -6,7 +6,7 @@
 //! Reference: ISO 32000-1:2008 §9.7 (Composite fonts), §9.10.3 (ToUnicode).
 #![forbid(unsafe_code)]
 
-use bo_render::{Command, DisplayList, GradientStop, Paint, PathSeg, Rgba, Stroke};
+use bo_render::{Command, DisplayList, GradientStop, ImageSource, Paint, PathSeg, Rgba, Stroke};
 use bo_text::{FaceId, FontManager};
 use pdf_writer::types::{
     CidFontType, FontFlags, FunctionShadingType, LineCapStyle, LineJoinStyle, SystemInfo,
@@ -45,7 +45,7 @@ pub fn write_pdf(
     fonts: &FontManager,
     meta: &PdfMeta,
 ) -> Result<Vec<u8>, PdfError> {
-    write_pdf_with_images(list, fonts, meta, &BTreeMap::new())
+    write_pdf_with_images(list, fonts, meta, &BTreeMap::<String, Vec<u8>>::new())
 }
 
 /// Write the display list as PDF, embedding the PNG/JPEG bytes that `Image`
@@ -54,7 +54,7 @@ pub fn write_pdf_with_images(
     list: &DisplayList,
     fonts: &FontManager,
     meta: &PdfMeta,
-    images: &BTreeMap<String, Vec<u8>>,
+    images: &dyn ImageSource,
 ) -> Result<Vec<u8>, PdfError> {
     let mut pdf = Pdf::new();
     let mut next = 1;
@@ -143,6 +143,7 @@ pub fn write_pdf_with_images(
                     y2,
                     width,
                     color,
+                    dash,
                 } => {
                     c.set_stroke_rgb(
                         f32::from(color.0) / 255.0,
@@ -150,9 +151,15 @@ pub fn write_pdf_with_images(
                         f32::from(color.2) / 255.0,
                     );
                     c.set_line_width(*width);
+                    if let Some([on, off]) = dash {
+                        c.set_dash_pattern([*on, *off], 0.0);
+                    }
                     c.move_to(*x1, h - y1);
                     c.line_to(*x2, h - y2);
                     c.stroke();
+                    if dash.is_some() {
+                        c.set_dash_pattern([], 0.0);
+                    }
                 }
                 Command::Glyphs {
                     face,
@@ -224,7 +231,7 @@ pub fn write_pdf_with_images(
                     let r = if let Some(r) = image_refs.get(image) {
                         *r
                     } else {
-                        let r = images.get(image).and_then(|b| load_image(b)).map(|img| {
+                        let r = images.image(image).and_then(load_image).map(|img| {
                             let id = alloc();
                             write_image(&mut pdf, &mut alloc, id, &img);
                             id

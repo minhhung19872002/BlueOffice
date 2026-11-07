@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GlyphOutline, PageDisplayList } from '@blueoffice/platform';
-import { GlyphStore, renderPage, rgba, type CanvasLike } from '../src/renderer';
+import { GlyphStore, ImageStore, renderPage, rgba, type CanvasLike } from '../src/renderer';
 
 function recorder() {
   const ops: string[] = [];
@@ -21,6 +21,10 @@ function recorder() {
     stroke: () => ops.push('stroke'),
     clip: () => ops.push('clip'),
     fill: (p) => ops.push(`fill ${String(p)}`),
+    setLineDash: (d) => ops.push(`dash ${d.join(',')}`),
+    rotate: (a) => ops.push(`rotate ${a.toFixed(3)}`),
+    drawImage: (img, sx, sy, sw, sh, dx, dy, dw, dh) =>
+      ops.push(`drawImage ${String(img)} ${sx} ${sy} ${sw} ${sh} ${dx} ${dy} ${dw} ${dh}`),
   };
   return { ctx, ops };
 }
@@ -94,6 +98,48 @@ describe('canvas renderer', () => {
     expect(ops).toContain('fillRect 1 2 3 4 rgba(0,0,255,0.502)');
     // Clip is balanced.
     expect(ops.filter((o) => o === 'save').length).toBe(ops.filter((o) => o === 'restore').length);
+  });
+
+  it('draws pictures (crop, rotation), placeholders and dashed lines', async () => {
+    const pic: PageDisplayList = {
+      width: 100,
+      height: 100,
+      commands: [
+        {
+          op: 'image',
+          x: 10,
+          y: 10,
+          w: 20,
+          h: 10,
+          image: '/a.png',
+          crop: [0.5, 0, 0, 0],
+          rotation: 90,
+        },
+        { op: 'image', x: 0, y: 50, w: 5, h: 5, image: '/b.emf' },
+        { op: 'line', x1: 0, y1: 0, x2: 9, y2: 0, width: 1, color: [0, 0, 0, 255], dash: [3, 2] },
+      ],
+    };
+    const fetched: string[] = [];
+    const images = new ImageStore(
+      {
+        getMedia: async (m) => {
+          fetched.push(m);
+          return m === '/a.png' ? new Uint8Array([1]) : new Uint8Array();
+        },
+      },
+      async () => ({ image: 'IMG', width: 40, height: 20 }),
+    );
+    await images.ensure(pic);
+    await images.ensure(pic);
+    expect(fetched).toEqual(['/a.png', '/b.emf']);
+    const { ctx, ops } = recorder();
+    renderPage(ctx, pic, new GlyphStore({ getGlyphOutlines: async () => [] }), 1, images);
+    expect(ops).toContain('translate 20 15');
+    expect(ops).toContain('rotate 1.571');
+    expect(ops).toContain('drawImage IMG 20 0 20 20 -10 -5 20 10');
+    expect(ops).toContain('fillRect -2.5 -2.5 5 5 #e0e0e0');
+    expect(ops).toContain('dash 3,2');
+    expect(ops).toContain('dash ');
   });
 
   it('formats colours', () => {

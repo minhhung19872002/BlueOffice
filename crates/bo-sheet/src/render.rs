@@ -167,6 +167,7 @@ impl Renderer<'_> {
             y2: f(y2),
             width: f(width),
             color,
+            dash: None,
         });
     }
 

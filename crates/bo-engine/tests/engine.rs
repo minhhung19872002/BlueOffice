@@ -79,3 +79,30 @@ fn plain_text_and_garbage() {
     assert!(e.open(&[0xFF, 0xFE, 0x00, 0x9F], "x.bin").is_err());
     assert!(e.open(b"PK\x03\x04broken", "x.docx").is_err());
 }
+
+#[test]
+fn whole_corpus_lays_out_renders_and_exports() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus/doc");
+    let mut n = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|x| x != "docx") {
+            continue;
+        }
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let mut e = Engine::with_bundled_fonts();
+        let info = e
+            .open(&std::fs::read(&path).unwrap(), &name)
+            .unwrap_or_else(|err| panic!("{name}: {err}"));
+        assert!(info.page_count >= 1, "{name}");
+        assert_eq!(&e.render_png(0, 0.5).unwrap()[1..4], b"PNG", "{name}");
+        assert!(e.export_pdf().unwrap().starts_with(b"%PDF-"), "{name}");
+        let saved = e.save_docx().unwrap();
+        assert!(
+            Engine::with_bundled_fonts().open(&saved, &name).is_ok(),
+            "{name}"
+        );
+        n += 1;
+    }
+    assert!(n >= 30);
+}

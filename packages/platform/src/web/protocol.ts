@@ -4,7 +4,13 @@ export type EngineRequest =
   | { id: number; method: 'open'; bytes: Uint8Array; name: string }
   | { id: number; method: 'page'; index: number }
   | { id: number; method: 'glyphs'; face: number; glyphs: number[] }
-  | { id: number; method: 'pdf' };
+  | { id: number; method: 'pdf' }
+  | { id: number; method: 'new'; name: string }
+  | { id: number; method: 'command'; json: string }
+  | { id: number; method: 'insertImage'; bytes: Uint8Array; name: string }
+  | { id: number; method: 'media'; name: string }
+  | { id: number; method: 'saveDocx' }
+  | { id: number; method: 'markSaved' };
 
 export type EngineResponse =
   { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };

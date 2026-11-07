@@ -160,3 +160,82 @@
   cursor: pointer;
   padding: 0 4px;
 }
+
+.panel {
+  position: absolute;
+  top: 12px;
+  right: 24px;
+  z-index: 6;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text);
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 320px;
+  font-size: 13px;
+}
+
+.panelRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.panelRow input[type='text'],
+.panelRow input:not([type]) {
+  flex: 1;
+  min-width: 140px;
+  padding: 4px 6px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+}
+
+.panelRow button,
+.symbols button,
+.recovery button {
+  padding: 4px 10px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.panelMessage {
+  color: var(--bo-text-muted);
+  min-height: 1em;
+}
+
+.symbols {
+  display: grid;
+  grid-template-columns: repeat(8, 32px);
+  gap: 4px;
+}
+
+.symbols button {
+  padding: 4px 0;
+  font-size: 16px;
+}
+
+.recovery {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bo-surface, #fff);
+  border: 1px solid var(--bo-accent, #2b6cb0);
+  border-radius: var(--bo-radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}

@@ -11,12 +11,15 @@
 //! bo-cli dump input.docx [--page 0]          # display list JSON (parity tests)
 //! bo-cli pack <dir> <out.docx> | unpack <file> <dir>
 //! bo-cli sample <out.docx>                   # generate the Phase 1 corpus sample
+//! bo-cli corpus <dir>                         # generate the Phase 2 round-trip corpus
+//! bo-cli roundtrip <file.docx> --out <out>    # open and save again (lossless check)
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli bench input.docx [--iterations 5]
 //! ```
 #![forbid(unsafe_code)]
 
 mod convert;
+mod corpus;
 mod sample;
 mod slide_samples;
 
@@ -103,6 +106,14 @@ enum Cmd {
     Unpack { input: PathBuf, dir: PathBuf },
     /// Write the Phase 1 sample document.
     Sample { out: PathBuf },
+    /// Write the Phase 2 feature corpus (prints the README table).
+    Corpus { dir: PathBuf },
+    /// Open a document and save it again.
+    Roundtrip {
+        input: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Write the BlueSlide corpus decks into a directory.
     SampleSlides { dir: PathBuf },
     /// Measure open + layout + display list time.
@@ -303,6 +314,14 @@ fn run(cli: Cli) -> R {
         }
         Cmd::Sample { out } => {
             write_file(&out, &bo_docx::write_docx(&sample::document())?)?;
+            println!("{}", out.display());
+        }
+        Cmd::Corpus { dir } => {
+            print!("{}", corpus::generate(&dir)?);
+        }
+        Cmd::Roundtrip { input, out } => {
+            let engine = open(&input)?;
+            write_file(&out, &engine.save_docx()?)?;
             println!("{}", out.display());
         }
         Cmd::SampleSlides { dir } => {

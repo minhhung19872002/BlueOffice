@@ -15,7 +15,11 @@ use std::collections::BTreeMap;
 
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
+pub mod edit;
+pub mod nav;
 pub mod sheet;
+
+pub use edit::{Command, EditResult};
 pub use sheet::SheetEngine;
 
 /// Engine errors (surfaced to JS / Tauri as strings).
@@ -39,6 +43,8 @@ pub enum EngineError {
     Sheet(String),
     #[error("rendering failed: {0}")]
     Raster(#[from] bo_raster::RasterError),
+    #[error("invalid command: {0}")]
+    BadCommand(String),
 }
 
 /// Result alias.
@@ -86,12 +92,16 @@ pub struct Engine {
     fonts: FontManager,
     cache: LayoutCache,
     name: String,
-    doc: Option<Document>,
+    session: Option<bo_edit::Session>,
+    /// Document as last opened/saved (`modified` flag).
+    saved_doc: Option<Document>,
     layout: Option<LayoutDocument>,
     display: Option<DisplayList>,
+    /// Column kept across vertical caret moves.
+    goal_x: Option<f32>,
     /// Open presentation (BlueSlide); pages of `display` are its slides.
     pres: Option<bo_model::slide::Presentation>,
-    /// Images referenced by `Image` commands (part name -> bytes).
+    /// Images referenced by slide `Image` commands (part name -> bytes).
     images: BTreeMap<String, Vec<u8>>,
 }
 
@@ -153,12 +163,42 @@ impl Engine {
         let layout = layout_document(&doc, &mut self.fonts, &mut self.cache)?;
         let display = build_display_list(&layout, &self.fonts);
         self.name = name.to_owned();
-        self.doc = Some(doc);
+        self.saved_doc = Some(doc.clone());
+        self.session = Some(bo_edit::Session::new(doc));
         self.layout = Some(layout);
         self.display = Some(display);
+        self.goal_x = None;
         self.pres = None;
         self.images.clear();
         self.info()
+    }
+
+    /// Start a new blank document (A4, Times New Roman 13 pt).
+    pub fn new_document(&mut self, name: &str) -> Result<DocInfo> {
+        self.load(plain_text_document(""), name)
+    }
+
+    /// Lay out again after an edit; returns the pages whose display list changed.
+    fn relayout(&mut self) -> Result<Vec<usize>> {
+        let doc = self.session.as_ref().ok_or(EngineError::NoDocument)?.doc();
+        let layout = layout_document(doc, &mut self.fonts, &mut self.cache)?;
+        let display = build_display_list(&layout, &self.fonts);
+        let old = self.display.take().unwrap_or_default();
+        let dirty = if old.pages.len() == display.pages.len() {
+            (0..display.pages.len())
+                .filter(|&i| old.pages[i] != display.pages[i])
+                .collect()
+        } else {
+            (0..display.pages.len()).collect()
+        };
+        self.layout = Some(layout);
+        self.display = Some(display);
+        Ok(dirty)
+    }
+
+    /// Mark the current state as saved (clears `modified`).
+    pub fn mark_saved(&mut self) {
+        self.saved_doc = self.session.as_ref().map(|s| s.doc().clone());
     }
 
     /// Open a `.pptx` presentation (BlueSlide).
@@ -184,7 +224,9 @@ impl Engine {
             )?);
         }
         self.name = name.to_owned();
-        self.doc = None;
+        self.session = None;
+        self.saved_doc = None;
+        self.goal_x = None;
         self.layout = None;
         self.display = Some(DisplayList { pages });
         self.pres = Some(pres);
@@ -256,7 +298,7 @@ impl Engine {
 
     /// Bytes of an image referenced by an `Image` command.
     pub fn image_bytes(&self, id: &str) -> Option<&[u8]> {
-        self.images.get(id).map(Vec::as_slice)
+        self.media(id)
     }
 
     /// Save the open presentation as `.pptx`.
@@ -265,10 +307,19 @@ impl Engine {
         Ok(bo_pptx::write_pptx(pres)?)
     }
 
+    /// Image sources for backends: the document's media parts, then slide images.
+    fn image_source(&self) -> impl bo_render::ImageSource + '_ {
+        static EMPTY: std::sync::OnceLock<bo_render::Media> = std::sync::OnceLock::new();
+        let media = self
+            .document()
+            .map_or_else(|| EMPTY.get_or_init(bo_render::Media::new), |d| &d.media);
+        bo_render::image::Chain(media, &self.images)
+    }
+
     /// Summary of the open document.
     pub fn info(&self) -> Result<DocInfo> {
         let display = self.display.as_ref().ok_or(EngineError::NoDocument)?;
-        let (kind, words) = match (&self.doc, &self.pres) {
+        let (kind, words) = match (self.document(), &self.pres) {
             (Some(doc), _) => ("doc", doc.plain_text().split_whitespace().count()),
             (None, Some(p)) => ("slide", presentation_words(p)),
             (None, None) => return Err(EngineError::NoDocument),
@@ -291,7 +342,17 @@ impl Engine {
 
     /// The open document model.
     pub fn document(&self) -> Option<&Document> {
-        self.doc.as_ref()
+        self.session.as_ref().map(bo_edit::Session::doc)
+    }
+
+    /// The editing session of the open document.
+    pub fn session(&self) -> Option<&bo_edit::Session> {
+        self.session.as_ref()
+    }
+
+    /// The current layout.
+    pub fn layout(&self) -> Option<&LayoutDocument> {
+        self.layout.as_ref()
     }
 
     /// Display list of a page.
@@ -343,7 +404,7 @@ impl Engine {
             display,
             &self.fonts,
             &bo_pdf::PdfMeta { title: Some(title) },
-            &self.images,
+            &self.image_source(),
         )?)
     }
 
@@ -353,8 +414,23 @@ impl Engine {
             self.page(index)?,
             &self.fonts,
             scale,
-            &self.images,
+            &self.image_source(),
         )?)
+    }
+
+    /// Bytes of a document media part or slide image referenced by an `image` display command.
+    pub fn media(&self, name: &str) -> Option<&[u8]> {
+        self.document()
+            .and_then(|d| d.media.get(name))
+            .map(|b| b.as_slice())
+            .or_else(|| self.images.get(name).map(Vec::as_slice))
+    }
+
+    /// Serialize the open document as `.docx` (lossless for unchanged parts, ADR-0005).
+    pub fn save_docx(&self) -> Result<Vec<u8>> {
+        // Hosts call `mark_saved` once the bytes are stored.
+        let doc = self.document().ok_or(EngineError::NoDocument)?;
+        Ok(bo_docx::write_docx(doc)?)
     }
 }
 
@@ -375,24 +451,25 @@ fn presentation_words(p: &bo_model::slide::Presentation) -> usize {
 
 /// Build a document from plain text: one paragraph per line, default page setup.
 pub fn plain_text_document(text: &str) -> Document {
-    let blocks = text
+    let mut blocks: Vec<Block> = text
         .lines()
         .map(|l| {
-            Block::Paragraph(Paragraph {
-                props: bo_model::ParaProps::default(),
-                runs: if l.is_empty() {
+            Block::Paragraph(Paragraph::new(
+                bo_model::ParaProps::default(),
+                if l.is_empty() {
                     vec![]
                 } else {
                     vec![Run::text(l, RunProps::default())]
                 },
-            })
+            ))
         })
         .collect();
+    if blocks.is_empty() {
+        blocks.push(Block::Paragraph(Paragraph::default()));
+    }
     Document {
-        sections: vec![Section {
-            page: bo_model::PageSetup::default(),
-            blocks,
-        }],
+        sections: vec![Section::new(blocks)],
+
         default_run: RunProps {
             font: Some("Times New Roman".into()),
             size: Some(bo_model::HalfPoints(26)),

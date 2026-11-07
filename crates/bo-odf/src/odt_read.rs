@@ -185,6 +185,7 @@ fn para_props(e: &Element) -> ParaProps {
         line_spacing,
         // §20.186 fo:break-before
         page_break_before: e.attr(FO, "break-before").map(|b| b == "page"),
+        ..ParaProps::default()
     }
 }
 
@@ -239,6 +240,7 @@ fn text_props(e: &Element, fonts: &HashMap<String, String>) -> RunProps {
         underline,
         strike,
         color,
+        ..RunProps::default()
     }
 }
 
@@ -253,6 +255,7 @@ fn page_props(e: &Element) -> PageSetup {
         margin_bottom: len("margin-bottom", d.margin_bottom),
         margin_left: len("margin-left", d.margin_left),
         margin_right: len("margin-right", d.margin_right),
+        ..d
     }
 }
 
@@ -406,7 +409,7 @@ impl Reader<'_> {
                 if has_content {
                     self.sections.push(Section {
                         page,
-                        blocks: Vec::new(),
+                        ..Section::default()
                     });
                 } else if let Some(first) = self.sections.first_mut() {
                     first.page = page;
@@ -427,7 +430,8 @@ impl Reader<'_> {
             });
         }
         if let Some(sec) = self.sections.last_mut() {
-            sec.blocks.push(Block::Paragraph(Paragraph { props, runs }));
+            sec.blocks
+                .push(Block::Paragraph(Paragraph::new(props, runs)));
         }
     }
 
@@ -492,7 +496,7 @@ pub fn read_odt(bytes: &[u8]) -> Result<Document> {
         styles: &styles,
         sections: vec![Section {
             page: styles.default_page(),
-            blocks: Vec::new(),
+            ..Section::default()
         }],
     };
     reader.block(text, 0);
@@ -500,5 +504,6 @@ pub fn read_odt(bytes: &[u8]) -> Result<Document> {
         sections: reader.sections,
         default_run: styles.default_text.clone(),
         default_para: styles.default_para,
+        ..Document::default()
     })
 }

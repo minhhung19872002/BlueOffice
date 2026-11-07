@@ -88,6 +88,51 @@ fn engine_export_pdf(state: State<'_, EngineState>) -> Result<Response, String> 
 }
 
 #[tauri::command]
+fn engine_new(state: State<'_, EngineState>, name: String) -> Result<DocInfo, String> {
+    let mut e = state.0.lock().map_err(|e| e.to_string())?;
+    e.new_document(&name).map_err(|e| e.to_string())
+}
+
+/// Editing command (JSON `bo_engine::Command`) → `EditResult` JSON.
+#[tauri::command]
+fn engine_command(state: State<'_, EngineState>, json: String) -> Result<String, String> {
+    let mut e = state.0.lock().map_err(|e| e.to_string())?;
+    e.command_json(&json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn engine_insert_image(
+    state: State<'_, EngineState>,
+    request: Request<'_>,
+) -> Result<String, String> {
+    let bytes = raw_body(&request)?;
+    let name = header_name(&request);
+    let mut e = state.0.lock().map_err(|e| e.to_string())?;
+    let r = e.insert_image(bytes, &name).map_err(|e| e.to_string())?;
+    serde_json::to_string(&r).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn engine_media(state: State<'_, EngineState>, name: String) -> Result<Response, String> {
+    let e = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(Response::new(
+        e.media(&name).map(<[u8]>::to_vec).unwrap_or_default(),
+    ))
+}
+
+#[tauri::command]
+fn engine_save_docx(state: State<'_, EngineState>) -> Result<Response, String> {
+    let e = state.0.lock().map_err(|e| e.to_string())?;
+    e.save_docx().map(Response::new).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn engine_mark_saved(state: State<'_, EngineState>) -> Result<(), String> {
+    state.0.lock().map_err(|e| e.to_string())?.mark_saved();
+    Ok(())
+}
+
+#[tauri::command]
 fn bundled_fonts() -> Vec<&'static str> {
     FONT_FILES.to_vec()
 }
@@ -274,6 +319,12 @@ fn main() {
             engine_page,
             engine_glyph_outlines,
             engine_export_pdf,
+            engine_new,
+            engine_command,
+            engine_insert_image,
+            engine_media,
+            engine_save_docx,
+            engine_mark_saved,
             bundled_fonts,
             pick_file,
             read_file,

@@ -684,6 +684,7 @@ fn line_cmd(x1: f64, y: f64, x2: f64, width: f64, color: Rgba) -> Command {
         y2: y as f32,
         width: width as f32,
         color,
+        dash: None,
     }
 }
 

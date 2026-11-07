@@ -518,6 +518,15 @@ dependencies = [
 [[package]]
 name = "bo-edit"
 version = "0.1.0"
+dependencies = [
+ "bo-model",
+ "proptest",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "bo-encoding"
@@ -534,6 +543,7 @@ version = "0.1.0"
 dependencies = [
  "bo-binary",
  "bo-docx",
+ "bo-edit",
  "bo-engine",
  "bo-layout",
  "bo-model",
@@ -546,6 +556,7 @@ dependencies = [
  "bo-text",
  "bo-xlsx",
  "insta",
+ "png",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -636,6 +647,7 @@ version = "0.1.0"
 dependencies = [
  "bo-render",
  "bo-text",
+ "png",
  "tiny-skia",
  "zune-jpeg",
 ]

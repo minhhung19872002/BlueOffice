@@ -446,7 +446,7 @@ impl Stylesheet {
 
     fn pap(&mut self, istd: u16, depth: usize) -> ParaProps {
         if let Some(r) = self.resolved_pap.get(&istd) {
-            return *r;
+            return r.clone();
         }
         let Some(Some(raw)) = self.styles.get(istd as usize).cloned() else {
             return ParaProps::default();
@@ -464,7 +464,7 @@ impl Stylesheet {
         if raw.stk == 1 {
             apply_pap(&raw.papx, &mut pap);
         }
-        self.resolved_pap.insert(istd, pap.props);
+        self.resolved_pap.insert(istd, pap.props.clone());
         pap.props
     }
 }
@@ -841,6 +841,7 @@ fn sections(word: &[u8], plc: &[u8]) -> Vec<(u32, PageSetup)> {
             margin_bottom: Twips(1440),
             margin_left: Twips(1800),
             margin_right: Twips(1800),
+            ..PageSetup::default()
         };
         if fc_sepx != u32::MAX {
             if let Ok(cb) = i16_at(word, fc_sepx as usize) {
@@ -1068,7 +1069,7 @@ impl Reader {
         let mut sec_idx = 0;
         let mut cur_section = Section {
             page: section_ends[0].1,
-            blocks: Vec::new(),
+            ..Section::default()
         };
         let mut runs: Vec<(Chp, RunContent)> = Vec::new();
         // Field nesting: true while inside a field code (before the separator).
@@ -1207,7 +1208,7 @@ fn make_paragraph(props: ParaProps, items: &[(Chp, RunContent)]) -> Paragraph {
             }),
         }
     }
-    Paragraph { props, runs }
+    Paragraph::new(props, runs)
 }
 
 #[cfg(test)]

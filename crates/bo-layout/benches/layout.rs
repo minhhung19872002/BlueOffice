@@ -2,8 +2,7 @@
 
 use bo_layout::{layout_document, LayoutCache};
 use bo_model::{
-    Alignment, Block, Document, HalfPoints, PageSetup, ParaProps, Paragraph, Run, RunProps,
-    Section, Twips,
+    Alignment, Block, Document, HalfPoints, ParaProps, Paragraph, Run, RunProps, Section, Twips,
 };
 use bo_text::FontManager;
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -13,15 +12,15 @@ const TEXT: &str = "Căn cứ Luật Tổ chức Chính phủ ngày 19 tháng 6 
 fn big_doc(paragraphs: usize) -> Document {
     let blocks = (0..paragraphs)
         .map(|i| {
-            Block::Paragraph(Paragraph {
-                props: ParaProps {
+            Block::Paragraph(Paragraph::new(
+                ParaProps {
                     align: Some(Alignment::Justify),
                     indent_first_line: Some(Twips(567)),
                     space_after: Some(Twips(120)),
                     ..Default::default()
                 },
-                runs: vec![Run::text(format!("{i}. {TEXT}"), RunProps::default())],
-            })
+                vec![Run::text(format!("{i}. {TEXT}"), RunProps::default())],
+            ))
         })
         .collect();
     Document {
@@ -30,10 +29,8 @@ fn big_doc(paragraphs: usize) -> Document {
             size: Some(HalfPoints(26)),
             ..Default::default()
         },
-        sections: vec![Section {
-            page: PageSetup::default(),
-            blocks,
-        }],
+        sections: vec![Section::new(blocks)],
+
         ..Default::default()
     }
 }
@@ -60,7 +57,9 @@ fn bench(c: &mut Criterion) {
         let mut n = 0u32;
         b.iter(|| {
             n += 1;
-            let Block::Paragraph(p) = &mut edited.sections[0].blocks[2000];
+            let Block::Paragraph(p) = &mut edited.sections[0].blocks[2000] else {
+                unreachable!("benchmark document has only paragraphs")
+            };
             p.runs[0] = Run::text(format!("{n} {TEXT}"), RunProps::default());
             layout_document(&edited, &mut fm, &mut cache).unwrap()
         });

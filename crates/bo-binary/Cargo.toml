@@ -11,11 +11,11 @@ bo-model.workspace = true
 bo-opc.workspace = true
 bo-encoding = { path = "../bo-encoding" }
 cfb = "0.14"
+zip.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-zip.workspace = true
 
 [lints]
 workspace = true

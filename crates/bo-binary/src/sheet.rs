@@ -9,6 +9,20 @@ pub struct Workbook {
     pub sheets: Vec<Worksheet>,
     /// Dates use the 1904 system ([MS-XLS] §2.4.77 Date1904 / [MS-XLSB] BrtWbProp).
     pub date1904: bool,
+    /// Defined names (workbook and sheet scope).
+    pub names: Vec<DefinedName>,
+    /// The file carries VBA or XLM macros (preserved, never executed).
+    pub has_macros: bool,
+}
+
+/// A defined name ([MS-XLS] §2.4.150 Lbl / [MS-XLSB] BrtName).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DefinedName {
+    pub name: String,
+    /// Formula text without `=`, when it could be decoded.
+    pub formula: Option<String>,
+    /// 0-based sheet index for sheet-scoped names.
+    pub sheet: Option<u32>,
 }
 
 /// A worksheet (chart sheets and macro sheets are skipped).

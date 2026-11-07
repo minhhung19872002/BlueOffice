@@ -94,14 +94,7 @@ export interface StylePatch {
 }
 
 export type BorderPreset =
-  | 'outline'
-  | 'all'
-  | 'inside'
-  | 'none'
-  | 'top'
-  | 'bottom'
-  | 'left'
-  | 'right';
+  'outline' | 'all' | 'inside' | 'none' | 'top' | 'bottom' | 'left' | 'right';
 
 export interface BorderSpec {
   preset: BorderPreset;
@@ -109,7 +102,7 @@ export interface BorderSpec {
   color?: string | null;
 }
 
-export interface FormatState {
+export interface CellFormatState {
   numFmt: string;
   fontName: string;
   fontSize: number;

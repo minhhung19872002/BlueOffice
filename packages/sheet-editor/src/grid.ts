@@ -96,12 +96,66 @@ const DELTA: Record<Direction, CellPos> = {
   right: { row: 0, col: 1 },
 };
 
-/** Arrow-key movement; `extend` (Shift) keeps the anchor. */
-export function move(s: Selection, dir: Direction, extend: boolean, step = 1): Selection {
+/** Hidden spans `[first, last]` of rows and columns (filtered / hidden). */
+export interface HiddenSpans {
+  rows: [number, number][];
+  cols: [number, number][];
+}
+
+const inSpan = (i: number, spans: [number, number][]) => spans.find(([a, b]) => i >= a && i <= b);
+
+/** First visible index from `i` going in direction `sign` (stays put when none). */
+export function visibleIndex(
+  i: number,
+  sign: number,
+  spans: [number, number][],
+  max: number,
+): number {
+  let j = i;
+  for (let guard = 0; guard < spans.length + 1; guard++) {
+    const s = inSpan(j, spans);
+    if (!s) return j;
+    j = sign >= 0 ? s[1] + 1 : s[0] - 1;
+    if (j < 0 || j > max) return i;
+  }
+  return j;
+}
+
+/** Arrow-key movement; `extend` (Shift) keeps the anchor. Hidden rows/columns are skipped. */
+export function move(
+  s: Selection,
+  dir: Direction,
+  extend: boolean,
+  step = 1,
+  hidden?: HiddenSpans,
+): Selection {
   const d = DELTA[dir];
   const from = extend ? s.focus : s.active;
-  const focus = clampPos({ row: from.row + d.row * step, col: from.col + d.col * step });
+  let focus = clampPos({ row: from.row + d.row * step, col: from.col + d.col * step });
+  if (hidden) {
+    focus = {
+      row: d.row ? visibleIndex(focus.row, d.row, hidden.rows, MAX_ROW) : focus.row,
+      col: d.col ? visibleIndex(focus.col, d.col, hidden.cols, MAX_COL) : focus.col,
+    };
+  }
   return extend ? { anchor: s.anchor, focus, active: s.active } : single(focus);
+}
+
+/**
+ * Target of an AutoFill drag from `src` to the cell under the mouse: the
+ * source extended along the dominant direction (down/up/right/left).
+ */
+export function fillTarget(src: Range, to: CellPos): Range | null {
+  const down = to.row - src.r1;
+  const up = src.r0 - to.row;
+  const right = to.col - src.c1;
+  const left = src.c0 - to.col;
+  const best = Math.max(down, up, right, left);
+  if (best <= 0) return null;
+  if (best === down) return { ...src, r1: to.row };
+  if (best === up) return { ...src, r0: to.row };
+  if (best === right) return { ...src, c1: to.col };
+  return { ...src, c0: to.col };
 }
 
 /**

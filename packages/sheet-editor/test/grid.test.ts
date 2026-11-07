@@ -3,7 +3,9 @@ import {
   a1,
   advance,
   colName,
+  fillTarget,
   move,
+  visibleIndex,
   parseA1,
   parseNumber,
   parseTsv,
@@ -88,5 +90,31 @@ describe('grid', () => {
     expect(parseNumber('1,234.5', '.')).toBe(1234.5);
     expect(parseNumber('abc', ',')).toBeNull();
     expect(parseNumber('', ',')).toBeNull();
+  });
+});
+
+describe('hidden rows and AutoFill', () => {
+  it('skips hidden rows and columns when moving', () => {
+    const hidden = { rows: [[2, 4]] as [number, number][], cols: [[1, 1]] as [number, number][] };
+    expect(move(single({ row: 1, col: 0 }), 'down', false, 1, hidden).active).toEqual({
+      row: 5,
+      col: 0,
+    });
+    expect(move(single({ row: 5, col: 0 }), 'up', false, 1, hidden).active).toEqual({
+      row: 1,
+      col: 0,
+    });
+    expect(move(single({ row: 0, col: 0 }), 'right', false, 1, hidden).active).toEqual({
+      row: 0,
+      col: 2,
+    });
+    expect(visibleIndex(0, -1, [[0, 0]], 10)).toBe(0);
+  });
+
+  it('extends the fill target along the dominant direction', () => {
+    const src = { r0: 0, c0: 0, r1: 1, c1: 0 };
+    expect(fillTarget(src, { row: 5, col: 1 })).toEqual({ r0: 0, c0: 0, r1: 5, c1: 0 });
+    expect(fillTarget(src, { row: 1, col: 4 })).toEqual({ r0: 0, c0: 0, r1: 1, c1: 4 });
+    expect(fillTarget(src, { row: 1, col: 0 })).toBeNull();
   });
 });

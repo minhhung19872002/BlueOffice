@@ -10,9 +10,8 @@ use bo_drawingml::color::{resolve, ColorContext};
 use bo_drawingml::geom::{evaluate, rect_geometry, Evaluated, FillMode, Seg};
 use bo_drawingml::props::parse_effects;
 use bo_model::slide::{
-    Background, BlipFill, Color, CommonSlideData, Effect, Fill, GraphicContent, GraphicFrame,
-    Line, OuterShadow, Presentation, Rel, ShapeNode, ShapeStyle, Table, TextBody,
-    Theme, Xfrm,
+    Background, BlipFill, Color, CommonSlideData, Effect, Fill, GraphicContent, GraphicFrame, Line,
+    OuterShadow, Presentation, Rel, ShapeNode, ShapeStyle, Table, TextBody, Theme, Xfrm,
 };
 use bo_render::{Command, GradientStop, PageList, Paint, PathSeg, Rgba, Stroke};
 use bo_text::FontManager;
@@ -185,7 +184,10 @@ pub fn render_with(
     images: &mut BTreeMap<String, Vec<u8>>,
     opts: &RenderOptions,
 ) -> Result<PageList> {
-    let slide = pres.slides.get(index).ok_or(PptxError::NoSuchSlide(index))?;
+    let slide = pres
+        .slides
+        .get(index)
+        .ok_or(PptxError::NoSuchSlide(index))?;
     let width = pres.slide_size.cx as f64 / EMU_PT;
     let height = pres.slide_size.cy as f64 / EMU_PT;
     let mut out = Vec::new();
@@ -329,7 +331,17 @@ fn draw_background(
         return;
     };
     let segs = rect_segs(Aff::ID, w, h);
-    paint_fill(cx, &fill, ph, &segs, Aff::ID, (w, h), FillMode::Norm, images, out);
+    paint_fill(
+        cx,
+        &fill,
+        ph,
+        &segs,
+        Aff::ID,
+        (w, h),
+        FillMode::Norm,
+        images,
+        out,
+    );
 }
 
 fn rect_segs(aff: Aff, w: f64, h: f64) -> Vec<PathSeg> {
@@ -357,9 +369,7 @@ fn to_segs(segs: &[Seg], aff: Aff) -> Vec<PathSeg> {
                 let (a, b) = aff.apply(a, b);
                 let (c, d) = aff.apply(c, d);
                 let (x, y) = aff.apply(x, y);
-                PathSeg::C(
-                    a as f32, b as f32, c as f32, d as f32, x as f32, y as f32,
-                )
+                PathSeg::C(a as f32, b as f32, c as f32, d as f32, x as f32, y as f32)
             }
             Seg::Close => PathSeg::Z,
         })
@@ -430,7 +440,7 @@ fn paint_fill(
                     };
                     let a = f64::from(ang) / 60_000.0 * std::f64::consts::PI / 180.0;
                     let (s, c) = a.sin_cos();
-                    let half = (w * c.abs() + h * s.abs()) / 2.0;
+                    let half = f64::midpoint(w * c.abs(), h * s.abs());
                     let (x1, y1) = aff.apply(w / 2.0 - c * half, h / 2.0 - s * half);
                     let (x2, y2) = aff.apply(w / 2.0 + c * half, h / 2.0 + s * half);
                     Some(Paint::Linear {
@@ -445,17 +455,20 @@ fn paint_fill(
         }
         // §20.1.8.47 pattFill: drawn as the blend of foreground and background.
         Fill::Pattern(p) => {
-            let fg = p
-                .fg
-                .as_ref()
-                .map_or(Rgba(0, 0, 0, 255), |c| cx.color(c, ph));
-            let bg = p
-                .bg
-                .as_ref()
-                .map_or(Rgba(255, 255, 255, 255), |c| cx.color(c, ph));
-            let mix = |a: u8, b: u8| ((u16::from(a) + u16::from(b)) / 2) as u8;
+            let fg =
+                p.fg.as_ref()
+                    .map_or(Rgba(0, 0, 0, 255), |c| cx.color(c, ph));
+            let bg =
+                p.bg.as_ref()
+                    .map_or(Rgba(255, 255, 255, 255), |c| cx.color(c, ph));
+            let mix = |a: u8, b: u8| u16::midpoint(u16::from(a), u16::from(b)) as u8;
             Some(Paint::Solid {
-                color: Rgba(mix(fg.0, bg.0), mix(fg.1, bg.1), mix(fg.2, bg.2), fg.3.max(bg.3)),
+                color: Rgba(
+                    mix(fg.0, bg.0),
+                    mix(fg.1, bg.1),
+                    mix(fg.2, bg.2),
+                    fg.3.max(bg.3),
+                ),
             })
         }
         Fill::Picture(b) => {
@@ -524,7 +537,11 @@ fn style_fill(cx: &Ctx<'_>, st: Option<&ShapeStyle>) -> (Option<Fill>, Option<bo
     let Some(st) = st else {
         return (None, None);
     };
-    let ph = st.fill_ref.color.as_ref().map(|c| resolve(c, &cx.colors(None)));
+    let ph = st
+        .fill_ref
+        .color
+        .as_ref()
+        .map(|c| resolve(c, &cx.colors(None)));
     let idx = st.fill_ref.idx as usize;
     let f = cx.theme.and_then(|t| {
         if idx >= 1001 {
@@ -547,10 +564,17 @@ fn effective_line(
     let mut ph = None;
     if let Some(st) = st {
         if st.ln_ref.idx >= 1 {
-            base = cx
-                .theme
-                .and_then(|t| t.formats.line_styles.get(st.ln_ref.idx as usize - 1).cloned());
-            ph = st.ln_ref.color.as_ref().map(|c| resolve(c, &cx.colors(None)));
+            base = cx.theme.and_then(|t| {
+                t.formats
+                    .line_styles
+                    .get(st.ln_ref.idx as usize - 1)
+                    .cloned()
+            });
+            ph = st
+                .ln_ref
+                .color
+                .as_ref()
+                .map(|c| resolve(c, &cx.colors(None)));
         }
     }
     match (base, own) {
@@ -584,7 +608,12 @@ fn effective_line(
     }
 }
 
-fn make_stroke(cx: &Ctx<'_>, l: &Line, ph: Option<bo_drawingml::Rgba>, scale: f64) -> Option<Stroke> {
+fn make_stroke(
+    cx: &Ctx<'_>,
+    l: &Line,
+    ph: Option<bo_drawingml::Rgba>,
+    scale: f64,
+) -> Option<Stroke> {
     let color = match &l.fill {
         Some(Fill::Solid(c)) => cx.color(c, ph),
         Some(Fill::Gradient(g)) => g.stops.first().map(|s| cx.color(&s.color, ph))?,
@@ -620,7 +649,11 @@ fn make_stroke(cx: &Ctx<'_>, l: &Line, ph: Option<bo_drawingml::Rgba>, scale: f6
     })
 }
 
-fn shadow_of(cx: &Ctx<'_>, effects: Option<&Vec<Effect>>, st: Option<&ShapeStyle>) -> Option<OuterShadow> {
+fn shadow_of(
+    cx: &Ctx<'_>,
+    effects: Option<&Vec<Effect>>,
+    st: Option<&ShapeStyle>,
+) -> Option<OuterShadow> {
     let from_list = |v: &[Effect]| {
         v.iter().find_map(|e| match e {
             Effect::OuterShadow(s) => Some(s.clone()),
@@ -701,8 +734,10 @@ fn arrowheads(l: &Line, s: &Stroke, segs: &[Seg], aff: Aff, out: &mut Vec<Comman
     let pts: Vec<(f64, f64)> = segs
         .iter()
         .filter_map(|s| match *s {
-            Seg::Move(x, y) | Seg::Line(x, y) => Some(aff.apply(x, y)),
-            Seg::Quad(_, _, x, y) | Seg::Cubic(_, _, _, _, x, y) => Some(aff.apply(x, y)),
+            Seg::Move(x, y)
+            | Seg::Line(x, y)
+            | Seg::Quad(_, _, x, y)
+            | Seg::Cubic(_, _, _, _, x, y) => Some(aff.apply(x, y)),
             Seg::Close => None,
         })
         .collect();
@@ -983,12 +1018,9 @@ fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Co
     };
     let mut images = BTreeMap::new();
     for (ri, row) in t.rows.iter().enumerate() {
-        let mut ci = 0;
-        for cell in &row.cells {
+        for (this, cell) in row.cells.iter().enumerate() {
             let span = cell.grid_span.unwrap_or(1).max(1) as usize;
             let rspan = cell.row_span.unwrap_or(1).max(1) as usize;
-            let this = ci;
-            ci += 1;
             if cell.h_merge == Some(true) || cell.v_merge == Some(true) || this >= cols.len() {
                 continue;
             }
@@ -1001,7 +1033,17 @@ fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Co
             let props = cell.props.clone().unwrap_or_default();
             if let Some(fill) = &props.fill {
                 let segs = rect_segs(aff, w, h);
-                paint_fill(cx, fill, None, &segs, aff, (w, h), FillMode::Norm, &mut images, out);
+                paint_fill(
+                    cx,
+                    fill,
+                    None,
+                    &segs,
+                    aff,
+                    (w, h),
+                    FillMode::Norm,
+                    &mut images,
+                    out,
+                );
             }
             let edges = [
                 (&props.ln_l, (0.0, 0.0), (0.0, h)),
@@ -1051,7 +1093,10 @@ mod tests {
         assert!((x - 50.0).abs() < 1e-9 && (y - 25.0).abs() < 1e-9);
         // The top-left corner maps to (75, −25) (clockwise in y-down space).
         let (x, y) = a.apply(0.0, 0.0);
-        assert!((x - 75.0).abs() < 1e-9 && (y + 25.0).abs() < 1e-9, "{x} {y}");
+        assert!(
+            (x - 75.0).abs() < 1e-9 && (y + 25.0).abs() < 1e-9,
+            "{x} {y}"
+        );
         let f = Aff::rot_flip(100.0, 50.0, 0, true, false);
         let (x, _) = f.apply(10.0, 0.0);
         assert!((x - 90.0).abs() < 1e-9);

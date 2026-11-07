@@ -15,13 +15,14 @@ mod render;
 mod text_layout;
 mod write;
 
-pub use pml::{parse_node, write_node, URI_TABLE};
+pub use pml::{parse_node, visit, write_node, URI_TABLE};
 pub use read::read_pptx;
 pub use render::{render_slide, render_thumbnail, render_with, RenderOptions};
 pub use write::write_pptx;
 
 /// Relationship type namespace (transitional), ECMA-376 Part 1, §15.2.
-pub(crate) const REL_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
+pub(crate) const REL_NS: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
 
 /// Errors produced by the PresentationML reader/writer.
 #[derive(Debug, thiserror::Error)]
@@ -41,8 +42,5 @@ pub type Result<T> = std::result::Result<T, PptxError>;
 
 /// Does a relationship type end with `/kind` (transitional or strict namespace)?
 pub(crate) fn rel_is(rel_type: &str, kind: &str) -> bool {
-    rel_type
-        .rsplit('/')
-        .next()
-        .is_some_and(|last| last == kind)
+    rel_type.rsplit('/').next().is_some_and(|last| last == kind)
 }

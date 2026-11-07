@@ -145,7 +145,10 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         overrides: vec![],
     });
     for (ext, t) in [
-        ("rels", "application/vnd.openxmlformats-package.relationships+xml"),
+        (
+            "rels",
+            "application/vnd.openxmlformats-package.relationships+xml",
+        ),
         ("xml", "application/xml"),
     ] {
         if !ct.defaults.iter().any(|(e, _)| e.eq_ignore_ascii_case(ext)) {
@@ -225,8 +228,8 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         }
         let mut lst = El::new("p:sldLayoutIdLst");
         let mut used: HashSet<String> = rels.iter().map(|r| r.id.clone()).collect();
-        let mut next_id = 2_147_483_649_u32
-            .max(m.layouts.iter().map(|l| l.id).max().unwrap_or(0) + 1);
+        let mut next_id =
+            2_147_483_649_u32.max(m.layouts.iter().map(|l| l.id).max().unwrap_or(0) + 1);
         // Layouts owned by this master: the recorded list, plus layouts pointing here.
         let mut layout_refs = m.layouts.clone();
         for (li, l) in pres.layouts.iter().enumerate() {
@@ -264,9 +267,17 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         }
         let mut tk = Kids::new(TX_STYLES);
         let ts = &m.text_styles;
-        tk.push_opt(ts.title.as_ref().map(|s| write_list_style(s, "p:titleStyle")));
+        tk.push_opt(
+            ts.title
+                .as_ref()
+                .map(|s| write_list_style(s, "p:titleStyle")),
+        );
         tk.push_opt(ts.body.as_ref().map(|s| write_list_style(s, "p:bodyStyle")));
-        tk.push_opt(ts.other.as_ref().map(|s| write_list_style(s, "p:otherStyle")));
+        tk.push_opt(
+            ts.other
+                .as_ref()
+                .map(|s| write_list_style(s, "p:otherStyle")),
+        );
         tk.extras(&ts.extra);
         let mut k = Kids::new(MASTER);
         k.push(write_csld(&m.data));
@@ -360,7 +371,12 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
     let mut mlst = El::new("p:sldMasterIdLst");
     let mut next_master_id = 2_147_483_648_u32;
     for (m, mn) in pres.masters.iter().zip(&master_names) {
-        let rid = claim(&mut rels, &m.pres_rel_id, "slideMaster", relative(&pres_name, mn));
+        let rid = claim(
+            &mut rels,
+            &m.pres_rel_id,
+            "slideMaster",
+            relative(&pres_name, mn),
+        );
         let id = if m.master_id == 0 {
             next_master_id
         } else {
@@ -370,7 +386,8 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         mlst = mlst.child(El::new("p:sldMasterId").a("id", id).a("r:id", rid).done());
     }
     let mut slst = El::new("p:sldIdLst");
-    let mut next_slide_id = 256_u32.max(pres.slides.iter().map(|s| s.slide_id).max().unwrap_or(0) + 1);
+    let mut next_slide_id =
+        256_u32.max(pres.slides.iter().map(|s| s.slide_id).max().unwrap_or(0) + 1);
     for (s, sn) in pres.slides.iter().zip(&slide_names) {
         let rid = claim(&mut rels, &s.pres_rel_id, "slide", relative(&pres_name, sn));
         let id = if s.slide_id == 0 {
@@ -460,7 +477,10 @@ mod tests {
     #[test]
     fn relative_paths() {
         assert_eq!(
-            relative("/ppt/slides/slide1.xml", "/ppt/slideLayouts/slideLayout2.xml"),
+            relative(
+                "/ppt/slides/slide1.xml",
+                "/ppt/slideLayouts/slideLayout2.xml"
+            ),
             "../slideLayouts/slideLayout2.xml"
         );
         assert_eq!(

@@ -45,7 +45,6 @@ struct Piece {
 struct Line {
     pieces: Vec<Piece>,
     width: f64,
-    ascent: f64,
     descent: f64,
     height: f64,
     indent: f64,
@@ -64,23 +63,21 @@ fn to_rgba(c: bo_drawingml::Rgba) -> Rgba {
 fn run_color(rp: &RunProps, env: &TextEnv<'_>) -> Rgba {
     match &rp.fill {
         Some(Fill::Solid(c)) => to_rgba(resolve(c, &env.colors)),
-        Some(Fill::Gradient(g)) => g
-            .stops
-            .first()
-            .map_or(Rgba(0, 0, 0, 255), |s| to_rgba(resolve(&s.color, &env.colors))),
+        Some(Fill::Gradient(g)) => g.stops.first().map_or(Rgba(0, 0, 0, 255), |s| {
+            to_rgba(resolve(&s.color, &env.colors))
+        }),
         Some(Fill::None) => Rgba(0, 0, 0, 0),
-        _ => to_rgba(resolve(
-            &bo_model::slide::Color::scheme("tx1"),
-            &env.colors,
-        )),
+        _ => to_rgba(resolve(&bo_model::slide::Color::scheme("tx1"), &env.colors)),
     }
 }
 
-fn style_for(rp: &RunProps, scale: f64, env: &TextEnv<'_>, fonts: &mut FontManager) -> Option<Style> {
-    let typeface = rp
-        .latin
-        .as_ref()
-        .map_or("+mn-lt", |f| f.typeface.as_str());
+fn style_for(
+    rp: &RunProps,
+    scale: f64,
+    env: &TextEnv<'_>,
+    fonts: &mut FontManager,
+) -> Option<Style> {
+    let typeface = rp.latin.as_ref().map_or("+mn-lt", |f| f.typeface.as_str());
     let family = resolve_typeface(env.theme, typeface);
     let family = if family.is_empty() { "Calibri" } else { family };
     let bold = rp.b.unwrap_or(false);
@@ -89,7 +86,11 @@ fn style_for(rp: &RunProps, scale: f64, env: &TextEnv<'_>, fonts: &mut FontManag
     let base = f64::from(rp.sz.unwrap_or(1800)) / 100.0;
     let baseline = f64::from(rp.baseline.unwrap_or(0)) / 100_000.0;
     // §21.1.2.3.9: super/subscript text is drawn smaller.
-    let size = if baseline == 0.0 { base } else { base * 2.0 / 3.0 } * scale;
+    let size = if baseline == 0.0 {
+        base
+    } else {
+        base * 2.0 / 3.0
+    } * scale;
     Some(Style {
         face,
         size: size.max(1.0),
@@ -293,7 +294,9 @@ fn layout_paragraph(
         span_starts.push(full.len());
         full.push_str(t);
     }
-    let breaks: Vec<usize> = unicode_linebreak::linebreaks(&full).map(|(i, _)| i).collect();
+    let breaks: Vec<usize> = unicode_linebreak::linebreaks(&full)
+        .map(|(i, _)| i)
+        .collect();
 
     // Words: pieces between break opportunities, split by span.
     let mut words: Vec<(Vec<Piece>, bool)> = Vec::new(); // bool = forced break after word
@@ -372,12 +375,11 @@ fn layout_paragraph(
             (None, Some(Spacing::Points(v))) => f64::from(v) / 100.0,
             _ => natural,
         };
-        let width: f64 = pieces.iter().map(|p| p.width).sum::<f64>()
-            - pieces.last().map_or(0.0, |p| p.trailing);
+        let width: f64 =
+            pieces.iter().map(|p| p.width).sum::<f64>() - pieces.last().map_or(0.0, |p| p.trailing);
         lines.push(Line {
             pieces,
             width,
-            ascent: asc,
             descent: desc,
             height,
             indent: start,
@@ -600,7 +602,16 @@ fn layout_all(
         };
         let width = if wrap { col_w } else { f64::MAX / 4.0 };
         out.push(layout_paragraph(
-            p, &ppr, width, wrap, scale, reduction, num, env, fonts, i == 0,
+            p,
+            &ppr,
+            width,
+            wrap,
+            scale,
+            reduction,
+            num,
+            env,
+            fonts,
+            i == 0,
         ));
     }
     out

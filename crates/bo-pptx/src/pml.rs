@@ -9,7 +9,7 @@ use bo_drawingml::props::{
 use bo_drawingml::table::{parse_table, write_table};
 use bo_drawingml::text::{parse_text_body, write_text_body};
 use bo_model::slide::{
-    Background, ColorMap, CommonSlideData, Connector, Extra, GraphicContent, GraphicFrame,
+    Background, ColorMapOverride, CommonSlideData, Connector, Extra, GraphicContent, GraphicFrame,
     GroupShape, NonVisual, Picture, Placeholder, Shape, ShapeNode, ShapeProps, XmlElement,
 };
 
@@ -20,7 +20,6 @@ const SP: &[&str] = &["p:nvSpPr", "p:spPr", "p:style", "p:txBody", "p:extLst"];
 const PIC: &[&str] = &["p:nvPicPr", "p:blipFill", "p:spPr", "p:style", "p:extLst"];
 const CXN: &[&str] = &["p:nvCxnSpPr", "p:spPr", "p:style", "p:extLst"];
 const FRAME: &[&str] = &["p:nvGraphicFramePr", "p:xfrm", "a:graphic", "p:extLst"];
-const GRP: &[&str] = &["p:nvGrpSpPr", "p:grpSpPr", "p:extLst"];
 const CNV_PR: &[&str] = &["a:hlinkClick", "a:hlinkHover", "a:extLst"];
 const NV_PR: &[&str] = &[
     "p:ph",
@@ -32,7 +31,13 @@ const NV_PR: &[&str] = &[
     "p:custDataLst",
     "p:extLst",
 ];
-const CSLD: &[&str] = &["p:bg", "p:spTree", "p:custDataLst", "p:controls", "p:extLst"];
+const CSLD: &[&str] = &[
+    "p:bg",
+    "p:spTree",
+    "p:custDataLst",
+    "p:controls",
+    "p:extLst",
+];
 const BG_PR: &[&str] = &[
     "a:noFill",
     "a:solidFill",
@@ -144,7 +149,7 @@ pub fn parse_node(el: &XmlElement) -> ShapeNode {
                 }
                 true
             });
-            ShapeNode::Shape(s)
+            ShapeNode::Shape(Box::new(s))
         }
         // §19.3.1.37 pic
         "p:pic" if el.attrs.is_empty() => {
@@ -159,13 +164,13 @@ pub fn parse_node(el: &XmlElement) -> ShapeNode {
                 }
                 true
             });
-            ShapeNode::Picture(p)
+            ShapeNode::Picture(Box::new(p))
         }
         // §19.3.1.22 grpSp
         "p:grpSp" if el.attrs.is_empty() => {
             let mut g = GroupShape::default();
             g.extra = walk_tree(el, &mut g.nv, &mut g.props, &mut g.children);
-            ShapeNode::Group(g)
+            ShapeNode::Group(Box::new(g))
         }
         // §19.3.1.19 cxnSp
         "p:cxnSp" if el.attrs.is_empty() => {
@@ -179,13 +184,13 @@ pub fn parse_node(el: &XmlElement) -> ShapeNode {
                 }
                 true
             });
-            ShapeNode::Connector(c)
+            ShapeNode::Connector(Box::new(c))
         }
         // §19.3.1.21 graphicFrame
         "p:graphicFrame" if el.attrs.is_empty() => {
             let mut f = GraphicFrame {
                 nv: NonVisual::default(),
-                xfrm: Default::default(),
+                xfrm: bo_model::slide::Xfrm::default(),
                 uri: String::new(),
                 content: GraphicContent::Other(XmlElement::new("a:graphicData")),
                 extra: Vec::new(),
@@ -218,7 +223,7 @@ pub fn parse_node(el: &XmlElement) -> ShapeNode {
                 true
             });
             if ok {
-                ShapeNode::Frame(f)
+                ShapeNode::Frame(Box::new(f))
             } else {
                 ShapeNode::Other(el.clone())
             }
@@ -311,11 +316,7 @@ pub fn write_node(n: &ShapeNode) -> XmlElement {
                 GraphicContent::Other(x) => x.clone(),
             };
             let mut k = Kids::new(FRAME);
-            k.push(write_nv(
-                &f.nv,
-                "p:nvGraphicFramePr",
-                "p:cNvGraphicFramePr",
-            ));
+            k.push(write_nv(&f.nv, "p:nvGraphicFramePr", "p:cNvGraphicFramePr"));
             k.push(write_xfrm(&f.xfrm, "p:xfrm"));
             k.push(El::new("a:graphic").child(gd).done());
             k.extras(&f.extra);
@@ -348,7 +349,9 @@ pub fn parse_csld(el: &XmlElement) -> CommonSlideData {
                     };
                     d.background = Some(Background::Props {
                         fill,
-                        shade_to_title: bp.attr("shadeToTitle").and_then(bo_drawingml::dom::parse_bool),
+                        shade_to_title: bp
+                            .attr("shadeToTitle")
+                            .and_then(bo_drawingml::dom::parse_bool),
                         extra,
                     });
                 } else if let Some(br) = c.child("p:bgRef") {
@@ -406,11 +409,11 @@ pub fn write_csld(d: &CommonSlideData) -> XmlElement {
 }
 
 /// §19.3.1.7 clrMapOvr.
-pub fn parse_clr_map_ovr(el: &XmlElement) -> Option<Option<ColorMap>> {
+pub fn parse_clr_map_ovr(el: &XmlElement) -> Option<ColorMapOverride> {
     for c in el.elements() {
         match c.local() {
-            "masterClrMapping" => return Some(None),
-            "overrideClrMapping" => return Some(Some(c.attrs.clone())),
+            "masterClrMapping" => return Some(ColorMapOverride::Master),
+            "overrideClrMapping" => return Some(ColorMapOverride::Override(c.attrs.clone())),
             _ => {}
         }
     }
@@ -418,10 +421,10 @@ pub fn parse_clr_map_ovr(el: &XmlElement) -> Option<Option<ColorMap>> {
 }
 
 /// Write clrMapOvr.
-pub fn write_clr_map_ovr(m: &Option<ColorMap>) -> XmlElement {
+pub fn write_clr_map_ovr(m: &ColorMapOverride) -> XmlElement {
     let inner = match m {
-        None => El::new("a:masterClrMapping").done(),
-        Some(map) => El::new("a:overrideClrMapping").rest(map).done(),
+        ColorMapOverride::Master => El::new("a:masterClrMapping").done(),
+        ColorMapOverride::Override(map) => El::new("a:overrideClrMapping").rest(map).done(),
     };
     El::new("p:clrMapOvr").child(inner).done()
 }

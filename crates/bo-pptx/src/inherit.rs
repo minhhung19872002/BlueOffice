@@ -115,7 +115,7 @@ pub fn clr_map_of(pres: &Presentation, level: Level) -> ColorMap {
         Level::Master(_) => None,
     };
     match ovr {
-        Some(Some(m)) => m,
+        Some(bo_model::slide::ColorMapOverride::Override(m)) => m,
         _ => master,
     }
 }
@@ -277,11 +277,7 @@ impl TextStyleStack {
                     typeface: f.into(),
                     attrs: vec![],
                 }),
-                fill: st
-                    .font_ref
-                    .color
-                    .clone()
-                    .map(bo_model::slide::Fill::Solid),
+                fill: st.font_ref.color.clone().map(bo_model::slide::Fill::Solid),
                 ..RunProps::default()
             }
         });
@@ -294,12 +290,7 @@ impl TextStyleStack {
 
     /// Effective paragraph properties (with merged `def_rpr`) for a paragraph.
     pub fn paragraph(&self, p: &Paragraph) -> ParaProps {
-        let lvl = p
-            .props
-            .as_ref()
-            .and_then(|pp| pp.lvl)
-            .unwrap_or(0)
-            .min(8) as usize;
+        let lvl = p.props.as_ref().and_then(|pp| pp.lvl).unwrap_or(0).min(8) as usize;
         let mut out = ParaProps::default();
         for (i, ls) in self.layers.iter().enumerate() {
             if i == self.master_layers {

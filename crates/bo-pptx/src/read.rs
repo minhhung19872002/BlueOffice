@@ -133,8 +133,10 @@ pub fn read_pptx(bytes: &[u8]) -> Result<Presentation> {
         consumed: HashSet::new(),
     };
     let (root, info) = cx.load(&main)?;
-    let mut pres = Presentation::default();
-    pres.info = info;
+    let mut pres = Presentation {
+        info,
+        ..Presentation::default()
+    };
     pres.info.root_attrs = root.attrs.clone();
 
     let mut master_ids: Vec<(u32, String)> = Vec::new();
@@ -160,7 +162,11 @@ pub fn read_pptx(bytes: &[u8]) -> Result<Presentation> {
                 }
             }
             // §19.2.1.39 sldSz
-            "p:sldSz" if c.attrs.iter().all(|(k, _)| matches!(k.as_str(), "cx" | "cy" | "type")) => {
+            "p:sldSz"
+                if c.attrs
+                    .iter()
+                    .all(|(k, _)| matches!(k.as_str(), "cx" | "cy" | "type")) =>
+            {
                 pres.slide_size = size(c);
             }
             // §19.2.1.23 notesSz
@@ -189,20 +195,19 @@ pub fn read_pptx(bytes: &[u8]) -> Result<Presentation> {
         m.info.root_attrs = root.attrs.clone();
         // Theme (§13.3.8 / §14.2.7)
         if let Some(tn) = target_of(&m.info, |r| rel_is(&r.rel_type, "theme")) {
-            let idx = match theme_index.get(&tn.to_ascii_lowercase()) {
-                Some(i) => *i,
-                None => {
-                    let data = &pkg
-                        .part(&tn)
-                        .ok_or_else(|| PptxError::MissingPart(tn.clone()))?
-                        .data;
-                    let mut theme = parse_theme(data, &tn)?;
-                    let (_, tinfo) = cx.load(&tn)?;
-                    theme.info.rels = tinfo.rels;
-                    pres.themes.push(theme);
-                    theme_index.insert(tn.to_ascii_lowercase(), pres.themes.len() - 1);
-                    pres.themes.len() - 1
-                }
+            let idx = if let Some(i) = theme_index.get(&tn.to_ascii_lowercase()) {
+                *i
+            } else {
+                let data = &pkg
+                    .part(&tn)
+                    .ok_or_else(|| PptxError::MissingPart(tn.clone()))?
+                    .data;
+                let mut theme = parse_theme(data, &tn)?;
+                let (_, tinfo) = cx.load(&tn)?;
+                theme.info.rels = tinfo.rels;
+                pres.themes.push(theme);
+                theme_index.insert(tn.to_ascii_lowercase(), pres.themes.len() - 1);
+                pres.themes.len() - 1
             };
             m.theme = idx;
         }

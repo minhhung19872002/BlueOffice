@@ -536,7 +536,7 @@ pub enum TextRun {
         id: String,
         kind: Option<String>,
         props: RunProps,
-        ppr: Option<ParaProps>,
+        ppr: Option<Box<ParaProps>>,
         text: String,
     },
     Other(XmlElement),
@@ -748,11 +748,11 @@ pub struct GraphicFrame {
 /// Element of a shape tree.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ShapeNode {
-    Shape(Shape),
-    Picture(Picture),
-    Group(GroupShape),
-    Connector(Connector),
-    Frame(GraphicFrame),
+    Shape(Box<Shape>),
+    Picture(Box<Picture>),
+    Group(Box<GroupShape>),
+    Connector(Box<Connector>),
+    Frame(Box<GraphicFrame>),
     /// mc:AlternateContent, contentPart, …
     Other(XmlElement),
 }
@@ -800,6 +800,15 @@ pub struct CommonSlideData {
 /// §19.3.1.6 clrMap / overrides: attribute pairs (`bg1`→`lt1`, …).
 pub type ColorMap = Vec<(String, String)>;
 
+/// §19.3.1.7 clrMapOvr content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ColorMapOverride {
+    /// §20.1.6.6 masterClrMapping: use the master's mapping.
+    Master,
+    /// §20.1.6.8 overrideClrMapping.
+    Override(ColorMap),
+}
+
 /// Data common to every slide-like part.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PartInfo {
@@ -818,8 +827,8 @@ pub struct Slide {
     pub data: CommonSlideData,
     /// Index into [`Presentation::layouts`].
     pub layout: usize,
-    /// `None` = no clrMapOvr; `Some(None)` = masterClrMapping; `Some(Some(map))` = override.
-    pub clr_map_ovr: Option<Option<ColorMap>>,
+    /// `None` = no clrMapOvr element.
+    pub clr_map_ovr: Option<ColorMapOverride>,
     pub show: Option<bool>,
     /// Transitions, timing, extLst… kept opaque.
     pub extra: Vec<Extra>,
@@ -835,7 +844,7 @@ pub struct Slide {
 pub struct Notes {
     pub info: PartInfo,
     pub data: CommonSlideData,
-    pub clr_map_ovr: Option<Option<ColorMap>>,
+    pub clr_map_ovr: Option<ColorMapOverride>,
     pub extra: Vec<Extra>,
 }
 
@@ -869,7 +878,7 @@ pub struct SlideLayout {
     pub master: usize,
     /// ST_SlideLayoutType.
     pub kind: Option<String>,
-    pub clr_map_ovr: Option<Option<ColorMap>>,
+    pub clr_map_ovr: Option<ColorMapOverride>,
     pub show_master_sp: Option<bool>,
     pub extra: Vec<Extra>,
 }

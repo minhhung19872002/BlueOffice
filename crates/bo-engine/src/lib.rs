@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
 pub mod edit;
+pub mod merge;
 pub mod nav;
 pub mod review;
 pub mod sheet;
@@ -108,6 +109,9 @@ pub struct Engine {
     view: RevisionView,
     /// Author of new revisions and comments (kept across documents).
     author: Option<String>,
+    /// Mail-merge data source and the previewed record.
+    merge: Option<bo_edit::merge::MergeData>,
+    merge_preview: Option<usize>,
 }
 
 impl Engine {
@@ -175,6 +179,7 @@ impl Engine {
             session.set_author(a);
         }
         self.session = Some(session);
+        self.merge_preview = None;
         self.layout = Some(layout);
         self.display = Some(display);
         self.goal_x = None;
@@ -202,6 +207,12 @@ impl Engine {
     fn relayout(&mut self) -> Result<Vec<usize>> {
         let opts = self.options();
         let doc = self.session.as_ref().ok_or(EngineError::NoDocument)?.doc();
+        // Mail-merge preview: the record's values in the merge fields (§17.16.5.35).
+        let preview = match (&self.merge, self.merge_preview) {
+            (Some(m), Some(r)) => Some(bo_edit::merge::preview(doc, m, Some(r))),
+            _ => None,
+        };
+        let doc = preview.as_ref().unwrap_or(doc);
         let layout = layout_document_with(doc, &mut self.fonts, &mut self.cache, opts)?;
         let display = build_display_list(&layout, &self.fonts);
         let old = self.display.take().unwrap_or_default();
@@ -445,6 +456,14 @@ impl Engine {
             .and_then(|d| d.media.get(name))
             .map(|b| b.as_slice())
             .or_else(|| self.images.get(name).map(Vec::as_slice))
+    }
+
+    /// Set the mail-merge data source (CSV or XLSX); returns the number of records.
+    pub fn set_merge_data(&mut self, bytes: &[u8], name: &str) -> Result<usize> {
+        let d = merge::read_data(bytes, name)?;
+        let n = d.rows.len();
+        self.merge = Some(d);
+        Ok(n)
     }
 
     /// Serialize the open document as `.docx` (lossless for unchanged parts, ADR-0005).

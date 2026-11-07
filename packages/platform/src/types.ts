@@ -250,6 +250,15 @@ export interface RefTarget {
   label: string;
 }
 
+/** Mail-merge state (mirrors `bo_engine::merge::MergeState`). */
+export interface MergeState {
+  name: string;
+  fields: string[];
+  count: number;
+  /** Previewed record (0-based) or null when field names are shown. */
+  preview: number | null;
+}
+
 /** Review pane state (mirrors `bo_engine::review::ReviewState`). */
 export interface ReviewState {
   trackChanges: boolean;
@@ -291,7 +300,11 @@ export type EditCommand =
   | { cmd: 'nextComment'; forward: boolean }
   | { cmd: 'updateFields' | 'insertToc' | 'crossReferenceTargets' }
   | { cmd: 'insertCaption'; label: string; text: string }
-  | { cmd: 'insertCrossReference'; target: string; page: boolean };
+  | { cmd: 'insertCrossReference'; target: string; page: boolean }
+  | { cmd: 'mergeData'; name: string; base64: string }
+  | { cmd: 'mergeInsertField'; name: string }
+  | { cmd: 'mergePreview'; record: number | null }
+  | { cmd: 'mergeToDocument' };
 
 /** A command plus the host clock (Unix ms) used to date new revisions and comments. */
 export type TimedCommand = EditCommand & { now?: number };
@@ -320,6 +333,8 @@ export interface EditResult {
   review?: ReviewState;
   /** Cross-reference targets (`crossReferenceTargets`). */
   targets?: RefTarget[];
+  /** Mail-merge state (after merge commands and `state`). */
+  merge?: MergeState;
 }
 
 // ---------------------------------------------------------------- services

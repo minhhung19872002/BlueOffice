@@ -988,6 +988,45 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         ..Doc::default()
     }));
 
+    // ---- mail merge (§17.16.5.35 MERGEFIELD); data: merge-data.csv / merge-data.xlsx
+    let mf = |name: &str, extra: &str| {
+        let shown = name.trim_matches('"');
+        field_simple(
+            &format!("MERGEFIELD {name}{extra} \\* MERGEFORMAT"),
+            &format!("«{shown}»"),
+        )
+    };
+    v.push(("merge-01-letter.docx", "merge", "Thư trộn: MERGEFIELD fldSimple và field phức, tên trường có dấu cách (\"Họ tên\"), \\* Upper", Doc {
+        body: [
+            pr(r#"<w:jc w:val="center"/>"#, "<w:b/>", "THƯ MỜI"),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Kính gửi: </w:t></w:r>{}</w:p>"#, mf("\"Họ tên\"", "")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Đơn vị: </w:t></w:r>{}</w:p>"#, field_complex("MERGEFIELD DonVi \\* Upper", "«DonVi»")),
+            lorem(1),
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+    v.push(("merge-02-table.docx", "merge", "Trường trộn trong bảng, \\b / \\f (chữ trước/sau khi có giá trị), số tiền", Doc {
+        body: [
+            table(&[3000, 6355], &[
+                row("", &[cell(3000, "", "Người nhận"), format!(r#"<w:tc><w:tcPr><w:tcW w:w="6355" w:type="dxa"/></w:tcPr><w:p>{}{}</w:p></w:tc>"#, mf("\"Họ tên\"", ""), mf("ChucVu", " \\b \", \""))]),
+                row("", &[cell(3000, "", "Số tiền"), format!(r#"<w:tc><w:tcPr><w:tcW w:w="6355" w:type="dxa"/></w:tcPr><w:p>{}<w:r><w:t xml:space="preserve"> đồng</w:t></w:r></w:p></w:tc>"#, mf("SoTien", ""))]),
+            ], r#"<w:tblW w:w="0" w:type="auto"/>"#),
+            p("Trân trọng."),
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+    v.push(("merge-03-header-sections.docx", "merge", "Trường trộn ở đầu trang và hai section (dọc + ngang) — mỗi bản ghi lặp lại cả hai", Doc {
+        body: [
+            format!(r#"<w:p><w:pPr><w:sectPr>{}<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/></w:sectPr></w:pPr><w:r><w:t xml:space="preserve">Hồ sơ của </w:t></w:r>{}</w:p>"#, hdr_ref("header", "default", "rId20"), mf("\"Họ tên\"", "")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Bảng kê (trang ngang) — đơn vị </w:t></w:r>{}</w:p>"#, mf("DonVi", "")),
+        ].concat(),
+        sect: sect(&hdr_ref("header", "default", "rId20")).replace(r#"<w:pgSz w:w="11906" w:h="16838"/>"#, r#"<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>"#),
+        hf: vec![("rId20".into(), "header", format!("<w:p>{}</w:p>", mf("DonVi", "")))],
+        ..Doc::default()
+    }));
+
     // ---- comments (§17.13.4) with replies ([MS-DOCX] commentsExtended / commentsIds)
     let comments_part = |inner: &str| {
         (
@@ -1109,5 +1148,52 @@ pub fn generate(dir: &Path) -> Result<String, Box<dyn std::error::Error>> {
             "| `doc/{name}` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | {feature}: {desc} |\n"
         ));
     }
+    // Mail-merge data sources (invented names) for the merge-* templates.
+    let records = merge_records();
+    let csv: String = records
+        .iter()
+        .map(|r| {
+            r.iter()
+                .map(|v| {
+                    if v.contains([',', '"']) {
+                        format!("\"{}\"", v.replace('"', "\"\""))
+                    } else {
+                        (*v).to_owned()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+                + "\n"
+        })
+        .collect();
+    std::fs::write(dir.join("merge-data.csv"), csv)?;
+    let mut wb = bo_model::sheet::Workbook::new();
+    for (r, row) in records.iter().enumerate() {
+        for (c, v) in row.iter().enumerate() {
+            wb.sheets[0].cells.insert(
+                (r as u32, c as u32),
+                bo_model::sheet::Cell {
+                    value: bo_model::sheet::CellValue::Text((*v).to_owned()),
+                    ..Default::default()
+                },
+            );
+        }
+    }
+    std::fs::write(dir.join("merge-data.xlsx"), bo_xlsx::write_xlsx(&wb)?)?;
+    for f in ["merge-data.csv", "merge-data.xlsx"] {
+        readme.push_str(&format!(
+            "| `doc/{f}` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | merge: nguồn dữ liệu trộn thư (3 bản ghi giả định) cho merge-01..03 |\n"
+        ));
+    }
     Ok(readme)
+}
+
+/// Mail-merge records: header row then three invented recipients.
+fn merge_records() -> Vec<[&'static str; 4]> {
+    vec![
+        ["Họ tên", "ChucVu", "DonVi", "SoTien"],
+        ["Nguyễn Văn An", "Giám đốc", "Sở Kế hoạch", "1.500.000"],
+        ["Trần Thị Bình", "", "Phòng Tài chính, Kế toán", "2.000.000"],
+        ["Lê Văn Cường", "Trưởng phòng", "Văn phòng UBND", "750.000"],
+    ]
 }

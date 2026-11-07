@@ -320,6 +320,122 @@ fn update_fields_on_corpus_files() {
     );
 }
 
+fn b64(bytes: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut s = String::new();
+    for ch in bytes.chunks(3) {
+        let n = ch.iter().fold(0u32, |a, &b| (a << 8) | u32::from(b)) << (8 * (3 - ch.len()));
+        for i in 0..=ch.len() {
+            s.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+        }
+    }
+    s
+}
+
+#[test]
+fn mail_merge_csv_and_xlsx() {
+    let mut e = Engine::with_bundled_fonts();
+    e.open("Kính gửi: \nSố tiền: ".as_bytes(), "thu.txt")
+        .unwrap();
+    let csv = "Họ tên,Số tiền\nNguyễn Văn An,1.500.000\nTrần Thị Bình,2.000.000\n";
+    let r = cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"mergeData","name":"ds.csv","base64":"{}"}}"#,
+            b64(csv.as_bytes())
+        ),
+    );
+    assert_eq!(r["merge"]["count"], 2);
+    assert_eq!(r["merge"]["fields"][0], "Họ tên");
+    cmd(&mut e, r#"{"cmd":"move","motion":"docStart"}"#);
+    cmd(&mut e, r#"{"cmd":"move","motion":"lineEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"mergeInsertField","name":"Họ tên"}"#);
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"mergeInsertField","name":"Số tiền"}"#);
+    assert_eq!(
+        e.document().unwrap().plain_text(),
+        "Kính gửi: «Họ tên»\nSố tiền: «Số tiền»"
+    );
+    // Preview record 2 (ECMA-376 Part 1, §17.16.5.35 MERGEFIELD).
+    let r = cmd(&mut e, r#"{"cmd":"mergePreview","record":1}"#);
+    assert_eq!(r["merge"]["preview"], 1);
+    assert!(e.layout().unwrap().page_text(0).contains("Trần Thị Bình"));
+    cmd(&mut e, r#"{"cmd":"mergePreview"}"#);
+    assert!(e.layout().unwrap().page_text(0).contains("«Họ tên»"));
+    // The template saves with MERGEFIELD fields and reads them back.
+    let template = e.save_docx().unwrap();
+    // Merge: one section per record, then .docx and PDF output.
+    let r = cmd(&mut e, r#"{"cmd":"mergeToDocument"}"#);
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(r["info"]["name"], "thu-merged.docx");
+    assert_eq!(r["info"]["pageCount"], 2);
+    let doc = e.document().unwrap();
+    assert_eq!(doc.sections.len(), 2);
+    assert_eq!(
+        doc.plain_text(),
+        "Kính gửi: Nguyễn Văn An\nSố tiền: 1.500.000\nKính gửi: Trần Thị Bình\nSố tiền: 2.000.000"
+    );
+    let merged = e.save_docx().unwrap();
+    assert!(e.export_pdf().unwrap().starts_with(b"%PDF"));
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&merged, "m.docx").unwrap();
+    assert_eq!(f.document().unwrap().sections.len(), 2);
+    // XLSX data source with the reopened template.
+    let mut wb = bo_model::sheet::Workbook::new();
+    let ws = &mut wb.sheets[0];
+    for (r, row) in [["Họ tên", "Số tiền"], ["Lê Văn Cường", "3"]]
+        .iter()
+        .enumerate()
+    {
+        for (c, v) in row.iter().enumerate() {
+            ws.cells.insert(
+                (r as u32, c as u32),
+                bo_model::sheet::Cell {
+                    value: bo_model::sheet::CellValue::Text((*v).into()),
+                    ..Default::default()
+                },
+            );
+        }
+    }
+    let xlsx = bo_xlsx::write_xlsx(&wb).unwrap();
+    let mut g = Engine::with_bundled_fonts();
+    g.open(&template, "thu.docx").unwrap();
+    cmd(
+        &mut g,
+        &format!(
+            r#"{{"cmd":"mergeData","name":"ds.xlsx","base64":"{}"}}"#,
+            b64(&xlsx)
+        ),
+    );
+    cmd(&mut g, r#"{"cmd":"mergeToDocument"}"#);
+    assert_eq!(
+        g.document().unwrap().plain_text(),
+        "Kính gửi: Lê Văn Cường\nSố tiền: 3"
+    );
+}
+
+#[test]
+fn mail_merge_corpus_templates() {
+    for (file, expect) in [
+        ("merge-01-letter.docx", "Đơn vị: VĂN PHÒNG UBND"),
+        ("merge-02-table.docx", "Nguyễn Văn An, Giám đốc"),
+        ("merge-03-header-sections.docx", "Hồ sơ của Lê Văn Cường"),
+    ] {
+        let mut e = Engine::with_bundled_fonts();
+        e.open(&corpus(file), file).unwrap();
+        for data in ["merge-data.csv", "merge-data.xlsx"] {
+            assert_eq!(e.set_merge_data(&corpus(data), data).unwrap(), 3);
+        }
+        cmd(&mut e, r#"{"cmd":"mergePreview","record":2}"#);
+        let r = cmd(&mut e, r#"{"cmd":"mergeToDocument"}"#);
+        assert!(r["error"].is_null(), "{file}: {r}");
+        let text = e.document().unwrap().plain_text();
+        assert!(text.contains(expect), "{file}: {text}");
+        // "Trần Thị Bình" has no position: the \b ", " prefix disappears.
+        assert!(!text.contains("Bình, "), "{file}: {text}");
+    }
+}
+
 #[test]
 fn comment_threads_save_and_reopen() {
     let mut e = Engine::with_bundled_fonts();

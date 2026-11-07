@@ -13,6 +13,7 @@ pub mod comments;
 pub mod fields;
 pub mod find;
 pub mod html;
+pub mod merge;
 mod ops;
 pub mod para;
 pub mod revisions;
@@ -771,6 +772,21 @@ impl Session {
             let len = para_len(&cap);
             tx.insert_blocks(prefix, index + 1, vec![Block::Paragraph(cap)])?;
             Ok(Selection::caret(Pos::new(at.para + 1, len)))
+        })
+    }
+
+    /// Insert a simple field (§17.16.19 fldSimple) with its current result at the caret.
+    pub fn insert_field(&mut self, instr: &str, cached: &str) -> Result<Selection> {
+        let field = RunContent::Field {
+            instr: instr.trim().to_owned(),
+            cached: cached.to_owned(),
+        };
+        self.edit(|tx, sel| {
+            let (a, b) = sel.ordered();
+            let at = tx.delete_range(a, b)?;
+            let (_, _, atoms) = tx.atoms(at.para)?;
+            let props = para::props_at(&atoms, at.offset);
+            Ok(Selection::caret(tx.insert_atoms(at, vec![(props, field)])?))
         })
     }
 

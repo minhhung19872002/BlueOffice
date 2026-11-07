@@ -448,6 +448,7 @@ dependencies = [
  "bo-odf",
  "bo-opc",
  "bo-sign",
+ "bo-xlsx",
  "clap",
  "png",
 ]

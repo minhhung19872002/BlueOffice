@@ -26,6 +26,11 @@ Kiểm thử: `cargo test -p bo-docx --test corpus` (round-trip, ngưỡng ≥ 9
 | `doc/lists-01-multilevel.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | lists: Danh sách số nhiều cấp (decimal, lowerLetter, lowerRoman, upperRoman) |
 | `doc/lists-02-bullets.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | lists: Danh sách gạch đầu dòng các cấp xen đoạn thường |
 | `doc/lists-03-restart-override.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | lists: Hai num cùng abstractNum, lvlOverride/startOverride khởi động lại |
+| `doc/merge-01-letter.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | merge: Thư trộn: MERGEFIELD fldSimple và field phức, tên trường có dấu cách ("Họ tên"), \* Upper |
+| `doc/merge-02-table.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | merge: Trường trộn trong bảng, \b / \f (chữ trước/sau khi có giá trị), số tiền |
+| `doc/merge-03-header-sections.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | merge: Trường trộn ở đầu trang và hai section (dọc + ngang) — mỗi bản ghi lặp lại cả hai |
+| `doc/merge-data.csv` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | merge: nguồn dữ liệu trộn thư (3 bản ghi giả định) cho merge-01..03 |
+| `doc/merge-data.xlsx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | merge: nguồn dữ liệu trộn thư (3 bản ghi giả định) cho merge-01..03 |
 | `doc/sections-01-landscape-columns.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | sections: Section dọc → ngang (nextPage) → 2 cột (continuous) |
 | `doc/sections-02-header-footer.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | sections: Header/footer default + first (titlePg), số trang PAGE/NUMPAGES |
 | `doc/sections-03-even-odd-restart.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | sections: Header chẵn/lẻ (evenAndOddHeaders), section oddPage, đánh số lại pgNumType |

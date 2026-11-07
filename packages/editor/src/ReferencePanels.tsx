@@ -1,4 +1,4 @@
-import type { EditCommand, EditResult, RefTarget } from '@blueoffice/platform';
+import type { EditCommand, EditResult, MergeState, RefTarget } from '@blueoffice/platform';
 import { useTranslation } from '@blueoffice/i18n';
 import { useEffect, useState } from 'react';
 import styles from './Editor.module.css';
@@ -52,6 +52,50 @@ export function CaptionPanel({ run, onClose }: { run: Run; onClose: () => void }
         </button>
         <button type="button" onClick={onClose}>
           {t('references.cancel')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Mail-merge field picker (MERGEFIELD, ECMA-376 Part 1, §17.16.5.35). */
+export function MergeFieldPanel({
+  merge,
+  run,
+  onClose,
+}: {
+  merge: MergeState | null;
+  run: Run;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className={styles.panel} role="dialog" aria-label={t('merge.title')}>
+      <strong>{t('merge.title')}</strong>
+      {merge ? (
+        <>
+          <div className={styles.panelMessage} data-testid="merge-source">
+            {t('merge.source', { name: merge.name, count: merge.count })}
+          </div>
+          <div className={styles.panelRow}>
+            {merge.fields.map((f) => (
+              <button
+                key={f}
+                type="button"
+                data-testid="merge-field"
+                onClick={() => void run({ cmd: 'mergeInsertField', name: f })}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className={styles.panelMessage}>{t('merge.noData')}</div>
+      )}
+      <div className={styles.panelRow}>
+        <button type="button" onClick={onClose}>
+          {t('merge.close')}
         </button>
       </div>
     </div>

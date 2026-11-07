@@ -36,6 +36,8 @@ import {
   Eye,
   FileDown,
   FilePenLine,
+  FileSpreadsheet,
+  Files,
   FilePlus,
   FileText,
   FolderOpen,
@@ -51,6 +53,7 @@ import {
   ListIndentIncrease,
   ListOrdered,
   ListTree,
+  Mails,
   Maximize2,
   MessageSquarePlus,
   MessagesSquare,
@@ -91,7 +94,7 @@ import { CommandRegistry } from './commands';
 import { DocController } from './controller';
 import styles from './Editor.module.css';
 import { FindPanel, SymbolPanel } from './Panels';
-import { CaptionPanel, CrossRefPanel } from './ReferencePanels';
+import { CaptionPanel, CrossRefPanel, MergeFieldPanel } from './ReferencePanels';
 import { CommentsPanel, ReviewPanel } from './ReviewPanel';
 import { createEditorStore, type EditorState } from './store';
 
@@ -235,9 +238,12 @@ function EditorInner({
       v,
       platform.clipboard,
       (r) => {
-        store.setState(
-          r.review ? { edit: r, doc: r.info, review: r.review } : { edit: r, doc: r.info },
-        );
+        store.setState({
+          edit: r,
+          doc: r.info,
+          ...(r.review ? { review: r.review } : {}),
+          ...(r.merge ? { merge: r.merge } : {}),
+        });
         if (r.error) fail('errors.edit', r.error);
       },
       (e) => fail('errors.edit', e),
@@ -636,6 +642,92 @@ function EditorInner({
         store.setState({ language: next });
       },
     });
+    // Mailings: mail merge from CSV / XLSX (ECMA-376 Part 1, §17.16.5.35 MERGEFIELD).
+    const mg = (s: EditorState) => s.merge;
+    const hasData = (s: EditorState) => hasDoc(s) && (mg(s)?.count ?? 0) > 0;
+    const toBase64 = (bytes: Uint8Array) => {
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      }
+      return btoa(bin);
+    };
+    r.register({
+      id: 'mailings.selectRecipients',
+      isEnabled: hasDoc,
+      run: async () => {
+        try {
+          const file = await platform.files.openFile(['.csv', '.xlsx']);
+          if (!file) return;
+          const res = await controller.current?.run({
+            cmd: 'mergeData',
+            name: file.name,
+            base64: toBase64(file.bytes),
+          });
+          if (res?.merge)
+            store.setState({
+              panel: 'merge',
+              status: {
+                kind: 'info',
+                key: 'merge.source',
+                params: { name: res.merge.name, count: String(res.merge.count) },
+              },
+            });
+        } catch (e) {
+          fail('errors.open', e);
+        }
+      },
+    });
+    r.register({
+      id: 'mailings.insertField',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.panel === 'merge',
+      run: (s) => store.setState({ panel: s.panel === 'merge' ? null : 'merge' }),
+    });
+    r.register({
+      id: 'mailings.preview',
+      isEnabled: hasData,
+      isChecked: (s) => mg(s)?.preview != null,
+      run: (s) => run({ cmd: 'mergePreview', record: mg(s)?.preview != null ? null : 0 }),
+    });
+    r.register({
+      id: 'mailings.nextRecord',
+      isEnabled: hasData,
+      run: (s) => run({ cmd: 'mergePreview', record: (mg(s)?.preview ?? -1) + 1 }),
+    });
+    r.register({
+      id: 'mailings.previousRecord',
+      isEnabled: hasData,
+      run: (s) => run({ cmd: 'mergePreview', record: Math.max(0, (mg(s)?.preview ?? 1) - 1) }),
+    });
+    const mergeToDocument = async (): Promise<boolean> => {
+      const res = await controller.current?.run({ cmd: 'mergeToDocument' });
+      if (!res || res.error) return false;
+      stored.current = null;
+      await loaded(res.info);
+      store.setState({
+        status: {
+          kind: 'info',
+          key: 'merge.done',
+          params: { count: String(store.getState().merge?.count ?? 0), name: res.info.name },
+        },
+      });
+      return true;
+    };
+    r.register({
+      id: 'mailings.mergeDocument',
+      isEnabled: hasData,
+      run: async () => {
+        await mergeToDocument();
+      },
+    });
+    r.register({
+      id: 'mailings.mergePdf',
+      isEnabled: hasData,
+      run: async () => {
+        if (await mergeToDocument()) await exportPdf();
+      },
+    });
     // References: TOC, captions, cross-references (ECMA-376 Part 1, §17.16).
     const updateFields = async () => {
       const res = await controller.current?.run({ cmd: 'updateFields' });
@@ -786,7 +878,7 @@ function EditorInner({
       r.register({ id, isEnabled: () => false, run: () => {} });
     }
     return r;
-  }, [platform, store, sampleUrl, openFile, newDocument, fail, i18nInstance]);
+  }, [platform, store, sampleUrl, openFile, newDocument, fail, i18nInstance, loaded]);
   /* eslint-enable react-hooks/refs */
 
   // Keyboard shortcuts (registry); plain typing and caret keys go through the IME textarea.
@@ -1023,6 +1115,49 @@ function EditorInner({
       ],
     },
     {
+      id: 'mailings',
+      label: t('ribbon.tabs.mailings'),
+      groups: [
+        {
+          id: 'mergeData',
+          label: t('ribbon.groups.mergeData'),
+          items: [
+            item(
+              'mailings.selectRecipients',
+              'commands.mailings.selectRecipients',
+              <FileSpreadsheet size={ICON} />,
+            ),
+            item('mailings.insertField', 'commands.mailings.insertField', <Mails size={ICON} />),
+          ],
+        },
+        {
+          id: 'mergePreview',
+          label: t('ribbon.groups.mergePreview'),
+          items: [
+            item('mailings.preview', 'commands.mailings.preview', <Eye size={ICON} />),
+            s(
+              'mailings.previousRecord',
+              'commands.mailings.previousRecord',
+              <ChevronLeft size={SMALL} />,
+            ),
+            s('mailings.nextRecord', 'commands.mailings.nextRecord', <ChevronRight size={SMALL} />),
+          ],
+        },
+        {
+          id: 'mergeFinish',
+          label: t('ribbon.groups.mergeFinish'),
+          items: [
+            item(
+              'mailings.mergeDocument',
+              'commands.mailings.mergeDocument',
+              <Files size={ICON} />,
+            ),
+            item('mailings.mergePdf', 'commands.mailings.mergePdf', <FileDown size={ICON} />),
+          ],
+        },
+      ],
+    },
+    {
       id: 'review',
       label: t('ribbon.tabs.review'),
       groups: [
@@ -1178,6 +1313,9 @@ function EditorInner({
               />
             )}
             {state.panel === 'caption' && <CaptionPanel run={runCommand} onClose={closePanel} />}
+            {state.panel === 'merge' && (
+              <MergeFieldPanel merge={state.merge} run={runCommand} onClose={closePanel} />
+            )}
             {state.panel === 'crossref' && <CrossRefPanel run={runCommand} onClose={closePanel} />}
             {state.panel === 'comments' && (
               <CommentsPanel

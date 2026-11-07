@@ -197,6 +197,22 @@ pub enum Command {
         #[serde(default)]
         page: bool,
     },
+    /// Mail-merge data source (CSV or XLSX bytes, base64).
+    MergeData {
+        name: String,
+        base64: String,
+    },
+    /// Insert `MERGEFIELD name` (ECMA-376 Part 1, §17.16.5.35) at the caret.
+    MergeInsertField {
+        name: String,
+    },
+    /// Show record `record` (0-based) in the merge fields, or the field names.
+    MergePreview {
+        #[serde(default)]
+        record: Option<usize>,
+    },
+    /// Replace the open document by the merged one (one section per record).
+    MergeToDocument,
 }
 
 fn yes() -> bool {
@@ -243,6 +259,9 @@ pub struct EditResult {
     /// Cross-reference targets (`crossReferenceTargets`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub targets: Option<Vec<bo_edit::RefTarget>>,
+    /// Mail-merge state (after merge commands and `state`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge: Option<crate::merge::MergeState>,
 }
 
 impl crate::Engine {
@@ -299,6 +318,47 @@ impl crate::Engine {
             let n = name.trim();
             self.author = (!n.is_empty()).then(|| n.to_owned());
         }
+        let merge_cmd = matches!(
+            cmd,
+            Command::State
+                | Command::MergeData { .. }
+                | Command::MergePreview { .. }
+                | Command::MergeToDocument
+                | Command::MergeInsertField { .. }
+        );
+        match &cmd {
+            Command::MergeData { name, base64 } => {
+                match crate::merge::base64_decode(base64)
+                    .ok_or_else(|| crate::EngineError::BadCommand("base64".into()))
+                    .and_then(|b| crate::merge::read_data(&b, name))
+                {
+                    Ok(d) => {
+                        self.merge = Some(d);
+                        relayout |= self.merge_preview.is_some();
+                    }
+                    Err(e) => error = Some(e.to_string()),
+                }
+            }
+            Command::MergePreview { record } => {
+                let n = self.merge.as_ref().map_or(0, |m| m.rows.len());
+                let r = record.filter(|_| n > 0).map(|r| r.min(n - 1));
+                relayout |= r != self.merge_preview;
+                self.merge_preview = r;
+            }
+            Command::MergeToDocument => match (&self.merge, self.session.as_ref()) {
+                (Some(m), Some(s)) if !m.rows.is_empty() => {
+                    let merged = bo_edit::merge::merge_all(s.doc(), m);
+                    let stem = self
+                        .name
+                        .rsplit_once('.')
+                        .map_or(self.name.clone(), |(b, _)| b.to_owned());
+                    self.load(merged, &format!("{stem}-merged.docx"))?;
+                    changed = true;
+                }
+                _ => error = Some("mail merge: no data source".into()),
+            },
+            _ => {}
+        }
         if let Some(ms) = now.or_else(crate::review::system_ms) {
             self.set_clock_ms(ms);
         }
@@ -337,7 +397,13 @@ impl crate::Engine {
             };
             let res: bo_edit::Result<()> = (|| {
                 match cmd {
-                    Command::State | Command::Review | Command::SetRevisionView { .. } => {}
+                    // Handled outside the session (view options, merge state).
+                    Command::State
+                    | Command::Review
+                    | Command::SetRevisionView { .. }
+                    | Command::MergeData { .. }
+                    | Command::MergePreview { .. }
+                    | Command::MergeToDocument => {}
                     Command::SetSelection { selection } => s.set_selection(selection),
                     Command::Click {
                         page,
@@ -535,6 +601,18 @@ impl crate::Engine {
                     Command::InsertCrossReference { target, page } => {
                         s.insert_cross_reference(&target, page, &mut pages_of)?;
                     }
+                    Command::MergeInsertField { name } => {
+                        let n = name.trim();
+                        let quoted = if n.contains(' ') {
+                            format!("\"{n}\"")
+                        } else {
+                            n.to_owned()
+                        };
+                        s.insert_field(
+                            &format!("MERGEFIELD {quoted} \\* MERGEFORMAT"),
+                            &bo_edit::merge::placeholder(n),
+                        )?;
+                    }
                 }
                 Ok(())
             })();
@@ -553,6 +631,14 @@ impl crate::Engine {
         };
         let mut r = self.edit_result(dirty, extra, error)?;
         r.targets = targets;
+        if merge_cmd {
+            r.merge = self.merge.as_ref().map(|m| crate::merge::MergeState {
+                name: m.name.clone(),
+                fields: m.fields.clone(),
+                count: m.rows.len(),
+                preview: self.merge_preview,
+            });
+        }
         if changed || relayout || review {
             if let Some(s) = self.session.as_ref() {
                 r.review = Some(crate::review::review_state(s, self.view));
@@ -615,6 +701,7 @@ impl crate::Engine {
             error,
             review: None,
             targets: None,
+            merge: None,
         })
     }
 }

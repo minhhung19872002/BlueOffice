@@ -1,5 +1,5 @@
 import type { Language } from '@blueoffice/i18n';
-import type { DocInfo, EditResult, ReviewState } from '@blueoffice/platform';
+import type { DocInfo, EditResult, MergeState, ReviewState } from '@blueoffice/platform';
 import type { ThemeSetting } from '@blueoffice/ui';
 import { createStore } from 'zustand/vanilla';
 
@@ -21,6 +21,8 @@ export interface EditorState {
   edit: EditResult | null;
   /** Latest review state (track changes, revisions, comments). */
   review: ReviewState | null;
+  /** Mail-merge data source and preview. */
+  merge: MergeState | null;
   panel:
     | 'find'
     | 'replace'
@@ -46,6 +48,7 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   engineReady: false,
   edit: null,
   review: null,
+  merge: null,
   panel: null,
   recovery: null,
 });

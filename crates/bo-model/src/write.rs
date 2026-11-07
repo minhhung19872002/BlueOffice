@@ -827,16 +827,27 @@ impl Run {
 }
 
 /// How an anchored object wraps text (§20.4.2.15–20.4.2.19).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum Wrap {
+    #[default]
     None,
     Square,
     Tight,
     TopAndBottom,
 }
 
+/// Sides of a square/tight-wrapped object that text flows on (§20.4.3.7 `ST_WrapText`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum WrapText {
+    #[default]
+    BothSides,
+    Left,
+    Right,
+    Largest,
+}
+
 /// Position of a floating object (§20.4.2.3 anchor).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Anchor {
     /// `positionH/@relativeFrom` (page, margin, column, character).
     pub h_relative: String,
@@ -847,6 +858,17 @@ pub struct Anchor {
     pub wrap: Wrap,
     /// `behindDoc`.
     pub behind: bool,
+    /// `wrapText` of `wrapSquare` (§20.4.2.17) / `wrapTight` (§20.4.2.20).
+    #[serde(default)]
+    pub wrap_text: WrapText,
+    /// Distance kept from text: top, bottom, left, right (`distT` `distB` `distL`
+    /// `distR` of `anchor` §20.4.2.3, overridden by those of the wrap element).
+    #[serde(default)]
+    pub dist: [Emu; 4],
+    /// Bounding box `[x0, y0, x1, y1]` of the tight wrap polygon (`wp:wrapPolygon`,
+    /// §20.4.2.16) in the 21 600-unit square over the extent that Word uses.
+    #[serde(default)]
+    pub polygon: Option<[i64; 4]>,
 }
 
 /// A picture (DrawingML picture inside `w:drawing`, §20.4).

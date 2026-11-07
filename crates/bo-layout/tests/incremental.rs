@@ -67,6 +67,7 @@ fn image(wrap: Wrap) -> RunContent {
             y: Emu(0),
             wrap,
             behind: false,
+            ..Default::default()
         }),
         crop: None,
         rotation: 0,

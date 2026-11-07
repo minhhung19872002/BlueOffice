@@ -23,4 +23,5 @@ pub use write::{
     Paragraph, Raw, RevMark, RevisionInfo, Row, RowProps, Run, RunContent, RunProps,
     RunPropsChange, Section, SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign,
     TabLeader, TabStop, Table, TableProps, TableWidth, Underline, VMerge, VertAlign, Wrap,
+    WrapText,
 };

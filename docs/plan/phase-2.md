@@ -28,16 +28,32 @@ E2E gõ tiếng Việt + lưu + mở lại.
 | Nhóm | Trạng thái |
 |---|---|
 | Model + `.docx` lossless | ✅ 34/34 file corpus lossless và ổn định mô hình (`cargo test -p bo-docx --test corpus`) |
-| Layout | ✅ phân trang, keepNext/keepLines/widow, bảng (ngắt hàng qua trang, lặp hàng tiêu đề, gộp ô, viền, nền), ảnh inline + anchored (top-bottom; square/tight ≈ top-bottom), header/footer first/even/default + kế thừa, cột, footnote cuối trang, endnote cuối văn bản, PAGE/NUMPAGES/SECTIONPAGES |
+| Layout | ✅ phân trang, keepNext/keepLines/widow, bảng (ngắt hàng qua trang, lặp hàng tiêu đề, gộp ô, viền, nền), ảnh inline + anchored (top-bottom; square/tight: chữ chảy bên trái/phải/hai bên/bên rộng hơn theo `wrapText`, distT/B/L/R, tight theo hộp bao `wrapPolygon`), header/footer first/even/default + kế thừa, cột, footnote cuối trang, endnote cuối văn bản, PAGE/NUMPAGES/SECTIONPAGES |
 | Render/PNG/PDF | ✅ lệnh `image` (PNG/JPEG, cắt, xoay), viền nét đứt/đôi, tô sáng, lớp sau/trước chữ |
 | `bo-edit` ([ADR-0008](../adr/0008-editing-transactions-and-command-bridge.md)) | ✅ transaction + op khả nghịch, undo/redo không giới hạn (proptest), gõ/xoá/Enter, định dạng ký tự/đoạn, style (tự tạo style dựng sẵn), danh sách, chèn bảng/ảnh/ngắt trang/ngắt phần/ký tự đặc biệt, find/replace (hoa thường, cả từ, regex), clipboard nội bộ/HTML/text |
+| Layout tăng dần (§5.4) | ✅ `bo_layout::IncrementalLayout`: transaction báo khối đã đổi (`bo_model::change::BlockChanges`), chỉ dàn lại khối đổi, phân trang lại từ checkpoint trước khối đổi và dừng khi trạng thái phân trang khớp layout cũ (dùng lại các trang sau, dời/đánh số lại khi cần); display list dựng khi được yêu cầu; engine trả đúng các trang đổi; proptest ≥ 64 ca: tăng dần == dàn lại từ đầu |
 | Editor UI | ✅ caret, selection (chuột, kéo, Shift+mũi tên, Ctrl+A, double/triple click), IME tiếng Việt (pre-edit tại caret), clipboard qua `Platform`, ribbon định dạng, hộp thoại tìm/thay, tạo mới/lưu/lưu thành .docx, xuất PDF, tự lưu + khôi phục qua `Platform.offline` |
 
 ## Hạn chế / chuyển phase sau
 - Chưa có thước kẻ, kéo tab stop, Format Painter, Paste Special, hộp thoại thiết lập trang (lề/hướng/khổ), chọn phông/cỡ bằng danh sách
   (hiện có tăng/giảm cỡ chữ), bảng màu đầy đủ (màu chữ đỏ/tô vàng mặc định).
 - Chưa sửa nội dung header/footer/footnote; chỉnh sửa trong bảng: gõ/xoá trong ô được, chưa thêm/xoá hàng-cột.
-- Wrap square/tight xấp xỉ top-and-bottom; text box/shape hiển thị dạng opaque; chưa chia đoạn qua cột cân bằng.
-- Mỗi lệnh dàn lại cả tài liệu (cache theo đoạn) — đủ nhanh cho tài liệu vài chục trang; dirty-tracking theo transaction để đạt
-  < 16 ms/300 trang còn phải làm. Visual diff với ảnh tham chiếu (< 2 % pixel) chưa chạy vì chưa có ảnh tham chiếu do người dùng cung cấp.
+- Wrap tight dùng hộp bao của đa giác (chưa theo từng cạnh đa giác); chữ trong bảng không chảy quanh ảnh; đoạn bị chia sang
+  trang sau dùng bề rộng tính theo vị trí ở trang trước; text box/shape hiển thị dạng opaque; chưa chia đoạn qua cột cân bằng.
+- Layout tăng dần: tài liệu có NUMPAGES trong thân văn bản, thay đổi đánh số chú thích, style/numbering/section dàn lại toàn bộ;
+  trang dùng lại chỉ được dời số trang khi thân văn bản không có field và không có section oddPage/evenPage.
+- Visual diff với ảnh tham chiếu (< 2 % pixel) chưa chạy vì chưa có ảnh tham chiếu do người dùng cung cấp.
 - E2E desktop (Tauri WebDriver) chưa có.
+
+## Benchmark gõ phím (§5: < 16 ms ở tài liệu 300 trang)
+Tài liệu 308 trang (4 300 đoạn căn đều, Times New Roman 13), sửa đoạn giữa rồi lấy display list của trang chứa caret.
+Native: `cargo bench -p bo-engine --bench doc_typing` (hoặc `cargo test --release -p bo-engine --test typing_perf -- --ignored --nocapture`);
+WASM (node): `pnpm build:wasm && node scripts/bench-typing-wasm.mjs`. Trung vị, máy dev Windows:
+
+| Thao tác | Native trước | Native sau | WASM trước | WASM sau |
+|---|---|---|---|---|
+| Gõ 1 ký tự | 45,8 ms | ~1,1 ms | 60,3 ms | 2,5 ms |
+| Enter | 66,9 ms | ~1,3 ms | 64,6 ms | 2,4 ms |
+| Backspace | 78,7 ms | ~1,1 ms | 74,6 ms | 2,4 ms |
+| Bật/tắt đậm | 54,2 ms | ~1,9 ms | 77,6 ms | 4,1 ms |
+| Gõ 1 ký tự, không khớp lại (phân trang lại ~150 trang) | — | ~8 ms | — | — |

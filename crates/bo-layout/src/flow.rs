@@ -2,13 +2,16 @@
 //! control, tables split across pages, anchored pictures and footnotes.
 
 use crate::blocks::{
-    build_para, deco_items, layout_table, row_band, row_notes, split_row, stack_blocks, Band, Brk,
-    Ctx, ParaBlock, Stack, TableBox,
+    build_para, deco_items, layout_table, rewrap_para, row_band, row_notes, split_row,
+    stack_blocks, Band, Brk, Ctx, ParaBlock, Stack, TableBox,
 };
+use crate::paragraph::{WrapZone, MIN_SEGMENT};
 use crate::style::ListCounters;
 use crate::types::{Layer, NoteKey, Page, PageItem};
 use crate::LayoutError;
-use bo_model::{Block, Color, Image, PageSetup, Section, SectionBreak, Wrap};
+use bo_model::{
+    Block, Color, Emu, Image, PageSetup, Paragraph, Section, SectionBreak, Wrap, WrapText,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -38,6 +41,7 @@ pub(crate) struct Snap {
     notes_on_page: Vec<NoteKey>,
     foot_h: f32,
     excl: Vec<(f32, f32)>,
+    sides: Vec<SideZone>,
     prev: Option<Prev>,
     lists: ListCounters,
     other_lists: ListCounters,
@@ -94,6 +98,8 @@ pub(crate) struct Flow {
     foot_h: f32,
     /// Vertical ranges on the current page occupied by top-and-bottom pictures.
     excl: Vec<(f32, f32)>,
+    /// Areas of square/tight-wrapped pictures on the current page (text flows beside them).
+    sides: Vec<SideZone>,
     pub foot_cache: HashMap<NoteKey, Stack>,
     prev: Option<Prev>,
     /// Page index at which each section started on a fresh page.
@@ -156,7 +162,7 @@ pub(crate) fn float_item(
     setup: &PageSetup,
     col_x: f32,
     para_top: f32,
-) -> (PageItem, Option<(f32, f32)>) {
+) -> (PageItem, Option<Excl>) {
     let Some(a) = &img.anchor else {
         return (
             PageItem::Image {
@@ -200,12 +206,53 @@ pub(crate) fn float_item(
         rotation: crate::blocks::rotation_of(img),
         layer: if a.behind { Layer::Back } else { Layer::Front },
     };
-    // Square/tight wrapping is approximated as top-and-bottom in this version (see phase-2 plan).
+    let [dt, db, dl, dr] = a.dist.map(Emu::to_pt);
     let excl = match a.wrap {
         Wrap::None => None,
-        Wrap::Square | Wrap::Tight | Wrap::TopAndBottom => Some((y, y + h)),
+        // §20.4.2.19 wrapTopAndBottom: no text beside the picture.
+        Wrap::TopAndBottom => Some(Excl::Band(y - dt, y + h + db)),
+        // §20.4.2.17 wrapSquare: the picture's box plus distT/B/L/R.
+        Wrap::Square => Some(Excl::Side(SideZone {
+            y0: y - dt,
+            y1: y + h + db,
+            x0: x - dl,
+            x1: x + w + dr,
+            side: a.wrap_text,
+        })),
+        // §20.4.2.20 wrapTight: the bounding box of the wrap polygon (§20.4.2.16, in
+        // 21 600ths of the extent) plus distL/R; distT/B do not apply.
+        Wrap::Tight => {
+            let [px0, py0, px1, py1] = a
+                .polygon
+                .map_or([0.0, 0.0, 1.0, 1.0], |p| p.map(|v| v as f32 / 21_600.0));
+            Some(Excl::Side(SideZone {
+                y0: y + h * py0.min(py1),
+                y1: y + h * py0.max(py1),
+                x0: x + w * px0.min(px1) - dl,
+                x1: x + w * px0.max(px1) + dr,
+                side: a.wrap_text,
+            }))
+        }
     };
     (item, excl)
+}
+
+/// Area of a square/tight-wrapped picture on the page (points, distances included).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SideZone {
+    pub y0: f32,
+    pub y1: f32,
+    pub x0: f32,
+    pub x1: f32,
+    pub side: WrapText,
+}
+
+/// Text exclusion of an anchored picture.
+pub(crate) enum Excl {
+    /// Lines skip this vertical range (top and bottom).
+    Band(f32, f32),
+    /// Lines flow beside this area.
+    Side(SideZone),
 }
 
 enum Built {
@@ -231,6 +278,7 @@ impl Flow {
             notes_on_page: Vec::new(),
             foot_h: 0.0,
             excl: Vec::new(),
+            sides: Vec::new(),
             foot_cache: HashMap::new(),
             prev: None,
             section_start: vec![None; sections],
@@ -266,6 +314,7 @@ impl Flow {
                 notes_on_page: self.notes_on_page.clone(),
                 foot_h: self.foot_h,
                 excl: self.excl.clone(),
+                sides: self.sides.clone(),
                 prev: self.prev.clone(),
                 lists: ctx.lists.clone(),
                 other_lists: ctx.other_lists.clone(),
@@ -294,6 +343,7 @@ impl Flow {
         self.notes_on_page.clone_from(&s.notes_on_page);
         self.foot_h = s.foot_h;
         self.excl.clone_from(&s.excl);
+        self.sides.clone_from(&s.sides);
         self.prev.clone_from(&s.prev);
         self.number = cp.number;
         ctx.lists.clone_from(&s.lists);
@@ -360,6 +410,7 @@ impl Flow {
         self.notes_on_page.clear();
         self.foot_h = 0.0;
         self.excl.clear();
+        self.sides.clear();
         self.prev = None;
     }
 
@@ -562,6 +613,7 @@ impl Flow {
         ctx: &mut Ctx<'_>,
         pb: &ParaBlock,
         keep_with: f32,
+        src: Option<&Paragraph>,
     ) -> Result<(), LayoutError> {
         if pb.page_break_before && self.page_has_content {
             self.new_page();
@@ -600,13 +652,51 @@ impl Flow {
         for img in &pb.floats {
             let (item, excl) = float_item(img, &self.setup, self.col_x(), self.y);
             float_items.push(item);
-            if let Some(e) = excl {
-                self.excl.push(e);
+            match excl {
+                Some(Excl::Band(a, b)) => self.excl.push((a, b)),
+                Some(Excl::Side(z)) => {
+                    // Too narrow on the allowed side(s) for text: behave as top and bottom.
+                    let room_l = z.x0 - self.col_x();
+                    let room_r = self.col_x() + self.col_w() - z.x1;
+                    let room = match z.side {
+                        WrapText::Left => room_l,
+                        WrapText::Right => room_r,
+                        WrapText::BothSides | WrapText::Largest => room_l.max(room_r),
+                    };
+                    if room < MIN_SEGMENT {
+                        self.excl.push((z.y0, z.y1));
+                    } else {
+                        self.sides.push(z);
+                    }
+                }
+                None => {}
             }
         }
         if let Some(page) = self.pages.last_mut() {
             page.items.extend(float_items);
         }
+        // Lines beside square/tight-wrapped pictures are laid out again around them.
+        let rewrapped;
+        let pb = match src {
+            Some(p) if self.sides.iter().any(|z| z.y1 > self.y) => {
+                let (top, cx) = (self.y, self.col_x());
+                let zones: Vec<WrapZone> = self
+                    .sides
+                    .iter()
+                    .filter(|z| z.y1 > top)
+                    .map(|z| WrapZone {
+                        top: z.y0 - top,
+                        bottom: z.y1 - top,
+                        left: z.x0 - cx,
+                        right: z.x1 - cx,
+                        side: z.side,
+                    })
+                    .collect();
+                rewrapped = rewrap_para(ctx, p, pb, self.col_w(), &zones)?;
+                &rewrapped
+            }
+            _ => pb,
+        };
 
         let n = pb.lines.len();
         let mut i = 0;
@@ -877,7 +967,13 @@ impl Flow {
                 }
                 self.id_base = base;
                 match &cur {
-                    Built::Para(pb) => self.place_para(ctx, pb, keep_with)?,
+                    Built::Para(pb) => {
+                        let src = match &sec.blocks[k] {
+                            Block::Paragraph(p) => Some(p),
+                            _ => None,
+                        };
+                        self.place_para(ctx, pb, keep_with, src)?;
+                    }
                     Built::Table(tb) => self.place_table(ctx, tb)?,
                     Built::Skip => {}
                 }

@@ -11,7 +11,7 @@ use bo_model::{
     fingerprint, Alignment, Block, Border, Borders, Cell, CellVAlign, Document, HeightRule, Image,
     LineSpacing, ParaProps, Paragraph, Raw, RevisionInfo, Run, RunContent, RunProps, Section,
     SectionBreak, StyleKind, TabAlign, TabLeader, Table, TableProps, TableWidth, Underline, VMerge,
-    VertAlign, Wrap,
+    VertAlign, Wrap, WrapText,
 };
 use bo_opc::xml::escape;
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -474,14 +474,27 @@ impl Writer<'_> {
                 "<w:drawing><wp:inline xmlns:wp=\"{WP_NS}\" distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:docPr id=\"{id}\" name=\"Picture {id}\" descr=\"{descr}\"/>{graphic}</wp:inline></w:drawing>"
             ),
             Some(a) => {
+                // §20.4.3.7 ST_WrapText
+                let side = match a.wrap_text {
+                    WrapText::BothSides => "bothSides",
+                    WrapText::Left => "left",
+                    WrapText::Right => "right",
+                    WrapText::Largest => "largest",
+                };
+                let [dt, db, dl, dr] = a.dist.map(|d| d.0);
                 let wrap = match a.wrap {
                     Wrap::None => "<wp:wrapNone/>".to_owned(),
-                    Wrap::Square => "<wp:wrapSquare wrapText=\"bothSides\"/>".to_owned(),
-                    Wrap::Tight => "<wp:wrapTight wrapText=\"bothSides\"><wp:wrapPolygon edited=\"0\"><wp:start x=\"0\" y=\"0\"/><wp:lineTo x=\"0\" y=\"21600\"/><wp:lineTo x=\"21600\" y=\"21600\"/><wp:lineTo x=\"21600\" y=\"0\"/><wp:lineTo x=\"0\" y=\"0\"/></wp:wrapPolygon></wp:wrapTight>".to_owned(),
+                    // §20.4.2.17 wrapSquare
+                    Wrap::Square => format!("<wp:wrapSquare wrapText=\"{side}\"/>"),
+                    // §20.4.2.20 wrapTight with its §20.4.2.16 wrapPolygon (a rectangle).
+                    Wrap::Tight => {
+                        let [x0, y0, x1, y1] = a.polygon.unwrap_or([0, 0, 21_600, 21_600]);
+                        format!("<wp:wrapTight wrapText=\"{side}\"><wp:wrapPolygon edited=\"0\"><wp:start x=\"{x0}\" y=\"{y0}\"/><wp:lineTo x=\"{x0}\" y=\"{y1}\"/><wp:lineTo x=\"{x1}\" y=\"{y1}\"/><wp:lineTo x=\"{x1}\" y=\"{y0}\"/><wp:lineTo x=\"{x0}\" y=\"{y0}\"/></wp:wrapPolygon></wp:wrapTight>")
+                    }
                     Wrap::TopAndBottom => "<wp:wrapTopAndBottom/>".to_owned(),
                 };
                 format!(
-                    "<w:drawing><wp:anchor xmlns:wp=\"{WP_NS}\" distT=\"0\" distB=\"0\" distL=\"114300\" distR=\"114300\" simplePos=\"0\" relativeHeight=\"{id}\" behindDoc=\"{}\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"{}\"><wp:posOffset>{}</wp:posOffset></wp:positionH><wp:positionV relativeFrom=\"{}\"><wp:posOffset>{}</wp:posOffset></wp:positionV><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>{wrap}<wp:docPr id=\"{id}\" name=\"Picture {id}\" descr=\"{descr}\"/><wp:cNvGraphicFramePr/>{graphic}</wp:anchor></w:drawing>",
+                    "<w:drawing><wp:anchor xmlns:wp=\"{WP_NS}\" distT=\"{dt}\" distB=\"{db}\" distL=\"{dl}\" distR=\"{dr}\" simplePos=\"0\" relativeHeight=\"{id}\" behindDoc=\"{}\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"{}\"><wp:posOffset>{}</wp:posOffset></wp:positionH><wp:positionV relativeFrom=\"{}\"><wp:posOffset>{}</wp:posOffset></wp:positionV><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>{wrap}<wp:docPr id=\"{id}\" name=\"Picture {id}\" descr=\"{descr}\"/><wp:cNvGraphicFramePr/>{graphic}</wp:anchor></w:drawing>",
                     u8::from(a.behind),
                     escape(&a.h_relative),
                     a.x.0,

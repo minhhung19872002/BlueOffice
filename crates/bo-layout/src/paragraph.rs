@@ -8,7 +8,7 @@ use crate::RevisionView;
 use bo_model::index::para_index;
 use bo_model::{
     Alignment, Borders, Color, Document, Image, LineSpacing, ParaProps, Paragraph, RunContent,
-    RunProps, TabAlign, TabLeader, TabStop, Twips,
+    RunProps, TabAlign, TabLeader, TabStop, Twips, WrapText,
 };
 use bo_text::{FaceId, FontManager, ShapedGlyph};
 use std::collections::HashMap;
@@ -50,6 +50,105 @@ impl Draft {
     }
 }
 
+/// Area kept free of text by a square/tight-wrapped picture (ECMA-376 Part 1,
+/// §20.4.2.17 wrapSquare, §20.4.2.20 wrapTight), relative to the paragraph: y from
+/// the top of its first line, x from the left of its content box. Distances from
+/// text (`distT`…) are included.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct WrapZone {
+    pub top: f32,
+    pub bottom: f32,
+    pub left: f32,
+    pub right: f32,
+    /// Sides text may flow on (§20.4.3.7 `ST_WrapText`).
+    pub side: WrapText,
+}
+
+/// Narrowest text segment beside a wrapped picture (narrower gaps stay empty).
+pub(crate) const MIN_SEGMENT: f32 = 18.0;
+
+/// Text segments `(start x, width)` of a line spanning `y..y + h` between `x0` and
+/// `x1`, left to right, around the zones it overlaps.
+fn segments(zones: &[WrapZone], x0: f32, x1: f32, y: f32, h: f32) -> Vec<(f32, f32)> {
+    let mut segs = vec![(x0, x1)];
+    for z in zones {
+        if y >= z.bottom || y + h <= z.top {
+            continue;
+        }
+        let mut next = Vec::with_capacity(segs.len() + 1);
+        for &(a, b) in &segs {
+            if z.right <= a || z.left >= b {
+                next.push((a, b));
+                continue;
+            }
+            let left = (a, z.left.min(b));
+            let right = (z.right.max(a), b);
+            let wl = left.1 - left.0;
+            let wr = right.1 - right.0;
+            match z.side {
+                WrapText::BothSides => {
+                    next.push(left);
+                    next.push(right);
+                }
+                WrapText::Left => next.push(left),
+                WrapText::Right => next.push(right),
+                WrapText::Largest => next.push(if wr > wl { right } else { left }),
+            }
+        }
+        segs = next;
+    }
+    let out: Vec<(f32, f32)> = segs
+        .into_iter()
+        .filter(|(a, b)| b - a >= MIN_SEGMENT)
+        .map(|(a, b)| (a, (b - a).max(1.0)))
+        .collect();
+    if out.is_empty() {
+        // No room beside the picture: the flow moves such lines below it.
+        vec![(x0, (x1 - x0).max(1.0))]
+    } else {
+        out
+    }
+}
+
+/// Height of a line made of `pieces` (same rules as the positioning pass, §17.3.1.33).
+fn row_height(
+    pieces: &[Piece],
+    styles: &[RunStyle],
+    fonts: &FontManager,
+    mark: &RunStyle,
+    spacing: LineSpacing,
+) -> f32 {
+    let (mut ascent, mut descent, mut gap) = (0.0f32, 0.0f32, 0.0f32);
+    let mut metric = |face: FaceId, size: f32, shift: f32| {
+        let info = fonts.info(face);
+        let scale = size / f32::from(info.units_per_em);
+        ascent = ascent.max(f32::from(info.ascender) * scale - shift.min(0.0));
+        descent = descent.max(-f32::from(info.descender) * scale + shift.max(0.0));
+        gap = gap.max(f32::from(info.line_gap) * scale);
+    };
+    let mut obj = 0.0f32;
+    for p in pieces {
+        if p.kind == Kind::Object && p.image.is_some() {
+            obj = obj.max(p.obj_h);
+        } else {
+            let st = &styles[p.style];
+            metric(p.face, st.size, st.shift);
+        }
+    }
+    if pieces
+        .iter()
+        .all(|p| !matches!(p.kind, Kind::Text | Kind::Space | Kind::Object))
+    {
+        metric(mark.face, mark.size, 0.0);
+    }
+    let natural = ascent.max(obj) + descent + gap;
+    match spacing {
+        LineSpacing::Auto(v) => natural * v as f32 / 240.0,
+        LineSpacing::Exact(t) => t.to_pt(),
+        LineSpacing::AtLeast(t) => natural.max(t.to_pt()),
+    }
+}
+
 const LINE_SEP: char = '\u{2028}';
 const PAGE_SEP: char = '\u{000C}';
 const COL_SEP: char = '\u{000B}';
@@ -77,6 +176,8 @@ pub(crate) struct ParaInput<'a> {
     pub note_numbers: &'a HashMap<NoteKey, String>,
     /// Number shown by a `footnoteRef` mark inside a note's own text.
     pub note_mark: Option<&'a str>,
+    /// Square/tight-wrapped pictures the lines flow around (empty: none).
+    pub wrap: &'a [WrapZone],
     /// How tracked changes are shown.
     pub view: RevisionView,
 }
@@ -231,6 +332,12 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     inp.doc.default_run.hash(&mut h);
     inp.note_mark.hash(&mut h);
     inp.view.hash(&mut h);
+    for z in inp.wrap {
+        for v in [z.top, z.bottom, z.left, z.right] {
+            v.to_bits().hash(&mut h);
+        }
+        z.side.hash(&mut h);
+    }
     // Page-dependent fields and note numbers only matter when present.
     if inp.para.runs.iter().any(|r| {
         r.content.iter().any(|c| {
@@ -446,6 +553,65 @@ fn layout_uncached(
     let mut line_breaks: Vec<Option<Kind>> = Vec::new();
     let mut cur: Vec<Piece> = Vec::new();
     let mut queue: std::collections::VecDeque<Word> = words.into();
+    // Segments of each line: (first piece, start x, width). One per line unless the
+    // line flows around a wrapped picture.
+    let mut segs: Vec<Vec<(usize, f32, f32)>> = Vec::new();
+    if !inp.wrap.is_empty() {
+        let x1 = inp.width - indent_right;
+        let mut y = 0.0f32;
+        let mut prev_h: Option<f32> = None;
+        let mut row: Vec<(f32, f32)> = Vec::new();
+        let mut cur_segs: Vec<(usize, f32, f32)> = Vec::new();
+        while let Some(word) = queue.pop_front() {
+            let is_first = lines.is_empty();
+            if row.is_empty() {
+                let h = prev_h.unwrap_or_else(|| {
+                    row_height(&word.pieces, &styles, fonts, &mark_style, spacing)
+                });
+                let x0 = indent_left + if is_first { first } else { 0.0 };
+                row = segments(inp.wrap, x0, x1, y, h);
+                cur_segs = vec![(0, row[0].0, row[0].1)];
+            }
+            let seg = cur_segs.len() - 1;
+            let (seg_start, start_x, max) = cur_segs[seg];
+            let mut trial = cur[seg_start..].to_vec();
+            trial.extend(word.pieces.iter().cloned());
+            let (_, ink) = position(&trial, start_x, &tab_ctx);
+            let overflow = ink > max + 0.01;
+            if overflow && seg + 1 < row.len() {
+                // Continue on the other side of the picture.
+                cur_segs.push((cur.len(), row[seg + 1].0, row[seg + 1].1));
+                queue.push_front(word);
+                continue;
+            }
+            if overflow && cur.is_empty() && word.char_count() > 1 {
+                for w2 in explode(&word, fonts).into_iter().rev() {
+                    queue.push_front(w2);
+                }
+                continue;
+            }
+            let end = if overflow && !cur.is_empty() {
+                queue.push_front(word);
+                Some(None)
+            } else {
+                let brk = word.brk();
+                cur.extend(word.pieces);
+                brk.map(Some)
+            };
+            if let Some(brk) = end {
+                let h = row_height(&cur, &styles, fonts, &mark_style, spacing);
+                lines.push(std::mem::take(&mut cur));
+                line_breaks.push(brk);
+                segs.push(std::mem::take(&mut cur_segs));
+                row.clear();
+                y += h;
+                prev_h = Some(h);
+            }
+        }
+        if !cur_segs.is_empty() {
+            segs.push(cur_segs);
+        }
+    }
     while let Some(word) = queue.pop_front() {
         let is_first = lines.is_empty();
         let start_x = indent_left + if is_first { first } else { 0.0 };
@@ -478,53 +644,22 @@ fn layout_uncached(
         line_breaks.push(None);
     }
     let n_lines = lines.len();
+    segs.truncate(n_lines);
+    while segs.len() < n_lines {
+        let is_first = segs.is_empty();
+        segs.push(vec![(
+            0,
+            indent_left + if is_first { first } else { 0.0 },
+            avail(is_first),
+        )]);
+    }
 
     // 4. Position pieces → fragments, carets, alignment and line height.
     let mut out: Vec<RelLine> = Vec::with_capacity(n_lines);
     let para_end = index_text.len() as u32;
-    for (li, pieces) in lines.into_iter().enumerate() {
-        let is_first = li == 0;
+    for (li, line_pieces) in lines.into_iter().enumerate() {
         let is_last = li + 1 == n_lines;
-        let start_x = indent_left + if is_first { first } else { 0.0 };
-        let max = avail(is_first);
         let brk = line_breaks[li];
-        let (xs, ink_end) = position(&pieces, start_x, &tab_ctx);
-        let slack = (max - ink_end).max(0.0);
-        let justify = align == Alignment::Justify && !is_last && brk.is_none();
-        let last_tab = pieces.iter().rposition(|p| p.kind == Kind::Tab);
-        let last_ink = pieces
-            .iter()
-            .rposition(|p| matches!(p.kind, Kind::Text | Kind::Object));
-        let stretchable = |i: usize, p: &Piece| {
-            p.kind == Kind::Space
-                && last_tab.is_none_or(|t| i > t)
-                && last_ink.is_some_and(|l| i < l)
-        };
-        let space_count: usize = if justify {
-            pieces
-                .iter()
-                .enumerate()
-                .filter(|(i, p)| stretchable(*i, p))
-                .map(|(_, p)| p.text.chars().count())
-                .sum()
-        } else {
-            0
-        };
-        let per_space = if space_count > 0 {
-            slack / space_count as f32
-        } else {
-            0.0
-        };
-        let offset = if last_tab.is_some() {
-            0.0
-        } else {
-            match align {
-                Alignment::Center => slack / 2.0,
-                Alignment::Right => slack,
-                _ => 0.0,
-            }
-        };
-
         let mut ascent = 0.0f32;
         let mut descent = 0.0f32;
         let mut gap = 0.0f32;
@@ -533,113 +668,159 @@ fn layout_uncached(
         let mut objects = Vec::new();
         let mut highlights = Vec::new();
         let mut notes = Vec::new();
-        let mut extra = 0.0f32;
-        for (i, p) in pieces.iter().enumerate() {
-            let st = &styles[p.style];
-            let info = fonts.info(p.face);
-            let scale = st.size / f32::from(info.units_per_em);
-            if p.kind == Kind::Object && p.image.is_some() {
-                ascent = ascent.max(p.obj_h);
+        let mut first_caret = None;
+        let line_segs = &segs[li];
+        for (sk, &(s0, start_x, max)) in line_segs.iter().enumerate() {
+            let s1 = line_segs.get(sk + 1).map_or(line_pieces.len(), |s| s.0);
+            let pieces = &line_pieces[s0.min(s1)..s1];
+            let last_seg = sk + 1 == line_segs.len();
+            let (xs, ink_end) = position(pieces, start_x, &tab_ctx);
+            let slack = (max - ink_end).max(0.0);
+            let justify = align == Alignment::Justify && (!last_seg || (!is_last && brk.is_none()));
+            let last_tab = pieces.iter().rposition(|p| p.kind == Kind::Tab);
+            let last_ink = pieces
+                .iter()
+                .rposition(|p| matches!(p.kind, Kind::Text | Kind::Object));
+            let stretchable = |i: usize, p: &Piece| {
+                p.kind == Kind::Space
+                    && last_tab.is_none_or(|t| i > t)
+                    && last_ink.is_some_and(|l| i < l)
+            };
+            let space_count: usize = if justify {
+                pieces
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, p)| stretchable(*i, p))
+                    .map(|(_, p)| p.text.chars().count())
+                    .sum()
             } else {
-                ascent = ascent.max(f32::from(info.ascender) * scale - st.shift.min(0.0));
-                descent = descent.max(-f32::from(info.descender) * scale + st.shift.max(0.0));
-                gap = gap.max(f32::from(info.line_gap) * scale);
-            }
-            let x0 = offset + xs[i] + extra;
-            let x_next = offset + xs[i + 1] + extra;
-            if p.kind == Kind::Tab {
-                if let Some(leader) = leader_at(&tab_ctx, xs[i + 1]) {
-                    if let Some(f) = leader_fragment(fonts, st, p.face, leader, x0, x_next) {
-                        frags.push(f);
-                    }
+                0
+            };
+            let per_space = if space_count > 0 {
+                slack / space_count as f32
+            } else {
+                0.0
+            };
+            let offset = if last_tab.is_some() {
+                0.0
+            } else {
+                match align {
+                    Alignment::Center => slack / 2.0,
+                    Alignment::Right => slack,
+                    _ => 0.0,
                 }
-            }
-            if !p.virtual_ {
-                let w = if p.kind == Kind::Tab {
-                    x_next - x0
+            };
+            first_caret.get_or_insert(start_x + offset);
+
+            let mut extra = 0.0f32;
+            for (i, p) in pieces.iter().enumerate() {
+                let st = &styles[p.style];
+                let info = fonts.info(p.face);
+                let scale = st.size / f32::from(info.units_per_em);
+                if p.kind == Kind::Object && p.image.is_some() {
+                    ascent = ascent.max(p.obj_h);
                 } else {
-                    p.width
-                };
-                push_carets(&mut carets, p, x0, w, scale, st.spacing);
-            }
-            if let Some(n) = p.note {
-                notes.push(n);
-            }
-            match p.kind {
-                Kind::Object if p.image.is_some() => {
-                    if let Some(img) = &p.image {
-                        objects.push(RelObject {
-                            x: x0,
-                            w: p.width,
-                            h: p.obj_h,
-                            image: img.clone(),
-                        });
+                    ascent = ascent.max(f32::from(info.ascender) * scale - st.shift.min(0.0));
+                    descent = descent.max(-f32::from(info.descender) * scale + st.shift.max(0.0));
+                    gap = gap.max(f32::from(info.line_gap) * scale);
+                }
+                let x0 = offset + xs[i] + extra;
+                let x_next = offset + xs[i + 1] + extra;
+                if p.kind == Kind::Tab {
+                    if let Some(leader) = leader_at(&tab_ctx, xs[i + 1]) {
+                        if let Some(f) = leader_fragment(fonts, st, p.face, leader, x0, x_next) {
+                            frags.push(f);
+                        }
                     }
-                    continue;
                 }
-                Kind::LineBreak | Kind::PageBreak | Kind::ColumnBreak | Kind::Tab => continue,
-                _ => {}
-            }
-            let stretch_here = per_space > 0.0 && stretchable(i, p);
-            let mut glyphs = Vec::with_capacity(p.glyphs.len());
-            let mut gx = 0.0f32;
-            for g in p.glyphs.iter() {
-                glyphs.push(GlyphPos {
-                    id: g.glyph_id,
-                    x: gx + g.x_offset as f32 * scale,
-                    y: -(g.y_offset as f32) * scale + st.shift,
-                    cluster: g.cluster,
-                });
-                gx += g.x_advance as f32 * scale + st.spacing;
+                if !p.virtual_ {
+                    let w = if p.kind == Kind::Tab {
+                        x_next - x0
+                    } else {
+                        p.width
+                    };
+                    push_carets(&mut carets, p, x0, w, scale, st.spacing);
+                }
+                if let Some(n) = p.note {
+                    notes.push(n);
+                }
+                match p.kind {
+                    Kind::Object if p.image.is_some() => {
+                        if let Some(img) = &p.image {
+                            objects.push(RelObject {
+                                x: x0,
+                                w: p.width,
+                                h: p.obj_h,
+                                image: img.clone(),
+                            });
+                        }
+                        continue;
+                    }
+                    Kind::LineBreak | Kind::PageBreak | Kind::ColumnBreak | Kind::Tab => continue,
+                    _ => {}
+                }
+                let stretch_here = per_space > 0.0 && stretchable(i, p);
+                let mut glyphs = Vec::with_capacity(p.glyphs.len());
+                let mut gx = 0.0f32;
+                for g in p.glyphs.iter() {
+                    glyphs.push(GlyphPos {
+                        id: g.glyph_id,
+                        x: gx + g.x_offset as f32 * scale,
+                        y: -(g.y_offset as f32) * scale + st.shift,
+                        cluster: g.cluster,
+                    });
+                    gx += g.x_advance as f32 * scale + st.spacing;
+                    if stretch_here {
+                        gx += per_space;
+                    }
+                }
                 if stretch_here {
-                    gx += per_space;
+                    extra += per_space * p.text.chars().count() as f32;
                 }
-            }
-            if stretch_here {
-                extra += per_space * p.text.chars().count() as f32;
-            }
-            if let Some(h) = st.highlight {
-                highlights.push((x0, gx, h));
-            }
-            if let Some(last) = frags.last_mut() {
-                let same = last.face == p.face
-                    && last.size == st.size
-                    && last.color == st.color
-                    && last.underline == st.underline
-                    && last.strike == st.strike
-                    && last.double_strike == st.double_strike
-                    && last.link == st.link
-                    && (last.x + last.width - x0).abs() < 0.001
-                    && last.glyphs.iter().all(|g| (g.y - st.shift).abs() < 1e-4)
-                    && glyphs.iter().all(|g| (g.y - st.shift).abs() < 1e-4);
-                if same {
-                    let dx = x0 - last.x;
-                    let base = last.text.len() as u32;
-                    last.glyphs.extend(glyphs.into_iter().map(|g| GlyphPos {
-                        x: g.x + dx,
-                        cluster: g.cluster + base,
-                        ..g
-                    }));
-                    last.width = dx + gx;
-                    last.text.push_str(&p.text);
-                    continue;
+                if let Some(h) = st.highlight {
+                    highlights.push((x0, gx, h));
                 }
+                if let Some(last) = frags.last_mut() {
+                    let same = last.face == p.face
+                        && last.size == st.size
+                        && last.color == st.color
+                        && last.underline == st.underline
+                        && last.strike == st.strike
+                        && last.double_strike == st.double_strike
+                        && last.link == st.link
+                        && (last.x + last.width - x0).abs() < 0.001
+                        && last.glyphs.iter().all(|g| (g.y - st.shift).abs() < 1e-4)
+                        && glyphs.iter().all(|g| (g.y - st.shift).abs() < 1e-4);
+                    if same {
+                        let dx = x0 - last.x;
+                        let base = last.text.len() as u32;
+                        last.glyphs.extend(glyphs.into_iter().map(|g| GlyphPos {
+                            x: g.x + dx,
+                            cluster: g.cluster + base,
+                            ..g
+                        }));
+                        last.width = dx + gx;
+                        last.text.push_str(&p.text);
+                        continue;
+                    }
+                }
+                frags.push(Draft {
+                    face: p.face,
+                    size: st.size,
+                    x: x0,
+                    y: 0.0,
+                    width: gx,
+                    color: st.color,
+                    underline: st.underline,
+                    strike: st.strike,
+                    double_strike: st.double_strike,
+                    text: p.text.clone(),
+                    glyphs,
+                    link: st.link.clone(),
+                });
             }
-            frags.push(Draft {
-                face: p.face,
-                size: st.size,
-                x: x0,
-                y: 0.0,
-                width: gx,
-                color: st.color,
-                underline: st.underline,
-                strike: st.strike,
-                double_strike: st.double_strike,
-                text: p.text.clone(),
-                glyphs,
-                link: st.link.clone(),
-            });
         }
+        let pieces = &line_pieces;
         if pieces
             .iter()
             .all(|p| !matches!(p.kind, Kind::Text | Kind::Space | Kind::Object))
@@ -677,7 +858,7 @@ fn layout_uncached(
             )
         };
         if carets.is_empty() {
-            carets.push((start, start_x + offset));
+            carets.push((start, first_caret.unwrap_or(indent_left)));
         }
         carets.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
         carets.dedup_by_key(|c| c.0);

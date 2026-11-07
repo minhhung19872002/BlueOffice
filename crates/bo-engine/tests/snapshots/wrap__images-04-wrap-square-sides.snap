@@ -1,0 +1,30 @@
+---
+source: crates/bo-engine/tests/wrap.rs
+expression: summary(&e)
+---
+page 1
+  image 85.1,56.7 72.0x72.0
+  image 229.1,114.3 72.0x72.0
+  image 229.1,189.0 72.0x54.0
+  image 229.1,281.0 72.0x54.0
+  image 193.1,355.8 72.0x54.0
+  line 56.7: [166.1–546.4] Căn cứ Luật Tổ chức Chính phủ ngày 19 tháng 6 năm 2015;Căn cứ Luật
+  line 73.9: [166.1–525.1] Tổ chức Chính phủ ngày 19 tháng 6 năm 2015;Căn cứ Luật Tổ chức
+  line 91.1: [166.1–369.0] Chính phủ ngày 19 tháng 6 năm 2015;
+  line 114.3: [166.1–211.5] Theo đề | [310.0–529.1] nghị của Giám đốc Trung tâm Công nghệ
+  line 131.5: [85.1–219.4] thông tin (giả định);Theo | [310.0–544.6] đề nghị của Giám đốc Trung tâm Công nghệ
+  line 148.7: [85.1–219.4] thông tin (giả định);Theo | [310.0–544.6] đề nghị của Giám đốc Trung tâm Công nghệ
+  line 165.8: [85.1–192.6] thông tin (giả định);
+  line 189.0: [85.1–209.6] Quyết định này có hiệu | [310.0–553.4] lực kể từ ngày ký ban hành.Quyết định này có
+  line 206.2: [85.1–204.6] hiệu lực kể từ ngày ký
+  line 223.4: [85.1–219.0] ban hành.Quyết định này
+  line 240.6: [85.1–220.1] có hiệu lực kể từ ngày ký
+  line 257.8: [85.1–138.8] ban hành.
+  line 281.0: [310.0–538.2] Các đơn vị, cá nhân có liên quan chịu trách
+  line 298.2: [310.0–536.1] nhiệm thi hành.Các đơn vị, cá nhân có liên
+  line 315.4: [310.0–552.7] quan chịu trách nhiệm thi hành.Các đơn vị, cá
+  line 332.6: [310.0–544.7] nhân có liên quan chịu trách nhiệm thi hành.
+  line 355.8: [274.0–531.8] Căn cứ Luật Tổ chức Chính phủ ngày 19 tháng 6
+  line 372.9: [274.0–545.2] năm 2015;Căn cứ Luật Tổ chức Chính phủ ngày 19
+  line 390.1: [274.0–542.3] tháng 6 năm 2015;Căn cứ Luật Tổ chức Chính phủ
+  line 407.3: [274.0–419.2] ngày 19 tháng 6 năm 2015;

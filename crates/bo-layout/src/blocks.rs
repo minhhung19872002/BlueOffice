@@ -6,7 +6,7 @@
 //! band are relative to its top-left corner (x = 0 is the left edge of the
 //! content box the band was laid out for).
 
-use crate::paragraph::{layout_paragraph, FieldContext, LayoutCache, ParaInput, RelLine};
+use crate::paragraph::{layout_paragraph, FieldContext, LayoutCache, ParaInput, RelLine, WrapZone};
 use crate::style::{para_props, ListCounters};
 use crate::types::{Layer, Line, LineSource, NoteKey, PageItem};
 use crate::{LayoutError, RevisionView};
@@ -132,6 +132,8 @@ pub(crate) struct ParaBlock {
     /// Depends only on the paragraph and the width: no list label, fields or note
     /// references (so it can be reused by the incremental layout).
     pub pure: bool,
+    /// List label (kept to lay the paragraph out again around wrapped pictures).
+    pub label: Option<(String, bo_model::RunProps, String)>,
 }
 
 impl ParaBlock {
@@ -242,17 +244,57 @@ pub(crate) fn build_para(
     } else {
         LineSource::Other
     };
+    para_block(ctx, p, props, label, source, width, note_mark, pure, &[])
+}
+
+/// Lay a top-level body paragraph out again so that its lines flow around wrapped
+/// pictures (same list label and id as `pb`, built by [`build_para`]).
+pub(crate) fn rewrap_para(
+    ctx: &mut Ctx<'_>,
+    p: &Paragraph,
+    pb: &ParaBlock,
+    width: f32,
+    zones: &[WrapZone],
+) -> Result<ParaBlock, LayoutError> {
+    let props = para_props(ctx.doc, p);
+    let source = LineSource::Body(0);
+    para_block(
+        ctx,
+        p,
+        props,
+        pb.label.clone(),
+        source,
+        width,
+        None,
+        pb.pure,
+        zones,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn para_block(
+    ctx: &mut Ctx<'_>,
+    p: &Paragraph,
+    props: bo_model::ParaProps,
+    label: Option<(String, bo_model::RunProps, String)>,
+    source: LineSource,
+    width: f32,
+    note_mark: Option<&str>,
+    pure: bool,
+    wrap: &[WrapZone],
+) -> Result<ParaBlock, LayoutError> {
     let inp = ParaInput {
         doc: ctx.doc,
         para: p,
         props,
-        label,
+        label: label.clone(),
         width,
         fields: ctx.fields,
         default_tab: ctx.default_tab,
         note_numbers: &ctx.notes,
         note_mark,
         view: ctx.view,
+        wrap,
     };
     let pl = layout_paragraph(&inp, ctx.fonts, ctx.cache)?;
     let lines = pl.lines.iter().map(|l| rel_line_band(l, source)).collect();
@@ -280,6 +322,7 @@ pub(crate) fn build_para(
         deco,
         floats: pl.floats.clone(),
         pure,
+        label,
     })
 }
 

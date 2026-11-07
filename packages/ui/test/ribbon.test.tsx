@@ -57,7 +57,7 @@ describe('Ribbon', () => {
                     label: 'Màu chữ',
                     onSelect: () => {},
                     render: (
-                      <Popover label="Màu chữ" testId="color">
+                      <Popover label="Màu chữ" testId="color" trigger="A">
                         {(close) => (
                           <button
                             type="button"

@@ -1,11 +1,11 @@
 import type {
   DocInfo,
-  EditCommand,
   EditResult,
   EngineHost,
   FontSource,
   GlyphOutline,
   PageDisplayList,
+  TimedCommand,
 } from '../types';
 import type { EngineRequest, EngineResponse } from './protocol';
 
@@ -89,7 +89,7 @@ export class WebEngineHost implements EngineHost {
     return this.call<DocInfo>({ method: 'new', name });
   }
 
-  command(cmd: EditCommand): Promise<EditResult> {
+  command(cmd: TimedCommand): Promise<EditResult> {
     return this.call<EditResult>({ method: 'command', json: JSON.stringify(cmd) });
   }
 

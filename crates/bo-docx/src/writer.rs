@@ -9,9 +9,9 @@
 use crate::{Result, CT_DOCUMENT, CT_STYLES};
 use bo_model::{
     fingerprint, Alignment, Block, Border, Borders, Cell, CellVAlign, Document, HeightRule, Image,
-    LineSpacing, ParaProps, Paragraph, Raw, Run, RunContent, RunProps, Section, SectionBreak,
-    StyleKind, TabAlign, TabLeader, Table, TableProps, TableWidth, Underline, VMerge, VertAlign,
-    Wrap,
+    LineSpacing, ParaProps, Paragraph, Raw, RevisionInfo, Run, RunContent, RunProps, Section,
+    SectionBreak, StyleKind, TabAlign, TabLeader, Table, TableProps, TableWidth, Underline, VMerge,
+    VertAlign, Wrap,
 };
 use bo_opc::xml::escape;
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -47,6 +47,16 @@ const CT_FOOTNOTES: &str =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml";
 const CT_ENDNOTES: &str =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml";
+const CT_COMMENTS: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml";
+const CT_COMMENTS_EXT: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml";
+const CT_COMMENTS_IDS: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml";
+const W14_NS: &str = "http://schemas.microsoft.com/office/word/2010/wordml";
+const W15_NS: &str = "http://schemas.microsoft.com/office/word/2012/wordml";
+const W16CID_NS: &str = "http://schemas.microsoft.com/office/word/2016/wordml/cid";
+const MC_NS: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
 
 /// Relationships of the main document part being written.
 struct Rels {
@@ -119,6 +129,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
     w.write_main(&main)?;
     w.write_styles(&main)?;
     w.write_numbering(&main)?;
+    w.write_comments(&main)?;
     if doc.source.is_none() {
         w.write_settings(&main)?;
         w.write_notes()?;
@@ -245,11 +256,10 @@ impl Writer<'_> {
             if let Some(link) = &run.props.link {
                 // Group consecutive runs with the same link into one w:hyperlink (§17.16.22).
                 let mut j = i;
-                let mut inner = String::new();
                 while j < p.runs.len() && p.runs[j].props.link.as_ref() == Some(link) {
-                    inner.push_str(&self.run(&p.runs[j]));
                     j += 1;
                 }
+                let inner = self.tracked_runs(&p.runs[i..j]);
                 if let Some(anchor) = link.strip_prefix('#') {
                     let _ = write!(
                         s,
@@ -265,11 +275,61 @@ impl Writer<'_> {
                 }
                 i = j;
             } else {
-                s.push_str(&self.run(run));
-                i += 1;
+                let mut j = i;
+                while j < p.runs.len() && p.runs[j].props.link.is_none() {
+                    j += 1;
+                }
+                let inner = self.tracked_runs(&p.runs[i..j]);
+                s.push_str(&inner);
+                i = j;
             }
         }
         s.push_str("</w:p>");
+        s
+    }
+
+    /// Runs wrapped in their tracked-change containers: consecutive runs with the same
+    /// insertion share one `w:ins`/`w:moveTo` (§17.13.5.18 / §17.13.5.25), deletions a
+    /// `w:del`/`w:moveFrom` inside it (§17.13.5.14 / §17.13.5.22).
+    fn tracked_runs(&mut self, runs: &[Run]) -> String {
+        let mut s = String::new();
+        let mut i = 0;
+        while i < runs.len() {
+            let ins = runs[i].props.ins.clone();
+            let mut j = i;
+            while j < runs.len() && runs[j].props.ins == ins {
+                j += 1;
+            }
+            let mut inner = String::new();
+            let mut k = i;
+            while k < j {
+                let del = runs[k].props.del.clone();
+                let mut m = k;
+                let mut x = String::new();
+                while m < j && runs[m].props.del == del {
+                    x.push_str(&self.run(&runs[m]));
+                    m += 1;
+                }
+                match &del {
+                    Some(d) => inner.push_str(&rev_wrap(
+                        if d.moved { "moveFrom" } else { "del" },
+                        &d.info,
+                        &x,
+                    )),
+                    None => inner.push_str(&x),
+                }
+                k = m;
+            }
+            match &ins {
+                Some(m) => s.push_str(&rev_wrap(
+                    if m.moved { "moveTo" } else { "ins" },
+                    &m.info,
+                    &inner,
+                )),
+                None => s.push_str(&inner),
+            }
+            i = j;
+        }
         s
     }
 
@@ -280,6 +340,12 @@ impl Writer<'_> {
         } else {
             format!("<w:rPr>{rpr}</w:rPr>")
         };
+        // §17.3.3.7 delText / §17.16.13 delInstrText inside w:del.
+        let deleted = run.props.del.as_ref().is_some_and(|d| !d.moved);
+        let text_tag = if deleted { "delText" } else { "t" };
+        // fldSimple may not appear inside a run-level track change (CT_RunTrackChange):
+        // tracked fields are written as complex fields (§17.16.18 fldChar).
+        let complex_fields = run.props.ins.is_some() || run.props.del.is_some();
         let mut out = String::new();
         let mut cur = String::new();
         let flush = |out: &mut String, cur: &mut String| {
@@ -291,7 +357,11 @@ impl Writer<'_> {
         for c in &run.content {
             match c {
                 RunContent::Text(t) => {
-                    let _ = write!(cur, "<w:t xml:space=\"preserve\">{}</w:t>", escape(t));
+                    let _ = write!(
+                        cur,
+                        "<w:{text_tag} xml:space=\"preserve\">{}</w:{text_tag}>",
+                        escape(t)
+                    );
                 }
                 RunContent::Tab => cur.push_str("<w:tab/>"),
                 RunContent::LineBreak => cur.push_str("<w:br/>"),
@@ -320,6 +390,16 @@ impl Writer<'_> {
                     };
                     cur.push_str(&xml);
                 }
+                RunContent::Field { instr, cached } if complex_fields => {
+                    flush(&mut out, &mut cur);
+                    let it = if deleted { "delInstrText" } else { "instrText" };
+                    let _ = write!(
+                        out,
+                        "<w:r>{rpr}<w:fldChar w:fldCharType=\"begin\"/></w:r><w:r>{rpr}<w:{it} xml:space=\"preserve\"> {} </w:{it}></w:r><w:r>{rpr}<w:fldChar w:fldCharType=\"separate\"/></w:r><w:r>{rpr}<w:{text_tag} xml:space=\"preserve\">{}</w:{text_tag}></w:r><w:r>{rpr}<w:fldChar w:fldCharType=\"end\"/></w:r>",
+                        escape(instr),
+                        escape(cached)
+                    );
+                }
                 RunContent::Field { instr, cached } => {
                     flush(&mut out, &mut cur);
                     // §17.16.19 fldSimple with cached result.
@@ -333,6 +413,19 @@ impl Writer<'_> {
                 RunContent::Markup(r) => {
                     flush(&mut out, &mut cur);
                     out.push_str(&r.xml);
+                }
+                // §17.13.4.4 / §17.13.4.3: range marks live outside runs.
+                RunContent::CommentStart(id) => {
+                    flush(&mut out, &mut cur);
+                    let _ = write!(out, "<w:commentRangeStart w:id=\"{id}\"/>");
+                }
+                RunContent::CommentEnd(id) => {
+                    flush(&mut out, &mut cur);
+                    let _ = write!(out, "<w:commentRangeEnd w:id=\"{id}\"/>");
+                }
+                // §17.13.4.5 commentReference
+                RunContent::CommentRef(id) => {
+                    let _ = write!(cur, "<w:commentReference w:id=\"{id}\"/>");
                 }
             }
         }
@@ -768,14 +861,134 @@ impl Writer<'_> {
         Ok(())
     }
 
+    /// Comments (ECMA-376 Part 1, §17.13.4.6 `comments.xml`) and their threading
+    /// extension ([MS-DOCX] §2.5.2 `commentsExtended.xml`, `commentsIds.xml`).
+    /// Parts of an unchanged source are kept verbatim.
+    fn write_comments(&mut self, main: &str) -> Result<()> {
+        let doc = self.doc;
+        match &doc.source {
+            Some(src) if src.comments_fingerprint == fingerprint(&doc.comments) => return Ok(()),
+            None if doc.comments.is_empty() => return Ok(()),
+            _ => {}
+        }
+        let root = doc
+            .source
+            .as_ref()
+            .and_then(|s| s.comments_root.clone())
+            .unwrap_or_else(|| {
+                format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:comments xmlns:w=\"{W_NS}\" xmlns:r=\"{R_NS}\" xmlns:wp=\"{WP_NS}\" xmlns:a=\"{A_NS}\" xmlns:pic=\"{PIC_NS}\">")
+            });
+        let root = with_namespace(&root, "w14", W14_NS);
+        let mut s = root;
+        for c in &doc.comments {
+            let _ = write!(
+                s,
+                "<w:comment w:id=\"{}\" w:author=\"{}\"",
+                c.id,
+                escape(&c.author)
+            );
+            if let Some(d) = &c.date {
+                let _ = write!(s, " w:date=\"{}\"", escape(d));
+            }
+            if let Some(i) = &c.initials {
+                let _ = write!(s, " w:initials=\"{}\"", escape(i));
+            }
+            s.push('>');
+            let last = c
+                .blocks
+                .iter()
+                .rposition(|b| matches!(b, Block::Paragraph(_)));
+            for (i, b) in c.blocks.iter().enumerate() {
+                let xml = self.block(b);
+                match (&c.para_id, Some(i) == last) {
+                    (Some(pid), true) => s.push_str(&with_para_id(&xml, pid)),
+                    _ => s.push_str(&xml),
+                }
+            }
+            if last.is_none() {
+                match &c.para_id {
+                    Some(pid) => {
+                        let _ = write!(s, "<w:p w14:paraId=\"{pid}\"/>");
+                    }
+                    None => s.push_str("<w:p/>"),
+                }
+            }
+            s.push_str("</w:comment>");
+        }
+        s.push_str("</w:comments>");
+        let part = self
+            .pkg
+            .related_part(main, crate::reader::REL_COMMENTS)?
+            .unwrap_or_else(|| "/word/comments.xml".into());
+        self.pkg.add_part(&part, CT_COMMENTS, s.into_bytes())?;
+        self.rels.id_for(crate::reader::REL_COMMENTS, &part, false);
+
+        // [MS-DOCX] §2.5.2 commentsEx: one entry per comment with a paraId.
+        let mut ext = format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w15:commentsEx xmlns:w15=\"{W15_NS}\" xmlns:mc=\"{MC_NS}\" mc:Ignorable=\"w15\">");
+        let mut any = false;
+        for c in &doc.comments {
+            let Some(pid) = &c.para_id else { continue };
+            any = true;
+            let _ = write!(ext, "<w15:commentEx w15:paraId=\"{}\"", escape(pid));
+            if let Some(parent) = &c.parent_para_id {
+                let _ = write!(ext, " w15:paraIdParent=\"{}\"", escape(parent));
+            }
+            let _ = write!(ext, " w15:done=\"{}\"/>", u8::from(c.done));
+        }
+        ext.push_str("</w15:commentsEx>");
+        let has_ext = self
+            .pkg
+            .related_part(main, crate::reader::REL_COMMENTS_EXT)?;
+        if any || has_ext.is_some() {
+            let part = has_ext.unwrap_or_else(|| "/word/commentsExtended.xml".into());
+            self.pkg
+                .add_part(&part, CT_COMMENTS_EXT, ext.into_bytes())?;
+            self.rels
+                .id_for(crate::reader::REL_COMMENTS_EXT, &part, false);
+        }
+        // commentsIds is written when the source had one or durable ids are known.
+        let ids_part = self
+            .pkg
+            .related_part(main, crate::reader::REL_COMMENTS_IDS)?
+            .or_else(|| {
+                doc.comments
+                    .iter()
+                    .any(|c| c.durable_id.is_some())
+                    .then(|| "/word/commentsIds.xml".to_owned())
+            });
+        if let Some(part) = ids_part {
+            let mut ids = format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w16cid:commentsIds xmlns:w16cid=\"{W16CID_NS}\" xmlns:mc=\"{MC_NS}\" mc:Ignorable=\"w16cid\">");
+            for c in &doc.comments {
+                let Some(pid) = &c.para_id else { continue };
+                let durable = c
+                    .durable_id
+                    .clone()
+                    .unwrap_or_else(|| format!("{:08X}", fingerprint(&(pid, c.id)) & 0x7FFF_FFFF));
+                let _ = write!(
+                    ids,
+                    "<w16cid:commentId w16cid:paraId=\"{}\" w16cid:durableId=\"{}\"/>",
+                    escape(pid),
+                    escape(&durable)
+                );
+            }
+            ids.push_str("</w16cid:commentsIds>");
+            self.pkg
+                .add_part(&part, CT_COMMENTS_IDS, ids.into_bytes())?;
+            self.rels
+                .id_for(crate::reader::REL_COMMENTS_IDS, &part, false);
+        }
+        Ok(())
+    }
+
     fn write_settings(&mut self, _main: &str) -> Result<()> {
         let mut s = format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:settings xmlns:w=\"{W_NS}\">");
-        if self.doc.even_and_odd_headers {
-            s.push_str("<w:evenAndOddHeaders/>");
-        }
+        // CT_Settings order (§17.15.1.78): defaultTabStop precedes evenAndOddHeaders.
         // §17.15.1.25 defaultTabStop (omitted ⇒ 720).
         if let Some(t) = self.doc.default_tab_stop {
             let _ = write!(s, "<w:defaultTabStop w:val=\"{}\"/>", t.0);
+        }
+        if self.doc.even_and_odd_headers {
+            s.push_str("<w:evenAndOddHeaders/>");
         }
         let _ = write!(s, "<w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/></w:compat></w:settings>");
         self.pkg
@@ -815,6 +1028,36 @@ impl Writer<'_> {
 }
 
 // ---------------------------------------------------------------- property serialization
+
+/// Add `xmlns:{prefix}` to a root start tag that does not declare it.
+fn with_namespace(root: &str, prefix: &str, ns: &str) -> String {
+    let decl = format!("xmlns:{prefix}=");
+    if root.contains(&decl) {
+        return root.to_owned();
+    }
+    match root.rfind('>') {
+        Some(i) => format!("{} xmlns:{prefix}=\"{ns}\"{}", &root[..i], &root[i..]),
+        None => root.to_owned(),
+    }
+}
+
+/// Give the paragraph start tag of `xml` a `w14:paraId` when it has none.
+fn with_para_id(xml: &str, pid: &str) -> String {
+    let Some(end) = xml.find('>') else {
+        return xml.to_owned();
+    };
+    let tag = &xml[..end];
+    if tag.contains(":paraId=") {
+        return xml.to_owned();
+    }
+    let at = if tag.ends_with('/') { end - 1 } else { end };
+    format!(
+        "{} w14:paraId=\"{}\"{}",
+        &xml[..at],
+        escape(pid),
+        &xml[at..]
+    )
+}
 
 /// CT_PPrBase element order (ECMA-376 Part 1, §17.3.1.26).
 const PPR_ORDER: &[&str] = &[
@@ -965,6 +1208,41 @@ fn raw_items(raws: &[Raw]) -> Vec<(String, String)> {
 fn ordered(order: &[&str], mut items: Vec<(String, String)>) -> String {
     items.sort_by_key(|(n, _)| order.iter().position(|o| o == n).unwrap_or(order.len()));
     items.into_iter().map(|(_, x)| x).collect()
+}
+
+/// `w:id`, `w:author`, `w:date` of a tracked change (§17.13.5 `CT_TrackChange`).
+fn rev_attrs(info: &RevisionInfo) -> String {
+    let mut s = format!(
+        " w:id=\"{}\" w:author=\"{}\"",
+        info.id,
+        escape(&info.author)
+    );
+    if let Some(d) = &info.date {
+        let _ = write!(s, " w:date=\"{}\"", escape(d));
+    }
+    s
+}
+
+/// A run-level track-change container around `inner`.
+fn rev_wrap(tag: &str, info: &RevisionInfo, inner: &str) -> String {
+    format!("<w:{tag}{}>{inner}</w:{tag}>", rev_attrs(info))
+}
+
+/// Paragraph-mark revisions (§17.13.5.16 ins / §17.13.5.15 del in `w:pPr/w:rPr`).
+fn mark_revisions(p: &ParaProps) -> String {
+    let mut s = String::new();
+    for (m, ins) in [(&p.mark_ins, true), (&p.mark_del, false)] {
+        if let Some(m) = m {
+            let tag = match (ins, m.moved) {
+                (true, false) => "ins",
+                (true, true) => "moveTo",
+                (false, false) => "del",
+                (false, true) => "moveFrom",
+            };
+            let _ = write!(s, "<w:{tag}{}/>", rev_attrs(&m.info));
+        }
+    }
+    s
 }
 
 fn flag(name: &str, v: Option<bool>) -> Option<(String, String)> {
@@ -1139,7 +1417,46 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
             format!("<w:outlineLvl w:val=\"{l}\"/>"),
         ));
     }
-    v.extend(raw_items(&p.unknown));
+    let marks = mark_revisions(p);
+    let mut has_rpr = false;
+    for (name, xml) in raw_items(&p.unknown) {
+        if name == "rPr" && !marks.is_empty() {
+            // CT_ParaRPr: ins/del/moveFrom/moveTo come first (§17.3.1.29).
+            has_rpr = true;
+            let xml = match xml.find('>') {
+                Some(i) if xml[..i].ends_with('/') => {
+                    format!("{}>{marks}</w:rPr>", &xml[..i - 1])
+                }
+                Some(i) => format!("{}{marks}{}", &xml[..=i], &xml[i + 1..]),
+                None => xml,
+            };
+            v.push((name, xml));
+        } else {
+            v.push((name, xml));
+        }
+    }
+    if !has_rpr && !marks.is_empty() {
+        v.push(("rPr".into(), format!("<w:rPr>{marks}</w:rPr>")));
+    }
+    if let Some(c) = &p.change {
+        // §17.13.5.29 pPrChange holds a CT_PPrBase (no rPr / sectPr / pPrChange).
+        let mut old = c.old.clone();
+        old.change = None;
+        old.mark_ins = None;
+        old.mark_del = None;
+        let inner: Vec<(String, String)> = ppr_children(&old)
+            .into_iter()
+            .filter(|(n, _)| !matches!(n.as_str(), "rPr" | "sectPr" | "pPrChange"))
+            .collect();
+        v.push((
+            "pPrChange".into(),
+            format!(
+                "<w:pPrChange{}><w:pPr>{}</w:pPr></w:pPrChange>",
+                rev_attrs(&c.info),
+                ordered(PPR_ORDER, inner)
+            ),
+        ));
+    }
     v
 }
 
@@ -1228,6 +1545,21 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
         ));
     }
     v.extend(raw_items(&p.unknown));
+    if let Some(c) = &p.change {
+        // §17.13.5.31 rPrChange holds a CT_RPrOriginal (no rPrChange of its own).
+        let inner: Vec<(String, String)> = rpr_children(&c.old.without_revisions())
+            .into_iter()
+            .filter(|(n, _)| n != "rPrChange")
+            .collect();
+        v.push((
+            "rPrChange".into(),
+            format!(
+                "<w:rPrChange{}><w:rPr>{}</w:rPr></w:rPrChange>",
+                rev_attrs(&c.info),
+                ordered(RPR_ORDER, inner)
+            ),
+        ));
+    }
     v
 }
 

@@ -25,9 +25,17 @@ import {
   AlignRight,
   Baseline,
   Bold,
+  Check,
+  CheckCheck,
+  ChevronLeft,
+  ChevronRight,
+  CircleX,
   ClipboardPaste,
+  CircleCheck,
   Copy,
+  Eye,
   FileDown,
+  FilePenLine,
   FilePlus,
   FileText,
   FolderOpen,
@@ -42,8 +50,11 @@ import {
   ListIndentIncrease,
   ListOrdered,
   Maximize2,
+  MessageSquarePlus,
+  MessagesSquare,
   MoonStar,
   Omega,
+  PanelRight,
   Pilcrow,
   Printer,
   Redo2,
@@ -76,6 +87,7 @@ import { CommandRegistry } from './commands';
 import { DocController } from './controller';
 import styles from './Editor.module.css';
 import { FindPanel, SymbolPanel } from './Panels';
+import { CommentsPanel, ReviewPanel } from './ReviewPanel';
 import { createEditorStore, type EditorState } from './store';
 
 /** Options controlled by the embedding host (prompt §3.5). */
@@ -158,6 +170,8 @@ function EditorInner({
       store.setState({ doc: info, page: 0, status: { kind: 'idle' }, edit: null, panel: null });
       view.current?.setDocument(info);
       platform.window.setTitle(`${info.name} — ${t('app.doc')}`);
+      // New revisions and comments are attributed to the signed-in user (fallback "BlueOffice").
+      await controller.current?.run({ cmd: 'setAuthor', name: platform.auth.user?.name ?? '' });
       await controller.current?.run({ cmd: 'state' });
       view.current?.focus();
       onDocumentOpened?.(info.name, info.pageCount);
@@ -216,7 +230,9 @@ function EditorInner({
       v,
       platform.clipboard,
       (r) => {
-        store.setState({ edit: r, doc: r.info });
+        store.setState(
+          r.review ? { edit: r, doc: r.info, review: r.review } : { edit: r, doc: r.info },
+        );
         if (r.error) fail('errors.edit', r.error);
       },
       (e) => fail('errors.edit', e),
@@ -615,6 +631,116 @@ function EditorInner({
         store.setState({ language: next });
       },
     });
+    // Review: track changes (ECMA-376 Part 1, §17.13.5).
+    const rv = (s: EditorState) => s.review;
+    r.register({
+      id: 'review.trackChanges',
+      shortcut: 'Ctrl+Shift+R',
+      isEnabled: hasDoc,
+      isChecked: (s) => !!rv(s)?.trackChanges,
+      run: (s) => run({ cmd: 'setTrackChanges', on: !rv(s)?.trackChanges }),
+    });
+    const hasRevisions = (s: EditorState) => hasDoc(s) && (rv(s)?.revisions.length ?? 0) > 0;
+    r.register({
+      id: 'review.accept',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'acceptRevision' }),
+    });
+    r.register({
+      id: 'review.reject',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'rejectRevision' }),
+    });
+    r.register({
+      id: 'review.acceptAll',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'acceptAllRevisions' }),
+    });
+    r.register({
+      id: 'review.rejectAll',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'rejectAllRevisions' }),
+    });
+    r.register({
+      id: 'review.next',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'nextRevision', forward: true }),
+    });
+    r.register({
+      id: 'review.previous',
+      isEnabled: hasRevisions,
+      run: () => run({ cmd: 'nextRevision', forward: false }),
+    });
+    for (const [id, view] of [
+      ['review.viewMarkup', 'markup'],
+      ['review.viewFinal', 'final'],
+      ['review.viewOriginal', 'original'],
+    ] as const) {
+      r.register({
+        id,
+        isEnabled: hasDoc,
+        isChecked: (s) => (rv(s)?.view ?? 'markup') === view,
+        run: () => run({ cmd: 'setRevisionView', view }),
+      });
+    }
+    r.register({
+      id: 'review.pane',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.panel === 'review',
+      run: (s) => store.setState({ panel: s.panel === 'review' ? null : 'review' }),
+    });
+    // Comments (ECMA-376 Part 1, §17.13.4) with replies.
+    const hasComments = (s: EditorState) => hasDoc(s) && (rv(s)?.comments.length ?? 0) > 0;
+    // The comment whose range holds the caret (else the first one).
+    const current = (s: EditorState) => {
+      const list = rv(s)?.comments ?? [];
+      const at = s.edit?.selection.focus;
+      const le = (a: { p: number; o: number }, b: { p: number; o: number }) =>
+        a.p < b.p || (a.p === b.p && a.o <= b.o);
+      return (
+        list.find(
+          (c) => c.parent === null && at && c.start && c.end && le(c.start, at) && le(at, c.end),
+        ) ?? list.find((c) => c.parent === null)
+      );
+    };
+    r.register({
+      id: 'review.newComment',
+      shortcut: 'Ctrl+Alt+M',
+      isEnabled: hasDoc,
+      run: () => store.setState({ panel: 'comments' }),
+    });
+    r.register({
+      id: 'review.comments',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.panel === 'comments',
+      run: (s) => store.setState({ panel: s.panel === 'comments' ? null : 'comments' }),
+    });
+    r.register({
+      id: 'review.deleteComment',
+      isEnabled: hasComments,
+      run: async (s) => {
+        const c = current(s);
+        if (c) await run({ cmd: 'deleteComment', id: c.id });
+      },
+    });
+    r.register({
+      id: 'review.resolveComment',
+      isEnabled: hasComments,
+      run: async (s) => {
+        const c = current(s);
+        if (c) await run({ cmd: 'resolveComment', id: c.id, done: !c.done });
+      },
+    });
+    r.register({
+      id: 'review.nextComment',
+      isEnabled: hasComments,
+      run: () => run({ cmd: 'nextComment', forward: true }),
+    });
+    r.register({
+      id: 'review.previousComment',
+      isEnabled: hasComments,
+      run: () => run({ cmd: 'nextComment', forward: false }),
+    });
     // Page setup dialogs arrive with the ruler (see docs/plan/phase-2.md, "Hạn chế").
     for (const id of ['layout.margins', 'layout.orientation', 'layout.size']) {
       r.register({ id, isEnabled: () => false, run: () => {} });
@@ -816,6 +942,63 @@ function EditorInner({
       ],
     },
     {
+      id: 'review',
+      label: t('ribbon.tabs.review'),
+      groups: [
+        {
+          id: 'tracking',
+          label: t('ribbon.groups.tracking'),
+          items: [
+            item(
+              'review.trackChanges',
+              'commands.review.trackChanges',
+              <FilePenLine size={ICON} />,
+            ),
+            s('review.viewMarkup', 'commands.review.viewMarkup', <Eye size={SMALL} />),
+            s('review.viewFinal', 'commands.review.viewFinal', <Eye size={SMALL} />),
+            s('review.viewOriginal', 'commands.review.viewOriginal', <Eye size={SMALL} />),
+            item('review.pane', 'commands.review.pane', <PanelRight size={ICON} />),
+          ],
+        },
+        {
+          id: 'changes',
+          label: t('ribbon.groups.changes'),
+          items: [
+            item('review.accept', 'commands.review.accept', <Check size={ICON} />),
+            item('review.reject', 'commands.review.reject', <CircleX size={ICON} />),
+            s('review.acceptAll', 'commands.review.acceptAll', <CheckCheck size={SMALL} />),
+            s('review.rejectAll', 'commands.review.rejectAll', <X size={SMALL} />),
+            s('review.previous', 'commands.review.previous', <ChevronLeft size={SMALL} />),
+            s('review.next', 'commands.review.next', <ChevronRight size={SMALL} />),
+          ],
+        },
+        {
+          id: 'comments',
+          label: t('ribbon.groups.comments'),
+          items: [
+            item(
+              'review.newComment',
+              'commands.review.newComment',
+              <MessageSquarePlus size={ICON} />,
+            ),
+            item('review.comments', 'commands.review.comments', <MessagesSquare size={ICON} />),
+            s(
+              'review.resolveComment',
+              'commands.review.resolveComment',
+              <CircleCheck size={SMALL} />,
+            ),
+            s('review.deleteComment', 'commands.review.deleteComment', <X size={SMALL} />),
+            s(
+              'review.previousComment',
+              'commands.review.previousComment',
+              <ChevronLeft size={SMALL} />,
+            ),
+            s('review.nextComment', 'commands.review.nextComment', <ChevronRight size={SMALL} />),
+          ],
+        },
+      ],
+    },
+    {
       id: 'view',
       label: t('ribbon.tabs.view'),
       groups: [
@@ -898,6 +1081,22 @@ function EditorInner({
               <FindPanel
                 run={runCommand}
                 replace={state.panel === 'replace'}
+                onClose={closePanel}
+              />
+            )}
+            {state.panel === 'review' && (
+              <ReviewPanel
+                review={state.review}
+                run={runCommand}
+                language={state.language}
+                onClose={closePanel}
+              />
+            )}
+            {state.panel === 'comments' && (
+              <CommentsPanel
+                review={state.review}
+                run={runCommand}
+                language={state.language}
                 onClose={closePanel}
               />
             )}

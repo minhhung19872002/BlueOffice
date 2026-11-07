@@ -58,6 +58,18 @@ const CT_ENDNOTES: &str =
 const CT_SETTINGS: &str =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml";
 const CT_CORE: &str = "application/vnd.openxmlformats-package.core-properties+xml";
+const REL_COMMENTS: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
+const REL_COMMENTS_EXT: &str =
+    "http://schemas.microsoft.com/office/2011/relationships/commentsExtended";
+const REL_COMMENTS_IDS: &str =
+    "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds";
+const CT_COMMENTS: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml";
+const CT_COMMENTS_EXT: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml";
+const CT_COMMENTS_IDS: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml";
 
 /// Package parts of one corpus file.
 #[derive(Default)]
@@ -73,6 +85,9 @@ struct Doc {
     settings: Option<String>,
     images: Vec<(String, Vec<u8>)>,
     links: Vec<(String, String)>,
+    /// Further parts related to the main document: (file name in /word, content type,
+    /// relationship type, complete XML).
+    extra: Vec<(&'static str, &'static str, &'static str, String)>,
 }
 
 fn wrap(root: &str, inner: &str) -> String {
@@ -165,6 +180,10 @@ impl Doc {
         for (id, url) in &self.links {
             rel(id, REL_HYPERLINK, url, true);
         }
+        for (i, (name, ct, ty, xml)) in self.extra.iter().enumerate() {
+            p.add_part(&format!("/word/{name}"), ct, xml.clone().into_bytes())?;
+            rel(&format!("rIdX{}", i + 1), ty, name, false);
+        }
         p.set_relationships("/word/document.xml", &rels);
         let core = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>BlueOffice corpus</dc:title><dc:creator>bo-cli corpus</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">2026-11-07T00:00:00Z</dcterms:created></cp:coreProperties>"#;
@@ -188,6 +207,15 @@ impl Doc {
         );
         p.write()
     }
+}
+
+/// Initials of an author name (w:initials).
+fn initials(author: &str) -> String {
+    author
+        .split_whitespace()
+        .filter_map(|w| w.chars().next())
+        .flat_map(char::to_uppercase)
+        .collect()
 }
 
 fn notes(kind: &str, inner: &str) -> String {
@@ -893,6 +921,118 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         body: [
             r#"<w:p><w:r><w:t xml:space="preserve">Văn bản </w:t></w:r><w:ins w:id="10" w:author="Người dùng A" w:date="2026-11-07T08:00:00Z"><w:r><w:t>được chèn</w:t></w:r></w:ins><w:del w:id="11" w:author="Người dùng A" w:date="2026-11-07T08:01:00Z"><w:r><w:delText xml:space="preserve"> bị xoá</w:delText></w:r></w:del></w:p>"#.to_owned(),
             r#"<w:p><w:pPr><w:jc w:val="center"/><w:pPrChange w:id="12" w:author="B" w:date="2026-11-07T09:00:00Z"><w:pPr><w:jc w:val="left"/></w:pPr></w:pPrChange></w:pPr><w:r><w:rPr><w:b/><w:rPrChange w:id="13" w:author="B" w:date="2026-11-07T09:00:00Z"><w:rPr/></w:rPrChange></w:rPr><w:t>Đổi định dạng</w:t></w:r></w:p>"#.to_owned(),
+            lorem(1),
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+
+    // ---- review: tracked changes (ECMA-376 Part 1, §17.13.5)
+    let d1 = r#"w:author="Nguyễn Văn An" w:date="2026-11-07T08:00:00Z""#;
+    let d2 = r#"w:author="Trần Thị Bình" w:date="2026-11-07T09:15:00Z""#;
+    // ---- comments (§17.13.4) with replies ([MS-DOCX] commentsExtended / commentsIds)
+    let comments_part = |inner: &str| {
+        (
+            "comments.xml",
+            CT_COMMENTS,
+            REL_COMMENTS,
+            wrap("comments", inner),
+        )
+    };
+    let comment = |id: i32, author: &str, date: &str, pid: &str, text: &str| {
+        format!(
+            r#"<w:comment w:id="{id}" w:author="{author}" w:date="{date}" w:initials="{}"><w:p w14:paraId="{pid}" w14:textId="77777777"><w:pPr><w:pStyle w:val="CommentText"/></w:pPr><w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:annotationRef/></w:r><w:r><w:t>{text}</w:t></w:r></w:p></w:comment>"#,
+            initials(author)
+        )
+    };
+    let cref = |id: i32| {
+        format!(
+            r#"<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="{id}"/></w:r>"#
+        )
+    };
+    v.push(("comments-01-basic.docx", "comments", "Chú thích một đoạn chữ, chú thích trải qua hai đoạn, chú thích tại một điểm (chỉ commentReference)", Doc {
+        body: [
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Căn cứ </w:t></w:r><w:commentRangeStart w:id="0"/><w:r><w:t>Luật Tổ chức Chính phủ</w:t></w:r><w:commentRangeEnd w:id="0"/>{}<w:r><w:t>;</w:t></w:r></w:p>"#, cref(0)),
+            format!(r#"<w:p><w:commentRangeStart w:id="1"/><w:r><w:t>Đoạn thứ nhất của vùng chú thích.</w:t></w:r></w:p><w:p><w:r><w:t>Đoạn thứ hai</w:t></w:r><w:commentRangeEnd w:id="1"/>{}</w:p>"#, cref(1)),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Chú thích tại điểm</w:t></w:r>{}<w:r><w:t>.</w:t></w:r></w:p>"#, cref(2)),
+        ].concat(),
+        sect: s.clone(),
+        extra: vec![comments_part(&[
+            comment(0, "Nguyễn Văn An", "2026-11-07T08:00:00Z", "0A000001", "Ghi rõ năm ban hành."),
+            comment(1, "Trần Thị Bình", "2026-11-07T08:30:00Z", "0A000002", "Hai đoạn này cần gộp."),
+            comment(2, "Nguyễn Văn An", "2026-11-07T09:00:00Z", "0A000003", "Thêm ví dụ."),
+        ].concat())],
+        ..Doc::default()
+    }));
+    v.push(("comments-02-replies.docx", "comments", "Luồng trả lời (w15:commentEx paraIdParent), luồng đã xử lý (done), chú thích nhiều đoạn", Doc {
+        body: [
+            format!(r#"<w:p><w:commentRangeStart w:id="10"/><w:commentRangeStart w:id="11"/><w:r><w:t>Kinh phí thực hiện</w:t></w:r><w:commentRangeEnd w:id="10"/>{}<w:commentRangeEnd w:id="11"/>{}<w:r><w:t xml:space="preserve"> do ngân sách bảo đảm.</w:t></w:r></w:p>"#, cref(10), cref(11)),
+            format!(r#"<w:p><w:commentRangeStart w:id="12"/><w:r><w:t>Thời hạn hoàn thành</w:t></w:r><w:commentRangeEnd w:id="12"/>{}</w:p>"#, cref(12)),
+        ].concat(),
+        sect: s.clone(),
+        extra: vec![
+            comments_part(&[
+                comment(10, "Nguyễn Văn An", "2026-11-07T08:00:00Z", "0B000001", "Bao nhiêu?"),
+                comment(11, "Trần Thị Bình", "2026-11-07T08:10:00Z", "0B000002", "150 triệu đồng."),
+                r#"<w:comment w:id="12" w:author="Lê Văn Cường" w:date="2026-11-07T09:00:00Z" w:initials="LVC"><w:p w14:paraId="0B000003" w14:textId="77777777"><w:r><w:annotationRef/></w:r><w:r><w:t>Dòng một.</w:t></w:r></w:p><w:p w14:paraId="0B000004" w14:textId="77777777"><w:r><w:t>Dòng hai (đã xử lý).</w:t></w:r></w:p></w:comment>"#.to_owned(),
+            ].concat()),
+            ("commentsExtended.xml", CT_COMMENTS_EXT, REL_COMMENTS_EXT, format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w15:commentsEx {NS}><w15:commentEx w15:paraId="0B000001" w15:done="0"/><w15:commentEx w15:paraId="0B000002" w15:paraIdParent="0B000001" w15:done="0"/><w15:commentEx w15:paraId="0B000004" w15:done="1"/></w15:commentsEx>"#)),
+        ],
+        ..Doc::default()
+    }));
+    v.push(("comments-03-ids-tracked.docx", "comments", "commentsIds (w16cid durableId), chú thích trong bảng, chú thích trên vùng có track changes", Doc {
+        body: [
+            format!(r#"<w:p><w:commentRangeStart w:id="20"/><w:ins w:id="90" {d1}><w:r><w:t>Nội dung được chèn</w:t></w:r></w:ins><w:commentRangeEnd w:id="20"/>{}</w:p>"#, cref(20)),
+            table(&[4677, 4678], &[row("", &[
+                format!(r#"<w:tc><w:tcPr><w:tcW w:w="4677" w:type="dxa"/></w:tcPr><w:p><w:commentRangeStart w:id="21"/><w:r><w:t>Ô có chú thích</w:t></w:r><w:commentRangeEnd w:id="21"/>{}</w:p></w:tc>"#, cref(21)),
+                cell(4678, "", "Ô thường"),
+            ])], r#"<w:tblW w:w="0" w:type="auto"/>"#),
+            lorem(1),
+        ].concat(),
+        sect: s.clone(),
+        extra: vec![
+            comments_part(&[
+                comment(20, "Nguyễn Văn An", "2026-11-07T08:00:00Z", "0C000001", "Kiểm tra lại số liệu."),
+                comment(21, "Trần Thị Bình", "2026-11-07T08:05:00Z", "0C000002", "Ô này cần cập nhật."),
+            ].concat()),
+            ("commentsExtended.xml", CT_COMMENTS_EXT, REL_COMMENTS_EXT, format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w15:commentsEx {NS}><w15:commentEx w15:paraId="0C000001" w15:done="0"/><w15:commentEx w15:paraId="0C000002" w15:done="0"/></w15:commentsEx>"#)),
+            ("commentsIds.xml", CT_COMMENTS_IDS, REL_COMMENTS_IDS, r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w16cid:commentsIds xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:w16cid="http://schemas.microsoft.com/office/word/2016/wordml/cid" mc:Ignorable="w16cid"><w16cid:commentId w16cid:paraId="0C000001" w16cid:durableId="1A2B3C01"/><w16cid:commentId w16cid:paraId="0C000002" w16cid:durableId="1A2B3C02"/></w16cid:commentsIds>"#.to_owned()),
+        ],
+        ..Doc::default()
+    }));
+
+    v.push(("review-01-insert-delete.docx", "review", "Track changes: w:ins/w:del hai tác giả, chèn rồi xoá (ins ⊃ del), ins trong hyperlink, moveFrom/moveTo kèm range", Doc {
+        body: [
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Điều 1. </w:t></w:r><w:ins w:id="101" {d1}><w:r><w:t xml:space="preserve">Phê duyệt </w:t></w:r></w:ins><w:del w:id="102" {d2}><w:r><w:delText xml:space="preserve">Ban hành </w:delText></w:r></w:del><w:r><w:t>kế hoạch năm 2027.</w:t></w:r></w:p>"#),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Kinh phí: </w:t></w:r><w:ins w:id="103" {d1}><w:del w:id="104" {d2}><w:r><w:rPr><w:b/></w:rPr><w:delText>120 triệu đồng</w:delText></w:r></w:del></w:ins><w:ins w:id="105" {d2}><w:r><w:rPr><w:b/></w:rPr><w:t>150 triệu đồng</w:t></w:r></w:ins><w:r><w:t xml:space="preserve">, xem </w:t></w:r><w:hyperlink w:anchor="PhuLuc"><w:ins w:id="106" {d1}><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>Phụ lục</w:t></w:r></w:ins></w:hyperlink><w:r><w:t>.</w:t></w:r></w:p>"#),
+            format!(r#"<w:p><w:moveFromRangeStart w:id="107" {d1} w:name="move1"/><w:moveFrom w:id="108" {d1}><w:r><w:t>Câu được di chuyển.</w:t></w:r></w:moveFrom><w:moveFromRangeEnd w:id="107"/><w:r><w:t xml:space="preserve"> Câu giữ nguyên.</w:t></w:r></w:p>"#),
+            format!(r#"<w:p><w:bookmarkStart w:id="1" w:name="PhuLuc"/><w:r><w:t xml:space="preserve">Phụ lục. </w:t></w:r><w:bookmarkEnd w:id="1"/><w:moveToRangeStart w:id="109" {d1} w:name="move1"/><w:moveTo w:id="110" {d1}><w:r><w:t>Câu được di chuyển.</w:t></w:r></w:moveTo><w:moveToRangeEnd w:id="109"/></w:p>"#),
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+    v.push(("review-02-format-changes.docx", "review", "Track changes định dạng: rPrChange (đậm, màu, cỡ, phông), pPrChange (căn lề, thụt lề, giãn dòng, style)", Doc {
+        body: [
+            format!(r#"<w:p><w:r><w:rPr><w:b/><w:color w:val="C00000"/><w:rPrChange w:id="201" {d1}><w:rPr/></w:rPrChange></w:rPr><w:t xml:space="preserve">Đậm và đỏ, </w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="32"/><w:rPrChange w:id="202" {d2}><w:rPr><w:i/><w:sz w:val="26"/></w:rPr></w:rPrChange></w:rPr><w:t>Arial 16pt (trước: nghiêng 13pt)</w:t></w:r></w:p>"#),
+            format!(r#"<w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto"/><w:ind w:left="720" w:firstLine="567"/><w:jc w:val="both"/><w:pPrChange w:id="203" {d1}><w:pPr><w:jc w:val="left"/></w:pPr></w:pPrChange></w:pPr><w:r><w:t>Đoạn đổi sang căn đều, thụt lề và giãn dòng 1,5.</w:t></w:r></w:p>"#),
+            format!(r#"<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:pPrChange w:id="204" {d2}><w:pPr/></w:pPrChange></w:pPr><w:r><w:t>Đoạn đổi sang Heading 1</w:t></w:r></w:p>"#),
+            lorem(1),
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+    v.push(("review-03-paragraph-marks.docx", "review", "Track changes dấu đoạn: ins/del trong pPr/rPr (kèm định dạng dấu đoạn), field trong vùng chèn, bảng có ô chứa thay đổi", Doc {
+        body: [
+            format!(r#"<w:p><w:pPr><w:rPr><w:ins w:id="301" {d1}/></w:rPr></w:pPr><w:ins w:id="302" {d1}><w:r><w:t>Đoạn mới được tách ra.</w:t></w:r></w:ins></w:p>"#),
+            format!(r#"<w:p><w:pPr><w:rPr><w:del w:id="303" {d2}/><w:b/></w:rPr></w:pPr><w:r><w:t xml:space="preserve">Dấu đoạn này bị xoá, nối với đoạn sau </w:t></w:r></w:p>"#),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">(đoạn sau). Trang </w:t></w:r><w:ins w:id="304" {d1}><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:ins></w:p>"#),
+            table(&[4677, 4678], &[row("", &[
+                format!(r#"<w:tc><w:tcPr><w:tcW w:w="4677" w:type="dxa"/></w:tcPr><w:p><w:del w:id="305" {d2}><w:r><w:delText>Ô cũ</w:delText></w:r></w:del><w:ins w:id="306" {d2}><w:r><w:t>Ô mới</w:t></w:r></w:ins></w:p></w:tc>"#),
+                cell(4678, "", "Không đổi"),
+            ])], r#"<w:tblW w:w="0" w:type="auto"/>"#),
             lorem(1),
         ].concat(),
         sect: s,

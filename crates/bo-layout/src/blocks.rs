@@ -9,7 +9,7 @@
 use crate::paragraph::{layout_paragraph, FieldContext, LayoutCache, ParaInput, RelLine};
 use crate::style::{para_props, ListCounters};
 use crate::types::{Layer, Line, LineSource, NoteKey, PageItem};
-use crate::LayoutError;
+use crate::{LayoutError, RevisionView};
 use bo_model::{
     Block, Border, Borders, CellVAlign, Color, Document, HeightRule, Image, Paragraph, Table,
     TableWidth, Twips, VMerge,
@@ -36,6 +36,8 @@ pub(crate) struct Ctx<'a> {
     pub next_id: u32,
     /// Endnote ids in order of first reference.
     pub endnote_order: Vec<i32>,
+    /// How tracked changes are shown.
+    pub view: RevisionView,
 }
 
 /// Break requested after a band.
@@ -225,6 +227,7 @@ pub(crate) fn build_para(
         default_tab: ctx.default_tab,
         note_numbers: &ctx.notes,
         note_mark,
+        view: ctx.view,
     };
     let pl = layout_paragraph(&inp, ctx.fonts, ctx.cache)?;
     let lines = pl.lines.iter().map(|l| rel_line_band(l, source)).collect();

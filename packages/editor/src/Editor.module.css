@@ -224,6 +224,91 @@
   font-size: 16px;
 }
 
+.reviewPane {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  z-index: 6;
+  overflow-y: auto;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text);
+  border-left: 1px solid var(--bo-border);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.reviewHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.reviewHeader button,
+.reviewActions button,
+.commentActions button {
+  padding: 2px 8px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.reviewList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reviewItem {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius);
+  padding: 6px;
+}
+
+.reviewItemMain {
+  all: unset;
+  cursor: pointer;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.reviewKind {
+  font-weight: 600;
+}
+
+.reviewMeta {
+  color: var(--bo-text-muted);
+  font-size: 12px;
+}
+
+.reviewText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reviewActions,
+.commentActions {
+  display: flex;
+  gap: 4px;
+}
+
 .recovery {
   position: absolute;
   top: 12px;
@@ -238,4 +323,10 @@
   border: 1px solid var(--bo-accent, #2b6cb0);
   border-radius: var(--bo-radius);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.commentReply {
+  border-left: 3px solid var(--bo-border);
+  padding-left: 8px;
+  margin-left: 4px;
 }

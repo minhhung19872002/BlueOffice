@@ -6,7 +6,7 @@
 //! desktop produce byte-identical display lists (see ADR-0002).
 #![forbid(unsafe_code)]
 
-use bo_layout::{layout_document, LayoutCache, LayoutDocument};
+use bo_layout::{layout_document_with, LayoutCache, LayoutDocument, LayoutOptions, RevisionView};
 use bo_model::{Block, Document, Paragraph, Run, RunProps, Section};
 use bo_render::{build_display_list, DisplayList, PageList};
 use bo_text::{outline_svg_path, FaceId, FontManager};
@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 mod bundled;
 pub mod edit;
 pub mod nav;
+pub mod review;
 pub mod sheet;
 
 pub use edit::{Command, EditResult};
@@ -103,6 +104,10 @@ pub struct Engine {
     pres: Option<bo_model::slide::Presentation>,
     /// Images referenced by slide `Image` commands (part name -> bytes).
     images: BTreeMap<String, Vec<u8>>,
+    /// How tracked changes are displayed.
+    view: RevisionView,
+    /// Author of new revisions and comments (kept across documents).
+    author: Option<String>,
 }
 
 impl Engine {
@@ -160,11 +165,16 @@ impl Engine {
 
     /// Load an in-memory document model.
     pub fn load(&mut self, doc: Document, name: &str) -> Result<DocInfo> {
-        let layout = layout_document(&doc, &mut self.fonts, &mut self.cache)?;
+        let opts = self.options();
+        let layout = layout_document_with(&doc, &mut self.fonts, &mut self.cache, opts)?;
         let display = build_display_list(&layout, &self.fonts);
         self.name = name.to_owned();
         self.saved_doc = Some(doc.clone());
-        self.session = Some(bo_edit::Session::new(doc));
+        let mut session = bo_edit::Session::new(doc);
+        if let Some(a) = &self.author {
+            session.set_author(a);
+        }
+        self.session = Some(session);
         self.layout = Some(layout);
         self.display = Some(display);
         self.goal_x = None;
@@ -178,10 +188,21 @@ impl Engine {
         self.load(plain_text_document(""), name)
     }
 
+    /// Layout options from the view settings.
+    fn options(&self) -> LayoutOptions {
+        LayoutOptions { view: self.view }
+    }
+
+    /// How tracked changes are displayed.
+    pub fn revision_view(&self) -> RevisionView {
+        self.view
+    }
+
     /// Lay out again after an edit; returns the pages whose display list changed.
     fn relayout(&mut self) -> Result<Vec<usize>> {
+        let opts = self.options();
         let doc = self.session.as_ref().ok_or(EngineError::NoDocument)?.doc();
-        let layout = layout_document(doc, &mut self.fonts, &mut self.cache)?;
+        let layout = layout_document_with(doc, &mut self.fonts, &mut self.cache, opts)?;
         let display = build_display_list(&layout, &self.fonts);
         let old = self.display.take().unwrap_or_default();
         let dirty = if old.pages.len() == display.pages.len() {

@@ -41,11 +41,11 @@ export class DocController {
     return r;
   }
 
-  /** Run a command after the previous ones. */
+  /** Run a command after the previous ones (stamped with the host clock for revisions). */
   run(cmd: EditCommand): Promise<EditResult | null> {
     const p = this.queue.then(async () => {
       try {
-        return this.apply(await this.engine.command(cmd));
+        return this.apply(await this.engine.command({ ...cmd, now: Date.now() }));
       } catch (e) {
         this.onError(e);
         return null;

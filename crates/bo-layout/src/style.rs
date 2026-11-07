@@ -116,6 +116,88 @@ pub fn run_style(fonts: &mut FontManager, rp: &RunProps) -> Option<RunStyle> {
     })
 }
 
+/// Colours used to tell revision authors apart (BlueDoc palette).
+const AUTHOR_COLORS: [Color; 8] = [
+    Color {
+        r: 0xB3,
+        g: 0x26,
+        b: 0x1E,
+    },
+    Color {
+        r: 0x1F,
+        g: 0x5F,
+        b: 0xA8,
+    },
+    Color {
+        r: 0x2E,
+        g: 0x7D,
+        b: 0x32,
+    },
+    Color {
+        r: 0x7B,
+        g: 0x3F,
+        b: 0xA0,
+    },
+    Color {
+        r: 0xC0,
+        g: 0x5A,
+        b: 0x00,
+    },
+    Color {
+        r: 0x00,
+        g: 0x83,
+        b: 0x8F,
+    },
+    Color {
+        r: 0x8D,
+        g: 0x6E,
+        b: 0x00,
+    },
+    Color {
+        r: 0xAD,
+        g: 0x14,
+        b: 0x57,
+    },
+];
+
+/// Stable colour of a revision author.
+pub fn author_color(author: &str) -> Color {
+    let h = bo_model::fingerprint(author);
+    AUTHOR_COLORS[(h % AUTHOR_COLORS.len() as u64) as usize]
+}
+
+/// Apply the tracked-change display (ECMA-376 Part 1, §17.13.5) to a run style.
+pub fn revision_style(mut st: RunStyle, rp: &RunProps, view: crate::RevisionView) -> RunStyle {
+    use crate::RevisionView as V;
+    match view {
+        V::Markup => {
+            // A deletion wins over the insertion it removes (inserted, then deleted).
+            if let Some(d) = &rp.del {
+                st.strike = true;
+                st.color = author_color(&d.info.author);
+            } else if let Some(i) = &rp.ins {
+                st.underline = if i.moved {
+                    Underline::Double
+                } else {
+                    Underline::Single
+                };
+                st.color = author_color(&i.info.author);
+            }
+        }
+        V::Final => {
+            if rp.del.is_some() {
+                st.hidden = true;
+            }
+        }
+        V::Original => {
+            if rp.ins.is_some() {
+                st.hidden = true;
+            }
+        }
+    }
+    st
+}
+
 /// List counters (ECMA-376 Part 1, §17.9 — numbering continues per abstract definition).
 #[derive(Default, Debug, Clone)]
 pub struct ListCounters {

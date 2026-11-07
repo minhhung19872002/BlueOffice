@@ -15,7 +15,6 @@ import {
 import type {
   DocInfo,
   DocumentStorage,
-  EditCommand,
   EditResult,
   EngineHost,
   FileAccess,
@@ -25,6 +24,7 @@ import type {
   HostFileLink,
   OpenedFile,
   PageDisplayList,
+  TimedCommand,
   Platform,
   PrintService,
   RecentFile,
@@ -69,7 +69,7 @@ export class NativeEngineHost implements EngineHost {
   newDocument(name: string): Promise<DocInfo> {
     return this.call<DocInfo>('engine_new', { name });
   }
-  async command(cmd: EditCommand): Promise<EditResult> {
+  async command(cmd: TimedCommand): Promise<EditResult> {
     return JSON.parse(
       await this.call<string>('engine_command', { json: JSON.stringify(cmd) }),
     ) as EditResult;

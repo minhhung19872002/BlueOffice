@@ -114,3 +114,92 @@ fn bad_commands_and_images() {
     assert_eq!(f.document().unwrap().media.len(), 1);
     assert!(e.insert_image(vec![1, 2, 3], "x.gif").is_err());
 }
+
+#[test]
+fn track_changes_over_the_bridge_and_docx() {
+    let mut e = Engine::with_bundled_fonts();
+    e.open("Hợp đồng số 1".as_bytes(), "a.txt").unwrap();
+    cmd(&mut e, r#"{"cmd":"setAuthor","name":"Trần Thị B"}"#);
+    let r = cmd(&mut e, r#"{"cmd":"setTrackChanges","on":true}"#);
+    assert_eq!(r["review"]["trackChanges"], true);
+    assert_eq!(r["review"]["author"], "Trần Thị B");
+    // Select "số 1" and type over it: a deletion plus an insertion.
+    let start = "Hợp đồng ".len();
+    cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"setSelection","selection":{{"anchor":{{"p":0,"o":{start}}},"focus":{{"p":0,"o":{}}}}}}}"#,
+            "Hợp đồng số 1".len()
+        ),
+    );
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"insertText","text":"mới","now":1794130215000}"#,
+    );
+    let revs = r["review"]["revisions"].as_array().unwrap();
+    assert_eq!(revs.len(), 2);
+    assert_eq!(revs[0]["kind"], "delete");
+    assert_eq!(revs[1]["kind"], "insert");
+    assert_eq!(revs[1]["author"], "Trần Thị B");
+    assert_eq!(revs[1]["date"], "2026-11-08T09:30:15Z");
+    // Markup view shows both; the final view hides the deletion.
+    let page = e.page_json(0).unwrap();
+    assert!(page.contains("số 1") && page.contains("mới"));
+    cmd(&mut e, r#"{"cmd":"setRevisionView","view":"final"}"#);
+    assert!(!e.page_json(0).unwrap().contains("số 1"));
+    cmd(&mut e, r#"{"cmd":"setRevisionView","view":"markup"}"#);
+    // Saved as w:del / w:ins (ECMA-376 Part 1, §17.13.5) and read back.
+    let saved = e.save_docx().unwrap();
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "a.docx").unwrap();
+    let r = cmd(&mut f, r#"{"cmd":"review"}"#);
+    assert_eq!(r["review"]["revisions"].as_array().unwrap().len(), 2);
+    let r = cmd(&mut f, r#"{"cmd":"acceptAllRevisions"}"#);
+    assert_eq!(r["count"], 2);
+    assert_eq!(f.document().unwrap().plain_text(), "Hợp đồng mới");
+    cmd(&mut f, r#"{"cmd":"undo"}"#);
+    let id = cmd(&mut f, r#"{"cmd":"review"}"#)["review"]["revisions"][1]["id"].clone();
+    let r = cmd(&mut f, &format!(r#"{{"cmd":"rejectRevision","id":{id}}}"#));
+    assert_eq!(r["count"], 1);
+    let r = cmd(&mut f, r#"{"cmd":"rejectAllRevisions"}"#);
+    assert_eq!(r["count"], 1);
+    assert_eq!(f.document().unwrap().plain_text(), "Hợp đồng số 1");
+}
+
+#[test]
+fn comment_threads_save_and_reopen() {
+    let mut e = Engine::with_bundled_fonts();
+    e.open("Quyết định số 12".as_bytes(), "a.txt").unwrap();
+    cmd(&mut e, r#"{"cmd":"setAuthor","name":"Nguyễn Văn An"}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":0,"o":0},"focus":{"p":0,"o":3}}}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"addComment","text":"Viết hoa?"}"#);
+    let id = r["count"].as_i64().unwrap();
+    assert_eq!(r["review"]["comments"][0]["quote"], "Quy");
+    cmd(&mut e, r#"{"cmd":"setAuthor","name":"Trần Thị Bình"}"#);
+    let r = cmd(
+        &mut e,
+        &format!(r#"{{"cmd":"replyComment","id":{id},"text":"Giữ nguyên."}}"#),
+    );
+    assert_eq!(r["review"]["comments"][1]["parent"], id);
+    cmd(&mut e, &format!(r#"{{"cmd":"resolveComment","id":{id}}}"#));
+    // comments.xml + commentsExtended.xml ([MS-DOCX] paraIdParent, done).
+    let saved = e.save_docx().unwrap();
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "a.docx").unwrap();
+    let r = cmd(&mut f, r#"{"cmd":"review"}"#);
+    let list = r["review"]["comments"].as_array().unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0]["author"], "Nguyễn Văn An");
+    assert_eq!(list[0]["done"], true);
+    assert_eq!(list[1]["text"], "Giữ nguyên.");
+    assert_eq!(list[1]["parent"], list[0]["id"]);
+    assert_eq!(list[1]["quote"], "Quy");
+    let r = cmd(&mut f, &format!(r#"{{"cmd":"selectComment","id":{id}}}"#));
+    assert_eq!(r["selection"]["focus"]["o"], 3);
+    let r = cmd(&mut f, &format!(r#"{{"cmd":"deleteComment","id":{id}}}"#));
+    assert_eq!(r["review"]["comments"].as_array().unwrap().len(), 0);
+    assert_eq!(f.document().unwrap().plain_text(), "Quyết định số 12");
+}

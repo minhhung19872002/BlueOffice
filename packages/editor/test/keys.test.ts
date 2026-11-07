@@ -53,8 +53,8 @@ describe('DocController', () => {
         clip,
       }) as EditResult;
     const engine = {
-      command: async (c: EditCommand) => {
-        sent.push(c);
+      command: async ({ now: _now, ...c }: EditCommand & { now?: number }) => {
+        sent.push(c as EditCommand);
         await new Promise((r) => setTimeout(r, 1));
         return res(c.cmd === 'copy' ? { text: 'x', html: '<b>x</b>', internal: '[1]' } : undefined);
       },

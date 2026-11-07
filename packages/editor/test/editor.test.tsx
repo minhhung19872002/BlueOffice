@@ -99,7 +99,7 @@ function fakePlatform(): Platform & { opened: string[]; commands: EditCommand[];
         current = name;
         return info(name);
       },
-      command: async (cmd) => {
+      command: async ({ now: _now, ...cmd }) => {
         commands.push(cmd);
         if (cmd.cmd === 'insertText') modified = true;
         if (cmd.cmd === 'formatText') bold = !bold;

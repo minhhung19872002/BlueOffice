@@ -5,7 +5,9 @@
 //! changed (so the canvas only repaints those).
 
 use crate::nav::{self, CaretRect, Motion, SelRect};
+use crate::review::ReviewState;
 use bo_edit::{CharFormat, FindOptions, FormatState, Match, ParaFormat, Pos, Selection};
+use bo_layout::RevisionView;
 use bo_model::SectionBreak;
 use serde::{Deserialize, Serialize};
 
@@ -118,6 +120,69 @@ pub enum Command {
         #[serde(default)]
         text: Option<String>,
     },
+    /// Review state only (track changes, revisions, comments).
+    Review,
+    /// Track-changes mode on/off (ECMA-376 Part 1, §17.13.5).
+    SetTrackChanges {
+        on: bool,
+    },
+    /// Author of new revisions and comments (the signed-in user; empty = "BlueOffice").
+    SetAuthor {
+        name: String,
+    },
+    /// Markup / final / original display of tracked changes.
+    SetRevisionView {
+        view: RevisionView,
+    },
+    /// Accept one revision by id, or those at the selection when `id` is absent.
+    AcceptRevision {
+        #[serde(default)]
+        id: Option<i32>,
+    },
+    /// Reject one revision by id, or those at the selection when `id` is absent.
+    RejectRevision {
+        #[serde(default)]
+        id: Option<i32>,
+    },
+    AcceptAllRevisions,
+    RejectAllRevisions,
+    /// Select the next (`forward`) or previous revision.
+    NextRevision {
+        #[serde(default = "yes")]
+        forward: bool,
+    },
+    /// Comment on the selection (ECMA-376 Part 1, §17.13.4).
+    AddComment {
+        text: String,
+    },
+    /// Reply to comment `id` ([MS-DOCX] threading).
+    ReplyComment {
+        id: i32,
+        text: String,
+    },
+    /// Mark a thread resolved or open again.
+    ResolveComment {
+        id: i32,
+        #[serde(default = "yes")]
+        done: bool,
+    },
+    /// Delete a comment and its replies.
+    DeleteComment {
+        id: i32,
+    },
+    /// Select the text a comment is anchored to.
+    SelectComment {
+        id: i32,
+    },
+    /// Select the next (`forward`) or previous comment.
+    NextComment {
+        #[serde(default = "yes")]
+        forward: bool,
+    },
+}
+
+fn yes() -> bool {
+    true
 }
 
 fn one() -> u8 {
@@ -154,22 +219,68 @@ pub struct EditResult {
     /// Error message of a command that could not be applied (state is unchanged).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Review pane state; present after document changes and review commands.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review: Option<ReviewState>,
 }
 
 impl crate::Engine {
-    /// Run a JSON command and return the [`EditResult`] as JSON.
+    /// Run a JSON command and return the [`EditResult`] as JSON. Besides the command
+    /// fields the object may carry `now` (Unix milliseconds): the host clock used to date
+    /// new revisions and comments (browser WASM has no clock of its own).
     pub fn command_json(&mut self, json: &str) -> crate::Result<String> {
-        let cmd: Command = serde_json::from_str(json)
+        let mut v: serde_json::Value = serde_json::from_str(json)
             .map_err(|e| crate::EngineError::BadCommand(e.to_string()))?;
-        let r = self.command(cmd)?;
+        let now = v
+            .as_object_mut()
+            .and_then(|o| o.remove("now"))
+            .and_then(|n| n.as_f64());
+        let cmd: Command =
+            serde_json::from_value(v).map_err(|e| crate::EngineError::BadCommand(e.to_string()))?;
+        let r = self.command_at(cmd, now.map(|ms| ms as i64))?;
         Ok(serde_json::to_string(&r).unwrap_or_default())
     }
 
     /// Run a command.
     pub fn command(&mut self, cmd: Command) -> crate::Result<EditResult> {
+        self.command_at(cmd, None)
+    }
+
+    /// Set the clock (Unix milliseconds) used to date new revisions and comments.
+    pub fn set_clock_ms(&mut self, ms: i64) {
+        if let Some(s) = self.session.as_mut() {
+            s.set_clock(Some(crate::review::iso_date(ms)));
+        }
+    }
+
+    /// Run a command at host time `now` (Unix ms; the system clock when absent).
+    fn command_at(&mut self, cmd: Command, now: Option<i64>) -> crate::Result<EditResult> {
         let mut extra = (None, None, None);
         let mut error = None;
         let mut changed = false; // set when the document version moves
+        let mut relayout = false; // display options changed
+        let review = matches!(
+            cmd,
+            Command::State
+                | Command::Review
+                | Command::SetTrackChanges { .. }
+                | Command::SetAuthor { .. }
+                | Command::SetRevisionView { .. }
+                | Command::NextRevision { .. }
+                | Command::SelectComment { .. }
+                | Command::NextComment { .. }
+        );
+        if let Command::SetRevisionView { view } = cmd {
+            relayout = self.view != view;
+            self.view = view;
+        }
+        if let Command::SetAuthor { name } = &cmd {
+            let n = name.trim();
+            self.author = (!n.is_empty()).then(|| n.to_owned());
+        }
+        if let Some(ms) = now.or_else(crate::review::system_ms) {
+            self.set_clock_ms(ms);
+        }
         let keep_goal = matches!(
             cmd,
             Command::Move {
@@ -185,9 +296,14 @@ impl crate::Engine {
                 .ok_or(crate::EngineError::NoDocument)?;
             let before_version = s.version();
             let sel = s.selection();
+            let cmd_kind = if matches!(cmd, Command::AcceptRevision { .. }) {
+                CmdKind::Accept
+            } else {
+                CmdKind::Other
+            };
             let res: bo_edit::Result<()> = (|| {
                 match cmd {
-                    Command::State => {}
+                    Command::State | Command::Review | Command::SetRevisionView { .. } => {}
                     Command::SetSelection { selection } => s.set_selection(selection),
                     Command::Click {
                         page,
@@ -340,6 +456,38 @@ impl crate::Engine {
                             s.paste_text(&t)?;
                         }
                     }
+                    Command::SetTrackChanges { on } => s.set_track_changes(on),
+                    Command::SetAuthor { name } => s.set_author(&name),
+                    Command::AcceptRevision { id } | Command::RejectRevision { id } => {
+                        let accept = matches!(cmd_kind, CmdKind::Accept);
+                        let ids = id.map_or_else(|| s.revisions_at_selection(), |i| vec![i]);
+                        if !ids.is_empty() {
+                            extra.1 = Some(s.resolve_revisions(Some(&ids), accept)?);
+                        }
+                    }
+                    Command::AcceptAllRevisions => {
+                        extra.1 = Some(s.resolve_revisions(None, true)?);
+                    }
+                    Command::RejectAllRevisions => {
+                        extra.1 = Some(s.resolve_revisions(None, false)?);
+                    }
+                    Command::NextRevision { forward } => {
+                        extra.1 = Some(usize::from(s.select_revision(forward).is_some()));
+                    }
+                    Command::AddComment { text } => {
+                        extra.1 = Some(s.add_comment(&text)?.max(0) as usize);
+                    }
+                    Command::ReplyComment { id, text } => {
+                        extra.1 = Some(s.reply_comment(id, &text)?.max(0) as usize);
+                    }
+                    Command::ResolveComment { id, done } => s.resolve_comment(id, done)?,
+                    Command::DeleteComment { id } => s.delete_comment(id)?,
+                    Command::SelectComment { id } => {
+                        extra.1 = Some(usize::from(s.select_comment(id)));
+                    }
+                    Command::NextComment { forward } => {
+                        extra.1 = s.next_comment(forward).map(|i| i.max(0) as usize);
+                    }
                 }
                 Ok(())
             })();
@@ -351,12 +499,17 @@ impl crate::Engine {
         if !keep_goal {
             self.goal_x = None;
         }
-        let dirty = if changed {
+        let dirty = if changed || relayout {
             self.relayout()?
         } else {
             Vec::new()
         };
-        let r = self.edit_result(dirty, extra, error)?;
+        let mut r = self.edit_result(dirty, extra, error)?;
+        if changed || relayout || review {
+            if let Some(s) = self.session.as_ref() {
+                r.review = Some(crate::review::review_state(s, self.view));
+            }
+        }
         Ok(r)
     }
 
@@ -412,8 +565,15 @@ impl crate::Engine {
             count: extra.1,
             clip: extra.2,
             error,
+            review: None,
         })
     }
+}
+
+/// Distinguishes commands sharing a match arm.
+enum CmdKind {
+    Accept,
+    Other,
 }
 
 /// Pixel size of a PNG (IHDR) or JPEG (SOFn) picture.

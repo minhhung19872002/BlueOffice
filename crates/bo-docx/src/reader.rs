@@ -6,11 +6,11 @@
 use crate::{DocxError, Result};
 use bo_model::{
     fingerprint, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellProps,
-    CellVAlign, Color, Columns, Document, Emu, HalfPoints, HeaderFooter, HeightRule, Image, Level,
-    LineSpacing, Num, NumFormat, NumRef, Numbering, ParaProps, Paragraph, Raw, Row, Run,
-    RunContent, RunProps, Section, SectionBreak, SourcePackage, Style, StyleKind, StyleSheet,
-    TabAlign, TabLeader, TabStop, Table, TableProps, TableWidth, Twips, Underline, VMerge,
-    VertAlign, Wrap,
+    CellVAlign, Color, Columns, Comment, Document, Emu, HalfPoints, HeaderFooter, HeightRule,
+    Image, Level, LineSpacing, Num, NumFormat, NumRef, Numbering, ParaProps, ParaPropsChange,
+    Paragraph, Raw, RevMark, RevisionInfo, Row, Run, RunContent, RunProps, RunPropsChange, Section,
+    SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table,
+    TableProps, TableWidth, Twips, Underline, VMerge, VertAlign, Wrap,
 };
 use bo_opc::xml::{attr, unescape, XmlReader};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -26,6 +26,14 @@ const REL_FOOTNOTES: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes";
 const REL_ENDNOTES: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes";
+pub(crate) const REL_COMMENTS: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
+/// [MS-DOCX] §2.2.x commentsExtended part relationship.
+pub(crate) const REL_COMMENTS_EXT: &str =
+    "http://schemas.microsoft.com/office/2011/relationships/commentsExtended";
+/// [MS-DOCX] commentsIds part relationship.
+pub(crate) const REL_COMMENTS_IDS: &str =
+    "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds";
 
 /// Parsing context for one source part (relationships are part-relative).
 struct Ctx<'p> {
@@ -104,6 +112,29 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
             }
         }
     }
+    let mut comments_root = None;
+    let mut comments_ids = false;
+    if let Some(name) = pkg.related_part(&main, REL_COMMENTS)? {
+        if let Some(p) = pkg.part(&name) {
+            let cctx = Ctx::new(&pkg, &name)?;
+            let (root, list) = read_comments(&p.data, &cctx, &mut media)?;
+            comments_root = Some(root);
+            doc.comments = list;
+        }
+    }
+    if let Some(p) = pkg
+        .related_part(&main, REL_COMMENTS_EXT)?
+        .and_then(|n| pkg.part(&n))
+    {
+        read_comments_ext(&p.data, &p.name, &mut doc.comments)?;
+    }
+    if let Some(p) = pkg
+        .related_part(&main, REL_COMMENTS_IDS)?
+        .and_then(|n| pkg.part(&n))
+    {
+        comments_ids = true;
+        read_comments_ids(&p.data, &p.name, &mut doc.comments)?;
+    }
     let (prefix, suffix) = read_body(&main_part.data, &ctx, &mut doc, &mut media)?;
     doc.media = media;
     doc.source = Some(Arc::new(SourcePackage {
@@ -113,8 +144,112 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         body_suffix: suffix,
         styles_fingerprint: styles_fingerprint(&doc),
         numbering_fingerprint: fingerprint(&doc.numbering),
+        comments_fingerprint: fingerprint(&doc.comments),
+        comments_root,
+        comments_ids,
     }));
     Ok(doc)
+}
+
+/// `w14:paraId` of a paragraph's start tag ([MS-DOCX] §2.6.x paraId).
+pub(crate) fn para_id_of(p: &Paragraph) -> Option<String> {
+    let xml = &p.src.as_ref()?.xml;
+    let tag = &xml[..xml.find('>')?];
+    let i = tag.find(":paraId=\"")? + ":paraId=\"".len();
+    let rest = &tag[i..];
+    Some(rest[..rest.find('"')?].to_owned())
+}
+
+/// ECMA-376 Part 1, §17.13.4.6 comments. Returns the root start tag and the comments.
+fn read_comments(
+    data: &[u8],
+    ctx: &Ctx<'_>,
+    media: &mut BTreeMap<String, Arc<Vec<u8>>>,
+) -> Result<(String, Vec<Comment>)> {
+    let mut r = XmlReader::new(data, &ctx.part);
+    let mut out = Vec::new();
+    let mut root = String::new();
+    loop {
+        match r.read()? {
+            Event::Start(e) => match name(&e).as_slice() {
+                // §17.13.4.2 comment
+                b"comment" => {
+                    let mut c = Comment {
+                        id: int(&e, b"id").unwrap_or(0) as i32,
+                        author: attr(&e, b"author").unwrap_or_default(),
+                        initials: attr(&e, b"initials"),
+                        date: attr(&e, b"date"),
+                        ..Comment::default()
+                    };
+                    c.blocks = read_blocks(&mut r, ctx, media, &mut None)?;
+                    c.para_id = c
+                        .blocks
+                        .iter()
+                        .rev()
+                        .find_map(Block::as_paragraph)
+                        .and_then(para_id_of);
+                    out.push(c);
+                }
+                b"comments" => root = r.slice(0, r.pos()),
+                _ => r.skip_element()?,
+            },
+            Event::Empty(e) if name(&e) == b"comments" => {
+                root = r.slice(0, r.pos());
+                root.truncate(root.trim_end().trim_end_matches("/>").len());
+                root.push('>');
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    Ok((root, out))
+}
+
+/// [MS-DOCX] §2.5.2 `w15:commentsEx`: threading (`paraIdParent`) and the done flag.
+fn read_comments_ext(data: &[u8], part: &str, comments: &mut [Comment]) -> Result<()> {
+    let mut r = XmlReader::new(data, part);
+    loop {
+        match r.read()? {
+            Event::Start(e) | Event::Empty(e) if name(&e) == b"commentEx" => {
+                let Some(pid) = attr(&e, b"paraId") else {
+                    continue;
+                };
+                if let Some(c) = comments
+                    .iter_mut()
+                    .find(|c| c.para_id.as_deref() == Some(pid.as_str()))
+                {
+                    c.parent_para_id = attr(&e, b"paraIdParent");
+                    c.done = matches!(attr(&e, b"done").as_deref(), Some("1" | "true"));
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// [MS-DOCX] `w16cid:commentsIds`: durable comment ids.
+fn read_comments_ids(data: &[u8], part: &str, comments: &mut [Comment]) -> Result<()> {
+    let mut r = XmlReader::new(data, part);
+    loop {
+        match r.read()? {
+            Event::Start(e) | Event::Empty(e) if name(&e) == b"commentId" => {
+                let Some(pid) = attr(&e, b"paraId") else {
+                    continue;
+                };
+                if let Some(c) = comments
+                    .iter_mut()
+                    .find(|c| c.para_id.as_deref() == Some(pid.as_str()))
+                {
+                    c.durable_id = attr(&e, b"durableId");
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 /// Fingerprint of everything written to `styles.xml`.
@@ -575,9 +710,40 @@ fn read_paragraph(
     sect: &mut Option<Section>,
 ) -> Result<Paragraph> {
     let mut p = Paragraph::default();
-    read_para_children(r, ctx, media, sect, &mut p, None)?;
+    read_para_children(r, ctx, media, sect, &mut p, &RunCtx::default())?;
     collapse_simple_fields(&mut p.runs);
     Ok(p)
+}
+
+/// Properties inherited by runs from their paragraph-level wrappers.
+#[derive(Clone, Default)]
+struct RunCtx {
+    link: Option<String>,
+    ins: Option<RevMark>,
+    del: Option<RevMark>,
+}
+
+impl RunCtx {
+    fn apply(&self, props: &mut RunProps) {
+        if let Some(l) = &self.link {
+            props.link = Some(l.clone());
+        }
+        if self.ins.is_some() {
+            props.ins.clone_from(&self.ins);
+        }
+        if self.del.is_some() {
+            props.del.clone_from(&self.del);
+        }
+    }
+}
+
+/// Attributes of a tracked change (ECMA-376 Part 1, §17.13.5 `CT_TrackChange`).
+fn rev_info(e: &BytesStart<'_>) -> RevisionInfo {
+    RevisionInfo {
+        id: int(e, b"id").unwrap_or(0) as i32,
+        author: attr(e, b"author").unwrap_or_default(),
+        date: attr(e, b"date"),
+    }
 }
 
 fn read_para_children(
@@ -586,7 +752,7 @@ fn read_para_children(
     media: &mut BTreeMap<String, Arc<Vec<u8>>>,
     sect: &mut Option<Section>,
     p: &mut Paragraph,
-    link: Option<&str>,
+    rc: &RunCtx,
 ) -> Result<()> {
     children(r, |r, e, s, before| {
         match name(e).as_slice() {
@@ -595,9 +761,7 @@ fn read_para_children(
             }
             b"r" if s => {
                 let mut run = read_run(r, ctx, media)?;
-                if let Some(l) = link {
-                    run.props.link = Some(l.to_owned());
-                }
+                rc.apply(&mut run.props);
                 p.runs.push(run);
             }
             // §17.16.22 hyperlink
@@ -605,20 +769,25 @@ fn read_para_children(
                 let target = attr(e, b"id")
                     .and_then(|id| ctx.external(&id).or_else(|| ctx.target(&id)))
                     .or_else(|| attr(e, b"anchor").map(|a| format!("#{a}")));
-                read_para_children(r, ctx, media, sect, p, target.as_deref().or(link))?;
+                let inner = RunCtx {
+                    link: target.or_else(|| rc.link.clone()),
+                    ..rc.clone()
+                };
+                read_para_children(r, ctx, media, sect, p, &inner)?;
             }
             // §17.16.19 fldSimple
             b"fldSimple" => {
                 let instr = attr(e, b"instr").unwrap_or_default();
                 let mut inner = Paragraph::default();
                 if s {
-                    read_para_children(r, ctx, media, sect, &mut inner, link)?;
+                    read_para_children(r, ctx, media, sect, &mut inner, rc)?;
                 }
-                let props = inner
+                let mut props = inner
                     .runs
                     .first()
                     .map(|x| x.props.clone())
                     .unwrap_or_default();
+                rc.apply(&mut props);
                 p.runs.push(Run {
                     props,
                     content: vec![RunContent::Field {
@@ -627,20 +796,53 @@ fn read_para_children(
                     }],
                 });
             }
-            // Inserted / moved-to content is shown (§17.13.5.18, §17.13.5.25); smartTag/customXml/sdt wrappers descend.
-            b"ins" | b"moveTo" | b"smartTag" | b"customXml" if s => {
-                read_para_children(r, ctx, media, sect, p, link)?;
+            // §17.13.5.18 ins / §17.13.5.25 moveTo: inserted content; §17.13.5.14 del /
+            // §17.13.5.22 moveFrom: deleted content. Both are modelled on the runs.
+            n @ (b"ins" | b"moveTo" | b"del" | b"moveFrom") if s => {
+                let mark = RevMark {
+                    info: rev_info(e),
+                    moved: matches!(n, b"moveTo" | b"moveFrom"),
+                };
+                let mut inner = rc.clone();
+                if matches!(n, b"ins" | b"moveTo") {
+                    inner.ins = Some(mark);
+                } else {
+                    inner.del = Some(mark);
+                }
+                read_para_children(r, ctx, media, sect, p, &inner)?;
+            }
+            // §17.13.4.4 commentRangeStart / §17.13.4.3 commentRangeEnd
+            n @ (b"commentRangeStart" | b"commentRangeEnd") => {
+                if s {
+                    r.skip_element()?;
+                }
+                let id = int(e, b"id").unwrap_or(0) as i32;
+                p.runs.push(Run {
+                    props: RunProps {
+                        link: rc.link.clone(),
+                        ..RunProps::default()
+                    },
+                    content: vec![if n == b"commentRangeStart" {
+                        RunContent::CommentStart(id)
+                    } else {
+                        RunContent::CommentEnd(id)
+                    }],
+                });
+            }
+            // smartTag/customXml/sdt wrappers descend.
+            b"smartTag" | b"customXml" if s => {
+                read_para_children(r, ctx, media, sect, p, rc)?;
             }
             b"sdt" if s => {
                 children(r, |r, e, s, _| {
                     if s && name(e) == b"sdtContent" {
-                        read_para_children(r, ctx, media, sect, p, link)?;
+                        read_para_children(r, ctx, media, sect, p, rc)?;
                         return Ok(true);
                     }
                     Ok(!s)
                 })?;
             }
-            // Deleted content is not displayed (§17.13.5.14); keep it as markup.
+            // Other paragraph-level markup is kept verbatim.
             _ => {
                 let raw = capture(r, s, before)?;
                 p.runs.push(Run {
@@ -744,8 +946,8 @@ fn read_run(
     children(r, |r, e, s, before| {
         match name(e).as_slice() {
             b"rPr" if s => run.props = read_rpr(r)?,
-            // §17.3.3.31 t
-            b"t" => {
+            // §17.3.3.31 t, §17.3.3.7 delText (text of a deleted run)
+            b"t" | b"delText" => {
                 if s {
                     let t = read_text(r)?;
                     if !t.is_empty() {
@@ -771,9 +973,16 @@ fn read_run(
                 .content
                 .push(RunContent::EndnoteRef(int(e, b"id").unwrap_or(0) as i32)),
             b"footnoteRef" | b"endnoteRef" => run.content.push(RunContent::NoteMark),
+            // §17.13.4.5 commentReference
+            b"commentReference" => {
+                if s {
+                    r.skip_element()?;
+                }
+                run.content
+                    .push(RunContent::CommentRef(int(e, b"id").unwrap_or(0) as i32));
+            }
             // Rendered-page-break hints are caches; drop.
             b"lastRenderedPageBreak" => {}
-            // Deleted text (§17.13.5.14) is not displayed: kept verbatim by the fallback arm.
             // §17.3.3.9 drawing
             b"drawing" if s => {
                 let img = read_drawing(r, ctx, media)?;
@@ -1043,6 +1252,57 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
                     **out = Some(sec);
                 }
             }
+            // §17.13.5.29 pPrChange: paragraph properties before a tracked change.
+            b"pPrChange" => {
+                let info = rev_info(e);
+                let mut old = ParaProps::default();
+                if s {
+                    children(r, |r, e, s, _| {
+                        if s && name(e) == b"pPr" {
+                            old = read_ppr(r, None)?;
+                            return Ok(true);
+                        }
+                        Ok(!s)
+                    })?;
+                }
+                p.change = Some(Box::new(ParaPropsChange { info, old }));
+            }
+            // §17.3.1.29 rPr of the paragraph mark: its tracked insertion/deletion
+            // (§17.13.5.16 ins, §17.13.5.15 del, moveFrom/moveTo) is modelled, the
+            // remaining children are kept verbatim.
+            b"rPr" if s => {
+                let tag_end = r.pos();
+                let mut kept = String::new();
+                let mut last = tag_end;
+                children(r, |r, e, s, at| {
+                    let n = name(e);
+                    if matches!(n.as_slice(), b"ins" | b"del" | b"moveFrom" | b"moveTo") {
+                        let mark = RevMark {
+                            info: rev_info(e),
+                            moved: matches!(n.as_slice(), b"moveFrom" | b"moveTo"),
+                        };
+                        if matches!(n.as_slice(), b"ins" | b"moveTo") {
+                            p.mark_ins = Some(mark);
+                        } else {
+                            p.mark_del = Some(mark);
+                        }
+                        if s {
+                            r.skip_element()?;
+                        }
+                    } else {
+                        kept.push_str(&capture(r, s, at)?.xml);
+                    }
+                    last = r.pos();
+                    Ok(true)
+                })?;
+                let close = r.slice(last, r.pos());
+                let close = close.trim_start();
+                // An rPr that only held revision marks is regenerated from them.
+                if !kept.is_empty() || (p.mark_ins.is_none() && p.mark_del.is_none()) {
+                    let xml = format!("{}{kept}{close}", r.slice(before, tag_end));
+                    p.unknown.push(Raw::new(xml, 0));
+                }
+            }
             _ => {
                 let raw = capture(r, s, before)?;
                 p.unknown.push(raw);
@@ -1149,6 +1409,21 @@ fn read_rpr(r: &mut XmlReader<'_>) -> Result<RunProps> {
             }
             b"spacing" => p.spacing = twips(e, b"val"), // §17.3.2.35
             b"kern" => p.kern = int(e, b"val").map(|v| HalfPoints(v.max(0) as u32)), // §17.3.2.19
+            // §17.13.5.31 rPrChange: the run properties before a tracked formatting change.
+            b"rPrChange" => {
+                let info = rev_info(e);
+                let mut old = RunProps::default();
+                if s {
+                    children(r, |r, e, s, _| {
+                        if s && name(e) == b"rPr" {
+                            old = read_rpr(r)?;
+                            return Ok(true);
+                        }
+                        Ok(!s)
+                    })?;
+                }
+                p.change = Some(Box::new(RunPropsChange { info, old }));
+            }
             _ => {
                 let raw = capture(r, s, before)?;
                 p.unknown.push(raw);

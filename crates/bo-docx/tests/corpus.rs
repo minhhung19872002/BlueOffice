@@ -303,6 +303,26 @@ fn editing_one_paragraph_keeps_other_parts() {
     }
 }
 
+/// Writes every corpus file fully regenerated (no verbatim XML) into `$BO_REGEN_DIR`
+/// so the writer's own output can be checked with OpenXmlValidator:
+/// `BO_REGEN_DIR=out/regen cargo test -p bo-docx --test corpus -- --ignored`, then
+/// `dotnet run --project tools/BlueOffice.Validate -- out/regen`.
+#[test]
+#[ignore = "manual: dumps regenerated files for schema validation"]
+fn dump_regenerated_corpus() {
+    let Ok(dir) = std::env::var("BO_REGEN_DIR") else {
+        return;
+    };
+    std::fs::create_dir_all(&dir).expect("output dir");
+    for f in corpus() {
+        let bytes = std::fs::read(&f).expect("read corpus file");
+        let doc = read_docx(&bytes).expect("read");
+        let out = write_docx(&strip(doc)).expect("write");
+        let name = f.file_name().expect("file name");
+        std::fs::write(std::path::Path::new(&dir).join(name), out).expect("write file");
+    }
+}
+
 #[test]
 fn canonical_ignores_attribute_order_and_formatting() {
     let a = canonical(

@@ -1,5 +1,5 @@
 import type { Language } from '@blueoffice/i18n';
-import type { DocInfo, EditResult } from '@blueoffice/platform';
+import type { DocInfo, EditResult, ReviewState } from '@blueoffice/platform';
 import type { ThemeSetting } from '@blueoffice/ui';
 import { createStore } from 'zustand/vanilla';
 
@@ -19,7 +19,9 @@ export interface EditorState {
   engineReady: boolean;
   /** Latest editing result (selection, ribbon state, modified flag). */
   edit: EditResult | null;
-  panel: 'find' | 'replace' | 'symbols' | null;
+  /** Latest review state (track changes, revisions, comments). */
+  review: ReviewState | null;
+  panel: 'find' | 'replace' | 'symbols' | 'review' | 'comments' | null;
   /** Name of a document with an autosave waiting to be restored. */
   recovery: string | null;
 }
@@ -33,6 +35,7 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   status: { kind: 'idle' },
   engineReady: false,
   edit: null,
+  review: null,
   panel: null,
   recovery: null,
 });

@@ -491,9 +491,9 @@ fn indirect(ctx: &mut Ctx, args: &[Value]) -> R {
     ) {
         return Err(ErrorKind::Ref);
     }
+    // Any text that does not designate a valid reference is #REF!.
     match ctx.eval(&expr) {
         v @ (Value::Ref(_) | Value::Refs(_)) => Ok(v),
-        Value::Error(e) => Err(e),
         _ => Err(ErrorKind::Ref),
     }
 }
@@ -556,10 +556,15 @@ fn columns(_ctx: &mut Ctx, args: &[Value]) -> R {
 }
 
 fn quote_sheet(name: &str) -> String {
-    if name
+    // An external-book prefix `[Book1]` does not by itself require quotes.
+    let bare = match name.strip_prefix('[').and_then(|r| r.split_once(']')) {
+        Some((book, sheet)) if !book.is_empty() && !sheet.is_empty() => sheet,
+        _ => name,
+    };
+    if bare
         .chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
-        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && !bare.starts_with(|c: char| c.is_ascii_digit())
     {
         name.to_owned()
     } else {

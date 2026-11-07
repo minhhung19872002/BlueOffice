@@ -104,7 +104,7 @@ test('inserts a shape, shows smart guides, adds a slide and edits notes', async 
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
   await page.mouse.down();
   await page.mouse.move(b.x + b.width / 2 + 2, b.y + b.height / 2 + 40, { steps: 5 });
-  // Guide lines are zero-width SVG lines: attached, not isible.
+  // Guide lines are zero-width SVG lines: attached, not "visible".
   await expect(page.locator('[data-testid="smart-guide"][x1="480"]')).toBeAttached();
   await page.mouse.up();
   // Delete it again, then add a slide.

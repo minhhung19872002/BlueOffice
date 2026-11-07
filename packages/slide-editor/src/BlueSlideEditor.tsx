@@ -895,7 +895,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       : status;
 
   return (
-    <div className={styles.root} data-theme={theme} data-app="slide">
+    <div className={`bo-root ${styles.root}`} data-theme={theme} data-app="slide">
       {view !== 'show' && view !== 'presenter' && <Ribbon tabs={ribbonTabs} />}
       {view === 'normal' && (
         <div className={styles.normal}>

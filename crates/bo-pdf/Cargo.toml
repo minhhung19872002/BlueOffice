@@ -13,6 +13,7 @@ pdf-writer.workspace = true
 subsetter.workspace = true
 miniz_oxide = "0.8"
 thiserror.workspace = true
+png = "0.18"
 
 [lints]
 workspace = true

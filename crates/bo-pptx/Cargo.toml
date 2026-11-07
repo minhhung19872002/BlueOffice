@@ -1,12 +1,23 @@
 [package]
 name = "bo-pptx"
-description = "PresentationML ("
+description = "PresentationML (.pptx) reader, writer and slide renderer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
 
 [dependencies]
+bo-model.workspace = true
+bo-opc.workspace = true
+bo-drawingml = { path = "../bo-drawingml" }
+bo-render.workspace = true
+bo-text.workspace = true
+thiserror.workspace = true
+unicode-linebreak.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+bo-opc.workspace = true
 
 [lints]
 workspace = true

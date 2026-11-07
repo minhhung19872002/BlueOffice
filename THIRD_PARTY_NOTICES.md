@@ -33,6 +33,8 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | Grapheme cluster (ngắt từ quá dài) |
 | tiny-skia | 0.12.0 | BSD-3-Clause | Rasterize display list → PNG |
 | pdf-writer | 0.15.0 | MIT OR Apache-2.0 | Ghi PDF |
+| png | 0.18.1 | MIT OR Apache-2.0 | Giải mã ảnh PNG để nhúng PDF |
+| zune-jpeg / zune-core | 0.4.21 / 0.4.12 | MIT OR Apache-2.0 OR Zlib | Giải mã ảnh JPEG khi raster hoá |
 | subsetter | 0.2.6 | MIT OR Apache-2.0 | Subset font nhúng PDF |
 | serde / serde_json | 1.0.229 / 1.0.154 | MIT OR Apache-2.0 | Tuần tự hoá display list / DocInfo |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 | Kiểu lỗi |
@@ -103,3 +105,9 @@ Công cụ fuzz (`fuzz/`, workspace riêng, không đóng gói vào sản phẩm
 ## Icon
 
 Icon giao diện từ **Lucide** (ISC). Logo/favicon BlueOffice tự thiết kế.
+
+## Dữ liệu đặc tả
+
+- `crates/bo-drawingml/src/presets.dsl`: 187 hình preset chuyển đổi cơ học từ phụ lục
+  `presetShapeDefinitions.xml` của **ECMA-376 Part 1** (ECMA International, tài liệu công khai —
+  nguồn hợp lệ theo quy tắc clean-room). Chỉ giữ công thức guide, text rect và path.

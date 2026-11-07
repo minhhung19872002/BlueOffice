@@ -20,6 +20,8 @@ pub enum Loaded {
     Workbook(Workbook),
     Spreadsheet(SpreadsheetDoc),
     Deck(Presentation),
+    /// A PresentationML package (`.pptx`, plain bytes after decryption).
+    Pptx(Vec<u8>),
 }
 
 /// Input facts reported to the user.
@@ -103,6 +105,9 @@ pub fn load(bytes: &[u8], password: Option<&str>) -> Result<(Loaded, Facts), Err
             },
             facts,
         ))
+    } else if lower.starts_with("/ppt/") {
+        facts.format = "pptx";
+        Ok((Loaded::Pptx(bytes.to_vec()), facts))
     } else {
         Err(format!("unsupported package (main part {main})").into())
     }

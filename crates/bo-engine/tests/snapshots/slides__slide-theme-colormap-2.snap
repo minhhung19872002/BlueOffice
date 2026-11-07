@@ -1,0 +1,16 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=linear(3)
+transform [1.000 0.000 0.000 1.000 36.0 24.0]
+  text 44.0pt 7.2,57.4 #000000ff "Nền "
+  text 44.0pt 91.5,57.4 #000000ff "theo "
+  text 44.0pt 178.3,57.4 #000000ff "theme "
+  text 44.0pt 296.8,57.4 #000000ff "(bgRef)"
+pop transform
+transform [1.000 0.000 0.000 1.000 36.0 126.0]
+  text 28.0pt 7.2,25.8 #000000ff "•"
+  text 28.0pt 25.2,25.8 #000000ff "bgRef "
+  text 28.0pt 107.7,25.8 #000000ff "idx=1003"
+pop transform

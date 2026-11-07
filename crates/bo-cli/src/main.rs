@@ -1,8 +1,8 @@
 //! `bo-cli` — headless BlueOffice tool.
 //!
 //! ```text
-//! bo-cli render input.docx --out page-%d.png [--scale 2]
-//! bo-cli convert input.docx --to pdf [--out output.pdf]
+//! bo-cli render input.docx|deck.pptx --out page-%d.png [--scale 2]
+//! bo-cli convert input.docx|deck.pptx --to pdf [--out output.pdf]
 //! bo-cli convert old.doc --to docx|odt|txt|pdf     # also .odt / .docx input
 //! bo-cli convert book.xls --to csv|ods [--sheet 1]  # also .xlsb / .ods input
 //! bo-cli convert deck.ppt --to odp|txt              # also .odp input
@@ -11,12 +11,14 @@
 //! bo-cli dump input.docx [--page 0]          # display list JSON (parity tests)
 //! bo-cli pack <dir> <out.docx> | unpack <file> <dir>
 //! bo-cli sample <out.docx>                   # generate the Phase 1 corpus sample
+//! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli bench input.docx [--iterations 5]
 //! ```
 #![forbid(unsafe_code)]
 
 mod convert;
 mod sample;
+mod slide_samples;
 
 use bo_engine::Engine;
 use clap::{Parser, Subcommand};
@@ -48,7 +50,7 @@ enum Cmd {
     /// Convert to another format.
     Convert {
         input: PathBuf,
-        #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp"])]
+        #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx"])]
         to: String,
         #[arg(long)]
         out: Option<PathBuf>,
@@ -80,6 +82,8 @@ enum Cmd {
     Unpack { input: PathBuf, dir: PathBuf },
     /// Write the Phase 1 sample document.
     Sample { out: PathBuf },
+    /// Write the BlueSlide corpus decks into a directory.
+    SampleSlides { dir: PathBuf },
     /// Measure open + layout + display list time.
     Bench {
         input: PathBuf,
@@ -171,6 +175,10 @@ fn run(cli: Cli) -> R {
                     }
                 }
                 convert::Loaded::Deck(p) => println!("slides: {}", p.slides.len()),
+                convert::Loaded::Pptx(b) => {
+                    let mut engine = Engine::with_bundled_fonts();
+                    println!("slides: {}", engine.open_pptx(&b, "deck.pptx")?.page_count);
+                }
             }
         }
         Cmd::Dump { input, page } => {
@@ -199,6 +207,13 @@ fn run(cli: Cli) -> R {
         Cmd::Sample { out } => {
             write_file(&out, &bo_docx::write_docx(&sample::document())?)?;
             println!("{}", out.display());
+        }
+        Cmd::SampleSlides { dir } => {
+            for (name, bytes) in slide_samples::decks() {
+                let path = dir.join(name);
+                write_file(&path, &bytes)?;
+                println!("{}", path.display());
+            }
         }
         Cmd::Bench { input, iterations } => {
             let bytes = std::fs::read(&input)?;
@@ -293,6 +308,16 @@ fn run_convert(
             convert::ods_sheet_to_worksheet(s).to_csv().into_bytes()
         }
         (Loaded::Spreadsheet(d), "ods") => bo_odf::write_ods(&d)?,
+        (Loaded::Pptx(b), "pdf") => {
+            let mut engine = Engine::with_bundled_fonts();
+            engine.open_pptx(&b, &name)?;
+            engine.export_pdf()?
+        }
+        (Loaded::Pptx(b), "pptx") => {
+            let mut engine = Engine::with_bundled_fonts();
+            engine.open_pptx(&b, &name)?;
+            engine.save_pptx()?
+        }
         (Loaded::Deck(p), "odp") => bo_odf::write_odp(&p)?,
         (Loaded::Deck(p), "txt") => convert::presentation_text(&p).into_bytes(),
         (_, other) => {

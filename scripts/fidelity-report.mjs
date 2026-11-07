@@ -78,8 +78,10 @@ function runValidator(dir) {
 
 for (const row of rows) {
   if (!validate) continue;
-  const inRes = runValidator(row.dir);
-  const outRes = runValidator(row.target);
+  // Only the group's own format (e.g. doc/ also holds mail-merge .xlsx data).
+  const own = (res) => res && res.filter((r) => r.File.toLowerCase().endsWith(`.${row.ext}`));
+  const inRes = own(runValidator(row.dir));
+  const outRes = own(runValidator(row.target));
   row.validIn = inRes ? inRes.filter((r) => r.Errors.length === 0).length : null;
   row.validOut = outRes ? outRes.filter((r) => r.Errors.length === 0).length : null;
   row.invalidOut = outRes

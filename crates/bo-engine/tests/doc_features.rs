@@ -50,7 +50,8 @@ fn header_editing_with_page_number_and_undo() {
     assert!(caret_y < 56.7, "caret in the top margin: {caret_y}");
     let r = cmd(&mut e, r#"{"cmd":"insertText","text":"Trang "}"#);
     assert_eq!(r["story"]["kind"], "header");
-    cmd(&mut e, r#"{"cmd":"insertField","instr":"PAGE"}"#);
+    let r = cmd(&mut e, r#"{"cmd":"insertField","instr":"PAGE"}"#);
+    assert!(r["caret"]["y"].as_f64().unwrap() < 56.7, "{}", r["caret"]);
     // Shown live on the page.
     assert!(e.page_json(0).unwrap().contains("Trang"));
     // A click in the body closes the header: one undoable change.

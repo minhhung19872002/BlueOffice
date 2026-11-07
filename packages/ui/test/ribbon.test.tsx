@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Ribbon } from '../src';
+import { Popover, Ribbon } from '../src';
 
 afterEach(cleanup);
 
@@ -37,5 +37,52 @@ describe('Ribbon', () => {
     expect(open).toHaveBeenCalledTimes(1);
     expect(bold).not.toHaveBeenCalled();
     expect(screen.getByRole('group', { name: 'Tệp' })).toBeTruthy();
+  });
+
+  it('renders custom controls and popovers', () => {
+    const pick = vi.fn();
+    render(
+      <Ribbon
+        tabs={[
+          {
+            id: 'home',
+            label: 'Trang đầu',
+            groups: [
+              {
+                id: 'font',
+                label: 'Phông chữ',
+                items: [
+                  {
+                    id: 'format.color',
+                    label: 'Màu chữ',
+                    onSelect: () => {},
+                    render: (
+                      <Popover label="Màu chữ" testId="color">
+                        {(close) => (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              pick();
+                              close();
+                            }}
+                          >
+                            Đỏ
+                          </button>
+                        )}
+                      </Popover>
+                    ),
+                  },
+                ],
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+    expect(screen.queryByText('Đỏ')).toBeNull();
+    fireEvent.click(screen.getByTestId('color'));
+    fireEvent.click(screen.getByText('Đỏ'));
+    expect(pick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Đỏ')).toBeNull();
   });
 });

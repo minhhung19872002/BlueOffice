@@ -4,6 +4,7 @@ import type {
   BorderPreset,
   BorderSpec,
   CellFormatState,
+  ChartInfo,
   PasteMode,
   PivotInfo,
   Platform,
@@ -216,7 +217,17 @@ type MenuState = { kind: string; x: number; y: number };
 type Drag =
   | { kind: 'select' }
   | { kind: 'fill'; source: Range }
-  | { kind: 'resize'; rows: boolean; index: number; start: number; size: number };
+  | { kind: 'resize'; rows: boolean; index: number; start: number; size: number }
+  /** Moving (or, with 
+esize, sizing) a chart: anchors in cells. */
+  | {
+      kind: 'chart';
+      index: number;
+      resize: boolean;
+      start: CellPos;
+      from: [number, number];
+      to: [number, number];
+    };
 
 interface Rect {
   x: number;
@@ -267,6 +278,10 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
   const [hasRule, setHasRule] = useState(false);
   const [painter, setPainter] = useState<Range | null>(null);
   const [fillRect, setFillRect] = useState<Rect | null>(null);
+  /** Selected chart: its anchors and on-screen box (px). */
+  const [chartInfo, setChartInfo] = useState<ChartInfo | null>(null);
+  const [chartBox, setChartBox] = useState<Rect | null>(null);
+  const chartTarget = useRef<{ from: [number, number]; to: [number, number] } | null>(null);
   const [guide, setGuide] = useState<{ x?: number; y?: number } | null>(null);
   const [cursor, setCursor] = useState('cell');
   const [chart, setChart] = useState<number | null>(null);
@@ -463,6 +478,24 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
       cancelled = true;
     };
   }, [host, info, sheet, selection.active, revision]);
+
+  // Selected chart: anchors and selection box.
+  useEffect(() => {
+    if (!host || chart === null) return;
+    let cancelled = false;
+    void (async () => {
+      const list = await host.exec<ChartInfo[]>({ cmd: 'charts', sheet });
+      const c = list?.[chart];
+      if (cancelled || !c) return;
+      const r = await host.rangeRect(view, c.from[0], c.from[1], c.to[0] - 1, c.to[1] - 1);
+      if (cancelled) return;
+      setChartInfo(c);
+      setChartBox(px(r));
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, chart, sheet, view, px, revision]);
 
   // Pivot tables of the sheet (field list panel).
   useEffect(() => {
@@ -698,6 +731,7 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
         mode,
         transpose,
         skipBlanks,
+        range: toRange(r),
       });
       if (!res) return false;
       setSelection(
@@ -1279,6 +1313,18 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
       setFilterMenu({ col: hit.col, x: e.clientX, y: e.clientY + 4 });
     } else if (hit.kind === 'chart') {
       setChart(hit.index);
+      const list = await host.exec<ChartInfo[]>({ cmd: 'charts', sheet });
+      const c = list?.[hit.index];
+      if (c) {
+        drag.current = {
+          kind: 'chart',
+          index: hit.index,
+          resize: false,
+          start: { row: hit.row, col: hit.col },
+          from: c.from,
+          to: c.to,
+        };
+      }
     } else if (hit.kind === 'columnHeader') {
       const to = { row: Math.max(last?.lastRow ?? 0, 999), col: hit.col };
       setSelection(
@@ -1311,6 +1357,23 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
       if (hit?.kind === 'cell') {
         setSelection((s) => ({ ...s, focus: { row: hit.row, col: hit.col } }));
       }
+      return;
+    }
+    if (d?.kind === 'chart') {
+      const hit = await hitAt(e);
+      if (!hit || (hit.kind !== 'cell' && hit.kind !== 'chart') || !host) return;
+      const dr = d.resize ? 0 : Math.max(hit.row - d.start.row, -d.from[0]);
+      const dc = d.resize ? 0 : Math.max(hit.col - d.start.col, -d.from[1]);
+      const from: [number, number] = [d.from[0] + dr, d.from[1] + dc];
+      const to: [number, number] = d.resize
+        ? [Math.max(hit.row + 1, from[0] + 1), Math.max(hit.col + 1, from[1] + 1)]
+        : [d.to[0] + dr, d.to[1] + dc];
+      const same =
+        from[0] === d.from[0] && from[1] === d.from[1] && to[0] === d.to[0] && to[1] === d.to[1];
+      chartTarget.current = same ? null : { from, to };
+      setFillRect(
+        same ? null : px(await host.rangeRect(view, from[0], from[1], to[0] - 1, to[1] - 1)),
+      );
       return;
     }
     if (d?.kind === 'fill') {
@@ -1363,6 +1426,13 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
         whole && inSel ? (d.rows ? [r.r0, r.r1] : [r.c0, r.c1]) : [d.index, d.index];
       if (Math.abs(delta) > 0.5)
         void exec({ cmd: 'resize', sheet, rows: d.rows, first, last, size: sizePt });
+    } else if (d.kind === 'chart') {
+      const target = chartTarget.current;
+      chartTarget.current = null;
+      setFillRect(null);
+      if (target) {
+        void exec({ cmd: 'moveChart', sheet, index: d.index, from: target.from, to: target.to });
+      }
     } else if (d.kind === 'fill') {
       const target = fillTo.current;
       fillTo.current = null;
@@ -1930,6 +2000,32 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
                     e.preventDefault();
                     e.stopPropagation();
                     drag.current = { kind: 'fill', source: rangeOf(selection) };
+                  }}
+                />
+              </div>
+            )}
+            {chart !== null && chartBox && (
+              <div
+                className={styles.chartSelection}
+                data-testid="chart-selection"
+                style={{ left: chartBox.x, top: chartBox.y, width: chartBox.w, height: chartBox.h }}
+              >
+                <div
+                  className={styles.chartHandle}
+                  data-testid="chart-resize"
+                  title={t('sheetEditor.chart.resize')}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!chartInfo) return;
+                    drag.current = {
+                      kind: 'chart',
+                      index: chart,
+                      resize: true,
+                      start: { row: chartInfo.to[0], col: chartInfo.to[1] },
+                      from: chartInfo.from,
+                      to: chartInfo.to,
+                    };
                   }}
                 />
               </div>

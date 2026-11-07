@@ -446,7 +446,15 @@
       "asc": "Tăng dần (A → Z)",
       "desc": "Giảm dần (Z → A)",
       "addLevel": "Thêm cấp",
-      "remove": "Xoá"
+      "remove": "Xoá",
+      "row": "Hàng {{n}}",
+      "headerCol": "Cột đầu là tiêu đề",
+      "leftToRight": "Sắp xếp từ trái sang phải",
+      "sortOn": "Sắp xếp theo",
+      "onValue": "Giá trị ô",
+      "onCellColor": "Màu ô",
+      "onFontColor": "Màu chữ",
+      "color": "Màu"
     },
     "filter": {
       "toggle": "Bộ lọc",
@@ -456,7 +464,29 @@
       "blank": "(Trống)",
       "byValues": "Lọc theo giá trị",
       "condition": "Điều kiện",
-      "value": "Giá trị"
+      "value": "Giá trị",
+      "dynamic": "Lọc theo ngày / trung bình",
+      "byColor": "Lọc theo màu:",
+      "cellColor": "Màu ô {{color}}",
+      "fontColor": "Màu chữ {{color}}",
+      "month": "Tháng {{n}}",
+      "dyn": {
+        "today": "Hôm nay",
+        "yesterday": "Hôm qua",
+        "tomorrow": "Ngày mai",
+        "thisWeek": "Tuần này",
+        "lastWeek": "Tuần trước",
+        "nextWeek": "Tuần sau",
+        "thisMonth": "Tháng này",
+        "lastMonth": "Tháng trước",
+        "nextMonth": "Tháng sau",
+        "thisQuarter": "Quý này",
+        "thisYear": "Năm nay",
+        "lastYear": "Năm trước",
+        "yearToDate": "Từ đầu năm đến nay",
+        "aboveAverage": "Trên trung bình",
+        "belowAverage": "Dưới trung bình"
+      }
     },
     "cf": {
       "title": "Thêm quy tắc định dạng có điều kiện",
@@ -536,7 +566,7 @@
       "legend": "Chú giải",
       "xTitle": "Tiêu đề trục ngang",
       "yTitle": "Tiêu đề trục dọc",
-      "selected": "Đã chọn biểu đồ (Delete để xoá biểu đồ mới chèn)",
+      "selected": "Đã chọn biểu đồ — kéo để di chuyển, kéo góc để đổi cỡ, Delete để xoá",
       "types": {
         "column": "Cột",
         "stackedColumn": "Cột chồng",
@@ -554,7 +584,8 @@
         "b": "Bên dưới",
         "t": "Bên trên",
         "l": "Bên trái"
-      }
+      },
+      "resize": "Kéo để đổi kích thước biểu đồ"
     },
     "find": {
       "title": "Tìm",

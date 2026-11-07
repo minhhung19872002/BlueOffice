@@ -446,7 +446,15 @@
       "asc": "Ascending (A to Z)",
       "desc": "Descending (Z to A)",
       "addLevel": "Add level",
-      "remove": "Delete"
+      "remove": "Delete",
+      "row": "Row {{n}}",
+      "headerCol": "First column has headers",
+      "leftToRight": "Sort left to right",
+      "sortOn": "Sort on",
+      "onValue": "Cell values",
+      "onCellColor": "Cell colour",
+      "onFontColor": "Font colour",
+      "color": "Colour"
     },
     "filter": {
       "toggle": "Filter",
@@ -456,7 +464,29 @@
       "blank": "(Blanks)",
       "byValues": "Filter by values",
       "condition": "Condition",
-      "value": "Value"
+      "value": "Value",
+      "dynamic": "Date & average filters",
+      "byColor": "Filter by colour:",
+      "cellColor": "Cell colour {{color}}",
+      "fontColor": "Font colour {{color}}",
+      "month": "Month {{n}}",
+      "dyn": {
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "tomorrow": "Tomorrow",
+        "thisWeek": "This week",
+        "lastWeek": "Last week",
+        "nextWeek": "Next week",
+        "thisMonth": "This month",
+        "lastMonth": "Last month",
+        "nextMonth": "Next month",
+        "thisQuarter": "This quarter",
+        "thisYear": "This year",
+        "lastYear": "Last year",
+        "yearToDate": "Year to date",
+        "aboveAverage": "Above average",
+        "belowAverage": "Below average"
+      }
     },
     "cf": {
       "title": "New formatting rule",
@@ -536,7 +566,7 @@
       "legend": "Legend",
       "xTitle": "Horizontal axis title",
       "yTitle": "Vertical axis title",
-      "selected": "Chart selected (Delete removes an inserted chart)",
+      "selected": "Chart selected — drag to move, drag the corner to resize, Delete to remove",
       "types": {
         "column": "Column",
         "stackedColumn": "Stacked column",
@@ -554,7 +584,8 @@
         "b": "Bottom",
         "t": "Top",
         "l": "Left"
-      }
+      },
+      "resize": "Drag to resize the chart"
     },
     "find": {
       "title": "Find",

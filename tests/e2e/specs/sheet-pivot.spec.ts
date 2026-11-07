@@ -63,9 +63,7 @@ test('BlueSheet: create a pivot table, change the aggregation, save and reopen',
   await goTo(page, 'A3');
   await expect(panel).toBeVisible();
   await page.getByTestId('pivot-fn-0').selectOption('average');
-  await expect(page.getByTestId('pivot-chip-values-0')).toContainText(
-    'Trung bình của Doanh thu',
-  );
+  await expect(page.getByTestId('pivot-chip-values-0')).toContainText('Trung bình của Doanh thu');
   await expect(await valueOf(page, 'B4')).toHaveValue('8,5');
   await expect(await valueOf(page, 'B5')).toHaveValue('3');
 

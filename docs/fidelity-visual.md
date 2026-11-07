@@ -3,7 +3,7 @@
 Sinh bởi `scripts/visual-diff.mjs` (2026-11-07). Ảnh tham chiếu do người dùng cung cấp đặt ở `tests/fidelity/reference/<nhóm>/<file>.page-<n>.png`; baseline tự sinh (trang 1, scale 0,5) ở `tests/fidelity/baseline/` để phát hiện hồi quy hiển thị.
 
 - Ảnh tham chiếu: **0** trang (chưa có — cần người dùng cung cấp)
-- Baseline: 134 trang, vượt ngưỡng 0.10 %: 0
+- Baseline: 138 trang, vượt ngưỡng 0.10 %: 0
 
 | Nhóm | Loại | Ảnh | Sai lệch | Ngưỡng | |
 |---|---|---|---|---|---|
@@ -121,7 +121,11 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-07). Ảnh tham chiếu do ngườ
 | slide | baseline | slide-charts-line.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-charts-pie.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-arrange.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-clipboard.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-connectors.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-rich.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-slides.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-tables.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-text.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-images-crop.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-images-fill.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |

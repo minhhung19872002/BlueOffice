@@ -1,6 +1,6 @@
 # Báo cáo độ trung thực (fidelity)
 
-Sinh tự động bởi `scripts/fidelity-report.mjs` · 2026-11-07 · commit `77dc1dd`.
+Sinh tự động bởi `scripts/fidelity-report.mjs` · 2026-11-07 · commit `42a5323`.
 
 Mỗi file trong `tests/corpus/{doc,sheet,slide}` được mở rồi lưu lại cùng định dạng bằng `bo-cli convert`; file vào và ra đều qua OpenXmlValidator (DocumentFormat.OpenXml, Office 2019). Mức lossless (XML chuẩn hoá giống hệt) được đo bằng test Rust `corpus` của từng crate.
 
@@ -8,7 +8,7 @@ Mỗi file trong `tests/corpus/{doc,sheet,slide}` được mở rồi lưu lại
 |---|---|---|---|---|
 | doc (.docx) | 52 | 52 (100.0 %) | 51 | 51 (98.1 %) |
 | sheet (.xlsx) | 54 | 54 (100.0 %) | 51 | 51 (94.4 %) |
-| slide (.pptx) | 28 | 28 (100.0 %) | 28 | 28 (100.0 %) |
+| slide (.pptx) | 32 | 32 (100.0 %) | 32 | 32 (100.0 %) |
 
 ## Đã biết (không tính là lỗi, xem `tests/fidelity/known-issues.txt`)
 

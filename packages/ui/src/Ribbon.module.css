@@ -146,3 +146,18 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* Groups with custom controls (font family, size, colours): wrapped rows. */
+.mixed {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  max-width: 360px;
+  gap: 2px 2px;
+}
+
+.control {
+  display: flex;
+  align-items: center;
+}

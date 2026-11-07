@@ -11,6 +11,7 @@ bo-model.workspace = true
 bo-render.workspace = true
 bo-text.workspace = true
 serde.workspace = true
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 bo-xlsx.workspace = true

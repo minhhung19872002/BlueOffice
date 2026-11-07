@@ -5,8 +5,13 @@
 //! * [`geometry`] — column widths / row heights, offsets, hidden, merges, hit-testing.
 #![forbid(unsafe_code)]
 
+pub mod calc;
 pub mod color;
+pub mod fill;
+pub mod filter;
 pub mod geometry;
 pub mod numfmt;
+pub mod ops;
 pub mod render;
+pub mod sort;
 pub mod viewport;

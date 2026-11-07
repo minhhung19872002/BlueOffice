@@ -395,6 +395,7 @@ dependencies = [
  "bo-text",
  "bo-xlsx",
  "serde",
+ "unicode-normalization",
 ]
 
 [[package]]

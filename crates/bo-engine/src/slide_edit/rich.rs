@@ -17,6 +17,8 @@ pub struct TextSel {
     pub id: u32,
     pub start: usize,
     pub end: usize,
+    /// Table cell (row, grid column) whose text is edited, in table `id`.
+    pub cell: Option<(usize, usize)>,
 }
 
 /// Text editing state sent to the UI (offsets in UTF-16 code units).
@@ -34,6 +36,9 @@ pub struct TextEditOut {
     pub rect: BoxR,
     /// Text in the editing format.
     pub text: String,
+    /// Table cell `[row, col]` being edited (the rect is the cell's box).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cell: Option<[usize; 2]>,
 }
 
 /// Box in which the text is laid out: the shape box turned upside down when

@@ -210,6 +210,9 @@ pub enum SlideCommand {
         merge: bool,
         #[serde(default)]
         sel: Option<[usize; 2]>,
+        /// Text of table cell `[row, col]` of table `id` instead of the shape's.
+        #[serde(default)]
+        cell: Option<[usize; 2]>,
     },
     /// Format the text selection (`range`, UTF-16, or the current text
     /// selection) or — outside text editing — the whole text of the selection.
@@ -224,6 +227,9 @@ pub enum SlideCommand {
         id: Option<u32>,
         start: usize,
         end: usize,
+        /// Table cell `[row, col]` of table `id`.
+        #[serde(default)]
+        cell: Option<[usize; 2]>,
     },
     /// Place the caret at a slide point of the edited shape (`extend` = Shift).
     TextHit {
@@ -231,6 +237,18 @@ pub enum SlideCommand {
         y: f64,
         #[serde(default)]
         extend: bool,
+    },
+    /// Edit the text of the table cell at a slide point on the canvas (caret at the
+    /// point; the table is the selected one).
+    CellTextHit {
+        x: f64,
+        y: f64,
+    },
+    /// Edit the next (or previous, `back`) cell of the table whose cell text is edited,
+    /// its text selected (Tab / Shift+Tab).
+    CellNext {
+        #[serde(default)]
+        back: bool,
     },
     /// Leave text editing.
     TextExit,
@@ -378,6 +396,8 @@ impl SlideCommand {
                 | SlideCommand::FormatText { .. }
                 | SlideCommand::TextSelect { .. }
                 | SlideCommand::TextHit { .. }
+                | SlideCommand::CellTextHit { .. }
+                | SlideCommand::CellNext { .. }
                 | SlideCommand::Undo
                 | SlideCommand::Redo
         )
@@ -400,6 +420,12 @@ impl SlideCommand {
                 | SlideCommand::TableFill { .. }
                 | SlideCommand::TableOptions { .. }
                 | SlideCommand::FormatText { .. }
+                | SlideCommand::SetText { .. }
+                | SlideCommand::TextSelect { .. }
+                | SlideCommand::TextHit { .. }
+                | SlideCommand::CellTextHit { .. }
+                | SlideCommand::CellNext { .. }
+                | SlideCommand::TextExit
                 | SlideCommand::Undo
                 | SlideCommand::Redo
         )
@@ -503,6 +529,56 @@ fn single(ids: &[u32]) -> Option<u32> {
         [one] => Some(*one),
         _ => None,
     }
+}
+
+/// Text being edited: of the shape or of its table cell, in the editing format.
+fn edit_text(pres: &Presentation, slide: usize, t: rich::TextSel) -> Option<String> {
+    match t.cell {
+        Some(rc) => cell_text(pres, slide, t.id, rc),
+        None => shape_text(pres, slide, t.id),
+    }
+}
+
+/// Text of a table cell in the editing format (§21.1.3.16 tc txBody).
+fn cell_text(pres: &Presentation, slide: usize, id: u32, (r, c): (usize, usize)) -> Option<String> {
+    let t = table_of(pres, slide, id)?;
+    let cell = t.rows.get(r)?.cells.get(c)?;
+    Some(cell.text.as_ref().map(text::body_text).unwrap_or_default())
+}
+
+/// A shape holding a cell's text (format state and formatting reuse the shape code).
+fn cell_shape(t: &bo_model::slide::Table, (r, c): (usize, usize)) -> bo_model::slide::Shape {
+    bo_model::slide::Shape {
+        text: t
+            .rows
+            .get(r)
+            .and_then(|row| row.cells.get(c))
+            .and_then(|cell| cell.text.clone()),
+        ..bo_model::slide::Shape::default()
+    }
+}
+
+/// Caret geometry of a table cell's text and the cell's box on the slide.
+fn cell_geometry(
+    pres: &Presentation,
+    slide: usize,
+    frame: &BoxR,
+    t: &bo_model::slide::Table,
+    (r, c): (usize, usize),
+    fonts: &mut bo_text::FontManager,
+) -> Option<(bo_pptx::TextGeometry, BoxR)> {
+    let (g, [x, y, w, h]) = bo_pptx::table_cell_text_geometry(pres, slide, t, r, c, fonts)?;
+    let (cx, cy) = frame.to_slide(x + w / 2.0 - frame.w / 2.0, y + h / 2.0 - frame.h / 2.0);
+    Some((
+        g,
+        BoxR {
+            cx,
+            cy,
+            w,
+            h,
+            rot: frame.rot,
+        },
+    ))
 }
 
 /// Text of a shape in the editing format.
@@ -707,7 +783,7 @@ impl SlideEditor {
         let placed = place_slide(pres, self.sel.slide);
         self.sel.ids.retain(|id| find(&placed, *id).is_some());
         if let Some(t) = self.text {
-            self.text = shape_text(pres, self.sel.slide, t.id).map(|s| {
+            self.text = edit_text(pres, self.sel.slide, t).map(|s| {
                 let n = s.chars().count();
                 rich::TextSel {
                     start: t.start.min(n),
@@ -1652,6 +1728,29 @@ fn cmd_format(
     text_sel: Option<rich::TextSel>,
 ) -> R<()> {
     let placed = place_slide(tx.pres, sel.slide);
+    if let Some((ts, rc)) = text_sel.and_then(|t| Some((t, t.cell?))) {
+        // Inside a table cell's text: same as a shape's, on the cell's text body.
+        let tbl = table_of(tx.pres, sel.slide, ts.id).ok_or(EditError::Refused("noTable"))?;
+        let state = format_state_at(
+            tx.pres,
+            sel.slide,
+            &cell_shape(&tbl, rc),
+            Some((ts.start, ts.end)),
+        );
+        return edit_table(tx, sel, ts.id, |t| {
+            let Some(cell) = t.rows.get_mut(rc.0).and_then(|row| row.cells.get_mut(rc.1)) else {
+                return false;
+            };
+            let tb = cell.text.get_or_insert_with(TextBody::default);
+            let (mut a, mut b) = (ts.start.min(ts.end), ts.start.max(ts.end));
+            if a == b && !f.is_paragraph() {
+                (a, b) = text::word_at(&text::body_text(tb), a);
+            }
+            let default_size = state.size.unwrap_or(18.0);
+            text::apply_format_range(tb, f, &state, default_size, a, b);
+            true
+        });
+    }
     if let Some(ts) = text_sel {
         // Inside the text: format the selected characters / paragraphs.
         let path = find(&placed, ts.id)
@@ -2512,6 +2611,52 @@ impl Engine {
                     text,
                     merge,
                     sel: text_sel,
+                    cell: Some([r, c]),
+                } => {
+                    // Text of a table cell edited on the canvas (formatting kept).
+                    let target = id.or(ed.text.map(|t| t.id)).or(single(&ed.sel.ids));
+                    match target {
+                        Some(tid) => {
+                            let key = merge.then_some((ed.sel.slide, tid, 4));
+                            ed.mutate_as(pres, &mut out, key, |tx, sel| {
+                                edit_table(tx, sel, tid, |t| {
+                                    let Some(cell) =
+                                        t.rows.get_mut(r).and_then(|row| row.cells.get_mut(c))
+                                    else {
+                                        return false;
+                                    };
+                                    let tb = cell.text.get_or_insert_with(TextBody::default);
+                                    text::set_text(tb, &text);
+                                    true
+                                })
+                            });
+                            if out.error.is_none() {
+                                let plain = text.replace("\r\n", "\n").replace('\r', "\n");
+                                let [a, b] = text_sel.unwrap_or([0, 0]);
+                                ed.text = Some(rich::TextSel {
+                                    id: tid,
+                                    start: text::char_offset(&plain, a),
+                                    end: text::char_offset(&plain, b),
+                                    cell: Some((r, c)),
+                                });
+                                ed.table = Some(table::TableSel {
+                                    id: tid,
+                                    r0: r,
+                                    c0: c,
+                                    r1: r,
+                                    c1: c,
+                                });
+                            }
+                        }
+                        None => out.error = Some("noTable".into()),
+                    }
+                }
+                SlideCommand::SetText {
+                    id,
+                    text,
+                    merge,
+                    sel: text_sel,
+                    cell: None,
                 } => {
                     let target = id.or(single(&ed.sel.ids));
 
@@ -2529,6 +2674,7 @@ impl Engine {
                             id: t,
                             start: text::char_offset(&plain, a),
                             end: text::char_offset(&plain, b),
+                            cell: None,
                         });
                     }
                 }
@@ -2538,11 +2684,18 @@ impl Engine {
                             let id = cur.map(|t| t.id).or(single(&ed.sel.ids));
 
                             id.and_then(|id| {
-                                let s = shape_text(pres, ed.sel.slide, id)?;
-                                Some(rich::TextSel {
+                                let cell = cur.filter(|t| t.id == id).and_then(|t| t.cell);
+                                let probe = rich::TextSel {
                                     id,
+                                    start: 0,
+                                    end: 0,
+                                    cell,
+                                };
+                                let s = edit_text(pres, ed.sel.slide, probe)?;
+                                Some(rich::TextSel {
                                     start: text::char_offset(&s, a),
                                     end: text::char_offset(&s, b),
+                                    ..probe
                                 })
                             })
                         }
@@ -2550,27 +2703,119 @@ impl Engine {
                     };
                     ed.mutate(pres, &mut out, |tx, sel| cmd_format(tx, sel, &format, ts));
                 }
-                SlideCommand::TextSelect { id, start, end } => {
+                SlideCommand::TextSelect {
+                    id,
+                    start,
+                    end,
+                    cell,
+                } => {
                     let id = id.or(single(&ed.sel.ids));
-
-                    match id.and_then(|id| Some((id, shape_text(pres, ed.sel.slide, id)?))) {
-                        Some((id, s)) => {
-                            if !ed.sel.ids.contains(&id) {
-                                ed.sel.ids = vec![id];
+                    let cell = cell.map(|[r, c]| (r, c));
+                    let probe = id.map(|id| rich::TextSel {
+                        id,
+                        start: 0,
+                        end: 0,
+                        cell,
+                    });
+                    match probe.and_then(|t| Some((t, edit_text(pres, ed.sel.slide, t)?))) {
+                        Some((t, s)) => {
+                            if !ed.sel.ids.contains(&t.id) {
+                                ed.sel.ids = vec![t.id];
                             }
                             ed.text = Some(rich::TextSel {
-                                id,
                                 start: text::char_offset(&s, start),
                                 end: text::char_offset(&s, end),
+                                ..t
                             });
+                            if let Some((r, c)) = cell {
+                                ed.table = Some(table::TableSel {
+                                    id: t.id,
+                                    r0: r,
+                                    c0: c,
+                                    r1: r,
+                                    c1: c,
+                                });
+                            }
                         }
                         None => out.error = Some("noText".into()),
+                    }
+                }
+                SlideCommand::CellTextHit { x, y } => {
+                    let placed = place_slide(pres, ed.sel.slide);
+                    let id = ed.table.map(|t| t.id).or(single(&ed.sel.ids));
+                    let hit = id.and_then(|id| {
+                        let p = find(&placed, id)?;
+                        let t = table_of(pres, ed.sel.slide, id)?;
+                        let (lx, ly) = p.b.to_local(x, y);
+                        let (r, c) = table::cell_at(&t, lx + p.b.w / 2.0, ly + p.b.h / 2.0)?;
+                        let (r, c) = table::anchor_of(&t, r, c);
+                        let (g, b) = cell_geometry(pres, ed.sel.slide, &p.b, &t, (r, c), fonts)?;
+                        Some((id, r, c, rich::offset_at(&g, &b, x, y)))
+                    });
+                    match hit {
+                        Some((id, r, c, off)) => {
+                            ed.sel.ids = vec![id];
+                            ed.table = Some(table::TableSel {
+                                id,
+                                r0: r,
+                                c0: c,
+                                r1: r,
+                                c1: c,
+                            });
+                            ed.text = Some(rich::TextSel {
+                                id,
+                                start: off,
+                                end: off,
+                                cell: Some((r, c)),
+                            });
+                        }
+                        None => out.error = Some("noCell".into()),
+                    }
+                }
+                SlideCommand::CellNext { back } => {
+                    let cur = ed.text.filter(|t| t.cell.is_some());
+                    let next = cur.and_then(|t| {
+                        let tbl = table_of(pres, ed.sel.slide, t.id)?;
+                        let mut order: Vec<(usize, usize)> = table::anchors(&tbl)
+                            .into_iter()
+                            .map(|(r, c, _, _)| (r, c))
+                            .collect();
+                        order.sort_unstable();
+                        let i = order.iter().position(|&rc| Some(rc) == t.cell)?;
+                        let n = order.len();
+                        let j = if back { (i + n - 1) % n } else { (i + 1) % n };
+                        let rc = order[j];
+                        let len = cell_text(pres, ed.sel.slide, t.id, rc)?.chars().count();
+                        Some((t.id, rc, len))
+                    });
+                    match next {
+                        Some((id, (r, c), len)) => {
+                            ed.table = Some(table::TableSel {
+                                id,
+                                r0: r,
+                                c0: c,
+                                r1: r,
+                                c1: c,
+                            });
+                            ed.text = Some(rich::TextSel {
+                                id,
+                                start: 0,
+                                end: len,
+                                cell: Some((r, c)),
+                            });
+                        }
+                        None => out.error = Some("noCell".into()),
                     }
                 }
                 SlideCommand::TextHit { x, y, extend } => {
                     let placed = place_slide(pres, ed.sel.slide);
                     let hit = ed.text.and_then(|t| {
                         let p = find(&placed, t.id)?;
+                        if let Some(rc) = t.cell {
+                            let tbl = table_of(pres, ed.sel.slide, t.id)?;
+                            let (g, b) = cell_geometry(pres, ed.sel.slide, &p.b, &tbl, rc, fonts)?;
+                            return Some((t, rich::offset_at(&g, &b, x, y)));
+                        }
                         let Some(ShapeNode::Shape(s)) = ops::node_at(pres, ed.sel.slide, &p.path)
                         else {
                             return None;
@@ -2586,6 +2831,7 @@ impl Engine {
                                 id: t.id,
                                 start: if extend { t.start } else { off },
                                 end: off,
+                                cell: t.cell,
                             });
                         }
                         None => out.error = Some("noText".into()),
@@ -2983,7 +3229,27 @@ impl Engine {
         let mut selection = Vec::new();
         let mut format = None;
         let mut text_edit = None;
-        if let Some(t) = ed.text {
+        if let Some((t, rc)) = ed.text.and_then(|t| Some((t, t.cell?))) {
+            if let (Some(p), Some(tbl)) = (find(&placed, t.id), table_of(pres, slide, t.id)) {
+                let s = cell_shape(&tbl, rc);
+                format = Some(format_state_at(pres, slide, &s, Some((t.start, t.end))));
+                let body = s.text.as_ref().map(text::body_text).unwrap_or_default();
+                if let Some((g, b)) = cell_geometry(pres, slide, &p.b, &tbl, rc, &mut self.fonts) {
+                    let (caret, rects) = rich::selection_shapes(&g, &b, t.start, t.end);
+                    let (start, end) = rich::to_utf16(&body, t);
+                    text_edit = Some(rich::TextEditOut {
+                        id: t.id,
+                        start,
+                        end,
+                        caret,
+                        rects,
+                        rect: b,
+                        text: body,
+                        cell: Some([rc.0, rc.1]),
+                    });
+                }
+            }
+        } else if let Some(t) = ed.text {
             if let Some(p) = find(&placed, t.id) {
                 if let Some(ShapeNode::Shape(s)) = ops::node_at(pres, slide, &p.path) {
                     format = Some(format_state_at(pres, slide, s, Some((t.start, t.end))));
@@ -3002,6 +3268,7 @@ impl Engine {
                         rects,
                         rect: p.b,
                         text: body,
+                        cell: None,
                     });
                 }
             }

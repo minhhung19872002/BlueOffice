@@ -625,6 +625,8 @@ export interface SlideTextEdit {
   rect: SlideBox;
   /** Text in the editing format. */
   text: string;
+  /** Table cell `[row, col]` being edited (`rect` is the cell's box). */
+  cell?: [number, number];
 }
 
 export type SlideTransform =
@@ -667,10 +669,20 @@ export type SlideCommand =
   | { cmd: 'insertShape'; preset: string; rect?: SlideRect }
   | { cmd: 'insertTextBox'; text?: string; rect?: SlideRect }
   | { cmd: 'insertTable'; rows: number; cols: number; rect?: SlideRect }
-  | { cmd: 'setText'; id?: number; text: string; merge?: boolean; sel?: [number, number] }
+  | {
+      cmd: 'setText';
+      id?: number;
+      text: string;
+      merge?: boolean;
+      sel?: [number, number];
+      /** Text of table cell `[row, col]` of table `id`. */
+      cell?: [number, number];
+    }
   | { cmd: 'formatText'; format: SlideTextFormat; range?: [number, number] }
-  | { cmd: 'textSelect'; id?: number; start: number; end: number }
+  | { cmd: 'textSelect'; id?: number; start: number; end: number; cell?: [number, number] }
   | { cmd: 'textHit'; x: number; y: number; extend?: boolean }
+  | { cmd: 'cellTextHit'; x: number; y: number }
+  | { cmd: 'cellNext'; back?: boolean }
   | { cmd: 'textExit' | 'copy' | 'cut' | 'paste' }
   | { cmd: 'copySlides' | 'cutSlides'; indices?: number[] }
   | { cmd: 'adjust'; index: number; x: number; y: number; merge?: boolean }

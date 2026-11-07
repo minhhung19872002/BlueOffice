@@ -671,6 +671,81 @@ fn table_cells_rows_columns_merge_fill_and_style() {
     assert!(r.table.is_none());
 }
 
+#[test]
+fn table_cell_text_edited_on_the_canvas_with_partial_formatting() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let r = run(
+        &mut e,
+        r#"{"cmd":"insertTable","rows":2,"cols":2,"rect":{"x":100,"y":100,"w":300,"h":80}}"#,
+    );
+    let id = r.selection[0].id;
+    let b = r.selection[0].rect;
+    let (cx, cy) = (b.cx - b.w / 4.0, b.cy + b.h / 4.0);
+    // Double-click a cell: its text is edited on the canvas, caret in the cell box.
+    let r = run(
+        &mut e,
+        &format!(r#"{{"cmd":"cellTextHit","x":{cx},"y":{cy}}}"#),
+    );
+    let te = r.text_edit.expect("text edit");
+    assert_eq!(te.cell, Some([1, 0]));
+    assert!(te.rect.w > 100.0 && te.rect.w < 200.0, "{:?}", te.rect);
+    assert!(te.caret.is_some());
+    for t in ["H", "Hà", "Hà Nội"] {
+        run(
+            &mut e,
+            &format!(
+                r#"{{"cmd":"setText","id":{id},"text":"{t}","merge":true,"sel":[{n},{n}],"cell":[1,0]}}"#,
+                n = t.encode_utf16().count()
+            ),
+        );
+    }
+    // Bold "Nội" only (partial formatting inside the cell).
+    run(
+        &mut e,
+        &format!(r#"{{"cmd":"textSelect","id":{id},"start":3,"end":6,"cell":[1,0]}}"#),
+    );
+    let r = run(&mut e, r#"{"cmd":"formatText","format":{"kind":"bold"}}"#);
+    assert!(r.format.bold);
+    let te = r.text_edit.expect("still editing");
+    assert_eq!(te.rects.len(), 1);
+    let tb = table_of(&e, id);
+    let runs = &tb.rows[1].cells[0].text.as_ref().unwrap().paragraphs[0].runs;
+    let bold: Vec<(String, bool)> = runs
+        .iter()
+        .filter_map(|r| match r {
+            TextRun::Run { props, text } => Some((text.clone(), props.b == Some(true))),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        bold,
+        vec![("Hà ".to_owned(), false), ("Nội".to_owned(), true)]
+    );
+    // Tab: the next cell, its text selected; Shift+Tab back.
+    let r = run(&mut e, r#"{"cmd":"cellNext"}"#);
+    assert_eq!(r.text_edit.unwrap().cell, Some([1, 1]));
+    let r = run(&mut e, r#"{"cmd":"cellNext","back":true}"#);
+    let te = r.text_edit.unwrap();
+    assert_eq!((te.cell, te.start, te.end), (Some([1, 0]), 0, 6));
+    // Caret by pointer inside the cell.
+    let r = run(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"textHit","x":{},"y":{cy}}}"#,
+            b.cx - b.w / 2.0 + 1.0
+        ),
+    );
+    assert_eq!(r.text_edit.unwrap().end, 0);
+    // One undo step per typing burst; saved and reopened.
+    let bytes = e.save_pptx().unwrap();
+    let mut e2 = Engine::with_bundled_fonts();
+    e2.open(&bytes, "t.pptx").unwrap();
+    assert_eq!(table_of(&e2, id), table_of(&e, id));
+    run(&mut e, r#"{"cmd":"undo"}"#);
+    let tb = table_of(&e, id);
+    assert_eq!(tb.rows[1].cells[0].text.as_ref().unwrap().text(), "Hà Nội");
+}
+
 /// Points of every path on a slide, rounded (for comparing renderings).
 fn path_points(e: &mut Engine, slide: usize) -> Vec<(i64, i64)> {
     let page = e.refresh_slide(slide).unwrap().clone();

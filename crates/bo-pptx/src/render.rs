@@ -1149,6 +1149,114 @@ pub fn shape_text_geometry(
     ))
 }
 
+/// Text style layers of table cells: presentation defaults and the master's
+/// `p:otherStyle` (§19.3.1.35), as drawn by [`draw_table`].
+fn table_text_stack(pres: &Presentation, level: Level) -> TextStyleStack {
+    TextStyleStack {
+        layers: pres
+            .default_text_style
+            .iter()
+            .cloned()
+            .chain(
+                crate::inherit::master_of(pres, level)
+                    .and_then(|m| pres.masters.get(m))
+                    .and_then(|m| m.text_styles.other.clone()),
+            )
+            .collect(),
+        font_ref: None,
+        master_layers: 0,
+    }
+}
+
+/// Cell text with the table style's text colour/bold/italic and its body properties
+/// with the cell margins and anchor (§21.1.3.17 tcPr), as drawn by [`draw_table`].
+fn cell_text_body(
+    pres: &Presentation,
+    t: &Table,
+    ri: usize,
+    ci: usize,
+) -> Option<(TextBody, bo_model::slide::BodyProps)> {
+    let rows = t.rows.len();
+    let cols = t.grid.len();
+    let cell = t.rows.get(ri)?.cells.get(ci)?;
+    let mut props = cell.props.clone().unwrap_or_default();
+    let (flags, style_id) = crate::table_style::table_props(t.props.as_ref());
+    let style = style_id
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .map(|id| crate::table_style::resolve(pres, id));
+    let mut text_style = (None, None, None);
+    if let Some(st) = &style {
+        let (fill, color, bold, italic, _) =
+            crate::table_style::cell_style(st, flags, ri, ci, rows, cols);
+        if props.fill.is_none() {
+            props.fill = fill;
+        }
+        text_style = (color, bold, italic);
+    }
+    let empty = TextBody::default();
+    let tb = cell.text.as_ref().unwrap_or(&empty);
+    let tb = if text_style == (None, None, None) {
+        tb.clone()
+    } else {
+        styled_text(tb, &text_style)
+    };
+    let mut bp = tb.body_pr.clone();
+    bp.l_ins = Some(props.mar_l.unwrap_or(91_440));
+    bp.r_ins = Some(props.mar_r.unwrap_or(91_440));
+    bp.t_ins = Some(props.mar_t.unwrap_or(45_720));
+    bp.b_ins = Some(props.mar_b.unwrap_or(45_720));
+    bp.anchor.clone_from(&props.anchor);
+    Some((tb, bp))
+}
+
+/// Caret geometry of the text of table cell (`row`, `col`) (its merge anchor) and
+/// the cell's box `[x, y, w, h]` in points from the table's top-left corner; the
+/// geometry is relative to that box (same layout as the rendered cell).
+pub fn table_cell_text_geometry(
+    pres: &Presentation,
+    slide: usize,
+    t: &Table,
+    row: usize,
+    col: usize,
+    fonts: &mut FontManager,
+) -> Option<(crate::text_layout::TextGeometry, [f64; 4])> {
+    let level = Level::Slide(slide);
+    let cols: Vec<f64> = t.grid.iter().map(|c| c.w as f64 / EMU_PT).collect();
+    let mut col_x = vec![0.0];
+    for w in &cols {
+        col_x.push(col_x.last().copied().unwrap_or(0.0) + w);
+    }
+    let rows: Vec<f64> = t.rows.iter().map(|r| r.h as f64 / EMU_PT).collect();
+    let mut row_y = vec![0.0];
+    for h in &rows {
+        row_y.push(row_y.last().copied().unwrap_or(0.0) + h);
+    }
+    let cell = t.rows.get(row)?.cells.get(col)?;
+    if col >= cols.len() {
+        return None;
+    }
+    let span = cell.grid_span.unwrap_or(1).max(1) as usize;
+    let rspan = cell.row_span.unwrap_or(1).max(1) as usize;
+    let (x0, x1) = (col_x[col], col_x[(col + span).min(cols.len())]);
+    let (y0, y1) = (row_y[row], row_y[(row + rspan).min(rows.len())]);
+    let (w, h) = (x1 - x0, y1 - y0);
+    let (tb, bp) = cell_text_body(pres, t, row, col)?;
+    let stack = table_text_stack(pres, level);
+    let clr_map = clr_map_of(pres, level);
+    let env = TextEnv {
+        theme: theme_of(pres, level),
+        colors: ColorContext {
+            theme: theme_of(pres, level),
+            clr_map: &clr_map,
+            ph_clr: None,
+        },
+        slide_number: slide + 1,
+    };
+    let g = crate::text_layout::text_geometry(&tb, &bp, &stack, [0.0, 0.0, w, h], &env, fonts);
+    Some((g, [x0, y0, w, h]))
+}
+
 fn wrap_transform(aff: Aff, cmds: Vec<Command>, out: &mut Vec<Command>) {
     if cmds.is_empty() {
         return;

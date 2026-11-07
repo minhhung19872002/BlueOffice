@@ -8,3 +8,5 @@
 pub mod color;
 pub mod geometry;
 pub mod numfmt;
+pub mod render;
+pub mod viewport;

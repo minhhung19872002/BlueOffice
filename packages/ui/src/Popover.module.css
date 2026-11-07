@@ -1,0 +1,42 @@
+.trigger {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 5px;
+  border-radius: var(--bo-radius);
+  cursor: pointer;
+  color: var(--bo-text);
+  font-size: 12px;
+}
+
+.trigger:hover:not([aria-disabled='true']) {
+  background: var(--bo-hover);
+}
+
+.trigger[aria-expanded='true'],
+.trigger[aria-pressed='true'] {
+  background: var(--bo-active);
+}
+
+.trigger[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.panel {
+  position: fixed;
+  z-index: 60;
+  min-width: 160px;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 6px;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text, #1b2430);
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: var(--bo-radius, 6px);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 22%);
+  font-family: var(--bo-font, system-ui, sans-serif);
+  font-size: 13px;
+}

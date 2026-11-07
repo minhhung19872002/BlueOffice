@@ -10,6 +10,7 @@ use bo_model::change::BlockChanges;
 use bo_model::index::blocks_at_mut;
 use bo_model::{Block, Comment, Document, Numbering, Section, StyleSheet};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// An atomic edit.
@@ -49,6 +50,14 @@ pub enum Op {
         old: Vec<Comment>,
         new: Vec<Comment>,
     },
+    /// Replace the footnotes (`endnote` false) or endnotes (§17.11).
+    Notes {
+        endnote: bool,
+        old: BTreeMap<i32, Vec<Block>>,
+        new: BTreeMap<i32, Vec<Block>>,
+    },
+    /// Set the evenAndOddHeaders document setting (§17.15.1.35).
+    EvenAndOddHeaders { old: bool, new: bool },
 }
 
 impl Op {
@@ -92,6 +101,15 @@ impl Op {
             Op::Comments { old, new } => Op::Comments {
                 old: new.clone(),
                 new: old.clone(),
+            },
+            Op::Notes { endnote, old, new } => Op::Notes {
+                endnote: *endnote,
+                old: new.clone(),
+                new: old.clone(),
+            },
+            Op::EvenAndOddHeaders { old, new } => Op::EvenAndOddHeaders {
+                old: *new,
+                new: *old,
             },
         }
     }
@@ -167,6 +185,23 @@ impl Op {
                     return Err(EditError::Conflict);
                 }
                 doc.comments.clone_from(new);
+            }
+            Op::Notes { endnote, old, new } => {
+                let notes = if *endnote {
+                    &mut doc.endnotes
+                } else {
+                    &mut doc.footnotes
+                };
+                if notes != old {
+                    return Err(EditError::Conflict);
+                }
+                notes.clone_from(new);
+            }
+            Op::EvenAndOddHeaders { old, new } => {
+                if doc.even_and_odd_headers != *old {
+                    return Err(EditError::Conflict);
+                }
+                doc.even_and_odd_headers = *new;
             }
         }
         Ok(())

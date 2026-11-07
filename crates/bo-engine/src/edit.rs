@@ -6,7 +6,11 @@
 
 use crate::nav::{self, CaretRect, Motion, SelRect};
 use crate::review::ReviewState;
-use bo_edit::{CharFormat, FindOptions, FormatState, Match, ParaFormat, Pos, Selection};
+use bo_edit::section::NoteInfo;
+use bo_edit::{
+    CharFormat, FindOptions, FormatState, Match, PageSetupSpec, ParaFormat, PasteMode, Pos,
+    Selection, SetupScope, TableEdit,
+};
 use bo_layout::{LayoutOptions, RevisionView};
 use bo_model::SectionBreak;
 use serde::{Deserialize, Serialize};
@@ -119,6 +123,9 @@ pub enum Command {
         html: Option<String>,
         #[serde(default)]
         text: Option<String>,
+        /// Paste Special: keep source formatting (default), merge, or text only.
+        #[serde(default)]
+        mode: Option<PasteMode>,
     },
     /// Review state only (track changes, revisions, comments).
     Review,
@@ -218,6 +225,70 @@ pub enum Command {
         #[serde(default)]
         password: Option<String>,
     },
+    /// Tab key: next (`back`: previous) table cell, else a tab character.
+    Tab {
+        #[serde(default)]
+        back: bool,
+    },
+    /// Table editing at the selection (ECMA-376 Part 1, §17.4).
+    TableEdit {
+        edit: TableEdit,
+    },
+    /// Page size, orientation, margins and columns (§17.6.13, §17.6.11, §17.6.4).
+    SetPageSetup {
+        setup: PageSetupSpec,
+        #[serde(default)]
+        scope: SetupScope,
+    },
+    /// "Different first page" (§17.10.6 titlePg) / "different odd & even" (§17.15.1.35).
+    SetHeaderOptions {
+        #[serde(default)]
+        title_page: Option<bool>,
+        #[serde(default)]
+        even_and_odd: Option<bool>,
+    },
+    /// Open the header (`header`) or footer of a page for editing (§17.10).
+    EditHeaderFooter {
+        page: usize,
+        header: bool,
+    },
+    /// Close the header/footer editor.
+    CloseHeaderFooter,
+    /// Insert a simple field such as `PAGE` or `NUMPAGES` (§17.16.5.43, §17.16.5.40).
+    InsertField {
+        instr: String,
+    },
+    /// Insert a footnote (or endnote) at the caret (§17.11.14, §17.11.7).
+    InsertNote {
+        #[serde(default)]
+        endnote: bool,
+        #[serde(default)]
+        text: String,
+    },
+    /// Replace the text of a footnote or endnote.
+    SetNoteText {
+        #[serde(default)]
+        endnote: bool,
+        id: i32,
+        text: String,
+    },
+    /// List the footnotes and endnotes.
+    Notes,
+    /// Clear character and paragraph formatting of the selection.
+    ClearFormatting,
+    /// Format Painter: pick the formatting at the selection.
+    PickFormat,
+    /// Format Painter: apply the picked formatting to the selection.
+    ApplyFormat,
+    /// Format Painter: forget the picked formatting.
+    CancelFormat,
+    /// Fonts for the font picker (bundled faces and substituted names).
+    FontList,
+    /// Replace the open document by a new one from a built-in template.
+    NewFromTemplate {
+        id: String,
+        name: String,
+    },
 }
 
 fn yes() -> bool {
@@ -270,6 +341,17 @@ pub struct EditResult {
     /// Change to share and selection offsets while collaborating (Engine::collab_start).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collab: Option<crate::collab::CollabOut>,
+    /// Open header/footer editor (selection and caret are in it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub story: Option<crate::story::StoryState>,
+    /// Footnotes and endnotes (`notes`, note commands).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<Vec<NoteInfo>>,
+    /// Font picker entries (`fontList`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fonts: Option<Vec<crate::fonts::FontChoice>>,
+    /// The Format Painter holds picked formatting.
+    pub painter: bool,
 }
 
 impl crate::Engine {
@@ -303,6 +385,9 @@ impl crate::Engine {
 
     /// Run a command at host time `now` (Unix ms; the system clock when absent).
     fn command_at(&mut self, cmd: Command, now: Option<i64>) -> crate::Result<EditResult> {
+        if let Some(r) = self.special_command(&cmd)? {
+            return Ok(r);
+        }
         let mut extra = (None, None, None);
         let mut error = None;
         let mut changed = false; // set when the document version moves
@@ -326,6 +411,10 @@ impl crate::Engine {
             let n = name.trim();
             self.author = (!n.is_empty()).then(|| n.to_owned());
         }
+        let note_cmd = matches!(
+            cmd,
+            Command::InsertNote { .. } | Command::SetNoteText { .. }
+        );
         let merge_cmd = matches!(
             cmd,
             Command::State
@@ -356,6 +445,13 @@ impl crate::Engine {
                 relayout |= r != self.merge_preview;
                 self.merge_preview = r;
             }
+            Command::NewFromTemplate { id, name } => match crate::templates::build(id) {
+                Some(doc) => {
+                    self.load(doc, name)?;
+                    changed = true;
+                }
+                None => error = Some(format!("unknown template {id}")),
+            },
             Command::MergeToDocument => match (&self.merge, self.session.as_ref()) {
                 (Some(m), Some(s)) if !m.rows.is_empty() => {
                     let merged = bo_edit::merge::merge_all(s.doc(), m);
@@ -415,7 +511,53 @@ impl crate::Engine {
                     | Command::MergeData { .. }
                     | Command::MergePreview { .. }
                     | Command::MergeToDocument
-                    | Command::SetSavePassword { .. } => {}
+                    | Command::NewFromTemplate { .. }
+                    | Command::SetSavePassword { .. }
+                    // Handled by `special_command`.
+                    | Command::EditHeaderFooter { .. }
+                    | Command::CloseHeaderFooter
+                    | Command::Notes
+                    | Command::FontList => {}
+                    Command::Tab { back } => {
+                        if s.next_cell(back)?.is_none() && !back {
+                            s.insert_text("\t")?;
+                        }
+                    }
+                    Command::TableEdit { edit } => {
+                        s.edit_table(&edit)?;
+                    }
+                    Command::SetPageSetup { setup, scope } => s.set_page_setup(setup, scope)?,
+                    Command::SetHeaderOptions {
+                        title_page,
+                        even_and_odd,
+                    } => {
+                        let si = s.section_state().index;
+                        s.set_header_options(si, title_page, even_and_odd)?;
+                    }
+                    Command::InsertField { instr } => {
+                        let cached = if instr.trim().eq_ignore_ascii_case("NUMPAGES") {
+                            layout.pages.len().to_string()
+                        } else {
+                            "1".to_owned()
+                        };
+                        s.insert_field(&instr, &cached)?;
+                    }
+                    Command::InsertNote { endnote, text } => {
+                        s.insert_note(endnote, &text)?;
+                    }
+                    Command::SetNoteText { endnote, id, text } => {
+                        s.set_note_text(endnote, id, &text)?;
+                    }
+                    Command::ClearFormatting => {
+                        s.clear_formatting()?;
+                    }
+                    Command::PickFormat => {
+                        s.pick_format();
+                    }
+                    Command::ApplyFormat => {
+                        s.apply_picked_format()?;
+                    }
+                    Command::CancelFormat => s.clear_picked_format(),
                     Command::SetSelection { selection } => s.set_selection(selection),
                     Command::Click {
                         page,
@@ -559,6 +701,15 @@ impl crate::Engine {
                         internal,
                         html,
                         text,
+                        mode: Some(mode),
+                    } => {
+                        s.paste_with(mode, internal.as_deref(), html.as_deref(), text.as_deref())?;
+                    }
+                    Command::Paste {
+                        internal,
+                        html,
+                        text,
+                        mode: None,
                     } => {
                         if let Some(j) = internal.filter(|j| !j.is_empty()) {
                             s.paste_internal(&j)?;
@@ -643,6 +794,9 @@ impl crate::Engine {
         };
         let mut r = self.edit_result(dirty, extra, error)?;
         r.targets = targets;
+        if note_cmd {
+            r.notes = self.session.as_ref().map(bo_edit::Session::notes);
+        }
         r.collab = self.collab_after_edit();
         if merge_cmd {
             r.merge = self.merge.as_ref().map(|m| crate::merge::MergeState {
@@ -718,6 +872,10 @@ impl crate::Engine {
             targets: None,
             merge: None,
             collab: None,
+            story: None,
+            notes: None,
+            fonts: None,
+            painter: s.picked_format().is_some(),
         })
     }
 }

@@ -159,6 +159,12 @@ pub struct SourcePackage {
     pub comments_root: Option<String>,
     /// The source has a `commentsIds` part ([MS-DOCX] durable ids).
     pub comments_ids: bool,
+    /// Fingerprint of the footnotes and endnotes as read (changed ⇒ note parts rewritten).
+    #[serde(default)]
+    pub notes_fingerprint: u64,
+    /// `evenAndOddHeaders` as read (changed ⇒ the settings part is patched).
+    #[serde(default)]
+    pub even_and_odd_headers: bool,
 }
 
 /// A whole word-processing document.

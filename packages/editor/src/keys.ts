@@ -38,7 +38,8 @@ export function keyToCommand(k: KeyPress): EditCommand | null {
       // Shift+Enter: line break inside the paragraph (§17.3.3.1 br).
       return k.shift ? { cmd: 'insertText', text: ' ' } : { cmd: 'splitParagraph' };
     case 'Tab':
-      return k.ctrl ? null : { cmd: 'insertText', text: '\t' };
+      // In a table Tab moves between cells (a new row after the last one), else a tab character.
+      return k.ctrl ? null : { cmd: 'tab', back: k.shift };
     default:
       return null;
   }

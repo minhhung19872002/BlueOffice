@@ -96,6 +96,13 @@ where
     args.into_iter()
         .filter_map(|a| {
             let a = a.as_ref();
+            // WebView automation drivers (msedgedriver) forward app arguments as
+            // `--<arg>`; accept that form when it names an existing file.
+            if let Some(path) = a.strip_prefix("--").filter(|p| Path::new(p).is_file()) {
+                return Some(LaunchRequest::File {
+                    path: path.to_owned(),
+                });
+            }
             if a.starts_with('-') {
                 None
             } else if a.contains("://") {
@@ -194,13 +201,15 @@ mod tests {
     #[test]
     fn classifies_args() {
         let manifest = env!("CARGO_MANIFEST_DIR").to_owned() + "/Cargo.toml";
+        let dashed = format!("--{manifest}");
         let reqs = classify_args([
             "bluedoc.exe-not-a-file",
             "--flag",
-            manifest.as_str(),
+            dashed.as_str(),
             "bluedoc://open?host=bluedrive&file=1",
         ]);
         assert_eq!(reqs.len(), 2);
+        // `--<file>` (automation drivers) is understood as the file.
         assert!(matches!(&reqs[0], LaunchRequest::File { path } if path == &manifest));
         assert!(matches!(&reqs[1], LaunchRequest::Link(l) if l.file_id == "1"));
     }

@@ -19,12 +19,15 @@ use std::collections::BTreeMap;
 mod bundled;
 pub mod collab;
 pub mod edit;
+pub mod fonts;
 pub mod merge;
 pub mod nav;
 pub mod review;
 pub mod sheet;
 pub mod slide_edit;
 pub mod smartart;
+pub mod story;
+pub mod templates;
 
 pub use collab::{CollabChange, CollabOut, TextOp};
 pub use edit::{Command, EditResult};
@@ -210,6 +213,8 @@ pub struct Engine {
     collab: Option<collab::DocCollab>,
     /// Live collaboration binding of the open presentation (BlueSlide).
     slide_collab: Option<slide_edit::collab::SlideCollab>,
+    /// Open header/footer editor (BlueDoc).
+    hf: Option<story::HfEdit>,
 }
 
 impl Engine {
@@ -354,6 +359,7 @@ impl Engine {
         self.images.clear();
         self.collab = None;
         self.slide_collab = None;
+        self.hf = None;
         self.info()
     }
 

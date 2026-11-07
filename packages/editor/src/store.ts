@@ -2,6 +2,7 @@ import type { Language } from '@blueoffice/i18n';
 import type {
   DocInfo,
   EditResult,
+  FontChoice,
   MergeState,
   OpenedFile,
   PeerCursor,
@@ -41,7 +42,16 @@ export interface EditorState {
     | 'crossref'
     | 'merge'
     | 'savePassword'
+    | 'notes'
     | null;
+  /** Modal dialog. */
+  dialog: 'pageSetup' | 'pasteSpecial' | 'tableProperties' | 'templates' | null;
+  /** Format Painter: off, once (single click) or sticky (double click; Esc stops). */
+  painter: 'off' | 'once' | 'sticky';
+  /** Font picker entries from the engine. */
+  fonts: FontChoice[];
+  /** Show the rulers. */
+  showRuler: boolean;
   /** Name of a document with an autosave waiting to be restored. */
   recovery: string | null;
   /** A protected file waiting for its password ([MS-OFFCRYPTO]). */
@@ -66,6 +76,10 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   review: null,
   merge: null,
   panel: null,
+  dialog: null,
+  painter: 'off',
+  fonts: [],
+  showRuler: true,
   recovery: null,
   passwordPrompt: null,
   macroWarning: false,

@@ -5,9 +5,11 @@ import type {
   EditCommand,
   OpenedFile,
   ParaFormat,
+  DocPasteMode,
   Platform,
   RecentFile,
   StoredDocument,
+  TableEdit,
 } from '@blueoffice/platform';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD } from '@blueoffice/platform';
 import {
@@ -24,8 +26,27 @@ import {
   AlignJustify,
   AlignLeft,
   AlignRight,
-  Baseline,
+  BetweenHorizontalEnd,
+  BetweenHorizontalStart,
+  BetweenVerticalEnd,
+  BetweenVerticalStart,
   Bold,
+  ClipboardType,
+  Columns2,
+  Grid2x2,
+  Grid3x3,
+  LayoutTemplate,
+  Paintbrush,
+  PanelBottom,
+  PanelTop,
+  Hash,
+  Rows3,
+  SquareDashed,
+  StickyNote,
+  TableCellsMerge,
+  TableCellsSplit,
+  TableProperties,
+  Trash,
   Check,
   CheckCheck,
   ChevronLeft,
@@ -44,7 +65,6 @@ import {
   FolderOpen,
   Heading1,
   Heading2,
-  Highlighter,
   Image,
   Italic,
   KeyRound,
@@ -102,6 +122,16 @@ import { CaptionPanel, CrossRefPanel, MergeFieldPanel } from './ReferencePanels'
 import { CommentsPanel, ReviewPanel } from './ReviewPanel';
 import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
 import { createEditorStore, type EditorState } from './store';
+import {
+  HeaderFooterBar,
+  NotesPanel,
+  PageSetupDialog,
+  PasteSpecialDialog,
+  TablePropertiesDialog,
+  TemplateDialog,
+} from './DocDialogs';
+import { ColorPicker, FontFamilyPicker, FontSizeBox, SpacingMenu } from './FontControls';
+import { Rulers, type PageBox } from './Ruler';
 
 /** Options controlled by the embedding host (prompt §3.5). */
 export interface HostConfig {
@@ -133,6 +163,15 @@ export const AUTOSAVE_KEY = 'bluedoc.autosave.docx';
 export const AUTOSAVE_NAME_KEY = 'bluedoc.autosave.name';
 
 type Registry = CommandRegistry<EditorState>;
+
+let painterClickAt = 0;
+/** Whether this Format Painter click follows the previous one closely (double click). */
+function painterDoubleClick(): boolean {
+  const now = Date.now();
+  const double = now - painterClickAt < 450;
+  painterClickAt = now;
+  return double;
+}
 
 /** The editor. Everything platform-specific comes from `platform`. */
 export function BlueEditor(props: BlueEditorProps) {
@@ -168,6 +207,27 @@ function EditorInner({
   const stored = useRef<StoredDocument | null>(null);
   const [tab, setTab] = useState('home');
   const [recent, setRecent] = useState<RecentFile[]>([]);
+  const workspace = useRef<HTMLElement>(null);
+  const [pageBox, setPageBox] = useState<PageBox | null>(null);
+  /** Clipboard contents read for Paste Special. */
+  const pasteClip = useRef<{ text: string; html: string; internal: string } | null>(null);
+  const [pasteAvail, setPasteAvail] = useState({ html: false, text: false });
+  const boxFrame = useRef(0);
+  // Page box of the caret's page in workspace coordinates (rulers follow it).
+  const measure = useCallback(() => {
+    cancelAnimationFrame(boxFrame.current);
+    boxFrame.current = requestAnimationFrame(() => {
+      const s = store.getState();
+      const page = s.edit?.caret?.page ?? s.edit?.rects[0]?.page ?? s.page;
+      const r = view.current?.pageRect(page);
+      const w = workspace.current?.getBoundingClientRect();
+      if (!r || !w) return setPageBox(null);
+      setPageBox((old) => {
+        const n = { x: r.left - w.left, y: r.top - w.top, w: r.width, h: r.height };
+        return old && old.x === n.x && old.y === n.y && old.w === n.w && old.h === n.h ? old : n;
+      });
+    });
+  }, [store]);
 
   const fail = useCallback(
     (key: string, e: unknown) =>
@@ -193,6 +253,10 @@ function EditorInner({
       // New revisions and comments are attributed to the signed-in user (fallback "BlueOffice").
       await controller.current?.run({ cmd: 'setAuthor', name: platform.auth.user?.name ?? '' });
       await controller.current?.run({ cmd: 'state' });
+      if (store.getState().fonts.length === 0) {
+        const f = await controller.current?.run({ cmd: 'fontList' });
+        if (f?.fonts) store.setState({ fonts: f.fonts });
+      }
       view.current?.focus();
       onDocumentOpened?.(info.name, info.pageCount);
     },
@@ -251,7 +315,20 @@ function EditorInner({
       onPageChange: (page) => store.setState({ page }),
       onZoomChange: (zoom) => store.setState({ zoom }),
       onInput: (e) => controller.current?.input(e),
-      onPointer: (e) => controller.current?.pointer(e),
+      onPointer: (e) => {
+        controller.current?.pointer(e);
+        // Format Painter: the formatting goes to what was clicked or selected.
+        const painter = store.getState().painter;
+        if (e.type === 'up' && painter !== 'off') {
+          void controller.current?.run({ cmd: 'applyFormat' }).then(() => {
+            if (painter === 'once') {
+              store.setState({ painter: 'off' });
+              void controller.current?.run({ cmd: 'cancelFormat' });
+            }
+          });
+        }
+      },
+      onViewport: () => measure(),
     });
     view.current = v;
     controller.current = new DocController(
@@ -259,6 +336,7 @@ function EditorInner({
       v,
       platform.clipboard,
       (r) => {
+        measure();
         store.setState({
           edit: r,
           doc: r.info,
@@ -273,6 +351,7 @@ function EditorInner({
       () => store.setState({ engineReady: true }),
       (e: unknown) => fail('errors.engine', e),
     );
+    window.addEventListener('resize', measure);
     const unOpen = platform.shell.onOpenRequest((f) => void openFileRef.current(f));
     // Live collaboration: collaborators' edits and carets.
     const unExternal = platform.engine.onExternalChange?.((r) => controller.current?.external(r));
@@ -284,6 +363,7 @@ function EditorInner({
       () => {},
     );
     return () => {
+      window.removeEventListener('resize', measure);
       unOpen();
       unExternal?.();
       unPeers?.();
@@ -291,7 +371,10 @@ function EditorInner({
       view.current = null;
       controller.current = null;
     };
-  }, [app, platform, store, fail]);
+  }, [app, platform, store, fail, measure]);
+
+  // Rulers follow the caret's page and the panels' layout.
+  useEffect(() => measure(), [measure, state.showRuler, state.doc, state.panel]);
 
   // Collaborators' carets (live collaboration), drawn by the view.
   useEffect(() => {
@@ -563,7 +646,77 @@ function EditorInner({
       isChecked: (s) => !!f(s)?.highlight,
       run: (s) => fmt({ kind: 'highlight', hex: f(s)?.highlight ? null : 'FFFF00' }),
     });
-    r.register({ id: 'format.clear', isEnabled: hasDoc, run: () => fmt({ kind: 'clear' }) });
+    r.register({
+      id: 'format.clear',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'clearFormatting' }),
+    });
+    // Format Painter: click = once, double click = until Esc (or a third click).
+    r.register({
+      id: 'format.painter',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.painter !== 'off',
+      run: async (s) => {
+        if (s.painter === 'once' && painterDoubleClick()) {
+          store.setState({ painter: 'sticky' });
+          return;
+        }
+        if (s.painter !== 'off') {
+          store.setState({ painter: 'off' });
+          await run({ cmd: 'cancelFormat' });
+          return;
+        }
+        painterDoubleClick();
+        await run({ cmd: 'pickFormat' });
+        store.setState({ painter: 'once' });
+      },
+    });
+    r.register({
+      id: 'format.copyFormat',
+      shortcut: 'Ctrl+Shift+C',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'pickFormat' }),
+    });
+    r.register({
+      id: 'format.pasteFormat',
+      shortcut: 'Ctrl+Shift+V',
+      isEnabled: (s) => !!s.edit?.painter,
+      run: () => run({ cmd: 'applyFormat' }),
+    });
+    // Esc: stop the Format Painter, else leave the header/footer.
+    r.register({
+      id: 'edit.escape',
+      shortcut: 'Escape',
+      isEnabled: (s) => s.painter !== 'off' || !!s.edit?.story,
+      run: async (s) => {
+        if (s.painter !== 'off') {
+          store.setState({ painter: 'off' });
+          await run({ cmd: 'cancelFormat' });
+        } else await run({ cmd: 'closeHeaderFooter' });
+      },
+    });
+    r.register({
+      id: 'edit.pasteSpecial',
+      shortcut: 'Ctrl+Alt+V',
+      isEnabled: hasDoc,
+      run: async () => {
+        const clip = platform.clipboard;
+        const text = await clip.readText().catch(() => '');
+        const html = (await clip.readHtml?.().catch(() => '')) ?? '';
+        const last = controller.current?.lastClip;
+        const own = last && (!text || last.text === text) ? last : null;
+        pasteClip.current = {
+          text: text || own?.text || '',
+          html: html || own?.html || '',
+          internal: own?.internal ?? '',
+        };
+        setPasteAvail({
+          html: !!pasteClip.current.html || !!pasteClip.current.internal,
+          text: !!pasteClip.current.text,
+        });
+        store.setState({ dialog: 'pasteSpecial' });
+      },
+    });
 
     // Paragraph formatting.
     const aligns: [string, 'Left' | 'Center' | 'Right' | 'Justify', string][] = [
@@ -924,10 +1077,132 @@ function EditorInner({
       isEnabled: hasComments,
       run: () => run({ cmd: 'nextComment', forward: false }),
     });
-    // Page setup dialogs arrive with the ruler (see docs/plan/phase-2.md, "Hạn chế").
-    for (const id of ['layout.margins', 'layout.orientation', 'layout.size']) {
-      r.register({ id, isEnabled: () => false, run: () => {} });
+    // Page setup (ECMA-376 Part 1, §17.6.13 pgSz, §17.6.11 pgMar, §17.6.4 cols).
+    for (const id of ['layout.margins', 'layout.size', 'layout.pageSetup', 'layout.columns']) {
+      r.register({
+        id,
+        isEnabled: (s) => hasDoc(s) && !!f(s)?.section,
+        run: () => store.setState({ dialog: 'pageSetup' }),
+      });
     }
+    r.register({
+      id: 'layout.orientation',
+      isEnabled: (s) => hasDoc(s) && !!f(s)?.section,
+      isChecked: (s) => {
+        const sec = f(s)?.section;
+        return !!sec && sec.width > sec.height;
+      },
+      run: async (s) => {
+        const sec = f(s)?.section;
+        if (!sec) return;
+        // Swap the page size; margins turn with the page.
+        await run({
+          cmd: 'setPageSetup',
+          scope: 'section',
+          setup: {
+            width: sec.height,
+            height: sec.width,
+            marginTop: sec.marginLeft,
+            marginBottom: sec.marginRight,
+            marginLeft: sec.marginBottom,
+            marginRight: sec.marginTop,
+            header: sec.header,
+            footer: sec.footer,
+            columns: sec.columns,
+            columnSpace: sec.columnSpace,
+          },
+        });
+      },
+    });
+    r.register({
+      id: 'view.ruler',
+      isChecked: (s) => s.showRuler,
+      run: (s) => store.setState({ showRuler: !s.showRuler }),
+    });
+    r.register({
+      id: 'file.newFromTemplate',
+      run: () => store.setState({ dialog: 'templates' }),
+    });
+    // Headers and footers (§17.10), page numbers (§17.16.5.43 PAGE).
+    const caretPage = (s: EditorState) => s.edit?.caret?.page ?? s.page;
+    for (const [id, header] of [
+      ['insert.header', true],
+      ['insert.footer', false],
+    ] as const) {
+      r.register({
+        id,
+        isEnabled: hasDoc,
+        isChecked: (s) => s.edit?.story?.kind === (header ? 'header' : 'footer'),
+        run: (s) => run({ cmd: 'editHeaderFooter', page: caretPage(s), header }),
+      });
+    }
+    r.register({
+      id: 'insert.pageNumber',
+      isEnabled: hasDoc,
+      run: async (s) => {
+        if (!s.edit?.story)
+          await run({ cmd: 'editHeaderFooter', page: caretPage(s), header: false });
+        await run({ cmd: 'formatParagraph', format: { kind: 'align', align: 'Center' } });
+        await run({ cmd: 'insertField', instr: 'PAGE' });
+      },
+    });
+    // Footnotes and endnotes (§17.11).
+    r.register({
+      id: 'insert.footnote',
+      shortcut: 'Ctrl+Alt+F',
+      isEnabled: (s) => hasDoc(s) && !s.edit?.story,
+      run: async () => {
+        await run({ cmd: 'insertNote', endnote: false, text: '' });
+        store.setState({ panel: 'notes' });
+      },
+    });
+    r.register({
+      id: 'insert.endnote',
+      shortcut: 'Ctrl+Alt+D',
+      isEnabled: (s) => hasDoc(s) && !s.edit?.story,
+      run: async () => {
+        await run({ cmd: 'insertNote', endnote: true, text: '' });
+        store.setState({ panel: 'notes' });
+      },
+    });
+    r.register({
+      id: 'references.notes',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.panel === 'notes',
+      run: (s) => store.setState({ panel: s.panel === 'notes' ? null : 'notes' }),
+    });
+    // Tables (§17.4).
+    const inTable = (s: EditorState) => hasDoc(s) && !!f(s)?.table;
+    const tbl = (edit: TableEdit) => run({ cmd: 'tableEdit', edit });
+    const tableCmds: [string, TableEdit, ((s: EditorState) => boolean)?][] = [
+      ['table.insertRowAbove', { kind: 'insertRow', below: false }],
+      ['table.insertRowBelow', { kind: 'insertRow', below: true }],
+      ['table.insertColumnLeft', { kind: 'insertColumn', right: false }],
+      ['table.insertColumnRight', { kind: 'insertColumn', right: true }],
+      ['table.deleteRow', { kind: 'deleteRow' }],
+      ['table.deleteColumn', { kind: 'deleteColumn' }],
+      ['table.deleteTable', { kind: 'deleteTable' }],
+      ['table.mergeCells', { kind: 'mergeCells' }, (s) => inTable(s) && !!f(s)?.table?.multiCell],
+      ['table.splitCell', { kind: 'splitCell' }],
+      ['table.bordersAll', { kind: 'borders', preset: 'all' }],
+      ['table.bordersNone', { kind: 'borders', preset: 'none' }],
+      ['table.bordersOutside', { kind: 'borders', preset: 'outside' }],
+      ['table.bordersInside', { kind: 'borders', preset: 'inside' }],
+    ];
+    for (const [id, edit, enabled] of tableCmds) {
+      r.register({ id, isEnabled: enabled ?? inTable, run: () => tbl(edit) });
+    }
+    r.register({
+      id: 'table.headerRow',
+      isEnabled: inTable,
+      isChecked: (s) => !!f(s)?.table?.headerRow,
+      run: (s) => tbl({ kind: 'headerRow', on: !f(s)?.table?.headerRow }),
+    });
+    r.register({
+      id: 'table.properties',
+      isEnabled: inTable,
+      run: () => store.setState({ dialog: 'tableProperties' }),
+    });
     return r;
   }, [platform, store, sampleUrl, openFile, newDocument, fail, i18nInstance, loaded]);
   /* eslint-enable react-hooks/refs */
@@ -948,6 +1223,10 @@ function EditorInner({
     return () => window.removeEventListener('keydown', onKey);
   }, [registry, store]);
 
+  const runCommand = useCallback(
+    (c: EditCommand) => controller.current?.run(c) ?? Promise.resolve(null),
+    [],
+  );
   const item = (
     id: string,
     labelKey: string,
@@ -969,6 +1248,101 @@ function EditorInner({
     };
   };
   const s = (id: string, key: string, icon: ReactNode) => item(id, key, icon, 'small');
+  /** A custom ribbon control (combobox, colour picker). */
+  const custom = (id: string, render: ReactNode) => ({ id, label: id, onSelect: () => {}, render });
+  const fs = state.edit?.format;
+  const noDoc = !state.doc;
+  const focusDoc = () => view.current?.focus();
+  const runFocus = (c: EditCommand) =>
+    (controller.current?.run(c) ?? Promise.resolve(null)).then(() => focusDoc());
+  const tableTab: RibbonTab[] = fs?.table
+    ? [
+        {
+          id: 'table',
+          label: t('ribbon.tabs.table'),
+          groups: [
+            {
+              id: 'rowsCols',
+              label: t('ribbon.groups.rowsColumns'),
+              items: [
+                s(
+                  'table.insertRowAbove',
+                  'commands.table.insertRowAbove',
+                  <BetweenHorizontalStart size={SMALL} />,
+                ),
+                s(
+                  'table.insertRowBelow',
+                  'commands.table.insertRowBelow',
+                  <BetweenHorizontalEnd size={SMALL} />,
+                ),
+                s(
+                  'table.insertColumnLeft',
+                  'commands.table.insertColumnLeft',
+                  <BetweenVerticalStart size={SMALL} />,
+                ),
+                s(
+                  'table.insertColumnRight',
+                  'commands.table.insertColumnRight',
+                  <BetweenVerticalEnd size={SMALL} />,
+                ),
+                s('table.deleteRow', 'commands.table.deleteRow', <Rows3 size={SMALL} />),
+                s('table.deleteColumn', 'commands.table.deleteColumn', <Columns2 size={SMALL} />),
+              ],
+            },
+            {
+              id: 'merge',
+              label: t('ribbon.groups.merge'),
+              items: [
+                item(
+                  'table.mergeCells',
+                  'commands.table.mergeCells',
+                  <TableCellsMerge size={ICON} />,
+                ),
+                item(
+                  'table.splitCell',
+                  'commands.table.splitCell',
+                  <TableCellsSplit size={ICON} />,
+                ),
+                item('table.deleteTable', 'commands.table.deleteTable', <Trash size={ICON} />),
+              ],
+            },
+            {
+              id: 'tableStyle',
+              label: t('ribbon.groups.tableStyle'),
+              items: [
+                s('table.bordersAll', 'commands.table.bordersAll', <Grid3x3 size={SMALL} />),
+                s(
+                  'table.bordersOutside',
+                  'commands.table.bordersOutside',
+                  <Grid2x2 size={SMALL} />,
+                ),
+                s('table.bordersInside', 'commands.table.bordersInside', <Grid2x2 size={SMALL} />),
+                s('table.bordersNone', 'commands.table.bordersNone', <SquareDashed size={SMALL} />),
+                custom(
+                  'table.shading',
+                  <ColorPicker
+                    kind="shading"
+                    label={t('commands.table.shading')}
+                    testId="cell-shading"
+                    value={fs.table.shading}
+                    disabled={noDoc}
+                    onPick={(hex) =>
+                      void runFocus({ cmd: 'tableEdit', edit: { kind: 'shading', hex } })
+                    }
+                  />,
+                ),
+                s('table.headerRow', 'commands.table.headerRow', <Rows3 size={SMALL} />),
+                s(
+                  'table.properties',
+                  'commands.table.properties',
+                  <TableProperties size={SMALL} />,
+                ),
+              ],
+            },
+          ],
+        },
+      ]
+    : [];
 
   const tabs: RibbonTab[] = [
     {
@@ -980,6 +1354,11 @@ function EditorInner({
           label: t('ribbon.groups.document'),
           items: [
             item('file.new', 'commands.file.new', <FilePlus size={ICON} />),
+            item(
+              'file.newFromTemplate',
+              'commands.file.newFromTemplate',
+              <LayoutTemplate size={ICON} />,
+            ),
             item('file.open', 'commands.file.open', <FolderOpen size={ICON} />),
             item('file.save', 'commands.file.save', <Save size={ICON} />),
             item('file.saveAs', 'commands.file.saveAs', <Save size={ICON} />),
@@ -1017,12 +1396,28 @@ function EditorInner({
             item('edit.paste', 'commands.edit.paste', <ClipboardPaste size={ICON} />),
             s('edit.cut', 'commands.edit.cut', <Scissors size={SMALL} />),
             s('edit.copy', 'commands.edit.copy', <Copy size={SMALL} />),
+            s('edit.pasteSpecial', 'commands.edit.pasteSpecial', <ClipboardType size={SMALL} />),
+            s('format.painter', 'commands.format.painter', <Paintbrush size={SMALL} />),
           ],
         },
         {
           id: 'font',
           label: t('ribbon.groups.font'),
           items: [
+            custom(
+              'format.fontFamily',
+              <FontFamilyPicker
+                format={fs}
+                fonts={state.fonts}
+                run={runCommand}
+                disabled={noDoc}
+                onDone={focusDoc}
+              />,
+            ),
+            custom(
+              'format.fontSize',
+              <FontSizeBox format={fs} run={runCommand} disabled={noDoc} onDone={focusDoc} />,
+            ),
             s('format.bold', 'commands.format.bold', <Bold size={SMALL} />),
             s('format.italic', 'commands.format.italic', <Italic size={SMALL} />),
             s('format.underline', 'commands.format.underline', <Underline size={SMALL} />),
@@ -1031,8 +1426,32 @@ function EditorInner({
             s('format.superscript', 'commands.format.superscript', <Superscript size={SMALL} />),
             s('format.grow', 'commands.format.grow', <AArrowUp size={SMALL} />),
             s('format.shrink', 'commands.format.shrink', <AArrowDown size={SMALL} />),
-            s('format.color', 'commands.format.color', <Baseline size={SMALL} />),
-            s('format.highlight', 'commands.format.highlight', <Highlighter size={SMALL} />),
+            custom(
+              'format.color',
+              <ColorPicker
+                kind="color"
+                label={t('commands.format.color')}
+                testId="text-color"
+                value={fs?.color}
+                disabled={noDoc}
+                onPick={(hex) =>
+                  void runFocus({ cmd: 'formatText', format: { kind: 'color', hex } })
+                }
+              />,
+            ),
+            custom(
+              'format.highlight',
+              <ColorPicker
+                kind="highlight"
+                label={t('commands.format.highlight')}
+                testId="highlight-color"
+                value={fs?.highlight}
+                disabled={noDoc}
+                onPick={(hex) =>
+                  void runFocus({ cmd: 'formatText', format: { kind: 'highlight', hex } })
+                }
+              />,
+            ),
             s('format.clear', 'commands.format.clear', <RemoveFormatting size={SMALL} />),
           ],
         },
@@ -1048,6 +1467,10 @@ function EditorInner({
             s('format.alignCenter', 'commands.format.alignCenter', <AlignCenter size={SMALL} />),
             s('format.alignRight', 'commands.format.alignRight', <AlignRight size={SMALL} />),
             s('format.justify', 'commands.format.justify', <AlignJustify size={SMALL} />),
+            custom(
+              'format.spacing',
+              <SpacingMenu format={fs} run={runCommand} disabled={noDoc} onDone={focusDoc} />,
+            ),
           ],
         },
         {
@@ -1104,6 +1527,15 @@ function EditorInner({
             ),
           ],
         },
+        {
+          id: 'headerFooter',
+          label: t('ribbon.groups.headerFooter'),
+          items: [
+            item('insert.header', 'commands.insert.header', <PanelTop size={ICON} />),
+            item('insert.footer', 'commands.insert.footer', <PanelBottom size={ICON} />),
+            item('insert.pageNumber', 'commands.insert.pageNumber', <Hash size={ICON} />),
+          ],
+        },
       ],
     },
     {
@@ -1121,6 +1553,8 @@ function EditorInner({
               <RectangleHorizontal size={ICON} />,
             ),
             item('layout.size', 'commands.layout.size', <Scaling size={ICON} />),
+            item('layout.columns', 'commands.layout.columns', <Columns2 size={ICON} />),
+            item('layout.pageSetup', 'commands.layout.pageSetup', <Ruler size={ICON} />),
           ],
         },
       ],
@@ -1135,6 +1569,15 @@ function EditorInner({
           items: [
             item('references.insertToc', 'commands.references.insertToc', <ListTree size={ICON} />),
             s('references.updateToc', 'commands.references.updateToc', <RefreshCw size={SMALL} />),
+          ],
+        },
+        {
+          id: 'footnotes',
+          label: t('ribbon.groups.footnotes'),
+          items: [
+            item('insert.footnote', 'commands.insert.footnote', <StickyNote size={ICON} />),
+            s('insert.endnote', 'commands.insert.endnote', <StickyNote size={SMALL} />),
+            s('references.notes', 'commands.references.notes', <PanelRight size={SMALL} />),
           ],
         },
         {
@@ -1295,6 +1738,7 @@ function EditorInner({
           id: 'appearance',
           label: t('ribbon.groups.appearance'),
           items: [
+            item('view.ruler', 'commands.view.ruler', <Ruler size={ICON} />),
             item('view.collaborators', 'commands.view.collaborators', <Users size={ICON} />),
             item('view.toggleTheme', 'commands.view.toggleTheme', <MoonStar size={ICON} />),
             item('view.toggleLanguage', 'commands.view.toggleLanguage', <Languages size={ICON} />),
@@ -1304,10 +1748,6 @@ function EditorInner({
     },
   ];
 
-  const runCommand = useCallback(
-    (c: EditCommand) => controller.current?.run(c) ?? Promise.resolve(null),
-    [],
-  );
   const status = state.status;
   const appName = t(`app.${app}`);
   const appTitle = t(`appTitle.${app}`);
@@ -1318,6 +1758,10 @@ function EditorInner({
 
   const closePanel = () => {
     store.setState({ panel: null });
+    view.current?.focus();
+  };
+  const closeDialog = () => {
+    store.setState({ dialog: null });
     view.current?.focus();
   };
   return (
@@ -1354,9 +1798,76 @@ function EditorInner({
       </header>
       {app === 'doc' ? (
         <>
-          <Ribbon tabs={tabs} value={tab} onValueChange={setTab} />
-          <main className={styles.workspace}>
-            <div ref={viewHost} className={styles.viewHost} data-testid="document-view" />
+          <Ribbon
+            tabs={[...tabs, ...tableTab]}
+            value={tab === 'table' && !fs?.table ? 'home' : tab}
+            onValueChange={setTab}
+          />
+          <main ref={workspace} className={styles.workspace}>
+            {state.showRuler && state.doc && (
+              <Rulers
+                box={pageBox}
+                format={fs}
+                run={runFocus}
+                language={state.language}
+                disabled={noDoc}
+              />
+            )}
+            <div
+              ref={viewHost}
+              className={`${styles.viewHost} ${state.showRuler && state.doc ? styles.withRulers : ''}`}
+              data-testid="document-view"
+            />
+            {state.edit?.story && <HeaderFooterBar story={state.edit.story} run={runCommand} />}
+            {state.panel === 'notes' && <NotesPanel run={runCommand} onClose={closePanel} />}
+            {state.dialog === 'pageSetup' && (
+              <PageSetupDialog
+                format={fs}
+                run={runCommand}
+                language={state.language}
+                onClose={closeDialog}
+              />
+            )}
+            {state.dialog === 'tableProperties' && (
+              <TablePropertiesDialog
+                format={fs}
+                run={runCommand}
+                language={state.language}
+                onClose={closeDialog}
+              />
+            )}
+            {state.dialog === 'pasteSpecial' && (
+              <PasteSpecialDialog
+                available={pasteAvail}
+                onClose={closeDialog}
+                onPaste={(mode: DocPasteMode) => {
+                  const c = pasteClip.current;
+                  closeDialog();
+                  if (c) void runFocus({ cmd: 'paste', ...c, mode });
+                }}
+              />
+            )}
+            {state.dialog === 'templates' && (
+              <TemplateDialog
+                onClose={closeDialog}
+                onCreate={(id, name) => {
+                  closeDialog();
+                  void (async () => {
+                    try {
+                      await platform.engine.init();
+                      if (!store.getState().doc) await platform.engine.newDocument(name);
+                      const r = await controller.current?.run({ cmd: 'newFromTemplate', id, name });
+                      if (r && !r.error) {
+                        stored.current = null;
+                        await loaded(r.info);
+                      }
+                    } catch (e) {
+                      fail('errors.open', e);
+                    }
+                  })();
+                }}
+              />
+            )}
             {(state.panel === 'find' || state.panel === 'replace') && (
               <FindPanel
                 run={runCommand}
@@ -1444,6 +1955,14 @@ function EditorInner({
                       onClick={() => void registry.execute('file.new', state)}
                     >
                       <FilePlus size={18} /> {t('start.blank')}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.secondary}
+                      data-testid="new-from-template"
+                      onClick={() => void registry.execute('file.newFromTemplate', state)}
+                    >
+                      <LayoutTemplate size={18} /> {t('start.template')}
                     </button>
                     <button
                       type="button"

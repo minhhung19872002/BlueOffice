@@ -17,6 +17,8 @@ pub mod merge;
 mod ops;
 pub mod para;
 pub mod revisions;
+pub mod section;
+pub mod table;
 
 pub use comments::CommentInfo;
 pub use fields::RefTarget;
@@ -24,13 +26,15 @@ pub use find::{find, FindOptions, Match};
 pub use ops::{Op, Pos, Selection, Transaction};
 use revisions::Tracker;
 pub use revisions::{RevKind, RevisionItem};
+pub use section::{PageSetupSpec, PasteMode, SetupScope};
+pub use table::{BorderPreset, TableEdit};
 
 use bo_model::change::BlockChanges;
 use bo_model::index::{blocks_at, body_paragraphs, para_at, ParaPath};
 use bo_model::{
     Alignment, Block, Color, Document, HalfPoints, Image, LineSpacing, NumRef, ParaProps,
-    Paragraph, RunContent, RunProps, Section, SectionBreak, StyleKind, Table, Twips, Underline,
-    VertAlign,
+    Paragraph, RunContent, RunProps, Section, SectionBreak, StyleKind, TabAlign, TabLeader,
+    TabStop, Table, Twips, Underline, VertAlign,
 };
 use para::Atom;
 use serde::{Deserialize, Serialize};
@@ -59,7 +63,11 @@ pub type Result<T> = std::result::Result<T, EditError>;
 
 /// Character formatting commands (ECMA-376 Part 1, §17.3.2 run properties).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum CharFormat {
     Bold,
     Italic,
@@ -72,6 +80,7 @@ pub enum CharFormat {
     },
     /// Size in half-points (§17.3.2.38 sz).
     Size {
+        #[serde(alias = "half_points")]
         half_points: u32,
     },
     /// `RRGGBB` or `None` for automatic.
@@ -88,7 +97,11 @@ pub enum CharFormat {
 
 /// Paragraph formatting commands (ECMA-376 Part 1, §17.3.1 paragraph properties).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum ParaFormat {
     Align {
         align: Alignment,
@@ -118,6 +131,172 @@ pub enum ParaFormat {
     },
     /// Remove direct paragraph formatting and the paragraph style.
     Clear,
+    /// Right indent (§17.3.1.12 ind @w:right).
+    IndentRight {
+        twips: i32,
+    },
+    /// Left, right and first-line indents at once (ruler); `first_line` < 0 is a
+    /// hanging indent (§17.3.1.12 ind @w:firstLine / @w:hanging).
+    Indents {
+        left: i32,
+        right: i32,
+        first_line: i32,
+    },
+    /// Line spacing with its rule (§17.3.1.33 spacing @w:line/@w:lineRule): `auto`
+    /// in 240ths of a line, `exact` / `atLeast` in twips.
+    LineSpacingRule {
+        rule: LineRule,
+        value: u32,
+    },
+    /// Make the effective tab stops exactly `tabs` (§17.3.1.37 tabs): stops of the
+    /// paragraph style that are not wanted are cleared with `w:val="clear"`.
+    Tabs {
+        tabs: Vec<TabSpec>,
+    },
+    /// Paragraph shading fill (§17.3.1.31 shd) or `None` to remove it.
+    Shading {
+        hex: Option<String>,
+    },
+}
+
+/// Line spacing rule (§17.18.48 `ST_LineSpacingRule`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LineRule {
+    #[default]
+    Auto,
+    Exact,
+    AtLeast,
+}
+
+/// A tab stop as seen by hosts (§17.3.1.37 tab; `pos` in twips from the left indent origin).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TabSpec {
+    pub pos: i32,
+    #[serde(default)]
+    pub align: TabKind,
+    #[serde(default)]
+    pub leader: LeaderKind,
+}
+
+/// Tab stop alignment offered by the ruler (§17.18.84 `ST_TabJc`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TabKind {
+    #[default]
+    Left,
+    Center,
+    Right,
+    Decimal,
+    Bar,
+}
+
+/// Tab leader (§17.18.85 `ST_TabTlc`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LeaderKind {
+    #[default]
+    None,
+    Dot,
+    Hyphen,
+    Underscore,
+}
+
+impl TabSpec {
+    fn to_model(self) -> TabStop {
+        TabStop {
+            pos: Twips(self.pos),
+            align: match self.align {
+                TabKind::Left => TabAlign::Left,
+                TabKind::Center => TabAlign::Center,
+                TabKind::Right => TabAlign::Right,
+                TabKind::Decimal => TabAlign::Decimal,
+                TabKind::Bar => TabAlign::Bar,
+            },
+            leader: match self.leader {
+                LeaderKind::None => TabLeader::None,
+                LeaderKind::Dot => TabLeader::Dot,
+                LeaderKind::Hyphen => TabLeader::Hyphen,
+                LeaderKind::Underscore => TabLeader::Underscore,
+            },
+        }
+    }
+
+    fn from_model(t: TabStop) -> Option<TabSpec> {
+        Some(TabSpec {
+            pos: t.pos.0,
+            align: match t.align {
+                TabAlign::Left => TabKind::Left,
+                TabAlign::Center => TabKind::Center,
+                TabAlign::Right => TabKind::Right,
+                TabAlign::Decimal => TabKind::Decimal,
+                TabAlign::Bar => TabKind::Bar,
+                TabAlign::Clear => return None,
+            },
+            leader: match t.leader {
+                TabLeader::None => LeaderKind::None,
+                TabLeader::Dot => LeaderKind::Dot,
+                TabLeader::Hyphen => LeaderKind::Hyphen,
+                TabLeader::Underscore => LeaderKind::Underscore,
+            },
+        })
+    }
+}
+
+/// Line spacing at the selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineSpacingState {
+    pub rule: LineRule,
+    pub value: u32,
+}
+
+/// Page setup of the section holding the caret (twips; ECMA-376 Part 1, §17.6.13 pgSz,
+/// §17.6.11 pgMar, §17.6.4 cols).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SectionState {
+    pub index: usize,
+    pub count: usize,
+    pub width: i32,
+    pub height: i32,
+    pub margin_top: i32,
+    pub margin_bottom: i32,
+    pub margin_left: i32,
+    pub margin_right: i32,
+    pub header: i32,
+    pub footer: i32,
+    pub columns: u16,
+    pub column_space: i32,
+    /// §17.10.6 titlePg: different first page header/footer.
+    pub title_page: bool,
+    /// §17.15.1.35 evenAndOddHeaders (document setting).
+    pub even_and_odd: bool,
+}
+
+/// The table holding the caret.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableState {
+    pub rows: usize,
+    /// Grid columns (§17.4.48 tblGrid).
+    pub cols: usize,
+    pub row: usize,
+    /// Grid column of the caret's cell.
+    pub col: usize,
+    /// The caret's row repeats as a header row (§17.4.49 tblHeader).
+    pub header_row: bool,
+    /// Fill of the caret's cell (§17.4.33 shd).
+    pub shading: Option<String>,
+    pub align: Alignment,
+    /// Preferred width: `pct` in percent, else `dxa` twips (0 = auto) (§17.4.63 tblW).
+    pub width_pct: Option<u32>,
+    pub width: i32,
+    /// The selection covers more than one cell (merge is possible).
+    pub multi_cell: bool,
+    /// The caret's cell is merged (split is possible).
+    pub merged: bool,
 }
 
 /// Formatting at the selection start (drives ribbon toggle states).
@@ -140,6 +319,20 @@ pub struct FormatState {
     pub numbering: bool,
     pub can_undo: bool,
     pub can_redo: bool,
+    /// Effective paragraph indents and spacing (twips).
+    pub indent_left: i32,
+    pub indent_right: i32,
+    /// Negative = hanging indent.
+    pub first_line: i32,
+    pub space_before: i32,
+    pub space_after: i32,
+    pub line_spacing: LineSpacingState,
+    /// Effective custom tab stops of the paragraph.
+    pub tabs: Vec<TabSpec>,
+    /// Paragraph shading.
+    pub shading: Option<String>,
+    pub section: SectionState,
+    pub table: Option<TableState>,
 }
 
 /// Content copied to the clipboard.
@@ -212,6 +405,42 @@ pub fn effective_run(doc: &Document, p: &Paragraph, direct: &RunProps) -> RunPro
         r = doc.styles.resolve_character(id).inherit(&r);
     }
     direct.inherit(&r)
+}
+
+/// Paragraph properties from the document defaults and the paragraph style (without
+/// direct formatting, §17.7.2).
+pub fn style_para_props(doc: &Document, direct: &ParaProps) -> ParaProps {
+    let style = direct.style.clone().or_else(|| {
+        doc.styles
+            .default_of(StyleKind::Paragraph)
+            .map(|s| s.id.clone())
+    });
+    style
+        .map(|id| doc.styles.resolve_paragraph(&id).0)
+        .unwrap_or_default()
+        .inherit(&doc.default_para)
+}
+
+/// Effective paragraph properties: defaults → style → direct.
+pub fn effective_para(doc: &Document, direct: &ParaProps) -> ParaProps {
+    direct.inherit(&style_para_props(doc, direct))
+}
+
+/// Direct tab stops that turn the inherited stops `base` into exactly `wanted`
+/// (§17.3.1.37: a `clear` stop removes an inherited one).
+fn direct_tabs(base: &[TabStop], wanted: &[TabSpec]) -> Option<Vec<TabStop>> {
+    let wanted: Vec<TabStop> = wanted.iter().map(|t| t.to_model()).collect();
+    let mut out: Vec<TabStop> = base
+        .iter()
+        .filter(|b| b.align != TabAlign::Clear && !wanted.contains(b))
+        .map(|b| TabStop {
+            align: TabAlign::Clear,
+            ..*b
+        })
+        .collect();
+    out.extend(wanted.iter().filter(|w| !base.contains(w)).copied());
+    out.sort_by_key(|t| t.pos.0);
+    (!out.is_empty()).then_some(out)
 }
 
 /// Transaction builder: ops are applied as they are pushed.
@@ -583,6 +812,8 @@ pub struct Session {
     clock: Option<String>,
     /// Blocks changed since the last [`Session::take_changes`].
     changes: BlockChanges,
+    /// Formatting picked by the Format Painter.
+    painter: Option<section::PickedFormat>,
 }
 
 /// Author used when the host does not know the user.
@@ -603,6 +834,7 @@ impl Session {
             author: DEFAULT_AUTHOR.to_owned(),
             clock: None,
             changes: BlockChanges::everything(),
+            painter: None,
         }
     }
 
@@ -1655,6 +1887,35 @@ impl Session {
                         pr.num = list_num.flatten();
                     }
                     ParaFormat::Style { id } => pr.style = Some(id.clone()),
+                    ParaFormat::IndentRight { twips } => pr.indent_right = Some(Twips(*twips)),
+                    ParaFormat::Indents {
+                        left,
+                        right,
+                        first_line,
+                    } => {
+                        // §17.3.1.12 ind: the hanging indent may not move the first line
+                        // left of the page margin.
+                        let left = (*left).max(0);
+                        pr.indent_left = Some(Twips(left));
+                        pr.indent_right = Some(Twips(*right));
+                        pr.indent_first_line = Some(Twips((*first_line).max(-left)));
+                    }
+                    ParaFormat::LineSpacingRule { rule, value } => {
+                        pr.line_spacing = Some(match rule {
+                            LineRule::Auto => LineSpacing::Auto((*value).clamp(60, 2400)),
+                            LineRule::Exact => LineSpacing::Exact(Twips((*value).max(20) as i32)),
+                            LineRule::AtLeast => {
+                                LineSpacing::AtLeast(Twips((*value).max(20) as i32))
+                            }
+                        });
+                    }
+                    ParaFormat::Tabs { tabs } => {
+                        let base = style_para_props(tx.doc, &p.props).tabs.unwrap_or_default();
+                        pr.tabs = direct_tabs(&base, tabs);
+                    }
+                    ParaFormat::Shading { hex } => {
+                        pr.shading = hex.as_deref().and_then(Color::from_hex);
+                    }
                     ParaFormat::Clear => {
                         let unknown = std::mem::take(&mut pr.unknown);
                         *pr = ParaProps {
@@ -1785,6 +2046,7 @@ impl Session {
             .unwrap_or_default()
             .inherit(&doc.default_para)
             .align;
+        let eff = effective_para(doc, &pp);
         FormatState {
             bold: r.bold.unwrap_or(false),
             italic: r.italic.unwrap_or(false),
@@ -1802,6 +2064,34 @@ impl Session {
             numbering: list(false),
             can_undo: self.can_undo(),
             can_redo: self.can_redo(),
+            indent_left: eff.indent_left.map_or(0, |t| t.0),
+            indent_right: eff.indent_right.map_or(0, |t| t.0),
+            first_line: eff.indent_first_line.map_or(0, |t| t.0),
+            space_before: eff.space_before.map_or(0, |t| t.0),
+            space_after: eff.space_after.map_or(0, |t| t.0),
+            line_spacing: match eff.line_spacing.unwrap_or_default() {
+                LineSpacing::Auto(v) => LineSpacingState {
+                    rule: LineRule::Auto,
+                    value: v,
+                },
+                LineSpacing::Exact(t) => LineSpacingState {
+                    rule: LineRule::Exact,
+                    value: t.0.max(0) as u32,
+                },
+                LineSpacing::AtLeast(t) => LineSpacingState {
+                    rule: LineRule::AtLeast,
+                    value: t.0.max(0) as u32,
+                },
+            },
+            tabs: eff
+                .tabs
+                .iter()
+                .flatten()
+                .filter_map(|t| TabSpec::from_model(*t))
+                .collect(),
+            shading: eff.shading.map(Color::to_hex),
+            section: self.section_state(),
+            table: self.table_state(),
         }
     }
 
@@ -2283,5 +2573,7 @@ impl Session {
     }
 }
 
+#[cfg(test)]
+mod feature_tests;
 #[cfg(test)]
 mod tests;

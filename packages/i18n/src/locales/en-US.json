@@ -112,6 +112,7 @@
       "zoomOut": "Zoom out",
       "zoomReset": "100%",
       "fitWidth": "Fit width",
+      "collaborators": "Collaborators",
       "toggleTheme": "Light / Dark",
       "toggleLanguage": "Tiếng Việt"
     },
@@ -754,5 +755,10 @@
     "mismatch": "Passwords do not match",
     "set": "Set",
     "protected": "Password protected"
+  },
+  "collab": {
+    "editing": "{{name}} is editing",
+    "anonymous": "Guest",
+    "selected": "Selected by {{name}}"
   }
 }

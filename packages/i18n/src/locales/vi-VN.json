@@ -112,6 +112,7 @@
       "zoomOut": "Thu nhỏ",
       "zoomReset": "100%",
       "fitWidth": "Vừa chiều rộng",
+      "collaborators": "Người cùng sửa",
       "toggleTheme": "Sáng / Tối",
       "toggleLanguage": "English"
     },
@@ -754,5 +755,10 @@
     "mismatch": "Mật khẩu không khớp",
     "set": "Đặt",
     "protected": "Có mật khẩu"
+  },
+  "collab": {
+    "editing": "{{name}} đang sửa",
+    "anonymous": "Khách",
+    "selected": "{{name}} đang chọn"
   }
 }

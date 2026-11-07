@@ -11,7 +11,11 @@ import { keyToCommand } from './keys';
 /** What the controller needs from the view (DocumentView implements it). */
 export interface EditView {
   refresh(info: EditResult['info'], dirty: number[]): void;
-  setSelection(caret: EditResult['caret'], rects: EditResult['rects']): void;
+  setSelection(
+    caret: EditResult['caret'],
+    rects: EditResult['rects'],
+    scrollIntoView?: boolean,
+  ): void;
 }
 
 /**
@@ -39,6 +43,13 @@ export class DocController {
     this.view.setSelection(r.caret, r.rects);
     this.onResult(r);
     return r;
+  }
+
+  /** Show a result produced elsewhere (a collaborator's edit): no scrolling to the caret. */
+  external(r: EditResult): void {
+    if (r.dirty.length || r.info) this.view.refresh(r.info, r.dirty);
+    this.view.setSelection(r.caret, r.rects, false);
+    this.onResult(r);
   }
 
   /** Run a command after the previous ones (stamped with the host clock for revisions). */

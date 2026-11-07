@@ -6,6 +6,7 @@ import type {
   Platform,
   SlideCommand,
   SlideEditResult,
+  SlidePeer,
   SlidePreview,
   SlideShapeInfo,
 } from '@blueoffice/platform';
@@ -144,6 +145,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dropOver, setDropOver] = useState<number | null>(null);
+  const [peers, setPeers] = useState<SlidePeer[]>([]);
   const showRef = useRef<HTMLDivElement>(null);
   const slideRef = useRef<HTMLDivElement>(null);
   const colorId = useId();
@@ -180,6 +182,16 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   }, []);
 
   const ctrl = useMemo(() => new SlideController(engine, apply, fail), [engine, apply, fail]);
+
+  // Live collaboration: collaborators' edits and selected objects.
+  useEffect(() => {
+    const unChange = engine.onSlideExternalChange?.(apply);
+    const unPeers = engine.onSlidePeers?.(setPeers);
+    return () => {
+      unChange?.();
+      unPeers?.();
+    };
+  }, [engine, apply]);
   const run = useCallback((cmd: SlideCommand) => void ctrl.run(cmd), [ctrl]);
 
   const load = useCallback(
@@ -921,6 +933,12 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
                     onCommitText={commitText}
                     label={t('slideEditor.editor')}
                     editorLabel={t('slideEditor.textEditor')}
+                    peers={peers
+                      .filter((p) => p.slide === shown)
+                      .map((p) => {
+                        const name = p.name || t('collab.anonymous');
+                        return { ...p, name, label: t('collab.selected', { name }) };
+                      })}
                   />
                 </div>
               ) : (

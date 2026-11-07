@@ -38,6 +38,8 @@ export interface SlideOverlayProps {
   onCommitText: (id: number, text: string) => void;
   label: string;
   editorLabel: string;
+  /** Collaborators' selected objects on this slide (live collaboration). */
+  peers?: { clientId: number; name: string; color: string; rect: SlideBox; label: string }[];
 }
 
 interface Drag {
@@ -87,6 +89,7 @@ export function SlideOverlay({
   onCommitText,
   label,
   editorLabel,
+  peers = [],
 }: SlideOverlayProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -211,6 +214,20 @@ export function SlideOverlay({
         onDoubleClick={onDoubleClick}
       >
         {edit?.placeholders.map((b, i) => boxRect(b, styles.placeholder, `ph${i}`))}
+        {peers.map((p) => (
+          <g key={`peer${p.clientId}`} data-testid="peer-selection" aria-label={p.label}>
+            <title>{p.label}</title>
+            {boxRect(p.rect, styles.peer, undefined, { style: { stroke: p.color } })}
+            <text
+              className={styles.peerName}
+              x={p.rect.cx - p.rect.w / 2}
+              y={p.rect.cy - p.rect.h / 2 - 3 / scale}
+              style={{ fill: p.color, fontSize: 11 / scale }}
+            >
+              {p.name}
+            </text>
+          </g>
+        ))}
         {edit?.selection.map((s) =>
           boxRect(s.rect, styles.selected, s.id, { 'data-testid': 'selection-box' }),
         )}

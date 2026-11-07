@@ -87,6 +87,7 @@ import {
   Type,
   Underline,
   Undo2,
+  Users,
   X,
   ZoomIn,
   ZoomOut,
@@ -273,6 +274,9 @@ function EditorInner({
       (e: unknown) => fail('errors.engine', e),
     );
     const unOpen = platform.shell.onOpenRequest((f) => void openFileRef.current(f));
+    // Live collaboration: collaborators' edits and carets.
+    const unExternal = platform.engine.onExternalChange?.((r) => controller.current?.external(r));
+    const unPeers = platform.engine.onPeers?.((peers) => store.setState({ peers }));
     void platform.shell.recentFiles().then(setRecent);
     // Crash recovery: an autosave left behind by a previous session.
     void platform.offline.get(AUTOSAVE_NAME_KEY).then(
@@ -281,11 +285,25 @@ function EditorInner({
     );
     return () => {
       unOpen();
+      unExternal?.();
+      unPeers?.();
       v.dispose();
       view.current = null;
       controller.current = null;
     };
   }, [app, platform, store, fail]);
+
+  // Collaborators' carets (live collaboration), drawn by the view.
+  useEffect(() => {
+    view.current?.setPeers(
+      state.showPeers
+        ? state.peers.map((p) => {
+            const name = p.name || t('collab.anonymous');
+            return { ...p, name, label: t('collab.editing', { name }) };
+          })
+        : [],
+    );
+  }, [state.peers, state.showPeers, t]);
 
   // Autosave of modified documents into the offline cache.
   useEffect(() => {
@@ -657,6 +675,11 @@ function EditorInner({
       run: () => view.current?.setZoom(1),
     });
     r.register({ id: 'view.fitWidth', isEnabled: hasDoc, run: () => view.current?.fitWidth() });
+    r.register({
+      id: 'view.collaborators',
+      isChecked: (s) => s.showPeers,
+      run: (s) => store.setState({ showPeers: !s.showPeers }),
+    });
     r.register({
       id: 'view.toggleTheme',
       isChecked: (s) => s.theme === 'dark',
@@ -1272,6 +1295,7 @@ function EditorInner({
           id: 'appearance',
           label: t('ribbon.groups.appearance'),
           items: [
+            item('view.collaborators', 'commands.view.collaborators', <Users size={ICON} />),
             item('view.toggleTheme', 'commands.view.toggleTheme', <MoonStar size={ICON} />),
             item('view.toggleLanguage', 'commands.view.toggleLanguage', <Languages size={ICON} />),
           ],

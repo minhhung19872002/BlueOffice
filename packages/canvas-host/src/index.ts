@@ -4,6 +4,7 @@ export {
   MIN_ZOOM,
   type DocumentViewOptions,
   type PagePointer,
+  type PeerMark,
 } from './DocumentView';
 export {
   GlyphStore,

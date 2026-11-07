@@ -252,6 +252,20 @@
   stroke-dasharray: 4 3;
 }
 
+/* A collaborator's selected object (stroke colour per user). */
+.peer {
+  fill: none;
+  stroke-width: 2px;
+  stroke-dasharray: 6 3;
+  pointer-events: none;
+}
+
+.peerName {
+  font-family: system-ui, sans-serif;
+  font-weight: 600;
+  pointer-events: none;
+}
+
 .selected {
   fill: none;
   stroke: var(--bo-slide-accent, #c2410c);

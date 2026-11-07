@@ -114,7 +114,6 @@ import {
 } from './dialogs';
 import { FormatCellsDialog, type NumberPreset } from './FormatCellsDialog';
 import {
-  a1,
   advance,
   cellsOf,
   fillTarget,

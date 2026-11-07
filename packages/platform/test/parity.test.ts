@@ -5,7 +5,7 @@
  * renderer is shared code, identical display lists ⇒ identical rendering.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { initSync, WasmEngine } from '@blueoffice/engine-wasm';
@@ -14,11 +14,13 @@ const root = join(__dirname, '..', '..', '..');
 const sample = join(root, 'tests', 'corpus', 'doc', 'phase1-sample.docx');
 const exe = process.platform === 'win32' ? 'bo-cli.exe' : 'bo-cli';
 
+/** The most recently built bo-cli (a stale release build must not win). */
 function cli(): string {
-  for (const p of ['release', 'debug']) {
-    const f = join(root, 'target', p, exe);
-    if (existsSync(f)) return f;
-  }
+  const built = ['release', 'debug']
+    .map((p) => join(root, 'target', p, exe))
+    .filter((f) => existsSync(f))
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+  if (built[0]) return built[0];
   execFileSync('cargo', ['build', '-q', '-p', 'bo-cli'], { cwd: root, stdio: 'inherit' });
   return join(root, 'target', 'debug', exe);
 }

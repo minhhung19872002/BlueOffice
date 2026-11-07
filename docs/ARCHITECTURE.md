@@ -39,20 +39,22 @@ bo-text ◄── bo-layout ◄─┼── bo-render ◄── bo-raster
                                └───── apps/desktop/src-tauri (bo-desktop)
 ```
 
-| Crate | Vai trò | Phase 1 |
-|---|---|---|
-| `bo-model` | Mô hình tài liệu, đơn vị spec (twips, half-points, EMU) | ✅ văn bản: section/paragraph/run |
-| `bo-opc` | OPC: content types, relationships, part; giữ part không hiểu; chống zip bomb, giới hạn độ sâu XML | ✅ |
-| `bo-docx` | WordprocessingML ↔ model | ✅ reader tối thiểu + writer tối thiểu |
-| `bo-text` | FontManager, fallback metric-compatible, shaping rustybuzz, cache, outline | ✅ |
-| `bo-layout` | Dàn trang → pages/lines/fragments | ✅ bản đầu, cache theo đoạn |
-| `bo-render` | Layout → DisplayList | ✅ |
-| `bo-raster` | DisplayList → PNG (tiny-skia) | ✅ |
-| `bo-pdf` | DisplayList → PDF (CIDFontType2 subset + ToUnicode) | ✅ |
-| `bo-engine` | Facade pipeline (ADR-0002) | ✅ |
-| `bo-wasm` | wasm-bindgen | ✅ |
-| `bo-cli` | render / convert / dump / pack / unpack / sample / bench | ✅ |
-| `bo-xlsx`, `bo-pptx`, `bo-drawingml`, `bo-binary`, `bo-odf`, `bo-crypto`, `bo-formula`, `bo-collab`, `bo-edit` | Phase 2–6 | khung rỗng |
+| Crate | Vai trò |
+|---|---|
+| `bo-model` | Mô hình tài liệu (`doc`), bảng tính (`sheet`), trình chiếu (`slide`); đơn vị spec (twips, half-points, EMU) |
+| `bo-opc` | OPC: content types, relationships, part; giữ part không hiểu; chống zip bomb, giới hạn độ sâu XML |
+| `bo-docx` · `bo-xlsx` · `bo-pptx` | WordprocessingML / SpreadsheetML / PresentationML ↔ model, round-trip lossless (ADR-0005) |
+| `bo-drawingml` | DrawingML: màu, theme, 187 preset shape, fill/line/text, chart |
+| `bo-binary` · `bo-odf` · `bo-encoding` · `bo-crypto` | `.doc/.xls/.xlsb/.ppt` (đọc), ODF 1.3, TCVN3/VNI → Unicode, [MS-OFFCRYPTO] |
+| `bo-text` | FontManager, fallback metric-compatible, shaping rustybuzz, cache, outline |
+| `bo-layout` | Dàn trang: phân trang, bảng, ảnh, header/footer, cột, footnote, field |
+| `bo-edit` | Transaction op khả nghịch, undo/redo, track changes, comment, field/TOC, mail merge (ADR-0008) |
+| `bo-formula` · `bo-sheet` | Engine công thức (276 hàm, dependency graph, spill); lưới, định dạng số, CF/DV, sort/filter/fill, chart |
+| `bo-render` · `bo-raster` · `bo-pdf` | DisplayList (rect, line, glyph, image, path, transform, clip) → canvas / PNG / PDF |
+| `bo-engine` | Facade (ADR-0002): `Engine` (doc + slide, chỉnh sửa slide), `SheetEngine` |
+| `bo-collab` | Yrs (CRDT tương thích Yjs): y-sync, awareness, undo cục bộ |
+| `bo-sign` | Ký số PAdES / OOXML qua trait `Signer` (ADR-0007) |
+| `bo-wasm` · `bo-cli` | Bindings web (`WasmEngine`, `WasmSheet`, `WasmCollab`); CLI render/convert/inspect/sign/fidelity |
 
 ## 3. Package TypeScript
 
@@ -63,9 +65,11 @@ bo-text ◄── bo-layout ◄─┼── bo-render ◄── bo-raster
 | `@blueoffice/canvas-host` | `renderPage` (display list → Canvas 2D), `GlyphStore` (Path2D), `DocumentView` (ảo hoá trang, zoom, Ctrl+wheel), `ImeInput` (textarea ẩn, composition events) |
 | `@blueoffice/ui` | Ribbon (Radix Tabs/Tooltip), StatusBar, design tokens sáng/tối |
 | `@blueoffice/i18n` | i18next, `vi-VN` mặc định, `en-US`; định dạng số theo locale |
-| `@blueoffice/editor` | `<BlueEditor>` nhúng được; `CommandRegistry` (id, shortcut, enabled/checked) |
-| `@blueoffice/storage-providers` | `LocalStorageProvider` (BlueOfficeServer/BlueDrive/WOPI ở Phase 6/6A) |
-| `@blueoffice/editor-sdk` | Hợp đồng type cho host (BlueDrive); cài đặt ở Phase 6A |
+| `@blueoffice/editor` | `<BlueEditor>` (BlueDoc) nhúng được; `CommandRegistry` (id, shortcut, enabled/checked) |
+| `@blueoffice/sheet-editor` · `@blueoffice/slide-editor` | `<BlueSheetEditor>` (lưới canvas, thanh công thức) · `<BlueSlideEditor>` (chỉnh sửa, trình chiếu, presenter) |
+| `@blueoffice/collab` | `CollabClient` (WebSocket y-sync, kết nối lại, mã đóng) + binding BlueSheet ↔ `bo-collab` |
+| `@blueoffice/storage-providers` | `LocalStorageProvider`; phiên server/BlueDrive/WOPI đi qua chế độ nhúng `apps/web/src/embed.ts` |
+| `@blueoffice/editor-sdk` | Host ↔ iframe qua `postMessage` (whitelist origin, token không nằm trong URL) |
 
 ## 4. Luồng mở tài liệu
 

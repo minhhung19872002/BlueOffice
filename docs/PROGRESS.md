@@ -1,96 +1,69 @@
 # Tiến độ
 
-## Phase 1 — Nền tảng · ✅ hoàn thành, chờ duyệt (2026-11-05)
+Cập nhật 2026-11-08. Theo yêu cầu của chủ dự án, các phase được làm liên tục, **không dừng chờ duyệt**
+giữa các phase; ưu tiên bộ ứng dụng văn phòng (BlueDoc/BlueSheet/BlueSlide). Tích hợp BlueDrive giữ ở mức đã làm
+(BOHP/WOPI + BlueDrive giả lập), không phát triển thêm cho tới khi có API thật.
 
-Kế hoạch: [`plan/phase-1.md`](plan/phase-1.md).
+## Tổng quan
 
-### Đã làm
-- Rust workspace (21 crate), pnpm workspace (9 package + 2 app + e2e), .NET solution (4 project).
-- CI GitHub Actions: Rust (fmt, clippy pedantic `-D warnings`, test, build WASM) trên Ubuntu + Windows; `cargo deny`;
-  Web (eslint, prettier, typecheck, vitest, license-check, build, Playwright); .NET (format, test); Desktop (Tauri build).
-- Core: `bo-opc`, `bo-docx` (reader/writer tối thiểu), `bo-text`, `bo-layout`, `bo-render`, `bo-raster`, `bo-pdf`, `bo-engine`, `bo-wasm`, `bo-cli`.
-- Web và desktop dùng chung `packages/editor`; desktop mở file từ đĩa, từ tham số dòng lệnh (file association), xuất PDF qua hộp thoại native.
-- Server ASP.NET Core 8: `/health`, `/api/version`, `POST /api/convert/pdf` (gọi `bo-cli`).
+| Phase | Nội dung | Trạng thái | Kế hoạch / hạn chế |
+|---|---|---|---|
+| 1 | Nền tảng: workspace, OPC, text, layout, render, PDF/PNG, WASM, PAL, shell UI, CI | ✅ | [`plan/phase-1.md`](plan/phase-1.md) |
+| 2 | BlueDoc MVP: `.docx` lossless, layout đầy đủ, `bo-edit`, editor (IME, clipboard, tìm/thay, lưu, PDF, tự lưu) | ✅ | [`plan/phase-2.md`](plan/phase-2.md) |
+| 3 | BlueSheet: `.xlsx` lossless, định dạng số, `bo-formula` (276 hàm), lưới canvas, định dạng ô, sort/filter, CF/DV, chart, tìm/thay, in | ✅ | [`plan/phase-3-xlsx.md`](plan/phase-3-xlsx.md), [`plan/phase-3-formula.md`](plan/phase-3-formula.md) |
+| 4 | BlueSlide: `.pptx` lossless, 187 preset shape, render, chỉnh sửa (di chuyển/đổi cỡ/xoay/nhóm/căn/smart guide/sửa chữ), các chế độ xem, trình chiếu, presenter | ✅ | [`plan/phase-4.md`](plan/phase-4.md) |
+| 5 | `.doc/.xls/.xlsb/.ppt` đọc, ODF r/w, mật khẩu, VBA giữ nguyên, TCVN3/VNI; track changes, comment, TOC/caption/cross-ref, mail merge, SmartArt fallback | ✅ (PivotTable: chưa) | [`plan/phase-5.md`](plan/phase-5.md) |
+| 6 | Server ASP.NET Core (file, version, chia sẻ, audit, OIDC, Yjs relay, worker chuyển đổi), `bo-collab`, ký số PAdES/OOXML, desktop (deep link, nhiều cửa sổ, updater), on-prem Docker | ✅ (cộng tác trực tiếp: ô BlueSheet; xem hạn chế) | [`plan/phase-6.md`](plan/phase-6.md), [`deploy/`](deploy/README.md) |
+| 6A | BOHP + WOPI, BlueDrive giả lập, `editor-sdk` (postMessage), chế độ nhúng `/edit`, deep link desktop | ✅ theo mô tả prompt | [`bohp.md`](bohp.md) |
+| 7 | BlueForm, BlueNote | 📝 chỉ kế hoạch | [`plan/phase-7.md`](plan/phase-7.md) |
 
-### Kết quả kiểm thử (máy dev Windows 11, 2026-11-05)
+## Kết quả kiểm thử (Windows 11, 2026-11-08, `main`)
+
 | Bộ | Kết quả |
 |---|---|
-| `cargo test --workspace` | 53 test ✅ |
-| `cargo clippy --workspace --all-targets -D warnings` (pedantic) | ✅ |
-| `cargo deny check licenses bans sources` | ✅ |
-| `pnpm test` (Vitest) | 26 test ✅ — gồm parity WASM ↔ native trên 5 trang mẫu |
-| `pnpm lint` / `pnpm typecheck` / `pnpm license-check` | ✅ |
-| Playwright E2E (web) | 4 test ✅ |
-| `dotnet test` | 6 test ✅ |
-| `pnpm tauri build --no-bundle` | ✅ `bluedoc.exe` 21 MB (kèm 6,5 MB font) |
+| `cargo test --workspace` | **542** test ✅ (proptest undo/redo doc + slide + track changes, round-trip corpus, ~920 dòng bảng công thức) |
+| `cargo clippy --workspace --all-targets -D warnings` (pedantic) · `cargo fmt --check` · clippy wasm32 · `cargo deny` | ✅ |
+| `pnpm test` (Vitest) | **80** test ✅ — gồm parity WASM ↔ native, 2 bản sao `bo-collab` thật qua relay |
+| `pnpm lint` · `pnpm typecheck` · `pnpm license-check` | ✅ |
+| Playwright E2E (web) | **12** test ✅ — doc (gõ tiếng Việt, định dạng, lưu/mở lại, tìm), track changes/comment, bảng tính (SUM, định dạng, sort, lưu/mở lại), slide (kéo shape, sửa chữ, lưu/mở lại) |
+| `dotnet test` | **107** test ✅ (BOHP với BlueDrive giả lập, 2 người cùng phiên, thu hồi quyền, xung đột offline, WOPI, job chuyển đổi) |
+| Fidelity ([`fidelity-report.md`](fidelity-report.md)) | mở + lưu 100 % corpus; OpenXmlValidator: docx 48/49, xlsx 48/51, pptx 28/28 — phần còn lại là hạn chế đã biết của validator (`tests/fidelity/known-issues.txt`) |
 
-### Benchmark
+Round-trip lossless (XML chuẩn hoá): `.docx` 49/49, `.xlsx` 51/51, `.pptx` 100 % part (corpus tự sinh, README ghi nguồn).
+
+## Benchmark
 | Phép đo | Kết quả | Mục tiêu (§5) |
 |---|---|---|
-| Layout nguội 300 trang A4 (Tinos 13pt, căn đều) — criterion | 0,73 s | mở 300 trang < 3 s desktop |
-| Sửa 1 đoạn → dàn lại 300 trang (cache theo đoạn) | 20,7 ms | < 16 ms → **chưa đạt**, tối ưu ở Phase 2 |
-| `bo-cli bench` file mẫu 5 trang: mở + layout + display list | 8,2 ms | — |
-| Mở + xuất PDF file mẫu (101 KB, font subset) | 17,1 ms | — |
-| Bundle web: WASM 3,28 MB (gzip 1,12 MB), JS 302 KB (gzip 100 KB) | | |
+| Layout nguội 300 trang (criterion) | 0,73 s | < 3 s ✅ |
+| Gõ phím ở tài liệu 300 trang | dàn lại toàn bộ tài liệu mỗi phím | < 16 ms ❌ (chưa có layout tăng dần theo transaction) |
+| Bảng tính 1 triệu ô / 100k công thức: mở + tính | 3,20 s (release) | < 5 s ✅ |
+| Sửa 1 ô (~5 000 phụ thuộc) | 22,8 ms (release) | < 100 ms ✅ |
+| Sửa 1 ô trong sheet 100k công thức (`LiveCalc`) | ~6 ms (debug), chỉ 6 ô tính lại | < 100 ms ✅ |
+| Sửa 1 ô có 10 000 phụ thuộc VLOOKUP | 331 ms | < 100 ms ❌ (chưa tính song song) |
 
-### Ảnh chụp
-- Web: [`screenshots/phase1-web.png`](screenshots/phase1-web.png)
-- Desktop: [`screenshots/phase1-desktop.png`](screenshots/phase1-desktop.png)
-- `bo-cli render`: [`screenshots/phase1-cli-render-page1.png`](screenshots/phase1-cli-render-page1.png)
+## Ảnh chụp
+- BlueDoc: [`screenshots/phase2-web-editing.png`](screenshots/phase2-web-editing.png)
+- BlueSheet: [`screenshots/bluesheet-web.png`](screenshots/bluesheet-web.png)
+- BlueSlide: [`screenshots/blueslide-web.png`](screenshots/blueslide-web.png), presenter [`screenshots/blueslide-presenter.png`](screenshots/blueslide-presenter.png)
+- Phase 1 web/desktop/CLI: `screenshots/phase1-*.png`
 
-### Hạn chế đã biết (chuyển sang Phase 2)
-- Chưa chỉnh sửa (các nút định dạng hiển thị nhưng disabled); `ImeInput` mới báo sự kiện.
-- Reader `.docx` chưa đọc styles (ngoài docDefaults), numbering, bảng, ảnh, header/footer; chưa round-trip lossless (writer chỉ dùng để sinh corpus).
-- Relayout khi sửa vẫn hash lại toàn bộ đoạn (20 ms/300 trang) → cần dirty-tracking theo transaction (`bo-edit`).
-- Chưa có Caladea (Cambria); font hệ thống chưa bật trên desktop (ADR-0003).
-- In trên desktop: mở PDF bằng trình xem mặc định; hộp thoại in native ở Phase 2.
-- E2E desktop (Tauri WebDriver) chưa có; desktop được kiểm bằng parity test + chạy tay (ảnh chụp).
-- Font có thể khác hình chữ nhỏ so với font gốc (metric giống) — visual diff với ảnh tham chiếu bắt đầu Phase 2.
+## Hạn chế đã biết (ưu tiên tiếp theo)
+1. **Cộng tác thời gian thực**: đồng bộ trực tiếp mới có ở **ô BlueSheet** (giá trị/công thức, presence) trong chế độ nhúng.
+   BlueDoc/BlueSlide dùng chung phiên, autosave và lưu version qua server, nhưng chưa ánh xạ `bo-edit`/slide ops ↔ Yrs
+   (`bo-collab` đã có `body` Y.Text và `shapes` Y.Map). Định dạng/chèn-xoá hàng cột của BlueSheet chưa đồng bộ trực tiếp.
+2. **Hiệu năng**: layout tăng dần khi gõ ở tài liệu dài; tính song song công thức.
+3. **BlueDoc**: thước kẻ/tab stop kéo thả, Format Painter, Paste Special, hộp thoại page setup, chọn font từ danh sách;
+   sửa header/footer/footnote; thêm/xoá hàng cột bảng; wrap square/tight; track changes cho bảng/ảnh.
+4. **BlueSheet**: kéo/đổi cỡ chart, cut/paste cập nhật tham chiếu, sort trái→phải/theo màu, vẽ chữ xoay, PivotTable.
+5. **BlueSlide**: định dạng một phần đoạn chữ, copy/paste shape, chọn bằng khung kéo, adjust handle, sửa ô bảng,
+   connector bám điểm nối; presenter view hiển thị trong cùng cửa sổ (chưa tách màn hình thứ hai).
+6. **Desktop**: chưa có E2E Tauri WebDriver.
+7. **Fidelity**: chưa có ảnh tham chiếu từ phần mềm gốc nên chưa đo visual diff (người dùng đặt ảnh vào `tests/fidelity/reference/`).
+8. **Ký số**: chưa có dấu thời gian RFC 3161 (PAdES B-T) và kiểm tra chuỗi CA quốc gia (ADR-0007).
+9. **Server**: một instance `api` (phòng cộng tác trong bộ nhớ); schema bằng `EnsureCreated` (chưa có migration EF).
 
-## Đổi tên sản phẩm · ✅ (2026-11-05)
-BlueWrite → **BlueDoc**; route `/doc` `/sheet` `/slide` (route cũ chuyển hướng); desktop `vn.bluestar.bluedoc|bluesheet|blueslide`,
-binary `bluedoc.exe`; corpus `tests/corpus/doc`; quy tắc đặt tên ở `CLAUDE.md` và ADR-0006; Phase 7 (BlueForm, BlueNote) chỉ có kế hoạch.
-Toàn bộ test xanh sau khi đổi tên (Rust 53, TS 28, E2E web 5, .NET 6, smoke test desktop BlueDoc/BlueSheet).
-
-## Phase 2 — BlueDoc MVP · ✅ phần cốt lõi hoàn thành, chờ duyệt (2026-11-07)
-
-Kế hoạch và hạn chế: [`plan/phase-2.md`](plan/phase-2.md). ADR mới: [0005](adr/0005-lossless-docx-round-trip.md) (lossless),
-[0008](adr/0008-editing-transactions-and-command-bridge.md) (transaction + cầu lệnh JSON). Nhánh `wip/phase2-bluedoc` (rebase trên `main`).
-
-### Đã làm
-- `bo-layout` viết lại: phân trang, keep rules, bảng, ảnh, header/footer, cột, footnote/endnote, field trang.
-- `bo-render`/`bo-raster`/`bo-pdf`: ảnh PNG/JPEG (cắt, xoay), viền đứt/đôi, tô sáng; `bo-engine`: phiên chỉnh sửa, `command_json`.
-- `bo-edit`: op khả nghịch, undo/redo, gõ/xoá/tách/gộp đoạn, định dạng, style, danh sách, chèn bảng/ảnh/ngắt, find/replace, clipboard.
-- Editor: caret/selection, chuột/bàn phím, IME tiếng Việt, clipboard, ribbon, tìm/thay, mới/lưu .docx, PDF, tự lưu + khôi phục.
-- Corpus `tests/corpus/doc`: 33 file tự sinh (11 nhóm × 3) + mẫu Phase 1; `bo-cli corpus`, `bo-cli roundtrip`.
-
-### Kết quả kiểm thử (Windows 11, 2026-11-07)
-| Bộ | Kết quả |
-|---|---|
-| `cargo test --workspace` | 106 test ✅ (gồm proptest undo/redo, round-trip corpus) |
-| Round-trip corpus (34 file) | **100 %** lossless (XML chuẩn hoá), **100 %** ổn định mô hình khi sinh lại toàn bộ |
-| `cargo clippy --workspace --all-targets -D warnings` · `cargo fmt --check` · `cargo deny` | ✅ |
-| `pnpm test` (Vitest) | 33 test ✅ |
-| `pnpm lint` / `pnpm typecheck` | ✅ |
-| Playwright E2E (web) | 7 test ✅ — gồm gõ tiếng Việt → đậm → undo/redo → lưu .docx → mở lại → tìm |
-
-Ảnh chụp: [`screenshots/phase2-web-editing.png`](screenshots/phase2-web-editing.png).
-## Phase 2–6A · ⏸ đang làm dở, tạm dừng theo yêu cầu (2026-11-05)
-
-`main` chỉ chứa phần đã kiểm thử (Phase 1 + đổi tên). Phần dở dang nằm ở các nhánh riêng trên GitHub,
-**chưa được kiểm thử/hợp nhất** — cần review, chạy test và merge từng nhánh:
-
-| Nhánh | Phạm vi | Tình trạng khi dừng |
-|---|---|---|
-| `wip/phase2-bluedoc` | (đã xong phần cốt lõi, xem mục Phase 2 ở trên) Phase 2: model mở rộng (styles, numbering, bảng, ảnh, header/footer, field, footnote, XML gốc), reader/writer `.docx` lossless, `bo_model::index`, phân giải style, layout đoạn văn mới | Model + `bo-docx` biên dịch và **test xanh** (round-trip lossless, sửa 1 đoạn giữ nguyên các đoạn khác). `bo-layout` đang viết lại: `paragraph.rs`/`style.rs`/`types.rs` mới xong, **chưa có** `lib.rs` (phân trang, bảng, header/footer, cột, footnote) → crate chưa biên dịch. Chưa làm: render ảnh/bảng, `bo-edit` (chỉnh sửa, undo/redo), UI caret/selection, clipboard, find/replace, lưu .docx từ editor |
-| `wip/phase3-formula` | `bo-formula`: lexer/parser, giá trị, hàm | Dừng khi đang viết workbook (dependency graph, spill); chưa xác minh build/test |
-| `wip/phase3-xlsx-sheet` | `bo-xlsx` + `bo-sheet` + `bo_model::sheet` | Dừng khi đang viết grid geometry; chưa xác minh |
-| `wip/phase4-pptx-drawingml` | `bo-pptx` + `bo-drawingml` + `bo_model::slide` | Đã biên dịch được; đang làm writer giữ thứ tự relationship, chưa có corpus |
-| `wip/phase5-legacy-crypto-odf` | `bo-binary`, `bo-crypto`, `bo-odf`, `bo-encoding` (TCVN3/VNI) | Dừng khi đang làm bảng hàm `.xls` (Ptg → text); chưa xác minh |
-| `wip/phase6-server-bohp` | Server .NET Phase 6/6A, BOHP, mock BlueDrive | Dừng khi đang viết test conversion job; chưa xác minh |
-
-### Khi tiếp tục
-1. Phase 2: viết `bo-layout/src/lib.rs` (flow/pagination theo `ParaLayout`), bảng, header/footer → cập nhật `bo-render` (Image/PageItem),
-   `bo-engine`; rồi `bo-edit` + editor UI. Kế hoạch: `docs/plan/phase-2.md`.
-2. Mỗi nhánh `wip/*` của phase 3–6: checkout, `cargo test`/`dotnet test`, sửa đến khi xanh, cập nhật tên sản phẩm mới (BlueDoc…) nếu còn sót, rồi merge vào `main`.
-3. Phase 6A: xác nhận API thật của BlueDrive (prompt §6A yêu cầu hỏi trước) — nhánh server hiện cài BOHP đúng như mô tả trong prompt.
+## Lịch sử
+- 2026-11-05: Phase 1 hoàn thành; đổi tên sản phẩm BlueWrite → BlueDoc (ADR-0006).
+- 2026-11-07: Phase 2–6A phần cốt lõi trên các nhánh song song, hợp nhất vào `main`; `bo-sign`, `bo-collab`,
+  `editor-sdk`, `bo-validate`, fidelity CI.
+- 2026-11-08: BlueSheet/BlueSlide UI đầy đủ, chỉnh sửa slide, tính năng tài liệu Phase 5, chế độ nhúng + cộng tác ô BlueSheet.

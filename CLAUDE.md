@@ -39,6 +39,13 @@ cargo run -p bo-cli -- corpus tests/corpus/doc # sinh lại corpus Phase 2 (in b
 cargo run -p bo-cli -- roundtrip in.docx --out out.docx   # mở rồi lưu lại
 cargo test -p bo-docx --test corpus -- --nocapture       # % round-trip corpus
 cargo test -p bo-edit                          # gồm proptest undo/redo
+cargo run -p bo-cli -- convert in.xls --to xlsx          # doc/xls/xlsb/ppt/odt/ods/odp → OOXML, csv, pdf
+cargo run -p bo-cli -- inspect in.docx                   # định dạng, mã hoá, macro
+cargo run -p bo-cli -- sign in.pdf --key k.pem --cert c.pem   # PAdES / OOXML (bo-sign); verify <file>
+cargo run -p bo-cli -- sample-slides tests/corpus/slide  # sinh lại corpus slide
+BO_WRITE_CORPUS=1 cargo test -p bo-xlsx --test corpus    # sinh lại corpus sheet
+cargo bench -p bo-formula                                # 1 triệu ô / 100k công thức
+pnpm fidelity                                            # round-trip corpus + OpenXmlValidator → docs/fidelity-report.md
 
 # Web (sau khi đổi Rust phải build lại WASM)
 pnpm install
@@ -55,21 +62,26 @@ pnpm --filter @blueoffice/desktop tauri build --no-bundle   # BlueDoc → target
 pnpm --filter @blueoffice/desktop build:bluesheet          # BlueSheet (vn.bluestar.bluesheet)
 pnpm --filter @blueoffice/desktop build:blueslide          # BlueSlide (vn.bluestar.blueslide)
 
-# Server
+# Server (gồm tests/mock-bluedrive, tools/BlueOffice.Validate = bo-validate)
 dotnet test BlueOffice.sln
 dotnet run --project apps/server/BlueOffice.Api
 dotnet format BlueOffice.sln --verify-no-changes
+dotnet run --project tools/BlueOffice.Validate -- <file-or-dir>   # OpenXmlValidator
+docker compose -f deploy/docker-compose.yml up -d                 # on-prem, xem docs/deploy/
 ```
 
 ## Sơ đồ crate
 ```
-bo-model ◄─ bo-docx ◄─ bo-opc
-bo-text ◄─ bo-layout ◄─ bo-render ◄─ bo-raster, bo-pdf
-bo-engine (facade) ◄─ bo-wasm (web) · bo-cli (headless) · apps/desktop/src-tauri (desktop)
-bo-model ◄─ bo-edit (transaction/undo) ◄─ bo-engine (`command_json`, nav caret/hit-test)
-Khung cho phase sau: bo-xlsx, bo-pptx, bo-drawingml, bo-binary, bo-odf, bo-crypto, bo-formula, bo-collab
+bo-opc ◄─ bo-docx · bo-xlsx · bo-pptx (+ bo-drawingml) · bo-crypto · bo-sign      (đọc/ghi gói OOXML)
+bo-model (doc · sheet · slide) ◄─ bo-docx · bo-xlsx · bo-pptx · bo-binary (.doc/.xls/.xlsb/.ppt) · bo-odf · bo-encoding
+bo-text ◄─ bo-layout ◄─ bo-render ◄─ bo-raster (PNG), bo-pdf
+bo-edit (op khả nghịch, undo, track changes, fields, mail merge) · bo-formula ◄─ bo-sheet (lưới, định dạng số, CF/DV, chart)
+bo-engine (facade: Engine doc+slide, SheetEngine) ◄─ bo-wasm (web) · bo-cli · apps/desktop/src-tauri
+bo-collab (Yrs: y-sync, awareness, undo cục bộ) ◄─ bo-wasm (WasmCollab)
 ```
-Package TS: `platform` (PAL) → `canvas-host`, `ui`, `i18n` → `editor` → `apps/web`, `apps/desktop`; `storage-providers`, `editor-sdk`, `engine-wasm` (sinh tự động).
+Package TS: `platform` (PAL, `EngineHost`, `SheetHost`) → `canvas-host`, `ui`, `i18n` → `editor` (BlueDoc + `CommandRegistry`),
+`sheet-editor`, `slide-editor` → `apps/web` (`/doc` `/sheet` `/slide`, nhúng `/edit`), `apps/desktop`;
+`collab` (client WebSocket + binding BlueSheet), `editor-sdk` (host ↔ iframe), `storage-providers`, `engine-wasm` (sinh tự động).
 
 ## Quy ước quan trọng
 - Rust: `#![forbid(unsafe_code)]`, không `unwrap()` trên dữ liệu từ file, clippy pedantic (các lint được cho phép nằm ở `[workspace.lints]`).
@@ -78,13 +90,20 @@ Package TS: `platform` (PAL) → `canvas-host`, `ui`, `i18n` → `editor` → `a
   `DocController.run` → `EngineHost.command` (JSON `bo_engine::edit::Command`, ADR-0008). Thêm lệnh mới: variant
   trong `Command` (Rust) + type `EditCommand` (`packages/platform/src/types.ts`).
 - Vị trí = (id đoạn thân văn bản, offset byte index text); mô hình là nguồn sự thật, UI không giữ văn bản.
+- BlueSheet: mọi lệnh sửa qua `SheetEngine::exec_json` / `SheetHost.exec` (`SheetCommand` trong `packages/platform/src/sheet.ts`);
+  BlueSlide: `Engine::slide_command_json` / `EngineHost` (`SlideCommand`). Toạ độ engine luôn là point.
+- Cập nhật trạng thái cộng tác: sửa ô qua host bọc `collabSheetHost` (`packages/collab`); đừng ghi thẳng engine khi đang cộng tác.
 - Code UI/editor không gọi API trình duyệt/Tauri trực tiếp cho việc phụ thuộc nền tảng → đi qua `Platform`.
 - **Thứ tự font = FaceId**: `assets/fonts/manifest.json`, `crates/bo-engine/src/bundled.rs`, `FONT_FILES` trong desktop phải khớp (có test).
 - Đổi layout/render → chạy lại `pnpm build:wasm` rồi test parity; snapshot insta: `INSTA_UPDATE=always cargo test -p bo-layout` rồi review diff.
-- Commit: conventional commits, nhỏ, kèm test. Mỗi phase: plan → làm → test xanh → cập nhật PROGRESS + CLAUDE.md → dừng chờ duyệt.
+- Commit: conventional commits, nhỏ, kèm test. Mỗi phase: plan → làm → test xanh → cập nhật PROGRESS + CLAUDE.md
+  (chủ dự án đã bỏ bước dừng chờ duyệt giữa các phase).
+- Corpus tự sinh phải qua OpenXmlValidator (`pnpm fidelity`); ngoại lệ có lý do ghi ở `tests/fidelity/known-issues.txt`.
 
 ## Phase hiện tại
-**Phase 2 — BlueDoc MVP: phần cốt lõi hoàn thành, chờ duyệt** (nhánh `wip/phase2-bluedoc`). Hạn chế còn lại: `docs/plan/phase-2.md`.
+**Phase 1–6A hoàn thành phần chính; Phase 7 (BlueForm, BlueNote) chỉ có kế hoạch.** Ưu tiên của chủ dự án: bộ office
+trước, BlueDrive tính sau. Việc tiếp theo và hạn chế: `docs/PROGRESS.md` mục "Hạn chế đã biết" (cộng tác trực tiếp cho
+BlueDoc/BlueSlide, layout tăng dần, các mục UI còn thiếu).
 
 ## ADR
 - [0001](docs/adr/0001-record-architecture-decisions.md) Ghi quyết định kiến trúc

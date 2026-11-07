@@ -359,6 +359,8 @@ impl Session {
             };
             *hf_slot_mut(set, v) = blocks;
             self.version += 1;
+            // Not an op: the incremental layout must redo everything.
+            self.changes.mark_all();
         }
     }
 

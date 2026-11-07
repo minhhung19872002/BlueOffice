@@ -78,6 +78,9 @@ fn quote(doc: &Document, a: Pos, b: Pos) -> String {
 
 /// All comments in part order.
 pub fn list(doc: &Document) -> Vec<CommentInfo> {
+    if doc.comments.is_empty() {
+        return Vec::new();
+    }
     let anchors = anchors(doc);
     doc.comments
         .iter()

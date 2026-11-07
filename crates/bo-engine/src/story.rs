@@ -87,7 +87,7 @@ fn story_blocks(s: &Session) -> Vec<Block> {
 impl Engine {
     /// Variant of the header/footer shown on page `pi` (§17.10.5, §17.10.6).
     fn variant_of(&self, pi: usize) -> Option<(usize, HfVariant)> {
-        let layout = self.layout.as_ref()?;
+        let layout = self.layout()?;
         let doc = self.session.as_ref()?.doc();
         let page = layout.pages.get(pi)?;
         let si = page.section.min(doc.sections.len().saturating_sub(1));
@@ -105,7 +105,7 @@ impl Engine {
 
     /// `Some(true)` = header area, `Some(false)` = footer area of page `pi` at `y`.
     pub(crate) fn hf_zone(&self, pi: usize, y: f32) -> Option<bool> {
-        let layout = self.layout.as_ref()?;
+        let layout = self.layout()?;
         let doc = self.session.as_ref()?.doc();
         let page = layout.pages.get(pi)?;
         let setup = doc.sections.get(page.section)?.page;
@@ -183,8 +183,7 @@ impl Engine {
             .unwrap_or_default();
         // Align with the lines drawn on the page when there are any.
         let main_top = self
-            .layout
-            .as_ref()
+            .layout()
             .and_then(|l| l.pages.get(hf.page))
             .and_then(|p| {
                 let (mt, mb) = (
@@ -492,6 +491,6 @@ impl Engine {
     }
 
     fn page_count(&self) -> usize {
-        self.layout.as_ref().map_or(0, |l| l.pages.len())
+        self.layout().map_or(0, |l| l.pages.len())
     }
 }

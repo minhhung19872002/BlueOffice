@@ -126,53 +126,67 @@ export class DocumentView {
     this.schedule();
   }
 
+  private makeSlot(i: number): PageSlot {
+    const el = document.createElement('div');
+    el.className = 'bo-page';
+    el.dataset.page = String(i + 1);
+    el.setAttribute('aria-label', `page ${i + 1}`);
+    el.style.cssText =
+      'position:relative;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.06);flex:none;cursor:text;';
+    const overlay = document.createElement('div');
+    overlay.className = 'bo-overlay';
+    overlay.style.cssText = 'position:absolute;inset:0;z-index:2;pointer-events:none;';
+    el.appendChild(overlay);
+    this.content.appendChild(el);
+    return { el, overlay, canvas: null, renderedAt: null };
+  }
+
   private buildSlots(info: DocInfo): void {
     this.info = info;
     this.lists.clear();
     this.content.replaceChildren();
-    this.slots = info.pages.map((_, i) => {
-      const el = document.createElement('div');
-      el.className = 'bo-page';
-      el.dataset.page = String(i + 1);
-      el.setAttribute('aria-label', `page ${i + 1}`);
-      el.style.cssText =
-        'position:relative;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.06);flex:none;cursor:text;';
-      const overlay = document.createElement('div');
-      overlay.className = 'bo-overlay';
-      overlay.style.cssText = 'position:absolute;inset:0;z-index:2;pointer-events:none;';
-      el.appendChild(overlay);
-      this.content.appendChild(el);
-      return { el, overlay, canvas: null, renderedAt: null };
-    });
+    this.slots = info.pages.map((_, i) => this.makeSlot(i));
     this.currentPage = -1;
     this.layoutSlots();
   }
 
   /**
-   * Repaint after an edit: `dirty` pages are fetched again; a changed page
-   * count or size rebuilds the page slots (scroll position is kept).
+   * Repaint after an edit: only the `dirty` pages (whose content changed, as
+   * reported by the engine's incremental layout) are fetched and drawn again.
+   * A changed page count adds or removes slots at the end and keeps the others
+   * with their display lists and canvases (scroll position is kept).
    */
   refresh(info: DocInfo, dirty: number[]): void {
     const old = this.info;
-    const same =
-      old &&
-      old.pages.length === info.pages.length &&
-      old.pages.every(
-        (p, i) => p.width === info.pages[i]?.width && p.height === info.pages[i]?.height,
-      );
-    if (!same) {
-      const top = this.scroller.scrollTop;
+    if (!old) {
       this.buildSlots(info);
-      this.scroller.scrollTop = top;
     } else {
+      const top = this.scroller.scrollTop;
       this.info = info;
-      for (const i of dirty) {
-        this.lists.delete(i);
-        const s = this.slots[i];
-        if (s) s.renderedAt = null;
+      while (this.slots.length > info.pages.length) {
+        this.slots.pop()?.el.remove();
+        this.lists.delete(this.slots.length);
       }
+      while (this.slots.length < info.pages.length) {
+        this.slots.push(this.makeSlot(this.slots.length));
+      }
+      info.pages.forEach((p, i) => {
+        const o = old.pages[i];
+        if (o && (o.width !== p.width || o.height !== p.height)) this.invalidate(i);
+      });
+      if (old.pages.length !== info.pages.length) this.currentPage = -1;
+      this.layoutSlots();
+      this.scroller.scrollTop = top;
     }
+    for (const i of dirty) this.invalidate(i);
     this.schedule();
+  }
+
+  /** Forget page `i`'s display list and drawing. */
+  private invalidate(i: number): void {
+    this.lists.delete(i);
+    const s = this.slots[i];
+    if (s) s.renderedAt = null;
   }
 
   /** Show the caret (collapsed selection) or the selection rectangles. */

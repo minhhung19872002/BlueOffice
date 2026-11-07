@@ -1,7 +1,7 @@
 //! Phase 2 layout features: tables, headers/footers, fields, footnotes, columns,
 //! keep rules, pictures and sections.
 
-use bo_layout::{layout_document, LayoutCache, LayoutDocument, LineSource, PageItem};
+use bo_layout::{layout_document, LayoutCache, LayoutDocument, Line, LineSource, PageItem};
 use bo_model::{
     Anchor, Block, Border, Borders, Cell, CellProps, Columns, Document, Emu, HalfPoints,
     HeaderFooter, Image, PageSetup, ParaProps, Paragraph, Row, RowProps, Run, RunContent, RunProps,
@@ -372,6 +372,7 @@ fn inline_and_anchored_pictures() {
         y: Emu(0),
         wrap: Wrap::TopAndBottom,
         behind: false,
+        ..Default::default()
     };
     let l = run(&doc(vec![Section::new(vec![runs(vec![
         image(914_400, 914_400, Some(anchor)),
@@ -384,6 +385,76 @@ fn inline_and_anchored_pictures() {
         "text must flow below the picture: {}",
         line.top
     );
+}
+
+/// Lines beside a 1-inch picture at the left of the column, then full width below it.
+fn wrapped(wrap: Wrap, side: bo_model::WrapText, x: i64, polygon: Option<[i64; 4]>) -> Vec<Line> {
+    let anchor = Anchor {
+        h_relative: "column".into(),
+        v_relative: "paragraph".into(),
+        x: Emu(x),
+        wrap,
+        wrap_text: side,
+        dist: [Emu(0), Emu(0), Emu(114_300), Emu(114_300)],
+        polygon,
+        ..Default::default()
+    };
+    let text = "Văn bản chảy quanh ảnh. ".repeat(40);
+    let l = run(&doc(vec![Section::new(vec![runs(vec![
+        image(914_400, 914_400, Some(anchor)),
+        RunContent::Text(text),
+    ])])]));
+    l.pages[0].lines.clone()
+}
+
+#[test]
+fn square_and_tight_wrapping_flow_beside_pictures() {
+    use bo_model::WrapText;
+    let left = PageSetup::default().margin_left.to_pt();
+    let top = PageSetup::default().margin_top.to_pt();
+    // Picture at the column's left edge, text on its right (§20.4.2.17, distR 9 pt).
+    let lines = wrapped(Wrap::Square, WrapText::BothSides, 0, None);
+    let first = &lines[0];
+    assert!(
+        (first.top - top).abs() < 0.01,
+        "first line beside the picture"
+    );
+    assert!(first.fragments[0].x >= left + 72.0 + 9.0 - 0.01);
+    let below = lines.iter().find(|l| l.top >= top + 72.0).unwrap();
+    assert!(
+        (below.fragments[0].x - left).abs() < 0.01,
+        "full width below"
+    );
+    // Picture in the middle with bothSides: a line has text on both sides.
+    let lines = wrapped(Wrap::Square, WrapText::BothSides, 2_286_000, None);
+    let xs: Vec<f32> = lines[0].fragments.iter().map(|f| f.x).collect();
+    let pic = (left + 180.0 - 9.0, left + 252.0 + 9.0);
+    assert!(
+        xs.iter().any(|&x| x < pic.0) && xs.iter().any(|&x| x >= pic.1),
+        "{xs:?}"
+    );
+    assert!(lines[0]
+        .fragments
+        .iter()
+        .all(|f| f.x + f.width <= pic.0 + 0.5 || f.x >= pic.1 - 0.5));
+    // wrapText="right": nothing on the left of a centred picture.
+    let lines = wrapped(Wrap::Square, WrapText::Right, 2_286_000, None);
+    assert!(lines[0].fragments.iter().all(|f| f.x >= pic.1 - 0.5));
+    // wrapText="left": nothing on the right.
+    let lines = wrapped(Wrap::Square, WrapText::Left, 2_286_000, None);
+    assert!(lines[0]
+        .fragments
+        .iter()
+        .all(|f| f.x + f.width <= pic.0 + 0.5));
+    // Tight with a polygon covering the left half: text starts at the polygon's edge.
+    let lines = wrapped(
+        Wrap::Tight,
+        WrapText::BothSides,
+        0,
+        Some([0, 0, 10_800, 21_600]),
+    );
+    let x = lines[0].fragments[0].x;
+    assert!(x >= left + 36.0 + 9.0 - 0.01 && x < left + 72.0, "{x}");
 }
 
 #[test]

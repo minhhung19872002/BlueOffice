@@ -1407,7 +1407,7 @@ impl Engine {
     /// Geometry of collaborators' selections given as UTF-16 `(anchor, head)`.
     pub fn collab_peers(&self, sels: &[(u32, u32)]) -> crate::Result<Vec<PeerRects>> {
         let s = self.session.as_ref().ok_or(EngineError::NoDocument)?;
-        let layout = self.layout.as_ref().ok_or(EngineError::NoDocument)?;
+        let layout = self.layout.document();
         let c = self
             .collab
             .as_ref()

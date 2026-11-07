@@ -1,6 +1,86 @@
 use bo_model::{Color, Underline};
 use bo_text::FaceId;
 use serde::Serialize;
+use std::sync::Arc;
+
+/// Immutable text shared between layouts: re-paginating a page clones its lines
+/// without copying their text (incremental layout, prompt §5.4).
+#[derive(Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SharedStr(Arc<str>);
+
+impl SharedStr {
+    /// The text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for SharedStr {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::borrow::Borrow<str> for SharedStr {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for SharedStr {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for SharedStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&*self.0, f)
+    }
+}
+
+impl std::fmt::Display for SharedStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<String> for SharedStr {
+    fn from(s: String) -> Self {
+        SharedStr(s.into())
+    }
+}
+
+impl From<&str> for SharedStr {
+    fn from(s: &str) -> Self {
+        SharedStr(s.into())
+    }
+}
+
+impl PartialEq<str> for SharedStr {
+    fn eq(&self, other: &str) -> bool {
+        &*self.0 == other
+    }
+}
+
+impl PartialEq<&str> for SharedStr {
+    fn eq(&self, other: &&str) -> bool {
+        &*self.0 == *other
+    }
+}
+
+impl PartialEq<String> for SharedStr {
+    fn eq(&self, other: &String) -> bool {
+        *self.0 == **other
+    }
+}
+
+impl Serialize for SharedStr {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.0)
+    }
+}
 
 /// Result of laying out a document.
 #[derive(Debug, Clone, Serialize, Default)]
@@ -107,8 +187,9 @@ pub struct Fragment {
     pub strike: bool,
     pub double_strike: bool,
     /// Source text (for search, accessibility and PDF text extraction).
-    pub text: String,
-    pub glyphs: Vec<GlyphPos>,
+    pub text: SharedStr,
+    /// Glyphs (shared between layouts, like `text`).
+    pub glyphs: Arc<[GlyphPos]>,
     /// Hyperlink target, if any.
     pub link: Option<String>,
 }

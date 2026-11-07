@@ -303,6 +303,36 @@ fn anchor_pic(
     )
 }
 
+/// Anchored picture at (`x`, `y`) EMU from the margin / paragraph with `dist` = T, B, L, R
+/// (ECMA-376 Part 1, §20.4.2.3 anchor) and the wrap element `wrap` (§20.4.2.17, §20.4.2.20).
+fn wrap_pic(
+    id: u32,
+    rid: &str,
+    size: (i64, i64),
+    at: (i64, i64),
+    dist: [i64; 4],
+    wrap: &str,
+) -> String {
+    let (cx, cy) = size;
+    let (x, y) = at;
+    let [t, b, l, r] = dist;
+    format!(
+        r#"<w:r><w:drawing><wp:anchor distT="{t}" distB="{b}" distL="{l}" distR="{r}" simplePos="0" relativeHeight="{id}" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="margin"><wp:posOffset>{x}</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>{y}</wp:posOffset></wp:positionV><wp:extent cx="{cx}" cy="{cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/>{wrap}<wp:docPr id="{id}" name="Ảnh bao chữ {id}"/><wp:cNvGraphicFramePr/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="{id}" name="image.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>"#
+    )
+}
+
+/// `wp:wrapTight` with a polygon given in Word's 21 600-unit square (§20.4.2.16).
+fn tight(side: &str, pts: &[(i64, i64)]) -> String {
+    let mut poly = String::new();
+    for (i, (x, y)) in pts.iter().chain(pts.first()).enumerate() {
+        let tag = if i == 0 { "start" } else { "lineTo" };
+        poly.push_str(&format!(r#"<wp:{tag} x="{x}" y="{y}"/>"#));
+    }
+    format!(
+        r#"<wp:wrapTight wrapText="{side}"><wp:wrapPolygon edited="1">{poly}</wp:wrapPolygon></wp:wrapTight>"#
+    )
+}
+
 fn cell(w: i32, extra: &str, text: &str) -> String {
     format!(
         r#"<w:tc><w:tcPr><w:tcW w:w="{w}" w:type="dxa"/>{extra}</w:tcPr>{}</w:tc>"#,
@@ -804,6 +834,83 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
             ),
             sect: s.clone(),
             images: vec![("rId20".into(), png(8, 8, [240, 200, 0]))],
+            ..Doc::default()
+        },
+    ));
+
+    // ---- text wrapping around anchored pictures (§20.4.2.17 wrapSquare, §20.4.2.20 wrapTight)
+    let inch = 914_400;
+    let d = [0, 0, 114_300, 114_300];
+    let para = |pic: String, n: usize| {
+        format!(
+            "<w:p>{pic}<w:r><w:t xml:space=\"preserve\">{} </w:t></w:r></w:p>",
+            VI[n % VI.len()].repeat(3)
+        )
+    };
+    v.push((
+        "images-04-wrap-square-sides.docx",
+        "images",
+        "wrapSquare: ảnh bên trái (bothSides), giữa (bothSides — chữ hai bên), giữa wrapText=left, right, largest; distT/B/L/R",
+        Doc {
+            body: [
+                para(wrap_pic(1, "rId20", (inch, inch), (0, 0), d, r#"<wp:wrapSquare wrapText="bothSides"/>"#), 0),
+                para(wrap_pic(2, "rId21", (inch, inch), (2 * inch, 0), [57_150, 57_150, 114_300, 114_300], r#"<wp:wrapSquare wrapText="bothSides"/>"#), 1),
+                para(wrap_pic(3, "rId20", (inch, inch * 3 / 4), (2 * inch, 0), d, r#"<wp:wrapSquare wrapText="left"/>"#), 2),
+                para(wrap_pic(4, "rId21", (inch, inch * 3 / 4), (2 * inch, 0), d, r#"<wp:wrapSquare wrapText="right"/>"#), 3),
+                para(wrap_pic(5, "rId20", (inch, inch * 3 / 4), (inch * 3 / 2, 0), d, r#"<wp:wrapSquare wrapText="largest"/>"#), 4),
+            ]
+            .concat(),
+            sect: s.clone(),
+            images: vec![
+                ("rId20".into(), png(4, 4, [30, 120, 200])),
+                ("rId21".into(), png(4, 4, [200, 90, 30])),
+            ],
+            ..Doc::default()
+        },
+    ));
+    v.push((
+        "images-05-wrap-tight.docx",
+        "images",
+        "wrapTight có wrapPolygon (đa giác cắt góc; đa giác rộng hơn ảnh, wrapText=largest), wrapThrough, distL/distR",
+        Doc {
+            body: [
+                para(wrap_pic(1, "rId20", (inch * 3 / 2, inch), (0, 0), d, &tight("bothSides", &[(0, 0), (21_600, 0), (21_600, 10_800), (10_800, 21_600), (0, 21_600)])), 5),
+                para(wrap_pic(2, "rId21", (inch, inch), (inch * 5 / 2, 0), [0, 0, 57_150, 57_150], &tight("largest", &[(-1_200, -600), (22_800, -600), (22_800, 22_200), (-1_200, 22_200)])), 6),
+                para(wrap_pic(3, "rId20", (inch, inch), (inch * 4, 0), d, r#"<wp:wrapThrough wrapText="bothSides"><wp:wrapPolygon edited="0"><wp:start x="0" y="0"/><wp:lineTo x="0" y="21600"/><wp:lineTo x="21600" y="21600"/><wp:lineTo x="21600" y="0"/><wp:lineTo x="0" y="0"/></wp:wrapPolygon></wp:wrapThrough>"#), 7),
+            ]
+            .concat(),
+            sect: s.clone(),
+            images: vec![
+                ("rId20".into(), png(6, 4, [60, 160, 90])),
+                ("rId21".into(), png(4, 4, [160, 60, 160])),
+            ],
+            ..Doc::default()
+        },
+    ));
+    v.push((
+        "images-06-wrap-flow.docx",
+        "images",
+        "Ảnh wrapSquare cao trải qua nhiều đoạn, ảnh lệch xuống (posOffset dọc), hai ảnh hai bên cùng đoạn",
+        Doc {
+            body: [
+                para(wrap_pic(1, "rId20", (inch * 5 / 4, inch * 3), (0, 0), d, r#"<wp:wrapSquare wrapText="bothSides"/>"#), 8),
+                lorem(3),
+                para(
+                    [
+                        wrap_pic(2, "rId21", (inch, inch), (0, inch / 2), d, r#"<wp:wrapSquare wrapText="bothSides"/>"#),
+                        wrap_pic(3, "rId21", (inch, inch), (inch * 5, inch / 2), d, r#"<wp:wrapSquare wrapText="bothSides"/>"#),
+                    ]
+                    .concat(),
+                    9,
+                ),
+                lorem(2),
+            ]
+            .concat(),
+            sect: s.clone(),
+            images: vec![
+                ("rId20".into(), png(4, 8, [220, 180, 40])),
+                ("rId21".into(), png(4, 4, [40, 120, 220])),
+            ],
             ..Doc::default()
         },
     ));

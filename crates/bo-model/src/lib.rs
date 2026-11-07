@@ -8,6 +8,7 @@
 //! sections with page setup, paragraphs and runs with basic formatting.
 #![forbid(unsafe_code)]
 
+pub mod change;
 pub mod index;
 pub mod sheet;
 pub mod slide;
@@ -22,4 +23,5 @@ pub use write::{
     Paragraph, Raw, RevMark, RevisionInfo, Row, RowProps, Run, RunContent, RunProps,
     RunPropsChange, Section, SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign,
     TabLeader, TabStop, Table, TableProps, TableWidth, Underline, VMerge, VertAlign, Wrap,
+    WrapText,
 };

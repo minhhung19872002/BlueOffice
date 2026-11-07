@@ -12,7 +12,7 @@ pub mod image;
 
 pub use image::{ImageSource, Media};
 
-use bo_layout::{Layer, LayoutDocument, Line, PageItem};
+use bo_layout::{Layer, LayoutDocument, Line, Page, PageItem};
 use bo_model::Underline;
 use bo_text::FontManager;
 use serde::{Deserialize, Serialize};
@@ -278,7 +278,7 @@ fn line_commands(line: &Line, fonts: &FontManager, commands: &mut Vec<Command>) 
                 x: f.x,
                 y: f.y,
                 color,
-                text: f.text.clone(),
+                text: f.text.to_string(),
                 glyphs: f
                     .glyphs
                     .iter()
@@ -331,25 +331,28 @@ pub fn build_display_list(layout: &LayoutDocument, fonts: &FontManager) -> Displ
     let pages = layout
         .pages
         .iter()
-        .map(|page| {
-            let mut commands = Vec::new();
-            for item in page.items.iter().filter(|i| i.layer() == Layer::Back) {
-                item_commands(item, &mut commands);
-            }
-            for line in &page.lines {
-                line_commands(line, fonts, &mut commands);
-            }
-            for item in page.items.iter().filter(|i| i.layer() == Layer::Front) {
-                item_commands(item, &mut commands);
-            }
-            PageList {
-                width: page.width,
-                height: page.height,
-                commands,
-            }
-        })
+        .map(|page| build_page_list(page, fonts))
         .collect();
     DisplayList { pages }
+}
+
+/// Display list of one laid-out page (see [`build_display_list`]).
+pub fn build_page_list(page: &Page, fonts: &FontManager) -> PageList {
+    let mut commands = Vec::new();
+    for item in page.items.iter().filter(|i| i.layer() == Layer::Back) {
+        item_commands(item, &mut commands);
+    }
+    for line in &page.lines {
+        line_commands(line, fonts, &mut commands);
+    }
+    for item in page.items.iter().filter(|i| i.layer() == Layer::Front) {
+        item_commands(item, &mut commands);
+    }
+    PageList {
+        width: page.width,
+        height: page.height,
+        commands,
+    }
 }
 
 /// Media part names referenced by a page list.

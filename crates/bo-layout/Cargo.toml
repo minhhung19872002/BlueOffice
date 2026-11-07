@@ -11,7 +11,7 @@ bo-model.workspace = true
 bo-text.workspace = true
 unicode-linebreak.workspace = true
 unicode-segmentation.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["rc"] }
 thiserror.workspace = true
 
 [dev-dependencies]

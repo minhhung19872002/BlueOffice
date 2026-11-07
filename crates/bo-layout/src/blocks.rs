@@ -6,13 +6,13 @@
 //! band are relative to its top-left corner (x = 0 is the left edge of the
 //! content box the band was laid out for).
 
-use crate::paragraph::{layout_paragraph, FieldContext, LayoutCache, ParaInput, RelLine};
+use crate::paragraph::{layout_paragraph, FieldContext, LayoutCache, ParaInput, RelLine, WrapZone};
 use crate::style::{para_props, ListCounters};
 use crate::types::{Layer, Line, LineSource, NoteKey, PageItem};
 use crate::{LayoutError, RevisionView};
 use bo_model::{
-    Block, Border, Borders, CellVAlign, Color, Document, HeightRule, Image, Paragraph, Table,
-    TableWidth, Twips, VMerge,
+    Block, Border, Borders, CellVAlign, Color, Document, HeightRule, Image, Paragraph, RunContent,
+    Table, TableWidth, Twips, VMerge,
 };
 use bo_text::FontManager;
 use std::collections::HashMap;
@@ -34,6 +34,9 @@ pub(crate) struct Ctx<'a> {
     pub default_tab: f32,
     /// Next body paragraph id (document order, see `bo_model::index::body_paragraphs`).
     pub next_id: u32,
+    /// Id of the first paragraph of the top-level block being built: body lines carry
+    /// ids relative to it so a built block can be placed again under another id.
+    pub id_origin: u32,
     /// Endnote ids in order of first reference.
     pub endnote_order: Vec<i32>,
     /// How tracked changes are shown.
@@ -71,9 +74,17 @@ impl Band {
 
     /// Copy moved by (`dx`, `dy`).
     pub fn translated(&self, dx: f32, dy: f32) -> Band {
+        self.translated_ids(dx, dy, 0)
+    }
+
+    /// Copy moved by (`dx`, `dy`) whose relative body ids are rebased on `base`.
+    pub fn translated_ids(&self, dx: f32, dy: f32, base: u32) -> Band {
         let mut b = self.clone();
         for l in &mut b.lines {
             l.translate(dx, dy);
+            if let LineSource::Body(id) = &mut l.source {
+                *id += base;
+            }
         }
         for i in &mut b.items {
             i.translate(dx, dy);
@@ -118,6 +129,11 @@ pub(crate) struct ParaBlock {
     pub style: Option<String>,
     pub deco: Option<Deco>,
     pub floats: Vec<Image>,
+    /// Depends only on the paragraph and the width: no list label, fields or note
+    /// references (so it can be reused by the incremental layout).
+    pub pure: bool,
+    /// List label (kept to lay the paragraph out again around wrapped pictures).
+    pub label: Option<(String, bo_model::RunProps, String)>,
 }
 
 impl ParaBlock {
@@ -210,24 +226,75 @@ pub(crate) fn build_para(
         };
         props.num.and_then(|n| lists.next(ctx.doc, n))
     };
+    let pure = props.num.is_none()
+        && !p.runs.iter().any(|r| {
+            r.content.iter().any(|c| {
+                matches!(
+                    c,
+                    RunContent::Field { .. }
+                        | RunContent::FootnoteRef(_)
+                        | RunContent::EndnoteRef(_)
+                )
+            })
+        });
     let source = if body {
-        let id = ctx.next_id;
+        let id = ctx.next_id - ctx.id_origin;
         ctx.next_id += 1;
         LineSource::Body(id)
     } else {
         LineSource::Other
     };
+    para_block(ctx, p, props, label, source, width, note_mark, pure, &[])
+}
+
+/// Lay a top-level body paragraph out again so that its lines flow around wrapped
+/// pictures (same list label and id as `pb`, built by [`build_para`]).
+pub(crate) fn rewrap_para(
+    ctx: &mut Ctx<'_>,
+    p: &Paragraph,
+    pb: &ParaBlock,
+    width: f32,
+    zones: &[WrapZone],
+) -> Result<ParaBlock, LayoutError> {
+    let props = para_props(ctx.doc, p);
+    let source = LineSource::Body(0);
+    para_block(
+        ctx,
+        p,
+        props,
+        pb.label.clone(),
+        source,
+        width,
+        None,
+        pb.pure,
+        zones,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn para_block(
+    ctx: &mut Ctx<'_>,
+    p: &Paragraph,
+    props: bo_model::ParaProps,
+    label: Option<(String, bo_model::RunProps, String)>,
+    source: LineSource,
+    width: f32,
+    note_mark: Option<&str>,
+    pure: bool,
+    wrap: &[WrapZone],
+) -> Result<ParaBlock, LayoutError> {
     let inp = ParaInput {
         doc: ctx.doc,
         para: p,
         props,
-        label,
+        label: label.clone(),
         width,
         fields: ctx.fields,
         default_tab: ctx.default_tab,
         note_numbers: &ctx.notes,
         note_mark,
         view: ctx.view,
+        wrap,
     };
     let pl = layout_paragraph(&inp, ctx.fonts, ctx.cache)?;
     let lines = pl.lines.iter().map(|l| rel_line_band(l, source)).collect();
@@ -254,6 +321,8 @@ pub(crate) fn build_para(
         style: pl.style.clone(),
         deco,
         floats: pl.floats.clone(),
+        pure,
+        label,
     })
 }
 
@@ -309,7 +378,7 @@ pub(crate) fn deco_items(d: &Deco, y0: f32, y1: f32, out: &mut Vec<PageItem>) {
 }
 
 /// Content stacked without pagination.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct Stack {
     /// (top, band) pairs, top relative to the stack top.
     pub bands: Vec<(f32, Band)>,

@@ -8,7 +8,8 @@
 use crate::{EngineError, GlyphOutline, Result};
 use bo_model::sheet::{Cell, CellRef, CellValue, Formula, Workbook, Worksheet};
 use bo_render::{Command, DisplayList, PageList};
-use bo_sheet::calc::{FormulaAdjuster, FormulaEngine, NoFormulas};
+use bo_sheet::calc::{FormulaAdjuster, FormulaEngine};
+use bo_sheet::formula::BoFormula;
 use bo_sheet::geometry::SheetGeometry;
 use bo_sheet::numfmt::Locale;
 use bo_sheet::render::{format_cell, render_viewport, RenderOptions};
@@ -222,8 +223,8 @@ impl SheetEngine {
             locale: Locale::VI_VN,
             undo: Vec::new(),
             redo: Vec::new(),
-            calc: Box::new(NoFormulas),
-            adjuster: Box::new(NoFormulas),
+            calc: Box::new(BoFormula::new()),
+            adjuster: Box::new(BoFormula::new()),
         }
     }
 
@@ -255,6 +256,18 @@ impl SheetEngine {
     ) {
         self.calc = calc;
         self.adjuster = adjuster;
+    }
+
+    /// Sets the clock used by `NOW()`/`TODAY()` (Unix milliseconds, UTC).
+    /// Browser hosts call it with `Date.now()` since WASM has no clock.
+    #[allow(clippy::cast_precision_loss)]
+    pub fn set_now_ms(&mut self, unix_ms: u64) {
+        // 1970-01-01 is serial 25569 in the 1900 date system.
+        let mut serial = unix_ms as f64 / 86_400_000.0 + 25_569.0;
+        if self.wb.as_ref().is_some_and(|w| w.date1904) {
+            serial -= 1_462.0;
+        }
+        self.calc = Box::new(BoFormula { now: Some(serial) });
     }
 
     /// Locale for input parsing and display (`vi-VN` default).
@@ -835,6 +848,23 @@ mod tests {
         e.set_input(0, 2, 0, "").unwrap();
         assert_eq!(e.info().unwrap().sheets[0].last_row, Some(3));
         assert!(e.workbook().unwrap().sheets[0].cell(2, 0).is_none());
+    }
+
+    #[test]
+    fn formulas_recalculate_and_follow_structure() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "2").unwrap();
+        e.set_input(0, 1, 0, "3").unwrap();
+        e.set_input(0, 2, 0, "=SUM(A1:A2)*2").unwrap();
+        assert_eq!(e.cell(0, 2, 0).unwrap().display, "10");
+        e.set_input(0, 0, 0, "5").unwrap();
+        assert_eq!(e.cell(0, 2, 0).unwrap().display, "16");
+        e.structural(0, true, 0, 1, false).unwrap();
+        assert_eq!(e.cell(0, 3, 0).unwrap().input, "=SUM(A2:A3)*2");
+        assert_eq!(e.cell(0, 3, 0).unwrap().display, "16");
+        e.set_now_ms(1_793_000_000_000);
+        e.set_input(0, 5, 0, "=YEAR(TODAY())").unwrap();
+        assert_eq!(e.cell(0, 5, 0).unwrap().display, "2026");
     }
 
     #[test]

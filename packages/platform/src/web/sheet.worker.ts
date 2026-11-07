@@ -88,6 +88,7 @@ self.onmessage = async (ev: MessageEvent<SheetWorkerRequest>) => {
       result = null;
     } else {
       if (!engine) throw new Error('engine.notInitialized');
+      engine.setNow(Date.now());
       result = dispatch(engine, req.method, req.args);
     }
     const transfer = result instanceof Uint8Array ? [result.buffer as ArrayBuffer] : [];

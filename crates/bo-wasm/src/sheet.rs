@@ -32,6 +32,13 @@ impl WasmSheet {
         self.inner.add_font(bytes)
     }
 
+    /// Clock for `NOW()`/`TODAY()` (`Date.now()`).
+    #[wasm_bindgen(js_name = setNow)]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn set_now(&mut self, unix_ms: f64) {
+        self.inner.set_now_ms(unix_ms.max(0.0) as u64);
+    }
+
     #[wasm_bindgen(js_name = setLocale)]
     pub fn set_locale(&mut self, tag: &str) {
         self.inner.set_locale(tag);

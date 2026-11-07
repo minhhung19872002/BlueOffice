@@ -360,10 +360,16 @@ pub fn parse_datetime_text(s: &str, system: DateSystem) -> Option<f64> {
 }
 
 /// Current local-agnostic (UTC) date-time as a serial number.
+///
+/// `std` has no clock on `wasm32-unknown-unknown`; hosts there pass the time
+/// explicitly (`BoFormula::now`) and this falls back to the Unix epoch.
 pub fn now_serial(system: DateSystem) -> f64 {
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0.0, |d| d.as_secs_f64());
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    let secs = 0.0_f64;
     // 1970-01-01 is serial 25569 in the 1900 system.
     let s1900 = secs / 86_400.0 + 25_569.0;
     match system {

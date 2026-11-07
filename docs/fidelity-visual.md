@@ -3,7 +3,7 @@
 Sinh bởi `scripts/visual-diff.mjs` (2026-11-07). Ảnh tham chiếu do người dùng cung cấp đặt ở `tests/fidelity/reference/<nhóm>/<file>.page-<n>.png`; baseline tự sinh (trang 1, scale 0,5) ở `tests/fidelity/baseline/` để phát hiện hồi quy hiển thị.
 
 - Ảnh tham chiếu: **0** trang (chưa có — cần người dùng cung cấp)
-- Baseline: 128 trang, vượt ngưỡng 0.10 %: 0
+- Baseline: 134 trang, vượt ngưỡng 0.10 %: 0
 
 | Nhóm | Loại | Ảnh | Sai lệch | Ngưỡng | |
 |---|---|---|---|---|---|
@@ -19,6 +19,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-07). Ảnh tham chiếu do ngườ
 | doc | baseline | images-01-inline.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | images-02-anchored-wrap.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | images-03-crop-rotate.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | images-04-wrap-square-sides.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | images-05-wrap-tight.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | images-06-wrap-flow.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | links-01-external.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | links-02-bookmarks.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | links-03-ranges-permissions.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -104,6 +107,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-07). Ảnh tham chiếu do ngườ
 | sheet | baseline | writer-format-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-format-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-format-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-pivots-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-pivots-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-pivots-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-sheet-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-sheet-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-sheet-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |

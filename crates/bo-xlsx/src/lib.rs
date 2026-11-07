@@ -20,6 +20,8 @@ mod autofilter;
 mod chart;
 pub mod chart_write;
 mod csv;
+mod pivot;
+pub mod pivot_write;
 mod read;
 mod styles;
 mod write;

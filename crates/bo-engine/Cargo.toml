@@ -46,5 +46,9 @@ criterion.workspace = true
 name = "sheet_edit"
 harness = false
 
+[[bench]]
+name = "doc_typing"
+harness = false
+
 [lints]
 workspace = true

@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Platform, SheetCommand, SheetHost, WorkbookInfo } from '@blueoffice/platform';
+import type {
+  PivotInfo,
+  Platform,
+  SheetCommand,
+  SheetHost,
+  WorkbookInfo,
+} from '@blueoffice/platform';
 import { BlueSheetEditor } from '../src';
 
 afterEach(cleanup);
@@ -23,8 +29,15 @@ function fakeHost() {
         autoFilter: null,
         merges: [],
         charts: 0,
+        pivots: 0,
       },
     ],
+  };
+  let areas: Pick<PivotInfo, 'rows' | 'cols' | 'values' | 'filters'> = {
+    rows: [],
+    cols: [],
+    values: [],
+    filters: [],
   };
   const host: SheetHost = {
     init: async () => {},
@@ -104,6 +117,44 @@ function fakeHost() {
         case 'names':
         case 'charts':
           return [];
+        case 'pivotSource':
+          return {
+            range: { r0: 0, c0: 0, r1: 4, c1: 1 },
+            fields: ['Vùng', 'Doanh thu'],
+            records: 4,
+          };
+        case 'pivotCreate':
+          wb = { ...wb, sheets: [{ ...wb.sheets[0]!, pivots: 1 }] };
+          return { sheet: 0, index: 0 };
+        case 'pivots':
+          return wb.sheets[0]!.pivots
+            ? [
+                {
+                  index: 0,
+                  name: 'Pivot1',
+                  location: { r0: 2, c0: 3, r1: 2, c1: 3 },
+                  area: { r0: 2, c0: 3, r1: 2, c1: 3 },
+                  source: 'Sheet1!A1:B5',
+                  fields: [
+                    { name: 'Vùng', items: ['Bắc', 'Nam'] },
+                    { name: 'Doanh thu', items: ['1', '2.5'] },
+                  ],
+                  ...areas,
+                },
+              ]
+            : [];
+        case 'pivotUpdate':
+          areas = {
+            rows: cmd.rows,
+            cols: cmd.cols,
+            values: cmd.values.map((v) => ({
+              field: v.field,
+              function: v.function ?? 'sum',
+              name: v.name ?? null,
+            })),
+            filters: cmd.filters.map((f) => ({ field: f.field, items: f.items ?? [] })),
+          };
+          return { ok: true };
         default:
           return { ok: true };
       }
@@ -270,6 +321,61 @@ describe('BlueSheetEditor', () => {
         [1, 0, 'c'],
         [1, 1, 'd'],
       ]),
+    );
+  });
+
+  it('creates a pivot table and edits its areas from the field list', async () => {
+    const { host } = fakeHost();
+    const { p } = platform(host);
+    render(<BlueSheetEditor platform={p} language="en-US" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Insert' }), { button: 0 });
+    fireEvent.click(screen.getByText('Pivot table'));
+    await screen.findByTestId('pivot-dialog');
+    await waitFor(() =>
+      expect((screen.getByTestId('pivot-source') as HTMLInputElement).value).toBe('A1:B5'),
+    );
+    fireEvent.click(screen.getByTestId('pivot-ok'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cmd: 'pivotCreate',
+          range: { r0: 0, c0: 0, r1: 4, c1: 1 },
+          dest: null,
+          labels: expect.objectContaining({ grandTotal: 'Grand Total' }),
+        }),
+      ),
+    );
+    // The selection moves into the new pivot table: its field list opens.
+    await screen.findByTestId('pivot-panel');
+    fireEvent.click(screen.getByTestId('pivot-field-0'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({ cmd: 'pivotUpdate', index: 0, rows: [0], values: [] }),
+      ),
+    );
+    fireEvent.click(screen.getByTestId('pivot-field-1'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cmd: 'pivotUpdate',
+          rows: [0],
+          values: [{ field: 1, function: 'sum', name: 'Sum of Doanh thu' }],
+        }),
+      ),
+    );
+    fireEvent.change(screen.getByTestId('pivot-fn-0'), { target: { value: 'average' } });
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cmd: 'pivotUpdate',
+          values: [{ field: 1, function: 'average', name: 'Average of Doanh thu' }],
+        }),
+      ),
+    );
+    fireEvent.click(screen.getByTestId('pivot-refresh'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(expect.objectContaining({ cmd: 'pivotRefresh' })),
     );
   });
 });

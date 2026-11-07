@@ -1,6 +1,6 @@
 //! Expression evaluator (ECMA-376 Part 1, §18.17.2 operators and §18.17.7 functions).
 
-use std::cell::Cell;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::ast::{BinaryOp, Expr, StructItem, StructRef, UnaryOp};
@@ -41,7 +41,7 @@ pub fn evaluate(
     col: u32,
     config: &EvalConfig,
 ) -> Value {
-    let rng = Cell::new(0x9E37_79B9_7F4A_7C15);
+    let rng = AtomicU64::new(0x9E37_79B9_7F4A_7C15);
     let mut ctx = Ctx::new(provider, sheet, row, col, config, &rng);
     let v = ctx.eval(expr);
     ctx.finalize(v)
@@ -55,7 +55,7 @@ pub(crate) struct Ctx<'a> {
     pub col: u32,
     pub date_system: DateSystem,
     now: Option<f64>,
-    rng: &'a Cell<u64>,
+    rng: &'a AtomicU64,
     scopes: Vec<(String, Value)>,
     depth: u32,
 }
@@ -67,7 +67,7 @@ impl<'a> Ctx<'a> {
         row: u32,
         col: u32,
         config: &EvalConfig,
-        rng: &'a Cell<u64>,
+        rng: &'a AtomicU64,
     ) -> Self {
         Ctx {
             provider,
@@ -116,11 +116,11 @@ impl<'a> Ctx<'a> {
 
     /// Next pseudo-random number in `[0, 1)` (xorshift64*).
     pub(crate) fn random(&self) -> f64 {
-        let mut x = self.rng.get();
+        let mut x = self.rng.load(Ordering::Relaxed);
         x ^= x >> 12;
         x ^= x << 25;
         x ^= x >> 27;
-        self.rng.set(x);
+        self.rng.store(x, Ordering::Relaxed);
         let r = x.wrapping_mul(0x2545_F491_4F6C_DD1D);
         (r >> 11) as f64 / (1u64 << 53) as f64
     }

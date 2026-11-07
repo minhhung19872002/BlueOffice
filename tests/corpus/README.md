@@ -43,6 +43,9 @@ Kiểm thử: `cargo test -p bo-docx --test corpus` (round-trip, ngưỡng ≥ 9
 | `doc/images-01-inline.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | images: Ảnh PNG inline trong dòng chữ, hai ảnh dùng chung part |
 | `doc/images-02-anchored-wrap.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | images: Ảnh nổi wrapTopAndBottom, wrapSquare, behindDoc (wrapNone) |
 | `doc/images-03-crop-rotate.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | images: Ảnh cắt (srcRect) và xoay (xfrm rot) |
+| `doc/images-04-wrap-square-sides.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | images: wrapSquare: ảnh bên trái (bothSides), giữa (bothSides — chữ hai bên), giữa wrapText=left, right, largest; distT/B/L/R |
+| `doc/images-05-wrap-tight.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | images: wrapTight có wrapPolygon (đa giác cắt góc; đa giác rộng hơn ảnh, wrapText=largest), wrapThrough, distL/distR |
+| `doc/images-06-wrap-flow.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | images: Ảnh wrapSquare cao trải qua nhiều đoạn, ảnh lệch xuống (posOffset dọc), hai ảnh hai bên cùng đoạn |
 | `doc/links-01-external.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | links: Hyperlink ngoài (quan hệ External), kiểu Hyperlink |
 | `doc/links-02-bookmarks.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | links: Bookmark và hyperlink nội bộ (w:anchor) |
 | `doc/links-03-ranges-permissions.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | links: Bookmark lồng qua nhiều đoạn, permStart/permEnd, commentRange không có phần chú thích |

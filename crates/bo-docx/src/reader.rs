@@ -10,7 +10,7 @@ use bo_model::{
     Image, Level, LineSpacing, Num, NumFormat, NumRef, Numbering, ParaProps, ParaPropsChange,
     Paragraph, Raw, RevMark, RevisionInfo, Row, Run, RunContent, RunProps, RunPropsChange, Section,
     SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table,
-    TableProps, TableWidth, Twips, Underline, VMerge, VertAlign, Wrap,
+    TableProps, TableWidth, Twips, Underline, VMerge, VertAlign, Wrap, WrapText,
 };
 use bo_opc::xml::{attr, unescape, XmlReader};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -1079,6 +1079,21 @@ fn alternate_content_picture(
     }
 }
 
+/// `distT` `distB` `distL` `distR` of an anchor or wrap element (§20.4.2.3, §20.4.2.17):
+/// the attributes present replace `base`.
+fn wrap_dist(e: &BytesStart<'_>, base: [Emu; 4]) -> [Emu; 4] {
+    let mut d = base;
+    for (i, a) in [b"distT", b"distB", b"distL", b"distR"]
+        .into_iter()
+        .enumerate()
+    {
+        if let Some(v) = int(e, a) {
+            d[i] = Emu(v.max(0));
+        }
+    }
+    d
+}
+
 /// `w:drawing` → picture (ECMA-376 Part 1, §20.4 DrawingML WordprocessingML Drawing).
 fn read_drawing(
     r: &mut XmlReader<'_>,
@@ -1097,6 +1112,7 @@ fn read_drawing(
         src: None,
     };
     let mut anchor: Option<Anchor> = None;
+    let mut in_polygon = false;
     let mut axis = 0u8; // 1 = positionH, 2 = positionV
                         // SmartArt ([MS-ODRAWXML] dgm:relIds): data model part relationship id.
     let mut diagram_data: Option<String> = None;
@@ -1109,6 +1125,9 @@ fn read_drawing(
                 let n = e.local_name().as_ref().as_bytes().to_vec();
                 if n == b"positionH" || n == b"positionV" {
                     axis = 0;
+                }
+                if n == b"wrapPolygon" {
+                    in_polygon = false;
                 }
                 if r.depth() == end {
                     break;
@@ -1137,10 +1156,9 @@ fn read_drawing(
                 anchor = Some(Anchor {
                     h_relative: "column".into(),
                     v_relative: "paragraph".into(),
-                    x: Emu(0),
-                    y: Emu(0),
-                    wrap: Wrap::None,
                     behind: attr(&e, b"behindDoc").is_some_and(|v| v == "1" || v == "true"),
+                    dist: wrap_dist(&e, [Emu(0); 4]),
+                    ..Default::default()
                 });
             }
             b"positionH" => {
@@ -1163,6 +1181,25 @@ fn read_drawing(
                         b"wrapTopAndBottom" => Wrap::TopAndBottom,
                         _ => Wrap::None,
                     };
+                    // §20.4.3.7 ST_WrapText
+                    a.wrap_text = match attr(&e, b"wrapText").as_deref() {
+                        Some("left") => WrapText::Left,
+                        Some("right") => WrapText::Right,
+                        Some("largest") => WrapText::Largest,
+                        _ => WrapText::BothSides,
+                    };
+                    a.dist = wrap_dist(&e, a.dist);
+                }
+            }
+            // §20.4.2.16 wrapPolygon: keep the bounding box of its points (§20.4.2.14 start, §20.4.2.9 lineTo).
+            b"wrapPolygon" => in_polygon = is_start,
+            b"start" | b"lineTo" if in_polygon => {
+                if let (Some(a), Some(x), Some(y)) = (anchor.as_mut(), int(&e, b"x"), int(&e, b"y"))
+                {
+                    a.polygon = Some(match a.polygon {
+                        None => [x, y, x, y],
+                        Some([x0, y0, x1, y1]) => [x0.min(x), y0.min(y), x1.max(x), y1.max(y)],
+                    });
                 }
             }
             // §20.4.2.7 extent

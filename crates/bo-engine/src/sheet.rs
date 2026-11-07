@@ -54,6 +54,8 @@ pub struct SheetInfo {
     /// Merged ranges `[r0, c0, r1, c1]`.
     pub merges: Vec<[u32; 4]>,
     pub charts: usize,
+    /// Number of pivot tables on the sheet.
+    pub pivots: usize,
 }
 
 /// Where a screen point falls (viewport-relative, points).
@@ -83,9 +85,11 @@ pub enum HitInfo {
         row: u32,
         col: u32,
     },
-    /// A chart placed on the sheet.
+    /// A chart placed on the sheet, and the cell under the point.
     Chart {
         index: usize,
+        row: u32,
+        col: u32,
     },
     Corner,
     None,
@@ -468,6 +472,7 @@ impl SheetEngine {
                         auto_filter: ws.auto_filter.as_ref().map(|a| quad(&a.range)),
                         merges: ws.merges.iter().take(10_000).map(quad).collect(),
                         charts: ws.charts.len(),
+                        pivots: ws.pivots.len(),
                     }
                 })
                 .collect(),
@@ -572,7 +577,12 @@ impl SheetEngine {
                     continue;
                 };
                 if x >= a.x && x < b.x && y >= a.y && y < b.y {
-                    return Ok(HitInfo::Chart { index: i });
+                    let Hit::Cell(under) = hit else { break };
+                    return Ok(HitInfo::Chart {
+                        index: i,
+                        row: under.row,
+                        col: under.col,
+                    });
                 }
             }
         }
@@ -926,10 +936,20 @@ impl SheetEngine {
             return Err(EngineError::Sheet(format!("sheet '{name}' already exists")));
         }
         let before = Box::new(wb.clone());
-        wb.sheets
+        let ws = wb
+            .sheets
             .get_mut(sheet)
-            .ok_or(EngineError::PageOutOfRange(sheet))?
-            .name = name.to_owned();
+            .ok_or(EngineError::PageOutOfRange(sheet))?;
+        let old = std::mem::replace(&mut ws.name, name.to_owned());
+        // Pivot caches follow their source sheet (§18.10.1 worksheetSource/@sheet).
+        for c in &mut wb.pivot_caches {
+            if c.source_sheet
+                .as_deref()
+                .is_some_and(|s| s.eq_ignore_ascii_case(&old))
+            {
+                c.source_sheet = Some(name.to_owned());
+            }
+        }
         self.live.rebuild(wb);
         self.push_undo(UndoEntry::Workbook(before));
         Ok(())

@@ -9,9 +9,9 @@ use crate::{rel_kind, RelKind, Result, XlsxError, SHEET_SCHEMA, WORKBOOK_SCHEMA}
 use bo_model::sheet::{
     Cell, CellError, CellRange, CellRef, CellValue, CfRule, Cfvo, ColInfo, ColorScale, Comment,
     ConditionalFormat, DataBar, DataValidation, DefinedName, Formula, FormulaKind, Hyperlink,
-    IconSet, OpaquePart, OpaqueRel, PageMargins, Pane, PaneState, RawXml, RowInfo, SheetKind,
-    SheetState, SheetView, Table, TableColumn, TableStyleInfo, TextRun, ThemeColors, Workbook,
-    Worksheet,
+    IconSet, OpaquePart, OpaqueRel, PageMargins, Pane, PaneState, PivotCache, RawXml, RowInfo,
+    SheetKind, SheetState, SheetView, Table, TableColumn, TableStyleInfo, TextRun, ThemeColors,
+    Workbook, Worksheet,
 };
 use bo_opc::xml::XmlReader;
 use bo_opc::{rels_part_name, resolve_target, Limits, Package, TargetMode, REL_OFFICE_DOCUMENT};
@@ -95,6 +95,18 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
     }
 
     let sheet_entries = read_workbook(&wb_part.data, &wb_path, &mut wb)?;
+    // Pivot cache definitions (§18.10.1.67) stay opaque; summarize them.
+    for cache in &mut wb.pivot_caches {
+        if let Some(rel) = wb
+            .opaque
+            .workbook_rels
+            .iter()
+            .find(|r| r.id == cache.rel_id && !r.external)
+        {
+            cache.part.clone_from(&rel.target);
+            crate::pivot::read_cache_definition(&pkg, cache);
+        }
+    }
     for entry in sheet_entries {
         let Some((kind, rel_type, target)) = sheet_rels.get(&entry.rel_id) else {
             continue;
@@ -147,6 +159,7 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
             }
             let table_ids = read_sheet(&part.data, target, &sst, &links, &mut ws)?;
             ws.charts = crate::chart::read_charts(&pkg, target, &rels);
+            ws.pivots = crate::pivot::read_sheet_pivots(&pkg, target, &rels, &wb.pivot_caches);
             for id in table_ids {
                 if let Some(abs) = links.get(&format!("table:{id}")) {
                     if let Some(p) = pkg.part(abs) {
@@ -301,6 +314,19 @@ fn read_workbook(data: &[u8], part: &str, wb: &mut Workbook) -> Result<Vec<Sheet
                 Ok(())
             })?,
             "definedNames" => {}
+            // §18.2.22 pivotCaches / §18.2.21 pivotCache
+            "pivotCaches" if !empty => for_children(r, |_, e, _| {
+                if lname(e) == "pivotCache" {
+                    let mut at = attrs(e);
+                    wb.pivot_caches.push(PivotCache {
+                        cache_id: take_u32(&mut at, "cacheId").unwrap_or(0),
+                        rel_id: take(&mut at, "id").unwrap_or_default(),
+                        ..PivotCache::default()
+                    });
+                }
+                Ok(())
+            })?,
+            "pivotCaches" => {}
             _ => {
                 let xml = capture(r, e, empty)?;
                 push_unknown(&mut unknown, &mut prev, WORKBOOK_SCHEMA, &name, xml);

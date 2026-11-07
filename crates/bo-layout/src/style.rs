@@ -199,7 +199,7 @@ pub fn revision_style(mut st: RunStyle, rp: &RunProps, view: crate::RevisionView
 }
 
 /// List counters (ECMA-376 Part 1, §17.9 — numbering continues per abstract definition).
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct ListCounters {
     /// abstract id → counters per level.
     counters: std::collections::HashMap<i32, [i32; 9]>,

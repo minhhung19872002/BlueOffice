@@ -69,7 +69,7 @@ fn lines_fit_in_content_box() {
     let joined: String = page
         .lines
         .iter()
-        .flat_map(|l| l.fragments.iter().map(|f| f.text.clone()))
+        .flat_map(|l| l.fragments.iter().map(|f| f.text.to_string()))
         .collect();
     assert_eq!(joined, LOREM);
 }
@@ -215,7 +215,7 @@ fn overlong_word_is_broken() {
     let joined: String = l.pages[0]
         .lines
         .iter()
-        .flat_map(|l| l.fragments.iter().map(|f| f.text.clone()))
+        .flat_map(|l| l.fragments.iter().map(|f| f.text.to_string()))
         .collect();
     assert_eq!(joined, word);
 }
@@ -295,7 +295,7 @@ proptest! {
         let mut d = doc(vec![para(&text, ParaProps { align: Some(Alignment::Justify), ..Default::default() })]);
         d.sections[0].page.width = Twips(width_twips + 2551);
         let l = run(&d);
-        let joined: String = l.pages.iter().flat_map(|p| p.lines.iter().flat_map(|l| l.fragments.iter().map(|f| f.text.clone()))).collect();
+        let joined: String = l.pages.iter().flat_map(|p| p.lines.iter().flat_map(|l| l.fragments.iter().map(|f| f.text.to_string()))).collect();
         prop_assert_eq!(joined, bo_text::nfc(&text));
     }
 }

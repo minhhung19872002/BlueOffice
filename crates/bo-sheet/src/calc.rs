@@ -28,6 +28,20 @@ pub struct StructuralChange {
     pub insert: bool,
 }
 
+/// Cells moved by cut and paste: rows `first_row..=last_row` × columns
+/// `first_col..=last_col` of sheet `from_sheet`, now `d_rows` / `d_cols` away on `to_sheet`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CellMove {
+    pub from_sheet: String,
+    pub to_sheet: String,
+    pub first_row: u32,
+    pub first_col: u32,
+    pub last_row: u32,
+    pub last_col: u32,
+    pub d_rows: i64,
+    pub d_cols: i64,
+}
+
 /// Rewrites formula references after a structural change.
 pub trait FormulaAdjuster {
     /// Return the new text of `formula` (without `=`) located on sheet
@@ -43,6 +57,13 @@ pub trait FormulaAdjuster {
     /// move, absolute ones stay), or `None` to copy it unchanged. Used by AutoFill.
     fn translate(&self, formula: &str, d_rows: i64, d_cols: i64) -> Option<String> {
         let _ = (formula, d_rows, d_cols);
+        None
+    }
+
+    /// Text of `formula` (on sheet `host_sheet`) after the cells of `mv` were
+    /// cut and pasted: references to them follow, or `None` to keep it.
+    fn moved(&self, formula: &str, host_sheet: &str, mv: &CellMove) -> Option<String> {
+        let _ = (formula, host_sheet, mv);
         None
     }
 }

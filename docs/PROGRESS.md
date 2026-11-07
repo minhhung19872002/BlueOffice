@@ -12,7 +12,7 @@ giữa các phase; ưu tiên bộ ứng dụng văn phòng (BlueDoc/BlueSheet/Bl
 | 2 | BlueDoc MVP: `.docx` lossless, layout đầy đủ, `bo-edit`, editor (IME, clipboard, tìm/thay, lưu, PDF, tự lưu) | ✅ | [`plan/phase-2.md`](plan/phase-2.md) |
 | 3 | BlueSheet: `.xlsx` lossless, định dạng số, `bo-formula` (276 hàm), lưới canvas, định dạng ô, sort/filter, CF/DV, chart, tìm/thay, in | ✅ | [`plan/phase-3-xlsx.md`](plan/phase-3-xlsx.md), [`plan/phase-3-formula.md`](plan/phase-3-formula.md) |
 | 4 | BlueSlide: `.pptx` lossless, 187 preset shape, render, chỉnh sửa (di chuyển/đổi cỡ/xoay/nhóm/căn/smart guide/sửa chữ), các chế độ xem, trình chiếu, presenter | ✅ | [`plan/phase-4.md`](plan/phase-4.md) |
-| 5 | `.doc/.xls/.xlsb/.ppt` đọc, ODF r/w, mật khẩu, VBA giữ nguyên, TCVN3/VNI; track changes, comment, TOC/caption/cross-ref, mail merge, SmartArt fallback | ✅ (PivotTable: chưa) | [`plan/phase-5.md`](plan/phase-5.md) |
+| 5 | `.doc/.xls/.xlsb/.ppt` đọc, ODF r/w, mật khẩu, VBA giữ nguyên, TCVN3/VNI; track changes, comment, TOC/caption/cross-ref, mail merge, SmartArt fallback, bảng tổng hợp (pivot) | ✅ | [`plan/phase-5.md`](plan/phase-5.md) |
 | 6 | Server ASP.NET Core (file, version, chia sẻ, audit, OIDC, Yjs relay, worker chuyển đổi), `bo-collab`, ký số PAdES/OOXML, desktop (deep link, nhiều cửa sổ, updater), on-prem Docker | ✅ (cộng tác trực tiếp: văn bản BlueDoc, ô BlueSheet, đối tượng BlueSlide) | [`plan/phase-6.md`](plan/phase-6.md), [`deploy/`](deploy/README.md) |
 | 6A | BOHP + WOPI, BlueDrive giả lập, `editor-sdk` (postMessage), chế độ nhúng `/edit`, deep link desktop | ✅ theo mô tả prompt | [`bohp.md`](bohp.md) |
 | 7 | BlueForm, BlueNote | 📝 chỉ kế hoạch | [`plan/phase-7.md`](plan/phase-7.md) |
@@ -35,11 +35,11 @@ Round-trip lossless (XML chuẩn hoá): `.docx` 49/49, `.xlsx` 51/51, `.pptx` 10
 | Phép đo | Kết quả | Mục tiêu (§5) |
 |---|---|---|
 | Layout nguội 300 trang (criterion) | 0,73 s | < 3 s ✅ |
-| Gõ phím ở tài liệu 300 trang | dàn lại toàn bộ tài liệu mỗi phím | < 16 ms ❌ (chưa có layout tăng dần theo transaction) |
-| Bảng tính 1 triệu ô / 100k công thức: mở + tính | 3,20 s (release) | < 5 s ✅ |
-| Sửa 1 ô (~5 000 phụ thuộc) | 22,8 ms (release) | < 100 ms ✅ |
+| Gõ phím / Enter / Backspace / đậm ở tài liệu 308 trang (layout tăng dần) | 1,4–2,0 ms native · 2,9–3,9 ms WASM (trước: 46–79 ms) | < 16 ms ✅ |
+| Bảng tính 1 triệu ô / 100k công thức: mở + tính | 0,80 s (release; trước 1,96 s) | < 5 s ✅ |
+| Sửa 1 ô (~5 000 phụ thuộc) | 5,2 ms (release) | < 100 ms ✅ |
 | Sửa 1 ô trong sheet 100k công thức (`LiveCalc`) | ~6 ms (debug), chỉ 6 ô tính lại | < 100 ms ✅ |
-| Sửa 1 ô có 10 000 phụ thuộc VLOOKUP | 331 ms | < 100 ms ❌ (chưa tính song song) |
+| Sửa 1 ô có 10 000 phụ thuộc VLOOKUP / chuỗi 10 000 ô | 26 ms / 27 ms (release; trước 169 / 153 ms) | < 100 ms ✅ |
 
 ## Ảnh chụp
 - BlueDoc: [`screenshots/phase2-web-editing.png`](screenshots/phase2-web-editing.png)
@@ -53,14 +53,14 @@ Round-trip lossless (XML chuẩn hoá): `.docx` 49/49, `.xlsx` 51/51, `.pptx` 10
    Word là một khối (sửa cùng bảng → người sau thắng), style/numbering/comment/footnote/master slide, định dạng và chèn-xoá
    hàng cột BlueSheet (chỉ đến người khác khi lưu version); desktop chưa có client WebSocket; chưa thử 2 trình duyệt thật
    với server đang chạy (mới kiểm bằng test 2 engine trao đổi frame thật).
-2. **Hiệu năng**: layout tăng dần khi gõ ở tài liệu dài; tính song song công thức.
-3. **BlueDoc**: thước kẻ/tab stop kéo thả, Format Painter, Paste Special, hộp thoại page setup, chọn font từ danh sách;
-   sửa header/footer/footnote; thêm/xoá hàng cột bảng; wrap square/tight; track changes cho bảng/ảnh.
-4. **BlueSheet**: kéo/đổi cỡ chart, cut/paste cập nhật tham chiếu, sort trái→phải/theo màu, vẽ chữ xoay, PivotTable.
+2. **Hiệu năng**: layout vẫn dàn lại toàn bộ khi tài liệu có NUMPAGES trong thân bài, khi đổi style/numbering/section và khi sửa header/footer (`plan/phase-2.md`).
+3. **BlueDoc**: footnote sửa trong khung bên (chưa sửa trực tiếp trên trang); header/footer chưa có "liên kết với section trước";
+   track changes chưa ghi bảng/ảnh/page setup; wrap tight dùng khung bao của đa giác.
+4. **BlueSheet**: pivot chưa có subtotal/layout compact/nhóm ngày/trường tính toán; chart neo tuyệt đối chưa kéo được.
 5. **BlueSlide**: định dạng một phần đoạn chữ, copy/paste shape, chọn bằng khung kéo, adjust handle, sửa ô bảng,
    connector bám điểm nối; presenter view hiển thị trong cùng cửa sổ (chưa tách màn hình thứ hai).
-6. **Desktop**: chưa có E2E Tauri WebDriver.
-7. **Fidelity**: chưa có ảnh tham chiếu từ phần mềm gốc nên chưa đo visual diff (người dùng đặt ảnh vào `tests/fidelity/reference/`).
+6. **Desktop**: E2E Tauri WebDriver có 4 test (mở file, gõ chữ, công thức BlueSheet, BlueSlide) — `pnpm test:e2e:desktop`.
+7. **Fidelity**: visual diff đã chạy (`docs/fidelity-visual.md`, baseline tự sinh 134 trang); so với phần mềm gốc cần người dùng đặt ảnh vào `tests/fidelity/reference/`.
 8. **Ký số**: chưa có dấu thời gian RFC 3161 (PAdES B-T) và kiểm tra chuỗi CA quốc gia (ADR-0007).
 9. **Server**: một instance `api` (phòng cộng tác trong bộ nhớ); schema bằng `EnsureCreated` (chưa có migration EF).
 

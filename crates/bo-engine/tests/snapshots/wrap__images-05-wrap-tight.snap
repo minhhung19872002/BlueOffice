@@ -1,0 +1,20 @@
+---
+source: crates/bo-engine/tests/wrap.rs
+expression: summary(&e)
+---
+page 1
+  image 85.1,56.7 108.0x72.0
+  image 265.0,131.5 72.0x72.0
+  image 373.0,223.4 72.0x72.0
+  line 56.7: [202.1–539.9] Theo đề nghị của Giám đốc Trung tâm Công nghệ thông tin (giả
+  line 73.9: [202.1–547.5] định);Theo đề nghị của Giám đốc Trung tâm Công nghệ thông tin
+  line 91.1: [202.1–554.0] (giả định);Theo đề nghị của Giám đốc Trung tâm Công nghệ thông
+  line 108.3: [202.1–276.8] tin (giả định);
+  line 131.5: [345.5–547.7] Quyết định này có hiệu lực kể từ ngày
+  line 148.7: [345.5–536.9] ký ban hành.Quyết định này có hiệu
+  line 165.8: [345.5–551.3] lực kể từ ngày ký ban hành.Quyết định
+  line 183.0: [345.5–524.6] này có hiệu lực kể từ ngày ký ban
+  line 200.2: [345.5–377.3] hành.
+  line 223.4: [85.1–365.9] Các đơn vị, cá nhân có liên quan chịu trách nhiệm thi | [454.0–545.8] hành.Các đơn vị,
+  line 240.6: [85.1–354.7] cá nhân có liên quan chịu trách nhiệm thi hành.Các | [454.0–552.6] đơn vị, cá nhân có
+  line 257.8: [85.1–275.7] liên quan chịu trách nhiệm thi hành.

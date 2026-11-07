@@ -19,6 +19,13 @@ export class BrowserClipboard implements ClipboardAccess {
   writeText(text: string): Promise<void> {
     return navigator.clipboard.writeText(text);
   }
+  async readHtml(): Promise<string> {
+    if (!navigator.clipboard.read) return '';
+    for (const item of await navigator.clipboard.read()) {
+      if (item.types.includes('text/html')) return (await item.getType('text/html')).text();
+    }
+    return '';
+  }
   async writeHtml(html: string, text: string): Promise<void> {
     if (typeof ClipboardItem === 'undefined') return this.writeText(text);
     await navigator.clipboard.write([

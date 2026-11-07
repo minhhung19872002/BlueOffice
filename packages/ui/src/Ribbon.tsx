@@ -14,6 +14,8 @@ export interface RibbonItem {
   tooltip?: string;
   shortcut?: string;
   onSelect: () => void;
+  /** Custom control (combobox, colour picker…) shown instead of a button. */
+  render?: ReactNode;
 }
 
 export interface RibbonGroup {
@@ -99,14 +101,22 @@ export function Ribbon({ tabs, value, onValueChange, trailing }: RibbonProps) {
               <div key={g.id} className={styles.group} role="group" aria-label={g.label}>
                 <div
                   className={`${styles.groupItems} ${
-                    g.items.length > 3 && g.items.every((i) => i.size === 'small')
-                      ? styles.compact
-                      : ''
+                    g.items.some((i) => i.render)
+                      ? styles.mixed
+                      : g.items.length > 3 && g.items.every((i) => i.size === 'small')
+                        ? styles.compact
+                        : ''
                   }`}
                 >
-                  {g.items.map((i) => (
-                    <RibbonButton key={i.id} item={i} />
-                  ))}
+                  {g.items.map((i) =>
+                    i.render ? (
+                      <div key={i.id} className={styles.control} data-control={i.id}>
+                        {i.render}
+                      </div>
+                    ) : (
+                      <RibbonButton key={i.id} item={i} />
+                    ),
+                  )}
                 </div>
                 <div className={styles.groupLabel}>{g.label}</div>
               </div>

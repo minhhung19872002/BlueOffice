@@ -130,9 +130,18 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
     w.write_styles(&main)?;
     w.write_numbering(&main)?;
     w.write_comments(&main)?;
+    if let Some(src) = &doc.source {
+        // Edited notes / header settings of a read document (§17.11, §17.15.1.35).
+        if src.notes_fingerprint != notes_fingerprint(doc) {
+            w.write_notes(&main)?;
+        }
+        if src.even_and_odd_headers != doc.even_and_odd_headers {
+            w.patch_settings(&main)?;
+        }
+    }
     if doc.source.is_none() {
         w.write_settings(&main)?;
-        w.write_notes()?;
+        w.write_notes(&main)?;
         w.pkg.set_relationships(
             "/",
             &[Relationship {
@@ -149,6 +158,44 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
         w.pkg.set_relationships(&main, &rels);
     }
     Ok(w.pkg.write()?)
+}
+
+/// Fingerprint of the footnotes and endnotes (detects edited notes).
+pub(crate) fn notes_fingerprint(doc: &Document) -> u64 {
+    fingerprint(&(&doc.footnotes, &doc.endnotes))
+}
+
+/// Byte offset of the first `<tag` start (followed by `/`, `>` or whitespace).
+fn find_element(xml: &str, tag: &str) -> Option<usize> {
+    let pat = format!("<{tag}");
+    let mut from = 0;
+    while let Some(i) = xml[from..].find(&pat) {
+        let at = from + i;
+        let next = xml[at + pat.len()..].chars().next();
+        if next.is_some_and(|c| c == '/' || c == '>' || c.is_whitespace()) {
+            return Some(at);
+        }
+        from = at + pat.len();
+    }
+    None
+}
+
+/// Remove every empty element `<tag …/>` (or `<tag …></tag>`).
+fn remove_empty_element(xml: &str, tag: &str) -> String {
+    let mut s = xml.to_owned();
+    while let Some(at) = find_element(&s, tag) {
+        let Some(gt) = s[at..].find('>') else { break };
+        let mut end = at + gt + 1;
+        if !s[..end].ends_with("/>") {
+            let close = format!("</{tag}>");
+            match s[end..].find(&close) {
+                Some(c) => end += c + close.len(),
+                None => break,
+            }
+        }
+        s.replace_range(at..end, "");
+    }
+    s
 }
 
 impl Writer<'_> {
@@ -814,15 +861,15 @@ impl Writer<'_> {
         Ok(())
     }
 
-    /// Footnote and endnote parts of a new document (§17.11.15 footnotes, §17.11.8 endnotes).
-    /// Documents read from a package keep their note parts verbatim.
-    fn write_notes(&mut self) -> Result<()> {
+    /// Footnote and endnote parts (§17.11.15 footnotes, §17.11.8 endnotes) of a new
+    /// document, or of a read one whose notes changed (written to the existing parts).
+    fn write_notes(&mut self, main: &str) -> Result<()> {
         let doc = self.doc;
         for (end, notes) in [(false, &doc.footnotes), (true, &doc.endnotes)] {
             if notes.is_empty() {
                 continue;
             }
-            let (root, item, ct, rel, part) = if end {
+            let (root, item, ct, rel, default_part) = if end {
                 (
                     "endnotes",
                     "endnote",
@@ -839,6 +886,11 @@ impl Writer<'_> {
                     "/word/footnotes.xml",
                 )
             };
+            let part = self
+                .pkg
+                .related_part(main, rel)?
+                .unwrap_or_else(|| default_part.to_owned());
+            let part = part.as_str();
             self.in_endnote = end;
             let mut s = format!(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:{root} xmlns:w=\"{W_NS}\" xmlns:r=\"{R_NS}\" xmlns:wp=\"{WP_NS}\" xmlns:a=\"{A_NS}\" xmlns:pic=\"{PIC_NS}\">"
@@ -981,6 +1033,87 @@ impl Writer<'_> {
             self.rels
                 .id_for(crate::reader::REL_COMMENTS_IDS, &part, false);
         }
+        Ok(())
+    }
+
+    /// Set or remove `w:evenAndOddHeaders` (§17.15.1.35) in the settings part of a read
+    /// document, keeping everything else; the element goes before the first sibling
+    /// that follows it in CT_Settings (§17.15.1.78).
+    fn patch_settings(&mut self, main: &str) -> Result<()> {
+        let Some(part) = self.pkg.related_part(main, REL_SETTINGS)? else {
+            return self.write_settings(main);
+        };
+        let Some(xml) = self
+            .pkg
+            .part(&part)
+            .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+        else {
+            return self.write_settings(main);
+        };
+        let mut s = remove_empty_element(&xml, "w:evenAndOddHeaders");
+        if self.doc.even_and_odd_headers {
+            const AFTER: &[&str] = &[
+                "bookFoldRevPrinting",
+                "bookFoldPrinting",
+                "bookFoldPrintingSheets",
+                "drawingGridHorizontalSpacing",
+                "drawingGridVerticalSpacing",
+                "displayHorizontalDrawingGridEvery",
+                "displayVerticalDrawingGridEvery",
+                "doNotUseMarginsForDrawingGridOrigin",
+                "drawingGridHorizontalOrigin",
+                "drawingGridVerticalOrigin",
+                "doNotShadeFormData",
+                "noPunctuationKerning",
+                "characterSpacingControl",
+                "printTwoOnOne",
+                "strictFirstAndLastChars",
+                "noLineBreaksAfter",
+                "noLineBreaksBefore",
+                "savePreviewPicture",
+                "doNotValidateAgainstSchema",
+                "saveInvalidXml",
+                "ignoreMixedContent",
+                "alwaysShowPlaceholderText",
+                "doNotDemarcateInvalidXml",
+                "saveXmlDataOnly",
+                "useXSLTWhenSaving",
+                "saveThroughXslt",
+                "showXMLTags",
+                "alwaysMergeEmptyNamespace",
+                "updateFields",
+                "hdrShapeDefaults",
+                "footnotePr",
+                "endnotePr",
+                "compat",
+                "docVars",
+                "rsids",
+                "mathPr",
+                "attachedSchema",
+                "themeFontLang",
+                "clrSchemeMapping",
+                "doNotIncludeSubdocsInStats",
+                "doNotAutoCompressPictures",
+                "forceUpgrade",
+                "captions",
+                "readModeInkLockDown",
+                "smartTagType",
+                "schemaLibrary",
+                "shapeDefaults",
+                "doNotEmbedSmartTags",
+                "decimalSymbol",
+                "listSeparator",
+            ];
+            let at = AFTER
+                .iter()
+                .filter_map(|n| find_element(&s, &format!("w:{n}")))
+                .min()
+                .or_else(|| s.rfind("</w:settings>"));
+            if let Some(at) = at {
+                s.insert_str(at, "<w:evenAndOddHeaders/>");
+            }
+        }
+        self.pkg.put_part(&part, s.into_bytes());
         Ok(())
     }
 

@@ -1,0 +1,197 @@
+.corner {
+  all: unset;
+  box-sizing: border-box;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bo-surface-2);
+  border-right: 1px solid var(--bo-border);
+  border-bottom: 1px solid var(--bo-border);
+  color: var(--bo-brand);
+  font: 600 12px/1 var(--bo-font);
+  cursor: pointer;
+  z-index: 3;
+}
+
+.hruler,
+.vruler {
+  position: absolute;
+  overflow: hidden;
+  background: var(--bo-surface-2);
+  z-index: 2;
+  user-select: none;
+  touch-action: none;
+}
+
+.hruler {
+  top: 0;
+  left: 22px;
+  right: 0;
+  height: 22px;
+  border-bottom: 1px solid var(--bo-border);
+}
+
+.vruler {
+  top: 22px;
+  left: 0;
+  bottom: 0;
+  width: 22px;
+  border-right: 1px solid var(--bo-border);
+}
+
+.track {
+  position: absolute;
+  top: 3px;
+  height: 16px;
+  background: #fff;
+  cursor: copy;
+}
+
+.vtrack {
+  position: absolute;
+  left: 3px;
+  width: 16px;
+  background: #fff;
+}
+
+.margin,
+.vmargin {
+  position: absolute;
+  background: #c9d1dc;
+}
+
+.margin {
+  top: 0;
+  bottom: 0;
+}
+
+.vmargin {
+  left: 0;
+  right: 0;
+}
+
+.major,
+.minor {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  background: #6b7686;
+  pointer-events: none;
+}
+
+.major {
+  height: 5px;
+}
+
+.minor {
+  height: 2px;
+  opacity: 0.6;
+}
+
+.num {
+  position: absolute;
+  bottom: 5px;
+  left: -8px;
+  width: 16px;
+  text-align: center;
+  font: 9px/1 var(--bo-font);
+  color: #3a4452;
+}
+
+.vmajor,
+.vminor {
+  position: absolute;
+  right: 0;
+  height: 1px;
+  background: #6b7686;
+  pointer-events: none;
+}
+
+.vmajor {
+  width: 5px;
+}
+
+.vminor {
+  width: 2px;
+  opacity: 0.6;
+}
+
+.vnum {
+  position: absolute;
+  right: 5px;
+  top: -5px;
+  font: 9px/1 var(--bo-font);
+  color: #3a4452;
+}
+
+.marginHandle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.vmarginHandle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 1;
+}
+
+.marker {
+  position: absolute;
+  width: 10px;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+/* First-line indent: triangle pointing down at the top edge. */
+.first {
+  top: -3px;
+  height: 7px;
+  background: var(--bo-brand);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+
+/* Hanging / right indent: triangle pointing up at the bottom edge. */
+.hanging {
+  top: 6px;
+  height: 6px;
+  background: var(--bo-brand);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+/* Left indent: box under the hanging marker (moves both). */
+.leftBox {
+  top: 12px;
+  height: 5px;
+  background: var(--bo-brand);
+}
+
+.tabStop {
+  position: absolute;
+  top: 2px;
+  width: 9px;
+  font: 700 11px/12px var(--bo-font);
+  color: #1b2430;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.guide {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--bo-accent);
+  pointer-events: none;
+}

@@ -32,7 +32,8 @@ describe('keyToCommand', () => {
       text: '\u2028',
     });
     expect(keyToCommand(k('Enter', { ctrl: true }))).toBeNull();
-    expect(keyToCommand(k('Tab'))).toEqual({ cmd: 'insertText', text: '\t' });
+    expect(keyToCommand(k('Tab'))).toEqual({ cmd: 'tab', back: false });
+    expect(keyToCommand(k('Tab', { shift: true }))).toEqual({ cmd: 'tab', back: true });
     expect(keyToCommand(k('b', { ctrl: true }))).toBeNull();
   });
 });

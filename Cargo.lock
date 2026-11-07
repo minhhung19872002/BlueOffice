@@ -447,6 +447,7 @@ dependencies = [
  "bo-model",
  "bo-odf",
  "bo-opc",
+ "bo-sign",
  "clap",
  "png",
 ]

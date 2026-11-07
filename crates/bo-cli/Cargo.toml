@@ -18,6 +18,7 @@ bo-opc.workspace = true
 bo-binary = { path = "../bo-binary" }
 bo-odf = { path = "../bo-odf" }
 bo-crypto = { path = "../bo-crypto" }
+bo-sign = { path = "../bo-sign" }
 clap.workspace = true
 png = "0.18"
 

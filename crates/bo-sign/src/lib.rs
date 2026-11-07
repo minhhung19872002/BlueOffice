@@ -63,6 +63,52 @@ impl SoftwareSigner {
     pub fn new(key: RsaPrivateKey, cert_der: Vec<u8>) -> Self {
         Self { key, cert_der }
     }
+
+    /// Loads an RSA key (PEM, PKCS#8 `PRIVATE KEY` or PKCS#1 `RSA PRIVATE KEY`)
+    /// and a certificate (DER or PEM `CERTIFICATE`).
+    pub fn from_pem(key_pem: &str, cert: &[u8]) -> Result<Self> {
+        use rsa::pkcs1::DecodeRsaPrivateKey;
+        use rsa::pkcs8::DecodePrivateKey;
+        let key = RsaPrivateKey::from_pkcs8_pem(key_pem)
+            .or_else(|_| RsaPrivateKey::from_pkcs1_pem(key_pem))
+            .map_err(|e| SignError::Malformed(format!("private key: {e}")))?;
+        let cert_der = match std::str::from_utf8(cert) {
+            Ok(text) if text.contains("-----BEGIN CERTIFICATE-----") => {
+                pem_body(text, "CERTIFICATE")?
+            }
+            _ => cert.to_vec(),
+        };
+        // Reject garbage early and make sure the key matches the certificate.
+        let probe = sha256(b"bo-sign key check");
+        let signer = Self { key, cert_der };
+        let sig = signer.sign_sha256(&probe)?;
+        verify_with_cert(&signer.cert_der, &probe, &sig).map_err(|_| {
+            SignError::Malformed("the private key does not match the certificate".into())
+        })?;
+        Ok(signer)
+    }
+}
+
+/// Base64 body of the first PEM block with the given label (RFC 7468).
+fn pem_body(text: &str, label: &str) -> Result<Vec<u8>> {
+    use base64::Engine as _;
+    let begin = format!("-----BEGIN {label}-----");
+    let end = format!("-----END {label}-----");
+    let start = text
+        .find(&begin)
+        .ok_or_else(|| SignError::Malformed(format!("no {label} PEM block")))?
+        + begin.len();
+    let stop = text[start..]
+        .find(&end)
+        .ok_or_else(|| SignError::Malformed(format!("unterminated {label} PEM block")))?
+        + start;
+    let b64: String = text[start..stop]
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| SignError::Malformed(format!("{label} PEM: {e}")))
 }
 
 impl Signer for SoftwareSigner {
@@ -118,6 +164,29 @@ pub mod testing {
     use x509_cert::serial_number::SerialNumber;
     use x509_cert::spki::EncodePublicKey;
     use x509_cert::time::Validity;
+
+    /// PEM encoding of a self-signed signer's key and certificate (tests).
+    ///
+    /// # Panics
+    /// On encoding failure (tests only).
+    #[must_use]
+    pub fn to_pem(signer: &SoftwareSigner) -> (String, String) {
+        use base64::Engine as _;
+        use rsa::pkcs8::EncodePrivateKey;
+        let key = signer
+            .key
+            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+            .expect("pem")
+            .to_string();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&signer.cert_der);
+        let mut cert = String::from("-----BEGIN CERTIFICATE-----\n");
+        for chunk in b64.as_bytes().chunks(64) {
+            cert.push_str(std::str::from_utf8(chunk).unwrap_or_default());
+            cert.push('\n');
+        }
+        cert.push_str("-----END CERTIFICATE-----\n");
+        (key, cert)
+    }
 
     /// Signer that always fails (for negative tests).
     pub struct NullSigner;

@@ -64,6 +64,27 @@ enum Cmd {
         #[arg(long, default_value_t = 1)]
         sheet: usize,
     },
+    /// Digitally sign a PDF (PAdES B-B) or .docx/.xlsx/.pptx (ECMA-376 Part 2 §12)
+    /// with an RSA key (PEM) and its certificate (PEM or DER).
+    Sign {
+        input: PathBuf,
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(long)]
+        cert: PathBuf,
+        /// Output file (default: `<input>-signed.<ext>`).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// PDF only: signer name, reason and location shown by viewers.
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        reason: Option<String>,
+        #[arg(long)]
+        location: Option<String>,
+    },
+    /// Verify the digital signatures of a PDF or OOXML file.
+    Verify { input: PathBuf },
     /// Report the detected format, encryption and macro presence (macros are never run).
     Inspect {
         input: PathBuf,
@@ -154,6 +175,76 @@ fn run(cli: Cli) -> R {
             protect.as_deref(),
             sheet,
         )?,
+        Cmd::Sign {
+            input,
+            key,
+            cert,
+            out,
+            name,
+            reason,
+            location,
+        } => {
+            let bytes = std::fs::read(&input)?;
+            let signer = bo_sign::SoftwareSigner::from_pem(
+                &std::fs::read_to_string(&key)?,
+                &std::fs::read(&cert)?,
+            )?;
+            let is_pdf = bytes.starts_with(b"%PDF");
+            let signed = if is_pdf {
+                let opts = bo_sign::pdf::SignOptions {
+                    name,
+                    reason,
+                    location,
+                    ..bo_sign::pdf::SignOptions::default()
+                };
+                bo_sign::pdf::sign_pdf(&bytes, &signer, &opts)?
+            } else {
+                bo_sign::ooxml::sign_ooxml(&bytes, &signer, std::time::SystemTime::now())?
+            };
+            let out = out.unwrap_or_else(|| {
+                let stem = input
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("signed");
+                let ext = input.extension().and_then(|s| s.to_str()).unwrap_or("bin");
+                input.with_file_name(format!("{stem}-signed.{ext}"))
+            });
+            std::fs::write(&out, signed)?;
+            println!("{}", out.display());
+        }
+        Cmd::Verify { input } => {
+            let bytes = std::fs::read(&input)?;
+            if bytes.starts_with(b"%PDF") {
+                let sigs = bo_sign::pdf::verify_pdf(&bytes)?;
+                for (i, s) in sigs.iter().enumerate() {
+                    println!(
+                        "signature {}: valid, signer {}{}",
+                        i + 1,
+                        s.signer.subject,
+                        if s.covers_whole_file {
+                            ""
+                        } else {
+                            " (document changed after this signature)"
+                        }
+                    );
+                }
+                if sigs.is_empty() {
+                    println!("no signatures");
+                }
+            } else {
+                let sigs = bo_sign::ooxml::verify_ooxml(&bytes)?;
+                for s in &sigs {
+                    println!(
+                        "{}: valid, signed {}",
+                        s.part,
+                        s.signing_time.as_deref().unwrap_or("?")
+                    );
+                }
+                if sigs.is_empty() {
+                    println!("no signatures");
+                }
+            }
+        }
         Cmd::Inspect { input, password } => {
             let bytes = std::fs::read(&input).map_err(|e| format!("{}: {e}", input.display()))?;
             let (loaded, facts) = convert::load(&bytes, password.as_deref())?;

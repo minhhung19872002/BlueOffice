@@ -2,7 +2,7 @@
 use bo_sign::ooxml::{sign_ooxml, verify_ooxml};
 use bo_sign::pdf::{sign_pdf, verify_pdf, SignOptions};
 use bo_sign::testing::self_signed;
-use bo_sign::SoftwareSigner;
+use bo_sign::{Signer as _, SoftwareSigner};
 use pdf_writer::{Pdf, Rect, Ref};
 use std::sync::OnceLock;
 use std::time::{Duration, UNIX_EPOCH};
@@ -126,4 +126,18 @@ fn ooxml_tampering_is_detected() {
     pkg.put_part("/word/document.xml", changed);
     let err = verify_ooxml(&pkg.write().unwrap()).unwrap_err();
     assert!(err.to_string().contains("/word/document.xml"), "{err}");
+}
+
+#[test]
+fn loads_pem_key_and_certificate() {
+    let (key, cert) = bo_sign::testing::to_pem(signer());
+    let s = SoftwareSigner::from_pem(&key, cert.as_bytes()).unwrap();
+    let signed = sign_ooxml(DOCX, &s, UNIX_EPOCH).unwrap();
+    assert_eq!(verify_ooxml(&signed).unwrap().len(), 1);
+    // DER certificate works too; a mismatched key is rejected.
+    assert!(SoftwareSigner::from_pem(&key, signer().certificate_der()).is_ok());
+    let other = self_signed(&mut rand::thread_rng(), "Khác");
+    let (other_key, _) = bo_sign::testing::to_pem(&other);
+    assert!(SoftwareSigner::from_pem(&other_key, cert.as_bytes()).is_err());
+    assert!(SoftwareSigner::from_pem("garbage", cert.as_bytes()).is_err());
 }

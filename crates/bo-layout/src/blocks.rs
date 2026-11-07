@@ -11,8 +11,8 @@ use crate::style::{para_props, ListCounters};
 use crate::types::{Layer, Line, LineSource, NoteKey, PageItem};
 use crate::{LayoutError, RevisionView};
 use bo_model::{
-    Block, Border, Borders, CellVAlign, Color, Document, HeightRule, Image, Paragraph, Table,
-    TableWidth, Twips, VMerge,
+    Block, Border, Borders, CellVAlign, Color, Document, HeightRule, Image, Paragraph, RunContent,
+    Table, TableWidth, Twips, VMerge,
 };
 use bo_text::FontManager;
 use std::collections::HashMap;
@@ -34,6 +34,9 @@ pub(crate) struct Ctx<'a> {
     pub default_tab: f32,
     /// Next body paragraph id (document order, see `bo_model::index::body_paragraphs`).
     pub next_id: u32,
+    /// Id of the first paragraph of the top-level block being built: body lines carry
+    /// ids relative to it so a built block can be placed again under another id.
+    pub id_origin: u32,
     /// Endnote ids in order of first reference.
     pub endnote_order: Vec<i32>,
     /// How tracked changes are shown.
@@ -71,9 +74,17 @@ impl Band {
 
     /// Copy moved by (`dx`, `dy`).
     pub fn translated(&self, dx: f32, dy: f32) -> Band {
+        self.translated_ids(dx, dy, 0)
+    }
+
+    /// Copy moved by (`dx`, `dy`) whose relative body ids are rebased on `base`.
+    pub fn translated_ids(&self, dx: f32, dy: f32, base: u32) -> Band {
         let mut b = self.clone();
         for l in &mut b.lines {
             l.translate(dx, dy);
+            if let LineSource::Body(id) = &mut l.source {
+                *id += base;
+            }
         }
         for i in &mut b.items {
             i.translate(dx, dy);
@@ -118,6 +129,9 @@ pub(crate) struct ParaBlock {
     pub style: Option<String>,
     pub deco: Option<Deco>,
     pub floats: Vec<Image>,
+    /// Depends only on the paragraph and the width: no list label, fields or note
+    /// references (so it can be reused by the incremental layout).
+    pub pure: bool,
 }
 
 impl ParaBlock {
@@ -210,8 +224,19 @@ pub(crate) fn build_para(
         };
         props.num.and_then(|n| lists.next(ctx.doc, n))
     };
+    let pure = props.num.is_none()
+        && !p.runs.iter().any(|r| {
+            r.content.iter().any(|c| {
+                matches!(
+                    c,
+                    RunContent::Field { .. }
+                        | RunContent::FootnoteRef(_)
+                        | RunContent::EndnoteRef(_)
+                )
+            })
+        });
     let source = if body {
-        let id = ctx.next_id;
+        let id = ctx.next_id - ctx.id_origin;
         ctx.next_id += 1;
         LineSource::Body(id)
     } else {
@@ -254,6 +279,7 @@ pub(crate) fn build_para(
         style: pl.style.clone(),
         deco,
         floats: pl.floats.clone(),
+        pure,
     })
 }
 
@@ -309,7 +335,7 @@ pub(crate) fn deco_items(d: &Deco, y0: f32, y1: f32, out: &mut Vec<PageItem>) {
 }
 
 /// Content stacked without pagination.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct Stack {
     /// (top, band) pairs, top relative to the stack top.
     pub bands: Vec<(f32, Band)>,

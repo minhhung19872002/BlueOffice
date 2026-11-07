@@ -15,6 +15,41 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+/// A [`Fragment`] being built (its text and glyphs still growing).
+struct Draft {
+    face: FaceId,
+    size: f32,
+    x: f32,
+    y: f32,
+    width: f32,
+    color: Color,
+    underline: bo_model::Underline,
+    strike: bool,
+    double_strike: bool,
+    text: String,
+    glyphs: Vec<GlyphPos>,
+    link: Option<String>,
+}
+
+impl Draft {
+    fn finish(self) -> Fragment {
+        Fragment {
+            face: self.face,
+            size: self.size,
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            color: self.color,
+            underline: self.underline,
+            strike: self.strike,
+            double_strike: self.double_strike,
+            text: self.text.into(),
+            glyphs: self.glyphs.into(),
+            link: self.link,
+        }
+    }
+}
+
 const LINE_SEP: char = '\u{2028}';
 const PAGE_SEP: char = '\u{000C}';
 const COL_SEP: char = '\u{000B}';
@@ -493,7 +528,7 @@ fn layout_uncached(
         let mut ascent = 0.0f32;
         let mut descent = 0.0f32;
         let mut gap = 0.0f32;
-        let mut frags: Vec<Fragment> = Vec::new();
+        let mut frags: Vec<Draft> = Vec::new();
         let mut carets: Vec<(u32, f32)> = Vec::new();
         let mut objects = Vec::new();
         let mut highlights = Vec::new();
@@ -590,7 +625,7 @@ fn layout_uncached(
                     continue;
                 }
             }
-            frags.push(Fragment {
+            frags.push(Draft {
                 face: p.face,
                 size: st.size,
                 x: x0,
@@ -649,7 +684,7 @@ fn layout_uncached(
         out.push(RelLine {
             height,
             baseline,
-            fragments: frags,
+            fragments: frags.into_iter().map(Draft::finish).collect(),
             carets,
             objects,
             highlights,
@@ -758,7 +793,7 @@ fn leader_fragment(
     leader: TabLeader,
     x0: f32,
     x1: f32,
-) -> Option<Fragment> {
+) -> Option<Draft> {
     let ch = match leader {
         TabLeader::Dot => ".",
         TabLeader::Hyphen => "-",
@@ -787,7 +822,7 @@ fn leader_fragment(
         text.push_str(ch);
         x += adv;
     }
-    Some(Fragment {
+    Some(Draft {
         face,
         size: st.size,
         x: start,

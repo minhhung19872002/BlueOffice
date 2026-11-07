@@ -5,19 +5,75 @@ use crate::blocks::{
     build_para, deco_items, layout_table, row_band, row_notes, split_row, stack_blocks, Band, Brk,
     Ctx, ParaBlock, Stack, TableBox,
 };
+use crate::style::ListCounters;
 use crate::types::{Layer, NoteKey, Page, PageItem};
 use crate::LayoutError;
 use bo_model::{Block, Color, Image, PageSetup, Section, SectionBreak, Wrap};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 const EPS: f32 = 0.01;
 /// Space reserved above the footnote area for the separator (ECMA-376 Part 1, §17.11.23 separator).
 const NOTE_SEPARATOR: f32 = 12.0;
 
+#[derive(Debug, Clone, PartialEq)]
 struct Prev {
     style: Option<String>,
     contextual: bool,
     after: f32,
+}
+
+/// Pagination state between two top-level blocks, without the pages themselves.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Snap {
+    setup: PageSetup,
+    section: usize,
+    cols: Vec<(f32, f32)>,
+    col: usize,
+    top: f32,
+    bottom: f32,
+    y: f32,
+    col_has_content: bool,
+    page_has_content: bool,
+    notes_on_page: Vec<NoteKey>,
+    foot_h: f32,
+    excl: Vec<(f32, f32)>,
+    prev: Option<Prev>,
+    lists: ListCounters,
+    other_lists: ListCounters,
+    /// Length of [`Flow::foot_order`].
+    pub foot_keys: usize,
+}
+
+/// Where the flow stood before a top-level block (incremental layout, prompt §5.4).
+#[derive(Debug, Clone)]
+pub(crate) struct Checkpoint {
+    pub snap: Snap,
+    /// Displayed number of the current page.
+    pub number: u32,
+    /// Index of the current page and its line / item counts at that moment.
+    pub page: usize,
+    pub lines: usize,
+    pub items: usize,
+    /// Next body paragraph id.
+    pub next_id: u32,
+}
+
+/// A pure paragraph built by an earlier layout, reusable at the same width.
+pub(crate) struct CachedPara {
+    pub width: f32,
+    pub block: Arc<ParaBlock>,
+}
+
+/// The new flow reached a state of the previous layout: everything after is reused.
+#[derive(Debug)]
+pub(crate) struct Resync {
+    pub section: usize,
+    pub block: usize,
+    /// The previous layout's checkpoint at that boundary.
+    pub old: Checkpoint,
+    /// The new flow's checkpoint at the same boundary.
+    pub new: Checkpoint,
 }
 
 /// Pagination state.
@@ -38,12 +94,30 @@ pub(crate) struct Flow {
     foot_h: f32,
     /// Vertical ranges on the current page occupied by top-and-bottom pictures.
     excl: Vec<(f32, f32)>,
-    foot_cache: HashMap<NoteKey, Stack>,
+    pub foot_cache: HashMap<NoteKey, Stack>,
     prev: Option<Prev>,
     /// Page index at which each section started on a fresh page.
     pub section_start: Vec<Option<usize>>,
     /// (header height, footer height) per section, used to push the body.
     pub hf_heights: Vec<(f32, f32)>,
+    /// Body id of the first paragraph of the block being placed (lines carry relative ids).
+    id_base: u32,
+    /// Notes in the order their stacks were computed (`foot_cache` keys).
+    pub foot_order: Vec<NoteKey>,
+    /// Pure paragraphs built by the previous layout, per section and block.
+    pub built: Vec<Vec<Option<CachedPara>>>,
+    /// Checkpoint before each top-level block (`None` while a keepNext lookahead is
+    /// pending). Slots at or after `resync_from` still hold the previous layout's.
+    pub cps: Vec<Vec<Option<Checkpoint>>>,
+    /// Per section, the first block boundary where the flow may re-synchronise with
+    /// the previous layout (`usize::MAX`: never; empty: full layout).
+    pub resync_from: Vec<usize>,
+    /// Note order of the previous layout (re-synchronisation needs the same prefix).
+    pub old_foot_order: Vec<NoteKey>,
+    /// Re-synchronisation may change the displayed numbers of reused pages.
+    pub allow_renumber: bool,
+    /// Set when the flow stopped because it re-synchronised.
+    pub resynced: Option<Resync>,
 }
 
 /// Geometry of a section's body area.
@@ -135,7 +209,7 @@ pub(crate) fn float_item(
 }
 
 enum Built {
-    Para(Box<ParaBlock>),
+    Para(Arc<ParaBlock>),
     Table(TableBox),
     Skip,
 }
@@ -161,7 +235,105 @@ impl Flow {
             prev: None,
             section_start: vec![None; sections],
             hf_heights,
+            id_base: 0,
+            foot_order: Vec::new(),
+            built: Vec::new(),
+            cps: Vec::new(),
+            resync_from: Vec::new(),
+            old_foot_order: Vec::new(),
+            allow_renumber: false,
+            resynced: None,
         }
+    }
+
+    /// The current state.
+    fn checkpoint(&self, ctx: &Ctx<'_>) -> Checkpoint {
+        let (lines, items) = self
+            .pages
+            .last()
+            .map_or((0, 0), |p| (p.lines.len(), p.items.len()));
+        Checkpoint {
+            snap: Snap {
+                setup: self.setup,
+                section: self.section,
+                cols: self.cols.clone(),
+                col: self.col,
+                top: self.top,
+                bottom: self.bottom,
+                y: self.y,
+                col_has_content: self.col_has_content,
+                page_has_content: self.page_has_content,
+                notes_on_page: self.notes_on_page.clone(),
+                foot_h: self.foot_h,
+                excl: self.excl.clone(),
+                prev: self.prev.clone(),
+                lists: ctx.lists.clone(),
+                other_lists: ctx.other_lists.clone(),
+                foot_keys: self.foot_order.len(),
+            },
+            number: self.number,
+            page: self.pages.len().saturating_sub(1),
+            lines,
+            items,
+            next_id: ctx.next_id,
+        }
+    }
+
+    /// Continue from `cp` (the caller has restored the pages up to `cp.page`).
+    pub fn restore(&mut self, ctx: &mut Ctx<'_>, cp: &Checkpoint) {
+        let s = &cp.snap;
+        self.setup = s.setup;
+        self.section = s.section;
+        self.cols.clone_from(&s.cols);
+        self.col = s.col;
+        self.top = s.top;
+        self.bottom = s.bottom;
+        self.y = s.y;
+        self.col_has_content = s.col_has_content;
+        self.page_has_content = s.page_has_content;
+        self.notes_on_page.clone_from(&s.notes_on_page);
+        self.foot_h = s.foot_h;
+        self.excl.clone_from(&s.excl);
+        self.prev.clone_from(&s.prev);
+        self.number = cp.number;
+        ctx.lists.clone_from(&s.lists);
+        ctx.other_lists.clone_from(&s.other_lists);
+        ctx.next_id = cp.next_id;
+    }
+
+    /// Record the checkpoint before block `k` of section `si`; returns `true` (and
+    /// stops the flow) when it matches the previous layout's checkpoint there.
+    fn boundary(&mut self, ctx: &Ctx<'_>, si: usize, k: usize, pending: bool) -> bool {
+        if self.cps.get(si).is_none_or(|v| k >= v.len()) {
+            return false;
+        }
+        if pending {
+            self.cps[si][k] = None;
+            return false;
+        }
+        let new = self.checkpoint(ctx);
+        let eligible = self.resync_from.get(si).is_some_and(|&from| k >= from);
+        let slot = &mut self.cps[si][k];
+        if eligible {
+            if let Some(old) = slot.take() {
+                let n = new.snap.foot_keys;
+                let same = old.snap == new.snap
+                    && self.old_foot_order.get(..n) == Some(&self.foot_order[..n])
+                    && (old.number == new.number || self.allow_renumber);
+                if same {
+                    *slot = Some(new.clone());
+                    self.resynced = Some(Resync {
+                        section: si,
+                        block: k,
+                        old,
+                        new,
+                    });
+                    return true;
+                }
+            }
+        }
+        *slot = Some(new);
+        false
     }
 
     fn col_x(&self) -> f32 {
@@ -268,6 +440,7 @@ impl Flow {
             ctx.doc.footnotes.get(&key.1)
         };
         let mark = ctx.notes.get(&key).cloned();
+        self.foot_order.push(key);
         let st = match blocks {
             Some(b) => {
                 let width = (self.setup.width.to_pt()
@@ -317,7 +490,7 @@ impl Flow {
     /// Emit a band at (current column x, `y`).
     fn put(&mut self, ctx: &mut Ctx<'_>, band: &Band, y: f32) -> Result<(), LayoutError> {
         self.register_notes(ctx, &band.notes)?;
-        let b = band.translated(self.col_x(), y);
+        let b = band.translated_ids(self.col_x(), y, self.id_base);
         if let Some(page) = self.pages.last_mut() {
             page.lines.extend(b.lines);
             page.items.extend(b.items);
@@ -573,15 +746,47 @@ impl Flow {
         Ok(())
     }
 
-    fn build(&mut self, ctx: &mut Ctx<'_>, b: &Block) -> Result<Built, LayoutError> {
+    /// Build block `k` of section `si`; returns it with the body id of its first paragraph.
+    fn build(
+        &mut self,
+        ctx: &mut Ctx<'_>,
+        si: usize,
+        k: usize,
+        b: &Block,
+    ) -> Result<(Built, u32), LayoutError> {
         ctx.fields.page = self.number;
-        Ok(match b {
+        let base = ctx.next_id;
+        ctx.id_origin = base;
+        let width = self.col_w();
+        let built = match b {
             Block::Paragraph(p) => {
-                Built::Para(Box::new(build_para(ctx, p, self.col_w(), true, None)?))
+                let cached = self
+                    .built
+                    .get(si)
+                    .and_then(|v| v.get(k))
+                    .and_then(Option::as_ref)
+                    .filter(|c| c.width == width)
+                    .map(|c| c.block.clone());
+                if let Some(pb) = cached {
+                    ctx.next_id += 1;
+                    Built::Para(pb)
+                } else {
+                    let pb = Arc::new(build_para(ctx, p, width, true, None)?);
+                    if pb.pure {
+                        if let Some(slot) = self.built.get_mut(si).and_then(|v| v.get_mut(k)) {
+                            *slot = Some(CachedPara {
+                                width,
+                                block: pb.clone(),
+                            });
+                        }
+                    }
+                    Built::Para(pb)
+                }
             }
-            Block::Table(t) => Built::Table(layout_table(ctx, t, self.col_w(), true)?),
+            Block::Table(t) => Built::Table(layout_table(ctx, t, width, true)?),
             Block::Opaque(_) => Built::Skip,
-        })
+        };
+        Ok((built, base))
     }
 
     /// Start section `si`.
@@ -631,24 +836,38 @@ impl Flow {
         self.section_start[si] = Some(self.pages.len() - 1);
     }
 
-    /// Paginate all sections.
-    pub fn run(&mut self, ctx: &mut Ctx<'_>) -> Result<(), LayoutError> {
+    /// Paginate all sections, or continue from block `from = (section, block)` after
+    /// [`Flow::restore`]. Stops early when the flow re-synchronises with the previous
+    /// layout ([`Flow::resynced`]).
+    pub fn run(
+        &mut self,
+        ctx: &mut Ctx<'_>,
+        from: Option<(usize, usize)>,
+    ) -> Result<(), LayoutError> {
         let doc = ctx.doc;
-        for (si, sec) in doc.sections.iter().enumerate() {
-            self.start_section(si, sec, si == 0);
-            let mut next: Option<Built> = None;
+        let (s0, k0) = from.unwrap_or((0, 0));
+        for (si, sec) in doc.sections.iter().enumerate().skip(s0) {
             let mut k = 0;
+            if from.is_some() && si == s0 {
+                k = k0;
+            } else {
+                self.start_section(si, sec, si == 0);
+            }
+            let mut next: Option<(Built, u32)> = None;
             while k < sec.blocks.len() {
-                let cur = match next.take() {
+                if self.boundary(ctx, si, k, next.is_some()) {
+                    return Ok(());
+                }
+                let (cur, base) = match next.take() {
                     Some(b) => b,
-                    None => self.build(ctx, &sec.blocks[k])?,
+                    None => self.build(ctx, si, k, &sec.blocks[k])?,
                 };
                 // One-block lookahead for keepNext.
                 let mut keep_with = 0.0;
                 if let Built::Para(pb) = &cur {
                     if pb.keep_next && k + 1 < sec.blocks.len() {
-                        let nb = self.build(ctx, &sec.blocks[k + 1])?;
-                        keep_with = match &nb {
+                        let nb = self.build(ctx, si, k + 1, &sec.blocks[k + 1])?;
+                        keep_with = match &nb.0 {
                             Built::Para(n) => n.space_before + n.lines.first().map_or(0.0, |l| l.h),
                             Built::Table(t) => t.rows.first().map_or(0.0, |r| r.h),
                             Built::Skip => 0.0,
@@ -656,6 +875,7 @@ impl Flow {
                         next = Some(nb);
                     }
                 }
+                self.id_base = base;
                 match &cur {
                     Built::Para(pb) => self.place_para(ctx, pb, keep_with)?,
                     Built::Table(tb) => self.place_table(ctx, tb)?,

@@ -1,0 +1,374 @@
+//! Incremental layout (BlueOffice-PROMPT §5.4): random edits applied through
+//! [`IncrementalLayout`] give exactly the layout of a full layout from scratch.
+
+use bo_layout::{
+    layout_document_with, IncrementalLayout, LayoutCache, LayoutOptions, LineSource, Page,
+};
+use bo_model::change::BlockChanges;
+use bo_model::{
+    AbstractNum, Alignment, Anchor, Block, Cell, CellProps, Columns, Document, Emu, HalfPoints,
+    HeaderFooter, Image, Level, Num, NumFormat, NumRef, Numbering, ParaProps, Paragraph, Row,
+    RowProps, Run, RunContent, RunProps, Section, SectionBreak, Table, Twips, Wrap,
+};
+use bo_text::FontManager;
+use proptest::prelude::*;
+
+fn fonts() -> FontManager {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts");
+    let mut fm = FontManager::new();
+    fm.add_fonts_from_dir(&dir);
+    fm
+}
+
+const WORDS: &[&str] = &[
+    "Căn",
+    "cứ",
+    "Luật",
+    "Tổ",
+    "chức",
+    "Chính",
+    "phủ",
+    "ngày",
+    "tháng",
+    "năm",
+    "2015;",
+    "sửa",
+    "đổi,",
+    "bổ",
+    "sung",
+    "một",
+    "số",
+    "điều",
+    "của",
+    "địa",
+    "phương",
+    "Bộ",
+    "trưởng",
+    "Nội",
+    "vụ.",
+];
+
+fn text(seed: u32, words: u32) -> String {
+    (0..words)
+        .map(|i| WORDS[((seed.wrapping_mul(31) + i * 7) as usize) % WORDS.len()])
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn image(wrap: Wrap) -> RunContent {
+    RunContent::Image(Box::new(Image {
+        media: "/word/media/image1.png".into(),
+        width: Emu(914_400),
+        height: Emu(685_800),
+        anchor: Some(Anchor {
+            h_relative: "column".into(),
+            v_relative: "paragraph".into(),
+            x: Emu(0),
+            y: Emu(0),
+            wrap,
+            behind: false,
+        }),
+        crop: None,
+        rotation: 0,
+        description: String::new(),
+        src: None,
+    }))
+}
+
+/// One generated block: `kind` picks the feature, `seed`/`words` the text.
+#[derive(Debug, Clone, Copy)]
+struct Spec {
+    kind: u8,
+    seed: u32,
+    words: u32,
+}
+
+fn block(s: Spec) -> Block {
+    let mut props = ParaProps {
+        space_after: Some(Twips(120)),
+        ..Default::default()
+    };
+    let mut content = vec![RunContent::Text(text(s.seed, s.words))];
+    match s.kind {
+        0..=9 => {}
+        10 => props.keep_next = Some(true),
+        11 => props.page_break_before = Some(true),
+        12 => props.keep_lines = Some(true),
+        13 => props.align = Some(Alignment::Justify),
+        14 | 15 => {
+            props.num = Some(NumRef { num_id: 1, ilvl: 0 });
+        }
+        16 => content.push(RunContent::FootnoteRef(1 + (s.seed % 2) as i32)),
+        17 => content.insert(
+            0,
+            RunContent::Field {
+                instr: "PAGE".into(),
+                cached: "1".into(),
+            },
+        ),
+        18 => content.push(RunContent::PageBreak),
+        19 => {
+            let wrap = match s.seed % 3 {
+                0 => Wrap::Square,
+                1 => Wrap::Tight,
+                _ => Wrap::TopAndBottom,
+            };
+            content.insert(0, image(wrap));
+        }
+        20 => props.contextual_spacing = Some(true),
+        _ => {
+            let cell = |t: String| Cell {
+                props: CellProps::default(),
+                blocks: vec![Block::Paragraph(Paragraph::new(
+                    ParaProps::default(),
+                    vec![Run::text(t, RunProps::default())],
+                ))],
+            };
+            return Block::Table(Table {
+                grid: vec![Twips(4000), Twips(4000)],
+                rows: (0..2)
+                    .map(|r| Row {
+                        props: RowProps::default(),
+                        cells: vec![
+                            cell(text(s.seed + r, s.words / 3 + 1)),
+                            cell(text(s.seed + r + 9, 2)),
+                        ],
+                    })
+                    .collect(),
+                ..Default::default()
+            });
+        }
+    }
+    Block::Paragraph(Paragraph::new(
+        props,
+        vec![Run {
+            props: RunProps::default(),
+            content,
+        }],
+    ))
+}
+
+fn note(t: &str) -> Vec<Block> {
+    vec![Block::Paragraph(Paragraph::new(
+        ParaProps::default(),
+        vec![Run {
+            props: RunProps::default(),
+            content: vec![RunContent::NoteMark, RunContent::Text(t.into())],
+        }],
+    ))]
+}
+
+fn field_para(prefix: &str, instr: &str) -> Block {
+    Block::Paragraph(Paragraph::new(
+        ParaProps::default(),
+        vec![Run {
+            props: RunProps::default(),
+            content: vec![
+                RunContent::Text(prefix.into()),
+                RunContent::Field {
+                    instr: instr.into(),
+                    cached: "1".into(),
+                },
+            ],
+        }],
+    ))
+}
+
+fn document(specs: &[Spec], split: usize, variant: u8) -> Document {
+    let blocks: Vec<Block> = specs.iter().map(|s| block(*s)).collect();
+    let split = split.min(blocks.len());
+    let mut s1 = Section::new(blocks[..split].to_vec());
+    let mut s2 = Section::new(blocks[split..].to_vec());
+    s1.headers = HeaderFooter {
+        default: Some(vec![field_para("Trang ", "PAGE")]),
+        ..Default::default()
+    };
+    if variant & 1 == 1 {
+        s1.footers.default = Some(vec![field_para("Tổng ", "NUMPAGES")]);
+    }
+    if variant & 2 == 2 {
+        s2.columns = Columns {
+            count: 2,
+            space: Twips(720),
+        };
+        s2.break_type = SectionBreak::Continuous;
+    }
+    if variant & 4 == 4 {
+        s2.page_number_start = Some(1);
+    }
+    let mut d = Document {
+        default_run: RunProps {
+            font: Some("Times New Roman".into()),
+            size: Some(HalfPoints(26)),
+            ..Default::default()
+        },
+        sections: vec![s1, s2],
+        numbering: Numbering {
+            abstracts: vec![AbstractNum {
+                id: 0,
+                levels: vec![Level {
+                    ilvl: 0,
+                    start: 1,
+                    format: NumFormat::Decimal,
+                    text: "%1.".into(),
+                    align: Alignment::Left,
+                    ppr: ParaProps::default(),
+                    rpr: RunProps::default(),
+                    restart: None,
+                    suffix: "tab".into(),
+                }],
+            }],
+            nums: vec![Num {
+                id: 1,
+                abstract_id: 0,
+                start_overrides: Vec::new(),
+            }],
+        },
+        ..Default::default()
+    };
+    d.footnotes.insert(1, note(" Chú thích một"));
+    d.footnotes
+        .insert(2, note(" Chú thích hai dài hơn một chút"));
+    d
+}
+
+/// An edit of the generated document.
+#[derive(Debug, Clone)]
+enum Edit {
+    Replace(usize, Spec),
+    Insert(usize, Spec),
+    Delete(usize),
+}
+
+fn spec() -> impl Strategy<Value = Spec> {
+    (0u8..24, 0u32..1000, 0u32..90).prop_map(|(kind, seed, words)| Spec { kind, seed, words })
+}
+
+fn edit() -> impl Strategy<Value = Edit> {
+    prop_oneof![
+        4 => (any::<usize>(), spec()).prop_map(|(i, s)| Edit::Replace(i, s)),
+        2 => (any::<usize>(), spec()).prop_map(|(i, s)| Edit::Insert(i, s)),
+        2 => any::<usize>().prop_map(Edit::Delete),
+    ]
+}
+
+/// Apply `e` to `doc`, recording the change.
+fn apply(doc: &mut Document, e: &Edit, changes: &mut BlockChanges) {
+    let lens: Vec<usize> = doc.sections.iter().map(|s| s.blocks.len()).collect();
+    let total: usize = lens.iter().sum();
+    let locate = |i: usize, insert: bool| -> (usize, usize) {
+        let n = if insert { total + 1 } else { total.max(1) };
+        let mut i = i % n;
+        for (si, &l) in lens.iter().enumerate() {
+            if i < l || (insert && i == l && si + 1 == lens.len()) {
+                return (si, i);
+            }
+            i -= l;
+        }
+        (lens.len() - 1, lens[lens.len() - 1])
+    };
+    match e {
+        Edit::Replace(..) | Edit::Delete(_) if total == 0 => {}
+        Edit::Replace(i, s) => {
+            let (si, k) = locate(*i, false);
+            doc.sections[si].blocks[k] = block(*s);
+            changes.splice(si, k, 1, 1);
+        }
+        Edit::Insert(i, s) => {
+            let (si, k) = locate(*i, true);
+            doc.sections[si].blocks.insert(k, block(*s));
+            changes.splice(si, k, 0, 1);
+        }
+        Edit::Delete(i) => {
+            let (si, k) = locate(*i, false);
+            doc.sections[si].blocks.remove(k);
+            changes.splice(si, k, 1, 0);
+        }
+    }
+}
+
+/// What a page draws: its JSON without the paragraph ids of lines.
+fn visual(p: &Page) -> String {
+    let mut p = p.clone();
+    for l in &mut p.lines {
+        l.source = LineSource::Other;
+    }
+    serde_json::to_string(&p).unwrap()
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
+
+    #[test]
+    fn random_edits_match_full_layout(
+        specs in prop::collection::vec(spec(), 20..70),
+        split in 0usize..70,
+        variant in 0u8..8,
+        steps in prop::collection::vec(prop::collection::vec(edit(), 1..3), 1..6),
+    ) {
+        let mut fm = fonts();
+        let opts = LayoutOptions::default();
+        let mut doc = document(&specs, split, variant);
+        let mut inc = IncrementalLayout::new();
+        let mut cache = LayoutCache::new();
+        inc.update(&doc, &mut fm, &mut cache, opts, &BlockChanges::everything()).unwrap();
+        for step in &steps {
+            let before: Vec<String> = inc.document().pages.iter().map(visual).collect();
+            let mut changes = BlockChanges::default();
+            for e in step {
+                apply(&mut doc, e, &mut changes);
+            }
+            let dirty = inc.update(&doc, &mut fm, &mut cache, opts, &changes).unwrap();
+            if std::env::var_os("BO_LAYOUT_TRACE").is_some() {
+                println!("{:?}", inc.last_update());
+            }
+            let full = layout_document_with(&doc, &mut fm, &mut LayoutCache::new(), opts).unwrap();
+            prop_assert_eq!(inc.document().pages.len(), full.pages.len());
+            for (i, p) in full.pages.iter().enumerate() {
+                let want = serde_json::to_string(p).unwrap();
+                let got = serde_json::to_string(&inc.document().pages[i]).unwrap();
+                prop_assert_eq!(&got, &want, "page {} after {:?}", i, step);
+                // Every page whose drawing changed is reported (paragraph ids are not drawn).
+                if before.get(i) != Some(&visual(p)) {
+                    prop_assert!(dirty.contains(&i), "page {} changed but not reported", i);
+                }
+            }
+        }
+    }
+}
+
+/// Typing in one paragraph of a long document re-paginates only around it.
+#[test]
+fn typing_reports_only_the_edited_page() {
+    let mut fm = fonts();
+    let opts = LayoutOptions::default();
+    let specs: Vec<Spec> = (0..300)
+        .map(|i| Spec {
+            kind: 0,
+            seed: i,
+            words: 40,
+        })
+        .collect();
+    let mut doc = document(&specs, 300, 0);
+    let mut inc = IncrementalLayout::new();
+    let mut cache = LayoutCache::new();
+    inc.update(&doc, &mut fm, &mut cache, opts, &BlockChanges::everything())
+        .unwrap();
+    let pages = inc.document().pages.len();
+    assert!(pages > 10);
+    let mut changes = BlockChanges::default();
+    let Block::Paragraph(p) = &mut doc.sections[0].blocks[150] else {
+        unreachable!()
+    };
+    p.runs[0].content[0] = RunContent::Text(format!("{} x", text(150, 40)));
+    changes.splice(0, 150, 1, 1);
+    let dirty = inc
+        .update(&doc, &mut fm, &mut cache, opts, &changes)
+        .unwrap();
+    assert_eq!(dirty.len(), 1, "{dirty:?}");
+    let full = layout_document_with(&doc, &mut fm, &mut LayoutCache::new(), opts).unwrap();
+    assert_eq!(
+        serde_json::to_string(inc.document()).unwrap(),
+        serde_json::to_string(&full).unwrap()
+    );
+}

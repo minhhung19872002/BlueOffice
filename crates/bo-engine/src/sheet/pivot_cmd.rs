@@ -267,11 +267,39 @@ pub(super) fn pivot_json(wb: &Workbook, index: usize, p: &PivotTable, locale: &L
                 .iter()
                 .enumerate()
                 .map(|(i, f)| {
+                    let grouped = f
+                        .group
+                        .as_ref()
+                        .is_some_and(|g| g.range.is_some() || !g.discrete.is_empty());
+                    // Item labels in the source column's number format (dates).
+                    let fmt = (f.num_fmt_id != 0 && !grouped).then(|| {
+                        let code = bo_sheet::numfmt::format_code(&wb.styles, f.num_fmt_id, locale);
+                        bo_sheet::numfmt::NumberFormat::parse_with(&code, locale)
+                    });
+                    let opts = bo_sheet::numfmt::FormatOptions {
+                        locale: *locale,
+                        date1904: wb.date1904,
+                    };
+                    let items: Vec<String> = axis_values(c, i as u32)
+                        .iter()
+                        .map(|v| match (&fmt, v) {
+                            (Some(nf), CellValue::Number(_)) => nf.format(v, &opts).text,
+                            _ => bo_sheet::pivot::value_text(v),
+                        })
+                        .collect();
+                    let date = fmt
+                        .as_ref()
+                        .is_some_and(bo_sheet::numfmt::NumberFormat::is_date)
+                        || f.group
+                            .as_ref()
+                            .and_then(|g| g.range.as_ref())
+                            .is_some_and(|r| r.dates);
                     json!({
                         "name": f.name,
-                        "items": axis_values(c, i as u32).iter().map(bo_sheet::pivot::value_text).collect::<Vec<_>>(),
+                        "items": items,
                         "formula": f.formula,
                         "derived": f.derived,
+                        "date": date,
                         "group": group_json(c, i),
                     })
                 })

@@ -23,3 +23,4 @@ Thumbs.db
 /apps/*/public/fonts/
 /apps/*/public/samples/
 /.claude/worktrees/
+/deploy/.env

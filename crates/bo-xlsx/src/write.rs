@@ -228,7 +228,7 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                     out_parts.push((
                         cpath,
                         Some(CT_COMMENTS.into()),
-                        comments_xml(&ws.comments).into_bytes(),
+                        comments_xml(&ws.comments, &ws.comment_authors).into_bytes(),
                     ));
                 }
                 let xml = sheet_xml(ws, &mut sst, &link_ids, &table_rids);
@@ -1017,8 +1017,8 @@ fn write_cfvo(out: &mut String, c: &Cfvo) {
 }
 
 /// §18.7.6 comments.
-fn comments_xml(comments: &[Comment]) -> String {
-    let mut authors: Vec<&str> = Vec::new();
+fn comments_xml(comments: &[Comment], known_authors: &[String]) -> String {
+    let mut authors: Vec<&str> = known_authors.iter().map(String::as_str).collect();
     for c in comments {
         if !authors.contains(&c.author.as_str()) {
             authors.push(&c.author);

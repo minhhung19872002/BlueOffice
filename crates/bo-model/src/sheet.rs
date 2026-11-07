@@ -349,6 +349,9 @@ pub struct Worksheet {
     pub hyperlinks: Vec<Hyperlink>,
     /// Comments / notes from the comments part (§18.7).
     pub comments: Vec<Comment>,
+    /// `authors` of the comments part in file order (§18.7.2), so author ids and
+    /// unused authors survive a round trip. Authors missing here are appended on write.
+    pub comment_authors: Vec<String>,
     /// `dataValidations` (§18.3.1.33).
     pub data_validations: Vec<DataValidation>,
     /// Other `dataValidations` attributes (disablePrompts, xWindow, yWindow).

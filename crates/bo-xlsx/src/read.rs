@@ -122,7 +122,7 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
                     }
                     RelKind::Comments if rel.mode == TargetMode::Internal => {
                         if let Some(p) = pkg.part(&abs) {
-                            ws.comments = read_comments(&p.data, &abs)?;
+                            (ws.comment_authors, ws.comments) = read_comments(&p.data, &abs)?;
                         }
                         mark(&abs);
                     }
@@ -424,13 +424,13 @@ fn rich_to_runs(v: CellValue) -> Vec<TextRun> {
 }
 
 /// §18.7.6 comments.
-fn read_comments(data: &[u8], part: &str) -> Result<Vec<Comment>> {
+fn read_comments(data: &[u8], part: &str) -> Result<(Vec<String>, Vec<Comment>)> {
     let mut r = XmlReader::new(data, part);
     let (_, empty) = root(&mut r)?;
     let mut authors: Vec<String> = Vec::new();
     let mut out = Vec::new();
     if empty {
-        return Ok(out);
+        return Ok((authors, out));
     }
     for_children(&mut r, |r, e, empty| {
         match lname(e).as_str() {
@@ -470,7 +470,7 @@ fn read_comments(data: &[u8], part: &str) -> Result<Vec<Comment>> {
         }
         Ok(())
     })?;
-    Ok(out)
+    Ok((authors, out))
 }
 
 /// §18.5.1.2 table.

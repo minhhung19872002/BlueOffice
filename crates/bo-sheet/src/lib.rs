@@ -8,13 +8,21 @@
 #![forbid(unsafe_code)]
 
 pub mod calc;
+pub mod cells;
+pub mod cf;
+pub mod chart;
 pub mod color;
 pub mod fill;
 pub mod filter;
 pub mod formula;
 pub mod geometry;
+pub mod icons;
+pub mod live;
 pub mod numfmt;
 pub mod ops;
 pub mod render;
+pub mod rowcol;
 pub mod sort;
+pub mod style;
+pub mod validation;
 pub mod viewport;

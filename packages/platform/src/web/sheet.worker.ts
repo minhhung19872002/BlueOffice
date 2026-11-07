@@ -69,6 +69,8 @@ function dispatch(e: WasmSheet, method: SheetMethod, a: unknown[]): unknown {
       return e.save(s(a[0]), n(a[1]));
     case 'exportPdf':
       return e.exportPdf();
+    case 'exec':
+      return parse(e.exec(s(a[0])));
     case 'glyphs':
       return parse(e.glyphOutlines(n(a[0]), Uint16Array.from(a[1] as number[])));
   }

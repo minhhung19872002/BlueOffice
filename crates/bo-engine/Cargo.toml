@@ -36,6 +36,11 @@ bo-engine = { path = ".", features = ["bundled-fonts"] }
 insta.workspace = true
 proptest.workspace = true
 bo-opc.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "sheet_edit"
+harness = false
 
 [lints]
 workspace = true

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Platform, SheetHost, WorkbookInfo } from '@blueoffice/platform';
+import type { Platform, SheetCommand, SheetHost, WorkbookInfo } from '@blueoffice/platform';
 import { BlueSheetEditor } from '../src';
 
 afterEach(cleanup);
@@ -11,7 +11,19 @@ function fakeHost() {
   let wb: WorkbookInfo = {
     name: 'Book.xlsx',
     sheets: [
-      { name: 'Sheet1', lastRow: null, lastCol: null, frozenRows: 0, frozenCols: 0, hidden: false },
+      {
+        name: 'Sheet1',
+        lastRow: null,
+        lastCol: null,
+        frozenRows: 0,
+        frozenCols: 0,
+        hidden: false,
+        hiddenRows: [],
+        hiddenCols: [],
+        autoFilter: null,
+        merges: [],
+        charts: 0,
+      },
     ],
   };
   const host: SheetHost = {
@@ -45,6 +57,57 @@ function fakeHost() {
     save: vi.fn(async () => new Uint8Array([80, 75])),
     exportPdf: async () => new Uint8Array([37]),
     getGlyphOutlines: async () => [],
+    exec: vi.fn(async (cmd: SheetCommand) => {
+      switch (cmd.cmd) {
+        case 'presets':
+          return {
+            numberFormats: [
+              { id: 'general', code: 'General' },
+              { id: 'currencyVnd', code: '#,##0 [$₫-42A]' },
+            ],
+            cellStyles: ['Normal', 'Good'],
+          };
+        case 'formatState':
+          return {
+            numFmt: 'General',
+            fontName: 'Calibri',
+            fontSize: 11,
+            bold: false,
+            italic: false,
+            underline: '',
+            strike: false,
+            fontColor: '',
+            fillColor: '',
+            hAlign: '',
+            vAlign: '',
+            wrap: false,
+            indent: 0,
+            rotation: 0,
+            borders: ['', '', '', ''],
+            styleName: 'Normal',
+            merged: false,
+          };
+        case 'validation':
+          return { list: null };
+        case 'copy': {
+          const r = cmd.range;
+          const rows: string[] = [];
+          for (let row = r.r0; row <= r.r1; row++) {
+            const line: string[] = [];
+            for (let col = r.c0; col <= r.c1; col++) line.push(cells.get(`${row},${col}`) ?? '');
+            rows.push(line.join('\t'));
+          }
+          return { text: rows.join('\r\n') };
+        }
+        case 'paste':
+          return null;
+        case 'names':
+        case 'charts':
+          return [];
+        default:
+          return { ok: true };
+      }
+    }) as SheetHost['exec'],
   };
   return { host, cells };
 }
@@ -130,6 +193,63 @@ describe('BlueSheetEditor', () => {
     await waitFor(() => expect(saved[0]).toMatch(/\.xlsx$/));
     fireEvent.click(screen.getByLabelText('Add sheet'));
     await screen.findByRole('tab', { name: 'Sheet2' });
+  });
+
+  it('formats cells from the ribbon, shortcuts and the Format Cells dialog', async () => {
+    const { host } = fakeHost();
+    const { p } = platform(host);
+    render(<BlueSheetEditor platform={p} language="en-US" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    const input = screen.getByLabelText('Cell editor');
+    fireEvent.keyDown(input, { key: 'b', ctrlKey: true });
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith({
+        cmd: 'format',
+        sheet: 0,
+        range: { r0: 0, c0: 0, r1: 0, c1: 0 },
+        patch: { bold: true },
+      }),
+    );
+    fireEvent.click(screen.getByText('Merge & center'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({ cmd: 'merge', center: true }),
+      ),
+    );
+    fireEvent.keyDown(input, { key: '1', ctrlKey: true });
+    await screen.findByTestId('format-cells');
+    fireEvent.click(screen.getByRole('tab', { name: 'Fill' }));
+    fireEvent.change(screen.getByTestId('fill-color-input'), { target: { value: '#ffee00' } });
+    fireEvent.click(screen.getByTestId('format-cells-ok'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({ cmd: 'format', patch: { fillColor: 'FFEE00' } }),
+      ),
+    );
+    // Fill down and freeze panes are registry commands too.
+    fireEvent.keyDown(input, { key: 'd', ctrlKey: true });
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({ cmd: 'fillDir', dir: 'down' }),
+      ),
+    );
+    fireEvent.keyDown(input, { key: 'L', ctrlKey: true, shiftKey: true });
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(expect.objectContaining({ cmd: 'toggleFilter' })),
+    );
+  });
+
+  it('opens find, go to and sort dialogs', async () => {
+    const { host } = fakeHost();
+    const { p } = platform(host);
+    render(<BlueSheetEditor platform={p} language="vi-VN" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    const input = screen.getByLabelText('Ô đang nhập');
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    await screen.findByTestId('find-dialog');
+    fireEvent.keyDown(screen.getByTestId('find-query'), { key: 'Escape' });
+    fireEvent.keyDown(input, { key: 'F5' });
+    await screen.findByTestId('goto-dialog');
   });
 
   it('copies and pastes as TSV', async () => {

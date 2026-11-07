@@ -74,7 +74,7 @@ Công cụ fuzz (`fuzz/`, workspace riêng, không đóng gói vào sản phẩm
 | zustand | 5.0.16 | MIT | State UI |
 | i18next / react-i18next | 26.7.1 / 17.1.12 | MIT | Đa ngôn ngữ (vi-VN, en-US) |
 | lucide-react | 1.69.0 | ISC | Icon |
-| @radix-ui/react-tabs, @radix-ui/react-tooltip | 1.2.1 / 1.4.1 | MIT | Primitive ribbon/tooltip |
+| @radix-ui/react-tabs, @radix-ui/react-tooltip, @radix-ui/react-dialog | 1.2.1 / 1.4.1 / 1.3.1 | MIT | Primitive ribbon/tooltip/dialog |
 | @tauri-apps/api | 2.12.4 | Apache-2.0 OR MIT | IPC desktop |
 | @tauri-apps/cli (dev) | 2.12.4 | Apache-2.0 OR MIT | Build desktop |
 | vite, @vitejs/plugin-react (dev) | 8.3.6 / 6.2.1 | MIT | Bundler |

@@ -150,3 +150,251 @@
   font: inherit;
   font-size: 12px;
 }
+
+.selection {
+  overflow: visible;
+}
+
+.selectionPainter {
+  position: absolute;
+  pointer-events: none;
+  border: 2px dashed var(--bo-sheet-accent, #1f7a4d);
+  box-sizing: border-box;
+}
+
+/* AutoFill handle at the bottom-right corner of the selection. */
+.fillHandle {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 7px;
+  height: 7px;
+  background: var(--bo-sheet-accent, #1f7a4d);
+  border: 1px solid #fff;
+  pointer-events: auto;
+  cursor: crosshair;
+  z-index: 3;
+}
+
+.fillPreview {
+  position: absolute;
+  pointer-events: none;
+  border: 1px dashed #5b6878;
+  box-sizing: border-box;
+}
+
+.guideV,
+.guideH {
+  position: absolute;
+  pointer-events: none;
+  background: var(--bo-sheet-accent, #1f7a4d);
+  z-index: 3;
+}
+
+.guideV {
+  top: 0;
+  width: 1px;
+  height: 100vh;
+}
+
+.guideH {
+  left: 0;
+  height: 1px;
+  width: 100vw;
+}
+
+/* In-cell dropdown of a list validation. */
+.dvButton {
+  position: absolute;
+  width: 16px;
+  padding: 0;
+  border: 1px solid var(--bo-border, #d0d7de);
+  background: var(--bo-surface-2, #f6f8fb);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 3;
+}
+
+.dvList {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bo-surface, #fff);
+  border: 1px solid var(--bo-border, #d0d7de);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+  z-index: 4;
+}
+
+.popover {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 4px;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text, #1b2430);
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: var(--bo-radius, 6px);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 20%);
+  font-size: 13px;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 5px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.menuItem:hover {
+  background: var(--bo-hover, rgb(0 0 0 / 6%));
+}
+
+.stylePreview {
+  display: inline-block;
+  width: 44px;
+  padding: 1px 4px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  text-align: center;
+}
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 20px);
+  gap: 4px;
+  padding: 4px;
+}
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.filterMenu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 240px;
+  padding: 4px;
+}
+
+.valueList {
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid var(--bo-border, #d7dde7);
+  padding: 4px;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.form > label:not(.check) {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.form input,
+.form select,
+.row select,
+.row input,
+.filterMenu input,
+.filterMenu select {
+  font: inherit;
+  padding: 3px 6px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: 3px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.levelLabel {
+  width: 72px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--bo-text-muted, #5b6878);
+  font-size: 12px;
+}
+
+.error {
+  margin: 0;
+  color: var(--bo-danger, #b42318);
+}
+
+.btn,
+.btnPrimary {
+  padding: 5px 14px;
+  font: inherit;
+  border-radius: 4px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+
+.btnPrimary {
+  background: var(--bo-sheet-accent, #1f7a4d);
+  border-color: var(--bo-sheet-accent, #1f7a4d);
+  color: #fff;
+}
+
+.dlgTabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--bo-border, #d7dde7);
+  margin-bottom: 8px;
+}
+
+.dlgTab,
+.dlgTabActive {
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.dlgTabActive {
+  border-bottom: 2px solid var(--bo-sheet-accent, #1f7a4d);
+  font-weight: 600;
+}

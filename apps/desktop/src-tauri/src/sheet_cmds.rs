@@ -98,6 +98,8 @@ pub fn dispatch(e: &mut SheetEngine, method: &str, a: &[Value]) -> Result<Value,
         ),
         "renameSheet" => s(e.rename_sheet(idx(a, 0)?, &text(a, 1)?)),
         "deleteSheet" => s(e.delete_sheet(idx(a, 0)?)),
+        "exec" => serde_json::from_str(&e.exec_json(&text(a, 0)?).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string()),
         "glyphs" => {
             let glyphs: Vec<u16> = a
                 .get(1)
@@ -184,6 +186,15 @@ mod tests {
         )
         .unwrap();
         assert_eq!(hit["kind"], "corner");
+        let st = dispatch(
+            &mut e,
+            "exec",
+            &[json!(
+                "{\"cmd\":\"formatState\",\"sheet\":0,\"row\":0,\"col\":0}"
+            )],
+        )
+        .unwrap();
+        assert_eq!(st["bold"], false);
         assert!(dispatch(&mut e, "nope", &[]).is_err());
         assert!(dispatch(&mut e, "cell", &[json!("x")]).is_err());
     }

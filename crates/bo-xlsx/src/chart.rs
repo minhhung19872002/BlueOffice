@@ -196,6 +196,32 @@ fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
         for g in pa.children.iter().filter(|c| c.name.ends_with("Chart")) {
             out.plots.push(parse_plot(g));
         }
+        // §21.2.2.25 catAx / §21.2.2.226 valAx titles (the first value axis is
+        // vertical unless the plot is a horizontal bar chart).
+        let title_of = |ax: &Node| {
+            ax.child("title")
+                .and_then(|t| t.path(&["tx", "rich"]).map(|r| r.texts("t")))
+                .filter(|s| !s.is_empty())
+        };
+        let horizontal = out
+            .plots
+            .first()
+            .is_some_and(|p| p.bar_dir.as_deref() == Some("bar"));
+        let axes: Vec<&Node> = pa
+            .children
+            .iter()
+            .filter(|c| matches!(c.name.as_str(), "catAx" | "valAx" | "dateAx"))
+            .collect();
+        let cat = axes
+            .iter()
+            .find(|a| a.name != "valAx")
+            .or_else(|| axes.first())
+            .and_then(|a| title_of(a));
+        let val = axes
+            .iter()
+            .rfind(|a| a.name == "valAx")
+            .and_then(|a| title_of(a));
+        (out.x_title, out.y_title) = if horizontal { (val, cat) } else { (cat, val) };
     }
     // §21.2.2.93 legend
     if let Some(l) = chart.child("legend") {

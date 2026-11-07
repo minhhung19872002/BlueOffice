@@ -1,6 +1,6 @@
 # Phase 3 — BlueSheet: đọc/ghi .xlsx và lõi bảng tính
 
-Trạng thái: **phần I/O + lõi sheet xong, chờ duyệt** · Prompt gốc: [`BlueOffice-PROMPT.md`](../../BlueOffice-PROMPT.md)
+Trạng thái: **I/O + lõi sheet + giao diện & chỉnh sửa BlueSheet xong, chờ duyệt** · Prompt gốc: [`BlueOffice-PROMPT.md`](../../BlueOffice-PROMPT.md)
 §6 Phase 3 ("Đọc/ghi .xlsx", "Định dạng số", "Giao diện & chỉnh sửa"). Engine công thức (`bo-formula`)
 làm song song ở nhánh khác — ở đây **không** tính công thức.
 
@@ -72,11 +72,38 @@ calc::{FormulaAdjuster { adjust, translate }, FormulaEngine { recalculate }, NoF
 hàng cột (cell, defined names, print area/titles, DV, CF, cột tính toán của table) và `translate` khi AutoFill;
 `FormulaEngine::recalculate` để tính lại. Mặc định `NoFormulas` giữ nguyên công thức và giá trị cache.
 
-## 4. Còn lại
-- Render: conditional formatting (màu, data bar, icon), style mặc định của hàng/cột cho ô trống, viền nét đứt
-  (đang vẽ liền), xoay chữ, vẽ chart; mô hình chart chỉ đọc → cần writer `c:chartSpace` để chỉnh sửa chart.
+## 4. Giao diện & chỉnh sửa (Phase 3 "Giao diện & chỉnh sửa")
+
+Mọi thao tác là command của `CommandRegistry` (`packages/sheet-editor/src/BlueSheetEditor.tsx`) và đi qua
+cầu JSON `SheetEngine::exec_json` (`crates/bo-engine/src/sheet/cmd.rs`, ADR-0008) → WASM `WasmSheet::exec`,
+Tauri `sheet_call("exec")`, TS `SheetHost.exec(SheetCommand)`. Mỗi lệnh thay đổi là một bước undo.
+
+| Tính năng | Lõi (Rust) | UI |
+|---|---|---|
+| Định dạng ô | `bo_sheet::style`: `StylePatch` (mã số kể cả preset vi-VN `#,##0 [$₫-42A]`, `0%`, `dd/mm/yyyy`; font đậm/nghiêng/gạch/cỡ/màu/tên; nền; căn ngang/dọc, xuống dòng, thụt lề, xoay), viền (outline/all/inside/none/cạnh, kiểu nét), `cellXfs` khử trùng lặp; gallery kiểu ô (Normal/Good/Bad/Neutral/Title/Heading 1–2/Total/Note — `cellStyleXfs` + `cellStyles` với `builtinId` §18.8.7, màu riêng của BlueSheet); Format Painter; xoá định dạng | Ribbon Trang đầu; hộp thoại "Định dạng ô" (Radix Dialog, tab Số/Căn lề/Phông/Viền/Tô nền, Ctrl+1); bảng màu; menu kiểu ô |
+| Hàng/cột | `bo_sheet::rowcol`: độ rộng (pt ↔ ký tự §18.3.1.13), chiều cao, ẩn/hiện, freeze (`pane` frozen), gộp/bỏ gộp (giữ ô trên-trái); AutoFit đo chữ bằng `render::measure_cell` | Kéo mép tiêu đề để đổi kích thước, nhấp đúp để AutoFit (hit test `ColumnEdge`/`RowEdge`), tab Xem: cố định hàng đầu / cột đầu / tại ô chọn |
+| Sort & lọc | `sort_range_with` nhiều cấp (dịch công thức), `current_region` cho ô đơn; AutoFilter bật/tắt, giá trị cột, điều kiện (`customFilter`, có `*` cho chứa/bắt đầu/kết thúc), `apply_auto_filter` ẩn hàng | Hộp thoại sắp xếp nhiều cấp; nút lọc vẽ trên ô tiêu đề (`FilterButton` hit) mở menu: tìm giá trị, chọn/bỏ, điều kiện; điều hướng bàn phím bỏ qua hàng/cột ẩn |
+| Điền | `fill::autofill` (chuỗi số/ngày/danh sách, dịch công thức qua `BoFormula`), Ctrl+D/Ctrl+R | Tay nắm ở góc vùng chọn, khung xem trước |
+| Định dạng có điều kiện | `bo_sheet::cf`: cellIs, expression, containsText/…, top10, aboveAverage, duplicate/unique, colorScale, dataBar, iconSet (biểu tượng vector tự thiết kế — `icons.rs`), thứ tự `priority` + `stopIfTrue`; render vào display list | Hộp thoại "Thêm quy tắc"; xoá quy tắc trên vùng chọn |
+| Xác thực dữ liệu | `bo_sheet::validation`: list (inline / vùng / tên), whole, decimal, date, time, textLength, custom; `errorStyle` stop chặn, warning/information báo | Mũi tên dropdown cạnh ô (Alt+↓), hộp thoại xác thực, thông báo từ chối |
+| Biểu đồ | `bo_sheet::chart`: dữ liệu sống từ vùng tham chiếu (cache nếu không giải được), vẽ cột/thanh/đường/vùng/tròn/doughnut/scatter/combo tại anchor; `bo-xlsx::chart_write`: `c:chartSpace` + drawing (§20.5, §21.2) cho biểu đồ mới (thêm vào drawing có sẵn nếu có), sinh lại part khi sửa (`Chart::dirty`) | Chèn → Biểu đồ (theo loại), Sửa biểu đồ (tiêu đề, chú giải, tiêu đề trục, loại), chọn biểu đồ bằng chuột, nhấp đúp để sửa |
+| Tìm/Thay, Đi tới, Dán đặc biệt | find/replace (phân biệt hoa thường, cả ô, trong công thức/giá trị, mọi sheet); `resolve` (A1, Sheet!A1:B2, tên); clipboard nội bộ bản ghi ô: all/values/formulas/formats, transpose, bỏ ô trống, cắt = di chuyển; tham chiếu tương đối dịch theo `BoFormula::translate` | Ctrl+F, Ctrl+H, Ctrl+G/F5, Ctrl+Alt+V; Ctrl+V dùng bản ghi nội bộ khi clipboard hệ thống là bản sao của chính BlueSheet, ngược lại dán TSV |
+| Xuất PDF theo page setup | `sheet/print.rs`: khổ giấy, hướng, lề, scale / fitToWidth×Height, vùng in, hàng/cột tiêu đề lặp lại trên mọi trang, ngắt trang thủ công, căn giữa, in lưới; trang xếp "xuống rồi sang" | Tab Bố cục trang: hộp thoại thiết lập trang, đặt/xoá vùng in |
+| Hiệu năng | `bo_sheet::live::LiveCalc`: một `bo_formula::Workbook` sống trong `SheetEngine`; sửa ô → chỉ tính lại phụ thuộc (`Workbook::last_recalculated`) | — |
+
+Benchmark sửa 1 ô trong sheet 100 000 công thức (20 000 hàng × 5 công thức + SUM): **≈ 6 ms ở bản debug**
+(`cargo test -p bo-engine live_recalc_touches_only_dependents -- --nocapture`, ngưỡng 100 ms, chỉ 6 lần
+evaluate); bản release: `cargo bench -p bo-engine --bench sheet_edit`.
+
+Corpus writer: `writer-format-*`, `writer-sheet-*`, `writer-charts-*` (sinh bằng `write_xlsx`,
+`BO_WRITE_CORPUS=1`) — 51/51 lossless, OpenXmlValidator hợp lệ (`node scripts/fidelity-report.mjs`).
+E2E: `tests/e2e/specs/sheet.spec.ts` (gõ số + SUM, đậm + tô nền, sort, lưu .xlsx, mở lại).
+
+## 5. Còn lại
+- Render: style mặc định của hàng/cột cho ô trống, xoay chữ (giá trị `textRotation` được lưu nhưng vẽ ngang).
 - Sort theo cột (trái → phải), sort theo màu; AutoFilter `dynamicFilter`/`colorFilter`/`dateGroupItem` mới giữ
-  nguyên, chưa đánh giá.
-- Tham chiếu công thức khi sort/chèn/xoá/autofill: chờ `bo-formula` cài `FormulaAdjuster`.
+  nguyên, chưa đánh giá. Menu lọc mới hỗ trợ một điều kiện tuỳ chỉnh.
+- Biểu đồ đọc từ file chưa xoá được (anchor nằm trong drawing opaque); chưa kéo/đổi kích thước biểu đồ bằng chuột;
+  màu series lấy theo bảng màu BlueSheet, chưa đọc `c:spPr` của file.
+- Cắt-dán chưa cập nhật công thức khác đang tham chiếu tới ô bị di chuyển; dán không lặp lại theo vùng chọn lớn hơn.
 - Comments part: chỉ giữ authors + commentList (threaded comments vẫn opaque).
-- Chưa có: WASM/engine binding cho BlueSheet, UI grid, OpenXmlValidator trong CI cho file xuất ra.

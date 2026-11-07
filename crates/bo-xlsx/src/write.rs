@@ -139,6 +139,8 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
             .collect(),
     };
     let mut out_parts: Vec<(String, Option<String>, Vec<u8>)> = Vec::new();
+    // Opaque parts rewritten because a chart was edited or added.
+    let mut overrides: HashMap<String, Vec<u8>> = HashMap::new();
     let wb_path = names.fresh(|n| {
         if n == 1 {
             "/xl/workbook.xml".into()
@@ -231,7 +233,18 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                         comments_xml(&ws.comments, &ws.comment_authors).into_bytes(),
                     ));
                 }
-                let xml = sheet_xml(ws, &mut sst, &link_ids, &table_rids);
+                // Charts (§20.5 drawing → §21.2 chart parts).
+                let drawing_rid = write_charts(
+                    wb,
+                    ws,
+                    &path,
+                    &mut names,
+                    &mut ids,
+                    &mut rels,
+                    &mut out_parts,
+                    &mut overrides,
+                );
+                let xml = sheet_xml(ws, &mut sst, &link_ids, &table_rids, drawing_rid.as_deref());
                 if !rels.is_empty() {
                     out_parts.push((
                         bo_opc::rels_part_name(&path),
@@ -353,9 +366,114 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
         pkg.put_part(&name, data);
     }
     for p in &wb.opaque.parts {
-        pkg.put_part(&p.name, p.data.clone());
+        let data = overrides.remove(&p.name).unwrap_or_else(|| p.data.clone());
+        pkg.put_part(&p.name, data);
     }
     Ok(pkg.write()?)
+}
+
+/// Writes new and edited charts of `ws`; returns the relationship id of a
+/// drawing created for the sheet (to reference from `<drawing r:id>`).
+#[allow(clippy::too_many_arguments)]
+fn write_charts(
+    wb: &Workbook,
+    ws: &Worksheet,
+    sheet_path: &str,
+    names: &mut Names,
+    ids: &mut RelIds,
+    rels: &mut Vec<Relationship>,
+    out_parts: &mut Vec<(String, Option<String>, Vec<u8>)>,
+    overrides: &mut HashMap<String, Vec<u8>>,
+) -> Option<String> {
+    use crate::chart_write::{
+        add_relationships, anchor_xml, append_to_drawing, chart_space_xml, drawing_xml, CT_CHART,
+        CT_DRAWING, REL_DRAWING,
+    };
+    let opaque = |name: &str| wb.opaque.parts.iter().find(|p| p.name == name);
+    // Edited charts: regenerate the part in place.
+    for c in ws.charts.iter().filter(|c| c.dirty && !c.part.is_empty()) {
+        if opaque(&c.part).is_some() {
+            overrides.insert(c.part.clone(), chart_space_xml(c).into_bytes());
+        }
+    }
+    let new: Vec<&bo_model::sheet::Chart> =
+        ws.charts.iter().filter(|c| c.part.is_empty()).collect();
+    if new.is_empty() {
+        return None;
+    }
+    let paths: Vec<String> = new
+        .iter()
+        .map(|_| names.fresh(|n| format!("/xl/charts/chart{n}.xml")))
+        .collect();
+    for (c, p) in new.iter().zip(&paths) {
+        out_parts.push((
+            p.clone(),
+            Some(CT_CHART.into()),
+            chart_space_xml(c).into_bytes(),
+        ));
+    }
+    let existing = ws
+        .rels
+        .iter()
+        .find(|r| !r.external && r.rel_type.ends_with("/drawing"))
+        .map(|r| r.target.clone())
+        .filter(|d| opaque(d).is_some());
+    let (dpath, created) = match existing {
+        Some(d) => (d, false),
+        None => (
+            names.fresh(|n| format!("/xl/drawings/drawing{n}.xml")),
+            true,
+        ),
+    };
+    let rels_name = bo_opc::rels_part_name(&dpath);
+    let targets: Vec<String> = paths.iter().map(|p| relative_target(&dpath, p)).collect();
+    let old_rels = overrides
+        .get(&rels_name)
+        .cloned()
+        .or_else(|| opaque(&rels_name).map(|p| p.data.clone()));
+    let (rels_bytes, chart_ids) = add_relationships(old_rels.as_deref(), &targets);
+    // Shape ids unique within the drawing (§20.5.2.8 cNvPr/@id).
+    let base_id: u32 = if created {
+        2
+    } else {
+        1000 + 10 * ws.charts.len() as u32
+    };
+    let anchors: String = new
+        .iter()
+        .zip(&chart_ids)
+        .enumerate()
+        .map(|(i, (c, id))| anchor_xml(c, base_id + i as u32, id))
+        .collect();
+    if opaque(&rels_name).is_some() {
+        overrides.insert(rels_name, rels_bytes);
+    } else {
+        out_parts.push((rels_name, None, rels_bytes));
+    }
+    if created {
+        out_parts.push((
+            dpath.clone(),
+            Some(CT_DRAWING.into()),
+            drawing_xml(&anchors).into_bytes(),
+        ));
+        let id = ids.alloc();
+        rels.push(Relationship {
+            id: id.clone(),
+            rel_type: REL_DRAWING.into(),
+            target: relative_target(sheet_path, &dpath),
+            mode: TargetMode::Internal,
+        });
+        Some(id)
+    } else {
+        let base = overrides
+            .get(&dpath)
+            .cloned()
+            .or_else(|| opaque(&dpath).map(|p| p.data.clone()))
+            .unwrap_or_default();
+        if let Some(d) = append_to_drawing(&base, &anchors) {
+            overrides.insert(dpath, d);
+        }
+        None
+    }
 }
 
 fn bo_opc_rels_xml(rels: &[Relationship]) -> String {
@@ -506,6 +624,7 @@ fn sheet_xml(
     sst: &mut SharedStrings,
     link_ids: &[Option<String>],
     table_rids: &[String],
+    drawing_rid: Option<&str>,
 ) -> String {
     let mut out = String::from(XML_DECL);
     out.push_str("<worksheet");
@@ -679,6 +798,14 @@ fn sheet_xml(
             }
             "rowBreaks" => write_breaks(out, "rowBreaks", &ws.page_setup.row_breaks, 16_383),
             "colBreaks" => write_breaks(out, "colBreaks", &ws.page_setup.col_breaks, 1_048_575),
+            // §18.3.1.36 drawing (only when the writer created the drawing part).
+            "drawing" if drawing_rid.is_some() => {
+                let _ = write!(
+                    out,
+                    "<drawing r:id=\"{}\"/>",
+                    escape(drawing_rid.unwrap_or_default())
+                );
+            }
             "tableParts" if !table_rids.is_empty() => {
                 let _ = write!(out, "<tableParts count=\"{}\">", table_rids.len());
                 for id in table_rids {

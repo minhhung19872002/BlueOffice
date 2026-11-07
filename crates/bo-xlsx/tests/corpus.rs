@@ -898,6 +898,351 @@ const FEATURES: &[Feature] = &[
     ("ext", "extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml", extensions),
 ];
 
+// ---------------------------------------------------------------------------
+// Files produced by the BlueSheet writer itself (editing features)
+// ---------------------------------------------------------------------------
+
+use bo_model::sheet as m;
+
+/// Cell formats as the Format Cells dialog / ribbon writes them: deduplicated
+/// fonts, solid fills, borders, alignment and vi-VN number formats.
+fn writer_format(i: usize) -> m::Workbook {
+    let mut wb = m::Workbook::new();
+    let st = &mut wb.styles;
+    let codes = ["#,##0 [$₫-42A]", "dd/mm/yyyy", "0.00%"];
+    let num = st.add_num_fmt(codes[i - 1]);
+    let bold = st.add_font(m::Font {
+        bold: true,
+        italic: i == 2,
+        underline: (i == 3).then(|| "single".into()),
+        color: Some(m::SheetColor::rgb("1F3A5F")),
+        ..st.fonts[0].clone()
+    });
+    let fill = st.add_fill(m::Fill::solid(["FFEE00", "D8F3E3", "FADBD8"][i - 1]));
+    let edge = m::BorderEdge {
+        style: Some(["thin", "medium", "dashed"][i - 1].into()),
+        color: None,
+    };
+    let border = st.add_border(m::Border {
+        top: edge.clone(),
+        bottom: edge.clone(),
+        left: edge.clone(),
+        right: edge,
+        ..m::Border::default()
+    });
+    let xf = st.add_xf(m::CellXf {
+        num_fmt_id: num,
+        font_id: bold,
+        fill_id: fill,
+        border_id: border,
+        xf_id: Some(0),
+        apply_number_format: Some(true),
+        apply_font: Some(true),
+        apply_fill: Some(true),
+        apply_border: Some(true),
+        apply_alignment: Some(true),
+        alignment: Some(m::CellAlignment {
+            horizontal: Some("center".into()),
+            vertical: Some("center".into()),
+            wrap_text: i == 2,
+            indent: (i == 3).then_some(1),
+            ..m::CellAlignment::default()
+        }),
+        ..m::CellXf::default()
+    });
+    // A named style of the gallery (§18.8.7 builtinId 26 = Good).
+    let good_font = st.add_font(m::Font {
+        color: Some(m::SheetColor::rgb("1E6B3C")),
+        ..st.fonts[0].clone()
+    });
+    let good_fill = st.add_fill(m::Fill::solid("D8F3E3"));
+    st.cell_style_xfs.push(m::CellXf {
+        font_id: good_font,
+        fill_id: good_fill,
+        ..m::CellXf::default()
+    });
+    st.cell_styles.push(m::CellStyle {
+        name: "Good".into(),
+        xf_id: 1,
+        builtin_id: Some(26),
+        ..m::CellStyle::default()
+    });
+    let good = st.add_xf(m::CellXf {
+        font_id: good_font,
+        fill_id: good_fill,
+        xf_id: Some(1),
+        ..m::CellXf::default()
+    });
+    let ws = &mut wb.sheets[0];
+    for r in 0..5u32 {
+        ws.set_cell(
+            r,
+            0,
+            m::Cell::new(m::CellValue::Number(45_658.0 + f64::from(r) * 31.5)).with_style(xf),
+        );
+        ws.set_cell(
+            r,
+            1,
+            m::Cell::new(m::CellValue::Text(format!("Mục {r}"))).with_style(good),
+        );
+    }
+    wb
+}
+
+/// Rows/columns, freeze panes, merges, AutoFilter, CF, validation and page setup
+/// as written after editing.
+fn writer_sheet(i: usize) -> m::Workbook {
+    let mut wb = m::Workbook::new();
+    wb.styles.dxfs.push(m::Dxf {
+        fill: Some(m::Fill::Pattern(m::PatternFill {
+            pattern: Some("solid".into()),
+            fg: Some(m::SheetColor::rgb("FADBD8")),
+            bg: Some(m::SheetColor::rgb("FADBD8")),
+        })),
+        ..m::Dxf::default()
+    });
+    let ws = &mut wb.sheets[0];
+    ws.set_cell(0, 0, m::Cell::new(m::CellValue::Text("Tên".into())));
+    ws.set_cell(0, 1, m::Cell::new(m::CellValue::Text("Điểm".into())));
+    for r in 1..=10u32 {
+        ws.set_cell(r, 0, m::Cell::new(m::CellValue::Text(format!("HS {r}"))));
+        ws.set_cell(
+            r,
+            1,
+            m::Cell::new(m::CellValue::Number(f64::from(r % 4 + 6))),
+        );
+    }
+    ws.cols.push(m::ColInfo {
+        min: 0,
+        max: 0,
+        width: Some(18.5),
+        custom_width: true,
+        ..m::ColInfo::default()
+    });
+    ws.rows.insert(
+        0,
+        m::RowInfo {
+            height: Some(24.0),
+            custom_height: true,
+            ..m::RowInfo::default()
+        },
+    );
+    ws.views.push(m::SheetView {
+        tab_selected: true,
+        pane: Some(m::Pane {
+            x_split: if i == 2 { 1.0 } else { 0.0 },
+            y_split: 1.0,
+            top_left_cell: Some(if i == 2 { "B2" } else { "A2" }.into()),
+            active_pane: Some(if i == 2 { "bottomRight" } else { "bottomLeft" }.into()),
+            state: m::PaneState::Frozen,
+        }),
+        ..m::SheetView::default()
+    });
+    ws.merges.push(m::CellRange::parse("D1:F1").unwrap());
+    ws.set_cell(0, 3, m::Cell::new(m::CellValue::Text("Bảng điểm".into())));
+    let range = m::CellRange::parse("A1:B11").unwrap();
+    ws.auto_filter = Some(m::AutoFilter {
+        range,
+        columns: if i == 3 {
+            vec![m::FilterColumn {
+                col_id: 1,
+                hidden_button: false,
+                show_button: None,
+                filter: m::ColumnFilter::Custom {
+                    and: false,
+                    conditions: vec![m::CustomFilter {
+                        operator: Some("greaterThan".into()),
+                        val: "7".into(),
+                    }],
+                },
+            }]
+        } else {
+            Vec::new()
+        },
+        ..m::AutoFilter::default()
+    });
+    let cfvo = |k: &str, v: Option<&str>| m::Cfvo {
+        kind: k.into(),
+        val: v.map(str::to_owned),
+        gte: None,
+    };
+    ws.conditional_formats.push(m::ConditionalFormat {
+        sqref: vec![m::CellRange::parse("B2:B11").unwrap()],
+        pivot: false,
+        rules: vec![
+            m::CfRule {
+                kind: "cellIs".into(),
+                priority: 1,
+                dxf_id: Some(0),
+                operator: Some("lessThan".into()),
+                formulas: vec!["7".into()],
+                ..m::CfRule::default()
+            },
+            match i {
+                1 => m::CfRule {
+                    kind: "colorScale".into(),
+                    priority: 2,
+                    color_scale: Some(m::ColorScale {
+                        cfvos: vec![cfvo("min", None), cfvo("max", None)],
+                        colors: vec![m::SheetColor::rgb("FFFFFF"), m::SheetColor::rgb("2E6DB4")],
+                    }),
+                    ..m::CfRule::default()
+                },
+                2 => m::CfRule {
+                    kind: "dataBar".into(),
+                    priority: 2,
+                    data_bar: Some(m::DataBar {
+                        cfvos: vec![cfvo("min", None), cfvo("max", None)],
+                        color: Some(m::SheetColor::rgb("4A7BB7")),
+                        ..m::DataBar::default()
+                    }),
+                    ..m::CfRule::default()
+                },
+                _ => m::CfRule {
+                    kind: "iconSet".into(),
+                    priority: 2,
+                    icon_set: Some(m::IconSet {
+                        icon_set: Some("3Arrows".into()),
+                        cfvos: vec![
+                            cfvo("percent", Some("0")),
+                            cfvo("percent", Some("33")),
+                            cfvo("percent", Some("66")),
+                        ],
+                        ..m::IconSet::default()
+                    }),
+                    ..m::CfRule::default()
+                },
+            },
+        ],
+    });
+    ws.data_validations.push(m::DataValidation {
+        sqref: vec![m::CellRange::parse("C2:C11").unwrap()],
+        kind: Some("list".into()),
+        allow_blank: true,
+        show_error_message: true,
+        error: Some("Chọn Đạt hoặc Chưa đạt".into()),
+        formula1: Some("\"Đạt,Chưa đạt\"".into()),
+        ..m::DataValidation::default()
+    });
+    ws.print_titles = Some("Sheet1!$1:$1".into());
+    ws.print_area = (i == 2).then(|| "Sheet1!$A$1:$B$11".into());
+    ws.page_setup.orientation = Some(if i == 1 { "landscape" } else { "portrait" }.into());
+    ws.page_setup.paper_size = Some(9);
+    ws.page_setup.margins = Some(m::PageMargins::default());
+    if i == 3 {
+        ws.props.present = true;
+        ws.props.fit_to_page = Some(true);
+        ws.page_setup.fit_to_width = Some(1);
+        ws.page_setup.fit_to_height = Some(0);
+    } else {
+        ws.page_setup.scale = Some(90);
+    }
+    wb
+}
+
+/// Charts inserted with "Insert chart" (new drawing + `c:chartSpace` parts).
+fn writer_charts(i: usize) -> m::Workbook {
+    let mut wb = m::Workbook::new();
+    let ws = &mut wb.sheets[0];
+    ws.set_cell(0, 0, m::Cell::new(m::CellValue::Text("Tỉnh".into())));
+    ws.set_cell(0, 1, m::Cell::new(m::CellValue::Text("2024".into())));
+    ws.set_cell(0, 2, m::Cell::new(m::CellValue::Text("2025".into())));
+    let names = ["Hà Nội", "Huế", "Đà Nẵng"];
+    for (r, n) in names.iter().enumerate() {
+        let r = r as u32 + 1;
+        ws.set_cell(r, 0, m::Cell::new(m::CellValue::Text((*n).into())));
+        ws.set_cell(
+            r,
+            1,
+            m::Cell::new(m::CellValue::Number(f64::from(r) * 10.0)),
+        );
+        ws.set_cell(
+            r,
+            2,
+            m::Cell::new(m::CellValue::Number(f64::from(r) * 12.5)),
+        );
+    }
+    let series = |c: u32, name: &str| m::ChartSeries {
+        name: Some(name.into()),
+        name_ref: Some(format!("Sheet1!${}$1", m::col_to_letters(c))),
+        cat_ref: Some("Sheet1!$A$2:$A$4".into()),
+        val_ref: Some(format!("Sheet1!${0}$2:${0}$4", m::col_to_letters(c))),
+        categories: names.iter().map(|s| (*s).to_owned()).collect(),
+        values: (1..=3)
+            .map(|r| Some(f64::from(r) * if c == 1 { 10.0 } else { 12.5 }))
+            .collect(),
+    };
+    let plot = |kind: m::ChartKind,
+                dir: Option<&str>,
+                grouping: Option<&str>,
+                s: Vec<m::ChartSeries>| m::ChartPlot {
+        kind,
+        bar_dir: dir.map(str::to_owned),
+        grouping: grouping.map(str::to_owned),
+        series: s,
+    };
+    let plots = match i {
+        1 => vec![plot(
+            m::ChartKind::Bar,
+            Some("col"),
+            Some("clustered"),
+            vec![series(1, "2024"), series(2, "2025")],
+        )],
+        2 => vec![
+            plot(
+                m::ChartKind::Bar,
+                Some("col"),
+                Some("clustered"),
+                vec![series(1, "2024")],
+            ),
+            plot(
+                m::ChartKind::Line,
+                None,
+                Some("standard"),
+                vec![series(2, "2025")],
+            ),
+        ],
+        _ => vec![plot(
+            m::ChartKind::Doughnut,
+            None,
+            None,
+            vec![series(1, "2024")],
+        )],
+    };
+    ws.charts.push(m::Chart {
+        from: m::CellRef::new(0, 4),
+        to: Some(m::CellRef::new(15, 11)),
+        title: Some("Doanh thu theo tỉnh".into()),
+        x_title: (i != 3).then(|| "Tỉnh".into()),
+        y_title: (i != 3).then(|| "Tỷ đồng".into()),
+        legend: Some(if i == 2 { "b" } else { "r" }.into()),
+        plots,
+        dirty: true,
+        ..m::Chart::default()
+    });
+    if i == 1 {
+        let mut scatter = ws.charts[0].clone();
+        scatter.from = m::CellRef::new(17, 4);
+        scatter.to = Some(m::CellRef::new(32, 11));
+        scatter.plots = vec![plot(
+            m::ChartKind::Scatter,
+            None,
+            None,
+            vec![series(1, "2024")],
+        )];
+        ws.charts.push(scatter);
+    }
+    wb
+}
+
+type WriterFeature = (&'static str, &'static str, fn(usize) -> m::Workbook);
+
+const WRITER_FEATURES: &[WriterFeature] = &[
+    ("writer-format", "BlueSheet writer: cell formats (vi-VN number formats, fonts, fills, borders, alignment) and a gallery cell style", writer_format),
+    ("writer-sheet", "BlueSheet writer: column width / row height, freeze panes, merge, AutoFilter, conditional formats, list validation, page setup + print titles", writer_sheet),
+    ("writer-charts", "BlueSheet writer: inserted charts (column, column+line combo, doughnut, scatter) with axis titles and legend", writer_charts),
+];
+
 fn corpus_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus/sheet")
 }
@@ -925,6 +1270,17 @@ fn generate_corpus() {
             let _ = writeln!(
                 readme,
                 "| `{file}` | {desc} (biến thể {i}) | tự sinh, `corpus.rs::{name}` |"
+            );
+        }
+    }
+    for (name, desc, f) in WRITER_FEATURES {
+        for i in 1..=3 {
+            let file = format!("{name}-{i}.xlsx");
+            std::fs::write(dir.join(&file), write_xlsx(&f(i)).unwrap()).unwrap();
+            let fname = name.replace('-', "_");
+            let _ = writeln!(
+                readme,
+                "| `{file}` | {desc} (biến thể {i}) | tự sinh bằng `write_xlsx`, `corpus.rs::{fname}` |"
             );
         }
     }
@@ -1142,6 +1498,9 @@ fn corpus_roundtrip() {
         FEATURES
             .iter()
             .flat_map(|(n, _, f)| (1..=3).map(move |i| (format!("{n}-{i}.xlsx"), build(&f(i)))))
+            .chain(WRITER_FEATURES.iter().flat_map(|(n, _, f)| {
+                (1..=3).map(move |i| (format!("{n}-{i}.xlsx"), write_xlsx(&f(i)).unwrap()))
+            }))
             .collect()
     } else {
         files

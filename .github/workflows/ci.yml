@@ -36,6 +36,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - run: cargo clippy -p bo-wasm -p bo-collab -p bo-formula --target wasm32-unknown-unknown -- -D warnings
       - run: cargo build -p bo-wasm --target wasm32-unknown-unknown --release
 
   cargo-deny:
@@ -94,6 +95,30 @@ jobs:
       - run: cargo build -p bo-cli
       - run: dotnet format BlueOffice.sln --verify-no-changes
       - run: dotnet test BlueOffice.sln -c Release
+
+  fidelity:
+    name: Fidelity (round-trip corpus + OpenXmlValidator)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cargo build -p bo-cli
+      - run: node scripts/fidelity-report.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fidelity-report
+          path: |
+            docs/fidelity-report.md
+            tests/fidelity/history.csv
+            tests/fidelity/output/roundtrip
 
   desktop:
     name: Desktop (Tauri build)

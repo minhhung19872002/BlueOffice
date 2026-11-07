@@ -50,7 +50,7 @@ enum Cmd {
     /// Convert to another format.
     Convert {
         input: PathBuf,
-        #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx"])]
+        #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx", "xlsx"])]
         to: String,
         #[arg(long)]
         out: Option<PathBuf>,
@@ -178,6 +178,12 @@ fn run(cli: Cli) -> R {
                 convert::Loaded::Pptx(b) => {
                     let mut engine = Engine::with_bundled_fonts();
                     println!("slides: {}", engine.open_pptx(&b, "deck.pptx")?.page_count);
+                }
+                convert::Loaded::Xlsx(b) => {
+                    let mut engine = bo_engine::SheetEngine::new();
+                    for s in engine.open(&b, "book.xlsx")?.sheets {
+                        println!("sheet: {}", s.name);
+                    }
                 }
             }
         }
@@ -318,6 +324,17 @@ fn run_convert(
             engine.open_pptx(&b, &name)?;
             engine.save_pptx()?
         }
+        // Spreadsheets through the BlueSheet engine (xls/xlsb/ods are converted).
+        (Loaded::Xlsx(b), "xlsx" | "csv" | "pdf") => sheet_convert(&b, &name, to, sheet)?,
+        (Loaded::Xlsx(b), "ods") => {
+            let mut engine = bo_engine::SheetEngine::new();
+            engine.open(&b, &name)?;
+            let wb = engine.workbook().ok_or("no workbook")?;
+            bo_odf::write_ods(&convert::model_to_ods(wb))?
+        }
+        (Loaded::Workbook(_) | Loaded::Spreadsheet(_), "xlsx" | "pdf") => {
+            sheet_convert(&bytes, &name, to, sheet)?
+        }
         (Loaded::Deck(p), "odp") => bo_odf::write_odp(&p)?,
         (Loaded::Deck(p), "txt") => convert::presentation_text(&p).into_bytes(),
         (_, other) => {
@@ -365,4 +382,19 @@ fn write_file(path: &Path, data: &[u8]) -> std::io::Result<()> {
         }
     }
     std::fs::write(path, data)
+}
+
+/// Spreadsheet output via `SheetEngine` (`sheet` is 1-based for CSV).
+fn sheet_convert(
+    bytes: &[u8],
+    name: &str,
+    to: &str,
+    sheet: usize,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut engine = bo_engine::SheetEngine::with_bundled_fonts();
+    engine.open(bytes, name)?;
+    Ok(match to {
+        "pdf" => engine.export_pdf()?,
+        fmt => engine.save(fmt, sheet.saturating_sub(1))?,
+    })
 }

@@ -53,6 +53,8 @@ struct Book {
     defaults: Vec<(String, String)>,
     /// Extra package relationships: (type, target).
     pkg_rels: Vec<(String, String)>,
+    /// Extra workbook-part relationships: (type, target relative to `/xl/`).
+    wb_rels: Vec<(String, String)>,
 }
 
 fn ws(body: &str) -> String {
@@ -167,6 +169,13 @@ fn build(b: &Book) -> Vec<u8> {
         r#"<Relationship Id="rId{}" Type="{REL}theme" Target="theme/theme1.xml"/>"#,
         k + 3
     );
+    for (i, (t, target)) in b.wb_rels.iter().enumerate() {
+        let _ = write!(
+            wb_rels,
+            r#"<Relationship Id="rId{}" Type="{t}" Target="{target}"/>"#,
+            k + 4 + i
+        );
+    }
     wb_rels.push_str("</Relationships>");
     put(
         &mut p,
@@ -234,7 +243,7 @@ fn build(b: &Book) -> Vec<u8> {
 }
 
 const THEME: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="BlueOffice"><a:themeElements><a:clrScheme name="BlueOffice"><a:dk1><a:srgbClr val="000000"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1F2A44"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2><a:accent1><a:srgbClr val="2F6FB5"/></a:accent1><a:accent2><a:srgbClr val="E07B39"/></a:accent2><a:accent3><a:srgbClr val="9E9E9E"/></a:accent3><a:accent4><a:srgbClr val="F2B632"/></a:accent4><a:accent5><a:srgbClr val="4BA3DB"/></a:accent5><a:accent6><a:srgbClr val="5AA454"/></a:accent6><a:hlink><a:srgbClr val="0B57D0"/></a:hlink><a:folHlink><a:srgbClr val="7B1FA2"/></a:folHlink></a:clrScheme></a:themeElements></a:theme>"#;
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="BlueOffice"><a:themeElements><a:clrScheme name="BlueOffice"><a:dk1><a:srgbClr val="000000"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1F2A44"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2><a:accent1><a:srgbClr val="2F6FB5"/></a:accent1><a:accent2><a:srgbClr val="E07B39"/></a:accent2><a:accent3><a:srgbClr val="9E9E9E"/></a:accent3><a:accent4><a:srgbClr val="F2B632"/></a:accent4><a:accent5><a:srgbClr val="4BA3DB"/></a:accent5><a:accent6><a:srgbClr val="5AA454"/></a:accent6><a:hlink><a:srgbClr val="0B57D0"/></a:hlink><a:folHlink><a:srgbClr val="7B1FA2"/></a:folHlink></a:clrScheme><a:fontScheme name="BlueOffice"><a:majorFont><a:latin typeface="Calibri Light"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme><a:fmtScheme name="BlueOffice"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>"#;
 
 fn rows(n: usize, cols: usize, base: f64) -> String {
     let mut s = String::new();
@@ -823,11 +832,11 @@ fn extensions(i: usize) -> Book {
         }
     };
     let body = format!(
-        r#"<sheetPr codeName="Sheet{i}"/><dimension ref="A1:C5"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="15" x14ac:dyDescent="0.25"/><sheetData><row r="1" spans="1:3" x14ac:dyDescent="0.25"><c r="A1"><v>1</v></c></row>{}</sheetData><sheetProtection algorithmName="SHA-512" hashValue="abc{i}=" saltValue="xyz=" spinCount="100000" sheet="1" objects="1" scenarios="1"/>{filter}<mc:AlternateContent><mc:Choice Requires="x14"><controls><mc:AlternateContent><mc:Choice Requires="x14"><control shapeId="1025" r:id="rId9" name="Nút {i}"/></mc:Choice></mc:AlternateContent></controls></mc:Choice></mc:AlternateContent><ignoredErrors><ignoredError sqref="A1:C5" numberStoredAsText="1"/></ignoredErrors><extLst><ext uri="{{CCE6A557-97BC-4b89-ADB6-D9C93CAAB3DF}}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:dataValidations count="0" xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main"/></ext></extLst>"#,
+        r#"<sheetPr codeName="Sheet{i}"/><dimension ref="A1:C5"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="15" x14ac:dyDescent="0.25"/><sheetData><row r="1" spans="1:3" x14ac:dyDescent="0.25"><c r="A1"><v>1</v></c></row>{}</sheetData><sheetProtection algorithmName="SHA-512" hashValue="QUJD{i}w==" saltValue="eHl6" spinCount="100000" sheet="1" objects="1" scenarios="1"/>{filter}<mc:AlternateContent><mc:Choice Requires="x14"><controls><mc:AlternateContent><mc:Choice Requires="x14"><control shapeId="1025" r:id="rId9" name="Nút {i}"/></mc:Choice></mc:AlternateContent></controls></mc:Choice></mc:AlternateContent><ignoredErrors><ignoredError sqref="A1:C5" numberStoredAsText="1"/></ignoredErrors><extLst><ext uri="{{CCE6A557-97BC-4b89-ADB6-D9C93CAAB3DF}}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:dataValidations count="1" xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main"><x14:dataValidation type="list" allowBlank="1"><x14:formula1><xm:f>Ẩn!$A$1:$A$3</xm:f></x14:formula1><xm:sqref>B1:B5</xm:sqref></x14:dataValidation></x14:dataValidations></ext></extLst>"#,
         rows(5, 3, 0.0).replacen(r#"<row r="1"><c r="A1"><v>10</v></c><c r="B1"><v>11</v></c><c r="C1"><v>12</v></c></row>"#, "", 1)
     );
     let xml = format!(
-        r#"{DECL}<worksheet xmlns="{NS_MAIN}" xmlns:r="{NS_R}" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac xr" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision" xr:uid="{{0000000{i}-0000-0000-0000-000000000000}}">{body}</worksheet>"#
+        r#"{DECL}<worksheet xmlns="{NS_MAIN}" xmlns:r="{NS_R}" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac xr" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision" xr:uid="{{0000000{i}-0000-0000-0000-000000000000}}">{body}</worksheet>"#
     );
     let ctrl = format!(
         r#"{DECL}<formControlPr xmlns="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" objectType="Button" lockText="1"/>"#
@@ -861,9 +870,10 @@ fn extensions(i: usize) -> Book {
             ),
             ("/customXml/item1.xml".into(), None, custom.into_bytes()),
         ],
-        pkg_rels: vec![(
+        // ECMA-376 Part 1 §15.2.4: custom XML data is targeted from the workbook part.
+        wb_rels: vec![(
             "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml".into(),
-            "customXml/item1.xml".into(),
+            "../customXml/item1.xml".into(),
         )],
         ..Book::default()
     }

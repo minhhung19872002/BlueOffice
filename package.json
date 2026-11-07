@@ -19,7 +19,8 @@
     "test:e2e": "pnpm --filter @blueoffice/e2e test",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "license-check": "node scripts/license-check.mjs"
+    "license-check": "node scripts/license-check.mjs",
+    "fidelity": "cargo build -p bo-cli && node scripts/fidelity-report.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

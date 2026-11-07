@@ -22,6 +22,8 @@ pub enum Loaded {
     Deck(Presentation),
     /// A PresentationML package (`.pptx`, plain bytes after decryption).
     Pptx(Vec<u8>),
+    /// A SpreadsheetML package (`.xlsx`/`.xlsm`, plain bytes after decryption).
+    Xlsx(Vec<u8>),
 }
 
 /// Input facts reported to the user.
@@ -108,8 +110,47 @@ pub fn load(bytes: &[u8], password: Option<&str>) -> Result<(Loaded, Facts), Err
     } else if lower.starts_with("/ppt/") {
         facts.format = "pptx";
         Ok((Loaded::Pptx(bytes.to_vec()), facts))
+    } else if lower.starts_with("/xl/") {
+        facts.format = "xlsx";
+        Ok((Loaded::Xlsx(bytes.to_vec()), facts))
     } else {
         Err(format!("unsupported package (main part {main})").into())
+    }
+}
+
+/// Map a spreadsheet model (`bo_model::sheet`) to the ODF table model (values only).
+pub fn model_to_ods(wb: &bo_model::sheet::Workbook) -> SpreadsheetDoc {
+    use bo_model::sheet::CellValue as V;
+    SpreadsheetDoc {
+        sheets: wb
+            .sheets
+            .iter()
+            .map(|ws| bo_odf::Sheet {
+                name: ws.name.clone(),
+                cells: ws
+                    .cells
+                    .iter()
+                    .filter_map(|(&(row, col), c)| {
+                        let value = match &c.value {
+                            V::Number(n) => bo_odf::CellValue::Float(*n),
+                            V::Text(t) => bo_odf::CellValue::String(t.clone()),
+                            V::RichText(runs) => bo_odf::CellValue::String(
+                                runs.iter().map(|r| r.text.as_str()).collect(),
+                            ),
+                            V::Bool(b) => bo_odf::CellValue::Boolean(*b),
+                            V::Error(e) => bo_odf::CellValue::String(e.as_str().to_owned()),
+                            _ => return None,
+                        };
+                        Some(bo_odf::Cell {
+                            row,
+                            col,
+                            value,
+                            formula: None,
+                        })
+                    })
+                    .collect(),
+            })
+            .collect(),
     }
 }
 

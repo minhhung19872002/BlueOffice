@@ -219,38 +219,19 @@ pub fn write_pdf_with_images(
                     segs,
                     color,
                     radius,
+                    spread,
                 } => {
-                    // PDF has no blur: a fill plus widening, fading strokes (soft edge).
-                    const STEPS: u8 = 4;
-                    for i in (0..=STEPS).rev() {
-                        let a = (f32::from(color.3) / f32::from(STEPS + 2)).round() as u8;
-                        let w = radius * 2.0 * f32::from(i) / f32::from(STEPS);
-                        let col = Rgba(color.0, color.1, color.2, a.max(1));
-                        let (fill, stroke) = if i == 0 {
-                            (Some(Paint::Solid { color: col }), None)
-                        } else {
-                            (
-                                None,
-                                Some(Stroke {
-                                    width: w,
-                                    color: col,
-                                    dash: Vec::new(),
-                                    cap: "round".into(),
-                                    join: "round".into(),
-                                }),
-                            )
-                        };
-                        emit_vector_path(
-                            &mut c,
-                            &mut res,
-                            &mut pending,
-                            &mut alloc,
-                            segs,
-                            fill.as_ref(),
-                            stroke.as_ref(),
-                            h,
-                        );
-                    }
+                    // PDF has no blur filter: the blurred shape is rasterised as a soft
+                    // mask (ISO 32000-1, §11.6.5.3 SMask) of a 1 × 1 image of its colour.
+                    let Some(m) = bo_raster::blur_mask(segs, *radius, *spread, BLUR_PX_PER_PT)
+                    else {
+                        continue;
+                    };
+                    let id = alloc();
+                    write_soft_image(&mut pdf, &mut alloc, id, *color, &m);
+                    let name = format!("Im{}", id.get());
+                    res.images.push((name.clone(), id));
+                    emit_image(&mut c, &name, [m.x, m.y, m.w, m.h], None, 0.0, h);
                 }
                 Command::Path { segs, fill, stroke } => {
                     emit_vector_path(
@@ -866,6 +847,41 @@ fn write_image(pdf: &mut Pdf, alloc: &mut dyn FnMut() -> Ref, id: Ref, img: &Ima
             }
         }
     }
+}
+
+/// Resolution of rasterised soft shadows / glows (pixels per point).
+const BLUR_PX_PER_PT: f32 = 2.0;
+
+/// A 1 × 1 image of `color` whose soft mask (ISO 32000-1, §11.6.5.3; it may have
+/// other dimensions than its image, §11.6.5.2) is the blurred coverage `m`
+/// scaled by the colour's alpha.
+fn write_soft_image(
+    pdf: &mut Pdf,
+    alloc: &mut dyn FnMut() -> Ref,
+    id: Ref,
+    color: Rgba,
+    m: &bo_raster::BlurMask,
+) {
+    let a = u32::from(color.3);
+    let alpha: Vec<u8> = m
+        .alpha
+        .iter()
+        .map(|&v| ((u32::from(v) * a + 127) / 255) as u8)
+        .collect();
+    let mid = alloc();
+    let data = compress(&alpha);
+    let mut s = pdf.image_xobject(mid, &data);
+    s.filter(Filter::FlateDecode);
+    s.width(m.width as i32).height(m.height as i32);
+    s.color_space().device_gray();
+    s.bits_per_component(8);
+    s.finish();
+    let rgb = [color.0, color.1, color.2];
+    let mut x = pdf.image_xobject(id, &rgb);
+    x.width(1).height(1);
+    x.color_space().device_rgb();
+    x.bits_per_component(8);
+    x.s_mask(mid);
 }
 
 /// Draw an image XObject into the destination rect (crop = l,t,r,b fractions).

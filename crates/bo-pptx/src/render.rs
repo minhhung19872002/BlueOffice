@@ -788,7 +788,7 @@ fn shadow_of(
     let from_list = |v: &[Effect]| {
         v.iter().find_map(|e| match e {
             Effect::OuterShadow(s) => Some(s.clone()),
-            Effect::Other(_) => None,
+            Effect::Glow(_) | Effect::Other(_) => None,
         })
     };
     if let Some(e) = effects {
@@ -805,6 +805,65 @@ fn shadow_of(
         .get(st.effect_ref.idx as usize - 1)?;
     let lst = es.child("a:effectLst")?;
     from_list(&parse_effects(lst))
+}
+
+/// §20.1.8.32 glow of a shape (its effect list, else its style's effect).
+fn glow_of(
+    cx: &Ctx<'_>,
+    effects: Option<&Vec<Effect>>,
+    st: Option<&ShapeStyle>,
+) -> Option<bo_model::slide::Glow> {
+    let from_list = |v: &[Effect]| {
+        v.iter().find_map(|e| match e {
+            Effect::Glow(g) => Some(g.clone()),
+            _ => None,
+        })
+    };
+    if let Some(e) = effects {
+        return from_list(e);
+    }
+    let st = st?;
+    if st.effect_ref.idx == 0 {
+        return None;
+    }
+    let es = cx
+        .theme?
+        .formats
+        .effect_styles
+        .get(st.effect_ref.idx as usize - 1)?;
+    from_list(&parse_effects(es.child("a:effectLst")?))
+}
+
+/// §20.1.8.32 glow: a soft band of the glow colour `rad` wide around the shape's
+/// outline, behind the shape (the outline grown by half the radius, blurred by it).
+fn draw_glow(
+    cx: &Ctx<'_>,
+    glow: Option<&bo_model::slide::Glow>,
+    geom: &Evaluated,
+    aff: Aff,
+    out: &mut Vec<Command>,
+) {
+    let Some(g) = glow else { return };
+    let rad = g.rad.unwrap_or(0) as f64 / EMU_PT;
+    if rad <= 0.0 {
+        return;
+    }
+    let color = g
+        .color
+        .as_ref()
+        .map_or(Rgba(255, 192, 0, 160), |c| cx.color(c, None));
+    for p in geom
+        .paths
+        .iter()
+        .filter(|p| p.fill != FillMode::None || p.stroke)
+    {
+        out.push(Command::BlurPath {
+            segs: to_segs(&p.segs, aff),
+            color,
+            radius: rad as f32,
+            spread: (rad / 2.0) as f32,
+        });
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -837,6 +896,7 @@ fn draw_geometry(
                     segs,
                     color,
                     radius: blur as f32,
+                    spread: 0.0,
                 }
             } else {
                 Command::Path {
@@ -957,6 +1017,8 @@ fn draw_node(
             let fill = props.fill.clone().or(sfill);
             let (line, lph) = effective_line(cx, props.line.as_ref(), style);
             let shadow = shadow_of(cx, props.effects.as_ref(), style);
+            let glow = glow_of(cx, props.effects.as_ref(), style);
+            draw_glow(cx, glow.as_ref(), &geom, aff, out);
             draw_geometry(
                 cx,
                 &geom,
@@ -1022,6 +1084,8 @@ fn draw_node(
                 Some(bo_model::slide::Geometry::Preset { name, .. }) => name == "rect",
                 Some(_) => false,
             };
+            let glow = glow_of(cx, p.props.effects.as_ref(), p.style.as_ref());
+            draw_glow(cx, glow.as_ref(), &geom, aff, out);
             if is_rect {
                 draw_image(cx, &p.blip, aff, r.2, r.3, images, out);
             } else if let Some(path) = geom.paths.first() {

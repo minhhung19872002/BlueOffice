@@ -1078,13 +1078,21 @@ fn blurred_shadows_and_picture_transparency_render() {
             match n {
                 ShapeNode::Shape(s) if s.nv.id == sid => {
                     // §20.1.8.49 outerShdw with a 6 pt blur.
-                    s.props.effects = Some(vec![Effect::OuterShadow(OuterShadow {
-                        blur_rad: Some(76_200),
-                        dist: Some(38_100),
-                        dir: Some(2_700_000),
-                        color: Some(Color::srgb(0)),
-                        attrs: vec![],
-                    })]);
+                    s.props.effects = Some(vec![
+                        Effect::OuterShadow(OuterShadow {
+                            blur_rad: Some(76_200),
+                            dist: Some(38_100),
+                            dir: Some(2_700_000),
+                            color: Some(Color::srgb(0)),
+                            attrs: vec![],
+                        }),
+                        // §20.1.8.32 glow, 8 pt.
+                        Effect::Glow(bo_model::slide::Glow {
+                            rad: Some(101_600),
+                            color: Some(Color::srgb(0x00FF_C000)),
+                            attrs: vec![],
+                        }),
+                    ]);
                 }
                 ShapeNode::Picture(pic) => {
                     let mut a = XmlElement::new("a:alphaModFix");
@@ -1104,10 +1112,17 @@ fn blurred_shadows_and_picture_transparency_render() {
         c,
         bo_render::Command::PushOpacity { alpha } if (*alpha - 0.4).abs() < 1e-3
     )));
-    // Every backend takes the new commands.
+    assert!(page.commands.iter().any(|c| matches!(
+        c,
+        bo_render::Command::BlurPath { radius, spread, .. }
+            if (*radius - 8.0).abs() < 1e-3 && (*spread - 4.0).abs() < 1e-3
+    )));
+    // Every backend takes the new commands: the PDF draws real blurs as soft masks.
     assert!(e.render_png(0, 0.5).unwrap().len() > 100);
     let pdf = e.export_pdf().unwrap();
-    assert!(String::from_utf8_lossy(&pdf).contains("/ca 0.4"));
+    let text = String::from_utf8_lossy(&pdf);
+    assert!(text.contains("/ca 0.4"));
+    assert!(text.matches("/SMask").count() >= 2, "shadow and glow masks");
     // The edit survives a save.
     let bytes = e.save_pptx().unwrap();
     let mut e2 = Engine::with_bundled_fonts();

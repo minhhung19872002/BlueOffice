@@ -271,10 +271,19 @@ pub struct OuterShadow {
     pub attrs: Attrs,
 }
 
+/// §20.1.8.32 glow: a soft colour band `rad` EMU wide around the shape.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Glow {
+    pub rad: Option<i64>,
+    pub color: Option<Color>,
+    pub attrs: Attrs,
+}
+
 /// Effect inside `a:effectLst` (§20.1.8.26).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Effect {
     OuterShadow(OuterShadow),
+    Glow(Glow),
     Other(XmlElement),
 }
 

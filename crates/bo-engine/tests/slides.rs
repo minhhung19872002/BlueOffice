@@ -147,6 +147,7 @@ fn summary(cmds: &[Command]) -> String {
                 segs,
                 color,
                 radius,
+                ..
             } => {
                 let _ = writeln!(
                     s,

@@ -628,6 +628,7 @@ dependencies = [
 name = "bo-pdf"
 version = "0.1.0"
 dependencies = [
+ "bo-raster",
  "bo-render",
  "bo-text",
  "miniz_oxide 0.8.9",

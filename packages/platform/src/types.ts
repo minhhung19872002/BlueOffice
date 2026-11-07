@@ -86,7 +86,8 @@ export type DisplayCommand =
   | { op: 'pushOpacity'; alpha: number }
   | { op: 'popOpacity' }
   /** Filled path blurred by `radius` points (soft shadow). */
-  | { op: 'blurPath'; segs: PathSeg[]; color: Rgba; radius: number };
+  /** Soft shadow / glow: the path grown by `spread` (glow, §20.1.8.32) and blurred by `radius`. */
+  | { op: 'blurPath'; segs: PathSeg[]; color: Rgba; radius: number; spread?: number };
 
 /** Path segment as serialised by serde (`bo_render::PathSeg`). */
 export type PathSeg =

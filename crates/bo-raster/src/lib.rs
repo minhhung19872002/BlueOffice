@@ -206,13 +206,14 @@ pub fn render_page_with(
                 segs,
                 color,
                 radius,
+                spread,
             } => {
                 if let Some(path) = build_path(segs) {
                     blur_fill(
                         &mut pm,
                         &path,
                         fade(*color, alpha),
-                        *radius,
+                        (*radius, *spread),
                         t,
                         mask.as_ref(),
                     );
@@ -251,13 +252,14 @@ pub fn render_page_with(
     Ok(pm)
 }
 
-/// Fill `path` into a layer, blur it (three box blurs ≈ Gaussian, radius in
-/// points under `t`) and composite it (soft shadows).
+/// Fill `path` (grown by `spread` points: outline stroked `2 × spread` wide) into a
+/// layer, blur it (three box blurs ≈ Gaussian, radius in points under `t`) and
+/// composite it (soft shadows, §20.1.8.49; glow, §20.1.8.32).
 fn blur_fill(
     pm: &mut Pixmap,
     path: &tiny_skia::Path,
     color: Rgba,
-    radius: f32,
+    (radius, spread): (f32, f32),
     t: Transform,
     mask: Option<&Mask>,
 ) {
@@ -266,7 +268,7 @@ fn blur_fill(
     let Some(b) = path.bounds().transform(t) else {
         return;
     };
-    let pad = (r * 3 + 2) as f32;
+    let pad = (r * 3 + 2) as f32 + spread.max(0.0) * scale;
     let x0 = (b.left() - pad).floor().max(0.0) as i32;
     let y0 = (b.top() - pad).floor().max(0.0) as i32;
     let x1 = (b.right() + pad).ceil().min(pm.width() as f32) as i32;
@@ -280,6 +282,15 @@ fn blur_fill(
     };
     let lt = Transform::from_translate(-x0 as f32, -y0 as f32).pre_concat(t);
     layer.fill_path(path, &paint(color), FillRule::Winding, lt, None);
+    if spread > 0.0 {
+        let stroke = tiny_skia::Stroke {
+            width: spread * 2.0,
+            line_join: tiny_skia::LineJoin::Round,
+            line_cap: tiny_skia::LineCap::Round,
+            ..tiny_skia::Stroke::default()
+        };
+        layer.stroke_path(path, &paint(color), &stroke, lt, None);
+    }
     if r > 0 {
         let data = layer.data_mut();
         for _ in 0..3 {
@@ -294,6 +305,61 @@ fn blur_fill(
         Transform::identity(),
         mask,
     );
+}
+
+/// Soft mask of a blurred (and grown) filled path: coverage 0..=255 per pixel over a
+/// box in the path's own coordinates (used for PDF soft shadows and glow, which
+/// PDF cannot blur itself).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlurMask {
+    /// Box covered by the mask, in path coordinates (points).
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    /// Pixel size.
+    pub width: u32,
+    pub height: u32,
+    /// Row-major coverage, `width × height` bytes.
+    pub alpha: Vec<u8>,
+}
+
+/// [`BlurMask`] of `segs` blurred by `radius` and grown by `spread` points,
+/// rendered at `px_per_pt` pixels per point (capped to 1024 × 1024 pixels).
+pub fn blur_mask(segs: &[PathSeg], radius: f32, spread: f32, px_per_pt: f32) -> Option<BlurMask> {
+    let path = build_path(segs)?;
+    let b = path.bounds();
+    let pad = radius * 1.5 + spread.max(0.0) + 1.0;
+    let (x, y) = (b.left() - pad, b.top() - pad);
+    let (w, h) = (b.width() + 2.0 * pad, b.height() + 2.0 * pad);
+    let s = px_per_pt
+        .min(1024.0 / w.max(1.0))
+        .min(1024.0 / h.max(1.0))
+        .max(0.05);
+    let (pw, ph) = (
+        (w * s).ceil().max(1.0) as u32,
+        (h * s).ceil().max(1.0) as u32,
+    );
+    let mut pm = Pixmap::new(pw, ph)?;
+    let t = Transform::from_scale(s, s).pre_translate(-x, -y);
+    blur_fill(
+        &mut pm,
+        &path,
+        Rgba(0, 0, 0, 255),
+        (radius, spread),
+        t,
+        None,
+    );
+    let alpha = pm.data().chunks_exact(4).map(|p| p[3]).collect();
+    Some(BlurMask {
+        x,
+        y,
+        w: pw as f32 / s,
+        h: ph as f32 / s,
+        width: pw,
+        height: ph,
+        alpha,
+    })
 }
 
 /// One horizontal and one vertical box blur pass over premultiplied RGBA.
@@ -570,6 +636,7 @@ mod tests {
                     segs: square.clone(),
                     color: Rgba(0, 0, 0, 255),
                     radius: 8.0,
+                    spread: 0.0,
                 },
                 Command::PushOpacity { alpha: 0.5 },
                 Command::FillRect {
@@ -592,6 +659,45 @@ mod tests {
         // Half-transparent red over white.
         let p = px(5, 75);
         assert!(p.red() > 250 && p.green() > 100 && p.green() < 150, "{p:?}");
+    }
+
+    #[test]
+    fn glow_grows_the_outline_and_mask_is_soft() {
+        let square = vec![
+            PathSeg::M(30.0, 30.0),
+            PathSeg::L(50.0, 30.0),
+            PathSeg::L(50.0, 50.0),
+            PathSeg::L(30.0, 50.0),
+            PathSeg::Z,
+        ];
+        let page = |spread: f32| PageList {
+            width: 80.0,
+            height: 80.0,
+            commands: vec![Command::BlurPath {
+                segs: square.clone(),
+                color: Rgba(0, 0, 0, 255),
+                radius: 4.0,
+                spread,
+            }],
+        };
+        let plain = render_page(&page(0.0), &FontManager::new(), 1.0).unwrap();
+        let glow = render_page(&page(8.0), &FontManager::new(), 1.0).unwrap();
+        // 6 pt outside the square: the glow (outline grown by 8 pt) is still dark.
+        let at = |pm: &Pixmap| pm.pixel(24, 40).unwrap().red();
+        assert!(at(&glow) < 120, "{}", at(&glow));
+        assert!(at(&plain) > 200, "{}", at(&plain));
+        // The PDF mask: opaque inside, fading out, covering the blur.
+        let m = blur_mask(&square, 4.0, 0.0, 2.0).unwrap();
+        assert!(m.x < 30.0 - 4.0 && m.w > 28.0);
+        assert_eq!(m.alpha.len(), (m.width * m.height) as usize);
+        let px = |x: f32, y: f32| {
+            let (i, j) = (((x - m.x) * 2.0) as u32, ((y - m.y) * 2.0) as u32);
+            m.alpha[(j * m.width + i) as usize]
+        };
+        assert!(px(40.0, 40.0) > 240);
+        let edge = px(30.0, 40.0);
+        assert!(edge > 60 && edge < 200, "{edge}");
+        assert!(px(m.x + 0.5, 40.0) < 10);
     }
 
     #[test]

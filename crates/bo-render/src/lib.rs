@@ -113,11 +113,14 @@ pub enum Command {
     },
     PopOpacity,
     /// Filled path blurred by `radius` points (soft shadow, §20.1.8.49
-    /// outerShdw@blurRad); coordinates as `Path`.
+    /// outerShdw@blurRad); grown by `spread` points first (outline stroked
+    /// `2 × spread` wide: glow, §20.1.8.32); coordinates as `Path`.
     BlurPath {
         segs: Vec<PathSeg>,
         color: Rgba,
         radius: f32,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        spread: f32,
     },
 }
 

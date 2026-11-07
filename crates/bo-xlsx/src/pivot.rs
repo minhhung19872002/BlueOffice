@@ -9,13 +9,18 @@
 
 use crate::chart::{parse_dom, Node};
 use bo_model::sheet::{
-    CellError, CellRange, CellValue, PivotCache, PivotCacheField, PivotDataField, PivotFilter,
-    PivotFunction, PivotTable,
+    CellError, CellRange, CellValue, PivotAxisItem, PivotCache, PivotCacheField, PivotDataField,
+    PivotFieldFilter, PivotFieldGroup, PivotFieldOptions, PivotFilter, PivotFilterType,
+    PivotFunction, PivotGroupBy, PivotLayout, PivotRangeGroup, PivotShowAs, PivotSort,
+    PivotStyleInfo, PivotTable,
 };
 use bo_opc::{resolve_target, Package, TargetMode};
 
 /// Upper bound on items / fields kept from one part (defence against huge parts).
 const MAX_ITEMS: usize = 1_000_000;
+
+/// `reference/@field` of the values pseudo-field (−2 as `xsd:unsignedInt`).
+const DATA_FIELD_REF: &str = "4294967294";
 
 /// A shared item (§18.10.1.90 `sharedItems` children: `s`, `n`, `b`, `e`, `d`, `m`).
 fn item_value(n: &Node) -> Option<CellValue> {
@@ -33,6 +38,119 @@ fn item_value(n: &Node) -> Option<CellValue> {
 
 fn num(n: &Node, attr: &str) -> Option<u32> {
     n.attr(attr).and_then(|v| v.trim().parse().ok())
+}
+
+fn float(n: &Node, attr: &str) -> Option<f64> {
+    n.attr(attr).and_then(|v| v.trim().parse().ok())
+}
+
+/// `xsd:boolean` attribute with its schema default.
+fn flag(n: &Node, attr: &str, default: bool) -> bool {
+    n.attr(attr).map_or(default, |v| v == "1" || v == "true")
+}
+
+/// Days from 1970-01-01 of a proleptic Gregorian date.
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// 1900-system serial of an `xsd:dateTime` (§18.17.4.1; dates from 1900-03-01).
+pub(crate) fn iso_to_serial(s: &str) -> Option<f64> {
+    let (date, time) = s.trim().split_once('T').unwrap_or((s.trim(), ""));
+    let mut it = date.splitn(3, '-');
+    let y: i64 = it.next()?.parse().ok()?;
+    let m: i64 = it.next()?.parse().ok()?;
+    let d: i64 = it.next()?.parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let mut serial = (days_from_civil(y, m, d) - days_from_civil(1899, 12, 30)) as f64;
+    let time = time.trim_end_matches('Z');
+    if !time.is_empty() {
+        let mut p = time.split(':');
+        let h: f64 = p.next().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+        let mi: f64 = p.next().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+        let sec: f64 = p.next().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+        serial += (h * 3600.0 + mi * 60.0 + sec) / 86_400.0;
+    }
+    Some(serial)
+}
+
+/// `xsd:dateTime` of a 1900-system serial (inverse of [`iso_to_serial`]).
+pub(crate) fn serial_to_iso(serial: f64) -> String {
+    let days = serial.floor();
+    let z = days as i64 + days_from_civil(1899, 12, 30) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    let secs = ((serial - days) * 86_400.0).round() as i64;
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}",
+        secs / 3600,
+        secs / 60 % 60,
+        secs % 60
+    )
+}
+
+/// `fieldGroup` (§18.10.1.27) with `rangePr` (§18.10.1.77), `discretePr`
+/// (§18.10.1.26) and `groupItems` (§18.10.1.37).
+fn read_group(g: &Node) -> PivotFieldGroup {
+    let range = g.child("rangePr").map(|r| {
+        let dates = r.attr("startDate").is_some() || r.attr("endDate").is_some();
+        let bound = |n: &str, d: &str| {
+            if dates {
+                r.attr(d).and_then(iso_to_serial)
+            } else {
+                float(r, n)
+            }
+        };
+        PivotRangeGroup {
+            group_by: PivotGroupBy::parse(r.attr("groupBy").unwrap_or("range")),
+            auto_start: flag(r, "autoStart", true),
+            auto_end: flag(r, "autoEnd", true),
+            start: bound("startNum", "startDate").unwrap_or(0.0),
+            end: bound("endNum", "endDate").unwrap_or(0.0),
+            interval: float(r, "groupInterval").unwrap_or(1.0),
+            dates,
+        }
+    });
+    PivotFieldGroup {
+        par: num(g, "par"),
+        base: num(g, "base"),
+        range,
+        discrete: g
+            .child("discretePr")
+            .map(|d| {
+                d.children
+                    .iter()
+                    .filter(|c| c.name == "x")
+                    .take(MAX_ITEMS)
+                    .map(|x| num(x, "v").unwrap_or(0))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        items: g
+            .child("groupItems")
+            .map(|s| {
+                s.children
+                    .iter()
+                    .take(MAX_ITEMS)
+                    .filter_map(item_value)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
 }
 
 /// Fill `cache` from its definition part.
@@ -77,12 +195,127 @@ pub(crate) fn read_cache_definition(pkg: &Package, cache: &mut PivotCache) {
             cache.fields.push(PivotCacheField {
                 name: f.attr("name").unwrap_or_default().to_owned(),
                 items,
+                group: f.child("fieldGroup").map(read_group),
+                formula: f.attr("formula").map(str::to_owned),
+                derived: !flag(f, "databaseField", true),
+                num_fmt_id: num(f, "numFmtId").unwrap_or(0),
             });
             if cache.fields.len() >= MAX_ITEMS {
                 break;
             }
         }
     }
+}
+
+/// Items of a field as an axis shows them: its group captions when grouped,
+/// otherwise its shared items.
+fn axis_values(cache: Option<&PivotCache>, field: u32) -> &[CellValue] {
+    cache
+        .and_then(|c| c.fields.get(field as usize))
+        .map_or(&[], |f| match &f.group {
+            Some(g) if g.range.is_some() || !g.discrete.is_empty() => g.items.as_slice(),
+            _ => f.items.as_slice(),
+        })
+}
+
+/// `rowItems` / `colItems` lines (§18.10.1.44 `i`).
+fn read_axis_items(n: Option<&Node>) -> Vec<PivotAxisItem> {
+    n.map(|n| {
+        n.children
+            .iter()
+            .filter(|c| c.name == "i")
+            .take(MAX_ITEMS)
+            .map(|i| PivotAxisItem {
+                kind: i
+                    .attr("t")
+                    .filter(|t| *t != "data")
+                    .unwrap_or_default()
+                    .to_owned(),
+                repeat: num(i, "r").unwrap_or(0),
+                data_index: num(i, "i").unwrap_or(0),
+                items: i
+                    .children
+                    .iter()
+                    .filter(|x| x.name == "x")
+                    .map(|x| num(x, "v").unwrap_or(0))
+                    .collect(),
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+/// An `ext` child of `extLst` by local element name.
+fn ext_child<'a>(n: &'a Node, name: &str) -> Option<&'a Node> {
+    n.child("extLst")?
+        .children
+        .iter()
+        .filter(|e| e.name == "ext")
+        .find_map(|e| e.child(name))
+}
+
+/// `pivotField` settings (§18.10.1.69).
+fn read_field_options(f: &Node, values: &[CellValue]) -> PivotFieldOptions {
+    let sort_by = f.child("autoSortScope").and_then(|s| {
+        let refs = s.child("pivotArea")?.child("references")?;
+        refs.children
+            .iter()
+            .filter(|r| r.name == "reference")
+            .find(|r| r.attr("field") == Some(DATA_FIELD_REF))
+            .and_then(|r| r.child("x"))
+            .map(|x| num(x, "v").unwrap_or(0))
+    });
+    let hidden = f
+        .child("items")
+        .map(|i| {
+            i.children
+                .iter()
+                .filter(|c| c.name == "item" && flag(c, "h", false) && c.attr("t").is_none())
+                .filter_map(|c| values.get(num(c, "x")? as usize).cloned())
+                .collect()
+        })
+        .unwrap_or_default();
+    PivotFieldOptions {
+        subtotal: flag(f, "defaultSubtotal", true),
+        subtotal_top: flag(f, "subtotalTop", true),
+        blank_row: flag(f, "insertBlankRow", false),
+        repeat_labels: ext_child(f, "pivotField").is_some_and(|x| flag(x, "fillDownLabels", false)),
+        sort: PivotSort::parse(f.attr("sortType").unwrap_or("manual")),
+        sort_by,
+        hidden,
+    }
+}
+
+/// A label / value / top-N filter (§18.10.1.35 `filter`).
+fn read_field_filter(f: &Node) -> Option<PivotFieldFilter> {
+    let kind = PivotFilterType::parse(f.attr("type")?)?;
+    let col = f.child("autoFilter").and_then(|a| a.child("filterColumn"));
+    let top10 = col.and_then(|c| c.child("top10"));
+    let custom: Vec<&str> = col
+        .and_then(|c| c.child("customFilters"))
+        .map(|c| {
+            c.children
+                .iter()
+                .filter(|x| x.name == "customFilter")
+                .filter_map(|x| x.attr("val"))
+                .collect()
+        })
+        .unwrap_or_default();
+    let value = |attr: &str, i: usize| {
+        f.attr(attr)
+            .map(str::to_owned)
+            .or_else(|| (!kind.is_caption()).then(|| custom.get(i).map(|s| (*s).to_owned()))?)
+            .unwrap_or_default()
+    };
+    Some(PivotFieldFilter {
+        field: num(f, "fld")?,
+        kind,
+        measure: num(f, "iMeasureFld").unwrap_or(0),
+        value1: value("stringValue1", 0),
+        value2: value("stringValue2", 1),
+        top: top10.is_none_or(|t| flag(t, "top", true)),
+        count: top10.and_then(|t| float(t, "val")).unwrap_or(0.0),
+    })
 }
 
 /// Parse a pivot table part (§18.10.1.73). `caches` resolves report filter
@@ -106,10 +339,12 @@ pub(crate) fn read_pivot_table(
         first_header_row: num(loc, "firstHeaderRow").unwrap_or(0),
         first_data_row: num(loc, "firstDataRow").unwrap_or(0),
         first_data_col: num(loc, "firstDataCol").unwrap_or(0),
-        data_on_rows: dom
-            .attr("dataOnRows")
-            .is_some_and(|v| v == "1" || v == "true"),
+        data_on_rows: flag(&dom, "dataOnRows", false),
         data_caption: dom.attr("dataCaption").unwrap_or("Values").to_owned(),
+        row_grand_totals: flag(&dom, "rowGrandTotals", true),
+        col_grand_totals: flag(&dom, "colGrandTotals", true),
+        row_items: read_axis_items(dom.child("rowItems")),
+        col_items: read_axis_items(dom.child("colItems")),
         ..PivotTable::default()
     };
     let axis = |name: &str| -> Vec<u32> {
@@ -129,14 +364,22 @@ pub(crate) fn read_pivot_table(
     pt.cols = axis("colFields");
     if let Some(df) = dom.child("dataFields") {
         for d in df.children.iter().filter(|c| c.name == "dataField") {
+            // x14:dataField/@pivotShowAs overrides showDataAs ([MS-XLSX] `x14:dataField`).
+            let show = ext_child(d, "dataField")
+                .and_then(|x| x.attr("pivotShowAs"))
+                .or_else(|| d.attr("showDataAs"))
+                .unwrap_or("normal");
             pt.values.push(PivotDataField {
                 field: num(d, "fld").unwrap_or(0),
                 function: PivotFunction::parse(d.attr("subtotal").unwrap_or("sum")),
                 name: d.attr("name").map(str::to_owned),
+                show_as: PivotShowAs::parse(show),
+                base_field: num(d, "baseField").unwrap_or(0),
+                base_item: num(d, "baseItem").unwrap_or(0),
+                num_fmt_id: num(d, "numFmtId"),
             });
         }
     }
-    // Report filters: selection from `pageField/@item` or hidden items.
     let cache = caches.iter().find(|c| c.cache_id == pt.cache_id);
     let pivot_fields: Vec<&Node> = dom
         .child("pivotFields")
@@ -147,6 +390,43 @@ pub(crate) fn read_pivot_table(
                 .collect()
         })
         .unwrap_or_default();
+    let page: Vec<u32> = dom
+        .child("pageFields")
+        .map(|pf| {
+            pf.children
+                .iter()
+                .filter(|c| c.name == "pageField")
+                .filter_map(|c| num(c, "fld"))
+                .collect()
+        })
+        .unwrap_or_default();
+    // Field settings; report filters keep their hidden items as the selection.
+    for (i, f) in pivot_fields.iter().enumerate() {
+        let i = i as u32;
+        let mut o = read_field_options(f, axis_values(cache, i));
+        if page.contains(&i) {
+            o.hidden.clear();
+        }
+        if o != PivotFieldOptions::default() {
+            *pt.field_mut(i) = o;
+        }
+    }
+    // Layout (§18.10.1.73 `compact` / `outline`, §18.10.1.69 per field): the
+    // first row field decides, else the table attributes.
+    let (compact, outline) = match pt.rows.first().and_then(|f| pivot_fields.get(*f as usize)) {
+        Some(f) => (flag(f, "compact", true), flag(f, "outline", true)),
+        None => (flag(&dom, "compact", true), flag(&dom, "outline", false)),
+    };
+    pt.layout = if compact && outline {
+        PivotLayout::Compact
+    } else if outline {
+        PivotLayout::Outline
+    } else if compact && pt.rows.is_empty() {
+        PivotLayout::Compact
+    } else {
+        PivotLayout::Tabular
+    };
+    // Report filters: selection from `pageField/@item` or hidden items.
     if let Some(pf) = dom.child("pageFields") {
         for f in pf.children.iter().filter(|c| c.name == "pageField") {
             let Some(field) = num(f, "fld") else { continue };
@@ -155,10 +435,10 @@ pub(crate) fn read_pivot_table(
                 .and_then(|p| p.child("items"))
                 .map(|i| i.children.iter().filter(|c| c.name == "item").collect())
                 .unwrap_or_default();
-            let shared = cache.and_then(|c| c.fields.get(field as usize));
+            let shared = axis_values(cache, field);
             let value_of = |it: &Node| {
                 let x = num(it, "x")? as usize;
-                shared.and_then(|s| s.items.get(x)).cloned()
+                shared.get(x).cloned()
             };
             let selected: Vec<CellValue> = if let Some(i) = num(f, "item") {
                 items
@@ -178,6 +458,22 @@ pub(crate) fn read_pivot_table(
             pt.filters.push(PivotFilter { field, selected });
         }
     }
+    if let Some(fl) = dom.child("filters") {
+        pt.field_filters = fl
+            .children
+            .iter()
+            .filter(|c| c.name == "filter")
+            .filter_map(read_field_filter)
+            .collect();
+    }
+    pt.style = dom.child("pivotTableStyleInfo").map(|s| PivotStyleInfo {
+        name: s.attr("name").unwrap_or_default().to_owned(),
+        show_row_headers: flag(s, "showRowHeaders", false),
+        show_col_headers: flag(s, "showColHeaders", false),
+        show_row_stripes: flag(s, "showRowStripes", false),
+        show_col_stripes: flag(s, "showColStripes", false),
+        show_last_column: flag(s, "showLastColumn", false),
+    });
     Some(pt)
 }
 
@@ -192,4 +488,19 @@ pub(crate) fn read_sheet_pivots(
         .filter(|r| r.mode == TargetMode::Internal && r.rel_type.ends_with("/pivotTable"))
         .filter_map(|r| read_pivot_table(pkg, &resolve_target(sheet_part, &r.target), caches))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn iso_dates_round_trip() {
+        // 2024-01-15 is serial 45306 (1900 system); 1900-03-01 is 61.
+        assert_eq!(iso_to_serial("2024-01-15T00:00:00"), Some(45306.0));
+        assert_eq!(iso_to_serial("1900-03-01"), Some(61.0));
+        assert_eq!(serial_to_iso(45306.5), "2024-01-15T12:00:00");
+        assert_eq!(iso_to_serial(&serial_to_iso(45657.0)), Some(45657.0));
+        assert_eq!(iso_to_serial("2024-13-01"), None);
+    }
 }

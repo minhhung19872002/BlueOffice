@@ -72,7 +72,10 @@ import {
   Save,
   Scissors,
   Search,
+  Settings,
+  Settings2,
   ShieldCheck,
+  Sigma,
   Snowflake,
   Strikethrough,
   Table2,
@@ -119,6 +122,15 @@ import {
 } from './dialogs';
 import { FormatCellsDialog, type NumberPreset } from './FormatCellsDialog';
 import { PivotDialog, PivotPanel, pivotAt, usePivotLabels } from './pivot';
+import {
+  PivotCalcDialog,
+  PivotFieldDialog,
+  PivotMoveDialog,
+  PivotOptionsDialog,
+  PivotSourceDialog,
+  PivotValueDialog,
+  areasOf,
+} from './pivot-dialogs';
 import {
   advance,
   cellsOf,
@@ -210,6 +222,12 @@ type DialogState =
   | { kind: 'pasteSpecial' }
   | { kind: 'pageSetup' }
   | { kind: 'pivot' }
+  | { kind: 'pivotField'; pivot: PivotInfo; field: number }
+  | { kind: 'pivotValue'; pivot: PivotInfo; idx: number }
+  | { kind: 'pivotOptions'; pivot: PivotInfo }
+  | { kind: 'pivotCalc'; pivot: PivotInfo }
+  | { kind: 'pivotMove'; pivot: PivotInfo }
+  | { kind: 'pivotSource'; pivot: PivotInfo }
   | { kind: 'message'; title: string; message: string };
 
 type MenuState = { kind: string; x: number; y: number };
@@ -1077,6 +1095,111 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
       isEnabled: (s) => s.pivot !== null,
       isChecked: (s) => s.pivot !== null && pivotPanel,
     });
+    const inPivot = { isEnabled: (s: SheetEditorState) => s.pivot !== null && !!activePivot };
+    const withPivot = (f: (p: PivotInfo) => DialogState) => async () => {
+      if (activePivot) setDialog(f(activePivot));
+    };
+    add(
+      'pivot.options',
+      withPivot((pivot) => ({ kind: 'pivotOptions', pivot })),
+      inPivot,
+    );
+    add(
+      'pivot.fieldSettings',
+      withPivot((pivot) => {
+        // The first row / column field, else the first value field.
+        const field = pivot.rows[0] ?? pivot.cols[0];
+        return field !== undefined
+          ? { kind: 'pivotField', pivot, field }
+          : { kind: 'pivotValue', pivot, idx: 0 };
+      }),
+      {
+        isEnabled: (s) =>
+          s.pivot !== null &&
+          !!activePivot &&
+          activePivot.rows.length + activePivot.cols.length + activePivot.values.length > 0,
+      },
+    );
+    add(
+      'pivot.calculatedField',
+      withPivot((pivot) => ({ kind: 'pivotCalc', pivot })),
+      inPivot,
+    );
+    add(
+      'pivot.move',
+      withPivot((pivot) => ({ kind: 'pivotMove', pivot })),
+      inPivot,
+    );
+    add(
+      'pivot.changeSource',
+      withPivot((pivot) => ({ kind: 'pivotSource', pivot })),
+      inPivot,
+    );
+    for (const layout of ['compact', 'outline', 'tabular'] as const) {
+      const id = `pivot.layout${layout.charAt(0).toUpperCase()}${layout.slice(1)}`;
+      add(
+        id,
+        async (s) => {
+          if (s.pivot === null || !activePivot) return;
+          await exec({
+            cmd: 'pivotUpdate',
+            sheet: s.sheet,
+            index: s.pivot,
+            labels: pivotLabels,
+            ...areasOf(activePivot),
+            layout,
+          });
+        },
+        { ...inPivot, isChecked: () => activePivot?.layout === layout },
+      );
+    }
+    add(
+      'pivot.grandTotalsRows',
+      async (s) => {
+        if (s.pivot === null || !activePivot) return;
+        await exec({
+          cmd: 'pivotUpdate',
+          sheet: s.sheet,
+          index: s.pivot,
+          labels: pivotLabels,
+          ...areasOf(activePivot),
+          colGrandTotals: !activePivot.colGrandTotals,
+        });
+      },
+      { ...inPivot, isChecked: () => !!activePivot?.colGrandTotals },
+    );
+    add(
+      'pivot.grandTotalsColumns',
+      async (s) => {
+        if (s.pivot === null || !activePivot) return;
+        await exec({
+          cmd: 'pivotUpdate',
+          sheet: s.sheet,
+          index: s.pivot,
+          labels: pivotLabels,
+          ...areasOf(activePivot),
+          rowGrandTotals: !activePivot.rowGrandTotals,
+        });
+      },
+      { ...inPivot, isChecked: () => !!activePivot?.rowGrandTotals },
+    );
+    add(
+      'pivot.delete',
+      async (s) => {
+        if (s.pivot === null) return;
+        const done = await exec({ cmd: 'pivotDelete', sheet: s.sheet, index: s.pivot });
+        if (done) setStatus(t('sheetEditor.pivot.deleted'));
+      },
+      { isEnabled: (s) => s.pivot !== null },
+    );
+    add(
+      'pivot.refreshAll',
+      async () => {
+        const done = await exec<{ count: number }>({ cmd: 'pivotRefreshAll', labels: pivotLabels });
+        if (done) setStatus(t('sheetEditor.pivot.refreshedAll', { n: done.count }));
+      },
+      { isEnabled: () => !!info?.sheets.some((x) => x.pivots > 0) },
+    );
     add('chart.edit', async (s) => setDialog({ kind: 'chart', index: s.chart }), {
       isEnabled: () => (summary?.charts ?? 0) > 0,
     });
@@ -1157,6 +1280,7 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
     axisSpan,
     pivotLabels,
     pivotPanel,
+    activePivot,
   ]);
 
   const state: SheetEditorState | null = useMemo(
@@ -1766,6 +1890,12 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
             items: [
               item('insert.pivot', t('sheetEditor.pivot.insert'), <TableProperties size={18} />),
               item(
+                'pivot.options',
+                t('sheetEditor.pivot.options'),
+                <Settings2 size={s} />,
+                'small',
+              ),
+              item(
                 'pivot.refresh',
                 t('sheetEditor.pivot.refresh'),
                 <RefreshCw size={s} />,
@@ -1777,6 +1907,104 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
                 <ListTree size={s} />,
                 'small',
               ),
+            ],
+          },
+        ],
+      },
+      {
+        id: 'pivot',
+        label: t('sheetEditor.pivot.tab'),
+        groups: [
+          {
+            id: 'pivotData',
+            label: t('sheetEditor.pivot.groupData'),
+            items: [
+              item('pivot.refresh', t('sheetEditor.pivot.refresh'), <RefreshCw size={18} />),
+              item(
+                'pivot.refreshAll',
+                t('sheetEditor.pivot.refreshAll'),
+                <RefreshCw size={s} />,
+                'small',
+              ),
+              item(
+                'pivot.changeSource',
+                t('sheetEditor.pivot.changeSource'),
+                <Table2 size={s} />,
+                'small',
+              ),
+            ],
+          },
+          {
+            id: 'pivotLayout',
+            label: t('sheetEditor.pivot.reportLayout'),
+            items: [
+              item(
+                'pivot.layoutCompact',
+                t('sheetEditor.pivot.layoutForm.compact'),
+                <ListIndentIncrease size={s} />,
+                'small',
+              ),
+              item(
+                'pivot.layoutOutline',
+                t('sheetEditor.pivot.layoutForm.outline'),
+                <ListTree size={s} />,
+                'small',
+              ),
+              item(
+                'pivot.layoutTabular',
+                t('sheetEditor.pivot.layoutForm.tabular'),
+                <Grid2x2 size={s} />,
+                'small',
+              ),
+              item(
+                'pivot.grandTotalsRows',
+                t('sheetEditor.pivot.colGrandTotals'),
+                <Rows3 size={s} />,
+                'small',
+              ),
+              item(
+                'pivot.grandTotalsColumns',
+                t('sheetEditor.pivot.rowGrandTotals'),
+                <Columns3 size={s} />,
+                'small',
+              ),
+            ],
+          },
+          {
+            id: 'pivotCalc',
+            label: t('sheetEditor.pivot.groupCalc'),
+            items: [
+              item(
+                'pivot.fieldSettings',
+                t('sheetEditor.pivot.fieldSettingsCmd'),
+                <Settings size={18} />,
+              ),
+              item(
+                'pivot.calculatedField',
+                t('sheetEditor.pivot.calcField'),
+                <Sigma size={s} />,
+                'small',
+              ),
+              item(
+                'pivot.options',
+                t('sheetEditor.pivot.options'),
+                <Settings2 size={s} />,
+                'small',
+              ),
+            ],
+          },
+          {
+            id: 'pivotActions',
+            label: t('sheetEditor.pivot.groupActions'),
+            items: [
+              item(
+                'pivot.fieldList',
+                t('sheetEditor.pivot.fieldList'),
+                <ListTree size={s} />,
+                'small',
+              ),
+              item('pivot.move', t('sheetEditor.pivot.move'), <MoveHorizontal size={s} />, 'small'),
+              item('pivot.delete', t('sheetEditor.pivot.delete'), <Trash2 size={s} />, 'small'),
             ],
           },
         ],
@@ -2137,6 +2365,16 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
               setPivotPanel(false);
               focusInput();
             }}
+            onSettings={(area, idx) => {
+              if (area === 'values') setDialog({ kind: 'pivotValue', pivot: activePivot, idx });
+              else {
+                const field = (area === 'rows' ? activePivot.rows : activePivot.cols)[idx];
+                if (field !== undefined)
+                  setDialog({ kind: 'pivotField', pivot: activePivot, field });
+              }
+            }}
+            onOptions={() => setDialog({ kind: 'pivotOptions', pivot: activePivot })}
+            onCalc={() => setDialog({ kind: 'pivotCalc', pivot: activePivot })}
             fail={fail}
           />
         )}
@@ -2291,6 +2529,44 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
                 setPivotPanel(true);
                 if (p) setSelection(single({ row: p.location.r0, col: p.location.c0 }));
                 setStatus(t('sheetEditor.pivot.created'));
+              })
+              .catch(fail);
+          }}
+        />
+      )}
+      {dialog?.kind === 'pivotField' && (
+        <PivotFieldDialog
+          {...common}
+          pivot={dialog.pivot}
+          labels={pivotLabels}
+          field={dialog.field}
+        />
+      )}
+      {dialog?.kind === 'pivotValue' && (
+        <PivotValueDialog {...common} pivot={dialog.pivot} labels={pivotLabels} idx={dialog.idx} />
+      )}
+      {dialog?.kind === 'pivotOptions' && (
+        <PivotOptionsDialog {...common} pivot={dialog.pivot} labels={pivotLabels} />
+      )}
+      {dialog?.kind === 'pivotCalc' && (
+        <PivotCalcDialog {...common} pivot={dialog.pivot} labels={pivotLabels} />
+      )}
+      {dialog?.kind === 'pivotSource' && (
+        <PivotSourceDialog {...common} pivot={dialog.pivot} labels={pivotLabels} />
+      )}
+      {dialog?.kind === 'pivotMove' && (
+        <PivotMoveDialog
+          {...common}
+          pivot={dialog.pivot}
+          labels={pivotLabels}
+          sheets={info?.sheets.map((x) => x.name) ?? []}
+          onMoved={(s, index) => {
+            void host
+              .exec<PivotInfo[]>({ cmd: 'pivots', sheet: s })
+              .then((list) => {
+                const p = list?.[index];
+                setSheet(s);
+                if (p) setSelection(single({ row: p.location.r0, col: p.location.c0 }));
               })
               .catch(fail);
           }}

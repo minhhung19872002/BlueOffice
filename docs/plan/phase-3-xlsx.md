@@ -101,22 +101,55 @@ E2E: `tests/e2e/specs/sheet.spec.ts` (gõ số + SUM, đậm + tô nền, sort, 
 
 ## 5. PivotTable (§18.10) và các tính năng bổ sung
 
-**PivotTable** (`bo_model::sheet::{PivotCache, PivotTable}`, `bo-xlsx::pivot` / `pivot_write`, `bo_sheet::pivot`):
+**PivotTable** (`bo_model::sheet::{PivotCache, PivotTable}`, `bo-xlsx::pivot` / `pivot_write`,
+`bo_sheet::pivot::{compute, group, calc, style}`, lệnh engine trong `bo-engine/src/sheet/pivot_cmd.rs`):
 - Đọc: `workbook/pivotCaches` (§18.2.22) → `pivotCacheDefinition` (§18.10.1.67: nguồn `worksheetSource`, `cacheFields`
-  + `sharedItems`, part records) và `pivotTableDefinition` của từng sheet (§18.10.1.73: `location`, `rowFields`,
-  `colFields`, `pageFields` + mục chọn, `dataFields` + `subtotal`). Các part vẫn **opaque** → ghi lại byte-for-byte
-  khi không sửa (lossless). Ô báo cáo là ô thường của sheet nên hiển thị nguyên trạng.
-- Tạo/sửa/làm mới: cache dựng từ vùng nguồn (dòng tiêu đề = tên trường, item gom không phân biệt hoa thường, sắp
-  số < chữ < bool < lỗi < trống); báo cáo dạng bảng (tabular, không subtotal), Hàng × Cột × Giá trị
-  (Sum/Count/Average/Max/Min/Product/CountNums/StdDev(p)/Var(p)), bộ lọc báo cáo (một hoặc nhiều mục), tổng cộng
-  hai chiều; định dạng số của cột nguồn cho ô giá trị. Ghi `pivotCacheDefinition` (`refreshOnLoad="1"`) +
-  `pivotCacheRecords` (chỉ số `x`) + `pivotTableDefinition` (compact/outline tắt, `defaultSubtotal="0"`); pivot
-  từ file khi sửa/làm mới được sinh lại part cùng tên. Làm mới tính lại mọi pivot dùng chung cache (khớp trường theo tên).
-- Engine: `pivotSource`, `pivotCreate`, `pivots`, `pivotUpdate`, `pivotRefresh`; UI: Chèn → Bảng tổng hợp (hộp thoại
-  vùng nguồn / trang tính mới hoặc ô đích), panel danh sách trường (tick trường, kéo thả giữa Bộ lọc/Cột/Hàng/Giá trị,
-  chọn hàm tóm tắt, chọn mục lọc), lệnh làm mới.
-- Corpus `writer-pivots-{1,2,3}.xlsx` (OpenXmlValidator hợp lệ, cả file pivot từ file sau khi làm mới); E2E
-  `tests/e2e/specs/sheet-pivot.spec.ts` (tạo pivot, đổi hàm, lưu, mở lại, tính lại).
+  + `sharedItems` (cả `d`), `fieldGroup` (§18.10.1.27) với `rangePr` (§18.10.1.77) / `discretePr` (§18.10.1.26) /
+  `groupItems` (§18.10.1.37), trường tính toán `cacheField/@formula` + `databaseField="0"`, part records) và
+  `pivotTableDefinition` của từng sheet (§18.10.1.73: `location`, `rowFields`/`colFields`, `rowItems`/`colItems`,
+  `pageFields` + mục chọn, `pivotFields` (`defaultSubtotal`, `subtotalTop`, `insertBlankRow`, `sortType`,
+  `autoSortScope`, mục ẩn `h`, `compact`/`outline`, `x14:pivotField/@fillDownLabels`), `dataFields` (`subtotal`,
+  `showDataAs`, `baseField`, `baseItem`, `numFmtId`, `x14:dataField/@pivotShowAs`), `filters` (§18.10.1.35: lọc nhãn,
+  giá trị, top-N qua `top10`/`customFilters`), `pivotTableStyleInfo`, `rowGrandTotals`/`colGrandTotals`). Part
+  không sửa vẫn **opaque** → ghi lại byte-for-byte (lossless). Ô báo cáo là ô thường của sheet.
+- Tính báo cáo (`bo_sheet::pivot::compute`): bản ghi qua bộ lọc báo cáo + mục ẩn → lọc nhãn/giá trị/top-N theo
+  từng trường (trường ngoài trước, so trong cùng mục cha; tổng phụ/tổng cộng chỉ gồm mục còn hiện) → gộp mọi cặp
+  tiền tố hàng × cột (mục, tổng phụ, tổng cộng) theo `ST_DataConsolidateFunction` → sắp xếp mục (thứ tự nguồn,
+  tăng/giảm theo nhãn hoặc theo trường giá trị) → "hiển thị giá trị dạng": % tổng cộng / tổng cột / tổng hàng,
+  % mục cơ sở, chênh lệch / % chênh lệch (mục cố định, trước, sau), lũy kế và % lũy kế, % tổng hàng/cột cha,
+  % tổng cha (trường cơ sở), xếp hạng tăng/giảm, chỉ số → bố cục **thu gọn** (một cột nhãn thụt lề, "Nhãn
+  hàng"/"Nhãn cột"), **phác thảo**, **dạng bảng**; tổng phụ bật/tắt, ở đầu/cuối nhóm (dạng bảng luôn ở cuối), lặp
+  lại nhãn, dòng trống sau mục; tổng phụ cột; tổng cộng hàng/cột bật/tắt. `rowItems`/`colItems` sinh cùng ô.
+- Nhóm (`group`): ngày theo năm / quý / tháng / ngày (mức nhỏ nhất nhóm trên chính trường, mức lớn hơn thành
+  trường nhóm mới `base`/`par`, đặt trước trường trên trục), khoảng số (bắt đầu/kết thúc/bước, tự động theo dữ liệu
+  khi bỏ trống), mục `<đầu`/`>cuối`/(trống); làm mới giữ nhóm. Nhóm thủ công (`discretePr`) chỉ đọc/ghi, chưa có UI.
+- Trường tính toán (`calc`): công thức tên trường (trần hoặc `'có dấu cách'`) tính bằng `bo-formula` trên **tổng**
+  của các trường trong từng ô báo cáo (kể cả tổng phụ/tổng cộng); từ chối tham chiếu ô/tên lạ.
+- Định dạng: số của trường giá trị (`numFmtId`, mặc định theo cột nguồn; phần trăm `0.00%` cho phép tính tỉ lệ;
+  không áp cho Count/xếp hạng/chỉ số), nhãn ngày theo định dạng cột nguồn; kiểu `PivotStyleLight|Medium|Dark1–28`
+  (tên theo §18.8.40) vẽ bằng bảng màu riêng của BlueSheet: dòng tiêu đề, tổng phụ, tổng cộng (viền đôi),
+  hàng/cột xen kẽ, tiêu đề hàng, cột tổng cộng.
+- Thao tác: tạo, sửa vùng, làm mới (mọi pivot dùng chung cache; khớp trường theo tên, giữ nhóm/trường tính toán),
+  **làm mới tất cả**, **đổi vùng nguồn**, **di chuyển** (cùng sheet hoặc sheet khác — quan hệ part theo sang),
+  **xoá** (ô, part pivot đọc từ file, cache không còn dùng). Lệnh sửa lỗi giữa chừng khôi phục workbook.
+- Ghi: `pivotCacheDefinition` (`refreshOnLoad="1"`, ngày dưới dạng `d`, `fieldGroup`) + `pivotCacheRecords` (chỉ
+  trường gốc) + `pivotTableDefinition` đầy đủ thiết lập ở trên; pivot từ file khi sửa/làm mới được sinh lại part
+  cùng tên.
+- Engine: `pivotSource`, `pivotCreate`, `pivots` (trường + mục theo định dạng, nhóm, công thức, thiết lập),
+  `pivotUpdate` (+ `layout`, `rowGrandTotals`, `colGrandTotals`, `fieldOptions`, `fieldFilters`, `style`, giá trị
+  có `showAs`/`baseField`/`baseItem`/`numFmt`), `pivotGroup`, `pivotCalcField`, `pivotMove`, `pivotChangeSource`,
+  `pivotDelete`, `pivotRefresh`, `pivotRefreshAll`; `presets.pivotStyles`.
+- UI "Bảng tổng hợp (Pivot)": hộp thoại chèn, panel danh sách trường (tick — trường ngày vào Hàng —, kéo thả, nút
+  cài đặt trên từng chip), hộp thoại cài đặt trường hàng/cột (tổng phụ, bố cục, sắp xếp, lọc, nhóm), cài đặt trường
+  giá trị (hàm, hiển thị giá trị dạng, trường/mục cơ sở, định dạng số, tên), tùy chọn (bố cục, tổng cộng, kiểu),
+  trường tính toán, di chuyển, đổi nguồn; tab ribbon "Bảng tổng hợp" với các lệnh `pivot.*` trong
+  `CommandRegistry`. Chuỗi ở cả `vi-VN.json` và `en-US.json`.
+- Kiểm thử: bảng kỳ vọng tính tay trong `crates/bo-sheet/src/pivot/tests.rs` (tổng phụ/tổng cộng, bố cục, nhóm,
+  trường tính toán, mọi kiểu hiển thị giá trị, sắp xếp, lọc, thao tác, kiểu); `group.rs`/`calc.rs`/`style.rs`;
+  engine `pivot_grouping_layout_show_as_and_management`. Corpus `writer-pivots-{1,2,3}`, `writer-pivot-totals-{1,2,3}`,
+  `writer-pivot-groups-{1,2,3}.xlsx` (OpenXmlValidator hợp lệ, round-trip thiết lập trong
+  `corpus_pivot_features_round_trip`); E2E `sheet-pivot.spec.ts` và `sheet-pivot-settings.spec.ts` (nhóm ngày theo
+  tháng, bố cục phác thảo, % tổng cộng, lưu, mở lại, thiết lập còn nguyên, tính lại).
 
 **Bổ sung khác**
 - Biểu đồ: kéo để di chuyển, kéo góc để đổi cỡ (lệnh `moveChart`), xoá cả biểu đồ đọc từ file
@@ -129,9 +162,11 @@ E2E: `tests/e2e/specs/sheet.spec.ts` (gõ số + SUM, đậm + tô nền, sort, 
 - Render: chữ xoay `textRotation` 1–180 (transform) và 255 (xếp dọc); style mặc định của hàng/cột vẽ trên ô trống.
 
 ## 6. Còn lại
-- PivotTable: chưa có subtotal, layout compact/outline, nhóm ngày/số, trường tính toán, "show values as", định dạng
-  pivot; chưa xoá pivot; pivot từ file chỉ tính lại được khi nguồn là vùng/tên/bảng trong workbook; đổi tên sheet nguồn
-  không cập nhật part cache opaque cho tới khi làm mới.
+- PivotTable: chưa có biểu đồ pivot, mục tính toán (`calculatedItems`), nhóm thủ công qua UI, lọc ngày
+  (`dateBetween`…) và nhiều trường giá trị trên trục hàng (`dataOnRows`); `rowItems`/`colItems` ghi đủ đường dẫn
+  (`r="0"`); ngày gõ dạng chữ (chưa được nhận là ngày khi nhập) không nhóm theo ngày được; nhóm ngày của workbook
+  `date1904` ghi `startDate` theo hệ 1900; pivot từ file chỉ tính lại được khi nguồn là vùng/tên/bảng trong workbook;
+  đổi tên sheet nguồn không cập nhật part cache opaque cho tới khi làm mới.
 - Cắt–dán sang sheet khác chưa thêm tên sheet nguồn cho tham chiếu tương đối không qualified bên trong khối cắt;
   chart/CF/DV chưa cập nhật theo ô bị di chuyển.
 - Biểu đồ `absoluteAnchor` chưa di chuyển được; `oneCellAnchor` chỉ di chuyển (không đổi cỡ).

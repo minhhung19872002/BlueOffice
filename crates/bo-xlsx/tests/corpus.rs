@@ -1269,11 +1269,13 @@ fn writer_pivots(i: usize) -> m::Workbook {
         blank: "(trống)".into(),
         column: "Cột".into(),
         name: "BangTongHop".into(),
+        ..PivotLabels::default()
     };
     let value = |field: u32, function: m::PivotFunction, name: &str| m::PivotDataField {
         field,
         function,
         name: Some(name.into()),
+        ..m::PivotDataField::default()
     };
     let (dest_sheet, dest, spec) = match i {
         1 => (
@@ -1298,6 +1300,7 @@ fn writer_pivots(i: usize) -> m::Workbook {
                         field: 2,
                         selected: vec![m::CellValue::Number(2024.0)],
                     }],
+                    ..PivotSpec::default()
                 },
             )
         }
@@ -1330,6 +1333,285 @@ fn writer_pivots(i: usize) -> m::Workbook {
     wb
 }
 
+/// Source data of the report-feature pivots: 30 sales (region, product, date,
+/// revenue, quantity) from March 2023 to January 2025.
+fn pivot_book() -> m::Workbook {
+    let mut wb = m::Workbook::new();
+    wb.sheets[0].name = "Dữ liệu".into();
+    let date_xf = wb.styles.add_xf(m::CellXf {
+        num_fmt_id: 14,
+        xf_id: Some(0),
+        apply_number_format: Some(true),
+        ..m::CellXf::default()
+    });
+    let ws = &mut wb.sheets[0];
+    for (c, h) in ["Vùng", "Sản phẩm", "Ngày", "Doanh thu", "Số lượng"]
+        .iter()
+        .enumerate()
+    {
+        ws.set_cell(0, c as u32, m::Cell::new(m::CellValue::Text((*h).into())));
+    }
+    let regions = ["Bắc", "Trung", "Nam"];
+    let products = ["Gạo", "Cà phê", "Chè", "Tiêu"];
+    for r in 0..30u32 {
+        let row = r + 1;
+        let t = |s: &str| m::Cell::new(m::CellValue::Text(s.into()));
+        let n = |v: f64| m::Cell::new(m::CellValue::Number(v));
+        ws.set_cell(row, 0, t(regions[(r % 3) as usize]));
+        ws.set_cell(row, 1, t(products[(r * 7 % 4) as usize]));
+        // 45000 = 2023-03-15 (1900 date system).
+        ws.set_cell(row, 2, n(f64::from(45_000 + r * 23)).with_style(date_xf));
+        ws.set_cell(row, 3, n(f64::from(r * 37 % 100) * 10.0 + 50.0));
+        ws.set_cell(row, 4, n(f64::from(r % 5 + 1)));
+    }
+    wb.sheets.push(m::Worksheet::new("Báo cáo"));
+    wb
+}
+
+fn pivot_labels() -> bo_sheet::pivot::PivotLabels {
+    bo_sheet::pivot::PivotLabels {
+        grand_total: "Tổng cộng".into(),
+        values: "Giá trị".into(),
+        blank: "(trống)".into(),
+        name: "BangTongHop".into(),
+        subtotal: "Tổng {item}".into(),
+        row_labels: "Nhãn hàng".into(),
+        col_labels: "Nhãn cột".into(),
+        months: (1..=12).map(|i| format!("Thg {i}")).collect(),
+        quarter: "Quý {n}".into(),
+        years_field: "Năm".into(),
+        quarters_field: "Quý".into(),
+        months_field: "Tháng".into(),
+        ..bo_sheet::pivot::PivotLabels::default()
+    }
+}
+
+fn pivot_value(field: u32, function: m::PivotFunction, name: &str) -> m::PivotDataField {
+    m::PivotDataField {
+        field,
+        function,
+        name: Some(name.into()),
+        ..m::PivotDataField::default()
+    }
+}
+
+fn field_opts(f: &dyn Fn(&mut m::PivotFieldOptions)) -> m::PivotFieldOptions {
+    let mut o = m::PivotFieldOptions::default();
+    f(&mut o);
+    o
+}
+
+fn pivot_style(name: &str, rows: bool, cols: bool) -> m::PivotStyleInfo {
+    m::PivotStyleInfo {
+        name: name.into(),
+        show_row_headers: true,
+        show_col_headers: true,
+        show_row_stripes: rows,
+        show_col_stripes: cols,
+        show_last_column: true,
+    }
+}
+
+/// Pivot report settings (§18.10.1.73): subtotals, grand totals, compact /
+/// outline / tabular layouts, repeated labels, blank rows, sorting, label /
+/// value / top-N filters, "show values as", number formats and styles.
+fn writer_pivot_totals(i: usize) -> m::Workbook {
+    use bo_sheet::pivot::{create_pivot, PivotSpec};
+    let mut wb = pivot_book();
+    let labels = pivot_labels();
+    let source = m::CellRange::parse("A1:E31").unwrap();
+    let revenue = pivot_value(3, m::PivotFunction::Sum, "Tổng Doanh thu");
+    let specs: Vec<(m::CellRef, PivotSpec)> = match i {
+        1 => vec![
+            (
+                m::CellRef::new(0, 0),
+                PivotSpec {
+                    rows: vec![0, 1],
+                    values: vec![revenue.clone()],
+                    fields: vec![field_opts(&|o| {
+                        o.repeat_labels = true;
+                        o.blank_row = true;
+                    })],
+                    ..PivotSpec::default()
+                },
+            ),
+            (
+                m::CellRef::new(0, 5),
+                PivotSpec {
+                    cols: vec![0, 1],
+                    values: vec![revenue.clone()],
+                    row_grand_totals: false,
+                    ..PivotSpec::default()
+                },
+            ),
+        ],
+        2 => vec![(
+            m::CellRef::new(1, 1),
+            PivotSpec {
+                rows: vec![0, 1],
+                values: vec![revenue.clone()],
+                layout: m::PivotLayout::Outline,
+                fields: vec![
+                    field_opts(&|o| o.subtotal_top = false),
+                    field_opts(&|o| {
+                        o.sort = m::PivotSort::Descending;
+                        o.sort_by = Some(0);
+                    }),
+                ],
+                field_filters: vec![
+                    m::PivotFieldFilter {
+                        field: 1,
+                        kind: m::PivotFilterType::Count,
+                        top: true,
+                        count: 2.0,
+                        ..m::PivotFieldFilter::default()
+                    },
+                    m::PivotFieldFilter {
+                        field: 0,
+                        kind: m::PivotFilterType::CaptionNotEqual,
+                        value1: "Trung".into(),
+                        top: true,
+                        ..m::PivotFieldFilter::default()
+                    },
+                ],
+                style: Some(pivot_style("PivotStyleMedium9", true, false)),
+                ..PivotSpec::default()
+            },
+        )],
+        _ => vec![(
+            m::CellRef::new(0, 0),
+            PivotSpec {
+                rows: vec![0, 1],
+                values: vec![
+                    m::PivotDataField {
+                        num_fmt_id: Some(3),
+                        ..revenue.clone()
+                    },
+                    m::PivotDataField {
+                        show_as: m::PivotShowAs::PercentOfTotal,
+                        ..pivot_value(3, m::PivotFunction::Sum, "% tổng")
+                    },
+                    m::PivotDataField {
+                        show_as: m::PivotShowAs::PercentOfParentRow,
+                        ..pivot_value(3, m::PivotFunction::Sum, "% nhóm")
+                    },
+                    m::PivotDataField {
+                        show_as: m::PivotShowAs::RankDescending,
+                        base_field: 1,
+                        ..pivot_value(4, m::PivotFunction::Sum, "Hạng SL")
+                    },
+                ],
+                layout: m::PivotLayout::Compact,
+                fields: vec![
+                    m::PivotFieldOptions::default(),
+                    field_opts(&|o| o.hidden = vec![m::CellValue::Text("Tiêu".into())]),
+                ],
+                field_filters: vec![m::PivotFieldFilter {
+                    field: 0,
+                    kind: m::PivotFilterType::ValueGreaterThan,
+                    measure: 0,
+                    value1: "1000".into(),
+                    top: true,
+                    ..m::PivotFieldFilter::default()
+                }],
+                style: Some(pivot_style("PivotStyleDark2", false, true)),
+                ..PivotSpec::default()
+            },
+        )],
+    };
+    for (at, spec) in specs {
+        create_pivot(&mut wb, 0, source, 1, at, &spec, &labels).unwrap();
+    }
+    wb
+}
+
+/// Pivot grouping and calculations (§18.10.1.27 fieldGroup, §18.10.1.3
+/// calculated fields, §18.18.70 showDataAs): dates by years / quarters /
+/// months, numeric ranges, a calculated field, difference and running total.
+fn writer_pivot_groups(i: usize) -> m::Workbook {
+    use bo_sheet::pivot::{
+        create_pivot, group_field, set_calculated_field, GroupRequest, PivotSpec,
+    };
+    let mut wb = pivot_book();
+    let labels = pivot_labels();
+    let source = m::CellRange::parse("A1:E31").unwrap();
+    let revenue = pivot_value(3, m::PivotFunction::Sum, "Tổng Doanh thu");
+    let at = m::CellRef::new(0, 0);
+    match i {
+        1 => {
+            let spec = PivotSpec {
+                rows: vec![2],
+                values: vec![revenue],
+                layout: m::PivotLayout::Outline,
+                ..PivotSpec::default()
+            };
+            create_pivot(&mut wb, 0, source, 1, at, &spec, &labels).unwrap();
+            let dates = GroupRequest::Dates {
+                years: true,
+                quarters: true,
+                months: true,
+                days: false,
+            };
+            group_field(&mut wb, 1, 0, 2, &dates, &labels).unwrap();
+        }
+        2 => {
+            let spec = PivotSpec {
+                rows: vec![3],
+                cols: vec![0],
+                values: vec![pivot_value(4, m::PivotFunction::Count, "Số giao dịch")],
+                ..PivotSpec::default()
+            };
+            create_pivot(&mut wb, 0, source, 1, at, &spec, &labels).unwrap();
+            let ranges = GroupRequest::Numbers {
+                start: Some(0.0),
+                end: Some(1000.0),
+                interval: 250.0,
+            };
+            group_field(&mut wb, 1, 0, 3, &ranges, &labels).unwrap();
+        }
+        _ => {
+            let spec = PivotSpec {
+                rows: vec![2],
+                values: vec![
+                    revenue.clone(),
+                    m::PivotDataField {
+                        show_as: m::PivotShowAs::Difference,
+                        base_field: 2,
+                        base_item: m::PIVOT_BASE_PREVIOUS,
+                        ..pivot_value(3, m::PivotFunction::Sum, "Chênh lệch")
+                    },
+                    m::PivotDataField {
+                        show_as: m::PivotShowAs::RunTotal,
+                        base_field: 2,
+                        ..pivot_value(3, m::PivotFunction::Sum, "Lũy kế")
+                    },
+                ],
+                layout: m::PivotLayout::Compact,
+                ..PivotSpec::default()
+            };
+            create_pivot(&mut wb, 0, source, 1, at, &spec, &labels).unwrap();
+            let dates = GroupRequest::Dates {
+                years: true,
+                quarters: false,
+                months: true,
+                days: false,
+            };
+            group_field(&mut wb, 1, 0, 2, &dates, &labels).unwrap();
+            set_calculated_field(
+                &mut wb,
+                1,
+                0,
+                None,
+                "Đơn giá",
+                "='Doanh thu'/'Số lượng'",
+                &labels,
+            )
+            .unwrap();
+        }
+    }
+    wb
+}
+
 type WriterFeature = (&'static str, &'static str, fn(usize) -> m::Workbook);
 
 const WRITER_FEATURES: &[WriterFeature] = &[
@@ -1337,6 +1619,8 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-sheet", "BlueSheet writer: column width / row height, freeze panes, merge, AutoFilter, conditional formats, list validation, page setup + print titles", writer_sheet),
     ("writer-charts", "BlueSheet writer: inserted charts (column, column+line combo, doughnut, scatter) with axis titles and legend", writer_charts),
     ("writer-pivots", "BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter)", writer_pivots),
+    ("writer-pivot-totals", "BlueSheet writer: pivot report settings (tabular with repeated labels + blank rows and column subtotals; outline with bottom subtotals, sort by value, top-N + label filter, medium style; compact with number format, % of total / parent, rank, value filter, hidden item, dark style)", writer_pivot_totals),
+    ("writer-pivot-groups", "BlueSheet writer: pivot grouping and calculations (dates by years / quarters / months; numeric ranges × columns; years + months with a calculated field, difference from previous and running total)", writer_pivot_groups),
 ];
 
 fn corpus_dir() -> PathBuf {
@@ -1681,6 +1965,60 @@ fn corpus_pivots_are_summarized() {
         // A saved pivot reopens unchanged.
         let again = read_xlsx(&write_xlsx(&wb).unwrap()).unwrap();
         assert_eq!(again, wb);
+    }
+}
+
+/// The report settings of the generated pivots survive write → read: layout,
+/// totals, field settings, data fields ("show values as", number formats),
+/// filters, style, `rowItems` / `colItems`, groups and calculated fields.
+#[test]
+fn corpus_pivot_features_round_trip() {
+    for (name, _, f) in &WRITER_FEATURES[4..] {
+        for i in 1..=3 {
+            let wb = f(i);
+            let back = read_xlsx(&write_xlsx(&wb).unwrap()).unwrap();
+            assert_eq!(back.pivot_caches.len(), wb.pivot_caches.len());
+            for (c, rc) in wb.pivot_caches.iter().zip(&back.pivot_caches) {
+                assert_eq!(rc.fields.len(), c.fields.len(), "{name}-{i}");
+                for (fl, rf) in c.fields.iter().zip(&rc.fields) {
+                    let ctx = format!("{name}-{i} field {}", fl.name);
+                    assert_eq!(rf.name, fl.name, "{ctx}");
+                    assert_eq!(rf.group, fl.group, "{ctx}");
+                    assert_eq!(rf.formula, fl.formula, "{ctx}");
+                    assert_eq!(rf.derived, fl.derived, "{ctx}");
+                    assert_eq!(rf.num_fmt_id, fl.num_fmt_id, "{ctx}");
+                }
+            }
+            let mut pivots = 0;
+            for (s, ws) in wb.sheets.iter().enumerate() {
+                for (k, pt) in ws.pivots.iter().enumerate() {
+                    pivots += 1;
+                    let rd = &back.sheets[s].pivots[k];
+                    let ctx = format!("{name}-{i} pivot {k}");
+                    assert_eq!(rd.layout, pt.layout, "{ctx}");
+                    assert_eq!(
+                        (rd.row_grand_totals, rd.col_grand_totals),
+                        (pt.row_grand_totals, pt.col_grand_totals),
+                        "{ctx}"
+                    );
+                    assert_eq!((&rd.rows, &rd.cols), (&pt.rows, &pt.cols), "{ctx}");
+                    assert_eq!(rd.values, pt.values, "{ctx}");
+                    assert_eq!(rd.field_filters, pt.field_filters, "{ctx}");
+                    assert_eq!(rd.style, pt.style, "{ctx}");
+                    assert_eq!(rd.row_items, pt.row_items, "{ctx}");
+                    assert_eq!(rd.col_items, pt.col_items, "{ctx}");
+                    assert_eq!(rd.location, pt.location, "{ctx}");
+                    let nf = wb.pivot_caches[0].fields.len() as u32 + 1;
+                    for x in 0..nf {
+                        assert_eq!(rd.field(x), pt.field(x), "{ctx} field {x}");
+                    }
+                }
+            }
+            assert!(pivots > 0, "{name}-{i}");
+            // A saved pivot reopens unchanged.
+            let again = read_xlsx(&write_xlsx(&back).unwrap()).unwrap();
+            assert_eq!(again, back, "{name}-{i}");
+        }
     }
 }
 

@@ -14,25 +14,14 @@ import type {
   SheetRange,
 } from '@blueoffice/platform';
 import { Dialog } from '@blueoffice/ui';
-import { RefreshCw, X } from 'lucide-react';
+import { RefreshCw, Settings, Settings2, Sigma, X } from 'lucide-react';
 import { useEffect, useState, type DragEvent } from 'react';
 import { Popover } from './dialogs';
 import { parseA1, rangeA1, rangeOf } from './grid';
+import { areasOf, PIVOT_FUNCTIONS } from './pivot-dialogs';
 import styles from './SheetEditor.module.css';
 
-export const PIVOT_FUNCTIONS: PivotFunction[] = [
-  'sum',
-  'count',
-  'average',
-  'max',
-  'min',
-  'product',
-  'countNums',
-  'stdDev',
-  'stdDevp',
-  'var',
-  'varp',
-];
+export { PIVOT_FUNCTIONS };
 
 type Area = 'filters' | 'cols' | 'rows' | 'values';
 const AREAS: Area[] = ['filters', 'cols', 'rows', 'values'];
@@ -49,6 +38,14 @@ export function usePivotLabels(): PivotLabels {
     blank: t('sheetEditor.pivot.labels.blank'),
     column: t('sheetEditor.pivot.labels.column'),
     name: t('sheetEditor.pivot.labels.name'),
+    subtotal: t('sheetEditor.pivot.labels.subtotal'),
+    rowLabels: t('sheetEditor.pivot.labels.rowLabels'),
+    colLabels: t('sheetEditor.pivot.labels.colLabels'),
+    months: t('sheetEditor.pivot.labels.months').split('|'),
+    quarter: t('sheetEditor.pivot.labels.quarter'),
+    yearsField: t('sheetEditor.pivot.labels.yearsField'),
+    quartersField: t('sheetEditor.pivot.labels.quartersField'),
+    monthsField: t('sheetEditor.pivot.labels.monthsField'),
   };
 }
 
@@ -238,17 +235,6 @@ interface Drag {
   idx: number;
 }
 
-const areasOf = (p: PivotInfo): PivotAreas => ({
-  rows: [...p.rows],
-  cols: [...p.cols],
-  values: p.values.map((v) => ({
-    field: v.field,
-    function: v.function,
-    name: v.name ?? undefined,
-  })),
-  filters: p.filters.map((f) => ({ field: f.field, items: [...f.items] })),
-});
-
 /** A field whose items are all numbers goes to Values when ticked. */
 const numeric = (items: string[]) =>
   items.length > 0 && items.every((s) => s !== '' && !Number.isNaN(Number(s)));
@@ -261,6 +247,9 @@ export function PivotPanel({
   onChanged,
   onRefresh,
   onClose,
+  onSettings,
+  onOptions,
+  onCalc,
   fail,
 }: {
   host: SheetHost;
@@ -270,6 +259,10 @@ export function PivotPanel({
   onChanged: () => void | Promise<void>;
   onRefresh: () => void;
   onClose: () => void;
+  /** Field settings of a chip (row / column field or value). */
+  onSettings: (area: 'rows' | 'cols' | 'values', idx: number) => void;
+  onOptions: () => void;
+  onCalc: () => void;
   fail: (e: unknown) => void;
 }) {
   const { t } = useTranslation();
@@ -353,7 +346,11 @@ export function PivotPanel({
     if (used(f)) {
       void apply({ ...withoutAxis(areas, f), values: areas.values.filter((v) => v.field !== f) });
     } else {
-      void apply(addTo(areas, numeric(pivot.fields[f]?.items ?? []) ? 'values' : 'rows', f));
+      const fl = pivot.fields[f];
+      // Numbers go to Values; dates and text to Rows; calculated fields are values only.
+      const toValues =
+        !!fl && (fl.formula !== null || (!fl.date && !fl.derived && numeric(fl.items)));
+      void apply(addTo(areas, toValues ? 'values' : 'rows', f));
     }
   };
 
@@ -414,6 +411,26 @@ export function PivotPanel({
             onClick={onRefresh}
           >
             <RefreshCw size={14} />
+          </button>
+          <button
+            type="button"
+            className={styles.iconBtn}
+            title={t('sheetEditor.pivot.calcField')}
+            aria-label={t('sheetEditor.pivot.calcField')}
+            data-testid="pivot-calc"
+            onClick={onCalc}
+          >
+            <Sigma size={14} />
+          </button>
+          <button
+            type="button"
+            className={styles.iconBtn}
+            title={t('sheetEditor.pivot.options')}
+            aria-label={t('sheetEditor.pivot.options')}
+            data-testid="pivot-options"
+            onClick={onOptions}
+          >
+            <Settings2 size={14} />
           </button>
           <button
             type="button"
@@ -510,6 +527,18 @@ export function PivotPanel({
                     }}
                   >
                     ▾
+                  </button>
+                )}
+                {area !== 'filters' && (
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    title={t('sheetEditor.pivot.settings')}
+                    aria-label={t('sheetEditor.pivot.settings')}
+                    data-testid={`pivot-settings-${area}-${idx}`}
+                    onClick={() => onSettings(area, idx)}
+                  >
+                    <Settings size={12} />
                   </button>
                 )}
                 <button

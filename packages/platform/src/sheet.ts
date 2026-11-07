@@ -194,12 +194,131 @@ export type PivotFunction =
   | 'var'
   | 'varp';
 
+/** "Show values as" (ECMA-376 `ST_ShowDataAs` plus the x14 calculations). */
+export type PivotShowAs =
+  | 'normal'
+  | 'difference'
+  | 'percent'
+  | 'percentDiff'
+  | 'runTotal'
+  | 'percentOfRow'
+  | 'percentOfCol'
+  | 'percentOfTotal'
+  | 'index'
+  | 'percentOfParentRow'
+  | 'percentOfParentCol'
+  | 'percentOfParent'
+  | 'percentOfRunningTotal'
+  | 'rankAscending'
+  | 'rankDescending';
+
+/** `baseItem` values meaning the previous / next item. */
+export const PIVOT_BASE_PREVIOUS = 1048828;
+export const PIVOT_BASE_NEXT = 1048829;
+
 export interface PivotValueSpec {
   field: number;
   function?: PivotFunction;
   /** Caption; omitted = "<Function> of <field>". */
   name?: string;
+  showAs?: PivotShowAs;
+  baseField?: number;
+  baseItem?: number;
+  /** Number format code; omitted = from the source column. */
+  numFmt?: string;
 }
+
+export type PivotLayout = 'compact' | 'outline' | 'tabular';
+export type PivotSort = 'manual' | 'ascending' | 'descending';
+
+/** Settings of a row / column field (`pivotField`). */
+export interface PivotFieldOptions {
+  subtotal: boolean;
+  subtotalTop: boolean;
+  blankRow: boolean;
+  repeatLabels: boolean;
+  sort: PivotSort;
+  /** Sort by this value field (index) instead of by label. */
+  sortBy: number | null;
+  /** Hidden item indices. */
+  hidden: number[];
+}
+
+/** ECMA-376 `ST_PivotFilterType` values used by label, value and top-N filters. */
+export type PivotFilterType =
+  | 'count'
+  | 'percent'
+  | 'sum'
+  | 'captionEqual'
+  | 'captionNotEqual'
+  | 'captionBeginsWith'
+  | 'captionNotBeginsWith'
+  | 'captionEndsWith'
+  | 'captionNotEndsWith'
+  | 'captionContains'
+  | 'captionNotContains'
+  | 'captionGreaterThan'
+  | 'captionGreaterThanOrEqual'
+  | 'captionLessThan'
+  | 'captionLessThanOrEqual'
+  | 'captionBetween'
+  | 'captionNotBetween'
+  | 'valueEqual'
+  | 'valueNotEqual'
+  | 'valueGreaterThan'
+  | 'valueGreaterThanOrEqual'
+  | 'valueLessThan'
+  | 'valueLessThanOrEqual'
+  | 'valueBetween'
+  | 'valueNotBetween';
+
+/** A label / value / top-N filter of a row or column field. */
+export interface PivotFieldFilter {
+  field: number;
+  kind: PivotFilterType;
+  /** Value field index (value and top-N filters). */
+  measure: number;
+  value1: string;
+  value2: string;
+  /** Top-N: top (true) or bottom. */
+  top: boolean;
+  count: number;
+}
+
+/** `pivotTableStyleInfo`. */
+export interface PivotStyle {
+  name: string;
+  rowHeaders: boolean;
+  colHeaders: boolean;
+  rowStripes: boolean;
+  colStripes: boolean;
+  lastColumn: boolean;
+}
+
+/** Report settings sent with `pivotUpdate` (omitted = unchanged). */
+export type PivotSettings = {
+  layout?: PivotLayout;
+  rowGrandTotals?: boolean;
+  colGrandTotals?: boolean;
+  fieldOptions?: (Partial<PivotFieldOptions> & { field: number })[];
+  fieldFilters?: PivotFieldFilter[];
+  style?: PivotStyle;
+};
+
+/** Grouping of a field as listed by `pivots`. */
+export type PivotGroupInfo =
+  | {
+      by: 'dates';
+      years: boolean;
+      quarters: boolean;
+      months: boolean;
+      days: boolean;
+      start: number;
+      end: number;
+    }
+  | { by: 'numbers'; start: number; end: number; interval: number }
+  | { by: 'derived'; base: number | null }
+  | { by: 'discrete' };
 
 /** Report filter: shown item indices (empty = all). */
 export interface PivotFilterSpec {
@@ -216,6 +335,17 @@ export interface PivotLabels {
   blank?: string;
   column?: string;
   name?: string;
+  /** Subtotal caption; `{item}` is replaced by the item. */
+  subtotal?: string;
+  rowLabels?: string;
+  colLabels?: string;
+  /** Short month names, January first (date grouping). */
+  months?: string[];
+  /** Quarter caption; `{n}` is replaced by 1–4. */
+  quarter?: string;
+  yearsField?: string;
+  quartersField?: string;
+  monthsField?: string;
 }
 
 /** A type alias (not an interface) so commands keep an implicit index signature. */
@@ -234,11 +364,36 @@ export interface PivotInfo {
   /** Cells taken by the report, report filters included. */
   area: SheetRange;
   source: string | null;
-  fields: { name: string; items: string[] }[];
+  fields: {
+    name: string;
+    items: string[];
+    /** Formula of a calculated field. */
+    formula: string | null;
+    /** Calculated or grouping field (no source column). */
+    derived: boolean;
+    /** Dates (date number format or date grouping). */
+    date: boolean;
+    group: PivotGroupInfo | null;
+  }[];
   rows: number[];
   cols: number[];
-  values: { field: number; function: PivotFunction; name: string | null }[];
+  values: {
+    field: number;
+    function: PivotFunction;
+    name: string | null;
+    showAs: PivotShowAs;
+    baseField: number;
+    baseItem: number;
+    numFmt: string | null;
+  }[];
   filters: { field: number; items: number[] }[];
+  layout: PivotLayout;
+  rowGrandTotals: boolean;
+  colGrandTotals: boolean;
+  /** Settings of every cache field. */
+  fieldOptions: PivotFieldOptions[];
+  fieldFilters: PivotFieldFilter[];
+  style: PivotStyle | null;
 }
 
 export interface CellAt {
@@ -344,8 +499,51 @@ export type SheetCommand =
       labels?: PivotLabels;
     } & Partial<PivotAreas>)
   | { cmd: 'pivots'; sheet: number }
-  | ({ cmd: 'pivotUpdate'; sheet: number; index: number; labels?: PivotLabels } & PivotAreas)
+  | ({
+      cmd: 'pivotUpdate';
+      sheet: number;
+      index: number;
+      labels?: PivotLabels;
+    } & PivotAreas &
+      PivotSettings)
   | { cmd: 'pivotRefresh'; sheet: number; index: number; labels?: PivotLabels }
+  | {
+      cmd: 'pivotGroup';
+      sheet: number;
+      index: number;
+      field: number;
+      by: 'none' | 'dates' | 'numbers';
+      years?: boolean;
+      quarters?: boolean;
+      months?: boolean;
+      days?: boolean;
+      start?: number | null;
+      end?: number | null;
+      interval?: number;
+      labels?: PivotLabels;
+    }
+  | {
+      cmd: 'pivotCalcField';
+      sheet: number;
+      index: number;
+      /** Existing calculated field; omitted = add one. */
+      field?: number | null;
+      name?: string;
+      formula?: string;
+      remove?: boolean;
+      labels?: PivotLabels;
+    }
+  | { cmd: 'pivotDelete'; sheet: number; index: number }
+  | { cmd: 'pivotMove'; sheet: number; index: number; dest: CellAt; labels?: PivotLabels }
+  | {
+      cmd: 'pivotChangeSource';
+      sheet: number;
+      index: number;
+      /** A1 range, optionally sheet-qualified. */
+      source: string;
+      labels?: PivotLabels;
+    }
+  | { cmd: 'pivotRefreshAll'; labels?: PivotLabels }
   | {
       cmd: 'setPageSetup';
       sheet: number;

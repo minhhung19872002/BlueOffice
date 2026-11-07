@@ -57,8 +57,9 @@ Kiểu trung gian `bo_binary::Workbook`/`PptDeck` và `bo_odf::SpreadsheetDoc`/`
   Công thức A1 chưa dịch sang OpenFormula khi xuất `.ods`.
 - **Xuất `.xlsx`/`.pptx`**: writer `bo-xlsx`/`bo-pptx` không có trên nhánh này → `bo-cli` xuất CSV/ODS
   và ODP; nối vào writer Phase 3/4 khi merge.
-- **Tính năng tài liệu**: xem §5 (BlueDoc). PivotTable (đọc cache, tạo pivot cơ bản) thuộc BlueSheet —
-  chưa làm.
+- **Tính năng tài liệu**: xem §5 (BlueDoc). PivotTable thuộc BlueSheet — đã làm ở
+  [`phase-3-xlsx.md`](phase-3-xlsx.md) §5 (đọc cache + hiển thị, tạo pivot, tổng phụ, bố cục, nhóm,
+  trường tính toán, "hiển thị giá trị dạng", sắp xếp/lọc, kiểu).
 
 ## 5. Tính năng tài liệu (BlueDoc) — hoàn thành, chờ duyệt
 

@@ -542,3 +542,18 @@
   cursor: nwse-resize;
   z-index: 3;
 }
+
+/* Pivot table dialogs: titled groups of settings. */
+.pivotSection {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px 8px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: 4px;
+}
+
+.pivotSection > legend {
+  padding: 0 4px;
+  font-weight: 600;
+}

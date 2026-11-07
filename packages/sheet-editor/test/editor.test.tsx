@@ -136,9 +136,29 @@ function fakeHost() {
                   area: { r0: 2, c0: 3, r1: 2, c1: 3 },
                   source: 'Sheet1!A1:B5',
                   fields: [
-                    { name: 'Vùng', items: ['Bắc', 'Nam'] },
-                    { name: 'Doanh thu', items: ['1', '2.5'] },
+                    {
+                      name: 'Vùng',
+                      items: ['Bắc', 'Nam'],
+                      formula: null,
+                      derived: false,
+                      date: false,
+                      group: null,
+                    },
+                    {
+                      name: 'Doanh thu',
+                      items: ['1', '2.5'],
+                      formula: null,
+                      derived: false,
+                      date: false,
+                      group: null,
+                    },
                   ],
+                  layout: 'tabular',
+                  rowGrandTotals: true,
+                  colGrandTotals: true,
+                  fieldOptions: [],
+                  fieldFilters: [],
+                  style: null,
                   ...areas,
                 },
               ]
@@ -151,6 +171,10 @@ function fakeHost() {
               field: v.field,
               function: v.function ?? 'sum',
               name: v.name ?? null,
+              showAs: v.showAs ?? 'normal',
+              baseField: v.baseField ?? 0,
+              baseItem: v.baseItem ?? 0,
+              numFmt: v.numFmt ?? null,
             })),
             filters: cmd.filters.map((f) => ({ field: f.field, items: f.items ?? [] })),
           };
@@ -369,13 +393,85 @@ describe('BlueSheetEditor', () => {
       expect(host.exec).toHaveBeenCalledWith(
         expect.objectContaining({
           cmd: 'pivotUpdate',
-          values: [{ field: 1, function: 'average', name: 'Average of Doanh thu' }],
+          values: [
+            expect.objectContaining({
+              field: 1,
+              function: 'average',
+              name: 'Average of Doanh thu',
+            }),
+          ],
         }),
       ),
     );
     fireEvent.click(screen.getByTestId('pivot-refresh'));
     await waitFor(() =>
       expect(host.exec).toHaveBeenCalledWith(expect.objectContaining({ cmd: 'pivotRefresh' })),
+    );
+    // Value field settings: show values as % of the grand total, number format.
+    fireEvent.click(await screen.findByTestId('pivot-settings-values-0'));
+    await screen.findByTestId('pivot-value-dialog');
+    fireEvent.change(screen.getByTestId('pivot-show-as'), { target: { value: 'percentOfTotal' } });
+    fireEvent.change(screen.getByTestId('pivot-num-fmt'), { target: { value: '0.00%' } });
+    fireEvent.click(screen.getByTestId('pivot-value-ok'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cmd: 'pivotUpdate',
+          values: [
+            expect.objectContaining({ field: 1, showAs: 'percentOfTotal', numFmt: '0.00%' }),
+          ],
+        }),
+      ),
+    );
+    // Row field settings: no subtotals, sort descending, group by months.
+    fireEvent.click(await screen.findByTestId('pivot-settings-rows-0'));
+    await screen.findByTestId('pivot-field-dialog');
+    fireEvent.click(screen.getByTestId('pivot-subtotal-none'));
+    fireEvent.change(screen.getByTestId('pivot-sort'), { target: { value: 'descending' } });
+    fireEvent.change(screen.getByTestId('pivot-group-by'), { target: { value: 'dates' } });
+    fireEvent.click(screen.getByTestId('pivot-field-ok'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cmd: 'pivotUpdate',
+          fieldOptions: [
+            expect.objectContaining({ field: 0, subtotal: false, sort: 'descending' }),
+          ],
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({ cmd: 'pivotGroup', field: 0, by: 'dates', months: true }),
+      ),
+    );
+    // Report options: outline layout, no grand total column.
+    fireEvent.click(await screen.findByTestId('pivot-options'));
+    await screen.findByTestId('pivot-options-dialog');
+    fireEvent.click(screen.getByTestId('pivot-layout-outline'));
+    fireEvent.click(screen.getByTestId('pivot-row-grand-totals'));
+    fireEvent.click(screen.getByTestId('pivot-options-ok'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({ cmd: 'pivotUpdate', layout: 'outline', rowGrandTotals: false }),
+      ),
+    );
+    // Calculated field.
+    fireEvent.click(await screen.findByTestId('pivot-calc'));
+    await screen.findByTestId('pivot-calc-dialog');
+    fireEvent.change(screen.getByTestId('pivot-calc-name'), { target: { value: 'Tax' } });
+    fireEvent.change(screen.getByTestId('pivot-calc-formula'), {
+      target: { value: "='Doanh thu'*0.1" },
+    });
+    fireEvent.click(screen.getByTestId('pivot-calc-ok'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cmd: 'pivotCalcField',
+          name: 'Tax',
+          formula: "='Doanh thu'*0.1",
+        }),
+      ),
     );
   });
 });

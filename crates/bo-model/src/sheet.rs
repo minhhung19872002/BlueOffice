@@ -1139,10 +1139,101 @@ pub struct PivotCache {
 
 /// A cache field (§18.10.1.3 `cacheField`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PivotCacheField {
     pub name: String,
     /// Shared items (§18.10.1.90 `sharedItems`) in file order; empty when the
     /// field's values are stored inline in the records.
+    pub items: Vec<CellValue>,
+    /// `fieldGroup` (§18.10.1.27): date / number range or manual grouping.
+    pub group: Option<PivotFieldGroup>,
+    /// `formula` of a calculated field (§18.10.1.3 `cacheField/@formula`,
+    /// without `=`), evaluated over the sums of the fields it names.
+    pub formula: Option<String>,
+    /// `databaseField="0"`: the field has no column in the records (a
+    /// calculated field or a grouping field built on another field).
+    pub derived: bool,
+    /// `numFmtId` (§18.10.1.3), `0` = General.
+    pub num_fmt_id: u32,
+}
+
+/// `ST_GroupBy` (§18.18.36): what a range group divides its base values by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PivotGroupBy {
+    /// Numeric ranges of `groupInterval`.
+    #[default]
+    Range,
+    Seconds,
+    Minutes,
+    Hours,
+    Days,
+    Months,
+    Quarters,
+    Years,
+}
+
+impl PivotGroupBy {
+    /// The `ST_GroupBy` token.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PivotGroupBy::Range => "range",
+            PivotGroupBy::Seconds => "seconds",
+            PivotGroupBy::Minutes => "minutes",
+            PivotGroupBy::Hours => "hours",
+            PivotGroupBy::Days => "days",
+            PivotGroupBy::Months => "months",
+            PivotGroupBy::Quarters => "quarters",
+            PivotGroupBy::Years => "years",
+        }
+    }
+
+    /// Parse a token (unknown → `range`, the default).
+    pub fn parse(s: &str) -> PivotGroupBy {
+        match s {
+            "seconds" => PivotGroupBy::Seconds,
+            "minutes" => PivotGroupBy::Minutes,
+            "hours" => PivotGroupBy::Hours,
+            "days" => PivotGroupBy::Days,
+            "months" => PivotGroupBy::Months,
+            "quarters" => PivotGroupBy::Quarters,
+            "years" => PivotGroupBy::Years,
+            _ => PivotGroupBy::Range,
+        }
+    }
+}
+
+/// `rangePr` (§18.10.1.77): grouping of numbers or dates into ranges.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PivotRangeGroup {
+    pub group_by: PivotGroupBy,
+    /// `autoStart` / `autoEnd` (default true): bounds follow the data on refresh.
+    pub auto_start: bool,
+    pub auto_end: bool,
+    /// `startNum` / `endNum`, or the serial of `startDate` / `endDate` when
+    /// [`PivotRangeGroup::dates`] is set.
+    pub start: f64,
+    pub end: f64,
+    /// `groupInterval` (default 1).
+    pub interval: f64,
+    /// The bounds are written as `startDate` / `endDate` (date grouping).
+    pub dates: bool,
+}
+
+/// `fieldGroup` (§18.10.1.27) of a cache field.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PivotFieldGroup {
+    /// `par`: the next coarser grouping field (e.g. Years above Months).
+    pub par: Option<u32>,
+    /// `base`: the field whose values are grouped (itself for the base field).
+    pub base: Option<u32>,
+    /// `rangePr` (§18.10.1.77).
+    pub range: Option<PivotRangeGroup>,
+    /// `discretePr` (§18.10.1.26): group index of every base item (manual grouping).
+    pub discrete: Vec<u32>,
+    /// `groupItems` (§18.10.1.37): the group captions.
     pub items: Vec<CellValue>,
 }
 
@@ -1251,8 +1342,139 @@ impl PivotFunction {
     }
 }
 
+/// "Show values as" of a data field: `ST_ShowDataAs` (§18.18.70) plus the
+/// later calculations of `x14:dataField/@pivotShowAs` ([MS-XLSX] `x14:dataField`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PivotShowAs {
+    #[default]
+    Normal,
+    /// Value minus the base item's value.
+    Difference,
+    /// Value / base item's value.
+    Percent,
+    /// (Value − base) / base.
+    PercentDiff,
+    /// Running total along the base field.
+    RunTotal,
+    /// Value / row grand total.
+    PercentOfRow,
+    /// Value / column grand total.
+    PercentOfCol,
+    /// Value / grand total.
+    PercentOfTotal,
+    /// (Value × grand total) / (row total × column total).
+    Index,
+    /// Value / parent row item's value (x14).
+    PercentOfParentRow,
+    /// Value / parent column item's value (x14).
+    PercentOfParentCol,
+    /// Value / the value of the enclosing base field item (x14).
+    PercentOfParent,
+    /// Running total / total along the base field (x14).
+    PercentOfRunningTotal,
+    /// Rank smallest-first among the base field's items (x14).
+    RankAscending,
+    /// Rank largest-first (x14).
+    RankDescending,
+}
+
+impl PivotShowAs {
+    /// The token (`ST_ShowDataAs` or `x14` `ST_PivotShowAs`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PivotShowAs::Normal => "normal",
+            PivotShowAs::Difference => "difference",
+            PivotShowAs::Percent => "percent",
+            PivotShowAs::PercentDiff => "percentDiff",
+            PivotShowAs::RunTotal => "runTotal",
+            PivotShowAs::PercentOfRow => "percentOfRow",
+            PivotShowAs::PercentOfCol => "percentOfCol",
+            PivotShowAs::PercentOfTotal => "percentOfTotal",
+            PivotShowAs::Index => "index",
+            PivotShowAs::PercentOfParentRow => "percentOfParentRow",
+            PivotShowAs::PercentOfParentCol => "percentOfParentCol",
+            PivotShowAs::PercentOfParent => "percentOfParent",
+            PivotShowAs::PercentOfRunningTotal => "percentOfRunningTotal",
+            PivotShowAs::RankAscending => "rankAscending",
+            PivotShowAs::RankDescending => "rankDescending",
+        }
+    }
+
+    /// Parse a token (unknown → `normal`).
+    pub fn parse(s: &str) -> PivotShowAs {
+        match s {
+            "difference" => PivotShowAs::Difference,
+            "percent" => PivotShowAs::Percent,
+            "percentDiff" => PivotShowAs::PercentDiff,
+            "runTotal" => PivotShowAs::RunTotal,
+            "percentOfRow" => PivotShowAs::PercentOfRow,
+            "percentOfCol" => PivotShowAs::PercentOfCol,
+            "percentOfTotal" => PivotShowAs::PercentOfTotal,
+            "index" => PivotShowAs::Index,
+            "percentOfParentRow" => PivotShowAs::PercentOfParentRow,
+            "percentOfParentCol" => PivotShowAs::PercentOfParentCol,
+            "percentOfParent" => PivotShowAs::PercentOfParent,
+            "percentOfRunningTotal" => PivotShowAs::PercentOfRunningTotal,
+            "rankAscending" => PivotShowAs::RankAscending,
+            "rankDescending" => PivotShowAs::RankDescending,
+            _ => PivotShowAs::Normal,
+        }
+    }
+
+    /// Only expressible through the `x14:dataField` extension.
+    pub fn is_x14(self) -> bool {
+        matches!(
+            self,
+            PivotShowAs::PercentOfParentRow
+                | PivotShowAs::PercentOfParentCol
+                | PivotShowAs::PercentOfParent
+                | PivotShowAs::PercentOfRunningTotal
+                | PivotShowAs::RankAscending
+                | PivotShowAs::RankDescending
+        )
+    }
+
+    /// Whether the result is a ratio (shown as a percentage by default).
+    pub fn is_percentage(self) -> bool {
+        matches!(
+            self,
+            PivotShowAs::Percent
+                | PivotShowAs::PercentDiff
+                | PivotShowAs::PercentOfRow
+                | PivotShowAs::PercentOfCol
+                | PivotShowAs::PercentOfTotal
+                | PivotShowAs::PercentOfParentRow
+                | PivotShowAs::PercentOfParentCol
+                | PivotShowAs::PercentOfParent
+                | PivotShowAs::PercentOfRunningTotal
+        )
+    }
+
+    /// Whether the calculation uses `baseField` / `baseItem`.
+    pub fn uses_base(self) -> bool {
+        matches!(
+            self,
+            PivotShowAs::Difference
+                | PivotShowAs::Percent
+                | PivotShowAs::PercentDiff
+                | PivotShowAs::RunTotal
+                | PivotShowAs::PercentOfParent
+                | PivotShowAs::PercentOfRunningTotal
+                | PivotShowAs::RankAscending
+                | PivotShowAs::RankDescending
+        )
+    }
+}
+
+/// `baseItem` meaning "the previous item" (§18.10.1.21: 1048828).
+pub const PIVOT_BASE_PREVIOUS: u32 = 1_048_828;
+/// `baseItem` meaning "the next item" (1048829).
+pub const PIVOT_BASE_NEXT: u32 = 1_048_829;
+
 /// A data (values) field of a pivot table (§18.10.1.21 `dataField`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PivotDataField {
     /// Cache field index (`fld`).
     pub field: u32,
@@ -1260,6 +1482,243 @@ pub struct PivotDataField {
     pub function: PivotFunction,
     /// Caption (`name`), e.g. "Sum of Sales".
     pub name: Option<String>,
+    /// `showDataAs` (or the x14 `pivotShowAs`).
+    pub show_as: PivotShowAs,
+    /// `baseField`: cache field index the calculation is relative to.
+    pub base_field: u32,
+    /// `baseItem`: item index of the base field, or [`PIVOT_BASE_PREVIOUS`] /
+    /// [`PIVOT_BASE_NEXT`].
+    pub base_item: u32,
+    /// `numFmtId`: number format of the value cells (`None` = from the source).
+    pub num_fmt_id: Option<u32>,
+}
+
+/// Report layout (`compact` / `outline` attributes of §18.10.1.73 and §18.10.1.69).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PivotLayout {
+    /// Every row field in one indented column.
+    Compact,
+    /// One column per row field, an item's children start on the next row.
+    Outline,
+    /// One column per row field, children on the item's row.
+    #[default]
+    Tabular,
+}
+
+/// `sortType` of a pivot field (§18.18.28 `ST_FieldSortType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PivotSort {
+    /// Item order of the field (`manual`, the default).
+    #[default]
+    Manual,
+    Ascending,
+    Descending,
+}
+
+impl PivotSort {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PivotSort::Manual => "manual",
+            PivotSort::Ascending => "ascending",
+            PivotSort::Descending => "descending",
+        }
+    }
+
+    pub fn parse(s: &str) -> PivotSort {
+        match s {
+            "ascending" => PivotSort::Ascending,
+            "descending" => PivotSort::Descending,
+            _ => PivotSort::Manual,
+        }
+    }
+}
+
+/// Settings of one pivot field (§18.10.1.69 `pivotField`), by cache field.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PivotFieldOptions {
+    /// `defaultSubtotal` (default true): subtotal of the field's items.
+    pub subtotal: bool,
+    /// `subtotalTop` (default true): the subtotal is on the item's first row
+    /// (compact / outline layouts; tabular always shows it below).
+    pub subtotal_top: bool,
+    /// `insertBlankRow`: a blank row after each item.
+    pub blank_row: bool,
+    /// `x14:pivotField/@fillDownLabels`: repeat item labels on every row.
+    pub repeat_labels: bool,
+    /// `sortType`.
+    pub sort: PivotSort,
+    /// `autoSortScope` (§18.10.1.6): sort by this data field (index into
+    /// [`PivotTable::values`]) instead of by label.
+    pub sort_by: Option<u32>,
+    /// Hidden items (`item/@h`), by value.
+    pub hidden: Vec<CellValue>,
+}
+
+impl Default for PivotFieldOptions {
+    fn default() -> Self {
+        PivotFieldOptions {
+            subtotal: true,
+            subtotal_top: true,
+            blank_row: false,
+            repeat_labels: false,
+            sort: PivotSort::Manual,
+            sort_by: None,
+            hidden: Vec::new(),
+        }
+    }
+}
+
+/// `ST_PivotFilterType` (§18.18.60) of a label, value or top-N filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PivotFilterType {
+    /// Top / bottom N items.
+    #[default]
+    Count,
+    /// Top / bottom items making up N percent.
+    Percent,
+    /// Top / bottom items whose sum reaches N.
+    Sum,
+    CaptionEqual,
+    CaptionNotEqual,
+    CaptionBeginsWith,
+    CaptionNotBeginsWith,
+    CaptionEndsWith,
+    CaptionNotEndsWith,
+    CaptionContains,
+    CaptionNotContains,
+    CaptionGreaterThan,
+    CaptionGreaterThanOrEqual,
+    CaptionLessThan,
+    CaptionLessThanOrEqual,
+    CaptionBetween,
+    CaptionNotBetween,
+    ValueEqual,
+    ValueNotEqual,
+    ValueGreaterThan,
+    ValueGreaterThanOrEqual,
+    ValueLessThan,
+    ValueLessThanOrEqual,
+    ValueBetween,
+    ValueNotBetween,
+}
+
+impl PivotFilterType {
+    const ALL: [(PivotFilterType, &'static str); 25] = [
+        (PivotFilterType::Count, "count"),
+        (PivotFilterType::Percent, "percent"),
+        (PivotFilterType::Sum, "sum"),
+        (PivotFilterType::CaptionEqual, "captionEqual"),
+        (PivotFilterType::CaptionNotEqual, "captionNotEqual"),
+        (PivotFilterType::CaptionBeginsWith, "captionBeginsWith"),
+        (
+            PivotFilterType::CaptionNotBeginsWith,
+            "captionNotBeginsWith",
+        ),
+        (PivotFilterType::CaptionEndsWith, "captionEndsWith"),
+        (PivotFilterType::CaptionNotEndsWith, "captionNotEndsWith"),
+        (PivotFilterType::CaptionContains, "captionContains"),
+        (PivotFilterType::CaptionNotContains, "captionNotContains"),
+        (PivotFilterType::CaptionGreaterThan, "captionGreaterThan"),
+        (
+            PivotFilterType::CaptionGreaterThanOrEqual,
+            "captionGreaterThanOrEqual",
+        ),
+        (PivotFilterType::CaptionLessThan, "captionLessThan"),
+        (
+            PivotFilterType::CaptionLessThanOrEqual,
+            "captionLessThanOrEqual",
+        ),
+        (PivotFilterType::CaptionBetween, "captionBetween"),
+        (PivotFilterType::CaptionNotBetween, "captionNotBetween"),
+        (PivotFilterType::ValueEqual, "valueEqual"),
+        (PivotFilterType::ValueNotEqual, "valueNotEqual"),
+        (PivotFilterType::ValueGreaterThan, "valueGreaterThan"),
+        (
+            PivotFilterType::ValueGreaterThanOrEqual,
+            "valueGreaterThanOrEqual",
+        ),
+        (PivotFilterType::ValueLessThan, "valueLessThan"),
+        (
+            PivotFilterType::ValueLessThanOrEqual,
+            "valueLessThanOrEqual",
+        ),
+        (PivotFilterType::ValueBetween, "valueBetween"),
+        (PivotFilterType::ValueNotBetween, "valueNotBetween"),
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        Self::ALL
+            .iter()
+            .find(|(t, _)| *t == self)
+            .map_or("count", |(_, s)| s)
+    }
+
+    /// Parse a token; `None` for types not modelled (dates, OLAP).
+    pub fn parse(s: &str) -> Option<PivotFilterType> {
+        Self::ALL.iter().find(|(_, n)| *n == s).map(|(t, _)| *t)
+    }
+
+    /// Top / bottom filters (`top10` in the filter's AutoFilter).
+    pub fn is_top10(self) -> bool {
+        matches!(
+            self,
+            PivotFilterType::Count | PivotFilterType::Percent | PivotFilterType::Sum
+        )
+    }
+
+    /// Filters comparing item captions.
+    pub fn is_caption(self) -> bool {
+        self.as_str().starts_with("caption")
+    }
+}
+
+/// A label, value or top-N filter of a row / column field (§18.10.1.35 `filter`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PivotFieldFilter {
+    /// Cache field index (`fld`).
+    pub field: u32,
+    pub kind: PivotFilterType,
+    /// `iMeasureFld`: data field index for value and top-N filters.
+    pub measure: u32,
+    /// `stringValue1` / `stringValue2` (caption filters) or the numbers of
+    /// value filters as text.
+    pub value1: String,
+    pub value2: String,
+    /// Top-N: `top10/@top` (false = bottom) and `top10/@val`.
+    pub top: bool,
+    pub count: f64,
+}
+
+/// `pivotTableStyleInfo` (§18.10.1 `CT_PivotTableStyle`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PivotStyleInfo {
+    /// Built-in or custom style name, e.g. `PivotStyleLight16`.
+    pub name: String,
+    pub show_row_headers: bool,
+    pub show_col_headers: bool,
+    pub show_row_stripes: bool,
+    pub show_col_stripes: bool,
+    pub show_last_column: bool,
+}
+
+/// One line of `rowItems` / `colItems` (§18.10.1.44 `i`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PivotAxisItem {
+    /// `t` (`ST_ItemType`): empty = `data`; `default` (subtotal), `grand`, `blank`, …
+    pub kind: String,
+    /// `r`: leading members repeated from the previous line.
+    pub repeat: u32,
+    /// `i`: data field index.
+    pub data_index: u32,
+    /// `x/@v`: item indexes (into the pivot field's items).
+    pub items: Vec<u32>,
 }
 
 /// A report filter (page field, §18.10.1 `pageField` in `pageFields`) and its selection.
@@ -1276,7 +1735,8 @@ pub struct PivotFilter {
 /// The rendered report itself consists of ordinary cells of the sheet. Pivot
 /// tables read from a file keep their part opaque unless edited ([`PivotTable::dirty`]);
 /// new ones (empty `part`) are written from this summary.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PivotTable {
     /// Absolute part name; empty for a new pivot table.
     pub part: String,
@@ -1298,8 +1758,69 @@ pub struct PivotTable {
     pub filters: Vec<PivotFilter>,
     /// `dataCaption` (required, e.g. "Values").
     pub data_caption: String,
+    /// Per cache field settings (`pivotFields`); missing entries use the defaults.
+    pub fields: Vec<PivotFieldOptions>,
+    /// Report layout (`compact` / `outline`).
+    pub layout: PivotLayout,
+    /// `rowGrandTotals` (default true): the grand total column at the right
+    /// (totals of every row).
+    pub row_grand_totals: bool,
+    /// `colGrandTotals` (default true): the grand total row at the bottom.
+    pub col_grand_totals: bool,
+    /// Label, value and top-N filters (§18.10.1 `filters`).
+    pub field_filters: Vec<PivotFieldFilter>,
+    /// `pivotTableStyleInfo`.
+    pub style: Option<PivotStyleInfo>,
+    /// `rowItems` / `colItems` (§18.10.1.84 / §18.10.1.10): the report lines.
+    pub row_items: Vec<PivotAxisItem>,
+    pub col_items: Vec<PivotAxisItem>,
     /// Regenerate the part on write.
     pub dirty: bool,
+}
+
+impl Default for PivotTable {
+    fn default() -> Self {
+        PivotTable {
+            part: String::new(),
+            name: String::new(),
+            cache_id: 0,
+            location: CellRange::default(),
+            first_header_row: 0,
+            first_data_row: 0,
+            first_data_col: 0,
+            rows: Vec::new(),
+            cols: Vec::new(),
+            data_on_rows: false,
+            values: Vec::new(),
+            filters: Vec::new(),
+            data_caption: String::new(),
+            fields: Vec::new(),
+            layout: PivotLayout::Tabular,
+            row_grand_totals: true,
+            col_grand_totals: true,
+            field_filters: Vec::new(),
+            style: None,
+            row_items: Vec::new(),
+            col_items: Vec::new(),
+            dirty: false,
+        }
+    }
+}
+
+impl PivotTable {
+    /// Settings of cache field `f` (defaults when not set).
+    pub fn field(&self, f: u32) -> PivotFieldOptions {
+        self.fields.get(f as usize).cloned().unwrap_or_default()
+    }
+
+    /// Mutable settings of cache field `f`, growing [`PivotTable::fields`].
+    pub fn field_mut(&mut self, f: u32) -> &mut PivotFieldOptions {
+        let i = f as usize;
+        if self.fields.len() <= i {
+            self.fields.resize(i + 1, PivotFieldOptions::default());
+        }
+        &mut self.fields[i]
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ use bo_text::FontManager;
 use serde::Serialize;
 
 mod cmd;
+mod pivot_cmd;
 mod png;
 mod print;
 

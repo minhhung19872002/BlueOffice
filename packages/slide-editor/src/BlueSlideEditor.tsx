@@ -44,21 +44,22 @@ export function BlueSlideEditor(props: BlueSlideEditorProps) {
   );
 }
 
-/** Size of an element, tracked with ResizeObserver. */
-function useSize<T extends HTMLElement>(): [React.RefObject<T>, { width: number; height: number }] {
-  const ref = useRef<T>(null);
+/**
+ * Size of an element, tracked with ResizeObserver. Returns a callback ref so
+ * the observer follows the element when views swap it out.
+ */
+function useSize(): [(el: HTMLElement | null) => void, { width: number; height: number }] {
+  const [el, setEl] = useState<HTMLElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
-    const el = ref.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() =>
       setSize({ width: el.clientWidth, height: el.clientHeight }),
     );
     ro.observe(el);
-    setSize({ width: el.clientWidth, height: el.clientHeight });
     return () => ro.disconnect();
-  }, []);
-  return [ref, size];
+  }, [el]);
+  return [setEl, size];
 }
 
 function SlideEditorInner({ platform }: BlueSlideEditorProps) {
@@ -77,7 +78,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   const [now, setNow] = useState(() => Date.now());
   const [revision, setRevision] = useState(0);
   const showRef = useRef<HTMLDivElement>(null);
-  const [stageRef, stage] = useSize<HTMLDivElement>();
+  const [stageRef, stage] = useSize();
   const glyphs = useMemo(() => new GlyphStore(engine), [engine]);
   const images = useMemo(() => new ImageStore(engine), [engine]);
 
@@ -105,6 +106,10 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     },
     [engine, images, platform, t],
   );
+
+  useEffect(() => {
+    platform.window.setTitle(t('appTitle.slide'));
+  }, [platform, t]);
 
   useEffect(() => {
     const un = platform.shell.onOpenRequest((f) => void load(f.bytes, f.name).catch(fail));

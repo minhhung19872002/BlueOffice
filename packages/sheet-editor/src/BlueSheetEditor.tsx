@@ -191,6 +191,8 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
 
   useEffect(() => {
     scrollerRef.current?.scrollTo(0, 0);
+    // Ready for typing straight away (IME included).
+    if (loadSeq > 0) inputRef.current?.focus({ preventScroll: true });
   }, [loadSeq]);
 
   useEffect(() => {

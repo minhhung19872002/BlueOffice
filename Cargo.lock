@@ -426,14 +426,26 @@ dependencies = [
 [[package]]
 name = "bo-binary"
 version = "0.1.0"
+dependencies = [
+ "bo-encoding",
+ "bo-model",
+ "bo-opc",
+ "cfb",
+ "proptest",
+ "thiserror 2.0.21",
+ "zip",
+]
 
 [[package]]
 name = "bo-cli"
 version = "0.1.0"
 dependencies = [
+ "bo-binary",
+ "bo-crypto",
  "bo-docx",
  "bo-engine",
  "bo-model",
+ "bo-odf",
  "bo-opc",
  "clap",
 ]
@@ -451,6 +463,20 @@ dependencies = [
 [[package]]
 name = "bo-crypto"
 version = "0.1.0"
+dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "cbc",
+ "cfb",
+ "ecb",
+ "getrandom 0.3.4",
+ "hmac",
+ "proptest",
+ "quick-xml",
+ "sha1",
+ "sha2",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "bo-desktop"
@@ -485,6 +511,15 @@ version = "0.1.0"
 [[package]]
 name = "bo-edit"
 version = "0.1.0"
+
+[[package]]
+name = "bo-encoding"
+version = "0.1.0"
+dependencies = [
+ "bo-model",
+ "proptest",
+ "unicode-normalization",
+]
 
 [[package]]
 name = "bo-engine"
@@ -533,6 +568,13 @@ dependencies = [
 [[package]]
 name = "bo-odf"
 version = "0.1.0"
+dependencies = [
+ "bo-model",
+ "proptest",
+ "quick-xml",
+ "thiserror 2.0.21",
+ "zip",
+]
 
 [[package]]
 name = "bo-opc"
@@ -1396,6 +1438,7 @@ dependencies = [
  "block-buffer",
  "const-oid",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -2211,6 +2254,15 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
+]
 
 [[package]]
 name = "html5ever"

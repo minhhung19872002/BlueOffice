@@ -52,6 +52,29 @@ BlueWrite → **BlueDoc**; route `/doc` `/sheet` `/slide` (route cũ chuyển h�
 binary `bluedoc.exe`; corpus `tests/corpus/doc`; quy tắc đặt tên ở `CLAUDE.md` và ADR-0006; Phase 7 (BlueForm, BlueNote) chỉ có kế hoạch.
 Toàn bộ test xanh sau khi đổi tên (Rust 53, TS 28, E2E web 5, .NET 6, smoke test desktop BlueDoc/BlueSheet).
 
+## Phase 2 — BlueDoc MVP · ✅ phần cốt lõi hoàn thành, chờ duyệt (2026-11-07)
+
+Kế hoạch và hạn chế: [`plan/phase-2.md`](plan/phase-2.md). ADR mới: [0005](adr/0005-lossless-docx-round-trip.md) (lossless),
+[0007](adr/0007-editing-transactions-and-command-bridge.md) (transaction + cầu lệnh JSON). Nhánh `wip/phase2-bluedoc` (rebase trên `main`).
+
+### Đã làm
+- `bo-layout` viết lại: phân trang, keep rules, bảng, ảnh, header/footer, cột, footnote/endnote, field trang.
+- `bo-render`/`bo-raster`/`bo-pdf`: ảnh PNG/JPEG (cắt, xoay), viền đứt/đôi, tô sáng; `bo-engine`: phiên chỉnh sửa, `command_json`.
+- `bo-edit`: op khả nghịch, undo/redo, gõ/xoá/tách/gộp đoạn, định dạng, style, danh sách, chèn bảng/ảnh/ngắt, find/replace, clipboard.
+- Editor: caret/selection, chuột/bàn phím, IME tiếng Việt, clipboard, ribbon, tìm/thay, mới/lưu .docx, PDF, tự lưu + khôi phục.
+- Corpus `tests/corpus/doc`: 33 file tự sinh (11 nhóm × 3) + mẫu Phase 1; `bo-cli corpus`, `bo-cli roundtrip`.
+
+### Kết quả kiểm thử (Windows 11, 2026-11-07)
+| Bộ | Kết quả |
+|---|---|
+| `cargo test --workspace` | 106 test ✅ (gồm proptest undo/redo, round-trip corpus) |
+| Round-trip corpus (34 file) | **100 %** lossless (XML chuẩn hoá), **100 %** ổn định mô hình khi sinh lại toàn bộ |
+| `cargo clippy --workspace --all-targets -D warnings` · `cargo fmt --check` · `cargo deny` | ✅ |
+| `pnpm test` (Vitest) | 33 test ✅ |
+| `pnpm lint` / `pnpm typecheck` | ✅ |
+| Playwright E2E (web) | 7 test ✅ — gồm gõ tiếng Việt → đậm → undo/redo → lưu .docx → mở lại → tìm |
+
+Ảnh chụp: [`screenshots/phase2-web-editing.png`](screenshots/phase2-web-editing.png).
 ## Phase 2–6A · ⏸ đang làm dở, tạm dừng theo yêu cầu (2026-11-05)
 
 `main` chỉ chứa phần đã kiểm thử (Phase 1 + đổi tên). Phần dở dang nằm ở các nhánh riêng trên GitHub,
@@ -59,7 +82,7 @@ Toàn bộ test xanh sau khi đổi tên (Rust 53, TS 28, E2E web 5, .NET 6, smo
 
 | Nhánh | Phạm vi | Tình trạng khi dừng |
 |---|---|---|
-| `wip/phase2-bluedoc` | Phase 2: model mở rộng (styles, numbering, bảng, ảnh, header/footer, field, footnote, XML gốc), reader/writer `.docx` lossless, `bo_model::index`, phân giải style, layout đoạn văn mới | Model + `bo-docx` biên dịch và **test xanh** (round-trip lossless, sửa 1 đoạn giữ nguyên các đoạn khác). `bo-layout` đang viết lại: `paragraph.rs`/`style.rs`/`types.rs` mới xong, **chưa có** `lib.rs` (phân trang, bảng, header/footer, cột, footnote) → crate chưa biên dịch. Chưa làm: render ảnh/bảng, `bo-edit` (chỉnh sửa, undo/redo), UI caret/selection, clipboard, find/replace, lưu .docx từ editor |
+| `wip/phase2-bluedoc` | (đã xong phần cốt lõi, xem mục Phase 2 ở trên) Phase 2: model mở rộng (styles, numbering, bảng, ảnh, header/footer, field, footnote, XML gốc), reader/writer `.docx` lossless, `bo_model::index`, phân giải style, layout đoạn văn mới | Model + `bo-docx` biên dịch và **test xanh** (round-trip lossless, sửa 1 đoạn giữ nguyên các đoạn khác). `bo-layout` đang viết lại: `paragraph.rs`/`style.rs`/`types.rs` mới xong, **chưa có** `lib.rs` (phân trang, bảng, header/footer, cột, footnote) → crate chưa biên dịch. Chưa làm: render ảnh/bảng, `bo-edit` (chỉnh sửa, undo/redo), UI caret/selection, clipboard, find/replace, lưu .docx từ editor |
 | `wip/phase3-formula` | `bo-formula`: lexer/parser, giá trị, hàm | Dừng khi đang viết workbook (dependency graph, spill); chưa xác minh build/test |
 | `wip/phase3-xlsx-sheet` | `bo-xlsx` + `bo-sheet` + `bo_model::sheet` | Dừng khi đang viết grid geometry; chưa xác minh |
 | `wip/phase4-pptx-drawingml` | `bo-pptx` + `bo-drawingml` + `bo_model::slide` | Đã biên dịch được; đang làm writer giữ thứ tự relationship, chưa có corpus |

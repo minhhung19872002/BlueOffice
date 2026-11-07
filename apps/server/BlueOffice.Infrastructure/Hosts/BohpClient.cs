@@ -38,7 +38,10 @@ public sealed class BohpClient(IHttpClientFactory httpFactory) : IBohpClient
             dto.LastModified,
             dto.Lock?.LockId,
             SupportsLocks: true,
-            SupportsVersions: true);
+            SupportsVersions: true)
+        {
+            FolderId = dto.FolderId,
+        };
     }
 
     /// <inheritdoc />
@@ -261,6 +264,8 @@ public sealed class BohpClient(IHttpClientFactory httpFactory) : IBohpClient
         public string? Version { get; set; }
 
         public string? OwnerId { get; set; }
+
+        public string? FolderId { get; set; }
 
         public DateTime? LastModified { get; set; }
 

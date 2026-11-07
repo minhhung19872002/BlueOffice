@@ -25,7 +25,10 @@ public sealed class LocalHostStorage(IServiceScopeFactory scopes) : IHostStorage
         return new HostFileInfo(
             file.Id.ToString(), file.Name, file.Size, file.CurrentVersion.ToString(System.Globalization.CultureInfo.InvariantCulture),
             file.OwnerId.ToString(), HostPermissions.FromRole(role), new HostUser(user.Id.ToString(), user.DisplayName, null),
-            null, file.UpdatedAt, null, SupportsLocks: false, SupportsVersions: true);
+            null, file.UpdatedAt, null, SupportsLocks: false, SupportsVersions: true)
+        {
+            FolderId = file.FolderId?.ToString(),
+        };
     }, ct);
 
     /// <inheritdoc />
@@ -44,7 +47,13 @@ public sealed class LocalHostStorage(IServiceScopeFactory scopes) : IHostStorage
     public Task<HostPutResult> PutContentsAsync(HostCallContext ctx, string fileId, byte[] content, HostPutOptions options, CancellationToken ct) =>
         RunAsync(ctx, fileId, async (sp, user, id) =>
         {
-            int? ifMatch = options.IfMatchVersion is { } v ? int.Parse(v, System.Globalization.CultureInfo.InvariantCulture) : null;
+            int? ifMatch = null;
+            if (options.IfMatchVersion is { } v)
+            {
+                // A version that is not ours can never match.
+                ifMatch = int.TryParse(v, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : -1;
+            }
+
             try
             {
                 var dto = await sp.GetRequiredService<FileService>().PutContentAsync(user.Id, user.DisplayName, id, new MemoryStream(content), ifMatch, options.Note, ct);

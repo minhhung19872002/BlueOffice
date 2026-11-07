@@ -78,6 +78,14 @@ public static class MockBlueDriveApp
                 });
             }
         });
+        app.MapGet("/_admin/folders/{folderId}/files", (string folderId, MockState s) =>
+        {
+            lock (s)
+            {
+                return Results.Ok(s.Files.Values.Where(f => f.FolderId == folderId)
+                    .Select(f => new { id = f.Id, name = f.Name, version = f.Version, ownerId = f.OwnerId }).ToList());
+            }
+        });
         app.MapGet("/_admin/webhooks", (MockState s) =>
         {
             lock (s)
@@ -126,6 +134,7 @@ public static class MockBlueDriveApp
                     size = f.Current.Content.Length,
                     version = f.Version,
                     ownerId = f.OwnerId,
+                    folderId = f.FolderId,
                     lastModified = f.Current.At,
                     shareUrl = $"https://drive.mock/s/{f.Id}",
                     permissions = f.PermsOf(user!),

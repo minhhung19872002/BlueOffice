@@ -22,6 +22,9 @@ public static class HostEvents
     /// <summary>Last participant left.</summary>
     public const string SessionEnded = "session.ended";
 
+    /// <summary>Offline edits could not be applied: a "(xung đột - …)" copy was created next to the file.</summary>
+    public const string ConflictCopyCreated = "file.conflict-copy";
+
     /// <summary>Audit record (open/edit/export/print/download).</summary>
     public const string Audit = "audit";
 }

@@ -35,6 +35,9 @@ public sealed class CollabOptions
     /// <summary>Editor session lifetime (sliding).</summary>
     public TimeSpan SessionLifetime { get; set; } = TimeSpan.FromHours(12);
 
+    /// <summary>IANA time zone used for user-visible timestamps (conflict copy names).</summary>
+    public string TimeZone { get; set; } = "Asia/Ho_Chi_Minh";
+
     /// <summary>Maximum size of one WebSocket message.</summary>
     public int MaxMessageBytes { get; set; } = 16 * 1024 * 1024;
 
@@ -105,6 +108,7 @@ public sealed class CollabRoom
     private bool _checkpointSaved = true;
     private DateTime _saveRequestedAt;
     private bool _saveRequested;
+    private string? _saveRequestReason;
     private EditorSession? _lockSession;
     private bool _closing;
 
@@ -646,6 +650,7 @@ public sealed class CollabRoom
     public async Task<SaveResult> SetCheckpointAsync(EditorSession session, byte[] content, bool save, bool overwrite, CancellationToken ct)
     {
         bool doSave;
+        string reason;
         await _gate.WaitAsync(ct);
         try
         {
@@ -654,6 +659,9 @@ public sealed class CollabRoom
             _checkpointSession = session;
             _checkpointSaved = false;
             doSave = save || overwrite || _saveRequested;
+
+            // A checkpoint answering a save-request keeps the reason of the request (e.g. "autosave").
+            reason = save || overwrite ? "manual" : _saveRequestReason ?? "requested";
             if (overwrite)
             {
                 Conflict = false;
@@ -665,7 +673,7 @@ public sealed class CollabRoom
         }
 
         return doSave
-            ? await SaveAsync(save ? "manual" : "requested", overwrite, ct)
+            ? await SaveAsync(reason, overwrite, ct)
             : new SaveResult(SaveOutcome.UpToDate, BaseVersion, "Checkpoint stored.");
     }
 
@@ -691,6 +699,7 @@ public sealed class CollabRoom
                     {
                         _saveRequested = true;
                         _saveRequestedAt = Now;
+                        _saveRequestReason = reason;
                         leader.SendEvent(new { type = "save-request", reason });
                         return new SaveResult(SaveOutcome.Requested, BaseVersion, null);
                     }
@@ -753,6 +762,7 @@ public sealed class CollabRoom
                 Dirty = LastChange > checkpointAt;
                 LastSave = now;
                 _saveRequested = false;
+                _saveRequestReason = null;
                 Conflict = false;
                 foreach (var id in editorIds)
                 {

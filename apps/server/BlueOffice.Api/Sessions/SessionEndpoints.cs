@@ -134,6 +134,14 @@ public static class SessionEndpoints
             return Results.Ok(created);
         }).DisableAntiforgery();
 
+        // Offline edits (desktop/web cache) uploaded with the version they were based on; conflicts produce a copy.
+        api.MapPost("/{id}/sync", async (string id, string baseVersion, HttpRequest req, SessionStore store, SessionService sessions, StorageOptions storage, TimeProvider time, CancellationToken ct) =>
+        {
+            var s = Require(id, req, store, time);
+            var content = await ReadBodyAsync(req, storage.MaxUploadBytes, ct);
+            return Results.Ok(await sessions.SyncOfflineAsync(s, content, baseVersion, ct));
+        }).DisableAntiforgery();
+
         // Host → BlueOffice notifications, authenticated with a host-signed JWT.
         app.MapPost("/api/hosts/{host}/notify", async (string host, HostNotification body, ClaimsPrincipal p, SessionService sessions, CancellationToken ct) =>
         {
@@ -202,7 +210,7 @@ public static class SessionEndpoints
             var r = await room.SetCheckpointAsync(s, content, save == true, overwrite == true, ct);
             return r.Outcome == SaveOutcome.Conflict
                 ? Results.Conflict(new { outcome = "conflict", currentVersion = r.Version, message = r.Message })
-                : Results.Ok(new { outcome = r.Outcome.ToString().ToLowerInvariant(), version = r.Version, message = r.Message });
+                : Results.Ok(new { outcome = System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(r.Outcome.ToString()), version = r.Version, message = r.Message });
         }
 
         // No collaboration room (single user without WebSocket): write straight to the host.
@@ -289,17 +297,30 @@ public static class SessionEndpoints
 
     private static string WopiDiscovery(string baseUrl)
     {
+        // [MS-WOPI] §3.1.5.1.1.1 wopi-discovery/net-zone/app/action; app names follow ADR-0006.
         var url = System.Security.SecurityElement.Escape(baseUrl + "/edit?<ui=UI_LLCC&>");
-        return $"""
-            <?xml version="1.0" encoding="utf-8"?>
-            <wopi-discovery>
-              <net-zone name="external-https">
-                <app name="BlueWrite" favIconUrl="{System.Security.SecurityElement.Escape(baseUrl)}/favicon.ico">
-                  <action name="view" ext="docx" default="true" urlsrc="{url}" />
-                  <action name="edit" ext="docx" requires="locks,update" urlsrc="{url}" />
-                </app>
-              </net-zone>
-            </wopi-discovery>
-            """;
+        var icon = System.Security.SecurityElement.Escape(baseUrl) + "/favicon.ico";
+        var apps = new (string Name, string[] Ext)[]
+        {
+            ("BlueDoc", ["docx", "doc", "odt"]),
+            ("BlueSheet", ["xlsx", "xls", "ods"]),
+            ("BlueSlide", ["pptx", "ppt", "odp"]),
+        };
+        var sb = new StringBuilder();
+        sb.Append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<wopi-discovery>\n  <net-zone name=\"external-https\">\n");
+        foreach (var (name, exts) in apps)
+        {
+            sb.Append($"    <app name=\"{name}\" favIconUrl=\"{icon}\">\n");
+            foreach (var ext in exts)
+            {
+                sb.Append($"      <action name=\"view\" ext=\"{ext}\" default=\"true\" urlsrc=\"{url}\" />\n");
+                sb.Append($"      <action name=\"edit\" ext=\"{ext}\" requires=\"locks,update\" urlsrc=\"{url}\" />\n");
+            }
+
+            sb.Append("    </app>\n");
+        }
+
+        sb.Append("  </net-zone>\n</wopi-discovery>\n");
+        return sb.ToString();
     }
 }

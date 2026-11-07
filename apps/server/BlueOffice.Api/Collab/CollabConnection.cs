@@ -16,6 +16,7 @@ public sealed class CollabConnection(string id, EditorSession session, WebSocket
 
     private WebSocketCloseStatus _closeStatus = WebSocketCloseStatus.NormalClosure;
     private string _closeReason = "";
+    private int _closing;
 
     /// <summary>Connection id.</summary>
     public string Id { get; } = id;
@@ -43,16 +44,21 @@ public sealed class CollabConnection(string id, EditorSession session, WebSocket
 
     private void Enqueue(byte[] data, WebSocketMessageType type)
     {
-        if (!_outbox.Writer.TryWrite((data, type)))
+        if (!_outbox.Writer.TryWrite((data, type)) && Volatile.Read(ref _closing) == 0)
         {
             // Slow consumer: drop the connection rather than buffering without bound.
             Close(WebSocketCloseStatus.PolicyViolation, "slow consumer");
         }
     }
 
-    /// <summary>Flushes queued frames then closes with <paramref name="status"/>.</summary>
+    /// <summary>Flushes queued frames then closes with <paramref name="status"/>. Only the first call decides the status.</summary>
     public void Close(WebSocketCloseStatus status, string reason)
     {
+        if (Interlocked.Exchange(ref _closing, 1) != 0)
+        {
+            return;
+        }
+
         _closeStatus = status;
         _closeReason = reason;
         if (_outbox.Writer.TryComplete())

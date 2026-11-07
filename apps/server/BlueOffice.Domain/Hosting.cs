@@ -84,7 +84,11 @@ public sealed record HostFileInfo(
     DateTime? LastModified,
     string? LockId,
     bool SupportsLocks,
-    bool SupportsVersions);
+    bool SupportsVersions)
+{
+    /// <summary>Folder containing the file (BOHP <c>folderId</c>); target of Save As and conflict copies. Null if unknown.</summary>
+    public string? FolderId { get; init; }
+}
 
 /// <summary>File content + the version it corresponds to.</summary>
 public sealed record HostContent(byte[] Content, string? Version);

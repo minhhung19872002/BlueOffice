@@ -166,14 +166,10 @@ public sealed class FileLifecycleTests(AppFixture fx) : IClassFixture<AppFixture
         Assert.Equal("owner", file.GetProperty("role").GetString());
         Assert.Equal("application/vnd.openxmlformats-officedocument.wordprocessingml.document", file.GetProperty("contentType").GetString());
 
-        var put = new ByteArrayContent("phiên bản 2"u8.ToArray());
-        put.Headers.IfMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue("\"1\""));
-        Assert.Equal(HttpStatusCode.OK, (await c.PutAsync(new Uri($"/api/files/{id}/content", UriKind.Relative), put)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PutIfMatchAsync(c, id, "phiên bản 2"u8.ToArray(), "\"1\"")).StatusCode);
 
         // Stale If-Match → 409.
-        var stale = new ByteArrayContent([9]);
-        stale.Headers.IfMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue("\"1\""));
-        Assert.Equal(HttpStatusCode.Conflict, (await c.PutAsync(new Uri($"/api/files/{id}/content", UriKind.Relative), stale)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await PutIfMatchAsync(c, id, [9], "\"1\"")).StatusCode);
 
         var versions = await c.GetFromJsonAsync<JsonElement>(new Uri($"/api/files/{id}/versions", UriKind.Relative));
         Assert.Equal(2, versions.GetArrayLength());
@@ -190,6 +186,13 @@ public sealed class FileLifecycleTests(AppFixture fx) : IClassFixture<AppFixture
         versions = await c.GetFromJsonAsync<JsonElement>(new Uri($"/api/files/{id}/versions", UriKind.Relative));
         Assert.Equal("Restored from version 1", versions[0].GetProperty("note").GetString());
         Assert.True(versions[0].GetProperty("current").GetBoolean());
+    }
+
+    private static Task<HttpResponseMessage> PutIfMatchAsync(HttpClient c, Guid id, byte[] body, string etag)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Put, new Uri($"/api/files/{id}/content", UriKind.Relative)) { Content = new ByteArrayContent(body) };
+        req.Headers.IfMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue(etag));
+        return c.SendAsync(req);
     }
 
     [Fact]

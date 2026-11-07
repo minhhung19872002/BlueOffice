@@ -172,7 +172,105 @@ export interface FormatState {
   numbering: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  /** Effective paragraph indents and spacing (twips); `firstLine` < 0 = hanging. */
+  indentLeft?: number;
+  indentRight?: number;
+  firstLine?: number;
+  spaceBefore?: number;
+  spaceAfter?: number;
+  lineSpacing?: { rule: LineRule; value: number };
+  tabs?: TabSpec[];
+  shading?: string | null;
+  section?: SectionState;
+  table?: TableState | null;
 }
+
+/** Line spacing rule (§17.18.48): `auto` in 240ths of a line, else twips. */
+export type LineRule = 'auto' | 'exact' | 'atLeast';
+
+export type TabKind = 'left' | 'center' | 'right' | 'decimal' | 'bar';
+
+/** Tab stop (twips from the left margin, §17.3.1.37). */
+export interface TabSpec {
+  pos: number;
+  align?: TabKind;
+  leader?: 'none' | 'dot' | 'hyphen' | 'underscore';
+}
+
+/** Page setup of the caret's section (twips; mirrors `bo_edit::SectionState`). */
+export interface SectionState {
+  index: number;
+  count: number;
+  width: number;
+  height: number;
+  marginTop: number;
+  marginBottom: number;
+  marginLeft: number;
+  marginRight: number;
+  header: number;
+  footer: number;
+  columns: number;
+  columnSpace: number;
+  titlePage: boolean;
+  evenAndOdd: boolean;
+}
+
+/** Page setup sent with `setPageSetup` (twips). */
+export type PageSetupSpec = Omit<SectionState, 'index' | 'count' | 'titlePage' | 'evenAndOdd'>;
+
+/** The table holding the caret (mirrors `bo_edit::TableState`). */
+export interface TableState {
+  rows: number;
+  cols: number;
+  row: number;
+  col: number;
+  headerRow: boolean;
+  shading: string | null;
+  align: Alignment;
+  widthPct: number | null;
+  width: number;
+  multiCell: boolean;
+  merged: boolean;
+}
+
+export type TableEdit =
+  | {
+      kind: 'deleteRow' | 'deleteColumn' | 'deleteTable' | 'mergeCells' | 'splitCell';
+    }
+  | { kind: 'insertRow'; below: boolean }
+  | { kind: 'insertColumn'; right: boolean }
+  | { kind: 'shading'; hex: string | null }
+  | { kind: 'borders'; preset: 'all' | 'none' | 'outside' | 'inside' }
+  | { kind: 'properties'; widthPct?: number | null; width?: number | null; align?: Alignment }
+  | { kind: 'headerRow'; on: boolean };
+
+/** Open header/footer editor (mirrors `bo_engine::story::StoryState`). */
+export interface StoryState {
+  kind: 'header' | 'footer';
+  section: number;
+  variant: 'default' | 'first' | 'even';
+  page: number;
+  titlePage: boolean;
+  evenAndOdd: boolean;
+}
+
+/** A footnote or endnote (mirrors `bo_edit::section::NoteInfo`). */
+export interface NoteInfo {
+  id: number;
+  endnote: boolean;
+  text: string;
+  para: number | null;
+}
+
+/** Font picker entry (mirrors `bo_engine::fonts::FontChoice`). */
+export interface FontChoice {
+  name: string;
+  /** Loaded family that displays it (metric-compatible substitute). */
+  substitute: string | null;
+  available: boolean;
+}
+
+export type DocPasteMode = 'keep' | 'merge' | 'text';
 
 export interface FindOptions {
   matchCase?: boolean;
@@ -197,6 +295,14 @@ export type ParaFormat =
   | { kind: 'align'; align: Alignment }
   | { kind: 'increaseIndent' | 'decreaseIndent' | 'bullets' | 'numbering' | 'clear' }
   | { kind: 'lineSpacing'; value: number }
+  | { kind: 'lineSpacingRule'; rule: LineRule; value: number }
+  | {
+      kind: 'spaceBefore' | 'spaceAfter' | 'indentLeft' | 'indentRight' | 'indentFirstLine';
+      twips: number;
+    }
+  | { kind: 'indents'; left: number; right: number; firstLine: number }
+  | { kind: 'tabs'; tabs: TabSpec[] }
+  | { kind: 'shading'; hex: string | null }
   | { kind: 'style'; id: string };
 
 export type Motion =
@@ -294,7 +400,18 @@ export type EditCommand =
   | { cmd: 'selectMatch'; match: FindMatch }
   | { cmd: 'replace'; match: FindMatch; with: string }
   | { cmd: 'replaceAll'; query: string; options?: FindOptions; with: string }
-  | { cmd: 'paste'; internal?: string; html?: string; text?: string }
+  | { cmd: 'paste'; internal?: string; html?: string; text?: string; mode?: DocPasteMode }
+  | { cmd: 'tab'; back?: boolean }
+  | { cmd: 'tableEdit'; edit: TableEdit }
+  | { cmd: 'setPageSetup'; setup: PageSetupSpec; scope?: 'section' | 'document' }
+  | { cmd: 'setHeaderOptions'; titlePage?: boolean; evenAndOdd?: boolean }
+  | { cmd: 'editHeaderFooter'; page: number; header: boolean }
+  | { cmd: 'closeHeaderFooter' | 'notes' | 'clearFormatting' | 'fontList' }
+  | { cmd: 'pickFormat' | 'applyFormat' | 'cancelFormat' }
+  | { cmd: 'insertField'; instr: string }
+  | { cmd: 'insertNote'; endnote?: boolean; text?: string }
+  | { cmd: 'setNoteText'; endnote?: boolean; id: number; text: string }
+  | { cmd: 'newFromTemplate'; id: string; name: string }
   | { cmd: 'review' | 'acceptAllRevisions' | 'rejectAllRevisions' }
   | { cmd: 'setTrackChanges'; on: boolean }
   | { cmd: 'setAuthor'; name: string }
@@ -346,6 +463,14 @@ export interface EditResult {
   merge?: MergeState;
   /** While collaborating: the change to share and the selection as UTF-16 offsets. */
   collab?: { change: CollabChange; selection: [number, number] };
+  /** Open header/footer editor (the selection is in it). */
+  story?: StoryState;
+  /** Footnotes and endnotes (`notes` and note commands). */
+  notes?: NoteInfo[];
+  /** Font picker entries (`fontList`). */
+  fonts?: FontChoice[];
+  /** The Format Painter holds picked formatting. */
+  painter?: boolean;
 }
 
 // ---------------------------------------------------------------- live collaboration (bo_engine::collab)
@@ -616,6 +741,8 @@ export interface ClipboardAccess {
   writeText(text: string): Promise<void>;
   /** Write rich content (HTML + plain-text fallback). */
   writeHtml(html: string, text: string): Promise<void>;
+  /** HTML on the clipboard ('' when none or not readable; Paste Special). */
+  readHtml?(): Promise<string>;
 }
 
 export interface FontDescriptor {

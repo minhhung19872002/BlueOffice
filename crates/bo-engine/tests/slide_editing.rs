@@ -387,7 +387,11 @@ fn insert_picture_adds_media_part() {
         .any(|c| matches!(c, bo_render::Command::Image { .. })));
     run(&mut e, r#"{"cmd":"undo"}"#);
     let after_undo = bo_pptx::read_pptx(&e.save_pptx().unwrap()).unwrap();
-    assert!(after_undo.slides[0].info.rels.iter().all(|r| !r.target.contains("media/image")));
+    assert!(after_undo.slides[0]
+        .info
+        .rels
+        .iter()
+        .all(|r| !r.target.contains("media/image")));
 }
 
 // ---------------------------------------------------------------------------

@@ -225,3 +225,128 @@
   color: inherit;
   cursor: pointer;
 }
+
+/* ------------------------------------------------------------ editing */
+
+.slideWrap {
+  position: relative;
+  outline: none;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.overlaySvg {
+  display: block;
+  touch-action: none;
+  overflow: visible;
+  cursor: default;
+}
+
+.placeholder {
+  fill: none;
+  stroke: #8a94a6;
+  stroke-width: 1px;
+  stroke-dasharray: 4 3;
+}
+
+.selected {
+  fill: none;
+  stroke: var(--bo-slide-accent, #c2410c);
+  stroke-width: 1.5px;
+  cursor: move;
+}
+
+.bounds {
+  fill: none;
+  stroke: var(--bo-slide-accent, #c2410c);
+  stroke-width: 1px;
+  stroke-dasharray: 3 3;
+}
+
+.handle {
+  fill: #fff;
+  stroke: var(--bo-slide-accent, #c2410c);
+  stroke-width: 1.5px;
+}
+
+circle.handle {
+  cursor: grab;
+}
+
+.rotLine {
+  stroke: var(--bo-slide-accent, #c2410c);
+  stroke-width: 1px;
+}
+
+.ghost {
+  fill: rgb(194 65 12 / 8%);
+  stroke: var(--bo-slide-accent, #c2410c);
+  stroke-width: 1px;
+  stroke-dasharray: 5 3;
+}
+
+.guide {
+  stroke: #db2777;
+  stroke-width: 1px;
+}
+
+.textEditor {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--bo-slide-accent, #c2410c);
+  border-radius: 2px;
+  background: rgb(255 255 255 / 96%);
+  color: #111;
+  font-family: var(--bo-font-ui, system-ui, sans-serif);
+  line-height: 1.25;
+  resize: none;
+  transform-origin: center;
+  outline: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+}
+
+.notesEditor {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 0;
+  padding: 0;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.thumbAdd {
+  padding: 6px;
+  border: 1px dashed var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.thumbDrop {
+  box-shadow: inset 0 3px 0 var(--bo-slide-accent, #c2410c);
+}
+
+.modified {
+  margin-left: 8px;
+  font-weight: 600;
+}
+
+.colorInput {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}

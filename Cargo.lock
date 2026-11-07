@@ -539,7 +539,9 @@ dependencies = [
  "bo-pptx",
  "bo-raster",
  "bo-render",
+ "bo-sheet",
  "bo-text",
+ "bo-xlsx",
  "insta",
  "serde",
  "serde_json",
@@ -693,6 +695,8 @@ name = "bo-wasm"
 version = "0.1.0"
 dependencies = [
  "bo-engine",
+ "serde",
+ "serde_json",
  "wasm-bindgen",
 ]
 

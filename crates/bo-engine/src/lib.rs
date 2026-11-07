@@ -15,6 +15,8 @@ use std::collections::BTreeMap;
 
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
+pub mod sheet;
+pub use sheet::SheetEngine;
 
 /// Engine errors (surfaced to JS / Tauri as strings).
 #[derive(Debug, thiserror::Error)]
@@ -33,6 +35,8 @@ pub enum EngineError {
     PageOutOfRange(usize),
     #[error("PDF export failed: {0}")]
     Pdf(#[from] bo_pdf::PdfError),
+    #[error("spreadsheet error: {0}")]
+    Sheet(String),
     #[error("rendering failed: {0}")]
     Raster(#[from] bo_raster::RasterError),
 }

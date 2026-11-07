@@ -5,6 +5,9 @@
 //! results (PDF, PNG) as `Uint8Array`.
 #![forbid(unsafe_code)]
 
+mod sheet;
+pub use sheet::WasmSheet;
+
 use bo_engine::Engine;
 use wasm_bindgen::prelude::*;
 

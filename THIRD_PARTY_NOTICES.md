@@ -68,6 +68,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | Microsoft.Extensions.* | 8.0.x | MIT | Options, logging |
 | Microsoft.AspNetCore.Mvc.Testing (dev) | 8.0.11 | MIT | Integration test |
 | xunit, xunit.runner.visualstudio (dev) | 2.9.2 / 2.8.2 | Apache-2.0 | Unit test |
+| DocumentFormat.OpenXml (tools/BlueOffice.Validate) | 3.1.1 | MIT | Validate OOXML xuất ra (prompt §7) |
 | Microsoft.NET.Test.Sdk (dev) | 17.11.1 | MIT | Test host |
 
 ## Icon

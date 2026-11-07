@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 bo-engine.workspace = true
+bo-collab = { path = "../bo-collab" }
 wasm-bindgen.workspace = true
 serde.workspace = true
 serde_json.workspace = true

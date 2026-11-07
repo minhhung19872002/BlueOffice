@@ -5,7 +5,9 @@
 //! results (PDF, PNG) as `Uint8Array`.
 #![forbid(unsafe_code)]
 
+mod collab;
 mod sheet;
+pub use collab::WasmCollab;
 pub use sheet::WasmSheet;
 
 use bo_engine::Engine;

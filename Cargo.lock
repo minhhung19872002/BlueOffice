@@ -715,6 +715,7 @@ dependencies = [
 name = "bo-wasm"
 version = "0.1.0"
 dependencies = [
+ "bo-collab",
  "bo-engine",
  "serde",
  "serde_json",

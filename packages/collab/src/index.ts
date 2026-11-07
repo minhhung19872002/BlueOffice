@@ -230,3 +230,4 @@ export class CollabClient {
     }
   }
 }
+export * from './sheet';

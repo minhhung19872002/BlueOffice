@@ -318,6 +318,11 @@ export interface SheetHost {
   getGlyphOutlines(face: number, glyphs: number[]): Promise<GlyphOutline[]>;
   /** Runs an editing command; the result shape depends on the command. */
   exec<T = unknown>(cmd: SheetCommand): Promise<T>;
+  /**
+   * Notifies about changes made outside this editor (collaborators); the UI
+   * re-reads info and redraws. Hosts without collaboration omit it.
+   */
+  onExternalChange?(listener: () => void): () => void;
 }
 
 /** Method names understood by both transports (web worker and Tauri). */

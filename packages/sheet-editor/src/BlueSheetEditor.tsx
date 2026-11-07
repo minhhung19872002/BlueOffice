@@ -501,6 +501,12 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
     setRevision((r) => r + 1);
   }, [host]);
 
+  // Collaborators' edits arrive through the host: redraw.
+  useEffect(
+    () => host?.onExternalChange?.(() => void refreshInfo().catch(() => {})),
+    [host, refreshInfo],
+  );
+
   const exec = useCallback(
     async <T,>(cmd: SheetCommand, refresh = true): Promise<T | null> => {
       if (!host) return null;

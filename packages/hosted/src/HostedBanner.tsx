@@ -3,10 +3,9 @@
  * or edit permission revoked mid-session), revoked access, offline /
  * reconnecting. Nothing is shown while editing online.
  */
-import type { CloseReason, CollabStatus } from '@blueoffice/collab';
 import { resources, type Language } from '@blueoffice/i18n';
 import { useEffect, useState, type CSSProperties } from 'react';
-import type { SessionMode, SessionModeValue } from './mode';
+import type { HostedStatus, SessionMode, SessionModeValue } from './mode';
 
 type HostedKey = keyof (typeof resources)['vi-VN']['translation']['hosted'];
 
@@ -14,28 +13,6 @@ type HostedKey = keyof (typeof resources)['vi-VN']['translation']['hosted'];
 export function hostedText(lang: Language, key: HostedKey, vars: Record<string, string> = {}) {
   const s: string = resources[lang].translation.hosted[key];
   return s.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? '');
-}
-
-/** Observable connection state for {@link HostedBanner}. */
-export class HostedStatus {
-  private status: CollabStatus | null = null;
-  private ended: CloseReason | null = null;
-  private readonly listeners = new Set<() => void>();
-  get value(): { status: CollabStatus | null; ended: CloseReason | null } {
-    return { status: this.status, ended: this.ended };
-  }
-  setStatus(s: CollabStatus): void {
-    this.status = s;
-    this.listeners.forEach((l) => l());
-  }
-  setEnded(r: CloseReason): void {
-    this.ended = r;
-    this.listeners.forEach((l) => l());
-  }
-  subscribe(fn: () => void): () => void {
-    this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
-  }
 }
 
 const style: CSSProperties = {

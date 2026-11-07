@@ -126,6 +126,29 @@ describe('hosted session', () => {
     expect(base.print.printPdf).toHaveBeenCalled();
   });
 
+  it('routes the editors document storage (Ctrl+S) to the session', async () => {
+    const { fetchImpl, calls } = server();
+    const base = basePlatform();
+    const saveAs = vi.fn(async () => null);
+    (base as { storage: unknown }).storage = { id: 'local', open: async () => null, saveAs };
+    const p = hostedPlatform(base, {
+      api: '',
+      session,
+      file: { name: 'Báo cáo.doc', bytes: new Uint8Array([1]) },
+      app: 'doc',
+      mode: new SessionMode('edit'),
+      fetchImpl,
+    });
+    const doc = await p.storage.saveAs('Báo cáo.docx', new Uint8Array([7]));
+    expect(calls.at(-1)!.url).toBe('/api/sessions/S%201/checkpoint?save=true');
+    expect(doc).toMatchObject({ ref: { provider: 'blueoffice-session', id: 'F1' }, version: '7' });
+    await p.storage.save(doc!, new Uint8Array([8]));
+    expect(calls.filter((c) => c.url.includes('/checkpoint'))).toHaveLength(2);
+    // Another name (Save As a copy) stays with the shell's storage.
+    await p.storage.saveAs('Bản sao.docx', new Uint8Array([9]));
+    expect(saveAs).toHaveBeenCalledWith('Bản sao.docx', expect.any(Uint8Array));
+  });
+
   it('refuses to save once the session is no longer editable', async () => {
     const { fetchImpl } = server();
     const mode = new SessionMode('edit');

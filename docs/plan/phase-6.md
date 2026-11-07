@@ -53,7 +53,8 @@ lưu khi rời phiên, thu hồi quyền, sửa offline → bản xung đột, k
 ## Cộng tác thời gian thực (BlueDoc, BlueSlide)
 
 Cả ba ứng dụng dùng chung một replica `bo-collab` (Yrs, offset UTF-16 như Yjs) trong chế độ nhúng
-(`apps/web/src/main.tsx` → `startCollab`). Binding TS ở `packages/collab`: `collabDocHost`, `collabSlideHost`
+(`packages/hosted` → `openHosted` / `startCollab`, dùng chung cho web nhúng và deep link desktop). Binding TS ở
+`packages/collab`: `collabDocHost`, `collabSlideHost`
 (bọc `EngineHost`, cùng khuôn với `collabSheetHost`). Lõi ánh xạ ở `bo-engine`: `collab.rs` (BlueDoc) và
 `slide_edit/collab.rs` (BlueSlide); WASM `WasmEngine.collab*` / `WasmCollab.applyLocal|takeRemote|fullState|seed`,
 Tauri `engine_collab_*`.
@@ -92,13 +93,87 @@ Tauri `engine_collab_*`.
   thường; tài liệu rất dài cần đánh dấu block bẩn từ op.
 - Hai người cùng thêm slide cùng lúc nhận `sldId` khác nhau, nhưng tên part `/ppt/slides/slideN.xml` có thể trùng
   (được đặt lại khi lưu).
-- Desktop (Tauri) đã có lệnh engine nhưng chưa có client WebSocket (chỉ chế độ nhúng web dùng `startCollab`).
+- Server không giữ Y.Doc: sau khi mất kết nối, client đăng lại **toàn bộ** trạng thái replica (`snapshot`) nếu đã sinh
+  thay đổi cục bộ kể từ lần kết nối trước (nhật ký room lớn thêm cỡ một tài liệu; compaction thu gọn lại).
+
+## Kiểm chứng end-to-end (server thật + mock BlueDrive)
+
+Tiêu chí §6A ("mở file từ web, mở từ desktop qua deep link, 2 người cùng sửa, lưu tạo version, thu hồi quyền giữa chừng,
+sửa offline rồi đồng bộ") được kiểm bằng E2E chạy **server thật**, không giả lập giao thức:
+
+| Thành phần | Cách chạy trong E2E |
+|---|---|
+| `tests/mock-bluedrive` | `dotnet run` — BOHP, JWKS RS256, `/_admin/*` (tạo file, quyền, token, xem version) |
+| `apps/server/BlueOffice.Api` | `dotnet run`, `Development`, SQLite + object store filesystem tạm, hàng đợi in-memory, host `bluedrive` trỏ tới mock (JWKS, webhook, `AllowedOrigins` = origin trang host; `Cors:Origins` thêm `http://tauri.localhost`) |
+| Web editor | `apps/web/dist` qua `vite preview` với `BLUEOFFICE_API_PROXY` (proxy `/api`, `/hosting`, `/collab` WebSocket — cùng sơ đồ với `deploy/web/nginx.conf`) |
+| Trang host | `tests/e2e/collab/host` (vite dev) nhúng editor bằng `@blueoffice/editor-sdk` `BlueOffice.open`; token đi qua `postMessage` |
+
+Bộ khởi động: `tests/e2e/collab/stack.mjs` (cổng `COLLAB_PORT`, mặc định `E2E_PORT + 20`: editor, host, server, mock).
+Kịch bản (hai browser context = hai người dùng của mock):
+
+- `specs/collab-doc.spec.ts`: A (Nguyễn Văn An) gõ tiếng Việt → B (Trần Thị Bình) thấy; B in đậm một cụm từ → A thấy
+  trạng thái đậm; caret kèm tên của người kia hiển thị ở cả hai phía; lệnh host `save` → version mới trong mock với
+  `editors = [u1, u2]`, nội dung docx có đoạn đã gõ và run đậm; B `setOffline(true)` → banner "Mất kết nối", B sửa,
+  A không thấy; B online lại → A nhận thay đổi offline, sửa tiếp của A tới B; mock thu hồi quyền sửa của B +
+  `POST /api/hosts/bluedrive/notify` → B chuyển sang **chỉ xem** (banner, gõ phím không đổi tài liệu, lệnh `save` bị
+  từ chối) nhưng vẫn thấy A sửa trực tiếp. Đường lưu offline cũ (`POST …/sync?baseVersion=` cũ) → bản
+  "(xung đột - Trần Thị Bình - yyyy-MM-dd HH-mm)" cùng thư mục, bản gốc không bị ghi đè.
+- `specs/collab-sheet-slide.spec.ts`: BlueSheet — công thức `=2*21` và chữ tiếng Việt qua lại giữa hai người, lưu từ host
+  → version có `<f>2*21</f>` và cả hai người sửa; BlueSlide — A chọn và kéo placeholder tiêu đề, B thấy khung chọn của A
+  di chuyển và chọn được hình ở vị trí mới (trùng vị trí bên A).
+- `tests/e2e-desktop/desktop.test.mjs` ("desktop deep link …"): khởi động cùng stack, người dùng web u1 mở file trong
+  trang host; `bluedoc.exe` được mở bằng tham số `bluedoc://open?host=bluedrive&file=…&token=…` với
+  `BLUEOFFICE_SERVER` → tạo phiên server, tải file, vào cùng room; chữ gõ trên web hiện ở desktop và ngược lại;
+  Ctrl+S trên desktop lưu checkpoint → version mới với `editors = [u1, u2]`.
+
+Chạy:
+
+```bash
+pnpm build:wasm && pnpm --filter @blueoffice/web build          # web dist dùng cho preview
+pnpm --filter @blueoffice/e2e test:collab                        # chỉ E2E cộng tác (tự khởi động stack)
+pnpm test:e2e                                                    # E2E web thường + cộng tác
+node tests/e2e/collab/stack.mjs                                  # stack để thử tay (COLLAB_STACK_VERBOSE=1 xem log)
+# desktop: build bluedoc.exe rồi
+MSEDGEDRIVER=<msedgedriver.exe khớp WebView2> pnpm test:e2e:desktop   # COLLAB_E2E=0 bỏ ca deep link
+```
+
+**Desktop**: `apps/desktop/src/main.tsx` nghe `ShellIntegration.onOpenLink` (tham số dòng lệnh, instance thứ hai, deep
+link) → `openHosted` của `@blueoffice/hosted` với server lấy từ `BLUEOFFICE_SERVER` (lệnh Tauri `server_url`) hoặc thiết
+lập đã lưu (`Platform.shell.serverUrl/setServerUrl`). Replica `bo-collab` chạy bằng WASM trong web view (CSP thêm
+`'wasm-unsafe-eval'`); engine là engine native. CSP `connect-src` cho phép `https:`/`wss:` mọi máy chủ và
+`http`/`ws` tới `localhost`/`127.0.0.1` (máy chủ HTTP nội bộ khác: thêm origin vào CSP trong `tauri.conf.json` khi
+build). Server phải cho origin web view vào CORS: `Cors:Origins` gồm `http://tauri.localhost` (Windows/Linux) và
+`tauri://localhost` (macOS).
+
+**Chế độ chỉ xem**: `SessionMode` theo `welcome.mode`, `mode-changed`, `session-revoked`/4403; `guardPlatform` chặn mọi
+lệnh sửa của BlueDoc/BlueSheet/BlueSlide (điều hướng, chọn, sao chép, tìm, xuất vẫn chạy), không trả lời
+`save-request`, `saveFile` từ chối; `HostedBanner` báo chỉ xem / mất quyền / mất kết nối.
+
+**Lỗi đã sửa khi chạy E2E thật**: người vào đầu tiên không bao giờ seed room (bỏ qua `welcome.seed`); `mode-changed`
+không được xử lý (không chuyển chỉ xem); sửa offline không bao giờ tới server (server không có Y.Doc để trả lời sync step
+1 bằng phần chênh — giờ client đăng lại snapshot sau khi kết nối lại, và đóng socket ngay khi trình duyệt báo `offline`);
+nền tảng nhúng spread instance class nên mất các method `shell` (`recentFiles`…); whitelist origin `postMessage` chỉ
+có lúc build (`VITE_EMBED_ORIGINS`) — giờ lấy từ `GET /api/hosting/origins` khi không đặt; Ctrl+S / nút Lưu của editor
+đi qua `Platform.storage` nên tải file về thay vì lưu lên host — `hostedPlatform` giờ thay cả `storage`; tauri-driver
+nhận deep link dạng `--bluedoc://…` (msedgedriver thêm `--`) nên app bỏ qua; ca E2E desktop cũ để mồ côi msedgedriver
+giữ cổng 4445.
+
+**Hạn chế còn lại (quan sát trong E2E)**
+- Desktop (engine native) vào phiên sau người web và gõ ngay tại vị trí caret ban đầu (chưa bấm vào tài liệu — caret bị
+  đẩy về gần cuối thân văn bản khi nội dung chung thay thế bản cục bộ): chữ hiện cục bộ, khung y-sync được gửi và tới web,
+  nhưng không xuất hiện bên web và mất ở desktop sau thay đổi kế tiếp. Không tái hiện được web↔web (trình duyệt), WASM↔WASM
+  (`packages/collab/test/live.test.ts`) hay native↔native (`crates/bo-engine/tests/collab.rs`) — seed native và WASM giống
+  hệt từng byte; còn phải điều tra (thứ tự IPC Tauri / vị trí caret). Bấm vào tài liệu trước khi gõ (thao tác bình thường)
+  thì đồng bộ đúng; ca E2E desktop làm như vậy.
+- Người vào sau thấy tài liệu ở trạng thái "Chưa lưu" và view cuộn tới caret sau khi nội dung chung thay thế bản cục bộ.
+- CSP desktop không cho `http://` tới máy chủ khác `localhost` (cần HTTPS hoặc build lại với origin trong CSP).
+
 ## Còn lại (ngoài phạm vi lần này)
 
 - **Ký số** (Phase 6): ký PDF PAdES và OOXML XML-DSig; điểm tích hợp dự kiến: một `ISignatureProvider` (USB token qua agent
   cục bộ trên desktop, ký số từ xa của CA Việt Nam qua REST) + job `sign` trong worker; chưa code.
-- **Desktop**: auto-update (Tauri updater), file association, nhiều cửa sổ, recent files, deep link `bluedoc://open?host=…` —
-  làm ở phần desktop.
+- **Desktop**: màn hình Start / tab BlueDrive (duyệt file, SSO), hỏi chuyển sang cộng tác khi mở file trong thư mục
+  đồng bộ BlueDrive; ô nhập server trong giao diện (hiện chỉ biến môi trường + `setServerUrl`).
 - `bo-collab` (Yrs) và editor SDK/TS (postMessage, nút Share/Close, chế độ offline) — luồng chính.
 - Nhiều instance `api` (room đang ở bộ nhớ một tiến trình): cần định tuyến theo file (consistent hashing) hoặc
   Redis pub/sub cho relay.

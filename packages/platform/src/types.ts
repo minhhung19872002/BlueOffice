@@ -924,6 +924,13 @@ export interface ShellIntegration {
   onOpenRequest(handler: (file: OpenedFile) => void): () => void;
   /** Register a handler for host-file deep links (desktop only; web: never fires). */
   onOpenLink?(handler: (link: HostFileLink) => void): () => void;
+  /**
+   * BlueOffice server that opens host files from deep links (desktop:
+   * `BLUEOFFICE_SERVER`, else the stored setting); null when not configured.
+   */
+  serverUrl?(): Promise<string | null>;
+  /** Stores the server setting (null clears it). */
+  setServerUrl?(url: string | null): Promise<void>;
 }
 
 /** Everything platform-specific, in one object. */

@@ -214,6 +214,9 @@ class DesktopWindow implements WindowManager {
   }
 }
 
+/** Stored BlueOffice server setting (deep links to host files). */
+const SERVER_KEY = 'blueoffice.desktop.server';
+
 class DesktopShell implements ShellIntegration {
   private recent = new LocalRecentFiles('blueoffice.desktop.recent');
   constructor(private readonly call: Invoke) {}
@@ -235,6 +238,24 @@ class DesktopShell implements ShellIntegration {
       disposed = true;
       void un.then((f) => f());
     };
+  }
+  async serverUrl(): Promise<string | null> {
+    // The environment (deployment / tests) wins over the user's setting.
+    const env = await this.call<string | null>('server_url').catch(() => null);
+    if (env) return env;
+    try {
+      return localStorage.getItem(SERVER_KEY);
+    } catch {
+      return null;
+    }
+  }
+  async setServerUrl(url: string | null): Promise<void> {
+    try {
+      if (url) localStorage.setItem(SERVER_KEY, url.trim().replace(/\/+$/, ''));
+      else localStorage.removeItem(SERVER_KEY);
+    } catch {
+      // Storage unavailable: the environment variable still works.
+    }
   }
   onOpenRequest(handler: (file: OpenedFile) => void): () => void {
     let disposed = false;

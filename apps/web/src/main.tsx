@@ -2,20 +2,10 @@ import { BlueEditor } from '@blueoffice/editor';
 import { connectHost } from '@blueoffice/editor-sdk';
 import {
   HostedBanner,
-  HostedStatus,
-  SessionMode,
-  appForFile,
-  commandHandler,
   fetchAllowedOrigins,
-  guardPlatform,
-  hostedPlatform,
-  loadWasmReplica,
-  openSession,
-  parseMode,
+  openHosted,
   serverBase,
-  startCollab,
   type FetchLike,
-  type HostCommand,
 } from '@blueoffice/hosted';
 import type { Platform } from '@blueoffice/platform';
 import { createWebPlatform } from '@blueoffice/platform/web';
@@ -84,54 +74,25 @@ async function embed(): Promise<void> {
   try {
     const init = await conn.ready;
     if (init.lang === 'en-US' || init.lang === 'vi-VN') language = init.lang;
-    const { session, file } = await openSession(api, init, fetchImpl);
-    const app = appForFile(file.name);
-    const mode = new SessionMode(parseMode(session.mode));
-    const status = new HostedStatus();
-    let hosted = hostedPlatform(platform, {
+    const h = await openHosted({
+      platform,
       api,
-      session,
-      file,
-      app,
-      mode,
+      base: api || window.location.href,
+      ref: init,
       fetchImpl,
       onSaved: (r) => conn.emit('saved', r),
+      onCollaborators: (c) => conn.emit('collaborators-changed', c),
+      // After a restore the host content is authoritative: start over.
+      onEnded: (r) => r === 'reload' && window.location.reload(),
     });
-    // Commands run against the final platform (collaborative + view-mode guard).
-    let final: Platform = hosted;
-    const run = (cmd: HostCommand) => commandHandler(final, app, file.name)(cmd);
-    conn.onCommand(run);
-    if (session.collab?.url) {
-      const h = startCollab({
-        platform: hosted,
-        app,
-        session,
-        base: api || window.location.href,
-        replica: await loadWasmReplica(),
-        mode,
-        saveNow: () => void run('save').catch(() => {}),
-        onStatus: (s) => status.setStatus(s),
-        onEnded: (r) => {
-          status.setEnded(r);
-          // After a restore the host content is authoritative: start over.
-          if (r === 'reload') window.location.reload();
-        },
-      });
-      h.client.on('control', (m) => {
-        if (m.type === 'collaborators-changed') {
-          conn.emit('collaborators-changed', m.collaborators);
-        }
-      });
-      hosted = h.platform;
-    }
-    final = guardPlatform(hosted, mode);
+    conn.onCommand(h.command);
     root.render(
       <StrictMode>
-        <HostedBanner mode={mode} status={status} language={language} />
-        <Editor app={app} platform={final} />
+        <HostedBanner mode={h.mode} status={h.status} language={language} />
+        <Editor app={h.app} platform={h.platform} />
       </StrictMode>,
     );
-    conn.emit('ready', { mode: session.mode });
+    conn.emit('ready', { mode: h.session.mode });
   } catch (e: unknown) {
     conn.emit('error', { message: e instanceof Error ? e.message : String(e) });
   }

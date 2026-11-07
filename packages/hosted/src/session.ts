@@ -5,8 +5,11 @@
  * version). Used by the web embed (`/edit`, token via `@blueoffice/editor-sdk`)
  * and by the desktop deep link (`bluedoc://open?host=…&file=…&token=…`).
  */
-import type { OpenedFile, Platform } from '@blueoffice/platform';
+import type { DocumentStorage, OpenedFile, Platform, StoredDocument } from '@blueoffice/platform';
 import type { SessionMode } from './mode';
+
+/** `DocumentStorage.id` / `DocumentRef.provider` of the session file. */
+export const HOSTED_STORAGE = 'blueoffice-session';
 
 export type HostedApp = 'doc' | 'sheet' | 'slide';
 
@@ -141,16 +144,45 @@ export function hostedPlatform(
   },
 ): Platform {
   const { api, session, file, app, mode, fetchImpl } = opts;
-  const save = async (bytes: Uint8Array): Promise<string | null> => {
+  const saveVersion = async (bytes: Uint8Array): Promise<unknown> => {
     // The mode can change during the session (edit permission revoked).
     if (!mode.editable) throw new Error('session.readOnly');
     const result = await checkpoint(api, session, bytes, fetchImpl);
     opts.onSaved?.(result);
+    return result;
+  };
+  const save = async (bytes: Uint8Array): Promise<string | null> => {
+    await saveVersion(bytes);
     return savedName(file.name, app);
   };
   const ownExt = savedName(file.name, app).split('.').pop() ?? '';
+  const ownName = savedName(file.name, app);
+  const version = (r: unknown): string | undefined => {
+    const v = (r as { version?: unknown } | null)?.version;
+    return typeof v === 'string' ? v : undefined;
+  };
+  const stored = (bytes: Uint8Array, v: string | undefined): StoredDocument => ({
+    ref: { provider: HOSTED_STORAGE, id: session.file.id, name: ownName },
+    bytes,
+    ...(v ? { version: v } : {}),
+    permissions: { edit: mode.editable, download: true, share: false },
+  });
+  // The editors save through `storage` (Ctrl+S, Lưu): the session file goes back to the host.
+  const storage: DocumentStorage = {
+    id: HOSTED_STORAGE,
+    open: (ref) => base.storage.open(ref),
+    save: async (doc, bytes) =>
+      doc.ref.provider === HOSTED_STORAGE || doc.ref.name === ownName
+        ? stored(bytes, version(await saveVersion(bytes)))
+        : base.storage.save(doc, bytes),
+    saveAs: async (name, bytes) =>
+      name === ownName
+        ? stored(bytes, version(await saveVersion(bytes)))
+        : base.storage.saveAs(name, bytes),
+  };
   return {
     ...base,
+    storage,
     files: {
       openFile: base.files.openFile.bind(base.files),
       // Same-format saves go back to the host; other formats (PDF, CSV) go to the disk.

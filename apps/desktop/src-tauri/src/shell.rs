@@ -103,6 +103,14 @@ where
                     path: path.to_owned(),
                 });
             }
+            // … and the same for deep links (only our schemes parse).
+            if let Some(link) = a
+                .strip_prefix("--")
+                .filter(|l| l.contains("://"))
+                .and_then(|l| parse_deep_link(l).ok())
+            {
+                return Some(LaunchRequest::Link(link));
+            }
             if a.starts_with('-') {
                 None
             } else if a.contains("://") {
@@ -155,9 +163,50 @@ pub fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Environment variable naming the BlueOffice server used for host files
+/// opened by deep link (the web view stores a user setting as fallback).
+pub const SERVER_ENV: &str = "BLUEOFFICE_SERVER";
+
+/// Normalises a BlueOffice server URL: `http(s)://authority[/path]`, no
+/// query/fragment, without the trailing slash. Anything else is ignored.
+pub fn normalize_server_url(value: &str) -> Option<String> {
+    let v = value.trim().trim_end_matches('/');
+    let rest = v
+        .strip_prefix("https://")
+        .or_else(|| v.strip_prefix("http://"))?;
+    let authority = rest.split('/').next().unwrap_or("");
+    let ok = !authority.is_empty()
+        && !v.contains(['?', '#', ' ', '@'])
+        && authority
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']'));
+    ok.then(|| v.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalizes_server_urls() {
+        assert_eq!(
+            normalize_server_url(" https://office.example.vn/ ").as_deref(),
+            Some("https://office.example.vn")
+        );
+        assert_eq!(
+            normalize_server_url("http://localhost:4583").as_deref(),
+            Some("http://localhost:4583")
+        );
+        assert_eq!(
+            normalize_server_url("https://x.vn/office").as_deref(),
+            Some("https://x.vn/office")
+        );
+        assert!(normalize_server_url("ftp://x.vn").is_none());
+        assert!(normalize_server_url("https://").is_none());
+        assert!(normalize_server_url("https://user@x.vn").is_none());
+        assert!(normalize_server_url("https://x.vn/?a=1").is_none());
+        assert!(normalize_server_url("javascript:alert(1)").is_none());
+    }
 
     #[test]
     fn parses_bluedrive_link() {
@@ -207,11 +256,15 @@ mod tests {
             "--flag",
             dashed.as_str(),
             "bluedoc://open?host=bluedrive&file=1",
+            "--bluesheet://open?host=bluedrive&file=2&token=a.b-c_d",
+            "--https://evil.example/open?host=a&file=b",
         ]);
-        assert_eq!(reqs.len(), 2);
-        // `--<file>` (automation drivers) is understood as the file.
+        assert_eq!(reqs.len(), 3);
+        // `--<file>` / `--<link>` (automation drivers) are understood as the file / link.
         assert!(matches!(&reqs[0], LaunchRequest::File { path } if path == &manifest));
         assert!(matches!(&reqs[1], LaunchRequest::Link(l) if l.file_id == "1"));
+        assert!(matches!(&reqs[2], LaunchRequest::Link(l)
+            if l.app == "sheet" && l.token.as_deref() == Some("a.b-c_d")));
     }
 
     #[test]

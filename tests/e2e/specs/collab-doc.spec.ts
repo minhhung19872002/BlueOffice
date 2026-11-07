@@ -114,16 +114,25 @@ test('two users edit one .docx: text, bold, carets, save, revoke, offline', asyn
   // "soạn thảo bằng" is in a bold run (ECMA-376 Part 1, §17.3.2.1 b).
   expect(xml).toMatch(/<w:r\b(?:(?!<\/w:r>).)*<w:b\/>(?:(?!<\/w:r>).)*soạn thảo bằng/s);
   await expect.poll(async () => (await hostEvents(a)).some((e) => e.event === 'saved')).toBe(true);
+  // Ctrl+S inside the editor saves to BlueDrive too (not a download).
+  await caretAtStart(b);
+  await b.page.keyboard.insertText('Đã lưu ');
+  const stored = await changed(b.frame, typed);
+  await expect.poll(() => wordCount(a.frame)).toBe(stored);
+  await b.page.keyboard.press('Control+s');
+  await expect.poll(async () => (await fileState(fileId)).versions.length).toBe(before + 2);
+  expect(documentXml((await fileState(fileId)).versions.at(-1)!)).toContain('Đã lưu');
+  await expect(b.frame.getByTestId('status-modified')).toHaveCount(0);
 
   // (e) B goes offline, keeps editing, comes back: the edits merge live.
   await b.context.setOffline(true);
   await expect(b.frame.getByTestId('hosted-banner')).toHaveAttribute('data-state', 'offline');
   await caretAtStart(b);
   await b.page.keyboard.insertText('Ngoại tuyến ');
-  const offline = await changed(b.frame, typed);
+  const offline = await changed(b.frame, stored);
   // A does not see it while B is offline.
   await a.page.waitForTimeout(1000);
-  expect(await wordCount(a.frame)).toBe(typed);
+  expect(await wordCount(a.frame)).toBe(stored);
   await b.context.setOffline(false);
   await expect(b.frame.getByTestId('hosted-banner')).toHaveCount(0);
   await expect.poll(() => wordCount(a.frame)).toBe(offline);

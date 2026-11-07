@@ -1,3 +1,5 @@
+import type { CloseReason, CollabStatus } from '@blueoffice/collab';
+
 /**
  * Editing mode of a hosted session. It starts from `SessionInfo.mode` and
  * follows the server: `mode-changed` (edit permission revoked or restored,
@@ -40,4 +42,26 @@ export function parseMode(mode: unknown): SessionModeValue {
     : mode === 'none'
       ? 'revoked'
       : 'view';
+}
+
+/** Observable connection state for {@link HostedBanner}. */
+export class HostedStatus {
+  private status: CollabStatus | null = null;
+  private ended: CloseReason | null = null;
+  private readonly listeners = new Set<() => void>();
+  get value(): { status: CollabStatus | null; ended: CloseReason | null } {
+    return { status: this.status, ended: this.ended };
+  }
+  setStatus(s: CollabStatus): void {
+    this.status = s;
+    this.listeners.forEach((l) => l());
+  }
+  setEnded(r: CloseReason): void {
+    this.ended = r;
+    this.listeners.forEach((l) => l());
+  }
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
 }

@@ -41,6 +41,12 @@ importers:
       '@blueoffice/editor':
         specifier: workspace:*
         version: link:../../packages/editor
+      '@blueoffice/engine-wasm':
+        specifier: workspace:*
+        version: link:../../packages/engine-wasm
+      '@blueoffice/hosted':
+        specifier: workspace:*
+        version: link:../../packages/hosted
       '@blueoffice/platform':
         specifier: workspace:*
         version: link:../../packages/platform

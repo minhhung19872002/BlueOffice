@@ -164,6 +164,29 @@ describe('BlueDoc collaboration over bo-collab', () => {
     expect(found.matches).toHaveLength(1);
   });
 
+  it('a late joiner typing right away (caret untouched) keeps and shares the text', async () => {
+    const docx = readFileSync(join(root, 'tests', 'corpus', 'doc', 'phase1-sample.docx'));
+    const a = peer(61, 'An');
+    const b = peer(62, 'Bình');
+    await a.doc.seed();
+    await a.doc.open(docx, 'mẫu.docx');
+    // B's editor opens the file before the room's state arrives (the real order).
+    await b.doc.open(docx, 'mẫu.docx');
+    connect(a, b, 'doc');
+    await settle(a, b, 'doc');
+    expect(b.engine.collabText()).toBe(a.engine.collabText());
+    // B types at the caret the shared body left it at, then A types at the top.
+    await b.doc.command({ cmd: 'insertText', text: 'Bình gõ ngay. ' } as { cmd: string });
+    await settle(a, b, 'doc');
+    await a.doc.command(sel(0, 0));
+    await a.doc.command({ cmd: 'insertText', text: 'An ' } as { cmd: string });
+    await settle(a, b, 'doc');
+    expect(a.engine.collabText().startsWith('An ')).toBe(true);
+    expect(a.engine.collabText()).toContain('Bình gõ ngay. ');
+    expect(b.engine.collabText()).toBe(a.engine.collabText());
+    expect(a.replica.fullState()).toBe(b.replica.fullState());
+  });
+
   it('undoes only the own edits and shows collaborators carets', async () => {
     const a = peer(41, 'An');
     const b = peer(42, 'Bình');

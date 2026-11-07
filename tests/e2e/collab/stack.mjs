@@ -148,6 +148,9 @@ run(
     Hosts__0__WebhookUrl: `${urls.mock}/webhooks/blueoffice`,
     Hosts__0__WebhookSecret: 'mock-webhook-secret',
     Hosts__0__AllowedOrigins__0: urls.host,
+    // Desktop web view origins (Windows/Linux, macOS) for the deep-link E2E.
+    Cors__Origins__0: 'http://tauri.localhost',
+    Cors__Origins__1: 'tauri://localhost',
   },
 );
 

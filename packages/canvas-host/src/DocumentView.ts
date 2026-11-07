@@ -28,6 +28,8 @@ export interface DocumentViewOptions {
   onZoomChange?: (zoom: number) => void;
   onInput?: (e: ImeEvent) => void;
   onPointer?: (e: PagePointer) => void;
+  /** The pages moved on screen (scroll, zoom, resize, relayout): rulers follow them. */
+  onViewport?: () => void;
 }
 
 export const MIN_ZOOM = 0.25;
@@ -71,7 +73,10 @@ export class DocumentView {
   private frame = 0;
   private currentPage = -1;
   private readonly opts: Required<
-    Omit<DocumentViewOptions, 'onPageChange' | 'onZoomChange' | 'onInput' | 'onPointer'>
+    Omit<
+      DocumentViewOptions,
+      'onPageChange' | 'onZoomChange' | 'onInput' | 'onPointer' | 'onViewport'
+    >
   > &
     DocumentViewOptions;
 
@@ -315,6 +320,11 @@ export class DocumentView {
     this.setZoom((this.scroller.clientWidth - 2 * this.opts.pageGap - 16) / (w * PX_PER_PT));
   }
 
+  /** Screen rectangle of a page (CSS pixels), or null when it does not exist. */
+  pageRect(index: number): DOMRect | null {
+    return this.slots[index]?.el.getBoundingClientRect() ?? null;
+  }
+
   scrollToPage(index: number): void {
     this.slots[index]?.el.scrollIntoView({ block: 'start' });
   }
@@ -387,6 +397,7 @@ export class DocumentView {
 
   private async update(): Promise<void> {
     if (!this.info || this.slots.length === 0) return;
+    this.opts.onViewport?.();
     const [first, last] = this.visibleRange();
     const from = Math.max(0, first - this.opts.overscan);
     const to = Math.min(this.slots.length - 1, last + this.opts.overscan);

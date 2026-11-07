@@ -8,3 +8,4 @@ export {
 } from './Ribbon';
 export { StatusBar, type StatusBarProps } from './StatusBar';
 export { useResolvedTheme, type ResolvedTheme, type ThemeSetting } from './theme';
+export { Popover, type PopoverProps } from './Popover';

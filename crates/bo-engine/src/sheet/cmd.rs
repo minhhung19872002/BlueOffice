@@ -5,13 +5,17 @@
 //! Hosts send one [`SheetCommand`] as JSON (`{"cmd": "format", …}`) and get a
 //! JSON value back. Every command that changes the workbook is one undo step.
 
+use super::pivot_cmd::{
+    data_field, group_request, pivot_json, updated_spec, PivotFilterSpec, PivotSettings,
+    PivotValueSpec,
+};
 use super::{input_to_cell, number_input, SheetEngine, UndoEntry, MAX_COLS, MAX_ROWS};
 use crate::{EngineError, Result};
+use bo_model::sheet::PivotFilter;
 use bo_model::sheet::{
     AutoFilter, Cell, CellRange, CellRef, CellValue, ColumnFilter, CustomFilter, FilterColumn,
     PageMargins, Workbook, Worksheet,
 };
-use bo_model::sheet::{PivotDataField, PivotFilter, PivotFunction};
 use bo_sheet::calc::FormulaAdjuster;
 use bo_sheet::cf::CfRuleSpec;
 use bo_sheet::pivot::{PivotLabels, PivotSpec};
@@ -30,12 +34,12 @@ pub struct Rng {
 }
 
 impl Rng {
-    fn range(self) -> CellRange {
+    pub(super) fn range(self) -> CellRange {
         let cl = |r: u32, c: u32| CellRef::new(r.min(MAX_ROWS - 1), c.min(MAX_COLS - 1));
         CellRange::new(cl(self.r0, self.c0), cl(self.r1, self.c1))
     }
 
-    fn of(r: CellRange) -> Rng {
+    pub(super) fn of(r: CellRange) -> Rng {
         Rng {
             r0: r.first.row,
             c0: r.first.col,
@@ -146,28 +150,6 @@ pub struct At {
     pub sheet: usize,
     pub row: u32,
     pub col: u32,
-}
-
-/// A value field of a pivot table from the UI.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PivotValueSpec {
-    pub field: u32,
-    #[serde(default)]
-    pub function: PivotFunction,
-    /// Caption; `None` = "<Function> of <field>".
-    #[serde(default)]
-    pub name: Option<String>,
-}
-
-/// A report filter from the UI: shown items by index into the field's items
-/// (as listed by `pivots`); empty = all items.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PivotFilterSpec {
-    pub field: u32,
-    #[serde(default)]
-    pub items: Vec<usize>,
 }
 
 /// A sheet editing command.
@@ -441,7 +423,8 @@ pub enum SheetCommand {
     Pivots {
         sheet: usize,
     },
-    /// Moves fields between the areas of a pivot table.
+    /// Moves fields between the areas of a pivot table; optional report
+    /// settings (layout, totals, field settings, filters, style) change too.
     PivotUpdate {
         sheet: usize,
         index: usize,
@@ -453,6 +436,73 @@ pub enum SheetCommand {
         values: Vec<PivotValueSpec>,
         #[serde(default)]
         filters: Vec<PivotFilterSpec>,
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+        #[serde(flatten)]
+        settings: PivotSettings,
+    },
+    /// Groups a field by date parts (`by: "dates"`), numeric ranges
+    /// (`"numbers"`) or removes the grouping (`"none"`).
+    PivotGroup {
+        sheet: usize,
+        index: usize,
+        field: u32,
+        by: String,
+        #[serde(default)]
+        years: bool,
+        #[serde(default)]
+        quarters: bool,
+        #[serde(default)]
+        months: bool,
+        #[serde(default)]
+        days: bool,
+        #[serde(default)]
+        start: Option<f64>,
+        #[serde(default)]
+        end: Option<f64>,
+        #[serde(default)]
+        interval: Option<f64>,
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Adds (`field` absent), changes or removes a calculated field.
+    PivotCalcField {
+        sheet: usize,
+        index: usize,
+        #[serde(default)]
+        field: Option<u32>,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        formula: String,
+        #[serde(default)]
+        remove: bool,
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Deletes a pivot table (its cells and parts).
+    PivotDelete {
+        sheet: usize,
+        index: usize,
+    },
+    /// Moves a pivot table so its top-left is `dest`.
+    PivotMove {
+        sheet: usize,
+        index: usize,
+        dest: At,
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Points the cache at another source range (`Sheet1!A1:D20`) and refreshes.
+    PivotChangeSource {
+        sheet: usize,
+        index: usize,
+        source: String,
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Refreshes every pivot table of the workbook.
+    PivotRefreshAll {
         #[serde(default)]
         labels: Option<PivotLabels>,
     },
@@ -490,7 +540,7 @@ pub enum SheetCommand {
 
 /// Recalculation needed after an edit.
 #[derive(Clone, Copy)]
-enum Recalc {
+pub(super) enum Recalc {
     No,
     All,
     Range(usize, CellRange),
@@ -595,69 +645,6 @@ fn replace_text(hay: &str, needle: &str, with: &str, match_case: bool) -> (Strin
     (out, n)
 }
 
-fn data_field(v: PivotValueSpec) -> PivotDataField {
-    PivotDataField {
-        field: v.field,
-        function: v.function,
-        name: v.name.filter(|n| !n.trim().is_empty()),
-    }
-}
-
-/// Field list and areas of a pivot table for the side panel.
-fn pivot_json(wb: &Workbook, index: usize, p: &bo_model::sheet::PivotTable) -> Value {
-    let cache = wb.pivot_caches.iter().find(|c| c.cache_id == p.cache_id);
-    let fields: Vec<Value> = cache
-        .map(|c| {
-            c.fields
-                .iter()
-                .map(|f| {
-                    json!({
-                        "name": f.name,
-                        "items": f.items.iter().map(bo_sheet::pivot::value_text).collect::<Vec<_>>(),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let item_index = |field: u32, v: &CellValue| -> Option<usize> {
-        let key = bo_model::sheet::PivotItemKey::of(v);
-        cache?
-            .fields
-            .get(field as usize)?
-            .items
-            .iter()
-            .position(|x| bo_model::sheet::PivotItemKey::of(x) == key)
-    };
-    let source = cache.and_then(|c| {
-        c.source_name.clone().or_else(|| {
-            Some(format!(
-                "{}!{}",
-                bo_sheet::cells::quote_sheet(c.source_sheet.as_deref()?),
-                c.source_ref.as_deref()?
-            ))
-        })
-    });
-    json!({
-        "index": index,
-        "name": p.name,
-        "location": Rng::of(p.location),
-        "area": Rng::of(bo_sheet::pivot::occupied(p)),
-        "source": source,
-        "fields": fields,
-        "rows": p.rows,
-        "cols": p.cols,
-        "values": p.values.iter().map(|d| json!({
-            "field": d.field,
-            "function": d.function,
-            "name": cache.map(|c| bo_sheet::pivot::value_name(c, d)),
-        })).collect::<Vec<_>>(),
-        "filters": p.filters.iter().map(|f| json!({
-            "field": f.field,
-            "items": f.selected.iter().filter_map(|v| item_index(f.field, v)).collect::<Vec<_>>(),
-        })).collect::<Vec<_>>(),
-    })
-}
-
 impl SheetEngine {
     /// Runs a command given as JSON; returns the JSON result.
     pub fn exec_json(&mut self, json: &str) -> Result<String> {
@@ -667,7 +654,7 @@ impl SheetEngine {
     }
 
     /// One mutating edit: snapshot for undo, apply, refresh geometry and values.
-    fn edit<R>(
+    pub(super) fn edit<R>(
         &mut self,
         sheet: usize,
         recalc: Recalc,
@@ -678,7 +665,14 @@ impl SheetEngine {
             return Err(EngineError::PageOutOfRange(sheet));
         }
         let before = Box::new(wb.clone());
-        let out = f(wb, &self.adjuster)?;
+        let out = match f(wb, &self.adjuster) {
+            Ok(out) => out,
+            Err(e) => {
+                // A failed edit leaves the workbook as it was.
+                *wb = *before;
+                return Err(e);
+            }
+        };
         match recalc {
             Recalc::No => {}
             Recalc::All => self.live.rebuild(wb),
@@ -707,6 +701,7 @@ impl SheetEngine {
                     .collect::<Vec<_>>(),
                 "cellStyles": bo_sheet::style::NAMED_STYLES.iter().map(|s| s.name).collect::<Vec<_>>(),
                 "chartTypes": bo_sheet::chart::CHART_TYPES,
+                "pivotStyles": bo_sheet::pivot::style::STYLE_NAMES,
             })),
             C::FormatState { sheet, row, col } => {
                 self.sheet(sheet)?;
@@ -1356,19 +1351,23 @@ impl SheetEngine {
             } => {
                 let r = current_region(self.sheet(sheet)?, range.range());
                 let labels = labels.unwrap_or_default();
-                let spec = PivotSpec {
-                    rows,
-                    cols,
-                    values: values.into_iter().map(data_field).collect(),
-                    filters: filters
-                        .iter()
-                        .map(|f| PivotFilter {
-                            field: f.field,
-                            selected: Vec::new(),
-                        })
-                        .collect(),
-                };
                 let out = self.edit(sheet, Recalc::All, |wb, _| {
+                    let spec = PivotSpec {
+                        rows,
+                        cols,
+                        values: values
+                            .into_iter()
+                            .map(|v| data_field(&mut wb.styles, v))
+                            .collect(),
+                        filters: filters
+                            .iter()
+                            .map(|f| PivotFilter {
+                                field: f.field,
+                                selected: Vec::new(),
+                            })
+                            .collect(),
+                        ..PivotSpec::default()
+                    };
                     let (dest_sheet, at) = if let Some(a) = dest {
                         if a.sheet >= wb.sheets.len() {
                             return Err(bad("no such sheet"));
@@ -1411,7 +1410,7 @@ impl SheetEngine {
                     ws.pivots
                         .iter()
                         .enumerate()
-                        .map(|(i, p)| pivot_json(wb, i, p))
+                        .map(|(i, p)| pivot_json(wb, i, p, &locale))
                         .collect(),
                 ))
             }
@@ -1423,42 +1422,85 @@ impl SheetEngine {
                 values,
                 filters,
                 labels,
+                settings,
             } => {
                 let labels = labels.unwrap_or_default();
-                let selected = {
-                    let wb = self.wb()?;
-                    let pt = self
-                        .sheet(sheet)?
-                        .pivots
-                        .get(index)
-                        .ok_or_else(|| bad("no such pivot table"))?;
-                    let cache = wb.pivot_caches.iter().find(|c| c.cache_id == pt.cache_id);
-                    filters
-                        .iter()
-                        .map(|f| PivotFilter {
-                            field: f.field,
-                            selected: f
-                                .items
-                                .iter()
-                                .filter_map(|i| {
-                                    cache
-                                        .and_then(|c| c.fields.get(f.field as usize))
-                                        .and_then(|fl| fl.items.get(*i))
-                                        .cloned()
-                                })
-                                .collect(),
-                        })
-                        .collect::<Vec<_>>()
-                };
-                let spec = PivotSpec {
-                    rows,
-                    cols,
-                    values: values.into_iter().map(data_field).collect(),
-                    filters: selected,
-                };
+                self.sheet(sheet)?
+                    .pivots
+                    .get(index)
+                    .ok_or_else(|| bad("no such pivot table"))?;
                 self.edit(sheet, Recalc::All, |wb, _| {
+                    let pt = wb.sheets[sheet].pivots[index].clone();
+                    let spec = updated_spec(wb, &pt, (rows, cols, values, filters), settings);
                     bo_sheet::pivot::update_pivot(wb, sheet, index, &spec, &labels).map_err(bad)?;
                     Ok(json!({ "ok": true }))
+                })
+            }
+            C::PivotGroup {
+                sheet,
+                index,
+                field,
+                by,
+                years,
+                quarters,
+                months,
+                days,
+                start,
+                end,
+                interval,
+                labels,
+            } => {
+                let labels = labels.unwrap_or_default();
+                let req =
+                    group_request(&by, [years, quarters, months, days], start, end, interval)?;
+                self.pivot_edit(sheet, |wb| {
+                    bo_sheet::pivot::group_field(wb, sheet, index, field, &req, &labels)?;
+                    Ok(json!({ "ok": true }))
+                })
+            }
+            C::PivotCalcField {
+                sheet,
+                index,
+                field,
+                name,
+                formula,
+                remove,
+                labels,
+            } => {
+                let labels = labels.unwrap_or_default();
+                self.pivot_edit(sheet, |wb| {
+                    if remove {
+                        let f = field.ok_or("no field to remove")?;
+                        bo_sheet::pivot::remove_calculated_field(wb, sheet, index, f, &labels)?;
+                        return Ok(json!({ "ok": true }));
+                    }
+                    let f = bo_sheet::pivot::set_calculated_field(
+                        wb, sheet, index, field, &name, &formula, &labels,
+                    )?;
+                    Ok(json!({ "field": f }))
+                })
+            }
+            C::PivotDelete { sheet, index } => self.pivot_edit(sheet, |wb| {
+                bo_sheet::pivot::delete_pivot(wb, sheet, index)?;
+                Ok(json!({ "ok": true }))
+            }),
+            C::PivotMove {
+                sheet,
+                index,
+                dest,
+                labels,
+            } => self.pivot_move(sheet, index, dest, &labels.unwrap_or_default()),
+            C::PivotChangeSource {
+                sheet,
+                index,
+                source,
+                labels,
+            } => self.pivot_change_source(sheet, index, &source, &labels.unwrap_or_default()),
+            C::PivotRefreshAll { labels } => {
+                let labels = labels.unwrap_or_default();
+                self.pivot_edit(0, |wb| {
+                    let n = bo_sheet::pivot::refresh_all(wb, &labels)?;
+                    Ok(json!({ "count": n }))
                 })
             }
             C::PivotRefresh {
@@ -2598,6 +2640,136 @@ mod tests {
         assert_eq!(again.cell(1, 3, 1).unwrap().display, "30");
         let info = run(&mut back, json!({ "cmd": "pivots", "sheet": 1 }));
         assert_eq!(info[0]["filters"][0]["items"], json!([1]));
+    }
+
+    #[test]
+    fn pivot_grouping_layout_show_as_and_management() {
+        let mut e = engine();
+        let data = [
+            ("Ngày", "Vùng", "Doanh thu"),
+            ("=DATE(2024,1,15)", "Bắc", "10"),
+            ("=DATE(2024,1,20)", "Nam", "30"),
+            ("=DATE(2024,2,10)", "Bắc", "20"),
+            ("=DATE(2024,3,5)", "Nam", "40"),
+        ];
+        let mut cells = Vec::new();
+        for (r, (a, b, c)) in data.iter().enumerate() {
+            let r = r as u32;
+            cells.push((r, 0, (*a).to_owned()));
+            cells.push((r, 1, (*b).to_owned()));
+            cells.push((r, 2, (*c).to_owned()));
+        }
+        e.set_inputs(0, &cells).unwrap();
+        let months: Vec<String> = (1..=12).map(|m| format!("Thg {m}")).collect();
+        let labels =
+            json!({ "grandTotal": "Tổng cộng", "months": months, "subtotal": "Tổng {item}" });
+        run(
+            &mut e,
+            json!({ "cmd": "pivotCreate", "sheet": 0, "range": rng(0, 0, 0, 0),
+                "rows": [0], "values": [{ "field": 2 }], "labels": labels }),
+        );
+        // Group the dates by month: Jan 40, Feb 20, Mar 40.
+        run(
+            &mut e,
+            json!({ "cmd": "pivotGroup", "sheet": 1, "index": 0, "field": 0, "by": "dates",
+                "months": true, "labels": labels }),
+        );
+        let d = |e: &SheetEngine, r: u32, c: u32| e.cell(1, r, c).unwrap().display;
+        assert_eq!((d(&e, 3, 0), d(&e, 3, 1)), ("Thg 1".into(), "40".into()));
+        assert_eq!((d(&e, 5, 0), d(&e, 6, 1)), ("Thg 3".into(), "100".into()));
+        // Outline layout, values as % of the grand total.
+        run(
+            &mut e,
+            json!({ "cmd": "pivotUpdate", "sheet": 1, "index": 0, "rows": [0],
+                "values": [{ "field": 2, "showAs": "percentOfTotal" }],
+                "layout": "outline", "labels": labels }),
+        );
+        assert_eq!(d(&e, 3, 1), "40,00%");
+        assert_eq!(d(&e, 4, 1), "20,00%");
+        let info = run(&mut e, json!({ "cmd": "pivots", "sheet": 1 }));
+        assert_eq!(info[0]["layout"], "outline");
+        assert_eq!(info[0]["values"][0]["showAs"], "percentOfTotal");
+        assert_eq!(info[0]["fields"][0]["group"]["by"], "dates");
+        assert_eq!(info[0]["fields"][0]["group"]["months"], true);
+        assert_eq!(info[0]["fields"][0]["items"][1], "Thg 1");
+        // Save and reopen.
+        let mut e = reopen(&mut e);
+        assert_eq!(d(&e, 3, 1), "40,00%");
+        let info = run(&mut e, json!({ "cmd": "pivots", "sheet": 1 }));
+        assert_eq!(info[0]["layout"], "outline");
+        assert_eq!(info[0]["fields"][0]["group"]["months"], true);
+        // A calculated field (10 % of the revenue): Jan 4.
+        let f = run(
+            &mut e,
+            json!({ "cmd": "pivotCalcField", "sheet": 1, "index": 0, "name": "Thuế",
+                "formula": "='Doanh thu'*0.1", "labels": labels }),
+        );
+        assert_eq!(f["field"], 3);
+        assert_eq!(d(&e, 2, 2), "Sum of Thuế");
+        assert_eq!(d(&e, 3, 2), "4");
+        // A failing edit changes nothing.
+        let err = e.exec_json(
+            &json!({ "cmd": "pivotCalcField", "sheet": 1, "index": 0, "name": "X",
+                "formula": "Giá*2" })
+            .to_string(),
+        );
+        assert!(err.is_err());
+        assert_eq!(d(&e, 3, 2), "4");
+        // Field settings: number format, sort descending by value.
+        run(
+            &mut e,
+            json!({ "cmd": "pivotUpdate", "sheet": 1, "index": 0, "rows": [0],
+                "values": [{ "field": 2, "numFmt": "#,##0.00" }],
+                "fieldOptions": [{ "field": 0, "sort": "descending", "sortBy": 0 }],
+                "rowGrandTotals": false, "colGrandTotals": false,
+                "style": { "name": "PivotStyleMedium2", "rowStripes": true }, "labels": labels }),
+        );
+        assert_eq!((d(&e, 3, 0), d(&e, 3, 1)), ("Thg 1".into(), "40,00".into()));
+        assert_eq!((d(&e, 5, 0), d(&e, 5, 1)), ("Thg 2".into(), "20,00".into()));
+        assert_eq!(d(&e, 6, 0), "", "no grand total row");
+        let info = run(&mut e, json!({ "cmd": "pivots", "sheet": 1 }));
+        assert_eq!(info[0]["values"][0]["numFmt"], "#,##0.00");
+        assert_eq!(info[0]["fieldOptions"][0]["sort"], "descending");
+        assert_eq!(info[0]["style"]["name"], "PivotStyleMedium2");
+        assert_eq!(info[0]["colGrandTotals"], false);
+        // Move to F11, change the source to January only, refresh all, delete.
+        let moved = run(
+            &mut e,
+            json!({ "cmd": "pivotMove", "sheet": 1, "index": 0,
+                "dest": { "sheet": 1, "row": 10, "col": 5 }, "labels": labels }),
+        );
+        assert_eq!(moved["index"], 0);
+        assert_eq!(d(&e, 3, 1), "");
+        assert_eq!(
+            (d(&e, 10, 5), d(&e, 11, 6)),
+            ("Ngày".into(), "40,00".into())
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "pivotChangeSource", "sheet": 1, "index": 0,
+                "source": "Sheet1!A1:C3", "labels": labels }),
+        );
+        assert_eq!(d(&e, 12, 5), "", "only January is left");
+        e.set_input(0, 1, 2, "15").unwrap();
+        let n = run(
+            &mut e,
+            json!({ "cmd": "pivotRefreshAll", "labels": labels }),
+        );
+        assert_eq!(n["count"], 1);
+        assert_eq!(d(&e, 11, 6), "45,00");
+        run(
+            &mut e,
+            json!({ "cmd": "pivotDelete", "sheet": 1, "index": 0 }),
+        );
+        assert_eq!(e.info().unwrap().sheets[1].pivots, 0);
+        assert_eq!(d(&e, 11, 6), "");
+        assert!(e.undo().unwrap());
+        assert_eq!(e.info().unwrap().sheets[1].pivots, 1);
+        let presets = run(&mut e, json!({ "cmd": "presets" }));
+        assert!(presets["pivotStyles"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("PivotStyleLight16")));
     }
 
     #[test]

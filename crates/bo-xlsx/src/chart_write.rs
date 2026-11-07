@@ -807,6 +807,6 @@ mod tests {
         ));
         assert_eq!(fresh.sheets[0].charts[0].to, Some(CellRef::new(5, 5)));
         assert!(remove_chart(&mut fresh, 0, 0));
-        assert!(fresh.sheets[0].charts.is_empty());
+        assert_eq!(fresh.sheets[0].charts.len(), 0);
     }
 }

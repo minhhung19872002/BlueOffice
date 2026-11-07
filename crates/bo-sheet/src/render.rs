@@ -10,7 +10,7 @@
 //! sheet (§20.5 drawing anchors) are drawn on top of the cells.
 //!
 //! Row/column default styles are drawn on empty cells; rotated (and stacked) text is drawn
-//! with a transform (§18.8.1 	extRotation).
+//! with a transform (§18.8.1 `textRotation`).
 
 use crate::cf::CellFormat;
 use crate::color::resolve_color;

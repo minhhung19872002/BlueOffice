@@ -315,8 +315,8 @@ impl MovedBlock {
     fn shift(&self, a: CellAddr) -> Option<CellAddr> {
         let r = i64::from(a.row) + self.d_row;
         let c = i64::from(a.col) + self.d_col;
-        ((0..i64::from(MAX_ROWS)).contains(&r) && (0..i64::from(MAX_COLS)).contains(&c)).then(
-            || CellAddr {
+        ((0..i64::from(MAX_ROWS)).contains(&r) && (0..i64::from(MAX_COLS)).contains(&c)).then_some(
+            CellAddr {
                 row: r as u32,
                 col: c as u32,
                 ..a

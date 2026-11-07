@@ -1769,12 +1769,13 @@ impl SheetEngine {
         };
         // A copy fills a larger selection whose size is a multiple of the block.
         let (tiles_r, tiles_c) = match target.map(Rng::range) {
-            Some(t) if !clip.cut && t.first == CellRef::new(row, col) => {
-                if t.rows() % h == 0 && t.cols() % w == 0 {
-                    (t.rows() / h, t.cols() / w)
-                } else {
-                    (1, 1)
-                }
+            Some(t)
+                if !clip.cut
+                    && t.first == CellRef::new(row, col)
+                    && t.rows() % h == 0
+                    && t.cols() % w == 0 =>
+            {
+                (t.rows() / h, t.cols() / w)
             }
             _ => (1, 1),
         };
@@ -2338,7 +2339,7 @@ mod tests {
             json!({ "cmd": "deleteChart", "sheet": 0, "index": 0 }),
         );
         let mut gone = reopen(&mut moved);
-        assert!(gone.workbook().unwrap().sheets[0].charts.is_empty());
+        assert_eq!(gone.workbook().unwrap().sheets[0].charts.len(), 0);
         assert!(gone
             .exec(SheetCommand::DeleteChart { sheet: 0, index: 0 })
             .is_err());

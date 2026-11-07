@@ -99,11 +99,42 @@ Corpus writer: `writer-format-*`, `writer-sheet-*`, `writer-charts-*` (sinh bằ
 `BO_WRITE_CORPUS=1`) — 51/51 lossless, OpenXmlValidator hợp lệ (`node scripts/fidelity-report.mjs`).
 E2E: `tests/e2e/specs/sheet.spec.ts` (gõ số + SUM, đậm + tô nền, sort, lưu .xlsx, mở lại).
 
-## 5. Còn lại
-- Render: style mặc định của hàng/cột cho ô trống, xoay chữ (giá trị `textRotation` được lưu nhưng vẽ ngang).
-- Sort theo cột (trái → phải), sort theo màu; AutoFilter `dynamicFilter`/`colorFilter`/`dateGroupItem` mới giữ
-  nguyên, chưa đánh giá. Menu lọc mới hỗ trợ một điều kiện tuỳ chỉnh.
-- Biểu đồ đọc từ file chưa xoá được (anchor nằm trong drawing opaque); chưa kéo/đổi kích thước biểu đồ bằng chuột;
-  màu series lấy theo bảng màu BlueSheet, chưa đọc `c:spPr` của file.
-- Cắt-dán chưa cập nhật công thức khác đang tham chiếu tới ô bị di chuyển; dán không lặp lại theo vùng chọn lớn hơn.
+## 5. PivotTable (§18.10) và các tính năng bổ sung
+
+**PivotTable** (`bo_model::sheet::{PivotCache, PivotTable}`, `bo-xlsx::pivot` / `pivot_write`, `bo_sheet::pivot`):
+- Đọc: `workbook/pivotCaches` (§18.2.22) → `pivotCacheDefinition` (§18.10.1.67: nguồn `worksheetSource`, `cacheFields`
+  + `sharedItems`, part records) và `pivotTableDefinition` của từng sheet (§18.10.1.73: `location`, `rowFields`,
+  `colFields`, `pageFields` + mục chọn, `dataFields` + `subtotal`). Các part vẫn **opaque** → ghi lại byte-for-byte
+  khi không sửa (lossless). Ô báo cáo là ô thường của sheet nên hiển thị nguyên trạng.
+- Tạo/sửa/làm mới: cache dựng từ vùng nguồn (dòng tiêu đề = tên trường, item gom không phân biệt hoa thường, sắp
+  số < chữ < bool < lỗi < trống); báo cáo dạng bảng (tabular, không subtotal), Hàng × Cột × Giá trị
+  (Sum/Count/Average/Max/Min/Product/CountNums/StdDev(p)/Var(p)), bộ lọc báo cáo (một hoặc nhiều mục), tổng cộng
+  hai chiều; định dạng số của cột nguồn cho ô giá trị. Ghi `pivotCacheDefinition` (`refreshOnLoad="1"`) +
+  `pivotCacheRecords` (chỉ số `x`) + `pivotTableDefinition` (compact/outline tắt, `defaultSubtotal="0"`); pivot
+  từ file khi sửa/làm mới được sinh lại part cùng tên. Làm mới tính lại mọi pivot dùng chung cache (khớp trường theo tên).
+- Engine: `pivotSource`, `pivotCreate`, `pivots`, `pivotUpdate`, `pivotRefresh`; UI: Chèn → Bảng tổng hợp (hộp thoại
+  vùng nguồn / trang tính mới hoặc ô đích), panel danh sách trường (tick trường, kéo thả giữa Bộ lọc/Cột/Hàng/Giá trị,
+  chọn hàm tóm tắt, chọn mục lọc), lệnh làm mới.
+- Corpus `writer-pivots-{1,2,3}.xlsx` (OpenXmlValidator hợp lệ, cả file pivot từ file sau khi làm mới); E2E
+  `tests/e2e/specs/sheet-pivot.spec.ts` (tạo pivot, đổi hàm, lưu, mở lại, tính lại).
+
+**Bổ sung khác**
+- Biểu đồ: kéo để di chuyển, kéo góc để đổi cỡ (lệnh `moveChart`), xoá cả biểu đồ đọc từ file
+  (`bo_xlsx::chart_write::{move_chart, remove_chart}` sửa anchor trong drawing opaque, bỏ relationship và part chart).
+- Cắt–dán: công thức ở mọi sheet (và defined name) trỏ tới ô bị di chuyển được trỏ theo (`bo_formula::adjust_for_move`,
+  `FormulaAdjuster::moved`); công thức của chính khối bị cắt giữ nguyên. Dán bản sao lặp lại khi vùng chọn là bội số.
+- Sort trái → phải (`sortState/@columnSort`) và theo màu ô / màu chữ (`sortBy`): `bo_sheet::sort::sort_lines`.
+- AutoFilter: `dateGroupItem`, `dynamicFilter` (ngày tương đối, M1–12, Q1–4, trên/dưới trung bình), `colorFilter`
+  được mô hình hoá (lossless) và đánh giá; menu lọc có cây năm/tháng, danh sách lọc ngày, lọc theo màu.
+- Render: chữ xoay `textRotation` 1–180 (transform) và 255 (xếp dọc); style mặc định của hàng/cột vẽ trên ô trống.
+
+## 6. Còn lại
+- PivotTable: chưa có subtotal, layout compact/outline, nhóm ngày/số, trường tính toán, "show values as", định dạng
+  pivot; chưa xoá pivot; pivot từ file chỉ tính lại được khi nguồn là vùng/tên/bảng trong workbook; đổi tên sheet nguồn
+  không cập nhật part cache opaque cho tới khi làm mới.
+- Cắt–dán sang sheet khác chưa thêm tên sheet nguồn cho tham chiếu tương đối không qualified bên trong khối cắt;
+  chart/CF/DV chưa cập nhật theo ô bị di chuyển.
+- Biểu đồ `absoluteAnchor` chưa di chuyển được; `oneCellAnchor` chỉ di chuyển (không đổi cỡ).
+- `dynamicFilter` có `valIso`/`maxValIso`, `iconFilter` vẫn giữ nguyên XML, chưa đánh giá.
 - Comments part: chỉ giữ authors + commentList (threaded comments vẫn opaque).
+- Màu series lấy theo bảng màu BlueSheet, chưa đọc `c:spPr` của file.

@@ -382,7 +382,7 @@ impl crate::Engine {
         );
         let mut targets = None;
         {
-            let layout = self.layout.as_ref().ok_or(crate::EngineError::NoDocument)?;
+            let layout = self.layout.document();
             let s = self
                 .session
                 .as_mut()
@@ -696,7 +696,7 @@ impl crate::Engine {
         extra: (Option<Vec<Match>>, Option<usize>, Option<ClipOut>),
         error: Option<String>,
     ) -> crate::Result<EditResult> {
-        let layout = self.layout.as_ref().ok_or(crate::EngineError::NoDocument)?;
+        let layout = self.layout.document();
         let s = self
             .session
             .as_ref()
@@ -709,7 +709,7 @@ impl crate::Engine {
             rects: nav::selection_rects(layout, sel),
             dirty,
             format: s.format_state(),
-            modified: self.saved_doc.as_ref() != Some(s.doc()),
+            modified: self.is_modified(),
             matches: extra.0,
             count: extra.1,
             clip: extra.2,

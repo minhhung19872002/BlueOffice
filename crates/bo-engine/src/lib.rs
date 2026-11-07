@@ -6,11 +6,13 @@
 //! desktop produce byte-identical display lists (see ADR-0002).
 #![forbid(unsafe_code)]
 
-use bo_layout::{layout_document_with, LayoutCache, LayoutDocument, LayoutOptions, RevisionView};
+use bo_layout::{IncrementalLayout, LayoutCache, LayoutDocument, LayoutOptions, RevisionView};
+use bo_model::change::BlockChanges;
 use bo_model::{Block, Document, Paragraph, Run, RunProps, Section};
-use bo_render::{build_display_list, DisplayList, PageList};
+use bo_render::{build_page_list, DisplayList, PageList};
 use bo_text::{outline_svg_path, FaceId, FontManager};
 use serde::Serialize;
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 
 #[cfg(feature = "bundled-fonts")]
@@ -111,6 +113,60 @@ pub struct GlyphOutline {
     pub path: String,
 }
 
+/// Word count of the main story kept per top-level block (DocInfo after each edit).
+#[derive(Default)]
+struct WordCount {
+    blocks: Vec<Vec<usize>>,
+    total: usize,
+}
+
+impl WordCount {
+    fn block(b: &Block) -> usize {
+        bo_model::write::blocks_word_count(std::slice::from_ref(b))
+    }
+
+    /// Recount the changed blocks; everything when `changes` says so.
+    fn update(&mut self, doc: &Document, changes: &BlockChanges) {
+        let consistent = self.blocks.len() == doc.sections.len()
+            && doc.sections.iter().enumerate().all(|(si, s)| {
+                let delta = changes.section(si).map_or(0, |c| c.delta);
+                self.blocks[si].len() as isize + delta == s.blocks.len() as isize
+            });
+        if changes.is_all() || !consistent {
+            self.blocks = doc
+                .sections
+                .iter()
+                .map(|s| s.blocks.iter().map(Self::block).collect())
+                .collect();
+        } else {
+            for c in changes.sections() {
+                let new = doc.sections[c.section].blocks[c.start..c.end]
+                    .iter()
+                    .map(Self::block);
+                let v = &mut self.blocks[c.section];
+                let e = c.old_end().min(v.len());
+                v.splice(c.start.min(e)..e, new);
+            }
+        }
+        self.total = self.blocks.iter().flatten().sum();
+    }
+
+    /// Words of `doc` (as `Document::plain_text` counts them).
+    fn get(&self, doc: &Document) -> usize {
+        // A deleted paragraph mark joins two paragraphs' text: counts are not additive.
+        let joined = doc.sections.iter().any(|s| {
+            s.blocks
+                .iter()
+                .any(|b| matches!(b, Block::Paragraph(p) if p.props.mark_del.is_some()))
+        });
+        if joined {
+            doc.plain_text().split_whitespace().count()
+        } else {
+            self.total
+        }
+    }
+}
+
 /// The engine.
 #[derive(Default)]
 pub struct Engine {
@@ -120,7 +176,16 @@ pub struct Engine {
     session: Option<bo_edit::Session>,
     /// Document as last opened/saved (`modified` flag).
     saved_doc: Option<Document>,
-    layout: Option<LayoutDocument>,
+    /// Blocks changed since `saved_doc` (only those are compared for `modified`).
+    unsaved: BlockChanges,
+    /// Layout of the open document, updated incrementally after each edit.
+    layout: IncrementalLayout,
+    /// Display list of each page of the open document, built when first requested.
+    doc_display: Vec<OnceCell<PageList>>,
+    /// The layout shows a mail-merge preview instead of the document.
+    laid_out_preview: bool,
+    words: WordCount,
+    /// Display lists of the open presentation's slides.
     display: Option<DisplayList>,
     /// Column kept across vertical caret moves.
     goal_x: Option<f32>,
@@ -167,6 +232,7 @@ impl Engine {
     pub fn add_font(&mut self, bytes: Vec<u8>) -> usize {
         let n = self.fonts.add_font(bytes).len();
         self.cache.clear();
+        self.layout.reset();
         n
     }
 
@@ -261,11 +327,20 @@ impl Engine {
     /// Load an in-memory document model.
     pub fn load(&mut self, doc: Document, name: &str) -> Result<DocInfo> {
         let opts = self.options();
-        let layout = layout_document_with(&doc, &mut self.fonts, &mut self.cache, opts)?;
-        let display = build_display_list(&layout, &self.fonts);
+        self.layout.reset();
+        let all = BlockChanges::everything();
+        self.layout
+            .update(&doc, &mut self.fonts, &mut self.cache, opts, &all)?;
+        self.doc_display = (0..self.layout.document().pages.len())
+            .map(|_| OnceCell::new())
+            .collect();
+        self.laid_out_preview = false;
+        self.words.update(&doc, &all);
         self.name = name.to_owned();
         self.saved_doc = Some(doc.clone());
+        self.unsaved = BlockChanges::default();
         let mut session = bo_edit::Session::new(doc);
+        session.take_changes();
         if let Some(a) = &self.author {
             session.set_author(a);
         }
@@ -273,8 +348,7 @@ impl Engine {
         self.merge_preview = None;
         self.macros = false;
         self.save_password = None;
-        self.layout = Some(layout);
-        self.display = Some(display);
+        self.display = None;
         self.goal_x = None;
         self.pres = None;
         self.images.clear();
@@ -298,34 +372,68 @@ impl Engine {
         self.view
     }
 
-    /// Lay out again after an edit; returns the pages whose display list changed.
+    /// Lay out again after an edit (incrementally: only the changed blocks and the
+    /// pages they affect, prompt §5.4); returns the pages whose content changed.
     fn relayout(&mut self) -> Result<Vec<usize>> {
         let opts = self.options();
-        let doc = self.session.as_ref().ok_or(EngineError::NoDocument)?.doc();
+        let s = self.session.as_mut().ok_or(EngineError::NoDocument)?;
+        let mut changes = s.take_changes();
+        let doc = s.doc();
+        self.unsaved.extend(&changes);
+        self.words.update(doc, &changes);
         // Mail-merge preview: the record's values in the merge fields (§17.16.5.35).
         let preview = match (&self.merge, self.merge_preview) {
             (Some(m), Some(r)) => Some(bo_edit::merge::preview(doc, m, Some(r))),
             _ => None,
         };
+        if preview.is_some() || self.laid_out_preview {
+            changes = BlockChanges::everything();
+        }
+        self.laid_out_preview = preview.is_some();
         let doc = preview.as_ref().unwrap_or(doc);
-        let layout = layout_document_with(doc, &mut self.fonts, &mut self.cache, opts)?;
-        let display = build_display_list(&layout, &self.fonts);
-        let old = self.display.take().unwrap_or_default();
-        let dirty = if old.pages.len() == display.pages.len() {
-            (0..display.pages.len())
-                .filter(|&i| old.pages[i] != display.pages[i])
-                .collect()
-        } else {
-            (0..display.pages.len()).collect()
-        };
-        self.layout = Some(layout);
-        self.display = Some(display);
+        let dirty = self
+            .layout
+            .update(doc, &mut self.fonts, &mut self.cache, opts, &changes)?;
+        let n = self.layout.document().pages.len();
+        self.doc_display.truncate(n);
+        self.doc_display.resize_with(n, OnceCell::new);
+        for &i in &dirty {
+            if let Some(c) = self.doc_display.get_mut(i) {
+                *c = OnceCell::new();
+            }
+        }
         Ok(dirty)
+    }
+
+    /// The document differs from the last opened/saved one. Only blocks changed since
+    /// then are compared (every other part changes through ops that mark everything).
+    fn is_modified(&self) -> bool {
+        let (Some(saved), Some(s)) = (&self.saved_doc, &self.session) else {
+            return self.session.is_some();
+        };
+        let doc = s.doc();
+        let mut ch = self.unsaved.clone();
+        ch.extend(s.pending_changes());
+        if ch.is_empty() {
+            return false;
+        }
+        if ch.is_all() || saved.sections.len() != doc.sections.len() {
+            return saved != doc;
+        }
+        ch.sections().iter().any(|c| {
+            let (a, b) = (
+                &doc.sections[c.section].blocks,
+                &saved.sections[c.section].blocks,
+            );
+            a.len() as isize != b.len() as isize + c.delta
+                || a.get(c.start..c.end) != b.get(c.start..c.old_end())
+        })
     }
 
     /// Mark the current state as saved (clears `modified`).
     pub fn mark_saved(&mut self) {
         self.saved_doc = self.session.as_ref().map(|s| s.doc().clone());
+        self.unsaved = BlockChanges::default();
         self.slides.mark_saved();
     }
 
@@ -355,7 +463,8 @@ impl Engine {
         self.session = None;
         self.saved_doc = None;
         self.goal_x = None;
-        self.layout = None;
+        self.layout.reset();
+        self.doc_display.clear();
         self.display = Some(DisplayList { pages });
         self.pres = Some(pres);
         self.images = images;
@@ -449,24 +558,42 @@ impl Engine {
 
     /// Summary of the open document.
     pub fn info(&self) -> Result<DocInfo> {
-        let display = self.display.as_ref().ok_or(EngineError::NoDocument)?;
-        let (kind, words) = match (self.document(), &self.pres) {
-            (Some(doc), _) => ("doc", doc.plain_text().split_whitespace().count()),
-            (None, Some(p)) => ("slide", presentation_words(p)),
+        let (kind, words, pages): (&str, usize, Vec<PageSize>) = match (self.document(), &self.pres)
+        {
+            (Some(doc), _) => (
+                "doc",
+                self.words.get(doc),
+                self.layout
+                    .document()
+                    .pages
+                    .iter()
+                    .map(|p| PageSize {
+                        width: p.width,
+                        height: p.height,
+                    })
+                    .collect(),
+            ),
+            (None, Some(p)) => (
+                "slide",
+                presentation_words(p),
+                self.display
+                    .as_ref()
+                    .ok_or(EngineError::NoDocument)?
+                    .pages
+                    .iter()
+                    .map(|p| PageSize {
+                        width: p.width,
+                        height: p.height,
+                    })
+                    .collect(),
+            ),
             (None, None) => return Err(EngineError::NoDocument),
         };
         Ok(DocInfo {
             name: self.name.clone(),
             kind: kind.into(),
-            page_count: display.pages.len(),
-            pages: display
-                .pages
-                .iter()
-                .map(|p| PageSize {
-                    width: p.width,
-                    height: p.height,
-                })
-                .collect(),
+            page_count: pages.len(),
+            pages,
             word_count: words,
             macros: self.macros,
             protected: self.save_password.is_some(),
@@ -485,17 +612,55 @@ impl Engine {
 
     /// The current layout.
     pub fn layout(&self) -> Option<&LayoutDocument> {
-        self.layout.as_ref()
+        self.session.as_ref().map(|_| self.layout.document())
     }
 
-    /// Display list of a page.
+    /// How the last layout update was done (full or incremental).
+    pub fn last_layout_update(&self) -> bo_layout::UpdateKind {
+        self.layout.last_update()
+    }
+
+    /// Let the incremental layout stop once page breaks re-synchronise (default), or
+    /// make it re-paginate to the end of the document (worst-case benchmarks).
+    pub fn set_layout_resync(&mut self, enabled: bool) {
+        self.layout.set_resync(enabled);
+    }
+
+    /// Display list of a page (built from the layout when first requested after a change).
     pub fn page(&self, index: usize) -> Result<&PageList> {
-        self.display
-            .as_ref()
-            .ok_or(EngineError::NoDocument)?
+        if self.session.is_none() {
+            return self
+                .display
+                .as_ref()
+                .ok_or(EngineError::NoDocument)?
+                .pages
+                .get(index)
+                .ok_or(EngineError::PageOutOfRange(index));
+        }
+        let page = self
+            .layout
+            .document()
             .pages
             .get(index)
-            .ok_or(EngineError::PageOutOfRange(index))
+            .ok_or(EngineError::PageOutOfRange(index))?;
+        let cell = self
+            .doc_display
+            .get(index)
+            .ok_or(EngineError::PageOutOfRange(index))?;
+        Ok(cell.get_or_init(|| build_page_list(page, &self.fonts)))
+    }
+
+    /// Display list of the whole open document or presentation.
+    fn display_list(&self) -> Result<std::borrow::Cow<'_, DisplayList>> {
+        if self.session.is_none() {
+            return Ok(std::borrow::Cow::Borrowed(
+                self.display.as_ref().ok_or(EngineError::NoDocument)?,
+            ));
+        }
+        let pages = (0..self.layout.document().pages.len())
+            .map(|i| self.page(i).cloned())
+            .collect::<Result<Vec<_>>>()?;
+        Ok(std::borrow::Cow::Owned(DisplayList { pages }))
     }
 
     /// Display list of a page as JSON (the bridge format for JS hosts).
@@ -528,7 +693,8 @@ impl Engine {
 
     /// Export the whole document as PDF.
     pub fn export_pdf(&self) -> Result<Vec<u8>> {
-        let display = self.display.as_ref().ok_or(EngineError::NoDocument)?;
+        let display = self.display_list()?;
+        let display = display.as_ref();
         let title = self
             .name
             .rsplit_once('.')

@@ -20,6 +20,7 @@ import type {
   FontDescriptor,
   FontSource,
   GlyphOutline,
+  HostFileLink,
   OpenedFile,
   PageDisplayList,
   Platform,
@@ -109,8 +110,10 @@ class DesktopWindow implements WindowManager {
     document.title = title;
     void this.call('set_title', { title }).catch(() => {});
   }
+  /** Opens a native window; `url` is an app query such as `?app=sheet`. */
   async openNew(url: string): Promise<void> {
-    window.open(url, '_blank');
+    const query = url.includes('?') ? url.slice(url.indexOf('?') + 1) : url;
+    await this.call<string>('open_window', { query });
   }
 }
 
@@ -122,6 +125,19 @@ class DesktopShell implements ShellIntegration {
   }
   async addRecentFile(file: RecentFile): Promise<void> {
     this.recent.add(file);
+  }
+  onOpenLink(handler: (link: HostFileLink) => void): () => void {
+    let disposed = false;
+    void this.call<HostFileLink | null>('startup_link').then((l) => {
+      if (l && !disposed) handler(l);
+    });
+    const un = listen<HostFileLink>('open-link', (e) => {
+      if (!disposed) handler(e.payload);
+    });
+    return () => {
+      disposed = true;
+      void un.then((f) => f());
+    };
   }
   onOpenRequest(handler: (file: OpenedFile) => void): () => void {
     let disposed = false;

@@ -165,11 +165,24 @@ export interface RecentFile {
   openedAt: number;
 }
 
+/**
+ * A `bluedoc://open?host=…&file=…&token=…` deep link (prompt §6A.3); the
+ * same fields as the web embed URL `/edit?file=…&host=…`.
+ */
+export interface HostFileLink {
+  app: 'doc' | 'sheet' | 'slide';
+  host: string;
+  fileId: string;
+  token?: string;
+}
+
 export interface ShellIntegration {
   recentFiles(): Promise<RecentFile[]>;
   addRecentFile(file: RecentFile): Promise<void>;
-  /** Register a handler for files opened by the OS (file association, deep link). */
+  /** Register a handler for local files opened by the OS (file association, second instance). */
   onOpenRequest(handler: (file: OpenedFile) => void): () => void;
+  /** Register a handler for host-file deep links (desktop only; web: never fires). */
+  onOpenLink?(handler: (link: HostFileLink) => void): () => void;
 }
 
 /** Everything platform-specific, in one object. */

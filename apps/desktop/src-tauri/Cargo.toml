@@ -18,7 +18,15 @@ bo-engine = { workspace = true, features = ["bundled-fonts"] }
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }
+tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-updater = { version = "2", optional = true }
+
+[features]
+# Auto-update (Tauri updater): needs `plugins.updater` (endpoints + pubkey) in the
+# release config, see docs/deploy/desktop-update.md.
+updater = ["dep:tauri-plugin-updater"]
 
 [lints]
 workspace = true

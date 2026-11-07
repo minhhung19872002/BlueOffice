@@ -19,12 +19,23 @@
     "shortDescription": "BlueSheet – Bảng tính",
     "fileAssociations": [
       {
-        "ext": ["xlsx"],
+        "ext": [
+          "xlsx"
+        ],
         "name": "BlueSheet workbook",
         "description": "Tương thích định dạng Microsoft Excel (.xlsx)",
         "role": "Editor",
         "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       }
     ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "bluesheet"
+        ]
+      }
+    }
   }
 }

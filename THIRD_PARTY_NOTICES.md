@@ -39,6 +39,9 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | clap | 4.6.7 | MIT OR Apache-2.0 | CLI `bo-cli` |
 | tauri / tauri-build | 2.12.5 / 2.7.4 | Apache-2.0 OR MIT | Vỏ desktop |
 | tauri-plugin-dialog | 2.8.4 | Apache-2.0 OR MIT | Hộp thoại mở/lưu file native |
+| tauri-plugin-deep-link | 2.6.3 | Apache-2.0 OR MIT | Deep link `bluedoc://` · `bluesheet://` · `blueslide://` |
+| tauri-plugin-single-instance | 2.5.5 | Apache-2.0 OR MIT | Chuyển file/deep link sang tiến trình đang chạy |
+| tauri-plugin-updater (feature `updater`) | 2.14.1 | Apache-2.0 OR MIT | Tự cập nhật bản desktop |
 | insta (dev) | 1.49.0 | Apache-2.0 | Snapshot test |
 | proptest (dev) | 1.12.0 | MIT OR Apache-2.0 | Property-based test |
 | criterion (dev) | 0.8.2 | Apache-2.0 OR MIT | Benchmark |

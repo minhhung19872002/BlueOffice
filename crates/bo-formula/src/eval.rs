@@ -209,6 +209,14 @@ impl<'a> Ctx<'a> {
             None => self.sheet,
         };
         let Some(def) = self.provider.defined_name(scope, name) else {
+            // A bare table name designates the table's data rows (ECMA-376 Part 1, §18.5.1.2).
+            if sheet.is_none() && self.provider.table(name).is_some() {
+                let s = StructRef {
+                    table: Some(name.to_owned()),
+                    items: Vec::new(),
+                };
+                return self.eval_struct(&s).unwrap_or_else(Value::Error);
+            }
             return Value::Error(ErrorKind::Name);
         };
         if self.depth > MAX_DEPTH {
@@ -224,12 +232,23 @@ impl<'a> Ctx<'a> {
     }
 
     fn eval_struct(&self, s: &StructRef) -> R {
+        struct_area(self.provider, s, self.sheet, self.row, self.col).map(Value::Ref)
+    }
+}
+
+/// Resolve a structured reference written in cell (`sheet`, `row`, `col`) to its area
+/// (ECMA-376 Part 1, §18.5.1 tables; `[#This Row]` / `@` selects the formula's row).
+pub(crate) fn struct_area(
+    provider: &dyn CellProvider,
+    s: &StructRef,
+    sheet: usize,
+    row: u32,
+    col: u32,
+) -> Result<Area, ErrorKind> {
+    {
         let table: TableInfo = match &s.table {
-            Some(name) => self.provider.table(name).ok_or(ErrorKind::Ref)?,
-            None => self
-                .provider
-                .table_at(self.sheet, self.row, self.col)
-                .ok_or(ErrorKind::Ref)?,
+            Some(name) => provider.table(name).ok_or(ErrorKind::Ref)?,
+            None => provider.table_at(sheet, row, col).ok_or(ErrorKind::Ref)?,
         };
         let mut col_lo = table.first_col;
         let mut col_hi = table.last_col();
@@ -258,10 +277,10 @@ impl<'a> Ctx<'a> {
                     add_rows(table.last_row, table.last_row);
                 }
                 StructItem::ThisRow => {
-                    if self.row < table.data_first_row() || self.row > table.data_last_row() {
+                    if row < table.data_first_row() || row > table.data_last_row() {
                         return Err(ErrorKind::Value);
                     }
-                    add_rows(self.row, self.row);
+                    add_rows(row, row);
                 }
                 StructItem::Column(c) => {
                     let i = table.column_index(c).ok_or(ErrorKind::Ref)?;
@@ -291,14 +310,27 @@ impl<'a> Ctx<'a> {
         if r1 > r2 {
             return Err(ErrorKind::Ref);
         }
-        Ok(Value::Ref(Area::new(table.sheet, r1, col_lo, r2, col_hi)))
+        Ok(Area::new(table.sheet, r1, col_lo, r2, col_hi))
     }
+}
 
+impl Ctx<'_> {
     fn eval_unary(&mut self, op: UnaryOp, inner: &Expr) -> Value {
         let v = self.eval(inner);
         match op {
             UnaryOp::Plus => v,
             UnaryOp::ImplicitIntersection => self.implicit_intersection(v),
+            UnaryOp::SpillRange => match v {
+                Value::Ref(a) if a.is_single() => {
+                    // Reading the anchor first lets a recalculation compute it before us.
+                    let _ = self.provider.cell_value(a.sheet, a.r1, a.c1);
+                    self.provider
+                        .spill_area(a.sheet, a.r1, a.c1)
+                        .map_or(Value::Error(ErrorKind::Ref), Value::Ref)
+                }
+                Value::Error(e) => Value::Error(e),
+                _ => Value::Error(ErrorKind::Ref),
+            },
             UnaryOp::Neg | UnaryOp::Percent => {
                 let v = self.deref(v);
                 self.map_scalar(&v, |ctx, x| match ctx.num(x) {

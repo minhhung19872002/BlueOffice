@@ -6,7 +6,9 @@
 
 use std::fmt;
 
-use crate::ast::{BinaryOp, Expr, UnaryOp, PERCENT_PRECEDENCE, PREFIX_PRECEDENCE};
+use crate::ast::{
+    BinaryOp, Expr, UnaryOp, PERCENT_PRECEDENCE, PREFIX_PRECEDENCE, SPILL_PRECEDENCE,
+};
 use crate::lexer::{Lexer, Tok, Token};
 use crate::reference::{RefKind, Reference};
 
@@ -131,6 +133,14 @@ impl Parser {
                 Tok::Colon => Some(BinaryOp::Range),
                 Tok::Comma if allow_union => Some(BinaryOp::Union),
                 Tok::Op(op) => Some(*op),
+                Tok::Hash => {
+                    if SPILL_PRECEDENCE < min {
+                        break;
+                    }
+                    self.pos += 1;
+                    lhs = Expr::Unary(UnaryOp::SpillRange, Box::new(lhs));
+                    continue;
+                }
                 Tok::Percent => {
                     if PERCENT_PRECEDENCE < min {
                         break;

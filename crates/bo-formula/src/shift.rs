@@ -95,6 +95,19 @@ fn adjust_interval(
     }
 }
 
+/// Adjust the span `[lo, hi]` on the axis affected by `change`.
+/// Returns `None` when the span is deleted entirely.
+pub(crate) fn adjust_span(lo: u32, hi: u32, change: StructuralChange) -> Option<(u32, u32)> {
+    let (rows_axis, insert, at, count) = axis(change);
+    let max = if rows_axis { MAX_ROWS } else { MAX_COLS };
+    adjust_interval(lo, hi, insert, at, count, max)
+}
+
+/// Whether the change inserts/deletes rows (as opposed to columns).
+pub(crate) fn is_row_change(change: StructuralChange) -> bool {
+    axis(change).0
+}
+
 fn adjust_kind(kind: RefKind, change: StructuralChange) -> Option<RefKind> {
     let (rows_axis, insert, at, count) = axis(change);
     let max = if rows_axis { MAX_ROWS } else { MAX_COLS };

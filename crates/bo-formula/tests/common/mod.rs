@@ -103,7 +103,10 @@ fn values_match(got: &Value, want: &Value, tol: Option<f64>) -> bool {
         (Value::Array(a), Value::Array(b)) => {
             a.rows() == b.rows()
                 && a.cols() == b.cols()
-                && a.data().iter().zip(b.data()).all(|(x, y)| values_match(x, y, tol))
+                && a.data()
+                    .iter()
+                    .zip(b.data())
+                    .all(|(x, y)| values_match(x, y, tol))
         }
         _ => got == want,
     }
@@ -160,7 +163,9 @@ pub fn check_with(setup: &[(&str, &str)], cases: &[(&str, X)], opts: Opts) {
         let got = result_at(&wb, row, FORMULA_COL);
         let (want_v, tol) = want_value(*want);
         if !values_match(&got, &want_v, tol) {
-            failures.push(format!("  {formula}\n      got  {got:?}\n      want {want:?}"));
+            failures.push(format!(
+                "  {formula}\n      got  {got:?}\n      want {want:?}"
+            ));
         }
     }
     assert!(

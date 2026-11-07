@@ -2,7 +2,7 @@
 
 use crate::ast::Expr;
 use crate::reference::{MAX_COLS, MAX_ROWS};
-use crate::value::Value;
+use crate::value::{Area, Value};
 
 /// Geometry of a table (ListObject) used to resolve structured references
 /// (ECMA-376 Part 1, §18.5 tables).
@@ -34,7 +34,7 @@ impl TableInfo {
 
     /// Last data row.
     pub fn data_last_row(&self) -> u32 {
-        self.last_row - u32::from(self.totals_row)
+        self.last_row.saturating_sub(u32::from(self.totals_row))
     }
 
     /// Absolute column index of a column name (case-insensitive).
@@ -98,6 +98,12 @@ pub trait CellProvider {
     /// clipped to it when materialized.
     fn used_extent(&self, _sheet: usize) -> (u32, u32) {
         (MAX_ROWS, MAX_COLS)
+    }
+
+    /// The area spilled by the dynamic-array formula anchored at a cell, if any
+    /// (target of the `A1#` spill-range operator).
+    fn spill_area(&self, _sheet: usize, _row: u32, _col: u32) -> Option<Area> {
+        None
     }
 
     /// Whether a row is hidden (for `SUBTOTAL` 101-111 and `AGGREGATE`).

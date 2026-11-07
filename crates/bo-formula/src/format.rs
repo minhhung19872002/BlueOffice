@@ -5,6 +5,7 @@
 
 use crate::ast::{
     BinaryOp, Expr, StructItem, StructRef, UnaryOp, PERCENT_PRECEDENCE, PREFIX_PRECEDENCE,
+    SPILL_PRECEDENCE,
 };
 use crate::parser::{ParseOptions, RefStyle};
 use crate::reference::{col_to_letters, letters_to_col, CellAddr, RefKind, Reference, SheetRef};
@@ -25,6 +26,7 @@ fn precedence(e: &Expr) -> u8 {
     match e {
         Expr::Binary(op, ..) => op.precedence(),
         Expr::Unary(UnaryOp::Percent, _) => PERCENT_PRECEDENCE,
+        Expr::Unary(UnaryOp::SpillRange, _) => SPILL_PRECEDENCE,
         Expr::Unary(..) => PREFIX_PRECEDENCE,
         _ => 100,
     }
@@ -86,6 +88,10 @@ fn write_expr(out: &mut String, e: &Expr, opts: &ParseOptions) {
         Expr::Unary(op, inner) => {
             let ip = precedence(inner);
             match op {
+                UnaryOp::SpillRange => {
+                    write_child(out, inner, opts, ip < 100);
+                    out.push('#');
+                }
                 UnaryOp::Percent => {
                     // Parenthesize anything binding looser than `%`, including prefix ops
                     // (`(-1)%` must not become `-1%`, which parses as `-(1%)`).

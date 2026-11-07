@@ -14,6 +14,9 @@ pub enum UnaryOp {
     Percent,
     /// Prefix `@` (implicit intersection).
     ImplicitIntersection,
+    /// Postfix `#` spill-range operator: `A1#` designates the whole dynamic
+    /// array spilled from anchor `A1` ([MS-XLSX] dynamic array formulas).
+    SpillRange,
 }
 
 /// Binary operators, including the reference operators.
@@ -98,6 +101,8 @@ impl BinaryOp {
 pub(crate) const PREFIX_PRECEDENCE: u8 = 6;
 /// Precedence of postfix percent.
 pub(crate) const PERCENT_PRECEDENCE: u8 = 7;
+/// Precedence of the postfix spill-range operator (binds tighter than `:`).
+pub(crate) const SPILL_PRECEDENCE: u8 = 11;
 
 /// One item of a structured reference specifier list.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

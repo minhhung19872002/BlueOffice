@@ -289,12 +289,15 @@ fn pad_right(s: &str, width: usize) -> String {
 /// Fraction formats such as `# ?/?`, `# ??/??`, `?/4` (ECMA-376 Part 1, §18.8.31:
 /// `/` between digit placeholders; a literal denominator fixes the denominator).
 fn format_fraction(x: f64, toks: &[Tok], auto_minus: bool) -> Option<String> {
-    let is_lit_digit = |t: &Tok| matches!(t, Tok::Lit(s) if s.len() == 1 && s.as_bytes()[0].is_ascii_digit());
+    let is_lit_digit =
+        |t: &Tok| matches!(t, Tok::Lit(s) if s.len() == 1 && s.as_bytes()[0].is_ascii_digit());
     let slash = toks.iter().enumerate().position(|(i, t)| {
         *t == Tok::Lit("/".into())
             && i > 0
             && matches!(toks[i - 1], Tok::Digit(_))
-            && toks.get(i + 1).is_some_and(|n| matches!(n, Tok::Digit(_)) || is_lit_digit(n))
+            && toks
+                .get(i + 1)
+                .is_some_and(|n| matches!(n, Tok::Digit(_)) || is_lit_digit(n))
     })?;
     let mut num_start = slash;
     while num_start > 0 && matches!(toks[num_start - 1], Tok::Digit(_)) {
@@ -304,7 +307,13 @@ fn format_fraction(x: f64, toks: &[Tok], auto_minus: bool) -> Option<String> {
     let first_digit = toks.iter().position(|t| matches!(t, Tok::Digit(_)))?;
     let int_toks: Vec<char> = toks[first_digit..num_start]
         .iter()
-        .filter_map(|t| if let Tok::Digit(c) = t { Some(*c) } else { None })
+        .filter_map(|t| {
+            if let Tok::Digit(c) = t {
+                Some(*c)
+            } else {
+                None
+            }
+        })
         .collect();
     let has_int = !int_toks.is_empty();
     let mut den_end = slash + 1;
@@ -327,7 +336,11 @@ fn format_fraction(x: f64, toks: &[Tok], auto_minus: bool) -> Option<String> {
     };
     let negative = x < 0.0;
     let a = x.abs();
-    let (mut int, frac) = if has_int { (a.trunc(), a.fract()) } else { (0.0, a) };
+    let (mut int, frac) = if has_int {
+        (a.trunc(), a.fract())
+    } else {
+        (0.0, a)
+    };
     let (mut n, d) = match fixed_den {
         Some(d) => ((frac * d as f64).round() as u64, d),
         None if has_int => best_fraction(frac, max_den),
@@ -352,7 +365,11 @@ fn format_fraction(x: f64, toks: &[Tok], auto_minus: bool) -> Option<String> {
     }
     if has_int {
         let min_int = int_toks.iter().filter(|c| **c == '0').count();
-        let mut s = if int == 0.0 { String::new() } else { format!("{int:.0}") };
+        let mut s = if int == 0.0 {
+            String::new()
+        } else {
+            format!("{int:.0}")
+        };
         while s.len() < min_int {
             s.insert(0, '0');
         }

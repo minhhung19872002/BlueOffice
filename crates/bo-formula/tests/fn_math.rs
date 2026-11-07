@@ -8,6 +8,9 @@
 //! Irrational results are the exact mathematical values rounded to the shown
 //! digits (checked with an absolute tolerance via `Near`).
 
+// Inputs such as 3.14159 are the published worked examples, not approximations of PI.
+#![allow(clippy::approx_constant)]
+
 mod common;
 use common::*;
 

@@ -20,14 +20,16 @@ use std::sync::Arc;
 
 use crate::ast::Expr;
 use crate::date::DateSystem;
-use crate::eval::{static_areas, Ctx, EvalConfig};
+use crate::eval::{static_areas, struct_area, Ctx, EvalConfig};
 use crate::format::format;
 use crate::functions::is_volatile_function;
 use crate::fxhash::{FxHashMap, FxHashSet};
 use crate::parser::{parse_with, ParseError, ParseOptions};
 use crate::provider::{CellProvider, TableInfo};
 use crate::reference::{parse_a1_cell, MAX_COLS, MAX_ROWS};
-use crate::shift::{adjust_for_change, StructuralChange};
+use crate::shift::{
+    adjust_for_change, adjust_span, is_row_change, offset_relative, StructuralChange,
+};
 use crate::value::{parse_number_text, Area, ErrorKind, Value};
 
 /// Address of a cell in a workbook.
@@ -110,6 +112,7 @@ pub struct Workbook {
     spill_blocked: FxHashSet<CellId>,
     spill_changed: Vec<CellId>,
     circular: FxHashSet<CellId>,
+    evaluations: Cell<usize>,
 }
 
 impl Default for Workbook {
@@ -138,6 +141,7 @@ impl Workbook {
             spill_blocked: FxHashSet::default(),
             spill_changed: Vec::new(),
             circular: FxHashSet::default(),
+            evaluations: Cell::new(0),
         }
     }
 
@@ -276,7 +280,7 @@ impl Workbook {
         let id = CellId::new(sheet, row, col);
         self.remove_formula(id);
         let text = text.unwrap_or_else(|| format!("={}", format(&expr)));
-        let (areas, volatile) = self.collect_deps(&expr, sheet);
+        let (areas, volatile) = self.collect_deps(&expr, id);
         self.register(id, areas);
         if volatile {
             self.volatile.insert(id);
@@ -417,6 +421,30 @@ impl Workbook {
         Ok(ctx.finalize(v))
     }
 
+    /// Copy a cell to another position (copy/paste): constants are copied as is,
+    /// formulas have their relative references shifted by the distance between
+    /// the cells (ECMA-376 Part 1, §18.17.2.3). References pushed off the grid
+    /// become `#REF!`.
+    pub fn copy_cell(&mut self, from: CellId, to: CellId) {
+        let Some(src) = self
+            .sheets
+            .get(from.sheet)
+            .and_then(|s| s.cells.get(&(from.row, from.col)))
+        else {
+            self.set_value(to.sheet, to.row, to.col, Value::Empty);
+            return;
+        };
+        if let Some(f) = &src.formula {
+            let dr = i64::from(to.row) - i64::from(from.row);
+            let dc = i64::from(to.col) - i64::from(from.col);
+            let expr = offset_relative(&f.expr, dr, dc);
+            self.set_formula_expr(to.sheet, to.row, to.col, expr, None);
+        } else {
+            let v = src.value.clone();
+            self.set_value(to.sheet, to.row, to.col, v);
+        }
+    }
+
     /// Insert/delete rows or columns on `sheet`, moving cells and adjusting
     /// every formula reference (deleted references become `#REF!`).
     pub fn apply_structural_change(&mut self, sheet: usize, change: StructuralChange) {
@@ -472,10 +500,70 @@ impl Workbook {
                 cell.formula = Some(Arc::new(Formula { expr: e, text }));
             }
         }
+        // Defined names: unqualified references belong to the scope sheet; for
+        // workbook-scoped names they are left alone (no sheet context).
+        let names = std::mem::take(&mut self.names);
+        for ((scope, name), expr) in names {
+            let home = scope
+                .and_then(|s| self.sheets.get(s))
+                .map_or("\0", |s| s.name.as_str())
+                .to_owned();
+            let e = adjust_for_change(&expr, change, &home, &changed_name);
+            self.names.insert((scope, name), e);
+        }
+        self.adjust_tables(sheet, change);
         self.spills.clear();
         self.spill_owner.clear();
         self.spill_blocked.clear();
         self.rebuild_dependencies();
+    }
+
+    /// Move/resize tables on `sheet` for a structural change (ECMA-376 Part 1,
+    /// §18.5.1.2 table `ref`); a table whose rows or columns are all deleted is removed.
+    fn adjust_tables(&mut self, sheet: usize, change: StructuralChange) {
+        let rows = is_row_change(change);
+        let mut kept = Vec::with_capacity(self.tables.len());
+        for mut t in std::mem::take(&mut self.tables) {
+            if t.sheet != sheet {
+                kept.push(t);
+                continue;
+            }
+            if rows {
+                match adjust_span(t.first_row, t.last_row, change) {
+                    Some((lo, hi)) => {
+                        t.first_row = lo;
+                        t.last_row = hi;
+                    }
+                    None => continue,
+                }
+            } else {
+                let (lo, hi) = (t.first_col, t.last_col());
+                let Some((nlo, nhi)) = adjust_span(lo, hi, change) else {
+                    continue;
+                };
+                match change {
+                    StructuralChange::InsertCols { at, count } if at > lo && at <= hi => {
+                        let pos = (at - lo) as usize;
+                        for k in 0..count as usize {
+                            let name = format!("Column{}", t.columns.len() + 1);
+                            t.columns.insert(pos + k, name);
+                        }
+                    }
+                    StructuralChange::DeleteCols { at, count } => {
+                        let from = at.max(lo);
+                        let to = at.saturating_add(count).min(hi + 1);
+                        if from < to {
+                            t.columns.drain((from - lo) as usize..(to - lo) as usize);
+                        }
+                    }
+                    _ => {}
+                }
+                t.first_col = nlo;
+                debug_assert_eq!(t.last_col(), nhi);
+            }
+            kept.push(t);
+        }
+        self.tables = kept;
     }
 
     // ------------------------------------------------------------ graph
@@ -547,18 +635,18 @@ impl Workbook {
         }
     }
 
-    /// Static precedents of an expression and whether it is volatile.
-    fn collect_deps(&self, expr: &Expr, sheet: usize) -> (Vec<Area>, bool) {
+    /// Static precedents of the formula in cell `id` and whether it is volatile.
+    fn collect_deps(&self, expr: &Expr, id: CellId) -> (Vec<Area>, bool) {
         let mut areas = Vec::new();
         let mut volatile = false;
-        self.collect_into(expr, sheet, &mut areas, &mut volatile, 0);
+        self.collect_into(expr, id, &mut areas, &mut volatile, 0);
         (areas, volatile)
     }
 
     fn collect_into(
         &self,
         expr: &Expr,
-        sheet: usize,
+        id: CellId,
         areas: &mut Vec<Area>,
         volatile: &mut bool,
         depth: u32,
@@ -566,6 +654,7 @@ impl Workbook {
         if depth > 32 {
             return;
         }
+        let sheet = id.sheet;
         expr.walk(&mut |e| match e {
             Expr::Ref(r) => areas.extend(static_areas(r, self, sheet)),
             Expr::Name { sheet: q, name } => {
@@ -574,15 +663,9 @@ impl Workbook {
                     .and_then(|s| self.sheet_index(&s.first))
                     .unwrap_or(sheet);
                 if let Some(def) = self.defined_name(scope, name) {
-                    self.collect_into(&def, scope, areas, volatile, depth + 1);
-                }
-            }
-            Expr::Structured(s) => {
-                let t = match &s.table {
-                    Some(n) => self.table(n),
-                    None => None,
-                };
-                if let Some(t) = t {
+                    let at = CellId { sheet: scope, ..id };
+                    self.collect_into(&def, at, areas, volatile, depth + 1);
+                } else if let Some(t) = self.table(name) {
                     areas.push(Area::new(
                         t.sheet,
                         t.first_row,
@@ -590,17 +673,11 @@ impl Workbook {
                         t.last_row,
                         t.last_col(),
                     ));
-                } else if s.table.is_none() {
-                    // In-table shorthand: depend on every table on this sheet.
-                    for t in self.tables.iter().filter(|t| t.sheet == sheet) {
-                        areas.push(Area::new(
-                            t.sheet,
-                            t.first_row,
-                            t.first_col,
-                            t.last_row,
-                            t.last_col(),
-                        ));
-                    }
+                }
+            }
+            Expr::Structured(s) => {
+                if let Ok(a) = struct_area(self, s, sheet, id.row, id.col) {
+                    areas.push(a);
                 }
             }
             Expr::Call { name, .. } => {
@@ -609,7 +686,7 @@ impl Workbook {
                 }
                 if crate::functions::lookup(name).is_none() {
                     if let Some(def) = self.defined_name(sheet, name) {
-                        self.collect_into(&def, sheet, areas, volatile, depth + 1);
+                        self.collect_into(&def, id, areas, volatile, depth + 1);
                     }
                 }
             }
@@ -631,7 +708,7 @@ impl Workbook {
         self.range_deps.clear();
         self.volatile.clear();
         for (id, f) in cells {
-            let (areas, volatile) = self.collect_deps(&f.expr, id.sheet);
+            let (areas, volatile) = self.collect_deps(&f.expr, id);
             self.register(id, areas);
             if volatile {
                 self.volatile.insert(id);
@@ -686,6 +763,7 @@ impl Workbook {
     /// Recalculate cells affected by edits since the last recalculation, plus
     /// volatile cells.
     pub fn recalculate(&mut self) {
+        self.evaluations.set(0);
         let mut seeds = std::mem::take(&mut self.changed);
         seeds.extend(self.volatile.iter().copied());
         let dirty = self.propagate(seeds);
@@ -699,6 +777,12 @@ impl Workbook {
             self.calc_set(dirty);
         }
         self.spill_changed.clear();
+    }
+
+    /// Number of formula evaluations performed by the last
+    /// [`Workbook::recalculate`] (diagnostics for incremental recalculation).
+    pub fn last_recalc_evaluations(&self) -> usize {
+        self.evaluations.get()
     }
 
     /// Recalculate every formula.
@@ -772,6 +856,7 @@ impl Workbook {
         else {
             return Value::Empty;
         };
+        self.evaluations.set(self.evaluations.get() + 1);
         let mut ctx = Ctx::new(view, id.sheet, id.row, id.col, &self.config, &self.rng);
         let v = ctx.eval(&f.expr);
         ctx.finalize(v)
@@ -1091,6 +1176,16 @@ impl CellProvider for Workbook {
             .get(sheet)
             .is_some_and(|s| s.hidden_rows.contains(&row))
     }
+
+    fn spill_area(&self, sheet: usize, row: u32, col: u32) -> Option<Area> {
+        let id = CellId::new(sheet, row, col);
+        self.spills.get(&id).copied().or_else(|| {
+            // A formula returning a single value is a 1x1 "spill".
+            self.is_formula(id)
+                .then(|| Area::cell(sheet, row, col))
+                .filter(|_| !matches!(self.read(id), Value::Error(ErrorKind::Spill)))
+        })
+    }
 }
 
 /// Provider used during recalculation: records reads of cells that are still
@@ -1146,5 +1241,9 @@ impl CellProvider for RecalcView<'_> {
 
     fn is_row_hidden(&self, sheet: usize, row: u32) -> bool {
         self.wb.is_row_hidden(sheet, row)
+    }
+
+    fn spill_area(&self, sheet: usize, row: u32, col: u32) -> Option<Area> {
+        self.wb.spill_area(sheet, row, col)
     }
 }

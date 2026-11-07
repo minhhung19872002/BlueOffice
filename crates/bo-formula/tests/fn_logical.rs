@@ -127,7 +127,8 @@ fn lambda_helpers() {
 #[test]
 fn named_lambda() {
     let mut wb = workbook(&[("A1", "5")], Opts::default());
-    wb.define_name("DOUBLE", None, "=LAMBDA(x,x*2)").expect("valid name");
+    wb.define_name("DOUBLE", None, "=LAMBDA(x,x*2)")
+        .expect("valid name");
     wb.define_name("TAX", None, "=0.1").expect("valid name");
     wb.set_a1(0, "B1", "=DOUBLE(A1)").expect("valid formula");
     wb.set_a1(0, "B2", "=A1*(1+TAX)").expect("valid formula");

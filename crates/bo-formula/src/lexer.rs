@@ -27,6 +27,8 @@ pub(crate) enum Tok {
     Colon,
     Percent,
     At,
+    /// Postfix `#` after a cell reference (spill range).
+    Hash,
     Op(BinaryOp),
 }
 
@@ -86,11 +88,26 @@ impl<'a> Lexer<'a> {
             let Some(c) = self.peek_char() else { break };
             let start = self.pos;
             let tok = self.next_token(c)?;
+            let is_ref = matches!(tok, Tok::Ref(_));
             out.push(Token {
                 tok,
                 space_before: space,
                 pos: start,
             });
+            // `A1#`: a '#' right after a reference that does not start an error literal.
+            if is_ref && self.peek_char() == Some('#') {
+                let save = self.pos;
+                if self.error_literal().is_err() {
+                    self.pos = save + 1;
+                    out.push(Token {
+                        tok: Tok::Hash,
+                        space_before: false,
+                        pos: save,
+                    });
+                } else {
+                    self.pos = save;
+                }
+            }
         }
         Ok(out)
     }

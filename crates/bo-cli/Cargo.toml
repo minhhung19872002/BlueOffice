@@ -15,6 +15,9 @@ bo-engine = { workspace = true, features = ["bundled-fonts"] }
 bo-model.workspace = true
 bo-docx.workspace = true
 bo-opc.workspace = true
+bo-binary = { path = "../bo-binary" }
+bo-odf = { path = "../bo-odf" }
+bo-crypto = { path = "../bo-crypto" }
 clap.workspace = true
 
 [lints]

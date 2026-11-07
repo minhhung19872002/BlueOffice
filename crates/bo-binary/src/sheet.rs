@@ -35,6 +35,56 @@ pub struct Worksheet {
     pub cells: Vec<Cell>,
 }
 
+impl Worksheet {
+    /// The sheet as RFC 4180 CSV of the cached values (`\n` line ends). Each
+    /// row ends at its last non-empty cell; missing rows are empty lines.
+    pub fn to_csv(&self) -> String {
+        let mut cells: Vec<&Cell> = self
+            .cells
+            .iter()
+            .filter(|c| c.value != CellValue::Empty)
+            .collect();
+        cells.sort_by_key(|c| (c.row, c.col));
+        let mut out = String::new();
+        let mut row = 0u32;
+        let mut col = 0u32;
+        for c in cells {
+            while row < c.row {
+                out.push('\n');
+                row += 1;
+                col = 0;
+            }
+            if c.col < col {
+                continue; // duplicate cell
+            }
+            // `col` fields are already written on this row.
+            let commas = if col == 0 { c.col } else { c.col - col + 1 };
+            for _ in 0..commas {
+                out.push(',');
+            }
+            let text = match &c.value {
+                CellValue::Empty => String::new(),
+                CellValue::Number(v) => crate::xls_formula::fmt_number(*v),
+                CellValue::Text(t) => t.clone(),
+                CellValue::Bool(b) => if *b { "TRUE" } else { "FALSE" }.to_owned(),
+                CellValue::Error(e) => e.clone(),
+            };
+            if text.contains([',', '"', '\n', '\r']) {
+                out.push('"');
+                out.push_str(&text.replace('"', "\"\""));
+                out.push('"');
+            } else {
+                out.push_str(&text);
+            }
+            col = c.col + 1;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out
+    }
+}
+
 /// A cell (0-based row/column).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cell {

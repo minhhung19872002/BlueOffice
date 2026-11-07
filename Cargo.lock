@@ -281,9 +281,12 @@ dependencies = [
 name = "bo-cli"
 version = "0.1.0"
 dependencies = [
+ "bo-binary",
+ "bo-crypto",
  "bo-docx",
  "bo-engine",
  "bo-model",
+ "bo-odf",
  "bo-opc",
  "clap",
 ]

@@ -31,7 +31,7 @@ pub use ppt::{read_ppt, PptDeck, PptSlide, PptText, TextKind};
 pub use sheet::{Cell, CellValue, DefinedName, Workbook, Worksheet};
 pub use vba::{has_macros, read_vba_project, VbaProject};
 pub use xls::read_xls;
-pub use xlsb::read_xlsb;
+pub use xlsb::{read_xlsb, read_xlsb_package};
 
 use std::io::{Cursor, Read};
 

@@ -46,7 +46,10 @@ pub use eval::{evaluate, EvalConfig};
 pub use format::{format, format_reference, format_with};
 pub use functions::{function_names, is_volatile_function};
 pub use numfmt::{format_number, format_text};
-pub use parser::{parse, parse_with, ParseError, ParseOptions, RefStyle};
+pub use parser::{
+    parse, parse_with, ParseError, ParseOptions, RefStyle, MAX_FORMULA_CHARS, MAX_NESTING,
+    MAX_TREE_DEPTH,
+};
 pub use provider::{CellProvider, TableInfo};
 pub use reference::{CellAddr, RefKind, Reference, SheetRef};
 pub use shift::{adjust_for_change, offset_relative, StructuralChange};

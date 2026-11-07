@@ -57,6 +57,12 @@ pub fn parse(formula: &str) -> Result<Expr, ParseError> {
 
 /// Parse a formula with explicit options.
 pub fn parse_with(formula: &str, opts: &ParseOptions) -> Result<Expr, ParseError> {
+    if formula.chars().count() > MAX_FORMULA_CHARS {
+        return Err(ParseError {
+            pos: 0,
+            message: format!("formula longer than {MAX_FORMULA_CHARS} characters"),
+        });
+    }
     let trimmed = formula.trim_start();
     let body = trimmed.strip_prefix('=').unwrap_or(trimmed);
     let offset = formula.len() - body.len();
@@ -68,15 +74,26 @@ pub fn parse_with(formula: &str, opts: &ParseOptions) -> Result<Expr, ParseError
         tokens,
         pos: 0,
         end: body.len(),
+        depth: 0,
     };
     let e = p.expr(0, true).map_err(|mut e| {
         e.pos += offset;
         e
     })?;
     if p.pos < p.tokens.len() {
+        let pos = p.tokens[p.pos].pos + offset;
+        drop_iteratively(e);
         return Err(ParseError {
-            pos: p.tokens[p.pos].pos + offset,
+            pos,
             message: "unexpected token".into(),
+        });
+    }
+    // Evaluation, formatting and reference adjustment recurse over the tree.
+    if tree_depth(&e) > MAX_TREE_DEPTH {
+        drop_iteratively(e);
+        return Err(ParseError {
+            pos: offset,
+            message: "formula too complex".into(),
         });
     }
     Ok(e)
@@ -86,6 +103,62 @@ struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     end: usize,
+    depth: usize,
+}
+
+/// Maximum formula length in characters (the documented spreadsheet limit).
+pub const MAX_FORMULA_CHARS: usize = 8192;
+/// Maximum nesting of parentheses, function calls and prefix operators.
+pub const MAX_NESTING: usize = 100;
+/// Maximum depth of the resulting expression tree (long operator chains).
+pub const MAX_TREE_DEPTH: usize = 1024;
+
+/// Depth of an expression tree, computed without recursion.
+fn tree_depth(e: &Expr) -> usize {
+    let mut max = 0;
+    let mut stack = vec![(e, 1usize)];
+    while let Some((e, d)) = stack.pop() {
+        max = max.max(d);
+        if d > MAX_TREE_DEPTH {
+            break;
+        }
+        match e {
+            Expr::Unary(_, a) => stack.push((a, d + 1)),
+            Expr::Binary(_, a, b) => {
+                stack.push((a, d + 1));
+                stack.push((b, d + 1));
+            }
+            Expr::Call { args, .. } => stack.extend(args.iter().map(|a| (a, d + 1))),
+            Expr::Invoke { callee, args } => {
+                stack.push((callee, d + 1));
+                stack.extend(args.iter().map(|a| (a, d + 1)));
+            }
+            Expr::Array(rows) => stack.extend(rows.iter().flatten().map(|a| (a, d + 1))),
+            _ => {}
+        }
+    }
+    max
+}
+
+/// Drop a (possibly very deep) tree without recursing.
+fn drop_iteratively(e: Expr) {
+    let mut stack = vec![e];
+    while let Some(e) = stack.pop() {
+        match e {
+            Expr::Unary(_, a) => stack.push(*a),
+            Expr::Binary(_, a, b) => {
+                stack.push(*a);
+                stack.push(*b);
+            }
+            Expr::Call { args, .. } => stack.extend(args),
+            Expr::Invoke { callee, args } => {
+                stack.push(*callee);
+                stack.extend(args);
+            }
+            Expr::Array(rows) => stack.extend(rows.into_iter().flatten()),
+            _ => {}
+        }
+    }
 }
 
 fn starts_operand(t: &Tok) -> bool {
@@ -127,6 +200,16 @@ impl Parser {
 
     /// Parse an expression whose operators all bind tighter than `min`.
     fn expr(&mut self, min: u8, allow_union: bool) -> Result<Expr, ParseError> {
+        if self.depth >= MAX_NESTING {
+            return self.err("formula nested too deeply");
+        }
+        self.depth += 1;
+        let out = self.expr_inner(min, allow_union);
+        self.depth -= 1;
+        out
+    }
+
+    fn expr_inner(&mut self, min: u8, allow_union: bool) -> Result<Expr, ParseError> {
         let mut lhs = self.prefix(allow_union)?;
         while let Some(tok) = self.peek() {
             let op = match &tok.tok {

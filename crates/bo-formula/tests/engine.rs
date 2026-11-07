@@ -243,6 +243,25 @@ fn parse_errors() {
     }
 }
 
+#[test]
+fn hostile_formulas_are_rejected_not_crashing() {
+    // Deep nesting, overlong chains and oversized text fail to parse cleanly.
+    assert!(parse(&format!("={}1{}", "(".repeat(5000), ")".repeat(5000))).is_err());
+    assert!(parse(&format!("={}1", "-".repeat(5000))).is_err());
+    assert!(parse(&format!("={}1{}", "ABS(".repeat(500), ")".repeat(500))).is_err());
+    assert!(parse(&format!("={}1", "1+".repeat(4000))).is_err());
+    assert!(parse(&"1".repeat(10_000)).is_err());
+    // Realistic sizes still work: 64 nested calls, a 500-term sum.
+    let nested = format!("={}1{}", "ABS(".repeat(64), ")".repeat(64));
+    let chain = format!("={}1", "1+".repeat(500));
+    let mut wb = Workbook::with_sheets(&["Sheet1"]);
+    wb.set_a1(0, "A1", &nested).unwrap();
+    wb.set_a1(0, "A2", &chain).unwrap();
+    wb.recalculate();
+    assert_eq!(wb.value_a1(0, "A1"), num(1.0));
+    assert_eq!(wb.value_a1(0, "A2"), num(501.0));
+}
+
 // ------------------------------------------------------------------ names & tables
 
 #[test]

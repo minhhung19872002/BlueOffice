@@ -127,6 +127,13 @@ export function SlideOverlay({
   const drag = useRef<Drag | null>(null);
   const textDrag = useRef<{ busy: boolean; pending: { x: number; y: number } | null } | null>(null);
   const [hitSeq, setHitSeq] = useState(0);
+  // Text editing that started while a click was still on its way (double-click).
+  const editingNow = useRef(false);
+  // Bumped by a double-click: clicks still in flight from it are dropped.
+  const gesture = useRef(0);
+  useEffect(() => {
+    editingNow.current = !!editing;
+  }, [editing]);
   // Live drags of adjust handles / connector ends: one command in flight, latest wins.
   const live = useRef<{ busy: boolean; pending: SlideCommand | null; active: boolean }>({
     busy: false,
@@ -203,6 +210,8 @@ export function SlideOverlay({
 
   const onPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return;
+    // Keyboard focus to the slide (shortcuts act on shapes, not on the slide panel).
+    if (!editing) (svgRef.current?.closest('[tabindex]') as HTMLElement | null)?.focus();
     const p = toPt(e);
     if (editing) {
       e.preventDefault();
@@ -260,9 +269,11 @@ export function SlideOverlay({
     const d: Drag = { mode: 'move', sx: p.x, sy: p.y, started: false, ready: false, last: null };
     drag.current = d;
     const extend = e.shiftKey;
+    const g = gesture.current;
     void controller
       .run({ cmd: 'hitTest', x: p.x, y: p.y })
       .then((h) => {
+        if (editingNow.current || gesture.current !== g) return null;
         // Empty space: a drag draws a selection box (marquee).
         if (h?.hits && h.hits.length === 0) {
           if (!extend) void controller.run({ cmd: 'select', ids: [] });
@@ -380,6 +391,7 @@ export function SlideOverlay({
 
   const onDoubleClick = (e: ReactMouseEvent<SVGSVGElement>) => {
     if (editing) return;
+    gesture.current += 1;
     const sel = edit?.selection ?? [];
     const one = sel.length === 1 ? sel[0] : undefined;
     if (!one) return;
@@ -801,7 +813,6 @@ function CellEditor({ table, at, scale, label, controller, onMove, onClose }: Ce
   const ref = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
   const cell = table.cells.find((c) => c.row === at.row && c.col === at.col);
-  const text = table.sel[0] === at.row && table.sel[1] === at.col ? table.text : '';
   useEffect(() => {
     const ta = ref.current;
     if (!ta) return;
@@ -825,9 +836,8 @@ function CellEditor({ table, at, scale, label, controller, onMove, onClose }: Ce
     const i = order.findIndex((c) => c.row === at.row && c.col === at.col);
     const next = order[(i + delta + order.length) % order.length];
     if (!next) return;
-    void controller
-      .run({ cmd: 'tableSelect', id: table.id, r0: next.row, c0: next.col })
-      .then(() => onMove({ row: next.row, col: next.col }));
+    onMove({ row: next.row, col: next.col });
+    void controller.run({ cmd: 'tableSelect', id: table.id, r0: next.row, c0: next.col });
   };
   return (
     <textarea
@@ -836,7 +846,7 @@ function CellEditor({ table, at, scale, label, controller, onMove, onClose }: Ce
       data-testid="table-cell-editor"
       aria-label={label}
       spellCheck={false}
-      defaultValue={toEditorText(text)}
+      defaultValue={toEditorText(cell.text)}
       style={{
         left: (b.cx - b.w / 2) * scale,
         top: (b.cy - b.h / 2) * scale,

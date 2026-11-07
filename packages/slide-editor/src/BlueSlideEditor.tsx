@@ -428,12 +428,11 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
 
   // Clipboard: own copies carry a marker so pasting prefers the full internal
   // copy; pictures and text from other programs become a picture / text box.
-  const clipKind = edit?.clip;
   const toSystem = useCallback(
     (r: SlideEditResult | null) => {
       const c = r?.clipboard;
       if (!c) return;
-      const mark = ctrl.newClipMark();
+      const mark = ctrl.newClipMark(c.text);
       const html = `<div ${CLIP_MARK}="${mark}">${escapeHtml(c.text)}</div>`;
       try {
         const cb = platform.clipboard;
@@ -451,15 +450,16 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   const pasteFrom = useCallback(
     async (sys: ClipboardContent | null) => {
       const mark = sys?.html ? new RegExp(`${CLIP_MARK}="([^"]+)"`).exec(sys.html)?.[1] : undefined;
-      const external = sys && (sys.image || sys.text?.trim()) && !ctrl.isOwnClip(mark);
+      const external = sys && (sys.image || sys.text?.trim()) && !ctrl.isOwnClip(mark, sys.text);
       if (!external) {
-        if (clipKind) await ctrl.run({ cmd: 'paste' });
+        // The engine refuses (noClip) when its clipboard is empty.
+        await ctrl.run({ cmd: 'paste' });
         return;
       }
       if (sys.image) await ctrl.insertPicture(sys.image, 'clipboard.png');
       else if (sys.text) await ctrl.run({ cmd: 'insertTextBox', text: fromEditorText(sys.text) });
     },
-    [ctrl, clipKind],
+    [ctrl],
   );
 
   // Ctrl+V outside text fields arrives as a paste event (no permission needed).
@@ -838,8 +838,6 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
         return;
       }
       const cmd = registry.match(e);
-      // Ctrl+V comes back as a paste event with the clipboard content.
-      if (cmd?.id === 'edit.paste') return;
       if (cmd) {
         e.preventDefault();
         exec(cmd.id);

@@ -704,7 +704,14 @@ export interface SlideEditResult {
     cols: number;
     /** `[r0, c0, r1, c1]`, inclusive. */
     sel: [number, number, number, number];
-    cells: { row: number; col: number; rowSpan: number; colSpan: number; rect: SlideBox }[];
+    cells: {
+      row: number;
+      col: number;
+      rowSpan: number;
+      colSpan: number;
+      rect: SlideBox;
+      text: string;
+    }[];
     firstRow: boolean;
     bandRow: boolean;
     /** Text of the first selected cell. */

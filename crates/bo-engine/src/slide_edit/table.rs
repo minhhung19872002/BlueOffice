@@ -134,6 +134,8 @@ pub struct CellOut {
     pub row_span: usize,
     pub col_span: usize,
     pub rect: BoxR,
+    /// Text of the cell (editing format).
+    pub text: String,
 }
 
 /// Table editing state for the UI.
@@ -176,6 +178,13 @@ pub fn table_out(t: &Table, frame: &BoxR, s: TableSel) -> TableOut {
                     h: y1 - y0,
                     rot: frame.rot,
                 },
+                text: t
+                    .rows
+                    .get(r)
+                    .and_then(|row| row.cells.get(c))
+                    .and_then(|cell| cell.text.as_ref())
+                    .map(text::body_text)
+                    .unwrap_or_default(),
             }
         })
         .collect();

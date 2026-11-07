@@ -72,15 +72,21 @@ export class SlideController {
   }
 
   private clipMark = '';
+  private clipText: string | null = null;
 
-  /** New marker for a copy written to the system clipboard. */
-  newClipMark(): string {
+  /** New marker for a copy (with its plain text) written to the system clipboard. */
+  newClipMark(text: string): string {
     this.clipMark = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    this.clipText = text;
     return this.clipMark;
   }
 
-  /** Was this marker written by the last copy of this editor? */
-  isOwnClip(mark: string | undefined): boolean {
-    return !!mark && mark === this.clipMark;
+  /**
+   * Is the system clipboard still holding the last copy of this editor? By its
+   * HTML marker, or — hosts sanitize HTML — by the same plain text.
+   */
+  isOwnClip(mark: string | undefined, text?: string): boolean {
+    if (mark) return mark === this.clipMark;
+    return this.clipText !== null && (text ?? '') === this.clipText;
   }
 }

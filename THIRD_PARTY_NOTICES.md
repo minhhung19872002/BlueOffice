@@ -35,6 +35,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | subsetter | 0.2.6 | MIT OR Apache-2.0 | Subset font nhúng PDF |
 | png | 0.18.1 | MIT OR Apache-2.0 | Giải mã ảnh PNG (raster, PDF) |
 | jpeg-decoder | 0.3.2 | MIT OR Apache-2.0 | Giải mã ảnh JPEG (raster) |
+| regex | 1.13.1 | MIT OR Apache-2.0 | Tìm/thay thế bằng biểu thức chính quy (`bo-edit`) |
 | serde / serde_json | 1.0.229 / 1.0.154 | MIT OR Apache-2.0 | Tuần tự hoá display list / DocInfo |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 | Kiểu lỗi |
 | wasm-bindgen | 0.2.130 | MIT OR Apache-2.0 | Binding WASM cho web |

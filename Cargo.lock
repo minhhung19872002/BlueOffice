@@ -251,6 +251,7 @@ dependencies = [
  "bo-model",
  "bo-opc",
  "clap",
+ "png",
 ]
 
 [[package]]
@@ -291,6 +292,15 @@ version = "0.1.0"
 [[package]]
 name = "bo-edit"
 version = "0.1.0"
+dependencies = [
+ "bo-model",
+ "proptest",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "bo-engine"

@@ -468,13 +468,13 @@ pub fn rect_geometry(w: f64, h: f64) -> Evaluated {
 pub fn evaluate(geom: Option<&Geometry>, w: f64, h: f64, warnings: &mut Vec<String>) -> Evaluated {
     let res = match geom {
         None => return rect_geometry(w, h),
-        Some(Geometry::Preset { name, av }) => match eval_preset(name, av, w, h) {
-            Some(r) => r,
-            None => {
+        Some(Geometry::Preset { name, av }) => {
+            let Some(r) = eval_preset(name, av, w, h) else {
                 warnings.push(format!("unknown preset geometry '{name}', drawn as rect"));
                 return rect_geometry(w, h);
-            }
-        },
+            };
+            r
+        }
         Some(Geometry::Custom(c)) => eval_custom(c, &[], w, h),
     };
     match res {

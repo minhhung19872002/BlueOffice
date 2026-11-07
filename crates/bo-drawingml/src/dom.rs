@@ -237,6 +237,7 @@ impl El {
     }
     /// Add an attribute.
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)] // builder ergonomics: `.a("id", 3)`
     pub fn a(mut self, k: &str, v: impl ToString) -> Self {
         self.0.attrs.push((k.to_owned(), v.to_string()));
         self

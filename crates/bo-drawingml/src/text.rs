@@ -324,7 +324,7 @@ pub fn parse_list_style(el: &XmlElement) -> ListStyle {
             return true;
         }
         if c.name.starts_with("a:lvl") && local.ends_with("pPr") {
-            if let Some(n) = local[3..local.len() - 3].parse::<usize>().ok() {
+            if let Ok(n) = local[3..local.len() - 3].parse::<usize>() {
                 if (1..=9).contains(&n) {
                     s.levels[n - 1] = Some(parse_ppr(c));
                     return true;
@@ -454,7 +454,7 @@ pub fn parse_paragraph(el: &XmlElement) -> Paragraph {
                     id: c.attr("id").unwrap_or_default().to_owned(),
                     kind: c.attr("type").map(str::to_owned),
                     props: c.child("a:rPr").map(parse_rpr).unwrap_or_default(),
-                    ppr: c.child("a:pPr").map(parse_ppr),
+                    ppr: c.child("a:pPr").map(|p| Box::new(parse_ppr(p))),
                     text: text_of(c),
                 });
             }

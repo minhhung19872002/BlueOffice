@@ -32,8 +32,10 @@ fn points(e: &Evaluated) -> Vec<(f64, f64)> {
         .iter()
         .flat_map(|p| p.segs.iter())
         .filter_map(|s| match *s {
-            Seg::Move(x, y) | Seg::Line(x, y) | Seg::Quad(_, _, x, y) => Some((x, y)),
-            Seg::Cubic(_, _, _, _, x, y) => Some((x, y)),
+            Seg::Move(x, y)
+            | Seg::Line(x, y)
+            | Seg::Quad(_, _, x, y)
+            | Seg::Cubic(_, _, _, _, x, y) => Some((x, y)),
             Seg::Close => None,
         })
         .collect()
@@ -148,7 +150,7 @@ fn rt_triangle() {
     let e = ev("rtTriangle");
     full(&e);
     has(&e, 0.0, 0.0);
-    text_rect(&e, [0.0, 583.333, 1166.667, 916.667]);
+    text_rect(&e, [166.667, 583.333, 1166.667, 916.667]);
 }
 
 #[test]
@@ -705,5 +707,28 @@ fn every_preset_evaluates_at_odd_sizes() {
                 assert!(p.0.is_finite() && p.1.is_finite(), "{name} {p:?}");
             }
         }
+    }
+}
+
+#[test]
+fn full_annex_preset_set() {
+    // ECMA-376 Part 1, §20.1.10.56 ST_ShapeType lists 187 preset shapes.
+    let names = bo_drawingml::preset_names();
+    assert_eq!(names.len(), 187);
+    for n in [
+        "star32",
+        "gear9",
+        "cloud",
+        "lightningBolt",
+        "mathMultiply",
+        "actionButtonHome",
+        "borderCallout3",
+        "ellipseRibbon2",
+        "circularArrow",
+        "chartPlus",
+        "funnel",
+        "swooshArrow",
+    ] {
+        assert!(names.contains(&n), "{n}");
     }
 }

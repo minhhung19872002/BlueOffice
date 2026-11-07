@@ -387,6 +387,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo-sheet"
+version = "0.1.0"
+dependencies = [
+ "bo-model",
+ "bo-render",
+ "bo-text",
+ "bo-xlsx",
+ "serde",
+]
+
+[[package]]
 name = "bo-text"
 version = "0.1.0"
 dependencies = [

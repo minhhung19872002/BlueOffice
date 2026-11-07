@@ -142,7 +142,17 @@ enum Cmd {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    let cli = Cli::parse();
+    // The recursive parsers need more than the 1 MiB main-thread stack of Windows in
+    // unoptimised builds: run the command on a thread with a roomy stack.
+    let worker = std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(move || run(cli).map_err(|e| e.to_string()));
+    let result = match worker {
+        Ok(h) => h.join().unwrap_or_else(|_| Err("internal error".into())),
+        Err(e) => Err(e.to_string()),
+    };
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e}");

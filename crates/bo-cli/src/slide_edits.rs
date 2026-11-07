@@ -97,6 +97,24 @@ const SCRIPTS: &[Script] = &[
             r#"{"cmd":"textExit"}"#,
         ],
     },
+    // Clipboard: copy/paste shapes with pictures on the same and another
+    // slide, cut, copy/paste slides.
+    Script {
+        base: "slide-images-crop.pptx",
+        name: "slide-edit-clipboard.pptx",
+        commands: &[
+            r#"{"cmd":"selectAll"}"#,
+            r#"{"cmd":"copy"}"#,
+            r#"{"cmd":"paste"}"#,
+            r#"{"cmd":"transform","transform":{"kind":"resize","handle":"se","dx":-40,"dy":-30,"keepAspect":true},"snap":false}"#,
+            r#"{"cmd":"addSlide"}"#,
+            r#"{"cmd":"paste"}"#,
+            r#"{"cmd":"cut"}"#,
+            r#"{"cmd":"paste"}"#,
+            r#"{"cmd":"copySlides","indices":[0]}"#,
+            r#"{"cmd":"paste"}"#,
+        ],
+    },
     // Slides: duplicate, reorder, delete, notes and a picture.
     Script {
         base: "slide-notes-basic.pptx",

@@ -70,4 +70,17 @@ export class SlideController {
   idle(): Promise<unknown> {
     return this.queue;
   }
+
+  private clipMark = '';
+
+  /** New marker for a copy written to the system clipboard. */
+  newClipMark(): string {
+    this.clipMark = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    return this.clipMark;
+  }
+
+  /** Was this marker written by the last copy of this editor? */
+  isOwnClip(mark: string | undefined): boolean {
+    return !!mark && mark === this.clipMark;
+  }
 }

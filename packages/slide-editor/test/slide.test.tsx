@@ -107,6 +107,8 @@ function fakePlatform() {
     modified: false,
     editing: null as number | null,
     ts: [0, 0] as [number, number],
+    clip: undefined as 'shapes' | 'slides' | undefined,
+    clipboard: undefined as { text: string; png?: string } | undefined,
   };
   const info = (name = 'Báo cáo.pptx') => ({
     name,
@@ -160,6 +162,8 @@ function fakePlatform() {
     },
     notes: st.notes[st.slide] ?? '',
     layouts: [],
+    clip: st.clip,
+    clipboard: st.clipboard,
     textEdit:
       st.editing === null
         ? undefined
@@ -189,7 +193,13 @@ function fakePlatform() {
     slideCommand: vi.fn(async (c: SlideCommand) => {
       const keep = ['state', 'setText', 'formatText', 'textSelect', 'textHit', 'undo', 'redo'];
       if (!keep.includes(c.cmd)) st.editing = null;
+      st.clipboard = undefined;
       switch (c.cmd) {
+        case 'copy':
+        case 'copySlides':
+          st.clip = c.cmd === 'copy' ? 'shapes' : 'slides';
+          st.clipboard = { text: 'Tiêu đề', png: 'iVBORw0KGgo=' };
+          break;
         case 'textSelect':
           st.editing = c.id ?? 7;
           st.ts = [c.start, c.end];
@@ -240,6 +250,11 @@ function fakePlatform() {
       },
     },
     print: { printPdf: async () => {} },
+    clipboard: {
+      writeItems: vi.fn(async () => {}),
+      writeHtml: vi.fn(async () => {}),
+      read: vi.fn(async () => ({})),
+    },
     window: { setTitle: vi.fn(), openNew: async () => {} },
     shell: {
       recentFiles: async () => [],
@@ -251,7 +266,7 @@ function fakePlatform() {
     },
   } as unknown as Platform;
   const cmds = () => engine.slideCommand.mock.calls.map((c) => c[0]);
-  return { p, engine, saved, cmds, open: (f: OpenedFile) => openHandler?.(f) };
+  return { p, engine, saved, cmds, st, open: (f: OpenedFile) => openHandler?.(f) };
 }
 
 async function openDeck(p: Platform, label = 'Mở') {
@@ -365,6 +380,48 @@ describe('BlueSlideEditor', () => {
     fireEvent.keyDown(window, { key: 'Delete' });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'delete' }));
     await waitFor(() => expect(screen.queryByTestId('selection-box')).toBeNull());
+  });
+
+  it('copies to the system clipboard and pastes internal copies, pictures and text', async () => {
+    const { p, engine, cmds } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    const overlay = screen.getByTestId('slide-overlay');
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    await screen.findByTestId('selection-box');
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'copy' }));
+    const write = p.clipboard.writeItems as unknown as ReturnType<typeof vi.fn>;
+    await waitFor(() => expect(write).toHaveBeenCalled());
+    const items = write.mock.calls[0]![0] as { text: string; html: string; png: Uint8Array };
+    expect(items.text).toBe('Tiêu đề');
+    expect(items.png).toBeInstanceOf(Uint8Array);
+    const paste = (data: Record<string, string>, file?: File) => {
+      const e = new Event('paste', { bubbles: true }) as Event & { clipboardData: unknown };
+      e.clipboardData = {
+        getData: (t: string) => data[t] ?? '',
+        items: file ? [{ type: file.type, getAsFile: () => file }] : [],
+      };
+      act(() => {
+        window.dispatchEvent(e);
+      });
+    };
+    // Our own copy: the internal clipboard (full shapes).
+    paste({ 'text/html': items.html, 'text/plain': items.text });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'paste' }));
+    // Text from another program: a text box.
+    paste({ 'text/plain': 'Từ chương trình khác' });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'insertTextBox', text: 'Từ chương trình khác' }),
+    );
+    // A picture: inserted as a picture.
+    paste({}, new File([new Uint8Array([137, 80, 78, 71])], 'a.png', { type: 'image/png' }));
+    await waitFor(() => expect(engine.slideInsertPicture).toHaveBeenCalled());
+    // In the slide panel Ctrl+C copies the slide.
+    screen.getByTestId('thumb-1').focus();
+    fireEvent.keyDown(screen.getByTestId('thumb-1'), { key: 'c', ctrlKey: true });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'copySlides', indices: [0] }));
   });
 
   it('edits notes, inserts shapes and adds slides', async () => {

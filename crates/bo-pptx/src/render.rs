@@ -24,6 +24,9 @@ const EMU_PT: f64 = 12_700.0;
 pub struct RenderOptions {
     /// Skip text (thumbnail fast path).
     pub skip_text: bool,
+    /// Draw only these top-level shapes of the slide (`cNvPr@id`), without
+    /// background, master and layout shapes (clipboard pictures).
+    pub only: Option<Vec<u32>>,
 }
 
 /// 2D affine transform `[a, b, c, d, e, f]`.
@@ -211,6 +214,11 @@ pub fn render_with(
     if let Some(m) = master_idx {
         bg_levels.push(Level::Master(m));
     }
+    let only = opts.only.as_deref();
+    if only.is_some() {
+        bg_levels.clear();
+        levels.retain(|l| matches!(l, Level::Slide(_)));
+    }
     for lv in bg_levels {
         let Some((data, rels, part)) = level_data(pres, lv) else {
             continue;
@@ -233,6 +241,11 @@ pub fn render_with(
         for n in &data.shapes {
             if !is_slide && is_placeholder(n) {
                 continue;
+            }
+            if let Some(ids) = only {
+                if !n.nv().is_some_and(|nv| ids.contains(&nv.id)) {
+                    continue;
+                }
             }
             draw_node(&cx, n, Frame::root(), fonts, images, &mut out);
         }

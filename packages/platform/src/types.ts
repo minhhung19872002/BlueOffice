@@ -504,7 +504,8 @@ export type SlideCommand =
   | { cmd: 'formatText'; format: SlideTextFormat; range?: [number, number] }
   | { cmd: 'textSelect'; id?: number; start: number; end: number }
   | { cmd: 'textHit'; x: number; y: number; extend?: boolean }
-  | { cmd: 'textExit' }
+  | { cmd: 'textExit' | 'copy' | 'cut' | 'paste' }
+  | { cmd: 'copySlides' | 'cutSlides'; indices?: number[] }
   | { cmd: 'setFill'; color: string | null }
   | { cmd: 'setLine'; color: string | null; width?: number }
   | { cmd: 'addSlide'; after?: number; layout?: number }
@@ -544,6 +545,10 @@ export interface SlideEditResult {
   collab?: { change: CollabChange; shape?: string };
   /** Text editing inside a shape. */
   textEdit?: SlideTextEdit;
+  /** What the internal clipboard holds. */
+  clip?: 'shapes' | 'slides';
+  /** After copy / cut: content for the system clipboard (`png` in base64). */
+  clipboard?: { text: string; png?: string };
 }
 
 // ---------------------------------------------------------------- services
@@ -644,11 +649,23 @@ export interface DocumentStorage {
   saveAs(name: string, bytes: Uint8Array): Promise<StoredDocument | null>;
 }
 
+/** What the system clipboard holds (each format when present). */
+export interface ClipboardContent {
+  text?: string;
+  html?: string;
+  /** PNG picture. */
+  image?: Uint8Array;
+}
+
 export interface ClipboardAccess {
   readText(): Promise<string>;
   writeText(text: string): Promise<void>;
   /** Write rich content (HTML + plain-text fallback). */
   writeHtml(html: string, text: string): Promise<void>;
+  /** Write several formats at once (plain text, HTML, a PNG picture). */
+  writeItems?(items: { text: string; html?: string; png?: Uint8Array }): Promise<void>;
+  /** Read text, HTML and a PNG picture (may ask the user for permission). */
+  read?(): Promise<ClipboardContent>;
 }
 
 export interface FontDescriptor {

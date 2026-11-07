@@ -12,6 +12,7 @@
 //! everything that was not touched.
 
 pub mod build;
+pub mod clip;
 pub mod collab;
 pub mod geom;
 pub mod guides;
@@ -216,6 +217,24 @@ pub enum SlideCommand {
     },
     /// Leave text editing.
     TextExit,
+    /// Copy the selected shapes to the internal clipboard (full shapes and
+    /// the pictures they use); the result carries text and a PNG for the
+    /// system clipboard.
+    Copy,
+    /// Copy, then delete the selection.
+    Cut,
+    /// Paste the clipboard: shapes onto the current slide (offset when pasted
+    /// where they came from), slides after the current one.
+    Paste,
+    /// Copy slides (default: the current one).
+    CopySlides {
+        #[serde(default)]
+        indices: Option<Vec<usize>>,
+    },
+    CutSlides {
+        #[serde(default)]
+        indices: Option<Vec<usize>>,
+    },
     /// `RRGGBB` or `None` for no fill.
     SetFill {
         color: Option<String>,
@@ -365,6 +384,21 @@ pub struct SlideEditResult {
     /// Text being edited inside a shape: selection, caret and highlight.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_edit: Option<rich::TextEditOut>,
+    /// What the internal clipboard holds: `shapes` | `slides`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clip: Option<&'static str>,
+    /// After copy / cut: content for the system clipboard.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clipboard: Option<ClipboardOut>,
+}
+
+/// System clipboard content of a copy: plain text and a PNG (base64).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardOut {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub png: Option<String>,
 }
 
 /// Why a command was refused (codes the UI can translate).
@@ -410,6 +444,10 @@ struct Outcome {
     preview: Option<Preview>,
     hits: Option<Vec<u32>>,
     error: Option<String>,
+    /// Shapes just copied: (slide, top-level ids, bounds, text) for the system clipboard.
+    copied: Option<(usize, Vec<u32>, Rect, String)>,
+    /// Slides just copied (text only).
+    copied_text: Option<String>,
 }
 
 impl Outcome {
@@ -1684,6 +1722,223 @@ fn cmd_picture(tx: &mut Tx<'_>, sel: &mut SlideSel, bytes: Vec<u8>, name: &str) 
 }
 
 // ---------------------------------------------------------------------------
+// Clipboard
+// ---------------------------------------------------------------------------
+
+/// Copy the selected shapes (top-level space, inherited transforms pinned).
+fn copy_shapes(pres: &Presentation, sel: &SlideSel, deck: u64) -> R<(clip::Clip, Vec<u32>)> {
+    let placed = place_slide(pres, sel.slide);
+    let items: Vec<Placed> = selected(&placed, &sel.ids).into_iter().cloned().collect();
+    if items.is_empty() {
+        return refuse("noSelection");
+    }
+    let mut nodes = Vec::new();
+    let mut boxes = Vec::new();
+    let mut top = Vec::new();
+    for p in &items {
+        let mut n = node_clone(pres, sel.slide, &p.path)?;
+        let as_root = Placed {
+            frame: geom::Frame::root(),
+            ..p.clone()
+        };
+        apply_box(pres, sel.slide, &mut n, &as_root, &p.b);
+        boxes.push(p.b);
+        top.push(p.path[0]);
+        nodes.push(n);
+    }
+    let rels = clip::collect_rels(pres, sel.slide, &nodes);
+    // Top-level shapes to draw for the clipboard picture.
+    top.sort_unstable();
+    top.dedup();
+    let ids = top
+        .iter()
+        .filter_map(|&i| {
+            pres.slides
+                .get(sel.slide)
+                .and_then(|s| s.data.shapes.get(i))
+                .and_then(ShapeNode::nv)
+                .map(|nv| nv.id)
+        })
+        .collect();
+    Ok((
+        clip::Clip {
+            deck,
+            kind: clip::ClipKind::Shapes {
+                slide: sel.slide,
+                nodes,
+                rels,
+                bounds: clip::bounds_of(&boxes),
+            },
+            pastes: 0,
+        },
+        ids,
+    ))
+}
+
+/// Paste clipboard shapes onto the current slide.
+fn paste_shapes(tx: &mut Tx<'_>, sel: &mut SlideSel, c: &mut clip::Clip, deck: u64) -> R<()> {
+    let clip::ClipKind::Shapes {
+        slide: from,
+        nodes,
+        rels,
+        ..
+    } = &c.kind
+    else {
+        return refuse("noClip");
+    };
+    let slide = sel.slide;
+    let s = tx.pres.slides.get(slide).ok_or(OpError::NoSlide(slide))?;
+    let part_name = s.info.part_name.clone();
+    let mut slide_rels = s.info.rels.clone();
+    let mut map = Vec::new();
+    let mut new_parts = Vec::new();
+    for cr in rels {
+        let mut rel = cr.rel.clone();
+        if !rel.external {
+            let same_deck = c.deck == deck;
+            let exists = clip::rel_part(&part_name, &rel).is_some_and(|name| {
+                tx.pres
+                    .parts
+                    .iter()
+                    .any(|p| p.name.eq_ignore_ascii_case(&name))
+            });
+            if !(same_deck && exists) {
+                // Another deck: bring the part along under a new name.
+                let Some(part) = &cr.part else {
+                    return refuse("clipMissingPart");
+                };
+                let ext = part.name.rsplit('.').next().unwrap_or("bin");
+                let stem = part
+                    .name
+                    .rsplit('/')
+                    .next()
+                    .and_then(|f| f.split('.').next())
+                    .unwrap_or("part")
+                    .trim_end_matches(|ch: char| ch.is_ascii_digit());
+                let dir = part.name.rsplit_once('/').map_or("/ppt/media", |(d, _)| d);
+                let mut name = build::unique_part(tx.pres, &format!("{dir}/{stem}"), ext);
+                while new_parts
+                    .iter()
+                    .any(|p: &bo_model::slide::RawPart| p.name == name)
+                {
+                    name = format!("{name}1");
+                }
+                let rel_dir = dir.trim_start_matches("/ppt/");
+                rel.target = format!("../{rel_dir}/{}", name.rsplit('/').next().unwrap_or(""));
+                new_parts.push(bo_model::slide::RawPart {
+                    name,
+                    content_type: part.content_type.clone(),
+                    data: part.data.clone(),
+                });
+            }
+        }
+        // Reuse an equal relationship of the target slide, else add one.
+        let id = if let Some(r) = slide_rels.iter().find(|r| {
+            r.rel_type == rel.rel_type && r.target == rel.target && r.external == rel.external
+        }) {
+            r.id.clone()
+        } else {
+            let id = clip::free_rel_id(&slide_rels);
+            slide_rels.push(Rel {
+                id: id.clone(),
+                ..rel.clone()
+            });
+            id
+        };
+        map.push((cr.rel.id.clone(), id));
+    }
+    if !new_parts.is_empty() {
+        let at = tx.pres.parts.len();
+        tx.op(SlideOp::Parts {
+            index: at,
+            remove: vec![],
+            insert: new_parts,
+        })?;
+    }
+    tx.fields(slide, |f| f.rels = slide_rels)?;
+    // Pasted where they came from: offset so the copies are visible.
+    let offset = if c.deck == deck && *from == slide {
+        c.pastes += 1;
+        DUPLICATE_OFFSET * c.pastes as f64
+    } else {
+        0.0
+    };
+    let mut next = next_shape_id(tx.pres, slide);
+    let mut ids = Vec::new();
+    let mut out = Vec::new();
+    for n in nodes {
+        let mut n = clip::remap_rels(n, &map);
+        clip::shift(&mut n, offset, offset);
+        renumber(&mut n, &mut next);
+        if let Some(nv) = n.nv() {
+            ids.push(nv.id);
+        }
+        out.push(n);
+    }
+    let len = tx
+        .pres
+        .slides
+        .get(slide)
+        .ok_or(OpError::NoSlide(slide))?
+        .data
+        .shapes
+        .len();
+    tx.insert_nodes(slide, &[], len, out)?;
+    sel.ids = ids;
+    Ok(())
+}
+
+fn slide_indices(pres: &Presentation, sel: &SlideSel, indices: Option<Vec<usize>>) -> Vec<usize> {
+    let mut v = indices.unwrap_or_else(|| vec![sel.slide]);
+    v.retain(|&i| i < pres.slides.len());
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
+/// Paste clipboard slides after the current slide (same deck only: their
+/// layouts and media belong to it).
+fn paste_slides(tx: &mut Tx<'_>, sel: &mut SlideSel, c: &clip::Clip, deck: u64) -> R<()> {
+    let clip::ClipKind::Slides(slides) = &c.kind else {
+        return refuse("noClip");
+    };
+    if c.deck != deck {
+        return refuse("clipOtherDeck");
+    }
+    let first = if tx.pres.slides.is_empty() {
+        0
+    } else {
+        sel.slide + 1
+    };
+    for (at, s) in (first..).zip(slides) {
+        if s.layout >= tx.pres.layouts.len() {
+            return refuse("noLayout");
+        }
+        let copy = build::duplicate_slide(tx.pres, s);
+        tx.op(SlideOp::Slides {
+            index: at,
+            remove: vec![],
+            insert: vec![copy],
+        })?;
+    }
+    *sel = SlideSel {
+        slide: first,
+        ids: vec![],
+    };
+    Ok(())
+}
+
+fn slides_text(pres: &Presentation, indices: &[usize]) -> String {
+    indices
+        .iter()
+        .filter_map(|&i| pres.slides.get(i))
+        .map(|s| clip::plain_text(&s.data.shapes))
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+// ---------------------------------------------------------------------------
 // Engine entry points
 // ---------------------------------------------------------------------------
 
@@ -1703,6 +1958,8 @@ impl Engine {
             let pres = self.pres.as_mut().ok_or(EngineError::NoDocument)?;
             let ed = &mut self.slides;
             let fonts = &mut self.fonts;
+            let clipboard = &mut self.slide_clip;
+            let deck = self.deck_seq;
             ed.clamp(pres);
             if !cmd.keeps_text_selection() {
                 ed.text = None;
@@ -1906,6 +2163,62 @@ impl Engine {
                     }
                 }
                 SlideCommand::TextExit => ed.text = None,
+                SlideCommand::Copy | SlideCommand::Cut => match copy_shapes(pres, &ed.sel, deck) {
+                    Ok((c, ids)) => {
+                        if let clip::ClipKind::Shapes { nodes, bounds, .. } = &c.kind {
+                            out.copied =
+                                Some((ed.sel.slide, ids, *bounds, clip::plain_text(nodes)));
+                        }
+                        *clipboard = Some(c);
+                        if matches!(cmd, SlideCommand::Cut) {
+                            ed.mutate(pres, &mut out, cmd_delete);
+                        }
+                    }
+                    Err(e) => out.error = Some(e.to_string()),
+                },
+                SlideCommand::Paste => match clipboard.as_mut() {
+                    Some(c) if matches!(c.kind, clip::ClipKind::Slides(_)) => {
+                        let c = c.clone();
+                        ed.mutate(pres, &mut out, |tx, sel| paste_slides(tx, sel, &c, deck));
+                    }
+                    Some(c) => {
+                        let mut work = c.clone();
+                        ed.mutate(pres, &mut out, |tx, sel| {
+                            paste_shapes(tx, sel, &mut work, deck)
+                        });
+                        if out.error.is_none() {
+                            *c = work;
+                        }
+                    }
+                    None => out.error = Some("noClip".into()),
+                },
+                SlideCommand::CopySlides { ref indices }
+                | SlideCommand::CutSlides { ref indices } => {
+                    let v = slide_indices(pres, &ed.sel, indices.clone());
+                    if v.is_empty() {
+                        out.error = Some("noSlide".into());
+                    } else {
+                        out.copied_text = Some(slides_text(pres, &v));
+                        *clipboard = Some(clip::Clip {
+                            deck,
+                            kind: clip::ClipKind::Slides(
+                                v.iter().map(|&i| pres.slides[i].clone()).collect(),
+                            ),
+                            pastes: 0,
+                        });
+                        if matches!(cmd, SlideCommand::CutSlides { .. }) {
+                            ed.mutate(pres, &mut out, |tx, sel| {
+                                for &i in v.iter().rev() {
+                                    if tx.pres.slides.len() <= 1 {
+                                        return refuse("lastSlide");
+                                    }
+                                    cmd_delete_slide(tx, sel, Some(i))?;
+                                }
+                                Ok(())
+                            });
+                        }
+                    }
+                }
                 SlideCommand::SetFill { color } => {
                     ed.mutate(pres, &mut out, |tx, sel| {
                         cmd_fill(tx, sel, color.as_deref())
@@ -1942,9 +2255,52 @@ impl Engine {
             }
             ed.clamp(pres);
         }
+        let copied = out.copied.take();
+        let copied_text = out.copied_text.take();
         let mut r = self.finish_slide_command(out)?;
+        r.clipboard = match (copied, copied_text) {
+            (Some((slide, ids, bounds, text)), _) => Some(ClipboardOut {
+                text,
+                png: self.selection_png(slide, ids, bounds),
+            }),
+            (None, Some(text)) => Some(ClipboardOut { text, png: None }),
+            _ => None,
+        };
         r.collab = self.slide_collab_after_edit();
         Ok(r)
+    }
+
+    /// PNG (base64) of some top-level shapes of a slide, cropped to `bounds`,
+    /// at 2 px per point (system clipboard picture).
+    fn selection_png(&mut self, slide: usize, ids: Vec<u32>, bounds: Rect) -> Option<String> {
+        use base64::Engine as _;
+        const SCALE: f64 = 2.0;
+        let pres = self.pres.as_ref()?;
+        let (w, h) = (bounds.w.max(1.0), bounds.h.max(1.0));
+        if w * SCALE > 4096.0 || h * SCALE > 4096.0 {
+            return None;
+        }
+        let opts = bo_pptx::RenderOptions {
+            only: Some(ids),
+            ..bo_pptx::RenderOptions::default()
+        };
+        let page =
+            bo_pptx::render_with(pres, slide, &mut self.fonts, &mut self.images, &opts).ok()?;
+        let mut commands = Vec::with_capacity(page.commands.len() + 2);
+        commands.push(bo_render::Command::PushTransform {
+            m: [1.0, 0.0, 0.0, 1.0, -bounds.x as f32, -bounds.y as f32],
+        });
+        commands.extend(page.commands);
+        commands.push(bo_render::Command::PopTransform);
+        let cropped = bo_render::PageList {
+            width: w as f32,
+            height: h as f32,
+            commands,
+        };
+        let png =
+            bo_raster::render_page_png_with(&cropped, &self.fonts, SCALE as f32, &self.images)
+                .ok()?;
+        Some(base64::engine::general_purpose::STANDARD.encode(png))
     }
 
     /// Insert a PNG/JPEG picture on the current slide.
@@ -2106,6 +2462,12 @@ impl Engine {
             error: out.error,
             collab: None,
             text_edit,
+            clip: match self.slide_clip.as_ref().map(|c| &c.kind) {
+                Some(clip::ClipKind::Shapes { .. }) => Some("shapes"),
+                Some(clip::ClipKind::Slides(_)) => Some("slides"),
+                None => None,
+            },
+            clipboard: None,
         })
     }
 }

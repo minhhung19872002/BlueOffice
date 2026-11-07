@@ -272,3 +272,134 @@ fn shrink_on_overflow_records_font_scale() {
         other => panic!("{other:?}"),
     }
 }
+
+fn first_picture(e: &Engine, slide: usize) -> (u32, String) {
+    let p = e.presentation().unwrap();
+    p.slides[slide]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            ShapeNode::Picture(pic) => Some((pic.nv.id, pic.blip.embed.clone().unwrap())),
+            _ => None,
+        })
+        .expect("a picture")
+}
+
+fn pictures(e: &Engine, slide: usize) -> Vec<(u32, String, (i64, i64))> {
+    let p = e.presentation().unwrap();
+    p.slides[slide]
+        .data
+        .shapes
+        .iter()
+        .filter_map(|n| match n {
+            ShapeNode::Picture(pic) => Some((
+                pic.nv.id,
+                pic.blip.embed.clone().unwrap(),
+                pic.props.xfrm.as_ref().unwrap().off.unwrap(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn copy_paste_shapes_with_pictures_across_slides_and_decks() {
+    let mut e = open("slide-images-crop.pptx");
+    let (id, rid) = first_picture(&e, 0);
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{id}]}}"#));
+    let r = run(&mut e, r#"{"cmd":"copy"}"#);
+    let clip = r.clipboard.expect("system clipboard content");
+    assert!(clip.png.as_deref().is_some_and(|p| p.len() > 100));
+    assert_eq!(r.clip, Some("shapes"));
+    // Same slide: a copy, offset by 12 pt, same image relationship.
+    let before = pictures(&e, 0);
+    let r = run(&mut e, r#"{"cmd":"paste"}"#);
+    let after = pictures(&e, 0);
+    assert_eq!(after.len(), before.len() + 1);
+    let new = after.iter().find(|p| p.0 == r.selection[0].id).unwrap();
+    let orig = before.iter().find(|p| p.0 == id).unwrap();
+    assert_ne!(new.0, id);
+    assert_eq!(new.1, rid);
+    assert_eq!(new.2, (orig.2 .0 + 152_400, orig.2 .1 + 152_400));
+    // Another slide: no offset, a relationship to the same media part.
+    let n = e.presentation().unwrap().slides.len();
+    let target = if n > 1 {
+        1
+    } else {
+        run(&mut e, r#"{"cmd":"addSlide"}"#).slide
+    };
+    run(&mut e, &format!(r#"{{"cmd":"goTo","slide":{target}}}"#));
+    run(&mut e, r#"{"cmd":"paste"}"#);
+    let pasted = pictures(&e, target);
+    let p = e.presentation().unwrap();
+    let rel = p.slides[target]
+        .info
+        .rels
+        .iter()
+        .find(|r| r.id == pasted.last().unwrap().1)
+        .unwrap();
+    let src_rel = p.slides[0].info.rels.iter().find(|r| r.id == rid).unwrap();
+    assert_eq!(rel.target, src_rel.target);
+    assert_eq!(pasted.last().unwrap().2, orig.2);
+    let parts = p.parts.len();
+    // Another deck in the same engine: the image part comes along.
+    e.open(&deck("slide-shapes-presets.pptx"), "b.pptx")
+        .unwrap();
+    let r = run(&mut e, r#"{"cmd":"paste"}"#);
+    assert_eq!(r.selection.len(), 1);
+    let (pid, prid) = first_picture(&e, 0);
+    assert_eq!(pid, r.selection[0].id);
+    let p = e.presentation().unwrap();
+    let rel = p.slides[0].info.rels.iter().find(|r| r.id == prid).unwrap();
+    let part = bo_opc::resolve_target("/ppt/slides/slide1.xml", &rel.target);
+    assert!(p.part_data(&part).is_some(), "{part}");
+    let _ = parts;
+    // Saved and reopened, the picture is there.
+    let bytes = e.save_pptx().unwrap();
+    let mut e2 = Engine::with_bundled_fonts();
+    e2.open(&bytes, "c.pptx").unwrap();
+    assert_eq!(first_picture(&e2, 0).0, pid);
+    // Cut removes, paste brings it back.
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{pid}]}}"#));
+    run(&mut e, r#"{"cmd":"cut"}"#);
+    assert_eq!(pictures(&e, 0).len(), 0);
+    run(&mut e, r#"{"cmd":"paste"}"#);
+    assert_eq!(pictures(&e, 0).len(), 1);
+}
+
+#[test]
+fn copy_cut_paste_slides() {
+    let mut e = open("slide-notes-basic.pptx");
+    let n = e.presentation().unwrap().slides.len();
+    let title = |e: &Engine, i: usize| {
+        bo_engine::slide_edit::clip::plain_text(&e.presentation().unwrap().slides[i].data.shapes)
+    };
+    let t0 = title(&e, 0);
+    let r = run(&mut e, r#"{"cmd":"copySlides","indices":[0]}"#);
+    assert_eq!(r.clip, Some("slides"));
+    assert_eq!(r.clipboard.unwrap().text, t0);
+    run(&mut e, &format!(r#"{{"cmd":"goTo","slide":{}}}"#, n - 1));
+    let r = run(&mut e, r#"{"cmd":"paste"}"#);
+    assert_eq!(r.slide, n);
+    assert_eq!(e.presentation().unwrap().slides.len(), n + 1);
+    assert_eq!(title(&e, n), t0);
+    // Part names stay unique.
+    let p = e.presentation().unwrap();
+    let mut names: Vec<&str> = p.slides.iter().map(|s| s.info.part_name.as_str()).collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), n + 1);
+    run(&mut e, &format!(r#"{{"cmd":"cutSlides","indices":[{n}]}}"#));
+    assert_eq!(e.presentation().unwrap().slides.len(), n);
+    run(&mut e, r#"{"cmd":"goTo","slide":0}"#);
+    run(&mut e, r#"{"cmd":"paste"}"#);
+    assert_eq!(title(&e, 1), t0);
+    let bytes = e.save_pptx().unwrap();
+    assert_eq!(bo_pptx::read_pptx(&bytes).unwrap().slides.len(), n + 1);
+    // Slides cannot go to another deck.
+    e.open(&deck("slide-shapes-presets.pptx"), "b.pptx")
+        .unwrap();
+    let r = try_run(&mut e, r#"{"cmd":"paste"}"#);
+    assert_eq!(r.error.as_deref(), Some("clipOtherDeck"));
+}

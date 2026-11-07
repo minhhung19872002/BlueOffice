@@ -2,6 +2,7 @@ import { GlyphStore, ImageStore } from '@blueoffice/canvas-host';
 import { CommandRegistry } from '@blueoffice/editor';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
+  ClipboardContent,
   DocInfo,
   Platform,
   SlideCommand,
@@ -33,10 +34,12 @@ import {
   BookOpen,
   BringToFront,
   Circle,
+  ClipboardPaste,
   Copy,
   CopyPlus,
   Eraser,
   FileDown,
+  Files,
   FolderOpen,
   Group,
   Highlighter,
@@ -56,6 +59,7 @@ import {
   Redo2,
   Rows3,
   Save,
+  Scissors,
   SendToBack,
   Slash,
   Square,
@@ -94,11 +98,27 @@ export interface SlideEditorState {
   isGroup: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  /** What the internal clipboard holds. */
+  clip?: 'shapes' | 'slides';
 }
 
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
 type ColorTarget = 'font' | 'fill' | 'line' | 'highlight';
+
+/** Attribute marking BlueSlide's own copies in the system clipboard's HTML. */
+const CLIP_MARK = 'data-bo-slide-clip';
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`);
+}
+
+function fromBase64(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 /** Line spacing multiples offered in the format bar (§21.1.2.2.10 lnSpc). */
 const LINE_SPACINGS = [1, 1.15, 1.5, 2, 2.5, 3];
@@ -364,6 +384,68 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     [colorId],
   );
 
+  // Clipboard: own copies carry a marker so pasting prefers the full internal
+  // copy; pictures and text from other programs become a picture / text box.
+  const clipKind = edit?.clip;
+  const toSystem = useCallback(
+    (r: SlideEditResult | null) => {
+      const c = r?.clipboard;
+      if (!c) return;
+      const mark = ctrl.newClipMark();
+      const html = `<div ${CLIP_MARK}="${mark}">${escapeHtml(c.text)}</div>`;
+      try {
+        const cb = platform.clipboard;
+        const png = c.png ? fromBase64(c.png) : undefined;
+        const done = cb.writeItems
+          ? cb.writeItems({ text: c.text, html, png })
+          : cb.writeHtml(html, c.text);
+        void done.catch(() => {});
+      } catch {
+        /* no system clipboard: the internal copy still works */
+      }
+    },
+    [platform, ctrl],
+  );
+  const pasteFrom = useCallback(
+    async (sys: ClipboardContent | null) => {
+      const mark = sys?.html ? new RegExp(`${CLIP_MARK}="([^"]+)"`).exec(sys.html)?.[1] : undefined;
+      const external = sys && (sys.image || sys.text?.trim()) && !ctrl.isOwnClip(mark);
+      if (!external) {
+        if (clipKind) await ctrl.run({ cmd: 'paste' });
+        return;
+      }
+      if (sys.image) await ctrl.insertPicture(sys.image, 'clipboard.png');
+      else if (sys.text) await ctrl.run({ cmd: 'insertTextBox', text: fromEditorText(sys.text) });
+    },
+    [ctrl, clipKind],
+  );
+
+  // Ctrl+V outside text fields arrives as a paste event (no permission needed).
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (view !== 'normal' || !info) return;
+      e.preventDefault();
+      const d = e.clipboardData;
+      const file = d
+        ? Array.from(d.items ?? [])
+            .find((i) => i.type === 'image/png' || i.type === 'image/jpeg')
+            ?.getAsFile()
+        : null;
+      void (async () => {
+        const sys: ClipboardContent = {
+          text: d?.getData('text/plain') || undefined,
+          html: d?.getData('text/html') || undefined,
+          image: file ? new Uint8Array(await file.arrayBuffer()) : undefined,
+        };
+        await pasteFrom(sys);
+      })().catch(fail);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [view, info, pasteFrom, fail]);
+
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SlideEditorState>();
     const guard = async (f: () => Promise<unknown>) => {
@@ -469,6 +551,44 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       },
     });
 
+    // Clipboard: in the slide panel it copies slides, elsewhere shapes.
+    const inThumbs = () => !!document.activeElement?.closest('[data-slide-thumbs]');
+    const copyCmd = (cut: boolean) => (s: SlideEditorState) =>
+      guard(async () => {
+        if (inThumbs()) {
+          toSystem(await ctrl.run({ cmd: cut ? 'cutSlides' : 'copySlides', indices: [s.current] }));
+        } else if (s.hasSelection) {
+          toSystem(await ctrl.run({ cmd: cut ? 'cut' : 'copy' }));
+        }
+      });
+    reg.register({ id: 'edit.copy', shortcut: 'Ctrl+C', isEnabled: deck, run: copyCmd(false) });
+    reg.register({ id: 'edit.cut', shortcut: 'Ctrl+X', isEnabled: deck, run: copyCmd(true) });
+    reg.register({
+      id: 'edit.paste',
+      shortcut: 'Ctrl+V',
+      isEnabled: deck,
+      run: () =>
+        guard(async () => {
+          const sys = await Promise.resolve()
+            .then(() => platform.clipboard.read?.())
+            .catch(() => undefined);
+          await pasteFrom(sys ?? null);
+        }),
+    });
+    reg.register({
+      id: 'slide.copy',
+      isEnabled: deck,
+      run: (s) =>
+        guard(async () => toSystem(await ctrl.run({ cmd: 'copySlides', indices: [s.current] }))),
+    });
+    reg.register({
+      id: 'slide.cut',
+      isEnabled: deck,
+      run: (s) =>
+        guard(async () => toSystem(await ctrl.run({ cmd: 'cutSlides', indices: [s.current] }))),
+    });
+    simple('slide.paste', { cmd: 'paste' }, (s) => s.hasDeck && s.clip === 'slides');
+
     // Slides.
     simple('slide.new', { cmd: 'addSlide' }, deck, 'Ctrl+M');
     simple('slide.duplicate', { cmd: 'duplicateSlide' }, deck);
@@ -571,7 +691,21 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     simple('arrange.distributeH', { cmd: 'distribute', axis: 'horizontal' }, sel);
     simple('arrange.distributeV', { cmd: 'distribute', axis: 'vertical' }, sel);
     return reg;
-  }, [fail, fileName, t, platform, load, engine, view, startShow, run, ctrl, pickColor]);
+  }, [
+    fail,
+    fileName,
+    t,
+    platform,
+    load,
+    engine,
+    view,
+    startShow,
+    run,
+    ctrl,
+    pickColor,
+    toSystem,
+    pasteFrom,
+  ]);
 
   const state: SlideEditorState = useMemo(() => {
     const s = edit?.selection ?? [];
@@ -584,6 +718,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       isGroup: s.some((x) => x.kind === 'group'),
       canUndo: edit?.canUndo ?? false,
       canRedo: edit?.canRedo ?? false,
+      clip: edit?.clip,
     };
   }, [count, current, edit]);
   const exec = useCallback((id: string) => void registry.execute(id, state), [registry, state]);
@@ -617,6 +752,8 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
         return;
       }
       const cmd = registry.match(e);
+      // Ctrl+V comes back as a paste event with the clipboard content.
+      if (cmd?.id === 'edit.paste') return;
       if (cmd) {
         e.preventDefault();
         exec(cmd.id);
@@ -693,12 +830,24 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
             ],
           },
           {
+            id: 'clipboard',
+            label: t('slideEditor.groupClipboard'),
+            items: [
+              item('edit.paste', t('slideEditor.paste'), <ClipboardPaste size={18} />),
+              item('edit.cut', t('slideEditor.cut'), <Scissors size={16} />, sm),
+              item('edit.copy', t('slideEditor.copy'), <Copy size={16} />, sm),
+            ],
+          },
+          {
             id: 'slides',
             label: t('slideEditor.groupSlides'),
             items: [
               item('slide.new', t('slideEditor.newSlide'), <SquarePlus size={18} />),
               item('slide.duplicate', t('slideEditor.duplicateSlide'), <CopyPlus size={16} />, sm),
               item('slide.delete', t('slideEditor.deleteSlide'), <Trash size={16} />, sm),
+              item('slide.copy', t('slideEditor.copySlide'), <Files size={16} />, sm),
+              item('slide.cut', t('slideEditor.cutSlide'), <Scissors size={16} />, sm),
+              item('slide.paste', t('slideEditor.pasteSlide'), <ClipboardPaste size={16} />, sm),
             ],
           },
           {

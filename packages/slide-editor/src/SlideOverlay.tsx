@@ -1,6 +1,7 @@
 import type {
   HandleKind,
   SlideBox,
+  SlideCommand,
   SlideEditResult,
   SlidePreview,
   SlideShapeInfo,
@@ -56,13 +57,18 @@ export interface SlideOverlayProps {
   onTextShortcut?: (e: KeyboardEvent) => boolean;
   label: string;
   editorLabel: string;
+  /** Tooltips of adjust handles and connector ends. */
+  adjustLabel?: string;
+  connectorLabel?: string;
   /** Collaborators' selected objects on this slide (live collaboration). */
   peers?: { clientId: number; name: string; color: string; rect: SlideBox; label: string }[];
 }
 
 interface Drag {
-  mode: 'move' | 'resize' | 'rotate' | 'marquee';
+  mode: 'move' | 'resize' | 'rotate' | 'marquee' | 'adjust' | 'cxnEnd';
   handle?: HandleKind;
+  /** Adjust handle index / connector end. */
+  index?: number;
   sx: number;
   sy: number;
   started: boolean;
@@ -74,6 +80,8 @@ interface Drag {
 const SNAP_PX = 6;
 const HANDLE_PX = 9;
 const DRAG_THRESHOLD_PX = 3;
+/** Snap distance of a connector end to a connection site, CSS pixels. */
+const SITE_PX = 12;
 
 function boxRect(b: SlideBox, className: string | undefined, key?: string | number, extra = {}) {
   return (
@@ -108,12 +116,34 @@ export function SlideOverlay({
   onTextShortcut,
   label,
   editorLabel,
+  adjustLabel = '',
+  connectorLabel = '',
   peers = [],
 }: SlideOverlayProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
   const textDrag = useRef<{ busy: boolean; pending: { x: number; y: number } | null } | null>(null);
   const [hitSeq, setHitSeq] = useState(0);
+  // Live drags of adjust handles / connector ends: one command in flight, latest wins.
+  const live = useRef<{ busy: boolean; pending: SlideCommand | null; active: boolean }>({
+    busy: false,
+    pending: null,
+    active: false,
+  });
+  const runLive = (cmd: SlideCommand) => {
+    const l = live.current;
+    if (l.busy) {
+      l.pending = cmd;
+      return;
+    }
+    l.busy = true;
+    void controller.run(cmd).then(() => {
+      l.busy = false;
+      const next = l.pending;
+      l.pending = null;
+      if (next) runLive(next);
+    });
+  };
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(
     null,
   );
@@ -181,7 +211,23 @@ export function SlideOverlay({
     }
     e.preventDefault();
     svgRef.current?.setPointerCapture?.(e.pointerId);
-    const handle = (e.target as Element).getAttribute('data-handle') as HandleKind | null;
+    const target = e.target as Element;
+    const adj = target.getAttribute('data-adjust');
+    const cxn = target.getAttribute('data-cxn-end');
+    if (adj !== null || cxn !== null) {
+      drag.current = {
+        mode: adj !== null ? 'adjust' : 'cxnEnd',
+        index: Number(adj ?? cxn),
+        sx: p.x,
+        sy: p.y,
+        started: false,
+        ready: true,
+        last: null,
+      };
+      live.current.active = true;
+      return;
+    }
+    const handle = target.getAttribute('data-handle') as HandleKind | null;
     if (handle) {
       drag.current = {
         mode: handle === 'rot' ? 'rotate' : 'resize',
@@ -233,6 +279,21 @@ export function SlideOverlay({
       return;
     }
     d.started = true;
+    if (d.mode === 'adjust') {
+      runLive({ cmd: 'adjust', index: d.index ?? 0, x: p.x, y: p.y, merge: true });
+      return;
+    }
+    if (d.mode === 'cxnEnd') {
+      runLive({
+        cmd: 'connectorEnd',
+        end: d.index === 1 ? 1 : 0,
+        x: p.x,
+        y: p.y,
+        merge: true,
+        tolerance: SITE_PX / (scale || 1),
+      });
+      return;
+    }
     if (d.mode === 'marquee') {
       setMarquee({
         x: Math.min(d.sx, p.x),
@@ -255,8 +316,24 @@ export function SlideOverlay({
     const d = drag.current;
     drag.current = null;
     svgRef.current?.releasePointerCapture?.(e.pointerId);
+    live.current.active = false;
     if (!d?.started) return;
     const p = toPt(e);
+    if (d.mode === 'adjust') {
+      runLive({ cmd: 'adjust', index: d.index ?? 0, x: p.x, y: p.y, merge: true });
+      return;
+    }
+    if (d.mode === 'cxnEnd') {
+      runLive({
+        cmd: 'connectorEnd',
+        end: d.index === 1 ? 1 : 0,
+        x: p.x,
+        y: p.y,
+        merge: true,
+        tolerance: SITE_PX / (scale || 1),
+      });
+      return;
+    }
     if (d.mode === 'marquee') {
       setMarquee(null);
       const rect = {
@@ -395,6 +472,43 @@ export function SlideOverlay({
               />
             ),
           )}
+        {showHandles &&
+          edit.sites?.map(([x, y], i) => (
+            <path
+              key={`site${i}`}
+              className={styles.site}
+              d={`M${x - hs / 3} ${y - hs / 3}L${x + hs / 3} ${y + hs / 3}M${x - hs / 3} ${y + hs / 3}L${x + hs / 3} ${y - hs / 3}`}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+        {showHandles &&
+          edit.connector?.ends.map(([x, y], i) => (
+            <circle
+              key={`cxn${i}`}
+              className={edit.connector?.attached[i] ? styles.cxnAttached : styles.cxnEnd}
+              data-cxn-end={i}
+              data-testid={`connector-end-${i}`}
+              cx={x}
+              cy={y}
+              r={hs / 2}
+              vectorEffect="non-scaling-stroke"
+            >
+              <title>{connectorLabel}</title>
+            </circle>
+          ))}
+        {showHandles &&
+          edit.adjust.map((h) => (
+            <path
+              key={`adj${h.index}`}
+              className={styles.adjust}
+              data-adjust={h.index}
+              data-testid={`adjust-${h.index}`}
+              d={`M${h.x} ${h.y - hs / 2}L${h.x + hs / 2} ${h.y}L${h.x} ${h.y + hs / 2}L${h.x - hs / 2} ${h.y}Z`}
+              vectorEffect="non-scaling-stroke"
+            >
+              <title>{adjustLabel}</title>
+            </path>
+          ))}
         {preview?.boxes.map((b, i) => boxRect(b, styles.ghost, `g${i}`))}
         {marquee && (
           <rect

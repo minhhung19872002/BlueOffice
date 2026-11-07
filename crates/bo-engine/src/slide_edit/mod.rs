@@ -14,6 +14,7 @@
 pub mod build;
 pub mod clip;
 pub mod collab;
+pub mod connect;
 pub mod geom;
 pub mod guides;
 pub mod ops;
@@ -107,6 +108,9 @@ fn yes() -> bool {
 }
 fn default_tolerance() -> f64 {
     4.0
+}
+fn default_site_tolerance() -> f64 {
+    10.0
 }
 
 /// A slide editing command.
@@ -229,6 +233,32 @@ pub enum SlideCommand {
     },
     /// Leave text editing.
     TextExit,
+    /// Drag adjust handle `index` of the selected preset shape to slide point
+    /// (x, y) (§20.1.9.5 avLst); `merge` joins the previous drag step.
+    Adjust {
+        index: usize,
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        merge: bool,
+    },
+    /// Drag end `end` (0 = start, 1 = end) of the selected connector to (x, y):
+    /// it attaches to the nearest connection site within `tolerance` points.
+    ConnectorEnd {
+        end: usize,
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        merge: bool,
+        #[serde(default = "default_site_tolerance")]
+        tolerance: f64,
+    },
+    /// Connect the two selected shapes with a connector between their
+    /// nearest connection sites (`preset` default `straightConnector1`).
+    InsertConnector {
+        #[serde(default)]
+        preset: Option<String>,
+    },
     /// Copy the selected shapes to the internal clipboard (full shapes and
     /// the pictures they use); the result carries text and a PNG for the
     /// system clipboard.
@@ -396,6 +426,14 @@ pub struct SlideEditResult {
     /// Text being edited inside a shape: selection, caret and highlight.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_edit: Option<rich::TextEditOut>,
+    /// Adjust handles of the selected preset shape (slide points).
+    pub adjust: Vec<connect::AdjustOut>,
+    /// The selected connector's ends and attachment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connector: Option<connect::ConnectorOut>,
+    /// Connection sites of the slide's shapes while a connector is selected.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sites: Vec<[f64; 2]>,
     /// What the internal clipboard holds: `shapes` | `slides`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clip: Option<&'static str>,
@@ -434,7 +472,7 @@ struct Txn {
     before: SlideSel,
     after: SlideSel,
     /// Typing in (slide, shape): later typing there joins this transaction.
-    typing: Option<(usize, u32)>,
+    typing: Option<(usize, u32, u8)>,
 }
 
 /// Selection and history of the open presentation.
@@ -525,13 +563,14 @@ impl SlideEditor {
         &mut self,
         pres: &mut Presentation,
         out: &mut Outcome,
-        typing: Option<(usize, u32)>,
+        typing: Option<(usize, u32, u8)>,
         f: impl FnOnce(&mut Tx<'_>, &mut SlideSel) -> R<()>,
     ) {
         let before = self.sel.clone();
         let mut sel = self.sel.clone();
         let mut tx = Tx::new(pres);
-        match f(&mut tx, &mut sel) {
+        let res = f(&mut tx, &mut sel).and_then(|()| reroute_connectors(&mut tx));
+        match res {
             Ok(()) => {
                 let ops = std::mem::take(&mut tx.ops);
                 out.note(&ops);
@@ -1734,6 +1773,138 @@ fn cmd_picture(tx: &mut Tx<'_>, sel: &mut SlideSel, bytes: Vec<u8>, name: &str) 
 }
 
 // ---------------------------------------------------------------------------
+// Adjust handles and connectors
+// ---------------------------------------------------------------------------
+
+/// Re-route the attached connectors of every slide the transaction changed
+/// (a connector follows the connection sites of the shapes it joins).
+fn reroute_connectors(tx: &mut Tx<'_>) -> R<()> {
+    // Shapes changed by the transaction, per slide.
+    let mut changed: Vec<(usize, Vec<u32>)> = Vec::new();
+    for op in &tx.ops {
+        if let SlideOp::Nodes { slide, insert, .. } = op {
+            let mut ids = Vec::new();
+            for n in insert {
+                all_ids(n, &mut ids);
+            }
+            match changed.iter_mut().find(|(s, _)| s == slide) {
+                Some((_, v)) => v.extend(ids),
+                None => changed.push((*slide, ids)),
+            }
+        }
+    }
+    for (slide, ids) in changed {
+        let placed = place_slide(tx.pres, slide);
+        let mut changes = Vec::new();
+        for p in placed.iter().filter(|p| p.path.len() == 1) {
+            if let Some(ShapeNode::Connector(c)) = ops::node_at(tx.pres, slide, &p.path) {
+                let joins_changed = [0, 1]
+                    .iter()
+                    .any(|&e| connect::cxn_ref(c, e).is_some_and(|(id, _)| ids.contains(&id)));
+                if !joins_changed {
+                    continue;
+                }
+                if let Some(n) = connect::reroute(tx.pres, slide, &placed, p, c) {
+                    changes.push((p.path.clone(), ShapeNode::Connector(Box::new(n))));
+                }
+            }
+        }
+        for (path, n) in changes {
+            tx.replace_node(slide, &path, n)?;
+        }
+    }
+    Ok(())
+}
+
+fn the_one(tx: &Tx<'_>, sel: &SlideSel) -> R<(Placed, ShapeNode)> {
+    let placed = place_slide(tx.pres, sel.slide);
+    let [id] = sel.ids.as_slice() else {
+        return refuse("noSelection");
+    };
+    let p = find(&placed, *id)
+        .cloned()
+        .ok_or(EditError::Refused("noShape"))?;
+    let n = node_clone(tx.pres, sel.slide, &p.path)?;
+    Ok((p, n))
+}
+
+fn cmd_adjust(tx: &mut Tx<'_>, sel: &SlideSel, index: usize, x: f64, y: f64) -> R<()> {
+    let (p, n) = the_one(tx, sel)?;
+    let new = connect::adjust(tx.pres, sel.slide, &p, &n, index, x, y)
+        .ok_or(EditError::Refused("noHandle"))?;
+    tx.replace_node(sel.slide, &p.path, new)?;
+    Ok(())
+}
+
+fn cmd_connector_end(
+    tx: &mut Tx<'_>,
+    sel: &SlideSel,
+    end: usize,
+    x: f64,
+    y: f64,
+    tol: f64,
+) -> R<()> {
+    let (p, n) = the_one(tx, sel)?;
+    let ShapeNode::Connector(mut c) = n else {
+        return refuse("noConnector");
+    };
+    if p.path.len() != 1 || end > 1 {
+        return refuse("noConnector");
+    }
+    let placed = place_slide(tx.pres, sel.slide);
+    let x0 = c
+        .props
+        .xfrm
+        .clone()
+        .ok_or(EditError::Refused("noTransform"))?;
+    let [a, b] = connect::ends(&p, &x0);
+    let hit = connect::nearest_site(tx.pres, sel.slide, &placed, x, y, tol, c.nv.id);
+    let to = hit.map_or((x, y), |h| h.2);
+    connect::set_cxn_ref(&mut c, end, hit.map(|h| (h.0, h.1)));
+    let (a, b) = if end == 0 { (to, b) } else { (a, to) };
+    c.props.xfrm = Some(connect::xfrm_between(&x0, a, b));
+    tx.replace_node(sel.slide, &p.path, ShapeNode::Connector(c))?;
+    Ok(())
+}
+
+fn cmd_insert_connector(tx: &mut Tx<'_>, sel: &mut SlideSel, preset: Option<&str>) -> R<()> {
+    let placed = place_slide(tx.pres, sel.slide);
+    let items = selected(&placed, &sel.ids);
+    let [p0, p1] = items.as_slice() else {
+        return refuse("connectNeedsTwo");
+    };
+    let node = |p: &Placed| ops::node_at(tx.pres, sel.slide, &p.path);
+    let (Some(n0), Some(n1)) = (node(p0), node(p1)) else {
+        return refuse("noShape");
+    };
+    let s0 = connect::sites(tx.pres, sel.slide, p0, n0);
+    let s1 = connect::sites(tx.pres, sel.slide, p1, n1);
+    let mut best: Option<(usize, usize, f64)> = None;
+    for (i, a) in s0.iter().enumerate() {
+        for (j, b) in s1.iter().enumerate() {
+            let d = (a.0 - b.0).hypot(a.1 - b.1);
+            if best.is_none_or(|x| d < x.2) {
+                best = Some((i, j, d));
+            }
+        }
+    }
+    let Some((i, j, _)) = best else {
+        return refuse("noSites");
+    };
+    let id = next_shape_id(tx.pres, sel.slide);
+    let Some(ShapeNode::Connector(mut c)) =
+        build::connector(id, preset.unwrap_or("straightConnector1"))
+    else {
+        return refuse("build");
+    };
+    connect::set_cxn_ref(&mut c, 0, Some((p0.id, i as u32)));
+    connect::set_cxn_ref(&mut c, 1, Some((p1.id, j as u32)));
+    let base = c.props.xfrm.clone().unwrap_or_default();
+    c.props.xfrm = Some(connect::xfrm_between(&base, s0[i], s1[j]));
+    insert_top(tx, sel, Some(ShapeNode::Connector(c)))
+}
+
+// ---------------------------------------------------------------------------
 // Clipboard
 // ---------------------------------------------------------------------------
 
@@ -2140,7 +2311,7 @@ impl Engine {
                     let target = id.or(single(&ed.sel.ids));
 
                     let typing = if merge {
-                        target.map(|t| (ed.sel.slide, t))
+                        target.map(|t| (ed.sel.slide, t, 0))
                     } else {
                         None
                     };
@@ -2216,6 +2387,34 @@ impl Engine {
                     }
                 }
                 SlideCommand::TextExit => ed.text = None,
+                SlideCommand::Adjust { index, x, y, merge } => {
+                    let key = single(&ed.sel.ids)
+                        .filter(|_| merge)
+                        .map(|id| (ed.sel.slide, id, 1));
+                    ed.mutate_as(pres, &mut out, key, |tx, sel| {
+                        cmd_adjust(tx, sel, index, x, y)
+                    });
+                }
+                SlideCommand::ConnectorEnd {
+                    end,
+                    x,
+                    y,
+                    merge,
+                    tolerance,
+                } => {
+                    let key = single(&ed.sel.ids)
+                        .filter(|_| merge)
+                        .map(|id| (ed.sel.slide, id, 2));
+                    ed.mutate_as(pres, &mut out, key, |tx, sel| {
+                        cmd_connector_end(tx, sel, end, x, y, tolerance)
+                    });
+                }
+                SlideCommand::InsertConnector { ref preset } => {
+                    let preset = preset.clone();
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        cmd_insert_connector(tx, sel, preset.as_deref())
+                    });
+                }
                 SlideCommand::Copy | SlideCommand::Cut => match copy_shapes(pres, &ed.sel, deck) {
                     Ok((c, ids)) => {
                         if let clip::ClipKind::Shapes { nodes, bounds, .. } = &c.kind {
@@ -2472,6 +2671,38 @@ impl Engine {
                 editable_text: editable,
             });
         }
+        let mut adjust = Vec::new();
+        let mut connector = None;
+        let mut sites = Vec::new();
+        if let [one] = items.as_slice() {
+            if let Some(n) = ops::node_at(pres, slide, &one.path) {
+                adjust = connect::adjust_handles(pres, slide, one, n);
+                if let (ShapeNode::Connector(c), true) = (n, one.path.len() == 1) {
+                    if let Some(x) = &c.props.xfrm {
+                        let [a, b] = connect::ends(one, x);
+                        connector = Some(connect::ConnectorOut {
+                            id: one.id,
+                            ends: [[a.0, a.1], [b.0, b.1]],
+                            attached: [
+                                connect::cxn_ref(c, 0).is_some(),
+                                connect::cxn_ref(c, 1).is_some(),
+                            ],
+                        });
+                        let mut flat = Vec::new();
+                        connect::walk(&placed, &mut |p| flat.push(p));
+                        for p in flat.into_iter().filter(|p| p.id != one.id) {
+                            if let Some(pn) = ops::node_at(pres, slide, &p.path) {
+                                sites.extend(
+                                    connect::sites(pres, slide, p, pn)
+                                        .into_iter()
+                                        .map(|(x, y)| [x, y]),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let bounds = match items.as_slice() {
             [] => None,
             [one] => Some(one.b),
@@ -2515,6 +2746,9 @@ impl Engine {
             error: out.error,
             collab: None,
             text_edit,
+            adjust,
+            connector,
+            sites,
             clip: match self.slide_clip.as_ref().map(|c| &c.kind) {
                 Some(clip::ClipKind::Shapes { .. }) => Some("shapes"),
                 Some(clip::ClipKind::Slides(_)) => Some("slides"),

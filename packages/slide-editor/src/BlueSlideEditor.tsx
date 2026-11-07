@@ -37,6 +37,7 @@ import {
   ClipboardPaste,
   Copy,
   CopyPlus,
+  CornerDownRight,
   Eraser,
   FileDown,
   Files,
@@ -62,6 +63,7 @@ import {
   Scissors,
   SendToBack,
   Slash,
+  Spline,
   Square,
   SquarePlus,
   Strikethrough,
@@ -668,6 +670,12 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       simple(id, { cmd: 'insertShape', preset }, deck);
     }
     simple('insert.table', { cmd: 'insertTable', rows: 3, cols: 3 }, deck);
+    simple('insert.connector', { cmd: 'insertConnector' }, (s) => s.multi);
+    simple(
+      'insert.elbowConnector',
+      { cmd: 'insertConnector', preset: 'bentConnector3' },
+      (s) => s.multi,
+    );
     reg.register({
       id: 'insert.picture',
       isEnabled: deck,
@@ -973,6 +981,13 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
               item('insert.ellipse', t('slideEditor.ellipse'), <Circle size={16} />, sm),
               item('insert.arrow', t('slideEditor.arrow'), <ArrowRight size={16} />, sm),
               item('insert.triangle', t('slideEditor.triangle'), <Triangle size={16} />, sm),
+              item('insert.connector', t('slideEditor.connect'), <Spline size={16} />, sm),
+              item(
+                'insert.elbowConnector',
+                t('slideEditor.connector'),
+                <CornerDownRight size={16} />,
+                sm,
+              ),
             ],
           },
           {
@@ -1226,6 +1241,8 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
                     onTextShortcut={textShortcut}
                     label={t('slideEditor.editor')}
                     editorLabel={t('slideEditor.textEditor')}
+                    adjustLabel={t('slideEditor.adjustHandle')}
+                    connectorLabel={t('slideEditor.connectorEnd')}
                     peers={peers
                       .filter((p) => p.slide === shown)
                       .map((p) => {

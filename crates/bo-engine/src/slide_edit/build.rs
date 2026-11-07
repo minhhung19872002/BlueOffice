@@ -199,6 +199,23 @@ pub fn table(id: u32, rows: usize, cols: usize, x: f64, y: f64, w: f64) -> Optio
     ))
 }
 
+/// Connector (§19.3.1.19 cxnSp) with an arrow at its end, styled like new
+/// lines (lnRef accent1); `preset` is a connector shape (`straightConnector1`,
+/// `bentConnector3`, `curvedConnector3`).
+pub fn connector(id: u32, preset: &str) -> Option<ShapeNode> {
+    node(&format!(
+        concat!(
+            r#"<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="{id}" name="Connector {id}"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr>"#,
+            r#"<p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm><a:prstGeom prst="{preset}"><a:avLst/></a:prstGeom>"#,
+            r#"<a:ln w="19050"><a:tailEnd type="triangle"/></a:ln></p:spPr>"#,
+            r#"<p:style><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="0"><a:schemeClr val="accent1"/></a:fillRef>"#,
+            r#"<a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="tx1"/></a:fontRef></p:style></p:cxnSp>"#
+        ),
+        id = id,
+        preset = esc(preset),
+    ))
+}
+
 /// Group (§19.3.1.22 grpSp) whose child space equals its box (no scaling).
 pub fn group(
     id: u32,

@@ -165,6 +165,7 @@ function fakePlatform() {
     layouts: [],
     clip: st.clip,
     clipboard: st.clipboard,
+    adjust: st.sel.length ? [{ index: 0, x: 300, y: 60 }] : [],
     textEdit:
       st.editing === null
         ? undefined
@@ -449,6 +450,17 @@ describe('BlueSlideEditor', () => {
     expect(screen.queryByTestId('marquee')).toBeNull();
     fireEvent.keyDown(window, { key: 'Tab' });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'selectNext', back: false }));
+    // Yellow adjust handle: dragging sends live adjust commands.
+    st.emptyHit = false;
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 480, clientY: 100, pointerId: 3 });
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 480, clientY: 100, pointerId: 3 });
+    const adj = await screen.findByTestId('adjust-0');
+    fireEvent.pointerDown(adj, { button: 0, clientX: 300, clientY: 60, pointerId: 4 });
+    fireEvent.pointerMove(overlay, { clientX: 330, clientY: 60, pointerId: 4 });
+    fireEvent.pointerUp(overlay, { clientX: 340, clientY: 60, pointerId: 4 });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'adjust', index: 0, x: 330, y: 60, merge: true }),
+    );
     fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'selectNext', back: true }));
   });

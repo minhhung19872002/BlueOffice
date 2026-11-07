@@ -416,3 +416,31 @@ circle.handle {
   stroke-width: 1px;
   stroke-dasharray: 4 2;
 }
+
+/* Adjust handle of a preset shape (yellow diamond, §20.1.9.1 ahLst). */
+.adjust {
+  fill: #facc15;
+  stroke: #713f12;
+  stroke-width: 1px;
+  cursor: pointer;
+}
+
+.cxnEnd {
+  fill: #fff;
+  stroke: #2563eb;
+  stroke-width: 1.5px;
+  cursor: crosshair;
+}
+
+.cxnAttached {
+  fill: #16a34a;
+  stroke: #fff;
+  stroke-width: 1.5px;
+  cursor: crosshair;
+}
+
+.site {
+  stroke: #2563eb;
+  stroke-width: 1px;
+  pointer-events: none;
+}

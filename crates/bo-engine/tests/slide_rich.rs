@@ -439,7 +439,7 @@ fn marquee_select_all_and_tab_cycle() {
         &mut e,
         r#"{"cmd":"selectRect","rect":{"x":0,"y":0,"w":1,"h":1}}"#,
     );
-    assert!(r.selection.is_empty());
+    assert_eq!(r.selection.len(), 0);
     // Tab cycles in z-order, Shift+Tab goes back and wraps.
     let r = run(&mut e, r#"{"cmd":"selectNext"}"#);
     assert_eq!(r.selection[0].id, all[0].id);
@@ -448,4 +448,125 @@ fn marquee_select_all_and_tab_cycle() {
     run(&mut e, r#"{"cmd":"selectNext","back":true}"#);
     let r = run(&mut e, r#"{"cmd":"selectNext","back":true}"#);
     assert_eq!(r.selection[0].id, all.last().unwrap().id);
+}
+
+#[test]
+fn adjust_handles_change_the_preset() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let r = run(
+        &mut e,
+        r#"{"cmd":"insertShape","preset":"roundRect","rect":{"x":100,"y":100,"w":200,"h":100}}"#,
+    );
+    let id = r.selection[0].id;
+    assert_eq!(r.adjust.len(), 1);
+    let h = r.adjust[0];
+    assert!((h.y - 100.0).abs() < 1e-6, "on the top edge: {h:?}");
+    // Drag the handle 10 pt to the right twice: one undo step.
+    run(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"adjust","index":0,"x":{},"y":100,"merge":true}}"#,
+            h.x + 5.0
+        ),
+    );
+    let r = run(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"adjust","index":0,"x":{},"y":100,"merge":true}}"#,
+            h.x + 10.0
+        ),
+    );
+    assert!((r.adjust[0].x - (h.x + 10.0)).abs() < 0.5, "{:?}", r.adjust);
+    let s = shape(&e, 0, id);
+    match &s.props.geometry {
+        Some(bo_model::slide::Geometry::Preset { name, av }) => {
+            assert_eq!(name, "roundRect");
+            assert_eq!(av.len(), 1);
+            assert_eq!(av[0].name, "adj");
+        }
+        g => panic!("{g:?}"),
+    }
+    run(&mut e, r#"{"cmd":"undo"}"#);
+    let r = run(&mut e, &format!(r#"{{"cmd":"select","ids":[{id}]}}"#));
+    assert!((r.adjust[0].x - h.x).abs() < 1e-6);
+}
+
+fn connector_of(e: &Engine, id: u32) -> bo_model::slide::Connector {
+    e.presentation().unwrap().slides[0]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            ShapeNode::Connector(c) if c.nv.id == id => Some((**c).clone()),
+            _ => None,
+        })
+        .expect("connector")
+}
+
+#[test]
+fn connectors_attach_to_sites_and_follow_shapes() {
+    use bo_engine::slide_edit::connect::cxn_ref;
+    let mut e = open("slide-shapes-presets.pptx");
+    let a = run(
+        &mut e,
+        r#"{"cmd":"insertShape","preset":"rect","rect":{"x":100,"y":300,"w":100,"h":60}}"#,
+    )
+    .selection[0]
+        .id;
+    let b = run(
+        &mut e,
+        r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":400,"y":300,"w":100,"h":60}}"#,
+    )
+    .selection[0]
+        .id;
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{a},{b}]}}"#));
+    let r = run(&mut e, r#"{"cmd":"insertConnector"}"#);
+    let cid = r.selection[0].id;
+    let conn = r.connector.expect("connector state");
+    assert_eq!(conn.attached, [true, true]);
+    // Right edge of the rectangle to the left of the ellipse.
+    assert!((conn.ends[0][0] - 200.0).abs() < 0.01 && (conn.ends[0][1] - 330.0).abs() < 0.01);
+    assert!((conn.ends[1][0] - 400.0).abs() < 0.01, "{conn:?}");
+    assert!(r.sites.len() > 4);
+    let c = connector_of(&e, cid);
+    assert_eq!(cxn_ref(&c, 0).map(|r| r.0), Some(a));
+    assert_eq!(cxn_ref(&c, 1).map(|r| r.0), Some(b));
+    // Moving the ellipse down re-routes the connector (flipped box when going up).
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{b}]}}"#));
+    run(
+        &mut e,
+        r#"{"cmd":"transform","transform":{"kind":"move","dx":0,"dy":-100},"snap":false}"#,
+    );
+    let r = run(&mut e, &format!(r#"{{"cmd":"select","ids":[{cid}]}}"#));
+    let conn = r.connector.unwrap();
+    assert!((conn.ends[1][1] - 230.0).abs() < 0.01, "{conn:?}");
+    assert!((conn.ends[0][1] - 330.0).abs() < 0.01, "{conn:?}");
+    assert_eq!(connector_of(&e, cid).props.xfrm.unwrap().flip_v, Some(true));
+    // Dragging the end away detaches it; dropping it near a site attaches it again.
+    let r = run(
+        &mut e,
+        r#"{"cmd":"connectorEnd","end":1,"x":600,"y":100,"merge":true}"#,
+    );
+    assert_eq!(r.connector.unwrap().attached, [true, false]);
+    let r = run(
+        &mut e,
+        r#"{"cmd":"connectorEnd","end":1,"x":452,"y":202,"merge":true}"#,
+    );
+    let conn = r.connector.unwrap();
+    assert_eq!(conn.attached, [true, true]);
+    assert!((conn.ends[1][0] - 450.0).abs() < 0.01 && (conn.ends[1][1] - 200.0).abs() < 0.01);
+    // Saved and reopened, the connection survives.
+    let bytes = e.save_pptx().unwrap();
+    let p = bo_pptx::read_pptx(&bytes).unwrap();
+    let c = p.slides[0]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            ShapeNode::Connector(c) if c.nv.id == cid => Some(c.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(cxn_ref(&c, 0).map(|r| r.0), Some(a));
+    assert_eq!(cxn_ref(&c, 1).map(|r| r.0), Some(b));
 }

@@ -115,6 +115,27 @@ const SCRIPTS: &[Script] = &[
             r#"{"cmd":"paste"}"#,
         ],
     },
+    // Adjust handles and connectors attached to connection sites, re-routed
+    // when a shape moves; marquee selection.
+    Script {
+        base: "slide-shapes-presets.pptx",
+        name: "slide-edit-connectors.pptx",
+        commands: &[
+            r#"{"cmd":"addSlide"}"#,
+            r#"{"cmd":"insertShape","preset":"roundRect","rect":{"x":60,"y":400,"w":160,"h":90}}"#,
+            r#"{"cmd":"adjust","index":0,"x":100,"y":400}"#,
+            r#"{"cmd":"insertShape","preset":"rightArrow","rect":{"x":300,"y":400,"w":160,"h":90}}"#,
+            r#"{"cmd":"adjust","index":1,"x":380,"y":400}"#,
+            r#"{"cmd":"insertShape","preset":"rect","rect":{"x":80,"y":250,"w":120,"h":60}}"#,
+            r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":500,"y":250,"w":140,"h":70}}"#,
+            r#"{"cmd":"selectRect","rect":{"x":70,"y":240,"w":580,"h":90}}"#,
+            r#"{"cmd":"insertConnector"}"#,
+            r#"{"cmd":"click","x":570,"y":285}"#,
+            r#"{"cmd":"transform","transform":{"kind":"move","dx":40,"dy":90},"snap":false}"#,
+            r#"{"cmd":"selectRect","rect":{"x":50,"y":390,"w":420,"h":110}}"#,
+            r#"{"cmd":"insertConnector","preset":"bentConnector3"}"#,
+        ],
+    },
     // Slides: duplicate, reorder, delete, notes and a picture.
     Script {
         base: "slide-notes-basic.pptx",

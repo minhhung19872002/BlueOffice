@@ -508,6 +508,16 @@ export type SlideCommand =
   | { cmd: 'textHit'; x: number; y: number; extend?: boolean }
   | { cmd: 'textExit' | 'copy' | 'cut' | 'paste' }
   | { cmd: 'copySlides' | 'cutSlides'; indices?: number[] }
+  | { cmd: 'adjust'; index: number; x: number; y: number; merge?: boolean }
+  | {
+      cmd: 'connectorEnd';
+      end: 0 | 1;
+      x: number;
+      y: number;
+      merge?: boolean;
+      tolerance?: number;
+    }
+  | { cmd: 'insertConnector'; preset?: string }
   | { cmd: 'setFill'; color: string | null }
   | { cmd: 'setLine'; color: string | null; width?: number }
   | { cmd: 'addSlide'; after?: number; layout?: number }
@@ -547,6 +557,16 @@ export interface SlideEditResult {
   collab?: { change: CollabChange; shape?: string };
   /** Text editing inside a shape. */
   textEdit?: SlideTextEdit;
+  /** Adjust handles of the selected preset shape (§20.1.9.5 avLst). */
+  adjust: { index: number; x: number; y: number }[];
+  /** The selected connector: ends and whether each is attached to a shape. */
+  connector?: {
+    id: number;
+    ends: [[number, number], [number, number]];
+    attached: [boolean, boolean];
+  };
+  /** Connection sites of the other shapes while a connector is selected. */
+  sites?: [number, number][];
   /** What the internal clipboard holds. */
   clip?: 'shapes' | 'slides';
   /** After copy / cut: content for the system clipboard (`png` in base64). */

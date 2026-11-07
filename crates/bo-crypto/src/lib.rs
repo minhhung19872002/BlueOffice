@@ -252,7 +252,13 @@ mod tests {
     fn key_derivation_known_answers() {
         use primitives::{fit, utf16le};
         let salt: Vec<u8> = (0u8..16).collect();
-        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        let hex = |b: &[u8]| {
+            use std::fmt::Write as _;
+            b.iter().fold(String::new(), |mut s, x| {
+                let _ = write!(s, "{x:02x}");
+                s
+            })
+        };
         // Standard: SHA-1, 50 000 spins, block 0, AES-128
         assert_eq!(
             hex(&standard::derive_key("Password1234_", &salt, 128)),

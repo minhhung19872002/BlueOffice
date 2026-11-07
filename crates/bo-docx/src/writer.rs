@@ -582,7 +582,20 @@ impl Writer<'_> {
             if row.props.header {
                 trpr.push("<w:tblHeader/>".into());
             }
-            trpr.extend(row.props.unknown.iter().map(|r| r.xml.to_string()));
+            let (changes, others): (Vec<&Raw>, Vec<&Raw>) = row
+                .props
+                .unknown
+                .iter()
+                .partition(|r| raw_local_name(&r.xml) == "trPrChange");
+            trpr.extend(others.iter().map(|r| r.xml.to_string()));
+            // CT_TrPr: §17.13.5.19 ins, §17.13.5.12 del, then trPrChange.
+            if let Some(m) = &row.props.ins {
+                trpr.push(format!("<w:ins{}/>", rev_attrs(&m.info)));
+            }
+            if let Some(m) = &row.props.del {
+                trpr.push(format!("<w:del{}/>", rev_attrs(&m.info)));
+            }
+            trpr.extend(changes.iter().map(|r| r.xml.to_string()));
             if !trpr.is_empty() {
                 let _ = write!(s, "<w:trPr>{}</w:trPr>", trpr.concat());
             }
@@ -596,46 +609,7 @@ impl Writer<'_> {
     }
 
     fn cell(&mut self, c: &Cell) -> String {
-        let mut items: Vec<(String, String)> = Vec::new();
-        if let Some(w) = c.props.width {
-            items.push(("tcW".into(), width_xml("tcW", w)));
-        }
-        if c.props.grid_span > 1 {
-            items.push((
-                "gridSpan".into(),
-                format!("<w:gridSpan w:val=\"{}\"/>", c.props.grid_span),
-            ));
-        }
-        if let Some(v) = c.props.v_merge {
-            items.push((
-                "vMerge".into(),
-                match v {
-                    VMerge::Restart => "<w:vMerge w:val=\"restart\"/>".into(),
-                    VMerge::Continue => "<w:vMerge/>".into(),
-                },
-            ));
-        }
-        if let Some(b) = &c.props.borders {
-            items.push(("tcBorders".into(), borders_xml("tcBorders", b, false)));
-        }
-        if let Some(col) = c.props.shading {
-            items.push((
-                "shd".into(),
-                format!(
-                    "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{}\"/>",
-                    col.to_hex()
-                ),
-            ));
-        }
-        if let Some(v) = c.props.v_align {
-            let v = match v {
-                CellVAlign::Top => "top",
-                CellVAlign::Center => "center",
-                CellVAlign::Bottom => "bottom",
-            };
-            items.push(("vAlign".into(), format!("<w:vAlign w:val=\"{v}\"/>")));
-        }
-        items.extend(raw_items(&c.props.unknown));
+        let items = tcpr_items(&c.props);
         let tcpr = ordered(TCPR_ORDER, items);
         let mut content = self.blocks(&c.blocks);
         // §17.4.66: a cell must end with a paragraph.
@@ -695,66 +669,25 @@ impl Writer<'_> {
                 "<w:{el} xmlns:r=\"{R_NS}\" w:type=\"{kind}\" r:id=\"{id}\"/>"
             );
         }
-        // §17.11.11 footnotePr, §17.11.4 endnotePr (CT_FtnProps / CT_EdnProps order:
-        // pos, numFmt, numStart, numRestart).
-        for (tag, np) in [
-            ("footnotePr", &sec.footnote_pr),
-            ("endnotePr", &sec.endnote_pr),
-        ] {
-            if np.is_empty() {
-                continue;
-            }
-            let _ = write!(s, "<w:{tag}>");
-            if let Some(p) = np.pos {
-                let _ = write!(s, "<w:pos w:val=\"{}\"/>", p.as_str());
-            }
-            if let Some(f) = &np.fmt {
-                let _ = write!(s, "<w:numFmt w:val=\"{}\"/>", escape(f.as_str()));
-            }
-            if let Some(n) = np.start {
-                let _ = write!(s, "<w:numStart w:val=\"{n}\"/>");
-            }
-            if let Some(r) = np.restart {
-                let _ = write!(s, "<w:numRestart w:val=\"{}\"/>", r.as_str());
-            }
-            let _ = write!(s, "</w:{tag}>");
-        }
-        let bt = match sec.break_type {
-            SectionBreak::NextPage => None,
-            SectionBreak::Continuous => Some("continuous"),
-            SectionBreak::EvenPage => Some("evenPage"),
-            SectionBreak::OddPage => Some("oddPage"),
-            SectionBreak::NextColumn => Some("nextColumn"),
-        };
-        if let Some(t) = bt {
-            let _ = write!(s, "<w:type w:val=\"{t}\"/>");
-        }
-        let p = &sec.page;
-        let orient = if p.is_landscape() {
-            " w:orient=\"landscape\""
-        } else {
-            ""
-        };
-        let _ = write!(
-            s,
-            "<w:pgSz w:w=\"{}\" w:h=\"{}\"{orient}/><w:pgMar w:top=\"{}\" w:right=\"{}\" w:bottom=\"{}\" w:left=\"{}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"0\"/>",
-            p.width.0, p.height.0, p.margin_top.0, p.margin_right.0, p.margin_bottom.0, p.margin_left.0, p.header.0, p.footer.0
-        );
-        if let Some(st) = sec.page_number_start {
-            let _ = write!(s, "<w:pgNumType w:start=\"{st}\"/>");
-        }
-        // §17.6.4 cols: @num defaults to 1, @space to 720.
-        if sec.columns.count > 1 {
+        s.push_str(&sect_props_xml(sec));
+        // §17.13.5.32 sectPrChange: the previous section properties (no references).
+        if let Some(ch) = &sec.change {
+            let old = Section {
+                page: ch.page,
+                columns: ch.columns,
+                title_page: ch.title_page,
+                break_type: ch.break_type,
+                page_number_start: ch.page_number_start,
+                footnote_pr: sec.footnote_pr.clone(),
+                endnote_pr: sec.endnote_pr.clone(),
+                ..Section::default()
+            };
             let _ = write!(
                 s,
-                "<w:cols w:num=\"{}\" w:space=\"{}\"/>",
-                sec.columns.count, sec.columns.space.0
+                "<w:sectPrChange{}><w:sectPr>{}</w:sectPr></w:sectPrChange>",
+                rev_attrs(&ch.info),
+                sect_props_xml(&old)
             );
-        } else if sec.columns.space.0 != 720 {
-            let _ = write!(s, "<w:cols w:space=\"{}\"/>", sec.columns.space.0);
-        }
-        if sec.title_page {
-            s.push_str("<w:titlePg/>");
         }
         s.push_str("</w:sectPr>");
         Ok(s)
@@ -1384,6 +1317,129 @@ fn ordered(order: &[&str], mut items: Vec<(String, String)>) -> String {
     items.into_iter().map(|(_, x)| x).collect()
 }
 
+/// `CT_SectPrBase` children after the header/footer references (§17.6.17: footnotePr …
+/// titlePg), in schema order.
+fn sect_props_xml(sec: &Section) -> String {
+    let mut s = String::new();
+    // §17.11.11 footnotePr, §17.11.4 endnotePr (CT_FtnProps / CT_EdnProps order:
+    // pos, numFmt, numStart, numRestart).
+    for (tag, np) in [
+        ("footnotePr", &sec.footnote_pr),
+        ("endnotePr", &sec.endnote_pr),
+    ] {
+        if np.is_empty() {
+            continue;
+        }
+        let _ = write!(s, "<w:{tag}>");
+        if let Some(p) = np.pos {
+            let _ = write!(s, "<w:pos w:val=\"{}\"/>", p.as_str());
+        }
+        if let Some(f) = &np.fmt {
+            let _ = write!(s, "<w:numFmt w:val=\"{}\"/>", escape(f.as_str()));
+        }
+        if let Some(n) = np.start {
+            let _ = write!(s, "<w:numStart w:val=\"{n}\"/>");
+        }
+        if let Some(r) = np.restart {
+            let _ = write!(s, "<w:numRestart w:val=\"{}\"/>", r.as_str());
+        }
+        let _ = write!(s, "</w:{tag}>");
+    }
+    let bt = match sec.break_type {
+        SectionBreak::NextPage => None,
+        SectionBreak::Continuous => Some("continuous"),
+        SectionBreak::EvenPage => Some("evenPage"),
+        SectionBreak::OddPage => Some("oddPage"),
+        SectionBreak::NextColumn => Some("nextColumn"),
+    };
+    if let Some(t) = bt {
+        let _ = write!(s, "<w:type w:val=\"{t}\"/>");
+    }
+    let p = &sec.page;
+    let orient = if p.is_landscape() {
+        " w:orient=\"landscape\""
+    } else {
+        ""
+    };
+    let _ = write!(
+            s,
+            "<w:pgSz w:w=\"{}\" w:h=\"{}\"{orient}/><w:pgMar w:top=\"{}\" w:right=\"{}\" w:bottom=\"{}\" w:left=\"{}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"0\"/>",
+            p.width.0, p.height.0, p.margin_top.0, p.margin_right.0, p.margin_bottom.0, p.margin_left.0, p.header.0, p.footer.0
+        );
+    if let Some(st) = sec.page_number_start {
+        let _ = write!(s, "<w:pgNumType w:start=\"{st}\"/>");
+    }
+    // §17.6.4 cols: @num defaults to 1, @space to 720.
+    if sec.columns.count > 1 {
+        let _ = write!(
+            s,
+            "<w:cols w:num=\"{}\" w:space=\"{}\"/>",
+            sec.columns.count, sec.columns.space.0
+        );
+    } else if sec.columns.space.0 != 720 {
+        let _ = write!(s, "<w:cols w:space=\"{}\"/>", sec.columns.space.0);
+    }
+    if sec.title_page {
+        s.push_str("<w:titlePg/>");
+    }
+    s
+}
+
+/// Children of a §17.4.70 tcPr (with §17.13.5.36 tcPrChange), unordered.
+fn tcpr_items(p: &bo_model::CellProps) -> Vec<(String, String)> {
+    let mut items: Vec<(String, String)> = Vec::new();
+    if let Some(w) = p.width {
+        items.push(("tcW".into(), width_xml("tcW", w)));
+    }
+    if p.grid_span > 1 {
+        items.push((
+            "gridSpan".into(),
+            format!("<w:gridSpan w:val=\"{}\"/>", p.grid_span),
+        ));
+    }
+    if let Some(v) = p.v_merge {
+        items.push((
+            "vMerge".into(),
+            match v {
+                VMerge::Restart => "<w:vMerge w:val=\"restart\"/>".into(),
+                VMerge::Continue => "<w:vMerge/>".into(),
+            },
+        ));
+    }
+    if let Some(b) = &p.borders {
+        items.push(("tcBorders".into(), borders_xml("tcBorders", b, false)));
+    }
+    if let Some(col) = p.shading {
+        items.push((
+            "shd".into(),
+            format!(
+                "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{}\"/>",
+                col.to_hex()
+            ),
+        ));
+    }
+    if let Some(v) = p.v_align {
+        let v = match v {
+            CellVAlign::Top => "top",
+            CellVAlign::Center => "center",
+            CellVAlign::Bottom => "bottom",
+        };
+        items.push(("vAlign".into(), format!("<w:vAlign w:val=\"{v}\"/>")));
+    }
+    items.extend(raw_items(&p.unknown));
+    if let Some(ch) = &p.change {
+        let old = ordered(TCPR_ORDER, tcpr_items(&ch.old));
+        items.push((
+            "tcPrChange".into(),
+            format!(
+                "<w:tcPrChange{}><w:tcPr>{old}</w:tcPr></w:tcPrChange>",
+                rev_attrs(&ch.info)
+            ),
+        ));
+    }
+    items
+}
+
 /// `w:id`, `w:author`, `w:date` of a tracked change (§17.13.5 `CT_TrackChange`).
 fn rev_attrs(info: &RevisionInfo) -> String {
     let mut s = format!(
@@ -1739,6 +1795,17 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
 
 fn tblpr_children(t: &TableProps) -> Vec<(String, String)> {
     let mut v: Vec<(String, String)> = Vec::new();
+    // §17.13.5.34 tblPrChange: the previous table properties.
+    if let Some(ch) = &t.change {
+        v.push((
+            "tblPrChange".into(),
+            format!(
+                "<w:tblPrChange{}><w:tblPr>{}</w:tblPr></w:tblPrChange>",
+                rev_attrs(&ch.info),
+                ordered(TBLPR_ORDER, tblpr_children(&ch.old))
+            ),
+        ));
+    }
     if let Some(s) = &t.style {
         v.push((
             "tblStyle".into(),

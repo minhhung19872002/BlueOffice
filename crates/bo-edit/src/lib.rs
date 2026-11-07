@@ -349,6 +349,64 @@ pub struct Clip {
     pub internal: String,
 }
 
+/// Media parts used by pictures of the body.
+fn media_in_body(doc: &Document) -> std::collections::BTreeSet<String> {
+    fn walk(blocks: &[Block], out: &mut std::collections::BTreeSet<String>) {
+        for b in blocks {
+            match b {
+                Block::Paragraph(p) => {
+                    for r in &p.runs {
+                        for c in &r.content {
+                            if let RunContent::Image(img) = c {
+                                out.insert(img.media.clone());
+                            }
+                        }
+                    }
+                }
+                Block::Table(t) => {
+                    for row in &t.rows {
+                        for c in &row.cells {
+                            walk(&c.blocks, out);
+                        }
+                    }
+                }
+                Block::Opaque(_) => {}
+            }
+        }
+    }
+    let mut out = std::collections::BTreeSet::new();
+    for s in &doc.sections {
+        walk(&s.blocks, &mut out);
+    }
+    out
+}
+
+/// A picture of the body, a header/footer or a note shows media part `name`.
+fn doc_uses_media(doc: &Document, name: &str) -> bool {
+    media_in_body(doc).contains(name)
+        || doc.sections.iter().any(|s| {
+            [&s.headers, &s.footers].iter().any(|h| {
+                [&h.default, &h.first, &h.even]
+                    .iter()
+                    .any(|b| b.as_ref().is_some_and(|b| blocks_use_media(b, name)))
+            })
+        })
+        || doc
+            .footnotes
+            .values()
+            .chain(doc.endnotes.values())
+            .any(|b| blocks_use_media(b, name))
+}
+
+/// `blocks` show a picture of media part `name`.
+fn blocks_use_media(blocks: &[Block], name: &str) -> bool {
+    let doc = Document {
+        sections: vec![bo_model::Section::new(blocks.to_vec())],
+        ..Document::default()
+    };
+    media_in_body(&doc).contains(name)
+}
+
 /// Internal clipboard content with the footnotes/endnotes its blocks reference.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct ClipBlocks {
@@ -473,8 +531,33 @@ impl Tx<'_> {
         Ok(())
     }
 
-    /// Remove the notes whose last reference this transaction removed.
+    /// Remove the notes whose last reference this transaction removed and, in
+    /// track-changes mode, the media of pictures the author inserted and removed again
+    /// (their insertion is undone, so the part goes too).
     fn drop_orphan_notes(&mut self) -> Result<()> {
+        if self.track.is_some() {
+            let mut gone = std::collections::BTreeSet::new();
+            for op in &self.ops {
+                if let Op::Blocks { remove, .. } = op {
+                    let d = Document {
+                        sections: vec![bo_model::Section::new(remove.clone())],
+                        ..Document::default()
+                    };
+                    gone.extend(media_in_body(&d));
+                }
+            }
+            for name in gone {
+                if !doc_uses_media(self.doc, &name) {
+                    if let Some(data) = self.doc.media.get(&name).cloned() {
+                        self.push(Op::Media {
+                            name,
+                            old: Some(data),
+                            new: None,
+                        })?;
+                    }
+                }
+            }
+        }
         let mut removed = Vec::new();
         for op in &self.ops {
             if let Op::Blocks { remove, .. } = op {
@@ -966,9 +1049,32 @@ impl Session {
         let filter = |id: i32| set.as_ref().is_none_or(|s| s.contains(&id));
         let caret = self.selection.ordered().0;
         self.edit(|tx, _| {
+            let before = media_in_body(tx.doc);
             for si in 0..tx.doc.sections.len() {
                 let new = revisions::resolve_blocks(&tx.doc.sections[si].blocks, &filter, accept);
                 tx.set_section_blocks(si, &new)?;
+                if let Some(sec) = revisions::resolve_section(&tx.doc.sections[si], &filter, accept)
+                {
+                    let old = tx.doc.sections[si].clone();
+                    tx.push(Op::Sections {
+                        index: si,
+                        remove: vec![old],
+                        insert: vec![sec],
+                    })?;
+                }
+            }
+            // Pictures removed by resolving (rejected insertions) take their media part along.
+            let after = media_in_body(tx.doc);
+            for name in before.difference(&after) {
+                if !doc_uses_media(tx.doc, name) {
+                    if let Some(data) = tx.doc.media.get(name).cloned() {
+                        tx.push(Op::Media {
+                            name: name.clone(),
+                            old: Some(data),
+                            new: None,
+                        })?;
+                    }
+                }
             }
             Ok(Selection::caret(caret))
         })?;
@@ -2169,7 +2275,15 @@ impl Session {
             let width = tx.doc.sections.get(section).map_or(Twips(9355), |s| {
                 Twips(s.page.width.0 - s.page.margin_left.0 - s.page.margin_right.0)
             });
-            let table = Block::Table(Table::simple(rows, cols, width));
+            let mut table = Table::simple(rows, cols, width);
+            if let Some(tr) = tx.track.as_mut() {
+                // §17.13.5.19: a tracked new table is a set of inserted rows.
+                let m = tr.mark();
+                for r in &mut table.rows {
+                    r.props.ins = Some(m.clone());
+                }
+            }
+            let table = Block::Table(table);
             let len = para::len(&atoms);
             let (prefix, index) = split_path(&path);
             let insert_at = if at.offset == 0 {
@@ -2712,3 +2826,5 @@ impl Session {
 mod feature_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod track_tests;

@@ -407,6 +407,12 @@ impl Session {
                 let old = tx.doc.sections.get(si).cloned().ok_or(EditError::BadPath)?;
                 let mut new = old.clone();
                 spec.apply(&mut new.page, &mut new.columns);
+                if new != old && new.change.is_none() {
+                    // §17.13.5.32 sectPrChange: the page setup before the tracked change.
+                    if let Some(tr) = tx.track.as_mut() {
+                        new.change = Some(Box::new(old.change_snapshot(tr.mark().info)));
+                    }
+                }
                 if new != old {
                     tx.push(Op::Sections {
                         index: si,
@@ -434,6 +440,11 @@ impl Session {
                 if old.title_page != t {
                     let mut new = old.clone();
                     new.title_page = t;
+                    if new.change.is_none() {
+                        if let Some(tr) = tx.track.as_mut() {
+                            new.change = Some(Box::new(old.change_snapshot(tr.mark().info)));
+                        }
+                    }
                     tx.push(Op::Sections {
                         index: si,
                         remove: vec![old],

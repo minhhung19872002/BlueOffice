@@ -258,6 +258,55 @@ fn footnote_options_and_copy_paste() {
 }
 
 #[test]
+fn tracked_table_and_page_setup_saved_and_rejected() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertTable","rows":2,"cols":2}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"A"}"#);
+    let original = reopen(&e);
+    let mut e = reopen(&e);
+    cmd(&mut e, r#"{"cmd":"setTrackChanges","on":true}"#);
+    cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":80}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"tableEdit","edit":{"kind":"insertRow","below":true}}"#,
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"tableEdit","edit":{"kind":"shading","hex":"FFEE00"}}"#,
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"tableEdit","edit":{"kind":"properties","widthPct":80,"align":"Center"}}"#,
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"setPageSetup","setup":{"width":16838,"height":11906,"marginTop":1134,"marginBottom":1134,"marginLeft":1134,"marginRight":1134,"header":567,"footer":567},"scope":"section"}"#,
+    );
+    // Saved as trPr/ins, tcPrChange, tblPrChange and sectPrChange, read back.
+    let mut f = reopen(&e);
+    let r = cmd(&mut f, r#"{"cmd":"review"}"#);
+    let kinds: Vec<String> = r["review"]["revisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["kind"].as_str().unwrap().to_owned())
+        .collect();
+    for k in ["rowInsert", "cellFormat", "tableFormat", "sectionFormat"] {
+        assert!(kinds.iter().any(|x| x == k), "{k} in {kinds:?}");
+    }
+    cmd(&mut f, r#"{"cmd":"rejectAllRevisions"}"#);
+    let (a, b) = (doc(&f), doc(&original));
+    assert_eq!(a.sections[0].page, b.sections[0].page);
+    assert!(a.sections[0].change.is_none());
+    let (Block::Table(x), Block::Table(y)) = (&a.sections[0].blocks[0], &b.sections[0].blocks[0])
+    else {
+        panic!("tables");
+    };
+    assert_eq!((&x.props, &x.rows), (&y.props, &y.rows));
+}
+
+#[test]
 fn header_link_to_previous_per_section() {
     let mut e = Engine::with_bundled_fonts();
     e.new_document("a.docx").unwrap();

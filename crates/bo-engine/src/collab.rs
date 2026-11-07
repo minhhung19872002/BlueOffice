@@ -557,6 +557,7 @@ fn section_props(s: &Section) -> Section {
         page_number_start: s.page_number_start,
         footnote_pr: s.footnote_pr.clone(),
         endnote_pr: s.endnote_pr.clone(),
+        change: s.change.clone(),
         src: None,
     }
 }

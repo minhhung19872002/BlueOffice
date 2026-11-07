@@ -352,7 +352,12 @@ export type RevisionKind =
   | 'format'
   | 'paragraphFormat'
   | 'paragraphInsert'
-  | 'paragraphDelete';
+  | 'paragraphDelete'
+  | 'rowInsert'
+  | 'rowDelete'
+  | 'cellFormat'
+  | 'tableFormat'
+  | 'sectionFormat';
 
 /** A tracked change of the main text (mirrors `bo_edit::RevisionItem`). */
 export interface RevisionItem {

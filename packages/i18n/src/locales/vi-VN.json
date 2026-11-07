@@ -857,7 +857,12 @@
       "format": "Định dạng",
       "paragraphFormat": "Định dạng đoạn",
       "paragraphInsert": "Thêm đoạn",
-      "paragraphDelete": "Nối đoạn"
+      "paragraphDelete": "Nối đoạn",
+      "rowInsert": "Thêm hàng",
+      "rowDelete": "Xoá hàng",
+      "cellFormat": "Định dạng ô",
+      "tableFormat": "Định dạng bảng",
+      "sectionFormat": "Đổi thiết lập trang"
     }
   },
   "comments": {

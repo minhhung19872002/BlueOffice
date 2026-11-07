@@ -9,8 +9,9 @@
 use crate::{id_of, EditError, Op, Pos, Result, Selection, Session, TableState};
 use bo_model::index::{blocks_at, body_paragraphs};
 use bo_model::{
-    Alignment, Block, Border, Borders, Cell, Color, Document, ParaProps, Paragraph, Row, RowProps,
-    Table, TableWidth, Twips, VMerge,
+    Alignment, Block, Border, Borders, Cell, CellProps, CellPropsChange, Color, Document,
+    ParaProps, Paragraph, RevisionInfo, Row, RowProps, Table, TableProps, TablePropsChange,
+    TableWidth, Twips, VMerge,
 };
 use serde::{Deserialize, Serialize};
 
@@ -165,6 +166,36 @@ fn is_empty_cell(c: &Cell) -> bool {
     })
 }
 
+/// Record tracked property changes of `t` against `old` (same rows and cells):
+/// §17.13.5.34 tblPrChange and §17.13.5.36 tcPrChange keep the properties before the
+/// first tracked change.
+fn record_prop_changes(old: &Table, t: &mut Table, info: &RevisionInfo) {
+    let bare_t = |p: &TableProps| TableProps {
+        change: None,
+        ..p.clone()
+    };
+    if t.props.change.is_none() && bare_t(&t.props) != bare_t(&old.props) {
+        t.props.change = Some(Box::new(TablePropsChange {
+            info: info.clone(),
+            old: bare_t(&old.props),
+        }));
+    }
+    let bare_c = |p: &CellProps| CellProps {
+        change: None,
+        ..p.clone()
+    };
+    for (ro, rn) in old.rows.iter().zip(&mut t.rows) {
+        for (co, cn) in ro.cells.iter().zip(&mut rn.cells) {
+            if cn.props.change.is_none() && bare_c(&cn.props) != bare_c(&co.props) {
+                cn.props.change = Some(Box::new(CellPropsChange {
+                    info: info.clone(),
+                    old: bare_c(&co.props),
+                }));
+            }
+        }
+    }
+}
+
 /// Ensure the grid covers every row (malformed files can have short grids).
 fn normalize_grid(t: &mut Table) {
     let cols = t
@@ -250,8 +281,26 @@ impl Session {
             .cloned()
             .ok_or(EditError::BadPath)?;
         let ((r0, r1), (g0, g1)) = self.cell_rect(&at, &old);
+        // Track changes: deleted rows are marked, not removed (§17.13.5.12 del in trPr).
+        if self.track {
+            match cmd {
+                TableEdit::DeleteRow => return self.track_delete_rows(&at, old, r0, r1),
+                TableEdit::DeleteTable => {
+                    let n = old.rows.len().saturating_sub(1);
+                    return self.track_delete_rows(&at, old, 0, n);
+                }
+                _ => {}
+            }
+        }
         let mut t = old.clone();
         normalize_grid(&mut t);
+        let base = t.clone();
+        // Row inserted by this edit (tracked as an insertion, §17.13.5.19).
+        let mut new_row: Option<usize> = None;
+        let tracks_props = matches!(
+            cmd,
+            TableEdit::Shading { .. } | TableEdit::Borders { .. } | TableEdit::Properties { .. }
+        );
         // Caret target after the edit: (row, cell) or None = the block replacing the table.
         let mut caret: Option<(usize, usize)> = Some((at.row, at.cell));
         let mut remove_table = false;
@@ -291,6 +340,7 @@ impl Session {
                 };
                 let ins = if *below { src_i + 1 } else { src_i };
                 t.rows.insert(ins, row);
+                new_row = Some(ins);
                 caret = Some((ins, at.cell.min(t.rows[ins].cells.len() - 1)));
             }
             TableEdit::InsertColumn { right } => {
@@ -484,6 +534,14 @@ impl Session {
                     .ok_or(EditError::BadPath)?;
                 return Ok(Selection::caret(Pos::new(id, 0)));
             }
+            let mut t = t;
+            if let Some(tr) = tx.track.as_mut() {
+                if let Some(i) = new_row {
+                    t.rows[i].props.ins = Some(tr.mark());
+                } else if tracks_props {
+                    record_prop_changes(&base, &mut t, &tr.mark().info);
+                }
+            }
             tx.push(Op::Blocks {
                 path: container.clone(),
                 index,
@@ -497,6 +555,62 @@ impl Session {
             path.extend([index, r, c, 0]);
             Ok(id_of(tx.doc, &path).map_or(sel, |id| Selection::caret(Pos::new(id, 0))))
         })
+    }
+
+    /// Mark rows `r0..=r1` as deleted (§17.13.5.12); rows the author inserted are removed.
+    fn track_delete_rows(
+        &mut self,
+        at: &CellAt,
+        old: Table,
+        r0: usize,
+        r1: usize,
+    ) -> Result<Selection> {
+        let container = at.container.clone();
+        let index = at.index;
+        let author = self.author.clone();
+        self.edit(move |tx, sel| {
+            let mark = tx
+                .track
+                .as_mut()
+                .map(crate::revisions::Tracker::mark)
+                .ok_or(EditError::BadPath)?;
+            let mut t = old.clone();
+            let mut keep = Vec::with_capacity(t.rows.len());
+            for (i, mut row) in std::mem::take(&mut t.rows).into_iter().enumerate() {
+                if (r0..=r1).contains(&i) && row.props.del.is_none() {
+                    let own = row
+                        .props
+                        .ins
+                        .as_ref()
+                        .is_some_and(|m| m.info.author == author);
+                    if own {
+                        continue;
+                    }
+                    row.props.del = Some(mark.clone());
+                }
+                keep.push(row);
+            }
+            t.rows = keep;
+            let insert = if t.rows.is_empty() {
+                let blocks = blocks_at(tx.doc, &container).ok_or(EditError::BadPath)?;
+                if index + 1 >= blocks.len() {
+                    vec![Block::Paragraph(Paragraph::default())]
+                } else {
+                    Vec::new()
+                }
+            } else {
+                vec![Block::Table(t)]
+            };
+            tx.push(Op::Blocks {
+                path: container.clone(),
+                index,
+                remove: vec![Block::Table(old)],
+                insert,
+            })?;
+            Ok(sel)
+        })?;
+        self.fix_selection();
+        Ok(self.selection)
     }
 
     /// Tab in a table: select the next (or previous) cell's text; Tab in the last cell

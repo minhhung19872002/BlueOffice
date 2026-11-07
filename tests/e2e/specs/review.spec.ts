@@ -61,6 +61,46 @@ test('track changes: record edits, reject all, accept all', async ({ page }) => 
   expect(errors).toEqual([]);
 });
 
+test('track changes: tracked table row insert, kept after reopen, rejected', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await newDocument(page);
+  await page.getByRole('tab', { name: 'Chèn' }).click();
+  await cmd(page, 'insert.table').click();
+  await page.keyboard.insertText('A');
+  await page.getByRole('tab', { name: 'Xem lại' }).click();
+  await cmd(page, 'review.trackChanges').click();
+  await expect(cmd(page, 'review.trackChanges')).toHaveAttribute('aria-pressed', 'true');
+  // Insert a row below the first one (§17.13.5.19 ins in trPr).
+  const box = (await page.locator('.bo-page[data-page="1"]').boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.08);
+  await page.getByRole('tab', { name: 'Bảng' }).click();
+  await cmd(page, 'table.insertRowBelow').click();
+  await page.keyboard.insertText('Mới');
+  await page.getByRole('tab', { name: 'Xem lại' }).click();
+  await cmd(page, 'review.pane').click();
+  await expect(page.getByTestId('review-pane')).toBeVisible();
+  await expect(page.getByTestId('revision').filter({ hasText: 'Thêm hàng' })).toHaveCount(1);
+  await expect(page.getByTestId('status-words')).toHaveText('2 từ');
+  // Saved as w:trPr/w:ins and read back.
+  const download = page.waitForEvent('download');
+  await page.keyboard.press('Control+s');
+  const path = await (await download).path();
+  await page.reload();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Mở tệp từ máy' }).click();
+  await (await chooser).setFiles(path);
+  await expect(page.locator('.bo-page[data-page="1"]')).toHaveAttribute('data-rendered', 'true');
+  await page.getByRole('tab', { name: 'Xem lại' }).click();
+  await cmd(page, 'review.pane').click();
+  await expect(page.getByTestId('revision').filter({ hasText: 'Thêm hàng' })).toHaveCount(1);
+  // Reject all: the inserted row (and its text) is gone.
+  await cmd(page, 'review.rejectAll').click();
+  await expect(page.getByTestId('revision-count')).toHaveText('0 thay đổi');
+  await expect(page.getByTestId('status-words')).toHaveText('1 từ');
+  expect(errors).toEqual([]);
+});
+
 test('comments: add, reply, resolve and delete', async ({ page }) => {
   await newDocument(page);
   await page.keyboard.insertText('Điều 1. Phạm vi điều chỉnh');

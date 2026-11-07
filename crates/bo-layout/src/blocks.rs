@@ -180,9 +180,10 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
         });
     }
     for o in &rl.objects {
+        let y = rl.baseline - o.h;
         items.push(PageItem::Image {
             x: o.x,
-            y: rl.baseline - o.h,
+            y,
             w: o.w,
             h: o.h,
             media: o.image.media.clone(),
@@ -190,6 +191,29 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
             rotation: rotation_of(&o.image),
             layer: Layer::Front,
         });
+        // A tracked picture is framed in its author's colour, a deleted one crossed out.
+        if let Some((color, deleted)) = o.revision {
+            let (x0, y0, x1, y1) = (o.x, y, o.x + o.w, rl.baseline);
+            let mut seg = |a: f32, b: f32, c: f32, d: f32| {
+                items.push(PageItem::Rule {
+                    x1: a,
+                    y1: b,
+                    x2: c,
+                    y2: d,
+                    width: 1.5,
+                    color,
+                    style: "single".into(),
+                });
+            };
+            seg(x0, y0, x1, y0);
+            seg(x0, y1, x1, y1);
+            seg(x0, y0, x0, y1);
+            seg(x1, y0, x1, y1);
+            if deleted {
+                seg(x0, y0, x1, y1);
+                seg(x0, y1, x1, y0);
+            }
+        }
     }
     Band {
         h: rl.height,
@@ -514,6 +538,12 @@ pub(crate) struct RowBox {
     pub cells: Vec<CellBox>,
     pub header: bool,
     pub cant_split: bool,
+    /// Tracked row insertion/deletion in markup (§17.13.5.19, §17.13.5.12): (author
+    /// colour, deleted).
+    pub revision: Option<(Color, bool)>,
+    /// Colour of a change bar for tracked cell/table property changes (§17.13.5.36,
+    /// §17.13.5.34).
+    pub changed: Option<Color>,
 }
 
 /// A laid-out table.
@@ -753,11 +783,42 @@ pub(crate) fn layout_table(
             Some((v, HeightRule::AtLeast)) => h = h.max(v.to_pt()),
             None => {}
         }
+        // Tracked rows (§17.13.5.19 ins / §17.13.5.12 del in trPr): hidden in the final
+        // / original views (their paragraphs keep their ids), tinted in markup.
+        let hidden = match ctx.view {
+            RevisionView::Markup => false,
+            RevisionView::Final => row.props.del.is_some(),
+            RevisionView::Original => row.props.ins.is_some(),
+        };
+        if hidden {
+            for c in &mut cells {
+                c.content.clear();
+                c.content_h = 0.0;
+                c.shading = None;
+                c.edges = [None, None, None, None];
+            }
+            h = 0.0;
+        }
+        let markup = ctx.view == RevisionView::Markup;
+        let revision = match (&row.props.del, &row.props.ins) {
+            (Some(m), _) if markup => Some((crate::style::author_color(&m.info.author), true)),
+            (None, Some(m)) if markup => Some((crate::style::author_color(&m.info.author), false)),
+            _ => None,
+        };
+        let changed = row
+            .cells
+            .iter()
+            .find_map(|c| c.props.change.as_ref().map(|ch| &ch.info))
+            .or(t.props.change.as_ref().map(|ch| &ch.info))
+            .filter(|_| markup)
+            .map(|i| crate::style::author_color(&i.author));
         rows.push(RowBox {
-            h: h.max(1.0),
+            h: if hidden { 0.0 } else { h.max(1.0) },
             cells,
             header: row.props.header,
             cant_split: row.props.cant_split,
+            revision,
+            changed,
         });
     }
     for (ri, span, need) in tall {
@@ -782,6 +843,48 @@ pub(crate) fn row_band(
     force_bottom: bool,
 ) -> Band {
     let mut band = Band::empty(h);
+    if let (Some(first), Some(last)) = (row.cells.first(), row.cells.last()) {
+        let (rx0, rx1) = (table_x + first.x, table_x + last.x + last.w);
+        if let Some((color, deleted)) = row.revision {
+            // Light tint of the author's colour behind the row; deleted rows struck out.
+            let tint = |c: u8| (f32::from(c) * 0.2 + 255.0 * 0.8) as u8;
+            band.items.push(PageItem::Rect {
+                x: rx0,
+                y: 0.0,
+                w: rx1 - rx0,
+                h,
+                color: Color {
+                    r: tint(color.r),
+                    g: tint(color.g),
+                    b: tint(color.b),
+                },
+                layer: Layer::Back,
+            });
+            if deleted {
+                band.items.push(PageItem::Rule {
+                    x1: rx0,
+                    y1: h / 2.0,
+                    x2: rx1,
+                    y2: h / 2.0,
+                    width: 1.0,
+                    color,
+                    style: "single".into(),
+                });
+            }
+        }
+        if let Some(color) = row.changed.or(row.revision.map(|r| r.0)) {
+            // Change bar left of the table.
+            band.items.push(PageItem::Rule {
+                x1: rx0 - 6.0,
+                y1: 0.0,
+                x2: rx0 - 6.0,
+                y2: h,
+                width: 1.5,
+                color,
+                style: "single".into(),
+            });
+        }
+    }
     for c in &row.cells {
         let x0 = table_x + c.x;
         let x1 = x0 + c.w;

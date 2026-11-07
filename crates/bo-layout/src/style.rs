@@ -30,6 +30,8 @@ pub struct RunStyle {
     pub spacing: f32,
     pub hidden: bool,
     pub link: Option<String>,
+    /// Tracked insertion/deletion shown in markup: (author colour, deleted).
+    pub revision: Option<(Color, bool)>,
 }
 
 /// Effective paragraph properties of `p`.
@@ -113,6 +115,7 @@ pub fn run_style(fonts: &mut FontManager, rp: &RunProps) -> Option<RunStyle> {
         spacing: rp.spacing.map_or(0.0, bo_model::Twips::to_pt),
         hidden: rp.hidden.unwrap_or(false),
         link: rp.link.clone(),
+        revision: None,
     })
 }
 
@@ -175,7 +178,9 @@ pub fn revision_style(mut st: RunStyle, rp: &RunProps, view: crate::RevisionView
             if let Some(d) = &rp.del {
                 st.strike = true;
                 st.color = author_color(&d.info.author);
+                st.revision = Some((st.color, true));
             } else if let Some(i) = &rp.ins {
+                st.revision = Some((author_color(&i.info.author), false));
                 st.underline = if i.moved {
                     Underline::Double
                 } else {

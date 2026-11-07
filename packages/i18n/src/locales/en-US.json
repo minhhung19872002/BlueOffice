@@ -857,7 +857,12 @@
       "format": "Formatted",
       "paragraphFormat": "Paragraph formatted",
       "paragraphInsert": "Paragraph inserted",
-      "paragraphDelete": "Paragraphs joined"
+      "paragraphDelete": "Paragraphs joined",
+      "rowInsert": "Row inserted",
+      "rowDelete": "Row deleted",
+      "cellFormat": "Cell formatted",
+      "tableFormat": "Table formatted",
+      "sectionFormat": "Page setup changed"
     }
   },
   "comments": {

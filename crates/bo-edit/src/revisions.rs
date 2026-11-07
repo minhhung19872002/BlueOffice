@@ -8,7 +8,9 @@
 use crate::para::{self, Atom};
 use crate::Pos;
 use bo_model::index::body_paragraphs;
-use bo_model::{Block, Document, ParaProps, Paragraph, RevMark, RevisionInfo, RunProps};
+use bo_model::{
+    Block, Document, ParaProps, Paragraph, RevMark, RevisionInfo, RunProps, Section, Table,
+};
 use serde::Serialize;
 
 /// Kind of a listed revision.
@@ -31,6 +33,16 @@ pub enum RevKind {
     ParagraphInsert,
     /// §17.13.5.15 del on the paragraph mark
     ParagraphDelete,
+    /// §17.13.5.19 ins in trPr (inserted table row)
+    RowInsert,
+    /// §17.13.5.12 del in trPr (deleted table row)
+    RowDelete,
+    /// §17.13.5.36 tcPrChange
+    CellFormat,
+    /// §17.13.5.34 tblPrChange
+    TableFormat,
+    /// §17.13.5.32 sectPrChange (page setup)
+    SectionFormat,
 }
 
 /// One revision of the main text, for the review pane.
@@ -62,7 +74,7 @@ pub fn list(doc: &Document) -> Vec<RevisionItem> {
     if !doc
         .sections
         .iter()
-        .any(|s| blocks_have_revisions(&s.blocks))
+        .any(|s| s.change.is_some() || blocks_have_revisions(&s.blocks))
     {
         return out;
     }
@@ -138,7 +150,74 @@ pub fn list(doc: &Document) -> Vec<RevisionItem> {
             }
         }
     }
+    // Rows, cell/table properties and page setup, positioned on their paragraphs.
+    let mut next = 0usize;
+    let mut last_len = 0usize;
+    let mut structural = Vec::new();
+    for s in &doc.sections {
+        let first = next;
+        walk_structure(&s.blocks, &mut next, &mut last_len, &mut structural);
+        if let Some(ch) = &s.change {
+            let end = Pos::new(next.saturating_sub(1).max(first), last_len);
+            structural.push((
+                RevKind::SectionFormat,
+                ch.info.clone(),
+                Pos::new(first, 0),
+                end,
+            ));
+        }
+    }
+    for (k, info, s, e) in structural {
+        add(k, &info, s, e, "");
+    }
+    out.sort_by_key(|i| i.start);
     out
+}
+
+type Structural = (RevKind, RevisionInfo, Pos, Pos);
+
+/// Table revisions of `blocks` in document order; `next` counts body paragraphs (ids as
+/// in `bo_model::index::body_paragraphs`), `last_len` is the length of the last one.
+fn walk_structure(
+    blocks: &[Block],
+    next: &mut usize,
+    last_len: &mut usize,
+    out: &mut Vec<Structural>,
+) {
+    for b in blocks {
+        match b {
+            Block::Paragraph(p) => {
+                *next += 1;
+                *last_len = para::len(&para::flatten(p));
+            }
+            Block::Table(t) => {
+                let t0 = *next;
+                for row in &t.rows {
+                    let r0 = *next;
+                    for c in &row.cells {
+                        let c0 = *next;
+                        walk_structure(&c.blocks, next, last_len, out);
+                        if let Some(ch) = &c.props.change {
+                            let end = Pos::new(next.saturating_sub(1).max(c0), *last_len);
+                            out.push((RevKind::CellFormat, ch.info.clone(), Pos::new(c0, 0), end));
+                        }
+                    }
+                    let end = Pos::new(next.saturating_sub(1).max(r0), *last_len);
+                    if let Some(m) = &row.props.ins {
+                        out.push((RevKind::RowInsert, m.info.clone(), Pos::new(r0, 0), end));
+                    }
+                    if let Some(m) = &row.props.del {
+                        out.push((RevKind::RowDelete, m.info.clone(), Pos::new(r0, 0), end));
+                    }
+                }
+                if let Some(ch) = &t.props.change {
+                    let end = Pos::new(next.saturating_sub(1).max(t0), *last_len);
+                    out.push((RevKind::TableFormat, ch.info.clone(), Pos::new(t0, 0), end));
+                }
+            }
+            Block::Opaque(_) => {}
+        }
+    }
 }
 
 /// Cheap pre-check for [`list`]: any revision mark on a paragraph or run of `blocks`.
@@ -152,10 +231,16 @@ fn blocks_have_revisions(blocks: &[Block]) -> bool {
                     r.props.ins.is_some() || r.props.del.is_some() || r.props.change.is_some()
                 })
         }
-        Block::Table(t) => t
-            .rows
-            .iter()
-            .any(|r| r.cells.iter().any(|c| blocks_have_revisions(&c.blocks))),
+        Block::Table(t) => {
+            t.props.change.is_some()
+                || t.rows.iter().any(|r| {
+                    r.props.ins.is_some()
+                        || r.props.del.is_some()
+                        || r.cells
+                            .iter()
+                            .any(|c| c.props.change.is_some() || blocks_have_revisions(&c.blocks))
+                })
+        }
         Block::Opaque(_) => false,
     })
 }
@@ -182,8 +267,17 @@ pub fn max_id(doc: &Document) -> i32 {
                     }
                 }
                 Block::Table(t) => {
+                    if let Some(c) = &t.props.change {
+                        *m = (*m).max(c.info.id);
+                    }
                     for row in &t.rows {
+                        for x in [&row.props.ins, &row.props.del].into_iter().flatten() {
+                            *m = (*m).max(x.info.id);
+                        }
                         for c in &row.cells {
+                            if let Some(ch) = &c.props.change {
+                                *m = (*m).max(ch.info.id);
+                            }
                             blocks(&c.blocks, m);
                         }
                     }
@@ -194,6 +288,9 @@ pub fn max_id(doc: &Document) -> i32 {
     }
     let mut m = 0;
     for s in &doc.sections {
+        if let Some(c) = &s.change {
+            m = m.max(c.info.id);
+        }
         blocks(&s.blocks, &mut m);
     }
     m
@@ -227,18 +324,70 @@ pub(crate) fn resolve_blocks(blocks: &[Block], f: Filter<'_>, accept: bool) -> V
                 }
             }
             Block::Table(t) => {
-                let mut t2 = t.clone();
-                for row in &mut t2.rows {
-                    for c in &mut row.cells {
-                        c.blocks = resolve_blocks(&c.blocks, f, accept);
-                    }
+                if let Some(t2) = resolve_table(t, f, accept) {
+                    out.push(Block::Table(t2));
+                } else if carry.is_none() && i + 1 >= blocks.len() && out.is_empty() {
+                    // A container never ends up empty.
+                    out.push(Block::Paragraph(Paragraph::default()));
                 }
-                out.push(Block::Table(t2));
             }
             Block::Opaque(_) => out.push(b.clone()),
         }
     }
     out
+}
+
+/// Resolve the revisions of a table: rows inserted/deleted (§17.13.5.19, §17.13.5.12),
+/// cell and table property changes (§17.13.5.36, §17.13.5.34) and its content.
+/// `None` when no row remains.
+fn resolve_table(t: &Table, f: Filter<'_>, accept: bool) -> Option<Table> {
+    let hit = |m: &Option<RevMark>| m.as_ref().is_some_and(|m| f(m.info.id));
+    let mut t2 = t.clone();
+    if let Some(c) = t2.props.change.take() {
+        if !f(c.info.id) {
+            t2.props.change = Some(c);
+        } else if !accept {
+            t2.props = c.old;
+        }
+    }
+    t2.rows.retain(|row| {
+        let gone = (hit(&row.props.del) && accept) || (hit(&row.props.ins) && !accept);
+        !gone
+    });
+    for row in &mut t2.rows {
+        if hit(&row.props.del) {
+            row.props.del = None;
+        }
+        if hit(&row.props.ins) {
+            row.props.ins = None;
+        }
+        for c in &mut row.cells {
+            if let Some(ch) = c.props.change.take() {
+                if !f(ch.info.id) {
+                    c.props.change = Some(ch);
+                } else if !accept {
+                    c.props = ch.old;
+                }
+            }
+            c.blocks = resolve_blocks(&c.blocks, f, accept);
+        }
+    }
+    (!t2.rows.is_empty()).then_some(t2)
+}
+
+/// Resolve the page setup change of a section (§17.13.5.32 sectPrChange).
+pub(crate) fn resolve_section(s: &Section, f: Filter<'_>, accept: bool) -> Option<Section> {
+    let ch = s.change.as_ref().filter(|c| f(c.info.id))?;
+    let mut n = s.clone();
+    n.change = None;
+    if !accept {
+        n.page = ch.page;
+        n.columns = ch.columns;
+        n.title_page = ch.title_page;
+        n.break_type = ch.break_type;
+        n.page_number_start = ch.page_number_start;
+    }
+    Some(n)
 }
 
 /// Resolve one paragraph; returns it and whether its mark must be removed.

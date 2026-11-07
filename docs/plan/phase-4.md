@@ -40,10 +40,11 @@ Phần này: model, đọc/ghi `.pptx`, render, engine, CLI, corpus, **chỉnh s
 | Clipboard | `slide_edit/clip.rs` | `copy`/`cut`/`paste` hình (giữ nguyên model + part ảnh; id hình và rId mới; dán cùng slide lệch 12 pt; khác deck mang part ảnh theo); PNG + text ra clipboard hệ thống qua `Platform.clipboard.writeItems` (đánh dấu để dán lại bản nội bộ); dán ảnh/text từ chương trình khác thành ảnh/hộp văn bản; `copySlides`/`cutSlides`/`paste` slide trong panel slide |
 | Chọn | `slide_edit/mod.rs` | `selectRect` (khung kéo), Ctrl+A, `selectNext` (Tab/Shift+Tab) |
 | Adjust handle | `bo_drawingml::handles` (`handles.dsl` sinh từ phụ lục ECMA-376 ahLst/cxnLst), `slide_edit/connect.rs` | điểm vàng theo ahXY/ahPolar, kéo → giá trị avLst trong min/max (một bước undo mỗi lần kéo) |
-| Connector | `slide_edit/connect.rs` | `insertConnector` nối điểm nối gần nhất của hai hình (`stCxn`/`endCxn`), tự đi lại đường khi hình nối thay đổi; kéo đầu connector để gắn/tháo khỏi điểm nối |
-| Bảng | `slide_edit/table.rs` | chọn ô (click, Shift/kéo), sửa chữ ô, thêm/xoá hàng/cột, gộp/tách ô, màu nền ô, tuỳ chọn hàng tiêu đề/hàng xen kẽ; tab ribbon "Bảng"; bảng mới dùng style dựng sẵn ghi vào `tableStyles.xml` |
+| Connector | `slide_edit/connect.rs` | `insertConnector` nối điểm nối gần nhất của hai hình (`stCxn`/`endCxn`), tự đi lại đường khi hình nối thay đổi — giữ `rot`, lật theo hướng đường mới, tính lại adjust của connector gấp khúc/cong (bentConnector3–5, curvedConnector3–5: chỗ gấp giữ vị trí trên slide, một chỗ gấp nằm giữa hai đầu), cả connector lồng trong nhóm (qua frame của nhóm); kéo đầu connector (cấp nào cũng được) để gắn/tháo khỏi điểm nối |
+| Bảng | `slide_edit/table.rs`, `bo_pptx::table_cell_text_geometry` | chọn ô (click, Shift/kéo), bấm đúp ô để sửa chữ **trên canvas** như hình (caret/vùng chọn từ layout ô của renderer, IME, định dạng một phần chữ, `cellTextHit`/`cellNext`/`setText`+`textSelect` với `cell`), Tab/Shift+Tab sang ô sau/trước (chọn chữ của ô), thêm/xoá hàng/cột, gộp/tách ô, màu nền ô, tuỳ chọn hàng tiêu đề/hàng xen kẽ; tab ribbon "Bảng"; bảng mới dùng style dựng sẵn ghi vào `tableStyles.xml` |
+| Dán slide sang deck khác | `slide_edit/clip.rs` (`SlideSource`), `paste_slides_from` | slide sao chép mang theo layout/master/theme và part của deck nguồn; khi dán: layout cùng tên, nếu không thì layout có kiểu placeholder phủ đủ placeholder của slide gần nhất, nếu không thì nhập layout + master + theme của nguồn (một bước undo); ảnh/media chép với tên part mới, quan hệ hợp lệ; ghi chú gắn với notes master của deck đích |
 | Ungroup | `slide_edit/geom.rs` | frame theo dõi số lần lật; bỏ nhóm group bị lật chuyển phép lật xuống hình con, không xê dịch |
-| Hiệu ứng | `bo-render` (`PushOpacity`/`PopOpacity`, `BlurPath`), `bo-raster`, `bo-pdf`, `canvas-host` | bóng có blur, ảnh `alphaModFix` |
+| Hiệu ứng | `bo-render` (`PushOpacity`/`PopOpacity`, `BlurPath` + `spread`), `bo-raster` (`blur_mask`), `bo-pdf`, `canvas-host` | bóng có blur (PDF: blur thật — mặt nạ mềm `SMask` rasterise), glow §20.1.8.32 (đường viền nở `rad/2` rồi làm mờ, raster/PDF/canvas), ảnh `alphaModFix` |
 | Màn hình khán giả | `packages/slide-editor/src/audience.ts`, `AudienceView.tsx`, `Platform.channel` | "Mở màn hình khán giả": cửa sổ thứ hai (desktop `open_window`, web `window.open`) chỉ hiện slide, đồng bộ qua BroadcastChannel / sự kiện Tauri: slide hiện tại, màn hình đen, kết thúc |
 
 ## Kiểm thử
@@ -55,14 +56,15 @@ Phần này: model, đọc/ghi `.pptx`, render, engine, CLI, corpus, **chỉnh s
 - Corpus sửa qua API: `slide-edit-arrange/-text/-slides.pptx` (sinh bởi `bo-cli sample-slides`, `slide_edits.rs`); 28/28 deck qua OpenXmlValidator vào và ra (`node scripts/fidelity-report.mjs`), round-trip 100 %.
 - `packages/slide-editor/test`: controller gộp preview, overlay chọn/handle, sửa text với composition, ribbon Sắp xếp/Chèn, ghi chú, kéo thả thumbnail.
 - `crates/bo-engine/tests/slide_rich.rs`: định dạng một phần chữ, đoạn/mức/giãn dòng, gõ gộp undo + spAutoFit, normAutofit, clipboard hình (cùng slide, slide khác, deck khác) và slide, marquee/Tab, adjust handle, connector (gắn, đi lại đường, tháo/gắn lại, lưu), bảng, ungroup giữ lật, blur + alphaModFix qua PNG/PDF. Unit test `bo_drawingml::handles`, `bo_pptx::table_style`, `slide_edit::table`, `bo-raster` blur/opacity, `canvas-host`.
-- Corpus sửa qua API thêm: `slide-edit-rich/-clipboard/-connectors/-tables.pptx`.
-- E2E `tests/e2e/specs/slide-rich.spec.ts`: đậm một phần chữ, copy/paste hình, sửa ô bảng, lưu và mở lại.
+- Corpus sửa qua API thêm: `slide-edit-rich/-clipboard/-connectors/-tables.pptx`, `slide-edit-connectors-rotated.pptx` (connector gấp khúc xoay 90° + connector trong nhóm), `slide-edit-paste-other-deck.pptx`; deck mẫu `slide-shapes-glow.pptx`.
+- `slide_rich.rs` thêm: sửa chữ ô bảng trên canvas + đậm một phần + Tab, connector xoay giữ `rot` khi đi lại đường, connector trong nhóm, dán slide sang deck khác (layout khớp / nhập layout+master+theme, quan hệ hợp lệ, undo), glow + blur PDF (`/SMask`).
+- E2E `tests/e2e/specs/slide-rich.spec.ts`: đậm một phần chữ, copy/paste hình, sửa ô bảng trên canvas + đậm một phần chữ trong ô + Tab, dán slide từ deck khác, lưu và mở lại.
 - E2E `tests/e2e/specs/slide-editing.spec.ts` (`E2E_PORT=4502`): mở deck corpus, kéo hình, sửa text tiếng Việt, lưu, mở lại và kiểm vị trí + text; chèn hình, smart guide, thêm slide, ghi chú.
 
 ## Hạn chế đã biết
 
-- Chưa 3D, glow/soft edge/reflection; hiệu ứng ảnh khác `alphaModFix` (duotone, độ sáng…) chưa vẽ. PDF không có blur thật (viền mờ xấp xỉ).
+- Chưa 3D, soft edge/reflection/innerShdw; hiệu ứng ảnh khác `alphaModFix` (duotone, độ sáng…) chưa vẽ. Blur/glow trong PDF là ảnh mặt nạ 2 px/pt (không vector).
 - Chart: chỉ dùng cache, không nhãn dữ liệu, không trục phụ; scatter/radar/stock vẽ khung trống.
 - Animation: chỉ main sequence; hiệu ứng khác/emphasis/motion path đọc là `Other` (giữ nguyên XML khi không sửa).
 - Pattern fill dạng chấm/phần trăm vẽ màu trộn.
-- Sửa slide: connector đi lại đường bỏ `rot` (connector gấp khúc xoay 90° trở thành ngang trước); chỉ connector cấp cao nhất; sửa chữ trong ô bảng dùng ô nhập riêng (chưa có caret trên canvas như hình); định dạng một phần chữ trong ô bảng chưa có; dán slide sang deck khác bị từ chối (bố cục khác deck); không cho nhóm placeholder.
+- Sửa slide: connector trong nhóm bị lật (mirror) đi lại đường theo phép lật của chính nó (chưa tính lật của nhóm); dán slide sang deck khác không đổi cỡ theo khổ slide đích, quan hệ slide→slide (siêu liên kết nội bộ) và part con của chart không được chép; không cho nhóm placeholder.

@@ -7,10 +7,20 @@
 //! * `body` — `Y.Text` of a BlueDoc document: paragraphs separated by `\n`,
 //!   run formatting as text attributes, paragraph properties as attributes
 //!   on the paragraph's `\n` (the same model as rich-text Yjs bindings);
+//!   offsets count UTF-16 code units, like Yjs in the browser;
 //! * `cells` — `Y.Map` of BlueSheet cell inputs keyed `"<sheet>!<A1>"`
 //!   (last-writer-wins per cell);
 //! * `shapes` — `Y.Map` of BlueSlide objects keyed `"<slide>/<shape>"`
-//!   holding the object's properties as a JSON string.
+//!   holding the object's properties as a JSON string;
+//! * `slides` — `Y.Map` of BlueSlide slide properties and order keyed by
+//!   slide id (JSON strings);
+//! * `blobs` — `Y.Map` of binary parts added during the session (pictures)
+//!   as JSON strings `{"ct","b64"}`.
+//!
+//! Editor bindings exchange [`Change`] envelopes with the replica: local
+//! edits go in through [`Session::apply_local`]; everything else that changes
+//! the shared state — remote updates, undo/redo — is collected and handed out
+//! by [`Session::take_remote`] (body changes as Quill-style deltas).
 //!
 //! Local edits are tagged with the [`LOCAL_ORIGIN`] so the collaborative
 //! [`UndoManager`] only undoes the current user's changes. Every mutating call
@@ -20,22 +30,24 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value};
-use std::collections::{BTreeMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use yrs::sync::{Awareness, DefaultProtocol, Message, Protocol, SyncMessage};
 use yrs::types::text::{Diff, YChange};
-use yrs::types::Attrs;
+use yrs::types::{Attrs, Delta};
 use yrs::undo::Options as UndoOptions;
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::{Encode, Encoder, EncoderV1};
 use yrs::{
-    Any, Doc, GetString, Map, MapRef, Origin, Out, ReadTxn, StateVector, Text, TextRef, Transact,
-    UndoManager,
+    Any, Doc, GetString, In, Map, MapRef, Observable, OffsetKind, Options, Origin, Out, ReadTxn,
+    StateVector, Subscription, Text, TextRef, Transact, UndoManager,
 };
 
 /// Transaction origin of edits made by this replica's user.
 pub const LOCAL_ORIGIN: &str = "bo-local";
+/// Transaction origin of the initial content published by the seeder (not undoable).
+pub const SEED_ORIGIN: &str = "bo-seed";
 
 /// Milliseconds clock shared by awareness timeouts and undo grouping. On
 /// native targets it follows the system clock; in the browser (where `std`
@@ -88,12 +100,50 @@ pub struct Presence {
     pub shape: Option<String>,
 }
 
-/// A run of the body text with its attributes (Quill-style delta op).
+/// A run of the body text with its attributes (Quill-style delta op);
+/// `insert` is a string, or an object for an embedded item.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeltaRun {
-    pub insert: String,
+    pub insert: Value,
     #[serde(default, skip_serializing_if = "JsonMap::is_empty")]
     pub attributes: JsonMap<String, Value>,
+}
+
+/// A change of the shared state, exchanged with editor bindings as JSON.
+///
+/// * `body` — deltas over the body `Y.Text`, applied in order; each op is
+///   `{"insert": text | embed, "attributes"?}`, `{"delete": n}` or
+///   `{"retain": n, "attributes"?}` (UTF-16 lengths, `null` attribute = remove);
+/// * `slides`, `shapes`, `blobs` — map entries (`null` = removed).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Change {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub body: Vec<Vec<Value>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub slides: BTreeMap<String, Option<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub shapes: BTreeMap<String, Option<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub blobs: BTreeMap<String, Option<String>>,
+}
+
+impl Change {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.body.iter().all(Vec::is_empty)
+            && self.slides.is_empty()
+            && self.shapes.is_empty()
+            && self.blobs.is_empty()
+    }
+}
+
+/// Changes observed but not yet handed to the editor.
+#[derive(Default)]
+struct Pending {
+    body: Vec<Vec<Value>>,
+    slides: BTreeSet<String>,
+    shapes: BTreeSet<String>,
+    blobs: BTreeSet<String>,
 }
 
 /// One collaborative editing session (one document, one replica).
@@ -102,9 +152,15 @@ pub struct Session {
     body: TextRef,
     cells: MapRef,
     shapes: MapRef,
+    slides: MapRef,
+    blobs: MapRef,
     undo: UndoManager,
     outbox: Vec<Vec<u8>>,
     clock: HostClock,
+    /// Set while this replica applies changes its editor already has.
+    quiet: Arc<AtomicBool>,
+    pending: Arc<Mutex<Pending>>,
+    _subs: Vec<Subscription>,
 }
 
 fn json_to_any(v: &Value) -> Any {
@@ -139,6 +195,89 @@ fn attrs(map: &JsonMap<String, Value>) -> Attrs {
         .collect()
 }
 
+fn attrs_to_json(a: &Attrs) -> JsonMap<String, Value> {
+    a.iter()
+        .map(|(k, v)| (k.to_string(), any_to_json(v)))
+        .collect()
+}
+
+/// JSON delta op from a Yrs text delta.
+fn delta_to_json(d: &Delta) -> Value {
+    let mut o = JsonMap::new();
+    let attributes = match d {
+        Delta::Inserted(v, a) => {
+            let insert = match v {
+                Out::Any(Any::String(s)) => Value::String(s.to_string()),
+                Out::Any(other) => any_to_json(other),
+                // Shared types inside the body are not produced by BlueOffice;
+                // they still occupy one position.
+                _ => Value::Object(JsonMap::new()),
+            };
+            o.insert("insert".into(), insert);
+            a.as_deref()
+        }
+        Delta::Deleted(n) => {
+            o.insert("delete".into(), Value::from(*n));
+            None
+        }
+        Delta::Retain(n, a) => {
+            o.insert("retain".into(), Value::from(*n));
+            a.as_deref()
+        }
+    };
+    if let Some(a) = attributes.filter(|a| !a.is_empty()) {
+        o.insert("attributes".into(), Value::Object(attrs_to_json(a)));
+    }
+    Value::Object(o)
+}
+
+fn op_len(o: &JsonMap<String, Value>, key: &str) -> Result<u32> {
+    o.get(key)
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .ok_or_else(|| CollabError::Invalid(format!("delta {key}")))
+}
+
+/// Yrs delta from JSON ops.
+fn json_to_delta(ops: &[Value]) -> Result<Vec<Delta<In>>> {
+    let mut out = Vec::with_capacity(ops.len());
+    for op in ops {
+        let o = op
+            .as_object()
+            .ok_or_else(|| CollabError::Invalid("delta op".into()))?;
+        let a = o
+            .get("attributes")
+            .and_then(Value::as_object)
+            .filter(|a| !a.is_empty())
+            .map(|a| Box::new(attrs(a)));
+        if let Some(v) = o.get("insert") {
+            let content = match v {
+                Value::String(s) if !s.is_empty() => Any::String(s.as_str().into()),
+                Value::Object(_) => json_to_any(v),
+                _ => return Err(CollabError::Invalid("delta insert".into())),
+            };
+            out.push(Delta::Inserted(In::Any(content), a));
+        } else if o.contains_key("delete") {
+            out.push(Delta::Deleted(op_len(o, "delete")?));
+        } else if o.contains_key("retain") {
+            out.push(Delta::Retain(op_len(o, "retain")?, a));
+        } else {
+            return Err(CollabError::Invalid("delta op".into()));
+        }
+    }
+    Ok(out)
+}
+
+/// Total length (UTF-16) a delta expects the text to have at least.
+fn delta_span(ops: &[Delta<In>]) -> u64 {
+    ops.iter()
+        .map(|d| match d {
+            Delta::Retain(n, _) | Delta::Deleted(n) => u64::from(*n),
+            Delta::Inserted(..) => 0,
+        })
+        .sum()
+}
+
 fn encode(msg: &Message) -> Vec<u8> {
     let mut enc = EncoderV1::new();
     msg.encode(&mut enc);
@@ -152,23 +291,80 @@ fn cell_key(sheet: &str, cell: &str) -> Result<String> {
     Ok(format!("{sheet}!{cell}"))
 }
 
+fn map_entry(map: &MapRef, txn: &impl ReadTxn, key: &str) -> Option<String> {
+    match map.get(txn, key) {
+        Some(Out::Any(Any::String(s))) => Some(s.to_string()),
+        _ => None,
+    }
+}
+
+fn map_all(map: &MapRef, txn: &impl ReadTxn) -> BTreeMap<String, Option<String>> {
+    map.iter(txn)
+        .filter_map(|(k, v)| match v {
+            Out::Any(Any::String(s)) => Some((k.to_owned(), Some(s.to_string()))),
+            _ => None,
+        })
+        .collect()
+}
+
 impl Session {
     /// New empty replica with a random client id.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_doc(Doc::new())
+        Self::with_options(Options::default())
     }
 
     /// New replica with a fixed client id (tests, deterministic replays).
     #[must_use]
     pub fn with_client_id(id: u64) -> Self {
-        Self::with_doc(Doc::with_client_id(id))
+        Self::with_options(Options::with_client_id(id))
+    }
+
+    fn with_options(mut options: Options) -> Self {
+        // Offsets and lengths count UTF-16 code units, like Yjs in the browser.
+        options.offset_kind = OffsetKind::Utf16;
+        Self::with_doc(Doc::with_options(options))
     }
 
     fn with_doc(doc: Doc) -> Self {
         let body = doc.get_or_insert_text("body");
         let cells = doc.get_or_insert_map("cells");
         let shapes = doc.get_or_insert_map("shapes");
+        let slides = doc.get_or_insert_map("slides");
+        let blobs = doc.get_or_insert_map("blobs");
+        let quiet = Arc::new(AtomicBool::new(false));
+        let pending = Arc::new(Mutex::new(Pending::default()));
+        let mut subs = Vec::new();
+        {
+            let (q, p) = (quiet.clone(), pending.clone());
+            subs.push(body.observe(move |txn, e| {
+                if q.load(Ordering::SeqCst) {
+                    return;
+                }
+                let ops: Vec<Value> = e.delta(txn).iter().map(delta_to_json).collect();
+                if !ops.is_empty() {
+                    p.lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .body
+                        .push(ops);
+                }
+            }));
+        }
+        for (map, which) in [(&slides, 0u8), (&shapes, 1), (&blobs, 2)] {
+            let (q, p) = (quiet.clone(), pending.clone());
+            subs.push(map.observe(move |txn, e| {
+                if q.load(Ordering::SeqCst) {
+                    return;
+                }
+                let mut p = p.lock().unwrap_or_else(PoisonError::into_inner);
+                let set = match which {
+                    0 => &mut p.slides,
+                    1 => &mut p.shapes,
+                    _ => &mut p.blobs,
+                };
+                set.extend(e.keys(txn).keys().map(ToString::to_string));
+            }));
+        }
         let clock = HostClock::default();
         let mut tracked = HashSet::new();
         tracked.insert(Origin::from(LOCAL_ORIGIN));
@@ -186,14 +382,20 @@ impl Session {
         );
         undo.expand_scope(&cells);
         undo.expand_scope(&shapes);
+        undo.expand_scope(&slides);
         Self {
             awareness: Awareness::with_clock(doc, clock.clone()),
             body,
             cells,
             shapes,
+            slides,
+            blobs,
             undo,
             outbox: Vec::new(),
             clock,
+            quiet,
+            pending,
+            _subs: subs,
         }
     }
 
@@ -251,11 +453,18 @@ impl Session {
     }
 
     fn edit<F: FnOnce(&mut yrs::TransactionMut<'_>)>(&mut self, f: F) {
+        self.edit_with(LOCAL_ORIGIN, f);
+    }
+
+    /// Runs a change the editor already has (not reported by [`Session::take_remote`]).
+    fn edit_with<F: FnOnce(&mut yrs::TransactionMut<'_>)>(&mut self, origin: &str, f: F) {
+        self.quiet.store(true, Ordering::SeqCst);
         let update = {
-            let mut txn = self.doc().transact_mut_with(LOCAL_ORIGIN);
+            let mut txn = self.doc().transact_mut_with(origin);
             f(&mut txn);
             txn.encode_update_v1()
         };
+        self.quiet.store(false, Ordering::SeqCst);
         self.queue_update(update);
     }
 
@@ -264,6 +473,129 @@ impl Session {
         if update.len() > 2 {
             self.outbox
                 .push(encode(&Message::Sync(SyncMessage::Update(update))));
+        }
+    }
+
+    // ------------------------------------------------------ editor bindings
+
+    fn apply_change(&mut self, origin: &str, change: &Change) -> Result<()> {
+        let deltas = change
+            .body
+            .iter()
+            .map(|d| json_to_delta(d))
+            .collect::<Result<Vec<_>>>()?;
+        // Each delta must fit the text it applies to (checked before anything changes).
+        let mut len = u64::from(self.body_len());
+        for d in &deltas {
+            if delta_span(d) > len {
+                return Err(CollabError::Invalid("delta longer than the body".into()));
+            }
+            let ins: u64 = d
+                .iter()
+                .map(|x| match x {
+                    Delta::Inserted(In::Any(Any::String(s)), _) => s.encode_utf16().count() as u64,
+                    Delta::Inserted(..) => 1,
+                    _ => 0,
+                })
+                .sum();
+            let del: u64 = d
+                .iter()
+                .map(|x| match x {
+                    Delta::Deleted(n) => u64::from(*n),
+                    _ => 0,
+                })
+                .sum();
+            len = len + ins - del;
+        }
+        let (body, slides, shapes, blobs) = (
+            self.body.clone(),
+            self.slides.clone(),
+            self.shapes.clone(),
+            self.blobs.clone(),
+        );
+        self.edit_with(origin, |txn| {
+            for d in deltas {
+                body.apply_delta(txn, d);
+            }
+            for (map, entries) in [
+                (&slides, &change.slides),
+                (&shapes, &change.shapes),
+                (&blobs, &change.blobs),
+            ] {
+                for (k, v) in entries {
+                    match v {
+                        Some(v) => {
+                            map.insert(txn, k.as_str(), v.as_str());
+                        }
+                        None => {
+                            map.remove(txn, k);
+                        }
+                    }
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// Applies a change made by this replica's editor (undoable by this user).
+    /// Body deltas are relative to the current body: the editor applies every
+    /// change from [`Session::take_remote`] before sending new ones.
+    pub fn apply_local(&mut self, change: &Change) -> Result<()> {
+        self.apply_change(LOCAL_ORIGIN, change)
+    }
+
+    /// Publishes the initial content (the seeder's file); not undoable.
+    pub fn seed(&mut self, change: &Change) -> Result<()> {
+        self.apply_change(SEED_ORIGIN, change)
+    }
+
+    /// Changes from other replicas and from undo/redo since the last call,
+    /// to apply to the editor's model in this order.
+    pub fn take_remote(&mut self) -> Change {
+        let p = std::mem::take(&mut *self.pending.lock().unwrap_or_else(PoisonError::into_inner));
+        let txn = self.doc().transact();
+        let read = |map: &MapRef, keys: BTreeSet<String>| -> BTreeMap<String, Option<String>> {
+            keys.into_iter()
+                .map(|k| {
+                    let v = map_entry(map, &txn, &k);
+                    (k, v)
+                })
+                .collect()
+        };
+        Change {
+            body: p.body,
+            slides: read(&self.slides, p.slides),
+            shapes: read(&self.shapes, p.shapes),
+            blobs: read(&self.blobs, p.blobs),
+        }
+    }
+
+    /// The whole shared state as one change from an empty document (late
+    /// joiners load it after the first sync); clears pending remote changes.
+    pub fn full_state(&mut self) -> Change {
+        *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = Pending::default();
+        let body: Vec<Value> = self
+            .body_delta()
+            .into_iter()
+            .map(|r| {
+                let mut o = JsonMap::new();
+                o.insert("insert".into(), r.insert);
+                if !r.attributes.is_empty() {
+                    o.insert("attributes".into(), Value::Object(r.attributes));
+                }
+                Value::Object(o)
+            })
+            .collect();
+        let txn = self.doc().transact();
+        Change {
+            body: if body.is_empty() {
+                Vec::new()
+            } else {
+                vec![body]
+            },
+            slides: map_all(&self.slides, &txn),
+            shapes: map_all(&self.shapes, &txn),
+            blobs: map_all(&self.blobs, &txn),
         }
     }
 
@@ -332,7 +664,7 @@ impl Session {
         self.body.get_string(&self.doc().transact())
     }
 
-    /// Body as a list of attributed runs.
+    /// Body as a list of attributed runs (embeds as objects).
     #[must_use]
     pub fn body_delta(&self) -> Vec<DeltaRun> {
         let txn = self.doc().transact();
@@ -341,17 +673,11 @@ impl Session {
             .into_iter()
             .filter_map(|d: Diff<YChange>| {
                 let insert = match d.insert {
-                    Out::Any(Any::String(s)) => s.to_string(),
+                    Out::Any(Any::String(s)) => Value::String(s.to_string()),
+                    Out::Any(other) => any_to_json(&other),
                     _ => return None,
                 };
-                let attributes = d
-                    .attributes
-                    .map(|a| {
-                        a.iter()
-                            .map(|(k, v)| (k.to_string(), any_to_json(v)))
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let attributes = d.attributes.map(|a| attrs_to_json(&a)).unwrap_or_default();
                 Some(DeltaRun { insert, attributes })
             })
             .collect()
@@ -431,6 +757,16 @@ impl Session {
             .collect()
     }
 
+    /// Slide properties keyed by slide id.
+    #[must_use]
+    pub fn slides(&self) -> BTreeMap<String, String> {
+        let txn = self.doc().transact();
+        map_all(&self.slides, &txn)
+            .into_iter()
+            .filter_map(|(k, v)| v.map(|v| (k, v)))
+            .collect()
+    }
+
     // ------------------------------------------------------- undo / redo
 
     fn undo_redo(&mut self, redo: bool) -> bool {
@@ -447,13 +783,24 @@ impl Session {
         done
     }
 
-    /// Undoes the last local change (remote changes are never undone).
+    /// Undoes the last local change (remote changes are never undone). The
+    /// resulting change is reported by [`Session::take_remote`].
     pub fn undo(&mut self) -> bool {
         self.undo_redo(false)
     }
 
     pub fn redo(&mut self) -> bool {
         self.undo_redo(true)
+    }
+
+    #[must_use]
+    pub fn can_undo(&self) -> bool {
+        self.undo.can_undo()
+    }
+
+    #[must_use]
+    pub fn can_redo(&self) -> bool {
+        self.undo.can_redo()
     }
 
     /// Closes the current undo group so the next edit starts a new one.

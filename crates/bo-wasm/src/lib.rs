@@ -191,6 +191,16 @@ impl WasmEngine {
         self.inner.collab_peers_json(json).map_err(err)
     }
 
+    /// The shared body text as the engine sees it (embeds as U+FFFC; diagnostics, tests).
+    #[wasm_bindgen(js_name = collabText)]
+    pub fn collab_text(&self) -> String {
+        self.inner
+            .collab_runs()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect()
+    }
+
     #[wasm_bindgen(js_name = collabStop)]
     pub fn collab_stop(&mut self) {
         self.inner.collab_stop();

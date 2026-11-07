@@ -344,6 +344,41 @@ export interface EditResult {
   targets?: RefTarget[];
   /** Mail-merge state (after merge commands and `state`). */
   merge?: MergeState;
+  /** While collaborating: the change to share and the selection as UTF-16 offsets. */
+  collab?: { change: CollabChange; selection: [number, number] };
+}
+
+// ---------------------------------------------------------------- live collaboration (bo_engine::collab)
+
+/** A change of the shared state (`bo_collab::Change`), exchanged as JSON with the replica. */
+export interface CollabChange {
+  /** Quill-style deltas over the body text, applied in order. */
+  body?: unknown[][];
+  slides?: Record<string, string | null>;
+  shapes?: Record<string, string | null>;
+  blobs?: Record<string, string | null>;
+}
+
+/** Geometry of a collaborator's caret / selection. */
+export interface PeerRects {
+  caret: CaretRect | null;
+  rects: SelRect[];
+}
+
+/** A collaborator shown in the document. */
+export interface PeerCursor extends PeerRects {
+  clientId: number;
+  name: string;
+  color: string;
+}
+
+/** A collaborator's selected slide object. */
+export interface SlidePeer {
+  clientId: number;
+  name: string;
+  color: string;
+  slide: number;
+  rect: SlideBox;
 }
 
 // ---------------------------------------------------------------- slide editing (mirrors bo_engine::slide_edit)
@@ -474,6 +509,8 @@ export interface SlideEditResult {
   preview?: SlidePreview;
   hits?: number[];
   error?: string;
+  /** While collaborating: the change to share and the selected object key. */
+  collab?: { change: CollabChange; shape?: string };
 }
 
 // ---------------------------------------------------------------- services
@@ -511,6 +548,27 @@ export interface EngineHost {
   slideCommand(cmd: SlideCommand): Promise<SlideEditResult>;
   /** Insert a PNG/JPEG picture on the current slide. */
   slideInsertPicture(bytes: Uint8Array, name: string): Promise<SlideEditResult>;
+  /**
+   * Live collaboration (`bo_engine::collab`): bind the open document to a session.
+   * `seed` = first editor of the room; returns the change to publish.
+   */
+  collabStart?(seed: boolean): Promise<CollabChange>;
+  /** Apply a change from the replica (JSON `CollabChange`). */
+  collabApply?(change: string): Promise<EditResult>;
+  /** Geometry of collaborators' selections (UTF-16 `[anchor, head]`). */
+  collabPeers?(selections: [number, number][]): Promise<PeerRects[]>;
+  collabStop?(): Promise<void>;
+  /** Bind the open presentation; `clientId` numbers slides created in the session. */
+  slideCollabStart?(seed: boolean, clientId: number): Promise<CollabChange>;
+  slideCollabApply?(change: string): Promise<SlideEditResult>;
+  /** Boxes of collaborators' selected objects (keys `slide/shape`). */
+  slideCollabPeers?(keys: string[]): Promise<({ slide: number; rect: SlideBox } | null)[]>;
+  /** Collaborators changed the document (set by collaboration wrappers). */
+  onExternalChange?(listener: (r: EditResult) => void): () => void;
+  onSlideExternalChange?(listener: (r: SlideEditResult) => void): () => void;
+  /** Collaborators' carets / selected objects changed. */
+  onPeers?(listener: (peers: PeerCursor[]) => void): () => void;
+  onSlidePeers?(listener: (peers: SlidePeer[]) => void): () => void;
   dispose(): void;
 }
 

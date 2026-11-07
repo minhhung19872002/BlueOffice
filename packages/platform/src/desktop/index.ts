@@ -13,6 +13,7 @@ import {
   LocalRecentFiles,
 } from '../shared';
 import type {
+  CollabChange,
   DocInfo,
   DocumentStorage,
   EditResult,
@@ -24,6 +25,8 @@ import type {
   HostFileLink,
   OpenedFile,
   PageDisplayList,
+  PeerRects,
+  SlideBox,
   TimedCommand,
   Platform,
   PrintService,
@@ -109,6 +112,35 @@ export class NativeEngineHost implements EngineHost {
   }
   async markSaved(): Promise<void> {
     await this.call<null>('engine_mark_saved');
+  }
+  async collabStart(seed: boolean): Promise<CollabChange> {
+    return JSON.parse(await this.call<string>('engine_collab_start', { seed })) as CollabChange;
+  }
+  async collabApply(change: string): Promise<EditResult> {
+    return JSON.parse(await this.call<string>('engine_collab_apply', { json: change })) as EditResult;
+  }
+  async collabPeers(selections: [number, number][]): Promise<PeerRects[]> {
+    return JSON.parse(
+      await this.call<string>('engine_collab_peers', { json: JSON.stringify(selections) }),
+    ) as PeerRects[];
+  }
+  async collabStop(): Promise<void> {
+    await this.call<null>('engine_collab_stop');
+  }
+  async slideCollabStart(seed: boolean, clientId: number): Promise<CollabChange> {
+    return JSON.parse(
+      await this.call<string>('engine_slide_collab_start', { seed, client: clientId }),
+    ) as CollabChange;
+  }
+  async slideCollabApply(change: string): Promise<SlideEditResult> {
+    return JSON.parse(
+      await this.call<string>('engine_slide_collab_apply', { json: change }),
+    ) as SlideEditResult;
+  }
+  async slideCollabPeers(keys: string[]): Promise<({ slide: number; rect: SlideBox } | null)[]> {
+    return JSON.parse(
+      await this.call<string>('engine_slide_collab_peers', { json: JSON.stringify(keys) }),
+    ) as ({ slide: number; rect: SlideBox } | null)[];
   }
   dispose(): void {}
 }

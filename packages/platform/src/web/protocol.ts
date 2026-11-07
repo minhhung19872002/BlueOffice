@@ -14,7 +14,14 @@ export type EngineRequest =
   | { id: number; method: 'notes'; index: number }
   | { id: number; method: 'savePptx' }
   | { id: number; method: 'slideCommand'; json: string }
-  | { id: number; method: 'slideInsertPicture'; bytes: Uint8Array; name: string };
+  | { id: number; method: 'slideInsertPicture'; bytes: Uint8Array; name: string }
+  | { id: number; method: 'collabStart'; seed: boolean }
+  | { id: number; method: 'collabApply'; json: string }
+  | { id: number; method: 'collabPeers'; json: string }
+  | { id: number; method: 'collabStop' }
+  | { id: number; method: 'slideCollabStart'; seed: boolean; clientId: number }
+  | { id: number; method: 'slideCollabApply'; json: string }
+  | { id: number; method: 'slideCollabPeers'; json: string };
 
 export type EngineResponse =
   { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };

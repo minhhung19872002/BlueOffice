@@ -1,10 +1,13 @@
 import type {
+  CollabChange,
   DocInfo,
   EditResult,
   EngineHost,
   FontSource,
   GlyphOutline,
   PageDisplayList,
+  PeerRects,
+  SlideBox,
   SlideCommand,
   SlideEditResult,
   TimedCommand,
@@ -125,6 +128,34 @@ export class WebEngineHost implements EngineHost {
 
   async markSaved(): Promise<void> {
     await this.call<null>({ method: 'markSaved' });
+  }
+
+  collabStart(seed: boolean): Promise<CollabChange> {
+    return this.call<CollabChange>({ method: 'collabStart', seed });
+  }
+
+  collabApply(change: string): Promise<EditResult> {
+    return this.call<EditResult>({ method: 'collabApply', json: change });
+  }
+
+  collabPeers(selections: [number, number][]): Promise<PeerRects[]> {
+    return this.call<PeerRects[]>({ method: 'collabPeers', json: JSON.stringify(selections) });
+  }
+
+  async collabStop(): Promise<void> {
+    await this.call<null>({ method: 'collabStop' });
+  }
+
+  slideCollabStart(seed: boolean, clientId: number): Promise<CollabChange> {
+    return this.call<CollabChange>({ method: 'slideCollabStart', seed, clientId });
+  }
+
+  slideCollabApply(change: string): Promise<SlideEditResult> {
+    return this.call<SlideEditResult>({ method: 'slideCollabApply', json: change });
+  }
+
+  slideCollabPeers(keys: string[]): Promise<({ slide: number; rect: SlideBox } | null)[]> {
+    return this.call({ method: 'slideCollabPeers', json: JSON.stringify(keys) });
   }
 
   dispose(): void {

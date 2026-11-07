@@ -159,12 +159,13 @@ nhận deep link dạng `--bluedoc://…` (msedgedriver thêm `--`) nên app b�
 giữ cổng 4445.
 
 **Hạn chế còn lại (quan sát trong E2E)**
-- Desktop (engine native) vào phiên sau người web và gõ ngay tại vị trí caret ban đầu (chưa bấm vào tài liệu — caret bị
-  đẩy về gần cuối thân văn bản khi nội dung chung thay thế bản cục bộ): chữ hiện cục bộ, khung y-sync được gửi và tới web,
-  nhưng không xuất hiện bên web và mất ở desktop sau thay đổi kế tiếp. Không tái hiện được web↔web (trình duyệt), WASM↔WASM
-  (`packages/collab/test/live.test.ts`) hay native↔native (`crates/bo-engine/tests/collab.rs`) — seed native và WASM giống
-  hệt từng byte; còn phải điều tra (thứ tự IPC Tauri / vị trí caret). Bấm vào tài liệu trước khi gõ (thao tác bình thường)
-  thì đồng bộ đúng; ca E2E desktop làm như vậy.
+- **Lỗi chưa sửa (chập chờn, ~1/3 lần chạy ca deep link desktop)**: chữ người dùng desktop (engine native) gõ hiện cục
+  bộ, khung y-sync tới web và **replica hai bên đều chứa đoạn chữ**, nhưng engine web không hiện và engine desktop làm mất
+  nó ở thay đổi kế tiếp — tức vị trí chèn rơi vào chỗ ánh xạ coi là "lạc" (cạnh embed khối), nghi do shadow của engine
+  native lệch offset với replica trong một tương tranh nào đó. Luôn xảy ra khi desktop gõ ngay tại caret ban đầu (chưa
+  bấm vào tài liệu); chập chờn khi đã bấm. Không tái hiện được web↔web (trình duyệt), WASM↔WASM
+  (`packages/collab/test/live.test.ts`) hay native↔native (`crates/bo-engine/tests/collab.rs`); seed native và WASM
+  giống hệt từng byte. Hướng điều tra tiếp: ghi `collab.change` + `takeRemote` của desktop và so offset với replica.
 - Người vào sau thấy tài liệu ở trạng thái "Chưa lưu" và view cuộn tới caret sau khi nội dung chung thay thế bản cục bộ.
 - CSP desktop không cho `http://` tới máy chủ khác `localhost` (cần HTTPS hoặc build lại với origin trong CSP).
 

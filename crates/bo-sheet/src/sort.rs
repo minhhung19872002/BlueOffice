@@ -6,6 +6,7 @@
 //! Only the cells inside the range move (values, formulas, styles); formula
 //! references are not rewritten here (see [`crate::calc`]).
 
+use crate::calc::{FormulaAdjuster, NoFormulas};
 use bo_model::sheet::{Cell, CellRange, CellValue, Worksheet};
 use std::cmp::Ordering;
 
@@ -127,7 +128,21 @@ fn key_cmp(a: Option<&CellValue>, b: Option<&CellValue>, k: SortKey) -> Ordering
 
 /// Sort the rows of `range` by `keys` (first key most significant). With
 /// `has_header` the first row stays in place. Keys outside the range are ignored.
+/// Formula text moves unchanged; see [`sort_range_with`].
 pub fn sort_range(ws: &mut Worksheet, range: CellRange, keys: &[SortKey], has_header: bool) {
+    sort_range_with(ws, range, keys, has_header, &NoFormulas);
+}
+
+/// [`sort_range`] that rewrites the formulas of moved rows through `adj`
+/// ([`FormulaAdjuster::translate`] by the row distance), so relative
+/// references keep pointing at the same row, as when the row is cut and pasted.
+pub fn sort_range_with(
+    ws: &mut Worksheet,
+    range: CellRange,
+    keys: &[SortKey],
+    has_header: bool,
+    adj: &dyn FormulaAdjuster,
+) {
     let keys: Vec<SortKey> = keys
         .iter()
         .copied()
@@ -139,7 +154,8 @@ pub fn sort_range(ws: &mut Worksheet, range: CellRange, keys: &[SortKey], has_he
     }
     let (c0, c1) = (range.first.col, range.last.col);
     // Take the rows out.
-    let mut rows: Vec<Vec<(u32, Cell)>> = Vec::with_capacity((range.last.row - first + 1) as usize);
+    let mut rows: Vec<(u32, Vec<(u32, Cell)>)> =
+        Vec::with_capacity((range.last.row - first + 1) as usize);
     for r in first..=range.last.row {
         let cols: Vec<u32> = ws
             .cells
@@ -150,17 +166,25 @@ pub fn sort_range(ws: &mut Worksheet, range: CellRange, keys: &[SortKey], has_he
             .into_iter()
             .filter_map(|c| ws.cells.remove(&(r, c)).map(|cell| (c, cell)))
             .collect();
-        rows.push(row);
+        rows.push((r, row));
     }
-    rows.sort_by(|a, b| {
+    rows.sort_by(|(_, a), (_, b)| {
         keys.iter()
             .map(|k| key_cmp(value_at(a, k.col), value_at(b, k.col), *k))
             .find(|o| *o != Ordering::Equal)
             .unwrap_or(Ordering::Equal)
     });
-    for (i, row) in rows.into_iter().enumerate() {
+    for (i, (from, row)) in rows.into_iter().enumerate() {
         let r = first + i as u32;
-        for (c, cell) in row {
+        let d = i64::from(r) - i64::from(from);
+        for (c, mut cell) in row {
+            if let Some(f) = &mut cell.formula {
+                if d != 0 && !f.text.is_empty() {
+                    if let Some(t) = adj.translate(&f.text, d, 0) {
+                        f.text = t;
+                    }
+                }
+            }
             ws.cells.insert((r, c), cell);
         }
     }

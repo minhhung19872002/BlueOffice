@@ -58,6 +58,12 @@ Khác: `define_name`, `add_table(TableInfo)`, `set_date_system`, `set_now`, `see
 `circular_references`, `last_recalc_evaluations`. Đánh giá trên nguồn dữ liệu khác: trait
 `CellProvider` + `evaluate(expr, provider, sheet, row, col, &EvalConfig)`.
 
+**Tích hợp `bo-sheet`** (`bo_sheet::formula::BoFormula`): cài `calc::FormulaAdjuster` (adjust khi
+chèn/xoá hàng cột qua `ops::*`, `translate` cho AutoFill và `sort::sort_range_with`) và
+`calc::FormulaEngine` (nạp `bo_model::sheet::Workbook` — ô, công thức thường/shared/array, defined
+name, bảng, hàng ẩn, date1904 — tính lại và ghi giá trị cache; kết quả dynamic array được ghi vào ô
+spill và cập nhật `ref` của công thức array). Test: `crates/bo-sheet/tests/formula_engine.rs`.
+
 ## 3. Kiểm thử
 
 - `tests/fn_*.rs`: bảng (công thức, input, kết quả kỳ vọng) cho từng nhóm hàm — math, logical, info,
@@ -94,4 +100,6 @@ bỏ propagate khi sửa hàng loạt, cache vùng lớn đã vật chất hoá 
 - Vòng lặp không bật iterative trả `#CALC!` (bảng tính phổ biến hiển thị 0 kèm cảnh báo).
 - Tham chiếu ngoài workbook (`[Book1]Sheet1!A1`) chưa được giải quyết (chỉ ADDRESS sinh chuỗi).
 - CELL chỉ hỗ trợ `address/row/col/contents/type/sheet`.
-- Chưa có cầu nối tới `bo-xlsx` (đọc công thức/giá trị cache từ file) — làm khi tích hợp BlueSheet.
+- `BoFormula::recalculate` dựng lại engine từ model mỗi lần (đủ cho mở file / tính lại toàn bộ);
+  UI chỉnh sửa tương tác nên giữ một `bo_formula::Workbook` sống để tính tăng dần.
+- Sort chuyển công thức theo khoảng cách hàng; follower của shared formula (text rỗng) chưa được dịch.

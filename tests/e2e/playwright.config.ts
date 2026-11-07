@@ -6,6 +6,8 @@ const port = Number(process.env.E2E_PORT ?? 4173);
 // Web target. The desktop target (Tauri WebDriver) is added with the Phase 2 editing flows.
 export default defineConfig({
   testDir: './specs',
+  // Real-server collaboration specs run with playwright.collab.config.ts.
+  testIgnore: /collab-.*\.spec\.ts/,
   timeout: 60_000,
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],

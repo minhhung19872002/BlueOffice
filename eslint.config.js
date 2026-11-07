@@ -16,6 +16,8 @@ export default tseslint.config(
       'apps/server/**',
       'tests/e2e/test-results/**',
       'tests/e2e/playwright-report/**',
+      'tests/e2e/test-results-collab/**',
+      'tests/e2e/playwright-report-collab/**',
     ],
   },
   js.configs.recommended,
@@ -31,7 +33,12 @@ export default tseslint.config(
     },
   },
   {
-    files: ['scripts/**/*.mjs', 'tests/e2e-desktop/**/*.mjs', '**/*.config.{js,ts}'],
+    files: [
+      'scripts/**/*.mjs',
+      'tests/e2e-desktop/**/*.mjs',
+      'tests/e2e/collab/**/*.mjs',
+      '**/*.config.{js,ts}',
+    ],
     languageOptions: { globals: globals.node },
   },
 );

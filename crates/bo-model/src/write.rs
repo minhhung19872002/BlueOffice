@@ -1177,7 +1177,12 @@ impl Numbering {
                 format: if bullet {
                     NumFormat::Bullet
                 } else {
-                    [NumFormat::Decimal, NumFormat::LowerLetter, NumFormat::LowerRoman][usize::from(i % 3)].clone()
+                    [
+                        NumFormat::Decimal,
+                        NumFormat::LowerLetter,
+                        NumFormat::LowerRoman,
+                    ][usize::from(i % 3)]
+                    .clone()
                 },
                 text: if bullet {
                     bullets[usize::from(i % 3)].to_owned()
@@ -1275,7 +1280,10 @@ mod tests {
         assert_eq!(Color::from_hex("auto"), None);
         assert_eq!(Color::from_hex("éé"), None);
         assert_eq!(Color::from_hex("1F4E99").unwrap().to_hex(), "1F4E99");
-        assert_eq!(Color::from_highlight("yellow").unwrap().highlight_name(), "yellow");
+        assert_eq!(
+            Color::from_highlight("yellow").unwrap().highlight_name(),
+            "yellow"
+        );
     }
 
     #[test]
@@ -1360,7 +1368,10 @@ mod tests {
     fn numbering_lists() {
         let mut n = Numbering::default();
         let id = n.add_simple_list(false);
-        let r = NumRef { num_id: id, ilvl: 1 };
+        let r = NumRef {
+            num_id: id,
+            ilvl: 1,
+        };
         assert_eq!(n.level(r).unwrap().text, "%2.");
         assert_eq!(n.start(r), 1);
     }

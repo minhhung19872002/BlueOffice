@@ -24,6 +24,7 @@ fn bold(size: u32) -> RunProps {
 
 fn p(align: Alignment, runs: Vec<Run>) -> Block {
     Block::Paragraph(Paragraph {
+        src: None,
         props: ParaProps {
             align: Some(align),
             space_after: Some(Twips(0)),
@@ -35,6 +36,7 @@ fn p(align: Alignment, runs: Vec<Run>) -> Block {
 
 fn body(text: &str) -> Block {
     Block::Paragraph(Paragraph {
+        src: None,
         props: ParaProps {
             align: Some(Alignment::Justify),
             indent_first_line: Some(Twips(567)),
@@ -108,6 +110,7 @@ pub fn document() -> Document {
     ];
     for (i, a) in ARTICLES.iter().enumerate() {
         blocks.push(Block::Paragraph(Paragraph {
+            src: None,
             props: ParaProps {
                 align: Some(Alignment::Justify),
                 indent_first_line: Some(Twips(567)),
@@ -121,6 +124,7 @@ pub fn document() -> Document {
         }));
     }
     blocks.push(Block::Paragraph(Paragraph {
+        src: None,
         props: ParaProps {
             align: Some(Alignment::Left),
             indent_left: Some(Twips(567)),
@@ -193,6 +197,7 @@ pub fn document() -> Document {
         ],
     }));
     blocks.push(Block::Paragraph(Paragraph {
+        src: None,
         props: ParaProps {
             indent_left: Some(Twips(567)),
             ..Default::default()
@@ -219,6 +224,7 @@ pub fn document() -> Document {
         )));
     }
     blocks.push(Block::Paragraph(Paragraph {
+        src: None,
         props: ParaProps {
             align: Some(Alignment::Right),
             indent_right: Some(Twips(567)),
@@ -257,15 +263,10 @@ pub fn document() -> Document {
             p(Alignment::Center, vec![Run::text("PHỤ LỤC (trang ngang)", bold(28))]),
             body("Section thứ hai dùng khổ A4 xoay ngang để kiểm tra thiết lập trang theo từng section (w:sectPr/w:pgSz)."),
         ],
+        ..Section::default()
     };
     Document {
-        sections: vec![
-            Section {
-                page: PageSetup::default(),
-                blocks,
-            },
-            landscape,
-        ],
+        sections: vec![Section::new(blocks), landscape],
         default_run: RunProps {
             font: Some("Times New Roman".into()),
             size: Some(HalfPoints(28)),
@@ -276,5 +277,6 @@ pub fn document() -> Document {
             line_spacing: Some(LineSpacing::Auto(240)),
             ..Default::default()
         },
+        ..Default::default()
     }
 }

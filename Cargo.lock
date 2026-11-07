@@ -358,6 +358,7 @@ dependencies = [
  "bo-text",
  "miniz_oxide 0.8.9",
  "pdf-writer",
+ "png",
  "subsetter",
  "thiserror 2.0.21",
 ]
@@ -372,6 +373,7 @@ version = "0.1.0"
 dependencies = [
  "bo-render",
  "bo-text",
+ "png",
  "tiny-skia",
 ]
 
@@ -382,6 +384,8 @@ dependencies = [
  "bo-layout",
  "bo-model",
  "bo-text",
+ "jpeg-decoder",
+ "png",
  "serde",
  "serde_json",
 ]
@@ -2152,6 +2156,12 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "jpeg-decoder"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07"
 
 [[package]]
 name = "js-sys"

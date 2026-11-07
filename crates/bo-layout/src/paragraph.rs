@@ -2,7 +2,7 @@
 //! Output is position-independent (relative to the content box) and cacheable.
 
 use crate::style::{para_style_run, run_props, run_style, RunStyle};
-use crate::types::{Fragment, GlyphPos};
+use crate::types::{Fragment, GlyphPos, NoteKey};
 use crate::LayoutError;
 use bo_model::index::para_index;
 use bo_model::{
@@ -37,8 +37,10 @@ pub(crate) struct ParaInput<'a> {
     pub width: f32,
     pub fields: FieldContext,
     pub default_tab: f32,
-    /// Note numbering: id → displayed number.
-    pub note_numbers: &'a HashMap<i32, u32>,
+    /// Note numbering: (endnote?, id) → displayed number.
+    pub note_numbers: &'a HashMap<NoteKey, String>,
+    /// Number shown by a `footnoteRef` mark inside a note's own text.
+    pub note_mark: Option<&'a str>,
 }
 
 /// Cache of laid-out paragraphs (see crate docs, "Incremental layout").
@@ -111,7 +113,7 @@ pub(crate) struct RelLine {
     pub page_break_after: bool,
     pub column_break_after: bool,
     /// Notes referenced on this line.
-    pub notes: Vec<i32>,
+    pub notes: Vec<NoteKey>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,7 +143,7 @@ struct Piece {
     image: Option<Image>,
     /// Object height above baseline (pictures).
     obj_h: f32,
-    note: Option<i32>,
+    note: Option<NoteKey>,
 }
 
 impl Piece {
@@ -163,7 +165,12 @@ impl Word {
         self.pieces
             .iter()
             .rev()
-            .find(|p| matches!(p.kind, Kind::LineBreak | Kind::PageBreak | Kind::ColumnBreak))
+            .find(|p| {
+                matches!(
+                    p.kind,
+                    Kind::LineBreak | Kind::PageBreak | Kind::ColumnBreak
+                )
+            })
             .map(|p| p.kind)
     }
     fn char_count(&self) -> usize {
@@ -184,6 +191,7 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     inp.width.to_bits().hash(&mut h);
     inp.default_tab.to_bits().hash(&mut h);
     inp.doc.default_run.hash(&mut h);
+    inp.note_mark.hash(&mut h);
     // Page-dependent fields and note numbers only matter when present.
     if inp.para.runs.iter().any(|r| {
         r.content.iter().any(|c| {
@@ -255,7 +263,7 @@ struct Atom {
     /// Atomic object (picture, field, note reference): one caret unit.
     object: bool,
     image: Option<Image>,
-    note: Option<i32>,
+    note: Option<NoteKey>,
 }
 
 fn layout_uncached(
@@ -307,15 +315,24 @@ fn layout_uncached(
             RunContent::Field { instr, cached } => {
                 (field_text(instr, cached, inp.fields), true, None, None)
             }
-            RunContent::FootnoteRef(id) | RunContent::EndnoteRef(id) => (
-                inp.note_numbers
-                    .get(id)
-                    .map_or_else(|| "*".to_owned(), ToString::to_string),
+            RunContent::FootnoteRef(id) | RunContent::EndnoteRef(id) => {
+                let key = (matches!(item, RunContent::EndnoteRef(_)), *id);
+                (
+                    inp.note_numbers
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or_else(|| "*".to_owned()),
+                    true,
+                    None,
+                    Some(key),
+                )
+            }
+            RunContent::NoteMark => (
+                inp.note_mark.unwrap_or_default().to_owned(),
                 true,
                 None,
-                Some(*id),
+                None,
             ),
-            RunContent::NoteMark => (String::new(), true, None, None),
             _ => (index_text[sp.start..sp.end].to_owned(), false, None, None),
         };
         atoms.push(Atom {
@@ -704,12 +721,7 @@ fn next_stop(t: &TabCtx<'_>, x: f32) -> (f32, TabAlign) {
             best = Some((h, TabAlign::Left));
         }
     }
-    best.unwrap_or_else(|| {
-        (
-            ((x / t.default).floor() + 1.0) * t.default,
-            TabAlign::Left,
-        )
-    })
+    best.unwrap_or_else(|| (((x / t.default).floor() + 1.0) * t.default, TabAlign::Left))
 }
 
 /// Leader of the custom stop located at `stop_x`.
@@ -952,7 +964,11 @@ fn word_pieces(
             }
             let n = sub.len();
             for (i, p) in sub.iter_mut().enumerate() {
-                let o0 = if i == 0 { at.start as u32 } else { at.end as u32 };
+                let o0 = if i == 0 {
+                    at.start as u32
+                } else {
+                    at.end as u32
+                };
                 p.offsets = vec![o0, at.end as u32];
                 p.note = if i + 1 == n { at.note } else { None };
             }
@@ -998,7 +1014,10 @@ fn explode(word: &Word, fonts: &mut FontManager) -> Vec<Word> {
     use unicode_segmentation::UnicodeSegmentation;
     let mut out = Vec::new();
     for p in &word.pieces {
-        if p.kind != Kind::Text || p.glyphs.is_empty() || p.offsets.len() != p.text.chars().count() + 1 {
+        if p.kind != Kind::Text
+            || p.glyphs.is_empty()
+            || p.offsets.len() != p.text.chars().count() + 1
+        {
             match out.last_mut() {
                 Some(Word { pieces }) => pieces.push(p.clone()),
                 None => out.push(Word {
@@ -1066,6 +1085,9 @@ mod tests {
         };
         assert_eq!(field_text("PAGE \\* MERGEFORMAT", "1", f), "3");
         assert_eq!(field_text("NUMPAGES", "1", f), "9");
-        assert_eq!(field_text("DATE \\@ dd/MM/yyyy", "05/11/2026", f), "05/11/2026");
+        assert_eq!(
+            field_text("DATE \\@ dd/MM/yyyy", "05/11/2026", f),
+            "05/11/2026"
+        );
     }
 }

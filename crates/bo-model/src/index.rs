@@ -173,7 +173,7 @@ mod tests {
             src: None,
         }));
         let p = Paragraph::new(
-            Default::default(),
+            crate::write::ParaProps::default(),
             vec![Run {
                 props: RunProps::default(),
                 content: vec![RunContent::Text("ab".into()), RunContent::Tab, img],
@@ -184,14 +184,27 @@ mod tests {
         assert_eq!(spans[2].start, 3);
         let mut table = Table::simple(1, 2, Twips(1000));
         if let Block::Table(_) = Block::Table(table.clone()) {}
-        table.rows[0].cells[1].blocks.push(Block::Paragraph(p.clone()));
+        table.rows[0].cells[1]
+            .blocks
+            .push(Block::Paragraph(p.clone()));
         let doc = Document {
             sections: vec![Section::new(vec![Block::Paragraph(p), Block::Table(table)])],
             ..Default::default()
         };
         let paths = body_paragraphs(&doc);
-        assert_eq!(paths, vec![vec![0, 0], vec![0, 1, 0, 0, 0], vec![0, 1, 0, 1, 0], vec![0, 1, 0, 1, 1]]);
-        assert_eq!(para_index_text(para_at(&doc, &paths[3]).unwrap()), "ab\t\u{FFFC}");
+        assert_eq!(
+            paths,
+            vec![
+                vec![0, 0],
+                vec![0, 1, 0, 0, 0],
+                vec![0, 1, 0, 1, 0],
+                vec![0, 1, 0, 1, 1]
+            ]
+        );
+        assert_eq!(
+            para_index_text(para_at(&doc, &paths[3]).unwrap()),
+            "ab\t\u{FFFC}"
+        );
         assert!(para_at(&doc, &[0, 1]).is_none());
     }
 }

@@ -123,13 +123,62 @@ pub struct GlyphPos {
     pub cluster: u32,
 }
 
+/// Footnote/endnote identity: (is endnote, note id).
+pub type NoteKey = (bool, i32);
+
+impl Line {
+    /// Move the line by (`dx`, `dy`).
+    pub fn translate(&mut self, dx: f32, dy: f32) {
+        self.top += dy;
+        self.baseline += dy;
+        for f in &mut self.fragments {
+            f.x += dx;
+            f.y += dy;
+        }
+        for c in &mut self.carets {
+            c.1 += dx;
+        }
+    }
+}
+
+impl PageItem {
+    /// Move the item by (`dx`, `dy`).
+    pub fn translate(&mut self, dx: f32, dy: f32) {
+        match self {
+            PageItem::Rect { x, y, .. } | PageItem::Image { x, y, .. } => {
+                *x += dx;
+                *y += dy;
+            }
+            PageItem::Rule { x1, y1, x2, y2, .. } => {
+                *x1 += dx;
+                *x2 += dx;
+                *y1 += dy;
+                *y2 += dy;
+            }
+        }
+    }
+
+    /// Paint layer (rules are always drawn in front of text).
+    pub fn layer(&self) -> Layer {
+        match self {
+            PageItem::Rect { layer, .. } | PageItem::Image { layer, .. } => *layer,
+            PageItem::Rule { .. } => Layer::Front,
+        }
+    }
+}
+
 impl LayoutDocument {
     /// Text of a page, lines separated by `\n` (used by tests and search).
     pub fn page_text(&self, page: usize) -> String {
         self.pages[page]
             .lines
             .iter()
-            .map(|l| l.fragments.iter().map(|f| f.text.as_str()).collect::<String>())
+            .map(|l| {
+                l.fragments
+                    .iter()
+                    .map(|f| f.text.as_str())
+                    .collect::<String>()
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }

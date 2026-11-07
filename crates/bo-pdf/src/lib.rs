@@ -6,7 +6,7 @@
 //! Reference: ISO 32000-1:2008 §9.7 (Composite fonts), §9.10.3 (ToUnicode).
 #![forbid(unsafe_code)]
 
-use bo_render::{Command, DisplayList, Rgba};
+use bo_render::{image, Command, DisplayList, Media, Rgba};
 use bo_text::{FaceId, FontManager};
 use pdf_writer::types::{CidFontType, FontFlags, SystemInfo, UnicodeCmap};
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str};
@@ -40,6 +40,7 @@ fn compress(data: &[u8]) -> Vec<u8> {
 pub fn write_pdf(
     list: &DisplayList,
     fonts: &FontManager,
+    media: &Media,
     meta: &PdfMeta,
 ) -> Result<Vec<u8>, PdfError> {
     let mut pdf = Pdf::new();
@@ -93,7 +94,27 @@ pub fn write_pdf(
         }
     }
     for f in &face_order {
-        uses.get_mut(f).expect("face registered").font_ref = alloc();
+        if let Some(u) = uses.get_mut(f) {
+            u.font_ref = alloc();
+        }
+    }
+
+    // Pictures: one image XObject per media part (ISO 32000-1 §8.9.5).
+    let mut xobjects: BTreeMap<String, Option<(Ref, String)>> = BTreeMap::new();
+    for page in &list.pages {
+        for cmd in &page.commands {
+            if let Command::Image { media: name, .. } = cmd {
+                if xobjects.contains_key(name) {
+                    continue;
+                }
+                let n = xobjects.len();
+                let entry = media
+                    .get(name)
+                    .and_then(|bytes| write_image(&mut pdf, &mut alloc, bytes))
+                    .map(|r| (r, format!("Im{n}")));
+                xobjects.insert(name.clone(), entry);
+            }
+        }
     }
 
     // Pages.
@@ -105,6 +126,7 @@ pub fn write_pdf(
         let h = page.height;
         let mut c = Content::new();
         let mut used_fonts: Vec<u32> = Vec::new();
+        let mut used_images: Vec<(String, Ref)> = Vec::new();
         for cmd in &page.commands {
             match cmd {
                 Command::FillRect {
@@ -125,6 +147,7 @@ pub fn write_pdf(
                     y2,
                     width,
                     color,
+                    dash,
                 } => {
                     c.set_stroke_rgb(
                         f32::from(color.0) / 255.0,
@@ -132,9 +155,59 @@ pub fn write_pdf(
                         f32::from(color.2) / 255.0,
                     );
                     c.set_line_width(*width);
+                    if let Some([on, off]) = dash {
+                        c.set_dash_pattern([*on, *off], 0.0);
+                    }
                     c.move_to(*x1, h - y1);
                     c.line_to(*x2, h - y2);
                     c.stroke();
+                    if dash.is_some() {
+                        c.set_dash_pattern([], 0.0);
+                    }
+                }
+                Command::Image {
+                    x,
+                    y,
+                    w,
+                    h: ih,
+                    media: name,
+                    crop,
+                    rotation,
+                } => {
+                    let (cx, cy) = (x + w / 2.0, h - (y + ih / 2.0));
+                    let a = -rotation.to_radians();
+                    c.save_state();
+                    c.transform([1.0, 0.0, 0.0, 1.0, cx, cy]);
+                    c.transform([a.cos(), a.sin(), -a.sin(), a.cos(), 0.0, 0.0]);
+                    c.rect(-w / 2.0, -ih / 2.0, *w, *ih);
+                    c.clip_nonzero();
+                    c.end_path();
+                    if let Some((r, xname)) = xobjects.get(name).cloned().flatten() {
+                        {
+                            let [l, t, rr, b] = crop.unwrap_or([0.0; 4]);
+                            let fw = w / (1.0 - l - rr).max(0.01);
+                            let fh = ih / (1.0 - t - b).max(0.01);
+                            c.transform([
+                                fw,
+                                0.0,
+                                0.0,
+                                fh,
+                                -w / 2.0 - l * fw,
+                                ih / 2.0 + t * fh - fh,
+                            ]);
+                            c.x_object(Name(xname.as_bytes()));
+                            if !used_images.iter().any(|(n, _)| *n == xname) {
+                                used_images.push((xname, r));
+                            }
+                        }
+                    } else {
+                        {
+                            set_fill(&mut c, Rgba(224, 224, 224, 255));
+                            c.rect(-w / 2.0, -ih / 2.0, *w, *ih);
+                            c.fill_nonzero();
+                        }
+                    }
+                    c.restore_state();
                 }
                 Command::Glyphs {
                     face,
@@ -183,6 +256,13 @@ pub fn write_pdf(
             fdict.pair(Name(format!("F{f}").as_bytes()), uses[f].font_ref);
         }
         fdict.finish();
+        if !used_images.is_empty() {
+            let mut xo = res.x_objects();
+            for (n, r) in &used_images {
+                xo.pair(Name(n.as_bytes()), *r);
+            }
+            xo.finish();
+        }
         res.finish();
         p.finish();
     }
@@ -284,6 +364,62 @@ pub fn write_pdf(
     Ok(pdf.finish())
 }
 
+/// Write an image XObject: JPEG passes through (`DCTDecode`), PNG is decoded and
+/// re-encoded with `FlateDecode` plus an `SMask` for transparency.
+fn write_image(pdf: &mut Pdf, alloc: &mut impl FnMut() -> Ref, bytes: &[u8]) -> Option<Ref> {
+    let id = alloc();
+    if image::sniff(bytes) == image::Format::Jpeg {
+        {
+            let (w, h, n) = image::jpeg_info(bytes)?;
+            let mut x = pdf.image_xobject(id, bytes);
+            x.filter(Filter::DctDecode);
+            x.width(w as i32);
+            x.height(h as i32);
+            match n {
+                1 => x.color_space().device_gray(),
+                4 => x.color_space().device_cmyk(),
+                _ => x.color_space().device_rgb(),
+            }
+            x.bits_per_component(8);
+        }
+    } else {
+        {
+            let d = image::decode(bytes)?;
+            let rgb: Vec<u8> = d
+                .rgba
+                .chunks_exact(4)
+                .flat_map(|p| [p[0], p[1], p[2]])
+                .collect();
+            let alpha: Vec<u8> = d.rgba.chunks_exact(4).map(|p| p[3]).collect();
+            let smask = if alpha.iter().any(|&a| a < 255) {
+                let sid = alloc();
+                let data = compress(&alpha);
+                let mut s = pdf.image_xobject(sid, &data);
+                s.filter(Filter::FlateDecode);
+                s.width(d.width as i32);
+                s.height(d.height as i32);
+                s.color_space().device_gray();
+                s.bits_per_component(8);
+                s.finish();
+                Some(sid)
+            } else {
+                None
+            };
+            let data = compress(&rgb);
+            let mut x = pdf.image_xobject(id, &data);
+            x.filter(Filter::FlateDecode);
+            x.width(d.width as i32);
+            x.height(d.height as i32);
+            x.color_space().device_rgb();
+            x.bits_per_component(8);
+            if let Some(s) = smask {
+                x.s_mask(s);
+            }
+        }
+    }
+    Some(id)
+}
+
 fn set_fill(c: &mut Content, color: Rgba) {
     c.set_fill_rgb(
         f32::from(color.0) / 255.0,
@@ -318,11 +454,51 @@ mod tests {
                 commands: vec![],
             }],
         };
-        let bytes = write_pdf(&list, &FontManager::new(), &PdfMeta::default()).unwrap();
+        let bytes = write_pdf(
+            &list,
+            &FontManager::new(),
+            &Media::new(),
+            &PdfMeta::default(),
+        )
+        .unwrap();
         assert!(bytes.starts_with(b"%PDF-"));
         let s = String::from_utf8_lossy(&bytes);
         assert!(s.contains("/MediaBox [0 0 595 842]"));
         assert!(s.trim_end().ends_with("%%EOF"));
+    }
+
+    #[test]
+    fn embeds_png_with_smask() {
+        let mut png = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut png, 1, 1);
+            enc.set_color(png::ColorType::Rgba);
+            let mut w = enc.write_header().unwrap();
+            w.write_image_data(&[1, 2, 3, 128]).unwrap();
+        }
+        let mut media = Media::new();
+        media.insert("/m.png".into(), std::sync::Arc::new(png));
+        let img = |name: &str| Command::Image {
+            x: 10.0,
+            y: 10.0,
+            w: 20.0,
+            h: 20.0,
+            media: name.into(),
+            crop: Some([0.1, 0.0, 0.0, 0.0]),
+            rotation: 90.0,
+        };
+        let list = DisplayList {
+            pages: vec![PageList {
+                width: 100.0,
+                height: 100.0,
+                commands: vec![img("/m.png"), img("/m.png"), img("/missing.gif")],
+            }],
+        };
+        let bytes = write_pdf(&list, &FontManager::new(), &media, &PdfMeta::default()).unwrap();
+        let s = String::from_utf8_lossy(&bytes);
+        assert_eq!(s.matches("/Subtype /Image").count(), 2, "image + soft mask");
+        assert!(s.contains("/SMask"));
+        assert!(s.contains("/Im0"));
     }
 
     #[test]

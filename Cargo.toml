@@ -38,6 +38,10 @@ clap = { version = "4", features = ["derive"] }
 insta = { version = "1", features = ["json"] }
 proptest = "1"
 criterion = { version = "0.8", default-features = false }
+png = "0.18"
+jpeg-decoder = { version = "0.3", default-features = false }
+regex = { version = "1", default-features = false, features = ["std", "unicode"] }
+bo-edit = { path = "crates/bo-edit" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -62,6 +66,11 @@ format_push_string = "allow"
 many_single_char_names = "allow"
 case_sensitive_file_extension_comparisons = "allow"
 assigning_clones = "allow"
+# Document properties are naturally many independent flags.
+struct_excessive_bools = "allow"
+fn_params_excessive_bools = "allow"
+# `as_chunks` needs Rust 1.88 (MSRV is 1.85).
+chunks_exact_to_as_chunks = "allow"
 
 [profile.release]
 lto = "thin"

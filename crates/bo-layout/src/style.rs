@@ -34,11 +34,11 @@ pub struct RunStyle {
 
 /// Effective paragraph properties of `p`.
 pub fn para_props(doc: &Document, p: &Paragraph) -> ParaProps {
-    let style_id = p
-        .props
-        .style
-        .clone()
-        .or_else(|| doc.styles.default_of(StyleKind::Paragraph).map(|s| s.id.clone()));
+    let style_id = p.props.style.clone().or_else(|| {
+        doc.styles
+            .default_of(StyleKind::Paragraph)
+            .map(|s| s.id.clone())
+    });
     let mut eff = doc.default_para.clone();
     if let Some(id) = &style_id {
         let (sp, _) = doc.styles.resolve_paragraph(id);
@@ -152,17 +152,17 @@ impl ListCounters {
         }
         let counters = *entry;
         let mut label = level.text.clone();
-        for k in 0..9usize {
+        for (k, &count) in counters.iter().enumerate() {
             let pat = format!("%{}", k + 1);
             if label.contains(&pat) {
                 let lv = doc.numbering.level(NumRef {
                     num_id: n.num_id,
                     ilvl: k as u8,
                 });
-                let value = if counters[k] == 0 {
+                let value = if count == 0 {
                     lv.map_or(1, |l| l.start)
                 } else {
-                    counters[k]
+                    count
                 };
                 let fmt = lv.map_or(bo_model::NumFormat::Decimal, |l| l.format.clone());
                 label = label.replace(&pat, &bo_model::format_number(value, &fmt));

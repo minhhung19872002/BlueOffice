@@ -7,10 +7,10 @@ use crate::{DocxError, Result};
 use bo_model::{
     fingerprint, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellProps,
     CellVAlign, Color, Columns, Document, Emu, HalfPoints, HeaderFooter, HeightRule, Image, Level,
-    LineSpacing, Num, NumFormat, NumRef, Numbering, ParaProps, Paragraph, Raw, Row,
-    Run, RunContent, RunProps, Section, SectionBreak, SourcePackage, Style, StyleKind,
-    StyleSheet, TabAlign, TabLeader, TabStop, Table, TableProps, TableWidth, Twips, Underline,
-    VMerge, VertAlign, Wrap,
+    LineSpacing, Num, NumFormat, NumRef, Numbering, ParaProps, Paragraph, Raw, Row, Run,
+    RunContent, RunProps, Section, SectionBreak, SourcePackage, Style, StyleKind, StyleSheet,
+    TabAlign, TabLeader, TabStop, Table, TableProps, TableWidth, Twips, Underline, VMerge,
+    VertAlign, Wrap,
 };
 use bo_opc::xml::{attr, unescape, XmlReader};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -72,13 +72,22 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
     let ctx = Ctx::new(&pkg, &main)?;
 
     let mut doc = Document::default();
-    if let Some(p) = pkg.related_part(&main, REL_STYLES)?.and_then(|n| pkg.part(&n)) {
+    if let Some(p) = pkg
+        .related_part(&main, REL_STYLES)?
+        .and_then(|n| pkg.part(&n))
+    {
         read_styles(&p.data, &p.name, &mut doc)?;
     }
-    if let Some(p) = pkg.related_part(&main, REL_NUMBERING)?.and_then(|n| pkg.part(&n)) {
+    if let Some(p) = pkg
+        .related_part(&main, REL_NUMBERING)?
+        .and_then(|n| pkg.part(&n))
+    {
         doc.numbering = read_numbering(&p.data, &p.name)?;
     }
-    if let Some(p) = pkg.related_part(&main, REL_SETTINGS)?.and_then(|n| pkg.part(&n)) {
+    if let Some(p) = pkg
+        .related_part(&main, REL_SETTINGS)?
+        .and_then(|n| pkg.part(&n))
+    {
         read_settings(&p.data, &p.name, &mut doc)?;
     }
     let mut media = BTreeMap::new();
@@ -147,7 +156,7 @@ fn capture(r: &mut XmlReader<'_>, is_start: bool, before: usize) -> Result<Raw> 
     Ok(Raw::new(r.slice(before, r.pos()), 0))
 }
 
-fn name<'e>(e: &'e BytesStart<'_>) -> Vec<u8> {
+fn name(e: &BytesStart<'_>) -> Vec<u8> {
     e.local_name().as_ref().as_bytes().to_vec()
 }
 
@@ -163,7 +172,9 @@ fn twips(e: &BytesStart<'_>, a: &[u8]) -> Option<Twips> {
 }
 
 fn int(e: &BytesStart<'_>, a: &[u8]) -> Option<i64> {
-    attr(e, a).and_then(|v| v.trim().parse::<f64>().ok()).map(|v| v as i64)
+    attr(e, a)
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .map(|v| v as i64)
 }
 
 fn color_attr(e: &BytesStart<'_>, a: &[u8]) -> Option<Color> {
@@ -174,9 +185,8 @@ fn align(v: Option<&str>) -> Option<Alignment> {
     match v? {
         "center" => Some(Alignment::Center),
         "right" | "end" => Some(Alignment::Right),
-        "both" | "distribute" | "lowKashida" | "mediumKashida" | "highKashida" | "thaiDistribute" => {
-            Some(Alignment::Justify)
-        }
+        "both" | "distribute" | "lowKashida" | "mediumKashida" | "highKashida"
+        | "thaiDistribute" => Some(Alignment::Justify),
         "left" | "start" => Some(Alignment::Left),
         _ => None,
     }
@@ -461,7 +471,10 @@ fn read_body(
                         Event::Empty(e) => {
                             if name(&e) == b"sectPr" {
                                 let mut sec = Section::default();
-                                sec.src = Some(Raw::new(r.slice(before, r.pos()), sec.props_fingerprint()));
+                                sec.src = Some(Raw::new(
+                                    r.slice(before, r.pos()),
+                                    sec.props_fingerprint(),
+                                ));
                                 sec.blocks = std::mem::take(&mut blocks);
                                 sections.push(sec);
                             } else {
@@ -601,7 +614,11 @@ fn read_para_children(
                 if s {
                     read_para_children(r, ctx, media, sect, &mut inner, link)?;
                 }
-                let props = inner.runs.first().map(|x| x.props.clone()).unwrap_or_default();
+                let props = inner
+                    .runs
+                    .first()
+                    .map(|x| x.props.clone())
+                    .unwrap_or_default();
                 p.runs.push(Run {
                     props,
                     content: vec![RunContent::Field {
@@ -641,7 +658,9 @@ fn read_para_children(
 /// single [`RunContent::Field`], so layout can compute the value.
 fn collapse_simple_fields(runs: &mut Vec<Run>) {
     let is_fld = |c: &RunContent, kind: &str| match c {
-        RunContent::Opaque(raw) => raw.xml.contains("fldChar") && raw.xml.contains(&format!("\"{kind}\"")),
+        RunContent::Opaque(raw) => {
+            raw.xml.contains("fldChar") && raw.xml.contains(&format!("\"{kind}\""))
+        }
         _ => false,
     };
     let mut i = 0;
@@ -676,8 +695,15 @@ fn collapse_simple_fields(runs: &mut Vec<Run>) {
                 break;
             }
         }
-        let kind = instr.split_whitespace().next().unwrap_or("").to_ascii_uppercase();
-        let simple = matches!(kind.as_str(), "PAGE" | "NUMPAGES" | "SECTIONPAGES" | "DATE" | "TIME");
+        let kind = instr
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_ascii_uppercase();
+        let simple = matches!(
+            kind.as_str(),
+            "PAGE" | "NUMPAGES" | "SECTIONPAGES" | "DATE" | "TIME"
+        );
         match end {
             Some(j) if simple && !nested => {
                 let props = runs[i].props.clone();
@@ -700,7 +726,9 @@ fn collapse_simple_fields(runs: &mut Vec<Run>) {
 
 /// Extract the text of a `w:instrText` element.
 fn instr_text(xml: &str) -> String {
-    let Some(gt) = xml.find('>') else { return String::new() };
+    let Some(gt) = xml.find('>') else {
+        return String::new();
+    };
     let rest = &xml[gt + 1..];
     let end = rest.rfind("</").unwrap_or(rest.len());
     unescape(&rest[..end])
@@ -745,11 +773,7 @@ fn read_run(
             b"footnoteRef" | b"endnoteRef" => run.content.push(RunContent::NoteMark),
             // Rendered-page-break hints are caches; drop.
             b"lastRenderedPageBreak" => {}
-            // Deleted text (§17.13.5.14) is not displayed.
-            b"delText" => {
-                let raw = capture(r, s, before)?;
-                run.content.push(RunContent::Opaque(raw));
-            }
+            // Deleted text (§17.13.5.14) is not displayed: kept verbatim by the fallback arm.
             // §17.3.3.9 drawing
             b"drawing" if s => {
                 let img = read_drawing(r, ctx, media)?;
@@ -825,7 +849,9 @@ fn read_drawing(
                 continue;
             }
             Event::Text(t) if axis != 0 => {
-                if let (Ok(v), Some(a)) = (unescape(t.as_ref()).trim().parse::<i64>(), anchor.as_mut()) {
+                if let (Ok(v), Some(a)) =
+                    (unescape(t.as_ref()).trim().parse::<i64>(), anchor.as_mut())
+                {
                     if axis == 1 {
                         a.x = Emu(v);
                     } else {
@@ -882,7 +908,9 @@ fn read_drawing(
             b"blip" => {
                 if let Some(target) = attr(&e, b"embed").and_then(|id| ctx.target(&id)) {
                     if let Some(p) = ctx.pkg.part(&target) {
-                        media.entry(target.clone()).or_insert_with(|| Arc::new(p.data.clone()));
+                        media
+                            .entry(target.clone())
+                            .or_insert_with(|| Arc::new(p.data.clone()));
                     }
                     img.media = target;
                 }
@@ -901,7 +929,11 @@ fn read_drawing(
         }
     }
     img.anchor = anchor;
-    Ok(if img.media.is_empty() { None } else { Some(img) })
+    Ok(if img.media.is_empty() {
+        None
+    } else {
+        Some(img)
+    })
 }
 
 // ---------------------------------------------------------------- properties
@@ -936,15 +968,22 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
                     Ok(!s)
                 })?;
                 if let Some(id) = id {
-                    p.num = Some(NumRef { num_id: id as i32, ilvl: lvl });
+                    p.num = Some(NumRef {
+                        num_id: id as i32,
+                        ilvl: lvl,
+                    });
                 }
             }
             // §17.3.1.13 jc
             b"jc" => p.align = align(attr(e, b"val").as_deref()).or(p.align),
             // §17.3.1.12 ind
             b"ind" => {
-                p.indent_left = twips(e, b"left").or_else(|| twips(e, b"start")).or(p.indent_left);
-                p.indent_right = twips(e, b"right").or_else(|| twips(e, b"end")).or(p.indent_right);
+                p.indent_left = twips(e, b"left")
+                    .or_else(|| twips(e, b"start"))
+                    .or(p.indent_left);
+                p.indent_right = twips(e, b"right")
+                    .or_else(|| twips(e, b"end"))
+                    .or(p.indent_right);
                 if let Some(h) = twips(e, b"hanging") {
                     p.indent_first_line = Some(Twips(-h.0));
                 } else if let Some(f) = twips(e, b"firstLine") {
@@ -1066,13 +1105,13 @@ fn read_rpr(r: &mut XmlReader<'_>) -> Result<RunProps> {
                     p.size = Some(HalfPoints(v.clamp(1, 3276) as u32));
                 }
             }
-            b"b" => p.bold = Some(on_off(e)),            // §17.3.2.1
-            b"i" => p.italic = Some(on_off(e)),          // §17.3.2.16
-            b"strike" => p.strike = Some(on_off(e)),     // §17.3.2.37
+            b"b" => p.bold = Some(on_off(e)),        // §17.3.2.1
+            b"i" => p.italic = Some(on_off(e)),      // §17.3.2.16
+            b"strike" => p.strike = Some(on_off(e)), // §17.3.2.37
             b"dstrike" => p.double_strike = Some(on_off(e)), // §17.3.2.9
-            b"caps" => p.caps = Some(on_off(e)),         // §17.3.2.5
+            b"caps" => p.caps = Some(on_off(e)),     // §17.3.2.5
             b"smallCaps" => p.small_caps = Some(on_off(e)), // §17.3.2.33
-            b"vanish" => p.hidden = Some(on_off(e)),     // §17.3.2.41
+            b"vanish" => p.hidden = Some(on_off(e)), // §17.3.2.41
             // §17.3.2.40 u
             b"u" => {
                 p.underline = Some(match attr(e, b"val").as_deref() {
@@ -1080,7 +1119,9 @@ fn read_rpr(r: &mut XmlReader<'_>) -> Result<RunProps> {
                     Some("double") => Underline::Double,
                     Some("thick") => Underline::Thick,
                     Some("dotted" | "dottedHeavy") => Underline::Dotted,
-                    Some("dash" | "dashLong" | "dashedHeavy" | "dotDash" | "dotDotDash") => Underline::Dash,
+                    Some("dash" | "dashLong" | "dashedHeavy" | "dotDash" | "dotDotDash") => {
+                        Underline::Dash
+                    }
                     Some("wave" | "wavyDouble" | "wavyHeavy") => Underline::Wave,
                     Some("words") => Underline::Words,
                     _ => Underline::Single,
@@ -1094,7 +1135,9 @@ fn read_rpr(r: &mut XmlReader<'_>) -> Result<RunProps> {
                     p.color = Some(Color::BLACK);
                 }
             }
-            b"highlight" => p.highlight = attr(e, b"val").as_deref().and_then(Color::from_highlight), // §17.3.2.15
+            b"highlight" => {
+                p.highlight = attr(e, b"val").as_deref().and_then(Color::from_highlight);
+            } // §17.3.2.15
             b"shd" => p.shading = color_attr(e, b"fill"), // §17.3.2.32
             // §17.3.2.42 vertAlign
             b"vertAlign" => {
@@ -1125,7 +1168,9 @@ fn table_width(e: &BytesStart<'_>) -> Option<TableWidth> {
             let raw = attr(e, b"w").unwrap_or_default();
             // §17.18.90: either fiftieths of a percent or "NN%".
             if let Some(p) = raw.strip_suffix('%') {
-                p.parse::<f64>().ok().map(|v| TableWidth::Pct((v * 50.0) as u32))
+                p.parse::<f64>()
+                    .ok()
+                    .map(|v| TableWidth::Pct((v * 50.0) as u32))
             } else {
                 Some(TableWidth::Pct(w.max(0) as u32))
             }
@@ -1222,20 +1267,25 @@ fn read_table(
                                     }
                                     Event::Start(e) => {
                                         let mut sect = None;
-                                        cell.blocks.push(read_block(r, &e, ctx, media, before, &mut sect)?);
+                                        cell.blocks.push(read_block(
+                                            r, &e, ctx, media, before, &mut sect,
+                                        )?);
                                     }
                                     Event::Empty(e) => {
                                         let raw = Raw::new(r.slice(before, r.pos()), 0);
                                         if name(&e) == b"p" {
                                             let mut p = Paragraph::default();
-                                            p.src = Some(Raw::new(raw.xml, p.content_fingerprint()));
+                                            p.src =
+                                                Some(Raw::new(raw.xml, p.content_fingerprint()));
                                             cell.blocks.push(Block::Paragraph(p));
                                         } else if name(&e) != b"tcPr" {
                                             cell.blocks.push(Block::Opaque(raw));
                                         }
                                     }
                                     Event::End(_) if r.depth() == end => break,
-                                    Event::Eof => return Err(r.err("unexpected EOF in w:tc").into()),
+                                    Event::Eof => {
+                                        return Err(r.err("unexpected EOF in w:tc").into())
+                                    }
                                     _ => {}
                                 }
                             }
@@ -1255,7 +1305,17 @@ fn read_table(
         Ok(true)
     })?;
     if t.grid.is_empty() {
-        let cols = t.rows.iter().map(|r| r.cells.iter().map(|c| c.props.grid_span.max(1) as usize).sum::<usize>()).max().unwrap_or(1);
+        let cols = t
+            .rows
+            .iter()
+            .map(|r| {
+                r.cells
+                    .iter()
+                    .map(|c| c.props.grid_span.max(1) as usize)
+                    .sum::<usize>()
+            })
+            .max()
+            .unwrap_or(1);
         t.grid = vec![Twips(9000 / cols.max(1) as i32); cols];
     }
     Ok(t)
@@ -1307,7 +1367,11 @@ fn read_sect_pr(
             // §17.10.5 headerReference / §17.10.3 footerReference
             n @ (b"headerReference" | b"footerReference") => {
                 if let Some(id) = attr(e, b"id") {
-                    hf.push((n == b"headerReference", attr(e, b"type").unwrap_or_else(|| "default".into()), id));
+                    hf.push((
+                        n == b"headerReference",
+                        attr(e, b"type").unwrap_or_else(|| "default".into()),
+                        id,
+                    ));
                 }
             }
             // §17.6.13 pgSz
@@ -1350,11 +1414,19 @@ fn read_sect_pr(
         Ok(!st)
     })?;
     for (is_header, kind, id) in hf {
-        let Some(target) = ctx.target(&id) else { continue };
-        let Some(part) = ctx.pkg.part(&target) else { continue };
+        let Some(target) = ctx.target(&id) else {
+            continue;
+        };
+        let Some(part) = ctx.pkg.part(&target) else {
+            continue;
+        };
         let hctx = Ctx::new(ctx.pkg, &target)?;
         let blocks = read_header_part(&part.data, &hctx, media)?;
-        let set = if is_header { &mut s.headers } else { &mut s.footers };
+        let set = if is_header {
+            &mut s.headers
+        } else {
+            &mut s.footers
+        };
         match kind.as_str() {
             "first" => set.first = Some(blocks),
             "even" => set.even = Some(blocks),
@@ -1401,4 +1473,3 @@ pub(crate) fn header_footer_sets(s: &Section) -> Vec<(bool, &'static str, &Vec<B
     push(&mut v, false, &s.footers);
     v
 }
-

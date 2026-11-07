@@ -211,20 +211,35 @@ impl Engine {
             .name
             .rsplit_once('.')
             .map_or(self.name.clone(), |(b, _)| b.to_owned());
+        let doc = self.doc.as_ref().ok_or(EngineError::NoDocument)?;
         Ok(bo_pdf::write_pdf(
             display,
             &self.fonts,
+            &doc.media,
             &bo_pdf::PdfMeta { title: Some(title) },
         )?)
     }
 
     /// Render one page to PNG at `scale` pixels per point.
     pub fn render_png(&self, index: usize, scale: f32) -> Result<Vec<u8>> {
+        let doc = self.doc.as_ref().ok_or(EngineError::NoDocument)?;
         Ok(bo_raster::render_page_png(
             self.page(index)?,
             &self.fonts,
+            &doc.media,
             scale,
         )?)
+    }
+
+    /// Bytes of a media part referenced by an `image` display command.
+    pub fn media(&self, name: &str) -> Option<&[u8]> {
+        self.doc.as_ref()?.media.get(name).map(|b| b.as_slice())
+    }
+
+    /// Serialize the open document as `.docx` (lossless for unchanged parts, ADR-0005).
+    pub fn save_docx(&self) -> Result<Vec<u8>> {
+        let doc = self.doc.as_ref().ok_or(EngineError::NoDocument)?;
+        Ok(bo_docx::write_docx(doc)?)
     }
 }
 
@@ -233,21 +248,19 @@ pub fn plain_text_document(text: &str) -> Document {
     let blocks = text
         .lines()
         .map(|l| {
-            Block::Paragraph(Paragraph {
-                props: bo_model::ParaProps::default(),
-                runs: if l.is_empty() {
+            Block::Paragraph(Paragraph::new(
+                bo_model::ParaProps::default(),
+                if l.is_empty() {
                     vec![]
                 } else {
                     vec![Run::text(l, RunProps::default())]
                 },
-            })
+            ))
         })
         .collect();
     Document {
-        sections: vec![Section {
-            page: bo_model::PageSetup::default(),
-            blocks,
-        }],
+        sections: vec![Section::new(blocks)],
+
         default_run: RunProps {
             font: Some("Times New Roman".into()),
             size: Some(bo_model::HalfPoints(26)),

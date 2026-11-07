@@ -11,5 +11,8 @@ bo-render.workspace = true
 bo-text.workspace = true
 tiny-skia.workspace = true
 
+[dev-dependencies]
+png.workspace = true
+
 [lints]
 workspace = true

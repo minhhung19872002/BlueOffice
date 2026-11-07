@@ -33,6 +33,11 @@ thiserror.workspace = true
 png.workspace = true
 bo-engine = { path = ".", features = ["bundled-fonts"] }
 insta.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "sheet_edit"
+harness = false
 
 [lints]
 workspace = true

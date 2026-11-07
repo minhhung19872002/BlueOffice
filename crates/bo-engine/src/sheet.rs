@@ -7,15 +7,21 @@
 
 use crate::{EngineError, GlyphOutline, Result};
 use bo_model::sheet::{Cell, CellRef, CellValue, Formula, Workbook, Worksheet};
-use bo_render::{Command, DisplayList, PageList};
-use bo_sheet::calc::{FormulaAdjuster, FormulaEngine};
+use bo_render::PageList;
+use bo_sheet::calc::FormulaAdjuster;
 use bo_sheet::formula::BoFormula;
 use bo_sheet::geometry::SheetGeometry;
+use bo_sheet::live::LiveCalc;
 use bo_sheet::numfmt::Locale;
 use bo_sheet::render::{format_cell, render_viewport, RenderOptions};
 use bo_sheet::viewport::{Hit, ViewLayout, Viewport};
 use bo_text::FontManager;
 use serde::Serialize;
+
+mod cmd;
+mod print;
+
+pub use cmd::{Clip, PasteMode, SheetCommand};
 
 /// Hard limits of the grid (ECMA-376 Part 1, §18.3.1.73 `row/@r` ≤ 1 048 576; 16 384 columns).
 pub const MAX_ROWS: u32 = 1_048_576;
@@ -39,15 +45,47 @@ pub struct SheetInfo {
     pub frozen_rows: u32,
     pub frozen_cols: u32,
     pub hidden: bool,
+    /// Hidden row spans `[first, last]` (filtered or hidden rows), for navigation.
+    pub hidden_rows: Vec<(u32, u32)>,
+    pub hidden_cols: Vec<(u32, u32)>,
+    /// AutoFilter range `[r0, c0, r1, c1]`.
+    pub auto_filter: Option<[u32; 4]>,
+    /// Merged ranges `[r0, c0, r1, c1]`.
+    pub merges: Vec<[u32; 4]>,
+    pub charts: usize,
 }
 
 /// Where a screen point falls (viewport-relative, points).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum HitInfo {
-    Cell { row: u32, col: u32 },
-    ColumnHeader { col: u32 },
-    RowHeader { row: u32 },
+    Cell {
+        row: u32,
+        col: u32,
+    },
+    ColumnHeader {
+        col: u32,
+    },
+    RowHeader {
+        row: u32,
+    },
+    /// Near the right edge of column `col` in the header (resize / autofit).
+    ColumnEdge {
+        col: u32,
+    },
+    /// Near the bottom edge of row `row` in the header.
+    RowEdge {
+        row: u32,
+    },
+    /// The AutoFilter button of column `col`.
+    FilterButton {
+        row: u32,
+        col: u32,
+    },
+    /// A chart placed on the sheet.
+    Chart {
+        index: usize,
+    },
     Corner,
     None,
 }
@@ -91,27 +129,6 @@ impl ViewRequest {
     }
 }
 
-/// Moves a viewport page onto a larger page at `(dx, dy)`, clipped to its own size.
-fn translate_page(page: &mut PageList, dx: f32, dy: f32, width: f32, height: f32) {
-    // Clip to the viewport, then shift everything with one transform.
-    let mut commands = Vec::with_capacity(page.commands.len() + 4);
-    commands.push(Command::PushClip {
-        x: dx,
-        y: dy,
-        w: page.width,
-        h: page.height,
-    });
-    commands.push(Command::PushTransform {
-        m: [1.0, 0.0, 0.0, 1.0, dx, dy],
-    });
-    commands.append(&mut page.commands);
-    commands.push(Command::PopTransform);
-    commands.push(Command::PopClip);
-    page.commands = commands;
-    page.width = width;
-    page.height = height;
-}
-
 enum UndoEntry {
     /// Previous content of individual cells.
     Cells {
@@ -131,8 +148,11 @@ pub struct SheetEngine {
     locale: Locale,
     undo: Vec<UndoEntry>,
     redo: Vec<UndoEntry>,
-    calc: Box<dyn FormulaEngine + Send>,
-    adjuster: Box<dyn FormulaAdjuster + Send>,
+    /// Persistent formula engine: edits recalculate only their dependents.
+    live: LiveCalc,
+    adjuster: BoFormula,
+    /// Internal clipboard (cell records) for paste / paste special.
+    clip: Option<Clip>,
 }
 
 impl Default for SheetEngine {
@@ -308,8 +328,9 @@ impl SheetEngine {
             locale: Locale::VI_VN,
             undo: Vec::new(),
             redo: Vec::new(),
-            calc: Box::new(BoFormula::new()),
-            adjuster: Box::new(BoFormula::new()),
+            live: LiveCalc::new(),
+            adjuster: BoFormula::new(),
+            clip: None,
         }
     }
 
@@ -333,16 +354,6 @@ impl SheetEngine {
         self.fonts.len()
     }
 
-    /// Plugs in a formula engine (recalculation + reference adjustment).
-    pub fn set_formulas(
-        &mut self,
-        calc: Box<dyn FormulaEngine + Send>,
-        adjuster: Box<dyn FormulaAdjuster + Send>,
-    ) {
-        self.calc = calc;
-        self.adjuster = adjuster;
-    }
-
     /// Sets the clock used by `NOW()`/`TODAY()` (Unix milliseconds, UTC).
     /// Browser hosts call it with `Date.now()` since WASM has no clock.
     #[allow(clippy::cast_precision_loss)]
@@ -352,7 +363,8 @@ impl SheetEngine {
         if self.wb.as_ref().is_some_and(|w| w.date1904) {
             serial -= 1_462.0;
         }
-        self.calc = Box::new(BoFormula { now: Some(serial) });
+        self.adjuster.now = Some(serial);
+        self.live.set_now(Some(serial));
     }
 
     /// Locale for input parsing and display (`vi-VN` default).
@@ -405,7 +417,8 @@ impl SheetEngine {
     }
 
     pub fn load(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
-        self.calc.recalculate(&mut wb);
+        self.live.rebuild(&mut wb);
+        self.clip = None;
         self.geometry = (0..wb.sheets.len()).map(|_| None).collect();
         self.wb = Some(wb);
         self.name = name.to_owned();
@@ -439,13 +452,21 @@ impl SheetEngine {
                 .iter()
                 .map(|ws| {
                     let (fr, fc) = bo_sheet::viewport::frozen_counts(ws);
+                    let quad = |r: &bo_model::sheet::CellRange| {
+                        [r.first.row, r.first.col, r.last.row, r.last.col]
+                    };
                     SheetInfo {
                         name: ws.name.clone(),
-                        last_row: ws.cells.keys().map(|k| k.0).max(),
+                        last_row: ws.cells.keys().next_back().map(|k| k.0),
                         last_col: ws.cells.keys().map(|k| k.1).max(),
                         frozen_rows: fr,
                         frozen_cols: fc,
                         hidden: !matches!(ws.state, bo_model::sheet::SheetState::Visible),
+                        hidden_rows: bo_sheet::rowcol::hidden_spans(ws, true),
+                        hidden_cols: bo_sheet::rowcol::hidden_spans(ws, false),
+                        auto_filter: ws.auto_filter.as_ref().map(|a| quad(&a.range)),
+                        merges: ws.merges.iter().take(10_000).map(quad).collect(),
+                        charts: ws.charts.len(),
                     }
                 })
                 .collect(),
@@ -491,6 +512,7 @@ impl SheetEngine {
             .ok_or(EngineError::NoDocument)?;
         let opts = RenderOptions {
             locale: self.locale,
+            now: self.live.now(),
             ..RenderOptions::default()
         };
         Ok(render_viewport(
@@ -522,16 +544,86 @@ impl SheetEngine {
         Ok((ViewLayout::for_sheet(geom, ws, &req.viewport()), geom))
     }
 
-    /// What is under a viewport point.
+    /// What is under a viewport point (header edges within 3 pt of a border,
+    /// AutoFilter buttons and charts included).
     pub fn hit_test(&mut self, req: &ViewRequest, x: f64, y: f64) -> Result<HitInfo> {
+        const EDGE: f64 = 3.0;
+        let (charts, filter) = {
+            let ws = self.sheet(req.sheet)?;
+            (
+                ws.charts.iter().map(|c| (c.from, c.to)).collect::<Vec<_>>(),
+                ws.auto_filter.as_ref().map(|a| a.range),
+            )
+        };
         let (layout, geom) = self.layout(req)?;
-        Ok(match layout.hit_test(geom, x, y) {
-            Hit::Cell(r) => HitInfo::Cell {
-                row: r.row,
-                col: r.col,
-            },
-            Hit::ColumnHeader(c) => HitInfo::ColumnHeader { col: c },
-            Hit::RowHeader(r) => HitInfo::RowHeader { row: r },
+        let hit = layout.hit_test(geom, x, y);
+        // Charts are drawn above the cells.
+        if matches!(hit, Hit::Cell(_)) {
+            for (i, (from, to)) in charts.iter().enumerate().rev() {
+                let to = to.unwrap_or(bo_model::sheet::CellRef::new(
+                    from.row.saturating_add(15),
+                    from.col.saturating_add(8),
+                ));
+                let (Some(a), Some(b)) = (
+                    layout.cell_screen_rect(geom, from.row, from.col),
+                    layout.cell_screen_rect(geom, to.row, to.col),
+                ) else {
+                    continue;
+                };
+                if x >= a.x && x < b.x && y >= a.y && y < b.y {
+                    return Ok(HitInfo::Chart { index: i });
+                }
+            }
+        }
+        Ok(match hit {
+            Hit::Cell(r) => {
+                let button = filter.is_some_and(|f| {
+                    f.first.row == r.row && (f.first.col..=f.last.col).contains(&r.col)
+                });
+                let rect = layout.cell_screen_rect(geom, r.row, r.col);
+                match rect {
+                    Some(rc)
+                        if button && x >= rc.x + rc.w - (rc.h - 3.0).clamp(6.0, 12.0) - 2.0 =>
+                    {
+                        HitInfo::FilterButton {
+                            row: r.row,
+                            col: r.col,
+                        }
+                    }
+                    _ => HitInfo::Cell {
+                        row: r.row,
+                        col: r.col,
+                    },
+                }
+            }
+            Hit::ColumnHeader(c) => {
+                let rc = layout.cell_screen_rect(geom, layout.frozen_rows, c);
+                match rc {
+                    Some(rc) if (x - (rc.x + rc.w)).abs() <= EDGE => HitInfo::ColumnEdge { col: c },
+                    Some(rc) if (x - rc.x).abs() <= EDGE && c > 0 => {
+                        let mut p = c - 1;
+                        while p > 0 && geom.col_width(p) <= 0.0 {
+                            p -= 1;
+                        }
+                        HitInfo::ColumnEdge { col: p }
+                    }
+                    _ => HitInfo::ColumnHeader { col: c },
+                }
+            }
+            Hit::RowHeader(r) => {
+                let rc = layout.cell_screen_rect(geom, r, layout.frozen_cols);
+                match rc {
+                    Some(rc) if (y - (rc.y + rc.h)).abs() <= EDGE => HitInfo::RowEdge { row: r },
+                    Some(rc) if (y - rc.y).abs() <= EDGE && r > 0 => {
+                        let mut p = r - 1;
+                        while p > 0 && geom.row_height(p) <= 0.0 {
+                            p -= 1;
+                        }
+                        HitInfo::RowEdge { row: p }
+                    }
+                    _ => HitInfo::RowHeader { row: r },
+                }
+            }
             Hit::Corner => HitInfo::Corner,
             Hit::None => HitInfo::None,
         })
@@ -613,7 +705,52 @@ impl SheetEngine {
 
     /// Sets several cells as one undo step (paste, fill).
     pub fn set_inputs(&mut self, sheet: usize, cells: &[(u32, u32, String)]) -> Result<()> {
+        self.set_inputs_checked(sheet, cells, false).map(|_| ())
+    }
+
+    /// [`SheetEngine::set_inputs`] that first checks data validation
+    /// (§18.3.1.32) when `validate` is set: a `stop` rule refuses the whole
+    /// edit (returned, nothing changes); `warning` / `information` rules are
+    /// returned after the edit is applied.
+    pub fn set_inputs_checked(
+        &mut self,
+        sheet: usize,
+        cells: &[(u32, u32, String)],
+        validate: bool,
+    ) -> Result<Option<bo_sheet::validation::Rejection>> {
         let locale = self.locale;
+        let mut notice = None;
+        if validate {
+            let wb = self.wb()?;
+            let ws = self.sheet(sheet)?;
+            for (row, col, input) in cells {
+                let cand = input_to_cell(input, ws.cell(*row, *col), &locale);
+                let value = cand.map_or(CellValue::Empty, |c| {
+                    if c.formula.is_some() {
+                        CellValue::Empty
+                    } else {
+                        c.value
+                    }
+                });
+                if input.starts_with('=') {
+                    continue;
+                }
+                if let Err(r) = bo_sheet::validation::check(
+                    wb,
+                    sheet,
+                    *row,
+                    *col,
+                    &value,
+                    &locale,
+                    self.live.now(),
+                ) {
+                    if r.blocks() {
+                        return Ok(Some(r));
+                    }
+                    notice = Some(r);
+                }
+            }
+        }
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
         let ws = wb
             .sheets
@@ -635,9 +772,10 @@ impl SheetEngine {
             }
             old.push((*row, *col, prev));
         }
-        self.calc.recalculate(wb);
+        let coords: Vec<(u32, u32)> = old.iter().map(|(r, c, _)| (*r, *c)).collect();
+        self.live.update(wb, sheet, &coords);
         self.push_undo(UndoEntry::Cells { sheet, cells: old });
-        Ok(())
+        Ok(notice)
     }
 
     fn push_undo(&mut self, e: UndoEntry) {
@@ -659,7 +797,7 @@ impl SheetEngine {
             return Ok(());
         }
         let before = Box::new(wb.clone());
-        let adj: &dyn FormulaAdjuster = self.adjuster.as_ref();
+        let adj: &dyn FormulaAdjuster = &self.adjuster;
         match (rows, delete) {
             (true, false) => bo_sheet::ops::insert_rows(wb, sheet, at, count, adj),
             (true, true) => bo_sheet::ops::delete_rows(wb, sheet, at, count, adj),
@@ -667,7 +805,7 @@ impl SheetEngine {
             (false, true) => bo_sheet::ops::delete_cols(wb, sheet, at, count, adj),
         }
         .map_err(|e| EngineError::Sheet(e.to_string()))?;
-        self.calc.recalculate(wb);
+        self.live.rebuild(wb);
         self.invalidate(Some(sheet));
         self.push_undo(UndoEntry::Workbook(before));
         Ok(())
@@ -675,8 +813,10 @@ impl SheetEngine {
 
     fn apply(&mut self, e: UndoEntry) -> Result<UndoEntry> {
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let mut touched: Option<(usize, Vec<(u32, u32)>)> = None;
         let inverse = match e {
             UndoEntry::Cells { sheet, cells } => {
+                touched = Some((sheet, cells.iter().map(|(r, c, _)| (*r, *c)).collect()));
                 let ws = wb
                     .sheets
                     .get_mut(sheet)
@@ -698,7 +838,10 @@ impl SheetEngine {
             }
         };
         if let Some(wb) = self.wb.as_mut() {
-            self.calc.recalculate(wb);
+            match touched {
+                Some((sheet, cells)) => self.live.update(wb, sheet, &cells),
+                None => self.live.rebuild(wb),
+            }
         }
         Ok(inverse)
     }
@@ -757,6 +900,7 @@ impl SheetEngine {
         ws.sheet_id = wb.sheets.iter().map(|s| s.sheet_id).max().unwrap_or(0) + 1;
         wb.sheets.push(ws);
         let idx = wb.sheets.len() - 1;
+        self.live.rebuild(wb);
         self.geometry.push(None);
         self.push_undo(UndoEntry::Workbook(before));
         Ok(idx)
@@ -785,6 +929,7 @@ impl SheetEngine {
             .get_mut(sheet)
             .ok_or(EngineError::PageOutOfRange(sheet))?
             .name = name.to_owned();
+        self.live.rebuild(wb);
         self.push_undo(UndoEntry::Workbook(before));
         Ok(())
     }
@@ -797,13 +942,27 @@ impl SheetEngine {
         }
         let before = Box::new(wb.clone());
         wb.sheets.remove(sheet);
+        self.live.rebuild(wb);
         self.invalidate(None);
         self.push_undo(UndoEntry::Workbook(before));
         Ok(())
     }
 
-    /// Serialises the workbook (`xlsx` or `csv` of `sheet`).
-    pub fn save(&self, format: &str, sheet: usize) -> Result<Vec<u8>> {
+    /// Serialises the workbook (`xlsx` or `csv` of `sheet`). Chart caches are
+    /// refreshed from their ranges first (§21.2.2.120 `numCache`).
+    pub fn save(&mut self, format: &str, sheet: usize) -> Result<Vec<u8>> {
+        let locale = self.locale;
+        if format == "xlsx" {
+            if let Some(wb) = self.wb.as_mut() {
+                if wb
+                    .sheets
+                    .iter()
+                    .any(|s| s.charts.iter().any(|c| c.dirty || c.part.is_empty()))
+                {
+                    bo_sheet::chart::refresh_caches(wb, &locale);
+                }
+            }
+        }
         let wb = self.wb()?;
         match format {
             "xlsx" => bo_xlsx::write_xlsx(wb).map_err(|e| EngineError::Sheet(e.to_string())),
@@ -817,68 +976,6 @@ impl SheetEngine {
             }
             other => Err(EngineError::Unsupported(other.to_owned())),
         }
-    }
-
-    /// PDF of the used range of every visible sheet, A4 portrait pages.
-    pub fn export_pdf(&mut self) -> Result<Vec<u8>> {
-        const PAGE_W: f64 = 595.0;
-        const PAGE_H: f64 = 842.0;
-        const MARGIN: f64 = 36.0;
-        let n = self.wb()?.sheets.len();
-        let mut pages = Vec::new();
-        for sheet in 0..n {
-            if self.info()?.sheets.get(sheet).is_some_and(|s| s.hidden) {
-                continue;
-            }
-            let (w, h) = {
-                let ws = self.sheet(sheet)?;
-                let (Some(lr), Some(lc)) = (
-                    ws.cells.keys().map(|k| k.0).max(),
-                    ws.cells.keys().map(|k| k.1).max(),
-                ) else {
-                    continue;
-                };
-                let g = self.geometry(sheet)?;
-                (
-                    g.col_x(lc) + g.col_width(lc),
-                    g.row_y(lr) + g.row_height(lr),
-                )
-            };
-            let (cw, ch) = (PAGE_W - 2.0 * MARGIN, PAGE_H - 2.0 * MARGIN);
-            let mut y = 0.0;
-            while y < h {
-                let mut x = 0.0;
-                while x < w {
-                    let mut page = self.render(&ViewRequest {
-                        sheet,
-                        scroll_x: x,
-                        scroll_y: y,
-                        width: cw,
-                        height: ch,
-                    })?;
-                    #[allow(clippy::cast_possible_truncation)]
-                    translate_page(
-                        &mut page,
-                        MARGIN as f32,
-                        MARGIN as f32,
-                        PAGE_W as f32,
-                        PAGE_H as f32,
-                    );
-                    pages.push(page);
-                    x += cw;
-                }
-                y += ch;
-            }
-        }
-        let list = DisplayList { pages };
-        bo_pdf::write_pdf(
-            &list,
-            &self.fonts,
-            &bo_pdf::PdfMeta {
-                title: Some(self.name.clone()),
-            },
-        )
-        .map_err(EngineError::from)
     }
 
     /// Glyph outlines for the canvas (same as the document engine).

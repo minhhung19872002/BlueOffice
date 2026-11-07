@@ -1,0 +1,1983 @@
+//! BlueSheet editing commands over the JSON bridge (ADR-0002, ADR-0008):
+//! formatting, rows/columns, sort & filter, fill, conditional formatting,
+//! data validation, charts, find/replace, clipboard and page setup.
+//!
+//! Hosts send one [`SheetCommand`] as JSON (`{"cmd": "format", …}`) and get a
+//! JSON value back. Every command that changes the workbook is one undo step.
+
+use super::{input_to_cell, number_input, SheetEngine, UndoEntry, MAX_COLS, MAX_ROWS};
+use crate::{EngineError, Result};
+use bo_model::sheet::{
+    AutoFilter, Cell, CellRange, CellRef, CellValue, ColumnFilter, CustomFilter, FilterColumn,
+    PageMargins, Workbook, Worksheet,
+};
+use bo_sheet::calc::FormulaAdjuster;
+use bo_sheet::cf::CfRuleSpec;
+use bo_sheet::style::{BorderSpec, StylePatch};
+use bo_sheet::validation::ValidationSpec;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+
+/// A rectangular range from the UI (zero-based, inclusive, any corner order).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rng {
+    pub r0: u32,
+    pub c0: u32,
+    pub r1: u32,
+    pub c1: u32,
+}
+
+impl Rng {
+    fn range(self) -> CellRange {
+        let cl = |r: u32, c: u32| CellRef::new(r.min(MAX_ROWS - 1), c.min(MAX_COLS - 1));
+        CellRange::new(cl(self.r0, self.c0), cl(self.r1, self.c1))
+    }
+
+    fn of(r: CellRange) -> Rng {
+        Rng {
+            r0: r.first.row,
+            c0: r.first.col,
+            r1: r.last.row,
+            c1: r.last.col,
+        }
+    }
+}
+
+/// One sort level from the sort dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SortKeySpec {
+    /// Absolute column.
+    pub col: u32,
+    #[serde(default)]
+    pub descending: bool,
+    #[serde(default)]
+    pub case_sensitive: bool,
+}
+
+/// A custom AutoFilter condition (§18.3.2.2 `customFilter`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CondSpec {
+    /// `equal`, `notEqual`, `greaterThan`, `lessThan`, … or the text helpers
+    /// `contains`, `beginsWith`, `endsWith` (written with `*` wildcards).
+    pub operator: String,
+    pub value: String,
+}
+
+/// A filter criterion of one column.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FilterSpec {
+    /// Displayed values to keep (`""` = blanks).
+    pub values: Option<Vec<String>>,
+    pub conditions: Vec<CondSpec>,
+    /// Join two conditions with AND (default OR).
+    pub and: bool,
+}
+
+/// What a paste brings over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PasteMode {
+    #[default]
+    All,
+    Values,
+    Formats,
+    Formulas,
+}
+
+/// Internal clipboard: cell records relative to the copied range.
+#[derive(Debug, Clone)]
+pub struct Clip {
+    pub sheet: usize,
+    pub range: CellRange,
+    /// `(row offset, column offset, cell)`.
+    pub cells: Vec<(u32, u32, Cell)>,
+    pub cut: bool,
+}
+
+/// A cell address in any sheet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct At {
+    pub sheet: usize,
+    pub row: u32,
+    pub col: u32,
+}
+
+/// A sheet editing command.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(tag = "cmd", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum SheetCommand {
+    /// Number formats, cell styles and chart types offered by the UI.
+    Presets,
+    FormatState {
+        sheet: usize,
+        row: u32,
+        col: u32,
+    },
+    Format {
+        sheet: usize,
+        range: Rng,
+        patch: StylePatch,
+    },
+    Borders {
+        sheet: usize,
+        range: Rng,
+        spec: BorderSpec,
+    },
+    CellStyle {
+        sheet: usize,
+        range: Rng,
+        name: String,
+    },
+    ClearFormats {
+        sheet: usize,
+        range: Rng,
+    },
+    /// Format Painter: styles of `from` tiled over `to`.
+    PaintFormat {
+        sheet: usize,
+        from: Rng,
+        to: Rng,
+    },
+    /// Row height / column width in points.
+    Resize {
+        sheet: usize,
+        rows: bool,
+        first: u32,
+        last: u32,
+        size: f64,
+    },
+    Autofit {
+        sheet: usize,
+        rows: bool,
+        first: u32,
+        last: u32,
+    },
+    Hide {
+        sheet: usize,
+        rows: bool,
+        first: u32,
+        last: u32,
+        hidden: bool,
+    },
+    Freeze {
+        sheet: usize,
+        rows: u32,
+        cols: u32,
+    },
+    Merge {
+        sheet: usize,
+        range: Rng,
+        #[serde(default)]
+        across: bool,
+        #[serde(default)]
+        center: bool,
+    },
+    Unmerge {
+        sheet: usize,
+        range: Rng,
+    },
+    Sort {
+        sheet: usize,
+        range: Rng,
+        keys: Vec<SortKeySpec>,
+        #[serde(default)]
+        has_header: bool,
+    },
+    /// The range sort / filter / chart would use for a selection (a single
+    /// cell expands to its current region).
+    Region {
+        sheet: usize,
+        range: Rng,
+    },
+    ToggleFilter {
+        sheet: usize,
+        range: Rng,
+    },
+    FilterValues {
+        sheet: usize,
+        col: u32,
+    },
+    SetFilter {
+        sheet: usize,
+        col: u32,
+        #[serde(default)]
+        filter: Option<FilterSpec>,
+    },
+    Autofill {
+        sheet: usize,
+        source: Rng,
+        target: Rng,
+    },
+    /// Ctrl+D (`down`) / Ctrl+R (`right`): copies the first row / column.
+    FillDir {
+        sheet: usize,
+        range: Rng,
+        dir: String,
+    },
+    AddCf {
+        sheet: usize,
+        range: Rng,
+        rule: CfRuleSpec,
+    },
+    ClearCf {
+        sheet: usize,
+        range: Rng,
+    },
+    Validation {
+        sheet: usize,
+        row: u32,
+        col: u32,
+    },
+    SetValidation {
+        sheet: usize,
+        range: Rng,
+        spec: ValidationSpec,
+    },
+    /// Inputs as one undo step, checked against data validation.
+    SetInputs {
+        sheet: usize,
+        cells: Vec<(u32, u32, String)>,
+        #[serde(default)]
+        validate: bool,
+    },
+    InsertChart {
+        sheet: usize,
+        range: Rng,
+        kind: String,
+    },
+    Charts {
+        sheet: usize,
+    },
+    EditChart {
+        sheet: usize,
+        index: usize,
+        #[serde(default)]
+        kind: Option<String>,
+        /// `""` removes the title.
+        #[serde(default)]
+        title: Option<String>,
+        /// `r` / `l` / `t` / `b` or `none`.
+        #[serde(default)]
+        legend: Option<String>,
+        #[serde(default)]
+        x_title: Option<String>,
+        #[serde(default)]
+        y_title: Option<String>,
+    },
+    /// Removes a chart inserted in this session (charts from the file stay).
+    DeleteChart {
+        sheet: usize,
+        index: usize,
+    },
+    Find {
+        query: String,
+        #[serde(default)]
+        match_case: bool,
+        #[serde(default)]
+        whole_cell: bool,
+        /// Search formulas (input text) instead of displayed values.
+        #[serde(default)]
+        in_formulas: bool,
+        /// `None` = every sheet.
+        #[serde(default)]
+        sheet: Option<usize>,
+    },
+    Replace {
+        query: String,
+        with: String,
+        #[serde(default)]
+        match_case: bool,
+        #[serde(default)]
+        whole_cell: bool,
+        #[serde(default)]
+        sheet: Option<usize>,
+        /// Only this cell (Replace), else every match (Replace All).
+        #[serde(default)]
+        at: Option<At>,
+    },
+    /// Defined names (Go To list).
+    Names,
+    /// Resolves `B7`, `Sheet2!A1:C3` or a defined name (Go To).
+    Resolve {
+        sheet: usize,
+        text: String,
+    },
+    Copy {
+        sheet: usize,
+        range: Rng,
+        #[serde(default)]
+        cut: bool,
+    },
+    Paste {
+        sheet: usize,
+        row: u32,
+        col: u32,
+        #[serde(default)]
+        mode: PasteMode,
+        #[serde(default)]
+        transpose: bool,
+        #[serde(default)]
+        skip_blanks: bool,
+    },
+    PageSetup {
+        sheet: usize,
+    },
+    SetPageSetup {
+        sheet: usize,
+        #[serde(default)]
+        orientation: Option<String>,
+        #[serde(default)]
+        paper_size: Option<u32>,
+        #[serde(default)]
+        scale: Option<u32>,
+        /// Fit to `[width, height]` pages (0 = no limit); `null` turns fitting off.
+        #[serde(default)]
+        fit: Option<Option<[u32; 2]>>,
+        /// Margins in inches: left, right, top, bottom.
+        #[serde(default)]
+        margins: Option<[f64; 4]>,
+        /// `null` clears the print area.
+        #[serde(default)]
+        print_area: Option<Option<Rng>>,
+        /// Rows repeated at the top `[first, last]`; `null` clears.
+        #[serde(default)]
+        title_rows: Option<Option<[u32; 2]>>,
+        #[serde(default)]
+        grid_lines: Option<bool>,
+    },
+}
+
+/// Recalculation needed after an edit.
+#[derive(Clone, Copy)]
+enum Recalc {
+    No,
+    All,
+    Range(usize, CellRange),
+}
+
+fn bad(msg: impl Into<String>) -> EngineError {
+    EngineError::Sheet(msg.into())
+}
+
+fn non_empty(c: &Cell) -> bool {
+    !matches!(c.value, CellValue::Empty) || c.formula.is_some()
+}
+
+/// The contiguous block of data around a single cell (Ctrl+A / sort / filter).
+pub(crate) fn current_region(ws: &Worksheet, r: CellRange) -> CellRange {
+    if r.rows() > 1 || r.cols() > 1 {
+        return r;
+    }
+    let filled = |row: u32, c0: u32, c1: u32| {
+        ws.cells
+            .range((row, c0)..=(row, c1))
+            .any(|(_, c)| non_empty(c))
+    };
+    let (mut r0, mut c0, mut r1, mut c1) = (r.first.row, r.first.col, r.last.row, r.last.col);
+    for _ in 0..100_000 {
+        let lc = c0.saturating_sub(1);
+        let rc = (c1 + 1).min(MAX_COLS - 1);
+        let mut grown = false;
+        if r0 > 0 && filled(r0 - 1, lc, rc) {
+            r0 -= 1;
+            grown = true;
+        }
+        if r1 + 1 < MAX_ROWS && filled(r1 + 1, lc, rc) {
+            r1 += 1;
+            grown = true;
+        }
+        if c0 > 0 && (r0.saturating_sub(1)..=r1 + 1).any(|row| filled(row, c0 - 1, c0 - 1)) {
+            c0 -= 1;
+            grown = true;
+        }
+        if c1 + 1 < MAX_COLS
+            && (r0.saturating_sub(1)..=r1 + 1).any(|row| filled(row, c1 + 1, c1 + 1))
+        {
+            c1 += 1;
+            grown = true;
+        }
+        if !grown {
+            break;
+        }
+    }
+    CellRange::new(CellRef::new(r0, c0), CellRef::new(r1, c1))
+}
+
+fn tsv_field(s: &str) -> String {
+    if s.contains(['\t', '\n', '\r', '"']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_owned()
+    }
+}
+
+/// `customFilter` from a UI condition (§18.18.31 `ST_FilterOperator`).
+fn custom_of(c: &CondSpec) -> CustomFilter {
+    let (op, val) = match c.operator.as_str() {
+        "contains" => ("equal", format!("*{}*", c.value)),
+        "notContains" => ("notEqual", format!("*{}*", c.value)),
+        "beginsWith" => ("equal", format!("{}*", c.value)),
+        "endsWith" => ("equal", format!("*{}", c.value)),
+        other => (other, c.value.clone()),
+    };
+    CustomFilter {
+        operator: (op != "equal").then(|| op.to_owned()),
+        val,
+    }
+}
+
+fn replace_text(hay: &str, needle: &str, with: &str, match_case: bool) -> (String, usize) {
+    if needle.is_empty() {
+        return (hay.to_owned(), 0);
+    }
+    if match_case {
+        let n = hay.matches(needle).count();
+        return (hay.replace(needle, with), n);
+    }
+    let low_h = hay.to_lowercase();
+    let low_n = needle.to_lowercase();
+    // Lower-casing can change byte lengths (rare); fall back to exact matching then.
+    if low_h.len() != hay.len() || low_n.len() != needle.len() {
+        let n = hay.matches(needle).count();
+        return (hay.replace(needle, with), n);
+    }
+    let mut out = String::with_capacity(hay.len());
+    let mut i = 0;
+    let mut n = 0;
+    while let Some(p) = low_h[i..].find(&low_n) {
+        out.push_str(&hay[i..i + p]);
+        out.push_str(with);
+        i += p + needle.len();
+        n += 1;
+    }
+    out.push_str(&hay[i..]);
+    (out, n)
+}
+
+impl SheetEngine {
+    /// Runs a command given as JSON; returns the JSON result.
+    pub fn exec_json(&mut self, json: &str) -> Result<String> {
+        let cmd: SheetCommand =
+            serde_json::from_str(json).map_err(|e| bad(format!("bad command: {e}")))?;
+        Ok(self.exec(cmd)?.to_string())
+    }
+
+    /// One mutating edit: snapshot for undo, apply, refresh geometry and values.
+    fn edit<R>(
+        &mut self,
+        sheet: usize,
+        recalc: Recalc,
+        f: impl FnOnce(&mut Workbook, &bo_sheet::formula::BoFormula) -> Result<R>,
+    ) -> Result<R> {
+        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        if sheet >= wb.sheets.len() {
+            return Err(EngineError::PageOutOfRange(sheet));
+        }
+        let before = Box::new(wb.clone());
+        let out = f(wb, &self.adjuster)?;
+        match recalc {
+            Recalc::No => {}
+            Recalc::All => self.live.rebuild(wb),
+            Recalc::Range(si, r) => {
+                let cells: Vec<(u32, u32)> = (r.first.row..=r.last.row)
+                    .flat_map(|row| (r.first.col..=r.last.col).map(move |c| (row, c)))
+                    .collect();
+                self.live.update(wb, si, &cells);
+            }
+        }
+        self.invalidate(Some(sheet));
+        self.push_undo(UndoEntry::Workbook(before));
+        Ok(out)
+    }
+
+    /// Executes a command.
+    #[allow(clippy::too_many_lines)]
+    pub fn exec(&mut self, cmd: SheetCommand) -> Result<Value> {
+        use SheetCommand as C;
+        let locale = self.locale;
+        match cmd {
+            C::Presets => Ok(json!({
+                "numberFormats": bo_sheet::style::NUMBER_PRESETS
+                    .iter()
+                    .map(|(id, code)| json!({ "id": id, "code": code }))
+                    .collect::<Vec<_>>(),
+                "cellStyles": bo_sheet::style::NAMED_STYLES.iter().map(|s| s.name).collect::<Vec<_>>(),
+                "chartTypes": bo_sheet::chart::CHART_TYPES,
+            })),
+            C::FormatState { sheet, row, col } => {
+                self.sheet(sheet)?;
+                let st = bo_sheet::style::format_state(self.wb()?, sheet, row, col, &locale);
+                Ok(serde_json::to_value(st).unwrap_or(Value::Null))
+            }
+            C::Format {
+                sheet,
+                range,
+                patch,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::style::apply_patch(wb, sheet, range.range(), &patch)
+                    .then_some(json!({ "ok": true }))
+                    .ok_or_else(|| bad("range too large"))
+            }),
+            C::Borders { sheet, range, spec } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::style::apply_borders(wb, sheet, range.range(), &spec)
+                    .then_some(json!({ "ok": true }))
+                    .ok_or_else(|| bad("range too large"))
+            }),
+            C::CellStyle { sheet, range, name } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::style::apply_named_style(wb, sheet, range.range(), &name)
+                    .then_some(json!({ "ok": true }))
+                    .ok_or_else(|| bad(format!("unknown cell style '{name}'")))
+            }),
+            C::ClearFormats { sheet, range } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::style::clear_formats(wb, sheet, range.range());
+                Ok(json!({ "ok": true }))
+            }),
+            C::PaintFormat { sheet, from, to } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::style::copy_formats(wb, sheet, from.range(), to.range())
+                    .then_some(json!({ "ok": true }))
+                    .ok_or_else(|| bad("range too large"))
+            }),
+            C::Resize {
+                sheet,
+                rows,
+                first,
+                last,
+                size,
+            } => {
+                let metrics = self.geometry(sheet)?.metrics;
+                self.edit(sheet, Recalc::No, |wb, _| {
+                    let ws = &mut wb.sheets[sheet];
+                    let (a, b) = (first.min(last), first.max(last));
+                    if rows {
+                        bo_sheet::rowcol::set_row_height(ws, a, b, size);
+                    } else {
+                        bo_sheet::rowcol::set_col_width(ws, &metrics, a, b, size);
+                    }
+                    Ok(json!({ "ok": true }))
+                })
+            }
+            C::Autofit {
+                sheet,
+                rows,
+                first,
+                last,
+            } => self.autofit(sheet, rows, first.min(last), first.max(last)),
+            C::Hide {
+                sheet,
+                rows,
+                first,
+                last,
+                hidden,
+            } => self.edit(sheet, Recalc::All, |wb, _| {
+                bo_sheet::rowcol::set_hidden(
+                    &mut wb.sheets[sheet],
+                    rows,
+                    first.min(last),
+                    first.max(last),
+                    hidden,
+                );
+                Ok(json!({ "ok": true }))
+            }),
+            C::Freeze { sheet, rows, cols } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::rowcol::freeze(
+                    &mut wb.sheets[sheet],
+                    rows.min(MAX_ROWS - 1),
+                    cols.min(MAX_COLS - 1),
+                );
+                Ok(json!({ "ok": true }))
+            }),
+            C::Merge {
+                sheet,
+                range,
+                across,
+                center,
+            } => self.edit(sheet, Recalc::All, |wb, _| {
+                let r = range.range();
+                bo_sheet::rowcol::merge(&mut wb.sheets[sheet], r, across);
+                if center {
+                    bo_sheet::style::apply_patch(
+                        wb,
+                        sheet,
+                        r,
+                        &StylePatch {
+                            h_align: Some("center".into()),
+                            ..StylePatch::default()
+                        },
+                    );
+                }
+                Ok(json!({ "ok": true }))
+            }),
+            C::Unmerge { sheet, range } => self.edit(sheet, Recalc::No, |wb, _| {
+                let n = bo_sheet::rowcol::unmerge(&mut wb.sheets[sheet], range.range());
+                Ok(json!({ "removed": n }))
+            }),
+            C::Region { sheet, range } => {
+                let ws = self.sheet(sheet)?;
+                Ok(
+                    serde_json::to_value(Rng::of(current_region(ws, range.range())))
+                        .unwrap_or(Value::Null),
+                )
+            }
+            C::Sort {
+                sheet,
+                range,
+                keys,
+                has_header,
+            } => {
+                let r = current_region(self.sheet(sheet)?, range.range());
+                self.edit(sheet, Recalc::All, |wb, adj| {
+                    let keys: Vec<bo_sheet::sort::SortKey> = keys
+                        .iter()
+                        .map(|k| bo_sheet::sort::SortKey {
+                            col: k.col,
+                            descending: k.descending,
+                            case_sensitive: k.case_sensitive,
+                        })
+                        .collect();
+                    bo_sheet::sort::sort_range_with(
+                        &mut wb.sheets[sheet],
+                        r,
+                        &keys,
+                        has_header,
+                        adj,
+                    );
+                    Ok(serde_json::to_value(Rng::of(r)).unwrap_or(Value::Null))
+                })
+            }
+            C::ToggleFilter { sheet, range } => {
+                let r = current_region(self.sheet(sheet)?, range.range());
+                self.edit(sheet, Recalc::All, |wb, _| {
+                    let ws = &mut wb.sheets[sheet];
+                    if let Some(af) = ws.auto_filter.take() {
+                        for row in af.range.first.row..=af.range.last.row {
+                            bo_sheet::rowcol::set_hidden(ws, true, row, row, false);
+                        }
+                        return Ok(json!({ "active": false }));
+                    }
+                    ws.auto_filter = Some(AutoFilter {
+                        range: r,
+                        ..AutoFilter::default()
+                    });
+                    Ok(json!({ "active": true, "range": Rng::of(r) }))
+                })
+            }
+            C::FilterValues { sheet, col } => {
+                let wb = self.wb()?;
+                let ws = self.sheet(sheet)?;
+                let af = ws
+                    .auto_filter
+                    .as_ref()
+                    .ok_or_else(|| bad("no AutoFilter"))?;
+                if col < af.range.first.col || col > af.range.last.col {
+                    return Err(bad("column outside the AutoFilter"));
+                }
+                let col_id = col - af.range.first.col;
+                let values = bo_sheet::filter::column_values(wb, ws, af, col_id, &locale);
+                let current = af
+                    .columns
+                    .iter()
+                    .find(|c| c.col_id == col_id)
+                    .map(|c| &c.filter);
+                let checked = |v: &str| match current {
+                    Some(ColumnFilter::Values { values, blank }) => {
+                        if v.is_empty() {
+                            *blank
+                        } else {
+                            values.iter().any(|x| x.to_lowercase() == v.to_lowercase())
+                        }
+                    }
+                    _ => true,
+                };
+                let kind = match current {
+                    None | Some(ColumnFilter::None) => "none",
+                    Some(ColumnFilter::Values { .. }) => "values",
+                    Some(ColumnFilter::Custom { .. }) => "custom",
+                    Some(_) => "other",
+                };
+                Ok(json!({
+                    "kind": kind,
+                    "values": values
+                        .iter()
+                        .map(|v| json!({ "text": v, "checked": checked(v) }))
+                        .collect::<Vec<_>>(),
+                }))
+            }
+            C::SetFilter { sheet, col, filter } => self.edit(sheet, Recalc::All, |wb, _| {
+                let ws = &mut wb.sheets[sheet];
+                let af = ws
+                    .auto_filter
+                    .as_mut()
+                    .ok_or_else(|| bad("no AutoFilter"))?;
+                if col < af.range.first.col || col > af.range.last.col {
+                    return Err(bad("column outside the AutoFilter"));
+                }
+                let col_id = col - af.range.first.col;
+                af.columns.retain(|c| c.col_id != col_id);
+                let crit = match filter {
+                    Some(FilterSpec {
+                        values: Some(values),
+                        ..
+                    }) => {
+                        let blank = values.iter().any(String::is_empty);
+                        Some(ColumnFilter::Values {
+                            values: values.into_iter().filter(|v| !v.is_empty()).collect(),
+                            blank,
+                        })
+                    }
+                    Some(FilterSpec {
+                        conditions, and, ..
+                    }) if !conditions.is_empty() => Some(ColumnFilter::Custom {
+                        and,
+                        conditions: conditions.iter().take(2).map(custom_of).collect(),
+                    }),
+                    _ => None,
+                };
+                if let Some(filter) = crit {
+                    af.columns.push(FilterColumn {
+                        col_id,
+                        hidden_button: false,
+                        show_button: None,
+                        filter,
+                    });
+                    af.columns.sort_by_key(|c| c.col_id);
+                }
+                let hidden = bo_sheet::filter::apply_auto_filter(wb, sheet, &locale);
+                Ok(json!({ "hidden": hidden }))
+            }),
+            C::Autofill {
+                sheet,
+                source,
+                target,
+            } => {
+                let t = target.range();
+                self.edit(sheet, Recalc::Range(sheet, t), |wb, adj| {
+                    let done = bo_sheet::fill::autofill(wb, sheet, source.range(), t, &locale, adj);
+                    Ok(json!({ "ok": done }))
+                })
+            }
+            C::FillDir { sheet, range, dir } => {
+                let r = range.range();
+                self.edit(sheet, Recalc::Range(sheet, r), |wb, adj| {
+                    let ws = &mut wb.sheets[sheet];
+                    let down = dir != "right";
+                    let (n, lanes) = if down {
+                        (r.rows(), r.first.col..=r.last.col)
+                    } else {
+                        (r.cols(), r.first.row..=r.last.row)
+                    };
+                    if n < 2 {
+                        return Ok(json!({ "ok": false }));
+                    }
+                    for lane in lanes {
+                        let src = if down {
+                            (r.first.row, lane)
+                        } else {
+                            (lane, r.first.col)
+                        };
+                        let cell = ws.cell(src.0, src.1).cloned();
+                        for i in 1..n {
+                            let dst = if down {
+                                (r.first.row + i, lane)
+                            } else {
+                                (lane, r.first.col + i)
+                            };
+                            match &cell {
+                                Some(c) => {
+                                    let mut c = c.clone();
+                                    if let Some(f) = c.formula.as_mut() {
+                                        let (dr, dc) = if down {
+                                            (i64::from(i), 0)
+                                        } else {
+                                            (0, i64::from(i))
+                                        };
+                                        if let Some(t) = adj.translate(&f.text, dr, dc) {
+                                            f.text = t;
+                                        }
+                                        f.kind = bo_model::sheet::FormulaKind::Normal;
+                                    }
+                                    ws.cells.insert(dst, c);
+                                }
+                                None => {
+                                    ws.cells.remove(&dst);
+                                }
+                            }
+                        }
+                    }
+                    Ok(json!({ "ok": true }))
+                })
+            }
+            C::AddCf { sheet, range, rule } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::cf::add_rule(wb, sheet, range.range(), &rule)
+                    .then_some(json!({ "ok": true }))
+                    .ok_or_else(|| bad("invalid rule"))
+            }),
+            C::ClearCf { sheet, range } => self.edit(sheet, Recalc::No, |wb, _| {
+                Ok(json!({ "removed": bo_sheet::cf::clear_rules(wb, sheet, range.range()) }))
+            }),
+            C::Validation { sheet, row, col } => {
+                let wb = self.wb()?;
+                self.sheet(sheet)?;
+                let Some(dv) = bo_sheet::validation::rule_at(wb, sheet, row, col) else {
+                    return Ok(json!({ "list": null }));
+                };
+                let list = bo_sheet::validation::has_dropdown(dv)
+                    .then(|| bo_sheet::validation::list_items(wb, sheet, dv, &locale));
+                Ok(json!({
+                    "kind": dv.kind,
+                    "list": list,
+                    "prompt": dv.prompt,
+                    "promptTitle": dv.prompt_title,
+                }))
+            }
+            C::SetValidation { sheet, range, spec } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::validation::set_rule(wb, sheet, range.range(), &spec)
+                    .then_some(json!({ "ok": true }))
+                    .ok_or_else(|| bad("invalid validation rule"))
+            }),
+            C::SetInputs {
+                sheet,
+                cells,
+                validate,
+            } => {
+                let r = self.set_inputs_checked(sheet, &cells, validate)?;
+                let blocked = r
+                    .as_ref()
+                    .is_some_and(bo_sheet::validation::Rejection::blocks);
+                Ok(json!({
+                    "rejected": if blocked { serde_json::to_value(&r).unwrap_or(Value::Null) } else { Value::Null },
+                    "warning": if blocked { Value::Null } else { serde_json::to_value(&r).unwrap_or(Value::Null) },
+                }))
+            }
+            C::InsertChart { sheet, range, kind } => {
+                let r = current_region(self.sheet(sheet)?, range.range());
+                let chart = bo_sheet::chart::new_chart(self.wb()?, sheet, r, &kind)
+                    .ok_or_else(|| bad("no data for a chart"))?;
+                self.edit(sheet, Recalc::No, |wb, _| {
+                    let charts = &mut wb.sheets[sheet].charts;
+                    charts.push(chart);
+                    Ok(json!({ "index": charts.len() - 1 }))
+                })
+            }
+            C::Charts { sheet } => {
+                let ws = self.sheet(sheet)?;
+                Ok(Value::Array(
+                    ws.charts
+                        .iter()
+                        .enumerate()
+                        .map(|(i, c)| {
+                            let p = c.plots.first();
+                            let kind = match (
+                                c.plots.len(),
+                                p.map(|p| (&p.kind, p.bar_dir.as_deref(), p.grouping.as_deref())),
+                            ) {
+                                (n, _) if n > 1 => "combo",
+                                (_, Some((bo_model::sheet::ChartKind::Bar, Some("bar"), _))) => {
+                                    "bar"
+                                }
+                                (
+                                    _,
+                                    Some((
+                                        bo_model::sheet::ChartKind::Bar,
+                                        _,
+                                        Some("stacked" | "percentStacked"),
+                                    )),
+                                ) => "stackedColumn",
+                                (_, Some((bo_model::sheet::ChartKind::Line, ..))) => "line",
+                                (_, Some((bo_model::sheet::ChartKind::Area, ..))) => "area",
+                                (_, Some((bo_model::sheet::ChartKind::Pie, ..))) => "pie",
+                                (_, Some((bo_model::sheet::ChartKind::Doughnut, ..))) => "doughnut",
+                                (_, Some((bo_model::sheet::ChartKind::Scatter, ..))) => "scatter",
+                                _ => "column",
+                            };
+                            json!({
+                                "index": i,
+                                "kind": kind,
+                                "title": c.title,
+                                "legend": c.legend,
+                                "xTitle": c.x_title,
+                                "yTitle": c.y_title,
+                                "from": [c.from.row, c.from.col],
+                                "series": c.plots.iter().map(|p| p.series.len()).sum::<usize>(),
+                                "editable": true,
+                            })
+                        })
+                        .collect(),
+                ))
+            }
+            C::EditChart {
+                sheet,
+                index,
+                kind,
+                title,
+                legend,
+                x_title,
+                y_title,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                let c = wb.sheets[sheet]
+                    .charts
+                    .get_mut(index)
+                    .ok_or_else(|| bad("no such chart"))?;
+                let opt = |s: String| (!s.trim().is_empty()).then(|| s.trim().to_owned());
+                if let Some(k) = kind {
+                    bo_sheet::chart::set_chart_type(c, &k);
+                }
+                if let Some(t) = title {
+                    c.title = opt(t);
+                }
+                if let Some(l) = legend {
+                    c.legend = (l != "none" && !l.is_empty()).then_some(l);
+                }
+                if let Some(t) = x_title {
+                    c.x_title = opt(t);
+                }
+                if let Some(t) = y_title {
+                    c.y_title = opt(t);
+                }
+                c.dirty = true;
+                Ok(json!({ "ok": true }))
+            }),
+            C::DeleteChart { sheet, index } => self.edit(sheet, Recalc::No, |wb, _| {
+                let charts = &mut wb.sheets[sheet].charts;
+                match charts.get(index) {
+                    Some(c) if c.part.is_empty() => {
+                        charts.remove(index);
+                        Ok(json!({ "ok": true }))
+                    }
+                    Some(_) => Err(bad("charts from the file cannot be deleted yet")),
+                    None => Err(bad("no such chart")),
+                }
+            }),
+            C::Find {
+                query,
+                match_case,
+                whole_cell,
+                in_formulas,
+                sheet,
+            } => Ok(json!({
+                "matches": self.find(&query, match_case, whole_cell, in_formulas, sheet)?,
+            })),
+            C::Replace {
+                query,
+                with,
+                match_case,
+                whole_cell,
+                sheet,
+                at,
+            } => self.replace(&query, &with, match_case, whole_cell, sheet, at),
+            C::Names => {
+                let wb = self.wb()?;
+                Ok(Value::Array(
+                    wb.defined_names
+                        .iter()
+                        .filter(|d| !d.hidden && !d.name.starts_with("_xlnm."))
+                        .map(|d| json!({ "name": d.name, "ref": d.formula }))
+                        .collect(),
+                ))
+            }
+            C::Resolve { sheet, text } => {
+                let wb = self.wb()?;
+                Ok(match bo_sheet::cells::resolve_ref(wb, sheet, &text) {
+                    Some((si, r)) => json!({ "sheet": si, "range": Rng::of(r) }),
+                    None => Value::Null,
+                })
+            }
+            C::Copy { sheet, range, cut } => self.copy(sheet, range.range(), cut),
+            C::Paste {
+                sheet,
+                row,
+                col,
+                mode,
+                transpose,
+                skip_blanks,
+            } => self.paste(sheet, row, col, mode, transpose, skip_blanks),
+            C::PageSetup { sheet } => {
+                let ws = self.sheet(sheet)?;
+                let p = &ws.page_setup;
+                let m = p.margins.unwrap_or_default();
+                let (rows, _) = ws
+                    .print_titles
+                    .as_deref()
+                    .map_or((None, None), super::print::parse_titles);
+                Ok(json!({
+                    "orientation": p.orientation.clone().unwrap_or_else(|| "portrait".into()),
+                    "paperSize": p.paper_size.unwrap_or(9),
+                    "scale": p.scale.unwrap_or(100),
+                    "fit": (ws.props.fit_to_page == Some(true))
+                        .then(|| [p.fit_to_width.unwrap_or(1), p.fit_to_height.unwrap_or(1)]),
+                    "margins": [m.left, m.right, m.top, m.bottom],
+                    "printArea": ws.print_area,
+                    "titleRows": rows.map(|(a, b)| [a, b]),
+                    "gridLines": p.print_grid_lines,
+                }))
+            }
+            C::SetPageSetup {
+                sheet,
+                orientation,
+                paper_size,
+                scale,
+                fit,
+                margins,
+                print_area,
+                title_rows,
+                grid_lines,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                let ws = &mut wb.sheets[sheet];
+                let name = bo_sheet::cells::quote_sheet(&ws.name);
+                let p = &mut ws.page_setup;
+                if let Some(o) = orientation {
+                    p.orientation = Some(o);
+                }
+                if let Some(s) = paper_size {
+                    p.paper_size = Some(s);
+                }
+                if let Some(s) = scale {
+                    p.scale = Some(s.clamp(10, 400));
+                }
+                if let Some(f) = fit {
+                    if let Some([w, h]) = f {
+                        ws.props.fit_to_page = Some(true);
+                        ws.props.present = true;
+                        p.fit_to_width = Some(w);
+                        p.fit_to_height = Some(h);
+                    } else {
+                        ws.props.fit_to_page = None;
+                        p.fit_to_width = None;
+                        p.fit_to_height = None;
+                    }
+                }
+                if let Some([l, r, t, b]) = margins {
+                    let d = PageMargins::default();
+                    let base = p.margins.unwrap_or(d);
+                    p.margins = Some(PageMargins {
+                        left: l.clamp(0.0, 10.0),
+                        right: r.clamp(0.0, 10.0),
+                        top: t.clamp(0.0, 10.0),
+                        bottom: b.clamp(0.0, 10.0),
+                        ..base
+                    });
+                }
+                if let Some(g) = grid_lines {
+                    p.print_grid_lines = g;
+                    p.has_print_options |= g;
+                }
+                if let Some(pa) = print_area {
+                    ws.print_area = pa.map(|r| bo_sheet::cells::abs_ref(&ws.name, r.range()));
+                }
+                if let Some(tr) = title_rows {
+                    ws.print_titles =
+                        tr.map(|[a, b]| format!("{name}!${}:${}", a.min(b) + 1, a.max(b) + 1));
+                }
+                Ok(json!({ "ok": true }))
+            }),
+        }
+    }
+
+    fn autofit(&mut self, sheet: usize, rows: bool, first: u32, last: u32) -> Result<Value> {
+        let locale = self.locale;
+        let metrics = self.geometry(sheet)?.metrics;
+        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let ws = wb
+            .sheets
+            .get(sheet)
+            .ok_or(EngineError::PageOutOfRange(sheet))?;
+        let mut sizes: Vec<(u32, f64)> = Vec::new();
+        let in_merge = |r: u32, c: u32| ws.merge_at(CellRef::new(r, c)).is_some();
+        if rows {
+            for r in first..=last.min(MAX_ROWS - 1) {
+                let mut h: f64 = 0.0;
+                for (&(rr, cc), cell) in ws.cells.range((r, 0)..=(r, MAX_COLS)) {
+                    if non_empty(cell) && !in_merge(rr, cc) {
+                        h = h.max(
+                            bo_sheet::render::measure_cell(wb, cell, &mut self.fonts, &locale).1,
+                        );
+                    }
+                }
+                sizes.push((
+                    r,
+                    if h > 0.0 {
+                        h.max(metrics.default_row_height_pt)
+                    } else {
+                        metrics.default_row_height_pt
+                    },
+                ));
+                if sizes.len() > 100_000 {
+                    break;
+                }
+            }
+        } else {
+            let mut widths = std::collections::HashMap::<u32, f64>::new();
+            for (&(rr, cc), cell) in &ws.cells {
+                if cc >= first && cc <= last && non_empty(cell) && !in_merge(rr, cc) {
+                    let w = bo_sheet::render::measure_cell(wb, cell, &mut self.fonts, &locale).0;
+                    let e = widths.entry(cc).or_insert(0.0);
+                    *e = e.max(w);
+                }
+            }
+            let default = metrics.default_col_pt(ws);
+            for c in first..=last.min(MAX_COLS - 1) {
+                sizes.push((
+                    c,
+                    widths
+                        .get(&c)
+                        .copied()
+                        .unwrap_or(default)
+                        .clamp(6.0, 1_500.0),
+                ));
+                if sizes.len() > 16_384 {
+                    break;
+                }
+            }
+        }
+        self.edit(sheet, Recalc::No, |wb, _| {
+            let ws = &mut wb.sheets[sheet];
+            for (i, s) in &sizes {
+                if rows {
+                    bo_sheet::rowcol::set_row_height(ws, *i, *i, *s);
+                } else {
+                    bo_sheet::rowcol::set_col_width(ws, &metrics, *i, *i, *s);
+                }
+            }
+            Ok(json!({ "ok": true, "sizes": sizes }))
+        })
+    }
+
+    /// Input text of a cell (formula bar form).
+    fn input_of(&self, cell: &Cell) -> String {
+        match (&cell.formula, &cell.value) {
+            (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
+            (_, CellValue::Number(n)) => number_input(*n, &self.locale),
+            (_, CellValue::Bool(b)) => if *b { "TRUE" } else { "FALSE" }.to_owned(),
+            (_, CellValue::Error(e)) => e.as_str().to_owned(),
+            (_, v) => v.as_text().unwrap_or_default(),
+        }
+    }
+
+    fn find(
+        &self,
+        query: &str,
+        match_case: bool,
+        whole_cell: bool,
+        in_formulas: bool,
+        sheet: Option<usize>,
+    ) -> Result<Vec<At>> {
+        let wb = self.wb()?;
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let q = if match_case {
+            query.to_owned()
+        } else {
+            query.to_lowercase()
+        };
+        let mut out = Vec::new();
+        for (si, ws) in wb.sheets.iter().enumerate() {
+            if sheet.is_some_and(|s| s != si) {
+                continue;
+            }
+            for (&(row, col), cell) in &ws.cells {
+                let text = if in_formulas {
+                    self.input_of(cell)
+                } else {
+                    bo_sheet::render::format_cell(wb, cell, &self.locale).text
+                };
+                let t = if match_case {
+                    text
+                } else {
+                    text.to_lowercase()
+                };
+                let hit = if whole_cell { t == q } else { t.contains(&q) };
+                if hit {
+                    out.push(At {
+                        sheet: si,
+                        row,
+                        col,
+                    });
+                    if out.len() >= 10_000 {
+                        return Ok(out);
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn replace(
+        &mut self,
+        query: &str,
+        with: &str,
+        match_case: bool,
+        whole_cell: bool,
+        sheet: Option<usize>,
+        at: Option<At>,
+    ) -> Result<Value> {
+        let targets = match at {
+            Some(a) => vec![a],
+            None => self.find(query, match_case, whole_cell, true, sheet)?,
+        };
+        let mut by_sheet: std::collections::BTreeMap<usize, Vec<(u32, u32, String)>> =
+            std::collections::BTreeMap::new();
+        let mut count = 0;
+        {
+            let wb = self.wb()?;
+            for t in &targets {
+                let Some(cell) = wb.sheets.get(t.sheet).and_then(|s| s.cell(t.row, t.col)) else {
+                    continue;
+                };
+                let input = self.input_of(cell);
+                let new = if whole_cell {
+                    let same = if match_case {
+                        input == query
+                    } else {
+                        input.to_lowercase() == query.to_lowercase()
+                    };
+                    same.then(|| with.to_owned())
+                } else {
+                    let (s, n) = replace_text(&input, query, with, match_case);
+                    (n > 0).then_some(s)
+                };
+                if let Some(n) = new {
+                    count += 1;
+                    by_sheet.entry(t.sheet).or_default().push((t.row, t.col, n));
+                }
+            }
+        }
+        for (si, cells) in by_sheet {
+            self.set_inputs(si, &cells)?;
+        }
+        Ok(json!({ "count": count }))
+    }
+
+    fn copy(&mut self, sheet: usize, range: CellRange, cut: bool) -> Result<Value> {
+        let ws = self.sheet(sheet)?;
+        if u64::from(range.rows()) * u64::from(range.cols()) > 1_000_000 {
+            return Err(bad("selection too large to copy"));
+        }
+        let wb = self.wb()?;
+        let mut cells = Vec::new();
+        let mut lines = Vec::with_capacity(range.rows() as usize);
+        for r in range.first.row..=range.last.row {
+            let mut line = Vec::with_capacity(range.cols() as usize);
+            for c in range.first.col..=range.last.col {
+                match ws.cell(r, c) {
+                    Some(cell) => {
+                        cells.push((r - range.first.row, c - range.first.col, cell.clone()));
+                        let text = if cell.formula.is_some() {
+                            bo_sheet::render::format_cell(wb, cell, &self.locale).text
+                        } else {
+                            self.input_of(cell)
+                        };
+                        line.push(tsv_field(&text));
+                    }
+                    None => line.push(String::new()),
+                }
+            }
+            lines.push(line.join("\t"));
+        }
+        let text = lines.join("\r\n");
+        self.clip = Some(super::Clip {
+            sheet,
+            range,
+            cells,
+            cut,
+        });
+        Ok(json!({ "text": text }))
+    }
+
+    #[allow(clippy::fn_params_excessive_bools)]
+    fn paste(
+        &mut self,
+        sheet: usize,
+        row: u32,
+        col: u32,
+        mode: PasteMode,
+        transpose: bool,
+        skip_blanks: bool,
+    ) -> Result<Value> {
+        let Some(clip) = self.clip.clone() else {
+            return Ok(Value::Null);
+        };
+        let (h, w) = if transpose {
+            (clip.range.cols(), clip.range.rows())
+        } else {
+            (clip.range.rows(), clip.range.cols())
+        };
+        let last_r = row.saturating_add(h - 1);
+        let last_c = col.saturating_add(w - 1);
+        if last_r >= MAX_ROWS || last_c >= MAX_COLS {
+            return Err(bad("paste area outside the sheet"));
+        }
+        let target = CellRange::new(CellRef::new(row, col), CellRef::new(last_r, last_c));
+        let recalc = if clip.cut && clip.sheet != sheet {
+            Recalc::All
+        } else {
+            Recalc::Range(
+                sheet,
+                CellRange::new(
+                    CellRef::new(
+                        target.first.row.min(clip.range.first.row),
+                        target.first.col.min(clip.range.first.col),
+                    ),
+                    CellRef::new(
+                        target.last.row.max(clip.range.last.row),
+                        target.last.col.max(clip.range.last.col),
+                    ),
+                ),
+            )
+        };
+        let recalc = if clip.sheet == sheet || !clip.cut {
+            recalc
+        } else {
+            Recalc::All
+        };
+        let cut = clip.cut;
+        let out = self.edit(sheet, recalc, |wb, adj| {
+            // Cut: clear the source first (cells under the target are written again).
+            if cut {
+                if let Some(src) = wb.sheets.get_mut(clip.sheet) {
+                    for (dr, dc, _) in &clip.cells {
+                        src.cells
+                            .remove(&(clip.range.first.row + dr, clip.range.first.col + dc));
+                    }
+                }
+            }
+            let ws = &mut wb.sheets[sheet];
+            let by_pos: std::collections::HashMap<(u32, u32), &Cell> = clip
+                .cells
+                .iter()
+                .map(|(r, c, cell)| ((*r, *c), cell))
+                .collect();
+            for dr in 0..clip.range.rows() {
+                for dc in 0..clip.range.cols() {
+                    let (tr, tc) = if transpose {
+                        (row + dc, col + dr)
+                    } else {
+                        (row + dr, col + dc)
+                    };
+                    let src = by_pos.get(&(dr, dc)).copied();
+                    if skip_blanks && src.is_none_or(|c| !non_empty(c)) {
+                        continue;
+                    }
+                    let old = ws.cells.get(&(tr, tc)).cloned();
+                    let moved_formula = |c: &Cell| {
+                        c.formula.as_ref().map(|f| {
+                            let mut f = f.clone();
+                            let d_r = i64::from(tr) - i64::from(clip.range.first.row + dr);
+                            let d_c = i64::from(tc) - i64::from(clip.range.first.col + dc);
+                            if let Some(t) = adj.translate(&f.text, d_r, d_c) {
+                                f.text = t;
+                            }
+                            f.kind = bo_model::sheet::FormulaKind::Normal;
+                            f
+                        })
+                    };
+                    let new = match (mode, src) {
+                        (PasteMode::All, Some(c)) => Some(Cell {
+                            formula: moved_formula(c),
+                            ..c.clone()
+                        }),
+                        (PasteMode::All, None) => None,
+                        (PasteMode::Values, s) => {
+                            let mut n = old.clone().unwrap_or_default();
+                            n.formula = None;
+                            n.value = s.map_or(CellValue::Empty, |c| c.value.clone());
+                            Some(n)
+                        }
+                        (PasteMode::Formulas, s) => {
+                            let mut n = old.clone().unwrap_or_default();
+                            n.formula = s.and_then(moved_formula);
+                            n.value = s.map_or(CellValue::Empty, |c| c.value.clone());
+                            Some(n)
+                        }
+                        (PasteMode::Formats, s) => {
+                            let mut n = old.clone().unwrap_or_default();
+                            n.style = s.map_or(0, |c| c.style);
+                            Some(n)
+                        }
+                    };
+                    match new {
+                        Some(c) if non_empty(&c) || c.style != 0 => {
+                            ws.cells.insert((tr, tc), c);
+                        }
+                        _ => {
+                            ws.cells.remove(&(tr, tc));
+                        }
+                    }
+                }
+            }
+            Ok(json!({ "range": Rng::of(target) }))
+        })?;
+        if cut {
+            // A cut is pasted once.
+            self.clip = None;
+        }
+        Ok(out)
+    }
+
+    /// Current internal clipboard (tests, hosts).
+    pub fn clipboard(&self) -> Option<&Clip> {
+        self.clip.as_ref()
+    }
+
+    /// Input conversion for host-side checks (e.g. the formula bar preview).
+    pub fn parse_input(&self, input: &str) -> Option<Cell> {
+        input_to_cell(input, None, &self.locale)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{HitInfo, ViewRequest};
+    use super::*;
+
+    fn engine() -> SheetEngine {
+        let mut e = SheetEngine::with_bundled_fonts();
+        e.new_workbook("Book1.xlsx").unwrap();
+        e
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    fn run(e: &mut SheetEngine, v: Value) -> Value {
+        let s = e.exec_json(&v.to_string()).unwrap();
+        serde_json::from_str(&s).unwrap()
+    }
+
+    fn rng(r0: u32, c0: u32, r1: u32, c1: u32) -> Value {
+        json!({ "r0": r0, "c0": c0, "r1": r1, "c1": c1 })
+    }
+
+    fn reopen(e: &mut SheetEngine) -> SheetEngine {
+        let bytes = e.save("xlsx", 0).unwrap();
+        let mut back = SheetEngine::with_bundled_fonts();
+        back.open(&bytes, "x.xlsx").unwrap();
+        back
+    }
+
+    #[test]
+    fn format_cells_survive_save() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "1234567").unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(0, 0, 1, 1),
+            "patch": { "bold": true, "fillColor": "FFEE00", "numFmt": "#,##0 [$₫-42A]", "hAlign": "center" } }),
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "borders", "sheet": 0, "range": rng(0, 0, 1, 1),
+            "spec": { "preset": "outline", "style": "medium" } }),
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "cellStyle", "sheet": 0, "range": rng(3, 0, 3, 0), "name": "Bad" }),
+        );
+        assert_eq!(e.cell(0, 0, 0).unwrap().display, "1.234.567 ₫");
+        let n = e.workbook().unwrap().styles.cell_xfs.len();
+        let mut back = reopen(&mut e);
+        let st = run(
+            &mut back,
+            json!({ "cmd": "formatState", "sheet": 0, "row": 0, "col": 0 }),
+        );
+        assert_eq!(st["bold"], true);
+        assert_eq!(st["fillColor"], "FFEE00");
+        assert_eq!(st["hAlign"], "center");
+        assert_eq!(st["borders"][0], "medium");
+        assert_eq!(st["numFmt"], "#,##0 [$₫-42A]");
+        let st = run(
+            &mut back,
+            json!({ "cmd": "formatState", "sheet": 0, "row": 3, "col": 0 }),
+        );
+        assert_eq!(st["styleName"], "Bad");
+        assert_eq!(
+            back.workbook().unwrap().styles.cell_xfs.len(),
+            n,
+            "xfs deduplicated"
+        );
+        // Format painter + undo.
+        run(
+            &mut back,
+            json!({ "cmd": "paintFormat", "sheet": 0, "from": rng(0, 0, 0, 0), "to": rng(5, 5, 6, 6) }),
+        );
+        assert_eq!(
+            run(
+                &mut back,
+                json!({ "cmd": "formatState", "sheet": 0, "row": 6, "col": 6 })
+            )["bold"],
+            true
+        );
+        assert!(back.undo().unwrap());
+        assert_eq!(
+            run(
+                &mut back,
+                json!({ "cmd": "formatState", "sheet": 0, "row": 6, "col": 6 })
+            )["bold"],
+            false
+        );
+        assert!(back.exec_json("{\"cmd\":\"nope\"}").is_err());
+    }
+
+    #[test]
+    fn rows_columns_freeze_merge() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "Một chuỗi văn bản khá dài để tự giãn cột")
+            .unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "autofit", "sheet": 0, "rows": false, "first": 0, "last": 0 }),
+        );
+        let w = e.geometry(0).unwrap().col_width(0);
+        assert!(w > 150.0, "autofit width {w}");
+        run(
+            &mut e,
+            json!({ "cmd": "resize", "sheet": 0, "rows": true, "first": 2, "last": 3, "size": 30 }),
+        );
+        assert_eq!(e.geometry(0).unwrap().row_height(3), 30.0);
+        run(
+            &mut e,
+            json!({ "cmd": "hide", "sheet": 0, "rows": true, "first": 5, "last": 6, "hidden": true }),
+        );
+        assert_eq!(e.info().unwrap().sheets[0].hidden_rows, vec![(5, 6)]);
+        run(
+            &mut e,
+            json!({ "cmd": "freeze", "sheet": 0, "rows": 1, "cols": 1 }),
+        );
+        assert_eq!(e.info().unwrap().sheets[0].frozen_rows, 1);
+        e.set_input(0, 10, 0, "x").unwrap();
+        e.set_input(0, 10, 1, "y").unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "merge", "sheet": 0, "range": rng(10, 0, 11, 2), "center": true }),
+        );
+        assert_eq!(e.info().unwrap().sheets[0].merges, vec![[10, 0, 11, 2]]);
+        assert_eq!(e.cell(0, 10, 1).unwrap().input, "");
+        let mut back = reopen(&mut e);
+        let info = back.info().unwrap();
+        assert_eq!(
+            (info.sheets[0].frozen_rows, info.sheets[0].frozen_cols),
+            (1, 1)
+        );
+        assert_eq!(info.sheets[0].merges.len(), 1);
+        assert_eq!(info.sheets[0].hidden_rows, vec![(5, 6)]);
+        assert!(back.geometry(0).unwrap().col_width(0) > 150.0);
+        // Header edges hit-test as resize handles.
+        let req = ViewRequest {
+            sheet: 0,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            width: 600.0,
+            height: 300.0,
+        };
+        let x = 30.0 + back.geometry(0).unwrap().col_width(0);
+        assert_eq!(
+            back.hit_test(&req, x - 1.0, 5.0).unwrap(),
+            HitInfo::ColumnEdge { col: 0 }
+        );
+        assert_eq!(
+            back.hit_test(&req, x + 20.0, 5.0).unwrap(),
+            HitInfo::ColumnHeader { col: 1 }
+        );
+        assert_eq!(
+            back.hit_test(&req, 5.0, 29.5).unwrap(),
+            HitInfo::RowEdge { row: 0 }
+        );
+        run(
+            &mut back,
+            json!({ "cmd": "unmerge", "sheet": 0, "range": rng(10, 1, 10, 1) }),
+        );
+        assert_eq!(
+            back.info().unwrap().sheets[0].merges,
+            Vec::<[u32; 4]>::new()
+        );
+    }
+
+    #[test]
+    fn sort_filter_and_fill() {
+        let mut e = engine();
+        let rows = [
+            ("Tên", "Điểm"),
+            ("Lan", "7"),
+            ("An", "9"),
+            ("Bình", "7"),
+            ("Chi", "5"),
+        ];
+        for (i, (a, b)) in rows.iter().enumerate() {
+            e.set_input(0, i as u32, 0, a).unwrap();
+            e.set_input(0, i as u32, 1, b).unwrap();
+        }
+        e.set_input(0, 1, 2, "=B2*10").unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "sort", "sheet": 0, "range": rng(0, 0, 4, 1), "hasHeader": true,
+            "keys": [{ "col": 1, "descending": true }, { "col": 0 }] }),
+        );
+        let col = |e: &SheetEngine, c| {
+            (1..5)
+                .map(|r| e.cell(0, r, c).unwrap().input)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(col(&e, 0), vec!["An", "Bình", "Lan", "Chi"]);
+        // Single-cell selection expands to the current region.
+        let region = run(
+            &mut e,
+            json!({ "cmd": "region", "sheet": 0, "range": rng(2, 1, 2, 1) }),
+        );
+        assert_eq!(region, rng(0, 0, 4, 2));
+        run(
+            &mut e,
+            json!({ "cmd": "toggleFilter", "sheet": 0, "range": rng(0, 0, 0, 0) }),
+        );
+        assert_eq!(e.info().unwrap().sheets[0].auto_filter, Some([0, 0, 4, 2]));
+        let vals = run(
+            &mut e,
+            json!({ "cmd": "filterValues", "sheet": 0, "col": 1 }),
+        );
+        assert_eq!(vals["values"].as_array().unwrap().len(), 3);
+        run(
+            &mut e,
+            json!({ "cmd": "setFilter", "sheet": 0, "col": 1, "filter": { "values": ["7"] } }),
+        );
+        assert_eq!(
+            e.info().unwrap().sheets[0].hidden_rows,
+            vec![(1, 1), (4, 4)]
+        );
+        let vals = run(
+            &mut e,
+            json!({ "cmd": "filterValues", "sheet": 0, "col": 1 }),
+        );
+        assert_eq!(vals["kind"], "values");
+        run(
+            &mut e,
+            json!({ "cmd": "setFilter", "sheet": 0, "col": 1,
+            "filter": { "conditions": [{ "operator": "greaterThan", "value": "6" }] } }),
+        );
+        assert_eq!(e.info().unwrap().sheets[0].hidden_rows, vec![(4, 4)]);
+        let req = ViewRequest {
+            sheet: 0,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            width: 600.0,
+            height: 300.0,
+        };
+        let r = e.range_rect(&req, (0, 1), (0, 1)).unwrap().unwrap();
+        assert_eq!(
+            e.hit_test(&req, r.x + r.w - 4.0, r.y + r.h / 2.0).unwrap(),
+            HitInfo::FilterButton { row: 0, col: 1 }
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "toggleFilter", "sheet": 0, "range": rng(0, 0, 0, 0) }),
+        );
+        assert_eq!(
+            e.info().unwrap().sheets[0].hidden_rows,
+            Vec::<(u32, u32)>::new()
+        );
+        // Fill: series + formula translation, Ctrl+D.
+        e.set_input(0, 10, 0, "1").unwrap();
+        e.set_input(0, 11, 0, "3").unwrap();
+        e.set_input(0, 10, 1, "=A11*2").unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "autofill", "sheet": 0, "source": rng(10, 0, 11, 0), "target": rng(10, 0, 13, 0) }),
+        );
+        assert_eq!(e.cell(0, 13, 0).unwrap().input, "7");
+        run(
+            &mut e,
+            json!({ "cmd": "fillDir", "sheet": 0, "range": rng(10, 1, 13, 1), "dir": "down" }),
+        );
+        assert_eq!(e.cell(0, 13, 1).unwrap().input, "=A14*2");
+        assert_eq!(e.cell(0, 13, 1).unwrap().display, "14");
+    }
+
+    #[test]
+    fn conditional_formats_and_validation() {
+        let mut e = engine();
+        for r in 0..5 {
+            e.set_input(0, r, 0, &(r * 10).to_string()).unwrap();
+        }
+        run(
+            &mut e,
+            json!({ "cmd": "addCf", "sheet": 0, "range": rng(0, 0, 4, 0),
+            "rule": { "kind": "cellIs", "operator": "greaterThan", "formula1": "25", "style": { "fill": "FF0000" } } }),
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "addCf", "sheet": 0, "range": rng(0, 0, 4, 0),
+            "rule": { "kind": "iconSet", "set": "3Arrows" } }),
+        );
+        let req = ViewRequest {
+            sheet: 0,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            width: 300.0,
+            height: 200.0,
+        };
+        let page = e.render(&req).unwrap();
+        let red = bo_render::Rgba(255, 0, 0, 255);
+        assert!(page
+            .commands
+            .iter()
+            .any(|c| matches!(c, bo_render::Command::FillRect { color, .. } if *color == red)));
+        let mut back = reopen(&mut e);
+        assert_eq!(
+            back.workbook().unwrap().sheets[0].conditional_formats.len(),
+            2
+        );
+        run(
+            &mut back,
+            json!({ "cmd": "clearCf", "sheet": 0, "range": rng(0, 0, 0, 0) }),
+        );
+        assert_eq!(
+            back.workbook().unwrap().sheets[0].conditional_formats.len(),
+            0
+        );
+        // Validation list.
+        run(
+            &mut e,
+            json!({ "cmd": "setValidation", "sheet": 0, "range": rng(0, 2, 9, 2),
+            "spec": { "kind": "list", "formula1": "Có,Không", "error": "Chọn trong danh sách" } }),
+        );
+        let v = run(
+            &mut e,
+            json!({ "cmd": "validation", "sheet": 0, "row": 3, "col": 2 }),
+        );
+        assert_eq!(v["list"], json!(["Có", "Không"]));
+        let r = run(
+            &mut e,
+            json!({ "cmd": "setInputs", "sheet": 0, "cells": [[3, 2, "Có lẽ"]], "validate": true }),
+        );
+        assert_eq!(r["rejected"]["message"], "Chọn trong danh sách");
+        assert_eq!(e.cell(0, 3, 2).unwrap().input, "");
+        let r = run(
+            &mut e,
+            json!({ "cmd": "setInputs", "sheet": 0, "cells": [[3, 2, "không"]], "validate": true }),
+        );
+        assert!(r["rejected"].is_null());
+        assert_eq!(e.cell(0, 3, 2).unwrap().input, "không");
+        let back = reopen(&mut e);
+        assert_eq!(back.workbook().unwrap().sheets[0].data_validations.len(), 1);
+    }
+
+    #[test]
+    fn charts_insert_edit_save() {
+        let mut e = engine();
+        let data = [
+            ["Tỉnh", "2024", "2025"],
+            ["HN", "10", "12"],
+            ["HUE", "5", "4"],
+        ];
+        for (r, row) in data.iter().enumerate() {
+            for (c, v) in row.iter().enumerate() {
+                e.set_input(0, r as u32, c as u32, v).unwrap();
+            }
+        }
+        let i = run(
+            &mut e,
+            json!({ "cmd": "insertChart", "sheet": 0, "range": rng(0, 0, 2, 2), "kind": "column" }),
+        );
+        assert_eq!(i["index"], 0);
+        run(
+            &mut e,
+            json!({ "cmd": "editChart", "sheet": 0, "index": 0, "title": "Doanh thu",
+            "legend": "b", "xTitle": "Tỉnh", "yTitle": "Tỷ" }),
+        );
+        let req = ViewRequest {
+            sheet: 0,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            width: 900.0,
+            height: 400.0,
+        };
+        let page = e.render(&req).unwrap();
+        assert!(page.commands.iter().any(|c| matches!(c, bo_render::Command::FillRect { color, .. } if *color == bo_sheet::chart::PALETTE[1])));
+        let r = e.range_rect(&req, (2, 5), (2, 5)).unwrap().unwrap();
+        assert_eq!(
+            e.hit_test(&req, r.x + 2.0, r.y + 2.0).unwrap(),
+            HitInfo::Chart { index: 0 }
+        );
+        let mut back = reopen(&mut e);
+        let list = run(&mut back, json!({ "cmd": "charts", "sheet": 0 }));
+        assert_eq!(list[0]["title"], "Doanh thu");
+        assert_eq!(list[0]["legend"], "b");
+        assert_eq!(list[0]["yTitle"], "Tỷ");
+        assert_eq!(list[0]["kind"], "column");
+        run(
+            &mut back,
+            json!({ "cmd": "editChart", "sheet": 0, "index": 0, "kind": "line", "title": "" }),
+        );
+        let again = reopen(&mut back);
+        let c = &again.workbook().unwrap().sheets[0].charts[0];
+        assert_eq!(c.plots[0].kind, bo_model::sheet::ChartKind::Line);
+        assert!(c.title.is_none());
+        assert!(back
+            .exec(SheetCommand::DeleteChart { sheet: 0, index: 0 })
+            .is_err());
+    }
+
+    #[test]
+    fn find_replace_goto_and_paste_special() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "Hà Nội").unwrap();
+        e.set_input(0, 1, 0, "hà nam").unwrap();
+        e.set_input(0, 0, 1, "5").unwrap();
+        e.set_input(0, 1, 1, "=B1*2").unwrap();
+        let m = run(&mut e, json!({ "cmd": "find", "query": "hà" }));
+        assert_eq!(m["matches"].as_array().unwrap().len(), 2);
+        let m = run(
+            &mut e,
+            json!({ "cmd": "find", "query": "hà", "matchCase": true }),
+        );
+        assert_eq!(m["matches"].as_array().unwrap().len(), 1);
+        let m = run(
+            &mut e,
+            json!({ "cmd": "find", "query": "B1", "inFormulas": true }),
+        );
+        assert_eq!(m["matches"][0], json!({ "sheet": 0, "row": 1, "col": 1 }));
+        let m = run(
+            &mut e,
+            json!({ "cmd": "find", "query": "10", "wholeCell": true }),
+        );
+        assert_eq!(
+            m["matches"].as_array().unwrap().len(),
+            1,
+            "values of formulas"
+        );
+        let r = run(
+            &mut e,
+            json!({ "cmd": "replace", "query": "hà", "with": "Thành phố" }),
+        );
+        assert_eq!(r["count"], 2);
+        assert_eq!(e.cell(0, 0, 0).unwrap().input, "Thành phố Nội");
+        assert!(e.undo().unwrap());
+        assert_eq!(e.cell(0, 0, 0).unwrap().input, "Hà Nội");
+        let g = run(
+            &mut e,
+            json!({ "cmd": "resolve", "sheet": 0, "text": "Sheet1!B2:C3" }),
+        );
+        assert_eq!(g["range"], rng(1, 1, 2, 2));
+        // Copy B1:B2, paste at D5: relative references follow.
+        let t = run(
+            &mut e,
+            json!({ "cmd": "copy", "sheet": 0, "range": rng(0, 1, 1, 1) }),
+        );
+        assert_eq!(t["text"], "5\r\n10");
+        run(
+            &mut e,
+            json!({ "cmd": "paste", "sheet": 0, "row": 4, "col": 3 }),
+        );
+        assert_eq!(e.cell(0, 5, 3).unwrap().input, "=D5*2");
+        assert_eq!(e.cell(0, 5, 3).unwrap().display, "10");
+        run(
+            &mut e,
+            json!({ "cmd": "paste", "sheet": 0, "row": 8, "col": 0, "mode": "values", "transpose": true }),
+        );
+        assert_eq!(e.cell(0, 8, 1).unwrap().input, "10");
+        assert_eq!(e.cell(0, 8, 0).unwrap().input, "5");
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(0, 1, 0, 1), "patch": { "bold": true } }),
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "copy", "sheet": 0, "range": rng(0, 1, 0, 1) }),
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "paste", "sheet": 0, "row": 0, "col": 5, "mode": "formats" }),
+        );
+        assert_eq!(
+            run(
+                &mut e,
+                json!({ "cmd": "formatState", "sheet": 0, "row": 0, "col": 5 })
+            )["bold"],
+            true
+        );
+        assert_eq!(e.cell(0, 0, 5).unwrap().input, "");
+        // Cut moves.
+        run(
+            &mut e,
+            json!({ "cmd": "copy", "sheet": 0, "range": rng(0, 0, 0, 0), "cut": true }),
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "paste", "sheet": 0, "row": 20, "col": 0 }),
+        );
+        assert_eq!(e.cell(0, 20, 0).unwrap().input, "Hà Nội");
+        assert_eq!(e.cell(0, 0, 0).unwrap().input, "");
+        assert!(run(
+            &mut e,
+            json!({ "cmd": "paste", "sheet": 0, "row": 0, "col": 0 })
+        )
+        .is_null());
+    }
+
+    #[test]
+    fn page_setup_drives_pdf_pages() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "Tiêu đề").unwrap();
+        for r in 1..120 {
+            e.set_input(0, r, 0, &r.to_string()).unwrap();
+            e.set_input(0, r, 12, "x").unwrap();
+        }
+        let portrait = e.print_pages(0).unwrap();
+        assert!(portrait.len() >= 4, "{} pages", portrait.len());
+        run(
+            &mut e,
+            json!({ "cmd": "setPageSetup", "sheet": 0, "orientation": "landscape",
+            "titleRows": [0, 0], "margins": [0.5, 0.5, 0.5, 0.5] }),
+        );
+        let pages = e.print_pages(0).unwrap();
+        assert_eq!((pages[0].width, pages[0].height), (842.0, 595.0));
+        // The title row is repeated on every page.
+        let has_title = |p: &bo_render::PageList| {
+            p.commands.iter().any(
+                |c| matches!(c, bo_render::Command::Glyphs { text, .. } if text.contains("Tiêu")),
+            )
+        };
+        assert!(pages.iter().all(has_title), "titles on every page");
+        run(
+            &mut e,
+            json!({ "cmd": "setPageSetup", "sheet": 0, "fit": [1, 1] }),
+        );
+        assert_eq!(e.print_pages(0).unwrap().len(), 1, "fit to one page");
+        run(
+            &mut e,
+            json!({ "cmd": "setPageSetup", "sheet": 0, "fit": null, "printArea": rng(0, 0, 9, 0) }),
+        );
+        assert_eq!(e.print_pages(0).unwrap().len(), 1);
+        let ps = run(&mut e, json!({ "cmd": "pageSetup", "sheet": 0 }));
+        assert_eq!(ps["orientation"], "landscape");
+        assert_eq!(ps["titleRows"], json!([0, 0]));
+        assert_eq!(ps["printArea"], "Sheet1!$A$1:$A$10");
+        let back = reopen(&mut e);
+        assert_eq!(
+            back.workbook().unwrap().sheets[0].print_titles.as_deref(),
+            Some("Sheet1!$1:$1")
+        );
+        assert!(e.export_pdf().unwrap().starts_with(b"%PDF"));
+    }
+
+    /// 100 000 formulas; editing one input recalculates only its dependents.
+    #[test]
+    fn live_recalc_touches_only_dependents() {
+        let mut e = engine();
+        let mut cells = Vec::new();
+        for r in 0..20_000u32 {
+            cells.push((r, 0, r.to_string()));
+            for c in 1..6u32 {
+                cells.push((r, c, format!("=A{}*{c}+1", r + 1)));
+            }
+        }
+        e.set_inputs(0, &cells).unwrap();
+        e.set_input(0, 0, 7, "=SUM(B1:B20000)").unwrap();
+        let t = std::time::Instant::now();
+        e.set_input(0, 100, 0, "1000").unwrap();
+        let took = t.elapsed();
+        eprintln!("edit one input of a 100k-formula sheet: {took:?}");
+        assert_eq!(e.live.last_evaluations(), 6, "5 row formulas + the SUM");
+        assert_eq!(e.cell(0, 100, 1).unwrap().display, "1001");
+        // Target (BlueOffice-PROMPT §5): < 100 ms, met even by debug builds.
+        assert!(took.as_millis() < 100, "{took:?}");
+    }
+}

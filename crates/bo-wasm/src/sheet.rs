@@ -182,8 +182,13 @@ impl WasmSheet {
         self.inner.delete_sheet(sheet).map_err(err)
     }
 
+    /// Editing command (`bo_engine::sheet::SheetCommand` JSON) → JSON result.
+    pub fn exec(&mut self, command: &str) -> Result<String, JsError> {
+        self.inner.exec_json(command).map_err(err)
+    }
+
     /// `format` = `xlsx` | `csv`.
-    pub fn save(&self, format: &str, sheet: usize) -> Result<Vec<u8>, JsError> {
+    pub fn save(&mut self, format: &str, sheet: usize) -> Result<Vec<u8>, JsError> {
         self.inner.save(format, sheet).map_err(err)
     }
 

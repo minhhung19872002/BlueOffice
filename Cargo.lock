@@ -555,6 +555,7 @@ dependencies = [
  "bo-sheet",
  "bo-text",
  "bo-xlsx",
+ "criterion",
  "insta",
  "png",
  "serde",

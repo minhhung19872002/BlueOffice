@@ -19,9 +19,11 @@ const NS: &str = concat!(
     r#"xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" "#,
     r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" "#,
     r#"xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" "#,
+    r#"xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" "#,
     r#"xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" "#,
     r#"xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" "#,
-    r#"mc:Ignorable="w14""#
+    // ECMA-376 Part 3, §10.2.1 Ignorable: extension namespaces a consumer may skip
+    r#"mc:Ignorable="w14 w15""#
 );
 
 const REL_NUMBERING: &str =
@@ -244,13 +246,17 @@ fn png(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
     out
 }
 
-fn inline_pic(rid: &str, cx: i64, cy: i64, extra_xfrm: &str, src_rect: &str) -> String {
+/// `id` is `wp:docPr/@id`, which must be unique within the document
+/// (ECMA-376 Part 1, §20.4.2.5 docPr).
+fn inline_pic(id: u32, rid: &str, cx: i64, cy: i64, extra_xfrm: &str, src_rect: &str) -> String {
     format!(
-        r#"<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="1" name="Ảnh 1" descr="Ảnh minh hoạ"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="image1.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="{rid}"/>{src_rect}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm{extra_xfrm}><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"#
+        r#"<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="{id}" name="Ảnh {id}" descr="Ảnh minh hoạ"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="{id}" name="image1.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="{rid}"/>{src_rect}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm{extra_xfrm}><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"#
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn anchor_pic(
+    id: u32,
     rid: &str,
     cx: i64,
     cy: i64,
@@ -261,7 +267,7 @@ fn anchor_pic(
 ) -> String {
     let b = u8::from(behind);
     format!(
-        r#"<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0" relativeHeight="251659264" behindDoc="{b}" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="{rel_h}"><wp:posOffset>457200</wp:posOffset></wp:positionH><wp:positionV relativeFrom="{rel_v}"><wp:posOffset>0</wp:posOffset></wp:positionV><wp:extent cx="{cx}" cy="{cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/>{wrap}<wp:docPr id="2" name="Ảnh nổi"/><wp:cNvGraphicFramePr/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="image.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>"#
+        r#"<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0" relativeHeight="251659264" behindDoc="{b}" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="{rel_h}"><wp:posOffset>457200</wp:posOffset></wp:positionH><wp:positionV relativeFrom="{rel_v}"><wp:posOffset>0</wp:posOffset></wp:positionV><wp:extent cx="{cx}" cy="{cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/>{wrap}<wp:docPr id="{id}" name="Ảnh nổi {id}"/><wp:cNvGraphicFramePr/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="{id}" name="image.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>"#
     )
 }
 
@@ -293,7 +299,7 @@ fn row(trpr: &str, cells: &[String]) -> String {
 fn numbering(abstracts: &[(i32, &[(&str, &str)])], nums: &str) -> String {
     let mut s = String::new();
     for (id, levels) in abstracts {
-        s.push_str(&format!(r#"<w:abstractNum w:abstractNumId="{id}" w15:restartNumberingAfterBreak="0" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"><w:nsid w:val="1A2B3C{id:02}"/><w:multiLevelType w:val="hybridMultilevel"/>"#));
+        s.push_str(&format!(r#"<w:abstractNum w:abstractNumId="{id}" w15:restartNumberingAfterBreak="0"><w:nsid w:val="1A2B3C{id:02}"/><w:multiLevelType w:val="hybridMultilevel"/>"#));
         for (lvl, (fmt, text)) in levels.iter().enumerate() {
             let ind = 720 * (lvl + 1);
             s.push_str(&format!(r#"<w:lvl w:ilvl="{lvl}"><w:start w:val="1"/><w:numFmt w:val="{fmt}"/><w:lvlText w:val="{text}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="{ind}" w:hanging="360"/></w:pPr></w:lvl>"#));
@@ -319,6 +325,12 @@ fn hdr_ref(kind: &str, ty: &str, rid: &str) -> String {
 }
 
 fn field_simple(instr: &str, cached: &str) -> String {
+    // w:instr is an attribute (ECMA-376 Part 1, §17.16.19 fldSimple): quotes in
+    // field switches such as `\@ "dd/MM/yyyy"` must be escaped.
+    let instr = instr
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('"', "&quot;");
     format!(r#"<w:fldSimple w:instr=" {instr} "><w:r><w:t>{cached}</w:t></w:r></w:fldSimple>"#)
 }
 
@@ -384,7 +396,8 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
                 pr(r#"<w:jc w:val="center"/>"#, "", "Căn giữa"),
                 pr(r#"<w:jc w:val="right"/>"#, "", "Căn phải"),
                 pr(
-                    r#"<w:jc w:val="both"/><w:ind w:firstLine="567"/>"#,
+                    // CT_PPrBase order: ind before jc (ECMA-376 Part 1, §17.3.1.26)
+                    r#"<w:ind w:firstLine="567"/><w:jc w:val="both"/>"#,
                     "",
                     &VI.concat(),
                 ),
@@ -561,7 +574,8 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
             ("rId10".into(), "header", format!("<w:p><w:pPr><w:jc w:val=\"right\"/></w:pPr>{}</w:p>", field_complex("PAGE", "1"))),
             ("rId11".into(), "header", format!("<w:p>{}</w:p>", field_complex("PAGE", "2"))),
         ],
-        settings: Some(r#"<w:evenAndOddHeaders/><w:defaultTabStop w:val="720"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>"#.to_owned()),
+        // CT_Settings order: defaultTabStop before evenAndOddHeaders (ECMA-376 Part 1, §17.15.1.78)
+        settings: Some(r#"<w:defaultTabStop w:val="720"/><w:evenAndOddHeaders/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>"#.to_owned()),
         ..Doc::default()
     }));
 
@@ -678,7 +692,7 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
     // ---- pictures (§20.4)
     let emu = 914_400 / 2;
     v.push(("images-01-inline.docx", "images", "Ảnh PNG inline trong dòng chữ, hai ảnh dùng chung part", Doc {
-        body: format!("<w:p><w:r><w:t xml:space=\"preserve\">Ảnh: </w:t></w:r>{}<w:r><w:t xml:space=\"preserve\"> và </w:t></w:r>{}</w:p>{}", inline_pic("rId20", emu, emu, "", ""), inline_pic("rId20", emu * 2, emu, "", ""), lorem(1)),
+        body: format!("<w:p><w:r><w:t xml:space=\"preserve\">Ảnh: </w:t></w:r>{}<w:r><w:t xml:space=\"preserve\"> và </w:t></w:r>{}</w:p>{}", inline_pic(1, "rId20", emu, emu, "", ""), inline_pic(2, "rId20", emu * 2, emu, "", ""), lorem(1)),
         sect: s.clone(),
         images: vec![("rId20".into(), png(4, 4, [30, 120, 200]))],
         ..Doc::default()
@@ -692,6 +706,7 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
                 format!(
                     "<w:p>{}<w:r><w:t>Chữ dưới ảnh</w:t></w:r></w:p>",
                     anchor_pic(
+                        1,
                         "rId20",
                         emu * 2,
                         emu,
@@ -705,6 +720,7 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
                 format!(
                     "<w:p>{}<w:r><w:t>Bao quanh</w:t></w:r></w:p>",
                     anchor_pic(
+                        2,
                         "rId21",
                         emu,
                         emu,
@@ -717,6 +733,7 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
                 format!(
                     "<w:p>{}<w:r><w:t>Sau chữ</w:t></w:r></w:p>",
                     anchor_pic(
+                        3,
                         "rId20",
                         emu * 4,
                         emu * 2,
@@ -744,13 +761,14 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
             body: format!(
                 "<w:p>{}</w:p><w:p>{}</w:p>",
                 inline_pic(
+                    1,
                     "rId20",
                     emu,
                     emu,
                     "",
                     r#"<a:srcRect l="10000" t="5000" r="20000" b="0"/>"#
                 ),
-                inline_pic("rId20", emu, emu, r#" rot="5400000""#, "")
+                inline_pic(2, "rId20", emu, emu, r#" rot="5400000""#, "")
             ),
             sect: s.clone(),
             images: vec![("rId20".into(), png(8, 8, [240, 200, 0]))],
@@ -864,7 +882,7 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
     v.push(("unknown-02-alternate-content.docx", "unknown", "mc:AlternateContent (Choice wps / Fallback VML), w14 trong rPr, ký hiệu w:sym", Doc {
         body: [
             r#"<w:p><w:r><mc:AlternateContent><mc:Choice Requires="w14"><w14:dummy/><w:t>Choice</w:t></mc:Choice><mc:Fallback><w:t>Fallback</w:t></mc:Fallback></mc:AlternateContent></w:r></w:p>"#.to_owned(),
-            r#"<w:p><w:r><w:rPr><w14:ligatures w14:val="standardContextual"/><w14:textOutline w14:w="9525" w14:cap="flat" w14:cmpd="sng" w14:algn="ctr"><w14:solidFill><w14:srgbClr w14:val="000000"/></w14:solidFill><w14:prstDash w14:val="solid"/><w14:round/></w14:textOutline></w:rPr><w:t>Chữ có hiệu ứng w14</w:t></w:r></w:p>"#.to_owned(),
+            r#"<w:p><w:r><w:rPr><w14:textOutline w14:w="9525" w14:cap="flat" w14:cmpd="sng" w14:algn="ctr"><w14:solidFill><w14:srgbClr w14:val="000000"/></w14:solidFill><w14:prstDash w14:val="solid"/><w14:round/></w14:textOutline><w14:ligatures w14:val="standardContextual"/></w:rPr><w:t>Chữ có hiệu ứng w14</w:t></w:r></w:p>"#.to_owned(),
             r#"<w:p><w:r><w:sym w:font="Wingdings" w:char="F0FC"/><w:t xml:space="preserve"> đã kiểm</w:t></w:r></w:p>"#.to_owned(),
             r##"<w:p><w:pPr><w:rPr><w:b/></w:rPr></w:pPr><w:r><w:object w:dxaOrig="1440" w:dyaOrig="1440"><v:shape id="_x0000_i1025" type="#_x0000_t75" style="width:72pt;height:72pt"/></w:object></w:r></w:p>"##.to_owned(),
         ].concat(),

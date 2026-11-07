@@ -9,6 +9,7 @@ import type {
   SlideShapeInfo,
 } from '@blueoffice/platform';
 import {
+  AudienceLink,
   BlueSlideEditor,
   fit,
   formatElapsed,
@@ -105,6 +106,11 @@ function fakePlatform() {
     notes: ['Ghi chú 1', 'Ghi chú 2', 'Ghi chú 3'],
     text: 'Tiêu đề',
     modified: false,
+    editing: null as number | null,
+    ts: [0, 0] as [number, number],
+    clip: undefined as 'shapes' | 'slides' | undefined,
+    emptyHit: false,
+    clipboard: undefined as { text: string; png?: string } | undefined,
   };
   const info = (name = 'Báo cáo.pptx') => ({
     name,
@@ -149,9 +155,30 @@ function fakePlatform() {
       color: null,
       align: 'left',
       bullets: false,
+      strike: false,
+      highlight: null,
+      font: null,
+      numbering: false,
+      level: 0,
+      lineSpacing: null,
     },
     notes: st.notes[st.slide] ?? '',
     layouts: [],
+    clip: st.clip,
+    clipboard: st.clipboard,
+    adjust: st.sel.length ? [{ index: 0, x: 300, y: 60 }] : [],
+    textEdit:
+      st.editing === null
+        ? undefined
+        : {
+            id: st.editing,
+            start: st.ts[0],
+            end: st.ts[1],
+            caret: st.ts[0] === st.ts[1] ? [200, 70, 200, 90] : null,
+            rects: st.ts[0] === st.ts[1] ? [] : [{ cx: 220, cy: 80, w: 40, h: 20, rot: 0 }],
+            rect: shape().rect,
+            text: st.text,
+          },
   });
   const engine = {
     backend: 'wasm',
@@ -167,7 +194,23 @@ function fakePlatform() {
     }),
     exportPdf: async () => new Uint8Array([37]),
     slideCommand: vi.fn(async (c: SlideCommand) => {
+      const keep = ['state', 'setText', 'formatText', 'textSelect', 'textHit', 'undo', 'redo'];
+      if (!keep.includes(c.cmd)) st.editing = null;
+      st.clipboard = undefined;
+      if (c.cmd === 'hitTest') return { ...result(), hits: st.emptyHit ? [] : [7] };
       switch (c.cmd) {
+        case 'copy':
+        case 'copySlides':
+          st.clip = c.cmd === 'copy' ? 'shapes' : 'slides';
+          st.clipboard = { text: 'Tiêu đề', png: 'iVBORw0KGgo=' };
+          break;
+        case 'textSelect':
+          st.editing = c.id ?? 7;
+          st.ts = [c.start, c.end];
+          break;
+        case 'textHit':
+          st.ts = [2, 2];
+          break;
         case 'goTo':
           st.slide = c.slide;
           st.sel = [];
@@ -180,6 +223,7 @@ function fakePlatform() {
           break;
         case 'setText':
           st.text = c.text;
+          if (c.sel) st.ts = c.sel;
           st.modified = true;
           break;
         case 'setNotes':
@@ -210,6 +254,11 @@ function fakePlatform() {
       },
     },
     print: { printPdf: async () => {} },
+    clipboard: {
+      writeItems: vi.fn(async () => {}),
+      writeHtml: vi.fn(async () => {}),
+      read: vi.fn(async () => ({})),
+    },
     window: { setTitle: vi.fn(), openNew: async () => {} },
     shell: {
       recentFiles: async () => [],
@@ -221,7 +270,7 @@ function fakePlatform() {
     },
   } as unknown as Platform;
   const cmds = () => engine.slideCommand.mock.calls.map((c) => c[0]);
-  return { p, engine, saved, cmds, open: (f: OpenedFile) => openHandler?.(f) };
+  return { p, engine, saved, cmds, st, open: (f: OpenedFile) => openHandler?.(f) };
 }
 
 async function openDeck(p: Platform, label = 'Mở') {
@@ -293,19 +342,38 @@ describe('BlueSlideEditor', () => {
     fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'duplicate' }));
 
-    // Double-click opens the text editor; composition text is committed on blur.
+    // Double-click edits the text in place: caret on the canvas, IME composition,
+    // typing sent live, shortcuts and Tab inside the text, Escape leaves.
     fireEvent.doubleClick(overlay);
     const ta = (await screen.findByTestId('slide-text-editor')) as HTMLTextAreaElement;
     expect(ta.value).toBe('Tiêu đề');
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'textSelect', id: 7, start: 7, end: 7 }),
+    );
+    await screen.findByTestId('text-caret');
     fireEvent.compositionStart(ta);
     fireEvent.keyDown(ta, { key: 'Escape', isComposing: true });
     expect(screen.getByTestId('slide-text-editor')).toBeTruthy();
     ta.value = 'Xin chào Việt Nam';
     fireEvent.compositionEnd(ta, { data: 'Nam' });
-    fireEvent.blur(ta);
     await waitFor(() =>
-      expect(cmds()).toContainEqual({ cmd: 'setText', id: 7, text: 'Xin chào Việt Nam' }),
+      expect(cmds()).toContainEqual(
+        expect.objectContaining({ cmd: 'setText', id: 7, text: 'Xin chào Việt Nam', merge: true }),
+      ),
     );
+    fireEvent.keyDown(ta, { key: 'b', ctrlKey: true });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'formatText', format: { kind: 'bold' } }),
+    );
+    fireEvent.keyDown(ta, { key: 'Tab' });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'formatText', format: { kind: 'level', delta: 1 } }),
+    );
+    // A click inside the shape moves the caret through the engine.
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 0, clientY: 0, pointerId: 2 });
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 0, clientY: 0, pointerId: 2 });
+    fireEvent.keyDown(ta, { key: 'Escape' });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'textExit' }));
     expect(screen.queryByTestId('slide-text-editor')).toBeNull();
     await screen.findByTestId('status-modified');
 
@@ -316,6 +384,86 @@ describe('BlueSlideEditor', () => {
     fireEvent.keyDown(window, { key: 'Delete' });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'delete' }));
     await waitFor(() => expect(screen.queryByTestId('selection-box')).toBeNull());
+  });
+
+  it('copies to the system clipboard and pastes internal copies, pictures and text', async () => {
+    const { p, engine, cmds } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    const overlay = screen.getByTestId('slide-overlay');
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    await screen.findByTestId('selection-box');
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'copy' }));
+    const write = p.clipboard.writeItems as unknown as ReturnType<typeof vi.fn>;
+    await waitFor(() => expect(write).toHaveBeenCalled());
+    const items = write.mock.calls[0]![0] as { text: string; html: string; png: Uint8Array };
+    expect(items.text).toBe('Tiêu đề');
+    expect(items.png).toBeInstanceOf(Uint8Array);
+    const paste = (data: Record<string, string>, file?: File) => {
+      const e = new Event('paste', { bubbles: true }) as Event & { clipboardData: unknown };
+      e.clipboardData = {
+        getData: (t: string) => data[t] ?? '',
+        items: file ? [{ type: file.type, getAsFile: () => file }] : [],
+      };
+      act(() => {
+        window.dispatchEvent(e);
+      });
+    };
+    // Our own copy: the internal clipboard (full shapes).
+    paste({ 'text/html': items.html, 'text/plain': items.text });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'paste' }));
+    // Text from another program: a text box.
+    paste({ 'text/plain': 'Từ chương trình khác' });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'insertTextBox', text: 'Từ chương trình khác' }),
+    );
+    // A picture: inserted as a picture.
+    paste({}, new File([new Uint8Array([137, 80, 78, 71])], 'a.png', { type: 'image/png' }));
+    await waitFor(() => expect(engine.slideInsertPicture).toHaveBeenCalled());
+    // In the slide panel Ctrl+C copies the slide.
+    screen.getByTestId('thumb-1').focus();
+    fireEvent.keyDown(screen.getByTestId('thumb-1'), { key: 'c', ctrlKey: true });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'copySlides', indices: [0] }));
+  });
+
+  it('selects with a marquee and cycles shapes with Tab', async () => {
+    const { p, cmds, st } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    const overlay = screen.getByTestId('slide-overlay');
+    overlay.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 960, height: 540, right: 960, bottom: 540 }) as DOMRect;
+    st.emptyHit = true;
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 700, clientY: 400, pointerId: 1 });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'select', ids: [] }));
+    fireEvent.pointerMove(overlay, { clientX: 900, clientY: 500, pointerId: 1 });
+    await screen.findByTestId('marquee');
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 900, clientY: 500, pointerId: 1 });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({
+        cmd: 'selectRect',
+        rect: { x: 700, y: 400, w: 200, h: 100 },
+        extend: false,
+      }),
+    );
+    expect(screen.queryByTestId('marquee')).toBeNull();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'selectNext', back: false }));
+    // Yellow adjust handle: dragging sends live adjust commands.
+    st.emptyHit = false;
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 480, clientY: 100, pointerId: 3 });
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 480, clientY: 100, pointerId: 3 });
+    const adj = await screen.findByTestId('adjust-0');
+    fireEvent.pointerDown(adj, { button: 0, clientX: 300, clientY: 60, pointerId: 4 });
+    fireEvent.pointerMove(overlay, { clientX: 330, clientY: 60, pointerId: 4 });
+    fireEvent.pointerUp(overlay, { clientX: 340, clientY: 60, pointerId: 4 });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'adjust', index: 0, x: 330, y: 60, merge: true }),
+    );
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'selectNext', back: true }));
   });
 
   it('edits notes, inserts shapes and adds slides', async () => {
@@ -348,5 +496,70 @@ describe('BlueSlideEditor', () => {
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'moveSlide', from: 0, to: 2 }));
     fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'undo' }));
+  });
+});
+
+/** In-memory window channels: every bus of a name hears the others. */
+function memoryChannels() {
+  const subs = new Map<string, Set<(m: unknown) => void>>();
+  const sent: unknown[] = [];
+  const channel = (name: string) => {
+    const mine = new Set<(m: unknown) => void>();
+    let set = subs.get(name);
+    if (!set) subs.set(name, (set = new Set()));
+    const all = set;
+    return {
+      post: (m: unknown) => {
+        sent.push(m);
+        for (const f of all) if (!mine.has(f)) f(m);
+      },
+      onMessage: (f: (m: unknown) => void) => {
+        mine.add(f);
+        all.add(f);
+        return () => {
+          mine.delete(f);
+          all.delete(f);
+        };
+      },
+      close: () => {
+        for (const f of mine) all.delete(f);
+      },
+    };
+  };
+  return { channel, sent };
+}
+
+describe('audience screen', () => {
+  it('opens a second window and keeps it on the presenter slide', async () => {
+    const { channel, sent } = memoryChannels();
+    const opened: string[] = [];
+    const presenter = {
+      channel,
+      window: { openNew: async (u: string) => void opened.push(u), setTitle: () => {} },
+    } as unknown as Platform;
+    const link = new AudienceLink(presenter, async () => ({
+      name: 'a.pptx',
+      bytes: new Uint8Array([80, 75, 3]),
+    }));
+    await link.start(1);
+    expect(opened[0]).toMatch(/^\?app=slide&audience=audience-/);
+    const id = decodeURIComponent(opened[0]!.split('audience=')[1]!);
+
+    // The audience window (same editor with `audience`) asks for the deck.
+    const { p, engine } = fakePlatform();
+    const audiencePlatform = { ...p, channel } as Platform;
+    render(<BlueSlideEditor platform={audiencePlatform} language="vi-VN" audience={id} />);
+    await waitFor(() =>
+      expect(engine.open).toHaveBeenCalledWith(new Uint8Array([80, 75, 3]), 'a.pptx'),
+    );
+    expect(sent).toContainEqual({ type: 'hello' });
+    await screen.findByRole('img', { name: 'Slide 2 / 3' });
+    act(() => link.update(2, false, false));
+    await screen.findByRole('img', { name: 'Slide 3 / 3' });
+    act(() => link.update(2, true, false));
+    await waitFor(() => expect(screen.queryByRole('img', { name: /Slide/ })).toBeNull());
+    act(() => link.update(2, false, true));
+    await screen.findByText('Kết thúc trình chiếu');
+    link.stop();
   });
 });

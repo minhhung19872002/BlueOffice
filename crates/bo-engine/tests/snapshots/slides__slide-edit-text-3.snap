@@ -12,55 +12,63 @@ transform [1.000 0.000 0.000 1.000 36.0 24.0]
 pop transform
 transform [1.000 0.000 0.000 1.000 80.0 160.0]
   path n=5 [0.0 0.0 200.0 29.2] fill=#2e75b6ff
-  path n=2 [0.0 0.0 0.0 29.2] stroke=#000000ff w1.00
-  path n=2 [200.0 0.0 200.0 29.2] stroke=#000000ff w1.00
-  path n=2 [0.0 0.0 200.0 0.0] stroke=#000000ff w1.00
-  path n=2 [0.0 29.2 200.0 29.2] stroke=#000000ff w1.00
+  path n=2 [0.0 0.0 0.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [200.0 0.0 200.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [0.0 0.0 200.0 0.0] stroke=#ffffffff w0.75
+  path n=2 [0.0 29.2 200.0 29.2] stroke=#ffffffff w2.25
   path n=5 [200.0 0.0 400.0 29.2] fill=#2e75b6ff
-  path n=2 [200.0 0.0 200.0 29.2] stroke=#000000ff w1.00
-  path n=2 [400.0 0.0 400.0 29.2] stroke=#000000ff w1.00
-  path n=2 [200.0 0.0 400.0 0.0] stroke=#000000ff w1.00
-  path n=2 [200.0 29.2 400.0 29.2] stroke=#000000ff w1.00
+  path n=2 [200.0 0.0 200.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [400.0 0.0 400.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [200.0 0.0 400.0 0.0] stroke=#ffffffff w0.75
+  path n=2 [200.0 29.2 400.0 29.2] stroke=#ffffffff w2.25
   path n=5 [400.0 0.0 600.0 29.2] fill=#2e75b6ff
-  path n=2 [400.0 0.0 400.0 29.2] stroke=#000000ff w1.00
-  path n=2 [600.0 0.0 600.0 29.2] stroke=#000000ff w1.00
-  path n=2 [400.0 0.0 600.0 0.0] stroke=#000000ff w1.00
-  path n=2 [400.0 29.2 600.0 29.2] stroke=#000000ff w1.00
+  path n=2 [400.0 0.0 400.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [600.0 0.0 600.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [400.0 0.0 600.0 0.0] stroke=#ffffffff w0.75
+  path n=2 [400.0 29.2 600.0 29.2] stroke=#ffffffff w2.25
   path n=5 [600.0 0.0 800.0 29.2] fill=#2e75b6ff
-  path n=2 [600.0 0.0 600.0 29.2] stroke=#000000ff w1.00
-  path n=2 [800.0 0.0 800.0 29.2] stroke=#000000ff w1.00
-  path n=2 [600.0 0.0 800.0 0.0] stroke=#000000ff w1.00
-  path n=2 [600.0 29.2 800.0 29.2] stroke=#000000ff w1.00
-  path n=2 [0.0 29.2 0.0 58.4] stroke=#000000ff w1.00
-  path n=2 [200.0 29.2 200.0 58.4] stroke=#000000ff w1.00
-  path n=2 [0.0 29.2 200.0 29.2] stroke=#000000ff w1.00
-  path n=2 [0.0 58.4 200.0 58.4] stroke=#000000ff w1.00
-  path n=2 [200.0 29.2 200.0 58.4] stroke=#000000ff w1.00
-  path n=2 [400.0 29.2 400.0 58.4] stroke=#000000ff w1.00
-  path n=2 [200.0 29.2 400.0 29.2] stroke=#000000ff w1.00
-  path n=2 [200.0 58.4 400.0 58.4] stroke=#000000ff w1.00
-  path n=2 [400.0 29.2 400.0 58.4] stroke=#000000ff w1.00
-  path n=2 [600.0 29.2 600.0 58.4] stroke=#000000ff w1.00
-  path n=2 [400.0 29.2 600.0 29.2] stroke=#000000ff w1.00
-  path n=2 [400.0 58.4 600.0 58.4] stroke=#000000ff w1.00
-  path n=2 [600.0 29.2 600.0 58.4] stroke=#000000ff w1.00
-  path n=2 [800.0 29.2 800.0 58.4] stroke=#000000ff w1.00
-  path n=2 [600.0 29.2 800.0 29.2] stroke=#000000ff w1.00
-  path n=2 [600.0 58.4 800.0 58.4] stroke=#000000ff w1.00
-  path n=2 [0.0 58.4 0.0 87.6] stroke=#000000ff w1.00
-  path n=2 [200.0 58.4 200.0 87.6] stroke=#000000ff w1.00
-  path n=2 [0.0 58.4 200.0 58.4] stroke=#000000ff w1.00
-  path n=2 [0.0 87.6 200.0 87.6] stroke=#000000ff w1.00
-  path n=2 [200.0 58.4 200.0 87.6] stroke=#000000ff w1.00
-  path n=2 [400.0 58.4 400.0 87.6] stroke=#000000ff w1.00
-  path n=2 [200.0 58.4 400.0 58.4] stroke=#000000ff w1.00
-  path n=2 [200.0 87.6 400.0 87.6] stroke=#000000ff w1.00
-  path n=2 [400.0 58.4 400.0 87.6] stroke=#000000ff w1.00
-  path n=2 [600.0 58.4 600.0 87.6] stroke=#000000ff w1.00
-  path n=2 [400.0 58.4 600.0 58.4] stroke=#000000ff w1.00
-  path n=2 [400.0 87.6 600.0 87.6] stroke=#000000ff w1.00
-  path n=2 [600.0 58.4 600.0 87.6] stroke=#000000ff w1.00
-  path n=2 [800.0 58.4 800.0 87.6] stroke=#000000ff w1.00
-  path n=2 [600.0 58.4 800.0 58.4] stroke=#000000ff w1.00
-  path n=2 [600.0 87.6 800.0 87.6] stroke=#000000ff w1.00
+  path n=2 [600.0 0.0 600.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [800.0 0.0 800.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [600.0 0.0 800.0 0.0] stroke=#ffffffff w0.75
+  path n=2 [600.0 29.2 800.0 29.2] stroke=#ffffffff w2.25
+  path n=5 [0.0 29.2 200.0 58.4] fill=#d8dfebff
+  path n=2 [0.0 29.2 0.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [200.0 29.2 200.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [0.0 29.2 200.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [0.0 58.4 200.0 58.4] stroke=#ffffffff w0.75
+  path n=5 [200.0 29.2 400.0 58.4] fill=#d8dfebff
+  path n=2 [200.0 29.2 200.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [400.0 29.2 400.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [200.0 29.2 400.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [200.0 58.4 400.0 58.4] stroke=#ffffffff w0.75
+  path n=5 [400.0 29.2 600.0 58.4] fill=#d8dfebff
+  path n=2 [400.0 29.2 400.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [600.0 29.2 600.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [400.0 29.2 600.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [400.0 58.4 600.0 58.4] stroke=#ffffffff w0.75
+  path n=5 [600.0 29.2 800.0 58.4] fill=#d8dfebff
+  path n=2 [600.0 29.2 600.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [800.0 29.2 800.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [600.0 29.2 800.0 29.2] stroke=#ffffffff w0.75
+  path n=2 [600.0 58.4 800.0 58.4] stroke=#ffffffff w0.75
+  path n=5 [0.0 58.4 200.0 87.6] fill=#eef1f6ff
+  path n=2 [0.0 58.4 0.0 87.6] stroke=#ffffffff w0.75
+  path n=2 [200.0 58.4 200.0 87.6] stroke=#ffffffff w0.75
+  path n=2 [0.0 58.4 200.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [0.0 87.6 200.0 87.6] stroke=#ffffffff w0.75
+  path n=5 [200.0 58.4 400.0 87.6] fill=#eef1f6ff
+  path n=2 [200.0 58.4 200.0 87.6] stroke=#ffffffff w0.75
+  path n=2 [400.0 58.4 400.0 87.6] stroke=#ffffffff w0.75
+  path n=2 [200.0 58.4 400.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [200.0 87.6 400.0 87.6] stroke=#ffffffff w0.75
+  path n=5 [400.0 58.4 600.0 87.6] fill=#eef1f6ff
+  path n=2 [400.0 58.4 400.0 87.6] stroke=#ffffffff w0.75
+  path n=2 [600.0 58.4 600.0 87.6] stroke=#ffffffff w0.75
+  path n=2 [400.0 58.4 600.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [400.0 87.6 600.0 87.6] stroke=#ffffffff w0.75
+  path n=5 [600.0 58.4 800.0 87.6] fill=#eef1f6ff
+  path n=2 [600.0 58.4 600.0 87.6] stroke=#ffffffff w0.75
+  path n=2 [800.0 58.4 800.0 87.6] stroke=#ffffffff w0.75
+  path n=2 [600.0 58.4 800.0 58.4] stroke=#ffffffff w0.75
+  path n=2 [600.0 87.6 800.0 87.6] stroke=#ffffffff w0.75
 pop transform

@@ -75,6 +75,9 @@ pub struct Frame {
     pub scale: (f64, f64),
     /// Accumulated rotation of the enclosing groups, degrees clockwise.
     pub rot: f64,
+    /// The enclosing groups mirror their children (an odd number of flips):
+    /// child rotations then turn the other way (§20.1.7.6 xfrm flipH/flipV).
+    pub mirror: bool,
 }
 
 impl Frame {
@@ -85,6 +88,15 @@ impl Frame {
             ch: (0.0, 0.0),
             scale: (1.0, 1.0),
             rot: 0.0,
+            mirror: false,
+        }
+    }
+    /// +1, or −1 inside a mirroring group.
+    pub fn sign(&self) -> f64 {
+        if self.mirror {
+            -1.0
+        } else {
+            1.0
         }
     }
     /// xfrm → (x, y, w, h) in the frame's affine input space.
@@ -124,7 +136,8 @@ impl Frame {
             off: (0.0, 0.0),
             ch: (chx as f64 / EMU_PT, chy as f64 / EMU_PT),
             scale: (sx, sy),
-            rot: self.rot + f64::from(x.rot.unwrap_or(0)) / 60_000.0,
+            rot: self.rot + self.sign() * f64::from(x.rot.unwrap_or(0)) / 60_000.0,
+            mirror: self.mirror ^ (x.flip_h.unwrap_or(false) ^ x.flip_v.unwrap_or(false)),
         })
     }
     /// A visual box (slide points) → xfrm off/ext/rot in this frame's child space (EMU).
@@ -150,7 +163,7 @@ impl Frame {
             ((qy - h / 2.0) * EMU_PT).round() as i64,
         ));
         x.ext = Some(((w * EMU_PT).round() as i64, (h * EMU_PT).round() as i64));
-        let rot = normalize_deg(b.rot - self.rot);
+        let rot = normalize_deg(self.sign() * (b.rot - self.rot));
         x.rot = if rot.abs() < 1e-9 {
             base.rot.filter(|r| *r == 0)
         } else {
@@ -397,7 +410,7 @@ fn frame_box(frame: &Frame, x: &Xfrm) -> Option<BoxR> {
         cy,
         w: r.2,
         h: r.3,
-        rot: normalize_deg(frame.rot + f64::from(x.rot.unwrap_or(0)) / 60_000.0),
+        rot: normalize_deg(frame.rot + frame.sign() * f64::from(x.rot.unwrap_or(0)) / 60_000.0),
     })
 }
 

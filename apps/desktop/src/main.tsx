@@ -8,7 +8,8 @@ import { createRoot } from 'react-dom/client';
 
 // The desktop app is only a shell: same editor, DesktopPlatform (native engine + real disk).
 // One shell, three products: the window URL selects the app (see tauri.*.conf.json).
-const requested = new URLSearchParams(window.location.search).get('app');
+const query = new URLSearchParams(window.location.search);
+const requested = query.get('app');
 const app = requested === 'sheet' || requested === 'slide' ? requested : 'doc';
 const platform = createDesktopPlatform({ storage: (files) => new LocalStorageProvider(files) });
 
@@ -17,7 +18,7 @@ createRoot(document.getElementById('root')!).render(
     {app === 'sheet' ? (
       <BlueSheetEditor platform={platform} />
     ) : app === 'slide' ? (
-      <BlueSlideEditor platform={platform} />
+      <BlueSlideEditor platform={platform} audience={query.get('audience') ?? undefined} />
     ) : (
       <BlueEditor
         platform={platform}

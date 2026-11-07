@@ -1,0 +1,147 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Bảng "
+  text 28.0pt 71.3,30.3 #000000ff "số "
+  text 28.0pt 103.9,30.3 #000000ff "liệu"
+pop transform
+transform [1.000 0.000 0.000 1.000 36.0 108.0]
+  path n=5 [0.0 0.0 216.0 29.2] fill=#2e75b6ff
+  path n=2 [0.0 0.0 0.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [216.0 0.0 216.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [0.0 0.0 216.0 0.0] stroke=#ffffffff w1.00
+  path n=2 [0.0 29.2 216.0 29.2] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 0.0 0.0]
+    text 18.0pt 7.2,20.7 #ffffffff "Chỉ "
+    text 18.0pt 34.9,20.7 #ffffffff "tiêu"
+  pop transform
+  path n=5 [216.0 0.0 432.0 29.2] fill=#2e75b6ff
+  path n=2 [216.0 0.0 216.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [432.0 0.0 432.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [216.0 0.0 432.0 0.0] stroke=#ffffffff w1.00
+  path n=2 [216.0 29.2 432.0 29.2] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 216.0 0.0]
+    text 18.0pt 7.2,20.7 #ffffffff "Quý "
+    text 18.0pt 41.8,20.7 #ffffffff "I"
+  pop transform
+  path n=5 [432.0 0.0 648.0 29.2] fill=#2e75b6ff
+  path n=2 [432.0 0.0 432.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [648.0 0.0 648.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [432.0 0.0 648.0 0.0] stroke=#ffffffff w1.00
+  path n=2 [432.0 29.2 648.0 29.2] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 432.0 0.0]
+    text 18.0pt 7.2,20.7 #ffffffff "Quý "
+    text 18.0pt 41.8,20.7 #ffffffff "II"
+  pop transform
+  path n=5 [648.0 0.0 864.0 29.2] fill=#2e75b6ff
+  path n=2 [648.0 0.0 648.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [864.0 0.0 864.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [648.0 0.0 864.0 0.0] stroke=#ffffffff w1.00
+  path n=2 [648.0 29.2 864.0 29.2] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 648.0 0.0]
+    text 18.0pt 7.2,20.7 #ffffffff "Quý "
+    text 18.0pt 41.8,20.7 #ffffffff "III"
+  pop transform
+  path n=5 [0.0 29.2 216.0 58.4] fill=#deeaf6ff
+  path n=2 [0.0 29.2 0.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [216.0 29.2 216.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [0.0 29.2 216.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [0.0 58.4 216.0 58.4] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 0.0 29.2]
+    text 18.0pt 7.2,20.7 #000000ff "Doanh "
+    text 18.0pt 59.4,20.7 #000000ff "thu"
+  pop transform
+  path n=5 [216.0 29.2 432.0 58.4] fill=#deeaf6ff
+  path n=2 [216.0 29.2 216.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [432.0 29.2 432.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [216.0 29.2 432.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [216.0 58.4 432.0 58.4] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 216.0 29.2]
+    text 18.0pt 7.2,20.7 #000000ff "1.200"
+  pop transform
+  path n=5 [432.0 29.2 648.0 58.4] fill=#deeaf6ff
+  path n=2 [432.0 29.2 432.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [648.0 29.2 648.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [432.0 29.2 648.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [432.0 58.4 648.0 58.4] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 432.0 29.2]
+    text 18.0pt 7.2,20.7 #000000ff "1.350"
+  pop transform
+  path n=5 [648.0 29.2 864.0 58.4] fill=#deeaf6ff
+  path n=2 [648.0 29.2 648.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [864.0 29.2 864.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [648.0 29.2 864.0 29.2] stroke=#ffffffff w1.00
+  path n=2 [648.0 58.4 864.0 58.4] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 648.0 29.2]
+    text 18.0pt 7.2,20.7 #000000ff "1.480"
+  pop transform
+  path n=5 [0.0 58.4 216.0 87.6] fill=#ffffffff
+  path n=2 [0.0 58.4 0.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [216.0 58.4 216.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [0.0 58.4 216.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [0.0 87.6 216.0 87.6] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 0.0 58.4]
+    text 18.0pt 7.2,20.7 #000000ff "Chi "
+    text 18.0pt 34.5,20.7 #000000ff "phí"
+  pop transform
+  path n=5 [216.0 58.4 432.0 87.6] fill=#ffffffff
+  path n=2 [216.0 58.4 216.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [432.0 58.4 432.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [216.0 58.4 432.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [216.0 87.6 432.0 87.6] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 216.0 58.4]
+    text 18.0pt 7.2,20.7 #000000ff "900"
+  pop transform
+  path n=5 [432.0 58.4 648.0 87.6] fill=#ffffffff
+  path n=2 [432.0 58.4 432.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [648.0 58.4 648.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [432.0 58.4 648.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [432.0 87.6 648.0 87.6] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 432.0 58.4]
+    text 18.0pt 7.2,20.7 #000000ff "950"
+  pop transform
+  path n=5 [648.0 58.4 864.0 87.6] fill=#ffffffff
+  path n=2 [648.0 58.4 648.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [864.0 58.4 864.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [648.0 58.4 864.0 58.4] stroke=#ffffffff w1.00
+  path n=2 [648.0 87.6 864.0 87.6] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 648.0 58.4]
+    text 18.0pt 7.2,20.7 #000000ff "1.010"
+  pop transform
+  path n=5 [0.0 87.6 216.0 116.8] fill=#deeaf6ff
+  path n=2 [0.0 87.6 0.0 116.8] stroke=#ffffffff w1.00
+  path n=2 [216.0 87.6 216.0 116.8] stroke=#ffffffff w1.00
+  path n=2 [0.0 87.6 216.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [0.0 116.8 216.0 116.8] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 0.0 87.6]
+    text 18.0pt 7.2,20.7 #000000ff "Lợi "
+    text 18.0pt 33.4,20.7 #000000ff "nhuận"
+  pop transform
+  path n=5 [216.0 87.6 432.0 116.8] fill=#deeaf6ff
+  path n=2 [216.0 87.6 216.0 116.8] stroke=#ffffffff w1.00
+  path n=2 [432.0 87.6 432.0 116.8] stroke=#ffffffff w1.00
+  path n=2 [216.0 87.6 432.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [216.0 116.8 432.0 116.8] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 216.0 87.6]
+    text 18.0pt 7.2,20.7 #000000ff "300"
+  pop transform
+  path n=5 [432.0 87.6 648.0 116.8] fill=#deeaf6ff
+  path n=2 [432.0 87.6 432.0 116.8] stroke=#ffffffff w1.00
+  path n=2 [648.0 87.6 648.0 116.8] stroke=#ffffffff w1.00
+  path n=2 [432.0 87.6 648.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [432.0 116.8 648.0 116.8] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 432.0 87.6]
+    text 18.0pt 7.2,20.7 #000000ff "400"
+  pop transform
+  path n=5 [648.0 87.6 864.0 116.8] fill=#deeaf6ff
+  path n=2 [648.0 87.6 648.0 116.8] stroke=#ffffffff w1.00
+  path n=2 [864.0 87.6 864.0 116.8] stroke=#ffffffff w1.00
+  path n=2 [648.0 87.6 864.0 87.6] stroke=#ffffffff w1.00
+  path n=2 [648.0 116.8 864.0 116.8] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 648.0 87.6]
+    text 18.0pt 7.2,20.7 #000000ff "470"
+  pop transform
+pop transform

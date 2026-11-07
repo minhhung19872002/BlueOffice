@@ -27,6 +27,7 @@ bo-xlsx.workspace = true
 bo-binary = { path = "../bo-binary" }
 bo-odf = { path = "../bo-odf" }
 bo-crypto = { path = "../bo-crypto" }
+bo-opc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -4,7 +4,7 @@
  * WASM worker. Binary payloads use Tauri's raw IPC bodies (no JSON arrays).
  */
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
 import {
   AnonymousSession,
   BrowserClipboard,
@@ -23,6 +23,7 @@ import type {
   FontSource,
   GlyphOutline,
   HostFileLink,
+  MessageBus,
   OpenedFile,
   PageDisplayList,
   PeerRects,
@@ -254,6 +255,38 @@ class DesktopShell implements ShellIntegration {
   }
 }
 
+/** Window channel over Tauri events (every window of the app hears them). */
+export class TauriBus implements MessageBus {
+  private readonly me = Math.random().toString(36).slice(2);
+  private readonly event: string;
+  private readonly unlisten: (() => void)[] = [];
+  constructor(name: string) {
+    this.event = `bo-channel-${name.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+  }
+  post(msg: unknown): void {
+    void emit(this.event, { from: this.me, msg }).catch(() => {});
+  }
+  onMessage(handler: (msg: unknown) => void): () => void {
+    let un: (() => void) | null = null;
+    let done = false;
+    void listen<{ from: string; msg: unknown }>(this.event, (e) => {
+      if (e.payload.from !== this.me) handler(e.payload.msg);
+    }).then((f) => {
+      if (done) f();
+      else un = f;
+    });
+    const off = () => {
+      done = true;
+      un?.();
+    };
+    this.unlisten.push(off);
+    return off;
+  }
+  close(): void {
+    for (const f of this.unlisten.splice(0)) f();
+  }
+}
+
 export interface DesktopPlatformOptions {
   storage?: (files: FileAccess) => DocumentStorage;
   invoke?: Invoke;
@@ -275,6 +308,7 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Platfo
     window: new DesktopWindow(call),
     offline: new IndexedDbCache('blueoffice-desktop-offline'),
     shell: new DesktopShell(call),
+    channel: (name: string) => new TauriBus(name),
     sheet: createNativeSheetHost(call),
   };
 }

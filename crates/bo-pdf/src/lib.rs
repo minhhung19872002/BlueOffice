@@ -194,7 +194,7 @@ pub fn write_pdf_with_images(
                     c.clip_nonzero();
                     c.end_path();
                 }
-                Command::PopClip | Command::PopTransform => {
+                Command::PopClip | Command::PopTransform | Command::PopOpacity => {
                     c.restore_state();
                 }
                 Command::PushTransform { m } => {
@@ -206,6 +206,51 @@ pub fn write_pdf_with_images(
                     emit_path(&mut c, segs, h);
                     c.clip_nonzero();
                     c.end_path();
+                }
+                Command::PushOpacity { alpha } => {
+                    c.save_state();
+                    use_alpha(
+                        &mut c,
+                        &mut res,
+                        (alpha.clamp(0.0, 1.0) * 255.0).round() as u8,
+                    );
+                }
+                Command::BlurPath {
+                    segs,
+                    color,
+                    radius,
+                } => {
+                    // PDF has no blur: a fill plus widening, fading strokes (soft edge).
+                    const STEPS: u8 = 4;
+                    for i in (0..=STEPS).rev() {
+                        let a = (f32::from(color.3) / f32::from(STEPS + 2)).round() as u8;
+                        let w = radius * 2.0 * f32::from(i) / f32::from(STEPS);
+                        let col = Rgba(color.0, color.1, color.2, a.max(1));
+                        let (fill, stroke) = if i == 0 {
+                            (Some(Paint::Solid { color: col }), None)
+                        } else {
+                            (
+                                None,
+                                Some(Stroke {
+                                    width: w,
+                                    color: col,
+                                    dash: Vec::new(),
+                                    cap: "round".into(),
+                                    join: "round".into(),
+                                }),
+                            )
+                        };
+                        emit_vector_path(
+                            &mut c,
+                            &mut res,
+                            &mut pending,
+                            &mut alloc,
+                            segs,
+                            fill.as_ref(),
+                            stroke.as_ref(),
+                            h,
+                        );
+                    }
                 }
                 Command::Path { segs, fill, stroke } => {
                     emit_vector_path(

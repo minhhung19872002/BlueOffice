@@ -81,7 +81,12 @@ export type DisplayCommand =
   | { op: 'pushTransform'; m: [number, number, number, number, number, number] }
   | { op: 'popTransform' }
   /** Intersect the clip with a path (nonzero rule; paired with `popClip`). */
-  | { op: 'pushClipPath'; segs: PathSeg[] };
+  | { op: 'pushClipPath'; segs: PathSeg[] }
+  /** Multiply the opacity of what follows (paired with `popOpacity`). */
+  | { op: 'pushOpacity'; alpha: number }
+  | { op: 'popOpacity' }
+  /** Filled path blurred by `radius` points (soft shadow). */
+  | { op: 'blurPath'; segs: PathSeg[]; color: Rgba; radius: number };
 
 /** Path segment as serialised by serde (`bo_render::PathSeg`). */
 export type PathSeg =
@@ -559,10 +564,32 @@ export interface SlideFormatState {
   bold: boolean;
   italic: boolean;
   underline: boolean;
+  strike: boolean;
   size: number | null;
   color: string | null;
+  highlight: string | null;
+  font: string | null;
   align: SlideAlign | null;
   bullets: boolean;
+  numbering: boolean;
+  /** List level, 0-based. */
+  level: number;
+  /** Line spacing multiple (`null` = single / exact points). */
+  lineSpacing: number | null;
+}
+
+/** Text being edited inside a shape (offsets in UTF-16 code units). */
+export interface SlideTextEdit {
+  id: number;
+  start: number;
+  end: number;
+  /** Caret line `[x1, y1, x2, y2]` in slide points (collapsed selection). */
+  caret: [number, number, number, number] | null;
+  /** Selection highlight boxes, one per line. */
+  rects: SlideBox[];
+  rect: SlideBox;
+  /** Text in the editing format. */
+  text: string;
 }
 
 export type SlideTransform =
@@ -571,10 +598,16 @@ export type SlideTransform =
   | { kind: 'rotate'; x: number; y: number; step?: boolean };
 
 export type SlideTextFormat =
-  | { kind: 'bold' | 'italic' | 'underline' | 'bullets'; value?: boolean }
+  | {
+      kind: 'bold' | 'italic' | 'underline' | 'strike' | 'bullets' | 'numbering';
+      value?: boolean;
+    }
   | { kind: 'size' | 'sizeBy'; points: number }
-  | { kind: 'color'; hex: string | null }
-  | { kind: 'align'; align: SlideAlign };
+  | { kind: 'color' | 'highlight'; hex: string | null }
+  | { kind: 'font'; typeface: string }
+  | { kind: 'align'; align: SlideAlign }
+  | { kind: 'level'; delta: number }
+  | { kind: 'lineSpacing'; value: number };
 
 /** Slide editing command (JSON bridge, ADR-0008). */
 export type SlideCommand =
@@ -582,6 +615,8 @@ export type SlideCommand =
   | { cmd: 'undo' | 'redo' }
   | { cmd: 'goTo'; slide: number }
   | { cmd: 'select'; ids: number[] }
+  | { cmd: 'selectRect'; rect: SlideRect; extend?: boolean }
+  | { cmd: 'selectNext'; back?: boolean }
   | { cmd: 'click'; x: number; y: number; extend?: boolean; deep?: boolean }
   | { cmd: 'hitTest'; x: number; y: number; deep?: boolean }
   | {
@@ -597,8 +632,32 @@ export type SlideCommand =
   | { cmd: 'insertShape'; preset: string; rect?: SlideRect }
   | { cmd: 'insertTextBox'; text?: string; rect?: SlideRect }
   | { cmd: 'insertTable'; rows: number; cols: number; rect?: SlideRect }
-  | { cmd: 'setText'; id?: number; text: string }
-  | { cmd: 'formatText'; format: SlideTextFormat }
+  | { cmd: 'setText'; id?: number; text: string; merge?: boolean; sel?: [number, number] }
+  | { cmd: 'formatText'; format: SlideTextFormat; range?: [number, number] }
+  | { cmd: 'textSelect'; id?: number; start: number; end: number }
+  | { cmd: 'textHit'; x: number; y: number; extend?: boolean }
+  | { cmd: 'textExit' | 'copy' | 'cut' | 'paste' }
+  | { cmd: 'copySlides' | 'cutSlides'; indices?: number[] }
+  | { cmd: 'adjust'; index: number; x: number; y: number; merge?: boolean }
+  | {
+      cmd: 'connectorEnd';
+      end: 0 | 1;
+      x: number;
+      y: number;
+      merge?: boolean;
+      tolerance?: number;
+    }
+  | { cmd: 'insertConnector'; preset?: string }
+  | { cmd: 'tableSelect'; id?: number; r0: number; c0: number; r1?: number; c1?: number }
+  | { cmd: 'tableHit'; x: number; y: number; extend?: boolean }
+  | { cmd: 'setCellText'; row?: number; col?: number; text: string; merge?: boolean }
+  | { cmd: 'tableInsertRow'; below?: boolean }
+  | { cmd: 'tableInsertCol'; right?: boolean }
+  | {
+      cmd: 'tableDeleteRows' | 'tableDeleteCols' | 'tableMerge' | 'tableSplit' | 'tableExit';
+    }
+  | { cmd: 'tableFill'; color: string | null }
+  | { cmd: 'tableOptions'; firstRow?: boolean; bandRow?: boolean }
   | { cmd: 'setFill'; color: string | null }
   | { cmd: 'setLine'; color: string | null; width?: number }
   | { cmd: 'addSlide'; after?: number; layout?: number }
@@ -636,6 +695,42 @@ export interface SlideEditResult {
   error?: string;
   /** While collaborating: the change to share and the selected object key. */
   collab?: { change: CollabChange; shape?: string };
+  /** Text editing inside a shape. */
+  textEdit?: SlideTextEdit;
+  /** Table being edited: anchor cells (merged cells once) and the selection. */
+  table?: {
+    id: number;
+    rows: number;
+    cols: number;
+    /** `[r0, c0, r1, c1]`, inclusive. */
+    sel: [number, number, number, number];
+    cells: {
+      row: number;
+      col: number;
+      rowSpan: number;
+      colSpan: number;
+      rect: SlideBox;
+      text: string;
+    }[];
+    firstRow: boolean;
+    bandRow: boolean;
+    /** Text of the first selected cell. */
+    text: string;
+  };
+  /** Adjust handles of the selected preset shape (§20.1.9.5 avLst). */
+  adjust: { index: number; x: number; y: number }[];
+  /** The selected connector: ends and whether each is attached to a shape. */
+  connector?: {
+    id: number;
+    ends: [[number, number], [number, number]];
+    attached: [boolean, boolean];
+  };
+  /** Connection sites of the other shapes while a connector is selected. */
+  sites?: [number, number][];
+  /** What the internal clipboard holds. */
+  clip?: 'shapes' | 'slides';
+  /** After copy / cut: content for the system clipboard (`png` in base64). */
+  clipboard?: { text: string; png?: string };
 }
 
 // ---------------------------------------------------------------- services
@@ -736,11 +831,23 @@ export interface DocumentStorage {
   saveAs(name: string, bytes: Uint8Array): Promise<StoredDocument | null>;
 }
 
+/** What the system clipboard holds (each format when present). */
+export interface ClipboardContent {
+  text?: string;
+  html?: string;
+  /** PNG picture. */
+  image?: Uint8Array;
+}
+
 export interface ClipboardAccess {
   readText(): Promise<string>;
   writeText(text: string): Promise<void>;
   /** Write rich content (HTML + plain-text fallback). */
   writeHtml(html: string, text: string): Promise<void>;
+  /** Write several formats at once (plain text, HTML, a PNG picture). */
+  writeItems?(items: { text: string; html?: string; png?: Uint8Array }): Promise<void>;
+  /** Read text, HTML and a PNG picture (may ask the user for permission). */
+  read?(): Promise<ClipboardContent>;
   /** HTML on the clipboard ('' when none or not readable; Paste Special). */
   readHtml?(): Promise<string>;
 }
@@ -772,6 +879,14 @@ export interface AuthSession {
   getAccessToken(): Promise<string | null>;
   signIn(): Promise<void>;
   signOut(): Promise<void>;
+}
+
+/** Messages between windows of the app (presenter ↔ audience screen). */
+export interface MessageBus {
+  /** Send to the other windows on this channel (not to this one). */
+  post(msg: unknown): void;
+  onMessage(handler: (msg: unknown) => void): () => void;
+  close(): void;
 }
 
 export interface WindowManager {
@@ -824,6 +939,8 @@ export interface Platform {
   window: WindowManager;
   offline: OfflineCache;
   shell: ShellIntegration;
+  /** Channel between windows (web: BroadcastChannel, desktop: Tauri events). */
+  channel?(name: string): MessageBus;
   /** BlueSheet engine (absent in hosts that only embed BlueDoc). */
   sheet?: import('./sheet').SheetHost;
 }

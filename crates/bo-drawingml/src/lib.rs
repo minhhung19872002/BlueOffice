@@ -15,6 +15,7 @@ pub mod chart;
 pub mod color;
 pub mod dom;
 pub mod geom;
+pub mod handles;
 pub mod presets;
 pub mod props;
 pub mod table;

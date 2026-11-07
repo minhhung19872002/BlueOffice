@@ -2,9 +2,11 @@
 import type {
   AuthSession,
   ClipboardAccess,
+  ClipboardContent,
   DocumentRef,
   DocumentStorage,
   FileAccess,
+  MessageBus,
   OfflineCache,
   RecentFile,
   StoredDocument,
@@ -34,6 +36,33 @@ export class BrowserClipboard implements ClipboardAccess {
         'text/plain': new Blob([text], { type: 'text/plain' }),
       }),
     ]);
+  }
+  async writeItems(items: { text: string; html?: string; png?: Uint8Array }): Promise<void> {
+    if (typeof ClipboardItem === 'undefined') return this.writeText(items.text);
+    const data: Record<string, Blob> = {
+      'text/plain': new Blob([items.text], { type: 'text/plain' }),
+    };
+    if (items.html) data['text/html'] = new Blob([items.html], { type: 'text/html' });
+    if (items.png) data['image/png'] = new Blob([items.png as BlobPart], { type: 'image/png' });
+    try {
+      await navigator.clipboard.write([new ClipboardItem(data)]);
+    } catch {
+      // Some hosts refuse pictures: keep the text at least.
+      await this.writeHtml(items.html ?? items.text, items.text);
+    }
+  }
+  async read(): Promise<ClipboardContent> {
+    const out: ClipboardContent = {};
+    for (const item of await navigator.clipboard.read()) {
+      for (const type of item.types) {
+        const blob = await item.getType(type);
+        if (type === 'image/png' && !out.image) {
+          out.image = new Uint8Array(await blob.arrayBuffer());
+        } else if (type === 'text/html' && out.html === undefined) out.html = await blob.text();
+        else if (type === 'text/plain' && out.text === undefined) out.text = await blob.text();
+      }
+    }
+    return out;
   }
 }
 
@@ -164,5 +193,24 @@ export function mimeFor(name: string): string {
       return 'image/png';
     default:
       return 'application/octet-stream';
+  }
+}
+
+/** Window channel over `BroadcastChannel` (same-origin windows and tabs). */
+export class BroadcastBus implements MessageBus {
+  private readonly ch: BroadcastChannel;
+  constructor(name: string) {
+    this.ch = new BroadcastChannel(`blueoffice:${name}`);
+  }
+  post(msg: unknown): void {
+    this.ch.postMessage(msg);
+  }
+  onMessage(handler: (msg: unknown) => void): () => void {
+    const f = (e: MessageEvent) => handler(e.data);
+    this.ch.addEventListener('message', f);
+    return () => this.ch.removeEventListener('message', f);
+  }
+  close(): void {
+    this.ch.close();
   }
 }

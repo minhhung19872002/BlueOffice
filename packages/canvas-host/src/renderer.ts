@@ -44,6 +44,11 @@ export interface CanvasLike {
   ): GradientLike;
   lineCap?: string;
   lineJoin?: string;
+  /** Group opacity (pictures with alphaModFix). */
+  globalAlpha?: number;
+  /** CSS filter (blurred shadows). */
+  filter?: string;
+  getTransform?(): { a: number; b: number };
   drawImage?(
     img: unknown,
     sx: number,
@@ -303,6 +308,24 @@ function drawCommand(
       ctx.save();
       ctx.clip(glyphs.path(segsToSvg(cmd.segs)));
       break;
+    case 'pushOpacity':
+      ctx.save();
+      ctx.globalAlpha = (ctx.globalAlpha ?? 1) * cmd.alpha;
+      break;
+    case 'popOpacity':
+      ctx.restore();
+      break;
+    case 'blurPath': {
+      // Canvas filter blur (CSS px of the device): radius points × current scale.
+      ctx.save();
+      const m = ctx.getTransform?.() ?? { a: 1, b: 0 };
+      const scale = Math.hypot(m.a, m.b);
+      ctx.filter = `blur(${(cmd.radius * scale) / 2}px)`;
+      ctx.fillStyle = rgba(cmd.color);
+      ctx.fill(glyphs.path(segsToSvg(cmd.segs)));
+      ctx.restore();
+      break;
+    }
   }
 }
 

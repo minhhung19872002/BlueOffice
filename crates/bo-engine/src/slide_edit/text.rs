@@ -4,7 +4,9 @@
 //! Editing text format: paragraphs are separated by `\n`, line breaks inside a
 //! paragraph (§21.1.2.2.1 br) are `\u{b}`.
 
-use bo_model::slide::{Bullet, Color, Fill, ParaProps, Paragraph, RunProps, TextBody, TextRun};
+use bo_model::slide::{
+    Bullet, Color, Fill, ParaProps, Paragraph, RunProps, Spacing, TextBody, TextRun,
+};
 use serde::{Deserialize, Serialize};
 
 /// Line-break character of the editing format.
@@ -246,7 +248,7 @@ pub fn set_text(tb: &mut TextBody, text: &str) {
     tb.paragraphs = out;
 }
 
-/// Shape-level formatting command.
+/// Character / paragraph formatting command.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(
     tag = "kind",
@@ -264,6 +266,10 @@ pub enum TextFormat {
     Underline {
         value: Option<bool>,
     },
+    /// §21.1.2.3.9 rPr@strike.
+    Strike {
+        value: Option<bool>,
+    },
     /// Font size in points.
     Size {
         points: f64,
@@ -276,12 +282,46 @@ pub enum TextFormat {
     Color {
         hex: Option<String>,
     },
+    /// §21.1.2.3.4 highlight: `RRGGBB`; `None` = no highlight.
+    Highlight {
+        hex: Option<String>,
+    },
+    /// §21.1.2.3.7 latin typeface.
+    Font {
+        typeface: String,
+    },
     Align {
         align: Align,
     },
     Bullets {
         value: Option<bool>,
     },
+    /// §21.1.2.4.1 buAutoNum (`arabicPeriod`).
+    Numbering {
+        value: Option<bool>,
+    },
+    /// Change the list level (§21.1.2.2.7 pPr@lvl) by `delta` (Tab / Shift+Tab).
+    Level {
+        delta: i32,
+    },
+    /// §21.1.2.2.10 lnSpc as a multiple of single spacing (1.0, 1.5, 2.0, …).
+    LineSpacing {
+        value: f64,
+    },
+}
+
+impl TextFormat {
+    /// Applies to whole paragraphs (not to a character range).
+    pub fn is_paragraph(&self) -> bool {
+        matches!(
+            self,
+            TextFormat::Align { .. }
+                | TextFormat::Bullets { .. }
+                | TextFormat::Numbering { .. }
+                | TextFormat::Level { .. }
+                | TextFormat::LineSpacing { .. }
+        )
+    }
 }
 
 /// Paragraph alignment (§21.1.10.59 ST_TextAlignType).
@@ -313,7 +353,7 @@ impl Align {
     }
 }
 
-/// Effective formatting of the start of a text body (ribbon state).
+/// Effective formatting at the caret / selection start (ribbon state).
 #[derive(Debug, Clone, PartialEq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatState {
@@ -321,11 +361,20 @@ pub struct FormatState {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    pub strike: bool,
     /// Points.
     pub size: Option<f64>,
     pub color: Option<String>,
+    pub highlight: Option<String>,
+    /// Latin typeface as written (theme fonts resolved).
+    pub font: Option<String>,
     pub align: Option<Align>,
     pub bullets: bool,
+    pub numbering: bool,
+    /// List level, 0-based.
+    pub level: u8,
+    /// Line spacing multiple (`None` = single / points).
+    pub line_spacing: Option<f64>,
 }
 
 /// Parse `RRGGBB` (with or without `#`).
@@ -339,11 +388,10 @@ pub fn parse_hex(hex: &str) -> Option<u32> {
 
 type RunChange = Box<dyn Fn(&mut RunProps)>;
 
-/// Apply a resolved formatting change to every run of a body.
-/// `eff` gives effective (paragraph, run) properties used for toggles.
-pub fn apply_format(tb: &mut TextBody, f: &TextFormat, state: &FormatState, default_size: f64) {
+/// The run-property change of a character format (`None` for paragraph formats).
+fn run_change(f: &TextFormat, state: &FormatState, default_size: f64) -> Option<RunChange> {
     let toggle = |v: Option<bool>, cur: bool| v.unwrap_or(!cur);
-    let rpr_change: Option<RunChange> = match f {
+    match f {
         TextFormat::Bold { value } => {
             let v = toggle(*value, state.bold);
             Some(Box::new(move |r: &mut RunProps| r.b = Some(v)))
@@ -357,6 +405,13 @@ pub fn apply_format(tb: &mut TextBody, f: &TextFormat, state: &FormatState, defa
             // §21.1.10.82 ST_TextUnderlineType: `sng` / `none`.
             Some(Box::new(move |r: &mut RunProps| {
                 r.u = Some(if v { "sng" } else { "none" }.to_owned());
+            }))
+        }
+        TextFormat::Strike { value } => {
+            let v = toggle(*value, state.strike);
+            // §21.1.10.79 ST_TextStrikeType: `sngStrike` / `noStrike`.
+            Some(Box::new(move |r: &mut RunProps| {
+                r.strike = Some(if v { "sngStrike" } else { "noStrike" }.to_owned());
             }))
         }
         TextFormat::Size { points } => {
@@ -377,50 +432,269 @@ pub fn apply_format(tb: &mut TextBody, f: &TextFormat, state: &FormatState, defa
                 r.fill = c.map(|v| Fill::Solid(Color::srgb(v)));
             }))
         }
-        TextFormat::Align { .. } | TextFormat::Bullets { .. } => None,
-    };
+        TextFormat::Highlight { hex } => {
+            let c = hex.as_deref().and_then(parse_hex);
+            Some(Box::new(move |r: &mut RunProps| {
+                r.highlight = c.map(Color::srgb);
+            }))
+        }
+        TextFormat::Font { typeface } => {
+            let tf = typeface.trim().to_owned();
+            Some(Box::new(move |r: &mut RunProps| {
+                r.latin = if tf.is_empty() {
+                    None
+                } else {
+                    Some(bo_model::slide::TextFont {
+                        typeface: tf.clone(),
+                        attrs: Vec::new(),
+                    })
+                };
+            }))
+        }
+        _ => None,
+    }
+}
+
+/// Hanging indent step of a list level (0.375 in).
+const LEVEL_STEP: i64 = 342_900;
+
+/// Apply a paragraph format to one paragraph.
+fn para_change(p: &mut Paragraph, f: &TextFormat, state: &FormatState) {
+    let toggle = |v: Option<bool>, cur: bool| v.unwrap_or(!cur);
+    let pp = p.props.get_or_insert_with(ParaProps::default);
+    match f {
+        TextFormat::Align { align } => {
+            pp.algn = Some(align.code().into());
+        }
+        TextFormat::Bullets { value } | TextFormat::Numbering { value } => {
+            let numbering = matches!(f, TextFormat::Numbering { .. });
+            let cur = if numbering {
+                state.numbering
+            } else {
+                state.bullets
+            };
+            if toggle(*value, cur) {
+                pp.bullet = Some(if numbering {
+                    // §21.1.2.4.1 buAutoNum, §21.1.10.61 ST_TextAutonumberScheme.
+                    Bullet::AutoNum {
+                        scheme: "arabicPeriod".into(),
+                        start_at: None,
+                    }
+                } else {
+                    // §21.1.2.4.3 buChar with a hanging indent of 0.375 in.
+                    Bullet::Char("•".into())
+                });
+                let lvl = i64::from(pp.lvl.unwrap_or(0));
+                if pp.mar_l.is_none() {
+                    pp.mar_l = Some(LEVEL_STEP * (lvl + 1));
+                }
+                if pp.indent.is_none() {
+                    pp.indent = Some(-LEVEL_STEP);
+                }
+            } else {
+                // §21.1.2.4.8 buNone.
+                pp.bullet = Some(Bullet::None);
+                if pp.indent.is_some_and(|i| i < 0) {
+                    pp.indent = Some(0);
+                }
+                if pp.mar_l == Some(LEVEL_STEP * (i64::from(pp.lvl.unwrap_or(0)) + 1)) {
+                    pp.mar_l = Some(0);
+                }
+            }
+        }
+        TextFormat::Level { delta } => {
+            let old = i32::from(pp.lvl.unwrap_or(0));
+            let new = (old + delta).clamp(0, 8);
+            if new != old {
+                pp.lvl = if new == 0 { None } else { Some(new as u8) };
+                // An explicit left margin follows the level.
+                if let Some(m) = pp.mar_l {
+                    pp.mar_l = Some((m + i64::from(new - old) * LEVEL_STEP).max(0));
+                }
+            }
+        }
+        TextFormat::LineSpacing { value } => {
+            let pct = (value.clamp(0.1, 10.0) * 100_000.0).round() as i32;
+            pp.ln_spc = Some(Spacing::Percent(pct));
+        }
+        _ => {}
+    }
+    if p.props
+        .as_ref()
+        .is_some_and(|pp| *pp == ParaProps::default())
+    {
+        p.props = None;
+    }
+}
+
+fn change_run(r: &mut TextRun, ch: &RunChange) {
+    match r {
+        TextRun::Run { props, .. } | TextRun::Break { props } | TextRun::Field { props, .. } => {
+            ch(props);
+        }
+        TextRun::Other(_) => {}
+    }
+}
+
+/// Apply a resolved formatting change to every run of a body.
+pub fn apply_format(tb: &mut TextBody, f: &TextFormat, state: &FormatState, default_size: f64) {
+    let rpr_change = run_change(f, state, default_size);
     for p in &mut tb.paragraphs {
         if let Some(ch) = &rpr_change {
             for r in &mut p.runs {
-                match r {
-                    TextRun::Run { props, .. }
-                    | TextRun::Break { props }
-                    | TextRun::Field { props, .. } => ch(props),
-                    TextRun::Other(_) => {}
-                }
+                change_run(r, ch);
             }
             ch(p.end_props.get_or_insert_with(RunProps::default));
         }
-        match f {
-            TextFormat::Align { align } => {
-                p.props.get_or_insert_with(ParaProps::default).algn = Some(align.code().into());
-            }
-            TextFormat::Bullets { value } => {
-                let on = toggle(*value, state.bullets);
-                let pp = p.props.get_or_insert_with(ParaProps::default);
-                if on {
-                    // §21.1.2.4.3 buChar with a hanging indent of 0.375 in.
-                    pp.bullet = Some(Bullet::Char("•".into()));
-                    if pp.mar_l.is_none() {
-                        pp.mar_l = Some(342_900);
-                    }
-                    if pp.indent.is_none() {
-                        pp.indent = Some(-342_900);
-                    }
-                } else {
-                    // §21.1.2.4.8 buNone.
-                    pp.bullet = Some(Bullet::None);
-                    if pp.indent.is_some_and(|i| i < 0) {
-                        pp.indent = Some(0);
-                    }
-                    if pp.mar_l == Some(342_900) {
-                        pp.mar_l = Some(0);
-                    }
-                }
-            }
-            _ => {}
+        if f.is_paragraph() {
+            para_change(p, f, state);
         }
     }
+}
+
+/// Global character range of each paragraph in the editing text.
+pub fn para_ranges(tb: &TextBody) -> Vec<(usize, usize)> {
+    let mut out = Vec::with_capacity(tb.paragraphs.len());
+    let mut at = 0;
+    for p in &tb.paragraphs {
+        let n = char_len(&para_text(p));
+        out.push((at, at + n));
+        at += n + 1;
+    }
+    out
+}
+
+/// Split runs so that a run boundary falls at character `at` of the paragraph
+/// (fields are never split).
+fn split_at(p: &mut Paragraph, at: usize) {
+    let mut pos = 0;
+    let mut i = 0;
+    while i < p.runs.len() {
+        let len = run_len(&p.runs[i]);
+        if at > pos && at < pos + len {
+            if let TextRun::Run { props, text } = &p.runs[i] {
+                let head = slice_chars(text, 0, at - pos);
+                let tail = slice_chars(text, at - pos, len);
+                let props = props.clone();
+                p.runs[i] = TextRun::Run {
+                    props: props.clone(),
+                    text: head,
+                };
+                p.runs.insert(i + 1, TextRun::Run { props, text: tail });
+            }
+            return;
+        }
+        pos += len;
+        i += 1;
+    }
+}
+
+/// Apply a format to the characters `[start, end)` of the editing text, or —
+/// for paragraph formats — to every paragraph the range touches.
+pub fn apply_format_range(
+    tb: &mut TextBody,
+    f: &TextFormat,
+    state: &FormatState,
+    default_size: f64,
+    start: usize,
+    end: usize,
+) {
+    let (start, end) = (start.min(end), start.max(end));
+    let ranges = para_ranges(tb);
+    if f.is_paragraph() {
+        for (p, &(a, b)) in tb.paragraphs.iter_mut().zip(&ranges) {
+            if end >= a && start <= b {
+                para_change(p, f, state);
+            }
+        }
+        return;
+    }
+    let Some(ch) = run_change(f, state, default_size) else {
+        return;
+    };
+    for (p, &(a, b)) in tb.paragraphs.iter_mut().zip(&ranges) {
+        let s = start.max(a);
+        let e = end.min(b);
+        if s > e || (s == e && !(a == b && start <= a && end >= a)) {
+            continue;
+        }
+        let (ls, le) = (s - a, e - a);
+        if a == b {
+            // Empty paragraph: the format is what new text gets.
+            ch(p.end_props.get_or_insert_with(RunProps::default));
+            continue;
+        }
+        split_at(p, ls);
+        split_at(p, le);
+        let mut pos = 0;
+        for r in &mut p.runs {
+            let len = run_len(r);
+            if len > 0 && pos < le && pos + len > ls {
+                change_run(r, &ch);
+            }
+            pos += len;
+        }
+        // The paragraph mark takes the format when the whole paragraph is covered.
+        if ls == 0 && le == b - a {
+            ch(p.end_props.get_or_insert_with(RunProps::default));
+        }
+        p.runs = merge_runs(std::mem::take(&mut p.runs));
+    }
+}
+
+/// Paragraph index and run properties at a caret offset (the character after
+/// `offset` when `forward`, else the one before it).
+pub fn props_at_offset(tb: &TextBody, offset: usize, forward: bool) -> (usize, RunProps) {
+    let ranges = para_ranges(tb);
+    let pi = ranges
+        .iter()
+        .position(|&(a, b)| offset >= a && offset <= b)
+        .unwrap_or(ranges.len().saturating_sub(1));
+    let Some(p) = tb.paragraphs.get(pi) else {
+        return (0, RunProps::default());
+    };
+    let local = offset.saturating_sub(ranges[pi].0);
+    let pos = if forward { local + 1 } else { local };
+    (pi, props_at(p, pos))
+}
+
+/// Word around a caret offset (`[a, b)` in the editing text; empty when the
+/// caret is not inside a word).
+pub fn word_at(text: &str, offset: usize) -> (usize, usize) {
+    let chars: Vec<char> = text.chars().collect();
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut a = offset.min(chars.len());
+    let mut b = a;
+    while a > 0 && is_word(chars[a - 1]) {
+        a -= 1;
+    }
+    while b < chars.len() && is_word(chars[b]) {
+        b += 1;
+    }
+    if a == offset || b == offset {
+        // At a word edge: no word to format.
+        if !(a < offset && offset < b) {
+            return (offset, offset);
+        }
+    }
+    (a, b)
+}
+
+/// UTF-16 offset → character offset.
+pub fn char_offset(text: &str, utf16: usize) -> usize {
+    let mut u = 0;
+    for (i, c) in text.chars().enumerate() {
+        if u >= utf16 {
+            return i;
+        }
+        u += c.len_utf16();
+    }
+    text.chars().count()
+}
+
+/// Character offset → UTF-16 offset.
+pub fn utf16_offset(text: &str, chars: usize) -> usize {
+    text.chars().take(chars).map(char::len_utf16).sum()
 }
 
 #[cfg(test)]

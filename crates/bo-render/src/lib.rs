@@ -106,6 +106,19 @@ pub enum Command {
     PushClipPath {
         segs: Vec<PathSeg>,
     },
+    /// Multiply the opacity of the following commands by `alpha` (0..=1),
+    /// paired with `PopOpacity` (DrawingML §20.1.8.4 alphaModFix of pictures).
+    PushOpacity {
+        alpha: f32,
+    },
+    PopOpacity,
+    /// Filled path blurred by `radius` points (soft shadow, §20.1.8.49
+    /// outerShdw@blurRad); coordinates as `Path`.
+    BlurPath {
+        segs: Vec<PathSeg>,
+        color: Rgba,
+        radius: f32,
+    },
 }
 
 /// Path segment; JSON: `{"M":[x,y]}`, `{"L":[x,y]}`, `{"C":[x1,y1,x2,y2,x,y]}`, `{"Q":[x1,y1,x,y]}`, `"Z"`.

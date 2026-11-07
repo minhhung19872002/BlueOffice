@@ -2,6 +2,7 @@ import { GlyphStore, ImageStore } from '@blueoffice/canvas-host';
 import { CommandRegistry } from '@blueoffice/editor';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
+  ClipboardContent,
   DocInfo,
   Platform,
   SlideCommand,
@@ -26,24 +27,40 @@ import {
   AlignStartVertical,
   AlignVerticalDistributeCenter,
   ArrowDown,
+  ArrowDownToLine,
+  ArrowLeftToLine,
   ArrowRight,
+  ArrowRightToLine,
   ArrowUp,
+  ArrowUpToLine,
   Baseline,
   Bold,
   BookOpen,
   BringToFront,
+  Cast,
   Circle,
+  ClipboardPaste,
   Copy,
+  Columns3,
   CopyPlus,
+  CornerDownRight,
+  Eraser,
   FileDown,
+  Files,
   FolderOpen,
   Group,
+  Highlighter,
   ImagePlus,
+  IndentDecrease,
+  IndentIncrease,
   Italic,
   LayoutGrid,
   List,
+  ListOrdered,
+  Merge,
   MonitorPlay,
   PaintBucket,
+  PanelTop,
   PenLine,
   Play,
   Presentation,
@@ -51,10 +68,14 @@ import {
   Redo2,
   Rows3,
   Save,
+  Scissors,
   SendToBack,
   Slash,
+  Spline,
+  Split,
   Square,
   SquarePlus,
+  Strikethrough,
   Table,
   Trash,
   Triangle,
@@ -64,6 +85,8 @@ import {
   Ungroup,
 } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AudienceLink } from './audience';
+import { AudienceView } from './AudienceView';
 import { SlideController } from './controller';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
 import { fit, formatElapsed, showAction, step } from './show';
@@ -74,6 +97,8 @@ import { SlideOverlay, type TextEditing } from './SlideOverlay';
 export interface BlueSlideEditorProps {
   platform: Platform;
   language?: Language;
+  /** Open as the audience screen of a presenter window (channel id). */
+  audience?: string;
 }
 
 export type SlideView = 'normal' | 'sorter' | 'reading' | 'show' | 'presenter';
@@ -88,17 +113,54 @@ export interface SlideEditorState {
   isGroup: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  /** What the internal clipboard holds. */
+  clip?: 'shapes' | 'slides';
+  /** A table is being edited (cells selected). */
+  hasTable?: boolean;
+  firstRow?: boolean;
+  bandRow?: boolean;
 }
 
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
-type ColorTarget = 'font' | 'fill' | 'line';
+type ColorTarget = 'font' | 'fill' | 'line' | 'highlight' | 'cell';
+
+/** Attribute marking BlueSlide's own copies in the system clipboard's HTML. */
+const CLIP_MARK = 'data-bo-slide-clip';
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`);
+}
+
+function fromBase64(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** Line spacing multiples offered in the format bar (§21.1.2.2.10 lnSpc). */
+const LINE_SPACINGS = [1, 1.15, 1.5, 2, 2.5, 3];
+/** Typefaces offered in the format bar (any other typeface of the deck is kept). */
+const FONTS = [
+  'Arial',
+  'Calibri',
+  'Times New Roman',
+  'Tahoma',
+  'Carlito',
+  'Liberation Sans',
+  'Tinos',
+];
 
 export function BlueSlideEditor(props: BlueSlideEditorProps) {
   const [i18n] = useState(() => createI18n(props.language));
   return (
     <I18nextProvider i18n={i18n}>
-      <SlideEditorInner {...props} />
+      {props.audience ? (
+        <AudienceView platform={props.platform} channel={props.audience} />
+      ) : (
+        <SlideEditorInner {...props} />
+      )}
     </I18nextProvider>
   );
 }
@@ -163,6 +225,9 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     [],
   );
 
+  // Text editing: open until the engine reports it ended (after it started).
+  const editingRef = useRef<{ id: number; confirmed: boolean } | null>(null);
+
   /** Apply an engine result: selection, dirty slides, slide list. */
   const apply = useCallback((r: SlideEditResult) => {
     setEdit(r);
@@ -182,6 +247,17 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   }, []);
 
   const ctrl = useMemo(() => new SlideController(engine, apply, fail), [engine, apply, fail]);
+
+  // The engine ended text editing (other command, slide change): close the editor.
+  useEffect(() => {
+    const ed = editingRef.current;
+    if (!ed || !edit) return;
+    if (edit.textEdit?.id === ed.id) ed.confirmed = true;
+    else if (ed.confirmed) {
+      editingRef.current = null;
+      setEditing(null);
+    }
+  }, [edit]);
 
   // Live collaboration: collaborators' edits and selected objects.
   useEffect(() => {
@@ -254,6 +330,25 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     [count, run],
   );
 
+  // Audience screen (second window) of the presenter view.
+  const audience = useMemo(
+    () =>
+      new AudienceLink(platform, async () => ({
+        name: fileName || 'deck.pptx',
+        bytes: await engine.savePptx(),
+      })),
+    [platform, engine, fileName],
+  );
+  useEffect(() => () => audience.stop(), [audience]);
+  useEffect(() => {
+    if (!audience.open) return;
+    if (view === 'show' || view === 'presenter') audience.update(current, black, false);
+    else {
+      audience.update(current, false, true);
+      audience.stop();
+    }
+  }, [audience, view, current, black]);
+
   const startShow = useCallback(
     (from: number, presenter: boolean) => {
       if (!count) return;
@@ -290,27 +385,30 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   }, [view, returnView]);
 
   const startEdit = useCallback(
-    (shape: SlideShapeInfo) => {
+    (shape: SlideShapeInfo, at?: { x: number; y: number }) => {
       if (!shape.editableText) return;
+      editingRef.current = { id: shape.id, confirmed: false };
       setEditing({
         id: shape.id,
         text: shape.text ?? '',
         rect: shape.rect,
         size: edit?.format.size ?? 18,
+        at,
       });
     },
     [edit],
   );
 
-  const commitText = useCallback(
-    (id: number, text: string) => {
-      setEditing(null);
-      const orig = edit?.selection.find((s) => s.id === id)?.text ?? '';
-      if (text !== orig) run({ cmd: 'setText', id, text });
-      slideRef.current?.focus();
-    },
-    [edit, run],
-  );
+  /** Give the keyboard back to the shape text after using a control. */
+  const refocusText = () =>
+    (document.querySelector('[data-testid="slide-text-editor"]') as HTMLElement | null)?.focus();
+
+  const exitEdit = useCallback(() => {
+    editingRef.current = null;
+    setEditing(null);
+    run({ cmd: 'textExit' });
+    slideRef.current?.focus();
+  }, [run]);
 
   const commitNotes = useCallback(() => {
     if (notesDraft === null) return;
@@ -327,6 +425,68 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     },
     [colorId],
   );
+
+  // Clipboard: own copies carry a marker so pasting prefers the full internal
+  // copy; pictures and text from other programs become a picture / text box.
+  const toSystem = useCallback(
+    (r: SlideEditResult | null) => {
+      const c = r?.clipboard;
+      if (!c) return;
+      const mark = ctrl.newClipMark(c.text);
+      const html = `<div ${CLIP_MARK}="${mark}">${escapeHtml(c.text)}</div>`;
+      try {
+        const cb = platform.clipboard;
+        const png = c.png ? fromBase64(c.png) : undefined;
+        const done = cb.writeItems
+          ? cb.writeItems({ text: c.text, html, png })
+          : cb.writeHtml(html, c.text);
+        void done.catch(() => {});
+      } catch {
+        /* no system clipboard: the internal copy still works */
+      }
+    },
+    [platform, ctrl],
+  );
+  const pasteFrom = useCallback(
+    async (sys: ClipboardContent | null) => {
+      const mark = sys?.html ? new RegExp(`${CLIP_MARK}="([^"]+)"`).exec(sys.html)?.[1] : undefined;
+      const external = sys && (sys.image || sys.text?.trim()) && !ctrl.isOwnClip(mark, sys.text);
+      if (!external) {
+        // The engine refuses (noClip) when its clipboard is empty.
+        await ctrl.run({ cmd: 'paste' });
+        return;
+      }
+      if (sys.image) await ctrl.insertPicture(sys.image, 'clipboard.png');
+      else if (sys.text) await ctrl.run({ cmd: 'insertTextBox', text: fromEditorText(sys.text) });
+    },
+    [ctrl],
+  );
+
+  // Ctrl+V outside text fields arrives as a paste event (no permission needed).
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (view !== 'normal' || !info) return;
+      e.preventDefault();
+      const d = e.clipboardData;
+      const file = d
+        ? Array.from(d.items ?? [])
+            .find((i) => i.type === 'image/png' || i.type === 'image/jpeg')
+            ?.getAsFile()
+        : null;
+      void (async () => {
+        const sys: ClipboardContent = {
+          text: d?.getData('text/plain') || undefined,
+          html: d?.getData('text/html') || undefined,
+          image: file ? new Uint8Array(await file.arrayBuffer()) : undefined,
+        };
+        await pasteFrom(sys);
+      })().catch(fail);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [view, info, pasteFrom, fail]);
 
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SlideEditorState>();
@@ -415,6 +575,16 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       isEnabled: deck,
       run: (s) => startShow(s.current, true),
     });
+    reg.register({
+      id: 'show.audience',
+      isEnabled: (s) => s.hasDeck && !!platform.channel,
+      run: (s) =>
+        guard(async () => {
+          await ctrl.idle();
+          await audience.start(s.current);
+          startShow(s.current, true);
+        }),
+    });
 
     // History and selection.
     simple('edit.undo', { cmd: 'undo' }, (s) => s.canUndo, 'Ctrl+Z');
@@ -432,6 +602,44 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
         } else run({ cmd: 'delete' });
       },
     });
+
+    // Clipboard: in the slide panel it copies slides, elsewhere shapes.
+    const inThumbs = () => !!document.activeElement?.closest('[data-slide-thumbs]');
+    const copyCmd = (cut: boolean) => (s: SlideEditorState) =>
+      guard(async () => {
+        if (inThumbs()) {
+          toSystem(await ctrl.run({ cmd: cut ? 'cutSlides' : 'copySlides', indices: [s.current] }));
+        } else if (s.hasSelection) {
+          toSystem(await ctrl.run({ cmd: cut ? 'cut' : 'copy' }));
+        }
+      });
+    reg.register({ id: 'edit.copy', shortcut: 'Ctrl+C', isEnabled: deck, run: copyCmd(false) });
+    reg.register({ id: 'edit.cut', shortcut: 'Ctrl+X', isEnabled: deck, run: copyCmd(true) });
+    reg.register({
+      id: 'edit.paste',
+      shortcut: 'Ctrl+V',
+      isEnabled: deck,
+      run: () =>
+        guard(async () => {
+          const sys = await Promise.resolve()
+            .then(() => platform.clipboard.read?.())
+            .catch(() => undefined);
+          await pasteFrom(sys ?? null);
+        }),
+    });
+    reg.register({
+      id: 'slide.copy',
+      isEnabled: deck,
+      run: (s) =>
+        guard(async () => toSystem(await ctrl.run({ cmd: 'copySlides', indices: [s.current] }))),
+    });
+    reg.register({
+      id: 'slide.cut',
+      isEnabled: deck,
+      run: (s) =>
+        guard(async () => toSystem(await ctrl.run({ cmd: 'cutSlides', indices: [s.current] }))),
+    });
+    simple('slide.paste', { cmd: 'paste' }, (s) => s.hasDeck && s.clip === 'slides');
 
     // Slides.
     simple('slide.new', { cmd: 'addSlide' }, deck, 'Ctrl+M');
@@ -468,6 +676,35 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       simple(id, { cmd: 'formatText', format: { kind: 'align', align } }, text, key);
     }
     simple('format.bullets', { cmd: 'formatText', format: { kind: 'bullets' } }, text);
+    simple('format.numbering', { cmd: 'formatText', format: { kind: 'numbering' } }, text);
+    simple(
+      'format.strike',
+      { cmd: 'formatText', format: { kind: 'strike' } },
+      text,
+      'Ctrl+Shift+X',
+    );
+    reg.register({ id: 'format.highlight', isEnabled: text, run: () => pickColor('highlight') });
+    simple(
+      'format.noHighlight',
+      { cmd: 'formatText', format: { kind: 'highlight', hex: null } },
+      text,
+    );
+    simple('format.indent', { cmd: 'formatText', format: { kind: 'level', delta: 1 } }, text);
+    simple('format.outdent', { cmd: 'formatText', format: { kind: 'level', delta: -1 } }, text);
+    for (const v of LINE_SPACINGS) {
+      simple(
+        `format.lineSpacing.${v}`,
+        { cmd: 'formatText', format: { kind: 'lineSpacing', value: v } },
+        text,
+      );
+    }
+    for (const typeface of FONTS) {
+      simple(
+        `format.font.${typeface}`,
+        { cmd: 'formatText', format: { kind: 'font', typeface } },
+        text,
+      );
+    }
     reg.register({ id: 'format.fill', isEnabled: sel, run: () => pickColor('fill') });
     simple('format.noFill', { cmd: 'setFill', color: null }, sel);
     reg.register({ id: 'format.line', isEnabled: sel, run: () => pickColor('line') });
@@ -483,6 +720,12 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       simple(id, { cmd: 'insertShape', preset }, deck);
     }
     simple('insert.table', { cmd: 'insertTable', rows: 3, cols: 3 }, deck);
+    simple('insert.connector', { cmd: 'insertConnector' }, (s) => s.multi);
+    simple(
+      'insert.elbowConnector',
+      { cmd: 'insertConnector', preset: 'bentConnector3' },
+      (s) => s.multi,
+    );
     reg.register({
       id: 'insert.picture',
       isEnabled: deck,
@@ -491,6 +734,30 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
           const f = await platform.files.openFile(['.png', '.jpg', '.jpeg']);
           if (f) await ctrl.insertPicture(f.bytes, f.name);
         }),
+    });
+
+    // Table (while cells are selected).
+    const tbl = (s: SlideEditorState) => !!s.hasTable;
+    simple('table.insertRowAbove', { cmd: 'tableInsertRow', below: false }, tbl);
+    simple('table.insertRowBelow', { cmd: 'tableInsertRow', below: true }, tbl);
+    simple('table.insertColLeft', { cmd: 'tableInsertCol', right: false }, tbl);
+    simple('table.insertColRight', { cmd: 'tableInsertCol', right: true }, tbl);
+    simple('table.deleteRows', { cmd: 'tableDeleteRows' }, tbl);
+    simple('table.deleteCols', { cmd: 'tableDeleteCols' }, tbl);
+    simple('table.merge', { cmd: 'tableMerge' }, tbl);
+    simple('table.split', { cmd: 'tableSplit' }, tbl);
+    reg.register({ id: 'table.fill', isEnabled: tbl, run: () => pickColor('cell') });
+    reg.register({
+      id: 'table.headerRow',
+      isEnabled: tbl,
+      isChecked: (s) => !!s.firstRow,
+      run: (s) => run({ cmd: 'tableOptions', firstRow: !s.firstRow }),
+    });
+    reg.register({
+      id: 'table.bandedRows',
+      isEnabled: tbl,
+      isChecked: (s) => !!s.bandRow,
+      run: (s) => run({ cmd: 'tableOptions', bandRow: !s.bandRow }),
     });
 
     // Arrange.
@@ -506,7 +773,22 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     simple('arrange.distributeH', { cmd: 'distribute', axis: 'horizontal' }, sel);
     simple('arrange.distributeV', { cmd: 'distribute', axis: 'vertical' }, sel);
     return reg;
-  }, [fail, fileName, t, platform, load, engine, view, startShow, run, ctrl, pickColor]);
+  }, [
+    fail,
+    fileName,
+    t,
+    platform,
+    load,
+    engine,
+    view,
+    startShow,
+    run,
+    ctrl,
+    pickColor,
+    toSystem,
+    pasteFrom,
+    audience,
+  ]);
 
   const state: SlideEditorState = useMemo(() => {
     const s = edit?.selection ?? [];
@@ -519,9 +801,24 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       isGroup: s.some((x) => x.kind === 'group'),
       canUndo: edit?.canUndo ?? false,
       canRedo: edit?.canRedo ?? false,
+      clip: edit?.clip,
+      hasTable: !!edit?.table,
+      firstRow: edit?.table?.firstRow,
+      bandRow: edit?.table?.bandRow,
     };
   }, [count, current, edit]);
   const exec = useCallback((id: string) => void registry.execute(id, state), [registry, state]);
+
+  // Shortcuts typed inside the shape text (format.*, edit.*).
+  const textShortcut = useCallback(
+    (e: KeyboardEvent) => {
+      const cmd = registry.match(e);
+      if (!cmd || !/^(format|edit\.(undo|redo))/.test(cmd.id)) return false;
+      exec(cmd.id);
+      return true;
+    },
+    [registry, exec],
+  );
 
   // Keyboard: shortcuts everywhere, editing keys on the slide, navigation in views and the show.
   useEffect(() => {
@@ -545,6 +842,15 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
         e.preventDefault();
         exec(cmd.id);
         return;
+      }
+      // Tab / Shift+Tab cycle through the shapes of the slide.
+      if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && view === 'normal' && count > 0) {
+        const a = document.activeElement;
+        if (!a || a === document.body || slideRef.current?.contains(a)) {
+          e.preventDefault();
+          run({ cmd: 'selectNext', back: e.shiftKey });
+          return;
+        }
       }
       const sel = edit?.selection ?? [];
       if (view === 'normal' && sel.length > 0) {
@@ -617,12 +923,24 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
             ],
           },
           {
+            id: 'clipboard',
+            label: t('slideEditor.groupClipboard'),
+            items: [
+              item('edit.paste', t('slideEditor.paste'), <ClipboardPaste size={18} />),
+              item('edit.cut', t('slideEditor.cut'), <Scissors size={16} />, sm),
+              item('edit.copy', t('slideEditor.copy'), <Copy size={16} />, sm),
+            ],
+          },
+          {
             id: 'slides',
             label: t('slideEditor.groupSlides'),
             items: [
               item('slide.new', t('slideEditor.newSlide'), <SquarePlus size={18} />),
               item('slide.duplicate', t('slideEditor.duplicateSlide'), <CopyPlus size={16} />, sm),
               item('slide.delete', t('slideEditor.deleteSlide'), <Trash size={16} />, sm),
+              item('slide.copy', t('slideEditor.copySlide'), <Files size={16} />, sm),
+              item('slide.cut', t('slideEditor.cutSlide'), <Scissors size={16} />, sm),
+              item('slide.paste', t('slideEditor.pasteSlide'), <ClipboardPaste size={16} />, sm),
             ],
           },
           {
@@ -648,7 +966,16 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
               ),
               item('format.grow', t('slideEditor.growFont'), <AArrowUp size={16} />, sm),
               item('format.shrink', t('slideEditor.shrinkFont'), <AArrowDown size={16} />, sm),
+              item(
+                'format.strike',
+                t('slideEditor.strike'),
+                <Strikethrough size={16} />,
+                sm,
+                f?.strike,
+              ),
               item('format.color', t('slideEditor.fontColor'), <Baseline size={16} />, sm),
+              item('format.highlight', t('slideEditor.highlight'), <Highlighter size={16} />, sm),
+              item('format.noHighlight', t('slideEditor.noHighlight'), <Eraser size={16} />, sm),
             ],
           },
           {
@@ -677,6 +1004,15 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
                 f?.align === 'right',
               ),
               item('format.bullets', t('slideEditor.bullets'), <List size={16} />, sm, f?.bullets),
+              item(
+                'format.numbering',
+                t('slideEditor.numbering'),
+                <ListOrdered size={16} />,
+                sm,
+                f?.numbering,
+              ),
+              item('format.outdent', t('slideEditor.outdent'), <IndentDecrease size={16} />, sm),
+              item('format.indent', t('slideEditor.indent'), <IndentIncrease size={16} />, sm),
             ],
           },
           {
@@ -695,6 +1031,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
               item('show.fromStart', t('slideEditor.fromStart'), <Play size={18} />),
               item('show.fromCurrent', t('slideEditor.fromCurrent'), <MonitorPlay size={16} />, sm),
               item('show.presenter', t('slideEditor.presenter'), <Presentation size={16} />, sm),
+              item('show.audience', t('slideEditor.audienceWindow'), <Cast size={16} />, sm),
             ],
           },
         ],
@@ -721,6 +1058,13 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
               item('insert.ellipse', t('slideEditor.ellipse'), <Circle size={16} />, sm),
               item('insert.arrow', t('slideEditor.arrow'), <ArrowRight size={16} />, sm),
               item('insert.triangle', t('slideEditor.triangle'), <Triangle size={16} />, sm),
+              item('insert.connector', t('slideEditor.connect'), <Spline size={16} />, sm),
+              item(
+                'insert.elbowConnector',
+                t('slideEditor.connector'),
+                <CornerDownRight size={16} />,
+                sm,
+              ),
             ],
           },
           {
@@ -819,6 +1163,70 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
           },
         ],
       },
+      ...(state.hasTable
+        ? [
+            {
+              id: 'table',
+              label: t('slideEditor.tableTab'),
+              groups: [
+                {
+                  id: 'rowsCols',
+                  label: t('slideEditor.groupRowsCols'),
+                  items: [
+                    item(
+                      'table.insertRowAbove',
+                      t('slideEditor.insertRowAbove'),
+                      <ArrowUpToLine size={16} />,
+                      sm,
+                    ),
+                    item(
+                      'table.insertRowBelow',
+                      t('slideEditor.insertRowBelow'),
+                      <ArrowDownToLine size={16} />,
+                      sm,
+                    ),
+                    item(
+                      'table.insertColLeft',
+                      t('slideEditor.insertColLeft'),
+                      <ArrowLeftToLine size={16} />,
+                      sm,
+                    ),
+                    item(
+                      'table.insertColRight',
+                      t('slideEditor.insertColRight'),
+                      <ArrowRightToLine size={16} />,
+                      sm,
+                    ),
+                    item('table.deleteRows', t('slideEditor.deleteRow'), <Rows3 size={16} />, sm),
+                    item(
+                      'table.deleteCols',
+                      t('slideEditor.deleteCol'),
+                      <Columns3 size={16} />,
+                      sm,
+                    ),
+                  ],
+                },
+                {
+                  id: 'merge',
+                  label: t('slideEditor.groupMerge'),
+                  items: [
+                    item('table.merge', t('slideEditor.mergeCells'), <Merge size={16} />, sm),
+                    item('table.split', t('slideEditor.splitCell'), <Split size={16} />, sm),
+                  ],
+                },
+                {
+                  id: 'tableStyle',
+                  label: t('slideEditor.groupTableStyle'),
+                  items: [
+                    item('table.headerRow', t('slideEditor.headerRow'), <PanelTop size={16} />, sm),
+                    item('table.bandedRows', t('slideEditor.bandedRows'), <Rows3 size={16} />, sm),
+                    item('table.fill', t('slideEditor.cellFill'), <PaintBucket size={16} />, sm),
+                  ],
+                },
+              ],
+            },
+          ]
+        : []),
       {
         id: 'view',
         label: t('slideEditor.viewTab'),
@@ -913,6 +1321,46 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
         <div className={styles.normal}>
           {thumbs}
           <div className={styles.center}>
+            {count > 0 && (
+              <div
+                className={styles.formatBar}
+                role="toolbar"
+                aria-label={t('slideEditor.groupFont')}
+              >
+                <select
+                  data-testid="slide-font"
+                  aria-label={t('slideEditor.font')}
+                  disabled={!state.hasText}
+                  value={edit?.format.font ?? ''}
+                  onChange={(e) => {
+                    exec(`format.font.${e.target.value}`);
+                    refocusText();
+                  }}
+                >
+                  {[...new Set([edit?.format.font ?? '', ...FONTS])].map((f) => (
+                    <option key={f} value={f} disabled={!FONTS.includes(f)}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  data-testid="slide-line-spacing"
+                  aria-label={t('slideEditor.lineSpacing')}
+                  disabled={!state.hasText}
+                  value={String(edit?.format.lineSpacing ?? 1)}
+                  onChange={(e) => {
+                    exec(`format.lineSpacing.${e.target.value}`);
+                    refocusText();
+                  }}
+                >
+                  {[...new Set([edit?.format.lineSpacing ?? 1, ...LINE_SPACINGS])].map((v) => (
+                    <option key={v} value={String(v)} disabled={!LINE_SPACINGS.includes(v)}>
+                      {v.toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className={styles.stage} ref={stageRef}>
               {count > 0 ? (
                 <div
@@ -930,9 +1378,13 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
                     controller={ctrl}
                     editing={editing}
                     onStartEdit={startEdit}
-                    onCommitText={commitText}
+                    onExitEdit={exitEdit}
+                    onTextShortcut={textShortcut}
                     label={t('slideEditor.editor')}
                     editorLabel={t('slideEditor.textEditor')}
+                    adjustLabel={t('slideEditor.adjustHandle')}
+                    connectorLabel={t('slideEditor.connectorEnd')}
+                    cellLabel={t('slideEditor.cellEditor')}
                     peers={peers
                       .filter((p) => p.slide === shown)
                       .map((p) => {
@@ -1039,6 +1491,11 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
               <button type="button" onClick={() => setBlack((b) => !b)}>
                 {t('slideEditor.blackScreen')}
               </button>
+              {!audience.open && platform.channel && (
+                <button type="button" onClick={() => exec('show.audience')}>
+                  {t('slideEditor.audienceWindow')}
+                </button>
+              )}
               <button type="button" onClick={endShow}>
                 {t('slideEditor.exit')}
               </button>
@@ -1057,7 +1514,10 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
           if (!hex) return;
           const target = colorTarget;
           if (target === 'font') run({ cmd: 'formatText', format: { kind: 'color', hex } });
-          else if (target === 'fill') run({ cmd: 'setFill', color: hex });
+          else if (target === 'cell') run({ cmd: 'tableFill', color: hex });
+          else if (target === 'highlight') {
+            run({ cmd: 'formatText', format: { kind: 'highlight', hex } });
+          } else if (target === 'fill') run({ cmd: 'setFill', color: hex });
           else run({ cmd: 'setLine', color: hex });
         }}
       />

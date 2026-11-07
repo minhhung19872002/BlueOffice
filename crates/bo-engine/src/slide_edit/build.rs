@@ -144,41 +144,31 @@ pub fn picture(
     ))
 }
 
-/// Table (§21.1.3.13 tbl in a §19.3.1.21 graphicFrame) with thin borders and a
-/// filled header row.
-pub fn table(id: u32, rows: usize, cols: usize, x: f64, y: f64, w: f64) -> Option<ShapeNode> {
+/// Table (§21.1.3.13 tbl in a §19.3.1.21 graphicFrame) using table style
+/// `style` (§21.1.3.15 tableStyleId) with a header row and banded rows.
+pub fn table(
+    id: u32,
+    rows: usize,
+    cols: usize,
+    x: f64,
+    y: f64,
+    w: f64,
+    style: &str,
+) -> Option<ShapeNode> {
     let rows = rows.clamp(1, 50);
     let cols = cols.clamp(1, 30);
     let col_w = emu(w / cols as f64);
     let row_h: i64 = 370_840; // 29.2 pt
-    let line = |tag: &str| {
-        format!(
-            r#"<a:{tag} w="12700"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:{tag}>"#
-        )
-    };
-    let borders = format!(
-        "{}{}{}{}",
-        line("lnL"),
-        line("lnR"),
-        line("lnT"),
-        line("lnB")
-    );
     let mut grid = String::new();
     for _ in 0..cols {
         grid.push_str(&format!(r#"<a:gridCol w="{col_w}"/>"#));
     }
     let mut trs = String::new();
-    for r in 0..rows {
+    for _ in 0..rows {
         trs.push_str(&format!(r#"<a:tr h="{row_h}">"#));
         for _ in 0..cols {
-            // §21.1.3.17 tcPr: lnL, lnR, lnT, lnB, …, fill.
-            let fill = if r == 0 {
-                r#"<a:solidFill><a:schemeClr val="accent1"/></a:solidFill>"#
-            } else {
-                "<a:noFill/>"
-            };
             trs.push_str(&format!(
-                r#"<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="{LANG}" dirty="0"/></a:p></a:txBody><a:tcPr>{borders}{fill}</a:tcPr></a:tc>"#
+                r#"<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="{LANG}" dirty="0"/></a:p></a:txBody><a:tcPr/></a:tc>"#
             ));
         }
         trs.push_str("</a:tr>");
@@ -188,7 +178,7 @@ pub fn table(id: u32, rows: usize, cols: usize, x: f64, y: f64, w: f64) -> Optio
         concat!(
             r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="{id}" name="Table {id}"/>"#,
             r#"<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>"#,
-            r#"{xfrm}<a:graphic><a:graphicData uri="{uri}"><a:tbl><a:tblPr firstRow="1" bandRow="1"/>"#,
+            r#"{xfrm}<a:graphic><a:graphicData uri="{uri}"><a:tbl><a:tblPr firstRow="1" bandRow="1"><a:tableStyleId>{style}</a:tableStyleId></a:tblPr>"#,
             r#"<a:tblGrid>{grid}</a:tblGrid>{trs}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>"#
         ),
         id = id,
@@ -196,6 +186,64 @@ pub fn table(id: u32, rows: usize, cols: usize, x: f64, y: f64, w: f64) -> Optio
         uri = bo_pptx::URI_TABLE,
         grid = grid,
         trs = trs,
+        style = esc(style),
+    ))
+}
+
+/// The table styles part with built-in style `n` added when missing
+/// (§20.1.4.2.27 tblStyleLst); `None` when the deck already defines it.
+pub fn table_styles_with(pres: &Presentation, n: usize) -> Option<RawPart> {
+    use bo_pptx::table_style::{builtin_xml, BUILTIN_IDS, TABLE_STYLES_CT, TABLE_STYLES_PART};
+    let id = BUILTIN_IDS[n % 6];
+    let style = parse(&format!(
+        r#"<a:r xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">{}</a:r>"#,
+        builtin_xml(n)
+    ))?
+    .child("a:tblStyle")?
+    .clone();
+    let mut root = if let Some(d) = pres.part_data(TABLE_STYLES_PART) {
+        bo_drawingml::dom::parse(d, TABLE_STYLES_PART).ok()?
+    } else {
+        {
+            let mut r = XmlElement::new("a:tblStyleLst");
+            r.attrs = vec![
+                (
+                    "xmlns:a".into(),
+                    "http://schemas.openxmlformats.org/drawingml/2006/main".into(),
+                ),
+                ("def".into(), id.into()),
+            ];
+            r
+        }
+    };
+    if root
+        .elements()
+        .any(|e| e.local() == "tblStyle" && e.attr("styleId") == Some(id))
+    {
+        return None;
+    }
+    root.children.push(bo_model::slide::XmlNode::Element(style));
+    Some(RawPart {
+        name: TABLE_STYLES_PART.into(),
+        content_type: Some(TABLE_STYLES_CT.into()),
+        data: bo_drawingml::dom::to_part_xml(&root),
+    })
+}
+
+/// Connector (§19.3.1.19 cxnSp) with an arrow at its end, styled like new
+/// lines (lnRef accent1); `preset` is a connector shape (`straightConnector1`,
+/// `bentConnector3`, `curvedConnector3`).
+pub fn connector(id: u32, preset: &str) -> Option<ShapeNode> {
+    node(&format!(
+        concat!(
+            r#"<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="{id}" name="Connector {id}"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr>"#,
+            r#"<p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm><a:prstGeom prst="{preset}"><a:avLst/></a:prstGeom>"#,
+            r#"<a:ln w="19050"><a:tailEnd type="triangle"/></a:ln></p:spPr>"#,
+            r#"<p:style><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="0"><a:schemeClr val="accent1"/></a:fillRef>"#,
+            r#"<a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="tx1"/></a:fontRef></p:style></p:cxnSp>"#
+        ),
+        id = id,
+        preset = esc(preset),
     ))
 }
 
@@ -546,7 +594,7 @@ mod tests {
         assert_eq!(tb.paragraphs.len(), 2);
         assert_eq!(tb.text(), "Xin chào\nViệt\nNam & <b>");
         assert!(matches!(
-            table(7, 2, 3, 0.0, 0.0, 300.0),
+            table(7, 2, 3, 0.0, 0.0, 300.0, "{X}"),
             Some(ShapeNode::Frame(_))
         ));
         assert!(matches!(

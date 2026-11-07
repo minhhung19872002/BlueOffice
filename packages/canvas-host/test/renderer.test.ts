@@ -198,6 +198,46 @@ describe('canvas renderer', () => {
     expect(ops.filter((o) => o === 'save').length).toBe(ops.filter((o) => o === 'restore').length);
   });
 
+  it('draws blurred shadows and picture opacity', () => {
+    const { ctx, ops } = recorder();
+    const glyphs = new GlyphStore({ getGlyphOutlines: async () => [] }, (d) => `P(${d})`);
+    const c = ctx as typeof ctx & { globalAlpha?: number; filter?: string };
+    const seen: (string | number | undefined)[] = [];
+    const fill = c.fill.bind(c);
+    c.fill = (p: unknown) => {
+      seen.push(c.filter, c.globalAlpha);
+      fill(p);
+    };
+    renderPage(
+      c,
+      {
+        width: 10,
+        height: 10,
+        commands: [
+          {
+            op: 'blurPath',
+            segs: [{ M: [0, 0] }, { L: [5, 5] }, 'Z'],
+            color: [0, 0, 0, 128],
+            radius: 4,
+          },
+          { op: 'pushOpacity', alpha: 0.5 },
+          {
+            op: 'path',
+            segs: [{ M: [0, 0] }, 'Z'],
+            fill: { type: 'solid', color: [1, 2, 3, 255] },
+            stroke: null,
+          },
+          { op: 'popOpacity' },
+        ],
+      },
+      glyphs,
+      2,
+    );
+    expect(seen[0]).toBe('blur(2px)');
+    expect(seen[3]).toBe(0.5);
+    expect(ops.filter((o) => o === 'save').length).toBe(ops.filter((o) => o === 'restore').length);
+  });
+
   it('formats colours', () => {
     expect(rgba([1, 2, 3, 255])).toBe('rgba(1,2,3,1.000)');
   });

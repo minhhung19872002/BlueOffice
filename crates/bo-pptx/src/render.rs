@@ -24,6 +24,9 @@ const EMU_PT: f64 = 12_700.0;
 pub struct RenderOptions {
     /// Skip text (thumbnail fast path).
     pub skip_text: bool,
+    /// Draw only these top-level shapes of the slide (`cNvPr@id`), without
+    /// background, master and layout shapes (clipboard pictures).
+    pub only: Option<Vec<u32>>,
 }
 
 /// 2D affine transform `[a, b, c, d, e, f]`.
@@ -211,6 +214,11 @@ pub fn render_with(
     if let Some(m) = master_idx {
         bg_levels.push(Level::Master(m));
     }
+    let only = opts.only.as_deref();
+    if only.is_some() {
+        bg_levels.clear();
+        levels.retain(|l| matches!(l, Level::Slide(_)));
+    }
     for lv in bg_levels {
         let Some((data, rels, part)) = level_data(pres, lv) else {
             continue;
@@ -233,6 +241,11 @@ pub fn render_with(
         for n in &data.shapes {
             if !is_slide && is_placeholder(n) {
                 continue;
+            }
+            if let Some(ids) = only {
+                if !n.nv().is_some_and(|nv| ids.contains(&nv.id)) {
+                    continue;
+                }
             }
             draw_node(&cx, n, Frame::root(), fonts, images, &mut out);
         }
@@ -611,6 +624,21 @@ fn draw_image(
         .src_rect
         .map(|r| r.map(|v| (f64::from(v) / 100_000.0) as f32))
         .filter(|r| r.iter().any(|v| *v != 0.0));
+    // §20.1.8.4 alphaModFix@amt: constant opacity of the picture.
+    let alpha = b
+        .blip_children
+        .iter()
+        .find(|e| e.local() == "alphaModFix")
+        .map(|e| {
+            e.attr("amt")
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(100_000.0)
+        })
+        .map(|amt| (amt / 100_000.0).clamp(0.0, 1.0) as f32)
+        .filter(|a| *a < 1.0);
+    if let Some(alpha) = alpha {
+        out.push(Command::PushOpacity { alpha });
+    }
     let push = !aff.is_translation();
     let (x, y) = if push {
         out.push(Command::PushTransform { m: aff.to_f32() });
@@ -629,6 +657,9 @@ fn draw_image(
     });
     if push {
         out.push(Command::PopTransform);
+    }
+    if alpha.is_some() {
+        out.push(Command::PopOpacity);
     }
 }
 
@@ -789,7 +820,7 @@ fn draw_geometry(
     out: &mut Vec<Command>,
 ) {
     let has_fill = fill.is_some_and(|(f, _)| !matches!(f, Fill::None | Fill::Group));
-    // §20.1.8.49 outerShdw: offset copy (blur not rendered).
+    // §20.1.8.49 outerShdw: offset copy, blurred by blurRad.
     if let (Some(s), true) = (shadow, has_fill) {
         let dist = s.dist.unwrap_or(0) as f64 / EMU_PT;
         let dir = f64::from(s.dir.unwrap_or(0)) / 60_000.0 * std::f64::consts::PI / 180.0;
@@ -798,11 +829,21 @@ fn draw_geometry(
             .color
             .as_ref()
             .map_or(Rgba(0, 0, 0, 96), |c| cx.color(c, None));
+        let blur = s.blur_rad.unwrap_or(0) as f64 / EMU_PT;
         for p in geom.paths.iter().filter(|p| p.fill != FillMode::None) {
-            out.push(Command::Path {
-                segs: to_segs(&p.segs, off),
-                fill: Some(Paint::Solid { color }),
-                stroke: None,
+            let segs = to_segs(&p.segs, off);
+            out.push(if blur > 0.0 {
+                Command::BlurPath {
+                    segs,
+                    color,
+                    radius: blur as f32,
+                }
+            } else {
+                Command::Path {
+                    segs,
+                    fill: Some(Paint::Solid { color }),
+                    stroke: None,
+                }
             });
         }
     }
@@ -1068,6 +1109,46 @@ fn draw_shape_text(
     wrap_transform(aff, cmds, out);
 }
 
+/// Caret geometry of a slide shape's text laid out in a `w × h` box (local
+/// points, origin at the box's top-left corner, before rotation) — exactly as
+/// [`render_slide`] draws it (§21.1.2 text body, inherited styles and body properties).
+pub fn shape_text_geometry(
+    pres: &Presentation,
+    slide: usize,
+    shape: &bo_model::slide::Shape,
+    w: f64,
+    h: f64,
+    fonts: &mut FontManager,
+) -> Option<crate::text_layout::TextGeometry> {
+    let level = Level::Slide(slide);
+    let empty = TextBody::default();
+    let tb = shape.text.as_ref().unwrap_or(&empty);
+    let ch = chain(pres, level, shape);
+    let props = effective_props(&ch);
+    let mut warnings = Vec::new();
+    let geom = evaluate(props.geometry.as_ref(), w, h, &mut warnings);
+    let bp = effective_body(&ch);
+    let stack = TextStyleStack::new(pres, level, &ch);
+    let clr_map = clr_map_of(pres, level);
+    let env = TextEnv {
+        theme: theme_of(pres, level),
+        colors: ColorContext {
+            theme: theme_of(pres, level),
+            clr_map: &clr_map,
+            ph_clr: None,
+        },
+        slide_number: slide + 1,
+    };
+    Some(crate::text_layout::text_geometry(
+        tb,
+        &bp,
+        &stack,
+        geom.text_rect,
+        &env,
+        fonts,
+    ))
+}
+
 fn wrap_transform(aff: Aff, cmds: Vec<Command>, out: &mut Vec<Command>) {
     if cmds.is_empty() {
         return;
@@ -1193,7 +1274,7 @@ fn draw_chart_frame(
     crate::chart_render::draw_chart(chart, w, h, &mut host, out);
 }
 
-/// §21.1.3 table: cell fills, borders and text (table styles are not applied).
+/// §21.1.3 table: cell fills, borders and text, with the table style (§20.1.4.2.26).
 fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Command>) {
     let cols: Vec<f64> = t.grid.iter().map(|c| c.w as f64 / EMU_PT).collect();
     let mut col_x = vec![0.0];
@@ -1226,6 +1307,12 @@ fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Co
         master_layers: 0,
     };
     let mut images = BTreeMap::new();
+    // §21.1.3.15 tblPr: table style (tableStyleId) and banding flags.
+    let (flags, style_id) = crate::table_style::table_props(t.props.as_ref());
+    let style = style_id
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .map(|id| crate::table_style::resolve(cx.pres, id));
     for (ri, row) in t.rows.iter().enumerate() {
         for (this, cell) in row.cells.iter().enumerate() {
             let span = cell.grid_span.unwrap_or(1).max(1) as usize;
@@ -1239,7 +1326,22 @@ fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Co
             let y1 = row_y[(ri + rspan).min(rows.len())];
             let (w, h) = (x1 - x0, y1 - y0);
             let aff = Aff::translate(x0, y0);
-            let props = cell.props.clone().unwrap_or_default();
+            let mut props = cell.props.clone().unwrap_or_default();
+            // Style values fill in what the cell does not set itself.
+            let mut text_style = (None, None, None);
+            if let Some(st) = &style {
+                let (fill, color, bold, italic, b) =
+                    crate::table_style::cell_style(st, flags, ri, this, rows.len(), cols.len());
+                if props.fill.is_none() {
+                    props.fill = fill;
+                }
+                let [l, r, tp, bt] = b;
+                props.ln_l = props.ln_l.or(l);
+                props.ln_r = props.ln_r.or(r);
+                props.ln_t = props.ln_t.or(tp);
+                props.ln_b = props.ln_b.or(bt);
+                text_style = (color, bold, italic);
+            }
             if let Some(fill) = &props.fill {
                 let segs = rect_segs(aff, w, h);
                 paint_fill(
@@ -1275,6 +1377,13 @@ fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Co
                 }
             }
             if let Some(tb) = &cell.text {
+                let styled;
+                let tb = if text_style == (None, None, None) {
+                    tb
+                } else {
+                    styled = styled_text(tb, &text_style);
+                    &styled
+                };
                 // §21.1.3.17 tcPr margins (defaults 0.1" / 0.05").
                 let mut bp = tb.body_pr.clone();
                 bp.l_ins = Some(props.mar_l.unwrap_or(91_440));
@@ -1288,6 +1397,43 @@ fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Co
             }
         }
     }
+}
+
+/// Apply a table style's text colour / bold / italic (tcTxStyle) to runs that
+/// do not set them.
+fn styled_text(
+    tb: &TextBody,
+    (color, bold, italic): &(Option<Color>, Option<bool>, Option<bool>),
+) -> TextBody {
+    use bo_model::slide::{RunProps, TextRun};
+    let apply = |p: &mut RunProps| {
+        if p.fill.is_none() {
+            if let Some(c) = color {
+                p.fill = Some(Fill::Solid(c.clone()));
+            }
+        }
+        if p.b.is_none() {
+            p.b = *bold;
+        }
+        if p.i.is_none() {
+            p.i = *italic;
+        }
+    };
+    let mut out = tb.clone();
+    for para in &mut out.paragraphs {
+        for r in &mut para.runs {
+            match r {
+                TextRun::Run { props, .. }
+                | TextRun::Break { props }
+                | TextRun::Field { props, .. } => apply(props),
+                TextRun::Other(_) => {}
+            }
+        }
+        if let Some(p) = &mut para.end_props {
+            apply(p);
+        }
+    }
+    out
 }
 
 #[cfg(test)]

@@ -213,6 +213,10 @@ pub struct Engine {
     collab: Option<collab::DocCollab>,
     /// Live collaboration binding of the open presentation (BlueSlide).
     slide_collab: Option<slide_edit::collab::SlideCollab>,
+    /// Slide clipboard (kept across decks of this engine).
+    slide_clip: Option<slide_edit::clip::Clip>,
+    /// Counts opened presentations (clipboard origin).
+    deck_seq: u64,
     /// Open header/footer editor (BlueDoc).
     hf: Option<story::HfEdit>,
 }
@@ -475,6 +479,7 @@ impl Engine {
         self.pres = Some(pres);
         self.images = images;
         self.slides = slide_edit::SlideEditor::default();
+        self.deck_seq += 1;
         self.collab = None;
         self.slide_collab = None;
         self.info()

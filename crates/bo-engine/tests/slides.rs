@@ -62,7 +62,10 @@ fn summary(cmds: &[Command]) -> String {
     let mut s = String::new();
     let mut depth = 0usize;
     for c in cmds {
-        if matches!(c, Command::PopClip | Command::PopTransform) {
+        if matches!(
+            c,
+            Command::PopClip | Command::PopTransform | Command::PopOpacity
+        ) {
             depth = depth.saturating_sub(1);
         }
         s.push_str(&"  ".repeat(depth));
@@ -136,10 +139,30 @@ fn summary(cmds: &[Command]) -> String {
             Command::PushClipPath { segs } => {
                 let _ = writeln!(s, "clip path n={} {}", segs.len(), bbox(segs));
             }
+            Command::PushOpacity { alpha } => {
+                let _ = writeln!(s, "opacity {alpha:.2}");
+            }
+            Command::PopOpacity => s.push_str("pop opacity\n"),
+            Command::BlurPath {
+                segs,
+                color,
+                radius,
+            } => {
+                let _ = writeln!(
+                    s,
+                    "blur path n={} {} {} r{radius:.1}",
+                    segs.len(),
+                    bbox(segs),
+                    rgba(*color)
+                );
+            }
         }
         if matches!(
             c,
-            Command::PushClip { .. } | Command::PushTransform { .. } | Command::PushClipPath { .. }
+            Command::PushClip { .. }
+                | Command::PushTransform { .. }
+                | Command::PushClipPath { .. }
+                | Command::PushOpacity { .. }
         ) {
             depth += 1;
         }
@@ -176,8 +199,9 @@ fn slide_json_is_deterministic_and_balanced() {
                 match c {
                     Command::PushClip { .. }
                     | Command::PushClipPath { .. }
-                    | Command::PushTransform { .. } => depth += 1,
-                    Command::PopClip | Command::PopTransform => depth -= 1,
+                    | Command::PushTransform { .. }
+                    | Command::PushOpacity { .. } => depth += 1,
+                    Command::PopClip | Command::PopTransform | Command::PopOpacity => depth -= 1,
                     _ => {}
                 }
                 assert!(depth >= 0, "{name}: unbalanced pop");

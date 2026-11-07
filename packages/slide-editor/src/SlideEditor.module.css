@@ -307,22 +307,53 @@ circle.handle {
   stroke-width: 1px;
 }
 
+/* Input surface for typing and the IME: the text itself is drawn by the engine
+   on the canvas, the caret and the selection by the overlay. */
 .textEditor {
   position: absolute;
   z-index: 3;
   box-sizing: border-box;
   margin: 0;
-  padding: 4px 6px;
-  border: 1px solid var(--bo-slide-accent, #c2410c);
-  border-radius: 2px;
-  background: rgb(255 255 255 / 96%);
-  color: #111;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
   font-family: var(--bo-font-ui, system-ui, sans-serif);
   line-height: 1.25;
   resize: none;
+  overflow: hidden;
   transform-origin: center;
   outline: none;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+  pointer-events: none;
+}
+
+.textEditor::selection {
+  background: transparent;
+}
+
+.editingFrame {
+  fill: none;
+  stroke: var(--bo-slide-accent, #c2410c);
+  stroke-width: 1px;
+  stroke-dasharray: 4 2;
+}
+
+.caret {
+  stroke: #111;
+  stroke-width: 1.5px;
+  animation: bo-caret-blink 1.06s steps(1) infinite;
+}
+
+@keyframes bo-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.textSel {
+  fill: rgb(37 99 235 / 28%);
+  stroke: none;
 }
 
 .notesEditor {
@@ -363,4 +394,80 @@ circle.handle {
   height: 0;
   opacity: 0;
   pointer-events: none;
+}
+
+.formatBar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--bo-border, #d0d7de);
+}
+
+.formatBar select {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.marquee {
+  fill: rgb(37 99 235 / 10%);
+  stroke: #2563eb;
+  stroke-width: 1px;
+  stroke-dasharray: 4 2;
+}
+
+/* Adjust handle of a preset shape (yellow diamond, §20.1.9.1 ahLst). */
+.adjust {
+  fill: #facc15;
+  stroke: #713f12;
+  stroke-width: 1px;
+  cursor: pointer;
+}
+
+.cxnEnd {
+  fill: #fff;
+  stroke: #2563eb;
+  stroke-width: 1.5px;
+  cursor: crosshair;
+}
+
+.cxnAttached {
+  fill: #16a34a;
+  stroke: #fff;
+  stroke-width: 1.5px;
+  cursor: crosshair;
+}
+
+.site {
+  stroke: #2563eb;
+  stroke-width: 1px;
+  pointer-events: none;
+}
+
+.cell {
+  fill: transparent;
+  stroke: rgb(37 99 235 / 35%);
+  stroke-width: 1px;
+}
+
+.cellSel {
+  fill: rgb(37 99 235 / 18%);
+  stroke: #2563eb;
+  stroke-width: 1.5px;
+}
+
+.cellEditor {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 2px 4px;
+  border: 2px solid #2563eb;
+  background: #fff;
+  color: #111;
+  font-family: var(--bo-font-ui, system-ui, sans-serif);
+  resize: none;
+  outline: none;
+  transform-origin: center;
 }

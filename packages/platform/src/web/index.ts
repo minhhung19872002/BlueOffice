@@ -1,5 +1,6 @@
 import {
   AnonymousSession,
+  BroadcastBus,
   BrowserClipboard,
   FileAccessStorage,
   IndexedDbCache,
@@ -138,6 +139,7 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     window: new WebWindow(),
     offline: new IndexedDbCache(),
     shell: new WebShell(),
+    channel: (name: string) => new BroadcastBus(name),
     sheet: createWebSheetHost(fonts, () => document.documentElement.lang || 'vi-VN'),
   };
 }

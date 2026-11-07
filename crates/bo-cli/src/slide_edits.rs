@@ -136,6 +136,30 @@ const SCRIPTS: &[Script] = &[
             r#"{"cmd":"insertConnector","preset":"bentConnector3"}"#,
         ],
     },
+    // Connectors keep their rotation when re-routed (elbow connector turned
+    // 90°, bend recomputed) and connectors inside a group follow their shapes.
+    Script {
+        base: "slide-shapes-presets.pptx",
+        name: "slide-edit-connectors-rotated.pptx",
+        commands: &[
+            r#"{"cmd":"addSlide"}"#,
+            r#"{"cmd":"insertShape","preset":"rect","rect":{"x":80,"y":250,"w":100,"h":60}}"#,
+            r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":400,"y":350,"w":100,"h":60}}"#,
+            r#"{"cmd":"selectRect","rect":{"x":70,"y":240,"w":440,"h":180}}"#,
+            r#"{"cmd":"insertConnector","preset":"bentConnector3"}"#,
+            r#"{"cmd":"transform","transform":{"kind":"rotate","x":2000,"y":330,"step":true}}"#,
+            r#"{"cmd":"click","x":450,"y":380}"#,
+            r#"{"cmd":"transform","transform":{"kind":"move","dx":40,"dy":60},"snap":false}"#,
+            r#"{"cmd":"insertShape","preset":"rect","rect":{"x":560,"y":100,"w":100,"h":60}}"#,
+            r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":760,"y":220,"w":100,"h":60}}"#,
+            r#"{"cmd":"selectRect","rect":{"x":550,"y":90,"w":320,"h":200}}"#,
+            r#"{"cmd":"insertConnector","preset":"curvedConnector3"}"#,
+            r#"{"cmd":"selectRect","rect":{"x":550,"y":90,"w":320,"h":200}}"#,
+            r#"{"cmd":"group"}"#,
+            r#"{"cmd":"click","x":810,"y":250,"deep":true}"#,
+            r#"{"cmd":"transform","transform":{"kind":"move","dx":0,"dy":80},"snap":false}"#,
+        ],
+    },
     // Tables: cell text, rows/columns, merge, cell fill, style options.
     Script {
         base: "slide-tables-basic.pptx",

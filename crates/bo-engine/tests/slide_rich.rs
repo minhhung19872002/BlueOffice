@@ -571,6 +571,119 @@ fn connectors_attach_to_sites_and_follow_shapes() {
     assert_eq!(cxn_ref(&c, 1).map(|r| r.0), Some(b));
 }
 
+fn insert_shape(e: &mut Engine, preset: &str, x: f64, y: f64) -> u32 {
+    run(
+        e,
+        &format!(
+            r#"{{"cmd":"insertShape","preset":"{preset}","rect":{{"x":{x},"y":{y},"w":100,"h":60}}}}"#
+        ),
+    )
+    .selection[0]
+        .id
+}
+
+fn adj1(c: &bo_model::slide::Connector) -> f64 {
+    match &c.props.geometry {
+        Some(bo_model::slide::Geometry::Preset { av, .. }) => av
+            .iter()
+            .find(|g| g.name == "adj1")
+            .and_then(|g| g.fmla.strip_prefix("val "))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(50_000.0),
+        _ => panic!("preset"),
+    }
+}
+
+#[test]
+fn rotated_elbow_connector_keeps_rotation_when_rerouted() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let a = insert_shape(&mut e, "rect", 100.0, 300.0);
+    let b = insert_shape(&mut e, "ellipse", 400.0, 420.0);
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{a},{b}]}}"#));
+    let r = run(
+        &mut e,
+        r#"{"cmd":"insertConnector","preset":"bentConnector3"}"#,
+    );
+    let cid = r.selection[0].id;
+    let (cx, cy) = (r.selection[0].rect.cx, r.selection[0].rect.cy);
+    // Rotate the elbow connector by 90° (vertical first segment).
+    run(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"transform","transform":{{"kind":"rotate","x":{},"y":{cy},"step":true}}}}"#,
+            cx + 1000.0
+        ),
+    );
+    assert_eq!(
+        connector_of(&e, cid).props.xfrm.unwrap().rot,
+        Some(5_400_000)
+    );
+    // Moving a joined shape re-routes it: still rotated, ends on the sites.
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{b}]}}"#));
+    run(
+        &mut e,
+        r#"{"cmd":"transform","transform":{"kind":"move","dx":30,"dy":40},"snap":false}"#,
+    );
+    let c = connector_of(&e, cid);
+    assert_eq!(c.props.xfrm.as_ref().unwrap().rot, Some(5_400_000));
+    let r = run(&mut e, &format!(r#"{{"cmd":"select","ids":[{cid}]}}"#));
+    let conn = r.connector.unwrap();
+    assert_eq!(conn.attached, [true, true]);
+    let sites = r.sites.clone();
+    let near = |p: [f64; 2]| {
+        sites
+            .iter()
+            .any(|s| (s[0] - p[0]).abs() < 0.05 && (s[1] - p[1]).abs() < 0.05)
+    };
+    assert!(
+        near(conn.ends[0]) && near(conn.ends[1]),
+        "{conn:?} {sites:?}"
+    );
+    // The single bend stays between the ends (adjust value recomputed, §20.1.9.5).
+    let v = adj1(&c);
+    assert!((0.0..=100_000.0).contains(&v), "{v}");
+    // Saved and reopened with its rotation.
+    let bytes = e.save_pptx().unwrap();
+    let p = bo_pptx::read_pptx(&bytes).unwrap();
+    let saved = p.slides[0]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            ShapeNode::Connector(c) if c.nv.id == cid => Some(c.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(saved.props.xfrm.unwrap().rot, Some(5_400_000));
+}
+
+#[test]
+fn connector_inside_a_group_follows_its_shapes() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let a = insert_shape(&mut e, "rect", 100.0, 300.0);
+    let b = insert_shape(&mut e, "ellipse", 400.0, 300.0);
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{a},{b}]}}"#));
+    let cid = run(&mut e, r#"{"cmd":"insertConnector"}"#).selection[0].id;
+    run(
+        &mut e,
+        &format!(r#"{{"cmd":"select","ids":[{a},{b},{cid}]}}"#),
+    );
+    run(&mut e, r#"{"cmd":"group"}"#);
+    // Move the ellipse inside the group (deep selection).
+    run(&mut e, r#"{"cmd":"click","x":450,"y":330,"deep":true}"#);
+    let r = run(
+        &mut e,
+        r#"{"cmd":"transform","transform":{"kind":"move","dx":0,"dy":80},"snap":false}"#,
+    );
+    assert_eq!(r.selection[0].id, b);
+    // The nested connector now ends on the moved ellipse's site.
+    let r = run(&mut e, r#"{"cmd":"click","x":300,"y":370,"deep":true}"#);
+    let conn = r.connector.expect("nested connector selected");
+    assert_eq!(r.selection[0].id, cid);
+    assert!((conn.ends[0][1] - 330.0).abs() < 0.5, "{conn:?}");
+    assert!((conn.ends[1][1] - 410.0).abs() < 0.5, "{conn:?}");
+}
+
 fn table_of(e: &Engine, id: u32) -> bo_model::slide::Table {
     e.presentation().unwrap().slides[0]
         .data

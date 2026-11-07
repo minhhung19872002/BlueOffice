@@ -2092,7 +2092,10 @@ fn reroute_connectors(tx: &mut Tx<'_>) -> R<()> {
     for (slide, ids) in changed {
         let placed = place_slide(tx.pres, slide);
         let mut changes = Vec::new();
-        for p in placed.iter().filter(|p| p.path.len() == 1) {
+        // Connectors at any depth (inside groups too).
+        let mut all: Vec<&Placed> = Vec::new();
+        connect::walk(&placed, &mut |p| all.push(p));
+        for p in all {
             if let Some(ShapeNode::Connector(c)) = ops::node_at(tx.pres, slide, &p.path) {
                 let joins_changed = [0, 1]
                     .iter()
@@ -2144,7 +2147,7 @@ fn cmd_connector_end(
     let ShapeNode::Connector(mut c) = n else {
         return refuse("noConnector");
     };
-    if p.path.len() != 1 || end > 1 {
+    if end > 1 {
         return refuse("noConnector");
     }
     let placed = place_slide(tx.pres, sel.slide);
@@ -2158,8 +2161,8 @@ fn cmd_connector_end(
     let to = hit.map_or((x, y), |h| h.2);
     connect::set_cxn_ref(&mut c, end, hit.map(|h| (h.0, h.1)));
     let (a, b) = if end == 0 { (to, b) } else { (a, to) };
-    c.props.xfrm = Some(connect::xfrm_between(&x0, a, b));
-    tx.replace_node(sel.slide, &p.path, ShapeNode::Connector(c))?;
+    let routed = connect::route(&p, &c, a, b);
+    tx.replace_node(sel.slide, &p.path, ShapeNode::Connector(Box::new(routed)))?;
     Ok(())
 }
 
@@ -3329,7 +3332,7 @@ impl Engine {
         if let [one] = items.as_slice() {
             if let Some(n) = ops::node_at(pres, slide, &one.path) {
                 adjust = connect::adjust_handles(pres, slide, one, n);
-                if let (ShapeNode::Connector(c), true) = (n, one.path.len() == 1) {
+                if let ShapeNode::Connector(c) = n {
                     if let Some(x) = &c.props.xfrm {
                         let [a, b] = connect::ends(one, x);
                         connector = Some(connect::ConnectorOut {

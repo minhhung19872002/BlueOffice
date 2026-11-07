@@ -3,7 +3,9 @@
 //! (§19.3.1.19 cxnSp, §20.1.2.2.10 stCxn / endCxn, §20.1.9.9 cxn).
 
 use super::geom::{find, BoxR, Placed, EMU_PT};
-use bo_model::slide::{Connector, Geometry, Presentation, ShapeNode, Xfrm, XmlElement, XmlNode};
+use bo_model::slide::{
+    Connector, Geometry, Guide, Presentation, ShapeNode, Xfrm, XmlElement, XmlNode,
+};
 use serde::Serialize;
 
 /// Flips of a node's own transform.
@@ -175,6 +177,115 @@ pub fn xfrm_between(base: &Xfrm, a: (f64, f64), b: (f64, f64)) -> Xfrm {
     }
 }
 
+/// Adjust values of the elbow and curved connector presets and the axis they
+/// measure (`true`: fraction of the width, else of the height; ECMA-376 Part 1,
+/// §20.1.10.56 bentConnector2–5, curvedConnector2–5 in presetShapeDefinitions.xml).
+fn connector_adjusts(name: &str) -> &'static [(&'static str, bool)] {
+    match name {
+        "bentConnector3" | "curvedConnector3" => &[("adj1", true)],
+        "bentConnector4" | "curvedConnector4" => &[("adj1", true), ("adj2", false)],
+        "bentConnector5" | "curvedConnector5" => &[("adj1", true), ("adj2", false), ("adj3", true)],
+        _ => &[],
+    }
+}
+
+/// `val N` of an adjust value (default 50000 for the connector presets).
+fn av_val(av: &[Guide], name: &str) -> f64 {
+    av.iter()
+        .find(|g| g.name == name)
+        .and_then(|g| g.fmla.strip_prefix("val "))
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .unwrap_or(50_000.0)
+}
+
+/// Route a connector from slide point `a` to `b` keeping its rotation (§20.1.7.6 xfrm
+/// rot; flips follow the direction of the new path) and its parent's coordinate
+/// space (nested in groups); the bends of elbow/curved connectors stay where they
+/// are on the slide (adjust values recomputed; a single middle bend stays between
+/// the ends).
+pub fn route(p: &Placed, c: &Connector, a: (f64, f64), b: (f64, f64)) -> Connector {
+    let x = c.props.xfrm.clone().unwrap_or_default();
+    let rot = p.b.rot;
+    // The path in the connector's own (unrotated) axes.
+    let at_a = BoxR {
+        cx: a.0,
+        cy: a.1,
+        w: 0.0,
+        h: 0.0,
+        rot,
+    };
+    let (dx, dy) = at_a.to_local(b.0, b.1);
+    let (w, h) = (dx.abs(), dy.abs());
+    let nf = (dx < 0.0, dy < 0.0);
+    let nb = BoxR {
+        cx: f64::midpoint(a.0, b.0),
+        cy: f64::midpoint(a.1, b.1),
+        w,
+        h,
+        rot,
+    };
+    let base = Xfrm {
+        flip_h: nf.0.then_some(true),
+        flip_v: nf.1.then_some(true),
+        ..x.clone()
+    };
+    let mut out = c.clone();
+    out.props.xfrm = Some(p.frame.to_xfrm(&nb, &base));
+    // Bends: old position on the slide → fraction of the new box.
+    if let Some(Geometry::Preset { name, av }) = &c.props.geometry {
+        let axes = connector_adjusts(name);
+        if !axes.is_empty() {
+            let of = (x.flip_h.unwrap_or(false), x.flip_v.unwrap_or(false));
+            let [a0, _] = ends(p, &x);
+            let sign = |f: bool| if f { -1.0 } else { 1.0 };
+            let old_a = BoxR {
+                cx: a0.0,
+                cy: a0.1,
+                ..at_a
+            };
+            let mut nav: Vec<Guide> = av.clone();
+            for &(adj, horizontal) in axes {
+                let v = av_val(av, adj) / 100_000.0;
+                // Bend point relative to the old start, along the old axis.
+                let (lx, ly) = if horizontal {
+                    (sign(of.0) * v * p.b.w, 0.0)
+                } else {
+                    (0.0, sign(of.1) * v * p.b.h)
+                };
+                let bend = old_a.to_slide(lx, ly);
+                let (qx, qy) = at_a.to_local(bend.0, bend.1);
+                let (q, span, f) = if horizontal {
+                    (qx, w, nf.0)
+                } else {
+                    (qy, h, nf.1)
+                };
+                if span < 0.01 {
+                    continue;
+                }
+                let mut nv = sign(f) * q / span;
+                if axes.len() == 1 {
+                    nv = nv.clamp(0.0, 1.0);
+                }
+                let val = (nv * 100_000.0).round() as i64;
+                let g = Guide {
+                    name: adj.to_owned(),
+                    fmla: format!("val {val}"),
+                };
+                match nav.iter_mut().find(|g| g.name == adj) {
+                    Some(old) => *old = g,
+                    None => nav.push(g),
+                }
+            }
+            nav.sort_by_key(|g| g.name.clone());
+            out.props.geometry = Some(Geometry::Preset {
+                name: name.clone(),
+                av: nav,
+            });
+        }
+    }
+    out
+}
+
 /// Position of connection site `idx` of shape `id` on the slide.
 pub fn site_pos(
     pres: &Presentation,
@@ -224,8 +335,8 @@ pub fn nearest_site(
     best.map(|(id, i, s, _)| (id, i, s))
 }
 
-/// Route a top-level connector to the sites it is attached to; `None` when
-/// nothing changes.
+/// Route a connector (top level or in a group) to the sites it is attached to;
+/// `None` when nothing changes.
 pub fn reroute(
     pres: &Presentation,
     slide: usize,
@@ -246,13 +357,8 @@ pub fn reroute(
     let b = en
         .and_then(|(id, i)| site_pos(pres, slide, placed, id, i))
         .unwrap_or(b0);
-    let nx = xfrm_between(x, a, b);
-    if nx == *x {
-        return None;
-    }
-    let mut out = c.clone();
-    out.props.xfrm = Some(nx);
-    Some(out)
+    let out = route(p, c, a, b);
+    (out != *c).then_some(out)
 }
 
 /// Endpoints and attachment state of a selected connector (UI).

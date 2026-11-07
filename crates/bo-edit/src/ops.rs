@@ -6,6 +6,7 @@
 //! `bo_model::index`), which maps one-to-one to CRDT operations later (Phase 6).
 
 use crate::EditError;
+use bo_model::change::BlockChanges;
 use bo_model::index::blocks_at_mut;
 use bo_model::{Block, Comment, Document, Numbering, Section, StyleSheet};
 use serde::{Deserialize, Serialize};
@@ -92,6 +93,24 @@ impl Op {
                 old: new.clone(),
                 new: old.clone(),
             },
+        }
+    }
+
+    /// Record which top-level blocks this op changes (incremental layout).
+    pub fn record(&self, changes: &mut BlockChanges) {
+        match self {
+            Op::Blocks {
+                path,
+                index,
+                remove,
+                insert,
+            } => match path.as_slice() {
+                [section] => changes.splice(*section, *index, remove.len(), insert.len()),
+                // Nested container (table cell): its top-level table block changed.
+                [section, block, ..] => changes.splice(*section, *block, 1, 1),
+                [] => changes.mark_all(),
+            },
+            _ => changes.mark_all(),
         }
     }
 

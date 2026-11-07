@@ -273,6 +273,13 @@ impl Document {
     }
 }
 
+/// Words (whitespace-separated) of `blocks` as [`Document::plain_text`] counts them.
+pub fn blocks_word_count(blocks: &[Block]) -> usize {
+    let mut v = Vec::new();
+    blocks_text(blocks, &mut v);
+    v.iter().map(|t| t.split_whitespace().count()).sum()
+}
+
 fn blocks_text(blocks: &[Block], out: &mut Vec<String>) {
     // Text of paragraphs whose mark is a tracked deletion (§17.13.5.15) joins the next one.
     let mut carry = String::new();

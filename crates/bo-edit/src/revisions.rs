@@ -59,6 +59,13 @@ fn push_text(item: &mut RevisionItem, t: &str) {
 /// id and kind) spread over several runs or paragraphs are reported once.
 pub fn list(doc: &Document) -> Vec<RevisionItem> {
     let mut out: Vec<RevisionItem> = Vec::new();
+    if !doc
+        .sections
+        .iter()
+        .any(|s| blocks_have_revisions(&s.blocks))
+    {
+        return out;
+    }
     let mut add = |kind: RevKind, info: &RevisionInfo, start: Pos, end: Pos, text: &str| {
         if let Some(it) = out
             .iter_mut()
@@ -132,6 +139,25 @@ pub fn list(doc: &Document) -> Vec<RevisionItem> {
         }
     }
     out
+}
+
+/// Cheap pre-check for [`list`]: any revision mark on a paragraph or run of `blocks`.
+fn blocks_have_revisions(blocks: &[Block]) -> bool {
+    blocks.iter().any(|b| match b {
+        Block::Paragraph(p) => {
+            p.props.change.is_some()
+                || p.props.mark_ins.is_some()
+                || p.props.mark_del.is_some()
+                || p.runs.iter().any(|r| {
+                    r.props.ins.is_some() || r.props.del.is_some() || r.props.change.is_some()
+                })
+        }
+        Block::Table(t) => t
+            .rows
+            .iter()
+            .any(|r| r.cells.iter().any(|c| blocks_have_revisions(&c.blocks))),
+        Block::Opaque(_) => false,
+    })
 }
 
 /// Largest revision id used in the document (0 when there is none).

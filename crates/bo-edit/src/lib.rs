@@ -25,6 +25,7 @@ pub use ops::{Op, Pos, Selection, Transaction};
 use revisions::Tracker;
 pub use revisions::{RevKind, RevisionItem};
 
+use bo_model::change::BlockChanges;
 use bo_model::index::{blocks_at, body_paragraphs, para_at, ParaPath};
 use bo_model::{
     Alignment, Block, Color, Document, HalfPoints, Image, LineSpacing, NumRef, ParaProps,
@@ -580,6 +581,8 @@ pub struct Session {
     author: String,
     /// `ST_DateTime` stamped on new revisions and comments.
     clock: Option<String>,
+    /// Blocks changed since the last [`Session::take_changes`].
+    changes: BlockChanges,
 }
 
 /// Author used when the host does not know the user.
@@ -599,6 +602,7 @@ impl Session {
             track: false,
             author: DEFAULT_AUTHOR.to_owned(),
             clock: None,
+            changes: BlockChanges::everything(),
         }
     }
 
@@ -1076,6 +1080,17 @@ impl Session {
         self.version
     }
 
+    /// Blocks changed since the previous call (everything right after [`Session::new`]);
+    /// hosts feed them to the incremental layout.
+    pub fn take_changes(&mut self) -> BlockChanges {
+        std::mem::take(&mut self.changes)
+    }
+
+    /// Blocks changed since the last [`Session::take_changes`].
+    pub fn pending_changes(&self) -> &BlockChanges {
+        &self.changes
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
@@ -1140,7 +1155,11 @@ impl Session {
             ops: Vec::new(),
             track,
         };
-        match f(&mut tx, before) {
+        let res = f(&mut tx, before);
+        for op in &tx.ops {
+            op.record(&mut self.changes);
+        }
+        match res {
             Ok(after) => {
                 let ops = tx.ops;
                 if !ops.is_empty() {
@@ -1169,12 +1188,15 @@ impl Session {
             self.set_selection(selection);
             return Ok(());
         }
-        Transaction {
+        let t = Transaction {
             ops,
             before: self.selection,
             after: selection,
+        };
+        t.apply(&mut self.doc)?;
+        for op in &t.ops {
+            op.record(&mut self.changes);
         }
-        .apply(&mut self.doc)?;
         self.version += 1;
         self.undo.clear();
         self.redo.clear();
@@ -1192,8 +1214,12 @@ impl Session {
         let Some(t) = self.undo.pop() else {
             return false;
         };
-        if t.inverse().apply(&mut self.doc).is_err() {
+        let inv = t.inverse();
+        if inv.apply(&mut self.doc).is_err() {
             return false;
+        }
+        for op in &inv.ops {
+            op.record(&mut self.changes);
         }
         self.selection = t.before;
         self.version += 1;
@@ -1209,6 +1235,9 @@ impl Session {
         };
         if t.apply(&mut self.doc).is_err() {
             return false;
+        }
+        for op in &t.ops {
+            op.record(&mut self.changes);
         }
         self.selection = t.after;
         self.version += 1;

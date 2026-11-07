@@ -16,6 +16,8 @@
 //!   configurable delimiter (`;` for vi-VN).
 #![forbid(unsafe_code)]
 
+mod autofilter;
+mod chart;
 mod csv;
 mod read;
 mod styles;

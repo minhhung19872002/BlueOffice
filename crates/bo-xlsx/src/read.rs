@@ -134,6 +134,7 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
                 }
             }
             let table_ids = read_sheet(&part.data, target, &sst, &links, &mut ws)?;
+            ws.charts = crate::chart::read_charts(&pkg, target, &rels);
             for id in table_ids {
                 if let Some(abs) = links.get(&format!("table:{id}")) {
                     if let Some(p) = pkg.part(abs) {
@@ -820,6 +821,10 @@ fn read_sheet(
                 }
             }
             "rowBreaks" | "colBreaks" => {}
+            // §18.3.1.2 autoFilter
+            "autoFilter" => {
+                ws.auto_filter = Some(crate::autofilter::read_auto_filter(r, e, empty)?);
+            }
             // §18.3.1.95 tableParts / §18.3.1.94 tablePart
             "tableParts" if !empty => for_children(r, |_, e, _| {
                 if lname(e) == "tablePart" {

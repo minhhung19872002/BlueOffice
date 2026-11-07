@@ -546,6 +546,11 @@ fn sheet_xml(
                 out.push_str("</cols>");
             }
             "sheetData" => write_sheet_data(out, ws, sst),
+            "autoFilter" => {
+                if let Some(af) = &ws.auto_filter {
+                    crate::autofilter::write_auto_filter(out, af);
+                }
+            }
             "mergeCells" if !ws.merges.is_empty() => {
                 let _ = write!(out, "<mergeCells count=\"{}\">", ws.merges.len());
                 for m in &ws.merges {

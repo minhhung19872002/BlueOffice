@@ -248,14 +248,11 @@ fn reads_every_modelled_feature() {
     let names: Vec<&str> = ws.unknown.iter().map(|u| u.after.as_str()).collect();
     assert_eq!(
         names,
-        [
-            "sheetProtection",
-            "autoFilter",
-            "drawing",
-            "legacyDrawing",
-            "extLst"
-        ]
+        ["sheetProtection", "drawing", "legacyDrawing", "extLst"]
     );
+    // §18.3.1.2 autoFilter is modelled.
+    let af = ws.auto_filter.as_ref().expect("autoFilter");
+    assert_eq!(af.range.first, CellRef::new(0, 0));
 }
 
 #[test]

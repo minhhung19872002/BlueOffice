@@ -357,6 +357,10 @@ pub struct Worksheet {
     pub conditional_formats: Vec<ConditionalFormat>,
     /// Tables (ListObjects, §18.5).
     pub tables: Vec<Table>,
+    /// Sheet AutoFilter (§18.3.1.2).
+    pub auto_filter: Option<AutoFilter>,
+    /// Charts found in the sheet's drawing (read-only, see [`Chart`]).
+    pub charts: Vec<Chart>,
     /// Print area formula (defined name `_xlnm.Print_Area`, §18.2.6).
     pub print_area: Option<String>,
     /// Print titles formula (defined name `_xlnm.Print_Titles`).
@@ -909,6 +913,140 @@ pub struct TableStyleInfo {
     pub show_last_column: bool,
     pub show_row_stripes: bool,
     pub show_column_stripes: bool,
+}
+
+// ---------------------------------------------------------------------------
+// AutoFilter
+// ---------------------------------------------------------------------------
+
+/// Worksheet AutoFilter (ECMA-376 Part 1, §18.3.1.2 `autoFilter`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AutoFilter {
+    /// `ref`: the filtered range, header row included.
+    pub range: CellRange,
+    /// `filterColumn` children (§18.3.2.7).
+    pub columns: Vec<FilterColumn>,
+    /// Other attributes (xr:uid, …).
+    pub attrs: Vec<RawAttr>,
+    /// Unknown children (sortState §18.3.1.92, extLst), anchored like other raw XML.
+    pub unknown: Vec<RawXml>,
+}
+
+/// One filtered column (§18.3.2.7 `filterColumn`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FilterColumn {
+    /// `colId`: zero-based column offset inside [`AutoFilter::range`].
+    pub col_id: u32,
+    /// `hiddenButton`.
+    pub hidden_button: bool,
+    /// `showButton` (default true).
+    pub show_button: Option<bool>,
+    pub filter: ColumnFilter,
+}
+
+/// The criterion of a filter column.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub enum ColumnFilter {
+    /// No criterion (button only).
+    #[default]
+    None,
+    /// `filters` (§18.3.2.8): show rows whose displayed text equals one of `values`
+    /// (case-insensitive); `blank` also shows empty cells.
+    Values { values: Vec<String>, blank: bool },
+    /// `customFilters` (§18.3.2.3): one or two `customFilter` conditions (§18.3.2.2)
+    /// joined with AND (`and = true`) or OR.
+    Custom {
+        and: bool,
+        conditions: Vec<CustomFilter>,
+    },
+    /// `top10` (§18.3.2.10).
+    Top10 {
+        top: bool,
+        percent: bool,
+        val: f64,
+        /// `filterVal`: the cut-off value cached by the writing application.
+        filter_val: Option<f64>,
+    },
+    /// Any other criterion (dynamicFilter, colorFilter, iconFilter, dateGroupItem…)
+    /// kept as the verbatim child element.
+    Raw(String),
+}
+
+/// `customFilter` (§18.3.2.2): `operator` (§18.18.31 `ST_FilterOperator`, default
+/// `equal`) and `val`, which may use the `*` / `?` wildcards.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct CustomFilter {
+    pub operator: Option<String>,
+    pub val: String,
+}
+
+// ---------------------------------------------------------------------------
+// Charts (read-only view of DrawingML chart parts)
+// ---------------------------------------------------------------------------
+
+/// A chart placed on a worksheet, parsed from its drawing (ECMA-376 Part 1,
+/// §20.5 SpreadsheetML Drawing) and chart part (§21.2 DrawingML Charts, `c:chartSpace`).
+///
+/// This is a **read-only** summary for rendering: the drawing and chart parts stay
+/// opaque and are written back byte-for-byte, so edits to this struct are not saved.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Chart {
+    /// Absolute name of the chart part, e.g. `/xl/charts/chart1.xml`.
+    pub part: String,
+    /// Anchor cells (zero-based) of the drawing anchor (§20.5.2.33 twoCellAnchor).
+    pub from: CellRef,
+    pub to: Option<CellRef>,
+    /// Title text (rich text runs concatenated, or the cached `strRef` value).
+    pub title: Option<String>,
+    /// Plot groups inside `c:plotArea` (several = combo chart).
+    pub plots: Vec<ChartPlot>,
+    /// `c:legend/c:legendPos` (§21.2.2.94): `r`, `l`, `t`, `b`, `tr`; `None` = no legend.
+    pub legend: Option<String>,
+}
+
+/// Chart family (`c:barChart` §21.2.2.16, `c:lineChart` §21.2.2.97, …).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ChartKind {
+    /// Bar/column; `c:barDir` `col` = vertical columns, `bar` = horizontal bars.
+    #[default]
+    Bar,
+    Line,
+    Area,
+    Pie,
+    Doughnut,
+    Scatter,
+    Radar,
+    Bubble,
+    /// Any other plot element (stock, surface, ofPie, 3-D variants…), by local name.
+    Other(String),
+}
+
+/// One plot group of a chart.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ChartPlot {
+    pub kind: ChartKind,
+    /// `c:barDir` for bar charts (`bar` / `col`).
+    pub bar_dir: Option<String>,
+    /// `c:grouping` (§21.2.2.76): clustered, stacked, percentStacked, standard.
+    pub grouping: Option<String>,
+    pub series: Vec<ChartSeries>,
+}
+
+/// A data series (`c:ser`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ChartSeries {
+    /// Series name (cached text of `c:tx`).
+    pub name: Option<String>,
+    /// Formula of the name reference (`c:tx/c:strRef/c:f`).
+    pub name_ref: Option<String>,
+    /// Category (or scatter X) reference formula (`c:cat` / `c:xVal`).
+    pub cat_ref: Option<String>,
+    /// Value (or scatter Y) reference formula (`c:val` / `c:yVal`).
+    pub val_ref: Option<String>,
+    /// Cached categories.
+    pub categories: Vec<String>,
+    /// Cached values (`None` = missing point).
+    pub values: Vec<Option<f64>>,
 }
 
 // ---------------------------------------------------------------------------

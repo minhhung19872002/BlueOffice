@@ -16,6 +16,7 @@ pub mod collab;
 pub mod geom;
 pub mod guides;
 pub mod ops;
+pub mod rich;
 pub mod text;
 
 use crate::{DocInfo, Engine, EngineError};
@@ -181,14 +182,40 @@ pub enum SlideCommand {
         rect: Option<Rect>,
     },
     /// Replace the text of a shape (`\n` paragraphs, `\u{b}` line breaks).
+    /// `merge` joins the change with the previous typing in the same shape
+    /// (one undo step); `sel` is the text selection afterwards (UTF-16).
     SetText {
         #[serde(default)]
         id: Option<u32>,
         text: String,
+        #[serde(default)]
+        merge: bool,
+        #[serde(default)]
+        sel: Option<[usize; 2]>,
     },
+    /// Format the text selection (`range`, UTF-16, or the current text
+    /// selection) or — outside text editing — the whole text of the selection.
     FormatText {
         format: TextFormat,
+        #[serde(default)]
+        range: Option<[usize; 2]>,
     },
+    /// Start / move the text selection inside a shape (UTF-16 offsets).
+    TextSelect {
+        #[serde(default)]
+        id: Option<u32>,
+        start: usize,
+        end: usize,
+    },
+    /// Place the caret at a slide point of the edited shape (`extend` = Shift).
+    TextHit {
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        extend: bool,
+    },
+    /// Leave text editing.
+    TextExit,
     /// `RRGGBB` or `None` for no fill.
     SetFill {
         color: Option<String>,
@@ -225,6 +252,40 @@ pub enum SlideCommand {
     },
     Undo,
     Redo,
+}
+
+impl SlideCommand {
+    /// Commands that keep the text selection of the shape being edited.
+    fn keeps_text_selection(&self) -> bool {
+        matches!(
+            self,
+            SlideCommand::State
+                | SlideCommand::SetText { .. }
+                | SlideCommand::FormatText { .. }
+                | SlideCommand::TextSelect { .. }
+                | SlideCommand::TextHit { .. }
+                | SlideCommand::Undo
+                | SlideCommand::Redo
+        )
+    }
+}
+
+/// The only selected id.
+fn single(ids: &[u32]) -> Option<u32> {
+    match ids {
+        [one] => Some(*one),
+        _ => None,
+    }
+}
+
+/// Text of a shape in the editing format.
+fn shape_text(pres: &Presentation, slide: usize, id: u32) -> Option<String> {
+    let placed = place_slide(pres, slide);
+    let p = find(&placed, id)?;
+    match ops::node_at(pres, slide, &p.path)? {
+        ShapeNode::Shape(s) => Some(s.text.as_ref().map(text::body_text).unwrap_or_default()),
+        _ => None,
+    }
 }
 
 /// A selected shape as seen by the UI.
@@ -301,6 +362,9 @@ pub struct SlideEditResult {
     /// Change to share and the selected object while collaborating.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collab: Option<collab::SlideCollabOut>,
+    /// Text being edited inside a shape: selection, caret and highlight.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_edit: Option<rich::TextEditOut>,
 }
 
 /// Why a command was refused (codes the UI can translate).
@@ -323,6 +387,8 @@ struct Txn {
     ops: Vec<SlideOp>,
     before: SlideSel,
     after: SlideSel,
+    /// Typing in (slide, shape): later typing there joins this transaction.
+    typing: Option<(usize, u32)>,
 }
 
 /// Selection and history of the open presentation.
@@ -333,6 +399,8 @@ pub struct SlideEditor {
     redo: Vec<Txn>,
     next_txn: u64,
     saved: u64,
+    /// Text selection while a shape's text is edited.
+    text: Option<rich::TextSel>,
 }
 
 #[derive(Default)]
@@ -379,6 +447,16 @@ impl SlideEditor {
         }
         let placed = place_slide(pres, self.sel.slide);
         self.sel.ids.retain(|id| find(&placed, *id).is_some());
+        if let Some(t) = self.text {
+            self.text = shape_text(pres, self.sel.slide, t.id).map(|s| {
+                let n = s.chars().count();
+                rich::TextSel {
+                    start: t.start.min(n),
+                    end: t.end.min(n),
+                    ..t
+                }
+            });
+        }
     }
 
     /// Run a change as one undoable transaction.
@@ -386,6 +464,18 @@ impl SlideEditor {
         &mut self,
         pres: &mut Presentation,
         out: &mut Outcome,
+        f: impl FnOnce(&mut Tx<'_>, &mut SlideSel) -> R<()>,
+    ) {
+        self.mutate_as(pres, out, None, f);
+    }
+
+    /// [`Self::mutate`]; typing (`Some(slide, shape)`) joins the previous
+    /// typing transaction in the same shape when nothing happened in between.
+    fn mutate_as(
+        &mut self,
+        pres: &mut Presentation,
+        out: &mut Outcome,
+        typing: Option<(usize, u32)>,
         f: impl FnOnce(&mut Tx<'_>, &mut SlideSel) -> R<()>,
     ) {
         let before = self.sel.clone();
@@ -396,13 +486,23 @@ impl SlideEditor {
                 let ops = std::mem::take(&mut tx.ops);
                 out.note(&ops);
                 if !ops.is_empty() {
-                    self.next_txn += 1;
-                    self.undo.push(Txn {
-                        id: self.next_txn,
-                        ops,
-                        before,
-                        after: sel.clone(),
-                    });
+                    let join = typing.is_some()
+                        && self.redo.is_empty()
+                        && self.state_id() != self.saved
+                        && self.undo.last().is_some_and(|t| t.typing == typing);
+                    if let (true, Some(last)) = (join, self.undo.last_mut()) {
+                        last.ops.extend(ops);
+                        last.after = sel.clone();
+                    } else {
+                        self.next_txn += 1;
+                        self.undo.push(Txn {
+                            id: self.next_txn,
+                            ops,
+                            before,
+                            after: sel.clone(),
+                            typing,
+                        });
+                    }
                     self.redo.clear();
                 }
                 self.sel = sel;
@@ -507,6 +607,21 @@ fn selected<'a>(placed: &'a [Placed], ids: &[u32]) -> Vec<&'a Placed> {
     v
 }
 
+/// Placed shape at an index path (any depth).
+fn placed_at<'a>(placed: &'a [Placed], path: &[usize]) -> Option<&'a Placed> {
+    for p in placed {
+        if p.path == path {
+            return Some(p);
+        }
+        if path.starts_with(&p.path) {
+            if let Some(c) = placed_at(&p.children, path) {
+                return Some(c);
+            }
+        }
+    }
+    None
+}
+
 fn node_clone(pres: &Presentation, slide: usize, path: &[usize]) -> R<ShapeNode> {
     ops::node_at(pres, slide, path)
         .cloned()
@@ -602,55 +717,82 @@ fn place_new(pres: &Presentation, rect: Option<Rect>, w: f64, h: f64) -> Rect {
 
 /// Effective text formatting at the start of a shape's text.
 fn format_state(pres: &Presentation, slide: usize, s: &bo_model::slide::Shape) -> FormatState {
+    format_state_at(pres, slide, s, None)
+}
+
+/// Effective text formatting at a text selection `(start, end)` (character
+/// offsets) or, without one, at the start of the text.
+fn format_state_at(
+    pres: &Presentation,
+    slide: usize,
+    s: &bo_model::slide::Shape,
+    at: Option<(usize, usize)>,
+) -> FormatState {
     let Some(tb) = &s.text else {
         return FormatState::default();
     };
     let ch = chain(pres, Level::Slide(slide), s);
     let stack = TextStyleStack::new(pres, Level::Slide(slide), &ch);
     let empty = bo_model::slide::Paragraph::default();
-    let p = tb.paragraphs.first().unwrap_or(&empty);
+    let (p, rpr) = if let Some((a, b)) = at {
+        let (pi, rpr) = text::props_at_offset(tb, a.min(b), a != b);
+        (tb.paragraphs.get(pi).unwrap_or(&empty), rpr)
+    } else {
+        let p = tb.paragraphs.first().unwrap_or(&empty);
+        let rpr = p
+            .runs
+            .iter()
+            .find_map(|r| match r {
+                TextRun::Run { props, .. } => Some(props.clone()),
+                _ => None,
+            })
+            .or_else(|| p.end_props.clone())
+            .unwrap_or_default();
+        (p, rpr)
+    };
     let ppr = stack.paragraph(p);
-    let rpr = p
-        .runs
-        .iter()
-        .find_map(|r| match r {
-            TextRun::Run { props, .. } => Some(props.clone()),
-            _ => None,
-        })
-        .or_else(|| p.end_props.clone())
-        .unwrap_or_default();
     let r = TextStyleStack::run(&ppr, &rpr);
+    let map = clr_map_of(pres, Level::Slide(slide));
+    let ctx = bo_drawingml::ColorContext {
+        theme: theme_of(pres, Level::Slide(slide)),
+        clr_map: &map,
+        ph_clr: None,
+    };
+    let hex = |c: &bo_model::slide::Color| {
+        format!(
+            "{:06X}",
+            bo_drawingml::resolve_color(c, &ctx).to_hex() & 0x00FF_FFFF
+        )
+    };
     let color = match &r.fill {
-        Some(Fill::Solid(c)) => {
-            let map = clr_map_of(pres, Level::Slide(slide));
-            let ctx = bo_drawingml::ColorContext {
-                theme: theme_of(pres, Level::Slide(slide)),
-                clr_map: &map,
-                ph_clr: None,
-            };
-            Some(format!(
-                "{:06X}",
-                bo_drawingml::resolve_color(c, &ctx).to_hex() & 0x00FF_FFFF
-            ))
-        }
+        Some(Fill::Solid(c)) => Some(hex(c)),
         _ => None,
     };
+    let font = r.latin.as_ref().map(|f| {
+        bo_drawingml::theme::resolve_typeface(theme_of(pres, Level::Slide(slide)), &f.typeface)
+            .to_owned()
+    });
     FormatState {
         has_text: true,
         bold: r.b == Some(true),
         italic: r.i == Some(true),
         underline: r.u.as_deref().is_some_and(|u| u != "none"),
+        strike: r.strike.as_deref().is_some_and(|v| v != "noStrike"),
         size: r.sz.map(|s| f64::from(s) / 100.0),
         color,
+        highlight: r.highlight.as_ref().map(hex),
+        font: font.filter(|f| !f.is_empty()),
         align: Some(Align::of(ppr.algn.as_deref())),
         bullets: matches!(
             ppr.bullet,
-            Some(
-                bo_model::slide::Bullet::Char(_)
-                    | bo_model::slide::Bullet::AutoNum { .. }
-                    | bo_model::slide::Bullet::Blip(_)
-            )
+            Some(bo_model::slide::Bullet::Char(_) | bo_model::slide::Bullet::Blip(_))
         ),
+        numbering: matches!(ppr.bullet, Some(bo_model::slide::Bullet::AutoNum { .. })),
+        level: ppr.lvl.unwrap_or(0),
+        line_spacing: match ppr.ln_spc {
+            Some(bo_model::slide::Spacing::Percent(p)) => Some(f64::from(p) / 100_000.0),
+            _ => None,
+        },
     }
 }
 
@@ -1187,8 +1329,16 @@ fn text_target(tx: &Tx<'_>, sel: &SlideSel, id: Option<u32>) -> R<Vec<usize>> {
         .ok_or(EditError::Refused("noShape"))
 }
 
-fn cmd_set_text(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, value: &str) -> R<()> {
+fn cmd_set_text(
+    tx: &mut Tx<'_>,
+    sel: &SlideSel,
+    id: Option<u32>,
+    value: &str,
+    fonts: &mut bo_text::FontManager,
+) -> R<()> {
     let path = text_target(tx, sel, id)?;
+    let placed = place_slide(tx.pres, sel.slide);
+    let p = placed_at(&placed, &path).cloned();
     let mut n = node_clone(tx.pres, sel.slide, &path)?;
     let ShapeNode::Shape(s) = &mut n else {
         return refuse("noText");
@@ -1198,12 +1348,50 @@ fn cmd_set_text(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, value: &str) -
         ..TextBody::default()
     });
     text::set_text(tb, value);
+    // §21.1.2.1.2 spAutoFit / §21.1.2.1.3 normAutofit while typing.
+    let fitted = p
+        .as_ref()
+        .and_then(|p| rich::autofit(tx.pres, sel.slide, s, &p.b, fonts));
+    if let (Some(p), Some(b)) = (p.as_ref(), fitted) {
+        apply_box(tx.pres, sel.slide, &mut n, p, &b);
+    }
     tx.replace_node(sel.slide, &path, n)?;
     Ok(())
 }
 
-fn cmd_format(tx: &mut Tx<'_>, sel: &SlideSel, f: &TextFormat) -> R<()> {
+fn cmd_format(
+    tx: &mut Tx<'_>,
+    sel: &SlideSel,
+    f: &TextFormat,
+    text_sel: Option<rich::TextSel>,
+) -> R<()> {
     let placed = place_slide(tx.pres, sel.slide);
+    if let Some(ts) = text_sel {
+        // Inside the text: format the selected characters / paragraphs.
+        let path = find(&placed, ts.id)
+            .map(|p| p.path.clone())
+            .ok_or(EditError::Refused("noShape"))?;
+        let mut n = node_clone(tx.pres, sel.slide, &path)?;
+        let state = match &n {
+            ShapeNode::Shape(s) => format_state_at(tx.pres, sel.slide, s, Some((ts.start, ts.end))),
+            _ => return refuse("noText"),
+        };
+        let ShapeNode::Shape(s) = &mut n else {
+            return refuse("noText");
+        };
+        let Some(tb) = &mut s.text else {
+            return refuse("noText");
+        };
+        let (mut a, mut b) = (ts.start.min(ts.end), ts.start.max(ts.end));
+        if a == b && !f.is_paragraph() {
+            // A collapsed caret formats the word around it.
+            (a, b) = text::word_at(&text::body_text(tb), a);
+        }
+        let default_size = state.size.unwrap_or(18.0);
+        text::apply_format_range(tb, f, &state, default_size, a, b);
+        tx.replace_node(sel.slide, &path, n)?;
+        return Ok(());
+    }
     let paths: Vec<Vec<usize>> = selected(&placed, &sel.ids)
         .iter()
         .map(|p| p.path.clone())
@@ -1514,7 +1702,11 @@ impl Engine {
         {
             let pres = self.pres.as_mut().ok_or(EngineError::NoDocument)?;
             let ed = &mut self.slides;
+            let fonts = &mut self.fonts;
             ed.clamp(pres);
+            if !cmd.keeps_text_selection() {
+                ed.text = None;
+            }
             match cmd {
                 SlideCommand::State => {}
                 SlideCommand::GoTo { slide } => {
@@ -1629,12 +1821,91 @@ impl Engine {
                         insert_top(tx, sel, n)
                     });
                 }
-                SlideCommand::SetText { id, text } => {
-                    ed.mutate(pres, &mut out, |tx, sel| cmd_set_text(tx, sel, id, &text));
+                SlideCommand::SetText {
+                    id,
+                    text,
+                    merge,
+                    sel: text_sel,
+                } => {
+                    let target = id.or(single(&ed.sel.ids));
+
+                    let typing = if merge {
+                        target.map(|t| (ed.sel.slide, t))
+                    } else {
+                        None
+                    };
+                    ed.mutate_as(pres, &mut out, typing, |tx, sel| {
+                        cmd_set_text(tx, sel, id, &text, fonts)
+                    });
+                    if let (Some(t), Some([a, b]), None) = (target, text_sel, &out.error) {
+                        let plain = text.replace("\r\n", "\n").replace('\r', "\n");
+                        ed.text = Some(rich::TextSel {
+                            id: t,
+                            start: text::char_offset(&plain, a),
+                            end: text::char_offset(&plain, b),
+                        });
+                    }
                 }
-                SlideCommand::FormatText { format } => {
-                    ed.mutate(pres, &mut out, |tx, sel| cmd_format(tx, sel, &format));
+                SlideCommand::FormatText { format, range } => {
+                    let ts = match (range, ed.text) {
+                        (Some([a, b]), cur) => {
+                            let id = cur.map(|t| t.id).or(single(&ed.sel.ids));
+
+                            id.and_then(|id| {
+                                let s = shape_text(pres, ed.sel.slide, id)?;
+                                Some(rich::TextSel {
+                                    id,
+                                    start: text::char_offset(&s, a),
+                                    end: text::char_offset(&s, b),
+                                })
+                            })
+                        }
+                        (None, cur) => cur,
+                    };
+                    ed.mutate(pres, &mut out, |tx, sel| cmd_format(tx, sel, &format, ts));
                 }
+                SlideCommand::TextSelect { id, start, end } => {
+                    let id = id.or(single(&ed.sel.ids));
+
+                    match id.and_then(|id| Some((id, shape_text(pres, ed.sel.slide, id)?))) {
+                        Some((id, s)) => {
+                            if !ed.sel.ids.contains(&id) {
+                                ed.sel.ids = vec![id];
+                            }
+                            ed.text = Some(rich::TextSel {
+                                id,
+                                start: text::char_offset(&s, start),
+                                end: text::char_offset(&s, end),
+                            });
+                        }
+                        None => out.error = Some("noText".into()),
+                    }
+                }
+                SlideCommand::TextHit { x, y, extend } => {
+                    let placed = place_slide(pres, ed.sel.slide);
+                    let hit = ed.text.and_then(|t| {
+                        let p = find(&placed, t.id)?;
+                        let Some(ShapeNode::Shape(s)) = ops::node_at(pres, ed.sel.slide, &p.path)
+                        else {
+                            return None;
+                        };
+                        let n = ShapeNode::Shape(s.clone());
+                        let b = rich::text_box(p, &n);
+                        let g = rich::geometry(pres, ed.sel.slide, s, &b, fonts)?;
+                        Some((t, rich::offset_at(&g, &b, x, y)))
+                    });
+                    match hit {
+                        Some((t, off)) => {
+                            ed.text = Some(rich::TextSel {
+                                id: t.id,
+                                start: if extend { t.start } else { off },
+                                end: off,
+                            });
+                        }
+                        None => out.error = Some("noText".into()),
+                    }
+                }
+                SlideCommand::TextExit => ed.text = None,
                 SlideCommand::SetFill { color } => {
                     ed.mutate(pres, &mut out, |tx, sel| {
                         cmd_fill(tx, sel, color.as_deref())
@@ -1687,6 +1958,7 @@ impl Engine {
             let pres = self.pres.as_mut().ok_or(EngineError::NoDocument)?;
             let ed = &mut self.slides;
             ed.clamp(pres);
+            ed.text = None;
             ed.mutate(pres, &mut out, |tx, sel| cmd_picture(tx, sel, bytes, name));
         }
         let mut r = self.finish_slide_command(out)?;
@@ -1729,6 +2001,30 @@ impl Engine {
         let items = selected(&placed, &ed.sel.ids);
         let mut selection = Vec::new();
         let mut format = None;
+        let mut text_edit = None;
+        if let Some(t) = ed.text {
+            if let Some(p) = find(&placed, t.id) {
+                if let Some(ShapeNode::Shape(s)) = ops::node_at(pres, slide, &p.path) {
+                    format = Some(format_state_at(pres, slide, s, Some((t.start, t.end))));
+                    let n = ShapeNode::Shape(s.clone());
+                    let b = rich::text_box(p, &n);
+                    let body = s.text.as_ref().map(text::body_text).unwrap_or_default();
+                    let (caret, rects) = rich::geometry(pres, slide, s, &b, &mut self.fonts)
+                        .map(|g| rich::selection_shapes(&g, &b, t.start, t.end))
+                        .unwrap_or_default();
+                    let (start, end) = rich::to_utf16(&body, t);
+                    text_edit = Some(rich::TextEditOut {
+                        id: t.id,
+                        start,
+                        end,
+                        caret,
+                        rects,
+                        rect: p.b,
+                        text: body,
+                    });
+                }
+            }
+        }
         for p in &items {
             let Some(n) = ops::node_at(pres, slide, &p.path) else {
                 continue;
@@ -1809,6 +2105,7 @@ impl Engine {
             hits: out.hits,
             error: out.error,
             collab: None,
+            text_edit,
         })
     }
 }

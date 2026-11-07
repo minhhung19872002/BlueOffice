@@ -19,7 +19,8 @@ mod write;
 
 pub use pml::{parse_node, visit, write_node, URI_TABLE};
 pub use read::read_pptx;
-pub use render::{render_slide, render_thumbnail, render_with, RenderOptions};
+pub use render::{render_slide, render_thumbnail, render_with, shape_text_geometry, RenderOptions};
+pub use text_layout::{CaretLine, TextGeometry};
 pub use write::write_pptx;
 
 /// Relationship type namespace (transitional), ECMA-376 Part 1, §15.2.

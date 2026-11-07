@@ -105,6 +105,8 @@ function fakePlatform() {
     notes: ['Ghi chú 1', 'Ghi chú 2', 'Ghi chú 3'],
     text: 'Tiêu đề',
     modified: false,
+    editing: null as number | null,
+    ts: [0, 0] as [number, number],
   };
   const info = (name = 'Báo cáo.pptx') => ({
     name,
@@ -149,9 +151,27 @@ function fakePlatform() {
       color: null,
       align: 'left',
       bullets: false,
+      strike: false,
+      highlight: null,
+      font: null,
+      numbering: false,
+      level: 0,
+      lineSpacing: null,
     },
     notes: st.notes[st.slide] ?? '',
     layouts: [],
+    textEdit:
+      st.editing === null
+        ? undefined
+        : {
+            id: st.editing,
+            start: st.ts[0],
+            end: st.ts[1],
+            caret: st.ts[0] === st.ts[1] ? [200, 70, 200, 90] : null,
+            rects: st.ts[0] === st.ts[1] ? [] : [{ cx: 220, cy: 80, w: 40, h: 20, rot: 0 }],
+            rect: shape().rect,
+            text: st.text,
+          },
   });
   const engine = {
     backend: 'wasm',
@@ -167,7 +187,16 @@ function fakePlatform() {
     }),
     exportPdf: async () => new Uint8Array([37]),
     slideCommand: vi.fn(async (c: SlideCommand) => {
+      const keep = ['state', 'setText', 'formatText', 'textSelect', 'textHit', 'undo', 'redo'];
+      if (!keep.includes(c.cmd)) st.editing = null;
       switch (c.cmd) {
+        case 'textSelect':
+          st.editing = c.id ?? 7;
+          st.ts = [c.start, c.end];
+          break;
+        case 'textHit':
+          st.ts = [2, 2];
+          break;
         case 'goTo':
           st.slide = c.slide;
           st.sel = [];
@@ -180,6 +209,7 @@ function fakePlatform() {
           break;
         case 'setText':
           st.text = c.text;
+          if (c.sel) st.ts = c.sel;
           st.modified = true;
           break;
         case 'setNotes':
@@ -293,19 +323,38 @@ describe('BlueSlideEditor', () => {
     fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'duplicate' }));
 
-    // Double-click opens the text editor; composition text is committed on blur.
+    // Double-click edits the text in place: caret on the canvas, IME composition,
+    // typing sent live, shortcuts and Tab inside the text, Escape leaves.
     fireEvent.doubleClick(overlay);
     const ta = (await screen.findByTestId('slide-text-editor')) as HTMLTextAreaElement;
     expect(ta.value).toBe('Tiêu đề');
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'textSelect', id: 7, start: 7, end: 7 }),
+    );
+    await screen.findByTestId('text-caret');
     fireEvent.compositionStart(ta);
     fireEvent.keyDown(ta, { key: 'Escape', isComposing: true });
     expect(screen.getByTestId('slide-text-editor')).toBeTruthy();
     ta.value = 'Xin chào Việt Nam';
     fireEvent.compositionEnd(ta, { data: 'Nam' });
-    fireEvent.blur(ta);
     await waitFor(() =>
-      expect(cmds()).toContainEqual({ cmd: 'setText', id: 7, text: 'Xin chào Việt Nam' }),
+      expect(cmds()).toContainEqual(
+        expect.objectContaining({ cmd: 'setText', id: 7, text: 'Xin chào Việt Nam', merge: true }),
+      ),
     );
+    fireEvent.keyDown(ta, { key: 'b', ctrlKey: true });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'formatText', format: { kind: 'bold' } }),
+    );
+    fireEvent.keyDown(ta, { key: 'Tab' });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'formatText', format: { kind: 'level', delta: 1 } }),
+    );
+    // A click inside the shape moves the caret through the engine.
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 0, clientY: 0, pointerId: 2 });
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 0, clientY: 0, pointerId: 2 });
+    fireEvent.keyDown(ta, { key: 'Escape' });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'textExit' }));
     expect(screen.queryByTestId('slide-text-editor')).toBeNull();
     await screen.findByTestId('status-modified');
 

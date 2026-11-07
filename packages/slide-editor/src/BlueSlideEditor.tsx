@@ -35,13 +35,18 @@ import {
   Circle,
   Copy,
   CopyPlus,
+  Eraser,
   FileDown,
   FolderOpen,
   Group,
+  Highlighter,
   ImagePlus,
+  IndentDecrease,
+  IndentIncrease,
   Italic,
   LayoutGrid,
   List,
+  ListOrdered,
   MonitorPlay,
   PaintBucket,
   PenLine,
@@ -55,6 +60,7 @@ import {
   Slash,
   Square,
   SquarePlus,
+  Strikethrough,
   Table,
   Trash,
   Triangle,
@@ -92,7 +98,20 @@ export interface SlideEditorState {
 
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
-type ColorTarget = 'font' | 'fill' | 'line';
+type ColorTarget = 'font' | 'fill' | 'line' | 'highlight';
+
+/** Line spacing multiples offered in the format bar (§21.1.2.2.10 lnSpc). */
+const LINE_SPACINGS = [1, 1.15, 1.5, 2, 2.5, 3];
+/** Typefaces offered in the format bar (any other typeface of the deck is kept). */
+const FONTS = [
+  'Arial',
+  'Calibri',
+  'Times New Roman',
+  'Tahoma',
+  'Carlito',
+  'Liberation Sans',
+  'Tinos',
+];
 
 export function BlueSlideEditor(props: BlueSlideEditorProps) {
   const [i18n] = useState(() => createI18n(props.language));
@@ -163,6 +182,9 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     [],
   );
 
+  // Text editing: open until the engine reports it ended (after it started).
+  const editingRef = useRef<{ id: number; confirmed: boolean } | null>(null);
+
   /** Apply an engine result: selection, dirty slides, slide list. */
   const apply = useCallback((r: SlideEditResult) => {
     setEdit(r);
@@ -182,6 +204,17 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   }, []);
 
   const ctrl = useMemo(() => new SlideController(engine, apply, fail), [engine, apply, fail]);
+
+  // The engine ended text editing (other command, slide change): close the editor.
+  useEffect(() => {
+    const ed = editingRef.current;
+    if (!ed || !edit) return;
+    if (edit.textEdit?.id === ed.id) ed.confirmed = true;
+    else if (ed.confirmed) {
+      editingRef.current = null;
+      setEditing(null);
+    }
+  }, [edit]);
 
   // Live collaboration: collaborators' edits and selected objects.
   useEffect(() => {
@@ -290,27 +323,30 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   }, [view, returnView]);
 
   const startEdit = useCallback(
-    (shape: SlideShapeInfo) => {
+    (shape: SlideShapeInfo, at?: { x: number; y: number }) => {
       if (!shape.editableText) return;
+      editingRef.current = { id: shape.id, confirmed: false };
       setEditing({
         id: shape.id,
         text: shape.text ?? '',
         rect: shape.rect,
         size: edit?.format.size ?? 18,
+        at,
       });
     },
     [edit],
   );
 
-  const commitText = useCallback(
-    (id: number, text: string) => {
-      setEditing(null);
-      const orig = edit?.selection.find((s) => s.id === id)?.text ?? '';
-      if (text !== orig) run({ cmd: 'setText', id, text });
-      slideRef.current?.focus();
-    },
-    [edit, run],
-  );
+  /** Give the keyboard back to the shape text after using a control. */
+  const refocusText = () =>
+    (document.querySelector('[data-testid="slide-text-editor"]') as HTMLElement | null)?.focus();
+
+  const exitEdit = useCallback(() => {
+    editingRef.current = null;
+    setEditing(null);
+    run({ cmd: 'textExit' });
+    slideRef.current?.focus();
+  }, [run]);
 
   const commitNotes = useCallback(() => {
     if (notesDraft === null) return;
@@ -468,6 +504,35 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       simple(id, { cmd: 'formatText', format: { kind: 'align', align } }, text, key);
     }
     simple('format.bullets', { cmd: 'formatText', format: { kind: 'bullets' } }, text);
+    simple('format.numbering', { cmd: 'formatText', format: { kind: 'numbering' } }, text);
+    simple(
+      'format.strike',
+      { cmd: 'formatText', format: { kind: 'strike' } },
+      text,
+      'Ctrl+Shift+X',
+    );
+    reg.register({ id: 'format.highlight', isEnabled: text, run: () => pickColor('highlight') });
+    simple(
+      'format.noHighlight',
+      { cmd: 'formatText', format: { kind: 'highlight', hex: null } },
+      text,
+    );
+    simple('format.indent', { cmd: 'formatText', format: { kind: 'level', delta: 1 } }, text);
+    simple('format.outdent', { cmd: 'formatText', format: { kind: 'level', delta: -1 } }, text);
+    for (const v of LINE_SPACINGS) {
+      simple(
+        `format.lineSpacing.${v}`,
+        { cmd: 'formatText', format: { kind: 'lineSpacing', value: v } },
+        text,
+      );
+    }
+    for (const typeface of FONTS) {
+      simple(
+        `format.font.${typeface}`,
+        { cmd: 'formatText', format: { kind: 'font', typeface } },
+        text,
+      );
+    }
     reg.register({ id: 'format.fill', isEnabled: sel, run: () => pickColor('fill') });
     simple('format.noFill', { cmd: 'setFill', color: null }, sel);
     reg.register({ id: 'format.line', isEnabled: sel, run: () => pickColor('line') });
@@ -522,6 +587,17 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     };
   }, [count, current, edit]);
   const exec = useCallback((id: string) => void registry.execute(id, state), [registry, state]);
+
+  // Shortcuts typed inside the shape text (format.*, edit.*).
+  const textShortcut = useCallback(
+    (e: KeyboardEvent) => {
+      const cmd = registry.match(e);
+      if (!cmd || !/^(format|edit\.(undo|redo))/.test(cmd.id)) return false;
+      exec(cmd.id);
+      return true;
+    },
+    [registry, exec],
+  );
 
   // Keyboard: shortcuts everywhere, editing keys on the slide, navigation in views and the show.
   useEffect(() => {
@@ -648,7 +724,16 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
               ),
               item('format.grow', t('slideEditor.growFont'), <AArrowUp size={16} />, sm),
               item('format.shrink', t('slideEditor.shrinkFont'), <AArrowDown size={16} />, sm),
+              item(
+                'format.strike',
+                t('slideEditor.strike'),
+                <Strikethrough size={16} />,
+                sm,
+                f?.strike,
+              ),
               item('format.color', t('slideEditor.fontColor'), <Baseline size={16} />, sm),
+              item('format.highlight', t('slideEditor.highlight'), <Highlighter size={16} />, sm),
+              item('format.noHighlight', t('slideEditor.noHighlight'), <Eraser size={16} />, sm),
             ],
           },
           {
@@ -677,6 +762,15 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
                 f?.align === 'right',
               ),
               item('format.bullets', t('slideEditor.bullets'), <List size={16} />, sm, f?.bullets),
+              item(
+                'format.numbering',
+                t('slideEditor.numbering'),
+                <ListOrdered size={16} />,
+                sm,
+                f?.numbering,
+              ),
+              item('format.outdent', t('slideEditor.outdent'), <IndentDecrease size={16} />, sm),
+              item('format.indent', t('slideEditor.indent'), <IndentIncrease size={16} />, sm),
             ],
           },
           {
@@ -913,6 +1007,46 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
         <div className={styles.normal}>
           {thumbs}
           <div className={styles.center}>
+            {count > 0 && (
+              <div
+                className={styles.formatBar}
+                role="toolbar"
+                aria-label={t('slideEditor.groupFont')}
+              >
+                <select
+                  data-testid="slide-font"
+                  aria-label={t('slideEditor.font')}
+                  disabled={!state.hasText}
+                  value={edit?.format.font ?? ''}
+                  onChange={(e) => {
+                    exec(`format.font.${e.target.value}`);
+                    refocusText();
+                  }}
+                >
+                  {[...new Set([edit?.format.font ?? '', ...FONTS])].map((f) => (
+                    <option key={f} value={f} disabled={!FONTS.includes(f)}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  data-testid="slide-line-spacing"
+                  aria-label={t('slideEditor.lineSpacing')}
+                  disabled={!state.hasText}
+                  value={String(edit?.format.lineSpacing ?? 1)}
+                  onChange={(e) => {
+                    exec(`format.lineSpacing.${e.target.value}`);
+                    refocusText();
+                  }}
+                >
+                  {[...new Set([edit?.format.lineSpacing ?? 1, ...LINE_SPACINGS])].map((v) => (
+                    <option key={v} value={String(v)} disabled={!LINE_SPACINGS.includes(v)}>
+                      {v.toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className={styles.stage} ref={stageRef}>
               {count > 0 ? (
                 <div
@@ -930,7 +1064,8 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
                     controller={ctrl}
                     editing={editing}
                     onStartEdit={startEdit}
-                    onCommitText={commitText}
+                    onExitEdit={exitEdit}
+                    onTextShortcut={textShortcut}
                     label={t('slideEditor.editor')}
                     editorLabel={t('slideEditor.textEditor')}
                     peers={peers
@@ -1057,7 +1192,9 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
           if (!hex) return;
           const target = colorTarget;
           if (target === 'font') run({ cmd: 'formatText', format: { kind: 'color', hex } });
-          else if (target === 'fill') run({ cmd: 'setFill', color: hex });
+          else if (target === 'highlight') {
+            run({ cmd: 'formatText', format: { kind: 'highlight', hex } });
+          } else if (target === 'fill') run({ cmd: 'setFill', color: hex });
           else run({ cmd: 'setLine', color: hex });
         }}
       />

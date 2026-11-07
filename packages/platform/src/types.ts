@@ -434,10 +434,32 @@ export interface SlideFormatState {
   bold: boolean;
   italic: boolean;
   underline: boolean;
+  strike: boolean;
   size: number | null;
   color: string | null;
+  highlight: string | null;
+  font: string | null;
   align: SlideAlign | null;
   bullets: boolean;
+  numbering: boolean;
+  /** List level, 0-based. */
+  level: number;
+  /** Line spacing multiple (`null` = single / exact points). */
+  lineSpacing: number | null;
+}
+
+/** Text being edited inside a shape (offsets in UTF-16 code units). */
+export interface SlideTextEdit {
+  id: number;
+  start: number;
+  end: number;
+  /** Caret line `[x1, y1, x2, y2]` in slide points (collapsed selection). */
+  caret: [number, number, number, number] | null;
+  /** Selection highlight boxes, one per line. */
+  rects: SlideBox[];
+  rect: SlideBox;
+  /** Text in the editing format. */
+  text: string;
 }
 
 export type SlideTransform =
@@ -446,10 +468,16 @@ export type SlideTransform =
   | { kind: 'rotate'; x: number; y: number; step?: boolean };
 
 export type SlideTextFormat =
-  | { kind: 'bold' | 'italic' | 'underline' | 'bullets'; value?: boolean }
+  | {
+      kind: 'bold' | 'italic' | 'underline' | 'strike' | 'bullets' | 'numbering';
+      value?: boolean;
+    }
   | { kind: 'size' | 'sizeBy'; points: number }
-  | { kind: 'color'; hex: string | null }
-  | { kind: 'align'; align: SlideAlign };
+  | { kind: 'color' | 'highlight'; hex: string | null }
+  | { kind: 'font'; typeface: string }
+  | { kind: 'align'; align: SlideAlign }
+  | { kind: 'level'; delta: number }
+  | { kind: 'lineSpacing'; value: number };
 
 /** Slide editing command (JSON bridge, ADR-0008). */
 export type SlideCommand =
@@ -472,8 +500,11 @@ export type SlideCommand =
   | { cmd: 'insertShape'; preset: string; rect?: SlideRect }
   | { cmd: 'insertTextBox'; text?: string; rect?: SlideRect }
   | { cmd: 'insertTable'; rows: number; cols: number; rect?: SlideRect }
-  | { cmd: 'setText'; id?: number; text: string }
-  | { cmd: 'formatText'; format: SlideTextFormat }
+  | { cmd: 'setText'; id?: number; text: string; merge?: boolean; sel?: [number, number] }
+  | { cmd: 'formatText'; format: SlideTextFormat; range?: [number, number] }
+  | { cmd: 'textSelect'; id?: number; start: number; end: number }
+  | { cmd: 'textHit'; x: number; y: number; extend?: boolean }
+  | { cmd: 'textExit' }
   | { cmd: 'setFill'; color: string | null }
   | { cmd: 'setLine'; color: string | null; width?: number }
   | { cmd: 'addSlide'; after?: number; layout?: number }
@@ -511,6 +542,8 @@ export interface SlideEditResult {
   error?: string;
   /** While collaborating: the change to share and the selected object key. */
   collab?: { change: CollabChange; shape?: string };
+  /** Text editing inside a shape. */
+  textEdit?: SlideTextEdit;
 }
 
 // ---------------------------------------------------------------- services

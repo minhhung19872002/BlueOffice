@@ -71,6 +71,32 @@ const SCRIPTS: &[Script] = &[
             r#"{"cmd":"insertTable","rows":3,"cols":4,"rect":{"x":80,"y":160,"w":800,"h":120}}"#,
         ],
     },
+    // Rich text inside shapes: formatting character ranges, paragraph formats,
+    // list levels, line spacing, typing with auto-fit.
+    Script {
+        base: "slide-text-bullets.pptx",
+        name: "slide-edit-rich.pptx",
+        commands: &[
+            r#"{"cmd":"insertTextBox","text":"Định dạng một phần đoạn chữ\nDòng hai có gạch đầu dòng\nDòng ba","rect":{"x":60,"y":300,"w":520,"h":60}}"#,
+            r#"{"cmd":"textSelect","start":0,"end":9}"#,
+            r#"{"cmd":"formatText","format":{"kind":"bold"}}"#,
+            r#"{"cmd":"formatText","format":{"kind":"color","hex":"1F4E79"}}"#,
+            r#"{"cmd":"textSelect","start":10,"end":13}"#,
+            r#"{"cmd":"formatText","format":{"kind":"italic"}}"#,
+            r#"{"cmd":"formatText","format":{"kind":"strike"}}"#,
+            r#"{"cmd":"formatText","format":{"kind":"highlight","hex":"FFFF00"}}"#,
+            r#"{"cmd":"formatText","format":{"kind":"font","typeface":"Arial"}}"#,
+            r#"{"cmd":"formatText","format":{"kind":"size","points":28}}"#,
+            r#"{"cmd":"textSelect","start":30,"end":30}"#,
+            r#"{"cmd":"formatText","format":{"kind":"bullets"}}"#,
+            r#"{"cmd":"formatText","format":{"kind":"level","delta":1}}"#,
+            r#"{"cmd":"formatText","format":{"kind":"lineSpacing","value":1.5}}"#,
+            r#"{"cmd":"formatText","format":{"kind":"align","align":"center"}}"#,
+            r#"{"cmd":"formatText","format":{"kind":"numbering"},"range":[54,61]}"#,
+            r#"{"cmd":"setText","text":"Định dạng một phần đoạn chữ\nDòng hai có gạch đầu dòng\nDòng ba\nDòng bốn gõ thêm","merge":true,"sel":[78,78]}"#,
+            r#"{"cmd":"textExit"}"#,
+        ],
+    },
     // Slides: duplicate, reorder, delete, notes and a picture.
     Script {
         base: "slide-notes-basic.pptx",

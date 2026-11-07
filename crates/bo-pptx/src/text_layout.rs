@@ -40,6 +40,8 @@ struct Piece {
     width: f64,
     /// Trailing whitespace width (not counted at line end).
     trailing: f64,
+    /// Source range in the paragraph's editing text (characters; breaks count 1).
+    src: (usize, usize),
 }
 
 struct Line {
@@ -53,6 +55,8 @@ struct Line {
     align: String,
     avail: f64,
     space_before: f64,
+    /// Ended by a line break (§21.1.2.2.1 br).
+    forced: bool,
 }
 
 fn to_rgba(c: bo_drawingml::Rgba) -> Rgba {
@@ -214,38 +218,45 @@ fn layout_paragraph(
     let mar_l = ppr.mar_l.unwrap_or(0) as f64 / EMU_PT;
     let indent = ppr.indent.unwrap_or(0) as f64 / EMU_PT;
     let mar_r = ppr.mar_r.unwrap_or(0) as f64 / EMU_PT;
-    // Flatten runs into (text, style) spans.
-    let mut spans: Vec<(String, Style, bool)> = Vec::new(); // bool = forced break after
+    // Flatten runs into (text, style, forced break after, source range) spans.
+    let mut spans: Vec<(String, Style, bool, (usize, usize))> = Vec::new();
     let mut first_rp: Option<RunProps> = None;
+    let mut src = 0usize;
     for r in &para.runs {
         match r {
-            TextRun::Run { props, text } | TextRun::Field { props, text, .. } => {
+            TextRun::Run { props, text: raw }
+            | TextRun::Field {
+                props, text: raw, ..
+            } => {
                 let rp = TextStyleStack::run(ppr, props);
                 let text = match r {
                     TextRun::Field { kind: Some(k), .. } if k == "slidenum" => {
                         env.slide_number.to_string()
                     }
-                    _ => apply_caps(&rp, text),
+                    _ => apply_caps(&rp, raw),
                 };
+                let len = raw.chars().count();
                 if first_rp.is_none() {
                     first_rp = Some(rp.clone());
                 }
                 if let Some(st) = style_for(&rp, scale, env, fonts) {
-                    spans.push((bo_text::nfc(&text), st, false));
+                    spans.push((bo_text::nfc(&text), st, false, (src, src + len)));
                 }
+                src += len;
             }
             TextRun::Break { props } => {
                 let rp = TextStyleStack::run(ppr, props);
                 if let Some(st) = style_for(&rp, scale, env, fonts) {
-                    spans.push((String::new(), st, true));
+                    spans.push((String::new(), st, true, (src, src + 1)));
                 }
+                src += 1;
             }
             TextRun::Other(_) => {}
         }
     }
     let end_rp = TextStyleStack::run(ppr, para.end_props.as_ref().unwrap_or(&RunProps::default()));
     let end_style = style_for(first_rp.as_ref().unwrap_or(&end_rp), scale, env, fonts);
-    let has_text = spans.iter().any(|(t, _, _)| !t.trim().is_empty());
+    let has_text = spans.iter().any(|(t, _, _, _)| !t.trim().is_empty());
 
     // Bullet (§21.1.2.4).
     let mut bullet: Option<Piece> = None;
@@ -282,6 +293,7 @@ fn layout_paragraph(
                     style: st,
                     width: w,
                     trailing: 0.0,
+                    src: (0, 0),
                 });
             }
         }
@@ -290,7 +302,7 @@ fn layout_paragraph(
     // Break opportunities (UAX #14) over the whole paragraph text.
     let mut full = String::new();
     let mut span_starts = Vec::new();
-    for (t, _, _) in &spans {
+    for (t, _, _, _) in &spans {
         span_starts.push(full.len());
         full.push_str(t);
     }
@@ -301,16 +313,17 @@ fn layout_paragraph(
     // Words: pieces between break opportunities, split by span.
     let mut words: Vec<(Vec<Piece>, bool)> = Vec::new(); // bool = forced break after word
     let mut cur: Vec<Piece> = Vec::new();
-    for (si, (t, st, forced)) in spans.iter().enumerate() {
+    for (si, (t, st, forced, range)) in spans.iter().enumerate() {
         let start = span_starts[si];
         let mut pos = 0;
+        let map = SrcMap::new(t, *range);
         for &b in breaks.iter().filter(|&&b| b > start && b < start + t.len()) {
             let seg = &t[pos..b - start];
-            push_piece(&mut cur, seg, st, fonts);
+            push_piece(&mut cur, seg, st, fonts, map.range(pos, b - start));
             words.push((std::mem::take(&mut cur), false));
             pos = b - start;
         }
-        push_piece(&mut cur, &t[pos..], st, fonts);
+        push_piece(&mut cur, &t[pos..], st, fonts, map.range(pos, t.len()));
         if *forced {
             words.push((std::mem::take(&mut cur), true));
         }
@@ -352,7 +365,7 @@ fn layout_paragraph(
         };
         (start, (width - start - mar_r).max(1.0))
     };
-    let finish = |pieces: Vec<Piece>, lines: &mut Vec<Line>, fonts: &FontManager| {
+    let finish = |pieces: Vec<Piece>, lines: &mut Vec<Line>, fonts: &FontManager, forced: bool| {
         let n = lines.len();
         let (start, avail) = new_line_avail(n);
         let mut asc: f64 = 0.0;
@@ -388,6 +401,7 @@ fn layout_paragraph(
             align: String::new(),
             avail,
             space_before: 0.0,
+            forced,
         });
     };
     for (word, forced) in words {
@@ -395,18 +409,18 @@ fn layout_paragraph(
         let wtrail = word.last().map_or(0.0, |p| p.trailing);
         let (_, avail) = new_line_avail(lines.len());
         if wrap && !line_pieces.is_empty() && line_w + ww - wtrail > avail {
-            finish(std::mem::take(&mut line_pieces), &mut lines, fonts);
+            finish(std::mem::take(&mut line_pieces), &mut lines, fonts, false);
             line_w = 0.0;
         }
         line_w += ww;
         line_pieces.extend(word);
         if forced {
-            finish(std::mem::take(&mut line_pieces), &mut lines, fonts);
+            finish(std::mem::take(&mut line_pieces), &mut lines, fonts, true);
             line_w = 0.0;
         }
     }
     if !line_pieces.is_empty() || lines.is_empty() {
-        finish(line_pieces, &mut lines, fonts);
+        finish(line_pieces, &mut lines, fonts, false);
     }
     if let Some(l) = lines.first_mut() {
         l.bullet = bullet;
@@ -418,7 +432,42 @@ fn layout_paragraph(
     ParaLayout { lines, space_after }
 }
 
-fn push_piece(cur: &mut Vec<Piece>, seg: &str, st: &Style, fonts: &mut FontManager) {
+/// Maps byte offsets of a span's displayed (normalised) text to characters of
+/// its source run; proportional when normalisation changed the length.
+struct SrcMap {
+    bytes: Vec<usize>,
+    range: (usize, usize),
+}
+
+impl SrcMap {
+    fn new(text: &str, range: (usize, usize)) -> SrcMap {
+        let mut bytes: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+        bytes.push(text.len());
+        SrcMap { bytes, range }
+    }
+    /// Source character offset of byte `b`.
+    fn at(&self, b: usize) -> usize {
+        let ci = self.bytes.partition_point(|&x| x < b);
+        let n = self.bytes.len() - 1;
+        let len = self.range.1 - self.range.0;
+        if n == len {
+            self.range.0 + ci
+        } else {
+            self.range.0 + (ci * len + n / 2).checked_div(n).unwrap_or(0)
+        }
+    }
+    fn range(&self, a: usize, b: usize) -> (usize, usize) {
+        (self.at(a), self.at(b))
+    }
+}
+
+fn push_piece(
+    cur: &mut Vec<Piece>,
+    seg: &str,
+    st: &Style,
+    fonts: &mut FontManager,
+    src: (usize, usize),
+) {
     if seg.is_empty() {
         return;
     }
@@ -434,28 +483,49 @@ fn push_piece(cur: &mut Vec<Piece>, seg: &str, st: &Style, fonts: &mut FontManag
         style: st.clone(),
         width,
         trailing,
+        src,
     });
 }
 
-/// Lay out and draw a text body inside `rect` = [l, t, r, b] (points, local).
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn draw_text(
+/// A line placed in the text box.
+struct PlacedLine {
+    para: usize,
+    line: usize,
+    top: f64,
+    baseline: f64,
+    /// Column origin.
+    x0: f64,
+    /// Start of the first piece (after alignment).
+    x_start: f64,
+}
+
+/// A laid-out text body (shared by drawing and caret geometry).
+struct Arranged {
+    layout: Vec<ParaLayout>,
+    lines: Vec<PlacedLine>,
+    /// Height of the text (all columns' tallest) plus the top and bottom insets.
+    content_h: f64,
+    scale: f64,
+    reduction: f64,
+}
+
+#[allow(clippy::too_many_lines)]
+fn arrange(
     body: &TextBody,
     bp: &BodyProps,
     stack: &TextStyleStack,
     rect: [f64; 4],
     env: &TextEnv<'_>,
     fonts: &mut FontManager,
-    out: &mut Vec<Command>,
-) {
-    if body.paragraphs.iter().all(|p| p.text().trim().is_empty()) {
-        return;
-    }
+    from_full_scale: bool,
+) -> Arranged {
     // §21.1.2.1.1 bodyPr insets (defaults 0.1" left/right, 0.05" top/bottom).
+    let t_ins = bp.t_ins.unwrap_or(45_720) as f64 / EMU_PT;
+    let b_ins = bp.b_ins.unwrap_or(45_720) as f64 / EMU_PT;
     let l = rect[0] + bp.l_ins.unwrap_or(91_440) as f64 / EMU_PT;
-    let t = rect[1] + bp.t_ins.unwrap_or(45_720) as f64 / EMU_PT;
+    let t = rect[1] + t_ins;
     let r = rect[2] - bp.r_ins.unwrap_or(91_440) as f64 / EMU_PT;
-    let b = rect[3] - bp.b_ins.unwrap_or(45_720) as f64 / EMU_PT;
+    let b = rect[3] - b_ins;
     let ncol = bp.num_col.unwrap_or(1).clamp(1, 16) as usize;
     let spc_col = bp.spc_col.unwrap_or(0) as f64 / EMU_PT;
     let col_w = ((r - l) - spc_col * (ncol - 1) as f64) / ncol as f64;
@@ -463,6 +533,7 @@ pub(crate) fn draw_text(
     let box_h = (b - t).max(0.0);
 
     let (mut scale, mut reduction, shrink) = match &bp.autofit {
+        Some(Autofit::Normal { .. }) if from_full_scale => (1.0, 0.0, true),
         Some(Autofit::Normal {
             font_scale,
             ln_spc_reduction,
@@ -486,8 +557,8 @@ pub(crate) fn draw_text(
         }
     }
 
-    // Distribute lines into columns.
-    let mut cols: Vec<Vec<(f64, &Line)>> = vec![Vec::new()];
+    // Distribute lines into columns: (column, y, para, line).
+    let mut cols: Vec<Vec<(f64, usize, usize)>> = vec![Vec::new()];
     let mut y = 0.0;
     for (pi, para) in layout.iter().enumerate() {
         for (li, line) in para.lines.iter().enumerate() {
@@ -499,7 +570,7 @@ pub(crate) fn draw_text(
                 y += before;
             }
             if let Some(c) = cols.last_mut() {
-                c.push((y, line));
+                c.push((y, pi, li));
             }
             y += line.height;
         }
@@ -507,7 +578,10 @@ pub(crate) fn draw_text(
             y += para.space_after;
         }
     }
-    let content_h = |c: &Vec<(f64, &Line)>| c.last().map_or(0.0, |(y, l)| y + l.height);
+    let content_h = |c: &Vec<(f64, usize, usize)>| {
+        c.last()
+            .map_or(0.0, |(y, pi, li)| y + layout[*pi].lines[*li].height)
+    };
     let tallest = cols.iter().map(content_h).fold(0.0, f64::max);
     // §21.1.2.1.1 anchor
     let dy = match bp.anchor.as_deref() {
@@ -515,9 +589,11 @@ pub(crate) fn draw_text(
         Some("b") => box_h - tallest,
         _ => 0.0,
     };
+    let mut lines = Vec::new();
     for (ci, col) in cols.iter().enumerate() {
         let x0 = l + ci as f64 * (col_w + spc_col);
-        for (ly, line) in col {
+        for &(ly, pi, li) in col {
+            let line = &layout[pi].lines[li];
             let top = t + dy + ly;
             let baseline = top + line.height - line.descent;
             // Unwrapped text (wrap="none") aligns within the box, not the unbounded line.
@@ -534,16 +610,208 @@ pub(crate) fn draw_text(
                     "r" => extra,
                     _ => 0.0,
                 };
-            if let Some(bu) = &line.bullet {
-                emit(fonts, bu, x0 + line.bullet_x, baseline, out);
-            }
-            let mut x = x_start;
-            for p in &line.pieces {
-                emit(fonts, p, x, baseline, out);
-                x += p.width;
-            }
+            lines.push(PlacedLine {
+                para: pi,
+                line: li,
+                top,
+                baseline,
+                x0,
+                x_start,
+            });
         }
     }
+    Arranged {
+        layout,
+        lines,
+        content_h: tallest + t_ins + b_ins,
+        scale,
+        reduction,
+    }
+}
+
+/// Lay out and draw a text body inside `rect` = [l, t, r, b] (points, local).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn draw_text(
+    body: &TextBody,
+    bp: &BodyProps,
+    stack: &TextStyleStack,
+    rect: [f64; 4],
+    env: &TextEnv<'_>,
+    fonts: &mut FontManager,
+    out: &mut Vec<Command>,
+) {
+    if body.paragraphs.iter().all(|p| p.text().trim().is_empty()) {
+        return;
+    }
+    let a = arrange(body, bp, stack, rect, env, fonts, false);
+    for pl in &a.lines {
+        let line = &a.layout[pl.para].lines[pl.line];
+        if let Some(bu) = &line.bullet {
+            emit(fonts, bu, pl.x0 + line.bullet_x, pl.baseline, out);
+        }
+        let mut x = pl.x_start;
+        for p in &line.pieces {
+            emit(fonts, p, x, pl.baseline, out);
+            x += p.width;
+        }
+    }
+}
+
+/// A line of a text body for caret placement: offsets are characters of the
+/// editing text (paragraphs joined by `\n`, line breaks one character).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CaretLine {
+    pub para: usize,
+    /// Offsets `start..=end` covered by the line.
+    pub start: usize,
+    pub end: usize,
+    pub top: f64,
+    pub height: f64,
+    pub baseline: f64,
+    /// Caret x for every offset `start..=end`.
+    pub xs: Vec<f64>,
+}
+
+/// Caret geometry of a text body (local points, like [`draw_text`]).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TextGeometry {
+    pub lines: Vec<CaretLine>,
+    /// Text height plus top/bottom insets (what `spAutoFit` sizes the box to).
+    pub content_height: f64,
+    /// Font scale and line-spacing reduction the box needs (normAutofit), from 100 %.
+    pub font_scale: f64,
+    pub ln_spc_reduction: f64,
+}
+
+impl TextGeometry {
+    /// Line index and x of the caret at `offset` (a caret at a soft wrap goes
+    /// to the start of the next line).
+    pub fn caret(&self, offset: usize) -> Option<(usize, f64)> {
+        let mut found = None;
+        for (i, l) in self.lines.iter().enumerate() {
+            if offset >= l.start && offset <= l.end {
+                let x = l.xs.get(offset - l.start).copied().unwrap_or(0.0);
+                found = Some((i, x));
+                if offset < l.end {
+                    break;
+                }
+            }
+        }
+        found.or_else(|| {
+            self.lines
+                .last()
+                .map(|l| (self.lines.len() - 1, l.xs.last().copied().unwrap_or(0.0)))
+        })
+    }
+
+    /// Offset nearest to a local point.
+    pub fn offset_at(&self, x: f64, y: f64) -> usize {
+        let Some(line) = self
+            .lines
+            .iter()
+            .find(|l| y < l.top + l.height)
+            .or(self.lines.last())
+        else {
+            return 0;
+        };
+        let mut best = (line.start, f64::MAX);
+        for (i, cx) in line.xs.iter().enumerate() {
+            let d = (cx - x).abs();
+            if d < best.1 {
+                best = (line.start + i, d);
+            }
+        }
+        best.0
+    }
+}
+
+/// Lay out a text body and return caret positions instead of drawing.
+#[allow(clippy::too_many_arguments)]
+pub fn text_geometry(
+    body: &TextBody,
+    bp: &BodyProps,
+    stack: &TextStyleStack,
+    rect: [f64; 4],
+    env: &TextEnv<'_>,
+    fonts: &mut FontManager,
+) -> TextGeometry {
+    let a = arrange(body, bp, stack, rect, env, fonts, true);
+    // Global offset of each paragraph's first character.
+    let mut base = Vec::with_capacity(body.paragraphs.len());
+    let mut acc = 0;
+    for p in &body.paragraphs {
+        base.push(acc);
+        acc += para_len(p) + 1;
+    }
+    // Start offset of each line within its paragraph.
+    let mut starts: Vec<Vec<usize>> = Vec::with_capacity(a.layout.len());
+    for para in &a.layout {
+        let mut v = Vec::with_capacity(para.lines.len());
+        let mut next = 0;
+        for line in &para.lines {
+            let start = line.pieces.first().map_or(next, |p| p.src.0);
+            v.push(start);
+            let end = line.pieces.last().map_or(start, |p| p.src.1);
+            next = if line.forced { end + 1 } else { end };
+        }
+        starts.push(v);
+    }
+    let mut lines = Vec::with_capacity(a.lines.len());
+    for pl in &a.lines {
+        let line = &a.layout[pl.para].lines[pl.line];
+        let start = starts[pl.para][pl.line];
+        let end = line.pieces.last().map_or(start, |p| p.src.1).max(start);
+        let mut xs = vec![pl.x_start; end - start + 1];
+        let mut x = pl.x_start;
+        for p in &line.pieces {
+            let n = p.src.1.saturating_sub(p.src.0);
+            let chars: Vec<(usize, char)> = p.text.char_indices().collect();
+            for k in 0..=n {
+                let off = p.src.0 + k;
+                if off < start || off > end {
+                    continue;
+                }
+                // Displayed characters for k source characters.
+                let shown = (k * chars.len() + n / 2).checked_div(n).unwrap_or(0);
+                let byte = chars.get(shown).map_or(p.text.len(), |c| c.0);
+                let w = if shown >= chars.len() {
+                    p.width
+                } else {
+                    measure(fonts, &p.style, &p.text[..byte])
+                };
+                xs[off - start] = x + w;
+            }
+            x += p.width;
+        }
+        let gb = base.get(pl.para).copied().unwrap_or(0);
+        lines.push(CaretLine {
+            para: pl.para,
+            start: gb + start,
+            end: gb + end,
+            top: pl.top,
+            height: line.height,
+            baseline: pl.baseline,
+            xs,
+        });
+    }
+    TextGeometry {
+        lines,
+        content_height: a.content_h,
+        font_scale: a.scale,
+        ln_spc_reduction: a.reduction,
+    }
+}
+
+/// Length of a paragraph in the editing text.
+fn para_len(p: &bo_model::slide::Paragraph) -> usize {
+    p.runs
+        .iter()
+        .map(|r| match r {
+            TextRun::Run { text, .. } | TextRun::Field { text, .. } => text.chars().count(),
+            TextRun::Break { .. } => 1,
+            TextRun::Other(_) => 0,
+        })
+        .sum()
 }
 
 fn columns_needed(layout: &[ParaLayout], box_h: f64) -> usize {

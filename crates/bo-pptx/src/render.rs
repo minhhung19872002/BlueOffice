@@ -1068,6 +1068,46 @@ fn draw_shape_text(
     wrap_transform(aff, cmds, out);
 }
 
+/// Caret geometry of a slide shape's text laid out in a `w × h` box (local
+/// points, origin at the box's top-left corner, before rotation) — exactly as
+/// [`render_slide`] draws it (§21.1.2 text body, inherited styles and body properties).
+pub fn shape_text_geometry(
+    pres: &Presentation,
+    slide: usize,
+    shape: &bo_model::slide::Shape,
+    w: f64,
+    h: f64,
+    fonts: &mut FontManager,
+) -> Option<crate::text_layout::TextGeometry> {
+    let level = Level::Slide(slide);
+    let empty = TextBody::default();
+    let tb = shape.text.as_ref().unwrap_or(&empty);
+    let ch = chain(pres, level, shape);
+    let props = effective_props(&ch);
+    let mut warnings = Vec::new();
+    let geom = evaluate(props.geometry.as_ref(), w, h, &mut warnings);
+    let bp = effective_body(&ch);
+    let stack = TextStyleStack::new(pres, level, &ch);
+    let clr_map = clr_map_of(pres, level);
+    let env = TextEnv {
+        theme: theme_of(pres, level),
+        colors: ColorContext {
+            theme: theme_of(pres, level),
+            clr_map: &clr_map,
+            ph_clr: None,
+        },
+        slide_number: slide + 1,
+    };
+    Some(crate::text_layout::text_geometry(
+        tb,
+        &bp,
+        &stack,
+        geom.text_rect,
+        &env,
+        fonts,
+    ))
+}
+
 fn wrap_transform(aff: Aff, cmds: Vec<Command>, out: &mut Vec<Command>) {
     if cmds.is_empty() {
         return;

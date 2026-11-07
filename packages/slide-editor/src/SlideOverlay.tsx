@@ -4,11 +4,14 @@ import type {
   SlideEditResult,
   SlidePreview,
   SlideShapeInfo,
+  SlideTextEdit,
   SlideTransform,
 } from '@blueoffice/platform';
 import {
   useEffect,
   useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
@@ -16,13 +19,25 @@ import type { SlideController } from './controller';
 import { fromEditorText, toEditorText } from './editing';
 import styles from './SlideEditor.module.css';
 
-/** Text being edited in the overlay textarea. */
+/** Text being edited inside a shape. */
 export interface TextEditing {
   id: number;
   text: string;
   rect: SlideBox;
   /** Font size in points (for the editor). */
   size: number;
+  /** Slide point where editing started (caret goes there). */
+  at?: { x: number; y: number };
+}
+
+/** Is a slide point inside a (rotated) box? */
+export function inBox(b: SlideBox, x: number, y: number, tol = 0): boolean {
+  const a = (-b.rot * Math.PI) / 180;
+  const dx = x - b.cx;
+  const dy = y - b.cy;
+  const lx = dx * Math.cos(a) - dy * Math.sin(a);
+  const ly = dx * Math.sin(a) + dy * Math.cos(a);
+  return Math.abs(lx) <= b.w / 2 + tol && Math.abs(ly) <= b.h / 2 + tol;
 }
 
 export interface SlideOverlayProps {
@@ -34,8 +49,11 @@ export interface SlideOverlayProps {
   preview: SlidePreview | null;
   controller: SlideController;
   editing: TextEditing | null;
-  onStartEdit: (shape: SlideShapeInfo) => void;
-  onCommitText: (id: number, text: string) => void;
+  onStartEdit: (shape: SlideShapeInfo, at?: { x: number; y: number }) => void;
+  /** Leave text editing (Escape, click outside the shape). */
+  onExitEdit: () => void;
+  /** Keyboard shortcut inside the text (Ctrl+B, …); true when handled. */
+  onTextShortcut?: (e: KeyboardEvent) => boolean;
   label: string;
   editorLabel: string;
   /** Collaborators' selected objects on this slide (live collaboration). */
@@ -86,13 +104,18 @@ export function SlideOverlay({
   controller,
   editing,
   onStartEdit,
-  onCommitText,
+  onExitEdit,
+  onTextShortcut,
   label,
   editorLabel,
   peers = [],
 }: SlideOverlayProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
+  const textDrag = useRef<{ busy: boolean; pending: { x: number; y: number } | null } | null>(null);
+  const [hitSeq, setHitSeq] = useState(0);
+  const textEdit: SlideTextEdit | null =
+    editing && edit?.textEdit?.id === editing.id ? edit.textEdit : null;
   const scale = slide.width > 0 ? width / slide.width : 1;
   const height = slide.height * scale;
 
@@ -120,11 +143,41 @@ export function SlideOverlay({
     return { kind: 'move', dx: x - d.sx, dy: y - d.sy };
   };
 
+  /** Caret to a slide point of the edited shape; coalesced while dragging. */
+  const hitText = (x: number, y: number, extend: boolean) => {
+    const td = textDrag.current;
+    if (td?.busy) {
+      td.pending = { x, y };
+      return;
+    }
+    if (td) td.busy = true;
+    void controller.run({ cmd: 'textHit', x, y, extend }).then(() => {
+      setHitSeq((s) => s + 1);
+      const t = textDrag.current;
+      if (!t) return;
+      t.busy = false;
+      const next = t.pending;
+      t.pending = null;
+      if (next) hitText(next.x, next.y, true);
+    });
+  };
+
   const onPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
-    if (editing || e.button !== 0) return;
+    if (e.button !== 0) return;
+    const p = toPt(e);
+    if (editing) {
+      e.preventDefault();
+      if (inBox(editing.rect, p.x, p.y, 2 / scale)) {
+        svgRef.current?.setPointerCapture?.(e.pointerId);
+        textDrag.current = { busy: false, pending: null };
+        hitText(p.x, p.y, e.shiftKey);
+      } else {
+        onExitEdit();
+      }
+      return;
+    }
     e.preventDefault();
     svgRef.current?.setPointerCapture?.(e.pointerId);
-    const p = toPt(e);
     const handle = (e.target as Element).getAttribute('data-handle') as HandleKind | null;
     if (handle) {
       drag.current = {
@@ -149,6 +202,13 @@ export function SlideOverlay({
   };
 
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (editing) {
+      if (textDrag.current) {
+        const p = toPt(e);
+        hitText(p.x, p.y, true);
+      }
+      return;
+    }
     const d = drag.current;
     if (!d || !d.ready) return;
     const p = toPt(e);
@@ -159,6 +219,11 @@ export function SlideOverlay({
   };
 
   const onPointerUp = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (textDrag.current) {
+      textDrag.current = null;
+      svgRef.current?.releasePointerCapture?.(e.pointerId);
+      return;
+    }
     const d = drag.current;
     drag.current = null;
     svgRef.current?.releasePointerCapture?.(e.pointerId);
@@ -177,19 +242,21 @@ export function SlideOverlay({
   };
 
   const onDoubleClick = (e: ReactMouseEvent<SVGSVGElement>) => {
+    if (editing) return;
     const sel = edit?.selection ?? [];
     const one = sel.length === 1 ? sel[0] : undefined;
     if (!one) return;
+    const p = toPt(e);
     if (one.kind === 'group') {
-      const p = toPt(e);
       void controller.run({ cmd: 'click', x: p.x, y: p.y, deep: true });
     } else if (one.editableText) {
-      onStartEdit(one);
+      onStartEdit(one, p);
     }
   };
 
   const hs = HANDLE_PX / scale;
   const showHandles = !preview && !editing && edit?.bounds;
+  const caret = textEdit?.caret;
   const rotHandle = edit?.handles.find((h) => h.kind === 'rot');
   const topCenter = edit?.handles.find((h) => h.kind === 'n');
 
@@ -228,8 +295,26 @@ export function SlideOverlay({
             </text>
           </g>
         ))}
-        {edit?.selection.map((s) =>
-          boxRect(s.rect, styles.selected, s.id, { 'data-testid': 'selection-box' }),
+        {editing
+          ? boxRect(textEdit?.rect ?? editing.rect, styles.editingFrame, 'edit', {
+              'data-testid': 'text-editing-frame',
+            })
+          : edit?.selection.map((s) =>
+              boxRect(s.rect, styles.selected, s.id, { 'data-testid': 'selection-box' }),
+            )}
+        {textEdit?.rects.map((b, i) =>
+          boxRect(b, styles.textSel, `ts${i}`, { 'data-testid': 'text-selection' }),
+        )}
+        {caret && (
+          <line
+            className={styles.caret}
+            data-testid="text-caret"
+            x1={caret[0]}
+            y1={caret[1]}
+            x2={caret[2]}
+            y2={caret[3]}
+            vectorEffect="non-scaling-stroke"
+          />
         )}
         {showHandles && edit.selection.length > 1 && boxRect(edit.bounds!, styles.bounds, 'b')}
         {showHandles && rotHandle && topCenter && (
@@ -301,9 +386,13 @@ export function SlideOverlay({
         <TextEditor
           key={editing.id}
           editing={editing}
+          textEdit={textEdit}
+          hitSeq={hitSeq}
           scale={scale}
           label={editorLabel}
-          onCommit={(text) => onCommitText(editing.id, text)}
+          controller={controller}
+          onExit={onExitEdit}
+          onShortcut={onTextShortcut}
         />
       )}
     </div>
@@ -312,34 +401,134 @@ export function SlideOverlay({
 
 interface TextEditorProps {
   editing: TextEditing;
+  textEdit: SlideTextEdit | null;
+  /** Bumped after a caret placement with the pointer. */
+  hitSeq: number;
   scale: number;
   label: string;
-  onCommit: (text: string) => void;
+  controller: SlideController;
+  onExit: () => void;
+  onShortcut?: (e: KeyboardEvent) => boolean;
 }
 
 /**
- * Plain `<textarea>` over the shape. It is uncontrolled so the browser/OS IME
- * (Telex, VNI) composes freely; the text is committed on blur or Escape —
- * never while a composition is in progress.
+ * Invisible `<textarea>` over the shape: it receives typing and the browser/OS
+ * IME (Telex, VNI) while the engine draws the text, the caret and the selection
+ * on the canvas. Every change is sent as `setText` (merged into one undo step);
+ * the textarea is uncontrolled and never rewritten during a composition.
  */
-function TextEditor({ editing, scale, label, onCommit }: TextEditorProps) {
+function TextEditor({
+  editing,
+  textEdit,
+  hitSeq,
+  scale,
+  label,
+  controller,
+  onExit,
+  onShortcut,
+}: TextEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
-  const done = useRef(false);
+  const inflight = useRef(0);
   const b = editing.rect;
   const minH = Math.max(b.h, editing.size * 1.6);
+
+  const selection = (): [number, number] => {
+    const ta = ref.current;
+    return ta ? [ta.selectionStart, ta.selectionEnd] : [0, 0];
+  };
+
+  const sendSelect = () => {
+    if (composing.current) return;
+    const [start, end] = selection();
+    void controller.run({ cmd: 'textSelect', id: editing.id, start, end });
+  };
+
+  const sendText = () => {
+    const ta = ref.current;
+    if (!ta) return;
+    inflight.current += 1;
+    void controller
+      .run({
+        cmd: 'setText',
+        id: editing.id,
+        text: fromEditorText(ta.value),
+        merge: true,
+        sel: selection(),
+      })
+      .finally(() => {
+        inflight.current -= 1;
+      });
+  };
 
   useEffect(() => {
     const ta = ref.current;
     if (!ta) return;
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
+    const n = ta.value.length;
+    void controller.run({ cmd: 'textSelect', id: editing.id, start: n, end: n });
+    if (editing.at) {
+      void controller.run({ cmd: 'textHit', x: editing.at.x, y: editing.at.y }).then((r) => {
+        const te = r?.textEdit;
+        if (te && ref.current) ref.current.setSelectionRange(te.start, te.end);
+      });
+    }
+    // Runs once per edited shape (the component is keyed by the shape id).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const commit = () => {
-    if (done.current || !ref.current) return;
-    done.current = true;
-    onCommit(fromEditorText(ref.current.value));
+  // The engine changed the text (undo, redo, formatting): follow it.
+  const engineText = textEdit?.text;
+  useEffect(() => {
+    const ta = ref.current;
+    if (!ta || engineText === undefined || composing.current || inflight.current > 0) return;
+    const shown = toEditorText(engineText);
+    if (ta.value !== shown) {
+      ta.value = shown;
+      if (textEdit) ta.setSelectionRange(textEdit.start, textEdit.end);
+    }
+  }, [engineText, textEdit]);
+
+  // A pointer placed the caret on the canvas.
+  useEffect(() => {
+    const ta = ref.current;
+    if (!ta || !textEdit || hitSeq === 0) return;
+    ta.focus();
+    ta.setSelectionRange(
+      Math.min(textEdit.start, textEdit.end),
+      Math.max(textEdit.start, textEdit.end),
+      textEdit.end < textEdit.start ? 'backward' : 'forward',
+    );
+    // Only after a new caret placement.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hitSeq]);
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    e.stopPropagation();
+    if (composing.current || e.nativeEvent.isComposing) return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onExit();
+      return;
+    }
+    if (e.key === 'Tab') {
+      // Tab / Shift+Tab: list level of the selected paragraphs (§21.1.2.2.7 pPr@lvl).
+      e.preventDefault();
+      void controller.run({
+        cmd: 'formatText',
+        format: { kind: 'level', delta: e.shiftKey ? -1 : 1 },
+      });
+      return;
+    }
+    if (mod && !e.altKey && (e.key === 'z' || e.key === 'y' || e.key === 'Z')) {
+      e.preventDefault();
+      const redo = e.key === 'y' || (e.key === 'Z' && e.shiftKey) || (e.key === 'z' && e.shiftKey);
+      void controller.run({ cmd: redo ? 'redo' : 'undo' });
+      return;
+    }
+    if (mod && onShortcut?.(e.nativeEvent)) e.preventDefault();
   };
 
   return (
@@ -363,16 +552,14 @@ function TextEditor({ editing, scale, label, onCommit }: TextEditorProps) {
       }}
       onCompositionEnd={() => {
         composing.current = false;
+        sendText();
       }}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (composing.current || e.nativeEvent.isComposing) return;
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          commit();
-        }
+      onInput={sendText}
+      onSelect={sendSelect}
+      onKeyUp={(e) => {
+        if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End') sendSelect();
       }}
+      onKeyDown={onKeyDown}
     />
   );
 }

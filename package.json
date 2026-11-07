@@ -21,7 +21,8 @@
     "format": "prettier --write .",
     "license-check": "node scripts/license-check.mjs",
     "fidelity": "cargo build -p bo-cli && node scripts/fidelity-report.mjs && node scripts/visual-diff.mjs",
-    "fidelity:update-baseline": "cargo build -p bo-cli && node scripts/visual-diff.mjs --update-baseline"
+    "fidelity:update-baseline": "cargo build -p bo-cli && node scripts/visual-diff.mjs --update-baseline",
+    "test:e2e:desktop": "node --test tests/e2e-desktop/desktop.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

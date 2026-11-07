@@ -138,3 +138,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @blueoffice/desktop tauri build --no-bundle
+      # Desktop E2E through Tauri WebDriver (runner ships Edge + msedgedriver in EDGEWEBDRIVER).
+      - run: cargo install tauri-driver --locked
+      - run: pnpm test:e2e:desktop
+        env:
+          MSEDGEDRIVER: ${{ env.EDGEWEBDRIVER }}\msedgedriver.exe

@@ -1,5 +1,6 @@
 import { BlueEditor } from '@blueoffice/editor';
 import { createWebPlatform } from '@blueoffice/platform/web';
+import { BlueSheetEditor } from '@blueoffice/sheet-editor';
 import { LocalStorageProvider } from '@blueoffice/storage-providers';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -18,11 +19,15 @@ const language = params.get('lang') === 'en-US' ? 'en-US' : 'vi-VN';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BlueEditor
-      platform={platform}
-      app={app}
-      language={language}
-      sampleUrl={`${base}samples/phase1-sample.docx`}
-    />
+    {app === 'sheet' ? (
+      <BlueSheetEditor platform={platform} language={language} />
+    ) : (
+      <BlueEditor
+        platform={platform}
+        app={app}
+        language={language}
+        sampleUrl={`${base}samples/phase1-sample.docx`}
+      />
+    )}
   </StrictMode>,
 );

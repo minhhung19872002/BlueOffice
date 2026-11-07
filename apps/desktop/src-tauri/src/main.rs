@@ -8,6 +8,7 @@
 // Tauri command handlers must take their arguments by value.
 #![allow(clippy::needless_pass_by_value)]
 
+mod sheet_cmds;
 mod shell;
 
 use bo_engine::{DocInfo, Engine};
@@ -251,6 +252,7 @@ fn main() {
     builder
         .setup(|app| {
             app.manage(EngineState(Mutex::new(Engine::with_bundled_fonts())));
+            app.manage(sheet_cmds::SheetState::new());
             // Windows/Linux dev builds: register schemes at runtime (installers do it at install time).
             #[cfg(all(debug_assertions, any(windows, target_os = "linux")))]
             let _ = app.deep_link().register_all();
@@ -280,6 +282,9 @@ fn main() {
             startup_file,
             startup_link,
             open_window,
+            sheet_cmds::sheet_open,
+            sheet_cmds::sheet_call,
+            sheet_cmds::sheet_binary,
             set_title
         ])
         .run(tauri::generate_context!())

@@ -38,6 +38,9 @@ importers:
       '@blueoffice/platform':
         specifier: workspace:*
         version: link:../../packages/platform
+      '@blueoffice/sheet-editor':
+        specifier: workspace:*
+        version: link:../../packages/sheet-editor
       '@blueoffice/storage-providers':
         specifier: workspace:*
         version: link:../../packages/storage-providers
@@ -78,6 +81,9 @@ importers:
       '@blueoffice/platform':
         specifier: workspace:*
         version: link:../../packages/platform
+      '@blueoffice/sheet-editor':
+        specifier: workspace:*
+        version: link:../../packages/sheet-editor
       '@blueoffice/storage-providers':
         specifier: workspace:*
         version: link:../../packages/storage-providers
@@ -238,6 +244,55 @@ importers:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vite:
+        specifier: ^8.3.6
+        version: 8.3.6(@types/node@26.6.6)
+      vitest:
+        specifier: ^5.1.0
+        version: 5.1.0(@types/node@26.6.6)(happy-dom@21.0.4)(vite@8.3.6(@types/node@26.6.6))
+
+  packages/sheet-editor:
+    dependencies:
+      '@blueoffice/canvas-host':
+        specifier: workspace:*
+        version: link:../canvas-host
+      '@blueoffice/editor':
+        specifier: workspace:*
+        version: link:../editor
+      '@blueoffice/i18n':
+        specifier: workspace:*
+        version: link:../i18n
+      '@blueoffice/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@blueoffice/ui':
+        specifier: workspace:*
+        version: link:../ui
+      lucide-react:
+        specifier: ^1.69.0
+        version: 1.69.0(@types/react@18.3.31)(react@18.3.1)
+    devDependencies:
+      '@testing-library/react':
+        specifier: ^16.3.0
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: ^18.3.12
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: ^18.3.1
+        version: 18.3.7(@types/react@18.3.31)
+      happy-dom:
+        specifier: ^21.0.4
+        version: 21.0.4
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
       typescript:
         specifier: ~5.9.3
         version: 5.9.3

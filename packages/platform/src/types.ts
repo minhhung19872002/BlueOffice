@@ -198,4 +198,6 @@ export interface Platform {
   window: WindowManager;
   offline: OfflineCache;
   shell: ShellIntegration;
+  /** BlueSheet engine (absent in hosts that only embed BlueDoc). */
+  sheet?: import('./sheet').SheetHost;
 }

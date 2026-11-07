@@ -1,0 +1,152 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text, #1b1f24);
+  font-family: var(--bo-font-ui, system-ui, sans-serif);
+}
+
+.formulaBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--bo-border, #d0d7de);
+  background: var(--bo-surface, #fff);
+}
+
+.nameBox {
+  width: 96px;
+  height: 24px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 3px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+}
+
+.fx {
+  font-style: italic;
+  font-size: 12px;
+  opacity: 0.7;
+  padding: 0 4px;
+}
+
+.formulaInput {
+  flex: 1;
+  height: 24px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 3px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+}
+
+.scroller {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #fff;
+}
+
+/* The canvas stays put while the spacer after it gives the scrollbars their range. */
+.sticky {
+  position: sticky;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 1;
+}
+
+.sticky canvas {
+  display: block;
+  cursor: cell;
+}
+
+.selection {
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid var(--bo-sheet-accent, #1f7a4d);
+  background: color-mix(in srgb, var(--bo-sheet-accent, #1f7a4d) 10%, transparent);
+  box-sizing: border-box;
+}
+
+/* Always focused so the OS/browser IME composes straight into the cell. */
+.cellEditor,
+.cellEditorActive {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 0 3px;
+  border: 0;
+  outline: none;
+  font-family: 'Liberation Sans', Arial, sans-serif;
+}
+
+.cellEditor {
+  opacity: 0;
+  width: 1px;
+  pointer-events: none;
+}
+
+.cellEditorActive {
+  opacity: 1;
+  background: #fff;
+  color: #000;
+  border: 2px solid var(--bo-sheet-accent, #1f7a4d);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 20%);
+  z-index: 2;
+}
+
+.tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 28px;
+  padding: 0 8px;
+  overflow-x: auto;
+  border-top: 1px solid var(--bo-border, #d0d7de);
+  background: var(--bo-surface-alt, #f3f5f7);
+}
+
+.tab,
+.tabActive,
+.tabAdd {
+  border: 0;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 12px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab:hover,
+.tabAdd:hover {
+  background: var(--bo-hover, rgb(0 0 0 / 6%));
+}
+
+.tabActive {
+  background: var(--bo-surface, #fff);
+  color: var(--bo-sheet-accent, #1f7a4d);
+  font-weight: 600;
+  border-bottom: 2px solid var(--bo-sheet-accent, #1f7a4d);
+}
+
+.tabAdd {
+  padding: 0 8px;
+}
+
+.tabRename {
+  width: 120px;
+  font: inherit;
+  font-size: 12px;
+}

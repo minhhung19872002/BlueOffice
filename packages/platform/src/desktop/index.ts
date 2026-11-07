@@ -29,6 +29,7 @@ import type {
   ShellIntegration,
   WindowManager,
 } from '../types';
+import { RpcSheetHost, type SheetMethod } from '../sheet';
 
 /** Minimal `invoke` signature so tests can inject a fake. */
 export type Invoke = <T>(
@@ -64,6 +65,21 @@ export class NativeEngineHost implements EngineHost {
     return toBytes(await this.call<ArrayBuffer>('engine_export_pdf'));
   }
   dispose(): void {}
+}
+
+/** BlueSheet engine running natively (apps/desktop/src-tauri/src/sheet_cmds.rs). */
+export function createNativeSheetHost(call: Invoke = invoke as Invoke): RpcSheetHost {
+  return new RpcSheetHost(async (method: SheetMethod, args: unknown[]) => {
+    if (method === 'open') {
+      return call('sheet_open', args[0] as Uint8Array, {
+        headers: { 'x-file-name': encodeURIComponent(String(args[1])) },
+      });
+    }
+    if (method === 'save' || method === 'exportPdf') {
+      return toBytes(await call<ArrayBuffer>('sheet_binary', { method, args }));
+    }
+    return call('sheet_call', { method, args });
+  });
 }
 
 /** Real disk access through native dialogs. */
@@ -179,5 +195,6 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Platfo
     window: new DesktopWindow(call),
     offline: new IndexedDbCache('blueoffice-desktop-offline'),
     shell: new DesktopShell(call),
+    sheet: createNativeSheetHost(call),
   };
 }

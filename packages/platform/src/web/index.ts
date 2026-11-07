@@ -17,8 +17,9 @@ import type {
   WindowManager,
 } from '../types';
 import { WebEngineHost } from './WebEngineHost';
+import { createWebSheetHost } from './WebSheetHost';
 
-export { WebEngineHost };
+export { WebEngineHost, createWebSheetHost };
 
 /** Upload/download, with the File System Access API when available. */
 export class WebFileAccess implements FileAccess {
@@ -137,5 +138,6 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     window: new WebWindow(),
     offline: new IndexedDbCache(),
     shell: new WebShell(),
+    sheet: createWebSheetHost(fonts, () => document.documentElement.lang || 'vi-VN'),
   };
 }

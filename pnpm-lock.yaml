@@ -78,12 +78,18 @@ importers:
 
   apps/web:
     dependencies:
+      '@blueoffice/collab':
+        specifier: workspace:*
+        version: link:../../packages/collab
       '@blueoffice/editor':
         specifier: workspace:*
         version: link:../../packages/editor
       '@blueoffice/editor-sdk':
         specifier: workspace:*
         version: link:../../packages/editor-sdk
+      '@blueoffice/engine-wasm':
+        specifier: workspace:*
+        version: link:../../packages/engine-wasm
       '@blueoffice/platform':
         specifier: workspace:*
         version: link:../../packages/platform

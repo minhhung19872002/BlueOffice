@@ -13,8 +13,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@blueoffice/collab": "workspace:*",
     "@blueoffice/editor": "workspace:*",
     "@blueoffice/editor-sdk": "workspace:*",
+    "@blueoffice/engine-wasm": "workspace:*",
     "@blueoffice/platform": "workspace:*",
     "@blueoffice/sheet-editor": "workspace:*",
     "@blueoffice/slide-editor": "workspace:*",

@@ -17,6 +17,8 @@ export interface EmbedSession {
   file: { id: string; name: string; version?: string };
   allowedOrigins: string[];
   autosaveSeconds?: number;
+  /** WebSocket relay for live collaboration (docs/bohp.md §C). */
+  collab?: { url: string; protocol?: string };
 }
 
 export type FetchLike = (

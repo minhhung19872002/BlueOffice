@@ -8,6 +8,7 @@
 // Tauri command handlers must take their arguments by value.
 #![allow(clippy::needless_pass_by_value)]
 
+mod collab_cmds;
 mod sheet_cmds;
 mod shell;
 mod slide_cmds;
@@ -349,6 +350,13 @@ fn main() {
             engine_mark_saved,
             slide_cmds::engine_slide_command,
             slide_cmds::engine_slide_insert_picture,
+            collab_cmds::engine_collab_start,
+            collab_cmds::engine_collab_apply,
+            collab_cmds::engine_collab_peers,
+            collab_cmds::engine_collab_stop,
+            collab_cmds::engine_slide_collab_start,
+            collab_cmds::engine_slide_collab_apply,
+            collab_cmds::engine_slide_collab_peers,
             bundled_fonts,
             pick_file,
             read_file,

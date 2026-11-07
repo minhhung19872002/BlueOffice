@@ -172,6 +172,51 @@ impl WasmEngine {
         Ok(serde_json::to_string(&r).unwrap_or_default())
     }
 
+    /// Bind the open document to a collaboration session; returns the change
+    /// to publish (`seed`) as JSON (`CollabChange`).
+    #[wasm_bindgen(js_name = collabStart)]
+    pub fn collab_start(&mut self, seed: bool) -> Result<String, JsError> {
+        self.inner.collab_start_json(seed).map_err(err)
+    }
+
+    /// Apply a replica change (`WasmCollab.takeRemote`); returns `EditResult` as JSON.
+    #[wasm_bindgen(js_name = collabApply)]
+    pub fn collab_apply(&mut self, json: &str) -> Result<String, JsError> {
+        self.inner.collab_apply_json(json).map_err(err)
+    }
+
+    /// Caret/selection geometry of collaborators (`[[anchor, head], …]` UTF-16).
+    #[wasm_bindgen(js_name = collabPeers)]
+    pub fn collab_peers(&self, json: &str) -> Result<String, JsError> {
+        self.inner.collab_peers_json(json).map_err(err)
+    }
+
+    #[wasm_bindgen(js_name = collabStop)]
+    pub fn collab_stop(&mut self) {
+        self.inner.collab_stop();
+        self.inner.slide_collab_stop();
+    }
+
+    /// Bind the open presentation to a collaboration session.
+    #[wasm_bindgen(js_name = slideCollabStart)]
+    pub fn slide_collab_start(&mut self, seed: bool, client_id: f64) -> Result<String, JsError> {
+        self.inner
+            .slide_collab_start_json(seed, client_id.max(0.0) as u64)
+            .map_err(err)
+    }
+
+    /// Apply a replica change to the presentation; returns `SlideEditResult` as JSON.
+    #[wasm_bindgen(js_name = slideCollabApply)]
+    pub fn slide_collab_apply(&mut self, json: &str) -> Result<String, JsError> {
+        self.inner.slide_collab_apply_json(json).map_err(err)
+    }
+
+    /// Boxes of collaborators' selected objects (`["slide/shape", …]`).
+    #[wasm_bindgen(js_name = slideCollabPeers)]
+    pub fn slide_collab_peers(&self, json: &str) -> Result<String, JsError> {
+        self.inner.slide_collab_peers_json(json).map_err(err)
+    }
+
     /// Render a page to PNG bytes.
     #[wasm_bindgen(js_name = renderPng)]
     pub fn render_png(&self, index: usize, scale: f32) -> Result<Vec<u8>, JsError> {

@@ -50,9 +50,23 @@ curl -fsS http://127.0.0.1:8080/api/version
 
 Lần chạy đầu `api` tự tạo schema (`Database__AutoCreate=true`); bucket MinIO `blueoffice` được tạo tự động.
 
+### Web shell (`web`)
+
+Container `web` (nginx) phục vụ giao diện BlueDoc/BlueSheet/BlueSlide (`apps/web/dist`) và chuyển `/api`, `/collab`,
+`/hosting`, `/health`, `/convert`, `/thumbnail`, `/preview`, `/extract-text`, `/jobs` sang `api`
+(`deploy/web/nginx.conf`). Với `/edit`: trình duyệt (iframe của BlueDrive) nhận trang editor, editor nhận token qua
+`postMessage` (`@blueoffice/editor-sdk`) rồi gọi `POST /api/sessions`; client yêu cầu JSON và form WOPI `POST /edit`
+đi thẳng tới `api`. Build trước khi dựng image:
+
+```bash
+pnpm install && pnpm build:wasm
+VITE_EMBED_ORIGINS=https://drive.<domain> pnpm --filter @blueoffice/web build   # origin được phép nhúng
+docker compose -f deploy/docker-compose.yml build web
+```
+
 ### Reverse proxy
 
-- Chuyển tiếp `https://office.<domain>/` → `http://127.0.0.1:8080/`.
+- Chuyển tiếp `https://office.<domain>/` → `http://127.0.0.1:8081/` (container `web`; `api` ở 8080 chỉ cần cho mạng nội bộ).
 - **Bật WebSocket** cho đường dẫn `/collab/` (header `Upgrade`/`Connection`), timeout đọc ≥ 120 s
   (server gửi keep-alive 30 s).
 - `client_max_body_size` ≥ `MAX_UPLOAD_BYTES` (mặc định 200 MB).

@@ -53,6 +53,17 @@ services:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
 
+  web:
+    image: ${BLUEOFFICE_WEB_IMAGE:-blueoffice/web:0.6.0}
+    build:
+      context: ..
+      dockerfile: deploy/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - '${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8081}:8081'
+    depends_on:
+      - api
+
   worker:
     image: ${BLUEOFFICE_IMAGE:-blueoffice/server:0.6.0}
     restart: unless-stopped

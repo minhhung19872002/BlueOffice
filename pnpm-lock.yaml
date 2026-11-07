@@ -81,6 +81,9 @@ importers:
       '@blueoffice/editor':
         specifier: workspace:*
         version: link:../../packages/editor
+      '@blueoffice/editor-sdk':
+        specifier: workspace:*
+        version: link:../../packages/editor-sdk
       '@blueoffice/platform':
         specifier: workspace:*
         version: link:../../packages/platform

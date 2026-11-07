@@ -10,7 +10,7 @@ name: blueoffice
 
 x-server-env: &server-env
   Database__Provider: Postgres
-  Database__AutoCreate: "true"
+  Database__AutoCreate: 'true'
   ConnectionStrings__Default: Host=postgres;Database=blueoffice;Username=blueoffice;Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
   ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD}
   Storage__Provider: Minio
@@ -47,7 +47,7 @@ services:
       <<: *server-env
       Role: api
     ports:
-      - "${API_BIND:-127.0.0.1}:${API_PORT:-8080}:8080"
+      - '${API_BIND:-127.0.0.1}:${API_PORT:-8080}:8080'
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -74,9 +74,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./postgres-init:/docker-entrypoint-initdb.d:ro   # creates the "keycloak" database on first start
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro # creates the "keycloak" database on first start
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U blueoffice -d blueoffice"]
+      test: ['CMD-SHELL', 'pg_isready -U blueoffice -d blueoffice']
       interval: 10s
       retries: 10
 
@@ -90,30 +90,43 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "127.0.0.1:9001:9001"   # admin console, local only
+      - '127.0.0.1:9001:9001' # admin console, local only
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ['CMD', 'mc', 'ready', 'local']
       interval: 10s
       retries: 10
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}"]
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--requirepass',
+        '${REDIS_PASSWORD:?set REDIS_PASSWORD}',
+      ]
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep PONG"]
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep PONG']
       interval: 10s
       retries: 10
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
 
   keycloak:
-    profiles: ["sso"]
+    profiles: ['sso']
     image: quay.io/keycloak/keycloak:26.0
     restart: unless-stopped
-    command: ["start", "--hostname=${KEYCLOAK_HOSTNAME:-localhost}", "--http-enabled=true", "--proxy-headers=xforwarded"]
+    command:
+      [
+        'start',
+        '--hostname=${KEYCLOAK_HOSTNAME:-localhost}',
+        '--http-enabled=true',
+        '--proxy-headers=xforwarded',
+      ]
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
@@ -122,7 +135,7 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
     ports:
-      - "${API_BIND:-127.0.0.1}:8180:8080"
+      - '${API_BIND:-127.0.0.1}:8180:8080'
     depends_on:
       postgres: { condition: service_healthy }
 

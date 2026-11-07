@@ -32,7 +32,9 @@ function run(name, cmd, args, env) {
     const text = chunk.toString();
     // Errors always go through; the rest only with COLLAB_STACK_VERBOSE=1.
     if (verbose || /\b(fail|error|exception|unhandled)\b/i.test(text)) {
-      process.stderr.write(text.replace(/^/gm, `[${name}] `));
+      for (const line of text.split(/\r?\n/)) {
+        if (line.trim()) process.stderr.write(`[${name}] ${line}\n`);
+      }
     }
   };
   child.stdout.on('data', log);

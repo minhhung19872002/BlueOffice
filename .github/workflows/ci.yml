@@ -73,6 +73,10 @@ jobs:
       - run: pnpm license-check
       - run: pnpm --filter @blueoffice/web build
       - run: pnpm --filter @blueoffice/e2e exec playwright install --with-deps chromium
+      # Collaboration E2E (playwright.collab.config.ts) runs the real server + mock BlueDrive.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
       - run: pnpm test:e2e
       - uses: actions/upload-artifact@v4
         if: always()
@@ -80,6 +84,7 @@ jobs:
           name: e2e-report
           path: |
             tests/e2e/playwright-report
+            tests/e2e/playwright-report-collab
             tests/fidelity/output
 
   dotnet:
@@ -130,14 +135,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      # The desktop web view runs the bo-collab replica (WASM) for live collaboration.
+      - name: Install wasm-bindgen CLI (must match crate version)
+        run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build:wasm
       - run: pnpm --filter @blueoffice/desktop tauri build --no-bundle
+      # Web shell + browser for the deep-link collaboration case.
+      - run: pnpm --filter @blueoffice/web build
+      - run: pnpm --filter @blueoffice/e2e exec playwright install chromium
       # Desktop E2E through Tauri WebDriver (runner ships Edge + msedgedriver in EDGEWEBDRIVER).
       - run: cargo install tauri-driver --locked
       - run: pnpm test:e2e:desktop

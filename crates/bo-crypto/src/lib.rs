@@ -46,6 +46,8 @@ pub enum CryptoError {
     Malformed(String),
     #[error("wrong password")]
     WrongPassword,
+    #[error("the document is password protected; a password is required")]
+    PasswordRequired,
     #[error("data integrity check failed (HMAC mismatch)")]
     IntegrityCheckFailed,
     #[error("random number generator failure: {0}")]
@@ -110,6 +112,32 @@ pub fn encrypt_standard_with(
     let (info, enc) = standard::encrypt(package, password, rng)?;
     cfbio::write_container(&info, &enc)
 }
+
+/// Open a document for reading: a plain package is returned unchanged, an
+/// encrypted container is decrypted with `password`
+/// ([`CryptoError::PasswordRequired`] when none is given).
+pub fn open_package(bytes: &[u8], password: Option<&str>) -> Result<Vec<u8>> {
+    if !bytes.starts_with(&CFB_SIGNATURE) {
+        return Ok(bytes.to_vec());
+    }
+    let (info, package) = cfbio::read_streams(bytes)?;
+    match password {
+        Some(pw) => decrypt_streams(&info, &package, pw),
+        None => Err(CryptoError::PasswordRequired),
+    }
+}
+
+/// Prepare a package for saving: with a password it is wrapped with Agile
+/// Encryption ([`encrypt`]), otherwise returned unchanged.
+pub fn save_package(package: &[u8], password: Option<&str>) -> Result<Vec<u8>> {
+    match password {
+        Some(pw) if !pw.is_empty() => encrypt(package, pw),
+        _ => Ok(package.to_vec()),
+    }
+}
+
+/// [MS-CFB] §2.2 header signature.
+const CFB_SIGNATURE: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 
 /// Fill `buf` from the operating system RNG.
 pub fn os_random(buf: &mut [u8]) -> Result<()> {
@@ -215,6 +243,57 @@ mod tests {
         assert!(
             cf.is_stream("/\u{6}DataSpaces/TransformInfo/StrongEncryptionTransform/\u{6}Primary")
         );
+    }
+
+    /// Known-answer values computed with an independent implementation of
+    /// the formulas in [MS-OFFCRYPTO] §2.3.4.7, §2.3.4.11 and §2.4.2.4
+    /// (Python `hashlib`), salt = 00 01 … 0F.
+    #[test]
+    fn key_derivation_known_answers() {
+        use primitives::{fit, utf16le};
+        let salt: Vec<u8> = (0u8..16).collect();
+        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        // Standard: SHA-1, 50 000 spins, block 0, AES-128
+        assert_eq!(
+            hex(&standard::derive_key("Password1234_", &salt, 128)),
+            "340fc93a8e2154db8304d055df81cebc"
+        );
+        // Agile: SHA-512, 100 000 spins, blockKey for encryptedKeyValue, 256-bit key
+        let h = HashAlgorithm::Sha512.spin_iterator_first(&salt, &utf16le("Mật khẩu"), 100_000);
+        let kv = fit(
+            HashAlgorithm::Sha512.hash(&[&h, &[0x14, 0x6E, 0x0B, 0xE7, 0xAB, 0xAC, 0xD0, 0xD6]]),
+            32,
+        );
+        assert_eq!(
+            hex(&kv),
+            "c8d08953d8c9f74e6c0823ebdef824e7922564459ce631ea0874cd6aa37be20b"
+        );
+        // Agile: SHA-1, 1 000 spins, verifier-input block key, 128-bit key (truncation)
+        let h = HashAlgorithm::Sha1.spin_iterator_first(&salt, &utf16le("Mật khẩu"), 1000);
+        let vi = fit(
+            HashAlgorithm::Sha1.hash(&[&h, &[0xFE, 0xA7, 0xD2, 0x76, 0x3B, 0x4B, 0x9E, 0x79]]),
+            16,
+        );
+        assert_eq!(hex(&vi), "54fb048fea4c96a81dce3ed330fcdb55");
+        // ISO write protection: SHA-512, 100 000 spins
+        assert_eq!(
+            protection::protection_hash_with_salt("Bảo vệ", &salt, 100_000).hash_value,
+            "Jof3BaUnlou9qY+YnvUXT78eIdGv9y5bHpEX+lnLeGwGgtAizwEu1ijjPM+XW2csPAmX91tHWIR/KnzzxY5A9w=="
+        );
+    }
+
+    #[test]
+    fn open_and_save_package() {
+        let plain = sample_package(300);
+        assert_eq!(open_package(&plain, None).unwrap(), plain);
+        assert_eq!(save_package(&plain, None).unwrap(), plain);
+        assert_eq!(save_package(&plain, Some("")).unwrap(), plain);
+        let enc = encrypt_standard_with(&plain, "pw", &mut counter_rng()).unwrap();
+        assert!(matches!(
+            open_package(&enc, None),
+            Err(CryptoError::PasswordRequired)
+        ));
+        assert_eq!(open_package(&enc, Some("pw")).unwrap(), plain);
     }
 
     #[test]

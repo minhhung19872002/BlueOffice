@@ -2,7 +2,7 @@
 //! cross the boundary packed as `[u32 LE length][bytes]…` because one call can
 //! produce several y-sync messages.
 
-use bo_collab::{Presence, Session};
+use bo_collab::{Change, Presence, Session};
 use wasm_bindgen::prelude::*;
 
 fn err(e: impl std::fmt::Display) -> JsError {
@@ -85,6 +85,67 @@ impl WasmCollab {
     #[wasm_bindgen(js_name = peersJson)]
     pub fn peers_json(&self) -> String {
         serde_json::to_string(&self.inner.peers()).unwrap_or_else(|_| "[]".into())
+    }
+
+    /// Client id of this replica.
+    #[wasm_bindgen(js_name = clientId)]
+    pub fn client_id(&self) -> f64 {
+        self.inner.client_id() as f64
+    }
+
+    /// Applies a change made by this replica's editor (JSON `Change`; the
+    /// `collab.change` of an engine result).
+    #[wasm_bindgen(js_name = applyLocal)]
+    pub fn apply_local(&mut self, json: &str) -> Result<(), JsError> {
+        let c: Change = serde_json::from_str(json).map_err(err)?;
+        self.inner.apply_local(&c).map_err(err)
+    }
+
+    /// Publishes the seeder's initial content (not undoable).
+    pub fn seed(&mut self, json: &str) -> Result<(), JsError> {
+        let c: Change = serde_json::from_str(json).map_err(err)?;
+        self.inner.seed(&c).map_err(err)
+    }
+
+    /// Remote changes and undo/redo results to apply to the engine (JSON `Change`).
+    #[wasm_bindgen(js_name = takeRemote)]
+    pub fn take_remote(&mut self) -> String {
+        let c = self.inner.take_remote();
+        if c.is_empty() {
+            return String::new();
+        }
+        serde_json::to_string(&c).unwrap_or_default()
+    }
+
+    /// The whole shared state as one change (late joiners).
+    #[wasm_bindgen(js_name = fullState)]
+    pub fn full_state(&mut self) -> String {
+        serde_json::to_string(&self.inner.full_state()).unwrap_or_default()
+    }
+
+    /// Undoes this user's last change; the result comes from `takeRemote`.
+    pub fn undo(&mut self) -> bool {
+        self.inner.undo()
+    }
+
+    pub fn redo(&mut self) -> bool {
+        self.inner.redo()
+    }
+
+    #[wasm_bindgen(js_name = canUndo)]
+    pub fn can_undo(&self) -> bool {
+        self.inner.can_undo()
+    }
+
+    #[wasm_bindgen(js_name = canRedo)]
+    pub fn can_redo(&self) -> bool {
+        self.inner.can_redo()
+    }
+
+    /// Starts a new undo step.
+    #[wasm_bindgen(js_name = stopCapturing)]
+    pub fn stop_capturing(&mut self) {
+        self.inner.stop_capturing();
     }
 
     /// Full state (server snapshot).

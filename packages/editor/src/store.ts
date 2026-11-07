@@ -4,6 +4,7 @@ import type {
   EditResult,
   MergeState,
   OpenedFile,
+  PeerCursor,
   ReviewState,
   StoredDocument,
 } from '@blueoffice/platform';
@@ -47,6 +48,10 @@ export interface EditorState {
   passwordPrompt: { file: OpenedFile; doc: StoredDocument | null; wrong: boolean } | null;
   /** The open file has macros (kept, never run): show the warning bar. */
   macroWarning: boolean;
+  /** Collaborators editing the same document (live collaboration). */
+  peers: PeerCursor[];
+  /** Draw collaborators' carets. */
+  showPeers: boolean;
 }
 
 export const initialState = (language: Language, theme: ThemeSetting): EditorState => ({
@@ -64,6 +69,8 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   recovery: null,
   passwordPrompt: null,
   macroWarning: false,
+  peers: [],
+  showPeers: true,
 });
 
 export const createEditorStore = (language: Language, theme: ThemeSetting) =>

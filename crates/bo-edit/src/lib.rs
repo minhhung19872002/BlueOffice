@@ -1161,6 +1161,32 @@ impl Session {
         }
     }
 
+    /// Apply ops made by someone else (a collaborator's edit): not recorded in
+    /// this user's history. The local history is dropped because its ops no
+    /// longer match the document (collaborative undo goes through the replica).
+    pub fn apply_external(&mut self, ops: Vec<Op>, selection: Selection) -> Result<()> {
+        if ops.is_empty() {
+            self.set_selection(selection);
+            return Ok(());
+        }
+        Transaction {
+            ops,
+            before: self.selection,
+            after: selection,
+        }
+        .apply(&mut self.doc)?;
+        self.version += 1;
+        self.undo.clear();
+        self.redo.clear();
+        self.typing = false;
+        let s = Selection {
+            anchor: self.clamp(selection.anchor),
+            focus: self.clamp(selection.focus),
+        };
+        self.selection = s;
+        Ok(())
+    }
+
     /// Undo the last transaction.
     pub fn undo(&mut self) -> bool {
         let Some(t) = self.undo.pop() else {

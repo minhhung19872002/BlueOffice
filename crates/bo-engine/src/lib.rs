@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
+pub mod collab;
 pub mod edit;
 pub mod merge;
 pub mod nav;
@@ -23,6 +24,7 @@ pub mod sheet;
 pub mod slide_edit;
 pub mod smartart;
 
+pub use collab::{CollabChange, CollabOut, TextOp};
 pub use edit::{Command, EditResult};
 pub use sheet::SheetEngine;
 pub use slide_edit::{SlideCommand, SlideEditResult};
@@ -139,6 +141,10 @@ pub struct Engine {
     macros: bool,
     /// Password used by `save_docx` (Agile Encryption); `None` saves unencrypted.
     save_password: Option<String>,
+    /// Live collaboration binding of the open document (BlueDoc).
+    collab: Option<collab::DocCollab>,
+    /// Live collaboration binding of the open presentation (BlueSlide).
+    slide_collab: Option<slide_edit::collab::SlideCollab>,
 }
 
 impl Engine {
@@ -272,6 +278,8 @@ impl Engine {
         self.goal_x = None;
         self.pres = None;
         self.images.clear();
+        self.collab = None;
+        self.slide_collab = None;
         self.info()
     }
 
@@ -352,6 +360,8 @@ impl Engine {
         self.pres = Some(pres);
         self.images = images;
         self.slides = slide_edit::SlideEditor::default();
+        self.collab = None;
+        self.slide_collab = None;
         self.info()
     }
 

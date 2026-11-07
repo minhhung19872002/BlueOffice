@@ -59,6 +59,21 @@ async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?:
     case 'markSaved':
       engine.markSaved();
       return { result: null };
+    case 'collabStart':
+      return { result: JSON.parse(engine.collabStart(req.seed)) };
+    case 'collabApply':
+      return { result: JSON.parse(engine.collabApply(req.json)) };
+    case 'collabPeers':
+      return { result: JSON.parse(engine.collabPeers(req.json)) };
+    case 'collabStop':
+      engine.collabStop();
+      return { result: null };
+    case 'slideCollabStart':
+      return { result: JSON.parse(engine.slideCollabStart(req.seed, req.clientId)) };
+    case 'slideCollabApply':
+      return { result: JSON.parse(engine.slideCollabApply(req.json)) };
+    case 'slideCollabPeers':
+      return { result: JSON.parse(engine.slideCollabPeers(req.json)) };
   }
 }
 

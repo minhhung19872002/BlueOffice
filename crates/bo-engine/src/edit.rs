@@ -267,6 +267,9 @@ pub struct EditResult {
     /// Mail-merge state (after merge commands and `state`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merge: Option<crate::merge::MergeState>,
+    /// Change to share and selection offsets while collaborating (Engine::collab_start).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collab: Option<crate::collab::CollabOut>,
 }
 
 impl crate::Engine {
@@ -640,6 +643,7 @@ impl crate::Engine {
         };
         let mut r = self.edit_result(dirty, extra, error)?;
         r.targets = targets;
+        r.collab = self.collab_after_edit();
         if merge_cmd {
             r.merge = self.merge.as_ref().map(|m| crate::merge::MergeState {
                 name: m.name.clone(),
@@ -681,10 +685,12 @@ impl crate::Engine {
         let res = s.insert_image(bytes, ext, (wpt * 12_700.0) as i64, (hpt * 12_700.0) as i64);
         let error = res.err().map(|e| e.to_string());
         let dirty = self.relayout()?;
-        self.edit_result(dirty, (None, None, None), error)
+        let mut r = self.edit_result(dirty, (None, None, None), error)?;
+        r.collab = self.collab_after_edit();
+        Ok(r)
     }
 
-    fn edit_result(
+    pub(crate) fn edit_result(
         &self,
         dirty: Vec<usize>,
         extra: (Option<Vec<Match>>, Option<usize>, Option<ClipOut>),
@@ -711,6 +717,7 @@ impl crate::Engine {
             review: None,
             targets: None,
             merge: None,
+            collab: None,
         })
     }
 }

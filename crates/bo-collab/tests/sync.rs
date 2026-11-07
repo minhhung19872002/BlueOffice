@@ -138,3 +138,52 @@ fn rejects_bad_input_without_panicking() {
     assert!(a.receive(&[0xff, 0xff, 0xff]).is_err() || a.body_text().is_empty());
     assert_eq!(a.receive(&[]).unwrap().len(), 0);
 }
+
+#[test]
+fn bindings_get_remote_deltas_in_utf16() {
+    use bo_collab::Change;
+    let mut a = Session::with_client_id(1);
+    let mut b = Session::with_client_id(2);
+    let seed: Change = serde_json::from_value(json!({
+        "body": [[{"insert": "Ồ😀 x\n", "attributes": {"bold": true}}]],
+        "slides": {"256": "{\"pos\":0}"}
+    }))
+    .unwrap();
+    a.seed(&seed).unwrap();
+    // Changes the editor made itself are not reported back.
+    assert!(a.take_remote().is_empty());
+    assert!(!a.can_undo());
+    connect(&mut a, &mut b);
+    let full = b.full_state();
+    assert_eq!(full.body[0][0]["insert"], "Ồ😀 x\n");
+    assert_eq!(full.slides["256"].as_deref(), Some("{\"pos\":0}"));
+    assert!(b.take_remote().is_empty());
+    // "Ồ" is 1 UTF-16 unit, the emoji 2: offset 3 is after the emoji.
+    let local: Change = serde_json::from_value(json!({
+        "body": [[{"retain": 3}, {"insert": "!"}, {"retain": 1, "attributes": {"bold": null}}]],
+        "shapes": {"256/2": "{}"}
+    }))
+    .unwrap();
+    b.apply_local(&local).unwrap();
+    assert_eq!(b.body_text(), "Ồ😀! x\n");
+    flush(&mut b, &mut [&mut a]);
+    let remote = a.take_remote();
+    assert_eq!(
+        remote.body,
+        vec![vec![
+            json!({"retain": 3}),
+            json!({"insert": "!"}),
+            json!({"retain": 1, "attributes": {"bold": null}})
+        ]]
+    );
+    assert_eq!(remote.shapes["256/2"].as_deref(), Some("{}"));
+    // Undo is reported like a remote change.
+    assert!(b.undo());
+    let undone = b.take_remote();
+    assert_eq!(undone.body.len(), 1);
+    assert!(undone.shapes["256/2"].is_none());
+    // Deltas longer than the text are refused before anything changes.
+    let bad: Change =
+        serde_json::from_value(json!({"body": [[{"retain": 99}, {"insert": "x"}]]})).unwrap();
+    assert!(b.apply_local(&bad).is_err());
+}

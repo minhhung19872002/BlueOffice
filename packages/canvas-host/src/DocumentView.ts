@@ -44,6 +44,17 @@ interface PageSlot {
  * Virtualized, zoomable view of a paginated document. Only pages near the
  * viewport get a canvas; display lists are fetched from the engine on demand.
  */
+/** A collaborator's caret / selection to draw over the pages. */
+export interface PeerMark {
+  caret: CaretRect | null;
+  rects: SelRect[];
+  color: string;
+  /** Name shown next to the caret. */
+  name: string;
+  /** Accessible description (localised by the editor). */
+  label: string;
+}
+
 export class DocumentView {
   readonly scroller: HTMLDivElement;
   private readonly content: HTMLDivElement;
@@ -51,6 +62,7 @@ export class DocumentView {
   private readonly images: ImageStore;
   private dragging = false;
   private caret: CaretRect | null = null;
+  private peers: PeerMark[] = [];
   private readonly ime: ImeInput;
   private slots: PageSlot[] = [];
   private lists = new Map<number, Promise<PageDisplayList>>();
@@ -92,7 +104,7 @@ export class DocumentView {
       const st = document.createElement('style');
       st.id = 'bo-caret-style';
       st.textContent =
-        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1.5px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(51,120,220,.32);pointer-events:none}';
+        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1.5px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(51,120,220,.32);pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}';
       document.head.appendChild(st);
     }
   }
@@ -184,6 +196,7 @@ export class DocumentView {
         slot.overlay.appendChild(c);
       }
     }
+    this.drawPeers(k);
     if (caret) {
       const slot = this.slots[caret.page];
       if (slot) {
@@ -198,6 +211,41 @@ export class DocumentView {
           else if (y + h > st + vh) this.scroller.scrollTop = y + h - vh + 24;
         }
       }
+    }
+  }
+
+  /** Show collaborators' carets and selections (drawn with the own selection). */
+  setPeers(peers: PeerMark[]): void {
+    this.peers = peers;
+    this.setSelection(this.caret, this.lastRects, false);
+  }
+
+  private drawPeers(k: number): void {
+    for (const p of this.peers) {
+      for (const r of p.rects) {
+        const slot = this.slots[r.page];
+        if (!slot) continue;
+        const d = document.createElement('div');
+        d.className = 'bo-peer-sel';
+        d.style.cssText = `left:${r.x * k}px;top:${r.y * k}px;width:${r.w * k}px;height:${r.h * k}px;background:${p.color};`;
+        slot.overlay.appendChild(d);
+      }
+      const c = p.caret;
+      const slot = c ? this.slots[c.page] : undefined;
+      if (!c || !slot) continue;
+      const el = document.createElement('div');
+      el.className = 'bo-peer-caret';
+      el.dataset.testid = 'peer-caret';
+      el.setAttribute('role', 'img');
+      el.setAttribute('aria-label', p.label);
+      el.title = p.label;
+      el.style.cssText = `left:${c.x * k}px;top:${c.y * k}px;height:${c.h * k}px;background:${p.color};`;
+      const tag = document.createElement('span');
+      tag.className = 'bo-peer-name';
+      tag.textContent = p.name;
+      tag.style.background = p.color;
+      el.appendChild(tag);
+      slot.overlay.appendChild(el);
     }
   }
 

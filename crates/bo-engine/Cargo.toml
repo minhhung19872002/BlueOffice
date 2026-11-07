@@ -30,8 +30,10 @@ bo-crypto = { path = "../bo-crypto" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+base64 = "0.22"
 
 [dev-dependencies]
+bo-collab = { path = "../bo-collab" }
 png.workspace = true
 bo-opc.workspace = true
 bo-engine = { path = ".", features = ["bundled-fonts"] }

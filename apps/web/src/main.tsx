@@ -1,13 +1,21 @@
 import { BlueEditor } from '@blueoffice/editor';
 import { connectHost } from '@blueoffice/editor-sdk';
-import type { Platform, SheetHost } from '@blueoffice/platform';
+import type { EngineHost, Platform, SheetHost } from '@blueoffice/platform';
 import { createWebPlatform } from '@blueoffice/platform/web';
 import { BlueSheetEditor } from '@blueoffice/sheet-editor';
 import { BlueSlideEditor } from '@blueoffice/slide-editor';
 import { LocalStorageProvider } from '@blueoffice/storage-providers';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { CollabClient, collabSheetHost, wasmEngine } from '@blueoffice/collab';
+import {
+  CollabClient,
+  collabDocHost,
+  collabSheetHost,
+  collabSlideHost,
+  colorFor,
+  wasmEngine,
+  type CollabEngine,
+} from '@blueoffice/collab';
 import {
   appForFile,
   commandHandler,
@@ -48,8 +56,9 @@ const root = createRoot(document.getElementById('root')!);
 const isEmbed = window.location.pathname.replace(base, '/').startsWith('/edit');
 
 /**
- * Joins the session's collaboration room: BlueSheet cell inputs sync live
- * (`@blueoffice/collab`); every app answers the server's autosave requests.
+ * Joins the session's collaboration room (`@blueoffice/collab`): BlueDoc text,
+ * BlueSlide objects and BlueSheet cell inputs sync live with presence; every app
+ * answers the server's autosave requests.
  */
 async function startCollab(
   hosted: Platform,
@@ -65,18 +74,40 @@ async function startCollab(
   url.protocol =
     url.protocol === 'https:' ? 'wss:' : url.protocol === 'http:' ? 'ws:' : url.protocol;
   let client: CollabClient | null = null;
-  let shared: ReturnType<typeof collabSheetHost<SheetHost>> | null = null;
+  let shared: { remoteApplied(): Promise<void>; seed(): Promise<void> } | null = null;
+  let engine: CollabEngine = wasmEngine(replica);
+  const flush = () => client?.flush();
+  const id = replica.clientId();
+  const user = {
+    userId: hosted.auth.user?.id ?? `guest-${id}`,
+    name: hosted.auth.user?.name ?? '',
+    color: colorFor(id),
+  };
   if (app === 'sheet' && hosted.sheet) {
-    shared = collabSheetHost<SheetHost>(hosted.sheet, replica, () => client?.flush());
-    hosted = { ...hosted, sheet: shared };
+    const sheet = collabSheetHost<SheetHost>(hosted.sheet, replica, flush);
+    shared = sheet;
+    hosted = { ...hosted, sheet };
+  } else if (app === 'slide') {
+    // BlueSlide: slides and objects (last writer wins per object), selected object.
+    const live = collabSlideHost<EngineHost>(hosted.engine, replica, flush, user);
+    shared = live;
+    engine = live.engine;
+    hosted = { ...hosted, engine: live };
+  } else {
+    // BlueDoc: the body text with formatting, collaborators' carets.
+    const live = collabDocHost<EngineHost>(hosted.engine, replica, flush, user);
+    shared = live;
+    engine = live.engine;
+    hosted = { ...hosted, engine: live };
   }
   client = new CollabClient({
     url: url.toString(),
     sessionId: session.sessionId,
     sessionToken: session.sessionToken,
-    engine: wasmEngine(replica),
+    engine,
   });
-  client.on('remote', () => void shared?.remoteApplied());
+  // BlueDoc / BlueSlide pull remote changes through their frame gate.
+  if (app === 'sheet') client.on('remote', () => void shared?.remoteApplied());
   client.on('control', (m) => {
     if (m.type === 'seed') void shared?.seed();
     else if (m.type === 'save-request') saveNow();

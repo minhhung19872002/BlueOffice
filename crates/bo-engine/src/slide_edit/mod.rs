@@ -12,6 +12,7 @@
 //! everything that was not touched.
 
 pub mod build;
+pub mod collab;
 pub mod geom;
 pub mod guides;
 pub mod ops;
@@ -297,6 +298,9 @@ pub struct SlideEditResult {
     /// Message of a command that could not be applied (the deck is unchanged).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Change to share and the selected object while collaborating.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collab: Option<collab::SlideCollabOut>,
 }
 
 /// Why a command was refused (codes the UI can translate).
@@ -1667,7 +1671,9 @@ impl Engine {
             }
             ed.clamp(pres);
         }
-        self.finish_slide_command(out)
+        let mut r = self.finish_slide_command(out)?;
+        r.collab = self.slide_collab_after_edit();
+        Ok(r)
     }
 
     /// Insert a PNG/JPEG picture on the current slide.
@@ -1683,7 +1689,9 @@ impl Engine {
             ed.clamp(pres);
             ed.mutate(pres, &mut out, |tx, sel| cmd_picture(tx, sel, bytes, name));
         }
-        self.finish_slide_command(out)
+        let mut r = self.finish_slide_command(out)?;
+        r.collab = self.slide_collab_after_edit();
+        Ok(r)
     }
 
     /// Re-render every slide (after the slide list changed).
@@ -1800,6 +1808,7 @@ impl Engine {
             preview: out.preview,
             hits: out.hits,
             error: out.error,
+            collab: None,
         })
     }
 }

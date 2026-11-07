@@ -459,7 +459,14 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
       shortcut: 'Ctrl+O',
       run: (st) =>
         guard(st, async (s) => {
-          const f = await platform.files.openFile(['.xlsx', '.xlsm', '.csv']);
+          const f = await platform.files.openFile([
+            '.xlsx',
+            '.xlsm',
+            '.xlsb',
+            '.xls',
+            '.ods',
+            '.csv',
+          ]);
           if (!f) return;
           setStatus(t('sheetEditor.loading'));
           loaded(await s.host.open(f.bytes, f.name), f.name);

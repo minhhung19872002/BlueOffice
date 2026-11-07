@@ -22,6 +22,8 @@ bo-raster.workspace = true
 bo-pdf.workspace = true
 bo-sheet.workspace = true
 bo-xlsx.workspace = true
+bo-binary = { path = "../bo-binary" }
+bo-odf = { path = "../bo-odf" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

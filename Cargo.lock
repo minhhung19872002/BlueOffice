@@ -531,10 +531,12 @@ dependencies = [
 name = "bo-engine"
 version = "0.1.0"
 dependencies = [
+ "bo-binary",
  "bo-docx",
  "bo-engine",
  "bo-layout",
  "bo-model",
+ "bo-odf",
  "bo-pdf",
  "bo-pptx",
  "bo-raster",

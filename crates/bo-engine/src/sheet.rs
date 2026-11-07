@@ -172,6 +172,91 @@ fn parse_number(s: &str, locale: &Locale) -> Option<f64> {
     v.is_finite().then_some(v * scale)
 }
 
+/// Legacy `.xls` / `.xlsb` workbook ([MS-XLS], [MS-XLSB] via `bo-binary`) →
+/// sheet model. Number formats become custom `numFmt`s + `cellXfs`.
+fn from_legacy(src: &bo_binary::Workbook) -> Workbook {
+    use bo_binary::CellValue as L;
+    let mut wb = Workbook::new();
+    wb.date1904 = src.date1904;
+    wb.sheets.clear();
+    let base_xf = wb.styles.cell_xfs.first().cloned().unwrap_or_default();
+    if wb.styles.cell_xfs.is_empty() {
+        wb.styles.cell_xfs.push(base_xf.clone());
+    }
+    let mut style_of = std::collections::HashMap::<String, u32>::new();
+    for (i, ls) in src.sheets.iter().enumerate() {
+        let mut ws = Worksheet::new(&ls.name);
+        ws.sheet_id = u32::try_from(i + 1).unwrap_or(u32::MAX);
+        if ls.hidden {
+            ws.state = bo_model::sheet::SheetState::Hidden;
+        }
+        for c in &ls.cells {
+            let value = match &c.value {
+                L::Empty => CellValue::Empty,
+                L::Number(n) => CellValue::Number(*n),
+                L::Text(t) => CellValue::Text(t.clone()),
+                L::Bool(b) => CellValue::Bool(*b),
+                L::Error(e) => CellValue::Error(bo_model::sheet::CellError::parse(e)),
+            };
+            let style = match &c.number_format {
+                Some(code) => *style_of.entry(code.clone()).or_insert_with(|| {
+                    let id = 164 + u32::try_from(wb.styles.num_fmts.len()).unwrap_or(0);
+                    wb.styles.num_fmts.push(bo_model::sheet::NumFmt {
+                        id,
+                        code: code.clone(),
+                    });
+                    let mut xf = base_xf.clone();
+                    xf.num_fmt_id = id;
+                    xf.apply_number_format = Some(true);
+                    wb.styles.cell_xfs.push(xf);
+                    u32::try_from(wb.styles.cell_xfs.len() - 1).unwrap_or(0)
+                }),
+                None => 0,
+            };
+            let mut cell = Cell::new(value);
+            cell.style = style;
+            cell.formula = c.formula.as_ref().map(|f| Formula {
+                text: f.clone(),
+                ..Formula::default()
+            });
+            ws.cells.insert((c.row, c.col), cell);
+        }
+        wb.sheets.push(ws);
+    }
+    if wb.sheets.is_empty() {
+        wb.sheets.push(Worksheet::new("Sheet1"));
+    }
+    wb
+}
+
+/// OpenDocument spreadsheet (ODF 1.3 Part 3 §9, via `bo-odf`) → sheet model.
+/// Values are kept; `of:` formulas are kept as cached values only (the
+/// OpenFormula → A1 translation is not implemented yet).
+fn from_ods(src: &bo_odf::SpreadsheetDoc) -> Workbook {
+    use bo_odf::CellValue as O;
+    let mut wb = Workbook::new();
+    wb.sheets.clear();
+    for (i, os) in src.sheets.iter().enumerate() {
+        let mut ws = Worksheet::new(&os.name);
+        ws.sheet_id = u32::try_from(i + 1).unwrap_or(u32::MAX);
+        for c in &os.cells {
+            let value = match &c.value {
+                O::Float(v) | O::Percentage(v) | O::Currency { value: v, .. } => {
+                    CellValue::Number(*v)
+                }
+                O::Date(t) | O::Time(t) | O::String(t) => CellValue::Text(t.clone()),
+                O::Boolean(b) => CellValue::Bool(*b),
+            };
+            ws.cells.insert((c.row, c.col), Cell::new(value));
+        }
+        wb.sheets.push(ws);
+    }
+    if wb.sheets.is_empty() {
+        wb.sheets.push(Worksheet::new("Sheet1"));
+    }
+    wb
+}
+
 /// Turns what the user typed into a cell (keeping the cell's style).
 fn input_to_cell(input: &str, old: Option<&Cell>, locale: &Locale) -> Option<Cell> {
     let mut cell = old.cloned().unwrap_or_default();
@@ -279,7 +364,8 @@ impl SheetEngine {
         };
     }
 
-    /// Opens `.xlsx` / `.xlsm` / `.csv` bytes.
+    /// Opens `.xlsx` / `.xlsm` / `.xlsb` / `.xls` / `.ods` / `.csv` bytes
+    /// (legacy and ODF files are converted; saving writes `.xlsx`).
     pub fn open(&mut self, bytes: &[u8], name: &str) -> Result<WorkbookInfo> {
         let lower = name.to_ascii_lowercase();
         let wb = if lower.ends_with(".csv") {
@@ -293,7 +379,15 @@ impl SheetEngine {
             let mut wb = Workbook::new();
             wb.sheets = vec![ws];
             wb
-        } else if lower.ends_with(".xlsx") || lower.ends_with(".xlsm") {
+        } else if matches!(bo_binary::detect(bytes), Some(bo_binary::LegacyKind::Xls)) {
+            from_legacy(&bo_binary::read_xls(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?)
+        } else if bo_odf::detect_mimetype(bytes).as_deref() == Some(bo_odf::MIME_ODS) {
+            from_ods(&bo_odf::read_ods(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?)
+        } else if lower.ends_with(".xlsb") {
+            from_legacy(
+                &bo_binary::read_xlsb(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?,
+            )
+        } else if bytes.starts_with(b"PK\x03\x04") {
             bo_xlsx::read_xlsx(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?
         } else {
             return Err(EngineError::Unsupported(name.to_owned()));
@@ -910,6 +1004,38 @@ mod tests {
         let csv = e.save("csv", 0).unwrap();
         assert!(String::from_utf8_lossy(&csv).contains("Xin chào"));
         assert!(e.export_pdf().unwrap().starts_with(b"%PDF"));
+    }
+
+    #[test]
+    fn opens_ods_and_rejects_garbage() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "Hà Nội").unwrap();
+        e.set_input(0, 0, 1, "1,5").unwrap();
+        let ods = bo_odf::write_ods(&bo_odf::SpreadsheetDoc {
+            sheets: vec![bo_odf::Sheet {
+                name: "Bảng 1".into(),
+                cells: vec![
+                    bo_odf::Cell {
+                        row: 0,
+                        col: 0,
+                        value: bo_odf::CellValue::String("Hà Nội".into()),
+                        formula: None,
+                    },
+                    bo_odf::Cell {
+                        row: 1,
+                        col: 1,
+                        value: bo_odf::CellValue::Float(2.5),
+                        formula: None,
+                    },
+                ],
+            }],
+        })
+        .unwrap();
+        let info = e.open(&ods, "a.ods").unwrap();
+        assert_eq!(info.sheets[0].name, "Bảng 1");
+        assert_eq!(e.cell(0, 0, 0).unwrap().input, "Hà Nội");
+        assert_eq!(e.cell(0, 1, 1).unwrap().input, "2,5");
+        assert!(e.open(b"not a workbook", "x.xls").is_err());
     }
 
     #[test]

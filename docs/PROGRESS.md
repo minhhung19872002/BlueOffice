@@ -21,15 +21,16 @@ giữa các phase; ưu tiên bộ ứng dụng văn phòng (BlueDoc/BlueSheet/Bl
 
 | Bộ | Kết quả |
 |---|---|
-| `cargo test --workspace` | **556** test ✅ (proptest undo/redo doc + slide + track changes, proptest hội tụ cộng tác, round-trip corpus, ~920 dòng bảng công thức) |
+| `cargo test --workspace` | **618** test ✅ (proptest undo/redo doc + slide + track changes, proptest hội tụ cộng tác, round-trip corpus, ~920 dòng bảng công thức) |
 | `cargo clippy --workspace --all-targets -D warnings` (pedantic) · `cargo fmt --check` · clippy wasm32 · `cargo deny` | ✅ |
-| `pnpm test` (Vitest) | **84** test ✅ — gồm parity WASM ↔ native, 2 engine + 2 bản sao `bo-collab` thật qua relay (doc, sheet, slide) |
+| `pnpm test` (Vitest) | **96** test ✅ — gồm parity WASM ↔ native, 2 engine + 2 bản sao `bo-collab` thật qua relay (doc, sheet, slide) |
 | `pnpm lint` · `pnpm typecheck` · `pnpm license-check` | ✅ |
-| Playwright E2E (web) | **12** test ✅ — doc (gõ tiếng Việt, định dạng, lưu/mở lại, tìm), track changes/comment, bảng tính (SUM, định dạng, sort, lưu/mở lại), slide (kéo shape, sửa chữ, lưu/mở lại) |
+| Playwright E2E (web) | **19** test ✅ — doc (gõ tiếng Việt, định dạng, font/Format Painter, bảng, header, thước kẻ, page setup, mẫu NĐ30, track changes/comment), bảng tính (SUM, định dạng, sort, pivot), slide (kéo shape, định dạng một phần chữ, copy/paste, ô bảng) — đều lưu rồi mở lại |
+| E2E desktop (Tauri WebDriver, `bluedoc.exe` thật) | **4** test ✅ — mở file từ tham số dòng lệnh, gõ chữ, công thức BlueSheet (engine native), BlueSlide |
 | `dotnet test` | **107** test ✅ (BOHP với BlueDrive giả lập, 2 người cùng phiên, thu hồi quyền, xung đột offline, WOPI, job chuyển đổi) |
-| Fidelity ([`fidelity-report.md`](fidelity-report.md)) | mở + lưu 100 % corpus; OpenXmlValidator: docx 48/49, xlsx 48/51, pptx 28/28 — phần còn lại là hạn chế đã biết của validator (`tests/fidelity/known-issues.txt`) |
+| Fidelity ([`fidelity-report.md`](fidelity-report.md)) | mở + lưu 100 % corpus; OpenXmlValidator: docx 51/52, xlsx 51/54, pptx 32/32; visual diff 0 trang vượt ngưỡng so với baseline — phần còn lại là hạn chế đã biết của validator (`tests/fidelity/known-issues.txt`) |
 
-Round-trip lossless (XML chuẩn hoá): `.docx` 49/49, `.xlsx` 51/51, `.pptx` 100 % part (corpus tự sinh, README ghi nguồn).
+Round-trip lossless (XML chuẩn hoá): `.docx` 52/52, `.xlsx` 54/54, `.pptx` 100 % part (corpus tự sinh, README ghi nguồn).
 
 ## Benchmark
 | Phép đo | Kết quả | Mục tiêu (§5) |
@@ -57,8 +58,8 @@ Round-trip lossless (XML chuẩn hoá): `.docx` 49/49, `.xlsx` 51/51, `.pptx` 10
 3. **BlueDoc**: footnote sửa trong khung bên (chưa sửa trực tiếp trên trang); header/footer chưa có "liên kết với section trước";
    track changes chưa ghi bảng/ảnh/page setup; wrap tight dùng khung bao của đa giác.
 4. **BlueSheet**: pivot chưa có subtotal/layout compact/nhóm ngày/trường tính toán; chart neo tuyệt đối chưa kéo được.
-5. **BlueSlide**: định dạng một phần đoạn chữ, copy/paste shape, chọn bằng khung kéo, adjust handle, sửa ô bảng,
-   connector bám điểm nối; presenter view hiển thị trong cùng cửa sổ (chưa tách màn hình thứ hai).
+5. **BlueSlide**: connector xoay mất góc xoay khi định tuyến lại; ô bảng sửa bằng ô nhập riêng (chưa định dạng một phần chữ
+   trong ô); dán slide sang bản trình chiếu khác bị từ chối; PDF xấp xỉ đổ bóng mờ, chưa vẽ glow/3D.
 6. **Desktop**: E2E Tauri WebDriver có 4 test (mở file, gõ chữ, công thức BlueSheet, BlueSlide) — `pnpm test:e2e:desktop`.
 7. **Fidelity**: visual diff đã chạy (`docs/fidelity-visual.md`, baseline tự sinh 134 trang); so với phần mềm gốc cần người dùng đặt ảnh vào `tests/fidelity/reference/`.
 8. **Ký số**: chưa có dấu thời gian RFC 3161 (PAdES B-T) và kiểm tra chuỗi CA quốc gia (ADR-0007).
@@ -68,5 +69,8 @@ Round-trip lossless (XML chuẩn hoá): `.docx` 49/49, `.xlsx` 51/51, `.pptx` 10
 - 2026-11-05: Phase 1 hoàn thành; đổi tên sản phẩm BlueWrite → BlueDoc (ADR-0006).
 - 2026-11-07: Phase 2–6A phần cốt lõi trên các nhánh song song, hợp nhất vào `main`; `bo-sign`, `bo-collab`,
   `editor-sdk`, `bo-validate`, fidelity CI.
+- 2026-11-08 (tối): layout tăng dần (< 16 ms), công thức 10k phụ thuộc 26 ms, pivot, UI BlueDoc còn thiếu (font, Format
+  Painter, thước kẻ, page setup, header/footer, bảng, mẫu NĐ30), BlueSlide (rich text, clipboard, connector, bảng,
+  màn hình khán giả), visual diff, E2E desktop.
 - 2026-11-08: BlueSheet/BlueSlide UI đầy đủ, chỉnh sửa slide, tính năng tài liệu Phase 5, chế độ nhúng, cộng tác trực tiếp
   doc/sheet/slide; build release desktop `bluedoc.exe` (33,7 MB) chạy thử mở `.docx` qua tham số dòng lệnh.

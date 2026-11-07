@@ -581,6 +581,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo-sheet"
+version = "0.1.0"
+dependencies = [
+ "bo-model",
+ "bo-render",
+ "bo-text",
+ "bo-xlsx",
+ "serde",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "bo-sign"
 version = "0.1.0"
 dependencies = [
@@ -620,6 +632,14 @@ dependencies = [
 [[package]]
 name = "bo-xlsx"
 version = "0.1.0"
+dependencies = [
+ "bo-model",
+ "bo-opc",
+ "proptest",
+ "quick-xml",
+ "thiserror 2.0.21",
+ "zip",
+]
 
 [[package]]
 name = "borsh"

@@ -19,6 +19,8 @@ bo-render = { path = "crates/bo-render" }
 bo-raster = { path = "crates/bo-raster" }
 bo-pdf = { path = "crates/bo-pdf" }
 bo-engine = { path = "crates/bo-engine" }
+bo-xlsx = { path = "crates/bo-xlsx" }
+bo-sheet = { path = "crates/bo-sheet" }
 
 quick-xml = "0.42"
 zip = { version = "9", default-features = false, features = ["deflate"] }

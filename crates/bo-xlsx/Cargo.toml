@@ -1,12 +1,20 @@
 [package]
 name = "bo-xlsx"
-description = "SpreadsheetML ("
+description = "SpreadsheetML (.xlsx) and CSV reader/writer for the BlueOffice workbook model."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
 
 [dependencies]
+bo-model.workspace = true
+bo-opc.workspace = true
+quick-xml.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+zip.workspace = true
 
 [lints]
 workspace = true

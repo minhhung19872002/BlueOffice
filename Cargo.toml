@@ -21,6 +21,7 @@ bo-pdf = { path = "crates/bo-pdf" }
 bo-engine = { path = "crates/bo-engine" }
 bo-xlsx = { path = "crates/bo-xlsx" }
 bo-sheet = { path = "crates/bo-sheet" }
+bo-formula = { path = "crates/bo-formula" }
 
 quick-xml = "0.42"
 zip = { version = "9", default-features = false, features = ["deflate"] }

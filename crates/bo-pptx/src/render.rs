@@ -624,6 +624,21 @@ fn draw_image(
         .src_rect
         .map(|r| r.map(|v| (f64::from(v) / 100_000.0) as f32))
         .filter(|r| r.iter().any(|v| *v != 0.0));
+    // §20.1.8.4 alphaModFix@amt: constant opacity of the picture.
+    let alpha = b
+        .blip_children
+        .iter()
+        .find(|e| e.local() == "alphaModFix")
+        .map(|e| {
+            e.attr("amt")
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(100_000.0)
+        })
+        .map(|amt| (amt / 100_000.0).clamp(0.0, 1.0) as f32)
+        .filter(|a| *a < 1.0);
+    if let Some(alpha) = alpha {
+        out.push(Command::PushOpacity { alpha });
+    }
     let push = !aff.is_translation();
     let (x, y) = if push {
         out.push(Command::PushTransform { m: aff.to_f32() });
@@ -642,6 +657,9 @@ fn draw_image(
     });
     if push {
         out.push(Command::PopTransform);
+    }
+    if alpha.is_some() {
+        out.push(Command::PopOpacity);
     }
 }
 
@@ -802,7 +820,7 @@ fn draw_geometry(
     out: &mut Vec<Command>,
 ) {
     let has_fill = fill.is_some_and(|(f, _)| !matches!(f, Fill::None | Fill::Group));
-    // §20.1.8.49 outerShdw: offset copy (blur not rendered).
+    // §20.1.8.49 outerShdw: offset copy, blurred by blurRad.
     if let (Some(s), true) = (shadow, has_fill) {
         let dist = s.dist.unwrap_or(0) as f64 / EMU_PT;
         let dir = f64::from(s.dir.unwrap_or(0)) / 60_000.0 * std::f64::consts::PI / 180.0;
@@ -811,11 +829,21 @@ fn draw_geometry(
             .color
             .as_ref()
             .map_or(Rgba(0, 0, 0, 96), |c| cx.color(c, None));
+        let blur = s.blur_rad.unwrap_or(0) as f64 / EMU_PT;
         for p in geom.paths.iter().filter(|p| p.fill != FillMode::None) {
-            out.push(Command::Path {
-                segs: to_segs(&p.segs, off),
-                fill: Some(Paint::Solid { color }),
-                stroke: None,
+            let segs = to_segs(&p.segs, off);
+            out.push(if blur > 0.0 {
+                Command::BlurPath {
+                    segs,
+                    color,
+                    radius: blur as f32,
+                }
+            } else {
+                Command::Path {
+                    segs,
+                    fill: Some(Paint::Solid { color }),
+                    stroke: None,
+                }
             });
         }
     }

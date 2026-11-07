@@ -81,7 +81,12 @@ export type DisplayCommand =
   | { op: 'pushTransform'; m: [number, number, number, number, number, number] }
   | { op: 'popTransform' }
   /** Intersect the clip with a path (nonzero rule; paired with `popClip`). */
-  | { op: 'pushClipPath'; segs: PathSeg[] };
+  | { op: 'pushClipPath'; segs: PathSeg[] }
+  /** Multiply the opacity of what follows (paired with `popOpacity`). */
+  | { op: 'pushOpacity'; alpha: number }
+  | { op: 'popOpacity' }
+  /** Filled path blurred by `radius` points (soft shadow). */
+  | { op: 'blurPath'; segs: PathSeg[]; color: Rgba; radius: number };
 
 /** Path segment as serialised by serde (`bo_render::PathSeg`). */
 export type PathSeg =

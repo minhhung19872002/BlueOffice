@@ -1441,8 +1441,14 @@ fn cmd_ungroup(tx: &mut Tx<'_>, sel: &mut SlideSel) -> R<()> {
         else {
             continue;
         };
+        // The group's flips move onto its children (§20.1.7.6 xfrm flipH/flipV).
+        let gx = node.props.xfrm.clone().unwrap_or_default();
+        let (fh, fv) = (gx.flip_h.unwrap_or(false), gx.flip_v.unwrap_or(false));
         let mut kids = Vec::new();
         for (i, mut c) in node.children.into_iter().enumerate() {
+            if fh || fv {
+                toggle_flips(&mut c, fh, fv);
+            }
             // Re-express each child in the group's parent space.
             if let Some(cp) = g.children.iter().find(|p| p.path.last() == Some(&i)) {
                 let as_parent = Placed {
@@ -1462,6 +1468,26 @@ fn cmd_ungroup(tx: &mut Tx<'_>, sel: &mut SlideSel) -> R<()> {
     }
     sel.ids = new_sel;
     Ok(())
+}
+
+/// Toggle the flips of a node's own transform.
+fn toggle_flips(n: &mut ShapeNode, fh: bool, fv: bool) {
+    let x = match n {
+        ShapeNode::Shape(s) => s.props.xfrm.as_mut(),
+        ShapeNode::Picture(p) => p.props.xfrm.as_mut(),
+        ShapeNode::Connector(c) => c.props.xfrm.as_mut(),
+        ShapeNode::Group(g) => g.props.xfrm.as_mut(),
+        ShapeNode::Frame(f) => Some(&mut f.xfrm),
+        ShapeNode::Other(_) => None,
+    };
+    if let Some(x) = x {
+        let t = |v: Option<bool>, on: bool| {
+            let r = v.unwrap_or(false) ^ on;
+            r.then_some(true)
+        };
+        x.flip_h = t(x.flip_h, fh);
+        x.flip_v = t(x.flip_v, fv);
+    }
 }
 
 fn move_items(tx: &mut Tx<'_>, slide: usize, moves: &[(Placed, f64, f64)]) -> R<()> {

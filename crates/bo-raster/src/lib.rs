@@ -58,6 +58,15 @@ pub fn render_page(
 enum Saved {
     Clip(Option<Mask>),
     Transform(Transform),
+    Opacity(f32),
+}
+
+/// Colour with its alpha multiplied by `k` (group opacity).
+fn fade(c: Rgba, k: f32) -> Rgba {
+    if k >= 1.0 {
+        return c;
+    }
+    Rgba(c.0, c.1, c.2, (f32::from(c.3) * k).round() as u8)
 }
 
 /// Render a page, resolving `Image` commands from `images`.
@@ -79,12 +88,13 @@ pub fn render_page_with(
     let mut decoded: HashMap<&str, Option<Pixmap>> = HashMap::new();
     let mut mask: Option<Mask> = None;
     let mut stack: Vec<Saved> = Vec::new();
+    let mut alpha = 1.0_f32;
 
     for cmd in &page.commands {
         match cmd {
             Command::FillRect { x, y, w, h, color } => {
                 if let Some(r) = Rect::from_xywh(*x, *y, *w, *h) {
-                    pm.fill_rect(r, &paint(*color), t, mask.as_ref());
+                    pm.fill_rect(r, &paint(fade(*color, alpha)), t, mask.as_ref());
                 }
             }
             Command::Line {
@@ -106,7 +116,13 @@ pub fn render_page_with(
                             .and_then(|[on, off]| tiny_skia::StrokeDash::new(vec![on, off], 0.0)),
                         ..Stroke::default()
                     };
-                    pm.stroke_path(&path, &paint(*color), &stroke, t, mask.as_ref());
+                    pm.stroke_path(
+                        &path,
+                        &paint(fade(*color, alpha)),
+                        &stroke,
+                        t,
+                        mask.as_ref(),
+                    );
                 }
             }
             Command::Glyphs {
@@ -120,7 +136,7 @@ pub fn render_page_with(
             } => {
                 let upem = f32::from(fonts.info(FaceId(*face)).units_per_em);
                 let s = size / upem;
-                let p = paint(*color);
+                let p = paint(fade(*color, alpha));
                 for g in glyphs {
                     let path = glyph_cache
                         .entry((*face, g.0))
@@ -160,12 +176,46 @@ pub fn render_page_with(
                 let Some(path) = build_path(segs) else {
                     continue;
                 };
-                if let Some(p) = fill.as_ref().and_then(make_paint) {
+                if let Some(mut p) = fill.as_ref().and_then(make_paint) {
+                    if alpha < 1.0 {
+                        if let bo_render::Paint::Solid { color } =
+                            fill.as_ref().unwrap_or(&bo_render::Paint::Solid {
+                                color: Rgba(0, 0, 0, 0),
+                            })
+                        {
+                            p = paint(fade(*color, alpha));
+                        }
+                    }
                     pm.fill_path(&path, &p, FillRule::Winding, t, mask.as_ref());
                 }
                 if let Some(s) = stroke {
                     let st = make_stroke(s);
-                    pm.stroke_path(&path, &paint(s.color), &st, t, mask.as_ref());
+                    pm.stroke_path(&path, &paint(fade(s.color, alpha)), &st, t, mask.as_ref());
+                }
+            }
+            Command::PushOpacity { alpha: a } => {
+                stack.push(Saved::Opacity(alpha));
+                alpha *= a.clamp(0.0, 1.0);
+            }
+            Command::PopOpacity => {
+                if let Some(Saved::Opacity(a)) = stack.pop() {
+                    alpha = a;
+                }
+            }
+            Command::BlurPath {
+                segs,
+                color,
+                radius,
+            } => {
+                if let Some(path) = build_path(segs) {
+                    blur_fill(
+                        &mut pm,
+                        &path,
+                        fade(*color, alpha),
+                        *radius,
+                        t,
+                        mask.as_ref(),
+                    );
                 }
             }
             Command::Image {
@@ -191,8 +241,7 @@ pub fn render_page_with(
                     &mut pm,
                     img,
                     [*x, *y, *w, *h],
-                    *crop,
-                    *rotation,
+                    (*crop, *rotation, alpha),
                     t,
                     mask.as_ref(),
                 );
@@ -202,6 +251,84 @@ pub fn render_page_with(
     Ok(pm)
 }
 
+/// Fill `path` into a layer, blur it (three box blurs ≈ Gaussian, radius in
+/// points under `t`) and composite it (soft shadows).
+fn blur_fill(
+    pm: &mut Pixmap,
+    path: &tiny_skia::Path,
+    color: Rgba,
+    radius: f32,
+    t: Transform,
+    mask: Option<&Mask>,
+) {
+    let scale = (t.sx * t.sx + t.ky * t.ky).sqrt().max(1e-3);
+    let r = (radius * scale / 2.0).round().max(0.0) as i32;
+    let Some(b) = path.bounds().transform(t) else {
+        return;
+    };
+    let pad = (r * 3 + 2) as f32;
+    let x0 = (b.left() - pad).floor().max(0.0) as i32;
+    let y0 = (b.top() - pad).floor().max(0.0) as i32;
+    let x1 = (b.right() + pad).ceil().min(pm.width() as f32) as i32;
+    let y1 = (b.bottom() + pad).ceil().min(pm.height() as f32) as i32;
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    let (w, h) = ((x1 - x0) as u32, (y1 - y0) as u32);
+    let Some(mut layer) = Pixmap::new(w, h) else {
+        return;
+    };
+    let lt = Transform::from_translate(-x0 as f32, -y0 as f32).pre_concat(t);
+    layer.fill_path(path, &paint(color), FillRule::Winding, lt, None);
+    if r > 0 {
+        let data = layer.data_mut();
+        for _ in 0..3 {
+            box_blur(data, w as usize, h as usize, r as usize);
+        }
+    }
+    pm.draw_pixmap(
+        x0,
+        y0,
+        layer.as_ref(),
+        &tiny_skia::PixmapPaint::default(),
+        Transform::identity(),
+        mask,
+    );
+}
+
+/// One horizontal and one vertical box blur pass over premultiplied RGBA.
+fn box_blur(data: &mut [u8], w: usize, h: usize, r: usize) {
+    let mut tmp = vec![0u8; data.len()];
+    blur_lines(data, &mut tmp, w, 4, h, w * 4, r);
+    blur_lines(&tmp, data, h, w * 4, w, 4, r);
+}
+
+/// Box blur of `lines` lines of `len` pixels (`stride` bytes apart, lines `step` apart).
+fn blur_lines(
+    from: &[u8],
+    to: &mut [u8],
+    len: usize,
+    stride: usize,
+    lines: usize,
+    step: usize,
+    r: usize,
+) {
+    let n = (2 * r + 1) as u32;
+    let last = len as isize - 1;
+    for line in 0..lines {
+        let base = line * step;
+        for ch in 0..4 {
+            let at = |i: isize| u32::from(from[base + i.clamp(0, last) as usize * stride + ch]);
+            let ri = r as isize;
+            let mut sum: u32 = (-ri..=ri).map(at).sum();
+            for i in 0..len {
+                to[base + i * stride + ch] = (sum / n) as u8;
+                let ii = i as isize;
+                sum = sum + at(ii + ri + 1) - at(ii - ri);
+            }
+        }
+    }
+}
 fn w_h(pm: &Pixmap) -> (u32, u32) {
     (pm.width(), pm.height())
 }
@@ -350,8 +477,7 @@ fn draw_image(
     pm: &mut Pixmap,
     img: &Pixmap,
     [x, y, w, h]: [f32; 4],
-    crop: Option<[f32; 4]>,
-    rotation: f32,
+    (crop, rotation, opacity): (Option<[f32; 4]>, f32, f32),
     t: Transform,
     mask: Option<&Mask>,
 ) {
@@ -369,7 +495,7 @@ fn draw_image(
         img.as_ref(),
         SpreadMode::Pad,
         FilterQuality::Bilinear,
-        1.0,
+        opacity.clamp(0.0, 1.0),
         pattern_t,
     );
     let t = if rotation == 0.0 {
@@ -426,6 +552,47 @@ pub fn render_page_png_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blurred_path_is_soft_and_opacity_fades() {
+        let square = vec![
+            PathSeg::M(20.0, 20.0),
+            PathSeg::L(60.0, 20.0),
+            PathSeg::L(60.0, 60.0),
+            PathSeg::L(20.0, 60.0),
+            PathSeg::Z,
+        ];
+        let page = PageList {
+            width: 80.0,
+            height: 80.0,
+            commands: vec![
+                Command::BlurPath {
+                    segs: square.clone(),
+                    color: Rgba(0, 0, 0, 255),
+                    radius: 8.0,
+                },
+                Command::PushOpacity { alpha: 0.5 },
+                Command::FillRect {
+                    x: 0.0,
+                    y: 70.0,
+                    w: 10.0,
+                    h: 10.0,
+                    color: Rgba(255, 0, 0, 255),
+                },
+                Command::PopOpacity,
+            ],
+        };
+        let pm = render_page(&page, &FontManager::new(), 1.0).unwrap();
+        let px = |x: u32, y: u32| pm.pixel(x, y).unwrap();
+        // Centre dark, edge half-tone, outside the hard edge still shaded.
+        assert!(px(40, 40).red() < 20);
+        let edge = px(20, 40).red();
+        assert!(edge > 60 && edge < 200, "{edge}");
+        assert!(px(16, 40).red() < 250 && px(16, 40).red() > edge);
+        // Half-transparent red over white.
+        let p = px(5, 75);
+        assert!(p.red() > 250 && p.green() > 100 && p.green() < 150, "{p:?}");
+    }
 
     #[test]
     fn renders_rect_and_size() {

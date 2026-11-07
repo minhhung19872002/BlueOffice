@@ -670,3 +670,163 @@ fn table_cells_rows_columns_merge_fill_and_style() {
     let r = run(&mut e, r#"{"cmd":"select","ids":[]}"#);
     assert!(r.table.is_none());
 }
+
+/// Points of every path on a slide, rounded (for comparing renderings).
+fn path_points(e: &mut Engine, slide: usize) -> Vec<(i64, i64)> {
+    let page = e.refresh_slide(slide).unwrap().clone();
+    let mut out = Vec::new();
+    // Apply pushed transforms so equal drawings compare equal.
+    let mut stack = vec![[1.0f64, 0.0, 0.0, 1.0, 0.0, 0.0]];
+    for c in &page.commands {
+        match c {
+            bo_render::Command::PushTransform { m } => {
+                let [a, b, cc, d, ee, f] = *stack.last().unwrap();
+                let m = m.map(f64::from);
+                stack.push([
+                    a * m[0] + cc * m[1],
+                    b * m[0] + d * m[1],
+                    a * m[2] + cc * m[3],
+                    b * m[2] + d * m[3],
+                    a * m[4] + cc * m[5] + ee,
+                    b * m[4] + d * m[5] + f,
+                ]);
+            }
+            bo_render::Command::PopTransform => {
+                stack.pop();
+            }
+            bo_render::Command::Path { segs, .. } => {
+                let t = *stack.last().unwrap();
+                for s in segs {
+                    let pts: Vec<(f32, f32)> = match *s {
+                        bo_render::PathSeg::M(x, y) | bo_render::PathSeg::L(x, y) => vec![(x, y)],
+                        bo_render::PathSeg::Q(a, b, x, y) => vec![(a, b), (x, y)],
+                        bo_render::PathSeg::C(a, b, c2, d, x, y) => vec![(a, b), (c2, d), (x, y)],
+                        bo_render::PathSeg::Z => vec![],
+                    };
+                    for (x, y) in pts {
+                        let (x, y) = (f64::from(x), f64::from(y));
+                        out.push((
+                            ((t[0] * x + t[2] * y + t[4]) * 10.0).round() as i64,
+                            ((t[1] * x + t[3] * y + t[5]) * 10.0).round() as i64,
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out.sort_unstable();
+    out
+}
+
+#[test]
+fn ungroup_keeps_flips() {
+    let mut e = open("slide-shapes-presets.pptx");
+    run(&mut e, r#"{"cmd":"addSlide"}"#);
+    let slide = run(&mut e, r#"{"cmd":"state"}"#).slide;
+    let a = run(
+        &mut e,
+        r#"{"cmd":"insertShape","preset":"rightArrow","rect":{"x":100,"y":100,"w":160,"h":60}}"#,
+    )
+    .selection[0]
+        .id;
+    run(
+        &mut e,
+        r#"{"cmd":"transform","transform":{"kind":"rotate","x":300,"y":60}}"#,
+    );
+    let b = run(
+        &mut e,
+        r#"{"cmd":"insertShape","preset":"triangle","rect":{"x":320,"y":200,"w":80,"h":100}}"#,
+    )
+    .selection[0]
+        .id;
+    let g = run(&mut e, &format!(r#"{{"cmd":"select","ids":[{a},{b}]}}"#));
+    let _ = g;
+    let gid = run(&mut e, r#"{"cmd":"group"}"#).selection[0].id;
+    for (fh, fv) in [(true, false), (false, true), (true, true)] {
+        {
+            let p = e.presentation_mut().unwrap();
+            for n in &mut p.slides[slide].data.shapes {
+                if let ShapeNode::Group(gr) = n {
+                    if gr.nv.id == gid {
+                        let x = gr.props.xfrm.as_mut().unwrap();
+                        x.flip_h = fh.then_some(true);
+                        x.flip_v = fv.then_some(true);
+                    }
+                }
+            }
+        }
+        let before = path_points(&mut e, slide);
+        run(&mut e, &format!(r#"{{"cmd":"select","ids":[{gid}]}}"#));
+        run(&mut e, r#"{"cmd":"ungroup"}"#);
+        let after = path_points(&mut e, slide);
+        let worst = before
+            .iter()
+            .zip(&after)
+            .map(|(p, q)| (p.0 - q.0).abs().max((p.1 - q.1).abs()))
+            .max()
+            .unwrap_or(0);
+        assert_eq!(before.len(), after.len());
+        assert!(
+            worst <= 2,
+            "flip {fh}/{fv}: drawing moved by {worst} tenths of a point"
+        );
+        run(&mut e, r#"{"cmd":"undo"}"#);
+    }
+}
+#[test]
+fn blurred_shadows_and_picture_transparency_render() {
+    use bo_model::slide::{Color, Effect, OuterShadow, XmlElement};
+    let mut e = open("slide-images-crop.pptx");
+    let r = run(
+        &mut e,
+        r#"{"cmd":"insertShape","preset":"rect","rect":{"x":500,"y":300,"w":100,"h":60}}"#,
+    );
+    let sid = r.selection[0].id;
+    {
+        let p = e.presentation_mut().unwrap();
+        for n in &mut p.slides[0].data.shapes {
+            match n {
+                ShapeNode::Shape(s) if s.nv.id == sid => {
+                    // §20.1.8.49 outerShdw with a 6 pt blur.
+                    s.props.effects = Some(vec![Effect::OuterShadow(OuterShadow {
+                        blur_rad: Some(76_200),
+                        dist: Some(38_100),
+                        dir: Some(2_700_000),
+                        color: Some(Color::srgb(0)),
+                        attrs: vec![],
+                    })]);
+                }
+                ShapeNode::Picture(pic) => {
+                    let mut a = XmlElement::new("a:alphaModFix");
+                    a.attrs.push(("amt".into(), "40000".into()));
+                    pic.blip.blip_children.push(a);
+                }
+                _ => {}
+            }
+        }
+    }
+    let page = e.refresh_slide(0).unwrap().clone();
+    assert!(page.commands.iter().any(|c| matches!(
+        c,
+        bo_render::Command::BlurPath { radius, .. } if (*radius - 6.0).abs() < 1e-3
+    )));
+    assert!(page.commands.iter().any(|c| matches!(
+        c,
+        bo_render::Command::PushOpacity { alpha } if (*alpha - 0.4).abs() < 1e-3
+    )));
+    // Every backend takes the new commands.
+    assert!(e.render_png(0, 0.5).unwrap().len() > 100);
+    let pdf = e.export_pdf().unwrap();
+    assert!(String::from_utf8_lossy(&pdf).contains("/ca 0.4"));
+    // The edit survives a save.
+    let bytes = e.save_pptx().unwrap();
+    let mut e2 = Engine::with_bundled_fonts();
+    e2.open(&bytes, "x.pptx").unwrap();
+    assert!(e2
+        .slide(0)
+        .unwrap()
+        .commands
+        .iter()
+        .any(|c| matches!(c, bo_render::Command::PushOpacity { .. })));
+}

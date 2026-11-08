@@ -123,7 +123,11 @@ describe('rich web clipboard', () => {
   it('writes HTML + text + PNG in one item and reads them back', async () => {
     const writes = stub();
     const c = new BrowserClipboard();
-    await c.writeItems({ text: 'Xin chào', html: '<b>Xin chào</b>', png: new Uint8Array([137, 80]) });
+    await c.writeItems({
+      text: 'Xin chào',
+      html: '<b>Xin chào</b>',
+      png: new Uint8Array([137, 80]),
+    });
     expect(Object.keys(writes[0]!).sort()).toEqual(['image/png', 'text/html', 'text/plain']);
     const back = await c.read();
     expect(back.text).toBe('Xin chào');
@@ -134,7 +138,11 @@ describe('rich web clipboard', () => {
 
   it('keeps HTML + text when the picture is refused, text only without ClipboardItem', async () => {
     let writes = stub(true, true);
-    await new BrowserClipboard().writeItems({ text: 't', html: '<i>t</i>', png: new Uint8Array([1]) });
+    await new BrowserClipboard().writeItems({
+      text: 't',
+      html: '<i>t</i>',
+      png: new Uint8Array([1]),
+    });
     expect(writes.at(-1)).toEqual({ 'text/html': '<i>t</i>', 'text/plain': 't' });
     writes = stub(false);
     await new BrowserClipboard().writeHtml('<i>t</i>', 't');

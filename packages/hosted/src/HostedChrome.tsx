@@ -68,12 +68,7 @@ export function HostedChrome(p: HostedChromeProps) {
   useEffect(() => p.dirty?.subscribe(setDirty), [p.dirty]);
   const t = (k: 'back' | 'share' | 'close' | 'unsaved') => hostedText(p.language, k);
   return (
-    <header
-      className="bo-root"
-      data-testid="hosted-chrome"
-      data-theme={theme}
-      style={bar}
-    >
+    <header className="bo-root" data-testid="hosted-chrome" data-theme={theme} style={bar}>
       {p.ui.showBack && (
         <button
           type="button"

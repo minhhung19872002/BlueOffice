@@ -86,7 +86,11 @@ class FakeProvider {
     if (form.grant_type === 'authorization_code') {
       const c = this.codes.get(form.code ?? '');
       this.codes.delete(form.code ?? '');
-      const challenge = b64url(createHash('sha256').update(form.code_verifier ?? '').digest());
+      const challenge = b64url(
+        createHash('sha256')
+          .update(form.code_verifier ?? '')
+          .digest(),
+      );
       if (!c || c.challenge !== challenge || c.redirectUri !== form.redirect_uri)
         return res(400, { error: 'invalid_grant' });
       return res(200, this.issue(c.user));
@@ -163,9 +167,9 @@ describe('OIDC web sign-in (code + PKCE)', () => {
     await s.signIn();
     const back = idp.authorize(navigations[0]!, 'u1').replace(/state=[^&]+/, 'state=forged');
     await expect(s.handleRedirect(back)).rejects.toThrow('auth.state');
-    await expect(s.handleRedirect('https://office/auth/callback?error=access_denied')).rejects.toThrow(
-      'auth.access_denied',
-    );
+    await expect(
+      s.handleRedirect('https://office/auth/callback?error=access_denied'),
+    ).rejects.toThrow('auth.access_denied');
     expect(s.user).toBeNull();
   });
 

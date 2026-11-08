@@ -137,7 +137,11 @@ describe('editor-sdk', () => {
       theme: 'dark',
       ui: { showShare: true, showClose: true, showBack: true, brandName: 'BlueDrive' },
     });
-    const conn = connectHost({ parent: hostWin.from(editorWin), self: editorWin, allowedOrigins: [HOST] });
+    const conn = connectHost({
+      parent: hostWin.from(editorWin),
+      self: editorWin,
+      allowedOrigins: [HOST],
+    });
     const init = await conn.ready;
     expect(init).toMatchObject({
       mode: 'comment',

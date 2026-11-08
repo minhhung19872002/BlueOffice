@@ -12,7 +12,12 @@
  * Saves use optimistic concurrency: a stale version answers 409, surfaced as
  * {@link StorageConflictError} (the caller decides: reload or save a copy).
  */
-import type { AuthSession, DocumentRef, DocumentStorage, StoredDocument } from '@blueoffice/platform';
+import type {
+  AuthSession,
+  DocumentRef,
+  DocumentStorage,
+  StoredDocument,
+} from '@blueoffice/platform';
 
 export interface ProviderResponse {
   ok: boolean;
@@ -55,7 +60,9 @@ async function expectOk(res: ProviderResponse, what: string): Promise<ProviderRe
   if (res.status === 409) {
     const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
     const v = body?.currentVersion ?? body?.version;
-    throw new StorageConflictError(typeof v === 'string' || typeof v === 'number' ? String(v) : null);
+    throw new StorageConflictError(
+      typeof v === 'string' || typeof v === 'number' ? String(v) : null,
+    );
   }
   throw new StorageError(res.status, what);
 }
@@ -235,10 +242,17 @@ abstract class SessionProvider implements DocumentStorage {
     this.sessions.set(r.id, s);
     this.last = r.id;
     const contents = await expectOk(
-      await this.fetch(this.url(s, '/contents'), { headers: { 'x-session-token': s.sessionToken } }),
+      await this.fetch(this.url(s, '/contents'), {
+        headers: { 'x-session-token': s.sessionToken },
+      }),
       'open',
     );
-    return this.stored(r.id, s, new Uint8Array(await contents.arrayBuffer()), s.file.version ?? undefined);
+    return this.stored(
+      r.id,
+      s,
+      new Uint8Array(await contents.arrayBuffer()),
+      s.file.version ?? undefined,
+    );
   }
 
   async save(doc: StoredDocument, bytes: Uint8Array): Promise<StoredDocument> {
@@ -294,7 +308,12 @@ abstract class SessionProvider implements DocumentStorage {
     }).catch(() => null);
   }
 
-  private stored(id: string, s: ProviderSession, bytes: Uint8Array, version?: string): StoredDocument {
+  private stored(
+    id: string,
+    s: ProviderSession,
+    bytes: Uint8Array,
+    version?: string,
+  ): StoredDocument {
     const p = s.permissions ?? {};
     return {
       ref: { provider: this.id, id, name: s.file.name },
@@ -365,9 +384,10 @@ export class BlueDriveProvider extends SessionProvider {
 
   /** `GET …/folders/{id}/children` (`root` = the top folder). */
   list(folderId = 'root') {
-    return this.browse<{ folder: { id: string; name: string; parentId: string | null }; items: DriveItem[] }>(
-      `/folders/${enc(folderId)}/children`,
-    );
+    return this.browse<{
+      folder: { id: string; name: string; parentId: string | null };
+      items: DriveItem[];
+    }>(`/folders/${enc(folderId)}/children`);
   }
 
   async recent(limit = 20): Promise<DriveItem[]> {

@@ -24,7 +24,10 @@ interface Call {
 function fakeServer() {
   const calls: Call[] = [];
   const files = new Map<string, { name: string; version: number; bytes: Uint8Array }>([
-    ['11111111-1111-1111-1111-111111111111', { name: 'Kế hoạch.docx', version: 3, bytes: new Uint8Array([1]) }],
+    [
+      '11111111-1111-1111-1111-111111111111',
+      { name: 'Kế hoạch.docx', version: 3, bytes: new Uint8Array([1]) },
+    ],
   ]);
   const host = new Map<string, { name: string; version: number; bytes: Uint8Array }>([
     ['f42', { name: 'Báo cáo.xlsx', version: 7, bytes: new Uint8Array([7]) }],
@@ -51,18 +54,32 @@ function fakeServer() {
       const f = files.get(id);
       const dto = (fid: string) => {
         const x = files.get(fid)!;
-        return { id: fid, name: x.name, folderId: null, size: x.bytes.length, version: x.version, role: 'editor' };
+        return {
+          id: fid,
+          name: x.name,
+          folderId: null,
+          size: x.bytes.length,
+          version: x.version,
+          role: 'editor',
+        };
       };
-      if (path === '/api/folders') return reply(200, { folder: null, folders: [], files: [...files.keys()].map(dto) });
+      if (path === '/api/folders')
+        return reply(200, { folder: null, folders: [], files: [...files.keys()].map(dto) });
       if (path === '/api/files' && method === 'POST') {
         const nid = `22222222-0000-0000-0000-00000000000${++seq}`;
-        files.set(nid, { name: u.searchParams.get('name')!, version: 1, bytes: init?.body as Uint8Array });
+        files.set(nid, {
+          name: u.searchParams.get('name')!,
+          version: 1,
+          bytes: init?.body as Uint8Array,
+        });
         return reply(201, dto(nid));
       }
       if (!f) return reply(404, null);
-      if (path.endsWith('/content') && method === 'GET') return reply(200, null, f.bytes, `"${f.version}"`);
+      if (path.endsWith('/content') && method === 'GET')
+        return reply(200, null, f.bytes, `"${f.version}"`);
       if (path.endsWith('/content') && method === 'PUT') {
-        if (headers['if-match'] && headers['if-match'] !== `"${f.version}"`) return reply(409, { title: 'Version conflict' });
+        if (headers['if-match'] && headers['if-match'] !== `"${f.version}"`)
+          return reply(409, { title: 'Version conflict' });
         f.version += 1;
         f.bytes = init?.body as Uint8Array;
         return reply(200, dto(id));
@@ -77,7 +94,8 @@ function fakeServer() {
       if (!wopi && b.token !== 'host-jwt') return reply(403, null);
       if (wopi && b.token !== 'wopi-token') return reply(401, null);
       if (!wopi && !host.has(fileId)) return reply(404, null);
-      if (wopi && !host.has('w1')) host.set('w1', { name: 'Hợp đồng.docx', version: 1, bytes: new Uint8Array([9]) });
+      if (wopi && !host.has('w1'))
+        host.set('w1', { name: 'Hợp đồng.docx', version: 1, bytes: new Uint8Array([9]) });
       const sid = `S${++seq}`;
       sessions.set(sid, { fileId, token: `tok-${sid}`, wopi });
       const f = host.get(fileId)!;
@@ -103,7 +121,8 @@ function fakeServer() {
           return reply(200, { saved: true, version: String(f.version) });
         case 'POST /save-as': {
           const name = u.searchParams.get('name')!;
-          if ([...host.values()].some((x) => x.name === name)) return reply(409, { error: 'name-conflict' });
+          if ([...host.values()].some((x) => x.name === name))
+            return reply(409, { error: 'name-conflict' });
           host.set(`n${++seq}`, { name, version: 1, bytes: init?.body as Uint8Array });
           return reply(200, { id: `n${seq}`, name, version: '1' });
         }
@@ -122,7 +141,8 @@ function fakeServer() {
           folder: { id: 'root', name: 'Tệp của tôi', parentId: null },
           items: [{ kind: 'file', id: 'f42', name: 'Báo cáo.xlsx', version: '7' }],
         });
-      if (path.endsWith('/recent')) return reply(200, { items: [{ kind: 'file', id: 'f42', name: 'Báo cáo.xlsx' }] });
+      if (path.endsWith('/recent'))
+        return reply(200, { items: [{ kind: 'file', id: 'f42', name: 'Báo cáo.xlsx' }] });
       if (path.endsWith('/me')) return reply(200, { id: 'u1', name: 'Nguyễn Văn An' });
     }
     return reply(404, null);
@@ -135,7 +155,11 @@ describe('BlueOfficeServerProvider (/api/files)', () => {
 
   it('opens with the ETag version and saves with If-Match', async () => {
     const s = fakeServer();
-    const p = new BlueOfficeServerProvider({ api: 'https://office/', auth: auth('user-jwt'), fetch: s.fetchImpl });
+    const p = new BlueOfficeServerProvider({
+      api: 'https://office/',
+      auth: auth('user-jwt'),
+      fetch: s.fetchImpl,
+    });
     const listed = await p.list();
     expect(listed.files.map((f) => f.name)).toEqual(['Kế hoạch.docx']);
     const id = listed.files[0]!.id;
@@ -152,11 +176,19 @@ describe('BlueOfficeServerProvider (/api/files)', () => {
 
   it('creates new files and requires a signed-in user', async () => {
     const s = fakeServer();
-    const p = new BlueOfficeServerProvider({ api: 'https://office', auth: auth('user-jwt'), fetch: s.fetchImpl });
+    const p = new BlueOfficeServerProvider({
+      api: 'https://office',
+      auth: auth('user-jwt'),
+      fetch: s.fetchImpl,
+    });
     const created = (await p.saveAs('Biên bản.docx', new Uint8Array([5])))!;
     expect(created.ref.name).toBe('Biên bản.docx');
     expect(s.calls.at(-1)!.url).toBe('https://office/api/files?name=Bi%C3%AAn+b%E1%BA%A3n.docx');
-    const anon = new BlueOfficeServerProvider({ api: 'https://office', auth: auth(null), fetch: s.fetchImpl });
+    const anon = new BlueOfficeServerProvider({
+      api: 'https://office',
+      auth: auth(null),
+      fetch: s.fetchImpl,
+    });
     await expect(anon.list()).rejects.toBeInstanceOf(StorageError);
     expect(await anon.open()).toBeNull();
   });
@@ -165,7 +197,11 @@ describe('BlueOfficeServerProvider (/api/files)', () => {
 describe('BlueDriveProvider (BOHP through the server)', () => {
   it('browses, opens a session, saves versions, saves as and closes', async () => {
     const s = fakeServer();
-    const p = new BlueDriveProvider({ api: 'https://office', token: async () => 'host-jwt', fetch: s.fetchImpl });
+    const p = new BlueDriveProvider({
+      api: 'https://office',
+      token: async () => 'host-jwt',
+      fetch: s.fetchImpl,
+    });
     expect((await p.me()).name).toBe('Nguyễn Văn An');
     const items = (await p.list()).items;
     expect(items[0]).toMatchObject({ id: 'f42', kind: 'file' });
@@ -179,7 +215,9 @@ describe('BlueDriveProvider (BOHP through the server)', () => {
     expect(s.host.get('f42')!.version).toBe(8);
     const copy = (await p.saveAs('Báo cáo (bản sao).xlsx', new Uint8Array([9])))!;
     expect(copy.ref.name).toBe('Báo cáo (bản sao).xlsx');
-    await expect(p.saveAs('Báo cáo.xlsx', new Uint8Array())).rejects.toBeInstanceOf(StorageConflictError);
+    await expect(p.saveAs('Báo cáo.xlsx', new Uint8Array())).rejects.toBeInstanceOf(
+      StorageConflictError,
+    );
     await p.close('f42');
     expect(s.sessions.size).toBe(0);
     await expect(p.save(doc, new Uint8Array())).rejects.toThrow('storage.noSession');
@@ -187,8 +225,14 @@ describe('BlueDriveProvider (BOHP through the server)', () => {
 
   it('refuses a bad host token', async () => {
     const s = fakeServer();
-    const p = new BlueDriveProvider({ api: 'https://office', token: async () => 'forged', fetch: s.fetchImpl });
-    await expect(p.open({ provider: 'bluedrive', id: 'f42', name: 'x' })).rejects.toThrow('storage.session 403');
+    const p = new BlueDriveProvider({
+      api: 'https://office',
+      token: async () => 'forged',
+      fetch: s.fetchImpl,
+    });
+    await expect(p.open({ provider: 'bluedrive', id: 'f42', name: 'x' })).rejects.toThrow(
+      'storage.session 403',
+    );
     await expect(p.list()).rejects.toThrow('storage.browse 401');
   });
 });
@@ -206,8 +250,8 @@ describe('WopiProvider ([MS-WOPI] host through the server)', () => {
     expect(JSON.parse(String(s.calls[0]!.body))).toEqual({ wopiSrc: src, token: 'wopi-token' });
     expect(doc.ref).toEqual({ provider: 'wopi', id: src, name: 'Hợp đồng.docx' });
     expect((await p.save(doc, new Uint8Array([4]))).version).toBe('2');
-    await expect(p.open({ provider: 'wopi', id: 'https://other/wopi/files/9', name: 'x' })).rejects.toThrow(
-      'storage.signIn',
-    );
+    await expect(
+      p.open({ provider: 'wopi', id: 'https://other/wopi/files/9', name: 'x' }),
+    ).rejects.toThrow('storage.signIn');
   });
 });

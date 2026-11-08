@@ -41,7 +41,10 @@ describe('dirty tracking (SDK `dirty`)', () => {
     const state = new DirtyState();
     const seen: boolean[] = [];
     state.subscribe((d) => seen.push(d));
-    const p = trackDirty({ engine: new Engine(), sheet: new Sheet() } as unknown as Platform, state);
+    const p = trackDirty(
+      { engine: new Engine(), sheet: new Sheet() } as unknown as Platform,
+      state,
+    );
     await p.engine.command({ cmd: 'setAuthor', name: 'An' });
     await p.engine.command({ cmd: 'state' });
     await p.engine.command({ cmd: 'move', motion: 'left' } as never);

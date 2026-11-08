@@ -120,7 +120,16 @@ export interface Participant {
   errors: string[];
 }
 
-export async function openAs(browser: Browser, user: UserId, fileId: string): Promise<Participant> {
+/**
+ * `host` adds host page options: `mode`, `theme`, `brand`, `chrome=0`
+ * (see `collab/host/host.ts`).
+ */
+export async function openAs(
+  browser: Browser,
+  user: UserId,
+  fileId: string,
+  host: Record<string, string> = {},
+): Promise<Participant> {
   const context = await browser.newContext({ viewport: { width: 1366, height: 900 } });
   const page = await context.newPage();
   const errors: string[] = [];
@@ -130,6 +139,7 @@ export async function openAs(browser: Browser, user: UserId, fileId: string): Pr
     token: await token(user, fileId),
     editor: urls.editor,
     user: USERS[user],
+    ...host,
   });
   await page.goto(`${urls.host}/?${q}`);
   const frame = page.frameLocator('iframe');

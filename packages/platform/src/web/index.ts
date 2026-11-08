@@ -60,7 +60,14 @@ const isAbort = (e: unknown) => e instanceof Error && e.name === 'AbortError';
 /** Picker filter for a file name ("Tài liệu (.docx)"). */
 function typesFor(name: string, mime: string): PickerType[] {
   const ext = name.includes('.') ? `.${name.split('.').pop()!.toLowerCase()}` : '';
-  return ext ? [{ description: ext.slice(1).toUpperCase(), accept: { [mime || 'application/octet-stream']: [ext] } }] : [];
+  return ext
+    ? [
+        {
+          description: ext.slice(1).toUpperCase(),
+          accept: { [mime || 'application/octet-stream']: [ext] },
+        },
+      ]
+    : [];
 }
 
 /**
@@ -126,7 +133,10 @@ export class WebFileAccess implements FileAccess {
           if (p !== 'granted' && (await h.requestPermission({ mode: 'readwrite' })) !== 'granted')
             h = undefined;
         }
-        h ??= await this.fs.showSaveFilePicker({ suggestedName, types: typesFor(suggestedName, mime) });
+        h ??= await this.fs.showSaveFilePicker({
+          suggestedName,
+          types: typesFor(suggestedName, mime),
+        });
         const w = await h.createWritable();
         await w.write(blob);
         await w.close();

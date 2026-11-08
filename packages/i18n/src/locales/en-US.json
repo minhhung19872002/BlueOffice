@@ -1227,7 +1227,7 @@
     "conflictCopy": "The file changed while you were offline — your changes were saved as “{{name}}”",
     "signInAgain": "Could not open the file — sign in to BlueDrive again"
   },
-  "start": {
+  "startScreen": {
     "title": "Start",
     "home": "Start screen",
     "tabHome": "Home",

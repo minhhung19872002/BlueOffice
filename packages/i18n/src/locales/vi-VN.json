@@ -1227,7 +1227,7 @@
     "conflictCopy": "Tệp đã được sửa trong lúc bạn ngoại tuyến — thay đổi của bạn được lưu thành “{{name}}”",
     "signInAgain": "Không mở được tệp — hãy đăng nhập lại BlueDrive"
   },
-  "start": {
+  "startScreen": {
     "title": "Bắt đầu",
     "home": "Màn hình bắt đầu",
     "tabHome": "Trang chủ",

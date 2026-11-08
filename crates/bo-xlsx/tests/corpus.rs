@@ -1409,6 +1409,7 @@ fn writer_charts(i: usize) -> m::Workbook {
         values: (1..=3)
             .map(|r| Some(f64::from(r) * if c == 1 { 10.0 } else { 12.5 }))
             .collect(),
+        ..m::ChartSeries::default()
     };
     let plot = |kind: m::ChartKind,
                 dir: Option<&str>,
@@ -1418,6 +1419,7 @@ fn writer_charts(i: usize) -> m::Workbook {
         bar_dir: dir.map(str::to_owned),
         grouping: grouping.map(str::to_owned),
         series: s,
+        ..m::ChartPlot::default()
     };
     let plots = match i {
         1 => vec![plot(

@@ -11,7 +11,7 @@ use crate::cells::{abs_ref, resolve_ref};
 use crate::numfmt::Locale;
 use crate::render::format_cell;
 use bo_model::sheet::{
-    CellRange, CellRef, CellValue, Chart, ChartKind, ChartPlot, ChartSeries, Workbook,
+    CellRange, CellRef, CellValue, Chart, ChartColor, ChartKind, ChartPlot, ChartSeries, Workbook,
 };
 use bo_render::{Command, Paint, PathSeg, Rgba, Stroke};
 
@@ -163,6 +163,7 @@ fn plot_for(kind: &str) -> ChartPlot {
         bar_dir: dir.map(str::to_owned),
         grouping: grouping.map(str::to_owned),
         series: Vec::new(),
+        ..ChartPlot::default()
     }
 }
 
@@ -402,6 +403,7 @@ pub fn pivot_series(wb: &Workbook, sheet: usize, index: usize) -> Option<Vec<Cha
                 val_ref: joined.then(|| abs_ref(name, range(*col))),
                 categories: points.iter().map(|p| p.1.clone()).collect(),
                 values,
+                ..ChartSeries::default()
             });
         }
     }
@@ -660,10 +662,41 @@ struct Ser {
     cats: Vec<String>,
     vals: Vec<Option<f64>>,
     color: Rgba,
+    /// Colour of each point (pies, varied colours, `c:dPt`).
+    pts: Vec<Rgba>,
+    /// Bubble sizes.
+    sizes: Vec<Option<f64>>,
+    /// Pie explosion (percent of the radius).
+    explosion: u32,
 }
 
-/// Draws `chart` into a `w × h` box at the origin (points).
-#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+/// Resolves chart colours: a colour of the file (`Some`) or the default colour of series / point `i`
+/// (`None`). Hosts with a theme resolve `ChartColor::Scheme` through it.
+pub type ColorFn<'a> = dyn Fn(Option<&ChartColor>, usize) -> Rgba + 'a;
+
+/// BlueSheet's colours: sRGB as is, theme accents `accentN` and the defaults from [`PALETTE`].
+pub fn default_color(c: Option<&ChartColor>, i: usize) -> Rgba {
+    match c {
+        Some(ChartColor::Rgb(v)) => Rgba((v >> 16) as u8, (v >> 8) as u8, *v as u8, 255),
+        Some(ChartColor::Scheme(name)) => match name
+            .strip_prefix("accent")
+            .and_then(|n| n.parse::<usize>().ok())
+        {
+            Some(n) if n >= 1 => PALETTE[(n - 1) % PALETTE.len()],
+            _ if matches!(name.as_str(), "bg1" | "lt1") => Rgba(255, 255, 255, 255),
+            _ => TEXT,
+        },
+        None => PALETTE[i % PALETTE.len()],
+    }
+}
+
+/// Is a plot drawn as a pie (one series, a wedge per point)?
+fn pie_like(k: &ChartKind) -> bool {
+    matches!(k, ChartKind::Pie | ChartKind::Doughnut | ChartKind::OfPie)
+}
+
+/// Draws `chart` into a `w × h` box at the origin (points) with BlueSheet's colours.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_chart(
     wb: &Workbook,
     sheet: usize,
@@ -674,16 +707,53 @@ pub fn draw_chart(
     label: &mut LabelFn<'_>,
     out: &mut Vec<Command>,
 ) {
-    out.push(rect(0.0, 0.0, w, h, Rgba(255, 255, 255, 255)));
-    for c in [
-        hline(0.0, w, 0.25, FRAME, 0.5),
-        hline(0.0, w, h - 0.25, FRAME, 0.5),
-        vline(0.25, 0.0, h, FRAME, 0.5),
-        vline(w - 0.25, 0.0, h, FRAME, 0.5),
-    ] {
-        out.push(c);
+    draw_chart_with(
+        wb,
+        sheet,
+        chart,
+        w,
+        h,
+        locale,
+        &default_color,
+        true,
+        label,
+        out,
+    );
+}
+
+/// Draws `chart` into a `w × h` box at the origin (points), colours resolved by `color`; `framed`
+/// paints the white chart area with its border (sheets), otherwise the chart sits on its page (slides,
+/// documents).
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+pub fn draw_chart_with(
+    wb: &Workbook,
+    sheet: usize,
+    chart: &Chart,
+    w: f64,
+    h: f64,
+    locale: &Locale,
+    color: &ColorFn<'_>,
+    framed: bool,
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) {
+    if framed {
+        out.push(rect(0.0, 0.0, w, h, Rgba(255, 255, 255, 255)));
+        for c in [
+            hline(0.0, w, 0.25, FRAME, 0.5),
+            hline(0.0, w, h - 0.25, FRAME, 0.5),
+            vline(0.25, 0.0, h, FRAME, 0.5),
+            vline(w - 0.25, 0.0, h, FRAME, 0.5),
+        ] {
+            out.push(c);
+        }
     }
-    let font = (h / 24.0).clamp(6.0, 11.0);
+    // Sheet charts sit among cells; slide and document charts are read from further away.
+    let font = if framed {
+        (h / 24.0).clamp(6.0, 11.0)
+    } else {
+        (h / 22.0).clamp(6.0, 14.0)
+    };
     let mut top = 6.0;
     if let Some(t) = chart.title.as_deref().filter(|t| !t.is_empty()) {
         let th = font * 1.9;
@@ -702,21 +772,50 @@ pub fn draw_chart(
     let mut plots: Vec<(&ChartPlot, Vec<Ser>)> = Vec::new();
     for p in &chart.plots {
         let mut v = Vec::new();
+        let single = p.series.len() == 1;
         for s in &p.series {
             let (name, cats, vals) = series_data(wb, sheet, s, locale);
+            let own = if p.kind == ChartKind::Line {
+                s.line.as_ref().or(s.fill.as_ref())
+            } else {
+                s.fill.as_ref().or(s.line.as_ref())
+            };
+            let c = color(own, idx);
+            // Points: their own fill, else one colour each for pies / varied colours, else the series'.
+            let vary = (pie_like(&p.kind) && (p.vary_colors || own.is_none()))
+                || (p.vary_colors && single);
+            let pts = (0..vals.len())
+                .map(|i| match s.point_fills.iter().find(|(k, _)| *k == i) {
+                    Some((_, pc)) => color(Some(pc), i),
+                    None if vary => color(None, i),
+                    None => c,
+                })
+                .collect();
             v.push(Ser {
                 name: name.unwrap_or_else(|| format!("{}", idx + 1)),
                 cats,
                 vals,
-                color: PALETTE[idx % PALETTE.len()],
+                color: c,
+                pts,
+                sizes: s.sizes.clone(),
+                explosion: s.explosion,
             });
             idx += 1;
         }
         plots.push((p, v));
     }
-    let pie = plots
+    let pie = plots.first().is_some_and(|(p, _)| pie_like(&p.kind));
+    let surface = plots
         .first()
-        .is_some_and(|(p, _)| matches!(p.kind, ChartKind::Pie | ChartKind::Doughnut));
+        .is_some_and(|(p, _)| p.kind == ChartKind::Surface);
+    let bands = if surface {
+        plots
+            .first()
+            .map(|(_, s)| surface_bands(s))
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     // Legend (right or bottom).
     let entries: Vec<(String, Rgba)> = if pie {
         plots
@@ -726,10 +825,21 @@ pub fn draw_chart(
                 s.cats
                     .iter()
                     .enumerate()
-                    .map(|(i, c)| (c.clone(), PALETTE[i % PALETTE.len()]))
+                    .map(|(i, c)| (c.clone(), s.pts.get(i).copied().unwrap_or(s.color)))
                     .collect()
             })
             .unwrap_or_default()
+    } else if surface {
+        bands
+            .iter()
+            .enumerate()
+            .map(|(i, (a, b))| {
+                (
+                    format!("{}–{}", fmt_num(*a, locale), fmt_num(*b, locale)),
+                    color(None, i),
+                )
+            })
+            .collect()
     } else {
         plots
             .iter()
@@ -786,10 +896,28 @@ pub fn draw_chart(
     }
     if pie {
         if let Some((p, s)) = plots.first() {
-            draw_pie(
-                s.first(),
-                p.kind == ChartKind::Doughnut,
+            let area = [6.0, top, right, bottom];
+            if p.kind == ChartKind::OfPie {
+                draw_of_pie(s.first(), p.style.as_deref() == Some("bar"), area, out);
+            } else {
+                draw_pie(s.first(), p.kind == ChartKind::Doughnut, area, out);
+            }
+        }
+        return;
+    }
+    if let Some((p, ss)) = plots.first().filter(|(p, _)| p.kind == ChartKind::Radar) {
+        draw_radar(p, ss, [6.0, top, right, bottom], font, locale, label, out);
+        return;
+    }
+    if surface {
+        if let Some((_, ss)) = plots.first() {
+            draw_surface(
+                ss,
+                &bands,
                 [6.0, top, right, bottom],
+                font,
+                color,
+                label,
                 out,
             );
         }
@@ -839,7 +967,9 @@ fn draw_xy(
     label: &mut LabelFn<'_>,
     out: &mut Vec<Command>,
 ) {
-    let scatter = plots.iter().all(|(p, _)| p.kind == ChartKind::Scatter);
+    let scatter = plots
+        .iter()
+        .all(|(p, _)| matches!(p.kind, ChartKind::Scatter | ChartKind::Bubble));
     let horizontal = plots
         .iter()
         .all(|(p, _)| p.kind == ChartKind::Bar && p.bar_dir.as_deref() == Some("bar"));
@@ -1065,27 +1195,33 @@ fn draw_xy(
                         let off = i as f64 * slot
                             + (slot - group) / 2.0
                             + if stacked { 0.0 } else { si as f64 * bar };
+                        let c = s.pts.get(i).copied().unwrap_or(s.color);
                         if horizontal {
-                            out.push(rect(
-                                pl + lo * pw,
-                                pb - off - bar,
-                                (hi - lo) * pw,
-                                bar,
-                                s.color,
-                            ));
+                            out.push(rect(pl + lo * pw, pb - off - bar, (hi - lo) * pw, bar, c));
                         } else {
-                            out.push(rect(pl + off, pb - hi * ph, bar, (hi - lo) * ph, s.color));
+                            out.push(rect(pl + off, pb - hi * ph, bar, (hi - lo) * ph, c));
                         }
                     }
                 }
             }
             ChartKind::Line | ChartKind::Area => {
                 let stacked = stacked_of(p);
+                // 100 % stacked: each category's values as a share of its total.
+                let totals: Vec<f64> = (0..ncat)
+                    .map(|i| ss.iter().map(|s| val(s, i).abs()).sum())
+                    .collect();
+                let share = |s: &Ser, i: usize| {
+                    if percent_of(p) && totals[i] > 0.0 {
+                        val(s, i) / totals[i] * 100.0
+                    } else {
+                        val(s, i)
+                    }
+                };
                 let mut base = vec![0.0; ncat];
                 for s in ss {
                     let pts: Vec<(f64, f64)> = (0..ncat)
                         .map(|i| {
-                            let v = val(s, i) + if stacked { base[i] } else { 0.0 };
+                            let v = share(s, i) + if stacked { base[i] } else { 0.0 };
                             (pl + (i as f64 + 0.5) * slot, pb - vpos(v) * ph)
                         })
                         .collect();
@@ -1121,7 +1257,7 @@ fn draw_xy(
                     }
                     if stacked {
                         for (i, b) in base.iter_mut().enumerate() {
-                            *b += val(s, i);
+                            *b += share(s, i);
                         }
                     }
                 }
@@ -1136,6 +1272,84 @@ fn draw_xy(
                         let px = pl + (x - xmin) / (xmax - xmin) * pw;
                         let py = pb - vpos(y) * ph;
                         out.push(rect(px - 2.5, py - 2.5, 5.0, 5.0, s.color));
+                    }
+                }
+            }
+            // §21.2.2.20 bubbleChart: circles whose area follows the bubble size (bubbleScale 100 %:
+            // the largest bubble a quarter of the plot's smaller side across).
+            ChartKind::Bubble => {
+                let max = ss
+                    .iter()
+                    .flat_map(|s| s.sizes.iter().flatten())
+                    .fold(0.0_f64, |m, v| m.max(v.abs()));
+                let rmax = pw.min(ph) * 0.125;
+                for s in ss {
+                    let xs = xs_of(s);
+                    for (i, x) in xs.iter().enumerate() {
+                        let Some(y) = s.vals.get(i).copied().flatten() else {
+                            continue;
+                        };
+                        let size = s.sizes.get(i).copied().flatten().unwrap_or(1.0).abs();
+                        let r = if max > 0.0 {
+                            (size / max).sqrt() * rmax
+                        } else {
+                            rmax / 2.0
+                        };
+                        let px = pl + (x - xmin) / (xmax - xmin) * pw;
+                        let py = pb - vpos(y) * ph;
+                        let Rgba(cr, cg, cb, _) = s.pts.get(i).copied().unwrap_or(s.color);
+                        out.push(Command::Path {
+                            segs: circle(px, py, r.max(1.0)),
+                            fill: Some(Paint::Solid {
+                                color: Rgba(cr, cg, cb, 190),
+                            }),
+                            stroke: Some(thin(Rgba(255, 255, 255, 255))),
+                        });
+                    }
+                }
+            }
+            // §21.2.2.198 stockChart: high–low line per category, close tick to the right, open tick to
+            // the left; with up/down bars (§21.2.2.218) a box between open and close (white up, dark
+            // down). Series in order (open,) high, low, close.
+            ChartKind::Stock => {
+                let (open, high, low, close) = match ss.len() {
+                    n if n >= 4 => (Some(&ss[0]), &ss[1], &ss[2], &ss[3]),
+                    3 => (None, &ss[0], &ss[1], &ss[2]),
+                    _ => continue,
+                };
+                let tick = slot * 0.18;
+                for i in 0..ncat {
+                    let x = pl + (i as f64 + 0.5) * slot;
+                    let y = |s: &Ser| s.vals.get(i).copied().flatten().map(|v| pb - vpos(v) * ph);
+                    if let (Some(hy), Some(ly)) = (y(high), y(low)) {
+                        out.push(vline(x, hy, ly, TEXT, 1.0));
+                    }
+                    let (oy, cy) = (open.and_then(y), y(close));
+                    if p.flag {
+                        if let (Some(oy), Some(cy)) = (oy, cy) {
+                            let up = cy < oy;
+                            let (top, h) = (oy.min(cy), (oy - cy).abs().max(0.75));
+                            let fill = if up { Rgba(255, 255, 255, 255) } else { TEXT };
+                            out.push(rect(x - tick, top, tick * 2.0, h, fill));
+                            out.push(polyline(
+                                &[
+                                    (x - tick, top),
+                                    (x + tick, top),
+                                    (x + tick, top + h),
+                                    (x - tick, top + h),
+                                    (x - tick, top),
+                                ],
+                                TEXT,
+                                0.75,
+                            ));
+                            continue;
+                        }
+                    }
+                    if let Some(cy) = cy {
+                        out.push(hline(x, x + tick, cy, TEXT, 1.0));
+                    }
+                    if let Some(oy) = oy {
+                        out.push(hline(x - tick, x, oy, TEXT, 1.0));
                     }
                 }
             }
@@ -1193,7 +1407,9 @@ fn draw_pie(s: Option<&Ser>, doughnut: bool, [l, t, r, b]: [f64; 4], out: &mut V
     if total <= 0.0 {
         return;
     }
-    let rad = ((r - l).min(b - t) / 2.0 - 2.0).max(1.0);
+    // §21.2.2.65 explosion: slices pushed out by a share of the radius (the pie shrinks to fit).
+    let ex = f64::from(s.explosion.min(400)) / 100.0;
+    let rad = (((r - l).min(b - t) / 2.0 - 2.0) / (1.0 + ex)).max(1.0);
     let (cx, cy) = (f64::midpoint(l, r), f64::midpoint(t, b));
     let inner = if doughnut { rad * 0.5 } else { 0.0 };
     let mut a = 0.0;
@@ -1202,10 +1418,12 @@ fn draw_pie(s: Option<&Ser>, doughnut: bool, [l, t, r, b]: [f64; 4], out: &mut V
         if sw <= 0.0 {
             continue;
         }
+        let mid = a + sw / 2.0;
+        let (ox, oy) = (rad * ex * mid.sin(), -rad * ex * mid.cos());
         out.push(Command::Path {
-            segs: wedge(cx, cy, rad, inner, a, sw),
+            segs: wedge(cx + ox, cy + oy, rad, inner, a, sw),
             fill: Some(Paint::Solid {
-                color: PALETTE[i % PALETTE.len()],
+                color: s.pts.get(i).copied().unwrap_or(PALETTE[i % PALETTE.len()]),
             }),
             stroke: Some(Stroke {
                 width: 0.75,
@@ -1216,6 +1434,309 @@ fn draw_pie(s: Option<&Ser>, doughnut: bool, [l, t, r, b]: [f64; 4], out: &mut V
             }),
         });
         a += sw;
+    }
+}
+
+fn thin(c: Rgba) -> Stroke {
+    Stroke {
+        width: 0.75,
+        color: c,
+        dash: vec![],
+        cap: "butt".into(),
+        join: "round".into(),
+    }
+}
+
+/// A circle as four cubic Béziers.
+fn circle(cx: f64, cy: f64, r: f64) -> Vec<PathSeg> {
+    const K: f64 = 0.552_284_75;
+    let k = K * r;
+    let f = |v: f64| v as f32;
+    vec![
+        PathSeg::M(f(cx), f(cy - r)),
+        PathSeg::C(f(cx + k), f(cy - r), f(cx + r), f(cy - k), f(cx + r), f(cy)),
+        PathSeg::C(f(cx + r), f(cy + k), f(cx + k), f(cy + r), f(cx), f(cy + r)),
+        PathSeg::C(f(cx - k), f(cy + r), f(cx - r), f(cy + k), f(cx - r), f(cy)),
+        PathSeg::C(f(cx - r), f(cy - k), f(cx - k), f(cy - r), f(cx), f(cy - r)),
+        PathSeg::Z,
+    ]
+}
+
+/// §21.2.2.126 ofPieChart: the main pie with the last points gathered into one slice, and those
+/// points as a second pie or a stacked bar beside it (split: the last third of the points).
+fn draw_of_pie(s: Option<&Ser>, bar: bool, [l, t, r, b]: [f64; 4], out: &mut Vec<Command>) {
+    let Some(s) = s else { return };
+    let n = s.vals.len();
+    if n < 3 {
+        draw_pie(Some(s), false, [l, t, r, b], out);
+        return;
+    }
+    let k = n.div_ceil(3);
+    let vals: Vec<f64> = s.vals.iter().map(|v| v.unwrap_or(0.0).max(0.0)).collect();
+    let other: f64 = vals[n - k..].iter().sum();
+    let other_color = Rgba(0xA0, 0xA6, 0xAE, 255);
+    let main = Ser {
+        name: s.name.clone(),
+        cats: Vec::new(),
+        vals: vals[..n - k]
+            .iter()
+            .copied()
+            .chain([other])
+            .map(Some)
+            .collect(),
+        color: s.color,
+        pts: s.pts[..(n - k).min(s.pts.len())]
+            .iter()
+            .copied()
+            .chain([other_color])
+            .collect(),
+        sizes: Vec::new(),
+        explosion: 0,
+    };
+    let split = l + (r - l) * 0.6;
+    draw_pie(Some(&main), false, [l, t, split, b], out);
+    let total: f64 = vals[n - k..].iter().sum();
+    if total <= 0.0 {
+        return;
+    }
+    let (cy, h) = (f64::midpoint(t, b), (b - t) * 0.6);
+    let (sx0, sx1) = (split + (r - split) * 0.25, r - 4.0);
+    // Connector lines from the gathered slice to the second plot.
+    let main_r = ((split - l).min(b - t) / 2.0 - 2.0).max(1.0);
+    let edge = f64::midpoint(l, split) + main_r * 0.9;
+    out.push(polyline(
+        &[(edge, cy - main_r * 0.3), (sx0, cy - h / 2.0)],
+        AXIS,
+        0.75,
+    ));
+    out.push(polyline(
+        &[(edge, cy + main_r * 0.3), (sx0, cy + h / 2.0)],
+        AXIS,
+        0.75,
+    ));
+    let colors: Vec<Rgba> = (n - k..n)
+        .map(|i| s.pts.get(i).copied().unwrap_or(PALETTE[i % PALETTE.len()]))
+        .collect();
+    if bar {
+        let bw = ((sx1 - sx0) * 0.5).min(h * 0.4);
+        let x = f64::midpoint(sx0, sx1) - bw / 2.0;
+        let mut y = cy - h / 2.0;
+        for (v, c) in vals[n - k..].iter().zip(&colors) {
+            let hh = v / total * h;
+            out.push(rect(x, y, bw, hh, *c));
+            y += hh;
+        }
+    } else {
+        let sub = Ser {
+            name: String::new(),
+            cats: Vec::new(),
+            vals: vals[n - k..].iter().copied().map(Some).collect(),
+            color: s.color,
+            pts: colors,
+            sizes: Vec::new(),
+            explosion: 0,
+        };
+        draw_pie(
+            Some(&sub),
+            false,
+            [sx0, cy - h / 2.0, sx1, cy + h / 2.0],
+            out,
+        );
+    }
+}
+
+/// §21.2.2.153 radarChart: one spoke per category, rings at the value steps; `marker` adds point
+/// marks, `filled` fills each series' polygon.
+#[allow(clippy::too_many_arguments)]
+fn draw_radar(
+    p: &ChartPlot,
+    ss: &[Ser],
+    [l, t, r, b]: [f64; 4],
+    font: f64,
+    locale: &Locale,
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) {
+    let ncat = ss.iter().map(|s| s.vals.len()).max().unwrap_or(0);
+    if ncat < 3 {
+        return;
+    }
+    let vmax = ss
+        .iter()
+        .flat_map(|s| s.vals.iter().flatten())
+        .fold(0.0_f64, |m, v| m.max(*v));
+    let vmin = ss
+        .iter()
+        .flat_map(|s| s.vals.iter().flatten())
+        .fold(0.0_f64, |m, v| m.min(*v));
+    let step = nice_step((vmax - vmin).max(1e-9), 4.0);
+    let (vmin, vmax) = (
+        (vmin / step).floor() * step,
+        ((vmax / step).ceil() * step).max(vmin + step),
+    );
+    let (cx, cy) = (f64::midpoint(l, r), f64::midpoint(t, b));
+    let rad = ((r - l).min(b - t) / 2.0 - font * 2.2).max(4.0);
+    let ang =
+        |i: usize| -std::f64::consts::FRAC_PI_2 + std::f64::consts::TAU * i as f64 / ncat as f64;
+    let at = |i: usize, v: f64| {
+        let k = (v - vmin) / (vmax - vmin) * rad;
+        (cx + k * ang(i).cos(), cy + k * ang(i).sin())
+    };
+    // Rings and spokes.
+    let mut v = vmin;
+    let mut guard = 0;
+    while v <= vmax + step * 0.5 && guard < 40 {
+        let ring: Vec<(f64, f64)> = (0..=ncat).map(|i| at(i % ncat, v)).collect();
+        out.push(polyline(&ring, GRID, 0.5));
+        let (x, y) = at(0, v);
+        label(
+            &fmt_num(v, locale),
+            [x + 2.0, y - font, x + font * 4.0, y],
+            Align::Left,
+            font * 0.9,
+            TEXT,
+            out,
+        );
+        v += step;
+        guard += 1;
+    }
+    let cats: Vec<String> = (0..ncat)
+        .map(|i| {
+            ss.iter()
+                .find_map(|s| s.cats.get(i).filter(|c| !c.is_empty()).cloned())
+                .unwrap_or_else(|| (i + 1).to_string())
+        })
+        .collect();
+    for (i, c) in cats.iter().enumerate() {
+        out.push(polyline(&[(cx, cy), at(i, vmax)], AXIS, 0.5));
+        let (x, y) = (
+            cx + (rad + font * 1.2) * ang(i).cos(),
+            cy + (rad + font * 1.2) * ang(i).sin(),
+        );
+        label(
+            c,
+            [x - font * 5.0, y - font, x + font * 5.0, y + font],
+            Align::Center,
+            font,
+            TEXT,
+            out,
+        );
+    }
+    let style = p.style.as_deref().unwrap_or("standard");
+    for s in ss {
+        let pts: Vec<(f64, f64)> = (0..ncat)
+            .map(|i| at(i, s.vals.get(i).copied().flatten().unwrap_or(vmin)))
+            .collect();
+        let mut closed = pts.clone();
+        closed.push(pts[0]);
+        if style == "filled" {
+            let Rgba(cr, cg, cb, _) = s.color;
+            let mut segs: Vec<PathSeg> = closed
+                .iter()
+                .enumerate()
+                .map(|(i, (x, y))| {
+                    if i == 0 {
+                        PathSeg::M(*x as f32, *y as f32)
+                    } else {
+                        PathSeg::L(*x as f32, *y as f32)
+                    }
+                })
+                .collect();
+            segs.push(PathSeg::Z);
+            out.push(Command::Path {
+                segs,
+                fill: Some(Paint::Solid {
+                    color: Rgba(cr, cg, cb, 140),
+                }),
+                stroke: None,
+            });
+        }
+        out.push(polyline(&closed, s.color, 1.75));
+        if style == "marker" {
+            for (x, y) in &pts {
+                out.push(rect(x - 2.5, y - 2.5, 5.0, 5.0, s.color));
+            }
+        }
+    }
+}
+
+/// Value bands of a surface chart: a nice step over the values (at most 8 bands).
+fn surface_bands(ss: &[Ser]) -> Vec<(f64, f64)> {
+    let vals: Vec<f64> = ss
+        .iter()
+        .flat_map(|s| s.vals.iter().flatten().copied())
+        .collect();
+    let (Some(lo), Some(hi)) = (
+        vals.iter().copied().reduce(f64::min),
+        vals.iter().copied().reduce(f64::max),
+    ) else {
+        return Vec::new();
+    };
+    let step = nice_step((hi - lo).max(1e-9), 5.0);
+    let (lo, hi) = (
+        (lo / step).floor() * step,
+        ((hi / step).ceil() * step).max(lo + step),
+    );
+    let n = (((hi - lo) / step).round() as usize).clamp(1, 8);
+    let step = (hi - lo) / n as f64;
+    (0..n)
+        .map(|i| (lo + step * i as f64, lo + step * (i + 1) as f64))
+        .collect()
+}
+
+/// §21.2.2.203 surfaceChart, seen from above (as the contour view): categories across, series down,
+/// each cell coloured by the value band of its value.
+#[allow(clippy::too_many_arguments)]
+fn draw_surface(
+    ss: &[Ser],
+    bands: &[(f64, f64)],
+    [l, t, r, b]: [f64; 4],
+    font: f64,
+    color: &ColorFn<'_>,
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) {
+    let ncat = ss.iter().map(|s| s.vals.len()).max().unwrap_or(0);
+    if ncat == 0 || ss.is_empty() || bands.is_empty() {
+        return;
+    }
+    let (pl, pt, pr, pb) = (l + font * 5.0, t + font * 0.5, r, b - font * 1.8);
+    let (cw, ch) = ((pr - pl) / ncat as f64, (pb - pt) / ss.len() as f64);
+    let band = |v: f64| {
+        bands
+            .iter()
+            .position(|(a, z)| v >= *a && v <= *z)
+            .unwrap_or(if v < bands[0].0 { 0 } else { bands.len() - 1 })
+    };
+    for (si, s) in ss.iter().enumerate() {
+        let y = pb - (si + 1) as f64 * ch;
+        label(
+            &s.name,
+            [l, y, pl - 3.0, y + ch],
+            Align::Right,
+            font,
+            TEXT,
+            out,
+        );
+        for i in 0..ncat {
+            if let Some(v) = s.vals.get(i).copied().flatten() {
+                out.push(rect(
+                    pl + i as f64 * cw,
+                    y,
+                    cw + 0.3,
+                    ch + 0.3,
+                    color(None, band(v)),
+                ));
+            }
+        }
+    }
+    for i in 0..ncat {
+        let c = ss
+            .iter()
+            .find_map(|s| s.cats.get(i).filter(|c| !c.is_empty()).cloned())
+            .unwrap_or_else(|| (i + 1).to_string());
+        let x = pl + i as f64 * cw;
+        label(&c, [x, pb + 1.0, x + cw, b], Align::Center, font, TEXT, out);
     }
 }
 

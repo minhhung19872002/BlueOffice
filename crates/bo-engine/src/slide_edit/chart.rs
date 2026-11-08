@@ -126,6 +126,7 @@ fn plot_of(kind: &str, grouping: Option<String>) -> R<ChartPlot> {
         bar_dir: dir.map(str::to_owned),
         grouping,
         series: Vec::new(),
+        ..ChartPlot::default()
     })
 }
 
@@ -198,6 +199,7 @@ fn series_of(d: &ChartData) -> Vec<ChartSeries> {
                 val_ref: Some(format!("{SHEET}!${col}$2:${col}${last}")),
                 categories: d.categories.clone(),
                 values: s.values.clone(),
+                ..ChartSeries::default()
             }
         })
         .collect()

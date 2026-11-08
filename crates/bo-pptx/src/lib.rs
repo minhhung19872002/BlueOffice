@@ -10,7 +10,6 @@
 
 pub mod anim;
 pub mod build;
-mod chart_render;
 pub mod comments;
 pub mod diagram;
 pub mod diagram_layout;

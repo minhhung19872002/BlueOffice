@@ -355,9 +355,20 @@ fn parse_plot(g: &Node) -> ChartPlot {
         "scatterChart" => ChartKind::Scatter,
         "radarChart" => ChartKind::Radar,
         "bubbleChart" => ChartKind::Bubble,
+        "stockChart" => ChartKind::Stock,
+        "surfaceChart" | "surface3DChart" => ChartKind::Surface,
+        "ofPieChart" => ChartKind::OfPie,
         other => ChartKind::Other(other.to_owned()),
     };
+    let on = |name: &str| {
+        g.child(name)
+            .is_some_and(|c| c.attr("val").is_none_or(|v| v == "1" || v == "true"))
+    };
     ChartPlot {
+        vary_colors: on("varyColors"),
+        style: g.val_of("radarStyle").or_else(|| g.val_of("ofPieType")),
+        // §21.2.2.218 upDownBars (stock), §21.2.2.230 wireframe (surface).
+        flag: g.child("upDownBars").is_some() || on("wireframe"),
         kind,
         bar_dir: g.val_of("barDir"),
         grouping: g.val_of("grouping"),
@@ -447,7 +458,52 @@ fn parse_series(s: &Node) -> ChartSeries {
             .map(|p| p.and_then(|v| v.trim().parse::<f64>().ok()))
             .collect();
     }
+    // §21.2.2.22 bubbleSize.
+    if let Some(sz) = s.child("bubbleSize") {
+        let (f, pts) = data_ref(sz);
+        out.size_ref = f;
+        out.sizes = pts
+            .into_iter()
+            .map(|p| p.and_then(|v| v.trim().parse::<f64>().ok()))
+            .collect();
+    }
+    if let Some(sp) = s.child("spPr") {
+        out.fill = sp.child("solidFill").and_then(color_of);
+        out.line = sp
+            .child("ln")
+            .and_then(|l| l.child("solidFill"))
+            .and_then(color_of);
+    }
+    // §21.2.2.52 dPt: per-point fills.
+    for d in s.children.iter().filter(|c| c.name == "dPt") {
+        let idx = d.val_of("idx").and_then(|v| v.trim().parse::<usize>().ok());
+        let fill = d
+            .child("spPr")
+            .and_then(|sp| sp.child("solidFill"))
+            .and_then(color_of);
+        if let (Some(i), Some(c)) = (idx, fill) {
+            out.point_fills.push((i, c));
+        }
+    }
+    out.explosion = s
+        .val_of("explosion")
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0);
     out
+}
+
+/// The colour of a `a:solidFill` (§20.1.8.54): `a:srgbClr` or `a:schemeClr` (modifiers ignored).
+fn color_of(fill: &Node) -> Option<bo_model::sheet::ChartColor> {
+    use bo_model::sheet::ChartColor;
+    if let Some(c) = fill.child("srgbClr") {
+        return c
+            .attr("val")
+            .and_then(|v| u32::from_str_radix(v.trim(), 16).ok())
+            .map(ChartColor::Rgb);
+    }
+    fill.child("schemeClr")
+        .and_then(|c| c.attr("val"))
+        .map(|v| ChartColor::Scheme(v.to_owned()))
 }
 
 /// Formula and cached points of a `numRef` / `strRef` / `multiLvlStrRef` /

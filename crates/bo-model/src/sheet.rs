@@ -1358,8 +1358,24 @@ pub enum ChartKind {
     Radar,
     /// Bubble chart (`c:bubbleChart`).
     Bubble,
-    /// Any other plot element (stock, surface, ofPie, 3-D variants…), by local name.
+    /// Stock chart (`c:stockChart`, §21.2.2.198): high-low(-close) series, optional up/down bars.
+    Stock,
+    /// Surface or contour chart (`c:surfaceChart` / `c:surface3DChart`, §21.2.2.203).
+    Surface,
+    /// Pie of pie / bar of pie (`c:ofPieChart`, §21.2.2.126).
+    OfPie,
+    /// Any other plot element, by local name.
     Other(String),
+}
+
+/// A colour of a chart element (§20.1.2.3.32 srgbClr / §20.1.2.3.29 schemeClr), resolved by the host
+/// (a theme colour needs the document theme).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChartColor {
+    /// sRGB `RRGGBB`.
+    Rgb(u32),
+    /// Theme colour name (`accent1` …).
+    Scheme(String),
 }
 
 /// One plot group of a chart.
@@ -1373,6 +1389,15 @@ pub struct ChartPlot {
     pub grouping: Option<String>,
     /// Data series of the group (`c:ser`).
     pub series: Vec<ChartSeries>,
+    /// §21.2.2.227 varyColors: one colour per data point.
+    #[serde(default)]
+    pub vary_colors: bool,
+    /// §21.2.2.156 radarStyle (`standard` | `marker` | `filled`) or §21.2.2.127 ofPieType (`pie` | `bar`).
+    #[serde(default)]
+    pub style: Option<String>,
+    /// Stock chart up/down bars (§21.2.2.218 upDownBars); surface chart wireframe (§21.2.2.230).
+    #[serde(default)]
+    pub flag: bool,
 }
 
 /// A data series (`c:ser`).
@@ -1390,6 +1415,24 @@ pub struct ChartSeries {
     pub categories: Vec<String>,
     /// Cached values (`None` = missing point).
     pub values: Vec<Option<f64>>,
+    /// Bubble sizes (`c:bubbleSize`, §21.2.2.22), cached.
+    #[serde(default)]
+    pub sizes: Vec<Option<f64>>,
+    /// Bubble size reference formula.
+    #[serde(default)]
+    pub size_ref: Option<String>,
+    /// Series fill (`c:spPr/a:solidFill`).
+    #[serde(default)]
+    pub fill: Option<ChartColor>,
+    /// Series line (`c:spPr/a:ln/a:solidFill`).
+    #[serde(default)]
+    pub line: Option<ChartColor>,
+    /// Data point fills (`c:dPt`, §21.2.2.52): (point index, colour).
+    #[serde(default)]
+    pub point_fills: Vec<(usize, ChartColor)>,
+    /// §21.2.2.65 explosion of pie slices (percent of the radius).
+    #[serde(default)]
+    pub explosion: u32,
 }
 
 // ---------------------------------------------------------------------------

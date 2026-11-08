@@ -123,7 +123,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 
 ### Biểu đồ (§6.6)
 - [p] **CORE-CHART-001** — Biểu đồ c: column/bar (clustered/stacked), line, area, pie, doughnut, scatter, combo: đọc/hiển thị/tạo/lưu · P0 · — · corpus `charts-*`. **Thiếu**: 100 %, 3D, bubble, radar, surface, stock, pie of pie, trendline/error bar đầy đủ.
-- [ ] **CORE-CHART-002** — Loại c: còn lại: 100 % stacked, bubble, radar (marker/filled), stock (HLC/OHLC/VHLC/VOHLC), surface/contour, pie of pie / bar of pie, explode · P0 · — · corpus 3 file/loại + render + round-trip.
+- [~] **CORE-CHART-002** — Loại c: còn lại: 100 % stacked, bubble, radar (marker/filled), stock (HLC/OHLC/VHLC/VOHLC), surface/contour, pie of pie / bar of pie, explode · P0 · — · corpus 3 file/loại + render + round-trip.
 - [ ] **CORE-CHART-003** — Biểu đồ 3D (column/bar/line/area/pie 3D) hiển thị · P0 · CORE-3D-001 · render.
 - [ ] **CORE-CHART-004** — Biểu đồ mở rộng cx: waterfall, treemap, sunburst, histogram, pareto, box & whisker, funnel: đọc/ghi/hiển thị · P0 · — · corpus + validator.
 - [ ] **CORE-CHART-005** — Thành phần: trendline (mọi loại + phương trình/R²), error bars, data table, high-low lines, up/down bars, drop lines, trục log/ngày/phụ · P0 · 002 · test.

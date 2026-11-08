@@ -820,7 +820,9 @@ mod tests {
                     val_ref: Some("Sheet1!$B$2:$B$3".into()),
                     categories: vec!["1".into(), "2".into()],
                     values: vec![Some(1.5), None],
+                    ..ChartSeries::default()
                 }],
+                ..ChartPlot::default()
             }],
             ..Chart::default()
         }

@@ -4,15 +4,15 @@ expression: summary(&page.commands)
 ---
 path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
 transform [1.000 0.000 0.000 1.000 144.0 81.0]
-  text 19.6pt 301.5,23.3 #595959ff "Thị "
-  text 19.6pt 330.3,23.3 #595959ff "phần"
-  path n=5 [524.2 177.7 535.4 188.9] fill=#2e6db4ff
-  text 14.0pt 539.6,187.0 #595959ff "A"
-  path n=5 [524.2 200.1 535.4 211.3] fill=#f28c28ff
-  text 14.0pt 539.6,209.4 #595959ff "B"
-  path n=5 [524.2 222.5 535.4 233.7] fill=#2fa36bff
-  text 14.0pt 539.6,231.8 #595959ff "C"
-  path n=5 [262.1 33.2 431.5 372.0] fill=#2e6db4ff stroke=#ffffffff w0.75
-  path n=5 [84.2 150.3 262.1 372.0] fill=#f28c28ff stroke=#ffffffff w0.75
-  path n=4 [101.0 33.2 262.1 202.6] fill=#2fa36bff stroke=#ffffffff w0.75
+  text 18.9pt 302.7,25.8 #3c4043ff "Thị "
+  text 18.9pt 330.5,25.8 #3c4043ff "phần"
+  rect 532.0,176.4 11.2x11.2 #2e6db4ff
+  text 14.0pt 547.4,185.7 #3c4043ff "A"
+  rect 532.0,198.8 11.2x11.2 #f28c28ff
+  text 14.0pt 547.4,208.1 #3c4043ff "B"
+  rect 532.0,221.2 11.2x11.2 #2fa36bff
+  text 14.0pt 547.4,230.5 #3c4043ff "C"
+  path n=5 [266.0 36.6 432.7 370.0] fill=#2e6db4ff stroke=#ffffffff w0.75
+  path n=5 [91.0 151.8 266.0 370.0] fill=#f28c28ff stroke=#ffffffff w0.75
+  path n=4 [107.5 36.6 266.0 203.3] fill=#2fa36bff stroke=#ffffffff w0.75
 pop transform

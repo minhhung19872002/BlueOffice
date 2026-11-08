@@ -1591,7 +1591,7 @@ fn draw_frame(
                 .and_then(|rid| cx.image_part(rid))
                 .and_then(|part| {
                     let data = cx.pres.part_data(&part)?;
-                    bo_drawingml::chart::parse_chart(data, &part).ok()
+                    bo_xlsx::chart_write::parse_chart_part(data, &part)
                 });
             if let Some(chart) = chart {
                 draw_chart_frame(cx, &chart, r.2, r.3, fonts, &mut cmds);
@@ -1652,14 +1652,18 @@ fn diagram_from_data(
     )
 }
 
+/// A chart part drawn by the shared chart renderer (`bo_sheet::chart`, the same as BlueSheet's) from
+/// its cached values (an empty workbook: no reference resolves), series colours from the theme
+/// (accent1…accent6 by default, ECMA-376 Part 1, §21.2.2.150 ser spPr).
 fn draw_chart_frame(
     cx: &Ctx<'_>,
-    chart: &bo_drawingml::chart::Chart,
+    chart: &bo_model::sheet::Chart,
     w: f64,
     h: f64,
     fonts: &mut FontManager,
     out: &mut Vec<Command>,
 ) {
+    use bo_model::sheet::ChartColor;
     use bo_model::slide::{ParaProps, Paragraph, RunProps, TextRun};
     let env = TextEnv {
         theme: cx.theme,
@@ -1667,39 +1671,26 @@ fn draw_chart_frame(
         slide_number: cx.slide_number,
     };
     let stack = TextStyleStack::default();
-    let series_color = |s: &bo_drawingml::chart::Series, si: usize, pt: Option<usize>| -> Rgba {
-        let own = match pt {
-            Some(i) => s
-                .point_fills
-                .iter()
-                .find(|(p, _)| *p == i)
-                .map(|(_, f)| f)
-                .or(
-                    if chart.vary_colors
-                        || chart.series.len() == 1
-                            && matches!(chart.kind, bo_drawingml::chart::ChartKind::Pie { .. })
-                    {
-                        None
-                    } else {
-                        s.fill.as_ref()
-                    },
-                ),
-            None => {
-                if chart.kind == bo_drawingml::chart::ChartKind::Line {
-                    s.line_fill.as_ref().or(s.fill.as_ref())
-                } else {
-                    s.fill.as_ref()
-                }
-            }
-        };
-        if let Some(Fill::Solid(c)) = own {
-            return cx.color(c, None);
+    let color = |c: Option<&ChartColor>, i: usize| -> Rgba {
+        match c {
+            Some(ChartColor::Rgb(v)) => cx.color(&Color::srgb(*v), None),
+            Some(ChartColor::Scheme(name)) => cx.color(&Color::scheme(name), None),
+            // Default series colours cycle through accent1..accent6 (§20.1.6.2 clrScheme).
+            None => cx.color(&Color::scheme(&format!("accent{}", i % 6 + 1)), None),
         }
-        // Default series colours cycle through accent1..accent6 (§20.1.6.2 clrScheme).
-        let n = pt.unwrap_or(si) % 6 + 1;
-        cx.color(&Color::scheme(&format!("accent{n}")), None)
     };
-    let mut label = |text: &str, rect: [f64; 4], algn: &str, size: f64, out: &mut Vec<Command>| {
+    let mut label = |text: &str,
+                     rect: [f64; 4],
+                     align: bo_sheet::chart::Align,
+                     size: f64,
+                     ink: Rgba,
+                     out: &mut Vec<Command>| {
+        let algn = match align {
+            bo_sheet::chart::Align::Left => "l",
+            bo_sheet::chart::Align::Right => "r",
+            bo_sheet::chart::Align::Center => "ctr",
+        };
+        let Rgba(r, g, b, _) = ink;
         let tb = TextBody {
             body_pr: bo_model::slide::BodyProps {
                 l_ins: Some(0),
@@ -1719,7 +1710,9 @@ fn draw_chart_frame(
                 runs: vec![TextRun::Run {
                     props: RunProps {
                         sz: Some((size * 100.0) as i32),
-                        fill: Some(Fill::Solid(Color::srgb(0x59_5959))),
+                        fill: Some(Fill::Solid(Color::srgb(
+                            (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b),
+                        ))),
                         ..RunProps::default()
                     },
                     text: text.to_owned(),
@@ -1730,11 +1723,20 @@ fn draw_chart_frame(
         let bp = tb.body_pr.clone();
         draw_text(&tb, &bp, &stack, rect, &env, fonts, out);
     };
-    let mut host = crate::chart_render::ChartHost {
-        series_color: &series_color,
-        label: &mut label,
-    };
-    crate::chart_render::draw_chart(chart, w, h, &mut host, out);
+    // No sheets: references never resolve, the cached values are drawn.
+    let wb = bo_model::sheet::Workbook::default();
+    bo_sheet::chart::draw_chart_with(
+        &wb,
+        0,
+        chart,
+        w,
+        h,
+        &bo_sheet::numfmt::Locale::default(),
+        &color,
+        false,
+        &mut label,
+        out,
+    );
 }
 
 /// §21.1.3 table: cell fills, borders and text, with the table style (§20.1.4.2.26).

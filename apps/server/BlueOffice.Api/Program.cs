@@ -15,6 +15,7 @@ using BlueOffice.Infrastructure.Hosts;
 using BlueOffice.Infrastructure.Storage;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -64,6 +65,21 @@ builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<LocalHostStorage>();
 builder.Services.Configure<CollabOptions>(config.GetSection("Collab"));
 builder.Services.AddSingleton(sp => CollabLogStore.Create(sp, config));
+// Several api instances: room leases in Redis (Collab:Ownership=Redis, docs/deploy/README.md).
+var instance = config.GetSection("Collab").Get<InstanceOptions>() ?? new InstanceOptions();
+builder.Services.AddSingleton(instance);
+if (instance.Ownership.Equals("Redis", StringComparison.OrdinalIgnoreCase))
+{
+    var redisCs = config.GetConnectionString("Redis") ?? "localhost:6379";
+    builder.Services.TryAddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ => StackExchange.Redis.ConnectionMultiplexer.Connect(redisCs));
+    builder.Services.TryAddSingleton<BlueOffice.Infrastructure.Jobs.IRedisCommands, BlueOffice.Infrastructure.Jobs.RedisCommands>();
+    builder.Services.AddSingleton<IRoomOwnership, RedisRoomOwnership>();
+}
+else
+{
+    builder.Services.AddSingleton<IRoomOwnership, LocalRoomOwnership>();
+}
+
 builder.Services.AddSingleton<RoomManager>();
 builder.Services.AddRevocationProxy(config);
 builder.Services.AddSingleton<CollabMaintenanceService>();

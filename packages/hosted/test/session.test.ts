@@ -24,7 +24,7 @@ function server() {
   const calls: { url: string; method: string; headers: Record<string, string> }[] = [];
   const fetchImpl: FetchLike = async (url, init) => {
     calls.push({ url, method: init?.method ?? 'GET', headers: init?.headers ?? {} });
-    const body = url.endsWith('/api/sessions')
+    const body = url.split('?')[0]!.endsWith('/api/sessions')
       ? session
       : url.includes('/checkpoint')
         ? { version: '7' }
@@ -80,7 +80,7 @@ describe('hosted session', () => {
       fetchImpl,
     );
     expect(calls[0]).toMatchObject({
-      url: 'https://office.example.vn/api/sessions',
+      url: 'https://office.example.vn/api/sessions?file=F1',
       method: 'POST',
     });
     expect(calls[1]!.url).toBe('https://office.example.vn/api/sessions/S%201/contents');

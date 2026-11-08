@@ -90,6 +90,26 @@ location / {
 }
 ```
 
+### Nhiều instance `api`
+Phiên soạn thảo và phòng cộng tác nằm trong bộ nhớ của một instance, nên mọi yêu cầu của **một file** phải tới cùng
+instance. Bật bằng file ghép `deploy/docker-compose.multi.yml` (hai instance `api-1`, `api-2`):
+
+```bash
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.multi.yml --env-file deploy/.env up -d
+```
+
+- `Collab__Ownership=Redis`: mỗi phòng giữ một *lease* trong Redis (`SET blueoffice:room:<phòng> <instance> NX PX`,
+  gia hạn mỗi nhịp bảo trì, nhả khi phòng đóng; chỉ instance đang giữ mới gia hạn/nhả được). Instance không giữ
+  lease đóng WebSocket với mã **4009** (lý do = id instance đang giữ); instance mất lease (mất kết nối Redis quá
+  `Collab__LeaseTime`, mặc định 30 s) ngắt khách của phòng bằng 4009 để không có hai phòng cho cùng một file.
+- `Collab__InstanceId` (mặc định: tên máy) đứng đầu id phiên: `{instance}~{guid}`. Yêu cầu `/api/sessions/{id}` tới nhầm
+  instance nhận **421**.
+- `deploy/web/nginx-multi.conf`: `/collab/{fileId}` và yêu cầu có `?file=` (client gửi kèm khi tạo phiên, `/edit?file=`)
+  băm nhất quán theo id file; `/api/sessions/{instance}~…` chuyển thẳng tới instance đó (tên máy = id instance); phần
+  còn lại cân bằng tải. Thêm instance: thêm dịch vụ `api-N` và dòng `server api-N:8080;` trong `upstream bo_api`.
+- Khi thêm/bớt instance, một phần file đổi instance: phòng đang mở vẫn ở instance cũ tới khi đóng (khách mới nhận 4009 và
+  mở lại phiên sau đó).
+
 ### Tích hợp BlueDrive
 
 Điền nhóm biến `BLUEDRIVE_*` trong `.env` (URL BOHP, JWKS, issuer, webhook + secret, origin được phép nhúng iframe).

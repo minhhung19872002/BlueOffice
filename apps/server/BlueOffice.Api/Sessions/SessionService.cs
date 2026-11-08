@@ -123,7 +123,10 @@ public sealed class SessionService(
 
         var s = new EditorSession
         {
-            Id = Guid.NewGuid().ToString("N"),
+            // `{instance}~{guid}` when rooms are shared between instances (a proxy routes by the prefix).
+            Id = rooms.Ownership is LocalRoomOwnership
+                ? Guid.NewGuid().ToString("N")
+                : $"{rooms.Ownership.InstanceId}{InstanceOptions.SessionSeparator}{Guid.NewGuid():N}",
             Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_'),
             Host = host,
             Storage = storage,

@@ -34,10 +34,15 @@ public sealed class RoomManager
         IServiceScopeFactory scopes,
         TimeProvider time,
         IOptions<CollabOptions> options,
+        IRoomOwnership ownership,
         ILogger<RoomManager> logger)
     {
         _svc = new RoomServices(log.Store, notifier, scopes, time, options.Value, logger);
+        Ownership = ownership;
     }
+
+    /// <summary>Room leases (one instance hosts a room at a time).</summary>
+    public IRoomOwnership Ownership { get; }
 
     /// <summary>Options.</summary>
     public CollabOptions Options => _svc.Options;
@@ -62,6 +67,11 @@ public sealed class RoomManager
         {
             room = await JoinAsync(session, conn, ct);
             await ReceiveLoopAsync(room, conn, socket, ct);
+        }
+        catch (RoomOwnedElsewhereException e)
+        {
+            // Another instance hosts this document: the client reconnects through the proxy.
+            conn.Close((WebSocketCloseStatus)RoomOwnedElsewhereException.CloseCode, e.Owner);
         }
         catch (Exception e) when (e is WebSocketException or OperationCanceledException)
         {
@@ -129,7 +139,7 @@ public sealed class RoomManager
     {
         for (var attempt = 0; attempt < 10; attempt++)
         {
-            var lazy = _rooms.GetOrAdd(session.RoomKey, _ => new Lazy<Task<CollabRoom>>(() => CollabRoom.OpenAsync(_svc, session, CancellationToken.None)));
+            var lazy = _rooms.GetOrAdd(session.RoomKey, _ => new Lazy<Task<CollabRoom>>(() => OpenOwnedAsync(session)));
             CollabRoom room;
             try
             {
@@ -153,6 +163,34 @@ public sealed class RoomManager
         throw new InvalidOperationException("Could not join the collaboration room.");
     }
 
+    /// <summary>Opens a room after taking its lease (released again if opening fails).</summary>
+    private async Task<CollabRoom> OpenOwnedAsync(EditorSession session)
+    {
+        if (await Ownership.AcquireAsync(session.RoomKey) is { } owner)
+        {
+            throw new RoomOwnedElsewhereException(owner);
+        }
+
+        try
+        {
+            return await CollabRoom.OpenAsync(_svc, session, CancellationToken.None);
+        }
+        catch
+        {
+            await Ownership.ReleaseAsync(session.RoomKey);
+            throw;
+        }
+    }
+
+    /// <summary>The lease of <paramref name="room"/> was lost: its clients reconnect to the new owner.</summary>
+    public void LeaseLost(CollabRoom room)
+    {
+        foreach (var s in room.Connections.Select(c => c.Session).Distinct().ToList())
+        {
+            room.Disconnect(s, (WebSocketCloseStatus)RoomOwnedElsewhereException.CloseCode, "room moved");
+        }
+    }
+
     /// <summary>Leaves; closes and forgets the room when it becomes empty.</summary>
     public async Task LeaveAsync(CollabRoom room, CollabConnection conn)
     {
@@ -162,6 +200,7 @@ public sealed class RoomManager
             if (_rooms.TryGetValue(room.Key, out var lazy) && lazy.IsValueCreated && lazy.Value.IsCompletedSuccessfully && lazy.Value.Result == room)
             {
                 _rooms.TryRemove(new KeyValuePair<string, Lazy<Task<CollabRoom>>>(room.Key, lazy));
+                await Ownership.ReleaseAsync(room.Key);
             }
         }
     }
@@ -197,6 +236,13 @@ public sealed class CollabMaintenanceService(
         {
             try
             {
+                if (!await rooms.Ownership.RenewAsync(room.Key))
+                {
+                    logger.LogWarning("Lost the lease of room {Room}; its clients reconnect", room.Key);
+                    rooms.LeaseLost(room);
+                    continue;
+                }
+
                 await room.TickAsync(ct);
                 if (now - room.LastPermissionCheck >= rooms.Options.PermissionRecheckInterval)
                 {

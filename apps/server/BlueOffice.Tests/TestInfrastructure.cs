@@ -168,11 +168,15 @@ public sealed class TestApp : WebApplicationFactory<Program>
     private readonly MockDrive? _drive;
     private readonly TestServer? _wopi;
     private readonly TimeProvider? _clock;
+    private readonly BlueOffice.Infrastructure.Jobs.IRedisCommands? _redis;
 
     /// <summary>Creates the app.</summary>
-    /// <param name="dataDir">Shared data directory (database + objects) kept on dispose, to simulate a restart.</param>
-    public TestApp(MockDrive? drive = null, TestServer? wopi = null, Dictionary<string, string?>? settings = null, TimeProvider? clock = null, string? dataDir = null)
+    /// <param name="dataDir">Shared data directory (database + objects) kept on dispose, to simulate a restart
+    /// or a second instance.</param>
+    /// <param name="redis">Redis stand-in shared with other instances (room leases).</param>
+    public TestApp(MockDrive? drive = null, TestServer? wopi = null, Dictionary<string, string?>? settings = null, TimeProvider? clock = null, string? dataDir = null, BlueOffice.Infrastructure.Jobs.IRedisCommands? redis = null)
     {
+        _redis = redis;
         _ownsDir = dataDir is null;
         _dir = dataDir ?? Directory.CreateTempSubdirectory("bo-test-").FullName;
         _drive = drive;
@@ -263,6 +267,12 @@ public sealed class TestApp : WebApplicationFactory<Program>
                 s.AddSingleton(_clock);
             }
 
+            if (_redis is not null)
+            {
+                s.RemoveAll<BlueOffice.Infrastructure.Jobs.IRedisCommands>();
+                s.AddSingleton(_redis);
+            }
+
             if (_drive is not null)
             {
                 foreach (var name in new[] { "bohp", "jwks", "webhooks" })
@@ -335,6 +345,9 @@ public sealed class WsClient : IAsyncDisposable
     /// <summary>Close status received from the server.</summary>
     public WebSocketCloseStatus? CloseStatus { get; private set; }
 
+    /// <summary>Close reason received from the server.</summary>
+    public string? CloseDescription { get; private set; }
+
     /// <summary>All messages received so far.</summary>
     public IReadOnlyList<WsMessage> Messages
     {
@@ -375,6 +388,7 @@ public sealed class WsClient : IAsyncDisposable
                 if (r.MessageType == WebSocketMessageType.Close)
                 {
                     CloseStatus = r.CloseStatus;
+                    CloseDescription = r.CloseStatusDescription;
                     return;
                 }
 

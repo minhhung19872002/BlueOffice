@@ -230,11 +230,14 @@ abstract class SessionProvider implements DocumentStorage {
   async open(ref?: DocumentRef): Promise<StoredDocument | null> {
     const r = ref ?? (await this.pick());
     if (!r) return null;
+    const body = await this.sessionRequest(r);
+    // `?file=` only steers a proxy that spreads files over several api instances (docs/deploy/README.md).
+    const route = body.fileId ? `?file=${enc(body.fileId)}` : '';
     const res = await expectOk(
-      await this.fetch(`${this.api}/api/sessions`, {
+      await this.fetch(`${this.api}/api/sessions${route}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(await this.sessionRequest(r)),
+        body: JSON.stringify(body),
       }),
       'session',
     );

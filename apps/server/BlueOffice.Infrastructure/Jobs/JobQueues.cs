@@ -79,6 +79,16 @@ public interface IRedisCommands
 
     /// <summary><c>GET key</c>; null when missing or expired.</summary>
     Task<string?> StringGetAsync(string key);
+
+    /// <summary><c>SET key value NX PX ttl</c>: true when the key was free and is now set.</summary>
+    Task<bool> StringSetIfNotExistsAsync(string key, string value, TimeSpan ttl);
+
+    /// <summary>Resets the TTL of <paramref name="key"/> only while it still holds <paramref name="value"/>
+    /// (atomic compare-and-expire); false when the key expired or belongs to someone else.</summary>
+    Task<bool> ExpireIfValueAsync(string key, string value, TimeSpan ttl);
+
+    /// <summary>Deletes <paramref name="key"/> only while it holds <paramref name="value"/> (atomic compare-and-delete).</summary>
+    Task<bool> DeleteIfValueAsync(string key, string value);
 }
 
 /// <summary><see cref="IRedisCommands"/> over StackExchange.Redis.</summary>
@@ -105,6 +115,24 @@ public sealed class RedisCommands(IConnectionMultiplexer redis) : IRedisCommands
         var v = await Db.StringGetAsync(key);
         return v.HasValue ? v.ToString() : null;
     }
+
+    /// <inheritdoc />
+    public Task<bool> StringSetIfNotExistsAsync(string key, string value, TimeSpan ttl) =>
+        Db.StringSetAsync(key, value, ttl, When.NotExists);
+
+    /// <inheritdoc />
+    public async Task<bool> ExpireIfValueAsync(string key, string value, TimeSpan ttl) =>
+        (long)await Db.ScriptEvaluateAsync(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], ARGV[2]) else return 0 end",
+            [key],
+            [value, (long)ttl.TotalMilliseconds]) == 1;
+
+    /// <inheritdoc />
+    public async Task<bool> DeleteIfValueAsync(string key, string value) =>
+        (long)await Db.ScriptEvaluateAsync(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+            [key],
+            [value]) == 1;
 }
 
 /// <summary>

@@ -286,7 +286,9 @@ giữ trong bộ nhớ (đóng app phải đăng nhập lại, token mock sống
 - **Ký số** (Phase 6): ký PDF PAdES và OOXML XML-DSig; điểm tích hợp dự kiến: một `ISignatureProvider` (USB token qua agent
   cục bộ trên desktop, ký số từ xa của CA Việt Nam qua REST) + job `sign` trong worker; chưa code.
 - `bo-collab` (Yrs) và editor SDK/TS (postMessage, nút Share/Close, chế độ offline) — luồng chính.
-- Nhiều instance `api`: room **và** phiên (`SessionStore`) đều ở bộ nhớ một tiến trình; các endpoint REST tìm phiên
+- ~~Nhiều instance `api`~~ (đã làm 2026-11-08: (2) + (3) + (4) dưới đây — `RoomOwnership.cs`, `MultiInstanceTests`,
+  `deploy/web/nginx-multi.conf`, client gửi `?file=` khi tạo phiên; phiên vẫn trong bộ nhớ, định tuyến theo file thay cho (1)).
+  Ghi chú cũ: room **và** phiên (`SessionStore`) đều ở bộ nhớ một tiến trình; các endpoint REST tìm phiên
   theo id phiên. Thiết kế dự kiến: (1) phiên lưu ở PostgreSQL/Redis; (2) id phiên mang id instance sở hữu phòng và
   `nginx` định tuyến `/collab/{fileId}` bằng `hash $fileId consistent`, `/api/sessions/{id}` theo tiền tố id;
   (3) khoá sở hữu phòng trong Redis (`SET NX PX`, gia hạn) để hai instance không cùng mở một phòng — instance không

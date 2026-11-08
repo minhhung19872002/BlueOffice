@@ -284,7 +284,24 @@ public static class SessionEndpoints
 
     private static EditorSession Require(string id, HttpRequest req, SessionStore store, TimeProvider time) =>
         store.Get(id, req.Headers[TokenHeader], time.GetUtcNow().UtcDateTime)
-        ?? throw new ApiException(StatusCodes.Status401Unauthorized, "Invalid or expired session.");
+        ?? throw (MisdirectedTo(id, req) is { } owner
+            ? new ApiException(StatusCodes.Status421MisdirectedRequest, $"Session belongs to instance '{owner}'.")
+            : new ApiException(StatusCodes.Status401Unauthorized, "Invalid or expired session."));
+
+    /// <summary>Instance named by a session id (<c>{instance}~{guid}</c>) when it is not this one: the proxy sent
+    /// the request to the wrong <c>api</c> instance.</summary>
+    private static string? MisdirectedTo(string id, HttpRequest req)
+    {
+        var cut = id.IndexOf(InstanceOptions.SessionSeparator, StringComparison.Ordinal);
+        if (cut <= 0)
+        {
+            return null;
+        }
+
+        var owner = id[..cut];
+        var self = req.HttpContext.RequestServices.GetRequiredService<RoomManager>().Ownership.InstanceId;
+        return owner == self ? null : owner;
+    }
 
     private static EditorSession RequireEdit(string id, HttpRequest req, SessionStore store, TimeProvider time)
     {

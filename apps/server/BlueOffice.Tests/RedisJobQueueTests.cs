@@ -73,6 +73,54 @@ public sealed class FakeRedis(TimeProvider clock) : IRedisCommands
             return Task.FromResult(_strings.TryGetValue(key, out var e) && e.Expires > clock.GetUtcNow() ? e.Value : null);
         }
     }
+
+    /// <inheritdoc />
+    public Task<bool> StringSetIfNotExistsAsync(string key, string value, TimeSpan ttl)
+    {
+        lock (this)
+        {
+            if (_strings.TryGetValue(key, out var e) && e.Expires > clock.GetUtcNow())
+            {
+                return Task.FromResult(false);
+            }
+
+            Keys.Add(key);
+            Ttls[key] = ttl;
+            _strings[key] = (value, clock.GetUtcNow() + ttl);
+            return Task.FromResult(true);
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<bool> ExpireIfValueAsync(string key, string value, TimeSpan ttl)
+    {
+        lock (this)
+        {
+            if (!_strings.TryGetValue(key, out var e) || e.Expires <= clock.GetUtcNow() || e.Value != value)
+            {
+                return Task.FromResult(false);
+            }
+
+            Ttls[key] = ttl;
+            _strings[key] = (value, clock.GetUtcNow() + ttl);
+            return Task.FromResult(true);
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<bool> DeleteIfValueAsync(string key, string value)
+    {
+        lock (this)
+        {
+            if (!_strings.TryGetValue(key, out var e) || e.Expires <= clock.GetUtcNow() || e.Value != value)
+            {
+                return Task.FromResult(false);
+            }
+
+            _strings.Remove(key);
+            return Task.FromResult(true);
+        }
+    }
 }
 
 /// <summary>

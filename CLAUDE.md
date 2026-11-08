@@ -87,6 +87,7 @@ dotnet run --project tools/BlueOffice.Validate -- <file-or-dir>   # OpenXmlValid
 # đổi model server: migration cho cả hai provider (dotnet tool install -g dotnet-ef --version 8.0.11; docs/deploy/upgrade.md)
 (cd apps/server/BlueOffice.Infrastructure && dotnet ef migrations add <Ten> --context PostgresBlueOfficeDbContext --output-dir Data/Migrations/Postgres && dotnet ef migrations add <Ten> --context SqliteBlueOfficeDbContext --output-dir Data/Migrations/Sqlite)
 docker compose -f deploy/docker-compose.yml up -d                 # on-prem, xem docs/deploy/
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.multi.yml up -d   # 2 instance api (lease phòng Redis)
 ```
 
 ## Sơ đồ crate
@@ -125,7 +126,7 @@ cộng tác, chế độ chỉ xem — dùng chung cho web nhúng và desktop de
 **Phase 1–6A hoàn thành phần chính; Phase 7 (BlueForm, BlueNote) chỉ có kế hoạch.** Ưu tiên của chủ dự án: bộ office
 trước, BlueDrive tính sau. Không còn worktree dở; các nhánh `origin/wip/phase*` là ảnh chụp cũ (2026-11-05) đã làm lại trong
 `main`. Việc tiếp theo và hạn chế: `docs/PROGRESS.md` mục "Hạn chế đã
-biết" (server nhiều instance, dựng hình 3D slide, quy tắc POE ETSI cho ký số, so sánh với ảnh tham chiếu do người dùng
+biết" (dựng hình 3D slide, quy tắc POE ETSI cho ký số, so sánh với ảnh tham chiếu do người dùng
 cung cấp).
 
 ## ADR

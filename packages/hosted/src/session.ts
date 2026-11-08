@@ -61,7 +61,8 @@ export async function openSession(
   fetchImpl: FetchLike,
 ): Promise<{ session: HostedSession; file: OpenedFile }> {
   const res = await reach(() =>
-    fetchImpl(`${api}/api/sessions`, {
+    // `?file=` only steers a proxy that spreads files over several api instances (docs/deploy/README.md).
+    fetchImpl(`${api}/api/sessions?file=${encodeURIComponent(ref.fileId)}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ host: ref.host, fileId: ref.fileId, token: ref.accessToken }),

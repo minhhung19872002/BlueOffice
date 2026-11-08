@@ -56,8 +56,7 @@ header/chú thích/ảnh nổi, chú thích dài tràn trang, biểu đồ pivot
 neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đã bỏ khỏi danh sách.
 1. **Cộng tác** (`plan/phase-6.md`): bảng ở thân văn bản, trong ô bảng, header/footer, chú thích và comment đều gộp theo từng ô;
    BlueSheet: mọi vùng (CF/DV, hyperlink, bộ lọc,
-   bảng, biểu đồ, vùng in, pivot, freeze pane) theo id hàng/cột; server một instance (phòng **và** phiên trong bộ nhớ;
-   thiết kế nhiều instance trong `plan/phase-6.md`).
+   bảng, biểu đồ, vùng in, pivot, freeze pane) theo id hàng/cột; nhiều instance server: xem mục 9.
 2. **Hiệu năng**: đổi style mặc định, style/danh sách dùng trong header/footer/chú thích/comment/text box, thiết lập
    trang của section đầu tiên, số trang bắt đầu hay thuộc tính chú thích của section vẫn dàn lại toàn bộ; đổi style,
    numbering khác hoặc khổ giấy/lề/cột/kiểu ngắt của section sau chỉ dàn lại từ chỗ bị ảnh hưởng
@@ -75,7 +74,8 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
    tài liệu; không ghi VRI vì tuỳ chọn); web kiểm tra thu hồi qua proxy của server (CORS); dấu thời gian tài liệu làm bằng
    chứng tồn tại cho chữ ký không có dấu thời gian riêng; các quy tắc POE còn lại của ETSI EN 319 102-1 (thuật toán
    yếu theo thời gian, POE cho dữ liệu thu hồi) chưa làm (ADR-0007).
-9. **Server**: một instance `api` (phòng cộng tác trong bộ nhớ). Schema bằng EF Core migrations (PostgreSQL + SQLite;
+9. **Server**: chạy được nhiều instance `api` (lease phòng trong Redis, mã 4009, id phiên mang id instance, nginx băm
+   theo file — `docker-compose.multi.yml`, `docs/deploy/README.md`); phiên vẫn ở bộ nhớ instance tạo ra nó. Schema bằng EF Core migrations (PostgreSQL + SQLite;
    database cũ tạo bằng `EnsureCreated` được nhận tự động, `docs/deploy/upgrade.md`). Npgsql dùng PostgreSQL License — chấp nhận theo [ADR-0009](adr/0009-npgsql-postgresql-license.md).
 10. **Mã hoá**: Agile Encryption đã kiểm chéo hai chiều với một cài đặt độc lập (msoffcrypto-tool, `crates/bo-crypto/tests/interop.rs`).
 

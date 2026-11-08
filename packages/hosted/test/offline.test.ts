@@ -110,7 +110,7 @@ describe('offline saves of host files', () => {
       new Uint8Array([5, 5]),
     );
     const { fetchImpl, calls } = server((url) => {
-      if (url.endsWith('/api/sessions')) return { body: session('2') };
+      if (url.split('?')[0]!.endsWith('/api/sessions')) return { body: session('2') };
       if (url.includes('/sync'))
         return {
           body: {
@@ -152,7 +152,7 @@ describe('offline saves of host files', () => {
     );
     let opened = 0;
     const { fetchImpl, calls } = server((url, method) => {
-      if (url.endsWith('/api/sessions')) return { body: session(String(++opened)) };
+      if (url.split('?')[0]!.endsWith('/api/sessions')) return { body: session(String(++opened)) };
       if (url.includes('/sync')) return { body: { outcome: 'saved', version: '2' } };
       if (method === 'DELETE') return { status: 204 };
       return { bytes: [opened] };
@@ -224,7 +224,7 @@ describe('audit of host files', () => {
 
   it('close saves unsaved changes first (SDK `close`), not when the host asked for view mode', async () => {
     const { fetchImpl, calls } = server((url) =>
-      url.endsWith('/api/sessions')
+      url.split('?')[0]!.endsWith('/api/sessions')
         ? { body: session('1') }
         : url.includes('/checkpoint')
           ? { body: { version: '2' } }

@@ -64,7 +64,7 @@ test('exports a PDF', async ({ page }) => {
   await expect(page.locator('.bo-page[data-page="1"]')).toHaveAttribute('data-rendered', 'true');
   await page.getByRole('tab', { name: 'Tệp' }).click();
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Xuất PDF' }).click();
+  await page.getByRole('button', { name: 'Xuất PDF', exact: true }).click();
   const d = await download;
   expect(d.suggestedFilename()).toBe('phase1-sample.pdf');
 });

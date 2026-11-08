@@ -51,6 +51,16 @@ Có CSS Modules cho các khối lớn (`Editor.module.css`, `Ruler.module.css`, 
 - Quy tắc từ nay: style tĩnh có từ 3 thuộc tính trở lên hoặc dùng lại ở ≥ 2 chỗ → đưa vào CSS Module dùng token
   của `theme.css`; giá trị phụ thuộc dữ liệu giữ inline.
 
+### 5. Hình 3D dựng bằng lưới phần mềm (Rust) thay vì WebGL
+Prompt Parity yêu cầu dựng 3D thật "bằng WebGL". `crates/bo-pptx/src/mesh3d.rs` dựng khối thật trong Rust:
+đường viền hình → đa giác, đùn theo `extrusionH`, vòng bevel trên/dưới theo profile `ST_BevelPresetType`, xoay theo
+camera (preset, `rot`), chiếu trực giao / xiên / phối cảnh (`fov`), loại mặt khuất, sắp mặt sau → trước, chiếu sáng
+Lambert + Blinn-Phong theo `lightRig` / `prstMaterial`. Kết quả là đa giác trong display list.
+- Cùng một display list cho canvas web, Tauri, PNG (`bo-raster`) và PDF (`bo-pdf`) — WebGL chỉ có ở trình duyệt, PDF
+  và ảnh xuất sẽ khác màn hình, phá test parity byte-by-byte (ADR-0002).
+- Hình office có vài trăm mặt; thuật toán người hoạ sĩ với khối lồi / đùn thẳng đủ đúng, không cần z-buffer.
+- Hạn chế: mỗi mặt một màu (flat shading), khối lõm nhiều có thể sai thứ tự mặt ở vài góc nhìn.
+
 ## Hệ quả
 - Không thêm dependency nào; `THIRD_PARTY_NOTICES.md`, `cargo deny`, `pnpm license-check` không đổi.
 - Thêm lệnh engine mới: trả JSON (ADR-0008), không trả `JsValue`.

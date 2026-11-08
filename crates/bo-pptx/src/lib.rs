@@ -14,6 +14,7 @@ pub mod comments;
 pub mod diagram;
 pub mod diagram_layout;
 pub mod inherit;
+mod mesh3d;
 mod pml;
 mod read;
 mod render;

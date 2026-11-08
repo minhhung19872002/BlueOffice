@@ -160,7 +160,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 - [ ] **CORE-CHART-007** — Mẫu biểu đồ (lưu/áp dụng), style & màu biểu đồ · P1 · 002 · test.
 
 ### Hiệu ứng 3D (§4.3)
-- [p] **CORE-3D-001** — Hiển thị scene3d/sp3d: hiện vẽ xấp xỉ 2D (mặt xoay, đùn, bevel trên, contour, ánh sáng) · P0 · — · corpus `slide-shapes-3d`. **Thiếu**: dựng hình 3D thật (lưới đùn + bevel profile, chiếu phối cảnh, chiếu sáng theo lightRig/material) — PROMPT yêu cầu WebGL; cần renderer 3D dùng chung cho raster/PDF.
+- [x] **CORE-3D-001** — Hiển thị scene3d/sp3d bằng khối 3D thật (`bo-pptx/src/mesh3d.rs`): đùn đa giác, bevel trên/dưới theo profile, camera preset/rot, chiếu trực giao/xiên/phối cảnh (fov), loại mặt khuất + sắp mặt, chiếu sáng lightRig + material (Lambert/Blinn-Phong), contour; chung cho canvas/PNG/PDF · P0 · — · corpus `slide-shapes-3d`, mesh3d::tests, three_d::tests. Dựng bằng phần mềm thay WebGL (ADR-0010 §5). Còn lại (không chặn): `lightRig@rot`, nhiều nguồn sáng theo từng loại rig, chữ 3D (WordArt, thuộc CORE-SHAPE-002).
 
 ### Animation / transition / Morph (§7.2)
 - [p] **SLIDE-ANIM-001** — Transition cơ bản (fade, push, wipe, cover, random…) + animation appear/fade/fly-in/wipe, đọc/ghi p:timing · P0 · — · corpus `slide-anim-*`. **Thiếu**: đủ họ transition, Morph, motion path, emphasis/exit đầy đủ, Animation Pane, trigger.

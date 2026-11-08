@@ -1,44 +1,66 @@
-//! 3-D shapes drawn in two dimensions (ECMA-376 Part 1, §20.1.5 "3-D properties").
-//!
-//! The renderer has no 3-D pipeline, so a shape with `a:scene3d` / `a:sp3d` is approximated:
+//! 3-D properties of a shape (ECMA-376 Part 1, §20.1.5 "3-D properties"), read into the camera, solid
+//! and look that [`crate::mesh3d`] draws as a real extruded and bevelled solid:
 //!
 //! * the camera (§20.1.5.5 `camera`, preset names of §20.1.10.47 `ST_PresetCameraType`, explicit
-//!   §20.1.5.11 `rot`) turns the front face; under an orthographic projection a turned plane is an affine
-//!   map, applied around the centre of the shape;
-//! * the extrusion (§20.1.5.9 `sp3d@extrusionH`) is drawn as copies of the outline stepping back along the
-//!   projected depth axis, in `extrusionClr` or a darker shade of the fill; oblique presets draw the depth
-//!   at 45° and half length (cabinet projection) with an unturned front face;
-//! * the top bevel (§20.1.5.2 `bevelT`) becomes a light band along the upper-left and a dark band along the
-//!   lower-right edge inside the outline, the contour (`contourW`, `contourClr`) an outline around the face.
+//!   §20.1.5.11 `rot`, `fov` for the perspective presets) becomes a view rotation (orthographic,
+//!   oblique / cabinet, or perspective);
+//! * the extrusion (§20.1.5.9 `sp3d@extrusionH`, `extrusionClr`), the top bevel (§20.1.5.2 `bevelT` with
+//!   `w`, `h`, `prst`) and the contour (`contourW`, `contourClr`) become the solid;
+//! * the light rig direction (§20.1.5.10 `lightRig@dir`) and the material (§20.1.10.51
+//!   `ST_PresetMaterialType`) become a light vector and a specular term.
 //!
-//! The specification only names the camera presets; the angles used for them here are chosen so that the
-//! family reads right (isometric ≈ 35°/45°, perspective ≈ 20°), not measured. Lighting (`lightRig`) and
-//! materials (`prstMaterial`) are not modelled. The XML stays untouched in `extra` (lossless round trip).
+//! The specification only names the camera presets and materials; the angles, field of view and
+//! specular strengths used for them are chosen so that the family reads right (isometric = 35.26°/45°,
+//! perspective ≈ 20°, fov 45°), not measured. The XML stays untouched in `extra` (lossless round trip).
 
 use bo_model::slide::{Color, Extra, XmlElement};
+
+use crate::mesh3d::{View, V3};
 
 /// How a 3-D shape is drawn (local shape coordinates, points).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Solid {
-    /// Linear map of the front face `[a, b, c, d]`: (x, y) → (a·x + c·y, b·x + d·y) about the centre.
-    pub face: [f64; 4],
-    /// Screen offset of the back face (points), already scaled by the extrusion depth.
-    pub depth: (f64, f64),
+    /// Camera rotation (view space: x right, y down, z towards the viewer).
+    pub view: View,
+    /// Field of view of a perspective camera (degrees).
+    pub fov: Option<f64>,
+    /// `extrusionH` (points).
+    pub depth: f64,
     /// `contourW` (points).
     pub contour: f64,
-    /// `bevelT@w` (points).
-    pub bevel: f64,
+    /// `bevelT` width, height (points) and preset.
+    pub bevel: Option<(f64, f64, String)>,
+    /// `bevelB` width, height (points) and preset.
+    pub bevel_bottom: Option<(f64, f64, String)>,
     /// `extrusionClr`.
     pub extrusion_color: Option<Color>,
     /// `contourClr`.
     pub contour_color: Option<Color>,
-    /// Lighting of the turned face relative to a face seen straight on, in −1..=1 (negative: darker;
-    /// §20.1.5.10 lightRig `dir`, simple Lambert term).
-    pub shade: f64,
-    /// Screen direction the light comes from (unit vector, y down) — where a highlight sits.
-    pub light: (f64, f64),
-    /// The material shows a highlight (§20.1.10.51 ST_PresetMaterialType: not matte, flat or powder).
-    pub glossy: bool,
+    /// Direction towards the light (view space, unit).
+    pub light: V3,
+    /// Specular strength and exponent of the material (0: matte).
+    pub specular: (f64, f64),
+}
+
+impl Solid {
+    /// Linear map `[a, b, c, d]` of the front face, (x, y) → (a·x + c·y, b·x + d·y) about the centre
+    /// (the orthographic projection of the plane z = 0).
+    pub fn face(&self) -> [f64; 4] {
+        let m = &self.view.m;
+        [m[0][0], m[1][0], m[0][1], m[1][1]]
+    }
+
+    /// The view for a `w` × `h` shape: a perspective camera stands where its field of view spans the
+    /// larger side.
+    pub fn view_for(&self, w: f64, h: f64) -> View {
+        let mut v = self.view;
+        if let Some(fov) = self.fov.filter(|f| *f > 1.0 && *f < 179.0) {
+            v.eye = Some(
+                (w.max(h) / 2.0 / (fov / 2.0).to_radians().tan()).max(1.0) + self.depth.max(0.0),
+            );
+        }
+        v
+    }
 }
 
 /// Screen direction (y down) of a §20.1.10.29 ST_LightRigDirection.
@@ -111,7 +133,8 @@ fn preset(name: &str) -> Camera {
                 20.0 * if horizontal == 0.0 { 1.0 } else { horizontal },
             );
         }
-        let lat = 35.26 * if vertical == 0.0 { 1.0 } else { vertical };
+        // The isometric angle: arctan(1/√2).
+        let lat = 35.264_389_682_754_654 * if vertical == 0.0 { 1.0 } else { vertical };
         let lon = 45.0 * if horizontal == 0.0 { 1.0 } else { horizontal };
         return Camera::Turned(lat, lon);
     }
@@ -122,15 +145,36 @@ fn preset(name: &str) -> Camera {
     Camera::Front
 }
 
+/// Towards the light for a §20.1.10.29 ST_LightRigDirection: from that side, 30° off the front.
+fn light_vector(dir: &str) -> V3 {
+    let (x, y) = light_dir(dir);
+    let (x, y, z) = (x * 0.5, y * 0.5, 0.866);
+    let n = (x * x + y * y + z * z).sqrt();
+    [x / n, y / n, z / n]
+}
+
+/// Specular strength and exponent of a §20.1.10.51 ST_PresetMaterialType.
+fn specular(material: &str) -> (f64, f64) {
+    match material {
+        "matte" | "warmMatte" | "flat" | "powder" | "translucentPowder" | "legacyMatte"
+        | "legacyWireframe" => (0.0, 1.0),
+        "metal" | "legacyMetal" => (0.55, 12.0),
+        "softmetal" => (0.35, 8.0),
+        "plastic" | "legacyPlastic" => (0.4, 24.0),
+        _ => (0.25, 16.0),
+    }
+}
+
 /// The 3-D drawing of a shape whose `spPr` children are `extra`, or `None` when it would look flat
 /// (no turned or oblique camera, no extrusion, bevel or contour).
 pub(crate) fn solid_of(extra: &[Extra]) -> Option<Solid> {
     let scene = find(extra, "a:scene3d");
     let sp3d = find(extra, "a:sp3d");
     let camera = scene.and_then(|s| s.child("a:camera"));
-    let mut cam = camera
+    let prst = camera
         .and_then(|c| c.attr("prst"))
-        .map_or(Camera::Front, preset);
+        .unwrap_or("orthographicFront");
+    let mut cam = preset(prst);
     // §20.1.5.11 rot: explicit camera rotation (60000ths of a degree).
     if let Some(rot) = camera.and_then(|c| c.child("a:rot")) {
         let deg = |a: &str| {
@@ -142,62 +186,55 @@ pub(crate) fn solid_of(extra: &[Extra]) -> Option<Solid> {
         let wrap = |d: f64| if d > 180.0 { d - 360.0 } else { d };
         cam = Camera::Turned(-wrap(deg("lat")), -wrap(deg("lon")));
     }
-    let extrusion = sp3d.map_or(0.0, |s| emu(s, "extrusionH", 0.0));
+    let depth = sp3d.map_or(0.0, |s| emu(s, "extrusionH", 0.0));
     let contour = sp3d.map_or(0.0, |s| emu(s, "contourW", 0.0));
-    // §20.1.5.2 bevelT: default 76200 EMU (6 pt) wide when present.
-    let bevel = sp3d
-        .and_then(|s| s.child("a:bevelT"))
-        .map_or(0.0, |b| emu(b, "w", 6.0));
-    if cam == Camera::Front && extrusion == 0.0 && contour == 0.0 && bevel == 0.0 {
+    // §20.1.5.2 bevelT: default 76200 EMU (6 pt) wide and high, circle profile, when present.
+    let bevel_of = |name: &str| {
+        sp3d.and_then(|s| s.child(name)).map(|b| {
+            (
+                emu(b, "w", 6.0),
+                emu(b, "h", 6.0),
+                b.attr("prst").unwrap_or("circle").to_owned(),
+            )
+        })
+    };
+    let bevel = bevel_of("a:bevelT");
+    // §20.1.5.1 bevelB: the same on the back.
+    let bevel_bottom = bevel_of("a:bevelB");
+    if cam == Camera::Front && depth == 0.0 && contour == 0.0 && bevel.is_none() {
         return None;
     }
-    // Face normal on screen axes (y down, z towards the viewer) for the lighting term.
-    let mut normal = (0.0, 0.0, 1.0);
-    let (face, axis) = match cam {
-        Camera::Front => ([1.0, 0.0, 0.0, 1.0], (0.0, 0.0)),
+    let view = match cam {
+        Camera::Front => View::turned(0.0, 0.0, 0.0),
         Camera::Oblique(dx, dy) => {
+            // Cabinet projection: depth at 45°, half length.
             let len = (dx * dx + dy * dy).sqrt().max(1.0);
-            ([1.0, 0.0, 0.0, 1.0], (0.5 * dx / len, 0.5 * dy / len))
+            View::oblique(0.5 * dx / len, 0.5 * dy / len)
         }
-        Camera::Turned(lat, lon) => {
-            // Rotate about y (lon) then x (lat), project orthographically (y points down):
-            // X = x·cos lon + z·sin lon, Y = y·cos lat + x·sin lon·sin lat − z·cos lon·sin lat,
-            // with signs chosen so that a camera above / on the left (positive) shows the back up / left.
-            let (la, lo) = ((-lat).to_radians(), lon.to_radians());
-            let face = [lo.cos(), lo.sin() * la.sin(), 0.0, la.cos()];
-            normal = (lo.sin(), -lo.cos() * la.sin(), lo.cos() * la.cos());
-            // The back face is at z = −1.
-            (face, (-lo.sin(), lo.cos() * la.sin()))
-        }
+        Camera::Turned(lat, lon) => View::turned(lat, lon, 0.0),
     };
+    // §20.1.5.5 camera@fov (60000ths of a degree) for the perspective presets.
+    let fov = prst.to_ascii_lowercase().contains("perspective").then(|| {
+        camera
+            .and_then(|c| c.attr("fov"))
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .map_or(45.0, |v| v / 60_000.0)
+    });
     let rig = scene.and_then(|s| s.child("a:lightRig"));
-    let light = light_dir(rig.and_then(|r| r.attr("dir")).unwrap_or("t"));
-    // Light from that side and from the front (45°).
-    let l = (light.0 * 0.707, light.1 * 0.707, 0.707);
-    let shade = (normal.0 * l.0 + normal.1 * l.1 + normal.2 * l.2) - l.2;
     let material = sp3d
         .and_then(|s| s.attr("prstMaterial"))
         .unwrap_or("warmMatte");
-    let glossy = !matches!(
-        material,
-        "matte"
-            | "warmMatte"
-            | "flat"
-            | "powder"
-            | "translucentPowder"
-            | "legacyMatte"
-            | "legacyWireframe"
-    );
     Some(Solid {
-        face,
-        shade,
-        light,
-        glossy,
-        depth: (axis.0 * extrusion, axis.1 * extrusion),
+        view,
+        fov,
+        depth,
         contour,
         bevel,
+        bevel_bottom,
         extrusion_color: color_in(sp3d.and_then(|s| s.child("a:extrusionClr"))),
         contour_color: color_in(sp3d.and_then(|s| s.child("a:contourClr"))),
+        light: light_vector(rig.and_then(|r| r.attr("dir")).unwrap_or("t")),
+        specular: specular(material),
     })
 }
 
@@ -231,12 +268,15 @@ mod tests {
             r#"<p:spPr {NS} xmlns:p="p"><a:scene3d><a:camera prst="obliqueTopLeft"/></a:scene3d><a:sp3d extrusionH="254000"><a:extrusionClr><a:srgbClr val="203040"/></a:extrusionClr></a:sp3d></p:spPr>"#
         ));
         let s = solid_of(&e).unwrap();
-        assert_eq!(s.face, [1.0, 0.0, 0.0, 1.0]);
-        // 20 pt deep, half length, towards the upper left (the camera sees the top and left sides).
+        assert_eq!(s.face(), [1.0, 0.0, 0.0, 1.0]);
+        assert!((s.depth - 20.0).abs() < 1e-9);
+        // A point 20 pt back is drawn half length towards the upper left (the camera sees the top and
+        // left sides): 20 · 0.5 · (√½, √½).
+        let m = s.view.m;
+        let back = (m[0][2] * -20.0, m[1][2] * -20.0);
         assert!(
-            (s.depth.0 + 7.07).abs() < 0.01 && (s.depth.1 + 7.07).abs() < 0.01,
-            "{:?}",
-            s.depth
+            (back.0 + 7.071).abs() < 0.01 && (back.1 + 7.071).abs() < 0.01,
+            "{back:?}"
         );
         assert!(s.extrusion_color.is_some());
     }
@@ -244,29 +284,42 @@ mod tests {
     #[test]
     fn isometric_turns_the_face_and_sends_the_back_up() {
         let e = extra(&format!(
-            r#"<p:spPr {NS} xmlns:p="p"><a:scene3d><a:camera prst="isometricLeftDown"/></a:scene3d><a:sp3d extrusionH="127000"><a:bevelT w="38100" h="38100"/></a:sp3d></p:spPr>"#
+            r#"<p:spPr {NS} xmlns:p="p"><a:scene3d><a:camera prst="isometricLeftDown"/></a:scene3d><a:sp3d extrusionH="127000"><a:bevelT w="38100" h="25400" prst="angle"/></a:sp3d></p:spPr>"#
         ));
         let s = solid_of(&e).unwrap();
-        assert!(s.face[0] < 0.75 && s.face[3] < 0.85, "{:?}", s.face);
-        // Seen from the left and from above: the back shows to the left and higher.
-        assert!(s.depth.0 < 0.0 && s.depth.1 < 0.0, "{:?}", s.depth);
-        assert!((s.bevel - 3.0).abs() < 1e-9);
+        let f = s.face();
+        // cos 45° wide, the vertical squeezed by cos 35.26° = √(2/3).
+        assert!(
+            (f[0] - 0.5f64.sqrt()).abs() < 1e-9 && (f[3] - (2.0f64 / 3.0).sqrt()).abs() < 1e-9,
+            "{f:?}"
+        );
+        // Seen from the left and from above: a point behind the face shows to the left and higher.
+        let m = s.view.m;
+        assert!(-m[0][2] < 0.0 && -m[1][2] < 0.0, "{m:?}");
+        assert_eq!(s.bevel, Some((3.0, 2.0, "angle".to_owned())));
+        assert_eq!(s.fov, None);
     }
 
     #[test]
-    fn light_and_material() {
+    fn light_material_and_perspective() {
         let flat = extra(&format!(
             r#"<p:spPr {NS} xmlns:p="p"><a:scene3d><a:camera prst="obliqueTop"/><a:lightRig rig="threePt" dir="t"/></a:scene3d><a:sp3d extrusionH="12700"/></p:spPr>"#
         ));
         let s = solid_of(&flat).unwrap();
-        // An unturned face is lit like a flat shape; the default material is matte.
-        assert!(s.shade.abs() < 1e-9 && !s.glossy);
-        assert_eq!(s.light, (0.0, -1.0));
-        let turned = extra(&format!(
-            r#"<p:spPr {NS} xmlns:p="p"><a:scene3d><a:camera prst="isometricTopUp"/><a:lightRig rig="threePt" dir="b"/></a:scene3d><a:sp3d prstMaterial="metal"/></p:spPr>"#
+        // Light from the top and the front; the default material is matte.
+        assert!(s.specular.0.abs() < f64::EPSILON);
+        assert!(s.light[1] < 0.0 && s.light[2] > 0.0 && s.light[0].abs() < 1e-12);
+        let p = extra(&format!(
+            r#"<p:spPr {NS} xmlns:p="p"><a:scene3d><a:camera prst="perspectiveLeft" fov="3600000"/><a:lightRig rig="threePt" dir="b"/></a:scene3d><a:sp3d prstMaterial="metal"/></p:spPr>"#
         ));
-        let s = solid_of(&turned).unwrap();
-        // Seen from above, lit from below: the face turns away from the light.
-        assert!(s.shade < 0.0 && s.glossy, "{s:?}");
+        let s = solid_of(&p).unwrap();
+        assert!(s.specular.0 > 0.0 && s.light[1] > 0.0, "{s:?}");
+        assert_eq!(s.fov, Some(60.0));
+        // Eye distance where a 60° field of view spans 100 pt: 50 / tan 30°.
+        let eye = s.view_for(100.0, 40.0).eye.unwrap();
+        assert!(
+            (eye - 50.0 / 30f64.to_radians().tan()).abs() < 1e-9,
+            "{eye}"
+        );
     }
 }

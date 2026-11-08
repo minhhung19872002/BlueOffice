@@ -915,180 +915,67 @@ fn draw_shadow(cx: &Ctx<'_>, s: &OuterShadow, geom: &Evaluated, aff: Aff, out: &
     }
 }
 
-/// The parts of a 3-D shape drawn before its face (ECMA-376 Part 1, §20.1.5.9 sp3d extrusion):
-/// copies of the outline stepping back from the face along the depth axis. Returns the transform of the
-/// turned front face.
-#[allow(clippy::too_many_arguments)]
-fn draw_extrusion(
+/// A 3-D shape (ECMA-376 Part 1, §20.1.5) as a real solid ([`crate::mesh3d`]): the outline polygons
+/// extruded by `extrusionH`, bevelled by `bevelT`, turned and projected by the camera and shaded by the
+/// light rig and material. Returns the layer under the face and the layer over it, and the transform
+/// of the (turned) front face. A solid fill is drawn by the mesh itself (the shaded front face); other
+/// fills are painted by the caller on the front face between the two layers.
+fn draw_solid(
     cx: &Ctx<'_>,
     solid: &crate::three_d::Solid,
     geom: &Evaluated,
     aff: Aff,
     size: (f64, f64),
     fill: Option<(&Fill, Option<bo_drawingml::Rgba>)>,
-    out: &mut Vec<Command>,
-) -> Aff {
+) -> (Vec<Command>, Vec<Command>, Aff) {
     let (w, h) = size;
-    let [a, b, c, d] = solid.face;
-    let face = |dx: f64, dy: f64| {
-        aff.then(Aff::translate(w / 2.0 + dx, h / 2.0 + dy))
-            .then(Aff([a, b, c, d, 0.0, 0.0]))
-            .then(Aff::translate(-w / 2.0, -h / 2.0))
+    let [a, b, c, d] = solid.face();
+    let face = aff
+        .then(Aff::translate(w / 2.0, h / 2.0))
+        .then(Aff([a, b, c, d, 0.0, 0.0]))
+        .then(Aff::translate(-w / 2.0, -h / 2.0));
+    let base = match fill {
+        Some((Fill::Solid(c), ph)) => Some(cx.color(c, ph)),
+        Some((Fill::Gradient(g), ph)) => g.stops.first().map(|s| cx.color(&s.color, ph)),
+        _ => None,
     };
-    let (dx, dy) = solid.depth;
-    let len = (dx * dx + dy * dy).sqrt();
-    if len > 0.0 {
-        let base = solid
-            .extrusion_color
-            .as_ref()
-            .map(|c| cx.color(c, None))
-            .or_else(|| match fill {
-                Some((Fill::Solid(c), ph)) => {
-                    Some(blend(Rgba(0, 0, 0, 255), cx.color(c, ph), 0.35))
-                }
-                Some((Fill::Gradient(g), ph)) => g
-                    .stops
-                    .last()
-                    .map(|s| blend(Rgba(0, 0, 0, 255), cx.color(&s.color, ph), 0.35)),
-                _ => None,
-            })
-            .unwrap_or(Rgba(96, 96, 96, 255));
-        // About one copy per point of depth (at most 48), back to front; the nearest ones are
-        // lighter so the side reads as lit from the front.
-        let n = (len.ceil() as usize).clamp(2, 48);
-        for i in (1..=n).rev() {
-            let t = i as f64 / n as f64;
-            let color = blend(Rgba(255, 255, 255, 255), base, 0.25 * (1.0 - t));
-            let at = face(dx * t, dy * t);
-            for p in geom.paths.iter().filter(|p| p.fill != FillMode::None) {
-                out.push(Command::Path {
-                    segs: to_segs(&p.segs, at),
-                    fill: Some(Paint::Solid { color }),
-                    stroke: None,
-                });
-            }
-        }
-    }
-    face(0.0, 0.0)
-}
-
-/// The parts of a 3-D shape drawn over its face: §20.1.5.2 bevelT as a light band along the upper-left
-/// and a dark band along the lower-right edge (clipped to the face), then §20.1.5.9 contourW. Before
-/// them, the lighting of the turned face (§20.1.5.10 lightRig) and a material highlight.
-fn draw_bevel(
-    cx: &Ctx<'_>,
-    solid: &crate::three_d::Solid,
-    geom: &Evaluated,
-    face: Aff,
-    size: (f64, f64),
-    out: &mut Vec<Command>,
-) {
-    let filled: Vec<&_> = geom
+    let solid_fill = matches!(fill, Some((Fill::Solid(_), _)));
+    let side = solid
+        .extrusion_color
+        .as_ref()
+        .map(|c| cx.color(c, None))
+        .or(base)
+        .unwrap_or(Rgba(96, 96, 96, 255));
+    let polys: Vec<Vec<(f64, f64)>> = geom
         .paths
         .iter()
         .filter(|p| p.fill != FillMode::None)
+        .flat_map(|p| crate::mesh3d::polygons(&p.segs))
         .collect();
-    // A face turned away from the light is darker, towards it lighter.
-    if solid.shade.abs() > 0.02 {
-        let color = if solid.shade < 0.0 {
-            Rgba(
-                0,
-                0,
-                0,
-                ((-solid.shade) * 0.4).min(0.2).mul_add(255.0, 0.0) as u8,
+    let model = crate::mesh3d::Model {
+        depth: solid.depth,
+        bevel: solid.bevel.clone(),
+        bevel_bottom: solid.bevel_bottom.clone(),
+        face: base.unwrap_or(side),
+        side,
+        contour: (solid.contour > 0.0).then(|| {
+            (
+                solid.contour,
+                solid
+                    .contour_color
+                    .as_ref()
+                    .map_or(Rgba(255, 255, 255, 255), |c| cx.color(c, None)),
             )
-        } else {
-            Rgba(
-                255,
-                255,
-                255,
-                (solid.shade * 0.5).min(0.25).mul_add(255.0, 0.0) as u8,
-            )
-        };
-        for p in &filled {
-            out.push(Command::Path {
-                segs: to_segs(&p.segs, face),
-                fill: Some(Paint::Solid { color }),
-                stroke: None,
-            });
-        }
-    }
-    // A glossy material (§20.1.10.51): soft highlight towards the light.
-    if solid.glossy {
-        let (w, h) = size;
-        let (hx, hy) = face.apply(
-            w / 2.0 + solid.light.0 * w * 0.25,
-            h / 2.0 + solid.light.1 * h * 0.25,
-        );
-        let (ox, oy) = face.apply(0.0, 0.0);
-        let (ex, ey) = face.apply(w, h);
-        let r = ((ex - ox).hypot(ey - oy) * 0.4).max(1.0);
-        for p in &filled {
-            out.push(Command::Path {
-                segs: to_segs(&p.segs, face),
-                fill: Some(Paint::Radial {
-                    cx: hx as f32,
-                    cy: hy as f32,
-                    r: r as f32,
-                    stops: vec![
-                        GradientStop {
-                            offset: 0.0,
-                            color: Rgba(255, 255, 255, 90),
-                        },
-                        GradientStop {
-                            offset: 1.0,
-                            color: Rgba(255, 255, 255, 0),
-                        },
-                    ],
-                }),
-                stroke: None,
-            });
-        }
-    }
-    if solid.bevel > 0.0 {
-        let w = solid.bevel;
-        for p in &filled {
-            out.push(Command::PushClipPath {
-                segs: to_segs(&p.segs, face),
-            });
-            for (shift, color) in [
-                (w / 2.0, Rgba(255, 255, 255, 110)),
-                (-w / 2.0, Rgba(0, 0, 0, 80)),
-            ] {
-                out.push(Command::Path {
-                    segs: to_segs(&p.segs, face.then(Aff::translate(shift, shift))),
-                    fill: None,
-                    stroke: Some(Stroke {
-                        width: w as f32,
-                        color,
-                        dash: Vec::new(),
-                        cap: "butt".into(),
-                        join: "round".into(),
-                    }),
-                });
-            }
-            out.push(Command::PopClip);
-        }
-    }
-    if solid.contour > 0.0 {
-        let color = solid
-            .contour_color
-            .as_ref()
-            .map_or(Rgba(255, 255, 255, 255), |c| cx.color(c, None));
-        for p in &filled {
-            out.push(Command::Path {
-                segs: to_segs(&p.segs, face),
-                fill: None,
-                stroke: Some(Stroke {
-                    width: solid.contour as f32,
-                    color,
-                    dash: Vec::new(),
-                    cap: "butt".into(),
-                    join: "round".into(),
-                }),
-            });
-        }
-    }
+        }),
+        light: solid.light,
+        specular: solid.specular,
+        front: solid_fill,
+    };
+    let (behind, over) =
+        crate::mesh3d::render(&polys, size, &solid.view_for(w, h), &model, &|x, y| {
+            aff.apply(x, y)
+        });
+    (behind, over, face)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1219,9 +1106,9 @@ fn draw_node(
             let shadow = shadow_of(cx, props.effects.as_ref(), style);
             let glow = glow_of(cx, props.effects.as_ref(), style);
             draw_glow(cx, glow.as_ref(), &geom, aff, out);
-            // §20.1.5 3-D: shadow, extrusion, turned face, bevel and contour.
+            // §20.1.5 3-D: shadow, then the solid (sides, face, bevel, contour).
             let solid = crate::three_d::solid_of(&props.extra);
-            let face = match &solid {
+            match &solid {
                 Some(sd) => {
                     let has_fill = fill
                         .as_ref()
@@ -1229,35 +1116,37 @@ fn draw_node(
                     if let (Some(sh), true) = (shadow.as_ref(), has_fill) {
                         draw_shadow(cx, sh, &geom, aff, out);
                     }
-                    draw_extrusion(
+                    let fill = fill.as_ref().map(|f| (f, fph));
+                    let (behind, over, face) = draw_solid(cx, sd, &geom, aff, (r.2, r.3), fill);
+                    out.extend(behind);
+                    let solid_fill = matches!(fill, Some((Fill::Solid(_), _)));
+                    if !solid_fill {
+                        draw_geometry(cx, &geom, face, (r.2, r.3), fill, None, None, images, out);
+                    }
+                    out.extend(over);
+                    draw_geometry(
                         cx,
-                        sd,
                         &geom,
-                        aff,
+                        face,
                         (r.2, r.3),
-                        fill.as_ref().map(|f| (f, fph)),
+                        None,
+                        line.as_ref().map(|l| (l, lph)),
+                        None,
+                        images,
                         out,
-                    )
+                    );
                 }
-                None => aff,
-            };
-            draw_geometry(
-                cx,
-                &geom,
-                face,
-                (r.2, r.3),
-                fill.as_ref().map(|f| (f, fph)),
-                line.as_ref().map(|l| (l, lph)),
-                if solid.is_some() {
-                    None
-                } else {
-                    shadow.as_ref()
-                },
-                images,
-                out,
-            );
-            if let Some(sd) = &solid {
-                draw_bevel(cx, sd, &geom, face, (r.2, r.3), out);
+                None => draw_geometry(
+                    cx,
+                    &geom,
+                    aff,
+                    (r.2, r.3),
+                    fill.as_ref().map(|f| (f, fph)),
+                    line.as_ref().map(|l| (l, lph)),
+                    shadow.as_ref(),
+                    images,
+                    out,
+                ),
             }
             if !cx.opts.skip_text {
                 if let Some(tb) = &s.text {
@@ -1276,7 +1165,7 @@ fn draw_node(
                     // The text lies on the (turned) front face of a 3-D shape.
                     let text_aff = match &solid {
                         Some(sd) => {
-                            let [a, b, c, d] = sd.face;
+                            let [a, b, c, d] = sd.face();
                             text_aff
                                 .then(Aff::translate(r.2 / 2.0, r.3 / 2.0))
                                 .then(Aff([a, b, c, d, 0.0, 0.0]))

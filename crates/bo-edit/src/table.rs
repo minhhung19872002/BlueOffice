@@ -59,6 +59,7 @@ pub enum TableEdit {
     /// Insert one cell left of the selected cells (`right`: after them) in each
     /// selected row; the following cells shift right.
     InsertCell {
+        /// Insert after (right of) the selected cells instead of before them.
         #[serde(default)]
         right: bool,
     },

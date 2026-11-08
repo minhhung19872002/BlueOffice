@@ -54,7 +54,9 @@ pub enum Story {
     },
     /// The text box at index offset `at` of body paragraph `para` (§17.17.1).
     TextBox {
+        /// Body paragraph id of the anchor.
         para: u32,
+        /// Index-text offset of the anchor in that paragraph.
         at: u32,
     },
 }

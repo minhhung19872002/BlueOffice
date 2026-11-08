@@ -155,14 +155,20 @@ pub enum PageItem {
     /// DrawingML / VML shape outline (ECMA-376 Part 1, §20.1.9 geometry): `paths` are
     /// relative to the shape box at (`x`, `y`), already rotated and flipped.
     Shape {
+        /// Left edge of the shape box on the page, in points.
         x: f32,
+        /// Top edge of the shape box on the page, in points.
         y: f32,
+        /// Width of the shape box, in points.
         w: f32,
+        /// Height of the shape box, in points.
         h: f32,
+        /// Outline paths, drawn in order.
         paths: Vec<ShapePath>,
         /// The drawing object: [`LineSource::TextBox`] with `sub` 0 (rebased like the
         /// lines of its paragraph).
         source: LineSource,
+        /// Paint order relative to text.
         layer: Layer,
     },
 }
@@ -170,17 +176,24 @@ pub enum PageItem {
 /// Path segment of a shape outline (points, relative to the shape box).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum PathCmd {
+    /// Move to (x, y).
     M(f32, f32),
+    /// Line to (x, y).
     L(f32, f32),
+    /// Quadratic Bézier: control point (x1, y1), end (x, y).
     Q(f32, f32, f32, f32),
+    /// Cubic Bézier: control points (x1, y1), (x2, y2), end (x, y).
     C(f32, f32, f32, f32, f32, f32),
+    /// Close the current subpath.
     Z,
 }
 
 /// One filled and/or stroked path of a shape.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ShapePath {
+    /// Path segments.
     pub segs: Vec<PathCmd>,
+    /// Fill colour; `None` = not filled.
     pub fill: Option<Color>,
     /// (width in points, colour, `ST_PresetLineDashVal` dash name).
     pub stroke: Option<(f32, Color, Option<String>)>,

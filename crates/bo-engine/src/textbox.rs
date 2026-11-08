@@ -49,12 +49,17 @@ impl BoxEdit {
 pub struct DrawingInfo {
     /// Body paragraph id and index-text offset of the object (command address).
     pub para: usize,
+    /// Index-text offset of the object in that paragraph.
     pub at: usize,
+    /// 0-based page index the object is drawn on.
     pub page: usize,
     /// Frame on the page (points).
     pub x: f32,
+    /// Top edge on the page, in points.
     pub y: f32,
+    /// Width in points.
     pub w: f32,
+    /// Height in points.
     pub h: f32,
     /// The shape holds a text box.
     pub text_box: bool,

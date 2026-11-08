@@ -13,8 +13,11 @@ pub struct StylePreview {
     pub font: String,
     /// Size in points.
     pub size: f32,
+    /// Bold (§17.3.2.1 b).
     pub bold: bool,
+    /// Italic (§17.3.2.16 i).
     pub italic: bool,
+    /// Underlined, any style but `none` (§17.3.2.40 u).
     pub underline: bool,
     /// `RRGGBB`.
     pub color: String,
@@ -24,6 +27,7 @@ pub struct StylePreview {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StyleEntry {
+    /// Style id (`w:styleId`, §17.7.4.17), used to apply the style.
     pub id: String,
     /// `w:name` (§17.7.4.9), the id when absent.
     pub name: String,
@@ -31,6 +35,7 @@ pub struct StyleEntry {
     pub kind: &'static str,
     /// §17.7.4.14 qFormat.
     pub quick: bool,
+    /// How the style's name is rendered in the gallery.
     pub preview: StylePreview,
 }
 

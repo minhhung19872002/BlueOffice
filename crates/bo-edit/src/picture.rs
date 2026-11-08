@@ -16,10 +16,12 @@ pub struct PictureState {
     /// Offsets in points from the reference of `positionH` / `positionV`
     /// (§20.4.2.10, §20.4.2.11 posOffset).
     pub x: f32,
+    /// Vertical offset in points (`positionV/posOffset`).
     pub y: f32,
     /// `relativeFrom` of `positionH` / `positionV` (§20.4.3.4 `ST_RelFromH`,
     /// §20.4.3.5 `ST_RelFromV`).
     pub h_relative: String,
+    /// `relativeFrom` of `positionV` (§20.4.3.5 `ST_RelFromV`).
     pub v_relative: String,
 }
 

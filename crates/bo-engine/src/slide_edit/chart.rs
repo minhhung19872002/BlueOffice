@@ -36,14 +36,18 @@ const MAX_SERIES: usize = 50;
 /// One data series of the chart grid.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct SeriesData {
+    /// Series name (header of its column).
     pub name: String,
+    /// One value per category; `None` = empty cell.
     pub values: Vec<Option<f64>>,
 }
 
 /// The chart grid: categories down, series across.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ChartData {
+    /// Category labels, one per row.
     pub categories: Vec<String>,
+    /// Series, one per column.
     pub series: Vec<SeriesData>,
 }
 
@@ -51,12 +55,15 @@ pub struct ChartData {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChartOut {
+    /// Shape id of the chart's graphic frame (`p:cNvPr/@id`).
     pub id: u32,
     /// `column` | `bar` | `line` | `area` | `pie` | `doughnut` | `other`.
     pub kind: String,
+    /// Chart title text; `None` = no title (§21.2.2.210 title).
     pub title: Option<String>,
     /// `r` | `l` | `t` | `b` | `tr`; `None` = no legend.
     pub legend: Option<String>,
+    /// Data grid of the chart series (from the cached category and value data).
     pub data: ChartData,
     /// Has an embedded workbook.
     pub embedded: bool,
@@ -66,6 +73,7 @@ pub struct ChartOut {
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChartSpec {
+    /// New chart type: `column` | `bar` | `line` | `area` | `pie` | `doughnut`.
     #[serde(default)]
     pub kind: Option<String>,
     /// Empty = no title.
@@ -74,6 +82,7 @@ pub struct ChartSpec {
     /// `none` = no legend.
     #[serde(default)]
     pub legend: Option<String>,
+    /// New data grid (rewrites the caches and the embedded workbook).
     #[serde(default)]
     pub data: Option<ChartData>,
 }
@@ -395,10 +404,15 @@ fn default_data() -> ChartData {
 
 /// A chart to insert.
 pub struct NewChart<'a> {
+    /// Chart type: `column` | `bar` | `line` | `area` | `pie` | `doughnut`.
     pub kind: &'a str,
+    /// Chart title; `None` = no title.
     pub title: Option<String>,
+    /// Category/series grid; `None` = the sample grid.
     pub data: Option<ChartData>,
+    /// Legend position `r` | `l` | `t` | `b` | `tr` | `none`; `None` = bottom (right for pies).
     pub legend: Option<String>,
+    /// Frame of the chart in points; `None` = the default frame.
     pub rect: Option<super::geom::Rect>,
 }
 

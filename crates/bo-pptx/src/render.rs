@@ -36,8 +36,11 @@ pub struct RenderOptions {
 /// Top-level shapes `start..end` of a slide, optionally over its backdrop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ShapeRange {
+    /// Index of the first top-level shape drawn.
     pub start: usize,
+    /// Index one past the last top-level shape drawn.
     pub end: usize,
+    /// Also draw the backdrop (background, master and layout shapes).
     pub backdrop: bool,
 }
 

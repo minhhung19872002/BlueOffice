@@ -66,18 +66,28 @@ pub enum RevKind {
     rename_all_fields = "camelCase"
 )]
 pub enum StoryRef {
+    /// A header of a section (§17.10.4 headerReference).
     Header {
+        /// 0-based section index.
         section: usize,
+        /// Which header of the section (default, first page, even pages).
         variant: crate::section::HfVariant,
     },
+    /// A footer of a section (§17.10.3 footerReference).
     Footer {
+        /// 0-based section index.
         section: usize,
+        /// Which footer of the section (default, first page, even pages).
         variant: crate::section::HfVariant,
     },
+    /// A footnote (§17.11.10 footnote).
     Footnote {
+        /// Note id (`w:footnote/@w:id`).
         id: i32,
     },
+    /// An endnote (§17.11.2 endnote).
     Endnote {
+        /// Note id (`w:endnote/@w:id`).
         id: i32,
     },
 }

@@ -225,7 +225,12 @@ impl Player<'_> {
 
     fn ellipse(&mut self, l: f64, t: f64, r: f64, b: f64) {
         // Four cubic arcs (κ = 0.5523).
-        let (cx, cy, rx, ry) = (f64::midpoint(l, r), f64::midpoint(t, b), (r - l) / 2.0, (b - t) / 2.0);
+        let (cx, cy, rx, ry) = (
+            f64::midpoint(l, r),
+            f64::midpoint(t, b),
+            (r - l) / 2.0,
+            (b - t) / 2.0,
+        );
         let k = 0.552_284_8;
         let p = |x: f64, y: f64| self.pt(x, y);
         let (x0, y0) = p(cx + rx, cy);

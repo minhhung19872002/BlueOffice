@@ -517,52 +517,69 @@ pub enum SlideCommand {
     },
     /// Transition of `slides` (default: the current one; `all`: every slide).
     SetTransition {
+        /// 0-based slide indices; `None` = the current slide.
         #[serde(default)]
         slides: Option<Vec<usize>>,
+        /// Apply to every slide of the presentation.
         #[serde(default)]
         all: bool,
+        /// The transition to set (§19.3.1.50 transition).
         transition: show::TransitionSpec,
     },
     /// Add an effect for each selected shape (main sequence of the current slide).
     AddAnimation {
+        /// Effect class, preset, timing and options of the new effect.
         #[serde(flatten)]
         spec: show::AnimSpec,
     },
     /// Change effect `index` of the current slide.
     SetAnimation {
+        /// 0-based index of the effect in the main sequence.
         index: usize,
+        /// New effect settings.
         #[serde(flatten)]
         spec: show::AnimSpec,
     },
+    /// Remove effect `index` of the current slide.
     RemoveAnimation {
+        /// 0-based index of the effect in the main sequence.
         index: usize,
     },
     /// Move effect `from` to position `to` of the sequence.
     MoveAnimation {
+        /// Current 0-based position of the effect.
         from: usize,
+        /// New 0-based position of the effect.
         to: usize,
     },
     /// What the slide show needs to play `slide` (layers, effects, media); read-only.
     Show {
+        /// 0-based slide index.
         slide: usize,
     },
     /// Insert a chart (`column`, `bar`, `line`, `area`, `pie`, `doughnut`).
     InsertChart {
+        /// Chart type (see above).
         kind: String,
+        /// Chart title; `None` = no title.
         #[serde(default)]
         title: Option<String>,
+        /// Category/series grid; `None` = a sample grid.
         #[serde(default)]
         data: Option<chart::ChartData>,
         /// `r` | `l` | `t` | `b` | `tr` | `none` (default: bottom, right for pies).
         #[serde(default)]
         legend: Option<String>,
+        /// Frame of the chart in points; `None` = a default frame on the slide.
         #[serde(default)]
         rect: Option<Rect>,
     },
     /// Change type, title, legend or data of chart `id` (default: the selected one).
     SetChart {
+        /// Shape id of the chart's graphic frame; `None` = the selected chart.
         #[serde(default)]
         id: Option<u32>,
+        /// Fields to change (absent = unchanged).
         #[serde(flatten)]
         spec: chart::ChartSpec,
     },

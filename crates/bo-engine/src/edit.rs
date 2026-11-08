@@ -164,6 +164,7 @@ pub enum Command {
         options: FindOptions,
         /// Replacement text.
         with: String,
+        /// Only replace matches with this formatting (find by format); `None` = any.
         #[serde(default)]
         format: Option<bo_edit::find::FindFormat>,
     },
@@ -324,7 +325,9 @@ pub enum Command {
     /// its position references (ECMA-376 Part 1, §20.4.2.10 positionH, §20.4.2.11
     /// positionV); a tracked move with track changes on (§17.13.5.22 / §17.13.5.25).
     SetPicturePosition {
+        /// Horizontal offset from the position reference, in points.
         x: f32,
+        /// Vertical offset from the position reference, in points.
         y: f32,
     },
     /// Page size, orientation, margins and columns (§17.6.13, §17.6.11, §17.6.4).
@@ -417,30 +420,42 @@ pub enum Command {
     /// Insert a shape (`preset`, §20.1.10.56 ST_ShapeType) or a text box anchored at
     /// the caret, `width` × `height` points; a text box opens for typing.
     InsertShape {
+        /// Preset geometry name (default `rect`).
         #[serde(default = "rect")]
         preset: String,
+        /// Insert a text box (a shape holding `txbxContent`) instead of a plain shape.
         #[serde(default)]
         text_box: bool,
+        /// Width in points.
         width: f32,
+        /// Height in points.
         height: f32,
     },
     /// Move the drawing object at (`para`, `at`) by (`dx`, `dy`) points and/or resize
     /// it to `width` × `height` points (§20.4.2.3 anchor, §20.4.2.7 extent).
     SetDrawingFrame {
+        /// Body paragraph id of the anchor.
         para: usize,
+        /// Index-text offset of the anchor in that paragraph.
         at: usize,
+        /// Horizontal move in points (0 = none).
         #[serde(default)]
         dx: f32,
+        /// Vertical move in points (0 = none).
         #[serde(default)]
         dy: f32,
+        /// New width in points; `None` keeps the width.
         #[serde(default)]
         width: Option<f32>,
+        /// New height in points; `None` keeps the height.
         #[serde(default)]
         height: Option<f32>,
     },
     /// Open the text box at (`para`, `at`) for typing (caret at the end of its text).
     EditTextBox {
+        /// Body paragraph id of the anchor.
         para: usize,
+        /// Index-text offset of the anchor in that paragraph.
         at: usize,
     },
     /// Close the text box editor.

@@ -227,11 +227,17 @@ pub struct Document {
 /// §20.1.4.1.25 minorFont: `a:latin`, `a:ea`, `a:cs`). Empty = not given.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct ThemeFonts {
+    /// Major (heading) Latin typeface (`a:majorFont/a:latin/@typeface`).
     pub major_latin: String,
+    /// Major East Asian typeface (`a:majorFont/a:ea`).
     pub major_east_asia: String,
+    /// Major complex-script typeface (`a:majorFont/a:cs`).
     pub major_cs: String,
+    /// Minor (body) Latin typeface (`a:minorFont/a:latin/@typeface`).
     pub minor_latin: String,
+    /// Minor East Asian typeface (`a:minorFont/a:ea`).
     pub minor_east_asia: String,
+    /// Minor complex-script typeface (`a:minorFont/a:cs`).
     pub minor_cs: String,
 }
 
@@ -1007,15 +1013,25 @@ pub enum Underline {
     Wave,
     /// Underline words only, not spaces (`words`).
     Words,
+    /// Heavy dotted line (`dottedHeavy`).
     DottedHeavy,
+    /// Heavy dashed line (`dashedHeavy`).
     DashedHeavy,
+    /// Long dashes (`dashLong`).
     DashLong,
+    /// Heavy long dashes (`dashLongHeavy`).
     DashLongHeavy,
+    /// Dot-dash line (`dotDash`).
     DotDash,
+    /// Heavy dot-dash line (`dashDotHeavy`).
     DashDotHeavy,
+    /// Dot-dot-dash line (`dotDotDash`).
     DotDotDash,
+    /// Heavy dot-dot-dash line (`dashDotDotHeavy`).
     DashDotDotHeavy,
+    /// Heavy wavy line (`wavyHeavy`).
     WavyHeavy,
+    /// Double wavy line (`wavyDouble`).
     WavyDouble,
 }
 
@@ -1092,10 +1108,13 @@ pub struct RunProps {
     /// theme's font scheme; a theme attribute wins over the explicit font of its slot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_ascii: Option<String>,
+    /// Theme font of the hAnsi slot (`@w:hAnsiTheme`), see `theme_ascii`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_h_ansi: Option<String>,
+    /// Theme font of the East Asian slot (`@w:eastAsiaTheme`), see `theme_ascii`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_east_asia: Option<String>,
+    /// Theme font of the complex-script slot (`@w:cstheme`), see `theme_ascii`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_cs: Option<String>,
     /// `w:rFonts/@w:hint` (§17.18.42 `ST_Hint`: `default`, `eastAsia`, `cs`).
@@ -1339,7 +1358,9 @@ pub struct Anchor {
 /// Outline of a shape (ECMA-376 Part 1, §20.1.2.2.24 ln) resolved to a colour.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ShapeLine {
+    /// Line width (`a:ln/@w`), in EMU.
     pub width: Emu,
+    /// Line colour (`a:solidFill`), resolved.
     pub color: Color,
     /// §20.1.10.48 `ST_PresetLineDashVal` (`dash`, `sysDot`, …); `None` = solid.
     pub dash: Option<String>,
@@ -1349,9 +1370,12 @@ pub struct ShapeLine {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TextAnchor {
+    /// Text at the top (`t`).
     #[default]
     Top,
+    /// Text centred vertically (`ctr`).
     Center,
+    /// Text at the bottom (`b`).
     Bottom,
 }
 
@@ -1373,6 +1397,7 @@ pub struct Shape {
     /// `a:xfrm/@flipH`, `@flipV` (§20.1.7.6).
     #[serde(default)]
     pub flip_h: bool,
+    /// Flipped vertically (`a:xfrm/@flipV`).
     #[serde(default)]
     pub flip_v: bool,
     /// Text box content (§17.17.1 txbxContent); `None` = no text box.
@@ -1657,8 +1682,11 @@ impl CellProps {
 /// The cell's own `tcPr/vMerge` holds the revised setting.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct CellMerge {
+    /// Author, date and id of the revision.
     pub info: RevisionInfo,
+    /// Vertical merge after the revision (`@w:vMerge`).
     pub v_merge: Option<VMerge>,
+    /// Vertical merge before the revision (`@w:vMergeOrig`).
     pub v_merge_orig: Option<VMerge>,
 }
 
@@ -1697,9 +1725,13 @@ pub struct RowProps {
 /// trPrChange, `CT_TrPrBase`): `tblHeader`, `cantSplit` and `trHeight`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct RowPropsChange {
+    /// Author, date and id of the revision.
     pub info: RevisionInfo,
+    /// Previous `tblHeader` (repeat as header row).
     pub header: bool,
+    /// Previous `cantSplit` (row may not break across pages).
     pub cant_split: bool,
+    /// Previous row height (`trHeight`), in twips, with its rule.
     pub height: Option<(Twips, HeightRule)>,
 }
 
@@ -1761,7 +1793,9 @@ pub struct Table {
 /// only carries an id; author and date are those of the revision sharing that id.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct GridChange {
+    /// Revision id (author and date come from the revision sharing it).
     pub info: RevisionInfo,
+    /// Previous `tblGrid` column widths, in twips.
     pub old: Vec<Twips>,
 }
 
@@ -1786,13 +1820,16 @@ pub struct CellPlace {
     /// The cell is not part of this view (deleted in the final view, inserted in the
     /// original view).
     pub hidden: bool,
+    /// Vertical merge of the cell in this view (`tcPr/vMerge`).
     pub v_merge: Option<VMerge>,
 }
 
 /// Grid and cell placements of a table in one [`TableView`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableGeometry {
+    /// Grid column widths of this view, in twips.
     pub grid: Vec<Twips>,
+    /// Placement of every cell, row by row (source cell order).
     pub rows: Vec<Vec<CellPlace>>,
 }
 

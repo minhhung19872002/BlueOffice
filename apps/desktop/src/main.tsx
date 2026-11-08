@@ -238,6 +238,8 @@ async function pickLocal(): Promise<void> {
     '.ods',
     '.csv',
     '.pptx',
+    '.ppt',
+    '.odp',
   ]);
   if (f) await openLocal(f);
 }

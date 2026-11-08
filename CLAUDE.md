@@ -67,7 +67,9 @@ pnpm --filter @blueoffice/desktop tauri build --no-bundle   # BlueDoc → target
 pnpm --filter @blueoffice/desktop build:bluesheet          # BlueSheet (vn.bluestar.bluesheet)
 pnpm --filter @blueoffice/desktop build:blueslide          # BlueSlide (vn.bluestar.blueslide)
 cargo install tauri-driver --locked                        # E2E desktop (WebDriver), cần msedgedriver khớp WebView2
-MSEDGEDRIVER=<msedgedriver.exe> pnpm test:e2e:desktop      # target/release/bluedoc.exe (BLUEDOC_EXE=…; COLLAB_E2E=0 bỏ ca deep link)
+MSEDGEDRIVER=<msedgedriver.exe> pnpm test:e2e:desktop      # target/release/bluedoc.exe (BLUEDOC_EXE=…; COLLAB_E2E=0 bỏ ca deep link); ca so ảnh P1.10 cần apps/web/dist
+pnpm --filter @blueoffice/desktop tauri build --no-bundle --features updater   # bản có auto-update (docs/deploy/desktop-update.md)
+# Desktop env: BLUEOFFICE_SYSTEM_FONTS=0 · BLUEOFFICE_PRINT_DIALOG=0 · BLUEOFFICE_UPDATE_URL · BLUEOFFICE_E2E_SAVE_DIR (docs/deploy/desktop-print.md)
 BLUEOFFICE_SERVER=http://localhost:5000 bluedoc.exe "bluedoc://open?host=…&file=…&token=…"   # mở file host + cộng tác
 
 # Server (gồm tests/mock-bluedrive, tools/BlueOffice.Validate = bo-validate)
@@ -104,6 +106,7 @@ cộng tác, chế độ chỉ xem — dùng chung cho web nhúng và desktop de
 - Cập nhật trạng thái cộng tác: sửa ô qua host bọc `collabSheetHost` (`packages/collab`); đừng ghi thẳng engine khi đang cộng tác.
 - Code UI/editor không gọi API trình duyệt/Tauri trực tiếp cho việc phụ thuộc nền tảng → đi qua `Platform`.
 - **Thứ tự font = FaceId**: `assets/fonts/manifest.json`, `crates/bo-engine/src/bundled.rs`, `FONT_FILES` trong desktop phải khớp (có test).
+  Font hệ thống (desktop, `SystemFontIndex`) nạp lười, FaceId luôn **sau** font đóng gói; parity/so ảnh tắt bằng `BLUEOFFICE_SYSTEM_FONTS=0`.
 - Đổi layout/render → chạy lại `pnpm build:wasm` rồi test parity; snapshot insta: `INSTA_UPDATE=always cargo test -p bo-layout` rồi review diff.
 - Commit: conventional commits, nhỏ, kèm test. Mỗi phase: plan → làm → test xanh → cập nhật PROGRESS + CLAUDE.md
   (chủ dự án đã bỏ bước dừng chờ duyệt giữa các phase).

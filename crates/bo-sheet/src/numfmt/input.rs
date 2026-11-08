@@ -24,6 +24,7 @@ use super::Locale;
 /// A recognised date / time: its serial value and built-in number format id.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TypedDate {
+    /// Date serial in the 1900 date system (§18.17.4.1), fractional part = time of day.
     pub serial: f64,
     /// Built-in number format id (§18.8.30).
     pub num_fmt_id: u32,

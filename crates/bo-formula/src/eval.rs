@@ -13,14 +13,47 @@ use crate::value::{compare_values, text_to_number, Area, Array, ErrorKind, Lambd
 /// Result type used inside the evaluator and function implementations.
 pub(crate) type R = Result<Value, ErrorKind>;
 
+/// Value handed to a [`TextFormatter`]: the first argument of `TEXT` after
+/// conversion (ECMA-376 Part 1, §18.17.7 TEXT).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FormatInput<'a> {
+    /// A number (numeric text has already been converted).
+    Number(f64),
+    /// Text that is not a number; only a text section (`@`) applies to it.
+    Text(&'a str),
+}
+
+/// Number-format renderer used by `TEXT` (ECMA-376 Part 1, §18.8.31 format
+/// codes). Returns `None` when the value cannot be shown with the code (e.g. a
+/// negative serial with a date code), which `TEXT` reports as `#VALUE!`.
+///
+/// The host installs its full number-format engine through
+/// [`EvalConfig::text_formatter`] (BlueSheet does this in `bo-sheet`); without
+/// one, `TEXT` uses the compact built-in renderer.
+pub type TextFormatter = fn(FormatInput<'_>, &str, DateSystem) -> Option<String>;
+
 /// Settings for an evaluation.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct EvalConfig {
     /// Date system for serial numbers.
     pub date_system: DateSystem,
     /// Fixed "now" serial for `NOW`/`TODAY` (tests, reproducible recalcs);
     /// `None` reads the system clock (UTC).
     pub now: Option<f64>,
+    /// Number-format renderer for `TEXT`; `None` uses the built-in compact one.
+    pub text_formatter: Option<TextFormatter>,
+}
+
+impl PartialEq for EvalConfig {
+    fn eq(&self, other: &Self) -> bool {
+        // Formatters compare by address: equal addresses mean the same function.
+        let same_formatter = match (self.text_formatter, other.text_formatter) {
+            (Some(a), Some(b)) => std::ptr::fn_addr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        self.date_system == other.date_system && self.now == other.now && same_formatter
+    }
 }
 
 const MAX_DEPTH: u32 = 200;
@@ -54,6 +87,7 @@ pub(crate) struct Ctx<'a> {
     pub row: u32,
     pub col: u32,
     pub date_system: DateSystem,
+    pub text_formatter: Option<TextFormatter>,
     now: Option<f64>,
     rng: &'a AtomicU64,
     scopes: Vec<(String, Value)>,
@@ -75,6 +109,7 @@ impl<'a> Ctx<'a> {
             row,
             col,
             date_system: config.date_system,
+            text_formatter: config.text_formatter,
             now: config.now,
             rng,
             scopes: Vec::new(),

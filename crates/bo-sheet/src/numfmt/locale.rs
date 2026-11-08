@@ -10,7 +10,9 @@
 pub struct Locale {
     /// Windows LCID (e.g. `0x42A` vi-VN, `0x409` en-US).
     pub lcid: u32,
+    /// Decimal separator.
     pub decimal: char,
+    /// Thousands (grouping) separator.
     pub thousands: char,
     /// Full month names (`mmmm`).
     pub months: [&'static str; 12],
@@ -20,7 +22,9 @@ pub struct Locale {
     pub days: [&'static str; 7],
     /// Abbreviated day names, Sunday first (`ddd`).
     pub days_short: [&'static str; 7],
+    /// AM designator (`AM/PM`, `A/P`).
     pub am: &'static str,
+    /// PM designator (`AM/PM`, `A/P`).
     pub pm: &'static str,
     /// Format code used for built-in id 14 (short date).
     pub short_date: &'static str,
@@ -32,7 +36,9 @@ pub struct Locale {
     pub currency: &'static str,
     /// Currency symbol placed after the number (vi-VN) or before (en-US).
     pub currency_after: bool,
+    /// Text shown for the logical value TRUE.
     pub true_text: &'static str,
+    /// Text shown for the logical value FALSE.
     pub false_text: &'static str,
 }
 

@@ -152,6 +152,8 @@ pub(crate) fn load(wb: &Workbook, now: Option<f64>) -> bo_formula::Workbook {
     let mut fw = bo_formula::Workbook::with_sheets(&names);
     fw.set_date_system(system);
     fw.set_now(now);
+    // TEXT() renders with the full number-format engine (§18.8.31).
+    fw.set_text_formatter(Some(crate::numfmt::text_function_format));
     for (si, ws) in wb.sheets.iter().enumerate() {
         // Cells covered by an array formula hold its previous results, not inputs.
         let mut covered: Vec<CellRange> = Vec::new();

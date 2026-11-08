@@ -21,7 +21,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::ast::Expr;
 use crate::date::DateSystem;
-use crate::eval::{static_areas, struct_area, Ctx, EvalConfig};
+use crate::eval::{static_areas, struct_area, Ctx, EvalConfig, TextFormatter};
 use crate::format::format;
 use crate::functions::is_volatile_function;
 use crate::fxhash::{FxHashMap, FxHashSet};
@@ -189,6 +189,13 @@ impl Workbook {
     /// Fix the value of `NOW()` (serial) or `None` for the system clock.
     pub fn set_now(&mut self, now: Option<f64>) {
         self.config.now = now;
+    }
+
+    /// Install the number-format renderer used by `TEXT` (`None` restores the
+    /// built-in compact one); marks everything for recalculation.
+    pub fn set_text_formatter(&mut self, formatter: Option<TextFormatter>) {
+        self.config.text_formatter = formatter;
+        self.mark_all_formulas();
     }
 
     /// Seed the generator used by `RAND`/`RANDBETWEEN`/`RANDARRAY`.

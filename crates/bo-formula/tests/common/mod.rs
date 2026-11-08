@@ -1,9 +1,29 @@
 //! Shared harness for the table-driven function tests.
 //!
-//! Every test table is a list of `(formula, expected)` rows evaluated against a
-//! workbook prepared from `(cell, input)` rows. Each formula is stored in its
-//! own cell (so dynamic arrays really spill) and the workbook is recalculated
-//! once; all mismatches of a table are reported together.
+//! Every test table is a list of `(formula, expected, source)` rows evaluated
+//! against a workbook prepared from `(cell, input)` rows. Each formula is
+//! stored in its own cell (so dynamic arrays really spill) and the workbook is
+//! recalculated once; all mismatches of a table are reported together.
+//!
+//! The `source` column says where the expected value comes from. It must start
+//! with one of the [`SOURCE_PREFIXES`]:
+//!
+//! * `ECMA-376 §…` — ECMA-376 Part 1; `§18.17.7 <FUNC>` is the function's own
+//!   entry under "Predefined Function Definitions" (definition and worked
+//!   examples), other sections are named explicitly (e.g. `§18.17.4` dates,
+//!   `§18.8.31` number formats);
+//! * `OpenFormula <FUNC>` — the function's entry in OASIS OpenDocument 1.3
+//!   Part 4 (OpenFormula);
+//! * `MS-XLSX _xlfn.<FUNC>` — a function newer than ECMA-376, listed as a
+//!   future function in [MS-XLSX]; behaviour follows its published function
+//!   definition (`= ECMA-376 §18.17.7 <OLD>` names the older function with the
+//!   same definition);
+//! * `MS-XLSX …` (other) — another [MS-XLSX] extension, e.g. the dynamic-array
+//!   error values `#SPILL!` / `#CALC!`;
+//! * `hand: …` — the expected value worked out by hand, with the arithmetic.
+//!
+//! Spec text is never copied; a row cites the section and the test states the
+//! expected value.
 #![allow(dead_code)]
 
 use bo_formula::{parse, DateSystem, ErrorKind, Value, Workbook};
@@ -27,6 +47,12 @@ pub enum X {
 
 #[allow(unused_imports)]
 pub use X::{Near, A, B, E, N, T};
+
+/// One table row: formula, expected result, source of the expected value.
+pub type Case = (&'static str, X, &'static str);
+
+/// Accepted prefixes of the source column (see the module docs).
+pub const SOURCE_PREFIXES: [&str; 4] = ["ECMA-376 §", "OpenFormula ", "MS-XLSX ", "hand: "];
 
 /// Column used for the formulas under test (far right of the inputs).
 const FORMULA_COL: u32 = 200;
@@ -148,9 +174,17 @@ fn result_at(wb: &Workbook, row: u32, col: u32) -> Value {
 }
 
 /// Run a table with custom options.
-pub fn check_with(setup: &[(&str, &str)], cases: &[(&str, X)], opts: Opts) {
+pub fn check_with(setup: &[(&str, &str)], cases: &[Case], opts: Opts) {
+    for (formula, _, src) in cases {
+        assert!(
+            SOURCE_PREFIXES
+                .iter()
+                .any(|p| src.starts_with(p) && src.len() > p.len()),
+            "row {formula} has no valid source: {src:?}"
+        );
+    }
     let mut wb = workbook(setup, opts);
-    for (i, (formula, _)) in cases.iter().enumerate() {
+    for (i, (formula, ..)) in cases.iter().enumerate() {
         let row = FIRST_ROW + i as u32 * ROW_STRIDE;
         if let Err(e) = wb.set_formula(0, row, FORMULA_COL, formula) {
             panic!("parse error in {formula}: {e}");
@@ -158,13 +192,13 @@ pub fn check_with(setup: &[(&str, &str)], cases: &[(&str, X)], opts: Opts) {
     }
     wb.recalculate();
     let mut failures = Vec::new();
-    for (i, (formula, want)) in cases.iter().enumerate() {
+    for (i, (formula, want, src)) in cases.iter().enumerate() {
         let row = FIRST_ROW + i as u32 * ROW_STRIDE;
         let got = result_at(&wb, row, FORMULA_COL);
         let (want_v, tol) = want_value(*want);
         if !values_match(&got, &want_v, tol) {
             failures.push(format!(
-                "  {formula}\n      got  {got:?}\n      want {want:?}"
+                "  {formula}\n      got  {got:?}\n      want {want:?}  [{src}]"
             ));
         }
     }
@@ -178,7 +212,7 @@ pub fn check_with(setup: &[(&str, &str)], cases: &[(&str, X)], opts: Opts) {
 }
 
 /// Run a table with default options (1900 date system, fixed now).
-pub fn check(setup: &[(&str, &str)], cases: &[(&str, X)]) {
+pub fn check(setup: &[(&str, &str)], cases: &[Case]) {
     check_with(setup, cases, Opts::default());
 }
 

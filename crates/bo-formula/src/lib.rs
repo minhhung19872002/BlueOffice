@@ -44,7 +44,7 @@ mod workbook;
 
 pub use ast::{BinaryOp, Expr, StructItem, StructRef, UnaryOp};
 pub use date::DateSystem;
-pub use eval::{evaluate, EvalConfig};
+pub use eval::{evaluate, EvalConfig, FormatInput, TextFormatter};
 pub use format::{format, format_reference, format_with};
 pub use functions::{function_names, is_volatile_function};
 pub use lookupindex::ExactIndex;

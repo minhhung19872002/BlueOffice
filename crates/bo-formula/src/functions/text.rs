@@ -2,7 +2,7 @@
 
 use super::{f, flatten, m, opt_bool, opt_num, opt_text, s, FnSpec, VAR};
 use crate::criteria::wildcard_match;
-use crate::eval::{Ctx, R};
+use crate::eval::{Ctx, FormatInput, R};
 use crate::value::{parse_number_text, text_to_number, Array, ErrorKind, Value};
 
 use crate::numfmt::format_number;
@@ -232,11 +232,27 @@ fn text(ctx: &mut Ctx, args: &[Value]) -> R {
         Value::Text(s) => text_to_number(s, ctx.date_system),
         _ => None,
     };
-    if let Some(n) = n {
-        Ok(Value::Text(format_number(n, &fmt, ctx.date_system)))
-    } else {
-        let s = txt(ctx, args, 0)?;
-        Ok(Value::Text(crate::numfmt::format_text(&s, &fmt)))
+    let s = match n {
+        Some(_) => String::new(),
+        None => txt(ctx, args, 0)?,
+    };
+    // An empty format code yields empty text (§18.17.7 TEXT).
+    if fmt.is_empty() {
+        return Ok(Value::Text(String::new()));
+    }
+    if let Some(render) = ctx.text_formatter {
+        // Host-provided full number-format engine (§18.8.31 format codes).
+        let input = match n {
+            Some(n) => FormatInput::Number(n),
+            None => FormatInput::Text(&s),
+        };
+        return render(input, &fmt, ctx.date_system)
+            .map(Value::Text)
+            .ok_or(ErrorKind::Value);
+    }
+    match n {
+        Some(n) => Ok(Value::Text(format_number(n, &fmt, ctx.date_system))),
+        None => Ok(Value::Text(crate::numfmt::format_text(&s, &fmt))),
     }
 }
 

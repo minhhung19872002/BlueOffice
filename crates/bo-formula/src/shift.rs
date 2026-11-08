@@ -291,18 +291,26 @@ pub fn offset_relative(expr: &Expr, d_row: i64, d_col: i64) -> Expr {
     })
 }
 
-/// A block of cells moved by cut and paste: `rows` × `cols` starting at
-/// (`row`, `col`) of sheet `from_sheet`, now at (`row + d_row`, `col + d_col`)
-/// of sheet `to_sheet`.
+/// A block of cells moved by cut and paste: the rectangle
+/// (`first_row`, `first_col`)–(`last_row`, `last_col`) of sheet `from_sheet`,
+/// now at an offset of (`d_row`, `d_col`) on sheet `to_sheet`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MovedBlock {
+    /// Name of the sheet the block was cut from.
     pub from_sheet: String,
+    /// Name of the sheet the block was pasted to.
     pub to_sheet: String,
+    /// First row of the source block (0-based).
     pub first_row: u32,
+    /// First column of the source block (0-based).
     pub first_col: u32,
+    /// Last row of the source block (0-based, inclusive).
     pub last_row: u32,
+    /// Last column of the source block (0-based, inclusive).
     pub last_col: u32,
+    /// Row offset from the source to the destination.
     pub d_row: i64,
+    /// Column offset from the source to the destination.
     pub d_col: i64,
 }
 

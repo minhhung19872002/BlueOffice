@@ -14,13 +14,17 @@ pub const MAX_SERIAL_1904: f64 = 2_957_003.999_999;
 /// A broken-down date and time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DateTime {
+    /// Proleptic Gregorian year (1900–9999).
     pub year: i32,
     /// 1–12.
     pub month: u32,
     /// 0–31 (0 only for serial 0 in the 1900 system).
     pub day: u32,
+    /// Hour, 0–23.
     pub hour: u32,
+    /// Minute, 0–59.
     pub minute: u32,
+    /// Second, 0–59.
     pub second: u32,
     /// Fraction of a second in units of `10^-subsec_digits` (see [`serial_to_datetime`]).
     pub subsec: u32,

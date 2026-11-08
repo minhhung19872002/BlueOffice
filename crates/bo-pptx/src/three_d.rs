@@ -32,6 +32,29 @@ pub(crate) struct Solid {
     pub extrusion_color: Option<Color>,
     /// `contourClr`.
     pub contour_color: Option<Color>,
+    /// Lighting of the turned face relative to a face seen straight on, in −1..=1 (negative: darker;
+    /// §20.1.5.10 lightRig `dir`, simple Lambert term).
+    pub shade: f64,
+    /// Screen direction the light comes from (unit vector, y down) — where a highlight sits.
+    pub light: (f64, f64),
+    /// The material shows a highlight (§20.1.10.51 ST_PresetMaterialType: not matte, flat or powder).
+    pub glossy: bool,
+}
+
+/// Screen direction (y down) of a §20.1.10.29 ST_LightRigDirection.
+fn light_dir(dir: &str) -> (f64, f64) {
+    let (x, y): (f64, f64) = match dir {
+        "tl" => (-1.0, -1.0),
+        "tr" => (1.0, -1.0),
+        "l" => (-1.0, 0.0),
+        "r" => (1.0, 0.0),
+        "bl" => (-1.0, 1.0),
+        "b" => (0.0, 1.0),
+        "br" => (1.0, 1.0),
+        _ => (0.0, -1.0),
+    };
+    let n = (x * x + y * y).sqrt();
+    (x / n, y / n)
 }
 
 const EMU_PT: f64 = 12_700.0;
@@ -128,6 +151,8 @@ pub(crate) fn solid_of(extra: &[Extra]) -> Option<Solid> {
     if cam == Camera::Front && extrusion == 0.0 && contour == 0.0 && bevel == 0.0 {
         return None;
     }
+    // Face normal on screen axes (y down, z towards the viewer) for the lighting term.
+    let mut normal = (0.0, 0.0, 1.0);
     let (face, axis) = match cam {
         Camera::Front => ([1.0, 0.0, 0.0, 1.0], (0.0, 0.0)),
         Camera::Oblique(dx, dy) => {
@@ -140,12 +165,34 @@ pub(crate) fn solid_of(extra: &[Extra]) -> Option<Solid> {
             // with signs chosen so that a camera above / on the left (positive) shows the back up / left.
             let (la, lo) = ((-lat).to_radians(), lon.to_radians());
             let face = [lo.cos(), lo.sin() * la.sin(), 0.0, la.cos()];
+            normal = (lo.sin(), -lo.cos() * la.sin(), lo.cos() * la.cos());
             // The back face is at z = −1.
             (face, (-lo.sin(), lo.cos() * la.sin()))
         }
     };
+    let rig = scene.and_then(|s| s.child("a:lightRig"));
+    let light = light_dir(rig.and_then(|r| r.attr("dir")).unwrap_or("t"));
+    // Light from that side and from the front (45°).
+    let l = (light.0 * 0.707, light.1 * 0.707, 0.707);
+    let shade = (normal.0 * l.0 + normal.1 * l.1 + normal.2 * l.2) - l.2;
+    let material = sp3d
+        .and_then(|s| s.attr("prstMaterial"))
+        .unwrap_or("warmMatte");
+    let glossy = !matches!(
+        material,
+        "matte"
+            | "warmMatte"
+            | "flat"
+            | "powder"
+            | "translucentPowder"
+            | "legacyMatte"
+            | "legacyWireframe"
+    );
     Some(Solid {
         face,
+        shade,
+        light,
+        glossy,
         depth: (axis.0 * extrusion, axis.1 * extrusion),
         contour,
         bevel,
@@ -204,5 +251,22 @@ mod tests {
         // Seen from the left and from above: the back shows to the left and higher.
         assert!(s.depth.0 < 0.0 && s.depth.1 < 0.0, "{:?}", s.depth);
         assert!((s.bevel - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn light_and_material() {
+        let flat = extra(&format!(
+            r#"<p:spPr {NS} xmlns:p="p"><a:scene3d><a:camera prst="obliqueTop"/><a:lightRig rig="threePt" dir="t"/></a:scene3d><a:sp3d extrusionH="12700"/></p:spPr>"#
+        ));
+        let s = solid_of(&flat).unwrap();
+        // An unturned face is lit like a flat shape; the default material is matte.
+        assert!(s.shade.abs() < 1e-9 && !s.glossy);
+        assert_eq!(s.light, (0.0, -1.0));
+        let turned = extra(&format!(
+            r#"<p:spPr {NS} xmlns:p="p"><a:scene3d><a:camera prst="isometricTopUp"/><a:lightRig rig="threePt" dir="b"/></a:scene3d><a:sp3d prstMaterial="metal"/></p:spPr>"#
+        ));
+        let s = solid_of(&turned).unwrap();
+        // Seen from above, lit from below: the face turns away from the light.
+        assert!(s.shade < 0.0 && s.glossy, "{s:?}");
     }
 }

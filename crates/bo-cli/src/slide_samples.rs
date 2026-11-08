@@ -1150,7 +1150,7 @@ fn shape_decks() -> Vec<(&'static str, Vec<u8>)> {
                 "ellipse",
                 "70AD47",
                 r#"<a:camera prst="perspectiveFront"><a:rot lat="1200000" lon="19800000" rev="0"/></a:camera>"#,
-                r#"<a:sp3d extrusionH="254000"><a:bevelT w="63500" h="63500"/></a:sp3d>"#,
+                r#"<a:sp3d extrusionH="254000" prstMaterial="plastic"><a:bevelT w="63500" h="63500"/></a:sp3d>"#,
                 "Trụ",
             ),
         )],

@@ -67,8 +67,9 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
    giác trong dải mỗi dòng (đa giác lõm được coi như bao lồi theo chiều ngang).
 4. **BlueSheet**: ngày gõ thiếu năm (`15 Mar`) cố ý để dạng chữ (kết quả sẽ phụ thuộc ngày hiện tại).
 5. **BlueSlide**: PDF vẽ blur/glow bằng ảnh mặt nạ (không vector); hình 3D (`scene3d`/`sp3d`) dựng xấp xỉ 2D
-   (`bo-pptx/src/three_d.rs`: mặt trước xoay theo camera, phần đùn, vát cạnh trên, contour) — chưa có ánh sáng/vật liệu,
-   góc camera preset là ước lượng (spec chỉ nêu tên preset).
+   (`bo-pptx/src/three_d.rs`: mặt trước xoay theo camera, phần đùn, vát cạnh trên, contour, sáng/tối theo hướng
+   `lightRig`, điểm sáng cho vật liệu bóng) — góc camera preset là ước lượng (spec chỉ nêu tên preset); không dựng
+   lưới 3D thật (bevel dưới, mặt bên cong của bevel, phản xạ theo vật liệu chi tiết).
 6. **Desktop**: E2E Tauri WebDriver 15/15 xanh (`pnpm test:e2e:desktop`); bộ test Rust của `bo-desktop` cần GTK trên Linux.
 7. **Fidelity**: visual diff đã chạy (`docs/fidelity-visual.md`, baseline tự sinh 205 trang); `bo-cli validate` / `bo-cli fidelity-report`; so với phần mềm gốc cần người dùng đặt ảnh vào `tests/fidelity/reference/`.
 8. **Ký số**: đã có PAdES B-T / XAdES-T, kiểm tra chuỗi tới CA gốc cấu hình, thu hồi qua CRL và OCSP (nạp sẵn

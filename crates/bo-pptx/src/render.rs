@@ -973,12 +973,14 @@ fn draw_extrusion(
 }
 
 /// The parts of a 3-D shape drawn over its face: §20.1.5.2 bevelT as a light band along the upper-left
-/// and a dark band along the lower-right edge (clipped to the face), then §20.1.5.9 contourW.
+/// and a dark band along the lower-right edge (clipped to the face), then §20.1.5.9 contourW. Before
+/// them, the lighting of the turned face (§20.1.5.10 lightRig) and a material highlight.
 fn draw_bevel(
     cx: &Ctx<'_>,
     solid: &crate::three_d::Solid,
     geom: &Evaluated,
     face: Aff,
+    size: (f64, f64),
     out: &mut Vec<Command>,
 ) {
     let filled: Vec<&_> = geom
@@ -986,6 +988,63 @@ fn draw_bevel(
         .iter()
         .filter(|p| p.fill != FillMode::None)
         .collect();
+    // A face turned away from the light is darker, towards it lighter.
+    if solid.shade.abs() > 0.02 {
+        let color = if solid.shade < 0.0 {
+            Rgba(
+                0,
+                0,
+                0,
+                ((-solid.shade) * 0.4).min(0.2).mul_add(255.0, 0.0) as u8,
+            )
+        } else {
+            Rgba(
+                255,
+                255,
+                255,
+                (solid.shade * 0.5).min(0.25).mul_add(255.0, 0.0) as u8,
+            )
+        };
+        for p in &filled {
+            out.push(Command::Path {
+                segs: to_segs(&p.segs, face),
+                fill: Some(Paint::Solid { color }),
+                stroke: None,
+            });
+        }
+    }
+    // A glossy material (§20.1.10.51): soft highlight towards the light.
+    if solid.glossy {
+        let (w, h) = size;
+        let (hx, hy) = face.apply(
+            w / 2.0 + solid.light.0 * w * 0.25,
+            h / 2.0 + solid.light.1 * h * 0.25,
+        );
+        let (ox, oy) = face.apply(0.0, 0.0);
+        let (ex, ey) = face.apply(w, h);
+        let r = ((ex - ox).hypot(ey - oy) * 0.4).max(1.0);
+        for p in &filled {
+            out.push(Command::Path {
+                segs: to_segs(&p.segs, face),
+                fill: Some(Paint::Radial {
+                    cx: hx as f32,
+                    cy: hy as f32,
+                    r: r as f32,
+                    stops: vec![
+                        GradientStop {
+                            offset: 0.0,
+                            color: Rgba(255, 255, 255, 90),
+                        },
+                        GradientStop {
+                            offset: 1.0,
+                            color: Rgba(255, 255, 255, 0),
+                        },
+                    ],
+                }),
+                stroke: None,
+            });
+        }
+    }
     if solid.bevel > 0.0 {
         let w = solid.bevel;
         for p in &filled {
@@ -1198,7 +1257,7 @@ fn draw_node(
                 out,
             );
             if let Some(sd) = &solid {
-                draw_bevel(cx, sd, &geom, face, out);
+                draw_bevel(cx, sd, &geom, face, (r.2, r.3), out);
             }
             if !cx.opts.skip_text {
                 if let Some(tb) = &s.text {

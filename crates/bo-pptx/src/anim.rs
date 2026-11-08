@@ -8,7 +8,7 @@
 use bo_drawingml::dom::{attr_int, parse_bool, El};
 use bo_model::slide::{
     AnimClass, AnimEffect, AnimTrigger, Animation, Extra, Timing, Transition, TransitionKind,
-    XmlElement,
+    XmlElement, XmlNode,
 };
 
 const NS_MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
@@ -116,9 +116,22 @@ fn transition_body(t: &Transition, with_dur: bool) -> XmlElement {
         } else {
             "dir"
         };
-        e = e.child(El::new(&name).opt(attr, t.dir.as_ref()).done());
+        // An unmodelled effect keeps its element (and attributes) as read.
+        let kept = matches!(k, TransitionKind::Other(_))
+            .then(|| source_effect(t, &name))
+            .flatten();
+        e = e.child(kept.unwrap_or_else(|| El::new(&name).opt(attr, t.dir.as_ref()).done()));
     }
     e.done()
+}
+
+/// The effect child of the transition as read, when it is element `name`.
+fn source_effect(t: &Transition, name: &str) -> Option<XmlElement> {
+    let src = transition_el(&t.source.as_ref()?.xml)?;
+    src.elements()
+        .find(|c| !matches!(c.local(), "sndAc" | "extLst"))
+        .filter(|c| c.name == name)
+        .cloned()
 }
 
 /// Serialize a transition: the source when unchanged, otherwise a new element
@@ -268,7 +281,13 @@ fn parse_effect(ctn: &XmlElement) -> Option<Animation> {
         dur_ms,
         preset_id: attr_int(ctn, "presetID"),
         preset_subtype: attr_int(ctn, "presetSubtype"),
+        source: None,
     })
+}
+
+/// Effects whose behaviours are not modelled: their `p:par` is kept as read.
+fn keeps_source(a: &Animation) -> bool {
+    a.effect == AnimEffect::Other || !matches!(a.class, AnimClass::Entrance | AnimClass::Exit)
 }
 
 /// Parse §19.3.1.48 timing: the effects of the main sequence in order.
@@ -277,8 +296,15 @@ pub fn parse_timing(el: &XmlElement, key: u16) -> Timing {
     if let Some(seq) = main_seq(el) {
         let mut all = Vec::new();
         descendants(seq, &mut all);
-        for e in all.into_iter().filter(|e| e.name == "p:cTn") {
-            if let Some(a) = parse_effect(e) {
+        // §19.5.53 par → §19.5.29 cTn of each effect, in document order.
+        for par in all.into_iter().filter(|e| e.name == "p:par") {
+            let Some(ctn) = par.child("p:cTn") else {
+                continue;
+            };
+            if let Some(mut a) = parse_effect(ctn) {
+                if keeps_source(&a) {
+                    a.source = Some(par.clone());
+                }
                 animations.push(a);
             }
         }
@@ -401,7 +427,75 @@ fn anim_pos(ids: &mut Ids, spid: u32, dur: u32, attr: &str, from: &str, to: &str
         .done()
 }
 
+/// Give every time node of a reused effect a fresh `cTn@id` (§19.5.29: unique in the slide).
+fn renumber(el: &mut XmlElement, ids: &mut Ids) {
+    if el.name == "p:cTn" {
+        let id = ids.next().to_string();
+        match el.attrs.iter_mut().find(|(k, _)| k == "id") {
+            Some((_, v)) => *v = id,
+            None => el.attrs.insert(0, ("id".into(), id)),
+        }
+    }
+    for c in &mut el.children {
+        if let XmlNode::Element(e) = c {
+            renumber(e, ids);
+        }
+    }
+}
+
+/// An unmodelled effect as read, with the trigger and delay of the model
+/// (§19.5.29 cTn@nodeType, §19.5.73 stCondLst).
+fn reused_effect(ids: &mut Ids, a: &Animation, src: &XmlElement) -> XmlElement {
+    let mut par = src.clone();
+    renumber(&mut par, ids);
+    let node_type = node_type(a.trigger);
+    for c in &mut par.children {
+        let XmlNode::Element(ctn) = c else { continue };
+        if ctn.name != "p:cTn" {
+            continue;
+        }
+        match ctn.attrs.iter_mut().find(|(k, _)| k == "nodeType") {
+            Some((_, v)) => *v = node_type.to_owned(),
+            None => ctn.attrs.push(("nodeType".into(), node_type.to_owned())),
+        }
+        let delay = a.delay_ms.to_string();
+        let at = ctn
+            .children
+            .iter()
+            .position(|c| matches!(c, XmlNode::Element(e) if e.name == "p:stCondLst"));
+        let Some(at) = at else {
+            ctn.children.insert(0, XmlNode::Element(cond(&delay)));
+            break;
+        };
+        if let XmlNode::Element(l) = &mut ctn.children[at] {
+            let first = l.children.iter_mut().find_map(|c| match c {
+                XmlNode::Element(e) if e.name == "p:cond" => Some(e),
+                XmlNode::Element(_) | XmlNode::Text(_) => None,
+            });
+            if let Some(cnd) = first {
+                match cnd.attrs.iter_mut().find(|(k, _)| k == "delay") {
+                    Some((_, v)) => *v = delay,
+                    None => cnd.attrs.push(("delay".into(), delay)),
+                }
+            }
+        }
+        break;
+    }
+    par
+}
+
+fn node_type(t: AnimTrigger) -> &'static str {
+    match t {
+        AnimTrigger::OnClick => "clickEffect",
+        AnimTrigger::WithPrevious => "withEffect",
+        AnimTrigger::AfterPrevious => "afterEffect",
+    }
+}
+
 fn effect_node(ids: &mut Ids, a: &Animation) -> XmlElement {
+    if let Some(src) = a.source.as_ref().filter(|_| keeps_source(a)) {
+        return reused_effect(ids, a, src);
+    }
     let id = ids.next();
     let dur = a.dur_ms.max(1);
     let exit = a.class == AnimClass::Exit;
@@ -475,11 +569,7 @@ fn effect_node(ids: &mut Ids, a: &Animation) -> XmlElement {
         (AnimEffect::FlyIn | AnimEffect::Wipe, _) => Some(4),
         _ => Some(0),
     });
-    let node_type = match a.trigger {
-        AnimTrigger::OnClick => "clickEffect",
-        AnimTrigger::WithPrevious => "withEffect",
-        AnimTrigger::AfterPrevious => "afterEffect",
-    };
+    let node_type = node_type(a.trigger);
     let mut kids = El::new("p:childTnLst");
     for b in behaviours {
         kids = kids.child(b);
@@ -635,6 +725,7 @@ mod tests {
             dur_ms: 500,
             preset_id: None,
             preset_subtype: None,
+            source: None,
         }
     }
 
@@ -681,5 +772,63 @@ mod tests {
         // Appear has a 1 ms visibility set.
         back.animations[3].dur_ms = 500;
         assert_eq!(back.animations, anims);
+    }
+
+    #[test]
+    fn unknown_effects_survive_a_regenerated_sequence() {
+        // An emphasis (grow, §19.5.4 animScale) after a fade: editing the fade
+        // regenerates the sequence; the emphasis is written as read.
+        let xml = r#"<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst><p:par><p:cTn id="3" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="4" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="5" presetID="10" presetClass="entr" presetSubtype="0" fill="hold" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:set><p:cBhvr><p:cTn id="6" dur="1" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="4"/></p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="visible"/></p:to></p:set><p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="7" dur="500"/><p:tgtEl><p:spTgt spid="4"/></p:tgtEl></p:cBhvr></p:animEffect></p:childTnLst></p:cTn></p:par><p:par><p:cTn id="8" presetID="6" presetClass="emph" presetSubtype="0" fill="hold" nodeType="withEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:animScale><p:cBhvr><p:cTn id="9" dur="2000" fill="hold"/><p:tgtEl><p:spTgt spid="5"/></p:tgtEl></p:cBhvr><p:by x="150000" y="150000"/></p:animScale></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>"#;
+        let el = parse(xml.as_bytes(), "/t").unwrap();
+        let t = parse_timing(&el, KEY_TIMING);
+        assert_eq!(t.animations.len(), 2);
+        assert_eq!(t.animations[1].class, AnimClass::Emphasis);
+        assert!(t.animations[1].source.is_some());
+        assert!(t.animations[0].source.is_none());
+        assert_eq!(write_timing(&t).unwrap().xml, el);
+
+        let mut edited = t.clone();
+        edited.animations[0].dur_ms = 900;
+        edited.animations[1].trigger = AnimTrigger::AfterPrevious;
+        edited.animations[1].delay_ms = 250;
+        let w = write_timing(&edited).unwrap();
+        let mut text = String::new();
+        bo_drawingml::dom::write_element(&w.xml, &mut text);
+        assert!(text.contains(r#"<p:by x="150000" y="150000"/>"#), "{text}");
+        let back = parse_timing(&w.xml, w.key);
+        assert_eq!(back.animations.len(), 2);
+        assert_eq!(back.animations[0].dur_ms, 900);
+        let b = &back.animations[1];
+        assert_eq!(
+            (b.class.clone(), b.trigger, b.delay_ms, b.shape_id),
+            (AnimClass::Emphasis, AnimTrigger::AfterPrevious, 250, 5)
+        );
+        // Time node ids stay unique.
+        let mut all = Vec::new();
+        descendants(&w.xml, &mut all);
+        let mut ids: Vec<&str> = all
+            .iter()
+            .filter(|e| e.name == "p:cTn")
+            .filter_map(|e| e.attr("id"))
+            .collect();
+        let n = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), n);
+    }
+
+    #[test]
+    fn unknown_transition_keeps_its_element() {
+        let xml = r#"<p:transition spd="med"><p:dissolve thruBlk="1"/></p:transition>"#;
+        let el = parse(xml.as_bytes(), "/t").unwrap();
+        let mut t = parse_transition(&el, KEY_TRANSITION).unwrap();
+        assert_eq!(t.kind, Some(TransitionKind::Other("dissolve".into())));
+        t.speed = Some("slow".into());
+        t.advance_after_ms = Some(2000);
+        let w = write_transition(&t);
+        let mut text = String::new();
+        bo_drawingml::dom::write_element(&w.xml, &mut text);
+        assert!(text.contains(r#"<p:dissolve thruBlk="1"/>"#), "{text}");
+        assert!(text.contains(r#"spd="slow""#), "{text}");
     }
 }

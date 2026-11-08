@@ -740,6 +740,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   // Keep the hidden/visible cell input focused so IME composition starts in it.
   const focusInput = useCallback(() => {
+    // Right away, so keys typed straight after (Name Box Enter, a click) reach the
+    // grid even when animation frames are delayed (background tab); again on the
+    // next frame for an input that is only rendered by this update.
+    inputRef.current?.focus({ preventScroll: true });
     requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
   }, []);
 

@@ -557,3 +557,23 @@
   padding: 0 4px;
   font-weight: 600;
 }
+
+/* Macro warning bar: the file's macros are kept but never run. */
+.macroBar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 16px;
+  background: var(--bo-warning-bg, #fff4ce);
+  color: var(--bo-warning-text, #4a3800);
+  border-bottom: 1px solid var(--bo-border, #d0d7de);
+}
+
+.macroBar button {
+  padding: 2px 10px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}

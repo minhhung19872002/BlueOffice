@@ -27,6 +27,8 @@ export interface SheetSummary {
 export interface WorkbookInfo {
   name: string;
   sheets: SheetSummary[];
+  /** The file has macros: they are kept when saving but never run. */
+  macros?: boolean;
 }
 
 export type SheetHit =

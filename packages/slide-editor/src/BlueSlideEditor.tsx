@@ -265,6 +265,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const engine = platform.engine;
   const theme = useResolvedTheme(themeSetting);
   const [info, setInfo] = useState<DocInfo | null>(null);
+  /** The open deck has macros (kept, never run): show the warning bar. */
+  const [macroWarning, setMacroWarning] = useState(false);
   const [fileName, setFileName] = useState('');
   const [current, setCurrent] = useState(0);
   const [view, setView] = useState<SlideView>('normal');
@@ -370,6 +372,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       setEditing(null);
       setNotesDraft(null);
       setInfo(doc);
+      setMacroWarning(!!doc.macros);
       setFileName(name);
       setCurrent(0);
       setRevs([]);
@@ -1800,6 +1803,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             if ((v === 'transitions' || v === 'animations') && view === 'normal') setPaneOpen(true);
           }}
         />
+      )}
+      {macroWarning && view !== 'show' && view !== 'presenter' && (
+        <div className={styles.macroBar} role="status" data-testid="macro-warning">
+          <span>{t('security.macroWarning')}</span>
+          <button type="button" onClick={() => setMacroWarning(false)}>
+            {t('security.dismiss')}
+          </button>
+        </div>
       )}
       {view === 'normal' && (
         <div className={styles.normal}>

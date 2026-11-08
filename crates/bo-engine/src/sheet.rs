@@ -36,6 +36,9 @@ pub const MAX_COLS: u32 = 16_384;
 pub struct WorkbookInfo {
     pub name: String,
     pub sheets: Vec<SheetInfo>,
+    /// The file contains a VBA project ([MS-OVBA]) or XLM macro sheets; kept
+    /// when saving, never run.
+    pub macros: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -162,6 +165,8 @@ pub struct SheetEngine {
     clip: Option<Clip>,
     /// Live collaboration binding (`bo-collab`).
     collab: Option<collab::SheetCollab>,
+    /// The open file has macros (warning bar; preserved, never executed).
+    macros: bool,
 }
 
 impl Default for SheetEngine {
@@ -393,6 +398,7 @@ impl SheetEngine {
             adjuster: BoFormula::new(),
             clip: None,
             collab: None,
+            macros: false,
         }
     }
 
@@ -466,7 +472,10 @@ impl SheetEngine {
         } else {
             return Err(EngineError::Unsupported(name.to_owned()));
         };
-        self.load(wb, name)
+        let macros = !lower.ends_with(".csv") && bo_binary::has_macros(bytes);
+        self.load(wb, name)?;
+        self.macros = macros;
+        self.info()
     }
 
     /// New empty workbook with one sheet.
@@ -500,6 +509,7 @@ impl SheetEngine {
         self.name = name.to_owned();
         self.undo.clear();
         self.redo.clear();
+        self.macros = false;
         self.info()
     }
 
@@ -547,6 +557,7 @@ impl SheetEngine {
                     }
                 })
                 .collect(),
+            macros: self.macros,
         })
     }
 

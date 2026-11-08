@@ -74,6 +74,38 @@ fn macros_are_reported_and_kept() {
     assert!(!f.open(&docx, "plain.docx").unwrap().macros);
 }
 
+/// The same warning bar for BlueSheet (.xlsm) and BlueSlide (.pptm): the
+/// [MS-OVBA] project part is reported on open and a plain file is not.
+#[test]
+fn sheet_and_slide_macros_are_reported() {
+    let with_vba = |bytes: &[u8], part: &str| {
+        let mut pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).unwrap();
+        pkg.put_part(part, vec![0xD0, 0xCF, 0x11, 0xE0, 1, 2, 3]);
+        pkg.write().unwrap()
+    };
+    let mut s = bo_engine::SheetEngine::new();
+    s.new_workbook("a.xlsx").unwrap();
+    let xlsx = s.save("xlsx", 0).unwrap();
+    let xlsm = with_vba(&xlsx, "/xl/vbaProject.bin");
+    assert!(s.open(&xlsm, "macro.xlsm").unwrap().macros);
+    assert!(!s.open(&xlsx, "plain.xlsx").unwrap().macros);
+    // A new workbook clears the flag.
+    s.open(&xlsm, "macro.xlsm").unwrap();
+    assert!(!s.new_workbook("b.xlsx").unwrap().macros);
+
+    let pptx = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus/slide/slide-text-bullets.pptx"),
+    )
+    .unwrap();
+    let pptm = with_vba(&pptx, "/ppt/vbaProject.bin");
+    let mut e = Engine::with_bundled_fonts();
+    let info = e.open(&pptm, "macro.pptm").unwrap();
+    assert_eq!(info.kind, "slide");
+    assert!(info.macros);
+    assert!(!e.open(&pptx, "plain.pptx").unwrap().macros);
+}
+
 fn corpus(name: &str) -> Vec<u8> {
     std::fs::read(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

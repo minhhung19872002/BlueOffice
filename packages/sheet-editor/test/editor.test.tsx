@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   PivotInfo,
@@ -225,6 +225,28 @@ globalThis.ResizeObserver ??= class {
 } as unknown as typeof ResizeObserver;
 
 describe('BlueSheetEditor', () => {
+  it('warns about macros in an opened .xlsm and dismisses the bar', async () => {
+    const { host } = fakeHost();
+    const { p } = platform(host);
+    let openHandler: ((f: { name: string; bytes: Uint8Array }) => void) | undefined;
+    (p.shell as { onOpenRequest: unknown }).onOpenRequest = (
+      h: (f: { name: string; bytes: Uint8Array }) => void,
+    ) => {
+      openHandler = h;
+      return () => {};
+    };
+    const base = await host.info();
+    host.open = async () => ({ ...base, name: 'Có macro.xlsm', macros: true });
+    render(<BlueSheetEditor platform={p} language="en-US" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    expect(screen.queryByTestId('macro-warning')).toBeNull();
+    act(() => openHandler?.({ name: 'Có macro.xlsm', bytes: new Uint8Array([80, 75]) }));
+    const bar = await screen.findByTestId('macro-warning');
+    expect(bar.textContent).toContain('macros');
+    fireEvent.click(bar.querySelector('button')!);
+    await waitFor(() => expect(screen.queryByTestId('macro-warning')).toBeNull());
+  });
+
   it('types Vietnamese text into the active cell and commits on Enter', async () => {
     const { host, cells } = fakeHost();
     const { p } = platform(host);

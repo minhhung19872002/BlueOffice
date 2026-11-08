@@ -148,6 +148,7 @@ function fakePlatform() {
     pages: [0, 1, 2].map(() => ({ width: 960, height: 540 })),
     wordCount: 0,
     kind: 'slide' as const,
+    macros: name.endsWith('.pptm'),
   });
   const shape = (): SlideShapeInfo => ({
     id: 7,
@@ -391,6 +392,18 @@ async function openDeck(p: Platform, label = 'Mở') {
 }
 
 describe('BlueSlideEditor', () => {
+  it('warns about macros in a .pptm deck and dismisses the bar', async () => {
+    const { p, open } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    expect(screen.queryByTestId('macro-warning')).toBeNull();
+    act(() => open({ name: 'Có macro.pptm', bytes: new Uint8Array([1]) }));
+    const bar = await screen.findByTestId('macro-warning');
+    expect(bar.textContent).toContain('macro');
+    fireEvent.click(bar.querySelector('button')!);
+    await waitFor(() => expect(screen.queryByTestId('macro-warning')).toBeNull());
+  });
+
   it('opens a deck, shows thumbnails and notes, navigates and saves', async () => {
     const { p, engine, saved } = fakePlatform();
     render(<BlueSlideEditor platform={p} language="vi-VN" />);

@@ -285,6 +285,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [selRect, setSelRect] = useState<Rect | null>(null);
   const [activeRect, setActiveRect] = useState<Rect | null>(null);
   const [status, setStatus] = useState('');
+  /** The open file has macros (kept, never run): show the warning bar. */
+  const [macroWarning, setMacroWarning] = useState(false);
   const [stats, setStats] = useState<{
     key: string;
     sum: number;
@@ -363,6 +365,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const loaded = useCallback(
     (wb: WorkbookInfo, name: string) => {
       setInfo(wb);
+      setMacroWarning(!!wb.macros);
       setFileName(name);
       setSheet(0);
       setSelection(single({ row: 0, col: 0 }));
@@ -2262,6 +2265,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   return (
     <div className={styles.root} data-theme={theme} data-app="sheet">
       <Ribbon tabs={ribbonTabs} />
+      {macroWarning && (
+        <div className={styles.macroBar} role="status" data-testid="macro-warning">
+          <span>{t('security.macroWarning')}</span>
+          <button type="button" onClick={() => setMacroWarning(false)}>
+            {t('security.dismiss')}
+          </button>
+        </div>
+      )}
       <div className={styles.formulaBar}>
         <input
           className={styles.nameBox}

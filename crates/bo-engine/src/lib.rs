@@ -295,7 +295,10 @@ impl Engine {
         let macros = bo_binary::has_macros(bytes);
         let is_zip = bytes.starts_with(b"PK\x03\x04");
         if is_zip && bo_pptx::is_pptx(bytes) {
-            return self.open_pptx(bytes, name);
+            self.open_pptx(bytes, name)?;
+            // A macro-enabled deck (.pptm, [MS-OVBA]) gets the same warning bar.
+            self.macros = macros;
+            return self.info();
         }
         let doc = if is_zip && bo_odf::detect_mimetype(bytes).as_deref() == Some(bo_odf::MIME_ODT) {
             bo_odf::read_odt(bytes).map_err(|e| EngineError::Format(e.to_string()))?
@@ -490,6 +493,7 @@ impl Engine {
         self.pres = Some(pres);
         self.images = images;
         self.slides = slide_edit::SlideEditor::default();
+        self.macros = false;
         self.deck_seq += 1;
         self.collab = None;
         self.slide_collab = None;

@@ -6,12 +6,15 @@ Cập nhật sau mỗi hạng mục BACKLOG.
 
 ## Tổng hợp (theo hàng tính năng bên dưới; ✅ = 1, 🟡 = 0,5)
 
+Tính lại khi rà soát định kỳ 2026-11-09 từ cột Trạng thái. Fidelity (`pnpm fidelity`, 2026-11-09): .docx 72 file, 98,6 % hợp lệ sau khi
+lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file, 100 %; ảnh mốc tự sinh 216 trang, 0 vượt ngưỡng.
+
 | App / nhóm | Hàng | Điểm | % |
 |---|---|---|---|
-| Chung (CORE) | 32 | 11 | 34 % |
+| Chung (CORE) | 32 | 9,5 | 30 % |
 | BlueDoc (DOC) | 18 | 8 | 44 % |
-| BlueSheet (SHEET) | 20 | 8 | 40 % |
-| BlueSlide (SLIDE) | 12 | 4 | 33 % |
+| BlueSheet (SHEET) | 20 | 7,5 | 38 % |
+| BlueSlide (SLIDE) | 12 | 6 | 50 % |
 | Hàm bảng tính | 515 hàm | 275 | 53 % (`functions.md`) |
 
 ## Chung

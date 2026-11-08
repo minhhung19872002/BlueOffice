@@ -161,17 +161,30 @@ pub(crate) fn capture(r: &mut XmlReader<'_>, e: &BytesStart<'_>, empty: bool) ->
 
 /// Text content of the current element (child elements are ignored).
 pub(crate) fn read_text(r: &mut XmlReader<'_>) -> Result<String> {
-    let end = r.depth() - 1;
     let mut s = String::new();
+    read_text_into(r, &mut s)?;
+    Ok(s)
+}
+
+/// [`read_text`] appending to `s` (callers reuse one buffer).
+pub(crate) fn read_text_into(r: &mut XmlReader<'_>, s: &mut String) -> Result<()> {
+    let end = r.depth() - 1;
     loop {
         match r.read()? {
-            Event::Text(t) => s.push_str(&unescape(&t)),
+            Event::Text(t) => {
+                let t: &str = &t;
+                if t.contains('&') {
+                    s.push_str(&unescape(t));
+                } else {
+                    s.push_str(t);
+                }
+            }
             Event::GeneralRef(g) => {
                 let t: &str = &g;
                 s.push_str(&unescape(&format!("&{t};")));
             }
             Event::CData(c) => s.push_str(&c),
-            Event::End(_) if r.depth() == end => return Ok(s),
+            Event::End(_) if r.depth() == end => return Ok(()),
             Event::Eof => return Err(XlsxError::Opc(r.err("unexpected end of document"))),
             _ => {}
         }

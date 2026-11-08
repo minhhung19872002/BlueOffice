@@ -577,8 +577,8 @@ impl Session {
             };
             *hf_slot_mut(set, v) = blocks;
             self.version += 1;
-            // Not an op: the incremental layout must redo everything.
-            self.changes.mark_all();
+            // Not an op: the layout decorates the pages from this section on again.
+            self.changes.mark_headers(si);
         }
     }
 

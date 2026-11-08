@@ -67,8 +67,10 @@ E2E gõ tiếng Việt + lưu + mở lại.
 - Paste Special đọc HTML từ bộ nhớ tạm cần trình duyệt cho phép `clipboard.read`; nếu không, dùng nội dung vừa sao chép trong BlueDoc.
 - Wrap tight dùng hộp bao của đa giác (chưa theo từng cạnh đa giác); chữ trong bảng không chảy quanh ảnh; đoạn bị chia sang
   trang sau dùng bề rộng tính theo vị trí ở trang trước; text box/shape hiển thị dạng opaque; chưa chia đoạn qua cột cân bằng.
-- Layout tăng dần: tài liệu có NUMPAGES trong thân văn bản, thay đổi đánh số chú thích, style/numbering/section dàn lại toàn bộ;
-  trang dùng lại chỉ được dời số trang khi thân văn bản không có field và không có section oddPage/evenPage.
+- Layout tăng dần: NUMPAGES/SECTIONPAGES trong thân văn bản và sửa đầu/chân trang **đã tăng dần** (xem mục "Layout tăng
+  dần: NUMPAGES và đầu/chân trang" bên dưới). Còn dàn lại toàn bộ: thay đổi số trang khi thân có NUMPAGES, đầu/chân trang
+  đổi chiều cao (đẩy thân văn bản), chú thích đổi trang với numRestart eachPage, đổi style/numbering/section; trang dùng lại
+  chỉ được dời số trang khi thân văn bản không có field và không có section oddPage/evenPage.
 - Visual diff với ảnh tham chiếu (< 2 % pixel) chưa chạy vì chưa có ảnh tham chiếu do người dùng cung cấp.
 - E2E desktop (Tauri WebDriver) chưa có.
 
@@ -84,3 +86,36 @@ WASM (node): `pnpm build:wasm && node scripts/bench-typing-wasm.mjs`. Trung vị
 | Backspace | 78,7 ms | ~1,1 ms | 74,6 ms | 2,4 ms |
 | Bật/tắt đậm | 54,2 ms | ~1,9 ms | 77,6 ms | 4,1 ms |
 | Gõ 1 ký tự, không khớp lại (phân trang lại ~150 trang) | — | ~8 ms | — | — |
+
+## Khả năng mở rộng layout (> 300 trang)
+Đo bằng thời gian CPU của tiến trình (máy dev đang tải 100 % bởi các build khác, nên thời gian thực dao động ×2–3):
+`bo-cli sample-big --pages N out.docx` rồi `bo-cli dump out.docx --page 0` (mở + layout + display list trang 1).
+
+| Trang | 150 | 300 | 600 | 1 200 |
+|---|---|---|---|---|
+| CPU (s) | 0,61 | 1,14 | 2,08 | 4,13 |
+
+`sample-big` tăng tuyến tính; con số "600 trang 2,49 s" cũ là nhiễu do tải máy. Phần O(n²) thật nằm ở tài liệu nhiều chú thích:
+khoá cache layout đoạn văn băm **toàn bộ** bảng số chú thích cho mỗi đoạn có tham chiếu chú thích (O(đoạn × chú thích)).
+Nay chỉ băm số của các chú thích mà đoạn tham chiếu. Đo bằng `cargo run --release -p bo-layout --example scale -- --repeat
+tests/corpus/doc/notes-03-many-footnotes.docx` (thân văn bản lặp lại, mỗi bản sao có chú thích riêng):
+
+| Bản sao (trang) | 150 (120) | 300 (240) | 600 (480) | 1 200 (960) |
+|---|---|---|---|---|
+| Trước | 337 ms (2,8 ms/trang) | 1 143 ms (4,8) | 4 742 ms (9,9) | 13 528 ms (14,1) |
+| Sau | 203 ms (1,7 ms/trang) | 397 ms (1,7) | 851 ms (1,8) | 2 167 ms (2,3) |
+
+Cùng đợt: nhãn danh sách tra `num`/`abstractNum` một lần thay vì ~10 lần quét tuyến tính, tập endnote dùng hash set.
+`--repeat` cũng đo các corpus danh sách, bảng, đầu/chân trang, field, ảnh wrap: đều tuyến tính.
+
+## Layout tăng dần: NUMPAGES và đầu/chân trang
+- **NUMPAGES/SECTIONPAGES trong thân văn bản**: lần phân trang đầu của layout đầy đủ (tổng số trang rỗng, chỉ để đếm trang)
+  được giữ như một *probe layout* tăng dần (không đầu/chân trang); layout chính được cập nhật tăng dần khi số trang probe
+  không đổi. Gõ phím không làm đổi số trang → `UpdateKind::Incremental { resynced: true }` (test
+  `numpages_in_the_body_stays_incremental`). Đổi số trang → dàn lại toàn bộ (mọi trang có NUMPAGES đều đổi). Bộ nhớ: probe
+  giữ thêm một bản layout (chỉ khi thân có NUMPAGES).
+- **Sửa đầu/chân trang**: transaction ghi `BlockChanges::mark_headers(section)` (op section chỉ khác headers/footers/titlePg,
+  xem trước khi gõ trong header, evenAndOddHeaders) thay vì "mọi thứ". Nếu chiều cao đầu/chân trang không đổi, layout chỉ
+  trang trí lại các trang từ section đó trở đi, không phân trang lại (`header_edits_redecorate_without_repaginating`,
+  `typing_in_a_header_redecorates_without_repaginating` qua engine).
+- Proptest `random_edits_match_full_layout` sinh thêm đoạn NUMPAGES và sửa header (ngắn/dài): kết quả tăng dần == layout đầy đủ.

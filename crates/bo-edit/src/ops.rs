@@ -152,6 +152,22 @@ impl Op {
                 [section, block, ..] => changes.splice(*section, *block, 1, 1),
                 [] => changes.mark_all(),
             },
+            // Header/footer edits (ECMA-376 Part 1, §17.10): the section is replaced
+            // by a copy that differs only there.
+            Op::Sections {
+                index,
+                remove,
+                insert,
+            } if remove.len() == insert.len()
+                && remove
+                    .iter()
+                    .zip(insert)
+                    .all(|(a, b)| a.same_except_headers(b)) =>
+            {
+                changes.mark_headers(*index);
+            }
+            // §17.15.1.35 evenAndOddHeaders only selects which header a page shows.
+            Op::EvenAndOddHeaders { .. } => changes.mark_headers(0),
             _ => changes.mark_all(),
         }
     }

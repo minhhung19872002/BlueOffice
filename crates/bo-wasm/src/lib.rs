@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod collab;
+mod heap;
 mod sheet;
 mod sign;
 pub use collab::WasmCollab;
@@ -23,26 +24,6 @@ pub struct WasmEngine {
 
 fn err(e: impl std::fmt::Display) -> JsError {
     JsError::new(&e.to_string())
-}
-
-/// Grows the WASM heap in one step before opening a large file.
-///
-/// The allocator (`dlmalloc`) extends linear memory by just what each request
-/// needs, in 64 KiB steps; opening the 1 000 000-cell workbook grew the heap
-/// thousands of times and `memory.grow` dominated the open (≈ 65 % of the time
-/// in a V8 CPU profile). One large allocation that is freed straight away
-/// leaves a single free block the parser then carves from. Linear memory never
-/// shrinks, so the estimate stays close to what parsing needs: about 64× the
-/// compressed size of a spreadsheet package, at most 640 MiB.
-pub(crate) fn reserve_heap(compressed: usize) {
-    const MIB: usize = 1 << 20;
-    if compressed < MIB {
-        return;
-    }
-    let want = compressed.saturating_mul(64).min(640 * MIB);
-    let block: Vec<u8> = Vec::with_capacity(want);
-    // Keep the allocation from being optimised away.
-    drop(std::hint::black_box(block));
 }
 
 #[wasm_bindgen]

@@ -3,7 +3,9 @@
 
 use crate::blocks::Ctx;
 use crate::drawing::{shape_drawing, Drawing, Float};
-use crate::style::{para_style_run, revision_style, run_props, run_style, slot_of, RunStyle};
+use crate::style::{
+    para_style_run, revision_style, run_props, run_style, slot_of, ListCounters, RunStyle,
+};
 use crate::types::{Fragment, GlyphPos, NoteKey};
 use crate::LayoutError;
 use crate::RevisionView;
@@ -351,16 +353,28 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
         }
         z.side.hash(&mut h);
     }
-    // Page-dependent fields and note numbers only matter when present.
-    if inp.para.runs.iter().any(|r| {
-        r.content.iter().any(|c| {
-            matches!(
-                c,
-                RunContent::Field { .. } | RunContent::FootnoteRef(_) | RunContent::EndnoteRef(_)
-            )
-        })
-    }) {
+    // Page-dependent fields and note numbers only matter when present: the numbers
+    // of the notes this paragraph references (hashing the whole note map made the
+    // layout quadratic in the number of notes). Drawings (text boxes) may reference
+    // notes of their own, so they hash every number.
+    let mut fields = false;
+    let mut drawings = false;
+    for c in inp.para.runs.iter().flat_map(|r| &r.content) {
+        match c {
+            RunContent::Field { .. } => fields = true,
+            RunContent::FootnoteRef(id) | RunContent::EndnoteRef(id) => {
+                fields = true;
+                let key = (matches!(c, RunContent::EndnoteRef(_)), *id);
+                inp.note_numbers.get(&key).hash(&mut h);
+            }
+            RunContent::Image(img) if img.shape.is_some() => drawings = true,
+            _ => {}
+        }
+    }
+    if fields || drawings {
         inp.fields.hash(&mut h);
+    }
+    if drawings {
         let mut notes: Vec<_> = inp.note_numbers.iter().collect();
         notes.sort();
         notes.hash(&mut h);

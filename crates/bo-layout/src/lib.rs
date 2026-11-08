@@ -168,9 +168,10 @@ fn page_note_numbers(
 /// Endnotes referenced in `blocks`, in order.
 fn endnotes_in(blocks: &[Block]) -> Vec<i32> {
     let mut v = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     visit_body(blocks, &mut |c| {
         if let RunContent::EndnoteRef(id) = c {
-            if !v.contains(id) {
+            if seen.insert(*id) {
                 v.push(*id);
             }
         }

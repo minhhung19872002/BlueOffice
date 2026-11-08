@@ -66,6 +66,27 @@ impl Package {
         p
     }
 
+    /// Declared uncompressed size of the XML parts of a ZIP package, from the
+    /// central directory only (nothing is inflated). Hosts use it to size their
+    /// heap before opening big files; `None` when the bytes are not a ZIP file.
+    pub fn xml_size(bytes: &[u8]) -> Option<u64> {
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).ok()?;
+        let mut total = 0u64;
+        for i in 0..zip.len() {
+            let Ok(f) = zip.by_index_raw(i) else {
+                continue;
+            };
+            let xml = f.name().is_ok_and(|n| {
+                let n = n.to_ascii_lowercase();
+                n.ends_with(".xml") || n.ends_with(".rels")
+            });
+            if xml {
+                total = total.saturating_add(f.size());
+            }
+        }
+        Some(total)
+    }
+
     /// Read a package from ZIP bytes.
     pub fn read(bytes: &[u8], limits: &Limits) -> Result<Package> {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;

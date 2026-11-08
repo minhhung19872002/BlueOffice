@@ -58,7 +58,7 @@ impl WasmSheet {
         name: &str,
         password: Option<String>,
     ) -> Result<String, JsError> {
-        crate::reserve_heap(bytes.len());
+        crate::heap::reserve_for_package(bytes, crate::heap::SHEET_FACTOR);
         Ok(json(
             &self
                 .inner

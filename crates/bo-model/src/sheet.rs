@@ -79,14 +79,16 @@ impl CellRef {
     /// ECMA-376 Part 1, §18.18.62 `ST_Ref` / §18.18.7 `ST_CellRef`.
     pub fn parse(s: &str) -> Option<CellRef> {
         let s = s.trim();
-        // Opening a sheet parses one reference per cell: allocate only for `$`.
-        let owned: String;
-        let s = if s.contains('$') {
-            owned = s.chars().filter(|c| *c != '$').collect();
-            owned.as_str()
-        } else {
-            s
-        };
+        if s.contains('$') {
+            let plain: String = s.chars().filter(|c| *c != '$').collect();
+            return Self::parse_plain(&plain);
+        }
+        Self::parse_plain(s)
+    }
+
+    /// [`CellRef::parse`] of a reference without `$` (no allocation: every cell of a
+    /// worksheet has one).
+    fn parse_plain(s: &str) -> Option<CellRef> {
         let split = s.find(|c: char| c.is_ascii_digit())?;
         let (letters, digits) = s.split_at(split);
         let col = letters_to_col(letters)?;

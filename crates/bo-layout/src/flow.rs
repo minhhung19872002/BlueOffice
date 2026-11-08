@@ -1223,7 +1223,7 @@ impl Flow {
         }
         // Endnotes of the other sections at the end of the document (docEnd, default).
         let rest: Vec<i32> = {
-            let placed: Vec<i32> = doc
+            let placed: std::collections::HashSet<i32> = doc
                 .sections
                 .iter()
                 .enumerate()

@@ -480,7 +480,7 @@ impl Engine {
         if ch.is_empty() {
             return false;
         }
-        if ch.is_all() || saved.sections.len() != doc.sections.len() {
+        if ch.is_all() || ch.headers().is_some() || saved.sections.len() != doc.sections.len() {
             return saved != doc;
         }
         ch.sections().iter().any(|c| {

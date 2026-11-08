@@ -1,0 +1,34 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 144.0 81.0]
+  text 19.6pt 290.0,23.3 #595959ff "Khách "
+  text 19.6pt 342.8,23.3 #595959ff "hàng"
+  path n=5 [524.2 188.9 535.4 200.1] fill=#2e6db4ff
+  text 14.0pt 539.6,198.2 #595959ff "Hà "
+  text 14.0pt 558.2,198.2 #595959ff "Nội"
+  path n=5 [524.2 211.3 535.4 222.5] fill=#f28c28ff
+  text 14.0pt 539.6,220.6 #595959ff "Đà "
+  text 14.0pt 558.2,220.6 #595959ff "Nẵng"
+  path n=2 [55.0 351.6 518.2 351.6] stroke=#d9d9d9ff w0.50
+  text 14.0pt 44.9,356.4 #595959ff "0"
+  path n=2 [55.0 288.9 518.2 288.9] stroke=#d9d9d9ff w0.50
+  text 14.0pt 44.9,293.7 #595959ff "2"
+  path n=2 [55.0 226.2 518.2 226.2] stroke=#d9d9d9ff w0.50
+  text 14.0pt 44.9,231.0 #595959ff "4"
+  path n=2 [55.0 163.6 518.2 163.6] stroke=#d9d9d9ff w0.50
+  text 14.0pt 44.9,168.3 #595959ff "6"
+  path n=2 [55.0 100.9 518.2 100.9] stroke=#d9d9d9ff w0.50
+  text 14.0pt 44.9,105.7 #595959ff "8"
+  path n=2 [55.0 38.2 518.2 38.2] stroke=#d9d9d9ff w0.50
+  text 14.0pt 37.8,43.0 #595959ff "10"
+  path n=2 [55.0 351.6 518.2 351.6] stroke=#868686ff w0.75
+  text 14.0pt 105.9,368.1 #595959ff "T1"
+  text 14.0pt 221.7,368.1 #595959ff "T2"
+  text 14.0pt 337.5,368.1 #595959ff "T3"
+  text 14.0pt 453.3,368.1 #595959ff "T4"
+  path n=4 [112.9 69.5 460.3 257.6] stroke=#2e6db4ff w2.25
+  path n=4 [112.9 163.6 460.3 288.9] stroke=#f28c28ff w2.25
+pop transform

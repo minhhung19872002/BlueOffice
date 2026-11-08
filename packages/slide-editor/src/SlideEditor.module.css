@@ -471,3 +471,262 @@ circle.handle {
   outline: none;
   transform-origin: center;
 }
+
+/* Slide show stage: layers of one slide (transitions and animations). */
+.showStage {
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+
+.showLayer {
+  position: absolute;
+  inset: 0;
+}
+
+.showCanvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+/* Media clips over their poster frames. */
+.mediaVideo,
+.mediaAudio {
+  position: absolute;
+  z-index: 3;
+  cursor: auto;
+  background: #000;
+}
+
+.mediaAudio {
+  width: 240px;
+  height: 32px;
+  background: transparent;
+}
+
+.mediaUnsupported {
+  position: absolute;
+  z-index: 3;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgb(0 0 0 / 65%);
+  color: #fff;
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.mediaButtons {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.mediaButtons > div > * {
+  pointer-events: auto;
+}
+
+.mediaButton {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 13px;
+  background: rgb(0 0 0 / 60%);
+  color: #fff;
+  cursor: pointer;
+}
+
+/* Transitions and animations pane. */
+.animPane {
+  width: 300px;
+  overflow-y: auto;
+  border-left: 1px solid var(--bo-border, #d0d7de);
+  background: var(--bo-surface, #fff);
+  font-size: 12px;
+}
+
+.animPaneHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--bo-border, #d0d7de);
+}
+
+.animPaneHead h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.animPaneHead button,
+.animButtons button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.animSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--bo-border, #d0d7de);
+}
+
+.animSection h4 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.animSection label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.animSection input[type='number'] {
+  width: 64px;
+}
+
+.check {
+  justify-content: flex-start !important;
+}
+
+.animEmpty {
+  margin: 0;
+  color: var(--bo-text-muted, #57606a);
+}
+
+.animList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.animItem,
+.animItemActive {
+  padding: 4px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+}
+
+.animItemActive {
+  border-color: var(--bo-slide-accent, #c2410c);
+}
+
+.animName {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.animName em {
+  margin-left: auto;
+  color: var(--bo-text-muted, #57606a);
+}
+
+.animStep {
+  min-width: 14px;
+  font-weight: 600;
+}
+
+.animFields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.animFields label {
+  display: flex;
+  gap: 3px;
+}
+
+.animFields input[type='number'] {
+  width: 48px;
+}
+
+.animButtons {
+  margin-left: auto;
+}
+
+.animPreview {
+  align-self: center;
+}
+
+/* Chart dialog. */
+.chartForm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.chartForm label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chartGridWrap {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.chartGrid {
+  border-collapse: collapse;
+}
+
+.chartGrid th,
+.chartGrid td {
+  padding: 0;
+  border: 1px solid var(--bo-border, #d0d7de);
+}
+
+.chartGrid input {
+  width: 90px;
+  border: none;
+  padding: 3px 4px;
+  background: transparent;
+  color: inherit;
+}
+
+.chartGridButtons {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.exportForm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px;
+  border: none;
+  padding: 0;
+}
+
+.readingNav {
+  position: absolute;
+  bottom: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #ddd;
+}

@@ -28,7 +28,8 @@
 //!   `cf:<sheet>` (with the differential formats it uses) and `dv:<sheet>`,
 //!   last writer wins per sheet, their ranges also by row/column ids in
 //!   `cfa:<sheet>` / `dva:<sheet>` so they follow concurrent row/column
-//!   inserts and deletes; **charts** `ch:<sheet>:<i>` and **pivot
+//!   inserts and deletes (hyperlinks, AutoFilter and tables of `sh:<sheet>`
+//!   likewise in `sha:<sheet>`); **charts** `ch:<sheet>:<i>` and **pivot
 //!   tables** `pv:<sheet>:<i>` (+ caches `pc:<i>`) last writer wins per
 //!   object; defined names `wb`.
 
@@ -762,6 +763,12 @@ impl SheetCollab {
                 })
                 .ok();
                 put(&mut self.meta, &mut out, format!("sh:{sk}"), j);
+                let (ra, ca) = (self.axis(&sk, true), self.axis(&sk, false));
+                let at = BareAt::of(ws, &ra, &ca);
+                let j = (!at.is_empty())
+                    .then(|| serde_json::to_string(&at).ok())
+                    .flatten();
+                put(&mut self.meta, &mut out, format!("sha:{sk}"), j);
                 seen.bare = Some(b);
             }
             let (ra, ca) = (self.axis(&sk, true), self.axis(&sk, false));
@@ -984,6 +991,71 @@ impl SheetCollab {
 
 /// Structural differences of an axis: ids to delete (old positions,
 /// descending) and to insert (new positions, ascending).
+/// Ranges of a sheet's bare properties by row/column ids (`sha:<sheet>`):
+/// hyperlinks (§18.3.1.47), the AutoFilter (§18.3.1.2) and tables (§18.5.1.2),
+/// in the order of the shared `sh:<sheet>`; placed on the receiver's axes
+/// like [`place_by_id`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+struct BareAt {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    hl: Vec<[String; 4]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    af: Option<[String; 4]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tb: Vec<[String; 4]>,
+}
+
+impl BareAt {
+    fn of(ws: &Worksheet, ra: &Axis, ca: &Axis) -> BareAt {
+        let ids = |r: &CellRange| {
+            [
+                ra.id_at(r.first.row),
+                ca.id_at(r.first.col),
+                ra.id_at(r.last.row),
+                ca.id_at(r.last.col),
+            ]
+        };
+        BareAt {
+            hl: ws.hyperlinks.iter().map(|h| ids(&h.range)).collect(),
+            af: ws.auto_filter.as_ref().map(|a| ids(&a.range)),
+            tb: ws.tables.iter().map(|t| ids(&t.range)).collect(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.hl.is_empty() && self.af.is_none() && self.tb.is_empty()
+    }
+
+    fn place(&self, ws: &mut Worksheet, ra: &Axis, ca: &Axis) {
+        let at = |ids: &[String; 4]| -> Option<CellRange> {
+            let [r1, c1, r2, c2] = ids;
+            Some(CellRange::new(
+                CellRef::new(ra.pos_of(r1)?, ca.pos_of(c1)?),
+                CellRef::new(ra.pos_of(r2)?, ca.pos_of(c2)?),
+            ))
+        };
+        if self.hl.len() == ws.hyperlinks.len() {
+            for (h, ids) in ws.hyperlinks.iter_mut().zip(&self.hl) {
+                if let Some(r) = at(ids) {
+                    h.range = r;
+                }
+            }
+        }
+        if let (Some(a), Some(ids)) = (ws.auto_filter.as_mut(), &self.af) {
+            if let Some(r) = at(ids) {
+                a.range = r;
+            }
+        }
+        if self.tb.len() == ws.tables.len() {
+            for (t, ids) in ws.tables.iter_mut().zip(&self.tb) {
+                if let Some(r) = at(ids) {
+                    t.range = r;
+                }
+            }
+        }
+    }
+}
+
 /// The ranges of each rule (`sqref`, §18.3.1.18 / §18.3.1.32) as row/column ids
 /// `[top, left, bottom, right]` (`cfa:` / `dva:` next to the positional
 /// `cf:` / `dv:`), so a receiver whose rows or columns moved concurrently
@@ -1222,6 +1294,17 @@ impl SheetEngine {
                 ws.sheet_id = next_id;
                 ws
             };
+            // Hyperlinks, AutoFilter and tables where the sender meant them on
+            // this replica's rows and columns (see `BareAt`).
+            if joining || touched_sheets.contains(sk) {
+                if let Some(at) = c
+                    .meta
+                    .get(&format!("sha:{sk}"))
+                    .and_then(|j| serde_json::from_str::<BareAt>(j).ok())
+                {
+                    at.place(&mut ws, &c.axis(sk, true), &c.axis(sk, false));
+                }
+            }
             // Two sheets added at once with the same name: number the later one.
             let mut n = 2;
             let base = ws.name.clone();

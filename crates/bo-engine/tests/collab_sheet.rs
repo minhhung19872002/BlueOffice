@@ -331,3 +331,32 @@ fn rules_added_during_a_row_insert_follow_the_rows() {
         (vec!["A7:A12".to_owned()], vec!["C7:C12".to_owned()])
     );
 }
+
+// source: ECMA-376 Part 1, §18.3.1.2 autoFilter ref
+#[test]
+fn a_filter_turned_on_during_a_row_insert_follows_the_rows() {
+    let cells = [
+        (4, 0, "Tên"),
+        (4, 1, "Số"),
+        (5, 0, "a"),
+        (5, 1, "1"),
+        (6, 0, "b"),
+        (6, 1, "2"),
+        (7, 0, "c"),
+        (7, 1, "3"),
+    ];
+    let (mut a, mut b) = pair(&cells);
+    settle(&mut a, &mut b);
+    a.exec(r#"{"cmd":"toggleFilter","sheet":0,"range":{"r0":5,"c0":0,"r1":5,"c1":0}}"#);
+    b.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let filter = |p: &Peer| {
+        p.engine.workbook().unwrap().sheets[0]
+            .auto_filter
+            .as_ref()
+            .map(|f| f.range.to_string())
+    };
+    assert_eq!(filter(&a), filter(&b));
+    assert_eq!(filter(&a).as_deref(), Some("A7:B10"));
+    assert_eq!(a.view(), b.view());
+}

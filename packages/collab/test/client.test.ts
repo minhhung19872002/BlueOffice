@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  CLOSE_MOVED,
   CollabClient,
   encodeSyncUpdate,
   type CollabEngine,
@@ -161,6 +162,19 @@ describe('CollabClient', () => {
     expect(FakeSocket.all).toHaveLength(1);
     expect(ended).toEqual([reason]);
     expect(c.currentStatus).toBe('closed');
+  });
+
+  it('close code 4009 (room on another api instance) reconnects instead of ending', () => {
+    const { c } = client();
+    const ended: string[] = [];
+    c.on('ended', (r) => ended.push(r));
+    c.connect();
+    FakeSocket.all[0]!.open();
+    FakeSocket.all[0]!.serverClose(CLOSE_MOVED);
+    expect(c.currentStatus).toBe('offline');
+    vi.advanceTimersByTime(10_000);
+    expect(FakeSocket.all.length).toBeGreaterThan(1);
+    expect(ended).toEqual([]);
   });
 
   it('pings and requests saves', () => {

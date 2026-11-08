@@ -108,7 +108,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.multi.yml -
   băm nhất quán theo id file; `/api/sessions/{instance}~…` chuyển thẳng tới instance đó (tên máy = id instance); phần
   còn lại cân bằng tải. Thêm instance: thêm dịch vụ `api-N` và dòng `server api-N:8080;` trong `upstream bo_api`.
 - Khi thêm/bớt instance, một phần file đổi instance: phòng đang mở vẫn ở instance cũ tới khi đóng (khách mới nhận 4009 và
-  mở lại phiên sau đó).
+  kết nối lại có backoff tới khi phòng cũ đóng).
 
 ### Tích hợp BlueDrive
 

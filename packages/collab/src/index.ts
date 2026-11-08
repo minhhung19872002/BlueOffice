@@ -93,6 +93,8 @@ export type CloseReason = 'reload' | 'expired' | 'revoked' | 'closed';
 export const CLOSE_RELOAD = 4001;
 export const CLOSE_EXPIRED = 4401;
 export const CLOSE_REVOKED = 4403;
+/** The room is hosted by another api instance: not final, the client reconnects with backoff. */
+export const CLOSE_MOVED = 4009;
 
 /** The subset of the browser `WebSocket` used here (injectable for tests). */
 export interface SocketLike {

@@ -114,7 +114,8 @@ API phiên (header `X-Session-Token`): `GET /api/sessions/{id}`, `DELETE`, `GET 
   Client → server: `{"type":"ping"}`, `{"type":"save"}`.
 - Lưu về host: autosave mỗi `autosaveSeconds` (30–60 s) khi có thay đổi, nút Lưu, và khi người cuối rời phiên.
   Server gửi `save-request` cho một editor; editor trả lời bằng `POST …/checkpoint`. Mỗi lần lưu tạo version kèm danh sách người sửa.
-- Mã đóng: `4001` reload (sau restore), `4401` phiên hết hạn, `4403` mất quyền.
+- Mã đóng: `4001` reload (sau restore), `4401` phiên hết hạn, `4403` mất quyền, `4009` phòng đang ở instance `api` khác
+  (lý do = id instance; client kết nối lại có backoff, xem `docs/deploy/README.md` "Nhiều instance").
 
 ## D. Quyền, offline, webhook
 

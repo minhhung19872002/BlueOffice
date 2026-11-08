@@ -781,9 +781,19 @@ fn system_fonts_in_font_picker_and_layout() {
     e.new_document("a.docx").unwrap();
     let r = cmd(&mut e, r#"{"cmd":"fontList"}"#);
     let fonts = r["fonts"].as_array().unwrap();
-    let carlito = fonts.iter().find(|f| f["name"] == "Carlito").unwrap();
-    assert_eq!(carlito["available"], true);
-    assert_eq!(e.face_count(), 1, "listing does not load fonts");
+    let sans = fonts
+        .iter()
+        .find(|f| f["name"] == "Liberation Sans")
+        .unwrap();
+    assert_eq!(sans["available"], true);
+    // The new document's default font may have loaded its installed substitute;
+    // listing loads nothing.
+    let before = e.face_count();
+    cmd(&mut e, r#"{"cmd":"fontList"}"#);
+    assert_eq!(e.face_count(), before, "listing does not load fonts");
+    assert!(
+        !(0..before).any(|i| e.fonts().info(bo_text::FaceId(i as u32)).family == "Liberation Sans")
+    );
     cmd(&mut e, r#"{"cmd":"insertText","text":"hệ thống"}"#);
     cmd(
         &mut e,
@@ -791,11 +801,11 @@ fn system_fonts_in_font_picker_and_layout() {
     );
     cmd(
         &mut e,
-        r#"{"cmd":"formatText","format":{"kind":"font","name":"Carlito"}}"#,
+        r#"{"cmd":"formatText","format":{"kind":"font","name":"Liberation Sans"}}"#,
     );
     e.page_json(0).unwrap();
     assert!(
-        e.face_count() > 1,
+        e.face_count() > before,
         "the installed family was loaded for layout"
     );
     assert_eq!(e.fonts().info(bo_text::FaceId(0)).family, "Tinos");

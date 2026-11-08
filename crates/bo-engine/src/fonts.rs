@@ -64,10 +64,8 @@ impl Engine {
             if out.iter().any(|c| c.name.eq_ignore_ascii_case(name)) {
                 continue;
             }
-            let sub = self
-                .fonts
-                .resolve(name, false, false)
-                .map(|id| self.fonts.info(id).family.clone());
+            // Named without loading installed fonts (they load when a document uses them).
+            let sub = self.fonts.display_family(name);
             out.push(FontChoice {
                 name: (*name).to_owned(),
                 substitute: sub,

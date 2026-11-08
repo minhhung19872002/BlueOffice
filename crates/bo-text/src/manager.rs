@@ -228,6 +228,32 @@ impl FontManager {
         r
     }
 
+    /// Family that would display `family` (same order as [`FontManager::resolve`]),
+    /// without loading any installed font file.
+    pub fn display_family(&self, family: &str) -> Option<String> {
+        let lower = family.to_lowercase();
+        let mut candidates: Vec<&str> = vec![&lower];
+        if let Some((_, subs)) = FALLBACKS.iter().find(|(k, _)| *k == lower) {
+            candidates.extend_from_slice(subs);
+        }
+        candidates.extend_from_slice(LAST_RESORT);
+        for fam in candidates {
+            if let Some(ids) = self.by_family.get(fam) {
+                return ids.first().map(|id| self.info(*id).family.clone());
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(idx) = &self.system {
+                if idx.contains(fam) {
+                    return idx
+                        .families()
+                        .into_iter()
+                        .find(|f| f.eq_ignore_ascii_case(fam));
+                }
+            }
+        }
+        self.faces.first().map(|f| f.info.family.clone())
+    }
+
     fn resolve_uncached(&mut self, family: &str, bold: bool, italic: bool) -> Option<FaceId> {
         let mut candidates: Vec<&str> = vec![family];
         if let Some((_, subs)) = FALLBACKS.iter().find(|(k, _)| *k == family) {

@@ -173,3 +173,30 @@ test('pastes a slide copied from another deck, with its pictures; kept after reo
   await expect(page.getByTestId('slide-status')).toHaveText(`Slide 2 / ${n + 1}`);
   expect(errors).toEqual([]);
 });
+
+test('pastes a chart slide (chart, workbook) into another deck; kept after reopen', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/slide');
+  // Slide 2 of this deck holds a chart with its embedded workbook.
+  await openDeck(page, join(here, '..', '..', 'corpus', 'slide', 'slide-edit-paste-chart.pptx'));
+  await page.getByTestId('thumb-2').click();
+  await expect(page.getByTestId('slide-status')).toHaveText(/^Slide 2 \//);
+  await page.getByRole('button', { name: 'Sao chép slide' }).click();
+  await openDeck(page, join(here, '..', '..', 'corpus', 'slide', 'slide-shapes-presets.pptx'));
+  const status = await page.getByTestId('slide-status').textContent();
+  const n = Number(/\/ (\d+)/.exec(status ?? '')?.[1] ?? 0);
+  await page.getByRole('button', { name: 'Dán slide' }).click();
+  await expect(page.getByTestId('slide-status')).toHaveText(`Slide 2 / ${n + 1}`);
+  const download = page.waitForEvent('download');
+  await page.keyboard.press('Control+s');
+  const saved = await (await download).path();
+  await page.reload();
+  await openDeck(page, saved);
+  await page.getByTestId('thumb-2').click();
+  await expect(page.getByTestId('slide-status')).toHaveText(`Slide 2 / ${n + 1}`);
+  await expect(page.getByTestId('slide-overlay')).toBeVisible();
+  expect(errors).toEqual([]);
+});

@@ -6,7 +6,7 @@
 //! rendering. Parse failures are tolerated (the chart is simply not summarized).
 
 use crate::xml::{attrs, lname};
-use bo_model::sheet::{CellRef, Chart, ChartKind, ChartPlot, ChartSeries, RawAttr};
+use bo_model::sheet::{CellRef, Chart, ChartAnchor, ChartKind, ChartPlot, ChartSeries, RawAttr};
 use bo_opc::xml::{unescape, XmlReader};
 use bo_opc::{resolve_target, Package, Relationship, TargetMode};
 use quick_xml::events::Event;
@@ -140,6 +140,18 @@ pub(crate) fn read_charts(pkg: &Package, sheet_part: &str, rels: &[Relationship]
             // §20.5.2.33 twoCellAnchor, §20.5.2.24 oneCellAnchor, §20.5.2.1 absoluteAnchor
             let from = anchor.child("from").map(anchor_cell).unwrap_or_default();
             let to = anchor.child("to").map(anchor_cell);
+            let kind = match anchor.name.as_str() {
+                "oneCellAnchor" => ChartAnchor::OneCell,
+                "absoluteAnchor" => ChartAnchor::Absolute,
+                _ => ChartAnchor::TwoCell,
+            };
+            let emu = |n: &Node, a: &str, b: &str| {
+                let v = |k: &str| n.attr(k).and_then(|v| v.trim().parse::<i64>().ok());
+                Some((v(a)?, v(b)?))
+            };
+            // §20.5.2.25 pos, §20.5.2.14 ext (EMU).
+            let pos = anchor.child("pos").and_then(|p| emu(p, "x", "y"));
+            let ext = anchor.child("ext").and_then(|e| emu(e, "cx", "cy"));
             let mut refs = Vec::new();
             anchor.descendants("chart", &mut refs);
             for c in refs {
@@ -152,6 +164,11 @@ pub(crate) fn read_charts(pkg: &Package, sheet_part: &str, rels: &[Relationship]
                     if let Some(mut chart) = parse_chart_space(&cp.data, &part) {
                         chart.from = from;
                         chart.to = to;
+                        chart.anchor = kind;
+                        if kind != ChartAnchor::TwoCell {
+                            chart.pos = pos;
+                            chart.ext = ext;
+                        }
                         charts.push(chart);
                     }
                 }
@@ -226,6 +243,24 @@ fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
     // §21.2.2.93 legend
     if let Some(l) = chart.child("legend") {
         out.legend = Some(l.val_of("legendPos").unwrap_or_else(|| "r".into()));
+    }
+    // §21.2.2.142 pivotSource (pivot charts) and the c14:pivotOptions field buttons.
+    if let Some(ps) = dom.child("pivotSource") {
+        out.pivot_source = ps
+            .child("name")
+            .map(|n| n.text.trim().to_owned())
+            .filter(|n| !n.is_empty());
+        out.pivot_fmt_id = ps
+            .val_of("fmtId")
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(0);
+        let mut opts = Vec::new();
+        dom.descendants("pivotOptions", &mut opts);
+        out.pivot_buttons = opts.first().is_some_and(|o| {
+            o.children
+                .iter()
+                .any(|c| c.attr("val").is_none_or(|v| v == "1" || v == "true"))
+        });
     }
     Some(out)
 }

@@ -189,7 +189,60 @@ pub struct Document {
     pub default_tab_stop: Option<Twips>,
     /// Comments (ECMA-376 Part 1, §17.13.4 `comments.xml`), in part order.
     pub comments: Vec<Comment>,
+    /// Font scheme of the document theme (`word/theme/theme1.xml`, ECMA-376 Part 1
+    /// §20.1.4.1.18 fontScheme) used to resolve theme fonts of runs.
+    #[serde(default)]
+    pub theme_fonts: ThemeFonts,
+    /// `w:autoHyphenation` (§17.15.1.10).
+    #[serde(default)]
+    pub auto_hyphenation: bool,
+    /// Document-wide footnote properties (ECMA-376 Part 1, §17.11.11 footnotePr in
+    /// `settings.xml`); a section's own footnotePr overrides them.
+    #[serde(default)]
+    pub footnote_pr: NoteProps,
+    /// Document-wide endnote properties (§17.11.4 endnotePr in `settings.xml`).
+    #[serde(default)]
+    pub endnote_pr: NoteProps,
+    /// Content of the footnote continuation notice (a `w:footnote` of `w:type`
+    /// `continuationNotice`, §17.18.33 `ST_FtnEdn`): shown below a footnote that
+    /// continues on the next page. Read for display only (not written back).
+    #[serde(skip)]
+    pub continuation_notice: Option<Vec<Block>>,
     pub source: Option<Arc<SourcePackage>>,
+}
+
+/// Major/minor typefaces of a theme font scheme (§20.1.4.1.24 majorFont,
+/// §20.1.4.1.25 minorFont: `a:latin`, `a:ea`, `a:cs`). Empty = not given.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct ThemeFonts {
+    pub major_latin: String,
+    pub major_east_asia: String,
+    pub major_cs: String,
+    pub minor_latin: String,
+    pub minor_east_asia: String,
+    pub minor_cs: String,
+}
+
+impl ThemeFonts {
+    /// Typeface of an `ST_Theme` value (§17.18.96: `majorAscii`, `minorHAnsi`,
+    /// `majorEastAsia`, `minorBidi`, …); `None` when unknown or empty.
+    pub fn resolve(&self, theme: &str) -> Option<&str> {
+        let (major, rest) = if let Some(r) = theme.strip_prefix("major") {
+            (true, r)
+        } else {
+            (false, theme.strip_prefix("minor")?)
+        };
+        let f = match (major, rest) {
+            (true, "Ascii" | "HAnsi") => &self.major_latin,
+            (true, "EastAsia") => &self.major_east_asia,
+            (true, "Bidi") => &self.major_cs,
+            (false, "Ascii" | "HAnsi") => &self.minor_latin,
+            (false, "EastAsia") => &self.minor_east_asia,
+            (false, "Bidi") => &self.minor_cs,
+            _ => return None,
+        };
+        (!f.is_empty()).then_some(f.as_str())
+    }
 }
 
 /// Attribution of a tracked change (ECMA-376 Part 1, §17.13.5 `CT_TrackChange`:
@@ -276,6 +329,23 @@ impl Document {
     /// Look up a style by id.
     pub fn style(&self, id: &str) -> Option<&Style> {
         self.styles.styles.iter().find(|s| s.id == id)
+    }
+
+    /// Effective footnote properties of section `si`: the section's own footnotePr
+    /// over the document-wide one (§17.11.11).
+    pub fn footnote_props(&self, si: usize) -> NoteProps {
+        match self.sections.get(si) {
+            Some(s) => s.footnote_pr.over(&self.footnote_pr),
+            None => self.footnote_pr.clone(),
+        }
+    }
+
+    /// Effective endnote properties of section `si` (section endnotePr over §17.11.4).
+    pub fn endnote_props(&self, si: usize) -> NoteProps {
+        match self.sections.get(si) {
+            Some(s) => s.endnote_pr.over(&self.endnote_pr),
+            None => self.endnote_pr.clone(),
+        }
     }
 }
 
@@ -436,6 +506,17 @@ impl NoteProps {
     /// Nothing set.
     pub fn is_empty(&self) -> bool {
         *self == NoteProps::default()
+    }
+
+    /// `self` with the unset properties taken from `base`.
+    #[must_use]
+    pub fn over(&self, base: &NoteProps) -> NoteProps {
+        NoteProps {
+            pos: self.pos.or(base.pos),
+            fmt: self.fmt.clone().or_else(|| base.fmt.clone()),
+            start: self.start.or(base.start),
+            restart: self.restart.or(base.restart),
+        }
     }
 }
 
@@ -733,6 +814,9 @@ pub struct ParaProps {
     pub shading: Option<Color>,
     pub borders: Option<Borders>,
     pub outline_level: Option<u8>,
+    /// `w:bidi` (§17.3.1.6): right-to-left paragraph (base direction for bidi reordering).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bidi: Option<bool>,
     /// Tracked insertion / deletion of the paragraph mark (§17.13.5.16 / §17.13.5.15,
     /// children of `w:pPr/w:rPr`). Never inherited.
     pub mark_ins: Option<RevMark>,
@@ -766,6 +850,7 @@ impl ParaProps {
             shading: self.shading.or(base.shading),
             borders: self.borders.clone().or_else(|| base.borders.clone()),
             outline_level: self.outline_level.or(base.outline_level),
+            bidi: self.bidi.or(base.bidi),
             mark_ins: self.mark_ins.clone(),
             mark_del: self.mark_del.clone(),
             change: self.change.clone(),
@@ -797,7 +882,7 @@ fn merge_tabs(base: Option<&Vec<TabStop>>, own: Option<&Vec<TabStop>>) -> Option
     }
 }
 
-/// Underline style (ECMA-376 Part 1, §17.18.99 `ST_Underline`) — subset.
+/// Underline style (ECMA-376 Part 1, §17.18.99 `ST_Underline`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Underline {
     None,
@@ -808,6 +893,56 @@ pub enum Underline {
     Dash,
     Wave,
     Words,
+    DottedHeavy,
+    DashedHeavy,
+    DashLong,
+    DashLongHeavy,
+    DotDash,
+    DashDotHeavy,
+    DotDotDash,
+    DashDotDotHeavy,
+    WavyHeavy,
+    WavyDouble,
+}
+
+impl Underline {
+    /// Every value with its `ST_Underline` name (§17.18.99).
+    pub const ALL: [(Underline, &'static str); 18] = [
+        (Underline::None, "none"),
+        (Underline::Single, "single"),
+        (Underline::Double, "double"),
+        (Underline::Thick, "thick"),
+        (Underline::Dotted, "dotted"),
+        (Underline::Dash, "dash"),
+        (Underline::Wave, "wave"),
+        (Underline::Words, "words"),
+        (Underline::DottedHeavy, "dottedHeavy"),
+        (Underline::DashedHeavy, "dashedHeavy"),
+        (Underline::DashLong, "dashLong"),
+        (Underline::DashLongHeavy, "dashLongHeavy"),
+        (Underline::DotDash, "dotDash"),
+        (Underline::DashDotHeavy, "dashDotHeavy"),
+        (Underline::DotDotDash, "dotDotDash"),
+        (Underline::DashDotDotHeavy, "dashDotDotHeavy"),
+        (Underline::WavyHeavy, "wavyHeavy"),
+        (Underline::WavyDouble, "wavyDouble"),
+    ];
+
+    /// Parse an `ST_Underline` value; unknown values read as `single`.
+    pub fn parse(s: &str) -> Underline {
+        Underline::ALL
+            .iter()
+            .find(|(_, n)| *n == s)
+            .map_or(Underline::Single, |(u, _)| *u)
+    }
+
+    /// The `ST_Underline` name.
+    pub fn as_str(self) -> &'static str {
+        Underline::ALL
+            .iter()
+            .find(|(u, _)| *u == self)
+            .map_or("single", |(_, n)| n)
+    }
 }
 
 /// Vertical alignment of a run (§17.3.2.42 vertAlign).
@@ -823,10 +958,38 @@ pub enum VertAlign {
 pub struct RunProps {
     /// `w:rStyle` (§17.3.2.29).
     pub style: Option<String>,
-    /// `w:rFonts` ascii/hAnsi.
+    /// `w:rFonts/@w:ascii` (§17.3.2.26): font of U+0000–U+007F. Unless
+    /// [`RunProps::font_h_ansi`] (or its theme) is set at the same level, it is also
+    /// the hAnsi font (BlueOffice writes both attributes together).
     pub font: Option<String>,
+    /// `w:rFonts/@w:eastAsia`.
     pub font_east_asia: Option<String>,
+    /// `w:rFonts/@w:cs` (complex script).
     pub font_cs: Option<String>,
+    /// `w:rFonts/@w:hAnsi`: characters outside ASCII that are neither East Asian nor
+    /// complex script (Latin Extended, so Vietnamese letters with diacritics).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_h_ansi: Option<String>,
+    /// `w:rFonts/@w:asciiTheme`, `@w:hAnsiTheme`, `@w:eastAsiaTheme`, `@w:cstheme`
+    /// (§17.18.96 `ST_Theme`: `minorHAnsi`, `majorEastAsia`, …), resolved against the
+    /// theme's font scheme; a theme attribute wins over the explicit font of its slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_ascii: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_h_ansi: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_east_asia: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_cs: Option<String>,
+    /// `w:rFonts/@w:hint` (§17.18.42 `ST_Hint`: `default`, `eastAsia`, `cs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_hint: Option<String>,
+    /// `w:rtl` (§17.3.2.30): right-to-left run, shown with the complex script font.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtl: Option<bool>,
+    /// `w:cs` (§17.3.2.7): complex script run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complex: Option<bool>,
     pub size: Option<HalfPoints>,
     pub bold: Option<bool>,
     pub italic: Option<bool>,
@@ -876,14 +1039,54 @@ impl RunProps {
     /// Overlay `self` on top of `base`.
     #[must_use]
     pub fn inherit(&self, base: &RunProps) -> RunProps {
+        fn slot(
+            own: (&Option<String>, &Option<String>),
+            base: (&Option<String>, &Option<String>),
+        ) -> (Option<String>, Option<String>) {
+            if own.0.is_some() || own.1.is_some() {
+                (own.0.clone(), own.1.clone())
+            } else {
+                (base.0.clone(), base.1.clone())
+            }
+        }
+        // §17.3.2.26: each font slot (explicit name or theme) is inherited on its own.
+        let ascii = slot(
+            (&self.font, &self.theme_ascii),
+            (&base.font, &base.theme_ascii),
+        );
+        // An ascii font given without an hAnsi font stands for both (see `font`).
+        let h_ansi = if self.font_h_ansi.is_none()
+            && self.theme_h_ansi.is_none()
+            && (self.font.is_some() || self.theme_ascii.is_some())
+        {
+            (None, None)
+        } else {
+            slot(
+                (&self.font_h_ansi, &self.theme_h_ansi),
+                (&base.font_h_ansi, &base.theme_h_ansi),
+            )
+        };
+        let east = slot(
+            (&self.font_east_asia, &self.theme_east_asia),
+            (&base.font_east_asia, &base.theme_east_asia),
+        );
+        let cs = slot(
+            (&self.font_cs, &self.theme_cs),
+            (&base.font_cs, &base.theme_cs),
+        );
         RunProps {
             style: self.style.clone().or_else(|| base.style.clone()),
-            font: self.font.clone().or_else(|| base.font.clone()),
-            font_east_asia: self
-                .font_east_asia
-                .clone()
-                .or_else(|| base.font_east_asia.clone()),
-            font_cs: self.font_cs.clone().or_else(|| base.font_cs.clone()),
+            font: ascii.0,
+            theme_ascii: ascii.1,
+            font_h_ansi: h_ansi.0,
+            theme_h_ansi: h_ansi.1,
+            font_east_asia: east.0,
+            theme_east_asia: east.1,
+            font_cs: cs.0,
+            theme_cs: cs.1,
+            font_hint: self.font_hint.clone().or_else(|| base.font_hint.clone()),
+            rtl: self.rtl.or(base.rtl),
+            complex: self.complex.or(base.complex),
             size: self.size.or(base.size),
             bold: self.bold.or(base.bold),
             italic: self.italic.or(base.italic),
@@ -981,12 +1184,77 @@ pub struct Anchor {
     /// §20.4.2.16) in the 21 600-unit square over the extent that Word uses.
     #[serde(default)]
     pub polygon: Option<[i64; 4]>,
+    /// `positionH/align` (§20.4.2.1 align, `ST_AlignH`: left, center, right, inside,
+    /// outside); replaces `x` when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub h_align: Option<String>,
+    /// `positionV/align` (§20.4.2.2 align, `ST_AlignV`: top, center, bottom, …).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v_align: Option<String>,
 }
 
-/// A picture (DrawingML picture inside `w:drawing`, §20.4).
+/// Outline of a shape (ECMA-376 Part 1, §20.1.2.2.24 ln) resolved to a colour.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ShapeLine {
+    pub width: Emu,
+    pub color: Color,
+    /// §20.1.10.48 `ST_PresetLineDashVal` (`dash`, `sysDot`, …); `None` = solid.
+    pub dash: Option<String>,
+}
+
+/// Vertical anchoring of text in a shape (§20.1.10.59 `ST_TextAnchoringType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TextAnchor {
+    #[default]
+    Top,
+    Center,
+    Bottom,
+}
+
+/// A WordprocessingML shape or text box (`wps:wsp`, [MS-ODRAWXML] §2.3.10 /
+/// ECMA-376 Part 1 §20.1.2.2 shape properties) or its VML fallback (`v:shape`,
+/// `v:rect`, … with `v:textbox`, ECMA-376 Part 4 §19.1), carried by an [`Image`]
+/// whose `media` is empty.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct Shape {
+    /// §20.1.9.18 prstGeom `prst` (`rect`, `ellipse`, `roundRect`, …).
+    pub preset: String,
+    /// Adjust values (`a:avLst/a:gd`, `fmla="val N"`): (name, value).
+    #[serde(default)]
+    pub adjust: Vec<(String, i64)>,
+    /// Solid fill; `None` = no fill (§20.1.8.44 noFill).
+    pub fill: Option<Color>,
+    /// Outline; `None` = no line.
+    pub line: Option<ShapeLine>,
+    /// `a:xfrm/@flipH`, `@flipV` (§20.1.7.6).
+    #[serde(default)]
+    pub flip_h: bool,
+    #[serde(default)]
+    pub flip_v: bool,
+    /// Text box content (§17.17.1 txbxContent); `None` = no text box.
+    pub text: Option<Vec<Block>>,
+    /// Text insets left, top, right, bottom (`wps:bodyPr` lIns/tIns/rIns/bIns,
+    /// §21.1.2.1.1; defaults 91 440 / 45 720 EMU).
+    pub insets: [Emu; 4],
+    /// `wps:bodyPr/@anchor`.
+    #[serde(default)]
+    pub anchor: TextAnchor,
+    /// Read from the VML fallback (no DrawingML shape in the source).
+    #[serde(default)]
+    pub vml: bool,
+}
+
+impl Shape {
+    /// Default text insets (§21.1.2.1.1 bodyPr: 0.1" left/right, 0.05" top/bottom).
+    pub const INSETS: [Emu; 4] = [Emu(91_440), Emu(45_720), Emu(91_440), Emu(45_720)];
+}
+
+/// A drawing object (`w:drawing`, §20.4): a picture, or — when [`Image::shape`] is
+/// set — a shape or text box.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Image {
-    /// Media part name (key into [`Document::media`]).
+    /// Media part name (key into [`Document::media`]); empty for shapes.
     pub media: String,
     pub width: Emu,
     pub height: Emu,
@@ -996,6 +1264,9 @@ pub struct Image {
     /// Rotation in 60 000ths of a degree.
     pub rotation: i32,
     pub description: String,
+    /// Shape / text box drawn instead of a picture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<Box<Shape>>,
     /// Original `w:drawing` XML.
     #[serde(skip)]
     pub src: Option<Raw>,
@@ -1150,6 +1421,15 @@ pub struct CellProps {
     /// Tracked change of the cell properties (§17.13.5.36 tcPrChange).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change: Option<Box<CellPropsChange>>,
+    /// Tracked cell insertion (§17.13.5.4 cellIns).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ins: Option<RevMark>,
+    /// Tracked cell deletion (§17.13.5.3 cellDel).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub del: Option<RevMark>,
+    /// Tracked change of the vertical merge (§17.13.5.6 cellMerge).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge: Option<Box<CellMerge>>,
 }
 
 impl Default for CellProps {
@@ -1163,8 +1443,41 @@ impl Default for CellProps {
             v_align: None,
             unknown: Vec::new(),
             change: None,
+            ins: None,
+            del: None,
+            merge: None,
         }
     }
+}
+
+impl CellProps {
+    /// Copy without tracked changes (what a §17.13.5.36 tcPrChange records).
+    #[must_use]
+    pub fn bare(&self) -> CellProps {
+        CellProps {
+            change: None,
+            ins: None,
+            del: None,
+            merge: None,
+            ..self.clone()
+        }
+    }
+
+    /// True when the cell carries a tracked change.
+    pub fn has_revision(&self) -> bool {
+        self.change.is_some() || self.ins.is_some() || self.del.is_some() || self.merge.is_some()
+    }
+}
+
+/// Tracked vertical merge change of a cell (ECMA-376 Part 1, §17.13.5.6 cellMerge).
+/// `v_merge` is the revised setting and `v_merge_orig` the setting before the
+/// revision (§17.18.1 `ST_AnnotationVMerge`: `rest`, `cont`; `None` = not merged).
+/// The cell's own `tcPr/vMerge` holds the revised setting.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct CellMerge {
+    pub info: RevisionInfo,
+    pub v_merge: Option<VMerge>,
+    pub v_merge_orig: Option<VMerge>,
 }
 
 /// Row height rule (§17.18.37 `ST_HeightRule`).
@@ -1188,6 +1501,38 @@ pub struct RowProps {
     /// Tracked row deletion (§17.13.5.12 del in trPr).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub del: Option<RevMark>,
+    /// Tracked change of the row properties (§17.13.5.37 trPrChange).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<Box<RowPropsChange>>,
+}
+
+/// Previous row properties of a tracked change (ECMA-376 Part 1, §17.13.5.37
+/// trPrChange, `CT_TrPrBase`): `tblHeader`, `cantSplit` and `trHeight`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct RowPropsChange {
+    pub info: RevisionInfo,
+    pub header: bool,
+    pub cant_split: bool,
+    pub height: Option<(Twips, HeightRule)>,
+}
+
+impl RowProps {
+    /// The base properties a §17.13.5.37 trPrChange records.
+    pub fn snapshot(&self, info: RevisionInfo) -> RowPropsChange {
+        RowPropsChange {
+            info,
+            header: self.header,
+            cant_split: self.cant_split,
+            height: self.height,
+        }
+    }
+
+    /// Same base properties (tracked changes and unknown children ignored).
+    pub fn same_base(&self, other: &RowProps) -> bool {
+        self.header == other.header
+            && self.cant_split == other.cant_split
+            && self.height == other.height
+    }
 }
 
 /// A table cell.
@@ -1210,15 +1555,255 @@ pub struct Table {
     pub props: TableProps,
     /// `tblGrid` column widths.
     pub grid: Vec<Twips>,
+    /// Tracked change of the grid (§17.13.5.33 tblGridChange): the previous columns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_change: Option<Box<GridChange>>,
     pub rows: Vec<Row>,
     #[serde(skip)]
     pub src: Option<Raw>,
 }
 
+/// Previous grid of a tracked change (§17.13.5.33 tblGridChange). `CT_TblGridChange`
+/// only carries an id; author and date are those of the revision sharing that id.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct GridChange {
+    pub info: RevisionInfo,
+    pub old: Vec<Twips>,
+}
+
+/// Which state of a table with tracked structural changes (§17.13.5) to describe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TableView {
+    /// Every cell present: inserted and deleted cells side by side.
+    Markup,
+    /// As if every change were accepted.
+    Final,
+    /// As if every change were rejected.
+    Original,
+}
+
+/// Grid placement of a cell in a [`TableView`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CellPlace {
+    /// First grid column.
+    pub start: usize,
+    /// Grid columns covered (0 for a hidden cell).
+    pub span: usize,
+    /// The cell is not part of this view (deleted in the final view, inserted in the
+    /// original view).
+    pub hidden: bool,
+    pub v_merge: Option<VMerge>,
+}
+
+/// Grid and cell placements of a table in one [`TableView`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableGeometry {
+    pub grid: Vec<Twips>,
+    pub rows: Vec<Vec<CellPlace>>,
+}
+
 impl Table {
     /// Fingerprint of the modelled content.
     pub fn content_fingerprint(&self) -> u64 {
-        fingerprint(&(&self.props, &self.grid, &self.rows))
+        fingerprint(&(&self.props, &self.grid, &self.grid_change, &self.rows))
+    }
+
+    /// `(start, span)` of every cell with all cells present (markup). Spans are the
+    /// current ones (§17.4.17 gridSpan), except in a row wider than the grid: a
+    /// tracked horizontal merge keeps the merged-away cells as deleted cells
+    /// (§17.13.5.3 cellDel), so cells whose span grew by a §17.13.5.36 tcPrChange
+    /// use their previous span there.
+    pub fn markup_spans(&self) -> Vec<Vec<(usize, usize)>> {
+        let cols = self.grid.len();
+        self.rows
+            .iter()
+            .map(|r| {
+                let total: usize = r
+                    .cells
+                    .iter()
+                    .map(|c| c.props.grid_span.max(1) as usize)
+                    .sum();
+                let over = cols > 0 && total > cols;
+                let mut g = 0;
+                r.cells
+                    .iter()
+                    .map(|c| {
+                        let mut n = c.props.grid_span.max(1) as usize;
+                        if over {
+                            if let Some(ch) = &c.props.change {
+                                n = n.min(ch.old.grid_span.max(1) as usize);
+                            }
+                        }
+                        let s = g;
+                        g += n;
+                        (s, n)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Grid columns that disappear when the cells selected by `gone` are removed: every
+    /// row covers the column (in markup) with a removed cell, a cell spanning more
+    /// columns (it shrinks) or nothing, and at least one row with a removed cell.
+    pub fn removed_columns(&self, gone: &dyn Fn(&Cell) -> bool) -> Vec<bool> {
+        let spans = self.markup_spans();
+        let n = spans
+            .iter()
+            .map(|r| r.last().map_or(0, |(s, k)| s + k))
+            .max()
+            .unwrap_or(0)
+            .max(self.grid.len());
+        let mut removed = vec![false; n];
+        for (g, slot) in removed.iter_mut().enumerate() {
+            let mut any = false;
+            let mut ok = true;
+            for (row, sp) in self.rows.iter().zip(&spans) {
+                let Some(ci) = sp.iter().position(|&(s, k)| s <= g && g < s + k) else {
+                    continue;
+                };
+                let c = &row.cells[ci];
+                if gone(c) {
+                    any = true;
+                } else if c.props.grid_span <= 1 {
+                    ok = false;
+                }
+            }
+            *slot = any && ok;
+        }
+        // A kept cell keeps at least one of its columns.
+        for (row, sp) in self.rows.iter().zip(&spans) {
+            for (c, &(s, _)) in row.cells.iter().zip(sp) {
+                if gone(c) {
+                    continue;
+                }
+                let k = c.props.grid_span.max(1) as usize;
+                let end = (s + k).min(n);
+                if s < end && removed[s..end].iter().all(|r| *r) {
+                    removed[end - 1] = false;
+                }
+            }
+        }
+        removed
+    }
+
+    /// Grid and cell placements of the table in `view` (tracked cell insertions and
+    /// deletions §17.13.5.4 / §17.13.5.3, merges §17.13.5.6, cell property changes
+    /// §17.13.5.36 and grid changes §17.13.5.33). The final view is what accepting
+    /// every change produces.
+    pub fn geometry(&self, view: TableView) -> TableGeometry {
+        let spans = self.markup_spans();
+        match view {
+            TableView::Markup => TableGeometry {
+                grid: self.grid.clone(),
+                rows: self
+                    .rows
+                    .iter()
+                    .zip(&spans)
+                    .map(|(r, sp)| {
+                        r.cells
+                            .iter()
+                            .zip(sp)
+                            .map(|(c, &(start, span))| CellPlace {
+                                start,
+                                span,
+                                hidden: false,
+                                v_merge: c.props.v_merge,
+                            })
+                            .collect()
+                    })
+                    .collect(),
+            },
+            TableView::Final => {
+                let removed = self.removed_columns(&|c| c.props.del.is_some());
+                let grid = self
+                    .grid
+                    .iter()
+                    .enumerate()
+                    .filter(|(g, _)| !removed.get(*g).copied().unwrap_or(false))
+                    .map(|(_, w)| *w)
+                    .collect();
+                let rows = self
+                    .rows
+                    .iter()
+                    .zip(&spans)
+                    .map(|(r, sp)| {
+                        let mut g = 0;
+                        r.cells
+                            .iter()
+                            .zip(sp)
+                            .map(|(c, &(s, _))| {
+                                if c.props.del.is_some() {
+                                    return CellPlace {
+                                        start: g,
+                                        span: 0,
+                                        hidden: true,
+                                        v_merge: c.props.v_merge,
+                                    };
+                                }
+                                let k = c.props.grid_span.max(1) as usize;
+                                let lost = (s..s + k)
+                                    .filter(|x| removed.get(*x).copied().unwrap_or(false))
+                                    .count();
+                                let span = k.saturating_sub(lost).max(1);
+                                let p = CellPlace {
+                                    start: g,
+                                    span,
+                                    hidden: false,
+                                    v_merge: c.props.v_merge,
+                                };
+                                g += span;
+                                p
+                            })
+                            .collect()
+                    })
+                    .collect();
+                TableGeometry { grid, rows }
+            }
+            TableView::Original => {
+                let grid = self
+                    .grid_change
+                    .as_ref()
+                    .map_or_else(|| self.grid.clone(), |g| g.old.clone());
+                let rows = self
+                    .rows
+                    .iter()
+                    .map(|r| {
+                        let mut g = 0;
+                        r.cells
+                            .iter()
+                            .map(|c| {
+                                let old = c.props.change.as_ref().map(|ch| &ch.old);
+                                let v_merge = match (&c.props.merge, old) {
+                                    (Some(m), _) => m.v_merge_orig,
+                                    (None, Some(o)) => o.v_merge,
+                                    (None, None) => c.props.v_merge,
+                                };
+                                if c.props.ins.is_some() {
+                                    return CellPlace {
+                                        start: g,
+                                        span: 0,
+                                        hidden: true,
+                                        v_merge,
+                                    };
+                                }
+                                let span =
+                                    old.map_or(c.props.grid_span, |o| o.grid_span).max(1) as usize;
+                                let p = CellPlace {
+                                    start: g,
+                                    span,
+                                    hidden: false,
+                                    v_merge,
+                                };
+                                g += span;
+                                p
+                            })
+                            .collect()
+                    })
+                    .collect();
+                TableGeometry { grid, rows }
+            }
+        }
     }
 
     /// A `rows × cols` table with equal columns spanning `width`, single borders, empty paragraphs.
@@ -1232,6 +1817,7 @@ impl Table {
                 ..TableProps::default()
             },
             grid: vec![w; cols],
+            grid_change: None,
             rows: (0..rows.max(1))
                 .map(|_| Row {
                     props: RowProps::default(),

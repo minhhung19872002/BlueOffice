@@ -4,6 +4,8 @@
 //! regression tests.
 #![forbid(unsafe_code)]
 
+pub mod codecs;
+
 use bo_render::{Command, GradientStop, ImageSource, PageList, PathSeg, Rgba};
 use bo_text::{FaceId, FontManager, PathCmd};
 use std::collections::{BTreeMap, HashMap};
@@ -536,7 +538,32 @@ fn decode_image(bytes: &[u8]) -> Option<Pixmap> {
         // JPEG pixels are opaque, hence already premultiplied.
         return Pixmap::from_vec(data, size);
     }
-    None
+    codecs::decode(bytes).and_then(pixmap_of)
+}
+
+/// Pixmap (premultiplied) of straight RGBA pixels.
+fn pixmap_of(img: codecs::Rgba) -> Option<Pixmap> {
+    let mut data = img.pixels;
+    for p in data.chunks_exact_mut(4) {
+        let a = u16::from(p[3]);
+        for c in &mut p[..3] {
+            *c = ((u16::from(*c) * a + 127) / 255) as u8;
+        }
+    }
+    Pixmap::from_vec(data, tiny_skia::IntSize::from_wh(img.width, img.height)?)
+}
+
+/// Re-encode a GIF, BMP or TIFF picture as PNG (`None` for other or broken input),
+/// so that every display list backend can draw it.
+pub fn transcode_to_png(bytes: &[u8]) -> Option<Vec<u8>> {
+    codecs::decode(bytes)
+        .and_then(pixmap_of)
+        .and_then(|p| p.encode_png().ok())
+}
+
+/// Encode straight RGBA pixels as PNG.
+pub fn rgba_to_png(img: codecs::Rgba) -> Option<Vec<u8>> {
+    pixmap_of(img).and_then(|p| p.encode_png().ok())
 }
 
 fn draw_image(

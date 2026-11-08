@@ -189,6 +189,16 @@ export interface FormatState {
   shading?: string | null;
   section?: SectionState;
   table?: TableState | null;
+  /** Floating picture at the selection (mirrors `bo_edit::picture::PictureState`). */
+  picture?: PictureState | null;
+}
+
+/** Position of a floating picture in points (§20.4.2.10 positionH / §20.4.2.11 positionV). */
+export interface PictureState {
+  x: number;
+  y: number;
+  hRelative: string;
+  vRelative: string;
 }
 
 /** Line spacing rule (§17.18.48): `auto` in 240ths of a line, else twips. */
@@ -244,9 +254,11 @@ export interface TableState {
 
 export type TableEdit =
   | {
-      kind: 'deleteRow' | 'deleteColumn' | 'deleteTable' | 'mergeCells' | 'splitCell';
+      kind:
+        'deleteRow' | 'deleteColumn' | 'deleteCell' | 'deleteTable' | 'mergeCells' | 'splitCell';
     }
   | { kind: 'insertRow'; below: boolean }
+  | { kind: 'insertCell'; right: boolean }
   | { kind: 'insertColumn'; right: boolean }
   | { kind: 'shading'; hex: string | null }
   | { kind: 'borders'; preset: 'all' | 'none' | 'outside' | 'inside' }
@@ -358,9 +370,19 @@ export type RevisionKind =
   | 'rowDelete'
   | 'cellFormat'
   | 'tableFormat'
-  | 'sectionFormat';
+  | 'sectionFormat'
+  | 'cellInsert'
+  | 'cellDelete'
+  | 'cellMerge'
+  | 'rowFormat'
+  | 'tableGrid';
 
-/** A tracked change of the main text (mirrors `bo_edit::RevisionItem`). */
+/** Header/footer or note holding a revision (mirrors `bo_edit::StoryRef`). */
+export type StoryRef =
+  | { kind: 'header' | 'footer'; section: number; variant: 'default' | 'first' | 'even' }
+  | { kind: 'footnote' | 'endnote'; id: number };
+
+/** A tracked change (mirrors `bo_edit::RevisionItem`); positions are in the story when `story` is set. */
 export interface RevisionItem {
   id: number;
   kind: RevisionKind;
@@ -369,6 +391,7 @@ export interface RevisionItem {
   start: Pos;
   end: Pos;
   text: string;
+  story?: StoryRef;
 }
 
 /** A comment (mirrors `bo_edit::CommentInfo`); threads are rebuilt from `parent`. */
@@ -431,6 +454,8 @@ export type EditCommand =
   | { cmd: 'paste'; internal?: string; html?: string; text?: string; mode?: DocPasteMode }
   | { cmd: 'tab'; back?: boolean }
   | { cmd: 'tableEdit'; edit: TableEdit }
+  /** Move the floating picture at the selection (points from its position references). */
+  | { cmd: 'setPicturePosition'; x: number; y: number }
   | { cmd: 'setPageSetup'; setup: PageSetupSpec; scope?: 'section' | 'document' }
   | { cmd: 'setHeaderOptions'; titlePage?: boolean; evenAndOdd?: boolean }
   | { cmd: 'setHeaderLink'; linked: boolean }

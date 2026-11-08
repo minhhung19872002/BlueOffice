@@ -1350,3 +1350,306 @@ fn pivot_style_formats_headers_and_totals() {
     // Banded rows: the second data line (A3) differs from the first (A2).
     assert_ne!(fill(&wb, "B2"), fill(&wb, "B3"));
 }
+
+// ------------------------------------------- calculated items, manual groups
+
+fn pivot_on(wb: &mut Workbook, spec: &PivotSpec) -> usize {
+    create_pivot(
+        wb,
+        0,
+        src(),
+        1,
+        CellRef::new(2, 0),
+        spec,
+        &PivotLabels::default(),
+    )
+    .unwrap()
+}
+
+// source: ECMA-376 Part 1, §18.10.1.8 calculatedItem (formula over the items of the field)
+#[test]
+fn calculated_items_rows_and_columns() {
+    let mut wb = sales();
+    let spec = PivotSpec {
+        rows: vec![0],
+        values: vec![sum_of(2, PivotFunction::Sum)],
+        ..PivotSpec::default()
+    };
+    let i = pivot_on(&mut wb, &spec);
+    let l = PivotLabels::default();
+    assert!(set_calculated_item(&mut wb, 1, i, 0, None, "BN", "=X+1", &l).is_err());
+    assert!(set_calculated_item(&mut wb, 1, i, 0, None, "Nam", "='Bắc'", &l).is_err());
+    set_calculated_item(&mut wb, 1, i, 0, None, "BN", "='Bắc'+Nam", &l).unwrap();
+    let ws = &wb.sheets[1];
+    // Bắc 20, Nam 6, Trung 2, BN = 20 + 6; the grand total includes it.
+    assert_eq!((text(ws, "A7"), text(ws, "B7")), ("BN".into(), "26".into()));
+    assert_eq!(
+        (text(ws, "A8"), text(ws, "B8")),
+        ("Grand Total".into(), "54".into())
+    );
+    assert_eq!(wb.pivot_caches[0].calculated_items.len(), 1);
+    // Rename + new formula, then survive a refresh.
+    set_calculated_item(&mut wb, 1, i, 0, Some("BN"), "Hai miền", "Bắc*2", &l).unwrap();
+    refresh_pivot(&mut wb, 1, i, &l).unwrap();
+    let ws = &wb.sheets[1];
+    assert_eq!(
+        (text(ws, "A7"), text(ws, "B7")),
+        ("Hai miền".into(), "40".into())
+    );
+    // On the column axis: per row item, the calculated column.
+    let spec = PivotSpec {
+        rows: vec![1],
+        cols: vec![0],
+        values: vec![sum_of(2, PivotFunction::Sum)],
+        ..PivotSpec::default()
+    };
+    update_pivot(&mut wb, 1, i, &spec, &l).unwrap();
+    let ws = &wb.sheets[1];
+    // Columns: Bắc, Nam, Trung, Hai miền, Grand Total; A: Bắc 13 → 26, B: Bắc 7 → 14.
+    assert_eq!(text(ws, "E4"), "Hai miền");
+    assert_eq!((text(ws, "A5"), text(ws, "E5")), ("A".into(), "26".into()));
+    assert_eq!((text(ws, "A6"), text(ws, "E6")), ("B".into(), "14".into()));
+    remove_calculated_item(&mut wb, 1, i, 0, "Hai miền", &l).unwrap();
+    assert_eq!(wb.pivot_caches[0].calculated_items.len(), 0);
+    assert_eq!(text(&wb.sheets[1], "E4"), "Grand Total");
+}
+
+// source: ECMA-376 Part 1, §18.10.1.26 discretePr, §18.10.1.27 fieldGroup (base / par)
+#[test]
+fn manual_groups_and_ungroup() {
+    let mut wb = sales();
+    let spec = PivotSpec {
+        rows: vec![0],
+        values: vec![sum_of(2, PivotFunction::Sum)],
+        ..PivotSpec::default()
+    };
+    let i = pivot_on(&mut wb, &spec);
+    let l = PivotLabels {
+        group: "Nhóm {n}".into(),
+        ..PivotLabels::default()
+    };
+    // Items: Bắc (0), Nam (1), Trung (2) → group Bắc + Trung.
+    let g = group_items(&mut wb, 1, i, 0, &[0, 2], &l).unwrap();
+    assert_eq!(g, 3);
+    let f = &wb.pivot_caches[0].fields[3];
+    assert!(f.derived);
+    assert_eq!(f.name, "Vùng2");
+    let grp = f.group.as_ref().unwrap();
+    assert_eq!((grp.base, grp.discrete.clone()), (Some(0), vec![0, 1, 0]));
+    assert_eq!(
+        grp.items,
+        vec![
+            CellValue::Text("Nhóm 1".into()),
+            CellValue::Text("Nam".into())
+        ]
+    );
+    assert_eq!(
+        wb.pivot_caches[0].fields[0]
+            .group
+            .as_ref()
+            .and_then(|g| g.par),
+        Some(3)
+    );
+    let ws = &wb.sheets[1];
+    assert_eq!(ws.pivots[i].rows, vec![3, 0]);
+    // Tabular: Nhóm 1 / Bắc 20, Trung 2, "Nhóm 1 Total" 22; Nam / Nam 6, total; grand.
+    assert_eq!(
+        (text(ws, "A4"), text(ws, "B4"), text(ws, "C4")),
+        ("Nhóm 1".into(), "Bắc".into(), "20".into())
+    );
+    assert_eq!(
+        (text(ws, "B5"), text(ws, "C5")),
+        ("Trung".into(), "2".into())
+    );
+    assert_eq!(
+        (text(ws, "A6"), text(ws, "C6")),
+        ("Nhóm 1 Total".into(), "22".into())
+    );
+    // Group the remaining item through the grouping field: two groups.
+    group_items(&mut wb, 1, i, 3, &[1], &l).unwrap();
+    let grp = wb.pivot_caches[0].fields[3].group.clone().unwrap();
+    assert_eq!(grp.items.len(), 2);
+    assert_eq!(grp.items[1], CellValue::Text("Nhóm 2".into()));
+    // Ungroup both groups: the grouping field goes away.
+    ungroup_items(&mut wb, 1, i, 3, &[0, 1], &l).unwrap();
+    assert_eq!(wb.pivot_caches[0].fields.len(), 3);
+    assert_eq!(wb.pivot_caches[0].fields[0].group, None);
+    assert_eq!(wb.sheets[1].pivots[i].rows, vec![0]);
+    assert_eq!(text(&wb.sheets[1], "A4"), "Bắc");
+    // A field with calculated items cannot be grouped.
+    set_calculated_item(&mut wb, 1, i, 0, None, "X", "Bắc", &l).unwrap();
+    assert!(group_items(&mut wb, 1, i, 0, &[0, 1], &l).is_err());
+}
+
+// -------------------------------------------------------------- date filters
+
+fn dated() -> Workbook {
+    let mut wb = Workbook::new();
+    let ws = &mut wb.sheets[0];
+    ws.set_cell(0, 0, Cell::new(CellValue::Text("Ngày".into())));
+    ws.set_cell(0, 1, Cell::new(CellValue::Text("Tiền".into())));
+    // 2024-01-15, 2024-02-10, 2024-02-25, 2024-03-05, 2025-01-20 (§18.17.4.1 serials).
+    for (i, (d, v)) in [
+        (45306.0, 1.0),
+        (45332.0, 2.0),
+        (45347.0, 4.0),
+        (45356.0, 8.0),
+        (45677.0, 16.0),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let r = i as u32 + 1;
+        ws.set_cell(r, 0, Cell::new(CellValue::Number(*d)));
+        ws.set_cell(r, 1, Cell::new(CellValue::Number(*v)));
+    }
+    wb.sheets.push(Worksheet::new("Pivot"));
+    wb
+}
+
+fn date_filter(kind: PivotFilterType, a: &str, b: &str) -> PivotFieldFilter {
+    PivotFieldFilter {
+        field: 0,
+        kind,
+        value1: a.into(),
+        value2: b.into(),
+        ..PivotFieldFilter::default()
+    }
+}
+
+/// Grand total of the report with one date filter (today = 2024-02-20).
+fn filtered_total(kind: PivotFilterType, a: &str, b: &str) -> String {
+    let mut wb = dated();
+    let labels = PivotLabels {
+        today: Some(45342.0),
+        ..PivotLabels::default()
+    };
+    let spec = PivotSpec {
+        rows: vec![0],
+        values: vec![sum_of(1, PivotFunction::Sum)],
+        field_filters: vec![date_filter(kind, a, b)],
+        ..PivotSpec::default()
+    };
+    let r = CellRange::parse("A1:B6").unwrap();
+    create_pivot(&mut wb, 0, r, 1, CellRef::new(0, 0), &spec, &labels).unwrap();
+    let ws = &wb.sheets[1];
+    let last = ws.pivots[0].location.last;
+    ws.cell(last.row, last.col)
+        .map(|c| value_text(&c.value))
+        .unwrap_or_default()
+}
+
+// source: ECMA-376 Part 1, §18.18.60 ST_PivotFilterType (date filters)
+#[test]
+fn date_filters() {
+    use PivotFilterType as T;
+    assert_eq!(filtered_total(T::DateBetween, "45306", "45340"), "3");
+    assert_eq!(
+        filtered_total(T::DateBetween, "2024-01-15", "2024-02-28"),
+        "7"
+    );
+    assert_eq!(filtered_total(T::DateNotBetween, "45306", "45340"), "28");
+    assert_eq!(filtered_total(T::DateEqual, "45332", ""), "2");
+    assert_eq!(filtered_total(T::DateOlderThan, "45332", ""), "1");
+    assert_eq!(filtered_total(T::DateNewerThanOrEqual, "45356", ""), "24");
+    // Relative to 2024-02-20 (a Tuesday; the week starts on Sunday 02-18).
+    assert_eq!(filtered_total(T::ThisMonth, "", ""), "6");
+    assert_eq!(filtered_total(T::LastMonth, "", ""), "1");
+    assert_eq!(filtered_total(T::NextMonth, "", ""), "8");
+    assert_eq!(filtered_total(T::ThisYear, "", ""), "15");
+    assert_eq!(filtered_total(T::NextYear, "", ""), "16");
+    assert_eq!(filtered_total(T::YearToDate, "", ""), "3");
+    assert_eq!(filtered_total(T::ThisQuarter, "", ""), "15");
+    assert_eq!(filtered_total(T::NextWeek, "", ""), "4");
+    // Any year.
+    assert_eq!(filtered_total(T::Q1, "", ""), "31");
+    assert_eq!(filtered_total(T::M1, "", ""), "17");
+    assert_eq!(filtered_total(T::M2, "", ""), "6");
+    assert!(T::ThisMonth.is_relative_date() && !T::Q1.is_relative_date());
+    assert!(T::DateBetween.is_fixed_date() && T::M12.is_date() && !T::ValueBetween.is_date());
+    assert_eq!(T::parse("yearToDate"), Some(T::YearToDate));
+}
+
+// ------------------------------------------------------------- data on rows
+
+// source: ECMA-376 Part 1, §18.10.1.73 dataOnRows (values pseudo-field on the row axis)
+#[test]
+fn values_on_rows() {
+    let mut wb = sales();
+    let spec = PivotSpec {
+        rows: vec![0],
+        values: vec![
+            sum_of(2, PivotFunction::Sum),
+            sum_of(2, PivotFunction::Count),
+        ],
+        data_on_rows: true,
+        ..PivotSpec::default()
+    };
+    let i = pivot_on(&mut wb, &spec);
+    let ws = &wb.sheets[1];
+    let pt = &ws.pivots[i];
+    assert!(pt.data_on_rows);
+    // Header, then two lines per item and for the grand total.
+    assert_eq!(pt.location.to_string(), "A3:C11");
+    assert_eq!(
+        (text(ws, "A3"), text(ws, "B3")),
+        ("Vùng".into(), "Values".into())
+    );
+    assert_eq!(
+        (text(ws, "A4"), text(ws, "B4"), text(ws, "C4")),
+        ("Bắc".into(), "Sum of Doanh thu".into(), "20".into())
+    );
+    assert_eq!(
+        (text(ws, "A5"), text(ws, "B5"), text(ws, "C5")),
+        (String::new(), "Count of Doanh thu".into(), "3".into())
+    );
+    assert_eq!(
+        (text(ws, "A10"), text(ws, "C10"), text(ws, "C11")),
+        ("Grand Total".into(), "28".into(), "6".into())
+    );
+    assert_eq!(pt.row_items[1].items, vec![0, 1]);
+    assert_eq!(pt.row_items[1].data_index, 1);
+    assert_eq!(pt.col_items.len(), 1);
+    // Compact: the item line, then the value names below it.
+    let mut spec2 = PivotSpec::of(pt);
+    spec2.layout = PivotLayout::Compact;
+    update_pivot(&mut wb, 1, i, &spec2, &PivotLabels::default()).unwrap();
+    let ws = &wb.sheets[1];
+    assert_eq!(
+        (text(ws, "A4"), text(ws, "B4")),
+        ("Bắc".into(), String::new())
+    );
+    assert_eq!(
+        (text(ws, "A5"), text(ws, "B5")),
+        ("Sum of Doanh thu".into(), "20".into())
+    );
+    assert_eq!(
+        (text(ws, "A6"), text(ws, "B6")),
+        ("Count of Doanh thu".into(), "3".into())
+    );
+    // With column fields: no value-name header row.
+    let spec3 = PivotSpec {
+        rows: vec![0],
+        cols: vec![1],
+        values: spec.values.clone(),
+        data_on_rows: true,
+        ..PivotSpec::default()
+    };
+    update_pivot(&mut wb, 1, i, &spec3, &PivotLabels::default()).unwrap();
+    let ws = &wb.sheets[1];
+    // Rows: caption/col field, col items, then Bắc · Sum (A 13, B 7, total 20).
+    assert_eq!(
+        (
+            text(ws, "A5"),
+            text(ws, "B5"),
+            text(ws, "C5"),
+            text(ws, "E5")
+        ),
+        (
+            "Bắc".into(),
+            "Sum of Doanh thu".into(),
+            "13".into(),
+            "20".into()
+        )
+    );
+}

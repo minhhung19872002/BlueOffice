@@ -6,13 +6,14 @@
 //! band are relative to its top-left corner (x = 0 is the left edge of the
 //! content box the band was laid out for).
 
+use crate::drawing::Float;
 use crate::paragraph::{layout_paragraph, FieldContext, LayoutCache, ParaInput, RelLine, WrapZone};
 use crate::style::{para_props, ListCounters};
 use crate::types::{Layer, Line, LineSource, NoteKey, PageItem};
 use crate::{LayoutError, RevisionView};
 use bo_model::{
-    Block, Border, Borders, CellVAlign, Color, Document, HeightRule, Image, Paragraph, RunContent,
-    Table, TableWidth, Twips, VMerge,
+    Block, Border, Borders, CellPlace, CellVAlign, Color, Document, HeightRule, Image, Paragraph,
+    RunContent, Table, TableGeometry, TableView, TableWidth, Twips, VMerge,
 };
 use bo_text::FontManager;
 use std::collections::HashMap;
@@ -44,6 +45,9 @@ pub(crate) struct Ctx<'a> {
     /// Note being stacked and its next paragraph index (note lines carry
     /// [`LineSource::Note`]).
     pub note: Option<(NoteKey, u32)>,
+    /// Text box being stacked: (index offset of the shape in its paragraph, next
+    /// paragraph index); its lines carry [`LineSource::TextBox`].
+    pub textbox: Option<(u32, u32)>,
 }
 
 /// Break requested after a band.
@@ -85,12 +89,13 @@ impl Band {
         let mut b = self.clone();
         for l in &mut b.lines {
             l.translate(dx, dy);
-            if let LineSource::Body(id) = &mut l.source {
-                *id += base;
-            }
+            l.source.rebase(base);
         }
         for i in &mut b.items {
             i.translate(dx, dy);
+            if let Some(s) = i.source_mut() {
+                s.rebase(base);
+            }
         }
         b
     }
@@ -99,8 +104,11 @@ impl Band {
     /// lines keep their note source.
     pub fn set_other(&mut self) {
         for l in &mut self.lines {
-            if matches!(l.source, LineSource::Body(_)) {
-                l.source = LineSource::Other;
+            l.source.detach();
+        }
+        for i in &mut self.items {
+            if let Some(s) = i.source_mut() {
+                s.detach();
             }
         }
     }
@@ -134,7 +142,7 @@ pub(crate) struct ParaBlock {
     pub contextual: bool,
     pub style: Option<String>,
     pub deco: Option<Deco>,
-    pub floats: Vec<Image>,
+    pub floats: Vec<Float>,
     /// Depends only on the paragraph and the width: no list label, fields or note
     /// references (so it can be reused by the incremental layout).
     pub pure: bool,
@@ -179,18 +187,30 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
             layer: Layer::Back,
         });
     }
+    let mut boxed = Vec::new();
     for o in &rl.objects {
         let y = rl.baseline - o.h;
-        items.push(PageItem::Image {
-            x: o.x,
-            y,
-            w: o.w,
-            h: o.h,
-            media: o.image.media.clone(),
-            crop: crop_of(&o.image),
-            rotation: rotation_of(&o.image),
-            layer: Layer::Front,
-        });
+        if let Some(d) = &o.drawing {
+            // Inline shape / text box (its text lines follow the paragraph line).
+            let para = match source {
+                LineSource::Body(id) => Some(id),
+                _ => None,
+            };
+            let (its, lines) = d.placed(o.x, y, para);
+            items.extend(its);
+            boxed.extend(lines);
+        } else {
+            items.push(PageItem::Image {
+                x: o.x,
+                y,
+                w: o.w,
+                h: o.h,
+                media: o.image.media.clone(),
+                crop: crop_of(&o.image),
+                rotation: rotation_of(&o.image),
+                layer: Layer::Front,
+            });
+        }
         // A tracked picture is framed in its author's colour, a deleted one crossed out.
         if let Some((color, deleted)) = o.revision {
             let (x0, y0, x1, y1) = (o.x, y, o.x + o.w, rl.baseline);
@@ -215,18 +235,20 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
             }
         }
     }
+    let mut lines = vec![Line {
+        top: 0.0,
+        height: rl.height,
+        baseline: rl.baseline,
+        fragments,
+        source,
+        start: rl.start,
+        end: rl.end,
+        carets: rl.carets.clone(),
+    }];
+    lines.extend(boxed);
     Band {
         h: rl.height,
-        lines: vec![Line {
-            top: 0.0,
-            height: rl.height,
-            baseline: rl.baseline,
-            fragments,
-            source,
-            start: rl.start,
-            end: rl.end,
-            carets: rl.carets.clone(),
-        }],
+        lines,
         items,
         notes: rl.notes.clone(),
         brk: if rl.page_break_after {
@@ -278,6 +300,14 @@ pub(crate) fn build_para(
             endnote: *endnote,
             id: *id,
             para,
+        }
+    } else if let Some((at, next)) = ctx.textbox.as_mut() {
+        let sub = *next;
+        *next += 1;
+        LineSource::TextBox {
+            para: 0,
+            at: *at,
+            sub,
         }
     } else {
         LineSource::Other
@@ -358,7 +388,18 @@ fn para_block(
         contextual: pl.contextual_spacing,
         style: pl.style.clone(),
         deco,
-        floats: pl.floats.clone(),
+        floats: pl
+            .floats
+            .iter()
+            .cloned()
+            .map(|mut f| {
+                f.para = match source {
+                    LineSource::Body(id) => Some(id),
+                    _ => None,
+                };
+                f
+            })
+            .collect(),
         pure,
         label,
     })
@@ -422,7 +463,7 @@ pub(crate) struct Stack {
     pub bands: Vec<(f32, Band)>,
     pub h: f32,
     /// Anchored pictures with the top of their anchor paragraph.
-    pub floats: Vec<(f32, Image)>,
+    pub floats: Vec<(f32, Float)>,
 }
 
 /// Stack the blocks of note `key` (its lines carry [`LineSource::Note`]).
@@ -529,6 +570,9 @@ pub(crate) struct CellBox {
     pub continued: bool,
     /// The cell below (same grid column) continues this cell's merge.
     pub merged_below: bool,
+    /// Tracked cell insertion/deletion in markup (§17.13.5.4 cellIns, §17.13.5.3
+    /// cellDel): (author colour, deleted).
+    pub revision: Option<(Color, bool)>,
 }
 
 /// A laid-out row.
@@ -569,17 +613,12 @@ fn table_borders(doc: &Document, t: &Table) -> Borders {
     Borders::default()
 }
 
-fn grid_widths(t: &Table, avail: f32) -> Vec<f32> {
-    let mut grid: Vec<f32> = t.grid.iter().map(|w| w.to_pt().max(0.0)).collect();
-    let cols_in_rows = t
+fn grid_widths(t: &Table, geo: &TableGeometry, avail: f32) -> Vec<f32> {
+    let mut grid: Vec<f32> = geo.grid.iter().map(|w| w.to_pt().max(0.0)).collect();
+    let cols_in_rows = geo
         .rows
         .iter()
-        .map(|r| {
-            r.cells
-                .iter()
-                .map(|c| c.props.grid_span.max(1) as usize)
-                .sum::<usize>()
-        })
+        .map(|r| r.iter().map(|c| c.start + c.span).max().unwrap_or(0))
         .max()
         .unwrap_or(0);
     if grid.iter().sum::<f32>() <= 0.5 || grid.len() < cols_in_rows {
@@ -634,7 +673,13 @@ pub(crate) fn layout_table(
     avail: f32,
     body: bool,
 ) -> Result<TableBox, LayoutError> {
-    let grid = grid_widths(t, avail);
+    // Tracked structural changes (§17.13.5): the cells and grid of the view.
+    let geo = t.geometry(match ctx.view {
+        RevisionView::Markup => TableView::Markup,
+        RevisionView::Final => TableView::Final,
+        RevisionView::Original => TableView::Original,
+    });
+    let grid = grid_widths(t, &geo, avail);
     let ncols = grid.len();
     let total: f32 = grid.iter().sum();
     let indent = t.props.indent.map_or(0.0, Twips::to_pt);
@@ -653,36 +698,21 @@ pub(crate) fn layout_table(
         });
     let nrows = t.rows.len();
 
-    // Grid column of each cell, per row.
-    let starts: Vec<Vec<usize>> = t
-        .rows
-        .iter()
-        .map(|r| {
-            let mut g = 0usize;
-            r.cells
-                .iter()
-                .map(|c| {
-                    let s = g;
-                    g += c.props.grid_span.max(1) as usize;
-                    s
-                })
-                .collect()
-        })
-        .collect();
-    let cell_at = |ri: usize, g: usize| -> Option<&bo_model::Cell> {
-        let ci = starts.get(ri)?.iter().position(|&s| s == g)?;
-        t.rows[ri].cells.get(ci)
+    // Placement of each cell in the view, per row.
+    let place_at = |ri: usize, g: usize| -> Option<&CellPlace> {
+        geo.rows.get(ri)?.iter().find(|c| c.start == g && !c.hidden)
     };
     // Number of rows a vMerge restart cell spans (§17.4.85).
     let span_rows = |ri: usize, g: usize| -> usize {
         let mut k = 1;
         while ri + k < nrows
-            && cell_at(ri + k, g).is_some_and(|c| c.props.v_merge == Some(VMerge::Continue))
+            && place_at(ri + k, g).is_some_and(|c| c.v_merge == Some(VMerge::Continue))
         {
             k += 1;
         }
         k
     };
+    let markup = ctx.view == RevisionView::Markup;
 
     let mut rows: Vec<RowBox> = Vec::with_capacity(nrows);
     let mut tall: Vec<(usize, usize, f32)> = Vec::new(); // (first row, span, needed height)
@@ -690,36 +720,61 @@ pub(crate) fn layout_table(
         let mut cells = Vec::with_capacity(row.cells.len());
         let mut h = 0.0f32;
         for (ci, cell) in row.cells.iter().enumerate() {
-            let g = starts[ri][ci];
-            let span = cell.props.grid_span.max(1) as usize;
+            let pl = geo.rows[ri].get(ci).copied().unwrap_or(CellPlace {
+                start: 0,
+                span: 1,
+                hidden: false,
+                v_merge: cell.props.v_merge,
+            });
+            let (g, span) = (pl.start, pl.span);
             let cx: f32 = grid.iter().take(g).sum();
-            let w: f32 = if g < ncols {
+            let w: f32 = if pl.hidden {
+                0.0
+            } else if g < ncols {
                 grid[g..(g + span).min(ncols)].iter().sum()
             } else {
                 avail / ncols.max(1) as f32
             };
-            let continued = cell.props.v_merge == Some(VMerge::Continue);
-            let stack = if continued {
+            let continued = pl.v_merge == Some(VMerge::Continue);
+            let mut stack = if continued {
                 Stack::default()
             } else {
-                stack_blocks(ctx, &cell.blocks, (w - ml - mr).max(1.0), body, None)?
+                // Hidden cells are laid out too (at an ordinary width): their
+                // paragraphs keep their ids.
+                let lw = if pl.hidden {
+                    avail / ncols.max(1) as f32
+                } else {
+                    w
+                };
+                stack_blocks(ctx, &cell.blocks, (lw - ml - mr).max(1.0), body, None)?
             };
+            if pl.hidden {
+                stack = Stack::default();
+            }
             let mut content = stack.bands;
             // Floating pictures inside cells are positioned relative to the cell (approximation).
-            for (top, img) in stack.floats {
+            for (top, f) in stack.floats {
+                let img = &f.img;
                 let (ix, iy) = img
                     .anchor
                     .as_ref()
                     .map_or((0.0, 0.0), |a| (a.x.to_pt(), a.y.to_pt()));
                 let mut band = Band::empty(0.0);
+                if let Some(d) = &f.drawing {
+                    let (items, lines) = d.placed(ix, 0.0, f.para);
+                    band.items.extend(items);
+                    band.lines.extend(lines);
+                    content.push((top + iy, band));
+                    continue;
+                }
                 band.items.push(PageItem::Image {
                     x: ix,
                     y: 0.0,
                     w: img.width.to_pt(),
                     h: img.height.to_pt(),
                     media: img.media.clone(),
-                    crop: crop_of(&img),
-                    rotation: rotation_of(&img),
+                    crop: crop_of(img),
+                    rotation: rotation_of(img),
                     layer: if img.anchor.as_ref().is_some_and(|a| a.behind) {
                         Layer::Back
                     } else {
@@ -755,26 +810,44 @@ pub(crate) fn layout_table(
                 pick(own.map(|b| &b.bottom), &tb.bottom, &tb.inside_h, last_row),
                 pick(own.map(|b| &b.left), &tb.left, &tb.inside_v, first_col),
             ];
-            let merged_below = ri + 1 < nrows
-                && cell_at(ri + 1, g).is_some_and(|c| c.props.v_merge == Some(VMerge::Continue));
-            let rows_spanned = if continued { 1 } else { span_rows(ri, g) };
+            let merged_below = !pl.hidden
+                && ri + 1 < nrows
+                && place_at(ri + 1, g).is_some_and(|c| c.v_merge == Some(VMerge::Continue));
+            let rows_spanned = if continued || pl.hidden {
+                1
+            } else {
+                span_rows(ri, g)
+            };
             let needed = content_h;
             if rows_spanned > 1 {
                 tall.push((ri, rows_spanned, needed));
             } else if !continued {
                 h = h.max(needed);
             }
+            // §17.13.5.4 cellIns / §17.13.5.3 cellDel shown in markup.
+            let revision = match (&cell.props.del, &cell.props.ins) {
+                (Some(m), _) if markup => Some((crate::style::author_color(&m.info.author), true)),
+                (None, Some(m)) if markup => {
+                    Some((crate::style::author_color(&m.info.author), false))
+                }
+                _ => None,
+            };
             cells.push(CellBox {
                 x: cx,
                 w,
                 content,
                 content_h,
                 margins: [ml, mr, 0.0, 0.0],
-                shading: cell.props.shading,
-                edges,
+                shading: if pl.hidden { None } else { cell.props.shading },
+                edges: if pl.hidden {
+                    [None, None, None, None]
+                } else {
+                    edges
+                },
                 v_align: cell.props.v_align.unwrap_or(CellVAlign::Top),
                 continued,
                 merged_below,
+                revision,
             });
         }
         // Row height rule (§17.4.81 trHeight).
@@ -799,23 +872,37 @@ pub(crate) fn layout_table(
             }
             h = 0.0;
         }
-        let markup = ctx.view == RevisionView::Markup;
         let revision = match (&row.props.del, &row.props.ins) {
             (Some(m), _) if markup => Some((crate::style::author_color(&m.info.author), true)),
             (None, Some(m)) if markup => Some((crate::style::author_color(&m.info.author), false)),
             _ => None,
         };
+        // Change bar: cell/row/table property changes, merges, grid changes, cells.
         let changed = row
             .cells
             .iter()
-            .find_map(|c| c.props.change.as_ref().map(|ch| &ch.info))
+            .find_map(|c| {
+                let p = &c.props;
+                p.change
+                    .as_ref()
+                    .map(|ch| &ch.info)
+                    .or(p.merge.as_ref().map(|m| &m.info))
+                    .or(p.ins.as_ref().map(|m| &m.info))
+                    .or(p.del.as_ref().map(|m| &m.info))
+            })
+            .or(row.props.change.as_ref().map(|ch| &ch.info))
             .or(t.props.change.as_ref().map(|ch| &ch.info))
             .filter(|_| markup)
             .map(|i| crate::style::author_color(&i.author));
+        // §17.13.5.37 trPrChange: the original view repeats the previous header rows.
+        let header = match (&row.props.change, ctx.view) {
+            (Some(ch), RevisionView::Original) => ch.header,
+            _ => row.props.header,
+        };
         rows.push(RowBox {
             h: if hidden { 0.0 } else { h.max(1.0) },
             cells,
-            header: row.props.header,
+            header,
             cant_split: row.props.cant_split,
             revision,
             changed,
@@ -888,6 +975,33 @@ pub(crate) fn row_band(
     for c in &row.cells {
         let x0 = table_x + c.x;
         let x1 = x0 + c.w;
+        if let Some((color, deleted)) = c.revision {
+            // Tracked cell: tint of the author's colour; deleted cells crossed out.
+            let tint = |v: u8| (f32::from(v) * 0.25 + 255.0 * 0.75) as u8;
+            band.items.push(PageItem::Rect {
+                x: x0,
+                y: 0.0,
+                w: c.w,
+                h,
+                color: Color {
+                    r: tint(color.r),
+                    g: tint(color.g),
+                    b: tint(color.b),
+                },
+                layer: Layer::Back,
+            });
+            if deleted {
+                band.items.push(PageItem::Rule {
+                    x1: x0,
+                    y1: 0.0,
+                    x2: x1,
+                    y2: h,
+                    width: 0.75,
+                    color,
+                    style: "single".into(),
+                });
+            }
+        }
         if let Some(color) = c.shading {
             band.items.push(PageItem::Rect {
                 x: x0,

@@ -9,7 +9,7 @@
 //! the Office 2010 schema (`fillDownLabels`, the newer "show values as"
 //! calculations) are written as `x14` extensions ([MS-XLSX] `CT_PivotFieldExtension`, `CT_DataField` x14).
 
-use crate::pivot::serial_to_iso;
+use crate::pivot::serial_to_iso_in;
 use crate::styles::SML_NS;
 use crate::xml::{a, fmt_f64};
 use bo_model::sheet::{
@@ -76,12 +76,13 @@ fn item_xml(out: &mut String, v: &CellValue) {
     }
 }
 
-/// Items of a date-grouped base field as dates (`d`, §18.10.1.21).
-fn as_dates(items: &[CellValue]) -> Vec<CellValue> {
+/// Items of a date-grouped base field as dates (`d`, §18.10.1.21); serials are
+/// in the workbook's date system (§18.17.4.1).
+fn as_dates(items: &[CellValue], date1904: bool) -> Vec<CellValue> {
     items
         .iter()
         .map(|v| match v {
-            CellValue::Number(n) => CellValue::Date(serial_to_iso(*n)),
+            CellValue::Number(n) => CellValue::Date(serial_to_iso_in(*n, date1904)),
             o => o.clone(),
         })
         .collect()
@@ -165,7 +166,7 @@ fn shared_items_xml(out: &mut String, items: &[CellValue]) {
 
 /// `fieldGroup` (§18.10.1.27): `rangePr` (§18.10.1.77), `discretePr`
 /// (§18.10.1.26), `groupItems` (§18.10.1.37).
-fn field_group_xml(out: &mut String, g: &PivotFieldGroup) {
+fn field_group_xml(out: &mut String, g: &PivotFieldGroup, date1904: bool) {
     out.push_str("<fieldGroup");
     if let Some(p) = g.par {
         a(out, "par", &p.to_string());
@@ -186,8 +187,9 @@ fn field_group_xml(out: &mut String, g: &PivotFieldGroup) {
             a(out, "groupBy", r.group_by.as_str());
         }
         if r.dates {
-            a(out, "startDate", &serial_to_iso(r.start));
-            a(out, "endDate", &serial_to_iso(r.end));
+            // xsd:dateTime: the same instant whatever the date system.
+            a(out, "startDate", &serial_to_iso_in(r.start, date1904));
+            a(out, "endDate", &serial_to_iso_in(r.end, date1904));
         } else {
             a(out, "startNum", &fmt_f64(r.start));
             a(out, "endNum", &fmt_f64(r.end));
@@ -222,8 +224,9 @@ fn date_base(f: &PivotCacheField, i: usize) -> bool {
 }
 
 /// The `pivotCacheDefinition` part; `records_rid` is the relationship id of the
-/// records part.
-pub fn cache_definition_xml(cache: &PivotCache, records_rid: &str) -> String {
+/// records part. `date1904`: the workbook's date system (`workbookPr/@date1904`),
+/// in which the serials of the cache are counted.
+pub fn cache_definition_xml(cache: &PivotCache, records_rid: &str, date1904: bool) -> String {
     let mut out = String::from(XML_DECL);
     out.push_str("<pivotCacheDefinition");
     a(&mut out, "xmlns", SML_NS);
@@ -263,18 +266,52 @@ pub fn cache_definition_xml(cache: &PivotCache, records_rid: &str) -> String {
         out.push('>');
         if !f.derived {
             if date_base(f, i) {
-                shared_items_xml(&mut out, &as_dates(&f.items));
+                shared_items_xml(&mut out, &as_dates(&f.items, date1904));
             } else {
                 shared_items_xml(&mut out, &f.items);
             }
         }
         if let Some(g) = &f.group {
-            field_group_xml(&mut out, g);
+            field_group_xml(&mut out, g, date1904);
         }
         out.push_str("</cacheField>");
     }
-    out.push_str("</cacheFields></pivotCacheDefinition>");
+    out.push_str("</cacheFields>");
+    calculated_items_xml(&mut out, cache);
+    out.push_str("</pivotCacheDefinition>");
     out
+}
+
+/// `calculatedItems` (§18.10.1.9): each `calculatedItem` (§18.10.1.8) names
+/// its item through a `pivotArea` (§18.3.1.68) referencing the cache item.
+fn calculated_items_xml(out: &mut String, cache: &PivotCache) {
+    let list: Vec<(u32, usize, &str)> = cache
+        .calculated_items
+        .iter()
+        .filter_map(|ci| {
+            let key = PivotItemKey::of(&CellValue::Text(ci.name.clone()));
+            let x = cache
+                .fields
+                .get(ci.field as usize)?
+                .items
+                .iter()
+                .position(|v| PivotItemKey::of(v) == key)?;
+            Some((ci.field, x, ci.formula.as_str()))
+        })
+        .collect();
+    if list.is_empty() {
+        return;
+    }
+    let _ = write!(out, "<calculatedItems count=\"{}\">", list.len());
+    for (field, x, formula) in list {
+        out.push_str("<calculatedItem");
+        a(out, "formula", formula);
+        let _ = write!(
+            out,
+            "><pivotArea cacheIndex=\"1\" outline=\"0\" fieldPosition=\"0\"><references count=\"1\"><reference field=\"{field}\" count=\"1\"><x v=\"{x}\"/></reference></references></pivotArea></calculatedItem>"
+        );
+    }
+    out.push_str("</calculatedItems>");
 }
 
 /// The `pivotCacheRecords` part: every value of a database field is an index
@@ -355,7 +392,7 @@ fn filter_xml(out: &mut String, f: &PivotFieldFilter, id: usize) {
     a(out, "type", f.kind.as_str());
     a(out, "evalOrder", "-1");
     a(out, "id", &id.to_string());
-    if !f.kind.is_caption() {
+    if !f.kind.is_caption() && !f.kind.is_date() {
         a(out, "iMeasureFld", &f.measure.to_string());
     }
     if f.kind.is_caption() {
@@ -395,31 +432,43 @@ fn filter_xml(out: &mut String, f: &PivotFieldFilter, id: usize) {
             a(out, "filterVal", &fmt_f64(f.count));
             out.push_str("/>");
         }
-        T::CaptionEqual | T::ValueEqual => custom(out, false, &[("", v1)]),
-        T::CaptionNotEqual | T::ValueNotEqual => custom(out, false, &[("notEqual", v1)]),
+        // Date filters use serial dates (§18.3.2.2 customFilter).
+        T::CaptionEqual | T::ValueEqual | T::DateEqual => custom(out, false, &[("", v1)]),
+        T::CaptionNotEqual | T::ValueNotEqual | T::DateNotEqual => {
+            custom(out, false, &[("notEqual", v1)]);
+        }
         T::CaptionBeginsWith => custom(out, false, &[("", format!("{v1}*"))]),
         T::CaptionNotBeginsWith => custom(out, false, &[("notEqual", format!("{v1}*"))]),
         T::CaptionEndsWith => custom(out, false, &[("", format!("*{v1}"))]),
         T::CaptionNotEndsWith => custom(out, false, &[("notEqual", format!("*{v1}"))]),
         T::CaptionContains => custom(out, false, &[("", format!("*{v1}*"))]),
         T::CaptionNotContains => custom(out, false, &[("notEqual", format!("*{v1}*"))]),
-        T::CaptionGreaterThan | T::ValueGreaterThan => {
+        T::CaptionGreaterThan | T::ValueGreaterThan | T::DateNewerThan => {
             custom(out, false, &[("greaterThan", v1)]);
         }
-        T::CaptionGreaterThanOrEqual | T::ValueGreaterThanOrEqual => {
+        T::CaptionGreaterThanOrEqual | T::ValueGreaterThanOrEqual | T::DateNewerThanOrEqual => {
             custom(out, false, &[("greaterThanOrEqual", v1)]);
         }
-        T::CaptionLessThan | T::ValueLessThan => custom(out, false, &[("lessThan", v1)]),
-        T::CaptionLessThanOrEqual | T::ValueLessThanOrEqual => {
+        T::CaptionLessThan | T::ValueLessThan | T::DateOlderThan => {
+            custom(out, false, &[("lessThan", v1)]);
+        }
+        T::CaptionLessThanOrEqual | T::ValueLessThanOrEqual | T::DateOlderThanOrEqual => {
             custom(out, false, &[("lessThanOrEqual", v1)]);
         }
-        T::CaptionBetween | T::ValueBetween => custom(
+        T::CaptionBetween | T::ValueBetween | T::DateBetween => custom(
             out,
             true,
             &[("greaterThanOrEqual", v1), ("lessThanOrEqual", v2)],
         ),
-        T::CaptionNotBetween | T::ValueNotBetween => {
+        T::CaptionNotBetween | T::ValueNotBetween | T::DateNotBetween => {
             custom(out, false, &[("lessThan", v1), ("greaterThan", v2)]);
+        }
+        // Relative periods, quarters and months as a dynamic filter
+        // (§18.3.2.5 dynamicFilter, §18.18.26 ST_DynamicFilterType).
+        _ => {
+            out.push_str("<dynamicFilter");
+            a(out, "type", f.kind.as_str());
+            out.push_str("/>");
         }
     }
     out.push_str("</filterColumn></autoFilter></filter>");
@@ -562,10 +611,15 @@ pub fn pivot_table_xml(pt: &PivotTable, cache: &PivotCache) -> String {
             let _ = write!(out, "<items count=\"{n}\">");
             for (x, v) in values.iter().enumerate() {
                 let key = PivotItemKey::of(v);
+                // §18.10.1.45 item/@f: a calculated item.
+                let calc = cache.calculated_items.iter().any(|c| {
+                    c.field == i && PivotItemKey::of(&CellValue::Text(c.name.clone())) == key
+                });
+                let f_attr = if calc { " f=\"1\"" } else { "" };
                 if (!shown.is_empty() && !shown.contains(&key)) || hidden.contains(&key) {
-                    let _ = write!(out, "<item h=\"1\" x=\"{x}\"/>");
+                    let _ = write!(out, "<item h=\"1\"{f_attr} x=\"{x}\"/>");
                 } else {
-                    let _ = write!(out, "<item x=\"{x}\"/>");
+                    let _ = write!(out, "<item{f_attr} x=\"{x}\"/>");
                 }
             }
             if subtotal {

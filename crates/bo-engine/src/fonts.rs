@@ -69,6 +69,18 @@ impl Engine {
     /// Commands answered without touching the document model (header/footer editor,
     /// notes and font lists). `None` = run the command normally.
     pub(crate) fn special_command(&mut self, cmd: &Command) -> crate::Result<Option<EditResult>> {
+        let mut r = self.special_command_inner(cmd)?;
+        // Edits of headers, footers and notes may record tracked changes (§17.13.5):
+        // the review pane follows them.
+        if let (Some(r), Some(s)) = (r.as_mut(), self.session.as_ref()) {
+            if r.review.is_none() {
+                r.review = Some(crate::review::review_state(s, self.view));
+            }
+        }
+        Ok(r)
+    }
+
+    fn special_command_inner(&mut self, cmd: &Command) -> crate::Result<Option<EditResult>> {
         if self.session.is_none() {
             return Ok(None);
         }
@@ -81,6 +93,9 @@ impl Engine {
             if let Some(r) = self.note_command(cmd)? {
                 return Ok(Some(r));
             }
+        }
+        if let Some(r) = self.drawing_command(cmd)? {
+            return Ok(Some(r));
         }
         match cmd {
             // A click on a footnote/endnote edits it in place (§17.11).
@@ -125,6 +140,14 @@ impl Engine {
             Command::Notes => {
                 let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
                 r.notes = self.session.as_ref().map(bo_edit::Session::notes);
+                Ok(Some(r))
+            }
+            Command::StyleList => {
+                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                r.styles = self
+                    .session
+                    .as_ref()
+                    .map(|s| crate::gallery::styles(s.doc()));
                 Ok(Some(r))
             }
             Command::FontList => {

@@ -47,6 +47,19 @@ Phần này: model, đọc/ghi `.pptx`, render, engine, CLI, corpus, **chỉnh s
 | Hiệu ứng | `bo-render` (`PushOpacity`/`PopOpacity`, `BlurPath` + `spread`), `bo-raster` (`blur_mask`), `bo-pdf`, `canvas-host` | bóng có blur (PDF: blur thật — mặt nạ mềm `SMask` rasterise), glow §20.1.8.32 (đường viền nở `rad/2` rồi làm mờ, raster/PDF/canvas), ảnh `alphaModFix` |
 | Màn hình khán giả | `packages/slide-editor/src/audience.ts`, `AudienceView.tsx`, `Platform.channel` | "Mở màn hình khán giả": cửa sổ thứ hai (desktop `open_window`, web `window.open`) chỉ hiện slide, đồng bộ qua BroadcastChannel / sự kiện Tauri: slide hiện tại, màn hình đen, kết thúc |
 
+## Dán slide khác deck, connector trong nhóm lật (bổ sung)
+| Hạng mục | Vị trí | Ghi chú |
+|---|---|---|
+| Dán sang deck khác khổ | `slide_edit::SizeFit` | cách "tài liệu": vị trí và kích thước (`xfrm` off/ext, §20.1.7.6) của hình cấp cao nhất trên slide, layout và master nhập kèm nhân theo tỉ lệ nhỏ hơn của hai chiều `sldSz` (§19.2.1.39) và căn giữa; cỡ chữ, nét, toạ độ con của nhóm giữ nguyên |
+| Part con của chart | `clip::slide_source`, `PartCarrier::copy_part` | part được chép kèm `.rels` của nó và các part nó trỏ tới (đệ quy): workbook nhúng (`c:externalData`), `chartColorStyle` / `chartStyle`; tên part mới, `.rels` mới trỏ tới bản sao (ECMA-376 Part 2, §9.3) |
+| Siêu liên kết slide → slide | `paste_slides_from`, `clip::strip_rel_refs` | quan hệ kiểu `slide` (`ppaction://hlinksldjump`, §21.1.2.3.5) tới slide được dán cùng → trỏ tới bản sao; tới slide không được dán → bỏ quan hệ và `a:hlinkClick` / `a:hlinkHover` tham chiếu nó |
+| Connector trong nhóm lật | `geom::Frame::flip`, `connect::visual` | lật của các nhóm bao ngoài (chẵn/lẻ theo trục) cộng vào lật của connector, điểm nối và handle: đầu connector, đi lại đường, adjust và `flipH/flipV` ghi trong không gian của nhóm |
+
+Kiểm thử: `slide_rich.rs::connector_inside_a_flipped_group_follows_its_shapes`,
+`bo-cli slide_edits::paste_tests::pasted_slides_fit_carry_charts_and_remap_links`; corpus
+`slide-edit-paste-{resized,chart,links}.pptx`, `slide-edit-connectors-flip-{h,v,hv}.pptx` (OpenXmlValidator hợp lệ);
+E2E `slide-rich.spec.ts` (dán slide biểu đồ sang deck khác, lưu, mở lại).
+
 ## Kiểm thử
 
 - `crates/bo-pptx/tests/roundtrip.rs`: 25 deck × mọi part — **555/555 part giống hệt (100%)** sau read→write (so XML chuẩn hoá); model ổn định qua vòng thứ hai; sửa transition/animation/nhân bản slide rồi đọc lại.
@@ -67,4 +80,4 @@ Phần này: model, đọc/ghi `.pptx`, render, engine, CLI, corpus, **chỉnh s
 - Chart: chỉ dùng cache, không nhãn dữ liệu, không trục phụ; scatter/radar/stock vẽ khung trống.
 - Animation: chỉ main sequence; hiệu ứng khác/emphasis/motion path đọc là `Other` (giữ nguyên XML khi không sửa).
 - Pattern fill dạng chấm/phần trăm vẽ màu trộn.
-- Sửa slide: connector trong nhóm bị lật (mirror) đi lại đường theo phép lật của chính nó (chưa tính lật của nhóm); dán slide sang deck khác không đổi cỡ theo khổ slide đích, quan hệ slide→slide (siêu liên kết nội bộ) và part con của chart không được chép; không cho nhóm placeholder.
+- Sửa slide: không cho nhóm placeholder. Dán slide khác khổ: chữ, độ dày nét và toạ độ con của nhóm không co giãn (chỉ vị trí/kích thước hình cấp cao nhất); placeholder không có `xfrm` lấy vị trí từ layout của deck đích. 3D (`a:scene3d` / `a:sp3d`) chưa vẽ (kể cả gần đúng).

@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 bo-model.workspace = true
 bo-opc.workspace = true
+bo-drawingml = { path = "../bo-drawingml" }
 quick-xml.workspace = true
 thiserror.workspace = true
 

@@ -2498,6 +2498,53 @@ impl PartCarrier<'_> {
         n
     }
 
+    /// Copy source part `old` under a new name (once), with the parts its own
+    /// relationships target — a chart's embedded workbook, colour and style
+    /// parts — and a `.rels` part pointing at the copies (ECMA-376 Part 2, §9.3).
+    fn copy_part(&mut self, pres: &Presentation, old: &str) -> Option<String> {
+        if let Some((_, n)) = self.map.iter().find(|(o, _)| o.eq_ignore_ascii_case(old)) {
+            return Some(n.clone());
+        }
+        let p = self
+            .src
+            .parts
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(old))
+            .cloned()?;
+        let n = self.unique(pres, &p.name);
+        self.map.push((old.to_owned(), n.clone()));
+        self.new_parts.push(bo_model::slide::RawPart {
+            name: n.clone(),
+            ..p
+        });
+        let rels_name = bo_opc::rels_part_name(old);
+        if let Some(rp) = self
+            .src
+            .parts
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(&rels_name))
+            .cloned()
+        {
+            let mut out = Vec::new();
+            for (id, t, target, ext) in clip::rels_of(&rp.data) {
+                if ext {
+                    out.push((id, t, target, ext));
+                    continue;
+                }
+                let child = bo_opc::resolve_target(old, &target);
+                if let Some(cn) = self.copy_part(pres, &child) {
+                    out.push((id, t, clip::relative_target(&n, &cn), false));
+                }
+            }
+            self.new_parts.push(bo_model::slide::RawPart {
+                name: bo_opc::rels_part_name(&n),
+                content_type: rp.content_type.clone(),
+                data: clip::rels_xml(&out),
+            });
+        }
+        Some(n)
+    }
+
     /// Relationships of a part moved from `old_owner` to `new_owner`: structural ones
     /// are kept (the writer re-targets them), the others get a copy of their part;
     /// relationships to parts the source does not have are dropped.
@@ -2517,33 +2564,73 @@ impl PartCarrier<'_> {
             let Some(old) = clip::rel_part(old_owner, r) else {
                 continue;
             };
-            let new =
-                if let Some((_, n)) = self.map.iter().find(|(o, _)| o.eq_ignore_ascii_case(&old)) {
-                    n.clone()
-                } else {
-                    let Some(p) = self
-                        .src
-                        .parts
-                        .iter()
-                        .find(|p| p.name.eq_ignore_ascii_case(&old))
-                        .cloned()
-                    else {
-                        continue;
-                    };
-                    let n = self.unique(pres, &p.name);
-                    self.new_parts.push(bo_model::slide::RawPart {
-                        name: n.clone(),
-                        ..p
-                    });
-                    self.map.push((old, n.clone()));
-                    n
-                };
+            let Some(new) = self.copy_part(pres, &old) else {
+                continue;
+            };
             out.push(Rel {
                 target: clip::relative_target(new_owner, &new),
                 ..r.clone()
             });
         }
         out
+    }
+}
+
+/// Fitting slides of one size into a deck of another (document approach, as
+/// when the slide size changes, §19.2.1.39 sldSz): positions and sizes scale
+/// uniformly by the smaller ratio and the content is centred; text sizes,
+/// line widths and child coordinates of groups are kept.
+struct SizeFit {
+    scale: f64,
+    dx: f64,
+    dy: f64,
+}
+
+impl SizeFit {
+    fn new(from: &bo_model::slide::SlideSize, to: &bo_model::slide::SlideSize) -> SizeFit {
+        if from.cx <= 0 || from.cy <= 0 || (from.cx == to.cx && from.cy == to.cy) {
+            return SizeFit {
+                scale: 1.0,
+                dx: 0.0,
+                dy: 0.0,
+            };
+        }
+        let (fx, fy) = (from.cx as f64, from.cy as f64);
+        let (tx, ty) = (to.cx as f64, to.cy as f64);
+        let scale = (tx / fx).min(ty / fy);
+        SizeFit {
+            scale,
+            dx: (tx - fx * scale) / 2.0,
+            dy: (ty - fy * scale) / 2.0,
+        }
+    }
+
+    /// Scale the transforms of top-level shapes (§20.1.7.6 xfrm off / ext).
+    fn apply(&self, nodes: &mut [ShapeNode]) {
+        if (self.scale - 1.0).abs() < 1e-12 && self.dx == 0.0 && self.dy == 0.0 {
+            return;
+        }
+        let r = |v: f64| v.round() as i64;
+        for n in nodes {
+            let x = match n {
+                ShapeNode::Shape(s) => s.props.xfrm.as_mut(),
+                ShapeNode::Picture(p) => p.props.xfrm.as_mut(),
+                ShapeNode::Connector(c) => c.props.xfrm.as_mut(),
+                ShapeNode::Group(g) => g.props.xfrm.as_mut(),
+                ShapeNode::Frame(f) => Some(&mut f.xfrm),
+                ShapeNode::Other(_) => None,
+            };
+            let Some(x) = x else { continue };
+            if let Some((ox, oy)) = x.off {
+                x.off = Some((
+                    r(ox as f64 * self.scale + self.dx),
+                    r(oy as f64 * self.scale + self.dy),
+                ));
+            }
+            if let Some((cx, cy)) = x.ext {
+                x.ext = Some((r(cx as f64 * self.scale), r(cy as f64 * self.scale)));
+            }
+        }
     }
 }
 
@@ -2570,8 +2657,19 @@ fn paste_slides_from(
     let mut masters: Vec<(usize, usize)> = Vec::new();
     let mut themes: Vec<(usize, usize)> = Vec::new();
     let notes_master = build::notes_master(tx.pres);
+    // New part names of the pasted slides (slide → slide hyperlinks among them).
+    let slide_names: Vec<(String, String)> = slides
+        .iter()
+        .map(|s| {
+            (
+                s.info.part_name.clone(),
+                carrier.unique(tx.pres, "/ppt/slides/slide1.xml"),
+            )
+        })
+        .collect();
+    let fit = SizeFit::new(&src.slide_size, &tx.pres.slide_size);
     let mut out_slides = Vec::new();
-    for s in slides {
+    for (k, s) in slides.iter().enumerate() {
         let sl = src
             .layouts
             .get(s.layout)
@@ -2605,6 +2703,7 @@ fn paste_slides_from(
                     after.themes.len() - 1
                 };
                 let mut m = sm.clone();
+                fit.apply(&mut m.data.shapes);
                 let name = carrier.unique(tx.pres, "/ppt/slideMasters/slideMaster1.xml");
                 m.info.rels = carrier.rels(tx.pres, &sm.info.part_name, &name, &sm.info.rels);
                 m.info.part_name = name;
@@ -2618,6 +2717,7 @@ fn paste_slides_from(
                 after.masters.len() - 1
             };
             let mut l = sl.clone();
+            fit.apply(&mut l.data.shapes);
             let name = carrier.unique(tx.pres, "/ppt/slideLayouts/slideLayout1.xml");
             l.info.rels = carrier.rels(tx.pres, &sl.info.part_name, &name, &sl.info.rels);
             l.info.part_name = name;
@@ -2627,8 +2727,36 @@ fn paste_slides_from(
         };
         layouts.push((s.layout, layout));
         let mut d = s.clone();
-        let name = carrier.unique(tx.pres, "/ppt/slides/slide1.xml");
+        let name = slide_names[k].1.clone();
         d.info.rels = carrier.rels(tx.pres, &s.info.part_name, &name, &s.info.rels);
+        // Slide → slide hyperlinks (§21.1.2.3.5 hlinkClick, `ppaction://hlinksldjump`):
+        // to a slide pasted along → its copy; to any other → the link is removed.
+        let mut dropped: Vec<String> = Vec::new();
+        d.info.rels.retain_mut(|r| {
+            if r.external || !r.rel_type.ends_with("/slide") {
+                return true;
+            }
+            let old = bo_opc::resolve_target(&s.info.part_name, &r.target);
+            if let Some((_, n)) = slide_names
+                .iter()
+                .find(|(o, _)| !o.is_empty() && o.eq_ignore_ascii_case(&old))
+            {
+                r.target = clip::relative_target(&name, n);
+                true
+            } else {
+                dropped.push(r.id.clone());
+                false
+            }
+        });
+        if !dropped.is_empty() {
+            d.data.shapes = d
+                .data
+                .shapes
+                .iter()
+                .map(|n| clip::strip_rel_refs(n, &dropped))
+                .collect();
+        }
+        fit.apply(&mut d.data.shapes);
         d.info.part_name = name;
         d.layout = layout;
         d.slide_id = 0;

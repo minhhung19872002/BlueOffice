@@ -192,6 +192,27 @@ const SCRIPTS: &[Script] = &[
         name: PASTE_DECK,
         commands: &[r#"{"cmd":"goTo","slide":0}"#, r#"{"cmd":"paste"}"#],
     },
+    // Slides from a 4:3 deck pasted into a 16:9 one: positions and sizes are
+    // scaled to fit and centred (document approach).
+    Script {
+        base: "slide-shapes-presets.pptx",
+        name: PASTE_RESIZED,
+        commands: &[r#"{"cmd":"goTo","slide":0}"#, r#"{"cmd":"paste"}"#],
+    },
+    // A chart slide pasted into another deck: the chart part, its embedded
+    // workbook, colour and style parts come along under new names.
+    Script {
+        base: "slide-text-bullets.pptx",
+        name: PASTE_CHART,
+        commands: &[r#"{"cmd":"goTo","slide":0}"#, r#"{"cmd":"paste"}"#],
+    },
+    // Slides with slide → slide hyperlinks: a link to a slide pasted along is
+    // re-pointed at its copy, a link to a slide left behind is removed.
+    Script {
+        base: "slide-shapes-presets.pptx",
+        name: PASTE_LINKS,
+        commands: &[r#"{"cmd":"goTo","slide":0}"#, r#"{"cmd":"paste"}"#],
+    },
     // Slides: duplicate, reorder, delete, notes and a picture.
     Script {
         base: "slide-notes-basic.pptx",
@@ -212,22 +233,200 @@ const SCRIPTS: &[Script] = &[
 /// Deck receiving slides copied from other decks.
 const PASTE_DECK: &str = "slide-edit-paste-other-deck.pptx";
 
-/// Open a script's base deck; for [`PASTE_DECK`] the slide clipboard is first filled
-/// with slides of other decks (one engine keeps its clipboard across decks).
+const PASTE_RESIZED: &str = "slide-edit-paste-resized.pptx";
+const PASTE_CHART: &str = "slide-edit-paste-chart.pptx";
+const PASTE_LINKS: &str = "slide-edit-paste-links.pptx";
+
+const REL_SLIDE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide";
+
+/// Add a click action jumping to slide `to` on the first shape of slide `from`
+/// (§21.1.2.3.5 hlinkClick, `ppaction://hlinksldjump`, relationship to the slide).
+fn link_slides(p: &mut bo_model::slide::Presentation, from: usize, to: usize) {
+    use bo_model::slide::{Rel, XmlElement, XmlNode};
+    let target = p.slides[to].info.part_name.clone();
+    let owner = p.slides[from].info.part_name.clone();
+    let rels = &mut p.slides[from].info.rels;
+    let id = (1..=rels.len() + 1)
+        .map(|n| format!("rIdL{n}"))
+        .find(|i| rels.iter().all(|r| &r.id != i))
+        .unwrap_or_default();
+    rels.push(Rel {
+        id: id.clone(),
+        rel_type: REL_SLIDE.into(),
+        target: bo_engine::slide_edit::clip::relative_target(&owner, &target),
+        external: false,
+    });
+    let Some(n) = p.slides[from].data.shapes.first_mut() else {
+        return;
+    };
+    let mut el = bo_pptx::write_node(n);
+    let add = |e: &mut XmlElement| {
+        let mut h = XmlElement::new("a:hlinkClick");
+        h.attrs = vec![
+            ("r:id".into(), id.clone()),
+            ("action".into(), "ppaction://hlinksldjump".into()),
+        ];
+        e.children.push(XmlNode::Element(h));
+    };
+    // cNvPr is the first child of the nv*Pr element.
+    if let Some(XmlNode::Element(nv)) = el.children.first_mut() {
+        if let Some(XmlNode::Element(cnv)) = nv.children.first_mut() {
+            add(cnv);
+        }
+    }
+    *n = bo_pptx::parse_node(&el);
+}
+
+/// A chart deck whose chart has an embedded workbook (§21.2.2.63 externalData)
+/// and colour / style parts ([MS-ODRAWXML] chartColorStyle, chartStyle).
+fn chart_source(bytes: &[u8]) -> Option<Vec<u8>> {
+    use bo_model::slide::RawPart;
+    let mut p = bo_pptx::read_pptx(bytes).ok()?;
+    let chart = p
+        .parts
+        .iter_mut()
+        .find(|x| x.name == "/ppt/charts/chart1.xml")?;
+    let xml = String::from_utf8(chart.data.clone()).ok()?;
+    let close = xml.rfind("</c:chartSpace>")?;
+    let mut x = xml[..close].to_owned();
+    if !x.contains("xmlns:r=") {
+        x = x.replacen(
+            "<c:chartSpace ",
+            "<c:chartSpace xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" ",
+            1,
+        );
+    }
+    x.push_str(
+        "<c:externalData r:id=\"rId1\"><c:autoUpdate val=\"0\"/></c:externalData></c:chartSpace>",
+    );
+    chart.data = x.into_bytes();
+    let mut wb = bo_model::sheet::Workbook::new();
+    wb.sheets[0].set_cell(
+        0,
+        0,
+        bo_model::sheet::Cell::new(bo_model::sheet::CellValue::Text("Doanh thu".into())),
+    );
+    let book = bo_xlsx::write_xlsx(&wb).ok()?;
+    let rels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/package\" Target=\"../embeddings/Microsoft_Excel_Worksheet1.xlsx\"/></Relationships>";
+    p.parts.push(RawPart {
+        name: "/ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx".into(),
+        content_type: Some(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".into(),
+        ),
+        data: book,
+    });
+    p.parts.push(RawPart {
+        name: "/ppt/charts/_rels/chart1.xml.rels".into(),
+        content_type: Some("application/vnd.openxmlformats-package.relationships+xml".into()),
+        data: rels.as_bytes().to_vec(),
+    });
+    bo_pptx::write_pptx(&p).ok()
+}
+
+/// The source deck of a paste script, prepared for its feature.
+fn paste_source(name: &str, base: &[(&'static str, Vec<u8>)]) -> Option<(Vec<u8>, &'static str)> {
+    let get = |n: &str| base.iter().find(|(b, _)| *b == n).map(|(_, d)| d.clone());
+    match name {
+        PASTE_DECK => Some((
+            get("slide-images-crop.pptx")?,
+            r#"{"cmd":"copySlides","indices":[0,1]}"#,
+        )),
+        PASTE_RESIZED => {
+            let mut p = bo_pptx::read_pptx(&get("slide-text-bullets.pptx")?).ok()?;
+            // 4:3 at 10 × 7.5 in (§19.2.1.39 sldSz).
+            p.slide_size.cx = 9_144_000;
+            p.slide_size.cy = 6_858_000;
+            p.slide_size.kind = Some("screen4x3".into());
+            Some((
+                bo_pptx::write_pptx(&p).ok()?,
+                r#"{"cmd":"copySlides","indices":[0,1]}"#,
+            ))
+        }
+        PASTE_CHART => Some((
+            chart_source(&get("slide-charts-column.pptx")?)?,
+            r#"{"cmd":"copySlides","indices":[0]}"#,
+        )),
+        PASTE_LINKS => {
+            let mut p = bo_pptx::read_pptx(&get("slide-text-bullets.pptx")?).ok()?;
+            if p.slides.len() < 3 {
+                return None;
+            }
+            link_slides(&mut p, 0, 2);
+            link_slides(&mut p, 1, 0);
+            Some((
+                bo_pptx::write_pptx(&p).ok()?,
+                r#"{"cmd":"copySlides","indices":[0,1]}"#,
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// Open a script's base deck; for the paste scripts the slide clipboard is first
+/// filled with slides of other decks (one engine keeps its clipboard across decks).
 fn open_script(e: &mut Engine, s: &Script, base: &[(&'static str, Vec<u8>)]) -> bool {
-    if s.name == PASTE_DECK {
-        let Some((_, src)) = base.iter().find(|(n, _)| *n == "slide-images-crop.pptx") else {
-            return false;
-        };
-        if e.open(src, "src.pptx").is_err() {
+    if let Some((src, copy)) = paste_source(s.name, base) {
+        if e.open(&src, "src.pptx").is_err() {
             return false;
         }
-        let _ = e.slide_command_json(r#"{"cmd":"copySlides","indices":[0,1]}"#);
+        let _ = e.slide_command_json(copy);
+    } else if [PASTE_DECK, PASTE_RESIZED, PASTE_CHART, PASTE_LINKS].contains(&s.name) {
+        return false;
     }
+
     let Some((_, bytes)) = base.iter().find(|(n, _)| *n == s.base) else {
         return false;
     };
     e.open(bytes, s.base).is_ok()
+}
+
+/// Connectors inside a flipped group follow their shapes (§20.1.7.6 flipH /
+/// flipV of the group): `(name, flipH, flipV)`.
+const FLIPPED: &[(&str, bool, bool)] = &[
+    ("slide-edit-connectors-flip-h.pptx", true, false),
+    ("slide-edit-connectors-flip-v.pptx", false, true),
+    ("slide-edit-connectors-flip-hv.pptx", true, true),
+];
+
+/// A group of two shapes joined by a connector, flipped, then one shape moved.
+fn flipped_connectors(base: &[u8], flip_h: bool, flip_v: bool) -> Option<Vec<u8>> {
+    let mut e = Engine::with_bundled_fonts();
+    e.open(base, "base.pptx").ok()?;
+    for c in [
+        r#"{"cmd":"addSlide"}"#,
+        r#"{"cmd":"insertShape","preset":"rect","rect":{"x":100,"y":200,"w":120,"h":70}}"#,
+        r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":420,"y":320,"w":120,"h":70}}"#,
+        r#"{"cmd":"selectRect","rect":{"x":90,"y":190,"w":460,"h":210}}"#,
+        r#"{"cmd":"insertConnector","preset":"bentConnector3"}"#,
+        r#"{"cmd":"selectRect","rect":{"x":90,"y":190,"w":460,"h":210}}"#,
+        r#"{"cmd":"group"}"#,
+    ] {
+        e.slide_command_json(c).ok()?;
+    }
+    let mut p = bo_pptx::read_pptx(&e.save_pptx().ok()?).ok()?;
+    let last = p.slides.len() - 1;
+    for n in &mut p.slides[last].data.shapes {
+        if let bo_model::slide::ShapeNode::Group(g) = n {
+            if let Some(x) = g.props.xfrm.as_mut() {
+                x.flip_h = flip_h.then_some(true);
+                x.flip_v = flip_v.then_some(true);
+            }
+        }
+    }
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&bo_pptx::write_pptx(&p).ok()?, "flipped.pptx")
+        .ok()?;
+    // The ellipse after the flips (group box 100–540 × 200–390, mirrored).
+    let x = if flip_h { 160.0 } else { 480.0 };
+    let y = if flip_v { 235.0 } else { 355.0 };
+    for c in [
+        format!(r#"{{"cmd":"goTo","slide":{last}}}"#),
+        format!(r#"{{"cmd":"click","x":{x},"y":{y},"deep":true}}"#),
+        r#"{"cmd":"transform","transform":{"kind":"move","dx":40,"dy":30},"snap":false}"#.into(),
+    ] {
+        e.slide_command_json(&c).ok()?;
+    }
+    e.save_pptx().ok()
 }
 
 /// Edited decks, built from the generated base decks.
@@ -250,6 +449,13 @@ pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static 
             out.push((s.name, b));
         }
     }
+    if let Some((_, b)) = base.iter().find(|(n, _)| *n == "slide-shapes-presets.pptx") {
+        for (name, h, v) in FLIPPED {
+            if let Some(d) = flipped_connectors(b, *h, *v) {
+                out.push((name, d));
+            }
+        }
+    }
     out
 }
 
@@ -270,10 +476,77 @@ mod tests {
             }
         }
         let decks = decks(&base, &crate::slide_samples::sample_png());
-        assert_eq!(decks.len(), SCRIPTS.len());
+        assert_eq!(decks.len(), SCRIPTS.len() + FLIPPED.len());
         for (name, bytes) in decks {
             let p = bo_pptx::read_pptx(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert!(!p.slides.is_empty(), "{name}");
         }
+    }
+}
+
+#[cfg(test)]
+mod paste_tests {
+    use super::*;
+
+    fn deck_named(name: &str) -> bo_model::slide::Presentation {
+        let base = crate::slide_samples::base_decks();
+        let decks = decks(&base, &crate::slide_samples::sample_png());
+        let (_, b) = decks.iter().find(|(n, _)| *n == name).expect(name);
+        bo_pptx::read_pptx(b).unwrap()
+    }
+
+    // source: ECMA-376 Part 1, §19.2.1.39 sldSz; Part 2, §9.3 relationships
+    #[test]
+    fn pasted_slides_fit_carry_charts_and_remap_links() {
+        // 4:3 → target size: everything inside the target slide.
+        let p = deck_named(PASTE_RESIZED);
+        let (w, h) = (p.slide_size.cx, p.slide_size.cy);
+        for n in &p.slides[1].data.shapes {
+            if let bo_model::slide::ShapeNode::Shape(s) = n {
+                if let Some(x) = &s.props.xfrm {
+                    let (ox, oy) = x.off.unwrap_or_default();
+                    let (cx, cy) = x.ext.unwrap_or_default();
+                    assert!(ox >= 0 && oy >= 0 && ox + cx <= w && oy + cy <= h, "{x:?}");
+                }
+            }
+        }
+        // Chart: the chart part, its rels and the workbook were copied.
+        let p = deck_named(PASTE_CHART);
+        let charts: Vec<&str> = p
+            .parts
+            .iter()
+            .map(|x| x.name.as_str())
+            .filter(|n| n.starts_with("/ppt/charts/chart"))
+            .collect();
+        assert_eq!(charts.len(), 1, "{charts:?}");
+        let rels = p
+            .parts
+            .iter()
+            .find(|x| x.name == bo_opc::rels_part_name(charts[0]))
+            .expect("chart rels");
+        let r = bo_engine::slide_edit::clip::rels_of(&rels.data);
+        let wb = bo_opc::resolve_target(charts[0], &r[0].2);
+        assert!(p.parts.iter().any(|x| x.name == wb), "{wb}");
+        // Links: 1 → 0 retargeted, 0 → 2 (not pasted) removed.
+        let p = deck_named(PASTE_LINKS);
+        let slide_rels = |i: usize| {
+            p.slides[i]
+                .info
+                .rels
+                .iter()
+                .filter(|r| r.rel_type.ends_with("/slide"))
+                .count()
+        };
+        assert_eq!(slide_rels(1), 0);
+        let link = p.slides[2]
+            .info
+            .rels
+            .iter()
+            .find(|r| r.rel_type.ends_with("/slide"))
+            .expect("link kept");
+        assert_eq!(
+            bo_opc::resolve_target(&p.slides[2].info.part_name, &link.target),
+            p.slides[1].info.part_name
+        );
     }
 }

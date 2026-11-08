@@ -83,6 +83,14 @@ export function SpellMenu({ menu, onPick, onIgnore, onAdd, onClose }: Props) {
         font: '13px system-ui, sans-serif',
       }}
     >
+      {menu.info.rule && (
+        <div
+          data-testid="grammar-rule"
+          style={{ ...item, cursor: 'default', fontSize: 12, opacity: 0.8 }}
+        >
+          {t(`grammar.${menu.info.rule}`)}
+        </div>
+      )}
       {menu.info.suggestions.length === 0 && (
         <div style={{ ...item, cursor: 'default', opacity: 0.7 }}>{t('spell.noSuggestions')}</div>
       )}
@@ -101,9 +109,11 @@ export function SpellMenu({ menu, onPick, onIgnore, onAdd, onClose }: Props) {
       <button type="button" role="menuitem" style={item} onClick={() => onIgnore(menu.info.word)}>
         {t('spell.ignoreAll')}
       </button>
-      <button type="button" role="menuitem" style={item} onClick={() => onAdd(menu.info.word)}>
-        {t('spell.addToDictionary')}
-      </button>
+      {!menu.info.rule && (
+        <button type="button" role="menuitem" style={item} onClick={() => onAdd(menu.info.word)}>
+          {t('spell.addToDictionary')}
+        </button>
+      )}
     </div>
   );
 }

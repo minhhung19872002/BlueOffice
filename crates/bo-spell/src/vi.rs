@@ -179,6 +179,67 @@ fn tone_positions(rhyme: &[char]) -> Vec<usize> {
     }
 }
 
+/// Where a syllable writes its tone when both placements are allowed (open `oa`, `oe`, `uy`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ToneStyle {
+    /// On the first vowel: `hòa`, `khỏe`, `thủy`.
+    Old,
+    /// On the second vowel: `hoà`, `khoẻ`, `thuỷ`.
+    New,
+}
+
+/// The tone placement style of a valid syllable, `None` when only one placement exists.
+pub fn tone_style(word: &str) -> Option<ToneStyle> {
+    let lower = word.to_lowercase();
+    let p = parse(&lower)?;
+    let at = p.tone_at?;
+    if !valid_syllable(&lower) {
+        return None;
+    }
+    let base: String = p.letters.iter().collect();
+    let (ini, rhyme) = split(&base)?;
+    let r: Vec<char> = rhyme.chars().collect();
+    let positions = tone_positions(&r);
+    if positions.len() != 2 {
+        return None;
+    }
+    let i = at.checked_sub(ini.chars().count())?;
+    if i == positions[0] {
+        Some(ToneStyle::Old)
+    } else if i == positions[1] {
+        Some(ToneStyle::New)
+    } else {
+        None
+    }
+}
+
+/// `word` with its tone moved to the placement of `style` (case kept); `None` when nothing changes.
+pub fn restyle(word: &str, style: ToneStyle) -> Option<String> {
+    let current = tone_style(word)?;
+    if current == style {
+        return None;
+    }
+    let chars: Vec<char> = word.nfc().collect();
+    let p = parse(&word.nfc().collect::<String>())?;
+    let from = p.tone_at?;
+    // The two placements are adjacent vowels (oa, oe, uy).
+    let to = if style == ToneStyle::New {
+        from + 1
+    } else {
+        from.checked_sub(1)?
+    };
+    let s: String = chars
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| match i {
+            _ if i == to => with_tone(split_letter(c).0, p.tone),
+            _ if i == from => split_letter(c).0,
+            _ => c,
+        })
+        .collect();
+    valid_syllable(&s.to_lowercase()).then_some(s)
+}
+
 /// Checks one Vietnamese syllable.
 fn valid_syllable(word: &str) -> bool {
     let lower = word.to_lowercase();
@@ -375,5 +436,24 @@ mod tests {
     #[test]
     fn numbers_and_punctuation_are_skipped() {
         assert!(Vietnamese.check("2025") && Vietnamese.check("--"));
+    }
+
+    // source: tone placement of the oa / oe / uy rhymes (older and newer styles of the orthography).
+    #[test]
+    fn tone_styles_and_restyle() {
+        assert_eq!(tone_style("hòa"), Some(ToneStyle::Old));
+        assert_eq!(tone_style("hoà"), Some(ToneStyle::New));
+        assert_eq!(tone_style("Thủy"), Some(ToneStyle::Old));
+        assert_eq!(tone_style("thuỷ"), Some(ToneStyle::New));
+        assert_eq!(tone_style("khoẻ"), Some(ToneStyle::New));
+        // One placement only: closed rhyme, quality-marked vowel, single vowel, qu + y.
+        assert_eq!(tone_style("hoàng"), None);
+        assert_eq!(tone_style("người"), None);
+        assert_eq!(tone_style("quý"), None);
+        assert_eq!(tone_style("hoa"), None);
+        assert_eq!(restyle("hòa", ToneStyle::New).as_deref(), Some("hoà"));
+        assert_eq!(restyle("Khoẻ", ToneStyle::Old).as_deref(), Some("Khỏe"));
+        assert_eq!(restyle("THỦY", ToneStyle::New).as_deref(), Some("THUỶ"));
+        assert_eq!(restyle("hoà", ToneStyle::New), None);
     }
 }

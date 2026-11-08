@@ -1,6 +1,8 @@
 //! Spelling as you type (BlueDoc): misspelt words of the laid-out body text are reported as marks to draw
 //! under the text (an overlay — never part of the display list, PDF or print), with suggestions for the
-//! word under the pointer (`docs/parity/BACKLOG.md` CORE-SPELL-004).
+//! word under the pointer (`docs/parity/BACKLOG.md` CORE-SPELL-004). Grammar and style issues
+//! (`bo_spell::grammar`, CORE-GRAM-001) come as marks with `grammar: true` (drawn blue); Vietnamese tone
+//! placement is checked against the style most used in the document.
 //!
 //! Vietnamese is always checked (rule based, `bo_spell::vi`); other languages come from Hunspell
 //! dictionaries loaded with [`crate::Engine::load_dictionary`] (native builds bundle `en_US`). A word is
@@ -10,9 +12,11 @@ use crate::edit::{Command, EditResult};
 use crate::nav;
 use crate::Engine;
 use bo_layout::{Line, LineSource};
+use bo_spell::grammar::{self, Issue};
+use bo_spell::vi::ToneStyle;
 use bo_spell::Speller;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 /// A misspelt word on a page (points): draw a wavy line from `x` to `x + w` at `y`.
@@ -26,6 +30,9 @@ pub struct SpellMark {
     pub y: f32,
     /// Length (points).
     pub w: f32,
+    /// A grammar / style issue (blue) rather than a misspelt word (red).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub grammar: bool,
 }
 
 /// The misspelt word under the pointer.
@@ -42,13 +49,26 @@ pub struct SpellInfo {
     pub end: usize,
     /// Corrections, best first.
     pub suggestions: Vec<String>,
+    /// Grammar rule id when this is a grammar / style issue (`word` is then the flagged text).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule: Option<&'static str>,
+}
+
+/// Cached checks of one paragraph text.
+struct Analysis {
+    misspelt: Vec<Range<usize>>,
+    issues: Vec<Issue>,
+    styles: Vec<(Range<usize>, ToneStyle)>,
 }
 
 /// Speller of the engine plus a cache of misspelt ranges per paragraph text.
 pub(crate) struct SpellState {
     pub speller: Speller,
     pub enabled: bool,
-    cache: HashMap<String, Vec<Range<usize>>>,
+    pub grammar: bool,
+    /// Ignored grammar issues: (rule id, flagged text).
+    ignored: HashSet<(String, String)>,
+    cache: HashMap<String, Analysis>,
 }
 
 impl Default for SpellState {
@@ -58,21 +78,64 @@ impl Default for SpellState {
         SpellState {
             speller,
             enabled: true,
+            grammar: true,
+            ignored: HashSet::new(),
             cache: HashMap::new(),
         }
     }
 }
 
 impl SpellState {
-    fn misspelt(&mut self, text: &str) -> &[Range<usize>] {
+    fn analysis(&mut self, text: &str) -> &Analysis {
         if !self.cache.contains_key(text) {
-            let r = self.speller.misspelt(text);
+            let a = Analysis {
+                misspelt: self.speller.misspelt(text),
+                issues: grammar::check(text),
+                styles: grammar::tone_styles(text),
+            };
             if self.cache.len() > 20_000 {
                 self.cache.clear();
             }
-            self.cache.insert(text.to_owned(), r);
+            self.cache.insert(text.to_owned(), a);
         }
-        self.cache.get(text).map_or(&[], Vec::as_slice)
+        &self.cache[text]
+    }
+
+    /// The tone placement most used in `texts` (`None` when no word shows one).
+    fn document_style(&mut self, texts: &[String]) -> Option<ToneStyle> {
+        let (mut old, mut new) = (0usize, 0usize);
+        for t in texts {
+            for (_, s) in &self.analysis(t).styles {
+                match s {
+                    ToneStyle::Old => old += 1,
+                    ToneStyle::New => new += 1,
+                }
+            }
+        }
+        match (old, new) {
+            (0, 0) => None,
+            _ if old > new => Some(ToneStyle::Old),
+            _ => Some(ToneStyle::New),
+        }
+    }
+
+    /// Grammar issues of a paragraph not ignored, the tone style ones included.
+    fn issues(&mut self, text: &str, style: Option<ToneStyle>) -> Vec<Issue> {
+        if !self.grammar {
+            return Vec::new();
+        }
+        let mut out = self.analysis(text).issues.clone();
+        if let Some(style) = style {
+            if self.analysis(text).styles.iter().any(|(_, s)| *s != style) {
+                out.extend(grammar::tone_style_issues(text, style));
+            }
+        }
+        out.retain(|i| {
+            !self
+                .ignored
+                .contains(&(i.rule.id().to_owned(), text[i.range.clone()].to_owned()))
+        });
+        out
     }
 
     /// Forget cached results (dictionaries or user words changed).
@@ -128,6 +191,11 @@ impl Engine {
                     .map(move |l| (i, l.clone()))
             })
             .collect();
+        let style = if self.spell.grammar {
+            self.spell.document_style(&texts)
+        } else {
+            None
+        };
         let mut out = Vec::new();
         for (page, l) in lines {
             let LineSource::Body(id) = l.source else {
@@ -137,7 +205,20 @@ impl Engine {
                 continue;
             };
             let (ls, le) = (l.start as usize, l.end as usize);
-            for r in self.spell.misspelt(text) {
+            let mut ranges: Vec<(Range<usize>, bool)> = self
+                .spell
+                .analysis(text)
+                .misspelt
+                .iter()
+                .map(|r| (r.clone(), false))
+                .collect();
+            ranges.extend(
+                self.spell
+                    .issues(text, style)
+                    .into_iter()
+                    .map(|i| (i.range, true)),
+            );
+            for (r, grammar) in ranges {
                 let (s, e) = (r.start.max(ls), r.end.min(le));
                 if s >= e {
                     continue;
@@ -150,6 +231,7 @@ impl Engine {
                         x: x0,
                         y: l.baseline + 1.5,
                         w: x1 - x0,
+                        grammar,
                     });
                 }
             }
@@ -161,20 +243,37 @@ impl Engine {
     pub fn spell_at(&mut self, page: usize, x: f32, y: f32) -> Option<SpellInfo> {
         let layout = self.layout()?;
         let pos = nav::hit_test(layout, page, x, y)?;
-        let text = self.body_texts().get(pos.para)?.clone();
-        let r = bo_spell::words(&text)
+        let texts = self.body_texts();
+        let text = texts.get(pos.para)?.clone();
+        let word = bo_spell::words(&text)
             .into_iter()
-            .find(|r| r.start <= pos.offset && pos.offset <= r.end)?;
-        let word = text[r.clone()].to_owned();
-        if self.spell.speller.check(&word) {
-            return None;
+            .find(|r| r.start <= pos.offset && pos.offset <= r.end);
+        if let Some(r) = word {
+            let word = text[r.clone()].to_owned();
+            if !self.spell.speller.check(&word) {
+                return Some(SpellInfo {
+                    suggestions: self.spell.speller.suggest(&word),
+                    word,
+                    para: pos.para,
+                    start: r.start,
+                    end: r.end,
+                    rule: None,
+                });
+            }
         }
+        let style = self.spell.document_style(&texts);
+        let issue = self
+            .spell
+            .issues(&text, style)
+            .into_iter()
+            .find(|i| i.range.start <= pos.offset && pos.offset <= i.range.end)?;
         Some(SpellInfo {
-            suggestions: self.spell.speller.suggest(&word),
-            word,
+            word: text[issue.range.clone()].to_owned(),
             para: pos.para,
-            start: r.start,
-            end: r.end,
+            start: issue.range.start,
+            end: issue.range.end,
+            suggestions: issue.replacement.into_iter().collect(),
+            rule: Some(issue.rule.id()),
         })
     }
 
@@ -200,6 +299,18 @@ impl Engine {
                     self.spell.speller.add_user_word(word);
                 }
                 self.spell.invalidate();
+                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                r.spelling = Some(self.spelling_marks(None));
+                Ok(Some(r))
+            }
+            Command::SetGrammar { on } => {
+                self.spell.grammar = *on;
+                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                r.spelling = Some(self.spelling_marks(None));
+                Ok(Some(r))
+            }
+            Command::GrammarIgnore { rule, text } => {
+                self.spell.ignored.insert((rule.clone(), text.clone()));
                 let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
                 r.spelling = Some(self.spelling_marks(None));
                 Ok(Some(r))
@@ -268,6 +379,40 @@ mod tests {
             .unwrap();
         assert_eq!(r.spelling.as_ref().map(Vec::len), Some(0));
         let r = e.command(Command::SetSpelling { on: false }).unwrap();
+        assert_eq!(r.spelling.as_ref().map(Vec::len), Some(0));
+    }
+
+    // source: grammar rule table of bo_spell::grammar (CORE-GRAM-001).
+    #[test]
+    fn grammar_marks_menu_and_ignore() {
+        let mut e = engine("Xin chào  bạn. hoà bình và hoà hợp, nhưng hòa thuận.");
+        let marks = e.spelling_marks(None);
+        let grammar: Vec<_> = marks.iter().filter(|m| m.grammar).collect();
+        // Extra space, small letter after a full stop, "hòa" in the older style.
+        assert_eq!(grammar.len(), 3, "{marks:?}");
+        assert_eq!(marks.len(), 3, "no misspelt word: {marks:?}");
+        let m = grammar[1];
+        let info = e.spell_at(0, m.x + m.w / 2.0, m.y - 4.0).unwrap();
+        assert_eq!(info.rule, Some("capitalize"));
+        assert_eq!(info.word, "hoà");
+        assert_eq!(info.suggestions, ["Hoà"]);
+        let m = grammar[2];
+        let info = e.spell_at(0, m.x + m.w / 2.0, m.y - 4.0).unwrap();
+        assert_eq!(info.rule, Some("toneStyle"));
+        assert_eq!(info.suggestions, ["hoà"]);
+        let r = e
+            .command(Command::GrammarIgnore {
+                rule: "toneStyle".into(),
+                text: "hòa".into(),
+            })
+            .unwrap();
+        assert_eq!(r.spelling.as_ref().map(Vec::len), Some(2));
+        let r = e
+            .command_json(r#"{"cmd":"grammarIgnore","rule":"extraSpace","text":"  ","now":1}"#)
+            .unwrap();
+        assert!(r.contains(r#""spelling":[{"#), "{r}");
+        assert_eq!(e.spelling_marks(None).len(), 1);
+        let r = e.command(Command::SetGrammar { on: false }).unwrap();
         assert_eq!(r.spelling.as_ref().map(Vec::len), Some(0));
     }
 }

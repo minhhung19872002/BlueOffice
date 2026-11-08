@@ -161,7 +161,8 @@
       "comments": "Show comments",
       "savePassword": "Save with password",
       "convertLegacyText": "Convert TCVN3/VNI text to Unicode",
-      "spelling": "Check spelling as you type"
+      "spelling": "Check spelling as you type",
+      "grammar": "Check grammar and style as you type"
     },
     "references": {
       "insertToc": "Table of contents",
@@ -1654,5 +1655,14 @@
     "noSuggestions": "(No suggestions)",
     "ignoreAll": "Ignore all",
     "addToDictionary": "Add to dictionary"
+  },
+  "grammar": {
+    "extraSpace": "Extra space",
+    "spaceBeforePunctuation": "No space before punctuation",
+    "missingSpace": "Missing space after punctuation",
+    "capitalize": "Capitalize the first word of a sentence",
+    "repeatedWord": "Repeated word",
+    "unbalanced": "Unclosed bracket or quotation mark",
+    "toneStyle": "Tone mark placed in a different style than the rest of the document"
   }
 }

@@ -16,6 +16,7 @@ giữa các phase; ưu tiên bộ ứng dụng văn phòng (BlueDoc/BlueSheet/Bl
 | 6 | Server ASP.NET Core (file, version, chia sẻ, audit, OIDC, Yjs relay, worker chuyển đổi), `bo-collab`, ký số PAdES/OOXML, desktop (deep link, nhiều cửa sổ, updater), on-prem Docker | ✅ (cộng tác trực tiếp: văn bản BlueDoc, ô BlueSheet, đối tượng BlueSlide) | [`plan/phase-6.md`](plan/phase-6.md), [`deploy/`](deploy/README.md) |
 | 6A | BOHP + WOPI, BlueDrive giả lập, `editor-sdk` (postMessage), chế độ nhúng `/edit`, deep link desktop | ✅ theo mô tả prompt | [`bohp.md`](bohp.md) |
 | 7 | BlueForm, BlueNote | 📝 chỉ kế hoạch | [`plan/phase-7.md`](plan/phase-7.md) |
+| Parity | Đối chiếu tính năng bộ office thương mại (`BlueOffice-PARITY-PROMPT.md`): đã xong soát chính tả Việt/Anh (bo-spell, gạch đỏ + gợi ý) và ngữ pháp/văn phong cơ bản (gạch xanh) | 🔄 đang làm | [`parity/BACKLOG.md`](parity/BACKLOG.md), [`parity/MATRIX.md`](parity/MATRIX.md) |
 
 ## Kết quả kiểm thử (Windows 11, 2026-11-08, `main`)
 

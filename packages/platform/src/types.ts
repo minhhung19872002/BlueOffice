@@ -479,6 +479,9 @@ export type EditCommand =
   | { cmd: 'spellAt'; page: number; x: number; y: number }
   | { cmd: 'spellIgnore' | 'spellAddWord'; word: string }
   | { cmd: 'setSpelling'; on: boolean }
+  /** Grammar and style as you type (CORE-GRAM-001). */
+  | { cmd: 'setGrammar'; on: boolean }
+  | { cmd: 'grammarIgnore'; rule: string; text: string }
   | { cmd: 'closeHeaderFooter' | 'notes' | 'clearFormatting' | 'fontList' }
   | { cmd: 'pickFormat' | 'applyFormat' | 'cancelFormat' }
   | { cmd: 'insertField'; instr: string }
@@ -558,6 +561,8 @@ export interface SpellMark {
   x: number;
   y: number;
   w: number;
+  /** A grammar / style issue (blue) rather than a misspelt word (red). */
+  grammar?: boolean;
 }
 
 /** A misspelt word with corrections (select `start..end` of paragraph `para` to replace it). */
@@ -567,6 +572,8 @@ export interface SpellInfo {
   start: number;
   end: number;
   suggestions: string[];
+  /** Grammar rule id (`extraSpace`, `capitalize`, `toneStyle` …) when this is a grammar issue. */
+  rule?: string;
 }
 
 // ---------------------------------------------------------------- live collaboration (bo_engine::collab)

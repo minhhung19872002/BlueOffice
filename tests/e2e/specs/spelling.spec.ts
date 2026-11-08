@@ -33,3 +33,35 @@ test('underlines misspelt Vietnamese and English words and corrects them from th
   await expect(page.getByTestId('status-words')).toHaveText('7 từ');
   expect(errors).toEqual([]);
 });
+
+// CORE-GRAM-001: blue wavy underline for grammar / style issues, fix or ignore from the menu.
+test('underlines grammar issues and fixes them from the menu', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/doc');
+  await page.getByTestId('new-document').click();
+  await expect(page.getByTestId('caret')).toBeVisible();
+  await page.keyboard.insertText('Xin chào  bạn. hôm nay trời đẹp');
+
+  // Extra space and a sentence starting with a small letter; no misspelt word.
+  const marks = page.getByTestId('grammar-mark');
+  await expect(marks).toHaveCount(2, { timeout: 15_000 });
+  await expect(page.getByTestId('spell-mark')).toHaveCount(0);
+
+  // The second mark is "hôm": the menu names the rule and offers "Hôm".
+  const cap = (await marks.nth(1).boundingBox())!;
+  await page.mouse.click(cap.x + cap.width / 2, cap.y - 6, { button: 'right' });
+  const menu = page.getByTestId('spell-menu');
+  await expect(menu.getByTestId('grammar-rule')).toHaveText('Viết hoa chữ đầu câu');
+  await expect(menu.getByRole('menuitem', { name: 'Thêm vào từ điển' })).toHaveCount(0);
+  await menu.getByRole('menuitem', { name: 'Hôm', exact: true }).click();
+  await expect(marks).toHaveCount(1, { timeout: 15_000 });
+
+  // Ignore the extra space.
+  const space = (await marks.first().boundingBox())!;
+  await page.mouse.click(space.x + space.width / 2, space.y - 6, { button: 'right' });
+
+  await page.getByTestId('spell-menu').getByRole('menuitem', { name: 'Bỏ qua tất cả' }).click();
+  await expect(marks).toHaveCount(0, { timeout: 15_000 });
+  expect(errors).toEqual([]);
+});

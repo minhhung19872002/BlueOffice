@@ -46,7 +46,15 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 - [x] **CORE-SPELL-004** — Gạch đỏ trong BlueDoc (display list), gợi ý sửa (menu chuột phải), bỏ qua/bỏ qua tất cả/thêm vào từ điển người dùng · P0 · 002,003 · E2E. _Xong: lệnh `spelling/spellAt/spellIgnore/spellAddWord/setSpelling` (bo-engine `spell.rs`, cache theo đoạn), lớp phủ gạch sóng đỏ (không in), menu chuột phải, từ điển người dùng lưu localStorage, nút Soát lỗi ở tab Xem lại; en_US tải nền ở web, đóng gói ở native. Test: `bo-engine spell::tests`, E2E `specs/spelling.spec.ts`._
 - [ ] **CORE-SPELL-005** — Ngôn ngữ theo đoạn/run (w:lang), kiểm tra toàn tài liệu (hộp thoại) · P1 · 004 · test.
 - [ ] **CORE-SPELL-006** — Soát trong ô BlueSheet và text box BlueSlide · P1 · 004 · E2E.
-- [ ] **CORE-GRAM-001** — Ngữ pháp/văn phong cơ bản (khoảng trắng thừa, dấu câu, viết hoa đầu câu, lặp từ, ngoặc không đóng, dấu thanh sai vị trí kiểu cũ/mới) gạch xanh · P0 · 004 · bảng test quy tắc.
+- [x] **CORE-GRAM-001** — Ngữ pháp/văn phong cơ bản (khoảng trắng thừa, dấu câu, viết hoa đầu câu, lặp từ, ngoặc không đóng, dấu thanh sai vị trí kiểu cũ/mới) gạch xanh · P0 · 004 · bảng test quy tắc.
+  - Xong: `bo-spell::grammar` (quy tắc tự viết theo quy ước trình bày văn bản: thừa dấu cách, dấu cách trước dấu câu,
+    thiếu dấu cách sau dấu câu, viết hoa đầu câu/đoạn, lặp từ (trừ láy toàn phần thông dụng: từ từ, ngày ngày…), ngoặc/nháy
+    không cân, có ngoại lệ cho viết tắt v.v./e.g., tên tệp .docx, tên mã BlueOffice.Api, ô `[ ]`, đánh số a) 1.);
+    kiểu dấu thanh (`vi::tone_style`/`restyle`, oa/oe/uy) so với kiểu dùng nhiều nhất trong tài liệu. Engine: mark
+    `grammar: true`, `spellAt` trả `rule`, lệnh `setGrammar`/`grammarIgnore`; UI gạch sóng xanh, menu nêu quy tắc + sửa/bỏ
+    qua, nút trong nhóm Soát lỗi. Test: bảng quy tắc `grammar::tests` (+ proptest), `bo-engine spell::tests::grammar_marks_menu_and_ignore`,
+    E2E `spelling.spec.ts` (gạch xanh, sửa viết hoa, bỏ qua). Quét `BlueOffice-PARITY-PROMPT.md`
+    (`cargo run -p bo-spell --example grammar_scan -- <file>`) để loại báo nhầm.
 
 ### SmartArt (§4.4)
 - [p] **CORE-SMART-001** — Hiển thị SmartArt bằng drawing fallback (dsp:drawing) trong Doc/Sheet/Slide · P0 · — · corpus `smartart-*`, `slide-smartart-*`. **Thiếu**: tự dựng layout (002).

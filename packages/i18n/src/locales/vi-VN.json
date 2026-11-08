@@ -161,7 +161,8 @@
       "comments": "Hiện chú thích",
       "savePassword": "Lưu kèm mật khẩu",
       "convertLegacyText": "Chuyển chữ TCVN3/VNI sang Unicode",
-      "spelling": "Kiểm tra chính tả khi gõ"
+      "spelling": "Kiểm tra chính tả khi gõ",
+      "grammar": "Soát ngữ pháp và văn phong khi gõ"
     },
     "references": {
       "insertToc": "Mục lục",
@@ -1654,5 +1655,14 @@
     "noSuggestions": "(Không có gợi ý)",
     "ignoreAll": "Bỏ qua tất cả",
     "addToDictionary": "Thêm vào từ điển"
+  },
+  "grammar": {
+    "extraSpace": "Thừa dấu cách",
+    "spaceBeforePunctuation": "Không đặt dấu cách trước dấu câu",
+    "missingSpace": "Thiếu dấu cách sau dấu câu",
+    "capitalize": "Viết hoa chữ đầu câu",
+    "repeatedWord": "Lặp từ",
+    "unbalanced": "Ngoặc hoặc dấu nháy chưa đóng",
+    "toneStyle": "Vị trí dấu thanh khác kiểu với phần còn lại của tài liệu"
   }
 }

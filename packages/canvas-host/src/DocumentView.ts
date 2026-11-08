@@ -121,7 +121,7 @@ export class DocumentView {
       const st = document.createElement('style');
       st.id = 'bo-caret-style';
       st.textContent =
-        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1.5px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(51,120,220,.32);pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}';
+        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1.5px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(51,120,220,.32);pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}.bo-spell.bo-grammar{background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%231a5fd0%27 stroke-width=%271%27/%3E%3C/svg%3E")}';
       document.head.appendChild(st);
     }
   }
@@ -257,8 +257,8 @@ export class DocumentView {
       const slot = this.slots[m.page];
       if (!slot) continue;
       const d = document.createElement('div');
-      d.className = 'bo-spell';
-      d.dataset.testid = 'spell-mark';
+      d.className = m.grammar ? 'bo-spell bo-grammar' : 'bo-spell';
+      d.dataset.testid = m.grammar ? 'grammar-mark' : 'spell-mark';
       d.style.cssText = `left:${m.x * k}px;top:${m.y * k}px;width:${m.w * k}px;`;
       slot.overlay.appendChild(d);
     }

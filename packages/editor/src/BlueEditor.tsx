@@ -117,6 +117,7 @@ import {
   ZoomIn,
   ZoomOut,
   SpellCheck,
+  SpellCheck2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -379,7 +380,8 @@ function EditorInner({
     const refreshSpelling = () => {
       clearTimeout(spellTimer);
       spellTimer = setTimeout(() => {
-        if (store.getState().spellingOn) void controller.current?.run({ cmd: 'spelling' });
+        const s = store.getState();
+        if (s.spellingOn || s.grammarOn) void controller.current?.run({ cmd: 'spelling' });
       }, 400);
     };
     controller.current = new DocController(
@@ -1093,6 +1095,15 @@ function EditorInner({
       run: async (s) => {
         store.setState({ spellingOn: !s.spellingOn });
         await controller.current?.run({ cmd: 'setSpelling', on: !s.spellingOn });
+      },
+    });
+    r.register({
+      id: 'review.grammar',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.grammarOn,
+      run: async (s) => {
+        store.setState({ grammarOn: !s.grammarOn });
+        await controller.current?.run({ cmd: 'setGrammar', on: !s.grammarOn });
       },
     });
     r.register({
@@ -1826,7 +1837,10 @@ function EditorInner({
         {
           id: 'proofing',
           label: t('ribbon.groups.proofing'),
-          items: [item('review.spelling', 'commands.review.spelling', <SpellCheck size={ICON} />)],
+          items: [
+            item('review.spelling', 'commands.review.spelling', <SpellCheck size={ICON} />),
+            item('review.grammar', 'commands.review.grammar', <SpellCheck2 size={ICON} />),
+          ],
         },
         {
           id: 'tracking',
@@ -2173,7 +2187,12 @@ function EditorInner({
                     .then(() => controller.current?.run({ cmd: 'insertText', text }));
                 }}
                 onIgnore={(word) => {
+                  const rule = store.getState().spellMenu?.info.rule;
                   store.setState({ spellMenu: null });
+                  if (rule) {
+                    void controller.current?.run({ cmd: 'grammarIgnore', rule, text: word });
+                    return;
+                  }
                   void controller.current?.run({ cmd: 'spellIgnore', word });
                 }}
                 onAdd={(word) => {

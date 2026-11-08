@@ -76,6 +76,8 @@ export interface EditorState {
   showPeers: boolean;
   /** Spelling as you type (red wavy underline). */
   spellingOn: boolean;
+  /** Grammar and style as you type (blue wavy underline). */
+  grammarOn: boolean;
   /** Spelling menu open at a point (right click on a misspelt word). */
   spellMenu: { x: number; y: number; info: SpellInfo } | null;
 }
@@ -104,6 +106,7 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   peers: [],
   showPeers: true,
   spellingOn: true,
+  grammarOn: true,
   spellMenu: null,
 });
 

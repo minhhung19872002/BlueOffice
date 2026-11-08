@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 
 pub mod aff;
+pub mod grammar;
 pub mod vi;
 
 use aff::{AffixFile, Flag};

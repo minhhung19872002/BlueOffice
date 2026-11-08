@@ -385,6 +385,18 @@ pub enum Command {
         /// On.
         on: bool,
     },
+    /// Grammar and style checks as you type on or off (blue underline).
+    SetGrammar {
+        /// On.
+        on: bool,
+    },
+    /// Ignore a grammar issue (`rule` id on this exact `text`) for this session.
+    GrammarIgnore {
+        /// Rule id (`bo_spell::grammar::Rule::id`).
+        rule: String,
+        /// The flagged text.
+        text: String,
+    },
     /// Open the header (`header`) or footer of a page for editing (§17.10).
     EditHeaderFooter {
         /// 0-based page index.
@@ -779,6 +791,8 @@ impl crate::Engine {
                     | Command::SpellIgnore { .. }
                     | Command::SpellAddWord { .. }
                     | Command::SetSpelling { .. }
+                    | Command::SetGrammar { .. }
+                    | Command::GrammarIgnore { .. }
                     | Command::EditHeaderFooter { .. }
                     | Command::CloseHeaderFooter
                     | Command::SetHeaderLink { .. }

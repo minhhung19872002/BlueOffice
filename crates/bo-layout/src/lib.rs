@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 
 mod blocks;
+mod drawing;
 mod flow;
 mod incremental;
 mod paragraph;
@@ -30,7 +31,8 @@ pub use incremental::{IncrementalLayout, UpdateKind};
 pub use paragraph::{FieldContext, LayoutCache};
 pub use style::author_color;
 pub use types::{
-    Fragment, GlyphPos, Layer, LayoutDocument, Line, LineSource, NoteKey, Page, PageItem, SharedStr,
+    Fragment, GlyphPos, Layer, LayoutDocument, Line, LineSource, NoteKey, Page, PageItem, PathCmd,
+    ShapePath, SharedStr,
 };
 
 use bo_model::change::BlockChanges;

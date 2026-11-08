@@ -52,6 +52,7 @@ fn doc() -> Document {
         crop: None,
         rotation: 0,
         description: String::new(),
+        shape: None,
         src: None,
     };
     let last = Block::Paragraph(Paragraph::new(

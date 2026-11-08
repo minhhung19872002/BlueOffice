@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 mod reader;
+mod shape;
 mod writer;
 
 pub use reader::read_docx;

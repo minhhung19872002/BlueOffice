@@ -189,7 +189,48 @@ pub struct Document {
     pub default_tab_stop: Option<Twips>,
     /// Comments (ECMA-376 Part 1, §17.13.4 `comments.xml`), in part order.
     pub comments: Vec<Comment>,
+    /// Font scheme of the document theme (`word/theme/theme1.xml`, ECMA-376 Part 1
+    /// §20.1.4.1.18 fontScheme) used to resolve theme fonts of runs.
+    #[serde(default)]
+    pub theme_fonts: ThemeFonts,
+    /// `w:autoHyphenation` (§17.15.1.10).
+    #[serde(default)]
+    pub auto_hyphenation: bool,
     pub source: Option<Arc<SourcePackage>>,
+}
+
+/// Major/minor typefaces of a theme font scheme (§20.1.4.1.24 majorFont,
+/// §20.1.4.1.25 minorFont: `a:latin`, `a:ea`, `a:cs`). Empty = not given.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct ThemeFonts {
+    pub major_latin: String,
+    pub major_east_asia: String,
+    pub major_cs: String,
+    pub minor_latin: String,
+    pub minor_east_asia: String,
+    pub minor_cs: String,
+}
+
+impl ThemeFonts {
+    /// Typeface of an `ST_Theme` value (§17.18.96: `majorAscii`, `minorHAnsi`,
+    /// `majorEastAsia`, `minorBidi`, …); `None` when unknown or empty.
+    pub fn resolve(&self, theme: &str) -> Option<&str> {
+        let (major, rest) = if let Some(r) = theme.strip_prefix("major") {
+            (true, r)
+        } else {
+            (false, theme.strip_prefix("minor")?)
+        };
+        let f = match (major, rest) {
+            (true, "Ascii" | "HAnsi") => &self.major_latin,
+            (true, "EastAsia") => &self.major_east_asia,
+            (true, "Bidi") => &self.major_cs,
+            (false, "Ascii" | "HAnsi") => &self.minor_latin,
+            (false, "EastAsia") => &self.minor_east_asia,
+            (false, "Bidi") => &self.minor_cs,
+            _ => return None,
+        };
+        (!f.is_empty()).then_some(f.as_str())
+    }
 }
 
 /// Attribution of a tracked change (ECMA-376 Part 1, §17.13.5 `CT_TrackChange`:
@@ -733,6 +774,9 @@ pub struct ParaProps {
     pub shading: Option<Color>,
     pub borders: Option<Borders>,
     pub outline_level: Option<u8>,
+    /// `w:bidi` (§17.3.1.6): right-to-left paragraph (base direction for bidi reordering).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bidi: Option<bool>,
     /// Tracked insertion / deletion of the paragraph mark (§17.13.5.16 / §17.13.5.15,
     /// children of `w:pPr/w:rPr`). Never inherited.
     pub mark_ins: Option<RevMark>,
@@ -766,6 +810,7 @@ impl ParaProps {
             shading: self.shading.or(base.shading),
             borders: self.borders.clone().or_else(|| base.borders.clone()),
             outline_level: self.outline_level.or(base.outline_level),
+            bidi: self.bidi.or(base.bidi),
             mark_ins: self.mark_ins.clone(),
             mark_del: self.mark_del.clone(),
             change: self.change.clone(),
@@ -797,7 +842,7 @@ fn merge_tabs(base: Option<&Vec<TabStop>>, own: Option<&Vec<TabStop>>) -> Option
     }
 }
 
-/// Underline style (ECMA-376 Part 1, §17.18.99 `ST_Underline`) — subset.
+/// Underline style (ECMA-376 Part 1, §17.18.99 `ST_Underline`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Underline {
     None,
@@ -808,6 +853,56 @@ pub enum Underline {
     Dash,
     Wave,
     Words,
+    DottedHeavy,
+    DashedHeavy,
+    DashLong,
+    DashLongHeavy,
+    DotDash,
+    DashDotHeavy,
+    DotDotDash,
+    DashDotDotHeavy,
+    WavyHeavy,
+    WavyDouble,
+}
+
+impl Underline {
+    /// Every value with its `ST_Underline` name (§17.18.99).
+    pub const ALL: [(Underline, &'static str); 18] = [
+        (Underline::None, "none"),
+        (Underline::Single, "single"),
+        (Underline::Double, "double"),
+        (Underline::Thick, "thick"),
+        (Underline::Dotted, "dotted"),
+        (Underline::Dash, "dash"),
+        (Underline::Wave, "wave"),
+        (Underline::Words, "words"),
+        (Underline::DottedHeavy, "dottedHeavy"),
+        (Underline::DashedHeavy, "dashedHeavy"),
+        (Underline::DashLong, "dashLong"),
+        (Underline::DashLongHeavy, "dashLongHeavy"),
+        (Underline::DotDash, "dotDash"),
+        (Underline::DashDotHeavy, "dashDotHeavy"),
+        (Underline::DotDotDash, "dotDotDash"),
+        (Underline::DashDotDotHeavy, "dashDotDotHeavy"),
+        (Underline::WavyHeavy, "wavyHeavy"),
+        (Underline::WavyDouble, "wavyDouble"),
+    ];
+
+    /// Parse an `ST_Underline` value; unknown values read as `single`.
+    pub fn parse(s: &str) -> Underline {
+        Underline::ALL
+            .iter()
+            .find(|(_, n)| *n == s)
+            .map_or(Underline::Single, |(u, _)| *u)
+    }
+
+    /// The `ST_Underline` name.
+    pub fn as_str(self) -> &'static str {
+        Underline::ALL
+            .iter()
+            .find(|(u, _)| *u == self)
+            .map_or("single", |(_, n)| n)
+    }
 }
 
 /// Vertical alignment of a run (§17.3.2.42 vertAlign).
@@ -823,10 +918,38 @@ pub enum VertAlign {
 pub struct RunProps {
     /// `w:rStyle` (§17.3.2.29).
     pub style: Option<String>,
-    /// `w:rFonts` ascii/hAnsi.
+    /// `w:rFonts/@w:ascii` (§17.3.2.26): font of U+0000–U+007F. Unless
+    /// [`RunProps::font_h_ansi`] (or its theme) is set at the same level, it is also
+    /// the hAnsi font (BlueOffice writes both attributes together).
     pub font: Option<String>,
+    /// `w:rFonts/@w:eastAsia`.
     pub font_east_asia: Option<String>,
+    /// `w:rFonts/@w:cs` (complex script).
     pub font_cs: Option<String>,
+    /// `w:rFonts/@w:hAnsi`: characters outside ASCII that are neither East Asian nor
+    /// complex script (Latin Extended, so Vietnamese letters with diacritics).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_h_ansi: Option<String>,
+    /// `w:rFonts/@w:asciiTheme`, `@w:hAnsiTheme`, `@w:eastAsiaTheme`, `@w:cstheme`
+    /// (§17.18.96 `ST_Theme`: `minorHAnsi`, `majorEastAsia`, …), resolved against the
+    /// theme's font scheme; a theme attribute wins over the explicit font of its slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_ascii: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_h_ansi: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_east_asia: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_cs: Option<String>,
+    /// `w:rFonts/@w:hint` (§17.18.42 `ST_Hint`: `default`, `eastAsia`, `cs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_hint: Option<String>,
+    /// `w:rtl` (§17.3.2.30): right-to-left run, shown with the complex script font.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtl: Option<bool>,
+    /// `w:cs` (§17.3.2.7): complex script run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complex: Option<bool>,
     pub size: Option<HalfPoints>,
     pub bold: Option<bool>,
     pub italic: Option<bool>,
@@ -876,14 +999,54 @@ impl RunProps {
     /// Overlay `self` on top of `base`.
     #[must_use]
     pub fn inherit(&self, base: &RunProps) -> RunProps {
+        fn slot(
+            own: (&Option<String>, &Option<String>),
+            base: (&Option<String>, &Option<String>),
+        ) -> (Option<String>, Option<String>) {
+            if own.0.is_some() || own.1.is_some() {
+                (own.0.clone(), own.1.clone())
+            } else {
+                (base.0.clone(), base.1.clone())
+            }
+        }
+        // §17.3.2.26: each font slot (explicit name or theme) is inherited on its own.
+        let ascii = slot(
+            (&self.font, &self.theme_ascii),
+            (&base.font, &base.theme_ascii),
+        );
+        // An ascii font given without an hAnsi font stands for both (see `font`).
+        let h_ansi = if self.font_h_ansi.is_none()
+            && self.theme_h_ansi.is_none()
+            && (self.font.is_some() || self.theme_ascii.is_some())
+        {
+            (None, None)
+        } else {
+            slot(
+                (&self.font_h_ansi, &self.theme_h_ansi),
+                (&base.font_h_ansi, &base.theme_h_ansi),
+            )
+        };
+        let east = slot(
+            (&self.font_east_asia, &self.theme_east_asia),
+            (&base.font_east_asia, &base.theme_east_asia),
+        );
+        let cs = slot(
+            (&self.font_cs, &self.theme_cs),
+            (&base.font_cs, &base.theme_cs),
+        );
         RunProps {
             style: self.style.clone().or_else(|| base.style.clone()),
-            font: self.font.clone().or_else(|| base.font.clone()),
-            font_east_asia: self
-                .font_east_asia
-                .clone()
-                .or_else(|| base.font_east_asia.clone()),
-            font_cs: self.font_cs.clone().or_else(|| base.font_cs.clone()),
+            font: ascii.0,
+            theme_ascii: ascii.1,
+            font_h_ansi: h_ansi.0,
+            theme_h_ansi: h_ansi.1,
+            font_east_asia: east.0,
+            theme_east_asia: east.1,
+            font_cs: cs.0,
+            theme_cs: cs.1,
+            font_hint: self.font_hint.clone().or_else(|| base.font_hint.clone()),
+            rtl: self.rtl.or(base.rtl),
+            complex: self.complex.or(base.complex),
             size: self.size.or(base.size),
             bold: self.bold.or(base.bold),
             italic: self.italic.or(base.italic),
@@ -981,12 +1144,77 @@ pub struct Anchor {
     /// §20.4.2.16) in the 21 600-unit square over the extent that Word uses.
     #[serde(default)]
     pub polygon: Option<[i64; 4]>,
+    /// `positionH/align` (§20.4.2.1 align, `ST_AlignH`: left, center, right, inside,
+    /// outside); replaces `x` when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub h_align: Option<String>,
+    /// `positionV/align` (§20.4.2.2 align, `ST_AlignV`: top, center, bottom, …).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v_align: Option<String>,
 }
 
-/// A picture (DrawingML picture inside `w:drawing`, §20.4).
+/// Outline of a shape (ECMA-376 Part 1, §20.1.2.2.24 ln) resolved to a colour.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ShapeLine {
+    pub width: Emu,
+    pub color: Color,
+    /// §20.1.10.48 `ST_PresetLineDashVal` (`dash`, `sysDot`, …); `None` = solid.
+    pub dash: Option<String>,
+}
+
+/// Vertical anchoring of text in a shape (§20.1.10.59 `ST_TextAnchoringType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TextAnchor {
+    #[default]
+    Top,
+    Center,
+    Bottom,
+}
+
+/// A WordprocessingML shape or text box (`wps:wsp`, [MS-ODRAWXML] §2.3.10 /
+/// ECMA-376 Part 1 §20.1.2.2 shape properties) or its VML fallback (`v:shape`,
+/// `v:rect`, … with `v:textbox`, ECMA-376 Part 4 §19.1), carried by an [`Image`]
+/// whose `media` is empty.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct Shape {
+    /// §20.1.9.18 prstGeom `prst` (`rect`, `ellipse`, `roundRect`, …).
+    pub preset: String,
+    /// Adjust values (`a:avLst/a:gd`, `fmla="val N"`): (name, value).
+    #[serde(default)]
+    pub adjust: Vec<(String, i64)>,
+    /// Solid fill; `None` = no fill (§20.1.8.44 noFill).
+    pub fill: Option<Color>,
+    /// Outline; `None` = no line.
+    pub line: Option<ShapeLine>,
+    /// `a:xfrm/@flipH`, `@flipV` (§20.1.7.6).
+    #[serde(default)]
+    pub flip_h: bool,
+    #[serde(default)]
+    pub flip_v: bool,
+    /// Text box content (§17.17.1 txbxContent); `None` = no text box.
+    pub text: Option<Vec<Block>>,
+    /// Text insets left, top, right, bottom (`wps:bodyPr` lIns/tIns/rIns/bIns,
+    /// §21.1.2.1.1; defaults 91 440 / 45 720 EMU).
+    pub insets: [Emu; 4],
+    /// `wps:bodyPr/@anchor`.
+    #[serde(default)]
+    pub anchor: TextAnchor,
+    /// Read from the VML fallback (no DrawingML shape in the source).
+    #[serde(default)]
+    pub vml: bool,
+}
+
+impl Shape {
+    /// Default text insets (§21.1.2.1.1 bodyPr: 0.1" left/right, 0.05" top/bottom).
+    pub const INSETS: [Emu; 4] = [Emu(91_440), Emu(45_720), Emu(91_440), Emu(45_720)];
+}
+
+/// A drawing object (`w:drawing`, §20.4): a picture, or — when [`Image::shape`] is
+/// set — a shape or text box.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Image {
-    /// Media part name (key into [`Document::media`]).
+    /// Media part name (key into [`Document::media`]); empty for shapes.
     pub media: String,
     pub width: Emu,
     pub height: Emu,
@@ -996,6 +1224,9 @@ pub struct Image {
     /// Rotation in 60 000ths of a degree.
     pub rotation: i32,
     pub description: String,
+    /// Shape / text box drawn instead of a picture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<Box<Shape>>,
     /// Original `w:drawing` XML.
     #[serde(skip)]
     pub src: Option<Raw>,

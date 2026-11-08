@@ -18,6 +18,7 @@ mod ops;
 pub mod para;
 pub mod revisions;
 pub mod section;
+pub mod shapes;
 pub mod table;
 
 pub use comments::CommentInfo;
@@ -2344,6 +2345,7 @@ impl Session {
                 crop: None,
                 rotation: 0,
                 description: String::new(),
+                shape: None,
                 src: None,
             };
             let caret = tx.insert_atoms(at, vec![(props, RunContent::Image(Box::new(img)))])?;
@@ -2404,6 +2406,36 @@ impl Session {
     /// Replace one match (it must still be valid); returns the selection after the replacement.
     pub fn replace(&mut self, m: Match, with: &str) -> Result<Selection> {
         self.replace_matches(&[m], with, None)
+    }
+
+    /// Find matches of `query` that have the format `fmt` (an empty query finds every
+    /// stretch of text with that format).
+    pub fn find_formatted(
+        &self,
+        query: &str,
+        opts: &FindOptions,
+        fmt: &find::FindFormat,
+    ) -> Result<Vec<Match>> {
+        find::find_formatted(&self.doc, query, opts, fmt)
+    }
+
+    /// Replace every match of `query` with the format `fmt` (one undo step).
+    pub fn replace_all_formatted(
+        &mut self,
+        query: &str,
+        opts: &FindOptions,
+        fmt: &find::FindFormat,
+        with: &str,
+    ) -> Result<usize> {
+        let matches = self.find_formatted(query, opts, fmt)?;
+        let n = matches.len();
+        if n > 0 {
+            let re = (opts.regex && !query.is_empty())
+                .then(|| find::build(query, opts))
+                .transpose()?;
+            self.replace_matches(&matches, with, re.as_ref())?;
+        }
+        Ok(n)
     }
 
     /// Replace every match of `query`; returns the number of replacements (one undo step).

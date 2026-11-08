@@ -72,6 +72,7 @@ fn image(wrap: Wrap) -> RunContent {
         crop: None,
         rotation: 0,
         description: String::new(),
+        shape: None,
         src: None,
     }))
 }

@@ -10,8 +10,8 @@ use crate::{Result, CT_DOCUMENT, CT_STYLES};
 use bo_model::{
     fingerprint, Alignment, Block, Border, Borders, Cell, CellVAlign, Document, HeightRule, Image,
     LineSpacing, ParaProps, Paragraph, Raw, RevisionInfo, Run, RunContent, RunProps, Section,
-    SectionBreak, StyleKind, TabAlign, TabLeader, Table, TableProps, TableWidth, Underline, VMerge,
-    VertAlign, Wrap, WrapText,
+    SectionBreak, StyleKind, TabAlign, TabLeader, Table, TableProps, TableWidth, VMerge, VertAlign,
+    Wrap, WrapText,
 };
 use bo_opc::xml::escape;
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -433,6 +433,7 @@ impl Writer<'_> {
                         // SmartArt / fallback pictures (media is a drawing part) stay verbatim.
                         Some(r)
                             if !r.xml.is_empty()
+                                && img.shape.is_none()
                                 && (!Self::image_changed(img) || img.media.ends_with(".xml")) =>
                         {
                             r.xml.to_string()
@@ -497,6 +498,25 @@ impl Writer<'_> {
 
     /// Generate a `w:drawing` for a picture (§20.4.2.8 inline / §20.4.2.3 anchor).
     fn drawing(&mut self, img: &Image) -> String {
+        if let Some(s) = &img.shape {
+            // Shapes / text boxes: unchanged ⇒ source XML; else a new `wps:wsp`.
+            if let Some(r) = img.src.as_ref().filter(|r| {
+                !r.xml.is_empty() && r.fingerprint == crate::shape::shape_fingerprint(img)
+            }) {
+                return r.xml.to_string();
+            }
+            let txbx = s.text.as_ref().map(|b| {
+                if b.is_empty() {
+                    "<w:p/>".to_owned()
+                } else {
+                    self.blocks(b)
+                }
+            });
+            self.drawing_id += 1;
+            let id = self.drawing_id;
+            let graphic = crate::shape::shape_graphic(img, s, id, txbx.as_deref());
+            return self.frame(img, id, "Shape", &graphic);
+        }
         self.drawing_id += 1;
         let id = self.drawing_id;
         let rid = self.rels.id_for(REL_IMAGE, &img.media, false);
@@ -515,10 +535,16 @@ impl Writer<'_> {
         let graphic = format!(
             "<a:graphic xmlns:a=\"{A_NS}\"><a:graphicData uri=\"{PIC_NS}\"><pic:pic xmlns:pic=\"{PIC_NS}\"><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"Picture {id}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r=\"{R_NS}\" r:embed=\"{rid}\"/>{crop}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm{rot}><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>"
         );
+        self.frame(img, id, "Picture", &graphic)
+    }
+
+    /// `w:drawing` with `graphic` placed inline (§20.4.2.8) or anchored (§20.4.2.3).
+    fn frame(&mut self, img: &Image, id: u32, kind: &str, graphic: &str) -> String {
+        let (cx, cy) = (img.width.0, img.height.0);
         let descr = escape(&img.description);
         match &img.anchor {
             None => format!(
-                "<w:drawing><wp:inline xmlns:wp=\"{WP_NS}\" distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:docPr id=\"{id}\" name=\"Picture {id}\" descr=\"{descr}\"/>{graphic}</wp:inline></w:drawing>"
+                "<w:drawing><wp:inline xmlns:wp=\"{WP_NS}\" distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:docPr id=\"{id}\" name=\"{kind} {id}\" descr=\"{descr}\"/>{graphic}</wp:inline></w:drawing>"
             ),
             Some(a) => {
                 // §20.4.3.7 ST_WrapText
@@ -540,13 +566,18 @@ impl Writer<'_> {
                     }
                     Wrap::TopAndBottom => "<wp:wrapTopAndBottom/>".to_owned(),
                 };
+                // §20.4.2.1 / §20.4.2.2 align, else §20.4.2.12 posOffset.
+                let pos = |align: &Option<String>, off: i64| match align {
+                    Some(al) => format!("<wp:align>{}</wp:align>", escape(al)),
+                    None => format!("<wp:posOffset>{off}</wp:posOffset>"),
+                };
                 format!(
-                    "<w:drawing><wp:anchor xmlns:wp=\"{WP_NS}\" distT=\"{dt}\" distB=\"{db}\" distL=\"{dl}\" distR=\"{dr}\" simplePos=\"0\" relativeHeight=\"{id}\" behindDoc=\"{}\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"{}\"><wp:posOffset>{}</wp:posOffset></wp:positionH><wp:positionV relativeFrom=\"{}\"><wp:posOffset>{}</wp:posOffset></wp:positionV><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>{wrap}<wp:docPr id=\"{id}\" name=\"Picture {id}\" descr=\"{descr}\"/><wp:cNvGraphicFramePr/>{graphic}</wp:anchor></w:drawing>",
+                    "<w:drawing><wp:anchor xmlns:wp=\"{WP_NS}\" distT=\"{dt}\" distB=\"{db}\" distL=\"{dl}\" distR=\"{dr}\" simplePos=\"0\" relativeHeight=\"{id}\" behindDoc=\"{}\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"{}\">{}</wp:positionH><wp:positionV relativeFrom=\"{}\">{}</wp:positionV><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>{wrap}<wp:docPr id=\"{id}\" name=\"{kind} {id}\" descr=\"{descr}\"/><wp:cNvGraphicFramePr/>{graphic}</wp:anchor></w:drawing>",
                     u8::from(a.behind),
                     escape(&a.h_relative),
-                    a.x.0,
+                    pos(&a.h_align, a.x.0),
                     escape(&a.v_relative),
-                    a.y.0
+                    pos(&a.v_align, a.y.0)
                 )
             }
         }
@@ -1638,6 +1669,7 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
         v.push(("ind".into(), s));
     }
     v.extend(flag("contextualSpacing", p.contextual_spacing));
+    v.extend(flag("bidi", p.bidi)); // §17.3.1.6
     if let Some(a) = p.align {
         v.push(("jc".into(), format!("<w:jc w:val=\"{}\"/>", jc(a))));
     }
@@ -1698,17 +1730,29 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
             format!("<w:rStyle w:val=\"{}\"/>", escape(s)),
         ));
     }
-    if p.font.is_some() || p.font_east_asia.is_some() || p.font_cs.is_some() {
+    // §17.3.2.26 rFonts: an ascii font without an hAnsi font is written for both.
+    let (h_ansi, h_theme) = if p.font_h_ansi.is_none() && p.theme_h_ansi.is_none() {
+        (p.font.as_ref(), p.theme_ascii.as_ref())
+    } else {
+        (p.font_h_ansi.as_ref(), p.theme_h_ansi.as_ref())
+    };
+    let attrs = [
+        ("ascii", p.font.as_ref()),
+        ("hAnsi", h_ansi),
+        ("eastAsia", p.font_east_asia.as_ref()),
+        ("cs", p.font_cs.as_ref()),
+        ("asciiTheme", p.theme_ascii.as_ref()),
+        ("hAnsiTheme", h_theme),
+        ("eastAsiaTheme", p.theme_east_asia.as_ref()),
+        ("cstheme", p.theme_cs.as_ref()),
+        ("hint", p.font_hint.as_ref()),
+    ];
+    if attrs.iter().any(|(_, v)| v.is_some()) {
         let mut s = String::from("<w:rFonts");
-        if let Some(f) = &p.font {
-            let f = escape(f);
-            let _ = write!(s, " w:ascii=\"{f}\" w:hAnsi=\"{f}\"");
-        }
-        if let Some(f) = &p.font_east_asia {
-            let _ = write!(s, " w:eastAsia=\"{}\"", escape(f));
-        }
-        if let Some(f) = &p.font_cs {
-            let _ = write!(s, " w:cs=\"{}\"", escape(f));
+        for (k, val) in attrs {
+            if let Some(f) = val {
+                let _ = write!(s, " w:{k}=\"{}\"", escape(f));
+            }
         }
         s.push_str("/>");
         v.push(("rFonts".into(), s));
@@ -1742,17 +1786,8 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
         ));
     }
     if let Some(u) = p.underline {
-        let val = match u {
-            Underline::None => "none",
-            Underline::Single => "single",
-            Underline::Double => "double",
-            Underline::Thick => "thick",
-            Underline::Dotted => "dotted",
-            Underline::Dash => "dash",
-            Underline::Wave => "wave",
-            Underline::Words => "words",
-        };
-        v.push(("u".into(), format!("<w:u w:val=\"{val}\"/>")));
+        // §17.3.2.40 u, §17.18.99 ST_Underline
+        v.push(("u".into(), format!("<w:u w:val=\"{}\"/>", u.as_str())));
     }
     if let Some(c) = p.shading {
         v.push((
@@ -1774,6 +1809,8 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
             format!("<w:vertAlign w:val=\"{val}\"/>"),
         ));
     }
+    v.extend(flag("rtl", p.rtl)); // §17.3.2.30
+    v.extend(flag("cs", p.complex)); // §17.3.2.7
     v.extend(raw_items(&p.unknown));
     if let Some(c) = &p.change {
         // §17.13.5.31 rPrChange holds a CT_RPrOriginal (no rPrChange of its own).
@@ -1938,7 +1975,7 @@ mod tests {
                     vec![Run {
                         props: RunProps {
                             italic: Some(true),
-                            underline: Some(Underline::Single),
+                            underline: Some(bo_model::Underline::Single),
                             vert_align: Some(VertAlign::Superscript),
                             highlight: Color::from_highlight("yellow"),
                             ..Default::default()

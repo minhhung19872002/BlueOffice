@@ -34,7 +34,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
   - Xong: crate `bo-math` (cây `Node` theo các phần tử §22.1.2 + ghi OMML `to_omml`; `unicode_math::parse` theo Unicode
     Technical Note #28): phân số `/` và `¦` (bỏ ngoặc quanh toán hạng), `_ ^` và dấu phẩy `′`, `√ ∛ ∜ √(n&x)`, n-ary + cận +
     `▒`, ngoặc co giãn `( ) [ ] { } ⟨ ⟩ ⌊ ⌋ ⌈ ⌉ | |` với `∣`, hàm đứng (lim/max/min nhận cả hạng tử, cận dưới), `■` ma trận, `█`
-    hệ phương trình, dấu nhấn tổ hợp / gạch trên, `"văn bản"`, control word `lpha \sum \sqrt \le 	o …`, `-` → `−`.
+    hệ phương trình, dấu nhấn tổ hợp / gạch trên, `"văn bản"`, control word `\alpha \sum \sqrt \le \to …`, `-` → `−`.
     Test: bảng chuỗi → XML (40 ca) + công thức lồng nhau + proptest không panic/XML cân; corpus `math-04-linear.docx`
     sinh từ chuỗi tuyến tính qua OpenXmlValidator (0 lỗi) + round-trip.
 - [ ] **CORE-MATH-006** — Nhập LaTeX (tập con phổ biến) → OMML · P0 · 005 · bảng test.

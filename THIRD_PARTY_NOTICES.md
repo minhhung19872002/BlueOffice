@@ -99,6 +99,7 @@ Công cụ fuzz (`fuzz/`, workspace riêng, không đóng gói vào sản phẩm
 | Microsoft.AspNetCore.Authentication.JwtBearer | 8.0.11 | MIT | OIDC / JWT |
 | Microsoft.IdentityModel.JsonWebTokens | 7.1.2 | MIT | JWT host (JWKS), mock BlueDrive |
 | Microsoft.EntityFrameworkCore (+ .Sqlite) | 8.0.11 | MIT | ORM, SQLite (dev/test) |
+| Microsoft.EntityFrameworkCore.Design | 8.0.11 | MIT | `dotnet ef migrations` (chỉ lúc phát triển, PrivateAssets) |
 | Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore | 8.0.11 | MIT | Health check |
 | Npgsql.EntityFrameworkCore.PostgreSQL (Npgsql) | 8.0.11 (8.0.6) | PostgreSQL License | PostgreSQL |
 | Minio (CommunityToolkit.HighPerformance, System.Reactive) | 6.0.4 | Apache-2.0 (MIT) | Object store |

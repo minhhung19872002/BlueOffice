@@ -73,8 +73,8 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
 8. **Ký số**: đã có PAdES B-T / XAdES-T, kiểm tra chuỗi tới CA gốc cấu hình, thu hồi qua CRL và OCSP (nạp sẵn
    hoặc tải/hỏi trực tuyến theo chứng thư), PAdES B-LT / B-LTA (`bo-cli ltv [--tsa]`: DSS + dấu thời gian
    tài liệu; không ghi VRI vì tuỳ chọn); chưa áp quy tắc POE đầy đủ của ETSI EN 319 102-1 (ADR-0007).
-9. **Server**: một instance `api` (phòng cộng tác trong bộ nhớ); schema bằng `EnsureCreated` + `SchemaUpgrades` cộng thêm
-   (chưa có migration EF). Npgsql dùng PostgreSQL License — chấp nhận theo [ADR-0009](adr/0009-npgsql-postgresql-license.md).
+9. **Server**: một instance `api` (phòng cộng tác trong bộ nhớ). Schema bằng EF Core migrations (PostgreSQL + SQLite;
+   database cũ tạo bằng `EnsureCreated` được nhận tự động, `docs/deploy/upgrade.md`). Npgsql dùng PostgreSQL License — chấp nhận theo [ADR-0009](adr/0009-npgsql-postgresql-license.md).
 10. **Mã hoá**: Agile Encryption đã kiểm chéo hai chiều với một cài đặt độc lập (msoffcrypto-tool, `crates/bo-crypto/tests/interop.rs`).
 
 ## Lịch sử
@@ -85,7 +85,8 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
   Rà soát lại "Hạn chế đã biết". Sửa lỗi cache layout không theo định nghĩa style (đổi style/undo/mở tài liệu khác hiện
   cỡ chữ cũ); đổi style / numbering / thiết lập trang của section chỉ dàn lại phần bị ảnh hưởng. Ký số: OCSP
   (`bo-cli verify --ocsp FILE | --ocsp-fetch`), kiểm chéo với `openssl ocsp`; tự tải CRL (`--crl-fetch`); PAdES B-LT
-  (`bo-cli ltv`, kiểm chéo với pyHanko); đọc được CRL v1; PAdES B-LTA (`ltv --tsa`).
+  (`bo-cli ltv`, kiểm chéo với pyHanko); đọc được CRL v1; PAdES B-LTA (`ltv --tsa`). Server: EF Core migrations
+  thay `EnsureCreated`; `bo-desktop` build/test được trên Linux (gói GTK/WebKitGTK).
 - 2026-11-08 (khuya): pivot đầy đủ (tổng phụ, 3 bố cục, nhóm ngày/số, trường tính toán, 14 kiểu "hiển thị giá trị",
   lọc/top-N, kiểu); E2E cộng tác với server thật + desktop cộng tác qua deep link (sửa lỗi caret người vào sau nhảy cuối
   tài liệu); chú thích sửa trên trang, header/footer liên kết section trước, track changes bảng/ảnh/page setup; ô bảng

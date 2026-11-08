@@ -276,7 +276,7 @@ giữ trong bộ nhớ (đóng app phải đăng nhập lại, token mock sống
 - `bo-collab` (Yrs) và editor SDK/TS (postMessage, nút Share/Close, chế độ offline) — luồng chính.
 - Nhiều instance `api` (room đang ở bộ nhớ một tiến trình): cần định tuyến theo file (consistent hashing) hoặc
   Redis pub/sub cho relay.
-- EF Core migrations (hiện `EnsureCreated`); Testcontainers cho PostgreSQL/MinIO/Redis (hiện test dùng SQLite/filesystem/in-memory).
+- ~~EF Core migrations~~ (đã làm: `Data/Migrations/{Postgres,Sqlite}`, `DatabaseMigrator`); Testcontainers cho PostgreSQL/MinIO/Redis (hiện test dùng SQLite/filesystem/in-memory).
 - `ppt`/`odp` → `pptx`/PDF/ảnh: `bo-cli` chưa có đường từ mô hình ODF/[MS-PPT] sang PresentationML (chỉ `odp`, `txt`);
   `/thumbnail` và `/preview` của hai định dạng này trả 422.
 - Server chưa giữ Y.Doc (không merge được bản offline dạng CRDT ở server): khi xung đột luôn tạo bản sao.

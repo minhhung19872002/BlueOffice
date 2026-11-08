@@ -81,6 +81,8 @@ dotnet test BlueOffice.sln
 dotnet run --project apps/server/BlueOffice.Api
 dotnet format BlueOffice.sln --verify-no-changes
 dotnet run --project tools/BlueOffice.Validate -- <file-or-dir>   # OpenXmlValidator
+# đổi model server: migration cho cả hai provider (dotnet tool install -g dotnet-ef --version 8.0.11; docs/deploy/upgrade.md)
+(cd apps/server/BlueOffice.Infrastructure && dotnet ef migrations add <Ten> --context PostgresBlueOfficeDbContext --output-dir Data/Migrations/Postgres && dotnet ef migrations add <Ten> --context SqliteBlueOfficeDbContext --output-dir Data/Migrations/Sqlite)
 docker compose -f deploy/docker-compose.yml up -d                 # on-prem, xem docs/deploy/
 ```
 

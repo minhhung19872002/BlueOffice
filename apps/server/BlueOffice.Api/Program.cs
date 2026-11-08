@@ -96,13 +96,10 @@ app.Services.GetRequiredService<WopiProofKeys>();
 
 if (config.GetValue("Database:AutoCreate", true))
 {
-    // Schema creation for dev/test and first start; see docs/deploy/upgrade.md for production upgrades.
+    // EF Core migrations (also adopts databases created by EnsureCreated before 0.7); see docs/deploy/upgrade.md.
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<BlueOfficeDbContext>();
-    db.Database.EnsureCreated();
-
-    // Tables added after a database was first created (EnsureCreated leaves existing databases alone).
-    await SchemaUpgrades.ApplyAsync(db);
+    await DatabaseMigrator.MigrateAsync(db);
 }
 
 app.UseExceptionHandler();

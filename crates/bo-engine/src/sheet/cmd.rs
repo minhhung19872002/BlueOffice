@@ -2652,6 +2652,29 @@ mod tests {
         back
     }
 
+    // source: ECMA-376 Part 1, §18.17.4.1 (serial 45351 = 2024-02-29), §18.8.30 (ids 15, 17)
+    #[test]
+    fn typed_dates_with_month_names() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "29 tháng 2 năm 2024").unwrap();
+        e.set_input(0, 1, 0, "tháng 2/2024").unwrap();
+        e.set_input(0, 2, 0, "29 tháng 2").unwrap();
+        e.set_locale("en-US");
+        e.set_input(0, 3, 0, "February 29, 2024").unwrap();
+        let wb = e.workbook().unwrap();
+        let ws = &wb.sheets[0];
+        let got = |r: u32| {
+            let c = ws.cell(r, 0).unwrap();
+            (c.value.clone(), wb.styles.xf(c.style).unwrap().num_fmt_id)
+        };
+        assert_eq!(got(0), (CellValue::Number(45351.0), 15));
+        assert_eq!(got(1), (CellValue::Number(45323.0), 17));
+        // No year: left as text.
+        assert_eq!(got(2).0, CellValue::Text("29 tháng 2".into()));
+        assert_eq!(got(3), (CellValue::Number(45351.0), 15));
+        assert_eq!(e.cell(0, 3, 0).unwrap().display, "29-Feb-24");
+    }
+
     // source: ECMA-376 Part 1, §18.17.4.1 (serial 45351 = 2024-02-29), §18.8.30 (ids 14, 20, 22)
     #[test]
     fn typed_dates_become_serials() {

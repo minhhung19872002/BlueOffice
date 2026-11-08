@@ -60,7 +60,7 @@ Round-trip lossless (XML chuẩn hoá): `.docx` 52/52, `.xlsx` 54/54, `.pptx` 10
 3. **BlueDoc**: track changes chưa ghi chèn/xoá cột-ô, gộp/tách ô, header/footer, nội dung chú thích, ảnh nổi đổi vị trí;
    chú thích dài chưa tràn sang trang sau; wrap tight dùng khung bao của đa giác.
 4. **BlueSheet**: pivot chưa có biểu đồ pivot, mục tính toán (`calculatedItems`), UI nhóm thủ công, lọc theo ngày; ngày gõ
-   dạng chữ chưa được nhận là ngày; chart neo tuyệt đối chưa kéo được.
+   thiếu năm (`15 Mar`) vẫn để dạng chữ; chart neo tuyệt đối chưa kéo được.
 5. **BlueSlide**: dán slide sang deck khác chưa co giãn theo khổ slide đích (chưa chép chart part con, liên kết
    slide→slide); connector trong nhóm bị lật chưa tính phép lật của nhóm; PDF vẽ blur/glow bằng ảnh mặt nạ (không vector), chưa có 3D.
 6. **Desktop**: E2E Tauri WebDriver 5 test (mở file, gõ chữ, công thức BlueSheet, BlueSlide, deep link + cộng tác) — `pnpm test:e2e:desktop`.
@@ -71,6 +71,8 @@ Round-trip lossless (XML chuẩn hoá): `.docx` 52/52, `.xlsx` 54/54, `.pptx` 10
 10. **Mã hoá**: Agile Encryption đã kiểm chéo hai chiều với một cài đặt độc lập (msoffcrypto-tool, `crates/bo-crypto/tests/interop.rs`).
 
 ## Lịch sử
+- 2026-11-08 (sau cùng): BlueSheet nhận ngày gõ có tên tháng (`15 Mar 2024`, `March 15, 2024`, `15 tháng 3 năm 2024`,
+  `15/Thg3/2024`, `tháng 3/2024`) → số serial + định dạng dựng sẵn 15/17/22.
 - 2026-11-08 (khuya): pivot đầy đủ (tổng phụ, 3 bố cục, nhóm ngày/số, trường tính toán, 14 kiểu "hiển thị giá trị",
   lọc/top-N, kiểu); E2E cộng tác với server thật + desktop cộng tác qua deep link (sửa lỗi caret người vào sau nhảy cuối
   tài liệu); chú thích sửa trên trang, header/footer liên kết section trước, track changes bảng/ảnh/page setup; ô bảng

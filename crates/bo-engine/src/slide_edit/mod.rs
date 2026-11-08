@@ -1420,7 +1420,7 @@ fn edges(sign: f64) -> Edges {
 
 fn is_axis_aligned(rot: f64) -> bool {
     let r = rot.rem_euclid(90.0);
-    r < 0.01 || r > 89.99
+    !(0.01..=89.99).contains(&r)
 }
 
 /// New boxes of the selected shapes for a transform.

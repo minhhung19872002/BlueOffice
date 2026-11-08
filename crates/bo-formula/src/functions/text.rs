@@ -483,7 +483,7 @@ fn code(ctx: &mut Ctx, args: &[Value]) -> R {
 
 fn unichar(ctx: &mut Ctx, args: &[Value]) -> R {
     let n = ctx.num(&args[0])?.trunc();
-    if n < 1.0 || n > 1_114_111.0 {
+    if !(1.0..=1_114_111.0).contains(&n) {
         return Err(ErrorKind::Value);
     }
     char::from_u32(n as u32)

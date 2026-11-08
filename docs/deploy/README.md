@@ -96,6 +96,13 @@ BlueDrive mở editor bằng `https://office.<domain>/edit?host=bluedrive&file={
 `Hosts__1__Name`, `Hosts__1__Protocol=Wopi`, `Hosts__1__BaseUrl=https://<host>/wopi/files`; trang discovery:
 `https://office.<domain>/hosting/discovery`.
 
+**Desktop (màn hình Start, tab BlueDrive)**: desktop chỉ gọi BlueOffice server (`/api/hosts`, `/api/hosts/bluedrive/…`,
+xem [`docs/bohp.md`](../bohp.md) §A2), không gọi thẳng BlueDrive. Đăng nhập SSO: điền `BLUEDRIVE_SIGNIN_AUTHORIZE_URL`,
+`BLUEDRIVE_SIGNIN_TOKEN_URL`, `BLUEDRIVE_SIGNIN_CLIENT_ID` (public client, PKCE S256, redirect URI `bluedoc://auth`,
+`bluesheet://auth`, `blueslide://auth`; token endpoint cho phép CORS từ `http://tauri.localhost`). Access token nhận được
+phải là token BOHP của BlueDrive (xác minh bằng `BLUEDRIVE_JWKS_URL`). Để trống thì desktop chỉ cho dán token.
+Thêm `http://tauri.localhost` (Windows/Linux) và `tauri://localhost` (macOS) vào `Cors__Origins__N`.
+
 ## 4. Cấu hình quan trọng (biến môi trường)
 
 | Biến | Ý nghĩa |
@@ -108,6 +115,9 @@ BlueDrive mở editor bằng `https://office.<domain>/edit?host=bluedrive&file={
 | `Collab__TimeZone` | Múi giờ dùng trong tên bản xung đột (mặc định `Asia/Ho_Chi_Minh`) |
 | `Jobs__Concurrency`, `WORKER_REPLICAS` | Số job song song mỗi worker / số worker |
 | `BoCli__Timeout` | Thời gian tối đa một lần chạy `bo-cli` (mặc định 60 s) |
+| `BoCli__AllowedExtensions__N` | Định dạng đầu vào của `/convert` `/thumbnail` `/preview` `/extract-text` (mặc định docx, docm, doc, odt, txt, md, xlsx, xlsm, xlsb, xls, ods, pptx, ppt, odp) |
+| `Webhooks__MaxAttempts`, `Webhooks__RetryBaseDelay` | Số lần gửi webhook (mặc định 3, thử lại khi lỗi mạng/5xx/429) và độ trễ gốc (1 s → 1 s, 4 s) |
+| `Hosts__N__SignIn__*`, `Hosts__N__DisplayName` | Đăng nhập SSO của màn hình Start desktop và tên hiển thị host |
 | `Otel__Endpoint` | OTLP collector (trace + metric), để trống nếu không dùng |
 
 ## 5. An toàn thông tin (gợi ý cho hồ sơ cấp độ)

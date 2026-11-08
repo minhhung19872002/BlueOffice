@@ -34,6 +34,10 @@ x-server-env: &server-env
   Hosts__0__WebhookUrl: ${BLUEDRIVE_WEBHOOK_URL:-}
   Hosts__0__WebhookSecret: ${BLUEDRIVE_WEBHOOK_SECRET:-}
   Hosts__0__AllowedOrigins__0: ${BLUEDRIVE_ORIGIN:-}
+  Hosts__0__DisplayName: BlueDrive
+  Hosts__0__SignIn__AuthorizeUrl: ${BLUEDRIVE_SIGNIN_AUTHORIZE_URL:-}
+  Hosts__0__SignIn__TokenUrl: ${BLUEDRIVE_SIGNIN_TOKEN_URL:-}
+  Hosts__0__SignIn__ClientId: ${BLUEDRIVE_SIGNIN_CLIENT_ID:-blueoffice-desktop}
   Cors__Origins__0: ${PUBLIC_ORIGIN:-}
 
 services:

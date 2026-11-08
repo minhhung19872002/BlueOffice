@@ -710,6 +710,9 @@ struct CommentEntry {
 struct DocSettings {
     #[serde(default)]
     eo: bool,
+    /// §17.18.33 footnote continuation notice (last writer wins).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cn: Option<Vec<Block>>,
 }
 
 const HF_KINDS: [&str; 6] = ["hd", "hf", "he", "fd", "ff", "fe"];
@@ -760,7 +763,7 @@ pub(crate) struct Seen {
     footnotes: Option<BTreeMap<i32, Vec<Block>>>,
     endnotes: Option<BTreeMap<i32, Vec<Block>>>,
     headers: Option<Vec<(HeaderFooter, HeaderFooter)>>,
-    eo: Option<bool>,
+    eo: Option<(bool, Option<Vec<Block>>)>,
 }
 
 impl Seen {
@@ -772,7 +775,7 @@ impl Seen {
         self.footnotes = Some(doc.footnotes.clone());
         self.endnotes = Some(doc.endnotes.clone());
         self.headers = Some(headers_of(doc));
-        self.eo = Some(doc.even_and_odd_headers);
+        self.eo = Some((doc.even_and_odd_headers, doc.continuation_notice.clone()));
     }
 }
 
@@ -951,13 +954,15 @@ pub(crate) fn share_parts(
         }
         seen.headers = Some(hfs);
     }
-    if seen.eo != Some(doc.even_and_odd_headers) {
+    let settings = (doc.even_and_odd_headers, doc.continuation_notice.clone());
+    if seen.eo.as_ref() != Some(&settings) {
         let j = serde_json::to_string(&DocSettings {
-            eo: doc.even_and_odd_headers,
+            eo: settings.0,
+            cn: settings.1.clone(),
         })
         .ok();
         set(meta, out, "doc".into(), j);
-        seen.eo = Some(doc.even_and_odd_headers);
+        seen.eo = Some(settings);
     }
 }
 
@@ -970,6 +975,8 @@ pub(crate) struct Rebuilt {
     pub footnotes: Option<BTreeMap<i32, Vec<Block>>>,
     pub endnotes: Option<BTreeMap<i32, Vec<Block>>>,
     pub eo: Option<bool>,
+    /// Footnote continuation notice (`Some(None)`: none).
+    pub notice: Option<Option<Vec<Block>>>,
 }
 
 fn by_prefix<'a>(
@@ -1073,11 +1080,14 @@ pub(crate) fn rebuild_parts(
     };
     let footnotes = (all || touched.iter().any(|k| k.starts_with("fn:"))).then(|| notes("fn:"));
     let endnotes = (all || touched.iter().any(|k| k.starts_with("en:"))).then(|| notes("en:"));
-    let eo = (all || touched.contains("doc")).then(|| {
+    let settings = (all || touched.contains("doc")).then(|| {
         meta.get("doc")
             .and_then(|j| serde_json::from_str::<DocSettings>(j).ok())
-            .map_or(doc.even_and_odd_headers, |d| d.eo)
     });
+    let eo = settings
+        .as_ref()
+        .map(|s| s.as_ref().map_or(doc.even_and_odd_headers, |d| d.eo));
+    let notice = settings.map(|s| s.map_or_else(|| doc.continuation_notice.clone(), |d| d.cn));
     Rebuilt {
         styles,
         numbering,
@@ -1085,6 +1095,7 @@ pub(crate) fn rebuild_parts(
         footnotes,
         endnotes,
         eo,
+        notice,
     }
 }
 

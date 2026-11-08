@@ -82,6 +82,13 @@ pub enum Op {
         /// New value.
         new: bool,
     },
+    /// Replace the footnote continuation notice (§17.18.33 `continuationNotice`).
+    ContinuationNotice {
+        /// Previous notice.
+        old: Option<Vec<Block>>,
+        /// New notice.
+        new: Option<Vec<Block>>,
+    },
 }
 
 impl Op {
@@ -134,6 +141,10 @@ impl Op {
             Op::EvenAndOddHeaders { old, new } => Op::EvenAndOddHeaders {
                 old: *new,
                 new: *old,
+            },
+            Op::ContinuationNotice { old, new } => Op::ContinuationNotice {
+                old: new.clone(),
+                new: old.clone(),
             },
         }
     }
@@ -244,6 +255,12 @@ impl Op {
                     return Err(EditError::Conflict);
                 }
                 doc.even_and_odd_headers = *new;
+            }
+            Op::ContinuationNotice { old, new } => {
+                if doc.continuation_notice != *old {
+                    return Err(EditError::Conflict);
+                }
+                doc.continuation_notice.clone_from(new);
             }
         }
         Ok(())

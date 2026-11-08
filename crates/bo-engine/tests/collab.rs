@@ -1337,3 +1337,29 @@ fn edits_in_different_cells_of_a_header_table_merge() {
     assert_eq!(cells, header_cells(&b));
     assert_eq!(cells, vec!["của A", "", "", "của B"], "{cells:?}");
 }
+
+// source: ECMA-376 Part 1, §17.18.33 ST_FtnEdn continuationNotice
+#[test]
+fn the_footnote_continuation_notice_reaches_a_late_joiner() {
+    let mut doc = bo_engine::plain_text_document("thân");
+    let notice = vec![bo_model::Block::Paragraph(bo_model::Paragraph::new(
+        bo_model::ParaProps::default(),
+        vec![bo_model::Run::text(
+            "(xem tiếp trang sau)",
+            bo_model::RunProps::default(),
+        )],
+    ))];
+    doc.continuation_notice = Some(notice.clone());
+    let mut a = Peer::doc(1, "x");
+    a.engine.load(doc, "chung.docx").unwrap();
+    let mut b = Peer::doc(2, "khác hẳn");
+    a.start(true);
+    b.start(false);
+    connect(&mut a, &mut b);
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    assert_eq!(
+        b.engine.document().unwrap().continuation_notice.as_ref(),
+        Some(&notice)
+    );
+}

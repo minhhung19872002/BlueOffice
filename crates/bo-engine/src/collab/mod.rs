@@ -1628,6 +1628,12 @@ impl Engine {
                 new: eo,
             });
         }
+        if let Some(cn) = content.notice.filter(|cn| *cn != doc.continuation_notice) {
+            ops.push(Op::ContinuationNotice {
+                old: doc.continuation_notice.clone(),
+                new: cn,
+            });
+        }
         for (name, v) in &change.blobs {
             let Some((_, bytes)) = v.as_deref().and_then(Blob::decode) else {
                 continue;

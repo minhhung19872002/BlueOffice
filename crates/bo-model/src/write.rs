@@ -216,7 +216,8 @@ pub struct Document {
     pub endnote_pr: NoteProps,
     /// Content of the footnote continuation notice (a `w:footnote` of `w:type`
     /// `continuationNotice`, §17.18.33 `ST_FtnEdn`): shown below a footnote that
-    /// continues on the next page. Read for display only (not written back).
+    /// continues on the next page. Written back when the footnotes part is
+    /// rewritten; not shared in collaboration.
     #[serde(skip)]
     pub continuation_notice: Option<Vec<Block>>,
     /// Source package the document was read from (`None` for a new document).

@@ -945,6 +945,16 @@ impl Writer<'_> {
                 s,
                 "<w:{item} w:type=\"separator\" w:id=\"-1\"><w:p><w:r><w:separator/></w:r></w:p></w:{item}><w:{item} w:type=\"continuationSeparator\" w:id=\"0\"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:{item}>"
             );
+            // §17.18.33 continuationNotice (footnotes only in the model): the first
+            // id ≥ 1 no note uses (Word files give it 1 and number notes from 2).
+            if let (false, Some(blocks)) = (end, &doc.continuation_notice) {
+                let id = (1..).find(|i| !notes.contains_key(i)).unwrap_or(1);
+                let body = self.blocks(blocks);
+                let _ = write!(
+                    s,
+                    "<w:{item} w:type=\"continuationNotice\" w:id=\"{id}\">{body}</w:{item}>"
+                );
+            }
             for (id, blocks) in notes {
                 let body = self.blocks(blocks);
                 let body = if body.is_empty() {

@@ -55,7 +55,7 @@ E2E gõ tiếng Việt + lưu + mở lại.
   đánh số lại, vị trí; footnotePr/endnotePr của section ghi đè từng thuộc tính). **numRestart eachPage không còn buộc dàn
   toàn bộ**: layout tăng dần dùng lại số chú thích theo trang của lần dàn trước, kiểm lại sau khi phân trang và chỉ dàn
   toàn bộ khi có chú thích đổi trang (test `per_page_footnote_numbers_stay_incremental`). Corpus `notes-05..07`.
-  Còn lại: thông báo tiếp trang chỉ hiển thị (không ghi lại khi viết lại phần chú thích); endnote chưa chia theo dòng
+  Thông báo tiếp trang được ghi lại khi viết lại phần chú thích (id nhỏ nhất ≥ 1 còn trống). Còn lại: endnote chưa chia theo dòng
   (đặt như đoạn thân văn bản). Nội dung chú thích/đầu-chân trang đồng bộ khi cộng tác (xem [phase-6.md](phase-6.md)).
   Liên kết đầu/chân trang: phần đầu tiên không có phần trước để liên kết.
 - Thước kẻ đo theo lề trang (trong ô bảng chưa hiện ranh giới ô); thước dọc chỉ kéo lề trên/dưới (chưa kéo khoảng cách đầu/chân trang).

@@ -333,3 +333,28 @@ fn canonical_ignores_attribute_order_and_formatting() {
     assert_eq!(a, b);
     assert_ne!(canonical(b"<t>x</t>"), canonical(b"<t>y</t>"));
 }
+
+// source: ECMA-376 Part 1, §17.18.33 ST_FtnEdn continuationNotice (§17.11.10 footnote)
+#[test]
+fn continuation_notice_survives_a_footnote_edit() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/doc/notes-06-continuation-notice.docx");
+    let mut doc = read_docx(&std::fs::read(path).unwrap()).unwrap();
+    let notice = doc
+        .continuation_notice
+        .clone()
+        .expect("notice in the corpus file");
+    // Editing a note rewrites the footnotes part.
+    let id = *doc.footnotes.keys().next().unwrap();
+    doc.footnotes.insert(
+        id,
+        vec![Block::Paragraph(bo_model::Paragraph::new(
+            bo_model::ParaProps::default(),
+            vec![bo_model::Run::text("Đã sửa", bo_model::RunProps::default())],
+        ))],
+    );
+    let bytes = write_docx(&doc).unwrap();
+    let back = read_docx(&bytes).unwrap();
+    assert_eq!(back.continuation_notice.as_ref(), Some(&notice));
+    assert_eq!(back.footnotes.len(), doc.footnotes.len());
+}

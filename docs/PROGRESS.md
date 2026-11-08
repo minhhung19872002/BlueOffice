@@ -64,7 +64,7 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
    (`bo_edit::ops::record_ops`). NUMPAGES,
    header/footer và chú thích đánh số theo trang đã tăng dần, chỉ dàn lại toàn bộ khi số trang / chiều cao header /
    trang của chú thích đổi.
-3. **BlueDoc**: dòng "tiếp theo" của chú thích tràn trang chỉ hiển thị, chưa ghi ra file; wrap tight lấy bề ngang của đa
+3. **BlueDoc**: thông báo "tiếp theo" của chú thích tràn trang được ghi lại khi viết lại phần chú thích (không chia sẻ khi cộng tác); wrap tight lấy bề ngang của đa
    giác trong dải mỗi dòng (đa giác lõm được coi như bao lồi theo chiều ngang).
 4. **BlueSheet**: ngày gõ thiếu năm (`15 Mar`) cố ý để dạng chữ (kết quả sẽ phụ thuộc ngày hiện tại).
 5. **BlueSlide**: PDF vẽ blur/glow bằng ảnh mặt nạ (không vector); chưa dựng hình 3D (`scene3d`/`sp3d`).

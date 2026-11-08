@@ -55,9 +55,9 @@ master slide, định dạng và chèn-xoá hàng cột BlueSheet, ô địa ch�
 header/chú thích/ảnh nổi, chú thích dài tràn trang, biểu đồ pivot, `calculatedItems`, nhóm thủ công, lọc ngày, kéo chart
 neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đã bỏ khỏi danh sách.
 1. **Cộng tác** (`plan/phase-6.md`): bảng lồng trong ô hoặc trong header/footer/chú thích/comment vẫn là một khối; chèn
-   đồng thời hàng và cột để hàng mới thiếu ô; id comment/chú thích mới là max+1 (hai người thêm cùng lúc có thể trùng);
-   docDefaults/defaultTabStop/latent styles chưa đồng bộ; BlueSheet: định dạng có điều kiện, data validation, chart, pivot,
-   bộ lọc lưu theo vị trí; master/layout slide khoá theo chỉ số; server một instance (phòng trong bộ nhớ).
+   đồng thời hàng và cột để hàng mới thiếu ô; docDefaults/defaultTabStop/latent styles chưa đồng bộ; BlueSheet: định dạng có điều kiện, data validation, chart, pivot,
+   bộ lọc lưu theo vị trí; master/layout slide khoá theo chỉ số; server một instance (phòng **và** phiên trong bộ nhớ;
+   thiết kế nhiều instance trong `plan/phase-6.md`).
 2. **Hiệu năng**: đổi style mặc định, style/danh sách dùng trong header/footer/chú thích/comment/text box, thiết lập
    trang của section đầu tiên, số trang bắt đầu hay thuộc tính chú thích của section vẫn dàn lại toàn bộ; đổi style,
    numbering khác hoặc khổ giấy/lề/cột/kiểu ngắt của section sau chỉ dàn lại từ chỗ bị ảnh hưởng
@@ -87,6 +87,7 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
   (`bo-cli verify --ocsp FILE | --ocsp-fetch`), kiểm chéo với `openssl ocsp`; tự tải CRL (`--crl-fetch`); PAdES B-LT
   (`bo-cli ltv`, kiểm chéo với pyHanko); đọc được CRL v1; PAdES B-LTA (`ltv --tsa`). Server: EF Core migrations
   thay `EnsureCreated`; `bo-desktop` build/test được trên Linux (gói GTK/WebKitGTK).
+  Cộng tác: comment/chú thích thêm đồng thời không còn trùng id (trước đó một comment bị mất).
 - 2026-11-08 (khuya): pivot đầy đủ (tổng phụ, 3 bố cục, nhóm ngày/số, trường tính toán, 14 kiểu "hiển thị giá trị",
   lọc/top-N, kiểu); E2E cộng tác với server thật + desktop cộng tác qua deep link (sửa lỗi caret người vào sau nhảy cuối
   tài liệu); chú thích sửa trên trang, header/footer liên kết section trước, track changes bảng/ảnh/page setup; ô bảng

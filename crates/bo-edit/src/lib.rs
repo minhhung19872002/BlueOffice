@@ -1058,12 +1058,35 @@ pub struct Session {
     /// New revision ids are above this (a header/footer or note edited in its own
     /// session takes ids unique in the whole document, §17.13.5).
     id_floor: i32,
+    /// Collaboration: new comment / note ids are ≡ this (mod 65 536), so that two
+    /// replicas adding one at the same moment do not pick the same id.
+    id_seed: Option<u16>,
+}
+
+/// Smallest id ≥ `candidate` that is ≡ `seed` (mod 65 536); `candidate` itself
+/// without a seed (or when that would overflow `i32`).
+pub(crate) fn seeded_id(candidate: i32, seed: Option<u16>) -> i32 {
+    let Some(seed) = seed else {
+        return candidate;
+    };
+    let c = i64::from(candidate);
+    let s = i64::from(seed);
+    let id = c + (s - c).rem_euclid(65_536);
+    i32::try_from(id).unwrap_or(candidate)
 }
 
 /// Author used when the host does not know the user.
 pub const DEFAULT_AUTHOR: &str = "BlueOffice";
 
 impl Session {
+    /// Collaboration (ECMA-376 comment §17.13.4.2 / footnote §17.11.10 ids are
+    /// per document): new comment and note ids are taken ≡ `seed` (mod 65 536),
+    /// derived from the replica's client id, instead of max + 1, so concurrent
+    /// additions on two replicas get different ids. `None` (default): max + 1.
+    pub fn set_id_seed(&mut self, seed: Option<u16>) {
+        self.id_seed = seed;
+    }
+
     /// Start editing `doc` with the caret at the beginning.
     pub fn new(doc: Document) -> Session {
         Session {
@@ -1080,6 +1103,7 @@ impl Session {
             changes: BlockChanges::everything(),
             painter: None,
             id_floor: 0,
+            id_seed: None,
         }
     }
 
@@ -1407,7 +1431,7 @@ impl Session {
             self.selection
         };
         let (a, b) = sel.ordered();
-        let id = comments::next_id(&self.doc);
+        let id = seeded_id(comments::next_id(&self.doc), self.id_seed);
         let c = comments::make(
             &self.doc,
             id,
@@ -1440,7 +1464,7 @@ impl Session {
         };
         let anchors = comments::anchors(&self.doc);
         let [start, end, reference] = anchors.get(&parent).copied().unwrap_or_default();
-        let id = comments::next_id(&self.doc);
+        let id = seeded_id(comments::next_id(&self.doc), self.id_seed);
         let mut list = self.doc.comments.clone();
         if list[pi].para_id.is_none() {
             list[pi].para_id = Some(comments::new_para_id(&self.doc, &(parent, "parent")));
@@ -2750,7 +2774,10 @@ impl Session {
         for (endnote, src) in [(false, &clip.footnotes), (true, &clip.endnotes)] {
             let map = &mut maps[usize::from(endnote)];
             for (old_id, content) in src {
-                let id = map.keys().copied().max().unwrap_or(0).max(1) + 1;
+                let id = seeded_id(
+                    map.keys().copied().max().unwrap_or(0).max(1) + 1,
+                    self.id_seed,
+                );
                 map.insert(id, content.clone());
                 section::renumber_note_ref(&mut blocks, endnote, *old_id, id);
             }
@@ -3005,3 +3032,20 @@ mod feature_tests;
 mod tests;
 #[cfg(test)]
 mod track_tests;
+
+#[cfg(test)]
+mod id_seed_tests {
+    use super::seeded_id;
+
+    #[test]
+    fn seeded_ids() {
+        assert_eq!(seeded_id(7, None), 7);
+        assert_eq!(seeded_id(7, Some(9)), 9);
+        assert_eq!(seeded_id(9, Some(9)), 9);
+        assert_eq!(seeded_id(10, Some(9)), 65_536 + 9);
+        // Two replicas from the same maximum never collide.
+        assert_ne!(seeded_id(5, Some(100)), seeded_id(5, Some(200)));
+        // Near the end of i32: max + 1 rather than overflowing.
+        assert_eq!(seeded_id(i32::MAX - 1, Some(3)), i32::MAX - 1);
+    }
+}

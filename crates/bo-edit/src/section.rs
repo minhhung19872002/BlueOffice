@@ -630,7 +630,10 @@ impl Session {
             &self.doc.footnotes
         };
         // Ids -1/0 (and 1 in older files) are separators (§17.11.23).
-        let id = map.keys().copied().max().unwrap_or(0).max(1) + 1;
+        let id = crate::seeded_id(
+            map.keys().copied().max().unwrap_or(0).max(1) + 1,
+            self.id_seed,
+        );
         let mut new_map = map.clone();
         new_map.insert(
             id,

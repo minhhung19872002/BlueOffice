@@ -960,3 +960,33 @@ fn notes_text_merges_and_parts_follow_the_room() {
         );
     });
 }
+
+// source: ECMA-376 Part 1, §17.13.4.2 (comment ids), §17.11.10 (footnote ids)
+#[test]
+fn concurrent_comments_and_notes_get_distinct_ids() {
+    let (mut a, mut b) = pair("một hai ba\nbốn năm");
+    // Both add a comment and a footnote before seeing each other's.
+    a.cmd(&range(0, 0, 0, "một".len()));
+    a.cmd(r#"{"cmd":"addComment","text":"Của A"}"#);
+    b.cmd(&range(1, 0, 1, "bốn".len()));
+    b.cmd(r#"{"cmd":"addComment","text":"Của B"}"#);
+    a.cmd(&sel(0, "một hai".len()));
+    a.cmd(r#"{"cmd":"insertNote","text":"Chú thích A"}"#);
+    b.cmd(&sel(1, "bốn năm".len()));
+    b.cmd(r#"{"cmd":"insertNote","text":"Chú thích B"}"#);
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    for p in [&a, &b] {
+        let doc = p.engine.document().unwrap();
+        let mut texts: Vec<(i32, String)> = doc.comments.iter().map(|c| (c.id, c.text())).collect();
+        texts.sort_by(|x, y| x.1.cmp(&y.1));
+        assert_eq!(texts.len(), 2, "{texts:?}");
+        assert_ne!(texts[0].0, texts[1].0);
+        assert_eq!(
+            (texts[0].1.as_str(), texts[1].1.as_str()),
+            ("Của A", "Của B")
+        );
+        let notes: Vec<i32> = doc.footnotes.keys().copied().filter(|&k| k > 1).collect();
+        assert_eq!(notes.len(), 2, "{notes:?}");
+    }
+}

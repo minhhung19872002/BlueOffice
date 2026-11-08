@@ -160,8 +160,9 @@ dời ô và công thức của người kia; ghi chú slide).
 - Bảng lồng trong ô, bảng trong header/footer/chú thích/comment: vẫn là một embed `{"b"}` (LWW cả bảng).
 - Chèn hàng và chèn cột đồng thời trong cùng bảng BlueDoc: hàng mới thiếu ô ở cột mới (hội tụ, nhưng hàng ngắn hơn).
   Xoá hàng/cột trong khi người khác gõ vào ô của nó: chữ gõ mất cùng hàng/cột.
-- Id comment/chú thích mới do mỗi replica tự cấp (max+1): hai người thêm comment/chú thích **đúng cùng lúc** có thể
-  trùng id → hai neo trỏ cùng một mục (LWW). Danh sách tạo trong phiên vẫn chia sẻ theo kiểu (`bullet`/`number`).
+- Id comment/chú thích mới: khi cộng tác, mỗi replica lấy id ≡ hạt giống riêng (từ client id Yrs, mod 65 536,
+  `Session::set_id_seed`) nên hai người thêm **đúng cùng lúc** không còn trùng (test
+  `concurrent_comments_and_notes_get_distinct_ids`; trước đó comment của một người bị mất). Danh sách tạo trong phiên vẫn chia sẻ theo kiểu (`bullet`/`number`).
   Header/footer khoá theo số thứ tự section: chèn section break đồng thời với sửa header có thể gán nhầm section.
   `docDefaults`, `defaultTabStop`, latent styles không đồng bộ trực tiếp.
 - BlueSheet: CF, DV, biểu đồ, pivot, hyperlink, bảng (ListObject), autofilter, vùng in, freeze pane lưu **theo vị trí**
@@ -274,8 +275,11 @@ giữ trong bộ nhớ (đóng app phải đăng nhập lại, token mock sống
 - **Ký số** (Phase 6): ký PDF PAdES và OOXML XML-DSig; điểm tích hợp dự kiến: một `ISignatureProvider` (USB token qua agent
   cục bộ trên desktop, ký số từ xa của CA Việt Nam qua REST) + job `sign` trong worker; chưa code.
 - `bo-collab` (Yrs) và editor SDK/TS (postMessage, nút Share/Close, chế độ offline) — luồng chính.
-- Nhiều instance `api` (room đang ở bộ nhớ một tiến trình): cần định tuyến theo file (consistent hashing) hoặc
-  Redis pub/sub cho relay.
+- Nhiều instance `api`: room **và** phiên (`SessionStore`) đều ở bộ nhớ một tiến trình; các endpoint REST tìm phiên
+  theo id phiên. Thiết kế dự kiến: (1) phiên lưu ở PostgreSQL/Redis; (2) id phiên mang id instance sở hữu phòng và
+  `nginx` định tuyến `/collab/{fileId}` bằng `hash $fileId consistent`, `/api/sessions/{id}` theo tiền tố id;
+  (3) khoá sở hữu phòng trong Redis (`SET NX PX`, gia hạn) để hai instance không cùng mở một phòng — instance không
+  sở hữu đóng WebSocket mã 4009 cho client kết nối lại; (4) test bằng hai `TestApp` dùng chung Redis giả.
 - ~~EF Core migrations~~ (đã làm: `Data/Migrations/{Postgres,Sqlite}`, `DatabaseMigrator`); Testcontainers cho PostgreSQL/MinIO/Redis (hiện test dùng SQLite/filesystem/in-memory).
 - `ppt`/`odp` → `pptx`/PDF/ảnh: `bo-cli` chưa có đường từ mô hình ODF/[MS-PPT] sang PresentationML (chỉ `odp`, `txt`);
   `/thumbnail` và `/preview` của hai định dạng này trả 422.

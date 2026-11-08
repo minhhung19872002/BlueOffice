@@ -1408,7 +1408,11 @@ impl Engine {
     /// first [`Engine::collab_apply`] (edits made before that are not shared).
     /// `client` is the replica's client id (ids of new tables, rows, columns).
     pub fn collab_start(&mut self, seed: bool, client: u64) -> crate::Result<CollabChange> {
-        let s = self.session.as_ref().ok_or(EngineError::NoDocument)?;
+        let s = self.session.as_mut().ok_or(EngineError::NoDocument)?;
+        // New comment / note ids differ between replicas (see Session::set_id_seed);
+        // 2.. keeps clear of the note separator ids (§17.11.23).
+        s.set_id_seed(Some(u16::try_from(client % 65_534).unwrap_or(0) + 2));
+        let s = &*s;
         let mut c = DocCollab::new(s.doc(), seed, client);
         let mut change = c.local_change(s.doc());
         change.body.retain(|d| !d.is_empty());
@@ -1425,6 +1429,9 @@ impl Engine {
     /// Leave the collaboration session.
     pub fn collab_stop(&mut self) {
         self.collab = None;
+        if let Some(s) = self.session.as_mut() {
+            s.set_id_seed(None);
+        }
     }
 
     /// A collaboration session is running.

@@ -540,7 +540,7 @@ fn write_pivot_caches(
             put(
                 def.clone(),
                 CT_PIVOT_CACHE_DEFINITION,
-                cache_definition_xml(c, "rId1").into_bytes(),
+                cache_definition_xml(c, "rId1", wb.date1904).into_bytes(),
                 out_parts,
             );
             put(

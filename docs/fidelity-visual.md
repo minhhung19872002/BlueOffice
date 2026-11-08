@@ -3,7 +3,7 @@
 Sinh bởi `scripts/visual-diff.mjs` (2026-11-08). Ảnh tham chiếu do người dùng cung cấp đặt ở `tests/fidelity/reference/<nhóm>/<file>.page-<n>.png`; baseline tự sinh (trang 1, scale 0,5) ở `tests/fidelity/baseline/` để phát hiện hồi quy hiển thị.
 
 - Ảnh tham chiếu: **0** trang (chưa có — cần người dùng cung cấp)
-- Baseline: 150 trang, vượt ngưỡng 0.10 %: 0
+- Baseline: 174 trang, vượt ngưỡng 0.10 %: 0
 
 | Nhóm | Loại | Ảnh | Sai lệch | Ngưỡng | |
 |---|---|---|---|---|---|
@@ -65,6 +65,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-08). Ảnh tham chiếu do ngườ
 | sheet | baseline | cf-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | cf-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | cf-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | chart-anchors-1.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | chart-anchors-2.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | chart-anchors-3.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | sheet | baseline | charts-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | charts-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | charts-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -110,9 +113,24 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-08). Ảnh tham chiếu do ngườ
 | sheet | baseline | writer-format-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-format-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-format-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-pivot-charts-1.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-charts-2.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-charts-3.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-datarows-1.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-datarows-2.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-datarows-3.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-dates-1.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-dates-2.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-dates-3.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | sheet | baseline | writer-pivot-groups-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-pivot-groups-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-pivot-groups-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-pivot-items-1.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-items-2.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-items-3.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-manual-1.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-manual-2.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| sheet | baseline | writer-pivot-manual-3.xlsx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | sheet | baseline | writer-pivot-totals-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-pivot-totals-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-pivot-totals-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -131,9 +149,15 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-08). Ảnh tham chiếu do ngườ
 | slide | baseline | slide-charts-pie.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-arrange.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-clipboard.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-connectors-flip-h.pptx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| slide | baseline | slide-edit-connectors-flip-hv.pptx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| slide | baseline | slide-edit-connectors-flip-v.pptx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | slide | baseline | slide-edit-connectors-rotated.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-connectors.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-paste-chart.pptx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| slide | baseline | slide-edit-paste-links.pptx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | slide | baseline | slide-edit-paste-other-deck.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-paste-resized.pptx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | slide | baseline | slide-edit-rich.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-slides.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-tables.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |

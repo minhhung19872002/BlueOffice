@@ -51,6 +51,9 @@ Kiểm thử round-trip: `cargo test -p bo-xlsx --test corpus corpus_roundtrip -
 | `charts-1.xlsx` | drawing + chartSpace parts (bar, bar+line combo, pie) (biến thể 1) | tự sinh, `corpus.rs::charts` |
 | `charts-2.xlsx` | drawing + chartSpace parts (bar, bar+line combo, pie) (biến thể 2) | tự sinh, `corpus.rs::charts` |
 | `charts-3.xlsx` | drawing + chartSpace parts (bar, bar+line combo, pie) (biến thể 3) | tự sinh, `corpus.rs::charts` |
+| `chart-anchors-1.xlsx` | charts in a oneCellAnchor (from + ext) and absoluteAnchor (pos + ext) (biến thể 1) | tự sinh, `corpus.rs::chart-anchors` |
+| `chart-anchors-2.xlsx` | charts in a oneCellAnchor (from + ext) and absoluteAnchor (pos + ext) (biến thể 2) | tự sinh, `corpus.rs::chart-anchors` |
+| `chart-anchors-3.xlsx` | charts in a oneCellAnchor (from + ext) and absoluteAnchor (pos + ext) (biến thể 3) | tự sinh, `corpus.rs::chart-anchors` |
 | `ext-1.xlsx` | extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml (biến thể 1) | tự sinh, `corpus.rs::ext` |
 | `ext-2.xlsx` | extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml (biến thể 2) | tự sinh, `corpus.rs::ext` |
 | `ext-3.xlsx` | extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml (biến thể 3) | tự sinh, `corpus.rs::ext` |
@@ -72,3 +75,18 @@ Kiểm thử round-trip: `cargo test -p bo-xlsx --test corpus corpus_roundtrip -
 | `writer-pivot-groups-1.xlsx` | BlueSheet writer: pivot grouping and calculations (dates by years / quarters / months; numeric ranges × columns; years + months with a calculated field, difference from previous and running total) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_groups` |
 | `writer-pivot-groups-2.xlsx` | BlueSheet writer: pivot grouping and calculations (dates by years / quarters / months; numeric ranges × columns; years + months with a calculated field, difference from previous and running total) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_groups` |
 | `writer-pivot-groups-3.xlsx` | BlueSheet writer: pivot grouping and calculations (dates by years / quarters / months; numeric ranges × columns; years + months with a calculated field, difference from previous and running total) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_groups` |
+| `writer-pivot-items-1.xlsx` | BlueSheet writer: calculated items (row field; column field in outline form; two items in compact form) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_items` |
+| `writer-pivot-items-2.xlsx` | BlueSheet writer: calculated items (row field; column field in outline form; two items in compact form) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_items` |
+| `writer-pivot-items-3.xlsx` | BlueSheet writer: calculated items (row field; column field in outline form; two items in compact form) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_items` |
+| `writer-pivot-manual-1.xlsx` | BlueSheet writer: manual item groups (rows; two groups on a column field; group then ungroup one item) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_manual` |
+| `writer-pivot-manual-2.xlsx` | BlueSheet writer: manual item groups (rows; two groups on a column field; group then ungroup one item) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_manual` |
+| `writer-pivot-manual-3.xlsx` | BlueSheet writer: manual item groups (rows; two groups on a column field; group then ungroup one item) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_manual` |
+| `writer-pivot-dates-1.xlsx` | BlueSheet writer: pivot date filters (dateBetween; Q2; dateNewerThanOrEqual in a 1904 workbook with a year grouping) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_dates` |
+| `writer-pivot-dates-2.xlsx` | BlueSheet writer: pivot date filters (dateBetween; Q2; dateNewerThanOrEqual in a 1904 workbook with a year grouping) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_dates` |
+| `writer-pivot-dates-3.xlsx` | BlueSheet writer: pivot date filters (dateBetween; Q2; dateNewerThanOrEqual in a 1904 workbook with a year grouping) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_dates` |
+| `writer-pivot-datarows-1.xlsx` | BlueSheet writer: value fields on rows (tabular; compact × columns; outline with three values) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_datarows` |
+| `writer-pivot-datarows-2.xlsx` | BlueSheet writer: value fields on rows (tabular; compact × columns; outline with three values) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_datarows` |
+| `writer-pivot-datarows-3.xlsx` | BlueSheet writer: value fields on rows (tabular; compact × columns; outline with three values) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_datarows` |
+| `writer-pivot-charts-1.xlsx` | BlueSheet writer: pivot charts (column; line following a hidden item; combo with field buttons) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_charts` |
+| `writer-pivot-charts-2.xlsx` | BlueSheet writer: pivot charts (column; line following a hidden item; combo with field buttons) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_charts` |
+| `writer-pivot-charts-3.xlsx` | BlueSheet writer: pivot charts (column; line following a hidden item; combo with field buttons) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivot_charts` |

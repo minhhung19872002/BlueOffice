@@ -7,7 +7,7 @@
 //! sheet has none).
 
 use crate::xml::fmt_f64;
-use bo_model::sheet::{CellRef, Chart, ChartKind, ChartPlot, ChartSeries, Workbook};
+use bo_model::sheet::{CellRef, Chart, ChartAnchor, ChartKind, ChartPlot, ChartSeries, Workbook};
 use bo_opc::xml::escape;
 use std::fmt::Write as _;
 
@@ -26,6 +26,9 @@ const C_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/chart";
 const A_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const XDR_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing";
+const C14_NS: &str = "http://schemas.microsoft.com/office/drawing/2007/8/2/chart";
+/// `ext/@uri` of `c14:pivotOptions` ([MS-ODRAWXML] chartSpace extensions).
+pub(crate) const EXT_PIVOT_OPTIONS: &str = "{781A3756-C4B2-4CAC-9D66-4F8BD8637D16}";
 
 /// Series colours of generated charts (BlueSheet palette, `RRGGBB`).
 const PALETTE: [&str; 8] = [
@@ -310,14 +313,37 @@ pub fn chart_space_xml(chart: &Chart) -> String {
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n");
     let _ = write!(
         out,
-        "<c:chartSpace xmlns:c=\"{C_NS}\" xmlns:a=\"{A_NS}\" xmlns:r=\"{R_NS}\"><c:roundedCorners val=\"0\"/><c:chart>"
+        "<c:chartSpace xmlns:c=\"{C_NS}\" xmlns:a=\"{A_NS}\" xmlns:r=\"{R_NS}\"><c:roundedCorners val=\"0\"/>"
     );
+    // §21.2.2.142 pivotSource: name of the pivot table and its chart format id (§21.2.2.73).
+    if let Some(src) = chart.pivot_source.as_deref().filter(|s| !s.is_empty()) {
+        let _ = write!(
+            out,
+            "<c:pivotSource><c:name>{}</c:name><c:fmtId val=\"{}\"/></c:pivotSource>",
+            escape(src),
+            chart.pivot_fmt_id
+        );
+    }
+    out.push_str("<c:chart>");
     match chart.title.as_deref().filter(|t| !t.is_empty()) {
         Some(t) => {
             title(&mut out, t);
             out.push_str("<c:autoTitleDeleted val=\"0\"/>");
         }
         None => out.push_str("<c:autoTitleDeleted val=\"1\"/>"),
+    }
+    if chart.pivot_source.is_some() {
+        // §21.2.2.144 pivotFmts: one format per series (§21.2.2.143 pivotFmt).
+        let n: usize = chart.plots.iter().map(|p| p.series.len()).sum();
+        out.push_str("<c:pivotFmts>");
+        for i in 0..n.max(1) {
+            let _ = write!(
+                out,
+                "<c:pivotFmt><c:idx val=\"{i}\"/><c:spPr><a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill></c:spPr><c:marker><c:symbol val=\"none\"/></c:marker></c:pivotFmt>",
+                PALETTE[i % PALETTE.len()]
+            );
+        }
+        out.push_str("</c:pivotFmts>");
     }
     out.push_str("<c:plotArea><c:layout/>");
     let mut axes = false;
@@ -361,9 +387,16 @@ pub fn chart_space_xml(chart: &Chart) -> String {
             "<c:legend><c:legendPos val=\"{pos}\"/><c:overlay val=\"0\"/></c:legend>"
         );
     }
-    out.push_str(
-        "<c:plotVisOnly val=\"1\"/><c:dispBlanksAs val=\"gap\"/></c:chart></c:chartSpace>",
-    );
+    out.push_str("<c:plotVisOnly val=\"1\"/><c:dispBlanksAs val=\"gap\"/></c:chart>");
+    if chart.pivot_source.is_some() {
+        // Field buttons of a pivot chart ([MS-ODRAWXML] c14:pivotOptions, chartSpace extension).
+        let v = u8::from(chart.pivot_buttons);
+        let _ = write!(
+            out,
+            "<c:extLst><c:ext uri=\"{EXT_PIVOT_OPTIONS}\" xmlns:c14=\"{C14_NS}\"><c14:pivotOptions><c14:dropZoneFilter val=\"{v}\"/><c14:dropZoneCategories val=\"{v}\"/><c14:dropZoneData val=\"{v}\"/><c14:dropZoneSeries val=\"{v}\"/><c14:dropZonesVisible val=\"{v}\"/></c14:pivotOptions></c:ext></c:extLst>"
+        );
+    }
+    out.push_str("</c:chartSpace>");
     out
 }
 
@@ -529,16 +562,33 @@ fn element_span(text: &str, prefix: &str, name: &str) -> Option<(usize, usize)> 
     Some((s, e))
 }
 
+/// Replace the empty element `<p:name …/>` of an anchor by `with`.
+fn replace_empty(anchor: &mut String, prefix: &str, name: &str, with: &str) -> bool {
+    let open = format!("<{prefix}{name} ");
+    let Some(s) = anchor.find(&open) else {
+        return false;
+    };
+    let Some(e) = anchor[s..].find("/>").map(|e| s + e + 2) else {
+        return false;
+    };
+    anchor.replace_range(s..e, with);
+    true
+}
+
 /// Move / resize chart `index` of `sheet` to the cell anchors `from`..`to`
 /// (zero-based; `to` is the cell holding the bottom-right corner). Charts read
-/// from the file get their drawing anchor rewritten (§20.5.2.15 from,
-/// §20.5.2.32 to). Returns `false` when the chart cannot be moved.
+/// from the file get their drawing anchor rewritten: §20.5.2.15 from /
+/// §20.5.2.32 to of a two-cell anchor; `from` and §20.5.2.14 ext of a one-cell
+/// anchor; §20.5.2.25 pos and ext of an absolute anchor. `emu` is the target
+/// rectangle `(x, y, cx, cy)` in EMU, needed by one-cell and absolute anchors.
+/// Returns `false` when the chart cannot be moved.
 pub fn move_chart(
     wb: &mut Workbook,
     sheet: usize,
     index: usize,
     from: CellRef,
     to: CellRef,
+    emu: Option<(i64, i64, i64, i64)>,
 ) -> bool {
     let Some(chart) = wb.sheets.get(sheet).and_then(|s| s.charts.get(index)) else {
         return false;
@@ -566,11 +616,27 @@ pub fn move_chart(
                 at.col, at.row
             )
         };
-        if qname.ends_with("absoluteAnchor") {
-            return false;
+        let absolute = qname.ends_with("absoluteAnchor");
+        let one_cell = qname.ends_with("oneCellAnchor");
+        if absolute || one_cell {
+            let Some((x, y, cx, cy)) = emu else {
+                return false;
+            };
+            let ext = format!("<{prefix}ext cx=\"{}\" cy=\"{}\"/>", cx.max(1), cy.max(1));
+            if !replace_empty(&mut anchor, &prefix, "ext", &ext) {
+                return false;
+            }
+            if absolute {
+                let pos = format!("<{prefix}pos x=\"{}\" y=\"{}\"/>", x.max(0), y.max(0));
+                if !replace_empty(&mut anchor, &prefix, "pos", &pos) {
+                    return false;
+                }
+            }
         }
-        if let Some((a, b)) = element_span(&anchor, &prefix, "from") {
-            anchor.replace_range(a..b, &cell("from", from));
+        if !absolute {
+            if let Some((a, b)) = element_span(&anchor, &prefix, "from") {
+                anchor.replace_range(a..b, &cell("from", from));
+            }
         }
         if qname.ends_with("twoCellAnchor") {
             if let Some((a, b)) = element_span(&anchor, &prefix, "to") {
@@ -586,6 +652,14 @@ pub fn move_chart(
     let chart = &mut wb.sheets[sheet].charts[index];
     chart.from = from;
     chart.to = Some(to);
+    if let Some((x, y, cx, cy)) = emu {
+        if chart.anchor == ChartAnchor::Absolute {
+            chart.pos = Some((x.max(0), y.max(0)));
+        }
+        if chart.anchor != ChartAnchor::TwoCell {
+            chart.ext = Some((cx.max(1), cy.max(1)));
+        }
+    }
     true
 }
 
@@ -775,7 +849,8 @@ mod tests {
             0,
             0,
             CellRef::new(3, 2),
-            CellRef::new(10, 7)
+            CellRef::new(10, 7),
+            None
         ));
         let moved = crate::read_xlsx(&crate::write_xlsx(&back).unwrap()).unwrap();
         let c = &moved.sheets[0].charts[0];
@@ -803,7 +878,8 @@ mod tests {
             0,
             0,
             CellRef::new(0, 0),
-            CellRef::new(5, 5)
+            CellRef::new(5, 5),
+            None
         ));
         assert_eq!(fresh.sheets[0].charts[0].to, Some(CellRef::new(5, 5)));
         assert!(remove_chart(&mut fresh, 0, 0));

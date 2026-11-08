@@ -159,13 +159,12 @@ nhận deep link dạng `--bluedoc://…` (msedgedriver thêm `--`) nên app b�
 giữ cổng 4445.
 
 **Hạn chế còn lại (quan sát trong E2E)**
-- **Lỗi chưa sửa (chập chờn, ~1/3 lần chạy ca deep link desktop)**: chữ người dùng desktop (engine native) gõ hiện cục
-  bộ, khung y-sync tới web và **replica hai bên đều chứa đoạn chữ**, nhưng engine web không hiện và engine desktop làm mất
-  nó ở thay đổi kế tiếp — tức vị trí chèn rơi vào chỗ ánh xạ coi là "lạc" (cạnh embed khối), nghi do shadow của engine
-  native lệch offset với replica trong một tương tranh nào đó. Luôn xảy ra khi desktop gõ ngay tại caret ban đầu (chưa
-  bấm vào tài liệu); chập chờn khi đã bấm. Không tái hiện được web↔web (trình duyệt), WASM↔WASM
-  (`packages/collab/test/live.test.ts`) hay native↔native (`crates/bo-engine/tests/collab.rs`); seed native và WASM
-  giống hệt từng byte. Hướng điều tra tiếp: ghi `collab.change` + `takeRemote` của desktop và so offset với replica.
+- **Đã sửa (2026-11-08) — lỗi chập chờn ca deep link desktop**: nguyên nhân không nằm ở engine native. Khi người vào
+  sau nhận nội dung chung (chèn toàn bộ tại offset 0), `transform_index` đẩy caret qua phần chèn, nên caret nhảy xuống
+  **cuối tài liệu**; chữ gõ ở đó rơi sau khối cuối và bị bỏ. Ca "gõ ngay khi chưa bấm" luôn hỏng. Khi người dùng bấm
+  trước lúc nội dung chung tới thì chỉ hỏng thỉnh thoảng (phụ thuộc thời điểm), và view cũng cuộn xuống cuối. Giờ caret
+  được đo trên bản sao riêng của người vào sau rồi kẹp vào độ dài văn bản chung
+  (`late_joiner_typing_at_its_first_caret_is_shared` kiểm vị trí chèn).
 - Người vào sau thấy tài liệu ở trạng thái "Chưa lưu" và view cuộn tới caret sau khi nội dung chung thay thế bản cục bộ.
 - CSP desktop không cho `http://` tới máy chủ khác `localhost` (cần HTTPS hoặc build lại với origin trong CSP).
 

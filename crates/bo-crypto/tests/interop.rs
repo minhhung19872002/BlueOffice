@@ -19,5 +19,8 @@ fn decrypts_a_package_encrypted_by_msoffcrypto_tool() {
 #[test]
 fn package_encrypted_by_bo_crypto_round_trips() {
     let enc = bo_crypto::save_package(PLAIN, Some("Mật khẩu 123")).expect("encrypt");
-    assert_eq!(bo_crypto::decrypt(&enc, "Mật khẩu 123").expect("decrypt"), PLAIN);
+    assert_eq!(
+        bo_crypto::decrypt(&enc, "Mật khẩu 123").expect("decrypt"),
+        PLAIN
+    );
 }

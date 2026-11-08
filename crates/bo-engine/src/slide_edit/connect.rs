@@ -14,6 +14,12 @@ pub fn flips(pres: &Presentation, slide: usize, n: &ShapeNode) -> (bool, bool) {
     (x.flip_h.unwrap_or(false), x.flip_v.unwrap_or(false))
 }
 
+/// Visual flips of a placed node: its own xor those of the enclosing groups
+/// (a flipped group mirrors its children, §20.1.7.6).
+pub fn visual(p: &Placed, own: (bool, bool)) -> (bool, bool) {
+    (own.0 ^ p.frame.flip.0, own.1 ^ p.frame.flip.1)
+}
+
 /// Local point (origin top-left of the unrotated box) → slide point, with
 /// the shape's flips (§20.1.7.6 xfrm: flip, then rotate about the centre).
 pub fn to_slide(b: &BoxR, f: (bool, bool), x: f64, y: f64) -> (f64, f64) {
@@ -71,7 +77,7 @@ pub fn adjust_handles(
     if matches!(n, ShapeNode::Picture(_)) {
         return Vec::new();
     }
-    let f = flips(pres, slide, n);
+    let f = visual(p, flips(pres, slide, n));
     bo_drawingml::handles::handle_points(name, av, p.b.w, p.b.h)
         .into_iter()
         .map(|h| {
@@ -98,7 +104,7 @@ pub fn adjust(
     let Some(Geometry::Preset { name, av }) = geometry(n) else {
         return None;
     };
-    let f = flips(pres, slide, n);
+    let f = visual(p, flips(pres, slide, n));
     let (lx, ly) = to_local(&p.b, f, x, y);
     let new_av = bo_drawingml::handles::drag_handle(name, av, p.b.w, p.b.h, index, lx, ly)?;
     let mut out = n.clone();
@@ -117,7 +123,7 @@ pub fn sites(pres: &Presentation, slide: usize, p: &Placed, n: &ShapeNode) -> Ve
     ) {
         return Vec::new();
     }
-    let f = flips(pres, slide, n);
+    let f = visual(p, flips(pres, slide, n));
     bo_drawingml::handles::connection_sites(geometry(n), p.b.w, p.b.h)
         .into_iter()
         .map(|s| to_slide(&p.b, f, s.x, s.y))
@@ -159,7 +165,7 @@ pub fn set_cxn_ref(c: &mut Connector, end: usize, to: Option<(u32, u32)>) {
 
 /// End points (start, end) of a placed connector in slide points.
 pub fn ends(p: &Placed, x: &Xfrm) -> [(f64, f64); 2] {
-    let f = (x.flip_h.unwrap_or(false), x.flip_v.unwrap_or(false));
+    let f = visual(p, (x.flip_h.unwrap_or(false), x.flip_v.unwrap_or(false)));
     [to_slide(&p.b, f, 0.0, 0.0), to_slide(&p.b, f, p.b.w, p.b.h)]
 }
 
@@ -224,9 +230,10 @@ pub fn route(p: &Placed, c: &Connector, a: (f64, f64), b: (f64, f64)) -> Connect
         h,
         rot,
     };
+    // Flips in the parent's space: the visual ones undo the groups' flips.
     let base = Xfrm {
-        flip_h: nf.0.then_some(true),
-        flip_v: nf.1.then_some(true),
+        flip_h: (nf.0 ^ p.frame.flip.0).then_some(true),
+        flip_v: (nf.1 ^ p.frame.flip.1).then_some(true),
         ..x.clone()
     };
     let mut out = c.clone();
@@ -235,7 +242,7 @@ pub fn route(p: &Placed, c: &Connector, a: (f64, f64), b: (f64, f64)) -> Connect
     if let Some(Geometry::Preset { name, av }) = &c.props.geometry {
         let axes = connector_adjusts(name);
         if !axes.is_empty() {
-            let of = (x.flip_h.unwrap_or(false), x.flip_v.unwrap_or(false));
+            let of = visual(p, (x.flip_h.unwrap_or(false), x.flip_v.unwrap_or(false)));
             let [a0, _] = ends(p, &x);
             let sign = |f: bool| if f { -1.0 } else { 1.0 };
             let old_a = BoxR {

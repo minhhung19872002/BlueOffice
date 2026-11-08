@@ -50,7 +50,55 @@ pub struct SlideSource {
     pub layouts: Vec<bo_model::slide::SlideLayout>,
     pub masters: Vec<bo_model::slide::SlideMaster>,
     pub themes: Vec<bo_model::slide::Theme>,
+    /// Parts targeted by the copied slides (and their designs), with the parts
+    /// those reference in turn: a chart's embedded workbook, colour and style
+    /// parts (§21.2 `c:externalData`, [MS-ODRAWXML] chartStyle / chartColorStyle)
+    /// and the `.rels` parts linking them (ECMA-376 Part 2, §9.3).
     pub parts: Vec<RawPart>,
+    /// §19.2.1.39 sldSz of the source deck.
+    pub slide_size: bo_model::slide::SlideSize,
+}
+
+/// `(Id, Type, Target, external)` of the relationships of a `.rels` part.
+pub fn rels_of(data: &[u8]) -> Vec<(String, String, String, bool)> {
+    let Ok(text) = std::str::from_utf8(data) else {
+        return Vec::new();
+    };
+    let attr = |el: &str, name: &str| -> Option<String> {
+        let at = el.find(&format!(" {name}=\""))? + name.len() + 3;
+        let end = el[at..].find('"')? + at;
+        Some(bo_opc::xml::unescape(&el[at..end]))
+    };
+    text.split("<Relationship ")
+        .skip(1)
+        .filter_map(|el| {
+            let el = format!(" {}", el.split('>').next().unwrap_or(""));
+            Some((
+                attr(&el, "Id")?,
+                attr(&el, "Type")?,
+                attr(&el, "Target")?,
+                attr(&el, "TargetMode").is_some_and(|m| m == "External"),
+            ))
+        })
+        .collect()
+}
+
+/// A `.rels` part with the given relationships.
+pub fn rels_xml(rels: &[(String, String, String, bool)]) -> Vec<u8> {
+    let mut out = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">",
+    );
+    for (id, t, target, ext) in rels {
+        out.push_str(&format!(
+            "<Relationship Id=\"{}\" Type=\"{}\" Target=\"{}\"{}/>",
+            bo_opc::xml::escape(id),
+            bo_opc::xml::escape(t),
+            bo_opc::xml::escape(target),
+            if *ext { " TargetMode=\"External\"" } else { "" }
+        ));
+    }
+    out.push_str("</Relationships>");
+    out.into_bytes()
 }
 
 /// Structural relationship types (re-targeted by the writer from the model).
@@ -96,11 +144,44 @@ pub fn slide_source(pres: &Presentation, slides: &[usize]) -> SlideSource {
     for t in &pres.themes {
         add(&t.info.part_name, &t.info.rels);
     }
+    // Parts referenced by the copied parts (chart → workbook, colours, style).
+    let find = |name: &str| {
+        pres.parts
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(name))
+            .cloned()
+    };
+    let mut i = 0;
+    while i < parts.len() && parts.len() < 10_000 {
+        let name = parts[i].name.clone();
+        i += 1;
+        if name.ends_with(".rels") {
+            continue;
+        }
+        let Some(rp) = find(&bo_opc::rels_part_name(&name)) else {
+            continue;
+        };
+        for (_, _, target, ext) in rels_of(&rp.data) {
+            if ext {
+                continue;
+            }
+            let t = bo_opc::resolve_target(&name, &target);
+            if !parts.iter().any(|p| p.name.eq_ignore_ascii_case(&t)) {
+                if let Some(p) = find(&t) {
+                    parts.push(p);
+                }
+            }
+        }
+        if !parts.iter().any(|p| p.name.eq_ignore_ascii_case(&rp.name)) {
+            parts.push(rp);
+        }
+    }
     SlideSource {
         layouts: pres.layouts.clone(),
         masters: pres.masters.clone(),
         themes: pres.themes.clone(),
         parts,
+        slide_size: pres.slide_size.clone(),
     }
 }
 
@@ -161,6 +242,31 @@ pub fn remap_rels(n: &ShapeNode, map: &[(String, String)]) -> ShapeNode {
             }
         }
     });
+    bo_pptx::parse_node(&el)
+}
+
+/// Remove the elements of a node that refer to one of the relationships `ids`
+/// (`a:hlinkClick` / `a:hlinkHover` of a removed slide link, §21.1.2.3.5).
+pub fn strip_rel_refs(n: &ShapeNode, ids: &[String]) -> ShapeNode {
+    fn strip(el: &mut XmlElement, ids: &[String]) {
+        el.children.retain(|c| match c {
+            XmlNode::Element(e) => !e
+                .attrs
+                .iter()
+                .any(|(k, v)| k.starts_with("r:") && ids.contains(v)),
+            _ => true,
+        });
+        for c in &mut el.children {
+            if let XmlNode::Element(e) = c {
+                strip(e, ids);
+            }
+        }
+    }
+    if !rel_ids(n).iter().any(|id| ids.contains(id)) {
+        return n.clone();
+    }
+    let mut el = bo_pptx::write_node(n);
+    strip(&mut el, ids);
     bo_pptx::parse_node(&el)
 }
 

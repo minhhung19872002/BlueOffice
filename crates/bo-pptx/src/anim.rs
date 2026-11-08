@@ -331,13 +331,18 @@ fn parse_effect(ctn: &XmlElement) -> Option<Animation> {
         let mut v = Vec::new();
         descendants(a, &mut v);
         let attr = v.iter().find(|e| e.name == "p:attrName")?.text();
-        let first = v
+        // The off-slide end: the first value of an entrance, the last of an exit.
+        let vals: Vec<&str> = v
             .iter()
-            .find(|e| e.name == "p:strVal")
-            .and_then(|e| e.attr("val"))
-            .unwrap_or_default()
-            .to_owned();
-        Some((attr, first))
+            .filter(|e| e.name == "p:strVal")
+            .filter_map(|e| e.attr("val"))
+            .collect();
+        let far = if class == AnimClass::Exit {
+            vals.last()
+        } else {
+            vals.first()
+        };
+        Some((attr, far.copied().unwrap_or_default().to_owned()))
     });
     let (effect, direction) = if let Some(f) = filter {
         if f.starts_with("fade") {
@@ -368,6 +373,23 @@ fn parse_effect(ctn: &XmlElement) -> Option<Animation> {
     } else {
         (AnimEffect::Other, None)
     };
+    // Effects of the catalog by presetClass + presetID (§19.5.29), beyond the four modelled ones.
+    // A catalog preset (§19.5.29 presetClass + presetID) names the effect, unless it is one of the
+    // four modelled ones read from the behaviours.
+    let unmodelled =
+        effect == AnimEffect::Other || !matches!(class, AnimClass::Entrance | AnimClass::Exit);
+    let named = attr_int::<u32>(ctn, "presetID")
+        .and_then(|id| {
+            crate::anim_catalog::recognise(ctn.attr("presetClass").unwrap_or("entr"), id)
+        })
+        .filter(|d| unmodelled || !matches!(d.id, "appear" | "flyIn" | "fade" | "wipe"));
+    let (effect, direction) = match named {
+        Some(d) => (
+            AnimEffect::Named(d.id.to_owned()),
+            crate::anim_catalog::dir_of(d, attr_int(ctn, "presetSubtype")).map(str::to_owned),
+        ),
+        None => (effect, direction),
+    };
     Some(Animation {
         shape_id,
         class,
@@ -384,7 +406,15 @@ fn parse_effect(ctn: &XmlElement) -> Option<Animation> {
 
 /// Effects whose behaviours are not modelled: their `p:par` is kept as read.
 fn keeps_source(a: &Animation) -> bool {
-    a.effect == AnimEffect::Other || !matches!(a.class, AnimClass::Entrance | AnimClass::Exit)
+    matches!(a.effect, AnimEffect::Other | AnimEffect::Named(_))
+        || !matches!(a.class, AnimClass::Entrance | AnimClass::Exit)
+}
+
+/// The effect's `p:par` (§19.5.53) as it is written: the source of an effect kept as read,
+/// otherwise generated from the model.
+#[must_use]
+pub fn effect_xml(a: &Animation) -> XmlElement {
+    effect_node(&mut Ids(0), a)
 }
 
 /// Parse §19.3.1.48 timing: the effects of the main sequence in order.
@@ -402,6 +432,19 @@ pub fn parse_timing(el: &XmlElement, key: u16) -> Timing {
                 if keeps_source(&a) {
                     a.source = Some(par.clone());
                 }
+                // A motion path of the catalog, recognised by its path.
+                if a.class == AnimClass::Path && a.effect == AnimEffect::Other {
+                    if let Some(d) = path_by_play(&a, par) {
+                        a.effect = AnimEffect::Named(d.to_owned());
+                    }
+                }
+                if let AnimEffect::Named(n) = &a.effect {
+                    if let Some(v) =
+                        crate::anim_catalog::by_id(n).and_then(|d| variant_by_play(d, &a, par))
+                    {
+                        a.direction = Some(v.to_owned());
+                    }
+                }
                 animations.push(a);
             }
         }
@@ -415,36 +458,105 @@ pub fn parse_timing(el: &XmlElement, key: u16) -> Timing {
     }
 }
 
+/// The variant of catalog effect `d` whose behaviours do what `par` does (for variants without a
+/// presetSubtype of their own, e.g. a spin's direction).
+fn variant_by_play(
+    d: &crate::anim_catalog::EffectDef,
+    a: &Animation,
+    par: &XmlElement,
+) -> Option<&'static str> {
+    use crate::anim_play::{effect_play, ShapeBase};
+    if d.dirs.iter().all(|(_, s)| s.is_some()) {
+        return None;
+    }
+    let base = ShapeBase {
+        x: 0.4,
+        y: 0.45,
+        w: 0.2,
+        h: 0.1,
+    };
+    // What the behaviours do, without their timing.
+    let sig = |p: &crate::anim_play::EffectPlay| -> Vec<String> {
+        p.tracks.iter().map(|t| format!("{:?}", t.kind)).collect()
+    };
+    let have = sig(&effect_play(par, &base));
+    d.dirs.iter().map(|(v, _)| *v).find(|v| {
+        let probe = Animation {
+            direction: Some((*v).to_owned()),
+            source: None,
+            preset_id: None,
+            preset_subtype: None,
+            ..a.clone()
+        };
+        sig(&effect_play(&effect_node(&mut Ids(0), &probe), &base)) == have
+    })
+}
+
+/// The catalog motion path that `par` plays.
+fn path_by_play(a: &Animation, par: &XmlElement) -> Option<&'static str> {
+    use crate::anim_play::{effect_play, ShapeBase, TrackKind};
+    let base = ShapeBase {
+        x: 0.5,
+        y: 0.5,
+        w: 0.1,
+        h: 0.1,
+    };
+    let points = |x: &XmlElement| {
+        effect_play(x, &base)
+            .tracks
+            .into_iter()
+            .find_map(|t| match t.kind {
+                TrackKind::Motion { points } => Some(points),
+                _ => None,
+            })
+    };
+    let have = points(par)?;
+    crate::anim_catalog::EFFECTS
+        .iter()
+        .filter(|d| d.class == crate::anim_catalog::Class::Path)
+        .find(|d| {
+            let probe = Animation {
+                effect: AnimEffect::Named(d.id.to_owned()),
+                source: None,
+                preset_id: None,
+                preset_subtype: None,
+                ..a.clone()
+            };
+            points(&effect_node(&mut Ids(0), &probe)).as_ref() == Some(&have)
+        })
+        .map(|d| d.id)
+}
+
 /// Allocates `cTn@id` values.
-struct Ids(u32);
+pub(crate) struct Ids(pub(crate) u32);
 
 impl Ids {
-    fn next(&mut self) -> u32 {
+    pub(crate) fn next(&mut self) -> u32 {
         self.0 += 1;
         self.0
     }
 }
 
-fn cond(delay: &str) -> XmlElement {
+pub(crate) fn cond(delay: &str) -> XmlElement {
     El::new("p:stCondLst")
         .child(El::new("p:cond").a("delay", delay).done())
         .done()
 }
 
-fn tgt(spid: u32) -> XmlElement {
+pub(crate) fn tgt(spid: u32) -> XmlElement {
     El::new("p:tgtEl")
         .child(El::new("p:spTgt").a("spid", spid).done())
         .done()
 }
 
-fn attr_names(name: &str) -> XmlElement {
+pub(crate) fn attr_names(name: &str) -> XmlElement {
     El::new("p:attrNameLst")
         .child(El::new("p:attrName").text(name).done())
         .done()
 }
 
 /// §19.5.66 set of `style.visibility`.
-fn set_visibility(ids: &mut Ids, spid: u32, delay: u32, visible: bool) -> XmlElement {
+pub(crate) fn set_visibility(ids: &mut Ids, spid: u32, delay: u32, visible: bool) -> XmlElement {
     El::new("p:set")
         .child(
             El::new("p:cBhvr")
@@ -473,7 +585,13 @@ fn set_visibility(ids: &mut Ids, spid: u32, delay: u32, visible: bool) -> XmlEle
 }
 
 /// §19.5.3 animEffect (transition filter).
-fn anim_effect(ids: &mut Ids, spid: u32, dur: u32, filter: &str, dir: &str) -> XmlElement {
+pub(crate) fn anim_effect(
+    ids: &mut Ids,
+    spid: u32,
+    dur: u32,
+    filter: &str,
+    dir: &str,
+) -> XmlElement {
     El::new("p:animEffect")
         .a("transition", dir)
         .a("filter", filter)
@@ -487,7 +605,14 @@ fn anim_effect(ids: &mut Ids, spid: u32, dur: u32, filter: &str, dir: &str) -> X
 }
 
 /// §19.5.1 anim of one position attribute between two formula values.
-fn anim_pos(ids: &mut Ids, spid: u32, dur: u32, attr: &str, from: &str, to: &str) -> XmlElement {
+pub(crate) fn anim_pos(
+    ids: &mut Ids,
+    spid: u32,
+    dur: u32,
+    attr: &str,
+    from: &str,
+    to: &str,
+) -> XmlElement {
     let tav = |tm: &str, v: &str| {
         El::new("p:tav")
             .a("tm", tm)
@@ -598,10 +723,16 @@ fn effect_node(ids: &mut Ids, a: &Animation) -> XmlElement {
     let exit = a.class == AnimClass::Exit;
     let dir = a.direction.as_deref().unwrap_or("b");
     let mut behaviours = Vec::new();
-    if !exit {
+    let named = match &a.effect {
+        AnimEffect::Named(n) => crate::anim_catalog::by_id(n),
+        _ => None,
+    };
+    // Emphasis and motion paths act on a visible shape: no visibility sets.
+    let shows = matches!(a.class, AnimClass::Entrance | AnimClass::Exit);
+    if !exit && shows {
         behaviours.push(set_visibility(ids, a.shape_id, 0, true));
     }
-    match a.effect {
+    match &a.effect {
         AnimEffect::Fade => behaviours.push(anim_effect(
             ids,
             a.shape_id,
@@ -634,10 +765,24 @@ fn effect_node(ids: &mut Ids, a: &Animation) -> XmlElement {
             let (from, to) = if exit { (to, from) } else { (from, to) };
             behaviours.push(anim_pos(ids, a.shape_id, dur, attr, from, to));
         }
+        AnimEffect::Named(_) => {
+            if let Some(d) = named {
+                behaviours.extend(crate::anim_catalog::behaviours(
+                    ids,
+                    d,
+                    a.direction.as_deref(),
+                    a.shape_id,
+                    dur,
+                    exit,
+                ));
+            }
+        }
         AnimEffect::Appear | AnimEffect::Other => {}
     }
-    if exit {
-        let end = if matches!(a.effect, AnimEffect::Appear | AnimEffect::Other) {
+    if exit && shows {
+        let end = if matches!(a.effect, AnimEffect::Appear | AnimEffect::Other)
+            || named.is_some_and(|d| d.id == "appear")
+        {
             0
         } else {
             dur.saturating_sub(1)
@@ -657,9 +802,13 @@ fn effect_node(ids: &mut Ids, a: &Animation) -> XmlElement {
         AnimEffect::FlyIn => Some(2),
         AnimEffect::Fade => Some(10),
         AnimEffect::Wipe => Some(22),
+        AnimEffect::Named(_) => named.map(|d| d.preset),
         AnimEffect::Other => None,
     });
     let subtype = a.preset_subtype.or(match (&a.effect, dir) {
+        (AnimEffect::Named(_), _) => {
+            named.and_then(|d| crate::anim_catalog::subtype(d, a.direction.as_deref()))
+        }
         (AnimEffect::FlyIn | AnimEffect::Wipe, "t") => Some(1),
         (AnimEffect::FlyIn | AnimEffect::Wipe, "r") => Some(2),
         (AnimEffect::FlyIn | AnimEffect::Wipe, "l") => Some(8),

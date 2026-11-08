@@ -7,6 +7,7 @@ import type {
   SlideCommand,
   SlideEditResult,
   SlideShowInfo,
+  SlideAnimEffect,
   SlideTransitionKind,
 } from '@blueoffice/platform';
 import { ArrowDown, ArrowUp, Play, Trash, X } from 'lucide-react';
@@ -48,7 +49,66 @@ function base64Of(bytes: Uint8Array): string {
 }
 
 const TRIGGERS: SlideAnimTrigger[] = ['onClick', 'withPrevious', 'afterPrevious'];
-const ANIM_DIRS = ['b', 't', 'l', 'r'];
+
+/** Effects by class (`bo_pptx::anim_catalog`; entrance effects also run as exits). */
+export const ENTRANCE_EFFECTS: SlideAnimEffect[] = [
+  'appear',
+  'fade',
+  'flyIn',
+  'wipe',
+  'blinds',
+  'box',
+  'checkerboard',
+  'circle',
+  'crawl',
+  'diamond',
+  'dissolve',
+  'peek',
+  'plus',
+  'randomBars',
+  'split',
+  'strips',
+  'swivel',
+  'wedge',
+  'wheel',
+  'zoom',
+  'bounce',
+  'float',
+  'growTurn',
+  'spinner',
+  'expand',
+];
+export const EMPHASIS_EFFECTS: SlideAnimEffect[] = [
+  'growShrink',
+  'spin',
+  'transparency',
+  'pulse',
+  'teeter',
+  'blink',
+  'fillColor',
+];
+export const PATH_EFFECTS: SlideAnimEffect[] = [
+  'lineDown',
+  'lineUp',
+  'lineLeft',
+  'lineRight',
+  'arcDown',
+  'arcUp',
+  'turnDown',
+  'circlePath',
+  'squarePath',
+  'diamondPath',
+  'triangle',
+  'loop',
+  'wave',
+];
+
+/** The effects that can replace one of class `cls`. */
+function effectsOf(cls: string): SlideAnimEffect[] {
+  if (cls === 'emph') return EMPHASIS_EFFECTS;
+  if (cls === 'path') return PATH_EFFECTS;
+  return ENTRANCE_EFFECTS;
+}
 
 /** Seconds field ↔ milliseconds. */
 const toSec = (ms: number) => Math.round(ms / 100) / 10;
@@ -301,6 +361,41 @@ export function AnimationPane({
 
       <section className={styles.animSection}>
         <h4>{t('slideEditor.animationsTab')}</h4>
+        <label>
+          {t('slideEditor.addEffect')}
+          <select
+            data-testid="anim-add"
+            value=""
+            disabled={selectedIds.size === 0}
+            onChange={(e) => {
+              const [cls, effect] = e.target.value.split(':');
+              if (!effect) return;
+              run({
+                cmd: 'addAnimation',
+                effect: effect as SlideAnimEffect,
+                class: cls === 'exit' ? 'exit' : 'entr',
+              });
+            }}
+          >
+            <option value="">{t('slideEditor.addEffectPick')}</option>
+            {(
+              [
+                ['entr', ENTRANCE_EFFECTS],
+                ['emph', EMPHASIS_EFFECTS],
+                ['exit', ENTRANCE_EFFECTS],
+                ['path', PATH_EFFECTS],
+              ] as const
+            ).map(([cls, list]) => (
+              <optgroup key={cls} label={t(`slideEditor.effectGroup.${cls}`)}>
+                {list.map((e) => (
+                  <option key={e} value={`${cls}:${e}`}>
+                    {t(`slideEditor.effect.${e}`)}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
         {anims.length === 0 ? (
           <p className={styles.animEmpty}>{t('slideEditor.noAnimations')}</p>
         ) : (
@@ -337,15 +432,30 @@ export function AnimationPane({
                         </option>
                       ))}
                     </select>
-                    {(a.effect === 'flyIn' || a.effect === 'wipe') && (
+                    {a.effect !== 'other' && (
+                      <select
+                        aria-label={t('slideEditor.transitionEffect')}
+                        data-testid={`anim-effect-${a.index}`}
+                        value={a.effect}
+                        onChange={(e) => set({ effect: e.target.value as SlideAnimEffect })}
+                      >
+                        {effectsOf(a.class).map((e) => (
+                          <option key={e} value={e}>
+                            {t(`slideEditor.effect.${e}`)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {(a.dirs ?? []).length > 0 && (
                       <select
                         aria-label={t('slideEditor.direction')}
-                        value={a.direction ?? 'b'}
+                        data-testid={`anim-dir-${a.index}`}
+                        value={a.direction ?? a.dirs?.[0] ?? ''}
                         onChange={(e) => set({ direction: e.target.value })}
                       >
-                        {ANIM_DIRS.map((d) => (
+                        {(a.dirs ?? []).map((d) => (
                           <option key={d} value={d}>
-                            {t(`slideEditor.from.${d}`)}
+                            {t(`slideEditor.animDir.${d}`)}
                           </option>
                         ))}
                       </select>

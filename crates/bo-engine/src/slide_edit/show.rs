@@ -112,12 +112,15 @@ pub struct AnimOut {
     pub shape_id: u32,
     /// Name of the animated shape (`p:cNvPr/@name`).
     pub shape_name: String,
-    /// `appear` | `fade` | `flyIn` | `wipe` | `other`.
-    pub effect: &'static str,
+    /// `appear` | `fade` | `flyIn` | `wipe`, an id of `bo_pptx::anim_catalog` (`zoom`, `spin`,
+    /// `lineDown`, …) or `other`.
+    pub effect: String,
     /// `entr` | `exit` | `emph` | `path` | `other`.
     pub class: &'static str,
-    /// Direction of fly-in / wipe effects (`l` | `r` | `t` | `b`), if any.
+    /// Variant of the effect (direction, …), if any.
     pub direction: Option<String>,
+    /// Variants the effect offers (first: the default).
+    pub dirs: Vec<&'static str>,
     /// `onClick` | `withPrevious` | `afterPrevious`.
     pub trigger: &'static str,
     /// Delay before the effect starts, in ms.
@@ -135,6 +138,8 @@ pub struct AnimOut {
     /// Show layer holding the shape (slide show only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layer: Option<usize>,
+    /// What the effect does, read from its behaviours (§19.5): the slide show plays it.
+    pub play: bo_pptx::anim_play::EffectPlay,
 }
 
 /// One layer of the slide show (bottom to top).
@@ -267,13 +272,25 @@ pub fn transition_out(pres: &Presentation, slide: usize) -> Option<TransitionOut
     })
 }
 
-fn effect_name(e: &AnimEffect) -> &'static str {
+fn effect_name(e: &AnimEffect) -> String {
     match e {
-        AnimEffect::Appear => "appear",
-        AnimEffect::Fade => "fade",
-        AnimEffect::FlyIn => "flyIn",
-        AnimEffect::Wipe => "wipe",
-        AnimEffect::Other => "other",
+        AnimEffect::Appear => "appear".into(),
+        AnimEffect::Fade => "fade".into(),
+        AnimEffect::FlyIn => "flyIn".into(),
+        AnimEffect::Wipe => "wipe".into(),
+        AnimEffect::Named(n) => n.clone(),
+        AnimEffect::Other => "other".into(),
+    }
+}
+
+/// Variants of an effect: the catalog's, or the four sides of fly-in and wipe.
+fn effect_dirs(e: &AnimEffect) -> Vec<&'static str> {
+    match e {
+        AnimEffect::FlyIn | AnimEffect::Wipe => vec!["b", "t", "l", "r"],
+        AnimEffect::Named(n) => bo_pptx::anim_catalog::by_id(n)
+            .map(|d| d.dirs.iter().map(|(v, _)| *v).collect())
+            .unwrap_or_default(),
+        _ => Vec::new(),
     }
 }
 
@@ -319,6 +336,7 @@ pub fn animations_out(pres: &Presentation, slide: usize) -> Vec<AnimOut> {
     };
     let placed = place_slide(pres, slide);
     let timeline = t.timeline();
+    let (sw, sh) = super::slide_size(pres);
     t.animations
         .iter()
         .enumerate()
@@ -333,6 +351,23 @@ pub fn animations_out(pres: &Presentation, slide: usize) -> Vec<AnimOut> {
                 .and_then(ShapeNode::nv)
                 .map(|nv| nv.name.clone())
                 .unwrap_or_default();
+            // §19.5.1 `#ppt_x` … of the animated shape, in slide widths / heights.
+            let own = find(&placed, a.shape_id).map(|p| p.b);
+            let base = own.map_or(
+                bo_pptx::anim_play::ShapeBase {
+                    x: 0.5,
+                    y: 0.5,
+                    w: 0.2,
+                    h: 0.2,
+                },
+                |b| bo_pptx::anim_play::ShapeBase {
+                    x: b.cx / sw.max(1.0),
+                    y: b.cy / sh.max(1.0),
+                    w: b.w / sw.max(1.0),
+                    h: b.h / sh.max(1.0),
+                },
+            );
+            let play = bo_pptx::anim_play::effect_play(&bo_pptx::anim::effect_xml(a), &base);
             AnimOut {
                 index: i,
                 shape_id: a.shape_id,
@@ -340,6 +375,7 @@ pub fn animations_out(pres: &Presentation, slide: usize) -> Vec<AnimOut> {
                 effect: effect_name(&a.effect),
                 class: class_name(&a.class),
                 direction: a.direction.clone(),
+                dirs: effect_dirs(&a.effect),
                 trigger: trigger_name(a.trigger),
                 delay_ms: a.delay_ms,
                 dur_ms: a.dur_ms,
@@ -348,6 +384,7 @@ pub fn animations_out(pres: &Presentation, slide: usize) -> Vec<AnimOut> {
                 end_ms: entry.map_or(0, |e| e.end_ms),
                 rect: top.and_then(|id| find(&placed, id)).map(|p| rect_of(&p.b)),
                 layer: None,
+                play,
             }
         })
         .collect()
@@ -574,6 +611,9 @@ fn parse_effect(e: &str) -> R<AnimEffect> {
         "fade" => AnimEffect::Fade,
         "flyIn" => AnimEffect::FlyIn,
         "wipe" => AnimEffect::Wipe,
+        other if bo_pptx::anim_catalog::by_id(other).is_some() => {
+            AnimEffect::Named(other.to_owned())
+        }
         _ => return refuse("badEffect"),
     })
 }
@@ -582,8 +622,29 @@ fn parse_class(c: &str) -> R<AnimClass> {
     Ok(match c {
         "entr" => AnimClass::Entrance,
         "exit" => AnimClass::Exit,
+        "emph" => AnimClass::Emphasis,
+        "path" => AnimClass::Path,
         _ => return refuse("badEffect"),
     })
+}
+
+/// The class an effect needs: emphasis and motion-path effects have their own; entrance effects
+/// play backwards as exits.
+fn class_for(e: &AnimEffect, asked: Option<&AnimClass>) -> AnimClass {
+    use bo_pptx::anim_catalog::Class;
+    let own = match e {
+        AnimEffect::Named(n) => bo_pptx::anim_catalog::by_id(n).map(|d| d.class),
+        _ => Some(Class::EntranceExit),
+    };
+    match own {
+        Some(Class::Emphasis) => AnimClass::Emphasis,
+        Some(Class::Path) => AnimClass::Path,
+        // An entrance effect replacing an emphasis or a path comes in again.
+        _ => match asked {
+            Some(AnimClass::Exit) => AnimClass::Exit,
+            _ => AnimClass::Entrance,
+        },
+    }
 }
 
 fn parse_trigger(t: &str) -> R<AnimTrigger> {
@@ -595,8 +656,17 @@ fn parse_trigger(t: &str) -> R<AnimTrigger> {
     })
 }
 
-/// `l` | `r` | `t` | `b` for fly-in / wipe; nothing for the others.
+/// `l` | `r` | `t` | `b` for fly-in / wipe, the catalog's variants for its effects; nothing for
+/// the others.
 fn valid_anim_dir(e: &AnimEffect, d: Option<&str>) -> Option<String> {
+    if let AnimEffect::Named(_) = e {
+        let dirs = effect_dirs(e);
+        return dirs
+            .iter()
+            .find(|v| Some(**v) == d)
+            .or_else(|| dirs.first())
+            .map(|v| (*v).to_owned());
+    }
     match e {
         AnimEffect::FlyIn | AnimEffect::Wipe => Some(
             d.filter(|d| matches!(*d, "l" | "r" | "t" | "b"))
@@ -611,10 +681,10 @@ fn valid_anim_dir(e: &AnimEffect, d: Option<&str>) -> Option<String> {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnimSpec {
-    /// Effect: `appear` | `fade` | `flyIn` | `wipe`.
+    /// Effect: `appear` | `fade` | `flyIn` | `wipe` or an id of `bo_pptx::anim_catalog`.
     #[serde(default)]
     pub effect: Option<String>,
-    /// `entr` | `exit`.
+    /// `entr` | `exit` (emphasis and motion-path effects have their own class).
     #[serde(default)]
     pub class: Option<String>,
     /// Direction of fly-in / wipe effects (`l` | `r` | `t` | `b`, default `b`).
@@ -654,7 +724,8 @@ pub fn cmd_add_animation(tx: &mut Tx<'_>, sel: &SlideSel, spec: &AnimSpec) -> R<
         return refuse("noSelection");
     }
     let effect = parse_effect(spec.effect.as_deref().unwrap_or("fade"))?;
-    let class = parse_class(spec.class.as_deref().unwrap_or("entr"))?;
+    let asked = spec.class.as_deref().map(parse_class).transpose()?;
+    let class = class_for(&effect, asked.as_ref());
     let first = parse_trigger(spec.trigger.as_deref().unwrap_or("onClick"))?;
     let direction = valid_anim_dir(&effect, spec.direction.as_deref());
     let ids = sel.ids.clone();
@@ -701,6 +772,7 @@ pub fn cmd_set_animation(tx: &mut Tx<'_>, sel: &SlideSel, index: usize, spec: &A
             if a.effect == AnimEffect::Other {
                 return refuse("badEffect");
             }
+            a.class = class_for(&a.effect, Some(&a.class));
             a.direction = valid_anim_dir(
                 &a.effect,
                 spec.direction.as_deref().or(a.direction.as_deref()),

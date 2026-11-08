@@ -944,13 +944,60 @@ export interface SlideTransitionInfo {
   advanceAfterMs: number | null;
 }
 
-export type SlideAnimEffect = 'appear' | 'fade' | 'flyIn' | 'wipe';
+/** Animation effects BlueSlide creates (`bo_pptx::anim_catalog`, ECMA-376 Part 1, §19.5). */
+export type SlideAnimEffect =
+  | 'appear'
+  | 'fade'
+  | 'flyIn'
+  | 'wipe'
+  | 'blinds'
+  | 'box'
+  | 'checkerboard'
+  | 'circle'
+  | 'crawl'
+  | 'diamond'
+  | 'dissolve'
+  | 'peek'
+  | 'plus'
+  | 'randomBars'
+  | 'split'
+  | 'strips'
+  | 'swivel'
+  | 'wedge'
+  | 'wheel'
+  | 'zoom'
+  | 'bounce'
+  | 'float'
+  | 'growTurn'
+  | 'spinner'
+  | 'expand'
+  | 'growShrink'
+  | 'spin'
+  | 'transparency'
+  | 'pulse'
+  | 'teeter'
+  | 'blink'
+  | 'fillColor'
+  | 'lineDown'
+  | 'lineUp'
+  | 'lineLeft'
+  | 'lineRight'
+  | 'arcDown'
+  | 'arcUp'
+  | 'turnDown'
+  | 'circlePath'
+  | 'squarePath'
+  | 'diamondPath'
+  | 'triangle'
+  | 'loop'
+  | 'wave';
 export type SlideAnimTrigger = 'onClick' | 'withPrevious' | 'afterPrevious';
 
 export interface SlideAnimSpec {
   effect?: SlideAnimEffect;
+  /** Entrance effects run backwards as exits; emphasis and motion paths have their own class. */
   class?: 'entr' | 'exit';
-  /** `l` | `r` | `t` | `b` (fly-in, wipe). */
+  /** Variant of the effect (see `SlideAnimInfo.dirs`). */
   direction?: string;
   trigger?: SlideAnimTrigger;
   durMs?: number;
@@ -976,6 +1023,32 @@ export interface SlideAnimInfo {
   rect: [number, number, number, number] | null;
   /** Layer of the slide show holding the shape. */
   layer?: number | null;
+  /** Variants the effect offers (first: the default). */
+  dirs?: string[];
+  /** What the effect does, read from its behaviours (§19.5). */
+  play?: SlideEffectPlay;
+}
+
+/** One behaviour of an effect on the effect's timeline (`bo_pptx::anim_play::Track`). */
+export type SlideEffectTrack = {
+  beginMs: number;
+  durMs: number;
+  repeat: number;
+  autoRev: boolean;
+  hold: boolean;
+} & (
+  | { kind: 'set'; attr: string; value: string }
+  | { kind: 'anim'; attr: string; keys: [number, number][]; discrete: boolean }
+  | { kind: 'filter'; filter: string; entering: boolean }
+  | { kind: 'motion'; points: [number, number][] }
+  | { kind: 'rotate'; by: number }
+  | { kind: 'scale'; from: [number, number]; to: [number, number] }
+  | { kind: 'color'; attr: string; to: number | null }
+);
+
+export interface SlideEffectPlay {
+  durMs: number;
+  tracks: SlideEffectTrack[];
 }
 
 /** A video or audio clip on a slide. */

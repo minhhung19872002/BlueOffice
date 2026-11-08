@@ -1,0 +1,7 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+path n=9 [360.0 202.5 600.0 337.5] fill=#2e75b6ff
+path n=9 [360.0 202.5 600.0 337.5] stroke=#1f5485ff w1.00

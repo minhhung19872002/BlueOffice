@@ -182,7 +182,7 @@ fn slide_display_list_snapshots() {
         assert_eq!(info.page_count, e.slide_count());
         // The transitions deck repeats one blank slide per effect (a transition draws nothing on
         // the slide): its first slides stand for the rest.
-        let shown = if name == "slide-edit-transitions-all" {
+        let shown = if name == "slide-edit-transitions-all" || name == "slide-edit-animations-all" {
             e.slide_count().min(3)
         } else {
             e.slide_count()

@@ -15,6 +15,7 @@ import type {
 import {
   ALL_TRANSITIONS,
   advance,
+  playFrames,
   morphLayers,
   AudienceLink,
   rectsPolygon,
@@ -962,6 +963,121 @@ describe('slide show playback', () => {
     expect(layers[6]?.frames).toEqual([{ opacity: 0 }, { opacity: 1 }]);
   });
 
+  // source: ECMA-376 Part 1, §19.5 behaviours as the engine reads them (tracks) — sampled into
+  // keyframes of the shape's layer: positions in slide fractions from the shape's centre, spins,
+  // motion paths, filters as clip polygons inside the shape box.
+  it('samples effect behaviours into keyframes', () => {
+    const W = 1000;
+    const H = 500;
+    const anim = (cls: 'entr' | 'exit' | 'emph' | 'path', tracks: unknown[]): SlideAnimInfo => ({
+      index: 0,
+      shapeId: 4,
+      shapeName: 'A',
+      effect: 'other',
+      class: cls,
+      direction: null,
+      trigger: 'onClick',
+      delayMs: 0,
+      durMs: 1000,
+      click: 1,
+      startMs: 0,
+      endMs: 1000,
+      rect: [400, 200, 100, 50],
+      play: { durMs: 1000, tracks: tracks as NonNullable<SlideAnimInfo['play']>['tracks'] },
+    });
+    const t = { beginMs: 0, durMs: 1000, repeat: 1, autoRev: false, hold: true };
+    const show = { ...t, durMs: 1, kind: 'set', attr: 'style.visibility', value: 'visible' };
+    // Fly in from the left: the centre (0.45) comes from x = −0.05.
+    const fly = playFrames(
+      anim('entr', [
+        show,
+        {
+          ...t,
+          kind: 'anim',
+          attr: 'ppt_x',
+          keys: [
+            [0, -0.05],
+            [1, 0.45],
+          ],
+          discrete: false,
+        },
+      ]),
+      W,
+      H,
+    )!;
+    expect(fly[0]).toMatchObject({
+      opacity: 1,
+      transform: 'translate(-50%, 0%) rotate(0deg) scale(1, 1)',
+      transformOrigin: '45% 45%',
+    });
+    expect(fly.at(-1)).toMatchObject({ transform: 'translate(0%, 0%) rotate(0deg) scale(1, 1)' });
+    // Fade out: from shown to gone, then hidden.
+    const out = playFrames(
+      anim('exit', [
+        { ...t, kind: 'filter', filter: 'fade', entering: false },
+        { ...t, beginMs: 999, durMs: 1, kind: 'set', attr: 'style.visibility', value: 'hidden' },
+      ]),
+      W,
+      H,
+    )!;
+    expect(out[0]?.opacity).toBe(1);
+    expect(out[12]?.opacity).toBe(0.5);
+    expect(out.at(-1)?.opacity).toBe(0);
+    // Spin a full turn: half a turn halfway; a line right a quarter of the slide; grow 150 %.
+    expect(
+      playFrames(anim('emph', [{ ...t, kind: 'rotate', by: 360 }]), W, H)?.[12]?.transform,
+    ).toBe('translate(0%, 0%) rotate(180deg) scale(1, 1)');
+    expect(
+      playFrames(
+        anim('path', [
+          {
+            ...t,
+            kind: 'motion',
+            points: [
+              [0, 0],
+              [0.25, 0],
+            ],
+          },
+        ]),
+        W,
+        H,
+      )?.at(-1)?.transform,
+    ).toBe('translate(25%, 0%) rotate(0deg) scale(1, 1)');
+    expect(
+      playFrames(anim('emph', [{ ...t, kind: 'scale', from: [1, 1], to: [1.5, 1.5] }]), W, H)?.at(
+        -1,
+      )?.transform,
+    ).toBe('translate(0%, 0%) rotate(0deg) scale(1.5, 1.5)');
+    // Wipe up inside the shape box (x 0.4..0.5, y 0.4..0.5): nothing first, the whole box last.
+    const wipe = playFrames(
+      anim('entr', [show, { ...t, kind: 'filter', filter: 'wipe(up)', entering: true }]),
+      W,
+      H,
+    )!;
+    expect(wipe[0]?.clipPath).toBe(rectsPolygon([[0.4, 0.5, 0.5, 0.5]]));
+    expect(wipe.at(-1)?.clipPath).toBe(rectsPolygon([[0.4, 0.4, 0.5, 0.5]]));
+    // Every filter keeps one polygon shape from frame to frame.
+    for (const f of [
+      'blinds(vertical)',
+      'checkerboard(down)',
+      'barn(inVertical)',
+      'box(out)',
+      'strips(upLeft)',
+      'randombar(horizontal)',
+      'dissolve',
+      'slide(fromLeft)',
+    ]) {
+      const fr = playFrames(
+        anim('entr', [show, { ...t, kind: 'filter', filter: f, entering: true }]),
+        W,
+        H,
+      )!;
+      expect(new Set(fr.map((x) => String(x.clipPath).split(',').length)).size, f).toBe(1);
+    }
+    // No behaviours: the old frames.
+    expect(playFrames({ ...anim('entr', []), play: undefined }, W, H)).toBeNull();
+  });
+
   it('plans transitions and steps through clicks, slides and the end screen', () => {
     const t = (kind: string, dir: string | null = null): SlideTransitionInfo => ({
       kind,
@@ -1052,7 +1168,7 @@ describe('BlueSlideEditor transitions, effects, charts and pictures', () => {
     fireEvent.pointerUp(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
     await screen.findByTestId('selection-box');
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Hiệu ứng' }));
-    fireEvent.click(await screen.findByText('Bay vào'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Bay vào' }));
     await screen.findByTestId('anim-item-0');
     fireEvent.change(screen.getByTestId('anim-trigger-0'), { target: { value: 'afterPrevious' } });
     await waitFor(() =>

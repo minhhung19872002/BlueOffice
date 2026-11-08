@@ -570,6 +570,39 @@ fn transitions_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
     e.save_pptx().ok()
 }
 
+/// Every animation effect of the catalog (SLIDE-ANIM-004), one slide each: a shape with the
+/// effect (its last variant), and for entrance effects the same effect as an exit after it.
+pub const ANIMATIONS_DECK: &str = "slide-edit-animations-all.pptx";
+
+fn animations_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
+    use bo_pptx::anim_catalog::{Class, EFFECTS};
+    let (_, b) = base.iter().find(|(n, _)| *n == "slide-text-bullets.pptx")?;
+    let mut e = Engine::with_bundled_fonts();
+    e.open(b, "base.pptx").ok()?;
+    for d in EFFECTS {
+        e.slide_command_json(r#"{"cmd":"addSlide"}"#).ok()?;
+        e.slide_command_json(r#"{"cmd":"insertShape","preset":"roundRect"}"#)
+            .ok()?;
+        let dir = d
+            .dirs
+            .last()
+            .map_or(String::new(), |(v, _)| format!(r#","direction":"{v}""#));
+        e.slide_command_json(&format!(
+            r#"{{"cmd":"addAnimation","effect":"{}"{dir},"durMs":900}}"#,
+            d.id
+        ))
+        .ok()?;
+        if d.class == Class::EntranceExit {
+            e.slide_command_json(&format!(
+                r#"{{"cmd":"addAnimation","effect":"{}","class":"exit"{dir},"trigger":"afterPrevious"}}"#,
+                d.id
+            ))
+            .ok()?;
+        }
+    }
+    e.save_pptx().ok()
+}
+
 /// Edited decks, built from the generated base decks.
 pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static str, Vec<u8>)> {
     let mut out = Vec::new();
@@ -599,6 +632,9 @@ pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static 
     if let Some(d) = transitions_deck(base) {
         out.push((TRANSITIONS_DECK, d));
     }
+    if let Some(d) = animations_deck(base) {
+        out.push((ANIMATIONS_DECK, d));
+    }
     if let Some((_, b)) = base.iter().find(|(n, _)| *n == "slide-shapes-presets.pptx") {
         for (name, h, v) in FLIPPED {
             if let Some(d) = flipped_connectors(b, *h, *v) {
@@ -626,7 +662,7 @@ mod tests {
             }
         }
         let decks = decks(&base, &crate::slide_samples::sample_png());
-        assert_eq!(decks.len(), SCRIPTS.len() + FLIPPED.len() + 1);
+        assert_eq!(decks.len(), SCRIPTS.len() + FLIPPED.len() + 2);
         for (name, bytes) in decks {
             let p = bo_pptx::read_pptx(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert!(!p.slides.is_empty(), "{name}");
@@ -685,6 +721,54 @@ mod transition_tests {
         )
         .unwrap();
         assert_eq!(r["error"], "badSound");
+    }
+}
+
+#[cfg(test)]
+mod animation_tests {
+    use super::*;
+
+    // source: ECMA-376 Part 1, §19.5 — every catalog effect is read back as itself after saving,
+    // with its variant and class, and plays (the engine reports its tracks).
+    #[test]
+    fn every_effect_survives_saving() {
+        use bo_pptx::anim_catalog::{Class, EFFECTS};
+        let base = crate::slide_samples::base_decks();
+        let b = animations_deck(&base).expect("deck");
+        let mut e = Engine::with_bundled_fonts();
+        e.open(&b, "animations.pptx").unwrap();
+        for (i, d) in EFFECTS.iter().enumerate() {
+            let r: serde_json::Value = serde_json::from_str(
+                &e.slide_command_json(&format!(r#"{{"cmd":"goTo","slide":{}}}"#, i + 1))
+                    .unwrap(),
+            )
+            .unwrap();
+            let a = &r["animations"];
+            let want = match d.class {
+                Class::EntranceExit => vec!["entr", "exit"],
+                Class::Emphasis => vec!["emph"],
+                Class::Path => vec!["path"],
+            };
+            assert_eq!(a.as_array().map(Vec::len), Some(want.len()), "{}", d.id);
+            for (k, cls) in want.iter().enumerate() {
+                assert_eq!(a[k]["effect"], d.id, "{} {cls}", d.id);
+                assert_eq!(a[k]["class"], *cls, "{}", d.id);
+                assert_eq!(
+                    a[k]["direction"].as_str(),
+                    d.dirs.last().map(|v| v.0),
+                    "{}",
+                    d.id
+                );
+                assert!(
+                    a[k]["play"]["tracks"]
+                        .as_array()
+                        .is_some_and(|t| !t.is_empty())
+                        || d.id == "appear",
+                    "{}",
+                    d.id
+                );
+            }
+        }
     }
 }
 

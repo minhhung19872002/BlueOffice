@@ -1,4 +1,5 @@
 import type { SlideAnimInfo, SlideShowInfo } from '@blueoffice/platform';
+import { playFrames } from './effectFx';
 
 /**
  * Slide show playback, without the DOM: which layers are visible at a click
@@ -55,6 +56,9 @@ const pct = (v: number) => `${Math.round(v * 10000) / 100}%`;
 
 /** Keyframes of one effect, for a slide of `width` × `height` points. */
 export function effectFrames(a: SlideAnimInfo, width: number, height: number): Frames {
+  // Effects with behaviours read by the engine play them (§19.5); the rest below.
+  const sampled = playFrames(a, width, height);
+  if (sampled) return sampled;
   const exit = a.class === 'exit';
   const order = (f: Frames): Frames => (exit ? [...f].reverse() : f);
   const [x, y, w, h] = a.rect ?? [0, 0, width, height];

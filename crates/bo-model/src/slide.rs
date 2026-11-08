@@ -1396,6 +1396,8 @@ pub enum AnimEffect {
     FlyIn,
     /// §19.5.3 animEffect filter `wipe(…)`.
     Wipe,
+    /// An effect of BlueSlide's catalog (`bo_pptx::anim_catalog`), by id (`zoom`, `spin`, …).
+    Named(String),
     /// Unrecognised effect.
     Other,
 }

@@ -9,6 +9,8 @@
 #![forbid(unsafe_code)]
 
 pub mod anim;
+pub mod anim_catalog;
+pub mod anim_play;
 pub mod build;
 pub mod comments;
 pub mod diagram;

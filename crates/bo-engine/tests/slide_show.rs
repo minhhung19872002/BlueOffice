@@ -655,3 +655,90 @@ fn morph_pairs_shapes_of_consecutive_slides() {
     assert_eq!(t.kind, Some(TransitionKind::Other("p159:morph".into())));
     assert_eq!(t.dir.as_deref(), Some("byWord"));
 }
+
+// source: ECMA-376 Part 1, §19.5 — catalog effects of every class are written as behaviours,
+// reported with what they do (the played tracks) and read back as themselves.
+#[test]
+fn entrance_emphasis_exit_and_path_effects() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let ids = free_ids(&e, 0);
+    let add = |e: &mut Engine, id: u32, spec: &str| {
+        run(e, &format!(r#"{{"cmd":"select","ids":[{id}]}}"#));
+        run(e, &format!(r#"{{"cmd":"addAnimation",{spec}}}"#))
+    };
+    add(&mut e, ids[0], r#""effect":"zoom","direction":"out""#);
+    add(
+        &mut e,
+        ids[1],
+        r#""effect":"spin","direction":"ccw","trigger":"afterPrevious","durMs":1200"#,
+    );
+    add(&mut e, ids[2], r#""effect":"lineRight""#);
+    let r = add(
+        &mut e,
+        ids[3],
+        r#""effect":"checkerboard","class":"exit","direction":"down""#,
+    );
+    let a = &r.animations;
+    assert_eq!(
+        a.iter()
+            .map(|x| (x.effect.as_str(), x.class))
+            .collect::<Vec<_>>(),
+        vec![
+            ("zoom", "entr"),
+            ("spin", "emph"),
+            ("lineRight", "path"),
+            ("checkerboard", "exit")
+        ]
+    );
+    assert_eq!(a[0].dirs, vec!["in", "out"]);
+    assert_eq!(a[1].direction.as_deref(), Some("ccw"));
+    // What they do: zoom scales and fades in, spin turns −360° over 1.2 s, the path goes right.
+    let kinds = |i: usize| {
+        a[i].play
+            .tracks
+            .iter()
+            .map(|t| {
+                serde_json::to_value(t).unwrap()["kind"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(kinds(0), vec!["set", "anim", "anim", "filter"]);
+    assert_eq!(kinds(1), vec!["rotate"]);
+    assert!((a[1].play.dur_ms - 1200.0).abs() < 1e-9);
+    assert_eq!(kinds(2), vec!["motion"]);
+    assert_eq!(kinds(3), vec!["filter", "set"]);
+    // Saved and read back: the same effects, variants and classes.
+    let back = reopen(&e);
+    let anims = &back.presentation().unwrap().slides[0]
+        .timing
+        .as_ref()
+        .unwrap()
+        .animations;
+    let got: Vec<(String, Option<String>)> = anims
+        .iter()
+        .map(|x| (format!("{:?}", x.effect), x.direction.clone()))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            ("Named(\"zoom\")".into(), Some("out".into())),
+            ("Named(\"spin\")".into(), Some("ccw".into())),
+            ("Named(\"lineRight\")".into(), None),
+            ("Named(\"checkerboard\")".into(), Some("down".into())),
+        ]
+    );
+    // Changing the effect of an emphasis to an entrance brings the shape in again.
+    let r = run(
+        &mut e,
+        r#"{"cmd":"setAnimation","index":1,"effect":"bounce"}"#,
+    );
+    assert_eq!(
+        (r.animations[1].effect.as_str(), r.animations[1].class),
+        ("bounce", "entr")
+    );
+    let r = try_run(&mut e, r#"{"cmd":"addAnimation","effect":"nope"}"#);
+    assert_eq!(r.error.as_deref(), Some("badEffect"));
+}

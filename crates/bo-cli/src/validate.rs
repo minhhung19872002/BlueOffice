@@ -118,7 +118,8 @@ pub fn run(opts: &Options) -> Result<(), String> {
     } else {
         match locate_validator(opts.validator.clone()) {
             Ok(cmd) => {
-                let results = run_validator(&cmd, &opts.inputs, opts.file_format.as_deref(), opts.choice)?;
+                let results =
+                    run_validator(&cmd, &opts.inputs, opts.file_format.as_deref(), opts.choice)?;
                 merge_openxml(&mut reports, results);
                 "ran".to_owned()
             }

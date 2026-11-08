@@ -15,6 +15,7 @@ bo-sheet.workspace = true
 bo-xlsx.workspace = true
 bo-text.workspace = true
 thiserror.workspace = true
+serde.workspace = true
 unicode-linebreak.workspace = true
 
 [dev-dependencies]

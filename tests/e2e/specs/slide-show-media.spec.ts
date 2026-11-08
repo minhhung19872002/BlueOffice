@@ -184,6 +184,50 @@ test('picks p14 / p15 transitions with variants and a sound, plays them, saves a
   expect(errors).toEqual([]);
 });
 
+test('adds emphasis, motion-path and exit effects from the pane, changes them, saves and reopens', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/slide');
+  await openDeck(page, bullets);
+  await clickSlide(page, 0.48, 0.3);
+  await expect(page.getByTestId('selection-box')).toHaveCount(1);
+  await page.getByRole('tab', { name: 'Hiệu ứng' }).click();
+  await page.getByRole('button', { name: 'Bay vào', exact: true }).click();
+  await expect(page.getByTestId('anim-item-0')).toBeVisible();
+  // Emphasis: spin, then grow 200 %; a motion path; the title leaves with a checkerboard.
+  await page.getByTestId('anim-add').selectOption('emph:spin');
+  await expect(page.getByTestId('anim-effect-1')).toHaveValue('spin');
+  await page.getByTestId('anim-effect-1').selectOption('growShrink');
+  await page.getByTestId('anim-dir-1').selectOption('200');
+  await expect(page.getByTestId('anim-dir-1')).toHaveValue('200');
+  await page.getByTestId('anim-add').selectOption('path:arcUp');
+  await page.getByTestId('anim-add').selectOption('exit:checkerboard');
+  await page.getByTestId('anim-dir-3').selectOption('down');
+  await expect(page.getByTestId('anim-effect-3')).toHaveValue('checkerboard');
+
+  await saveAndReopen(page, 'effects.pptx');
+  await page.getByRole('tab', { name: 'Hiệu ứng' }).click();
+  await expect(page.getByTestId('anim-effect-0')).toHaveValue('flyIn');
+  await expect(page.getByTestId('anim-effect-1')).toHaveValue('growShrink');
+  await expect(page.getByTestId('anim-dir-1')).toHaveValue('200');
+  await expect(page.getByTestId('anim-effect-2')).toHaveValue('arcUp');
+  await expect(page.getByTestId('anim-effect-3')).toHaveValue('checkerboard');
+  await expect(page.getByTestId('anim-dir-3')).toHaveValue('down');
+
+  // The show plays the four clicks.
+  await page.keyboard.press('F5');
+  const stage = page.getByTestId('show-stage');
+  await expect(stage).toHaveAttribute('data-clicks', '4');
+  for (let k = 1; k <= 4; k++) {
+    await page.keyboard.press('ArrowRight');
+    await expect(stage).toHaveAttribute('data-click', String(k));
+  }
+  await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});
+
 test('inserts a chart, edits its data, saves and reopens it editable', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

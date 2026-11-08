@@ -25,6 +25,7 @@ const MAX_DEPTH: usize = 5;
 /// One installed font file and the family names of its faces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemFontFile {
+    /// Path of the font file on disk.
     pub path: PathBuf,
     /// Family of every face in the file (a collection has several).
     pub families: Vec<String>,

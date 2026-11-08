@@ -34,7 +34,10 @@ fn shapes(e: &Engine) -> Vec<Vec<(String, String)>> {
             bo_pptx::visit(&s.data.shapes, &mut |n| match n {
                 ShapeNode::Shape(sh) => out.push((
                     "sp".to_owned(),
-                    sh.text.as_ref().map(|t| t.text()).unwrap_or_default(),
+                    sh.text
+                        .as_ref()
+                        .map(bo_model::slide::TextBody::text)
+                        .unwrap_or_default(),
                 )),
                 ShapeNode::Picture(_) => out.push(("pic".to_owned(), String::new())),
                 _ => {}

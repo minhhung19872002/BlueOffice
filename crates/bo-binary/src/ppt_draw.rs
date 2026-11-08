@@ -723,7 +723,7 @@ fn group(
                                     ..ch
                                 },
                                 cd,
-                            )
+                            );
                         }
                         OA_CLIENT_ANCHOR | OA_CHILD_ANCHOR => anchor = anchor_rect(&ch, cd),
                         _ => {}
@@ -836,9 +836,9 @@ fn shape(
     let textbox_shape = spt == 202;
     let pib = props.get(&0x0104).copied();
     let blip = pib.and_then(|i| ctx.blips.get((i as usize).checked_sub(1)?).copied());
-    let fill = (filled && !(textbox_shape && !props.contains_key(&0x0181)))
+    let fill = (filled && (!textbox_shape || props.contains_key(&0x0181)))
         .then(|| colorref(props.get(&0x0181).copied().unwrap_or(0x00FF_FFFF), scheme));
-    let line = (lined && !(textbox_shape && !props.contains_key(&0x01C0))).then(|| {
+    let line = (lined && (!textbox_shape || props.contains_key(&0x01C0))).then(|| {
         (
             colorref(props.get(&0x01C0).copied().unwrap_or(0), scheme),
             i64::from(props.get(&0x01CB).copied().unwrap_or(9525)),

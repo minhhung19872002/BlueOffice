@@ -383,6 +383,7 @@ fn theme(name: &str) -> String {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ph_shape(
     id: u32,
     name: &str,
@@ -700,7 +701,7 @@ pub fn build_pptx(deck: &DeckSpec) -> Result<Vec<u8>, bo_opc::OpcError> {
         pkg.put_part(
             &name,
             format!(
-                r#"{DECL}<p:sld {NS}><p:cSld>{bg}<p:spTree>{TREE_HEAD}{shapes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>"#
+                r"{DECL}<p:sld {NS}><p:cSld>{bg}<p:spTree>{TREE_HEAD}{shapes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>"
             )
             .into_bytes(),
         );

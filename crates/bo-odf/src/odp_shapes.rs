@@ -193,12 +193,9 @@ impl Styles {
             if e.is(STYLE, "graphic-properties") || e.is(STYLE, "drawing-page-properties") {
                 p.fill = match e.attr(DRAW, "fill") {
                     Some("none") => Paint::None,
-                    Some("solid") => e
-                        .attr(DRAW, "fill-color")
-                        .and_then(hex)
-                        .map_or(Paint::Inherit, Paint::Solid),
-                    Some(_) => Paint::Inherit,
-                    None => e
+                    Some(v) if v != "solid" => Paint::Inherit,
+                    // `solid`, or a fill colour without `draw:fill`.
+                    _ => e
                         .attr(DRAW, "fill-color")
                         .and_then(hex)
                         .map_or(Paint::Inherit, Paint::Solid),
@@ -336,7 +333,7 @@ fn transform(t: &str) -> (f64, Option<(i64, i64)>) {
                 angle += args
                     .first()
                     .and_then(|a| a.parse::<f64>().ok())
-                    .unwrap_or(0.0)
+                    .unwrap_or(0.0);
             }
             "translate" => {
                 tr = match (emu(args.first().copied()), emu(args.get(1).copied())) {
@@ -411,7 +408,7 @@ impl Ctx<'_> {
                 }
                 Node::Element(e) if e.is(TEXT, "tab") => push_run(out, "\t".into(), base),
                 Node::Element(e) if e.is(TEXT, "line-break") => {
-                    push_run(out, "\u{2028}".into(), base)
+                    push_run(out, "\u{2028}".into(), base);
                 }
                 Node::Element(e) if e.ns == TEXT && e.name == "note" => {}
                 Node::Element(e) => self.runs(e, base, out, depth + 1),

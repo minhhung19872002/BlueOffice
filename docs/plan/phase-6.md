@@ -157,7 +157,9 @@ chèn-xoá hàng-cột/in đậm); `packages/collab/test/sheet-engine.test.ts` (
 dời ô và công thức của người kia; ghi chú slide).
 
 **Hạn chế còn lại (thật)**
-- Bảng lồng trong ô, bảng trong header/footer/chú thích/comment: vẫn là một embed `{"b"}` (LWW cả bảng).
+- Bảng lồng trong ô bảng: chia sẻ từng ô như bảng thân (dòng `{"t":key}` trong story ô `c:<t>:<r>:<c>`, đệ quy; dựng lại
+  bảng cha khi ô con đổi — `rebuild_nested`). Client cũ cùng phòng không hiểu dòng `{"t"}` lồng.
+- Bảng trong header/footer/chú thích/comment: vẫn là một embed `{"b"}` (LWW cả bảng).
 - Chèn hàng và chèn cột đồng thời trong cùng bảng BlueDoc: hàng mới được thêm ô trống ở cột mới (mỗi hàng ghi các cột
   cố ý để trống, `RowEntry::x`, nên hàng ngắn do "xoá ô đẩy trái" vẫn giữ nguyên). Xoá hàng/cột trong khi người khác gõ vào ô của nó: chữ gõ mất cùng hàng/cột.
 - Id comment/chú thích mới: khi cộng tác, mỗi replica lấy id ≡ hạt giống riêng (từ client id Yrs, mod 65 536,

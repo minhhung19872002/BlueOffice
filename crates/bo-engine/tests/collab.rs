@@ -1016,3 +1016,60 @@ fn a_cell_deleted_on_purpose_stays_deleted() {
     assert_eq!(t[0][1], 4, "{t:?}");
     assert_eq!(t[0][0], 3, "{t:?}");
 }
+
+/// Paragraph ids (`p` of a position) of the cells of tables nested in cells.
+fn nested_paras(p: &Peer) -> Vec<usize> {
+    body_paragraphs(p.engine.document().unwrap())
+        .iter()
+        .enumerate()
+        .filter(|(_, path)| path.len() > 4)
+        .map(|(i, _)| i)
+        .collect()
+}
+
+// source: ECMA-376 Part 1, §17.4.38 tbl (a table in a table cell, §17.4.66 tc)
+#[test]
+fn edits_in_different_cells_of_a_nested_table_merge() {
+    let (mut a, mut b) = pair("đầu");
+    a.cmd(&sel(0, "đầu".len()));
+    a.cmd(r#"{"cmd":"insertTable","rows":2,"cols":2}"#);
+    // A table inside the first cell.
+    a.cmd(&sel(1, 0));
+    a.cmd(r#"{"cmd":"insertTable","rows":2,"cols":2}"#);
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    let (na, nb) = (nested_paras(&a), nested_paras(&b));
+    assert_eq!(na, nb);
+    assert!(na.len() >= 4, "{na:?}");
+    // A types in the first nested cell, B in the last one, at the same time.
+    a.cmd(&sel(na[0], 0));
+    a.cmd(&insert("của A"));
+    b.cmd(&sel(nb[3], 0));
+    b.cmd(&insert("của B"));
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    let text = a.text();
+    assert!(text.iter().any(|p| p == "của A"), "{text:?}");
+    assert!(text.iter().any(|p| p == "của B"), "{text:?}");
+    // Still one nested table of 2×2 in the first cell.
+    let doc = a.engine.document().unwrap();
+    let bo_model::Block::Table(outer) = doc.sections[0]
+        .blocks
+        .iter()
+        .find(|b| matches!(b, bo_model::Block::Table(_)))
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    let inner: Vec<_> = outer.rows[0].cells[0]
+        .blocks
+        .iter()
+        .filter_map(|b| match b {
+            bo_model::Block::Table(t) => {
+                Some(t.rows.iter().map(|r| r.cells.len()).collect::<Vec<_>>())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(inner, vec![vec![2, 2]]);
+}

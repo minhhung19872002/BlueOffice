@@ -1540,6 +1540,8 @@ impl Engine {
             touched.insert(k.clone());
         }
         c.tables.retain(|_, t| !t.is_empty());
+        // Tables nested in cells: their blocks, and the tables around changed ones.
+        parts::rebuild_nested(&c.tables, &mut c.stories, &mut tables_hit);
         ctx.tables = Some(&c.tables);
         ctx.stories = Some(&c.stories);
         // The body.

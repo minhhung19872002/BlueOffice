@@ -537,8 +537,10 @@ impl TableDiff<'_> {
             .unwrap_or_default()
         };
         axis(&mut sh.cols, &col_ids, &col_json, "tl", out);
-        // Cells.
+        // Cells (their contents are shared after the shadow is updated: a
+        // nested table recurses into `tables`).
         let mut present = BTreeSet::new();
+        let mut pending: Vec<(String, &[Block])> = Vec::new();
         for (ri, row) in new.rows.iter().enumerate() {
             let rid = &row_ids[ri];
             let old_row = row_pair[ri].map(|i| (&o.rows[i], &ost[i]));
@@ -564,7 +566,7 @@ impl TableDiff<'_> {
                         .insert(format!("tc:{key}:{rid}:{cid}"), Some(cj.clone()));
                     sh.cells.insert(k, cj);
                 }
-                share_story(stories, &skey, &cell.blocks, self.ctx, out);
+                pending.push((skey, &cell.blocks));
             }
         }
         let gone: Vec<(String, String)> = sh
@@ -573,12 +575,135 @@ impl TableDiff<'_> {
             .filter(|k| !present.contains(*k))
             .cloned()
             .collect();
-        for (r, c) in gone {
+        for (r, c) in &gone {
             sh.cells.remove(&(r.clone(), c.clone()));
             out.meta.insert(format!("tc:{key}:{r}:{c}"), None);
-            drop_story(stories, &cell_story(key, &r, &c), out);
+        }
+        for (r, c) in gone {
+            drop_cell_story(tables, stories, &cell_story(key, &r, &c), out);
+        }
+        for (skey, blocks) in pending {
+            share_cell_story(tables, stories, &skey, blocks, self.ctx, fresh, out);
         }
     }
+}
+
+/// Shares the content of a table cell as the story `key`, like
+/// [`share_story`] but with nested tables shared cell by cell: a nested table
+/// is the line `{"t": key}` and its structure and cells are entries of its own
+/// (recursively), so concurrent edits of different cells of a nested table
+/// merge instead of one replacing the other.
+fn share_cell_story(
+    tables: &mut BTreeMap<String, TableShadow>,
+    stories: &mut BTreeMap<String, Story>,
+    key: &str,
+    blocks: &[Block],
+    ctx: &LineCtx<'_>,
+    fresh: &mut impl FnMut() -> String,
+    out: &mut CollabChange,
+) {
+    let existing = stories.remove(key);
+    let created = existing.is_none();
+    let mut st = existing.unwrap_or_default();
+    let (no, nn) = (st.entries.len(), blocks.len());
+    let n = no.min(nn);
+    let mut p = 0;
+    while p < n && st.entries[p].block == blocks[p] {
+        p += 1;
+    }
+    let mut s = 0;
+    while s < n - p && st.entries[no - 1 - s].block == blocks[nn - 1 - s] {
+        s += 1;
+    }
+    if !created && p == no && p == nn {
+        stories.insert(key.to_owned(), st);
+        return;
+    }
+    // Nested tables of the changed region keep their keys in order.
+    let mut old_tables: Vec<(String, Option<Table>)> = st.entries[p..no - s]
+        .iter()
+        .filter_map(|e| {
+            let k = table_key(&e.line)?;
+            let t = match &e.block {
+                Block::Table(t) => Some(t.clone()),
+                _ => None,
+            };
+            Some((k.to_owned(), t))
+        })
+        .rev()
+        .collect();
+    let mut fresh_entries = Vec::with_capacity(nn - s - p);
+    for b in &blocks[p..nn - s] {
+        let tk = if let Block::Table(t) = b {
+            let (k, old) = old_tables.pop().unwrap_or_else(|| (fresh(), None));
+            TableDiff { key: &k, ctx }.run(tables, stories, old.as_ref(), t, fresh, out);
+            Some(k)
+        } else {
+            None
+        };
+        let line = line_of(b, None, tk.as_deref(), ctx);
+        fresh_entries.push(Entry {
+            block: b.clone(),
+            sect: None,
+            len: line.len16(),
+            line,
+        });
+    }
+    for (k, _) in old_tables {
+        drop_table(tables, stories, &k, out);
+    }
+    let mut old = Vec::new();
+    for e in &st.entries[p..no - s] {
+        e.line.explode(&mut old);
+    }
+    let mut new = Vec::new();
+    for e in &fresh_entries {
+        e.line.explode(&mut new);
+    }
+    st.entries.splice(p..no - s, fresh_entries);
+    if created {
+        out.texts.insert(key.to_owned(), Some(st.reset_change()));
+    } else {
+        let mut b = DeltaBuilder::default();
+        b.retain(
+            st.entries[..p].iter().map(|e| e.len).sum(),
+            serde_json::Map::new(),
+        );
+        diff_cells(&mut b, &old, &new);
+        let d = b.finish();
+        if !d.is_empty() {
+            out.texts.insert(
+                key.to_owned(),
+                Some(TextDelta {
+                    reset: false,
+                    deltas: vec![d],
+                }),
+            );
+        }
+    }
+    stories.insert(key.to_owned(), st);
+}
+
+/// Drops the story of a table cell and the nested tables it holds.
+fn drop_cell_story(
+    tables: &mut BTreeMap<String, TableShadow>,
+    stories: &mut BTreeMap<String, Story>,
+    key: &str,
+    out: &mut CollabChange,
+) {
+    let nested: Vec<String> = stories
+        .get(key)
+        .map(|st| {
+            st.entries
+                .iter()
+                .filter_map(|e| table_key(&e.line).map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    for k in nested {
+        drop_table(tables, stories, &k, out);
+    }
+    drop_story(stories, key, out);
 }
 
 /// Removes every shared entry of table `key`.
@@ -598,7 +723,7 @@ pub(crate) fn drop_table(
     }
     for (r, c) in sh.cells.keys() {
         out.meta.insert(format!("tc:{key}:{r}:{c}"), None);
-        drop_story(stories, &cell_story(key, r, c), out);
+        drop_cell_story(tables, stories, &cell_story(key, r, c), out);
     }
 }
 
@@ -1039,4 +1164,63 @@ pub(crate) fn rebuilt_headers(
         }
     }
     changed.then_some(out)
+}
+
+/// Nested tables (`{"t"}` lines of cell stories): rebuilds their blocks from
+/// the table shadows and the cell stories, innermost first (one pass per
+/// nesting level), and adds to `hit` every table enclosing a changed one, up to
+/// the top-level table of the body.
+pub(crate) fn rebuild_nested(
+    tables: &BTreeMap<String, TableShadow>,
+    stories: &mut BTreeMap<String, Story>,
+    hit: &mut BTreeSet<String>,
+) {
+    // Child table key → the story holding it.
+    let parent: BTreeMap<String, String> = stories
+        .iter()
+        .flat_map(|(k, st)| {
+            st.entries
+                .iter()
+                .filter_map(|e| table_key(&e.line))
+                .map(move |t| (t.to_owned(), k.clone()))
+        })
+        .collect();
+    if parent.is_empty() {
+        return;
+    }
+    // Enclosing tables of the changed ones.
+    let mut todo: Vec<String> = hit.iter().cloned().collect();
+    while let Some(t) = todo.pop() {
+        if let Some(pt) = parent.get(&t).and_then(|s| story_table(s)) {
+            if hit.insert(pt.to_owned()) {
+                todo.push(pt.to_owned());
+            }
+        }
+    }
+    let holders: BTreeSet<String> = parent.values().cloned().collect();
+    for _ in 0..8 {
+        let snapshot = stories.clone();
+        let mut changed = false;
+        for k in &holders {
+            let Some(st) = stories.get_mut(k) else {
+                continue;
+            };
+            for e in &mut st.entries {
+                let Some(t) = table_key(&e.line) else {
+                    continue;
+                };
+                let b = match tables.get(t) {
+                    Some(sh) => sh.build(t, &snapshot),
+                    None => Block::Paragraph(Paragraph::default()),
+                };
+                if b != e.block {
+                    e.block = b;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
 }

@@ -1,0 +1,41 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Chu "
+  text 28.0pt 58.4,30.3 #000000ff "trình "
+  text 28.0pt 121.3,30.3 #000000ff "xoay "
+  text 28.0pt 181.5,30.3 #000000ff "(SmartArt, "
+  text 28.0pt 309.9,30.3 #000000ff "khung "
+  text 28.0pt 388.0,30.3 #000000ff "xoay "
+  text 28.0pt 448.2,30.3 #000000ff "15°)"
+pop transform
+transform [0.966 0.259 -0.259 0.966 269.9 58.2]
+  path n=6 [162.0 -0.0 270.0 108.0] fill=#7030a0ff
+  path n=6 [162.0 -0.0 270.0 108.0] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 162.0 0.0]
+    text 20.0pt 28.3,48.6 #ffffffff "Lập "
+    text 20.0pt 61.3,48.6 #ffffffff "kế "
+    text 20.0pt 29.2,73.0 #ffffffff "hoạch"
+  pop transform
+  path n=6 [324.0 144.0 432.0 252.0] fill=#2e75b6ff
+  path n=6 [324.0 144.0 432.0 252.0] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 324.0 144.0]
+    text 20.0pt 33.6,48.6 #ffffffff "Thực "
+    text 20.0pt 36.2,73.0 #ffffffff "hiện"
+  pop transform
+  path n=6 [162.0 252.0 270.0 360.0] fill=#548235ff
+  path n=6 [162.0 252.0 270.0 360.0] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 162.0 252.0]
+    text 20.0pt 33.5,48.6 #ffffffff "Kiểm "
+    text 20.0pt 42.6,73.0 #ffffffff "tra"
+  pop transform
+  path n=6 [0.0 144.0 108.0 252.0] fill=#c55a11ff
+  path n=6 [0.0 144.0 108.0 252.0] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 0.0 144.0]
+    text 20.0pt 23.5,60.8 #ffffffff "Cải "
+    text 20.0pt 52.9,60.8 #ffffffff "tiến"
+  pop transform
+pop transform

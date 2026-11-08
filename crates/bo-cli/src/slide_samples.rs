@@ -1418,6 +1418,115 @@ fn chart_decks() -> Vec<(&'static str, Vec<u8>)> {
     ]
 }
 
+/// SmartArt: graphic frame with `dgm:relIds` (ECMA-376 Part 1, §21.4.2.6) and the
+/// diagram parts; the drawing fallback ([MS-ODRAWXML] `dsp:drawing`) is what
+/// BlueSlide shows. `dsp:dataModelExt@relId` names the slide's relationship to it.
+fn smartart_decks() -> Vec<(&'static str, Vec<u8>)> {
+    const DGM: &str = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
+    const DSP: &str = "http://schemas.microsoft.com/office/drawing/2008/diagram";
+    const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    let frame = |id: u32, x: i64, y: i64, cx: i64, cy: i64| {
+        format!(
+            r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="{id}" name="Sơ đồ {id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></p:xfrm><a:graphic><a:graphicData uri="{DGM}"><dgm:relIds xmlns:dgm="{DGM}" r:dm="rId2" r:lo="rId3" r:qs="rId4" r:cs="rId5"/></a:graphicData></a:graphic></p:graphicFrame>"#
+        )
+    };
+    let dsp_sp = |n: u32, x: i64, y: i64, cx: i64, cy: i64, geom: &str, rgb: &str, text: &str| {
+        format!(
+            r#"<dsp:sp modelId="{{00000000-0000-0000-0000-0000000000{n:02}}}"><dsp:nvSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvSpPr/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="{geom}"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="{rgb}"/></a:solidFill><a:ln w="12700"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln></dsp:spPr><dsp:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="vi-VN" sz="2000"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:rPr><a:t>{text}</a:t></a:r></a:p></dsp:txBody></dsp:sp>"#
+        )
+    };
+    let parts = |shapes: &str| -> Parts {
+        let x = |root: &str, inner: &str| {
+            format!(r#"{XML_DECL}<{root} xmlns:dgm="{DGM}" xmlns:a="{A}">{inner}</{root}>"#)
+                .into_bytes()
+        };
+        vec![
+            (
+                "/ppt/diagrams/data1.xml".into(),
+                format!("{CT}drawingml.diagramData+xml"),
+                x(
+                    "dgm:dataModel",
+                    &format!(
+                        r#"<dgm:ptLst><dgm:pt modelId="{{00000000-0000-0000-0000-000000000001}}" type="doc"/></dgm:ptLst><dgm:extLst><a:ext uri="http://schemas.microsoft.com/office/drawing/2008/diagram"><dsp:dataModelExt xmlns:dsp="{DSP}" relId="rId6" minVer="http://schemas.openxmlformats.org/drawingml/2006/diagram"/></a:ext></dgm:extLst>"#
+                    ),
+                ),
+            ),
+            (
+                "/ppt/diagrams/layout1.xml".into(),
+                format!("{CT}drawingml.diagramLayout+xml"),
+                x("dgm:layoutDef", "<dgm:layoutNode/>"),
+            ),
+            (
+                "/ppt/diagrams/quickStyle1.xml".into(),
+                format!("{CT}drawingml.diagramStyle+xml"),
+                x("dgm:styleDef", r#"<dgm:styleLbl name="node0"/>"#),
+            ),
+            (
+                "/ppt/diagrams/colors1.xml".into(),
+                format!("{CT}drawingml.diagramColors+xml"),
+                x("dgm:colorsDef", ""),
+            ),
+            (
+                "/ppt/diagrams/drawing1.xml".into(),
+                "application/vnd.ms-office.drawingml.diagramDrawing+xml".into(),
+                format!(
+                    r#"{XML_DECL}<dsp:drawing xmlns:dgm="{DGM}" xmlns:dsp="{DSP}" xmlns:a="{A}"><dsp:spTree><dsp:nvGrpSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvGrpSpPr/></dsp:nvGrpSpPr><dsp:grpSpPr/>{shapes}</dsp:spTree></dsp:drawing>"#
+                )
+                .into_bytes(),
+            ),
+        ]
+    };
+    let rels = || {
+        vec![
+            r("rId2", "diagramData", "../diagrams/data1.xml"),
+            r("rId3", "diagramLayout", "../diagrams/layout1.xml"),
+            r("rId4", "diagramQuickStyle", "../diagrams/quickStyle1.xml"),
+            r("rId5", "diagramColors", "../diagrams/colors1.xml"),
+            r(
+                "rId6",
+                "http://schemas.microsoft.com/office/2007/relationships/diagramDrawing",
+                "../diagrams/drawing1.xml",
+            ),
+        ]
+    };
+    let (w, h) = (3 * IN, IN + IN / 2);
+    let mut process = blank_slide(
+        "Quy trình 3 bước (SmartArt)",
+        frame(4, IN, 2 * IN, 3 * w + IN, h),
+    );
+    process.rels = rels();
+    let process_shapes = [
+        dsp_sp(1, 0, 0, w, h, "homePlate", "2E75B6", "Tiếp nhận"),
+        dsp_sp(2, w + IN / 2, 0, w, h, "chevron", "548235", "Thẩm định"),
+        dsp_sp(3, 2 * w + IN, 0, w, h, "chevron", "C55A11", "Trả kết quả"),
+    ]
+    .concat();
+    let mut cycle = blank_slide(
+        "Chu trình xoay (SmartArt, khung xoay 15°)",
+        frame(4, 3 * IN, IN + IN / 2, 6 * IN, 5 * IN)
+            .replace("<p:xfrm>", r#"<p:xfrm rot="900000">"#),
+    );
+    cycle.rels = rels();
+    let c = IN + IN / 2;
+    let cycle_shapes = [
+        dsp_sp(1, 2 * IN + IN / 4, 0, c, c, "ellipse", "7030A0", "Lập kế hoạch"),
+        dsp_sp(2, 4 * IN + IN / 2, 2 * IN, c, c, "ellipse", "2E75B6", "Thực hiện"),
+        dsp_sp(3, 2 * IN + IN / 4, 3 * IN + IN / 2, c, c, "ellipse", "548235", "Kiểm tra"),
+        dsp_sp(4, 0, 2 * IN, c, c, "ellipse", "C55A11", "Cải tiến"),
+    ]
+    .concat();
+    vec![
+        (
+            "slide-smartart-process.pptx",
+            build(&[process], &parts(&process_shapes), THEME_BLUE),
+        ),
+        (
+            "slide-smartart-cycle.pptx",
+            build(&[cycle], &parts(&cycle_shapes), THEME_BLUE),
+        ),
+    ]
+}
+
 fn anim_decks() -> Vec<(&'static str, Vec<u8>)> {
     let fade = r#"<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" Requires="p14"><p:transition spd="slow" p14:dur="1500"><p:fade/></p:transition></mc:Choice><mc:Fallback><p:transition spd="slow"><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>"#;
     let push =
@@ -1679,12 +1788,88 @@ fn notes_theme_decks() -> Vec<(&'static str, Vec<u8>)> {
         "<p:sld ",
         r#"<p:sld show="0" showMasterSp="0" "#,
     );
+    // Notes on every slide: several paragraphs, an empty line kept as an empty
+    // paragraph, XML-escaped characters (§19.3.1.26 notes, §21.1.2.3.11 t).
+    let mut q1 = title_slide("Báo cáo quý", "Ghi chú nhiều đoạn");
+    q1.notes = Some(
+        "Mở đầu: chào hỏi.\n\nPhần 1: doanh thu &amp; lợi nhuận.\nPhần 2: chi phí &lt; kế hoạch."
+            .into(),
+    );
+    let mut q2 = content_slide(
+        "Số liệu",
+        &body("", &(para_lvl(0, "Doanh thu") + &para_lvl(1, "Tăng 12%"))),
+    );
+    q2.notes = Some(
+        "Đọc chậm từng con số; nhấn mạnh tháng 9 “kỷ lục”. Nếu bị hỏi về tỷ giá, trả lời theo bảng phụ lục trang 4 và đề nghị gửi file sau buổi họp."
+            .into(),
+    );
+    let mut q3 = content_slide("Kết luận", &body("", &para("Cảm ơn")));
+    q3.notes = Some("Hỏi đáp 10 phút.".into());
+    // Notes only on some slides (the others have no notes slide part).
+    let s1 = title_slide("Chỉ slide 2 và 4 có ghi chú", "Ghi chú rải rác");
+    let mut s2 = content_slide("Slide 2", &body("", &para("Có ghi chú")));
+    s2.notes = Some("Ghi chú của slide 2.".into());
+    let s3 = content_slide("Slide 3", &body("", &para("Không có ghi chú")));
+    let mut s4 = blank_slide("Slide 4", String::new());
+    s4.notes = Some("Ghi chú của slide 4 (bố cục trống).".into());
+    // Theme fonts and the six accents (§20.1.4.1.9 clrScheme, §20.1.4.1.18
+    // fontScheme): shapes filled by scheme colour, text in +mj-lt / +mn-lt.
+    let accents: String = (1..=6u32)
+        .map(|i| {
+            let x = IN / 2 + i64::from(i - 1) * (2 * IN);
+            sp(
+                3 + i,
+                &format!("accent{i}"),
+                "",
+                &(xfrm(x, 2 * IN, IN + IN / 2, IN + IN / 2)
+                    + &prst("roundRect")
+                    + &scheme(&format!("accent{i}"))),
+                Some(&body(r#" anchor="ctr""#, &para(&format!("accent{i}")))),
+                STYLE,
+            )
+        })
+        .collect();
+    let fonts = sp(
+        10,
+        "Fonts",
+        "",
+        &(xfrm(IN / 2, 4 * IN, 12 * IN, IN + IN / 2) + &prst("rect")),
+        Some(&body(
+            "",
+            r#"<a:p><a:r><a:rPr lang="vi-VN" sz="2800" dirty="0"><a:solidFill><a:schemeClr val="tx2"/></a:solidFill><a:latin typeface="+mj-lt"/></a:rPr><a:t>Phông tiêu đề (+mj-lt)</a:t></a:r></a:p><a:p><a:r><a:rPr lang="vi-VN" sz="2000" dirty="0"><a:solidFill><a:schemeClr val="accent1"><a:lumMod val="75000"/></a:schemeClr></a:solidFill><a:latin typeface="+mn-lt"/></a:rPr><a:t>Phông nội dung (+mn-lt), accent1 tối 25%</a:t></a:r></a:p>"#,
+        )),
+        "",
+    );
+    let f1 = blank_slide("Sáu màu nhấn và phông theme", accents + &fonts);
+    let f2 = content_slide(
+        "Bố cục kế thừa phông theme",
+        &body(
+            "",
+            &(para("Tiêu đề: Times New Roman") + &para("Nội dung: Tahoma")),
+        ),
+    );
     vec![
         (
             "slide-notes-basic.pptx",
             build(&[n1, n2], &Vec::new(), THEME_BLUE),
         ),
+        (
+            "slide-notes-multi.pptx",
+            build(&[q1, q2, q3], &Vec::new(), THEME_BLUE),
+        ),
+        (
+            "slide-notes-sparse.pptx",
+            build(&[s1, s2, s3, s4], &Vec::new(), THEME_BLUE),
+        ),
         ("slide-theme-colormap.pptx", deck2),
+        (
+            "slide-theme-fonts.pptx",
+            build(
+                &[f1, f2],
+                &Vec::new(),
+                ("Violet", "7030A0", "Times New Roman", "Tahoma"),
+            ),
+        ),
         ("slide-theme-hidden.pptx", deck3),
     ]
 }
@@ -1729,6 +1914,7 @@ pub fn base_decks() -> Vec<(&'static str, Vec<u8>)> {
     v.extend(anim_decks());
     v.extend(media_decks());
     v.extend(notes_theme_decks());
+    v.extend(smartart_decks());
     v
 }
 

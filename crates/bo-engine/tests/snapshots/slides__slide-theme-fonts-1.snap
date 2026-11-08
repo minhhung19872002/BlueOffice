@@ -1,0 +1,58 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,28.9 #000000ff "Sáu "
+  text 28.0pt 66.3,28.9 #000000ff "màu "
+  text 28.0pt 131.7,28.9 #000000ff "nhấn "
+  text 28.0pt 206.3,28.9 #000000ff "và "
+  text 28.0pt 245.3,28.9 #000000ff "phông "
+  text 28.0pt 338.6,28.9 #000000ff "theme"
+pop transform
+path n=9 [36.0 144.0 144.0 252.0] fill=#7030a0ff
+path n=9 [36.0 144.0 144.0 252.0] stroke=#502074ff w1.00
+transform [1.000 0.000 0.000 1.000 36.0 144.0]
+  text 18.0pt 12.5,60.2 #ffffffff "accent1"
+pop transform
+path n=9 [180.0 144.0 288.0 252.0] fill=#ed7d31ff
+path n=9 [180.0 144.0 288.0 252.0] stroke=#502074ff w1.00
+transform [1.000 0.000 0.000 1.000 180.0 144.0]
+  text 18.0pt 12.5,60.2 #ffffffff "accent2"
+pop transform
+path n=9 [324.0 144.0 432.0 252.0] fill=#a5a5a5ff
+path n=9 [324.0 144.0 432.0 252.0] stroke=#502074ff w1.00
+transform [1.000 0.000 0.000 1.000 324.0 144.0]
+  text 18.0pt 12.5,60.2 #ffffffff "accent3"
+pop transform
+path n=9 [468.0 144.0 576.0 252.0] fill=#ffc000ff
+path n=9 [468.0 144.0 576.0 252.0] stroke=#502074ff w1.00
+transform [1.000 0.000 0.000 1.000 468.0 144.0]
+  text 18.0pt 12.5,60.2 #ffffffff "accent4"
+pop transform
+path n=9 [612.0 144.0 720.0 252.0] fill=#5b9bd5ff
+path n=9 [612.0 144.0 720.0 252.0] stroke=#502074ff w1.00
+transform [1.000 0.000 0.000 1.000 612.0 144.0]
+  text 18.0pt 12.5,60.2 #ffffffff "accent5"
+pop transform
+path n=9 [756.0 144.0 864.0 252.0] fill=#70ad47ff
+path n=9 [756.0 144.0 864.0 252.0] stroke=#502074ff w1.00
+transform [1.000 0.000 0.000 1.000 756.0 144.0]
+  text 18.0pt 12.5,60.2 #ffffffff "accent6"
+pop transform
+transform [1.000 0.000 0.000 1.000 36.0 288.0]
+  text 28.0pt 7.2,28.6 #1f3864ff "Phông "
+  text 28.0pt 85.8,28.6 #1f3864ff "tiêu "
+  text 28.0pt 134.8,28.6 #1f3864ff "đề "
+  text 28.0pt 168.2,28.6 #1f3864ff "(+mj-"
+  text 28.0pt 232.2,28.6 #1f3864ff "lt)"
+  text 20.0pt 7.2,52.7 #542478ff "Phông "
+  text 20.0pt 70.6,52.7 #542478ff "nội "
+  text 20.0pt 102.8,52.7 #542478ff "dung "
+  text 20.0pt 152.9,52.7 #542478ff "(+mn-"
+  text 20.0pt 205.7,52.7 #542478ff "lt), "
+  text 20.0pt 233.4,52.7 #542478ff "accent1 "
+  text 20.0pt 309.0,52.7 #542478ff "tối "
+  text 20.0pt 335.7,52.7 #542478ff "25%"
+pop transform

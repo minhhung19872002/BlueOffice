@@ -151,8 +151,16 @@ test('BlueSheet: a chart in an absolute anchor is resized and keeps its size aft
   const after = (await sel.boundingBox())!;
   await saveAndReopen(page);
   await expect(page.getByTestId('sheet-canvas')).toHaveAttribute('data-rendered', /\d+/);
-  await page.mouse.click(hit!.x, hit!.y);
-  await expect(sel).toBeVisible();
+  // The reopened workbook renders asynchronously: click until the chart is selected.
+  await expect
+    .poll(
+      async () => {
+        await page.mouse.click(hit!.x, hit!.y);
+        return sel.isVisible();
+      },
+      { timeout: 15000 },
+    )
+    .toBe(true);
   const reopened = (await sel.boundingBox())!;
   expect(Math.abs(reopened.width - after.width)).toBeLessThan(2);
   expect(Math.abs(reopened.height - after.height)).toBeLessThan(2);

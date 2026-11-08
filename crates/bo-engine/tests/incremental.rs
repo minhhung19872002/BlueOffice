@@ -1,6 +1,8 @@
 //! Incremental layout through the editing bridge: after random edits the engine's
 //! layout, display lists, word count and `modified` flag equal those computed from
 //! scratch for the edited document (BlueOffice-PROMPT §5.4).
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 mod support;
 

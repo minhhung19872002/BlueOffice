@@ -1,4 +1,6 @@
 //! Two (or three) replicas talking y-sync through a dumb relay converge.
+// Integration tests may unwrap.
+#![allow(clippy::unwrap_used)]
 use bo_collab::{Presence, Session};
 use serde_json::{json, Map, Value};
 

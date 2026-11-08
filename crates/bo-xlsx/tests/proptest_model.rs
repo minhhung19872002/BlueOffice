@@ -1,4 +1,6 @@
 //! Property tests: model → xlsx → model is the identity, and arbitrary bytes never panic.
+// Test helpers may unwrap: a panic is the desired failure mode here.
+#![allow(clippy::unwrap_used)]
 
 use bo_model::sheet::{
     Cell, CellError, CellRange, CellRef, CellValue, ColInfo, Comment, Font, Formula, FormulaKind,

@@ -1,6 +1,8 @@
 //! Live collaboration (Phase 6): two engines, each with its own `bo-collab`
 //! replica, exchanging real y-sync frames. Concurrent edits must converge to
 //! the same model on both sides.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_collab::{Change, Session};
 use bo_engine::slide_edit::geom::place_slide;

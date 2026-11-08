@@ -1,4 +1,6 @@
 //! Editing through the JSON command bridge (the same path the web and desktop UIs use).
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_engine::{EditResult, Engine};
 

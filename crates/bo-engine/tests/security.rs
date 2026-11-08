@@ -1,5 +1,7 @@
 //! Opening protected and legacy documents: password (MS-OFFCRYPTO), macros
 //! (MS-OVBA, kept but never run), .odt and SmartArt drawing fallbacks.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_engine::Engine;
 

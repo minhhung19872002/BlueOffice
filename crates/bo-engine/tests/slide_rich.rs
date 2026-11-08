@@ -1,6 +1,8 @@
 //! BlueSlide editing, second part (Phase 4): rich text inside shapes, the
 //! clipboard, marquee selection, adjust handles, connectors, table cells and
 //! ungrouping flipped groups.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_engine::slide_edit::{SlideCommand, SlideEditResult};
 use bo_engine::Engine;

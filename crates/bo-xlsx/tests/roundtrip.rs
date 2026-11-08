@@ -2,6 +2,8 @@
 //! SpreadsheetML surface plus content the model does not understand
 //! (extLst, mc:AlternateContent, drawings, printer settings, VML, chartsheet).
 #![allow(clippy::needless_raw_string_hashes)]
+// Test helpers may unwrap: a panic is the desired failure mode here.
+#![allow(clippy::unwrap_used)]
 
 use bo_model::sheet::{
     CellError, CellRange, CellRef, CellValue, FormulaKind, PaneState, SheetKind, SheetState,

@@ -1,5 +1,7 @@
 //! Phase 2 layout features: tables, headers/footers, fields, footnotes, columns,
 //! keep rules, pictures and sections.
+// Integration tests may unwrap.
+#![allow(clippy::unwrap_used)]
 
 use bo_layout::{layout_document, LayoutCache, LayoutDocument, Line, LineSource, PageItem};
 use bo_model::{

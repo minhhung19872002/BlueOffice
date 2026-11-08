@@ -1,4 +1,6 @@
 //! Reader tests on hand-written WordprocessingML.
+// Test helpers may unwrap: a panic is the desired failure mode here.
+#![allow(clippy::unwrap_used)]
 
 use bo_docx::{read_docx, CT_DOCUMENT};
 use bo_model::{Alignment, Block, LineSpacing, RunContent, Twips, Underline};

@@ -1,6 +1,8 @@
 //! BlueDoc editing features through the JSON bridge: headers/footers, page setup,
 //! notes, tables with Tab, fonts, Format Painter, Paste Special and templates, each
 //! saved as .docx and read back.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_engine::Engine;
 use bo_model::{Block, Document, RunContent};

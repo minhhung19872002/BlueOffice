@@ -1,5 +1,7 @@
 //! Incremental layout (BlueOffice-PROMPT §5.4): random edits applied through
 //! [`IncrementalLayout`] give exactly the layout of a full layout from scratch.
+// Integration tests may unwrap.
+#![allow(clippy::unwrap_used)]
 
 use bo_layout::{
     layout_document_with, IncrementalLayout, LayoutCache, LayoutOptions, LineSource, Page,

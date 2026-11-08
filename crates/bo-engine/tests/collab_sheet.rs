@@ -2,6 +2,8 @@
 //! `bo-collab` replicas exchanging real y-sync frames; concurrent edits —
 //! cell inputs, formats, row/column inserts and deletes with formula
 //! references, merges, sizes, sheets, rules — converge.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_collab::{Change, Session};
 use bo_engine::{CollabChange, SheetEngine};

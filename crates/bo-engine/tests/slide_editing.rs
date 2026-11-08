@@ -1,5 +1,7 @@
 //! BlueSlide editing through the engine facade (Phase 4): every command,
 //! unlimited undo/redo (property test), smart guides and lossless saving.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_engine::slide_edit::geom::{place_slide, BoxR};
 use bo_engine::slide_edit::{SlideCommand, SlideEditResult};

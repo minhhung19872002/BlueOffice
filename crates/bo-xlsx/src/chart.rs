@@ -172,7 +172,7 @@ fn anchor_cell(n: &Node) -> CellRef {
 }
 
 /// Parse a `c:chartSpace` part (§21.2.2.29).
-fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
+pub(crate) fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
     let dom = parse_dom(data, part)?;
     if dom.name != "chartSpace" {
         return None;

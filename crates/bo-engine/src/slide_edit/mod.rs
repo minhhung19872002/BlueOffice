@@ -12,13 +12,16 @@
 //! everything that was not touched.
 
 pub mod build;
+pub mod chart;
 pub mod clip;
 pub mod collab;
 pub mod connect;
 pub mod geom;
 pub mod guides;
+pub mod media;
 pub mod ops;
 pub mod rich;
+pub mod show;
 pub mod table;
 pub mod text;
 
@@ -382,6 +385,57 @@ pub enum SlideCommand {
         slide: Option<usize>,
         text: String,
     },
+    /// Transition of `slides` (default: the current one; `all`: every slide).
+    SetTransition {
+        #[serde(default)]
+        slides: Option<Vec<usize>>,
+        #[serde(default)]
+        all: bool,
+        transition: show::TransitionSpec,
+    },
+    /// Add an effect for each selected shape (main sequence of the current slide).
+    AddAnimation {
+        #[serde(flatten)]
+        spec: show::AnimSpec,
+    },
+    /// Change effect `index` of the current slide.
+    SetAnimation {
+        index: usize,
+        #[serde(flatten)]
+        spec: show::AnimSpec,
+    },
+    RemoveAnimation {
+        index: usize,
+    },
+    /// Move effect `from` to position `to` of the sequence.
+    MoveAnimation {
+        from: usize,
+        to: usize,
+    },
+    /// What the slide show needs to play `slide` (layers, effects, media); read-only.
+    Show {
+        slide: usize,
+    },
+    /// Insert a chart (`column`, `bar`, `line`, `area`, `pie`, `doughnut`).
+    InsertChart {
+        kind: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        data: Option<chart::ChartData>,
+        /// `r` | `l` | `t` | `b` | `tr` | `none` (default: bottom, right for pies).
+        #[serde(default)]
+        legend: Option<String>,
+        #[serde(default)]
+        rect: Option<Rect>,
+    },
+    /// Change type, title, legend or data of chart `id` (default: the selected one).
+    SetChart {
+        #[serde(default)]
+        id: Option<u32>,
+        #[serde(flatten)]
+        spec: chart::ChartSpec,
+    },
     Undo,
     Redo,
 }
@@ -685,6 +739,18 @@ pub struct SlideEditResult {
     /// After copy / cut: content for the system clipboard.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clipboard: Option<ClipboardOut>,
+    /// Transition of the current slide.
+    pub transition: Option<show::TransitionOut>,
+    /// Main animation sequence of the current slide.
+    pub animations: Vec<show::AnimOut>,
+    /// Video and audio clips of the current slide.
+    pub media: Vec<show::MediaOut>,
+    /// The selected chart (type, title, legend, data).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chart: Option<chart::ChartOut>,
+    /// Answer of the `show` command.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub show: Option<show::ShowOut>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -745,6 +811,8 @@ struct Outcome {
     copied: Option<(usize, Vec<u32>, Rect, String)>,
     /// Slides just copied (text only).
     copied_text: Option<String>,
+    /// Slide asked for by the `show` command.
+    show: Option<usize>,
 }
 
 impl Outcome {
@@ -911,6 +979,7 @@ fn kind_of(n: &ShapeNode) -> &'static str {
         ShapeNode::Frame(f) if matches!(f.content, bo_model::slide::GraphicContent::Table(_)) => {
             "table"
         }
+        n if chart::is_chart(n) => "chart",
         ShapeNode::Frame(_) | ShapeNode::Other(_) => "graphic",
     }
 }
@@ -3407,6 +3476,65 @@ impl Engine {
                         cmd_set_notes(tx, slide.unwrap_or(sel.slide), &text)
                     });
                 }
+                SlideCommand::SetTransition {
+                    slides,
+                    all,
+                    transition,
+                } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        show::cmd_set_transition(tx, sel, slides, all, &transition)
+                    });
+                }
+                SlideCommand::AddAnimation { spec } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        show::cmd_add_animation(tx, sel, &spec)
+                    });
+                }
+                SlideCommand::SetAnimation { index, spec } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        show::cmd_set_animation(tx, sel, index, &spec)
+                    });
+                }
+                SlideCommand::RemoveAnimation { index } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        show::cmd_remove_animation(tx, sel, index)
+                    });
+                }
+                SlideCommand::MoveAnimation { from, to } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        show::cmd_move_animation(tx, sel, from, to)
+                    });
+                }
+                SlideCommand::Show { slide } => {
+                    if slide < pres.slides.len() {
+                        out.show = Some(slide);
+                    } else {
+                        out.error = Some("noSlide".into());
+                    }
+                }
+                SlideCommand::InsertChart {
+                    kind,
+                    title,
+                    data,
+                    legend,
+                    rect,
+                } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        let spec = chart::NewChart {
+                            kind: &kind,
+                            title,
+                            data,
+                            legend,
+                            rect,
+                        };
+                        chart::cmd_insert_chart(tx, sel, spec)
+                    });
+                }
+                SlideCommand::SetChart { id, spec } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        chart::cmd_set_chart(tx, sel, id, &spec)
+                    });
+                }
                 SlideCommand::Undo => ed.undo(pres, &mut out),
                 SlideCommand::Redo => ed.redo(pres, &mut out),
             }
@@ -3414,7 +3542,11 @@ impl Engine {
         }
         let copied = out.copied.take();
         let copied_text = out.copied_text.take();
+        let show_slide = out.show.take();
         let mut r = self.finish_slide_command(out)?;
+        if let Some(i) = show_slide {
+            r.show = self.slide_show(i);
+        }
         r.clipboard = match (copied, copied_text) {
             (Some((slide, ids, bounds, text)), _) => Some(ClipboardOut {
                 text,
@@ -3472,11 +3604,59 @@ impl Engine {
             let ed = &mut self.slides;
             ed.clamp(pres);
             ed.text = None;
-            ed.mutate(pres, &mut out, |tx, sel| cmd_picture(tx, sel, bytes, name));
+            if let Some((kind, _)) = media::media_kind(name) {
+                let poster =
+                    bo_raster::render_page_png(&media::poster_page(kind), &self.fonts, 2.0)
+                        .unwrap_or_default();
+                ed.mutate(pres, &mut out, |tx, sel| {
+                    media::cmd_insert_media(tx, sel, bytes, name, poster)
+                });
+            } else {
+                ed.mutate(pres, &mut out, |tx, sel| cmd_picture(tx, sel, bytes, name));
+            }
         }
         let mut r = self.finish_slide_command(out)?;
         r.collab = self.slide_collab_after_edit();
         Ok(r)
+    }
+
+    /// Layers, effects and clips of a slide for the slide show.
+    fn slide_show(&mut self, slide: usize) -> Option<show::ShowOut> {
+        let pres = self.pres.as_ref()?;
+        let ranges = show::layers(pres, slide);
+        let mut layers = Vec::with_capacity(ranges.len());
+        for r in &ranges {
+            let opts = bo_pptx::RenderOptions {
+                layer: Some(*r),
+                ..bo_pptx::RenderOptions::default()
+            };
+            let page =
+                bo_pptx::render_with(pres, slide, &mut self.fonts, &mut self.images, &opts).ok()?;
+            layers.push(show::LayerOut {
+                ids: show::layer_ids(pres, slide, *r),
+                backdrop: r.backdrop,
+                page,
+            });
+        }
+        let mut animations = show::animations_out(pres, slide);
+        for a in &mut animations {
+            a.layer = show::layer_of(pres, slide, &ranges, a.shape_id);
+        }
+        let (width, height) = slide_size(pres);
+        Some(show::ShowOut {
+            slide,
+            width: width as f32,
+            height: height as f32,
+            transition: show::transition_out(pres, slide),
+            clicks: pres
+                .slides
+                .get(slide)
+                .and_then(|s| s.timing.as_ref())
+                .map_or(0, bo_model::slide::Timing::click_count),
+            layers,
+            animations,
+            media: media::media_out(pres, slide),
+        })
     }
 
     /// Re-render every slide (after the slide list changed).
@@ -3694,6 +3874,14 @@ impl Engine {
                 None => None,
             },
             clipboard: None,
+            transition: show::transition_out(pres, slide),
+            animations: show::animations_out(pres, slide),
+            media: media::media_out(pres, slide),
+            chart: match items.as_slice() {
+                [one] => chart::chart_out(pres, slide, one.id),
+                _ => None,
+            },
+            show: None,
         })
     }
 }

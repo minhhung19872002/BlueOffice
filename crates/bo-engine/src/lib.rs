@@ -738,6 +738,8 @@ impl Engine {
             .and_then(|d| d.media.get(name))
             .map(|b| b.as_slice())
             .or_else(|| self.images.get(name).map(Vec::as_slice))
+            // Slide media parts (video / audio clips played by the hosts).
+            .or_else(|| self.pres.as_ref().and_then(|p| p.part_data(name)))
     }
 
     /// Set the mail-merge data source (CSV or XLSX); returns the number of records.

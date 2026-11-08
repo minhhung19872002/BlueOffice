@@ -154,6 +154,58 @@ fn smartart_shows_its_drawing_fallback() {
     assert!(xml.contains("dgm:relIds"));
 }
 
+/// SmartArt drawing fallback ([MS-ODRAWXML] `dsp:drawing`) in BlueSlide and
+/// BlueSheet: the pre-drawn shapes and their text (one glyph run per word)
+/// show up in the display list.
+#[test]
+fn smartart_fallback_in_slides_and_sheets() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus");
+    let mut e = Engine::with_bundled_fonts();
+    for (file, words) in [
+        ("slide-smartart-process.pptx", ["\"Tiếp \"", "\"Thẩm \"", "\"quả\""]),
+        ("slide-smartart-cycle.pptx", ["\"Lập \"", "\"Thực \"", "\"Cải \""]),
+    ] {
+        let bytes = std::fs::read(root.join("slide").join(file)).unwrap();
+        e.open(&bytes, file).unwrap();
+        let page = e.page_json(0).unwrap();
+        for w in words {
+            assert!(page.contains(w), "{file}: {w}");
+        }
+        // Saving keeps the diagram parts verbatim.
+        let saved = e.save_pptx().unwrap();
+        let a = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+        let b = bo_opc::Package::read(&saved, &bo_opc::Limits::default()).unwrap();
+        for part in ["/ppt/diagrams/drawing1.xml", "/ppt/diagrams/data1.xml"] {
+            assert_eq!(
+                a.part(part).map(|p| p.data.clone()),
+                b.part(part).map(|p| p.data.clone()),
+                "{file} {part}"
+            );
+        }
+    }
+
+    let mut s = bo_engine::SheetEngine::with_bundled_fonts();
+    let bytes = std::fs::read(root.join("sheet/smartart-3.xlsx")).unwrap();
+    s.open(&bytes, "smartart-3.xlsx").unwrap();
+    let view = bo_engine::sheet::ViewRequest {
+        sheet: 0,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
+        width: 800.0,
+        height: 400.0,
+    };
+    let json = s.render_json(&view).unwrap();
+    for w in ["\"Lập \"", "\"duyệt\"", "\"Giải \"", "\"Quyết \""] {
+        assert!(json.contains(w), "sheet: {w}");
+    }
+    // Scrolled away: nothing of the diagram is drawn.
+    let far = bo_engine::sheet::ViewRequest {
+        scroll_y: 5000.0,
+        ..view
+    };
+    assert!(!s.render_json(&far).unwrap().contains("\"duyệt\""));
+}
+
 #[test]
 fn opens_odt_as_a_document() {
     let doc = bo_engine::plain_text_document("Xin chào ODF\nDòng hai");

@@ -13,10 +13,12 @@ use bo_sheet::formula::BoFormula;
 use bo_sheet::geometry::SheetGeometry;
 use bo_sheet::live::LiveCalc;
 use bo_sheet::numfmt::Locale;
-use bo_sheet::render::{format_cell, render_viewport, RenderOptions};
+use bo_sheet::render::{format_cell, render_viewport, DrawingOverlay, RenderOptions};
 use bo_sheet::viewport::{Hit, ViewLayout, Viewport};
 use bo_text::FontManager;
 use serde::Serialize;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 mod cmd;
 pub(crate) mod collab;
@@ -29,6 +31,43 @@ pub use cmd::{Clip, PasteMode, SheetCommand};
 /// Hard limits of the grid (ECMA-376 Part 1, §18.3.1.73 `row/@r` ≤ 1 048 576; 16 384 columns).
 pub const MAX_ROWS: u32 = 1_048_576;
 pub const MAX_COLS: u32 = 16_384;
+
+/// SmartArt fallbacks ([MS-ODRAWXML] `dsp:drawing`) of every sheet, drawn as
+/// vector commands for the size of their anchor when the workbook is opened.
+fn diagram_overlays(wb: &Workbook, fonts: &mut FontManager) -> BTreeMap<String, DrawingOverlay> {
+    const EMU_PER_PT: f64 = 12_700.0;
+    let mut out = BTreeMap::new();
+    for ws in wb.sheets.iter().filter(|ws| !ws.diagrams.is_empty()) {
+        let g = SheetGeometry::new(ws, &wb.styles, fonts);
+        for d in &ws.diagrams {
+            if out.contains_key(&d.part) {
+                continue;
+            }
+            let Some(xml) = wb
+                .opaque
+                .parts
+                .iter()
+                .find(|p| p.name.eq_ignore_ascii_case(&d.part))
+            else {
+                continue;
+            };
+            let to = d.to.unwrap_or(CellRef::new(
+                d.from.row.saturating_add(10),
+                d.from.col.saturating_add(6),
+            ));
+            let w = g.col_x(to.col) - g.col_x(d.from.col);
+            let h = g.row_y(to.row) - g.row_y(d.from.row);
+            #[allow(clippy::cast_possible_truncation)]
+            let (we, he) = ((w * EMU_PER_PT) as i64, (h * EMU_PER_PT) as i64);
+            if let Some(commands) =
+                bo_pptx::diagram::render_drawing(&xml.data, &d.part, we, he, fonts)
+            {
+                out.insert(d.part.clone(), DrawingOverlay { w, h, commands });
+            }
+        }
+    }
+    out
+}
 
 /// Summary of an open workbook.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -167,6 +206,8 @@ pub struct SheetEngine {
     collab: Option<collab::SheetCollab>,
     /// The open file has macros (warning bar; preserved, never executed).
     macros: bool,
+    /// SmartArt drawing fallbacks of the open workbook, drawn once on load.
+    drawings: Arc<BTreeMap<String, DrawingOverlay>>,
 }
 
 impl Default for SheetEngine {
@@ -399,6 +440,7 @@ impl SheetEngine {
             clip: None,
             collab: None,
             macros: false,
+            drawings: Arc::default(),
         }
     }
 
@@ -502,6 +544,7 @@ impl SheetEngine {
                 }
             }
         }
+        self.drawings = Arc::new(diagram_overlays(&wb, &mut self.fonts));
         self.clip = None;
         self.collab = None;
         self.geometry = (0..wb.sheets.len()).map(|_| None).collect();
@@ -601,6 +644,7 @@ impl SheetEngine {
         let opts = RenderOptions {
             locale: self.locale,
             now: self.live.now(),
+            drawings: self.drawings.clone(),
             ..RenderOptions::default()
         };
         Ok(render_viewport(

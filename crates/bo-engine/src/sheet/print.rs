@@ -184,6 +184,7 @@ impl SheetEngine {
             gridlines: Some(ps.print_grid_lines),
             headers: Some(false),
             ignore_frozen: true,
+            drawings: self.drawings.clone(),
             ..RenderOptions::default()
         };
         let g = self.geometry(sheet)?.clone();

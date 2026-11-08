@@ -6,7 +6,9 @@
 //! rendering. Parse failures are tolerated (the chart is simply not summarized).
 
 use crate::xml::{attrs, lname};
-use bo_model::sheet::{CellRef, Chart, ChartAnchor, ChartKind, ChartPlot, ChartSeries, RawAttr};
+use bo_model::sheet::{
+    CellRef, Chart, ChartAnchor, ChartKind, ChartPlot, ChartSeries, RawAttr, SheetDiagram,
+};
 use bo_opc::xml::{unescape, XmlReader};
 use bo_opc::{resolve_target, Package, Relationship, TargetMode};
 use quick_xml::events::Event;
@@ -176,6 +178,79 @@ pub(crate) fn read_charts(pkg: &Package, sheet_part: &str, rels: &[Relationship]
         }
     }
     charts
+}
+
+/// SmartArt frames of a worksheet's drawings (§20.5.2.16 `xdr:graphicFrame`
+/// whose `a:graphicData` holds `dgm:relIds`, §21.4.2.6), resolved to their
+/// drawing fallback part: data part (`r:dm`) → `dsp:dataModelExt@relId`
+/// ([MS-ODRAWXML]), a relationship of the sheet drawing part.
+pub(crate) fn read_diagrams(
+    pkg: &Package,
+    sheet_part: &str,
+    rels: &[Relationship],
+) -> Vec<SheetDiagram> {
+    const URI_DIAGRAM: &str = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
+    let mut out = Vec::new();
+    for rel in rels {
+        if rel.mode != TargetMode::Internal || !rel.rel_type.ends_with("/drawing") {
+            continue;
+        }
+        let drawing = resolve_target(sheet_part, &rel.target);
+        let Some(dom) = pkg.part(&drawing).and_then(|p| parse_dom(&p.data, &drawing)) else {
+            continue;
+        };
+        let drels = pkg.relationships(&drawing).unwrap_or_default();
+        let target = |id: &str| {
+            drels
+                .iter()
+                .find(|r| r.id == id && r.mode == TargetMode::Internal)
+                .map(|r| resolve_target(&drawing, &r.target))
+        };
+        for anchor in &dom.children {
+            let Some(frame) = anchor.child("graphicFrame") else {
+                continue;
+            };
+            let Some(gd) = frame.path(&["graphic", "graphicData"]) else {
+                continue;
+            };
+            if gd.attr("uri") != Some(URI_DIAGRAM) {
+                continue;
+            }
+            let Some(data_part) = gd
+                .child("relIds")
+                .and_then(|r| r.attr("dm"))
+                .and_then(|id| target(id))
+            else {
+                continue;
+            };
+            let data = pkg
+                .part(&data_part)
+                .and_then(|p| parse_dom(&p.data, &data_part));
+            let mut ext = Vec::new();
+            if let Some(d) = &data {
+                d.descendants("dataModelExt", &mut ext);
+            }
+            let Some(part) = ext
+                .first()
+                .and_then(|e| e.attr("relId"))
+                .and_then(|id| target(id))
+                .filter(|p| pkg.part(p).is_some())
+            else {
+                continue;
+            };
+            out.push(SheetDiagram {
+                from: anchor.child("from").map(anchor_cell).unwrap_or_default(),
+                to: anchor.child("to").map(anchor_cell),
+                part,
+                name: frame
+                    .path(&["nvGraphicFramePr", "cNvPr"])
+                    .and_then(|c| c.attr("name"))
+                    .unwrap_or_default()
+                    .to_owned(),
+            });
+        }
+    }
+    out
 }
 
 /// §20.5.2.15 from / §20.5.2.32 to (`xdr:col`, `xdr:row`, zero-based).

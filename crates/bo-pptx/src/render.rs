@@ -1163,7 +1163,7 @@ fn draw_node(
                 draw_node(cx, c, inner, fonts, images, out);
             }
         }
-        ShapeNode::Frame(f) => draw_frame(cx, f, frame, fonts, out),
+        ShapeNode::Frame(f) => draw_frame(cx, f, frame, fonts, images, out),
         ShapeNode::Other(_) => {}
     }
 }
@@ -1352,6 +1352,7 @@ fn draw_frame(
     f: &GraphicFrame,
     frame: Frame,
     fonts: &mut FontManager,
+    images: &mut BTreeMap<String, Vec<u8>>,
     out: &mut Vec<Command>,
 ) {
     let Some(r) = frame.rect(&f.xfrm) else {
@@ -1373,9 +1374,37 @@ fn draw_frame(
                 draw_chart_frame(cx, &chart, r.2, r.3, fonts, &mut cmds);
             }
         }
+        // SmartArt (§21.4.2.6 dgm:relIds): the pre-rendered drawing part
+        // ([MS-ODRAWXML] dsp:drawing), shapes positioned inside the frame.
+        GraphicContent::Other(gd) if f.uri == crate::diagram::URI_DIAGRAM => {
+            for node in diagram_fallback(cx, gd).unwrap_or_default() {
+                draw_node(cx, &node, Frame::root(), fonts, images, &mut cmds);
+            }
+        }
         GraphicContent::Other(_) => {}
     }
     wrap_transform(aff, cmds, out);
+}
+
+/// Shapes of the drawing fallback of a SmartArt frame: data part (`r:dm`) →
+/// `dsp:dataModelExt@relId`, or else the part's only diagramDrawing relationship.
+fn diagram_fallback(cx: &Ctx<'_>, gd: &bo_model::slide::XmlElement) -> Option<Vec<ShapeNode>> {
+    let data_part = crate::diagram::data_rel_id(gd).and_then(|rid| cx.image_part(rid));
+    let by_ext = data_part.as_deref().and_then(|p| {
+        let rid = crate::diagram::drawing_rel_id(cx.pres.part_data(p)?, p)?;
+        cx.image_part(&rid)
+    });
+    let part = by_ext.or_else(|| {
+        let mut it = cx
+            .rels
+            .iter()
+            .filter(|r| r.rel_type == crate::diagram::REL_DIAGRAM_DRAWING && !r.external);
+        match (it.next(), it.next()) {
+            (Some(r), None) => Some(bo_opc::resolve_target(cx.part, &r.target)),
+            _ => None,
+        }
+    })?;
+    crate::diagram::drawing_shapes(cx.pres.part_data(&part)?, &part)
 }
 
 fn draw_chart_frame(

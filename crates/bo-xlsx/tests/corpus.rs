@@ -835,6 +835,110 @@ fn chart_anchors(i: usize) -> Book {
     b
 }
 
+/// SmartArt in a sheet drawing: `xdr:graphicFrame` with `dgm:relIds`
+/// (§20.5.2.16, §21.4.2.6), the four diagram parts and the drawing fallback
+/// ([MS-ODRAWXML] `dsp:drawing`) named by `dsp:dataModelExt@relId`.
+fn smartart(i: usize) -> Book {
+    const DGM: &str = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
+    const DSP: &str = "http://schemas.microsoft.com/office/drawing/2008/diagram";
+    const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    const CT_D: &str = "application/vnd.openxmlformats-officedocument.drawingml.";
+    let (to_col, to_row) = (5 + 2 * i, 4 + 3 * i);
+    let drawing = format!(
+        r#"{DECL}<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="{A}"><xdr:twoCellAnchor><xdr:from><xdr:col>1</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>{to_col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>{to_row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to><xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="2" name="Sơ đồ {i}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="{DGM}"><dgm:relIds xmlns:dgm="{DGM}" xmlns:r="{NS_R}" r:dm="rId1" r:lo="rId2" r:qs="rId3" r:cs="rId4"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>"#
+    );
+    let drels = format!(
+        r#"{DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="{REL}diagramData" Target="../diagrams/data1.xml"/><Relationship Id="rId2" Type="{REL}diagramLayout" Target="../diagrams/layout1.xml"/><Relationship Id="rId3" Type="{REL}diagramQuickStyle" Target="../diagrams/quickStyle1.xml"/><Relationship Id="rId4" Type="{REL}diagramColors" Target="../diagrams/colors1.xml"/><Relationship Id="rId5" Type="http://schemas.microsoft.com/office/2007/relationships/diagramDrawing" Target="../diagrams/drawing1.xml"/></Relationships>"#
+    );
+    let steps = ["Lập dự toán", "Phê duyệt", "Giải ngân", "Quyết toán"];
+    let (cx, cy) = (1_400_000i64, 700_000i64);
+    let shapes: String = steps[..i + 1]
+        .iter()
+        .enumerate()
+        .map(|(k, text)| {
+            let x = k as i64 * (cx + 200_000);
+            let rgb = ["2F6FB5", "E07B39", "5AA454", "7B1FA2"][k];
+            format!(
+                r#"<dsp:sp modelId="{{00000000-0000-0000-0000-0000000000{k:02}}}"><dsp:nvSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvSpPr/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="{x}" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="chevron"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="{rgb}"/></a:solidFill></dsp:spPr><dsp:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="vi-VN" sz="1100"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:rPr><a:t>{text}</a:t></a:r></a:p></dsp:txBody></dsp:sp>"#
+            )
+        })
+        .collect();
+    let x = |root: &str, inner: &str| {
+        format!(r#"{DECL}<{root} xmlns:dgm="{DGM}" xmlns:a="{A}">{inner}</{root}>"#).into_bytes()
+    };
+    let mut s = sheet(
+        "Sơ đồ",
+        r#"<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Quy trình</t></is></c></row></sheetData><drawing r:id="rId1"/>"#,
+    );
+    s.rels = vec![(
+        "rId1".into(),
+        "drawing".into(),
+        "../drawings/drawing1.xml".into(),
+        false,
+    )];
+    Book {
+        sheets: vec![s],
+        parts: vec![
+            (
+                "/xl/drawings/drawing1.xml".into(),
+                Some("application/vnd.openxmlformats-officedocument.drawing+xml".into()),
+                drawing.into_bytes(),
+            ),
+            ("/xl/drawings/_rels/drawing1.xml.rels".into(), None, drels.into_bytes()),
+            (
+                "/xl/diagrams/data1.xml".into(),
+                Some(format!("{CT_D}diagramData+xml")),
+                x(
+                    "dgm:dataModel",
+                    &format!(
+                        r#"<dgm:ptLst><dgm:pt modelId="{{00000000-0000-0000-0000-000000000001}}" type="doc"/></dgm:ptLst><dgm:extLst><a:ext uri="http://schemas.microsoft.com/office/drawing/2008/diagram"><dsp:dataModelExt xmlns:dsp="{DSP}" relId="rId5" minVer="http://schemas.openxmlformats.org/drawingml/2006/diagram"/></a:ext></dgm:extLst>"#
+                    ),
+                ),
+            ),
+            (
+                "/xl/diagrams/layout1.xml".into(),
+                Some(format!("{CT_D}diagramLayout+xml")),
+                x("dgm:layoutDef", "<dgm:layoutNode/>"),
+            ),
+            (
+                "/xl/diagrams/quickStyle1.xml".into(),
+                Some(format!("{CT_D}diagramStyle+xml")),
+                x("dgm:styleDef", r#"<dgm:styleLbl name="node0"/>"#),
+            ),
+            (
+                "/xl/diagrams/colors1.xml".into(),
+                Some(format!("{CT_D}diagramColors+xml")),
+                x("dgm:colorsDef", ""),
+            ),
+            (
+                "/xl/diagrams/drawing1.xml".into(),
+                Some("application/vnd.ms-office.drawingml.diagramDrawing+xml".into()),
+                format!(
+                    r#"{DECL}<dsp:drawing xmlns:dgm="{DGM}" xmlns:dsp="{DSP}" xmlns:a="{A}"><dsp:spTree><dsp:nvGrpSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvGrpSpPr/></dsp:nvGrpSpPr><dsp:grpSpPr/>{shapes}</dsp:spTree></dsp:drawing>"#
+                )
+                .into_bytes(),
+            ),
+        ],
+        ..Book::default()
+    }
+}
+
+#[test]
+fn corpus_smartart_is_found() {
+    for i in 1..=3 {
+        let wb = read_xlsx(&build(&smartart(i))).unwrap();
+        let d = &wb.sheets[0].diagrams;
+        assert_eq!(d.len(), 1, "variant {i}");
+        assert_eq!(d[0].part, "/xl/diagrams/drawing1.xml");
+        assert_eq!(d[0].from, m::CellRef::new(1, 1));
+        assert_eq!(d[0].to, Some(m::CellRef::new(4 + 3 * i as u32, 5 + 2 * i as u32)));
+        assert_eq!(d[0].name, format!("Sơ đồ {i}"));
+        // The drawing and diagram parts stay in the package after a save.
+        let saved = read_xlsx(&write_xlsx(&wb).unwrap()).unwrap();
+        assert_eq!(saved.sheets[0].diagrams, *d);
+    }
+}
+
 fn extensions(i: usize) -> Book {
     let root = r#" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x15 xr" xmlns:x15="http://schemas.microsoft.com/office/spreadsheetml/2010/11/main" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision""#;
     let pre = format!(
@@ -919,6 +1023,7 @@ const FEATURES: &[Feature] = &[
     ("charts", "drawing + chartSpace parts (bar, bar+line combo, pie)", charts),
     ("chart-anchors", "charts in a oneCellAnchor (from + ext) and absoluteAnchor (pos + ext)", chart_anchors),
     ("ext", "extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml", extensions),
+    ("smartart", "SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback", smartart),
 ];
 
 // ---------------------------------------------------------------------------

@@ -57,6 +57,9 @@ Kiểm thử round-trip: `cargo test -p bo-xlsx --test corpus corpus_roundtrip -
 | `ext-1.xlsx` | extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml (biến thể 1) | tự sinh, `corpus.rs::ext` |
 | `ext-2.xlsx` | extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml (biến thể 2) | tự sinh, `corpus.rs::ext` |
 | `ext-3.xlsx` | extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml (biến thể 3) | tự sinh, `corpus.rs::ext` |
+| `smartart-1.xlsx` | SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback (biến thể 1) | tự sinh, `corpus.rs::smartart` |
+| `smartart-2.xlsx` | SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback (biến thể 2) | tự sinh, `corpus.rs::smartart` |
+| `smartart-3.xlsx` | SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback (biến thể 3) | tự sinh, `corpus.rs::smartart` |
 | `writer-format-1.xlsx` | BlueSheet writer: cell formats (vi-VN number formats, fonts, fills, borders, alignment) and a gallery cell style (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_format` |
 | `writer-format-2.xlsx` | BlueSheet writer: cell formats (vi-VN number formats, fonts, fills, borders, alignment) and a gallery cell style (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_format` |
 | `writer-format-3.xlsx` | BlueSheet writer: cell formats (vi-VN number formats, fonts, fills, borders, alignment) and a gallery cell style (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_format` |

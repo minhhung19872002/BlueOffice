@@ -3,51 +3,15 @@
 //! the BlueSlide shape renderer and shown as a picture. The part itself is kept
 //! verbatim in the package (the image only lives in memory).
 
-use bo_model::slide::{
-    CommonSlideData, Presentation, ShapeNode, Slide, SlideSize, XmlElement, XmlNode,
-};
+use bo_model::slide::{CommonSlideData, Presentation, ShapeNode, Slide, SlideSize};
 use bo_model::{Block, Document, RunContent};
 use bo_text::FontManager;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// `dsp:` names become PresentationML names understood by the shape parser.
-fn rename(el: &mut XmlElement) {
-    if let Some(local) = el.name.strip_prefix("dsp:") {
-        el.name = format!("p:{local}");
-    }
-    for c in &mut el.children {
-        if let XmlNode::Element(e) = c {
-            rename(e);
-        }
-    }
-}
-
-fn find<'a>(el: &'a XmlElement, local: &str) -> Option<&'a XmlElement> {
-    if el.name.rsplit(':').next() == Some(local) {
-        return Some(el);
-    }
-    el.children.iter().find_map(|c| match c {
-        XmlNode::Element(e) => find(e, local),
-        XmlNode::Text(_) => None,
-    })
-}
-
 /// Shapes of a diagram drawing part.
 pub fn drawing_shapes(xml: &[u8]) -> Option<Vec<ShapeNode>> {
-    let root = bo_drawingml::dom::parse(xml, "/word/diagrams/drawing.xml").ok()?;
-    let tree = find(&root, "spTree")?;
-    let mut out = Vec::new();
-    for c in &tree.children {
-        let XmlNode::Element(e) = c else { continue };
-        let local = e.name.rsplit(':').next().unwrap_or("");
-        if matches!(local, "sp" | "grpSp" | "cxnSp" | "pic") {
-            let mut e = e.clone();
-            rename(&mut e);
-            out.push(bo_pptx::parse_node(&e));
-        }
-    }
-    Some(out)
+    bo_pptx::diagram::drawing_shapes(xml, "/word/diagrams/drawing.xml")
 }
 
 /// Render a diagram drawing (`w`×`h` EMU) to PNG at 2 px per point.

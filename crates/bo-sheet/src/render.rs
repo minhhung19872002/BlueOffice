@@ -46,6 +46,18 @@ pub struct RenderOptions {
     pub charts: bool,
     /// Lay the sheet out without its frozen panes (printing).
     pub ignore_frozen: bool,
+    /// Pre-drawn SmartArt fallbacks by drawing part name ([`DrawingOverlay`]),
+    /// placed at the anchors of the sheet's [`Worksheet::diagrams`].
+    pub drawings: std::sync::Arc<std::collections::BTreeMap<String, DrawingOverlay>>,
+}
+
+/// Vector drawing of a SmartArt fallback ([MS-ODRAWXML] `dsp:drawing`), drawn
+/// for a `w`×`h` point box and scaled to the anchor's current size.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DrawingOverlay {
+    pub w: f64,
+    pub h: f64,
+    pub commands: Vec<Command>,
 }
 
 impl Default for RenderOptions {
@@ -63,6 +75,7 @@ impl Default for RenderOptions {
             now: None,
             charts: true,
             ignore_frozen: false,
+            drawings: std::sync::Arc::default(),
         }
     }
 }
@@ -357,6 +370,7 @@ impl Renderer<'_> {
         }
         self.filter_buttons(p);
         if self.opts.charts {
+            self.diagrams(p);
             self.charts(p);
         }
         self.out.push(Command::PopClip);
@@ -467,6 +481,43 @@ impl Renderer<'_> {
     }
 
     /// Charts anchored on the sheet (§20.5.2.33 `twoCellAnchor`), clipped to the pane.
+    /// SmartArt drawing fallbacks over the cells of their two-cell anchor
+    /// (§20.5.2.33 twoCellAnchor; §21.4.2.6 relIds).
+    fn diagrams(&mut self, p: &PaneRegion) {
+        for d in &self.ws.diagrams {
+            let Some(ov) = self.opts.drawings.get(&d.part) else {
+                continue;
+            };
+            let x0 = self.geom.col_x(d.from.col);
+            let y0 = self.geom.row_y(d.from.row);
+            let (w, h) = match d.to {
+                Some(to) => (self.geom.col_x(to.col) - x0, self.geom.row_y(to.row) - y0),
+                None => (ov.w, ov.h),
+            };
+            if w <= 0.0 || h <= 0.0 || ov.w <= 0.0 || ov.h <= 0.0 {
+                continue;
+            }
+            let sx = p.to_screen_x(x0);
+            let sy = p.to_screen_y(y0);
+            let s = p.screen;
+            if sx > s.x + s.w || sy > s.y + s.h || sx + w < s.x || sy + h < s.y {
+                continue;
+            }
+            self.out.push(Command::PushClip {
+                x: f(sx),
+                y: f(sy),
+                w: f(w),
+                h: f(h),
+            });
+            self.out.push(Command::PushTransform {
+                m: [f(w / ov.w), 0.0, 0.0, f(h / ov.h), f(sx), f(sy)],
+            });
+            self.out.extend(ov.commands.iter().cloned());
+            self.out.push(Command::PopTransform);
+            self.out.push(Command::PopClip);
+        }
+    }
+
     fn charts(&mut self, p: &PaneRegion) {
         for chart in &self.ws.charts {
             let x0 = self.geom.col_x(chart.from.col);

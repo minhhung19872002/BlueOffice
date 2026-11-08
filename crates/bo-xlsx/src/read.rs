@@ -160,6 +160,7 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
             }
             let table_ids = read_sheet(&part.data, target, &sst, &links, &mut ws)?;
             ws.charts = crate::chart::read_charts(&pkg, target, &rels);
+            ws.diagrams = crate::chart::read_diagrams(&pkg, target, &rels);
             ws.pivots = crate::pivot::read_sheet_pivots(&pkg, target, &rels, &wb.pivot_caches);
             for id in table_ids {
                 if let Some(abs) = links.get(&format!("table:{id}")) {

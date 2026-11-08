@@ -370,6 +370,10 @@ pub struct Worksheet {
     /// Pivot tables of the sheet (see [`PivotTable`]).
     #[serde(default)]
     pub pivots: Vec<PivotTable>,
+    /// SmartArt graphic frames of the sheet's drawing, shown through their
+    /// drawing fallback (read-only, see [`SheetDiagram`]).
+    #[serde(default)]
+    pub diagrams: Vec<SheetDiagram>,
     /// Print area formula (defined name `_xlnm.Print_Area`, §18.2.6).
     pub print_area: Option<String>,
     /// Print titles formula (defined name `_xlnm.Print_Titles`).
@@ -1074,6 +1078,23 @@ pub struct Chart {
     /// Show the pivot field buttons on the chart ([MS-ODRAWXML] `c14:pivotOptions`).
     #[serde(default)]
     pub pivot_buttons: bool,
+}
+
+/// A SmartArt graphic frame on a sheet (`xdr:graphicFrame` with
+/// `dgm:relIds`, ECMA-376 Part 1, §20.5.2.16 and §21.4.2.6). Laying out the
+/// diagram from its data model is not supported; the pre-rendered drawing part
+/// ([MS-ODRAWXML] `dsp:drawing`) named here is drawn over the cells. The
+/// drawing and diagram parts stay verbatim in the package.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SheetDiagram {
+    /// Anchor cells (zero-based) of the drawing anchor (§20.5.2.33 twoCellAnchor).
+    pub from: CellRef,
+    pub to: Option<CellRef>,
+    /// Absolute part name of the diagram drawing part.
+    pub part: String,
+    /// `cNvPr@name` of the frame.
+    pub name: String,
 }
 
 /// Drawing anchor of a chart (ECMA-376 Part 1, §20.5.2).

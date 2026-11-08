@@ -1,7 +1,8 @@
 # Triển khai BlueOffice on-premise (Docker Compose)
 
 Tài liệu cho quản trị viên hệ thống. Sao lưu: [backup.md](backup.md) · Nâng cấp: [upgrade.md](upgrade.md) ·
-Giao thức tích hợp BlueDrive: [../bohp.md](../bohp.md).
+Giao thức tích hợp BlueDrive: [../bohp.md](../bohp.md) · Ký số (ký từ xa, dấu thời gian, USB token, Root CA):
+[remote-signing.md](remote-signing.md).
 
 ## 1. Thành phần
 

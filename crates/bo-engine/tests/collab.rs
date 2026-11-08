@@ -311,6 +311,11 @@ fn late_joiner_typing_at_its_first_caret_is_shared() {
     converged(&a, &b);
     b.cmd(&insert("Bình gõ ngay "));
     settle(&mut a, &mut b);
+    // The joiner's caret stayed where its editor showed it (start of the
+    // document), not pushed to the end by the shared text replacing its copy.
+    for p in [&a, &b] {
+        assert!(p.text()[0].starts_with("Bình gõ ngay "), "{:?}", p.text());
+    }
     a.cmd(&sel(0, 0));
     a.cmd(&insert("An "));
     settle(&mut a, &mut b);
@@ -318,7 +323,7 @@ fn late_joiner_typing_at_its_first_caret_is_shared() {
     for p in [&a, &b] {
         let all = p.text().join("\n");
         assert!(all.contains("Bình gõ ngay"), "{all}");
-        assert!(all.starts_with("An "), "{all}");
+        assert!(all.starts_with("An Bình gõ ngay "), "{all}");
     }
 }
 

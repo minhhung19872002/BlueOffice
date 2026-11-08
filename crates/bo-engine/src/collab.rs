@@ -1293,8 +1293,21 @@ impl Engine {
         let doc = s.doc();
         let paths = body_paragraphs(doc);
         let sel = s.selection();
-        let mut anchor = c.index_of(doc, sel.anchor, &paths);
-        let mut focus = c.index_of(doc, sel.focus, &paths);
+        // A late joiner's caret is measured in its own copy of the file (the
+        // shared text replaces it) and must not be pushed by that first insert.
+        let was_joining = c.joining;
+        let (mut anchor, mut focus) = if was_joining {
+            let own = DocCollab::new(doc, true);
+            (
+                own.index_of(doc, sel.anchor, &paths),
+                own.index_of(doc, sel.focus, &paths),
+            )
+        } else {
+            (
+                c.index_of(doc, sel.anchor, &paths),
+                c.index_of(doc, sel.focus, &paths),
+            )
+        };
         let mut ctx = BuildCtx {
             numbering: doc.numbering.clone(),
             styles: doc.styles.clone(),
@@ -1312,8 +1325,15 @@ impl Engine {
                 error = Some(e);
                 break;
             }
-            anchor = transform_index(anchor, d);
-            focus = transform_index(focus, d);
+            if !was_joining {
+                anchor = transform_index(anchor, d);
+                focus = transform_index(focus, d);
+            }
+        }
+        if was_joining {
+            let total = tmp.total();
+            anchor = anchor.min(total);
+            focus = focus.min(total);
         }
         let joined = !tmp.entries.is_empty();
         if c.joining && !joined {

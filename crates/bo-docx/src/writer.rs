@@ -491,8 +491,12 @@ impl Writer<'_> {
     fn image_changed(img: &Image) -> bool {
         let Some(src) = &img.src else { return true };
         let x = &src.xml;
-        !(x.contains(&format!("cx=\"{}\"", img.width.0))
-            && x.contains(&format!("cy=\"{}\"", img.height.0)))
+        // A moved floating picture (§20.4.2.3 anchor position) is written again; the
+        // reader stores the fingerprint of the position it read.
+        let moved = src.fingerprint != 0 && src.fingerprint != fingerprint(&img.anchor);
+        moved
+            || !(x.contains(&format!("cx=\"{}\"", img.width.0))
+                && x.contains(&format!("cy=\"{}\"", img.height.0)))
     }
 
     /// Generate a `w:drawing` for a picture (§20.4.2.8 inline / §20.4.2.3 anchor).
@@ -558,44 +562,66 @@ impl Writer<'_> {
         let mut s = String::from("<w:tbl>");
         let tblpr = ordered(TBLPR_ORDER, tblpr_children(&t.props));
         let _ = write!(s, "<w:tblPr>{tblpr}</w:tblPr><w:tblGrid>");
-        for g in &t.grid {
-            let _ = write!(s, "<w:gridCol w:w=\"{}\"/>", g.0);
+        let cols = |s: &mut String, grid: &[bo_model::Twips]| {
+            for g in grid {
+                let _ = write!(s, "<w:gridCol w:w=\"{}\"/>", g.0);
+            }
+        };
+        cols(&mut s, &t.grid);
+        // §17.13.5.33 tblGridChange (CT_Markup: only w:id) with the previous grid.
+        if let Some(gc) = &t.grid_change {
+            let _ = write!(s, "<w:tblGridChange w:id=\"{}\"><w:tblGrid>", gc.info.id);
+            cols(&mut s, &gc.old);
+            s.push_str("</w:tblGrid></w:tblGridChange>");
         }
         s.push_str("</w:tblGrid>");
         for row in &t.rows {
             s.push_str("<w:tr>");
-            let mut trpr: Vec<String> = Vec::new();
-            if row.props.cant_split {
-                trpr.push("<w:cantSplit/>".into());
-            }
-            if let Some((h, rule)) = row.props.height {
-                trpr.push(format!(
-                    "<w:trHeight w:val=\"{}\"{}/>",
-                    h.0,
-                    if rule == HeightRule::Exact {
-                        " w:hRule=\"exact\""
-                    } else {
-                        ""
+            // CT_TrPrBase children (§17.4.82 trPr).
+            let base =
+                |header: bool, cant_split: bool, height: Option<(bo_model::Twips, HeightRule)>| {
+                    let mut v: Vec<String> = Vec::new();
+                    if cant_split {
+                        v.push("<w:cantSplit/>".into());
                     }
-                ));
-            }
-            if row.props.header {
-                trpr.push("<w:tblHeader/>".into());
-            }
-            let (changes, others): (Vec<&Raw>, Vec<&Raw>) = row
-                .props
-                .unknown
-                .iter()
-                .partition(|r| raw_local_name(&r.xml) == "trPrChange");
-            trpr.extend(others.iter().map(|r| r.xml.to_string()));
-            // CT_TrPr: §17.13.5.19 ins, §17.13.5.12 del, then trPrChange.
+                    if let Some((h, rule)) = height {
+                        v.push(format!(
+                            "<w:trHeight w:val=\"{}\"{}/>",
+                            h.0,
+                            if rule == HeightRule::Exact {
+                                " w:hRule=\"exact\""
+                            } else {
+                                ""
+                            }
+                        ));
+                    }
+                    if header {
+                        v.push("<w:tblHeader/>".into());
+                    }
+                    v
+                };
+            let mut trpr = base(row.props.header, row.props.cant_split, row.props.height);
+            trpr.extend(
+                row.props
+                    .unknown
+                    .iter()
+                    .filter(|r| raw_local_name(&r.xml) != "trPrChange")
+                    .map(|r| r.xml.to_string()),
+            );
+            // CT_TrPr: §17.13.5.19 ins, §17.13.5.12 del, then §17.13.5.37 trPrChange.
             if let Some(m) = &row.props.ins {
                 trpr.push(format!("<w:ins{}/>", rev_attrs(&m.info)));
             }
             if let Some(m) = &row.props.del {
                 trpr.push(format!("<w:del{}/>", rev_attrs(&m.info)));
             }
-            trpr.extend(changes.iter().map(|r| r.xml.to_string()));
+            if let Some(ch) = &row.props.change {
+                trpr.push(format!(
+                    "<w:trPrChange{}><w:trPr>{}</w:trPr></w:trPrChange>",
+                    rev_attrs(&ch.info),
+                    base(ch.header, ch.cant_split, ch.height).concat()
+                ));
+            }
             if !trpr.is_empty() {
                 let _ = write!(s, "<w:trPr>{}</w:trPr>", trpr.concat());
             }
@@ -1097,6 +1123,9 @@ impl Writer<'_> {
         if self.doc.even_and_odd_headers {
             s.push_str("<w:evenAndOddHeaders/>");
         }
+        // §17.11.11 footnotePr / §17.11.4 endnotePr (document-wide), before compat.
+        s.push_str(&note_pr_xml("footnotePr", &self.doc.footnote_pr));
+        s.push_str(&note_pr_xml("endnotePr", &self.doc.endnote_pr));
         let _ = write!(s, "<w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/></w:compat></w:settings>");
         self.pkg
             .add_part("/word/settings.xml", CT_SETTINGS, s.into_bytes())?;
@@ -1317,34 +1346,37 @@ fn ordered(order: &[&str], mut items: Vec<(String, String)>) -> String {
     items.into_iter().map(|(_, x)| x).collect()
 }
 
+/// A footnotePr / endnotePr element (empty string when nothing is set). Section-wide
+/// and document-wide (§17.11.11, §17.11.4) share the order of CT_FtnProps /
+/// CT_EdnProps: pos, numFmt, numStart, numRestart.
+fn note_pr_xml(tag: &str, np: &bo_model::NoteProps) -> String {
+    let mut s = String::new();
+    if np.is_empty() {
+        return s;
+    }
+    let _ = write!(s, "<w:{tag}>");
+    if let Some(p) = np.pos {
+        let _ = write!(s, "<w:pos w:val=\"{}\"/>", p.as_str());
+    }
+    if let Some(f) = &np.fmt {
+        let _ = write!(s, "<w:numFmt w:val=\"{}\"/>", escape(f.as_str()));
+    }
+    if let Some(n) = np.start {
+        let _ = write!(s, "<w:numStart w:val=\"{n}\"/>");
+    }
+    if let Some(r) = np.restart {
+        let _ = write!(s, "<w:numRestart w:val=\"{}\"/>", r.as_str());
+    }
+    let _ = write!(s, "</w:{tag}>");
+    s
+}
+
 /// `CT_SectPrBase` children after the header/footer references (§17.6.17: footnotePr …
 /// titlePg), in schema order.
 fn sect_props_xml(sec: &Section) -> String {
     let mut s = String::new();
-    // §17.11.11 footnotePr, §17.11.4 endnotePr (CT_FtnProps / CT_EdnProps order:
-    // pos, numFmt, numStart, numRestart).
-    for (tag, np) in [
-        ("footnotePr", &sec.footnote_pr),
-        ("endnotePr", &sec.endnote_pr),
-    ] {
-        if np.is_empty() {
-            continue;
-        }
-        let _ = write!(s, "<w:{tag}>");
-        if let Some(p) = np.pos {
-            let _ = write!(s, "<w:pos w:val=\"{}\"/>", p.as_str());
-        }
-        if let Some(f) = &np.fmt {
-            let _ = write!(s, "<w:numFmt w:val=\"{}\"/>", escape(f.as_str()));
-        }
-        if let Some(n) = np.start {
-            let _ = write!(s, "<w:numStart w:val=\"{n}\"/>");
-        }
-        if let Some(r) = np.restart {
-            let _ = write!(s, "<w:numRestart w:val=\"{}\"/>", r.as_str());
-        }
-        let _ = write!(s, "</w:{tag}>");
-    }
+    s.push_str(&note_pr_xml("footnotePr", &sec.footnote_pr));
+    s.push_str(&note_pr_xml("endnotePr", &sec.endnote_pr));
     let bt = match sec.break_type {
         SectionBreak::NextPage => None,
         SectionBreak::Continuous => Some("continuous"),
@@ -1427,8 +1459,35 @@ fn tcpr_items(p: &bo_model::CellProps) -> Vec<(String, String)> {
         items.push(("vAlign".into(), format!("<w:vAlign w:val=\"{v}\"/>")));
     }
     items.extend(raw_items(&p.unknown));
+    // §17.13.5.4 cellIns / §17.13.5.3 cellDel / §17.13.5.6 cellMerge (one of them).
+    if let Some(m) = &p.ins {
+        items.push((
+            "cellIns".into(),
+            format!("<w:cellIns{}/>", rev_attrs(&m.info)),
+        ));
+    } else if let Some(m) = &p.del {
+        items.push((
+            "cellDel".into(),
+            format!("<w:cellDel{}/>", rev_attrs(&m.info)),
+        ));
+    } else if let Some(m) = &p.merge {
+        // §17.18.1 ST_AnnotationVMerge
+        let vm = |v: Option<VMerge>| match v {
+            Some(VMerge::Restart) => "rest",
+            Some(VMerge::Continue) => "cont",
+            None => "",
+        };
+        let mut a = rev_attrs(&m.info);
+        if m.v_merge.is_some() {
+            let _ = write!(a, " w:vMerge=\"{}\"", vm(m.v_merge));
+        }
+        if m.v_merge_orig.is_some() {
+            let _ = write!(a, " w:vMergeOrig=\"{}\"", vm(m.v_merge_orig));
+        }
+        items.push(("cellMerge".into(), format!("<w:cellMerge{a}/>")));
+    }
     if let Some(ch) = &p.change {
-        let old = ordered(TCPR_ORDER, tcpr_items(&ch.old));
+        let old = ordered(TCPR_ORDER, tcpr_items(&ch.old.bare()));
         items.push((
             "tcPrChange".into(),
             format!(

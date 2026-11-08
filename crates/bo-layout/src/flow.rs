@@ -2,8 +2,8 @@
 //! control, tables split across pages, anchored pictures and footnotes.
 
 use crate::blocks::{
-    build_para, deco_items, layout_table, rewrap_para, row_band, row_notes, split_row, stack_note,
-    Band, Brk, Ctx, ParaBlock, Stack, TableBox,
+    build_para, deco_items, layout_table, rewrap_para, row_band, row_notes, split_row,
+    stack_blocks, stack_note, Band, Brk, Ctx, ParaBlock, Stack, TableBox,
 };
 use crate::paragraph::{WrapZone, MIN_SEGMENT};
 use crate::style::ListCounters;
@@ -40,6 +40,8 @@ pub(crate) struct Snap {
     page_has_content: bool,
     notes_on_page: Vec<NoteKey>,
     foot_h: f32,
+    foot_slack: f32,
+    carry: Vec<(NoteKey, usize)>,
     excl: Vec<(f32, f32)>,
     sides: Vec<SideZone>,
     prev: Option<Prev>,
@@ -96,6 +98,13 @@ pub(crate) struct Flow {
     page_has_content: bool,
     notes_on_page: Vec<NoteKey>,
     foot_h: f32,
+    /// Part of the footnote area that may continue on the next page: the last note
+    /// beyond its first line (a note starts on the page of its reference).
+    foot_slack: f32,
+    /// Footnotes continued from the previous page: (note, first band shown here).
+    carry: Vec<(NoteKey, usize)>,
+    /// Footnote continuation notice (`w:footnote w:type="continuationNotice"`).
+    notice: Option<Stack>,
     /// Vertical ranges on the current page occupied by top-and-bottom pictures.
     excl: Vec<(f32, f32)>,
     /// Areas of square/tight-wrapped pictures on the current page (text flows beside them).
@@ -239,6 +248,51 @@ pub(crate) fn float_item(
     (item, excl)
 }
 
+/// Revision of the run holding floating picture `img` in `p`: (author colour,
+/// deleted).
+fn float_revision(p: &Paragraph, img: &Image) -> Option<(Color, bool)> {
+    let r = p.runs.iter().find(|r| {
+        r.content
+            .iter()
+            .any(|c| matches!(c, bo_model::RunContent::Image(i) if **i == *img))
+    })?;
+    match (&r.props.del, &r.props.ins) {
+        (Some(d), _) => Some((crate::style::author_color(&d.info.author), true)),
+        (None, Some(i)) => Some((crate::style::author_color(&i.info.author), false)),
+        _ => None,
+    }
+}
+
+/// Frame (and, for a deleted picture, cross) around a tracked floating picture.
+fn float_frame(
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    (color, deleted): (Color, bool),
+    out: &mut Vec<PageItem>,
+) {
+    let mut seg = |x1: f32, y1: f32, x2: f32, y2: f32| {
+        out.push(PageItem::Rule {
+            x1,
+            y1,
+            x2,
+            y2,
+            width: 1.5,
+            color,
+            style: if deleted { "dashed" } else { "single" }.into(),
+        });
+    };
+    seg(x, y, x + w, y);
+    seg(x, y + h, x + w, y + h);
+    seg(x, y, x, y + h);
+    seg(x + w, y, x + w, y + h);
+    if deleted {
+        seg(x, y, x + w, y + h);
+        seg(x, y + h, x + w, y);
+    }
+}
+
 /// Area of a square/tight-wrapped picture on the page (points, distances included).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct SideZone {
@@ -279,6 +333,9 @@ impl Flow {
             page_has_content: false,
             notes_on_page: Vec::new(),
             foot_h: 0.0,
+            foot_slack: 0.0,
+            carry: Vec::new(),
+            notice: None,
             excl: Vec::new(),
             sides: Vec::new(),
             foot_cache: HashMap::new(),
@@ -316,6 +373,8 @@ impl Flow {
                 page_has_content: self.page_has_content,
                 notes_on_page: self.notes_on_page.clone(),
                 foot_h: self.foot_h,
+                foot_slack: self.foot_slack,
+                carry: self.carry.clone(),
                 excl: self.excl.clone(),
                 sides: self.sides.clone(),
                 prev: self.prev.clone(),
@@ -345,6 +404,8 @@ impl Flow {
         self.page_has_content = s.page_has_content;
         self.notes_on_page.clone_from(&s.notes_on_page);
         self.foot_h = s.foot_h;
+        self.foot_slack = s.foot_slack;
+        self.carry.clone_from(&s.carry);
         self.excl.clone_from(&s.excl);
         self.sides.clone_from(&s.sides);
         self.prev.clone_from(&s.prev);
@@ -412,54 +473,128 @@ impl Flow {
         self.page_has_content = false;
         self.notes_on_page.clear();
         self.foot_h = 0.0;
+        self.foot_slack = 0.0;
+        // Footnotes continued from the previous page (ECMA-376 Part 1, §17.11.1
+        // continuationSeparator) open the footnote area.
+        if !self.carry.is_empty() {
+            self.foot_h = NOTE_SEPARATOR;
+            for &(key, from) in &self.carry {
+                let (rem, first) = self.remaining(key, from);
+                self.foot_h += rem;
+                self.foot_slack = rem - first;
+            }
+        }
         self.excl.clear();
         self.sides.clear();
         self.prev = None;
     }
 
-    /// Place the footnotes of the current page at its bottom.
+    /// Height of note `key` from band `from` on, and of that first band (with the
+    /// space above it).
+    fn remaining(&self, key: NoteKey, from: usize) -> (f32, f32) {
+        let Some(st) = self.foot_cache.get(&key) else {
+            return (0.0, 0.0);
+        };
+        let top = st.bands.get(from).map_or(st.h, |b| b.0);
+        let first = st.bands.get(from).map_or(0.0, |(t, b)| t - top + b.h);
+        ((st.h - top).max(0.0), first)
+    }
+
+    /// Place the footnotes of the current page at its bottom. When the text took the
+    /// space of the last note beyond its first line, the notes are placed below the
+    /// text and what does not fit continues on the next page (ECMA-376 Part 1,
+    /// §17.11.1 continuationSeparator; the continuation notice, §17.18.33
+    /// `continuationNotice`, ends the part shown here).
     fn finish_page(&mut self) {
-        if self.notes_on_page.is_empty() {
+        if self.notes_on_page.is_empty() && self.carry.is_empty() {
             return;
         }
         let x = self.cols[0].0;
+        let full_w = (self.setup.width.to_pt()
+            - self.setup.margin_left.to_pt()
+            - self.setup.margin_right.to_pt())
+        .max(36.0);
         let mut y = self.bottom - self.foot_h;
         let Some(page) = self.pages.last_mut() else {
             return;
         };
-        if self.beneath {
+        let text = page
+            .lines
+            .iter()
+            .filter(|l| matches!(l.source, LineSource::Body(_)))
+            .map(|l| l.top + l.height)
+            .reduce(f32::max);
+        let split = text.is_some_and(|t| t > y + EPS);
+        if split {
+            y = text.unwrap_or(y);
+        } else if self.beneath {
             // §17.11.21 pos beneathText: below the last text line of the page.
-            let text = page
-                .lines
-                .iter()
-                .filter(|l| matches!(l.source, LineSource::Body(_)))
-                .map(|l| l.top + l.height)
-                .reduce(f32::max);
             if let Some(t) = text {
                 y = y.min(t);
             }
         }
-        page.items.push(PageItem::Rule {
-            x1: x,
-            y1: y + NOTE_SEPARATOR / 2.0,
-            x2: x + 144.0,
-            y2: y + NOTE_SEPARATOR / 2.0,
-            width: 0.5,
-            color: Color::BLACK,
-            style: "single".into(),
-        });
+        let notice_h = self.notice.as_ref().map_or(0.0, |n| n.h);
+        let limit = self.bottom - if split { notice_h } else { 0.0 };
+        let sep = |page: &mut Page, y: f32, w: f32| {
+            page.items.push(PageItem::Rule {
+                x1: x,
+                y1: y + NOTE_SEPARATOR / 2.0,
+                x2: x + w,
+                y2: y + NOTE_SEPARATOR / 2.0,
+                width: 0.5,
+                color: Color::BLACK,
+                style: "single".into(),
+            });
+        };
+        // §17.11.1 continuationSeparator spans the text width; §17.11.23 separator.
+        sep(page, y, if self.carry.is_empty() { 144.0 } else { full_w });
         y += NOTE_SEPARATOR;
-        for key in &self.notes_on_page {
-            if let Some(st) = self.foot_cache.get(key) {
-                for (top, band) in &st.bands {
+        let entries: Vec<(NoteKey, usize)> = self
+            .carry
+            .iter()
+            .copied()
+            .chain(self.notes_on_page.iter().map(|k| (*k, 0)))
+            .collect();
+        let mut carry: Vec<(NoteKey, usize)> = Vec::new();
+        let mut placed_any = false;
+        for (key, from) in entries {
+            if !carry.is_empty() {
+                carry.push((key, from));
+                continue;
+            }
+            let Some(st) = self.foot_cache.get(&key) else {
+                continue;
+            };
+            let top0 = st.bands.get(from).map_or(st.h, |b| b.0);
+            for (i, (top, band)) in st.bands.iter().enumerate().skip(from) {
+                let by = y + top - top0;
+                if split && placed_any && by + band.h > limit + EPS {
+                    carry.push((key, i));
+                    break;
+                }
+                let mut b = band.translated(x, by);
+                b.set_other();
+                page.lines.extend(b.lines);
+                page.items.extend(b.items);
+                placed_any = true;
+            }
+            if carry.is_empty() {
+                y += st.h - top0;
+            } else if let Some(&(_, i)) = carry.first() {
+                y += st.bands.get(i).map_or(0.0, |b| b.0) - top0;
+            }
+        }
+        if !carry.is_empty() {
+            if let Some(n) = &self.notice {
+                for (top, band) in &n.bands {
                     let mut b = band.translated(x, y + top);
                     b.set_other();
                     page.lines.extend(b.lines);
                     page.items.extend(b.items);
                 }
-                y += st.h;
             }
         }
+        self.carry = carry;
     }
 
     fn new_page(&mut self) {
@@ -479,21 +614,34 @@ impl Flow {
         }
     }
 
-    /// Height added to the footnote area by placing content that references `notes`.
-    fn notes_need(&mut self, ctx: &mut Ctx<'_>, notes: &[NoteKey]) -> Result<f32, LayoutError> {
+    /// Height added to the footnote area by placing content that references `notes`,
+    /// and the footnote slack after it (see [`Flow::foot_slack`]).
+    fn notes_need(
+        &mut self,
+        ctx: &mut Ctx<'_>,
+        notes: &[NoteKey],
+    ) -> Result<(f32, f32), LayoutError> {
         let mut add = 0.0;
+        let mut slack = self.foot_slack;
         let mut seen: Vec<NoteKey> = Vec::new();
         for key in notes {
-            if key.0 || self.notes_on_page.contains(key) || seen.contains(key) {
+            if key.0 || self.on_page(*key) || seen.contains(key) {
                 continue;
             }
             seen.push(*key);
-            add += self.note_stack(ctx, *key)?;
+            let h = self.note_stack(ctx, *key)?;
+            add += h;
+            slack = h - self.remaining(*key, 0).1;
         }
         if add > 0.0 && self.foot_h <= 0.0 {
             add += NOTE_SEPARATOR;
         }
-        Ok(add)
+        Ok((add, slack))
+    }
+
+    /// The note is already in this page's footnote area.
+    fn on_page(&self, key: NoteKey) -> bool {
+        self.notes_on_page.contains(&key) || self.carry.iter().any(|c| c.0 == key)
     }
 
     fn note_stack(&mut self, ctx: &mut Ctx<'_>, key: NoteKey) -> Result<f32, LayoutError> {
@@ -524,14 +672,15 @@ impl Flow {
 
     fn register_notes(&mut self, ctx: &mut Ctx<'_>, notes: &[NoteKey]) -> Result<(), LayoutError> {
         for key in notes {
-            if key.0 || self.notes_on_page.contains(key) {
+            if key.0 || self.on_page(*key) {
                 continue;
             }
             let h = self.note_stack(ctx, *key)?;
-            if self.notes_on_page.is_empty() {
+            if self.foot_h <= 0.0 {
                 self.foot_h += NOTE_SEPARATOR;
             }
             self.foot_h += h;
+            self.foot_slack = h - self.remaining(*key, 0).1;
             self.notes_on_page.push(*key);
         }
         Ok(())
@@ -567,16 +716,18 @@ impl Flow {
         Ok(())
     }
 
-    fn fits(&self, y: f32, h: f32, notes_add: f32) -> bool {
-        y + h <= self.bottom - self.foot_h - notes_add + EPS
+    /// Content `h` tall fits at `y` with `notes_add` more footnote height, of which
+    /// `slack` may continue on the next page.
+    fn fits(&self, y: f32, h: f32, notes_add: f32, slack: f32) -> bool {
+        y + h <= self.bottom - self.foot_h - notes_add + slack + EPS
     }
 
     /// Place an unsplittable band, moving to the next column/page when needed.
     fn place_band(&mut self, ctx: &mut Ctx<'_>, band: &Band) -> Result<(), LayoutError> {
         loop {
-            let add = self.notes_need(ctx, &band.notes)?;
+            let (add, slack) = self.notes_need(ctx, &band.notes)?;
             let y = self.skip_excl(self.y, band.h);
-            if self.fits(y, band.h, add) || !self.col_has_content {
+            if self.fits(y, band.h, add, slack) || !self.col_has_content {
                 self.put(ctx, band, y)?;
                 break;
             }
@@ -594,19 +745,23 @@ impl Flow {
     fn fit_count(&mut self, ctx: &mut Ctx<'_>, lines: &[Band]) -> Result<usize, LayoutError> {
         let mut y = self.y;
         let mut foot = self.foot_h;
+        let mut slack = self.foot_slack;
         let mut seen: Vec<NoteKey> = self.notes_on_page.clone();
+        seen.extend(self.carry.iter().map(|c| c.0));
         for (i, l) in lines.iter().enumerate() {
             for key in &l.notes {
                 if !key.0 && !seen.contains(key) {
-                    if seen.is_empty() {
+                    if foot <= 0.0 {
                         foot += NOTE_SEPARATOR;
                     }
-                    foot += self.note_stack(ctx, *key)?;
+                    let h = self.note_stack(ctx, *key)?;
+                    foot += h;
+                    slack = h - self.remaining(*key, 0).1;
                     seen.push(*key);
                 }
             }
             let ly = self.skip_excl(y, l.h);
-            if ly + l.h > self.bottom - foot + EPS {
+            if ly + l.h > self.bottom - foot + slack + EPS {
                 return Ok(i);
             }
             y = ly + l.h;
@@ -657,7 +812,7 @@ impl Flow {
         if (pb.keep_lines || pb.keep_next)
             && self.col_has_content
             && keep_h <= full
-            && !self.fits(self.y, keep_h, 0.0)
+            && !self.fits(self.y, keep_h, 0.0, self.foot_slack)
         {
             self.next_column();
         }
@@ -666,6 +821,15 @@ impl Flow {
         let mut float_items = Vec::new();
         for img in &pb.floats {
             let (item, excl) = float_item(img, &self.setup, self.col_x(), self.y);
+            // A tracked floating picture (inserted / deleted, or both sides of a move
+            // §17.13.5.22 moveFrom / §17.13.5.25 moveTo) is framed in markup.
+            if ctx.view == crate::RevisionView::Markup {
+                if let (Some(rev), PageItem::Image { x, y, w, h, .. }) =
+                    (src.and_then(|p| float_revision(p, img)), &item)
+                {
+                    float_frame(*x, *y, *w, *h, rev, &mut float_items);
+                }
+            }
             float_items.push(item);
             match excl {
                 Some(Excl::Band(a, b)) => self.excl.push((a, b)),
@@ -804,13 +968,13 @@ impl Flow {
             let mut continuation = false;
             loop {
                 let notes = row_notes(&row);
-                let add = self.notes_need(ctx, &notes)?;
+                let (add, slack) = self.notes_need(ctx, &notes)?;
                 self.y = self.skip_excl(self.y, row.h);
-                if self.fits(self.y, row.h, add) {
+                if self.fits(self.y, row.h, add, slack) {
                     self.place_row(ctx, row_band(&row, row.h, tb.x, continuation, false), false)?;
                     break;
                 }
-                let avail = self.bottom - self.foot_h - add - self.y;
+                let avail = self.bottom - self.foot_h - add + slack - self.y;
                 if !row.cant_split && avail > 6.0 {
                     if let Some((a, b)) = split_row(&row, avail) {
                         self.place_row(ctx, row_band(&a, a.h, tb.x, continuation, true), false)?;
@@ -950,6 +1114,13 @@ impl Flow {
         from: Option<(usize, usize)>,
     ) -> Result<(), LayoutError> {
         let doc = ctx.doc;
+        if let (Some(blocks), Some(sec)) = (&doc.continuation_notice, doc.sections.first()) {
+            let w = (sec.page.width.to_pt()
+                - sec.page.margin_left.to_pt()
+                - sec.page.margin_right.to_pt())
+            .max(36.0);
+            self.notice = Some(stack_blocks(ctx, blocks, w, false, None)?);
+        }
         let (s0, k0) = from.unwrap_or((0, 0));
         for (si, sec) in doc.sections.iter().enumerate().skip(s0) {
             let mut k = 0;
@@ -958,7 +1129,7 @@ impl Flow {
             } else {
                 self.start_section(si, sec, si == 0);
             }
-            self.beneath = sec.footnote_pr.pos == Some(NotePos::BeneathText);
+            self.beneath = doc.footnote_props(si).pos == Some(NotePos::BeneathText);
             let mut next: Option<(Built, u32)> = None;
             while k < sec.blocks.len() {
                 if self.boundary(ctx, si, k, next.is_some()) {
@@ -996,7 +1167,7 @@ impl Flow {
                 k += 1;
             }
             // §17.11.22 pos sectEnd: the section's endnotes at its end.
-            if sec.endnote_pr.pos == Some(NotePos::SectEnd) {
+            if doc.endnote_props(si).pos == Some(NotePos::SectEnd) {
                 let ids = crate::endnotes_in(&sec.blocks);
                 self.place_endnotes(ctx, &ids)?;
             }
@@ -1010,8 +1181,9 @@ impl Flow {
             let placed: Vec<i32> = doc
                 .sections
                 .iter()
-                .filter(|s| s.endnote_pr.pos == Some(NotePos::SectEnd))
-                .flat_map(|s| crate::endnotes_in(&s.blocks))
+                .enumerate()
+                .filter(|(si, _)| doc.endnote_props(*si).pos == Some(NotePos::SectEnd))
+                .flat_map(|(_, s)| crate::endnotes_in(&s.blocks))
                 .collect();
             ctx.endnote_order
                 .iter()
@@ -1021,6 +1193,14 @@ impl Flow {
         };
         self.place_endnotes(ctx, &rest)?;
         self.finish_page();
+        // Footnotes still continuing after the last page get pages of their own.
+        let mut guard = 0;
+        while !self.carry.is_empty() && guard < 10_000 {
+            guard += 1;
+            self.number += 1;
+            self.push_page();
+            self.finish_page();
+        }
         Ok(())
     }
 

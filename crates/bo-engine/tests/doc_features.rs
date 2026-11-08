@@ -483,3 +483,269 @@ fn new_from_template_nd30() {
     assert_eq!(s.page.margin_right.0, 851);
     assert!(doc(&f).plain_text().contains("Độc lập - Tự do - Hạnh phúc"));
 }
+
+fn kinds(e: &mut Engine) -> Vec<(String, Option<String>)> {
+    let r = cmd(e, r#"{"cmd":"review"}"#);
+    r["review"]["revisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| {
+            (
+                x["kind"].as_str().unwrap().to_owned(),
+                x["story"]["kind"].as_str().map(str::to_owned),
+            )
+        })
+        .collect()
+}
+
+fn corpus(name: &str) -> Engine {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/doc")
+        .join(name);
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&std::fs::read(p).unwrap(), name).unwrap();
+    e
+}
+
+#[test]
+fn tracked_columns_merge_and_header_row_saved_and_rejected() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertTable","rows":3,"cols":2}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"A"}"#);
+    let original = reopen(&e);
+    let mut e = reopen(&e);
+    cmd(&mut e, r#"{"cmd":"setTrackChanges","on":true}"#);
+    cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":80}"#);
+    for edit in [
+        r#"{"kind":"insertColumn","right":true}"#,
+        r#"{"kind":"headerRow","on":true}"#,
+        r#"{"kind":"splitCell"}"#,
+    ] {
+        cmd(&mut e, &format!(r#"{{"cmd":"tableEdit","edit":{edit}}}"#));
+    }
+    // An original cell of the last row, deleted (shift left).
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd","extend":false}"#);
+    cmd(&mut e, r#"{"cmd":"move","motion":"up","extend":false}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"tableEdit","edit":{"kind":"deleteCell"}}"#,
+    );
+    // cellIns + tblGridChange, trPrChange, cellDel: written and read back.
+    let mut f = reopen(&e);
+    let k = kinds(&mut f);
+    for want in ["cellInsert", "rowFormat", "cellDelete"] {
+        assert!(k.iter().any(|x| x.0 == want), "{want} in {k:?}");
+    }
+    let Block::Table(t) = &doc(&f).sections[0].blocks[0] else {
+        panic!("table")
+    };
+    assert!(t.grid_change.is_some());
+    cmd(&mut f, r#"{"cmd":"rejectAllRevisions"}"#);
+    let (Block::Table(x), Block::Table(y)) = (
+        &doc(&f).sections[0].blocks[0],
+        &doc(&original).sections[0].blocks[0],
+    ) else {
+        panic!("tables");
+    };
+    assert_eq!((&x.props, &x.grid, &x.rows), (&y.props, &y.grid, &y.rows));
+}
+
+#[test]
+fn tracked_header_and_footnote_edits_through_the_bridge() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Thân bài"}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertNote","endnote":false,"text":"Ghi chú"}"#,
+    );
+    cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":100}"#);
+    // Header with some text, untracked.
+    cmd(
+        &mut e,
+        r#"{"cmd":"click","page":0,"x":100,"y":30,"count":2}"#,
+    );
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Đầu trang"}"#);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    let original = reopen(&e);
+    let mut e = reopen(&e);
+    cmd(&mut e, r#"{"cmd":"setTrackChanges","on":true}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"click","page":0,"x":100,"y":30,"count":2}"#,
+    );
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd","extend":false}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":" mới"}"#);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    let id = *doc(&e).footnotes.keys().next().unwrap();
+    cmd(
+        &mut e,
+        &format!(r#"{{"cmd":"editNote","endnote":false,"id":{id}}}"#),
+    );
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd","extend":false}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":" thêm"}"#);
+    cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":100}"#);
+    let mut f = reopen(&e);
+    let k = kinds(&mut f);
+    assert!(k.iter().any(|x| x.1.as_deref() == Some("header")), "{k:?}");
+    assert!(
+        k.iter().any(|x| x.1.as_deref() == Some("footnote")),
+        "{k:?}"
+    );
+    cmd(&mut f, r#"{"cmd":"rejectAllRevisions"}"#);
+    assert_eq!(kinds(&mut f).len(), 0);
+    assert_eq!(
+        hf_text(doc(&f).sections[0].headers.default.as_ref()),
+        hf_text(doc(&original).sections[0].headers.default.as_ref())
+    );
+    let text = |d: &Document| {
+        d.footnotes
+            .values()
+            .map(|b| hf_text(Some(b)))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(text(doc(&f)), text(doc(&original)));
+}
+
+#[test]
+fn tracked_picture_move_saved_and_rejected() {
+    let mut e = corpus("images-04-wrap-square-sides.docx");
+    let original = reopen(&e);
+    cmd(&mut e, r#"{"cmd":"setTrackChanges","on":true}"#);
+    // The first paragraph with a floating picture.
+    let n = e.document().unwrap().sections[0].blocks.len();
+    let mut moved = false;
+    for i in 0..n {
+        let r = cmd(
+            &mut e,
+            &format!(
+                r#"{{"cmd":"setSelection","selection":{{"anchor":{{"p":{i},"o":0}},"focus":{{"p":{i},"o":0}}}}}}"#
+            ),
+        );
+        if !r["format"]["picture"].is_null() {
+            cmd(&mut e, r#"{"cmd":"setPicturePosition","x":120,"y":10}"#);
+            moved = true;
+            break;
+        }
+    }
+    assert!(moved, "no floating picture");
+    let mut f = reopen(&e);
+    let k = kinds(&mut f);
+    assert!(
+        k.iter().any(|x| x.0 == "moveFrom") && k.iter().any(|x| x.0 == "moveTo"),
+        "{k:?}"
+    );
+    cmd(&mut f, r#"{"cmd":"rejectAllRevisions"}"#);
+    assert_eq!(doc(&f).plain_text(), doc(&original).plain_text());
+}
+
+#[test]
+fn corpus_structure_and_story_revisions() {
+    for (name, want) in [
+        (
+            "review-05-columns-cells.docx",
+            vec!["cellInsert", "cellDelete", "rowFormat"],
+        ),
+        (
+            "review-06-merge-split.docx",
+            vec!["cellMerge", "cellDelete", "cellInsert", "rowFormat"],
+        ),
+        (
+            "review-07-row-properties.docx",
+            vec!["rowFormat", "cellMerge", "cellInsert", "cellDelete"],
+        ),
+        ("review-11-picture-move.docx", vec!["moveFrom", "moveTo"]),
+        (
+            "review-12-picture-move-paragraph.docx",
+            vec!["moveFrom", "moveTo"],
+        ),
+        (
+            "review-13-picture-insert-delete-move.docx",
+            vec!["insert", "delete", "moveFrom", "moveTo"],
+        ),
+    ] {
+        let mut e = corpus(name);
+        let k = kinds(&mut e);
+        for w in want {
+            assert!(k.iter().any(|x| x.0 == w), "{name}: {w} in {k:?}");
+        }
+        // Accept all leaves no revision, reject all neither; both lay out.
+        let mut a = reopen(&e);
+        cmd(&mut a, r#"{"cmd":"acceptAllRevisions"}"#);
+        assert_eq!(kinds(&mut a).len(), 0, "{name}");
+        cmd(&mut e, r#"{"cmd":"rejectAllRevisions"}"#);
+        assert_eq!(kinds(&mut e).len(), 0, "{name}");
+    }
+    for (name, stories) in [
+        (
+            "review-08-header-footer.docx",
+            vec!["header", "footer", "footnote"],
+        ),
+        (
+            "review-09-notes.docx",
+            vec!["header", "footnote", "endnote"],
+        ),
+        (
+            "review-10-stories-mixed.docx",
+            vec!["header", "footer", "footnote"],
+        ),
+    ] {
+        let mut e = corpus(name);
+        let k = kinds(&mut e);
+        for s in stories {
+            assert!(
+                k.iter().any(|x| x.1.as_deref() == Some(s)),
+                "{name}: {s} in {k:?}"
+            );
+        }
+        cmd(&mut e, r#"{"cmd":"acceptAllRevisions"}"#);
+        assert_eq!(kinds(&mut e).len(), 0, "{name}");
+    }
+}
+
+#[test]
+fn corpus_long_footnotes_continue() {
+    for name in [
+        "notes-05-long-footnote.docx",
+        "notes-06-continuation-notice.docx",
+        "notes-07-document-note-settings.docx",
+    ] {
+        let e = corpus(name);
+        let l = e.layout().unwrap();
+        // Some footnote has lines on two pages.
+        let mut pages: std::collections::HashMap<i32, Vec<usize>> =
+            std::collections::HashMap::default();
+        for (pi, p) in l.pages.iter().enumerate() {
+            for x in &p.lines {
+                if let bo_layout::LineSource::Note {
+                    endnote: false, id, ..
+                } = x.source
+                {
+                    let v = pages.entry(id).or_default();
+                    if !v.contains(&pi) {
+                        v.push(pi);
+                    }
+                }
+            }
+        }
+        assert!(pages.values().any(|v| v.len() > 1), "{name}: {pages:?}");
+    }
+    // §17.11.11 document-wide numFmt upperRoman, numStart 3.
+    let e = corpus("notes-05-long-footnote.docx");
+    assert!(e.layout().unwrap().pages.iter().any(|p| p
+        .lines
+        .iter()
+        .any(|l| l.fragments.iter().any(|f| f.text == "III"))));
+    let e = corpus("notes-06-continuation-notice.docx");
+    let all: String = e
+        .layout()
+        .unwrap()
+        .pages
+        .iter()
+        .flat_map(|p| p.lines.iter())
+        .flat_map(|l| l.fragments.iter().map(|f| f.text.to_string()))
+        .collect();
+    assert!(all.contains("tiếp"), "continuation notice shown");
+}

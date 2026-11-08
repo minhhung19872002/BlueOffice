@@ -1391,6 +1391,262 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         sect: s,
         ..Doc::default()
     }));
+
+    // ---- track changes: table structure (§17.13.5.3 cellDel, §17.13.5.4 cellIns,
+    // §17.13.5.6 cellMerge, §17.13.5.33 tblGridChange, §17.13.5.36 tcPrChange,
+    // §17.13.5.37 trPrChange)
+    let grid_change = |id: i32, cols: &[i32]| {
+        let g: String = cols
+            .iter()
+            .map(|w| format!(r#"<w:gridCol w:w="{w}"/>"#))
+            .collect();
+        format!(
+            r#"<w:tblGridChange w:id="{id}"><w:tblGrid>{g}</w:tblGrid></w:tblGridChange></w:tblGrid>"#
+        )
+    };
+    let tc_change = |id: i32, d: &str, old: &str| {
+        format!(r#"<w:tcPrChange w:id="{id}" {d}><w:tcPr>{old}</w:tcPr></w:tcPrChange>"#)
+    };
+    let header_row = |id: i32, d: &str| {
+        format!(r#"<w:tblHeader/><w:trPrChange w:id="{id}" {d}><w:trPr/></w:trPrChange>"#)
+    };
+    v.push(("review-05-columns-cells.docx", "review", "Track changes bảng: cột chèn (cellIns từng hàng + tblGridChange), cột xoá (cellDel), ô chèn đẩy phải / ô xoá đẩy trái, hàng tiêu đề lặp lại mới (trPrChange)", Doc {
+        body: [
+            p("Bảng có cột giữa được chèn và cột cuối bị xoá:"),
+            table(&[3000, 3000, 3000], &(0..4).map(|r| {
+                let hr = if r == 0 { header_row(501, d1) } else { String::new() };
+                row(&hr, &[
+                    cell(3000, "", &format!("Cột A{r}")),
+                    cell(3000, &format!(r#"<w:cellIns w:id="502" {d1}/>"#), &format!("Cột mới {r}")),
+                    cell(3000, &format!(r#"<w:cellDel w:id="503" {d2}/>"#), &format!("Cột xoá {r}")),
+                ])
+            }).collect::<Vec<_>>(), r#"<w:tblW w:w="0" w:type="auto"/>"#)
+                .replace("</w:tblGrid>", &grid_change(502, &[4500, 4500])),
+            p("Ô chèn đẩy sang phải và ô xoá đẩy sang trái:"),
+            table(&[4500, 4500, 4500], &[
+                row("", &[cell(4500, "", "Một"), cell(4500, "", "Hai")]),
+                row("", &[cell(4500, &format!(r#"<w:cellIns w:id="504" {d2}/>"#), "Ô chèn"), cell(4500, "", "Ba"), cell(4500, "", "Bốn")]),
+                row("", &[cell(4500, &format!(r#"<w:cellDel w:id="505" {d1}/>"#), "Ô xoá"), cell(4500, "", "Năm")]),
+            ], r#"<w:tblW w:w="0" w:type="auto"/>"#).replace("</w:tblGrid>", &grid_change(504, &[4500, 4500])),
+            lorem(1),
+        ].concat(),
+        sect: sect(""),
+        ..Doc::default()
+    }));
+    v.push(("review-06-merge-split.docx", "review", "Track changes gộp/tách ô: gộp ngang (tcPrChange gridSpan + cellDel ô bị gộp), gộp dọc (cellMerge vMerge=cont/rest), tách ô (cellIns + tcPrChange), hàng không ngắt trang mới (trPrChange)", Doc {
+        body: [
+            p("Gộp ngang hai ô của hàng đầu, gộp dọc cột đầu của hai hàng sau:"),
+            table(&[3000, 3000, 3000], &[
+                row(&format!(r#"<w:cantSplit/><w:trPrChange w:id="601" {d2}><w:trPr/></w:trPrChange>"#), &[
+                    cell(6000, &format!(r#"<w:gridSpan w:val="2"/>{}"#, tc_change(602, d1, r#"<w:tcW w:w="3000" w:type="dxa"/>"#)), "Ô gộp"),
+                    cell(3000, &format!(r#"<w:cellDel w:id="602" {d1}/>"#), "bị gộp"),
+                    cell(3000, "", "Giữ"),
+                ]),
+                row("", &[
+                    cell(3000, &format!(r#"<w:vMerge w:val="restart"/><w:cellMerge w:id="603" {d2} w:vMerge="rest"/>"#), "Gộp dọc"),
+                    cell(3000, "", "B1"),
+                    cell(3000, "", "C1"),
+                ]),
+                row("", &[
+                    cell(3000, &format!(r#"<w:vMerge/><w:cellMerge w:id="603" {d2} w:vMerge="cont"/>"#), ""),
+                    cell(3000, "", "B2"),
+                    cell(3000, "", "C2"),
+                ]),
+            ], r#"<w:tblW w:w="0" w:type="auto"/>"#),
+            p("Tách một ô thành hai cột:"),
+            table(&[2000, 2500, 4500], &[
+                row("", &[
+                    cell(2000, &tc_change(604, d1, r#"<w:tcW w:w="4500" w:type="dxa"/>"#), "Nửa trái"),
+                    cell(2500, &format!(r#"<w:cellIns w:id="604" {d1}/>"#), "Nửa phải"),
+                    cell(4500, "", "Khác"),
+                ]),
+                row("", &[cell(4500, &format!(r#"<w:gridSpan w:val="2"/>{}"#, tc_change(605, d1, r#"<w:tcW w:w="4500" w:type="dxa"/>"#)), "Hàng hai"), cell(4500, "", "x")]),
+            ], r#"<w:tblW w:w="0" w:type="auto"/>"#).replace("</w:tblGrid>", &grid_change(604, &[4500, 4500])),
+            lorem(1),
+        ].concat(),
+        sect: sect(""),
+        ..Doc::default()
+    }));
+    v.push(("review-07-row-properties.docx", "review", "Track changes thuộc tính hàng: bỏ hàng tiêu đề, đổi chiều cao (trPrChange), tách gộp dọc (cellMerge vMergeOrig), cột chèn trong bảng lồng nhau, ô xoá", Doc {
+        body: [
+            table(&[4677, 4678], &[
+                row(&format!(r#"<w:trHeight w:val="600"/><w:trPrChange w:id="701" {d1}><w:trPr><w:trHeight w:val="400"/><w:tblHeader/></w:trPr></w:trPrChange>"#), &[cell(4677, "", "Hết là hàng tiêu đề"), cell(4678, "", "cao hơn")]),
+                row("", &[
+                    cell(4677, &format!(r#"<w:cellMerge w:id="702" {d2} w:vMergeOrig="rest"/>"#), "Đã tách"),
+                    format!(r#"<w:tc><w:tcPr><w:tcW w:w="4678" w:type="dxa"/></w:tcPr>{}{}</w:tc>"#,
+                        table(&[2000, 2000], &[row("", &[
+                            cell(2000, "", "Lồng"),
+                            cell(2000, &format!(r#"<w:cellIns w:id="703" {d1}/>"#), "Cột chèn"),
+                        ])], r#"<w:tblW w:w="0" w:type="auto"/>"#).replace("</w:tblGrid>", &grid_change(703, &[4000])),
+                        p("")),
+                ]),
+                row("", &[
+                    cell(4677, &format!(r#"<w:cellMerge w:id="702" {d2} w:vMergeOrig="cont"/>"#), "Từng gộp"),
+                    cell(4678, &format!(r#"<w:cellDel w:id="704" {d2}/>"#), "Ô xoá"),
+                ]),
+            ], r#"<w:tblW w:w="0" w:type="auto"/>"#),
+            lorem(1),
+        ].concat(),
+        sect: sect(""),
+        ..Doc::default()
+    }));
+
+    // ---- track changes inside headers, footers and notes (§17.10, §17.11, §17.13.5)
+    let hdr_rev = |text: &str, id: i32, d: &str| {
+        format!(
+            r#"<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t xml:space="preserve">{text} </w:t></w:r><w:ins w:id="{id}" {d}><w:r><w:t>(sửa đổi)</w:t></w:r></w:ins><w:del w:id="{}" {d}><w:r><w:delText xml:space="preserve"> (bản cũ)</w:delText></w:r></w:del></w:p>"#,
+            id + 1
+        )
+    };
+    let fnote_rev = |id: i32, rid: i32, d: &str, t: &str| {
+        format!(
+            r#"<w:footnote w:id="{id}"><w:p><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r><w:t xml:space="preserve"> {t} </w:t></w:r><w:ins w:id="{rid}" {d}><w:r><w:t>bổ sung</w:t></w:r></w:ins><w:del w:id="{}" {d}><w:r><w:delText xml:space="preserve"> đã bỏ</w:delText></w:r></w:del></w:p></w:footnote>"#,
+            rid + 1
+        )
+    };
+    let fref = |id: i32| {
+        format!(
+            r#"<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="{id}"/></w:r>"#
+        )
+    };
+    v.push(("review-08-header-footer.docx", "review", "Track changes trong đầu/chân trang: ins/del ở đầu trang, rPrChange ở chân trang, kèm thay đổi trong chú thích cuối trang", Doc {
+        body: format!(r#"<w:p><w:r><w:t>Văn bản có đầu trang được sửa</w:t></w:r>{}</w:p>{}"#, fref(1), lorem(2)),
+        sect: sect(&[hdr_ref("header", "default", "rId10"), hdr_ref("footer", "default", "rId11")].concat()),
+        hf: vec![
+            ("rId10".into(), "header", hdr_rev("CÔNG TY GIẢ ĐỊNH", 801, d1)),
+            ("rId11".into(), "footer", format!(r#"<w:p><w:r><w:rPr><w:b/><w:rPrChange w:id="803" {d2}><w:rPr/></w:rPrChange></w:rPr><w:t>Chân trang in đậm (trước: thường)</w:t></w:r></w:p>"#)),
+        ],
+        footnotes: Some(fnote_rev(1, 804, d2, "Ghi chú có sửa đổi:")),
+        ..Doc::default()
+    }));
+    v.push(("review-09-notes.docx", "review", "Track changes trong chú thích: footnote có ins/del, endnote có pPrChange và dấu đoạn chèn, đầu trang trang đầu có thay đổi", Doc {
+        body: format!(r#"<w:p><w:r><w:t>Điều khoản</w:t></w:r>{}<w:r><w:t xml:space="preserve"> và nguồn</w:t></w:r><w:r><w:endnoteReference w:id="1"/></w:r></w:p>{}"#, fref(1), lorem(2)),
+        sect: sect(&[hdr_ref("header", "first", "rId10"), "<w:titlePg/>".to_owned()].concat()).replace("<w:titlePg/><w:pgSz", "<w:pgSz").replace("<w:docGrid", "<w:titlePg/><w:docGrid"),
+        hf: vec![("rId10".into(), "header", hdr_rev("TRANG ĐẦU", 901, d2))],
+        footnotes: Some(fnote_rev(1, 903, d1, "Footnote:")),
+        endnotes: Some(format!(r#"<w:endnote w:id="1"><w:p><w:pPr><w:jc w:val="both"/><w:pPrChange w:id="905" {d1}><w:pPr/></w:pPrChange></w:pPr><w:r><w:endnoteRef/></w:r><w:r><w:t xml:space="preserve"> Endnote căn đều (trước: trái).</w:t></w:r></w:p><w:p><w:pPr><w:rPr><w:ins w:id="906" {d2}/></w:rPr></w:pPr><w:ins w:id="907" {d2}><w:r><w:t>Đoạn mới trong endnote.</w:t></w:r></w:ins></w:p><w:p><w:r><w:t>Đoạn cuối.</w:t></w:r></w:p></w:endnote>"#)),
+        ..Doc::default()
+    }));
+    v.push(("review-10-stories-mixed.docx", "review", "Track changes trong đầu/chân trang chẵn lẻ (evenAndOddHeaders) và nhiều chú thích, kèm thay đổi ở thân văn bản", Doc {
+        body: [
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Thân văn bản </w:t></w:r><w:ins w:id="1001" {d1}><w:r><w:t>có chèn</w:t></w:r></w:ins>{}</w:p>"#, fref(1)),
+            lorem(6),
+            format!(r#"<w:p><w:r><w:t>Chú thích thứ hai</w:t></w:r>{}</w:p>"#, fref(2)),
+            lorem(6),
+        ].concat(),
+        sect: sect(&[hdr_ref("header", "default", "rId10"), hdr_ref("header", "even", "rId11"), hdr_ref("footer", "default", "rId12")].concat()),
+        hf: vec![
+            ("rId10".into(), "header", hdr_rev("Trang lẻ", 1002, d1)),
+            ("rId11".into(), "header", hdr_rev("Trang chẵn", 1004, d2)),
+            ("rId12".into(), "footer", format!(r#"<w:p><w:pPr><w:jc w:val="right"/><w:pPrChange w:id="1006" {d2}><w:pPr/></w:pPrChange></w:pPr><w:r><w:t>Chân trang căn phải</w:t></w:r></w:p>"#)),
+        ],
+        footnotes: Some(fnote_rev(1, 1007, d1, "Một:") + &fnote_rev(2, 1009, d2, "Hai:")),
+        settings: Some(r#"<w:zoom w:percent="100"/><w:defaultTabStop w:val="720"/><w:evenAndOddHeaders/><w:characterSpacingControl w:val="doNotCompress"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>"#.to_owned()),
+        ..Doc::default()
+    }));
+
+    // ---- track changes: floating picture moves (§17.13.5.22 moveFrom, §17.13.5.25
+    // moveTo, §20.4.2.3 anchor)
+    let moved_pic = |id: u32, x: i64, y: i64, wrap: &str| {
+        wrap_pic(
+            id,
+            "rId20",
+            (914_400, 685_800),
+            (x, y),
+            [0, 0, 114_300, 114_300],
+            wrap,
+        )
+    };
+    let mv = |tag: &str, id: i32, d: &str, inner: &str| {
+        format!(r#"<w:{tag} w:id="{id}" {d}>{inner}</w:{tag}>"#)
+    };
+    v.push(("review-11-picture-move.docx", "review", "Track changes ảnh nổi đổi vị trí trong cùng đoạn: moveFrom (vị trí cũ) + moveTo (vị trí mới), bao chữ square", Doc {
+        body: [
+            format!(r#"<w:p>{}{}<w:r><w:t xml:space="preserve">{} </w:t></w:r></w:p>"#,
+                mv("moveFrom", 1101, d1, &moved_pic(1, 0, 0, r#"<wp:wrapSquare wrapText="bothSides"/>"#)),
+                mv("moveTo", 1101, d1, &moved_pic(2, 2_743_200, 228_600, r#"<wp:wrapSquare wrapText="bothSides"/>"#)),
+                VI.concat()),
+            lorem(2),
+        ].concat(),
+        sect: sect(""),
+        images: vec![("rId20".into(), png(6, 4, [30, 110, 200]))],
+        ..Doc::default()
+    }));
+    v.push(("review-12-picture-move-paragraph.docx", "review", "Track changes ảnh nổi chuyển sang đoạn khác: moveFrom/moveTo kèm moveFromRangeStart/End, moveToRangeStart/End, bao chữ top-and-bottom", Doc {
+        body: [
+            format!(r#"<w:p><w:moveFromRangeStart w:id="1201" {d2} w:name="move2"/>{}<w:moveFromRangeEnd w:id="1201"/><w:r><w:t>Đoạn có ảnh lúc đầu.</w:t></w:r></w:p>"#,
+                mv("moveFrom", 1202, d2, &moved_pic(1, 0, 0, "<wp:wrapTopAndBottom/>"))),
+            lorem(2),
+            format!(r#"<w:p><w:moveToRangeStart w:id="1203" {d2} w:name="move2"/>{}<w:moveToRangeEnd w:id="1203"/><w:r><w:t>Ảnh đã chuyển tới đoạn này.</w:t></w:r></w:p>"#,
+                mv("moveTo", 1204, d2, &moved_pic(2, 1_828_800, 0, "<wp:wrapTopAndBottom/>"))),
+            lorem(1),
+        ].concat(),
+        sect: sect(""),
+        images: vec![("rId20".into(), png(6, 4, [200, 140, 20]))],
+        ..Doc::default()
+    }));
+    v.push(("review-13-picture-insert-delete-move.docx", "review", "Track changes ảnh nổi: chèn (w:ins), xoá (w:del) và di chuyển (moveFrom/moveTo, bao chữ tight) của hai tác giả", Doc {
+        body: [
+            format!(r#"<w:p>{}<w:r><w:t xml:space="preserve">Ảnh nổi được chèn. {} </w:t></w:r></w:p>"#,
+                mv("ins", 1301, d1, &moved_pic(1, 3_657_600, 0, r#"<wp:wrapSquare wrapText="left"/>"#)), VI[0]),
+            format!(r#"<w:p>{}<w:r><w:t xml:space="preserve">Ảnh nổi bị xoá. {} </w:t></w:r></w:p>"#,
+                mv("del", 1302, d2, &moved_pic(2, 0, 0, r#"<wp:wrapSquare wrapText="right"/>"#)), VI[1]),
+            format!(r#"<w:p>{}{}<w:r><w:t xml:space="preserve">Ảnh nổi dời chỗ. {} </w:t></w:r></w:p>"#,
+                mv("moveFrom", 1303, d1, &moved_pic(3, 0, 0, &tight("bothSides", &[(0, 0), (21_600, 0), (21_600, 21_600), (0, 21_600)]))),
+                mv("moveTo", 1303, d1, &moved_pic(4, 1_828_800, 114_300, &tight("bothSides", &[(0, 0), (21_600, 0), (21_600, 21_600), (0, 21_600)]))),
+                VI[2]),
+        ].concat(),
+        sect: sect(""),
+        images: vec![("rId20".into(), png(5, 5, [60, 160, 90]))],
+        ..Doc::default()
+    }));
+
+    // ---- footnotes continued on the next page (§17.11.1 continuationSeparator) and
+    // document-wide footnotePr / endnotePr in settings.xml (§17.11.11, §17.11.4)
+    let long_note = |id: i32, paras: usize| {
+        let mut x = format!(r#"<w:footnote w:id="{id}">"#);
+        for i in 0..paras {
+            let mark = if i == 0 {
+                r#"<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r>"#
+            } else {
+                ""
+            };
+            x.push_str(&format!(r#"<w:p>{mark}<w:r><w:t xml:space="preserve"> Đoạn {} của chú thích dài: {}</w:t></w:r></w:p>"#, i + 1, VI[i % VI.len()]));
+        }
+        x.push_str("</w:footnote>");
+        x
+    };
+    let notice = r#"<w:footnote w:type="continuationNotice" w:id="1"><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:i/></w:rPr><w:t>(xem tiếp trang sau)</w:t></w:r></w:p></w:footnote>"#;
+    let settings = |extra: &str| {
+        format!(
+            r#"<w:zoom w:percent="100"/><w:defaultTabStop w:val="720"/><w:characterSpacingControl w:val="doNotCompress"/>{extra}<w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>"#
+        )
+    };
+    v.push(("notes-05-long-footnote.docx", "notes", "Chú thích cuối trang dài chuyển tiếp sang trang sau (continuationSeparator); footnotePr cấp tài liệu trong settings.xml: numFmt upperRoman, numStart 3", Doc {
+        body: format!(r#"{}<w:p><w:r><w:t>Điều khoản có chú thích dài</w:t></w:r>{}</w:p>{}"#, lorem(30), fref(2), lorem(8)),
+        sect: sect(""),
+        footnotes: Some(long_note(2, 24)),
+        settings: Some(settings(r#"<w:footnotePr><w:numFmt w:val="upperRoman"/><w:numStart w:val="3"/><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr>"#)),
+        ..Doc::default()
+    }));
+    v.push(("notes-06-continuation-notice.docx", "notes", "Chú thích dài có thông báo tiếp trang (footnote type continuationNotice); settings footnotePr pos beneathText, numRestart eachPage; hai chú thích trên trang", Doc {
+        body: format!(r#"{}<w:p><w:r><w:t>Chú thích ngắn</w:t></w:r>{}</w:p>{}<w:p><w:r><w:t>Chú thích dài</w:t></w:r>{}</w:p>{}"#, lorem(10), fref(2), lorem(18), fref(3), lorem(10)),
+        sect: sect(""),
+        footnotes: Some(format!(r#"{notice}<w:footnote w:id="2"><w:p><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r><w:t xml:space="preserve"> Chú thích ngắn.</w:t></w:r></w:p></w:footnote>{}"#, long_note(3, 22))),
+        settings: Some(settings(r#"<w:footnotePr><w:pos w:val="beneathText"/><w:numRestart w:val="eachPage"/><w:footnote w:id="-1"/><w:footnote w:id="0"/><w:footnote w:id="1"/></w:footnotePr>"#)),
+        ..Doc::default()
+    }));
+    v.push(("notes-07-document-note-settings.docx", "notes", "footnotePr/endnotePr cấp tài liệu (settings.xml) bị section ghi đè: footnote lowerLetter của tài liệu, section 2 dùng decimal; endnote decimal cuối section (sectEnd); chú thích dài nhiều đoạn", Doc {
+        body: format!(
+            r#"<w:p><w:r><w:t>Phần một</w:t></w:r>{}<w:r><w:t xml:space="preserve"> nguồn</w:t></w:r><w:r><w:endnoteReference w:id="1"/></w:r></w:p>{}<w:p><w:pPr><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/><w:cols w:space="708"/></w:sectPr></w:pPr><w:r><w:t>Hết phần một</w:t></w:r></w:p>{}<w:p><w:r><w:t>Phần hai</w:t></w:r>{}</w:p>{}"#,
+            fref(2), lorem(26), lorem(2), fref(3), lorem(2)
+        ),
+        sect: r#"<w:sectPr><w:footnotePr><w:numFmt w:val="decimal"/><w:numRestart w:val="eachSect"/></w:footnotePr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/><w:cols w:space="708"/></w:sectPr>"#.to_owned(),
+        footnotes: Some(long_note(2, 20) + &long_note(3, 2)),
+        endnotes: Some(r#"<w:endnote w:id="1"><w:p><w:r><w:endnoteRef/></w:r><w:r><w:t xml:space="preserve"> Nguồn giả định của phần một.</w:t></w:r></w:p></w:endnote>"#.to_owned()),
+        settings: Some(settings(r#"<w:footnotePr><w:numFmt w:val="lowerLetter"/></w:footnotePr><w:endnotePr><w:pos w:val="sectEnd"/><w:numFmt w:val="decimal"/></w:endnotePr>"#)),
+        ..Doc::default()
+    }));
     v
 }
 

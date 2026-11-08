@@ -119,6 +119,7 @@ fn two_columns(widths: [i32; 2], left: Vec<Block>, right: Vec<Block>) -> Block {
             ..TableProps::default()
         },
         grid: vec![Twips(widths[0]), Twips(widths[1])],
+        grid_change: None,
         rows: vec![Row {
             props: RowProps::default(),
             cells: vec![cell(widths[0], left), cell(widths[1], right)],

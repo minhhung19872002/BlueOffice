@@ -5,13 +5,13 @@
 
 use crate::{DocxError, Result};
 use bo_model::{
-    fingerprint, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellProps,
-    CellPropsChange, CellVAlign, Color, Columns, Comment, Document, Emu, HalfPoints, HeaderFooter,
-    HeightRule, Image, Level, LineSpacing, NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef,
-    Numbering, ParaProps, ParaPropsChange, Paragraph, Raw, RevMark, RevisionInfo, Row, Run,
-    RunContent, RunProps, RunPropsChange, Section, SectionBreak, SourcePackage, Style, StyleKind,
-    StyleSheet, TabAlign, TabLeader, TabStop, Table, TableProps, TablePropsChange, TableWidth,
-    Twips, Underline, VMerge, VertAlign, Wrap, WrapText,
+    fingerprint, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellMerge,
+    CellProps, CellPropsChange, CellVAlign, Color, Columns, Comment, Document, Emu, GridChange,
+    HalfPoints, HeaderFooter, HeightRule, Image, Level, LineSpacing, NotePos, NoteProps,
+    NoteRestart, Num, NumFormat, NumRef, Numbering, ParaProps, ParaPropsChange, Paragraph, Raw,
+    RevMark, RevisionInfo, Row, RowPropsChange, Run, RunContent, RunProps, RunPropsChange, Section,
+    SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table,
+    TableProps, TablePropsChange, TableWidth, Twips, Underline, VMerge, VertAlign, Wrap, WrapText,
 };
 use bo_opc::xml::{attr, unescape, XmlReader};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -104,9 +104,13 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         if let Some(name) = pkg.related_part(&main, rel)? {
             if let Some(p) = pkg.part(&name) {
                 let nctx = Ctx::new(&pkg, &name)?;
-                let map = read_notes(&p.data, &nctx, &mut media)?;
+                let (map, notice) = read_notes(&p.data, &nctx, &mut media)?;
                 if notes {
                     doc.footnotes = map;
+                    doc.continuation_notice = notice.filter(|b| {
+                        b.iter()
+                            .any(|b| b.as_paragraph().is_none_or(|p| !p.plain_text().is_empty()))
+                    });
                 } else {
                     doc.endnotes = map;
                 }
@@ -528,6 +532,16 @@ fn read_settings(data: &[u8], part: &str, doc: &mut Document) -> Result<()> {
     let mut r = XmlReader::new(data, part);
     loop {
         match r.read()? {
+            // §17.11.11 footnotePr / §17.11.4 endnotePr (document-wide, CT_FtnDocProps /
+            // CT_EdnDocProps: the separator references they hold are not needed).
+            Event::Start(e) if matches!(name(&e).as_slice(), b"footnotePr" | b"endnotePr") => {
+                let np = read_note_pr(&mut r)?;
+                if name(&e) == b"footnotePr" {
+                    doc.footnote_pr = np;
+                } else {
+                    doc.endnote_pr = np;
+                }
+            }
             Event::Start(e) | Event::Empty(e) => match name(&e).as_slice() {
                 b"defaultTabStop" => doc.default_tab_stop = twips(&e, b"val"),
                 b"evenAndOddHeaders" => doc.even_and_odd_headers = on_off(&e),
@@ -540,23 +554,33 @@ fn read_settings(data: &[u8], part: &str, doc: &mut Document) -> Result<()> {
     Ok(())
 }
 
+/// Notes of a part by id and the continuation notice (§17.18.33).
+type NotesPart = (BTreeMap<i32, Vec<Block>>, Option<Vec<Block>>);
+
 /// §17.11 footnotes / endnotes.
 fn read_notes(
     data: &[u8],
     ctx: &Ctx<'_>,
     media: &mut BTreeMap<String, Arc<Vec<u8>>>,
-) -> Result<BTreeMap<i32, Vec<Block>>> {
+) -> Result<NotesPart> {
     let mut r = XmlReader::new(data, &ctx.part);
     let mut out = BTreeMap::new();
+    let mut notice = None;
     loop {
         match r.read()? {
             Event::Start(e) => match name(&e).as_slice() {
                 b"footnote" | b"endnote" => {
                     let id = int(&e, b"id").unwrap_or(0) as i32;
-                    let special = attr(&e, b"type").is_some_and(|t| t != "normal");
+                    // §17.18.33 ST_FtnEdn: separator, continuationSeparator,
+                    // continuationNotice or normal.
+                    let kind = attr(&e, b"type");
                     let blocks = read_blocks(&mut r, ctx, media, &mut None)?;
-                    if !special {
-                        out.insert(id, blocks);
+                    match kind.as_deref() {
+                        None | Some("normal") => {
+                            out.insert(id, blocks);
+                        }
+                        Some("continuationNotice") => notice = Some(blocks),
+                        _ => {}
                     }
                 }
                 b"footnotes" | b"endnotes" => {}
@@ -566,7 +590,7 @@ fn read_notes(
             _ => {}
         }
     }
-    Ok(out)
+    Ok((out, notice))
 }
 
 // ---------------------------------------------------------------- body
@@ -999,7 +1023,9 @@ fn read_run(
                 let raw = Raw::new(r.slice(before, r.pos()), 0);
                 match img {
                     Some(mut img) => {
-                        img.src = Some(raw);
+                        // The fingerprint of the position as read: a moved floating
+                        // picture is written again (§20.4.2.3 anchor).
+                        img.src = Some(Raw::new(raw.xml, fingerprint(&img.anchor)));
                         run.content.push(RunContent::Image(Box::new(img)));
                     }
                     None => run.content.push(RunContent::Opaque(raw)),
@@ -1619,9 +1645,29 @@ fn read_table(
         match name(e).as_slice() {
             b"tblPr" if s => t.props = read_tblpr(r)?,
             b"tblGrid" if s => {
-                children(r, |_, e, s, _| {
-                    if name(e) == b"gridCol" {
-                        t.grid.push(twips(e, b"w").unwrap_or(Twips(0)));
+                children(r, |r, e, s, _| {
+                    match name(e).as_slice() {
+                        b"gridCol" => t.grid.push(twips(e, b"w").unwrap_or(Twips(0))),
+                        // §17.13.5.33 tblGridChange: the previous tblGrid.
+                        b"tblGridChange" if s => {
+                            let info = rev_info(e);
+                            let mut old = Vec::new();
+                            children(r, |r, e, s, _| {
+                                if s && name(e) == b"tblGrid" {
+                                    children(r, |_, e, s, _| {
+                                        if name(e) == b"gridCol" {
+                                            old.push(twips(e, b"w").unwrap_or(Twips(0)));
+                                        }
+                                        Ok(!s)
+                                    })?;
+                                    return Ok(true);
+                                }
+                                Ok(!s)
+                            })?;
+                            t.grid_change = Some(Box::new(GridChange { info, old }));
+                            return Ok(true);
+                        }
+                        _ => {}
                     }
                     Ok(!s)
                 })?;
@@ -1651,17 +1697,29 @@ fn read_table(
                                         return Ok(!s);
                                     }
                                     b"cantSplit" => row.props.cant_split = on_off(e),
-                                    b"trHeight" => {
-                                        row.props.height = twips(e, b"val").map(|h| {
-                                            (
-                                                h,
-                                                if attr(e, b"hRule").as_deref() == Some("exact") {
-                                                    HeightRule::Exact
-                                                } else {
-                                                    HeightRule::AtLeast
-                                                },
-                                            )
-                                        });
+                                    b"trHeight" => row.props.height = tr_height(e),
+                                    // §17.13.5.37 trPrChange (previous CT_TrPrBase)
+                                    b"trPrChange" if s => {
+                                        let mut ch = RowPropsChange {
+                                            info: rev_info(e),
+                                            ..RowPropsChange::default()
+                                        };
+                                        children(r, |r, e, s, _| {
+                                            if s && name(e) == b"trPr" {
+                                                children(r, |_, e, s, _| {
+                                                    match name(e).as_slice() {
+                                                        b"tblHeader" => ch.header = on_off(e),
+                                                        b"cantSplit" => ch.cant_split = on_off(e),
+                                                        b"trHeight" => ch.height = tr_height(e),
+                                                        _ => {}
+                                                    }
+                                                    Ok(!s)
+                                                })?;
+                                                return Ok(true);
+                                            }
+                                            Ok(!s)
+                                        })?;
+                                        row.props.change = Some(Box::new(ch));
                                     }
                                     _ => row.props.unknown.push(capture(r, s, before)?),
                                 }
@@ -1734,6 +1792,20 @@ fn read_table(
     Ok(t)
 }
 
+/// §17.4.81 trHeight (`hRule` §17.18.37; `auto` is read as at least).
+fn tr_height(e: &BytesStart<'_>) -> Option<(Twips, HeightRule)> {
+    twips(e, b"val").map(|h| {
+        (
+            h,
+            if attr(e, b"hRule").as_deref() == Some("exact") {
+                HeightRule::Exact
+            } else {
+                HeightRule::AtLeast
+            },
+        )
+    })
+}
+
 /// §17.4.70 tcPr
 fn read_tcpr(r: &mut XmlReader<'_>) -> Result<CellProps> {
     let mut c = CellProps::default();
@@ -1750,6 +1822,33 @@ fn read_tcpr(r: &mut XmlReader<'_>) -> Result<CellProps> {
             }
             b"shd" => c.shading = color_attr(e, b"fill"),
             b"tcBorders" if s => c.borders = Some(read_borders(r)?),
+            // §17.13.5.4 cellIns / §17.13.5.3 cellDel
+            n @ (b"cellIns" | b"cellDel") => {
+                let m = RevMark {
+                    info: rev_info(e),
+                    moved: false,
+                };
+                if n == b"cellIns" {
+                    c.ins = Some(m);
+                } else {
+                    c.del = Some(m);
+                }
+                return Ok(!s);
+            }
+            // §17.13.5.6 cellMerge (§17.18.1 ST_AnnotationVMerge: rest / cont)
+            b"cellMerge" => {
+                let vm = |a: &[u8]| match attr(e, a).as_deref() {
+                    Some("rest") => Some(VMerge::Restart),
+                    Some("cont") => Some(VMerge::Continue),
+                    _ => None,
+                };
+                c.merge = Some(Box::new(CellMerge {
+                    info: rev_info(e),
+                    v_merge: vm(b"vMerge"),
+                    v_merge_orig: vm(b"vMergeOrig"),
+                }));
+                return Ok(!s);
+            }
             // §17.13.5.36 tcPrChange
             b"tcPrChange" if s => {
                 let info = rev_info(e);

@@ -18,10 +18,11 @@ pub mod write;
 pub use units::{Emu, HalfPoints, Twips};
 pub use write::{
     fingerprint, format_number, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell,
-    CellProps, CellPropsChange, CellVAlign, Color, Columns, Comment, Document, HeaderFooter,
-    HeightRule, Image, Level, LineSpacing, NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef,
-    Numbering, PageSetup, ParaProps, ParaPropsChange, Paragraph, Raw, RevMark, RevisionInfo, Row,
-    RowProps, Run, RunContent, RunProps, RunPropsChange, Section, SectionBreak, SectionChange,
-    SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table, TableProps,
-    TablePropsChange, TableWidth, Underline, VMerge, VertAlign, Wrap, WrapText,
+    CellMerge, CellPlace, CellProps, CellPropsChange, CellVAlign, Color, Columns, Comment,
+    Document, GridChange, HeaderFooter, HeightRule, Image, Level, LineSpacing, NotePos, NoteProps,
+    NoteRestart, Num, NumFormat, NumRef, Numbering, PageSetup, ParaProps, ParaPropsChange,
+    Paragraph, Raw, RevMark, RevisionInfo, Row, RowProps, RowPropsChange, Run, RunContent,
+    RunProps, RunPropsChange, Section, SectionBreak, SectionChange, SourcePackage, Style,
+    StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table, TableGeometry, TableProps,
+    TablePropsChange, TableView, TableWidth, Underline, VMerge, VertAlign, Wrap, WrapText,
 };

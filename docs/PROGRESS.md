@@ -56,7 +56,7 @@ header/chú thích/ảnh nổi, chú thích dài tràn trang, biểu đồ pivot
 neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đã bỏ khỏi danh sách.
 1. **Cộng tác** (`plan/phase-6.md`): bảng trong header/footer/chú thích/comment vẫn là một khối (bảng lồng trong ô bảng đã gộp theo từng ô);
    BlueSheet: mọi vùng (CF/DV, hyperlink, bộ lọc,
-   bảng, biểu đồ, vùng in, pivot, freeze pane) theo id hàng/cột; master/layout slide khoá theo chỉ số; server một instance (phòng **và** phiên trong bộ nhớ;
+   bảng, biểu đồ, vùng in, pivot, freeze pane) theo id hàng/cột; BlueSlide: ảnh của hai lần dán slide đồng thời có thể trùng tên part (master/layout/theme đã khoá riêng); server một instance (phòng **và** phiên trong bộ nhớ;
    thiết kế nhiều instance trong `plan/phase-6.md`).
 2. **Hiệu năng**: đổi style mặc định, style/danh sách dùng trong header/footer/chú thích/comment/text box, thiết lập
    trang của section đầu tiên, số trang bắt đầu hay thuộc tính chú thích của section vẫn dàn lại toàn bộ; đổi style,

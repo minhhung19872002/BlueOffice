@@ -144,7 +144,10 @@ nhất), nên chèn/di chuyển đồng thời các phần tử *khác nhau* đ�
   thì cả hai lần chuyển được giữ (cùng một slide: người ghi sau thắng).
 - Ghi chú người trình bày: chữ của placeholder body trong notes là story `n:<sldId>` (văn bản thuần, hợp nhất); phần còn
   lại của notes đi theo slide.
-- Master / layout / theme: `sm:<i>`, `sl:<i>`, `th:<i>` + `pp` (quan hệ presentation), LWW theo part. Giải mã master
+- Master / layout / theme: `sm:<key>`, `sl:<key>`, `th:<key>` + `pp` (quan hệ presentation), LWW theo part. Part của file
+  mở khoá theo chỉ số; part tạo trong phiên (dán slide từ deck khác) có khoá riêng theo client nên hai người nhập thiết
+  kế cùng lúc giữ cả hai (test `designs_imported_at_once_by_two_peers_are_both_kept`). Tham chiếu slide → layout →
+  master → theme đi theo khoá (`lk`, `@m`, `@t`, `@l`) và được đổi lại thành chỉ số ở mỗi replica. Giải mã master
   (text styles vài chục KB) chạy trên luồng có stack lớn ở bản native (bản debug tràn stack 1–2 MB).
 
 **Kiểm thử**: `crates/bo-collab` (story lồng: reset, delta đồng thời, undo riêng, full state, xoá);
@@ -177,7 +180,7 @@ dời ô và công thức của người kia; ghi chú slide).
   LWW. Ô trong hàng bị xoá vẫn nằm trong map (để hoàn tác khôi phục) cho tới khi lưu version. Kiểu ô lưu `xfId`
   (style có tên) theo chỉ số. Chèn liên tiếp > ~50 lần đúng một chỗ làm cạn độ chính xác khoá (thứ tự giữa các hàng mới
   chèn cùng chỗ khi đó theo id).
-- BlueSlide: master/layout/theme khoá theo chỉ số (dán slide từ deck khác đồng thời ở hai nơi → LWW); part gói khác
+- BlueSlide: ảnh/media của hai lần dán đồng thời có thể trùng tên part (`blobs` theo tên → LWW); part gói khác
   (media đã có, notes master…) không đồng bộ ngoài `blobs`; định dạng chữ ghi chú khi gộp hai bản sửa lấy theo bản
   ghi notes thắng, chữ thì hợp nhất.
 - Hoàn tác BlueSheet chỉ đi qua replica khi host có binding engine; lịch sử cục bộ của engine bị xoá khi nhận thay đổi

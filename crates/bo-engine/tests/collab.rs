@@ -1073,3 +1073,96 @@ fn edits_in_different_cells_of_a_nested_table_merge() {
         .collect();
     assert_eq!(inner, vec![vec![2, 2]]);
 }
+
+/// A peer whose engine copied slide `index` of `source` and then opened `target`.
+fn deck_with_clip(id: u64, source: &str, index: usize, target: &[u8]) -> (Peer, String) {
+    let mut p = Peer::deck(id, source);
+    let text = bo_engine::slide_edit::clip::plain_text(
+        &p.engine.presentation().unwrap().slides[index].data.shapes,
+    );
+    p.engine
+        .slide_command_json(&format!(r#"{{"cmd":"copySlides","indices":[{index}]}}"#))
+        .unwrap();
+    p.engine.open(target, "chung.pptx").unwrap();
+    (p, text)
+}
+
+// source: ECMA-376 Part 1, §19.3.1.39 sldLayout, §19.3.1.42 sldMaster, §20.1.6.9 theme
+#[test]
+fn designs_imported_at_once_by_two_peers_are_both_kept() {
+    big_stack(|| {
+        // A deck whose layouts fit no pasted slide: pasting imports layout + master + theme.
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus/slide/slide-shapes-presets.pptx");
+        let mut target = bo_pptx::read_pptx(&std::fs::read(p).unwrap()).unwrap();
+        for l in &mut target.layouts {
+            l.data.name = Some("Riêng".into());
+            l.data.shapes.clear();
+        }
+        let bare = bo_pptx::write_pptx(&target).unwrap();
+        let (mut a, ta) = deck_with_clip(1, "slide-text-bullets.pptx", 1, &bare);
+        let (mut b, tb) = deck_with_clip(2, "slide-notes-basic.pptx", 0, &bare);
+        a.start(true);
+        b.start(false);
+        connect(&mut a, &mut b);
+        settle(&mut a, &mut b);
+        let (l0, m0, t0) = {
+            let p = a.engine.presentation().unwrap();
+            (p.layouts.len(), p.masters.len(), p.themes.len())
+        };
+        // Both paste at once: each imports a design at the same index.
+        a.slide(r#"{"cmd":"paste"}"#);
+        b.slide(r#"{"cmd":"paste"}"#);
+        settle(&mut a, &mut b);
+        let pa = a.engine.presentation().unwrap();
+        assert_eq!(pa, b.engine.presentation().unwrap());
+        assert_eq!(
+            (pa.layouts.len(), pa.masters.len(), pa.themes.len()),
+            (l0 + 2, m0 + 2, t0 + 2)
+        );
+        let layout_of = |text: &str| {
+            let s = pa
+                .slides
+                .iter()
+                .find(|s| bo_engine::slide_edit::clip::plain_text(&s.data.shapes) == text)
+                .unwrap_or_else(|| panic!("pasted slide {text:?}"));
+            s.layout
+        };
+        let (la, lb) = (layout_of(&ta), layout_of(&tb));
+        assert!(la >= l0 && lb >= l0 && la != lb, "{la} {lb}");
+        let (ma, mb) = (pa.layouts[la].master, pa.layouts[lb].master);
+        assert!(ma >= m0 && mb >= m0 && ma != mb, "{ma} {mb}");
+        let (tha, thb) = (pa.masters[ma].theme, pa.masters[mb].theme);
+        assert!(tha >= t0 && thb >= t0 && tha != thb, "{tha} {thb}");
+        // Each pasted slide still has the design it came with.
+        let src = |name: &str, i: usize| {
+            let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/corpus/slide")
+                .join(name);
+            let d = bo_pptx::read_pptx(&std::fs::read(p).unwrap()).unwrap();
+            let l = &d.layouts[d.slides[i].layout];
+            (
+                l.data.name.clone(),
+                d.themes[d.masters[l.master].theme].name.clone(),
+            )
+        };
+        assert_eq!(
+            src("slide-text-bullets.pptx", 1),
+            (
+                pa.layouts[la].data.name.clone(),
+                pa.themes[tha].name.clone()
+            )
+        );
+        assert_eq!(
+            src("slide-notes-basic.pptx", 0),
+            (
+                pa.layouts[lb].data.name.clone(),
+                pa.themes[thb].name.clone()
+            )
+        );
+        // The saved file is valid on both sides.
+        let bytes = a.engine.save_pptx().unwrap();
+        let back = bo_pptx::read_pptx(&bytes).unwrap();
+        assert_eq!(back.layouts.len(), l0 + 2);
+    });
+}

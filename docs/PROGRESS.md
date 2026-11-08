@@ -80,6 +80,13 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
 10. **Mã hoá**: Agile Encryption đã kiểm chéo hai chiều với một cài đặt độc lập (msoffcrypto-tool, `crates/bo-crypto/tests/interop.rs`).
 
 ## Lịch sử
+- 2026-11-08 (cuối phiên): Cộng tác — bảng lồng trong ô bảng BlueDoc gộp theo từng ô (`rebuild_nested`); BlueSlide
+  master/layout/theme khoá theo id ổn định (part tạo trong phiên có khoá theo client, tham chiếu `lk`/`@m`/`@t`/`@l`) nên
+  hai người dán slide từ deck khác cùng lúc giữ cả hai thiết kế; tên part mới (ảnh, media…) của replica cộng tác có hậu
+  tố chữ theo client (`build::salt_names`) nên ảnh dán đồng thời không đè nhau. E2E cộng tác: 8/9 xanh; test chèn hàng
+  sửa để mở nhóm ribbon bị thu gọn. **Còn đỏ**: `collab-embed.spec.ts` "export-pdf" — tên file tải về là `download`
+  thay vì `Nhúng SDK.pdf` (có thể do bản Chromium trong container khác bản Playwright 1.64 cần; chưa xác minh trên CI).
+  Việc tiếp theo: các mục 1, 5, 8, 9 của "Hạn chế đã biết".
 - 2026-11-08 (sau cùng): BlueSheet nhận ngày gõ có tên tháng (`15 Mar 2024`, `March 15, 2024`, `15 tháng 3 năm 2024`,
   `15/Thg3/2024`, `tháng 3/2024`) → số serial + định dạng dựng sẵn 15/17/22. Ký số: kiểm tra thu hồi bằng CRL
   (`bo-cli verify --crl`). Gói zip ghi ra giống hệt nhau trên Windows và Linux (corpus slide hết lệch). Thanh công

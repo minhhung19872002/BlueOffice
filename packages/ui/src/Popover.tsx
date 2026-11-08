@@ -52,7 +52,12 @@ export function Popover({
     if (!open) return;
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (!panel.current?.contains(t) && !button.current?.contains(t)) setOpen(false);
+      // A popover opened from inside this one (e.g. a colour picker in a collapsed
+      // ribbon group) is portaled elsewhere: clicks in it must not close this one.
+      const inOtherPanel = t instanceof Element && t.closest('[data-bo-popover]') !== null;
+      if (!panel.current?.contains(t) && !button.current?.contains(t) && !inOtherPanel) {
+        setOpen(false);
+      }
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -98,6 +103,7 @@ export function Popover({
             className={styles.panel}
             role="dialog"
             aria-label={label}
+            data-bo-popover=""
             data-testid={testId ? `${testId}-panel` : undefined}
             style={{ left: pos.left, top: pos.top }}
           >

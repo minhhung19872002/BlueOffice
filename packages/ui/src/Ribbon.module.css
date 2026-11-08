@@ -3,8 +3,19 @@
   border-bottom: 1px solid var(--bo-border);
 }
 
+.tabStrip {
+  display: flex;
+  align-items: center;
+  background: var(--bo-brand);
+  min-width: 0;
+}
+
 .tabList {
   display: flex;
+  flex: 1;
+  min-width: 0;
+  /* Narrow windows wrap the tab strip instead of scrolling it. */
+  flex-wrap: wrap;
   gap: 2px;
   padding: 0 8px;
   background: var(--bo-brand);
@@ -37,7 +48,9 @@
   align-items: stretch;
   min-height: 84px;
   padding: 6px 8px 2px;
-  overflow-x: auto;
+  /* Groups collapse to fit (planRibbonLayout); nothing may scroll or spill out. */
+  overflow: hidden;
+  min-width: 0;
 }
 
 .panel[hidden] {
@@ -47,6 +60,8 @@
 .group {
   display: flex;
   flex-direction: column;
+  /* Intrinsic width: measured by the collapse planner, never squeezed into overlap. */
+  flex-shrink: 0;
   padding: 0 10px;
   border-right: 1px solid var(--bo-border);
 }
@@ -160,4 +175,75 @@
 .control {
   display: flex;
   align-items: center;
+}
+
+/* Labels hidden: the group label no longer widens the group. */
+.compactGroup .groupLabel {
+  width: 0;
+  min-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compactGroup .button:not(.small) {
+  min-width: 32px;
+}
+
+/* A group collapsed into one dropdown button. */
+.collapsedGroup {
+  justify-content: flex-start;
+  padding: 0 4px;
+}
+
+.collapsedTrigger {
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 6px 4px;
+  min-width: 48px;
+}
+
+.collapsedLabel {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Vertical command list inside a collapsed group / the overflow menu. */
+.menu {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.button.menuItem {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+  max-width: none;
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.menuItem .icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.more {
+  display: flex;
+  align-items: flex-start;
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+
+.overflowMenu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.overflowSection .groupLabel {
+  text-align: left;
+  padding: 2px 8px;
 }

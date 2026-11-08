@@ -1804,6 +1804,7 @@ function EditorInner({
             tabs={[...tabs, ...tableTab]}
             value={tab === 'table' && !fs?.table ? 'home' : tab}
             onValueChange={setTab}
+            moreLabel={t('ribbon.more')}
           />
           <main ref={workspace} className={styles.workspace}>
             {state.showRuler && state.doc && (

@@ -13,6 +13,7 @@
     "slide": "BlueSlide – Presentations"
   },
   "ribbon": {
+    "more": "More commands",
     "tabs": {
       "file": "File",
       "home": "Home",

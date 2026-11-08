@@ -2253,7 +2253,7 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
 
   return (
     <div className={styles.root} data-theme={theme} data-app="sheet">
-      <Ribbon tabs={ribbonTabs} />
+      <Ribbon tabs={ribbonTabs} moreLabel={t('ribbon.more')} />
       <div className={styles.formulaBar}>
         <input
           className={styles.nameBox}

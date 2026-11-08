@@ -26,6 +26,8 @@ png.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+# Throwaway signing keys for the sign/verify CLI tests (bo_sign::testing).
+rand = "0.8"
 
 [lints]
 workspace = true

@@ -452,6 +452,7 @@ dependencies = [
  "bo-xlsx",
  "clap",
  "png",
+ "rand 0.8.8",
  "serde_json",
 ]
 

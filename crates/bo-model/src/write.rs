@@ -12,13 +12,18 @@ use std::sync::Arc;
 /// sRGB colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Color {
+    /// Red channel (0–255).
     pub r: u8,
+    /// Green channel (0–255).
     pub g: u8,
+    /// Blue channel (0–255).
     pub b: u8,
 }
 
 impl Color {
+    /// Pure black (`000000`).
     pub const BLACK: Color = Color { r: 0, g: 0, b: 0 };
+    /// Pure white (`FFFFFF`).
     pub const WHITE: Color = Color {
         r: 255,
         g: 255,
@@ -111,6 +116,7 @@ pub struct Raw {
 }
 
 impl Raw {
+    /// Wrap source XML with the fingerprint of its modelled content.
     pub fn new(xml: impl Into<Arc<str>>, fingerprint: u64) -> Raw {
         Raw {
             xml: xml.into(),
@@ -152,6 +158,7 @@ pub struct SourcePackage {
     pub body_suffix: String,
     /// Fingerprint of styles / numbering as read (unchanged ⇒ keep the parts).
     pub styles_fingerprint: u64,
+    /// Fingerprint of the numbering definitions as read (unchanged ⇒ keep `numbering.xml`).
     pub numbering_fingerprint: u64,
     /// Fingerprint of [`Document::comments`] as read (unchanged ⇒ keep the comment parts).
     pub comments_fingerprint: u64,
@@ -170,15 +177,19 @@ pub struct SourcePackage {
 /// A whole word-processing document.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Document {
+    /// Sections in document order; each holds its blocks and `w:sectPr` properties.
     pub sections: Vec<Section>,
     /// Document-wide default run properties (`w:docDefaults/w:rPrDefault`).
     pub default_run: RunProps,
     /// Document-wide default paragraph properties (`w:docDefaults/w:pPrDefault`).
     pub default_para: ParaProps,
+    /// Style definitions (`styles.xml`).
     pub styles: StyleSheet,
+    /// Numbering definitions (`numbering.xml`).
     pub numbering: Numbering,
     /// Footnotes / endnotes by id (ECMA-376 Part 1, §17.11).
     pub footnotes: BTreeMap<i32, Vec<Block>>,
+    /// Endnotes by id (ECMA-376 Part 1, §17.11).
     pub endnotes: BTreeMap<i32, Vec<Block>>,
     /// Binary parts referenced by images, keyed by part name (`/word/media/image1.png`).
     #[serde(skip)]
@@ -189,6 +200,7 @@ pub struct Document {
     pub default_tab_stop: Option<Twips>,
     /// Comments (ECMA-376 Part 1, §17.13.4 `comments.xml`), in part order.
     pub comments: Vec<Comment>,
+    /// Source package the document was read from (`None` for a new document).
     pub source: Option<Arc<SourcePackage>>,
 }
 
@@ -196,7 +208,9 @@ pub struct Document {
 /// `w:id`, `w:author`, `w:date`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct RevisionInfo {
+    /// Revision id (`w:id`).
     pub id: i32,
+    /// Author name (`w:author`).
     pub author: String,
     /// `ST_DateTime` (ISO 8601, e.g. `2026-11-08T09:30:00Z`).
     pub date: Option<String>,
@@ -206,21 +220,27 @@ pub struct RevisionInfo {
 /// a move (§17.13.5.25 moveTo, §17.13.5.22 moveFrom) when `moved`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct RevMark {
+    /// Who made the change and when.
     pub info: RevisionInfo,
+    /// The mark is one side of a move (`w:moveFrom` / `w:moveTo`) rather than a plain `w:del` / `w:ins`.
     pub moved: bool,
 }
 
 /// Previous run properties of a formatting revision (§17.13.5.31 rPrChange).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct RunPropsChange {
+    /// Who made the change and when.
     pub info: RevisionInfo,
+    /// Run properties before the change.
     pub old: RunProps,
 }
 
 /// Previous paragraph properties of a formatting revision (§17.13.5.29 pPrChange).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct ParaPropsChange {
+    /// Who made the change and when.
     pub info: RevisionInfo,
+    /// Paragraph properties before the change.
     pub old: ParaProps,
 }
 
@@ -228,10 +248,15 @@ pub struct ParaPropsChange {
 /// [MS-DOCX] §2.5.2 (`w15:commentEx`: `paraId`, `paraIdParent`, `done`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Comment {
+    /// Comment id (`w:id`), referenced by the comment range and reference marks.
     pub id: i32,
+    /// Author name (`w:author`).
     pub author: String,
+    /// Author initials (`w:initials`).
     pub initials: Option<String>,
+    /// Creation date (`w:date`, ISO 8601).
     pub date: Option<String>,
+    /// Comment body content.
     pub blocks: Vec<Block>,
     /// `w14:paraId` of the comment's last paragraph (key of `w15:commentEx`).
     pub para_id: Option<String>,
@@ -321,18 +346,25 @@ fn blocks_text(blocks: &[Block], out: &mut Vec<String>) {
 /// Section break kind (ECMA-376 Part 1, §17.18.77 `ST_SectionMark`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum SectionBreak {
+    /// Start on the next page (`nextPage`, default).
     #[default]
     NextPage,
+    /// Start on the same page (`continuous`).
     Continuous,
+    /// Start on the next even-numbered page (`evenPage`).
     EvenPage,
+    /// Start on the next odd-numbered page (`oddPage`).
     OddPage,
+    /// Start in the next column (`nextColumn`).
     NextColumn,
 }
 
 /// Text columns (§17.6.4 cols).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Columns {
+    /// Number of columns (`w:num`).
     pub count: u16,
+    /// Gap between columns (`w:space`), in twips.
     pub space: Twips,
 }
 
@@ -348,21 +380,30 @@ impl Default for Columns {
 /// Header or footer variants (§17.10.5 headerReference).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct HeaderFooter {
+    /// Header/footer used on all pages without a specific variant (`w:type="default"`).
     pub default: Option<Vec<Block>>,
+    /// First-page header/footer (`w:type="first"`, used with `w:titlePg`).
     pub first: Option<Vec<Block>>,
+    /// Even-page header/footer (`w:type="even"`, used with `w:evenAndOddHeaders`).
     pub even: Option<Vec<Block>>,
 }
 
 /// A section (ECMA-376 Part 1, §17.6 Sections).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Section {
+    /// Page size and margins.
     pub page: PageSetup,
+    /// Block-level content of the section.
     pub blocks: Vec<Block>,
+    /// Text columns (`w:cols`).
     pub columns: Columns,
+    /// Header variants (`w:headerReference`).
     pub headers: HeaderFooter,
+    /// Footer variants (`w:footerReference`).
     pub footers: HeaderFooter,
     /// `w:titlePg` — distinct first page header/footer.
     pub title_page: bool,
+    /// Kind of break that starts this section (`w:type`).
     pub break_type: SectionBreak,
     /// `w:pgNumType/@w:start`.
     pub page_number_start: Option<u32>,
@@ -454,6 +495,7 @@ pub enum NotePos {
 }
 
 impl NotePos {
+    /// Parse an `ST_FtnPos` / `ST_EdnPos` value; `None` if unknown.
     pub fn parse(s: &str) -> Option<NotePos> {
         Some(match s {
             "pageBottom" => NotePos::PageBottom,
@@ -463,6 +505,7 @@ impl NotePos {
             _ => return None,
         })
     }
+    /// Serialized attribute value.
     pub fn as_str(self) -> &'static str {
         match self {
             NotePos::PageBottom => "pageBottom",
@@ -477,12 +520,16 @@ impl NotePos {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum NoteRestart {
+    /// Numbering continues across sections (`continuous`).
     Continuous,
+    /// Numbering restarts in each section (`eachSect`).
     EachSect,
+    /// Numbering restarts on each page (`eachPage`).
     EachPage,
 }
 
 impl NoteRestart {
+    /// Parse an `ST_RestartNumber` value; `None` if unknown.
     pub fn parse(s: &str) -> Option<NoteRestart> {
         Some(match s {
             "continuous" => NoteRestart::Continuous,
@@ -491,6 +538,7 @@ impl NoteRestart {
             _ => return None,
         })
     }
+    /// Serialized attribute value.
     pub fn as_str(self) -> &'static str {
         match self {
             NoteRestart::Continuous => "continuous",
@@ -503,13 +551,21 @@ impl NoteRestart {
 /// Page size and margins (ECMA-376 Part 1, §17.6.13 pgSz, §17.6.11 pgMar).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PageSetup {
+    /// Page width (`w:pgSz/@w:w`), in twips.
     pub width: Twips,
+    /// Page height (`w:pgSz/@w:h`), in twips.
     pub height: Twips,
+    /// Top margin (`w:pgMar/@w:top`), in twips.
     pub margin_top: Twips,
+    /// Bottom margin (`w:pgMar/@w:bottom`), in twips.
     pub margin_bottom: Twips,
+    /// Left margin (`w:pgMar/@w:left`), in twips.
     pub margin_left: Twips,
+    /// Right margin (`w:pgMar/@w:right`), in twips.
     pub margin_right: Twips,
+    /// Distance from the page top to the header (`w:pgMar/@w:header`), in twips.
     pub header: Twips,
+    /// Distance from the page bottom to the footer (`w:pgMar/@w:footer`), in twips.
     pub footer: Twips,
 }
 
@@ -540,7 +596,9 @@ impl PageSetup {
 /// Block-level content.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Block {
+    /// A paragraph (`w:p`).
     Paragraph(Paragraph),
+    /// A table (`w:tbl`).
     Table(Table),
     /// Unknown block-level element kept verbatim (`w:sdt`, `w:customXml`, …).
     Opaque(Raw),
@@ -559,7 +617,9 @@ impl Block {
 /// A paragraph (ECMA-376 Part 1, §17.3.1.22 p).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Paragraph {
+    /// Paragraph properties (`w:pPr`).
     pub props: ParaProps,
+    /// Runs and inline content in order.
     pub runs: Vec<Run>,
     /// Original `w:p` XML.
     #[serde(skip)]
@@ -597,10 +657,14 @@ impl Paragraph {
 /// Horizontal alignment (ECMA-376 Part 1, §17.18.44 `ST_Jc`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum Alignment {
+    /// Left-aligned (`left` / `start`).
     #[default]
     Left,
+    /// Centred (`center`).
     Center,
+    /// Right-aligned (`right` / `end`).
     Right,
+    /// Justified (`both`).
     Justify,
 }
 
@@ -624,37 +688,54 @@ impl Default for LineSpacing {
 /// Tab stop alignment (§17.18.84 `ST_TabJc`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TabAlign {
+    /// Left-aligned tab.
     Left,
+    /// Centred tab.
     Center,
+    /// Right-aligned tab.
     Right,
+    /// Decimal-aligned tab.
     Decimal,
+    /// Bar tab (vertical line at the position).
     Bar,
+    /// Clears an inherited tab stop at this position.
     Clear,
 }
 
 /// Tab leader (§17.18.85 `ST_TabTlc`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TabLeader {
+    /// No leader.
     None,
+    /// Dotted leader.
     Dot,
+    /// Hyphen leader.
     Hyphen,
+    /// Underscore leader.
     Underscore,
 }
 
 /// Custom tab stop (§17.3.1.37 tab).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TabStop {
+    /// Tab position (`w:pos`), in twips.
     pub pos: Twips,
+    /// Tab alignment (`w:val`).
     pub align: TabAlign,
+    /// Leader character (`w:leader`).
     pub leader: TabLeader,
 }
 
 /// Border line (§17.3.4 / §17.18.2 `ST_Border`). `size` in eighths of a point.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Border {
+    /// Line style (`w:val`, e.g. `single`, `double`, `nil`).
     pub style: String,
+    /// Line width (`w:sz`), in eighths of a point.
     pub size: u32,
+    /// Line colour (`w:color`); `None` = auto.
     pub color: Option<Color>,
+    /// Spacing between the border and the content (`w:space`), in points.
     pub space: u32,
 }
 
@@ -677,11 +758,17 @@ impl Border {
 /// Box borders (paragraph `pBdr` §17.3.1.24, table `tblBorders` §17.4.39, cell `tcBorders` §17.4.67).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Borders {
+    /// Top edge.
     pub top: Option<Border>,
+    /// Left edge.
     pub left: Option<Border>,
+    /// Bottom edge.
     pub bottom: Option<Border>,
+    /// Right edge.
     pub right: Option<Border>,
+    /// Horizontal lines between rows / paragraphs (`insideH`).
     pub inside_h: Option<Border>,
+    /// Vertical lines between cells (`insideV`).
     pub inside_v: Option<Border>,
 }
 
@@ -706,7 +793,9 @@ impl Borders {
 /// Numbering reference of a paragraph (§17.3.1.19 numPr).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NumRef {
+    /// Numbering instance id (`w:numId`).
     pub num_id: i32,
+    /// List level, 0-based (`w:ilvl`).
     pub ilvl: u8,
 }
 
@@ -715,27 +804,44 @@ pub struct NumRef {
 pub struct ParaProps {
     /// `w:pStyle` (§17.3.1.27).
     pub style: Option<String>,
+    /// Paragraph justification (`w:jc`).
     pub align: Option<Alignment>,
+    /// Left (start) indent (`w:ind/@w:left`), in twips.
     pub indent_left: Option<Twips>,
+    /// Right (end) indent (`w:ind/@w:right`), in twips.
     pub indent_right: Option<Twips>,
     /// Positive = first-line indent, negative = hanging indent.
     pub indent_first_line: Option<Twips>,
+    /// Space before the paragraph (`w:spacing/@w:before`), in twips.
     pub space_before: Option<Twips>,
+    /// Space after the paragraph (`w:spacing/@w:after`), in twips.
     pub space_after: Option<Twips>,
+    /// Line spacing (`w:spacing/@w:line` with `@w:lineRule`).
     pub line_spacing: Option<LineSpacing>,
+    /// Start the paragraph on a new page (`w:pageBreakBefore`).
     pub page_break_before: Option<bool>,
+    /// Keep with the next paragraph (`w:keepNext`).
     pub keep_next: Option<bool>,
+    /// Keep all lines on one page (`w:keepLines`).
     pub keep_lines: Option<bool>,
+    /// Widow/orphan control (`w:widowControl`).
     pub widow_control: Option<bool>,
+    /// Ignore spacing between paragraphs of the same style (`w:contextualSpacing`).
     pub contextual_spacing: Option<bool>,
+    /// List numbering (`w:numPr`).
     pub num: Option<NumRef>,
+    /// Custom tab stops (`w:tabs`); merged with inherited stops.
     pub tabs: Option<Vec<TabStop>>,
+    /// Background fill colour (`w:shd/@w:fill`).
     pub shading: Option<Color>,
+    /// Paragraph borders (`w:pBdr`).
     pub borders: Option<Borders>,
+    /// Outline level, 0-based (`w:outlineLvl`).
     pub outline_level: Option<u8>,
     /// Tracked insertion / deletion of the paragraph mark (§17.13.5.16 / §17.13.5.15,
     /// children of `w:pPr/w:rPr`). Never inherited.
     pub mark_ins: Option<RevMark>,
+    /// Tracked deletion of the paragraph mark.
     pub mark_del: Option<RevMark>,
     /// Tracked paragraph formatting change (§17.13.5.29 pPrChange). Never inherited.
     pub change: Option<Box<ParaPropsChange>>,
@@ -800,21 +906,32 @@ fn merge_tabs(base: Option<&Vec<TabStop>>, own: Option<&Vec<TabStop>>) -> Option
 /// Underline style (ECMA-376 Part 1, §17.18.99 `ST_Underline`) — subset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Underline {
+    /// No underline (`none`).
     None,
+    /// Single line (`single`).
     Single,
+    /// Double line (`double`).
     Double,
+    /// Thick line (`thick`).
     Thick,
+    /// Dotted line (`dotted`).
     Dotted,
+    /// Dashed line (`dash`).
     Dash,
+    /// Wavy line (`wave`).
     Wave,
+    /// Underline words only, not spaces (`words`).
     Words,
 }
 
 /// Vertical alignment of a run (§17.3.2.42 vertAlign).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum VertAlign {
+    /// Normal position (`baseline`).
     Baseline,
+    /// Raised and smaller (`superscript`).
     Superscript,
+    /// Lowered and smaller (`subscript`).
     Subscript,
 }
 
@@ -825,24 +942,39 @@ pub struct RunProps {
     pub style: Option<String>,
     /// `w:rFonts` ascii/hAnsi.
     pub font: Option<String>,
+    /// East Asian font (`w:rFonts/@w:eastAsia`).
     pub font_east_asia: Option<String>,
+    /// Complex-script font (`w:rFonts/@w:cs`).
     pub font_cs: Option<String>,
+    /// Font size (`w:sz`), in half-points.
     pub size: Option<HalfPoints>,
+    /// Bold (`w:b`).
     pub bold: Option<bool>,
+    /// Italic (`w:i`).
     pub italic: Option<bool>,
+    /// Underline style (`w:u`).
     pub underline: Option<Underline>,
+    /// Single strikethrough (`w:strike`).
     pub strike: Option<bool>,
+    /// Double strikethrough (`w:dstrike`).
     pub double_strike: Option<bool>,
+    /// Text colour (`w:color`).
     pub color: Option<Color>,
+    /// Highlight colour (`w:highlight`), stored as RGB.
     pub highlight: Option<Color>,
+    /// Background shading fill (`w:shd/@w:fill`).
     pub shading: Option<Color>,
+    /// Superscript / subscript (`w:vertAlign`).
     pub vert_align: Option<VertAlign>,
+    /// All capitals (`w:caps`).
     pub caps: Option<bool>,
+    /// Small capitals (`w:smallCaps`).
     pub small_caps: Option<bool>,
     /// Character spacing (§17.3.2.35 spacing), twips.
     pub spacing: Option<Twips>,
     /// Kerning threshold (§17.3.2.19 kern).
     pub kern: Option<HalfPoints>,
+    /// Hidden text (`w:vanish`).
     pub hidden: Option<bool>,
     /// Hyperlink target (URL or `#bookmark`) when the run is inside `w:hyperlink`.
     pub link: Option<String>,
@@ -915,7 +1047,9 @@ impl RunProps {
 /// A run of uniformly formatted content (ECMA-376 Part 1, §17.3.2.25 r).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Run {
+    /// Run properties (`w:rPr`).
     pub props: RunProps,
+    /// Content items of the run in order.
     pub content: Vec<RunContent>,
 }
 
@@ -941,20 +1075,28 @@ impl Run {
 /// How an anchored object wraps text (§20.4.2.15–20.4.2.19).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum Wrap {
+    /// In line with text (no wrapping element).
     #[default]
     None,
+    /// Square wrap around the bounding box (`wrapSquare`).
     Square,
+    /// Tight wrap around the object outline (`wrapTight`).
     Tight,
+    /// Text only above and below (`wrapTopAndBottom`).
     TopAndBottom,
 }
 
 /// Sides of a square/tight-wrapped object that text flows on (§20.4.3.7 `ST_WrapText`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum WrapText {
+    /// Text on both sides (`bothSides`).
     #[default]
     BothSides,
+    /// Text on the left side only (`left`).
     Left,
+    /// Text on the right side only (`right`).
     Right,
+    /// Text on the larger side only (`largest`).
     Largest,
 }
 
@@ -965,8 +1107,11 @@ pub struct Anchor {
     pub h_relative: String,
     /// `positionV/@relativeFrom` (page, margin, paragraph, line).
     pub v_relative: String,
+    /// Horizontal offset (`positionH/posOffset`), in EMU.
     pub x: Emu,
+    /// Vertical offset (`positionV/posOffset`), in EMU.
     pub y: Emu,
+    /// Text wrapping mode.
     pub wrap: Wrap,
     /// `behindDoc`.
     pub behind: bool,
@@ -988,13 +1133,17 @@ pub struct Anchor {
 pub struct Image {
     /// Media part name (key into [`Document::media`]).
     pub media: String,
+    /// Displayed width (`wp:extent/@cx`), in EMU.
     pub width: Emu,
+    /// Displayed height (`wp:extent/@cy`), in EMU.
     pub height: Emu,
+    /// Floating position; `None` for an inline picture (`wp:inline`).
     pub anchor: Option<Anchor>,
     /// `a:srcRect` l,t,r,b in 1/1000 of a percent.
     pub crop: Option<[i32; 4]>,
     /// Rotation in 60 000ths of a degree.
     pub rotation: i32,
+    /// Alternative text (`wp:docPr/@descr`).
     pub description: String,
     /// Original `w:drawing` XML.
     #[serde(skip)]
@@ -1021,7 +1170,12 @@ pub enum RunContent {
     /// Picture (§17.3.3.9 drawing).
     Image(Box<Image>),
     /// Field with its instruction and cached result text (§17.16).
-    Field { instr: String, cached: String },
+    Field {
+        /// Field instruction (`w:instrText` / `w:fldSimple/@w:instr`), e.g. `PAGE`.
+        instr: String,
+        /// Result text cached in the document, shown until the field is updated.
+        cached: String,
+    },
     /// §17.11.14 footnoteReference
     FootnoteRef(i32),
     /// §17.11.7 endnoteReference
@@ -1072,7 +1226,9 @@ impl RunContent {
 /// Preferred width (§17.18.90 `ST_TblWidth`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TableWidth {
+    /// Automatic width (`auto`).
     Auto,
+    /// Absolute width (`dxa`), in twips.
     Dxa(Twips),
     /// Fiftieths of a percent.
     Pct(u32),
@@ -1081,15 +1237,21 @@ pub enum TableWidth {
 /// Table properties (§17.4.60 tblPr) — subset.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct TableProps {
+    /// Table style id (`w:tblStyle`).
     pub style: Option<String>,
+    /// Preferred table width (`w:tblW`).
     pub width: Option<TableWidth>,
+    /// Table alignment (`w:jc`).
     pub align: Option<Alignment>,
+    /// Indent from the leading margin (`w:tblInd`), in twips.
     pub indent: Option<Twips>,
+    /// Table borders (`w:tblBorders`).
     pub borders: Option<Borders>,
     /// `tblLayout type="fixed"`.
     pub fixed_layout: bool,
     /// Default cell margins left/right (`tblCellMar`).
     pub cell_margin: Option<(Twips, Twips)>,
+    /// Unknown `w:tblPr` children kept verbatim.
     pub unknown: Vec<Raw>,
     /// Tracked change of the table properties (§17.13.5.34 tblPrChange).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1099,14 +1261,18 @@ pub struct TableProps {
 /// Previous table properties of a tracked change (§17.13.5.34 tblPrChange).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct TablePropsChange {
+    /// Who made the change and when.
     pub info: RevisionInfo,
+    /// Table properties before the change.
     pub old: TableProps,
 }
 
 /// Previous cell properties of a tracked change (§17.13.5.36 tcPrChange).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct CellPropsChange {
+    /// Who made the change and when.
     pub info: RevisionInfo,
+    /// Cell properties before the change.
     pub old: CellProps,
 }
 
@@ -1114,38 +1280,56 @@ pub struct CellPropsChange {
 /// properties of `CT_SectPrBase`, without header/footer references).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct SectionChange {
+    /// Who made the change and when.
     pub info: RevisionInfo,
+    /// Page size and margins before the change.
     pub page: PageSetup,
+    /// Text columns before the change.
     pub columns: Columns,
+    /// `w:titlePg` before the change.
     pub title_page: bool,
+    /// Section break kind before the change.
     pub break_type: SectionBreak,
+    /// Page number start before the change.
     pub page_number_start: Option<u32>,
 }
 
 /// Vertical merge (§17.4.85 vMerge).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum VMerge {
+    /// First cell of a vertically merged range (`restart`).
     Restart,
+    /// Cell continues the merged range above (`continue`).
     Continue,
 }
 
 /// Cell vertical alignment (§17.4.84 vAlign).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CellVAlign {
+    /// Top-aligned (`top`).
     Top,
+    /// Centred vertically (`center`).
     Center,
+    /// Bottom-aligned (`bottom`).
     Bottom,
 }
 
 /// Cell properties (§17.4.70 tcPr) — subset.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CellProps {
+    /// Preferred cell width (`w:tcW`).
     pub width: Option<TableWidth>,
+    /// Number of grid columns the cell spans (`w:gridSpan`), default 1.
     pub grid_span: u32,
+    /// Vertical merge state (`w:vMerge`).
     pub v_merge: Option<VMerge>,
+    /// Background fill colour (`w:shd/@w:fill`).
     pub shading: Option<Color>,
+    /// Cell borders (`w:tcBorders`).
     pub borders: Option<Borders>,
+    /// Vertical alignment of the content (`w:vAlign`).
     pub v_align: Option<CellVAlign>,
+    /// Unknown `w:tcPr` children kept verbatim.
     pub unknown: Vec<Raw>,
     /// Tracked change of the cell properties (§17.13.5.36 tcPrChange).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1170,7 +1354,9 @@ impl Default for CellProps {
 /// Row height rule (§17.18.37 `ST_HeightRule`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HeightRule {
+    /// Height is a minimum (`atLeast`).
     AtLeast,
+    /// Height is exact (`exact`).
     Exact,
 }
 
@@ -1179,8 +1365,11 @@ pub enum HeightRule {
 pub struct RowProps {
     /// `tblHeader` — repeat on each page.
     pub header: bool,
+    /// Row may not break across pages (`w:cantSplit`).
     pub cant_split: bool,
+    /// Row height (`w:trHeight`), in twips, with its rule.
     pub height: Option<(Twips, HeightRule)>,
+    /// Unknown `w:trPr` children kept verbatim.
     pub unknown: Vec<Raw>,
     /// Tracked row insertion (§17.13.5.19 ins in trPr).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1193,24 +1382,31 @@ pub struct RowProps {
 /// A table cell.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Cell {
+    /// Cell properties (`w:tcPr`).
     pub props: CellProps,
+    /// Block-level content of the cell.
     pub blocks: Vec<Block>,
 }
 
 /// A table row.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Row {
+    /// Row properties (`w:trPr`).
     pub props: RowProps,
+    /// Cells of the row (`w:tc`).
     pub cells: Vec<Cell>,
 }
 
 /// A table (§17.4.38 tbl).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Table {
+    /// Table properties (`w:tblPr`).
     pub props: TableProps,
     /// `tblGrid` column widths.
     pub grid: Vec<Twips>,
+    /// Rows of the table (`w:tr`).
     pub rows: Vec<Row>,
+    /// Original `w:tbl` XML.
     #[serde(skip)]
     pub src: Option<Raw>,
 }
@@ -1256,27 +1452,42 @@ impl Table {
 /// Style type (§17.18.83 `ST_StyleType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StyleKind {
+    /// Paragraph style.
     Paragraph,
+    /// Character (run) style.
     Character,
+    /// Table style.
     Table,
+    /// Numbering style.
     Numbering,
 }
 
 /// A style definition (§17.7.4.17 style).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Style {
+    /// Style id (`w:styleId`), referenced by `pStyle` / `rStyle` / `tblStyle`.
     pub id: String,
+    /// Display name (`w:name`).
     pub name: String,
+    /// Style type (`w:type`).
     pub kind: StyleKind,
+    /// Parent style id (`w:basedOn`).
     pub based_on: Option<String>,
+    /// Style for the following paragraph (`w:next`).
     pub next: Option<String>,
+    /// Linked paragraph/character style id (`w:link`).
     pub linked: Option<String>,
+    /// Default style of its kind (`w:default`).
     pub is_default: bool,
     /// Shown in the style gallery (`qFormat`).
     pub quick: bool,
+    /// Paragraph properties (`w:pPr`).
     pub ppr: ParaProps,
+    /// Run properties (`w:rPr`).
     pub rpr: RunProps,
+    /// Table properties (`w:tblPr`) of a table style.
     pub tblpr: Option<TableProps>,
+    /// Original `w:style` XML.
     #[serde(skip)]
     pub src: Option<Raw>,
 }
@@ -1304,6 +1515,7 @@ impl Style {
 /// Style definitions (`styles.xml`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct StyleSheet {
+    /// Style definitions in part order.
     pub styles: Vec<Style>,
     /// `w:latentStyles` kept verbatim.
     #[serde(skip)]
@@ -1360,14 +1572,23 @@ impl StyleSheet {
 /// Number format (§17.18.59 `ST_NumberFormat`) — subset; unknown kept by name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum NumFormat {
+    /// Arabic numerals (`decimal`).
     Decimal,
+    /// Zero-padded arabic numerals (`decimalZero`).
     DecimalZero,
+    /// Lower-case letters (`lowerLetter`).
     LowerLetter,
+    /// Upper-case letters (`upperLetter`).
     UpperLetter,
+    /// Lower-case roman numerals (`lowerRoman`).
     LowerRoman,
+    /// Upper-case roman numerals (`upperRoman`).
     UpperRoman,
+    /// Bullet character from `lvlText` (`bullet`).
     Bullet,
+    /// No number (`none`).
     None,
+    /// Any other format, kept by its attribute value.
     Other(String),
 }
 
@@ -1405,13 +1626,19 @@ impl NumFormat {
 /// One level of an abstract numbering (§17.9.6 lvl).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Level {
+    /// Level index, 0-based (`w:ilvl`).
     pub ilvl: u8,
+    /// Start value (`w:start`).
     pub start: i32,
+    /// Number format (`w:numFmt`).
     pub format: NumFormat,
     /// `lvlText`, e.g. `%1.` or `•`.
     pub text: String,
+    /// Number alignment (`w:lvlJc`).
     pub align: Alignment,
+    /// Paragraph properties of the level (`w:pPr`), e.g. indents.
     pub ppr: ParaProps,
+    /// Run properties of the number text (`w:rPr`).
     pub rpr: RunProps,
     /// Restart after a higher level (`lvlRestart`); `None` = default behaviour.
     pub restart: Option<u8>,
@@ -1422,14 +1649,18 @@ pub struct Level {
 /// Abstract numbering definition (§17.9.1 abstractNum).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AbstractNum {
+    /// Abstract numbering id (`w:abstractNumId`).
     pub id: i32,
+    /// Level definitions.
     pub levels: Vec<Level>,
 }
 
 /// Numbering instance (§17.9.15 num) with level overrides (§17.9.8 lvlOverride).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Num {
+    /// Numbering instance id (`w:numId`), referenced by `numPr`.
     pub id: i32,
+    /// Abstract definition used (`w:abstractNumId`).
     pub abstract_id: i32,
     /// (ilvl, startOverride)
     pub start_overrides: Vec<(u8, i32)>,
@@ -1438,7 +1669,9 @@ pub struct Num {
 /// `numbering.xml`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Numbering {
+    /// Abstract numbering definitions.
     pub abstracts: Vec<AbstractNum>,
+    /// Numbering instances.
     pub nums: Vec<Num>,
 }
 

@@ -2,7 +2,8 @@
 //!
 //! * **top-level tables, cell by cell** — the body line of a table is the
 //!   embed `{"t": key}`; the structure lives in `meta`: `tb:<t>` table
-//!   properties (§17.4.60 tblPr), `tr:<t>:<row>` = `{"o": order, "p": trPr}`,
+//!   properties (§17.4.60 tblPr), `tg:<t>` the tracked previous grid
+//!   (§17.13.5.33 tblGridChange, absent when the grid is not tracked), `tr:<t>:<row>` = `{"o": order, "p": trPr}`,
 //!   `tl:<t>:<col>` = `{"o": order, "w": gridCol width}` (§17.4.16), `tc:<t>:<row>:<col>`
 //!   cell properties (§17.4.70 tcPr); every cell's content is the nested text
 //!   `c:<t>:<row>:<col>` (lines like the body), so concurrent edits of
@@ -200,6 +201,8 @@ struct ColEntry {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TableShadow {
     pub props: Option<String>,
+    /// `GridChange` JSON of a tracked grid change (§17.13.5.33 tblGridChange).
+    pub grid_change: Option<String>,
     /// Row id → (order, `RowEntry` JSON).
     pub rows: BTreeMap<String, (f64, String)>,
     pub cols: BTreeMap<String, (f64, String)>,
@@ -229,6 +232,7 @@ impl TableShadow {
     pub fn set(&mut self, kind: &str, rest: &str, v: Option<&String>) {
         match kind {
             "tb" => self.props = v.cloned(),
+            "tg" => self.grid_change = v.cloned(),
             "tr" | "tl" => {
                 let m = if kind == "tr" {
                     &mut self.rows
@@ -314,8 +318,12 @@ impl TableShadow {
         Block::Table(Table {
             props,
             grid,
-            // A tracked grid change (§17.13.5.33 tblGridChange) is not shared live.
-            grid_change: None,
+            // §17.13.5.33 tblGridChange: the previous grid of a tracked change.
+            grid_change: self
+                .grid_change
+                .as_deref()
+                .and_then(|j| serde_json::from_str(j).ok())
+                .map(Box::new),
             rows,
             src: None,
         })
@@ -458,6 +466,15 @@ impl TableDiff<'_> {
             out.meta.insert(format!("tb:{key}"), Some(pj.clone()));
             sh.props = Some(pj);
         }
+        // Tracked grid change (§17.13.5.33 tblGridChange).
+        let gj = new
+            .grid_change
+            .as_ref()
+            .and_then(|g| serde_json::to_string(g).ok());
+        if sh.grid_change != gj {
+            out.meta.insert(format!("tg:{key}"), gj.clone());
+            sh.grid_change = gj;
+        }
         // Row and column entries (order keys only change for moved/new items).
         let axis = |m: &mut BTreeMap<String, (f64, String)>,
                     ids: &[String],
@@ -551,6 +568,9 @@ pub(crate) fn drop_table(
 ) {
     let Some(sh) = tables.remove(key) else { return };
     out.meta.insert(format!("tb:{key}"), None);
+    if sh.grid_change.is_some() {
+        out.meta.insert(format!("tg:{key}"), None);
+    }
     for r in sh.rows.keys() {
         out.meta.insert(format!("tr:{key}:{r}"), None);
     }
@@ -574,7 +594,7 @@ pub(crate) fn table_key(line: &super::Line) -> Option<&str> {
 /// Splits a table `meta` key into (kind, table, rest).
 pub(crate) fn split_table_key(k: &str) -> Option<(&str, &str, &str)> {
     let (kind, rest) = k.split_once(':')?;
-    if !matches!(kind, "tb" | "tr" | "tl" | "tc") {
+    if !matches!(kind, "tb" | "tg" | "tr" | "tl" | "tc") {
         return None;
     }
     match rest.split_once(':') {

@@ -958,3 +958,36 @@ fn notes_text_merges_and_parts_follow_the_room() {
         );
     });
 }
+
+/// §17.13.5.33 tblGridChange: a tracked column insert keeps the previous grid
+/// on the other side too (it travels in the table meta, not only the new grid).
+#[test]
+fn tracked_grid_change_is_shared() {
+    let (mut a, mut b) = pair("đầu");
+    a.cmd(&sel(0, "đầu".len()));
+    a.cmd(r#"{"cmd":"insertTable","rows":2,"cols":2}"#);
+    settle(&mut a, &mut b);
+    a.cmd(r#"{"cmd":"setTrackChanges","on":true}"#);
+    a.cmd(&sel(1, 0));
+    a.cmd(r#"{"cmd":"tableEdit","edit":{"kind":"insertColumn","right":true}}"#);
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    let grid_change = |p: &Peer| {
+        p.engine.document().unwrap().sections[0]
+            .blocks
+            .iter()
+            .find_map(|blk| match blk {
+                bo_model::Block::Table(t) => Some(t.grid_change.clone()),
+                _ => None,
+            })
+            .flatten()
+    };
+    let ga = grid_change(&a).expect("tracked grid change on A");
+    assert_eq!(ga.old.len(), 2);
+    assert_eq!(grid_change(&b).as_deref(), Some(&*ga));
+    // Accepting on B clears it on A as well.
+    b.cmd(r#"{"cmd":"acceptAllRevisions"}"#);
+    settle(&mut a, &mut b);
+    assert!(grid_change(&b).is_none());
+    assert!(grid_change(&a).is_none());
+}

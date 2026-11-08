@@ -207,7 +207,84 @@ const SCRIPTS: &[Script] = &[
             r#"{"cmd":"setNotes","slide":2,"text":"Ghi chú đã sửa\nDòng hai"}"#,
         ],
     },
+    // Transitions (§19.3.1.50): per slide, for every slide, timing only.
+    Script {
+        base: "slide-text-bullets.pptx",
+        name: "slide-edit-transitions.pptx",
+        commands: &[
+            r#"{"cmd":"setTransition","all":true,"transition":{"kind":"fade","durMs":700}}"#,
+            r#"{"cmd":"setTransition","slides":[0],"transition":{"kind":"push","dir":"u","durMs":900}}"#,
+            r#"{"cmd":"goTo","slide":1}"#,
+            r#"{"cmd":"setTransition","transition":{"kind":"wipe","dir":"r","advanceOnClick":false,"advanceAfterMs":3000}}"#,
+            r#"{"cmd":"setTransition","slides":[0],"transition":{"kind":"keep","advanceAfterMs":5000}}"#,
+        ],
+    },
+    // Main sequence (§19.5): appear, fade, fly-in, wipe; on click / with / after previous.
+    Script {
+        base: "slide-shapes-presets.pptx",
+        name: "slide-edit-animations.pptx",
+        commands: &[
+            r#"{"cmd":"select","ids":[10]}"#,
+            r#"{"cmd":"addAnimation","effect":"appear"}"#,
+            r#"{"cmd":"select","ids":[11]}"#,
+            r#"{"cmd":"addAnimation","effect":"fade","trigger":"withPrevious","durMs":800}"#,
+            r#"{"cmd":"select","ids":[12,13]}"#,
+            r#"{"cmd":"addAnimation","effect":"flyIn","direction":"l","trigger":"afterPrevious"}"#,
+            r#"{"cmd":"select","ids":[14]}"#,
+            r#"{"cmd":"addAnimation","effect":"wipe","direction":"t","delayMs":300}"#,
+            r#"{"cmd":"select","ids":[15]}"#,
+            r#"{"cmd":"addAnimation","effect":"fade","class":"exit"}"#,
+            r#"{"cmd":"setAnimation","index":1,"durMs":1200}"#,
+            r#"{"cmd":"moveAnimation","from":5,"to":4}"#,
+            r#"{"cmd":"setTransition","transition":{"kind":"cover","dir":"r"}}"#,
+        ],
+    },
+    // Effects BlueSlide does not model stay as read while the sequence changes.
+    Script {
+        base: "slide-anim-unknown.pptx",
+        name: "slide-edit-anim-unknown.pptx",
+        commands: &[
+            r#"{"cmd":"setAnimation","index":0,"durMs":900}"#,
+            r#"{"cmd":"setAnimation","index":1,"trigger":"afterPrevious","delayMs":200}"#,
+            r#"{"cmd":"moveAnimation","from":2,"to":0}"#,
+            r#"{"cmd":"setTransition","transition":{"kind":"keep","durMs":1100}}"#,
+        ],
+    },
+    // Charts: insert column / line / pie with embedded workbooks, edit them.
+    Script {
+        base: "slide-text-bullets.pptx",
+        name: "slide-edit-charts.pptx",
+        commands: &[
+            r#"{"cmd":"addSlide"}"#,
+            r#"{"cmd":"insertChart","kind":"column","title":"Doanh thu theo quý","data":{"categories":["Quý 1","Quý 2","Quý 3","Quý 4"],"series":[{"name":"2025","values":[12,15,9,18]},{"name":"2026","values":[14,17,null,21]}]}}"#,
+            r#"{"cmd":"addSlide"}"#,
+            r#"{"cmd":"insertChart","kind":"line","title":"Khách hàng","data":{"categories":["T1","T2","T3"],"series":[{"name":"Hà Nội","values":[3,5,8]}]}}"#,
+            r#"{"cmd":"setChart","legend":"t","data":{"categories":["T1","T2","T3","T4"],"series":[{"name":"Hà Nội","values":[3,5,8,9]},{"name":"Đà Nẵng","values":[2,2,4,6]}]}}"#,
+            r#"{"cmd":"addSlide"}"#,
+            r#"{"cmd":"insertChart","kind":"bar"}"#,
+            r#"{"cmd":"setChart","kind":"pie","title":"Thị phần","legend":"r","data":{"categories":["A","B","C"],"series":[{"name":"Phần","values":[50,30,20]}]}}"#,
+        ],
+    },
+    // A chart read from a file: data, title, legend and type changed.
+    Script {
+        base: "slide-charts-column.pptx",
+        name: "slide-edit-charts-existing.pptx",
+        commands: &[
+            r#"{"cmd":"selectAll"}"#,
+            r#"{"cmd":"select","ids":[4]}"#,
+            r#"{"cmd":"setChart","kind":"bar","title":"Đã sửa dữ liệu","legend":"b","data":{"categories":["Bắc","Trung","Nam"],"series":[{"name":"Năm nay","values":[7,4,9]},{"name":"Năm trước","values":[5,3,8]}]}}"#,
+        ],
+    },
+    // Video and audio inserted (see `decks`): clips, posters, relationships.
+    Script {
+        base: "slide-text-bullets.pptx",
+        name: MEDIA_DECK,
+        commands: &[r#"{"cmd":"addSlide"}"#],
+    },
 ];
+
+/// Deck receiving a video and an audio clip.
+const MEDIA_DECK: &str = "slide-edit-media.pptx";
 
 /// Deck receiving slides copied from other decks.
 const PASTE_DECK: &str = "slide-edit-paste-other-deck.pptx";
@@ -230,6 +307,15 @@ fn open_script(e: &mut Engine, s: &Script, base: &[(&'static str, Vec<u8>)]) -> 
     e.open(bytes, s.base).is_ok()
 }
 
+/// Placeholder clips (headers only, like the media base decks).
+fn media_clips() -> (Vec<u8>, Vec<u8>) {
+    let mut mp4 = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom".to_vec();
+    mp4.extend(std::iter::repeat_n(0u8, 64));
+    let mut mp3 = b"ID3\x04\x00\x00\x00\x00\x00\x00".to_vec();
+    mp3.extend(std::iter::repeat_n(0u8, 32));
+    (mp4, mp3)
+}
+
 /// Edited decks, built from the generated base decks.
 pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static str, Vec<u8>)> {
     let mut out = Vec::new();
@@ -245,6 +331,12 @@ pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static 
         if s.name == "slide-edit-slides.pptx" {
             let _ = e.slide_command_json(r#"{"cmd":"goTo","slide":1}"#);
             let _ = e.slide_insert_picture(picture.to_vec(), "logo.png");
+        }
+        if s.name == MEDIA_DECK {
+            let (mp4, mp3) = media_clips();
+            let _ = e.slide_insert_picture(mp4, "gioi-thieu.mp4");
+            let _ = e.slide_insert_picture(mp3, "nhac-nen.mp3");
+            let _ = e.slide_command_json(r#"{"cmd":"addAnimation","effect":"fade"}"#);
         }
         if let Ok(b) = e.save_pptx() {
             out.push((s.name, b));

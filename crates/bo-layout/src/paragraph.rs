@@ -353,6 +353,23 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     inp.default_tab.to_bits().hash(&mut h);
     inp.doc.default_run.hash(&mut h);
     inp.doc.theme_fonts.hash(&mut h);
+    // Run properties coming from the style definitions (ECMA-376 Part 1,
+    // §17.7.2 style hierarchy): the paragraph style chain and the character
+    // styles of the runs. The paragraph and runs above only name the styles, so
+    // a changed definition (another document, undo, a collaborator's edit) must
+    // not be served from the cache.
+    crate::style::para_style_run(inp.doc, &inp.props).hash(&mut h);
+    let mut char_styles: Vec<&str> = inp
+        .para
+        .runs
+        .iter()
+        .filter_map(|r| r.props.style.as_deref())
+        .collect();
+    char_styles.sort_unstable();
+    char_styles.dedup();
+    for id in char_styles {
+        inp.doc.styles.resolve_character(id).hash(&mut h);
+    }
     inp.note_mark.hash(&mut h);
     inp.view.hash(&mut h);
     for z in inp.wrap {

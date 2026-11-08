@@ -42,10 +42,12 @@ pub struct TrustStore {
 
 impl TrustStore {
     #[must_use]
+    /// An empty store (nothing is trusted).
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Adds one DER certificate as trust anchor.
     pub fn add_der(&mut self, der: &[u8]) -> Result<()> {
         self.anchors.push(Certificate::from_der(der)?);
         Ok(())
@@ -100,11 +102,13 @@ impl TrustStore {
     }
 
     #[must_use]
+    /// Number of anchors.
     pub fn len(&self) -> usize {
         self.anchors.len()
     }
 
     #[must_use]
+    /// No anchor configured.
     pub fn is_empty(&self) -> bool {
         self.anchors.is_empty()
     }
@@ -126,35 +130,49 @@ pub enum ChainProblem {
     NoTrustAnchors,
     /// No issuer (intermediate or anchor) found for this certificate.
     UnknownIssuer {
+        /// Subject (RFC 4514) of the certificate concerned.
         subject: String,
     },
+    /// The certificate is past its `notAfter` at the validation time.
     Expired {
+        /// Subject (RFC 4514) of the certificate concerned.
         subject: String,
     },
+    /// The certificate is before its `notBefore` at the validation time.
     NotYetValid {
+        /// Subject (RFC 4514) of the certificate concerned.
         subject: String,
     },
+    /// The certificate signature does not verify with the issuer key.
     BadSignature {
+        /// Subject (RFC 4514) of the certificate concerned.
         subject: String,
     },
     /// An issuing certificate is not a CA (basicConstraints) or exceeds its path length.
     NotCa {
+        /// Subject (RFC 4514) of the certificate concerned.
         subject: String,
     },
     /// Key usage does not allow the use (keyCertSign / digitalSignature).
     KeyUsage {
+        /// Subject (RFC 4514) of the certificate concerned.
         subject: String,
     },
     /// A TSA certificate without id-kp-timeStamping.
     ExtendedKeyUsage {
+        /// Subject (RFC 4514) of the certificate concerned.
         subject: String,
     },
     /// Algorithm or key type not supported by the validator.
     Unsupported {
+        /// Subject (RFC 4514) of the certificate concerned.
         subject: String,
+        /// What is unsupported (algorithm, key type).
         what: String,
     },
+    /// The path is longer than the validator accepts.
     PathTooLong,
+    /// A certificate could not be decoded.
     Malformed(String),
 }
 
@@ -231,6 +249,7 @@ pub struct ChainReport {
     pub path: Vec<String>,
     /// Anchor subject the path ends at.
     pub anchor: Option<String>,
+    /// Why the path is not trusted (empty when trusted).
     pub problems: Vec<ChainProblem>,
 }
 

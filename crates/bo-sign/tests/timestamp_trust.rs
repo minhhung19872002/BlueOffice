@@ -1,6 +1,7 @@
 //! RFC 3161 time-stamps (PAdES B-T, XAdES-T), certificate path validation,
 //! two-phase signing and the remote signer — all against a locally
 //! generated PKI and in-process / loopback services (no network).
+#![allow(clippy::unwrap_used)] // test helpers outside #[test] fns
 use bo_sign::http::{HttpResponse, HttpTimestampClient};
 use bo_sign::ooxml::{sign_ooxml_with, verify_ooxml};
 use bo_sign::pdf::{sign_pdf_with, verify_pdf, SignOptions};

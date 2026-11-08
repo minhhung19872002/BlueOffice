@@ -27,6 +27,34 @@ public sealed class AuthOptions
 
     /// <summary>Issuer of dev tokens.</summary>
     public string DevIssuer { get; set; } = "blueoffice-dev";
+
+    /// <summary>Public OIDC client of the web app (section <c>Auth:WebClient</c>); none = the web app stays anonymous.</summary>
+    public WebClientOptions WebClient { get; set; } = new();
+}
+
+/// <summary>
+/// Public (no secret) OIDC client used by the web app for the authorization code
+/// flow with PKCE (RFC 6749 §4.1, RFC 7636), published by <c>GET /api/auth/config</c>.
+/// </summary>
+public sealed class WebClientOptions
+{
+    /// <summary>Client id registered at the provider; empty disables web sign-in.</summary>
+    public string? ClientId { get; set; }
+
+    /// <summary>Provider issuer for discovery (default: <c>Auth:Authority</c>).</summary>
+    public string? Authority { get; set; }
+
+    /// <summary>Explicit endpoints when the provider has no discovery document.</summary>
+    public string? AuthorizeUrl { get; set; }
+
+    /// <summary>Token endpoint (see <see cref="AuthorizeUrl"/>).</summary>
+    public string? TokenUrl { get; set; }
+
+    /// <summary>RP-initiated logout endpoint (optional).</summary>
+    public string? EndSessionUrl { get; set; }
+
+    /// <summary>Requested scopes.</summary>
+    public string Scope { get; set; } = "openid profile";
 }
 
 /// <summary>Authentication schemes and policies.</summary>
@@ -100,6 +128,29 @@ public static class AuthSetup
             .AddPolicy(ServicePolicy, p => p.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, HostScheme).RequireAuthenticatedUser())
             .AddPolicy(HostPolicy, p => p.AddAuthenticationSchemes(HostScheme).RequireClaim(HostClaim));
         return services;
+    }
+
+    /// <summary>
+    /// <c>GET /api/auth/config</c> (anonymous): the web app's OIDC client settings,
+    /// <c>{ "oidc": null }</c> when web sign-in is not configured.
+    /// </summary>
+    public static void MapAuthConfig(this IEndpointRouteBuilder app, IConfiguration config)
+    {
+        var opts = new AuthOptions();
+        config.GetSection("Auth").Bind(opts);
+        var w = opts.WebClient;
+        object? oidc = string.IsNullOrWhiteSpace(w.ClientId)
+            ? null
+            : new
+            {
+                authority = string.IsNullOrWhiteSpace(w.Authority) ? opts.Authority : w.Authority,
+                authorizeUrl = w.AuthorizeUrl,
+                tokenUrl = w.TokenUrl,
+                endSessionUrl = w.EndSessionUrl,
+                clientId = w.ClientId,
+                scope = w.Scope,
+            };
+        app.MapGet("/api/auth/config", () => Results.Ok(new { oidc })).AllowAnonymous();
     }
 
     /// <summary>Stable principal id: "host:&lt;name&gt;:&lt;sub&gt;" or "user:&lt;sub&gt;".</summary>

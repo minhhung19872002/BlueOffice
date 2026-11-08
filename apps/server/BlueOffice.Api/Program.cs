@@ -132,6 +132,8 @@ if (!serveApi)
     return;
 }
 
+app.MapAuthConfig(config);
+
 // Synchronous conversion through bo-cli (Phase 1 API, kept for compatibility; prefer POST /convert).
 app.MapPost("/api/convert/pdf", async (IFormFile file, IDocumentConverter converter, CancellationToken ct) =>
 {

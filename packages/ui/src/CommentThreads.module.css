@@ -1,0 +1,101 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 280px;
+  flex: none;
+  padding: 8px;
+  overflow: auto;
+  border-left: 1px solid var(--bo-border, #d0d7de);
+  background: var(--bo-surface-alt, #f3f5f7);
+  color: var(--bo-text, #1b1f24);
+  font-size: 12px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.head button,
+.actions button,
+.composer button {
+  padding: 2px 8px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 6px;
+  background: var(--bo-surface, #fff);
+}
+
+.done {
+  opacity: 0.7;
+}
+
+.anchor {
+  font-weight: 600;
+  color: var(--bo-accent, #2e75b6);
+}
+
+.comment + .comment {
+  padding-top: 6px;
+  border-top: 1px dashed var(--bo-border, #d0d7de);
+}
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--bo-text-muted, #57606a);
+}
+
+.author {
+  font-weight: 600;
+  color: var(--bo-text, #1b1f24);
+}
+
+.text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.composer textarea {
+  resize: vertical;
+  font: inherit;
+  padding: 4px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+}
+
+.composer button {
+  align-self: flex-end;
+}
+
+.empty {
+  margin: 0;
+  color: var(--bo-text-muted, #57606a);
+}

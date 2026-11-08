@@ -196,7 +196,10 @@ pub(crate) fn read_diagrams(
             continue;
         }
         let drawing = resolve_target(sheet_part, &rel.target);
-        let Some(dom) = pkg.part(&drawing).and_then(|p| parse_dom(&p.data, &drawing)) else {
+        let Some(dom) = pkg
+            .part(&drawing)
+            .and_then(|p| parse_dom(&p.data, &drawing))
+        else {
             continue;
         };
         let drels = pkg.relationships(&drawing).unwrap_or_default();
@@ -219,7 +222,7 @@ pub(crate) fn read_diagrams(
             let Some(data_part) = gd
                 .child("relIds")
                 .and_then(|r| r.attr("dm"))
-                .and_then(|id| target(id))
+                .and_then(&target)
             else {
                 continue;
             };
@@ -233,7 +236,7 @@ pub(crate) fn read_diagrams(
             let Some(part) = ext
                 .first()
                 .and_then(|e| e.attr("relId"))
-                .and_then(|id| target(id))
+                .and_then(&target)
                 .filter(|p| pkg.part(p).is_some())
             else {
                 continue;

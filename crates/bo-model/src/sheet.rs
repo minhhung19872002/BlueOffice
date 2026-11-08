@@ -247,6 +247,9 @@ pub struct Workbook {
     /// Pivot caches (`pivotCaches`, §18.2.22), in file order.
     #[serde(default)]
     pub pivot_caches: Vec<PivotCache>,
+    /// Authors of threaded comments ([MS-XLSX] person part, `CT_Person`).
+    #[serde(default)]
+    pub persons: Vec<Person>,
     /// Preserved package content.
     pub opaque: Opaque,
 }
@@ -355,6 +358,10 @@ pub struct Worksheet {
     /// `authors` of the comments part in file order (§18.7.2), so author ids and
     /// unused authors survive a round trip. Authors missing here are appended on write.
     pub comment_authors: Vec<String>,
+    /// Threaded comments of the sheet ([MS-XLSX] threaded comments part,
+    /// `CT_ThreadedComment`), in file order; replies follow their thread.
+    #[serde(default)]
+    pub threaded_comments: Vec<ThreadedComment>,
     /// `dataValidations` (§18.3.1.33).
     pub data_validations: Vec<DataValidation>,
     /// Other `dataValidations` attributes (disablePrompts, xWindow, yWindow).
@@ -772,6 +779,37 @@ impl Default for CellRange {
     fn default() -> Self {
         CellRange::single(CellRef::new(0, 0))
     }
+}
+
+/// One comment of a thread ([MS-XLSX] `CT_ThreadedComment`): the thread's
+/// first comment has no `parent_id`; replies name it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadedComment {
+    /// `id` (GUID in braces).
+    pub id: String,
+    /// `ref`: the anchor cell.
+    pub cell: CellRef,
+    /// `personId`: a [`Person::id`].
+    pub person_id: String,
+    /// `dT`: xsd:dateTime.
+    pub date: Option<String>,
+    /// `parentId`: the thread's first comment.
+    pub parent_id: Option<String>,
+    /// `text`.
+    pub text: String,
+    /// `done`: the thread is resolved.
+    pub done: bool,
+}
+
+/// An author of threaded comments ([MS-XLSX] `CT_Person`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Person {
+    pub id: String,
+    pub display_name: String,
+    pub user_id: Option<String>,
+    pub provider_id: Option<String>,
 }
 
 /// A comment / note (§18.7.3 `comment`).

@@ -12,11 +12,13 @@ import type {
   SheetCommand,
   SheetHost,
   SheetRange,
+  SheetThreadInfo,
   SheetView,
   StylePatch,
   WorkbookInfo,
 } from '@blueoffice/platform';
 import {
+  CommentThreads,
   Ribbon,
   StatusBar,
   useResolvedTheme,
@@ -100,6 +102,7 @@ import {
   Undo2,
   ZoomIn,
   ZoomOut,
+  MessageSquareText,
 } from 'lucide-react';
 import {
   useCallback,
@@ -145,6 +148,7 @@ import {
   cellsOf,
   fillTarget,
   move,
+  colName,
   parseA1,
   parseNumber,
   parseTsv,
@@ -325,6 +329,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   });
   /** The field list shows when the active cell is inside a pivot table. */
   const [pivotPanel, setPivotPanel] = useState(true);
+  /** Threaded comments side panel ([MS-XLSX] threaded comments). */
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [threads, setThreads] = useState<SheetThreadInfo[]>([]);
   const pivotLabels = usePivotLabels();
 
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -641,6 +648,43 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       }
     },
     [host, refreshInfo, fail],
+  );
+
+  // ------------------------------------------------------------- comments
+
+  const loadThreads = useCallback(async () => {
+    if (!host || !commentsOpen) return;
+    const r = await host
+      .exec<SheetThreadInfo[]>({ cmd: 'comments', sheet })
+      .catch(() => null);
+    setThreads(r ?? []);
+  }, [host, sheet, commentsOpen]);
+  useEffect(() => {
+    void loadThreads();
+  }, [loadThreads, revision]);
+  /** Runs a comment command (one undo step) and reloads the threads. */
+  const commentCmd = useCallback(
+    async (cmd: SheetCommand) => {
+      await exec(cmd);
+      await loadThreads();
+    },
+    [exec, loadThreads],
+  );
+  const commentLabels = useMemo(
+    () => ({
+      title: t('sheetEditor.comments.title'),
+      empty: t('sheetEditor.comments.empty'),
+      newComment: t('sheetEditor.comments.new'),
+      newPlaceholder: t('sheetEditor.comments.newPlaceholder'),
+      reply: t('sheetEditor.comments.reply'),
+      replyPlaceholder: t('sheetEditor.comments.replyPlaceholder'),
+      resolve: t('sheetEditor.comments.resolve'),
+      reopen: t('sheetEditor.comments.reopen'),
+      delete: t('sheetEditor.comments.delete'),
+      close: t('sheetEditor.comments.close'),
+      resolved: t('sheetEditor.comments.resolved'),
+    }),
+    [t],
   );
 
   const commit = useCallback(
@@ -1120,6 +1164,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       { isEnabled: () => (info?.sheets.length ?? 0) > 1 },
     );
 
+    // Comments ([MS-XLSX] threaded comments)
+    add('review.comments', async () => setCommentsOpen((o) => !o), {
+      ...has,
+      isChecked: () => commentsOpen,
+    });
+
     // Insert
     add('insert.chart', popup('chart', 'insert.chart'), has);
     add('insert.pivot', open({ kind: 'pivot' }), has);
@@ -1397,6 +1447,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     axisSpan,
     pivotLabels,
     pivotPanel,
+    commentsOpen,
     activePivot,
   ]);
 
@@ -1993,6 +2044,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             items: [
               item('insert.chart', t('sheetEditor.chart.insert'), <ChartColumn size={18} />),
               item(
+                'review.comments',
+                t('sheetEditor.comments.title'),
+                <MessageSquareText size={18} />,
+              ),
+              item(
                 'chart.edit',
                 t('sheetEditor.chart.editTitle'),
                 <PencilLine size={s} />,
@@ -2526,6 +2582,50 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           </div>
           <div style={{ width: content.w * scale, height: content.h * scale }} />
         </div>
+        {commentsOpen && (
+          <CommentThreads
+            threads={threads.map((th) => ({ ...th, anchor: th.cell }))}
+            labels={commentLabels}
+            newAnchor={
+              threads.some(
+                (th) => th.row === selection.active.row && th.col === selection.active.col,
+              )
+                ? null
+                : `${colName(selection.active.col)}${selection.active.row + 1}`
+            }
+            onAdd={(text) =>
+              void commentCmd({
+                cmd: 'addComment',
+                sheet,
+                row: selection.active.row,
+                col: selection.active.col,
+                text,
+                author: platform.auth?.user?.name ?? '',
+                date: new Date().toISOString(),
+              })
+            }
+            onReply={(id, text) =>
+              void commentCmd({
+                cmd: 'addComment',
+                sheet,
+                parent: id,
+                text,
+                author: platform.auth?.user?.name ?? '',
+                date: new Date().toISOString(),
+              })
+            }
+            onResolve={(id, done) => void commentCmd({ cmd: 'resolveComment', sheet, id, done })}
+            onDelete={(id) => void commentCmd({ cmd: 'deleteComment', sheet, id })}
+            onSelect={(id) => {
+              const th = threads.find((x) => x.id === id);
+              if (th) setSelection(single({ row: th.row, col: th.col }));
+            }}
+            onClose={() => {
+              setCommentsOpen(false);
+              focusInput();
+            }}
+          />
+        )}
         {activePivot && pivotPanel && (
           <PivotPanel
             host={host}

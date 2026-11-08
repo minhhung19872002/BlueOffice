@@ -161,6 +161,36 @@ pub enum SheetCommand {
     /// Convert cells in legacy Vietnamese fonts (TCVN3 / VNI) to Unicode; one
     /// undo step. Returns `{ "converted": n }`.
     ConvertLegacyText,
+    /// Threaded comments of a sheet ([MS-XLSX] threaded comments part).
+    Comments {
+        sheet: usize,
+    },
+    /// New thread on a cell, or a reply to thread `parent`.
+    AddComment {
+        sheet: usize,
+        #[serde(default)]
+        row: u32,
+        #[serde(default)]
+        col: u32,
+        text: String,
+        #[serde(default)]
+        author: String,
+        #[serde(default)]
+        date: Option<String>,
+        #[serde(default)]
+        parent: Option<String>,
+    },
+    /// Resolve (`done`) or reopen a thread.
+    ResolveComment {
+        sheet: usize,
+        id: String,
+        done: bool,
+    },
+    /// Delete a thread (with its replies) or one reply.
+    DeleteComment {
+        sheet: usize,
+        id: String,
+    },
     FormatState {
         sheet: usize,
         row: u32,
@@ -734,6 +764,34 @@ impl SheetEngine {
         let locale = self.locale;
         match cmd {
             C::ConvertLegacyText => Ok(json!({ "converted": self.convert_legacy_text()? })),
+            C::Comments { sheet } => Ok(json!(self.comment_threads(sheet)?)),
+            C::AddComment {
+                sheet,
+                row,
+                col,
+                text,
+                author,
+                date,
+                parent,
+            } => {
+                let id = self.add_comment(
+                    sheet,
+                    CellRef::new(row, col),
+                    &text,
+                    &author,
+                    date.as_deref(),
+                    parent.as_deref(),
+                )?;
+                Ok(json!({ "id": id }))
+            }
+            C::ResolveComment { sheet, id, done } => {
+                self.resolve_comment(sheet, &id, done)?;
+                Ok(json!({ "ok": true }))
+            }
+            C::DeleteComment { sheet, id } => {
+                self.delete_comment(sheet, &id)?;
+                Ok(json!({ "ok": true }))
+            }
             C::Presets => Ok(json!({
                 "numberFormats": bo_sheet::style::NUMBER_PRESETS
                     .iter()

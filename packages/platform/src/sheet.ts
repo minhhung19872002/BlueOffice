@@ -24,6 +24,18 @@ export interface SheetSummary {
   pivots: number;
 }
 
+/** A threaded comment thread anchored on a cell. */
+export interface SheetThreadInfo {
+  id: string;
+  row: number;
+  col: number;
+  /** A1 reference. */
+  cell: string;
+  done: boolean;
+  /** First comment, then the replies. */
+  comments: { id: string; author: string; date: string; text: string }[];
+}
+
 export interface WorkbookInfo {
   name: string;
   sheets: SheetSummary[];
@@ -464,6 +476,21 @@ export type SheetCommand =
   | { cmd: 'presets' }
   /** TCVN3 / VNI text → Unicode (legacy Vietnamese fonts); one undo step. */
   | { cmd: 'convertLegacyText' }
+  /** Threaded comments of a sheet ([MS-XLSX] threaded comments) → `SheetThreadInfo[]`. */
+  | { cmd: 'comments'; sheet: number }
+  /** New thread on a cell, or a reply to thread `parent` → `{ id }`. */
+  | {
+      cmd: 'addComment';
+      sheet: number;
+      row?: number;
+      col?: number;
+      text: string;
+      author?: string;
+      date?: string;
+      parent?: string;
+    }
+  | { cmd: 'resolveComment'; sheet: number; id: string; done: boolean }
+  | { cmd: 'deleteComment'; sheet: number; id: string }
   | { cmd: 'formatState'; sheet: number; row: number; col: number }
   | { cmd: 'format'; sheet: number; range: SheetRange; patch: StylePatch }
   | { cmd: 'borders'; sheet: number; range: SheetRange; spec: BorderSpec }

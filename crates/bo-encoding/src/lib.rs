@@ -262,11 +262,8 @@ pub fn convert_document(doc: &mut Document) -> usize {
 
 /// Legacy encoding of a font slot pair: the hAnsi font (characters ≥ U+0080,
 /// ECMA-376 Part 1, §17.3.2.26 rFonts) when given, else the ASCII font.
-fn legacy_of_props(p: &RunProps) -> Option<Option<(Legacy, bool)>> {
-    p.font_h_ansi
-        .as_deref()
-        .or(p.font.as_deref())
-        .map(legacy_from_font)
+fn font_of(p: &RunProps) -> Option<&str> {
+    p.font_h_ansi.as_deref().or(p.font.as_deref())
 }
 
 /// Font slots of `p` switched to [`REPLACEMENT_FONT`].
@@ -286,24 +283,26 @@ fn convert_blocks(
     styles: &StyleSheet,
     default: Option<(Legacy, bool)>,
 ) -> usize {
-    let style_legacy = |id: Option<&str>| -> Option<Option<(Legacy, bool)>> {
+    // The font a style chain sets (derived style first), if any.
+    let style_font = |id: Option<&str>| {
         let id = id?;
         styles
             .chain(id)
             .iter()
             .rev()
-            .find_map(|s| legacy_of_props(&s.rpr))
+            .find_map(|s| font_of(&s.rpr).map(str::to_owned))
     };
     let mut count = 0;
     for b in blocks {
         match b {
             bo_model::Block::Paragraph(p) => {
-                let para = style_legacy(p.props.style.as_deref());
+                let para = style_font(p.props.style.as_deref());
                 for run in &mut p.runs {
-                    let legacy = legacy_of_props(&run.props)
-                        .or_else(|| style_legacy(run.props.style.as_deref()))
-                        .or(para)
-                        .unwrap_or(default);
+                    let font = font_of(&run.props)
+                        .map(str::to_owned)
+                        .or_else(|| style_font(run.props.style.as_deref()))
+                        .or_else(|| para.clone());
+                    let legacy = font.map_or(default, |f| legacy_from_font(&f));
                     let Some((enc, upper)) = legacy else { continue };
                     let mut any = false;
                     for item in &mut run.content {
@@ -358,7 +357,7 @@ pub fn convert_document_runs(doc: &mut Document) -> usize {
     }
     if count > 0 {
         for st in &mut doc.styles.styles {
-            if legacy_of_props(&st.rpr).flatten().is_some() {
+            if font_of(&st.rpr).and_then(legacy_from_font).is_some() {
                 replace_fonts(&mut st.rpr);
             }
         }
@@ -660,11 +659,11 @@ mod tests {
             panic!("table")
         };
         assert_eq!(text(&t.rows[0].cells[0].blocks[0]), "Hà Nội");
+        assert_eq!(text(&s.headers.default.as_ref().unwrap()[0]), "CỘNG HOÀ");
         assert_eq!(
-            text(&s.headers.default.as_ref().unwrap()[0]),
-            "CỘNG HOÀ"
+            doc.styles.styles[0].rpr.font.as_deref(),
+            Some(REPLACEMENT_FONT)
         );
-        assert_eq!(doc.styles.styles[0].rpr.font.as_deref(), Some(REPLACEMENT_FONT));
         assert_eq!(doc.default_run.font, None);
         // Already Unicode: nothing more to do.
         assert_eq!(convert_document_runs(&mut doc), 0);

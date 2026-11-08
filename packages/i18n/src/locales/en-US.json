@@ -896,6 +896,19 @@
         "M11": "November",
         "M12": "December"
       }
+    },
+    "comments": {
+      "title": "Comments",
+      "empty": "No comments yet",
+      "new": "New comment",
+      "newPlaceholder": "Type a comment (Ctrl+Enter to post)",
+      "reply": "Reply",
+      "replyPlaceholder": "Reply (Ctrl+Enter to post)",
+      "resolve": "Resolve",
+      "reopen": "Reopen",
+      "delete": "Delete",
+      "close": "Close comments",
+      "resolved": "resolved"
     }
   },
   "recovery": {
@@ -1173,7 +1186,20 @@
     "delaySec": "Delay (s)",
     "moveEarlier": "Move earlier",
     "moveLater": "Move later",
-    "removeAnimation": "Remove effect"
+    "removeAnimation": "Remove effect",
+    "comments": {
+      "title": "Comments",
+      "empty": "No comments yet",
+      "new": "New comment",
+      "newPlaceholder": "Type a comment (Ctrl+Enter to post)",
+      "reply": "Reply",
+      "replyPlaceholder": "Reply (Ctrl+Enter to post)",
+      "resolve": "Resolve",
+      "reopen": "Reopen",
+      "delete": "Delete",
+      "close": "Close comments",
+      "resolved": "resolved"
+    }
   },
   "review": {
     "title": "Review",

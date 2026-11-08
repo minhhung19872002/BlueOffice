@@ -9,3 +9,10 @@ export {
 export { StatusBar, type StatusBarProps } from './StatusBar';
 export { useResolvedTheme, type ResolvedTheme, type ThemeSetting } from './theme';
 export { Popover, type PopoverProps } from './Popover';
+export {
+  CommentThreads,
+  type CommentThread,
+  type CommentThreadsLabels,
+  type CommentThreadsProps,
+  type ThreadComment,
+} from './CommentThreads';

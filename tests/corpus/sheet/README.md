@@ -60,6 +60,9 @@ Kiểm thử round-trip: `cargo test -p bo-xlsx --test corpus corpus_roundtrip -
 | `smartart-1.xlsx` | SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback (biến thể 1) | tự sinh, `corpus.rs::smartart` |
 | `smartart-2.xlsx` | SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback (biến thể 2) | tự sinh, `corpus.rs::smartart` |
 | `smartart-3.xlsx` | SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback (biến thể 3) | tự sinh, `corpus.rs::smartart` |
+| `threaded-1.xlsx` | threaded comments + replies + resolved thread ([MS-XLSX] threadedComments, persons) with legacy notes (biến thể 1) | tự sinh, `corpus.rs::threaded` |
+| `threaded-2.xlsx` | threaded comments + replies + resolved thread ([MS-XLSX] threadedComments, persons) with legacy notes (biến thể 2) | tự sinh, `corpus.rs::threaded` |
+| `threaded-3.xlsx` | threaded comments + replies + resolved thread ([MS-XLSX] threadedComments, persons) with legacy notes (biến thể 3) | tự sinh, `corpus.rs::threaded` |
 | `writer-format-1.xlsx` | BlueSheet writer: cell formats (vi-VN number formats, fonts, fills, borders, alignment) and a gallery cell style (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_format` |
 | `writer-format-2.xlsx` | BlueSheet writer: cell formats (vi-VN number formats, fonts, fills, borders, alignment) and a gallery cell style (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_format` |
 | `writer-format-3.xlsx` | BlueSheet writer: cell formats (vi-VN number formats, fonts, fills, borders, alignment) and a gallery cell style (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_format` |

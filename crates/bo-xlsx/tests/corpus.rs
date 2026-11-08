@@ -923,6 +923,107 @@ fn smartart(i: usize) -> Book {
     }
 }
 
+/// Threaded comments ([MS-XLSX] threaded comments part + person part) with the
+/// legacy notes (§18.7) Excel keeps next to them; variant `i` has `i` replies
+/// and variant 3 a resolved thread.
+fn threaded(i: usize) -> Book {
+    const NS_TC: &str = "http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments";
+    let pid = |k: usize| format!("{{6A3E2F10-0000-4000-8000-00000000000{k}}}");
+    let cid = |k: usize| format!("{{9C1B7D20-0000-4000-8000-0000000000{k:02}}}");
+    let mut tc = String::new();
+    let mut legacy = String::new();
+    for (t, cell) in ["B2", "D5"].iter().enumerate() {
+        let root = cid(10 * t);
+        let done = if i == 3 && t == 1 { r#" done="1""# } else { "" };
+        let _ = write!(
+            tc,
+            r#"<threadedComment ref="{cell}" dT="2026-11-0{}T08:30:00.00" personId="{}" id="{root}"{done}><text>Kiểm tra lại ô {cell} &amp; số liệu quý {}</text></threadedComment>"#,
+            t + 1,
+            pid(1),
+            t + 2
+        );
+        for k in 1..=i {
+            let _ = write!(
+                tc,
+                r#"<threadedComment ref="{cell}" dT="2026-11-0{}T09:0{k}:00.00" personId="{}" id="{}" parentId="{root}"><text>Trả lời {k}: đã sửa</text></threadedComment>"#,
+                t + 1,
+                pid(1 + k % 2),
+                cid(10 * t + k)
+            );
+        }
+        let _ = write!(
+            legacy,
+            r#"<comment ref="{cell}" authorId="{t}"><text><t>[Threaded comment] Kiểm tra lại ô {cell}</t></text></comment>"#
+        );
+    }
+    let threaded = format!(r#"{DECL}<ThreadedComments xmlns="{NS_TC}">{tc}</ThreadedComments>"#);
+    let persons = format!(
+        r#"{DECL}<personList xmlns="{NS_TC}" xmlns:x="{NS_MAIN}"><person displayName="Nguyễn Văn An" id="{}" userId="an@example.invalid" providerId="None"/><person displayName="Trần Thị Bình" id="{}" userId="binh@example.invalid" providerId="None"/></personList>"#,
+        pid(1),
+        pid(2)
+    );
+    let comments = format!(
+        r#"{DECL}<comments xmlns="{NS_MAIN}"><authors><author>tc={}</author><author>tc={}</author></authors><commentList>{legacy}</commentList></comments>"#,
+        cid(0),
+        cid(10)
+    );
+    let mut s = sheet(
+        "Bình luận",
+        r#"<sheetData><row r="2"><c r="B2"><v>120</v></c></row><row r="5"><c r="D5"><v>7</v></c></row></sheetData>"#,
+    );
+    s.rels = vec![
+        ("rId1".into(), "comments".into(), "../comments1.xml".into(), false),
+        (
+            "rId2".into(),
+            "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment".into(),
+            "../threadedComments/threadedComment1.xml".into(),
+            false,
+        ),
+    ];
+    Book {
+        sheets: vec![s],
+        parts: vec![
+            (
+                "/xl/comments1.xml".into(),
+                Some(format!("{CT_SML}comments+xml")),
+                comments.into_bytes(),
+            ),
+            (
+                "/xl/threadedComments/threadedComment1.xml".into(),
+                Some("application/vnd.ms-excel.threadedcomments+xml".into()),
+                threaded.into_bytes(),
+            ),
+            (
+                "/xl/persons/person.xml".into(),
+                Some("application/vnd.ms-excel.person+xml".into()),
+                persons.into_bytes(),
+            ),
+        ],
+        wb_rels: vec![(
+            "http://schemas.microsoft.com/office/2017/10/relationships/person".into(),
+            "persons/person.xml".into(),
+        )],
+        ..Book::default()
+    }
+}
+
+#[test]
+fn corpus_threaded_comments_round_trip() {
+    for i in 1..=3 {
+        let wb = read_xlsx(&build(&threaded(i))).unwrap();
+        let tc = &wb.sheets[0].threaded_comments;
+        assert_eq!(tc.len(), 2 * (i + 1), "variant {i}");
+        assert_eq!(wb.persons.len(), 2);
+        assert_eq!(tc[0].cell, m::CellRef::new(1, 1));
+        assert_eq!(tc[0].text, "Kiểm tra lại ô B2 & số liệu quý 2");
+        assert_eq!(tc[1].parent_id.as_deref(), Some(tc[0].id.as_str()));
+        assert_eq!(tc.iter().any(|c| c.done), i == 3);
+        let back = read_xlsx(&write_xlsx(&wb).unwrap()).unwrap();
+        assert_eq!(back.sheets[0].threaded_comments, *tc);
+        assert_eq!(back.persons, wb.persons);
+    }
+}
+
 #[test]
 fn corpus_smartart_is_found() {
     for i in 1..=3 {
@@ -931,7 +1032,10 @@ fn corpus_smartart_is_found() {
         assert_eq!(d.len(), 1, "variant {i}");
         assert_eq!(d[0].part, "/xl/diagrams/drawing1.xml");
         assert_eq!(d[0].from, m::CellRef::new(1, 1));
-        assert_eq!(d[0].to, Some(m::CellRef::new(4 + 3 * i as u32, 5 + 2 * i as u32)));
+        assert_eq!(
+            d[0].to,
+            Some(m::CellRef::new(4 + 3 * i as u32, 5 + 2 * i as u32))
+        );
         assert_eq!(d[0].name, format!("Sơ đồ {i}"));
         // The drawing and diagram parts stay in the package after a save.
         let saved = read_xlsx(&write_xlsx(&wb).unwrap()).unwrap();
@@ -1024,6 +1128,7 @@ const FEATURES: &[Feature] = &[
     ("chart-anchors", "charts in a oneCellAnchor (from + ext) and absoluteAnchor (pos + ext)", chart_anchors),
     ("ext", "extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml", extensions),
     ("smartart", "SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback", smartart),
+    ("threaded", "threaded comments + replies + resolved thread ([MS-XLSX] threadedComments, persons) with legacy notes", threaded),
 ];
 
 // ---------------------------------------------------------------------------

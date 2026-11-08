@@ -896,6 +896,19 @@
         "M11": "Tháng 11",
         "M12": "Tháng 12"
       }
+    },
+    "comments": {
+      "title": "Bình luận",
+      "empty": "Chưa có bình luận",
+      "new": "Bình luận mới",
+      "newPlaceholder": "Nhập bình luận (Ctrl+Enter để gửi)",
+      "reply": "Trả lời",
+      "replyPlaceholder": "Trả lời (Ctrl+Enter để gửi)",
+      "resolve": "Đánh dấu đã xử lý",
+      "reopen": "Mở lại",
+      "delete": "Xoá",
+      "close": "Đóng bình luận",
+      "resolved": "đã xử lý"
     }
   },
   "recovery": {
@@ -1173,7 +1186,20 @@
     "delaySec": "Chờ (giây)",
     "moveEarlier": "Lên trước",
     "moveLater": "Xuống sau",
-    "removeAnimation": "Xoá hiệu ứng"
+    "removeAnimation": "Xoá hiệu ứng",
+    "comments": {
+      "title": "Bình luận",
+      "empty": "Chưa có bình luận",
+      "new": "Bình luận mới",
+      "newPlaceholder": "Nhập bình luận (Ctrl+Enter để gửi)",
+      "reply": "Trả lời",
+      "replyPlaceholder": "Trả lời (Ctrl+Enter để gửi)",
+      "resolve": "Đánh dấu đã xử lý",
+      "reopen": "Mở lại",
+      "delete": "Xoá",
+      "close": "Đóng bình luận",
+      "resolved": "đã xử lý"
+    }
   },
   "review": {
     "title": "Xem lại",

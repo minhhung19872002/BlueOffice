@@ -80,6 +80,13 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
             // The calculation chain (§18.6) is an optional cache; it is dropped on
             // write because edited cells would make it stale.
             RelKind::CalcChain if internal => mark(&target),
+            // [MS-XLSX] person part: authors of threaded comments.
+            _ if internal && rel.rel_type == crate::threaded::REL_PERSON => {
+                if let Some(p) = pkg.part(&target) {
+                    wb.persons = crate::threaded::read_persons(&p.data, &target);
+                }
+                mark(&target);
+            }
             RelKind::Worksheet | RelKind::OtherSheet if internal => {
                 sheet_rels.insert(rel.id.clone(), (kind, rel.rel_type.clone(), target));
             }
@@ -148,6 +155,15 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
                                 ws.comment_authors = authors;
                             }
                             ws.comments = comments;
+                        }
+                        mark(&abs);
+                    }
+                    // [MS-XLSX] threaded comments part.
+                    _ if rel.mode == TargetMode::Internal
+                        && rel.rel_type == crate::threaded::REL_THREADED =>
+                    {
+                        if let Some(p) = pkg.part(&abs) {
+                            ws.threaded_comments = crate::threaded::read_threaded(&p.data, &abs);
                         }
                         mark(&abs);
                     }

@@ -1509,9 +1509,36 @@ fn smartart_decks() -> Vec<(&'static str, Vec<u8>)> {
     cycle.rels = rels();
     let c = IN + IN / 2;
     let cycle_shapes = [
-        dsp_sp(1, 2 * IN + IN / 4, 0, c, c, "ellipse", "7030A0", "Lập kế hoạch"),
-        dsp_sp(2, 4 * IN + IN / 2, 2 * IN, c, c, "ellipse", "2E75B6", "Thực hiện"),
-        dsp_sp(3, 2 * IN + IN / 4, 3 * IN + IN / 2, c, c, "ellipse", "548235", "Kiểm tra"),
+        dsp_sp(
+            1,
+            2 * IN + IN / 4,
+            0,
+            c,
+            c,
+            "ellipse",
+            "7030A0",
+            "Lập kế hoạch",
+        ),
+        dsp_sp(
+            2,
+            4 * IN + IN / 2,
+            2 * IN,
+            c,
+            c,
+            "ellipse",
+            "2E75B6",
+            "Thực hiện",
+        ),
+        dsp_sp(
+            3,
+            2 * IN + IN / 4,
+            3 * IN + IN / 2,
+            c,
+            c,
+            "ellipse",
+            "548235",
+            "Kiểm tra",
+        ),
         dsp_sp(4, 0, 2 * IN, c, c, "ellipse", "C55A11", "Cải tiến"),
     ]
     .concat();

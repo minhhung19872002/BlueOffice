@@ -244,6 +244,21 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                         comments_xml(&ws.comments, &ws.comment_authors).into_bytes(),
                     ));
                 }
+                // Threaded comments ([MS-XLSX] threaded comments part).
+                if !ws.threaded_comments.is_empty() {
+                    let tpath = names.fresh(|n| format!("/xl/threadedComments/threadedComment{n}.xml"));
+                    rels.push(Relationship {
+                        id: ids.alloc(),
+                        rel_type: crate::threaded::REL_THREADED.into(),
+                        target: relative_target(&path, &tpath),
+                        mode: TargetMode::Internal,
+                    });
+                    out_parts.push((
+                        tpath,
+                        Some(crate::threaded::CT_THREADED.into()),
+                        crate::threaded::threaded_xml(&ws.threaded_comments).into_bytes(),
+                    ));
+                }
                 // Charts (§20.5 drawing → §21.2 chart parts).
                 let drawing_rid = write_charts(
                     wb,
@@ -302,6 +317,21 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
             format!("/xl/styles{n}.xml")
         }
     });
+    // [MS-XLSX] person part (authors of threaded comments).
+    if !wb.persons.is_empty() {
+        let ppath = "/xl/persons/person.xml".to_owned();
+        wb_rels.push(Relationship {
+            id: wb_ids.alloc(),
+            rel_type: crate::threaded::REL_PERSON.into(),
+            target: relative_target(&wb_path, &ppath),
+            mode: TargetMode::Internal,
+        });
+        out_parts.push((
+            ppath,
+            Some(crate::threaded::CT_PERSON.into()),
+            crate::threaded::persons_xml(&wb.persons).into_bytes(),
+        ));
+    }
     wb_rels.push(Relationship {
         id: wb_ids.alloc(),
         rel_type: REL_STYLES.into(),

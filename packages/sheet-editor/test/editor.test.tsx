@@ -256,6 +256,59 @@ describe('BlueSheetEditor', () => {
     expect(p.window.setTitle).toHaveBeenLastCalledWith(expect.stringContaining('Báo cáo.xlsx'));
   });
 
+  it('shows threaded comments, replies, resolves and adds a thread', async () => {
+    const { host } = fakeHost();
+    const base = host.exec;
+    const sent: SheetCommand[] = [];
+    host.exec = (async (cmd: SheetCommand) => {
+      sent.push(cmd);
+      if (cmd.cmd === 'comments')
+        return [
+          {
+            id: '{T1}',
+            row: 1,
+            col: 1,
+            cell: 'B2',
+            done: false,
+            comments: [
+              { id: '{T1}', author: 'Nguyễn Văn An', date: '', text: 'Kiểm tra số liệu' },
+              { id: '{R1}', author: 'Trần Bình', date: '', text: 'Đã sửa' },
+            ],
+          },
+        ];
+      return base(cmd);
+    }) as SheetHost['exec'];
+    const { p } = platform(host);
+    render(<BlueSheetEditor platform={p} language="vi-VN" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chèn' }));
+    fireEvent.click(await screen.findByText('Bình luận'));
+    const thread = await screen.findByTestId('comment-thread');
+    expect(thread.textContent).toContain('Kiểm tra số liệu');
+    expect(thread.textContent).toContain('Trần Bình');
+    // The active cell (A1) has no thread: a new one can be started there.
+    const box = screen.getByLabelText('Nhập bình luận (Ctrl+Enter để gửi)');
+    fireEvent.change(box, { target: { value: 'Ô đầu' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Bình luận mới' }));
+    await waitFor(() =>
+      expect(sent).toContainEqual(
+        expect.objectContaining({ cmd: 'addComment', row: 0, col: 0, text: 'Ô đầu' }),
+      ),
+    );
+    const reply = screen.getByLabelText('Trả lời (Ctrl+Enter để gửi)');
+    fireEvent.change(reply, { target: { value: 'Đồng ý' } });
+    fireEvent.keyDown(reply, { key: 'Enter', ctrlKey: true });
+    await waitFor(() =>
+      expect(sent).toContainEqual(
+        expect.objectContaining({ cmd: 'addComment', parent: '{T1}', text: 'Đồng ý' }),
+      ),
+    );
+    fireEvent.click(screen.getByText('Đánh dấu đã xử lý'));
+    await waitFor(() =>
+      expect(sent).toContainEqual({ cmd: 'resolveComment', sheet: 0, id: '{T1}', done: true }),
+    );
+  });
+
   it('tells about TCVN3/VNI text converted on open and undoes it', async () => {
     const { host } = fakeHost();
     const { p } = platform(host);

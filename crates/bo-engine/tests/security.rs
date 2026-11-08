@@ -162,8 +162,14 @@ fn smartart_fallback_in_slides_and_sheets() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus");
     let mut e = Engine::with_bundled_fonts();
     for (file, words) in [
-        ("slide-smartart-process.pptx", ["\"Tiếp \"", "\"Thẩm \"", "\"quả\""]),
-        ("slide-smartart-cycle.pptx", ["\"Lập \"", "\"Thực \"", "\"Cải \""]),
+        (
+            "slide-smartart-process.pptx",
+            ["\"Tiếp \"", "\"Thẩm \"", "\"quả\""],
+        ),
+        (
+            "slide-smartart-cycle.pptx",
+            ["\"Lập \"", "\"Thực \"", "\"Cải \""],
+        ),
     ] {
         let bytes = std::fs::read(root.join("slide").join(file)).unwrap();
         e.open(&bytes, file).unwrap();
@@ -214,9 +220,21 @@ fn legacy_vietnamese_docx_is_converted_and_undoable() {
     let vni = "Ñoäc laäp - Töï do - Haïnh phuùc";
     let mut e = Engine::with_bundled_fonts();
     e.new_document("a.docx").unwrap();
-    cmd(&mut e, &format!(r#"{{"cmd":"insertText","text":{}}}"#, serde_json::json!(tcvn)));
+    cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"insertText","text":{}}}"#,
+            serde_json::json!(tcvn)
+        ),
+    );
     cmd(&mut e, r#"{"cmd":"splitParagraph"}"#);
-    cmd(&mut e, &format!(r#"{{"cmd":"insertText","text":{}}}"#, serde_json::json!(vni)));
+    cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"insertText","text":{}}}"#,
+            serde_json::json!(vni)
+        ),
+    );
     let font = |e: &mut Engine, p: usize, len: usize, name: &str| {
         cmd(
             e,
@@ -243,7 +261,10 @@ fn legacy_vietnamese_docx_is_converted_and_undoable() {
     let info = f.open(&legacy, "cu.docx").unwrap();
     assert_eq!(info.legacy_converted, 2);
     let text = f.document().unwrap().plain_text();
-    assert!(text.contains("Cộng hoà xã hội chủ nghĩa Việt Nam"), "{text}");
+    assert!(
+        text.contains("Cộng hoà xã hội chủ nghĩa Việt Nam"),
+        "{text}"
+    );
     assert!(text.contains("Độc lập - Tự do - Hạnh phúc"), "{text}");
     let bo_model::Block::Paragraph(p) = &f.document().unwrap().sections[0].blocks[0] else {
         panic!("paragraph")

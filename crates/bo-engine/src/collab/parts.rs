@@ -975,7 +975,8 @@ pub(crate) struct Rebuilt {
     pub footnotes: Option<BTreeMap<i32, Vec<Block>>>,
     pub endnotes: Option<BTreeMap<i32, Vec<Block>>>,
     pub eo: Option<bool>,
-    /// Footnote continuation notice (`Some(None)`: none).
+    /// Footnote continuation notice; `None` = not rebuilt (the inner `None` = no notice).
+    #[allow(clippy::option_option)] // "not rebuilt" vs "rebuilt to no notice"
     pub notice: Option<Option<Vec<Block>>>,
 }
 

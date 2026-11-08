@@ -702,6 +702,9 @@ pub struct PdfSignature {
     pub covers_whole_file: bool,
     /// The later revisions only add long-term validation data (DSS, B-LT).
     pub only_validation_data_after: bool,
+    /// End of the bytes the signature covers (its revision): a later document
+    /// time-stamp covering it ends further.
+    pub covered_end: usize,
 }
 
 /// Verifies every `/ByteRange` signature in `pdf` (digest + RSA, and the
@@ -718,6 +721,7 @@ pub fn verify_pdf(pdf: &[u8]) -> Result<Vec<PdfSignature>> {
             signer: verify_detached(&f.der, &f.signed)?,
             covers_whole_file: whole,
             only_validation_data_after: !whole && only_validation_data_after(pdf, f.end),
+            covered_end: f.end,
         });
     }
     Ok(out)
@@ -732,6 +736,8 @@ pub struct DocTimestamp {
     pub covers_whole_file: bool,
     /// The later revisions only add validation data or document time-stamps.
     pub only_validation_data_after: bool,
+    /// End of the bytes the time-stamp covers.
+    pub covered_end: usize,
 }
 
 /// Verifies every document time-stamp of `pdf` (ISO 32000-2 §12.8.5: the
@@ -747,6 +753,7 @@ pub fn verify_pdf_timestamps(pdf: &[u8]) -> Result<Vec<DocTimestamp>> {
             info: timestamp::verify_token(&f.der, &f.signed)?,
             covers_whole_file: whole,
             only_validation_data_after: !whole && only_validation_data_after(pdf, f.end),
+            covered_end: f.end,
         });
     }
     Ok(out)

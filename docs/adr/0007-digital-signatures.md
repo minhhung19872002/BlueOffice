@@ -74,8 +74,10 @@
   dấu thời gian tài liệu (trường/widget mới, `/Annots`, `/Fields` chỉ tăng). pyHanko đánh giá chữ ký "All
   modifications relate to signature maintenance … VALID" và dấu thời gian tài liệu `ENTIRE_FILE`, trusted. Không ghi VRI
   (ETSI EN 319 142-1 §5.4.2.2: tuỳ chọn, bộ xác minh không dựa vào nó; các cài đặt còn khác nhau về giá trị được băm —
-  pyHanko băm chuỗi hex của CMS). **Chưa** áp quy tắc POE đầy đủ của ETSI EN 319 102-1 (dùng dấu thời gian tài liệu để xác minh lùi thời
-  điểm); trình duyệt hỏi OCSP / tải CRL qua proxy của server (`POST /api/revocation/fetch`, chống SSRF, xem
+  pyHanko băm chuỗi hex của CMS). Dấu thời gian tài liệu tin cậy phủ một chữ ký
+  không có dấu thời gian riêng là bằng chứng tồn tại (POE, ETSI EN 319 102-1 §5.6.2.3): chữ ký được xác minh tại thời
+  điểm của dấu thời gian sớm nhất như vậy (người ký hết hạn sau đó vẫn hợp lệ). **Chưa** áp các quy tắc POE còn lại của ETSI EN 319 102-1
+  (thuật toán yếu theo thời gian, POE cho dữ liệu thu hồi); trình duyệt hỏi OCSP / tải CRL qua proxy của server (`POST /api/revocation/fetch`, chống SSRF, xem
   `docs/deploy/remote-signing.md`); `pyhanko --ltv-profile pades` với PKI thử vẫn đòi tải
   CRL của TSA trực tuyến (cả với file do chính pyHanko `ltvfix` tạo).
 - `verify_ooxml` dựa trên dạng canonical do BlueOffice sinh; chữ ký XAdES của phần mềm khác vẫn báo `Unsupported`.

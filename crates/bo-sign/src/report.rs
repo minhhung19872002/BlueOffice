@@ -111,6 +111,8 @@ pub struct DocumentReport {
     pub error: Option<String>,
 }
 
+/// `now`: the validation time without a trusted signature time-stamp — the
+/// verification time, or an earlier proof of existence of the signature.
 fn summarize(
     signer_der: &[u8],
     pool: &[Vec<u8>],
@@ -175,33 +177,12 @@ pub fn verify_document(
                 for d in &dss.ocsps {
                     let _ = with_dss.add_ocsp_der(d);
                 }
-                for s in sigs {
-                    let pool: Vec<Vec<u8>> = s
-                        .signer
-                        .certificates
-                        .iter()
-                        .chain(&dss.certs)
-                        .cloned()
-                        .collect();
-                    let (timestamp, chain, at) = summarize(
-                        &s.signer.certificate_der,
-                        &pool,
-                        s.signer.timestamp.as_ref(),
-                        &with_dss,
-                        now,
-                    );
-                    report.signatures.push(SignatureSummary {
-                        signer: s.signer.subject,
-                        signing_time: None,
-                        covers_whole_document: s.covers_whole_file || s.only_validation_data_after,
-                        timestamp,
-                        chain,
-                        validated_at: crate::iso_utc(crate::unix_secs(at)),
-                    });
-                }
+                let mut proofs: Vec<(usize, SystemTime)> = Vec::new();
                 match crate::pdf::verify_pdf_timestamps(bytes) {
                     Ok(list) => {
                         for t in list {
+                            let end = t.covered_end;
+                            let gen = UNIX_EPOCH + Duration::from_secs(t.info.gen_time_unix);
                             let pool: Vec<Vec<u8>> = t
                                 .info
                                 .certificates
@@ -209,7 +190,7 @@ pub fn verify_document(
                                 .chain(&dss.certs)
                                 .cloned()
                                 .collect();
-                            report.document_timestamps.push(DocumentTimestampSummary {
+                            let summary = DocumentTimestampSummary {
                                 timestamp: TimestampSummary {
                                     time: t.info.gen_time.clone(),
                                     tsa: t.info.tsa_subject.clone(),
@@ -224,10 +205,48 @@ pub fn verify_document(
                                 },
                                 covers_whole_document: t.covers_whole_file
                                     || t.only_validation_data_after,
-                            });
+                            };
+                            if summary.timestamp.chain.trusted {
+                                proofs.push((end, gen));
+                            }
+                            report.document_timestamps.push(summary);
                         }
                     }
                     Err(e) => report.error = Some(e.to_string()),
+                }
+                for s in sigs {
+                    let pool: Vec<Vec<u8>> = s
+                        .signer
+                        .certificates
+                        .iter()
+                        .chain(&dss.certs)
+                        .cloned()
+                        .collect();
+                    // A trusted document time-stamp over this signature proves it
+                    // existed at its time (ETSI EN 319 102-1 §5.6.2.3, PAdES B-LTA):
+                    // without a signature time-stamp, validate at the earliest one.
+                    let poe = proofs
+                        .iter()
+                        .filter(|(end, _)| *end > s.covered_end)
+                        .map(|(_, t)| *t)
+                        .min()
+                        .filter(|t| *t < now)
+                        .unwrap_or(now);
+                    let (timestamp, chain, at) = summarize(
+                        &s.signer.certificate_der,
+                        &pool,
+                        s.signer.timestamp.as_ref(),
+                        &with_dss,
+                        poe,
+                    );
+                    report.signatures.push(SignatureSummary {
+                        signer: s.signer.subject,
+                        signing_time: None,
+                        covers_whole_document: s.covers_whole_file || s.only_validation_data_after,
+                        timestamp,
+                        chain,
+                        validated_at: crate::iso_utc(crate::unix_secs(at)),
+                    });
                 }
             }
             Err(e) => report.error = Some(e.to_string()),

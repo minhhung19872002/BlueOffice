@@ -253,3 +253,40 @@ fn bytes_that_are_not_updates_are_changes() {
     plain.extend_from_slice(b"% junk\n");
     assert!(!verify_pdf(&plain).unwrap()[0].only_validation_data_after);
 }
+
+// source: ETSI EN 319 142-1 §6.5 (B-LTA), ETSI EN 319 102-1 §5.6.2.3 (proof of
+// existence from time-stamps)
+#[test]
+fn a_document_time_stamp_proves_a_signature_made_before_the_signer_expired() {
+    use bo_sign::pdf::add_document_timestamp;
+    use bo_sign::testing::validity_around;
+    let now = SystemTime::now();
+    // Signer certificates valid from 10 days ago until yesterday.
+    let old = TestPki::with_validity(
+        &mut rand::thread_rng(),
+        validity_around(now - 5 * DAY, 5 * DAY, 4 * DAY),
+    );
+    let pdf = sign_pdf_with(&sample_pdf(), &old.signer, &SignOptions::default(), None).unwrap();
+    let mut anchors = anchors();
+    anchors.add_der(old.root.certificate_der()).unwrap();
+    // Verified today: the signer has expired.
+    let r = verify_document(&pdf, &anchors, now).unwrap();
+    assert!(!r.signatures[0].chain.trusted);
+    assert_eq!(r.signatures[0].chain.problems[0].code, "expired");
+    // A trusted document time-stamp from three days ago (TSA valid today).
+    let tsa = LocalTsa::new(clone_signer(&pki().tsa), now - 3 * DAY);
+    let lta = add_document_timestamp(&pdf, &tsa).unwrap();
+    let r = verify_document(&lta, &anchors, now).unwrap();
+    assert!(r.document_timestamps[0].timestamp.chain.trusted);
+    let s = &r.signatures[0];
+    assert!(s.chain.trusted, "{:?}", s.chain);
+    assert!(s.covers_whole_document);
+    assert_eq!(s.validated_at, r.document_timestamps[0].timestamp.time);
+    // A time-stamp made after the expiry proves nothing useful.
+    let late = add_document_timestamp(&pdf, &LocalTsa::new(clone_signer(&pki().tsa), now)).unwrap();
+    assert!(
+        !verify_document(&late, &anchors, now).unwrap().signatures[0]
+            .chain
+            .trusted
+    );
+}

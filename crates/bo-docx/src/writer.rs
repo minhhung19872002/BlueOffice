@@ -948,7 +948,7 @@ impl Writer<'_> {
             // §17.18.33 continuationNotice (footnotes only in the model): the first
             // id ≥ 1 no note uses (Word files give it 1 and number notes from 2).
             if let (false, Some(blocks)) = (end, &doc.continuation_notice) {
-                let id = (1..).find(|i| !notes.contains_key(i)).unwrap_or(1);
+                let id = (1..i32::MAX).find(|i| !notes.contains_key(i)).unwrap_or(1);
                 let body = self.blocks(blocks);
                 let _ = write!(
                     s,

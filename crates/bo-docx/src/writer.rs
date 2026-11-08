@@ -106,6 +106,7 @@ struct Writer<'d> {
 
 /// Serialize a document to `.docx` bytes.
 pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
+    reset_ids();
     let (pkg, main) = match &doc.source {
         Some(src) => (
             Package::read(&src.bytes, &Limits::default())?,
@@ -570,7 +571,11 @@ impl Writer<'_> {
         cols(&mut s, &t.grid);
         // §17.13.5.33 tblGridChange (CT_Markup: only w:id) with the previous grid.
         if let Some(gc) = &t.grid_change {
-            let _ = write!(s, "<w:tblGridChange w:id=\"{}\"><w:tblGrid>", gc.info.id);
+            let _ = write!(
+                s,
+                "<w:tblGridChange w:id=\"{}\"><w:tblGrid>",
+                unique_id(gc.info.id)
+            );
             cols(&mut s, &gc.old);
             s.push_str("</w:tblGrid></w:tblGridChange>");
         }
@@ -1499,11 +1504,42 @@ fn tcpr_items(p: &bo_model::CellProps) -> Vec<(String, String)> {
     items
 }
 
+thread_local! {
+    /// Revision ids written so far and the counter for fresh ones (see [`unique_id`]).
+    static WRITTEN_IDS: std::cell::RefCell<(std::collections::HashSet<i32>, i32)> =
+        std::cell::RefCell::new((std::collections::HashSet::new(), 0));
+}
+
+/// Forget the revision ids of the previous [`write_docx`].
+fn reset_ids() {
+    WRITTEN_IDS.with(|c| *c.borrow_mut() = (std::collections::HashSet::new(), 900_000_000));
+}
+
+/// A revision id unique in the part set being written: annotation ids must be
+/// unique (ECMA-376 Part 1, §17.13.1 `w:id`), but one edit marks several elements
+/// (cells of a column, paragraphs of a deletion) with one revision. The first element
+/// keeps the id, later ones get fresh ids.
+fn unique_id(id: i32) -> i32 {
+    WRITTEN_IDS.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.0.insert(id) {
+            return id;
+        }
+        loop {
+            c.1 += 1;
+            let n = c.1;
+            if c.0.insert(n) {
+                return n;
+            }
+        }
+    })
+}
+
 /// `w:id`, `w:author`, `w:date` of a tracked change (§17.13.5 `CT_TrackChange`).
 fn rev_attrs(info: &RevisionInfo) -> String {
     let mut s = format!(
         " w:id=\"{}\" w:author=\"{}\"",
-        info.id,
+        unique_id(info.id),
         escape(&info.author)
     );
     if let Some(d) = &info.date {

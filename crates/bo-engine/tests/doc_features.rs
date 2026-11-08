@@ -749,3 +749,23 @@ fn corpus_long_footnotes_continue() {
         .collect();
     assert!(all.contains("tiếp"), "continuation notice shown");
 }
+
+#[test]
+fn continued_footnote_is_edited_on_its_second_page() {
+    let mut e = corpus("notes-05-long-footnote.docx");
+    let l = e.layout().unwrap();
+    let pi = l.pages.len() - 1;
+    let line = l.pages[pi]
+        .lines
+        .iter()
+        .find(|x| matches!(x.source, bo_layout::LineSource::Note { .. }))
+        .expect("continued note lines on the last page")
+        .clone();
+    let y = line.top + line.height / 2.0;
+    let r = cmd(
+        &mut e,
+        &format!(r#"{{"cmd":"click","page":{pi},"x":200,"y":{y}}}"#),
+    );
+    assert_eq!(r["story"]["kind"], "footnote", "{}", r["story"]);
+    assert_eq!(r["caret"]["page"], pi, "{}", r["caret"]);
+}

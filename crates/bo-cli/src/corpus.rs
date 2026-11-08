@@ -1417,17 +1417,17 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
                 let hr = if r == 0 { header_row(501, d1) } else { String::new() };
                 row(&hr, &[
                     cell(3000, "", &format!("Cột A{r}")),
-                    cell(3000, &format!(r#"<w:cellIns w:id="502" {d1}/>"#), &format!("Cột mới {r}")),
-                    cell(3000, &format!(r#"<w:cellDel w:id="503" {d2}/>"#), &format!("Cột xoá {r}")),
+                    cell(3000, &format!(r#"<w:cellIns w:id="{}" {d1}/>"#, 510 + r), &format!("Cột mới {r}")),
+                    cell(3000, &format!(r#"<w:cellDel w:id="{}" {d2}/>"#, 520 + r), &format!("Cột xoá {r}")),
                 ])
             }).collect::<Vec<_>>(), r#"<w:tblW w:w="0" w:type="auto"/>"#)
-                .replace("</w:tblGrid>", &grid_change(502, &[4500, 4500])),
+                .replace("</w:tblGrid>", &grid_change(530, &[4500, 4500])),
             p("Ô chèn đẩy sang phải và ô xoá đẩy sang trái:"),
             table(&[4500, 4500, 4500], &[
                 row("", &[cell(4500, "", "Một"), cell(4500, "", "Hai")]),
                 row("", &[cell(4500, &format!(r#"<w:cellIns w:id="504" {d2}/>"#), "Ô chèn"), cell(4500, "", "Ba"), cell(4500, "", "Bốn")]),
                 row("", &[cell(4500, &format!(r#"<w:cellDel w:id="505" {d1}/>"#), "Ô xoá"), cell(4500, "", "Năm")]),
-            ], r#"<w:tblW w:w="0" w:type="auto"/>"#).replace("</w:tblGrid>", &grid_change(504, &[4500, 4500])),
+            ], r#"<w:tblW w:w="0" w:type="auto"/>"#).replace("</w:tblGrid>", &grid_change(506, &[4500, 4500])),
             lorem(1),
         ].concat(),
         sect: sect(""),
@@ -1439,7 +1439,7 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
             table(&[3000, 3000, 3000], &[
                 row(&format!(r#"<w:cantSplit/><w:trPrChange w:id="601" {d2}><w:trPr/></w:trPrChange>"#), &[
                     cell(6000, &format!(r#"<w:gridSpan w:val="2"/>{}"#, tc_change(602, d1, r#"<w:tcW w:w="3000" w:type="dxa"/>"#)), "Ô gộp"),
-                    cell(3000, &format!(r#"<w:cellDel w:id="602" {d1}/>"#), "bị gộp"),
+                    cell(3000, &format!(r#"<w:cellDel w:id="612" {d1}/>"#), "bị gộp"),
                     cell(3000, "", "Giữ"),
                 ]),
                 row("", &[
@@ -1448,7 +1448,7 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
                     cell(3000, "", "C1"),
                 ]),
                 row("", &[
-                    cell(3000, &format!(r#"<w:vMerge/><w:cellMerge w:id="603" {d2} w:vMerge="cont"/>"#), ""),
+                    cell(3000, &format!(r#"<w:vMerge/><w:cellMerge w:id="613" {d2} w:vMerge="cont"/>"#), ""),
                     cell(3000, "", "B2"),
                     cell(3000, "", "C2"),
                 ]),
@@ -1457,11 +1457,11 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
             table(&[2000, 2500, 4500], &[
                 row("", &[
                     cell(2000, &tc_change(604, d1, r#"<w:tcW w:w="4500" w:type="dxa"/>"#), "Nửa trái"),
-                    cell(2500, &format!(r#"<w:cellIns w:id="604" {d1}/>"#), "Nửa phải"),
+                    cell(2500, &format!(r#"<w:cellIns w:id="614" {d1}/>"#), "Nửa phải"),
                     cell(4500, "", "Khác"),
                 ]),
                 row("", &[cell(4500, &format!(r#"<w:gridSpan w:val="2"/>{}"#, tc_change(605, d1, r#"<w:tcW w:w="4500" w:type="dxa"/>"#)), "Hàng hai"), cell(4500, "", "x")]),
-            ], r#"<w:tblW w:w="0" w:type="auto"/>"#).replace("</w:tblGrid>", &grid_change(604, &[4500, 4500])),
+            ], r#"<w:tblW w:w="0" w:type="auto"/>"#).replace("</w:tblGrid>", &grid_change(624, &[4500, 4500])),
             lorem(1),
         ].concat(),
         sect: sect(""),
@@ -1477,11 +1477,11 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
                         table(&[2000, 2000], &[row("", &[
                             cell(2000, "", "Lồng"),
                             cell(2000, &format!(r#"<w:cellIns w:id="703" {d1}/>"#), "Cột chèn"),
-                        ])], r#"<w:tblW w:w="0" w:type="auto"/>"#).replace("</w:tblGrid>", &grid_change(703, &[4000])),
+                        ])], r#"<w:tblW w:w="0" w:type="auto"/>"#).replace("</w:tblGrid>", &grid_change(713, &[4000])),
                         p("")),
                 ]),
                 row("", &[
-                    cell(4677, &format!(r#"<w:cellMerge w:id="702" {d2} w:vMergeOrig="cont"/>"#), "Từng gộp"),
+                    cell(4677, &format!(r#"<w:cellMerge w:id="712" {d2} w:vMergeOrig="cont"/>"#), "Từng gộp"),
                     cell(4678, &format!(r#"<w:cellDel w:id="704" {d2}/>"#), "Ô xoá"),
                 ]),
             ], r#"<w:tblW w:w="0" w:type="auto"/>"#),
@@ -1564,7 +1564,7 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         body: [
             format!(r#"<w:p>{}{}<w:r><w:t xml:space="preserve">{} </w:t></w:r></w:p>"#,
                 mv("moveFrom", 1101, d1, &moved_pic(1, 0, 0, r#"<wp:wrapSquare wrapText="bothSides"/>"#)),
-                mv("moveTo", 1101, d1, &moved_pic(2, 2_743_200, 228_600, r#"<wp:wrapSquare wrapText="bothSides"/>"#)),
+                mv("moveTo", 1102, d1, &moved_pic(2, 2_743_200, 228_600, r#"<wp:wrapSquare wrapText="bothSides"/>"#)),
                 VI.concat()),
             lorem(2),
         ].concat(),
@@ -1593,7 +1593,7 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
                 mv("del", 1302, d2, &moved_pic(2, 0, 0, r#"<wp:wrapSquare wrapText="right"/>"#)), VI[1]),
             format!(r#"<w:p>{}{}<w:r><w:t xml:space="preserve">Ảnh nổi dời chỗ. {} </w:t></w:r></w:p>"#,
                 mv("moveFrom", 1303, d1, &moved_pic(3, 0, 0, &tight("bothSides", &[(0, 0), (21_600, 0), (21_600, 21_600), (0, 21_600)]))),
-                mv("moveTo", 1303, d1, &moved_pic(4, 1_828_800, 114_300, &tight("bothSides", &[(0, 0), (21_600, 0), (21_600, 21_600), (0, 21_600)]))),
+                mv("moveTo", 1304, d1, &moved_pic(4, 1_828_800, 114_300, &tight("bothSides", &[(0, 0), (21_600, 0), (21_600, 21_600), (0, 21_600)]))),
                 VI[2]),
         ].concat(),
         sect: sect(""),

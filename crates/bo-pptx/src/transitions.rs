@@ -1,6 +1,6 @@
 //! The transitions BlueSlide writes and recognises: the effect children of ECMA-376 Part 1, §19.3.1.50
 //! transition (§19.3.1.2 blinds … §19.3.1.54 zoom), the PowerPoint 2010 effects of [MS-PPTX] 2.3 (`p14:`
-//! namespace) and the preset transitions of [MS-PPTX] (`p15:prstTrans`).
+//! namespace), the preset transitions of [MS-PPTX] (`p15:prstTrans`) and Morph (`p159:morph`).
 //!
 //! Each entry has a stable id (what the engine and the UI use), the element, the attributes that
 //! identify it (a `p15:prstTrans` preset, the [MS-PPTX] `p14:prism` flags) and its variants: the
@@ -233,6 +233,18 @@ pub const CATALOG: &[TransitionDef] = &[
         SPOKES,
         &[("spokes", "4")],
     ),
+    // [MS-PPTX] p159:morph (PowerPoint 2016+): by object, word or character.
+    def(
+        "morph",
+        "p159:morph",
+        &[],
+        &[
+            ("byObject", &[("option", "byObject")]),
+            ("byWord", &[("option", "byWord")]),
+            ("byChar", &[("option", "byChar")]),
+        ],
+        &[("option", "byObject")],
+    ),
     // [MS-PPTX] p15:prstTrans presets.
     preset("fallOver", &[("prst", "fallOver")]),
     preset("drape", &[("prst", "drape")]),
@@ -374,7 +386,7 @@ mod tests {
                 assert_eq!(variant_of(d, &w), Some(v), "{} {v}: {w:?}", d.id);
             }
         }
-        assert!(CATALOG.len() >= 55, "{}", CATALOG.len());
+        assert!(CATALOG.len() >= 56, "{}", CATALOG.len());
     }
 
     #[test]

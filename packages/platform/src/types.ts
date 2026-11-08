@@ -900,7 +900,8 @@ export type SlideTransitionKind =
   | 'pageCurlDouble'
   | 'pageCurlSingle'
   | 'airplane'
-  | 'origami';
+  | 'origami'
+  | 'morph';
 
 export interface SlideTransitionSpec {
   /** `keep` keeps the effect and changes the timing only. */
@@ -1000,6 +1001,29 @@ export interface SlideShowInfo {
   animations: SlideAnimInfo[];
   clicks: number;
   media: SlideMediaInfo[];
+  /** Morph from the previous slide ([MS-PPTX] p159:morph), when that is the transition. */
+  morph?: SlideMorphInfo;
+}
+
+/** A shape found on two consecutive slides: boxes `[cx, cy, w, h, rot]` (points, degrees). */
+export interface SlideMorphPair {
+  from: [number, number, number, number, number];
+  to: [number, number, number, number, number];
+  fromPage: PageDisplayList;
+  toPage: PageDisplayList;
+}
+
+/** What the slide show needs to morph into a slide. */
+export interface SlideMorphInfo {
+  fromBackdrop: PageDisplayList;
+  toBackdrop: PageDisplayList;
+  pairs: SlideMorphPair[];
+  /** Shapes of the previous slide only (they fade out). */
+  gone: PageDisplayList[];
+  /** Shapes of this slide only (they fade in). */
+  new: PageDisplayList[];
+  /** `byObject` | `byWord` | `byChar`. */
+  option: string;
 }
 
 export type SlideChartKind =

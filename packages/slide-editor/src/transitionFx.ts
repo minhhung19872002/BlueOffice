@@ -1,4 +1,9 @@
-import type { SlideTransitionInfo, SlideTransitionKind } from '@blueoffice/platform';
+import type {
+  PageDisplayList,
+  SlideMorphInfo,
+  SlideTransitionInfo,
+  SlideTransitionKind,
+} from '@blueoffice/platform';
 
 /**
  * Slide transitions in the slide show (ECMA-376 Part 1, §19.3.1.50 transition and its effects,
@@ -28,6 +33,7 @@ export const TRANSITION_GROUPS: {
   {
     group: 'subtle',
     kinds: [
+      'morph',
       'cut',
       'fade',
       'push',
@@ -238,6 +244,16 @@ export function transitionPlan(t: SlideTransitionInfo | null, seed = 0): Transit
   const sign = dir.startsWith('r') ? -1 : 1;
   const per = 'perspective(1600px)';
   switch (kind) {
+    case 'morph':
+      // The shapes move in the morph overlay (`morphLayers`); the slide itself shows at the end.
+      return plan(
+        [
+          { opacity: 0, offset: 0 },
+          { opacity: 0, offset: 0.999 },
+          { opacity: 1, offset: 1 },
+        ],
+        [{ opacity: 0 }, { opacity: 0 }],
+      );
     case 'cut':
       // Through black: the outgoing slide goes at once, the incoming one comes halfway.
       return dir === 'black'
@@ -933,4 +949,79 @@ function rankBy(values: number[]): number[] {
     rank[i] = r;
   });
   return rank;
+}
+
+/** One layer of the morph overlay: a display list and its keyframes. */
+export interface MorphLayer {
+  page: PageDisplayList;
+  frames: Frames;
+}
+
+/**
+ * The morph overlay ([MS-PPTX] p159:morph) for a `width` × `height` point slide: the backdrops and
+ * the unmatched shapes cross-fade; each matched shape is drawn twice — as on the previous slide,
+ * carried to its new box, and as on this slide, carried from its old box — and the two cross-fade,
+ * so position, size and rotation move and colour and shape blend. The box at time t is the linear
+ * mix of the two boxes (rotation the short way), as `morph::interpolate` in the engine.
+ */
+export function morphLayers(m: SlideMorphInfo, width: number, height: number): MorphLayer[] {
+  const W = width || 1;
+  const H = height || 1;
+  const out: Frames = [{ opacity: 1 }, { opacity: 0 }];
+  const inn: Frames = [{ opacity: 0 }, { opacity: 1 }];
+  const layers: MorphLayer[] = [
+    { page: m.fromBackdrop, frames: out },
+    { page: m.toBackdrop, frames: inn },
+    ...m.gone.map((page) => ({ page, frames: out })),
+  ];
+  const turn = (a: number, b: number) => {
+    const d = (((b - a) % 360) + 360) % 360;
+    return d > 180 ? d - 360 : d;
+  };
+  const pct = (v: number) => `${Math.round(v * 10000) / 100}%`;
+  const t = (dx: number, dy: number, rot: number, sx: number, sy: number, undo: number) =>
+    `translate(${pct(dx / W)}, ${pct(dy / H)}) rotate(${Math.round(rot * 1000) / 1000}deg) ` +
+    `scale(${Math.round(sx * 10000) / 10000}, ${Math.round(sy * 10000) / 10000}) rotate(${Math.round(-undo * 1000) / 1000}deg)`;
+  for (const p of m.pairs) {
+    const [fx, fy, fw, fh, fr] = p.from;
+    const [tx, ty, tw, th, tr] = p.to;
+    const d = turn(fr, tr);
+    const sx = Math.max(tw, 0.01) / Math.max(fw, 0.01);
+    const sy = Math.max(th, 0.01) / Math.max(fh, 0.01);
+    const from = `${pct(fx / W)} ${pct(fy / H)}`;
+    const to = `${pct(tx / W)} ${pct(ty / H)}`;
+    // The box at time k as a transform of the shape drawn at its old (`fromSide`) or new box.
+    const at = (k: number, fromSide: boolean) =>
+      fromSide
+        ? t((tx - fx) * k, (ty - fy) * k, fr + d * k, 1 + (sx - 1) * k, 1 + (sy - 1) * k, fr)
+        : t(
+            (fx - tx) * (1 - k),
+            (fy - ty) * (1 - k),
+            tr - d * (1 - k),
+            1 / sx + (1 - 1 / sx) * k,
+            1 / sy + (1 - 1 / sy) * k,
+            tr,
+          );
+    const fade = [0, 0.35, 0.65, 1];
+    layers.push({
+      page: p.fromPage,
+      frames: fade.map((k) => ({
+        transform: at(k, true),
+        transformOrigin: from,
+        opacity: k < 0.5 ? 1 : 0,
+        offset: k,
+      })),
+    });
+    layers.push({
+      page: p.toPage,
+      frames: fade.map((k) => ({
+        transform: at(k, false),
+        transformOrigin: to,
+        opacity: k < 0.5 ? 0 : 1,
+        offset: k,
+      })),
+    });
+  }
+  for (const page of m.new) layers.push({ page, frames: inn });
+  return layers;
 }

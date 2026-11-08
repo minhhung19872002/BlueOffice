@@ -188,6 +188,9 @@ pub struct ShowOut {
     pub clicks: usize,
     /// Video and audio clips of the slide.
     pub media: Vec<MediaOut>,
+    /// Morph from the previous slide ([MS-PPTX] p159:morph), when that is the transition.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub morph: Option<super::morph::MorphOut>,
 }
 
 // ---------------------------------------------------------------------------

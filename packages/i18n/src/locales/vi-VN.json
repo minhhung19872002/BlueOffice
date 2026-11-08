@@ -1238,6 +1238,7 @@
       "pageCurlSingle": "Lật một trang",
       "airplane": "Máy bay giấy",
       "origami": "Gấp giấy",
+      "morph": "Biến hình",
       "other": "Khác ({{name}})"
     },
     "transitionGroup": {
@@ -1374,7 +1375,10 @@
       "rectangleIn": "Ô, vào trong",
       "rectangleOut": "Ô, ra ngoài",
       "inBounce": "Vào trong, nảy",
-      "outBounce": "Ra ngoài, nảy"
+      "outBounce": "Ra ngoài, nảy",
+      "byObject": "Theo đối tượng",
+      "byWord": "Theo từ",
+      "byChar": "Theo ký tự"
     },
     "durationSec": "Thời lượng (giây)",
     "advanceOnClick": "Chuyển khi bấm chuột",

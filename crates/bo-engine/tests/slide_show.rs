@@ -602,3 +602,56 @@ fn new_chart_types_on_slides() {
         assert!(xml.contains(element), "{kind}: {xml}");
     }
 }
+
+// source: [MS-PPTX] p159:morph — a duplicated slide keeps its shape names: every shape is a pair,
+// the moved one goes from its old box to its new one; a new shape fades in.
+#[test]
+fn morph_pairs_shapes_of_consecutive_slides() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let n = e.presentation().unwrap().slides[0].data.shapes.len();
+    run(&mut e, r#"{"cmd":"duplicateSlide","index":0}"#);
+    let id = free_ids(&e, 1)[0];
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{id}]}}"#));
+    run(
+        &mut e,
+        r#"{"cmd":"transform","transform":{"kind":"move","dx":120,"dy":-30},"snap":false}"#,
+    );
+    run(&mut e, r#"{"cmd":"insertShape","preset":"star5"}"#);
+    let r = run(
+        &mut e,
+        r#"{"cmd":"setTransition","transition":{"kind":"morph","dir":"byWord"}}"#,
+    );
+    let t = r.transition.as_ref().unwrap();
+    assert_eq!(
+        (t.kind.as_str(), t.dir.as_deref()),
+        ("morph", Some("byWord"))
+    );
+    let show = run(&mut e, r#"{"cmd":"show","slide":1}"#).show.unwrap();
+    let m = show.morph.expect("morph");
+    assert_eq!(m.option, "byWord");
+    assert_eq!(m.pairs.len(), n);
+    assert_eq!(m.gone.len(), 0);
+    assert_eq!(m.new.len(), 1);
+    let moved: Vec<_> = m
+        .pairs
+        .iter()
+        .filter(|p| {
+            (p.to[0] - p.from[0] - 120.0).abs() < 0.01 && (p.to[1] - p.from[1] + 30.0).abs() < 0.01
+        })
+        .collect();
+    assert_eq!(moved.len(), 1);
+    assert_eq!(m.pairs.iter().filter(|p| p.from == p.to).count(), n - 1);
+    // The first slide has no morph; saved and read back, the transition stays a morph.
+    assert!(run(&mut e, r#"{"cmd":"show","slide":0}"#)
+        .show
+        .unwrap()
+        .morph
+        .is_none());
+    let back = reopen(&e);
+    let t = back.presentation().unwrap().slides[1]
+        .transition
+        .clone()
+        .unwrap();
+    assert_eq!(t.kind, Some(TransitionKind::Other("p159:morph".into())));
+    assert_eq!(t.dir.as_deref(), Some("byWord"));
+}

@@ -15,6 +15,7 @@ import {
   type Frames,
   type ShowPos,
 } from './player';
+import { morphLayers } from './transitionFx';
 import { SlideCanvas } from './SlideCanvas';
 import styles from './SlideEditor.module.css';
 
@@ -185,6 +186,7 @@ export function ShowStage({
   const layerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const incomingRef = useRef<HTMLDivElement>(null);
   const outgoingRef = useRef<HTMLDivElement>(null);
+  const morphRefs = useRef<(HTMLDivElement | null)[]>([]);
   const onIdleRef = useRef(onIdle);
   useEffect(() => {
     onIdleRef.current = onIdle;
@@ -240,6 +242,13 @@ export function ShowStage({
           if (t.outgoing) {
             const a = animate(outgoingRef.current, t.outgoing, opts);
             if (a) anims.push(a);
+          }
+          // Morph: the overlay's shapes move from the previous slide to this one.
+          if (show.transition?.kind === 'morph' && show.morph) {
+            morphLayers(show.morph, show.width, show.height).forEach((l, i) => {
+              const a = animate(morphRefs.current[i], l.frames, opts);
+              if (a) anims.push(a);
+            });
           }
           delay = t.duration;
         }
@@ -309,6 +318,27 @@ export function ShowStage({
             slide={slide}
             width={width}
           />
+        </div>
+      )}
+      {outgoing !== null && show?.transition?.kind === 'morph' && show.morph && (
+        <div className={styles.showLayer} style={{ zIndex: 3 }} data-testid="morph-overlay">
+          {morphLayers(show.morph, show.width, show.height).map((l, i) => (
+            <div
+              key={i}
+              ref={(el) => {
+                morphRefs.current[i] = el;
+              }}
+              className={styles.showLayer}
+            >
+              <LayerCanvas
+                page={l.page}
+                glyphs={glyphs}
+                images={images}
+                width={width}
+                height={height}
+              />
+            </div>
+          ))}
         </div>
       )}
       <div ref={incomingRef} className={styles.showLayer} style={{ zIndex: 1 }}>

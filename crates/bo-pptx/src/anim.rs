@@ -14,6 +14,7 @@ use bo_model::slide::{
 const NS_MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
 const NS_P14: &str = "http://schemas.microsoft.com/office/powerpoint/2010/main";
 const NS_P15: &str = "http://schemas.microsoft.com/office/powerpoint/2012/main";
+const NS_P159: &str = "http://schemas.microsoft.com/office/powerpoint/2015/09/main";
 
 /// Position key of `p:transition` / `p:timing` in CT_Slide (§19.3.1.38).
 pub(crate) const KEY_TRANSITION: u16 = 6;
@@ -120,6 +121,7 @@ fn same_transition(a: &Transition, b: &Transition) -> bool {
 /// The namespace an effect element needs (`p14`, `p15`), if not PresentationML's own.
 fn effect_ns(t: &Transition) -> Option<&'static str> {
     match &t.kind {
+        Some(TransitionKind::Other(n)) if n.starts_with("p159:") => Some("p159"),
         Some(TransitionKind::Other(n)) if n.starts_with("p15:") => Some("p15"),
         Some(TransitionKind::Other(n)) if n.starts_with("p14:") => Some("p14"),
         _ => None,
@@ -235,6 +237,9 @@ pub fn write_transition(t: &Transition) -> Extra {
         let mut choice = El::new("mc:Choice").a("xmlns:p14", NS_P14);
         if ns == Some("p15") {
             choice = choice.a("xmlns:p15", NS_P15);
+        }
+        if ns == Some("p159") {
+            choice = choice.a("xmlns:p159", NS_P159);
         }
         El::new("mc:AlternateContent")
             .a("xmlns:mc", NS_MC)

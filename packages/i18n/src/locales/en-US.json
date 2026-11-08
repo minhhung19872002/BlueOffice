@@ -1238,6 +1238,7 @@
       "pageCurlSingle": "Single page curl",
       "airplane": "Paper plane",
       "origami": "Origami",
+      "morph": "Morph",
       "other": "Other ({{name}})"
     },
     "transitionGroup": {
@@ -1374,7 +1375,10 @@
       "rectangleIn": "Particles in",
       "rectangleOut": "Particles out",
       "inBounce": "In with bounce",
-      "outBounce": "Out with bounce"
+      "outBounce": "Out with bounce",
+      "byObject": "Objects",
+      "byWord": "Words",
+      "byChar": "Characters"
     },
     "durationSec": "Duration (s)",
     "advanceOnClick": "Advance on click",

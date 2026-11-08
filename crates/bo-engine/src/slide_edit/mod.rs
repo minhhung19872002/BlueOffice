@@ -20,6 +20,7 @@ pub mod connect;
 pub mod geom;
 pub mod guides;
 pub mod media;
+pub mod morph;
 pub mod ops;
 pub mod rich;
 pub mod show;
@@ -4119,7 +4120,66 @@ impl Engine {
             layers,
             animations,
             media: media::media_out(pres, slide),
+            morph: self.morph_out(slide),
         })
+    }
+
+    /// Morph into `slide` from the slide before it: matched shapes drawn on both slides, the
+    /// others and both backdrops ([MS-PPTX] p159:morph).
+    fn morph_out(&mut self, slide: usize) -> Option<morph::MorphOut> {
+        let pres = self.pres.as_ref()?;
+        let t = show::transition_out(pres, slide)?;
+        if t.kind != "morph" || slide == 0 {
+            return None;
+        }
+        let prev = slide - 1;
+        let (a, b) = (morph::states(pres, prev), morph::states(pres, slide));
+        let pairs = morph::match_shapes(&a, &b);
+        let mut draw = |s: usize, range: bo_pptx::ShapeRange| {
+            let opts = bo_pptx::RenderOptions {
+                layer: Some(range),
+                ..bo_pptx::RenderOptions::default()
+            };
+            bo_pptx::render_with(pres, s, &mut self.fonts, &mut self.images, &opts).ok()
+        };
+        let one = |i: usize| bo_pptx::ShapeRange {
+            start: i,
+            end: i + 1,
+            backdrop: false,
+        };
+        let backdrop = bo_pptx::ShapeRange {
+            start: 0,
+            end: 0,
+            backdrop: true,
+        };
+        let mut out = morph::MorphOut {
+            from_backdrop: draw(prev, backdrop)?,
+            to_backdrop: draw(slide, backdrop)?,
+            pairs: Vec::new(),
+            gone: Vec::new(),
+            new: Vec::new(),
+            option: t.dir.unwrap_or_else(|| "byObject".into()),
+        };
+        for &(i, j) in &pairs {
+            out.pairs.push(morph::MorphPair {
+                from: morph::box5(&a[i].b),
+                to: morph::box5(&b[j].b),
+                from_page: draw(prev, one(a[i].index))?,
+                to_page: draw(slide, one(b[j].index))?,
+            });
+        }
+        let count = |s: usize| pres.slides.get(s).map_or(0, |x| x.data.shapes.len());
+        for k in 0..count(prev) {
+            if !pairs.iter().any(|p| a[p.0].index == k) {
+                out.gone.push(draw(prev, one(k))?);
+            }
+        }
+        for k in 0..count(slide) {
+            if !pairs.iter().any(|p| b[p.1].index == k) {
+                out.new.push(draw(slide, one(k))?);
+            }
+        }
+        Some(out)
     }
 
     /// Re-render every slide (after the slide list changed).

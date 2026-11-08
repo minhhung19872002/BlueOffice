@@ -109,7 +109,7 @@ lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file
 | Shape, text, bảng, ảnh | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus + E2E | ✅ | |
 | Master/layout/theme | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | chưa sửa master trong UI |
 | Chế độ xem | — | 🟡 | — | — | ✅ | ✅ | — | E2E | 🟡 | Normal, Sorter, Reading, Presenter |
-| Transition | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus anim-*, slide-edit-transitions-all (Choice + Fallback hợp lệ), transitionFx test, slide-show-media.spec | ✅ | 55 hiệu ứng (§19.3.1 + [MS-PPTX] p14/p15 prstTrans), biến thể hướng, thời lượng, âm thanh WAV/dừng, áp dụng tất cả; Morph ở SLIDE-ANIM-003 |
+| Transition | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus anim-*, slide-edit-transitions-all (Choice + Fallback hợp lệ), transitionFx test, slide-show-media.spec | ✅ | 55 hiệu ứng (§19.3.1 + [MS-PPTX] p14/p15 prstTrans), biến thể hướng, thời lượng, âm thanh WAV/dừng, áp dụng tất cả; Morph theo đối tượng (vị trí/cỡ/xoay/màu; chưa theo từ/ký tự) |
 | Animation | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus | 🟡 | entrance cơ bản |
 | Morph | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
 | Audio/video | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus media-* | 🟡 | phát cơ bản |

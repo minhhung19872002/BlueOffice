@@ -15,6 +15,7 @@ import type {
 import {
   ALL_TRANSITIONS,
   advance,
+  morphLayers,
   AudienceLink,
   rectsPolygon,
   BlueSlideEditor,
@@ -849,7 +850,7 @@ describe('slide show playback', () => {
     });
     const points = (v: unknown) =>
       typeof v === 'string' && v.startsWith('polygon(') ? v.split(',').length : null;
-    expect(ALL_TRANSITIONS.length).toBe(55);
+    expect(ALL_TRANSITIONS.length).toBe(56);
     for (const kind of ALL_TRANSITIONS) {
       for (const dir of VARIANTS[kind] ?? [null]) {
         const p = transitionPlan(info(kind, dir), 3);
@@ -907,6 +908,58 @@ describe('slide show playback', () => {
     );
     // Page curl and the other presets lift the outgoing slide over the incoming one.
     expect(transitionPlan(info('pageCurlSingle', 'l')).outgoingOnTop).toBe(true);
+  });
+
+  // source: [MS-PPTX] p159:morph — a shape moving from box (100, 100, 50×50, 0°) to (300, 200,
+  // 100×50, 90°) on a 1000 × 500 pt slide: the old drawing is carried to the new box and the new
+  // drawing from the old one, both through the same box halfway.
+  it('morphs matched shapes between their boxes and fades the others', () => {
+    const page = { width: 1000, height: 500, commands: [] };
+    const layers = morphLayers(
+      {
+        fromBackdrop: page,
+        toBackdrop: page,
+        pairs: [
+          {
+            from: [100, 100, 50, 50, 0],
+            to: [300, 200, 100, 50, 90],
+            fromPage: page,
+            toPage: page,
+          },
+        ],
+        gone: [page],
+        new: [page, page],
+        option: 'byObject',
+      },
+      1000,
+      500,
+    );
+    // Backdrops, one gone shape, the pair drawn twice, two new shapes.
+    expect(layers).toHaveLength(7);
+    const [from, to] = [layers[3]?.frames ?? [], layers[4]?.frames ?? []];
+    expect(from[0]).toMatchObject({ opacity: 1, transformOrigin: '10% 20%' });
+    expect(from.at(-1)).toMatchObject({
+      opacity: 0,
+      transform: 'translate(20%, 20%) rotate(90deg) scale(2, 1) rotate(0deg)',
+    });
+    expect(to[0]).toMatchObject({
+      opacity: 0,
+      transformOrigin: '30% 40%',
+      transform: 'translate(-20%, -20%) rotate(0deg) scale(0.5, 1) rotate(-90deg)',
+    });
+    expect(to.at(-1)).toMatchObject({
+      opacity: 1,
+      transform: 'translate(0%, 0%) rotate(90deg) scale(1, 1) rotate(-90deg)',
+    });
+    // Halfway (k = 0.35): both stand for the box (170, 135, 67.5×50, 31.5°).
+    expect(from[1]?.transform).toBe(
+      'translate(7%, 7%) rotate(31.5deg) scale(1.35, 1) rotate(0deg)',
+    );
+    expect(to[1]?.transform).toBe(
+      'translate(-13%, -13%) rotate(31.5deg) scale(0.675, 1) rotate(-90deg)',
+    );
+    expect(layers[0]?.frames).toEqual([{ opacity: 1 }, { opacity: 0 }]);
+    expect(layers[6]?.frames).toEqual([{ opacity: 0 }, { opacity: 1 }]);
   });
 
   it('plans transitions and steps through clicks, slides and the end screen', () => {

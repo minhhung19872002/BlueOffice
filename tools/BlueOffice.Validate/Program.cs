@@ -2,7 +2,8 @@
 // OpenXmlValidator (prompt §7 "Validation"). Usage:
 //   bo-validate <file-or-dir>... [--json report.json] [--format Office2019] [--choice]
 // --choice also validates the mc:Choice branch of every mc:AlternateContent (the validator itself
-// only checks the Fallback): a copy of the package with each AlternateContent replaced by its Choice.
+// only checks the Fallback): a copy of the package with each AlternateContent replaced by its Choice
+// (Choices with elements outside the SDK's schemas are left to their Fallback).
 // Exit code 0 when every file validates without errors, 1 otherwise.
 using System.Text.Json;
 using DocumentFormat.OpenXml;
@@ -125,7 +126,9 @@ static IEnumerable<ValidationIssue> ValidateChoices(string file, OpenXmlValidato
         foreach (var ac in blocks)
         {
             var first = ac.GetFirstChild<AlternateContentChoice>();
-            if (first is null)
+            // A Choice with elements the SDK has no schema for (e.g. [MS-PPTX] p159:morph) cannot be
+            // judged: its Fallback is what the first pass validated.
+            if (first is null || first.Descendants().Any(e => e is OpenXmlUnknownElement))
             {
                 continue;
             }

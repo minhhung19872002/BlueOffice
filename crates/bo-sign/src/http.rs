@@ -19,10 +19,15 @@ pub struct HttpResponse {
     pub body: Vec<u8>,
 }
 
-/// Sends a POST request.
+/// Sends HTTP requests.
 pub trait HttpTransport {
     /// POSTs `body` to `url` with the given headers and returns the response (any status).
     fn post(&self, url: &str, headers: &[(String, String)], body: &[u8]) -> Result<HttpResponse>;
+
+    /// GETs `url` (CRL downloads, RFC 5280 §4.2.1.13); unsupported by default.
+    fn get(&self, url: &str) -> Result<HttpResponse> {
+        Err(SignError::Unsupported(format!("HTTP GET {url}")))
+    }
 }
 
 impl<F> HttpTransport for F
@@ -123,25 +128,39 @@ impl HttpTransport for UreqTransport {
         for (k, v) in headers {
             req = req.header(k.as_str(), v.as_str());
         }
-        let mut resp = req
+        let resp = req
             .send(body)
             .map_err(|e| SignError::Network(format!("{url}: {e}")))?;
-        let status = resp.status().as_u16();
-        let content_type = resp
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned);
-        let body = resp
-            .body_mut()
-            .with_config()
-            .limit(16 * 1024 * 1024)
-            .read_to_vec()
-            .map_err(|e| SignError::Network(format!("{url}: {e}")))?;
-        Ok(HttpResponse {
-            status,
-            content_type,
-            body,
-        })
+        read_response(url, resp)
     }
+
+    fn get(&self, url: &str) -> Result<HttpResponse> {
+        let resp = self
+            .agent
+            .get(url)
+            .call()
+            .map_err(|e| SignError::Network(format!("{url}: {e}")))?;
+        read_response(url, resp)
+    }
+}
+
+#[cfg(feature = "http")]
+fn read_response(url: &str, mut resp: ureq::http::Response<ureq::Body>) -> Result<HttpResponse> {
+    let status = resp.status().as_u16();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let body = resp
+        .body_mut()
+        .with_config()
+        .limit(16 * 1024 * 1024)
+        .read_to_vec()
+        .map_err(|e| SignError::Network(format!("{url}: {e}")))?;
+    Ok(HttpResponse {
+        status,
+        content_type,
+        body,
+    })
 }

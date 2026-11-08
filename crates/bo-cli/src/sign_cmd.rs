@@ -160,6 +160,8 @@ pub struct Revocation {
     pub ocsp: Vec<PathBuf>,
     /// Ask the responders named in the certificates over HTTP.
     pub ocsp_fetch: bool,
+    /// Download the CRLs named in the certificates over HTTP.
+    pub crl_fetch: bool,
 }
 
 pub fn verify(input: &Path, trust: &[PathBuf], rev: &Revocation, json: bool) -> R<bool> {
@@ -167,6 +169,15 @@ pub fn verify(input: &Path, trust: &[PathBuf], rev: &Revocation, json: bool) -> 
     let mut store = trust_store(trust)?;
     for p in rev.crls.iter().chain(&rev.ocsp) {
         store.add_path(p)?;
+    }
+    if rev.crl_fetch {
+        store.set_crl_fetcher(bo_sign::trust::CrlFetcher(std::sync::Arc::new(|cert| {
+            let transport = UreqTransport::default();
+            bo_sign::crl::distribution_urls(cert)
+                .iter()
+                .filter_map(|url| bo_sign::crl::fetch(&transport, url).ok())
+                .collect()
+        })));
     }
     if rev.ocsp_fetch {
         store.set_ocsp_fetcher(bo_sign::trust::OcspFetcher(std::sync::Arc::new(

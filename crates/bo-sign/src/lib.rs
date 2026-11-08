@@ -23,6 +23,7 @@
 #![forbid(unsafe_code)]
 
 pub mod cms_sig;
+pub mod crl;
 pub mod http;
 pub mod ocsp;
 pub mod ooxml;

@@ -18,7 +18,9 @@
 //! that issuer's key; a certificate listed with a revocation date at or before
 //! the validation time is revoked, and a CRL whose `nextUpdate` is before the
 //! validation time is reported as stale. Without a CRL for an issuer the
-//! status is unknown and not reported as a problem.
+//! status is unknown and not reported as a problem. When no CRL of the issuer is
+//! loaded, the store's CRL fetcher may download them (the certificate's CRL
+//! distribution points, [`crate::crl`]).
 //!
 //! OCSP (RFC 6960, [`crate::ocsp`]) is asked first: responses loaded into the
 //! store, else the store's fetcher (online, the certificate's responder URL). A
@@ -54,6 +56,21 @@ pub struct TrustStore {
     crls: Vec<CertificateList>,
     ocsp: Vec<crate::ocsp::BasicOcspResponse>,
     fetcher: Option<OcspFetcher>,
+    crl_fetcher: Option<CrlFetcher>,
+}
+
+/// Gets the CRLs (DER) of a certificate's issuer, e.g. downloaded from the
+/// certificate's distribution points ([`crate::crl::fetch`]).
+#[derive(Clone)]
+pub struct CrlFetcher(
+    #[allow(clippy::type_complexity)]
+    pub  std::sync::Arc<dyn Fn(&Certificate) -> Vec<Vec<u8>> + Send + Sync>,
+);
+
+impl fmt::Debug for CrlFetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("CrlFetcher")
+    }
 }
 
 /// Gets an OCSP response (DER OCSPResponse) for a certificate and its issuer,
@@ -99,6 +116,11 @@ impl TrustStore {
     /// certificate of the path.
     pub fn set_ocsp_fetcher(&mut self, fetcher: OcspFetcher) {
         self.fetcher = Some(fetcher);
+    }
+
+    /// Asks `fetcher` for CRLs when the store has none of a certificate's issuer.
+    pub fn set_crl_fetcher(&mut self, fetcher: CrlFetcher) {
+        self.crl_fetcher = Some(fetcher);
     }
 
     #[must_use]
@@ -445,12 +467,26 @@ fn check_revocation(
         matches!(k.status, CertStatus::Good | CertStatus::Revoked(_))
             && (k.this_update >= at || k.next_update.is_none_or(|n| n >= at))
     });
-    let crls: Vec<&CertificateList> = store
+    let of_issuer = |l: &CertificateList| {
+        l.tbs_cert_list.issuer == c.tbs_certificate.issuer && crl_signed_by(l, issuer)
+    };
+    let mut crls: Vec<CertificateList> = store
         .crls
         .iter()
-        .filter(|l| l.tbs_cert_list.issuer == c.tbs_certificate.issuer)
-        .filter(|l| crl_signed_by(l, issuer))
+        .filter(|l| of_issuer(l))
+        .cloned()
         .collect();
+    // None loaded: the fetcher (the certificate's distribution points).
+    if crls.is_empty() {
+        if let Some(f) = &store.crl_fetcher {
+            crls.extend(
+                (f.0)(c)
+                    .iter()
+                    .filter_map(|d| CertificateList::from_der(d).ok())
+                    .filter(|l| of_issuer(l)),
+            );
+        }
+    }
     if crls.is_empty() {
         return;
     }

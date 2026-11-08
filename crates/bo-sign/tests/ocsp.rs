@@ -269,3 +269,95 @@ fn openssl_responses() {
     assert_eq!(s.add_bytes(&fixture("resp-an.der")).unwrap(), 1);
     assert_eq!(s.ocsp_count(), 1);
 }
+
+/// GET-only transport serving one body (or a status) per URL.
+struct Served(Vec<(&'static str, u16, Vec<u8>)>);
+
+impl bo_sign::http::HttpTransport for Served {
+    fn post(&self, url: &str, _: &[(String, String)], _: &[u8]) -> bo_sign::Result<HttpResponse> {
+        panic!("unexpected POST {url}")
+    }
+    fn get(&self, url: &str) -> bo_sign::Result<HttpResponse> {
+        let (_, status, body) = self.0.iter().find(|(u, _, _)| *u == url).unwrap();
+        Ok(HttpResponse {
+            status: *status,
+            content_type: Some("application/pkix-crl".into()),
+            body: body.clone(),
+        })
+    }
+}
+
+// source: RFC 5280 §4.2.1.13 (cRLDistributionPoints), §6.3 (CRL processing)
+#[test]
+fn crl_fetching() {
+    use bo_sign::trust::CrlFetcher;
+    let p = pki();
+    let now = SystemTime::now();
+    let crl = issue_crl(
+        &p.intermediate,
+        &[(3, now - HOUR)],
+        now - HOUR,
+        Some(now + DAY),
+    );
+    // Distribution points of a certificate made by openssl: HTTP only.
+    let giang = Certificate::from_der(&pem_cert("giang.pem")).unwrap();
+    assert_eq!(
+        bo_sign::crl::distribution_urls(&giang),
+        ["http://crl.example.vn/inter.crl"]
+    );
+    // Download: DER as served, PEM decoded, HTTP errors reported; the default
+    // transport (closures) cannot GET.
+    let pem = format!(
+        "-----BEGIN X509 CRL-----\n{}\n-----END X509 CRL-----\n",
+        base64_encode(&crl)
+    );
+    let served = Served(vec![
+        ("http://a/der.crl", 200, crl.clone()),
+        ("http://a/pem.crl", 200, pem.into_bytes()),
+        ("http://a/missing.crl", 404, Vec::new()),
+    ]);
+    assert_eq!(
+        bo_sign::crl::fetch(&served, "http://a/der.crl").unwrap(),
+        crl
+    );
+    assert_eq!(
+        bo_sign::crl::fetch(&served, "http://a/pem.crl").unwrap(),
+        crl
+    );
+    assert!(bo_sign::crl::fetch(&served, "http://a/missing.crl").is_err());
+    let post_only = |_: &str, _: &[(String, String)], _: &[u8]| -> bo_sign::Result<HttpResponse> {
+        unreachable!()
+    };
+    assert!(bo_sign::crl::fetch(&post_only, "http://a/der.crl").is_err());
+
+    // The fetcher is used when no CRL of the issuer is loaded.
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (c2, l2) = (calls.clone(), crl.clone());
+    let mut s = store(p, &[]);
+    s.set_crl_fetcher(CrlFetcher(Arc::new(move |_| {
+        c2.fetch_add(1, Ordering::SeqCst);
+        vec![l2.clone()]
+    })));
+    let r = check(&s, now);
+    assert!(
+        matches!(&r.problems[..], [ChainProblem::Revoked { .. }]),
+        "{r:?}"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "signer and intermediate");
+    // A loaded CRL of the issuer wins: no download for the signer.
+    let empty = issue_crl(&p.intermediate, &[], now - HOUR, Some(now + DAY));
+    s.add_crl_der(&empty).unwrap();
+    calls.store(0, Ordering::SeqCst);
+    assert!(check(&s, now).trusted);
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "only the intermediate");
+    // A fetched list of another issuer is ignored.
+    let mut s = store(p, &[]);
+    let root_crl = issue_crl(&p.root, &[(3, now - HOUR)], now - HOUR, Some(now + DAY));
+    s.set_crl_fetcher(CrlFetcher(Arc::new(move |_| vec![root_crl.clone()])));
+    assert!(check(&s, now).trusted);
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(data)
+}

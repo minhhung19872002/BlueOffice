@@ -1166,3 +1166,68 @@ fn designs_imported_at_once_by_two_peers_are_both_kept() {
         assert_eq!(back.layouts.len(), l0 + 2);
     });
 }
+
+/// Index of the first slide of `name` that links a media part.
+fn media_slide(name: &str) -> usize {
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/slide")
+        .join(name);
+    let d = bo_pptx::read_pptx(&std::fs::read(p).unwrap()).unwrap();
+    d.slides
+        .iter()
+        .position(|s| s.info.rels.iter().any(|r| r.target.contains("media/")))
+        .unwrap()
+}
+
+// source: ECMA-376 Part 2, §9.1.1 part names (media parts added at once on two replicas)
+#[test]
+fn pictures_pasted_at_once_by_two_peers_keep_their_own_parts() {
+    big_stack(|| {
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus/slide/slide-text-bullets.pptx");
+        let target = std::fs::read(p).unwrap();
+        let (mut a, _) = deck_with_clip(1, "slide-images-crop.pptx", 0, &target);
+        let (mut b, _) = deck_with_clip(
+            2,
+            "slide-edit-media.pptx",
+            media_slide("slide-edit-media.pptx"),
+            &target,
+        );
+        a.start(true);
+        b.start(false);
+        connect(&mut a, &mut b);
+        settle(&mut a, &mut b);
+        let before = a.engine.presentation().unwrap().parts.len();
+        a.slide(r#"{"cmd":"paste"}"#);
+        b.slide(r#"{"cmd":"paste"}"#);
+        settle(&mut a, &mut b);
+        let (pa, pb) = (
+            a.engine.presentation().unwrap(),
+            b.engine.presentation().unwrap(),
+        );
+        let media = |p: &bo_model::slide::Presentation| {
+            let mut v: Vec<(String, usize)> = p
+                .parts
+                .iter()
+                .filter(|x| x.name.starts_with("/ppt/media/"))
+                .map(|x| (x.name.clone(), x.data.len()))
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(media(pa), media(pb));
+        assert!(media(pa).len() >= 4, "{:?}", media(pa));
+        assert!(pa.parts.len() > before + 3);
+        // Same deck; the part list only differs in order (written by name).
+        assert_eq!(
+            (&pa.slides, &pa.layouts, &pa.masters, &pa.themes),
+            (&pb.slides, &pb.layouts, &pb.masters, &pb.themes)
+        );
+        let sorted = |p: &bo_model::slide::Presentation| {
+            let mut v = p.parts.clone();
+            v.sort_by(|x, y| x.name.cmp(&y.name));
+            v
+        };
+        assert_eq!(sorted(pa), sorted(pb));
+    });
+}

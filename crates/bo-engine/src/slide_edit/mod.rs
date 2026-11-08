@@ -3099,6 +3099,12 @@ impl Engine {
             self.set_save_password(password.as_deref());
             return self.slide_command(SlideCommand::State);
         }
+        // New part names of a collaborating replica never clash with another's.
+        let _salt = build::salt_names(
+            self.slide_collab
+                .as_ref()
+                .map(|c| build::salt_of(c.client_id())),
+        );
         let mut out = Outcome::default();
         {
             let pres = self.pres.as_mut().ok_or(EngineError::NoDocument)?;

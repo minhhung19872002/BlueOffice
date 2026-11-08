@@ -311,6 +311,46 @@ fn empty_tree() -> CommonSlideData {
     }
 }
 
+thread_local! {
+    /// Letters put before the number of new part names while a command of a
+    /// collaborating replica runs (see [`salt_names`]).
+    static NAME_SALT: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Restores the previous name salt when dropped.
+pub(crate) struct SaltGuard(Option<String>);
+
+impl Drop for SaltGuard {
+    fn drop(&mut self) {
+        let prev = self.0.take();
+        NAME_SALT.with(|s| *s.borrow_mut() = prev);
+    }
+}
+
+/// While the guard lives, new part names get `salt` before their number
+/// (`image` → `imagekqzt1.png`): two collaborating replicas adding a part at
+/// once then never pick the same name (ECMA-376 Part 2, §9.1.1 part names).
+pub(crate) fn salt_names(salt: Option<String>) -> SaltGuard {
+    SaltGuard(NAME_SALT.with(|s| std::mem::replace(&mut *s.borrow_mut(), salt)))
+}
+
+/// The current name salt.
+pub(crate) fn name_salt() -> Option<String> {
+    NAME_SALT.with(|s| s.borrow().clone())
+}
+
+/// Letters for `client` (5 lowercase letters).
+pub(crate) fn salt_of(client: u64) -> String {
+    let mut h = client.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (client >> 29);
+    (0..5)
+        .map(|_| {
+            let c = char::from(b'a' + (h % 26) as u8);
+            h /= 26;
+            c
+        })
+        .collect()
+}
+
 /// A unique part name `prefix{N}.xml` among slides, notes and preserved parts.
 pub fn unique_part(pres: &Presentation, prefix: &str, ext: &str) -> String {
     unique_part_except(pres, prefix, ext, &[])
@@ -345,8 +385,10 @@ pub fn unique_part_except(pres: &Presentation, prefix: &str, ext: &str, also: &[
         }
     }
     used.extend(also.iter().map(|a| a.to_ascii_lowercase()));
+    let salt = name_salt().unwrap_or_default();
+    let prefix = prefix.strip_suffix(salt.as_str()).unwrap_or(prefix);
     for n in 1.. {
-        let name = format!("{prefix}{n}.{ext}");
+        let name = format!("{prefix}{salt}{n}.{ext}");
         if !used.contains(&name.to_ascii_lowercase()) {
             return name;
         }

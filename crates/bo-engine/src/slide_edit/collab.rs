@@ -469,6 +469,11 @@ impl SlideCollab {
         }
     }
 
+    /// Client id of the replica.
+    pub(crate) fn client_id(&self) -> u64 {
+        self.client
+    }
+
     /// Keys for parts the deck gained since the last comparison (lists only
     /// grow at the end locally); a part created in this session gets a key
     /// that is never numeric and unique per replica.

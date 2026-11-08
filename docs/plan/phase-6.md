@@ -180,7 +180,9 @@ dời ô và công thức của người kia; ghi chú slide).
   LWW. Ô trong hàng bị xoá vẫn nằm trong map (để hoàn tác khôi phục) cho tới khi lưu version. Kiểu ô lưu `xfId`
   (style có tên) theo chỉ số. Chèn liên tiếp > ~50 lần đúng một chỗ làm cạn độ chính xác khoá (thứ tự giữa các hàng mới
   chèn cùng chỗ khi đó theo id).
-- BlueSlide: ảnh/media của hai lần dán đồng thời có thể trùng tên part (`blobs` theo tên → LWW); part gói khác
+- BlueSlide: tên part mới (ảnh, media, slide…) của replica đang cộng tác có thêm 5 chữ cái theo client
+  (`imagekqzta1.png`, `build::salt_names`) nên hai người thêm ảnh cùng lúc không trùng tên (test
+  `pictures_pasted_at_once_by_two_peers_keep_their_own_parts`; trước đó mỗi bên thấy ảnh của mình). Part gói khác
   (media đã có, notes master…) không đồng bộ ngoài `blobs`; định dạng chữ ghi chú khi gộp hai bản sửa lấy theo bản
   ghi notes thắng, chữ thì hợp nhất.
 - Hoàn tác BlueSheet chỉ đi qua replica khi host có binding engine; lịch sử cục bộ của engine bị xoá khi nhận thay đổi

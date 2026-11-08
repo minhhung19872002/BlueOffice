@@ -20,6 +20,7 @@ mod bundled;
 pub mod collab;
 pub mod edit;
 pub mod fonts;
+pub mod media;
 pub mod merge;
 pub mod nav;
 mod notes;
@@ -297,6 +298,7 @@ impl Engine {
         } else if is_zip {
             let mut d = bo_docx::read_docx(bytes)?;
             smartart::render_smartart(&mut d, &mut self.fonts);
+            media::convert_media(&mut d, &mut self.fonts);
             d
         } else if bytes.starts_with(CFB_SIGNATURE) {
             match bo_binary::detect(bytes) {

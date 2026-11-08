@@ -38,6 +38,10 @@ const FONT_FILES: &[&str] = &[
     "Carlito-Bold.ttf",
     "Carlito-Italic.ttf",
     "Carlito-BoldItalic.ttf",
+    "Caladea-Regular.ttf",
+    "Caladea-Bold.ttf",
+    "Caladea-Italic.ttf",
+    "Caladea-BoldItalic.ttf",
 ];
 
 pub(crate) fn raw_body(req: &Request<'_>) -> Result<Vec<u8>, String> {

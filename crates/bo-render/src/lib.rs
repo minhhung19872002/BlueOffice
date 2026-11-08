@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod image;
+pub mod metafile;
 
 pub use image::{ImageSource, Media};
 

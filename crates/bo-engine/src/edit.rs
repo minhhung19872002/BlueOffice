@@ -851,8 +851,15 @@ impl crate::Engine {
         Ok(r)
     }
 
-    /// Insert a picture (PNG or JPEG) at the selection; sized at 96 dpi, capped to the text width.
+    /// Insert a picture (PNG, JPEG; GIF, BMP, TIFF converted to PNG) at the selection;
+    /// sized at 96 dpi, capped to the text width.
     pub fn insert_image(&mut self, bytes: Vec<u8>, name: &str) -> crate::Result<EditResult> {
+        // GIF, BMP and TIFF pictures are stored as PNG.
+        let bytes = if image_size(&bytes).is_none() {
+            bo_raster::transcode_to_png(&bytes).unwrap_or(bytes)
+        } else {
+            bytes
+        };
         let (w, h) =
             image_size(&bytes).ok_or_else(|| crate::EngineError::Unsupported(name.to_owned()))?;
         let ext = match bo_render::image::sniff(&bytes) {

@@ -13,7 +13,7 @@ use bo_model::index::{blocks_at, body_paragraphs};
 use bo_model::{
     Alignment, Block, Border, Borders, Cell, CellMerge, CellPropsChange, Color, Document,
     GridChange, ParaProps, Paragraph, RevMark, Row, RowProps, Table, TableProps, TablePropsChange,
-    TableWidth, Twips, VMerge,
+    TableView, TableWidth, Twips, VMerge,
 };
 use serde::{Deserialize, Serialize};
 
@@ -339,13 +339,26 @@ fn append_inserted(target: &[Block], moved: &[Block], mark: &RevMark) -> Vec<Blo
 }
 
 /// Ensure the grid covers every row (malformed files can have short grids).
+///
+/// Rows are measured as they are once every tracked change is accepted and once
+/// every one is rejected (§17.13.5.3 cellDel, §17.13.5.4 cellIns): the markup
+/// view shows inserted and deleted cells side by side and can be wider than
+/// either real table, which must not widen the grid.
 fn normalize_grid(t: &mut Table) {
-    let cols = t
-        .markup_spans()
-        .iter()
-        .map(|r| r.last().map_or(0, |(s, k)| s + k))
-        .max()
-        .unwrap_or(0);
+    let width = |g: &bo_model::TableGeometry| {
+        g.rows
+            .iter()
+            .map(|r| {
+                r.iter()
+                    .filter(|p| !p.hidden)
+                    .map(|p| p.start + p.span)
+                    .max()
+                    .unwrap_or(0)
+            })
+            .max()
+            .unwrap_or(0)
+    };
+    let cols = width(&t.geometry(TableView::Final)).max(width(&t.geometry(TableView::Original)));
     if t.grid.len() < cols {
         let w = t.grid.last().copied().unwrap_or(Twips(1440));
         t.grid.resize(cols, w);
@@ -476,6 +489,10 @@ impl Session {
                     .cells
                     .iter()
                     .zip(starts(&src))
+                    // A cell awaiting deletion (§17.13.5.3 cellDel, e.g. merged away by a
+                    // tracked merge) is not part of the row being copied: the new row
+                    // spans the grid like the row will once the change is accepted.
+                    .filter(|(c, _)| c.props.del.is_none())
                     .map(|(c, s)| {
                         let mut n = empty_cell(c, c.props.grid_span, None);
                         // Inside a vertical merge the new row continues it.

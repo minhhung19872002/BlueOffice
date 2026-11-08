@@ -78,13 +78,112 @@ pub trait Signer {
     fn chain_der(&self) -> Vec<Vec<u8>> {
         Vec::new()
     }
-    /// Returns the PKCS#1 v1.5 signature of a 32-byte SHA-256 digest.
+    /// Signature of a 32-byte SHA-256 digest with the certificate's key: PKCS#1 v1.5 for an RSA
+    /// certificate, DER `Ecdsa-Sig-Value` (RFC 5480 §2.2 / RFC 3279 §2.2.3) for a P-256 / P-384 one.
     fn sign_sha256(&self, digest: &[u8; 32]) -> Result<Vec<u8>>;
 }
 
-/// In-process RSA signer.
+/// Key type of a certificate (RFC 3279 rsaEncryption, RFC 5480 id-ecPublicKey named curves).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyKind {
+    /// RSA.
+    Rsa,
+    /// ECDSA on P-256 (secp256r1).
+    EcP256,
+    /// ECDSA on P-384 (secp384r1).
+    EcP384,
+}
+
+impl KeyKind {
+    /// Key type of a DER certificate.
+    pub fn of_cert(cert_der: &[u8]) -> Result<Self> {
+        use der::Decode;
+        let cert = x509_cert::Certificate::from_der(cert_der)?;
+        let alg = &cert.tbs_certificate.subject_public_key_info.algorithm;
+        if alg.oid == rfc5912::RSA_ENCRYPTION {
+            return Ok(Self::Rsa);
+        }
+        if alg.oid == rfc5912::ID_EC_PUBLIC_KEY {
+            let curve = alg
+                .parameters
+                .as_ref()
+                .and_then(|p| p.decode_as::<ObjectIdentifier>().ok());
+            if curve == Some(rfc5912::SECP_256_R_1) {
+                return Ok(Self::EcP256);
+            }
+            if curve == Some(rfc5912::SECP_384_R_1) {
+                return Ok(Self::EcP384);
+            }
+        }
+        Err(SignError::Unsupported(format!(
+            "certificate key {}",
+            alg.oid
+        )))
+    }
+
+    /// Size of one ECDSA integer (r or s) in bytes; 0 for RSA.
+    #[must_use]
+    pub fn field_bytes(self) -> usize {
+        match self {
+            Self::Rsa => 0,
+            Self::EcP256 => 32,
+            Self::EcP384 => 48,
+        }
+    }
+}
+
+/// DER `Ecdsa-Sig-Value` -> fixed-size `r || s` (XML-DSig 1.1 §6.4.3 / RFC 4050, PKCS#11 CKM_ECDSA form).
+pub fn ecdsa_der_to_raw(der_sig: &[u8], kind: KeyKind) -> Result<Vec<u8>> {
+    let bad = |e: p256::ecdsa::Error| SignError::Malformed(format!("ECDSA signature: {e}"));
+    match kind {
+        KeyKind::EcP256 => Ok(p256::ecdsa::Signature::from_der(der_sig)
+            .map_err(bad)?
+            .to_vec()),
+        KeyKind::EcP384 => Ok(p384::ecdsa::Signature::from_der(der_sig)
+            .map_err(bad)?
+            .to_vec()),
+        KeyKind::Rsa => Ok(der_sig.to_vec()),
+    }
+}
+
+/// Fixed-size `r || s` -> DER `Ecdsa-Sig-Value`.
+pub fn ecdsa_raw_to_der(raw: &[u8], kind: KeyKind) -> Result<Vec<u8>> {
+    let bad = |e: p256::ecdsa::Error| SignError::Malformed(format!("ECDSA signature: {e}"));
+    match kind {
+        KeyKind::EcP256 => Ok(p256::ecdsa::Signature::from_slice(raw)
+            .map_err(bad)?
+            .to_der()
+            .as_bytes()
+            .to_vec()),
+        KeyKind::EcP384 => Ok(p384::ecdsa::Signature::from_slice(raw)
+            .map_err(bad)?
+            .to_der()
+            .as_bytes()
+            .to_vec()),
+        KeyKind::Rsa => Ok(raw.to_vec()),
+    }
+}
+
+/// A signature returned by a token or service, in the form this crate embeds: DER for ECDSA (a
+/// fixed-size `r || s` answer is converted), unchanged for RSA.
+pub fn normalize_signature(cert_der: &[u8], sig: &[u8]) -> Result<Vec<u8>> {
+    let kind = KeyKind::of_cert(cert_der)?;
+    if kind != KeyKind::Rsa && sig.len() == 2 * kind.field_bytes() {
+        return ecdsa_raw_to_der(sig, kind);
+    }
+    Ok(sig.to_vec())
+}
+
+/// Private key of a [`SoftwareSigner`].
+enum SoftKey {
+    Rsa(RsaPrivateKey),
+    P256(p256::ecdsa::SigningKey),
+    P384(p384::ecdsa::SigningKey),
+}
+
+/// In-process signer (RSA or ECDSA P-256 / P-384).
 pub struct SoftwareSigner {
-    key: RsaPrivateKey,
+    key: SoftKey,
     cert_der: Vec<u8>,
     chain: Vec<Vec<u8>>,
 }
@@ -94,10 +193,68 @@ impl SoftwareSigner {
     #[must_use]
     pub fn new(key: RsaPrivateKey, cert_der: Vec<u8>) -> Self {
         Self {
-            key,
+            key: SoftKey::Rsa(key),
             cert_der,
             chain: Vec::new(),
         }
+    }
+
+    /// Signer from an ECDSA P-256 key and its certificate.
+    #[must_use]
+    pub fn new_p256(key: p256::ecdsa::SigningKey, cert_der: Vec<u8>) -> Self {
+        Self {
+            key: SoftKey::P256(key),
+            cert_der,
+            chain: Vec::new(),
+        }
+    }
+
+    /// Signer from an ECDSA P-384 key and its certificate.
+    #[must_use]
+    pub fn new_p384(key: p384::ecdsa::SigningKey, cert_der: Vec<u8>) -> Self {
+        Self {
+            key: SoftKey::P384(key),
+            cert_der,
+            chain: Vec::new(),
+        }
+    }
+
+    /// The RSA key, if this is an RSA signer.
+    #[must_use]
+    pub fn rsa_key(&self) -> Option<&RsaPrivateKey> {
+        match &self.key {
+            SoftKey::Rsa(k) => Some(k),
+            _ => None,
+        }
+    }
+
+    /// The private key as PKCS#8 DER (RFC 5208; RFC 5915 inside for EC keys).
+    pub fn key_pkcs8_der(&self) -> Result<Vec<u8>> {
+        use p256::pkcs8::EncodePrivateKey as _;
+        let doc = match &self.key {
+            SoftKey::Rsa(k) => rsa::pkcs8::EncodePrivateKey::to_pkcs8_der(k),
+            SoftKey::P256(k) => k.to_pkcs8_der(),
+            SoftKey::P384(k) => k.to_pkcs8_der(),
+        }
+        .map_err(|e| SignError::Malformed(format!("private key: {e}")))?;
+        Ok(doc.as_bytes().to_vec())
+    }
+
+    /// Key from PKCS#8 DER: RSA, or EC on P-256 / P-384.
+    fn key_from_pkcs8_der(der: &[u8]) -> Result<SoftKey> {
+        use p256::pkcs8::DecodePrivateKey as _;
+        if let Ok(k) = <RsaPrivateKey as rsa::pkcs8::DecodePrivateKey>::from_pkcs8_der(der) {
+            return Ok(SoftKey::Rsa(k));
+        }
+        if let Ok(k) = p256::ecdsa::SigningKey::from_pkcs8_der(der) {
+            return Ok(SoftKey::P256(k));
+        }
+        if let Ok(k) = p384::ecdsa::SigningKey::from_pkcs8_der(der) {
+            return Ok(SoftKey::P384(k));
+        }
+        Err(SignError::Unsupported(
+            "private key (RSA, EC P-256 or P-384 expected)".into(),
+        ))
     }
 
     /// Adds intermediate CA certificates (DER) to embed in signatures.
@@ -107,15 +264,29 @@ impl SoftwareSigner {
         self
     }
 
-    /// Loads an RSA key (PEM, PKCS#8 `PRIVATE KEY` or PKCS#1 `RSA PRIVATE KEY`)
-    /// and a certificate (DER, or PEM `CERTIFICATE`; further PEM blocks after
+    /// Loads a key (PEM: PKCS#8 `PRIVATE KEY` (RSA or EC), PKCS#1 `RSA PRIVATE KEY` or SEC1
+    /// `EC PRIVATE KEY`) and a certificate (DER, or PEM `CERTIFICATE`; further PEM blocks after
     /// the first are taken as the intermediate chain).
     pub fn from_pem(key_pem: &str, cert: &[u8]) -> Result<Self> {
         use rsa::pkcs1::DecodeRsaPrivateKey;
-        use rsa::pkcs8::DecodePrivateKey;
-        let key = RsaPrivateKey::from_pkcs8_pem(key_pem)
-            .or_else(|_| RsaPrivateKey::from_pkcs1_pem(key_pem))
-            .map_err(|e| SignError::Malformed(format!("private key: {e}")))?;
+        let key = if let Ok(der) = pem_blocks(key_pem, "PRIVATE KEY") {
+            Self::key_from_pkcs8_der(&der[0])?
+        } else if let Ok(k) = RsaPrivateKey::from_pkcs1_pem(key_pem) {
+            SoftKey::Rsa(k)
+        } else if let Ok(der) = pem_blocks(key_pem, "EC PRIVATE KEY") {
+            // RFC 5915 ECPrivateKey (SEC1): the curve decides P-256 or P-384.
+            if let Ok(k) = p256::SecretKey::from_sec1_der(&der[0]) {
+                SoftKey::P256(k.into())
+            } else {
+                let k = p384::SecretKey::from_sec1_der(&der[0])
+                    .map_err(|e| SignError::Malformed(format!("EC private key: {e}")))?;
+                SoftKey::P384(k.into())
+            }
+        } else {
+            return Err(SignError::Malformed(
+                "private key: no supported PEM block".into(),
+            ));
+        };
         let mut certs = match std::str::from_utf8(cert) {
             Ok(text) if text.contains("-----BEGIN CERTIFICATE-----") => {
                 pem_blocks(text, "CERTIFICATE")?
@@ -130,7 +301,6 @@ impl SoftwareSigner {
     /// (`.p12` / `.pfx`, RFC 7292): PBES2/AES or legacy 3DES/RC2 encryption.
     #[cfg(feature = "pkcs12")]
     pub fn from_pkcs12(data: &[u8], password: &str) -> Result<Self> {
-        use rsa::pkcs8::DecodePrivateKey;
         let store = p12_keystore::KeyStore::from_pkcs12(
             data,
             password,
@@ -140,8 +310,7 @@ impl SoftwareSigner {
         let (_, chain) = store
             .private_key_chain()
             .ok_or_else(|| SignError::Malformed("PKCS#12 has no private key".into()))?;
-        let key = RsaPrivateKey::from_pkcs8_der(chain.key().as_der())
-            .map_err(|e| SignError::Unsupported(format!("PKCS#12 key (RSA only): {e}")))?;
+        let key = Self::key_from_pkcs8_der(chain.key().as_der())?;
         let mut certs: Vec<Vec<u8>> = chain.certs().iter().map(|c| c.as_der().to_vec()).collect();
         if certs.is_empty() {
             return Err(SignError::Malformed("PKCS#12 has no certificate".into()));
@@ -151,7 +320,7 @@ impl SoftwareSigner {
     }
 
     /// Makes sure the key matches the certificate (rejects garbage early).
-    fn checked(key: RsaPrivateKey, cert_der: Vec<u8>, chain: Vec<Vec<u8>>) -> Result<Self> {
+    fn checked(key: SoftKey, cert_der: Vec<u8>, chain: Vec<Vec<u8>>) -> Result<Self> {
         let probe = sha256(b"bo-sign key check");
         let signer = Self {
             key,
@@ -220,9 +389,22 @@ impl Signer for SoftwareSigner {
     }
 
     fn sign_sha256(&self, digest: &[u8; 32]) -> Result<Vec<u8>> {
-        self.key
-            .sign(Pkcs1v15Sign::new::<Sha256>(), digest)
-            .map_err(|e| SignError::Signer(e.to_string()))
+        use p256::ecdsa::signature::hazmat::PrehashSigner;
+        let err = |e: p256::ecdsa::Error| SignError::Signer(e.to_string());
+        match &self.key {
+            SoftKey::Rsa(k) => k
+                .sign(Pkcs1v15Sign::new::<Sha256>(), digest)
+                .map_err(|e| SignError::Signer(e.to_string())),
+            // FIPS 186-4 §6.4 with RFC 6979 deterministic nonces.
+            SoftKey::P256(k) => {
+                let s: p256::ecdsa::Signature = k.sign_prehash(digest).map_err(err)?;
+                Ok(s.to_der().as_bytes().to_vec())
+            }
+            SoftKey::P384(k) => {
+                let s: p384::ecdsa::Signature = k.sign_prehash(digest).map_err(err)?;
+                Ok(s.to_der().as_bytes().to_vec())
+            }
+        }
     }
 }
 
@@ -447,7 +629,7 @@ impl PreparedSignature {
     pub fn timestamp_message(&self, signature: &[u8]) -> Vec<u8> {
         match self {
             Self::Pdf(_) => signature.to_vec(),
-            Self::Ooxml(_) => ooxml::PreparedOoxml::timestamp_message(signature),
+            Self::Ooxml(p) => p.timestamp_message(signature),
         }
     }
 

@@ -32,6 +32,16 @@ const DSIG_NS: &str = "http://www.w3.org/2000/09/xmldsig#";
 const MDSSI_NS: &str = "http://schemas.openxmlformats.org/package/2006/digital-signature";
 const C14N: &str = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
 const RSA_SHA256: &str = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
+/// RFC 4051 §2.3.6 / XML-DSig 1.1 §6.4.3: ECDSA over SHA-256, value = `r || s`.
+const ECDSA_SHA256: &str = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256";
+
+/// `SignatureMethod` of a certificate's key.
+fn signature_method(cert_der: &[u8]) -> Result<&'static str> {
+    Ok(match crate::KeyKind::of_cert(cert_der)? {
+        crate::KeyKind::Rsa => RSA_SHA256,
+        _ => ECDSA_SHA256,
+    })
+}
 const SHA256: &str = "http://www.w3.org/2001/04/xmlenc#sha256";
 const REL_TRANSFORM: &str = "http://schemas.openxmlformats.org/package/2006/RelationshipTransform";
 const RELS_NS: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
@@ -258,15 +268,28 @@ impl PreparedOoxml {
         sha256(with_dsig_ns(&self.signed_info, "SignedInfo").as_bytes())
     }
 
+    /// The `SignatureValue` bytes of a signer's output: PKCS#1 v1.5 as is, ECDSA as `r || s`.
+    fn signature_value(&self, signature: &[u8]) -> Result<Vec<u8>> {
+        let kind = crate::KeyKind::of_cert(&self.cert_der)?;
+        if kind == crate::KeyKind::Rsa || signature.len() == 2 * kind.field_bytes() {
+            return Ok(signature.to_vec());
+        }
+        crate::ecdsa_der_to_raw(signature, kind)
+    }
+
     /// Bytes an RFC 3161 token must cover for this signature value.
     #[must_use]
-    pub fn timestamp_message(signature: &[u8]) -> Vec<u8> {
-        canonical_signature_value(&B64.encode(signature)).into_bytes()
+    pub fn timestamp_message(&self, signature: &[u8]) -> Vec<u8> {
+        let value = self
+            .signature_value(signature)
+            .unwrap_or_else(|_| signature.to_vec());
+        canonical_signature_value(&B64.encode(value)).into_bytes()
     }
 
     /// Writes the signature part (with an optional XAdES `SignatureTimeStamp`
     /// holding `timestamp_token`) and returns the package bytes.
     pub fn finish(mut self, signature: &[u8], timestamp_token: Option<&[u8]>) -> Result<Vec<u8>> {
+        let signature = &self.signature_value(signature)?;
         let mut certs = format!(
             "<X509Certificate>{}</X509Certificate>",
             B64.encode(&self.cert_der)
@@ -323,7 +346,7 @@ pub fn sign_ooxml_with(
     let signature = signer.sign_sha256(&prepared.digest())?;
     let token = match tsa {
         Some(client) => {
-            let message = PreparedOoxml::timestamp_message(&signature);
+            let message = prepared.timestamp_message(&signature);
             Some(timestamp::timestamp(
                 client,
                 &message,
@@ -372,8 +395,9 @@ pub fn prepare_ooxml(
         w3c_time(time)
     );
     let signed_properties = xades_signed_properties(cert_der, time)?;
+    let method = signature_method(cert_der)?;
     let signed_info = format!(
-        "<SignedInfo><CanonicalizationMethod Algorithm=\"{C14N}\"></CanonicalizationMethod><SignatureMethod Algorithm=\"{RSA_SHA256}\"></SignatureMethod><Reference Type=\"{DSIG_NS}Object\" URI=\"#idPackageObject\"><DigestMethod Algorithm=\"{SHA256}\"></DigestMethod><DigestValue>{}</DigestValue></Reference><Reference Type=\"{XADES_SIGNED_PROPERTIES}\" URI=\"#idSignedProperties\"><Transforms><Transform Algorithm=\"{C14N}\"></Transform></Transforms><DigestMethod Algorithm=\"{SHA256}\"></DigestMethod><DigestValue>{}</DigestValue></Reference></SignedInfo>",
+        "<SignedInfo><CanonicalizationMethod Algorithm=\"{C14N}\"></CanonicalizationMethod><SignatureMethod Algorithm=\"{method}\"></SignatureMethod><Reference Type=\"{DSIG_NS}Object\" URI=\"#idPackageObject\"><DigestMethod Algorithm=\"{SHA256}\"></DigestMethod><DigestValue>{}</DigestValue></Reference><Reference Type=\"{XADES_SIGNED_PROPERTIES}\" URI=\"#idSignedProperties\"><Transforms><Transform Algorithm=\"{C14N}\"></Transform></Transforms><DigestMethod Algorithm=\"{SHA256}\"></DigestMethod><DigestValue>{}</DigestValue></Reference></SignedInfo>",
         digest_b64(with_dsig_ns(&object, "Object").as_bytes()),
         digest_b64(canonical_signed_properties(&signed_properties).as_bytes()),
     );
@@ -482,6 +506,12 @@ pub fn verify_ooxml(bytes: &[u8]) -> Result<Vec<OoxmlSignature>> {
             })
             .collect::<Result<Vec<_>>>()?;
         let cert = certificates.first().cloned().ok_or_else(unsupported)?;
+        // ECDSA SignatureValue is `r || s` (XML-DSig 1.1 §6.4.3); the verifier takes DER.
+        let sig_value = if signed_info.contains(ECDSA_SHA256) {
+            crate::ecdsa_raw_to_der(&sig_value, crate::KeyKind::of_cert(&cert)?)?
+        } else {
+            sig_value
+        };
         verify_with_cert(
             &cert,
             &sha256(with_dsig_ns(signed_info, "SignedInfo").as_bytes()),

@@ -32,13 +32,15 @@ use x509_cert::time::{Time, Validity};
 /// On encoding failure (tests only).
 #[must_use]
 pub fn to_pem(signer: &SoftwareSigner) -> (String, String) {
-    use rsa::pkcs8::EncodePrivateKey;
-    let key = signer
-        .key
-        .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
-        .expect("pem")
-        .to_string();
-    (key, crate::cert_to_pem(&signer.cert_der))
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(key_pkcs8_der(signer));
+    let mut key = String::from("-----BEGIN PRIVATE KEY-----\n");
+    for chunk in b64.as_bytes().chunks(64) {
+        key.push_str(std::str::from_utf8(chunk).expect("ascii"));
+        key.push('\n');
+    }
+    key.push_str("-----END PRIVATE KEY-----\n");
+    (key, crate::cert_to_pem(signer.certificate_der()))
 }
 
 /// PKCS#8 DER of a signer's private key (tests).
@@ -47,13 +49,7 @@ pub fn to_pem(signer: &SoftwareSigner) -> (String, String) {
 /// On encoding failure (tests only).
 #[must_use]
 pub fn key_pkcs8_der(signer: &SoftwareSigner) -> Vec<u8> {
-    use rsa::pkcs8::EncodePrivateKey;
-    signer
-        .key
-        .to_pkcs8_der()
-        .expect("pkcs8")
-        .as_bytes()
-        .to_vec()
+    signer.key_pkcs8_der().expect("pkcs8")
 }
 
 /// Signer that always fails (for negative tests).
@@ -314,7 +310,7 @@ pub fn ocsp_responder(
             enable_key_agreement: false,
             enable_key_encipherment: false,
         },
-        &issuer.key,
+        issuer.rsa_key().expect("RSA issuer"),
         validity,
         77,
         eku.then(|| vec![rfc5280::ID_KP_OCSP_SIGNING]),

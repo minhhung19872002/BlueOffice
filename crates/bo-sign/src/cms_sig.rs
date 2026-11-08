@@ -151,9 +151,17 @@ impl PreparedCms {
             }),
             digest_alg: sha256_alg(),
             signed_attrs: Some(self.signed_attrs.clone()),
-            signature_algorithm: AlgorithmIdentifierOwned {
-                oid: rfc5912::SHA_256_WITH_RSA_ENCRYPTION,
-                parameters: Some(Any::null()),
+            // RFC 4055 §5 sha256WithRSAEncryption (NULL parameters) or RFC 5758 §3.2
+            // ecdsa-with-SHA256 (parameters absent).
+            signature_algorithm: match crate::KeyKind::of_cert(&self.cert.to_der()?)? {
+                crate::KeyKind::Rsa => AlgorithmIdentifierOwned {
+                    oid: rfc5912::SHA_256_WITH_RSA_ENCRYPTION,
+                    parameters: Some(Any::null()),
+                },
+                _ => AlgorithmIdentifierOwned {
+                    oid: rfc5912::ECDSA_WITH_SHA_256,
+                    parameters: None,
+                },
             },
             signature: OctetString::new(signature.to_vec())?,
             unsigned_attrs,

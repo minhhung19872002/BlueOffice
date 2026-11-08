@@ -237,10 +237,19 @@ impl Signer for Pkcs11Signer {
     }
 
     fn sign_sha256(&self, digest: &[u8; 32]) -> Result<Vec<u8>> {
-        let sig = self
-            .session
-            .sign(&Mechanism::RsaPkcs, self.key, &sha256_digest_info(digest))
-            .map_err(p11)?;
+        // PKCS#11 v2.40 §2.3.6 CKM_ECDSA signs the hash and returns `r || s`; CKM_RSA_PKCS signs a
+        // DigestInfo (RFC 8017 §9.2).
+        let sig = if crate::KeyKind::of_cert(&self.cert)? == crate::KeyKind::Rsa {
+            self.session
+                .sign(&Mechanism::RsaPkcs, self.key, &sha256_digest_info(digest))
+                .map_err(p11)?
+        } else {
+            let raw = self
+                .session
+                .sign(&Mechanism::Ecdsa, self.key, digest)
+                .map_err(p11)?;
+            crate::normalize_signature(&self.cert, &raw)?
+        };
         verify_with_cert(&self.cert, digest, &sig)
             .map_err(|_| SignError::Signer("PKCS#11: token signature does not verify".into()))?;
         Ok(sig)

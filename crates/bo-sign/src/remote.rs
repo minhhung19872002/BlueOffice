@@ -60,7 +60,7 @@ impl Signer for RemoteSigner {
     }
 
     fn sign_sha256(&self, digest: &[u8; 32]) -> Result<Vec<u8>> {
-        let sig = self.api.sign_digest(digest)?;
+        let sig = crate::normalize_signature(&self.cert, &self.api.sign_digest(digest)?)?;
         // Catch a service signing with another key than the certificate's.
         verify_with_cert(&self.cert, digest, &sig).map_err(|_| {
             SignError::Signer(

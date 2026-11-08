@@ -89,7 +89,9 @@
   CRL của TSA trực tuyến (cả với file do chính pyHanko `ltvfix` tạo).
 - `verify_ooxml` dựa trên dạng canonical do BlueOffice sinh; chữ ký XAdES của phần mềm khác vẫn báo `Unsupported`.
 - Kiểm tra: khoá RSA (PKCS#1 v1.5) và ECDSA P-256 / P-384 (RFC 5480, RFC 5758) cho chứng thư, CRL, OCSP, dấu thời gian
-  và chữ ký CMS; đường cong khác báo `Unsupported`. Ký: chỉ RSA (token / CA Việt Nam hiện dùng RSA).
+  và chữ ký CMS; đường cong khác báo `Unsupported`. Ký: RSA và ECDSA P-256 / P-384 (khoá phần mềm PKCS#8/SEC1/PKCS#12,
+  token PKCS#11 `CKM_ECDSA`, dịch vụ ký từ xa trả DER hoặc r‖s); CMS ghi `ecdsa-with-SHA256`, OOXML dùng
+  `xmldsig-more#ecdsa-sha256` với SignatureValue r‖s (XML-DSig 1.1 §6.4.3); kiểm chéo bằng `openssl cms -verify`.
 - Trình duyệt chỉ dùng được dịch vụ ký / TSA có bật CORS.
 - Ký lại một .docx đã ký rồi sửa: chữ ký cũ không còn hợp lệ và được báo `invalid` (chưa tự gỡ chữ ký cũ).
 - Crate `rsa` 0.9 có cảnh báo RUSTSEC-2023-0071 (rò rỉ thời gian khi **giải mã/ký** bằng khoá bí mật). Chỉ ảnh hưởng

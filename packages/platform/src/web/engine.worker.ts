@@ -60,7 +60,7 @@ async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?:
       engine.markSaved();
       return { result: null };
     case 'collabStart':
-      return { result: JSON.parse(engine.collabStart(req.seed)) };
+      return { result: JSON.parse(engine.collabStart(req.seed, req.clientId)) };
     case 'collabApply':
       return { result: JSON.parse(engine.collabApply(req.json)) };
     case 'collabPeers':

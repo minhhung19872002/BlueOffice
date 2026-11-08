@@ -13,9 +13,13 @@ fn lock<'a>(
 
 /// Bind the open document; returns the change to publish (JSON `CollabChange`).
 #[tauri::command]
-pub fn engine_collab_start(state: State<'_, EngineState>, seed: bool) -> Result<String, String> {
+pub fn engine_collab_start(
+    state: State<'_, EngineState>,
+    seed: bool,
+    client: Option<u64>,
+) -> Result<String, String> {
     lock(&state)?
-        .collab_start_json(seed)
+        .collab_start_json(seed, client.unwrap_or(0))
         .map_err(|e| e.to_string())
 }
 

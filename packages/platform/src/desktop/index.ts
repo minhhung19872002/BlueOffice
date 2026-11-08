@@ -5,13 +5,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
-import {
-  AnonymousSession,
-  BrowserClipboard,
-  FileAccessStorage,
-  IndexedDbCache,
-  LocalRecentFiles,
-} from '../shared';
+import { AnonymousSession, BrowserClipboard, FileAccessStorage, LocalRecentFiles } from '../shared';
 import type {
   CollabChange,
   DocInfo,
@@ -24,6 +18,7 @@ import type {
   GlyphOutline,
   HostFileLink,
   MessageBus,
+  OfflineCache,
   OpenedFile,
   PageDisplayList,
   PeerRects,
@@ -114,8 +109,10 @@ export class NativeEngineHost implements EngineHost {
   async markSaved(): Promise<void> {
     await this.call<null>('engine_mark_saved');
   }
-  async collabStart(seed: boolean): Promise<CollabChange> {
-    return JSON.parse(await this.call<string>('engine_collab_start', { seed })) as CollabChange;
+  async collabStart(seed: boolean, clientId?: number): Promise<CollabChange> {
+    return JSON.parse(
+      await this.call<string>('engine_collab_start', { seed, client: clientId ?? 0 }),
+    ) as CollabChange;
   }
   async collabApply(change: string): Promise<EditResult> {
     return JSON.parse(
@@ -179,6 +176,33 @@ export class DesktopFileAccess implements FileAccess {
       headers: { 'x-file-name': encodeURIComponent(suggestedName) },
     });
   }
+  async openPath(path: string): Promise<OpenedFile> {
+    const bytes = toBytes(await this.call<ArrayBuffer>('read_file', { path }));
+    return { name: path.split(/[\\/]/).pop() ?? path, path, bytes };
+  }
+}
+
+/**
+ * Offline cache in a local folder (`<app data>/offline`, prompt §3.4
+ * "desktop = thư mục cache cục bộ"): survives restarts and web view resets,
+ * holds offline saves of host files and the crash-recovery copy.
+ */
+export class DesktopDiskCache implements OfflineCache {
+  constructor(private readonly call: Invoke = invoke as Invoke) {}
+  async get(key: string): Promise<Uint8Array | null> {
+    try {
+      return toBytes(await this.call<ArrayBuffer>('cache_get', { key }));
+    } catch (e) {
+      if (String(e).includes('cache:missing')) return null;
+      throw e;
+    }
+  }
+  async put(key: string, value: Uint8Array): Promise<void> {
+    await this.call('cache_put', value, { headers: { 'x-cache-key': encodeURIComponent(key) } });
+  }
+  async delete(key: string): Promise<void> {
+    await this.call('cache_delete', { key });
+  }
 }
 
 /** Desktop uses the fonts compiled into the native engine (same list/order as the web). */
@@ -212,6 +236,15 @@ class DesktopWindow implements WindowManager {
     const query = url.includes('?') ? url.slice(url.indexOf('?') + 1) : url;
     await this.call<string>('open_window', { query });
   }
+}
+
+type WindowApp = 'doc' | 'sheet' | 'slide';
+
+/** Which editor opens a file (by extension). */
+export function appForPath(name: string): WindowApp {
+  if (/\.(xlsx|xlsm|xltx|xltm|xlsb|xls|ods|csv)$/i.test(name)) return 'sheet';
+  if (/\.(pptx|pptm|potx|potm|ppsx|ppt|odp)$/i.test(name)) return 'slide';
+  return 'doc';
 }
 
 /** Stored BlueOffice server setting (deep links to host files). */
@@ -257,16 +290,74 @@ class DesktopShell implements ShellIntegration {
       // Storage unavailable: the environment variable still works.
     }
   }
+  async serverFromEnvironment(): Promise<boolean> {
+    return !!(await this.call<string | null>('server_url').catch(() => null));
+  }
+  hasLaunchRequest(): Promise<boolean> {
+    // A window opened for a forwarded file (`?path=`) shows that file, not the Start screen.
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('path')) {
+      return Promise.resolve(true);
+    }
+    return this.call<boolean>('has_launch_request').catch(() => false);
+  }
+  async getSetting(key: string): Promise<string | null> {
+    try {
+      return localStorage.getItem(`blueoffice.desktop.${key}`);
+    } catch {
+      return null;
+    }
+  }
+  async setSetting(key: string, value: string | null): Promise<void> {
+    try {
+      if (value === null) localStorage.removeItem(`blueoffice.desktop.${key}`);
+      else localStorage.setItem(`blueoffice.desktop.${key}`, value);
+    } catch {
+      // Storage unavailable: the setting lasts for this run only.
+    }
+  }
+  async openExternal(url: string): Promise<void> {
+    await this.call('open_url', { url });
+  }
+  onAuthCallback(handler: (url: string) => void): () => void {
+    let disposed = false;
+    const un = listen<string>('auth-callback', (e) => {
+      if (!disposed) handler(e.payload);
+    });
+    return () => {
+      disposed = true;
+      void un.then((f) => f());
+    };
+  }
   onOpenRequest(handler: (file: OpenedFile) => void): () => void {
     let disposed = false;
+    const query = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
+    // The editor shown in this window (the shell picks it from the file's type).
+    let shown: WindowApp | null = null;
     const openPath = async (path: string) => {
+      const name = path.split(/[\\/]/).pop() ?? path;
+      const target = appForPath(name);
+      if (shown && shown !== target) {
+        // This window already edits another kind of document: keep it and
+        // open the file in a new window of the right app.
+        const q = `app=${target}&path=${encodeURIComponent(path)}`;
+        await this.call<string>('open_window', { query: q });
+        return;
+      }
       const bytes = toBytes(await this.call<ArrayBuffer>('read_file', { path }));
-      if (!disposed) handler({ name: path.split(/[\\/]/).pop() ?? path, path, bytes });
+      if (disposed) return;
+      shown = target;
+      handler({ name, path, bytes });
     };
-    // File passed on the command line (file association) …
-    void this.call<string | null>('startup_file').then((p) => {
-      if (p) void openPath(p);
-    });
+    const routed = query.get('path');
+    if (routed) {
+      // A window opened for a file forwarded to another window.
+      void openPath(routed);
+    } else {
+      // File passed on the command line (file association) …
+      void this.call<string | null>('startup_file').then((p) => {
+        if (p) void openPath(p);
+      });
+    }
     // … or forwarded later by a second instance / deep link.
     const un = listen<string>('open-file', (e) => void openPath(e.payload));
     return () => {
@@ -327,7 +418,7 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Platfo
     engine: new NativeEngineHost(call),
     auth: new AnonymousSession(),
     window: new DesktopWindow(call),
-    offline: new IndexedDbCache('blueoffice-desktop-offline'),
+    offline: new DesktopDiskCache(call),
     shell: new DesktopShell(call),
     channel: (name: string) => new TauriBus(name),
     sheet: createNativeSheetHost(call),

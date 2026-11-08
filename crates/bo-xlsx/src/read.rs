@@ -96,6 +96,7 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
 
     let sheet_entries = read_workbook(&wb_part.data, &wb_path, &mut wb)?;
     // Pivot cache definitions (§18.10.1.67) stay opaque; summarize them.
+    let date1904 = wb.date1904;
     for cache in &mut wb.pivot_caches {
         if let Some(rel) = wb
             .opaque
@@ -104,7 +105,7 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
             .find(|r| r.id == cache.rel_id && !r.external)
         {
             cache.part.clone_from(&rel.target);
-            crate::pivot::read_cache_definition(&pkg, cache);
+            crate::pivot::read_cache_definition(&pkg, cache, date1904);
         }
     }
     for entry in sheet_entries {

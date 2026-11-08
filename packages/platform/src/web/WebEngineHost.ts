@@ -130,8 +130,8 @@ export class WebEngineHost implements EngineHost {
     await this.call<null>({ method: 'markSaved' });
   }
 
-  collabStart(seed: boolean): Promise<CollabChange> {
-    return this.call<CollabChange>({ method: 'collabStart', seed });
+  collabStart(seed: boolean, clientId?: number): Promise<CollabChange> {
+    return this.call<CollabChange>({ method: 'collabStart', seed, clientId });
   }
 
   collabApply(change: string): Promise<EditResult> {

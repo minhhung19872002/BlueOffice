@@ -228,8 +228,13 @@ public sealed class TestApp : WebApplicationFactory<Program>
 
         builder.ConfigureServices(s =>
         {
-            s.RemoveAll<IBoCliRunner>();
-            s.AddSingleton<IBoCliRunner>(Runner);
+            // A configured BoCli:ExecutablePath means "run the real bo-cli" (BoCliEndToEndTests).
+            if (!_settings.ContainsKey("BoCli:ExecutablePath"))
+            {
+                s.RemoveAll<IBoCliRunner>();
+                s.AddSingleton<IBoCliRunner>(Runner);
+            }
+
             if (_clock is not null)
             {
                 s.RemoveAll<TimeProvider>();

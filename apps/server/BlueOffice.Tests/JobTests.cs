@@ -104,7 +104,7 @@ public sealed class JobTests : IDisposable
             Assert.Contains("Unsupported input type", await res.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         }
 
-        using (var form = Form("a.docx", ("to", "odt")))
+        using (var form = Form("a.docx", ("to", "xlsx")))
         {
             Assert.Equal(HttpStatusCode.UnprocessableEntity, (await c.PostAsync(new Uri("/convert?wait=true", UriKind.Relative), form)).StatusCode);
         }

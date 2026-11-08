@@ -78,6 +78,9 @@ pub struct Frame {
     /// The enclosing groups mirror their children (an odd number of flips):
     /// child rotations then turn the other way (§20.1.7.6 xfrm flipH/flipV).
     pub mirror: bool,
+    /// Parity of the enclosing groups' `flipH` / `flipV` (§20.1.7.6): a
+    /// child's visual flips are its own ones xor these.
+    pub flip: (bool, bool),
 }
 
 impl Frame {
@@ -89,6 +92,7 @@ impl Frame {
             scale: (1.0, 1.0),
             rot: 0.0,
             mirror: false,
+            flip: (false, false),
         }
     }
     /// +1, or −1 inside a mirroring group.
@@ -138,6 +142,10 @@ impl Frame {
             scale: (sx, sy),
             rot: self.rot + self.sign() * f64::from(x.rot.unwrap_or(0)) / 60_000.0,
             mirror: self.mirror ^ (x.flip_h.unwrap_or(false) ^ x.flip_v.unwrap_or(false)),
+            flip: (
+                self.flip.0 ^ x.flip_h.unwrap_or(false),
+                self.flip.1 ^ x.flip_v.unwrap_or(false),
+            ),
         })
     }
     /// A visual box (slide points) → xfrm off/ext/rot in this frame's child space (EMU).

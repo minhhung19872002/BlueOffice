@@ -71,6 +71,15 @@ function dispatch(e: WasmSheet, method: SheetMethod, a: unknown[]): unknown {
       return e.exportPdf();
     case 'exec':
       return parse(e.exec(s(a[0])));
+    case 'collabStart':
+      return parse(e.collabStart(Boolean(a[0]), n(a[1])));
+    case 'collabLocal':
+      return parse(e.collabLocal());
+    case 'collabApply':
+      return parse(e.collabApply(s(a[0])));
+    case 'collabStop':
+      e.collabStop();
+      return null;
     case 'glyphs':
       return parse(e.glyphOutlines(n(a[0]), Uint16Array.from(a[1] as number[])));
   }

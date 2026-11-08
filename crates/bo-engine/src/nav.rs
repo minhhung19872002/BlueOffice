@@ -39,6 +39,11 @@ pub enum Story {
         endnote: bool,
         id: i32,
     },
+    /// The text box at index offset `at` of body paragraph `para` (§17.17.1).
+    TextBox {
+        para: u32,
+        at: u32,
+    },
 }
 
 thread_local! {
@@ -61,6 +66,11 @@ fn body_id(l: &Line) -> Option<usize> {
             if endnote == e && id == i =>
         {
             Some(para as usize)
+        }
+        (LineSource::TextBox { para, at, sub }, Story::TextBox { para: p, at: a })
+            if para == p && at == a =>
+        {
+            Some(sub as usize)
         }
         _ => None,
     }

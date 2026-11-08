@@ -9,12 +9,15 @@ publish = false
 [dependencies]
 bo-model.workspace = true
 bo-text.workspace = true
+bo-drawingml = { path = "../bo-drawingml" }
 unicode-linebreak.workspace = true
+unicode-bidi.workspace = true
 unicode-segmentation.workspace = true
 serde = { workspace = true, features = ["rc"] }
 thiserror.workspace = true
 
 [dev-dependencies]
+bo-docx.workspace = true
 proptest.workspace = true
 insta.workspace = true
 serde_json.workspace = true

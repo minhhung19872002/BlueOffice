@@ -324,7 +324,53 @@ export type PivotFilterType =
   | 'valueLessThan'
   | 'valueLessThanOrEqual'
   | 'valueBetween'
-  | 'valueNotBetween';
+  | 'valueNotBetween'
+  | PivotDateFilterType;
+
+/** Date filters of `ST_PivotFilterType`: fixed dates (ISO `yyyy-mm-dd` or serials) and periods. */
+export const PIVOT_DATE_FILTERS = [
+  'dateEqual',
+  'dateNotEqual',
+  'dateOlderThan',
+  'dateOlderThanOrEqual',
+  'dateNewerThan',
+  'dateNewerThanOrEqual',
+  'dateBetween',
+  'dateNotBetween',
+  'tomorrow',
+  'today',
+  'yesterday',
+  'nextWeek',
+  'thisWeek',
+  'lastWeek',
+  'nextMonth',
+  'thisMonth',
+  'lastMonth',
+  'nextQuarter',
+  'thisQuarter',
+  'lastQuarter',
+  'nextYear',
+  'thisYear',
+  'lastYear',
+  'yearToDate',
+  'Q1',
+  'Q2',
+  'Q3',
+  'Q4',
+  'M1',
+  'M2',
+  'M3',
+  'M4',
+  'M5',
+  'M6',
+  'M7',
+  'M8',
+  'M9',
+  'M10',
+  'M11',
+  'M12',
+] as const;
+export type PivotDateFilterType = (typeof PIVOT_DATE_FILTERS)[number];
 
 /** A label / value / top-N filter of a row or column field. */
 export interface PivotFieldFilter {
@@ -357,6 +403,8 @@ export type PivotSettings = {
   fieldOptions?: (Partial<PivotFieldOptions> & { field: number })[];
   fieldFilters?: PivotFieldFilter[];
   style?: PivotStyle;
+  /** Several value fields listed down the rows (`dataOnRows`). */
+  dataOnRows?: boolean;
 };
 
 /** Grouping of a field as listed by `pivots`. */
@@ -400,6 +448,8 @@ export interface PivotLabels {
   yearsField?: string;
   quartersField?: string;
   monthsField?: string;
+  /** Caption of a manual group; `{n}` is replaced by its number. */
+  group?: string;
 }
 
 /** A type alias (not an interface) so commands keep an implicit index signature. */
@@ -448,6 +498,9 @@ export interface PivotInfo {
   fieldOptions: PivotFieldOptions[];
   fieldFilters: PivotFieldFilter[];
   style: PivotStyle | null;
+  dataOnRows: boolean;
+  /** Calculated items (`calculatedItems`). */
+  calcItems: { field: number; name: string; formula: string }[];
 }
 
 export interface CellAt {
@@ -587,6 +640,27 @@ export type SheetCommand =
       remove?: boolean;
       labels?: PivotLabels;
     }
+  | {
+      cmd: 'pivotCalcItem';
+      sheet: number;
+      index: number;
+      field: number;
+      old?: string;
+      name?: string;
+      formula?: string;
+      remove?: boolean;
+      labels?: PivotLabels;
+    }
+  | {
+      cmd: 'pivotGroupItems';
+      sheet: number;
+      index: number;
+      field: number;
+      items: number[];
+      ungroup?: boolean;
+      labels?: PivotLabels;
+    }
+  | { cmd: 'pivotChart'; sheet: number; index: number; kind?: string }
   | { cmd: 'pivotDelete'; sheet: number; index: number }
   | { cmd: 'pivotMove'; sheet: number; index: number; dest: CellAt; labels?: PivotLabels }
   | {
@@ -695,7 +769,17 @@ export interface SheetHost {
    * re-reads info and redraws. Hosts without collaboration omit it.
    */
   onExternalChange?(listener: () => void): () => void;
+  /** Binds the workbook to a live session (`bo_engine::sheet::collab`); the seeder gets its change. */
+  collabStart?(seed: boolean, clientId: number): Promise<SheetCollabChange>;
+  /** Local changes to share since the last call. */
+  collabLocal?(): Promise<SheetCollabChange>;
+  /** Applies a replica change (`WasmCollab.takeRemote`). */
+  collabApply?(change: string): Promise<WorkbookInfo>;
+  collabStop?(): Promise<void>;
 }
+
+/** A `bo-collab` change envelope (cells, meta, texts …) as JSON. */
+export type SheetCollabChange = Record<string, unknown>;
 
 /** Method names understood by both transports (web worker and Tauri). */
 export type SheetMethod =
@@ -717,6 +801,10 @@ export type SheetMethod =
   | 'save'
   | 'exportPdf'
   | 'exec'
+  | 'collabStart'
+  | 'collabLocal'
+  | 'collabApply'
+  | 'collabStop'
   | 'glyphs';
 
 /** One call to the engine; JSON results are already parsed by the transport. */
@@ -801,5 +889,17 @@ export class RpcSheetHost implements SheetHost {
   }
   exec<T = unknown>(cmd: SheetCommand) {
     return this.call<T>('exec', JSON.stringify(cmd));
+  }
+  collabStart(seed: boolean, clientId: number) {
+    return this.call<SheetCollabChange>('collabStart', seed, clientId);
+  }
+  collabLocal() {
+    return this.call<SheetCollabChange>('collabLocal');
+  }
+  collabApply(change: string) {
+    return this.call<WorkbookInfo>('collabApply', change);
+  }
+  collabStop() {
+    return this.call<void>('collabStop');
   }
 }

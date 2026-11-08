@@ -9,7 +9,7 @@ use super::pivot_cmd::{
     data_field, group_request, pivot_json, updated_spec, PivotFilterSpec, PivotSettings,
     PivotValueSpec,
 };
-use super::{input_to_cell, number_input, SheetEngine, UndoEntry, MAX_COLS, MAX_ROWS};
+use super::{date_input, input_to_cell, number_input, SheetEngine, UndoEntry, MAX_COLS, MAX_ROWS};
 use crate::{EngineError, Result};
 use bo_model::sheet::PivotFilter;
 use bo_model::sheet::{
@@ -512,6 +512,42 @@ pub enum SheetCommand {
         index: usize,
         #[serde(default)]
         labels: Option<PivotLabels>,
+    },
+    /// Adds, changes (`old` = its current name) or removes a calculated item
+    /// of a row / column field (§18.10.1.8).
+    PivotCalcItem {
+        sheet: usize,
+        index: usize,
+        field: u32,
+        #[serde(default)]
+        old: Option<String>,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        formula: String,
+        #[serde(default)]
+        remove: bool,
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Groups the selected items of a field (`items`: indexes into its items)
+    /// into a manual group, or ungroups them (§18.10.1.26 `discretePr`).
+    PivotGroupItems {
+        sheet: usize,
+        index: usize,
+        field: u32,
+        items: Vec<usize>,
+        #[serde(default)]
+        ungroup: bool,
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Inserts a pivot chart plotting a pivot table (§21.2.2.142 `pivotSource`).
+    PivotChart {
+        sheet: usize,
+        index: usize,
+        #[serde(default)]
+        kind: Option<String>,
     },
     SetPageSetup {
         sheet: usize,
@@ -1385,6 +1421,8 @@ impl SheetEngine {
                                 "legend": c.legend,
                                 "xTitle": c.x_title,
                                 "yTitle": c.y_title,
+                                "anchor": c.anchor,
+                                "pivot": c.pivot_source,
                                 "from": [c.from.row, c.from.col],
                                 "to": c.to.map_or([c.from.row + 15, c.from.col + 8], |t| [t.row, t.col]),
                                 "series": c.plots.iter().map(|p| p.series.len()).sum::<usize>(),
@@ -1438,17 +1476,29 @@ impl SheetEngine {
                 index,
                 from,
                 to,
-            } => self.edit(sheet, Recalc::No, |wb, _| {
+            } => {
                 let cl = |[r, c]: [u32; 2]| CellRef::new(r.min(MAX_ROWS - 1), c.min(MAX_COLS - 1));
                 let (from, to) = (cl(from), cl(to));
                 // At least one cell wide and tall.
                 let to = CellRef::new(to.row.max(from.row + 1), to.col.max(from.col + 1));
-                if bo_xlsx::chart_write::move_chart(wb, sheet, index, from, to) {
-                    Ok(json!({ "ok": true }))
-                } else {
-                    Err(bad("this chart cannot be moved"))
-                }
-            }),
+                // One-cell / absolute anchors store EMU (12 700 per point, §20.5.2.14).
+                let g = self.geometry(sheet)?;
+                let emu = |pt: f64| (pt * 12_700.0).round() as i64;
+                let (x0, y0) = (g.col_x(from.col), g.row_y(from.row));
+                let rect = Some((
+                    emu(x0),
+                    emu(y0),
+                    emu(g.col_x(to.col) - x0),
+                    emu(g.row_y(to.row) - y0),
+                ));
+                self.edit(sheet, Recalc::No, |wb, _| {
+                    if bo_xlsx::chart_write::move_chart(wb, sheet, index, from, to, rect) {
+                        Ok(json!({ "ok": true }))
+                    } else {
+                        Err(bad("this chart cannot be moved"))
+                    }
+                })
+            }
             C::Find {
                 query,
                 match_case,
@@ -1531,7 +1581,7 @@ impl SheetEngine {
                 labels,
             } => {
                 let r = current_region(self.sheet(sheet)?, range.range());
-                let labels = labels.unwrap_or_default();
+                let labels = self.pivot_labels(labels);
                 let out = self.edit(sheet, Recalc::All, |wb, _| {
                     let spec = PivotSpec {
                         rows,
@@ -1605,7 +1655,7 @@ impl SheetEngine {
                 labels,
                 settings,
             } => {
-                let labels = labels.unwrap_or_default();
+                let labels = self.pivot_labels(labels);
                 self.sheet(sheet)?
                     .pivots
                     .get(index)
@@ -1631,7 +1681,7 @@ impl SheetEngine {
                 interval,
                 labels,
             } => {
-                let labels = labels.unwrap_or_default();
+                let labels = self.pivot_labels(labels);
                 let req =
                     group_request(&by, [years, quarters, months, days], start, end, interval)?;
                 self.pivot_edit(sheet, |wb| {
@@ -1648,7 +1698,7 @@ impl SheetEngine {
                 remove,
                 labels,
             } => {
-                let labels = labels.unwrap_or_default();
+                let labels = self.pivot_labels(labels);
                 self.pivot_edit(sheet, |wb| {
                     if remove {
                         let f = field.ok_or("no field to remove")?;
@@ -1670,15 +1720,15 @@ impl SheetEngine {
                 index,
                 dest,
                 labels,
-            } => self.pivot_move(sheet, index, dest, &labels.unwrap_or_default()),
+            } => self.pivot_move(sheet, index, dest, &self.pivot_labels(labels)),
             C::PivotChangeSource {
                 sheet,
                 index,
                 source,
                 labels,
-            } => self.pivot_change_source(sheet, index, &source, &labels.unwrap_or_default()),
+            } => self.pivot_change_source(sheet, index, &source, &self.pivot_labels(labels)),
             C::PivotRefreshAll { labels } => {
-                let labels = labels.unwrap_or_default();
+                let labels = self.pivot_labels(labels);
                 self.pivot_edit(0, |wb| {
                     let n = bo_sheet::pivot::refresh_all(wb, &labels)?;
                     Ok(json!({ "count": n }))
@@ -1689,7 +1739,7 @@ impl SheetEngine {
                 index,
                 labels,
             } => {
-                let labels = labels.unwrap_or_default();
+                let labels = self.pivot_labels(labels);
                 let out = self.edit(sheet, Recalc::All, |wb, _| {
                     bo_sheet::pivot::refresh_pivot(wb, sheet, index, &labels).map_err(bad)?;
                     Ok(json!({ "ok": true }))
@@ -1697,6 +1747,71 @@ impl SheetEngine {
                 // Pivots on other sheets may share the cache.
                 self.invalidate(None);
                 Ok(out)
+            }
+            C::PivotCalcItem {
+                sheet,
+                index,
+                field,
+                old,
+                name,
+                formula,
+                remove,
+                labels,
+            } => {
+                let labels = self.pivot_labels(labels);
+                self.pivot_edit(sheet, |wb| {
+                    if remove {
+                        let n = old.as_deref().unwrap_or(&name);
+                        bo_sheet::pivot::remove_calculated_item(
+                            wb, sheet, index, field, n, &labels,
+                        )?;
+                    } else {
+                        bo_sheet::pivot::set_calculated_item(
+                            wb,
+                            sheet,
+                            index,
+                            field,
+                            old.as_deref(),
+                            &name,
+                            &formula,
+                            &labels,
+                        )?;
+                    }
+                    Ok(json!({ "ok": true }))
+                })
+            }
+            C::PivotGroupItems {
+                sheet,
+                index,
+                field,
+                items,
+                ungroup,
+                labels,
+            } => {
+                let labels = self.pivot_labels(labels);
+                self.pivot_edit(sheet, |wb| {
+                    if ungroup {
+                        bo_sheet::pivot::ungroup_items(wb, sheet, index, field, &items, &labels)?;
+                        Ok(json!({ "ok": true }))
+                    } else {
+                        let g =
+                            bo_sheet::pivot::group_items(wb, sheet, index, field, &items, &labels)?;
+                        Ok(json!({ "field": g }))
+                    }
+                })
+            }
+            C::PivotChart { sheet, index, kind } => {
+                let kind = kind.unwrap_or_else(|| "column".into());
+                if !bo_sheet::chart::CHART_TYPES.contains(&kind.as_str()) {
+                    return Err(bad(format!("unknown chart type '{kind}'")));
+                }
+                self.edit(sheet, Recalc::No, |wb, _| {
+                    let chart = bo_sheet::chart::new_pivot_chart(wb, sheet, index, &kind)
+                        .ok_or_else(|| bad("no such pivot table"))?;
+                    let ws = &mut wb.sheets[sheet];
+                    ws.charts.push(chart);
+                    Ok(json!({ "index": ws.charts.len() - 1 }))
+                })
             }
             C::SetPageSetup {
                 sheet,
@@ -1831,9 +1946,16 @@ impl SheetEngine {
 
     /// Input text of a cell (formula bar form).
     fn input_of(&self, cell: &Cell) -> String {
+        let (fmt_id, d1904) = self.wb.as_ref().map_or((0, false), |wb| {
+            (
+                wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id),
+                wb.date1904,
+            )
+        });
         match (&cell.formula, &cell.value) {
             (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
-            (_, CellValue::Number(n)) => number_input(*n, &self.locale),
+            (_, CellValue::Number(n)) => date_input(*n, fmt_id, &self.locale, d1904)
+                .unwrap_or_else(|| number_input(*n, &self.locale)),
             (_, CellValue::Bool(b)) => if *b { "TRUE" } else { "FALSE" }.to_owned(),
             (_, CellValue::Error(e)) => e.as_str().to_owned(),
             (_, v) => v.as_text().unwrap_or_default(),
@@ -2289,6 +2411,87 @@ mod tests {
         let mut back = SheetEngine::with_bundled_fonts();
         back.open(&bytes, "x.xlsx").unwrap();
         back
+    }
+
+    // source: ECMA-376 Part 1, §18.17.4.1 (serial 45351 = 2024-02-29), §18.8.30 (ids 14, 20, 22)
+    #[test]
+    fn typed_dates_become_serials() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "29/02/2024").unwrap();
+        e.set_input(0, 1, 0, "2024-02-29 18:00").unwrap();
+        e.set_input(0, 2, 0, "18:30").unwrap();
+        e.set_input(0, 3, 0, "=DATE(2024;2;29)").unwrap();
+        e.set_input(0, 4, 0, "'29/02/2024").unwrap();
+        e.set_input(0, 5, 0, "1/2").unwrap();
+        e.set_input(0, 6, 0, "2/29/2024").unwrap();
+        let wb = e.workbook().unwrap();
+        let ws = &wb.sheets[0];
+        let fmt = |r: u32| {
+            wb.styles
+                .xf(ws.cell(r, 0).unwrap().style)
+                .unwrap()
+                .num_fmt_id
+        };
+        assert_eq!(ws.cell(0, 0).unwrap().value, CellValue::Number(45351.0));
+        assert_eq!(fmt(0), 14);
+        assert_eq!(ws.cell(1, 0).unwrap().value, CellValue::Number(45351.75));
+        assert_eq!(fmt(1), 22);
+        assert_eq!(fmt(2), 20);
+        assert!(ws.cell(3, 0).unwrap().formula.is_some());
+        assert_eq!(
+            ws.cell(4, 0).unwrap().value,
+            CellValue::Text("29/02/2024".into())
+        );
+        assert_eq!(ws.cell(5, 0).unwrap().value, CellValue::Text("1/2".into()));
+        // Month-first is not a valid vi-VN date: kept as text.
+        assert_eq!(
+            ws.cell(6, 0).unwrap().value,
+            CellValue::Text("2/29/2024".into())
+        );
+        let d = e.cell(0, 0, 0).unwrap();
+        assert_eq!(
+            (d.display.as_str(), d.input.as_str()),
+            ("29/02/2024", "29/02/2024")
+        );
+        assert_eq!(e.cell(0, 1, 0).unwrap().input, "29/02/2024 18:00:00");
+        // Re-confirming the formula-bar text keeps the value and format.
+        e.set_input(0, 1, 0, "29/02/2024 18:00:00").unwrap();
+        assert_eq!(
+            e.workbook().unwrap().sheets[0].cell(1, 0).unwrap().value,
+            CellValue::Number(45351.75)
+        );
+        // A date format chosen by the user is kept; a text format keeps text.
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(8, 0, 9, 0), "patch": { "numFmt": "d mmm yyyy" } }),
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(10, 0, 10, 0), "patch": { "numFmt": "@" } }),
+        );
+        e.set_input(0, 8, 0, "1/3/2024").unwrap();
+        e.set_input(0, 10, 0, "1/3/2024").unwrap();
+        assert_eq!(e.cell(0, 8, 0).unwrap().display, "1 Thg 3 2024");
+        assert_eq!(
+            e.workbook().unwrap().sheets[0].cell(10, 0).unwrap().value,
+            CellValue::Text("1/3/2024".into())
+        );
+        // en-US reads month first.
+        e.set_locale("en-US");
+        e.set_input(0, 12, 0, "2/29/2024").unwrap();
+        e.set_input(0, 13, 0, "29/2/2024").unwrap();
+        let ws = &e.workbook().unwrap().sheets[0];
+        assert_eq!(ws.cell(12, 0).unwrap().value, CellValue::Number(45351.0));
+        assert_eq!(
+            ws.cell(13, 0).unwrap().value,
+            CellValue::Text("29/2/2024".into())
+        );
+        // Survives a save.
+        let back = reopen(&mut e);
+        assert_eq!(
+            back.workbook().unwrap().sheets[0].cell(0, 0).unwrap().value,
+            CellValue::Number(45351.0)
+        );
     }
 
     #[test]
@@ -2928,6 +3131,161 @@ mod tests {
         assert_eq!(again.cell(1, 3, 1).unwrap().display, "30");
         let info = run(&mut back, json!({ "cmd": "pivots", "sheet": 1 }));
         assert_eq!(info[0]["filters"][0]["items"], json!([1]));
+    }
+
+    // source: ECMA-376 Part 1, §21.2.2.142 pivotSource, §18.10.1.8 calculatedItem,
+    // §18.10.1.26 discretePr, §18.18.60 date filters, §18.10.1.73 dataOnRows
+    #[test]
+    fn pivot_charts_items_groups_date_filters() {
+        let mut e = engine();
+        // Dates typed as text in vi-VN become serial dates.
+        let data = [
+            ("Ngày", "Vùng", "Doanh thu"),
+            ("15/01/2024", "Bắc", "10"),
+            ("20/01/2024", "Nam", "30"),
+            ("10/02/2024", "Bắc", "20"),
+            ("05/03/2024", "Nam", "40"),
+        ];
+        let mut cells = Vec::new();
+        for (r, (a, b, c)) in data.iter().enumerate() {
+            let r = r as u32;
+            cells.push((r, 0, (*a).to_owned()));
+            cells.push((r, 1, (*b).to_owned()));
+            cells.push((r, 2, (*c).to_owned()));
+        }
+        e.set_inputs(0, &cells).unwrap();
+        let labels = json!({ "grandTotal": "Tổng cộng", "group": "Nhóm {n}" });
+        run(
+            &mut e,
+            json!({ "cmd": "pivotCreate", "sheet": 0, "range": rng(0, 0, 0, 0),
+                "rows": [1], "values": [{ "field": 2 }], "labels": labels }),
+        );
+        let d = |e: &SheetEngine, r: u32, c: u32| e.cell(1, r, c).unwrap().display;
+        assert_eq!((d(&e, 3, 0), d(&e, 3, 1)), ("Bắc".into(), "30".into()));
+        // Pivot chart from the pivot table.
+        let c = run(
+            &mut e,
+            json!({ "cmd": "pivotChart", "sheet": 1, "index": 0, "kind": "column" }),
+        );
+        assert_eq!(c["index"], 0);
+        let charts = run(&mut e, json!({ "cmd": "charts", "sheet": 1 }));
+        assert_eq!(charts[0]["pivot"], "Sheet2!Pivot1");
+        let cats = |e: &SheetEngine| {
+            e.workbook().unwrap().sheets[1].charts[0].plots[0].series[0]
+                .categories
+                .clone()
+        };
+        assert_eq!(cats(&e), vec!["Bắc", "Nam"]);
+        // A calculated item; the chart follows.
+        run(
+            &mut e,
+            json!({ "cmd": "pivotCalcItem", "sheet": 1, "index": 0, "field": 1,
+                "name": "Cả hai", "formula": "Bắc+Nam", "labels": labels }),
+        );
+        assert_eq!((d(&e, 5, 0), d(&e, 5, 1)), ("Cả hai".into(), "100".into()));
+        assert_eq!(cats(&e), vec!["Bắc", "Nam", "Cả hai"]);
+        let info = run(&mut e, json!({ "cmd": "pivots", "sheet": 1 }));
+        assert_eq!(info[0]["calcItems"][0]["formula"], "Bắc+Nam");
+        // Grouping needs the calculated item gone.
+        let err = e.exec_json(
+            &json!({ "cmd": "pivotGroupItems", "sheet": 1, "index": 0, "field": 1, "items": [0, 1] })
+                .to_string(),
+        );
+        assert!(err.is_err());
+        run(
+            &mut e,
+            json!({ "cmd": "pivotCalcItem", "sheet": 1, "index": 0, "field": 1,
+                "old": "Cả hai", "remove": true, "labels": labels }),
+        );
+        let g = run(
+            &mut e,
+            json!({ "cmd": "pivotGroupItems", "sheet": 1, "index": 0, "field": 1,
+                "items": [0, 1], "labels": labels }),
+        );
+        assert_eq!(g["field"], 3);
+        assert_eq!(d(&e, 3, 0), "Nhóm 1");
+        run(
+            &mut e,
+            json!({ "cmd": "pivotGroupItems", "sheet": 1, "index": 0, "field": 3,
+                "items": [0], "ungroup": true, "labels": labels }),
+        );
+        assert_eq!(d(&e, 3, 0), "Bắc");
+        // Date filter "this month" with the clock on 2024-02-15 (serial 45337).
+        e.set_now_ms((45_337 - 25_569) * 86_400_000);
+        run(
+            &mut e,
+            json!({ "cmd": "pivotUpdate", "sheet": 1, "index": 0, "rows": [0],
+                "values": [{ "field": 2 }], "labels": labels,
+                "fieldFilters": [{ "field": 0, "kind": "thisMonth" }] }),
+        );
+        assert_eq!(d(&e, 3, 0), "10/02/2024");
+        assert_eq!(
+            (d(&e, 4, 0), d(&e, 4, 1)),
+            ("Tổng cộng".into(), "20".into())
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "pivotUpdate", "sheet": 1, "index": 0, "rows": [0],
+                "values": [{ "field": 2 }], "labels": labels,
+                "fieldFilters": [{ "field": 0, "kind": "dateBetween", "value1": "2024-01-01", "value2": "2024-01-31" }] }),
+        );
+        assert_eq!(
+            (d(&e, 5, 0), d(&e, 5, 1)),
+            ("Tổng cộng".into(), "40".into())
+        );
+        // Two value fields down the rows.
+        run(
+            &mut e,
+            json!({ "cmd": "pivotUpdate", "sheet": 1, "index": 0, "rows": [1],
+                "values": [{ "field": 2 }, { "field": 2, "function": "count" }],
+                "dataOnRows": true, "fieldFilters": [], "labels": labels }),
+        );
+        let info = run(&mut e, json!({ "cmd": "pivots", "sheet": 1 }));
+        assert_eq!(info[0]["dataOnRows"], true);
+        assert_eq!(
+            (d(&e, 3, 1), d(&e, 4, 1)),
+            ("Sum of Doanh thu".into(), "Count of Doanh thu".into())
+        );
+        assert_eq!((d(&e, 3, 2), d(&e, 4, 2)), ("30".into(), "2".into()));
+        // Save and reopen: the chart is still a pivot chart of the table.
+        let back = reopen(&mut e);
+        let charts = back.workbook().unwrap().sheets[1].charts.clone();
+        assert_eq!(charts[0].pivot_source.as_deref(), Some("Sheet2!Pivot1"));
+        assert!(back.workbook().unwrap().sheets[1].pivots[0].data_on_rows);
+    }
+
+    // source: ECMA-376 Part 1, §20.5.2.1 absoluteAnchor, §20.5.2.24 oneCellAnchor
+    #[test]
+    fn absolute_and_one_cell_charts_move_and_resize() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus/sheet");
+        for (file, kind) in [
+            ("chart-anchors-1.xlsx", "oneCell"),
+            ("chart-anchors-2.xlsx", "absolute"),
+        ] {
+            let Ok(bytes) = std::fs::read(dir.join(file)) else {
+                continue;
+            };
+            let mut e = SheetEngine::with_bundled_fonts();
+            e.open(&bytes, file).unwrap();
+            let list = run(&mut e, json!({ "cmd": "charts", "sheet": 0 }));
+            assert_eq!(list[0]["anchor"], kind);
+            run(
+                &mut e,
+                json!({ "cmd": "moveChart", "sheet": 0, "index": 0, "from": [6, 2], "to": [16, 9] }),
+            );
+            let mut back = reopen(&mut e);
+            let list = run(&mut back, json!({ "cmd": "charts", "sheet": 0 }));
+            assert_eq!(list[0]["anchor"], kind, "{file}");
+            assert_eq!(list[0]["from"], json!([6, 2]), "{file}");
+            assert_eq!(list[0]["to"], json!([16, 9]), "{file}");
+            let c = &back.workbook().unwrap().sheets[0].charts[0];
+            // Default column width 48 pt (8.43 chars) and row height 15 pt → EMU.
+            let (cx, cy) = c.ext.unwrap();
+            assert!(cx > 0 && cy == 10 * 15 * 12_700, "{file}: {cx} {cy}");
+            if kind == "absolute" {
+                assert_eq!(c.pos.unwrap().1, 6 * 15 * 12_700);
+            }
+        }
     }
 
     #[test]

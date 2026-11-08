@@ -33,8 +33,55 @@ pub struct DeepLink {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum LaunchRequest {
-    File { path: String },
+    File {
+        path: String,
+    },
     Link(DeepLink),
+    /// Sign-in redirect `blue*://auth?code=…&state=…` (OAuth 2.0 + PKCE, RFC 8252 §7.1
+    /// private-use URI scheme), handed to the web view unchanged.
+    Auth {
+        url: String,
+    },
+}
+
+/// Recognises a sign-in redirect to one of our schemes (`bluedoc://auth?…`).
+pub fn parse_auth_callback(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    if !SCHEMES.iter().any(|(s, _)| *s == scheme) || url.len() > 8192 {
+        return None;
+    }
+    let action = rest.split(['?', '#']).next().unwrap_or("");
+    (action.trim_end_matches('/') == "auth").then(|| url.to_owned())
+}
+
+/// Opens only web pages in the system browser (sign-in); anything else is refused.
+pub fn external_url(url: &str) -> Result<&str, String> {
+    let lower = url.to_ascii_lowercase();
+    let ok = (lower.starts_with("https://") || lower.starts_with("http://"))
+        && url.len() <= 8192
+        && !url
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || c == '"');
+    if ok {
+        Ok(url)
+    } else {
+        Err("only http(s) URLs can be opened".into())
+    }
+}
+
+/// File name of an offline-cache entry: the key's bytes in hex (never a path).
+pub fn cache_file_name(key: &str) -> Result<String, String> {
+    // 120 bytes → 244 characters: within the 255-character file name limit.
+    if key.is_empty() || key.len() > 120 {
+        return Err("invalid cache key".into());
+    }
+    let mut s = String::with_capacity(key.len() * 2 + 4);
+    for b in key.bytes() {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s.push_str(".bin");
+    Ok(s)
 }
 
 /// Parses a deep link; rejects unknown schemes/actions and missing ids.
@@ -104,17 +151,20 @@ where
                 });
             }
             // … and the same for deep links (only our schemes parse).
-            if let Some(link) = a
-                .strip_prefix("--")
-                .filter(|l| l.contains("://"))
-                .and_then(|l| parse_deep_link(l).ok())
-            {
-                return Some(LaunchRequest::Link(link));
+            if let Some(l) = a.strip_prefix("--").filter(|l| l.contains("://")) {
+                if let Some(url) = parse_auth_callback(l) {
+                    return Some(LaunchRequest::Auth { url });
+                }
+                if let Ok(link) = parse_deep_link(l) {
+                    return Some(LaunchRequest::Link(link));
+                }
             }
             if a.starts_with('-') {
                 None
             } else if a.contains("://") {
-                parse_deep_link(a).ok().map(LaunchRequest::Link)
+                parse_auth_callback(a)
+                    .map(|url| LaunchRequest::Auth { url })
+                    .or_else(|| parse_deep_link(a).ok().map(LaunchRequest::Link))
             } else if Path::new(a).is_file() {
                 Some(LaunchRequest::File { path: a.to_owned() })
             } else {
@@ -265,6 +315,35 @@ mod tests {
         assert!(matches!(&reqs[1], LaunchRequest::Link(l) if l.file_id == "1"));
         assert!(matches!(&reqs[2], LaunchRequest::Link(l)
             if l.app == "sheet" && l.token.as_deref() == Some("a.b-c_d")));
+    }
+
+    #[test]
+    fn recognises_sign_in_redirects() {
+        let cb = "bluedoc://auth?code=a%2Bb&state=xyz";
+        assert_eq!(parse_auth_callback(cb).as_deref(), Some(cb));
+        assert!(parse_auth_callback("BlueSheet://auth/?code=1").is_some());
+        assert!(parse_auth_callback("bluedoc://open?host=a&file=b").is_none());
+        assert!(parse_auth_callback("https://auth?code=1").is_none());
+        let reqs = classify_args([cb, "--bluedoc://auth?code=2&state=s"]);
+        assert!(matches!(&reqs[0], LaunchRequest::Auth { url } if url == cb));
+        assert!(matches!(&reqs[1], LaunchRequest::Auth { url } if url.ends_with("code=2&state=s")));
+    }
+
+    #[test]
+    fn opens_only_web_urls_externally() {
+        assert!(external_url("https://sso.example.vn/auth?x=1&y=2").is_ok());
+        assert!(external_url("http://localhost:5080/oauth/authorize").is_ok());
+        assert!(external_url("file:///C:/Windows/system32/calc.exe").is_err());
+        assert!(external_url("https://x.vn/\" & calc").is_err());
+        assert!(external_url("javascript:alert(1)").is_err());
+    }
+
+    #[test]
+    fn cache_keys_become_flat_file_names() {
+        assert_eq!(cache_file_name("a/..").unwrap(), "612f2e2e.bin");
+        assert!(cache_file_name("").is_err());
+        assert!(cache_file_name(&"k".repeat(121)).is_err());
+        assert!(cache_file_name(&"k".repeat(120)).unwrap().len() < 255);
     }
 
     #[test]

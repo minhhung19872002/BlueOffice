@@ -377,7 +377,10 @@ fn write_cell_style(out: &mut String, cs: &CellStyle) {
         t.push_str(&format!(r#" fo:font-family="{}""#, escape(f)));
     }
     if let Some(sz) = cs.size {
-        t.push_str(&format!(r#" fo:font-size="{}pt""#, crate::units::fmt_num(sz, 2)));
+        t.push_str(&format!(
+            r#" fo:font-size="{}pt""#,
+            crate::units::fmt_num(sz, 2)
+        ));
     }
     if let Some(c) = &cs.color {
         t.push_str(&format!(r##" fo:color="#{}""##, escape(c)));
@@ -505,9 +508,8 @@ pub(crate) fn write_text(out: &mut String, s: &str) {
 
 /// Serialize as an `.ods` package.
 pub fn write_ods(doc: &SpreadsheetDoc) -> Result<Vec<u8>> {
-    let mut content = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content {XMLNS}>"
-    );
+    let mut content =
+        format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content {XMLNS}>");
     if !doc.styles.is_empty() {
         content.push_str("<office:automatic-styles>");
         for cs in &doc.styles {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createI18n, formatNumber, resources } from '../src';
+import enSource from '../src/locales/en-US.json?raw';
+import viSource from '../src/locales/vi-VN.json?raw';
+
+const LANGS = ['vi-VN', 'en-US'] as const;
+const sources: Record<(typeof LANGS)[number], string> = { 'vi-VN': viSource, 'en-US': enSource };
 
 function keys(obj: object, prefix = ''): string[] {
   return Object.entries(obj).flatMap(([k, v]) =>
@@ -13,6 +18,15 @@ describe('i18n', () => {
     const en = keys(resources['en-US'].translation).sort();
     expect(vi).toEqual(en);
     expect(vi.length).toBeGreaterThan(40);
+  });
+
+  it('has no duplicate top-level sections (a later one would silently replace the first)', () => {
+    for (const lang of LANGS) {
+      const raw = JSON.stringify(resources[lang].translation);
+      // Parsed objects cannot show duplicates: compare the section count with the source.
+      const source = sources[lang].match(/^ {2}"[^"]+": /gm) ?? [];
+      expect(source.length).toBe(Object.keys(JSON.parse(raw) as object).length);
+    }
   });
 
   it('defaults to Vietnamese and interpolates', () => {

@@ -39,6 +39,41 @@ jobs:
       - run: cargo clippy -p bo-wasm -p bo-collab -p bo-formula --target wasm32-unknown-unknown -- -D warnings
       - run: cargo build -p bo-wasm --target wasm32-unknown-unknown --release
 
+  perf:
+    name: Performance targets (prompt §5)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Typing < 16 ms in a 300-page document (release timing test).
+      - run: cargo test --release -p bo-engine --test typing_perf -- --ignored --nocapture
+      # Open a 300-page .docx with pictures and a 1M-cell / 100k-formula .xlsx (native).
+      - run: |
+          mkdir -p out
+          cargo run --release -p bo-cli -- sample-big out/big.docx
+          cargo run --release -p bo-cli -- sample-big-sheet out/big.xlsx
+          cargo run --release -p bo-cli -- bench out/big.docx --iterations 3
+          cargo run --release -p bo-cli -- bench out/big.xlsx --iterations 3
+      # Criterion benches compile and run once (numbers in the job log).
+      - run: |
+          cargo bench -p bo-layout --bench layout -- --warm-up-time 1 --measurement-time 3
+          cargo bench -p bo-formula --bench recalc -- --warm-up-time 1 --measurement-time 3
+
+  fuzz:
+    name: Fuzz parsers (cargo-fuzz, 60 s per target)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - name: Run every fuzz target
+        working-directory: fuzz
+        run: |
+          for t in $(cargo +nightly fuzz list); do
+            cargo +nightly fuzz run "$t" -- -max_total_time=60 -rss_limit_mb=2048
+          done
+
   cargo-deny:
     name: cargo deny (licenses, advisories, bans)
     runs-on: ubuntu-latest

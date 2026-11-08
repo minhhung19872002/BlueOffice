@@ -52,7 +52,8 @@
       "merge": "Gộp",
       "tableStyle": "Kiểu bảng",
       "headerFooter": "Đầu và chân trang",
-      "footnotes": "Chú thích"
+      "footnotes": "Chú thích",
+      "arrange": "Sắp xếp"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -186,7 +187,12 @@
       "bordersNone": "Không viền",
       "shading": "Tô nền ô",
       "headerRow": "Lặp hàng tiêu đề",
-      "properties": "Thuộc tính bảng…"
+      "properties": "Thuộc tính bảng…",
+      "insertCell": "Chèn ô (đẩy sang phải)",
+      "deleteCell": "Xoá ô (đẩy sang trái)"
+    },
+    "picture": {
+      "position": "Vị trí ảnh"
     }
   },
   "status": {
@@ -696,7 +702,8 @@
         "quarter": "Quý {n}",
         "yearsField": "Năm",
         "quartersField": "Quý",
-        "monthsField": "Tháng"
+        "monthsField": "Tháng",
+        "group": "Nhóm {n}"
       },
       "tab": "Bảng tổng hợp",
       "groupData": "Dữ liệu",
@@ -735,7 +742,8 @@
         "top": "Lớn nhất (N mục đầu)",
         "bottom": "Nhỏ nhất (N mục cuối)",
         "label": "Lọc theo nhãn",
-        "value": "Lọc theo giá trị"
+        "value": "Lọc theo giá trị",
+        "date": "Lọc ngày"
       },
       "filterBy": "Theo trường giá trị",
       "count": "Số lượng",
@@ -834,8 +842,60 @@
       "calcFormula": "Công thức",
       "calcInsert": "Chèn trường:",
       "calcRemove": "Xoá trường",
-      "calcHint": "Công thức tính trên tổng của các trường, ví dụ ='Doanh thu'/'Số lượng'. Đặt tên trường có dấu cách trong dấu nháy đơn."
-    },
+      "calcHint": "Công thức tính trên tổng của các trường, ví dụ ='Doanh thu'/'Số lượng'. Đặt tên trường có dấu cách trong dấu nháy đơn.",
+      "chart": "Biểu đồ tổng hợp",
+      "chartInserted": "Đã chèn biểu đồ tổng hợp",
+      "calcItem": "Mục tính toán",
+      "calcItemField": "Trường",
+      "calcItemHint": "Công thức dùng tên các mục khác của trường, ví dụ ='Hà Nội'+'Đà Nẵng'.",
+      "groupSelection": "Nhóm mục đã chọn",
+      "ungroupSelection": "Bỏ nhóm",
+      "valuesOnRows": "Giá trị trên hàng",
+      "selectItems": "Chọn các ô nhãn mục của bảng tổng hợp",
+      "dateFilter": "Lọc ngày",
+      "dateFilters": {
+        "dateEqual": "Bằng ngày",
+        "dateNotEqual": "Khác ngày",
+        "dateOlderThan": "Trước ngày",
+        "dateOlderThanOrEqual": "Trước hoặc bằng ngày",
+        "dateNewerThan": "Sau ngày",
+        "dateNewerThanOrEqual": "Sau hoặc bằng ngày",
+        "dateBetween": "Trong khoảng",
+        "dateNotBetween": "Ngoài khoảng",
+        "tomorrow": "Ngày mai",
+        "today": "Hôm nay",
+        "yesterday": "Hôm qua",
+        "nextWeek": "Tuần sau",
+        "thisWeek": "Tuần này",
+        "lastWeek": "Tuần trước",
+        "nextMonth": "Tháng sau",
+        "thisMonth": "Tháng này",
+        "lastMonth": "Tháng trước",
+        "nextQuarter": "Quý sau",
+        "thisQuarter": "Quý này",
+        "lastQuarter": "Quý trước",
+        "nextYear": "Năm sau",
+        "thisYear": "Năm nay",
+        "lastYear": "Năm trước",
+        "yearToDate": "Từ đầu năm đến nay",
+        "Q1": "Quý 1",
+        "Q2": "Quý 2",
+        "Q3": "Quý 3",
+        "Q4": "Quý 4",
+        "M1": "Tháng 1",
+        "M2": "Tháng 2",
+        "M3": "Tháng 3",
+        "M4": "Tháng 4",
+        "M5": "Tháng 5",
+        "M6": "Tháng 6",
+        "M7": "Tháng 7",
+        "M8": "Tháng 8",
+        "M9": "Tháng 9",
+        "M10": "Tháng 10",
+        "M11": "Tháng 11",
+        "M12": "Tháng 12"
+        }
+      },
     "tabColorNone": "Không màu",
     "protection": {
       "group": "Bảo vệ",
@@ -1040,7 +1100,18 @@
       "rowDelete": "Xoá hàng",
       "cellFormat": "Định dạng ô",
       "tableFormat": "Định dạng bảng",
-      "sectionFormat": "Đổi thiết lập trang"
+      "sectionFormat": "Đổi thiết lập trang",
+      "cellInsert": "Thêm ô/cột",
+      "cellDelete": "Xoá ô/cột",
+      "cellMerge": "Gộp/tách ô",
+      "rowFormat": "Thuộc tính hàng",
+      "tableGrid": "Độ rộng cột"
+    },
+    "story": {
+      "header": "Đầu trang",
+      "footer": "Chân trang",
+      "footnote": "Chú thích cuối trang",
+      "endnote": "Chú thích cuối văn bản"
     }
   },
   "comments": {
@@ -1255,6 +1326,63 @@
     "expired": "Phiên làm việc đã hết hạn — hãy mở lại tệp",
     "opening": "Đang mở {{name}}…",
     "openFailed": "Không mở được tệp: {{message}}",
-    "noServer": "Chưa cấu hình máy chủ BlueOffice (BLUEOFFICE_SERVER)"
+    "noServer": "Chưa cấu hình máy chủ BlueOffice — nhập địa chỉ trong Màn hình bắt đầu › Cài đặt",
+    "savedOffline": "Đang ngoại tuyến — đã lưu bản sao trên máy, sẽ đồng bộ khi có mạng",
+    "offlineCopy": "Đang sửa ngoại tuyến bản lưu trên máy — thay đổi được đồng bộ khi mở lại tệp lúc có mạng",
+    "syncedOffline": "Đã đồng bộ thay đổi ngoại tuyến lên BlueDrive (phiên bản {{version}})",
+    "conflictCopy": "Tệp đã được sửa trong lúc bạn ngoại tuyến — thay đổi của bạn được lưu thành “{{name}}”",
+    "signInAgain": "Không mở được tệp — hãy đăng nhập lại BlueDrive"
+  },
+  "startScreen": {
+    "title": "Bắt đầu",
+    "home": "Màn hình bắt đầu",
+    "tabHome": "Trang chủ",
+    "tabDrive": "BlueDrive",
+    "tabSettings": "Cài đặt",
+    "newDoc": "Tài liệu trống",
+    "newSheet": "Bảng tính trống",
+    "newSlide": "Bản trình chiếu trống",
+    "openLocal": "Mở tệp trên máy…",
+    "recentLocal": "Tệp gần đây",
+    "noRecent": "Chưa có tệp nào",
+    "driveNoServer": "Hãy nhập địa chỉ máy chủ BlueOffice trong mục Cài đặt",
+    "driveNoHost": "Máy chủ BlueOffice chưa kết nối kho lưu trữ BlueDrive nào",
+    "signInSso": "Đăng nhập bằng tài khoản chung (SSO)",
+    "signInWaiting": "Đang chờ đăng nhập trong trình duyệt…",
+    "signInFailed": "Đăng nhập không thành công: {{message}}",
+    "tokenLabel": "Hoặc dán mã truy cập (access token) do BlueDrive cấp",
+    "signInToken": "Đăng nhập",
+    "signedInAs": "Đã đăng nhập: {{name}}",
+    "signOut": "Đăng xuất",
+    "myFiles": "Tệp của tôi",
+    "recentDrive": "Gần đây",
+    "shared": "Được chia sẻ với tôi",
+    "up": "Lên thư mục cha",
+    "empty": "Không có tệp nào",
+    "loading": "Đang tải…",
+    "loadFailed": "Không tải được danh sách: {{message}}",
+    "sessionExpired": "Phiên đăng nhập BlueDrive đã hết hạn — hãy đăng nhập lại",
+    "modified": "Sửa đổi {{date}}",
+    "serverLabel": "Máy chủ BlueOffice",
+    "serverHint": "Ví dụ: https://office.congty.vn",
+    "serverSave": "Lưu",
+    "serverSaved": "Đã lưu",
+    "serverFromEnv": "Đang dùng máy chủ từ biến môi trường BLUEOFFICE_SERVER",
+    "serverInvalid": "Địa chỉ không hợp lệ (cần bắt đầu bằng http:// hoặc https://)",
+    "syncFolders": "Thư mục đồng bộ BlueDrive",
+    "syncFoldersHint": "Tệp mở từ các thư mục này có thể chuyển sang cộng tác trực tuyến",
+    "syncFolderPath": "Đường dẫn thư mục trên máy",
+    "syncAdd": "Thêm",
+    "syncRemove": "Xoá",
+    "syncNone": "Chưa có thư mục đồng bộ",
+    "syncPromptTitle": "Tệp trong thư mục đồng bộ BlueDrive",
+    "syncPromptBody": "“{{name}}” nằm trong thư mục đồng bộ BlueDrive. Chuyển sang cộng tác trực tuyến để sửa cùng người khác và lưu thẳng lên BlueDrive?",
+    "syncPromptOnline": "Cộng tác trực tuyến",
+    "syncPromptLocal": "Tiếp tục sửa trên máy"
+  },
+  "picture": {
+    "position": "Vị trí ảnh",
+    "horizontal": "Ngang",
+    "vertical": "Dọc"
   }
 }

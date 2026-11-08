@@ -18,19 +18,17 @@ public sealed class BoCliOptions
     public long MaxInputBytes { get; set; } = 100 * 1024 * 1024;
 
     /// <summary>Input extensions accepted by the conversion worker.</summary>
-    public List<string> AllowedExtensions { get; set; } = [".docx", ".txt", ".md"];
+    public List<string> AllowedExtensions { get; set; } = [.. Jobs.ConversionFormats.AllInputs];
 }
 
 /// <summary>Runs <c>bo-cli convert</c> in an isolated temp directory.</summary>
 public sealed class BoCliConverter(IOptions<BoCliOptions> options, ILogger<BoCliConverter> logger) : IDocumentConverter
 {
-    private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase) { ".docx", ".txt", ".md" };
-
     public async Task<ConversionResult> ConvertAsync(Stream input, string fileName, ConversionTarget target, CancellationToken ct)
     {
         var opts = options.Value;
         var ext = Path.GetExtension(fileName);
-        if (!AllowedExtensions.Contains(ext))
+        if (!opts.AllowedExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase) || !Jobs.ConversionFormats.TargetsFor(ext).Contains("pdf"))
         {
             throw new ConversionException($"Unsupported input type '{ext}'.");
         }
@@ -50,6 +48,8 @@ public sealed class BoCliConverter(IOptions<BoCliOptions> options, ILogger<BoCli
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8,
                 UseShellExecute = false,
                 WorkingDirectory = dir.FullName,
             };

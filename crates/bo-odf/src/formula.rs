@@ -209,14 +209,23 @@ mod tests {
             ("SUM(A1:B2)", "of:=SUM([.A1:.B2])"),
             ("A1*2+$B$3", "of:=[.A1]*2+[.$B$3]"),
             ("IF(C1>500,D1,\"a,b\")", "of:=IF([.C1]>500;[.D1];\"a,b\")"),
-            ("Sheet2!A1+'Bảng 1'!B2:C3", "of:=[Sheet2.A1]+['Bảng 1'.B2:.C3]"),
-            ("VLOOKUP(5,$A$1:$B$1000,2,FALSE)", "of:=VLOOKUP(5;[.$A$1:.$B$1000];2;FALSE)"),
+            (
+                "Sheet2!A1+'Bảng 1'!B2:C3",
+                "of:=[Sheet2.A1]+['Bảng 1'.B2:.C3]",
+            ),
+            (
+                "VLOOKUP(5,$A$1:$B$1000,2,FALSE)",
+                "of:=VLOOKUP(5;[.$A$1:.$B$1000];2;FALSE)",
+            ),
             ("LOG10(100)+Rate", "of:=LOG10(100)+Rate"),
         ] {
             assert_eq!(to_openformula(a1), of, "{a1}");
             assert_eq!(from_openformula(of).as_deref(), Some(a1), "{of}");
         }
         assert_eq!(from_openformula("msoxl:=A1"), None);
-        assert_eq!(from_openformula("of:=[$Sheet1.A1]").as_deref(), Some("Sheet1!A1"));
+        assert_eq!(
+            from_openformula("of:=[$Sheet1.A1]").as_deref(),
+            Some("Sheet1!A1")
+        );
     }
 }

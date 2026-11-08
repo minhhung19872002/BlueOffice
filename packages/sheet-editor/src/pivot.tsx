@@ -46,11 +46,30 @@ export function usePivotLabels(): PivotLabels {
     yearsField: t('sheetEditor.pivot.labels.yearsField'),
     quartersField: t('sheetEditor.pivot.labels.quartersField'),
     monthsField: t('sheetEditor.pivot.labels.monthsField'),
+    group: t('sheetEditor.pivot.labels.group'),
   };
 }
 
 const contains = (r: SheetRange, row: number, col: number) =>
   row >= r.r0 && row <= r.r1 && col >= r.c0 && col <= r.c1;
+
+/**
+ * The row / column field and item indices shown by the selected report cells
+ * (labels matched against the items of the pivot's axis fields, innermost
+ * field first). `null` when no item label is selected.
+ */
+export function pivotSelectionItems(
+  p: PivotInfo,
+  texts: string[],
+): { field: number; items: number[] } | null {
+  const wanted = texts.map((x) => x.trim()).filter((x) => x !== '');
+  for (const field of [...p.rows].reverse().concat([...p.cols].reverse())) {
+    const items = p.fields[field]?.items ?? [];
+    const hit = items.flatMap((it, i) => (wanted.includes(it) ? [i] : []));
+    if (hit.length > 0) return { field, items: hit };
+  }
+  return null;
+}
 
 /** The pivot table whose cells contain the given cell. */
 export function pivotAt(list: PivotInfo[], row: number, col: number): PivotInfo | null {

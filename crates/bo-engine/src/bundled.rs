@@ -25,4 +25,8 @@ pub const FONTS: &[&[u8]] = &[
     font!("Carlito-Bold.ttf"),
     font!("Carlito-Italic.ttf"),
     font!("Carlito-BoldItalic.ttf"),
+    font!("Caladea-Regular.ttf"),
+    font!("Caladea-Bold.ttf"),
+    font!("Caladea-Italic.ttf"),
+    font!("Caladea-BoldItalic.ttf"),
 ];

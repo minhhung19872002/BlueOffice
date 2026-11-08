@@ -9,13 +9,26 @@
 //! properties and order). After each local command the slides that changed
 //! are compared with the shadow of the shared maps; remote entries rebuild
 //! the affected slides, applied outside the local history.
+//!
+//! * Order: `pos` is an order key ([`crate::collab::order`]); a move rewrites
+//!   only the moved slide, so concurrent moves of different slides converge
+//!   with both moves kept (the same slide moved twice: last writer wins).
+//! * Notes: the text of the notes body placeholder (§19.3.1.26 notes) is the
+//!   nested text `n:<slide>`, merged like body text; the rest of the notes
+//!   part travels with the slide.
+//! * Masters, layouts and themes (§19.3.1.42, §19.3.1.39, §20.1.6): one
+//!   `meta` entry per part, `sm:<i>`, `sl:<i>`, `th:<i>`, plus `pp` for the
+//!   presentation relationships; last writer wins per part.
 
-use super::ops::SlideOp;
+use super::ops::{PresFields, SlideOp};
 use super::{Outcome, SlideEditResult};
-use crate::collab::{Blob, CollabChange};
+use crate::collab::{order, Blob, CollabChange, TextDelta, TextOp};
 use crate::{Engine, EngineError};
-use bo_model::slide::{Presentation, RawPart, ShapeNode, Slide};
+use bo_model::slide::{
+    Extra, Presentation, RawPart, Rel, ShapeNode, Slide, SlideLayout, SlideMaster, Theme,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Collaboration output of a BlueSlide command (part of [`SlideEditResult`]).
@@ -53,6 +66,114 @@ struct Shadow {
     /// The model slide matching `meta` + `shapes` (when it is in the deck).
     slide: Option<Slide>,
     pos: usize,
+    /// Shared order key.
+    ord: Option<f64>,
+    /// Shared notes text (`n:<slide>`).
+    notes: Option<String>,
+}
+
+/// Presentation-level parts as last compared.
+#[derive(Debug, Clone, PartialEq)]
+struct Parts {
+    layouts: Vec<SlideLayout>,
+    masters: Vec<SlideMaster>,
+    themes: Vec<Theme>,
+    rels: Vec<Rel>,
+    extra: Vec<Extra>,
+}
+
+impl Parts {
+    fn of(p: &Presentation) -> Parts {
+        Parts {
+            layouts: p.layouts.clone(),
+            masters: p.masters.clone(),
+            themes: p.themes.clone(),
+            rels: p.info.rels.clone(),
+            extra: p.extra.clone(),
+        }
+    }
+
+    /// `meta` entries (`sm:<i>`, `sl:<i>`, `th:<i>`, `pp`).
+    fn entries(&self) -> BTreeMap<String, String> {
+        let mut m = BTreeMap::new();
+        let mut put = |k: String, v: Result<String, serde_json::Error>| {
+            if let Ok(v) = v {
+                m.insert(k, v);
+            }
+        };
+        for (i, x) in self.masters.iter().enumerate() {
+            put(format!("sm:{i}"), serde_json::to_string(x));
+        }
+        for (i, x) in self.layouts.iter().enumerate() {
+            put(format!("sl:{i}"), serde_json::to_string(x));
+        }
+        for (i, x) in self.themes.iter().enumerate() {
+            put(format!("th:{i}"), serde_json::to_string(x));
+        }
+        put(
+            "pp".into(),
+            serde_json::to_string(&(&self.rels, &self.extra)),
+        );
+        m
+    }
+}
+
+fn is_part_key(k: &str) -> bool {
+    k == "pp" || k.starts_with("sm:") || k.starts_with("sl:") || k.starts_with("th:")
+}
+
+/// Items of one kind from `meta` (`prefix<i>`, contiguous from 0); `current`
+/// is kept where an entry is missing or unreadable.
+fn part_list<T: Clone + serde::de::DeserializeOwned>(
+    meta: &BTreeMap<String, String>,
+    prefix: &str,
+    current: &[T],
+) -> Vec<T> {
+    let mut out = Vec::new();
+    for i in 0.. {
+        let Some(j) = meta.get(&format!("{prefix}{i}")) else {
+            break;
+        };
+        match serde_json::from_str::<T>(j) {
+            Ok(x) => out.push(x),
+            Err(_) => match current.get(i) {
+                Some(x) => out.push(x.clone()),
+                None => break,
+            },
+        }
+    }
+    out
+}
+
+type PartLists = (Vec<SlideLayout>, Vec<SlideMaster>, Vec<Theme>);
+
+fn decode_lists(meta: &BTreeMap<String, String>, cur: &PresFields) -> PartLists {
+    (
+        part_list(meta, "sl:", &cur.layouts),
+        part_list(meta, "sm:", &cur.masters),
+        part_list(meta, "th:", &cur.themes),
+    )
+}
+
+/// Layouts, masters and themes from `meta`. A master's text styles are tens
+/// of kilobytes of nested values that the derived deserializer keeps on the
+/// stack: native builds decode them on a thread with a large stack (the
+/// default 1 MB of a Windows main thread is not enough in debug builds).
+fn decode_parts(meta: &BTreeMap<String, String>, cur: &PresFields) -> PartLists {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let big = std::thread::scope(|s| {
+            std::thread::Builder::new()
+                .stack_size(64 << 20)
+                .spawn_scoped(s, || decode_lists(meta, cur))
+                .ok()
+                .and_then(|h| h.join().ok())
+        });
+        if let Some(r) = big {
+            return r;
+        }
+    }
+    decode_lists(meta, cur)
 }
 
 /// Shadow of the shared slide maps.
@@ -63,6 +184,96 @@ pub struct SlideCollab {
     known_parts: BTreeSet<String>,
     client: u64,
     counter: u32,
+    /// Shared presentation parts (`meta`) and what the deck had at the last comparison.
+    meta: BTreeMap<String, String>,
+    seen: Option<Parts>,
+}
+
+/// Minimal delta turning plain text `old` into `new` (UTF-16 lengths).
+pub(crate) fn plain_delta(old: &str, new: &str) -> Vec<TextOp> {
+    let (a, b): (Vec<char>, Vec<char>) = (old.chars().collect(), new.chars().collect());
+    let n = a.len().min(b.len());
+    let mut p = 0;
+    while p < n && a[p] == b[p] {
+        p += 1;
+    }
+    let mut s = 0;
+    while s < n - p && a[a.len() - 1 - s] == b[b.len() - 1 - s] {
+        s += 1;
+    }
+    let u16s = |c: &[char]| c.iter().map(|c| c.len_utf16() as u32).sum::<u32>();
+    let mut ops = Vec::new();
+    if p > 0 {
+        ops.push(TextOp::Retain {
+            retain: u16s(&a[..p]),
+            attributes: Map::new(),
+        });
+    }
+    let ins: String = b[p..b.len() - s].iter().collect();
+    if !ins.is_empty() {
+        ops.push(TextOp::Insert {
+            insert: Value::String(ins),
+            attributes: Map::new(),
+        });
+    }
+    let del = u16s(&a[p..a.len() - s]);
+    if del > 0 {
+        ops.push(TextOp::Delete { delete: del });
+    }
+    ops
+}
+
+/// Applies a delta to plain text (embeds count one position and are dropped).
+pub(crate) fn apply_plain(text: &str, delta: &[TextOp]) -> String {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let mut out: Vec<u16> = Vec::with_capacity(units.len());
+    let mut i = 0usize;
+    for op in delta {
+        match op {
+            TextOp::Retain { retain, .. } => {
+                let e = (i + *retain as usize).min(units.len());
+                out.extend_from_slice(&units[i..e]);
+                i = e;
+            }
+            TextOp::Delete { delete } => i = (i + *delete as usize).min(units.len()),
+            TextOp::Insert { insert, .. } => {
+                if let Value::String(t) = insert {
+                    out.extend(t.encode_utf16());
+                }
+            }
+        }
+    }
+    out.extend_from_slice(&units[i..]);
+    String::from_utf16_lossy(&out)
+}
+
+/// Notes body text of a slide (§19.3.1.36 ph type="body").
+fn notes_of(s: &Slide) -> Option<String> {
+    let n = s.notes.as_ref()?;
+    let i = super::notes_body_index(n)?;
+    match n.data.shapes.get(i) {
+        Some(ShapeNode::Shape(sh)) => Some(
+            sh.text
+                .as_ref()
+                .map(super::text::body_text)
+                .unwrap_or_default(),
+        ),
+        _ => None,
+    }
+}
+
+/// Sets the notes body text of a slide (as the SetNotes command does).
+fn set_notes(s: &mut Slide, text: &str) {
+    let Some(n) = s.notes.as_mut() else { return };
+    let Some(i) = super::notes_body_index(n) else {
+        return;
+    };
+    if let Some(ShapeNode::Shape(sh)) = n.data.shapes.get_mut(i) {
+        let tb = sh
+            .text
+            .get_or_insert_with(bo_model::slide::TextBody::default);
+        super::text::set_text(tb, text);
+    }
 }
 
 /// Keys of a slide's top-level objects: `cNvPr@id`, with an occurrence
@@ -93,14 +304,10 @@ fn slide_shapes(key: &str, s: &Slide) -> BTreeMap<String, String> {
         .collect()
 }
 
-fn meta_json(s: &Slide, pos: usize) -> String {
+fn meta_json(s: &Slide, pos: f64) -> String {
     let mut bare = s.clone();
     bare.data.shapes.clear();
-    serde_json::to_string(&Meta {
-        pos: pos as f64,
-        slide: bare,
-    })
-    .unwrap_or_default()
+    serde_json::to_string(&Meta { pos, slide: bare }).unwrap_or_default()
 }
 
 impl SlideCollab {
@@ -111,6 +318,8 @@ impl SlideCollab {
             known_parts: pres.parts.iter().map(|p| p.name.clone()).collect(),
             client,
             counter: 0,
+            meta: BTreeMap::new(),
+            seen: None,
         }
     }
 
@@ -150,14 +359,39 @@ impl SlideCollab {
             return ch;
         }
         let mut present = BTreeSet::new();
+        // Order keys: slides already in shared order keep theirs.
+        let keys: Vec<String> = pres.slides.iter().map(|s| s.slide_id.to_string()).collect();
+        let known: Vec<Option<f64>> = keys
+            .iter()
+            .map(|k| self.slides.get(k).and_then(|sh| sh.ord))
+            .collect();
+        let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+        let ords = order::assign(&known, &refs);
         for (i, s) in pres.slides.iter().enumerate() {
             let key = s.slide_id.to_string();
             present.insert(key.clone());
             let sh = self.slides.entry(key.clone()).or_default();
-            if sh.pos == i && sh.slide.as_ref() == Some(s) {
+            if let Some(t) = notes_of(s) {
+                if sh.notes.as_deref() != Some(t.as_str()) {
+                    let d = match &sh.notes {
+                        Some(old) => TextDelta {
+                            reset: false,
+                            deltas: vec![plain_delta(old, &t)],
+                        },
+                        None => TextDelta {
+                            reset: true,
+                            deltas: vec![plain_delta("", &t)],
+                        },
+                    };
+                    ch.texts.insert(format!("n:{key}"), Some(d));
+                    sh.notes = Some(t);
+                }
+            }
+            if sh.pos == i && sh.ord == Some(ords[i]) && sh.slide.as_ref() == Some(s) {
                 continue;
             }
-            let meta = meta_json(s, i);
+            let meta = meta_json(s, ords[i]);
+            sh.ord = Some(ords[i]);
             if sh.meta.as_ref() != Some(&meta) {
                 ch.slides.insert(key.clone(), Some(meta.clone()));
                 sh.meta = Some(meta);
@@ -186,11 +420,31 @@ impl SlideCollab {
             .collect();
         for k in gone {
             if let Some(sh) = self.slides.remove(&k) {
+                if sh.notes.is_some() {
+                    ch.texts.insert(format!("n:{k}"), None);
+                }
                 ch.slides.insert(k, None);
                 for sk in sh.shapes.into_keys() {
                     ch.shapes.insert(sk, None);
                 }
             }
+        }
+        // Masters, layouts, themes.
+        let parts = Parts::of(pres);
+        if self.seen.as_ref() != Some(&parts) {
+            let now = parts.entries();
+            for (k, v) in &now {
+                if self.meta.get(k) != Some(v) {
+                    ch.meta.insert(k.clone(), Some(v.clone()));
+                }
+            }
+            for k in self.meta.keys() {
+                if !now.contains_key(k) {
+                    ch.meta.insert(k.clone(), None);
+                }
+            }
+            self.meta = now;
+            self.seen = Some(parts);
         }
         for p in &pres.parts {
             if self.known_parts.insert(p.name.clone()) {
@@ -208,8 +462,34 @@ impl SlideCollab {
     fn apply(&mut self, pres: &Presentation, change: &CollabChange) -> Option<Vec<Slide>> {
         let mut affected = BTreeSet::new();
         for (k, v) in &change.slides {
-            self.slides.entry(k.clone()).or_default().meta.clone_from(v);
+            let sh = self.slides.entry(k.clone()).or_default();
+            sh.meta.clone_from(v);
+            sh.ord = v
+                .as_deref()
+                .and_then(|j| serde_json::from_str::<Value>(j).ok())
+                .and_then(|j| j.get("pos").and_then(Value::as_f64));
             affected.insert(k.clone());
+        }
+        for (k, v) in &change.texts {
+            let Some(slide) = k.strip_prefix("n:") else {
+                continue;
+            };
+            let sh = self.slides.entry(slide.to_owned()).or_default();
+            sh.notes = match v {
+                None => None,
+                Some(tc) => {
+                    let mut t = if tc.reset {
+                        String::new()
+                    } else {
+                        sh.notes.clone().unwrap_or_default()
+                    };
+                    for d in &tc.deltas {
+                        t = apply_plain(&t, d);
+                    }
+                    Some(t)
+                }
+            };
+            affected.insert(slide.to_owned());
         }
         for (key, v) in &change.shapes {
             let Some((slide, _)) = key.split_once('/') else {
@@ -254,6 +534,11 @@ impl SlideCollab {
                 Some(s) if !affected.contains(k) => s.clone(),
                 _ => {
                     let mut slide = m.slide;
+                    if let Some(t) = &sh.notes {
+                        if notes_of(&slide).as_ref() != Some(t) {
+                            set_notes(&mut slide, t);
+                        }
+                    }
                     let mut nodes: Vec<(usize, &String, ShapeNode)> = sh
                         .shapes
                         .iter()
@@ -356,6 +641,46 @@ impl Engine {
                         out.error = Some("parts".into());
                     }
                 }
+            }
+            // Masters, layouts, themes (before the slides that use them).
+            let joining = c.joining;
+            let mut hit = false;
+            for (k, v) in &change.meta {
+                if !is_part_key(k) {
+                    continue;
+                }
+                hit = true;
+                match v {
+                    Some(j) => c.meta.insert(k.clone(), j.clone()),
+                    None => c.meta.remove(k),
+                };
+            }
+            if hit || (joining && !c.meta.is_empty() && !change.slides.is_empty()) {
+                let before = PresFields::of(pres);
+                let (rels, extra) = c
+                    .meta
+                    .get("pp")
+                    .and_then(|j| serde_json::from_str::<(Vec<Rel>, Vec<Extra>)>(j).ok())
+                    .unwrap_or_else(|| (before.rels.clone(), before.extra.clone()));
+                let (layouts, masters, themes) = decode_parts(&c.meta, &before);
+                let after = PresFields {
+                    rels,
+                    extra,
+                    layouts,
+                    masters,
+                    themes,
+                };
+                if after != before {
+                    let op = SlideOp::Pres {
+                        before: Box::new(before),
+                        after: Box::new(after),
+                    };
+                    if op.apply(pres).is_err() {
+                        out.error = Some("presentation parts".into());
+                    }
+                    out.all = true;
+                }
+                c.seen = Some(Parts::of(pres));
             }
             if let Some(list) = c.apply(pres, change) {
                 let same_order = list.len() == pres.slides.len()

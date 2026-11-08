@@ -38,6 +38,10 @@ const FONT_FILES: &[&str] = &[
     "Carlito-Bold.ttf",
     "Carlito-Italic.ttf",
     "Carlito-BoldItalic.ttf",
+    "Caladea-Regular.ttf",
+    "Caladea-Bold.ttf",
+    "Caladea-Italic.ttf",
+    "Caladea-BoldItalic.ttf",
 ];
 
 pub(crate) fn raw_body(req: &Request<'_>) -> Result<Vec<u8>, String> {
@@ -252,7 +256,7 @@ fn startup_file() -> Option<String> {
         .into_iter()
         .find_map(|r| match r {
             LaunchRequest::File { path } => Some(path),
-            LaunchRequest::Link(_) => None,
+            LaunchRequest::Link(_) | LaunchRequest::Auth { .. } => None,
         })
 }
 
@@ -263,7 +267,7 @@ fn startup_link() -> Option<shell::DeepLink> {
         .into_iter()
         .find_map(|r| match r {
             LaunchRequest::Link(l) => Some(l),
-            LaunchRequest::File { .. } => None,
+            LaunchRequest::File { .. } | LaunchRequest::Auth { .. } => None,
         })
 }
 
@@ -273,6 +277,82 @@ fn server_url() -> Option<String> {
     std::env::var(shell::SERVER_ENV)
         .ok()
         .and_then(|v| shell::normalize_server_url(&v))
+}
+
+/// Whether the process was started for a file or a deep link (else the Start screen shows).
+#[tauri::command]
+fn has_launch_request() -> bool {
+    shell::classify_args(std::env::args().skip(1))
+        .iter()
+        .any(|r| !matches!(r, LaunchRequest::Auth { .. }))
+}
+
+/// Opens a web page (host sign-in) in the system browser.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    let url = shell::external_url(&url)?;
+    // No shell in between: the URL is a single argument (`&` stays literal).
+    #[cfg(target_os = "windows")]
+    let r = std::process::Command::new("rundll32.exe")
+        .arg("url.dll,FileProtocolHandler")
+        .arg(url)
+        .spawn();
+    #[cfg(target_os = "macos")]
+    let r = std::process::Command::new("open").arg(url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let r = std::process::Command::new("xdg-open").arg(url).spawn();
+    r.map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// Offline cache folder of the desktop platform (`OfflineCache`, prompt §3.4):
+/// `<app local data>/offline/<hex key>.bin`. Holds offline saves of host files,
+/// so it is not the OS cache directory (which may be cleaned).
+fn cache_path(app: &tauri::AppHandle, key: &str) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("offline");
+    Ok(dir.join(shell::cache_file_name(key)?))
+}
+
+#[tauri::command]
+async fn cache_get(app: tauri::AppHandle, key: String) -> Result<Response, String> {
+    match std::fs::read(cache_path(&app, &key)?) {
+        Ok(b) => Ok(Response::new(b)),
+        // The web view maps this rejection to `null`.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(CACHE_MISSING.into()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Error string of a missing cache entry.
+const CACHE_MISSING: &str = "cache:missing";
+
+#[tauri::command]
+async fn cache_put(app: tauri::AppHandle, request: Request<'_>) -> Result<(), String> {
+    let key = request
+        .headers()
+        .get("x-cache-key")
+        .and_then(|v| v.to_str().ok())
+        .map(percent_decode)
+        .ok_or("missing x-cache-key")?;
+    let path = cache_path(&app, &key)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    // Write then rename: a crash never leaves a half-written save.
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, raw_body(&request)?).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cache_delete(app: tauri::AppHandle, key: String) -> Result<(), String> {
+    match std::fs::remove_file(cache_path(&app, &key)?) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+        _ => Ok(()),
+    }
 }
 
 /// Opens another native document window (`query` e.g. `app=sheet`).
@@ -304,6 +384,7 @@ fn dispatch_requests(app: &tauri::AppHandle, requests: Vec<LaunchRequest>) {
         let _ = match r {
             LaunchRequest::File { path } => app.emit("open-file", path),
             LaunchRequest::Link(link) => app.emit("open-link", link),
+            LaunchRequest::Auth { url } => app.emit("auth-callback", url),
         };
     }
 }
@@ -335,8 +416,15 @@ fn main() {
                 let reqs = event
                     .urls()
                     .iter()
-                    .filter_map(|u| shell::parse_deep_link(u.as_str()).ok())
-                    .map(LaunchRequest::Link)
+                    .filter_map(|u| {
+                        shell::parse_auth_callback(u.as_str())
+                            .map(|url| LaunchRequest::Auth { url })
+                            .or_else(|| {
+                                shell::parse_deep_link(u.as_str())
+                                    .ok()
+                                    .map(LaunchRequest::Link)
+                            })
+                    })
                     .collect();
                 dispatch_requests(&handle, reqs);
             });
@@ -373,6 +461,11 @@ fn main() {
             startup_file,
             startup_link,
             server_url,
+            has_launch_request,
+            open_url,
+            cache_get,
+            cache_put,
+            cache_delete,
             open_window,
             sheet_cmds::sheet_open,
             sheet_cmds::sheet_call,

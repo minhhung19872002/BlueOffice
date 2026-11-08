@@ -1,10 +1,13 @@
 /**
- * BlueSheet ↔ `bo-collab` binding: cell inputs (values and formulas) are
- * shared live through the replica's `cells` Y.Map (last writer wins per cell,
- * convergent). Formatting and structural edits are not shared live; they
- * reach collaborators with the next saved version.
+ * BlueSheet ↔ `bo-collab` binding. With an engine that implements the
+ * collaboration binding (bo_engine::sheet::collab) the whole workbook is
+ * shared live — values, formulas with references as stable row/column ids,
+ * formats, row/column inserts and deletes, sizes, merges, sheets, rules,
+ * charts and pivots — and undo goes through the replica. A host without it
+ * shares cell inputs only (last writer wins per cell).
  */
 import type { CollabEngine } from './index';
+import { isEmptyChange, type ChangeLike } from './live';
 
 /** The `WasmCollab` surface used here (crates/bo-wasm/src/collab.rs). */
 export interface WasmCollabLike {
@@ -17,6 +20,14 @@ export interface WasmCollabLike {
   cellsJson(): string;
   setPresence(json: string): void;
   peersJson(): string;
+  clientId?(): number;
+  applyLocal?(json: string): void;
+  seed?(json: string): void;
+  takeRemote?(): string;
+  fullState?(): string;
+  undo?(): boolean;
+  redo?(): boolean;
+  stopCapturing?(): void;
 }
 
 export interface Presence {
@@ -66,6 +77,21 @@ export interface SheetLike {
   exec<T = unknown>(cmd: { cmd: string; [k: string]: unknown }): Promise<T>;
   cell(sheet: number, row: number, col: number): Promise<{ input: string }>;
   onExternalChange?(listener: () => void): () => void;
+  structural?(
+    sheet: number,
+    rows: boolean,
+    at: number,
+    count: number,
+    remove: boolean,
+  ): Promise<void>;
+  addSheet?(name?: string): Promise<number>;
+  renameSheet?(sheet: number, name: string): Promise<void>;
+  deleteSheet?(sheet: number): Promise<void>;
+  undo?(): Promise<boolean>;
+  redo?(): Promise<boolean>;
+  collabStart?(seed: boolean, clientId: number): Promise<unknown>;
+  collabLocal?(): Promise<unknown>;
+  collabApply?(change: string): Promise<unknown>;
 }
 
 const colName = (col: number): string => {
@@ -90,16 +116,132 @@ export function parseCellKey(a1: string): [number, number] | null {
 }
 
 /**
- * Wraps a sheet host so local cell edits go into the replica, and remote cell
- * changes are written into the engine and announced via `onExternalChange`.
+ * Wraps a sheet host so its edits are shared through `replica`.
+ *
+ * Hosts with the engine binding (`collabStart` / `collabLocal` /
+ * `collabApply`, bo_engine::sheet::collab) share everything: cell values and
+ * formulas (references as stable row/column ids), formats, row/column
+ * inserts and deletes, sizes, merges, sheets, rules, charts, pivots; undo and
+ * redo go through the replica (only this user's changes). Other hosts share
+ * cell inputs only (last writer wins per cell).
+ *
  * Call `remoteApplied()` after the collab client reports remote frames and
- * `flush` after local edits (the client's `flush`).
+ * `seed()` when the server asks this editor to publish the file.
  */
 export function collabSheetHost<H extends SheetLike>(
   host: H,
   replica: WasmCollabLike,
   flush: () => void,
 ): H & { remoteApplied(): Promise<void>; seed(): Promise<void>; dispose(): void } {
+  if (host.collabStart && host.collabLocal && host.collabApply && replica.applyLocal) {
+    return engineSheetHost(host, replica, flush);
+  }
+  return cellSheetHost(host, replica, flush);
+}
+
+type Wrapped<H> = H & { remoteApplied(): Promise<void>; seed(): Promise<void>; dispose(): void };
+
+function engineSheetHost<H extends SheetLike>(
+  host: H,
+  replica: WasmCollabLike,
+  flush: () => void,
+): Wrapped<H> {
+  const listeners = new Set<() => void>();
+  let phase: 'closed' | 'live' = 'closed';
+  let tail: Promise<unknown> = Promise.resolve();
+  /** Runs engine work one task at a time (local edits and remote changes keep their order). */
+  const run = <T>(f: () => Promise<T>): Promise<T> => {
+    const p = tail.then(f, f);
+    tail = p.catch(() => undefined);
+    return p;
+  };
+  const empty = (json: string) => !json || isEmptyChange(JSON.parse(json) as ChangeLike);
+  const share = async () => {
+    if (phase !== 'live' || !host.collabLocal) return;
+    const json = JSON.stringify(await host.collabLocal());
+    if (!empty(json)) {
+      // Every sheet command is its own undo step.
+      replica.stopCapturing?.();
+      replica.applyLocal?.(json);
+    }
+    flush();
+  };
+  const applyRemote = async (json: string) => {
+    if (empty(json) || !host.collabApply) return;
+    await host.collabApply(json);
+    // Applying never creates local changes; anything pending is shared.
+    await share();
+    listeners.forEach((l) => l());
+  };
+  const bindJoiner = async () => {
+    if (phase === 'live' || !host.collabStart) return;
+    await host.collabStart(false, replica.clientId?.() ?? 0);
+    phase = 'live';
+    await applyRemote(replica.fullState?.() ?? '');
+  };
+
+  const wrapped = Object.create(host) as Wrapped<H>;
+  const local =
+    <A extends unknown[], R>(f: (...a: A) => Promise<R>) =>
+    (...a: A): Promise<R> =>
+      run(async () => {
+        const r = await f.apply(host, a);
+        await share();
+        return r;
+      });
+  wrapped.setInputs = local(host.setInputs);
+  wrapped.exec = local(host.exec) as H['exec'];
+  if (host.structural) wrapped.structural = local(host.structural);
+  if (host.addSheet) wrapped.addSheet = local(host.addSheet);
+  if (host.renameSheet) wrapped.renameSheet = local(host.renameSheet);
+  if (host.deleteSheet) wrapped.deleteSheet = local(host.deleteSheet);
+  const history = (redo: boolean) => () =>
+    run(async () => {
+      if (phase !== 'live' || !replica.undo || !replica.redo) {
+        return (redo ? host.redo?.() : host.undo?.()) ?? false;
+      }
+      const done = redo ? replica.redo() : replica.undo();
+      if (done) await applyRemote(replica.takeRemote?.() ?? '');
+      flush();
+      return done;
+    });
+  if (host.undo) wrapped.undo = history(false);
+  if (host.redo) wrapped.redo = history(true);
+  wrapped.onExternalChange = (l: () => void) => {
+    listeners.add(l);
+    return () => listeners.delete(l);
+  };
+  wrapped.remoteApplied = () =>
+    run(async () => {
+      if (phase !== 'live') return bindJoiner();
+      await applyRemote(replica.takeRemote?.() ?? '');
+    });
+  wrapped.seed = () =>
+    run(async () => {
+      if (!host.collabStart) return;
+      // Seed only an empty room (a joiner bound before the room filled up re-binds).
+      if (!empty(replica.fullState?.() ?? '')) {
+        if (phase !== 'live') await bindJoiner();
+        return;
+      }
+      const change = await host.collabStart(true, replica.clientId?.() ?? 0);
+      phase = 'live';
+      const json = JSON.stringify(change);
+      if (!empty(json)) replica.seed?.(json);
+      flush();
+    });
+  wrapped.dispose = () => {
+    listeners.clear();
+    phase = 'closed';
+  };
+  return wrapped;
+}
+
+function cellSheetHost<H extends SheetLike>(
+  host: H,
+  replica: WasmCollabLike,
+  flush: () => void,
+): Wrapped<H> {
   const listeners = new Set<() => void>();
   let known = new Map<string, string>(
     Object.entries(JSON.parse(replica.cellsJson()) as Record<string, string>),
@@ -120,11 +262,7 @@ export function collabSheetHost<H extends SheetLike>(
     flush();
   };
 
-  const wrapped = Object.create(host) as H & {
-    remoteApplied(): Promise<void>;
-    seed(): Promise<void>;
-    dispose(): void;
-  };
+  const wrapped = Object.create(host) as Wrapped<H>;
   wrapped.setInputs = async (sheet, cells) => {
     await host.setInputs(sheet, cells);
     await share(sheet, cells);

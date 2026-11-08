@@ -531,6 +531,15 @@ fn run_convert(
         .and_then(|n| n.to_str())
         .unwrap_or("document")
         .to_owned();
+    let lower = name.to_ascii_lowercase();
+    if to == "pdf" && (lower.ends_with(".txt") || lower.ends_with(".md")) {
+        // Plain text is not a package: the engine reads it as paragraphs.
+        let data = open(input)?.export_pdf()?;
+        let out = out.unwrap_or_else(|| input.with_extension("pdf"));
+        write_file(&out, &data)?;
+        println!("{} ({} bytes)", out.display(), data.len());
+        return Ok(());
+    }
     let (loaded, facts) = convert::load(&bytes, password)?;
     if facts.has_macros {
         eprintln!("note: the input contains macros; they are preserved where the output format allows and never executed");

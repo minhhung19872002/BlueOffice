@@ -189,6 +189,16 @@ export interface FormatState {
   shading?: string | null;
   section?: SectionState;
   table?: TableState | null;
+  /** Floating picture at the selection (mirrors `bo_edit::picture::PictureState`). */
+  picture?: PictureState | null;
+}
+
+/** Position of a floating picture in points (§20.4.2.10 positionH / §20.4.2.11 positionV). */
+export interface PictureState {
+  x: number;
+  y: number;
+  hRelative: string;
+  vRelative: string;
 }
 
 /** Line spacing rule (§17.18.48): `auto` in 240ths of a line, else twips. */
@@ -244,9 +254,11 @@ export interface TableState {
 
 export type TableEdit =
   | {
-      kind: 'deleteRow' | 'deleteColumn' | 'deleteTable' | 'mergeCells' | 'splitCell';
+      kind:
+        'deleteRow' | 'deleteColumn' | 'deleteCell' | 'deleteTable' | 'mergeCells' | 'splitCell';
     }
   | { kind: 'insertRow'; below: boolean }
+  | { kind: 'insertCell'; right: boolean }
   | { kind: 'insertColumn'; right: boolean }
   | { kind: 'shading'; hex: string | null }
   | { kind: 'borders'; preset: 'all' | 'none' | 'outside' | 'inside' }
@@ -358,9 +370,19 @@ export type RevisionKind =
   | 'rowDelete'
   | 'cellFormat'
   | 'tableFormat'
-  | 'sectionFormat';
+  | 'sectionFormat'
+  | 'cellInsert'
+  | 'cellDelete'
+  | 'cellMerge'
+  | 'rowFormat'
+  | 'tableGrid';
 
-/** A tracked change of the main text (mirrors `bo_edit::RevisionItem`). */
+/** Header/footer or note holding a revision (mirrors `bo_edit::StoryRef`). */
+export type StoryRef =
+  | { kind: 'header' | 'footer'; section: number; variant: 'default' | 'first' | 'even' }
+  | { kind: 'footnote' | 'endnote'; id: number };
+
+/** A tracked change (mirrors `bo_edit::RevisionItem`); positions are in the story when `story` is set. */
 export interface RevisionItem {
   id: number;
   kind: RevisionKind;
@@ -369,6 +391,7 @@ export interface RevisionItem {
   start: Pos;
   end: Pos;
   text: string;
+  story?: StoryRef;
 }
 
 /** A comment (mirrors `bo_edit::CommentInfo`); threads are rebuilt from `parent`. */
@@ -431,6 +454,8 @@ export type EditCommand =
   | { cmd: 'paste'; internal?: string; html?: string; text?: string; mode?: DocPasteMode }
   | { cmd: 'tab'; back?: boolean }
   | { cmd: 'tableEdit'; edit: TableEdit }
+  /** Move the floating picture at the selection (points from its position references). */
+  | { cmd: 'setPicturePosition'; x: number; y: number }
   | { cmd: 'setPageSetup'; setup: PageSetupSpec; scope?: 'section' | 'document' }
   | { cmd: 'setHeaderOptions'; titlePage?: boolean; evenAndOdd?: boolean }
   | { cmd: 'setHeaderLink'; linked: boolean }
@@ -822,7 +847,7 @@ export interface EngineHost {
    * Live collaboration (`bo_engine::collab`): bind the open document to a session.
    * `seed` = first editor of the room; returns the change to publish.
    */
-  collabStart?(seed: boolean): Promise<CollabChange>;
+  collabStart?(seed: boolean, clientId?: number): Promise<CollabChange>;
   /** Apply a change from the replica (JSON `CollabChange`). */
   collabApply?(change: string): Promise<EditResult>;
   /** Geometry of collaborators' selections (UTF-16 `[anchor, head]`). */
@@ -856,6 +881,8 @@ export interface FileAccess {
   openFile(accept: string[]): Promise<OpenedFile | null>;
   /** Save bytes; returns the saved path/name or `null` when cancelled. */
   saveFile(bytes: Uint8Array, suggestedName: string, mime: string): Promise<string | null>;
+  /** Desktop: read a file by its absolute path (recent files). */
+  openPath?(path: string): Promise<OpenedFile>;
 }
 
 /** Where a document comes from and goes back to. */
@@ -981,6 +1008,17 @@ export interface ShellIntegration {
   serverUrl?(): Promise<string | null>;
   /** Stores the server setting (null clears it). */
   setServerUrl?(url: string | null): Promise<void>;
+  /** The server comes from the environment (`BLUEOFFICE_SERVER`), overriding the setting. */
+  serverFromEnvironment?(): Promise<boolean>;
+  /** Desktop: the process was started for a file or a deep link (else the Start screen shows). */
+  hasLaunchRequest?(): Promise<boolean>;
+  /** A small persisted user setting (JSON text), e.g. the BlueDrive sync folders. */
+  getSetting?(key: string): Promise<string | null>;
+  setSetting?(key: string, value: string | null): Promise<void>;
+  /** Opens a web page in the system browser (host sign-in). */
+  openExternal?(url: string): Promise<void>;
+  /** Sign-in redirects to the app (`bluedoc://auth?code=…&state=…`). */
+  onAuthCallback?(handler: (url: string) => void): () => void;
 }
 
 /** Everything platform-specific, in one object. */

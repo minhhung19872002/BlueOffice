@@ -44,6 +44,12 @@ export interface ChangeLike {
   slides?: Record<string, string | null>;
   shapes?: Record<string, string | null>;
   blobs?: Record<string, string | null>;
+  /** Other shared objects (styles, table structure, sheets, formats …). */
+  meta?: Record<string, string | null>;
+  /** BlueSheet cells by `"<sheet>!<row id>,<col id>"`. */
+  cells?: Record<string, string | null>;
+  /** Nested texts (table cells, notes, comments, headers, slide notes). */
+  texts?: Record<string, unknown>;
 }
 
 export const isEmptyChange = (c: ChangeLike | null | undefined): boolean =>
@@ -51,7 +57,10 @@ export const isEmptyChange = (c: ChangeLike | null | undefined): boolean =>
   ((c.body ?? []).every((d) => d.length === 0) &&
     !Object.keys(c.slides ?? {}).length &&
     !Object.keys(c.shapes ?? {}).length &&
-    !Object.keys(c.blobs ?? {}).length);
+    !Object.keys(c.blobs ?? {}).length &&
+    !Object.keys(c.meta ?? {}).length &&
+    !Object.keys(c.cells ?? {}).length &&
+    !Object.keys(c.texts ?? {}).length);
 
 /** Distinct, readable caret colours (not tied to any product palette). */
 const COLORS = ['#c2410c', '#15803d', '#7c3aed', '#be185d', '#0e7490', '#a16207', '#4d7c0f'];

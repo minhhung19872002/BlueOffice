@@ -19,7 +19,8 @@ public sealed class WopiFileInfo
     /// <summary>Size in bytes.</summary>
     public long Size { get; set; }
 
-    /// <summary>Current version.</summary>
+    /// <summary>Current version ([MS-WOPI] §3.3.5.1.1.2 Version: a string; numbers sent by some hosts are accepted).</summary>
+    [System.Text.Json.Serialization.JsonConverter(typeof(StringOrNumberConverter))]
     public string? Version { get; set; }
 
     /// <summary>Current user id.</summary>
@@ -62,6 +63,34 @@ public sealed class WopiFileInfo
     public string? LastModifiedTime { get; set; }
 }
 
+/// <summary>Reads a JSON string, number or boolean as a string.</summary>
+public sealed class StringOrNumberConverter : System.Text.Json.Serialization.JsonConverter<string?>
+{
+    /// <inheritdoc />
+    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) => reader.TokenType switch
+    {
+        JsonTokenType.String => reader.GetString(),
+        JsonTokenType.Number => Encoding.UTF8.GetString(reader.ValueSpan),
+        JsonTokenType.True => "true",
+        JsonTokenType.False => "false",
+        JsonTokenType.Null => null,
+        _ => throw new JsonException("Expected a string or a number."),
+    };
+
+    /// <inheritdoc />
+    public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
+    {
+        if (value is null)
+        {
+            writer.WriteNullValue();
+        }
+        else
+        {
+            writer.WriteStringValue(value);
+        }
+    }
+}
+
 /// <summary>WOPI-client adapter: BlueOffice calls a WOPI host's files endpoint ([MS-WOPI] §3.3.5).</summary>
 public interface IWopiClient : IHostStorage
 {
@@ -72,8 +101,10 @@ public interface IWopiClient : IHostStorage
 /// <summary>
 /// HTTP implementation of <see cref="IWopiClient"/>. WOPISrc = <c>{BaseUrl}/{fileId}</c>, the access token travels in the
 /// <c>access_token</c> query parameter ([MS-WOPI] §3.3.1). Version history and restore are not part of WOPI.
+/// Every request is signed with the proof keys (<see cref="WopiProofKeys"/>): <c>X-WOPI-Proof</c>, <c>X-WOPI-ProofOld</c>,
+/// <c>X-WOPI-TimeStamp</c>.
 /// </summary>
-public sealed class WopiClient(IHttpClientFactory httpFactory) : IWopiClient
+public sealed class WopiClient(IHttpClientFactory httpFactory, WopiProofKeys proofKeys, TimeProvider time) : IWopiClient
 {
     /// <summary>Name of the HttpClient.</summary>
     public const string HttpClientName = "wopi";
@@ -242,6 +273,14 @@ public sealed class WopiClient(IHttpClientFactory httpFactory) : IWopiClient
         var url = $"{ctx.Host.BaseUrl.TrimEnd('/')}/{Uri.EscapeDataString(fileId)}{suffix}?access_token={Uri.EscapeDataString(ctx.AccessToken)}";
         using var req = new HttpRequestMessage(method, new Uri(url)) { Content = body };
         configure?.Invoke(req);
+
+        // Proof keys ([MS-WOPI] "Verifying that requests originate from the WOPI client"): signed over token + URL + time.
+        // The URL is the one sent on the wire (System.Uri may normalise escapes of the composed string).
+        var timestamp = time.GetUtcNow().UtcDateTime.Ticks;
+        var (proof, proofOld) = proofKeys.Sign(ctx.AccessToken, req.RequestUri!.AbsoluteUri, timestamp);
+        req.Headers.Add(WopiProof.ProofHeader, proof);
+        req.Headers.Add(WopiProof.ProofOldHeader, proofOld);
+        req.Headers.Add(WopiProof.TimeStampHeader, timestamp.ToString(System.Globalization.CultureInfo.InvariantCulture));
         HttpResponseMessage res;
         try
         {

@@ -91,6 +91,9 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
 
 var app = builder.Build();
 
+// Fail fast: WOPI proof keys must be configured in Production when a WOPI host is configured.
+app.Services.GetRequiredService<WopiProofKeys>();
+
 if (config.GetValue("Database:AutoCreate", true))
 {
     // Schema creation for dev/test and first start; see docs/deploy/upgrade.md for production upgrades.

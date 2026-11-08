@@ -1129,27 +1129,36 @@ fn read_sheet_data(r: &mut XmlReader<'_>, sst: &[CellValue], ws: &mut Worksheet)
         }
         let mut next_col: u32 = 0;
         for_children(r, |r, e, empty| {
-            if lname(e) != "c" {
+            if e.local_name().as_ref() != "c" {
                 return Ok(());
             }
-            let mut at = attrs(e);
-            let col = take(&mut at, "r")
-                .and_then(|s| CellRef::parse(&s))
-                .map_or(next_col, |c| c.col);
+            // Hot path (one call per cell): read the §18.3.1.4 `c` attributes
+            // straight from the tag, without an owned attribute list.
+            let mut col = next_col;
+            let mut t = CellType::Number;
+            let mut cell = Cell::default();
+            for a in e.attributes().flatten() {
+                let value = attr_str(&a.value);
+                match a.key.local_name().as_ref() {
+                    "r" => {
+                        if let Some(c) = CellRef::parse(&value) {
+                            col = c.col;
+                        }
+                    }
+                    "t" => t = CellType::parse(&value),
+                    "s" => cell.style = value.trim().parse().unwrap_or(0),
+                    "cm" => cell.cm = value.trim().parse().ok(),
+                    "vm" => cell.vm = value.trim().parse().ok(),
+                    "ph" => cell.show_phonetic = pbool(&value),
+                    _ => {}
+                }
+            }
             next_col = col + 1;
-            let t = take(&mut at, "t").unwrap_or_else(|| "n".into());
-            let mut cell = Cell {
-                style: take_u32(&mut at, "s").unwrap_or(0),
-                cm: take_u32(&mut at, "cm"),
-                vm: take_u32(&mut at, "vm"),
-                show_phonetic: take_bool(&mut at, "ph").unwrap_or(false),
-                ..Cell::default()
-            };
             let mut v: Option<String> = None;
             let mut inline: Option<CellValue> = None;
             if !empty {
                 for_children(r, |r, e, empty| {
-                    match lname(e).as_str() {
+                    match e.local_name().as_ref() {
                         // §18.3.1.96 v
                         "v" => v = Some(if empty { String::new() } else { read_text(r)? }),
                         // §18.3.1.40 f
@@ -1196,20 +1205,20 @@ fn read_sheet_data(r: &mut XmlReader<'_>, sst: &[CellValue], ws: &mut Worksheet)
                 })?;
             }
             // §18.18.11 ST_CellType
-            cell.value = match (t.as_str(), v) {
-                ("inlineStr", _) => inline.unwrap_or(CellValue::Empty),
+            cell.value = match (t, v) {
+                (CellType::InlineStr, _) => inline.unwrap_or(CellValue::Empty),
                 (_, None) => CellValue::Empty,
-                ("s", Some(v)) => v
+                (CellType::Shared, Some(v)) => v
                     .trim()
                     .parse::<usize>()
                     .ok()
                     .and_then(|i| sst.get(i).cloned())
                     .unwrap_or_else(|| CellValue::Text(String::new())),
-                ("b", Some(v)) => CellValue::Bool(pbool(v.trim())),
-                ("e", Some(v)) => CellValue::Error(CellError::parse(v.trim())),
-                ("str", Some(v)) => CellValue::Text(xstring_decode(&v)),
-                ("d", Some(v)) => CellValue::Date(v),
-                (_, Some(v)) => match v.trim().parse::<f64>() {
+                (CellType::Bool, Some(v)) => CellValue::Bool(pbool(v.trim())),
+                (CellType::Error, Some(v)) => CellValue::Error(CellError::parse(v.trim())),
+                (CellType::Str, Some(v)) => CellValue::Text(xstring_decode(&v)),
+                (CellType::Date, Some(v)) => CellValue::Date(v),
+                (CellType::Number, Some(v)) => match v.trim().parse::<f64>() {
                     Ok(n) if n.is_finite() => CellValue::Number(n),
                     _ => CellValue::Error(CellError::Value),
                 },
@@ -1220,4 +1229,39 @@ fn read_sheet_data(r: &mut XmlReader<'_>, sst: &[CellValue], ws: &mut Worksheet)
             Ok(())
         })
     })
+}
+
+/// §18.18.11 `ST_CellType` (unknown values read as numbers, like `n`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CellType {
+    Number,
+    Shared,
+    Bool,
+    Error,
+    Str,
+    Date,
+    InlineStr,
+}
+
+impl CellType {
+    fn parse(v: &str) -> Self {
+        match v {
+            "s" => CellType::Shared,
+            "b" => CellType::Bool,
+            "e" => CellType::Error,
+            "str" => CellType::Str,
+            "d" => CellType::Date,
+            "inlineStr" => CellType::InlineStr,
+            _ => CellType::Number,
+        }
+    }
+}
+
+/// An attribute value as text, borrowed unless it holds entity references.
+fn attr_str(raw: &str) -> std::borrow::Cow<'_, str> {
+    if raw.contains('&') {
+        std::borrow::Cow::Owned(bo_opc::xml::unescape(raw))
+    } else {
+        std::borrow::Cow::Borrowed(raw)
+    }
 }

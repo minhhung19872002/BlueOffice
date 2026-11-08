@@ -14,7 +14,9 @@
 #![forbid(unsafe_code)]
 
 mod dom;
+mod formula;
 mod odp;
+mod odp_shapes;
 mod ods;
 mod odt_read;
 mod odt_write;
@@ -22,7 +24,9 @@ mod package;
 mod units;
 
 pub use odp::{read_odp, write_odp, Presentation, Slide, TextFrame};
-pub use ods::{read_ods, write_ods, Cell, CellValue, Sheet, SpreadsheetDoc};
+pub use odp_shapes::{read_odp_deck, OdpDeck, OdpParagraph, OdpRun, OdpShape, OdpSlide, Paint};
+pub use formula::{from_openformula, to_openformula};
+pub use ods::{read_ods, write_ods, Cell, CellStyle, CellValue, Sheet, SpreadsheetDoc};
 pub use odt_read::read_odt;
 pub use odt_write::write_odt;
 pub use package::{detect_mimetype, OdfPackage};

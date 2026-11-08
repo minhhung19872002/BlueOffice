@@ -16,6 +16,7 @@ bo-model.workspace = true
 bo-docx.workspace = true
 bo-opc.workspace = true
 bo-xlsx.workspace = true
+bo-sheet = { path = "../bo-sheet" }
 bo-binary = { path = "../bo-binary" }
 bo-odf = { path = "../bo-odf" }
 bo-crypto = { path = "../bo-crypto" }

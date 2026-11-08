@@ -431,6 +431,7 @@ dependencies = [
  "bo-model",
  "bo-opc",
  "cfb",
+ "png",
  "proptest",
  "thiserror 2.0.21",
  "zip",
@@ -448,6 +449,7 @@ dependencies = [
  "bo-odf",
  "bo-opc",
  "bo-pptx",
+ "bo-sheet",
  "bo-sign",
  "bo-xlsx",
  "clap",
@@ -608,6 +610,7 @@ name = "bo-odf"
 version = "0.1.0"
 dependencies = [
  "bo-model",
+ "png",
  "proptest",
  "quick-xml",
  "thiserror 2.0.21",

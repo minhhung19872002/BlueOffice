@@ -8,7 +8,7 @@
 //! live engine, which recalculates the dirty cells, and only those values are
 //! written back into the model.
 
-use crate::formula::{load, to_value, write_back};
+use crate::formula::{load, load_with, to_value, write_back};
 use bo_formula::DateSystem;
 use bo_model::sheet::Workbook;
 
@@ -51,6 +51,31 @@ impl LiveCalc {
                 .map(|(&k, _)| k)
                 .collect();
             write_back(&fw, wb, si, &anchors);
+        }
+        self.engine = Some(fw);
+    }
+
+    /// Loads a workbook just read from a file, keeping the saved results of
+    /// formula cells (ECMA-376 Part 1, §18.3.1.96 `v`): only formulas without
+    /// a cached value, array formulas, `ca` cells, volatile functions and their
+    /// dependents are calculated, the way spreadsheet applications open a file
+    /// unless `calcPr/@fullCalcOnLoad` (§18.2.2) asks for a full calculation.
+    /// Opening the 1 000 000-cell benchmark workbook drops its whole
+    /// recalculation this way (the dependency graph is still built so edits
+    /// recalculate their dependents).
+    pub fn rebuild_from_file(&mut self, wb: &mut Workbook) {
+        let mut fw = load_with(wb, self.now, true);
+        fw.recalculate();
+        let mut by_sheet: Vec<Vec<(u32, u32)>> = vec![Vec::new(); wb.sheets.len()];
+        for id in fw.last_recalculated() {
+            if let Some(v) = by_sheet.get_mut(id.sheet) {
+                v.push((id.row, id.col));
+            }
+        }
+        for (si, anchors) in by_sheet.iter().enumerate() {
+            if !anchors.is_empty() {
+                write_back(&fw, wb, si, anchors);
+            }
         }
         self.engine = Some(fw);
     }
@@ -120,6 +145,34 @@ impl LiveCalc {
 mod tests {
     use super::*;
     use bo_model::sheet::{Cell, CellValue};
+
+    #[test]
+    fn opening_keeps_cached_results_and_calculates_the_rest() {
+        let mut wb = Workbook::new();
+        let ws = &mut wb.sheets[0];
+        ws.set_cell(0, 0, Cell::new(CellValue::Number(1.0)));
+        // Cached (deliberately different) result: kept as saved.
+        let mut b1 = Cell::default().with_formula("A1*2");
+        b1.value = CellValue::Number(99.0);
+        ws.set_cell(0, 1, b1);
+        // No cached value: calculated.
+        ws.set_cell(0, 2, Cell::default().with_formula("A1+10"));
+        // Depends on a calculated cell: recalculated with it.
+        let mut d1 = Cell::default().with_formula("C1+1");
+        d1.value = CellValue::Number(-1.0);
+        ws.set_cell(0, 3, d1);
+        let mut live = LiveCalc::new();
+        live.rebuild_from_file(&mut wb);
+        let v = |wb: &Workbook, c| wb.sheets[0].cell(0, c).unwrap().value.clone();
+        assert_eq!(v(&wb, 1), CellValue::Number(99.0));
+        assert_eq!(v(&wb, 2), CellValue::Number(11.0));
+        assert_eq!(v(&wb, 3), CellValue::Number(12.0));
+        // The dependency graph is complete: editing A1 recalculates B1.
+        wb.sheets[0].cells.get_mut(&(0, 0)).unwrap().value = CellValue::Number(5.0);
+        live.update(&mut wb, 0, &[(0, 0)]);
+        assert_eq!(v(&wb, 1), CellValue::Number(10.0));
+        assert_eq!(v(&wb, 3), CellValue::Number(16.0));
+    }
 
     #[test]
     fn edits_recalculate_only_dependents() {

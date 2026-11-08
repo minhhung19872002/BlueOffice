@@ -22,7 +22,7 @@ const parse = (json: string): unknown => JSON.parse(json);
 function dispatch(e: WasmSheet, method: SheetMethod, a: unknown[]): unknown {
   switch (method) {
     case 'open':
-      return parse(e.open(a[0] as Uint8Array, s(a[1])));
+      return parse(e.open(a[0] as Uint8Array, s(a[1]), a[2] == null ? undefined : s(a[2])));
     case 'newWorkbook':
       return parse(e.newWorkbook(s(a[0])));
     case 'info':

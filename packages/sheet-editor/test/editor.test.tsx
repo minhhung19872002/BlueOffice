@@ -30,8 +30,13 @@ function fakeHost() {
         merges: [],
         charts: 0,
         pivots: 0,
+        protected: false,
+        tabColor: null,
       },
     ],
+    encrypted: false,
+    macros: false,
+    structureLocked: false,
   };
   let areas: Pick<PivotInfo, 'rows' | 'cols' | 'values' | 'filters'> = {
     rows: [],

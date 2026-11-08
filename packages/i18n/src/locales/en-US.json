@@ -835,6 +835,39 @@
       "calcInsert": "Insert field:",
       "calcRemove": "Delete field",
       "calcHint": "The formula works on the sums of the fields, e.g. =Revenue/Quantity. Quote names with spaces in single quotes."
+    },
+    "tabColorNone": "No colour",
+    "protection": {
+      "group": "Protect",
+      "protectSheet": "Protect sheet",
+      "unprotectSheet": "Unprotect sheet",
+      "protectWorkbook": "Protect workbook",
+      "unprotectWorkbook": "Unprotect workbook",
+      "lockCell": "Lock cell",
+      "sheetTitle": "Protect sheet and contents of locked cells",
+      "workbookTitle": "Protect workbook structure",
+      "password": "Password (optional)",
+      "confirm": "Re-enter password",
+      "allow": "Allow all users of this sheet to:",
+      "refused": "This cell or action is protected. Unprotect the sheet to change it.",
+      "workbookRefused": "The workbook structure is protected (add, delete, rename, move sheets).",
+      "wrongPassword": "The protection password is incorrect.",
+      "protectedSheet": "Protected sheet",
+      "opt": {
+        "selectLockedCells": "Select locked cells",
+        "selectUnlockedCells": "Select unlocked cells",
+        "formatCells": "Format cells",
+        "formatColumns": "Format columns",
+        "formatRows": "Format rows",
+        "insertColumns": "Insert columns",
+        "insertRows": "Insert rows",
+        "deleteColumns": "Delete columns",
+        "deleteRows": "Delete rows",
+        "sort": "Sort",
+        "autoFilter": "Use AutoFilter",
+        "pivotTables": "Use pivot tables",
+        "objects": "Edit objects (charts)"
+      }
     }
   },
   "recovery": {
@@ -1065,7 +1098,9 @@
     "confirm": "Confirm password",
     "mismatch": "Passwords do not match",
     "set": "Set",
-    "protected": "Password protected"
+    "protected": "Password protected",
+    "passwordSet": "Will be saved with a password",
+    "passwordRemoved": "Will be saved without a password"
   },
   "collab": {
     "editing": "{{name}} is editing",

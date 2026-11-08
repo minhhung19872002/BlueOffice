@@ -588,6 +588,16 @@ fn run_convert(
         (Loaded::Workbook(_) | Loaded::Spreadsheet(_), "xlsx" | "pdf") => {
             sheet_convert(&bytes, &name, to, sheet)?
         }
+        // .ppt / .odp decks with their drawing, through the BlueSlide engine.
+        (Loaded::Deck(_), "pptx" | "pdf") => {
+            let mut engine = Engine::with_bundled_fonts();
+            engine.open(&bytes, &name)?;
+            if to == "pdf" {
+                engine.export_pdf()?
+            } else {
+                engine.save_pptx()?
+            }
+        }
         (Loaded::Deck(p), "odp") => bo_odf::write_odp(&p)?,
         (Loaded::Deck(p), "txt") => convert::presentation_text(&p).into_bytes(),
         (_, other) => {
@@ -695,6 +705,24 @@ fn bench_sheet(bytes: &[u8], name: &str, iterations: u32) -> R {
         e = fresh;
     }
     opens.sort();
+    if bytes.starts_with(b"PK\x03\x04") {
+        // Phase breakdown of the open: parse the package, then load + calculate.
+        let t = Instant::now();
+        let mut wb = bo_xlsx::read_xlsx(bytes)?;
+        let read = t.elapsed();
+        let mut full = wb.clone();
+        let t = Instant::now();
+        bo_sheet::live::LiveCalc::new().rebuild_from_file(&mut wb);
+        let cached = t.elapsed();
+        let t = Instant::now();
+        bo_sheet::live::LiveCalc::new().rebuild(&mut full);
+        println!(
+            "  read_xlsx: {:.1} ms, load keeping cached results: {:.1} ms, full recalculation: {:.1} ms",
+            read.as_secs_f64() * 1e3,
+            cached.as_secs_f64() * 1e3,
+            t.elapsed().as_secs_f64() * 1e3
+        );
+    }
     let info = e.info()?;
     println!("sheets: {}", info.sheets.len());
     // Sanity: formulas were calculated on open (first formula cell and the last

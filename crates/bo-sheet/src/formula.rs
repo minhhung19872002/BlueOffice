@@ -114,25 +114,25 @@ pub(crate) fn to_cell_value(v: &Value) -> CellValue {
 }
 
 /// Formula text of a cell, expanding shared-formula followers from their master.
-fn formula_text(
-    masters: &[(u32, u32, u32, bo_formula::Expr)],
+fn formula_text<'f>(
+    masters: &std::collections::HashMap<u32, (u32, u32, bo_formula::Expr)>,
     row: u32,
     col: u32,
-    f: &bo_model::sheet::Formula,
-) -> Option<String> {
+    f: &'f bo_model::sheet::Formula,
+) -> Option<std::borrow::Cow<'f, str>> {
     if !f.text.is_empty() {
-        return Some(f.text.clone());
+        return Some(std::borrow::Cow::Borrowed(&f.text));
     }
     let FormulaKind::Shared { index, .. } = f.kind else {
         return None;
     };
-    let (_, mr, mc, expr) = masters.iter().find(|(i, ..)| *i == index)?;
+    let (mr, mc, expr) = masters.get(&index)?;
     let moved = offset_relative(
         expr,
         i64::from(row) - i64::from(*mr),
         i64::from(col) - i64::from(*mc),
     );
-    Some(format(&moved))
+    Some(std::borrow::Cow::Owned(format(&moved)))
 }
 
 pub(crate) fn array_range(f: &bo_model::sheet::Formula) -> Option<CellRange> {
@@ -143,6 +143,35 @@ pub(crate) fn array_range(f: &bo_model::sheet::Formula) -> Option<CellRange> {
 }
 
 pub(crate) fn load(wb: &Workbook, now: Option<f64>) -> bo_formula::Workbook {
+    load_with(wb, now, false)
+}
+
+/// Whether the cached value of a formula cell can stand for its result when a
+/// file is opened. Array formulas and data tables (whose results live in other
+/// cells), `ca` "calculate always" cells (§18.3.1.40) and cells without a saved
+/// value are calculated.
+fn cached_result(cell: &Cell, system: DateSystem) -> Option<Value> {
+    let f = cell.formula.as_ref()?;
+    if f.calc_always
+        || matches!(
+            f.kind,
+            FormulaKind::Array { .. } | FormulaKind::DataTable { .. }
+        )
+        || matches!(cell.value, CellValue::Empty)
+    {
+        return None;
+    }
+    Some(to_value(&cell.value, system))
+}
+
+/// Loads `wb` into a formula engine. With `trust_cache` formula cells keep
+/// their saved values (see [`cached_result`]) and only the others are marked
+/// for calculation; otherwise every formula is marked.
+pub(crate) fn load_with(
+    wb: &Workbook,
+    now: Option<f64>,
+    trust_cache: bool,
+) -> bo_formula::Workbook {
     let system = if wb.date1904 {
         DateSystem::Date1904
     } else {
@@ -152,52 +181,14 @@ pub(crate) fn load(wb: &Workbook, now: Option<f64>) -> bo_formula::Workbook {
     let mut fw = bo_formula::Workbook::with_sheets(&names);
     fw.set_date_system(system);
     fw.set_now(now);
+    // Names and tables first: defining one rebuilds the dependency graph of
+    // the formulas already loaded, which is empty at this point.
+    for dn in &wb.defined_names {
+        let scope = dn.local_sheet.map(|s| s as usize);
+        // Names that do not parse (external links, macros) are skipped.
+        let _ = fw.define_name(&dn.name, scope, &dn.formula);
+    }
     for (si, ws) in wb.sheets.iter().enumerate() {
-        // Cells covered by an array formula hold its previous results, not inputs.
-        let mut covered: Vec<CellRange> = Vec::new();
-        let mut masters = Vec::new();
-        for (&(r, c), cell) in &ws.cells {
-            if let Some(f) = &cell.formula {
-                if let Some(range) = array_range(f) {
-                    covered.push(range);
-                }
-                if let (
-                    FormulaKind::Shared {
-                        index,
-                        range: Some(_),
-                    },
-                    false,
-                ) = (&f.kind, f.text.is_empty())
-                {
-                    if let Ok(e) = parse(&f.text) {
-                        masters.push((*index, r, c, e));
-                    }
-                }
-            }
-        }
-        for (&(r, c), cell) in &ws.cells {
-            let here = bo_model::sheet::CellRef { row: r, col: c };
-            match &cell.formula {
-                Some(f) => {
-                    let text = formula_text(&masters, r, c, f);
-                    let ok = text.is_some_and(|t| fw.set_formula(si, r, c, &t).is_ok());
-                    if !ok {
-                        // Unparsable formula: keep its cached value as a constant.
-                        fw.set_value(si, r, c, to_value(&cell.value, system));
-                    }
-                }
-                None => {
-                    if !covered.iter().any(|a| a.contains(here) && a.first != here) {
-                        fw.set_value(si, r, c, to_value(&cell.value, system));
-                    }
-                }
-            }
-        }
-        for (&r, info) in &ws.rows {
-            if info.hidden {
-                fw.set_row_hidden(si, r, true);
-            }
-        }
         for t in &ws.tables {
             let first_row = t.range.first.row;
             fw.add_table(TableInfo {
@@ -212,10 +203,64 @@ pub(crate) fn load(wb: &Workbook, now: Option<f64>) -> bo_formula::Workbook {
             });
         }
     }
-    for dn in &wb.defined_names {
-        let scope = dn.local_sheet.map(|s| s as usize);
-        // Names that do not parse (external links, macros) are skipped.
-        let _ = fw.define_name(&dn.name, scope, &dn.formula);
+    for (si, ws) in wb.sheets.iter().enumerate() {
+        fw.reserve_cells(si, ws.cells.len());
+        // Cells covered by an array formula hold its previous results, not inputs.
+        let mut covered: Vec<CellRange> = Vec::new();
+        let mut masters = std::collections::HashMap::new();
+        for (&(r, c), cell) in &ws.cells {
+            if let Some(f) = &cell.formula {
+                if let Some(range) = array_range(f) {
+                    covered.push(range);
+                }
+                if let (
+                    FormulaKind::Shared {
+                        index,
+                        range: Some(_),
+                    },
+                    false,
+                ) = (&f.kind, f.text.is_empty())
+                {
+                    if let Ok(e) = parse(&f.text) {
+                        masters.entry(*index).or_insert((r, c, e));
+                    }
+                }
+            }
+        }
+        for (&(r, c), cell) in &ws.cells {
+            let here = bo_model::sheet::CellRef { row: r, col: c };
+            match &cell.formula {
+                Some(f) => {
+                    let text = formula_text(&masters, r, c, f);
+                    let cached = if trust_cache {
+                        cached_result(cell, system)
+                    } else {
+                        None
+                    };
+                    let ok = text.is_some_and(|t| fw.load_formula(si, r, c, &t, cached).is_ok());
+                    if !ok {
+                        // Unparsable formula: keep its cached value as a constant.
+                        fw.set_value(si, r, c, to_value(&cell.value, system));
+                    }
+                }
+                None => {
+                    if covered.is_empty()
+                        || !covered.iter().any(|a| a.contains(here) && a.first != here)
+                    {
+                        fw.load_value(si, r, c, to_value(&cell.value, system));
+                    }
+                }
+            }
+        }
+        for (&r, info) in &ws.rows {
+            if info.hidden {
+                if trust_cache {
+                    fw.load_row_hidden(si, r);
+                } else {
+                    fw.set_row_hidden(si, r, true);
+                }
+            }
+        }
     }
     fw
 }

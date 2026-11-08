@@ -30,7 +30,13 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     sinh dòng trống cuối đoạn), dòng đó căn theo `m:jc` (left/right; center và centerGroup mặc định → giữa) thay cho căn lề
     đoạn. Test: `bo-layout/tests/features.rs::display_equation_takes_its_own_aligned_line` (vị trí x cho từng jc, chữ
     quanh phương trình vẫn căn trái, `m:oMath` trong dòng không tách dòng). Chưa: căn nhóm nhiều dòng theo dấu `=` (centerGroup thật).
-- [ ] **CORE-MATH-005** — Nhập phương trình bằng cú pháp tuyến tính UnicodeMath → OMML · P0 · 002 · bảng test chuỗi → XML.
+- [x] **CORE-MATH-005** — Nhập phương trình bằng cú pháp tuyến tính UnicodeMath → OMML · P0 · 002 · bảng test chuỗi → XML.
+  - Xong: crate `bo-math` (cây `Node` theo các phần tử §22.1.2 + ghi OMML `to_omml`; `unicode_math::parse` theo Unicode
+    Technical Note #28): phân số `/` và `¦` (bỏ ngoặc quanh toán hạng), `_ ^` và dấu phẩy `′`, `√ ∛ ∜ √(n&x)`, n-ary + cận +
+    `▒`, ngoặc co giãn `( ) [ ] { } ⟨ ⟩ ⌊ ⌋ ⌈ ⌉ | |` với `∣`, hàm đứng (lim/max/min nhận cả hạng tử, cận dưới), `■` ma trận, `█`
+    hệ phương trình, dấu nhấn tổ hợp / gạch trên, `"văn bản"`, control word `lpha \sum \sqrt \le 	o …`, `-` → `−`.
+    Test: bảng chuỗi → XML (40 ca) + công thức lồng nhau + proptest không panic/XML cân; corpus `math-04-linear.docx`
+    sinh từ chuỗi tuyến tính qua OpenXmlValidator (0 lỗi) + round-trip.
 - [ ] **CORE-MATH-006** — Nhập LaTeX (tập con phổ biến) → OMML · P0 · 005 · bảng test.
 - [ ] **CORE-MATH-007** — Chèn/sửa phương trình trong BlueDoc (lệnh `insert.equation`, hộp nhập tuyến tính, chuyển chuyên nghiệp ↔ tuyến tính, OMML → UnicodeMath) · P0 · 005 · E2E web: chèn, lưu, mở lại.
 - [ ] **CORE-MATH-008** — Thư viện phương trình mẫu (tự soạn) + đánh số phương trình · P1 · 007 · test chèn mẫu.

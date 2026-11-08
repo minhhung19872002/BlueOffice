@@ -543,6 +543,7 @@ dependencies = [
  "bo-crypto",
  "bo-docx",
  "bo-engine",
+ "bo-math",
  "bo-model",
  "bo-odf",
  "bo-opc",
@@ -707,6 +708,13 @@ dependencies = [
  "unicode-bidi",
  "unicode-linebreak",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "bo-math"
+version = "0.1.0"
+dependencies = [
+ "proptest",
 ]
 
 [[package]]

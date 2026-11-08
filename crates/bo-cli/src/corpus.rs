@@ -1351,6 +1351,27 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         sect: s.clone(),
         ..Doc::default()
     }));
+    // Equations typed in the UnicodeMath linear format (bo-math, CORE-MATH-005), one display line each.
+    let linear = |src: &str| {
+        let x = bo_math::unicode_math::to_omml(src);
+        display(x.trim_start_matches("<m:oMath>").trim_end_matches("</m:oMath>"))
+    };
+    v.push(("math-04-linear.docx", "math", "Phương trình nhập bằng cú pháp tuyến tính UnicodeMath: phân số, căn bậc n, tổng, tích phân, giới hạn, ma trận, hệ phương trình, dấu nhấn", Doc {
+        body: [
+            p("Nhập tuyến tính (UnicodeMath):"),
+            linear("x=(-b±√(b^2-4ac))/2a"),
+            linear("√(3&x+1)+∛8=e^(-x)"),
+            linear("∑_(k=1)^n k^2=(n(n+1)(2n+1))/6"),
+            linear("∫_0^∞▒e^(-x^2) dx=√π/2"),
+            linear("lim_(x→0) sin x/x=1"),
+            linear("A=[■(a&b@c&d)]"),
+            linear("{█(x+y=3@x-y=1)"),
+            linear("v\u{20D7}+x\u{302}+y\u{305}=\"hằng số\""),
+        ]
+        .concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
 
     // ---- comments (§17.13.4) with replies ([MS-DOCX] commentsExtended / commentsIds)
     let comments_part = |inner: &str| {

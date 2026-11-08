@@ -162,15 +162,19 @@ public sealed class TestApp : WebApplicationFactory<Program>
     /// <summary>Dev signing key used by tests.</summary>
     public const string DevKey = "test-signing-key-0123456789-abcdefghijklmnop";
 
-    private readonly string _dir = Directory.CreateTempSubdirectory("bo-test-").FullName;
+    private readonly string _dir;
+    private readonly bool _ownsDir;
     private readonly Dictionary<string, string?> _settings;
     private readonly MockDrive? _drive;
     private readonly TestServer? _wopi;
     private readonly TimeProvider? _clock;
 
     /// <summary>Creates the app.</summary>
-    public TestApp(MockDrive? drive = null, TestServer? wopi = null, Dictionary<string, string?>? settings = null, TimeProvider? clock = null)
+    /// <param name="dataDir">Shared data directory (database + objects) kept on dispose, to simulate a restart.</param>
+    public TestApp(MockDrive? drive = null, TestServer? wopi = null, Dictionary<string, string?>? settings = null, TimeProvider? clock = null, string? dataDir = null)
     {
+        _ownsDir = dataDir is null;
+        _dir = dataDir ?? Directory.CreateTempSubdirectory("bo-test-").FullName;
         _drive = drive;
         _wopi = wopi;
         _clock = clock;
@@ -279,6 +283,11 @@ public sealed class TestApp : WebApplicationFactory<Program>
     {
         base.Dispose(disposing);
         SqliteConnection.ClearAllPools();
+        if (!_ownsDir)
+        {
+            return;
+        }
+
         try
         {
             Directory.Delete(_dir, recursive: true);

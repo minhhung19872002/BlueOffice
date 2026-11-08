@@ -43,6 +43,30 @@ public sealed class CollabOptions
 
     /// <summary>Update-log size that triggers a compaction (full state requested from a client).</summary>
     public long MaxLogBytes { get; set; } = 32L * 1024 * 1024;
+
+    /// <summary>Where the update log is persisted: <c>Database</c> (default) or <c>ObjectStore</c>, see <see cref="CollabLogStore"/>.</summary>
+    public string SnapshotStore { get; set; } = "Database";
+}
+
+/// <summary>
+/// Where rooms keep their update log (snapshot + incremental batches + meta): <c>Collab:SnapshotStore</c> =
+/// <c>Database</c> (default, table <c>CollabLog</c>) or <c>ObjectStore</c> (MinIO / file system, as before).
+/// </summary>
+public sealed record CollabLogStore(IObjectStore Store, string Kind)
+{
+    /// <summary>Builds the store from configuration.</summary>
+    public static CollabLogStore Create(IServiceProvider sp, IConfiguration config)
+    {
+        var kind = config["Collab:SnapshotStore"] ?? "Database";
+        if (kind.Equals("ObjectStore", StringComparison.OrdinalIgnoreCase))
+        {
+            return new CollabLogStore(sp.GetRequiredService<IObjectStore>(), "ObjectStore");
+        }
+
+        return kind.Equals("Database", StringComparison.OrdinalIgnoreCase)
+            ? new CollabLogStore(new Infrastructure.Storage.DatabaseObjectStore(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>()), "Database")
+            : throw new InvalidOperationException($"Unknown Collab:SnapshotStore '{kind}' (expected Database or ObjectStore).");
+    }
 }
 
 /// <summary>Shared dependencies of rooms.</summary>

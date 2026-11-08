@@ -62,6 +62,7 @@ builder.Services.AddScoped<SessionService>();
 builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<LocalHostStorage>();
 builder.Services.Configure<CollabOptions>(config.GetSection("Collab"));
+builder.Services.AddSingleton(sp => CollabLogStore.Create(sp, config));
 builder.Services.AddSingleton<RoomManager>();
 builder.Services.AddSingleton<CollabMaintenanceService>();
 if (serveApi)
@@ -94,7 +95,11 @@ if (config.GetValue("Database:AutoCreate", true))
 {
     // Schema creation for dev/test and first start; see docs/deploy/upgrade.md for production upgrades.
     using var scope = app.Services.CreateScope();
-    scope.ServiceProvider.GetRequiredService<BlueOfficeDbContext>().Database.EnsureCreated();
+    var db = scope.ServiceProvider.GetRequiredService<BlueOfficeDbContext>();
+    db.Database.EnsureCreated();
+
+    // Tables added after a database was first created (EnsureCreated leaves existing databases alone).
+    await SchemaUpgrades.ApplyAsync(db);
 }
 
 app.UseExceptionHandler();

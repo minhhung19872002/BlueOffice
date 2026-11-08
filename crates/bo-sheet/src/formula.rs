@@ -156,6 +156,7 @@ pub(crate) fn load(wb: &Workbook, now: Option<f64>) -> bo_formula::Workbook {
         // Cells covered by an array formula hold its previous results, not inputs.
         let mut covered: Vec<CellRange> = Vec::new();
         let mut masters = Vec::new();
+        fw.reserve_cells(si, ws.cells.len());
         for (&(r, c), cell) in &ws.cells {
             if let Some(f) = &cell.formula {
                 if let Some(range) = array_range(f) {

@@ -74,7 +74,23 @@ impl Default for IterativeConfig {
 #[derive(Debug)]
 struct Formula {
     expr: Expr,
-    text: String,
+    /// Canonical text, formatted on first use (opening a file sets 100 000s of
+    /// formulas whose text is rarely asked for).
+    text: std::sync::OnceLock<String>,
+}
+
+impl Formula {
+    fn new(expr: Expr, text: Option<String>) -> Formula {
+        let cell = std::sync::OnceLock::new();
+        if let Some(t) = text {
+            let _ = cell.set(t);
+        }
+        Formula { expr, text: cell }
+    }
+
+    fn text(&self) -> &str {
+        self.text.get_or_init(|| format!("={}", format(&self.expr)))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -92,6 +108,41 @@ struct Sheet {
     hidden_rows: FxHashSet<u32>,
 }
 
+/// Formula cells reading one cell directly. Most cells have a single reader: it is
+/// kept inline (opening a sheet registers a million of these).
+#[derive(Debug)]
+enum Readers {
+    One(CellId),
+    Many(Vec<CellId>),
+}
+
+impl Readers {
+    fn push(&mut self, id: CellId) {
+        match self {
+            Readers::One(a) => *self = Readers::Many(vec![*a, id]),
+            Readers::Many(v) => v.push(id),
+        }
+    }
+
+    /// Remove every `id`; returns whether no reader is left.
+    fn remove(&mut self, id: CellId) -> bool {
+        match self {
+            Readers::One(a) => *a == id,
+            Readers::Many(v) => {
+                v.retain(|d| *d != id);
+                v.is_empty()
+            }
+        }
+    }
+
+    fn as_slice(&self) -> &[CellId] {
+        match self {
+            Readers::One(a) => std::slice::from_ref(a),
+            Readers::Many(v) => v,
+        }
+    }
+}
+
 /// Areas up to this size are indexed cell by cell in the dependency graph.
 const SMALL_AREA: u64 = 64;
 /// Maximum number of extra passes to settle spill ranges.
@@ -106,7 +157,7 @@ pub struct Workbook {
     iterative: Option<IterativeConfig>,
     rng: AtomicU64,
     precedents: FxHashMap<CellId, Vec<Area>>,
-    dependents: FxHashMap<CellId, Vec<CellId>>,
+    dependents: FxHashMap<CellId, Readers>,
     range_deps: RangeIndex,
     volatile: FxHashSet<CellId>,
     changed: Vec<CellId>,
@@ -173,6 +224,13 @@ impl Workbook {
             ..Sheet::default()
         });
         self.sheets.len() - 1
+    }
+
+    /// Make room for `additional` more cells on `sheet` (bulk loading).
+    pub fn reserve_cells(&mut self, sheet: usize, additional: usize) {
+        if let Some(s) = self.sheets.get_mut(sheet) {
+            s.cells.reserve(additional);
+        }
     }
 
     /// Evaluation settings (date system, fixed "now").
@@ -291,7 +349,6 @@ impl Workbook {
         }
         let id = CellId::new(sheet, row, col);
         self.remove_formula(id);
-        let text = text.unwrap_or_else(|| format!("={}", format(&expr)));
         let (areas, volatile) = self.collect_deps(&expr, id);
         self.register(id, areas);
         if volatile {
@@ -305,7 +362,7 @@ impl Workbook {
         self.sheets[sheet].cells.insert(
             (row, col),
             CellData {
-                formula: Some(Arc::new(Formula { expr, text })),
+                formula: Some(Arc::new(Formula::new(expr, text))),
                 value: old,
             },
         );
@@ -377,7 +434,7 @@ impl Workbook {
             .get(&(row, col))?
             .formula
             .as_ref()
-            .map(|f| f.text.as_str())
+            .map(|f| f.text())
     }
 
     /// The area an array formula at this anchor spills into.
@@ -508,8 +565,7 @@ impl Workbook {
         }
         for (si, r, c, e) in rewrites {
             if let Some(cell) = self.sheets[si].cells.get_mut(&(r, c)) {
-                let text = format!("={}", format(&e));
-                cell.formula = Some(Arc::new(Formula { expr: e, text }));
+                cell.formula = Some(Arc::new(Formula::new(e, None)));
             }
         }
         // Defined names: unqualified references belong to the scope sheet; for
@@ -607,10 +663,14 @@ impl Workbook {
             if a.size() <= SMALL_AREA {
                 for r in a.r1..=a.r2 {
                     for c in a.c1..=a.c2 {
-                        self.dependents
-                            .entry(CellId::new(a.sheet, r, c))
-                            .or_default()
-                            .push(id);
+                        match self.dependents.entry(CellId::new(a.sheet, r, c)) {
+                            std::collections::hash_map::Entry::Occupied(mut e) => {
+                                e.get_mut().push(id);
+                            }
+                            std::collections::hash_map::Entry::Vacant(e) => {
+                                e.insert(Readers::One(id));
+                            }
+                        }
                     }
                 }
             } else {
@@ -630,8 +690,7 @@ impl Workbook {
                     for c in a.c1..=a.c2 {
                         let key = CellId::new(a.sheet, r, c);
                         if let Some(v) = self.dependents.get_mut(&key) {
-                            v.retain(|d| *d != id);
-                            if v.is_empty() {
+                            if v.remove(id) {
                                 self.dependents.remove(&key);
                             }
                         }
@@ -744,7 +803,7 @@ impl Workbook {
     /// Formula cells reading `cell` directly (static precedents).
     fn for_each_reader(&self, cell: CellId, f: &mut dyn FnMut(CellId)) {
         if let Some(ds) = self.dependents.get(&cell) {
-            for d in ds {
+            for d in ds.as_slice() {
                 f(*d);
             }
         }

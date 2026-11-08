@@ -1,0 +1,51 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Sơ "
+  text 28.0pt 44.5,30.3 #000000ff "đồ "
+  text 28.0pt 81.8,30.3 #000000ff "tổ "
+  text 28.0pt 112.6,30.3 #000000ff "chức "
+  text 28.0pt 175.5,30.3 #000000ff "(SmartArt "
+  text 28.0pt 296.7,30.3 #000000ff "phân "
+  text 28.0pt 361.9,30.3 #000000ff "cấp)"
+pop transform
+transform [1.000 0.000 0.000 1.000 72.0 108.0]
+  path n=9 [216.0 -0.0 360.0 72.0] fill=#1f4e79ff
+  path n=9 [216.0 -0.0 360.0 72.0] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 216.0 0.0]
+    text 20.0pt 33.3,42.8 #ffffffff "Giám "
+    text 20.0pt 80.6,42.8 #ffffffff "đốc"
+  pop transform
+  path n=9 [0.0 144.0 144.0 216.0] fill=#2e75b6ff
+  path n=9 [0.0 144.0 144.0 216.0] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 0.0 144.0]
+    text 20.0pt 34.8,30.6 #ffffffff "Phòng "
+    text 20.0pt 90.6,30.6 #ffffffff "Kỹ "
+    text 20.0pt 50.1,55.0 #ffffffff "thuật"
+  pop transform
+  path n=9 [216.0 144.0 360.0 216.0] fill=#2e75b6ff
+  path n=9 [216.0 144.0 360.0 216.0] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 216.0 144.0]
+    text 20.0pt 26.1,30.6 #ffffffff "Phòng "
+    text 20.0pt 81.9,30.6 #ffffffff "Kinh "
+    text 20.0pt 46.2,55.0 #ffffffff "doanh"
+  pop transform
+  path n=9 [432.0 144.0 576.0 216.0] fill=#2e75b6ff
+  path n=9 [432.0 144.0 576.0 216.0] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 432.0 144.0]
+    text 20.0pt 22.6,30.6 #ffffffff "Phòng "
+    text 20.0pt 78.4,30.6 #ffffffff "Hành "
+    text 20.0pt 49.7,55.0 #ffffffff "chính"
+  pop transform
+  path n=5 [286.2 72.0 289.8 144.0] fill=#7f7f7fff
+  path n=5 [286.2 72.0 289.8 144.0] stroke=#ffffffff w1.00
+  path n=5 [72.0 106.2 504.0 109.8] fill=#7f7f7fff
+  path n=5 [72.0 106.2 504.0 109.8] stroke=#ffffffff w1.00
+  path n=5 [70.2 108.0 73.8 144.0] fill=#7f7f7fff
+  path n=5 [70.2 108.0 73.8 144.0] stroke=#ffffffff w1.00
+  path n=5 [502.2 108.0 505.8 144.0] fill=#7f7f7fff
+  path n=5 [502.2 108.0 505.8 144.0] stroke=#ffffffff w1.00
+pop transform

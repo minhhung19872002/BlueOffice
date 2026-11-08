@@ -16,6 +16,7 @@
 //! bo-cli fields <file.docx> --out <out.docx>  # update TOC / SEQ / REF / PAGEREF fields
 //! bo-cli merge <template.docx> <data.csv|xlsx> --to docx|pdf --out <out>  # mail merge
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
+//! bo-cli sample-big <out.docx> [--pages 300]  # §5 benchmark document (text + pictures)
 //! bo-cli bench input.docx [--iterations 5]
 //! ```
 #![forbid(unsafe_code)]
@@ -134,7 +135,21 @@ enum Cmd {
     },
     /// Write the BlueSlide corpus decks into a directory.
     SampleSlides { dir: PathBuf },
-    /// Measure open + layout + display list time.
+    /// Write the §5 benchmark document: about N A4 pages of text with inline pictures.
+    SampleBig {
+        out: PathBuf,
+        #[arg(long, default_value_t = 300)]
+        pages: usize,
+        /// One picture after every N paragraphs (6 = about one picture per page).
+        #[arg(long, default_value_t = 6)]
+        image_every: usize,
+        /// Number of different image parts the pictures cycle through.
+        #[arg(long, default_value_t = 40)]
+        distinct: usize,
+    },
+    /// Write the §5 benchmark workbook: 1 000 000 cells, 100 000 of them formulas.
+    SampleBigSheet { out: PathBuf },
+    /// Measure open + layout + display list time (.xlsx: open + calculate, edit one cell).
     Bench {
         input: PathBuf,
         #[arg(long, default_value_t = 5)]
@@ -413,6 +428,19 @@ fn run(cli: Cli) -> R {
             write_file(&out, &bytes)?;
             println!("{records} records → {}", out.display());
         }
+        Cmd::SampleBig {
+            out,
+            pages,
+            image_every,
+            distinct,
+        } => {
+            write_file(&out, &corpus::big_document(pages, image_every, distinct)?)?;
+            println!("{}", out.display());
+        }
+        Cmd::SampleBigSheet { out } => {
+            write_file(&out, &big_sheet()?)?;
+            println!("{}", out.display());
+        }
         Cmd::SampleSlides { dir } => {
             for (name, bytes) in slide_samples::decks() {
                 let path = dir.join(name);
@@ -427,17 +455,35 @@ fn run(cli: Cli) -> R {
                 .and_then(|n| n.to_str())
                 .unwrap_or("doc")
                 .to_owned();
+            if name.to_ascii_lowercase().ends_with(".xlsx") {
+                return bench_sheet(&bytes, &name, iterations);
+            }
             let t0 = Instant::now();
             let mut engine = Engine::with_bundled_fonts();
             let t_fonts = t0.elapsed();
             let mut times = Vec::new();
+            let mut first = Vec::new();
             let mut pages = 0;
             for _ in 0..iterations.max(1) {
                 let mut e = Engine::with_bundled_fonts();
                 let t = Instant::now();
                 pages = e.open(&bytes, &name)?.page_count;
                 times.push(t.elapsed());
+                // What the viewer needs before showing anything: the first page.
+                std::hint::black_box(e.page_json(0)?);
+                first.push(t.elapsed());
             }
+            let t = Instant::now();
+            let mut json_bytes = 0;
+            {
+                let mut e = Engine::with_bundled_fonts();
+                e.open(&bytes, &name)?;
+                for i in 0..pages {
+                    json_bytes += e.page_json(i)?.len();
+                }
+            }
+            let t_all = t.elapsed();
+            first.sort();
             let t = Instant::now();
             let pdf = {
                 engine.open(&bytes, &name)?;
@@ -451,6 +497,14 @@ fn run(cli: Cli) -> R {
                 "open+layout+display list (median of {}): {:.1} ms",
                 times.len(),
                 times[times.len() / 2].as_secs_f64() * 1e3
+            );
+            println!(
+                "open+layout+first page display list (median): {:.1} ms",
+                first[first.len() / 2].as_secs_f64() * 1e3
+            );
+            println!(
+                "open+display lists of all {pages} pages: {:.1} ms ({json_bytes} bytes JSON)",
+                t_all.as_secs_f64() * 1e3
             );
             println!(
                 "open+export pdf: {:.1} ms ({} bytes)",
@@ -581,6 +635,96 @@ fn write_file(path: &Path, data: &[u8]) -> std::io::Result<()> {
         }
     }
     std::fs::write(path, data)
+}
+
+/// The §5 workbook ("mở .xlsx 1 triệu ô có 100.000 công thức"): 10 000 rows × 100
+/// columns, 90 columns of constants and 10 columns of formulas (arithmetic,
+/// SUM/AVERAGE/MAX, IF, COUNTIF, an exact VLOOKUP into a 1 000-row table, a running
+/// total down the sheet) — the layout of `crates/bo-formula/benches/recalc.rs`, saved
+/// as a real .xlsx so that the benchmark includes reading the file.
+fn big_sheet() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    const ROWS: u32 = 10_000;
+    const CONSTS: u32 = 90;
+    let value = |r: u32, c: u32| {
+        let h =
+            (r.wrapping_mul(2_654_435_761) ^ c.wrapping_mul(40_503)).wrapping_mul(2_246_822_519);
+        h % 1000
+    };
+    let mut e = bo_engine::SheetEngine::new();
+    e.new_workbook("bench.xlsx")?;
+    let mut cells = Vec::with_capacity(1_000_000);
+    for r in 0..ROWS {
+        let n = r + 1;
+        for c in 0..CONSTS {
+            cells.push((r, c, value(r, c).to_string()));
+        }
+        let formulas = [
+            format!("=A{n}*2+B{n}"),
+            format!("=SUM(A{n}:J{n})"),
+            format!("=CM{n}+CN{n}"),
+            format!("=IF(C{n}>500,D{n},E{n})"),
+            format!("=ROUND(AVERAGE(F{n}:O{n}),2)"),
+            if n == 1 {
+                "=CO1".to_owned()
+            } else {
+                format!("=CR{}+CO{n}", n - 1)
+            },
+            format!("=VLOOKUP({},$A$1:$B$1000,2,FALSE)", value(r, 0)),
+            format!("=MAX(P{n}:Y{n})"),
+            format!("=COUNTIF(Z{n}:AI{n},\">500\")"),
+            format!("=CP{n}*1.1+CS{n}"),
+        ];
+        for (k, f) in formulas.into_iter().enumerate() {
+            cells.push((r, CONSTS + k as u32, f));
+        }
+    }
+    e.set_inputs(0, &cells)?;
+    Ok(e.save("xlsx", 0)?)
+}
+
+/// `bench` for a workbook: open (read + calculate everything), then edit one input
+/// read by the VLOOKUP table (10 000 dependents) and one cell of a row.
+fn bench_sheet(bytes: &[u8], name: &str, iterations: u32) -> R {
+    let mut opens = Vec::new();
+    let mut e = bo_engine::SheetEngine::new();
+    for _ in 0..iterations.max(1) {
+        let mut fresh = bo_engine::SheetEngine::new();
+        let t = Instant::now();
+        fresh.open(bytes, name)?;
+        opens.push(t.elapsed());
+        e = fresh;
+    }
+    opens.sort();
+    let info = e.info()?;
+    println!("sheets: {}", info.sheets.len());
+    // Sanity: formulas were calculated on open (first formula cell and the last
+    // cell of the running total).
+    for (row, col) in [(0, 90), (9999, 95)] {
+        let c = e.cell(0, row, col)?;
+        println!("{} {} = {}", c.address, c.input, c.display);
+    }
+    println!(
+        "open+calculate (median of {}): {:.1} ms",
+        opens.len(),
+        opens[opens.len() / 2].as_secs_f64() * 1e3
+    );
+    for (what, row, col) in [
+        ("edit lookup table cell (10 000 dependents)", 10, 1),
+        ("edit one row input", 5000, 3),
+    ] {
+        let mut times = Vec::new();
+        for k in 0..iterations.max(1) {
+            let t = Instant::now();
+            e.set_input(0, row, col, &(k + 1).to_string())?;
+            times.push(t.elapsed());
+        }
+        times.sort();
+        println!(
+            "{what} (median): {:.1} ms",
+            times[times.len() / 2].as_secs_f64() * 1e3
+        );
+    }
+    Ok(())
 }
 
 /// Spreadsheet output via `SheetEngine` (`sheet` is 1-based for CSV).

@@ -1453,3 +1453,89 @@ fn merge_records() -> Vec<[&'static str; 4]> {
         ["Lê Văn Cường", "Trưởng phòng", "Văn phòng UBND", "750.000"],
     ]
 }
+
+/// A photo-like `w × h` RGB PNG: a gradient tinted by `seed` plus low-amplitude
+/// pseudo-random noise, so that it compresses like a real picture rather than a
+/// flat colour (benchmark input, not part of the round-trip corpus).
+fn photo_png(w: u32, h: u32, seed: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut state = seed.wrapping_mul(2_654_435_761).max(1);
+    let tint = seed.wrapping_mul(37).to_le_bytes();
+    {
+        let mut enc = png::Encoder::new(&mut out, w, h);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        let Ok(mut wr) = enc.write_header() else {
+            return Vec::new();
+        };
+        let mut data = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                // xorshift32
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                let noise = state.to_le_bytes()[0] & 0x1f;
+                let gx = u8::try_from(x * 200 / w.max(1)).unwrap_or(200);
+                let gy = u8::try_from(y * 200 / h.max(1)).unwrap_or(200);
+                data.push(gx.wrapping_add(tint[0]) / 2 + noise);
+                data.push(gy / 2 + noise);
+                data.push(tint[1] / 2 + noise);
+            }
+        }
+        if wr.write_image_data(&data).is_err() {
+            return Vec::new();
+        }
+    }
+    out
+}
+
+/// Benchmark document of BlueOffice-PROMPT §5 ("Mở .docx 300 trang có ảnh"): about
+/// `pages` A4 pages of justified Vietnamese text (Times New Roman 13 pt) with one
+/// inline 640×480 picture (8 × 6 cm) after every `image_every` paragraphs, cycling
+/// through `distinct` different image parts. Not part of the round-trip corpus (it is
+/// several MB); written by `bo-cli sample-big`.
+pub fn big_document(
+    pages: usize,
+    image_every: usize,
+    distinct: usize,
+) -> Result<Vec<u8>, bo_opc::OpcError> {
+    // Six body paragraphs and one 6 cm picture fill about one A4 page (measured).
+    let paragraphs = pages * 6;
+    let image_every = image_every.max(1);
+    let distinct = distinct.max(1);
+    let (cx, cy) = (2_880_000_i64, 2_160_000_i64); // 8 cm × 6 cm in EMU
+    let mut body = String::new();
+    let mut pic_id = 0_u32;
+    for i in 0..paragraphs {
+        // ECMA-376 Part 1, §17.3.1.13 jc; §17.3.1.12 ind
+        body.push_str(&format!(
+            r#"<w:p><w:pPr><w:jc w:val="both"/><w:ind w:firstLine="567"/></w:pPr><w:r><w:t xml:space="preserve">{} {} {} {}</w:t></w:r></w:p>"#,
+            i + 1,
+            VI[i % VI.len()],
+            VI[(i + 1) % VI.len()],
+            VI[(i + 2) % VI.len()]
+        ));
+        if i % image_every == image_every - 1 {
+            pic_id += 1;
+            let rid = format!("rIdImg{}", (pic_id as usize - 1) % distinct + 1);
+            body.push_str(&format!(
+                r#"<w:p><w:pPr><w:jc w:val="center"/></w:pPr>{}</w:p>"#,
+                inline_pic(pic_id, &rid, cx, cy, "", "")
+            ));
+        }
+    }
+    let images = (0..distinct)
+        .map(|k| {
+            let seed = u32::try_from(k).unwrap_or(0) + 1;
+            (format!("rIdImg{seed}"), photo_png(640, 480, seed))
+        })
+        .collect();
+    Doc {
+        body,
+        sect: sect(""),
+        images,
+        ..Doc::default()
+    }
+    .build()
+}

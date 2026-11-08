@@ -41,7 +41,7 @@ pub fn to_omml(src: &str) -> String {
     crate::to_omml(&parse(src))
 }
 
-const CONTROL_WORDS: &[(&str, &str)] = &[
+pub(crate) const CONTROL_WORDS: &[(&str, &str)] = &[
     ("alpha", "α"),
     ("beta", "β"),
     ("gamma", "γ"),
@@ -167,16 +167,16 @@ fn expand_control_words(src: &str) -> String {
 }
 
 /// Function names written upright (§22.1.2.39 func).
-const FUNCTIONS: &[&str] = &[
+pub(crate) const FUNCTIONS: &[&str] = &[
     "arccos", "arcsin", "arctan", "arg", "cos", "cosh", "cot", "coth", "csc", "deg", "det", "dim",
     "exp", "gcd", "inf", "ker", "lg", "lim", "ln", "log", "max", "min", "mod", "sec", "sin",
     "sinh", "sup", "tan", "tanh",
 ];
 
 /// Functions whose `_` script is a limit below the name (`lim_(x→0)`).
-const LIMIT_FUNCTIONS: &[&str] = &["lim", "max", "min", "sup", "inf"];
+pub(crate) const LIMIT_FUNCTIONS: &[&str] = &["lim", "max", "min", "sup", "inf"];
 
-const NARY: &str = "∑∏∐∫∬∭∮∯∰⋃⋂⋁⋀⨁⨂⨀";
+pub(crate) const NARY: &str = "∑∏∐∫∬∭∮∯∰⋃⋂⋁⋀⨁⨂⨀";
 
 /// Binary operators, relations and punctuation (kept as text between operands).
 const OPERATORS: &str = "+-−=<>≤≥≠±∓×÷⋅·∙→←↔⇒⇐⇔∈∉∋⊂⊃⊆⊇∪∩∧∨¬≈≡≅∼∝∥⊥,;:!∀∃";
@@ -651,7 +651,7 @@ fn strip(nodes: Vec<Node>) -> Vec<Node> {
 }
 
 /// Joins neighbouring runs of the same style (one `m:r` per stretch of text).
-fn merge(nodes: Vec<Node>) -> Vec<Node> {
+pub(crate) fn merge(nodes: Vec<Node>) -> Vec<Node> {
     let mut out: Vec<Node> = Vec::with_capacity(nodes.len());
     for n in nodes {
         if let (Some(Node::Run(prev, ps)), Node::Run(t, s)) = (out.last_mut(), &n) {

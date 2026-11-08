@@ -2,10 +2,12 @@
 //!
 //! * [`unicode_math`]: the UnicodeMath linear format (after the public Unicode Technical Note #28,
 //!   "UnicodeMath, a Nearly Plain-Text Encoding of Mathematics") parsed into an expression tree.
+//! * [`latex`]: LaTeX math (the common amsmath subset) parsed into the same tree.
 //! * [`Node`]: the expression tree, written as Office Math Markup (ECMA-376 Part 1, §22.1) by
 //!   [`to_omml`].
 #![forbid(unsafe_code)]
 
+pub mod latex;
 pub mod omml;
 pub mod unicode_math;
 

@@ -1372,6 +1372,27 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         sect: s.clone(),
         ..Doc::default()
     }));
+    // The same kinds of equations typed in LaTeX (bo-math, CORE-MATH-006).
+    let tex = |src: &str| {
+        let x = bo_math::latex::to_omml(src);
+        display(x.trim_start_matches("<m:oMath>").trim_end_matches("</m:oMath>"))
+    };
+    v.push(("math-05-latex.docx", "math", "Phương trình nhập bằng LaTeX: \\frac, \\sqrt[n], \\sum/\\int có cận, \\lim, \\binom, cases, bmatrix, \\left…\\right, \\text", Doc {
+        body: [
+            p("Nhập LaTeX:"),
+            tex(r"x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}"),
+            tex(r"\sqrt[3]{x+1}+\binom{n}{k}"),
+            tex(r"\sum_{k=1}^{n} k^2=\frac{n(n+1)(2n+1)}{6}"),
+            tex(r"\int_0^\infty e^{-x^2}\,dx=\frac{\sqrt{\pi}}{2}"),
+            tex(r"\lim_{x\to 0}\frac{\sin x}{x}=1"),
+            tex(r"|x|=\begin{cases} x & x\ge 0 \\ -x & x<0 \end{cases}"),
+            tex(r"A=\begin{bmatrix} a & b \\ c & d \end{bmatrix},\ \left\langle u,v \right\rangle"),
+            tex(r"\hat{x}+\vec{v}+\overline{y}=\text{hằng số}"),
+        ]
+        .concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
 
     // ---- comments (§17.13.4) with replies ([MS-DOCX] commentsExtended / commentsIds)
     let comments_part = |inner: &str| {

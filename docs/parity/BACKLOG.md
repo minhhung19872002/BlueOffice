@@ -37,7 +37,13 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     hệ phương trình, dấu nhấn tổ hợp / gạch trên, `"văn bản"`, control word `\alpha \sum \sqrt \le \to …`, `-` → `−`.
     Test: bảng chuỗi → XML (40 ca) + công thức lồng nhau + proptest không panic/XML cân; corpus `math-04-linear.docx`
     sinh từ chuỗi tuyến tính qua OpenXmlValidator (0 lỗi) + round-trip.
-- [ ] **CORE-MATH-006** — Nhập LaTeX (tập con phổ biến) → OMML · P0 · 005 · bảng test.
+- [x] **CORE-MATH-006** — Nhập LaTeX (tập con phổ biến) → OMML · P0 · 005 · bảng test.
+  - Xong: `bo_math::latex` (tokenizer + parser sang cùng cây `Node`): nhóm `{}`, `^ _ '`, `\frac \dfrac \tfrac \binom
+    \sqrt[n]`, toán tử lớn có `\limits`, hàm (`\lim_{}` cận dưới, `\operatorname`), `\left … \right` (kể cả `.`), `( ) [ ] | |`
+    ghép cặp thành ngoặc co giãn, môi trường `matrix pmatrix bmatrix Bmatrix vmatrix Vmatrix cases aligned`, dấu nhấn,
+    `\overline \underline`, `\text \mathrm …` giữ dấu cách, ký hiệu Hy Lạp/toán tử, bỏ lệnh khoảng cách và chú thích `%`,
+    lệnh lạ giữ nguyên dạng chữ. Test: 22 cặp LaTeX ↔ UnicodeMath cho cùng OMML, các cấu trúc riêng (binom, cases, `\left.`,
+    operatorname), proptest; corpus `math-05-latex.docx` qua OpenXmlValidator (0 lỗi).
 - [ ] **CORE-MATH-007** — Chèn/sửa phương trình trong BlueDoc (lệnh `insert.equation`, hộp nhập tuyến tính, chuyển chuyên nghiệp ↔ tuyến tính, OMML → UnicodeMath) · P0 · 005 · E2E web: chèn, lưu, mở lại.
 - [ ] **CORE-MATH-008** — Thư viện phương trình mẫu (tự soạn) + đánh số phương trình · P1 · 007 · test chèn mẫu.
 - [ ] **CORE-MATH-009** — Phương trình trong BlueSlide (a14:m trong txBody) và BlueSheet (shape) hiển thị · P1 · 002 · corpus + render.

@@ -45,6 +45,9 @@ cargo run -p bo-cli -- sign in.pdf --key k.pem --cert c.pem   # PAdES / OOXML (b
 cargo run -p bo-cli -- sample-slides tests/corpus/slide  # sinh lại corpus slide
 BO_WRITE_CORPUS=1 cargo test -p bo-xlsx --test corpus    # sinh lại corpus sheet
 cargo bench -p bo-formula                                # 1 triệu ô / 100k công thức
+cargo run -p bo-cli -- sample-big out/big.docx           # .docx 300 trang có ảnh (đo §5); sample-big-sheet → .xlsx 1 triệu ô
+node scripts/bench-open-wasm.mjs <docx> <xlsx>           # thời gian mở + bộ nhớ WASM
+cargo test -p bo-engine --test fuzz_smoke                # fuzz smoke (corpus đột biến, chạy được trên MSVC)
 pnpm fidelity                                            # round-trip corpus + OpenXmlValidator → docs/fidelity-report.md
 
 # Web (sau khi đổi Rust phải build lại WASM)

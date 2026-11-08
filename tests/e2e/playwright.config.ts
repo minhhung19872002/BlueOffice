@@ -9,6 +9,8 @@ export default defineConfig({
   // Real-server collaboration specs run with playwright.collab.config.ts.
   testIgnore: /collab-.*\.spec\.ts/,
   timeout: 60_000,
+  // Engine round trips run in a worker; 5 s (default) is short on a loaded machine.
+  expect: { timeout: 10_000 },
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {

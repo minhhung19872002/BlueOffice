@@ -151,6 +151,48 @@ E2E: `tests/e2e/specs/sheet.spec.ts` (gõ số + SUM, đậm + tô nền, sort, 
   `corpus_pivot_features_round_trip`); E2E `sheet-pivot.spec.ts` và `sheet-pivot-settings.spec.ts` (nhóm ngày theo
   tháng, bố cục phác thảo, % tổng cộng, lưu, mở lại, thiết lập còn nguyên, tính lại).
 
+**Bổ sung (biểu đồ tổng hợp, mục tính toán, nhóm thủ công, lọc ngày, giá trị trên hàng)**
+- Biểu đồ tổng hợp (Pivot): `Chart::pivot_source` ↔ `c:pivotSource` (§21.2.2.142: `c:name` dạng
+  `Sheet!TênBảng`, `c:fmtId`), `c:pivotFmts` (§21.2.2.144) mỗi series một `pivotFmt`, nút trường tùy chọn qua
+  `c14:pivotOptions` ([MS-ODRAWXML]). `bo_sheet::chart::pivot_series` dựng series từ `location` /
+  `firstDataRow` / `firstDataCol` / `rowItems` / `colItems`: danh mục = mục hàng trong cùng (nhãn ngoài nối " / "),
+  một series cho mỗi mục cột trong cùng × trường giá trị, bỏ tổng phụ/tổng cộng; tham chiếu ô khi điểm liền nhau,
+  ngược lại ghi giá trị literal. Sau mỗi lần dựng báo cáo (làm mới, lọc, đổi bố cục, nhóm, mục tính toán…)
+  `sync_pivot_charts` cập nhật series (biểu đồ từ file được sinh lại part); di chuyển bảng sang sheet khác đổi
+  `pivotSource`, xoá bảng biến biểu đồ thành biểu đồ thường. Lệnh `pivotChart` (ribbon "Bảng tổng hợp" →
+  "Biểu đồ tổng hợp", `pivot.chart`), đổi kiểu bằng công cụ biểu đồ có sẵn; vẽ bằng bộ vẽ biểu đồ của BlueSheet.
+- Mục tính toán (`calculatedItems` §18.10.1.9 / `calculatedItem` §18.10.1.8, `item/@f`): công thức trên các mục
+  khác của cùng trường (tên trần hoặc `'có dấu cách'`), tính trên **tổng** của các mục đó trong từng ô báo cáo
+  (ngữ cảnh các trường khác giữ nguyên); tổng phụ/tổng cộng cộng cả mục tính toán (như mô hình của đặc tả);
+  tên mục là một shared item của trường. Lệnh `pivotCalcItem` (thêm / sửa theo `old` / xoá), hộp thoại
+  "Mục tính toán". Làm mới giữ mục tính toán.
+- Nhóm thủ công (`discretePr` §18.10.1.26, `fieldGroup/@base` / `@par` §18.10.1.27): chọn ô nhãn mục →
+  "Nhóm mục đã chọn" tạo trường nhóm mới (tên theo trường gốc, đặt trước trường gốc trên trục) với nhóm
+  "Nhóm {n}"; chọn tiếp trên trường gốc hoặc trường nhóm để thêm nhóm; "Bỏ nhóm" trả mục về chính nó, trường nhóm
+  bị xoá khi không còn nhóm. Lệnh `pivotGroupItems` (`ungroup`). Trường có mục tính toán không nhóm được.
+- Lọc ngày (§18.18.60 `ST_PivotFilterType`): `dateEqual` … `dateNotBetween` (so theo ngày, giá trị là serial
+  hoặc ISO `yyyy-mm-dd`), kỳ tương đối `today` / `thisWeek` (tuần bắt đầu Chủ nhật) / `thisMonth` / `thisQuarter`
+  / `thisYear` / `yearToDate` và trước/sau, `Q1–Q4`, `M1–M12`. Ghi `customFilters` (serial) hoặc `dynamicFilter`
+  (§18.3.2.5). Ngày hôm nay lấy từ đồng hồ engine (`PivotLabels::today`); chưa có đồng hồ thì kỳ tương đối giữ
+  mọi mục. UI: chế độ "Lọc ngày" trong cài đặt trường ngày.
+- Nhiều trường giá trị trên trục hàng (`dataOnRows`): mỗi dòng có giá trị lặp lại một lần cho từng trường giá
+  trị; dạng bảng/phác thảo thêm cột "Giá trị" chứa tên trường, thu gọn: dòng mục rồi các tên giá trị thụt lề
+  bên dưới; `rowItems` có chỉ số trường giá trị ở cuối (`i`), định dạng số theo dòng. Ribbon "Giá trị trên hàng".
+- `date1904`: `startDate` / `endDate` của nhóm ngày và mục `d` được ghi/đọc đúng ngày lịch (dời 1462 ngày).
+- Ngày gõ dạng chữ (`bo_sheet::numfmt::input`): `dd/mm/yyyy` (vi-VN) hoặc `m/d/yyyy` (en-US) theo thứ tự ngày
+  của locale, ISO `yyyy-mm-dd[ T]hh:mm`, giờ `h:mm[:ss] [SA/CH|AM/PM]`, năm 2 chữ số (00–29 → 20xx) thành serial
+  với định dạng dựng sẵn 14 / 18–22 khi ô đang General; ô định dạng chữ `@`, công thức, `'…` và dạng hai phần
+  (`1/2`) không đổi; ngày không hợp lệ (`31/02/2024`, tháng 13) giữ là chữ. Thanh công thức hiện ngày.
+  Nhờ đó cột ngày gõ tay nhóm theo ngày được trong bảng tổng hợp.
+- Biểu đồ trong `absoluteAnchor` (§20.5.2.1: `pos` + `ext`) và `oneCellAnchor` (§20.5.2.24: `from` + `ext`):
+  khi mở được quy về ô (góc làm tròn tới cạnh ô gần nhất); kéo / đổi cỡ ghi lại `pos` / `ext` (EMU) hoặc `from` /
+  `ext` trong drawing opaque.
+- Kiểm thử: `pivot/tests.rs` (`calculated_items_rows_and_columns`, `manual_groups_and_ungroup`, `date_filters`,
+  `values_on_rows`), `numfmt::input`, engine `typed_dates_become_serials`, `pivot_charts_items_groups_date_filters`,
+  `absolute_and_one_cell_charts_move_and_resize`; corpus `writer-pivot-{items,manual,dates,datarows,charts}-{1,2,3}`,
+  `chart-anchors-{1,2,3}.xlsx` (OpenXmlValidator hợp lệ), `corpus_pivot_charts_round_trip`,
+  `pivot_dates_in_1904_workbooks`; E2E `sheet-pivot-extras.spec.ts`.
+
 **Bổ sung khác**
 - Biểu đồ: kéo để di chuyển, kéo góc để đổi cỡ (lệnh `moveChart`), xoá cả biểu đồ đọc từ file
   (`bo_xlsx::chart_write::{move_chart, remove_chart}` sửa anchor trong drawing opaque, bỏ relationship và part chart).
@@ -162,14 +204,21 @@ E2E: `tests/e2e/specs/sheet.spec.ts` (gõ số + SUM, đậm + tô nền, sort, 
 - Render: chữ xoay `textRotation` 1–180 (transform) và 255 (xếp dọc); style mặc định của hàng/cột vẽ trên ô trống.
 
 ## 6. Còn lại
-- PivotTable: chưa có biểu đồ pivot, mục tính toán (`calculatedItems`), nhóm thủ công qua UI, lọc ngày
-  (`dateBetween`…) và nhiều trường giá trị trên trục hàng (`dataOnRows`); `rowItems`/`colItems` ghi đủ đường dẫn
-  (`r="0"`); ngày gõ dạng chữ (chưa được nhận là ngày khi nhập) không nhóm theo ngày được; nhóm ngày của workbook
-  `date1904` ghi `startDate` theo hệ 1900; pivot từ file chỉ tính lại được khi nguồn là vùng/tên/bảng trong workbook;
-  đổi tên sheet nguồn không cập nhật part cache opaque cho tới khi làm mới.
+- PivotTable: `rowItems`/`colItems` ghi đủ đường dẫn (`r="0"`); pivot từ file chỉ tính lại được khi nguồn là
+  vùng/tên/bảng trong workbook; đổi tên sheet nguồn không cập nhật part cache opaque cho tới khi làm mới.
+- Biểu đồ tổng hợp: chưa ghi `chartFormats` (§18.10.1.13) / `@chartFormat` của bảng; nút trường chỉ ghi
+  (`c14:pivotOptions`), chưa vẽ; biểu đồ tổng hợp đọc từ file bị sinh lại part (mất định dạng riêng) khi bảng thay
+  đổi; danh mục nhiều cấp được nối thành một nhãn (chưa `multiLvlStrRef`); nhãn ngày trong cache biểu đồ định dạng
+  theo vi-VN.
+- Mục tính toán: mọi hàm tổng hợp nhận đúng một số (Count của mục tính toán là 1); không hỗ trợ trên trường đã
+  nhóm; kết quả lỗi công thức thành ô trống.
+- Nhóm thủ công: không đặt tên nhóm tùy ý từ UI (dùng "Nhóm {n}"); chưa nhóm của nhóm (trường nhóm cấp 2).
+- Lọc ngày bỏ qua trên trường đã nhóm theo ngày; kỳ tương đối của pivot đọc từ file chỉ áp dụng khi báo cáo được
+  tính lại; ô chọn ngày của UI chỉ hiện giá trị ISO (filter đọc từ file dạng serial hiện trống).
+- Ngày gõ: chưa nhận dạng tháng bằng chữ (`15 Thg 1 2024`, `Jan 15`), dạng hai phần `d/m` (năm hiện tại).
+- Biểu đồ `absoluteAnchor` / `oneCellAnchor` hiển thị và kéo theo ô (bỏ phần lẻ trong ô, như `twoCellAnchor`).
 - Cắt–dán sang sheet khác chưa thêm tên sheet nguồn cho tham chiếu tương đối không qualified bên trong khối cắt;
   chart/CF/DV chưa cập nhật theo ô bị di chuyển.
-- Biểu đồ `absoluteAnchor` chưa di chuyển được; `oneCellAnchor` chỉ di chuyển (không đổi cỡ).
 - `dynamicFilter` có `valIso`/`maxValIso`, `iconFilter` vẫn giữ nguyên XML, chưa đánh giá.
 - Comments part: chỉ giữ authors + commentList (threaded comments vẫn opaque).
 - Màu series lấy theo bảng màu BlueSheet, chưa đọc `c:spPr` của file.

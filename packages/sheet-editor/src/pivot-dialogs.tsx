@@ -10,7 +10,9 @@ import { useTranslation } from '@blueoffice/i18n';
 import {
   PIVOT_BASE_NEXT,
   PIVOT_BASE_PREVIOUS,
+  PIVOT_DATE_FILTERS,
   type PivotAreas,
+  type PivotDateFilterType,
   type PivotFieldFilter,
   type PivotFilterType,
   type PivotFunction,
@@ -188,7 +190,8 @@ const num = (s: string): number | null => {
 
 // ----------------------------------------------------------------- row / column field
 
-type FilterMode = 'none' | 'top' | 'bottom' | 'label' | 'value';
+type FilterMode = 'none' | 'top' | 'bottom' | 'label' | 'value' | 'date';
+const isDateKind = (k: string) => (PIVOT_DATE_FILTERS as readonly string[]).includes(k);
 
 export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
   const { t } = useTranslation();
@@ -212,13 +215,15 @@ export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
   const [sortBy, setSortBy] = useState(opts.sortBy === null ? 'label' : String(opts.sortBy));
   const initialMode: FilterMode = !current
     ? 'none'
-    : ['count', 'percent', 'sum'].includes(current.kind)
-      ? current.top
-        ? 'top'
-        : 'bottom'
-      : current.kind.startsWith('caption')
-        ? 'label'
-        : 'value';
+    : isDateKind(current.kind)
+      ? 'date'
+      : ['count', 'percent', 'sum'].includes(current.kind)
+        ? current.top
+          ? 'top'
+          : 'bottom'
+        : current.kind.startsWith('caption')
+          ? 'label'
+          : 'value';
   const [mode, setMode] = useState<FilterMode>(initialMode);
   const [topType, setTopType] = useState<'count' | 'percent' | 'sum'>(
     current && ['count', 'percent', 'sum'].includes(current.kind)
@@ -234,6 +239,10 @@ export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
   const [value1, setValue1] = useState(current?.value1 ?? '');
   const [value2, setValue2] = useState(current?.value2 ?? '');
   const [measure, setMeasure] = useState(current?.measure ?? 0);
+  const [dateKind, setDateKind] = useState<PivotDateFilterType>(
+    current && isDateKind(current.kind) ? (current.kind as PivotDateFilterType) : 'dateBetween',
+  );
+  const dateFixed = dateKind.startsWith('date');
   const group = info?.group ?? null;
   const groupable = !!info && !info.derived && info.formula === null;
   const [groupBy, setGroupBy] = useState<'none' | 'dates' | 'numbers'>(
@@ -261,6 +270,16 @@ export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
         value2: '',
         top: mode === 'top',
         count: num(count) ?? 10,
+      };
+    } else if (mode === 'date') {
+      filter = {
+        field,
+        kind: dateKind,
+        measure: 0,
+        value1: dateFixed ? value1 : '',
+        value2: dateKind.endsWith('Between') ? value2 : '',
+        top: true,
+        count: 0,
       };
     } else if (mode === 'label' || mode === 'value') {
       filter = {
@@ -426,8 +445,9 @@ export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
               value={mode}
               onChange={(e) => setMode(e.target.value as FilterMode)}
             >
-              {(['none', 'top', 'bottom', 'label', 'value'] as const)
-                .filter((m) => hasValues || m === 'none' || m === 'label')
+              {(['none', 'top', 'bottom', 'label', 'value', 'date'] as const)
+                .filter((m) => hasValues || m === 'none' || m === 'label' || m === 'date')
+                .filter((m) => m !== 'date' || !!info?.date)
                 .map((m) => (
                   <option key={m} value={m}>
                     {t(`sheetEditor.pivot.filterMode.${m}`)}
@@ -456,6 +476,20 @@ export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
                 </select>
               </>
             )}
+            {mode === 'date' && (
+              <select
+                aria-label={t('sheetEditor.pivot.dateFilter')}
+                data-testid="pivot-date-filter"
+                value={dateKind}
+                onChange={(e) => setDateKind(e.target.value as PivotDateFilterType)}
+              >
+                {PIVOT_DATE_FILTERS.map((k) => (
+                  <option key={k} value={k}>
+                    {t(`sheetEditor.pivot.dateFilters.${k}`)}
+                  </option>
+                ))}
+              </select>
+            )}
             {(mode === 'label' || mode === 'value') && (
               <select
                 aria-label={t('sheetEditor.pivot.operator')}
@@ -482,6 +516,29 @@ export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
                 ))}
               </select>
             </label>
+          )}
+          {mode === 'date' && dateFixed && (
+            <div className={styles.row}>
+              <input
+                type="date"
+                aria-label={t('sheetEditor.pivot.value1')}
+                data-testid="pivot-date-value1"
+                value={value1}
+                onChange={(e) => setValue1(e.target.value)}
+              />
+              {dateKind.endsWith('Between') && (
+                <>
+                  {t('sheetEditor.pivot.and')}
+                  <input
+                    type="date"
+                    aria-label={t('sheetEditor.pivot.value2')}
+                    data-testid="pivot-date-value2"
+                    value={value2}
+                    onChange={(e) => setValue2(e.target.value)}
+                  />
+                </>
+              )}
+            </div>
           )}
           {(mode === 'label' || mode === 'value') && (
             <div className={styles.row}>
@@ -959,6 +1016,133 @@ export function PivotCalcDialog(c: Common) {
             return (
               <button
                 key={f}
+                type="button"
+                className={styles.btn}
+                onClick={() => setFormula((x) => x + ref)}
+              >
+                {n}
+              </button>
+            );
+          })}
+        </div>
+        {error && <p className={styles.error}>{error}</p>}
+      </div>
+    </Dialog>
+  );
+}
+
+// ----------------------------------------------------------------- calculated items
+
+export function PivotCalcItemDialog(c: Common) {
+  const { t } = useTranslation();
+  const p = c.pivot;
+  const axis = [...p.rows, ...p.cols].filter((f) => !p.fields[f]?.derived);
+  const [field, setField] = useState<number>(axis[0] ?? 0);
+  const existing = p.calcItems.filter((ci) => ci.field === field);
+  const [old, setOld] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [formula, setFormula] = useState('=');
+  const [error, setError] = useState('');
+  const pick = (n: string | null) => {
+    setOld(n);
+    const ci = p.calcItems.find((x) => x.field === field && x.name === n);
+    setName(ci?.name ?? '');
+    setFormula(`=${ci?.formula ?? ''}`);
+  };
+  const run = async (remove: boolean) => {
+    try {
+      await c.host.exec({
+        cmd: 'pivotCalcItem',
+        sheet: c.sheet,
+        index: p.index,
+        field,
+        old: old ?? undefined,
+        name,
+        formula,
+        remove,
+        labels: c.labels,
+      });
+      await c.onDone();
+      c.onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const calcNames = new Set(existing.map((ci) => ci.name));
+  const items = (p.fields[field]?.items ?? []).filter((it) => !calcNames.has(it));
+  return (
+    <Dialog
+      open
+      width={460}
+      onOpenChange={(o) => !o && c.onClose()}
+      title={t('sheetEditor.pivot.calcItem')}
+      testId="pivot-calc-item-dialog"
+      footer={
+        <>
+          {old !== null && (
+            <button type="button" className={styles.btn} onClick={() => void run(true)}>
+              {t('sheetEditor.pivot.calcRemove')}
+            </button>
+          )}
+          <Footer onClose={c.onClose} onOk={() => void run(false)} testId="pivot-calc-item-ok" />
+        </>
+      }
+    >
+      <div className={styles.form}>
+        <label>
+          {t('sheetEditor.pivot.calcItemField')}
+          <select
+            data-testid="pivot-calc-item-field"
+            value={field}
+            onChange={(e) => {
+              setField(Number(e.target.value));
+              setOld(null);
+            }}
+          >
+            {axis.map((f) => (
+              <option key={f} value={f}>
+                {p.fields[f]?.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {existing.length > 0 && (
+          <label>
+            {t('sheetEditor.pivot.calcExisting')}
+            <select value={old ?? ''} onChange={(e) => pick(e.target.value || null)}>
+              <option value="">{t('sheetEditor.pivot.calcNew')}</option>
+              {existing.map((ci) => (
+                <option key={ci.name} value={ci.name}>
+                  {ci.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label>
+          {t('sheetEditor.pivot.calcName')}
+          <input
+            data-testid="pivot-calc-item-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <label>
+          {t('sheetEditor.pivot.calcFormula')}
+          <input
+            data-testid="pivot-calc-item-formula"
+            value={formula}
+            onChange={(e) => setFormula(e.target.value)}
+          />
+        </label>
+        <p className={styles.hint}>{t('sheetEditor.pivot.calcItemHint')}</p>
+        <div className={styles.row}>
+          {t('sheetEditor.pivot.calcInsert')}
+          {items.map((n) => {
+            const ref = /^[\p{L}_][\p{L}\p{N}_.]*$/u.test(n) ? n : `'${n.replace(/'/g, "''")}'`;
+            return (
+              <button
+                key={n}
                 type="button"
                 className={styles.btn}
                 onClick={() => setFormula((x) => x + ref)}

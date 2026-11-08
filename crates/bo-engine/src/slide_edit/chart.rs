@@ -258,7 +258,7 @@ fn rels_bytes(part: &str, rels: &[Relationship]) -> Vec<u8> {
 }
 
 /// Add or replace a preserved part.
-fn put_part(tx: &mut Tx<'_>, name: &str, content_type: Option<&str>, data: Vec<u8>) -> R<()> {
+pub(super) fn put_part(tx: &mut Tx<'_>, name: &str, content_type: Option<&str>, data: Vec<u8>) -> R<()> {
     let part = RawPart {
         name: name.to_owned(),
         content_type: content_type.map(str::to_owned),

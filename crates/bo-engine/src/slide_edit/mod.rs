@@ -14,6 +14,7 @@
 pub mod build;
 pub mod chart;
 pub mod clip;
+pub mod comments;
 pub mod collab;
 pub mod connect;
 pub mod geom;
@@ -436,6 +437,26 @@ pub enum SlideCommand {
         #[serde(flatten)]
         spec: chart::ChartSpec,
     },
+    /// New comment thread on the current slide, or a reply to thread `parent`
+    /// ([MS-PPTX] modern comments).
+    AddComment {
+        text: String,
+        #[serde(default)]
+        author: String,
+        #[serde(default)]
+        date: Option<String>,
+        #[serde(default)]
+        parent: Option<String>,
+    },
+    /// Resolve (`done`) or reopen a thread of the current slide.
+    ResolveComment {
+        id: String,
+        done: bool,
+    },
+    /// Delete a thread (with its replies) or one reply of the current slide.
+    DeleteComment {
+        id: String,
+    },
     Undo,
     Redo,
 }
@@ -751,6 +772,8 @@ pub struct SlideEditResult {
     /// Answer of the `show` command.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show: Option<show::ShowOut>,
+    /// Comment threads of the current slide ([MS-PPTX] modern comments).
+    pub comments: Vec<comments::ThreadOut>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -3658,6 +3681,31 @@ impl Engine {
                         chart::cmd_insert_chart(tx, sel, spec)
                     });
                 }
+                SlideCommand::AddComment {
+                    text,
+                    author,
+                    date,
+                    parent,
+                } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        comments::cmd_add(
+                            tx,
+                            sel.slide,
+                            &text,
+                            &author,
+                            date.as_deref(),
+                            parent.as_deref(),
+                        )
+                    });
+                }
+                SlideCommand::ResolveComment { id, done } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        comments::cmd_resolve(tx, sel.slide, &id, done)
+                    });
+                }
+                SlideCommand::DeleteComment { id } => {
+                    ed.mutate(pres, &mut out, |tx, sel| comments::cmd_delete(tx, sel.slide, &id));
+                }
                 SlideCommand::SetChart { id, spec } => {
                     ed.mutate(pres, &mut out, |tx, sel| {
                         chart::cmd_set_chart(tx, sel, id, &spec)
@@ -4010,6 +4058,7 @@ impl Engine {
                 _ => None,
             },
             show: None,
+            comments: comments::comments_out(pres, slide),
         })
     }
 }

@@ -10,6 +10,7 @@
 
 pub mod anim;
 mod chart_render;
+pub mod comments;
 pub mod diagram;
 pub mod inherit;
 mod pml;

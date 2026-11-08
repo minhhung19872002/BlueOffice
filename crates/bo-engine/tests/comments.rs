@@ -72,3 +72,57 @@ fn sheet_threads_reply_resolve_delete_and_save() {
     assert_eq!(t.as_array().unwrap().len(), 3);
     assert_eq!(t[0]["done"], false);
 }
+
+fn slide(e: &mut bo_engine::Engine, v: &Value) -> Value {
+    serde_json::from_str(&e.slide_command_json(&v.to_string()).unwrap()).unwrap()
+}
+
+#[test]
+fn slide_threads_reply_resolve_delete_and_save() {
+    let mut e = bo_engine::Engine::with_bundled_fonts();
+    e.open(&corpus("slide/slide-notes-basic.pptx"), "a.pptx").unwrap();
+    let r = slide(&mut e, &json!({"cmd": "state"}));
+    assert_eq!(r["comments"], json!([]));
+    let r = slide(
+        &mut e,
+        &json!({"cmd": "addComment", "text": "Đổi màu tiêu đề", "author": "Nguyễn Văn An",
+                "date": "2026-11-08T09:00:00.000Z"}),
+    );
+    assert!(r.get("error").is_none(), "{r}");
+    let id = r["comments"][0]["id"].as_str().unwrap().to_owned();
+    let r = slide(
+        &mut e,
+        &json!({"cmd": "addComment", "text": "Đã đổi\nsang xanh", "author": "Trần Bình",
+                "date": "2026-11-08T09:05:00.000Z", "parent": id}),
+    );
+    let r2 = slide(&mut e, &json!({"cmd": "resolveComment", "id": id, "done": true}));
+    assert_eq!(r2["comments"][0]["done"], true);
+    let c = &r["comments"][0]["comments"];
+    assert_eq!(c[0]["author"], "Nguyễn Văn An");
+    assert_eq!(c[1]["text"], "Đã đổi\nsang xanh");
+    assert_eq!(c[1]["author"], "Trần Bình");
+    // Slide 2 has its own (empty) list.
+    let r = slide(&mut e, &json!({"cmd": "goTo", "slide": 1}));
+    assert_eq!(r["comments"], json!([]));
+    slide(&mut e, &json!({"cmd": "goTo", "slide": 0}));
+
+    // Saved and reopened: the comment and authors parts round-trip.
+    let saved = e.save_pptx().unwrap();
+    std::fs::create_dir_all(std::env::temp_dir().join("bo-comments")).unwrap();
+    std::fs::write(std::env::temp_dir().join("bo-comments/slide-threads.pptx"), &saved).unwrap();
+    let mut f = bo_engine::Engine::with_bundled_fonts();
+    f.open(&saved, "a.pptx").unwrap();
+    let back = slide(&mut f, &json!({"cmd": "state"}));
+    assert_eq!(back["comments"], r2["comments"]);
+
+    // Delete the reply, then the thread; undo brings both back.
+    let reply = r2["comments"][0]["comments"][1]["id"].as_str().unwrap().to_owned();
+    slide(&mut e, &json!({"cmd": "deleteComment", "id": reply}));
+    let r = slide(&mut e, &json!({"cmd": "deleteComment", "id": id}));
+    assert_eq!(r["comments"], json!([]));
+    slide(&mut e, &json!({"cmd": "undo"}));
+    let r = slide(&mut e, &json!({"cmd": "undo"}));
+    assert_eq!(r["comments"], r2["comments"]);
+    let r = slide(&mut e, &json!({"cmd": "addComment", "text": "  "}));
+    assert!(r.get("error").is_some());
+}

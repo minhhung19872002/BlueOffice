@@ -434,6 +434,51 @@ describe('BlueSlideEditor', () => {
     expect(screen.getByText('Slide 2 of 3')).toBeTruthy();
   });
 
+  it('shows slide comments and sends replies, resolve and new threads', async () => {
+    const { p, engine, cmds } = fakePlatform();
+    const base = engine.slideCommand.getMockImplementation()!;
+    engine.slideCommand.mockImplementation(async (c: SlideCommand) => ({
+      ...(await base(c)),
+      comments: [
+        {
+          id: '{C1}',
+          done: false,
+          comments: [
+            { id: '{C1}', author: 'Nguyễn Văn An', date: '', text: 'Đổi màu tiêu đề' },
+            { id: '{R1}', author: 'Trần Bình', date: '', text: 'Đã đổi' },
+          ],
+        },
+      ],
+    }));
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chèn' }));
+    fireEvent.click(await screen.findByText('Bình luận'));
+    const thread = await screen.findByTestId('comment-thread');
+    expect(thread.textContent).toContain('Đổi màu tiêu đề');
+    expect(thread.textContent).toContain('Slide 1 / 3');
+    const reply = screen.getByLabelText('Trả lời (Ctrl+Enter để gửi)');
+    fireEvent.change(reply, { target: { value: 'Ok' } });
+    fireEvent.keyDown(reply, { key: 'Enter', ctrlKey: true });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual(
+        expect.objectContaining({ cmd: 'addComment', parent: '{C1}', text: 'Ok' }),
+      ),
+    );
+    fireEvent.click(screen.getByText('Đánh dấu đã xử lý'));
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'resolveComment', id: '{C1}', done: true }),
+    );
+    const box = screen.getByLabelText('Nhập bình luận (Ctrl+Enter để gửi)');
+    fireEvent.change(box, { target: { value: 'Thêm ảnh' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Bình luận mới' }));
+    await waitFor(() =>
+      expect(cmds()).toContainEqual(
+        expect.objectContaining({ cmd: 'addComment', text: 'Thêm ảnh' }),
+      ),
+    );
+  });
+
   it('switches to the slide sorter and back', async () => {
     const { p } = fakePlatform();
     render(<BlueSlideEditor platform={p} language="en-US" />);

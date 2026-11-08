@@ -18,6 +18,7 @@ import type {
   SlideTransitionKind,
 } from '@blueoffice/platform';
 import {
+  CommentThreads,
   Ribbon,
   StatusBar,
   useResolvedTheme,
@@ -110,6 +111,7 @@ import {
   Underline,
   Undo2,
   Ungroup,
+  MessageSquareText,
 } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimationPane } from './AnimationPane';
@@ -289,6 +291,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [peers, setPeers] = useState<SlidePeer[]>([]);
   const [pos, setPos] = useState<Pos>({ slide: 0, click: 0, enter: 'jump', from: null });
   const [paneOpen, setPaneOpen] = useState(false);
+  /** Comments side panel ([MS-PPTX] modern comments). */
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const [previewToken, setPreviewToken] = useState(0);
   const [ribbonTab, setRibbonTab] = useState('home');
   const [chartDialog, setChartDialog] = useState<{
@@ -1013,6 +1017,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
 
     // Insert.
     simple('insert.textBox', { cmd: 'insertTextBox', text: '' }, deck);
+    reg.register({
+      id: 'review.comments',
+      isEnabled: deck,
+      isChecked: () => commentsOpen,
+      run: async () => setCommentsOpen((o) => !o),
+    });
     for (const [id, preset] of [
       ['insert.rect', 'rect'],
       ['insert.ellipse', 'ellipse'],
@@ -1112,6 +1122,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     showCache,
     count,
     paneOpen,
+    commentsOpen,
     newChart,
     openChart,
     edit,
@@ -1390,7 +1401,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           {
             id: 'text',
             label: t('slideEditor.groupText'),
-            items: [item('insert.textBox', t('slideEditor.textBox'), <Type size={18} />)],
+            items: [
+              item('insert.textBox', t('slideEditor.textBox'), <Type size={18} />),
+              item(
+                'review.comments',
+                t('slideEditor.comments.title'),
+                <MessageSquareText size={18} />,
+              ),
+            ],
           },
           {
             id: 'shapes',
@@ -1914,6 +1932,48 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               </section>
             )}
           </div>
+          {commentsOpen && count > 0 && (
+            <CommentThreads
+              threads={(edit?.comments ?? []).map((th) => ({
+                ...th,
+                anchor: t('slideEditor.slideOf', { n: shown + 1, total: count }),
+              }))}
+              labels={{
+                title: t('slideEditor.comments.title'),
+                empty: t('slideEditor.comments.empty'),
+                newComment: t('slideEditor.comments.new'),
+                newPlaceholder: t('slideEditor.comments.newPlaceholder'),
+                reply: t('slideEditor.comments.reply'),
+                replyPlaceholder: t('slideEditor.comments.replyPlaceholder'),
+                resolve: t('slideEditor.comments.resolve'),
+                reopen: t('slideEditor.comments.reopen'),
+                delete: t('slideEditor.comments.delete'),
+                close: t('slideEditor.comments.close'),
+                resolved: t('slideEditor.comments.resolved'),
+              }}
+              newAnchor={t('slideEditor.slideOf', { n: shown + 1, total: count })}
+              onAdd={(text) =>
+                run({
+                  cmd: 'addComment',
+                  text,
+                  author: platform.auth?.user?.name ?? '',
+                  date: new Date().toISOString(),
+                })
+              }
+              onReply={(parent, text) =>
+                run({
+                  cmd: 'addComment',
+                  parent,
+                  text,
+                  author: platform.auth?.user?.name ?? '',
+                  date: new Date().toISOString(),
+                })
+              }
+              onResolve={(id, done) => run({ cmd: 'resolveComment', id, done })}
+              onDelete={(id) => run({ cmd: 'deleteComment', id })}
+              onClose={() => setCommentsOpen(false)}
+            />
+          )}
           {paneOpen && count > 0 && (
             <AnimationPane
               engine={engine}

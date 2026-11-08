@@ -680,6 +680,10 @@ export type SlideTextFormat =
 export type SlideCommand =
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
   | { cmd: 'undo' | 'redo' }
+  /** New comment thread on the current slide, or a reply to thread `parent`. */
+  | { cmd: 'addComment'; text: string; author?: string; date?: string; parent?: string }
+  | { cmd: 'resolveComment'; id: string; done: boolean }
+  | { cmd: 'deleteComment'; id: string }
   | { cmd: 'goTo'; slide: number }
   | { cmd: 'select'; ids: number[] }
   | { cmd: 'selectRect'; rect: SlideRect; extend?: boolean }
@@ -878,6 +882,14 @@ export interface SlidePreview {
 }
 
 /** Result of a slide command. */
+/** A comment thread of a slide ([MS-PPTX] modern comments). */
+export interface SlideThreadInfo {
+  id: string;
+  done: boolean;
+  /** First comment, then the replies. */
+  comments: { id: string; author: string; date: string; text: string }[];
+}
+
 export interface SlideEditResult {
   info: DocInfo;
   slide: number;
@@ -898,6 +910,8 @@ export interface SlideEditResult {
   error?: string;
   /** While collaborating: the change to share and the selected object key. */
   collab?: { change: CollabChange; shape?: string };
+  /** Comment threads of the current slide. */
+  comments?: SlideThreadInfo[];
   /** Text editing inside a shape. */
   textEdit?: SlideTextEdit;
   /** Table being edited: anchor cells (merged cells once) and the selection. */

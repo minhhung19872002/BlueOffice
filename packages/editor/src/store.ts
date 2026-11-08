@@ -45,7 +45,7 @@ export interface EditorState {
     | 'notes'
     | null;
   /** Modal dialog. */
-  dialog: 'pageSetup' | 'pasteSpecial' | 'tableProperties' | 'templates' | null;
+  dialog: 'pageSetup' | 'pasteSpecial' | 'tableProperties' | 'picturePosition' | 'templates' | null;
   /** Format Painter: off, once (single click) or sticky (double click; Esc stops). */
   painter: 'off' | 'once' | 'sticky';
   /** Font picker entries from the engine. */

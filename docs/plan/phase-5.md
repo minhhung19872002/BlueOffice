@@ -87,9 +87,40 @@ Playwright `tests/e2e/specs/review.spec.ts` (chấp nhận/từ chối, luồng 
   thay đổi bên trái bảng, ảnh có khung màu (ảnh xoá gạch chéo), ẩn trong chế độ bản cuối/bản gốc; ngăn xem lại liệt kê, chấp
   nhận/từ chối; proptest `track_tests`: sửa cấu trúc ngẫu nhiên có theo dõi rồi từ chối tất cả == ban đầu; corpus
   `review-04-tables-pictures-page-setup.docx`; E2E chèn hàng có theo dõi → lưu/mở lại → từ chối.
-- Theo dõi thay đổi còn thiếu: ảnh nổi (anchor) đổi vị trí, chèn/xoá cột và ô (`cellIns`/`cellDel`/`cellMerge`, `trPrChange`
-  được giữ nguyên khi đọc/ghi nhưng không hiển thị/chấp nhận); chế độ *Bản gốc* chưa dùng `pPrChange`/`tcPrChange` cho hình
-  thức; vạch thay đổi ở lề chỉ có cho bảng. Trạng thái bật theo dõi không lưu vào `settings.xml` (`w:trackRevisions`).
+- Theo dõi thay đổi cấu trúc (bổ sung 2026-11-08, ECMA-376 Part 1 §17.13.5):
+  - **Cột và ô**: chèn cột = ô `cellIns` (§17.13.5.4) ở mọi hàng + `tblGridChange` (§17.13.5.33, lưới cũ) + `tcPrChange` cho độ
+    rộng/gridSpan các ô bị co lại (gộp vào cùng một thay đổi trong ngăn xem lại); xoá cột/ô = `cellDel` (§17.13.5.3), lưới giữ
+    nguyên tới khi chấp nhận; chấp nhận bỏ ô và các cột lưới không còn ô (ô trải nhiều cột bị thu hẹp) — dùng chung hàm hình
+    học `Table::geometry`/`removed_columns` (bo-model) cho layout và chấp nhận. Lệnh mới chèn ô (đẩy phải) / xoá ô (đẩy trái).
+    Ô mình vừa chèn mà xoá thì bị xoá thật (một ô không thể vừa cellIns vừa cellDel trong CT_TcPr).
+  - **Gộp/tách ô**: §17.13.5.6 cellMerge chỉ mô tả gộp **dọc** (`vMerge`/`vMergeOrig` = `rest`/`cont`; `tcPr/vMerge` mang giá
+    trị mới) nên gộp ngang được ghi như cách ứng dụng tương thích làm: ô đầu `tcPrChange` (gridSpan cũ), ô bị gộp `cellDel`;
+    nội dung dồn vào ô trên-trái là phần **chèn** có theo dõi, nội dung hàng dưới của gộp dọc là phần **xoá** — từ chối trả lại
+    đúng bảng cũ. Ở chế độ *Mọi đánh dấu*, hàng dư cột (ô bị gộp vẫn hiện) dùng gridSpan cũ để vừa lưới. Tách ô = ô `cellIns` +
+    `tcPrChange`/`cellMerge`.
+  - **Thuộc tính hàng**: `trPrChange` (§17.13.5.37: tblHeader, cantSplit, trHeight) đọc/ghi/ghi nhận (lặp hàng tiêu đề),
+    *Bản gốc* lặp theo giá trị cũ.
+  - **Đầu/chân trang và chú thích**: phiên sửa riêng (story) ghi nhận theo dõi như thân văn bản (cùng tác giả, đồng hồ, id
+    lớn hơn mọi id trong tài liệu — `max_id` tính cả đầu/chân trang và chú thích); ngăn xem lại liệt kê kèm nơi chứa
+    (`story`: Đầu trang/Chân trang/Chú thích…; bấm vào thay đổi trong chú thích sẽ mở chú thích), chấp nhận/từ chối theo id
+    hay tất cả áp dụng cả trong header/footer và footnote/endnote.
+  - **Ảnh nổi đổi vị trí**: lệnh `setPicturePosition` (hộp thoại *Bố cục → Vị trí ảnh*); khi theo dõi, ghi thành cặp
+    `moveFrom` (vị trí cũ) / `moveTo` (vị trí mới) (§17.13.5.22/§17.13.5.25); dời tiếp ảnh đã dời/chính mình chèn thì sửa tại
+    chỗ; *Mọi đánh dấu* vẽ khung màu tác giả (ảnh cũ nét đứt, gạch chéo), *Bản cuối/Bản gốc* ẩn bên tương ứng; writer viết lại
+    `w:drawing` khi vị trí đổi (fingerprint vị trí khi đọc).
+  - Writer cấp id duy nhất cho mọi phần tử theo dõi khi lưu (một thao tác như chèn cột đánh dấu nhiều ô bằng một thay đổi;
+    OpenXmlValidator yêu cầu `w:id` không trùng) — phần tử đầu giữ id, các phần tử sau nhận id mới; vì vậy sau khi mở lại,
+    các phần của cùng một thao tác có thể hiện thành nhiều mục trong ngăn xem lại.
+  - Hiển thị: ô chèn/xoá tô màu tác giả (ô xoá gạch chéo), ẩn ở *Bản cuối*/*Bản gốc* với lưới tương ứng; vạch thay đổi bên trái
+    bảng cho mọi thay đổi ô/hàng/bảng.
+  - Kiểm thử: proptest `track_tests` (128 ca; hàng, cột, ô, gộp, tách, hàng tiêu đề, ảnh chèn/xoá/dời, thiết lập trang, sửa đầu
+    trang và chú thích có theo dõi rồi từ chối tất cả == ban đầu, chấp nhận tất cả không còn thay đổi, undo hết == ban đầu; đã
+    chạy thử 2 000 ca), unit test bo-edit/bo-layout, `bo-engine/tests/doc_features.rs` (lưu/mở lại, corpus), Playwright
+    `tests/e2e/specs/review-structure.spec.ts`. Corpus `review-05..13` (OpenXmlValidator hợp lệ, round-trip lossless).
+  - Còn thiếu: chuyển ảnh nổi sang đoạn khác bằng kéo thả (lệnh chỉ đổi toạ độ; cắt/dán có theo dõi vẫn là xoá + chèn);
+    move range (`moveFromRangeStart/End`) không được sinh cho các lần dời mới (giữ nguyên khi đọc); `trPrChange` chỉ mô hình
+    hoá tblHeader/cantSplit/trHeight; thay đổi trong header/footer chưa bấm để nhảy tới (chỉ liệt kê); chế độ *Bản gốc* chưa
+    dùng `pPrChange` cho hình thức đoạn. Trạng thái bật theo dõi không lưu vào `settings.xml` (`w:trackRevisions`).
 - Chú thích: chưa tô vùng được chú thích trên trang, chưa sửa nội dung chú thích đã có, chú thích trong header/footer
   không hiển thị; `commentsExtensible`/`people.xml` giữ nguyên (không cập nhật).
 - Trộn thư: chỉ MERGEFIELD (chưa IF/NEXT/ASK/FILLIN, chưa lọc/sắp xếp bản ghi); "Trộn thành PDF" = trộn rồi xuất PDF.

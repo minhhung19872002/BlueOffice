@@ -52,7 +52,8 @@
       "merge": "Gộp",
       "tableStyle": "Kiểu bảng",
       "headerFooter": "Đầu và chân trang",
-      "footnotes": "Chú thích"
+      "footnotes": "Chú thích",
+      "arrange": "Sắp xếp"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -186,7 +187,12 @@
       "bordersNone": "Không viền",
       "shading": "Tô nền ô",
       "headerRow": "Lặp hàng tiêu đề",
-      "properties": "Thuộc tính bảng…"
+      "properties": "Thuộc tính bảng…",
+      "insertCell": "Chèn ô (đẩy sang phải)",
+      "deleteCell": "Xoá ô (đẩy sang trái)"
+    },
+    "picture": {
+      "position": "Vị trí ảnh"
     }
   },
   "status": {
@@ -1061,7 +1067,18 @@
       "rowDelete": "Xoá hàng",
       "cellFormat": "Định dạng ô",
       "tableFormat": "Định dạng bảng",
-      "sectionFormat": "Đổi thiết lập trang"
+      "sectionFormat": "Đổi thiết lập trang",
+      "cellInsert": "Thêm ô/cột",
+      "cellDelete": "Xoá ô/cột",
+      "cellMerge": "Gộp/tách ô",
+      "rowFormat": "Thuộc tính hàng",
+      "tableGrid": "Độ rộng cột"
+    },
+    "story": {
+      "header": "Đầu trang",
+      "footer": "Chân trang",
+      "footnote": "Chú thích cuối trang",
+      "endnote": "Chú thích cuối văn bản"
     }
   },
   "comments": {
@@ -1327,5 +1344,10 @@
     "syncPromptBody": "“{{name}}” nằm trong thư mục đồng bộ BlueDrive. Chuyển sang cộng tác trực tuyến để sửa cùng người khác và lưu thẳng lên BlueDrive?",
     "syncPromptOnline": "Cộng tác trực tuyến",
     "syncPromptLocal": "Tiếp tục sửa trên máy"
+  },
+  "picture": {
+    "position": "Vị trí ảnh",
+    "horizontal": "Ngang",
+    "vertical": "Dọc"
   }
 }

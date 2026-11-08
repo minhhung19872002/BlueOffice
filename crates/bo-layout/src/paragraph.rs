@@ -643,11 +643,15 @@ fn layout_uncached(
         };
         if let RunContent::Image(img) = item {
             if img.anchor.is_some() {
-                floats.push(Float {
-                    img: (**img).clone(),
-                    drawing,
-                    para: None,
-                });
+                // A floating picture deleted (final view) or inserted (original view)
+                // by a tracked change is not shown (§17.13.5.14, §17.13.5.18).
+                if !styles[style].hidden {
+                    floats.push(Float {
+                        img: (**img).clone(),
+                        drawing,
+                        para: None,
+                    });
+                }
                 continue;
             }
         }

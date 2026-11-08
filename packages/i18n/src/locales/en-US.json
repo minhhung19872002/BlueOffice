@@ -52,7 +52,8 @@
       "merge": "Merge",
       "tableStyle": "Table style",
       "headerFooter": "Header & footer",
-      "footnotes": "Notes"
+      "footnotes": "Notes",
+      "arrange": "Arrange"
     },
     "comingLater": "Coming in a later release"
   },
@@ -186,7 +187,12 @@
       "bordersNone": "No borders",
       "shading": "Cell shading",
       "headerRow": "Repeat header row",
-      "properties": "Table properties…"
+      "properties": "Table properties…",
+      "insertCell": "Insert cell (shift right)",
+      "deleteCell": "Delete cell (shift left)"
+    },
+    "picture": {
+      "position": "Picture position"
     }
   },
   "status": {
@@ -1061,7 +1067,18 @@
       "rowDelete": "Row deleted",
       "cellFormat": "Cell formatted",
       "tableFormat": "Table formatted",
-      "sectionFormat": "Page setup changed"
+      "sectionFormat": "Page setup changed",
+      "cellInsert": "Inserted cells",
+      "cellDelete": "Deleted cells",
+      "cellMerge": "Merged/split cells",
+      "rowFormat": "Row properties",
+      "tableGrid": "Column widths"
+    },
+    "story": {
+      "header": "Header",
+      "footer": "Footer",
+      "footnote": "Footnote",
+      "endnote": "Endnote"
     }
   },
   "comments": {
@@ -1327,5 +1344,10 @@
     "syncPromptBody": "“{{name}}” is in a BlueDrive sync folder. Switch to online collaboration to edit it together with others and save straight to BlueDrive?",
     "syncPromptOnline": "Collaborate online",
     "syncPromptLocal": "Keep editing on this computer"
+  },
+  "picture": {
+    "position": "Picture position",
+    "horizontal": "Horizontal",
+    "vertical": "Vertical"
   }
 }

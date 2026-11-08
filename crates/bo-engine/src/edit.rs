@@ -240,6 +240,13 @@ pub enum Command {
     TableEdit {
         edit: TableEdit,
     },
+    /// Move the floating picture at the selection to offsets `x`, `y` (points) from
+    /// its position references (ECMA-376 Part 1, §20.4.2.10 positionH, §20.4.2.11
+    /// positionV); a tracked move with track changes on (§17.13.5.22 / §17.13.5.25).
+    SetPicturePosition {
+        x: f32,
+        y: f32,
+    },
     /// Page size, orientation, margins and columns (§17.6.13, §17.6.11, §17.6.4).
     SetPageSetup {
         setup: PageSetupSpec,
@@ -620,6 +627,9 @@ impl crate::Engine {
                     }
                     Command::TableEdit { edit } => {
                         s.edit_table(&edit)?;
+                    }
+                    Command::SetPicturePosition { x, y } => {
+                        s.set_picture_position(x, y)?;
                     }
                     Command::SetPageSetup { setup, scope } => s.set_page_setup(setup, scope)?,
                     Command::SetHeaderOptions {

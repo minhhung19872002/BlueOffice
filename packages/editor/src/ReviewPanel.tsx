@@ -27,11 +27,21 @@ function RevisionRow({ r, run, language }: { r: RevisionItem; run: Run; language
       <button
         type="button"
         className={styles.reviewItemMain}
-        onClick={() =>
-          void run({ cmd: 'setSelection', selection: { anchor: r.start, focus: r.end } })
-        }
+        onClick={() => {
+          // Revisions in notes open the note; in headers/footers they are listed only.
+          if (r.story?.kind === 'footnote' || r.story?.kind === 'endnote') {
+            void run({ cmd: 'editNote', endnote: r.story.kind === 'endnote', id: r.story.id });
+          } else if (!r.story) {
+            void run({ cmd: 'setSelection', selection: { anchor: r.start, focus: r.end } });
+          }
+        }}
       >
-        <span className={styles.reviewKind}>{t(`review.kind.${r.kind}`)}</span>
+        <span className={styles.reviewKind}>
+          {r.story && (
+            <span data-testid="revision-story">{t(`review.story.${r.story.kind}`)} · </span>
+          )}
+          {t(`review.kind.${r.kind}`)}
+        </span>
         <span className={styles.reviewMeta}>
           {r.author} · {formatStamp(r.date, language)}
         </span>
@@ -112,7 +122,7 @@ export function ReviewPanel({
       <ul className={styles.reviewList}>
         {revisions.map((r) => (
           <RevisionRow
-            key={`${r.kind}-${r.id}-${r.start.p}-${r.start.o}`}
+            key={`${r.story?.kind ?? 'body'}-${r.kind}-${r.id}-${r.start.p}-${r.start.o}`}
             r={r}
             run={run}
             language={language}

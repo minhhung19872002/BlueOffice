@@ -77,7 +77,10 @@ struct State {
     end_other_lists: ListCounters,
     section_start: Vec<Option<usize>>,
     hf_heights: Vec<(f32, f32)>,
+    /// Note numbers the layout used (per page with §17.11.19 numRestart eachPage).
     notes: HashMap<NoteKey, String>,
+    /// Note numbers of the scan of the document (before per-page numbering).
+    scan_notes: HashMap<NoteKey, String>,
     endnote_order: Vec<i32>,
     needs_total: bool,
     /// Headers or footers contain fields (their content depends on page numbers).
@@ -338,7 +341,7 @@ impl IncrementalLayout {
                 && st.opts == opts
                 && !sc.needs_total
                 && !st.needs_total
-                && st.notes == sc.notes
+                && st.scan_notes == sc.notes
                 && st.endnote_order == sc.endnote_order
                 && st.cps.len() == doc.sections.len()
                 && doc.sections.iter().enumerate().all(|(si, s)| {
@@ -428,8 +431,9 @@ impl IncrementalLayout {
             end_other_lists,
             section_start: std::mem::take(&mut flow.section_start),
             hf_heights: hf,
-            // Differs from the scan with per-page numbering: later updates are full.
+            // Differs from the scan with per-page numbering (§17.11.19 eachPage).
             notes: ctx.notes.clone(),
+            scan_notes: sc.notes.clone(),
             endnote_order: sc.endnote_order.clone(),
             needs_total: sc.needs_total,
             hf_fields,
@@ -518,6 +522,9 @@ impl IncrementalLayout {
         pages.push(cur);
 
         let mut ctx = new_ctx(doc, fonts, cache, opts, sc);
+        // Per-page footnote numbers (§17.11.19 numRestart eachPage) of the previous
+        // layout: kept when the pages' notes stay the same (checked below).
+        ctx.notes.clone_from(&st.notes);
         let mut flow = Flow::new(st.hf_heights.clone(), doc.sections.len());
         flow.pages = pages;
         for (s, v) in st.section_start.iter().enumerate().take(rs + 1) {
@@ -634,6 +641,12 @@ impl IncrementalLayout {
             st.foot_cache = std::mem::take(&mut flow.foot_cache);
             st.foot_order = std::mem::take(&mut flow.foot_order);
             end_other_lists = ctx.other_lists.clone();
+        }
+        // Footnotes moved to other pages renumber with eachPage: lay out again.
+        if let Some(map) = crate::page_note_numbers(doc, &pages, &ctx.notes) {
+            if map != ctx.notes {
+                return Ok(None);
+            }
         }
         st.cps = cps;
         st.built = std::mem::take(&mut flow.built);

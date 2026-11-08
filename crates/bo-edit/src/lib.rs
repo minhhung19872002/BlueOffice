@@ -16,6 +16,7 @@ pub mod html;
 pub mod merge;
 mod ops;
 pub mod para;
+pub mod picture;
 pub mod revisions;
 pub mod section;
 pub mod shapes;
@@ -26,8 +27,8 @@ pub use fields::RefTarget;
 pub use find::{find, FindOptions, Match};
 pub use ops::{Op, Pos, Selection, Transaction};
 use revisions::Tracker;
-pub use revisions::{RevKind, RevisionItem};
-pub use section::{PageSetupSpec, PasteMode, SetupScope};
+pub use revisions::{RevKind, RevisionItem, StoryRef};
+pub use section::{HfVariant, PageSetupSpec, PasteMode, SetupScope};
 pub use table::{BorderPreset, TableEdit};
 
 use bo_model::change::BlockChanges;
@@ -339,6 +340,8 @@ pub struct FormatState {
     pub shading: Option<String>,
     pub section: SectionState,
     pub table: Option<TableState>,
+    /// Floating picture at the selection (§20.4.2.3 anchor).
+    pub picture: Option<picture::PictureState>,
 }
 
 /// Content copied to the clipboard.
@@ -952,6 +955,9 @@ pub struct Session {
     changes: BlockChanges,
     /// Formatting picked by the Format Painter.
     painter: Option<section::PickedFormat>,
+    /// New revision ids are above this (a header/footer or note edited in its own
+    /// session takes ids unique in the whole document, §17.13.5).
+    id_floor: i32,
 }
 
 /// Author used when the host does not know the user.
@@ -973,7 +979,13 @@ impl Session {
             clock: None,
             changes: BlockChanges::everything(),
             painter: None,
+            id_floor: 0,
         }
+    }
+
+    /// New revisions get ids above `floor` (see [`revisions::max_id`]).
+    pub fn set_revision_floor(&mut self, floor: i32) {
+        self.id_floor = floor;
     }
 
     /// Turn track-changes mode on or off.
@@ -1021,6 +1033,7 @@ impl Session {
         let mut ids: Vec<i32> = self
             .revisions()
             .into_iter()
+            .filter(|r| r.story.is_none())
             .filter(|r| {
                 if a == b {
                     r.start <= a && a <= r.end
@@ -1054,14 +1067,43 @@ impl Session {
             for si in 0..tx.doc.sections.len() {
                 let new = revisions::resolve_blocks(&tx.doc.sections[si].blocks, &filter, accept);
                 tx.set_section_blocks(si, &new)?;
-                if let Some(sec) = revisions::resolve_section(&tx.doc.sections[si], &filter, accept)
-                {
+                let mut sec = revisions::resolve_section(&tx.doc.sections[si], &filter, accept);
+                // Revisions inside headers and footers (§17.10).
+                let cur = sec.as_ref().unwrap_or(&tx.doc.sections[si]).clone();
+                let mut hf = cur.clone();
+                for v in [HfVariant::Default, HfVariant::First, HfVariant::Even] {
+                    for set in [&mut hf.headers, &mut hf.footers] {
+                        let slot = section::hf_slot_mut(set, v);
+                        if let Some(b) = slot.as_ref() {
+                            *slot = Some(revisions::resolve_blocks(b, &filter, accept));
+                        }
+                    }
+                }
+                if hf != cur {
+                    sec = Some(hf);
+                }
+                if let Some(sec) = sec {
                     let old = tx.doc.sections[si].clone();
                     tx.push(Op::Sections {
                         index: si,
                         remove: vec![old],
                         insert: vec![sec],
                     })?;
+                }
+            }
+            // Revisions inside footnotes and endnotes (§17.11).
+            for endnote in [false, true] {
+                let old = if endnote {
+                    tx.doc.endnotes.clone()
+                } else {
+                    tx.doc.footnotes.clone()
+                };
+                let new: std::collections::BTreeMap<i32, Vec<Block>> = old
+                    .iter()
+                    .map(|(id, b)| (*id, revisions::resolve_blocks(b, &filter, accept)))
+                    .collect();
+                if new != old {
+                    tx.push(Op::Notes { endnote, old, new })?;
                 }
             }
             // Pictures removed by resolving (rejected insertions) take their media part along.
@@ -1440,7 +1482,11 @@ impl Session {
     /// Select the next (or previous) revision relative to the selection; returns it.
     pub fn select_revision(&mut self, forward: bool) -> Option<RevisionItem> {
         let (a, _) = self.selection.ordered();
-        let all = self.revisions();
+        let all: Vec<RevisionItem> = self
+            .revisions()
+            .into_iter()
+            .filter(|r| r.story.is_none())
+            .collect();
         let r = if forward {
             all.into_iter().find(|r| r.start > a)
         } else {
@@ -1541,7 +1587,7 @@ impl Session {
         let track = self.track.then(|| Tracker {
             author: self.author.clone(),
             date: self.clock.clone(),
-            next_id: revisions::max_id(&self.doc),
+            next_id: revisions::max_id(&self.doc).max(self.id_floor),
         });
         let mut tx = Tx {
             doc: &mut self.doc,
@@ -2259,6 +2305,7 @@ impl Session {
             shading: eff.shading.map(Color::to_hex),
             section: self.section_state(),
             table: self.table_state(),
+            picture: self.picture_state(),
         }
     }
 

@@ -384,6 +384,70 @@ export function PasteSpecialDialog({
   );
 }
 
+/** Position of the floating picture at the selection (§20.4.2.10 positionH,
+ * §20.4.2.11 positionV posOffset); a tracked move when track changes is on. */
+export function PicturePositionDialog({
+  format,
+  run,
+  language,
+  onClose,
+}: {
+  format: FormatState | null | undefined;
+  run: Run;
+  language: string;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const pic = format?.picture;
+  // Points ↔ twips for the length fields.
+  const [x, setX] = useState(Math.round((pic?.x ?? 0) * 20));
+  const [y, setY] = useState(Math.round((pic?.y ?? 0) * 20));
+  const apply = async () => {
+    await run({ cmd: 'setPicturePosition', x: x / 20, y: y / 20 });
+    onClose();
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t('picture.position')}
+      testId="picture-position"
+      footer={
+        <>
+          <button type="button" className={styles.dialogButton} onClick={onClose}>
+            {t('security.cancel')}
+          </button>
+          <button
+            type="button"
+            className={styles.dialogPrimary}
+            data-testid="picture-position-ok"
+            onClick={() => void apply()}
+          >
+            {t('pageSetup.ok')}
+          </button>
+        </>
+      }
+    >
+      <div className={styles.formGrid}>
+        <Length
+          label={t('picture.horizontal')}
+          twips={x}
+          language={language}
+          onChange={setX}
+          testId="picture-x"
+        />
+        <Length
+          label={t('picture.vertical')}
+          twips={y}
+          language={language}
+          onChange={setY}
+          testId="picture-y"
+        />
+      </div>
+    </Dialog>
+  );
+}
+
 /** Table width and alignment (§17.4.63 tblW, §17.4.29 jc). */
 export function TablePropertiesDialog({
   format,

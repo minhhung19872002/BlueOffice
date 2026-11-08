@@ -672,3 +672,139 @@ fn tracked_changes_markup_final_and_original_views() {
     assert_eq!(view(RevisionView::Final).page_text(0), "Giữ chèn");
     assert_eq!(view(RevisionView::Original).page_text(0), "Giữ xoá");
 }
+
+#[test]
+fn long_footnote_continues_on_next_page() {
+    // A footnote longer than the space left on its page continues on the next one
+    // (ECMA-376 Part 1, §17.11.1 continuationSeparator): the reference stays with
+    // the first lines of the note.
+    let mut blocks: Vec<Block> = (0..34).map(|i| p(&format!("Dòng {i}"))).collect();
+    blocks.push(runs(vec![
+        RunContent::Text("Tham chiếu".into()),
+        RunContent::FootnoteRef(1),
+    ]));
+    blocks.extend((0..5).map(|i| p(&format!("Sau {i}"))));
+    let mut d = doc(vec![Section::new(blocks)]);
+    let long: Vec<Block> = (0..30)
+        .map(|i| {
+            let mut c = Vec::new();
+            if i == 0 {
+                c.push(RunContent::NoteMark);
+            }
+            c.push(RunContent::Text(format!(" Ghi chú dài, dòng {i}")));
+            runs(c)
+        })
+        .collect();
+    d.footnotes.insert(1, long);
+    let l = run(&d);
+    let note_pages: Vec<usize> = l
+        .pages
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            p.lines
+                .iter()
+                .any(|x| matches!(x.source, LineSource::Note { id: 1, .. }))
+        })
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(note_pages, vec![0, 1], "note on pages {note_pages:?}");
+    // The reference is on the first page, above the note.
+    assert!(l.page_text(0).contains("Tham chiếu1"));
+    // Every line stays inside the page.
+    for pg in &l.pages {
+        for x in &pg.lines {
+            assert!(x.top + x.height <= bottom() + 0.5, "line at {}", x.top);
+        }
+    }
+    // The continuation separator spans the text width.
+    let width = {
+        let s = PageSetup::default();
+        s.width.to_pt() - s.margin_left.to_pt() - s.margin_right.to_pt()
+    };
+    assert!(l.pages[1]
+        .items
+        .iter()
+        .any(|i| matches!(i, PageItem::Rule { x2, x1, .. } if (x2 - x1 - width).abs() < 0.5)));
+    // Nothing of the note is lost.
+    let text = all_text(&l);
+    for i in 0..30 {
+        assert!(text.contains(&format!("dòng {i}")), "line {i} missing");
+    }
+}
+
+#[test]
+fn document_wide_note_properties_with_section_override() {
+    use bo_model::{NoteProps, NumFormat};
+    let referencing = |id: i32| {
+        runs(vec![
+            RunContent::Text("Văn bản".into()),
+            RunContent::FootnoteRef(id),
+        ])
+    };
+    let s1 = Section::new(vec![referencing(1), referencing(2)]);
+    let mut s2 = Section::new(vec![referencing(3)]);
+    s2.footnote_pr.fmt = Some(NumFormat::LowerLetter);
+    let mut d = doc(vec![s1, s2]);
+    // §17.11.11 footnotePr in settings: upper-roman numbers from 4.
+    d.footnote_pr = NoteProps {
+        fmt: Some(NumFormat::UpperRoman),
+        start: Some(4),
+        ..NoteProps::default()
+    };
+    for id in 1..=3 {
+        d.footnotes.insert(id, note(&format!("Ghi chú {id}")));
+    }
+    assert_eq!(
+        note_marks(&run(&d)),
+        vec![(0, 1, "IV".into()), (0, 2, "V".into()), (1, 3, "f".into())]
+    );
+}
+
+#[test]
+fn tracked_cells_in_each_view() {
+    use bo_layout::{layout_document_with, LayoutOptions, RevisionView};
+    use bo_model::{RevMark, RevisionInfo};
+    let mark = RevMark {
+        info: RevisionInfo {
+            id: 1,
+            author: "An".into(),
+            date: None,
+        },
+        moved: false,
+    };
+    // A 2×2 table whose second column is deleted (§17.13.5.3 cellDel).
+    let mut t = Table::simple(2, 2, Twips(8000));
+    for (ri, row) in t.rows.iter_mut().enumerate() {
+        for (ci, c) in row.cells.iter_mut().enumerate() {
+            c.blocks = vec![p(&format!("Ô{ri}{ci}"))];
+            if ci == 1 {
+                c.props.del = Some(mark.clone());
+            }
+        }
+    }
+    let d = doc(vec![Section::new(vec![Block::Table(t), p("Hết")])]);
+    let view = |v| {
+        layout_document_with(
+            &d,
+            &mut fonts(),
+            &mut LayoutCache::new(),
+            LayoutOptions { view: v },
+        )
+        .unwrap()
+    };
+    let m = view(RevisionView::Markup);
+    assert!(m.page_text(0).contains("Ô01"));
+    // Markup: the deleted cells are tinted with the author's colour.
+    let tint = m.pages[0]
+        .items
+        .iter()
+        .filter(|i| matches!(i, PageItem::Rect { .. }))
+        .count();
+    assert!(tint >= 2, "{tint} rects");
+    let f = view(RevisionView::Final);
+    assert!(!f.page_text(0).contains("Ô01"));
+    assert!(f.page_text(0).contains("Ô00"));
+    let o = view(RevisionView::Original);
+    assert!(o.page_text(0).contains("Ô01"));
+}

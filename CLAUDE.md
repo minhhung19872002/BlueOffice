@@ -122,6 +122,11 @@ cộng tác, chế độ chỉ xem — dùng chung cho web nhúng và desktop de
   (chủ dự án đã bỏ bước dừng chờ duyệt giữa các phase).
 - Corpus tự sinh phải qua OpenXmlValidator (`pnpm fidelity`); ngoại lệ có lý do ghi ở `tests/fidelity/known-issues.txt`.
 
+## Giai đoạn Parity (đang chạy)
+Đang ở giai đoạn Parity — làm theo vòng lặp trong [`BlueOffice-PARITY-PROMPT.md`](BlueOffice-PARITY-PROMPT.md) mục 1,
+không dừng giữa chừng. Nguồn sự thật: `docs/parity/BACKLOG.md` (hạng mục `[~]` = đang làm), `MATRIX.md`,
+`functions.md` (`python scripts/parity-functions.py`), `NEEDS_HUMAN.md`, `REFERENCE_GUIDE.md`.
+
 ## Phase hiện tại
 **Phase 1–6A hoàn thành phần chính; Phase 7 (BlueForm, BlueNote) chỉ có kế hoạch.** Ưu tiên của chủ dự án: bộ office
 trước, BlueDrive tính sau. Không còn worktree dở; các nhánh `origin/wip/phase*` là ảnh chụp cũ (2026-11-05) đã làm lại trong

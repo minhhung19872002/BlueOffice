@@ -1076,6 +1076,29 @@ fn only_validation_data_after(pdf: &[u8], end: usize) -> bool {
     let check = || -> Result<bool> {
         let old = PdfFile::parse(&pdf[..end])?;
         let new = PdfFile::parse(pdf)?;
+        // The bytes after `end` must be whole incremental updates (ISO 32000-1
+        // §7.5.6) chained by /Prev back to the covered revision, with nothing
+        // but white space after the last %%EOF.
+        if new.startxref <= end {
+            return Ok(false);
+        }
+        let mut pos = new.startxref;
+        let mut hops = 0;
+        while pos != old.startxref {
+            hops += 1;
+            if pos < end || hops > 64 {
+                return Ok(false);
+            }
+            let (t, _) = PdfFile::xref_section(pdf, pos)?;
+            match dict_get(&t, "Prev").and_then(|p| p.parse().ok()) {
+                Some(p) => pos = p,
+                None => return Ok(false),
+            }
+        }
+        let last_eof = find_last(pdf, b"%%EOF").ok_or_else(|| malformed("%%EOF"))?;
+        if pdf[last_eof + 5..].iter().any(|b| !is_ws(*b)) {
+            return Ok(false);
+        }
         let (root, catalog) = new.catalog()?;
         let (old_root, old_catalog) = old.catalog()?;
         if root != old_root {

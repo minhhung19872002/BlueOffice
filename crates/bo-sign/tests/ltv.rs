@@ -232,3 +232,24 @@ fn document_timestamps_cover_signatures_and_dss() {
     broken[pos + 13] = b'X';
     assert!(verify_pdf_timestamps(&broken).is_err());
 }
+
+#[test]
+fn bytes_that_are_not_updates_are_changes() {
+    let mut pdf = add_dss(
+        &signed(),
+        &Dss {
+            certs: vec![b"c".to_vec()],
+            ..Dss::default()
+        },
+    )
+    .unwrap();
+    assert!(verify_pdf(&pdf).unwrap()[0].only_validation_data_after);
+    // Trailing bytes after the last %%EOF: not an update.
+    pdf.extend_from_slice(b"\n% appended after signing\n");
+    let sig = &verify_pdf(&pdf).unwrap()[0];
+    assert!(!sig.covers_whole_file && !sig.only_validation_data_after);
+    // Same on a signed file without any update.
+    let mut plain = signed();
+    plain.extend_from_slice(b"% junk\n");
+    assert!(!verify_pdf(&plain).unwrap()[0].only_validation_data_after);
+}

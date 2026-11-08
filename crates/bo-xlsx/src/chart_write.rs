@@ -113,7 +113,19 @@ fn sp_pr(out: &mut String, color: &str, line: bool) {
     }
 }
 
-/// One `c:ser` (§21.2.2.150 and the per-type variants).
+/// The `a:solidFill` colour value of a model colour (sRGB hex or a theme colour element).
+fn fill_xml(c: &bo_model::sheet::ChartColor) -> String {
+    match c {
+        bo_model::sheet::ChartColor::Rgb(v) => {
+            format!("<a:srgbClr val=\"{:06X}\"/>", v & 0xFF_FFFF)
+        }
+        bo_model::sheet::ChartColor::Scheme(n) => format!("<a:schemeClr val=\"{}\"/>", escape(n)),
+    }
+}
+
+/// One `c:ser` (§21.2.2.150 and the per-type variants: CT_BarSer, CT_LineSer, CT_PieSer, CT_AreaSer,
+/// CT_ScatterSer, CT_RadarSer, CT_BubbleSer, CT_SurfaceSer; children in schema order).
+#[allow(clippy::too_many_lines)]
 fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize) {
     let color = PALETTE[idx % PALETTE.len()];
     let _ = write!(out, "<c:ser><c:idx val=\"{idx}\"/><c:order val=\"{idx}\"/>");
@@ -133,33 +145,72 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize) {
             }
         }
     }
-    let pie = matches!(kind, ChartKind::Pie | ChartKind::Doughnut);
-    if !pie {
-        sp_pr(
-            out,
-            color,
-            matches!(kind, ChartKind::Line | ChartKind::Scatter),
-        );
+    let pie = matches!(
+        kind,
+        ChartKind::Pie | ChartKind::Doughnut | ChartKind::OfPie
+    );
+    let line_like = matches!(
+        kind,
+        ChartKind::Line | ChartKind::Scatter | ChartKind::Radar
+    );
+    if *kind == ChartKind::Stock {
+        // Stock series draw only their high–low lines and ticks (§21.2.2.198).
+        out.push_str("<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr><c:marker><c:symbol val=\"none\"/></c:marker>");
+    } else if !pie {
+        match s.fill.as_ref().or(s.line.as_ref()) {
+            Some(c) if line_like => {
+                let _ = write!(
+                    out,
+                    "<c:spPr><a:ln w=\"28575\" cap=\"rnd\"><a:solidFill>{}</a:solidFill><a:round/></a:ln></c:spPr>",
+                    fill_xml(c)
+                );
+            }
+            Some(c) => {
+                let _ = write!(
+                    out,
+                    "<c:spPr><a:solidFill>{}</a:solidFill></c:spPr>",
+                    fill_xml(c)
+                );
+            }
+            None => sp_pr(out, color, line_like),
+        }
     }
     match kind {
-        ChartKind::Bar => out.push_str("<c:invertIfNegative val=\"0\"/>"),
-        ChartKind::Line => out.push_str("<c:marker><c:symbol val=\"none\"/></c:marker>"),
+        ChartKind::Bar | ChartKind::Bubble => out.push_str("<c:invertIfNegative val=\"0\"/>"),
+        ChartKind::Line | ChartKind::Radar => {
+            out.push_str("<c:marker><c:symbol val=\"none\"/></c:marker>");
+        }
         ChartKind::Scatter => {
             out.push_str("<c:marker><c:symbol val=\"circle\"/><c:size val=\"5\"/></c:marker>");
         }
         _ => {}
     }
+    if pie && s.explosion > 0 {
+        // §21.2.2.65 explosion.
+        let _ = write!(out, "<c:explosion val=\"{}\"/>", s.explosion);
+    }
     if pie {
-        // Per-point colours (§21.2.2.52 dPt).
+        // Per-point colours (§21.2.2.52 dPt): the file's or the palette.
         for i in 0..s.values.len() {
+            let fill = s.point_fills.iter().find(|(k, _)| *k == i).map_or_else(
+                || format!("<a:srgbClr val=\"{}\"/>", PALETTE[i % PALETTE.len()]),
+                |(_, c)| fill_xml(c),
+            );
             let _ = write!(
                 out,
-                "<c:dPt><c:idx val=\"{i}\"/><c:bubble3D val=\"0\"/><c:spPr><a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill></c:spPr></c:dPt>",
-                PALETTE[i % PALETTE.len()]
+                "<c:dPt><c:idx val=\"{i}\"/><c:bubble3D val=\"0\"/><c:spPr><a:solidFill>{fill}</a:solidFill></c:spPr></c:dPt>"
+            );
+        }
+    } else {
+        for (i, c) in &s.point_fills {
+            let _ = write!(
+                out,
+                "<c:dPt><c:idx val=\"{i}\"/><c:spPr><a:solidFill>{}</a:solidFill></c:spPr></c:dPt>",
+                fill_xml(c)
             );
         }
     }
-    if *kind == ChartKind::Scatter {
+    if matches!(kind, ChartKind::Scatter | ChartKind::Bubble) {
         let xs: Option<Vec<Option<f64>>> = s
             .categories
             .iter()
@@ -175,7 +226,19 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize) {
         }
         out.push_str("<c:yVal>");
         num_ref(out, s.val_ref.as_deref(), &s.values);
-        out.push_str("</c:yVal><c:smooth val=\"0\"/></c:ser>");
+        out.push_str("</c:yVal>");
+        if *kind == ChartKind::Bubble {
+            // §21.2.2.22 bubbleSize (a size of 1 for each point when none was given).
+            out.push_str("<c:bubbleSize>");
+            if s.sizes.is_empty() && s.size_ref.is_none() {
+                num_ref(out, None, &vec![Some(1.0); s.values.len()]);
+            } else {
+                num_ref(out, s.size_ref.as_deref(), &s.sizes);
+            }
+            out.push_str("</c:bubbleSize><c:bubble3D val=\"0\"/></c:ser>");
+        } else {
+            out.push_str("<c:smooth val=\"0\"/></c:ser>");
+        }
         return;
     }
     if !s.categories.is_empty() || s.cat_ref.is_some() {
@@ -186,7 +249,7 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize) {
     out.push_str("<c:val>");
     num_ref(out, s.val_ref.as_deref(), &s.values);
     out.push_str("</c:val>");
-    if *kind == ChartKind::Line {
+    if matches!(kind, ChartKind::Line | ChartKind::Stock) {
         out.push_str("<c:smooth val=\"0\"/>");
     }
     out.push_str("</c:ser>");
@@ -260,8 +323,63 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize) -> bool {
             axis_ids(out);
             out.push_str("</c:scatterChart>");
         }
+        // §21.2.2.153 radarChart (radarStyle standard | marker | filled).
+        ChartKind::Radar => {
+            let style = p
+                .style
+                .as_deref()
+                .filter(|st| matches!(*st, "marker" | "filled"))
+                .unwrap_or("standard");
+            let _ = write!(
+                out,
+                "<c:radarChart><c:radarStyle val=\"{style}\"/><c:varyColors val=\"0\"/>{sers}"
+            );
+            axis_ids(out);
+            out.push_str("</c:radarChart>");
+        }
+        // §21.2.2.20 bubbleChart.
+        ChartKind::Bubble => {
+            let _ = write!(
+                out,
+                "<c:bubbleChart><c:varyColors val=\"0\"/>{sers}<c:bubbleScale val=\"100\"/><c:showNegBubbles val=\"0\"/>"
+            );
+            axis_ids(out);
+            out.push_str("</c:bubbleChart>");
+        }
+        // §21.2.2.198 stockChart with high-low lines (§21.2.2.80) and up/down bars (§21.2.2.218).
+        ChartKind::Stock => {
+            let _ = write!(out, "<c:stockChart>{sers}<c:hiLowLines/>");
+            if p.flag {
+                out.push_str("<c:upDownBars><c:gapWidth val=\"150\"/><c:upBars/><c:downBars/></c:upDownBars>");
+            }
+            axis_ids(out);
+            out.push_str("</c:stockChart>");
+        }
+        // §21.2.2.203 surfaceChart (wireframe §21.2.2.230).
+        ChartKind::Surface => {
+            let _ = write!(
+                out,
+                "<c:surfaceChart><c:wireframe val=\"{}\"/>{sers}",
+                u8::from(p.flag)
+            );
+            axis_ids(out);
+            out.push_str("</c:surfaceChart>");
+        }
+        // §21.2.2.126 ofPieChart (ofPieType pie | bar).
+        ChartKind::OfPie => {
+            let ty = if p.style.as_deref() == Some("bar") {
+                "bar"
+            } else {
+                "pie"
+            };
+            let _ = write!(
+                out,
+                "<c:ofPieChart><c:ofPieType val=\"{ty}\"/><c:varyColors val=\"1\"/>{sers}<c:gapWidth val=\"100\"/><c:secondPieSize val=\"75\"/><c:serLines/></c:ofPieChart>"
+            );
+            return false;
+        }
         // Other kinds are written as clustered columns.
-        _ => {
+        ChartKind::Other(_) => {
             let _ = write!(
                 out,
                 "<c:barChart><c:barDir val=\"col\"/><c:grouping val=\"clustered\"/><c:varyColors val=\"0\"/>{sers}<c:gapWidth val=\"150\"/>"
@@ -366,7 +484,10 @@ pub fn chart_space_xml(chart: &Chart) -> String {
         axes = true;
     }
     if axes {
-        let scatter = chart.plots.iter().all(|p| p.kind == ChartKind::Scatter);
+        let scatter = chart
+            .plots
+            .iter()
+            .all(|p| matches!(p.kind, ChartKind::Scatter | ChartKind::Bubble));
         let horizontal = chart
             .plots
             .iter()

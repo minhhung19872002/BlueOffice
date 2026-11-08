@@ -549,3 +549,44 @@ fn smartart_inserted_edited_converted_and_saved() {
     );
     assert!(r.error.is_some());
 }
+
+// source: ECMA-376 Part 1, §21.2.2.153 radarChart / §21.2.2.126 ofPieChart / §21.2.2.198 stockChart —
+// CORE-CHART-002 types inserted on a slide.
+#[test]
+fn new_chart_types_on_slides() {
+    let mut e = open("slide-text-bullets.pptx");
+    for (kind, element) in [
+        (
+            "radarFilled",
+            "<c:radarChart><c:radarStyle val=\"filled\"/>",
+        ),
+        ("barOfPie", "<c:ofPieType val=\"bar\"/>"),
+        ("percentColumn", "<c:grouping val=\"percentStacked\"/>"),
+        ("stockUpDown", "<c:upDownBars>"),
+    ] {
+        let data = if kind.starts_with("stock") {
+            r#"{"categories":["N1","N2","N3"],"series":[{"name":"O","values":[10,11,12]},{"name":"H","values":[12,13,14]},{"name":"L","values":[9,10,11]},{"name":"C","values":[11,12,11]}]}"#
+        } else {
+            r#"{"categories":["A","B","C","D"],"series":[{"name":"S1","values":[4,3,2,5]},{"name":"S2","values":[1,2,3,2]}]}"#
+        };
+        let r = run(
+            &mut e,
+            &format!(r#"{{"cmd":"insertChart","kind":"{kind}","data":{data}}}"#),
+        );
+        assert_eq!(r.chart.as_ref().unwrap().kind, kind, "{kind}");
+        let page = e.slide(r.slide).unwrap().to_json();
+        assert!(
+            page.contains("\"path\"") || page.contains("Path"),
+            "{kind} drawn"
+        );
+        let p = e.presentation().unwrap();
+        let xml = p
+            .parts
+            .iter()
+            .rev()
+            .find(|x| x.name.starts_with("/ppt/charts/chart"))
+            .map(|x| String::from_utf8_lossy(&x.data).into_owned())
+            .unwrap();
+        assert!(xml.contains(element), "{kind}: {xml}");
+    }
+}

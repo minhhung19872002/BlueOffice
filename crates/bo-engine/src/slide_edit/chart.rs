@@ -88,19 +88,67 @@ pub struct ChartSpec {
 }
 
 fn kind_name(c: &Chart) -> &'static str {
-    match c.plots.first() {
-        Some(p) => match p.kind {
-            ChartKind::Bar if p.bar_dir.as_deref() == Some("bar") => "bar",
-            ChartKind::Bar => "column",
-            ChartKind::Line => "line",
-            ChartKind::Area => "area",
-            ChartKind::Pie => "pie",
-            ChartKind::Doughnut => "doughnut",
-            _ => "other",
+    let Some(p) = c.plots.first() else {
+        return "column";
+    };
+    let g = p.grouping.as_deref();
+    let horizontal = p.bar_dir.as_deref() == Some("bar");
+    match p.kind {
+        ChartKind::Bar => match (horizontal, g) {
+            (false, Some("stacked")) => "stackedColumn",
+            (false, Some("percentStacked")) => "percentColumn",
+            (true, Some("stacked")) => "stackedBar",
+            (true, Some("percentStacked")) => "percentBar",
+            (true, _) => "bar",
+            _ => "column",
         },
-        None => "column",
+        ChartKind::Line => match g {
+            Some("stacked") => "stackedLine",
+            Some("percentStacked") => "percentLine",
+            _ => "line",
+        },
+        ChartKind::Area => match g {
+            Some("stacked") => "stackedArea",
+            Some("percentStacked") => "percentArea",
+            _ => "area",
+        },
+        ChartKind::Pie if p.series.iter().any(|s| s.explosion > 0) => "explodedPie",
+        ChartKind::Pie => "pie",
+        ChartKind::Doughnut => "doughnut",
+        ChartKind::OfPie if p.style.as_deref() == Some("bar") => "barOfPie",
+        ChartKind::OfPie => "pieOfPie",
+        ChartKind::Radar => match p.style.as_deref() {
+            Some("marker") => "radarMarker",
+            Some("filled") => "radarFilled",
+            _ => "radar",
+        },
+        ChartKind::Stock if p.flag => "stockUpDown",
+        ChartKind::Stock => "stock",
+        ChartKind::Surface => "surface",
+        _ => "other",
     }
 }
+
+/// Chart types of the slide chart dialog beyond the basic six (`bo_sheet::chart` names).
+const MORE_KINDS: &[&str] = &[
+    "stackedColumn",
+    "percentColumn",
+    "stackedBar",
+    "percentBar",
+    "stackedLine",
+    "percentLine",
+    "stackedArea",
+    "percentArea",
+    "explodedPie",
+    "pieOfPie",
+    "barOfPie",
+    "radar",
+    "radarMarker",
+    "radarFilled",
+    "stock",
+    "stockUpDown",
+    "surface",
+];
 
 /// Plot of a kind name (§21.2.2.16 barChart barDir, §21.2.2.97 lineChart, …).
 fn plot_of(kind: &str, grouping: Option<String>) -> R<ChartPlot> {
@@ -111,6 +159,9 @@ fn plot_of(kind: &str, grouping: Option<String>) -> R<ChartPlot> {
         "area" => (ChartKind::Area, None),
         "pie" => (ChartKind::Pie, None),
         "doughnut" => (ChartKind::Doughnut, None),
+        other if MORE_KINDS.contains(&other) => {
+            return Ok(bo_sheet::chart::plot_for(other));
+        }
         _ => return Err(EditError::Refused("badChart")),
     };
     // Bar groupings (§21.2.2.76) differ from line/area ones: keep only what fits.

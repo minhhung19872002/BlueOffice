@@ -138,32 +138,109 @@ pub fn refresh_caches(wb: &mut Workbook, locale: &Locale) {
 pub const CHART_TYPES: &[&str] = &[
     "column",
     "stackedColumn",
+    "percentColumn",
     "bar",
+    "stackedBar",
+    "percentBar",
     "line",
+    "stackedLine",
+    "percentLine",
     "area",
+    "stackedArea",
+    "percentArea",
     "pie",
+    "explodedPie",
     "doughnut",
+    "pieOfPie",
+    "barOfPie",
     "scatter",
+    "bubble",
+    "radar",
+    "radarMarker",
+    "radarFilled",
+    "stock",
+    "stockUpDown",
+    "surface",
+    "surfaceWireframe",
     "combo",
 ];
 
-fn plot_for(kind: &str) -> ChartPlot {
-    let (k, dir, grouping) = match kind {
-        "bar" => (ChartKind::Bar, Some("bar"), Some("clustered")),
-        "stackedColumn" => (ChartKind::Bar, Some("col"), Some("stacked")),
-        "line" => (ChartKind::Line, None, Some("standard")),
-        "area" => (ChartKind::Area, None, Some("standard")),
-        "pie" => (ChartKind::Pie, None, None),
-        "doughnut" => (ChartKind::Doughnut, None, None),
-        "scatter" => (ChartKind::Scatter, None, None),
-        _ => (ChartKind::Bar, Some("col"), Some("clustered")),
+/// The plot of a chart type name of [`CHART_TYPES`] (unknown names: clustered columns).
+#[must_use]
+pub fn plot_for(kind: &str) -> ChartPlot {
+    let (k, dir, grouping, style, flag) = match kind {
+        "bar" => (ChartKind::Bar, Some("bar"), Some("clustered"), None, false),
+        "stackedColumn" => (ChartKind::Bar, Some("col"), Some("stacked"), None, false),
+        "percentColumn" => (
+            ChartKind::Bar,
+            Some("col"),
+            Some("percentStacked"),
+            None,
+            false,
+        ),
+        "stackedBar" => (ChartKind::Bar, Some("bar"), Some("stacked"), None, false),
+        "percentBar" => (
+            ChartKind::Bar,
+            Some("bar"),
+            Some("percentStacked"),
+            None,
+            false,
+        ),
+        "line" => (ChartKind::Line, None, Some("standard"), None, false),
+        "stackedLine" => (ChartKind::Line, None, Some("stacked"), None, false),
+        "percentLine" => (ChartKind::Line, None, Some("percentStacked"), None, false),
+        "area" => (ChartKind::Area, None, Some("standard"), None, false),
+        "stackedArea" => (ChartKind::Area, None, Some("stacked"), None, false),
+        "percentArea" => (ChartKind::Area, None, Some("percentStacked"), None, false),
+        "pie" | "explodedPie" => (ChartKind::Pie, None, None, None, false),
+        "doughnut" => (ChartKind::Doughnut, None, None, None, false),
+        "pieOfPie" => (ChartKind::OfPie, None, None, Some("pie"), false),
+        "barOfPie" => (ChartKind::OfPie, None, None, Some("bar"), false),
+        "scatter" => (ChartKind::Scatter, None, None, None, false),
+        "bubble" => (ChartKind::Bubble, None, None, None, false),
+        "radar" => (ChartKind::Radar, None, None, Some("standard"), false),
+        "radarMarker" => (ChartKind::Radar, None, None, Some("marker"), false),
+        "radarFilled" => (ChartKind::Radar, None, None, Some("filled"), false),
+        "stock" => (ChartKind::Stock, None, None, None, false),
+        "stockUpDown" => (ChartKind::Stock, None, None, None, true),
+        "surface" => (ChartKind::Surface, None, None, None, false),
+        "surfaceWireframe" => (ChartKind::Surface, None, None, None, true),
+        _ => (ChartKind::Bar, Some("col"), Some("clustered"), None, false),
     };
     ChartPlot {
+        vary_colors: matches!(k, ChartKind::Pie | ChartKind::Doughnut | ChartKind::OfPie),
         kind: k,
         bar_dir: dir.map(str::to_owned),
         grouping: grouping.map(str::to_owned),
+        style: style.map(str::to_owned),
+        flag,
         series: Vec::new(),
-        ..ChartPlot::default()
+    }
+}
+
+/// Series of a new chart of `kind`: bubble series from consecutive (value, size) series, stock charts
+/// at most four series (open, high, low, close), an exploded pie's slices pushed out by a quarter of
+/// the radius.
+fn shape_series(kind: &str, plot: &mut ChartPlot) {
+    match kind {
+        "bubble" => {
+            let all = std::mem::take(&mut plot.series);
+            let mut it = all.into_iter();
+            while let Some(mut y) = it.next() {
+                if let Some(size) = it.next() {
+                    y.size_ref = size.val_ref;
+                    y.sizes = size.values;
+                }
+                plot.series.push(y);
+            }
+        }
+        "stock" | "stockUpDown" => plot.series.truncate(4),
+        "explodedPie" => {
+            for s in &mut plot.series {
+                s.explosion = 25;
+            }
+        }
+        _ => {}
     }
 }
 
@@ -181,6 +258,10 @@ pub fn set_chart_type(chart: &mut Chart, kind: &str) {
     } else {
         let mut p = plot_for(if kind == "combo" { "column" } else { kind });
         p.series = series;
+        // A type change never drops data: only the exploded pie look is applied.
+        if kind == "explodedPie" {
+            shape_series(kind, &mut p);
+        }
         chart.plots = vec![p];
     }
     chart.dirty = true;
@@ -215,6 +296,7 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
         )
     });
     let mut plot = plot_for(if kind == "combo" { "column" } else { kind });
+    let first_plot_kind = kind;
     for c in c0..=range.last.col {
         plot.series.push(ChartSeries {
             name_ref: header
@@ -227,6 +309,14 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
             ..ChartSeries::default()
         });
     }
+    // Bubble data: X in the first column (when it holds numbers), then (Y, size) pairs.
+    if first_plot_kind == "bubble" && !cat_col && plot.series.len() >= 3 {
+        let x = plot.series.remove(0);
+        for s in &mut plot.series {
+            s.cat_ref.clone_from(&x.val_ref);
+        }
+    }
+    shape_series(first_plot_kind, &mut plot);
     let mut chart = Chart {
         from: CellRef::new(range.first.row, range.last.col + 2),
         to: Some(CellRef::new(range.first.row + 15, range.last.col + 10)),

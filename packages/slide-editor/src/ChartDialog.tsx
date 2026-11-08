@@ -4,7 +4,31 @@ import { Dialog } from '@blueoffice/ui';
 import { useState } from 'react';
 import styles from './SlideEditor.module.css';
 
-export const CHART_KINDS: SlideChartKind[] = ['column', 'bar', 'line', 'area', 'pie', 'doughnut'];
+export const CHART_KINDS: SlideChartKind[] = [
+  'column',
+  'bar',
+  'line',
+  'area',
+  'pie',
+  'doughnut',
+  'stackedColumn',
+  'percentColumn',
+  'stackedBar',
+  'percentBar',
+  'stackedLine',
+  'percentLine',
+  'stackedArea',
+  'percentArea',
+  'explodedPie',
+  'pieOfPie',
+  'barOfPie',
+  'radar',
+  'radarMarker',
+  'radarFilled',
+  'stock',
+  'stockUpDown',
+  'surface',
+];
 const LEGENDS: SlideLegend[] = ['none', 'r', 'b', 't', 'l'];
 
 export interface ChartDraft {

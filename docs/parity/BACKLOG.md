@@ -123,7 +123,17 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 
 ### Biểu đồ (§6.6)
 - [p] **CORE-CHART-001** — Biểu đồ c: column/bar (clustered/stacked), line, area, pie, doughnut, scatter, combo: đọc/hiển thị/tạo/lưu · P0 · — · corpus `charts-*`. **Thiếu**: 100 %, 3D, bubble, radar, surface, stock, pie of pie, trendline/error bar đầy đủ.
-- [~] **CORE-CHART-002** — Loại c: còn lại: 100 % stacked, bubble, radar (marker/filled), stock (HLC/OHLC/VHLC/VOHLC), surface/contour, pie of pie / bar of pie, explode · P0 · — · corpus 3 file/loại + render + round-trip.
+- [p] **CORE-CHART-002** — Loại c: còn lại: 100 % stacked, bubble, radar (marker/filled), stock (HLC/OHLC/VHLC/VOHLC), surface/contour, pie of pie / bar of pie, explode · P0 · — · corpus 3 file/loại + render + round-trip.
+  - Xong: một bộ vẽ biểu đồ dùng chung (bo-sheet) cho BlueSheet, BlueSlide, BlueDoc — slide/doc vẽ từ giá trị cache,
+    màu theme qua callback (accent1…6), không khung vùng biểu đồ. Model đọc/ghi: màu series/điểm (srgbClr/schemeClr, dPt),
+    bubbleSize, varyColors, explosion, radarStyle, ofPieType, upDownBars, wireframe; loại Stock, Surface, OfPie. Vẽ: 100 %
+    stacked (cột/thanh/đường/vùng), bubble (diện tích theo kích thước), radar (standard/marker/filled), stock HLC/OHLC +
+    thanh tăng/giảm, pie of pie / bar of pie (1/3 điểm cuối), bánh tách miếng, surface (nhìn từ trên như contour, dải giá
+    trị trong chú giải). Tạo: 27 loại trong BlueSheet (`CHART_TYPES`) và 23 trong BlueSlide. Test: `bo-xlsx corpus::
+    new_chart_types_round_trip` (18 file `writer-charts-{percent,bubble,radar,stock,surface,ofpie}-{1,2,3}.xlsx` đều qua
+    OpenXmlValidator 0 lỗi, đọc lại cùng loại/kiểu/cờ/tham chiếu), `bo-sheet chart::tests` (mọi loại vẽ được),
+    `bo-engine slide_show::new_chart_types_on_slides`, snapshot slide biểu đồ cập nhật. **Thiếu**: VHLC/VOHLC (khối lượng trên
+    trục phụ), bề mặt 3D thật (CORE-3D-001), splitType/splitPos tuỳ chỉnh của of-pie.
 - [ ] **CORE-CHART-003** — Biểu đồ 3D (column/bar/line/area/pie 3D) hiển thị · P0 · CORE-3D-001 · render.
 - [ ] **CORE-CHART-004** — Biểu đồ mở rộng cx: waterfall, treemap, sunburst, histogram, pareto, box & whisker, funnel: đọc/ghi/hiển thị · P0 · — · corpus + validator.
 - [ ] **CORE-CHART-005** — Thành phần: trendline (mọi loại + phương trình/R²), error bars, data table, high-low lines, up/down bars, drop lines, trục log/ngày/phụ · P0 · 002 · test.

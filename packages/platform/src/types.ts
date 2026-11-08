@@ -923,7 +923,30 @@ export interface SlideShowInfo {
   media: SlideMediaInfo[];
 }
 
-export type SlideChartKind = 'column' | 'bar' | 'line' | 'area' | 'pie' | 'doughnut';
+export type SlideChartKind =
+  | 'column'
+  | 'bar'
+  | 'line'
+  | 'area'
+  | 'pie'
+  | 'doughnut'
+  | 'stackedColumn'
+  | 'percentColumn'
+  | 'stackedBar'
+  | 'percentBar'
+  | 'stackedLine'
+  | 'percentLine'
+  | 'stackedArea'
+  | 'percentArea'
+  | 'explodedPie'
+  | 'pieOfPie'
+  | 'barOfPie'
+  | 'radar'
+  | 'radarMarker'
+  | 'radarFilled'
+  | 'stock'
+  | 'stockUpDown'
+  | 'surface';
 export type SlideLegend = 'none' | 'r' | 'l' | 't' | 'b' | 'tr';
 
 /** Data grid of a chart: categories down, series across. */

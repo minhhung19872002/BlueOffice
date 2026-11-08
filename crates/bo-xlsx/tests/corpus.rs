@@ -1475,6 +1475,134 @@ fn writer_charts(i: usize) -> m::Workbook {
     wb
 }
 
+/// Charts of the CORE-CHART-002 types inserted with `bo_sheet::chart::new_chart` (each file one variant).
+fn writer_chart_kind(group: &str, i: usize) -> m::Workbook {
+    let mut wb = m::Workbook::new();
+    let text = |s: &str| m::Cell::new(m::CellValue::Text(s.into()));
+    let num = |v: f64| m::Cell::new(m::CellValue::Number(v));
+    let (kind, rows): (&str, Vec<Vec<m::Cell>>) = match group {
+        "bubble" => {
+            // X, then (Y, size) pairs; the third file has negative values.
+            let head: Vec<&str> = if i == 2 {
+                vec![
+                    "Giá",
+                    "Doanh số A",
+                    "Thị phần A",
+                    "Doanh số B",
+                    "Thị phần B",
+                ]
+            } else {
+                vec!["Giá", "Doanh số", "Thị phần"]
+            };
+            let mut rows = vec![head.iter().map(|h| text(h)).collect::<Vec<_>>()];
+            for r in 1..=5u32 {
+                let x = f64::from(r) * 10.0;
+                let sign = if i == 3 && r % 2 == 0 { -1.0 } else { 1.0 };
+                let mut row = vec![
+                    num(x),
+                    num(sign * f64::from(r * r) * 3.0),
+                    num(f64::from(r) * 4.0),
+                ];
+                if i == 2 {
+                    row.push(num(f64::from(6 - r) * 7.0));
+                    row.push(num(f64::from(r) * 2.5));
+                }
+                rows.push(row);
+            }
+            ("bubble", rows)
+        }
+        "stock" => {
+            // HLC (1), OHLC (2), OHLC with up/down bars (3).
+            let ohlc = i >= 2;
+            let mut head = vec![text("Phiên")];
+            if ohlc {
+                head.push(text("Mở cửa"));
+            }
+            head.extend(["Cao nhất", "Thấp nhất", "Đóng cửa"].map(text));
+            let mut rows = vec![head];
+            let closes = [21.5, 22.8, 22.1, 23.9, 24.4, 23.6];
+            for (k, c) in closes.iter().enumerate() {
+                let open = if k == 0 { 21.0 } else { closes[k - 1] };
+                let mut row = vec![text(&format!("Ngày {}", k + 1))];
+                if ohlc {
+                    row.push(num(open));
+                }
+                row.extend([num(c.max(open) + 0.8), num(c.min(open) - 0.7), num(*c)]);
+                rows.push(row);
+            }
+            (if i == 3 { "stockUpDown" } else { "stock" }, rows)
+        }
+        _ => {
+            let kind = match (group, i) {
+                ("percent", 1) => "percentColumn",
+                ("percent", 2) => "percentBar",
+                ("percent", _) => "percentArea",
+                ("radar", 1) => "radar",
+                ("radar", 2) => "radarMarker",
+                ("radar", _) => "radarFilled",
+                ("surface", 2) => "surfaceWireframe",
+                ("surface", _) => "surface",
+                ("ofpie", 1) => "pieOfPie",
+                ("ofpie", 2) => "barOfPie",
+                _ => "explodedPie",
+            };
+            let cats = ["Hà Nội", "Hải Phòng", "Huế", "Đà Nẵng", "Cần Thơ", "TP.HCM"];
+            let series = if group == "ofpie" {
+                1
+            } else if group == "surface" && i == 3 {
+                5
+            } else {
+                3
+            };
+            let mut head = vec![text("Tỉnh")];
+            for k in 0..series {
+                head.push(text(&format!("Năm {}", 2023 + k)));
+            }
+            let mut rows = vec![head];
+            for (r, c) in cats.iter().enumerate() {
+                let mut row = vec![text(c)];
+                for k in 0..series {
+                    let v = ((r as f64 + 1.0) * 7.0 + k as f64 * 5.0) % 37.0 + 3.0;
+                    row.push(num(v));
+                }
+                rows.push(row);
+            }
+            (kind, rows)
+        }
+    };
+    let ws = &mut wb.sheets[0];
+    let (nr, nc) = (rows.len() as u32, rows[0].len() as u32);
+    for (r, row) in rows.into_iter().enumerate() {
+        for (c, cell) in row.into_iter().enumerate() {
+            ws.set_cell(r as u32, c as u32, cell);
+        }
+    }
+    let range = m::CellRange::new(m::CellRef::new(0, 0), m::CellRef::new(nr - 1, nc - 1));
+    let mut chart = bo_sheet::chart::new_chart(&wb, 0, range, kind).expect("chart");
+    chart.title = Some(format!("Biểu đồ {kind}"));
+    wb.sheets[0].charts.push(chart);
+    wb
+}
+
+fn writer_charts_percent(i: usize) -> m::Workbook {
+    writer_chart_kind("percent", i)
+}
+fn writer_charts_bubble(i: usize) -> m::Workbook {
+    writer_chart_kind("bubble", i)
+}
+fn writer_charts_radar(i: usize) -> m::Workbook {
+    writer_chart_kind("radar", i)
+}
+fn writer_charts_stock(i: usize) -> m::Workbook {
+    writer_chart_kind("stock", i)
+}
+fn writer_charts_surface(i: usize) -> m::Workbook {
+    writer_chart_kind("surface", i)
+}
+fn writer_charts_ofpie(i: usize) -> m::Workbook {
+    writer_chart_kind("ofpie", i)
+}
+
 /// PivotTables created with "Insert → Pivot table" (`bo_sheet::pivot`): cache
 /// definition + records + pivot table definition parts (§18.10).
 fn writer_pivots(i: usize) -> m::Workbook {
@@ -2106,6 +2234,12 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-format", "BlueSheet writer: cell formats (vi-VN number formats, fonts, fills, borders, alignment) and a gallery cell style", writer_format),
     ("writer-sheet", "BlueSheet writer: column width / row height, freeze panes, merge, AutoFilter, conditional formats, list validation, page setup + print titles", writer_sheet),
     ("writer-charts", "BlueSheet writer: inserted charts (column, column+line combo, doughnut, scatter) with axis titles and legend", writer_charts),
+    ("writer-charts-percent", "BlueSheet writer: 100 % stacked column, bar and area charts", writer_charts_percent),
+    ("writer-charts-bubble", "BlueSheet writer: bubble charts (one and two series of X, Y and size; negative values)", writer_charts_bubble),
+    ("writer-charts-radar", "BlueSheet writer: radar charts (standard, with markers, filled)", writer_charts_radar),
+    ("writer-charts-stock", "BlueSheet writer: stock charts (high-low-close; open-high-low-close; with up/down bars)", writer_charts_stock),
+    ("writer-charts-surface", "BlueSheet writer: surface charts (3 series; wireframe; 5 series)", writer_charts_surface),
+    ("writer-charts-ofpie", "BlueSheet writer: pie of pie, bar of pie and an exploded pie", writer_charts_ofpie),
     ("writer-pivots", "BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter)", writer_pivots),
     ("writer-pivot-totals", "BlueSheet writer: pivot report settings (tabular with repeated labels + blank rows and column subtotals; outline with bottom subtotals, sort by value, top-N + label filter, medium style; compact with number format, % of total / parent, rank, value filter, hidden item, dark style)", writer_pivot_totals),
     ("writer-pivot-groups", "BlueSheet writer: pivot grouping and calculations (dates by years / quarters / months; numeric ranges × columns; years + months with a calculated field, difference from previous and running total)", writer_pivot_groups),
@@ -2466,7 +2600,11 @@ fn corpus_pivots_are_summarized() {
 /// filters, style, `rowItems` / `colItems`, groups and calculated fields.
 #[test]
 fn corpus_pivot_features_round_trip() {
-    for (name, _, f) in &WRITER_FEATURES[4..] {
+    // The pivot features (not the format / sheet / chart ones).
+    for (name, _, f) in WRITER_FEATURES
+        .iter()
+        .filter(|(n, _, _)| n.starts_with("writer-pivot"))
+    {
         for i in 1..=3 {
             let wb = f(i);
             let back = read_xlsx(&write_xlsx(&wb).unwrap()).unwrap();
@@ -2634,6 +2772,47 @@ fn pivot_dates_in_1904_workbooks() {
     for (c, rc) in wb.pivot_caches.iter().zip(&back.pivot_caches) {
         for (f, rf) in c.fields.iter().zip(&rc.fields) {
             assert_eq!(f.group, rf.group, "{}", f.name);
+        }
+    }
+}
+
+// source: ECMA-376 Part 1, §21.2.2 (radarChart, bubbleChart/bubbleSize, stockChart/hiLowLines/upDownBars,
+// surfaceChart/wireframe, ofPieChart/ofPieType, explosion, percentStacked) — CORE-CHART-002.
+#[test]
+fn new_chart_types_round_trip() {
+    for (name, _, f) in WRITER_FEATURES
+        .iter()
+        .filter(|(n, _, _)| n.starts_with("writer-charts-"))
+    {
+        for i in 1..=3 {
+            let wb = f(i);
+            let back = read_xlsx(&write_xlsx(&wb).unwrap()).unwrap();
+            let (a, b) = (&wb.sheets[0].charts[0], &back.sheets[0].charts[0]);
+            let ctx = format!("{name}-{i}");
+            assert_eq!(b.plots.len(), a.plots.len(), "{ctx}");
+            for (pa, pb) in a.plots.iter().zip(&b.plots) {
+                assert_eq!(pb.kind, pa.kind, "{ctx}");
+                assert_eq!(pb.grouping, pa.grouping, "{ctx}");
+                assert_eq!(pb.style, pa.style, "{ctx}");
+                assert_eq!(pb.flag, pa.flag, "{ctx}");
+                assert_eq!(pb.series.len(), pa.series.len(), "{ctx}");
+                for (sa, sb) in pa.series.iter().zip(&pb.series) {
+                    assert_eq!(sb.val_ref, sa.val_ref, "{ctx}");
+                    assert_eq!(sb.size_ref, sa.size_ref, "{ctx}");
+                    assert_eq!(sb.explosion, sa.explosion, "{ctx}");
+                    assert_eq!(sb.values.len(), sa.values.len(), "{ctx}");
+                }
+            }
+            match *name {
+                "writer-charts-bubble" => assert!(
+                    a.plots[0].series[0].sizes.iter().all(Option::is_some),
+                    "{ctx}"
+                ),
+                "writer-charts-stock" => {
+                    assert_eq!(a.plots[0].series.len(), if i == 1 { 3 } else { 4 }, "{ctx}");
+                }
+                _ => {}
+            }
         }
     }
 }

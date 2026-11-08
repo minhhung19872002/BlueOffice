@@ -1228,7 +1228,18 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       transition: edit?.transition?.kind ?? 'none',
     };
   }, [count, current, edit]);
-  const exec = useCallback((id: string) => void registry.execute(id, state), [registry, state]);
+  const exec = useCallback(
+    (id: string) => {
+      // Undo / redo typed in quick succession arrive before the previous result has refreshed
+      // `canUndo` / `canRedo`: send them anyway (the engine ignores an empty history).
+      if ((id === 'edit.undo' || id === 'edit.redo') && state.hasDeck) {
+        run({ cmd: id === 'edit.undo' ? 'undo' : 'redo' });
+        return;
+      }
+      void registry.execute(id, state);
+    },
+    [registry, state, run],
+  );
 
   // Shortcuts typed inside the shape text (format.*, edit.*).
   const textShortcut = useCallback(

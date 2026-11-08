@@ -72,6 +72,24 @@ Kiểm thử round-trip: `cargo test -p bo-xlsx --test corpus corpus_roundtrip -
 | `writer-charts-1.xlsx` | BlueSheet writer: inserted charts (column, column+line combo, doughnut, scatter) with axis titles and legend (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts` |
 | `writer-charts-2.xlsx` | BlueSheet writer: inserted charts (column, column+line combo, doughnut, scatter) with axis titles and legend (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts` |
 | `writer-charts-3.xlsx` | BlueSheet writer: inserted charts (column, column+line combo, doughnut, scatter) with axis titles and legend (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts` |
+| `writer-charts-percent-1.xlsx` | BlueSheet writer: 100 % stacked column, bar and area charts (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_percent` |
+| `writer-charts-percent-2.xlsx` | BlueSheet writer: 100 % stacked column, bar and area charts (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_percent` |
+| `writer-charts-percent-3.xlsx` | BlueSheet writer: 100 % stacked column, bar and area charts (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_percent` |
+| `writer-charts-bubble-1.xlsx` | BlueSheet writer: bubble charts (one and two series of X, Y and size; negative values) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_bubble` |
+| `writer-charts-bubble-2.xlsx` | BlueSheet writer: bubble charts (one and two series of X, Y and size; negative values) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_bubble` |
+| `writer-charts-bubble-3.xlsx` | BlueSheet writer: bubble charts (one and two series of X, Y and size; negative values) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_bubble` |
+| `writer-charts-radar-1.xlsx` | BlueSheet writer: radar charts (standard, with markers, filled) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_radar` |
+| `writer-charts-radar-2.xlsx` | BlueSheet writer: radar charts (standard, with markers, filled) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_radar` |
+| `writer-charts-radar-3.xlsx` | BlueSheet writer: radar charts (standard, with markers, filled) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_radar` |
+| `writer-charts-stock-1.xlsx` | BlueSheet writer: stock charts (high-low-close; open-high-low-close; with up/down bars) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_stock` |
+| `writer-charts-stock-2.xlsx` | BlueSheet writer: stock charts (high-low-close; open-high-low-close; with up/down bars) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_stock` |
+| `writer-charts-stock-3.xlsx` | BlueSheet writer: stock charts (high-low-close; open-high-low-close; with up/down bars) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_stock` |
+| `writer-charts-surface-1.xlsx` | BlueSheet writer: surface charts (3 series; wireframe; 5 series) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_surface` |
+| `writer-charts-surface-2.xlsx` | BlueSheet writer: surface charts (3 series; wireframe; 5 series) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_surface` |
+| `writer-charts-surface-3.xlsx` | BlueSheet writer: surface charts (3 series; wireframe; 5 series) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_surface` |
+| `writer-charts-ofpie-1.xlsx` | BlueSheet writer: pie of pie, bar of pie and an exploded pie (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_ofpie` |
+| `writer-charts-ofpie-2.xlsx` | BlueSheet writer: pie of pie, bar of pie and an exploded pie (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_ofpie` |
+| `writer-charts-ofpie-3.xlsx` | BlueSheet writer: pie of pie, bar of pie and an exploded pie (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_ofpie` |
 | `writer-pivots-1.xlsx` | BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivots` |
 | `writer-pivots-2.xlsx` | BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivots` |
 | `writer-pivots-3.xlsx` | BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivots` |

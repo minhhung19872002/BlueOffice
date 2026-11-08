@@ -158,13 +158,14 @@ dời ô và công thức của người kia; ghi chú slide).
 
 **Hạn chế còn lại (thật)**
 - Bảng lồng trong ô, bảng trong header/footer/chú thích/comment: vẫn là một embed `{"b"}` (LWW cả bảng).
-- Chèn hàng và chèn cột đồng thời trong cùng bảng BlueDoc: hàng mới thiếu ô ở cột mới (hội tụ, nhưng hàng ngắn hơn).
-  Xoá hàng/cột trong khi người khác gõ vào ô của nó: chữ gõ mất cùng hàng/cột.
+- Chèn hàng và chèn cột đồng thời trong cùng bảng BlueDoc: hàng mới được thêm ô trống ở cột mới (mỗi hàng ghi các cột
+  cố ý để trống, `RowEntry::x`, nên hàng ngắn do "xoá ô đẩy trái" vẫn giữ nguyên). Xoá hàng/cột trong khi người khác gõ vào ô của nó: chữ gõ mất cùng hàng/cột.
 - Id comment/chú thích mới: khi cộng tác, mỗi replica lấy id ≡ hạt giống riêng (từ client id Yrs, mod 65 536,
   `Session::set_id_seed`) nên hai người thêm **đúng cùng lúc** không còn trùng (test
   `concurrent_comments_and_notes_get_distinct_ids`; trước đó comment của một người bị mất). Danh sách tạo trong phiên vẫn chia sẻ theo kiểu (`bullet`/`number`).
   Header/footer khoá theo số thứ tự section: chèn section break đồng thời với sửa header có thể gán nhầm section.
-  `docDefaults`, `defaultTabStop`, latent styles không đồng bộ trực tiếp.
+  `docDefaults`, `defaultTabStop`, latent styles không có lệnh sửa trong BlueDoc nên không cần đồng bộ (mọi replica
+  mở cùng một file).
 - BlueSheet: CF, DV, biểu đồ, pivot, hyperlink, bảng (ListObject), autofilter, vùng in, freeze pane lưu **theo vị trí**
   (LWW): một quy tắc ghi đồng thời với việc người khác chèn hàng không dịch theo hàng đó. Đổi tên sheet không sửa công
   thức tham chiếu tên cũ (như engine hiện tại). Biểu đồ/pivot/cache khoá theo chỉ số: thêm đồng thời trùng chỉ số →

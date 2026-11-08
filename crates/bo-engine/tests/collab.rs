@@ -410,6 +410,8 @@ fn table_rows_and_columns_converge() {
     assert_eq!(tables(&a), tables(&b));
     let t = tables(&a);
     assert_eq!(t[0].len(), 3, "{t:?}");
+    // A's new row also gets a cell in B's new column (it was short before).
+    assert_eq!(t[0], vec![3, 3, 3], "{t:?}");
     assert!(a.text().iter().any(|p| p == "cuối"));
     assert!(a.text().iter().any(|p| p == "x"));
     // Concurrent delete of a row and an edit in another row.
@@ -989,4 +991,28 @@ fn concurrent_comments_and_notes_get_distinct_ids() {
         let notes: Vec<i32> = doc.footnotes.keys().copied().filter(|&k| k > 1).collect();
         assert_eq!(notes.len(), 2, "{notes:?}");
     }
+}
+
+// source: ECMA-376 Part 1, §17.4.17 gridSpan (rows shorter than the grid)
+#[test]
+fn a_cell_deleted_on_purpose_stays_deleted() {
+    let (mut a, mut b) = pair("đầu");
+    a.cmd(&sel(0, "đầu".len()));
+    a.cmd(r#"{"cmd":"insertTable","rows":2,"cols":3}"#);
+    settle(&mut a, &mut b);
+    // A deletes the first cell of the first row (shift left): a short row.
+    a.cmd(&sel(1, 0));
+    a.cmd(&table_edit("deleteCell"));
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    assert_eq!(tables(&b), vec![vec![2, 3]]);
+    // B then inserts a column: the short row gets the new cell, not the deleted one.
+    b.cmd(&sel(1, 0));
+    b.cmd(r#"{"cmd":"tableEdit","edit":{"kind":"insertColumn","right":true}}"#);
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    assert_eq!(tables(&a), tables(&b));
+    let t = tables(&a);
+    assert_eq!(t[0][1], 4, "{t:?}");
+    assert_eq!(t[0][0], 3, "{t:?}");
 }

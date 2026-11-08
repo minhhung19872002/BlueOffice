@@ -187,6 +187,13 @@ fn drop_story(stories: &mut BTreeMap<String, Story>, key: &str, out: &mut Collab
 struct RowEntry {
     o: f64,
     p: RowProps,
+    /// Columns this row leaves empty on purpose (a cell deleted with "shift
+    /// left", a short row of the file): no cell and not covered by a gridSpan
+    /// (§17.4.17). Any other column without a cell was added by someone who
+    /// did not know this row (concurrent row and column inserts) and gets an
+    /// empty cell when the table is built.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    x: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -290,24 +297,34 @@ impl TableShadow {
         let rows = rows
             .iter()
             .map(|r| {
-                let props = self
+                let entry = self
                     .rows
                     .get(r)
-                    .and_then(|(_, j)| serde_json::from_str::<RowEntry>(j).ok())
-                    .map(|e| e.p)
-                    .unwrap_or_default();
-                let cells = cols
-                    .iter()
-                    .filter_map(|c| {
-                        let pj = self.cells.get(&(r.clone(), c.clone()))?;
+                    .and_then(|(_, j)| serde_json::from_str::<RowEntry>(j).ok());
+                let gaps = entry.as_ref().map(|e| e.x.clone()).unwrap_or_default();
+                let props = entry.map(|e| e.p).unwrap_or_default();
+                let mut cells = Vec::new();
+                // Grid columns still covered by the previous cell's gridSpan.
+                let mut covered = 0u32;
+                for c in &cols {
+                    if let Some(pj) = self.cells.get(&(r.clone(), c.clone())) {
                         let props: CellProps = serde_json::from_str(pj).unwrap_or_default();
+                        covered = props.grid_span.max(1) - 1;
                         let blocks = stories.get(&cell_story(key, r, c)).map_or_else(
                             || vec![Block::Paragraph(Paragraph::default())],
                             Story::content,
                         );
-                        Some(bo_model::Cell { props, blocks })
-                    })
-                    .collect();
+                        cells.push(bo_model::Cell { props, blocks });
+                    } else if covered > 0 {
+                        covered -= 1;
+                    } else if !gaps.contains(c) {
+                        // A column inserted concurrently with this row.
+                        cells.push(bo_model::Cell {
+                            props: CellProps::default(),
+                            blocks: vec![Block::Paragraph(Paragraph::default())],
+                        });
+                    }
+                }
                 Row { props, cells }
             })
             .collect();
@@ -482,10 +499,32 @@ impl TableDiff<'_> {
                 }
             }
         };
+        // Columns each row leaves empty on purpose (see `RowEntry::x`).
+        let gaps: Vec<Vec<String>> = new
+            .rows
+            .iter()
+            .zip(&nst)
+            .map(|(row, st)| {
+                let mut cov = vec![false; col_ids.len()];
+                for (ci, &g) in st.iter().enumerate() {
+                    let span = row.cells[ci].props.grid_span.max(1) as usize;
+                    for x in cov.iter_mut().skip(g).take(span) {
+                        *x = true;
+                    }
+                }
+                col_ids
+                    .iter()
+                    .zip(cov)
+                    .filter(|(_, c)| !c)
+                    .map(|(id, _)| id.clone())
+                    .collect()
+            })
+            .collect();
         let row_json = |i: usize, o: f64| {
             serde_json::to_string(&RowEntry {
                 o,
                 p: new.rows[i].props.clone(),
+                x: gaps[i].clone(),
             })
             .unwrap_or_default()
         };

@@ -87,45 +87,17 @@ pub struct ChartSpec {
     pub data: Option<ChartData>,
 }
 
+/// The slide dialog's name of the chart's type (`other` for types the dialog does not offer).
 fn kind_name(c: &Chart) -> &'static str {
-    let Some(p) = c.plots.first() else {
-        return "column";
-    };
-    let g = p.grouping.as_deref();
-    let horizontal = p.bar_dir.as_deref() == Some("bar");
-    match p.kind {
-        ChartKind::Bar => match (horizontal, g) {
-            (false, Some("stacked")) => "stackedColumn",
-            (false, Some("percentStacked")) => "percentColumn",
-            (true, Some("stacked")) => "stackedBar",
-            (true, Some("percentStacked")) => "percentBar",
-            (true, _) => "bar",
-            _ => "column",
-        },
-        ChartKind::Line => match g {
-            Some("stacked") => "stackedLine",
-            Some("percentStacked") => "percentLine",
-            _ => "line",
-        },
-        ChartKind::Area => match g {
-            Some("stacked") => "stackedArea",
-            Some("percentStacked") => "percentArea",
-            _ => "area",
-        },
-        ChartKind::Pie if p.series.iter().any(|s| s.explosion > 0) => "explodedPie",
-        ChartKind::Pie => "pie",
-        ChartKind::Doughnut => "doughnut",
-        ChartKind::OfPie if p.style.as_deref() == Some("bar") => "barOfPie",
-        ChartKind::OfPie => "pieOfPie",
-        ChartKind::Radar => match p.style.as_deref() {
-            Some("marker") => "radarMarker",
-            Some("filled") => "radarFilled",
-            _ => "radar",
-        },
-        ChartKind::Stock if p.flag => "stockUpDown",
-        ChartKind::Stock => "stock",
-        ChartKind::Surface => "surface",
-        _ => "other",
+    let name = bo_sheet::chart::type_name(c);
+    if matches!(
+        name,
+        "column" | "bar" | "line" | "area" | "pie" | "doughnut"
+    ) || MORE_KINDS.contains(&name)
+    {
+        name
+    } else {
+        "other"
     }
 }
 
@@ -148,7 +120,33 @@ const MORE_KINDS: &[&str] = &[
     "stock",
     "stockUpDown",
     "surface",
+    "column3D",
+    "clusteredColumn3D",
+    "stackedColumn3D",
+    "percentColumn3D",
+    "cylinder3D",
+    "cone3D",
+    "pyramid3D",
+    "bar3D",
+    "stackedBar3D",
+    "percentBar3D",
+    "line3D",
+    "area3D",
+    "stackedArea3D",
+    "percentArea3D",
+    "pie3D",
+    "explodedPie3D",
+    "surface3D",
 ];
+
+/// An exploded pie pushes its slices out by a quarter of the radius (§21.2.2.62 explosion).
+fn explode(kind: &str, plot: &mut ChartPlot) {
+    if kind.starts_with("explodedPie") {
+        for s in &mut plot.series {
+            s.explosion = 25;
+        }
+    }
+}
 
 /// Plot of a kind name (§21.2.2.16 barChart barDir, §21.2.2.97 lineChart, …).
 fn plot_of(kind: &str, grouping: Option<String>) -> R<ChartPlot> {
@@ -488,6 +486,7 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
     let d = clean(spec.data.unwrap_or_else(default_data))?;
     let mut plot = plot_of(kind, None)?;
     plot.series = series_of(&d);
+    explode(kind, &mut plot);
     let legend = match spec.legend.as_deref() {
         Some(l) => legend_of(l)?,
         None => Some(
@@ -500,12 +499,13 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
         ),
     };
     let rect = spec.rect;
-    let c = Chart {
+    let mut c = Chart {
         title: spec.title.filter(|t| !t.is_empty()),
         plots: vec![plot],
         legend,
         ..Chart::default()
     };
+    bo_sheet::chart::view_for_type(&mut c);
     let slide = sel.slide;
     let (sw, sh) = slide_size(tx.pres);
     let r = rect.unwrap_or(super::geom::Rect {
@@ -585,7 +585,9 @@ pub fn cmd_set_chart(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, spec: &Ch
     let grouping = c.plots.first().and_then(|p| p.grouping.clone());
     let mut plot = plot_of(&kind, grouping)?;
     plot.series = series_of(&d);
+    explode(&kind, &mut plot);
     c.plots = vec![plot];
+    bo_sheet::chart::view_for_type(&mut c);
     if let Some(t) = &spec.title {
         c.title = Some(t.clone()).filter(|t| !t.is_empty());
     }

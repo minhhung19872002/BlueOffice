@@ -563,6 +563,12 @@ fn new_chart_types_on_slides() {
         ("barOfPie", "<c:ofPieType val=\"bar\"/>"),
         ("percentColumn", "<c:grouping val=\"percentStacked\"/>"),
         ("stockUpDown", "<c:upDownBars>"),
+        // CORE-CHART-003: 3-D groups with their view (§21.2.2.228) and series axis (§21.2.2.175).
+        ("column3D", "<c:serAx>"),
+        ("cylinder3D", "<c:shape val=\"cylinder\"/>"),
+        ("pie3D", "<c:view3D><c:rotX val=\"30\"/>"),
+        ("explodedPie3D", "<c:explosion val=\"25\"/>"),
+        ("percentArea3D", "<c:area3DChart><c:grouping val=\"percentStacked\"/>"),
     ] {
         let data = if kind.starts_with("stock") {
             r#"{"categories":["N1","N2","N3"],"series":[{"name":"O","values":[10,11,12]},{"name":"H","values":[12,13,14]},{"name":"L","values":[9,10,11]},{"name":"C","values":[11,12,11]}]}"#

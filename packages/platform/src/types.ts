@@ -662,7 +662,7 @@ export interface SlideGuide {
 export interface SlideShapeInfo {
   id: number;
   name: string;
-  kind: 'shape' | 'picture' | 'group' | 'connector' | 'table' | 'chart' | 'graphic';
+  kind: 'shape' | 'picture' | 'group' | 'connector' | 'table' | 'chart' | 'smartart' | 'graphic';
   rect: SlideBox;
   /** Text in the editing format: `\n` paragraphs, `\u000b` line breaks. */
   text: string | null;
@@ -946,7 +946,24 @@ export type SlideChartKind =
   | 'radarFilled'
   | 'stock'
   | 'stockUpDown'
-  | 'surface';
+  | 'surface'
+  | 'column3D'
+  | 'clusteredColumn3D'
+  | 'stackedColumn3D'
+  | 'percentColumn3D'
+  | 'cylinder3D'
+  | 'cone3D'
+  | 'pyramid3D'
+  | 'bar3D'
+  | 'stackedBar3D'
+  | 'percentBar3D'
+  | 'line3D'
+  | 'area3D'
+  | 'stackedArea3D'
+  | 'percentArea3D'
+  | 'pie3D'
+  | 'explodedPie3D'
+  | 'surface3D';
 export type SlideLegend = 'none' | 'r' | 'l' | 't' | 'b' | 'tr';
 
 /** Data grid of a chart: categories down, series across. */

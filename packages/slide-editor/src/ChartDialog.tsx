@@ -28,6 +28,23 @@ export const CHART_KINDS: SlideChartKind[] = [
   'stock',
   'stockUpDown',
   'surface',
+  'column3D',
+  'clusteredColumn3D',
+  'stackedColumn3D',
+  'percentColumn3D',
+  'cylinder3D',
+  'cone3D',
+  'pyramid3D',
+  'bar3D',
+  'stackedBar3D',
+  'percentBar3D',
+  'line3D',
+  'area3D',
+  'stackedArea3D',
+  'percentArea3D',
+  'pie3D',
+  'explodedPie3D',
+  'surface3D',
 ];
 const LEGENDS: SlideLegend[] = ['none', 'r', 'b', 't', 'l'];
 

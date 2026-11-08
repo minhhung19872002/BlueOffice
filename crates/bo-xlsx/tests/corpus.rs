@@ -1544,10 +1544,19 @@ fn writer_chart_kind(group: &str, i: usize) -> m::Workbook {
                 ("surface", _) => "surface",
                 ("ofpie", 1) => "pieOfPie",
                 ("ofpie", 2) => "barOfPie",
+                ("3dbar", 1) => "column3D",
+                ("3dbar", 2) => "cylinder3D",
+                ("3dbar", _) => "stackedBar3D",
+                ("3dline", 1) => "line3D",
+                ("3dline", 2) => "area3D",
+                ("3dline", _) => "percentArea3D",
+                ("3dpie", 1) => "pie3D",
+                ("3dpie", 2) => "explodedPie3D",
+                ("3dpie", _) => "surface3D",
                 _ => "explodedPie",
             };
             let cats = ["Hà Nội", "Hải Phòng", "Huế", "Đà Nẵng", "Cần Thơ", "TP.HCM"];
-            let series = if group == "ofpie" {
+            let series = if group == "ofpie" || (group == "3dpie" && i < 3) {
                 1
             } else if group == "surface" && i == 3 {
                 5
@@ -1875,6 +1884,15 @@ fn writer_charts_surface(i: usize) -> m::Workbook {
 }
 fn writer_charts_ofpie(i: usize) -> m::Workbook {
     writer_chart_kind("ofpie", i)
+}
+fn writer_charts_3dbar(i: usize) -> m::Workbook {
+    writer_chart_kind("3dbar", i)
+}
+fn writer_charts_3dline(i: usize) -> m::Workbook {
+    writer_chart_kind("3dline", i)
+}
+fn writer_charts_3dpie(i: usize) -> m::Workbook {
+    writer_chart_kind("3dpie", i)
 }
 
 /// PivotTables created with "Insert → Pivot table" (`bo_sheet::pivot`): cache
@@ -2515,6 +2533,9 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-charts-stock", "BlueSheet writer: stock charts (high-low-close; open-high-low-close; with up/down bars)", writer_charts_stock),
     ("writer-charts-surface", "BlueSheet writer: surface charts (3 series; wireframe; 5 series)", writer_charts_surface),
     ("writer-charts-ofpie", "BlueSheet writer: pie of pie, bar of pie and an exploded pie", writer_charts_ofpie),
+    ("writer-charts-3dbar", "BlueSheet writer: 3-D columns (series one behind the other), 3-D cylinders, stacked 3-D bars", writer_charts_3dbar),
+    ("writer-charts-3dline", "BlueSheet writer: 3-D line, 3-D area, 100 % stacked 3-D area", writer_charts_3dline),
+    ("writer-charts-3dpie", "BlueSheet writer: 3-D pie, exploded 3-D pie, 3-D surface", writer_charts_3dpie),
     ("writer-chartex-waterfall", "BlueSheet writer: chartex waterfall (with a total; ups and downs; with a total)", writer_chartex_waterfall),
     ("writer-chartex-treemap", "BlueSheet writer: chartex treemap (2 levels; 3 levels; 2 levels, 5 points)", writer_chartex_treemap),
     ("writer-chartex-sunburst", "BlueSheet writer: chartex sunburst (2 levels; 3 levels; 2 levels, 5 points)", writer_chartex_sunburst),
@@ -3078,6 +3099,7 @@ fn new_chart_types_round_trip() {
                 assert_eq!(pb.grouping, pa.grouping, "{ctx}");
                 assert_eq!(pb.style, pa.style, "{ctx}");
                 assert_eq!(pb.flag, pa.flag, "{ctx}");
+                assert_eq!(pb.three_d, pa.three_d, "{ctx}");
                 assert_eq!(
                     (pb.drop_lines, pb.hi_low_lines),
                     (pa.drop_lines, pa.hi_low_lines),

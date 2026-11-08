@@ -348,6 +348,26 @@ pub(crate) fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
             }
         }
     }
+    // §21.2.2.228 view3D, kept for 3-D chart groups.
+    if out.plots.iter().any(|p| p.three_d) {
+        let v = chart.child("view3D");
+        let int = |name: &str| {
+            v.and_then(|v| v.val_of(name))
+                .and_then(|x| x.trim().parse::<i64>().ok())
+        };
+        let d = bo_model::sheet::View3D::default();
+        out.axes.view3d = Some(bo_model::sheet::View3D {
+            rot_x: int("rotX").map_or(d.rot_x, |x| x.clamp(-90, 90) as i32),
+            rot_y: int("rotY").map_or(d.rot_y, |x| x.clamp(0, 360) as u32),
+            depth_percent: int("depthPercent")
+                .map_or(d.depth_percent, |x| x.clamp(20, 2000) as u32),
+            h_percent: int("hPercent").map(|x| x.clamp(5, 500) as u32),
+            r_ang_ax: v.and_then(|v| v.child("rAngAx")).map_or(d.r_ang_ax, |c| {
+                c.attr("val").is_none_or(|x| x == "1" || x == "true")
+            }),
+            perspective: int("perspective").map_or(d.perspective, |x| x.clamp(0, 240) as u32),
+        });
+    }
     // §21.2.2.93 legend
     if let Some(l) = chart.child("legend") {
         out.legend = Some(l.val_of("legendPos").unwrap_or_else(|| "r".into()));
@@ -396,8 +416,13 @@ fn parse_plot(g: &Node) -> ChartPlot {
         drop_lines: g.child("dropLines").is_some(),
         hi_low_lines: g.child("hiLowLines").is_some() && g.name != "stockChart",
         secondary: false,
+        three_d: g.name.contains("3D"),
         vary_colors: on("varyColors"),
-        style: g.val_of("radarStyle").or_else(|| g.val_of("ofPieType")),
+        // §21.2.2.177 shape of 3-D bars.
+        style: g
+            .val_of("radarStyle")
+            .or_else(|| g.val_of("ofPieType"))
+            .or_else(|| g.val_of("shape")),
         // §21.2.2.218 upDownBars (stock), §21.2.2.230 wireframe (surface).
         flag: g.child("upDownBars").is_some() || on("wireframe"),
         kind,

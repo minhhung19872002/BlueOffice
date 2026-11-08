@@ -1704,30 +1704,7 @@ impl SheetEngine {
                         .iter()
                         .enumerate()
                         .map(|(i, c)| {
-                            let p = c.plots.first();
-                            let kind = match (
-                                c.plots.len(),
-                                p.map(|p| (&p.kind, p.bar_dir.as_deref(), p.grouping.as_deref())),
-                            ) {
-                                (n, _) if n > 1 => "combo",
-                                (_, Some((bo_model::sheet::ChartKind::Bar, Some("bar"), _))) => {
-                                    "bar"
-                                }
-                                (
-                                    _,
-                                    Some((
-                                        bo_model::sheet::ChartKind::Bar,
-                                        _,
-                                        Some("stacked" | "percentStacked"),
-                                    )),
-                                ) => "stackedColumn",
-                                (_, Some((bo_model::sheet::ChartKind::Line, ..))) => "line",
-                                (_, Some((bo_model::sheet::ChartKind::Area, ..))) => "area",
-                                (_, Some((bo_model::sheet::ChartKind::Pie, ..))) => "pie",
-                                (_, Some((bo_model::sheet::ChartKind::Doughnut, ..))) => "doughnut",
-                                (_, Some((bo_model::sheet::ChartKind::Scatter, ..))) => "scatter",
-                                _ => "column",
-                            };
+                            let kind = bo_sheet::chart::type_name(c);
                             json!({
                                 "index": i,
                                 "kind": kind,

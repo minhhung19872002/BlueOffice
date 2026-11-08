@@ -134,7 +134,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     OpenXmlValidator 0 lỗi, đọc lại cùng loại/kiểu/cờ/tham chiếu), `bo-sheet chart::tests` (mọi loại vẽ được),
     `bo-engine slide_show::new_chart_types_on_slides`, snapshot slide biểu đồ cập nhật. **Thiếu**: VHLC/VOHLC (khối lượng trên
     trục phụ), bề mặt 3D thật (CORE-3D-001), splitType/splitPos tuỳ chỉnh của of-pie.
-- [ ] **CORE-CHART-003** — Biểu đồ 3D (column/bar/line/area/pie 3D) hiển thị · P0 · CORE-3D-001 · render.
+- [x] **CORE-CHART-003** — Biểu đồ 3D: đọc/ghi bar3D/line3D/area3D/pie3D/surface3D + view3D (rotX/rotY/depthPercent/hPercent/rAngAx/perspective) + serAx + shape (hộp/trụ/nón/kim tự tháp); vẽ khối thật (`bo-sheet/src/chart/three_d.rs`: tường/sàn có lưới, hộp/trụ/nón, băng đường, khối vùng, tròn nghiêng có tách miếng, lưới bề mặt; loại mặt khuất + sắp mặt + chiếu sáng), dùng chung sheet/slide/doc; 18 loại 3D trong hộp thoại BlueSheet/BlueSlide · P0 · CORE-3D-001 · corpus `writer-charts-3d{bar,line,pie}-*` (OpenXmlValidator), chart::three_d::tests, `three_d_chart_types`, `every_chart_type_is_named_back`, slide_show `new_chart_types_on_slides`. Còn lại (không chặn): xoay 3D bằng chuột, định dạng sàn/tường (floor/sideWall/backWall spPr), gapDepth.
 - [p] **CORE-CHART-004** — Biểu đồ mở rộng cx: waterfall, treemap, sunburst, histogram, pareto, box & whisker, funnel: đọc/ghi/hiển thị · P0 · — · corpus + validator.
   - Xong: `bo-xlsx::chartex` theo [MS-ODRAWXML] 2.24 — đọc `cx:chartSpace` (chartData: strDim nhiều cấp, numDim
     val/size; series layoutId, subtotals, binning, statistics, paretoLine), ghi chartex khi tạo mới (phần `chartEx{n}.xml`,

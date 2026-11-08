@@ -93,6 +93,15 @@ Kiểm thử round-trip: `cargo test -p bo-xlsx --test corpus corpus_roundtrip -
 | `writer-charts-ofpie-1.xlsx` | BlueSheet writer: pie of pie, bar of pie and an exploded pie (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_ofpie` |
 | `writer-charts-ofpie-2.xlsx` | BlueSheet writer: pie of pie, bar of pie and an exploded pie (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_ofpie` |
 | `writer-charts-ofpie-3.xlsx` | BlueSheet writer: pie of pie, bar of pie and an exploded pie (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_ofpie` |
+| `writer-charts-3dbar-1.xlsx` | BlueSheet writer: 3-D columns (series one behind the other), 3-D cylinders, stacked 3-D bars (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_3dbar` |
+| `writer-charts-3dbar-2.xlsx` | BlueSheet writer: 3-D columns (series one behind the other), 3-D cylinders, stacked 3-D bars (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_3dbar` |
+| `writer-charts-3dbar-3.xlsx` | BlueSheet writer: 3-D columns (series one behind the other), 3-D cylinders, stacked 3-D bars (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_3dbar` |
+| `writer-charts-3dline-1.xlsx` | BlueSheet writer: 3-D line, 3-D area, 100 % stacked 3-D area (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_3dline` |
+| `writer-charts-3dline-2.xlsx` | BlueSheet writer: 3-D line, 3-D area, 100 % stacked 3-D area (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_3dline` |
+| `writer-charts-3dline-3.xlsx` | BlueSheet writer: 3-D line, 3-D area, 100 % stacked 3-D area (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_3dline` |
+| `writer-charts-3dpie-1.xlsx` | BlueSheet writer: 3-D pie, exploded 3-D pie, 3-D surface (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_3dpie` |
+| `writer-charts-3dpie-2.xlsx` | BlueSheet writer: 3-D pie, exploded 3-D pie, 3-D surface (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_3dpie` |
+| `writer-charts-3dpie-3.xlsx` | BlueSheet writer: 3-D pie, exploded 3-D pie, 3-D surface (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_3dpie` |
 | `writer-chartex-waterfall-1.xlsx` | BlueSheet writer: chartex waterfall (with a total; ups and downs; with a total) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_waterfall` |
 | `writer-chartex-waterfall-2.xlsx` | BlueSheet writer: chartex waterfall (with a total; ups and downs; with a total) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_waterfall` |
 | `writer-chartex-waterfall-3.xlsx` | BlueSheet writer: chartex waterfall (with a total; ups and downs; with a total) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_waterfall` |

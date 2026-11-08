@@ -1313,6 +1313,53 @@ pub struct ChartAxes {
     /// §21.2.2.54 dTable: a data table under the plot.
     #[serde(default)]
     pub data_table: bool,
+    /// §21.2.2.228 view3D of a 3-D chart.
+    #[serde(default)]
+    pub view3d: Option<View3D>,
+}
+
+/// §21.2.2.228 view3D: how a 3-D chart is seen.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct View3D {
+    /// §21.2.2.158 rotX: elevation in degrees (−90..=90).
+    pub rot_x: i32,
+    /// §21.2.2.159 rotY: turn about the vertical axis in degrees (0..=360).
+    pub rot_y: u32,
+    /// §21.2.2.43 depthPercent: depth as a percentage of the width (20..=2000).
+    pub depth_percent: u32,
+    /// §21.2.2.79 hPercent: height as a percentage of the width (5..=500); `None` = automatic.
+    pub h_percent: Option<u32>,
+    /// §21.2.2.157 rAngAx: right-angle axes (oblique drawing, no perspective).
+    pub r_ang_ax: bool,
+    /// §21.2.2.135 perspective: field of view (0..=240; 30 by default).
+    pub perspective: u32,
+}
+
+impl Default for View3D {
+    /// The defaults of the schema (rotX 0, rotY 0, depth 100 %, perspective 30, rAngAx on); a new 3-D
+    /// chart uses [`View3D::new_chart`].
+    fn default() -> Self {
+        View3D {
+            rot_x: 0,
+            rot_y: 0,
+            depth_percent: 100,
+            h_percent: None,
+            r_ang_ax: true,
+            perspective: 30,
+        }
+    }
+}
+
+impl View3D {
+    /// The view of a new 3-D chart: seen 15° from above and turned 20°.
+    pub fn new_chart(pie: bool) -> Self {
+        View3D {
+            rot_x: if pie { 30 } else { 15 },
+            rot_y: if pie { 0 } else { 20 },
+            r_ang_ax: !pie,
+            ..View3D::default()
+        }
+    }
 }
 
 /// §21.2.2.211 trendline.
@@ -1485,6 +1532,10 @@ pub struct ChartPlot {
     /// The group is plotted on the secondary value axis (the second `c:valAx`).
     #[serde(default)]
     pub secondary: bool,
+    /// A 3-D chart group (`c:bar3DChart`, `c:line3DChart`, `c:area3DChart`, `c:pie3DChart`,
+    /// `c:surface3DChart`); a bar group keeps its §21.2.2.177 shape in `style`.
+    #[serde(default)]
+    pub three_d: bool,
 }
 
 /// A data series (`c:ser`).

@@ -37,6 +37,7 @@ const PALETTE: [&str; 8] = [
 
 const CAT_AX: u32 = 50_010;
 const VAL_AX: u32 = 50_020;
+const SER_AX: u32 = 50_030;
 
 /// `<a:p>` rich text body of a title (§21.2.2.156 rich).
 fn rich(out: &mut String, text: &str) {
@@ -307,12 +308,103 @@ fn axis_ids(out: &mut String) {
     let _ = write!(out, "<c:axId val=\"{CAT_AX}\"/><c:axId val=\"{VAL_AX}\"/>");
 }
 
+/// Does a 3-D group need a series axis (§21.2.2.175 serAx)? Line and surface groups always have one,
+/// bar and area groups when their series stand one behind the other (`standard` grouping).
+fn needs_ser_ax(p: &ChartPlot) -> bool {
+    p.three_d
+        && match p.kind {
+            ChartKind::Line | ChartKind::Surface => true,
+            ChartKind::Bar | ChartKind::Area => p.grouping.as_deref() == Some("standard"),
+            _ => false,
+        }
+}
+
+/// A 3-D group: §21.2.2.15 bar3DChart, §21.2.2.96 line3DChart, §21.2.2.4 area3DChart,
+/// §21.2.2.140 pie3DChart, §21.2.2.202 surface3DChart. `None` for kinds without a 3-D form.
+fn plot_3d(out: &mut String, p: &ChartPlot, sers: &str) -> Option<bool> {
+    let ids = |out: &mut String| {
+        axis_ids(out);
+        if needs_ser_ax(p) {
+            let _ = write!(out, "<c:axId val=\"{SER_AX}\"/>");
+        }
+    };
+    let g = p.grouping.as_deref();
+    match p.kind {
+        ChartKind::Bar => {
+            let dir = if p.bar_dir.as_deref() == Some("bar") {
+                "bar"
+            } else {
+                "col"
+            };
+            let g = g.unwrap_or("clustered");
+            let _ = write!(
+                out,
+                "<c:bar3DChart><c:barDir val=\"{dir}\"/><c:grouping val=\"{g}\"/><c:varyColors val=\"0\"/>{sers}<c:gapWidth val=\"150\"/>"
+            );
+            if let Some(shape) = p.style.as_deref().filter(|s| {
+                matches!(
+                    *s,
+                    "box" | "cylinder" | "cone" | "coneToMax" | "pyramid" | "pyramidToMax"
+                )
+            }) {
+                let _ = write!(out, "<c:shape val=\"{shape}\"/>");
+            }
+            ids(out);
+            out.push_str("</c:bar3DChart>");
+        }
+        ChartKind::Line | ChartKind::Area => {
+            let tag = if p.kind == ChartKind::Line {
+                "line3DChart"
+            } else {
+                "area3DChart"
+            };
+            let g = if p.kind == ChartKind::Line {
+                "standard"
+            } else {
+                g.unwrap_or("standard")
+            };
+            let _ = write!(
+                out,
+                "<c:{tag}><c:grouping val=\"{g}\"/><c:varyColors val=\"0\"/>{sers}"
+            );
+            if p.drop_lines {
+                out.push_str("<c:dropLines/>");
+            }
+            ids(out);
+            let _ = write!(out, "</c:{tag}>");
+        }
+        ChartKind::Pie => {
+            let _ = write!(
+                out,
+                "<c:pie3DChart><c:varyColors val=\"1\"/>{sers}</c:pie3DChart>"
+            );
+            return Some(false);
+        }
+        ChartKind::Surface => {
+            let _ = write!(
+                out,
+                "<c:surface3DChart><c:wireframe val=\"{}\"/>{sers}",
+                u8::from(p.flag)
+            );
+            ids(out);
+            out.push_str("</c:surface3DChart>");
+        }
+        _ => return None,
+    }
+    Some(true)
+}
+
 /// One plot group (§21.2.2.16 barChart, §21.2.2.97 lineChart, …).
 fn plot(out: &mut String, p: &ChartPlot, first_idx: usize) -> bool {
     let grouping = p.grouping.as_deref();
     let mut sers = String::new();
     for (i, s) in p.series.iter().enumerate() {
         series(&mut sers, &p.kind, s, first_idx + i);
+    }
+    if p.three_d {
+        if let Some(axes) = plot_3d(out, p, &sers) {
+            return axes;
+        }
     }
     match p.kind {
         ChartKind::Bar => {
@@ -543,6 +635,32 @@ pub fn chart_space_xml(chart: &Chart) -> String {
         }
         out.push_str("</c:pivotFmts>");
     }
+    // §21.2.2.228 view3D (then §21.2.2.69 floor, §21.2.2.187 sideWall, §21.2.2.11 backWall, left to
+    // the application defaults).
+    if chart.plots.iter().any(|p| p.three_d) {
+        let pie = chart.plots.iter().all(|p| p.kind == ChartKind::Pie);
+        let v = chart
+            .axes
+            .view3d
+            .clone()
+            .unwrap_or_else(|| bo_model::sheet::View3D::new_chart(pie));
+        let _ = write!(
+            out,
+            "<c:view3D><c:rotX val=\"{}\"/>",
+            v.rot_x.clamp(-90, 90)
+        );
+        if let Some(h) = v.h_percent {
+            let _ = write!(out, "<c:hPercent val=\"{}\"/>", h.clamp(5, 500));
+        }
+        let _ = write!(
+            out,
+            "<c:rotY val=\"{}\"/><c:depthPercent val=\"{}\"/><c:rAngAx val=\"{}\"/><c:perspective val=\"{}\"/></c:view3D>",
+            v.rot_y.min(360),
+            v.depth_percent.clamp(20, 2000),
+            u8::from(v.r_ang_ax),
+            v.perspective.min(240)
+        );
+    }
     out.push_str("<c:plotArea><c:layout/>");
     let mut axes = false;
     let mut idx = 0;
@@ -591,6 +709,13 @@ pub fn chart_space_xml(chart: &Chart) -> String {
             true,
             Some(&chart.axes),
         );
+        // §21.2.2.175 serAx: the depth axis of a 3-D chart whose series stand one behind the other.
+        if chart.plots.iter().any(needs_ser_ax) {
+            let _ = write!(
+                out,
+                "<c:serAx><c:axId val=\"{SER_AX}\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling><c:delete val=\"0\"/><c:axPos val=\"b\"/><c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/><c:crossAx val=\"{VAL_AX}\"/><c:crosses val=\"autoZero\"/></c:serAx>"
+            );
+        }
         // §21.2.2.54 dTable.
         if chart.axes.data_table {
             out.push_str("<c:dTable><c:showHorzBorder val=\"1\"/><c:showVertBorder val=\"1\"/><c:showOutline val=\"1\"/><c:showKeys val=\"1\"/></c:dTable>");

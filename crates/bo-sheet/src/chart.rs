@@ -15,6 +15,8 @@ use bo_model::sheet::{
 };
 use bo_render::{Command, Paint, PathSeg, Rgba, Stroke};
 
+mod three_d;
+
 /// Series colours (BlueSheet palette).
 pub const PALETTE: [Rgba; 8] = [
     Rgba(0x2E, 0x6D, 0xB4, 255),
@@ -169,12 +171,135 @@ pub const CHART_TYPES: &[&str] = &[
     "pareto",
     "boxWhisker",
     "funnel",
+    "column3D",
+    "clusteredColumn3D",
+    "stackedColumn3D",
+    "percentColumn3D",
+    "cylinder3D",
+    "cone3D",
+    "pyramid3D",
+    "bar3D",
+    "stackedBar3D",
+    "percentBar3D",
+    "line3D",
+    "area3D",
+    "stackedArea3D",
+    "percentArea3D",
+    "pie3D",
+    "explodedPie3D",
+    "surface3D",
+    "surfaceWireframe3D",
     "combo",
 ];
+
+/// The [`CHART_TYPES`] name of a chart (several groups: `combo`).
+#[must_use]
+pub fn type_name(c: &Chart) -> &'static str {
+    if c.plots.len() > 1 {
+        return "combo";
+    }
+    let Some(p) = c.plots.first() else {
+        return "column";
+    };
+    let g = p.grouping.as_deref();
+    let horizontal = p.bar_dir.as_deref() == Some("bar");
+    // 3-D groups (§21.2.2.15 bar3DChart, …; bar shape §21.2.2.177).
+    if p.three_d {
+        return match p.kind {
+            ChartKind::Bar => match (horizontal, g, p.style.as_deref()) {
+                (true, Some("stacked"), _) => "stackedBar3D",
+                (true, Some("percentStacked"), _) => "percentBar3D",
+                (true, _, _) => "bar3D",
+                (false, Some("stacked"), _) => "stackedColumn3D",
+                (false, Some("percentStacked"), _) => "percentColumn3D",
+                (false, _, Some("cylinder")) => "cylinder3D",
+                (false, _, Some("cone" | "coneToMax")) => "cone3D",
+                (false, _, Some("pyramid" | "pyramidToMax")) => "pyramid3D",
+                (false, Some("standard"), _) => "column3D",
+                _ => "clusteredColumn3D",
+            },
+            ChartKind::Line => "line3D",
+            ChartKind::Area => match g {
+                Some("stacked") => "stackedArea3D",
+                Some("percentStacked") => "percentArea3D",
+                _ => "area3D",
+            },
+            ChartKind::Pie if p.series.iter().any(|s| s.explosion > 0) => "explodedPie3D",
+            ChartKind::Pie => "pie3D",
+            ChartKind::Surface if p.flag => "surfaceWireframe3D",
+            ChartKind::Surface => "surface3D",
+            _ => "column",
+        };
+    }
+    match p.kind {
+        ChartKind::Bar => match (horizontal, g) {
+            (false, Some("stacked")) => "stackedColumn",
+            (false, Some("percentStacked")) => "percentColumn",
+            (true, Some("stacked")) => "stackedBar",
+            (true, Some("percentStacked")) => "percentBar",
+            (true, _) => "bar",
+            _ => "column",
+        },
+        ChartKind::Line => match g {
+            Some("stacked") => "stackedLine",
+            Some("percentStacked") => "percentLine",
+            _ => "line",
+        },
+        ChartKind::Area => match g {
+            Some("stacked") => "stackedArea",
+            Some("percentStacked") => "percentArea",
+            _ => "area",
+        },
+        ChartKind::Pie if p.series.iter().any(|s| s.explosion > 0) => "explodedPie",
+        ChartKind::Pie => "pie",
+        ChartKind::Doughnut => "doughnut",
+        ChartKind::OfPie if p.style.as_deref() == Some("bar") => "barOfPie",
+        ChartKind::OfPie => "pieOfPie",
+        ChartKind::Radar => match p.style.as_deref() {
+            Some("marker") => "radarMarker",
+            Some("filled") => "radarFilled",
+            _ => "radar",
+        },
+        ChartKind::Stock if p.flag => "stockUpDown",
+        ChartKind::Stock => "stock",
+        ChartKind::Surface if p.flag => "surfaceWireframe",
+        ChartKind::Surface => "surface",
+        ChartKind::Scatter => "scatter",
+        ChartKind::Bubble => "bubble",
+        ChartKind::Waterfall => "waterfall",
+        ChartKind::Treemap => "treemap",
+        ChartKind::Sunburst => "sunburst",
+        ChartKind::Histogram => "histogram",
+        ChartKind::Pareto => "pareto",
+        ChartKind::BoxWhisker => "boxWhisker",
+        ChartKind::Funnel => "funnel",
+        ChartKind::Other(_) => "column",
+    }
+}
 
 /// The plot of a chart type name of [`CHART_TYPES`] (unknown names: clustered columns).
 #[must_use]
 pub fn plot_for(kind: &str) -> ChartPlot {
+    // 3-D types: `column3D` stands the series one behind the other (§21.2.2.76 grouping standard),
+    // `clusteredColumn3D` and the shapes (§21.2.2.177) cluster them; the others are their 2-D
+    // type drawn in 3-D.
+    if let Some(base) = kind.strip_suffix("3D") {
+        let (base, standard, shape) = match base {
+            "column" => ("column", true, None),
+            "clusteredColumn" => ("column", false, None),
+            "cylinder" | "cone" | "pyramid" => ("column", false, Some(base)),
+            other => (other, false, None),
+        };
+        let mut p = plot_for(base);
+        p.three_d = true;
+        if standard {
+            p.grouping = Some("standard".into());
+        }
+        if let Some(shape) = shape {
+            p.style = Some(shape.into());
+        }
+        return p;
+    }
     let (k, dir, grouping, style, flag) = match kind {
         "bar" => (ChartKind::Bar, Some("bar"), Some("clustered"), None, false),
         "stackedColumn" => (ChartKind::Bar, Some("col"), Some("stacked"), None, false),
@@ -278,12 +403,26 @@ pub fn set_chart_type(chart: &mut Chart, kind: &str) {
         let mut p = plot_for(if kind == "combo" { "column" } else { kind });
         p.series = series;
         // A type change never drops data: only the exploded pie look is applied.
-        if kind == "explodedPie" {
-            shape_series(kind, &mut p);
+        if matches!(kind, "explodedPie" | "explodedPie3D") {
+            shape_series("explodedPie", &mut p);
         }
         chart.plots = vec![p];
     }
+    view_for_type(chart);
     chart.dirty = true;
+}
+
+/// A 3-D chart gets the view of a new 3-D chart (§21.2.2.228 view3D) unless it has one; a flat chart
+/// drops it.
+pub fn view_for_type(chart: &mut Chart) {
+    let pie = chart.plots.iter().all(|p| p.kind == ChartKind::Pie);
+    if chart.plots.iter().any(|p| p.three_d) {
+        if chart.axes.view3d.is_none() {
+            chart.axes.view3d = Some(bo_model::sheet::View3D::new_chart(pie));
+        }
+    } else {
+        chart.axes.view3d = None;
+    }
 }
 
 /// A chart for the data in `range` of sheet `sheet`: the first row holds series
@@ -346,7 +485,12 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
             s.cat_ref.clone_from(&x.val_ref);
         }
     }
-    shape_series(first_plot_kind, &mut plot);
+    shape_series(
+        first_plot_kind
+            .strip_suffix("3D")
+            .unwrap_or(first_plot_kind),
+        &mut plot,
+    );
     let mut chart = Chart {
         from: CellRef::new(range.first.row, range.last.col + 2),
         to: Some(CellRef::new(range.first.row + 15, range.last.col + 10)),
@@ -358,6 +502,7 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
     if kind == "combo" {
         set_chart_type(&mut chart, "combo");
     }
+    view_for_type(&mut chart);
     let mut data = chart.clone();
     refresh_one(wb, sheet, &mut data);
     Some(data)
@@ -1068,6 +1213,37 @@ pub fn draw_chart_with(
             }
         }
     }
+    // 3-D groups (§21.2.2.15 bar3DChart, …) are drawn as solids.
+    let solid = plots.first().filter(|(p, _)| {
+        p.three_d
+            && matches!(
+                p.kind,
+                ChartKind::Bar
+                    | ChartKind::Line
+                    | ChartKind::Area
+                    | ChartKind::Pie
+                    | ChartKind::Surface
+            )
+    });
+    if let Some((p, ss)) = solid.filter(|_| pie || surface) {
+        let view = chart
+            .axes
+            .view3d
+            .clone()
+            .unwrap_or_else(|| bo_model::sheet::View3D::new_chart(pie));
+        three_d::draw(
+            p,
+            ss,
+            &view,
+            [6.0, top, right, bottom],
+            font,
+            locale,
+            color,
+            label,
+            out,
+        );
+        return;
+    }
     if let Some((p, ss)) = ex {
         draw_ex(
             p,
@@ -1141,6 +1317,25 @@ pub fn draw_chart_with(
         );
         out.push(Command::PopTransform);
         left += th;
+    }
+    if let Some((p, ss)) = solid {
+        let view = chart
+            .axes
+            .view3d
+            .clone()
+            .unwrap_or_else(|| bo_model::sheet::View3D::new_chart(false));
+        three_d::draw(
+            p,
+            ss,
+            &view,
+            [left, top, right, bottom],
+            font,
+            locale,
+            color,
+            label,
+            out,
+        );
+        return;
     }
     // §21.2.2.54 dTable: a table of the values under the plot.
     let table_rows = if chart.axes.data_table {
@@ -3381,5 +3576,53 @@ mod tests {
         c3.plots[1].secondary = true;
         let (out, _) = draw(&wb, &c3);
         assert!(out.len() > 10);
+    }
+
+    #[test]
+    fn three_d_chart_types() {
+        let wb = wb();
+        for kind in [
+            "column3D",
+            "cylinder3D",
+            "bar3D",
+            "line3D",
+            "stackedArea3D",
+            "pie3D",
+            "surface3D",
+        ] {
+            let c = new_chart(&wb, 0, CellRange::parse("A1:C4").unwrap(), kind).unwrap();
+            assert!(c.plots[0].three_d, "{kind}");
+            let v = c.axes.view3d.clone().unwrap();
+            // §21.2.2.228: a new pie is tilted 30°, the others seen 15° from above and turned 20°.
+            assert_eq!(
+                (v.rot_x, v.rot_y),
+                if kind == "pie3D" { (30, 0) } else { (15, 20) },
+                "{kind}"
+            );
+            let (out, labels) = draw(&wb, &c);
+            assert!(out.len() > 8, "{kind}");
+            if kind != "pie3D" {
+                assert!(
+                    labels.iter().any(|l| l == "HN" || l == "2024"),
+                    "{kind}: {labels:?}"
+                );
+            }
+        }
+        let c = new_chart(&wb, 0, CellRange::parse("A1:C4").unwrap(), "column3D").unwrap();
+        assert_eq!(c.plots[0].grouping.as_deref(), Some("standard"));
+        let c = new_chart(&wb, 0, CellRange::parse("A1:C4").unwrap(), "pyramid3D").unwrap();
+        assert_eq!(c.plots[0].style.as_deref(), Some("pyramid"));
+        let mut c = c;
+        set_chart_type(&mut c, "column");
+        assert!(!c.plots[0].three_d && c.axes.view3d.is_none());
+    }
+
+    #[test]
+    fn every_chart_type_is_named_back() {
+        let wb = wb();
+        for kind in CHART_TYPES {
+            let c = new_chart(&wb, 0, CellRange::parse("A1:C4").unwrap(), kind).unwrap();
+            assert_eq!(type_name(&c), *kind);
+        }
     }
 }

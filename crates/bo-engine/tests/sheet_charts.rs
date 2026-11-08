@@ -154,3 +154,32 @@ fn inserted_rows_move_a_file_pivot_table_and_its_source() {
     assert_eq!(wb.sheets[si].pivots[0].location.to_string(), "H3:I7");
     assert_eq!(wb.pivot_caches[0].source_ref.as_deref(), Some("A3:E27"));
 }
+
+// source: ECMA-376 Part 1, §18.3.1.66 pane (frozen ySplit / xSplit, topLeftCell)
+#[test]
+fn frozen_panes_follow_inserted_and_deleted_rows_and_columns() {
+    let mut e = SheetEngine::with_bundled_fonts();
+    e.new_workbook("x.xlsx").unwrap();
+    e.exec_json(r#"{"cmd":"freeze","sheet":0,"rows":2,"cols":1}"#)
+        .unwrap();
+    let pane = |e: &SheetEngine| {
+        let p = e.workbook().unwrap().sheets[0].views[0]
+            .pane
+            .clone()
+            .unwrap();
+        (p.y_split, p.x_split, p.top_left_cell)
+    };
+    assert_eq!(pane(&e), (2.0, 1.0, Some("B3".into())));
+    // A row inserted inside the frozen rows: three frozen rows.
+    e.structural(0, true, 0, 1, false).unwrap();
+    assert_eq!(pane(&e), (3.0, 1.0, Some("B4".into())));
+    // Below the split: unchanged.
+    e.structural(0, true, 10, 2, false).unwrap();
+    assert_eq!(pane(&e), (3.0, 1.0, Some("B4".into())));
+    // Deleting rows 2-3 (both frozen): one frozen row left.
+    e.structural(0, true, 1, 2, true).unwrap();
+    assert_eq!(pane(&e), (1.0, 1.0, Some("B2".into())));
+    // A column inserted before the frozen column.
+    e.structural(0, false, 0, 1, false).unwrap();
+    assert_eq!(pane(&e), (1.0, 2.0, Some("C2".into())));
+}

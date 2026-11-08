@@ -1096,6 +1096,10 @@ struct BareAt {
     pa: Option<SharedFormula>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pt: Option<SharedFormula>,
+    /// Frozen pane split (§18.3.1.66): ids of the first unfrozen row / column
+    /// (`None` on an axis without frozen rows / columns).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fz: Option<[Option<String>; 2]>,
 }
 
 impl BareAt {
@@ -1114,6 +1118,15 @@ impl BareAt {
             tb: ws.tables.iter().map(|t| ids(&t.range)).collect(),
             pa: None,
             pt: None,
+            fz: ws
+                .views
+                .first()
+                .and_then(|v| v.pane.as_ref())
+                .filter(|p| p.state != bo_model::sheet::PaneState::Split)
+                .map(|p| {
+                    let id = |n: f64, ax: &Axis| (n >= 1.0).then(|| ax.id_at(n as u32));
+                    [id(p.y_split, ra), id(p.x_split, ca)]
+                }),
         }
     }
 
@@ -1123,6 +1136,7 @@ impl BareAt {
             && self.tb.is_empty()
             && self.pa.is_none()
             && self.pt.is_none()
+            && self.fz.is_none()
     }
 
     fn place(&self, ws: &mut Worksheet, ra: &Axis, ca: &Axis) {
@@ -1144,6 +1158,17 @@ impl BareAt {
             if let Some(r) = at(ids) {
                 a.range = r;
             }
+        }
+        if let (Some([rows, cols]), Some(p)) =
+            (&self.fz, ws.views.first_mut().and_then(|v| v.pane.as_mut()))
+        {
+            let place = |id: &Option<String>, ax: &Axis, cur: f64| match id {
+                Some(id) => ax.pos_of(id).map_or(cur, f64::from),
+                None => cur,
+            };
+            p.y_split = place(rows, ra, p.y_split);
+            p.x_split = place(cols, ca, p.x_split);
+            p.top_left_cell = Some(CellRef::new(p.y_split as u32, p.x_split as u32).to_string());
         }
         if self.tb.len() == ws.tables.len() {
             for (t, ids) in ws.tables.iter_mut().zip(&self.tb) {

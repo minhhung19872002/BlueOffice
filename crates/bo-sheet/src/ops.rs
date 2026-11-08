@@ -8,7 +8,8 @@
 
 use crate::calc::{Dimension, FormulaAdjuster, StructuralChange};
 use bo_model::sheet::{
-    CellRange, CellRef, ChartAnchor, ColInfo, TableColumn, Workbook, Worksheet, MAX_COLS, MAX_ROWS,
+    CellRange, CellRef, ChartAnchor, ColInfo, PaneState, TableColumn, Workbook, Worksheet,
+    MAX_COLS, MAX_ROWS,
 };
 use std::collections::BTreeMap;
 
@@ -316,6 +317,36 @@ fn move_sheet_content(ws: &mut Worksheet, m: &Mapper) {
                 af.range = new;
             }
             None => ws.auto_filter = None,
+        }
+    }
+    // Frozen panes (§18.3.1.66 pane, state frozen / frozenSplit): the split is
+    // the first unfrozen row / column, so rows inserted above it or deleted
+    // from the frozen area change the number of frozen rows; the bottom-right
+    // pane's top-left cell moves with its cell.
+    for v in &mut ws.views {
+        let Some(p) = v.pane.as_mut() else { continue };
+        if p.state == PaneState::Split {
+            continue;
+        }
+        let split = match m.dim {
+            Dimension::Rows => &mut p.y_split,
+            Dimension::Cols => &mut p.x_split,
+        };
+        if *split >= 1.0 {
+            let n = *split as u32;
+            // Frozen indices 0..n that survive, plus those inserted before n.
+            let kept = (0..n).filter(|&i| m.shift.index(i).is_some()).count() as u32;
+            let added = if m.shift.insert && m.shift.at < n {
+                m.shift.count
+            } else {
+                0
+            };
+            *split = f64::from(kept + added);
+        }
+        if let Some(c) = p.top_left_cell.as_deref().and_then(CellRef::parse) {
+            if let Some(n) = m.cell(c) {
+                p.top_left_cell = Some(n.to_string());
+            }
         }
     }
     // Pivot table reports (§18.10.1.49 location) move with their cells.

@@ -465,3 +465,21 @@ fn a_pivot_created_during_a_row_insert_follows_the_rows() {
     assert!(loc.starts_with("G3"), "{loc}");
     assert_eq!(src.as_deref(), Some("A3:B6"));
 }
+
+// source: ECMA-376 Part 1, §18.3.1.66 pane
+#[test]
+fn panes_frozen_during_a_row_insert_follow_the_rows() {
+    let (mut a, mut b) = pair(&[(0, 0, "1")]);
+    settle(&mut a, &mut b);
+    a.exec(r#"{"cmd":"freeze","sheet":0,"rows":2,"cols":0}"#);
+    b.structural(true, 0, 1, false);
+    settle(&mut a, &mut b);
+    let pane = |p: &Peer| {
+        let v = &p.engine.workbook().unwrap().sheets[0].views;
+        v.first()
+            .and_then(|v| v.pane.clone())
+            .map(|p| (p.y_split, p.x_split, p.top_left_cell))
+    };
+    assert_eq!(pane(&a), pane(&b));
+    assert_eq!(pane(&a), Some((3.0, 0.0, Some("A4".into()))));
+}

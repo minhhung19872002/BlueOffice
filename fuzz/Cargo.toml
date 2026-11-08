@@ -7,6 +7,9 @@ license = "LicenseRef-BlueOffice-Proprietary"
 
 # cargo-fuzz targets (prompt §7). Not part of the product workspace and not
 # run in CI on Windows: `cargo +nightly fuzz run <target>` on Linux/macOS.
+# CI replays the OOXML target bodies over a mutated corpus instead
+# (crates/bo-engine/tests/fuzz_smoke.rs); the binary/crypto/ODF/encoding/formula
+# parsers have `*_never_panic*` property tests next to their code.
 [package.metadata]
 cargo-fuzz = true
 
@@ -17,6 +20,10 @@ bo-crypto = { path = "../crates/bo-crypto" }
 bo-odf = { path = "../crates/bo-odf" }
 bo-encoding = { path = "../crates/bo-encoding" }
 bo-opc = { path = "../crates/bo-opc" }
+bo-docx = { path = "../crates/bo-docx" }
+bo-xlsx = { path = "../crates/bo-xlsx" }
+bo-pptx = { path = "../crates/bo-pptx" }
+bo-formula = { path = "../crates/bo-formula" }
 
 # Keep this crate out of the root workspace.
 [workspace]
@@ -91,6 +98,34 @@ bench = false
 [[bin]]
 name = "encoding"
 path = "fuzz_targets/encoding.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "docx"
+path = "fuzz_targets/docx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xlsx"
+path = "fuzz_targets/xlsx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pptx"
+path = "fuzz_targets/pptx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "formula"
+path = "fuzz_targets/formula.rs"
 test = false
 doc = false
 bench = false

@@ -207,7 +207,7 @@ pub(crate) struct TableShadow {
     pub cells: BTreeMap<(String, String), String>,
 }
 
-fn sorted(m: &BTreeMap<String, (f64, String)>) -> Vec<String> {
+pub(crate) fn sorted(m: &BTreeMap<String, (f64, String)>) -> Vec<String> {
     let mut v: Vec<(&String, f64)> = m.iter().map(|(k, (o, _))| (k, *o)).collect();
     v.sort_by(|a, b| order::cmp((a.1, a.0), (b.1, b.0)));
     v.into_iter().map(|(k, _)| k.clone()).collect()
@@ -321,7 +321,7 @@ impl TableShadow {
 }
 
 /// Grid column where each cell of `row` starts.
-fn starts(row: &Row) -> Vec<usize> {
+pub(crate) fn starts(row: &Row) -> Vec<usize> {
     let mut g = 0usize;
     row.cells
         .iter()

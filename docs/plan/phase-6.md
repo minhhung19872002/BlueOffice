@@ -117,6 +117,8 @@ nhất), nên chèn/di chuyển đồng thời các phần tử *khác nhau* đ�
 - Người gieo (seeder) = so mô hình với shadow rỗng (`collab_start(seed, clientId)`); id bảng/hàng/cột mới lấy theo client
   id của replica (WASM `collabStart(seed, clientId)`, Tauri `engine_collab_start { seed, client }`).
 - Sửa header/footer và chú thích tại chỗ (story session) được chia sẻ ngay sau mỗi lệnh.
+- Caret của mình trong ô bảng được giữ theo (bảng, id hàng, id cột, đoạn, offset) khi thay đổi từ xa dựng lại bảng
+  (E2E phát hiện: trước đó caret nhảy về đầu bảng nên chữ gõ tiếp dính vào ô đầu).
 
 **BlueSheet** (`crates/bo-engine/src/sheet/collab.rs`, binding `packages/collab/src/sheet.ts`)
 - **Id hàng/cột ổn định**: hàng `i` của file đã gieo có id `"i"`, khoá `i` (dãy nền vô hạn, không lưu); hàng chèn trong

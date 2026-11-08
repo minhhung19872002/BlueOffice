@@ -3,7 +3,19 @@
 // two users at once, a BlueSheet row inserted by one user while the other's
 // formula points below it, and BlueSlide speaker notes.
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
-import { createFromCorpus, openAs, type Participant } from '../collab/drive';
+import {
+  createFromCorpus,
+  documentXml,
+  fileState,
+  hostCommand,
+  openAs,
+  type Participant,
+} from '../collab/drive';
+
+async function words(f: FrameLocator): Promise<number> {
+  const t = (await f.getByTestId('status-words').textContent()) ?? '';
+  return Number(/(\d+)/.exec(t)?.[1] ?? NaN);
+}
 
 /** Selects the first match of `text` through the find bar and closes it. */
 async function findText(p: Participant, text: string) {
@@ -12,15 +24,6 @@ async function findText(p: Participant, text: string) {
   await q.fill(text);
   await q.press('Enter');
   await expect(p.frame.getByTestId('find-message')).toHaveText(/kết quả/);
-  await q.press('Escape');
-}
-
-async function hasText(p: Participant, text: string) {
-  await p.page.keyboard.press('Control+f');
-  const q = p.frame.getByTestId('find-query');
-  await q.fill(text);
-  await q.press('Enter');
-  await expect(p.frame.getByTestId('find-message')).toHaveText(/1 kết quả|\d+ kết quả/);
   await q.press('Escape');
 }
 
@@ -45,20 +48,19 @@ test('two users type in different cells of one table at the same time', async ({
   await findText(b, 'Gộp dọc');
   await b.page.keyboard.press('End');
   await Promise.all([a.page.keyboard.type(' của An'), b.page.keyboard.type(' của Bình')]);
-  // Both edits survive on both sides (cells merge separately).
-  for (const p of [a, b]) {
-    await expect
-      .poll(async () => {
-        try {
-          await hasText(p, 'Gộp ngang của An');
-          await hasText(p, 'Gộp dọc của Bình');
-          return true;
-        } catch {
-          return false;
-        }
-      })
-      .toBe(true);
-  }
+  // Both edits survive on both sides (cells merge separately): same word
+  // count everywhere, and the saved version has both cells' new text.
+  await expect.poll(() => words(a.frame)).toBe(13);
+  await expect.poll(() => words(b.frame)).toBe(13);
+  await expect(hostCommand(b, 'save')).resolves.toEqual({ saved: true });
+  await expect.poll(async () => (await fileState(fileId)).versions.length).toBe(2);
+  const xml = documentXml((await fileState(fileId)).versions.at(-1)!);
+  // ECMA-376 Part 1, §17.4.66 tc: the text of each table cell.
+  const cells = [...xml.matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map((m) =>
+    [...m[0].matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g)].map((t) => t[1]).join(''),
+  );
+  expect(cells).toContain('Gộp ngang của An');
+  expect(cells).toContain('Gộp dọc của Bình');
   expect(a.errors).toEqual([]);
   expect(b.errors).toEqual([]);
   await a.context.close();

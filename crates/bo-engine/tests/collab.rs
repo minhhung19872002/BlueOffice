@@ -505,6 +505,54 @@ fn styles_comments_notes_and_headers_converge() {
     converged(&a, &b);
 }
 
+/// A real file with merged cells: both users type at the end of two cells.
+#[test]
+fn merged_table_cells_of_a_real_file_merge() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/doc/tables-02-merge.docx");
+    let bytes = std::fs::read(path).unwrap();
+    let open = |id| {
+        let mut engine = Engine::with_bundled_fonts();
+        engine.open(&bytes, "gộp.docx").unwrap();
+        Peer {
+            engine,
+            replica: Session::with_client_id(id),
+            slides: false,
+        }
+    };
+    let (mut a, mut b) = (open(91), open(92));
+    a.start(true);
+    b.start(false);
+    connect(&mut a, &mut b);
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    let t = a.text();
+    let pa = t.iter().position(|p| p.starts_with("Gộp ngang")).unwrap();
+    let pb = t.iter().position(|p| p.starts_with("Gộp dọc")).unwrap();
+    a.cmd(&sel(pa, t[pa].len()));
+    b.cmd(&sel(pb, t[pb].len()));
+    // Typed key by key while the other's keys arrive: carets stay in their cells.
+    let (ka, kb): (Vec<char>, Vec<char>) =
+        (" của An".chars().collect(), " của Bình".chars().collect());
+    for i in 0..ka.len().max(kb.len()) {
+        if let Some(ch) = ka.get(i) {
+            a.cmd(&insert(&ch.to_string()));
+        }
+        if let Some(ch) = kb.get(i) {
+            b.cmd(&insert(&ch.to_string()));
+        }
+        send(&mut a, &mut b);
+        b.pull();
+        send(&mut b, &mut a);
+        a.pull();
+    }
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    let t = b.text();
+    assert!(t.iter().any(|p| p == "Gộp ngang của An"), "{t:?}");
+    assert!(t.iter().any(|p| p == "Gộp dọc của Bình"), "{t:?}");
+}
+
 #[test]
 fn header_text_is_shared() {
     let (mut a, mut b) = pair("thân");

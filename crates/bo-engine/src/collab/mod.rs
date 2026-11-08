@@ -1119,7 +1119,67 @@ fn apply_entries(
     Ok(())
 }
 
+/// A position inside a cell of a shared table, by ids.
+#[derive(Debug, Clone)]
+struct CellPos {
+    table: String,
+    row: String,
+    col: String,
+    para: usize,
+    offset: usize,
+}
+
 impl DocCollab {
+    /// The cell (by table/row/column id) of a position in a top-level table cell.
+    fn cell_pos(&self, doc: &Document, pos: Pos, paths: &[Vec<usize>]) -> Option<CellPos> {
+        let path = paths.get(pos.para)?;
+        let [sec, blk, row, cell, para] = path.as_slice() else {
+            return None;
+        };
+        let e = self.entries.get(global_of(doc, *sec, *blk))?;
+        let key = parts::table_key(&e.line)?;
+        let sh = self.tables.get(key)?;
+        let Block::Table(t) = &e.block else {
+            return None;
+        };
+        let rid = parts::sorted(&sh.rows).get(*row)?.clone();
+        let start = *parts::starts(t.rows.get(*row)?).get(*cell)?;
+        let cid = parts::sorted(&sh.cols).get(start)?.clone();
+        Some(CellPos {
+            table: key.to_owned(),
+            row: rid,
+            col: cid,
+            para: *para,
+            offset: pos.offset,
+        })
+    }
+
+    /// The model position of a [`CellPos`] (the cell may have moved or gone).
+    fn pos_of_cell(&self, doc: &Document, cp: &CellPos, paths: &[Vec<usize>]) -> Option<Pos> {
+        let g = self
+            .entries
+            .iter()
+            .position(|e| parts::table_key(&e.line) == Some(cp.table.as_str()))?;
+        let (sec, blk) = locate(doc, g)?;
+        let Some(Block::Table(t)) = doc.sections.get(sec)?.blocks.get(blk) else {
+            return None;
+        };
+        let sh = self.tables.get(&cp.table)?;
+        let ri = parts::sorted(&sh.rows).iter().position(|r| *r == cp.row)?;
+        let cols = parts::sorted(&sh.cols);
+        let row = t.rows.get(ri)?;
+        let ci = parts::starts(row)
+            .iter()
+            .position(|&g| cols.get(g) == Some(&cp.col))?;
+        let n = row.cells.get(ci)?.blocks.len();
+        let path = vec![sec, blk, ri, ci, cp.para.min(n.saturating_sub(1))];
+        let id = paths.iter().position(|p| *p == path)?;
+        let len = para_at(doc, &path).map_or(0, |p| {
+            para::flatten(p).iter().map(|(_, c)| atom_len(c)).sum()
+        });
+        Some(Pos::new(id, cp.offset.min(len)))
+    }
+
     /// Model ops making the document match the shadow.
     fn model_ops(&mut self, doc: &Document) -> Vec<Op> {
         if self.entries.is_empty() {
@@ -1407,6 +1467,14 @@ impl Engine {
                 c.index_of(doc, sel.focus, &paths),
             )
         };
+        let (cell_anchor, cell_focus) = if was_joining {
+            (None, None)
+        } else {
+            (
+                c.cell_pos(doc, sel.anchor, &paths),
+                c.cell_pos(doc, sel.focus, &paths),
+            )
+        };
         // Shared definitions and table structure.
         let mut touched: BTreeSet<String> = BTreeSet::new();
         let mut tables_hit: BTreeSet<String> = BTreeSet::new();
@@ -1575,9 +1643,15 @@ impl Engine {
         let doc = s.doc();
         c.seen.update(doc);
         let paths = body_paragraphs(doc);
+        // A caret in a table cell stays in that cell (found again by row/column id).
+        let place = |cp: &Option<CellPos>, idx: u32| {
+            cp.as_ref()
+                .and_then(|cp| c.pos_of_cell(doc, cp, &paths))
+                .unwrap_or_else(|| c.pos_of(doc, idx, &paths))
+        };
         let selection = Selection {
-            anchor: c.pos_of(doc, anchor, &paths),
-            focus: c.pos_of(doc, focus, &paths),
+            anchor: place(&cell_anchor, anchor),
+            focus: place(&cell_focus, focus),
         };
         s.set_selection(selection);
         c.version = s.version();

@@ -1370,11 +1370,12 @@ fn read_drawing_frame(
                     a.dist = wrap_dist(&e, a.dist);
                 }
             }
-            // §20.4.2.16 wrapPolygon: keep the bounding box of its points (§20.4.2.14 start, §20.4.2.9 lineTo).
+            // §20.4.2.16 wrapPolygon: its points (§20.4.2.14 start, §20.4.2.9 lineTo) and their bounding box.
             b"wrapPolygon" => in_polygon = is_start,
             b"start" | b"lineTo" if in_polygon => {
                 if let (Some(a), Some(x), Some(y)) = (anchor.as_mut(), int(&e, b"x"), int(&e, b"y"))
                 {
+                    a.polygon_points.push((x, y));
                     a.polygon = Some(match a.polygon {
                         None => [x, y, x, y],
                         Some([x0, y0, x1, y1]) => [x0.min(x), y0.min(y), x1.max(x), y1.max(y)],

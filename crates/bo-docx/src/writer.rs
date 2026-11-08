@@ -564,10 +564,23 @@ impl Writer<'_> {
                     Wrap::None => "<wp:wrapNone/>".to_owned(),
                     // §20.4.2.17 wrapSquare
                     Wrap::Square => format!("<wp:wrapSquare wrapText=\"{side}\"/>"),
-                    // §20.4.2.20 wrapTight with its §20.4.2.16 wrapPolygon (a rectangle).
+                    // §20.4.2.20 wrapTight with its §20.4.2.16 wrapPolygon: the
+                    // points read from the file (§20.4.2.14 start, §20.4.2.9
+                    // lineTo), else the rectangle of the bounding box.
                     Wrap::Tight => {
-                        let [x0, y0, x1, y1] = a.polygon.unwrap_or([0, 0, 21_600, 21_600]);
-                        format!("<wp:wrapTight wrapText=\"{side}\"><wp:wrapPolygon edited=\"0\"><wp:start x=\"{x0}\" y=\"{y0}\"/><wp:lineTo x=\"{x0}\" y=\"{y1}\"/><wp:lineTo x=\"{x1}\" y=\"{y1}\"/><wp:lineTo x=\"{x1}\" y=\"{y0}\"/><wp:lineTo x=\"{x0}\" y=\"{y0}\"/></wp:wrapPolygon></wp:wrapTight>")
+                        let pts: Vec<(i64, i64)> = if a.polygon_points.len() >= 3 {
+                            a.polygon_points.clone()
+                        } else {
+                            let [x0, y0, x1, y1] = a.polygon.unwrap_or([0, 0, 21_600, 21_600]);
+                            vec![(x0, y0), (x0, y1), (x1, y1), (x1, y0), (x0, y0)]
+                        };
+                        let mut poly = String::new();
+                        for (i, (x, y)) in pts.iter().enumerate() {
+                            let tag = if i == 0 { "start" } else { "lineTo" };
+                            poly.push_str(&format!("<wp:{tag} x=\"{x}\" y=\"{y}\"/>"));
+                        }
+                        let edited = u8::from(a.polygon_points.len() >= 3);
+                        format!("<wp:wrapTight wrapText=\"{side}\"><wp:wrapPolygon edited=\"{edited}\">{poly}</wp:wrapPolygon></wp:wrapTight>")
                     }
                     Wrap::TopAndBottom => "<wp:wrapTopAndBottom/>".to_owned(),
                 };

@@ -28,7 +28,7 @@ E2E gõ tiếng Việt + lưu + mở lại.
 | Nhóm | Trạng thái |
 |---|---|
 | Model + `.docx` lossless | ✅ 34/34 file corpus lossless và ổn định mô hình (`cargo test -p bo-docx --test corpus`) |
-| Layout | ✅ phân trang, keepNext/keepLines/widow, bảng (ngắt hàng qua trang, lặp hàng tiêu đề, gộp ô, viền, nền), ảnh inline + anchored (top-bottom; square/tight: chữ chảy bên trái/phải/hai bên/bên rộng hơn theo `wrapText`, distT/B/L/R, tight theo hộp bao `wrapPolygon`), header/footer first/even/default + kế thừa, cột, footnote cuối trang, endnote cuối văn bản, PAGE/NUMPAGES/SECTIONPAGES |
+| Layout | ✅ phân trang, keepNext/keepLines/widow, bảng (ngắt hàng qua trang, lặp hàng tiêu đề, gộp ô, viền, nền), ảnh inline + anchored (top-bottom; square/tight: chữ chảy bên trái/phải/hai bên/bên rộng hơn theo `wrapText`, distT/B/L/R, tight ôm theo cạnh `wrapPolygon` từng dòng), header/footer first/even/default + kế thừa, cột, footnote cuối trang, endnote cuối văn bản, PAGE/NUMPAGES/SECTIONPAGES |
 | Render/PNG/PDF | ✅ lệnh `image` (PNG/JPEG, cắt, xoay), viền nét đứt/đôi, tô sáng, lớp sau/trước chữ |
 | `bo-edit` ([ADR-0008](../adr/0008-editing-transactions-and-command-bridge.md)) | ✅ transaction + op khả nghịch, undo/redo không giới hạn (proptest), gõ/xoá/Enter, định dạng ký tự/đoạn, style (tự tạo style dựng sẵn), danh sách, chèn bảng/ảnh/ngắt trang/ngắt phần/ký tự đặc biệt, find/replace (hoa thường, cả từ, regex), clipboard nội bộ/HTML/text |
 | Layout tăng dần (§5.4) | ✅ `bo_layout::IncrementalLayout`: transaction báo khối đã đổi (`bo_model::change::BlockChanges`), chỉ dàn lại khối đổi, phân trang lại từ checkpoint trước khối đổi và dừng khi trạng thái phân trang khớp layout cũ (dùng lại các trang sau, dời/đánh số lại khi cần); display list dựng khi được yêu cầu; engine trả đúng các trang đổi; proptest ≥ 64 ca: tăng dần == dàn lại từ đầu |
@@ -56,13 +56,13 @@ E2E gõ tiếng Việt + lưu + mở lại.
   toàn bộ**: layout tăng dần dùng lại số chú thích theo trang của lần dàn trước, kiểm lại sau khi phân trang và chỉ dàn
   toàn bộ khi có chú thích đổi trang (test `per_page_footnote_numbers_stay_incremental`). Corpus `notes-05..07`.
   Còn lại: thông báo tiếp trang chỉ hiển thị (không ghi lại khi viết lại phần chú thích); endnote chưa chia theo dòng
-  (đặt như đoạn thân văn bản); cộng tác trực tiếp chưa đồng bộ nội dung chú thích/đầu-chân trang (để cho nhánh cộng tác).
+  (đặt như đoạn thân văn bản). Nội dung chú thích/đầu-chân trang đồng bộ khi cộng tác (xem [phase-6.md](phase-6.md)).
   Liên kết đầu/chân trang: phần đầu tiên không có phần trước để liên kết.
 - Thước kẻ đo theo lề trang (trong ô bảng chưa hiện ranh giới ô); thước dọc chỉ kéo lề trên/dưới (chưa kéo khoảng cách đầu/chân trang).
 - Tách ô chưa có hộp thoại n hàng × m cột. Theo dõi thay đổi cấu trúc: xem [phase-5.md](phase-5.md) §5 (đã đủ hàng, cột,
   ô, gộp/tách, thuộc tính hàng, đầu/chân trang, chú thích, ảnh nổi). Bảng có thêm lệnh **chèn ô (đẩy phải)** / **xoá ô (đẩy
-  trái)**. Thao tác bảng, thiết lập trang, đầu/chân trang và chú thích chưa đồng bộ trực tiếp khi cộng tác (đến người khác khi
-  lưu version).
+  trái)**. Bảng (từng ô), đầu/chân trang và chú thích đồng bộ trực tiếp khi cộng tác; giới hạn còn lại ở
+  [phase-6.md](phase-6.md).
 - Màu tô sáng tuỳ chọn được quy về màu `ST_HighlightColor` gần nhất khi lưu (§17.3.2.15 chỉ cho phép tên màu).
 - Paste Special đọc HTML từ bộ nhớ tạm cần trình duyệt cho phép `clipboard.read`; nếu không, dùng nội dung vừa sao chép trong BlueDoc.
 - Wrap tight dùng hộp bao của đa giác (chưa theo từng cạnh đa giác); chữ trong bảng không chảy quanh ảnh; đoạn bị chia sang

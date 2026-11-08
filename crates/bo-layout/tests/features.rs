@@ -471,6 +471,16 @@ fn inline_and_anchored_pictures() {
 
 /// Lines beside a 1-inch picture at the left of the column, then full width below it.
 fn wrapped(wrap: Wrap, side: bo_model::WrapText, x: i64, polygon: Option<[i64; 4]>) -> Vec<Line> {
+    wrapped_poly(wrap, side, x, polygon, Vec::new())
+}
+
+fn wrapped_poly(
+    wrap: Wrap,
+    side: bo_model::WrapText,
+    x: i64,
+    polygon: Option<[i64; 4]>,
+    polygon_points: Vec<(i64, i64)>,
+) -> Vec<Line> {
     let anchor = Anchor {
         h_relative: "column".into(),
         v_relative: "paragraph".into(),
@@ -479,6 +489,7 @@ fn wrapped(wrap: Wrap, side: bo_model::WrapText, x: i64, polygon: Option<[i64; 4
         wrap_text: side,
         dist: [Emu(0), Emu(0), Emu(114_300), Emu(114_300)],
         polygon,
+        polygon_points,
         ..Default::default()
     };
     let text = "Văn bản chảy quanh ảnh. ".repeat(40);
@@ -537,6 +548,49 @@ fn square_and_tight_wrapping_flow_beside_pictures() {
     );
     let x = lines[0].fragments[0].x;
     assert!(x >= left + 36.0 + 9.0 - 0.01 && x < left + 72.0, "{x}");
+}
+
+// source: ECMA-376 Part 1, §20.4.2.20 wrapTight, §20.4.2.16 wrapPolygon
+#[test]
+fn tight_wrapping_follows_the_polygon_edges() {
+    use bo_model::WrapText;
+    let left = PageSetup::default().margin_left.to_pt();
+    let top = PageSetup::default().margin_top.to_pt();
+    // Lower-left triangle over a 1-inch picture at the column's left edge: narrow
+    // at the top, the full 72 pt wide at the bottom.
+    let tri = vec![(0, 0), (21_600, 21_600), (0, 21_600), (0, 0)];
+    let lines = wrapped_poly(
+        Wrap::Tight,
+        WrapText::BothSides,
+        0,
+        Some([0, 0, 21_600, 21_600]),
+        tri,
+    );
+    let beside: Vec<&Line> = lines.iter().filter(|l| l.top < top + 72.0).collect();
+    assert!(beside.len() >= 3, "{}", beside.len());
+    let xs: Vec<f32> = beside.iter().map(|l| l.fragments[0].x).collect();
+    // Each line starts right of the triangle's edge at its bottom (+ distR 9 pt),
+    // so the start moves right line after line, well left of the box at the top.
+    for (l, &x) in beside.iter().zip(&xs) {
+        let edge = left + (l.top + l.height - top).min(72.0);
+        assert!(x >= edge + 9.0 - 0.5, "x {x} edge {edge}");
+    }
+    assert!(xs.windows(2).all(|w| w[1] >= w[0]), "{xs:?}");
+    assert!(
+        xs[0] < left + 72.0 + 9.0 - 20.0,
+        "first line hugs the apex: {xs:?}"
+    );
+    // Below the picture: full width again.
+    let below = lines.iter().find(|l| l.top >= top + 72.0).unwrap();
+    assert!((below.fragments[0].x - left).abs() < 0.01);
+    // Without the points only the box is known: the old behaviour.
+    let boxed = wrapped(
+        Wrap::Tight,
+        WrapText::BothSides,
+        0,
+        Some([0, 0, 21_600, 21_600]),
+    );
+    assert!(boxed[0].fragments[0].x >= left + 72.0 + 9.0 - 0.01);
 }
 
 #[test]

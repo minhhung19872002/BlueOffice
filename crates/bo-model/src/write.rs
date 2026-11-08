@@ -1376,6 +1376,11 @@ pub struct Anchor {
     /// §20.4.2.16) in the 21 600-unit square over the extent that Word uses.
     #[serde(default)]
     pub polygon: Option<[i64; 4]>,
+    /// Vertices of the tight wrap polygon in the same 21 600-unit square
+    /// (§20.4.2.16: §20.4.2.14 `start` then §20.4.2.9 `lineTo`, in order); empty
+    /// when only the bounding box `polygon` is known.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub polygon_points: Vec<(i64, i64)>,
     /// `positionH/align` (§20.4.2.1 align, `ST_AlignH`: left, center, right, inside,
     /// outside); replaces `x` when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]

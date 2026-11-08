@@ -56,7 +56,7 @@ impl Draft {
 /// §20.4.2.17 wrapSquare, §20.4.2.20 wrapTight), relative to the paragraph: y from
 /// the top of its first line, x from the left of its content box. Distances from
 /// text (`distT`…) are included.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WrapZone {
     pub top: f32,
     pub bottom: f32,
@@ -64,6 +64,9 @@ pub(crate) struct WrapZone {
     pub right: f32,
     /// Sides text may flow on (§20.4.3.7 `ST_WrapText`).
     pub side: WrapText,
+    /// Tight wrap polygon in the same coordinates: the area kept clear on a line
+    /// is the polygon's extent at that line's height (§20.4.2.20).
+    pub outline: Option<crate::flow::Outline>,
 }
 
 /// Narrowest text segment beside a wrapped picture (narrower gaps stay empty).
@@ -77,14 +80,21 @@ fn segments(zones: &[WrapZone], x0: f32, x1: f32, y: f32, h: f32) -> Vec<(f32, f
         if y >= z.bottom || y + h <= z.top {
             continue;
         }
+        let (zl, zr) = match &z.outline {
+            Some(o) => match o.extent(y, y + h) {
+                Some(e) => e,
+                None => continue,
+            },
+            None => (z.left, z.right),
+        };
         let mut next = Vec::with_capacity(segs.len() + 1);
         for &(a, b) in &segs {
-            if z.right <= a || z.left >= b {
+            if zr <= a || zl >= b {
                 next.push((a, b));
                 continue;
             }
-            let left = (a, z.left.min(b));
-            let right = (z.right.max(a), b);
+            let left = (a, zl.min(b));
+            let right = (zr.max(a), b);
             let wl = left.1 - left.0;
             let wr = right.1 - right.0;
             match z.side {
@@ -350,6 +360,14 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
             v.to_bits().hash(&mut h);
         }
         z.side.hash(&mut h);
+        if let Some(o) = &z.outline {
+            for &(x, y) in o.points.iter() {
+                x.to_bits().hash(&mut h);
+                y.to_bits().hash(&mut h);
+            }
+            o.pad.0.to_bits().hash(&mut h);
+            o.pad.1.to_bits().hash(&mut h);
+        }
     }
     // Page-dependent fields and note numbers only matter when present: the numbers
     // of the notes this paragraph references (hashing the whole note map made the

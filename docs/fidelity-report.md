@@ -1,6 +1,6 @@
 # Báo cáo độ trung thực (fidelity)
 
-Sinh tự động bởi `scripts/fidelity-report.mjs` · 2026-11-08 · commit `7e5c9a0`.
+Sinh tự động bởi `scripts/fidelity-report.mjs` · 2026-11-08 · commit `4ec8165`.
 
 Mỗi file trong `tests/corpus/{doc,sheet,slide}` được mở rồi lưu lại cùng định dạng bằng `bo-cli convert`; file vào và ra đều qua OpenXmlValidator (DocumentFormat.OpenXml, Office 2019). Mức lossless (XML chuẩn hoá giống hệt) được đo bằng test Rust `corpus` của từng crate.
 
@@ -8,7 +8,7 @@ Mỗi file trong `tests/corpus/{doc,sheet,slide}` được mở rồi lưu lại
 |---|---|---|---|---|
 | doc (.docx) | 67 | 67 (100.0 %) | 66 | 66 (98.5 %) |
 | sheet (.xlsx) | 84 | 84 (100.0 %) | 81 | 81 (96.4 %) |
-| slide (.pptx) | 54 | 54 (100.0 %) | 54 | 54 (100.0 %) |
+| slide (.pptx) | 55 | 55 (100.0 %) | 55 | 55 (100.0 %) |
 
 ## Đã biết (không tính là lỗi, xem `tests/fidelity/known-issues.txt`)
 
@@ -62,7 +62,7 @@ Nhóm = tiền tố tên file corpus (`tables-02-merge.docx` → `tables`, `cf-1
 | slide | slide-images | 3 | 3 | 100.0 % |  | 100 → 100 (=) |
 | slide | slide-media | 3 | 3 | 100.0 % |  | 100 → 100 (=) |
 | slide | slide-notes | 3 | 3 | 100.0 % |  | 100 → 100 (=) |
-| slide | slide-shapes | 4 | 4 | 100.0 % |  | 100 → 100 (=) |
+| slide | slide-shapes | 5 | 5 | 100.0 % |  | 100 → 100 (=) |
 | slide | slide-smartart | 3 | 3 | 100.0 % |  | 100 → 100 (=) |
 | slide | slide-tables | 3 | 3 | 100.0 % |  | 100 → 100 (=) |
 | slide | slide-text | 3 | 3 | 100.0 % |  | 100 → 100 (=) |

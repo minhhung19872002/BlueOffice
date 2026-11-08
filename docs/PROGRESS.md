@@ -21,15 +21,15 @@ giữa các phase; ưu tiên bộ ứng dụng văn phòng (BlueDoc/BlueSheet/Bl
 
 | Bộ | Kết quả |
 |---|---|
-| `cargo test --workspace` | **887** test ✅ (proptest undo/redo doc + slide + track changes, proptest hội tụ cộng tác, round-trip corpus, ~920 dòng bảng công thức) |
+| `cargo test --workspace` | **898** test ✅ (proptest undo/redo doc + slide + track changes, proptest hội tụ cộng tác, round-trip corpus, ~920 dòng bảng công thức) |
 | `cargo clippy --workspace --all-targets -D warnings` (pedantic) · `cargo fmt --check` · clippy wasm32 · `cargo deny` | ✅ |
-| `pnpm test` (Vitest) | **210** test ✅ — gồm parity WASM ↔ native, 2 engine + 2 bản sao `bo-collab` thật qua relay (doc, sheet, slide) |
+| `pnpm test` (Vitest) | **211** test ✅ — gồm parity WASM ↔ native, 2 engine + 2 bản sao `bo-collab` thật qua relay (doc, sheet, slide) |
 | `pnpm lint` · `pnpm typecheck` · `pnpm license-check` | ✅ |
 | Playwright E2E (web) | **48** test ✅ — doc (gõ tiếng Việt, định dạng, font/Format Painter, bảng, header, thước kẻ, page setup, mẫu NĐ30, track changes/comment, chú thích sửa trên trang, chèn hàng có theo dõi), bảng tính (SUM, định dạng, sort, pivot, nhóm ngày/bố cục/% tổng), slide (kéo shape, định dạng một phần chữ, copy/paste, ô bảng trên canvas, dán slide sang deck khác) — đều lưu rồi mở lại |
 | Playwright E2E cộng tác (server thật) | **9** test ✅ — `BlueOffice.Api` + BlueDrive giả lập + web sau proxy, 2 trình duyệt: gõ/định dạng/caret, lưu thành version (editors 2 người), offline rồi gộp lại, thu hồi quyền giữa chừng, xung đột offline; công thức BlueSheet và kéo shape BlueSlide |
 | E2E desktop (Tauri WebDriver, `bluedoc.exe` thật) | **15** test ✅ — mở file từ tham số dòng lệnh, gõ chữ, công thức BlueSheet (engine native), BlueSlide, deep link `bluedoc://` → phiên server → cộng tác với người dùng web |
-| `dotnet test` | **152** test ✅ (BOHP với BlueDrive giả lập, 2 người cùng phiên, thu hồi quyền, xung đột offline, WOPI, job chuyển đổi) |
-| Fidelity ([`fidelity-report.md`](fidelity-report.md)) | mở + lưu 100 % corpus; OpenXmlValidator (file ra): docx 66/67, xlsx 81/84, pptx 54/54; visual diff 205 trang, 0 vượt ngưỡng so với baseline — phần còn lại là hạn chế đã biết của validator (`tests/fidelity/known-issues.txt`) |
+| `dotnet test` | **155** test ✅ (BOHP với BlueDrive giả lập, 2 người cùng phiên, thu hồi quyền, xung đột offline, WOPI, job chuyển đổi) |
+| Fidelity ([`fidelity-report.md`](fidelity-report.md)) | mở + lưu 100 % corpus; OpenXmlValidator (file ra): docx 66/67, xlsx 81/84, pptx 54/54; visual diff 206 trang, 0 vượt ngưỡng so với baseline — phần còn lại là hạn chế đã biết của validator (`tests/fidelity/known-issues.txt`) |
 
 Round-trip lossless (XML chuẩn hoá): `.docx` 52/52, `.xlsx` 54/54, `.pptx` 100 % part (corpus tự sinh, README ghi nguồn).
 
@@ -93,6 +93,9 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
   Sửa: hàng chèn vào bảng có ô chờ xoá (track changes) không còn rỗng; Hộp tên BlueSheet chuyển tiêu điểm ngay (ký tự
   gõ liền sau Enter không bị mất); locator E2E "Xuất PDF". Baseline visual diff làm mới (bản render trước merge giống
   hệt từng pixel — lệch do các thay đổi layout trước đó). E2E cộng tác 9/9 (kể cả `collab-embed` export-pdf trước đây đỏ).
+  Tiếp theo trong phiên: nhóm corpus `binary-doc` đủ 3 file; server chạy nhiều instance (lease phòng Redis, 4009,
+  `docker-compose.multi.yml`); hình 3D slide (mặt xoay, đùn, vát, contour, ánh sáng); ký số: thuật toán yếu theo thời gian
+  (`--sunset`), POE theo chuỗi gia hạn B-LTA, kiểm tra ECDSA P-256/P-384.
 - 2026-11-08 (cuối phiên): Cộng tác — bảng lồng trong ô bảng BlueDoc gộp theo từng ô (`rebuild_nested`); BlueSlide
   master/layout/theme khoá theo id ổn định (part tạo trong phiên có khoá theo client, tham chiếu `lk`/`@m`/`@t`/`@l`) nên
   hai người dán slide từ deck khác cùng lúc giữ cả hai thiết kế; tên part mới (ảnh, media…) của replica cộng tác có hậu

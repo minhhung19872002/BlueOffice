@@ -107,6 +107,23 @@ Tối ưu đã làm:
 
 Kết quả giữ nguyên: toàn bộ test hàm + `tests/proptest_recalc.rs` (tính tăng dần sau chuỗi sửa ngẫu nhiên ==
 tính lại toàn bộ workbook mới, gồm tham chiếu, range, tra cứu qua index, vòng lặp) + test tầng lớn có INDIRECT.
+### Mở file 1 triệu ô trên WASM (`bo-cli sample-big-sheet` + `node scripts/bench-open-wasm.mjs`)
+
+Hồ sơ `node --cpu-prof` (tên hàm Rust giữ trong section `name` của wasm-bindgen) cho thấy > 50 % thời gian mở nằm ở
+`dlmalloc::sys::alloc` = `memory.grow`: allocator của `wasm32-unknown-unknown` nới bộ nhớ đúng bằng phần còn thiếu (64 KiB)
+và V8 **sao chép** bộ nhớ bounds-checked ở mỗi lần grow (đo cả Node lẫn Chrome trên Windows: 6 400 lần grow 1 trang tới
+400 MB mất 4–12 s) → dựng mô hình bằng hàng triệu cấp phát nhỏ là bậc hai. Đã làm:
+- `WasmSheet::open` cấp phát rồi giải phóng một khối ≈ 12 × kích thước XML của gói (`bo_opc::Package::xml_size`, đọc central
+  directory, tối đa 640 MB): bộ nhớ grow một lần, khối trả về pool của allocator (`crates/bo-wasm/src/heap.rs`).
+- Đọc `c` không dựng danh sách thuộc tính `String`, `v` đọc vào buffer dùng lại, `CellRef::parse` không cấp phát; text công
+  thức format lười (`OnceLock`); ô chỉ có một công thức đọc giữ reader inline (không `Vec`); lexer cấp trước token.
+
+| Đo (máy dev tải 100 %) | Trước | Sau |
+|---|---|---|
+| WASM mở + tính (Node) | 11,2–12,9 s | **3,7–4,2 s** |
+| Bộ nhớ WASM | 399 MB | 391 MB |
+| Native `bo-cli bench` mở + tính (trung vị) | 4,0 s | 2,9–3,5 s (kết quả giống hệt) |
+
 ## 5. Còn lại / hạn chế đã biết
 
 - Song song mới ở mức tầng topo trên native; WASM tính tuần tự (chưa dùng Web Worker); chuỗi phụ thuộc dài vẫn tuần tự.

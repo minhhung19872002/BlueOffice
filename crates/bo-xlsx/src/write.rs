@@ -419,6 +419,19 @@ fn write_charts(
             overrides.insert(c.part.clone(), chart_space_xml(c).into_bytes());
         }
     }
+    // Anchors of file charts moved by inserted / deleted rows and columns.
+    if let Some(si) = wb.sheets.iter().position(|s| std::ptr::eq(s, ws)) {
+        crate::chart_write::sync_anchors(wb, si, overrides);
+    }
+    // Other charts whose series references moved (rows/columns inserted or
+    // deleted): only the `c:f` texts change, the rest of the part is kept.
+    for c in ws.charts.iter().filter(|c| !c.dirty && !c.part.is_empty()) {
+        if let Some(p) = opaque(&c.part) {
+            if let Some(xml) = crate::chart::patch_refs(&p.data, &c.part, c) {
+                overrides.insert(c.part.clone(), xml);
+            }
+        }
+    }
     let new: Vec<&bo_model::sheet::Chart> =
         ws.charts.iter().filter(|c| c.part.is_empty()).collect();
     if new.is_empty() {

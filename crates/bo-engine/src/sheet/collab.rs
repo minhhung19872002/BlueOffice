@@ -923,18 +923,48 @@ impl SheetCollab {
                 seen.dv = Some(ws.data_validations.clone());
             }
             if seen.charts.as_ref() != Some(&ws.charts) {
-                for (i, c) in ws.charts.iter().enumerate() {
+                let ats: Vec<Option<String>> = ws
+                    .charts
+                    .iter()
+                    .map(|ch| {
+                        let at = ChartAt {
+                            f: [rid(ch.from.row), cid(ch.from.col)],
+                            t: ch.to.map(|t| [rid(t.row), cid(t.col)]),
+                            s: ch
+                                .plots
+                                .iter()
+                                .flat_map(|p| &p.series)
+                                .map(|s| {
+                                    [&s.name_ref, &s.cat_ref, &s.val_ref].map(|r| {
+                                        r.as_ref().map(|text| {
+                                            let f = Formula {
+                                                text: text.clone(),
+                                                ..Formula::default()
+                                            };
+                                            self.formula_shared(wb, &keys, &sk, &f)
+                                        })
+                                    })
+                                })
+                                .collect(),
+                        };
+                        serde_json::to_string(&at).ok()
+                    })
+                    .collect();
+                for (i, (c, at)) in ws.charts.iter().zip(ats).enumerate() {
                     put(
                         &mut self.meta,
                         &mut out,
                         format!("ch:{sk}:{i}"),
                         serde_json::to_string(c).ok(),
                     );
+                    put(&mut self.meta, &mut out, format!("cha:{sk}:{i}"), at);
                 }
-                for k in keys_with(&self.meta, &format!("ch:{sk}:")) {
-                    let i: usize = k[4 + sk.len()..].parse().unwrap_or(usize::MAX);
-                    if i >= ws.charts.len() {
-                        put(&mut self.meta, &mut out, k, None);
+                for p in ["ch", "cha"] {
+                    for k in keys_with(&self.meta, &format!("{p}:{sk}:")) {
+                        let i: usize = k[p.len() + 2 + sk.len()..].parse().unwrap_or(usize::MAX);
+                        if i >= ws.charts.len() {
+                            put(&mut self.meta, &mut out, k, None);
+                        }
                     }
                 }
                 seen.charts = Some(ws.charts.clone());
@@ -991,6 +1021,18 @@ impl SheetCollab {
 
 /// Structural differences of an axis: ids to delete (old positions,
 /// descending) and to insert (new positions, ascending).
+/// A chart's anchor cells by row/column ids and its series references
+/// (§21.2.2.215 `f` of `tx`/`cat`/`val`) as id formulas (`cha:<sheet>:<i>`,
+/// next to the positional `ch:<sheet>:<i>`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ChartAt {
+    f: [String; 2],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    t: Option<[String; 2]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    s: Vec<[Option<SharedFormula>; 3]>,
+}
+
 /// Ranges of a sheet's bare properties by row/column ids (`sha:<sheet>`):
 /// hyperlinks (§18.3.1.47), the AutoFilter (§18.3.1.2) and tables (§18.5.1.2),
 /// in the order of the shared `sh:<sheet>`; placed on the receiver's axes
@@ -1502,6 +1544,44 @@ impl SheetEngine {
                 place_by_id(cf.iter_mut().map(|x| &mut x.sqref), at, &ra, &ca);
                 wb.sheets[si].conditional_formats = cf;
             }
+            // Charts: anchors and series references where the sender meant
+            // them on this replica's rows and columns (`cha:`).
+            let charts = (joining || hit("ch") || hit("cha")).then(|| {
+                let wb_ref: &Workbook = wb;
+                (0..)
+                    .map_while(|i| c.meta.get(&format!("ch:{sk}:{i}")).map(|j| (i, j)))
+                    .filter_map(|(i, j)| {
+                        let mut ch: bo_model::sheet::Chart = serde_json::from_str(j).ok()?;
+                        if let Some(at) = c
+                            .meta
+                            .get(&format!("cha:{sk}:{i}"))
+                            .and_then(|j| serde_json::from_str::<ChartAt>(j).ok())
+                        {
+                            if let (Some(r), Some(col)) = (ra.pos_of(&at.f[0]), ca.pos_of(&at.f[1]))
+                            {
+                                ch.from = CellRef::new(r, col);
+                            }
+                            if let Some([r, col]) = &at.t {
+                                if let (Some(r), Some(col)) = (ra.pos_of(r), ca.pos_of(col)) {
+                                    ch.to = Some(CellRef::new(r, col));
+                                }
+                            }
+                            let series = ch.plots.iter_mut().flat_map(|p| &mut p.series);
+                            for (s, refs) in series.zip(&at.s) {
+                                for (slot, sf) in [&mut s.name_ref, &mut s.cat_ref, &mut s.val_ref]
+                                    .into_iter()
+                                    .zip(refs)
+                                {
+                                    if let (Some(slot), Some(sf)) = (slot.as_mut(), sf) {
+                                        *slot = c.formula_text(wb_ref, &keys, sk, sf);
+                                    }
+                                }
+                            }
+                        }
+                        Some(ch)
+                    })
+                    .collect::<Vec<bo_model::sheet::Chart>>()
+            });
             let ws = &mut wb.sheets[si];
             if joining || hit("dv") || hit("dva") {
                 let mut dv: Vec<DataValidation> = c
@@ -1513,11 +1593,8 @@ impl SheetEngine {
                 place_by_id(dv.iter_mut().map(|x| &mut x.sqref), at, &ra, &ca);
                 ws.data_validations = dv;
             }
-            if joining || hit("ch") {
-                ws.charts = (0..)
-                    .map_while(|i| c.meta.get(&format!("ch:{sk}:{i}")))
-                    .filter_map(|j| serde_json::from_str(j).ok())
-                    .collect();
+            if let Some(charts) = charts {
+                ws.charts = charts;
             }
             if joining || hit("pv") {
                 ws.pivots = (0..)

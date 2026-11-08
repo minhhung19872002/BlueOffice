@@ -55,8 +55,8 @@ master slide, định dạng và chèn-xoá hàng cột BlueSheet, ô địa ch�
 header/chú thích/ảnh nổi, chú thích dài tràn trang, biểu đồ pivot, `calculatedItems`, nhóm thủ công, lọc ngày, kéo chart
 neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đã bỏ khỏi danh sách.
 1. **Cộng tác** (`plan/phase-6.md`): bảng lồng trong ô hoặc trong header/footer/chú thích/comment vẫn là một khối;
-   BlueSheet: chart, pivot, vùng in, freeze pane
-   lưu theo vị trí (CF/DV, hyperlink, bộ lọc, bảng đã theo id hàng/cột); master/layout slide khoá theo chỉ số; server một instance (phòng **và** phiên trong bộ nhớ;
+   BlueSheet: pivot, vùng in, freeze pane lưu
+   theo vị trí (CF/DV, hyperlink, bộ lọc, bảng, biểu đồ đã theo id hàng/cột); master/layout slide khoá theo chỉ số; server một instance (phòng **và** phiên trong bộ nhớ;
    thiết kế nhiều instance trong `plan/phase-6.md`).
 2. **Hiệu năng**: đổi style mặc định, style/danh sách dùng trong header/footer/chú thích/comment/text box, thiết lập
    trang của section đầu tiên, số trang bắt đầu hay thuộc tính chú thích của section vẫn dàn lại toàn bộ; đổi style,
@@ -89,6 +89,8 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
   thay `EnsureCreated`; `bo-desktop` build/test được trên Linux (gói GTK/WebKitGTK).
   Cộng tác: comment/chú thích thêm đồng thời không còn trùng id (trước đó một comment bị mất); chèn hàng + cột đồng
   thời không còn để hàng mới thiếu ô; BlueSheet: vùng CF/DV thêm trong lúc người khác chèn hàng dịch đúng.
+  BlueSheet: chèn/xoá hàng cột giờ dịch cả biểu đồ (ô neo + tham chiếu series; trước đó biểu đồ trỏ sai dữ liệu), ghi
+  lại vào file chỉ sửa `<c:f>` và `<xdr:row>/<xdr:col>` (lossless, OpenXmlValidator hợp lệ).
 - 2026-11-08 (khuya): pivot đầy đủ (tổng phụ, 3 bố cục, nhóm ngày/số, trường tính toán, 14 kiểu "hiển thị giá trị",
   lọc/top-N, kiểu); E2E cộng tác với server thật + desktop cộng tác qua deep link (sửa lỗi caret người vào sau nhảy cuối
   tài liệu); chú thích sửa trên trang, header/footer liên kết section trước, track changes bảng/ảnh/page setup; ô bảng

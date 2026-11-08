@@ -360,3 +360,42 @@ fn a_filter_turned_on_during_a_row_insert_follows_the_rows() {
     assert_eq!(filter(&a).as_deref(), Some("A7:B10"));
     assert_eq!(a.view(), b.view());
 }
+
+// source: ECMA-376 Part 1, §20.5.2.33 twoCellAnchor, §21.2.2.215 f (series references)
+#[test]
+fn a_chart_added_during_a_row_insert_follows_the_rows() {
+    let cells = [
+        (4, 0, "Tháng"),
+        (4, 1, "Doanh thu"),
+        (5, 0, "1"),
+        (5, 1, "10"),
+        (6, 0, "2"),
+        (6, 1, "20"),
+    ];
+    let (mut a, mut b) = pair(&cells);
+    settle(&mut a, &mut b);
+    a.exec(
+        r#"{"cmd":"insertChart","sheet":0,"range":{"r0":4,"c0":0,"r1":6,"c1":1},"kind":"column"}"#,
+    );
+    b.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let chart = |p: &Peer| {
+        let ch = p.engine.workbook().unwrap().sheets[0].charts[0].clone();
+        let refs: Vec<Option<String>> = ch
+            .plots
+            .iter()
+            .flat_map(|pl| &pl.series)
+            .flat_map(|s| [s.cat_ref.clone(), s.val_ref.clone()])
+            .collect();
+        (ch.from, ch.to, refs)
+    };
+    assert_eq!(chart(&a), chart(&b), "{:?} / {:?}", chart(&a), chart(&b));
+    // The data moved two rows down on both replicas: so did the references.
+    let (_, _, refs) = chart(&a);
+    assert!(
+        refs.iter()
+            .flatten()
+            .all(|r| r.contains("$7") || r.contains("$8") || r.contains("$9")),
+        "{refs:?}"
+    );
+}

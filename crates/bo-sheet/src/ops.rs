@@ -8,7 +8,7 @@
 
 use crate::calc::{Dimension, FormulaAdjuster, StructuralChange};
 use bo_model::sheet::{
-    CellRange, CellRef, ColInfo, TableColumn, Workbook, Worksheet, MAX_COLS, MAX_ROWS,
+    CellRange, CellRef, ChartAnchor, ColInfo, TableColumn, Workbook, Worksheet, MAX_COLS, MAX_ROWS,
 };
 use std::collections::BTreeMap;
 
@@ -318,6 +318,27 @@ fn move_sheet_content(ws: &mut Worksheet, m: &Mapper) {
             None => ws.auto_filter = None,
         }
     }
+    // Chart anchors (§20.5.2.33 twoCellAnchor: moves and sizes with the cells;
+    // §20.5.2.24 oneCellAnchor: its top-left cell moves; an absolute anchor stays).
+    for ch in &mut ws.charts {
+        match ch.anchor {
+            ChartAnchor::TwoCell => {
+                let to = ch.to.unwrap_or(ch.from);
+                if let Some(r) = m.range(CellRange::new(ch.from, to)) {
+                    ch.from = r.first;
+                    if ch.to.is_some() {
+                        ch.to = Some(r.last);
+                    }
+                }
+            }
+            ChartAnchor::OneCell => {
+                if let Some(c) = m.range(CellRange::new(ch.from, ch.from)) {
+                    ch.from = c.first;
+                }
+            }
+            ChartAnchor::Absolute => {}
+        }
+    }
     let breaks = match m.dim {
         Dimension::Rows => &mut ws.page_setup.row_breaks,
         Dimension::Cols => &mut ws.page_setup.col_breaks,
@@ -372,6 +393,20 @@ fn adjust_formulas(wb: &mut Workbook, change: &StructuralChange, adj: &dyn Formu
         for dv in &mut ws.data_validations {
             for s in [&mut dv.formula1, &mut dv.formula2].into_iter().flatten() {
                 apply(s, host);
+            }
+        }
+        // Chart series references (§21.2.2.215 f of tx / cat / val).
+        for s in ws
+            .charts
+            .iter_mut()
+            .flat_map(|c| &mut c.plots)
+            .flat_map(|p| &mut p.series)
+        {
+            for r in [&mut s.name_ref, &mut s.cat_ref, &mut s.val_ref]
+                .into_iter()
+                .flatten()
+            {
+                apply(r, host);
             }
         }
         for cf in &mut ws.conditional_formats {

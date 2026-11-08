@@ -105,6 +105,9 @@ importers:
       '@blueoffice/hosted':
         specifier: workspace:*
         version: link:../../packages/hosted
+      '@blueoffice/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@blueoffice/platform':
         specifier: workspace:*
         version: link:../../packages/platform
@@ -117,6 +120,9 @@ importers:
       '@blueoffice/storage-providers':
         specifier: workspace:*
         version: link:../../packages/storage-providers
+      '@blueoffice/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -257,6 +263,12 @@ importers:
       '@blueoffice/platform':
         specifier: workspace:*
         version: link:../platform
+      '@blueoffice/ui':
+        specifier: workspace:*
+        version: link:../ui
+      lucide-react:
+        specifier: ^1.69.0
+        version: 1.69.0(@types/react@18.3.31)(react@18.3.1)
     devDependencies:
       '@testing-library/react':
         specifier: ^16.3.0

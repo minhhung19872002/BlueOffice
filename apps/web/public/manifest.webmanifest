@@ -1,0 +1,12 @@
+{
+  "name": "BlueOffice – BlueDoc, BlueSheet, BlueSlide",
+  "short_name": "BlueOffice",
+  "description": "Soạn thảo văn bản, bảng tính và trình chiếu — chạy cả khi không có mạng",
+  "lang": "vi-VN",
+  "start_url": "./doc",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eef1f6",
+  "theme_color": "#1d4f91",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

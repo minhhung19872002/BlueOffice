@@ -82,8 +82,9 @@
   khoá RSA < 2048 bit chỉ chấp nhận khi thời điểm kiểm tra (genTime hoặc POE) trước 2014-01-01 (NIST SP 800-131A),
   RSA < 1024 không bao giờ; SHA-1 chỉ dùng để kiểm tra, không bao giờ để ký; vi phạm báo `weakAlgorithm`. Thu hồi
   (CRL/OCSP, kể cả dữ liệu trong DSS) được xét tại cùng thời điểm POE: chứng thư bị thu hồi sau thời điểm đó không làm
-  chữ ký mất hiệu lực, CRL được coi là còn hạn nếu `nextUpdate` sau thời điểm đó. Chưa có: POE riêng cho từng đối tượng
-  dữ liệu thu hồi theo thời điểm dấu thời gian phủ nó, và bảng thuật toán cấu hình được; trình duyệt hỏi OCSP / tải CRL qua proxy của server (`POST /api/revocation/fetch`, chống SSRF, xem
+  chữ ký mất hiệu lực, CRL được coi là còn hạn nếu `nextUpdate` sau thời điểm đó; chữ ký trên CRL/OCSP được kiểm bằng khoá
+  của bên phát hành không phụ thuộc thời gian nên dữ liệu thu hồi không cần POE riêng trong mô hình này. Mốc hết hạn thuật
+  toán cấu hình được theo triển khai (`TrustStore::set_sunset`, `bo-cli verify --sunset SHA-1=YYYY-MM-DD|never`); trình duyệt hỏi OCSP / tải CRL qua proxy của server (`POST /api/revocation/fetch`, chống SSRF, xem
   `docs/deploy/remote-signing.md`); `pyhanko --ltv-profile pades` với PKI thử vẫn đòi tải
   CRL của TSA trực tuyến (cả với file do chính pyHanko `ltvfix` tạo).
 - `verify_ooxml` dựa trên dạng canonical do BlueOffice sinh; chữ ký XAdES của phần mềm khác vẫn báo `Unsupported`.

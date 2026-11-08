@@ -147,7 +147,7 @@ fn summarize(
     // ETSI EN 319 102-1 §5.2.8: the signature's own hash must still be acceptable at the time of its
     // proof of existence.
     if let Some(alg) = digest {
-        if let Some(since) = crate::policy::weak_at(crate::policy::hash_sunset(alg), at) {
+        if let Some(since) = crate::policy::weak_at(store.policy().hash_sunset(alg), at) {
             let subject = <x509_cert::Certificate as der::Decode>::from_der(signer_der)
                 .map(|c| c.tbs_certificate.subject.to_string())
                 .unwrap_or_default();

@@ -6,8 +6,59 @@
 //! and RSA keys shorter than 2048 bits disallowed from 2014-01-01); RSA keys shorter than 1024 bits are never
 //! accepted. ETSI TS 119 312 gives comparable dates for qualified signatures. Signing never uses SHA-1.
 
-use crate::HashAlg;
+use crate::{HashAlg, Result, SignError};
+use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Algorithm sunsets of a trust store: the defaults below, overridable per deployment (a national scheme may
+/// set other dates). Names: `SHA-1`, `RSA-1024` (keys of 1024–2047 bits), `RSA-512` (shorter keys).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Policy {
+    overrides: BTreeMap<&'static str, Option<SystemTime>>,
+}
+
+impl Policy {
+    /// Overrides the sunset of `name` (`None`: never weak).
+    pub fn set_sunset(&mut self, name: &str, sunset: Option<SystemTime>) -> Result<()> {
+        let key = match name.to_ascii_uppercase().as_str() {
+            "SHA-1" | "SHA1" => "SHA-1",
+            "RSA-1024" => "RSA-1024",
+            "RSA-512" => "RSA-512",
+            _ => {
+                return Err(SignError::Unsupported(format!(
+                    "algorithm '{name}' (SHA-1, RSA-1024, RSA-512)"
+                )))
+            }
+        };
+        self.overrides.insert(key, sunset);
+        Ok(())
+    }
+
+    fn get(&self, key: &'static str, default: Option<SystemTime>) -> Option<SystemTime> {
+        self.overrides.get(key).copied().unwrap_or(default)
+    }
+
+    /// Sunset of a hash under this policy.
+    #[must_use]
+    pub fn hash_sunset(&self, alg: HashAlg) -> Option<SystemTime> {
+        match alg {
+            HashAlg::Sha1 => self.get("SHA-1", hash_sunset(alg)),
+            _ => hash_sunset(alg),
+        }
+    }
+
+    /// Sunset of an RSA key size under this policy.
+    #[must_use]
+    pub fn rsa_sunset(&self, bits: usize) -> Option<SystemTime> {
+        if bits < 1024 {
+            self.get("RSA-512", rsa_sunset(bits))
+        } else if bits < 2048 {
+            self.get("RSA-1024", rsa_sunset(bits))
+        } else {
+            None
+        }
+    }
+}
 
 /// 2014-01-01T00:00:00Z.
 const SUNSET_2014: u64 = 1_388_534_400;
@@ -66,5 +117,19 @@ mod tests {
         assert!(weak_at(rsa_sunset(1024), after).is_some());
         assert!(weak_at(rsa_sunset(512), before).is_some());
         assert_eq!(weak_at(rsa_sunset(2048), after), None);
+    }
+
+    #[test]
+    fn a_deployment_can_move_or_lift_a_sunset() {
+        let mut p = Policy::default();
+        let later = UNIX_EPOCH + Duration::from_secs(SUNSET_2014 + 3 * 365 * 86_400);
+        p.set_sunset("sha1", Some(later)).unwrap();
+        p.set_sunset("RSA-1024", None).unwrap();
+        let mid = UNIX_EPOCH + Duration::from_secs(SUNSET_2014 + 86_400);
+        assert_eq!(weak_at(p.hash_sunset(HashAlg::Sha1), mid), None);
+        assert!(weak_at(p.hash_sunset(HashAlg::Sha1), later).is_some());
+        assert_eq!(weak_at(p.rsa_sunset(1024), SystemTime::now()), None);
+        assert!(weak_at(p.rsa_sunset(512), mid).is_some());
+        assert!(p.set_sunset("MD5", None).is_err());
     }
 }

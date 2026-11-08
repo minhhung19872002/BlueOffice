@@ -45,7 +45,7 @@ cargo run -p bo-cli -- convert in.xls --to xlsx          # doc/xls/xlsb/ppt/odt/
 cargo run -p bo-cli -- inspect in.docx                   # định dạng, mã hoá, macro
 cargo run -p bo-cli -- sign in.pdf --key k.pem --cert c.pem   # PAdES / OOXML (bo-sign); --p12 f.p12 | --remote URL; --tsa URL (B-T)
 cargo run -p bo-cli -- ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch] [--tsa URL]   # PAdES B-LT: DSS (chứng thư + CRL/OCSP); --tsa: B-LTA
-cargo run -p bo-cli -- verify in.pdf --trust root-ca.pem [--crl ca.crl] [--ocsp r.der | --ocsp-fetch] [--crl-fetch] [--json]  # chữ ký + dấu thời gian + chuỗi tới trust anchor + thu hồi CRL/OCSP (ADR-0007)
+cargo run -p bo-cli -- verify in.pdf --trust root-ca.pem [--crl ca.crl] [--ocsp r.der | --ocsp-fetch] [--crl-fetch] [--sunset SHA-1=2014-01-01] [--json]  # chữ ký + dấu thời gian + chuỗi tới trust anchor + thu hồi CRL/OCSP (ADR-0007)
 cargo run -p bo-cli -- sample-slides tests/corpus/slide  # sinh lại corpus slide
 BO_WRITE_CORPUS=1 cargo test -p bo-xlsx --test corpus    # sinh lại corpus sheet
 cargo bench -p bo-formula                                # 1 triệu ô / 100k công thức
@@ -126,7 +126,7 @@ cộng tác, chế độ chỉ xem — dùng chung cho web nhúng và desktop de
 **Phase 1–6A hoàn thành phần chính; Phase 7 (BlueForm, BlueNote) chỉ có kế hoạch.** Ưu tiên của chủ dự án: bộ office
 trước, BlueDrive tính sau. Không còn worktree dở; các nhánh `origin/wip/phase*` là ảnh chụp cũ (2026-11-05) đã làm lại trong
 `main`. Việc tiếp theo và hạn chế: `docs/PROGRESS.md` mục "Hạn chế đã
-biết" (ánh sáng/vật liệu 3D slide, POE riêng cho dữ liệu thu hồi, so sánh với ảnh tham chiếu do người dùng
+biết" (ánh sáng/vật liệu 3D slide, ECDSA cho ký số, so sánh với ảnh tham chiếu do người dùng
 cung cấp).
 
 ## ADR

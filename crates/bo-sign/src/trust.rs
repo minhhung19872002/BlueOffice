@@ -58,6 +58,8 @@ pub struct TrustStore {
     ocsp: Vec<(crate::ocsp::BasicOcspResponse, Vec<u8>)>,
     fetcher: Option<OcspFetcher>,
     crl_fetcher: Option<CrlFetcher>,
+    /// Algorithm sunsets ([`crate::policy`]).
+    policy: crate::policy::Policy,
 }
 
 /// Gets the CRLs (DER) of a certificate's issuer, e.g. downloaded from the
@@ -93,6 +95,17 @@ impl TrustStore {
     /// An empty store (nothing is trusted).
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Algorithm sunsets used by this store.
+    #[must_use]
+    pub fn policy(&self) -> &crate::policy::Policy {
+        &self.policy
+    }
+
+    /// Overrides an algorithm sunset (see [`crate::policy::Policy::set_sunset`]).
+    pub fn set_sunset(&mut self, name: &str, sunset: Option<SystemTime>) -> Result<()> {
+        self.policy.set_sunset(name, sunset)
     }
 
     /// Adds one DER certificate as trust anchor.
@@ -772,7 +785,7 @@ pub fn validate_chain(
         if let Ok(alg) = HashAlg::from_rsa_signature_oid(c.signature_algorithm.oid) {
             weak_check(
                 c,
-                crate::policy::hash_sunset(alg),
+                store.policy.hash_sunset(alg),
                 crate::policy::hash_name(alg),
                 at,
                 &mut report.problems,
@@ -787,7 +800,7 @@ pub fn validate_chain(
             let bits = rsa::traits::PublicKeyParts::size(&key) * 8;
             weak_check(
                 c,
-                crate::policy::rsa_sunset(bits),
+                store.policy.rsa_sunset(bits),
                 &format!("RSA-{bits}"),
                 at,
                 &mut report.problems,

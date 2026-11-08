@@ -183,6 +183,42 @@ pub struct Revocation {
     /// over HTTP when no CRL of its issuer is given.
     #[arg(long)]
     pub crl_fetch: bool,
+    /// Algorithm sunset override `ALG=YYYY-MM-DD` or `ALG=never` (`SHA-1`, `RSA-1024`, `RSA-512`;
+    /// defaults: 2014-01-01, 2014-01-01, always weak — ETSI EN 319 102-1 §5.2.8); repeatable.
+    #[arg(long = "sunset")]
+    pub sunsets: Vec<String>,
+}
+
+/// `YYYY-MM-DD` (UTC midnight) as a time.
+fn parse_date(s: &str) -> Option<SystemTime> {
+    let mut it = s.trim().splitn(3, '-').map(str::parse::<i64>);
+    let (y, m, d) = (it.next()?.ok()?, it.next()?.ok()?, it.next()?.ok()?);
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    // Days from the civil date (proleptic Gregorian), H. Hinnant's algorithm.
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = u64::try_from(days.checked_mul(86_400)?).ok()?;
+    Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs))
+}
+
+/// `ALG=YYYY-MM-DD` / `ALG=never`.
+fn parse_sunset(s: &str) -> R<(String, Option<SystemTime>)> {
+    let (alg, when) = s
+        .split_once('=')
+        .ok_or_else(|| format!("--sunset {s}: expected ALG=YYYY-MM-DD or ALG=never"))?;
+    let at = if when.trim().eq_ignore_ascii_case("never") {
+        None
+    } else {
+        Some(parse_date(when).ok_or_else(|| format!("--sunset {s}: bad date"))?)
+    };
+    Ok((alg.trim().to_owned(), at))
 }
 
 /// Trust anchors plus the revocation sources of `rev`.
@@ -190,6 +226,10 @@ fn store_with(trust: &[PathBuf], rev: &Revocation) -> R<TrustStore> {
     let mut store = trust_store(trust)?;
     for p in rev.crls.iter().chain(&rev.ocsp) {
         store.add_path(p)?;
+    }
+    for s in &rev.sunsets {
+        let (alg, at) = parse_sunset(s)?;
+        store.set_sunset(&alg, at)?;
     }
     if rev.crl_fetch {
         store.set_crl_fetcher(bo_sign::trust::CrlFetcher(std::sync::Arc::new(|cert| {
@@ -343,5 +383,26 @@ mod tests {
             remote_token: None,
         };
         assert!(signer(&args, "x").is_err());
+    }
+}
+
+#[cfg(test)]
+mod sunset_tests {
+    use super::*;
+
+    #[test]
+    fn sunset_flags_parse() {
+        let (alg, at) = parse_sunset("SHA-1=2014-01-01").unwrap();
+        assert_eq!(alg, "SHA-1");
+        assert_eq!(
+            at.unwrap()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            1_388_534_400
+        );
+        assert_eq!(parse_sunset("RSA-1024=never").unwrap().1, None);
+        assert!(parse_sunset("SHA-1").is_err());
+        assert!(parse_sunset("SHA-1=2014-13-01").is_err());
     }
 }

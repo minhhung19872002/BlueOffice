@@ -675,6 +675,8 @@ export type SlideTextFormat =
 /** Slide editing command (JSON bridge, ADR-0008). */
 export type SlideCommand =
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
+  /** Password for the next saves ([MS-OFFCRYPTO]); empty removes it. */
+  | { cmd: 'setSavePassword'; password?: string }
   | { cmd: 'undo' | 'redo' }
   | { cmd: 'goTo'; slide: number }
   | { cmd: 'select'; ids: number[] }

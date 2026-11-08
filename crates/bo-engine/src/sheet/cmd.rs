@@ -572,6 +572,59 @@ pub enum SheetCommand {
         #[serde(default)]
         grid_lines: Option<bool>,
     },
+    /// Password for the next `.xlsx` saves ([MS-OFFCRYPTO]); empty/absent removes it.
+    SetSavePassword {
+        #[serde(default)]
+        password: Option<String>,
+    },
+    /// Sheet and workbook protection state (§18.3.1.85, §18.2.29).
+    Protection {
+        sheet: usize,
+    },
+    /// Protects a sheet; `allow` lists what stays permitted.
+    ProtectSheet {
+        sheet: usize,
+        #[serde(default)]
+        password: String,
+        #[serde(default)]
+        allow: super::protect::SheetPermissions,
+    },
+    UnprotectSheet {
+        sheet: usize,
+        #[serde(default)]
+        password: String,
+    },
+    /// Locks the workbook structure (`lockStructure`).
+    ProtectWorkbook {
+        #[serde(default)]
+        password: String,
+    },
+    UnprotectWorkbook {
+        #[serde(default)]
+        password: String,
+    },
+    /// Moves sheet `from` to position `to` (sheet tabs drag and drop).
+    MoveSheet {
+        from: usize,
+        to: usize,
+    },
+    /// `sheetPr/tabColor` (§18.3.1.93) as `RRGGBB`; `None`/empty removes it.
+    SetTabColor {
+        sheet: usize,
+        #[serde(default)]
+        color: Option<String>,
+    },
+    /// Several commands as one undo step (e.g. formatting every range of a
+    /// multi-range selection); results are returned in order.
+    Batch {
+        cmds: Vec<SheetCommand>,
+    },
+    /// Sum, count and average of the numbers in several ranges (status bar of a
+    /// multi-range selection); cells covered twice count once.
+    RangeStats {
+        sheet: usize,
+        ranges: Vec<Rng>,
+    },
 }
 
 /// Recalculation needed after an edit.
@@ -689,6 +742,62 @@ impl SheetEngine {
         Ok(self.exec(cmd)?.to_string())
     }
 
+    /// Refuses a command that sheet or workbook protection forbids
+    /// (ECMA-376 Part 1, §18.3.1.85 `sheetProtection`, §18.2.29 `workbookProtection`).
+    /// Content changes to locked cells are refused in [`SheetEngine::edit`].
+    fn guard(&self, cmd: &SheetCommand) -> Result<()> {
+        use super::protect::{check, check_range, Action as A};
+        use SheetCommand as C;
+        let Some(wb) = self.wb.as_ref() else {
+            return Ok(());
+        };
+        let ws = |i: usize| wb.sheets.get(i).ok_or(EngineError::PageOutOfRange(i));
+        let rows_or_cols = |rows: bool| {
+            if rows {
+                A::FormatRows
+            } else {
+                A::FormatColumns
+            }
+        };
+        match cmd {
+            C::Format { sheet, .. }
+            | C::Borders { sheet, .. }
+            | C::CellStyle { sheet, .. }
+            | C::ClearFormats { sheet, .. }
+            | C::PaintFormat { sheet, .. }
+            | C::Merge { sheet, .. }
+            | C::Unmerge { sheet, .. }
+            | C::AddCf { sheet, .. }
+            | C::ClearCf { sheet, .. }
+            | C::SetValidation { sheet, .. } => check(ws(*sheet)?, A::FormatCells),
+            C::Resize { sheet, rows, .. }
+            | C::Autofit { sheet, rows, .. }
+            | C::Hide { sheet, rows, .. } => check(ws(*sheet)?, rows_or_cols(*rows)),
+            C::Sort { sheet, range, .. } => {
+                let w = ws(*sheet)?;
+                check(w, A::Sort)?;
+                check_range(wb, w, range.r0, range.c0, range.r1, range.c1)
+            }
+            C::ToggleFilter { sheet, .. } | C::SetFilter { sheet, .. } => {
+                check(ws(*sheet)?, A::AutoFilter)
+            }
+            C::InsertChart { sheet, .. }
+            | C::EditChart { sheet, .. }
+            | C::DeleteChart { sheet, .. }
+            | C::MoveChart { sheet, .. } => check(ws(*sheet)?, A::Objects),
+            C::PivotCreate { sheet, .. }
+            | C::PivotUpdate { sheet, .. }
+            | C::PivotGroup { sheet, .. }
+            | C::PivotCalcField { sheet, .. }
+            | C::PivotDelete { sheet, .. }
+            | C::PivotMove { sheet, .. }
+            | C::PivotChangeSource { sheet, .. }
+            | C::PivotRefresh { sheet, .. } => check(ws(*sheet)?, A::PivotTables),
+            C::MoveSheet { .. } => super::protect::check_structure(wb),
+            _ => Ok(()),
+        }
+    }
+
     /// One mutating edit: snapshot for undo, apply, refresh geometry and values.
     pub(super) fn edit<R>(
         &mut self,
@@ -709,6 +818,10 @@ impl SheetEngine {
                 return Err(e);
             }
         };
+        if let Err(e) = locked_cells_unchanged(&before, wb) {
+            *wb = *before;
+            return Err(e);
+        }
         match recalc {
             Recalc::No => {}
             Recalc::All => self.live.rebuild(wb),
@@ -729,7 +842,75 @@ impl SheetEngine {
     pub fn exec(&mut self, cmd: SheetCommand) -> Result<Value> {
         use SheetCommand as C;
         let locale = self.locale;
+        self.guard(&cmd)?;
         match cmd {
+            C::SetSavePassword { password } => {
+                self.set_save_password(password.as_deref());
+                Ok(json!({ "ok": true }))
+            }
+            C::Protection { sheet } => {
+                let ws = self.sheet(sheet)?;
+                Ok(json!({
+                    "sheet": super::protect::sheet_info(ws),
+                    "workbook": super::protect::workbook_info(self.wb()?),
+                }))
+            }
+            C::ProtectSheet {
+                sheet,
+                password,
+                allow,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                super::protect::protect_sheet(&mut wb.sheets[sheet], &password, &allow)?;
+                Ok(json!({ "ok": true }))
+            }),
+            C::UnprotectSheet { sheet, password } => self.edit(sheet, Recalc::No, |wb, _| {
+                super::protect::unprotect_sheet(&mut wb.sheets[sheet], &password)?;
+                Ok(json!({ "ok": true }))
+            }),
+            C::ProtectWorkbook { password } => self.edit(0, Recalc::No, |wb, _| {
+                super::protect::protect_workbook(wb, &password)?;
+                Ok(json!({ "ok": true }))
+            }),
+            C::UnprotectWorkbook { password } => self.edit(0, Recalc::No, |wb, _| {
+                super::protect::unprotect_workbook(wb, &password)?;
+                Ok(json!({ "ok": true }))
+            }),
+            C::MoveSheet { from, to } => {
+                let n = self.wb()?.sheets.len();
+                if from >= n || to >= n {
+                    return Err(EngineError::PageOutOfRange(from.max(to)));
+                }
+                if from == to {
+                    return Ok(json!({ "ok": true }));
+                }
+                let out = self.edit(from, Recalc::All, |wb, _| {
+                    move_sheet(wb, from, to);
+                    Ok(json!({ "ok": true }))
+                })?;
+                self.invalidate(None);
+                Ok(out)
+            }
+            C::SetTabColor { sheet, color } => self.edit(sheet, Recalc::No, |wb, _| {
+                let hex = color
+                    .as_deref()
+                    .map(|c| c.trim().trim_start_matches('#').to_ascii_uppercase())
+                    .filter(|c| !c.is_empty());
+                let ws = &mut wb.sheets[sheet];
+                ws.props.tab_color = match hex {
+                    Some(h) if h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()) => {
+                        // §18.3.1.93 tabColor (ARGB, `rgb` adds the alpha).
+                        Some(bo_model::sheet::SheetColor::rgb(&h))
+                    }
+                    Some(h) => return Err(bad(format!("bad colour '{h}'"))),
+                    None => None,
+                };
+                Ok(json!({ "ok": true }))
+            }),
+            C::Batch { cmds } => self.batch(cmds),
+            C::RangeStats { sheet, ranges } => {
+                let ws = self.sheet(sheet)?;
+                Ok(range_stats(ws, &ranges))
+            }
             C::Presets => Ok(json!({
                 "numberFormats": bo_sheet::style::NUMBER_PRESETS
                     .iter()
@@ -2094,6 +2275,113 @@ impl SheetEngine {
     /// Input conversion for host-side checks (e.g. the formula bar preview).
     pub fn parse_input(&self, input: &str) -> Option<Cell> {
         input_to_cell(input, None, &self.locale)
+    }
+}
+
+/// Content (value or formula) of locked cells of protected sheets must not
+/// change (ECMA-376 Part 1, §18.3.1.85 with §18.8.33 `protection/@locked`).
+fn locked_cells_unchanged(before: &Workbook, after: &Workbook) -> Result<()> {
+    for (si, old) in before.sheets.iter().enumerate() {
+        if !super::protect::sheet_info(old).protected {
+            continue;
+        }
+        let Some(new) = after.sheets.get(si) else {
+            continue;
+        };
+        let same = |a: Option<&Cell>, b: Option<&Cell>| match (a, b) {
+            (Some(a), Some(b)) => a.value == b.value && a.formula == b.formula,
+            (None, None) => true,
+            (Some(c), None) | (None, Some(c)) => !non_empty(c),
+        };
+        let keys = old.cells.keys().chain(new.cells.keys());
+        for &(r, c) in keys {
+            if !same(old.cells.get(&(r, c)), new.cells.get(&(r, c)))
+                && super::protect::cell_locked(before, old, r, c)
+            {
+                return Err(EngineError::Sheet(super::protect::SHEET_PROTECTED.into()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Moves a sheet, keeping sheet-scoped names (`localSheetId`, §18.2.5) and the
+/// pivot caches pointing at the same sheets.
+fn move_sheet(wb: &mut Workbook, from: usize, to: usize) {
+    let ws = wb.sheets.remove(from);
+    wb.sheets.insert(to, ws);
+    let map = |i: usize| -> usize {
+        if i == from {
+            to
+        } else if from < to && i > from && i <= to {
+            i - 1
+        } else if to < from && i >= to && i < from {
+            i + 1
+        } else {
+            i
+        }
+    };
+    for dn in &mut wb.defined_names {
+        if let Some(s) = dn.local_sheet {
+            if let Ok(i) = usize::try_from(s) {
+                dn.local_sheet = u32::try_from(map(i)).ok();
+            }
+        }
+    }
+}
+
+/// Status-bar figures of a multi-range selection.
+fn range_stats(ws: &Worksheet, ranges: &[Rng]) -> Value {
+    let mut seen = std::collections::BTreeSet::new();
+    let (mut sum, mut numbers, mut count) = (0.0_f64, 0_u64, 0_u64);
+    for r in ranges {
+        let r = r.range();
+        for row in r.first.row..=r.last.row {
+            for (&(rr, cc), cell) in ws.cells.range((row, r.first.col)..=(row, r.last.col)) {
+                if !seen.insert((rr, cc)) || !non_empty(cell) {
+                    continue;
+                }
+                count += 1;
+                if let CellValue::Number(n) = cell.value {
+                    sum += n;
+                    numbers += 1;
+                }
+            }
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let average = (numbers > 0).then(|| sum / numbers as f64);
+    json!({ "sum": sum, "count": count, "numbers": numbers, "average": average })
+}
+
+impl SheetEngine {
+    /// Runs `cmds` as one undo step: on error the workbook is restored.
+    fn batch(&mut self, cmds: Vec<SheetCommand>) -> Result<Value> {
+        let before = Box::new(self.wb()?.clone());
+        let depth = self.undo.len();
+        let mut out = Vec::with_capacity(cmds.len());
+        for c in cmds {
+            if matches!(c, SheetCommand::Batch { .. }) {
+                return Err(bad("nested batch"));
+            }
+            match self.exec(c) {
+                Ok(v) => out.push(v),
+                Err(e) => {
+                    self.undo.truncate(depth);
+                    if let Some(wb) = self.wb.as_mut() {
+                        *wb = *before;
+                        self.live.rebuild(wb);
+                    }
+                    self.invalidate(None);
+                    return Err(e);
+                }
+            }
+        }
+        if self.undo.len() > depth {
+            self.undo.truncate(depth);
+            self.undo.push(UndoEntry::Workbook(before));
+        }
+        Ok(Value::Array(out))
     }
 }
 

@@ -149,9 +149,12 @@ export class NativeEngineHost implements EngineHost {
 export function createNativeSheetHost(call: Invoke = invoke as Invoke): RpcSheetHost {
   return new RpcSheetHost(async (method: SheetMethod, args: unknown[]) => {
     if (method === 'open') {
-      return call('sheet_open', args[0] as Uint8Array, {
-        headers: { 'x-file-name': encodeURIComponent(String(args[1])) },
-      });
+      const headers: Record<string, string> = {
+        'x-file-name': encodeURIComponent(String(args[1])),
+      };
+      if (typeof args[2] === 'string' && args[2])
+        headers['x-password'] = encodeURIComponent(args[2]);
+      return call('sheet_open', args[0] as Uint8Array, { headers });
     }
     if (method === 'save' || method === 'exportPdf') {
       return toBytes(await call<ArrayBuffer>('sheet_binary', { method, args }));

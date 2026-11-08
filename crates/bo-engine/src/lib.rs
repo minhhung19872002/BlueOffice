@@ -21,6 +21,7 @@ pub mod collab;
 pub mod edit;
 pub mod fonts;
 pub mod gallery;
+mod legacy_slides;
 pub mod media;
 pub mod merge;
 pub mod nav;
@@ -279,23 +280,42 @@ impl Engine {
         password: Option<&str>,
     ) -> Result<DocInfo> {
         let lower = name.to_ascii_lowercase();
-        let mut plain = None;
-        if bytes.starts_with(CFB_SIGNATURE) && bo_crypto::is_encrypted(bytes) {
-            let pw = password
-                .filter(|p| !p.is_empty())
-                .ok_or(EngineError::PasswordRequired)?;
-            plain = Some(bo_crypto::decrypt(bytes, pw).map_err(|e| match e {
-                bo_crypto::CryptoError::WrongPassword
-                | bo_crypto::CryptoError::IntegrityCheckFailed => EngineError::WrongPassword,
-                other => EngineError::Crypto(other.to_string()),
-            })?);
-        }
+        let plain = decrypt_package(bytes, password)?;
         let encrypted = plain.is_some();
         let bytes = plain.as_deref().unwrap_or(bytes);
         let macros = bo_binary::has_macros(bytes);
         let is_zip = bytes.starts_with(b"PK\x03\x04");
-        if is_zip && bo_pptx::is_pptx(bytes) {
-            return self.open_pptx(bytes, name);
+        // Decks: `.pptx`, and `.ppt` / `.odp` converted to PresentationML.
+        let deck = if is_zip && bo_pptx::is_pptx(bytes) {
+            Some((None, name.to_owned()))
+        } else if is_zip && bo_odf::detect_mimetype(bytes).as_deref() == Some(bo_odf::MIME_ODP) {
+            let d = bo_odf::read_odp_deck(bytes).map_err(|e| EngineError::Format(e.to_string()))?;
+            Some((Some(legacy_slides::odp_deck(&d)), with_ext(name, "pptx")))
+        } else if bytes.starts_with(CFB_SIGNATURE)
+            && matches!(bo_binary::detect(bytes), Some(bo_binary::LegacyKind::Ppt))
+        {
+            let d = bo_binary::read_ppt(bytes).map_err(|e| EngineError::Format(e.to_string()))?;
+            Some((Some(legacy_slides::ppt_deck(&d)), with_ext(name, "pptx")))
+        } else {
+            None
+        };
+        if let Some((spec, deck_name)) = deck {
+            match spec {
+                None => self.open_pptx(bytes, &deck_name)?,
+                Some(spec) => {
+                    let pptx = bo_pptx::build::build_pptx(&spec)
+                        .map_err(|e| EngineError::Format(e.to_string()))?;
+                    self.open_pptx(&pptx, &deck_name)?
+                }
+            };
+            self.macros = macros;
+            // An encrypted deck is saved with the same password unless changed.
+            self.save_password = if encrypted {
+                password.map(str::to_owned)
+            } else {
+                None
+            };
+            return self.info();
         }
         let doc = if is_zip && bo_odf::detect_mimetype(bytes).as_deref() == Some(bo_odf::MIME_ODT) {
             bo_odf::read_odt(bytes).map_err(|e| EngineError::Format(e.to_string()))?
@@ -493,6 +513,8 @@ impl Engine {
         self.deck_seq += 1;
         self.collab = None;
         self.slide_collab = None;
+        self.macros = false;
+        self.save_password = None;
         self.info()
     }
 
@@ -563,10 +585,17 @@ impl Engine {
         self.media(id)
     }
 
-    /// Save the open presentation as `.pptx`.
+    /// Save the open presentation as `.pptx`, encrypted with the save password
+    /// when one is set ([MS-OFFCRYPTO] §2.3.4.10 Agile Encryption).
     pub fn save_pptx(&self) -> Result<Vec<u8>> {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
-        Ok(bo_pptx::write_pptx(pres)?)
+        let bytes = bo_pptx::write_pptx(pres)?;
+        match &self.save_password {
+            Some(pw) => {
+                bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))
+            }
+            None => Ok(bytes),
+        }
     }
 
     /// Image sources for backends: the document's media parts, then slide images.
@@ -770,6 +799,30 @@ impl Engine {
             None => Ok(bytes),
         }
     }
+}
+
+/// `name` with its extension replaced by `ext`.
+fn with_ext(name: &str, ext: &str) -> String {
+    format!("{}.{ext}", name.rsplit_once('.').map_or(name, |(b, _)| b))
+}
+
+/// Decrypts an encrypted OOXML package ([MS-OFFCRYPTO] §2.3.4.10 Agile /
+/// §2.3.4.5 Standard Encryption, a CFB with `EncryptionInfo` + `EncryptedPackage`).
+/// `Ok(None)` for files that are not encrypted.
+pub(crate) fn decrypt_package(bytes: &[u8], password: Option<&str>) -> Result<Option<Vec<u8>>> {
+    if !(bytes.starts_with(CFB_SIGNATURE) && bo_crypto::is_encrypted(bytes)) {
+        return Ok(None);
+    }
+    let pw = password
+        .filter(|p| !p.is_empty())
+        .ok_or(EngineError::PasswordRequired)?;
+    bo_crypto::decrypt(bytes, pw)
+        .map(Some)
+        .map_err(|e| match e {
+            bo_crypto::CryptoError::WrongPassword
+            | bo_crypto::CryptoError::IntegrityCheckFailed => EngineError::WrongPassword,
+            other => EngineError::Crypto(other.to_string()),
+        })
 }
 
 /// Words in all text bodies of all slides.

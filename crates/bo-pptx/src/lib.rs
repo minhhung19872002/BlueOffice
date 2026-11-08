@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod anim;
+pub mod build;
 mod chart_render;
 pub mod inherit;
 mod pml;

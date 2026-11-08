@@ -544,6 +544,7 @@ impl Writer<'_> {
     }
 
     /// `w:drawing` with `graphic` placed inline (§20.4.2.8) or anchored (§20.4.2.3).
+    #[allow(clippy::unused_self)]
     fn frame(&mut self, img: &Image, id: u32, kind: &str, graphic: &str) -> String {
         let (cx, cy) = (img.width.0, img.height.0);
         let descr = escape(&img.description);

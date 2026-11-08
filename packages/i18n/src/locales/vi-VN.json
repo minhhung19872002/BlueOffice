@@ -894,6 +894,39 @@
         "M10": "Tháng 10",
         "M11": "Tháng 11",
         "M12": "Tháng 12"
+        }
+      },
+    "tabColorNone": "Không màu",
+    "protection": {
+      "group": "Bảo vệ",
+      "protectSheet": "Bảo vệ trang tính",
+      "unprotectSheet": "Bỏ bảo vệ trang tính",
+      "protectWorkbook": "Bảo vệ sổ tính",
+      "unprotectWorkbook": "Bỏ bảo vệ sổ tính",
+      "lockCell": "Khoá ô",
+      "sheetTitle": "Bảo vệ trang tính và nội dung ô bị khoá",
+      "workbookTitle": "Bảo vệ cấu trúc sổ tính",
+      "password": "Mật khẩu (không bắt buộc)",
+      "confirm": "Nhập lại mật khẩu",
+      "allow": "Cho phép mọi người dùng:",
+      "refused": "Ô hoặc thao tác này đang được bảo vệ. Bỏ bảo vệ trang tính để sửa.",
+      "workbookRefused": "Cấu trúc sổ tính đang được bảo vệ (thêm, xoá, đổi tên, di chuyển trang tính).",
+      "wrongPassword": "Mật khẩu bảo vệ không đúng.",
+      "protectedSheet": "Trang tính được bảo vệ",
+      "opt": {
+        "selectLockedCells": "Chọn ô bị khoá",
+        "selectUnlockedCells": "Chọn ô không khoá",
+        "formatCells": "Định dạng ô",
+        "formatColumns": "Định dạng cột",
+        "formatRows": "Định dạng hàng",
+        "insertColumns": "Chèn cột",
+        "insertRows": "Chèn hàng",
+        "deleteColumns": "Xoá cột",
+        "deleteRows": "Xoá hàng",
+        "sort": "Sắp xếp",
+        "autoFilter": "Dùng Lọc tự động",
+        "pivotTables": "Dùng bảng tổng hợp",
+        "objects": "Sửa đối tượng (biểu đồ)"
       }
     }
   },
@@ -1260,7 +1293,9 @@
     "confirm": "Nhập lại mật khẩu",
     "mismatch": "Mật khẩu không khớp",
     "set": "Đặt",
-    "protected": "Có mật khẩu"
+    "protected": "Có mật khẩu",
+    "passwordSet": "Sẽ lưu kèm mật khẩu",
+    "passwordRemoved": "Sẽ lưu không có mật khẩu"
   },
   "collab": {
     "editing": "{{name}} đang sửa",

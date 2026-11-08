@@ -663,6 +663,7 @@ dependencies = [
  "bo-engine",
  "bo-formula",
  "bo-layout",
+ "bo-math",
  "bo-model",
  "bo-odf",
  "bo-opc",
@@ -714,6 +715,8 @@ dependencies = [
 name = "bo-math"
 version = "0.1.0"
 dependencies = [
+ "bo-drawingml",
+ "bo-model",
  "proptest",
 ]
 

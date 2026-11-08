@@ -3,6 +3,7 @@ import type {
   Alignment,
   EditCommand,
   EditResult,
+  EquationInfo,
   FormatState,
   NoteInfo,
   NotePos,
@@ -739,5 +740,85 @@ export function NotesPanel({
         ))}
       </ul>
     </aside>
+  );
+}
+
+/** Type an equation in the UnicodeMath linear format or LaTeX (an equation of the document is edited in
+ * place when the selection covers one). */
+export function EquationDialog({
+  initial,
+  onInsert,
+  onClose,
+}: {
+  initial: EquationInfo | null;
+  onInsert: (text: string, latex: boolean, display: boolean) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [text, setText] = useState(initial?.linear ?? '');
+  const [latex, setLatex] = useState(false);
+  const [display, setDisplay] = useState(initial?.display ?? false);
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t(initial ? 'equation.editTitle' : 'equation.title')}
+      testId="equation-dialog"
+      footer={
+        <>
+          <button type="button" className={styles.dialogButton} onClick={onClose}>
+            {t('security.cancel')}
+          </button>
+          <button
+            type="button"
+            className={styles.dialogPrimary}
+            data-testid="equation-ok"
+            disabled={!text.trim()}
+            onClick={() => onInsert(text, latex, display)}
+          >
+            {t(initial ? 'equation.update' : 'equation.insert')}
+          </button>
+        </>
+      }
+    >
+      <label className={styles.field}>
+        {t('equation.input')}
+        <textarea
+          data-testid="equation-input"
+          rows={3}
+          value={text}
+          spellCheck={false}
+          onChange={(e) => setText(e.target.value)}
+          style={{ font: '14px monospace', width: '100%' }}
+        />
+      </label>
+      <fieldset className={styles.fieldset}>
+        <legend>{t('equation.syntax')}</legend>
+        <label>
+          <input type="radio" name="syntax" checked={!latex} onChange={() => setLatex(false)} />{' '}
+          {t('equation.unicodeMath')}
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="syntax"
+            data-testid="equation-latex"
+            checked={latex}
+            onChange={() => setLatex(true)}
+          />{' '}
+          LaTeX
+        </label>
+      </fieldset>
+      <label>
+        <input
+          type="checkbox"
+          data-testid="equation-display"
+          checked={display}
+          onChange={(e) => setDisplay(e.target.checked)}
+        />{' '}
+        {t('equation.display')}
+      </label>
+      <div className={styles.hint}>{t(latex ? 'equation.hintLatex' : 'equation.hintUnicode')}</div>
+    </Dialog>
   );
 }

@@ -118,6 +118,9 @@ import {
   ZoomOut,
   SpellCheck,
   SpellCheck2,
+  Sigma,
+  SquareFunction,
+  TextCursorInput,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -145,6 +148,7 @@ import {
   NotesPanel,
   PageSetupDialog,
   PasteSpecialDialog,
+  EquationDialog,
   PicturePositionDialog,
   TablePropertiesDialog,
   TemplateDialog,
@@ -916,6 +920,22 @@ function EditorInner({
       isEnabled: hasDoc,
       run: () => store.setState({ panel: 'symbols' }),
     });
+    r.register({
+      id: 'insert.equation',
+      shortcut: 'Alt+=',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'equation' }),
+    });
+    r.register({
+      id: 'equation.linear',
+      isEnabled: (s) => hasDoc(s) && !!s.edit?.equation && !s.edit.equation.isLinear,
+      run: () => run({ cmd: 'equationFormat', linear: true }),
+    });
+    r.register({
+      id: 'equation.professional',
+      isEnabled: (s) => hasDoc(s) && !!s.edit?.equation?.isLinear,
+      run: () => run({ cmd: 'equationFormat', linear: false }),
+    });
 
     // View.
     r.register({
@@ -1685,6 +1705,19 @@ function EditorInner({
           ],
         },
         {
+          id: 'equation',
+          label: t('ribbon.groups.equation'),
+          items: [
+            item('insert.equation', 'commands.insert.equation', <Sigma size={ICON} />),
+            item(
+              'equation.professional',
+              'commands.equation.professional',
+              <SquareFunction size={ICON} />,
+            ),
+            item('equation.linear', 'commands.equation.linear', <TextCursorInput size={ICON} />),
+          ],
+        },
+        {
           id: 'pages',
           label: t('ribbon.groups.pages'),
           items: [
@@ -2064,6 +2097,17 @@ function EditorInner({
                 run={runCommand}
                 language={state.language}
                 onClose={closeDialog}
+              />
+            )}
+            {state.dialog === 'equation' && (
+              <EquationDialog
+                initial={state.edit?.equation ?? null}
+                onClose={closeDialog}
+                onInsert={(text, latex, display) => {
+                  const replace = !!store.getState().edit?.equation;
+                  closeDialog();
+                  void runFocus({ cmd: 'insertEquation', text, latex, display, replace });
+                }}
               />
             )}
             {state.dialog === 'pasteSpecial' && (

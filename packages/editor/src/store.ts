@@ -55,7 +55,14 @@ export interface EditorState {
   /** Verification of the opened file's digital signatures (null: unsigned / not checked). */
   signatures: SignatureReport | null;
   /** Modal dialog. */
-  dialog: 'pageSetup' | 'pasteSpecial' | 'tableProperties' | 'picturePosition' | 'templates' | null;
+  dialog:
+    | 'pageSetup'
+    | 'pasteSpecial'
+    | 'tableProperties'
+    | 'picturePosition'
+    | 'templates'
+    | 'equation'
+    | null;
   /** Format Painter: off, once (single click) or sticky (double click; Esc stops). */
   painter: 'off' | 'once' | 'sticky';
   /** Font picker entries from the engine. */

@@ -1398,6 +1398,56 @@ impl Session {
         })
     }
 
+    /// Insert an Office Math zone in place of the selection (`xml`: an `m:oMath` or `m:oMathPara`
+    /// element, ECMA-376 Part 1, §22.1.2.77 / §22.1.2.78); the new equation is selected.
+    pub fn insert_equation(&mut self, xml: &str) -> Result<Selection> {
+        let math = RunContent::Markup(bo_model::Raw::new(xml, 0));
+        self.edit(|tx, sel| {
+            let (a, b) = sel.ordered();
+            let at = tx.delete_range(a, b)?;
+            let (_, _, atoms) = tx.atoms(at.para)?;
+            let props = para::props_at(&atoms, at.offset);
+            let end = tx.insert_atoms(at, vec![(props, math.clone())])?;
+            Ok(Selection {
+                anchor: at,
+                focus: end,
+            })
+        })
+    }
+
+    /// The equation the selection covers exactly (or the one just before a collapsed caret): its range
+    /// and its OMML.
+    #[must_use]
+    pub fn selected_equation(&self) -> Option<(Selection, String)> {
+        let (a, b) = self.selection.ordered();
+        if a.para != b.para {
+            return None;
+        }
+        let paths = body_paragraphs(&self.doc);
+        let p = para_at(&self.doc, paths.get(a.para)?)?;
+        let mut off = 0;
+        for (_, c) in para::flatten(p) {
+            let n = para::atom_len(&c);
+            if let RunContent::Markup(raw) = &c {
+                if bo_model::index::is_math_xml(&raw.xml) {
+                    let covers = a.offset == off && b.offset == off + n;
+                    let after = a == b && a.offset == off + n;
+                    if covers || after {
+                        return Some((
+                            Selection {
+                                anchor: Pos::new(a.para, off),
+                                focus: Pos::new(a.para, off + n),
+                            },
+                            raw.xml.to_string(),
+                        ));
+                    }
+                }
+            }
+            off += n;
+        }
+        None
+    }
+
     /// Bookmarks and captions that can be cross-referenced.
     pub fn ref_targets(&self) -> Vec<RefTarget> {
         fields::ref_targets(&self.doc)

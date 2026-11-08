@@ -8,10 +8,14 @@
 #![forbid(unsafe_code)]
 
 pub mod latex;
+pub mod linear;
 pub mod omml;
+pub mod read;
 pub mod unicode_math;
 
+pub use linear::to_linear;
 pub use omml::to_omml;
+pub use read::from_omml;
 
 /// An equation as a tree (the shapes of Office Math, §22.1.2).
 #[derive(Debug, Clone, PartialEq)]

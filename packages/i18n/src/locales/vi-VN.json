@@ -56,7 +56,8 @@
       "footnotes": "Chú thích",
       "arrange": "Sắp xếp",
       "signature": "Chữ ký số",
-      "proofing": "Soát lỗi"
+      "proofing": "Soát lỗi",
+      "equation": "Phương trình"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -122,7 +123,8 @@
       "footer": "Chân trang",
       "pageNumber": "Số trang",
       "footnote": "Chèn chú thích cuối trang",
-      "endnote": "Chèn chú thích cuối văn bản"
+      "endnote": "Chèn chú thích cuối văn bản",
+      "equation": "Phương trình"
     },
     "layout": {
       "margins": "Lề",
@@ -203,6 +205,10 @@
     },
     "picture": {
       "position": "Vị trí ảnh"
+    },
+    "equation": {
+      "linear": "Dạng tuyến tính",
+      "professional": "Dạng chuyên nghiệp"
     }
   },
   "status": {
@@ -1664,5 +1670,17 @@
     "repeatedWord": "Lặp từ",
     "unbalanced": "Ngoặc hoặc dấu nháy chưa đóng",
     "toneStyle": "Vị trí dấu thanh khác kiểu với phần còn lại của tài liệu"
+  },
+  "equation": {
+    "title": "Chèn phương trình",
+    "editTitle": "Sửa phương trình",
+    "input": "Phương trình",
+    "syntax": "Cú pháp",
+    "unicodeMath": "UnicodeMath (tuyến tính)",
+    "display": "Hiển thị riêng một dòng",
+    "insert": "Chèn",
+    "update": "Cập nhật",
+    "hintUnicode": "Ví dụ: x=(-b±√(b^2-4ac))/2a · ∑_(k=1)^n k · ■(a&b@c&d) · \\alpha, \\sqrt, \\to",
+    "hintLatex": "Ví dụ: \\frac{a}{b} · x^{2} · \\sqrt[3]{x} · \\sum_{k=1}^{n} · \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}"
   }
 }

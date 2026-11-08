@@ -380,6 +380,28 @@ pub enum Command {
         /// The word.
         word: String,
     },
+    /// Insert an equation typed in the UnicodeMath linear format (or LaTeX with `latex`) at the selection;
+    /// with `replace`, the selected equation is replaced (CORE-MATH-007).
+    InsertEquation {
+        /// The equation text.
+        text: String,
+        /// LaTeX rather than UnicodeMath.
+        #[serde(default)]
+        latex: bool,
+        /// A display equation on its own line (`m:oMathPara`).
+        #[serde(default)]
+        display: bool,
+        /// Replace the equation the selection covers (or the one just before the caret).
+        #[serde(default)]
+        replace: bool,
+    },
+    /// Report the selected equation (`equation` of the result; every result carries it).
+    Equation,
+    /// Show the selected equation in the linear form (`linear`) or build it up (professional form).
+    EquationFormat {
+        /// Linear form.
+        linear: bool,
+    },
     /// Spelling as you type on or off.
     SetSpelling {
         /// On.
@@ -581,6 +603,9 @@ pub struct EditResult {
     /// Change to share and selection offsets while collaborating (Engine::collab_start).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collab: Option<crate::collab::CollabOut>,
+    /// The equation the selection covers or the caret follows (CORE-MATH-007).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub equation: Option<crate::equation::EquationInfo>,
     /// Misspelt words (`spelling`, ignore / add-word commands).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spelling: Option<Vec<crate::spell::SpellMark>>,
@@ -791,6 +816,7 @@ impl crate::Engine {
                     | Command::SpellIgnore { .. }
                     | Command::SpellAddWord { .. }
                     | Command::SetSpelling { .. }
+                    | Command::Equation
                     | Command::SetGrammar { .. }
                     | Command::GrammarIgnore { .. }
                     | Command::EditHeaderFooter { .. }
@@ -822,6 +848,27 @@ impl crate::Engine {
                     } => {
                         let si = s.section_state().index;
                         s.set_header_options(si, title_page, even_and_odd)?;
+                    }
+                    Command::InsertEquation {
+                        text,
+                        latex,
+                        display,
+                        replace,
+                    } => {
+                        if replace {
+                            if let Some((sel, _)) = s.selected_equation() {
+                                s.set_selection(sel);
+                            }
+                        }
+                        s.insert_equation(&crate::equation::build(&text, latex, display))?;
+                    }
+                    Command::EquationFormat { linear } => {
+                        if let Some((sel, xml)) = s.selected_equation() {
+                            if let Some(new) = crate::equation::reformat(&xml, linear) {
+                                s.set_selection(sel);
+                                s.insert_equation(&new)?;
+                            }
+                        }
                     }
                     Command::InsertField { instr } => {
                         let cached = if instr.trim().eq_ignore_ascii_case("NUMPAGES") {
@@ -1196,6 +1243,9 @@ impl crate::Engine {
             merge: None,
             spelling: None,
             spell: None,
+            equation: s
+                .selected_equation()
+                .and_then(|(_, xml)| crate::equation::info(&xml)),
             collab: None,
             story: None,
             notes: None,

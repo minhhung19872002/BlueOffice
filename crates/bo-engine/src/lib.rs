@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 mod bundled;
 pub mod collab;
 pub mod edit;
+pub mod equation;
 pub mod fonts;
 pub mod gallery;
 mod legacy_slides;

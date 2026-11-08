@@ -93,6 +93,13 @@ impl Engine {
         if let Some(r) = self.spell_command(cmd)? {
             return Ok(Some(r));
         }
+        if matches!(cmd, Command::Equation) && self.session.is_some() {
+            return Ok(Some(self.edit_result(
+                Vec::new(),
+                (None, None, None),
+                None,
+            )?));
+        }
         if self.session.is_none() {
             return Ok(None);
         }

@@ -7,6 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+bo-model.workspace = true
+bo-drawingml = { path = "../bo-drawingml" }
 
 [dev-dependencies]
 proptest.workspace = true

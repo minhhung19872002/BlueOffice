@@ -56,7 +56,8 @@
       "footnotes": "Notes",
       "arrange": "Arrange",
       "signature": "Signature",
-      "proofing": "Proofing"
+      "proofing": "Proofing",
+      "equation": "Equation"
     },
     "comingLater": "Coming in a later release"
   },
@@ -122,7 +123,8 @@
       "footer": "Footer",
       "pageNumber": "Page number",
       "footnote": "Insert footnote",
-      "endnote": "Insert endnote"
+      "endnote": "Insert endnote",
+      "equation": "Equation"
     },
     "layout": {
       "margins": "Margins",
@@ -203,6 +205,10 @@
     },
     "picture": {
       "position": "Picture position"
+    },
+    "equation": {
+      "linear": "Linear format",
+      "professional": "Professional format"
     }
   },
   "status": {
@@ -1664,5 +1670,17 @@
     "repeatedWord": "Repeated word",
     "unbalanced": "Unclosed bracket or quotation mark",
     "toneStyle": "Tone mark placed in a different style than the rest of the document"
+  },
+  "equation": {
+    "title": "Insert equation",
+    "editTitle": "Edit equation",
+    "input": "Equation",
+    "syntax": "Syntax",
+    "unicodeMath": "UnicodeMath (linear)",
+    "display": "Display on its own line",
+    "insert": "Insert",
+    "update": "Update",
+    "hintUnicode": "Examples: x=(-b±√(b^2-4ac))/2a · ∑_(k=1)^n k · ■(a&b@c&d) · \\alpha, \\sqrt, \\to",
+    "hintLatex": "Examples: \\frac{a}{b} · x^{2} · \\sqrt[3]{x} · \\sum_{k=1}^{n} · \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}"
   }
 }

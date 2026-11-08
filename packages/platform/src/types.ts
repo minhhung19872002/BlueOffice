@@ -479,6 +479,10 @@ export type EditCommand =
   | { cmd: 'spellAt'; page: number; x: number; y: number }
   | { cmd: 'spellIgnore' | 'spellAddWord'; word: string }
   | { cmd: 'setSpelling'; on: boolean }
+  /** Equations (CORE-MATH-007): insert from UnicodeMath / LaTeX, query, linear ↔ built-up. */
+  | { cmd: 'insertEquation'; text: string; latex?: boolean; display?: boolean; replace?: boolean }
+  | { cmd: 'equation' }
+  | { cmd: 'equationFormat'; linear: boolean }
   /** Grammar and style as you type (CORE-GRAM-001). */
   | { cmd: 'setGrammar'; on: boolean }
   | { cmd: 'grammarIgnore'; rule: string; text: string }
@@ -553,6 +557,18 @@ export interface EditResult {
   spelling?: SpellMark[];
   /** The misspelt word at a point (`spellAt`). */
   spell?: SpellInfo;
+  /** The equation the selection covers or the caret follows. */
+  equation?: EquationInfo;
+}
+
+/** An equation of the document as the equation editor shows it. */
+export interface EquationInfo {
+  /** UnicodeMath linear form. */
+  linear: string;
+  /** Display equation on its own line (m:oMathPara). */
+  display: boolean;
+  /** Currently shown in the linear form. */
+  isLinear: boolean;
 }
 
 /** A misspelt word: wavy line on `page` from `x` to `x + w` at `y` (points). */

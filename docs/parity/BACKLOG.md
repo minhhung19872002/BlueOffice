@@ -14,7 +14,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 
 ### Phương trình (PROMPT §4.4)
 - [x] **CORE-MATH-001** — Đọc/ghi OMML lossless (m:oMath, m:oMathPara giữ nguyên XML) · P0 · — · round-trip corpus `math-0*`, OpenXmlValidator. Test: `bo-docx` corpus.
-- [p] **CORE-MATH-002** — Hiển thị OMML: phân số, mũ/chỉ số, căn, n-ary + cận, ngoặc co giãn, ma trận, eqArr, hàm, dấu nhấn, bar, lim, groupChr, borderBox, phant · P0 · 001 · ảnh render corpus + snapshot. **Thiếu**: dàn trang theo OpenType MATH table (cần font toán OFL), căn giữa oMathPara (jc), `m:box`/`m:sSubSup` canh chỉnh tinh, font STIX Two/Latin Modern Math.
+- [x] **CORE-MATH-002** — Hiển thị OMML: phân số, mũ/chỉ số, căn, n-ary + cận, ngoặc co giãn, ma trận, eqArr, hàm, dấu nhấn, bar, lim, groupChr, borderBox, phant · P0 · 001 · ảnh render corpus + snapshot. _Rà soát định kỳ (2026-11-09): phần thiếu đã xong qua CORE-MATH-003 (STIX Two Math + bảng MATH, sSubSup theo SubSuperscriptGapMin) và CORE-MATH-004 (oMathPara theo jc); `m:box` dàn như nhóm (không có tham số hiển thị riêng)._
 - [x] **CORE-MATH-003** — Font toán OFL (STIX Two Math hoặc Latin Modern Math) đóng gói + dùng bảng MATH (constants, variants, assembly) cho dàn trang · P0 · 002 · ngoặc/căn/tích phân dùng biến thể glyph thật; test so kích thước với giá trị MATH table.
   - Xong: STIX Two Math 2.13 (OFL-1.1, `assets/fonts/STIXTwoMath-Regular.ttf`, FaceId 16 sau các font văn bản) thay cho
     Cambria Math (`FALLBACKS`; máy có font toán cài sẵn thì dùng font đó nếu có bảng MATH). `bo-text::math`: MathConstants,
@@ -44,9 +44,19 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     `\overline \underline`, `\text \mathrm …` giữ dấu cách, ký hiệu Hy Lạp/toán tử, bỏ lệnh khoảng cách và chú thích `%`,
     lệnh lạ giữ nguyên dạng chữ. Test: 22 cặp LaTeX ↔ UnicodeMath cho cùng OMML, các cấu trúc riêng (binom, cases, `\left.`,
     operatorname), proptest; corpus `math-05-latex.docx` qua OpenXmlValidator (0 lỗi).
-- [ ] **CORE-MATH-007** — Chèn/sửa phương trình trong BlueDoc (lệnh `insert.equation`, hộp nhập tuyến tính, chuyển chuyên nghiệp ↔ tuyến tính, OMML → UnicodeMath) · P0 · 005 · E2E web: chèn, lưu, mở lại.
+- [x] **CORE-MATH-007** — Chèn/sửa phương trình trong BlueDoc (lệnh `insert.equation`, hộp nhập tuyến tính, chuyển chuyên nghiệp ↔ tuyến tính, OMML → UnicodeMath) · P0 · 005 · E2E web: chèn, lưu, mở lại.
+  - Xong: `bo-edit` `insert_equation` / `selected_equation`; `bo-engine::equation` + lệnh `insertEquation {text, latex,
+    display, replace}`, `equation`, `equationFormat {linear}`; mọi `EditResult` mang `equation` (dạng tuyến tính, display,
+    isLinear) khi vùng chọn là phương trình. Vùng toán chèn vào tự khai báo `xmlns:m` (tài liệu mới không khai báo ở gốc).
+    `bo-math` thêm `read::from_omml` (OMML → cây) và `linear::to_linear` (cây → UnicodeMath, ngoặc khi toán hạng không đơn).
+    Dạng tuyến tính = vùng toán giữ chuỗi tuyến tính trong một `m:r` (như Office Math), chuyển lại thì dựng lại.
+    UI: tab Chèn → nhóm Phương trình (Chèn/sửa, Chuyên nghiệp, Tuyến tính; phím Alt+=), hộp thoại nhập UnicodeMath hoặc
+    LaTeX, tuỳ chọn hiển thị riêng dòng. Test: `bo-math` round-trip tuyến tính → cây → tuyến tính (31 ca) và OMML →
+    tuyến tính; `bo-engine equation::tests` (chèn, chuyển dạng, thay bằng LaTeX display, lưu/mở lại); E2E
+    `specs/equation.spec.ts` (chèn, chuyển dạng, sửa, lưu, mở lại; file lưu qua OpenXmlValidator 0 lỗi).
 - [ ] **CORE-MATH-008** — Thư viện phương trình mẫu (tự soạn) + đánh số phương trình · P1 · 007 · test chèn mẫu.
 - [ ] **CORE-MATH-009** — Phương trình trong BlueSlide (a14:m trong txBody) và BlueSheet (shape) hiển thị · P1 · 002 · corpus + render.
+- [ ] **CORE-MATH-010** — Soạn trực tiếp trên công thức (caret trong vùng toán: gõ vào tử/mẫu/chỉ số, Tab giữa các ô, tự chuyển `x^2␣` thành dựng sẵn như khi gõ tuyến tính trong vùng toán) · P2 · 007 · E2E. _(Bổ sung khi rà soát định kỳ 2026-11-09: hiện sửa qua hộp thoại tuyến tính.)_
 
 ### Soát chính tả & ngữ pháp (§4.2)
 - [x] **CORE-SPELL-001** — Engine soát chính tả tương thích Hunspell (.aff/.dic: affix, compound cơ bản), crate `bo-spell` · P0 · — · test với từ điển mẫu tự viết.

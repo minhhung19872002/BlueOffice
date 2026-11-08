@@ -7,6 +7,7 @@ using BlueOffice.Api.Common;
 using BlueOffice.Api.Files;
 using BlueOffice.Api.Jobs;
 using BlueOffice.Api.Sessions;
+using BlueOffice.Api.Signing;
 using BlueOffice.Domain;
 using BlueOffice.Infrastructure;
 using BlueOffice.Infrastructure.Data;
@@ -64,6 +65,7 @@ builder.Services.AddSingleton<LocalHostStorage>();
 builder.Services.Configure<CollabOptions>(config.GetSection("Collab"));
 builder.Services.AddSingleton(sp => CollabLogStore.Create(sp, config));
 builder.Services.AddSingleton<RoomManager>();
+builder.Services.AddRevocationProxy(config);
 builder.Services.AddSingleton<CollabMaintenanceService>();
 if (serveApi)
 {
@@ -96,13 +98,10 @@ app.Services.GetRequiredService<WopiProofKeys>();
 
 if (config.GetValue("Database:AutoCreate", true))
 {
-    // Schema creation for dev/test and first start; see docs/deploy/upgrade.md for production upgrades.
+    // EF Core migrations (also adopts databases created by EnsureCreated before 0.7); see docs/deploy/upgrade.md.
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<BlueOfficeDbContext>();
-    db.Database.EnsureCreated();
-
-    // Tables added after a database was first created (EnsureCreated leaves existing databases alone).
-    await SchemaUpgrades.ApplyAsync(db);
+    await DatabaseMigrator.MigrateAsync(db);
 }
 
 app.UseExceptionHandler();
@@ -161,6 +160,7 @@ app.MapFileEndpoints();
 app.MapJobEndpoints();
 app.MapSessionEndpoints();
 app.MapHostBrowseEndpoints();
+app.MapRevocationProxy();
 
 app.Run();
 

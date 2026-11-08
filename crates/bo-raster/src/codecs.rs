@@ -11,8 +11,11 @@
 
 /// Decoded picture: width, height and straight RGBA pixels, row by row.
 pub struct Rgba {
+    /// Width in pixels.
     pub width: u32,
+    /// Height in pixels.
     pub height: u32,
+    /// `width × height × 4` bytes, RGBA, top row first.
     pub pixels: Vec<u8>,
 }
 
@@ -30,8 +33,11 @@ fn alloc(w: u32, h: u32) -> Option<Vec<u8>> {
 /// Container formats handled here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
+    /// GIF 87a/89a (first frame).
     Gif,
+    /// Windows bitmap (BMP / DIB).
     Bmp,
+    /// TIFF 6.0 (baseline strips).
     Tiff,
 }
 

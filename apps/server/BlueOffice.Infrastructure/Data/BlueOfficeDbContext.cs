@@ -4,8 +4,12 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace BlueOffice.Infrastructure.Data;
 
-/// <summary>EF Core context (PostgreSQL in production, SQLite for dev/tests).</summary>
-public sealed class BlueOfficeDbContext(DbContextOptions<BlueOfficeDbContext> options) : DbContext(options)
+/// <summary>
+/// EF Core context (PostgreSQL in production, SQLite for dev/tests). Each provider has its own subclass
+/// (<see cref="SqliteBlueOfficeDbContext"/>, <see cref="PostgresBlueOfficeDbContext"/>) so that each gets its own
+/// migrations (<c>Data/Migrations/Sqlite</c>, <c>Data/Migrations/Postgres</c>); services resolve this base type.
+/// </summary>
+public abstract class BlueOfficeDbContext(DbContextOptions options) : DbContext(options)
 {
     /// <summary>Users.</summary>
     public DbSet<User> Users => Set<User>();

@@ -8,10 +8,12 @@ import type {
   DocPasteMode,
   Platform,
   RecentFile,
+  SigningDefaults,
+  SignRequest,
   StoredDocument,
   TableEdit,
 } from '@blueoffice/platform';
-import { PASSWORD_REQUIRED, WRONG_PASSWORD } from '@blueoffice/platform';
+import { PASSWORD_REQUIRED, WRONG_PASSWORD, updateNotice } from '@blueoffice/platform';
 import {
   Ribbon,
   StatusBar,
@@ -92,6 +94,8 @@ import {
   Replace,
   Ruler,
   Save,
+  ShieldCheck,
+  Signature,
   Scaling,
   Scissors,
   Search,
@@ -121,6 +125,17 @@ import { FindPanel, SymbolPanel } from './Panels';
 import { CaptionPanel, CrossRefPanel, MergeFieldPanel } from './ReferencePanels';
 import { CommentsPanel, ReviewPanel } from './ReviewPanel';
 import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
+import { SignaturesPanel, SignDialog } from './SignaturePanels';
+import {
+  documentState,
+  looksSigned,
+  parseRemembered,
+  remember,
+  SIGNING_SETTING_KEY,
+  signedFileName,
+  type RememberedSigning,
+  type SignForm,
+} from './signing';
 import { createEditorStore, type EditorState } from './store';
 import {
   HeaderFooterBar,
@@ -206,6 +221,12 @@ function EditorInner({
   const view = useRef<DocumentView | null>(null);
   const controller = useRef<DocController | null>(null);
   const stored = useRef<StoredDocument | null>(null);
+  /** Bytes of the opened file (its digital signatures are verified on them). */
+  const openedBytes = useRef<Uint8Array | null>(null);
+  const [signSetup, setSignSetup] = useState<{
+    defaults: SigningDefaults;
+    remembered: RememberedSigning;
+  } | null>(null);
   const [tab, setTab] = useState('home');
   const [recent, setRecent] = useState<RecentFile[]>([]);
   const workspace = useRef<HTMLElement>(null);
@@ -247,6 +268,7 @@ function EditorInner({
         status: { kind: 'idle' },
         edit: null,
         panel: null,
+        signatures: null,
         macroWarning: !!info.macros,
         legacyNotice: info.legacyConverted ?? 0,
       });
@@ -271,7 +293,15 @@ function EditorInner({
       try {
         const info = await platform.engine.open(file.bytes, file.name, password);
         stored.current = doc ?? null;
+        openedBytes.current = file.bytes;
         await loaded(info);
+        // A signed file: show the verification status (ADR-0007).
+        if (platform.signing && looksSigned(file.bytes)) {
+          void platform.signing
+            .verify(file.bytes)
+            .then((report) => store.setState({ signatures: report }))
+            .catch(() => {});
+        }
         if (file.path)
           await platform.shell.addRecentFile({
             name: file.name,
@@ -298,6 +328,7 @@ function EditorInner({
     try {
       await platform.engine.init();
       stored.current = null;
+      openedBytes.current = null;
       await loaded(await platform.engine.newDocument(t('app.newDocName')));
     } catch (e) {
       fail('errors.open', e);
@@ -533,6 +564,43 @@ function EditorInner({
       isEnabled: hasDoc,
       run: exportPdf,
     });
+    // Digital signatures (ADR-0007): sign a copy of the document or a PDF export.
+    const canSign = (s: EditorState) => !!s.doc && !!platform.signing;
+    const openSign = async (panel: 'sign' | 'signPdf') => {
+      const signing = platform.signing;
+      if (!signing) return;
+      try {
+        const [defaults, remembered] = await Promise.all([
+          signing.defaults(),
+          platform.shell.getSetting?.(SIGNING_SETTING_KEY) ?? Promise.resolve(null),
+        ]);
+        setSignSetup({ defaults, remembered: parseRemembered(remembered) });
+        store.setState({ panel });
+      } catch (e) {
+        fail('errors.sign', e);
+      }
+    };
+    r.register({ id: 'file.sign', isEnabled: canSign, run: () => openSign('sign') });
+    r.register({
+      id: 'file.exportSignedPdf',
+      isEnabled: canSign,
+      run: () => openSign('signPdf'),
+    });
+    r.register({
+      id: 'file.verifySignatures',
+      isEnabled: (s) => canSign(s) && !!openedBytes.current,
+      isChecked: (s) => s.panel === 'signatures',
+      run: async () => {
+        const bytes = openedBytes.current;
+        if (!platform.signing || !bytes) return;
+        try {
+          const report = await platform.signing.verify(bytes);
+          store.setState({ signatures: report, panel: 'signatures' });
+        } catch (e) {
+          fail('errors.verify', e);
+        }
+      },
+    });
     r.register({
       id: 'file.print',
       shortcut: 'Ctrl+P',
@@ -545,6 +613,18 @@ function EditorInner({
         }
       },
     });
+    const updates = platform.updates;
+    if (updates) {
+      // Desktop auto-update: the result shows in the status line.
+      r.register({
+        id: 'file.checkUpdates',
+        run: async () => {
+          store.setState({ status: { kind: 'info', key: 'updates.checking' } });
+          const n = updateNotice(await updates.check());
+          store.setState({ status: { kind: 'info', key: n.key, params: n.params } });
+        },
+      });
+    }
 
     // Editing.
     r.register({
@@ -1396,6 +1476,29 @@ function EditorInner({
           items: [
             item('file.exportPdf', 'commands.file.exportPdf', <FileDown size={ICON} />),
             item('file.print', 'commands.file.print', <Printer size={ICON} />),
+            ...(registry.has('file.checkUpdates')
+              ? [
+                  item(
+                    'file.checkUpdates',
+                    'commands.file.checkUpdates',
+                    <RefreshCw size={ICON} />,
+                    'small',
+                  ),
+                ]
+              : []),
+          ],
+        },
+        {
+          id: 'signature',
+          label: t('ribbon.groups.signature'),
+          items: [
+            item('file.sign', 'commands.file.sign', <Signature size={ICON} />),
+            item('file.exportSignedPdf', 'commands.file.exportSignedPdf', <FileDown size={ICON} />),
+            item(
+              'file.verifySignatures',
+              'commands.file.verifySignatures',
+              <ShieldCheck size={ICON} />,
+            ),
           ],
         },
       ],
@@ -1785,6 +1888,33 @@ function EditorInner({
     if (!state.doc) platform.window.setTitle(appTitle);
   }, [platform, appTitle, state.doc]);
 
+  /** Signs a copy (.docx) or a PDF export and saves it next to the document. */
+  const signNow = async (request: SignRequest, form: SignForm) => {
+    const signing = platform.signing;
+    if (!signing) return;
+    store.setState({ panel: null, status: { kind: 'busy', key: 'status.signing' } });
+    try {
+      await controller.current?.idle();
+      const pdf = form.output === 'pdf';
+      const bytes = pdf ? await platform.engine.exportPdf() : await platform.engine.saveDocx();
+      const signed = await signing.sign(bytes, request);
+      await platform.shell.setSetting?.(SIGNING_SETTING_KEY, JSON.stringify(remember(form)));
+      const name = request.documentName;
+      const saved = await platform.files.saveFile(
+        signed,
+        name,
+        pdf
+          ? 'application/pdf'
+          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+      store.setState({
+        status: saved ? { kind: 'info', key: 'status.signed', params: { name } } : { kind: 'idle' },
+      });
+    } catch (e) {
+      fail('errors.sign', e);
+    }
+  };
+
   const closePanel = () => {
     store.setState({ panel: null });
     view.current?.focus();
@@ -1831,6 +1961,7 @@ function EditorInner({
             tabs={[...tabs, ...tableTab]}
             value={tab === 'table' && !fs?.table ? 'home' : tab}
             onValueChange={setTab}
+            moreLabel={t('ribbon.more')}
           />
           <main ref={workspace} className={styles.workspace}>
             {state.showRuler && state.doc && (
@@ -1934,6 +2065,45 @@ function EditorInner({
                 onSet={(password) => void runCommand({ cmd: 'setSavePassword', password })}
                 onClose={closePanel}
               />
+            )}
+            {(state.panel === 'sign' || state.panel === 'signPdf') &&
+              platform.signing &&
+              signSetup && (
+                <SignDialog
+                  kinds={platform.signing.kinds}
+                  defaults={signSetup.defaults}
+                  remembered={signSetup.remembered}
+                  output={state.panel === 'signPdf' ? 'pdf' : 'docx'}
+                  documentName={signedFileName(
+                    state.doc?.name ?? 'document',
+                    state.panel === 'signPdf' ? 'pdf' : 'docx',
+                  )}
+                  pickFile={async () => {
+                    const f = await platform.files.openFile(['.p12', '.pfx', '.pem']);
+                    return f ? { name: f.name, bytes: f.bytes } : null;
+                  }}
+                  listTokenCertificates={platform.signing.listTokenCertificates?.bind(
+                    platform.signing,
+                  )}
+                  onSign={(request, form) => void signNow(request, form)}
+                  onClose={closePanel}
+                />
+              )}
+            {state.panel === 'signatures' && (
+              <SignaturesPanel report={state.signatures} onClose={closePanel} />
+            )}
+            {state.signatures && state.panel !== 'signatures' && (
+              <div
+                className={styles.macroBar}
+                role="status"
+                data-testid="signature-bar"
+                data-state={documentState(state.signatures)}
+              >
+                <span>{t(`sign.bar.${documentState(state.signatures)}`)}</span>
+                <button type="button" onClick={() => store.setState({ panel: 'signatures' })}>
+                  {t('sign.details')}
+                </button>
+              </div>
             )}
             {state.passwordPrompt && (
               <PasswordDialog

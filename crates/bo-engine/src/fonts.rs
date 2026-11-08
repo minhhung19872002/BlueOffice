@@ -1,4 +1,5 @@
-//! Font picker entries: the loaded (bundled) families plus common document fonts
+//! Font picker entries: the loaded (bundled) families, the installed OS fonts
+//! (desktop), plus common document fonts
 //! that are displayed with a metric-compatible substitute (product brief §2,
 //! `bo_text` fallback table).
 
@@ -48,15 +49,23 @@ impl Engine {
                 });
             }
         }
+        // Installed OS fonts (desktop): loaded when first used.
+        for fam in self.fonts.system_families() {
+            if !out.iter().any(|c| c.name.eq_ignore_ascii_case(&fam)) {
+                out.push(FontChoice {
+                    name: fam,
+                    substitute: None,
+                    available: true,
+                });
+            }
+        }
         out.sort_by_key(|c| c.name.to_lowercase());
         for name in COMMON {
             if out.iter().any(|c| c.name.eq_ignore_ascii_case(name)) {
                 continue;
             }
-            let sub = self
-                .fonts
-                .resolve(name, false, false)
-                .map(|id| self.fonts.info(id).family.clone());
+            // Named without loading installed fonts (they load when a document uses them).
+            let sub = self.fonts.display_family(name);
             out.push(FontChoice {
                 name: (*name).to_owned(),
                 substitute: sub,

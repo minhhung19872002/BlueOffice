@@ -1,4 +1,6 @@
 //! Layout benchmark: ~300 A4 pages of justified Vietnamese text.
+// Benchmarks may unwrap.
+#![allow(clippy::unwrap_used)]
 
 use bo_layout::{layout_document, LayoutCache};
 use bo_model::{

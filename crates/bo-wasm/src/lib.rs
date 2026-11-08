@@ -6,9 +6,12 @@
 #![forbid(unsafe_code)]
 
 mod collab;
+mod heap;
 mod sheet;
+mod sign;
 pub use collab::WasmCollab;
 pub use sheet::WasmSheet;
+pub use sign::WasmPreparedSignature;
 
 use bo_engine::Engine;
 use wasm_bindgen::prelude::*;
@@ -205,6 +208,7 @@ impl WasmEngine {
             .collect()
     }
 
+    /// Leaves collaboration for the document and slide sessions; local editing continues.
     #[wasm_bindgen(js_name = collabStop)]
     pub fn collab_stop(&mut self) {
         self.inner.collab_stop();

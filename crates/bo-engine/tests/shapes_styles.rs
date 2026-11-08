@@ -1,5 +1,7 @@
 //! Text boxes and shapes (insert, type inside, move/resize, save and reopen), the
 //! style gallery, Find by format and pictures that need conversion (GIF, BMP, EMF).
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_engine::Engine;
 use bo_model::{Block, RunContent};

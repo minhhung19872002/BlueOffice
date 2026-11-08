@@ -36,14 +36,19 @@ pub use xml::canonicalize_xml;
 /// Errors produced while reading or writing spreadsheets.
 #[derive(Debug, thiserror::Error)]
 pub enum XlsxError {
+    /// Error from the OPC package layer.
     #[error(transparent)]
     Opc(#[from] bo_opc::OpcError),
+    /// The package has no workbook part.
     #[error("package has no workbook part (officeDocument relationship)")]
     NoWorkbook,
+    /// A referenced part is absent.
     #[error("missing part: {0}")]
     MissingPart(String),
+    /// CSV input is not valid UTF-8.
     #[error("CSV input is not valid UTF-8")]
     CsvEncoding,
+    /// CSV input exceeds a size limit.
     #[error("CSV input exceeds limits: {0}")]
     CsvLimit(String),
 }

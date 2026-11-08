@@ -10,17 +10,23 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct FindOptions {
+    /// Compare case-sensitively.
     pub match_case: bool,
+    /// Match whole words only.
     pub whole_word: bool,
+    /// Treat the query as a regular expression.
     pub regex: bool,
 }
 
 /// A match: body paragraph id and byte range of its index text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Match {
+    /// Body paragraph id.
     #[serde(rename = "p")]
     pub para: usize,
+    /// Start byte offset in the index text.
     pub start: usize,
+    /// End byte offset (exclusive) in the index text.
     pub end: usize,
 }
 

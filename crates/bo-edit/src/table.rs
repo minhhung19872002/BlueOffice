@@ -13,7 +13,7 @@ use bo_model::index::{blocks_at, body_paragraphs};
 use bo_model::{
     Alignment, Block, Border, Borders, Cell, CellMerge, CellPropsChange, Color, Document,
     GridChange, ParaProps, Paragraph, RevMark, Row, RowProps, Table, TableProps, TablePropsChange,
-    TableWidth, Twips, VMerge,
+    TableView, TableWidth, Twips, VMerge,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,10 +21,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BorderPreset {
+    /// Outer edges and inner gridlines.
     #[default]
     All,
+    /// No borders.
     None,
+    /// Outer edges of the table only.
     Outside,
+    /// Inner gridlines only.
     Inside,
 }
 
@@ -36,24 +40,32 @@ pub enum BorderPreset {
     rename_all_fields = "camelCase"
 )]
 pub enum TableEdit {
+    /// Insert a row next to the caret's row.
     InsertRow {
+        /// Insert below (else above).
         #[serde(default)]
         below: bool,
     },
+    /// Insert a column next to the caret's column.
     InsertColumn {
+        /// Insert to the right (else left).
         #[serde(default)]
         right: bool,
     },
+    /// Delete the selected rows.
     DeleteRow,
+    /// Delete the selected columns.
     DeleteColumn,
     /// Insert one cell left of the selected cells (`right`: after them) in each
     /// selected row; the following cells shift right.
     InsertCell {
+        /// Insert after (right of) the selected cells instead of before them.
         #[serde(default)]
         right: bool,
     },
     /// Delete the selected cells; the following cells shift left.
     DeleteCell,
+    /// Delete the whole table.
     DeleteTable,
     /// Merge the selected cells into one (gridSpan / vMerge).
     MergeCells,
@@ -61,23 +73,30 @@ pub enum TableEdit {
     SplitCell,
     /// Fill of the selected cells (`None` removes it).
     Shading {
+        /// Fill colour `RRGGBB`; `None` removes it.
         hex: Option<String>,
     },
+    /// Apply a border preset to the table (`w:tblBorders`).
     Borders {
+        /// Which edges get borders.
         preset: BorderPreset,
     },
     /// Preferred width (`width_pct` percent of the text width, else `width` twips,
     /// neither = auto) and alignment.
     Properties {
+        /// Width in percent of the text width.
         #[serde(default)]
         width_pct: Option<u32>,
+        /// Width in twips (used when `width_pct` is `None`).
         #[serde(default)]
         width: Option<i32>,
+        /// Table alignment.
         #[serde(default)]
         align: Option<Alignment>,
     },
     /// Repeat the rows down to the selection as header rows on every page.
     HeaderRow {
+        /// Turn header rows on or off.
         on: bool,
     },
 }
@@ -320,13 +339,26 @@ fn append_inserted(target: &[Block], moved: &[Block], mark: &RevMark) -> Vec<Blo
 }
 
 /// Ensure the grid covers every row (malformed files can have short grids).
+///
+/// Rows are measured as they are once every tracked change is accepted and once
+/// every one is rejected (§17.13.5.3 cellDel, §17.13.5.4 cellIns): the markup
+/// view shows inserted and deleted cells side by side and can be wider than
+/// either real table, which must not widen the grid.
 fn normalize_grid(t: &mut Table) {
-    let cols = t
-        .markup_spans()
-        .iter()
-        .map(|r| r.last().map_or(0, |(s, k)| s + k))
-        .max()
-        .unwrap_or(0);
+    let width = |g: &bo_model::TableGeometry| {
+        g.rows
+            .iter()
+            .map(|r| {
+                r.iter()
+                    .filter(|p| !p.hidden)
+                    .map(|p| p.start + p.span)
+                    .max()
+                    .unwrap_or(0)
+            })
+            .max()
+            .unwrap_or(0)
+    };
+    let cols = width(&t.geometry(TableView::Final)).max(width(&t.geometry(TableView::Original)));
     if t.grid.len() < cols {
         let w = t.grid.last().copied().unwrap_or(Twips(1440));
         t.grid.resize(cols, w);
@@ -457,6 +489,10 @@ impl Session {
                     .cells
                     .iter()
                     .zip(starts(&src))
+                    // A cell awaiting deletion (§17.13.5.3 cellDel, e.g. merged away by a
+                    // tracked merge) is not part of the row being copied: the new row
+                    // spans the grid like the row will once the change is accepted.
+                    .filter(|(c, _)| c.props.del.is_none())
                     .map(|(c, s)| {
                         let mut n = empty_cell(c, c.props.grid_span, None);
                         // Inside a vertical merge the new row continues it.
@@ -468,7 +504,16 @@ impl Session {
                         }
                         n
                     })
-                    .collect();
+                    .collect::<Vec<_>>();
+                // ECMA-376 Part 1, §17.4.79 tr holds at least one tc: a row whose cells all
+                // await deletion gets one empty cell spanning the grid.
+                let mut cells = cells;
+                if cells.is_empty() {
+                    if let Some(like) = src.cells.first() {
+                        let cols = u32::try_from(t.grid.len()).unwrap_or(u32::MAX);
+                        cells.push(empty_cell(like, cols, None));
+                    }
+                }
                 let row = Row {
                     props: RowProps {
                         header: src.props.header && !below,
@@ -483,7 +528,7 @@ impl Session {
                 let ins = if *below { src_i + 1 } else { src_i };
                 t.rows.insert(ins, row);
                 new_row = Some(ins);
-                caret = Some((ins, at.cell.min(t.rows[ins].cells.len() - 1)));
+                caret = Some((ins, at.cell.min(t.rows[ins].cells.len().saturating_sub(1))));
             }
             TableEdit::InsertColumn { right } => {
                 let g = if *right { g1 + 1 } else { g0 };
@@ -590,7 +635,7 @@ impl Session {
                     remove_table = true;
                 } else {
                     let r = at.row.min(t.rows.len() - 1);
-                    caret = Some((r, at.cell.min(t.rows[r].cells.len() - 1)));
+                    caret = Some((r, at.cell.min(t.rows[r].cells.len().saturating_sub(1))));
                 }
             }
             TableEdit::DeleteTable => remove_table = true,

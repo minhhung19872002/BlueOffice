@@ -27,16 +27,27 @@ pub const REL_STYLES: &str =
 /// Errors produced while reading or writing a package.
 #[derive(Debug, thiserror::Error)]
 pub enum OpcError {
+    /// The ZIP container could not be read or written.
     #[error("not a valid ZIP container: {0}")]
     Zip(String),
+    /// Reading or writing the stream failed.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    /// A size or entry-count safety limit was hit.
     #[error("package limit exceeded: {0}")]
     LimitExceeded(String),
+    /// An XML part is not well formed.
     #[error("malformed XML in part {part}: {message}")]
-    Xml { part: String, message: String },
+    Xml {
+        /// Name of the offending part.
+        part: String,
+        /// Parser error message.
+        message: String,
+    },
+    /// A required part (e.g. `[Content_Types].xml`) is absent.
     #[error("missing required part: {0}")]
     MissingPart(String),
+    /// A part name violates the OPC part-name rules.
     #[error("invalid part name: {0}")]
     InvalidPartName(String),
 }

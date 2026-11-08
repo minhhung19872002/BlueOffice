@@ -19,9 +19,13 @@ pub enum GuideAxis {
 /// A guide line in slide points.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Guide {
+    /// Orientation of the line.
     pub axis: GuideAxis,
+    /// Position across the axis: `x` of a vertical line, `y` of a horizontal one (points).
     pub pos: f64,
+    /// Start of the drawn segment along the line (points).
     pub from: f64,
+    /// End of the drawn segment along the line (points).
     pub to: f64,
 }
 
@@ -137,8 +141,11 @@ fn lines(
 /// Snap result: correction to apply and the guides to draw.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Snap {
+    /// Horizontal correction to add to the moving box (points).
     pub dx: f64,
+    /// Vertical correction to add to the moving box (points).
     pub dy: f64,
+    /// Alignment guides to draw for the snapped features.
     pub guides: Vec<Guide>,
 }
 

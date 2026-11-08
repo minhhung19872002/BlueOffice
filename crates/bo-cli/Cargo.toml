@@ -16,16 +16,20 @@ bo-model.workspace = true
 bo-docx.workspace = true
 bo-opc.workspace = true
 bo-xlsx.workspace = true
+bo-sheet = { path = "../bo-sheet" }
 bo-binary = { path = "../bo-binary" }
 bo-odf = { path = "../bo-odf" }
 bo-crypto = { path = "../bo-crypto" }
-bo-sign = { path = "../bo-sign" }
+bo-sign = { path = "../bo-sign", features = ["http", "pkcs12"] }
+serde_json.workspace = true
 bo-pptx = { path = "../bo-pptx" }
 clap.workspace = true
 png.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+# Throwaway signing keys for the sign/verify CLI tests (bo_sign::testing).
+rand = "0.8"
 
 [lints]
 workspace = true

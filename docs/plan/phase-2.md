@@ -28,7 +28,7 @@ E2E gõ tiếng Việt + lưu + mở lại.
 | Nhóm | Trạng thái |
 |---|---|
 | Model + `.docx` lossless | ✅ 34/34 file corpus lossless và ổn định mô hình (`cargo test -p bo-docx --test corpus`) |
-| Layout | ✅ phân trang, keepNext/keepLines/widow, bảng (ngắt hàng qua trang, lặp hàng tiêu đề, gộp ô, viền, nền), ảnh inline + anchored (top-bottom; square/tight: chữ chảy bên trái/phải/hai bên/bên rộng hơn theo `wrapText`, distT/B/L/R, tight theo hộp bao `wrapPolygon`), header/footer first/even/default + kế thừa, cột, footnote cuối trang, endnote cuối văn bản, PAGE/NUMPAGES/SECTIONPAGES |
+| Layout | ✅ phân trang, keepNext/keepLines/widow, bảng (ngắt hàng qua trang, lặp hàng tiêu đề, gộp ô, viền, nền), ảnh inline + anchored (top-bottom; square/tight: chữ chảy bên trái/phải/hai bên/bên rộng hơn theo `wrapText`, distT/B/L/R, tight ôm theo cạnh `wrapPolygon` từng dòng), header/footer first/even/default + kế thừa, cột, footnote cuối trang, endnote cuối văn bản, PAGE/NUMPAGES/SECTIONPAGES |
 | Render/PNG/PDF | ✅ lệnh `image` (PNG/JPEG, cắt, xoay), viền nét đứt/đôi, tô sáng, lớp sau/trước chữ |
 | `bo-edit` ([ADR-0008](../adr/0008-editing-transactions-and-command-bridge.md)) | ✅ transaction + op khả nghịch, undo/redo không giới hạn (proptest), gõ/xoá/Enter, định dạng ký tự/đoạn, style (tự tạo style dựng sẵn), danh sách, chèn bảng/ảnh/ngắt trang/ngắt phần/ký tự đặc biệt, find/replace (hoa thường, cả từ, regex), clipboard nội bộ/HTML/text |
 | Layout tăng dần (§5.4) | ✅ `bo_layout::IncrementalLayout`: transaction báo khối đã đổi (`bo_model::change::BlockChanges`), chỉ dàn lại khối đổi, phân trang lại từ checkpoint trước khối đổi và dừng khi trạng thái phân trang khớp layout cũ (dùng lại các trang sau, dời/đánh số lại khi cần); display list dựng khi được yêu cầu; engine trả đúng các trang đổi; proptest ≥ 64 ca: tăng dần == dàn lại từ đầu |
@@ -56,19 +56,23 @@ E2E gõ tiếng Việt + lưu + mở lại.
   toàn bộ**: layout tăng dần dùng lại số chú thích theo trang của lần dàn trước, kiểm lại sau khi phân trang và chỉ dàn
   toàn bộ khi có chú thích đổi trang (test `per_page_footnote_numbers_stay_incremental`). Corpus `notes-05..07`.
   Còn lại: thông báo tiếp trang chỉ hiển thị (không ghi lại khi viết lại phần chú thích); endnote chưa chia theo dòng
-  (đặt như đoạn thân văn bản); cộng tác trực tiếp chưa đồng bộ nội dung chú thích/đầu-chân trang (để cho nhánh cộng tác).
+  (đặt như đoạn thân văn bản). Nội dung chú thích/đầu-chân trang đồng bộ khi cộng tác (xem [phase-6.md](phase-6.md)).
   Liên kết đầu/chân trang: phần đầu tiên không có phần trước để liên kết.
 - Thước kẻ đo theo lề trang (trong ô bảng chưa hiện ranh giới ô); thước dọc chỉ kéo lề trên/dưới (chưa kéo khoảng cách đầu/chân trang).
 - Tách ô chưa có hộp thoại n hàng × m cột. Theo dõi thay đổi cấu trúc: xem [phase-5.md](phase-5.md) §5 (đã đủ hàng, cột,
   ô, gộp/tách, thuộc tính hàng, đầu/chân trang, chú thích, ảnh nổi). Bảng có thêm lệnh **chèn ô (đẩy phải)** / **xoá ô (đẩy
-  trái)**. Thao tác bảng, thiết lập trang, đầu/chân trang và chú thích chưa đồng bộ trực tiếp khi cộng tác (đến người khác khi
-  lưu version).
+  trái)**. Bảng (từng ô), đầu/chân trang và chú thích đồng bộ trực tiếp khi cộng tác; giới hạn còn lại ở
+  [phase-6.md](phase-6.md).
 - Màu tô sáng tuỳ chọn được quy về màu `ST_HighlightColor` gần nhất khi lưu (§17.3.2.15 chỉ cho phép tên màu).
 - Paste Special đọc HTML từ bộ nhớ tạm cần trình duyệt cho phép `clipboard.read`; nếu không, dùng nội dung vừa sao chép trong BlueDoc.
-- Wrap tight dùng hộp bao của đa giác (chưa theo từng cạnh đa giác); chữ trong bảng không chảy quanh ảnh; đoạn bị chia sang
+- Wrap tight theo cạnh đa giác trong dải mỗi dòng (đa giác lõm coi như bao theo chiều ngang); chữ trong bảng không chảy quanh ảnh; đoạn bị chia sang
   trang sau dùng bề rộng tính theo vị trí ở trang trước; text box/shape hiển thị dạng opaque; chưa chia đoạn qua cột cân bằng.
-- Layout tăng dần: tài liệu có NUMPAGES trong thân văn bản, thay đổi đánh số chú thích, style/numbering/section dàn lại toàn bộ;
-  trang dùng lại chỉ được dời số trang khi thân văn bản không có field và không có section oddPage/evenPage.
+- Layout tăng dần: NUMPAGES/SECTIONPAGES trong thân văn bản và sửa đầu/chân trang **đã tăng dần** (xem mục "Layout tăng
+  dần: NUMPAGES và đầu/chân trang" bên dưới). Còn dàn lại toàn bộ: thay đổi số trang khi thân có NUMPAGES, đầu/chân trang
+  đổi chiều cao (đẩy thân văn bản), chú thích đổi trang với numRestart eachPage, đổi thiết lập trang section đầu / số trang bắt đầu /
+  thuộc tính chú thích, đổi style mặc định hoặc style/danh sách dùng trong đầu/chân trang/chú thích/comment/text box (đổi
+  style, numbering khác hay khổ giấy/lề/cột của section sau chỉ dàn lại từ chỗ bị ảnh hưởng); trang dùng lại
+  chỉ được dời số trang khi thân văn bản không có field và không có section oddPage/evenPage.
 - Visual diff với ảnh tham chiếu (< 2 % pixel) chưa chạy vì chưa có ảnh tham chiếu do người dùng cung cấp.
 - E2E desktop (Tauri WebDriver) chưa có.
 
@@ -84,3 +88,36 @@ WASM (node): `pnpm build:wasm && node scripts/bench-typing-wasm.mjs`. Trung vị
 | Backspace | 78,7 ms | ~1,1 ms | 74,6 ms | 2,4 ms |
 | Bật/tắt đậm | 54,2 ms | ~1,9 ms | 77,6 ms | 4,1 ms |
 | Gõ 1 ký tự, không khớp lại (phân trang lại ~150 trang) | — | ~8 ms | — | — |
+
+## Khả năng mở rộng layout (> 300 trang)
+Đo bằng thời gian CPU của tiến trình (máy dev đang tải 100 % bởi các build khác, nên thời gian thực dao động ×2–3):
+`bo-cli sample-big --pages N out.docx` rồi `bo-cli dump out.docx --page 0` (mở + layout + display list trang 1).
+
+| Trang | 150 | 300 | 600 | 1 200 |
+|---|---|---|---|---|
+| CPU (s) | 0,61 | 1,14 | 2,08 | 4,13 |
+
+`sample-big` tăng tuyến tính; con số "600 trang 2,49 s" cũ là nhiễu do tải máy. Phần O(n²) thật nằm ở tài liệu nhiều chú thích:
+khoá cache layout đoạn văn băm **toàn bộ** bảng số chú thích cho mỗi đoạn có tham chiếu chú thích (O(đoạn × chú thích)).
+Nay chỉ băm số của các chú thích mà đoạn tham chiếu. Đo bằng `cargo run --release -p bo-layout --example scale -- --repeat
+tests/corpus/doc/notes-03-many-footnotes.docx` (thân văn bản lặp lại, mỗi bản sao có chú thích riêng):
+
+| Bản sao (trang) | 150 (120) | 300 (240) | 600 (480) | 1 200 (960) |
+|---|---|---|---|---|
+| Trước | 337 ms (2,8 ms/trang) | 1 143 ms (4,8) | 4 742 ms (9,9) | 13 528 ms (14,1) |
+| Sau | 203 ms (1,7 ms/trang) | 397 ms (1,7) | 851 ms (1,8) | 2 167 ms (2,3) |
+
+Cùng đợt: nhãn danh sách tra `num`/`abstractNum` một lần thay vì ~10 lần quét tuyến tính, tập endnote dùng hash set.
+`--repeat` cũng đo các corpus danh sách, bảng, đầu/chân trang, field, ảnh wrap: đều tuyến tính.
+
+## Layout tăng dần: NUMPAGES và đầu/chân trang
+- **NUMPAGES/SECTIONPAGES trong thân văn bản**: lần phân trang đầu của layout đầy đủ (tổng số trang rỗng, chỉ để đếm trang)
+  được giữ như một *probe layout* tăng dần (không đầu/chân trang); layout chính được cập nhật tăng dần khi số trang probe
+  không đổi. Gõ phím không làm đổi số trang → `UpdateKind::Incremental { resynced: true }` (test
+  `numpages_in_the_body_stays_incremental`). Đổi số trang → dàn lại toàn bộ (mọi trang có NUMPAGES đều đổi). Bộ nhớ: probe
+  giữ thêm một bản layout (chỉ khi thân có NUMPAGES).
+- **Sửa đầu/chân trang**: transaction ghi `BlockChanges::mark_headers(section)` (op section chỉ khác headers/footers/titlePg,
+  xem trước khi gõ trong header, evenAndOddHeaders) thay vì "mọi thứ". Nếu chiều cao đầu/chân trang không đổi, layout chỉ
+  trang trí lại các trang từ section đó trở đi, không phân trang lại (`header_edits_redecorate_without_repaginating`,
+  `typing_in_a_header_redecorates_without_repaginating` qua engine).
+- Proptest `random_edits_match_full_layout` sinh thêm đoạn NUMPAGES và sửa header (ngắn/dài): kết quả tăng dần == layout đầy đủ.

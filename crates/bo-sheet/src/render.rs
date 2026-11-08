@@ -33,10 +33,15 @@ pub struct RenderOptions {
     pub gridlines: Option<bool>,
     /// Override the sheet view's `showRowColHeaders`.
     pub headers: Option<bool>,
+    /// Colour of the cell gridlines.
     pub gridline_color: Rgba,
+    /// Background of cells without a fill.
     pub background: Rgba,
+    /// Background of the row and column headers.
     pub header_background: Rgba,
+    /// Text colour of the header labels.
     pub header_text: Rgba,
+    /// Colour of the lines between header cells.
     pub header_line: Rgba,
     /// Font size of header labels in points.
     pub header_font_size: f32,
@@ -55,8 +60,11 @@ pub struct RenderOptions {
 /// for a `w`×`h` point box and scaled to the anchor's current size.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DrawingOverlay {
+    /// Width of the drawing box (points).
     pub w: f64,
+    /// Height of the drawing box (points).
     pub h: f64,
+    /// Drawing commands in box coordinates.
     pub commands: Vec<Command>,
 }
 

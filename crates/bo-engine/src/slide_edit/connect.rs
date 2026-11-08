@@ -59,8 +59,11 @@ fn geometry_mut(n: &mut ShapeNode) -> Option<&mut Option<Geometry>> {
 /// An adjust handle in slide points.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct AdjustOut {
+    /// Index of the handle in the preset's adjust-handle list (§20.1.9.1 ahLst).
     pub index: usize,
+    /// Horizontal position on the slide (points).
     pub x: f64,
+    /// Vertical position on the slide (points).
     pub y: f64,
 }
 
@@ -372,7 +375,10 @@ pub fn reroute(
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectorOut {
+    /// Shape id of the connector (`p:cNvPr/@id`).
     pub id: u32,
+    /// Start and end points `[x, y]` on the slide (points).
     pub ends: [[f64; 2]; 2],
+    /// Whether the start / end is glued to a shape (§19.3.1.13 stCxn, endCxn).
     pub attached: [bool; 2],
 }

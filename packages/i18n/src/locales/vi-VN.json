@@ -13,6 +13,7 @@
     "slide": "BlueSlide – Trình chiếu"
   },
   "ribbon": {
+    "more": "Thêm lệnh",
     "tabs": {
       "file": "Tệp",
       "home": "Trang đầu",
@@ -53,7 +54,8 @@
       "tableStyle": "Kiểu bảng",
       "headerFooter": "Đầu và chân trang",
       "footnotes": "Chú thích",
-      "arrange": "Sắp xếp"
+      "arrange": "Sắp xếp",
+      "signature": "Chữ ký số"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -66,7 +68,11 @@
       "new": "Mới",
       "save": "Lưu",
       "saveAs": "Lưu thành…",
-      "newFromTemplate": "Mới từ mẫu"
+      "newFromTemplate": "Mới từ mẫu",
+      "sign": "Ký số",
+      "exportSignedPdf": "Xuất PDF có ký số",
+      "verifySignatures": "Kiểm tra chữ ký",
+      "checkUpdates": "Kiểm tra cập nhật"
     },
     "edit": {
       "paste": "Dán",
@@ -207,7 +213,9 @@
     "saved": "Đã lưu {{name}}",
     "modified": "Chưa lưu",
     "saving": "Đang lưu…",
-    "autosaved": "Đã tự lưu lúc {{time}}"
+    "autosaved": "Đã tự lưu lúc {{time}}",
+    "signing": "Đang ký…",
+    "signed": "Đã lưu bản ký số: {{name}}"
   },
   "start": {
     "title": "Chào mừng đến với BlueDoc",
@@ -229,7 +237,9 @@
     "engine": "Không khởi động được lõi xử lý: {{message}}",
     "save": "Không lưu được tệp: {{message}}",
     "edit": "Không thực hiện được: {{message}}",
-    "image": "Không chèn được ảnh: {{message}}"
+    "image": "Không chèn được ảnh: {{message}}",
+    "sign": "Không ký được: {{message}}",
+    "verify": "Không kiểm tra được chữ ký: {{message}}"
   },
   "placeholder": {
     "sheet": "BlueSheet (bảng tính) sẽ được phát triển ở Phase 3.",
@@ -909,6 +919,39 @@
       "delete": "Xoá",
       "close": "Đóng bình luận",
       "resolved": "đã xử lý"
+    },
+    "tabColorNone": "Không màu",
+    "protection": {
+      "group": "Bảo vệ",
+      "protectSheet": "Bảo vệ trang tính",
+      "unprotectSheet": "Bỏ bảo vệ trang tính",
+      "protectWorkbook": "Bảo vệ sổ tính",
+      "unprotectWorkbook": "Bỏ bảo vệ sổ tính",
+      "lockCell": "Khoá ô",
+      "sheetTitle": "Bảo vệ trang tính và nội dung ô bị khoá",
+      "workbookTitle": "Bảo vệ cấu trúc sổ tính",
+      "password": "Mật khẩu (không bắt buộc)",
+      "confirm": "Nhập lại mật khẩu",
+      "allow": "Cho phép mọi người dùng:",
+      "refused": "Ô hoặc thao tác này đang được bảo vệ. Bỏ bảo vệ trang tính để sửa.",
+      "workbookRefused": "Cấu trúc sổ tính đang được bảo vệ (thêm, xoá, đổi tên, di chuyển trang tính).",
+      "wrongPassword": "Mật khẩu bảo vệ không đúng.",
+      "protectedSheet": "Trang tính được bảo vệ",
+      "opt": {
+        "selectLockedCells": "Chọn ô bị khoá",
+        "selectUnlockedCells": "Chọn ô không khoá",
+        "formatCells": "Định dạng ô",
+        "formatColumns": "Định dạng cột",
+        "formatRows": "Định dạng hàng",
+        "insertColumns": "Chèn cột",
+        "insertRows": "Chèn hàng",
+        "deleteColumns": "Xoá cột",
+        "deleteRows": "Xoá hàng",
+        "sort": "Sắp xếp",
+        "autoFilter": "Dùng Lọc tự động",
+        "pivotTables": "Dùng bảng tổng hợp",
+        "objects": "Sửa đối tượng (biểu đồ)"
+      }
     }
   },
   "recovery": {
@@ -1287,7 +1330,9 @@
     "confirm": "Nhập lại mật khẩu",
     "mismatch": "Mật khẩu không khớp",
     "set": "Đặt",
-    "protected": "Có mật khẩu"
+    "protected": "Có mật khẩu",
+    "passwordSet": "Sẽ lưu kèm mật khẩu",
+    "passwordRemoved": "Sẽ lưu không có mật khẩu"
   },
   "collab": {
     "editing": "{{name}} đang sửa",
@@ -1516,5 +1561,89 @@
     "converted": "Đã chuyển {{count}} đoạn chữ phông TCVN3/VNI sang Unicode (Times New Roman)",
     "sheetConverted": "Đã chuyển {{count}} ô chữ phông TCVN3/VNI sang Unicode (Times New Roman)",
     "undo": "Hoàn tác chuyển đổi"
+  },
+  "sign": {
+    "title": "Ký số tài liệu",
+    "titlePdf": "Xuất PDF có ký số",
+    "signer": "Phương thức ký",
+    "kind": {
+      "file": "File chứng thư",
+      "token": "USB token",
+      "remote": "Ký số từ xa"
+    },
+    "chooseFile": "Chọn file .p12 / .pfx / .pem…",
+    "noFile": "Chưa chọn file",
+    "password": "Mật khẩu chứng thư",
+    "module": "Module PKCS#11",
+    "modulePlaceholder": "Đường dẫn driver token (PKCS#11 .dll)",
+    "readToken": "Đọc token",
+    "noTokenCerts": "Không tìm thấy chứng thư trên token.",
+    "certificate": "Chứng thư",
+    "until": "hiệu lực đến {{date}}",
+    "pin": "Mã PIN token",
+    "remoteUrl": "Địa chỉ dịch vụ ký số",
+    "credentialId": "Mã chứng thư (không bắt buộc)",
+    "accessToken": "Mã truy cập (không bắt buộc)",
+    "remoteHint": "Chỉ giá trị băm của tài liệu được gửi đi; xác nhận trên ứng dụng ký số nếu được yêu cầu.",
+    "tsaUrl": "Máy chủ dấu thời gian (không bắt buộc)",
+    "reason": "Lý do",
+    "location": "Nơi ký",
+    "sign": "Ký",
+    "cancel": "Huỷ",
+    "close": "Đóng",
+    "needFile": "Hãy chọn file chứng thư.",
+    "needPassword": "Hãy nhập mật khẩu chứng thư.",
+    "needModule": "Hãy nhập đường dẫn module PKCS#11.",
+    "needTokenCert": "Hãy đọc token và chọn chứng thư.",
+    "needPin": "Hãy nhập mã PIN token.",
+    "needRemoteUrl": "Hãy nhập địa chỉ dịch vụ ký số (http:// hoặc https://).",
+    "badTsaUrl": "Địa chỉ máy chủ dấu thời gian phải bắt đầu bằng http:// hoặc https://.",
+    "statusTitle": "Chữ ký số",
+    "details": "Chi tiết",
+    "state": {
+      "none": "Không có chữ ký số.",
+      "invalid": "Có chữ ký không hợp lệ: tài liệu đã bị sửa hoặc chữ ký bị hỏng.",
+      "trusted": "Hợp lệ và được tin cậy",
+      "untrusted": "Hợp lệ, nhưng chứng thư chưa được tin cậy",
+      "changed": "Hợp lệ, nhưng tài liệu đã bị sửa sau khi ký"
+    },
+    "bar": {
+      "none": "Tài liệu không có chữ ký số.",
+      "invalid": "Tài liệu có chữ ký số không hợp lệ.",
+      "trusted": "Tài liệu đã được ký số (hợp lệ, tin cậy).",
+      "untrusted": "Tài liệu đã được ký số, nhưng chứng thư chưa được tin cậy.",
+      "changed": "Tài liệu đã bị sửa sau khi ký."
+    },
+    "timestampBy": "Dấu thời gian {{time}} bởi {{tsa}}",
+    "noTimestamp": "Không có dấu thời gian tin cậy: thời điểm ký do người ký tự khai.",
+    "anchor": "Chứng thư gốc tin cậy: {{name}}",
+    "problem": {
+      "noTrustAnchors": "Chưa cấu hình chứng thư gốc tin cậy.",
+      "unknownIssuer": "Tổ chức cấp chứng thư cho “{{subject}}” không được tin cậy.",
+      "expired": "“{{subject}}” đã hết hạn.",
+      "notYetValid": "“{{subject}}” chưa đến thời hạn hiệu lực.",
+      "badSignature": "Chữ ký trên “{{subject}}” không hợp lệ.",
+      "notCa": "“{{subject}}” không được phép cấp chứng thư.",
+      "keyUsage": "Mục đích sử dụng khoá của “{{subject}}” không cho phép ký.",
+      "extendedKeyUsage": "“{{subject}}” không phải chứng thư dấu thời gian.",
+      "unsupported": "“{{subject}}” dùng thuật toán chưa hỗ trợ.",
+      "revoked": "“{{subject}}” đã bị thu hồi.",
+      "crlStale": "Danh sách thu hồi của “{{subject}}” đã quá hạn.",
+      "pathTooLong": "Chuỗi chứng thư quá dài.",
+      "malformed": "Chứng thư bị lỗi định dạng."
+    }
+  },
+  "updates": {
+    "title": "Cập nhật",
+    "check": "Kiểm tra cập nhật",
+    "checking": "Đang kiểm tra cập nhật…",
+    "install": "Cài đặt và khởi động lại",
+    "installing": "Đang tải và cài bản cập nhật…",
+    "available": "Đã có phiên bản {{version}} (đang dùng {{current}}).",
+    "upToDate": "Bạn đang dùng phiên bản mới nhất ({{current}}).",
+    "failed": "Không kiểm tra được cập nhật: {{message}}",
+    "notConfigured": "Bản cài đặt này chưa được cấu hình máy chủ cập nhật.",
+    "disabled": "Bản này không có cập nhật tự động.",
+    "installFailed": "Không cài được bản cập nhật: {{message}}"
   }
 }

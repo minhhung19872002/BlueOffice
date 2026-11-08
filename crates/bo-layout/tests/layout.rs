@@ -1,4 +1,6 @@
 //! Layout behaviour tests using the bundled fonts.
+// Integration tests may unwrap.
+#![allow(clippy::unwrap_used)]
 
 use bo_layout::{layout_document, LayoutCache, LayoutDocument};
 use bo_model::{

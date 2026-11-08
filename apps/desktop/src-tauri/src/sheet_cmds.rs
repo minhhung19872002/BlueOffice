@@ -164,7 +164,12 @@ pub fn sheet_binary(
 
 /// Opens a workbook from a raw IPC body (`x-file-name` header).
 #[tauri::command]
-pub fn sheet_open(state: State<'_, SheetState>, request: Request<'_>) -> Result<Value, String> {
+pub fn sheet_open(
+    state: State<'_, SheetState>,
+    fonts: State<'_, crate::FontsReady>,
+    request: Request<'_>,
+) -> Result<Value, String> {
+    fonts.wait(crate::FONT_WAIT);
     let InvokeBody::Raw(bytes) = request.body() else {
         return Err("expected a binary request body".into());
     };
@@ -173,8 +178,17 @@ pub fn sheet_open(state: State<'_, SheetState>, request: Request<'_>) -> Result<
         .get("x-file-name")
         .and_then(|v| v.to_str().ok())
         .map_or_else(|| "book.xlsx".into(), crate::shell::percent_decode);
+    // Password of an encrypted workbook ([MS-OFFCRYPTO]), percent-encoded.
+    let password = request
+        .headers()
+        .get("x-password")
+        .and_then(|v| v.to_str().ok())
+        .map(crate::shell::percent_decode);
     let mut e = state.0.lock().map_err(|e| e.to_string())?;
-    to_json(&e.open(bytes, &name).map_err(|e| e.to_string())?)
+    to_json(
+        &e.open_with_password(bytes, &name, password.as_deref())
+            .map_err(|e| e.to_string())?,
+    )
 }
 
 #[cfg(test)]

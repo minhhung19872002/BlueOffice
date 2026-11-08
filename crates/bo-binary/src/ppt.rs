@@ -6,9 +6,11 @@
 //! the persist-object directory. The DocumentContainer (§2.4.1) gives the
 //! slide size and the SlideListWithTextContainers (§2.4.14.3) for slides and
 //! notes; each SlideContainer (§2.5.1) / NotesContainer (§2.5.6) drawing is
-//! walked for TextHeaderAtom + TextCharsAtom / TextBytesAtom pairs.
+//! walked for TextHeaderAtom + TextCharsAtom / TextBytesAtom pairs, and for
+//! shapes and pictures (OfficeArt, [MS-ODRAW]; see `ppt_draw`).
 
 use crate::bytes::{i32_at, latin1, u16_at, u32_at, utf16};
+use crate::ppt_draw::{self, DrawCtx, ListText, PptPicture, PptShape};
 use crate::{malformed, BinaryError, Cfb, Result};
 use std::collections::{HashMap, HashSet};
 
@@ -22,6 +24,10 @@ const MAX_SLIDES: usize = 10_000;
 // [MS-PPT] §2.13.24 RecordType values.
 const RT_DOCUMENT: u16 = 0x03E8;
 const RT_DOCUMENT_ATOM: u16 = 0x03E9;
+const RT_ENVIRONMENT: u16 = 0x03F2;
+const RT_MAIN_MASTER: u16 = 0x03F8;
+const RT_PP_DRAWING_GROUP: u16 = 0x040B;
+const RT_STYLE_TEXT_PROP_ATOM: u16 = 0x0FA1;
 const RT_SLIDE: u16 = 0x03EE;
 const RT_NOTES: u16 = 0x03F0;
 const RT_NOTES_ATOM: u16 = 0x03F1;
@@ -41,10 +47,14 @@ const RT_CLIENT_TEXTBOX: u16 = 0xF00D;
 pub struct PptDeck {
     /// Slide size in EMU (§2.4.2 DocumentAtom.slideSize, 576 master units per inch).
     pub slide_width: i64,
+    /// Slide height in EMU.
     pub slide_height: i64,
+    /// Slides in presentation order.
     pub slides: Vec<PptSlide>,
     /// A VBAInfoContainer is present (macros are preserved, never executed).
     pub has_macros: bool,
+    /// Pictures of the BLIP store referenced by [`PptShape::picture`].
+    pub pictures: Vec<PptPicture>,
 }
 
 /// One slide.
@@ -56,11 +66,14 @@ pub struct PptSlide {
     pub texts: Vec<PptText>,
     /// Speaker notes paragraphs.
     pub notes: Vec<String>,
+    /// Shapes of the slide drawing (geometry, fill, line, pictures, text).
+    pub shapes: Vec<PptShape>,
 }
 
 /// A text block of a shape or placeholder.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PptText {
+    /// Placeholder / text type of the block.
     pub kind: TextKind,
     /// Paragraphs; line breaks inside a paragraph are `\u{2028}`.
     pub paragraphs: Vec<String>,
@@ -69,14 +82,27 @@ pub struct PptText {
 /// §2.13.33 TextTypeEnum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextKind {
+    /// Title placeholder text.
     Title,
+    /// Body placeholder text.
     Body,
+    /// Notes page text.
     Notes,
+    /// Text not in a placeholder.
     Other,
+    /// Body text of a centered (title slide) layout.
     CenterBody,
+    /// Title of a centered (title slide) layout.
     CenterTitle,
+    /// Half-size body placeholder.
     HalfBody,
+    /// Quarter-size body placeholder.
     QuarterBody,
+}
+
+/// §2.13.33 TextTypeEnum value → [`TextKind`].
+pub(crate) fn text_kind(v: u32) -> TextKind {
+    TextKind::from_u32(v)
 }
 
 impl TextKind {
@@ -111,14 +137,14 @@ impl PptSlide {
 
 /// §2.3.1 RecordHeader.
 #[derive(Debug, Clone, Copy)]
-struct Hdr {
-    ver: u8,
-    instance: u16,
-    typ: u16,
-    len: usize,
+pub(crate) struct Hdr {
+    pub ver: u8,
+    pub instance: u16,
+    pub typ: u16,
+    pub len: usize,
 }
 
-fn header(b: &[u8], off: usize) -> Result<Hdr> {
+pub(crate) fn header(b: &[u8], off: usize) -> Result<Hdr> {
     let vi = u16_at(b, off)?;
     Ok(Hdr {
         ver: (vi & 0x000F) as u8,
@@ -129,7 +155,7 @@ fn header(b: &[u8], off: usize) -> Result<Hdr> {
 }
 
 /// Children of a container body: (header, body slice).
-fn children(body: &[u8]) -> Vec<(Hdr, &[u8])> {
+pub(crate) fn children(body: &[u8]) -> Vec<(Hdr, &[u8])> {
     let mut out = Vec::new();
     let mut p = 0usize;
     while let Ok(h) = header(body, p) {
@@ -206,13 +232,29 @@ pub fn read_ppt(bytes: &[u8]) -> Result<PptDeck> {
         None
     };
     let has_vba_storage = cfb.has_storage("/_VBA_PROJECT_CUR");
-    let mut deck = parse_ppt(&doc, current.as_deref())?;
+    // §2.1.2 Pictures stream: the BLIPs of the OfficeArtBStoreContainer.
+    let pictures = if cfb.has("/Pictures") {
+        cfb.read("/Pictures").ok()
+    } else {
+        None
+    };
+    let mut deck = parse_ppt_with(&doc, current.as_deref(), pictures.as_deref())?;
     deck.has_macros |= has_vba_storage;
     Ok(deck)
 }
 
 /// Parse the `PowerPoint Document` stream given the `Current User` stream.
+#[cfg(test)]
 pub(crate) fn parse_ppt(doc: &[u8], current: Option<&[u8]>) -> Result<PptDeck> {
+    parse_ppt_with(doc, current, None)
+}
+
+/// [`parse_ppt`] with the `Pictures` stream.
+pub(crate) fn parse_ppt_with(
+    doc: &[u8],
+    current: Option<&[u8]>,
+    pictures: Option<&[u8]>,
+) -> Result<PptDeck> {
     let directory = current.and_then(|c| persist_directory(doc, c).transpose());
     let (persist, doc_ref) = match directory {
         Some(Err(BinaryError::Encrypted)) => return Err(BinaryError::Encrypted),
@@ -229,6 +271,23 @@ pub(crate) fn parse_ppt(doc: &[u8], current: Option<&[u8]>) -> Result<PptDeck> {
 
     let mut deck = PptDeck::default();
     let mut slide_lists: Vec<Vec<(u32, u32, Vec<PptText>)>> = vec![Vec::new(); 3];
+    let mut list_texts: Vec<Vec<ListText<'_>>> = Vec::new();
+    let mut ctx = DrawCtx::default();
+    for (h, data) in children(doc_body) {
+        match h.typ {
+            RT_ENVIRONMENT => ctx.fonts = ppt_draw::fonts(data, 0),
+            RT_PP_DRAWING_GROUP => {
+                ppt_draw::drawing_group(data, pictures, &mut deck.pictures, &mut ctx);
+            }
+            RT_SLIDE_LIST_WITH_TEXT if h.instance == 0 => list_texts = slide_list_texts(data),
+            _ => {}
+        }
+    }
+    // Colour scheme of the first main master (§2.5.3 MainMasterContainer).
+    ctx.scheme = scan_top_level(doc, RT_MAIN_MASTER)
+        .first()
+        .and_then(|&o| record_at(doc, o).ok())
+        .and_then(|(_, body)| ppt_draw::color_scheme(body));
     for (h, data) in children(doc_body) {
         match h.typ {
             RT_DOCUMENT_ATOM => {
@@ -275,17 +334,20 @@ pub(crate) fn parse_ppt(doc: &[u8], current: Option<&[u8]>) -> Result<PptDeck> {
     }
 
     let mut slides_seen = HashSet::new();
-    for (persist_ref, slide_id, list_texts) in slide_lists[0].iter().take(MAX_SLIDES) {
+    for (i, (persist_ref, slide_id, texts)) in slide_lists[0].iter().take(MAX_SLIDES).enumerate() {
         let mut slide = PptSlide {
             slide_id: *slide_id,
-            texts: list_texts.clone(),
+            texts: texts.clone(),
             notes: notes_by_slide.remove(slide_id).unwrap_or_default(),
+            shapes: Vec::new(),
         };
         if let Some(&off) = persist.get(persist_ref) {
             slides_seen.insert(off);
             if let Ok((h, body)) = record_at(doc, off as usize) {
                 if h.typ == RT_SLIDE {
                     collect_texts(body, 0, &mut slide.texts);
+                    let list = list_texts.get(i).map_or(&[][..], Vec::as_slice);
+                    slide.shapes = ppt_draw::slide_shapes(body, list, &ctx);
                 }
             }
         }
@@ -297,6 +359,7 @@ pub(crate) fn parse_ppt(doc: &[u8], current: Option<&[u8]>) -> Result<PptDeck> {
             if let Ok((_, body)) = record_at(doc, off) {
                 let mut slide = PptSlide::default();
                 collect_texts(body, 0, &mut slide.texts);
+                slide.shapes = ppt_draw::slide_shapes(body, &[], &ctx);
                 deck.slides.push(slide);
             }
         }
@@ -323,6 +386,36 @@ fn slide_list(body: &[u8]) -> Vec<(u32, u32, Vec<PptText>)> {
                         kind: kind.take().unwrap_or(TextKind::Other),
                         paragraphs: text_paragraphs(&h, data),
                     });
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Text atoms (with their StyleTextPropAtom) of each slide of the slide list,
+/// in the order `OutlineTextRefAtom.index` counts them.
+fn slide_list_texts(body: &[u8]) -> Vec<Vec<ListText<'_>>> {
+    let mut out: Vec<Vec<ListText<'_>>> = Vec::new();
+    let mut kind = TextKind::Other;
+    for (h, data) in children(body) {
+        match h.typ {
+            RT_SLIDE_PERSIST_ATOM => out.push(Vec::new()),
+            RT_TEXT_HEADER_ATOM => kind = TextKind::from_u32(u32_at(data, 0).unwrap_or(4)),
+            RT_TEXT_CHARS_ATOM | RT_TEXT_BYTES_ATOM => {
+                if let Some(last) = out.last_mut() {
+                    last.push(ListText {
+                        kind,
+                        hdr: h,
+                        chars: data,
+                        style: None,
+                    });
+                }
+            }
+            RT_STYLE_TEXT_PROP_ATOM => {
+                if let Some(t) = out.last_mut().and_then(|l| l.last_mut()) {
+                    t.style = Some(data);
                 }
             }
             _ => {}
@@ -522,6 +615,19 @@ pub(crate) mod tests {
         cu.extend([0u8; 8]);
         let current = atom(0x0FF6, &cu);
         (doc, current)
+    }
+
+    /// A 2 × 2 RGB PNG (generated, not a real picture).
+    pub fn tiny_png() -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut out, 2, 2);
+            enc.set_color(png::ColorType::Rgb);
+            if let Ok(mut w) = enc.write_header() {
+                let _ = w.write_image_data(&[255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0]);
+            }
+        }
+        out
     }
 
     pub fn sample_ppt() -> Vec<u8> {

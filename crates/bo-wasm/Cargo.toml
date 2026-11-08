@@ -12,9 +12,17 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 bo-engine.workspace = true
 bo-collab = { path = "../bo-collab" }
+bo-sign = { path = "../bo-sign" }
+base64 = "0.22"
+bo-opc.workspace = true
 wasm-bindgen.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+# bo-sign → rsa → rand_core 0.6 pulls getrandom 0.2, which needs its `js`
+# backend on wasm32-unknown-unknown (crypto.getRandomValues).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
 
 [lints]
 workspace = true

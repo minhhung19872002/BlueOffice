@@ -1,6 +1,8 @@
 //! Live collaboration (Phase 6): two engines, each with its own `bo-collab`
 //! replica, exchanging real y-sync frames. Concurrent edits must converge to
 //! the same model on both sides.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_collab::{Change, Session};
 use bo_engine::slide_edit::geom::place_slide;
@@ -408,6 +410,8 @@ fn table_rows_and_columns_converge() {
     assert_eq!(tables(&a), tables(&b));
     let t = tables(&a);
     assert_eq!(t[0].len(), 3, "{t:?}");
+    // A's new row also gets a cell in B's new column (it was short before).
+    assert_eq!(t[0], vec![3, 3, 3], "{t:?}");
     assert!(a.text().iter().any(|p| p == "cuối"));
     assert!(a.text().iter().any(|p| p == "x"));
     // Concurrent delete of a row and an edit in another row.
@@ -990,4 +994,273 @@ fn tracked_grid_change_is_shared() {
     settle(&mut a, &mut b);
     assert!(grid_change(&b).is_none());
     assert!(grid_change(&a).is_none());
+}
+
+// source: ECMA-376 Part 1, §17.13.4.2 (comment ids), §17.11.10 (footnote ids)
+#[test]
+fn concurrent_comments_and_notes_get_distinct_ids() {
+    let (mut a, mut b) = pair("một hai ba\nbốn năm");
+    // Both add a comment and a footnote before seeing each other's.
+    a.cmd(&range(0, 0, 0, "một".len()));
+    a.cmd(r#"{"cmd":"addComment","text":"Của A"}"#);
+    b.cmd(&range(1, 0, 1, "bốn".len()));
+    b.cmd(r#"{"cmd":"addComment","text":"Của B"}"#);
+    a.cmd(&sel(0, "một hai".len()));
+    a.cmd(r#"{"cmd":"insertNote","text":"Chú thích A"}"#);
+    b.cmd(&sel(1, "bốn năm".len()));
+    b.cmd(r#"{"cmd":"insertNote","text":"Chú thích B"}"#);
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    for p in [&a, &b] {
+        let doc = p.engine.document().unwrap();
+        let mut texts: Vec<(i32, String)> = doc.comments.iter().map(|c| (c.id, c.text())).collect();
+        texts.sort_by(|x, y| x.1.cmp(&y.1));
+        assert_eq!(texts.len(), 2, "{texts:?}");
+        assert_ne!(texts[0].0, texts[1].0);
+        assert_eq!(
+            (texts[0].1.as_str(), texts[1].1.as_str()),
+            ("Của A", "Của B")
+        );
+        let notes: Vec<i32> = doc.footnotes.keys().copied().filter(|&k| k > 1).collect();
+        assert_eq!(notes.len(), 2, "{notes:?}");
+    }
+}
+
+// source: ECMA-376 Part 1, §17.4.17 gridSpan (rows shorter than the grid)
+#[test]
+fn a_cell_deleted_on_purpose_stays_deleted() {
+    let (mut a, mut b) = pair("đầu");
+    a.cmd(&sel(0, "đầu".len()));
+    a.cmd(r#"{"cmd":"insertTable","rows":2,"cols":3}"#);
+    settle(&mut a, &mut b);
+    // A deletes the first cell of the first row (shift left): a short row.
+    a.cmd(&sel(1, 0));
+    a.cmd(&table_edit("deleteCell"));
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    assert_eq!(tables(&b), vec![vec![2, 3]]);
+    // B then inserts a column: the short row gets the new cell, not the deleted one.
+    b.cmd(&sel(1, 0));
+    b.cmd(r#"{"cmd":"tableEdit","edit":{"kind":"insertColumn","right":true}}"#);
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    assert_eq!(tables(&a), tables(&b));
+    let t = tables(&a);
+    assert_eq!(t[0][1], 4, "{t:?}");
+    assert_eq!(t[0][0], 3, "{t:?}");
+}
+
+/// Paragraph ids (`p` of a position) of the cells of tables nested in cells.
+fn nested_paras(p: &Peer) -> Vec<usize> {
+    body_paragraphs(p.engine.document().unwrap())
+        .iter()
+        .enumerate()
+        .filter(|(_, path)| path.len() > 4)
+        .map(|(i, _)| i)
+        .collect()
+}
+
+// source: ECMA-376 Part 1, §17.4.38 tbl (a table in a table cell, §17.4.66 tc)
+#[test]
+fn edits_in_different_cells_of_a_nested_table_merge() {
+    let (mut a, mut b) = pair("đầu");
+    a.cmd(&sel(0, "đầu".len()));
+    a.cmd(r#"{"cmd":"insertTable","rows":2,"cols":2}"#);
+    // A table inside the first cell.
+    a.cmd(&sel(1, 0));
+    a.cmd(r#"{"cmd":"insertTable","rows":2,"cols":2}"#);
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    let (na, nb) = (nested_paras(&a), nested_paras(&b));
+    assert_eq!(na, nb);
+    assert!(na.len() >= 4, "{na:?}");
+    // A types in the first nested cell, B in the last one, at the same time.
+    a.cmd(&sel(na[0], 0));
+    a.cmd(&insert("của A"));
+    b.cmd(&sel(nb[3], 0));
+    b.cmd(&insert("của B"));
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    let text = a.text();
+    assert!(text.iter().any(|p| p == "của A"), "{text:?}");
+    assert!(text.iter().any(|p| p == "của B"), "{text:?}");
+    // Still one nested table of 2×2 in the first cell.
+    let doc = a.engine.document().unwrap();
+    let bo_model::Block::Table(outer) = doc.sections[0]
+        .blocks
+        .iter()
+        .find(|b| matches!(b, bo_model::Block::Table(_)))
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    let inner: Vec<_> = outer.rows[0].cells[0]
+        .blocks
+        .iter()
+        .filter_map(|b| match b {
+            bo_model::Block::Table(t) => {
+                Some(t.rows.iter().map(|r| r.cells.len()).collect::<Vec<_>>())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(inner, vec![vec![2, 2]]);
+}
+
+/// A peer whose engine copied slide `index` of `source` and then opened `target`.
+fn deck_with_clip(id: u64, source: &str, index: usize, target: &[u8]) -> (Peer, String) {
+    let mut p = Peer::deck(id, source);
+    let text = bo_engine::slide_edit::clip::plain_text(
+        &p.engine.presentation().unwrap().slides[index].data.shapes,
+    );
+    p.engine
+        .slide_command_json(&format!(r#"{{"cmd":"copySlides","indices":[{index}]}}"#))
+        .unwrap();
+    p.engine.open(target, "chung.pptx").unwrap();
+    (p, text)
+}
+
+// source: ECMA-376 Part 1, §19.3.1.39 sldLayout, §19.3.1.42 sldMaster, §20.1.6.9 theme
+#[test]
+fn designs_imported_at_once_by_two_peers_are_both_kept() {
+    big_stack(|| {
+        // A deck whose layouts fit no pasted slide: pasting imports layout + master + theme.
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus/slide/slide-shapes-presets.pptx");
+        let mut target = bo_pptx::read_pptx(&std::fs::read(p).unwrap()).unwrap();
+        for l in &mut target.layouts {
+            l.data.name = Some("Riêng".into());
+            l.data.shapes.clear();
+        }
+        let bare = bo_pptx::write_pptx(&target).unwrap();
+        let (mut a, ta) = deck_with_clip(1, "slide-text-bullets.pptx", 1, &bare);
+        let (mut b, tb) = deck_with_clip(2, "slide-notes-basic.pptx", 0, &bare);
+        a.start(true);
+        b.start(false);
+        connect(&mut a, &mut b);
+        settle(&mut a, &mut b);
+        let (l0, m0, t0) = {
+            let p = a.engine.presentation().unwrap();
+            (p.layouts.len(), p.masters.len(), p.themes.len())
+        };
+        // Both paste at once: each imports a design at the same index.
+        a.slide(r#"{"cmd":"paste"}"#);
+        b.slide(r#"{"cmd":"paste"}"#);
+        settle(&mut a, &mut b);
+        let pa = a.engine.presentation().unwrap();
+        assert_eq!(pa, b.engine.presentation().unwrap());
+        assert_eq!(
+            (pa.layouts.len(), pa.masters.len(), pa.themes.len()),
+            (l0 + 2, m0 + 2, t0 + 2)
+        );
+        let layout_of = |text: &str| {
+            let s = pa
+                .slides
+                .iter()
+                .find(|s| bo_engine::slide_edit::clip::plain_text(&s.data.shapes) == text)
+                .unwrap_or_else(|| panic!("pasted slide {text:?}"));
+            s.layout
+        };
+        let (la, lb) = (layout_of(&ta), layout_of(&tb));
+        assert!(la >= l0 && lb >= l0 && la != lb, "{la} {lb}");
+        let (ma, mb) = (pa.layouts[la].master, pa.layouts[lb].master);
+        assert!(ma >= m0 && mb >= m0 && ma != mb, "{ma} {mb}");
+        let (tha, thb) = (pa.masters[ma].theme, pa.masters[mb].theme);
+        assert!(tha >= t0 && thb >= t0 && tha != thb, "{tha} {thb}");
+        // Each pasted slide still has the design it came with.
+        let src = |name: &str, i: usize| {
+            let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/corpus/slide")
+                .join(name);
+            let d = bo_pptx::read_pptx(&std::fs::read(p).unwrap()).unwrap();
+            let l = &d.layouts[d.slides[i].layout];
+            (
+                l.data.name.clone(),
+                d.themes[d.masters[l.master].theme].name.clone(),
+            )
+        };
+        assert_eq!(
+            src("slide-text-bullets.pptx", 1),
+            (
+                pa.layouts[la].data.name.clone(),
+                pa.themes[tha].name.clone()
+            )
+        );
+        assert_eq!(
+            src("slide-notes-basic.pptx", 0),
+            (
+                pa.layouts[lb].data.name.clone(),
+                pa.themes[thb].name.clone()
+            )
+        );
+        // The saved file is valid on both sides.
+        let bytes = a.engine.save_pptx().unwrap();
+        let back = bo_pptx::read_pptx(&bytes).unwrap();
+        assert_eq!(back.layouts.len(), l0 + 2);
+    });
+}
+
+/// Index of the first slide of `name` that links a media part.
+fn media_slide(name: &str) -> usize {
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/slide")
+        .join(name);
+    let d = bo_pptx::read_pptx(&std::fs::read(p).unwrap()).unwrap();
+    d.slides
+        .iter()
+        .position(|s| s.info.rels.iter().any(|r| r.target.contains("media/")))
+        .unwrap()
+}
+
+// source: ECMA-376 Part 2, §9.1.1 part names (media parts added at once on two replicas)
+#[test]
+fn pictures_pasted_at_once_by_two_peers_keep_their_own_parts() {
+    big_stack(|| {
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus/slide/slide-text-bullets.pptx");
+        let target = std::fs::read(p).unwrap();
+        let (mut a, _) = deck_with_clip(1, "slide-images-crop.pptx", 0, &target);
+        let (mut b, _) = deck_with_clip(
+            2,
+            "slide-edit-media.pptx",
+            media_slide("slide-edit-media.pptx"),
+            &target,
+        );
+        a.start(true);
+        b.start(false);
+        connect(&mut a, &mut b);
+        settle(&mut a, &mut b);
+        let before = a.engine.presentation().unwrap().parts.len();
+        a.slide(r#"{"cmd":"paste"}"#);
+        b.slide(r#"{"cmd":"paste"}"#);
+        settle(&mut a, &mut b);
+        let (pa, pb) = (
+            a.engine.presentation().unwrap(),
+            b.engine.presentation().unwrap(),
+        );
+        let media = |p: &bo_model::slide::Presentation| {
+            let mut v: Vec<(String, usize)> = p
+                .parts
+                .iter()
+                .filter(|x| x.name.starts_with("/ppt/media/"))
+                .map(|x| (x.name.clone(), x.data.len()))
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(media(pa), media(pb));
+        assert!(media(pa).len() >= 4, "{:?}", media(pa));
+        assert!(pa.parts.len() > before + 3);
+        // Same deck; the part list only differs in order (written by name).
+        assert_eq!(
+            (&pa.slides, &pa.layouts, &pa.masters, &pa.themes),
+            (&pb.slides, &pb.layouts, &pb.masters, &pb.themes)
+        );
+        let sorted = |p: &bo_model::slide::Presentation| {
+            let mut v = p.parts.clone();
+            v.sort_by(|x, y| x.name.cmp(&y.name));
+            v
+        };
+        assert_eq!(sorted(pa), sorted(pb));
+    });
 }

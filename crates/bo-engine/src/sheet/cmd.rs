@@ -127,20 +127,27 @@ pub struct DateSel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PasteMode {
+    /// Values, formulas and formats.
     #[default]
     All,
+    /// Displayed values only (formulas become their results).
     Values,
+    /// Cell formats only.
     Formats,
+    /// Formulas (or constants) without formats.
     Formulas,
 }
 
 /// Internal clipboard: cell records relative to the copied range.
 #[derive(Debug, Clone)]
 pub struct Clip {
+    /// 0-based index of the sheet the range was copied from.
     pub sheet: usize,
+    /// The copied range.
     pub range: CellRange,
     /// `(row offset, column offset, cell)`.
     pub cells: Vec<(u32, u32, Cell)>,
+    /// Cut rather than copy: the source is cleared on paste.
     pub cut: bool,
 }
 
@@ -163,106 +170,174 @@ pub enum SheetCommand {
     ConvertLegacyText,
     /// Threaded comments of a sheet ([MS-XLSX] threaded comments part).
     Comments {
+        /// 0-based sheet index.
         sheet: usize,
     },
     /// New thread on a cell, or a reply to thread `parent`.
     AddComment {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based row of the cell.
         #[serde(default)]
         row: u32,
+        /// 0-based column of the cell.
         #[serde(default)]
         col: u32,
+        /// Comment text.
         text: String,
+        /// Author display name.
         #[serde(default)]
         author: String,
+        /// Creation time (ISO 8601); now when omitted.
         #[serde(default)]
         date: Option<String>,
+        /// Thread replied to.
         #[serde(default)]
         parent: Option<String>,
     },
     /// Resolve (`done`) or reopen a thread.
     ResolveComment {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Thread id.
         id: String,
+        /// Resolved.
         done: bool,
     },
     /// Delete a thread (with its replies) or one reply.
     DeleteComment {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Thread or reply id.
         id: String,
     },
+    /// Format state (font, fill, number format, …) of one cell for the ribbon.
     FormatState {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based row.
         row: u32,
+        /// 0-based column.
         col: u32,
     },
+    /// Applies a style patch (font, fill, alignment, number format, …) to a range.
     Format {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Target range.
         range: Rng,
+        /// Style properties to change; absent fields are kept.
         patch: StylePatch,
     },
+    /// Applies cell borders to a range.
     Borders {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Target range.
         range: Rng,
+        /// Which borders to set and their line style / colour.
         spec: BorderSpec,
     },
+    /// Applies a named cell style to a range.
     CellStyle {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Target range.
         range: Rng,
+        /// Cell style name (one of the presets).
         name: String,
     },
+    /// Resets a range to the default format (values are kept).
     ClearFormats {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Target range.
         range: Rng,
     },
     /// Format Painter: styles of `from` tiled over `to`.
     PaintFormat {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Range whose formats are copied.
         from: Rng,
+        /// Range the formats are painted over.
         to: Rng,
     },
     /// Row height / column width in points.
     Resize {
+        /// 0-based sheet index.
         sheet: usize,
+        /// `true` = rows, `false` = columns.
         rows: bool,
+        /// First row / column (0-based).
         first: u32,
+        /// Last row / column (0-based, inclusive).
         last: u32,
+        /// New height / width in points.
         size: f64,
     },
+    /// Fits row heights / column widths to their content.
     Autofit {
+        /// 0-based sheet index.
         sheet: usize,
+        /// `true` = rows, `false` = columns.
         rows: bool,
+        /// First row / column (0-based).
         first: u32,
+        /// Last row / column (0-based, inclusive).
         last: u32,
     },
+    /// Hides or unhides rows / columns.
     Hide {
+        /// 0-based sheet index.
         sheet: usize,
+        /// `true` = rows, `false` = columns.
         rows: bool,
+        /// First row / column (0-based).
         first: u32,
+        /// Last row / column (0-based, inclusive).
         last: u32,
+        /// `true` hides, `false` unhides.
         hidden: bool,
     },
+    /// Freezes panes above / left of the given row / column counts (`0, 0` unfreezes).
     Freeze {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Number of frozen rows at the top.
         rows: u32,
+        /// Number of frozen columns at the left.
         cols: u32,
     },
+    /// Merges a range into one cell.
     Merge {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Range to merge.
         range: Rng,
+        /// Merge each row of the range separately (Merge Across).
         #[serde(default)]
         across: bool,
+        /// Also center the content horizontally (Merge & Center).
         #[serde(default)]
         center: bool,
     },
+    /// Splits merged cells overlapping a range.
     Unmerge {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Range to unmerge.
         range: Rng,
     },
+    /// Sorts a range by one or more keys.
     Sort {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Range to sort.
         range: Rng,
+        /// Sort levels, most significant first.
         keys: Vec<SortKeySpec>,
+        /// The first row (column) is a header and stays in place.
         #[serde(default)]
         has_header: bool,
         /// Sort columns left to right by key rows (§18.3.1.92 `columnSort`).
@@ -271,80 +346,131 @@ pub enum SheetCommand {
     },
     /// Fill and font colours present in a key column (row) of the sort range.
     SortColors {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Sort range.
         range: Rng,
+        /// Key column (row when `left_to_right`), absolute 0-based.
         key: u32,
+        /// Sort columns left to right (key is a row).
         #[serde(default)]
         left_to_right: bool,
     },
     /// The range sort / filter / chart would use for a selection (a single
     /// cell expands to its current region).
     Region {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Selected range.
         range: Rng,
     },
+    /// Turns the AutoFilter on (over the selection's region) or off.
     ToggleFilter {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Selected range.
         range: Rng,
     },
+    /// Distinct displayed values of an AutoFilter column (filter drop-down list).
     FilterValues {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Absolute 0-based column of the AutoFilter range.
         col: u32,
     },
+    /// Sets or clears (`None`) the filter criterion of an AutoFilter column.
     SetFilter {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Absolute 0-based column of the AutoFilter range.
         col: u32,
+        /// Criterion; `None` shows every row of the column.
         #[serde(default)]
         filter: Option<FilterSpec>,
     },
+    /// Fill handle: extends the series / pattern of `source` over `target`.
     Autofill {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Range the fill starts from.
         source: Rng,
+        /// Whole range after filling (contains `source`).
         target: Rng,
     },
     /// Ctrl+D (`down`) / Ctrl+R (`right`): copies the first row / column.
     FillDir {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Range to fill.
         range: Rng,
+        /// `down` or `right`.
         dir: String,
     },
+    /// Adds a conditional formatting rule to a range.
     AddCf {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Range the rule applies to.
         range: Rng,
+        /// The rule (type, operator, formulas, format).
         rule: CfRuleSpec,
     },
+    /// Removes the conditional formatting rules over a range.
     ClearCf {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Range to clear.
         range: Rng,
     },
+    /// Data validation rule of one cell (drop-down list, input message).
     Validation {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based row.
         row: u32,
+        /// 0-based column.
         col: u32,
     },
+    /// Sets (or clears) the data validation rule of a range.
     SetValidation {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Range the rule applies to.
         range: Rng,
+        /// The validation rule.
         spec: ValidationSpec,
     },
     /// Inputs as one undo step, checked against data validation.
     SetInputs {
+        /// 0-based sheet index.
         sheet: usize,
+        /// `(row, column, input text)` triples, 0-based.
         cells: Vec<(u32, u32, String)>,
+        /// Reject inputs that violate the cells' data validation.
         #[serde(default)]
         validate: bool,
     },
+    /// Inserts a chart plotting a range.
     InsertChart {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Data range (series and categories).
         range: Rng,
+        /// Chart type (`column`, `bar`, `line`, `pie`, …).
         kind: String,
     },
+    /// Charts of a sheet with their properties.
     Charts {
+        /// 0-based sheet index.
         sheet: usize,
     },
+    /// Changes a chart's type, title, legend or axis titles.
     EditChart {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the chart in the sheet.
         index: usize,
+        /// New chart type.
         #[serde(default)]
         kind: Option<String>,
         /// `""` removes the title.
@@ -353,28 +479,40 @@ pub enum SheetCommand {
         /// `r` / `l` / `t` / `b` or `none`.
         #[serde(default)]
         legend: Option<String>,
+        /// Category (horizontal) axis title; `""` removes it.
         #[serde(default)]
         x_title: Option<String>,
+        /// Value (vertical) axis title; `""` removes it.
         #[serde(default)]
         y_title: Option<String>,
     },
     /// Removes a chart (charts read from the file lose their drawing anchor and parts).
     DeleteChart {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the chart in the sheet.
         index: usize,
     },
     /// Moves / resizes a chart: top-left cell `from` and the cell holding its
     /// bottom-right corner `to` (`[row, col]`, zero-based).
     MoveChart {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the chart in the sheet.
         index: usize,
+        /// Top-left anchor cell `[row, col]`.
         from: [u32; 2],
+        /// Bottom-right anchor cell `[row, col]`.
         to: [u32; 2],
     },
+    /// Finds cells matching a query.
     Find {
+        /// Text to look for.
         query: String,
+        /// Distinguish upper and lower case.
         #[serde(default)]
         match_case: bool,
+        /// Match the whole cell content only.
         #[serde(default)]
         whole_cell: bool,
         /// Search formulas (input text) instead of displayed values.
@@ -384,13 +522,19 @@ pub enum SheetCommand {
         #[serde(default)]
         sheet: Option<usize>,
     },
+    /// Replaces matches of a query.
     Replace {
+        /// Text to look for.
         query: String,
+        /// Replacement text.
         with: String,
+        /// Distinguish upper and lower case.
         #[serde(default)]
         match_case: bool,
+        /// Match the whole cell content only.
         #[serde(default)]
         whole_cell: bool,
+        /// Sheet to search; `None` = every sheet.
         #[serde(default)]
         sheet: Option<usize>,
         /// Only this cell (Replace), else every match (Replace All).
@@ -401,23 +545,36 @@ pub enum SheetCommand {
     Names,
     /// Resolves `B7`, `Sheet2!A1:C3` or a defined name (Go To).
     Resolve {
+        /// 0-based sheet index the reference is relative to.
         sheet: usize,
+        /// Cell reference, range reference or defined name.
         text: String,
     },
+    /// Copies (or cuts) a range to the internal clipboard.
     Copy {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Range to copy.
         range: Rng,
+        /// Cut instead of copy.
         #[serde(default)]
         cut: bool,
     },
+    /// Pastes the internal clipboard at a cell.
     Paste {
+        /// 0-based sheet index of the destination.
         sheet: usize,
+        /// Destination top-left row (0-based).
         row: u32,
+        /// Destination top-left column (0-based).
         col: u32,
+        /// What to paste (all, values, formats, formulas).
         #[serde(default)]
         mode: PasteMode,
+        /// Swap rows and columns.
         #[serde(default)]
         transpose: bool,
+        /// Do not overwrite destination cells with blank source cells.
         #[serde(default)]
         skip_blanks: bool,
         /// Selected target range: a copy is repeated to fill it when its size
@@ -425,169 +582,245 @@ pub enum SheetCommand {
         #[serde(default)]
         range: Option<Rng>,
     },
+    /// Page setup of a sheet (orientation, paper, scale, margins, print area).
     PageSetup {
+        /// 0-based sheet index.
         sheet: usize,
     },
     /// Source range (current region of the selection) and field names for
     /// the "Insert pivot table" dialog.
     PivotSource {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Selected range.
         range: Rng,
     },
     /// Creates a pivot table over `range` (header row included). `dest` = top-left
     /// on an existing sheet; `None` = a new sheet.
     PivotCreate {
+        /// 0-based sheet index of the source data.
         sheet: usize,
+        /// Source range including the header row.
         range: Rng,
+        /// Top-left cell of the report; `None` = a new sheet.
         #[serde(default)]
         dest: Option<At>,
+        /// Source columns (0-based within `range`) used as row fields.
         #[serde(default)]
         rows: Vec<u32>,
+        /// Source columns (0-based within `range`) used as column fields.
         #[serde(default)]
         cols: Vec<u32>,
+        /// Value fields with their summary function.
         #[serde(default)]
         values: Vec<PivotValueSpec>,
+        /// Report filter fields.
         #[serde(default)]
         filters: Vec<PivotFilterSpec>,
+        /// Localized labels (Grand Total, …) for the generated cells.
         #[serde(default)]
         labels: Option<PivotLabels>,
     },
     /// Pivot tables of a sheet with their field lists.
     Pivots {
+        /// 0-based sheet index.
         sheet: usize,
     },
     /// Moves fields between the areas of a pivot table; optional report
     /// settings (layout, totals, field settings, filters, style) change too.
     PivotUpdate {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the pivot table in the sheet.
         index: usize,
+        /// Row fields (0-based source field indices).
         #[serde(default)]
         rows: Vec<u32>,
+        /// Column fields (0-based source field indices).
         #[serde(default)]
         cols: Vec<u32>,
+        /// Value fields with their summary function.
         #[serde(default)]
         values: Vec<PivotValueSpec>,
+        /// Report filter fields.
         #[serde(default)]
         filters: Vec<PivotFilterSpec>,
+        /// Localized labels for the generated cells.
         #[serde(default)]
         labels: Option<PivotLabels>,
+        /// Optional report settings.
         #[serde(flatten)]
         settings: PivotSettings,
     },
     /// Groups a field by date parts (`by: "dates"`), numeric ranges
     /// (`"numbers"`) or removes the grouping (`"none"`).
     PivotGroup {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the pivot table in the sheet.
         index: usize,
+        /// 0-based source field index.
         field: u32,
+        /// `dates`, `numbers` or `none`.
         by: String,
+        /// Date grouping: by years.
         #[serde(default)]
         years: bool,
+        /// Date grouping: by quarters.
         #[serde(default)]
         quarters: bool,
+        /// Date grouping: by months.
         #[serde(default)]
         months: bool,
+        /// Date grouping: by days.
         #[serde(default)]
         days: bool,
+        /// Numeric grouping: first value (`None` = the field minimum).
         #[serde(default)]
         start: Option<f64>,
+        /// Numeric grouping: last value (`None` = the field maximum).
         #[serde(default)]
         end: Option<f64>,
+        /// Numeric grouping: size of each range.
         #[serde(default)]
         interval: Option<f64>,
+        /// Localized labels for the generated cells.
         #[serde(default)]
         labels: Option<PivotLabels>,
     },
     /// Adds (`field` absent), changes or removes a calculated field.
     PivotCalcField {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the pivot table in the sheet.
         index: usize,
+        /// Field to change or remove; `None` adds a new one.
         #[serde(default)]
         field: Option<u32>,
+        /// Field name.
         #[serde(default)]
         name: String,
+        /// Formula over other fields (e.g. `=Sales*0.1`).
         #[serde(default)]
         formula: String,
+        /// Remove the field instead of adding / changing it.
         #[serde(default)]
         remove: bool,
+        /// Localized labels for the generated cells.
         #[serde(default)]
         labels: Option<PivotLabels>,
     },
     /// Deletes a pivot table (its cells and parts).
     PivotDelete {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the pivot table in the sheet.
         index: usize,
     },
     /// Moves a pivot table so its top-left is `dest`.
     PivotMove {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the pivot table in the sheet.
         index: usize,
+        /// New top-left cell.
         dest: At,
+        /// Localized labels for the generated cells.
         #[serde(default)]
         labels: Option<PivotLabels>,
     },
     /// Points the cache at another source range (`Sheet1!A1:D20`) and refreshes.
     PivotChangeSource {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the pivot table in the sheet.
         index: usize,
+        /// New source range reference (`Sheet1!A1:D20`).
         source: String,
+        /// Localized labels for the generated cells.
         #[serde(default)]
         labels: Option<PivotLabels>,
     },
     /// Refreshes every pivot table of the workbook.
     PivotRefreshAll {
+        /// Localized labels for the generated cells.
         #[serde(default)]
         labels: Option<PivotLabels>,
     },
     /// Recomputes a pivot table (and others sharing its cache) from the source.
     PivotRefresh {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the pivot table in the sheet.
         index: usize,
+        /// Localized labels for the generated cells.
         #[serde(default)]
         labels: Option<PivotLabels>,
     },
     /// Adds, changes (`old` = its current name) or removes a calculated item
     /// of a row / column field (§18.10.1.8).
     PivotCalcItem {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the pivot table in the sheet.
         index: usize,
+        /// 0-based source field index the item belongs to.
         field: u32,
+        /// Current name of the item to change or remove; `None` adds one.
         #[serde(default)]
         old: Option<String>,
+        /// Item name.
         #[serde(default)]
         name: String,
+        /// Formula over other items of the field.
         #[serde(default)]
         formula: String,
+        /// Remove the item instead of adding / changing it.
         #[serde(default)]
         remove: bool,
+        /// Localized labels for the generated cells.
         #[serde(default)]
         labels: Option<PivotLabels>,
     },
     /// Groups the selected items of a field (`items`: indexes into its items)
     /// into a manual group, or ungroups them (§18.10.1.26 `discretePr`).
     PivotGroupItems {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the pivot table in the sheet.
         index: usize,
+        /// 0-based source field index.
         field: u32,
+        /// 0-based indices into the field's items.
         items: Vec<usize>,
+        /// Ungroup instead of grouping.
         #[serde(default)]
         ungroup: bool,
+        /// Localized labels for the generated cells.
         #[serde(default)]
         labels: Option<PivotLabels>,
     },
     /// Inserts a pivot chart plotting a pivot table (§21.2.2.142 `pivotSource`).
     PivotChart {
+        /// 0-based sheet index.
         sheet: usize,
+        /// 0-based index of the pivot table in the sheet.
         index: usize,
+        /// Chart type (default column).
         #[serde(default)]
         kind: Option<String>,
     },
+    /// Changes the page setup of a sheet; absent fields are kept.
     SetPageSetup {
+        /// 0-based sheet index.
         sheet: usize,
+        /// `portrait` or `landscape`.
         #[serde(default)]
         orientation: Option<String>,
+        /// Paper size code (§18.3.1.63 `paperSize`, 9 = A4).
         #[serde(default)]
         paper_size: Option<u32>,
+        /// Print scale in percent.
         #[serde(default)]
         scale: Option<u32>,
         /// Fit to `[width, height]` pages (0 = no limit); `null` turns fitting off.
@@ -602,8 +835,80 @@ pub enum SheetCommand {
         /// Rows repeated at the top `[first, last]`; `null` clears.
         #[serde(default)]
         title_rows: Option<Option<[u32; 2]>>,
+        /// Print gridlines.
         #[serde(default)]
         grid_lines: Option<bool>,
+    },
+    /// Password for the next `.xlsx` saves ([MS-OFFCRYPTO]); empty/absent removes it.
+    SetSavePassword {
+        /// The password; `None` or empty saves unencrypted.
+        #[serde(default)]
+        password: Option<String>,
+    },
+    /// Sheet and workbook protection state (§18.3.1.85, §18.2.29).
+    Protection {
+        /// 0-based sheet index.
+        sheet: usize,
+    },
+    /// Protects a sheet; `allow` lists what stays permitted.
+    ProtectSheet {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Password (hashed with SHA-512 + salt, §18.3.1.85 hashValue); empty = none.
+        #[serde(default)]
+        password: String,
+        /// Actions still permitted on the protected sheet.
+        #[serde(default)]
+        allow: super::protect::SheetPermissions,
+    },
+    /// Removes the protection of a sheet; fails when the password does not match.
+    UnprotectSheet {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Password given when the sheet was protected (empty when it had none).
+        #[serde(default)]
+        password: String,
+    },
+    /// Locks the workbook structure (`lockStructure`).
+    ProtectWorkbook {
+        /// Password (hashed, §18.2.29 workbookHashValue); empty = none.
+        #[serde(default)]
+        password: String,
+    },
+    /// Removes workbook protection (§18.2.29); fails when the password does not match.
+    UnprotectWorkbook {
+        /// Password given when the workbook was protected (empty when it had none).
+        #[serde(default)]
+        password: String,
+    },
+    /// Moves sheet `from` to position `to` (sheet tabs drag and drop).
+    MoveSheet {
+        /// Current 0-based index of the sheet.
+        from: usize,
+        /// 0-based index the sheet ends up at.
+        to: usize,
+    },
+    /// `sheetPr/tabColor` (§18.3.1.93) as `RRGGBB`; `None`/empty removes it.
+    SetTabColor {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Tab colour `RRGGBB`; `None` or empty removes it.
+        #[serde(default)]
+        color: Option<String>,
+    },
+    /// Several commands as one undo step (e.g. formatting every range of a
+    /// multi-range selection); results are returned in order.
+    Batch {
+        /// The commands, run in order.
+        cmds: Vec<SheetCommand>,
+    },
+    /// Sum, count and average of the numbers in several ranges (status bar of a
+    /// multi-range selection); cells covered twice count once.
+    RangeStats {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The ranges of the selection.
+        ranges: Vec<Rng>,
     },
 }
 
@@ -722,6 +1027,62 @@ impl SheetEngine {
         Ok(self.exec(cmd)?.to_string())
     }
 
+    /// Refuses a command that sheet or workbook protection forbids
+    /// (ECMA-376 Part 1, §18.3.1.85 `sheetProtection`, §18.2.29 `workbookProtection`).
+    /// Content changes to locked cells are refused in [`SheetEngine::edit`].
+    fn guard(&self, cmd: &SheetCommand) -> Result<()> {
+        use super::protect::{check, check_range, Action as A};
+        use SheetCommand as C;
+        let Some(wb) = self.wb.as_ref() else {
+            return Ok(());
+        };
+        let ws = |i: usize| wb.sheets.get(i).ok_or(EngineError::PageOutOfRange(i));
+        let rows_or_cols = |rows: bool| {
+            if rows {
+                A::FormatRows
+            } else {
+                A::FormatColumns
+            }
+        };
+        match cmd {
+            C::Format { sheet, .. }
+            | C::Borders { sheet, .. }
+            | C::CellStyle { sheet, .. }
+            | C::ClearFormats { sheet, .. }
+            | C::PaintFormat { sheet, .. }
+            | C::Merge { sheet, .. }
+            | C::Unmerge { sheet, .. }
+            | C::AddCf { sheet, .. }
+            | C::ClearCf { sheet, .. }
+            | C::SetValidation { sheet, .. } => check(ws(*sheet)?, A::FormatCells),
+            C::Resize { sheet, rows, .. }
+            | C::Autofit { sheet, rows, .. }
+            | C::Hide { sheet, rows, .. } => check(ws(*sheet)?, rows_or_cols(*rows)),
+            C::Sort { sheet, range, .. } => {
+                let w = ws(*sheet)?;
+                check(w, A::Sort)?;
+                check_range(wb, w, range.r0, range.c0, range.r1, range.c1)
+            }
+            C::ToggleFilter { sheet, .. } | C::SetFilter { sheet, .. } => {
+                check(ws(*sheet)?, A::AutoFilter)
+            }
+            C::InsertChart { sheet, .. }
+            | C::EditChart { sheet, .. }
+            | C::DeleteChart { sheet, .. }
+            | C::MoveChart { sheet, .. } => check(ws(*sheet)?, A::Objects),
+            C::PivotCreate { sheet, .. }
+            | C::PivotUpdate { sheet, .. }
+            | C::PivotGroup { sheet, .. }
+            | C::PivotCalcField { sheet, .. }
+            | C::PivotDelete { sheet, .. }
+            | C::PivotMove { sheet, .. }
+            | C::PivotChangeSource { sheet, .. }
+            | C::PivotRefresh { sheet, .. } => check(ws(*sheet)?, A::PivotTables),
+            C::MoveSheet { .. } => super::protect::check_structure(wb),
+            _ => Ok(()),
+        }
+    }
+
     /// One mutating edit: snapshot for undo, apply, refresh geometry and values.
     pub(super) fn edit<R>(
         &mut self,
@@ -742,6 +1103,10 @@ impl SheetEngine {
                 return Err(e);
             }
         };
+        if let Err(e) = locked_cells_unchanged(&before, wb) {
+            *wb = *before;
+            return Err(e);
+        }
         match recalc {
             Recalc::No => {}
             Recalc::All => self.live.rebuild(wb),
@@ -762,6 +1127,7 @@ impl SheetEngine {
     pub fn exec(&mut self, cmd: SheetCommand) -> Result<Value> {
         use SheetCommand as C;
         let locale = self.locale;
+        self.guard(&cmd)?;
         match cmd {
             C::ConvertLegacyText => Ok(json!({ "converted": self.convert_legacy_text()? })),
             C::Comments { sheet } => Ok(json!(self.comment_threads(sheet)?)),
@@ -791,6 +1157,73 @@ impl SheetEngine {
             C::DeleteComment { sheet, id } => {
                 self.delete_comment(sheet, &id)?;
                 Ok(json!({ "ok": true }))
+            }
+            C::SetSavePassword { password } => {
+                self.set_save_password(password.as_deref());
+                Ok(json!({ "ok": true }))
+            }
+            C::Protection { sheet } => {
+                let ws = self.sheet(sheet)?;
+                Ok(json!({
+                    "sheet": super::protect::sheet_info(ws),
+                    "workbook": super::protect::workbook_info(self.wb()?),
+                }))
+            }
+            C::ProtectSheet {
+                sheet,
+                password,
+                allow,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                super::protect::protect_sheet(&mut wb.sheets[sheet], &password, &allow)?;
+                Ok(json!({ "ok": true }))
+            }),
+            C::UnprotectSheet { sheet, password } => self.edit(sheet, Recalc::No, |wb, _| {
+                super::protect::unprotect_sheet(&mut wb.sheets[sheet], &password)?;
+                Ok(json!({ "ok": true }))
+            }),
+            C::ProtectWorkbook { password } => self.edit(0, Recalc::No, |wb, _| {
+                super::protect::protect_workbook(wb, &password)?;
+                Ok(json!({ "ok": true }))
+            }),
+            C::UnprotectWorkbook { password } => self.edit(0, Recalc::No, |wb, _| {
+                super::protect::unprotect_workbook(wb, &password)?;
+                Ok(json!({ "ok": true }))
+            }),
+            C::MoveSheet { from, to } => {
+                let n = self.wb()?.sheets.len();
+                if from >= n || to >= n {
+                    return Err(EngineError::PageOutOfRange(from.max(to)));
+                }
+                if from == to {
+                    return Ok(json!({ "ok": true }));
+                }
+                let out = self.edit(from, Recalc::All, |wb, _| {
+                    move_sheet(wb, from, to);
+                    Ok(json!({ "ok": true }))
+                })?;
+                self.invalidate(None);
+                Ok(out)
+            }
+            C::SetTabColor { sheet, color } => self.edit(sheet, Recalc::No, |wb, _| {
+                let hex = color
+                    .as_deref()
+                    .map(|c| c.trim().trim_start_matches('#').to_ascii_uppercase())
+                    .filter(|c| !c.is_empty());
+                let ws = &mut wb.sheets[sheet];
+                ws.props.tab_color = match hex {
+                    Some(h) if h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()) => {
+                        // §18.3.1.93 tabColor (ARGB, `rgb` adds the alpha).
+                        Some(bo_model::sheet::SheetColor::rgb(&h))
+                    }
+                    Some(h) => return Err(bad(format!("bad colour '{h}'"))),
+                    None => None,
+                };
+                Ok(json!({ "ok": true }))
+            }),
+            C::Batch { cmds } => self.batch(cmds),
+            C::RangeStats { sheet, ranges } => {
+                let ws = self.sheet(sheet)?;
+                Ok(range_stats(ws, &ranges))
             }
             C::Presets => Ok(json!({
                 "numberFormats": bo_sheet::style::NUMBER_PRESETS
@@ -1827,15 +2260,15 @@ impl SheetEngine {
 
     /// Input text of a cell (formula bar form).
     fn input_of(&self, cell: &Cell) -> String {
-        let (fmt_id, d1904) = self.wb.as_ref().map_or((0, false), |wb| {
-            (
-                wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id),
-                wb.date1904,
-            )
-        });
         match (&cell.formula, &cell.value) {
             (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
-            (_, CellValue::Number(n)) => date_input(*n, fmt_id, &self.locale, d1904)
+            (_, CellValue::Number(n)) => self
+                .wb
+                .as_ref()
+                .and_then(|wb| {
+                    let fmt_id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
+                    date_input(*n, &wb.styles, fmt_id, &self.locale, wb.date1904)
+                })
                 .unwrap_or_else(|| number_input(*n, &self.locale)),
             (_, CellValue::Bool(b)) => if *b { "TRUE" } else { "FALSE" }.to_owned(),
             (_, CellValue::Error(e)) => e.as_str().to_owned(),
@@ -2159,6 +2592,113 @@ impl SheetEngine {
     }
 }
 
+/// Content (value or formula) of locked cells of protected sheets must not
+/// change (ECMA-376 Part 1, §18.3.1.85 with §18.8.33 `protection/@locked`).
+fn locked_cells_unchanged(before: &Workbook, after: &Workbook) -> Result<()> {
+    for (si, old) in before.sheets.iter().enumerate() {
+        if !super::protect::sheet_info(old).protected {
+            continue;
+        }
+        let Some(new) = after.sheets.get(si) else {
+            continue;
+        };
+        let same = |a: Option<&Cell>, b: Option<&Cell>| match (a, b) {
+            (Some(a), Some(b)) => a.value == b.value && a.formula == b.formula,
+            (None, None) => true,
+            (Some(c), None) | (None, Some(c)) => !non_empty(c),
+        };
+        let keys = old.cells.keys().chain(new.cells.keys());
+        for &(r, c) in keys {
+            if !same(old.cells.get(&(r, c)), new.cells.get(&(r, c)))
+                && super::protect::cell_locked(before, old, r, c)
+            {
+                return Err(EngineError::Sheet(super::protect::SHEET_PROTECTED.into()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Moves a sheet, keeping sheet-scoped names (`localSheetId`, §18.2.5) and the
+/// pivot caches pointing at the same sheets.
+fn move_sheet(wb: &mut Workbook, from: usize, to: usize) {
+    let ws = wb.sheets.remove(from);
+    wb.sheets.insert(to, ws);
+    let map = |i: usize| -> usize {
+        if i == from {
+            to
+        } else if from < to && i > from && i <= to {
+            i - 1
+        } else if to < from && i >= to && i < from {
+            i + 1
+        } else {
+            i
+        }
+    };
+    for dn in &mut wb.defined_names {
+        if let Some(s) = dn.local_sheet {
+            if let Ok(i) = usize::try_from(s) {
+                dn.local_sheet = u32::try_from(map(i)).ok();
+            }
+        }
+    }
+}
+
+/// Status-bar figures of a multi-range selection.
+fn range_stats(ws: &Worksheet, ranges: &[Rng]) -> Value {
+    let mut seen = std::collections::BTreeSet::new();
+    let (mut sum, mut numbers, mut count) = (0.0_f64, 0_u64, 0_u64);
+    for r in ranges {
+        let r = r.range();
+        for row in r.first.row..=r.last.row {
+            for (&(rr, cc), cell) in ws.cells.range((row, r.first.col)..=(row, r.last.col)) {
+                if !seen.insert((rr, cc)) || !non_empty(cell) {
+                    continue;
+                }
+                count += 1;
+                if let CellValue::Number(n) = cell.value {
+                    sum += n;
+                    numbers += 1;
+                }
+            }
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let average = (numbers > 0).then(|| sum / numbers as f64);
+    json!({ "sum": sum, "count": count, "numbers": numbers, "average": average })
+}
+
+impl SheetEngine {
+    /// Runs `cmds` as one undo step: on error the workbook is restored.
+    fn batch(&mut self, cmds: Vec<SheetCommand>) -> Result<Value> {
+        let before = Box::new(self.wb()?.clone());
+        let depth = self.undo.len();
+        let mut out = Vec::with_capacity(cmds.len());
+        for c in cmds {
+            if matches!(c, SheetCommand::Batch { .. }) {
+                return Err(bad("nested batch"));
+            }
+            match self.exec(c) {
+                Ok(v) => out.push(v),
+                Err(e) => {
+                    self.undo.truncate(depth);
+                    if let Some(wb) = self.wb.as_mut() {
+                        *wb = *before;
+                        self.live.rebuild(wb);
+                    }
+                    self.invalidate(None);
+                    return Err(e);
+                }
+            }
+        }
+        if self.undo.len() > depth {
+            self.undo.truncate(depth);
+            self.undo.push(UndoEntry::Workbook(before));
+        }
+        Ok(Value::Array(out))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{HitInfo, ViewRequest};
@@ -2185,6 +2725,48 @@ mod tests {
         let mut back = SheetEngine::with_bundled_fonts();
         back.open(&bytes, "x.xlsx").unwrap();
         back
+    }
+
+    // source: ECMA-376 Part 1, §18.17.4.1 (serial 45351 = 2024-02-29), §18.8.30 (ids 15, 17)
+    #[test]
+    fn typed_dates_with_month_names() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "29 tháng 2 năm 2024").unwrap();
+        e.set_input(0, 1, 0, "tháng 2/2024").unwrap();
+        e.set_input(0, 2, 0, "29 tháng 2").unwrap();
+        e.set_locale("en-US");
+        e.set_input(0, 3, 0, "February 29, 2024").unwrap();
+        let wb = e.workbook().unwrap();
+        let ws = &wb.sheets[0];
+        let got = |r: u32| {
+            let c = ws.cell(r, 0).unwrap();
+            (c.value.clone(), wb.styles.xf(c.style).unwrap().num_fmt_id)
+        };
+        assert_eq!(got(0), (CellValue::Number(45351.0), 15));
+        assert_eq!(got(1), (CellValue::Number(45323.0), 17));
+        // No year: left as text.
+        assert_eq!(got(2).0, CellValue::Text("29 tháng 2".into()));
+        assert_eq!(got(3), (CellValue::Number(45351.0), 15));
+        assert_eq!(e.cell(0, 3, 0).unwrap().display, "29-Feb-24");
+        // The formula bar shows the date (not the serial) for these formats
+        // and for a custom date format; confirming it keeps value and format.
+        assert_eq!(e.cell(0, 3, 0).unwrap().input, "2/29/2024");
+        e.set_locale("vi-VN");
+        assert_eq!(e.cell(0, 0, 0).unwrap().input, "29/02/2024");
+        assert_eq!(e.cell(0, 1, 0).unwrap().input, "01/02/2024");
+        e.set_input(0, 0, 0, "29/02/2024").unwrap();
+        let wb = e.workbook().unwrap();
+        let c = wb.sheets[0].cell(0, 0).unwrap();
+        assert_eq!(c.value, CellValue::Number(45351.0));
+        assert_eq!(wb.styles.xf(c.style).unwrap().num_fmt_id, 15);
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(5, 0, 5, 0), "patch": { "numFmt": "d mmm yyyy" } }),
+        );
+        e.set_input(0, 5, 0, "45351,5").unwrap();
+        assert_eq!(e.cell(0, 5, 0).unwrap().input, "29/02/2024 12:00:00");
+        e.set_input(0, 5, 0, "0,25").unwrap();
+        assert_eq!(e.cell(0, 5, 0).unwrap().input, "6:00:00");
     }
 
     // source: ECMA-376 Part 1, §18.17.4.1 (serial 45351 = 2024-02-29), §18.8.30 (ids 14, 20, 22)
@@ -2816,6 +3398,59 @@ mod tests {
         assert_eq!(e.cell(0, 100, 1).unwrap().display, "1001");
         // Target (BlueOffice-PROMPT §5): < 100 ms, met even by debug builds.
         assert!(took.as_millis() < 100, "{took:?}");
+    }
+
+    #[test]
+    // source: ECMA-376 Part 1, §18.10.1.49 location, §18.10.1.98 worksheetSource
+    fn inserted_rows_move_pivot_tables_and_their_sources() {
+        let mut e = engine();
+        let data = [
+            ("Vùng", "Doanh thu"),
+            ("Bắc", "10"),
+            ("Nam", "5"),
+            ("Bắc", "7"),
+        ];
+        let mut cells = Vec::new();
+        for (r, (a, b)) in data.iter().enumerate() {
+            cells.push((r as u32, 0, (*a).to_owned()));
+            cells.push((r as u32, 1, (*b).to_owned()));
+        }
+        e.set_inputs(0, &cells).unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "pivotCreate", "sheet": 0, "range": rng(0, 0, 3, 1),
+                "dest": { "sheet": 0, "row": 0, "col": 5 },
+                "rows": [0], "values": [{ "field": 1, "function": "sum" }] }),
+        );
+        let before = e.workbook().unwrap().sheets[0].pivots[0].location;
+        e.structural(0, true, 0, 2, false).unwrap();
+        let wb = e.workbook().unwrap();
+        let pt = &wb.sheets[0].pivots[0];
+        assert_eq!(
+            pt.location.first.row,
+            before.first.row + 2,
+            "{:?}",
+            pt.location
+        );
+        assert_eq!(pt.location.last.row, before.last.row + 2);
+        let cache = wb
+            .pivot_caches
+            .iter()
+            .find(|c| c.cache_id == pt.cache_id)
+            .unwrap();
+        assert_eq!(
+            cache.source_ref.as_deref(),
+            Some("A3:B6"),
+            "{:?}",
+            cache.source_ref
+        );
+        // The report still reads the data: Bắc = 17.
+        let r = pt.location.first.row;
+        let found = (r..=pt.location.last.row).any(|row| {
+            e.cell(0, row, 5).unwrap().display == "Bắc"
+                && e.cell(0, row, 6).unwrap().display == "17"
+        });
+        assert!(found);
     }
 
     #[test]

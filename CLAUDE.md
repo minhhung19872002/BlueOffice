@@ -22,6 +22,8 @@ Kiến trúc: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Tiến độ: [`
 - Rust stable **MSVC** (`rustup default stable-x86_64-pc-windows-msvc`) + VS 2022 Build Tools (ADR-0004); target `wasm32-unknown-unknown`.
 - `wasm-bindgen` CLI **0.2.130** (phải khớp crate). Node ≥ 22, pnpm 9. .NET SDK ≥ 8 (target net8.0).
 - PowerShell chưa có `~/.cargo/bin` trong PATH thì thêm: `$env:Path="$env:USERPROFILE\.cargo\bin;$env:Path"`.
+- Linux (CI/cloud): `bo-desktop` (Tauri) cần `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+  libsoup-3.0-dev libjavascriptcoregtk-4.1-dev` (apt); thiếu thì `cargo test --workspace --exclude bo-desktop`.
 
 ## Lệnh
 ```bash
@@ -41,7 +43,9 @@ cargo test -p bo-docx --test corpus -- --nocapture       # % round-trip corpus
 cargo test -p bo-edit                          # gồm proptest undo/redo
 cargo run -p bo-cli -- convert in.xls --to xlsx          # doc/xls/xlsb/ppt/odt/ods/odp → OOXML, csv, pdf
 cargo run -p bo-cli -- inspect in.docx                   # định dạng, mã hoá, macro
-cargo run -p bo-cli -- sign in.pdf --key k.pem --cert c.pem   # PAdES / OOXML (bo-sign); verify <file>
+cargo run -p bo-cli -- sign in.pdf --key k.pem --cert c.pem   # PAdES / OOXML (bo-sign); --p12 f.p12 | --remote URL; --tsa URL (B-T)
+cargo run -p bo-cli -- ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch] [--tsa URL]   # PAdES B-LT: DSS (chứng thư + CRL/OCSP); --tsa: B-LTA
+cargo run -p bo-cli -- verify in.pdf --trust root-ca.pem [--crl ca.crl] [--ocsp r.der | --ocsp-fetch] [--crl-fetch] [--json]  # chữ ký + dấu thời gian + chuỗi tới trust anchor + thu hồi CRL/OCSP (ADR-0007)
 cargo run -p bo-cli -- sample-slides tests/corpus/slide  # sinh lại corpus slide
 BO_WRITE_CORPUS=1 cargo test -p bo-xlsx --test corpus    # sinh lại corpus sheet
 cargo bench -p bo-formula                                # 1 triệu ô / 100k công thức
@@ -67,14 +71,19 @@ pnpm --filter @blueoffice/desktop tauri build --no-bundle   # BlueDoc → target
 pnpm --filter @blueoffice/desktop build:bluesheet          # BlueSheet (vn.bluestar.bluesheet)
 pnpm --filter @blueoffice/desktop build:blueslide          # BlueSlide (vn.bluestar.blueslide)
 cargo install tauri-driver --locked                        # E2E desktop (WebDriver), cần msedgedriver khớp WebView2
-MSEDGEDRIVER=<msedgedriver.exe> pnpm test:e2e:desktop      # target/release/bluedoc.exe (BLUEDOC_EXE=…; COLLAB_E2E=0 bỏ ca deep link)
+MSEDGEDRIVER=<msedgedriver.exe> pnpm test:e2e:desktop      # target/release/bluedoc.exe (BLUEDOC_EXE=…; COLLAB_E2E=0 bỏ ca deep link); ca so ảnh P1.10 cần apps/web/dist
+pnpm --filter @blueoffice/desktop tauri build --no-bundle --features updater   # bản có auto-update (docs/deploy/desktop-update.md)
+# Desktop env: BLUEOFFICE_SYSTEM_FONTS=0 · BLUEOFFICE_PRINT_DIALOG=0 · BLUEOFFICE_UPDATE_URL · BLUEOFFICE_E2E_SAVE_DIR (docs/deploy/desktop-print.md)
 BLUEOFFICE_SERVER=http://localhost:5000 bluedoc.exe "bluedoc://open?host=…&file=…&token=…"   # mở file host + cộng tác
 
 # Server (gồm tests/mock-bluedrive, tools/BlueOffice.Validate = bo-validate)
 dotnet test BlueOffice.sln
+BO_TEST_POSTGRES="Host=localhost;Username=bo;Password=bo;Database=bo" dotnet test BlueOffice.sln   # + migration trên PostgreSQL thật (DB tạm)
 dotnet run --project apps/server/BlueOffice.Api
 dotnet format BlueOffice.sln --verify-no-changes
 dotnet run --project tools/BlueOffice.Validate -- <file-or-dir>   # OpenXmlValidator
+# đổi model server: migration cho cả hai provider (dotnet tool install -g dotnet-ef --version 8.0.11; docs/deploy/upgrade.md)
+(cd apps/server/BlueOffice.Infrastructure && dotnet ef migrations add <Ten> --context PostgresBlueOfficeDbContext --output-dir Data/Migrations/Postgres && dotnet ef migrations add <Ten> --context SqliteBlueOfficeDbContext --output-dir Data/Migrations/Sqlite)
 docker compose -f deploy/docker-compose.yml up -d                 # on-prem, xem docs/deploy/
 ```
 
@@ -104,6 +113,7 @@ cộng tác, chế độ chỉ xem — dùng chung cho web nhúng và desktop de
 - Cập nhật trạng thái cộng tác: sửa ô qua host bọc `collabSheetHost` (`packages/collab`); đừng ghi thẳng engine khi đang cộng tác.
 - Code UI/editor không gọi API trình duyệt/Tauri trực tiếp cho việc phụ thuộc nền tảng → đi qua `Platform`.
 - **Thứ tự font = FaceId**: `assets/fonts/manifest.json`, `crates/bo-engine/src/bundled.rs`, `FONT_FILES` trong desktop phải khớp (có test).
+  Font hệ thống (desktop, `SystemFontIndex`) nạp lười, FaceId luôn **sau** font đóng gói; parity/so ảnh tắt bằng `BLUEOFFICE_SYSTEM_FONTS=0`.
 - Đổi layout/render → chạy lại `pnpm build:wasm` rồi test parity; snapshot insta: `INSTA_UPDATE=always cargo test -p bo-layout` rồi review diff.
 - Commit: conventional commits, nhỏ, kèm test. Mỗi phase: plan → làm → test xanh → cập nhật PROGRESS + CLAUDE.md
   (chủ dự án đã bỏ bước dừng chờ duyệt giữa các phase).

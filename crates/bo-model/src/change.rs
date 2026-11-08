@@ -2,8 +2,12 @@
 //!
 //! Editing transactions record every block splice here; the layout re-shapes only
 //! the changed blocks and the engine updates its per-block caches (word counts,
-//! the `modified` flag) from the same ranges. Changes that are not block splices
-//! of a section's body (styles, numbering, sections, headers…) mark everything.
+//! the `modified` flag) from the same ranges. Header/footer edits are recorded as
+//! the first section whose headers or footers changed (the layout decorates the
+//! pages again without re-paginating while their heights stay the same). Other
+//! changes mark everything; page setup changes of a later section, a style sheet or numbering
+//! change marks the blocks using it (`bo_edit::ops::record_styles` /
+//! `record_numbering`) and [`BlockChanges::mark_parts`].
 
 /// The changed range of one section, in the current block indexes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +45,11 @@ impl SectionChange {
 pub struct BlockChanges {
     all: bool,
     sections: Vec<SectionChange>,
+    /// First section whose headers/footers (or the header selection) changed.
+    headers: Option<usize>,
+    /// A document part other than the blocks changed (styles, numbering) without
+    /// necessarily changing the layout of any block.
+    parts: bool,
 }
 
 impl BlockChanges {
@@ -49,12 +58,14 @@ impl BlockChanges {
         BlockChanges {
             all: true,
             sections: Vec::new(),
+            headers: None,
+            parts: false,
         }
     }
 
     /// Nothing changed.
     pub fn is_empty(&self) -> bool {
-        !self.all && self.sections.is_empty()
+        !self.all && self.sections.is_empty() && self.headers.is_none()
     }
 
     /// Everything must be considered changed.
@@ -72,10 +83,38 @@ impl BlockChanges {
         self.sections.iter().find(|c| c.section == section)
     }
 
+    /// First section whose headers or footers changed (later sections may inherit
+    /// them, ECMA-376 Part 1, §17.10.5); `None` when [`BlockChanges::is_all`].
+    pub fn headers(&self) -> Option<usize> {
+        self.headers
+    }
+
+    /// Record that a document part other than the blocks changed (style sheet,
+    /// numbering); the blocks it affects are recorded separately.
+    pub fn mark_parts(&mut self) {
+        self.parts = true;
+    }
+
+    /// A part other than the blocks changed ([`BlockChanges::mark_parts`]), or
+    /// everything did.
+    pub fn parts_changed(&self) -> bool {
+        self.parts || self.all
+    }
+
     /// Mark everything changed.
     pub fn mark_all(&mut self) {
         self.all = true;
         self.sections.clear();
+        self.headers = None;
+    }
+
+    /// Record that the headers/footers of `section` changed (content, title page or
+    /// the even/odd setting; not the section's other properties).
+    pub fn mark_headers(&mut self, section: usize) {
+        if self.all {
+            return;
+        }
+        self.headers = Some(self.headers.map_or(section, |s| s.min(section)));
     }
 
     /// Record that `removed` blocks at `index` of `section` were replaced by `inserted` blocks.
@@ -109,9 +148,13 @@ impl BlockChanges {
 
     /// Append the changes `later`, made after these.
     pub fn extend(&mut self, later: &BlockChanges) {
+        self.parts |= later.parts;
         if later.all {
             self.mark_all();
             return;
+        }
+        if let Some(s) = later.headers {
+            self.mark_headers(s);
         }
         for c in &later.sections {
             self.splice(c.section, c.start, c.old_end() - c.start, c.end - c.start);

@@ -2,6 +2,8 @@
 //! read → write → compare every package part. XML parts are compared in
 //! canonical form (attribute order, namespace declarations and insignificant
 //! whitespace ignored), everything else byte for byte.
+// Test helpers may unwrap: a panic is the desired failure mode here.
+#![allow(clippy::unwrap_used)]
 
 use bo_drawingml::dom::{canonical, parse};
 use bo_opc::{Limits, Package};

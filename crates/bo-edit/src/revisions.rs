@@ -66,18 +66,28 @@ pub enum RevKind {
     rename_all_fields = "camelCase"
 )]
 pub enum StoryRef {
+    /// A header of a section (§17.10.4 headerReference).
     Header {
+        /// 0-based section index.
         section: usize,
+        /// Which header of the section (default, first page, even pages).
         variant: crate::section::HfVariant,
     },
+    /// A footer of a section (§17.10.3 footerReference).
     Footer {
+        /// 0-based section index.
         section: usize,
+        /// Which footer of the section (default, first page, even pages).
         variant: crate::section::HfVariant,
     },
+    /// A footnote (§17.11.10 footnote).
     Footnote {
+        /// Note id (`w:footnote/@w:id`).
         id: i32,
     },
+    /// An endnote (§17.11.2 endnote).
     Endnote {
+        /// Note id (`w:endnote/@w:id`).
         id: i32,
     },
 }
@@ -86,12 +96,18 @@ pub enum StoryRef {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RevisionItem {
+    /// Revision id (`@w:id`).
     pub id: i32,
+    /// Kind of change.
     pub kind: RevKind,
+    /// Author name.
     pub author: String,
+    /// Date of the change (`ST_DateTime`), if set.
     pub date: Option<String>,
-    /// Positions in the main text, or in the story's own paragraphs when `story` is set.
+    /// Start of the affected range: a position in the main text, or in the story's own
+    /// paragraphs when `story` is set.
     pub start: Pos,
+    /// End of the affected range.
     pub end: Pos,
     /// Affected text (shortened).
     pub text: String,

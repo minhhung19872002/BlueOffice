@@ -8,6 +8,9 @@
 //! bo-cli convert deck.ppt --to odp|txt              # also .odp input
 //! bo-cli convert secret.docx --password pw --to docx --protect newpw
 //! bo-cli inspect file                               # format, encryption, macros
+//! bo-cli sign in.pdf --p12 me.p12 [--tsa URL] | --key k.pem --cert c.pem | --remote URL
+//! bo-cli ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch] [--tsa URL] [--out out.pdf]
+//! bo-cli verify in.pdf [--trust root-ca.pem] [--crl ca.crl] [--ocsp resp.der | --ocsp-fetch] [--crl-fetch] [--json]
 //! bo-cli dump input.docx [--page 0]          # display list JSON (parity tests)
 //! bo-cli pack <dir> <out.docx> | unpack <file> <dir>
 //! bo-cli sample <out.docx>                   # generate the Phase 1 corpus sample
@@ -24,6 +27,7 @@
 mod convert;
 mod corpus;
 mod sample;
+mod sign_cmd;
 mod slide_edits;
 mod slide_samples;
 
@@ -41,6 +45,7 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)] // parsed once per run
 enum Cmd {
     /// Render pages to PNG. `%d` in --out is replaced by the 1-based page number.
     Render {
@@ -71,14 +76,33 @@ enum Cmd {
         #[arg(long, default_value_t = 1)]
         sheet: usize,
     },
-    /// Digitally sign a PDF (PAdES B-B) or .docx/.xlsx/.pptx (ECMA-376 Part 2 §12)
-    /// with an RSA key (PEM) and its certificate (PEM or DER).
+    /// Digitally sign a PDF (PAdES B-B/B-T) or .docx/.xlsx/.pptx (ECMA-376 Part 2 §12,
+    /// XAdES) with a PEM key + certificate, a .p12 file or a remote signing service.
     Sign {
         input: PathBuf,
+        /// RSA private key (PEM); needs --cert.
         #[arg(long)]
-        key: PathBuf,
+        key: Option<PathBuf>,
+        /// Certificate (PEM or DER); extra PEM blocks are the intermediate chain.
         #[arg(long)]
-        cert: PathBuf,
+        cert: Option<PathBuf>,
+        /// PKCS#12 file (.p12/.pfx) with key and chain.
+        #[arg(long)]
+        p12: Option<PathBuf>,
+        /// PKCS#12 password (default: env BO_P12_PASSWORD).
+        #[arg(long)]
+        password: Option<String>,
+        /// Remote signing service base URL (docs/deploy/remote-signing.md).
+        #[arg(long)]
+        remote: Option<String>,
+        #[arg(long)]
+        remote_credential: Option<String>,
+        /// Bearer token (default: env BO_REMOTE_TOKEN).
+        #[arg(long)]
+        remote_token: Option<String>,
+        /// RFC 3161 time-stamp authority URL (default: env BO_TSA_URL).
+        #[arg(long)]
+        tsa: Option<String>,
         /// Output file (default: `<input>-signed.<ext>`).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -90,8 +114,36 @@ enum Cmd {
         #[arg(long)]
         location: Option<String>,
     },
-    /// Verify the digital signatures of a PDF or OOXML file.
-    Verify { input: PathBuf },
+    /// Verify the digital signatures of a PDF or OOXML file: integrity,
+    /// time-stamp and certificate path to the trust anchors.
+    Verify {
+        input: PathBuf,
+        /// Trust anchor file (PEM bundle / DER) or directory; repeatable
+        /// (default: env BO_TRUST_ANCHORS).
+        #[arg(long)]
+        trust: Vec<PathBuf>,
+        #[command(flatten)]
+        rev: sign_cmd::Revocation,
+        /// Machine-readable JSON report.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Add long-term validation data (PAdES B-LT DSS: certificate paths, CRLs,
+    /// OCSP responses) to a signed PDF so it can be verified later offline.
+    Ltv {
+        input: PathBuf,
+        /// Trust anchor file or directory; repeatable (default: env BO_TRUST_ANCHORS).
+        #[arg(long)]
+        trust: Vec<PathBuf>,
+        #[command(flatten)]
+        rev: sign_cmd::Revocation,
+        /// Also add a document time-stamp from this RFC 3161 TSA (PAdES B-LTA).
+        #[arg(long)]
+        tsa: Option<String>,
+        /// Output file (default: `<input>-ltv.pdf`).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Report the detected format, encryption and macro presence (macros are never run).
     Inspect {
         input: PathBuf,
@@ -255,28 +307,41 @@ fn run(cli: Cli) -> R {
             input,
             key,
             cert,
+            p12,
+            password,
+            remote,
+            remote_credential,
+            remote_token,
+            tsa,
             out,
             name,
             reason,
             location,
         } => {
             let bytes = std::fs::read(&input)?;
-            let signer = bo_sign::SoftwareSigner::from_pem(
-                &std::fs::read_to_string(&key)?,
-                &std::fs::read(&cert)?,
+            let file_name = input
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("document");
+            let signer = sign_cmd::signer(
+                &sign_cmd::SignerArgs {
+                    key,
+                    cert,
+                    p12,
+                    password,
+                    remote,
+                    remote_credential,
+                    remote_token,
+                },
+                file_name,
             )?;
-            let is_pdf = bytes.starts_with(b"%PDF");
-            let signed = if is_pdf {
-                let opts = bo_sign::pdf::SignOptions {
-                    name,
-                    reason,
-                    location,
-                    ..bo_sign::pdf::SignOptions::default()
-                };
-                bo_sign::pdf::sign_pdf(&bytes, &signer, &opts)?
-            } else {
-                bo_sign::ooxml::sign_ooxml(&bytes, &signer, std::time::SystemTime::now())?
+            let opts = bo_sign::pdf::SignOptions {
+                name,
+                reason,
+                location,
+                ..bo_sign::pdf::SignOptions::default()
             };
+            let signed = sign_cmd::sign(&bytes, signer.as_ref(), &opts, tsa.as_deref())?;
             let out = out.unwrap_or_else(|| {
                 let stem = input
                     .file_stem()
@@ -288,38 +353,32 @@ fn run(cli: Cli) -> R {
             std::fs::write(&out, signed)?;
             println!("{}", out.display());
         }
-        Cmd::Verify { input } => {
-            let bytes = std::fs::read(&input)?;
-            if bytes.starts_with(b"%PDF") {
-                let sigs = bo_sign::pdf::verify_pdf(&bytes)?;
-                for (i, s) in sigs.iter().enumerate() {
-                    println!(
-                        "signature {}: valid, signer {}{}",
-                        i + 1,
-                        s.signer.subject,
-                        if s.covers_whole_file {
-                            ""
-                        } else {
-                            " (document changed after this signature)"
-                        }
-                    );
-                }
-                if sigs.is_empty() {
-                    println!("no signatures");
-                }
-            } else {
-                let sigs = bo_sign::ooxml::verify_ooxml(&bytes)?;
-                for s in &sigs {
-                    println!(
-                        "{}: valid, signed {}",
-                        s.part,
-                        s.signing_time.as_deref().unwrap_or("?")
-                    );
-                }
-                if sigs.is_empty() {
-                    println!("no signatures");
-                }
+        Cmd::Verify {
+            input,
+            trust,
+            rev,
+            json,
+        } => {
+            if !sign_cmd::verify(&input, &trust, &rev, json)? {
+                return Err("signature verification failed".into());
             }
+        }
+        Cmd::Ltv {
+            input,
+            trust,
+            rev,
+            tsa,
+            out,
+        } => {
+            let out = out.unwrap_or_else(|| {
+                let stem = input
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("signed");
+                input.with_file_name(format!("{stem}-ltv.pdf"))
+            });
+            let summary = sign_cmd::ltv(&input, &trust, &rev, tsa.as_deref(), &out)?;
+            println!("{}: {summary}", out.display());
         }
         Cmd::Inspect { input, password } => {
             let bytes = std::fs::read(&input).map_err(|e| format!("{}: {e}", input.display()))?;
@@ -597,6 +656,16 @@ fn run_convert(
         (Loaded::Workbook(_) | Loaded::Spreadsheet(_), "xlsx" | "pdf") => {
             sheet_convert(&bytes, &name, to, sheet)?
         }
+        // .ppt / .odp decks with their drawing, through the BlueSlide engine.
+        (Loaded::Deck(_), "pptx" | "pdf") => {
+            let mut engine = Engine::with_bundled_fonts();
+            engine.open(&bytes, &name)?;
+            if to == "pdf" {
+                engine.export_pdf()?
+            } else {
+                engine.save_pptx()?
+            }
+        }
         (Loaded::Deck(p), "odp") => bo_odf::write_odp(&p)?,
         (Loaded::Deck(p), "txt") => convert::presentation_text(&p).into_bytes(),
         (_, other) => {
@@ -704,6 +773,24 @@ fn bench_sheet(bytes: &[u8], name: &str, iterations: u32) -> R {
         e = fresh;
     }
     opens.sort();
+    if bytes.starts_with(b"PK\x03\x04") {
+        // Phase breakdown of the open: parse the package, then load + calculate.
+        let t = Instant::now();
+        let mut wb = bo_xlsx::read_xlsx(bytes)?;
+        let read = t.elapsed();
+        let mut full = wb.clone();
+        let t = Instant::now();
+        bo_sheet::live::LiveCalc::new().rebuild_from_file(&mut wb);
+        let cached = t.elapsed();
+        let t = Instant::now();
+        bo_sheet::live::LiveCalc::new().rebuild(&mut full);
+        println!(
+            "  read_xlsx: {:.1} ms, load keeping cached results: {:.1} ms, full recalculation: {:.1} ms",
+            read.as_secs_f64() * 1e3,
+            cached.as_secs_f64() * 1e3,
+            t.elapsed().as_secs_f64() * 1e3
+        );
+    }
     let info = e.info()?;
     println!("sheets: {}", info.sheets.len());
     // Sanity: formulas were calculated on open (first formula cell and the last

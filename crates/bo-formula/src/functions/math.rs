@@ -670,7 +670,7 @@ fn int_args(ctx: &Ctx, args: &[Value]) -> Result<Vec<f64>, ErrorKind> {
                 Value::Error(e) => return Err(e),
                 other => ctx.num(&other)?,
             };
-            if n < 0.0 || n >= 9.007_199_254_740_992e15 {
+            if !(0.0..9.007_199_254_740_992e15).contains(&n) {
                 return Err(ErrorKind::Num);
             }
             out.push(n.trunc());

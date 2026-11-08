@@ -7,6 +7,8 @@ describe('DesktopPlatform', () => {
     const fake = vi.fn(async (cmd: string, args?: unknown, options?: unknown) => {
       calls.push({ cmd, args, options });
       switch (cmd) {
+        case 'engine_init':
+          return 16;
         case 'engine_open':
           return {
             name: 'a.docx',

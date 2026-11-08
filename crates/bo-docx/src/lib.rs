@@ -16,8 +16,10 @@ pub use writer::write_docx;
 /// Errors produced while reading a `.docx`.
 #[derive(Debug, thiserror::Error)]
 pub enum DocxError {
+    /// Error from the OPC package layer.
     #[error(transparent)]
     Opc(#[from] bo_opc::OpcError),
+    /// The package has no main document part.
     #[error("package has no main document part (officeDocument relationship)")]
     NoMainDocument,
 }

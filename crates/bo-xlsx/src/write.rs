@@ -450,6 +450,19 @@ fn write_charts(
             overrides.insert(c.part.clone(), chart_space_xml(c).into_bytes());
         }
     }
+    // Anchors of file charts moved by inserted / deleted rows and columns.
+    if let Some(si) = wb.sheets.iter().position(|s| std::ptr::eq(s, ws)) {
+        crate::chart_write::sync_anchors(wb, si, overrides);
+    }
+    // Other charts whose series references moved (rows/columns inserted or
+    // deleted): only the `c:f` texts change, the rest of the part is kept.
+    for c in ws.charts.iter().filter(|c| !c.dirty && !c.part.is_empty()) {
+        if let Some(p) = opaque(&c.part) {
+            if let Some(xml) = crate::chart::patch_refs(&p.data, &c.part, c) {
+                overrides.insert(c.part.clone(), xml);
+            }
+        }
+    }
     let new: Vec<&bo_model::sheet::Chart> =
         ws.charts.iter().filter(|c| c.part.is_empty()).collect();
     if new.is_empty() {
@@ -603,10 +616,37 @@ fn write_pivot_caches(
             rids.push(c.rel_id.clone());
             if !c.part.is_empty() {
                 parts.insert(c.cache_id, c.part.clone());
+                // Source moved by inserted / deleted rows or columns: only the
+                // worksheetSource ref changes (§18.10.1.98), the part is kept.
+                let patched = c.source_ref.as_deref().and_then(|r| {
+                    wb.opaque
+                        .parts
+                        .iter()
+                        .find(|p| p.name == c.part)
+                        .and_then(|p| patch_attr(&p.data, "worksheetSource", "ref", r))
+                });
+                if let Some(x) = patched {
+                    put(c.part.clone(), "", x, out_parts);
+                }
             }
         }
     }
     (rids, parts)
+}
+
+/// `data` with attribute `attr` of the first `element` start tag (any
+/// prefix) set to `value`; `None` when it already has that value or is absent.
+fn patch_attr(data: &[u8], element: &str, attr: &str, value: &str) -> Option<Vec<u8>> {
+    let text = std::str::from_utf8(data).ok()?;
+    let pos = text
+        .find(&format!("<{element} "))
+        .or_else(|| text.find(&format!(":{element} ")))?;
+    let end = text[pos..].find('>')? + pos;
+    let key = format!(" {attr}=\"");
+    let a = text[pos..end].find(&key)? + pos + key.len();
+    let b = text[a..end].find('"')? + a;
+    let v = bo_opc::xml::escape(value);
+    (text[a..b] != v).then(|| format!("{}{v}{}", &text[..a], &text[b..]).into_bytes())
 }
 
 /// Writes new and edited pivot tables of `ws`.
@@ -654,6 +694,16 @@ fn write_pivot_tables(
             ));
         } else if pt.dirty && wb.opaque.parts.iter().any(|p| p.name == pt.part) {
             overrides.insert(pt.part.clone(), pivot_table_xml(pt, cache).into_bytes());
+        } else if let Some(x) = wb
+            .opaque
+            .parts
+            .iter()
+            .find(|p| p.name == pt.part)
+            .and_then(|p| patch_attr(&p.data, "location", "ref", &pt.location.to_string()))
+        {
+            // Report moved by inserted / deleted rows or columns (§18.10.1.49
+            // location ref); the rest of the part is kept.
+            overrides.insert(pt.part.clone(), x);
         }
     }
 }

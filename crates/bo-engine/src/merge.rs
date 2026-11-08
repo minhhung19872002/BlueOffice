@@ -11,8 +11,11 @@ pub const MAX_RECORDS: usize = 100_000;
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MergeState {
+    /// File name of the data source.
     pub name: String,
+    /// Field (column) names.
     pub fields: Vec<String>,
+    /// Number of records.
     pub count: usize,
     /// Record shown in the preview (0-based), if any.
     pub preview: Option<usize>,

@@ -10,19 +10,28 @@ use serde::Serialize;
 /// Caret box on a page (points).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct CaretRect {
+    /// 0-based page index.
     pub page: usize,
+    /// Left of the caret in points from the page's left edge.
     pub x: f32,
+    /// Top of the caret in points from the page's top edge.
     pub y: f32,
+    /// Caret height in points.
     pub h: f32,
 }
 
 /// Selection highlight rectangle on a page (points).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct SelRect {
+    /// 0-based page index.
     pub page: usize,
+    /// Left edge in points from the page's left edge.
     pub x: f32,
+    /// Top edge in points from the page's top edge.
     pub y: f32,
+    /// Width in points.
     pub w: f32,
+    /// Height in points.
     pub h: f32,
 }
 
@@ -33,15 +42,21 @@ const MARK_W: f32 = 4.0;
 /// paragraphs are numbered in document order inside the note (§17.11).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Story {
+    /// The main document body.
     #[default]
     Body,
+    /// One footnote or endnote.
     Note {
+        /// `true` = endnote, `false` = footnote.
         endnote: bool,
+        /// Note id (`w:id`).
         id: i32,
     },
     /// The text box at index offset `at` of body paragraph `para` (§17.17.1).
     TextBox {
+        /// Body paragraph id of the anchor.
         para: u32,
+        /// Index-text offset of the anchor in that paragraph.
         at: u32,
     },
 }
@@ -234,17 +249,29 @@ pub fn hit_test(layout: &LayoutDocument, page: usize, x: f32, y: f32) -> Option<
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Motion {
+    /// One character left.
     Left,
+    /// One character right.
     Right,
+    /// To the start of the previous word.
     WordLeft,
+    /// To the start of the next word.
     WordRight,
+    /// One line up.
     Up,
+    /// One line down.
     Down,
+    /// To the start of the line (Home).
     LineStart,
+    /// To the end of the line (End).
     LineEnd,
+    /// One page up.
     PageUp,
+    /// One page down.
     PageDown,
+    /// To the start of the document (Ctrl+Home).
     DocStart,
+    /// To the end of the document (Ctrl+End).
     DocEnd,
 }
 

@@ -19,9 +19,13 @@ use std::hash::{Hash, Hasher};
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommentOut {
+    /// Comment id.
     pub id: String,
+    /// Author display name.
     pub author: String,
+    /// Creation time (ISO 8601).
     pub date: String,
+    /// Plain text.
     pub text: String,
 }
 
@@ -29,7 +33,9 @@ pub struct CommentOut {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadOut {
+    /// Thread id (id of its first comment).
     pub id: String,
+    /// The thread is resolved.
     pub done: bool,
     /// First comment, then the replies.
     pub comments: Vec<CommentOut>,

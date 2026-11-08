@@ -546,3 +546,23 @@ proptest! {
         prop_assert_eq!(s.doc(), &original);
     }
 }
+
+/// Shrunk case of `tracked_structure_reject_all_restores_original`: merge two
+/// cells, insert a row above, shade, then reject everything.
+#[test]
+fn tracked_merge_insert_row_shade_reject_restores_original() {
+    let original = doc();
+    let mut s = Session::new(original.clone());
+    s.set_track_changes(true);
+    s.set_author("Người duyệt");
+    for a in [
+        Act::Select(2, 1),
+        Act::Merge,
+        Act::InsertRow(false),
+        Act::Shading(0),
+    ] {
+        run(&mut s, &a);
+    }
+    s.resolve_revisions(None, false).unwrap();
+    same(s.doc(), &original).unwrap();
+}

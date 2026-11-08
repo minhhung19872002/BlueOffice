@@ -120,40 +120,10 @@ pub fn load(bytes: &[u8], password: Option<&str>) -> Result<(Loaded, Facts), Err
     }
 }
 
-/// Map a spreadsheet model (`bo_model::sheet`) to the ODF table model (values only).
+/// Map a spreadsheet model (`bo_model::sheet`) to the ODF table model:
+/// values, OpenFormula formulas and cell styles (`bo_engine::sheet::workbook_to_ods`).
 pub fn model_to_ods(wb: &bo_model::sheet::Workbook) -> SpreadsheetDoc {
-    use bo_model::sheet::CellValue as V;
-    SpreadsheetDoc {
-        sheets: wb
-            .sheets
-            .iter()
-            .map(|ws| bo_odf::Sheet {
-                name: ws.name.clone(),
-                cells: ws
-                    .cells
-                    .iter()
-                    .filter_map(|(&(row, col), c)| {
-                        let value = match &c.value {
-                            V::Number(n) => bo_odf::CellValue::Float(*n),
-                            V::Text(t) => bo_odf::CellValue::String(t.clone()),
-                            V::RichText(runs) => bo_odf::CellValue::String(
-                                runs.iter().map(|r| r.text.as_str()).collect(),
-                            ),
-                            V::Bool(b) => bo_odf::CellValue::Boolean(*b),
-                            V::Error(e) => bo_odf::CellValue::String(e.as_str().to_owned()),
-                            _ => return None,
-                        };
-                        Some(bo_odf::Cell {
-                            row,
-                            col,
-                            value,
-                            formula: None,
-                        })
-                    })
-                    .collect(),
-            })
-            .collect(),
-    }
+    bo_engine::sheet::workbook_to_ods(wb, &bo_sheet::numfmt::Locale::VI_VN)
 }
 
 /// Map a `.ppt` deck to the ODF presentation text model.
@@ -187,8 +157,8 @@ pub fn deck_to_presentation(deck: &PptDeck) -> Presentation {
     }
 }
 
-/// Map a binary workbook to the ODF spreadsheet model (values only; formula
-/// text is A1 syntax and is not translated to OpenFormula yet).
+/// Map a binary workbook to the ODF spreadsheet model (values and formulas
+/// translated from A1 to OpenFormula).
 pub fn workbook_to_ods(wb: &Workbook) -> SpreadsheetDoc {
     use bo_binary::CellValue as B;
     use bo_odf::CellValue as O;
@@ -213,12 +183,14 @@ pub fn workbook_to_ods(wb: &Workbook) -> SpreadsheetDoc {
                             row: c.row,
                             col: c.col,
                             value,
-                            formula: None,
+                            formula: c.formula.as_deref().map(bo_odf::to_openformula),
+                            style: None,
                         })
                     })
                     .collect(),
             })
             .collect(),
+        styles: Vec::new(),
     }
 }
 

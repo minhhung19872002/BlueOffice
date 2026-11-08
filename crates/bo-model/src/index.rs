@@ -37,9 +37,13 @@ pub fn item_text(c: &RunContent) -> String {
 /// Byte range of a content item in the paragraph index text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ItemSpan {
+    /// 0-based index of the run in `Paragraph::runs`.
     pub run: usize,
+    /// 0-based index of the item in that run's `content`.
     pub item: usize,
+    /// Start byte offset in the index text (inclusive).
     pub start: usize,
+    /// End byte offset in the index text (exclusive).
     pub end: usize,
 }
 

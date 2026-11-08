@@ -6,6 +6,7 @@
 /// A workbook.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Workbook {
+    /// Worksheets in tab order.
     pub sheets: Vec<Worksheet>,
     /// Dates use the 1904 system ([MS-XLS] §2.4.77 Date1904 / [MS-XLSB] BrtWbProp).
     pub date1904: bool,
@@ -18,6 +19,7 @@ pub struct Workbook {
 /// A defined name ([MS-XLS] §2.4.150 Lbl / [MS-XLSB] BrtName).
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefinedName {
+    /// Name as written in the file.
     pub name: String,
     /// Formula text without `=`, when it could be decoded.
     pub formula: Option<String>,
@@ -28,6 +30,7 @@ pub struct DefinedName {
 /// A worksheet (chart sheets and macro sheets are skipped).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Worksheet {
+    /// Sheet tab name.
     pub name: String,
     /// Whether the sheet is hidden (`hsState` ≠ visible).
     pub hidden: bool,
@@ -88,7 +91,9 @@ impl Worksheet {
 /// A cell (0-based row/column).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cell {
+    /// 0-based row index.
     pub row: u32,
+    /// 0-based column index.
     pub col: u32,
     /// Value, or the cached result for formula cells.
     pub value: CellValue,
@@ -101,9 +106,13 @@ pub struct Cell {
 /// A cell value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CellValue {
+    /// No value.
     Empty,
+    /// Numeric value (dates are serial numbers).
     Number(f64),
+    /// String value.
     Text(String),
+    /// Boolean value.
     Bool(bool),
     /// Error literal such as `#DIV/0!`.
     Error(String),

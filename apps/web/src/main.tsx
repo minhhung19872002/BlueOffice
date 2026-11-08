@@ -302,7 +302,13 @@ async function standalone(): Promise<void> {
   root.render(
     <StrictMode>
       {notice ? <Notice text={notice} /> : null}
-      {auth ? <AccountChip auth={auth} language={language} /> : null}
+      {auth ? (
+        <AccountChip
+          auth={auth}
+          language={language}
+          returnTo={window.location.pathname + window.location.search}
+        />
+      ) : null}
       <Editor app={app} platform={platform} />
     </StrictMode>,
   );

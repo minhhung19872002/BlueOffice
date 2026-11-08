@@ -9,9 +9,13 @@ use serde::Serialize;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewState {
+    /// Track changes is on.
     pub track_changes: bool,
+    /// Author of new revisions and comments.
     pub author: String,
+    /// How tracked changes are displayed.
     pub view: RevisionView,
+    /// Revisions of the document.
     pub revisions: Vec<RevisionItem>,
     /// Comments (ECMA-376 Part 1, §17.13.4) with their thread parent.
     pub comments: Vec<CommentInfo>,

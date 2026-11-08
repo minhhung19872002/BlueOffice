@@ -144,7 +144,10 @@ nhất), nên chèn/di chuyển đồng thời các phần tử *khác nhau* đ�
   thì cả hai lần chuyển được giữ (cùng một slide: người ghi sau thắng).
 - Ghi chú người trình bày: chữ của placeholder body trong notes là story `n:<sldId>` (văn bản thuần, hợp nhất); phần còn
   lại của notes đi theo slide.
-- Master / layout / theme: `sm:<i>`, `sl:<i>`, `th:<i>` + `pp` (quan hệ presentation), LWW theo part. Giải mã master
+- Master / layout / theme: `sm:<key>`, `sl:<key>`, `th:<key>` + `pp` (quan hệ presentation), LWW theo part. Part của file
+  mở khoá theo chỉ số; part tạo trong phiên (dán slide từ deck khác) có khoá riêng theo client nên hai người nhập thiết
+  kế cùng lúc giữ cả hai (test `designs_imported_at_once_by_two_peers_are_both_kept`). Tham chiếu slide → layout →
+  master → theme đi theo khoá (`lk`, `@m`, `@t`, `@l`) và được đổi lại thành chỉ số ở mỗi replica. Giải mã master
   (text styles vài chục KB) chạy trên luồng có stack lớn ở bản native (bản debug tràn stack 1–2 MB).
 
 **Kiểm thử**: `crates/bo-collab` (story lồng: reset, delta đồng thời, undo riêng, full state, xoá);
@@ -157,20 +160,29 @@ chèn-xoá hàng-cột/in đậm); `packages/collab/test/sheet-engine.test.ts` (
 dời ô và công thức của người kia; ghi chú slide).
 
 **Hạn chế còn lại (thật)**
-- Bảng lồng trong ô, bảng trong header/footer/chú thích/comment: vẫn là một embed `{"b"}` (LWW cả bảng).
-- Chèn hàng và chèn cột đồng thời trong cùng bảng BlueDoc: hàng mới thiếu ô ở cột mới (hội tụ, nhưng hàng ngắn hơn).
-  Xoá hàng/cột trong khi người khác gõ vào ô của nó: chữ gõ mất cùng hàng/cột.
-- Id comment/chú thích mới do mỗi replica tự cấp (max+1): hai người thêm comment/chú thích **đúng cùng lúc** có thể
-  trùng id → hai neo trỏ cùng một mục (LWW). Danh sách tạo trong phiên vẫn chia sẻ theo kiểu (`bullet`/`number`).
+- Bảng lồng trong ô bảng: chia sẻ từng ô như bảng thân (dòng `{"t":key}` trong story ô `c:<t>:<r>:<c>`, đệ quy; dựng lại
+  bảng cha khi ô con đổi — `rebuild_nested`). Client cũ cùng phòng không hiểu dòng `{"t"}` lồng.
+- Bảng trong header/footer/chú thích/comment: vẫn là một embed `{"b"}` (LWW cả bảng).
+- Chèn hàng và chèn cột đồng thời trong cùng bảng BlueDoc: hàng mới được thêm ô trống ở cột mới (mỗi hàng ghi các cột
+  cố ý để trống, `RowEntry::x`, nên hàng ngắn do "xoá ô đẩy trái" vẫn giữ nguyên). Xoá hàng/cột trong khi người khác gõ vào ô của nó: chữ gõ mất cùng hàng/cột.
+- Id comment/chú thích mới: khi cộng tác, mỗi replica lấy id ≡ hạt giống riêng (từ client id Yrs, mod 65 536,
+  `Session::set_id_seed`) nên hai người thêm **đúng cùng lúc** không còn trùng (test
+  `concurrent_comments_and_notes_get_distinct_ids`; trước đó comment của một người bị mất). Danh sách tạo trong phiên vẫn chia sẻ theo kiểu (`bullet`/`number`).
   Header/footer khoá theo số thứ tự section: chèn section break đồng thời với sửa header có thể gán nhầm section.
-  `docDefaults`, `defaultTabStop`, latent styles không đồng bộ trực tiếp.
-- BlueSheet: CF, DV, biểu đồ, pivot, hyperlink, bảng (ListObject), autofilter, vùng in, freeze pane lưu **theo vị trí**
-  (LWW): một quy tắc ghi đồng thời với việc người khác chèn hàng không dịch theo hàng đó. Đổi tên sheet không sửa công
+  `docDefaults`, `defaultTabStop`, latent styles không có lệnh sửa trong BlueDoc nên không cần đồng bộ (mọi replica
+  mở cùng một file).
+- BlueSheet: vùng của CF và DV đi kèm id hàng/cột (`cfa:`/`dva:`, client cũ bỏ qua) nên dịch theo hàng/cột người khác
+  chèn/xoá đồng thời (test `rules_added_during_a_row_insert_follow_the_rows`); hyperlink, autofilter, bảng (ListObject)
+  cũng vậy (`sha:`, test `a_filter_turned_on_during_a_row_insert_follows_the_rows`), và biểu đồ (ô neo + tham chiếu
+  series, `cha:`), vùng in / tiêu đề in (công thức theo id trong `sha:`), pivot (vị trí `pva:`, nguồn cache `pca:`).
+  Freeze pane: ranh giới đóng băng theo id hàng/cột (`sha:` `fz`). Mọi phần của sheet giờ theo id hàng/cột. Đổi tên sheet không sửa công
   thức tham chiếu tên cũ (như engine hiện tại). Biểu đồ/pivot/cache khoá theo chỉ số: thêm đồng thời trùng chỉ số →
   LWW. Ô trong hàng bị xoá vẫn nằm trong map (để hoàn tác khôi phục) cho tới khi lưu version. Kiểu ô lưu `xfId`
   (style có tên) theo chỉ số. Chèn liên tiếp > ~50 lần đúng một chỗ làm cạn độ chính xác khoá (thứ tự giữa các hàng mới
   chèn cùng chỗ khi đó theo id).
-- BlueSlide: master/layout/theme khoá theo chỉ số (dán slide từ deck khác đồng thời ở hai nơi → LWW); part gói khác
+- BlueSlide: tên part mới (ảnh, media, slide…) của replica đang cộng tác có thêm 5 chữ cái theo client
+  (`imagekqzta1.png`, `build::salt_names`) nên hai người thêm ảnh cùng lúc không trùng tên (test
+  `pictures_pasted_at_once_by_two_peers_keep_their_own_parts`; trước đó mỗi bên thấy ảnh của mình). Part gói khác
   (media đã có, notes master…) không đồng bộ ngoài `blobs`; định dạng chữ ghi chú khi gộp hai bản sửa lấy theo bản
   ghi notes thắng, chữ thì hợp nhất.
 - Hoàn tác BlueSheet chỉ đi qua replica khi host có binding engine; lịch sử cục bộ của engine bị xoá khi nhận thay đổi
@@ -274,9 +286,12 @@ giữ trong bộ nhớ (đóng app phải đăng nhập lại, token mock sống
 - **Ký số** (Phase 6): ký PDF PAdES và OOXML XML-DSig; điểm tích hợp dự kiến: một `ISignatureProvider` (USB token qua agent
   cục bộ trên desktop, ký số từ xa của CA Việt Nam qua REST) + job `sign` trong worker; chưa code.
 - `bo-collab` (Yrs) và editor SDK/TS (postMessage, nút Share/Close, chế độ offline) — luồng chính.
-- Nhiều instance `api` (room đang ở bộ nhớ một tiến trình): cần định tuyến theo file (consistent hashing) hoặc
-  Redis pub/sub cho relay.
-- EF Core migrations (hiện `EnsureCreated`); Testcontainers cho PostgreSQL/MinIO/Redis (hiện test dùng SQLite/filesystem/in-memory).
+- Nhiều instance `api`: room **và** phiên (`SessionStore`) đều ở bộ nhớ một tiến trình; các endpoint REST tìm phiên
+  theo id phiên. Thiết kế dự kiến: (1) phiên lưu ở PostgreSQL/Redis; (2) id phiên mang id instance sở hữu phòng và
+  `nginx` định tuyến `/collab/{fileId}` bằng `hash $fileId consistent`, `/api/sessions/{id}` theo tiền tố id;
+  (3) khoá sở hữu phòng trong Redis (`SET NX PX`, gia hạn) để hai instance không cùng mở một phòng — instance không
+  sở hữu đóng WebSocket mã 4009 cho client kết nối lại; (4) test bằng hai `TestApp` dùng chung Redis giả.
+- ~~EF Core migrations~~ (đã làm: `Data/Migrations/{Postgres,Sqlite}`, `DatabaseMigrator`); Testcontainers cho PostgreSQL/MinIO/Redis (hiện test dùng SQLite/filesystem/in-memory).
 - `ppt`/`odp` → `pptx`/PDF/ảnh: `bo-cli` chưa có đường từ mô hình ODF/[MS-PPT] sang PresentationML (chỉ `odp`, `txt`);
   `/thumbnail` và `/preview` của hai định dạng này trả 422.
 - Server chưa giữ Y.Doc (không merge được bản offline dạng CRDT ở server): khi xung đột luôn tạo bản sao.

@@ -15,8 +15,11 @@ use bo_model::slide::{
 /// Where a shape tree lives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
+    /// A slide, by index into the presentation's slides.
     Slide(usize),
+    /// A slide layout, by index into the presentation's layouts.
     Layout(usize),
+    /// A slide master, by index into the presentation's masters.
     Master(usize),
 }
 
@@ -227,6 +230,7 @@ fn level_of(ls: &ListStyle, lvl: usize) -> Option<&ParaProps> {
 /// Stack of list styles that apply to the text of one shape, lowest priority first.
 #[derive(Debug, Clone, Default)]
 pub struct TextStyleStack {
+    /// List styles, lowest priority first.
     pub layers: Vec<ListStyle>,
     /// Font/colour from the shape style's fontRef, applied above master styles.
     pub font_ref: Option<RunProps>,

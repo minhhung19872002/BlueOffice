@@ -74,7 +74,8 @@ impl<'a> Lexer<'a> {
     }
 
     pub(crate) fn tokenize(mut self) -> Result<Vec<Token>, ParseError> {
-        let mut out = Vec::new();
+        // About one token per three characters (`A1*2+B1`: 5 tokens in 7).
+        let mut out = Vec::with_capacity(self.src.len() / 3 + 2);
         loop {
             let mut space = false;
             while let Some(c) = self.peek_char() {

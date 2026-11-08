@@ -19,9 +19,13 @@ import type {
   WindowManager,
 } from '../types';
 import { WebEngineHost } from './WebEngineHost';
-import { createWebSheetHost } from './WebSheetHost';
+import { createWebSheetHost, webSheetTransport } from './WebSheetHost';
+import { WebSigning } from './signing';
 
-export { WebEngineHost, createWebSheetHost };
+export { WebSigning } from './signing';
+export type { SignatureBackend, WebSigningOptions } from './signing';
+
+export { WebEngineHost, createWebSheetHost, webSheetTransport };
 export { createWebAuth, AUTH_CALLBACK_PATH } from './auth';
 export { registerServiceWorker } from './pwa';
 
@@ -229,6 +233,25 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
   const baseUrl = opts.baseUrl ?? import.meta.env.BASE_URL ?? '/';
   const files = new WebFileAccess();
   const fonts = new BundledFontSource(baseUrl);
+  const engine = new WebEngineHost(fonts);
+  const env = import.meta.env as Record<string, string | undefined>;
+  const signing = new WebSigning(engine, {
+    defaults: {
+      remoteUrl: env.VITE_BO_REMOTE_SIGN_URL ?? null,
+      tsaUrl: env.VITE_BO_TSA_URL ?? null,
+    },
+    anchorsUrl: env.VITE_BO_TRUST_ANCHORS_URL ?? `${baseUrl}trust/anchors.pem`,
+    // CRL / OCSP through the BlueOffice server (browsers cannot reach CAs: CORS).
+    revocationProxy: env.VITE_BO_REVOCATION_PROXY_URL
+      ? {
+          url: env.VITE_BO_REVOCATION_PROXY_URL,
+          auth: async () => {
+            const token = await (opts.auth?.getAccessToken() ?? Promise.resolve(null));
+            return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+          },
+        }
+      : undefined,
+  });
   return {
     kind: 'web',
     files,
@@ -236,12 +259,13 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     clipboard: new BrowserClipboard(),
     fonts,
     print: new WebPrint(),
-    engine: new WebEngineHost(fonts),
+    engine,
     auth: opts.auth ?? new AnonymousSession(),
     window: new WebWindow(),
     offline: new IndexedDbCache(),
     shell: new WebShell(),
     channel: (name: string) => new BroadcastBus(name),
     sheet: createWebSheetHost(fonts, () => document.documentElement.lang || 'vi-VN'),
+    signing,
   };
 }

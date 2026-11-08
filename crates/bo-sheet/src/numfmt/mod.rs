@@ -29,13 +29,21 @@ use bo_model::sheet::CellValue;
 /// A colour named by a `[Color]` section tag (§18.8.31).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FmtColor {
+    /// `[Black]`.
     Black,
+    /// `[Blue]`.
     Blue,
+    /// `[Cyan]`.
     Cyan,
+    /// `[Green]`.
     Green,
+    /// `[Magenta]`.
     Magenta,
+    /// `[Red]`.
     Red,
+    /// `[White]`.
     White,
+    /// `[Yellow]`.
     Yellow,
     /// `[ColorN]`, N = 1–56 (index into the default palette).
     Indexed(u8),
@@ -86,6 +94,7 @@ impl Formatted {
 /// Options that are not part of the format code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FormatOptions {
+    /// Separators, month/day names and currency of the user's locale.
     pub locale: Locale,
     /// Workbook uses the 1904 date system (`workbookPr/@date1904`).
     pub date1904: bool,
@@ -1432,6 +1441,32 @@ pub fn format_value(value: &CellValue, code: &str, opts: &FormatOptions) -> Form
 /// Format a number with format `code`.
 pub fn format_number(v: f64, code: &str, opts: &FormatOptions) -> Formatted {
     NumberFormat::parse_with(code, &opts.locale).format_number(v, opts)
+}
+
+/// Renderer for the `TEXT` worksheet function (ECMA-376 Part 1, §18.17.7 TEXT
+/// with §18.8.31 format codes), installed into the formula engine as its
+/// [`bo_formula::TextFormatter`].
+///
+/// Format codes inside formulas use the invariant separators (`.` decimal,
+/// `,` thousands), so the en-US locale supplies separators and default names;
+/// a locale tag in the code (`[$-42A]`) still switches month/day names.
+/// Colours and `*x` fills have no meaning in text and are dropped; a value the
+/// code cannot show (e.g. a negative date) returns `None` (`TEXT` → `#VALUE!`).
+pub fn text_function_format(
+    input: bo_formula::FormatInput<'_>,
+    code: &str,
+    system: bo_formula::DateSystem,
+) -> Option<String> {
+    let opts = FormatOptions {
+        locale: Locale::EN_US,
+        date1904: system == bo_formula::DateSystem::Date1904,
+    };
+    let fmt = NumberFormat::parse_with(code, &opts.locale);
+    let out = match input {
+        bo_formula::FormatInput::Number(n) => fmt.format_number(n, &opts),
+        bo_formula::FormatInput::Text(s) => fmt.format_text(s, &opts),
+    };
+    (!out.invalid).then_some(out.text)
 }
 
 /// Format code for a number format id: custom formats from the stylesheet win,

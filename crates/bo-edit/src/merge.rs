@@ -11,7 +11,9 @@ use bo_model::{Block, Document, Paragraph, Run, RunContent, Section, SectionBrea
 pub struct MergeData {
     /// Data source name (file name).
     pub name: String,
+    /// Column names, in source order.
     pub fields: Vec<String>,
+    /// Records: one value per column.
     #[serde(skip)]
     pub rows: Vec<Vec<String>>,
 }

@@ -408,7 +408,7 @@ describe('BlueSlideEditor', () => {
     const { p, engine, saved } = fakePlatform();
     render(<BlueSlideEditor platform={p} language="vi-VN" />);
     await openDeck(p);
-    expect(engine.open).toHaveBeenCalledWith(expect.any(Uint8Array), 'Báo cáo.pptx');
+    expect(engine.open).toHaveBeenCalledWith(expect.any(Uint8Array), 'Báo cáo.pptx', undefined);
     expect(screen.getAllByRole('img', { name: /Slide \d \/ 3/ }).length).toBeGreaterThanOrEqual(3);
     fireEvent.keyDown(window, { key: 'ArrowDown' });
     await screen.findByDisplayValue('Ghi chú 2');
@@ -923,8 +923,11 @@ describe('BlueSlideEditor transitions, effects, charts and pictures', () => {
     await openDeck(p, 'Open');
     fireEvent.keyDown(window, { key: 'F5' });
     await screen.findByTestId('show-stage');
-    await waitFor(() => expect(screen.getAllByTestId('show-layer')).toHaveLength(2));
-    expect(screen.getByTestId('show-stage').dataset.slide).toBe('0');
+    // Layers and stage are checked together: the stage re-renders while the show loads.
+    await waitFor(() => {
+      expect(screen.getAllByTestId('show-layer')).toHaveLength(2);
+      expect(screen.getByTestId('show-stage').dataset.slide).toBe('0');
+    });
     // The animated title layer starts hidden (entrance on click 1).
     await waitFor(() =>
       expect(screen.getAllByTestId('show-layer')[1]!.dataset.visible).toBe('false'),

@@ -63,7 +63,9 @@ pub fn letters_to_col(s: &str) -> Option<u32> {
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize,
 )]
 pub struct CellRef {
+    /// Zero-based row index.
     pub row: u32,
+    /// Zero-based column index.
     pub col: u32,
 }
 
@@ -77,7 +79,16 @@ impl CellRef {
     /// ECMA-376 Part 1, §18.18.62 `ST_Ref` / §18.18.7 `ST_CellRef`.
     pub fn parse(s: &str) -> Option<CellRef> {
         let s = s.trim();
-        let s: String = s.chars().filter(|c| *c != '$').collect();
+        if s.contains('$') {
+            let plain: String = s.chars().filter(|c| *c != '$').collect();
+            return Self::parse_plain(&plain);
+        }
+        Self::parse_plain(s)
+    }
+
+    /// [`CellRef::parse`] of a reference without `$` (no allocation: every cell of a
+    /// worksheet has one).
+    fn parse_plain(s: &str) -> Option<CellRef> {
         let split = s.find(|c: char| c.is_ascii_digit())?;
         let (letters, digits) = s.split_at(split);
         let col = letters_to_col(letters)?;
@@ -100,7 +111,9 @@ impl fmt::Display for CellRef {
 /// A rectangular range (inclusive, zero-based), e.g. `A1:C3`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CellRange {
+    /// Top-left cell.
     pub first: CellRef,
+    /// Bottom-right cell (inclusive).
     pub last: CellRef,
 }
 
@@ -188,9 +201,13 @@ pub struct RawXml {
 /// The target is stored as an absolute part name for internal relationships.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct OpaqueRel {
+    /// Relationship id (`Id`, e.g. `rId3`).
     pub id: String,
+    /// Relationship type URI (`Type`).
     pub rel_type: String,
+    /// Target: an absolute part name, or the URI of an external target.
     pub target: String,
+    /// `TargetMode="External"`.
     pub external: bool,
 }
 
@@ -201,6 +218,7 @@ pub struct OpaquePart {
     pub name: String,
     /// Content type override from `[Content_Types].xml`, if any.
     pub content_type: Option<String>,
+    /// Raw part bytes.
     pub data: Vec<u8>,
 }
 
@@ -229,6 +247,7 @@ pub type RawAttr = (String, String);
 /// A workbook (ECMA-376 Part 1, §18.2.27 `workbook`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Workbook {
+    /// Sheets in workbook order (`sheets/sheet`).
     pub sheets: Vec<Worksheet>,
     /// Styles part (§18.8 Styles).
     pub styles: Stylesheet,
@@ -284,17 +303,20 @@ impl Workbook {
 /// in document order: dk1, lt1, dk2, lt2, accent1–6, hlink, folHlink.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ThemeColors {
+    /// Scheme colours as `RRGGBB` strings, in the order listed above.
     pub colors: Vec<String>,
 }
 
 /// A defined name (ECMA-376 Part 1, §18.2.5 `definedName`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct DefinedName {
+    /// Name (`name`), e.g. `Tax_Rate` or a built-in `_xlnm.*` name.
     pub name: String,
     /// Formula text (e.g. `Sheet1!$A$1:$B$5`).
     pub formula: String,
     /// `localSheetId`: sheet scope (index into [`Workbook::sheets`]); `None` = workbook scope.
     pub local_sheet: Option<u32>,
+    /// `hidden`: the name is not shown in the user interface.
     pub hidden: bool,
     /// Other attributes (comment, function, vbProcedure, xlm, …).
     pub attrs: Vec<RawAttr>,
@@ -303,9 +325,12 @@ pub struct DefinedName {
 /// Visibility of a sheet (§18.18.68 `ST_SheetState`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SheetState {
+    /// Shown normally.
     #[default]
     Visible,
+    /// Hidden; the user can unhide it.
     Hidden,
+    /// Hidden; only unhidable programmatically (`veryHidden`).
     VeryHidden,
 }
 
@@ -317,6 +342,7 @@ pub enum SheetKind {
     Worksheet,
     /// Chartsheet / dialogsheet / macro sheet kept as an opaque part.
     Opaque {
+        /// Relationship type of the sheet part.
         rel_type: String,
         /// Absolute part name of the (opaque) sheet part.
         part: String,
@@ -334,7 +360,9 @@ pub struct Worksheet {
     pub name: String,
     /// `sheet/@sheetId` (stable id, unique within the workbook).
     pub sheet_id: u32,
+    /// Visibility (`sheet/@state`).
     pub state: SheetState,
+    /// Worksheet or opaque sheet kind.
     pub kind: SheetKind,
     /// Sparse cells keyed by zero-based `(row, col)`.
     #[serde(with = "cell_map")]
@@ -494,9 +522,13 @@ pub struct SheetFormat {
     pub default_col_width: Option<f64>,
     /// `baseColWidth` in characters (default 8).
     pub base_col_width: Option<u32>,
+    /// `customHeight`: `default_row_height` was set explicitly.
     pub custom_height: bool,
+    /// `zeroHeight`: rows are hidden by default.
     pub zero_height: bool,
+    /// `outlineLevelRow`: highest row outline level in use.
     pub outline_level_row: u8,
+    /// `outlineLevelCol`: highest column outline level in use.
     pub outline_level_col: u8,
     /// Other attributes (thickTop, thickBottom, x14ac:dyDescent, …).
     pub attrs: Vec<RawAttr>,
@@ -528,13 +560,19 @@ pub struct SheetProps {
 pub struct RowInfo {
     /// `ht` in points.
     pub height: Option<f64>,
+    /// `customHeight`: the height was set manually.
     pub custom_height: bool,
+    /// `hidden`.
     pub hidden: bool,
+    /// `outlineLevel` (0 = not grouped).
     pub outline_level: u8,
+    /// `collapsed`: the outline group below is collapsed.
     pub collapsed: bool,
     /// Row style (`s` with `customFormat="1"`).
     pub style: Option<u32>,
+    /// `thickTop`: a cell of the row has a thick or double top border.
     pub thick_top: bool,
+    /// `thickBot`: a cell of the row has a thick or double bottom border.
     pub thick_bot: bool,
     /// Other attributes (x14ac:dyDescent, ph, …).
     pub attrs: Vec<RawAttr>,
@@ -543,15 +581,23 @@ pub struct RowInfo {
 /// A column range (§18.3.1.13 `col`), zero-based inclusive.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ColInfo {
+    /// First column, zero-based (`min` − 1).
     pub min: u32,
+    /// Last column, zero-based inclusive (`max` − 1).
     pub max: u32,
     /// Width in characters.
     pub width: Option<f64>,
+    /// `customWidth`: the width was set manually.
     pub custom_width: bool,
+    /// `hidden`.
     pub hidden: bool,
+    /// `bestFit`: the width was auto-fitted to the contents.
     pub best_fit: bool,
+    /// `outlineLevel` (0 = not grouped).
     pub outline_level: u8,
+    /// `collapsed`: the outline group is collapsed.
     pub collapsed: bool,
+    /// Default style of the column's cells (`style`, index into `cellXfs`).
     pub style: Option<u32>,
 }
 
@@ -560,6 +606,7 @@ pub struct ColInfo {
 pub struct Cell {
     /// Value (cached result for formula cells).
     pub value: CellValue,
+    /// Formula (`f`), if any.
     pub formula: Option<Formula>,
     /// Index into [`Stylesheet::cell_xfs`] (`s`, default 0).
     pub style: u32,
@@ -598,13 +645,18 @@ impl Cell {
 /// Cell value (§18.18.11 `ST_CellType`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub enum CellValue {
+    /// No value.
     #[default]
     Empty,
+    /// A number (`t="n"`, the default type).
     Number(f64),
+    /// Plain text (`t="s"` shared, `t="str"` formula string or `t="inlineStr"`).
     Text(String),
     /// Rich text (shared string with runs, §18.4.4 `r`).
     RichText(Vec<TextRun>),
+    /// A boolean (`t="b"`).
     Bool(bool),
+    /// An error value (`t="e"`).
     Error(CellError),
     /// ISO 8601 date (`t="d"`), kept as text.
     Date(String),
@@ -624,15 +676,25 @@ impl CellValue {
 /// Error values (§18.18.11 / §3.17.7 of Part 1 formulas).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CellError {
+    /// `#NULL!`
     Null,
+    /// `#DIV/0!`
     Div0,
+    /// `#VALUE!`
     Value,
+    /// `#REF!`
     Ref,
+    /// `#NAME?`
     Name,
+    /// `#NUM!`
     Num,
+    /// `#N/A`
     NA,
+    /// `#GETTING_DATA`
     GettingData,
+    /// `#SPILL!`
     Spill,
+    /// `#CALC!`
     Calc,
     /// Any other error literal.
     Other(String),
@@ -677,6 +739,7 @@ impl CellError {
 /// A run of rich text (§18.4.4 `r` with `rPr` §18.4.7).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct TextRun {
+    /// Run text (`t`).
     pub text: String,
     /// Run properties; `None` = inherit the cell font.
     pub font: Option<Font>,
@@ -687,6 +750,7 @@ pub struct TextRun {
 pub struct Formula {
     /// Formula text without `=`. Empty for shared-formula followers.
     pub text: String,
+    /// Formula type (`t`) and its shared / array range.
     pub kind: FormulaKind,
     /// `ca` — calculate cell always.
     pub calc_always: bool,
@@ -707,14 +771,26 @@ impl Formula {
 /// Formula type (§18.18.6 `ST_CellFormulaType`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum FormulaKind {
+    /// An ordinary single-cell formula.
     #[default]
     Normal,
     /// Shared formula: `index` = `si`; `range` is set on the master cell only.
-    Shared { index: u32, range: Option<String> },
+    Shared {
+        /// `si`: shared formula group index.
+        index: u32,
+        /// `ref`: range of the group (master cell only).
+        range: Option<String>,
+    },
     /// Array formula over `range`.
-    Array { range: String },
+    Array {
+        /// `ref`: the cells the array formula fills.
+        range: String,
+    },
     /// Data table formula over `range`.
-    DataTable { range: String },
+    DataTable {
+        /// `ref`: the cells of the data table.
+        range: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -724,15 +800,21 @@ pub enum FormulaKind {
 /// `sheetView` (§18.3.1.87).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct SheetView {
+    /// `workbookViewId`: the `bookViews/workbookView` this view belongs to.
     pub workbook_view_id: u32,
+    /// `tabSelected`: the sheet tab is selected.
     pub tab_selected: bool,
     /// `showGridLines` (default true).
     pub show_grid_lines: Option<bool>,
     /// `showRowColHeaders` (default true).
     pub show_headers: Option<bool>,
+    /// `zoomScale` percent (default 100).
     pub zoom_scale: Option<u32>,
+    /// `rightToLeft`: columns run right to left.
     pub right_to_left: bool,
+    /// `topLeftCell`: A1 reference of the top-left visible cell.
     pub top_left_cell: Option<String>,
+    /// `pane` (§18.3.1.66): freeze or split pane, if any.
     pub pane: Option<Pane>,
     /// `selection` elements (§18.3.1.78), kept as raw attributes.
     pub selections: Vec<Vec<RawAttr>>,
@@ -745,9 +827,12 @@ pub struct SheetView {
 /// Pane state (§18.18.53 `ST_PaneState`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum PaneState {
+    /// Panes are split, not frozen.
     #[default]
     Split,
+    /// Panes are frozen.
     Frozen,
+    /// Panes are frozen, and unfreezing leaves a split.
     FrozenSplit,
 }
 
@@ -758,20 +843,26 @@ pub struct Pane {
     pub x_split: f64,
     /// Frozen: number of rows; split: vertical position in 1/20 pt.
     pub y_split: f64,
+    /// `topLeftCell` of the bottom-right pane (A1 reference).
     pub top_left_cell: Option<String>,
+    /// `activePane`: bottomRight, topRight, bottomLeft or topLeft.
     pub active_pane: Option<String>,
+    /// `state`.
     pub state: PaneState,
 }
 
 /// Hyperlink (§18.3.1.47).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Hyperlink {
+    /// Cells covered by the link (`ref`).
     pub range: CellRange,
     /// External target (from the relationship), e.g. a URL.
     pub target: Option<String>,
     /// In-document location (`location`), e.g. `Sheet2!A1`.
     pub location: Option<String>,
+    /// `display`: text shown in the cell.
     pub display: Option<String>,
+    /// `tooltip`.
     pub tooltip: Option<String>,
 }
 
@@ -806,39 +897,57 @@ pub struct ThreadedComment {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Person {
+    /// `id` (GUID) referenced by `personId`.
     pub id: String,
+    /// `displayName`.
     pub display_name: String,
+    /// `userId` (identity at the provider).
     pub user_id: Option<String>,
+    /// `providerId` (e.g. `AD`, `None`).
     pub provider_id: Option<String>,
 }
 
 /// A comment / note (§18.7.3 `comment`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Comment {
+    /// Anchor cell (`ref`).
     pub cell: CellRef,
+    /// Author name (resolved from `authorId`).
     pub author: String,
+    /// Comment text as rich text runs.
     pub text: Vec<TextRun>,
 }
 
 /// Data validation (§18.3.1.32 `dataValidation`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct DataValidation {
+    /// Cells the rule applies to (`sqref`).
     pub sqref: Vec<CellRange>,
     /// `type` (§18.18.21): none, whole, decimal, list, date, time, textLength, custom.
     pub kind: Option<String>,
     /// `operator` (§18.18.20).
     pub operator: Option<String>,
+    /// `allowBlank`: empty cells pass validation.
     pub allow_blank: bool,
+    /// `showInputMessage`: show the prompt when the cell is selected.
     pub show_input_message: bool,
+    /// `showErrorMessage`: show the error alert on invalid input.
     pub show_error_message: bool,
     /// `showDropDown` (note: true *hides* the in-cell dropdown, per spec).
     pub show_drop_down: bool,
+    /// `errorStyle`: stop, warning or information.
     pub error_style: Option<String>,
+    /// `errorTitle`.
     pub error_title: Option<String>,
+    /// `error`: error alert message.
     pub error: Option<String>,
+    /// `promptTitle`.
     pub prompt_title: Option<String>,
+    /// `prompt`: input message.
     pub prompt: Option<String>,
+    /// `formula1`: first criterion (list source, minimum, …), without `=`.
     pub formula1: Option<String>,
+    /// `formula2`: second criterion (maximum for between / notBetween).
     pub formula2: Option<String>,
     /// Other attributes (imeMode, xr:uid, …).
     pub attrs: Vec<RawAttr>,
@@ -847,8 +956,11 @@ pub struct DataValidation {
 /// A `conditionalFormatting` block (§18.3.1.18).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ConditionalFormat {
+    /// Cells the block applies to (`sqref`).
     pub sqref: Vec<CellRange>,
+    /// `pivot`: the formatting belongs to a pivot table.
     pub pivot: bool,
+    /// Rules of the block (`cfRule`).
     pub rules: Vec<CfRule>,
 }
 
@@ -857,15 +969,23 @@ pub struct ConditionalFormat {
 pub struct CfRule {
     /// `type` (§18.18.12): cellIs, expression, colorScale, dataBar, iconSet, top10, …
     pub kind: String,
+    /// `priority` (lower = evaluated first).
     pub priority: i32,
+    /// `dxfId`: differential format applied when the rule matches.
     pub dxf_id: Option<u32>,
+    /// `operator` (§18.18.15) for `cellIs` rules.
     pub operator: Option<String>,
+    /// `stopIfTrue`: lower-priority rules are skipped when this one matches.
     pub stop_if_true: bool,
+    /// `text` for text rules (containsText, beginsWith, …).
     pub text: Option<String>,
     /// `formula` children (§18.3.1.43).
     pub formulas: Vec<String>,
+    /// `colorScale` of a colour scale rule.
     pub color_scale: Option<ColorScale>,
+    /// `dataBar` of a data bar rule.
     pub data_bar: Option<DataBar>,
+    /// `iconSet` of an icon set rule.
     pub icon_set: Option<IconSet>,
     /// Other attributes (rank, percent, bottom, aboveAverage, timePeriod, …).
     pub attrs: Vec<RawAttr>,
@@ -878,6 +998,7 @@ pub struct CfRule {
 pub struct Cfvo {
     /// `type` (§18.18.13): num, percent, max, min, formula, percentile.
     pub kind: String,
+    /// `val`: the number, percent or formula of the threshold.
     pub val: Option<String>,
     /// `gte` (default true).
     pub gte: Option<bool>,
@@ -886,17 +1007,24 @@ pub struct Cfvo {
 /// Colour scale (§18.3.1.16).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ColorScale {
+    /// Thresholds (`cfvo`), two or three.
     pub cfvos: Vec<Cfvo>,
+    /// Colours matching the thresholds.
     pub colors: Vec<SheetColor>,
 }
 
 /// Data bar (§18.3.1.28).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct DataBar {
+    /// Minimum and maximum thresholds (`cfvo`).
     pub cfvos: Vec<Cfvo>,
+    /// Bar colour.
     pub color: Option<SheetColor>,
+    /// `minLength`: shortest bar in percent of the cell width.
     pub min_length: Option<u32>,
+    /// `maxLength`: longest bar in percent of the cell width.
     pub max_length: Option<u32>,
+    /// `showValue` (default true): also show the cell value.
     pub show_value: Option<bool>,
 }
 
@@ -905,9 +1033,13 @@ pub struct DataBar {
 pub struct IconSet {
     /// `iconSet` (§18.18.42), default `3TrafficLights1`.
     pub icon_set: Option<String>,
+    /// Thresholds (`cfvo`), one per icon.
     pub cfvos: Vec<Cfvo>,
+    /// `showValue` (default true): also show the cell value.
     pub show_value: Option<bool>,
+    /// `percent` (default true): thresholds are percentages.
     pub percent: Option<bool>,
+    /// `reverse`: icons in reverse order.
     pub reverse: Option<bool>,
 }
 
@@ -918,9 +1050,13 @@ pub struct IconSet {
 /// A table / ListObject (§18.5.1.2 `table`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Table {
+    /// `id`, unique within the workbook.
     pub id: u32,
+    /// `name`.
     pub name: String,
+    /// `displayName`: the name used in formulas (structured references).
     pub display_name: String,
+    /// `ref`: the table range, header and totals rows included.
     pub range: CellRange,
     /// `headerRowCount` (default 1).
     pub header_row_count: Option<u32>,
@@ -928,6 +1064,7 @@ pub struct Table {
     pub totals_row_count: Option<u32>,
     /// `totalsRowShown`.
     pub totals_row_shown: Option<bool>,
+    /// `tableColumns/tableColumn`.
     pub columns: Vec<TableColumn>,
     /// `tableStyleInfo` (§18.5.1.5).
     pub style: Option<TableStyleInfo>,
@@ -942,9 +1079,13 @@ pub struct Table {
 /// A table column (§18.5.1.3 `tableColumn`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TableColumn {
+    /// `id`, unique within the table.
     pub id: u32,
+    /// `name`: column header text.
     pub name: String,
+    /// `totalsRowFunction` (§18.18.86): sum, average, count, custom, ….
     pub totals_row_function: Option<String>,
+    /// `totalsRowLabel`: text shown in the totals row.
     pub totals_row_label: Option<String>,
     /// `calculatedColumnFormula` (§18.5.1.1).
     pub calculated_formula: Option<String>,
@@ -959,10 +1100,15 @@ pub struct TableColumn {
 /// `tableStyleInfo` (§18.5.1.5).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TableStyleInfo {
+    /// `name`: table style name, e.g. `TableStyleMedium2`.
     pub name: Option<String>,
+    /// `showFirstColumn`.
     pub show_first_column: bool,
+    /// `showLastColumn`.
     pub show_last_column: bool,
+    /// `showRowStripes`.
     pub show_row_stripes: bool,
+    /// `showColumnStripes`.
     pub show_column_stripes: bool,
 }
 
@@ -992,6 +1138,7 @@ pub struct FilterColumn {
     pub hidden_button: bool,
     /// `showButton` (default true).
     pub show_button: Option<bool>,
+    /// The column's filter criterion.
     pub filter: ColumnFilter,
 }
 
@@ -1003,17 +1150,27 @@ pub enum ColumnFilter {
     None,
     /// `filters` (§18.3.2.8): show rows whose displayed text equals one of `values`
     /// (case-insensitive); `blank` also shows empty cells.
-    Values { values: Vec<String>, blank: bool },
+    Values {
+        /// Shown text values (`filter/@val`).
+        values: Vec<String>,
+        /// `blank`: also show empty cells.
+        blank: bool,
+    },
     /// `customFilters` (§18.3.2.3): one or two `customFilter` conditions (§18.3.2.2)
     /// joined with AND (`and = true`) or OR.
     Custom {
+        /// `customFilters/@and`: conditions are joined with AND.
         and: bool,
+        /// The `customFilter` conditions.
         conditions: Vec<CustomFilter>,
     },
     /// `top10` (§18.3.2.10).
     Top10 {
+        /// `top`: top items (false = bottom).
         top: bool,
+        /// `percent`: `val` is a percentage of the items.
         percent: bool,
+        /// `val`: number (or percent) of items to show.
         val: f64,
         /// `filterVal`: the cut-off value cached by the writing application.
         filter_val: Option<f64>,
@@ -1021,21 +1178,29 @@ pub enum ColumnFilter {
     /// `filters` with `dateGroupItem` children (§18.3.2.4): rows whose date falls
     /// into one of `groups`, or whose text is one of `values`.
     DateGroups {
+        /// Shown text values (`filter/@val`).
         values: Vec<String>,
+        /// `blank`: also show empty cells.
         blank: bool,
+        /// Shown date groups (`dateGroupItem`).
         groups: Vec<DateGroup>,
     },
     /// `dynamicFilter` (§18.3.2.5): `kind` is an `ST_DynamicFilterType` (§18.18.26)
     /// such as `today`, `thisMonth`, `lastYear`, `Q1`, `M12`, `aboveAverage`.
     Dynamic {
+        /// `type`: the dynamic filter type token.
         kind: String,
+        /// `val`: cached reference value (e.g. the average).
         val: Option<f64>,
+        /// `maxVal`: cached upper bound of a date-range filter.
         max_val: Option<f64>,
     },
     /// `colorFilter` (§18.3.2.1): cells whose fill (`cell_color`, default) or font
     /// colour is the one of differential format `dxf_id`.
     Color {
+        /// `dxfId`: differential format holding the colour.
         dxf_id: Option<u32>,
+        /// `cellColor` (default true): match the fill colour instead of the font colour.
         cell_color: bool,
     },
     /// Any other criterion (iconFilter, extension elements, unknown attributes…)
@@ -1046,11 +1211,17 @@ pub enum ColumnFilter {
 /// A date group of an AutoFilter (§18.3.2.4 `dateGroupItem`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct DateGroup {
+    /// `year`.
     pub year: u32,
+    /// `month` (1–12).
     pub month: Option<u32>,
+    /// `day` (1–31).
     pub day: Option<u32>,
+    /// `hour` (0–23).
     pub hour: Option<u32>,
+    /// `minute` (0–59).
     pub minute: Option<u32>,
+    /// `second` (0–59).
     pub second: Option<u32>,
     /// `dateTimeGrouping` (§18.18.20): year, month, day, hour, minute, second.
     pub grouping: String,
@@ -1060,7 +1231,9 @@ pub struct DateGroup {
 /// `equal`) and `val`, which may use the `*` / `?` wildcards.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CustomFilter {
+    /// `operator`; `None` = `equal`.
     pub operator: Option<String>,
+    /// `val`: the comparison value.
     pub val: String,
 }
 
@@ -1089,6 +1262,7 @@ pub struct Chart {
     pub y_title: Option<String>,
     /// Anchor cells (zero-based) of the drawing anchor (§20.5.2.33 twoCellAnchor).
     pub from: CellRef,
+    /// Bottom-right anchor cell (zero-based); `None` for one-cell and absolute anchors.
     pub to: Option<CellRef>,
     /// Title text (rich text runs concatenated, or the cached `strRef` value).
     pub title: Option<String>,
@@ -1128,6 +1302,7 @@ pub struct Chart {
 pub struct SheetDiagram {
     /// Anchor cells (zero-based) of the drawing anchor (§20.5.2.33 twoCellAnchor).
     pub from: CellRef,
+    /// End anchor cell (`None`: one-cell anchor).
     pub to: Option<CellRef>,
     /// Absolute part name of the diagram drawing part.
     pub part: String,
@@ -1169,12 +1344,19 @@ pub enum ChartKind {
     /// Bar/column; `c:barDir` `col` = vertical columns, `bar` = horizontal bars.
     #[default]
     Bar,
+    /// Line chart (`c:lineChart`).
     Line,
+    /// Area chart (`c:areaChart`).
     Area,
+    /// Pie chart (`c:pieChart`).
     Pie,
+    /// Doughnut chart (`c:doughnutChart`).
     Doughnut,
+    /// XY scatter chart (`c:scatterChart`).
     Scatter,
+    /// Radar chart (`c:radarChart`).
     Radar,
+    /// Bubble chart (`c:bubbleChart`).
     Bubble,
     /// Any other plot element (stock, surface, ofPie, 3-D variants…), by local name.
     Other(String),
@@ -1183,11 +1365,13 @@ pub enum ChartKind {
 /// One plot group of a chart.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ChartPlot {
+    /// Plot element type.
     pub kind: ChartKind,
     /// `c:barDir` for bar charts (`bar` / `col`).
     pub bar_dir: Option<String>,
     /// `c:grouping` (§21.2.2.76): clustered, stacked, percentStacked, standard.
     pub grouping: Option<String>,
+    /// Data series of the group (`c:ser`).
     pub series: Vec<ChartSeries>,
 }
 
@@ -1251,6 +1435,7 @@ pub struct PivotCache {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PivotCacheField {
+    /// `name`: the field caption (source column header).
     pub name: String,
     /// Shared items (§18.10.1.90 `sharedItems`) in file order; empty when the
     /// field's values are stored inline in the records.
@@ -1274,12 +1459,19 @@ pub enum PivotGroupBy {
     /// Numeric ranges of `groupInterval`.
     #[default]
     Range,
+    /// Group date/times by second.
     Seconds,
+    /// Group date/times by minute.
     Minutes,
+    /// Group date/times by hour.
     Hours,
+    /// Group dates by day.
     Days,
+    /// Group dates by month.
     Months,
+    /// Group dates by quarter.
     Quarters,
+    /// Group dates by year.
     Years,
 }
 
@@ -1317,13 +1509,16 @@ impl PivotGroupBy {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PivotRangeGroup {
+    /// `groupBy`: range size unit.
     pub group_by: PivotGroupBy,
     /// `autoStart` / `autoEnd` (default true): bounds follow the data on refresh.
     pub auto_start: bool,
+    /// See [`PivotRangeGroup::auto_start`].
     pub auto_end: bool,
     /// `startNum` / `endNum`, or the serial of `startDate` / `endDate` when
     /// [`PivotRangeGroup::dates`] is set.
     pub start: f64,
+    /// Upper bound of the grouped range (see [`PivotRangeGroup::start`]).
     pub end: f64,
     /// `groupInterval` (default 1).
     pub interval: f64,
@@ -1351,10 +1546,15 @@ pub struct PivotFieldGroup {
 /// text case-insensitively) share one item (§18.10.1.90 `sharedItems`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PivotItemKey {
+    /// A number, by its bit pattern (`-0.0` and `0.0` share a key).
     Number(u64),
+    /// Text, lower-cased.
     Text(String),
+    /// A boolean.
     Bool(bool),
+    /// An error literal.
     Error(String),
+    /// An empty value.
     Blank,
 }
 
@@ -1402,17 +1602,28 @@ pub fn pivot_item_cmp(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PivotFunction {
+    /// Sum of the values.
     #[default]
     Sum,
+    /// Number of non-empty values.
     Count,
+    /// Arithmetic mean.
     Average,
+    /// Largest value.
     Max,
+    /// Smallest value.
     Min,
+    /// Product of the values.
     Product,
+    /// Number of numeric values.
     CountNums,
+    /// Sample standard deviation.
     StdDev,
+    /// Population standard deviation.
     StdDevp,
+    /// Sample variance.
     Var,
+    /// Population variance.
     Varp,
 }
 
@@ -1457,6 +1668,7 @@ impl PivotFunction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PivotShowAs {
+    /// The value itself (no calculation).
     #[default]
     Normal,
     /// Value minus the base item's value.
@@ -1623,11 +1835,14 @@ pub enum PivotSort {
     /// Item order of the field (`manual`, the default).
     #[default]
     Manual,
+    /// Items sorted ascending by label (or by `autoSortScope`).
     Ascending,
+    /// Items sorted descending by label (or by `autoSortScope`).
     Descending,
 }
 
 impl PivotSort {
+    /// The `ST_FieldSortType` token.
     pub fn as_str(self) -> &'static str {
         match self {
             PivotSort::Manual => "manual",
@@ -1636,6 +1851,7 @@ impl PivotSort {
         }
     }
 
+    /// Parse a token (unknown → `manual`, the default).
     pub fn parse(s: &str) -> PivotSort {
         match s {
             "ascending" => PivotSort::Ascending,
@@ -1692,86 +1908,145 @@ pub enum PivotFilterType {
     Percent,
     /// Top / bottom items whose sum reaches N.
     Sum,
+    /// Caption equals `value1`.
     CaptionEqual,
+    /// Caption does not equal `value1`.
     CaptionNotEqual,
+    /// Caption begins with `value1`.
     CaptionBeginsWith,
+    /// Caption does not begin with `value1`.
     CaptionNotBeginsWith,
+    /// Caption ends with `value1`.
     CaptionEndsWith,
+    /// Caption does not end with `value1`.
     CaptionNotEndsWith,
+    /// Caption contains `value1`.
     CaptionContains,
+    /// Caption does not contain `value1`.
     CaptionNotContains,
+    /// Caption is greater than `value1`.
     CaptionGreaterThan,
+    /// Caption is greater than or equal to `value1`.
     CaptionGreaterThanOrEqual,
+    /// Caption is less than `value1`.
     CaptionLessThan,
+    /// Caption is less than or equal to `value1`.
     CaptionLessThanOrEqual,
+    /// Caption is between `value1` and `value2`.
     CaptionBetween,
+    /// Caption is not between `value1` and `value2`.
     CaptionNotBetween,
+    /// Value equals `value1`.
     ValueEqual,
+    /// Value does not equal `value1`.
     ValueNotEqual,
+    /// Value is greater than `value1`.
     ValueGreaterThan,
+    /// Value is greater than or equal to `value1`.
     ValueGreaterThanOrEqual,
+    /// Value is less than `value1`.
     ValueLessThan,
+    /// Value is less than or equal to `value1`.
     ValueLessThanOrEqual,
+    /// Value is between `value1` and `value2`.
     ValueBetween,
+    /// Value is not between `value1` and `value2`.
     ValueNotBetween,
     /// Date filters (§18.18.60): the item (a date) compared with `value1` /
     /// `value2` (serials of the workbook's date system).
     DateEqual,
+    /// Date differs from `value1`.
     DateNotEqual,
+    /// Date is before `value1`.
     DateOlderThan,
+    /// Date is on or before `value1`.
     DateOlderThanOrEqual,
+    /// Date is after `value1`.
     DateNewerThan,
+    /// Date is on or after `value1`.
     DateNewerThanOrEqual,
+    /// Date is between `value1` and `value2`.
     DateBetween,
+    /// Date is not between `value1` and `value2`.
     DateNotBetween,
     /// Relative dates, evaluated against today.
     Tomorrow,
+    /// Today.
     Today,
+    /// Yesterday.
     Yesterday,
+    /// Next calendar week.
     NextWeek,
+    /// Current calendar week.
     ThisWeek,
+    /// Previous calendar week.
     LastWeek,
+    /// Next calendar month.
     NextMonth,
+    /// Current calendar month.
     ThisMonth,
+    /// Previous calendar month.
     LastMonth,
+    /// Next calendar quarter.
     NextQuarter,
+    /// Current calendar quarter.
     ThisQuarter,
+    /// Previous calendar quarter.
     LastQuarter,
+    /// Next calendar year.
     NextYear,
+    /// Current calendar year.
     ThisYear,
+    /// Previous calendar year.
     LastYear,
+    /// From January 1 of the current year to today.
     YearToDate,
     /// A quarter / month of any year.
     #[serde(rename = "Q1")]
     Q1,
+    /// Second quarter.
     #[serde(rename = "Q2")]
     Q2,
+    /// Third quarter.
     #[serde(rename = "Q3")]
     Q3,
+    /// Fourth quarter.
     #[serde(rename = "Q4")]
     Q4,
+    /// January.
     #[serde(rename = "M1")]
     M1,
+    /// February.
     #[serde(rename = "M2")]
     M2,
+    /// March.
     #[serde(rename = "M3")]
     M3,
+    /// April.
     #[serde(rename = "M4")]
     M4,
+    /// May.
     #[serde(rename = "M5")]
     M5,
+    /// June.
     #[serde(rename = "M6")]
     M6,
+    /// July.
     #[serde(rename = "M7")]
     M7,
+    /// August.
     #[serde(rename = "M8")]
     M8,
+    /// September.
     #[serde(rename = "M9")]
     M9,
+    /// October.
     #[serde(rename = "M10")]
     M10,
+    /// November.
     #[serde(rename = "M11")]
     M11,
+    /// December.
     #[serde(rename = "M12")]
     M12,
 }
@@ -1866,6 +2141,7 @@ impl PivotFilterType {
         (PivotFilterType::M12, "M12"),
     ];
 
+    /// The `ST_PivotFilterType` token.
     pub fn as_str(self) -> &'static str {
         Self::ALL
             .iter()
@@ -1928,15 +2204,18 @@ pub struct PivotCalcItem {
 pub struct PivotFieldFilter {
     /// Cache field index (`fld`).
     pub field: u32,
+    /// `type`: the filter type.
     pub kind: PivotFilterType,
     /// `iMeasureFld`: data field index for value and top-N filters.
     pub measure: u32,
     /// `stringValue1` / `stringValue2` (caption filters) or the numbers of
     /// value filters as text.
     pub value1: String,
+    /// Second value (`stringValue2` or numeric upper bound) of between filters.
     pub value2: String,
     /// Top-N: `top10/@top` (false = bottom) and `top10/@val`.
     pub top: bool,
+    /// Top-N count, percent or sum (`top10/@val`).
     pub count: f64,
 }
 
@@ -1946,10 +2225,15 @@ pub struct PivotFieldFilter {
 pub struct PivotStyleInfo {
     /// Built-in or custom style name, e.g. `PivotStyleLight16`.
     pub name: String,
+    /// `showRowHeaders`.
     pub show_row_headers: bool,
+    /// `showColHeaders`.
     pub show_col_headers: bool,
+    /// `showRowStripes`.
     pub show_row_stripes: bool,
+    /// `showColStripes`.
     pub show_col_stripes: bool,
+    /// `showLastColumn`.
     pub show_last_column: bool,
 }
 
@@ -1986,13 +2270,17 @@ pub struct PivotFilter {
 pub struct PivotTable {
     /// Absolute part name; empty for a new pivot table.
     pub part: String,
+    /// `name` of the pivot table.
     pub name: String,
+    /// `cacheId`: the [`PivotCache`] the table reads from.
     pub cache_id: u32,
     /// `location/@ref` (§18.10.1.49): the report body, page fields excluded.
     pub location: CellRange,
     /// `location/@firstHeaderRow`, `@firstDataRow`, `@firstDataCol` (relative).
     pub first_header_row: u32,
+    /// See [`PivotTable::first_header_row`].
     pub first_data_row: u32,
+    /// See [`PivotTable::first_header_row`].
     pub first_data_col: u32,
     /// `rowFields/field/@x` (cache field indices; the values pseudo-field excluded).
     pub rows: Vec<u32>,
@@ -2000,7 +2288,9 @@ pub struct PivotTable {
     pub cols: Vec<u32>,
     /// The values pseudo-field (`x = -2`) is on the row axis (`dataOnRows`).
     pub data_on_rows: bool,
+    /// `dataFields/dataField`.
     pub values: Vec<PivotDataField>,
+    /// Report filters (`pageFields/pageField`).
     pub filters: Vec<PivotFilter>,
     /// `dataCaption` (required, e.g. "Values").
     pub data_caption: String,
@@ -2019,6 +2309,7 @@ pub struct PivotTable {
     pub style: Option<PivotStyleInfo>,
     /// `rowItems` / `colItems` (§18.10.1.84 / §18.10.1.10): the report lines.
     pub row_items: Vec<PivotAxisItem>,
+    /// Column axis lines (`colItems`); see [`PivotTable::row_items`].
     pub col_items: Vec<PivotAxisItem>,
     /// Regenerate the part on write.
     pub dirty: bool,
@@ -2077,9 +2368,13 @@ impl PivotTable {
 /// §18.3.1.63 pageSetup, §18.3.1.46 headerFooter, §18.3.1.74 rowBreaks / colBreaks).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PageSetup {
+    /// `printOptions/@gridLines`.
     pub print_grid_lines: bool,
+    /// `printOptions/@headings`: print row and column headings.
     pub print_headings: bool,
+    /// `printOptions/@horizontalCentered`.
     pub horizontal_centered: bool,
+    /// `printOptions/@verticalCentered`.
     pub vertical_centered: bool,
     /// Whether `printOptions` was present.
     pub has_print_options: bool,
@@ -2091,13 +2386,17 @@ pub struct PageSetup {
     pub orientation: Option<String>,
     /// `scale` percent (10–400).
     pub scale: Option<u32>,
+    /// `fitToWidth`: pages wide when fitting to page.
     pub fit_to_width: Option<u32>,
+    /// `fitToHeight`: pages tall when fitting to page.
     pub fit_to_height: Option<u32>,
     /// Other `pageSetup` attributes (r:id, horizontalDpi, firstPageNumber, …).
     pub attrs: Vec<RawAttr>,
     /// Whether `pageSetup` was present.
     pub has_page_setup: bool,
+    /// `oddHeader` text with its `&` codes.
     pub odd_header: Option<String>,
+    /// `oddFooter` text with its `&` codes.
     pub odd_footer: Option<String>,
     /// Whole `headerFooter` element when it has more than odd header/footer.
     pub header_footer_raw: Option<String>,
@@ -2110,11 +2409,17 @@ pub struct PageSetup {
 /// Page margins in inches (§18.3.1.62).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PageMargins {
+    /// Left margin, inches.
     pub left: f64,
+    /// Right margin, inches.
     pub right: f64,
+    /// Top margin, inches.
     pub top: f64,
+    /// Bottom margin, inches.
     pub bottom: f64,
+    /// Header margin, inches.
     pub header: f64,
+    /// Footer margin, inches.
     pub footer: f64,
 }
 
@@ -2141,9 +2446,13 @@ impl Default for PageMargins {
 pub struct SheetColor {
     /// `rgb` as `AARRGGBB`.
     pub rgb: Option<String>,
+    /// `theme`: index into the theme colour scheme.
     pub theme: Option<u32>,
+    /// `indexed`: index into the legacy colour palette.
     pub indexed: Option<u32>,
+    /// `tint` (−1.0 to 1.0): darken (< 0) or lighten (> 0).
     pub tint: Option<f64>,
+    /// `auto`: automatic (system) colour.
     pub auto: bool,
 }
 
@@ -2162,8 +2471,11 @@ impl SheetColor {
 pub struct Stylesheet {
     /// Custom number formats (§18.8.30 `numFmt`): (id, format code).
     pub num_fmts: Vec<NumFmt>,
+    /// `fonts` (§18.8.23).
     pub fonts: Vec<Font>,
+    /// `fills` (§18.8.21).
     pub fills: Vec<Fill>,
+    /// `borders` (§18.8.5).
     pub borders: Vec<Border>,
     /// `cellStyleXfs` (§18.8.9): formatting records of named cell styles.
     pub cell_style_xfs: Vec<CellXf>,
@@ -2291,31 +2603,44 @@ impl Stylesheet {
 /// A custom number format (§18.8.30 `numFmt`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct NumFmt {
+    /// `numFmtId` (custom ids start at 164).
     pub id: u32,
+    /// `formatCode`.
     pub code: String,
 }
 
 /// Font (§18.8.22 `font`; also run properties §18.4.7 `rPr`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Font {
+    /// `name`: typeface name.
     pub name: Option<String>,
     /// Size in points (`sz`).
     pub size: Option<f64>,
+    /// `b`: bold.
     pub bold: bool,
+    /// `i`: italic.
     pub italic: bool,
     /// `u` (§18.18.82): single, double, singleAccounting, doubleAccounting.
     pub underline: Option<String>,
+    /// `strike`: strikethrough.
     pub strike: bool,
+    /// `color`.
     pub color: Option<SheetColor>,
+    /// `family`: font family class (2 = swiss, …).
     pub family: Option<u32>,
+    /// `charset`: character set.
     pub charset: Option<u32>,
     /// `scheme`: major / minor / none.
     pub scheme: Option<String>,
     /// `vertAlign`: superscript / subscript / baseline.
     pub vert_align: Option<String>,
+    /// `outline`.
     pub outline: bool,
+    /// `shadow`.
     pub shadow: bool,
+    /// `condense`.
     pub condense: bool,
+    /// `extend`.
     pub extend: bool,
 }
 
@@ -2353,7 +2678,9 @@ impl Fill {
 pub struct PatternFill {
     /// `patternType` (§18.18.55): none, solid, gray125, darkGray, …
     pub pattern: Option<String>,
+    /// `fgColor`: pattern (foreground) colour; the fill colour of a solid fill.
     pub fg: Option<SheetColor>,
+    /// `bgColor`: background colour of the pattern.
     pub bg: Option<SheetColor>,
 }
 
@@ -2362,10 +2689,15 @@ pub struct PatternFill {
 pub struct GradientFill {
     /// `type`: linear (default) / path.
     pub kind: Option<String>,
+    /// `degree`: angle of a linear gradient.
     pub degree: Option<f64>,
+    /// `left`: path gradient focus (0..1).
     pub left: Option<f64>,
+    /// `right`: path gradient focus (0..1).
     pub right: Option<f64>,
+    /// `top`: path gradient focus (0..1).
     pub top: Option<f64>,
+    /// `bottom`: path gradient focus (0..1).
     pub bottom: Option<f64>,
     /// Gradient stops (position 0..1, colour).
     pub stops: Vec<(f64, SheetColor)>,
@@ -2376,21 +2708,32 @@ pub struct GradientFill {
 pub struct BorderEdge {
     /// `style` (§18.18.3): thin, medium, thick, dashed, dotted, double, hair, …
     pub style: Option<String>,
+    /// Edge colour.
     pub color: Option<SheetColor>,
 }
 
 /// Border (§18.8.4 `border`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Border {
+    /// Left edge.
     pub left: BorderEdge,
+    /// Right edge.
     pub right: BorderEdge,
+    /// Top edge.
     pub top: BorderEdge,
+    /// Bottom edge.
     pub bottom: BorderEdge,
+    /// Diagonal line(s).
     pub diagonal: BorderEdge,
+    /// Inner vertical edges (formats applied to ranges, e.g. dxfs).
     pub vertical: Option<BorderEdge>,
+    /// Inner horizontal edges.
     pub horizontal: Option<BorderEdge>,
+    /// `diagonalUp`: draw the bottom-left to top-right diagonal.
     pub diagonal_up: bool,
+    /// `diagonalDown`: draw the top-left to bottom-right diagonal.
     pub diagonal_down: bool,
+    /// `outline`: apply the edges to the outside of a range.
     pub outline: Option<bool>,
 }
 
@@ -2401,13 +2744,19 @@ pub struct CellAlignment {
     pub horizontal: Option<String>,
     /// `vertical` (§18.18.88): top, center, bottom, justify, distributed.
     pub vertical: Option<String>,
+    /// `wrapText`.
     pub wrap_text: bool,
+    /// `shrinkToFit`.
     pub shrink_to_fit: bool,
+    /// `indent`, in indent steps.
     pub indent: Option<u32>,
     /// `textRotation` (0–180, 255 = vertical).
     pub text_rotation: Option<u32>,
+    /// `readingOrder`: 0 = context, 1 = left-to-right, 2 = right-to-left.
     pub reading_order: Option<u32>,
+    /// `justifyLastLine`.
     pub justify_last_line: bool,
+    /// `relativeIndent`.
     pub relative_indent: Option<i32>,
 }
 
@@ -2424,21 +2773,35 @@ pub struct CellProtection {
 /// number format, font, fill, border, alignment, protection.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct CellXf {
+    /// `numFmtId`: built-in or custom number format id.
     pub num_fmt_id: u32,
+    /// `fontId`: index into [`Stylesheet::fonts`].
     pub font_id: u32,
+    /// `fillId`: index into [`Stylesheet::fills`].
     pub fill_id: u32,
+    /// `borderId`: index into [`Stylesheet::borders`].
     pub border_id: u32,
     /// Parent cell style (`xfId`, index into `cellStyleXfs`); only in `cellXfs`.
     pub xf_id: Option<u32>,
+    /// `applyNumberFormat`.
     pub apply_number_format: Option<bool>,
+    /// `applyFont`.
     pub apply_font: Option<bool>,
+    /// `applyFill`.
     pub apply_fill: Option<bool>,
+    /// `applyBorder`.
     pub apply_border: Option<bool>,
+    /// `applyAlignment`.
     pub apply_alignment: Option<bool>,
+    /// `applyProtection`.
     pub apply_protection: Option<bool>,
+    /// `quotePrefix`: the value was entered with a leading `'`.
     pub quote_prefix: bool,
+    /// `pivotButton`: the cell shows a pivot field button.
     pub pivot_button: bool,
+    /// `alignment` child.
     pub alignment: Option<CellAlignment>,
+    /// `protection` child.
     pub protection: Option<CellProtection>,
 }
 
@@ -2448,22 +2811,34 @@ pub type Style = CellXf;
 /// A named cell style (§18.8.7 `cellStyle`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CellStyle {
+    /// `name`, e.g. `Normal`.
     pub name: String,
+    /// `xfId`: index into `cellStyleXfs`.
     pub xf_id: u32,
+    /// `builtinId`: id of a built-in style (0 = Normal).
     pub builtin_id: Option<u32>,
+    /// `iLevel`: outline level of RowLevel / ColLevel built-in styles.
     pub i_level: Option<u32>,
+    /// `hidden`: not shown in the style gallery.
     pub hidden: bool,
+    /// `customBuiltin`: a built-in style that was customised.
     pub custom_builtin: bool,
 }
 
 /// Differential format (§18.8.14 `dxf`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Dxf {
+    /// Font changes.
     pub font: Option<Font>,
+    /// Number format change.
     pub num_fmt: Option<NumFmt>,
+    /// Fill change.
     pub fill: Option<Fill>,
+    /// Alignment change.
     pub alignment: Option<CellAlignment>,
+    /// Border changes.
     pub border: Option<Border>,
+    /// Protection change.
     pub protection: Option<CellProtection>,
 }
 

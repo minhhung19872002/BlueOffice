@@ -319,3 +319,203 @@ fn malformed_codes_do_not_panic() {
         let _ = format_value(&CellValue::Text("t".into()), code, &en());
     }
 }
+
+/// `TEXT()` through the formula engine with this engine installed (gap #37):
+/// `(formula, expected text or None for #VALUE!, source)`. Serial 45366 is
+/// 2024-03-15, a Friday (ECMA-376 §18.17.4, 1900 system).
+#[test]
+fn text_function_uses_full_engine() {
+    let cases: &[(&str, Option<&str>, &str)] = &[
+        (
+            "=TEXT(1234.567,\"#,##0.00\")",
+            Some("1,234.57"),
+            "§18.8.31 thousands + 2 dp",
+        ),
+        (
+            "=TEXT(1234567,\"#,##0,\")",
+            Some("1,235"),
+            "§18.8.31 trailing comma scales by 1000",
+        ),
+        (
+            "=TEXT(1234.5,\"$#,##0.00\")",
+            Some("$1,234.50"),
+            "§18.8.31 literal $",
+        ),
+        (
+            "=TEXT(0.285,\"0.0%\")",
+            Some("28.5%"),
+            "§18.8.31 percent ×100",
+        ),
+        (
+            "=TEXT(4.34,\"# ?/?\")",
+            Some("4 1/3"),
+            "§18.8.31 fraction, 0.34 ≈ 1/3",
+        ),
+        (
+            "=TEXT(0.75,\"?/8\")",
+            Some("6/8"),
+            "§18.8.31 fixed denominator 8",
+        ),
+        (
+            "=TEXT(12200000,\"0.00E+00\")",
+            Some("1.22E+07"),
+            "§18.8.31 scientific",
+        ),
+        ("=TEXT(5,\"000\")", Some("005"), "§18.8.31 zero padding"),
+        (
+            "=TEXT(1,\"0.0##\")",
+            Some("1.0"),
+            "§18.8.31 optional decimals",
+        ),
+        (
+            "=TEXT(1234.5,\"0_);(0)\")",
+            Some("1235 "),
+            "§18.8.31 _x pads one space",
+        ),
+        (
+            "=TEXT(-5,\"[Red]0;[Blue](0)\")",
+            Some("(5)"),
+            "§18.8.31 colours dropped, 2nd section",
+        ),
+        (
+            "=TEXT(150,\"[>100]\"\"big\"\";\"\"small\"\"\")",
+            Some("big"),
+            "§18.8.31 condition",
+        ),
+        (
+            "=TEXT(50,\"[>100]\"\"big\"\";\"\"small\"\"\")",
+            Some("small"),
+            "§18.8.31 condition, else",
+        ),
+        (
+            "=TEXT(0,\"0;-0;\"\"zero\"\"\")",
+            Some("zero"),
+            "§18.8.31 zero section",
+        ),
+        (
+            "=TEXT(1234.5,\"General\")",
+            Some("1234.5"),
+            "§18.8.31 General",
+        ),
+        (
+            "=TEXT(45366,\"yyyy-mm-dd\")",
+            Some("2024-03-15"),
+            "§18.8.31 date codes",
+        ),
+        (
+            "=TEXT(45366,\"dddd, mmmm d, yyyy\")",
+            Some("Friday, March 15, 2024"),
+            "§18.8.31 names",
+        ),
+        (
+            "=TEXT(45366.75,\"dd/mm/yyyy hh:mm:ss\")",
+            Some("15/03/2024 18:00:00"),
+            "§18.8.31 0.75 day = 18:00",
+        ),
+        (
+            "=TEXT(0.5,\"h:mm AM/PM\")",
+            Some("12:00 PM"),
+            "§18.8.31 AM/PM",
+        ),
+        (
+            "=TEXT(1.5,\"[h]:mm\")",
+            Some("36:00"),
+            "§18.8.31 elapsed hours 1.5·24",
+        ),
+        (
+            "=TEXT(45366,\"[$-42A]mmmm\")",
+            Some("Tháng Ba"),
+            "§18.8.31 vi-VN locale tag, March",
+        ),
+        (
+            "=TEXT(45366,\"[$-42A]dddd\")",
+            Some("Thứ Sáu"),
+            "§18.8.31 vi-VN locale tag, Friday",
+        ),
+        (
+            "=TEXT(1234567,\"#,##0 [$₫-42A]\")",
+            Some("1,234,567 ₫"),
+            "§18.8.31 currency tag",
+        ),
+        (
+            "=TEXT(\"abc\",\"\"\"<\"\"@\"\">\"\"\")",
+            Some("<abc>"),
+            "§18.8.31 text section @",
+        ),
+        (
+            "=TEXT(\"abc\",\"0.00\")",
+            Some("abc"),
+            "§18.8.31 no text section → text as is",
+        ),
+        (
+            "=TEXT(\"abc\",\"0;0;0;\"\"x\"\"@\")",
+            Some("xabc"),
+            "§18.8.31 4th section",
+        ),
+        (
+            "=TEXT(\"12\",\"0.0\")",
+            Some("12.0"),
+            "§18.17.7 TEXT numeric text converted",
+        ),
+        (
+            "=TEXT(-1,\"yyyy\")",
+            None,
+            "§18.17.4 negative serial is not a date",
+        ),
+        ("=TEXT(1,\"\")", Some(""), "§18.17.7 TEXT empty code"),
+    ];
+    let mut fw = bo_formula::Workbook::with_sheets(&["Sheet1"]);
+    fw.set_text_formatter(Some(text_function_format));
+    for (i, (f, ..)) in cases.iter().enumerate() {
+        fw.set_formula(0, u32::try_from(i).unwrap(), 0, f).unwrap();
+    }
+    fw.recalculate();
+    let mut failures = Vec::new();
+    for (i, (f, want, src)) in cases.iter().enumerate() {
+        let got = fw.value(0, u32::try_from(i).unwrap(), 0);
+        let want_v = match want {
+            Some(t) => bo_formula::Value::Text((*t).to_owned()),
+            None => bo_formula::Value::Error(bo_formula::ErrorKind::Value),
+        };
+        if got != want_v {
+            failures.push(format!(
+                "{f}: got {got:?}, want {want_v:?} [ECMA-376 {src}]"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+/// The 1904 date system reaches the formatter (ECMA-376 §18.17.4: serial 0 = 1904-01-01).
+#[test]
+fn text_function_1904() {
+    let f = |v: f64, code: &str| {
+        text_function_format(
+            bo_formula::FormatInput::Number(v),
+            code,
+            bo_formula::DateSystem::Date1904,
+        )
+    };
+    assert_eq!(f(0.0, "yyyy-mm-dd").as_deref(), Some("1904-01-01"));
+    assert_eq!(f(1.0, "d mmm yyyy").as_deref(), Some("2 Jan 1904"));
+}
+
+/// BlueSheet's own evaluation paths install the full engine: workbook
+/// recalculation (`formula::load`) and model-side evaluation (`ModelCells`).
+#[test]
+fn bluesheet_paths_use_full_text_engine() {
+    let wb = bo_model::sheet::Workbook::new();
+    let mut fw = crate::formula::load(&wb, Some(45_366.0));
+    // The compact fallback ignores scaling commas; the full engine applies them.
+    fw.set_a1(0, "A1", "=TEXT(1234567,\"#,##0,\")").unwrap();
+    fw.recalculate();
+    assert_eq!(
+        fw.value_a1(0, "A1"),
+        bo_formula::Value::Text("1,235".into())
+    );
+    let cells = crate::cells::ModelCells::new(&wb, None);
+    assert_eq!(
+        cells.eval_at(0, "TEXT(45366,\"[$-42A]mmmm\")", (0, 0), 0, 0),
+        bo_formula::Value::Text("Tháng Ba".into())
+    );
+}

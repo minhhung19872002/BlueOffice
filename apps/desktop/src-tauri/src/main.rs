@@ -9,16 +9,22 @@
 #![allow(clippy::needless_pass_by_value)]
 
 mod collab_cmds;
+mod print;
 mod sheet_cmds;
 mod shell;
+mod sign_cmds;
 mod slide_cmds;
+mod update;
 
-use bo_engine::{DocInfo, Engine};
+use bo_engine::{DocInfo, Engine, SystemFontIndex};
+use print::PrintJobs;
 use shell::{percent_decode, LaunchRequest};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use tauri::ipc::{InvokeBody, Request, Response};
-use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::webview::PageLoadEvent;
+use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
 
@@ -64,7 +70,13 @@ fn engine_init(state: State<'_, EngineState>) -> usize {
 }
 
 #[tauri::command]
-fn engine_open(state: State<'_, EngineState>, request: Request<'_>) -> Result<DocInfo, String> {
+fn engine_open(
+    state: State<'_, EngineState>,
+    fonts: State<'_, FontsReady>,
+    request: Request<'_>,
+) -> Result<DocInfo, String> {
+    // The first document waits (briefly) for the installed fonts.
+    fonts.wait(FONT_WAIT);
     let bytes = raw_body(&request)?;
     let name = header_name(&request);
     // Password of a protected file ([MS-OFFCRYPTO]), percent-encoded.
@@ -201,6 +213,13 @@ async fn read_file(path: String) -> Result<Response, String> {
 async fn save_file(app: tauri::AppHandle, request: Request<'_>) -> Result<Option<String>, String> {
     let bytes = raw_body(&request)?;
     let name = header_name(&request);
+    if let Some(path) = std::env::var(shell::E2E_SAVE_DIR_ENV)
+        .ok()
+        .and_then(|d| shell::e2e_save_path(&d, &name))
+    {
+        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        return Ok(Some(path.to_string_lossy().into_owned()));
+    }
     let ext = name
         .rsplit_once('.')
         .map(|(_, e)| e.to_owned())
@@ -217,23 +236,205 @@ async fn save_file(app: tauri::AppHandle, request: Request<'_>) -> Result<Option
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
-/// Phase 1 printing: hand the PDF to the system viewer (native print dialog in Phase 2).
+/// Prints the engine's PDF through the OS print UI (see `print.rs`). Returns the
+/// label of the print window, or `None` when the PDF went to the default viewer.
 #[tauri::command]
-async fn print_pdf(request: Request<'_>) -> Result<(), String> {
+async fn print_pdf(
+    app: tauri::AppHandle,
+    jobs: State<'_, PrintJobs>,
+    request: Request<'_>,
+) -> Result<Option<String>, String> {
     let bytes = raw_body(&request)?;
-    let stem: String = header_name(&request)
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
+    let name = header_name(&request);
+    if print::strategy() == print::Strategy::Window {
+        match open_print_window(&app, &jobs, bytes.clone(), &name) {
+            Ok(label) => return Ok(Some(label)),
+            // No print window (web view error): the default viewer still prints.
+            Err(e) => eprintln!("print window: {e}"),
+        }
+    }
+    let stem = print::temp_file_stem(&name);
     let path: PathBuf = std::env::temp_dir().join(format!("blueoffice-print-{stem}.pdf"));
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-    open_with_system(&path)
+    open_with_system(&path)?;
+    Ok(None)
+}
+
+/// Window showing the PDF (`boprint` protocol) whose web view print dialog opens once loaded.
+fn open_print_window(
+    app: &tauri::AppHandle,
+    jobs: &PrintJobs,
+    pdf: Vec<u8>,
+    name: &str,
+) -> Result<String, String> {
+    let id = jobs.add(pdf)?;
+    let label = print::window_label(id);
+    let url: tauri::Url = match print::job_url(id, cfg!(windows)).parse() {
+        Ok(u) => u,
+        Err(e) => {
+            jobs.remove(id);
+            return Err(format!("{e}"));
+        }
+    };
+    // Windows serves custom schemes on `http://<scheme>.localhost`.
+    let target = if cfg!(windows) {
+        WebviewUrl::External(url)
+    } else {
+        WebviewUrl::CustomProtocol(url)
+    };
+    let dialog = print::dialog_enabled(std::env::var(print::DIALOG_ENV).ok().as_deref());
+    let started = Arc::new(AtomicBool::new(false));
+    let built = WebviewWindowBuilder::new(app, &label, target)
+        .title(print::window_title(name))
+        .inner_size(900.0, 1000.0)
+        .on_page_load(move |w, payload| {
+            if dialog
+                && payload.event() == PageLoadEvent::Finished
+                && !started.swap(true, Ordering::SeqCst)
+            {
+                // The PDF viewer initialises after the load event.
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(1200));
+                    if let Err(e) = w.print() {
+                        eprintln!("print dialog: {e}");
+                    }
+                });
+            }
+        })
+        .build();
+    match built {
+        Ok(w) => {
+            let handle = app.clone();
+            w.on_window_event(move |e| {
+                if matches!(e, WindowEvent::Destroyed) {
+                    handle.state::<PrintJobs>().remove(id);
+                }
+            });
+            Ok(label)
+        }
+        Err(e) => {
+            jobs.remove(id);
+            Err(e.to_string())
+        }
+    }
+}
+
+/// `boprint://localhost/<job>.pdf`: the PDF of an open print window.
+fn serve_print_job(app: &tauri::AppHandle, path: &str) -> tauri::http::Response<Vec<u8>> {
+    let pdf = print::job_of_path(path).and_then(|id| app.state::<PrintJobs>().get(id));
+    let builder = tauri::http::Response::builder().header("Cache-Control", "no-store");
+    match pdf {
+        Some(pdf) => builder.header("Content-Type", "application/pdf").body(pdf),
+        None => builder.status(404).body(Vec::new()),
+    }
+    .unwrap_or_default()
+}
+
+/// "Check for updates" (`update.rs`).
+#[cfg(feature = "updater")]
+#[tauri::command]
+async fn update_check(app: tauri::AppHandle) -> update::UpdateStatus {
+    let current = app.package_info().version.to_string();
+    match updater_for(&app) {
+        Ok(None) => update::UpdateStatus::NotConfigured,
+        Ok(Some(u)) => match u.check().await {
+            Ok(found) => update::status_of(
+                &current,
+                found.map(|r| (r.version, r.body, r.date.map(|d| d.to_string()))),
+            ),
+            Err(e) => update::UpdateStatus::Failed {
+                message: e.to_string(),
+            },
+        },
+        Err(message) => update::UpdateStatus::Failed { message },
+    }
+}
+
+#[cfg(not(feature = "updater"))]
+#[tauri::command]
+fn update_check() -> update::UpdateStatus {
+    update::UpdateStatus::Disabled
+}
+
+/// Downloads, verifies (minisign signature) and installs the update, then restarts.
+#[cfg(feature = "updater")]
+#[tauri::command]
+async fn update_install(app: tauri::AppHandle) -> Result<(), String> {
+    let u = updater_for(&app)?.ok_or("updates are not configured")?;
+    let Some(found) = u.check().await.map_err(|e| e.to_string())? else {
+        return Err("no update available".into());
+    };
+    found
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart()
+}
+
+#[cfg(not(feature = "updater"))]
+#[tauri::command]
+fn update_install() -> Result<(), String> {
+    Err("updates are disabled in this build".into())
+}
+
+/// The updater for the configured (or `BLUEOFFICE_UPDATE_URL`) endpoints; `None` if not configured.
+#[cfg(feature = "updater")]
+fn updater_for(app: &tauri::AppHandle) -> Result<Option<tauri_plugin_updater::Updater>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let plugins = serde_json::to_value(&app.config().plugins).unwrap_or_default();
+    let (key, configured) = update::plugin_config(&plugins);
+    let env = update::env_endpoints(std::env::var(update::URL_ENV).ok().as_deref())?;
+    if !update::configured(&key, configured, env.len()) {
+        return Ok(None);
+    }
+    let mut b = app.updater_builder();
+    if !env.is_empty() {
+        let urls = env
+            .iter()
+            .map(|u| u.parse::<tauri::Url>().map_err(|e| e.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        b = b.endpoints(urls).map_err(|e| e.to_string())?;
+    }
+    b.build().map(Some).map_err(|e| e.to_string())
+}
+
+/// Installed OS fonts for documents (off with `BLUEOFFICE_SYSTEM_FONTS=0`); the
+/// index is cached in the app cache folder (`system-fonts.txt`).
+fn system_fonts(app: &tauri::AppHandle) -> Option<SystemFontIndex> {
+    if !shell::system_fonts_enabled(std::env::var(shell::SYSTEM_FONTS_ENV).ok().as_deref()) {
+        return None;
+    }
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .ok()
+        .map(|d| d.join("system-fonts.txt"));
+    Some(SystemFontIndex::scan_cached(
+        &SystemFontIndex::default_dirs(),
+        cache.as_deref(),
+    ))
+}
+
+/// Longest wait of a document open for the font scan.
+pub(crate) const FONT_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Set once the installed fonts are indexed (scanned off the main thread at startup).
+#[derive(Default)]
+pub(crate) struct FontsReady(Mutex<bool>, std::sync::Condvar);
+
+impl FontsReady {
+    fn done(&self) {
+        if let Ok(mut d) = self.0.lock() {
+            *d = true;
+        }
+        self.1.notify_all();
+    }
+
+    pub(crate) fn wait(&self, max: std::time::Duration) {
+        if let Ok(g) = self.0.lock() {
+            let _ = self.1.wait_timeout_while(g, max, |d| !*d);
+        }
+    }
 }
 
 fn open_with_system(path: &std::path::Path) -> Result<(), String> {
@@ -401,13 +602,31 @@ fn main() {
             dispatch_requests(app, shell::classify_args(argv.iter().skip(1)));
         }))
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_dialog::init());
+        .plugin(tauri_plugin_dialog::init())
+        .register_uri_scheme_protocol(print::SCHEME, |ctx, req| {
+            serve_print_job(ctx.app_handle(), req.uri().path())
+        });
     #[cfg(feature = "updater")]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     builder
         .setup(|app| {
             app.manage(EngineState(Mutex::new(Engine::with_bundled_fonts())));
             app.manage(sheet_cmds::SheetState::new());
+            app.manage(PrintJobs::default());
+            app.manage(FontsReady::default());
+            // Index the installed fonts without delaying the window.
+            let fonts_app = app.handle().clone();
+            std::thread::spawn(move || {
+                if let Some(fonts) = system_fonts(&fonts_app) {
+                    if let Ok(mut e) = fonts_app.state::<EngineState>().0.lock() {
+                        e.set_system_fonts(fonts.clone());
+                    }
+                    if let Ok(mut s) = fonts_app.state::<sheet_cmds::SheetState>().0.lock() {
+                        s.set_system_fonts(fonts);
+                    }
+                }
+                fonts_app.state::<FontsReady>().done();
+            });
             // Windows/Linux dev builds: register schemes at runtime (installers do it at install time).
             #[cfg(all(debug_assertions, any(windows, target_os = "linux")))]
             let _ = app.deep_link().register_all();
@@ -467,9 +686,15 @@ fn main() {
             cache_put,
             cache_delete,
             open_window,
+            update_check,
+            update_install,
             sheet_cmds::sheet_open,
             sheet_cmds::sheet_call,
             sheet_cmds::sheet_binary,
+            sign_cmds::sign_document,
+            sign_cmds::verify_document,
+            sign_cmds::sign_defaults,
+            sign_cmds::sign_token_certificates,
             set_title
         ])
         .run(tauri::generate_context!())

@@ -44,10 +44,15 @@ pub(crate) struct HfEdit {
 pub struct StoryState {
     /// `header` or `footer`.
     pub kind: &'static str,
+    /// 0-based section index.
     pub section: usize,
+    /// Which header/footer of the section (default, first, even).
     pub variant: HfVariant,
+    /// 0-based page the header/footer is edited on.
     pub page: usize,
+    /// The section has a different first page (§17.10.6 `titlePg`).
     pub title_page: bool,
+    /// The document has different odd and even pages (§17.15.1.35).
     pub even_and_odd: bool,
     /// Linked to the previous section's header/footer (§17.10.5).
     pub linked: bool,

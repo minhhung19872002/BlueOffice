@@ -8,13 +8,15 @@
 
 use crate::calc::{Dimension, FormulaAdjuster, StructuralChange};
 use bo_model::sheet::{
-    CellRange, CellRef, ColInfo, TableColumn, Workbook, Worksheet, MAX_COLS, MAX_ROWS,
+    CellRange, CellRef, ChartAnchor, ColInfo, PaneState, TableColumn, Workbook, Worksheet,
+    MAX_COLS, MAX_ROWS,
 };
 use std::collections::BTreeMap;
 
 /// Errors of structural edits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditError {
+    /// The sheet index (or name) does not exist in the workbook.
     NoSuchSheet,
     /// Index or count outside the sheet limits.
     OutOfRange,
@@ -317,6 +319,63 @@ fn move_sheet_content(ws: &mut Worksheet, m: &Mapper) {
             None => ws.auto_filter = None,
         }
     }
+    // Frozen panes (§18.3.1.66 pane, state frozen / frozenSplit): the split is
+    // the first unfrozen row / column, so rows inserted above it or deleted
+    // from the frozen area change the number of frozen rows; the bottom-right
+    // pane's top-left cell moves with its cell.
+    for v in &mut ws.views {
+        let Some(p) = v.pane.as_mut() else { continue };
+        if p.state == PaneState::Split {
+            continue;
+        }
+        let split = match m.dim {
+            Dimension::Rows => &mut p.y_split,
+            Dimension::Cols => &mut p.x_split,
+        };
+        if *split >= 1.0 {
+            let n = *split as u32;
+            // Frozen indices 0..n that survive, plus those inserted before n.
+            let kept = (0..n).filter(|&i| m.shift.index(i).is_some()).count() as u32;
+            let added = if m.shift.insert && m.shift.at < n {
+                m.shift.count
+            } else {
+                0
+            };
+            *split = f64::from(kept + added);
+        }
+        if let Some(c) = p.top_left_cell.as_deref().and_then(CellRef::parse) {
+            if let Some(n) = m.cell(c) {
+                p.top_left_cell = Some(n.to_string());
+            }
+        }
+    }
+    // Pivot table reports (§18.10.1.49 location) move with their cells.
+    for pt in &mut ws.pivots {
+        if let Some(r) = m.range(pt.location) {
+            pt.location = r;
+        }
+    }
+    // Chart anchors (§20.5.2.33 twoCellAnchor: moves and sizes with the cells;
+    // §20.5.2.24 oneCellAnchor: its top-left cell moves; an absolute anchor stays).
+    for ch in &mut ws.charts {
+        match ch.anchor {
+            ChartAnchor::TwoCell => {
+                let to = ch.to.unwrap_or(ch.from);
+                if let Some(r) = m.range(CellRange::new(ch.from, to)) {
+                    ch.from = r.first;
+                    if ch.to.is_some() {
+                        ch.to = Some(r.last);
+                    }
+                }
+            }
+            ChartAnchor::OneCell => {
+                if let Some(c) = m.range(CellRange::new(ch.from, ch.from)) {
+                    ch.from = c.first;
+                }
+            }
+            ChartAnchor::Absolute => {}
+        }
+    }
     let breaks = match m.dim {
         Dimension::Rows => &mut ws.page_setup.row_breaks,
         Dimension::Cols => &mut ws.page_setup.col_breaks,
@@ -345,6 +404,14 @@ fn adjust_formulas(wb: &mut Workbook, change: &StructuralChange, adj: &dyn Formu
         }
     };
     let sheet_names: Vec<String> = wb.sheets.iter().map(|s| s.name.clone()).collect();
+    // Pivot cache sources on the changed sheet (§18.10.1.98 worksheetSource ref).
+    for c in &mut wb.pivot_caches {
+        if let (Some(sheet), Some(r)) = (c.source_sheet.as_deref(), c.source_ref.as_mut()) {
+            if sheet.eq_ignore_ascii_case(&change.sheet) {
+                apply(r, Some(sheet));
+            }
+        }
+    }
     for dn in &mut wb.defined_names {
         let host = dn
             .local_sheet
@@ -371,6 +438,20 @@ fn adjust_formulas(wb: &mut Workbook, change: &StructuralChange, adj: &dyn Formu
         for dv in &mut ws.data_validations {
             for s in [&mut dv.formula1, &mut dv.formula2].into_iter().flatten() {
                 apply(s, host);
+            }
+        }
+        // Chart series references (§21.2.2.215 f of tx / cat / val).
+        for s in ws
+            .charts
+            .iter_mut()
+            .flat_map(|c| &mut c.plots)
+            .flat_map(|p| &mut p.series)
+        {
+            for r in [&mut s.name_ref, &mut s.cat_ref, &mut s.val_ref]
+                .into_iter()
+                .flatten()
+            {
+                apply(r, host);
             }
         }
         for cf in &mut ws.conditional_formats {

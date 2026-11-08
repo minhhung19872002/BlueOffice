@@ -14,8 +14,16 @@
 //! layouts, so re-pagination does not even look them up in [`LayoutCache`].
 //!
 //! Headers and footers are applied afterwards per page; a reused page keeps its
-//! header/footer unless its page fields (number, total) changed. The pages whose
-//! content changed are reported so hosts redraw only those.
+//! header/footer unless its page fields (number, total) changed. Editing a header
+//! or footer re-decorates the pages from its section on without re-paginating, as
+//! long as the header/footer heights (which push the body) stay the same. The pages
+//! whose content changed are reported so hosts redraw only those.
+//!
+//! When the body shows the total page count (NUMPAGES, SECTIONPAGES), a full layout
+//! paginates once with an empty total to count the pages, then again with that
+//! count. Both passes are kept incrementally: a probe layout (no headers/footers)
+//! gives the count, and the main layout is updated incrementally while the count
+//! stays the same.
 //!
 //! Whatever changes, the result is identical to a full layout of the new
 //! document (property-tested in `tests/incremental.rs`).
@@ -82,7 +90,8 @@ struct State {
     /// Note numbers of the scan of the document (before per-page numbering).
     scan_notes: HashMap<NoteKey, String>,
     endnote_order: Vec<i32>,
-    needs_total: bool,
+    /// Total page count shown by body fields (0: none, or the probe layout).
+    total: u32,
     /// Headers or footers contain fields (their content depends on page numbers).
     hf_fields: bool,
 }
@@ -97,7 +106,10 @@ pub enum UpdateKind {
     Full,
     /// Re-paginated from the first changed block; `resynced`: stopped early and
     /// reused the previous layout's later pages.
-    Incremental { resynced: bool },
+    Incremental {
+        /// Pagination stopped early and reused the previous later pages.
+        resynced: bool,
+    },
 }
 
 /// A layout kept up to date across edits.
@@ -107,6 +119,10 @@ pub struct IncrementalLayout {
     last: UpdateKind,
     /// Never stop early (benchmarks of the worst case: every later page moves).
     no_resync: bool,
+    /// This is the probe layout: body fields show no total, no headers/footers.
+    probe_mode: bool,
+    /// Probe layout counting the pages when the body shows the total.
+    probe: Option<Box<IncrementalLayout>>,
 }
 
 /// Analysis of the main story done before every layout.
@@ -305,6 +321,7 @@ impl IncrementalLayout {
     /// Forget the previous layout (fonts changed, another document…).
     pub fn reset(&mut self) {
         self.st = None;
+        self.probe = None;
     }
 
     /// How the last update was done.
@@ -316,6 +333,9 @@ impl IncrementalLayout {
     /// forbidden every update re-paginates to the end (worst-case benchmarks).
     pub fn set_resync(&mut self, enabled: bool) {
         self.no_resync = !enabled;
+        if let Some(p) = self.probe.as_mut() {
+            p.no_resync = !enabled;
+        }
     }
 
     /// Lay `doc` out again after `changes` (as recorded by the editing session since
@@ -336,11 +356,27 @@ impl IncrementalLayout {
             return Ok(Vec::new());
         }
         let sc = scan(doc);
-        let incremental = self.st.as_ref().is_some_and(|st| {
+        // Body fields showing the total page count: the count of a layout with an
+        // empty total (the first pass of a full layout), kept by the probe layout.
+        let total = if sc.needs_total && !self.probe_mode && !doc.sections.is_empty() {
+            let no_resync = self.no_resync;
+            let probe = self.probe.get_or_insert_with(|| {
+                Box::new(IncrementalLayout {
+                    no_resync,
+                    probe_mode: true,
+                    ..IncrementalLayout::default()
+                })
+            });
+            probe.update(doc, fonts, cache, opts, changes)?;
+            probe.document().pages.len() as u32
+        } else {
+            self.probe = None;
+            0
+        };
+        let mut incremental = self.st.as_ref().is_some_and(|st| {
             !changes.is_all()
                 && st.opts == opts
-                && !sc.needs_total
-                && !st.needs_total
+                && st.total == total
                 && st.scan_notes == sc.notes
                 && st.endnote_order == sc.endnote_order
                 && st.cps.len() == doc.sections.len()
@@ -349,15 +385,27 @@ impl IncrementalLayout {
                     st.cps[si].len() as isize + delta == s.blocks.len() as isize
                 })
         });
+        // Edited headers/footers: the body is paginated as before while their heights
+        // (which push the body, see `body_area`) stay the same.
+        let mut hf_fields = None;
+        if incremental && changes.headers().is_some() {
+            let mut ctx = new_ctx(doc, fonts, cache, opts, &sc);
+            let (heights, fields) = hf_heights(&mut ctx, doc)?;
+            incremental = self.st.as_ref().is_some_and(|st| st.hf_heights == heights);
+            hf_fields = Some(fields);
+        }
         if incremental {
-            if let Some(st) = self.st.take() {
+            if let Some(mut st) = self.st.take() {
+                if let Some(f) = hf_fields {
+                    st.hf_fields = f;
+                }
                 // `None`: no usable checkpoint, lay everything out.
                 if let Some(dirty) = self.incremental(doc, fonts, cache, opts, changes, &sc, st)? {
                     return Ok(dirty);
                 }
             }
         }
-        self.full(doc, fonts, cache, opts, &sc)?;
+        self.full(doc, fonts, cache, opts, &sc, total)?;
         self.last = UpdateKind::Full;
         Ok((0..self.document().pages.len()).collect())
     }
@@ -369,46 +417,23 @@ impl IncrementalLayout {
         cache: &mut LayoutCache,
         opts: LayoutOptions,
         sc: &Scan,
+        total: u32,
     ) -> Result<(), LayoutError> {
         let mut ctx = new_ctx(doc, fonts, cache, opts, sc);
-        // Header/footer heights per section (they push the body when taller than the margin).
-        let mut hf = Vec::with_capacity(doc.sections.len());
-        let mut hf_fields = false;
-        for (si, s) in doc.sections.iter().enumerate() {
-            let w = content_width(s);
-            let mut heights = (0.0f32, 0.0f32);
-            for header in [true, false] {
-                for v in 0..3u8 {
-                    if let Some(blocks) = hf_blocks(doc, si, header, v) {
-                        hf_fields |= blocks_have_fields(blocks);
-                        let h = stack_blocks(&mut ctx, blocks, w, false, None)?.h;
-                        if header {
-                            heights.0 = heights.0.max(h);
-                        } else {
-                            heights.1 = heights.1.max(h);
-                        }
-                    }
-                }
-            }
-            hf.push(heights);
-        }
+        let (hf, hf_fields) = hf_heights(&mut ctx, doc)?;
         ctx.other_lists = ListCounters::default();
 
-        // Pagination (twice when the body shows the total page count).
+        // Pagination with the total page count found by the probe layout.
+        ctx.fields.pages = total;
         let mut flow = new_flow(doc, hf.clone());
         flow.run(&mut ctx, None)?;
-        if sc.needs_total && !doc.sections.is_empty() {
-            let total = flow.pages.len() as u32;
-            ctx.fields.pages = total;
-            ctx.lists = ListCounters::default();
-            ctx.next_id = 0;
-            let built = std::mem::take(&mut flow.built);
-            flow = new_flow(doc, hf.clone());
-            flow.built = built;
-            flow.run(&mut ctx, None)?;
-        }
         // §17.11.19 numRestart eachPage: number the footnotes per page, lay out again.
-        if let Some(map) = crate::page_note_numbers(doc, &flow.pages, &ctx.notes) {
+        let each_page = if self.probe_mode {
+            None
+        } else {
+            crate::page_note_numbers(doc, &flow.pages, &ctx.notes)
+        };
+        if let Some(map) = each_page {
             if map != ctx.notes {
                 ctx.notes = map;
                 ctx.lists = ListCounters::default();
@@ -435,11 +460,11 @@ impl IncrementalLayout {
             notes: ctx.notes.clone(),
             scan_notes: sc.notes.clone(),
             endnote_order: sc.endnote_order.clone(),
-            needs_total: sc.needs_total,
+            total,
             hf_fields,
         };
         let pages = std::mem::take(&mut flow.pages);
-        let (pages, meta, _) = decorate_all(&mut ctx, &st, pages, &origins, Vec::new())?;
+        let (pages, meta, _) = self.decorate(&mut ctx, &st, pages, &origins, Vec::new(), None)?;
         st.layout.pages = pages;
         st.meta = meta;
         self.st = Some(st);
@@ -462,8 +487,24 @@ impl IncrementalLayout {
             .iter()
             .min_by_key(|c| (c.section, c.start))
         else {
+            // Only headers/footers changed: decorate the pages again.
+            let Some(from) = changes.headers() else {
+                self.st = Some(st);
+                return Ok(Some(Vec::new()));
+            };
+            let mut ctx = new_ctx(doc, fonts, cache, opts, sc);
+            let pages = std::mem::take(&mut st.layout.pages);
+            let origins: Vec<Origin> = (0..pages.len())
+                .map(|old| Origin::Reused { old, moved: false })
+                .collect();
+            let old_meta = std::mem::take(&mut st.meta);
+            let (pages, meta, dirty) =
+                self.decorate(&mut ctx, &st, pages, &origins, old_meta, Some(from))?;
+            st.layout.pages = pages;
+            st.meta = meta;
             self.st = Some(st);
-            return Ok(Some(Vec::new()));
+            self.last = UpdateKind::Incremental { resynced: true };
+            return Ok(Some(dirty));
         };
         let Some(last) = changes.sections().iter().max_by_key(|c| c.section) else {
             return Ok(None);
@@ -522,6 +563,7 @@ impl IncrementalLayout {
         pages.push(cur);
 
         let mut ctx = new_ctx(doc, fonts, cache, opts, sc);
+        ctx.fields.pages = st.total;
         // Per-page footnote numbers (§17.11.19 numRestart eachPage) of the previous
         // layout: kept when the pages' notes stay the same (checked below).
         ctx.notes.clone_from(&st.notes);
@@ -643,9 +685,11 @@ impl IncrementalLayout {
             end_other_lists = ctx.other_lists.clone();
         }
         // Footnotes moved to other pages renumber with eachPage: lay out again.
-        if let Some(map) = crate::page_note_numbers(doc, &pages, &ctx.notes) {
-            if map != ctx.notes {
-                return Ok(None);
+        if !self.probe_mode {
+            if let Some(map) = crate::page_note_numbers(doc, &pages, &ctx.notes) {
+                if map != ctx.notes {
+                    return Ok(None);
+                }
             }
         }
         st.cps = cps;
@@ -653,7 +697,8 @@ impl IncrementalLayout {
         st.section_start = section_start;
         st.end_other_lists = end_other_lists;
         let old_meta = std::mem::take(&mut st.meta);
-        let (pages, meta, dirty) = decorate_all(&mut ctx, &st, pages, &origins, old_meta)?;
+        let (pages, meta, dirty) =
+            self.decorate(&mut ctx, &st, pages, &origins, old_meta, changes.headers())?;
         st.layout.pages = pages;
         st.meta = meta;
         self.st = Some(st);
@@ -661,17 +706,72 @@ impl IncrementalLayout {
     }
 }
 
+impl IncrementalLayout {
+    /// [`decorate_all`], or nothing for the probe layout (no headers/footers).
+    fn decorate(
+        &self,
+        ctx: &mut Ctx<'_>,
+        st: &State,
+        pages: Vec<Page>,
+        origins: &[Origin],
+        old_meta: Vec<PageMeta>,
+        force_from: Option<usize>,
+    ) -> Result<Decorated, LayoutError> {
+        if self.probe_mode {
+            let dirty = origins
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| !matches!(o, Origin::Reused { moved: false, .. }))
+                .map(|(i, _)| i)
+                .collect();
+            let meta = vec![PageMeta::default(); pages.len()];
+            return Ok((pages, meta, dirty));
+        }
+        decorate_all(ctx, st, pages, origins, old_meta, force_from)
+    }
+}
+
+/// Header/footer heights per section (they push the body when taller than the
+/// margin, ECMA-376 Part 1, §17.6.11 pgMar header/footer) and whether any header
+/// or footer has fields.
+fn hf_heights(ctx: &mut Ctx<'_>, doc: &Document) -> Result<(Vec<(f32, f32)>, bool), LayoutError> {
+    let mut hf = Vec::with_capacity(doc.sections.len());
+    let mut hf_fields = false;
+    for (si, s) in doc.sections.iter().enumerate() {
+        let w = content_width(s);
+        let mut heights = (0.0f32, 0.0f32);
+        for header in [true, false] {
+            for v in 0..3u8 {
+                if let Some(blocks) = hf_blocks(doc, si, header, v) {
+                    hf_fields |= blocks_have_fields(blocks);
+                    let h = stack_blocks(ctx, blocks, w, false, None)?.h;
+                    if header {
+                        heights.0 = heights.0.max(h);
+                    } else {
+                        heights.1 = heights.1.max(h);
+                    }
+                }
+            }
+        }
+        hf.push(heights);
+    }
+    Ok((hf, hf_fields))
+}
+
 /// Pages with their header/footer metadata and the indexes of the pages that changed.
 type Decorated = (Vec<Page>, Vec<PageMeta>, Vec<usize>);
 
-/// Apply headers and footers to every page whose header/footer inputs changed.
-/// Returns the pages, their metadata and the indexes of the pages that changed.
+/// Apply headers and footers to every page whose header/footer inputs changed, and
+/// to every page of section `force_from` and later (edited headers/footers, which
+/// later sections may inherit). Returns the pages, their metadata and the indexes
+/// of the pages that changed.
 fn decorate_all(
     ctx: &mut Ctx<'_>,
     st: &State,
     mut pages: Vec<Page>,
     origins: &[Origin],
     mut old_meta: Vec<PageMeta>,
+    force_from: Option<usize>,
 ) -> Result<Decorated, LayoutError> {
     let doc = ctx.doc;
     let total = pages.len() as u32;
@@ -711,7 +811,8 @@ fn decorate_all(
                 .get_mut(old)
                 .map(std::mem::take)
                 .unwrap_or_default();
-            if m.key == key && m.lists_before == running {
+            let forced = force_from.is_some_and(|f| si >= f);
+            if !forced && m.key == key && m.lists_before == running {
                 running.clone_from(&m.lists_after);
                 meta.push(m);
                 if moved {

@@ -15,7 +15,9 @@ pub const NS_PC: &str = "http://schemas.microsoft.com/office/powerpoint/2013/mai
 pub const REL_COMMENTS: &str = "http://schemas.microsoft.com/office/2018/10/relationships/comments";
 /// Relationship presentation → authors part.
 pub const REL_AUTHORS: &str = "http://schemas.microsoft.com/office/2018/10/relationships/authors";
+/// Content type of a comment part.
 pub const CT_COMMENTS: &str = "application/vnd.ms-powerpoint.comments+xml";
+/// Content type of the authors part.
 pub const CT_AUTHORS: &str = "application/vnd.ms-powerpoint.authors+xml";
 
 const XML_DECL: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n";
@@ -23,29 +25,39 @@ const XML_DECL: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"ye
 /// One comment or reply.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ModernReply {
+    /// `id` (GUID).
     pub id: String,
+    /// `authorId` → [`CommentAuthor::id`].
     pub author_id: String,
     /// `created` (xsd:dateTime).
     pub created: String,
+    /// Plain text of `p188:txBody`.
     pub text: String,
 }
 
 /// A thread: its first comment, `status` and replies (`p188:cm`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ModernComment {
+    /// The comment opening the thread.
     pub first: ModernReply,
     /// `status="resolved"`.
     pub resolved: bool,
+    /// `p188:replyLst`.
     pub replies: Vec<ModernReply>,
 }
 
 /// `p188:author`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CommentAuthor {
+    /// `id` (GUID).
     pub id: String,
+    /// `name`.
     pub name: String,
+    /// `initials`.
     pub initials: String,
+    /// `userId`.
     pub user_id: String,
+    /// `providerId`.
     pub provider_id: String,
 }
 

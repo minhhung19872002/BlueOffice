@@ -22,6 +22,10 @@ export interface SheetSummary {
   charts: number;
   /** Number of pivot tables on the sheet. */
   pivots: number;
+  /** `sheetProtection/@sheet` (ECMA-376 Part 1, §18.3.1.85). */
+  protected: boolean;
+  /** `tabColor` as `RRGGBB` (§18.3.1.93). */
+  tabColor: string | null;
 }
 
 /** A threaded comment thread anchored on a cell. */
@@ -39,11 +43,53 @@ export interface SheetThreadInfo {
 export interface WorkbookInfo {
   name: string;
   sheets: SheetSummary[];
-  /** The file has macros: they are kept when saving but never run. */
-  macros?: boolean;
+  /** Saved with a password ([MS-OFFCRYPTO]). */
+  encrypted: boolean;
+  /** Has a VBA project / macro sheets (kept, never run). */
+  macros: boolean;
+  /** `workbookProtection/@lockStructure` (§18.2.29). */
+  structureLocked: boolean;
   /** Cells converted from TCVN3 / VNI fonts to Unicode on open (undo restores them). */
   legacyConverted?: number;
 }
+
+/** What stays allowed on a protected sheet (§18.3.1.85, inverted flags). */
+export interface SheetPermissions {
+  selectLockedCells: boolean;
+  selectUnlockedCells: boolean;
+  formatCells: boolean;
+  formatColumns: boolean;
+  formatRows: boolean;
+  insertColumns: boolean;
+  insertRows: boolean;
+  insertHyperlinks: boolean;
+  deleteColumns: boolean;
+  deleteRows: boolean;
+  sort: boolean;
+  autoFilter: boolean;
+  pivotTables: boolean;
+  objects: boolean;
+}
+
+export interface ProtectionState {
+  sheet: { protected: boolean; hasPassword: boolean; allow: SheetPermissions };
+  workbook: { structure: boolean; windows: boolean; hasPassword: boolean };
+}
+
+/** Status-bar figures of a (multi-range) selection. */
+export interface RangeStats {
+  sum: number;
+  count: number;
+  numbers: number;
+  average: number | null;
+}
+
+/** Engine error text of an edit refused by sheet protection. */
+export const SHEET_PROTECTED = 'sheet protected';
+/** Engine error text of a sheet operation refused by workbook protection. */
+export const WORKBOOK_PROTECTED = 'workbook protected';
+/** Engine error text of a wrong sheet / workbook protection password. */
+export const WRONG_PROTECTION_PASSWORD = 'wrong protection password';
 
 export type SheetHit =
   | { kind: 'cell'; row: number; col: number }
@@ -82,7 +128,7 @@ export interface SheetView {
   height: number;
 }
 
-export type SheetSaveFormat = 'xlsx' | 'csv';
+export type SheetSaveFormat = 'xlsx' | 'csv' | 'ods';
 
 // ------------------------------------------------- editing commands (mirrors bo_engine::sheet::cmd)
 
@@ -110,6 +156,10 @@ export interface StylePatch {
   wrap?: boolean;
   indent?: number;
   rotation?: number;
+  /** `protection/@locked` (§18.8.33). */
+  locked?: boolean;
+  /** `protection/@hidden` (§18.8.33). */
+  formulaHidden?: boolean;
 }
 
 export type BorderPreset =
@@ -140,6 +190,8 @@ export interface CellFormatState {
   borders: [string, string, string, string];
   styleName: string;
   merged: boolean;
+  locked: boolean;
+  formulaHidden: boolean;
 }
 
 export interface CfStyle {
@@ -662,7 +714,17 @@ export type SheetCommand =
       printArea?: SheetRange | null;
       titleRows?: [number, number] | null;
       gridLines?: boolean;
-    };
+    }
+  | { cmd: 'setSavePassword'; password?: string }
+  | { cmd: 'protection'; sheet: number }
+  | { cmd: 'protectSheet'; sheet: number; password?: string; allow?: Partial<SheetPermissions> }
+  | { cmd: 'unprotectSheet'; sheet: number; password?: string }
+  | { cmd: 'protectWorkbook'; password?: string }
+  | { cmd: 'unprotectWorkbook'; password?: string }
+  | { cmd: 'moveSheet'; from: number; to: number }
+  | { cmd: 'setTabColor'; sheet: number; color?: string | null }
+  | { cmd: 'batch'; cmds: SheetCommand[] }
+  | { cmd: 'rangeStats'; sheet: number; ranges: SheetRange[] };
 
 export interface ChartInfo {
   index: number;
@@ -696,7 +758,11 @@ export interface PageSetupInfo {
 
 export interface SheetHost {
   init(): Promise<void>;
-  open(bytes: Uint8Array, name: string): Promise<WorkbookInfo>;
+  /**
+   * Opens a workbook; encrypted files ([MS-OFFCRYPTO]) need `password`: the
+   * promise rejects with `password required` / `wrong password`.
+   */
+  open(bytes: Uint8Array, name: string, password?: string): Promise<WorkbookInfo>;
   newWorkbook(name: string): Promise<WorkbookInfo>;
   info(): Promise<WorkbookInfo>;
   render(view: SheetView): Promise<PageDisplayList>;
@@ -798,8 +864,8 @@ export class RpcSheetHost implements SheetHost {
   init(): Promise<void> {
     return this.ready();
   }
-  open(bytes: Uint8Array, name: string) {
-    return this.call<WorkbookInfo>('open', bytes, name);
+  open(bytes: Uint8Array, name: string, password?: string) {
+    return this.call<WorkbookInfo>('open', bytes, name, password ?? null);
   }
   newWorkbook(name: string) {
     return this.call<WorkbookInfo>('newWorkbook', name);

@@ -20,10 +20,13 @@ pub const TABLE_STYLES_CT: &str =
 /// Style of one table part (§20.1.4.2.* wholeTbl, band1H, firstRow, …).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PartStyle {
+    /// Cell fill (tcStyle fill).
     pub fill: Option<Fill>,
     /// Text colour (tcTxStyle colour choice).
     pub color: Option<Color>,
+    /// Bold text (tcTxStyle `b`), if set.
     pub bold: Option<bool>,
+    /// Italic text (tcTxStyle `i`), if set.
     pub italic: Option<bool>,
     /// tcBdr: left, right, top, bottom, insideH, insideV.
     pub borders: [Option<Line>; 6],
@@ -32,8 +35,11 @@ pub struct PartStyle {
 /// A table style.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TableStyle {
+    /// `styleId` (a GUID).
     pub id: String,
+    /// `styleName`.
     pub name: String,
+    /// Part styles by element name (`wholeTbl`, `firstRow`, …).
     pub parts: Vec<(String, PartStyle)>,
 }
 
@@ -101,11 +107,17 @@ pub fn parse_style(el: &XmlElement) -> TableStyle {
 /// The banding / emphasis flags of `a:tblPr` (§21.1.3.15).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Flags {
+    /// `firstRow`: emphasise the first row.
     pub first_row: bool,
+    /// `lastRow`: emphasise the last row.
     pub last_row: bool,
+    /// `firstCol`: emphasise the first column.
     pub first_col: bool,
+    /// `lastCol`: emphasise the last column.
     pub last_col: bool,
+    /// `bandRow`: alternate row banding.
     pub band_row: bool,
+    /// `bandCol`: alternate column banding.
     pub band_col: bool,
 }
 

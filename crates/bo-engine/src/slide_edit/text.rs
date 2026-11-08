@@ -256,56 +256,74 @@ pub fn set_text(tb: &mut TextBody, text: &str) {
     rename_all_fields = "camelCase"
 )]
 pub enum TextFormat {
-    /// Toggle when `value` is absent.
+    /// Bold (§21.1.2.3.9 rPr@b).
     Bold {
+        /// New state; toggles when absent.
         value: Option<bool>,
     },
+    /// Italic (§21.1.2.3.9 rPr@i).
     Italic {
+        /// New state; toggles when absent.
         value: Option<bool>,
     },
+    /// Single underline (§21.1.2.3.9 rPr@u).
     Underline {
+        /// New state; toggles when absent.
         value: Option<bool>,
     },
     /// §21.1.2.3.9 rPr@strike.
     Strike {
+        /// New state; toggles when absent.
         value: Option<bool>,
     },
     /// Font size in points.
     Size {
+        /// The size (points).
         points: f64,
     },
     /// Grow/shrink by `points`.
     SizeBy {
+        /// Signed change (points).
         points: f64,
     },
-    /// `RRGGBB`; `None` = inherit.
+    /// Text colour (§20.1.2.3.32 srgbClr).
     Color {
+        /// `RRGGBB`; `None` = inherit.
         hex: Option<String>,
     },
-    /// §21.1.2.3.4 highlight: `RRGGBB`; `None` = no highlight.
+    /// §21.1.2.3.4 highlight.
     Highlight {
+        /// `RRGGBB`; `None` = no highlight.
         hex: Option<String>,
     },
     /// §21.1.2.3.7 latin typeface.
     Font {
+        /// Typeface name.
         typeface: String,
     },
+    /// Paragraph alignment (§21.1.2.2.7 pPr@algn).
     Align {
+        /// The alignment.
         align: Align,
     },
+    /// Bullets (§21.1.2.4.3 buChar / §21.1.2.4.8 buNone).
     Bullets {
+        /// New state; toggles when absent.
         value: Option<bool>,
     },
     /// §21.1.2.4.1 buAutoNum (`arabicPeriod`).
     Numbering {
+        /// New state; toggles when absent.
         value: Option<bool>,
     },
     /// Change the list level (§21.1.2.2.7 pPr@lvl) by `delta` (Tab / Shift+Tab).
     Level {
+        /// Levels to add (negative to outdent).
         delta: i32,
     },
     /// §21.1.2.2.10 lnSpc as a multiple of single spacing (1.0, 1.5, 2.0, …).
     LineSpacing {
+        /// The multiple.
         value: f64,
     },
 }
@@ -328,9 +346,13 @@ impl TextFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Align {
+    /// `l`: flush left.
     Left,
+    /// `ctr`: centred.
     Center,
+    /// `r`: flush right.
     Right,
+    /// `just` (and the other justified variants).
     Justify,
 }
 
@@ -343,6 +365,7 @@ impl Align {
             Align::Justify => "just",
         }
     }
+    /// Alignment of an `algn` attribute value (left when absent or unknown).
     pub fn of(code: Option<&str>) -> Align {
         match code {
             Some("ctr") => Align::Center,
@@ -357,19 +380,29 @@ impl Align {
 #[derive(Debug, Clone, PartialEq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatState {
+    /// A text-bearing shape is selected (formatting commands apply).
     pub has_text: bool,
+    /// Bold is on.
     pub bold: bool,
+    /// Italic is on.
     pub italic: bool,
+    /// Underline is on.
     pub underline: bool,
+    /// Strikethrough is on.
     pub strike: bool,
     /// Points.
     pub size: Option<f64>,
+    /// Text colour `RRGGBB` (`None` = inherited / not resolvable).
     pub color: Option<String>,
+    /// Highlight colour `RRGGBB` (`None` = none).
     pub highlight: Option<String>,
     /// Latin typeface as written (theme fonts resolved).
     pub font: Option<String>,
+    /// Paragraph alignment.
     pub align: Option<Align>,
+    /// The paragraph has bullets.
     pub bullets: bool,
+    /// The paragraph is auto-numbered.
     pub numbering: bool,
     /// List level, 0-based.
     pub level: u8,

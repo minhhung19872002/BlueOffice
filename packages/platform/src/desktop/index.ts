@@ -5,7 +5,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
-import { AnonymousSession, BrowserClipboard, FileAccessStorage, LocalRecentFiles } from '../shared';
+import { BrowserClipboard, FileAccessStorage, LocalRecentFiles } from '../shared';
 import type {
   CollabChange,
   DocInfo,
@@ -28,11 +28,25 @@ import type {
   PrintService,
   RecentFile,
   ShellIntegration,
+  SignatureReport,
+  SignerKind,
+  SigningDefaults,
+  SigningService,
+  SignRequest,
   SlideCommand,
   SlideEditResult,
+  UpdateService,
+  UpdateStatus,
   WindowManager,
 } from '../types';
-import { RpcSheetHost, type SheetMethod } from '../sheet';
+import { RpcSheetHost, type SheetMethod, type SheetRpc } from '../sheet';
+import { BundledFontSource } from '../web';
+import { WebEngineHost } from '../web/WebEngineHost';
+import { webSheetTransport } from '../web/WebSheetHost';
+import { DesktopAuth, type DesktopScheme } from './auth';
+
+export { DesktopAuth, DESKTOP_OIDC_PATH, isOidcCallback } from './auth';
+export type { DesktopAuthOptions, DesktopScheme } from './auth';
 
 /** Minimal `invoke` signature so tests can inject a fake. */
 export type Invoke = <T>(
@@ -49,7 +63,9 @@ export class NativeEngineHost implements EngineHost {
   readonly backend = 'native' as const;
   constructor(private readonly call: Invoke = invoke as Invoke) {}
   async init(): Promise<void> {
-    await this.call<number>('engine_init');
+    // The native engine answers with its face count; none = it did not start.
+    const faces = await this.call<number>('engine_init');
+    if (!faces) throw new Error('engine.nativeUnavailable');
   }
   open(bytes: Uint8Array, name: string, password?: string): Promise<DocInfo> {
     const headers: Record<string, string> = { 'x-file-name': encodeURIComponent(name) };
@@ -145,19 +161,177 @@ export class NativeEngineHost implements EngineHost {
   dispose(): void {}
 }
 
-/** BlueSheet engine running natively (apps/desktop/src-tauri/src/sheet_cmds.rs). */
-export function createNativeSheetHost(call: Invoke = invoke as Invoke): RpcSheetHost {
-  return new RpcSheetHost(async (method: SheetMethod, args: unknown[]) => {
+/** Transport to the native BlueSheet engine (apps/desktop/src-tauri/src/sheet_cmds.rs). */
+function nativeSheetRpc(call: Invoke): SheetRpc {
+  return async (method: SheetMethod, args: unknown[]) => {
     if (method === 'open') {
-      return call('sheet_open', args[0] as Uint8Array, {
-        headers: { 'x-file-name': encodeURIComponent(String(args[1])) },
-      });
+      const headers: Record<string, string> = {
+        'x-file-name': encodeURIComponent(String(args[1])),
+      };
+      if (typeof args[2] === 'string' && args[2])
+        headers['x-password'] = encodeURIComponent(args[2]);
+      return call('sheet_open', args[0] as Uint8Array, { headers });
     }
     if (method === 'save' || method === 'exportPdf') {
       return toBytes(await call<ArrayBuffer>('sheet_binary', { method, args }));
     }
     return call('sheet_call', { method, args });
-  });
+  };
+}
+
+/** BlueSheet engine running natively (apps/desktop/src-tauri/src/sheet_cmds.rs). */
+export function createNativeSheetHost(call: Invoke = invoke as Invoke): RpcSheetHost {
+  return new RpcSheetHost(nativeSheetRpc(call));
+}
+
+const need = <T>(f: T | null | undefined, name: string): T => {
+  if (!f) throw new Error(`engine.unsupported: ${name}`);
+  return f;
+};
+
+/**
+ * Desktop engine (prompt §3.4 `engine`: "desktop = native, fallback WASM"):
+ * the native engine of the Tauri process, or — when it does not start (no IPC,
+ * no fonts) — the WASM engine of the web build in a Web Worker, with the
+ * bundled fonts served from the app's `fonts/` folder.
+ */
+export class FallbackEngineHost implements EngineHost {
+  private active: EngineHost;
+  private ready: Promise<void> | null = null;
+
+  constructor(
+    private readonly native: EngineHost,
+    private readonly wasm: () => EngineHost,
+    private readonly onFallback: (reason: unknown) => void = (e) =>
+      console.warn('native engine unavailable, using WASM', e),
+  ) {
+    this.active = native;
+  }
+
+  get backend(): 'wasm' | 'native' {
+    return this.active.backend;
+  }
+
+  init(): Promise<void> {
+    this.ready ??= (async () => {
+      try {
+        await this.native.init();
+      } catch (e) {
+        this.onFallback(e);
+        this.active = this.wasm();
+        await this.active.init();
+      }
+    })();
+    return this.ready;
+  }
+
+  private async on(): Promise<EngineHost> {
+    await this.init();
+    return this.active;
+  }
+
+  async open(bytes: Uint8Array, name: string, password?: string): Promise<DocInfo> {
+    return (await this.on()).open(bytes, name, password);
+  }
+  async getPage(index: number): Promise<PageDisplayList> {
+    return (await this.on()).getPage(index);
+  }
+  async getGlyphOutlines(face: number, glyphs: number[]): Promise<GlyphOutline[]> {
+    return (await this.on()).getGlyphOutlines(face, glyphs);
+  }
+  async exportPdf(): Promise<Uint8Array> {
+    return (await this.on()).exportPdf();
+  }
+  async newDocument(name: string): Promise<DocInfo> {
+    return (await this.on()).newDocument(name);
+  }
+  async command(cmd: TimedCommand): Promise<EditResult> {
+    return (await this.on()).command(cmd);
+  }
+  async insertImage(bytes: Uint8Array, name: string): Promise<EditResult> {
+    return (await this.on()).insertImage(bytes, name);
+  }
+  async getMedia(name: string): Promise<Uint8Array> {
+    return (await this.on()).getMedia(name);
+  }
+  async saveDocx(): Promise<Uint8Array> {
+    return (await this.on()).saveDocx();
+  }
+  async markSaved(): Promise<void> {
+    return (await this.on()).markSaved();
+  }
+  async getSlideNotes(index: number): Promise<string> {
+    return (await this.on()).getSlideNotes(index);
+  }
+  async savePptx(): Promise<Uint8Array> {
+    return (await this.on()).savePptx();
+  }
+  async slideCommand(cmd: SlideCommand): Promise<SlideEditResult> {
+    return (await this.on()).slideCommand(cmd);
+  }
+  async slideInsertPicture(bytes: Uint8Array, name: string): Promise<SlideEditResult> {
+    return (await this.on()).slideInsertPicture(bytes, name);
+  }
+  async collabStart(seed: boolean, clientId?: number): Promise<CollabChange> {
+    const h = await this.on();
+    return need(h.collabStart, 'collabStart').call(h, seed, clientId);
+  }
+  async collabApply(change: string): Promise<EditResult> {
+    const h = await this.on();
+    return need(h.collabApply, 'collabApply').call(h, change);
+  }
+  async collabPeers(selections: [number, number][]): Promise<PeerRects[]> {
+    const h = await this.on();
+    return need(h.collabPeers, 'collabPeers').call(h, selections);
+  }
+  async collabStop(): Promise<void> {
+    const h = await this.on();
+    return need(h.collabStop, 'collabStop').call(h);
+  }
+  async slideCollabStart(seed: boolean, clientId: number): Promise<CollabChange> {
+    const h = await this.on();
+    return need(h.slideCollabStart, 'slideCollabStart').call(h, seed, clientId);
+  }
+  async slideCollabApply(change: string): Promise<SlideEditResult> {
+    const h = await this.on();
+    return need(h.slideCollabApply, 'slideCollabApply').call(h, change);
+  }
+  async slideCollabPeers(keys: string[]): Promise<({ slide: number; rect: SlideBox } | null)[]> {
+    const h = await this.on();
+    return need(h.slideCollabPeers, 'slideCollabPeers').call(h, keys);
+  }
+  dispose(): void {
+    this.active.dispose();
+  }
+}
+
+/**
+ * BlueSheet engine of the desktop: native, or the WASM worker when the
+ * native engine did not start (decided by `useNative`, the doc engine's probe).
+ */
+export function createFallbackSheetHost(
+  call: Invoke,
+  useNative: () => Promise<boolean>,
+  wasm: () => { rpc: SheetRpc; init: () => Promise<void> },
+): RpcSheetHost {
+  let rpc: SheetRpc | null = null;
+  let ready: Promise<void> | null = null;
+  const init = (): Promise<void> => {
+    ready ??= (async () => {
+      if (await useNative()) {
+        rpc = nativeSheetRpc(call);
+        return;
+      }
+      const t = wasm();
+      await t.init();
+      rpc = t.rpc;
+    })();
+    return ready;
+  };
+  return new RpcSheetHost(async (method, args) => {
+    await init();
+    return need(rpc, 'sheet')(method, args);
+  }, init);
 }
 
 /** Real disk access through native dialogs. */
@@ -217,11 +391,56 @@ export class NativeFontSource implements FontSource {
   }
 }
 
-/** Phase 1: hand the PDF to the OS default viewer; native print dialog arrives in Phase 2. */
+/**
+ * OS print UI (apps/desktop/src-tauri/src/print.rs): the PDF opens in a print
+ * window whose web view print dialog starts (Windows WebView2, macOS
+ * WKWebView); elsewhere the default PDF viewer prints it.
+ */
 export class DesktopPrint implements PrintService {
+  /** Label of the last print window (`null`: the default viewer was used). */
+  lastWindow: string | null = null;
   constructor(private readonly call: Invoke = invoke as Invoke) {}
   async printPdf(pdf: Uint8Array, title: string): Promise<void> {
-    await this.call('print_pdf', pdf, { headers: { 'x-file-name': encodeURIComponent(title) } });
+    this.lastWindow = await this.call<string | null>('print_pdf', pdf, {
+      headers: { 'x-file-name': encodeURIComponent(title) },
+    });
+  }
+}
+
+/** Auto-update through the Tauri updater (apps/desktop/src-tauri/src/update.rs). */
+export class DesktopUpdates implements UpdateService {
+  constructor(private readonly call: Invoke = invoke as Invoke) {}
+  async check(): Promise<UpdateStatus> {
+    try {
+      return await this.call<UpdateStatus>('update_check');
+    } catch (e) {
+      return { state: 'failed', message: e instanceof Error ? e.message : String(e) };
+    }
+  }
+  async install(): Promise<void> {
+    await this.call('update_install');
+  }
+}
+
+/** Digital signatures in the native process (`sign_cmds.rs`, ADR-0007). */
+export class DesktopSigning implements SigningService {
+  readonly kinds: SignerKind[] = ['file', 'token', 'remote'];
+  constructor(private readonly call: Invoke = invoke as Invoke) {}
+  defaults(): Promise<SigningDefaults> {
+    return this.call<SigningDefaults>('sign_defaults');
+  }
+  listTokenCertificates(module: string) {
+    return this.call<import('../types').TokenCertificate[]>('sign_token_certificates', { module });
+  }
+  async sign(bytes: Uint8Array, request: SignRequest): Promise<Uint8Array> {
+    return toBytes(
+      await this.call<ArrayBuffer>('sign_document', bytes, {
+        headers: { 'x-sign-request': encodeURIComponent(JSON.stringify(request)) },
+      }),
+    );
+  }
+  async verify(bytes: Uint8Array): Promise<SignatureReport> {
+    return JSON.parse(await this.call<string>('verify_document', bytes)) as SignatureReport;
   }
 }
 
@@ -402,12 +621,33 @@ export class TauriBus implements MessageBus {
 export interface DesktopPlatformOptions {
   storage?: (files: FileAccess) => DocumentStorage;
   invoke?: Invoke;
+  /** App of this shell: picks the sign-in redirect scheme (`bluedoc://auth/oidc`). */
+  scheme?: DesktopScheme;
+  /** Base URL of the bundled `fonts/` (WASM fallback engine; default Vite `BASE_URL`). */
+  baseUrl?: string;
+  /** WASM engines used when the native engine does not start (tests inject fakes). */
+  wasmEngine?: () => EngineHost;
+  wasmSheet?: () => { rpc: SheetRpc; init: () => Promise<void> };
+}
+
+/** The desktop platform; `auth` is configured with the BlueOffice server once known. */
+export interface DesktopPlatform extends Platform {
+  auth: DesktopAuth;
+  updates: UpdateService;
 }
 
 /** Build the desktop platform. */
-export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Platform {
+export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): DesktopPlatform {
   const call = opts.invoke ?? (invoke as Invoke);
   const files = new DesktopFileAccess(call);
+  const shell = new DesktopShell(call);
+  const bundled = new BundledFontSource(opts.baseUrl ?? import.meta.env?.BASE_URL ?? '/');
+  const engine = new FallbackEngineHost(
+    new NativeEngineHost(call),
+    opts.wasmEngine ?? (() => new WebEngineHost(bundled)),
+  );
+  const locale = () =>
+    (typeof document === 'undefined' ? '' : document.documentElement.lang) || 'vi-VN';
   return {
     kind: 'desktop',
     files,
@@ -415,12 +655,21 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Platfo
     clipboard: new BrowserClipboard(),
     fonts: new NativeFontSource(call),
     print: new DesktopPrint(call),
-    engine: new NativeEngineHost(call),
-    auth: new AnonymousSession(),
+    engine,
+    auth: new DesktopAuth({ scheme: opts.scheme ?? 'bluedoc', shell }),
     window: new DesktopWindow(call),
     offline: new DesktopDiskCache(call),
-    shell: new DesktopShell(call),
+    shell,
     channel: (name: string) => new TauriBus(name),
-    sheet: createNativeSheetHost(call),
+    sheet: createFallbackSheetHost(
+      call,
+      async () => {
+        await engine.init();
+        return engine.backend === 'native';
+      },
+      opts.wasmSheet ?? (() => webSheetTransport(bundled, locale)),
+    ),
+    signing: new DesktopSigning(call),
+    updates: new DesktopUpdates(call),
   };
 }

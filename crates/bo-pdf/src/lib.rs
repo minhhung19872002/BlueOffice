@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap};
 /// PDF export errors.
 #[derive(Debug, thiserror::Error)]
 pub enum PdfError {
+    /// Subsetting the font with the given face id failed.
     #[error("font subsetting failed for face {0}: {1}")]
     Subset(u32, String),
 }
@@ -25,6 +26,7 @@ pub enum PdfError {
 /// Metadata written to the document information dictionary.
 #[derive(Debug, Clone, Default)]
 pub struct PdfMeta {
+    /// `/Title` entry.
     pub title: Option<String>,
 }
 

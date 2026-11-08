@@ -26,19 +26,29 @@
 
 ## Schema cơ sở dữ liệu
 
-Bản 0.6 tạo schema bằng `EnsureCreated` khi khởi động lần đầu. Khi một bản phát hành thay đổi schema, gói phát hành
-kèm script SQL `upgrade-<from>-<to>.sql` — chạy **sau khi dừng** `api`, **trước khi** khởi động image mới:
+Từ bản 0.7 schema do **EF Core migrations** quản lý (`apps/server/BlueOffice.Infrastructure/Data/Migrations/Postgres`
+và `.../Sqlite`, bảng lịch sử `__EFMigrationsHistory`). Khi khởi động, api chạy các migration còn thiếu nếu
+`Database__AutoCreate` bật (mặc định). Cơ sở dữ liệu tạo bằng `EnsureCreated` ở bản ≤ 0.6 được **nhận** tự động: api
+tạo bảng còn thiếu (vd `CollabLog`), ghi migration `Initial` là đã áp dụng rồi chạy các migration sau.
+
+Tắt `Database__AutoCreate` thì DBA áp schema bằng script SQL sinh từ migrations (idempotent):
 
 ```bash
-$C exec -T postgres psql -U blueoffice -d blueoffice -v ON_ERROR_STOP=1 < upgrade-<from>-<to>.sql
+dotnet ef migrations script --idempotent --context PostgresBlueOfficeDbContext \
+  --project apps/server/BlueOffice.Infrastructure -o upgrade.sql
+$C exec -T postgres psql -U blueoffice -d blueoffice -v ON_ERROR_STOP=1 < upgrade.sql
 ```
 
-Bảng thêm vào sau bản đầu tiên (vd `CollabLog`) được api tự tạo khi khởi động (`SchemaUpgrades`, `CREATE TABLE IF NOT
-EXISTS`) nếu `Database__AutoCreate` bật (mặc định); tắt thì chạy script SQL tương ứng. Từ bản có `CollabLog`, log cộng tác mặc định nằm trong cơ sở dữ liệu
+Nhà phát triển đổi model: thêm migration cho **cả hai** provider (test `MigrationsAreUpToDateWithTheModel` báo khi quên):
+
+```bash
+cd apps/server/BlueOffice.Infrastructure
+dotnet ef migrations add <Ten> --context PostgresBlueOfficeDbContext --output-dir Data/Migrations/Postgres
+dotnet ef migrations add <Ten> --context SqliteBlueOfficeDbContext --output-dir Data/Migrations/Sqlite
+``` Từ bản có `CollabLog`, log cộng tác mặc định nằm trong cơ sở dữ liệu
 (`Collab__SnapshotStore=Database`): log chưa lưu của bản cũ (MinIO) không được đọc lại, nên lưu hết tài liệu trước khi
 nâng cấp, hoặc giữ `Collab__SnapshotStore=ObjectStore`.
 
-(Chuyển sang EF Core migrations tự động là việc còn lại của Phase 6, xem `docs/plan/phase-6.md`.)
 
 ## Quay lui (rollback)
 

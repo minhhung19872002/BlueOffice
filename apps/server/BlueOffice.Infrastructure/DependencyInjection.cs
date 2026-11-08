@@ -29,17 +29,14 @@ public static class DependencyInjection
         // Database
         var provider = config["Database:Provider"] ?? "Sqlite";
         var cs = config.GetConnectionString("Default") ?? "Data Source=data/blueoffice.db";
-        services.AddDbContext<BlueOfficeDbContext>(o =>
+        if (provider.Equals("Postgres", StringComparison.OrdinalIgnoreCase))
         {
-            if (provider.Equals("Postgres", StringComparison.OrdinalIgnoreCase))
-            {
-                o.UseNpgsql(cs);
-            }
-            else
-            {
-                o.UseSqlite(cs);
-            }
-        });
+            services.AddDbContext<BlueOfficeDbContext, PostgresBlueOfficeDbContext>(o => o.UseNpgsql(cs));
+        }
+        else
+        {
+            services.AddDbContext<BlueOfficeDbContext, SqliteBlueOfficeDbContext>(o => o.UseSqlite(cs));
+        }
 
         // Object store
         var storage = new StorageOptions();

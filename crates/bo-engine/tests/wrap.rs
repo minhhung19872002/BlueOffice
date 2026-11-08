@@ -51,7 +51,7 @@ fn wrap_settings_survive_save() {
     for name in FILES {
         let bytes = std::fs::read(dir.join(format!("{name}.docx"))).expect("corpus file");
         let doc = bo_docx::read_docx(&bytes).expect("read");
-        // Writing from the model (as after an edit) keeps wrapText, distances and the polygon box.
+        // Writing from the model (as after an edit) keeps wrapText, distances and the polygon.
         let mut edited = doc.clone();
         for s in &mut edited.sections {
             for b in &mut s.blocks {
@@ -85,10 +85,16 @@ fn wrap_settings_survive_save() {
         };
         let (a, b) = (anchors(&doc), anchors(&again));
         assert!(!a.is_empty(), "{name}");
+        if *name == "images-05-wrap-tight" {
+            assert!(
+                a.iter().any(|x| x.polygon_points.len() >= 4),
+                "{name}: polygon points read"
+            );
+        }
         for (x, y) in a.iter().zip(&b) {
             assert_eq!(
-                (x.wrap, x.wrap_text, x.dist, x.polygon),
-                (y.wrap, y.wrap_text, y.dist, y.polygon),
+                (x.wrap, x.wrap_text, x.dist, x.polygon, &x.polygon_points),
+                (y.wrap, y.wrap_text, y.dist, y.polygon, &y.polygon_points),
                 "{name}"
             );
         }

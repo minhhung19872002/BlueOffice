@@ -1,6 +1,8 @@
 //! Text boxes and shapes (§17.17.1, §20.1.9), run font slots and theme fonts
 //! (§17.3.2.26), kerning (§17.3.2.19), bidirectional text (§17.3.1.6) and soft
 //! hyphens (§17.3.3.29).
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_layout::{layout_document, LayoutCache, LayoutDocument, LineSource, PageItem};
 use bo_model::{

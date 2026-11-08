@@ -25,7 +25,9 @@ use std::ops::Range;
 /// A data bar to draw in a cell: fraction of the cell width and colour.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BarDraw {
+    /// Bar length as a fraction of the cell width (0.0–1.0, §18.3.1.28 `dataBar`).
     pub fraction: f64,
+    /// Bar fill colour.
     pub color: Rgba,
 }
 
@@ -34,20 +36,30 @@ pub struct BarDraw {
 pub struct IconDraw {
     /// Icon set name (§18.18.42 `ST_IconSetType`), e.g. `3TrafficLights1`.
     pub set: String,
+    /// Zero-based position of the icon in the set (0 = lowest band).
     pub index: usize,
+    /// Number of icons in the set (3, 4 or 5).
     pub count: usize,
 }
 
 /// Formatting that conditional formats add to a cell.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CellFormat {
+    /// Background fill from the matching rule's `dxf` (§18.8.17).
     pub fill: Option<Rgba>,
+    /// Font colour from the matching rule's `dxf`.
     pub font_color: Option<Rgba>,
+    /// Bold override (`b`), `None` = unchanged.
     pub bold: Option<bool>,
+    /// Italic override (`i`), `None` = unchanged.
     pub italic: Option<bool>,
+    /// Strikethrough override (`strike`), `None` = unchanged.
     pub strike: Option<bool>,
+    /// Underline override (`u`), `None` = unchanged.
     pub underline: Option<bool>,
+    /// Data bar to draw behind the value (§18.3.1.28).
     pub bar: Option<BarDraw>,
+    /// Icon to draw before the value (§18.3.1.49 `iconSet`).
     pub icon: Option<IconDraw>,
     /// `showValue="0"` of a data bar / icon set.
     pub hide_value: bool,
@@ -545,7 +557,9 @@ pub struct CfStyle {
     pub fill: Option<String>,
     /// Font colour `RRGGBB`.
     pub font_color: Option<String>,
+    /// Bold text (`dxf/font/b`).
     pub bold: bool,
+    /// Italic text (`dxf/font/i`).
     pub italic: bool,
 }
 
@@ -559,44 +573,68 @@ pub struct CfStyle {
 pub enum CfRuleSpec {
     /// §18.18.12 `cellIs` with an operator (§18.18.15 `ST_ConditionalFormattingOperator`).
     CellIs {
+        /// Operator name, e.g. `greaterThan`, `between`.
         operator: String,
+        /// First operand formula (or constant).
         formula1: String,
+        /// Second operand formula, for `between` / `notBetween`.
         #[serde(default)]
         formula2: Option<String>,
+        /// Formatting applied to matching cells.
         style: CfStyle,
     },
     /// Formula evaluated for each cell, relative to the top-left cell.
     Expression {
+        /// Boolean formula; the rule applies where it is true.
         formula: String,
+        /// Formatting applied to matching cells.
         style: CfStyle,
     },
+    /// §18.18.12 `containsText`: the cell text contains `text` (case-insensitive).
     ContainsText {
+        /// Substring searched for.
         text: String,
+        /// Formatting applied to matching cells.
         style: CfStyle,
     },
+    /// §18.18.12 `top10`: the highest (or lowest) ranked values.
     Top10 {
+        /// Number of items, or percentage when `percent` is set.
         rank: u32,
+        /// Select the lowest values instead of the highest.
         #[serde(default)]
         bottom: bool,
+        /// `rank` is a percentage of the cells in the range.
         #[serde(default)]
         percent: bool,
+        /// Formatting applied to matching cells.
         style: CfStyle,
     },
+    /// §18.18.12 `duplicateValues`: values that occur more than once in the range.
     DuplicateValues {
+        /// Formatting applied to the duplicated cells.
         style: CfStyle,
     },
     /// 2- or 3-colour scale (min [, 50th percentile], max).
     ColorScale {
+        /// Colour (`RRGGBB`) of the lowest value.
         min_color: String,
+        /// Colour (`RRGGBB`) of the 50th percentile; `None` = 2-colour scale.
         #[serde(default)]
         mid_color: Option<String>,
+        /// Colour (`RRGGBB`) of the highest value.
         max_color: String,
     },
+    /// §18.3.1.28 `dataBar` with the default min/max value objects.
     DataBar {
+        /// Bar colour `RRGGBB`.
         color: String,
     },
+    /// §18.3.1.49 `iconSet` with percent thresholds.
     IconSet {
+        /// Icon set name (§18.18.42 `ST_IconSetType`), e.g. `3Arrows`.
         set: String,
+        /// Reverse the icon order (`reverse` attribute).
         #[serde(default)]
         reverse: bool,
     },

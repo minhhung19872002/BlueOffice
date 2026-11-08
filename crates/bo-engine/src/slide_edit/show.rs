@@ -37,10 +37,13 @@ pub struct TransitionSpec {
     /// `none` | `cut` | `fade` | `push` | `wipe` | `cover` | `pull` | `split` | `random`
     /// (`keep` keeps the current effect and changes the timing only).
     pub kind: String,
+    /// Direction (`l` | `u` | `r` | `d`, corners for cover/pull, `horz` | `vert` for split); invalid ones are dropped.
     #[serde(default)]
     pub dir: Option<String>,
+    /// Duration in ms (`p14:dur`); `None` keeps the current one.
     #[serde(default)]
     pub dur_ms: Option<u32>,
+    /// Advance on mouse click (§19.3.1.50 transition@advClick); `None` keeps it.
     #[serde(default)]
     pub advance_on_click: Option<bool>,
     /// Advance automatically after this many ms (0 = not automatically).
@@ -56,10 +59,13 @@ pub struct TransitionOut {
     pub kind: String,
     /// The host can play it as is (others play as a fade).
     pub known: bool,
+    /// Direction of the effect, if any (see [`TransitionSpec::dir`]).
     pub dir: Option<String>,
     /// Effective duration (p14:dur, else the speed).
     pub dur_ms: u32,
+    /// Advance on mouse click (`advClick`).
     pub advance_on_click: bool,
+    /// Advance automatically after this many ms (`advTm`); `None` = not automatically.
     pub advance_after_ms: Option<u32>,
 }
 
@@ -67,21 +73,29 @@ pub struct TransitionOut {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnimOut {
+    /// 0-based position in the main sequence.
     pub index: usize,
+    /// Id of the animated shape (`p:cNvPr/@id`).
     pub shape_id: u32,
+    /// Name of the animated shape (`p:cNvPr/@name`).
     pub shape_name: String,
     /// `appear` | `fade` | `flyIn` | `wipe` | `other`.
     pub effect: &'static str,
     /// `entr` | `exit` | `emph` | `path` | `other`.
     pub class: &'static str,
+    /// Direction of fly-in / wipe effects (`l` | `r` | `t` | `b`), if any.
     pub direction: Option<String>,
     /// `onClick` | `withPrevious` | `afterPrevious`.
     pub trigger: &'static str,
+    /// Delay before the effect starts, in ms.
     pub delay_ms: u32,
+    /// Duration of the effect, in ms.
     pub dur_ms: u32,
     /// Click step (0 = with the slide) and times relative to it (`Timing::timeline`).
     pub click: usize,
+    /// Start time relative to the click step, in ms.
     pub start_ms: u32,
+    /// End time relative to the click step, in ms.
     pub end_ms: u32,
     /// Bounds of the animated top-level shape `[x, y, w, h]` in points.
     pub rect: Option<[f64; 4]>,
@@ -97,6 +111,7 @@ pub struct LayerOut {
     pub ids: Vec<u32>,
     /// Whether the layer holds the background and master/layout shapes.
     pub backdrop: bool,
+    /// Display list of the layer (same format as a rendered page).
     pub page: bo_render::PageList,
 }
 
@@ -104,7 +119,9 @@ pub struct LayerOut {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaOut {
+    /// Shape id of the picture frame (`p:cNvPr/@id`).
     pub id: u32,
+    /// Shape name (`p:cNvPr/@name`).
     pub name: String,
     /// `video` | `audio`.
     pub kind: &'static str,
@@ -112,6 +129,7 @@ pub struct MediaOut {
     pub rect: [f64; 4],
     /// Embedded media part (bytes via `Engine::media`).
     pub part: Option<String>,
+    /// MIME type of the media part (its content type, else from the file extension).
     pub mime: Option<String>,
     /// External target of linked media (not played).
     pub link: Option<String>,
@@ -121,14 +139,21 @@ pub struct MediaOut {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShowOut {
+    /// 0-based slide index.
     pub slide: usize,
+    /// Slide width in points.
     pub width: f32,
+    /// Slide height in points.
     pub height: f32,
+    /// Transition into this slide; `None` = none.
     pub transition: Option<TransitionOut>,
+    /// Layers to draw, bottom to top.
     pub layers: Vec<LayerOut>,
+    /// Effects of the main sequence with their layer.
     pub animations: Vec<AnimOut>,
     /// Clicks needed to play every effect.
     pub clicks: usize,
+    /// Video and audio clips of the slide.
     pub media: Vec<MediaOut>,
 }
 
@@ -447,17 +472,22 @@ fn valid_anim_dir(e: &AnimEffect, d: Option<&str>) -> Option<String> {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnimSpec {
+    /// Effect: `appear` | `fade` | `flyIn` | `wipe`.
     #[serde(default)]
     pub effect: Option<String>,
     /// `entr` | `exit`.
     #[serde(default)]
     pub class: Option<String>,
+    /// Direction of fly-in / wipe effects (`l` | `r` | `t` | `b`, default `b`).
     #[serde(default)]
     pub direction: Option<String>,
+    /// `onClick` | `withPrevious` | `afterPrevious`.
     #[serde(default)]
     pub trigger: Option<String>,
+    /// Duration in ms (default 500 for a new effect).
     #[serde(default)]
     pub dur_ms: Option<u32>,
+    /// Delay before the effect, in ms.
     #[serde(default)]
     pub delay_ms: Option<u32>,
 }
@@ -554,6 +584,7 @@ pub fn cmd_set_animation(tx: &mut Tx<'_>, sel: &SlideSel, index: usize, spec: &A
     })
 }
 
+/// Removes effect `index` of the slide's main sequence (refused when out of range).
 pub fn cmd_remove_animation(tx: &mut Tx<'_>, sel: &SlideSel, index: usize) -> R<()> {
     edit_timing(tx, sel.slide, |anims| {
         if index >= anims.len() {
@@ -564,6 +595,7 @@ pub fn cmd_remove_animation(tx: &mut Tx<'_>, sel: &SlideSel, index: usize) -> R<
     })
 }
 
+/// Moves effect `from` to position `to` of the slide's main sequence (refused when out of range).
 pub fn cmd_move_animation(tx: &mut Tx<'_>, sel: &SlideSel, from: usize, to: usize) -> R<()> {
     edit_timing(tx, sel.slide, |anims| {
         if from >= anims.len() || to >= anims.len() {

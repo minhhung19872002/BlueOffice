@@ -18,8 +18,11 @@
 #![forbid(unsafe_code)]
 
 mod bytes;
+#[cfg(test)]
+mod corpus_gen;
 pub mod doc;
 pub mod ppt;
+mod ppt_draw;
 pub mod sheet;
 pub mod vba;
 pub mod xls;
@@ -28,6 +31,9 @@ pub mod xlsb;
 
 pub use doc::{read_doc, read_doc_with, DocOptions};
 pub use ppt::{read_ppt, PptDeck, PptSlide, PptText, TextKind};
+pub use ppt_draw::{
+    preset_for, PptParagraph, PptPicture, PptPlaceholder, PptRichText, PptRun, PptShape,
+};
 pub use sheet::{Cell, CellValue, DefinedName, Workbook, Worksheet};
 pub use vba::{has_macros, read_vba_project, VbaProject};
 pub use xls::read_xls;
@@ -38,16 +44,22 @@ use std::io::{Cursor, Read};
 /// Errors produced by the binary readers.
 #[derive(Debug, thiserror::Error)]
 pub enum BinaryError {
+    /// The compound file (CFB) container could not be read.
     #[error("compound file error: {0}")]
     Cfb(#[from] std::io::Error),
+    /// A required stream, storage or part is absent.
     #[error("missing stream or part: {0}")]
     Missing(String),
+    /// The binary structures are inconsistent or truncated.
     #[error("malformed file: {0}")]
     Malformed(String),
+    /// The file is encrypted; decryption must happen first.
     #[error("the file is encrypted or password protected")]
     Encrypted,
+    /// The file uses a feature or version this crate does not read.
     #[error("unsupported: {0}")]
     Unsupported(String),
+    /// Error from the OPC package layer.
     #[error(transparent)]
     Opc(#[from] bo_opc::OpcError),
 }
@@ -106,8 +118,11 @@ pub fn is_compound_file(bytes: &[u8]) -> bool {
 /// Legacy format of a compound file, by the streams it contains.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LegacyKind {
+    /// Word 97-2003 document (`WordDocument` stream, [MS-DOC]).
     Doc,
+    /// Excel 97-2003 workbook (`Workbook`/`Book` stream, [MS-XLS]).
     Xls,
+    /// PowerPoint 97-2003 presentation (`PowerPoint Document` stream, [MS-PPT]).
     Ppt,
     /// An encrypted OOXML package ([MS-OFFCRYPTO] `EncryptionInfo` + `EncryptedPackage`).
     EncryptedOoxml,

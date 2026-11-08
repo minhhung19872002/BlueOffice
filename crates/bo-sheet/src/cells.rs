@@ -12,6 +12,7 @@ use bo_model::sheet::{CellRange, CellValue, Workbook};
 
 /// [`CellProvider`] over a model workbook (cached values).
 pub struct ModelCells<'a> {
+    /// Workbook whose cached cell values are read.
     pub wb: &'a Workbook,
     config: EvalConfig,
 }
@@ -31,6 +32,7 @@ impl<'a> ModelCells<'a> {
                 date_system,
                 // Never read the system clock (unavailable on wasm32).
                 now: Some(now.unwrap_or(45_658.0)),
+                text_formatter: Some(crate::numfmt::text_function_format),
             },
         }
     }

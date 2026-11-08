@@ -1,4 +1,6 @@
 //! Robustness: arbitrary input never panics.
+// Test helpers may unwrap: a panic is the desired failure mode here.
+#![allow(clippy::unwrap_used)]
 
 use bo_odf::{read_odp, read_ods, read_odt, OdfPackage, MIME_ODP, MIME_ODS, MIME_ODT};
 use proptest::prelude::*;

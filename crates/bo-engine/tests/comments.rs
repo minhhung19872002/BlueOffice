@@ -1,6 +1,8 @@
 //! Threaded comments in BlueSheet ([MS-XLSX] threaded comments / person parts)
 //! and modern comments in BlueSlide ([MS-PPTX] p188:cmLst): read, reply,
 //! resolve, delete, undo and a save round trip.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_engine::SheetEngine;
 use serde_json::{json, Value};

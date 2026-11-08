@@ -14,8 +14,11 @@ use serde::Serialize;
 /// Text selection of the shape being edited (character offsets of the editing text).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextSel {
+    /// Shape id of the text box (`p:cNvPr/@id`).
     pub id: u32,
+    /// Anchor offset (characters).
     pub start: usize,
+    /// Focus offset (characters); equal to `start` for a caret.
     pub end: usize,
     /// Table cell (row, grid column) whose text is edited, in table `id`.
     pub cell: Option<(usize, usize)>,
@@ -25,8 +28,11 @@ pub struct TextSel {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextEditOut {
+    /// Shape id of the text box (`p:cNvPr/@id`).
     pub id: u32,
+    /// Anchor offset (UTF-16 code units).
     pub start: usize,
+    /// Focus offset (UTF-16 code units).
     pub end: usize,
     /// Caret line `[x1, y1, x2, y2]` in slide points (collapsed selections).
     pub caret: Option<[f64; 4]>,

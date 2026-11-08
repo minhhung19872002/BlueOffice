@@ -26,7 +26,11 @@
 //!   reorder converge (order keys, see [`crate::collab::order`]).
 //! * **Conditional formats / data validation** (§18.3.1.18, §18.3.1.33):
 //!   `cf:<sheet>` (with the differential formats it uses) and `dv:<sheet>`,
-//!   last writer wins per sheet; **charts** `ch:<sheet>:<i>` and **pivot
+//!   last writer wins per sheet, their ranges also by row/column ids in
+//!   `cfa:<sheet>` / `dva:<sheet>` so they follow concurrent row/column
+//!   inserts and deletes (hyperlinks, AutoFilter, tables and print area /
+//!   titles of `sh:<sheet>` likewise in `sha:<sheet>`, placed after the
+//!   structural changes of the same update); **charts** `ch:<sheet>:<i>` and **pivot
 //!   tables** `pv:<sheet>:<i>` (+ caches `pc:<i>`) last writer wins per
 //!   object; defined names `wb`.
 
@@ -760,6 +764,23 @@ impl SheetCollab {
                 })
                 .ok();
                 put(&mut self.meta, &mut out, format!("sh:{sk}"), j);
+                let (ra, ca) = (self.axis(&sk, true), self.axis(&sk, false));
+                let mut at = BareAt::of(ws, &ra, &ca);
+                let shared = |text: &Option<String>| {
+                    text.as_ref().map(|t| {
+                        let f = Formula {
+                            text: t.clone(),
+                            ..Formula::default()
+                        };
+                        self.formula_shared(wb, &keys, &sk, &f)
+                    })
+                };
+                at.pa = shared(&ws.print_area);
+                at.pt = shared(&ws.print_titles);
+                let j = (!at.is_empty())
+                    .then(|| serde_json::to_string(&at).ok())
+                    .flatten();
+                put(&mut self.meta, &mut out, format!("sha:{sk}"), j);
                 seen.bare = Some(b);
             }
             let (ra, ca) = (self.axis(&sk, true), self.axis(&sk, false));
@@ -892,6 +913,12 @@ impl SheetCollab {
                     .then(|| serde_json::to_string(&e).ok())
                     .flatten();
                 put(&mut self.meta, &mut out, format!("cf:{sk}"), j);
+                let at = ranges_by_id(
+                    ws.conditional_formats.iter().map(|c| &c.sqref),
+                    &mut rid,
+                    &mut cid,
+                );
+                put(&mut self.meta, &mut out, format!("cfa:{sk}"), at);
                 seen.cf = Some(ws.conditional_formats.clone());
             }
             if seen.dv.as_ref() != Some(&ws.data_validations) {
@@ -899,21 +926,57 @@ impl SheetCollab {
                     .then(|| serde_json::to_string(&ws.data_validations).ok())
                     .flatten();
                 put(&mut self.meta, &mut out, format!("dv:{sk}"), j);
+                let at = ranges_by_id(
+                    ws.data_validations.iter().map(|d| &d.sqref),
+                    &mut rid,
+                    &mut cid,
+                );
+                put(&mut self.meta, &mut out, format!("dva:{sk}"), at);
                 seen.dv = Some(ws.data_validations.clone());
             }
             if seen.charts.as_ref() != Some(&ws.charts) {
-                for (i, c) in ws.charts.iter().enumerate() {
+                let ats: Vec<Option<String>> = ws
+                    .charts
+                    .iter()
+                    .map(|ch| {
+                        let at = ChartAt {
+                            f: [rid(ch.from.row), cid(ch.from.col)],
+                            t: ch.to.map(|t| [rid(t.row), cid(t.col)]),
+                            s: ch
+                                .plots
+                                .iter()
+                                .flat_map(|p| &p.series)
+                                .map(|s| {
+                                    [&s.name_ref, &s.cat_ref, &s.val_ref].map(|r| {
+                                        r.as_ref().map(|text| {
+                                            let f = Formula {
+                                                text: text.clone(),
+                                                ..Formula::default()
+                                            };
+                                            self.formula_shared(wb, &keys, &sk, &f)
+                                        })
+                                    })
+                                })
+                                .collect(),
+                        };
+                        serde_json::to_string(&at).ok()
+                    })
+                    .collect();
+                for (i, (c, at)) in ws.charts.iter().zip(ats).enumerate() {
                     put(
                         &mut self.meta,
                         &mut out,
                         format!("ch:{sk}:{i}"),
                         serde_json::to_string(c).ok(),
                     );
+                    put(&mut self.meta, &mut out, format!("cha:{sk}:{i}"), at);
                 }
-                for k in keys_with(&self.meta, &format!("ch:{sk}:")) {
-                    let i: usize = k[4 + sk.len()..].parse().unwrap_or(usize::MAX);
-                    if i >= ws.charts.len() {
-                        put(&mut self.meta, &mut out, k, None);
+                for p in ["ch", "cha"] {
+                    for k in keys_with(&self.meta, &format!("{p}:{sk}:")) {
+                        let i: usize = k[p.len() + 2 + sk.len()..].parse().unwrap_or(usize::MAX);
+                        if i >= ws.charts.len() {
+                            put(&mut self.meta, &mut out, k, None);
+                        }
                     }
                 }
                 seen.charts = Some(ws.charts.clone());
@@ -926,11 +989,27 @@ impl SheetCollab {
                         format!("pv:{sk}:{i}"),
                         serde_json::to_string(p).ok(),
                     );
+                    // The report location by row/column ids (§18.10.1.49).
+                    let l = p.location;
+                    let at = [
+                        rid(l.first.row),
+                        cid(l.first.col),
+                        rid(l.last.row),
+                        cid(l.last.col),
+                    ];
+                    put(
+                        &mut self.meta,
+                        &mut out,
+                        format!("pva:{sk}:{i}"),
+                        serde_json::to_string(&at).ok(),
+                    );
                 }
-                for k in keys_with(&self.meta, &format!("pv:{sk}:")) {
-                    let i: usize = k[4 + sk.len()..].parse().unwrap_or(usize::MAX);
-                    if i >= ws.pivots.len() {
-                        put(&mut self.meta, &mut out, k, None);
+                for p in ["pv", "pva"] {
+                    for k in keys_with(&self.meta, &format!("{p}:{sk}:")) {
+                        let i: usize = k[p.len() + 2 + sk.len()..].parse().unwrap_or(usize::MAX);
+                        if i >= ws.pivots.len() {
+                            put(&mut self.meta, &mut out, k, None);
+                        }
                     }
                 }
                 seen.pivots = Some(ws.pivots.clone());
@@ -951,6 +1030,24 @@ impl SheetCollab {
                     format!("pc:{i}"),
                     serde_json::to_string(c).ok(),
                 );
+                // The source range as an id formula (§18.10.1.98 worksheetSource),
+                // so it follows concurrent row/column changes of its sheet.
+                let src = match (&c.source_sheet, &c.source_ref) {
+                    (Some(sheet), Some(r)) => keys.first().map(|host| {
+                        let f = Formula {
+                            text: format!("'{}'!{r}", sheet.replace('\'', "''")),
+                            ..Formula::default()
+                        };
+                        self.formula_shared(wb, &keys, host, &f)
+                    }),
+                    _ => None,
+                };
+                put(
+                    &mut self.meta,
+                    &mut out,
+                    format!("pca:{i}"),
+                    src.and_then(|s| serde_json::to_string(&s).ok()),
+                );
             }
             for k in keys_with(&self.meta, "pc:") {
                 let i: usize = k[3..].parse().unwrap_or(usize::MAX);
@@ -970,6 +1067,173 @@ impl SheetCollab {
 
 /// Structural differences of an axis: ids to delete (old positions,
 /// descending) and to insert (new positions, ascending).
+/// A chart's anchor cells by row/column ids and its series references
+/// (§21.2.2.215 `f` of `tx`/`cat`/`val`) as id formulas (`cha:<sheet>:<i>`,
+/// next to the positional `ch:<sheet>:<i>`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ChartAt {
+    f: [String; 2],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    t: Option<[String; 2]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    s: Vec<[Option<SharedFormula>; 3]>,
+}
+
+/// Ranges of a sheet's bare properties by row/column ids (`sha:<sheet>`):
+/// hyperlinks (§18.3.1.47), the AutoFilter (§18.3.1.2) and tables (§18.5.1.2),
+/// in the order of the shared `sh:<sheet>`; placed on the receiver's axes
+/// like [`place_by_id`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+struct BareAt {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    hl: Vec<[String; 4]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    af: Option<[String; 4]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tb: Vec<[String; 4]>,
+    /// Print area / print titles (§18.2.6 `_xlnm.Print_Area`, `_xlnm.Print_Titles`) as id formulas.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pa: Option<SharedFormula>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pt: Option<SharedFormula>,
+    /// Frozen pane split (§18.3.1.66): ids of the first unfrozen row / column
+    /// (`None` on an axis without frozen rows / columns).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fz: Option<[Option<String>; 2]>,
+}
+
+impl BareAt {
+    fn of(ws: &Worksheet, ra: &Axis, ca: &Axis) -> BareAt {
+        let ids = |r: &CellRange| {
+            [
+                ra.id_at(r.first.row),
+                ca.id_at(r.first.col),
+                ra.id_at(r.last.row),
+                ca.id_at(r.last.col),
+            ]
+        };
+        BareAt {
+            hl: ws.hyperlinks.iter().map(|h| ids(&h.range)).collect(),
+            af: ws.auto_filter.as_ref().map(|a| ids(&a.range)),
+            tb: ws.tables.iter().map(|t| ids(&t.range)).collect(),
+            pa: None,
+            pt: None,
+            fz: ws
+                .views
+                .first()
+                .and_then(|v| v.pane.as_ref())
+                .filter(|p| p.state != bo_model::sheet::PaneState::Split)
+                .map(|p| {
+                    let id = |n: f64, ax: &Axis| (n >= 1.0).then(|| ax.id_at(n as u32));
+                    [id(p.y_split, ra), id(p.x_split, ca)]
+                }),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.hl.is_empty()
+            && self.af.is_none()
+            && self.tb.is_empty()
+            && self.pa.is_none()
+            && self.pt.is_none()
+            && self.fz.is_none()
+    }
+
+    fn place(&self, ws: &mut Worksheet, ra: &Axis, ca: &Axis) {
+        let at = |ids: &[String; 4]| -> Option<CellRange> {
+            let [r1, c1, r2, c2] = ids;
+            Some(CellRange::new(
+                CellRef::new(ra.pos_of(r1)?, ca.pos_of(c1)?),
+                CellRef::new(ra.pos_of(r2)?, ca.pos_of(c2)?),
+            ))
+        };
+        if self.hl.len() == ws.hyperlinks.len() {
+            for (h, ids) in ws.hyperlinks.iter_mut().zip(&self.hl) {
+                if let Some(r) = at(ids) {
+                    h.range = r;
+                }
+            }
+        }
+        if let (Some(a), Some(ids)) = (ws.auto_filter.as_mut(), &self.af) {
+            if let Some(r) = at(ids) {
+                a.range = r;
+            }
+        }
+        if let (Some([rows, cols]), Some(p)) =
+            (&self.fz, ws.views.first_mut().and_then(|v| v.pane.as_mut()))
+        {
+            let place = |id: &Option<String>, ax: &Axis, cur: f64| match id {
+                Some(id) => ax.pos_of(id).map_or(cur, f64::from),
+                None => cur,
+            };
+            p.y_split = place(rows, ra, p.y_split);
+            p.x_split = place(cols, ca, p.x_split);
+            p.top_left_cell = Some(CellRef::new(p.y_split as u32, p.x_split as u32).to_string());
+        }
+        if self.tb.len() == ws.tables.len() {
+            for (t, ids) in ws.tables.iter_mut().zip(&self.tb) {
+                if let Some(r) = at(ids) {
+                    t.range = r;
+                }
+            }
+        }
+    }
+}
+
+/// The ranges of each rule (`sqref`, §18.3.1.18 / §18.3.1.32) as row/column ids
+/// `[top, left, bottom, right]` (`cfa:` / `dva:` next to the positional
+/// `cf:` / `dv:`), so a receiver whose rows or columns moved concurrently
+/// places them where the sender meant; `None` when there are no rules.
+fn ranges_by_id<'a>(
+    sqrefs: impl Iterator<Item = &'a Vec<CellRange>>,
+    rid: &mut impl FnMut(u32) -> String,
+    cid: &mut impl FnMut(u32) -> String,
+) -> Option<String> {
+    let at: Vec<Vec<[String; 4]>> = sqrefs
+        .map(|s| {
+            s.iter()
+                .map(|r| {
+                    [
+                        rid(r.first.row),
+                        cid(r.first.col),
+                        rid(r.last.row),
+                        cid(r.last.col),
+                    ]
+                })
+                .collect()
+        })
+        .collect();
+    (!at.is_empty())
+        .then(|| serde_json::to_string(&at).ok())
+        .flatten()
+}
+
+/// Positions of the ranges of [`ranges_by_id`] on this replica's axes; a range
+/// whose rows or columns were deleted (or a sender without ids) keeps its
+/// positional value.
+fn place_by_id<'a>(
+    sqrefs: impl Iterator<Item = &'a mut Vec<CellRange>>,
+    at: Option<&String>,
+    ra: &Axis,
+    ca: &Axis,
+) {
+    let Some(at) = at.and_then(|j| serde_json::from_str::<Vec<Vec<[String; 4]>>>(j).ok()) else {
+        return;
+    };
+    for (sqref, ids) in sqrefs.zip(&at) {
+        if sqref.len() != ids.len() {
+            continue;
+        }
+        for (r, [r1, c1, r2, c2]) in sqref.iter_mut().zip(ids) {
+            if let (Some(a), Some(b), Some(c), Some(d)) =
+                (ra.pos_of(r1), ca.pos_of(c1), ra.pos_of(r2), ca.pos_of(c2))
+            {
+                *r = CellRange::new(CellRef::new(a, b), CellRef::new(c, d));
+            }
+        }
+    }
+}
+
 fn axis_steps(old: &Axis, new: &Axis) -> (Vec<u32>, Vec<u32>) {
     let mut cand = old.special();
     cand.extend(new.special());
@@ -1022,10 +1286,12 @@ impl SheetEngine {
         Ok(ch)
     }
 
+    /// [`Self::collab_start`] with the change as JSON.
     pub fn collab_start_json(&mut self, seed: bool, client: u64) -> Result<String> {
         Ok(serde_json::to_string(&self.collab_start(seed, client)?).unwrap_or_default())
     }
 
+    /// Leaves the collaboration session.
     pub fn collab_stop(&mut self) {
         self.collab = None;
     }
@@ -1040,10 +1306,12 @@ impl SheetEngine {
         })
     }
 
+    /// [`Self::collab_local`] as JSON.
     pub fn collab_local_json(&mut self) -> Result<String> {
         Ok(serde_json::to_string(&self.collab_local()?).unwrap_or_default())
     }
 
+    /// [`Self::collab_apply`] with a JSON change; returns the workbook summary as JSON.
     pub fn collab_apply_json(&mut self, json: &str) -> Result<String> {
         let ch: CollabChange =
             serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;
@@ -1283,6 +1551,29 @@ impl SheetEngine {
                     .any(|k| k.starts_with(&format!("{p}:{sk}")))
             };
             let (ra, ca) = (c.axis(sk, true), c.axis(sk, false));
+            // Hyperlinks, AutoFilter, tables, print area / titles where the
+            // sender meant them on this replica's rows and columns (`BareAt`),
+            // once the structural changes are applied.
+            if joining || hit("sh") || hit("sha") {
+                if let Some(at) = c
+                    .meta
+                    .get(&format!("sha:{sk}"))
+                    .and_then(|j| serde_json::from_str::<BareAt>(j).ok())
+                {
+                    let text = |sf: &Option<SharedFormula>| {
+                        sf.as_ref().map(|f| c.formula_text(wb, &keys, sk, f))
+                    };
+                    let (pa, pt) = (text(&at.pa), text(&at.pt));
+                    let ws = &mut wb.sheets[si];
+                    at.place(ws, &ra, &ca);
+                    if pa.is_some() {
+                        ws.print_area = pa;
+                    }
+                    if pt.is_some() {
+                        ws.print_titles = pt;
+                    }
+                }
+            }
             let ws = &mut wb.sheets[si];
             let any = rebuild_all && (joining || structural.contains(sk));
             if any || hit("rp") {
@@ -1323,7 +1614,7 @@ impl SheetEngine {
                     })
                     .collect();
             }
-            if joining || hit("cf") {
+            if joining || hit("cf") || hit("cfa") {
                 let e: CfEntry = c
                     .meta
                     .get(&format!("cf:{sk}"))
@@ -1343,26 +1634,83 @@ impl SheetEngine {
                 for rule in cf.iter_mut().flat_map(|x| &mut x.rules) {
                     rule.dxf_id = rule.dxf_id.and_then(|d| map.get(&d).copied());
                 }
+                let at = c.meta.get(&format!("cfa:{sk}"));
+                place_by_id(cf.iter_mut().map(|x| &mut x.sqref), at, &ra, &ca);
                 wb.sheets[si].conditional_formats = cf;
             }
+            // Charts: anchors and series references where the sender meant
+            // them on this replica's rows and columns (`cha:`).
+            let charts = (joining || hit("ch") || hit("cha")).then(|| {
+                let wb_ref: &Workbook = wb;
+                (0..)
+                    .map_while(|i| c.meta.get(&format!("ch:{sk}:{i}")).map(|j| (i, j)))
+                    .filter_map(|(i, j)| {
+                        let mut ch: bo_model::sheet::Chart = serde_json::from_str(j).ok()?;
+                        if let Some(at) = c
+                            .meta
+                            .get(&format!("cha:{sk}:{i}"))
+                            .and_then(|j| serde_json::from_str::<ChartAt>(j).ok())
+                        {
+                            if let (Some(r), Some(col)) = (ra.pos_of(&at.f[0]), ca.pos_of(&at.f[1]))
+                            {
+                                ch.from = CellRef::new(r, col);
+                            }
+                            if let Some([r, col]) = &at.t {
+                                if let (Some(r), Some(col)) = (ra.pos_of(r), ca.pos_of(col)) {
+                                    ch.to = Some(CellRef::new(r, col));
+                                }
+                            }
+                            let series = ch.plots.iter_mut().flat_map(|p| &mut p.series);
+                            for (s, refs) in series.zip(&at.s) {
+                                for (slot, sf) in [&mut s.name_ref, &mut s.cat_ref, &mut s.val_ref]
+                                    .into_iter()
+                                    .zip(refs)
+                                {
+                                    if let (Some(slot), Some(sf)) = (slot.as_mut(), sf) {
+                                        *slot = c.formula_text(wb_ref, &keys, sk, sf);
+                                    }
+                                }
+                            }
+                        }
+                        Some(ch)
+                    })
+                    .collect::<Vec<bo_model::sheet::Chart>>()
+            });
             let ws = &mut wb.sheets[si];
-            if joining || hit("dv") {
-                ws.data_validations = c
+            if joining || hit("dv") || hit("dva") {
+                let mut dv: Vec<DataValidation> = c
                     .meta
                     .get(&format!("dv:{sk}"))
                     .and_then(|j| serde_json::from_str(j).ok())
                     .unwrap_or_default();
+                let at = c.meta.get(&format!("dva:{sk}"));
+                place_by_id(dv.iter_mut().map(|x| &mut x.sqref), at, &ra, &ca);
+                ws.data_validations = dv;
             }
-            if joining || hit("ch") {
-                ws.charts = (0..)
-                    .map_while(|i| c.meta.get(&format!("ch:{sk}:{i}")))
-                    .filter_map(|j| serde_json::from_str(j).ok())
-                    .collect();
+            if let Some(charts) = charts {
+                ws.charts = charts;
             }
-            if joining || hit("pv") {
+            if joining || hit("pv") || hit("pva") {
                 ws.pivots = (0..)
-                    .map_while(|i| c.meta.get(&format!("pv:{sk}:{i}")))
-                    .filter_map(|j| serde_json::from_str(j).ok())
+                    .map_while(|i| c.meta.get(&format!("pv:{sk}:{i}")).map(|j| (i, j)))
+                    .filter_map(|(i, j)| {
+                        let mut p: bo_model::sheet::PivotTable = serde_json::from_str(j).ok()?;
+                        let at = c
+                            .meta
+                            .get(&format!("pva:{sk}:{i}"))
+                            .and_then(|j| serde_json::from_str::<[String; 4]>(j).ok());
+                        if let Some([r1, c1, r2, c2]) = at {
+                            if let (Some(a), Some(b), Some(x), Some(y)) = (
+                                ra.pos_of(&r1),
+                                ca.pos_of(&c1),
+                                ra.pos_of(&r2),
+                                ca.pos_of(&c2),
+                            ) {
+                                p.location = CellRange::new(CellRef::new(a, b), CellRef::new(x, y));
+                            }
+                        }
+                        Some(p)
+                    })
                     .collect();
             }
         }
@@ -1375,11 +1723,34 @@ impl SheetEngine {
                 wb.defined_names = e.names;
             }
         }
-        if joining || change.meta.keys().any(|k| k.starts_with("pc:")) {
-            wb.pivot_caches = (0..)
-                .map_while(|i| c.meta.get(&format!("pc:{i}")))
-                .filter_map(|j| serde_json::from_str(j).ok())
+        if joining || change.meta.keys().any(|k| k.starts_with("pc")) {
+            let host = c
+                .sheet_keys(wb, false)
+                .into_iter()
+                .next()
+                .unwrap_or_default();
+            let keys_now = c.sheet_keys(wb, false);
+            let caches: Vec<bo_model::sheet::PivotCache> = (0..)
+                .map_while(|i| c.meta.get(&format!("pc:{i}")).map(|j| (i, j)))
+                .filter_map(|(i, j)| {
+                    let mut pc: bo_model::sheet::PivotCache = serde_json::from_str(j).ok()?;
+                    let src = c
+                        .meta
+                        .get(&format!("pca:{i}"))
+                        .and_then(|j| serde_json::from_str::<SharedFormula>(j).ok());
+                    if let (Some(sf), Some(_)) = (src, pc.source_ref.as_ref()) {
+                        let text = c.formula_text(wb, &keys_now, &host, &sf);
+                        // `'Sheet'!A1:B2` → the range part (the sheet is kept).
+                        if let Some((_, r)) = text.rsplit_once('!') {
+                            if !r.starts_with('#') {
+                                pc.source_ref = Some(r.to_owned());
+                            }
+                        }
+                    }
+                    Some(pc)
+                })
                 .collect();
+            wb.pivot_caches = caches;
         }
         // Everything now shown counts as shared.
         let _ = c.local_change(wb, false);

@@ -251,3 +251,11 @@ proptest! {
         }
     }
 }
+
+/// Shrunk case once found by `transforms_never_panic`: a LAMBDA call whose
+/// argument holds an implicit intersection and spill references.
+#[test]
+fn transforms_lambda_regression() {
+    let src = "LAMBDA(x,x+@$OFW272154)(IF(,362.638,LAMBDA(x,x+MIN$784600#)(L$81920#)))";
+    transforms(src.to_owned()).unwrap();
+}

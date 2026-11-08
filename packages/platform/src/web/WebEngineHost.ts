@@ -7,12 +7,14 @@ import type {
   GlyphOutline,
   PageDisplayList,
   PeerRects,
+  SignatureReport,
   SlideBox,
   SlideCommand,
   SlideEditResult,
   TimedCommand,
 } from '../types';
 import type { EngineRequest, EngineResponse } from './protocol';
+import type { RevocationRequest, SignatureBackend } from './signing';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 // Distributive Omit so each union member keeps its own fields.
@@ -23,7 +25,7 @@ type RequestBody = EngineRequest extends infer R
   : never;
 
 /** Engine running as WASM inside a dedicated Web Worker. */
-export class WebEngineHost implements EngineHost {
+export class WebEngineHost implements EngineHost, SignatureBackend {
   readonly backend = 'wasm' as const;
   private worker: Worker | null = null;
   private seq = 0;
@@ -104,6 +106,36 @@ export class WebEngineHost implements EngineHost {
 
   getMedia(name: string): Promise<Uint8Array> {
     return this.call<Uint8Array>({ method: 'media', name });
+  }
+
+  // Digital signatures (two-phase, ADR-0007).
+  signPrepare(
+    bytes: Uint8Array,
+    certsPem: string,
+    options: { timeSecs: number; name?: string; reason?: string; location?: string },
+  ): Promise<{ id: number; digest: Uint8Array }> {
+    return this.call({ method: 'signPrepare', bytes, certsPem, options: JSON.stringify(options) });
+  }
+  signTimestampRequest(id: number, signature: Uint8Array, nonce: Uint8Array): Promise<Uint8Array> {
+    return this.call({ method: 'signTimestampRequest', session: id, signature, nonce });
+  }
+  signFinish(id: number, signature: Uint8Array, tsResponse?: Uint8Array): Promise<Uint8Array> {
+    return this.call({ method: 'signFinish', session: id, signature, tsResponse });
+  }
+  verifySignatures(
+    bytes: Uint8Array,
+    anchorsPem: string,
+    nowSecs: number,
+    revocation: string[] = [],
+  ): Promise<SignatureReport> {
+    return this.call({ method: 'verifySignatures', bytes, anchorsPem, nowSecs, revocation });
+  }
+  revocationRequests(
+    bytes: Uint8Array,
+    anchorsPem: string,
+    nowSecs: number,
+  ): Promise<RevocationRequest[]> {
+    return this.call({ method: 'revocationRequests', bytes, anchorsPem, nowSecs });
   }
 
   saveDocx(): Promise<Uint8Array> {

@@ -38,8 +38,11 @@ const MAX_POINTS: usize = 4_000;
 /// Text alignment of a label inside its box.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Align {
+    /// Flush with the left edge of the box.
     Left,
+    /// Centred horizontally in the box.
     Center,
+    /// Flush with the right edge of the box.
     Right,
 }
 

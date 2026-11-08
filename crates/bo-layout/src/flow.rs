@@ -254,19 +254,30 @@ pub(crate) fn float_item(
             x0: x - dl,
             x1: x + w + dr,
             side: a.wrap_text,
+            outline: None,
         })),
-        // §20.4.2.20 wrapTight: the bounding box of the wrap polygon (§20.4.2.16, in
-        // 21 600ths of the extent) plus distL/R; distT/B do not apply.
+        // §20.4.2.20 wrapTight: text follows the edges of the wrap polygon
+        // (§20.4.2.16, in 21 600ths of the extent) plus distL/R line by line;
+        // distT/B do not apply. The zone is the polygon's bounding box.
         Wrap::Tight => {
             let [px0, py0, px1, py1] = a
                 .polygon
                 .map_or([0.0, 0.0, 1.0, 1.0], |p| p.map(|v| v as f32 / 21_600.0));
+            let outline = (a.polygon_points.len() >= 3).then(|| Outline {
+                points: a
+                    .polygon_points
+                    .iter()
+                    .map(|&(px, py)| (x + w * px as f32 / 21_600.0, y + h * py as f32 / 21_600.0))
+                    .collect(),
+                pad: (dl, dr),
+            });
             Some(Excl::Side(SideZone {
                 y0: y + h * py0.min(py1),
                 y1: y + h * py0.max(py1),
                 x0: x + w * px0.min(px1) - dl,
                 x1: x + w * px0.max(px1) + dr,
                 side: a.wrap_text,
+                outline,
             }))
         }
     };
@@ -319,13 +330,70 @@ fn float_frame(
 }
 
 /// Area of a square/tight-wrapped picture on the page (points, distances included).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SideZone {
     pub y0: f32,
     pub y1: f32,
     pub x0: f32,
     pub x1: f32,
     pub side: WrapText,
+    /// Tight wrap: the wrap polygon on the page (points) and `distL`/`distR`;
+    /// lines are kept clear of the polygon's extent at their height only.
+    pub outline: Option<Outline>,
+}
+
+/// Wrap polygon of a tight-wrapped picture (ECMA-376 Part 1, §20.4.2.16) with
+/// the left / right distances from text (§20.4.2.20 `distL` `distR`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Outline {
+    pub points: std::sync::Arc<[(f32, f32)]>,
+    pub pad: (f32, f32),
+}
+
+impl Outline {
+    /// The same outline moved by `(-dx, -dy)`.
+    pub(crate) fn offset(&self, dx: f32, dy: f32) -> Outline {
+        Outline {
+            points: self.points.iter().map(|&(x, y)| (x - dx, y - dy)).collect(),
+            pad: self.pad,
+        }
+    }
+
+    /// Horizontal extent `(left, right)` of the polygon between heights `y0`
+    /// and `y1`, distances included; `None` when the polygon does not reach
+    /// that band.
+    pub(crate) fn extent(&self, y0: f32, y1: f32) -> Option<(f32, f32)> {
+        let pts = &self.points;
+        let n = pts.len();
+        let mut lo = f32::INFINITY;
+        let mut hi = f32::NEG_INFINITY;
+        for i in 0..n {
+            let (ax, ay) = pts[i];
+            let (bx, by) = pts[(i + 1) % n];
+            // The part of edge a→b inside the band.
+            let (t0, t1) = if (by - ay).abs() < f32::EPSILON {
+                if ay < y0 || ay > y1 {
+                    continue;
+                }
+                (0.0, 1.0)
+            } else {
+                let ta = ((y0 - ay) / (by - ay)).clamp(0.0, 1.0);
+                let tb = ((y1 - ay) / (by - ay)).clamp(0.0, 1.0);
+                let (t0, t1) = (ta.min(tb), ta.max(tb));
+                let ym = ay + (by - ay) * (t0 + t1) / 2.0;
+                if ym < y0 - 0.001 || ym > y1 + 0.001 {
+                    continue;
+                }
+                (t0, t1)
+            };
+            for t in [t0, t1] {
+                let x = ax + (bx - ax) * t;
+                lo = lo.min(x);
+                hi = hi.max(x);
+            }
+        }
+        (lo <= hi).then_some((lo - self.pad.0, hi + self.pad.1))
+    }
 }
 
 /// Text exclusion of an anchored picture.
@@ -914,6 +982,7 @@ impl Flow {
                         left: z.x0 - cx,
                         right: z.x1 - cx,
                         side: z.side,
+                        outline: z.outline.as_ref().map(|o| o.offset(cx, top)),
                     })
                     .collect();
                 rewrapped = rewrap_para(ctx, p, pb, self.col_w(), &zones)?;
@@ -1223,7 +1292,7 @@ impl Flow {
         }
         // Endnotes of the other sections at the end of the document (docEnd, default).
         let rest: Vec<i32> = {
-            let placed: Vec<i32> = doc
+            let placed: std::collections::HashSet<i32> = doc
                 .sections
                 .iter()
                 .enumerate()

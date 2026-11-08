@@ -15,6 +15,7 @@ use std::cmp::Ordering;
 /// What a sort level compares (§18.18.79 `ST_SortBy`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SortBy {
+    /// Compare cell values (numbers before text, blanks last).
     #[default]
     Value,
     /// Cells filled with this colour first (last when descending).
@@ -28,8 +29,11 @@ pub enum SortBy {
 pub struct SortKey {
     /// Absolute zero-based column of the key (the key row when sorting left to right).
     pub col: u32,
+    /// Sort from largest to smallest (`descending`).
     pub descending: bool,
+    /// Text comparison distinguishes case (`caseSensitive`).
     pub case_sensitive: bool,
+    /// What the level compares.
     pub by: SortBy,
 }
 

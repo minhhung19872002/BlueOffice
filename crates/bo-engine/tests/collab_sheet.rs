@@ -2,6 +2,8 @@
 //! `bo-collab` replicas exchanging real y-sync frames; concurrent edits —
 //! cell inputs, formats, row/column inserts and deletes with formula
 //! references, merges, sizes, sheets, rules — converge.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_collab::{Change, Session};
 use bo_engine::{CollabChange, SheetEngine};
@@ -298,4 +300,186 @@ proptest! {
             prop_assert_eq!(a.view(), b.view());
         }
     }
+}
+
+// source: ECMA-376 Part 1, §18.3.1.18 conditionalFormatting / §18.3.1.32 dataValidation sqref
+#[test]
+fn rules_added_during_a_row_insert_follow_the_rows() {
+    let (mut a, mut b) = pair(&[(0, 0, "1")]);
+    settle(&mut a, &mut b);
+    // A adds rules on rows 5..10 while B inserts two rows at the top.
+    a.exec(r#"{"cmd":"addCf","sheet":0,"range":{"r0":4,"c0":0,"r1":9,"c1":0},"rule":{"kind":"cellIs","operator":"greaterThan","formula1":"5","style":{"fill":"FFC7CE"}}}"#);
+    a.exec(r#"{"cmd":"setValidation","sheet":0,"range":{"r0":4,"c0":2,"r1":9,"c1":2},"spec":{"kind":"whole","operator":"greaterThan","formula1":"0"}}"#);
+    b.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let ranges = |p: &Peer| {
+        let ws = &p.engine.workbook().unwrap().sheets[0];
+        (
+            ws.conditional_formats
+                .iter()
+                .flat_map(|c| c.sqref.iter().map(ToString::to_string))
+                .collect::<Vec<_>>(),
+            ws.data_validations
+                .iter()
+                .flat_map(|d| d.sqref.iter().map(ToString::to_string))
+                .collect::<Vec<_>>(),
+        )
+    };
+    assert_eq!(ranges(&a), ranges(&b));
+    assert_eq!(
+        ranges(&a),
+        (vec!["A7:A12".to_owned()], vec!["C7:C12".to_owned()])
+    );
+}
+
+// source: ECMA-376 Part 1, §18.3.1.2 autoFilter ref
+#[test]
+fn a_filter_turned_on_during_a_row_insert_follows_the_rows() {
+    let cells = [
+        (4, 0, "Tên"),
+        (4, 1, "Số"),
+        (5, 0, "a"),
+        (5, 1, "1"),
+        (6, 0, "b"),
+        (6, 1, "2"),
+        (7, 0, "c"),
+        (7, 1, "3"),
+    ];
+    let (mut a, mut b) = pair(&cells);
+    settle(&mut a, &mut b);
+    a.exec(r#"{"cmd":"toggleFilter","sheet":0,"range":{"r0":5,"c0":0,"r1":5,"c1":0}}"#);
+    b.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let filter = |p: &Peer| {
+        p.engine.workbook().unwrap().sheets[0]
+            .auto_filter
+            .as_ref()
+            .map(|f| f.range.to_string())
+    };
+    assert_eq!(filter(&a), filter(&b));
+    assert_eq!(filter(&a).as_deref(), Some("A7:B10"));
+    assert_eq!(a.view(), b.view());
+}
+
+// source: ECMA-376 Part 1, §20.5.2.33 twoCellAnchor, §21.2.2.215 f (series references)
+#[test]
+fn a_chart_added_during_a_row_insert_follows_the_rows() {
+    let cells = [
+        (4, 0, "Tháng"),
+        (4, 1, "Doanh thu"),
+        (5, 0, "1"),
+        (5, 1, "10"),
+        (6, 0, "2"),
+        (6, 1, "20"),
+    ];
+    let (mut a, mut b) = pair(&cells);
+    settle(&mut a, &mut b);
+    a.exec(
+        r#"{"cmd":"insertChart","sheet":0,"range":{"r0":4,"c0":0,"r1":6,"c1":1},"kind":"column"}"#,
+    );
+    b.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let chart = |p: &Peer| {
+        let ch = p.engine.workbook().unwrap().sheets[0].charts[0].clone();
+        let refs: Vec<Option<String>> = ch
+            .plots
+            .iter()
+            .flat_map(|pl| &pl.series)
+            .flat_map(|s| [s.cat_ref.clone(), s.val_ref.clone()])
+            .collect();
+        (ch.from, ch.to, refs)
+    };
+    assert_eq!(chart(&a), chart(&b), "{:?} / {:?}", chart(&a), chart(&b));
+    // The data moved two rows down on both replicas: so did the references.
+    let (_, _, refs) = chart(&a);
+    assert!(
+        refs.iter()
+            .flatten()
+            .all(|r| r.contains("$7") || r.contains("$8") || r.contains("$9")),
+        "{refs:?}"
+    );
+}
+
+#[test]
+fn a_filter_and_a_row_insert_from_the_same_peer_shift_once() {
+    let cells = [(4, 0, "Tên"), (4, 1, "Số"), (5, 0, "a"), (5, 1, "1")];
+    let (mut a, mut b) = pair(&cells);
+    settle(&mut a, &mut b);
+    // A turns the filter on, then inserts two rows at the top; B gets both at once.
+    a.exec(r#"{"cmd":"toggleFilter","sheet":0,"range":{"r0":5,"c0":0,"r1":5,"c1":0}}"#);
+    a.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let filter = |p: &Peer| {
+        p.engine.workbook().unwrap().sheets[0]
+            .auto_filter
+            .as_ref()
+            .map(|f| f.range.to_string())
+    };
+    assert_eq!(filter(&a).as_deref(), Some("A7:B8"));
+    assert_eq!(filter(&b), filter(&a));
+}
+
+// source: ECMA-376 Part 1, §18.2.6 definedName _xlnm.Print_Area
+#[test]
+fn a_print_area_set_during_a_row_insert_follows_the_rows() {
+    let (mut a, mut b) = pair(&[(0, 0, "1")]);
+    settle(&mut a, &mut b);
+    a.exec(r#"{"cmd":"setPageSetup","sheet":0,"printArea":{"r0":4,"c0":0,"r1":9,"c1":3}}"#);
+    b.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let pa = |p: &Peer| p.engine.workbook().unwrap().sheets[0].print_area.clone();
+    assert_eq!(pa(&a), pa(&b));
+    assert_eq!(pa(&a).as_deref(), Some("Sheet1!$A$7:$D$12"));
+}
+
+// source: ECMA-376 Part 1, §18.10.1.49 location, §18.10.1.98 worksheetSource
+#[test]
+fn a_pivot_created_during_a_row_insert_follows_the_rows() {
+    let cells = [
+        (0, 0, "Vùng"),
+        (0, 1, "Doanh thu"),
+        (1, 0, "Bắc"),
+        (1, 1, "10"),
+        (2, 0, "Nam"),
+        (2, 1, "5"),
+        (3, 0, "Bắc"),
+        (3, 1, "7"),
+    ];
+    let (mut a, mut b) = pair(&cells);
+    settle(&mut a, &mut b);
+    a.exec(r#"{"cmd":"pivotCreate","sheet":0,"range":{"r0":0,"c0":0,"r1":3,"c1":1},"dest":{"sheet":0,"row":0,"col":6},"rows":[0],"values":[{"field":1,"function":"sum"}]}"#);
+    b.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let pivot = |p: &Peer| {
+        let wb = p.engine.workbook().unwrap();
+        let pt = wb.sheets[0].pivots[0].clone();
+        let src = wb
+            .pivot_caches
+            .iter()
+            .find(|c| c.cache_id == pt.cache_id)
+            .and_then(|c| c.source_ref.clone());
+        (pt.location.to_string(), src)
+    };
+    assert_eq!(pivot(&a), pivot(&b), "{:?} / {:?}", pivot(&a), pivot(&b));
+    let (loc, src) = pivot(&a);
+    assert!(loc.starts_with("G3"), "{loc}");
+    assert_eq!(src.as_deref(), Some("A3:B6"));
+}
+
+// source: ECMA-376 Part 1, §18.3.1.66 pane
+#[test]
+fn panes_frozen_during_a_row_insert_follow_the_rows() {
+    let (mut a, mut b) = pair(&[(0, 0, "1")]);
+    settle(&mut a, &mut b);
+    a.exec(r#"{"cmd":"freeze","sheet":0,"rows":2,"cols":0}"#);
+    b.structural(true, 0, 1, false);
+    settle(&mut a, &mut b);
+    let pane = |p: &Peer| {
+        let v = &p.engine.workbook().unwrap().sheets[0].views;
+        v.first()
+            .and_then(|v| v.pane.clone())
+            .map(|p| (p.y_split, p.x_split, p.top_left_cell))
+    };
+    assert_eq!(pane(&a), pane(&b));
+    assert_eq!(pane(&a), Some((3.0, 0.0, Some("A4".into()))));
 }

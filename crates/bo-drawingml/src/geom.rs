@@ -12,36 +12,52 @@ use std::f64::consts::PI;
 /// Path segment in shape coordinates (EMU or any unit the caller chose for w/h).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Seg {
+    /// Start a new subpath at (x, y).
     Move(f64, f64),
+    /// Straight line to (x, y).
     Line(f64, f64),
+    /// Quadratic Bezier: control point, end point.
     Quad(f64, f64, f64, f64),
+    /// Cubic Bezier: two control points, end point.
     Cubic(f64, f64, f64, f64, f64, f64),
+    /// Close the current subpath.
     Close,
 }
 
 /// §20.1.10.37 ST_PathFillMode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FillMode {
+    /// Not filled.
     None,
+    /// Filled with the shape fill as is.
     Norm,
+    /// Filled with a lightened shape fill.
     Lighten,
+    /// Filled with a slightly lightened shape fill.
     LightenLess,
+    /// Filled with a darkened shape fill.
     Darken,
+    /// Filled with a slightly darkened shape fill.
     DarkenLess,
 }
 
 /// One evaluated path of a geometry.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapePath {
+    /// Path segments.
     pub segs: Vec<Seg>,
+    /// How the path is filled.
     pub fill: FillMode,
+    /// Whether the path outline is stroked.
     pub stroke: bool,
 }
 
 /// Evaluated geometry: paths plus the text rectangle (l, t, r, b).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Evaluated {
+    /// Evaluated paths in drawing order.
     pub paths: Vec<ShapePath>,
+    /// Text rectangle `[l, t, r, b]` in shape coordinates.
     pub text_rect: [f64; 4],
 }
 

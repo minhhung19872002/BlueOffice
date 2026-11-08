@@ -43,6 +43,7 @@ use std::collections::HashMap;
 /// Layout errors.
 #[derive(Debug, thiserror::Error)]
 pub enum LayoutError {
+    /// The font manager has no fonts to shape with.
     #[error("no fonts are loaded")]
     NoFonts,
 }
@@ -167,9 +168,10 @@ fn page_note_numbers(
 /// Endnotes referenced in `blocks`, in order.
 fn endnotes_in(blocks: &[Block]) -> Vec<i32> {
     let mut v = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     visit_body(blocks, &mut |c| {
         if let RunContent::EndnoteRef(id) = c {
-            if !v.contains(id) {
+            if seen.insert(*id) {
                 v.push(*id);
             }
         }
@@ -200,6 +202,7 @@ pub enum RevisionView {
 /// Layout options that are not part of the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LayoutOptions {
+    /// Which version of tracked changes to lay out.
     pub view: RevisionView,
 }
 

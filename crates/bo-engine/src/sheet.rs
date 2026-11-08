@@ -26,11 +26,13 @@ mod comments;
 mod pivot_cmd;
 mod png;
 mod print;
+pub mod protect;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
 
 /// Hard limits of the grid (ECMA-376 Part 1, §18.3.1.73 `row/@r` ≤ 1 048 576; 16 384 columns).
 pub const MAX_ROWS: u32 = 1_048_576;
+/// Maximum number of columns (`XFD`).
 pub const MAX_COLS: u32 = 16_384;
 
 /// SmartArt fallbacks ([MS-ODRAWXML] `dsp:drawing`) of every sheet, drawn as
@@ -74,81 +76,118 @@ fn diagram_overlays(wb: &Workbook, fonts: &mut FontManager) -> BTreeMap<String, 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkbookInfo {
+    /// File name of the workbook.
     pub name: String,
+    /// Every sheet, in tab order.
     pub sheets: Vec<SheetInfo>,
-    /// The file contains a VBA project ([MS-OVBA]) or XLM macro sheets; kept
-    /// when saving, never run.
+    /// The file is saved encrypted with a password ([MS-OFFCRYPTO]).
+    pub encrypted: bool,
+    /// The file carries a VBA project or macro sheets (kept, never run).
     pub macros: bool,
+    /// `workbookProtection/@lockStructure` (ECMA-376 Part 1, §18.2.29).
+    pub structure_locked: bool,
     /// Cells converted from TCVN3 / VNI fonts to Unicode on open (0 = none);
     /// the conversion is the first undo step.
     pub legacy_converted: usize,
 }
 
+/// Summary of one sheet (tab bar, navigation and frozen panes).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SheetInfo {
+    /// Sheet (tab) name.
     pub name: String,
     /// Used range: last row / column with content (0-based), `None` when empty.
     pub last_row: Option<u32>,
+    /// Last used column (0-based), `None` when empty.
     pub last_col: Option<u32>,
+    /// Number of frozen rows at the top.
     pub frozen_rows: u32,
+    /// Number of frozen columns at the left.
     pub frozen_cols: u32,
+    /// The sheet is hidden or very hidden.
     pub hidden: bool,
     /// Hidden row spans `[first, last]` (filtered or hidden rows), for navigation.
     pub hidden_rows: Vec<(u32, u32)>,
+    /// Hidden column spans `[first, last]`, for navigation.
     pub hidden_cols: Vec<(u32, u32)>,
     /// AutoFilter range `[r0, c0, r1, c1]`.
     pub auto_filter: Option<[u32; 4]>,
     /// Merged ranges `[r0, c0, r1, c1]`.
     pub merges: Vec<[u32; 4]>,
+    /// Number of charts on the sheet.
     pub charts: usize,
     /// Number of pivot tables on the sheet.
     pub pivots: usize,
+    /// `sheetProtection/@sheet` (§18.3.1.85).
+    pub protected: bool,
+    /// `sheetPr/tabColor` as `RRGGBB` (§18.3.1.93).
+    pub tab_color: Option<String>,
 }
 
 /// Where a screen point falls (viewport-relative, points).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum HitInfo {
+    /// A grid cell.
     Cell {
+        /// 0-based row.
         row: u32,
+        /// 0-based column.
         col: u32,
     },
+    /// A column header.
     ColumnHeader {
+        /// 0-based column.
         col: u32,
     },
+    /// A row header.
     RowHeader {
+        /// 0-based row.
         row: u32,
     },
     /// Near the right edge of column `col` in the header (resize / autofit).
     ColumnEdge {
+        /// 0-based column.
         col: u32,
     },
     /// Near the bottom edge of row `row` in the header.
     RowEdge {
+        /// 0-based row.
         row: u32,
     },
     /// The AutoFilter button of column `col`.
     FilterButton {
+        /// 0-based row of the AutoFilter header cell.
         row: u32,
+        /// 0-based column.
         col: u32,
     },
     /// A chart placed on the sheet, and the cell under the point.
     Chart {
+        /// 0-based index of the chart in the sheet.
         index: usize,
+        /// 0-based row of the cell under the point.
         row: u32,
+        /// 0-based column of the cell under the point.
         col: u32,
     },
+    /// The top-left corner (select all).
     Corner,
+    /// Outside the grid.
     None,
 }
 
 /// Screen rectangle (points) of a cell or range in the current viewport.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub struct ScreenRect {
+    /// Left edge in points.
     pub x: f64,
+    /// Top edge in points.
     pub y: f64,
+    /// Width in points.
     pub w: f64,
+    /// Height in points.
     pub h: f64,
 }
 
@@ -156,6 +195,7 @@ pub struct ScreenRect {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CellDetails {
+    /// A1-style address (`B7`).
     pub address: String,
     /// Editable input: `=FORMULA`, a plain number, or text.
     pub input: String,
@@ -166,10 +206,15 @@ pub struct CellDetails {
 /// Viewport request from the UI.
 #[derive(Debug, Clone, Copy)]
 pub struct ViewRequest {
+    /// 0-based sheet index.
     pub sheet: usize,
+    /// Horizontal scroll offset of the grid, in points.
     pub scroll_x: f64,
+    /// Vertical scroll offset of the grid, in points.
     pub scroll_y: f64,
+    /// Viewport width in points.
     pub width: f64,
+    /// Viewport height in points.
     pub height: f64,
 }
 
@@ -206,6 +251,8 @@ pub struct SheetEngine {
     adjuster: BoFormula,
     /// Internal clipboard (cell records) for paste / paste special.
     clip: Option<Clip>,
+    /// Password the next `.xlsx` saves are encrypted with ([MS-OFFCRYPTO]).
+    save_password: Option<String>,
     /// Live collaboration binding (`bo-collab`).
     collab: Option<collab::SheetCollab>,
     /// The open file has macros (warning bar; preserved, never executed).
@@ -220,6 +267,14 @@ impl Default for SheetEngine {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// `calcPr/@fullCalcOnLoad` (ECMA-376 Part 1, §18.2.2) of the workbook part.
+fn full_calc_on_load(wb: &Workbook) -> bool {
+    wb.unknown.iter().any(|x| {
+        x.xml.contains("calcPr")
+            && (x.xml.contains("fullCalcOnLoad=\"1\"") || x.xml.contains("fullCalcOnLoad=\"true\""))
+    })
 }
 
 fn parse_number(s: &str, locale: &Locale) -> Option<f64> {
@@ -317,6 +372,32 @@ fn from_ods(src: &bo_odf::SpreadsheetDoc) -> Workbook {
     use bo_odf::CellValue as O;
     let mut wb = Workbook::new();
     wb.sheets.clear();
+    // Automatic cell styles (ODF 1.3 §16.2) → cell formats (§18.8.45 xf).
+    let mut xfs: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+    for cs in &src.styles {
+        let patch = bo_sheet::style::StylePatch {
+            bold: cs.bold.then_some(true),
+            italic: cs.italic.then_some(true),
+            underline: cs.underline.then(|| "single".to_owned()),
+            font_name: cs.font.clone(),
+            font_size: cs.size,
+            font_color: cs.color.clone(),
+            fill_color: cs.background.clone(),
+            h_align: cs.align.as_deref().map(|a| {
+                match a {
+                    "center" => "center",
+                    "end" | "right" => "right",
+                    "justify" => "justify",
+                    _ => "left",
+                }
+                .to_owned()
+            }),
+            wrap: cs.wrap.then_some(true),
+            ..bo_sheet::style::StylePatch::default()
+        };
+        let xf = bo_sheet::style::patched_xf(&mut wb.styles, 0, &patch);
+        xfs.insert(cs.name.as_str(), xf);
+    }
     for (i, os) in src.sheets.iter().enumerate() {
         let mut ws = Worksheet::new(&os.name);
         ws.sheet_id = u32::try_from(i + 1).unwrap_or(u32::MAX);
@@ -328,7 +409,20 @@ fn from_ods(src: &bo_odf::SpreadsheetDoc) -> Workbook {
                 O::Date(t) | O::Time(t) | O::String(t) => CellValue::Text(t.clone()),
                 O::Boolean(b) => CellValue::Bool(*b),
             };
-            ws.cells.insert((c.row, c.col), Cell::new(value));
+            let mut cell = Cell::new(value);
+            // §19.643 table:formula in OpenFormula (ODF 1.3 Part 4) → A1.
+            cell.formula = c
+                .formula
+                .as_deref()
+                .and_then(bo_odf::from_openformula)
+                .map(|text| Formula {
+                    text,
+                    ..Formula::default()
+                });
+            if let Some(&xf) = c.style.as_deref().and_then(|n| xfs.get(n)) {
+                cell.style = xf;
+            }
+            ws.cells.insert((c.row, c.col), cell);
         }
         wb.sheets.push(ws);
     }
@@ -336,6 +430,79 @@ fn from_ods(src: &bo_odf::SpreadsheetDoc) -> Workbook {
         wb.sheets.push(Worksheet::new("Sheet1"));
     }
     wb
+}
+
+/// Maps a workbook to the ODF spreadsheet model: values, formulas in
+/// OpenFormula (ODF 1.3 Part 4, `of:` namespace) and one automatic cell style
+/// per cell format in use (font, colours, fill, alignment, wrapping).
+pub fn workbook_to_ods(wb: &Workbook, locale: &Locale) -> bo_odf::SpreadsheetDoc {
+    use bo_odf::CellValue as O;
+    let mut doc = bo_odf::SpreadsheetDoc::default();
+    let mut names: std::collections::HashMap<u32, Option<String>> =
+        std::collections::HashMap::new();
+    for (si, ws) in wb.sheets.iter().enumerate() {
+        let mut sheet = bo_odf::Sheet {
+            name: ws.name.clone(),
+            cells: Vec::new(),
+        };
+        for (&(row, col), c) in &ws.cells {
+            let value = match &c.value {
+                CellValue::Number(n) => O::Float(*n),
+                CellValue::Bool(b) => O::Boolean(*b),
+                CellValue::Empty if c.formula.is_none() && c.style == 0 => continue,
+                CellValue::Empty => O::String(String::new()),
+                CellValue::Text(t) => O::String(t.clone()),
+                CellValue::RichText(_) => O::String(c.value.as_text().unwrap_or_default()),
+                // Dates and errors as displayed.
+                _ => O::String(format_cell(wb, c, locale).text),
+            };
+            let style = names
+                .entry(c.style)
+                .or_insert_with(|| {
+                    if c.style == 0 {
+                        return None;
+                    }
+                    let st = bo_sheet::style::format_state(wb, si, row, col, locale);
+                    let def = bo_sheet::style::format_state(&Workbook::new(), 0, 0, 0, locale);
+                    let cs = bo_odf::CellStyle {
+                        name: format!("ce{}", c.style),
+                        bold: st.bold,
+                        italic: st.italic,
+                        underline: !st.underline.is_empty() && st.underline != "none",
+                        font: (st.font_name != def.font_name).then(|| st.font_name.clone()),
+                        size: ((st.font_size - def.font_size).abs() > f64::EPSILON)
+                            .then_some(st.font_size),
+                        color: (!st.font_color.is_empty()).then(|| st.font_color.clone()),
+                        background: (!st.fill_color.is_empty()).then(|| st.fill_color.clone()),
+                        align: match st.h_align.as_str() {
+                            "center" | "centerContinuous" => Some("center".into()),
+                            "right" => Some("end".into()),
+                            "justify" | "distributed" => Some("justify".into()),
+                            "left" => Some("start".into()),
+                            _ => None,
+                        },
+                        wrap: st.wrap,
+                    };
+                    let name = cs.name.clone();
+                    doc.styles.push(cs);
+                    Some(name)
+                })
+                .clone();
+            sheet.cells.push(bo_odf::Cell {
+                row,
+                col,
+                value,
+                formula: c
+                    .formula
+                    .as_ref()
+                    .filter(|f| !f.text.is_empty())
+                    .map(|f| bo_odf::to_openformula(&f.text)),
+                style,
+            });
+        }
+        doc.sheets.push(sheet);
+    }
+    doc
 }
 
 /// Turns what the user typed into a cell (keeping the cell's style). Typed
@@ -403,16 +570,31 @@ fn input_to_cell(input: &str, old: Option<&Cell>, locale: &Locale) -> Option<Cel
     Some(cell)
 }
 
-/// Formula-bar text of a number in a cell with a built-in date / time format
-/// (§18.8.30 ids 14, 18–22): the date in the locale's short date form (plus
-/// the time), so that editing and confirming keeps the value. `None` for
-/// other formats.
-fn date_input(n: f64, fmt_id: u32, locale: &Locale, date1904: bool) -> Option<String> {
-    let code = match fmt_id {
-        14 => locale.short_date.to_owned(),
-        22 => format!("{} h:mm:ss", locale.short_date),
-        18..=21 if (0.0..1.0).contains(&n) => "h:mm:ss".to_owned(),
-        _ => return None,
+/// Formula-bar text of a number in a cell with a date / time format — built-in
+/// (§18.8.30 ids 14–22) or custom (§18.8.31 with date/time tokens): the date in
+/// the locale's short date form, plus the time when the value has one (always
+/// for id 22), or the time alone below 1; so that editing and confirming keeps
+/// the value. `None` for other formats.
+fn date_input(
+    n: f64,
+    styles: &bo_model::sheet::Stylesheet,
+    fmt_id: u32,
+    locale: &Locale,
+    date1904: bool,
+) -> Option<String> {
+    if n < 0.0 || !n.is_finite() {
+        return None;
+    }
+    let fmt_code = bo_sheet::numfmt::format_code(styles, fmt_id, locale);
+    if !bo_sheet::numfmt::NumberFormat::parse_with(&fmt_code, locale).is_date() {
+        return None;
+    }
+    let code = if n < 1.0 && fmt_id != 14 {
+        "h:mm:ss".to_owned()
+    } else if fmt_id == 22 || n.fract() != 0.0 {
+        format!("{} h:mm:ss", locale.short_date)
+    } else {
+        locale.short_date.to_owned()
     };
     let opts = bo_sheet::numfmt::FormatOptions {
         locale: *locale,
@@ -431,6 +613,7 @@ fn number_input(n: f64, locale: &Locale) -> String {
 }
 
 impl SheetEngine {
+    /// An engine with no workbook and no fonts.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -444,6 +627,7 @@ impl SheetEngine {
             live: LiveCalc::new(),
             adjuster: BoFormula::new(),
             clip: None,
+            save_password: None,
             collab: None,
             macros: false,
             legacy_converted: 0,
@@ -462,13 +646,21 @@ impl SheetEngine {
         e
     }
 
+    /// Registers a font file (TTF/OTF/TTC); returns the number of faces added.
     pub fn add_font(&mut self, bytes: Vec<u8>) -> usize {
         self.fonts.add_font(bytes).len()
     }
 
+    /// Number of registered font faces.
     #[must_use]
     pub fn face_count(&self) -> usize {
         self.fonts.len()
+    }
+
+    /// Installed OS fonts for families that are not bundled (desktop, see `Engine::set_system_fonts`).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_system_fonts(&mut self, index: bo_text::SystemFontIndex) {
+        self.fonts.set_system_fonts(index);
     }
 
     /// Sets the clock used by `NOW()`/`TODAY()` (Unix milliseconds, UTC).
@@ -496,6 +688,38 @@ impl SheetEngine {
     /// Opens `.xlsx` / `.xlsm` / `.xlsb` / `.xls` / `.ods` / `.csv` bytes
     /// (legacy and ODF files are converted; saving writes `.xlsx`).
     pub fn open(&mut self, bytes: &[u8], name: &str) -> Result<WorkbookInfo> {
+        self.open_with_password(bytes, name, None)
+    }
+
+    /// [`SheetEngine::open`] for files that may be encrypted ([MS-OFFCRYPTO]
+    /// §2.3.4.10 Agile / §2.3.4.5 Standard Encryption, via `bo-crypto`): errors
+    /// `password required` / `wrong password` ask the host for a password. An
+    /// encrypted workbook is saved again with the same password.
+    pub fn open_with_password(
+        &mut self,
+        bytes: &[u8],
+        name: &str,
+        password: Option<&str>,
+    ) -> Result<WorkbookInfo> {
+        let plain = crate::decrypt_package(bytes, password)?;
+        let encrypted = plain.is_some();
+        let bytes = plain.as_deref().unwrap_or(bytes);
+        let info = self.open_plain(bytes, name)?;
+        self.macros = bo_binary::has_macros(bytes);
+        self.save_password = if encrypted {
+            password.map(str::to_owned)
+        } else {
+            None
+        };
+        self.info().or(Ok(info))
+    }
+
+    /// Password for the next `.xlsx` saves (`None` or empty: not encrypted).
+    pub fn set_save_password(&mut self, password: Option<&str>) {
+        self.save_password = password.filter(|p| !p.is_empty()).map(str::to_owned);
+    }
+
+    fn open_plain(&mut self, bytes: &[u8], name: &str) -> Result<WorkbookInfo> {
         let lower = name.to_ascii_lowercase();
         let wb = if lower.ends_with(".csv") {
             let opts = if self.locale.decimal == ',' {
@@ -521,9 +745,7 @@ impl SheetEngine {
         } else {
             return Err(EngineError::Unsupported(name.to_owned()));
         };
-        let macros = !lower.ends_with(".csv") && bo_binary::has_macros(bytes);
-        self.load(wb, name)?;
-        self.macros = macros;
+        self.load_opened(wb, name)?;
         self.convert_legacy_text()?;
         self.info()
     }
@@ -545,6 +767,17 @@ impl SheetEngine {
         Ok(n)
     }
 
+    /// [`SheetEngine::load`] for a workbook read from a file: saved formula
+    /// results are kept unless the file asks for a full calculation on load
+    /// (ECMA-376 Part 1, §18.2.2 `calcPr/@fullCalcOnLoad`).
+    fn load_opened(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
+        if full_calc_on_load(&wb) {
+            return self.load(wb, name);
+        }
+        self.live.rebuild_from_file(&mut wb);
+        self.install(wb, name)
+    }
+
     /// New empty workbook with one sheet.
     pub fn new_workbook(&mut self, name: &str) -> Result<WorkbookInfo> {
         let mut wb = Workbook::new();
@@ -554,8 +787,16 @@ impl SheetEngine {
         self.load(wb, name)
     }
 
+    /// Opens a workbook model as the current document (clears undo, clipboard and collaboration).
     pub fn load(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
         self.live.rebuild(&mut wb);
+        self.install(wb, name)
+    }
+
+    /// Makes `wb` (already calculated) the open workbook.
+    fn install(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
+        self.save_password = None;
+        self.macros = false;
         // One-cell / absolute chart anchors (§20.5.2.24, §20.5.2.1) → cells.
         for si in 0..wb.sheets.len() {
             if wb.sheets[si]
@@ -577,11 +818,11 @@ impl SheetEngine {
         self.name = name.to_owned();
         self.undo.clear();
         self.redo.clear();
-        self.macros = false;
         self.legacy_converted = 0;
         self.info()
     }
 
+    /// The open workbook, if any.
     #[must_use]
     pub fn workbook(&self) -> Option<&Workbook> {
         self.wb.as_ref()
@@ -598,6 +839,7 @@ impl SheetEngine {
             .ok_or(EngineError::PageOutOfRange(i))
     }
 
+    /// Summary of the open workbook.
     pub fn info(&self) -> Result<WorkbookInfo> {
         let wb = self.wb()?;
         Ok(WorkbookInfo {
@@ -623,10 +865,19 @@ impl SheetEngine {
                         merges: ws.merges.iter().take(10_000).map(quad).collect(),
                         charts: ws.charts.len(),
                         pivots: ws.pivots.len(),
+                        protected: protect::sheet_info(ws).protected,
+                        tab_color: ws
+                            .props
+                            .tab_color
+                            .as_ref()
+                            .and_then(|c| bo_sheet::color::resolve_color(c, wb.theme.as_ref()))
+                            .map(|c| format!("{:02X}{:02X}{:02X}", c.0, c.1, c.2)),
                     }
                 })
                 .collect(),
+            encrypted: self.save_password.is_some(),
             macros: self.macros,
+            structure_locked: protect::workbook_info(wb).structure,
             legacy_converted: self.legacy_converted,
         })
     }
@@ -684,6 +935,7 @@ impl SheetEngine {
         ))
     }
 
+    /// [`Self::render`] as JSON.
     pub fn render_json(&mut self, req: &ViewRequest) -> Result<String> {
         Ok(serde_json::to_string(&self.render(req)?).unwrap_or_default())
     }
@@ -849,8 +1101,10 @@ impl SheetEngine {
         let fmt_id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
         let input = match (&cell.formula, &cell.value) {
             (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
-            (_, CellValue::Number(n)) => date_input(*n, fmt_id, &self.locale, wb.date1904)
-                .unwrap_or_else(|| number_input(*n, &self.locale)),
+            (_, CellValue::Number(n)) => {
+                date_input(*n, &wb.styles, fmt_id, &self.locale, wb.date1904)
+                    .unwrap_or_else(|| number_input(*n, &self.locale))
+            }
             (_, CellValue::Bool(b)) => if *b { "TRUE" } else { "FALSE" }.to_owned(),
             (_, CellValue::Text(t)) => t.clone(),
             (_, CellValue::RichText(runs)) => runs.iter().map(|r| r.text.as_str()).collect(),
@@ -917,6 +1171,12 @@ impl SheetEngine {
                 }
             }
         }
+        {
+            // §18.3.1.85: locked cells of a protected sheet cannot be edited.
+            let wb = self.wb()?;
+            let ws = self.sheet(sheet)?;
+            protect::check_cells(wb, ws, cells.iter().map(|(r, c, _)| (*r, *c)))?;
+        }
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
         if sheet >= wb.sheets.len() {
             return Err(EngineError::PageOutOfRange(sheet));
@@ -977,6 +1237,13 @@ impl SheetEngine {
         if sheet >= wb.sheets.len() || count == 0 {
             return Ok(());
         }
+        let action = match (rows, delete) {
+            (true, false) => protect::Action::InsertRows,
+            (true, true) => protect::Action::DeleteRows,
+            (false, false) => protect::Action::InsertColumns,
+            (false, true) => protect::Action::DeleteColumns,
+        };
+        protect::check(&wb.sheets[sheet], action)?;
         let before = Box::new(wb.clone());
         let adj: &dyn FormulaAdjuster = &self.adjuster;
         match (rows, delete) {
@@ -1036,6 +1303,7 @@ impl SheetEngine {
         Ok(inverse)
     }
 
+    /// Undoes the last edit; `false` when there is nothing to undo.
     pub fn undo(&mut self) -> Result<bool> {
         let Some(e) = self.undo.pop() else {
             return Ok(false);
@@ -1045,6 +1313,7 @@ impl SheetEngine {
         Ok(true)
     }
 
+    /// Redoes the last undone edit; `false` when there is nothing to redo.
     pub fn redo(&mut self) -> Result<bool> {
         let Some(e) = self.redo.pop() else {
             return Ok(false);
@@ -1054,11 +1323,13 @@ impl SheetEngine {
         Ok(true)
     }
 
+    /// Undo is available.
     #[must_use]
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
 
+    /// Redo is available.
     #[must_use]
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
@@ -1067,6 +1338,7 @@ impl SheetEngine {
     /// Adds a sheet at the end; returns its index.
     pub fn add_sheet(&mut self, name: Option<&str>) -> Result<usize> {
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        protect::check_structure(wb)?;
         let before = Box::new(wb.clone());
         let mut n = wb.sheets.len() + 1;
         let name = match name {
@@ -1106,6 +1378,7 @@ impl SheetEngine {
             return Err(EngineError::Sheet(format!("invalid sheet name '{name}'")));
         }
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        protect::check_structure(wb)?;
         if wb
             .sheets
             .iter()
@@ -1137,6 +1410,7 @@ impl SheetEngine {
     /// Deletes a sheet (a workbook keeps at least one).
     pub fn delete_sheet(&mut self, sheet: usize) -> Result<()> {
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        protect::check_structure(wb)?;
         if wb.sheets.len() <= 1 || sheet >= wb.sheets.len() {
             return Err(EngineError::Sheet("cannot delete the last sheet".into()));
         }
@@ -1165,7 +1439,16 @@ impl SheetEngine {
         }
         let wb = self.wb()?;
         match format {
-            "xlsx" => bo_xlsx::write_xlsx(wb).map_err(|e| EngineError::Sheet(e.to_string())),
+            "xlsx" => {
+                let bytes =
+                    bo_xlsx::write_xlsx(wb).map_err(|e| EngineError::Sheet(e.to_string()))?;
+                match &self.save_password {
+                    // [MS-OFFCRYPTO] §2.3.4.10 Agile Encryption (AES-256 / SHA-512).
+                    Some(pw) => bo_crypto::encrypt(&bytes, pw)
+                        .map_err(|e| EngineError::Crypto(e.to_string())),
+                    None => Ok(bytes),
+                }
+            }
             "csv" => {
                 let opts = if self.locale.decimal == ',' {
                     bo_xlsx::CsvOptions::vi_vn()
@@ -1174,6 +1457,9 @@ impl SheetEngine {
                 };
                 Ok(bo_xlsx::write_csv(self.sheet(sheet)?, &opts))
             }
+            // ODF 1.3 spreadsheet: values, OpenFormula formulas, cell styles.
+            "ods" => bo_odf::write_ods(&workbook_to_ods(wb, &self.locale))
+                .map_err(|e| EngineError::Sheet(e.to_string())),
             other => Err(EngineError::Unsupported(other.to_owned())),
         }
     }
@@ -1317,15 +1603,18 @@ mod tests {
                         col: 0,
                         value: bo_odf::CellValue::String("Hà Nội".into()),
                         formula: None,
+                        style: None,
                     },
                     bo_odf::Cell {
                         row: 1,
                         col: 1,
                         value: bo_odf::CellValue::Float(2.5),
                         formula: None,
+                        style: None,
                     },
                 ],
             }],
+            styles: Vec::new(),
         })
         .unwrap();
         let info = e.open(&ods, "a.ods").unwrap();

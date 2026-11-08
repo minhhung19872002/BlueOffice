@@ -8,6 +8,8 @@
 //!   attribute / text "fact" of each regenerated XML part (element path + attribute +
 //!   value, relationship ids replaced by their targets) is still present. It prints the
 //!   lossless percentage per feature and requires ≥ 95 % overall.
+// Test helpers may unwrap: a panic is the desired failure mode here.
+#![allow(clippy::unwrap_used)]
 
 use bo_opc::xml::{unescape, XmlReader};
 use bo_opc::{resolve_target, Limits, Package};

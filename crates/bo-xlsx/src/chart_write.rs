@@ -568,6 +568,76 @@ fn element_span(text: &str, prefix: &str, name: &str) -> Option<(usize, usize)> 
     Some((s, e))
 }
 
+/// The drawing anchors of the file charts of `sheet` whose cells no longer
+/// match the model (rows or columns inserted / deleted, §20.5.2.15 from,
+/// §20.5.2.32 to): only the `col` / `row` values change, offsets and the rest
+/// of the drawing part stay as read. Patched drawings go to `overrides`.
+pub(crate) fn sync_anchors(
+    wb: &Workbook,
+    sheet: usize,
+    overrides: &mut std::collections::HashMap<String, Vec<u8>>,
+) {
+    let Some(ws) = wb.sheets.get(sheet) else {
+        return;
+    };
+    for (i, ch) in ws.charts.iter().enumerate() {
+        if ch.part.is_empty() || ch.dirty || ch.anchor == ChartAnchor::Absolute {
+            continue;
+        }
+        let Some((drawing, rel_id)) = chart_anchor(wb, sheet, i) else {
+            continue;
+        };
+        let text = match overrides.get(&drawing) {
+            Some(d) => String::from_utf8(d.clone()).ok(),
+            None => wb
+                .opaque
+                .parts
+                .iter()
+                .find(|p| p.name == drawing)
+                .and_then(|p| String::from_utf8(p.data.clone()).ok()),
+        };
+        let Some(text) = text else { continue };
+        let to = (ch.anchor == ChartAnchor::TwoCell)
+            .then_some(ch.to)
+            .flatten();
+        if let Some(patched) = sync_anchor(&text, &rel_id, ch.from, to) {
+            overrides.insert(drawing, patched.into_bytes());
+        }
+    }
+}
+
+/// `text` with the `from` (and `to`) cell of the anchor of `rel_id` set to the
+/// given cells; `None` when they already match.
+fn sync_anchor(text: &str, rel_id: &str, from: CellRef, to: Option<CellRef>) -> Option<String> {
+    let (s, e, qname) = anchor_span(text, rel_id)?;
+    let prefix = qname
+        .rsplit_once(':')
+        .map_or(String::new(), |(p, _)| format!("{p}:"));
+    let mut anchor = text[s..e].to_owned();
+    let mut changed = false;
+    for (tag, cell) in [("from", Some(from)), ("to", to)] {
+        let Some(cell) = cell else { continue };
+        let Some((a, b)) = element_span(&anchor, &prefix, tag) else {
+            continue;
+        };
+        let mut el = anchor[a..b].to_owned();
+        for (child, v) in [("col", cell.col), ("row", cell.row)] {
+            let Some((ca, cb)) = element_span(&el, &prefix, child) else {
+                continue;
+            };
+            let open = format!("<{prefix}{child}>");
+            let close = format!("</{prefix}{child}>");
+            let cur = el[ca + open.len()..cb - close.len()].trim();
+            if cur.parse::<u32>().ok() != Some(v) {
+                el.replace_range(ca..cb, &format!("{open}{v}{close}"));
+                changed = true;
+            }
+        }
+        anchor.replace_range(a..b, &el);
+    }
+    changed.then(|| format!("{}{anchor}{}", &text[..s], &text[e..]))
+}
+
 /// Replace the empty element `<p:name …/>` of an anchor by `with`.
 fn replace_empty(anchor: &mut String, prefix: &str, name: &str, with: &str) -> bool {
     let open = format!("<{prefix}{name} ");

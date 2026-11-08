@@ -15,22 +15,33 @@ const DEFS: &str = include_str!("handles.dsl");
 /// Adjust value driven by one axis of a handle (`gdRefX` + `minX`/`maxX`, …).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdjRef {
+    /// Name of the adjust value (guide) the handle drives.
     pub guide: String,
+    /// Minimum value: guide name or literal.
     pub min: String,
+    /// Maximum value: guide name or literal.
     pub max: String,
 }
 
 /// §20.1.9.4 ahXY / §20.1.9.3 ahPolar.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandleDef {
+    /// Cartesian handle (ahXY).
     Xy {
+        /// Adjust value driven by the x axis.
         x: Option<AdjRef>,
+        /// Adjust value driven by the y axis.
         y: Option<AdjRef>,
+        /// Handle position (x, y) as guide names or literals.
         pos: [String; 2],
     },
+    /// Polar handle (ahPolar).
     Polar {
+        /// Adjust value driven by the radius.
         r: Option<AdjRef>,
+        /// Adjust value driven by the angle.
         ang: Option<AdjRef>,
+        /// Handle position (x, y) as guide names or literals.
         pos: [String; 2],
     },
 }
@@ -38,7 +49,9 @@ pub enum HandleDef {
 /// §20.1.9.9 cxn: connection site with its outward angle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteDef {
+    /// Outward angle: guide name or literal (60000ths of a degree).
     pub ang: String,
+    /// Site position (x, y) as guide names or literals.
     pub pos: [String; 2],
 }
 
@@ -128,7 +141,9 @@ fn guides(def: &CustomGeometry, av: &[Guide], w: f64, h: f64) -> Result<Guides, 
 pub struct HandlePoint {
     /// Index into the preset's ahLst.
     pub index: usize,
+    /// X in shape coordinates.
     pub x: f64,
+    /// Y in shape coordinates.
     pub y: f64,
 }
 
@@ -160,8 +175,11 @@ pub fn handle_points(name: &str, av: &[Guide], w: f64, h: f64) -> Vec<HandlePoin
 /// A connection site: local position and outward direction (degrees clockwise from +x).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Site {
+    /// X in shape coordinates.
     pub x: f64,
+    /// Y in shape coordinates.
     pub y: f64,
+    /// Outward direction in degrees clockwise from +x.
     pub angle: f64,
 }
 

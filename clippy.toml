@@ -1,0 +1,2 @@
+# Tests may unwrap freely; non-test code must not (workspace lint `unwrap_used`).
+allow-unwrap-in-tests = true

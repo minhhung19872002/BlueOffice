@@ -368,6 +368,59 @@ fn parse_plot(g: &Node) -> ChartPlot {
     }
 }
 
+/// The chart part `data` with each series reference (`c:f`, §21.2.2.215) that
+/// differs from `chart` replaced — e.g. after rows were inserted above the
+/// data; `None` when nothing changed. Formatting and everything else stay as
+/// read (lossless, ADR-0005).
+pub(crate) fn patch_refs(data: &[u8], part: &str, chart: &Chart) -> Option<Vec<u8>> {
+    const OPEN: char = '\u{E000}';
+    const CLOSE: char = '\u{E001}';
+    let orig = parse_chart_space(data, part)?;
+    let refs = |c: &Chart| -> Vec<Option<String>> {
+        c.plots
+            .iter()
+            .flat_map(|p| &p.series)
+            .flat_map(|s| [s.name_ref.clone(), s.cat_ref.clone(), s.val_ref.clone()])
+            .collect()
+    };
+    let (old, new) = (refs(&orig), refs(chart));
+    if old.len() != new.len() {
+        return None;
+    }
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for (o, n) in old.into_iter().zip(new) {
+        if let (Some(o), Some(n)) = (o, n) {
+            if o != n && !pairs.iter().any(|(a, _)| *a == o) {
+                pairs.push((o, n));
+            }
+        }
+    }
+    if pairs.is_empty() {
+        return None;
+    }
+    let mut xml = String::from_utf8(data.to_vec()).ok()?;
+    // Replace through placeholders so that a new text equal to another old
+    // one is not replaced twice.
+    for (i, (o, _)) in pairs.iter().enumerate() {
+        let from = format!("f>{}</", xml_text(o));
+        xml = xml.replace(&from, &format!("f>{OPEN}{i}{CLOSE}</"));
+    }
+    for (i, (_, n)) in pairs.iter().enumerate() {
+        xml = xml.replace(
+            &format!("f>{OPEN}{i}{CLOSE}</"),
+            &format!("f>{}</", xml_text(n)),
+        );
+    }
+    Some(xml.into_bytes())
+}
+
+/// Text content escaped for XML (§2.4 of XML 1.0: `&`, `<`, `>`).
+fn xml_text(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 /// §21.2.2.150 ser (and the scatter / bubble variants).
 fn parse_series(s: &Node) -> ChartSeries {
     let mut out = ChartSeries::default();

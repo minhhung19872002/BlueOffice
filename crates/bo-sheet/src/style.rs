@@ -11,8 +11,8 @@
 
 use crate::numfmt::{builtin_format, format_code, Locale};
 use bo_model::sheet::{
-    Border, BorderEdge, CellAlignment, CellRange, CellStyle, CellXf, Fill, Font, SheetColor,
-    Stylesheet, Workbook, Worksheet,
+    Border, BorderEdge, CellAlignment, CellProtection, CellRange, CellStyle, CellXf, Fill, Font,
+    SheetColor, Stylesheet, Workbook, Worksheet,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -30,21 +30,36 @@ pub const MAX_FORMAT_CELLS: u64 = 2_000_000;
 pub struct StylePatch {
     /// Number format code (§18.8.31), e.g. `#,##0 [$₫-42A]` or `dd/mm/yyyy`.
     pub num_fmt: Option<String>,
+    /// Font typeface (§18.8.29 `name`).
     pub font_name: Option<String>,
+    /// Font size in points (§18.4.11 `sz`).
     pub font_size: Option<f64>,
+    /// Bold (`b`).
     pub bold: Option<bool>,
+    /// Italic (`i`).
     pub italic: Option<bool>,
     /// `none` / `single` / `double` (§18.18.82 `ST_UnderlineValues`).
     pub underline: Option<String>,
+    /// Strikethrough (`strike`).
     pub strike: Option<bool>,
+    /// Font colour `RRGGBB` (empty = automatic).
     pub font_color: Option<String>,
+    /// Solid fill colour `RRGGBB` (empty = no fill).
     pub fill_color: Option<String>,
+    /// Horizontal alignment (§18.18.40 `ST_HorizontalAlignment`).
     pub h_align: Option<String>,
+    /// Vertical alignment (§18.18.88 `ST_VerticalAlignment`).
     pub v_align: Option<String>,
+    /// Wrap text (`wrapText`).
     pub wrap: Option<bool>,
+    /// Indent level (`indent`, steps of three spaces).
     pub indent: Option<u32>,
     /// `textRotation` (0–180, 255 = vertical text).
     pub rotation: Option<u32>,
+    /// `protection/@locked` (§18.8.33): edits are refused while the sheet is protected.
+    pub locked: Option<bool>,
+    /// `protection/@hidden` (§18.8.33): the formula is not shown while protected.
+    pub formula_hidden: Option<bool>,
 }
 
 /// Which edges a border command draws.
@@ -59,9 +74,13 @@ pub enum BorderPreset {
     Inside,
     /// Remove all borders.
     None,
+    /// Top edge of the range.
     Top,
+    /// Bottom edge of the range.
     Bottom,
+    /// Left edge of the range.
     Left,
+    /// Right edge of the range.
     Right,
 }
 
@@ -69,7 +88,9 @@ pub enum BorderPreset {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BorderSpec {
+    /// Which edges are drawn.
     pub preset: BorderPreset,
+    /// Line style, e.g. `thin`, `medium`, `dashed` (default `thin`).
     #[serde(default = "thin")]
     pub style: String,
     /// `RRGGBB`; `None` = automatic (black).
@@ -85,25 +106,44 @@ fn thin() -> String {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatState {
+    /// Number format code of the cell (§18.8.31).
     pub num_fmt: String,
+    /// Font typeface.
     pub font_name: String,
+    /// Font size in points.
     pub font_size: f64,
+    /// Bold.
     pub bold: bool,
+    /// Italic.
     pub italic: bool,
+    /// Underline (`none` / `single` / `double`).
     pub underline: String,
+    /// Strikethrough.
     pub strike: bool,
+    /// Font colour `RRGGBB` (empty = automatic).
     pub font_color: String,
+    /// Fill colour `RRGGBB` (empty = no fill).
     pub fill_color: String,
+    /// Horizontal alignment (empty = `general`).
     pub h_align: String,
+    /// Vertical alignment (empty = bottom).
     pub v_align: String,
+    /// Wrap text.
     pub wrap: bool,
+    /// Indent level.
     pub indent: u32,
+    /// Text rotation (0–180, 255 = vertical).
     pub rotation: u32,
     /// Line style of each edge (`""` = none): top, right, bottom, left.
     pub borders: [String; 4],
     /// Name of the cell style (`cellStyles`) the cell is based on.
     pub style_name: String,
+    /// The cell is part of a merged range.
     pub merged: bool,
+    /// `protection/@locked` (§18.8.33, default true).
+    pub locked: bool,
+    /// `protection/@hidden` (§18.8.33, default false).
+    pub formula_hidden: bool,
 }
 
 /// `RRGGBB` → colour, `""` → `None`.
@@ -237,6 +277,18 @@ pub fn patched_xf(styles: &mut Stylesheet, xf: u32, patch: &StylePatch) -> u32 {
     if touches_alignment(patch) {
         x.alignment = patch_alignment(x.alignment.as_ref(), patch);
         x.apply_alignment = Some(true);
+    }
+    if patch.locked.is_some() || patch.formula_hidden.is_some() {
+        // §18.8.33 protection: `locked` defaults to true, `hidden` to false.
+        let mut p = x.protection.clone().unwrap_or_default();
+        if let Some(l) = patch.locked {
+            p.locked = (!l).then_some(false);
+        }
+        if let Some(h) = patch.formula_hidden {
+            p.hidden = h.then_some(true);
+        }
+        x.protection = (p != CellProtection::default()).then_some(p);
+        x.apply_protection = Some(true);
     }
     if x.xf_id.is_none() {
         x.xf_id = Some(0);
@@ -400,6 +452,7 @@ pub fn copy_formats(wb: &mut Workbook, sheet: usize, source: CellRange, target: 
 /// A built-in named style of the gallery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NamedStyle {
+    /// Display name of the style (`cellStyle/@name`).
     pub name: &'static str,
     /// `builtinId` (§18.8.7).
     pub builtin_id: u32,
@@ -632,6 +685,16 @@ pub fn format_state(
             ws.merge_at(bo_model::sheet::CellRef::new(row, col))
                 .is_some()
         }),
+        locked: xf
+            .protection
+            .as_ref()
+            .and_then(|p| p.locked)
+            .unwrap_or(true),
+        formula_hidden: xf
+            .protection
+            .as_ref()
+            .and_then(|p| p.hidden)
+            .unwrap_or(false),
     }
 }
 

@@ -50,27 +50,59 @@ Round-trip lossless (XML chuẩn hoá): `.docx` 52/52, `.xlsx` 54/54, `.pptx` 10
 - Phase 1 web/desktop/CLI: `screenshots/phase1-*.png`
 
 ## Hạn chế đã biết (ưu tiên tiếp theo)
-1. **Cộng tác thời gian thực** (web nhúng và desktop qua deep link; chi tiết `plan/phase-6.md`): văn bản + định dạng
-   BlueDoc (Y.Text, con trỏ người khác), ô BlueSheet, đối tượng/slide BlueSlide (last-writer-wins từng đối tượng) đồng bộ
-   trực tiếp; đã kiểm bằng 2 trình duyệt thật với server đang chạy và desktop ↔ web. Chưa: bảng Word là một khối (sửa
-   cùng bảng → người sau thắng), style/numbering/comment/nội dung footnote/master slide, định dạng và chèn-xoá hàng cột
-   BlueSheet (chỉ đến người khác khi lưu version); desktop chưa có ô nhập địa chỉ server trong UI (dùng
-   `BLUEOFFICE_SERVER` hoặc thiết lập đã lưu); server một instance (phòng trong bộ nhớ).
-2. **Hiệu năng**: layout vẫn dàn lại toàn bộ khi tài liệu có NUMPAGES trong thân bài, khi đổi style/numbering/section, khi sửa header/footer và với chú thích đánh số lại theo trang (`plan/phase-2.md`).
-3. **BlueDoc**: track changes chưa ghi chèn/xoá cột-ô, gộp/tách ô, header/footer, nội dung chú thích, ảnh nổi đổi vị trí;
-   chú thích dài chưa tràn sang trang sau; wrap tight dùng khung bao của đa giác.
-4. **BlueSheet**: pivot chưa có biểu đồ pivot, mục tính toán (`calculatedItems`), UI nhóm thủ công, lọc theo ngày; ngày gõ
-   dạng chữ chưa được nhận là ngày; chart neo tuyệt đối chưa kéo được.
-5. **BlueSlide**: dán slide sang deck khác chưa co giãn theo khổ slide đích (chưa chép chart part con, liên kết
-   slide→slide); connector trong nhóm bị lật chưa tính phép lật của nhóm; PDF vẽ blur/glow bằng ảnh mặt nạ (không vector), chưa có 3D.
-6. **Desktop**: E2E Tauri WebDriver 5 test (mở file, gõ chữ, công thức BlueSheet, BlueSlide, deep link + cộng tác) — `pnpm test:e2e:desktop`.
+Rà soát lại theo code và test ngày 2026-11-08; các mục đã làm (bảng Word cộng tác từng ô, style/comment/chú thích/
+master slide, định dạng và chèn-xoá hàng cột BlueSheet, ô địa chỉ server trên desktop, track changes cột/ô/gộp-tách/
+header/chú thích/ảnh nổi, chú thích dài tràn trang, biểu đồ pivot, `calculatedItems`, nhóm thủ công, lọc ngày, kéo chart
+neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đã bỏ khỏi danh sách.
+1. **Cộng tác** (`plan/phase-6.md`): bảng trong header/footer/chú thích/comment vẫn là một khối (bảng lồng trong ô bảng đã gộp theo từng ô);
+   BlueSheet: mọi vùng (CF/DV, hyperlink, bộ lọc,
+   bảng, biểu đồ, vùng in, pivot, freeze pane) theo id hàng/cột; server một instance (phòng **và** phiên trong bộ nhớ;
+   thiết kế nhiều instance trong `plan/phase-6.md`).
+2. **Hiệu năng**: đổi style mặc định, style/danh sách dùng trong header/footer/chú thích/comment/text box, thiết lập
+   trang của section đầu tiên, số trang bắt đầu hay thuộc tính chú thích của section vẫn dàn lại toàn bộ; đổi style,
+   numbering khác hoặc khổ giấy/lề/cột/kiểu ngắt của section sau chỉ dàn lại từ chỗ bị ảnh hưởng
+   (`bo_edit::ops::record_ops`). NUMPAGES,
+   header/footer và chú thích đánh số theo trang đã tăng dần, chỉ dàn lại toàn bộ khi số trang / chiều cao header /
+   trang của chú thích đổi.
+3. **BlueDoc**: dòng "tiếp theo" của chú thích tràn trang chỉ hiển thị, chưa ghi ra file; wrap tight lấy bề ngang của đa
+   giác trong dải mỗi dòng (đa giác lõm được coi như bao lồi theo chiều ngang).
+4. **BlueSheet**: ngày gõ thiếu năm (`15 Mar`) cố ý để dạng chữ (kết quả sẽ phụ thuộc ngày hiện tại).
+5. **BlueSlide**: PDF vẽ blur/glow bằng ảnh mặt nạ (không vector); chưa dựng hình 3D (`scene3d`/`sp3d`).
+6. **Desktop**: E2E Tauri WebDriver 15 test (`pnpm test:e2e:desktop`); bộ test Rust của `bo-desktop` cần GTK trên Linux.
 7. **Fidelity**: visual diff đã chạy (`docs/fidelity-visual.md`, baseline tự sinh 134 trang); so với phần mềm gốc cần người dùng đặt ảnh vào `tests/fidelity/reference/`.
-8. **Ký số**: chưa có dấu thời gian RFC 3161 (PAdES B-T) và kiểm tra chuỗi CA quốc gia (ADR-0007).
-9. **Server**: một instance `api` (phòng cộng tác trong bộ nhớ); schema bằng `EnsureCreated` (chưa có migration EF).
-   Npgsql dùng PostgreSQL License — chấp nhận theo [ADR-0009](adr/0009-npgsql-postgresql-license.md).
+8. **Ký số**: đã có PAdES B-T / XAdES-T, kiểm tra chuỗi tới CA gốc cấu hình, thu hồi qua CRL và OCSP (nạp sẵn
+   hoặc tải/hỏi trực tuyến theo chứng thư), PAdES B-LT / B-LTA (`bo-cli ltv [--tsa]`: DSS + dấu thời gian
+   tài liệu; không ghi VRI vì tuỳ chọn); web kiểm tra thu hồi qua proxy của server (CORS); dấu thời gian tài liệu làm bằng
+   chứng tồn tại cho chữ ký không có dấu thời gian riêng; các quy tắc POE còn lại của ETSI EN 319 102-1 (thuật toán
+   yếu theo thời gian, POE cho dữ liệu thu hồi) chưa làm (ADR-0007).
+9. **Server**: một instance `api` (phòng cộng tác trong bộ nhớ). Schema bằng EF Core migrations (PostgreSQL + SQLite;
+   database cũ tạo bằng `EnsureCreated` được nhận tự động, `docs/deploy/upgrade.md`). Npgsql dùng PostgreSQL License — chấp nhận theo [ADR-0009](adr/0009-npgsql-postgresql-license.md).
 10. **Mã hoá**: Agile Encryption đã kiểm chéo hai chiều với một cài đặt độc lập (msoffcrypto-tool, `crates/bo-crypto/tests/interop.rs`).
 
 ## Lịch sử
+- 2026-11-08 (cuối phiên): Cộng tác — bảng lồng trong ô bảng BlueDoc gộp theo từng ô (`rebuild_nested`); BlueSlide
+  master/layout/theme khoá theo id ổn định (part tạo trong phiên có khoá theo client, tham chiếu `lk`/`@m`/`@t`/`@l`) nên
+  hai người dán slide từ deck khác cùng lúc giữ cả hai thiết kế; tên part mới (ảnh, media…) của replica cộng tác có hậu
+  tố chữ theo client (`build::salt_names`) nên ảnh dán đồng thời không đè nhau. E2E cộng tác: 8/9 xanh; test chèn hàng
+  sửa để mở nhóm ribbon bị thu gọn. **Còn đỏ**: `collab-embed.spec.ts` "export-pdf" — tên file tải về là `download`
+  thay vì `Nhúng SDK.pdf` (có thể do bản Chromium trong container khác bản Playwright 1.64 cần; chưa xác minh trên CI).
+  Việc tiếp theo: các mục 1, 5, 8, 9 của "Hạn chế đã biết".
+- 2026-11-08 (sau cùng): BlueSheet nhận ngày gõ có tên tháng (`15 Mar 2024`, `March 15, 2024`, `15 tháng 3 năm 2024`,
+  `15/Thg3/2024`, `tháng 3/2024`) → số serial + định dạng dựng sẵn 15/17/22. Ký số: kiểm tra thu hồi bằng CRL
+  (`bo-cli verify --crl`). Gói zip ghi ra giống hệt nhau trên Windows và Linux (corpus slide hết lệch). Thanh công
+  thức hiện ngày cho mọi định dạng ngày. Wrap tight ôm theo cạnh đa giác `wp:wrapPolygon` (giữ đủ đỉnh khi lưu).
+  Rà soát lại "Hạn chế đã biết". Sửa lỗi cache layout không theo định nghĩa style (đổi style/undo/mở tài liệu khác hiện
+  cỡ chữ cũ); đổi style / numbering / thiết lập trang của section chỉ dàn lại phần bị ảnh hưởng. Ký số: OCSP
+  (`bo-cli verify --ocsp FILE | --ocsp-fetch`), kiểm chéo với `openssl ocsp`; tự tải CRL (`--crl-fetch`); PAdES B-LT
+  (`bo-cli ltv`, kiểm chéo với pyHanko); đọc được CRL v1; PAdES B-LTA (`ltv --tsa`). Server: EF Core migrations
+  thay `EnsureCreated`; `bo-desktop` build/test được trên Linux (gói GTK/WebKitGTK).
+  Cộng tác: comment/chú thích thêm đồng thời không còn trùng id (trước đó một comment bị mất); chèn hàng + cột đồng
+  thời không còn để hàng mới thiếu ô; BlueSheet: vùng CF/DV thêm trong lúc người khác chèn hàng dịch đúng.
+  BlueSheet: chèn/xoá hàng cột giờ dịch cả biểu đồ (ô neo + tham chiếu series; trước đó biểu đồ trỏ sai dữ liệu), ghi
+  lại vào file chỉ sửa `<c:f>` và `<xdr:row>/<xdr:col>` (lossless, OpenXmlValidator hợp lệ). Tương tự pivot: vị trí
+  báo cáo và nguồn cache dịch theo (trước đó refresh ghi báo cáo đè lên vị trí cũ); freeze pane: chèn/xoá hàng cột
+  trong vùng đóng băng đổi số hàng/cột đóng băng. Ký số trên web: CRL/OCSP qua `POST /api/revocation/fetch` (chống
+  SSRF) — trình duyệt không gọi thẳng CA được.
 - 2026-11-08 (khuya): pivot đầy đủ (tổng phụ, 3 bố cục, nhóm ngày/số, trường tính toán, 14 kiểu "hiển thị giá trị",
   lọc/top-N, kiểu); E2E cộng tác với server thật + desktop cộng tác qua deep link (sửa lỗi caret người vào sau nhảy cuối
   tài liệu); chú thích sửa trên trang, header/footer liên kết section trước, track changes bảng/ảnh/page setup; ô bảng

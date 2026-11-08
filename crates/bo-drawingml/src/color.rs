@@ -9,9 +9,13 @@ use bo_model::slide::{Color, ColorKind, ColorMod, Theme, XmlElement};
 /// Resolved colour, components in 0..=1 (sRGB, non-premultiplied).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rgba {
+    /// Red, 0..=1.
     pub r: f64,
+    /// Green, 0..=1.
     pub g: f64,
+    /// Blue, 0..=1.
     pub b: f64,
+    /// Alpha (opacity), 0..=1.
     pub a: f64,
 }
 
@@ -115,6 +119,7 @@ pub fn write_color(c: &Color) -> XmlElement {
 /// Context needed to resolve scheme colours.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ColorContext<'a> {
+    /// Theme supplying the colour scheme, if any.
     pub theme: Option<&'a Theme>,
     /// §19.3.1.6 clrMap (`bg1`→`lt1`, `tx1`→`dk1`, …).
     pub clr_map: &'a [(String, String)],

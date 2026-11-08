@@ -13,6 +13,7 @@
     "slide": "BlueSlide – Presentations"
   },
   "ribbon": {
+    "more": "More commands",
     "tabs": {
       "file": "File",
       "home": "Home",
@@ -53,7 +54,8 @@
       "tableStyle": "Table style",
       "headerFooter": "Header & footer",
       "footnotes": "Notes",
-      "arrange": "Arrange"
+      "arrange": "Arrange",
+      "signature": "Signature"
     },
     "comingLater": "Coming in a later release"
   },
@@ -66,7 +68,11 @@
       "new": "New",
       "save": "Save",
       "saveAs": "Save as…",
-      "newFromTemplate": "New from template"
+      "newFromTemplate": "New from template",
+      "sign": "Digital signature",
+      "exportSignedPdf": "Export signed PDF",
+      "verifySignatures": "Verify signatures",
+      "checkUpdates": "Check for updates"
     },
     "edit": {
       "paste": "Paste",
@@ -207,7 +213,9 @@
     "saved": "Saved {{name}}",
     "modified": "Unsaved",
     "saving": "Saving…",
-    "autosaved": "Autosaved at {{time}}"
+    "autosaved": "Autosaved at {{time}}",
+    "signing": "Signing…",
+    "signed": "Signed copy saved: {{name}}"
   },
   "start": {
     "title": "Welcome to BlueDoc",
@@ -229,7 +237,9 @@
     "engine": "Could not start the engine: {{message}}",
     "save": "Could not save the file: {{message}}",
     "edit": "Could not do that: {{message}}",
-    "image": "Could not insert the picture: {{message}}"
+    "image": "Could not insert the picture: {{message}}",
+    "sign": "Could not sign: {{message}}",
+    "verify": "Could not verify the signatures: {{message}}"
   },
   "placeholder": {
     "sheet": "BlueSheet (spreadsheets) is developed in Phase 3.",
@@ -909,6 +919,39 @@
       "delete": "Delete",
       "close": "Close comments",
       "resolved": "resolved"
+    },
+    "tabColorNone": "No colour",
+    "protection": {
+      "group": "Protect",
+      "protectSheet": "Protect sheet",
+      "unprotectSheet": "Unprotect sheet",
+      "protectWorkbook": "Protect workbook",
+      "unprotectWorkbook": "Unprotect workbook",
+      "lockCell": "Lock cell",
+      "sheetTitle": "Protect sheet and contents of locked cells",
+      "workbookTitle": "Protect workbook structure",
+      "password": "Password (optional)",
+      "confirm": "Re-enter password",
+      "allow": "Allow all users of this sheet to:",
+      "refused": "This cell or action is protected. Unprotect the sheet to change it.",
+      "workbookRefused": "The workbook structure is protected (add, delete, rename, move sheets).",
+      "wrongPassword": "The protection password is incorrect.",
+      "protectedSheet": "Protected sheet",
+      "opt": {
+        "selectLockedCells": "Select locked cells",
+        "selectUnlockedCells": "Select unlocked cells",
+        "formatCells": "Format cells",
+        "formatColumns": "Format columns",
+        "formatRows": "Format rows",
+        "insertColumns": "Insert columns",
+        "insertRows": "Insert rows",
+        "deleteColumns": "Delete columns",
+        "deleteRows": "Delete rows",
+        "sort": "Sort",
+        "autoFilter": "Use AutoFilter",
+        "pivotTables": "Use pivot tables",
+        "objects": "Edit objects (charts)"
+      }
     }
   },
   "recovery": {
@@ -1287,7 +1330,9 @@
     "confirm": "Confirm password",
     "mismatch": "Passwords do not match",
     "set": "Set",
-    "protected": "Password protected"
+    "protected": "Password protected",
+    "passwordSet": "Will be saved with a password",
+    "passwordRemoved": "Will be saved without a password"
   },
   "collab": {
     "editing": "{{name}} is editing",
@@ -1516,5 +1561,89 @@
     "converted": "Converted {{count}} runs of TCVN3/VNI legacy Vietnamese text to Unicode (Times New Roman)",
     "sheetConverted": "Converted {{count}} cells of TCVN3/VNI legacy Vietnamese text to Unicode (Times New Roman)",
     "undo": "Undo conversion"
+  },
+  "sign": {
+    "title": "Digitally sign the document",
+    "titlePdf": "Export a digitally signed PDF",
+    "signer": "Signer",
+    "kind": {
+      "file": "Certificate file",
+      "token": "USB token",
+      "remote": "Remote signing"
+    },
+    "chooseFile": "Choose .p12 / .pfx / .pem…",
+    "noFile": "No file chosen",
+    "password": "Certificate password",
+    "module": "PKCS#11 module",
+    "modulePlaceholder": "Path of the token driver (PKCS#11 .dll)",
+    "readToken": "Read token",
+    "noTokenCerts": "No certificate found on the token.",
+    "certificate": "Certificate",
+    "until": "valid until {{date}}",
+    "pin": "Token PIN",
+    "remoteUrl": "Signing service URL",
+    "credentialId": "Credential ID (optional)",
+    "accessToken": "Access token (optional)",
+    "remoteHint": "Only the document digest is sent; confirm on your signing app if asked.",
+    "tsaUrl": "Time-stamp server URL (optional)",
+    "reason": "Reason",
+    "location": "Location",
+    "sign": "Sign",
+    "cancel": "Cancel",
+    "close": "Close",
+    "needFile": "Choose a certificate file.",
+    "needPassword": "Enter the certificate password.",
+    "needModule": "Enter the PKCS#11 module path.",
+    "needTokenCert": "Read the token and choose a certificate.",
+    "needPin": "Enter the token PIN.",
+    "needRemoteUrl": "Enter the signing service URL (http:// or https://).",
+    "badTsaUrl": "The time-stamp server URL must start with http:// or https://.",
+    "statusTitle": "Digital signatures",
+    "details": "Details",
+    "state": {
+      "none": "No digital signature.",
+      "invalid": "A signature is invalid: the document was changed or the signature is damaged.",
+      "trusted": "Valid and trusted",
+      "untrusted": "Valid, but the certificate is not trusted",
+      "changed": "Valid, but the document was changed after signing"
+    },
+    "bar": {
+      "none": "This document has no digital signature.",
+      "invalid": "This document has an invalid digital signature.",
+      "trusted": "This document is digitally signed (valid, trusted).",
+      "untrusted": "This document is digitally signed, but the certificate is not trusted.",
+      "changed": "This document was changed after it was signed."
+    },
+    "timestampBy": "Time-stamped {{time}} by {{tsa}}",
+    "noTimestamp": "No trusted time-stamp: signing time is the signer’s claim.",
+    "anchor": "Trusted root: {{name}}",
+    "problem": {
+      "noTrustAnchors": "No trusted root certificate is configured.",
+      "unknownIssuer": "The issuer of “{{subject}}” is not a trusted certificate authority.",
+      "expired": "“{{subject}}” has expired.",
+      "notYetValid": "“{{subject}}” is not valid yet.",
+      "badSignature": "The signature on “{{subject}}” does not verify.",
+      "notCa": "“{{subject}}” is not allowed to issue certificates.",
+      "keyUsage": "The key usage of “{{subject}}” does not allow signing.",
+      "extendedKeyUsage": "“{{subject}}” is not a time-stamping certificate.",
+      "unsupported": "“{{subject}}” uses an unsupported algorithm.",
+      "revoked": "“{{subject}}” has been revoked.",
+      "crlStale": "The revocation list of “{{subject}}” is out of date.",
+      "pathTooLong": "The certificate chain is too long.",
+      "malformed": "A certificate is malformed."
+    }
+  },
+  "updates": {
+    "title": "Updates",
+    "check": "Check for updates",
+    "checking": "Checking for updates…",
+    "install": "Install and restart",
+    "installing": "Downloading and installing the update…",
+    "available": "Version {{version}} is available (you have {{current}}).",
+    "upToDate": "You have the latest version ({{current}}).",
+    "failed": "Could not check for updates: {{message}}",
+    "notConfigured": "This installation has no update server configured.",
+    "disabled": "This build has no automatic updates.",
+    "installFailed": "Could not install the update: {{message}}"
   }
 }

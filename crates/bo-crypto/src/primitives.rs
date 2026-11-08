@@ -9,9 +9,13 @@ use sha2::Digest;
 /// Hash algorithms allowed by [MS-OFFCRYPTO] §2.3.4.10 (`hashAlgorithm`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashAlgorithm {
+    /// SHA-1 (20-byte digest).
     Sha1,
+    /// SHA-256 (32-byte digest).
     Sha256,
+    /// SHA-384 (48-byte digest).
     Sha384,
+    /// SHA-512 (64-byte digest).
     Sha512,
 }
 

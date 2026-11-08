@@ -21,7 +21,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::ast::Expr;
 use crate::date::DateSystem;
-use crate::eval::{static_areas, struct_area, Ctx, EvalConfig};
+use crate::eval::{static_areas, struct_area, Ctx, EvalConfig, TextFormatter};
 use crate::format::format;
 use crate::functions::is_volatile_function;
 use crate::fxhash::{FxHashMap, FxHashSet};
@@ -74,7 +74,23 @@ impl Default for IterativeConfig {
 #[derive(Debug)]
 struct Formula {
     expr: Expr,
-    text: String,
+    /// Canonical text, formatted on first use (opening a file sets 100 000s of
+    /// formulas whose text is rarely asked for).
+    text: std::sync::OnceLock<String>,
+}
+
+impl Formula {
+    fn new(expr: Expr, text: Option<String>) -> Formula {
+        let cell = std::sync::OnceLock::new();
+        if let Some(t) = text {
+            let _ = cell.set(t);
+        }
+        Formula { expr, text: cell }
+    }
+
+    fn text(&self) -> &str {
+        self.text.get_or_init(|| format!("={}", format(&self.expr)))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -92,6 +108,41 @@ struct Sheet {
     hidden_rows: FxHashSet<u32>,
 }
 
+/// Formula cells reading one cell directly. Most cells have a single reader: it is
+/// kept inline (opening a sheet registers a million of these).
+#[derive(Debug)]
+enum Readers {
+    One(CellId),
+    Many(Vec<CellId>),
+}
+
+impl Readers {
+    fn push(&mut self, id: CellId) {
+        match self {
+            Readers::One(a) => *self = Readers::Many(vec![*a, id]),
+            Readers::Many(v) => v.push(id),
+        }
+    }
+
+    /// Remove every `id`; returns whether no reader is left.
+    fn remove(&mut self, id: CellId) -> bool {
+        match self {
+            Readers::One(a) => *a == id,
+            Readers::Many(v) => {
+                v.retain(|d| *d != id);
+                v.is_empty()
+            }
+        }
+    }
+
+    fn as_slice(&self) -> &[CellId] {
+        match self {
+            Readers::One(a) => std::slice::from_ref(a),
+            Readers::Many(v) => v,
+        }
+    }
+}
+
 /// Areas up to this size are indexed cell by cell in the dependency graph.
 const SMALL_AREA: u64 = 64;
 /// Maximum number of extra passes to settle spill ranges.
@@ -106,7 +157,7 @@ pub struct Workbook {
     iterative: Option<IterativeConfig>,
     rng: AtomicU64,
     precedents: FxHashMap<CellId, Vec<Area>>,
-    dependents: FxHashMap<CellId, Vec<CellId>>,
+    dependents: FxHashMap<CellId, Readers>,
     range_deps: RangeIndex,
     volatile: FxHashSet<CellId>,
     changed: Vec<CellId>,
@@ -175,6 +226,13 @@ impl Workbook {
         self.sheets.len() - 1
     }
 
+    /// Make room for `additional` more cells on `sheet` (bulk loading).
+    pub fn reserve_cells(&mut self, sheet: usize, additional: usize) {
+        if let Some(s) = self.sheets.get_mut(sheet) {
+            s.cells.reserve(additional);
+        }
+    }
+
     /// Evaluation settings (date system, fixed "now").
     pub fn config(&self) -> &EvalConfig {
         &self.config
@@ -189,6 +247,13 @@ impl Workbook {
     /// Fix the value of `NOW()` (serial) or `None` for the system clock.
     pub fn set_now(&mut self, now: Option<f64>) {
         self.config.now = now;
+    }
+
+    /// Install the number-format renderer used by `TEXT` (`None` restores the
+    /// built-in compact one); marks everything for recalculation.
+    pub fn set_text_formatter(&mut self, formatter: Option<TextFormatter>) {
+        self.config.text_formatter = formatter;
+        self.mark_all_formulas();
     }
 
     /// Seed the generator used by `RAND`/`RANDBETWEEN`/`RANDARRAY`.
@@ -291,7 +356,6 @@ impl Workbook {
         }
         let id = CellId::new(sheet, row, col);
         self.remove_formula(id);
-        let text = text.unwrap_or_else(|| format!("={}", format(&expr)));
         let (areas, volatile) = self.collect_deps(&expr, id);
         self.register(id, areas);
         if volatile {
@@ -305,12 +369,92 @@ impl Workbook {
         self.sheets[sheet].cells.insert(
             (row, col),
             CellData {
-                formula: Some(Arc::new(Formula { expr, text })),
+                formula: Some(Arc::new(Formula::new(expr, text))),
                 value: old,
             },
         );
         self.touch(id);
         self.after_edit(id);
+    }
+
+    /// Bulk loading (opening a file): a formula whose result may already be known.
+    ///
+    /// With `cached: Some(v)` the cell takes `v` (the value saved with the file,
+    /// ECMA-376 Part 1, §18.3.1.96 `v`) and is *not* marked for calculation, so
+    /// [`Workbook::recalculate`] only evaluates formulas without a cached value,
+    /// volatile formulas and their dependents. `cached: None` behaves like
+    /// [`Workbook::set_formula`]. The formula text is stored as given (no
+    /// re-formatting of the parsed expression).
+    pub fn load_formula(
+        &mut self,
+        sheet: usize,
+        row: u32,
+        col: u32,
+        formula: &str,
+        cached: Option<Value>,
+    ) -> Result<(), ParseError> {
+        if sheet >= self.sheets.len() {
+            return Ok(());
+        }
+        let opts = ParseOptions {
+            origin_row: row,
+            origin_col: col,
+            ..ParseOptions::default()
+        };
+        let expr = parse_with(formula, &opts)?;
+        let id = CellId::new(sheet, row, col);
+        if self.sheets[sheet].cells.contains_key(&(row, col)) {
+            self.remove_formula(id);
+        }
+        let (areas, volatile) = self.collect_deps(&expr, id);
+        self.register(id, areas);
+        if volatile {
+            self.volatile.insert(id);
+        }
+        let known = cached.is_some();
+        self.sheets[sheet].cells.insert(
+            (row, col),
+            CellData {
+                // Text formatted on first use, like `set_formula`.
+                formula: Some(Arc::new(Formula::new(expr, None))),
+                value: cached.unwrap_or_default(),
+            },
+        );
+        self.touch(id);
+        if !known {
+            self.after_edit(id);
+        }
+        Ok(())
+    }
+
+    /// Bulk loading: a constant cell. Unlike [`Workbook::set_value`] it does not
+    /// mark the cell as edited (formulas reading it carry their own cached value
+    /// or are marked by [`Workbook::load_formula`]).
+    pub fn load_value(&mut self, sheet: usize, row: u32, col: u32, value: impl Into<Value>) {
+        let value = value.into();
+        let Some(s) = self.sheets.get_mut(sheet) else {
+            return;
+        };
+        if matches!(value, Value::Empty) || s.cells.contains_key(&(row, col)) {
+            self.set_value(sheet, row, col, value);
+            return;
+        }
+        s.cells.insert(
+            (row, col),
+            CellData {
+                formula: None,
+                value,
+            },
+        );
+        self.touch(CellId::new(sheet, row, col));
+    }
+
+    /// Bulk loading: a hidden row, without marking every formula for
+    /// calculation (cached `SUBTOTAL` results already account for it).
+    pub fn load_row_hidden(&mut self, sheet: usize, row: u32) {
+        if let Some(s) = self.sheets.get_mut(sheet) {
+            s.hidden_rows.insert(row);
+        }
     }
 
     /// Set a cell from user input: `=...` is a formula, numbers/booleans/error
@@ -377,7 +521,7 @@ impl Workbook {
             .get(&(row, col))?
             .formula
             .as_ref()
-            .map(|f| f.text.as_str())
+            .map(|f| f.text())
     }
 
     /// The area an array formula at this anchor spills into.
@@ -508,8 +652,7 @@ impl Workbook {
         }
         for (si, r, c, e) in rewrites {
             if let Some(cell) = self.sheets[si].cells.get_mut(&(r, c)) {
-                let text = format!("={}", format(&e));
-                cell.formula = Some(Arc::new(Formula { expr: e, text }));
+                cell.formula = Some(Arc::new(Formula::new(e, None)));
             }
         }
         // Defined names: unqualified references belong to the scope sheet; for
@@ -607,10 +750,14 @@ impl Workbook {
             if a.size() <= SMALL_AREA {
                 for r in a.r1..=a.r2 {
                     for c in a.c1..=a.c2 {
-                        self.dependents
-                            .entry(CellId::new(a.sheet, r, c))
-                            .or_default()
-                            .push(id);
+                        match self.dependents.entry(CellId::new(a.sheet, r, c)) {
+                            std::collections::hash_map::Entry::Occupied(mut e) => {
+                                e.get_mut().push(id);
+                            }
+                            std::collections::hash_map::Entry::Vacant(e) => {
+                                e.insert(Readers::One(id));
+                            }
+                        }
                     }
                 }
             } else {
@@ -630,8 +777,7 @@ impl Workbook {
                     for c in a.c1..=a.c2 {
                         let key = CellId::new(a.sheet, r, c);
                         if let Some(v) = self.dependents.get_mut(&key) {
-                            v.retain(|d| *d != id);
-                            if v.is_empty() {
+                            if v.remove(id) {
                                 self.dependents.remove(&key);
                             }
                         }
@@ -744,7 +890,7 @@ impl Workbook {
     /// Formula cells reading `cell` directly (static precedents).
     fn for_each_reader(&self, cell: CellId, f: &mut dyn FnMut(CellId)) {
         if let Some(ds) = self.dependents.get(&cell) {
-            for d in ds {
+            for d in ds.as_slice() {
                 f(*d);
             }
         }

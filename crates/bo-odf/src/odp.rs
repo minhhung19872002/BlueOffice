@@ -9,6 +9,7 @@ use crate::{OdfError, Result, MIME_ODP};
 /// Text content of a presentation (intermediate type).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Presentation {
+    /// Slides in document order.
     pub slides: Vec<Slide>,
 }
 
@@ -214,7 +215,7 @@ pub fn write_odp(pres: &Presentation) -> Result<Vec<u8>> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]

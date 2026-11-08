@@ -93,10 +93,14 @@ impl OdfPackage {
     /// uncompressed and without extra field; the manifest lists every file.
     pub fn write(mimetype: &str, files: &[(&str, &str, Vec<u8>)]) -> Result<Vec<u8>> {
         let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        // "Version made by" = MS-DOS (APPNOTE 4.4.2) on every platform:
+        // identical bytes on Windows and Linux.
         let stored = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
+            .compression_method(zip::CompressionMethod::Stored)
+            .system(zip::System::Dos);
         let deflated = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+            .compression_method(zip::CompressionMethod::Deflated)
+            .system(zip::System::Dos);
         w.start_file("mimetype", stored)?;
         w.write_all(mimetype.as_bytes())?;
         for (name, _, data) in files {

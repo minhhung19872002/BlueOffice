@@ -7,6 +7,7 @@ import type {
   OpenedFile,
   PeerCursor,
   ReviewState,
+  SignatureReport,
   StoredDocument,
 } from '@blueoffice/platform';
 import type { ThemeSetting } from '@blueoffice/ui';
@@ -14,7 +15,10 @@ import { createStore } from 'zustand/vanilla';
 
 export type Status =
   | { kind: 'idle' }
-  | { kind: 'busy'; key: 'status.loading' | 'status.exporting' | 'status.saving' }
+  | {
+      kind: 'busy';
+      key: 'status.loading' | 'status.exporting' | 'status.saving' | 'status.signing';
+    }
   | { kind: 'info'; key: string; params?: Record<string, string> }
   | { kind: 'error'; key: string; message: string };
 
@@ -43,7 +47,12 @@ export interface EditorState {
     | 'merge'
     | 'savePassword'
     | 'notes'
+    | 'sign'
+    | 'signPdf'
+    | 'signatures'
     | null;
+  /** Verification of the opened file's digital signatures (null: unsigned / not checked). */
+  signatures: SignatureReport | null;
   /** Modal dialog. */
   dialog: 'pageSetup' | 'pasteSpecial' | 'tableProperties' | 'picturePosition' | 'templates' | null;
   /** Format Painter: off, once (single click) or sticky (double click; Esc stops). */
@@ -86,6 +95,7 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   passwordPrompt: null,
   macroWarning: false,
   legacyNotice: 0,
+  signatures: null,
   peers: [],
   showPeers: true,
 });

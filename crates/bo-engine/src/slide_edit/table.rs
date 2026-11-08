@@ -13,14 +13,20 @@ use serde::Serialize;
 /// Selected cell range (inclusive, grid coordinates).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TableSel {
+    /// Shape id of the table's graphic frame.
     pub id: u32,
+    /// Anchor row.
     pub r0: usize,
+    /// Anchor grid column.
     pub c0: usize,
+    /// Focus row.
     pub r1: usize,
+    /// Focus grid column.
     pub c1: usize,
 }
 
 impl TableSel {
+    /// The same range with `r0 <= r1` and `c0 <= c1`.
     #[must_use]
     pub fn norm(self) -> TableSel {
         TableSel {
@@ -129,10 +135,15 @@ pub fn cell_at(t: &Table, x: f64, y: f64) -> Option<(usize, usize)> {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CellOut {
+    /// Row of the cell's top-left grid position.
     pub row: usize,
+    /// Grid column of the cell's top-left grid position.
     pub col: usize,
+    /// Rows covered (`a:tc/@rowSpan`, §21.1.3.16 tc).
     pub row_span: usize,
+    /// Grid columns covered (`a:tc/@gridSpan`).
     pub col_span: usize,
+    /// Box of the cell on the slide (points, rotated with the table).
     pub rect: BoxR,
     /// Text of the cell (editing format).
     pub text: String,
@@ -142,13 +153,19 @@ pub struct CellOut {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableOut {
+    /// Shape id of the table's graphic frame.
     pub id: u32,
+    /// Number of rows.
     pub rows: usize,
+    /// Number of grid columns (§21.1.3.17 tblGrid).
     pub cols: usize,
     /// Selection `[r0, c0, r1, c1]` (inclusive).
     pub sel: [usize; 4],
+    /// Every cell that is not covered by a merge.
     pub cells: Vec<CellOut>,
+    /// Header-row styling is on (`a:tblPr/@firstRow`, §21.1.3.15 tblPr).
     pub first_row: bool,
+    /// Banded-row styling is on (`a:tblPr/@bandRow`).
     pub band_row: bool,
     /// Text of the first selected cell (editing format).
     pub text: String,

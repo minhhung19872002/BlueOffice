@@ -56,7 +56,7 @@ impl Draft {
 /// §20.4.2.17 wrapSquare, §20.4.2.20 wrapTight), relative to the paragraph: y from
 /// the top of its first line, x from the left of its content box. Distances from
 /// text (`distT`…) are included.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WrapZone {
     pub top: f32,
     pub bottom: f32,
@@ -64,6 +64,9 @@ pub(crate) struct WrapZone {
     pub right: f32,
     /// Sides text may flow on (§20.4.3.7 `ST_WrapText`).
     pub side: WrapText,
+    /// Tight wrap polygon in the same coordinates: the area kept clear on a line
+    /// is the polygon's extent at that line's height (§20.4.2.20).
+    pub outline: Option<crate::flow::Outline>,
 }
 
 /// Narrowest text segment beside a wrapped picture (narrower gaps stay empty).
@@ -77,14 +80,21 @@ fn segments(zones: &[WrapZone], x0: f32, x1: f32, y: f32, h: f32) -> Vec<(f32, f
         if y >= z.bottom || y + h <= z.top {
             continue;
         }
+        let (zl, zr) = match &z.outline {
+            Some(o) => match o.extent(y, y + h) {
+                Some(e) => e,
+                None => continue,
+            },
+            None => (z.left, z.right),
+        };
         let mut next = Vec::with_capacity(segs.len() + 1);
         for &(a, b) in &segs {
-            if z.right <= a || z.left >= b {
+            if zr <= a || zl >= b {
                 next.push((a, b));
                 continue;
             }
-            let left = (a, z.left.min(b));
-            let right = (z.right.max(a), b);
+            let left = (a, zl.min(b));
+            let right = (zr.max(a), b);
             let wl = left.1 - left.0;
             let wr = right.1 - right.0;
             match z.side {
@@ -158,8 +168,11 @@ const COL_SEP: char = '\u{000B}';
 /// Values of page-dependent fields.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct FieldContext {
+    /// 1-based number of the current page (PAGE).
     pub page: u32,
+    /// Total number of pages (NUMPAGES).
     pub pages: u32,
+    /// Number of pages in the current section (SECTIONPAGES).
     pub section_pages: u32,
 }
 
@@ -340,6 +353,23 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     inp.default_tab.to_bits().hash(&mut h);
     inp.doc.default_run.hash(&mut h);
     inp.doc.theme_fonts.hash(&mut h);
+    // Run properties coming from the style definitions (ECMA-376 Part 1,
+    // §17.7.2 style hierarchy): the paragraph style chain and the character
+    // styles of the runs. The paragraph and runs above only name the styles, so
+    // a changed definition (another document, undo, a collaborator's edit) must
+    // not be served from the cache.
+    crate::style::para_style_run(inp.doc, &inp.props).hash(&mut h);
+    let mut char_styles: Vec<&str> = inp
+        .para
+        .runs
+        .iter()
+        .filter_map(|r| r.props.style.as_deref())
+        .collect();
+    char_styles.sort_unstable();
+    char_styles.dedup();
+    for id in char_styles {
+        inp.doc.styles.resolve_character(id).hash(&mut h);
+    }
     inp.note_mark.hash(&mut h);
     inp.view.hash(&mut h);
     for z in inp.wrap {
@@ -347,17 +377,37 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
             v.to_bits().hash(&mut h);
         }
         z.side.hash(&mut h);
+        if let Some(o) = &z.outline {
+            for &(x, y) in o.points.iter() {
+                x.to_bits().hash(&mut h);
+                y.to_bits().hash(&mut h);
+            }
+            o.pad.0.to_bits().hash(&mut h);
+            o.pad.1.to_bits().hash(&mut h);
+        }
     }
-    // Page-dependent fields and note numbers only matter when present.
-    if inp.para.runs.iter().any(|r| {
-        r.content.iter().any(|c| {
-            matches!(
-                c,
-                RunContent::Field { .. } | RunContent::FootnoteRef(_) | RunContent::EndnoteRef(_)
-            )
-        })
-    }) {
+    // Page-dependent fields and note numbers only matter when present: the numbers
+    // of the notes this paragraph references (hashing the whole note map made the
+    // layout quadratic in the number of notes). Drawings (text boxes) may reference
+    // notes of their own, so they hash every number.
+    let mut fields = false;
+    let mut drawings = false;
+    for c in inp.para.runs.iter().flat_map(|r| &r.content) {
+        match c {
+            RunContent::Field { .. } => fields = true,
+            RunContent::FootnoteRef(id) | RunContent::EndnoteRef(id) => {
+                fields = true;
+                let key = (matches!(c, RunContent::EndnoteRef(_)), *id);
+                inp.note_numbers.get(&key).hash(&mut h);
+            }
+            RunContent::Image(img) if img.shape.is_some() => drawings = true,
+            _ => {}
+        }
+    }
+    if fields || drawings {
         inp.fields.hash(&mut h);
+    }
+    if drawings {
         let mut notes: Vec<_> = inp.note_numbers.iter().collect();
         notes.sort();
         notes.hash(&mut h);
@@ -415,7 +465,11 @@ fn bidi_levels(text: &str, rtl: bool) -> Option<Vec<u8>> {
     }
     let base = if rtl { Level::rtl() } else { Level::ltr() };
     let info = BidiInfo::new(text, Some(base));
-    let mut out: Vec<u8> = info.levels.iter().map(Level::number).collect();
+    let mut out: Vec<u8> = info
+        .levels
+        .iter()
+        .map(unicode_bidi::Level::number)
+        .collect();
     // L1: trailing whitespace goes back to the paragraph level.
     for (i, c) in text.char_indices().rev() {
         if !c.is_whitespace() {

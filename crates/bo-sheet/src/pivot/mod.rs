@@ -34,6 +34,7 @@ const MAX_SOURCE_CELLS: u64 = 4_000_000;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PivotLabels {
+    /// Caption of the grand total row and column (`grandTotalCaption`).
     pub grand_total: String,
     /// `dataCaption` and the header of several value fields.
     pub values: String,
@@ -59,7 +60,9 @@ pub struct PivotLabels {
     pub quarter: String,
     /// Names of the grouping fields added for years / quarters / months.
     pub years_field: String,
+    /// Name of the grouping field holding quarters.
     pub quarters_field: String,
+    /// Name of the grouping field holding months.
     pub months_field: String,
     /// Caption of a manual group; `{n}` is replaced by its number.
     pub group: String,
@@ -101,16 +104,25 @@ impl Default for PivotLabels {
 /// Fields placed in the areas of a pivot table and its report settings.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PivotSpec {
+    /// Cache field indexes placed in the row area, outermost first (`rowFields`).
     pub rows: Vec<u32>,
+    /// Cache field indexes placed in the column area, outermost first (`colFields`).
     pub cols: Vec<u32>,
+    /// Value fields with their summary function (`dataFields`).
     pub values: Vec<PivotDataField>,
+    /// Report filters (`pageFields`) and their selected items.
     pub filters: Vec<PivotFilter>,
     /// Per cache field settings (subtotals, sorting, blank rows, …).
     pub fields: Vec<PivotFieldOptions>,
+    /// Compact, outline or tabular form of the report.
     pub layout: PivotLayout,
+    /// Show the grand total column at the right (`rowGrandTotals`).
     pub row_grand_totals: bool,
+    /// Show the grand total row at the bottom (`colGrandTotals`).
     pub col_grand_totals: bool,
+    /// Label / value filters applied to fields (`autoFilter` in `pivotField`).
     pub field_filters: Vec<PivotFieldFilter>,
+    /// Style name and banding flags (`pivotTableStyleInfo`, §18.10.1.82).
     pub style: Option<PivotStyleInfo>,
     /// Several value fields are listed down the rows (`dataOnRows`, §18.10.1.73).
     pub data_on_rows: bool,
@@ -973,15 +985,22 @@ pub enum GroupRequest {
     /// Date parts; the finest selected part groups the field itself, coarser
     /// parts become new grouping fields placed before it.
     Dates {
+        /// Group by year (adds a `Years` grouping field when finer parts are selected).
         years: bool,
+        /// Group by quarter.
         quarters: bool,
+        /// Group by month.
         months: bool,
+        /// Group by day of the month.
         days: bool,
     },
     /// Numeric ranges; missing bounds follow the data.
     Numbers {
+        /// Lower bound of the first range; `None` = minimum of the data.
         start: Option<f64>,
+        /// Upper bound of the last range; `None` = maximum of the data.
         end: Option<f64>,
+        /// Width of each range (must be positive).
         interval: f64,
     },
 }

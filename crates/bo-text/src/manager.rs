@@ -10,15 +10,25 @@ pub struct FaceId(pub u32);
 /// Metadata and metrics of a loaded face (metrics in font units).
 #[derive(Debug, Clone)]
 pub struct FaceInfo {
+    /// Family name from the `name` table.
     pub family: String,
+    /// Bold face (bold flag or weight of at least 600).
     pub bold: bool,
+    /// Italic or oblique face.
     pub italic: bool,
+    /// Font units per em.
     pub units_per_em: u16,
+    /// Ascender (positive, above the baseline).
     pub ascender: i16,
+    /// Descender (negative, below the baseline).
     pub descender: i16,
+    /// Extra gap between lines.
     pub line_gap: i16,
+    /// Underline position relative to the baseline.
     pub underline_position: i16,
+    /// Underline thickness.
     pub underline_thickness: i16,
+    /// Strikeout position relative to the baseline.
     pub strikeout_position: i16,
 }
 
@@ -31,11 +41,15 @@ struct Face {
 /// A shaped glyph in font units.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ShapedGlyph {
+    /// Glyph index in the face.
     pub glyph_id: u16,
     /// Byte offset of the cluster in the shaped text.
     pub cluster: u32,
+    /// Horizontal advance.
     pub x_advance: i32,
+    /// Horizontal offset from the pen position.
     pub x_offset: i32,
+    /// Vertical offset from the pen position.
     pub y_offset: i32,
 }
 
@@ -68,6 +82,12 @@ pub struct FontManager {
     by_family: HashMap<String, Vec<FaceId>>,
     shape_cache: HashMap<(FaceId, bool, String), Arc<[ShapedGlyph]>>,
     resolve_cache: HashMap<(String, bool, bool), Option<FaceId>>,
+    /// Installed OS fonts, loaded per family on first use (native hosts that opt in).
+    #[cfg(not(target_arch = "wasm32"))]
+    system: Option<crate::SystemFontIndex>,
+    /// Lower-case families whose system files were already read.
+    #[cfg(not(target_arch = "wasm32"))]
+    system_loaded: std::collections::HashSet<String>,
 }
 
 impl FontManager {
@@ -153,6 +173,47 @@ impl FontManager {
         n
     }
 
+    /// Uses the installed fonts of `index` for families that are not loaded:
+    /// a document asking for one loads its files then (ids after the bundled fonts).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_system_fonts(&mut self, index: crate::SystemFontIndex) {
+        self.system = Some(index);
+        self.system_loaded.clear();
+        self.resolve_cache.clear();
+    }
+
+    /// Installed families available through [`FontManager::set_system_fonts`] (sorted).
+    pub fn system_families(&self) -> Vec<String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(idx) = &self.system {
+            return idx.families();
+        }
+        Vec::new()
+    }
+
+    /// Loads the system files of `family` once; true when the family is now loaded.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn load_system_family(&mut self, family: &str) -> bool {
+        let Some(idx) = self.system.clone() else {
+            return false;
+        };
+        if !idx.contains(family) || !self.system_loaded.insert(family.to_owned()) {
+            return false;
+        }
+        for path in idx.files_of(family) {
+            if let Ok(bytes) = std::fs::read(path) {
+                self.add_font(bytes);
+            }
+        }
+        self.by_family.contains_key(family)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[allow(clippy::unused_self)]
+    fn load_system_family(&mut self, _family: &str) -> bool {
+        false
+    }
+
     /// Face metadata.
     pub fn info(&self, id: FaceId) -> &FaceInfo {
         &self.faces[id.0 as usize].info
@@ -181,13 +242,44 @@ impl FontManager {
         r
     }
 
-    fn resolve_uncached(&self, family: &str, bold: bool, italic: bool) -> Option<FaceId> {
+    /// Family that would display `family` (same order as [`FontManager::resolve`]),
+    /// without loading any installed font file.
+    pub fn display_family(&self, family: &str) -> Option<String> {
+        let lower = family.to_lowercase();
+        let mut candidates: Vec<&str> = vec![&lower];
+        if let Some((_, subs)) = FALLBACKS.iter().find(|(k, _)| *k == lower) {
+            candidates.extend_from_slice(subs);
+        }
+        candidates.extend_from_slice(LAST_RESORT);
+        for fam in candidates {
+            if let Some(ids) = self.by_family.get(fam) {
+                return ids.first().map(|id| self.info(*id).family.clone());
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(idx) = &self.system {
+                if idx.contains(fam) {
+                    return idx
+                        .families()
+                        .into_iter()
+                        .find(|f| f.eq_ignore_ascii_case(fam));
+                }
+            }
+        }
+        self.faces.first().map(|f| f.info.family.clone())
+    }
+
+    fn resolve_uncached(&mut self, family: &str, bold: bool, italic: bool) -> Option<FaceId> {
         let mut candidates: Vec<&str> = vec![family];
         if let Some((_, subs)) = FALLBACKS.iter().find(|(k, _)| *k == family) {
             candidates.extend_from_slice(subs);
         }
         candidates.extend_from_slice(LAST_RESORT);
         for fam in candidates {
+            // Loaded (bundled) family first, then the installed font of that name;
+            // the metric-compatible substitute only when neither exists.
+            if !self.by_family.contains_key(fam) {
+                self.load_system_family(fam);
+            }
             if let Some(ids) = self.by_family.get(fam) {
                 return Some(self.best_style(ids, bold, italic));
             }
@@ -324,7 +416,11 @@ fn is_mark(c: char) -> bool {
 }
 
 fn family_name(face: &ttf_parser::Face<'_>) -> Option<String> {
-    let names = face.names();
+    pick_family(face.names())
+}
+
+/// Typographic family (name id 16), else family (id 1) — OpenType `name` table.
+pub(crate) fn pick_family(names: ttf_parser::name::Names<'_>) -> Option<String> {
     let pick = |id: u16| {
         names
             .into_iter()

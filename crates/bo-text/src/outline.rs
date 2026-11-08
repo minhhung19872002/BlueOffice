@@ -7,10 +7,15 @@ use std::fmt::Write as _;
 /// Path command in font units, y axis pointing **up** (font convention).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PathCmd {
+    /// Start a new contour at (x, y).
     MoveTo(f32, f32),
+    /// Straight line to (x, y).
     LineTo(f32, f32),
+    /// Quadratic Bezier: control point, end point.
     QuadTo(f32, f32, f32, f32),
+    /// Cubic Bezier: two control points, end point.
     CubicTo(f32, f32, f32, f32, f32, f32),
+    /// Close the current contour.
     Close,
 }
 

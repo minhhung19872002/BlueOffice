@@ -21,6 +21,7 @@ pub mod collab;
 pub mod edit;
 pub mod fonts;
 pub mod gallery;
+mod legacy_slides;
 pub mod media;
 pub mod merge;
 pub mod nav;
@@ -33,6 +34,9 @@ pub mod story;
 pub mod templates;
 pub mod textbox;
 
+/// Installed OS fonts (native hosts, see [`Engine::set_system_fonts`]).
+#[cfg(not(target_arch = "wasm32"))]
+pub use bo_text::SystemFontIndex;
 pub use collab::{CollabChange, CollabOut, TextOp};
 pub use edit::{Command, EditResult};
 pub use sheet::SheetEngine;
@@ -41,24 +45,34 @@ pub use slide_edit::{SlideCommand, SlideEditResult};
 /// Engine errors (surfaced to JS / Tauri as strings).
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
+    /// The file type cannot be opened.
     #[error("unsupported file type: {0}")]
     Unsupported(String),
+    /// Reading or writing a `.docx` failed.
     #[error("cannot read document: {0}")]
     Docx(#[from] bo_docx::DocxError),
+    /// Reading or writing a `.pptx` failed.
     #[error("cannot read presentation: {0}")]
     Pptx(#[from] bo_pptx::PptxError),
+    /// Layout failed.
     #[error("layout failed: {0}")]
     Layout(#[from] bo_layout::LayoutError),
+    /// The command needs an open document.
     #[error("no document is open")]
     NoDocument,
+    /// Page (or sheet / slide) index out of range.
     #[error("page {0} out of range")]
     PageOutOfRange(usize),
+    /// PDF export failed.
     #[error("PDF export failed: {0}")]
     Pdf(#[from] bo_pdf::PdfError),
+    /// Spreadsheet read / write error.
     #[error("spreadsheet error: {0}")]
     Sheet(String),
+    /// PNG rendering failed.
     #[error("rendering failed: {0}")]
     Raster(#[from] bo_raster::RasterError),
+    /// The JSON command is malformed or does not apply.
     #[error("invalid command: {0}")]
     BadCommand(String),
     /// The file is encrypted ([MS-OFFCRYPTO]) and no password was given.
@@ -68,8 +82,10 @@ pub enum EngineError {
     /// Hosts match the message `wrong password`.
     #[error("wrong password")]
     WrongPassword,
+    /// Encryption or decryption failed.
     #[error("encryption error: {0}")]
     Crypto(String),
+    /// Reading a legacy or ODF document (`.doc`, `.odt`, …) failed.
     #[error("cannot read document: {0}")]
     Format(String),
 }
@@ -83,7 +99,9 @@ pub type Result<T> = std::result::Result<T, EngineError>;
 /// Page size in points.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub struct PageSize {
+    /// Width in points.
     pub width: f32,
+    /// Height in points.
     pub height: f32,
 }
 
@@ -91,11 +109,15 @@ pub struct PageSize {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DocInfo {
+    /// File name of the document.
     pub name: String,
     /// App id of the open file: `doc` (BlueDoc) or `slide` (BlueSlide).
     pub kind: String,
+    /// Number of laid-out pages (slides for BlueSlide).
     pub page_count: usize,
+    /// Size of each page.
     pub pages: Vec<PageSize>,
+    /// Words in the main story.
     pub word_count: usize,
     /// The file contains a VBA project or XLM macros ([MS-OVBA]); kept, never run.
     pub macros: bool,
@@ -117,9 +139,13 @@ impl DocInfo {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GlyphOutline {
+    /// Font face id (index into the registered faces).
     pub face: u32,
+    /// Glyph id within the face.
     pub glyph: u16,
+    /// Font design units per em.
     pub units_per_em: u16,
+    /// SVG path data in font units (y down).
     pub path: String,
 }
 
@@ -263,6 +289,15 @@ impl Engine {
         self.fonts.len()
     }
 
+    /// Lets documents use the installed OS fonts (desktop): a family that is not
+    /// bundled loads from the index on first use, with face ids after the bundled ones.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_system_fonts(&mut self, index: bo_text::SystemFontIndex) {
+        self.fonts.set_system_fonts(index);
+        self.cache.clear();
+        self.layout.reset();
+    }
+
     /// Access the font manager.
     pub fn fonts(&self) -> &FontManager {
         &self.fonts
@@ -284,25 +319,41 @@ impl Engine {
         password: Option<&str>,
     ) -> Result<DocInfo> {
         let lower = name.to_ascii_lowercase();
-        let mut plain = None;
-        if bytes.starts_with(CFB_SIGNATURE) && bo_crypto::is_encrypted(bytes) {
-            let pw = password
-                .filter(|p| !p.is_empty())
-                .ok_or(EngineError::PasswordRequired)?;
-            plain = Some(bo_crypto::decrypt(bytes, pw).map_err(|e| match e {
-                bo_crypto::CryptoError::WrongPassword
-                | bo_crypto::CryptoError::IntegrityCheckFailed => EngineError::WrongPassword,
-                other => EngineError::Crypto(other.to_string()),
-            })?);
-        }
+        let plain = decrypt_package(bytes, password)?;
         let encrypted = plain.is_some();
         let bytes = plain.as_deref().unwrap_or(bytes);
         let macros = bo_binary::has_macros(bytes);
         let is_zip = bytes.starts_with(b"PK\x03\x04");
-        if is_zip && bo_pptx::is_pptx(bytes) {
-            self.open_pptx(bytes, name)?;
-            // A macro-enabled deck (.pptm, [MS-OVBA]) gets the same warning bar.
+        // Decks: `.pptx`, and `.ppt` / `.odp` converted to PresentationML.
+        let deck = if is_zip && bo_pptx::is_pptx(bytes) {
+            Some((None, name.to_owned()))
+        } else if is_zip && bo_odf::detect_mimetype(bytes).as_deref() == Some(bo_odf::MIME_ODP) {
+            let d = bo_odf::read_odp_deck(bytes).map_err(|e| EngineError::Format(e.to_string()))?;
+            Some((Some(legacy_slides::odp_deck(&d)), with_ext(name, "pptx")))
+        } else if bytes.starts_with(CFB_SIGNATURE)
+            && matches!(bo_binary::detect(bytes), Some(bo_binary::LegacyKind::Ppt))
+        {
+            let d = bo_binary::read_ppt(bytes).map_err(|e| EngineError::Format(e.to_string()))?;
+            Some((Some(legacy_slides::ppt_deck(&d)), with_ext(name, "pptx")))
+        } else {
+            None
+        };
+        if let Some((spec, deck_name)) = deck {
+            match spec {
+                None => self.open_pptx(bytes, &deck_name)?,
+                Some(spec) => {
+                    let pptx = bo_pptx::build::build_pptx(&spec)
+                        .map_err(|e| EngineError::Format(e.to_string()))?;
+                    self.open_pptx(&pptx, &deck_name)?
+                }
+            };
             self.macros = macros;
+            // An encrypted deck is saved with the same password unless changed.
+            self.save_password = if encrypted {
+                password.map(str::to_owned)
+            } else {
+                None
+            };
             return self.info();
         }
         let doc = if is_zip && bo_odf::detect_mimetype(bytes).as_deref() == Some(bo_odf::MIME_ODT) {
@@ -449,10 +500,13 @@ impl Engine {
         let doc = s.doc();
         let mut ch = self.unsaved.clone();
         ch.extend(s.pending_changes());
-        if ch.is_empty() {
+        if ch.is_empty() && !ch.parts_changed() {
             return false;
         }
-        if ch.is_all() || saved.sections.len() != doc.sections.len() {
+        if ch.parts_changed()
+            || ch.headers().is_some()
+            || saved.sections.len() != doc.sections.len()
+        {
             return saved != doc;
         }
         ch.sections().iter().any(|c| {
@@ -508,6 +562,8 @@ impl Engine {
         self.deck_seq += 1;
         self.collab = None;
         self.slide_collab = None;
+        self.macros = false;
+        self.save_password = None;
         self.info()
     }
 
@@ -578,10 +634,17 @@ impl Engine {
         self.media(id)
     }
 
-    /// Save the open presentation as `.pptx`.
+    /// Save the open presentation as `.pptx`, encrypted with the save password
+    /// when one is set ([MS-OFFCRYPTO] §2.3.4.10 Agile Encryption).
     pub fn save_pptx(&self) -> Result<Vec<u8>> {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
-        Ok(bo_pptx::write_pptx(pres)?)
+        let bytes = bo_pptx::write_pptx(pres)?;
+        match &self.save_password {
+            Some(pw) => {
+                bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))
+            }
+            None => Ok(bytes),
+        }
     }
 
     /// Image sources for backends: the document's media parts, then slide images.
@@ -786,6 +849,30 @@ impl Engine {
             None => Ok(bytes),
         }
     }
+}
+
+/// `name` with its extension replaced by `ext`.
+fn with_ext(name: &str, ext: &str) -> String {
+    format!("{}.{ext}", name.rsplit_once('.').map_or(name, |(b, _)| b))
+}
+
+/// Decrypts an encrypted OOXML package ([MS-OFFCRYPTO] §2.3.4.10 Agile /
+/// §2.3.4.5 Standard Encryption, a CFB with `EncryptionInfo` + `EncryptedPackage`).
+/// `Ok(None)` for files that are not encrypted.
+pub(crate) fn decrypt_package(bytes: &[u8], password: Option<&str>) -> Result<Option<Vec<u8>>> {
+    if !(bytes.starts_with(CFB_SIGNATURE) && bo_crypto::is_encrypted(bytes)) {
+        return Ok(None);
+    }
+    let pw = password
+        .filter(|p| !p.is_empty())
+        .ok_or(EngineError::PasswordRequired)?;
+    bo_crypto::decrypt(bytes, pw)
+        .map(Some)
+        .map_err(|e| match e {
+            bo_crypto::CryptoError::WrongPassword
+            | bo_crypto::CryptoError::IntegrityCheckFailed => EngineError::WrongPassword,
+            other => EngineError::Crypto(other.to_string()),
+        })
 }
 
 /// Words in all text bodies of all slides.

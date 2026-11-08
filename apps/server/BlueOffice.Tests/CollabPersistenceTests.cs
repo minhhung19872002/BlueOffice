@@ -71,12 +71,14 @@ public sealed class CollabPersistenceTests
     [Fact]
     public Task SchemaUpgradeAddsTheLogTableToAnExistingDatabase() => InTempDirAsync("bo-upgrade-", async dir =>
     {
-        // A database created before the CollabLog table existed.
+        // A database created (by EnsureCreated, so without migration history) before the CollabLog table existed.
         using (var first = new TestApp(dataDir: dir))
         {
             await first.ClientFor("alice", "Alice").GetAsync(new Uri("/api/me", UriKind.Relative));
             using var scope = first.Services.CreateScope();
-            await scope.ServiceProvider.GetRequiredService<BlueOfficeDbContext>().Database.ExecuteSqlRawAsync("DROP TABLE \"CollabLog\"");
+            var db = scope.ServiceProvider.GetRequiredService<BlueOfficeDbContext>().Database;
+            await db.ExecuteSqlRawAsync("DROP TABLE \"CollabLog\"");
+            await db.ExecuteSqlRawAsync("DROP TABLE \"__EFMigrationsHistory\"");
         }
 
         using var second = new TestApp(dataDir: dir);

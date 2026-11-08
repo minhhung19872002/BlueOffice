@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 
 /// A converted metafile.
 pub struct Converted {
+    /// The picture as a display list (`width` × `height`, drawing commands).
     pub page: PageList,
     /// BMP bytes of the bitmaps referenced by `Image` commands.
     pub images: BTreeMap<String, Vec<u8>>,
@@ -720,7 +721,7 @@ pub fn emf_to_display_list(
             43 => p.rect(g(8), g(12), g(16), g(20)),
             44 => p.round_rect(g(8), g(12), g(16), g(20), g(24), g(28)),
             59 => p.path = Some(Vec::new()),
-            // 60 EMR_ENDPATH: nothing to do (the path closes at 61/62).
+            // 60 EMR_ENDPATH: nothing to do, the path stays open until filled.
             61 => {
                 if let Some(path) = p.path.as_mut() {
                     path.push(PathSeg::Z);
@@ -843,8 +844,7 @@ pub fn wmf_to_display_list(
         let n_at = |at: usize| usize::from(u16le(rec, at).unwrap_or(0)).min(size / 4);
         match f {
             0x0000 => break,
-            // 0x020B / 0x020C window org/ext are already folded into the output
-            // mapping (handled by the catch-all arm).
+            // 0x020B / 0x020C window org/ext are already folded into the output mapping.
             0x012E => p.dc.text_align = u32::from(u16le(rec, 6).unwrap_or(0)),
             0x0209 => p.dc.text_color = colorref(u32le(rec, 6).unwrap_or(0)),
             0x0214 => p.move_to(w(1), w(0)),

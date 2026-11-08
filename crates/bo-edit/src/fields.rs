@@ -17,8 +17,11 @@ use std::collections::HashMap;
 /// the number of fields whose result changed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldUpdate {
+    /// New blocks of every section, in section order.
     pub sections: Vec<Vec<Block>>,
+    /// The updated style sheet, when it had to change.
     pub styles: Option<StyleSheet>,
+    /// Number of fields whose result changed.
     pub count: usize,
 }
 
@@ -249,6 +252,7 @@ fn bookmark_marks(atoms: &[Atom]) -> Vec<(usize, Option<String>, String)> {
 /// A bookmark of the main text.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bookmark {
+    /// Bookmark name (`w:bookmarkStart @w:name`).
     pub name: String,
     /// Body paragraph id of its start.
     pub para: usize,
@@ -789,6 +793,7 @@ pub fn caption_paragraph(label: &str, n: i64, text: &str) -> Paragraph {
 pub struct RefTarget {
     /// Bookmark name, or `caption:<paragraph id>` for a caption without bookmark.
     pub id: String,
+    /// Text shown in the cross-reference dialog.
     pub label: String,
 }
 

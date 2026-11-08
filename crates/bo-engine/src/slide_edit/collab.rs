@@ -17,8 +17,14 @@
 //!   nested text `n:<slide>`, merged like body text; the rest of the notes
 //!   part travels with the slide.
 //! * Masters, layouts and themes (§19.3.1.42, §19.3.1.39, §20.1.6): one
-//!   `meta` entry per part, `sm:<i>`, `sl:<i>`, `th:<i>`, plus `pp` for the
-//!   presentation relationships; last writer wins per part.
+//!   `meta` entry per part, `sm:<key>`, `sl:<key>`, `th:<key>`, plus `pp` for
+//!   the presentation relationships; last writer wins per part. The parts of
+//!   the opened file are keyed by their index; parts created in the session
+//!   (slides pasted from another deck) get a key of their own, so two replicas
+//!   importing a design at once keep both. References between them (slide →
+//!   layout, layout → master, master → theme / layouts) travel as keys
+//!   (`lk` in the slide entry, `@m`, `@t`, `@l` in the part entry) and are
+//!   turned back into indices on every replica.
 
 use super::ops::{PresFields, SlideOp};
 use super::{Outcome, SlideEditResult};
@@ -34,6 +40,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Collaboration output of a BlueSlide command (part of [`SlideEditResult`]).
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct SlideCollabOut {
+    /// Local change to broadcast to the other replicas.
     pub change: CollabChange,
     /// Key of the selected object (`"<slide>/<shape>"`) for presence.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,13 +50,18 @@ pub struct SlideCollabOut {
 /// Where a collaborator's selected object is.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PeerShape {
+    /// Index of the slide holding the object.
     pub slide: usize,
+    /// Rotated box of the object on that slide (points).
     pub rect: super::geom::BoxR,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Meta {
     pos: f64,
+    /// Key of the slide's layout (absent in entries of older clients).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    lk: Option<String>,
     slide: Slide,
 }
 
@@ -93,22 +105,35 @@ impl Parts {
         }
     }
 
-    /// `meta` entries (`sm:<i>`, `sl:<i>`, `th:<i>`, `pp`).
-    fn entries(&self) -> BTreeMap<String, String> {
+    /// `meta` entries (`sm:<key>`, `sl:<key>`, `th:<key>`, `pp`).
+    fn entries(&self, keys: &PartKeys) -> BTreeMap<String, String> {
         let mut m = BTreeMap::new();
         let mut put = |k: String, v: Result<String, serde_json::Error>| {
             if let Ok(v) = v {
                 m.insert(k, v);
             }
         };
-        for (i, x) in self.masters.iter().enumerate() {
-            put(format!("sm:{i}"), serde_json::to_string(x));
+        let key = |list: &[String], i: usize| list.get(i).map(|k| Value::String(k.clone()));
+        for (x, k) in self.masters.iter().zip(&keys.masters) {
+            let l: Vec<Value> = x
+                .layouts
+                .iter()
+                .map(|r| key(&keys.layouts, r.layout).unwrap_or(Value::Null))
+                .collect();
+            let refs = [
+                ("@t", key(&keys.themes, x.theme)),
+                ("@l", Some(Value::Array(l))),
+            ];
+            put(format!("sm:{k}"), with_refs(x, &refs));
         }
-        for (i, x) in self.layouts.iter().enumerate() {
-            put(format!("sl:{i}"), serde_json::to_string(x));
+        for (x, k) in self.layouts.iter().zip(&keys.layouts) {
+            put(
+                format!("sl:{k}"),
+                with_refs(x, &[("@m", key(&keys.masters, x.master))]),
+            );
         }
-        for (i, x) in self.themes.iter().enumerate() {
-            put(format!("th:{i}"), serde_json::to_string(x));
+        for (x, k) in self.themes.iter().zip(&keys.themes) {
+            put(format!("th:{k}"), serde_json::to_string(x));
         }
         put(
             "pp".into(),
@@ -122,50 +147,163 @@ fn is_part_key(k: &str) -> bool {
     k == "pp" || k.starts_with("sm:") || k.starts_with("sl:") || k.starts_with("th:")
 }
 
-/// Items of one kind from `meta` (`prefix<i>`, contiguous from 0); `current`
-/// is kept where an entry is missing or unreadable.
+/// Shared keys of the deck's layouts, masters and themes (index-aligned).
+#[derive(Debug, Clone, Default, PartialEq)]
+struct PartKeys {
+    layouts: Vec<String>,
+    masters: Vec<String>,
+    themes: Vec<String>,
+}
+
+impl PartKeys {
+    /// Keys of the parts of the opened file: their index (the same on every
+    /// replica, which all open the same file version).
+    fn of(p: &Presentation) -> PartKeys {
+        let n = |len: usize| (0..len).map(|i| i.to_string()).collect();
+        PartKeys {
+            layouts: n(p.layouts.len()),
+            masters: n(p.masters.len()),
+            themes: n(p.themes.len()),
+        }
+    }
+}
+
+/// Order of part keys on every replica: the file's parts (numeric keys) by
+/// index, then the parts created in the session by key.
+fn key_order(a: &str, b: &str) -> std::cmp::Ordering {
+    match (a.parse::<u64>(), b.parse::<u64>()) {
+        (Ok(x), Ok(y)) => x.cmp(&y),
+        (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+        (Err(_), Err(_)) => a.cmp(b),
+    }
+}
+
+/// `x` as JSON with reference keys added (`None` values are left out).
+fn with_refs<T: Serialize>(
+    x: &T,
+    refs: &[(&str, Option<Value>)],
+) -> Result<String, serde_json::Error> {
+    let mut v = serde_json::to_value(x)?;
+    if let Value::Object(o) = &mut v {
+        for (k, r) in refs {
+            if let Some(r) = r {
+                o.insert((*k).to_owned(), r.clone());
+            }
+        }
+    }
+    serde_json::to_string(&v)
+}
+
+/// One decoded part with the reference keys of its entry.
+struct Decoded<T> {
+    key: String,
+    part: T,
+    refs: Map<String, Value>,
+}
+
+/// Items of one kind from `meta` (`prefix<key>`) in [`key_order`]; the part
+/// the deck has under the same key is kept where an entry is unreadable.
 fn part_list<T: Clone + serde::de::DeserializeOwned>(
     meta: &BTreeMap<String, String>,
     prefix: &str,
     current: &[T],
-) -> Vec<T> {
+    current_keys: &[String],
+) -> Vec<Decoded<T>> {
+    let mut keys: Vec<&str> = meta.keys().filter_map(|k| k.strip_prefix(prefix)).collect();
+    keys.sort_by(|a, b| key_order(a, b));
     let mut out = Vec::new();
-    for i in 0.. {
-        let Some(j) = meta.get(&format!("{prefix}{i}")) else {
-            break;
+    for key in keys {
+        let Some(j) = meta.get(&format!("{prefix}{key}")) else {
+            continue;
         };
-        match serde_json::from_str::<T>(j) {
-            Ok(x) => out.push(x),
-            Err(_) => match current.get(i) {
-                Some(x) => out.push(x.clone()),
-                None => break,
-            },
+        let mut v = serde_json::from_str::<Value>(j).unwrap_or(Value::Null);
+        let mut refs = Map::new();
+        if let Value::Object(o) = &mut v {
+            for r in ["@m", "@t", "@l"] {
+                if let Some(x) = o.remove(r) {
+                    refs.insert(r.to_owned(), x);
+                }
+            }
         }
+        let part = match serde_json::from_value::<T>(v) {
+            Ok(x) => x,
+            Err(_) => match current_keys
+                .iter()
+                .position(|k| k == key)
+                .and_then(|i| current.get(i))
+            {
+                Some(x) => x.clone(),
+                None => continue,
+            },
+        };
+        out.push(Decoded {
+            key: key.to_owned(),
+            part,
+            refs,
+        });
     }
     out
 }
 
-type PartLists = (Vec<SlideLayout>, Vec<SlideMaster>, Vec<Theme>);
+type PartLists = (Vec<SlideLayout>, Vec<SlideMaster>, Vec<Theme>, PartKeys);
 
-fn decode_lists(meta: &BTreeMap<String, String>, cur: &PresFields) -> PartLists {
-    (
-        part_list(meta, "sl:", &cur.layouts),
-        part_list(meta, "sm:", &cur.masters),
-        part_list(meta, "th:", &cur.themes),
-    )
+fn decode_lists(meta: &BTreeMap<String, String>, cur: &PresFields, keys: &PartKeys) -> PartLists {
+    let layouts = part_list(meta, "sl:", &cur.layouts, &keys.layouts);
+    let masters = part_list(meta, "sm:", &cur.masters, &keys.masters);
+    let themes = part_list(meta, "th:", &cur.themes, &keys.themes);
+    let new_keys = PartKeys {
+        layouts: layouts.iter().map(|d| d.key.clone()).collect(),
+        masters: masters.iter().map(|d| d.key.clone()).collect(),
+        themes: themes.iter().map(|d| d.key.clone()).collect(),
+    };
+    // A reference key → index in the new lists (entries without one keep their index).
+    let find = |list: &[String], v: Option<&Value>| {
+        v.and_then(Value::as_str)
+            .and_then(|k| list.iter().position(|x| x == k))
+    };
+    let layouts_out = layouts
+        .into_iter()
+        .map(|d| {
+            let mut l = d.part;
+            if let Some(i) = find(&new_keys.masters, d.refs.get("@m")) {
+                l.master = i;
+            }
+            l
+        })
+        .collect();
+    let masters_out = masters
+        .into_iter()
+        .map(|d| {
+            let mut m = d.part;
+            if let Some(i) = find(&new_keys.themes, d.refs.get("@t")) {
+                m.theme = i;
+            }
+            if let Some(Value::Array(ls)) = d.refs.get("@l") {
+                for (r, k) in m.layouts.iter_mut().zip(ls) {
+                    if let Some(i) = find(&new_keys.layouts, Some(k)) {
+                        r.layout = i;
+                    }
+                }
+            }
+            m
+        })
+        .collect();
+    let themes_out = themes.into_iter().map(|d| d.part).collect();
+    (layouts_out, masters_out, themes_out, new_keys)
 }
 
 /// Layouts, masters and themes from `meta`. A master's text styles are tens
 /// of kilobytes of nested values that the derived deserializer keeps on the
 /// stack: native builds decode them on a thread with a large stack (the
 /// default 1 MB of a Windows main thread is not enough in debug builds).
-fn decode_parts(meta: &BTreeMap<String, String>, cur: &PresFields) -> PartLists {
+fn decode_parts(meta: &BTreeMap<String, String>, cur: &PresFields, keys: &PartKeys) -> PartLists {
     #[cfg(not(target_family = "wasm"))]
     {
         let big = std::thread::scope(|s| {
             std::thread::Builder::new()
                 .stack_size(64 << 20)
-                .spawn_scoped(s, || decode_lists(meta, cur))
+                .spawn_scoped(s, || decode_lists(meta, cur, keys))
                 .ok()
                 .and_then(|h| h.join().ok())
         });
@@ -173,7 +311,7 @@ fn decode_parts(meta: &BTreeMap<String, String>, cur: &PresFields) -> PartLists 
             return r;
         }
     }
-    decode_lists(meta, cur)
+    decode_lists(meta, cur, keys)
 }
 
 /// Shadow of the shared slide maps.
@@ -187,6 +325,8 @@ pub struct SlideCollab {
     /// Shared presentation parts (`meta`) and what the deck had at the last comparison.
     meta: BTreeMap<String, String>,
     seen: Option<Parts>,
+    /// Shared keys of the deck's layouts, masters and themes.
+    keys: PartKeys,
 }
 
 /// Minimal delta turning plain text `old` into `new` (UTF-16 lengths).
@@ -304,10 +444,15 @@ fn slide_shapes(key: &str, s: &Slide) -> BTreeMap<String, String> {
         .collect()
 }
 
-fn meta_json(s: &Slide, pos: f64) -> String {
+fn meta_json(s: &Slide, pos: f64, lk: Option<String>) -> String {
     let mut bare = s.clone();
     bare.data.shapes.clear();
-    serde_json::to_string(&Meta { pos, slide: bare }).unwrap_or_default()
+    serde_json::to_string(&Meta {
+        pos,
+        lk,
+        slide: bare,
+    })
+    .unwrap_or_default()
 }
 
 impl SlideCollab {
@@ -320,6 +465,31 @@ impl SlideCollab {
             counter: 0,
             meta: BTreeMap::new(),
             seen: None,
+            keys: PartKeys::of(pres),
+        }
+    }
+
+    /// Client id of the replica.
+    pub(crate) fn client_id(&self) -> u64 {
+        self.client
+    }
+
+    /// Keys for parts the deck gained since the last comparison (lists only
+    /// grow at the end locally); a part created in this session gets a key
+    /// that is never numeric and unique per replica.
+    fn align_keys(&mut self, pres: &Presentation) {
+        let (client, counter) = (self.client, &mut self.counter);
+        let k = &mut self.keys;
+        for (keys, len) in [
+            (&mut k.layouts, pres.layouts.len()),
+            (&mut k.masters, pres.masters.len()),
+            (&mut k.themes, pres.themes.len()),
+        ] {
+            keys.truncate(len);
+            while keys.len() < len {
+                *counter = counter.wrapping_add(1);
+                keys.push(format!("{client:x}-{counter}"));
+            }
         }
     }
 
@@ -358,6 +528,7 @@ impl SlideCollab {
         if self.joining {
             return ch;
         }
+        self.align_keys(pres);
         let mut present = BTreeSet::new();
         // Order keys: slides already in shared order keep theirs.
         let keys: Vec<String> = pres.slides.iter().map(|s| s.slide_id.to_string()).collect();
@@ -390,7 +561,7 @@ impl SlideCollab {
             if sh.pos == i && sh.ord == Some(ords[i]) && sh.slide.as_ref() == Some(s) {
                 continue;
             }
-            let meta = meta_json(s, ords[i]);
+            let meta = meta_json(s, ords[i], self.keys.layouts.get(s.layout).cloned());
             sh.ord = Some(ords[i]);
             if sh.meta.as_ref() != Some(&meta) {
                 ch.slides.insert(key.clone(), Some(meta.clone()));
@@ -432,7 +603,7 @@ impl SlideCollab {
         // Masters, layouts, themes.
         let parts = Parts::of(pres);
         if self.seen.as_ref() != Some(&parts) {
-            let now = parts.entries();
+            let now = parts.entries(&self.keys);
             for (k, v) in &now {
                 if self.meta.get(k) != Some(v) {
                     ch.meta.insert(k.clone(), Some(v.clone()));
@@ -534,6 +705,12 @@ impl SlideCollab {
                 Some(s) if !affected.contains(k) => s.clone(),
                 _ => {
                     let mut slide = m.slide;
+                    if let Some(i) =
+                        m.lk.as_ref()
+                            .and_then(|k| self.keys.layouts.iter().position(|x| x == k))
+                    {
+                        slide.layout = i;
+                    }
                     if let Some(t) = &sh.notes {
                         if notes_of(&slide).as_ref() != Some(t) {
                             set_notes(&mut slide, t);
@@ -588,10 +765,12 @@ impl Engine {
         Ok(change)
     }
 
+    /// [`Self::slide_collab_start`] with the change serialized as JSON (WASM bridge).
     pub fn slide_collab_start_json(&mut self, seed: bool, client: u64) -> crate::Result<String> {
         Ok(serde_json::to_string(&self.slide_collab_start(seed, client)?).unwrap_or_default())
     }
 
+    /// Leave the collaboration session; the presentation stays open locally.
     pub fn slide_collab_stop(&mut self) {
         self.slide_collab = None;
     }
@@ -662,7 +841,7 @@ impl Engine {
                     .get("pp")
                     .and_then(|j| serde_json::from_str::<(Vec<Rel>, Vec<Extra>)>(j).ok())
                     .unwrap_or_else(|| (before.rels.clone(), before.extra.clone()));
-                let (layouts, masters, themes) = decode_parts(&c.meta, &before);
+                let (layouts, masters, themes, keys) = decode_parts(&c.meta, &before, &c.keys);
                 let after = PresFields {
                     rels,
                     extra,
@@ -680,6 +859,24 @@ impl Engine {
                     }
                     out.all = true;
                 }
+                // Slides keep their layout when the list order changed.
+                if keys.layouts != c.keys.layouts {
+                    let shadows = c.slides.values_mut().filter_map(|sh| sh.slide.as_mut());
+                    for s in pres.slides.iter_mut().chain(shadows) {
+                        if let Some(i) = c
+                            .keys
+                            .layouts
+                            .get(s.layout)
+                            .and_then(|k| keys.layouts.iter().position(|x| x == k))
+                        {
+                            s.layout = i;
+                        }
+                    }
+                    out.all = true;
+                    self.slides.undo.clear();
+                    self.slides.redo.clear();
+                }
+                c.keys = keys;
                 c.seen = Some(Parts::of(pres));
             }
             if let Some(list) = c.apply(pres, change) {
@@ -710,6 +907,8 @@ impl Engine {
         Ok(r)
     }
 
+    /// [`Self::slide_collab_apply`] taking the remote change as JSON and returning
+    /// the edit result as JSON (WASM bridge).
     pub fn slide_collab_apply_json(&mut self, json: &str) -> crate::Result<String> {
         let change: CollabChange =
             serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;
@@ -738,6 +937,8 @@ impl Engine {
             .collect())
     }
 
+    /// [`Self::slide_collab_peers`] taking the keys as a JSON array and returning
+    /// the boxes as JSON (WASM bridge).
     pub fn slide_collab_peers_json(&self, json: &str) -> crate::Result<String> {
         let keys: Vec<String> =
             serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;

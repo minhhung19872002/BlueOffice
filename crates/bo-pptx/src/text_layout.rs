@@ -661,12 +661,17 @@ pub(crate) fn draw_text(
 /// editing text (paragraphs joined by `\n`, line breaks one character).
 #[derive(Debug, Clone, PartialEq)]
 pub struct CaretLine {
+    /// Paragraph index within the text body.
     pub para: usize,
     /// Offsets `start..=end` covered by the line.
     pub start: usize,
+    /// Last offset covered by the line (inclusive).
     pub end: usize,
+    /// Top of the line, in points.
     pub top: f64,
+    /// Line height, in points.
     pub height: f64,
+    /// Baseline y, in points.
     pub baseline: f64,
     /// Caret x for every offset `start..=end`.
     pub xs: Vec<f64>,
@@ -675,11 +680,13 @@ pub struct CaretLine {
 /// Caret geometry of a text body (local points, like [`draw_text`]).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TextGeometry {
+    /// Laid-out lines in order.
     pub lines: Vec<CaretLine>,
     /// Text height plus top/bottom insets (what `spAutoFit` sizes the box to).
     pub content_height: f64,
     /// Font scale and line-spacing reduction the box needs (normAutofit), from 100 %.
     pub font_scale: f64,
+    /// Line spacing reduction as a fraction (0.2 = 20 %).
     pub ln_spc_reduction: f64,
 }
 

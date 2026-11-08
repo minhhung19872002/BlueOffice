@@ -85,6 +85,7 @@ impl Serialize for SharedStr {
 /// Result of laying out a document.
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct LayoutDocument {
+    /// Laid-out pages in document order.
     pub pages: Vec<Page>,
 }
 
@@ -100,47 +101,74 @@ pub enum Layer {
 /// Non-text page content.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum PageItem {
+    /// Filled rectangle (shading, highlight).
     Rect {
+        /// Left edge (points).
         x: f32,
+        /// Top edge (points).
         y: f32,
+        /// Width (points).
         w: f32,
+        /// Height (points).
         h: f32,
+        /// Fill colour.
         color: Color,
+        /// Paint order relative to text.
         layer: Layer,
     },
+    /// Straight line (borders, underlines, separators).
     Rule {
+        /// Start x (points).
         x1: f32,
+        /// Start y (points).
         y1: f32,
+        /// End x (points).
         x2: f32,
+        /// End y (points).
         y2: f32,
+        /// Line width (points).
         width: f32,
+        /// Line colour.
         color: Color,
         /// `single`, `double`, `dotted`, `dashed`… (border style name).
         style: String,
     },
+    /// Picture drawn into a box.
     Image {
+        /// Left edge of the box (points).
         x: f32,
+        /// Top edge of the box (points).
         y: f32,
+        /// Box width (points).
         w: f32,
+        /// Box height (points).
         h: f32,
+        /// Media id of the picture (e.g. `/word/media/image1.png`).
         media: String,
         /// l, t, r, b fractions.
         crop: Option<[f32; 4]>,
         /// Degrees clockwise.
         rotation: f32,
+        /// Paint order relative to text.
         layer: Layer,
     },
     /// DrawingML / VML shape outline (ECMA-376 Part 1, §20.1.9 geometry): `paths` are
     /// relative to the shape box at (`x`, `y`), already rotated and flipped.
     Shape {
+        /// Left edge of the shape box on the page, in points.
         x: f32,
+        /// Top edge of the shape box on the page, in points.
         y: f32,
+        /// Width of the shape box, in points.
         w: f32,
+        /// Height of the shape box, in points.
         h: f32,
+        /// Outline paths, drawn in order.
         paths: Vec<ShapePath>,
         /// The drawing object: [`LineSource::TextBox`] with `sub` 0 (rebased like the
         /// lines of its paragraph).
         source: LineSource,
+        /// Paint order relative to text.
         layer: Layer,
     },
 }
@@ -148,17 +176,24 @@ pub enum PageItem {
 /// Path segment of a shape outline (points, relative to the shape box).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum PathCmd {
+    /// Move to (x, y).
     M(f32, f32),
+    /// Line to (x, y).
     L(f32, f32),
+    /// Quadratic Bézier: control point (x1, y1), end (x, y).
     Q(f32, f32, f32, f32),
+    /// Cubic Bézier: control points (x1, y1), (x2, y2), end (x, y).
     C(f32, f32, f32, f32, f32, f32),
+    /// Close the current subpath.
     Z,
 }
 
 /// One filled and/or stroked path of a shape.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ShapePath {
+    /// Path segments.
     pub segs: Vec<PathCmd>,
+    /// Fill colour; `None` = not filled.
     pub fill: Option<Color>,
     /// (width in points, colour, `ST_PresetLineDashVal` dash name).
     pub stroke: Option<(f32, Color, Option<String>)>,
@@ -167,9 +202,13 @@ pub struct ShapePath {
 /// One page (points).
 #[derive(Debug, Clone, Serialize)]
 pub struct Page {
+    /// Page width (points).
     pub width: f32,
+    /// Page height (points).
     pub height: f32,
+    /// Text lines.
     pub lines: Vec<Line>,
+    /// Non-text content (shading, borders, pictures).
     pub items: Vec<PageItem>,
     /// 1-based page number as displayed (PAGE field).
     pub number: u32,
@@ -184,11 +223,25 @@ pub enum LineSource {
     Body(u32),
     /// Paragraph `para` (document order inside the note, table cells included) of a
     /// footnote or endnote (ECMA-376 Part 1, §17.11), edited in place on the page.
-    Note { endnote: bool, id: i32, para: u32 },
+    Note {
+        /// `true` for an endnote, `false` for a footnote.
+        endnote: bool,
+        /// Note id (`@w:id`).
+        id: i32,
+        /// Paragraph index inside the note.
+        para: u32,
+    },
     /// Paragraph `sub` (document order inside the text box) of the text box anchored at
     /// index offset `at` of body paragraph `para` (§17.17.1 txbxContent); `para` is
     /// [`LineSource::NO_PARA`] for text boxes outside the body (headers, notes).
-    TextBox { para: u32, at: u32, sub: u32 },
+    TextBox {
+        /// Body paragraph of the anchor, or [`LineSource::NO_PARA`].
+        para: u32,
+        /// Index offset of the anchor in that paragraph.
+        at: u32,
+        /// Paragraph index inside the text box.
+        sub: u32,
+    },
     /// Header/footer content and repeated table header rows (not editable in place).
     Other,
 }
@@ -232,13 +285,17 @@ impl LineSource {
 pub struct Line {
     /// Top of the line box.
     pub top: f32,
+    /// Height of the line box (points).
     pub height: f32,
     /// Absolute baseline y.
     pub baseline: f32,
+    /// Glyph runs of the line.
     pub fragments: Vec<Fragment>,
+    /// Paragraph the line comes from.
     pub source: LineSource,
     /// Byte range of the paragraph index text covered by the line.
     pub start: u32,
+    /// End (exclusive) of the covered byte range.
     pub end: u32,
     /// Caret stops: (offset in paragraph index text, absolute x), ascending by offset.
     pub carets: Vec<(u32, f32)>,
@@ -247,6 +304,7 @@ pub struct Line {
 /// A run of glyphs sharing face, size and colour.
 #[derive(Debug, Clone, Serialize)]
 pub struct Fragment {
+    /// Font face.
     pub face: FaceId,
     /// Font size in points.
     pub size: f32,
@@ -254,10 +312,15 @@ pub struct Fragment {
     pub x: f32,
     /// Absolute baseline y.
     pub y: f32,
+    /// Advance width (points).
     pub width: f32,
+    /// Text colour.
     pub color: Color,
+    /// Underline style.
     pub underline: Underline,
+    /// Single strikethrough.
     pub strike: bool,
+    /// Double strikethrough.
     pub double_strike: bool,
     /// Source text (for search, accessibility and PDF text extraction).
     pub text: SharedStr,
@@ -270,8 +333,11 @@ pub struct Fragment {
 /// A glyph relative to its fragment origin (points, y down).
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct GlyphPos {
+    /// Glyph id in the face.
     pub id: u16,
+    /// X offset from the fragment origin (points).
     pub x: f32,
+    /// Y offset from the fragment origin (points).
     pub y: f32,
     /// Byte offset of the glyph's cluster in [`Fragment::text`].
     pub cluster: u32,

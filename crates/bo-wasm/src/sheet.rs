@@ -20,6 +20,7 @@ pub struct WasmSheet {
 
 #[wasm_bindgen]
 impl WasmSheet {
+    /// Creates an engine with no workbook open (call `open` or `newWorkbook`).
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmSheet {
         WasmSheet {
@@ -27,6 +28,7 @@ impl WasmSheet {
         }
     }
 
+    /// Registers a font file (TTF/OTF bytes) and returns its face id.
     #[wasm_bindgen(js_name = addFont)]
     pub fn add_font(&mut self, bytes: Vec<u8>) -> usize {
         self.inner.add_font(bytes)
@@ -39,21 +41,39 @@ impl WasmSheet {
         self.inner.set_now_ms(unix_ms.max(0.0) as u64);
     }
 
+    /// Sets the BCP 47 locale (e.g. `vi-VN`) used for number formats and input parsing.
     #[wasm_bindgen(js_name = setLocale)]
     pub fn set_locale(&mut self, tag: &str) {
         self.inner.set_locale(tag);
     }
 
-    /// Opens `.xlsx`/`.csv`; returns `WorkbookInfo` JSON.
-    pub fn open(&mut self, bytes: &[u8], name: &str) -> Result<String, JsError> {
-        Ok(json(&self.inner.open(bytes, name).map_err(err)?))
+    /// Opens a workbook (decrypting it with `password` when it is protected,
+    /// [MS-OFFCRYPTO]); returns `WorkbookInfo` JSON. Errors `password required` /
+    /// `wrong password` ask for one.
+    // wasm-bindgen passes optional strings by value.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn open(
+        &mut self,
+        bytes: &[u8],
+        name: &str,
+        password: Option<String>,
+    ) -> Result<String, JsError> {
+        crate::heap::reserve_for_package(bytes, crate::heap::SHEET_FACTOR);
+        Ok(json(
+            &self
+                .inner
+                .open_with_password(bytes, name, password.as_deref())
+                .map_err(err)?,
+        ))
     }
 
+    /// Opens a new empty workbook (one sheet) under the document name `name`; returns its info as JSON.
     #[wasm_bindgen(js_name = newWorkbook)]
     pub fn new_workbook(&mut self, name: &str) -> Result<String, JsError> {
         Ok(json(&self.inner.new_workbook(name).map_err(err)?))
     }
 
+    /// Workbook info (sheets, sizes, …) as JSON.
     pub fn info(&self) -> Result<String, JsError> {
         Ok(json(&self.inner.info().map_err(err)?))
     }
@@ -77,6 +97,8 @@ impl WasmSheet {
         self.inner.render_json(&req).map_err(err)
     }
 
+    /// Hit-tests the point (`x`, `y`, viewport px) in the view of `sheet` scrolled to
+    /// (`scroll_x`, `scroll_y`) with the given viewport size; returns the hit as JSON.
     #[wasm_bindgen(js_name = hitTest)]
     #[allow(clippy::too_many_arguments)]
     pub fn hit_test(
@@ -99,6 +121,7 @@ impl WasmSheet {
         Ok(json(&self.inner.hit_test(&req, x, y).map_err(err)?))
     }
 
+    /// Rectangle in the same view of the range `(r0, c0)`–`(r1, c1)` (0-based), as JSON.
     #[wasm_bindgen(js_name = rangeRect)]
     #[allow(clippy::too_many_arguments)]
     pub fn range_rect(
@@ -128,12 +151,14 @@ impl WasmSheet {
         ))
     }
 
+    /// Size `[width, height]` of the used area of `sheet`, for the scrollbars.
     #[wasm_bindgen(js_name = contentSize)]
     pub fn content_size(&mut self, sheet: usize) -> Result<Vec<f64>, JsError> {
         let (w, h) = self.inner.content_size(sheet).map_err(err)?;
         Ok(vec![w, h])
     }
 
+    /// Formula-bar details of the cell at (`row`, `col`), 0-based: address, input and display text as JSON.
     pub fn cell(&self, sheet: usize, row: u32, col: u32) -> Result<String, JsError> {
         Ok(json(&self.inner.cell(sheet, row, col).map_err(err)?))
     }
@@ -145,6 +170,7 @@ impl WasmSheet {
         self.inner.set_inputs(sheet, &v).map_err(err)
     }
 
+    /// Inserts (`delete` = false) or deletes `count` rows (`rows`) or columns at index `at`.
     pub fn structural(
         &mut self,
         sheet: usize,
@@ -158,25 +184,30 @@ impl WasmSheet {
             .map_err(err)
     }
 
+    /// Undoes the last edit; false when there is nothing to undo.
     pub fn undo(&mut self) -> Result<bool, JsError> {
         self.inner.undo().map_err(err)
     }
 
+    /// Redoes the last undone edit; false when there is nothing to redo.
     pub fn redo(&mut self) -> Result<bool, JsError> {
         self.inner.redo().map_err(err)
     }
 
+    /// Adds a sheet (default name when `name` is absent) and returns its index.
     #[wasm_bindgen(js_name = addSheet)]
     #[allow(clippy::needless_pass_by_value)] // wasm-bindgen needs owned Option<String>
     pub fn add_sheet(&mut self, name: Option<String>) -> Result<usize, JsError> {
         self.inner.add_sheet(name.as_deref()).map_err(err)
     }
 
+    /// Renames sheet `sheet`; the name must be unique and valid (≤ 31 chars, no `[]:*?/` or backslash).
     #[wasm_bindgen(js_name = renameSheet)]
     pub fn rename_sheet(&mut self, sheet: usize, name: &str) -> Result<(), JsError> {
         self.inner.rename_sheet(sheet, name).map_err(err)
     }
 
+    /// Deletes sheet `sheet`.
     #[wasm_bindgen(js_name = deleteSheet)]
     pub fn delete_sheet(&mut self, sheet: usize) -> Result<(), JsError> {
         self.inner.delete_sheet(sheet).map_err(err)
@@ -204,6 +235,7 @@ impl WasmSheet {
         self.inner.collab_apply_json(json).map_err(err)
     }
 
+    /// Leaves the collaboration session; local editing continues.
     #[wasm_bindgen(js_name = collabStop)]
     pub fn collab_stop(&mut self) {
         self.inner.collab_stop();
@@ -219,11 +251,13 @@ impl WasmSheet {
         self.inner.save(format, sheet).map_err(err)
     }
 
+    /// Exports the workbook as PDF bytes.
     #[wasm_bindgen(js_name = exportPdf)]
     pub fn export_pdf(&mut self) -> Result<Vec<u8>, JsError> {
         self.inner.export_pdf().map_err(err)
     }
 
+    /// Outlines of `glyphs` of font face `face` as JSON paths, for canvas drawing (ADR-0002).
     #[wasm_bindgen(js_name = glyphOutlines)]
     pub fn glyph_outlines(&self, face: u32, glyphs: &[u16]) -> String {
         self.inner.glyph_outlines_json(face, glyphs)

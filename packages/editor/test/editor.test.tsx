@@ -241,3 +241,66 @@ describe('BlueEditor', () => {
     expect(screen.getByText(/Phase 3/)).toBeTruthy();
   });
 });
+
+describe('BlueEditor digital signatures', () => {
+  it('signs a copy through the file.sign command and shows the status of a signed file', async () => {
+    const p = fakePlatform();
+    const sign = vi.fn(async () => new Uint8Array([9, 9]));
+    const savedFiles: string[] = [];
+    const signedFile = new TextEncoder().encode('PK\x03\x04 _xmlsignatures/sig1.xml');
+    const platform: Platform = {
+      ...p,
+      files: {
+        openFile: async () => null,
+        saveFile: async (_b, n) => {
+          savedFiles.push(n);
+          return n;
+        },
+      },
+      storage: {
+        ...p.storage,
+        open: async () => ({
+          ref: { provider: 'local', id: 'a.docx', name: 'a.docx' },
+          bytes: signedFile,
+          permissions: { edit: true, download: true, share: false },
+        }),
+      },
+      signing: {
+        kinds: ['remote'],
+        defaults: async () => ({ remoteUrl: 'https://sign.example.vn' }),
+        sign,
+        verify: async () => ({
+          kind: 'ooxml',
+          error: null,
+          signatures: [
+            {
+              signer: 'CN=A',
+              signingTime: null,
+              coversWholeDocument: true,
+              timestamp: null,
+              chain: { trusted: false, path: [], anchor: null, problems: [] },
+              validatedAt: '',
+            },
+          ],
+        }),
+      },
+    };
+    render(<BlueEditor platform={platform} autosaveMs={0} />);
+    fireEvent.click(screen.getByText('Mở tệp từ máy'));
+    await waitFor(() =>
+      expect(screen.getByTestId('signature-bar').dataset.state).toBe('untrusted'),
+    );
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Tệp' }));
+    fireEvent.click(document.querySelector('[data-command="file.sign"]')!);
+    await waitFor(() => expect(screen.getByTestId('sign-dialog')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('sign-submit'));
+    await waitFor(() => expect(savedFiles).toEqual(['a-signed.docx']));
+    expect(sign).toHaveBeenCalledTimes(1);
+    const [bytes, request] = sign.mock.calls[0] as unknown as [Uint8Array, unknown];
+    expect(bytes).toEqual(new Uint8Array([80, 75]));
+    expect(request).toMatchObject({
+      signer: { kind: 'remote', url: 'https://sign.example.vn' },
+      documentName: 'a-signed.docx',
+    });
+  });
+});

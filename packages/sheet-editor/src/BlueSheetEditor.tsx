@@ -16,6 +16,15 @@ import type {
   SheetView,
   StylePatch,
   WorkbookInfo,
+  RangeStats,
+  SheetPermissions,
+} from '@blueoffice/platform';
+import {
+  PASSWORD_REQUIRED,
+  SHEET_PROTECTED,
+  WORKBOOK_PROTECTED,
+  WRONG_PASSWORD,
+  WRONG_PROTECTION_PASSWORD,
 } from '@blueoffice/platform';
 import {
   CommentThreads,
@@ -57,10 +66,13 @@ import {
   Hash,
   Highlighter,
   Italic,
+  KeyRound,
   ListIndentDecrease,
   ListIndentIncrease,
   ListTree,
   LocateFixed,
+  Lock,
+  LockOpen,
   MoveHorizontal,
   MoveVertical,
   PaintBucket,
@@ -114,7 +126,13 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
-import { CommandRegistry } from '@blueoffice/editor';
+import {
+  CommandRegistry,
+  MacroBanner,
+  PasswordDialog,
+  SavePasswordPanel,
+} from '@blueoffice/editor';
+import { ProtectSheetDialog, UnprotectDialog } from './protection';
 import {
   CfDialog,
   ChartDialog,
@@ -184,7 +202,25 @@ export interface SheetEditorState {
   chart: number | null;
   /** Pivot table containing the active cell. */
   pivot: number | null;
+  /** Every range of a multi-range (Ctrl) selection, the current one last. */
+  ranges: Range[];
+  /** The current sheet is protected (§18.3.1.85). */
+  sheetProtected: boolean;
+  /** The workbook structure is locked (§18.2.29). */
+  structureLocked: boolean;
 }
+
+/** A file waiting for its password ([MS-OFFCRYPTO]). */
+interface PendingFile {
+  bytes: Uint8Array;
+  name: string;
+  path?: string;
+}
+
+type SecurityPanel =
+  | { kind: 'savePassword' }
+  | { kind: 'protect'; workbook: boolean }
+  | { kind: 'unprotect'; workbook: boolean; wrong: boolean };
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const ZOOMS = [0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 2];
@@ -305,8 +341,6 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [selRect, setSelRect] = useState<Rect | null>(null);
   const [activeRect, setActiveRect] = useState<Rect | null>(null);
   const [status, setStatus] = useState('');
-  /** The open file has macros (kept, never run): show the warning bar. */
-  const [macroWarning, setMacroWarning] = useState(false);
   /** Cells converted from TCVN3 / VNI fonts to Unicode on open (0 = no notice). */
   const [legacyNotice, setLegacyNotice] = useState(0);
   const [stats, setStats] = useState<{
@@ -360,6 +394,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const composing = useRef(false);
   /** TSV text of our last copy (paste uses the internal cell records when it matches). */
   const [lastCopy, setLastCopy] = useState<string | null>(null);
+  /** Other ranges of a Ctrl multi-range selection (the current one is `selection`). */
+  const [extra, setExtra] = useState<Range[]>([]);
+  const [extraRects, setExtraRects] = useState<Rect[]>([]);
+  const [multiStats, setMultiStats] = useState<(RangeStats & { key: string }) | null>(null);
+  const [passwordPrompt, setPasswordPrompt] = useState<{
+    file: PendingFile;
+    wrong: boolean;
+  } | null>(null);
+  const [security, setSecurity] = useState<SecurityPanel | null>(null);
+  const [tabMenu, setTabMenu] = useState<{ sheet: number; x: number; y: number } | null>(null);
+  const [dragTab, setDragTab] = useState<number | null>(null);
+  const [macroBanner, setMacroBanner] = useState(false);
   const hovering = useRef(false);
 
   const scale = PX_PER_PT * zoom;
@@ -380,8 +426,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   );
 
   const fail = useCallback(
-    (e: unknown) =>
-      setStatus(t('sheetEditor.error', { message: e instanceof Error ? e.message : String(e) })),
+    (e: unknown) => {
+      const message = e instanceof Error ? e.message : String(e);
+      // Refusals of sheet / workbook protection get their own message.
+      if (message.includes(SHEET_PROTECTED)) setStatus(t('sheetEditor.protection.refused'));
+      else if (message.includes(WORKBOOK_PROTECTED))
+        setStatus(t('sheetEditor.protection.workbookRefused'));
+      else if (message.includes(WRONG_PROTECTION_PASSWORD))
+        setStatus(t('sheetEditor.protection.wrongPassword'));
+      else setStatus(t('sheetEditor.error', { message }));
+    },
     [t],
   );
 
@@ -390,7 +444,6 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const loaded = useCallback(
     (wb: WorkbookInfo, name: string) => {
       setInfo(wb);
-      setMacroWarning(!!wb.macros);
       setLegacyNotice(wb.legacyConverted ?? 0);
       setFileName(name);
       setSheet(0);
@@ -399,6 +452,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setChart(null);
       setPainter(null);
       setLastCopy(null);
+      setExtra([]);
+      setMacroBanner(!!wb.macros);
       setLoadSeq((n) => n + 1);
       setRevision((r) => r + 1);
       setStatus('');
@@ -430,6 +485,26 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [loaded, loadTicket],
   );
 
+  /** Opens a file; an encrypted one ([MS-OFFCRYPTO]) asks for its password. */
+  const openFile = useCallback(
+    async (f: PendingFile, password?: string): Promise<boolean> => {
+      if (!host) return false;
+      try {
+        await load(() => host.open(f.bytes, f.name, password), f.name);
+        return true;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes(PASSWORD_REQUIRED) || msg.includes(WRONG_PASSWORD)) {
+          setStatus('');
+          setPasswordPrompt({ file: f, wrong: msg.includes(WRONG_PASSWORD) });
+          return false;
+        }
+        throw e;
+      }
+    },
+    [host, load],
+  );
+
   useEffect(() => {
     if (!host) return;
     void load(
@@ -442,7 +517,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       .then((p) => !cancelled && p && setPresets(p))
       .catch(() => {});
     const un = platform.shell.onOpenRequest((f) => {
-      void load(() => host.open(f.bytes, f.name), f.name).catch(fail);
+      void openFile(f).catch(fail);
     });
     return () => {
       cancelled = true;
@@ -533,6 +608,35 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       cancelled = true;
     };
   }, [host, info, sheet, selection, view, px, revision, edit]);
+
+  // Overlays of the other ranges of a multi-range selection.
+  useEffect(() => {
+    if (!host || !info || extra.length === 0) return;
+    let cancelled = false;
+    void Promise.all(extra.map((r) => host.rangeRect(view, r.r0, r.c0, r.r1, r.c1)))
+      .then((rects) => {
+        if (!cancelled) setExtraRects(rects.map(px).filter((x): x is Rect => !!x));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, info, extra, view, px, revision]);
+
+  // Status-bar figures of a multi-range selection (computed by the engine).
+  useEffect(() => {
+    if (!host || !info || extra.length === 0) return;
+    const ranges = [...extra, rangeOf(selection)].map(toRange);
+    const key = `${sheet}:${JSON.stringify(ranges)}:${revision}`;
+    let cancelled = false;
+    void host
+      .exec<RangeStats>({ cmd: 'rangeStats', sheet, ranges })
+      .then((st) => !cancelled && st && setMultiStats({ ...st, key }))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, info, sheet, extra, selection, revision]);
 
   // Formatting + validation of the active cell (ribbon state, dropdown).
   useEffect(() => {
@@ -800,25 +904,36 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const select = useCallback(
     (s: Selection) => {
       setSelection(s);
+      setExtra([]);
       setChart(null);
       void reveal(s);
     },
     [reveal],
   );
 
+  /** Every range of the selection (multi-range with Ctrl), the current one last. */
+  const allRanges = useMemo(() => [...extra, rangeOf(selection)], [extra, selection]);
+
   const clearSelection = useCallback(async () => {
     if (!host) return;
-    const r = rangeOf(selection);
-    const lastRow = Math.min(r.r1, info?.sheets[sheet]?.lastRow ?? r.r1);
-    const lastCol = Math.min(r.c1, info?.sheets[sheet]?.lastCol ?? r.c1);
     const cells: [number, number, string][] = [];
-    for (let row = r.r0; row <= lastRow; row++)
-      for (let col = r.c0; col <= lastCol; col++) cells.push([row, col, '']);
+    const seen = new Set<string>();
+    for (const r of allRanges) {
+      const lastRow = Math.min(r.r1, info?.sheets[sheet]?.lastRow ?? r.r1);
+      const lastCol = Math.min(r.c1, info?.sheets[sheet]?.lastCol ?? r.c1);
+      for (let row = r.r0; row <= lastRow; row++)
+        for (let col = r.c0; col <= lastCol; col++) {
+          const k = `${row}:${col}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          cells.push([row, col, '']);
+        }
+    }
     if (cells.length) {
       await host.setInputs(sheet, cells);
       await refreshInfo();
     }
-  }, [host, selection, info, sheet, refreshInfo]);
+  }, [host, allRanges, info, sheet, refreshInfo]);
 
   const copy = useCallback(
     async (cut: boolean) => {
@@ -880,15 +995,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     await refreshInfo();
   }, [host, platform, selection, sheet, refreshInfo, internalPaste, lastCopy]);
 
+  /** One command per range of the selection, as one undo step when there are several. */
+  const onAllRanges = useCallback(
+    (make: (range: SheetRange) => SheetCommand) => {
+      const cmds = allRanges.map((r) => make(toRange(r)));
+      return exec(cmds.length === 1 ? cmds[0]! : { cmd: 'batch', cmds });
+    },
+    [exec, allRanges],
+  );
+
   const formatSel = useCallback(
-    (patch: StylePatch) =>
-      exec({ cmd: 'format', sheet, range: toRange(rangeOf(selection)), patch }),
-    [exec, sheet, selection],
+    (patch: StylePatch) => onAllRanges((range) => ({ cmd: 'format', sheet, range, patch })),
+    [onAllRanges, sheet],
   );
 
   const borderSel = useCallback(
-    (spec: BorderSpec) => exec({ cmd: 'borders', sheet, range: toRange(rangeOf(selection)), spec }),
-    [exec, sheet, selection],
+    (spec: BorderSpec) => onAllRanges((range) => ({ cmd: 'borders', sheet, range, spec })),
+    [onAllRanges, sheet],
   );
 
   /** Column (or row) span of the selection when it covers whole columns (rows). */
@@ -940,7 +1063,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     });
     add(
       'file.open',
-      async (s) => {
+      async () => {
         const f = await platform.files.openFile([
           '.xlsx',
           '.xlsm',
@@ -951,7 +1074,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         ]);
         if (!f) return;
         setStatus(t('sheetEditor.loading'));
-        await load(() => s.host.open(f.bytes, f.name), f.name);
+        if (!(await openFile(f))) return;
         await platform.shell.addRecentFile({
           name: f.name,
           path: f.path ?? f.name,
@@ -1118,7 +1241,40 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('format.painter', async (s) => setPainter((p) => (p ? null : rangeOf(s.selection))), {
       isChecked: () => painter !== null,
     });
-    add('format.clear', (s) => exec({ cmd: 'clearFormats', sheet: s.sheet, range: rng(s) }));
+    add('format.clear', (s) => {
+      const cmds: SheetCommand[] = s.ranges.map((r) => ({
+        cmd: 'clearFormats',
+        sheet: s.sheet,
+        range: toRange(r),
+      }));
+      return exec(cmds.length === 1 ? cmds[0]! : { cmd: 'batch', cmds });
+    });
+    // Protection (§18.3.1.85, §18.2.29) and encryption ([MS-OFFCRYPTO])
+    add('format.lockCell', async (s) => formatSel({ locked: !(s.fmt?.locked ?? true) }), {
+      ...has,
+      isChecked: (s) => s.fmt?.locked ?? true,
+    });
+    add(
+      'review.protectSheet',
+      async (s) =>
+        setSecurity(
+          s.sheetProtected
+            ? { kind: 'unprotect', workbook: false, wrong: false }
+            : { kind: 'protect', workbook: false },
+        ),
+      { ...has, isChecked: (s) => s.sheetProtected },
+    );
+    add(
+      'review.protectWorkbook',
+      async (s) =>
+        setSecurity(
+          s.structureLocked
+            ? { kind: 'unprotect', workbook: true, wrong: false }
+            : { kind: 'protect', workbook: true },
+        ),
+      { ...has, isChecked: (s) => s.structureLocked },
+    );
+    add('review.savePassword', async () => setSecurity({ kind: 'savePassword' }), has);
 
     // Cells, rows and columns
     const structural = (rows: boolean, remove: boolean) => async (s: SheetEditorState) => {
@@ -1450,6 +1606,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     return reg;
   }, [
     t,
+    openFile,
     fail,
     load,
     platform,
@@ -1482,9 +1639,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             fmt,
             chart,
             pivot: activePivot?.index ?? null,
+            ranges: allRanges,
+            sheetProtected: !!info?.sheets[sheet]?.protected,
+            structureLocked: !!info?.structureLocked,
           }
         : null,
-    [host, sheet, selection, info, fmt, chart, activePivot?.index],
+    [host, sheet, selection, info, fmt, chart, activePivot?.index, allRanges],
   );
   const run = useCallback(
     (id: string) => {
@@ -1607,6 +1767,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (!hit || !host) return;
     const last = info?.sheets[sheet];
     setChart(null);
+    const multi = (e.ctrlKey || e.metaKey) && !e.shiftKey;
+    // Ctrl+click / Ctrl+drag starts another range of a multi-range selection.
+    if (multi && (hit.kind === 'cell' || hit.kind === 'columnHeader' || hit.kind === 'rowHeader'))
+      setExtra((x) => [...x, rangeOf(selection)]);
+    else if (!e.shiftKey) setExtra([]);
     if (hit.kind === 'cell') {
       const p = { row: hit.row, col: hit.col };
       setSelection(e.shiftKey ? { ...selection, focus: p } : single(p));
@@ -2270,6 +2435,44 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         ],
       },
       {
+        id: 'review',
+        label: t('ribbon.tabs.review'),
+        groups: [
+          {
+            id: 'protect',
+            label: t('sheetEditor.protection.group'),
+            items: [
+              item(
+                'review.protectSheet',
+                state?.sheetProtected
+                  ? t('sheetEditor.protection.unprotectSheet')
+                  : t('sheetEditor.protection.protectSheet'),
+                state?.sheetProtected ? <LockOpen size={18} /> : <Lock size={18} />,
+              ),
+              item(
+                'review.protectWorkbook',
+                state?.structureLocked
+                  ? t('sheetEditor.protection.unprotectWorkbook')
+                  : t('sheetEditor.protection.protectWorkbook'),
+                <ShieldCheck size={18} />,
+              ),
+              item(
+                'format.lockCell',
+                t('sheetEditor.protection.lockCell'),
+                <Lock size={s} />,
+                'small',
+              ),
+              item(
+                'review.savePassword',
+                t('commands.review.savePassword'),
+                <KeyRound size={s} />,
+                'small',
+              ),
+            ],
+          },
+        ],
+      },
+      {
         id: 'view',
         label: t('ribbon.tabs.view'),
         groups: [
@@ -2307,7 +2510,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   }, [t, registry, state, run]);
 
   const r = rangeOf(selection);
-  const shownStats = stats && stats.key === `${sheet}:${rangeA1(r)}:${revision}` ? stats : null;
+  const multiKey = `${sheet}:${JSON.stringify(allRanges.map(toRange))}:${revision}`;
+  const shownStats =
+    extra.length > 0
+      ? multiStats && multiStats.key === multiKey
+        ? multiStats
+        : null
+      : stats && stats.key === `${sheet}:${rangeA1(r)}:${revision}`
+        ? stats
+        : null;
   const fmtNum = (n: number) =>
     new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 10 }).format(n);
 
@@ -2377,15 +2588,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       data-load-seq={loadSeq}
       aria-busy={loading}
     >
-      <Ribbon tabs={ribbonTabs} />
-      {macroWarning && (
-        <div className={styles.macroBar} role="status" data-testid="macro-warning">
-          <span>{t('security.macroWarning')}</span>
-          <button type="button" onClick={() => setMacroWarning(false)}>
-            {t('security.dismiss')}
-          </button>
-        </div>
-      )}
+      <Ribbon tabs={ribbonTabs} moreLabel={t('ribbon.more')} />
       {legacyNotice > 0 && (
         <div className={styles.macroBar} role="status" data-testid="legacy-notice">
           <span>{t('legacy.sheetConverted', { count: legacyNotice })}</span>
@@ -2444,6 +2647,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           }}
         />
       </div>
+      {macroBanner && <MacroBanner inline onDismiss={() => setMacroBanner(false)} />}
       <div className={styles.workArea}>
         <div
           className={styles.scroller}
@@ -2464,6 +2668,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               onMouseMove={(e) => void onMouseMove(e)}
               onDoubleClick={(e) => void onDoubleClick(e)}
             />
+            {chart === null &&
+              extra.length > 0 &&
+              extraRects.map((x, i) => (
+                <div
+                  key={i}
+                  className={styles.selectionExtra}
+                  data-testid="selection-extra"
+                  style={{ left: x.x, top: x.y, width: x.w, height: x.h }}
+                />
+              ))}
             {selRect && chart === null && (
               <div
                 className={painter ? styles.selectionPainter : styles.selection}
@@ -2696,6 +2910,32 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               role="tab"
               aria-selected={i === sheet}
               className={i === sheet ? styles.tabActive : styles.tab}
+              data-testid={`sheet-tab-${i}`}
+              data-tab-color={s.tabColor ?? undefined}
+              style={s.tabColor ? { boxShadow: `inset 0 -4px 0 #${s.tabColor}` } : undefined}
+              draggable
+              onDragStart={(e) => {
+                setDragTab(i);
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', String(i));
+              }}
+              onDragOver={(e) => {
+                if (dragTab !== null) e.preventDefault();
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const from = dragTab ?? Number(e.dataTransfer.getData('text/plain'));
+                setDragTab(null);
+                if (!Number.isInteger(from) || from === i) return;
+                void exec({ cmd: 'moveSheet', from, to: i }).then((r) => {
+                  if (r !== null) setSheet(i);
+                });
+              }}
+              onDragEnd={() => setDragTab(null)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setTabMenu({ sheet: i, x: e.clientX, y: e.clientY - 4 });
+              }}
               onClick={() => {
                 setSheet(i);
                 setSelection(single({ row: 0, col: 0 }));
@@ -2705,6 +2945,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               }}
               onDoubleClick={() => setRenaming(i)}
             >
+              {s.protected && (
+                <Lock size={10} aria-label={t('sheetEditor.protection.protectedSheet')} />
+              )}
               {s.name}
             </button>
           ),
@@ -2748,10 +2991,86 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 {t('sheetEditor.count')}: {shownStats.count}
               </span>
             )}
+            {info?.encrypted && (
+              <span data-testid="sheet-encrypted">{t('security.protected')}</span>
+            )}
             <span>{Math.round(zoom * 100)}%</span>
           </>
         }
       />
+      {tabMenu && (
+        <ColorMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          noneLabel={t('sheetEditor.tabColorNone')}
+          onClose={() => setTabMenu(null)}
+          onPick={(c) => {
+            const target = tabMenu.sheet;
+            setTabMenu(null);
+            void exec({ cmd: 'setTabColor', sheet: target, color: c || null });
+          }}
+        />
+      )}
+      {passwordPrompt && (
+        <PasswordDialog
+          name={passwordPrompt.file.name}
+          wrong={passwordPrompt.wrong}
+          onSubmit={(pw) => {
+            const f = passwordPrompt.file;
+            setPasswordPrompt(null);
+            setStatus(t('sheetEditor.loading'));
+            void openFile(f, pw).catch(fail);
+          }}
+          onCancel={() => setPasswordPrompt(null)}
+        />
+      )}
+      {security?.kind === 'savePassword' && (
+        <SavePasswordPanel
+          onSet={(password) =>
+            void exec({ cmd: 'setSavePassword', password }).then(() =>
+              setStatus(password ? t('security.passwordSet') : t('security.passwordRemoved')),
+            )
+          }
+          onClose={() => setSecurity(null)}
+        />
+      )}
+      {security?.kind === 'protect' && (
+        <ProtectSheetDialog
+          workbook={security.workbook}
+          onClose={() => setSecurity(null)}
+          onProtect={(password: string, allow: Partial<SheetPermissions>) =>
+            void exec(
+              security.workbook
+                ? { cmd: 'protectWorkbook', password }
+                : { cmd: 'protectSheet', sheet, password, allow },
+            )
+          }
+        />
+      )}
+      {security?.kind === 'unprotect' && (
+        <UnprotectDialog
+          workbook={security.workbook}
+          wrong={security.wrong}
+          onClose={() => setSecurity(null)}
+          onSubmit={(password) => {
+            const cmd: SheetCommand = security.workbook
+              ? { cmd: 'unprotectWorkbook', password }
+              : { cmd: 'unprotectSheet', sheet, password };
+            void host
+              .exec(cmd)
+              .then(async () => {
+                setSecurity(null);
+                await refreshInfo();
+              })
+              .catch((e: unknown) => {
+                const msg = e instanceof Error ? e.message : String(e);
+                if (msg.includes(WRONG_PROTECTION_PASSWORD))
+                  setSecurity({ kind: 'unprotect', workbook: security.workbook, wrong: true });
+                else fail(e);
+              });
+          }}
+        />
+      )}
       {menu && (menu.kind === 'fontColor' || menu.kind === 'fillColor') && (
         <ColorMenu
           x={menu.x}

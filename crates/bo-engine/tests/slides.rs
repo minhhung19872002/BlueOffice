@@ -1,5 +1,7 @@
 //! BlueSlide through the engine facade: open the corpus decks, snapshot a
 //! compact form of every slide's display list (insta), export PDF and PNG.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_engine::Engine;
 use bo_render::{Command, Paint, PathSeg};

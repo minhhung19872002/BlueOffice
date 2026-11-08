@@ -98,6 +98,7 @@ fn default_max_wait() -> u64 {
 
 impl RemoteConfig {
     #[must_use]
+    /// Configuration for the service at `url` (no credential, no token, 120 s wait).
     pub fn new(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
@@ -158,6 +159,7 @@ pub struct JsonSigningApi {
 
 impl JsonSigningApi {
     #[must_use]
+    /// Client of the generic JSON protocol over `transport`.
     pub fn new(config: RemoteConfig, transport: Box<dyn HttpTransport>) -> Self {
         Self { config, transport }
     }

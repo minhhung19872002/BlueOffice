@@ -230,8 +230,11 @@ pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
 /// Hash algorithms accepted when verifying (RFC 5754 §2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashAlg {
+    /// SHA-256 (FIPS 180-4).
     Sha256,
+    /// SHA-384 (FIPS 180-4).
     Sha384,
+    /// SHA-512 (FIPS 180-4).
     Sha512,
 }
 
@@ -257,6 +260,7 @@ impl HashAlg {
     }
 
     #[must_use]
+    /// Hash of `data` with this algorithm.
     pub fn digest(self, data: &[u8]) -> Vec<u8> {
         match self {
             Self::Sha256 => Sha256::digest(data).to_vec(),
@@ -352,7 +356,9 @@ impl DocumentKind {
 /// (browser + remote service, or any asynchronous signer).
 #[allow(clippy::large_enum_variant)] // short-lived, one per signing
 pub enum PreparedSignature {
+    /// PDF with `/Contents` reserved (PAdES).
     Pdf(pdf::PreparedPdf),
+    /// OOXML package with `SignedInfo` computed (ECMA-376 Part 2 §12).
     Ooxml(ooxml::PreparedOoxml),
 }
 

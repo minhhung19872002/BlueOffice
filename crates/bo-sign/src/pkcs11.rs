@@ -42,14 +42,19 @@ fn p11(e: impl std::fmt::Display) -> SignError {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenCertificate {
+    /// PKCS#11 slot id holding the token.
     pub slot: u64,
+    /// Token label (`CK_TOKEN_INFO.label`).
     pub token_label: String,
+    /// Token serial number (`CK_TOKEN_INFO.serialNumber`).
     pub token_serial: String,
     /// `CKA_LABEL` of the certificate object.
     pub label: String,
     /// `CKA_ID` (hex) — links the certificate to its private key.
     pub id: String,
+    /// Certificate subject (RFC 4514).
     pub subject: String,
+    /// Certificate issuer (RFC 4514).
     pub issuer: String,
     /// `YYYY-MM-DDThh:mm:ssZ`.
     pub not_after: String,
@@ -60,6 +65,7 @@ pub struct TokenCertificate {
 #[serde(rename_all = "camelCase")]
 pub struct TokenSelection {
     #[serde(default)]
+    /// Slot id; the first slot with a token otherwise.
     pub slot: Option<u64>,
     /// `CKA_ID` hex of the certificate/key pair; first certificate otherwise.
     #[serde(default)]

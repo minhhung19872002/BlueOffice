@@ -12,8 +12,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProblemReport {
+    /// Stable problem code (`ChainProblem::code`), used as i18n key suffix.
     pub code: String,
+    /// Subject of the certificate concerned, if any.
     pub subject: Option<String>,
+    /// English description.
     pub message: String,
 }
 
@@ -21,9 +24,13 @@ pub struct ProblemReport {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ChainSummary {
+    /// A path to a trust anchor was built and every check passed.
     pub trusted: bool,
+    /// Subjects from the end entity up to (excluding) the anchor.
     pub path: Vec<String>,
+    /// Subject of the trust anchor the path ends at.
     pub anchor: Option<String>,
+    /// Why the path is not trusted (empty when trusted).
     pub problems: Vec<ProblemReport>,
 }
 
@@ -52,7 +59,9 @@ impl From<ChainReport> for ChainSummary {
 pub struct TimestampSummary {
     /// `YYYY-MM-DDThh:mm:ssZ`.
     pub time: String,
+    /// Subject of the time-stamp authority certificate.
     pub tsa: String,
+    /// Path of the TSA certificate, validated at the time-stamp time.
     pub chain: ChainSummary,
 }
 
@@ -60,11 +69,13 @@ pub struct TimestampSummary {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SignatureSummary {
+    /// Signer certificate subject (RFC 4514).
     pub signer: String,
     /// Claimed signing time (OOXML `SignatureTime`); not trusted by itself.
     pub signing_time: Option<String>,
     /// PDF: the signature covers the whole file (no later changes).
     pub covers_whole_document: bool,
+    /// Verified signature time-stamp (PAdES B-T / XAdES-T), if present.
     pub timestamp: Option<TimestampSummary>,
     /// Signer path, validated at the time-stamp time when the time-stamp is
     /// trusted, otherwise at the verification time.
@@ -79,6 +90,7 @@ pub struct SignatureSummary {
 pub struct DocumentReport {
     /// `pdf` / `ooxml`.
     pub kind: String,
+    /// Every cryptographically valid signature, in document order.
     pub signatures: Vec<SignatureSummary>,
     /// Set when a signature is cryptographically invalid (document changed,
     /// broken signature) or the file cannot be read.

@@ -11,13 +11,17 @@ use crate::{Result, SignError};
 /// An HTTP response (only what the protocols need).
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
+    /// HTTP status code.
     pub status: u16,
+    /// `Content-Type` header, if any.
     pub content_type: Option<String>,
+    /// Response body.
     pub body: Vec<u8>,
 }
 
 /// Sends a POST request.
 pub trait HttpTransport {
+    /// POSTs `body` to `url` with the given headers and returns the response (any status).
     fn post(&self, url: &str, headers: &[(String, String)], body: &[u8]) -> Result<HttpResponse>;
 }
 
@@ -40,6 +44,7 @@ pub struct HttpTimestampClient {
 
 impl HttpTimestampClient {
     #[must_use]
+    /// Client for the TSA at `url` using `transport`.
     pub fn new(url: impl Into<String>, transport: Box<dyn HttpTransport>) -> Self {
         Self {
             url: url.into(),
@@ -93,6 +98,7 @@ pub struct UreqTransport {
 #[cfg(feature = "http")]
 impl UreqTransport {
     #[must_use]
+    /// Agent with a global request `timeout`; non-2xx statuses are returned, not errors.
     pub fn new(timeout: std::time::Duration) -> Self {
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(timeout))

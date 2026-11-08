@@ -26,40 +26,53 @@ pub const ID_CT_TST_INFO: ObjectIdentifier =
 /// MessageImprint ::= SEQUENCE { hashAlgorithm, hashedMessage } (§2.4.1).
 #[derive(Clone, Debug, Eq, PartialEq, Sequence)]
 pub struct MessageImprint {
+    /// Hash algorithm of the imprint.
     pub hash_algorithm: AlgorithmIdentifierOwned,
+    /// Hash of the time-stamped data.
     pub hashed_message: OctetString,
 }
 
 /// TimeStampReq (RFC 3161 §2.4.1).
 #[derive(Clone, Debug, Eq, PartialEq, Sequence)]
 pub struct TimeStampReq {
+    /// Syntax version, 1.
     pub version: u8,
+    /// Imprint of the data to time-stamp.
     pub message_imprint: MessageImprint,
     #[asn1(optional = "true")]
+    /// Requested TSA policy.
     pub req_policy: Option<ObjectIdentifier>,
     #[asn1(optional = "true")]
+    /// Replay protection; echoed in the token.
     pub nonce: Option<Uint>,
     #[asn1(default = "Default::default")]
+    /// Ask the TSA to embed its certificate in the token.
     pub cert_req: bool,
     #[asn1(context_specific = "0", tag_mode = "IMPLICIT", optional = "true")]
+    /// Request extensions.
     pub extensions: Option<Vec<Extension>>,
 }
 
 /// PKIStatusInfo (RFC 3161 §2.4.2).
 #[derive(Clone, Debug, Eq, PartialEq, Sequence)]
 pub struct PkiStatusInfo {
+    /// PKIStatus: 0 granted, 1 grantedWithMods, 2 rejection, 3 waiting, 4/5 revocation.
     pub status: u8,
     #[asn1(optional = "true")]
+    /// Human-readable status text.
     pub status_string: Option<Vec<String>>,
     #[asn1(optional = "true")]
+    /// PKIFailureInfo bits.
     pub fail_info: Option<BitString>,
 }
 
 /// TimeStampResp (RFC 3161 §2.4.2); the token is kept as raw DER.
 #[derive(Clone, Debug, Eq, PartialEq, Sequence)]
 pub struct TimeStampResp {
+    /// Whether the request was granted.
     pub status: PkiStatusInfo,
     #[asn1(optional = "true")]
+    /// The token (`ContentInfo(SignedData(TSTInfo))`) when granted.
     pub time_stamp_token: Option<Any>,
 }
 
@@ -67,10 +80,13 @@ pub struct TimeStampResp {
 #[derive(Clone, Debug, Eq, PartialEq, Sequence)]
 pub struct Accuracy {
     #[asn1(optional = "true")]
+    /// Whole seconds.
     pub seconds: Option<u64>,
     #[asn1(context_specific = "0", tag_mode = "IMPLICIT", optional = "true")]
+    /// Milliseconds (1..999).
     pub millis: Option<u16>,
     #[asn1(context_specific = "1", tag_mode = "IMPLICIT", optional = "true")]
+    /// Microseconds (1..999).
     pub micros: Option<u16>,
 }
 
@@ -78,25 +94,36 @@ pub struct Accuracy {
 /// because TSAs may add fractional seconds, which strict DER time types reject.
 #[derive(Clone, Debug, Eq, PartialEq, Sequence)]
 pub struct TstInfo {
+    /// Syntax version, 1.
     pub version: u8,
+    /// TSA policy under which the token was issued.
     pub policy: ObjectIdentifier,
+    /// Imprint copied from the request.
     pub message_imprint: MessageImprint,
+    /// Serial number, unique per TSA.
     pub serial_number: Uint,
+    /// Time of the time-stamp (`GeneralizedTime`, UTC).
     pub gen_time: Any,
     #[asn1(optional = "true")]
+    /// Accuracy of `genTime`.
     pub accuracy: Option<Accuracy>,
     #[asn1(default = "Default::default")]
+    /// Whether tokens of this TSA can be ordered by `genTime` alone.
     pub ordering: bool,
     #[asn1(optional = "true")]
+    /// Nonce copied from the request.
     pub nonce: Option<Uint>,
     #[asn1(context_specific = "0", tag_mode = "EXPLICIT", optional = "true")]
+    /// Name of the TSA (`GeneralName`).
     pub tsa: Option<Any>,
     #[asn1(context_specific = "1", tag_mode = "IMPLICIT", optional = "true")]
+    /// Token extensions.
     pub extensions: Option<Vec<Extension>>,
 }
 
 /// Sends a DER `TimeStampReq` to a TSA and returns the DER `TimeStampResp`.
 pub trait TimestampClient {
+    /// Sends a DER `TimeStampReq` and returns the DER `TimeStampResp`.
     fn exchange(&self, request_der: &[u8]) -> Result<Vec<u8>>;
 }
 
@@ -120,6 +147,7 @@ fn positive_int(n: u64) -> Result<Uint> {
 }
 
 impl TimestampRequest {
+    /// Request for the SHA-256 imprint of `message` with the given `nonce`.
     pub fn new(message: &[u8], nonce: u64) -> Result<Self> {
         Ok(Self {
             req: TimeStampReq {
@@ -136,6 +164,7 @@ impl TimestampRequest {
         })
     }
 
+    /// DER encoding of the `TimeStampReq`.
     pub fn to_der(&self) -> Result<Vec<u8>> {
         Ok(self.req.to_der()?)
     }

@@ -42,8 +42,11 @@ test('zoom changes the page size and the status bar', async ({ page }) => {
   const w1 = (await firstPage.boundingBox())!.width;
   await page.getByRole('button', { name: 'Phóng to' }).last().click();
   await expect(page.getByTestId('status-zoom')).toHaveText('110%');
-  const w2 = (await firstPage.boundingBox())!.width;
-  expect(w2 / w1).toBeCloseTo(1.1, 1);
+  // The status bar updates with the zoom state; the page box is resized on the
+  // next layout pass, so wait for it instead of measuring once.
+  await expect
+    .poll(async () => ((await firstPage.boundingBox())?.width ?? 0) / w1)
+    .toBeCloseTo(1.1, 1);
 });
 
 test('switches to English and dark theme', async ({ page }) => {

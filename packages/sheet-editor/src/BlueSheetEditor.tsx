@@ -381,25 +381,45 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [platform, t],
   );
 
+  /**
+   * Opens a workbook (file or new). Only the most recently *started* load is
+   * shown: a slower earlier one (the start-up blank workbook, a previous file)
+   * must not reset the selection of the file the user opened afterwards.
+   */
+  const loadTicket = useRef(0);
+  const [loading, setLoading] = useState(false);
+  const load = useCallback(
+    async (start: () => Promise<WorkbookInfo>, name: string) => {
+      const ticket = ++loadTicket.current;
+      setLoading(true);
+      try {
+        const wb = await start();
+        if (ticket === loadTicket.current) loaded(wb, name);
+      } finally {
+        if (ticket === loadTicket.current) setLoading(false);
+      }
+    },
+    [loaded],
+  );
+
   useEffect(() => {
     if (!host) return;
+    void load(
+      () => host.newWorkbook(`${t('sheetEditor.untitled')}.xlsx`),
+      `${t('sheetEditor.untitled')}.xlsx`,
+    ).catch(fail);
     let cancelled = false;
-    void host
-      .newWorkbook(`${t('sheetEditor.untitled')}.xlsx`)
-      .then((wb) => !cancelled && loaded(wb, `${t('sheetEditor.untitled')}.xlsx`))
-      .catch(fail);
     void host
       .exec<{ numberFormats: NumberPreset[]; cellStyles: string[] }>({ cmd: 'presets' })
       .then((p) => !cancelled && p && setPresets(p))
       .catch(() => {});
     const un = platform.shell.onOpenRequest((f) => {
-      void host
-        .open(f.bytes, f.name)
-        .then((wb) => loaded(wb, f.name))
-        .catch(fail);
+      void load(() => host.open(f.bytes, f.name), f.name).catch(fail);
     });
     return () => {
       cancelled = true;
+      // A load still running for this host is not shown any more.
+      loadTicket.current++;
       un();
     };
     // Only on mount / host change.
@@ -849,7 +869,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     // File
     add('file.new', async (s) => {
       const name = `${t('sheetEditor.untitled')}.xlsx`;
-      loaded(await s.host.newWorkbook(name), name);
+      await load(() => s.host.newWorkbook(name), name);
     });
     add(
       'file.open',
@@ -864,7 +884,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         ]);
         if (!f) return;
         setStatus(t('sheetEditor.loading'));
-        loaded(await s.host.open(f.bytes, f.name), f.name);
+        await load(() => s.host.open(f.bytes, f.name), f.name);
         await platform.shell.addRecentFile({
           name: f.name,
           path: f.path ?? f.name,
@@ -1350,7 +1370,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   }, [
     t,
     fail,
-    loaded,
+    load,
     platform,
     fileName,
     refreshInfo,
@@ -2263,7 +2283,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   };
 
   return (
-    <div className={styles.root} data-theme={theme} data-app="sheet">
+    <div
+      className={styles.root}
+      data-theme={theme}
+      data-app="sheet"
+      data-load-seq={loadSeq}
+      aria-busy={loading}
+    >
       <Ribbon tabs={ribbonTabs} />
       {macroWarning && (
         <div className={styles.macroBar} role="status" data-testid="macro-warning">

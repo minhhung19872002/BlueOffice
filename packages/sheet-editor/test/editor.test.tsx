@@ -225,6 +225,37 @@ globalThis.ResizeObserver ??= class {
 } as unknown as typeof ResizeObserver;
 
 describe('BlueSheetEditor', () => {
+  it('a slow start-up workbook does not replace a file opened meanwhile', async () => {
+    const { host } = fakeHost();
+    const { p } = platform(host);
+    let openHandler: ((f: { name: string; bytes: Uint8Array }) => void) | undefined;
+    (p.shell as { onOpenRequest: unknown }).onOpenRequest = (
+      h: (f: { name: string; bytes: Uint8Array }) => void,
+    ) => {
+      openHandler = h;
+      return () => {};
+    };
+    const base = await host.info();
+    let finishNew: (() => void) | undefined;
+    host.newWorkbook = () =>
+      new Promise((resolve) => {
+        finishNew = () => resolve(base);
+      });
+    host.open = async () => ({ ...base, name: 'Báo cáo.xlsx', macros: true });
+    const { container } = render(<BlueSheetEditor platform={p} language="vi-VN" />);
+    const root = container.querySelector('[data-app="sheet"]')!;
+    expect(root.getAttribute('aria-busy')).toBe('true');
+    act(() => openHandler?.({ name: 'Báo cáo.xlsx', bytes: new Uint8Array([80, 75]) }));
+    await screen.findByTestId('macro-warning');
+    await waitFor(() => expect(root.getAttribute('aria-busy')).toBe('false'));
+    const seq = root.getAttribute('data-load-seq');
+    // The blank workbook requested at start-up arrives last: it is not shown.
+    await act(async () => finishNew?.());
+    expect(root.getAttribute('data-load-seq')).toBe(seq);
+    expect(screen.getByTestId('macro-warning')).toBeTruthy();
+    expect(p.window.setTitle).toHaveBeenLastCalledWith(expect.stringContaining('Báo cáo.xlsx'));
+  });
+
   it('warns about macros in an opened .xlsm and dismisses the bar', async () => {
     const { host } = fakeHost();
     const { p } = platform(host);

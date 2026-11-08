@@ -68,9 +68,18 @@ test('BlueSheet: numbers + SUM, bold + fill, sort, save .xlsx and reopen', async
   // Reopen it through the file picker.
   await page.reload();
   await expect(page.getByRole('tab', { name: 'Sheet1' })).toBeVisible();
+  // Wait until the opened file is the one shown: navigating while it still
+  // loads would be reset to A1 when it arrives (under load that is seconds).
+  const root = page.locator('[data-app="sheet"]');
+  await expect(root).toHaveAttribute('aria-busy', 'false');
+  const seq = Number(await root.getAttribute('data-load-seq'));
   const chooser = page.waitForEvent('filechooser');
   await page.locator('[data-command="file.open"]').click();
   await (await chooser).setFiles(path);
+  await expect
+    .poll(async () => Number(await root.getAttribute('data-load-seq')))
+    .toBeGreaterThan(seq);
+  await expect(root).toHaveAttribute('aria-busy', 'false');
   await expect(await formulaOf(page, 'A4')).toHaveValue('=SUM(A1:A3)');
   await expect(await formulaOf(page, 'A2')).toHaveValue('20');
   await goTo(page, 'A3');

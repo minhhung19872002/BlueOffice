@@ -27,6 +27,25 @@ async function findText(p: Participant, text: string) {
   await q.press('Escape');
 }
 
+/** Clicks a ribbon command, opening the collapsed group that holds it when the ribbon is narrow. */
+async function runCommand(f: FrameLocator, id: string) {
+  const button = f.locator(`[data-command="${id}"]:visible`).first();
+  if (await button.count()) {
+    await button.click();
+    return;
+  }
+  const groups = f.locator('[data-group][data-level="collapsed"]');
+  for (let i = 0; i < (await groups.count()); i++) {
+    await groups.nth(i).getByRole('button').first().click();
+    if (await button.count()) {
+      await button.click();
+      return;
+    }
+    await groups.nth(i).getByRole('button').first().click();
+  }
+  throw new Error(`command ${id} not found in the ribbon`);
+}
+
 async function clickPage(p: Participant) {
   const page1 = p.frame.locator('.bo-page[data-page="1"]');
   await expect(page1).toHaveAttribute('data-rendered', 'true');
@@ -96,7 +115,7 @@ test('a row inserted by one user moves the other user’s cells and references',
   await expect(b.frame.getByLabel('Thanh công thức')).toHaveValue('=J40*2');
   // B inserts a row above row 40.
   await goTo(b.frame, 'J40');
-  await b.frame.locator('[data-command="cells.insertRow"]').first().click();
+  await runCommand(b.frame, 'cells.insertRow');
   // A sees the value one row lower and its formula following it.
   await goTo(a.frame, 'J41');
   await expect(a.frame.getByLabel('Thanh công thức')).toHaveValue('5');

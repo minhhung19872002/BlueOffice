@@ -109,3 +109,48 @@ fn deleted_columns_move_the_chart_left() {
     assert_eq!(ch.from.col, from.col - 1);
     assert_eq!(refs(&e)[2], "'Biểu đồ'!$B$2:$B$4");
 }
+
+fn part(xlsx: &[u8], name: &str) -> String {
+    let pkg = bo_opc::Package::read(xlsx, &bo_opc::Limits::default()).unwrap();
+    String::from_utf8(pkg.part(name).unwrap().data.clone()).unwrap()
+}
+
+// source: ECMA-376 Part 1, §18.10.1.49 location, §18.10.1.98 worksheetSource
+#[test]
+fn inserted_rows_move_a_file_pivot_table_and_its_source() {
+    let original = corpus("writer-pivots-1.xlsx");
+    let mut e = SheetEngine::with_bundled_fonts();
+    e.open(&original, "writer-pivots-1.xlsx").unwrap();
+    let si = e
+        .workbook()
+        .unwrap()
+        .sheets
+        .iter()
+        .position(|s| !s.pivots.is_empty())
+        .unwrap();
+    e.structural(si, true, 0, 2, false).unwrap();
+    let saved = e.save("xlsx", 0).unwrap();
+    let (pt0, pt1) = (
+        part(&original, "/xl/pivotTables/pivotTable1.xml"),
+        part(&saved, "/xl/pivotTables/pivotTable1.xml"),
+    );
+    assert!(pt1.contains(r#"<location ref="H3:I7""#), "{pt1}");
+    assert_eq!(pt0.replace(r#"ref="H1:I5""#, r#"ref="H3:I7""#), pt1);
+    let (c0, c1) = (
+        part(&original, "/xl/pivotCache/pivotCacheDefinition1.xml"),
+        part(&saved, "/xl/pivotCache/pivotCacheDefinition1.xml"),
+    );
+    assert_eq!(c0.replace(r#"ref="A1:E25""#, r#"ref="A3:E27""#), c1);
+    if let Ok(dir) = std::env::var("BO_WRITE_CHART_SAMPLE") {
+        std::fs::write(
+            std::path::Path::new(&dir).join("pivots-rows-inserted.xlsx"),
+            &saved,
+        )
+        .unwrap();
+    }
+    let mut back = SheetEngine::with_bundled_fonts();
+    back.open(&saved, "x.xlsx").unwrap();
+    let wb = back.workbook().unwrap();
+    assert_eq!(wb.sheets[si].pivots[0].location.to_string(), "H3:I7");
+    assert_eq!(wb.pivot_caches[0].source_ref.as_deref(), Some("A3:E27"));
+}

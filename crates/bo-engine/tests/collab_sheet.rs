@@ -431,3 +431,37 @@ fn a_print_area_set_during_a_row_insert_follows_the_rows() {
     assert_eq!(pa(&a), pa(&b));
     assert_eq!(pa(&a).as_deref(), Some("Sheet1!$A$7:$D$12"));
 }
+
+// source: ECMA-376 Part 1, §18.10.1.49 location, §18.10.1.98 worksheetSource
+#[test]
+fn a_pivot_created_during_a_row_insert_follows_the_rows() {
+    let cells = [
+        (0, 0, "Vùng"),
+        (0, 1, "Doanh thu"),
+        (1, 0, "Bắc"),
+        (1, 1, "10"),
+        (2, 0, "Nam"),
+        (2, 1, "5"),
+        (3, 0, "Bắc"),
+        (3, 1, "7"),
+    ];
+    let (mut a, mut b) = pair(&cells);
+    settle(&mut a, &mut b);
+    a.exec(r#"{"cmd":"pivotCreate","sheet":0,"range":{"r0":0,"c0":0,"r1":3,"c1":1},"dest":{"sheet":0,"row":0,"col":6},"rows":[0],"values":[{"field":1,"function":"sum"}]}"#);
+    b.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let pivot = |p: &Peer| {
+        let wb = p.engine.workbook().unwrap();
+        let pt = wb.sheets[0].pivots[0].clone();
+        let src = wb
+            .pivot_caches
+            .iter()
+            .find(|c| c.cache_id == pt.cache_id)
+            .and_then(|c| c.source_ref.clone());
+        (pt.location.to_string(), src)
+    };
+    assert_eq!(pivot(&a), pivot(&b), "{:?} / {:?}", pivot(&a), pivot(&b));
+    let (loc, src) = pivot(&a);
+    assert!(loc.starts_with("G3"), "{loc}");
+    assert_eq!(src.as_deref(), Some("A3:B6"));
+}

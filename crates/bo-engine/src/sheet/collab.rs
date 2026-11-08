@@ -989,11 +989,27 @@ impl SheetCollab {
                         format!("pv:{sk}:{i}"),
                         serde_json::to_string(p).ok(),
                     );
+                    // The report location by row/column ids (§18.10.1.49).
+                    let l = p.location;
+                    let at = [
+                        rid(l.first.row),
+                        cid(l.first.col),
+                        rid(l.last.row),
+                        cid(l.last.col),
+                    ];
+                    put(
+                        &mut self.meta,
+                        &mut out,
+                        format!("pva:{sk}:{i}"),
+                        serde_json::to_string(&at).ok(),
+                    );
                 }
-                for k in keys_with(&self.meta, &format!("pv:{sk}:")) {
-                    let i: usize = k[4 + sk.len()..].parse().unwrap_or(usize::MAX);
-                    if i >= ws.pivots.len() {
-                        put(&mut self.meta, &mut out, k, None);
+                for p in ["pv", "pva"] {
+                    for k in keys_with(&self.meta, &format!("{p}:{sk}:")) {
+                        let i: usize = k[p.len() + 2 + sk.len()..].parse().unwrap_or(usize::MAX);
+                        if i >= ws.pivots.len() {
+                            put(&mut self.meta, &mut out, k, None);
+                        }
                     }
                 }
                 seen.pivots = Some(ws.pivots.clone());
@@ -1013,6 +1029,24 @@ impl SheetCollab {
                     &mut out,
                     format!("pc:{i}"),
                     serde_json::to_string(c).ok(),
+                );
+                // The source range as an id formula (§18.10.1.98 worksheetSource),
+                // so it follows concurrent row/column changes of its sheet.
+                let src = match (&c.source_sheet, &c.source_ref) {
+                    (Some(sheet), Some(r)) => keys.first().map(|host| {
+                        let f = Formula {
+                            text: format!("'{}'!{r}", sheet.replace('\'', "''")),
+                            ..Formula::default()
+                        };
+                        self.formula_shared(wb, &keys, host, &f)
+                    }),
+                    _ => None,
+                };
+                put(
+                    &mut self.meta,
+                    &mut out,
+                    format!("pca:{i}"),
+                    src.and_then(|s| serde_json::to_string(&s).ok()),
                 );
             }
             for k in keys_with(&self.meta, "pc:") {
@@ -1631,10 +1665,27 @@ impl SheetEngine {
             if let Some(charts) = charts {
                 ws.charts = charts;
             }
-            if joining || hit("pv") {
+            if joining || hit("pv") || hit("pva") {
                 ws.pivots = (0..)
-                    .map_while(|i| c.meta.get(&format!("pv:{sk}:{i}")))
-                    .filter_map(|j| serde_json::from_str(j).ok())
+                    .map_while(|i| c.meta.get(&format!("pv:{sk}:{i}")).map(|j| (i, j)))
+                    .filter_map(|(i, j)| {
+                        let mut p: bo_model::sheet::PivotTable = serde_json::from_str(j).ok()?;
+                        let at = c
+                            .meta
+                            .get(&format!("pva:{sk}:{i}"))
+                            .and_then(|j| serde_json::from_str::<[String; 4]>(j).ok());
+                        if let Some([r1, c1, r2, c2]) = at {
+                            if let (Some(a), Some(b), Some(x), Some(y)) = (
+                                ra.pos_of(&r1),
+                                ca.pos_of(&c1),
+                                ra.pos_of(&r2),
+                                ca.pos_of(&c2),
+                            ) {
+                                p.location = CellRange::new(CellRef::new(a, b), CellRef::new(x, y));
+                            }
+                        }
+                        Some(p)
+                    })
                     .collect();
             }
         }
@@ -1647,11 +1698,34 @@ impl SheetEngine {
                 wb.defined_names = e.names;
             }
         }
-        if joining || change.meta.keys().any(|k| k.starts_with("pc:")) {
-            wb.pivot_caches = (0..)
-                .map_while(|i| c.meta.get(&format!("pc:{i}")))
-                .filter_map(|j| serde_json::from_str(j).ok())
+        if joining || change.meta.keys().any(|k| k.starts_with("pc")) {
+            let host = c
+                .sheet_keys(wb, false)
+                .into_iter()
+                .next()
+                .unwrap_or_default();
+            let keys_now = c.sheet_keys(wb, false);
+            let caches: Vec<bo_model::sheet::PivotCache> = (0..)
+                .map_while(|i| c.meta.get(&format!("pc:{i}")).map(|j| (i, j)))
+                .filter_map(|(i, j)| {
+                    let mut pc: bo_model::sheet::PivotCache = serde_json::from_str(j).ok()?;
+                    let src = c
+                        .meta
+                        .get(&format!("pca:{i}"))
+                        .and_then(|j| serde_json::from_str::<SharedFormula>(j).ok());
+                    if let (Some(sf), Some(_)) = (src, pc.source_ref.as_ref()) {
+                        let text = c.formula_text(wb, &keys_now, &host, &sf);
+                        // `'Sheet'!A1:B2` → the range part (the sheet is kept).
+                        if let Some((_, r)) = text.rsplit_once('!') {
+                            if !r.starts_with('#') {
+                                pc.source_ref = Some(r.to_owned());
+                            }
+                        }
+                    }
+                    Some(pc)
+                })
                 .collect();
+            wb.pivot_caches = caches;
         }
         // Everything now shown counts as shared.
         let _ = c.local_change(wb, false);

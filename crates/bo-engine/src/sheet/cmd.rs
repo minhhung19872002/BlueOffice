@@ -3326,6 +3326,59 @@ mod tests {
     }
 
     #[test]
+    // source: ECMA-376 Part 1, §18.10.1.49 location, §18.10.1.98 worksheetSource
+    fn inserted_rows_move_pivot_tables_and_their_sources() {
+        let mut e = engine();
+        let data = [
+            ("Vùng", "Doanh thu"),
+            ("Bắc", "10"),
+            ("Nam", "5"),
+            ("Bắc", "7"),
+        ];
+        let mut cells = Vec::new();
+        for (r, (a, b)) in data.iter().enumerate() {
+            cells.push((r as u32, 0, (*a).to_owned()));
+            cells.push((r as u32, 1, (*b).to_owned()));
+        }
+        e.set_inputs(0, &cells).unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "pivotCreate", "sheet": 0, "range": rng(0, 0, 3, 1),
+                "dest": { "sheet": 0, "row": 0, "col": 5 },
+                "rows": [0], "values": [{ "field": 1, "function": "sum" }] }),
+        );
+        let before = e.workbook().unwrap().sheets[0].pivots[0].location;
+        e.structural(0, true, 0, 2, false).unwrap();
+        let wb = e.workbook().unwrap();
+        let pt = &wb.sheets[0].pivots[0];
+        assert_eq!(
+            pt.location.first.row,
+            before.first.row + 2,
+            "{:?}",
+            pt.location
+        );
+        assert_eq!(pt.location.last.row, before.last.row + 2);
+        let cache = wb
+            .pivot_caches
+            .iter()
+            .find(|c| c.cache_id == pt.cache_id)
+            .unwrap();
+        assert_eq!(
+            cache.source_ref.as_deref(),
+            Some("A3:B6"),
+            "{:?}",
+            cache.source_ref
+        );
+        // The report still reads the data: Bắc = 17.
+        let r = pt.location.first.row;
+        let found = (r..=pt.location.last.row).any(|row| {
+            e.cell(0, row, 5).unwrap().display == "Bắc"
+                && e.cell(0, row, 6).unwrap().display == "17"
+        });
+        assert!(found);
+    }
+
+    #[test]
     fn pivot_create_update_save_reopen_refresh() {
         let mut e = engine();
         let data = [

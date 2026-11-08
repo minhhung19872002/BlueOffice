@@ -318,6 +318,12 @@ fn move_sheet_content(ws: &mut Worksheet, m: &Mapper) {
             None => ws.auto_filter = None,
         }
     }
+    // Pivot table reports (§18.10.1.49 location) move with their cells.
+    for pt in &mut ws.pivots {
+        if let Some(r) = m.range(pt.location) {
+            pt.location = r;
+        }
+    }
     // Chart anchors (§20.5.2.33 twoCellAnchor: moves and sizes with the cells;
     // §20.5.2.24 oneCellAnchor: its top-left cell moves; an absolute anchor stays).
     for ch in &mut ws.charts {
@@ -367,6 +373,14 @@ fn adjust_formulas(wb: &mut Workbook, change: &StructuralChange, adj: &dyn Formu
         }
     };
     let sheet_names: Vec<String> = wb.sheets.iter().map(|s| s.name.clone()).collect();
+    // Pivot cache sources on the changed sheet (§18.10.1.98 worksheetSource ref).
+    for c in &mut wb.pivot_caches {
+        if let (Some(sheet), Some(r)) = (c.source_sheet.as_deref(), c.source_ref.as_mut()) {
+            if sheet.eq_ignore_ascii_case(&change.sheet) {
+                apply(r, Some(sheet));
+            }
+        }
+    }
     for dn in &mut wb.defined_names {
         let host = dn
             .local_sheet

@@ -169,8 +169,8 @@ dời ô và công thức của người kia; ghi chú slide).
 - BlueSheet: vùng của CF và DV đi kèm id hàng/cột (`cfa:`/`dva:`, client cũ bỏ qua) nên dịch theo hàng/cột người khác
   chèn/xoá đồng thời (test `rules_added_during_a_row_insert_follow_the_rows`); hyperlink, autofilter, bảng (ListObject)
   cũng vậy (`sha:`, test `a_filter_turned_on_during_a_row_insert_follows_the_rows`), và biểu đồ (ô neo + tham chiếu
-  series, `cha:`), vùng in / tiêu đề in (công thức theo id trong `sha:`). Pivot và freeze pane vẫn lưu **theo vị trí**
-  (LWW). Đổi tên sheet không sửa công
+  series, `cha:`), vùng in / tiêu đề in (công thức theo id trong `sha:`), pivot (vị trí `pva:`, nguồn cache `pca:`).
+  Freeze pane vẫn lưu **theo vị trí** (LWW). Đổi tên sheet không sửa công
   thức tham chiếu tên cũ (như engine hiện tại). Biểu đồ/pivot/cache khoá theo chỉ số: thêm đồng thời trùng chỉ số →
   LWW. Ô trong hàng bị xoá vẫn nằm trong map (để hoàn tác khôi phục) cho tới khi lưu version. Kiểu ô lưu `xfId`
   (style có tên) theo chỉ số. Chèn liên tiếp > ~50 lần đúng một chỗ làm cạn độ chính xác khoá (thứ tự giữa các hàng mới

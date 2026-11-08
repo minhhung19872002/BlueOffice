@@ -120,6 +120,12 @@ fn default_site_tolerance() -> f64 {
 pub enum SlideCommand {
     /// Current state, nothing changes.
     State,
+    /// Password for the next `.pptx` saves ([MS-OFFCRYPTO] Agile Encryption);
+    /// empty or absent removes it.
+    SetSavePassword {
+        #[serde(default)]
+        password: Option<String>,
+    },
     /// Make `slide` current (clears the selection).
     GoTo {
         slide: usize,
@@ -2717,6 +2723,10 @@ impl Engine {
 
     /// Run a slide editing command.
     pub fn slide_command(&mut self, cmd: SlideCommand) -> crate::Result<SlideEditResult> {
+        if let SlideCommand::SetSavePassword { password } = &cmd {
+            self.set_save_password(password.as_deref());
+            return self.slide_command(SlideCommand::State);
+        }
         let mut out = Outcome::default();
         {
             let pres = self.pres.as_mut().ok_or(EngineError::NoDocument)?;
@@ -2732,7 +2742,7 @@ impl Engine {
                 ed.table = None;
             }
             match cmd {
-                SlideCommand::State => {}
+                SlideCommand::State | SlideCommand::SetSavePassword { .. } => {}
                 SlideCommand::GoTo { slide } => {
                     if slide < pres.slides.len() {
                         ed.sel = SlideSel { slide, ids: vec![] };

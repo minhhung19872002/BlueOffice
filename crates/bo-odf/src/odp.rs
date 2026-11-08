@@ -214,7 +214,7 @@ pub fn write_odp(pres: &Presentation) -> Result<Vec<u8>> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]

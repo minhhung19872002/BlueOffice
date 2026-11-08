@@ -854,6 +854,8 @@ export interface FileAccess {
   openFile(accept: string[]): Promise<OpenedFile | null>;
   /** Save bytes; returns the saved path/name or `null` when cancelled. */
   saveFile(bytes: Uint8Array, suggestedName: string, mime: string): Promise<string | null>;
+  /** Desktop: read a file by its absolute path (recent files). */
+  openPath?(path: string): Promise<OpenedFile>;
 }
 
 /** Where a document comes from and goes back to. */
@@ -979,6 +981,17 @@ export interface ShellIntegration {
   serverUrl?(): Promise<string | null>;
   /** Stores the server setting (null clears it). */
   setServerUrl?(url: string | null): Promise<void>;
+  /** The server comes from the environment (`BLUEOFFICE_SERVER`), overriding the setting. */
+  serverFromEnvironment?(): Promise<boolean>;
+  /** Desktop: the process was started for a file or a deep link (else the Start screen shows). */
+  hasLaunchRequest?(): Promise<boolean>;
+  /** A small persisted user setting (JSON text), e.g. the BlueDrive sync folders. */
+  getSetting?(key: string): Promise<string | null>;
+  setSetting?(key: string, value: string | null): Promise<void>;
+  /** Opens a web page in the system browser (host sign-in). */
+  openExternal?(url: string): Promise<void>;
+  /** Sign-in redirects to the app (`bluedoc://auth?code=…&state=…`). */
+  onAuthCallback?(handler: (url: string) => void): () => void;
 }
 
 /** Everything platform-specific, in one object. */

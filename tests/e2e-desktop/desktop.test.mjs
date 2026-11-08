@@ -10,7 +10,10 @@
 // BlueDrive + BlueOffice server + web editor; needs the built web app and .NET 8)
 // and a Playwright Chromium for the web user (COLLAB_E2E=0 skips it).
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createServer, connect } from 'node:net';
+import { tmpdir } from 'node:os';
+import { inflateRawSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -123,7 +126,10 @@ describe('desktop app (Tauri, native engine)', { skip }, () => {
   });
 
   it('runs BlueSheet in the same shell with the native sheet engine', async () => {
-    await exec('window.location.search = "?app=sheet";');
+    // A new window of the shell shows the Start screen; "blank" opens the app.
+    await exec('window.location.search = "?app=sheet&start=1";');
+    const tile = await waitFor(() => find('[data-testid="start-new-sheet"]'), 'Start screen');
+    await wd('POST', s(`/element/${tile}/click`), {});
     await waitFor(
       async () =>
         (await exec('return document.querySelector("[data-app=sheet]") !== null;')) || null,
@@ -148,7 +154,10 @@ describe('desktop app (Tauri, native engine)', { skip }, () => {
   });
 
   it('runs BlueSlide in the same shell', async () => {
-    await exec('window.location.search = "?app=slide";');
+    // A new window of the shell shows the Start screen; "blank" opens the app.
+    await exec('window.location.search = "?app=slide&start=1";');
+    const tile = await waitFor(() => find('[data-testid="start-new-slide"]'), 'Start screen');
+    await wd('POST', s(`/element/${tile}/click`), {});
     await waitFor(
       async () =>
         (await exec('return document.querySelector("[data-app=slide]") !== null;')) || null,
@@ -338,3 +347,342 @@ desktop log: ${JSON.stringify(desktopLog)}`,
     assert.deepEqual([...v.editors].sort(), ['u1', 'u2']);
   });
 });
+
+// ---------------------------------------------------------------- Start screen, sync folder, offline, BlueSheet/BlueSlide links
+
+/** One member of a zip (stored or deflated), enough for docx/xlsx parts. */
+function zipEntry(buf, name) {
+  for (let i = 0; i + 30 < buf.length; i++) {
+    if (buf.readUInt32LE(i) !== 0x04034b50) continue;
+    const method = buf.readUInt16LE(i + 8);
+    const size = buf.readUInt32LE(i + 18);
+    const nameLen = buf.readUInt16LE(i + 26);
+    const extra = buf.readUInt16LE(i + 28);
+    const entry = buf.subarray(i + 30, i + 30 + nameLen).toString();
+    const start = i + 30 + nameLen + extra;
+    if (entry === name) {
+      const data = buf.subarray(start, start + size);
+      return method === 8 ? inflateRawSync(data) : data;
+    }
+  }
+  return null;
+}
+
+/** TCP proxy in front of the BlueOffice server: `off()` drops every connection (the desktop goes offline). */
+function serverProxy(target) {
+  const t = new URL(target);
+  const sockets = new Set();
+  let up = true;
+  const proxy = createServer((client) => {
+    if (!up) return client.destroy();
+    const upstream = connect(Number(t.port), t.hostname);
+    sockets.add(client).add(upstream);
+    const drop = () => {
+      client.destroy();
+      upstream.destroy();
+      sockets.delete(client);
+      sockets.delete(upstream);
+    };
+    client.on('error', drop).on('close', drop);
+    upstream.on('error', drop).on('close', drop);
+    client.pipe(upstream).pipe(client);
+  });
+  return {
+    listen: () => new Promise((r) => proxy.listen(0, '127.0.0.1', () => r(proxy.address().port))),
+    off() {
+      up = false;
+      for (const sock of sockets) sock.destroy();
+      sockets.clear();
+    },
+    on() {
+      up = true;
+    },
+    close: () => proxy.close(),
+  };
+}
+
+describe(
+  'desktop Start screen, sync folders, offline edits, BlueSheet/BlueSlide links',
+  { skip: collabSkip },
+  () => {
+    let stack;
+    let proxy;
+    let browser;
+    let urls;
+    let syncRoot;
+    const corpus = (p) => readFileSync(join(root, 'tests/corpus', p)).toString('base64');
+    const token = async (user, fileId) =>
+      (await api('POST', `${urls.mock}/_admin/token`, { userId: user, fileId, ttlSeconds: 600 }))
+        .accessToken;
+    const share = (fileId, user = 'u2') =>
+      api('PUT', `${urls.mock}/_admin/files/${fileId}/permissions/${user}`, {
+        view: true,
+        comment: true,
+        edit: true,
+        share: false,
+        download: true,
+      });
+    const createFile = async (name, content, folderId) =>
+      (await api('POST', `${urls.mock}/_admin/files`, { name, ownerId: 'u1', content, folderId }))
+        .id;
+    const title = () => wd('GET', s('/title'));
+    const text = (css) =>
+      exec(`return document.querySelector(${JSON.stringify(css)})?.textContent ?? "";`);
+    const click = async (css) =>
+      wd('POST', s(`/element/${await waitFor(() => find(css), css)}/click`), {});
+    async function launch(args) {
+      if (session) await wd('DELETE', s('')).catch(() => {});
+      session = null;
+      const created = await wd('POST', '/session', {
+        capabilities: {
+          alwaysMatch: { browserName: 'wry', 'tauri:options': { application: exe, args } },
+        },
+      });
+      session = created.sessionId;
+    }
+    const opens = async (fileId) =>
+      (await api('GET', `${urls.mock}/_admin/webhooks`)).filter(
+        (w) => w.fileId === fileId && w.event === 'audit' && w.body.includes('"action":"open"'),
+      ).length;
+
+    before(async () => {
+      const { collabUrls } = await import('../e2e/collab/ports.mjs');
+      urls = collabUrls();
+      stack = spawn(process.execPath, [join(root, 'tests/e2e/collab/stack.mjs')], {
+        cwd: join(root, 'tests/e2e'),
+        stdio: 'ignore',
+      });
+      await waitFor(async () => (await fetch(`${urls.host}/`)).ok, 'collab stack', 300_000);
+      proxy = serverProxy(urls.server);
+      const proxyPort = await proxy.listen();
+
+      // The desktop reaches the server through the proxy (so the test can cut the network).
+      base = `http://127.0.0.1:${port + 40}`;
+      const args = ['--port', String(port + 40), '--native-port', String(port + 41)];
+      if (process.env.MSEDGEDRIVER) args.push('--native-driver', process.env.MSEDGEDRIVER);
+      driver = spawn('tauri-driver', args, {
+        stdio: 'ignore',
+        env: { ...process.env, BLUEOFFICE_SERVER: `http://127.0.0.1:${proxyPort}` },
+      });
+      await waitFor(async () => (await fetch(`${base}/status`)).ok, 'tauri-driver');
+      syncRoot = mkdtempSync(join(tmpdir(), 'bo-sync-'));
+    });
+
+    after(async () => {
+      if (session) await wd('DELETE', s('')).catch(() => {});
+      session = null;
+      killTree(driver);
+      await browser?.close();
+      proxy?.close();
+      killTree(stack);
+      if (syncRoot) rmSync(syncRoot, { recursive: true, force: true });
+    });
+
+    it('Start screen: BlueDrive sign-in, browse, open; a sync-folder file switches to collaboration', async () => {
+      const folder = (
+        await api('POST', `${urls.mock}/_admin/folders`, { name: 'Dự án', parentId: 'root' })
+      ).id;
+      const fileId = await createFile('Kế hoạch.docx', corpus('doc/phase1-sample.docx'), folder);
+      await share(fileId);
+      mkdirSync(join(syncRoot, 'Dự án'));
+      const local = join(syncRoot, 'Dự án', 'Kế hoạch.docx');
+      copyFileSync(join(root, 'tests/corpus/doc/phase1-sample.docx'), local);
+
+      await launch([]);
+      await waitFor(() => find('[data-testid="start-screen"]'), 'Start screen', 60_000);
+
+      // Settings: the server comes from BLUEOFFICE_SERVER; add the sync folder.
+      await click('[data-testid="start-tab-settings"]');
+      const path = await waitFor(() => find('[data-testid="settings-sync-path"]'), 'sync input');
+      await wd('POST', s(`/element/${path}/value`), { text: syncRoot });
+      await click('[data-testid="settings-sync-add"]');
+      await waitFor(
+        async () => (await text('[data-testid="settings-sync-list"]')).includes(syncRoot),
+        'sync folder saved',
+      );
+
+      // BlueDrive tab: SSO is offered; sign in with a mock token (u2, not scoped to a file).
+      await click('[data-testid="start-tab-drive"]');
+      await waitFor(() => find('[data-testid="drive-signin-sso"]'), 'SSO button');
+      const box = await waitFor(() => find('[data-testid="drive-token"]'), 'token box');
+      await wd('POST', s(`/element/${box}/value`), { text: await token('u2') });
+      await click('[data-testid="drive-signin-token"]');
+      await waitFor(
+        async () => (await text('[data-testid="drive-user"]')).includes('Trần Thị Bình'),
+        'signed in',
+      );
+
+      // "Shared with me" lists the file; My files → folder → file opens through a server session.
+      await click('[data-testid="start-tab-drive-shared"]');
+      await waitFor(
+        async () => (await text('[data-testid="drive-list-shared"]')).includes('Kế hoạch.docx'),
+        'shared list',
+      );
+      await click('[data-testid="start-tab-drive-files"]');
+      await click('[data-testid="drive-item"][data-name="Dự án"]');
+      await click('[data-testid="drive-item"][data-name="Kế hoạch.docx"]');
+      await waitFor(async () => (await title()).includes('Kế hoạch.docx'), 'hosted file', 60_000);
+      await waitFor(async () => (await opens(fileId)) >= 1, 'session opened on the server');
+      const recentOnHost = await api(
+        'GET',
+        `${urls.server}/api/hosts/bluedrive/recent`,
+        undefined,
+        {
+          authorization: `Bearer ${await token('u2')}`,
+        },
+      );
+      assert.equal(recentOnHost.items[0]?.id, fileId);
+
+      // Back to Start (Alt+Home); the local copy in the sync folder is a recent file.
+      await exec(
+        `localStorage.setItem("blueoffice.desktop.recent", JSON.stringify([{ name: "Kế hoạch.docx", path: ${JSON.stringify(local)}, openedAt: Date.now() }]));
+       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", altKey: true }));`,
+      );
+      await click('[data-testid="start-tab-home"]');
+      await click('[data-testid="start-recent"] button');
+      await waitFor(
+        async () => (await text('[data-testid="sync-prompt"]')).includes('Kế hoạch.docx'),
+        'sync prompt',
+      );
+      await click('[data-testid="sync-prompt-online"]');
+      await waitFor(async () => (await opens(fileId)) >= 2, 'online collaboration session', 60_000);
+      await waitFor(async () => (await title()).includes('Kế hoạch.docx'), 'collab title', 60_000);
+    });
+
+    it('offline: saves locally while the server is unreachable; reopening creates the conflict copy', async () => {
+      const fileId = await createFile('Biên bản.docx', corpus('doc/phase1-sample.docx'), 'root');
+      await share(fileId);
+      const link = async () =>
+        `bluedoc://open?host=bluedrive&file=${encodeURIComponent(fileId)}&token=${await token('u2', fileId)}`;
+      await launch([await link()]);
+      await waitFor(async () => (await title()).includes('Biên bản.docx'), 'hosted file', 60_000);
+      // Let the live connection come up before the network goes away.
+      await new Promise((r) => setTimeout(r, 3000));
+
+      proxy.off();
+      await waitFor(
+        async () =>
+          (await exec(
+            'return document.querySelector("[data-testid=hosted-banner]")?.dataset.state ?? "";',
+          )) === 'offline',
+        'offline banner',
+        30_000,
+      );
+      const input = await waitFor(() => find('textarea'), 'IME textarea');
+      await click('.bo-page[data-page="1"]');
+      await wd('POST', s(`/element/${input}/value`), { text: 'Sửa khi mất mạng ' });
+      await new Promise((r) => setTimeout(r, 1000));
+      await click('[data-command="file.save"]');
+      await waitFor(
+        async () => (await text('[data-testid="hosted-notice"]')).includes('ngoại tuyến'),
+        'saved offline',
+      );
+
+      // Meanwhile someone uploads a new version in BlueDrive; the desktop app is closed.
+      await fetch(`${urls.mock}/_admin/files/${fileId}/contents`, {
+        method: 'PUT',
+        body: readFileSync(join(root, 'tests/corpus/doc/review-01-insert-delete.docx')),
+      });
+      await wd('DELETE', s(''));
+      session = null;
+      proxy.on();
+
+      // Reopened online: the offline save goes to …/sync → conflict copy; the original is kept.
+      await launch([await link()]);
+      await waitFor(
+        async () => (await text('[data-testid="hosted-notice"]')).includes('xung đột'),
+        'conflict notice',
+        60_000,
+      );
+      const files = await api('GET', `${urls.mock}/_admin/folders/root/files`);
+      const copy = files.find((f) => f.name.startsWith('Biên bản (xung đột - Trần Thị Bình - '));
+      assert.ok(copy, `conflict copy in ${JSON.stringify(files.map((f) => f.name))}`);
+      assert.match(
+        copy.name,
+        /\(xung đột - Trần Thị Bình - \d{4}-\d{2}-\d{2} \d{2}-\d{2}\)\.docx$/,
+      );
+      const original = await api('GET', `${urls.mock}/_admin/files/${fileId}`);
+      assert.equal(original.versions.length, 2);
+      assert.equal(original.versions[1].note, 'External upload');
+      const copied = await api('GET', `${urls.mock}/_admin/files/${copy.id}`);
+      const xml =
+        zipEntry(
+          Buffer.from(copied.versions[0].content, 'base64'),
+          'word/document.xml',
+        )?.toString() ?? '';
+      assert.match(xml, /mất mạng/);
+    });
+
+    it('bluesheet:// joins the web user live in BlueSheet; blueslide:// opens BlueSlide', async () => {
+      const sheetId = await createFile('Bảng giờ.xlsx', corpus('sheet/sst-1.xlsx'), 'root');
+      await share(sheetId);
+      const { chromium } = createRequire(join(root, 'tests/e2e/package.json'))('@playwright/test');
+      browser = await chromium.launch();
+      const web = await browser.newPage({ viewport: { width: 1366, height: 900 } });
+      const q = new URLSearchParams({
+        file: sheetId,
+        token: await token('u1', sheetId),
+        editor: urls.editor,
+      });
+      await web.goto(`${urls.host}/?${q}`);
+      await waitFor(
+        () => web.evaluate(() => globalThis.boHost.events.some((e) => e.event === 'ready')),
+        'web ready',
+        60_000,
+      );
+
+      await launch([
+        `bluesheet://open?host=bluedrive&file=${sheetId}&token=${await token('u2', sheetId)}`,
+      ]);
+      await waitFor(
+        async () =>
+          (await exec('return document.querySelector("[data-app=sheet]") !== null;')) || null,
+        'BlueSheet',
+        60_000,
+      );
+      await waitFor(async () => (await title()).includes('Bảng giờ.xlsx'), 'sheet title', 60_000);
+      await new Promise((r) => setTimeout(r, 3000));
+
+      // The web user types a formula; the desktop replica has it and saves it to BlueDrive.
+      const frame = web.frameLocator('iframe');
+      const nameBox = frame.getByLabel('Hộp tên');
+      await nameBox.click();
+      await nameBox.fill('H20');
+      await nameBox.press('Enter');
+      await web.keyboard.type('=2*21');
+      await web.keyboard.press('Enter');
+      let sheetXml = '';
+      await waitFor(
+        async () => {
+          await click('[data-command="file.save"]');
+          const st = await api('GET', `${urls.mock}/_admin/files/${sheetId}`);
+          const v = st.versions.at(-1);
+          sheetXml =
+            zipEntry(Buffer.from(v.content, 'base64'), 'xl/worksheets/sheet1.xml')?.toString() ??
+            '';
+          return st.versions.length > 1 && /<f>2\*21<\/f>/.test(sheetXml);
+        },
+        "desktop save with the web user's formula",
+        60_000,
+      );
+      assert.match(sheetXml, /<c r="H20"[^>]*>\s*<f>2\*21<\/f>/);
+
+      const deckId = await createFile(
+        'Trình bày.pptx',
+        corpus('slide/slide-text-bullets.pptx'),
+        'root',
+      );
+      await share(deckId);
+      await launch([
+        `blueslide://open?host=bluedrive&file=${deckId}&token=${await token('u2', deckId)}`,
+      ]);
+      await waitFor(
+        async () =>
+          (await exec('return document.querySelector("[data-app=slide]") !== null;')) || null,
+        'BlueSlide',
+        60_000,
+      );
+      await waitFor(async () => (await opens(deckId)) >= 1, 'slide session');
+    });
+  },
+);

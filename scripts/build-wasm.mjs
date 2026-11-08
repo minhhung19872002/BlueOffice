@@ -21,7 +21,12 @@ run('cargo', [
 const out = join(root, 'packages', 'engine-wasm', 'pkg');
 mkdirSync(out, { recursive: true });
 run('wasm-bindgen', [
-  join(root, 'target', 'wasm32-unknown-unknown', profile, 'bo_wasm.wasm'),
+  join(
+    process.env.CARGO_TARGET_DIR ?? join(root, 'target'),
+    'wasm32-unknown-unknown',
+    profile,
+    'bo_wasm.wasm',
+  ),
   '--target',
   'web',
   '--out-dir',

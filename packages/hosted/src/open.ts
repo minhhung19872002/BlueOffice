@@ -7,6 +7,7 @@ import type { CloseReason, CollabClient, SocketFactory } from '@blueoffice/colla
 import type { Platform } from '@blueoffice/platform';
 import { loadWasmReplica, startCollab, type Replica } from './collab';
 import { HostedStatus, SessionMode, parseMode } from './mode';
+import { syncPendingSave, type OfflineSaves, type SyncOutcome } from './offline';
 import { guardPlatform } from './readonly';
 import {
   appForFile,
@@ -16,6 +17,7 @@ import {
   type FetchLike,
   type HostCommand,
   type HostFileRef,
+  type HostedOffline,
   type HostedApp,
   type HostedSession,
 } from './session';
@@ -36,6 +38,16 @@ export interface OpenHostedOptions {
   onSaved?: (result: unknown) => void;
   onCollaborators?: (collaborators: unknown) => void;
   onEnded?: (r: CloseReason) => void;
+  /**
+   * Offline saves (desktop): saving while the server is unreachable keeps the
+   * file locally; a copy left from an earlier session is synced when the file
+   * is opened again (`…/sync`, possibly a conflict copy).
+   */
+  offline?: OfflineSaves;
+  /** A pending offline save was synced while opening. */
+  onOfflineSync?: (r: SyncOutcome) => void;
+  /** A save was kept locally because the server was unreachable. */
+  onSavedOffline?: () => void;
 }
 
 export interface HostedEditor {
@@ -53,10 +65,50 @@ export interface HostedEditor {
 }
 
 export async function openHosted(o: OpenHostedOptions): Promise<HostedEditor> {
-  const { session, file } = await openSession(o.api, o.ref, o.fetchImpl);
+  let { session, file } = await openSession(o.api, o.ref, o.fetchImpl);
+  const pending = o.offline ? await o.offline.get(o.ref.host, o.ref.fileId) : null;
+  if (o.offline && pending) {
+    // Edits saved offline in an earlier session: never overwrite a newer host version.
+    const r = await syncPendingSave(o.api, session, pending, o.fetchImpl);
+    await o.offline.clear(o.ref.host, o.ref.fileId);
+    if (r.outcome === 'saved') {
+      // The host now has the offline edits: open that version in a fresh session.
+      await o
+        .fetchImpl(`${o.api}/api/sessions/${encodeURIComponent(session.sessionId)}`, {
+          method: 'DELETE',
+          headers: { 'x-session-token': session.sessionToken },
+        })
+        .catch(() => null);
+      ({ session, file } = await openSession(o.api, o.ref, o.fetchImpl));
+    }
+    o.onOfflineSync?.(r);
+  }
+  // Last downloaded version, for opening the file while offline.
+  await o.offline
+    ?.putCopy(
+      {
+        host: o.ref.host,
+        fileId: o.ref.fileId,
+        name: file.name,
+        version: session.file.version ?? '',
+      },
+      file.bytes,
+    )
+    .catch(() => {});
   const app = appForFile(file.name);
   const mode = new SessionMode(parseMode(session.mode));
   const status = new HostedStatus();
+  // Offline = the live connection dropped after it had been up.
+  let wasOnline = false;
+  let wentOffline = false;
+  const offline: HostedOffline | undefined = o.offline
+    ? {
+        saves: o.offline,
+        host: o.ref.host,
+        isOffline: () => wentOffline,
+        ...(o.onSavedOffline ? { onSavedOffline: o.onSavedOffline } : {}),
+      }
+    : undefined;
   let platform = hostedPlatform(o.platform, {
     api: o.api,
     session,
@@ -65,6 +117,7 @@ export async function openHosted(o: OpenHostedOptions): Promise<HostedEditor> {
     mode,
     fetchImpl: o.fetchImpl,
     ...(o.onSaved ? { onSaved: o.onSaved } : {}),
+    ...(offline ? { offline } : {}),
   });
   // Commands run against the final platform (collaborative + view-mode guard).
   let final: Platform = platform;
@@ -79,7 +132,21 @@ export async function openHosted(o: OpenHostedOptions): Promise<HostedEditor> {
       replica: await (o.replica ?? loadWasmReplica)(),
       mode,
       saveNow: () => void command('save').catch(() => {}),
-      onStatus: (s) => status.setStatus(s),
+      onStatus: (s) => {
+        if (s === 'online') {
+          if (wentOffline && o.offline) {
+            // Back online in the same session: the replica resends the offline edits
+            // (CRDT); the local copy is not needed any more and a new version is written.
+            void o.offline.clear(o.ref.host, o.ref.fileId);
+            if (mode.editable) void command('save').catch(() => {});
+          }
+          wasOnline = true;
+          wentOffline = false;
+        } else if (s === 'offline' && wasOnline) {
+          wentOffline = true;
+        }
+        status.setStatus(s);
+      },
       onEnded: (r) => {
         status.setEnded(r);
         o.onEnded?.(r);

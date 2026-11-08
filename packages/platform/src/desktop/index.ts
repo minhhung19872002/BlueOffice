@@ -5,13 +5,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
-import {
-  AnonymousSession,
-  BrowserClipboard,
-  FileAccessStorage,
-  IndexedDbCache,
-  LocalRecentFiles,
-} from '../shared';
+import { AnonymousSession, BrowserClipboard, FileAccessStorage, LocalRecentFiles } from '../shared';
 import type {
   CollabChange,
   DocInfo,
@@ -24,6 +18,7 @@ import type {
   GlyphOutline,
   HostFileLink,
   MessageBus,
+  OfflineCache,
   OpenedFile,
   PageDisplayList,
   PeerRects,
@@ -179,6 +174,33 @@ export class DesktopFileAccess implements FileAccess {
       headers: { 'x-file-name': encodeURIComponent(suggestedName) },
     });
   }
+  async openPath(path: string): Promise<OpenedFile> {
+    const bytes = toBytes(await this.call<ArrayBuffer>('read_file', { path }));
+    return { name: path.split(/[\\/]/).pop() ?? path, path, bytes };
+  }
+}
+
+/**
+ * Offline cache in a local folder (`<app data>/offline`, prompt §3.4
+ * "desktop = thư mục cache cục bộ"): survives restarts and web view resets,
+ * holds offline saves of host files and the crash-recovery copy.
+ */
+export class DesktopDiskCache implements OfflineCache {
+  constructor(private readonly call: Invoke = invoke as Invoke) {}
+  async get(key: string): Promise<Uint8Array | null> {
+    try {
+      return toBytes(await this.call<ArrayBuffer>('cache_get', { key }));
+    } catch (e) {
+      if (String(e).includes('cache:missing')) return null;
+      throw e;
+    }
+  }
+  async put(key: string, value: Uint8Array): Promise<void> {
+    await this.call('cache_put', value, { headers: { 'x-cache-key': encodeURIComponent(key) } });
+  }
+  async delete(key: string): Promise<void> {
+    await this.call('cache_delete', { key });
+  }
 }
 
 /** Desktop uses the fonts compiled into the native engine (same list/order as the web). */
@@ -257,6 +279,40 @@ class DesktopShell implements ShellIntegration {
       // Storage unavailable: the environment variable still works.
     }
   }
+  async serverFromEnvironment(): Promise<boolean> {
+    return !!(await this.call<string | null>('server_url').catch(() => null));
+  }
+  hasLaunchRequest(): Promise<boolean> {
+    return this.call<boolean>('has_launch_request').catch(() => false);
+  }
+  async getSetting(key: string): Promise<string | null> {
+    try {
+      return localStorage.getItem(`blueoffice.desktop.${key}`);
+    } catch {
+      return null;
+    }
+  }
+  async setSetting(key: string, value: string | null): Promise<void> {
+    try {
+      if (value === null) localStorage.removeItem(`blueoffice.desktop.${key}`);
+      else localStorage.setItem(`blueoffice.desktop.${key}`, value);
+    } catch {
+      // Storage unavailable: the setting lasts for this run only.
+    }
+  }
+  async openExternal(url: string): Promise<void> {
+    await this.call('open_url', { url });
+  }
+  onAuthCallback(handler: (url: string) => void): () => void {
+    let disposed = false;
+    const un = listen<string>('auth-callback', (e) => {
+      if (!disposed) handler(e.payload);
+    });
+    return () => {
+      disposed = true;
+      void un.then((f) => f());
+    };
+  }
   onOpenRequest(handler: (file: OpenedFile) => void): () => void {
     let disposed = false;
     const openPath = async (path: string) => {
@@ -327,7 +383,7 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Platfo
     engine: new NativeEngineHost(call),
     auth: new AnonymousSession(),
     window: new DesktopWindow(call),
-    offline: new IndexedDbCache('blueoffice-desktop-offline'),
+    offline: new DesktopDiskCache(call),
     shell: new DesktopShell(call),
     channel: (name: string) => new TauriBus(name),
     sheet: createNativeSheetHost(call),

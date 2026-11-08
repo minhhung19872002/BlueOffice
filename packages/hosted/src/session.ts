@@ -7,6 +7,7 @@
  */
 import type { DocumentStorage, OpenedFile, Platform, StoredDocument } from '@blueoffice/platform';
 import type { SessionMode } from './mode';
+import { OfflineError, reach, type OfflineSaves } from './offline';
 
 /** `DocumentStorage.id` / `DocumentRef.provider` of the session file. */
 export const HOSTED_STORAGE = 'blueoffice-session';
@@ -59,11 +60,13 @@ export async function openSession(
   ref: HostFileRef,
   fetchImpl: FetchLike,
 ): Promise<{ session: HostedSession; file: OpenedFile }> {
-  const res = await fetchImpl(`${api}/api/sessions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ host: ref.host, fileId: ref.fileId, token: ref.accessToken }),
-  });
+  const res = await reach(() =>
+    fetchImpl(`${api}/api/sessions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ host: ref.host, fileId: ref.fileId, token: ref.accessToken }),
+    }),
+  );
   if (!res.ok) throw new Error(`session.create ${res.status}`);
   const session = (await res.json()) as HostedSession;
   const contents = await fetchImpl(
@@ -90,26 +93,60 @@ export async function fetchAllowedOrigins(api: string, fetchImpl: FetchLike): Pr
     : [];
 }
 
-/** Saves bytes as a new host version (`POST …/checkpoint?save=true`). */
+/**
+ * Saves bytes as a new host version (`POST …/checkpoint?save=true`); throws
+ * {@link OfflineError} when the server cannot be reached.
+ */
 export async function checkpoint(
   api: string,
   session: HostedSession,
   bytes: Uint8Array,
   fetchImpl: FetchLike,
 ): Promise<unknown> {
-  const res = await fetchImpl(
-    `${api}/api/sessions/${encodeURIComponent(session.sessionId)}/checkpoint?save=true`,
-    {
+  const res = await reach(() =>
+    fetchImpl(`${api}/api/sessions/${encodeURIComponent(session.sessionId)}/checkpoint?save=true`, {
       method: 'POST',
       headers: {
         'x-session-token': session.sessionToken,
         'content-type': 'application/octet-stream',
       },
       body: bytes as BodyInit,
-    },
+    }),
   );
   if (!res.ok) throw new Error(`session.save ${res.status}`);
   return res.json().catch(() => null);
+}
+
+/** Editor actions reported to the host's audit log (docs/bohp.md §B `…/audit`). */
+export type AuditAction = 'print' | 'export' | 'download';
+
+/** Best effort: an audit report never blocks or fails the user's action. */
+export async function reportAudit(
+  api: string,
+  session: HostedSession,
+  action: AuditAction,
+  detail: string,
+  fetchImpl: FetchLike,
+): Promise<void> {
+  try {
+    await fetchImpl(`${api}/api/sessions/${encodeURIComponent(session.sessionId)}/audit`, {
+      method: 'POST',
+      headers: { 'x-session-token': session.sessionToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ action, detail }),
+    });
+  } catch {
+    // Offline: the action itself already happened locally.
+  }
+}
+
+/** Offline behaviour of a hosted platform (desktop). */
+export interface HostedOffline {
+  saves: OfflineSaves;
+  host: string;
+  /** The live connection is down (saves go to the offline cache without trying). */
+  isOffline: () => boolean;
+  /** A save was kept locally. */
+  onSavedOffline?: () => void;
 }
 
 /** Bytes of the open file in its own format, from the engine of `app`. */
@@ -141,16 +178,46 @@ export function hostedPlatform(
     mode: SessionMode;
     fetchImpl: FetchLike;
     onSaved?: (result: unknown) => void;
+    /** Keep saves locally while the server is unreachable (desktop). */
+    offline?: HostedOffline;
   },
 ): Platform {
-  const { api, session, file, app, mode, fetchImpl } = opts;
+  const { api, session, file, app, mode, fetchImpl, offline } = opts;
+  // Host version the editor content is based on (offline saves sync against it).
+  let baseVersion = session.file.version ?? '';
+  const keepOffline = async (bytes: Uint8Array): Promise<unknown> => {
+    if (!offline) throw new OfflineError(null);
+    await offline.saves.put(
+      {
+        host: offline.host,
+        fileId: session.file.id,
+        name: file.name,
+        baseVersion,
+        savedAt: Date.now(),
+      },
+      bytes,
+    );
+    offline.onSavedOffline?.();
+    return { outcome: 'offline' };
+  };
   const saveVersion = async (bytes: Uint8Array): Promise<unknown> => {
     // The mode can change during the session (edit permission revoked).
     if (!mode.editable) throw new Error('session.readOnly');
-    const result = await checkpoint(api, session, bytes, fetchImpl);
+    if (offline?.isOffline()) return keepOffline(bytes);
+    let result: unknown;
+    try {
+      result = await checkpoint(api, session, bytes, fetchImpl);
+    } catch (e) {
+      if (e instanceof OfflineError && offline) return keepOffline(bytes);
+      throw e;
+    }
+    const v = (result as { version?: unknown } | null)?.version;
+    if (typeof v === 'string') baseVersion = v;
     opts.onSaved?.(result);
     return result;
   };
+  const audit = (action: AuditAction, detail: string) =>
+    void reportAudit(api, session, action, detail, fetchImpl);
   const save = async (bytes: Uint8Array): Promise<string | null> => {
     await saveVersion(bytes);
     return savedName(file.name, app);
@@ -186,10 +253,19 @@ export function hostedPlatform(
     files: {
       openFile: base.files.openFile.bind(base.files),
       // Same-format saves go back to the host; other formats (PDF, CSV) go to the disk.
-      saveFile: async (bytes, name, mime) =>
-        name.toLowerCase().endsWith(`.${ownExt}`)
-          ? save(bytes)
-          : base.files.saveFile(bytes, name, mime),
+      saveFile: async (bytes, name, mime) => {
+        if (name.toLowerCase().endsWith(`.${ownExt}`)) return save(bytes);
+        const saved = await base.files.saveFile(bytes, name, mime);
+        // Exports leave the host: the host's audit log hears about them (prompt §6A.6).
+        if (saved !== null) audit('export', name.split('.').pop()?.toLowerCase() ?? '');
+        return saved;
+      },
+    },
+    print: {
+      printPdf: async (pdf, title) => {
+        await base.print.printPdf(pdf, title);
+        audit('print', title);
+      },
     },
     // Class instances: copy the methods explicitly (a spread only copies own fields).
     shell: {

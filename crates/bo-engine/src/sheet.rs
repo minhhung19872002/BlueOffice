@@ -21,8 +21,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 mod cmd;
-mod comments;
 pub(crate) mod collab;
+mod comments;
 mod pivot_cmd;
 mod png;
 mod print;

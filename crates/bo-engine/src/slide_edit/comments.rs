@@ -142,25 +142,29 @@ fn initials(name: &str) -> String {
 fn store(tx: &mut Tx<'_>, slide: usize, list: &[ModernComment]) -> R<()> {
     let s = &tx.pres.slides[slide];
     let sld_id = s.slide_id;
-    let part = match comment_part(tx.pres, slide) {
-        Some(p) => p,
-        None => {
-            let name = format!("/ppt/comments/modernComment_{sld_id:X}_0.xml");
-            let id = (1..)
-                .map(|n| format!("rId{n}"))
-                .find(|id| s.info.rels.iter().all(|r| &r.id != id))
-                .unwrap_or_default();
-            let rel = Rel {
-                id,
-                rel_type: REL_COMMENTS.into(),
-                target: format!("../comments/modernComment_{sld_id:X}_0.xml"),
-                external: false,
-            };
-            tx.fields(slide, |f| f.rels.push(rel))?;
-            name
-        }
+    let part = if let Some(p) = comment_part(tx.pres, slide) {
+        p
+    } else {
+        let name = format!("/ppt/comments/modernComment_{sld_id:X}_0.xml");
+        let id = (1..=s.info.rels.len() + 1)
+            .map(|n| format!("rId{n}"))
+            .find(|id| s.info.rels.iter().all(|r| &r.id != id))
+            .unwrap_or_default();
+        let rel = Rel {
+            id,
+            rel_type: REL_COMMENTS.into(),
+            target: format!("../comments/modernComment_{sld_id:X}_0.xml"),
+            external: false,
+        };
+        tx.fields(slide, |f| f.rels.push(rel))?;
+        name
     };
-    put_part(tx, &part, Some(CT_COMMENTS), comments_xml(list, sld_id, 0).into_bytes())
+    put_part(
+        tx,
+        &part,
+        Some(CT_COMMENTS),
+        comments_xml(list, sld_id, 0).into_bytes(),
+    )
 }
 
 /// Author id of `name`, added to the authors part (and the presentation's
@@ -187,11 +191,17 @@ fn author_id(tx: &mut Tx<'_>, name: &str) -> R<String> {
         provider_id: "None".into(),
     });
     let part = authors_part(tx.pres).unwrap_or_else(|| AUTHORS_PART.to_owned());
-    put_part(tx, &part, Some(CT_AUTHORS), authors_xml(&people).into_bytes())?;
+    put_part(
+        tx,
+        &part,
+        Some(CT_AUTHORS),
+        authors_xml(&people).into_bytes(),
+    )?;
     if authors_part(tx.pres).is_none() {
         let before = PresFields::of(tx.pres);
         let mut after = before.clone();
-        let rid = (1..)
+        let n = tx.pres.info.rels.len() + tx.pres.slides.len() + tx.pres.masters.len() + 1;
+        let rid = (1..=n)
             .map(|n| format!("rId{n}"))
             .find(|id| {
                 tx.pres.info.rels.iter().all(|r| &r.id != id)

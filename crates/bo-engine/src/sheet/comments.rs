@@ -153,25 +153,22 @@ impl SheetEngine {
         self.comment_edit(sheet, |wb| {
             let person_id = person_id(wb, author);
             let ws = &mut wb.sheets[sheet];
-            let (cell, parent_id) = match parent {
-                Some(p) => {
-                    let root = ws
-                        .threaded_comments
-                        .iter()
-                        .find(|c| c.id == p && c.parent_id.is_none())
-                        .ok_or_else(|| EngineError::Sheet(format!("no thread {p}")))?;
-                    (root.cell, Some(p.to_owned()))
+            let (cell, parent_id) = if let Some(p) = parent {
+                let root = ws
+                    .threaded_comments
+                    .iter()
+                    .find(|c| c.id == p && c.parent_id.is_none())
+                    .ok_or_else(|| EngineError::Sheet(format!("no thread {p}")))?;
+                (root.cell, Some(p.to_owned()))
+            } else {
+                if ws
+                    .threaded_comments
+                    .iter()
+                    .any(|c| c.cell == cell && c.parent_id.is_none())
+                {
+                    return Err(EngineError::Sheet(format!("{cell} already has a thread")));
                 }
-                None => {
-                    if ws
-                        .threaded_comments
-                        .iter()
-                        .any(|c| c.cell == cell && c.parent_id.is_none())
-                    {
-                        return Err(EngineError::Sheet(format!("{cell} already has a thread")));
-                    }
-                    (cell, None)
-                }
+                (cell, None)
             };
             let n = ws.threaded_comments.len();
             let id = {
@@ -189,29 +186,26 @@ impl SheetEngine {
                 text: text.clone(),
                 done: false,
             };
-            match &parent_id {
+            if let Some(p) = &parent_id {
                 // A reply goes after the last comment of its thread.
-                Some(p) => {
-                    let at = ws
-                        .threaded_comments
-                        .iter()
-                        .rposition(|x| x.id == *p || x.parent_id.as_ref() == Some(p))
-                        .map_or(ws.threaded_comments.len(), |i| i + 1);
-                    ws.threaded_comments.insert(at, c);
-                }
-                None => {
-                    ws.threaded_comments.push(c);
-                    // §18.7.3 legacy note for readers without threaded comments.
-                    ws.comments.retain(|n| n.cell != cell);
-                    ws.comments.push(Comment {
-                        cell,
-                        author: format!("tc={id}"),
-                        text: vec![TextRun {
-                            text: text.clone(),
-                            font: None,
-                        }],
-                    });
-                }
+                let at = ws
+                    .threaded_comments
+                    .iter()
+                    .rposition(|x| x.id == *p || x.parent_id.as_ref() == Some(p))
+                    .map_or(ws.threaded_comments.len(), |i| i + 1);
+                ws.threaded_comments.insert(at, c);
+            } else {
+                ws.threaded_comments.push(c);
+                // §18.7.3 legacy note for readers without threaded comments.
+                ws.comments.retain(|n| n.cell != cell);
+                ws.comments.push(Comment {
+                    cell,
+                    author: format!("tc={id}"),
+                    text: vec![TextRun {
+                        text: text.clone(),
+                        font: None,
+                    }],
+                });
             }
             Ok(id)
         })
@@ -245,8 +239,9 @@ impl SheetEngine {
                 ws.threaded_comments
                     .retain(|c| c.id != id && c.parent_id.as_deref() != Some(id));
                 let tc = format!("tc={id}");
-                ws.comments
-                    .retain(|n| !(n.cell == target.cell && (n.author == tc || n.author.starts_with("tc="))));
+                ws.comments.retain(|n| {
+                    !(n.cell == target.cell && (n.author == tc || n.author.starts_with("tc=")))
+                });
             } else {
                 ws.threaded_comments.retain(|c| c.id != id);
             }

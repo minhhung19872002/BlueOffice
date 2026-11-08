@@ -210,6 +210,22 @@ const nowMs = () => Date.now();
 const toRange = (r: Range): SheetRange => ({ r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 });
 const norm = (s: string) => s.replace(/\r\n?/g, '\n').replace(/\n$/, '');
 
+/** Numbers workbook loads; only the latest started one is shown. */
+class LoadTickets {
+  private n = 0;
+  next(): number {
+    this.n += 1;
+    return this.n;
+  }
+  /** Any load still running is not shown any more. */
+  cancel(): void {
+    this.n += 1;
+  }
+  isLatest(ticket: number): boolean {
+    return ticket === this.n;
+  }
+}
+
 export function BlueSheetEditor(props: BlueSheetEditorProps) {
   const [i18n] = useState(() => createI18n(props.language));
   return (
@@ -396,20 +412,22 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
    * shown: a slower earlier one (the start-up blank workbook, a previous file)
    * must not reset the selection of the file the user opened afterwards.
    */
-  const loadTicket = useRef(0);
-  const [loading, setLoading] = useState(false);
+  const [loadTicket] = useState(() => new LoadTickets());
+  // Busy from mount until the start-up workbook (or a file) is shown.
+  const [loading, setLoading] = useState(true);
   const load = useCallback(
     async (start: () => Promise<WorkbookInfo>, name: string) => {
-      const ticket = ++loadTicket.current;
-      setLoading(true);
+      const ticket = loadTicket.next();
       try {
+        await null;
+        setLoading(true);
         const wb = await start();
-        if (ticket === loadTicket.current) loaded(wb, name);
+        if (loadTicket.isLatest(ticket)) loaded(wb, name);
       } finally {
-        if (ticket === loadTicket.current) setLoading(false);
+        if (loadTicket.isLatest(ticket)) setLoading(false);
       }
     },
-    [loaded],
+    [loaded, loadTicket],
   );
 
   useEffect(() => {
@@ -429,7 +447,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     return () => {
       cancelled = true;
       // A load still running for this host is not shown any more.
-      loadTicket.current++;
+      loadTicket.cancel();
       un();
     };
     // Only on mount / host change.
@@ -652,23 +670,25 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   // ------------------------------------------------------------- comments
 
-  const loadThreads = useCallback(async () => {
-    if (!host || !commentsOpen) return;
-    const r = await host
-      .exec<SheetThreadInfo[]>({ cmd: 'comments', sheet })
-      .catch(() => null);
-    setThreads(r ?? []);
-  }, [host, sheet, commentsOpen]);
+  const [threadsRev, setThreadsRev] = useState(0);
   useEffect(() => {
-    void loadThreads();
-  }, [loadThreads, revision]);
+    if (!host || !commentsOpen) return;
+    let cancelled = false;
+    void host
+      .exec<SheetThreadInfo[]>({ cmd: 'comments', sheet })
+      .then((r) => !cancelled && setThreads(r ?? []))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, sheet, commentsOpen, revision, threadsRev]);
   /** Runs a comment command (one undo step) and reloads the threads. */
   const commentCmd = useCallback(
     async (cmd: SheetCommand) => {
       await exec(cmd);
-      await loadThreads();
+      setThreadsRev((n) => n + 1);
     },
-    [exec, loadThreads],
+    [exec],
   );
   const commentLabels = useMemo(
     () => ({

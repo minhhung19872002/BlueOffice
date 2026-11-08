@@ -246,7 +246,8 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                 }
                 // Threaded comments ([MS-XLSX] threaded comments part).
                 if !ws.threaded_comments.is_empty() {
-                    let tpath = names.fresh(|n| format!("/xl/threadedComments/threadedComment{n}.xml"));
+                    let tpath =
+                        names.fresh(|n| format!("/xl/threadedComments/threadedComment{n}.xml"));
                     rels.push(Relationship {
                         id: ids.alloc(),
                         rel_type: crate::threaded::REL_THREADED.into(),

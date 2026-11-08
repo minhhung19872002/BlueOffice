@@ -222,7 +222,7 @@ pub(crate) fn read_diagrams(
             let Some(data_part) = gd
                 .child("relIds")
                 .and_then(|r| r.attr("dm"))
-                .and_then(&target)
+                .and_then(target)
             else {
                 continue;
             };
@@ -236,7 +236,7 @@ pub(crate) fn read_diagrams(
             let Some(part) = ext
                 .first()
                 .and_then(|e| e.attr("relId"))
-                .and_then(&target)
+                .and_then(target)
                 .filter(|p| pkg.part(p).is_some())
             else {
                 continue;

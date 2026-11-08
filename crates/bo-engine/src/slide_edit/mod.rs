@@ -14,8 +14,8 @@
 pub mod build;
 pub mod chart;
 pub mod clip;
-pub mod comments;
 pub mod collab;
+pub mod comments;
 pub mod connect;
 pub mod geom;
 pub mod guides;
@@ -3704,7 +3704,9 @@ impl Engine {
                     });
                 }
                 SlideCommand::DeleteComment { id } => {
-                    ed.mutate(pres, &mut out, |tx, sel| comments::cmd_delete(tx, sel.slide, &id));
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        comments::cmd_delete(tx, sel.slide, &id)
+                    });
                 }
                 SlideCommand::SetChart { id, spec } => {
                     ed.mutate(pres, &mut out, |tx, sel| {

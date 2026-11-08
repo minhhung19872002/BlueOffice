@@ -226,7 +226,10 @@ mod tests {
             replies: vec![r("{R1}", "Đã sửa")],
         }];
         let xml = comments_xml(&c, 256, 0);
-        assert_eq!(read_comments(xml.as_bytes(), "/ppt/comments/modernComment_100_0.xml"), c);
+        assert_eq!(
+            read_comments(xml.as_bytes(), "/ppt/comments/modernComment_100_0.xml"),
+            c
+        );
         let a = vec![CommentAuthor {
             id: "{A1}".into(),
             name: "Nguyễn Văn An".into(),
@@ -234,6 +237,9 @@ mod tests {
             user_id: "an".into(),
             provider_id: "None".into(),
         }];
-        assert_eq!(read_authors(authors_xml(&a).as_bytes(), "/ppt/authors.xml"), a);
+        assert_eq!(
+            read_authors(authors_xml(&a).as_bytes(), "/ppt/authors.xml"),
+            a
+        );
     }
 }

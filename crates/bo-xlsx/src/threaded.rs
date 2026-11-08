@@ -146,13 +146,19 @@ mod tests {
             },
         ];
         let xml = threaded_xml(&c);
-        assert_eq!(read_threaded(xml.as_bytes(), "/xl/threadedComments/t1.xml"), c);
+        assert_eq!(
+            read_threaded(xml.as_bytes(), "/xl/threadedComments/t1.xml"),
+            c
+        );
         let p = vec![Person {
             id: "{00000000-0000-4000-8000-0000000000aa}".into(),
             display_name: "Nguyễn Văn An".into(),
             user_id: Some("an@example.invalid".into()),
             provider_id: Some("None".into()),
         }];
-        assert_eq!(read_persons(persons_xml(&p).as_bytes(), "/xl/persons/person.xml"), p);
+        assert_eq!(
+            read_persons(persons_xml(&p).as_bytes(), "/xl/persons/person.xml"),
+            p
+        );
     }
 }

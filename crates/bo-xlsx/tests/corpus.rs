@@ -852,17 +852,15 @@ fn smartart(i: usize) -> Book {
     );
     let steps = ["Lập dự toán", "Phê duyệt", "Giải ngân", "Quyết toán"];
     let (cx, cy) = (1_400_000i64, 700_000i64);
-    let shapes: String = steps[..i + 1]
-        .iter()
-        .enumerate()
-        .map(|(k, text)| {
-            let x = k as i64 * (cx + 200_000);
-            let rgb = ["2F6FB5", "E07B39", "5AA454", "7B1FA2"][k];
-            format!(
-                r#"<dsp:sp modelId="{{00000000-0000-0000-0000-0000000000{k:02}}}"><dsp:nvSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvSpPr/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="{x}" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="chevron"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="{rgb}"/></a:solidFill></dsp:spPr><dsp:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="vi-VN" sz="1100"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:rPr><a:t>{text}</a:t></a:r></a:p></dsp:txBody></dsp:sp>"#
-            )
-        })
-        .collect();
+    let mut shapes = String::new();
+    for (k, text) in steps[..=i].iter().enumerate() {
+        let x = k as i64 * (cx + 200_000);
+        let rgb = ["2F6FB5", "E07B39", "5AA454", "7B1FA2"][k];
+        let _ = write!(
+            shapes,
+            r#"<dsp:sp modelId="{{00000000-0000-0000-0000-0000000000{k:02}}}"><dsp:nvSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvSpPr/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="{x}" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="chevron"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="{rgb}"/></a:solidFill></dsp:spPr><dsp:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="vi-VN" sz="1100"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:rPr><a:t>{text}</a:t></a:r></a:p></dsp:txBody></dsp:sp>"#
+        );
+    }
     let x = |root: &str, inner: &str| {
         format!(r#"{DECL}<{root} xmlns:dgm="{DGM}" xmlns:a="{A}">{inner}</{root}>"#).into_bytes()
     };
@@ -972,7 +970,12 @@ fn threaded(i: usize) -> Book {
         r#"<sheetData><row r="2"><c r="B2"><v>120</v></c></row><row r="5"><c r="D5"><v>7</v></c></row></sheetData>"#,
     );
     s.rels = vec![
-        ("rId1".into(), "comments".into(), "../comments1.xml".into(), false),
+        (
+            "rId1".into(),
+            "comments".into(),
+            "../comments1.xml".into(),
+            false,
+        ),
         (
             "rId2".into(),
             "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment".into(),

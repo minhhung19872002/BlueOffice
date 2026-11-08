@@ -78,6 +78,9 @@ pub struct WorkbookInfo {
     /// The file contains a VBA project ([MS-OVBA]) or XLM macro sheets; kept
     /// when saving, never run.
     pub macros: bool,
+    /// Cells converted from TCVN3 / VNI fonts to Unicode on open (0 = none);
+    /// the conversion is the first undo step.
+    pub legacy_converted: usize,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -206,6 +209,8 @@ pub struct SheetEngine {
     collab: Option<collab::SheetCollab>,
     /// The open file has macros (warning bar; preserved, never executed).
     macros: bool,
+    /// Cells the last legacy-font conversion changed.
+    legacy_converted: usize,
     /// SmartArt drawing fallbacks of the open workbook, drawn once on load.
     drawings: Arc<BTreeMap<String, DrawingOverlay>>,
 }
@@ -440,6 +445,7 @@ impl SheetEngine {
             clip: None,
             collab: None,
             macros: false,
+            legacy_converted: 0,
             drawings: Arc::default(),
         }
     }
@@ -517,7 +523,25 @@ impl SheetEngine {
         let macros = !lower.ends_with(".csv") && bo_binary::has_macros(bytes);
         self.load(wb, name)?;
         self.macros = macros;
+        self.convert_legacy_text()?;
         self.info()
+    }
+
+    /// Converts cells shown in legacy Vietnamese fonts (TCVN3 `.Vn*`, `VNI-*`)
+    /// to Unicode and switches those fonts to a Unicode font
+    /// ([`bo_encoding::convert_workbook`]); one undo step. Returns the number
+    /// of cells converted (also reported as `legacyConverted`).
+    pub fn convert_legacy_text(&mut self) -> Result<usize> {
+        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let before = Box::new(wb.clone());
+        let n = bo_encoding::convert_workbook(wb);
+        self.legacy_converted = n;
+        if n > 0 {
+            self.live.rebuild(wb);
+            self.invalidate(None);
+            self.push_undo(UndoEntry::Workbook(before));
+        }
+        Ok(n)
     }
 
     /// New empty workbook with one sheet.
@@ -553,6 +577,7 @@ impl SheetEngine {
         self.undo.clear();
         self.redo.clear();
         self.macros = false;
+        self.legacy_converted = 0;
         self.info()
     }
 
@@ -601,6 +626,7 @@ impl SheetEngine {
                 })
                 .collect(),
             macros: self.macros,
+            legacy_converted: self.legacy_converted,
         })
     }
 

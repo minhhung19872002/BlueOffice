@@ -152,7 +152,8 @@
       "nextComment": "Next comment",
       "previousComment": "Previous comment",
       "comments": "Show comments",
-      "savePassword": "Save with password"
+      "savePassword": "Save with password",
+      "convertLegacyText": "Convert TCVN3/VNI text to Unicode"
     },
     "references": {
       "insertToc": "Table of contents",
@@ -1484,5 +1485,10 @@
     "position": "Picture position",
     "horizontal": "Horizontal",
     "vertical": "Vertical"
+  },
+  "legacy": {
+    "converted": "Converted {{count}} runs of TCVN3/VNI legacy Vietnamese text to Unicode (Times New Roman)",
+    "sheetConverted": "Converted {{count}} cells of TCVN3/VNI legacy Vietnamese text to Unicode (Times New Roman)",
+    "undo": "Undo conversion"
   }
 }

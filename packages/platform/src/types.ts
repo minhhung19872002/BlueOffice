@@ -25,6 +25,8 @@ export interface DocInfo {
   kind?: 'doc' | 'slide';
   /** The file has macros: they are kept when saving but never run. */
   macros?: boolean;
+  /** Runs converted from TCVN3 / VNI fonts to Unicode on open (undo restores them). */
+  legacyConverted?: number;
   /** Saved with a password ([MS-OFFCRYPTO]). */
   protected?: boolean;
 }
@@ -480,6 +482,8 @@ export type EditCommand =
   | { cmd: 'newFromTemplate'; id: string; name: string }
   | { cmd: 'review' | 'acceptAllRevisions' | 'rejectAllRevisions' }
   | { cmd: 'setTrackChanges'; on: boolean }
+  /** TCVN3 / VNI text → Unicode (legacy Vietnamese fonts); one undo step. */
+  | { cmd: 'convertLegacyText' }
   | { cmd: 'setAuthor'; name: string }
   | { cmd: 'setRevisionView'; view: RevisionView }
   | { cmd: 'acceptRevision' | 'rejectRevision'; id?: number }

@@ -152,7 +152,8 @@
       "nextComment": "Chú thích tiếp",
       "previousComment": "Chú thích trước",
       "comments": "Hiện chú thích",
-      "savePassword": "Lưu kèm mật khẩu"
+      "savePassword": "Lưu kèm mật khẩu",
+      "convertLegacyText": "Chuyển chữ TCVN3/VNI sang Unicode"
     },
     "references": {
       "insertToc": "Mục lục",
@@ -1484,5 +1485,10 @@
     "position": "Vị trí ảnh",
     "horizontal": "Ngang",
     "vertical": "Dọc"
+  },
+  "legacy": {
+    "converted": "Đã chuyển {{count}} đoạn chữ phông TCVN3/VNI sang Unicode (Times New Roman)",
+    "sheetConverted": "Đã chuyển {{count}} ô chữ phông TCVN3/VNI sang Unicode (Times New Roman)",
+    "undo": "Hoàn tác chuyển đổi"
   }
 }

@@ -287,6 +287,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [status, setStatus] = useState('');
   /** The open file has macros (kept, never run): show the warning bar. */
   const [macroWarning, setMacroWarning] = useState(false);
+  /** Cells converted from TCVN3 / VNI fonts to Unicode on open (0 = no notice). */
+  const [legacyNotice, setLegacyNotice] = useState(0);
   const [stats, setStats] = useState<{
     key: string;
     sum: number;
@@ -366,6 +368,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     (wb: WorkbookInfo, name: string) => {
       setInfo(wb);
       setMacroWarning(!!wb.macros);
+      setLegacyNotice(wb.legacyConverted ?? 0);
       setFileName(name);
       setSheet(0);
       setSelection(single({ row: 0, col: 0 }));
@@ -934,6 +937,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       },
       { shortcut: 'Ctrl+Z' },
     );
+    // TCVN3 / VNI cells → Unicode (also done once on open); one undo step.
+    add('edit.convertLegacyText', async (s) => {
+      const r = await s.host.exec<{ converted: number }>({ cmd: 'convertLegacyText' });
+      if (r && r.converted > 0) {
+        setLegacyNotice(r.converted);
+        await refreshInfo();
+      }
+    });
     add(
       'edit.redo',
       async (s) => {
@@ -2295,6 +2306,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         <div className={styles.macroBar} role="status" data-testid="macro-warning">
           <span>{t('security.macroWarning')}</span>
           <button type="button" onClick={() => setMacroWarning(false)}>
+            {t('security.dismiss')}
+          </button>
+        </div>
+      )}
+      {legacyNotice > 0 && (
+        <div className={styles.macroBar} role="status" data-testid="legacy-notice">
+          <span>{t('legacy.sheetConverted', { count: legacyNotice })}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setLegacyNotice(0);
+              run('edit.undo');
+            }}
+          >
+            {t('legacy.undo')}
+          </button>
+          <button type="button" onClick={() => setLegacyNotice(0)}>
             {t('security.dismiss')}
           </button>
         </div>

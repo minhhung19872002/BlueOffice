@@ -206,6 +206,117 @@ fn smartart_fallback_in_slides_and_sheets() {
     assert!(!s.render_json(&far).unwrap().contains("\"duyệt\""));
 }
 
+/// TCVN3 / VNI text in a self-generated `.docx`: converted to Unicode on open
+/// with a Unicode font, reported in `DocInfo`, and the first undo restores it.
+#[test]
+fn legacy_vietnamese_docx_is_converted_and_undoable() {
+    let tcvn = "Céng hoµ x· héi chñ nghÜa ViÖt Nam";
+    let vni = "Ñoäc laäp - Töï do - Haïnh phuùc";
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, &format!(r#"{{"cmd":"insertText","text":{}}}"#, serde_json::json!(tcvn)));
+    cmd(&mut e, r#"{"cmd":"splitParagraph"}"#);
+    cmd(&mut e, &format!(r#"{{"cmd":"insertText","text":{}}}"#, serde_json::json!(vni)));
+    let font = |e: &mut Engine, p: usize, len: usize, name: &str| {
+        cmd(
+            e,
+            &format!(
+                r#"{{"cmd":"setSelection","selection":{{"anchor":{{"p":{p},"o":0}},"focus":{{"p":{p},"o":{len}}}}}}}"#
+            ),
+        );
+        cmd(
+            e,
+            &format!(r#"{{"cmd":"formatText","format":{{"kind":"font","name":"{name}"}}}}"#),
+        );
+    };
+    font(&mut e, 0, tcvn.len(), ".VnTime");
+    font(&mut e, 1, vni.len(), "VNI-Times");
+    let legacy = e.save_docx().unwrap();
+    assert_eq!(
+        e.open(&sample_docx("Không có phông cũ"), "plain.docx")
+            .unwrap()
+            .legacy_converted,
+        0
+    );
+
+    let mut f = Engine::with_bundled_fonts();
+    let info = f.open(&legacy, "cu.docx").unwrap();
+    assert_eq!(info.legacy_converted, 2);
+    let text = f.document().unwrap().plain_text();
+    assert!(text.contains("Cộng hoà xã hội chủ nghĩa Việt Nam"), "{text}");
+    assert!(text.contains("Độc lập - Tự do - Hạnh phúc"), "{text}");
+    let bo_model::Block::Paragraph(p) = &f.document().unwrap().sections[0].blocks[0] else {
+        panic!("paragraph")
+    };
+    assert_eq!(p.runs[0].props.font.as_deref(), Some(bo_encoding_font()));
+    // Saved as Unicode; the first undo gives the legacy text back.
+    let saved = f.save_docx().unwrap();
+    let mut g = Engine::with_bundled_fonts();
+    assert_eq!(g.open(&saved, "moi.docx").unwrap().legacy_converted, 0);
+    cmd(&mut f, r#"{"cmd":"undo"}"#);
+    let back = f.document().unwrap().plain_text();
+    assert!(back.contains(tcvn) && back.contains(vni), "{back}");
+}
+
+fn bo_encoding_font() -> &'static str {
+    "Times New Roman"
+}
+
+/// The same for BlueSheet: cells formatted with a `.VnTime` / `VNI-*` font.
+#[test]
+fn legacy_vietnamese_xlsx_is_converted_and_undoable() {
+    use bo_model::sheet::{CellValue, CellXf, Font, Workbook};
+    let mut wb = Workbook::new();
+    let tcvn_font = wb.styles.add_font(Font {
+        name: Some(".VnTime".into()),
+        size: Some(12.0),
+        ..Font::default()
+    });
+    let vni_font = wb.styles.add_font(Font {
+        name: Some("VNI-Times".into()),
+        size: Some(12.0),
+        ..Font::default()
+    });
+    let x1 = wb.styles.add_xf(CellXf {
+        font_id: tcvn_font,
+        ..CellXf::default()
+    });
+    let x2 = wb.styles.add_xf(CellXf {
+        font_id: vni_font,
+        ..CellXf::default()
+    });
+    let ws = &mut wb.sheets[0];
+    ws.set_a1("A1", CellValue::Text("Hµ Néi".into()));
+    ws.set_a1("A2", CellValue::Text("Thaønh phoá Hoà Chí Minh".into()));
+    ws.set_a1("A3", CellValue::Text("Plain ASCII".into()));
+    ws.cells.get_mut(&(0, 0)).unwrap().style = x1;
+    ws.cells.get_mut(&(1, 0)).unwrap().style = x2;
+    let bytes = bo_xlsx::write_xlsx(&wb).unwrap();
+
+    let mut s = bo_engine::SheetEngine::with_bundled_fonts();
+    let info = s.open(&bytes, "cu.xlsx").unwrap();
+    assert_eq!(info.legacy_converted, 2);
+    let input = |s: &mut bo_engine::SheetEngine, r: u32| {
+        serde_json::to_value(s.cell(0, r, 0).unwrap()).unwrap()["input"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(input(&mut s, 0), "Hà Nội");
+    assert_eq!(input(&mut s, 1), "Thành phố Hồ Chí Minh");
+    assert_eq!(input(&mut s, 2), "Plain ASCII");
+    let r = s
+        .exec_json(r#"{"cmd":"formatState","sheet":0,"row":0,"col":0}"#)
+        .unwrap();
+    assert!(r.contains("Times New Roman"), "{r}");
+    assert!(s.undo().unwrap());
+    assert_eq!(input(&mut s, 0), "Hµ Néi");
+    // Nothing left to convert after the explicit command on Unicode text.
+    assert!(s.redo().unwrap());
+    let again = s.exec_json(r#"{"cmd":"convertLegacyText"}"#).unwrap();
+    assert!(again.contains(r#""converted":0"#), "{again}");
+}
+
 #[test]
 fn opens_odt_as_a_document() {
     let doc = bo_engine::plain_text_document("Xin chào ODF\nDòng hai");

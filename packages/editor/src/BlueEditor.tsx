@@ -248,6 +248,7 @@ function EditorInner({
         edit: null,
         panel: null,
         macroWarning: !!info.macros,
+        legacyNotice: info.legacyConverted ?? 0,
       });
       view.current?.setDocument(info);
       platform.window.setTitle(`${info.name} — ${t('app.doc')}`);
@@ -970,6 +971,15 @@ function EditorInner({
     });
     // Review: track changes (ECMA-376 Part 1, §17.13.5).
     const rv = (s: EditorState) => s.review;
+    r.register({
+      id: 'review.convertLegacyText',
+      isEnabled: hasDoc,
+      run: async () => {
+        const r = await controller.current?.run({ cmd: 'convertLegacyText' });
+        store.setState({ legacyNotice: r?.info?.legacyConverted ?? 0 });
+        view.current?.focus();
+      },
+    });
     r.register({
       id: 'review.trackChanges',
       shortcut: 'Ctrl+Shift+R',
@@ -1936,6 +1946,28 @@ function EditorInner({
                 }}
                 onCancel={() => store.setState({ passwordPrompt: null })}
               />
+            )}
+            {state.legacyNotice > 0 && (
+              <div
+                className={styles.macroBar}
+                style={{ top: state.macroWarning ? 34 : 0 }}
+                role="status"
+                data-testid="legacy-notice"
+              >
+                <span>{t('legacy.converted', { count: state.legacyNotice })}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    store.setState({ legacyNotice: 0 });
+                    void registry.execute('edit.undo', store.getState());
+                  }}
+                >
+                  {t('legacy.undo')}
+                </button>
+                <button type="button" onClick={() => store.setState({ legacyNotice: 0 })}>
+                  {t('security.dismiss')}
+                </button>
+              </div>
             )}
             {state.macroWarning && (
               <div className={styles.macroBar} role="status" data-testid="macro-warning">

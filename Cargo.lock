@@ -523,6 +523,7 @@ dependencies = [
 name = "bo-edit"
 version = "0.1.0"
 dependencies = [
+ "bo-encoding",
  "bo-model",
  "proptest",
  "regex",
@@ -552,6 +553,7 @@ dependencies = [
  "bo-docx",
  "bo-drawingml",
  "bo-edit",
+ "bo-encoding",
  "bo-engine",
  "bo-formula",
  "bo-layout",

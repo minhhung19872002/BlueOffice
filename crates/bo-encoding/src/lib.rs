@@ -23,7 +23,7 @@
 pub mod cp1252;
 mod tables;
 
-use bo_model::{Document, RunContent};
+use bo_model::{Document, RunContent, RunProps, StyleSheet};
 
 pub use tables::{VOWELS, VOWELS_UPPER};
 
@@ -260,6 +260,174 @@ pub fn convert_document(doc: &mut Document) -> usize {
     count
 }
 
+/// Legacy encoding of a font slot pair: the hAnsi font (characters ≥ U+0080,
+/// ECMA-376 Part 1, §17.3.2.26 rFonts) when given, else the ASCII font.
+fn legacy_of_props(p: &RunProps) -> Option<Option<(Legacy, bool)>> {
+    p.font_h_ansi
+        .as_deref()
+        .or(p.font.as_deref())
+        .map(legacy_from_font)
+}
+
+/// Font slots of `p` switched to [`REPLACEMENT_FONT`].
+fn replace_fonts(p: &mut RunProps) {
+    p.font = Some(REPLACEMENT_FONT.to_owned());
+    if p.font_h_ansi.is_some() {
+        p.font_h_ansi = Some(REPLACEMENT_FONT.to_owned());
+    }
+}
+
+/// Converts every run of `blocks` (tables included) whose effective font is a
+/// legacy Vietnamese font. A run without its own font inherits from its
+/// character style, its paragraph style chain, then the document defaults
+/// (§17.7.2 style hierarchy). Converted runs get the Unicode font explicitly.
+fn convert_blocks(
+    blocks: &mut [bo_model::Block],
+    styles: &StyleSheet,
+    default: Option<(Legacy, bool)>,
+) -> usize {
+    let style_legacy = |id: Option<&str>| -> Option<Option<(Legacy, bool)>> {
+        let id = id?;
+        styles
+            .chain(id)
+            .iter()
+            .rev()
+            .find_map(|s| legacy_of_props(&s.rpr))
+    };
+    let mut count = 0;
+    for b in blocks {
+        match b {
+            bo_model::Block::Paragraph(p) => {
+                let para = style_legacy(p.props.style.as_deref());
+                for run in &mut p.runs {
+                    let legacy = legacy_of_props(&run.props)
+                        .or_else(|| style_legacy(run.props.style.as_deref()))
+                        .or(para)
+                        .unwrap_or(default);
+                    let Some((enc, upper)) = legacy else { continue };
+                    let mut any = false;
+                    for item in &mut run.content {
+                        if let RunContent::Text(t) = item {
+                            *t = convert(t, enc, upper);
+                            any = true;
+                        }
+                    }
+                    if any {
+                        replace_fonts(&mut run.props);
+                        count += 1;
+                    }
+                }
+            }
+            bo_model::Block::Table(t) => {
+                for row in &mut t.rows {
+                    for cell in &mut row.cells {
+                        count += convert_blocks(&mut cell.blocks, styles, default);
+                    }
+                }
+            }
+            bo_model::Block::Opaque(_) => {}
+        }
+    }
+    count
+}
+
+/// Like [`convert_document`] but leaves the document defaults alone and also
+/// covers tables, headers/footers and notes (for `.docx`, where the result is
+/// an undoable edit): converted runs get [`REPLACEMENT_FONT`] explicitly and
+/// styles naming a legacy font are switched to it. Returns the number of runs
+/// converted (0 = nothing to do; the document is then unchanged).
+pub fn convert_document_runs(doc: &mut Document) -> usize {
+    let default = doc.default_run.font.as_deref().and_then(legacy_from_font);
+    let styles = doc.styles.clone();
+    let mut count = 0;
+    for s in &mut doc.sections {
+        count += convert_blocks(&mut s.blocks, &styles, default);
+        for hf in [&mut s.headers, &mut s.footers] {
+            for slot in [&mut hf.default, &mut hf.first, &mut hf.even]
+                .into_iter()
+                .flatten()
+            {
+                count += convert_blocks(slot, &styles, default);
+            }
+        }
+    }
+    for notes in [&mut doc.footnotes, &mut doc.endnotes] {
+        for blocks in notes.values_mut() {
+            count += convert_blocks(blocks, &styles, default);
+        }
+    }
+    if count > 0 {
+        for st in &mut doc.styles.styles {
+            if legacy_of_props(&st.rpr).flatten().is_some() {
+                replace_fonts(&mut st.rpr);
+            }
+        }
+    }
+    count
+}
+
+/// Converts the text of every cell (and rich-text run) of `wb` shown in a
+/// legacy Vietnamese font (cell format font, §18.8.22 font / §18.8.45 xf; run
+/// font §18.4.7 rPr) and switches those fonts to [`REPLACEMENT_FONT`]. Returns
+/// the number of cells converted.
+pub fn convert_workbook(wb: &mut bo_model::sheet::Workbook) -> usize {
+    use bo_model::sheet::CellValue;
+    let font_legacy: Vec<Option<(Legacy, bool)>> = wb
+        .styles
+        .fonts
+        .iter()
+        .map(|f| f.name.as_deref().and_then(legacy_from_font))
+        .collect();
+    let xf_legacy = |style: u32| -> Option<(Legacy, bool)> {
+        let xf = wb.styles.xf(style)?;
+        font_legacy.get(xf.font_id as usize).copied().flatten()
+    };
+    let mut count = 0;
+    let mut sheets = std::mem::take(&mut wb.sheets);
+    for ws in &mut sheets {
+        for cell in ws.cells.values_mut() {
+            let cell_legacy = xf_legacy(cell.style);
+            let hit = match &mut cell.value {
+                CellValue::Text(t) => cell_legacy.is_some_and(|(enc, upper)| {
+                    *t = convert(t, enc, upper);
+                    true
+                }),
+                CellValue::RichText(runs) => {
+                    let mut any = false;
+                    for r in runs {
+                        let own = r
+                            .font
+                            .as_ref()
+                            .and_then(|f| f.name.as_deref())
+                            .map(legacy_from_font);
+                        if let Some((enc, upper)) = own.unwrap_or(cell_legacy) {
+                            r.text = convert(&r.text, enc, upper);
+                            if let Some(f) = r.font.as_mut().filter(|f| f.name.is_some()) {
+                                f.name = Some(REPLACEMENT_FONT.to_owned());
+                            }
+                            any = true;
+                        }
+                    }
+                    any
+                }
+                _ => false,
+            };
+            if hit {
+                count += 1;
+            }
+        }
+    }
+    wb.sheets = sheets;
+    if count > 0 {
+        for f in &mut wb.styles.fonts {
+            if f.name.as_deref().and_then(legacy_from_font).is_some() {
+                f.name = Some(REPLACEMENT_FONT.to_owned());
+            }
+        }
+    }
+    count
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,6 +606,68 @@ mod tests {
         let p = doc.paragraphs().next().unwrap();
         assert_eq!(p.runs[1].props.font.as_deref(), Some(REPLACEMENT_FONT));
         assert_eq!(p.runs[3].props.font.as_deref(), Some("Arial"));
+    }
+
+    /// `.docx` variant: style inheritance, tables and headers; defaults untouched.
+    #[test]
+    fn document_runs_through_styles_tables_headers() {
+        use bo_model::{Cell, Row, Style, StyleKind, Table};
+        let para = |text: &str, style: Option<&str>, font: Option<&str>| {
+            Block::Paragraph(Paragraph {
+                props: bo_model::ParaProps {
+                    style: style.map(str::to_owned),
+                    ..Default::default()
+                },
+                runs: vec![Run::text(
+                    text,
+                    RunProps {
+                        font: font.map(str::to_owned),
+                        ..Default::default()
+                    },
+                )],
+                ..Default::default()
+            })
+        };
+        let mut doc = Document::default();
+        let mut st = Style::new("Cu", "Cũ", StyleKind::Paragraph);
+        st.rpr.font = Some(".VnTime".into());
+        doc.styles.styles.push(st);
+        let mut sect = Section::default();
+        sect.blocks.push(para("ViÖt Nam", Some("Cu"), None));
+        sect.blocks.push(para("ViÖt Nam", None, None));
+        sect.blocks.push(Block::Table(Table {
+            rows: vec![Row {
+                cells: vec![Cell {
+                    blocks: vec![para("Haø Noäi", None, Some("VNI-Helve"))],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }));
+        sect.headers.default = Some(vec![para("céng hoµ", None, Some(".VnTimeH"))]);
+        doc.sections.push(sect);
+        assert_eq!(convert_document_runs(&mut doc), 3);
+        let s = &doc.sections[0];
+        let text = |b: &Block| match b {
+            Block::Paragraph(p) => p.plain_text(),
+            _ => String::new(),
+        };
+        assert_eq!(text(&s.blocks[0]), "Việt Nam");
+        // No legacy font anywhere in its chain: unchanged.
+        assert_eq!(text(&s.blocks[1]), "ViÖt Nam");
+        let Block::Table(t) = &s.blocks[2] else {
+            panic!("table")
+        };
+        assert_eq!(text(&t.rows[0].cells[0].blocks[0]), "Hà Nội");
+        assert_eq!(
+            text(&s.headers.default.as_ref().unwrap()[0]),
+            "CỘNG HOÀ"
+        );
+        assert_eq!(doc.styles.styles[0].rpr.font.as_deref(), Some(REPLACEMENT_FONT));
+        assert_eq!(doc.default_run.font, None);
+        // Already Unicode: nothing more to do.
+        assert_eq!(convert_document_runs(&mut doc), 0);
     }
 
     proptest::proptest! {

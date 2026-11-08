@@ -135,6 +135,9 @@ pub enum Command {
     },
     /// Review state only (track changes, revisions, comments).
     Review,
+    /// Convert text in legacy Vietnamese fonts (TCVN3 `.Vn*`, VNI-*) to Unicode
+    /// and switch those runs to a Unicode font; one undoable step.
+    ConvertLegacyText,
     /// Track-changes mode on/off (ECMA-376 Part 1, §17.13.5).
     SetTrackChanges {
         on: bool,
@@ -841,6 +844,9 @@ impl crate::Engine {
                         }
                     }
                     Command::SetTrackChanges { on } => s.set_track_changes(on),
+                    Command::ConvertLegacyText => {
+                        self.legacy_converted = s.convert_legacy_text()?;
+                    }
                     Command::SetAuthor { name } => s.set_author(&name),
                     Command::AcceptRevision { id } | Command::RejectRevision { id } => {
                         let accept = matches!(cmd_kind, CmdKind::Accept);

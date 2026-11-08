@@ -256,6 +256,28 @@ describe('BlueSheetEditor', () => {
     expect(p.window.setTitle).toHaveBeenLastCalledWith(expect.stringContaining('Báo cáo.xlsx'));
   });
 
+  it('tells about TCVN3/VNI text converted on open and undoes it', async () => {
+    const { host } = fakeHost();
+    const { p } = platform(host);
+    let openHandler: ((f: { name: string; bytes: Uint8Array }) => void) | undefined;
+    (p.shell as { onOpenRequest: unknown }).onOpenRequest = (
+      h: (f: { name: string; bytes: Uint8Array }) => void,
+    ) => {
+      openHandler = h;
+      return () => {};
+    };
+    const base = await host.info();
+    host.open = async () => ({ ...base, legacyConverted: 3 });
+    render(<BlueSheetEditor platform={p} language="vi-VN" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    act(() => openHandler?.({ name: 'Cũ.xlsx', bytes: new Uint8Array([80, 75]) }));
+    const bar = await screen.findByTestId('legacy-notice');
+    expect(bar.textContent).toContain('3 ô');
+    fireEvent.click(screen.getByText('Hoàn tác chuyển đổi'));
+    await waitFor(() => expect(host.undo).toHaveBeenCalled());
+    expect(screen.queryByTestId('legacy-notice')).toBeNull();
+  });
+
   it('warns about macros in an opened .xlsm and dismisses the bar', async () => {
     const { host } = fakeHost();
     const { p } = platform(host);

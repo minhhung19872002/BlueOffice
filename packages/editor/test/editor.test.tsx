@@ -151,6 +151,25 @@ describe('BlueEditor', () => {
     expect(p.window.setTitle).toHaveBeenCalledWith('a.docx — BlueDoc');
   });
 
+  it('tells about TCVN3/VNI text converted on open; the notice undoes it', async () => {
+    const p = fakePlatform();
+    const open = p.engine.open;
+    p.engine.open = async (b, name) => ({ ...(await open(b, name)), legacyConverted: 2 });
+    const command = p.engine.command;
+    // The conversion is the first undo step.
+    p.engine.command = async (c) => {
+      const r = await command(c);
+      return { ...r, format: { ...r.format, canUndo: true } };
+    };
+    render(<BlueEditor platform={p} />);
+    fireEvent.click(screen.getByText('Mở tệp từ máy'));
+    const bar = await screen.findByTestId('legacy-notice');
+    expect(bar.textContent).toContain('Đã chuyển 2 đoạn chữ');
+    fireEvent.click(screen.getByText('Hoàn tác chuyển đổi'));
+    await waitFor(() => expect(p.commands).toContainEqual({ cmd: 'undo' }));
+    expect(screen.queryByTestId('legacy-notice')).toBeNull();
+  });
+
   it('switches language and theme through commands', async () => {
     render(<BlueEditor platform={fakePlatform()} />);
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Xem' }));

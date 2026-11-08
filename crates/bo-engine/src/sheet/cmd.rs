@@ -158,6 +158,9 @@ pub struct At {
 pub enum SheetCommand {
     /// Number formats, cell styles and chart types offered by the UI.
     Presets,
+    /// Convert cells in legacy Vietnamese fonts (TCVN3 / VNI) to Unicode; one
+    /// undo step. Returns `{ "converted": n }`.
+    ConvertLegacyText,
     FormatState {
         sheet: usize,
         row: u32,
@@ -730,6 +733,7 @@ impl SheetEngine {
         use SheetCommand as C;
         let locale = self.locale;
         match cmd {
+            C::ConvertLegacyText => Ok(json!({ "converted": self.convert_legacy_text()? })),
             C::Presets => Ok(json!({
                 "numberFormats": bo_sheet::style::NUMBER_PRESETS
                     .iter()

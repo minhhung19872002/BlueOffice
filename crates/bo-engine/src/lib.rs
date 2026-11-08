@@ -101,6 +101,9 @@ pub struct DocInfo {
     pub macros: bool,
     /// The document is saved with a password ([MS-OFFCRYPTO] Agile Encryption).
     pub protected: bool,
+    /// Runs converted from TCVN3 / VNI to Unicode on open (0 = none); the
+    /// conversion is the first undo step.
+    pub legacy_converted: usize,
 }
 
 impl DocInfo {
@@ -211,6 +214,8 @@ pub struct Engine {
     merge_preview: Option<usize>,
     /// The open file has macros (warning bar; they are preserved, never executed).
     macros: bool,
+    /// Runs the last `ConvertLegacyText` converted (reported in [`DocInfo`]).
+    pub(crate) legacy_converted: usize,
     /// Password used by `save_docx` (Agile Encryption); `None` saves unencrypted.
     save_password: Option<String>,
     /// Live collaboration binding of the open document (BlueDoc).
@@ -330,6 +335,11 @@ impl Engine {
             _ => name.to_owned(),
         };
         self.load(doc, &name)?;
+        // Text typed in TCVN3 / VNI fonts (.docx, .odt): converted to Unicode as
+        // the first undo step, reported in DocInfo (.doc converts while reading).
+        if is_zip {
+            self.command(edit::Command::ConvertLegacyText)?;
+        }
         self.macros = macros;
         // An encrypted document is saved with the same password unless changed.
         self.save_password = if encrypted {
@@ -368,6 +378,7 @@ impl Engine {
         self.session = Some(session);
         self.merge_preview = None;
         self.macros = false;
+        self.legacy_converted = 0;
         self.save_password = None;
         self.display = None;
         self.goal_x = None;
@@ -623,6 +634,7 @@ impl Engine {
             word_count: words,
             macros: self.macros,
             protected: self.save_password.is_some(),
+            legacy_converted: self.legacy_converted,
         })
     }
 

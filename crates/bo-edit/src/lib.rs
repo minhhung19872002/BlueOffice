@@ -988,6 +988,49 @@ impl Session {
         self.id_floor = floor;
     }
 
+    /// Convert text typed in legacy Vietnamese fonts (TCVN3 `.Vn*`, `VNI-*`) to
+    /// Unicode and switch those runs and styles to a Unicode font
+    /// ([`bo_encoding::convert_document_runs`]). One undoable transaction (not
+    /// tracked as a revision); returns the number of runs converted, 0 when
+    /// there is nothing to convert (no transaction then). The caret moves to the
+    /// start: converted text has other byte lengths.
+    pub fn convert_legacy_text(&mut self) -> Result<usize> {
+        let mut conv = self.doc.clone();
+        let n = bo_encoding::convert_document_runs(&mut conv);
+        if n == 0 {
+            return Ok(0);
+        }
+        let track = std::mem::replace(&mut self.track, false);
+        let res = self.edit(|tx, _| {
+            let old = tx.doc.sections.clone();
+            tx.push(Op::Sections {
+                index: 0,
+                remove: old,
+                insert: conv.sections,
+            })?;
+            for (endnote, new) in [(false, conv.footnotes), (true, conv.endnotes)] {
+                let old = if endnote {
+                    &tx.doc.endnotes
+                } else {
+                    &tx.doc.footnotes
+                };
+                if *old != new {
+                    let old = old.clone();
+                    tx.push(Op::Notes { endnote, old, new })?;
+                }
+            }
+            if tx.doc.styles != conv.styles {
+                tx.push(Op::Styles {
+                    old: Box::new(tx.doc.styles.clone()),
+                    new: Box::new(conv.styles),
+                })?;
+            }
+            Ok(Selection::caret(Pos::new(0, 0)))
+        });
+        self.track = track;
+        res.map(|_| n)
+    }
+
     /// Turn track-changes mode on or off.
     pub fn set_track_changes(&mut self, on: bool) {
         self.track = on;

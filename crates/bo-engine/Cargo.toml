@@ -26,6 +26,7 @@ bo-sheet.workspace = true
 bo-formula.workspace = true
 bo-xlsx.workspace = true
 bo-binary = { path = "../bo-binary" }
+bo-encoding = { path = "../bo-encoding" }
 bo-odf = { path = "../bo-odf" }
 bo-crypto = { path = "../bo-crypto" }
 bo-opc.workspace = true

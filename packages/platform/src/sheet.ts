@@ -29,6 +29,8 @@ export interface WorkbookInfo {
   sheets: SheetSummary[];
   /** The file has macros: they are kept when saving but never run. */
   macros?: boolean;
+  /** Cells converted from TCVN3 / VNI fonts to Unicode on open (undo restores them). */
+  legacyConverted?: number;
 }
 
 export type SheetHit =
@@ -460,6 +462,8 @@ export interface CellAt {
 /** A sheet editing command (`bo_engine::sheet::SheetCommand`). */
 export type SheetCommand =
   | { cmd: 'presets' }
+  /** TCVN3 / VNI text → Unicode (legacy Vietnamese fonts); one undo step. */
+  | { cmd: 'convertLegacyText' }
   | { cmd: 'formatState'; sheet: number; row: number; col: number }
   | { cmd: 'format'; sheet: number; range: SheetRange; patch: StylePatch }
   | { cmd: 'borders'; sheet: number; range: SheetRange; spec: BorderSpec }

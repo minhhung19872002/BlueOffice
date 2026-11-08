@@ -58,6 +58,8 @@ export interface EditorState {
   passwordPrompt: { file: OpenedFile; doc: StoredDocument | null; wrong: boolean } | null;
   /** The open file has macros (kept, never run): show the warning bar. */
   macroWarning: boolean;
+  /** Runs converted from TCVN3 / VNI to Unicode on open (0 = no notice). */
+  legacyNotice: number;
   /** Collaborators editing the same document (live collaboration). */
   peers: PeerCursor[];
   /** Draw collaborators' carets. */
@@ -83,6 +85,7 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   recovery: null,
   passwordPrompt: null,
   macroWarning: false,
+  legacyNotice: 0,
   peers: [],
   showPeers: true,
 });

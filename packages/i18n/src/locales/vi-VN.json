@@ -1183,10 +1183,10 @@
     },
     "differentFirst": "Trang đầu khác",
     "differentOddEven": "Trang chẵn lẻ khác",
-    "linkToPrevious": "Liên kết với phần trước",
     "pageNumber": "Chèn số trang",
     "pageCount": "Chèn tổng số trang",
-    "close": "Đóng đầu/chân trang"
+    "close": "Đóng đầu/chân trang",
+    "linkToPrevious": "Liên kết với phần trước"
   },
   "notes": {
     "title": "Chú thích",
@@ -1195,8 +1195,19 @@
     "none": "Chưa có chú thích.",
     "footnote": "Chú thích cuối trang {{n}}",
     "endnote": "Chú thích cuối văn bản {{n}}",
-<<<<<<< HEAD
-    "save": "Lưu"
+    "save": "Lưu",
+    "restart": "Đánh số",
+    "position": "Vị trí chú thích",
+    "goTo": "Sửa trên trang",
+    "restarts": {
+      "continuous": "Liên tục",
+      "eachSect": "Bắt đầu lại mỗi phần",
+      "eachPage": "Bắt đầu lại mỗi trang"
+    },
+    "positions": {
+      "pageBottom": "Cuối trang",
+      "beneathText": "Ngay dưới văn bản"
+    }
   },
   "hosted": {
     "view": "Chỉ xem",
@@ -1210,19 +1221,5 @@
     "opening": "Đang mở {{name}}…",
     "openFailed": "Không mở được tệp: {{message}}",
     "noServer": "Chưa cấu hình máy chủ BlueOffice (BLUEOFFICE_SERVER)"
-=======
-    "restart": "Đánh số",
-    "position": "Vị trí chú thích",
-    "goTo": "Sửa trên trang",
-    "restarts": {
-      "continuous": "Liên tục",
-      "eachSect": "Bắt đầu lại mỗi phần",
-      "eachPage": "Bắt đầu lại mỗi trang"
-    },
-    "positions": {
-      "pageBottom": "Cuối trang",
-      "beneathText": "Ngay dưới văn bản"
-    }
->>>>>>> worktree-agent-ace57e701af5ce14d
   }
 }

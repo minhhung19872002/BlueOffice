@@ -124,3 +124,4 @@ trước, BlueDrive tính sau. Việc tiếp theo và hạn chế: `docs/PROGRES
 - [0007](docs/adr/0007-digital-signatures.md) Ký số PAdES / OOXML qua trait `Signer` (USB token, ký từ xa)
 - [0008](docs/adr/0008-editing-transactions-and-command-bridge.md) Transaction op khả nghịch + cầu lệnh JSON cho chỉnh sửa
 - [0009](docs/adr/0009-npgsql-postgresql-license.md) Chấp nhận Npgsql (PostgreSQL License, kiểu BSD) cho server
+- [0010](docs/adr/0010-library-deviations-from-prompt.md) Thư viện khác prompt: cầu nối chuỗi JSON, serial date tự cài, không TanStack Query, CSS Modules một phần

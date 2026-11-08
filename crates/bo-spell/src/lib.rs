@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 
 pub mod aff;
+pub mod vi;
 
 use aff::{AffixFile, Flag};
 use std::collections::{HashMap, HashSet};
@@ -416,11 +417,23 @@ impl Checker for Dictionary {
 }
 
 /// Checkers for one language plus a user dictionary and an ignore list.
-#[derive(Default)]
 pub struct Speller {
     checkers: Vec<Box<dyn Checker>>,
     user: HashSet<String>,
     ignored: HashSet<String>,
+    /// Words written entirely in capitals (abbreviations such as `UBND`, `NĐ`) are not checked (default on).
+    pub ignore_all_caps: bool,
+}
+
+impl Default for Speller {
+    fn default() -> Speller {
+        Speller {
+            checkers: Vec::new(),
+            user: HashSet::new(),
+            ignored: HashSet::new(),
+            ignore_all_caps: true,
+        }
+    }
 }
 
 impl Speller {
@@ -448,6 +461,9 @@ impl Speller {
     /// The word is correct.
     #[must_use]
     pub fn check(&self, w: &str) -> bool {
+        if self.ignore_all_caps && case_of(w) == Case::All {
+            return true;
+        }
         self.checkers.is_empty()
             || self.user.contains(w)
             || self.ignored.contains(w)
@@ -614,6 +630,10 @@ happi/N
         s.ignore("We");
         let bad: Vec<&str> = s.misspelt(text).into_iter().map(|r| &text[r]).collect();
         assert_eq!(bad, vec!["walkd", "the", "way"]);
+        // Abbreviations in capitals are skipped unless asked.
+        assert!(s.check("UBND"));
+        s.ignore_all_caps = false;
+        assert!(!s.check("UBND"));
     }
 
     #[test]

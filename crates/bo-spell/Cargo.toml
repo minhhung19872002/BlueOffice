@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 unicode-segmentation.workspace = true
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

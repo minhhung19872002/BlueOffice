@@ -35,12 +35,13 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     (tài liệu công khai), mỗi tính năng ≥ 1 test.
   - Xong: crate `bo-spell` (`aff.rs` + `lib.rs`), 12 test (affix/điều kiện, cross product, hậu tố kép, chữ hoa, KEEPCASE/FORBIDDEN/NEEDAFFIX/NOSUGGEST, ghép từ, gợi ý REP/KEY/TRY/tách từ, ISO 8859-1, tách từ UAX #29, proptest không panic).
 - [ ] **CORE-SPELL-002** — Từ điển tiếng Anh license hợp lệ (SCOWL/en_US — giấy phép kiểu MIT/BSD) · P0 · 001 · ghi THIRD_PARTY_NOTICES; test từ đúng/sai.
-- [~] **CORE-SPELL-003** — Từ điển tiếng Việt: tự xây từ danh sách âm tiết hợp lệ theo quy tắc chính tả (phụ âm đầu × vần × thanh, tự sinh) + nguồn mở license hợp lệ · P0 · 001 · test âm tiết đúng/sai, dấu đặt sai vị trí.
+- [x] **CORE-SPELL-003** — Từ điển tiếng Việt: tự xây từ danh sách âm tiết hợp lệ theo quy tắc chính tả (phụ âm đầu × vần × thanh, tự sinh) + nguồn mở license hợp lệ · P0 · 001 · test âm tiết đúng/sai, dấu đặt sai vị trí.
   - Kế hoạch: `bo-spell::vi::Vietnamese` (Checker) kiểm từng âm tiết theo quy tắc chính tả công khai: tách thanh
     (NFD: huyền/sắc/hỏi/ngã/nặng) và dấu mũ/trăng/móc; âm đầu (b c ch d đ g gh gi h k kh l m n ng ngh nh p ph qu r s t
     th tr v x); bảng vần đầy đủ (≈150 vần); ràng buộc c/k/q, g/gh, ng/ngh; vần tắc p/t/c/ch chỉ thanh sắc/nặng; vị trí
     dấu thanh theo kiểu cũ và kiểu mới (oa/oe/uy). Gợi ý: đổi thanh, đổi a/ă/â e/ê o/ô/ơ u/ư d/đ, đặt lại dấu, xoá/đảo
     ký tự. Test: bảng âm tiết đúng/sai.
+  - Xong: `bo-spell::vi::Vietnamese` + `Speller::ignore_all_caps`; test bảng âm tiết đúng/sai, gợi ý (thanh, dấu mũ, vị trí dấu). Quét 8.369 từ tiếng Việt thật trong tài liệu repo (`cargo run -p bo-spell --example vi_scan -- <file>`): chỉ 1 từ bị từ chối (`NĐ`, chữ viết tắt — bỏ qua nhờ `ignore_all_caps`).
 - [ ] **CORE-SPELL-004** — Gạch đỏ trong BlueDoc (display list), gợi ý sửa (menu chuột phải), bỏ qua/bỏ qua tất cả/thêm vào từ điển người dùng · P0 · 002,003 · E2E.
 - [ ] **CORE-SPELL-005** — Ngôn ngữ theo đoạn/run (w:lang), kiểm tra toàn tài liệu (hộp thoại) · P1 · 004 · test.
 - [ ] **CORE-SPELL-006** — Soát trong ô BlueSheet và text box BlueSlide · P1 · 004 · E2E.

@@ -82,6 +82,8 @@ import {
   Settings2,
   ShieldCheck,
   Sigma,
+  Group,
+  Ungroup,
   Snowflake,
   Strikethrough,
   Table2,
@@ -127,9 +129,10 @@ import {
   type MenuItem,
 } from './dialogs';
 import { FormatCellsDialog, type NumberPreset } from './FormatCellsDialog';
-import { PivotDialog, PivotPanel, pivotAt, usePivotLabels } from './pivot';
+import { PivotDialog, PivotPanel, pivotAt, pivotSelectionItems, usePivotLabels } from './pivot';
 import {
   PivotCalcDialog,
+  PivotCalcItemDialog,
   PivotFieldDialog,
   PivotMoveDialog,
   PivotOptionsDialog,
@@ -234,6 +237,7 @@ type DialogState =
   | { kind: 'pivotValue'; pivot: PivotInfo; idx: number }
   | { kind: 'pivotOptions'; pivot: PivotInfo }
   | { kind: 'pivotCalc'; pivot: PivotInfo }
+  | { kind: 'pivotCalcItem'; pivot: PivotInfo }
   | { kind: 'pivotMove'; pivot: PivotInfo }
   | { kind: 'pivotSource'; pivot: PivotInfo }
   | { kind: 'message'; title: string; message: string };
@@ -1192,6 +1196,77 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       { ...inPivot, isChecked: () => !!activePivot?.rowGrandTotals },
     );
     add(
+      'pivot.valuesOnRows',
+      async (s) => {
+        if (s.pivot === null || !activePivot) return;
+        await exec({
+          cmd: 'pivotUpdate',
+          sheet: s.sheet,
+          index: s.pivot,
+          labels: pivotLabels,
+          ...areasOf(activePivot),
+          dataOnRows: !activePivot.dataOnRows,
+        });
+      },
+      {
+        isEnabled: (s) => s.pivot !== null && (activePivot?.values.length ?? 0) > 1,
+        isChecked: () => !!activePivot?.dataOnRows,
+      },
+    );
+    add(
+      'pivot.chart',
+      async (s) => {
+        if (s.pivot === null) return;
+        const done = await exec<{ index: number }>({
+          cmd: 'pivotChart',
+          sheet: s.sheet,
+          index: s.pivot,
+        });
+        if (done) {
+          setChart(done.index);
+          setStatus(t('sheetEditor.pivot.chartInserted'));
+        }
+      },
+      inPivot,
+    );
+    add(
+      'pivot.calculatedItem',
+      withPivot((pivot) => ({ kind: 'pivotCalcItem', pivot })),
+      {
+        isEnabled: (s) =>
+          s.pivot !== null &&
+          !!activePivot &&
+          activePivot.rows.length + activePivot.cols.length > 0,
+      },
+    );
+    // Manual groups: the item labels in the selection.
+    const groupSelection = (ungroup: boolean) => async (s: SheetEditorState) => {
+      if (s.pivot === null || !activePivot) return;
+      const r = rangeOf(s.selection);
+      const texts: string[] = [];
+      for (let row = r.r0; row <= Math.min(r.r1, r.r0 + 500); row++) {
+        for (let col = r.c0; col <= Math.min(r.c1, r.c0 + 50); col++) {
+          texts.push((await s.host.cell(s.sheet, row, col)).display);
+        }
+      }
+      const sel = pivotSelectionItems(activePivot, texts);
+      if (!sel) {
+        setStatus(t('sheetEditor.pivot.selectItems'));
+        return;
+      }
+      await exec({
+        cmd: 'pivotGroupItems',
+        sheet: s.sheet,
+        index: s.pivot,
+        field: sel.field,
+        items: sel.items,
+        ungroup,
+        labels: pivotLabels,
+      });
+    };
+    add('pivot.groupSelection', groupSelection(false), inPivot);
+    add('pivot.ungroupSelection', groupSelection(true), inPivot);
+    add(
       'pivot.delete',
       async (s) => {
         if (s.pivot === null) return;
@@ -1994,6 +2069,30 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 'small',
               ),
               item(
+                'pivot.calculatedItem',
+                t('sheetEditor.pivot.calcItem'),
+                <Sigma size={s} />,
+                'small',
+              ),
+              item(
+                'pivot.groupSelection',
+                t('sheetEditor.pivot.groupSelection'),
+                <Group size={s} />,
+                'small',
+              ),
+              item(
+                'pivot.ungroupSelection',
+                t('sheetEditor.pivot.ungroupSelection'),
+                <Ungroup size={s} />,
+                'small',
+              ),
+              item(
+                'pivot.valuesOnRows',
+                t('sheetEditor.pivot.valuesOnRows'),
+                <Rows3 size={s} />,
+                'small',
+              ),
+              item(
                 'pivot.options',
                 t('sheetEditor.pivot.options'),
                 <Settings2 size={s} />,
@@ -2005,6 +2104,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             id: 'pivotActions',
             label: t('sheetEditor.pivot.groupActions'),
             items: [
+              item('pivot.chart', t('sheetEditor.pivot.chart'), <ChartColumn size={18} />),
               item(
                 'pivot.fieldList',
                 t('sheetEditor.pivot.fieldList'),
@@ -2555,6 +2655,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       )}
       {dialog?.kind === 'pivotOptions' && (
         <PivotOptionsDialog {...common} pivot={dialog.pivot} labels={pivotLabels} />
+      )}
+      {dialog?.kind === 'pivotCalcItem' && (
+        <PivotCalcItemDialog {...common} pivot={dialog.pivot} labels={pivotLabels} />
       )}
       {dialog?.kind === 'pivotCalc' && (
         <PivotCalcDialog {...common} pivot={dialog.pivot} labels={pivotLabels} />

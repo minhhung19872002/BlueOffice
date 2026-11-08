@@ -62,6 +62,30 @@ impl Default for Acc {
 }
 
 impl Acc {
+    /// An aggregate holding the single number `v` (a calculated item's result).
+    fn of_number(v: f64) -> Acc {
+        Acc {
+            count: 1,
+            nums: 1,
+            sum: v,
+            sumsq: v * v,
+            prod: v,
+            min: v,
+            max: v,
+        }
+    }
+
+    /// Add another aggregate (totals including calculated items).
+    fn merge(&mut self, o: &Acc) {
+        self.count += o.count;
+        self.nums += o.nums;
+        self.sum += o.sum;
+        self.sumsq += o.sumsq;
+        self.prod *= o.prod;
+        self.min = self.min.min(o.min);
+        self.max = self.max.max(o.max);
+    }
+
     fn add(&mut self, v: &CellValue) {
         if matches!(v, CellValue::Empty) {
             return;
@@ -157,6 +181,9 @@ pub struct Layout {
     pub indents: Vec<(u32, u32, u32)>,
     /// Item label cells: `(body row, col, cache field)` (number formats of dates).
     pub label_fields: Vec<(u32, u32, u32)>,
+    /// Value fields on rows (`dataOnRows`): the value index of every body row
+    /// showing values; [`Layout::data_cols`] then all name value 0.
+    pub data_rows: Vec<(u32, usize)>,
     /// `rowItems` / `colItems`.
     pub row_items: Vec<PivotAxisItem>,
     pub col_items: Vec<PivotAxisItem>,
@@ -190,7 +217,10 @@ impl Path {
     }
 }
 
-type Cells = HashMap<(Vec<u32>, Vec<u32>), Vec<Acc>>;
+/// Row and column item paths of a report cell.
+type CellKey = (Vec<u32>, Vec<u32>);
+
+type Cells = HashMap<CellKey, Vec<Acc>>;
 
 /// One line of the row axis.
 #[derive(Debug, Clone)]
@@ -199,6 +229,95 @@ struct Line {
     key: Vec<u32>,
     /// The line shows values (group lines only with subtotals on top).
     values: bool,
+}
+
+/// A date filter value: a serial number or an ISO 8601 date.
+fn date_value(s: &str, sys: DateSystem) -> Option<f64> {
+    let t = s.trim();
+    t.parse::<f64>().ok().or_else(|| {
+        // ISO dates only (locale independent).
+        t.starts_with(|c: char| c.is_ascii_digit())
+            .then(|| {
+                crate::numfmt::parse_typed_date(
+                    t,
+                    &crate::numfmt::Locale::EN_US,
+                    sys == DateSystem::Date1904,
+                )
+            })
+            .flatten()
+            .filter(|_| t.len() >= 8 && t.as_bytes().get(4) == Some(&b'-'))
+            .map(|d| d.serial)
+    })
+}
+
+/// Whether the date `serial` passes the date filter `flt` (§18.18.60
+/// `ST_PivotFilterType`): fixed dates compare whole days; relative periods
+/// (weeks start on Sunday) need `today`, without it they keep every item.
+fn date_matches(flt: &PivotFieldFilter, serial: f64, today: Option<f64>, sys: DateSystem) -> bool {
+    use PivotFilterType as T;
+    let d1904 = sys == DateSystem::Date1904;
+    let day = serial.floor();
+    let parts = |s: f64| {
+        crate::numfmt::serial_to_datetime(s, d1904, 0).map(|d| (d.year, d.month, d.weekday))
+    };
+    let Some((y, m, _)) = parts(day) else {
+        return false;
+    };
+    let kind = flt.kind;
+    if kind.is_fixed_date() {
+        let Some(a) = date_value(&flt.value1, sys).map(f64::floor) else {
+            return false;
+        };
+        let b = date_value(&flt.value2, sys).map(f64::floor);
+        return match kind {
+            T::DateEqual => day == a,
+            T::DateNotEqual => day != a,
+            T::DateOlderThan => day < a,
+            T::DateOlderThanOrEqual => day <= a,
+            T::DateNewerThan => day > a,
+            T::DateNewerThanOrEqual => day >= a,
+            T::DateBetween => b.is_some_and(|b| day >= a.min(b) && day <= a.max(b)),
+            T::DateNotBetween => b.is_some_and(|b| day < a.min(b) || day > a.max(b)),
+            _ => true,
+        };
+    }
+    let k = kind as u32;
+    if (T::Q1 as u32..=T::Q4 as u32).contains(&k) {
+        return (m - 1) / 3 == k - T::Q1 as u32;
+    }
+    if (T::M1 as u32..=T::M12 as u32).contains(&k) {
+        return m - 1 == k - T::M1 as u32;
+    }
+    let Some(t) = today.map(f64::floor) else {
+        return true;
+    };
+    let Some((ty, tm, tw)) = parts(t) else {
+        return true;
+    };
+    let month = |yy: i32, mm: u32| i64::from(yy) * 12 + i64::from(mm);
+    let quarter = |yy: i32, mm: u32| i64::from(yy) * 4 + i64::from((mm - 1) / 3);
+    let (mine_m, cur_m) = (month(y, m), month(ty, tm));
+    let (mine_q, cur_q) = (quarter(y, m), quarter(ty, tm));
+    let week = t - f64::from(tw);
+    match kind {
+        T::Tomorrow => day == t + 1.0,
+        T::Today => day == t,
+        T::Yesterday => day == t - 1.0,
+        T::ThisWeek => day >= week && day < week + 7.0,
+        T::LastWeek => day >= week - 7.0 && day < week,
+        T::NextWeek => day >= week + 7.0 && day < week + 14.0,
+        T::ThisMonth => mine_m == cur_m,
+        T::LastMonth => mine_m == cur_m - 1,
+        T::NextMonth => mine_m == cur_m + 1,
+        T::ThisQuarter => mine_q == cur_q,
+        T::LastQuarter => mine_q == cur_q - 1,
+        T::NextQuarter => mine_q == cur_q + 1,
+        T::ThisYear => y == ty,
+        T::LastYear => y == ty - 1,
+        T::NextYear => y == ty + 1,
+        T::YearToDate => y == ty && day <= t,
+        _ => true,
+    }
 }
 
 /// The computation context of one report.
@@ -445,6 +564,23 @@ impl<'a> Engine<'a> {
     ) -> Vec<u32> {
         use PivotFilterType as T;
         let f = flt.field;
+        if flt.kind.is_date() {
+            // Date filters compare the items' dates; grouped items are captions.
+            if self.grouped(f) {
+                return items.to_vec();
+            }
+            let values = self.items(f);
+            return items
+                .iter()
+                .copied()
+                .filter(|x| {
+                    values
+                        .get(*x as usize)
+                        .and_then(|v| group::number_of(v, self.sys))
+                        .is_some_and(|d| date_matches(flt, d, self.labels.today, self.sys))
+                })
+                .collect();
+        }
         if flt.kind.is_caption() {
             let a = flt.value1.to_lowercase();
             let b = flt.value2.to_lowercase();
@@ -607,6 +743,124 @@ impl<'a> Engine<'a> {
             }
         }
         self.cells = cells;
+        self.apply_calc_items();
+    }
+
+    /// Calculated items (§18.10.1.8): for every report cell under an item of
+    /// the field, the formula over the sums of the items it names (same
+    /// context on the other fields); subtotals and grand totals include them.
+    /// Every aggregate of the item holds that one number (Count shows 1).
+    fn apply_calc_items(&mut self) {
+        let cache = self.cache;
+        for ci in &cache.calculated_items {
+            let f = ci.field;
+            let Some((axis, level)) = self.axis_of(f) else {
+                continue;
+            };
+            if self.grouped(f) || (f as usize) >= self.cache.fields.len() {
+                continue;
+            }
+            let items = self.items(f);
+            let key = PivotItemKey::of(&CellValue::Text(ci.name.clone()));
+            let Some(x) = items.iter().position(|v| PivotItemKey::of(v) == key) else {
+                continue;
+            };
+            let x = x as u32;
+            if self
+                .spec
+                .field(f)
+                .hidden
+                .iter()
+                .any(|h| PivotItemKey::of(h) == key)
+            {
+                continue;
+            }
+            let names: Vec<bo_model::sheet::PivotCacheField> = items
+                .iter()
+                .map(|v| bo_model::sheet::PivotCacheField {
+                    name: super::value_text(v),
+                    ..bo_model::sheet::PivotCacheField::default()
+                })
+                .collect();
+            let Ok(calc) = calc::compile(&ci.formula, &names) else {
+                continue;
+            };
+            if calc.refs.iter().any(|(_, i)| *i == x) {
+                continue;
+            }
+            let at = |k: &(Vec<u32>, Vec<u32>), i: u32| {
+                let mut k = k.clone();
+                match axis {
+                    Axis::Row => k.0[level] = i,
+                    Axis::Col => k.1[level] = i,
+                }
+                k
+            };
+            let own = |k: &(Vec<u32>, Vec<u32>)| match axis {
+                Axis::Row => k.0.len(),
+                Axis::Col => k.1.len(),
+            };
+            let mut made: Cells = HashMap::new();
+            let keys: Vec<(Vec<u32>, Vec<u32>)> = self
+                .cells
+                .keys()
+                .filter(|k| own(k) > level)
+                .cloned()
+                .collect();
+            for k in keys {
+                let target = at(&k, x);
+                if made.contains_key(&target) || self.cells.contains_key(&target) {
+                    continue;
+                }
+                if !calc
+                    .refs
+                    .iter()
+                    .any(|(_, i)| self.cells.contains_key(&at(&target, *i)))
+                {
+                    continue;
+                }
+                let accs: Vec<Acc> = (0..self.slot_fields.len())
+                    .map(|s| {
+                        let v = calc
+                            .eval(|i| self.cells.get(&at(&target, i)).map_or(0.0, |a| a[s].sum));
+                        match v {
+                            CellValue::Number(n) => Acc::of_number(n),
+                            _ => Acc {
+                                count: 1,
+                                ..Acc::default()
+                            },
+                        }
+                    })
+                    .collect();
+                made.insert(target, accs);
+            }
+            // Totals of the parents (and grand totals) include the item.
+            let mut totals: Vec<(CellKey, Vec<Acc>)> = Vec::new();
+            for (k, accs) in &made {
+                if own(k) != level + 1 {
+                    continue;
+                }
+                for j in 0..=level {
+                    let mut p = k.clone();
+                    match axis {
+                        Axis::Row => p.0.truncate(j),
+                        Axis::Col => p.1.truncate(j),
+                    }
+                    totals.push((p, accs.clone()));
+                }
+            }
+            let n = self.slot_fields.len();
+            for (p, accs) in totals {
+                let slot = self
+                    .cells
+                    .entry(p)
+                    .or_insert_with(|| vec![Acc::default(); n]);
+                for (a, b) in slot.iter_mut().zip(&accs) {
+                    a.merge(b);
+                }
+            }
+            self.cells.extend(made);
+        }
     }
 
     fn cell_accs(&self, rp: &[u32], cp: &[u32]) -> Option<&Vec<Acc>> {
@@ -966,6 +1220,9 @@ impl<'a> Engine<'a> {
         let m = spec.rows.len() as u32;
         let n = spec.cols.len() as u32;
         let compact = spec.layout == PivotLayout::Compact;
+        // `dataOnRows` (§18.10.1.73): the values pseudo-field is the innermost
+        // row field — every line with values is repeated once per value field.
+        let data_rows = spec.data_on_rows && k > 1;
         let names: Vec<String> = spec
             .values
             .iter()
@@ -976,15 +1233,15 @@ impl<'a> Engine<'a> {
         } else {
             labels.values.clone()
         };
-        // Label columns.
+        // Label columns (one more for the value names, except in compact form).
         let lc = if m == 0 {
-            u32::from(n > 0)
+            u32::from(n > 0 || data_rows)
         } else if compact {
             1
         } else {
-            m
+            m + u32::from(data_rows)
         };
-        // Column entries (× value fields).
+        // Column entries (× value fields unless they are on the rows).
         let mut entries: Vec<(ColKind, Vec<u32>)> = if n == 0 {
             vec![(ColKind::Data, Vec::new())]
         } else {
@@ -996,10 +1253,18 @@ impl<'a> Engine<'a> {
         let mut columns: Vec<(usize, usize)> = Vec::new();
         if k > 0 {
             for (e, _) in entries.iter().enumerate() {
-                columns.extend((0..k).map(|v| (e, v)));
+                if data_rows {
+                    columns.push((e, 0));
+                } else {
+                    columns.extend((0..k).map(|v| (e, v)));
+                }
             }
         }
-        let hr = if n == 0 { 1 } else { 1 + n + u32::from(k > 1) };
+        let hr = if n == 0 {
+            1
+        } else {
+            1 + n + u32::from(k > 1 && !data_rows)
+        };
         let mut lines: Vec<Line> = if m == 0 {
             vec![Line {
                 kind: RowKind::Data,
@@ -1016,7 +1281,31 @@ impl<'a> Engine<'a> {
                 values: true,
             });
         }
-        let height = hr + lines.len() as u32;
+        // Report lines with the value field each one shows (data on rows):
+        // `(line, value index, first line of the item)`.
+        let mut rows: Vec<(Line, Option<usize>, bool)> = Vec::with_capacity(lines.len());
+        for line in lines {
+            if !data_rows || !line.values {
+                rows.push((line, None, true));
+                continue;
+            }
+            let lead = compact && m > 0;
+            if lead {
+                // Compact form: the item line, then the value names below it.
+                rows.push((
+                    Line {
+                        values: false,
+                        ..line.clone()
+                    },
+                    None,
+                    true,
+                ));
+            }
+            for vi in 0..k {
+                rows.push((line.clone(), Some(vi), vi == 0 && !lead));
+            }
+        }
+        let height = hr + rows.len() as u32;
         let width = (lc + columns.len() as u32).max(1);
         if u64::from(height) * u64::from(width) > MAX_REPORT_CELLS {
             return Err("pivot table too large".into());
@@ -1096,7 +1385,7 @@ impl<'a> Engine<'a> {
                     }
                 }
             }
-            if k > 1 {
+            if k > 1 && !data_rows {
                 for (x, (_, vi)) in columns.iter().enumerate() {
                     put(
                         &mut out,
@@ -1106,7 +1395,7 @@ impl<'a> Engine<'a> {
                     );
                 }
             }
-        } else {
+        } else if !data_rows {
             for (x, (_, vi)) in columns.iter().enumerate() {
                 put(
                     &mut out,
@@ -1130,11 +1419,19 @@ impl<'a> Engine<'a> {
                 }
             }
         }
+        if data_rows && !compact {
+            put(
+                &mut out,
+                hr - 1,
+                lc - 1,
+                CellValue::Text(labels.values.clone()),
+            );
+        }
         out.bold_rows.extend(0..hr);
         out.row_kinds.extend((0..hr).map(|_| RowKind::Header));
         // Body.
         let mut prev_data: Option<Vec<u32>> = None;
-        for (i, line) in lines.iter().enumerate() {
+        for (i, (line, line_vi, first)) in rows.iter().enumerate() {
             let row = hr + i as u32;
             out.row_kinds.push(line.kind);
             let level = line.key.len().saturating_sub(1);
@@ -1149,67 +1446,88 @@ impl<'a> Engine<'a> {
                     out.label_fields.push((row, col, f));
                 }
             };
-            match line.kind {
-                RowKind::Grand => {
-                    label(
-                        &mut out,
-                        0,
-                        CellValue::Text(labels.grand_total.clone()),
-                        None,
-                    );
-                    out.bold_rows.push(row);
+            if let Some(vi) = line_vi {
+                // The value field's name in its label column.
+                let (col, indent) = if compact {
+                    (0, if m == 0 { 0 } else { line.key.len() as u32 + 1 })
+                } else {
+                    (lc - 1, 0)
+                };
+                put(&mut out, row, col, CellValue::Text(names[*vi].clone()));
+                if indent > 0 && line.kind != RowKind::Grand {
+                    out.indents.push((row, col, indent));
+                } else if compact && line.kind == RowKind::Grand && m > 0 {
+                    out.indents.push((row, col, 1));
                 }
-                RowKind::Blank | RowKind::Header => {}
-                RowKind::Data if m == 0 => {
-                    if n > 0 {
-                        put(&mut out, row, 0, CellValue::Text(caption.clone()));
-                    }
-                }
-                RowKind::Data | RowKind::Group | RowKind::Subtotal => {
-                    let own_from =
-                        if spec.layout == PivotLayout::Tabular && line.kind == RowKind::Data {
-                            0
-                        } else {
-                            level
-                        };
-                    // Outer labels: the first line of a group, or every line when repeated.
-                    if !compact {
-                        for l in 0..level {
-                            let f = spec.rows[l];
-                            let first = line.kind == RowKind::Data
-                                && own_from == 0
-                                && prev_data.as_ref().is_none_or(|p| p[..=l] != line.key[..=l]);
-                            if first || spec.field(f).repeat_labels {
-                                label(&mut out, l, self.label(f, line.key[l]), Some(f));
-                            }
-                        }
-                    }
-                    let f = spec.rows[level];
-                    if line.kind == RowKind::Subtotal {
+            }
+            if *first {
+                match line.kind {
+                    RowKind::Grand => {
                         label(
                             &mut out,
-                            level,
-                            self.total_caption(f, line.key[level]),
+                            0,
+                            CellValue::Text(labels.grand_total.clone()),
                             None,
                         );
                         out.bold_rows.push(row);
-                    } else {
-                        label(&mut out, level, self.label(f, line.key[level]), Some(f));
-                        if line.kind == RowKind::Group {
-                            out.bold_rows.push(row);
+                    }
+                    RowKind::Blank | RowKind::Header => {}
+                    RowKind::Data if m == 0 => {
+                        if n > 0 && !data_rows {
+                            put(&mut out, row, 0, CellValue::Text(caption.clone()));
                         }
                     }
-                    if line.kind == RowKind::Data {
-                        prev_data = Some(line.key.clone());
+                    RowKind::Data | RowKind::Group | RowKind::Subtotal => {
+                        let own_from =
+                            if spec.layout == PivotLayout::Tabular && line.kind == RowKind::Data {
+                                0
+                            } else {
+                                level
+                            };
+                        // Outer labels: the first line of a group, or every line when repeated.
+                        if !compact {
+                            for l in 0..level {
+                                let f = spec.rows[l];
+                                let first = line.kind == RowKind::Data
+                                    && own_from == 0
+                                    && prev_data.as_ref().is_none_or(|p| p[..=l] != line.key[..=l]);
+                                if first || spec.field(f).repeat_labels {
+                                    label(&mut out, l, self.label(f, line.key[l]), Some(f));
+                                }
+                            }
+                        }
+                        let f = spec.rows[level];
+                        if line.kind == RowKind::Subtotal {
+                            label(
+                                &mut out,
+                                level,
+                                self.total_caption(f, line.key[level]),
+                                None,
+                            );
+                            out.bold_rows.push(row);
+                        } else {
+                            label(&mut out, level, self.label(f, line.key[level]), Some(f));
+                            if line.kind == RowKind::Group {
+                                out.bold_rows.push(row);
+                            }
+                        }
+                        if line.kind == RowKind::Data {
+                            prev_data = Some(line.key.clone());
+                        }
                     }
                 }
+            } else if matches!(line.kind, RowKind::Subtotal | RowKind::Grand) {
+                out.bold_rows.push(row);
             }
             if !line.values {
                 continue;
             }
+            if let Some(vi) = line_vi {
+                out.data_rows.push((row, *vi));
+            }
             for (x, (e, vi)) in columns.iter().enumerate() {
                 let ck = &entries[*e].1;
-                let v = self.shown(&line.key, ck, *vi);
+                let v = self.shown(&line.key, ck, line_vi.unwrap_or(*vi));
                 put(&mut out, row, lc + x as u32, v);
             }
         }
@@ -1219,23 +1537,34 @@ impl<'a> Engine<'a> {
             .map(|(x, (_, vi))| (lc + x as u32, *vi))
             .collect();
         out.col_kinds = columns.iter().map(|(e, _)| entries[*e].0).collect();
-        // rowItems (§18.10.1.84): one `i` per body line.
-        out.row_items = lines
+        // rowItems (§18.10.1.84): one `i` per body line; with the values on
+        // the rows the data field index ends each line's path (`i`).
+        out.row_items = rows
             .iter()
-            .map(|l| PivotAxisItem {
-                kind: match l.kind {
-                    RowKind::Subtotal => "default".into(),
-                    RowKind::Blank => "blank".into(),
-                    RowKind::Grand => "grand".into(),
-                    _ => String::new(),
-                },
-                repeat: 0,
-                data_index: 0,
-                items: if l.kind == RowKind::Grand {
+            .map(|(l, vi, _)| {
+                let mut items = if l.kind == RowKind::Grand {
                     vec![0]
                 } else {
                     l.key.clone()
-                },
+                };
+                if let Some(vi) = vi {
+                    if l.kind == RowKind::Grand {
+                        items = vec![*vi as u32];
+                    } else {
+                        items.push(*vi as u32);
+                    }
+                }
+                PivotAxisItem {
+                    kind: match l.kind {
+                        RowKind::Subtotal => "default".into(),
+                        RowKind::Blank => "blank".into(),
+                        RowKind::Grand => "grand".into(),
+                        _ => String::new(),
+                    },
+                    repeat: 0,
+                    data_index: vi.map_or(0, |v| v as u32),
+                    items,
+                }
             })
             .collect();
         // colItems (§18.10.1.10): one `i` per data column; the values
@@ -1249,7 +1578,7 @@ impl<'a> Engine<'a> {
                 } else {
                     key.clone()
                 };
-                if k > 1 {
+                if k > 1 && !data_rows {
                     if *kind == ColKind::Grand {
                         items = vec![*vi as u32];
                     } else {
@@ -1263,7 +1592,7 @@ impl<'a> Engine<'a> {
                         ColKind::Grand => "grand".into(),
                     },
                     repeat: 0,
-                    data_index: *vi as u32,
+                    data_index: if data_rows { 0 } else { *vi as u32 },
                     items,
                 }
             })

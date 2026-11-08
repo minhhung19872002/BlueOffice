@@ -49,6 +49,10 @@ impl Emu {
     pub fn to_pt(self) -> f32 {
         self.0 as f32 / Self::PER_PT as f32
     }
+    /// Construct from points (rounded to the nearest EMU).
+    pub fn from_pt(pt: f32) -> Self {
+        Emu((f64::from(pt) * Self::PER_PT as f64).round() as i64)
+    }
 }
 
 #[cfg(test)]

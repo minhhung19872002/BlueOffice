@@ -785,6 +785,51 @@ fn connector_inside_a_group_follows_its_shapes() {
     assert!((conn.ends[1][1] - 410.0).abs() < 0.5, "{conn:?}");
 }
 
+// source: ECMA-376 Part 1, §20.1.7.6 xfrm flipH (a flipped group mirrors its children),
+// §20.1.2.2.10 stCxn / endCxn
+#[test]
+fn connector_inside_a_flipped_group_follows_its_shapes() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let a = insert_shape(&mut e, "rect", 100.0, 300.0);
+    let b = insert_shape(&mut e, "ellipse", 400.0, 300.0);
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{a},{b}]}}"#));
+    let cid = run(&mut e, r#"{"cmd":"insertConnector"}"#).selection[0].id;
+    run(
+        &mut e,
+        &format!(r#"{{"cmd":"select","ids":[{a},{b},{cid}]}}"#),
+    );
+    run(&mut e, r#"{"cmd":"group"}"#);
+    // Flip the group horizontally (as read from a file).
+    let mut p = bo_pptx::read_pptx(&e.save_pptx().unwrap()).unwrap();
+    for n in &mut p.slides[0].data.shapes {
+        if let ShapeNode::Group(g) = n {
+            if let Some(x) = g.props.xfrm.as_mut() {
+                x.flip_h = Some(true);
+            }
+        }
+    }
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&bo_pptx::write_pptx(&p).unwrap(), "flipped.pptx")
+        .unwrap();
+    // Mirrored about x = 300: the ellipse is now at 100–200.
+    let r = run(&mut e, r#"{"cmd":"click","x":150,"y":330,"deep":true}"#);
+    assert_eq!(r.selection[0].id, b);
+    run(
+        &mut e,
+        r#"{"cmd":"transform","transform":{"kind":"move","dx":0,"dy":80},"snap":false}"#,
+    );
+    let r = run(&mut e, &format!(r#"{{"cmd":"select","ids":[{cid}]}}"#));
+    let conn = r.connector.expect("connector");
+    assert_eq!(conn.attached, [true, true]);
+    let near = |p: [f64; 2], q: [f64; 2]| (p[0] - q[0]).abs() < 0.5 && (p[1] - q[1]).abs() < 0.5;
+    // Start: the rectangle's left edge (its right edge, mirrored) at x = 400;
+    // end: the moved ellipse's right edge (mirrored left edge) at x = 200, y = 410.
+    let mut ends = conn.ends;
+    ends.sort_by(|p, q| p[0].total_cmp(&q[0]));
+    assert!(near(ends[0], [200.0, 410.0]), "{conn:?}");
+    assert!(near(ends[1], [400.0, 330.0]), "{conn:?}");
+}
+
 fn table_of(e: &Engine, id: u32) -> bo_model::slide::Table {
     e.presentation().unwrap().slides[0]
         .data

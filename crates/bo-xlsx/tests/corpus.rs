@@ -813,6 +813,28 @@ fn charts(i: usize) -> Book {
     }
 }
 
+/// Charts in one-cell (§20.5.2.24) and absolute (§20.5.2.1) anchors.
+fn chart_anchors(i: usize) -> Book {
+    let mut b = charts(i);
+    let frame = r#"<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="2" name="Biểu đồ neo"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/>"#;
+    let anchor = match i {
+        1 => format!(
+            r#"<xdr:oneCellAnchor><xdr:from><xdr:col>4</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="4572000" cy="2743200"/>{frame}</xdr:oneCellAnchor>"#
+        ),
+        2 => format!(
+            r#"<xdr:absoluteAnchor><xdr:pos x="2438400" y="381000"/><xdr:ext cx="4876800" cy="2895600"/>{frame}</xdr:absoluteAnchor>"#
+        ),
+        _ => format!(
+            r#"<xdr:absoluteAnchor><xdr:pos x="0" y="1143000"/><xdr:ext cx="3657600" cy="2286000"/>{frame}</xdr:absoluteAnchor>"#
+        ),
+    };
+    let drawing = format!(
+        r#"{DECL}<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">{anchor}</xdr:wsDr>"#
+    );
+    b.parts[0].2 = drawing.into_bytes();
+    b
+}
+
 fn extensions(i: usize) -> Book {
     let root = r#" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x15 xr" xmlns:x15="http://schemas.microsoft.com/office/spreadsheetml/2010/11/main" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision""#;
     let pre = format!(
@@ -895,6 +917,7 @@ const FEATURES: &[Feature] = &[
     ("cf", "conditional formatting: cellIs, expression, colorScale, dataBar, iconSet, top10, text, x14 ext", conditional),
     ("tables", "tables (ListObject) with autoFilter, totals row, calculated columns, style info", tables),
     ("charts", "drawing + chartSpace parts (bar, bar+line combo, pie)", charts),
+    ("chart-anchors", "charts in a oneCellAnchor (from + ext) and absoluteAnchor (pos + ext)", chart_anchors),
     ("ext", "extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml", extensions),
 ];
 
@@ -1612,6 +1635,254 @@ fn writer_pivot_groups(i: usize) -> m::Workbook {
     wb
 }
 
+/// Calculated items (§18.10.1.8) on row and column fields.
+fn writer_pivot_items(i: usize) -> m::Workbook {
+    use bo_sheet::pivot::{create_pivot, set_calculated_item, PivotSpec};
+    let mut wb = pivot_book();
+    let labels = pivot_labels();
+    let source = m::CellRange::parse("A1:E31").unwrap();
+    let revenue = pivot_value(3, m::PivotFunction::Sum, "Tổng Doanh thu");
+    let at = m::CellRef::new(0, 0);
+    let (spec, items): (PivotSpec, Vec<(u32, &str, &str)>) = match i {
+        1 => (
+            PivotSpec {
+                rows: vec![0],
+                values: vec![revenue],
+                ..PivotSpec::default()
+            },
+            vec![(0, "Bắc + Nam", "='Bắc'+'Nam'")],
+        ),
+        2 => (
+            PivotSpec {
+                rows: vec![0],
+                cols: vec![1],
+                values: vec![revenue],
+                layout: m::PivotLayout::Outline,
+                ..PivotSpec::default()
+            },
+            vec![(1, "Đồ uống", "='Cà phê'+'Chè'")],
+        ),
+        _ => (
+            PivotSpec {
+                rows: vec![0, 1],
+                values: vec![revenue],
+                layout: m::PivotLayout::Compact,
+                ..PivotSpec::default()
+            },
+            vec![
+                (0, "Bắc − Nam", "='Bắc'-'Nam'"),
+                (0, "Trung ×2", "=Trung*2"),
+            ],
+        ),
+    };
+    create_pivot(&mut wb, 0, source, 1, at, &spec, &labels).unwrap();
+    for (f, name, formula) in items {
+        set_calculated_item(&mut wb, 1, 0, f, None, name, formula, &labels).unwrap();
+    }
+    wb
+}
+
+/// Manual grouping of items (§18.10.1.26 discretePr, §18.10.1.27 fieldGroup).
+fn writer_pivot_manual(i: usize) -> m::Workbook {
+    use bo_sheet::pivot::{create_pivot, group_items, ungroup_items, PivotSpec};
+    let mut wb = pivot_book();
+    let labels = bo_sheet::pivot::PivotLabels {
+        group: "Nhóm {n}".into(),
+        ..pivot_labels()
+    };
+    let source = m::CellRange::parse("A1:E31").unwrap();
+    let revenue = pivot_value(3, m::PivotFunction::Sum, "Tổng Doanh thu");
+    let at = m::CellRef::new(0, 0);
+    match i {
+        1 => {
+            let spec = PivotSpec {
+                rows: vec![0],
+                values: vec![revenue],
+                ..PivotSpec::default()
+            };
+            create_pivot(&mut wb, 0, source, 1, at, &spec, &labels).unwrap();
+            // Regions: Bắc (0), Nam (1), Trung (2).
+            group_items(&mut wb, 1, 0, 0, &[0, 2], &labels).unwrap();
+        }
+        2 => {
+            let spec = PivotSpec {
+                rows: vec![0],
+                cols: vec![1],
+                values: vec![revenue],
+                ..PivotSpec::default()
+            };
+            create_pivot(&mut wb, 0, source, 1, at, &spec, &labels).unwrap();
+            // Products (cache order): Chè (0), Cà phê (1), Gạo (2), Tiêu (3).
+            let g = group_items(&mut wb, 1, 0, 1, &[0, 1], &labels).unwrap();
+            group_items(&mut wb, 1, 0, g, &[1, 2], &labels).unwrap();
+        }
+        _ => {
+            let spec = PivotSpec {
+                rows: vec![1],
+                values: vec![revenue],
+                layout: m::PivotLayout::Outline,
+                ..PivotSpec::default()
+            };
+            create_pivot(&mut wb, 0, source, 1, at, &spec, &labels).unwrap();
+            let g = group_items(&mut wb, 1, 0, 1, &[0, 1, 3], &labels).unwrap();
+            // Take Tiêu out of the group again.
+            ungroup_items(&mut wb, 1, 0, 1, &[3], &labels).unwrap();
+            let _ = g;
+        }
+    }
+    wb
+}
+
+/// Date filters (§18.18.60) on a date row field; a 1904-system workbook
+/// grouped by years (dates written as xsd:dateTime, §18.17.4.1).
+fn writer_pivot_dates(i: usize) -> m::Workbook {
+    use bo_sheet::pivot::{create_pivot, group_field, GroupRequest, PivotSpec};
+    let mut wb = pivot_book();
+    let labels = pivot_labels();
+    let source = m::CellRange::parse("A1:E31").unwrap();
+    let revenue = pivot_value(3, m::PivotFunction::Sum, "Tổng Doanh thu");
+    let filter = |kind: m::PivotFilterType, a: &str, b: &str| m::PivotFieldFilter {
+        field: 2,
+        kind,
+        value1: a.into(),
+        value2: b.into(),
+        top: true,
+        ..m::PivotFieldFilter::default()
+    };
+    let flt = match i {
+        1 => vec![filter(m::PivotFilterType::DateBetween, "45078", "45291")],
+        2 => vec![filter(m::PivotFilterType::Q2, "", "")],
+        _ => vec![filter(
+            m::PivotFilterType::DateNewerThanOrEqual,
+            "45292",
+            "",
+        )],
+    };
+    if i == 3 {
+        // Same calendar dates in the 1904 system (serial − 1462).
+        wb.date1904 = true;
+        for (&(r, c), cell) in &mut wb.sheets[0].cells {
+            if let (true, m::CellValue::Number(n)) = (r > 0 && c == 2, &mut cell.value) {
+                *n -= 1462.0;
+            }
+        }
+    }
+    let flt: Vec<m::PivotFieldFilter> = flt
+        .into_iter()
+        .map(|mut f| {
+            if i == 3 {
+                f.value1 = "43830".into();
+            }
+            f
+        })
+        .collect();
+    let spec = PivotSpec {
+        rows: vec![2],
+        values: vec![revenue.clone()],
+        field_filters: flt,
+        ..PivotSpec::default()
+    };
+    create_pivot(&mut wb, 0, source, 1, m::CellRef::new(0, 0), &spec, &labels).unwrap();
+    if i == 3 {
+        let spec = PivotSpec {
+            rows: vec![2],
+            values: vec![revenue],
+            ..PivotSpec::default()
+        };
+        create_pivot(&mut wb, 0, source, 1, m::CellRef::new(0, 4), &spec, &labels).unwrap();
+        let years = GroupRequest::Dates {
+            years: true,
+            quarters: false,
+            months: false,
+            days: false,
+        };
+        group_field(&mut wb, 1, 1, 2, &years, &labels).unwrap();
+    }
+    wb
+}
+
+/// Several value fields on the row axis (§18.10.1.73 dataOnRows).
+fn writer_pivot_datarows(i: usize) -> m::Workbook {
+    use bo_sheet::pivot::{create_pivot, PivotSpec};
+    let mut wb = pivot_book();
+    let labels = pivot_labels();
+    let source = m::CellRange::parse("A1:E31").unwrap();
+    let mut values = vec![
+        pivot_value(3, m::PivotFunction::Sum, "Tổng Doanh thu"),
+        pivot_value(4, m::PivotFunction::Sum, "Tổng Số lượng"),
+    ];
+    let (cols, layout) = match i {
+        1 => (vec![], m::PivotLayout::Tabular),
+        2 => (vec![1], m::PivotLayout::Compact),
+        _ => {
+            values.push(pivot_value(3, m::PivotFunction::Average, "TB Doanh thu"));
+            (vec![], m::PivotLayout::Outline)
+        }
+    };
+    let spec = PivotSpec {
+        rows: vec![0],
+        cols,
+        values,
+        layout,
+        data_on_rows: true,
+        ..PivotSpec::default()
+    };
+    create_pivot(&mut wb, 0, source, 1, m::CellRef::new(0, 0), &spec, &labels).unwrap();
+    wb
+}
+
+/// Pivot charts (§21.2.2.142 pivotSource, §21.2.2.144 pivotFmts) plotting a
+/// pivot table and following it.
+fn writer_pivot_charts(i: usize) -> m::Workbook {
+    use bo_sheet::pivot::{create_pivot, update_pivot, PivotSpec};
+    let mut wb = pivot_book();
+    let labels = pivot_labels();
+    let source = m::CellRange::parse("A1:E31").unwrap();
+    let revenue = pivot_value(3, m::PivotFunction::Sum, "Tổng Doanh thu");
+    let (spec, kind) = match i {
+        1 => (
+            PivotSpec {
+                rows: vec![0],
+                values: vec![revenue],
+                ..PivotSpec::default()
+            },
+            "column",
+        ),
+        2 => (
+            PivotSpec {
+                rows: vec![1],
+                cols: vec![0],
+                values: vec![revenue],
+                ..PivotSpec::default()
+            },
+            "line",
+        ),
+        _ => (
+            PivotSpec {
+                rows: vec![0],
+                values: vec![revenue, pivot_value(4, m::PivotFunction::Sum, "Tổng SL")],
+                ..PivotSpec::default()
+            },
+            "combo",
+        ),
+    };
+    create_pivot(&mut wb, 0, source, 1, m::CellRef::new(0, 0), &spec, &labels).unwrap();
+    let mut chart = bo_sheet::chart::new_pivot_chart(&wb, 1, 0, kind).unwrap();
+    chart.title = Some(format!("Biểu đồ tổng hợp {i}"));
+    chart.pivot_buttons = i == 3;
+    wb.sheets[1].charts.push(chart);
+    if i == 2 {
+        // The chart follows a filter on the pivot (hidden product).
+        let mut spec = PivotSpec::of(&wb.sheets[1].pivots[0]);
+        spec.fields = vec![
+            m::PivotFieldOptions::default(),
+            field_opts(&|o| o.hidden = vec![m::CellValue::Text("Tiêu".into())]),
+        ];
+        update_pivot(&mut wb, 1, 0, &spec, &labels).unwrap();
+    }
+    wb
+}
+
 type WriterFeature = (&'static str, &'static str, fn(usize) -> m::Workbook);
 
 const WRITER_FEATURES: &[WriterFeature] = &[
@@ -1621,6 +1892,11 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-pivots", "BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter)", writer_pivots),
     ("writer-pivot-totals", "BlueSheet writer: pivot report settings (tabular with repeated labels + blank rows and column subtotals; outline with bottom subtotals, sort by value, top-N + label filter, medium style; compact with number format, % of total / parent, rank, value filter, hidden item, dark style)", writer_pivot_totals),
     ("writer-pivot-groups", "BlueSheet writer: pivot grouping and calculations (dates by years / quarters / months; numeric ranges × columns; years + months with a calculated field, difference from previous and running total)", writer_pivot_groups),
+    ("writer-pivot-items", "BlueSheet writer: calculated items (row field; column field in outline form; two items in compact form)", writer_pivot_items),
+    ("writer-pivot-manual", "BlueSheet writer: manual item groups (rows; two groups on a column field; group then ungroup one item)", writer_pivot_manual),
+    ("writer-pivot-dates", "BlueSheet writer: pivot date filters (dateBetween; Q2; dateNewerThanOrEqual in a 1904 workbook with a year grouping)", writer_pivot_dates),
+    ("writer-pivot-datarows", "BlueSheet writer: value fields on rows (tabular; compact × columns; outline with three values)", writer_pivot_datarows),
+    ("writer-pivot-charts", "BlueSheet writer: pivot charts (column; line following a hidden item; combo with field buttons)", writer_pivot_charts),
 ];
 
 fn corpus_dir() -> PathBuf {
@@ -1988,6 +2264,7 @@ fn corpus_pivot_features_round_trip() {
                     assert_eq!(rf.derived, fl.derived, "{ctx}");
                     assert_eq!(rf.num_fmt_id, fl.num_fmt_id, "{ctx}");
                 }
+                assert_eq!(rc.calculated_items, c.calculated_items, "{name}-{i}");
             }
             let mut pivots = 0;
             for (s, ws) in wb.sheets.iter().enumerate() {
@@ -2008,6 +2285,7 @@ fn corpus_pivot_features_round_trip() {
                     assert_eq!(rd.row_items, pt.row_items, "{ctx}");
                     assert_eq!(rd.col_items, pt.col_items, "{ctx}");
                     assert_eq!(rd.location, pt.location, "{ctx}");
+                    assert_eq!(rd.data_on_rows, pt.data_on_rows, "{ctx}");
                     let nf = wb.pivot_caches[0].fields.len() as u32 + 1;
                     for x in 0..nf {
                         assert_eq!(rd.field(x), pt.field(x), "{ctx} field {x}");
@@ -2042,5 +2320,103 @@ fn corpus_charts_are_summarized() {
             c[0].plots[0].series[0].categories,
             vec!["Bắc", "Trung", "Nam"]
         );
+    }
+}
+
+/// Pivot charts keep their `pivotSource` and series through write → read, and
+/// follow the pivot table (a hidden item drops a series point).
+#[test]
+fn corpus_pivot_charts_round_trip() {
+    for i in 1..=3 {
+        let wb = writer_pivot_charts(i);
+        let bytes = write_xlsx(&wb).unwrap();
+        let back = read_xlsx(&bytes).unwrap();
+        let c = &back.sheets[1].charts[0];
+        assert_eq!(
+            c.pivot_source.as_deref(),
+            Some("'Báo cáo'!BangTongHop1"),
+            "{i}"
+        );
+        assert_eq!(c.pivot_buttons, i == 3);
+        assert_eq!(
+            c.title.as_deref(),
+            Some(format!("Biểu đồ tổng hợp {i}").as_str())
+        );
+        let series: Vec<&m::ChartSeries> = c.plots.iter().flat_map(|p| &p.series).collect();
+        match i {
+            1 => {
+                assert_eq!(series.len(), 1);
+                assert_eq!(series[0].categories, vec!["Bắc", "Nam", "Trung"]);
+                assert!(series[0].val_ref.is_some());
+            }
+            2 => {
+                // Three regions as series; Tiêu hidden: three products.
+                assert_eq!(series.len(), 3);
+                assert_eq!(series[0].categories, vec!["Chè", "Cà phê", "Gạo"]);
+                assert_eq!(series[0].name.as_deref(), Some("Bắc"));
+            }
+            _ => {
+                assert_eq!(c.plots.len(), 2);
+                assert_eq!(series[1].name.as_deref(), Some("Tổng SL"));
+            }
+        }
+        let pkg = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+        let xml =
+            String::from_utf8(pkg.part("/xl/charts/chart1.xml").unwrap().data.clone()).unwrap();
+        assert!(
+            xml.contains("BangTongHop1</c:name><c:fmtId val=\"0\"/></c:pivotSource>"),
+            "{xml}"
+        );
+        assert!(xml.contains("<c:pivotFmts>"));
+        let again = read_xlsx(&write_xlsx(&back).unwrap()).unwrap();
+        assert_eq!(again.sheets[1].charts, back.sheets[1].charts);
+    }
+}
+
+#[test]
+fn corpus_chart_anchors_are_summarized() {
+    for i in 1..=3 {
+        let wb = read_xlsx(&build(&chart_anchors(i))).unwrap();
+        let c = &wb.sheets[0].charts[0];
+        if i == 1 {
+            assert_eq!(c.anchor, m::ChartAnchor::OneCell);
+            assert_eq!(c.from, m::CellRef::new(1, 4));
+            assert_eq!(c.ext, Some((4_572_000, 2_743_200)));
+        } else {
+            assert_eq!(c.anchor, m::ChartAnchor::Absolute);
+            assert!(c.pos.is_some() && c.ext.is_some());
+        }
+    }
+}
+
+/// A 1904 workbook writes group bounds as the same calendar dates
+/// (§18.17.4.1, xsd:dateTime) and reads them back as 1904 serials.
+#[test]
+fn pivot_dates_in_1904_workbooks() {
+    let wb = writer_pivot_dates(3);
+    let bytes = write_xlsx(&wb).unwrap();
+    let pkg = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+    let defs: Vec<String> = pkg
+        .parts()
+        .iter()
+        .filter(|p| p.name.contains("pivotCacheDefinition"))
+        .map(|p| String::from_utf8(p.data.clone()).unwrap())
+        .collect();
+    // 45000 (1900) = 43538 (1904) = 2023-03-15: the first date of the source.
+    assert!(
+        defs.iter()
+            .any(|d| d.contains("startDate=\"2023-03-15T00:00:00\"")),
+        "{defs:?}"
+    );
+    assert!(
+        defs.iter().all(|d| !d.contains("1919-")),
+        "1904 serials read as 1900"
+    );
+    let back = read_xlsx(&bytes).unwrap();
+    assert!(back.date1904);
+    for (c, rc) in wb.pivot_caches.iter().zip(&back.pivot_caches) {
+        for (f, rf) in c.fields.iter().zip(&rc.fields) {
+            assert_eq!(f.group, rf.group, "{}", f.name);
+        }
     }
 }

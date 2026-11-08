@@ -106,6 +106,8 @@ pub struct PivotSettings {
     pub field_options: Option<Vec<PivotFieldSpec>>,
     pub field_filters: Option<Vec<PivotFieldFilter>>,
     pub style: Option<PivotStyleSpec>,
+    /// Several value fields listed down the rows (`dataOnRows`).
+    pub data_on_rows: Option<bool>,
 }
 
 /// Items of a field as the report shows them (group captions when grouped).
@@ -208,6 +210,9 @@ pub(super) fn updated_spec(
     }
     if let Some(f) = settings.field_filters {
         spec.field_filters = f;
+    }
+    if let Some(d) = settings.data_on_rows {
+        spec.data_on_rows = d;
     }
     if let Some(s) = settings.style {
         spec.style = Some(PivotStyleInfo {
@@ -359,6 +364,12 @@ pub(super) fn pivot_json(wb: &Workbook, index: usize, p: &PivotTable, locale: &L
             "items": f.selected.iter().filter_map(|v| item_index(f.field, v)).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
         "layout": p.layout,
+        "dataOnRows": p.data_on_rows,
+        "calcItems": cache.map(|c| c.calculated_items.iter().map(|ci| json!({
+            "field": ci.field,
+            "name": ci.name,
+            "formula": ci.formula,
+        })).collect::<Vec<_>>()).unwrap_or_default(),
         "rowGrandTotals": p.row_grand_totals,
         "colGrandTotals": p.col_grand_totals,
         "fieldOptions": options,
@@ -400,6 +411,15 @@ pub(super) fn group_request(
 }
 
 impl SheetEngine {
+    /// Captions from the host with today's date for relative date filters
+    /// (the clock serial is in the 1900 system; §18.17.4.1).
+    pub(super) fn pivot_labels(&self, labels: Option<PivotLabels>) -> PivotLabels {
+        let mut l = labels.unwrap_or_default();
+        let d1904 = self.wb.as_ref().is_some_and(|w| w.date1904);
+        l.today = self.live.now().map(|t| if d1904 { t - 1462.0 } else { t });
+        l
+    }
+
     /// Run a pivot operation as one undoable edit that may touch every sheet.
     pub(super) fn pivot_edit<R>(
         &mut self,

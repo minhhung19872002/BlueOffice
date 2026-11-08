@@ -10,7 +10,7 @@
 
 use crate::edit::{Command, EditResult};
 use crate::nav::{self, Story};
-use crate::story::{sub_command, StoryState};
+use crate::story::{sub_command, sync_tracking, StoryState};
 use crate::{Engine, EngineError, Result};
 use bo_edit::section::HfVariant;
 use bo_edit::{Pos, Selection, Session};
@@ -108,6 +108,7 @@ impl Engine {
         }
         let mut sub = Session::new(note_doc(s.doc(), blocks));
         sub.set_author(s.author());
+        sync_tracking(&mut sub, s);
         let version = sub.version();
         self.note = Some(NoteEdit {
             endnote,
@@ -175,6 +176,9 @@ impl Engine {
         let mut error = None;
         let mut clip = None;
         let mut page = ne.page;
+        if let Some(s) = self.session.as_ref() {
+            sync_tracking(&mut ne.sub, s);
+        }
         let res = {
             let layout = self.layout.document();
             nav::with_story(ne.story(), || {

@@ -103,14 +103,33 @@ pub(crate) fn serial_to_iso(serial: f64) -> String {
     )
 }
 
+/// Days between serial 0 of the 1900 and of the 1904 date system
+/// (§18.17.4.1: 1904-01-01 is serial 1462 in the 1900 system).
+pub(crate) const DATE1904_OFFSET: f64 = 1462.0;
+
+/// Serial in the workbook's date system of an `xsd:dateTime` (§18.17.4).
+pub(crate) fn iso_to_serial_in(s: &str, date1904: bool) -> Option<f64> {
+    iso_to_serial(s).map(|v| if date1904 { v - DATE1904_OFFSET } else { v })
+}
+
+/// `xsd:dateTime` of a serial in the workbook's date system (§18.17.4).
+pub(crate) fn serial_to_iso_in(serial: f64, date1904: bool) -> String {
+    serial_to_iso(if date1904 {
+        serial + DATE1904_OFFSET
+    } else {
+        serial
+    })
+}
+
 /// `fieldGroup` (§18.10.1.27) with `rangePr` (§18.10.1.77), `discretePr`
-/// (§18.10.1.26) and `groupItems` (§18.10.1.37).
-fn read_group(g: &Node) -> PivotFieldGroup {
+/// (§18.10.1.26) and `groupItems` (§18.10.1.37). `startDate` / `endDate` are
+/// read into serials of the workbook's date system.
+fn read_group(g: &Node, date1904: bool) -> PivotFieldGroup {
     let range = g.child("rangePr").map(|r| {
         let dates = r.attr("startDate").is_some() || r.attr("endDate").is_some();
         let bound = |n: &str, d: &str| {
             if dates {
-                r.attr(d).and_then(iso_to_serial)
+                r.attr(d).and_then(|v| iso_to_serial_in(v, date1904))
             } else {
                 float(r, n)
             }
@@ -154,7 +173,7 @@ fn read_group(g: &Node) -> PivotFieldGroup {
 }
 
 /// Fill `cache` from its definition part.
-pub(crate) fn read_cache_definition(pkg: &Package, cache: &mut PivotCache) {
+pub(crate) fn read_cache_definition(pkg: &Package, cache: &mut PivotCache, date1904: bool) {
     let Some(p) = pkg.part(&cache.part) else {
         return;
     };
@@ -195,7 +214,7 @@ pub(crate) fn read_cache_definition(pkg: &Package, cache: &mut PivotCache) {
             cache.fields.push(PivotCacheField {
                 name: f.attr("name").unwrap_or_default().to_owned(),
                 items,
-                group: f.child("fieldGroup").map(read_group),
+                group: f.child("fieldGroup").map(|g| read_group(g, date1904)),
                 formula: f.attr("formula").map(str::to_owned),
                 derived: !flag(f, "databaseField", true),
                 num_fmt_id: num(f, "numFmtId").unwrap_or(0),
@@ -203,6 +222,44 @@ pub(crate) fn read_cache_definition(pkg: &Package, cache: &mut PivotCache) {
             if cache.fields.len() >= MAX_ITEMS {
                 break;
             }
+        }
+    }
+    // §18.10.1.9 calculatedItems: the item is the cache item its pivotArea
+    // (§18.3.1.68) references.
+    if let Some(list) = dom.child("calculatedItems") {
+        for ci in list
+            .children
+            .iter()
+            .filter(|c| c.name == "calculatedItem")
+            .take(MAX_ITEMS)
+        {
+            let Some(reference) = ci
+                .child("pivotArea")
+                .and_then(|p| p.child("references"))
+                .and_then(|r| r.child("reference"))
+            else {
+                continue;
+            };
+            let Some(field) = num(reference, "field").or_else(|| num(ci, "field")) else {
+                continue;
+            };
+            let Some(x) = reference.child("x").map(|x| num(x, "v").unwrap_or(0)) else {
+                continue;
+            };
+            let Some(name) = cache
+                .fields
+                .get(field as usize)
+                .and_then(|f| f.items.get(x as usize))
+                .and_then(CellValue::as_text)
+            else {
+                continue;
+            };
+            let formula = ci.attr("formula").unwrap_or_default();
+            cache.calculated_items.push(bo_model::sheet::PivotCalcItem {
+                field,
+                name,
+                formula: formula.strip_prefix('=').unwrap_or(formula).to_owned(),
+            });
         }
     }
 }

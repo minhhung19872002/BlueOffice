@@ -502,6 +502,7 @@ dependencies = [
 name = "bo-docx"
 version = "0.1.0"
 dependencies = [
+ "bo-drawingml",
  "bo-model",
  "bo-opc",
  "proptest",
@@ -585,6 +586,8 @@ dependencies = [
 name = "bo-layout"
 version = "0.1.0"
 dependencies = [
+ "bo-docx",
+ "bo-drawingml",
  "bo-model",
  "bo-text",
  "criterion",
@@ -593,6 +596,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "unicode-bidi",
  "unicode-linebreak",
  "unicode-segmentation",
 ]

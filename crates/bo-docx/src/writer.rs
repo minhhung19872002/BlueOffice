@@ -10,8 +10,8 @@ use crate::{Result, CT_DOCUMENT, CT_STYLES};
 use bo_model::{
     fingerprint, Alignment, Block, Border, Borders, Cell, CellVAlign, Document, HeightRule, Image,
     LineSpacing, ParaProps, Paragraph, Raw, RevisionInfo, Run, RunContent, RunProps, Section,
-    SectionBreak, StyleKind, TabAlign, TabLeader, Table, TableProps, TableWidth, Underline, VMerge,
-    VertAlign, Wrap, WrapText,
+    SectionBreak, StyleKind, TabAlign, TabLeader, Table, TableProps, TableWidth, VMerge, VertAlign,
+    Wrap, WrapText,
 };
 use bo_opc::xml::escape;
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -106,6 +106,7 @@ struct Writer<'d> {
 
 /// Serialize a document to `.docx` bytes.
 pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
+    reset_ids();
     let (pkg, main) = match &doc.source {
         Some(src) => (
             Package::read(&src.bytes, &Limits::default())?,
@@ -433,6 +434,7 @@ impl Writer<'_> {
                         // SmartArt / fallback pictures (media is a drawing part) stay verbatim.
                         Some(r)
                             if !r.xml.is_empty()
+                                && img.shape.is_none()
                                 && (!Self::image_changed(img) || img.media.ends_with(".xml")) =>
                         {
                             r.xml.to_string()
@@ -491,12 +493,35 @@ impl Writer<'_> {
     fn image_changed(img: &Image) -> bool {
         let Some(src) = &img.src else { return true };
         let x = &src.xml;
-        !(x.contains(&format!("cx=\"{}\"", img.width.0))
-            && x.contains(&format!("cy=\"{}\"", img.height.0)))
+        // A moved floating picture (§20.4.2.3 anchor position) is written again; the
+        // reader stores the fingerprint of the position it read.
+        let moved = src.fingerprint != 0 && src.fingerprint != fingerprint(&img.anchor);
+        moved
+            || !(x.contains(&format!("cx=\"{}\"", img.width.0))
+                && x.contains(&format!("cy=\"{}\"", img.height.0)))
     }
 
     /// Generate a `w:drawing` for a picture (§20.4.2.8 inline / §20.4.2.3 anchor).
     fn drawing(&mut self, img: &Image) -> String {
+        if let Some(s) = &img.shape {
+            // Shapes / text boxes: unchanged ⇒ source XML; else a new `wps:wsp`.
+            if let Some(r) = img.src.as_ref().filter(|r| {
+                !r.xml.is_empty() && r.fingerprint == crate::shape::shape_fingerprint(img)
+            }) {
+                return r.xml.to_string();
+            }
+            let txbx = s.text.as_ref().map(|b| {
+                if b.is_empty() {
+                    "<w:p/>".to_owned()
+                } else {
+                    self.blocks(b)
+                }
+            });
+            self.drawing_id += 1;
+            let id = self.drawing_id;
+            let graphic = crate::shape::shape_graphic(img, s, id, txbx.as_deref());
+            return self.frame(img, id, "Shape", &graphic);
+        }
         self.drawing_id += 1;
         let id = self.drawing_id;
         let rid = self.rels.id_for(REL_IMAGE, &img.media, false);
@@ -515,10 +540,16 @@ impl Writer<'_> {
         let graphic = format!(
             "<a:graphic xmlns:a=\"{A_NS}\"><a:graphicData uri=\"{PIC_NS}\"><pic:pic xmlns:pic=\"{PIC_NS}\"><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"Picture {id}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r=\"{R_NS}\" r:embed=\"{rid}\"/>{crop}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm{rot}><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>"
         );
+        self.frame(img, id, "Picture", &graphic)
+    }
+
+    /// `w:drawing` with `graphic` placed inline (§20.4.2.8) or anchored (§20.4.2.3).
+    fn frame(&mut self, img: &Image, id: u32, kind: &str, graphic: &str) -> String {
+        let (cx, cy) = (img.width.0, img.height.0);
         let descr = escape(&img.description);
         match &img.anchor {
             None => format!(
-                "<w:drawing><wp:inline xmlns:wp=\"{WP_NS}\" distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:docPr id=\"{id}\" name=\"Picture {id}\" descr=\"{descr}\"/>{graphic}</wp:inline></w:drawing>"
+                "<w:drawing><wp:inline xmlns:wp=\"{WP_NS}\" distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:docPr id=\"{id}\" name=\"{kind} {id}\" descr=\"{descr}\"/>{graphic}</wp:inline></w:drawing>"
             ),
             Some(a) => {
                 // §20.4.3.7 ST_WrapText
@@ -540,13 +571,18 @@ impl Writer<'_> {
                     }
                     Wrap::TopAndBottom => "<wp:wrapTopAndBottom/>".to_owned(),
                 };
+                // §20.4.2.1 / §20.4.2.2 align, else §20.4.2.12 posOffset.
+                let pos = |align: &Option<String>, off: i64| match align {
+                    Some(al) => format!("<wp:align>{}</wp:align>", escape(al)),
+                    None => format!("<wp:posOffset>{off}</wp:posOffset>"),
+                };
                 format!(
-                    "<w:drawing><wp:anchor xmlns:wp=\"{WP_NS}\" distT=\"{dt}\" distB=\"{db}\" distL=\"{dl}\" distR=\"{dr}\" simplePos=\"0\" relativeHeight=\"{id}\" behindDoc=\"{}\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"{}\"><wp:posOffset>{}</wp:posOffset></wp:positionH><wp:positionV relativeFrom=\"{}\"><wp:posOffset>{}</wp:posOffset></wp:positionV><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>{wrap}<wp:docPr id=\"{id}\" name=\"Picture {id}\" descr=\"{descr}\"/><wp:cNvGraphicFramePr/>{graphic}</wp:anchor></w:drawing>",
+                    "<w:drawing><wp:anchor xmlns:wp=\"{WP_NS}\" distT=\"{dt}\" distB=\"{db}\" distL=\"{dl}\" distR=\"{dr}\" simplePos=\"0\" relativeHeight=\"{id}\" behindDoc=\"{}\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"{}\">{}</wp:positionH><wp:positionV relativeFrom=\"{}\">{}</wp:positionV><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>{wrap}<wp:docPr id=\"{id}\" name=\"{kind} {id}\" descr=\"{descr}\"/><wp:cNvGraphicFramePr/>{graphic}</wp:anchor></w:drawing>",
                     u8::from(a.behind),
                     escape(&a.h_relative),
-                    a.x.0,
+                    pos(&a.h_align, a.x.0),
                     escape(&a.v_relative),
-                    a.y.0
+                    pos(&a.v_align, a.y.0)
                 )
             }
         }
@@ -558,44 +594,70 @@ impl Writer<'_> {
         let mut s = String::from("<w:tbl>");
         let tblpr = ordered(TBLPR_ORDER, tblpr_children(&t.props));
         let _ = write!(s, "<w:tblPr>{tblpr}</w:tblPr><w:tblGrid>");
-        for g in &t.grid {
-            let _ = write!(s, "<w:gridCol w:w=\"{}\"/>", g.0);
+        let cols = |s: &mut String, grid: &[bo_model::Twips]| {
+            for g in grid {
+                let _ = write!(s, "<w:gridCol w:w=\"{}\"/>", g.0);
+            }
+        };
+        cols(&mut s, &t.grid);
+        // §17.13.5.33 tblGridChange (CT_Markup: only w:id) with the previous grid.
+        if let Some(gc) = &t.grid_change {
+            let _ = write!(
+                s,
+                "<w:tblGridChange w:id=\"{}\"><w:tblGrid>",
+                unique_id(gc.info.id)
+            );
+            cols(&mut s, &gc.old);
+            s.push_str("</w:tblGrid></w:tblGridChange>");
         }
         s.push_str("</w:tblGrid>");
         for row in &t.rows {
             s.push_str("<w:tr>");
-            let mut trpr: Vec<String> = Vec::new();
-            if row.props.cant_split {
-                trpr.push("<w:cantSplit/>".into());
-            }
-            if let Some((h, rule)) = row.props.height {
-                trpr.push(format!(
-                    "<w:trHeight w:val=\"{}\"{}/>",
-                    h.0,
-                    if rule == HeightRule::Exact {
-                        " w:hRule=\"exact\""
-                    } else {
-                        ""
+            // CT_TrPrBase children (§17.4.82 trPr).
+            let base =
+                |header: bool, cant_split: bool, height: Option<(bo_model::Twips, HeightRule)>| {
+                    let mut v: Vec<String> = Vec::new();
+                    if cant_split {
+                        v.push("<w:cantSplit/>".into());
                     }
-                ));
-            }
-            if row.props.header {
-                trpr.push("<w:tblHeader/>".into());
-            }
-            let (changes, others): (Vec<&Raw>, Vec<&Raw>) = row
-                .props
-                .unknown
-                .iter()
-                .partition(|r| raw_local_name(&r.xml) == "trPrChange");
-            trpr.extend(others.iter().map(|r| r.xml.to_string()));
-            // CT_TrPr: §17.13.5.19 ins, §17.13.5.12 del, then trPrChange.
+                    if let Some((h, rule)) = height {
+                        v.push(format!(
+                            "<w:trHeight w:val=\"{}\"{}/>",
+                            h.0,
+                            if rule == HeightRule::Exact {
+                                " w:hRule=\"exact\""
+                            } else {
+                                ""
+                            }
+                        ));
+                    }
+                    if header {
+                        v.push("<w:tblHeader/>".into());
+                    }
+                    v
+                };
+            let mut trpr = base(row.props.header, row.props.cant_split, row.props.height);
+            trpr.extend(
+                row.props
+                    .unknown
+                    .iter()
+                    .filter(|r| raw_local_name(&r.xml) != "trPrChange")
+                    .map(|r| r.xml.to_string()),
+            );
+            // CT_TrPr: §17.13.5.19 ins, §17.13.5.12 del, then §17.13.5.37 trPrChange.
             if let Some(m) = &row.props.ins {
                 trpr.push(format!("<w:ins{}/>", rev_attrs(&m.info)));
             }
             if let Some(m) = &row.props.del {
                 trpr.push(format!("<w:del{}/>", rev_attrs(&m.info)));
             }
-            trpr.extend(changes.iter().map(|r| r.xml.to_string()));
+            if let Some(ch) = &row.props.change {
+                trpr.push(format!(
+                    "<w:trPrChange{}><w:trPr>{}</w:trPr></w:trPrChange>",
+                    rev_attrs(&ch.info),
+                    base(ch.header, ch.cant_split, ch.height).concat()
+                ));
+            }
             if !trpr.is_empty() {
                 let _ = write!(s, "<w:trPr>{}</w:trPr>", trpr.concat());
             }
@@ -1097,6 +1159,9 @@ impl Writer<'_> {
         if self.doc.even_and_odd_headers {
             s.push_str("<w:evenAndOddHeaders/>");
         }
+        // §17.11.11 footnotePr / §17.11.4 endnotePr (document-wide), before compat.
+        s.push_str(&note_pr_xml("footnotePr", &self.doc.footnote_pr));
+        s.push_str(&note_pr_xml("endnotePr", &self.doc.endnote_pr));
         let _ = write!(s, "<w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/></w:compat></w:settings>");
         self.pkg
             .add_part("/word/settings.xml", CT_SETTINGS, s.into_bytes())?;
@@ -1317,34 +1382,37 @@ fn ordered(order: &[&str], mut items: Vec<(String, String)>) -> String {
     items.into_iter().map(|(_, x)| x).collect()
 }
 
+/// A footnotePr / endnotePr element (empty string when nothing is set). Section-wide
+/// and document-wide (§17.11.11, §17.11.4) share the order of CT_FtnProps /
+/// CT_EdnProps: pos, numFmt, numStart, numRestart.
+fn note_pr_xml(tag: &str, np: &bo_model::NoteProps) -> String {
+    let mut s = String::new();
+    if np.is_empty() {
+        return s;
+    }
+    let _ = write!(s, "<w:{tag}>");
+    if let Some(p) = np.pos {
+        let _ = write!(s, "<w:pos w:val=\"{}\"/>", p.as_str());
+    }
+    if let Some(f) = &np.fmt {
+        let _ = write!(s, "<w:numFmt w:val=\"{}\"/>", escape(f.as_str()));
+    }
+    if let Some(n) = np.start {
+        let _ = write!(s, "<w:numStart w:val=\"{n}\"/>");
+    }
+    if let Some(r) = np.restart {
+        let _ = write!(s, "<w:numRestart w:val=\"{}\"/>", r.as_str());
+    }
+    let _ = write!(s, "</w:{tag}>");
+    s
+}
+
 /// `CT_SectPrBase` children after the header/footer references (§17.6.17: footnotePr …
 /// titlePg), in schema order.
 fn sect_props_xml(sec: &Section) -> String {
     let mut s = String::new();
-    // §17.11.11 footnotePr, §17.11.4 endnotePr (CT_FtnProps / CT_EdnProps order:
-    // pos, numFmt, numStart, numRestart).
-    for (tag, np) in [
-        ("footnotePr", &sec.footnote_pr),
-        ("endnotePr", &sec.endnote_pr),
-    ] {
-        if np.is_empty() {
-            continue;
-        }
-        let _ = write!(s, "<w:{tag}>");
-        if let Some(p) = np.pos {
-            let _ = write!(s, "<w:pos w:val=\"{}\"/>", p.as_str());
-        }
-        if let Some(f) = &np.fmt {
-            let _ = write!(s, "<w:numFmt w:val=\"{}\"/>", escape(f.as_str()));
-        }
-        if let Some(n) = np.start {
-            let _ = write!(s, "<w:numStart w:val=\"{n}\"/>");
-        }
-        if let Some(r) = np.restart {
-            let _ = write!(s, "<w:numRestart w:val=\"{}\"/>", r.as_str());
-        }
-        let _ = write!(s, "</w:{tag}>");
-    }
+    s.push_str(&note_pr_xml("footnotePr", &sec.footnote_pr));
+    s.push_str(&note_pr_xml("endnotePr", &sec.endnote_pr));
     let bt = match sec.break_type {
         SectionBreak::NextPage => None,
         SectionBreak::Continuous => Some("continuous"),
@@ -1427,8 +1495,35 @@ fn tcpr_items(p: &bo_model::CellProps) -> Vec<(String, String)> {
         items.push(("vAlign".into(), format!("<w:vAlign w:val=\"{v}\"/>")));
     }
     items.extend(raw_items(&p.unknown));
+    // §17.13.5.4 cellIns / §17.13.5.3 cellDel / §17.13.5.6 cellMerge (one of them).
+    if let Some(m) = &p.ins {
+        items.push((
+            "cellIns".into(),
+            format!("<w:cellIns{}/>", rev_attrs(&m.info)),
+        ));
+    } else if let Some(m) = &p.del {
+        items.push((
+            "cellDel".into(),
+            format!("<w:cellDel{}/>", rev_attrs(&m.info)),
+        ));
+    } else if let Some(m) = &p.merge {
+        // §17.18.1 ST_AnnotationVMerge
+        let vm = |v: Option<VMerge>| match v {
+            Some(VMerge::Restart) => "rest",
+            Some(VMerge::Continue) => "cont",
+            None => "",
+        };
+        let mut a = rev_attrs(&m.info);
+        if m.v_merge.is_some() {
+            let _ = write!(a, " w:vMerge=\"{}\"", vm(m.v_merge));
+        }
+        if m.v_merge_orig.is_some() {
+            let _ = write!(a, " w:vMergeOrig=\"{}\"", vm(m.v_merge_orig));
+        }
+        items.push(("cellMerge".into(), format!("<w:cellMerge{a}/>")));
+    }
     if let Some(ch) = &p.change {
-        let old = ordered(TCPR_ORDER, tcpr_items(&ch.old));
+        let old = ordered(TCPR_ORDER, tcpr_items(&ch.old.bare()));
         items.push((
             "tcPrChange".into(),
             format!(
@@ -1440,11 +1535,42 @@ fn tcpr_items(p: &bo_model::CellProps) -> Vec<(String, String)> {
     items
 }
 
+thread_local! {
+    /// Revision ids written so far and the counter for fresh ones (see [`unique_id`]).
+    static WRITTEN_IDS: std::cell::RefCell<(std::collections::HashSet<i32>, i32)> =
+        std::cell::RefCell::new((std::collections::HashSet::new(), 0));
+}
+
+/// Forget the revision ids of the previous [`write_docx`].
+fn reset_ids() {
+    WRITTEN_IDS.with(|c| *c.borrow_mut() = (std::collections::HashSet::new(), 900_000_000));
+}
+
+/// A revision id unique in the part set being written: annotation ids must be
+/// unique (ECMA-376 Part 1, §17.13.1 `w:id`), but one edit marks several elements
+/// (cells of a column, paragraphs of a deletion) with one revision. The first element
+/// keeps the id, later ones get fresh ids.
+fn unique_id(id: i32) -> i32 {
+    WRITTEN_IDS.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.0.insert(id) {
+            return id;
+        }
+        loop {
+            c.1 += 1;
+            let n = c.1;
+            if c.0.insert(n) {
+                return n;
+            }
+        }
+    })
+}
+
 /// `w:id`, `w:author`, `w:date` of a tracked change (§17.13.5 `CT_TrackChange`).
 fn rev_attrs(info: &RevisionInfo) -> String {
     let mut s = format!(
         " w:id=\"{}\" w:author=\"{}\"",
-        info.id,
+        unique_id(info.id),
         escape(&info.author)
     );
     if let Some(d) = &info.date {
@@ -1638,6 +1764,7 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
         v.push(("ind".into(), s));
     }
     v.extend(flag("contextualSpacing", p.contextual_spacing));
+    v.extend(flag("bidi", p.bidi)); // §17.3.1.6
     if let Some(a) = p.align {
         v.push(("jc".into(), format!("<w:jc w:val=\"{}\"/>", jc(a))));
     }
@@ -1698,17 +1825,29 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
             format!("<w:rStyle w:val=\"{}\"/>", escape(s)),
         ));
     }
-    if p.font.is_some() || p.font_east_asia.is_some() || p.font_cs.is_some() {
+    // §17.3.2.26 rFonts: an ascii font without an hAnsi font is written for both.
+    let (h_ansi, h_theme) = if p.font_h_ansi.is_none() && p.theme_h_ansi.is_none() {
+        (p.font.as_ref(), p.theme_ascii.as_ref())
+    } else {
+        (p.font_h_ansi.as_ref(), p.theme_h_ansi.as_ref())
+    };
+    let attrs = [
+        ("ascii", p.font.as_ref()),
+        ("hAnsi", h_ansi),
+        ("eastAsia", p.font_east_asia.as_ref()),
+        ("cs", p.font_cs.as_ref()),
+        ("asciiTheme", p.theme_ascii.as_ref()),
+        ("hAnsiTheme", h_theme),
+        ("eastAsiaTheme", p.theme_east_asia.as_ref()),
+        ("cstheme", p.theme_cs.as_ref()),
+        ("hint", p.font_hint.as_ref()),
+    ];
+    if attrs.iter().any(|(_, v)| v.is_some()) {
         let mut s = String::from("<w:rFonts");
-        if let Some(f) = &p.font {
-            let f = escape(f);
-            let _ = write!(s, " w:ascii=\"{f}\" w:hAnsi=\"{f}\"");
-        }
-        if let Some(f) = &p.font_east_asia {
-            let _ = write!(s, " w:eastAsia=\"{}\"", escape(f));
-        }
-        if let Some(f) = &p.font_cs {
-            let _ = write!(s, " w:cs=\"{}\"", escape(f));
+        for (k, val) in attrs {
+            if let Some(f) = val {
+                let _ = write!(s, " w:{k}=\"{}\"", escape(f));
+            }
         }
         s.push_str("/>");
         v.push(("rFonts".into(), s));
@@ -1742,17 +1881,8 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
         ));
     }
     if let Some(u) = p.underline {
-        let val = match u {
-            Underline::None => "none",
-            Underline::Single => "single",
-            Underline::Double => "double",
-            Underline::Thick => "thick",
-            Underline::Dotted => "dotted",
-            Underline::Dash => "dash",
-            Underline::Wave => "wave",
-            Underline::Words => "words",
-        };
-        v.push(("u".into(), format!("<w:u w:val=\"{val}\"/>")));
+        // §17.3.2.40 u, §17.18.99 ST_Underline
+        v.push(("u".into(), format!("<w:u w:val=\"{}\"/>", u.as_str())));
     }
     if let Some(c) = p.shading {
         v.push((
@@ -1774,6 +1904,8 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
             format!("<w:vertAlign w:val=\"{val}\"/>"),
         ));
     }
+    v.extend(flag("rtl", p.rtl)); // §17.3.2.30
+    v.extend(flag("cs", p.complex)); // §17.3.2.7
     v.extend(raw_items(&p.unknown));
     if let Some(c) = &p.change {
         // §17.13.5.31 rPrChange holds a CT_RPrOriginal (no rPrChange of its own).
@@ -1938,7 +2070,7 @@ mod tests {
                     vec![Run {
                         props: RunProps {
                             italic: Some(true),
-                            underline: Some(Underline::Single),
+                            underline: Some(bo_model::Underline::Single),
                             vert_align: Some(VertAlign::Superscript),
                             highlight: Color::from_highlight("yellow"),
                             ..Default::default()

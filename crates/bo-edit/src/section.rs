@@ -163,7 +163,10 @@ pub fn hf_slot(set: &bo_model::HeaderFooter, v: HfVariant) -> Option<&Vec<Block>
     }
 }
 
-fn hf_slot_mut(set: &mut bo_model::HeaderFooter, v: HfVariant) -> &mut Option<Vec<Block>> {
+pub(crate) fn hf_slot_mut(
+    set: &mut bo_model::HeaderFooter,
+    v: HfVariant,
+) -> &mut Option<Vec<Block>> {
     match v {
         HfVariant::Default => &mut set.default,
         HfVariant::First => &mut set.first,
@@ -361,8 +364,8 @@ impl Session {
             column_space: s.columns.space.0,
             title_page: s.title_page,
             even_and_odd: self.doc.even_and_odd_headers,
-            footnote_restart: s.footnote_pr.restart,
-            footnote_pos: s.footnote_pr.pos,
+            footnote_restart: self.doc.footnote_props(si).restart,
+            footnote_pos: self.doc.footnote_props(si).pos,
         }
     }
 

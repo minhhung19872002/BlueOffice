@@ -27,6 +27,18 @@ pub struct RenderOptions {
     /// Draw only these top-level shapes of the slide (`cNvPr@id`), without
     /// background, master and layout shapes (clipboard pictures).
     pub only: Option<Vec<u32>>,
+    /// Draw one layer of the slide show: the slide's top-level shapes
+    /// `start..end` and, with `backdrop`, the background and the master and
+    /// layout shapes under them (animated shapes get a layer of their own).
+    pub layer: Option<ShapeRange>,
+}
+
+/// Top-level shapes `start..end` of a slide, optionally over its backdrop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ShapeRange {
+    pub start: usize,
+    pub end: usize,
+    pub backdrop: bool,
 }
 
 /// 2D affine transform `[a, b, c, d, e, f]`.
@@ -215,7 +227,7 @@ pub fn render_with(
         bg_levels.push(Level::Master(m));
     }
     let only = opts.only.as_deref();
-    if only.is_some() {
+    if only.is_some() || opts.layer.is_some_and(|l| !l.backdrop) {
         bg_levels.clear();
         levels.retain(|l| matches!(l, Level::Slide(_)));
     }
@@ -238,9 +250,14 @@ pub fn render_with(
         // Master/layout shapes are drawn with the slide's colour mapping.
         cx.clr_map = clr_map_of(pres, Level::Slide(index));
         let is_slide = matches!(lv, Level::Slide(_));
-        for n in &data.shapes {
+        for (i, n) in data.shapes.iter().enumerate() {
             if !is_slide && is_placeholder(n) {
                 continue;
+            }
+            if let (true, Some(l)) = (is_slide, opts.layer) {
+                if !(l.start..l.end).contains(&i) {
+                    continue;
+                }
             }
             if let Some(ids) = only {
                 if !n.nv().is_some_and(|nv| ids.contains(&nv.id)) {

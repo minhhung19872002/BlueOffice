@@ -53,7 +53,8 @@
       "merge": "Merge",
       "tableStyle": "Table style",
       "headerFooter": "Header & footer",
-      "footnotes": "Notes"
+      "footnotes": "Notes",
+      "arrange": "Arrange"
     },
     "comingLater": "Coming in a later release"
   },
@@ -187,7 +188,12 @@
       "bordersNone": "No borders",
       "shading": "Cell shading",
       "headerRow": "Repeat header row",
-      "properties": "Table properties…"
+      "properties": "Table properties…",
+      "insertCell": "Insert cell (shift right)",
+      "deleteCell": "Delete cell (shift left)"
+    },
+    "picture": {
+      "position": "Picture position"
     }
   },
   "status": {
@@ -1043,7 +1049,131 @@
     "cellEditor": "Edit table cell",
     "audienceWindow": "Open audience screen",
     "audienceTitle": "Audience screen",
-    "audienceWaiting": "Waiting for the presentation…"
+    "audienceWaiting": "Waiting for the presentation…",
+    "exportPng": "Export PNG",
+    "export": "Export",
+    "exportSlides": "Slides",
+    "exportCurrent": "Current slide",
+    "exportAll": "All {{count}} slides (.zip file)",
+    "exportScale": "Size",
+    "exportScaleOption": "{{percent}} % ({{w}} × {{h}} pixels)",
+    "exported": "Pictures exported",
+    "cancel": "Cancel",
+    "ok": "OK",
+    "close": "Close",
+    "chart": "Chart",
+    "media": "Video / audio",
+    "transitionTab": "Transitions",
+    "animationsTab": "Effects",
+    "groupTransition": "Slide change",
+    "groupTiming": "Timing",
+    "applyAll": "Apply to every slide",
+    "preview": "Preview",
+    "animPane": "Effects pane",
+    "groupEntrance": "Entrance",
+    "groupExit": "Exit",
+    "groupPreview": "Preview",
+    "transition": {
+      "none": "None",
+      "cut": "Cut",
+      "fade": "Fade",
+      "push": "Push",
+      "wipe": "Wipe",
+      "cover": "Cover",
+      "pull": "Pull",
+      "split": "Split",
+      "random": "Random",
+      "other": "Other ({{name}})"
+    },
+    "effect": {
+      "appear": "Appear",
+      "fade": "Fade",
+      "flyIn": "Fly in",
+      "wipe": "Wipe",
+      "other": "Other effect"
+    },
+    "effectOut": {
+      "fade": "Fade out",
+      "flyIn": "Fly out",
+      "wipe": "Wipe out"
+    },
+    "animClass": {
+      "entr": "entrance",
+      "exit": "exit",
+      "emph": "emphasis",
+      "path": "motion path",
+      "other": "other"
+    },
+    "chartTab": "Chart",
+    "groupChartData": "Data",
+    "editChart": "Edit chart",
+    "insertChart": "Insert chart",
+    "chartType": "Chart type",
+    "chartKinds": {
+      "column": "Column",
+      "bar": "Bar",
+      "line": "Line",
+      "area": "Area",
+      "pie": "Pie",
+      "doughnut": "Doughnut"
+    },
+    "chartTitle": "Title",
+    "legend": "Legend",
+    "legends": {
+      "none": "None",
+      "r": "Right",
+      "b": "Bottom",
+      "t": "Top",
+      "l": "Left"
+    },
+    "chartCategory": "Category",
+    "chartSeriesName": "Series {{n}} name",
+    "chartCategoryN": "Category {{n}}",
+    "chartValue": "Value of row {{row}}, series {{col}}",
+    "chartAddRow": "Add row",
+    "chartRemoveRow": "Remove row",
+    "chartAddSeries": "Add series",
+    "chartRemoveSeries": "Remove series",
+    "chartSeries": "Series {{n}}",
+    "chartDefaultCategory": "Item {{n}}",
+    "playMedia": "Play",
+    "stopMedia": "Stop",
+    "mediaUnsupported": "This format cannot be played here — showing the poster frame",
+    "transitionEffect": "Effect",
+    "direction": "Direction",
+    "dir": {
+      "l": "To the left",
+      "r": "To the right",
+      "u": "Up",
+      "d": "Down",
+      "lu": "Up and left",
+      "ru": "Up and right",
+      "ld": "Down and left",
+      "rd": "Down and right",
+      "horz": "Horizontal",
+      "vert": "Vertical"
+    },
+    "durationSec": "Duration (s)",
+    "advanceOnClick": "Advance on click",
+    "advanceAfter": "Advance after (s)",
+    "never": "Never",
+    "noAnimations": "No effects on this slide yet. Select an object, then pick an effect on the ribbon.",
+    "trigger": "Start",
+    "triggers": {
+      "onClick": "On click",
+      "withPrevious": "With previous",
+      "afterPrevious": "After previous"
+    },
+    "from": {
+      "b": "From bottom",
+      "t": "From top",
+      "l": "From left",
+      "r": "From right"
+    },
+    "delaySec": "Delay (s)",
+    "moveEarlier": "Move earlier",
+    "moveLater": "Move later",
+    "removeAnimation": "Remove effect"
   },
   "review": {
     "title": "Review",
@@ -1062,7 +1192,18 @@
       "rowDelete": "Row deleted",
       "cellFormat": "Cell formatted",
       "tableFormat": "Table formatted",
-      "sectionFormat": "Page setup changed"
+      "sectionFormat": "Page setup changed",
+      "cellInsert": "Inserted cells",
+      "cellDelete": "Deleted cells",
+      "cellMerge": "Merged/split cells",
+      "rowFormat": "Row properties",
+      "tableGrid": "Column widths"
+    },
+    "story": {
+      "header": "Header",
+      "footer": "Footer",
+      "footnote": "Footnote",
+      "endnote": "Endnote"
     }
   },
   "comments": {
@@ -1328,5 +1469,10 @@
     "syncPromptBody": "“{{name}}” is in a BlueDrive sync folder. Switch to online collaboration to edit it together with others and save straight to BlueDrive?",
     "syncPromptOnline": "Collaborate online",
     "syncPromptLocal": "Keep editing on this computer"
+  },
+  "picture": {
+    "position": "Picture position",
+    "horizontal": "Horizontal",
+    "vertical": "Vertical"
   }
 }

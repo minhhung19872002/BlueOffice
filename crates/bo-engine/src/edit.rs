@@ -136,6 +136,10 @@ pub enum Command {
         /// Match case, whole word and regular-expression options.
         #[serde(default)]
         options: FindOptions,
+        /// Find by format: only text with this formatting (an empty query finds every
+        /// stretch of text with it).
+        #[serde(default)]
+        format: Option<bo_edit::find::FindFormat>,
     },
     /// Select a match returned by `find`.
     SelectMatch {
@@ -160,6 +164,8 @@ pub enum Command {
         options: FindOptions,
         /// Replacement text.
         with: String,
+        #[serde(default)]
+        format: Option<bo_edit::find::FindFormat>,
     },
     /// Copy the selection (returned in `clip`).
     Copy,
@@ -314,6 +320,13 @@ pub enum Command {
         /// The table operation (insert / delete rows and columns, merge, …).
         edit: TableEdit,
     },
+    /// Move the floating picture at the selection to offsets `x`, `y` (points) from
+    /// its position references (ECMA-376 Part 1, §20.4.2.10 positionH, §20.4.2.11
+    /// positionV); a tracked move with track changes on (§17.13.5.22 / §17.13.5.25).
+    SetPicturePosition {
+        x: f32,
+        y: f32,
+    },
     /// Page size, orientation, margins and columns (§17.6.13, §17.6.11, §17.6.4).
     SetPageSetup {
         /// Page setup values to change.
@@ -401,6 +414,39 @@ pub enum Command {
     CancelFormat,
     /// Fonts for the font picker (bundled faces and substituted names).
     FontList,
+    /// Insert a shape (`preset`, §20.1.10.56 ST_ShapeType) or a text box anchored at
+    /// the caret, `width` × `height` points; a text box opens for typing.
+    InsertShape {
+        #[serde(default = "rect")]
+        preset: String,
+        #[serde(default)]
+        text_box: bool,
+        width: f32,
+        height: f32,
+    },
+    /// Move the drawing object at (`para`, `at`) by (`dx`, `dy`) points and/or resize
+    /// it to `width` × `height` points (§20.4.2.3 anchor, §20.4.2.7 extent).
+    SetDrawingFrame {
+        para: usize,
+        at: usize,
+        #[serde(default)]
+        dx: f32,
+        #[serde(default)]
+        dy: f32,
+        #[serde(default)]
+        width: Option<f32>,
+        #[serde(default)]
+        height: Option<f32>,
+    },
+    /// Open the text box at (`para`, `at`) for typing (caret at the end of its text).
+    EditTextBox {
+        para: usize,
+        at: usize,
+    },
+    /// Close the text box editor.
+    CloseTextBox,
+    /// Paragraph and character styles for the style gallery (§17.7.4.14 qFormat first).
+    StyleList,
     /// Replace the open document by a new one from a built-in template.
     NewFromTemplate {
         /// Template id.
@@ -412,6 +458,10 @@ pub enum Command {
 
 fn yes() -> bool {
     true
+}
+
+fn rect() -> String {
+    "rect".into()
 }
 
 fn one() -> u8 {
@@ -480,6 +530,12 @@ pub struct EditResult {
     /// Font picker entries (`fontList`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fonts: Option<Vec<crate::fonts::FontChoice>>,
+    /// Drawing object (shape, text box) under the last click or just changed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drawing: Option<crate::textbox::DrawingInfo>,
+    /// Style gallery (`styleList`): paragraph and character styles of the document.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub styles: Option<Vec<crate::gallery::StyleEntry>>,
     /// The Format Painter holds picked formatting.
     pub painter: bool,
 }
@@ -515,6 +571,19 @@ impl crate::Engine {
 
     /// Run a command at host time `now` (Unix ms; the system clock when absent).
     fn command_at(&mut self, cmd: Command, now: Option<i64>) -> crate::Result<EditResult> {
+        let click = match &cmd {
+            Command::Click { page, x, y, .. } => Some((*page, *x, *y)),
+            _ => None,
+        };
+        let mut r = self.command_inner(cmd, now)?;
+        // A click on a shape reports it so the host can show its frame and handles.
+        if let Some((page, x, y)) = click.filter(|_| r.drawing.is_none()) {
+            r.drawing = self.drawing_hit(page, x, y);
+        }
+        Ok(r)
+    }
+
+    fn command_inner(&mut self, cmd: Command, now: Option<i64>) -> crate::Result<EditResult> {
         if let Some(mut r) = self.special_command(&cmd)? {
             // Header/footer and note editors mirror into the document: share it live.
             if r.collab.is_none() {
@@ -656,7 +725,12 @@ impl crate::Engine {
                     | Command::SetHeaderLink { .. }
                     | Command::EditNote { .. }
                     | Command::Notes
-                    | Command::FontList => {}
+                    | Command::FontList
+                    | Command::InsertShape { .. }
+                    | Command::SetDrawingFrame { .. }
+                    | Command::EditTextBox { .. }
+                    | Command::CloseTextBox
+                    | Command::StyleList => {}
                     Command::Tab { back } => {
                         if s.next_cell(back)?.is_none() && !back {
                             s.insert_text("\t")?;
@@ -664,6 +738,9 @@ impl crate::Engine {
                     }
                     Command::TableEdit { edit } => {
                         s.edit_table(&edit)?;
+                    }
+                    Command::SetPicturePosition { x, y } => {
+                        s.set_picture_position(x, y)?;
                     }
                     Command::SetPageSetup { setup, scope } => s.set_page_setup(setup, scope)?,
                     Command::SetHeaderOptions {
@@ -808,8 +885,15 @@ impl crate::Engine {
                     Command::Redo => {
                         s.redo();
                     }
-                    Command::Find { query, options } => {
-                        extra.0 = Some(s.find(&query, &options)?);
+                    Command::Find {
+                        query,
+                        options,
+                        format,
+                    } => {
+                        extra.0 = Some(match &format {
+                            Some(f) => s.find_formatted(&query, &options, f)?,
+                            None => s.find(&query, &options)?,
+                        });
                     }
                     Command::SelectMatch { m } => s.set_selection(Selection {
                         anchor: Pos::new(m.para, m.start),
@@ -822,8 +906,12 @@ impl crate::Engine {
                         query,
                         options,
                         with,
+                        format,
                     } => {
-                        extra.1 = Some(s.replace_all(&query, &options, &with)?);
+                        extra.1 = Some(match &format {
+                            Some(f) => s.replace_all_formatted(&query, &options, f, &with)?,
+                            None => s.replace_all(&query, &options, &with)?,
+                        });
                     }
                     Command::Copy => {
                         let c = s.copy();
@@ -966,8 +1054,15 @@ impl crate::Engine {
         Ok(r)
     }
 
-    /// Insert a picture (PNG or JPEG) at the selection; sized at 96 dpi, capped to the text width.
+    /// Insert a picture (PNG, JPEG; GIF, BMP, TIFF converted to PNG) at the selection;
+    /// sized at 96 dpi, capped to the text width.
     pub fn insert_image(&mut self, bytes: Vec<u8>, name: &str) -> crate::Result<EditResult> {
+        // GIF, BMP and TIFF pictures are stored as PNG.
+        let bytes = if image_size(&bytes).is_none() {
+            bo_raster::transcode_to_png(&bytes).unwrap_or(bytes)
+        } else {
+            bytes
+        };
         let (w, h) =
             image_size(&bytes).ok_or_else(|| crate::EngineError::Unsupported(name.to_owned()))?;
         let ext = match bo_render::image::sniff(&bytes) {
@@ -1027,6 +1122,8 @@ impl crate::Engine {
             story: None,
             notes: None,
             fonts: None,
+            drawing: None,
+            styles: None,
             painter: s.picked_format().is_some(),
         })
     }

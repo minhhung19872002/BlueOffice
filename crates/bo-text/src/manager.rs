@@ -80,7 +80,7 @@ const LAST_RESORT: &[&str] = &["tinos", "liberation serif", "carlito", "liberati
 pub struct FontManager {
     faces: Vec<Face>,
     by_family: HashMap<String, Vec<FaceId>>,
-    shape_cache: HashMap<(FaceId, String), Arc<[ShapedGlyph]>>,
+    shape_cache: HashMap<(FaceId, bool, String), Arc<[ShapedGlyph]>>,
     resolve_cache: HashMap<(String, bool, bool), Option<FaceId>>,
 }
 
@@ -281,7 +281,15 @@ impl FontManager {
 
     /// Shape `text` with `face`. Glyph metrics are in font units. Cached.
     pub fn shape(&mut self, id: FaceId, text: &str) -> Arc<[ShapedGlyph]> {
-        if let Some(g) = self.shape_cache.get(&(id, text.to_owned())) {
+        self.shape_kern(id, text, true)
+    }
+
+    /// Shape `text` with pair kerning on or off (OpenType `kern` feature; word
+    /// processing applies kerning only from the size given by `w:kern`, ECMA-376
+    /// Part 1 §17.3.2.19). Cached.
+    pub fn shape_kern(&mut self, id: FaceId, text: &str, kern: bool) -> Arc<[ShapedGlyph]> {
+        let key = (id, kern, text.to_owned());
+        if let Some(g) = self.shape_cache.get(&key) {
             return g.clone();
         }
         let f = &self.faces[id.0 as usize];
@@ -289,7 +297,13 @@ impl FontManager {
             Some(face) => {
                 let mut buf = rustybuzz::UnicodeBuffer::new();
                 buf.push_str(text);
-                let out = rustybuzz::shape(&face, &[], buf);
+                let off = [rustybuzz::Feature::new(
+                    rustybuzz::ttf_parser::Tag::from_bytes(b"kern"),
+                    0,
+                    ..,
+                )];
+                let features: &[rustybuzz::Feature] = if kern { &[] } else { &off };
+                let out = rustybuzz::shape(&face, features, buf);
                 out.glyph_infos()
                     .iter()
                     .zip(out.glyph_positions())
@@ -307,8 +321,7 @@ impl FontManager {
         if self.shape_cache.len() > 200_000 {
             self.shape_cache.clear();
         }
-        self.shape_cache
-            .insert((id, text.to_owned()), glyphs.clone());
+        self.shape_cache.insert(key, glyphs.clone());
         glyphs
     }
 

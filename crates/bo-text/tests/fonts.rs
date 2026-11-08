@@ -66,3 +66,34 @@ fn outlines() {
     let space = fm.shape(f, " ")[0].glyph_id;
     assert_eq!(fm.outline(f, space).len(), 0);
 }
+
+#[test]
+fn cambria_falls_back_to_caladea() {
+    let mut fm = manager();
+    let c = fm.resolve("Cambria", true, true).unwrap();
+    assert_eq!(fm.info(c).family, "Caladea");
+    assert!(fm.info(c).bold && fm.info(c).italic);
+    let r = fm.resolve("Cambria", false, false).unwrap();
+    let w = fm.measure(r, "M", 1000.0);
+    assert!(w > 800.0 && w < 950.0, "{w}");
+    // Letters missing from Caladea (if any) come from another bundled face.
+    let items = fm.itemize(r, "Nghị định");
+    assert!(items.iter().all(|(_, f)| fm.has_glyph(*f, 'N')));
+}
+
+#[test]
+fn kerning_follows_the_flag() {
+    let mut fm = manager();
+    let f = fm.resolve("Times New Roman", false, false).unwrap();
+    let on: i32 = fm
+        .shape_kern(f, "AVAV", true)
+        .iter()
+        .map(|g| g.x_advance)
+        .sum();
+    let off: i32 = fm
+        .shape_kern(f, "AVAV", false)
+        .iter()
+        .map(|g| g.x_advance)
+        .sum();
+    assert!(on < off, "{on} vs {off}");
+}

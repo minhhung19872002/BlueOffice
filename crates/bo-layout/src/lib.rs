@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 
 mod blocks;
+mod drawing;
 mod flow;
 mod incremental;
 mod paragraph;
@@ -30,7 +31,8 @@ pub use incremental::{IncrementalLayout, UpdateKind};
 pub use paragraph::{FieldContext, LayoutCache};
 pub use style::author_color;
 pub use types::{
-    Fragment, GlyphPos, Layer, LayoutDocument, Line, LineSource, NoteKey, Page, PageItem, SharedStr,
+    Fragment, GlyphPos, Layer, LayoutDocument, Line, LineSource, NoteKey, Page, PageItem, PathCmd,
+    ShapePath, SharedStr,
 };
 
 use bo_model::change::BlockChanges;
@@ -82,7 +84,7 @@ fn number_notes(doc: &Document) -> (HashMap<NoteKey, String>, Vec<i32>, bool, bo
     let mut needs_total = false;
     let mut fields = false;
     for (si, s) in doc.sections.iter().enumerate() {
-        let (fp, ep) = (&s.footnote_pr, &s.endnote_pr);
+        let (fp, ep) = (&doc.footnote_props(si), &doc.endnote_props(si));
         if si == 0 || fp.restart == Some(NoteRestart::EachSect) {
             foot = fp.start.map_or(0, |n| n as i32 - 1);
         }
@@ -129,14 +131,17 @@ fn page_note_numbers(
     let each = |si: usize| {
         doc.sections
             .get(si)
-            .is_some_and(|s| s.footnote_pr.restart == Some(NoteRestart::EachPage))
+            .is_some_and(|_| doc.footnote_props(si).restart == Some(NoteRestart::EachPage))
     };
     if !(0..doc.sections.len()).any(each) {
         return None;
     }
     let mut map = numbers.clone();
-    for p in pages.iter().filter(|p| each(p.section)) {
-        let s = &doc.sections[p.section].footnote_pr;
+    // A footnote continued from the previous page keeps the number of its first page.
+    let mut earlier: std::collections::HashSet<i32> = std::collections::HashSet::new();
+    for p in pages {
+        let numbered = each(p.section);
+        let s = &doc.footnote_props(p.section);
         let fmt = s.fmt.clone().unwrap_or(NumFormat::Decimal);
         let mut n = s.start.map_or(0, |n| n as i32 - 1);
         let mut seen = Vec::new();
@@ -145,13 +150,17 @@ fn page_note_numbers(
                 endnote: false, id, ..
             } = l.source
             {
-                if !seen.contains(&id) {
+                if !seen.contains(&id) && !earlier.contains(&id) {
                     seen.push(id);
+                    if !numbered {
+                        continue;
+                    }
                     n += 1;
                     map.insert((false, id), bo_model::format_number(n, &fmt));
                 }
             }
         }
+        earlier.extend(seen);
     }
     Some(map)
 }

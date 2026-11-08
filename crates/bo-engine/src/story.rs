@@ -158,6 +158,7 @@ impl Engine {
         };
         let mut sub = Session::new(story_doc(doc, si, blocks, top));
         sub.set_author(s.author());
+        sync_tracking(&mut sub, s);
         let mut hf = HfEdit {
             section: si,
             target,
@@ -334,6 +335,9 @@ impl Engine {
         let mut error = None;
         let mut clip = None;
         let mut cur_page = hf.page;
+        if let Some(s) = self.session.as_ref() {
+            sync_tracking(&mut hf.sub, s);
+        }
         let res = sub_command(
             &mut hf.sub,
             &hf.layout,
@@ -405,6 +409,18 @@ impl Engine {
     fn page_count(&self) -> usize {
         self.layout().map_or(0, |l| l.pages.len())
     }
+}
+
+/// A header/footer or note session records tracked changes like the main session
+/// (ECMA-376 Part 1, §17.13.5 in header, footer and note parts): same mode, author
+/// and clock, revision ids above every id of the document.
+pub(crate) fn sync_tracking(sub: &mut Session, main: &Session) {
+    if sub.track_changes() != main.track_changes() {
+        sub.set_track_changes(main.track_changes());
+    }
+    sub.set_author(main.author());
+    sub.set_clock(main.clock().map(str::to_owned));
+    sub.set_revision_floor(bo_edit::revisions::max_id(main.doc()));
 }
 
 /// Run an editing command in a story session laid out as `layout`: story y = page y

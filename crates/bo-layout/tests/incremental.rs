@@ -74,6 +74,7 @@ fn image(wrap: Wrap) -> RunContent {
         crop: None,
         rotation: 0,
         description: String::new(),
+        shape: None,
         src: None,
     }))
 }
@@ -374,4 +375,71 @@ fn typing_reports_only_the_edited_page() {
         serde_json::to_string(inc.document()).unwrap(),
         serde_json::to_string(&full).unwrap()
     );
+}
+
+#[test]
+fn per_page_footnote_numbers_stay_incremental() {
+    // §17.11.19 numRestart eachPage: typing that moves no footnote to another page
+    // is laid out incrementally (it used to force a full layout), and the result
+    // equals a full layout, also when a note does change pages.
+    use bo_layout::UpdateKind;
+    use bo_model::NoteRestart;
+    let mut fm = fonts();
+    let opts = LayoutOptions::default();
+    let specs: Vec<Spec> = (0..120)
+        .map(|i| Spec {
+            kind: 0,
+            seed: i,
+            words: 30,
+        })
+        .collect();
+    let mut doc = document(&specs, 120, 0);
+    doc.sections[0].footnote_pr.restart = Some(NoteRestart::EachPage);
+    for (k, bi) in [(1, 10usize), (2, 11), (3, 60), (4, 100)] {
+        let Block::Paragraph(p) = &mut doc.sections[0].blocks[bi] else {
+            unreachable!()
+        };
+        p.runs.push(Run {
+            props: RunProps::default(),
+            content: vec![RunContent::FootnoteRef(k)],
+        });
+        doc.footnotes.insert(
+            k,
+            vec![Block::Paragraph(Paragraph::new(
+                ParaProps::default(),
+                vec![Run {
+                    props: RunProps::default(),
+                    content: vec![RunContent::NoteMark, RunContent::Text(" Ghi chú".into())],
+                }],
+            ))],
+        );
+    }
+    let mut inc = IncrementalLayout::new();
+    let mut cache = LayoutCache::new();
+    inc.update(&doc, &mut fm, &mut cache, opts, &BlockChanges::everything())
+        .unwrap();
+    for (bi, extra) in [(80usize, " x"), (11, &" thêm nhiều chữ nữa".repeat(40))] {
+        let mut changes = BlockChanges::default();
+        let Block::Paragraph(p) = &mut doc.sections[0].blocks[bi] else {
+            unreachable!()
+        };
+        if let RunContent::Text(t) = &mut p.runs[0].content[0] {
+            t.push_str(extra);
+        }
+        changes.splice(0, bi, 1, 1);
+        inc.update(&doc, &mut fm, &mut cache, opts, &changes)
+            .unwrap();
+        if bi == 80 {
+            assert!(
+                matches!(inc.last_update(), UpdateKind::Incremental { .. }),
+                "{:?}",
+                inc.last_update()
+            );
+        }
+        let full = layout_document_with(&doc, &mut fm, &mut LayoutCache::new(), opts).unwrap();
+        assert_eq!(
+            serde_json::to_string(inc.document()).unwrap(),
+            serde_json::to_string(&full).unwrap()
+        );
+    }
 }

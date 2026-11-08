@@ -6,10 +6,12 @@
 //! deletions and paragraph formatting changes in [`ParaProps`].
 
 use crate::para::{self, Atom};
+use crate::section::{hf_slot, HfVariant};
 use crate::Pos;
 use bo_model::index::body_paragraphs;
 use bo_model::{
-    Block, Document, ParaProps, Paragraph, RevMark, RevisionInfo, RunProps, Section, Table,
+    Block, Cell, CellProps, Document, ParaProps, Paragraph, RevMark, RevisionInfo, RunProps,
+    Section, Table, TableWidth,
 };
 use serde::Serialize;
 
@@ -43,9 +45,44 @@ pub enum RevKind {
     TableFormat,
     /// §17.13.5.32 sectPrChange (page setup)
     SectionFormat,
+    /// §17.13.5.4 cellIns (inserted cell; inserted columns are inserted cells)
+    CellInsert,
+    /// §17.13.5.3 cellDel (deleted cell; deleted columns are deleted cells)
+    CellDelete,
+    /// §17.13.5.6 cellMerge (vertical merge or split)
+    CellMerge,
+    /// §17.13.5.37 trPrChange (row properties, e.g. repeated header row)
+    RowFormat,
+    /// §17.13.5.33 tblGridChange (column widths)
+    TableGrid,
 }
 
-/// One revision of the main text, for the review pane.
+/// Where a revision outside the main text lives: a header or footer of a section
+/// (§17.10) or a footnote / endnote (§17.11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum StoryRef {
+    Header {
+        section: usize,
+        variant: crate::section::HfVariant,
+    },
+    Footer {
+        section: usize,
+        variant: crate::section::HfVariant,
+    },
+    Footnote {
+        id: i32,
+    },
+    Endnote {
+        id: i32,
+    },
+}
+
+/// One revision, for the review pane.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RevisionItem {
@@ -57,12 +94,16 @@ pub struct RevisionItem {
     pub author: String,
     /// Date of the change (`ST_DateTime`), if set.
     pub date: Option<String>,
-    /// Start of the affected range.
+    /// Start of the affected range: a position in the main text, or in the story's own
+    /// paragraphs when `story` is set.
     pub start: Pos,
     /// End of the affected range.
     pub end: Pos,
     /// Affected text (shortened).
     pub text: String,
+    /// Header/footer or note holding the revision (`None`: main text).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub story: Option<StoryRef>,
 }
 
 const MAX_TEXT: usize = 80;
@@ -73,9 +114,56 @@ fn push_text(item: &mut RevisionItem, t: &str) {
     }
 }
 
-/// All revisions of the main text in document order; parts of one revision (same
+/// All revisions: those of the main text in document order, then those of the
+/// headers/footers (section order, default/first/even) and of the footnotes and
+/// endnotes (positions are then relative to the story). Parts of one revision (same
 /// id and kind) spread over several runs or paragraphs are reported once.
 pub fn list(doc: &Document) -> Vec<RevisionItem> {
+    let mut out = list_main(doc);
+    let mut story = |blocks: &[Block], at: StoryRef| {
+        if !blocks_have_revisions(blocks) {
+            return;
+        }
+        let d = Document {
+            sections: vec![Section::new(blocks.to_vec())],
+            ..Document::default()
+        };
+        out.extend(list_main(&d).into_iter().map(|mut it| {
+            it.story = Some(at);
+            it
+        }));
+    };
+    for (si, s) in doc.sections.iter().enumerate() {
+        for (header, set) in [(true, &s.headers), (false, &s.footers)] {
+            for v in [HfVariant::Default, HfVariant::First, HfVariant::Even] {
+                if let Some(b) = hf_slot(set, v) {
+                    let at = if header {
+                        StoryRef::Header {
+                            section: si,
+                            variant: v,
+                        }
+                    } else {
+                        StoryRef::Footer {
+                            section: si,
+                            variant: v,
+                        }
+                    };
+                    story(b, at);
+                }
+            }
+        }
+    }
+    for (id, b) in &doc.footnotes {
+        story(b, StoryRef::Footnote { id: *id });
+    }
+    for (id, b) in &doc.endnotes {
+        story(b, StoryRef::Endnote { id: *id });
+    }
+    out
+}
+
+/// Revisions of the main text (sections' blocks and section properties).
+fn list_main(doc: &Document) -> Vec<RevisionItem> {
     let mut out: Vec<RevisionItem> = Vec::new();
     if !doc
         .sections
@@ -102,6 +190,7 @@ pub fn list(doc: &Document) -> Vec<RevisionItem> {
             start,
             end,
             text: String::new(),
+            story: None,
         };
         push_text(&mut it, text);
         out.push(it);
@@ -173,6 +262,28 @@ pub fn list(doc: &Document) -> Vec<RevisionItem> {
             ));
         }
     }
+    // Property and grid changes recorded by a structural edit (an inserted column
+    // widens the grid and narrows the other cells) are part of that revision.
+    let cell_ids: Vec<i32> = structural
+        .iter()
+        .filter(|s| {
+            matches!(
+                s.0,
+                RevKind::CellInsert | RevKind::CellDelete | RevKind::CellMerge
+            )
+        })
+        .map(|s| s.1.id)
+        .collect();
+    let any_ids: Vec<i32> = structural
+        .iter()
+        .filter(|s| s.0 != RevKind::TableGrid)
+        .map(|s| s.1.id)
+        .collect();
+    structural.retain(|s| match s.0 {
+        RevKind::CellFormat | RevKind::TableFormat => !cell_ids.contains(&s.1.id),
+        RevKind::TableGrid => !any_ids.contains(&s.1.id),
+        _ => true,
+    });
     for (k, info, s, e) in structural {
         add(k, &info, s, e, "");
     }
@@ -203,9 +314,18 @@ fn walk_structure(
                     for c in &row.cells {
                         let c0 = *next;
                         walk_structure(&c.blocks, next, last_len, out);
-                        if let Some(ch) = &c.props.change {
-                            let end = Pos::new(next.saturating_sub(1).max(c0), *last_len);
-                            out.push((RevKind::CellFormat, ch.info.clone(), Pos::new(c0, 0), end));
+                        let end = Pos::new(next.saturating_sub(1).max(c0), *last_len);
+                        let p = &c.props;
+                        let marks = [
+                            (p.change.as_ref().map(|c| &c.info), RevKind::CellFormat),
+                            (p.ins.as_ref().map(|m| &m.info), RevKind::CellInsert),
+                            (p.del.as_ref().map(|m| &m.info), RevKind::CellDelete),
+                            (p.merge.as_ref().map(|m| &m.info), RevKind::CellMerge),
+                        ];
+                        for (info, k) in marks {
+                            if let Some(info) = info {
+                                out.push((k, info.clone(), Pos::new(c0, 0), end));
+                            }
                         }
                     }
                     let end = Pos::new(next.saturating_sub(1).max(r0), *last_len);
@@ -215,10 +335,16 @@ fn walk_structure(
                     if let Some(m) = &row.props.del {
                         out.push((RevKind::RowDelete, m.info.clone(), Pos::new(r0, 0), end));
                     }
+                    if let Some(ch) = &row.props.change {
+                        out.push((RevKind::RowFormat, ch.info.clone(), Pos::new(r0, 0), end));
+                    }
                 }
+                let end = Pos::new(next.saturating_sub(1).max(t0), *last_len);
                 if let Some(ch) = &t.props.change {
-                    let end = Pos::new(next.saturating_sub(1).max(t0), *last_len);
                     out.push((RevKind::TableFormat, ch.info.clone(), Pos::new(t0, 0), end));
+                }
+                if let Some(g) = &t.grid_change {
+                    out.push((RevKind::TableGrid, g.info.clone(), Pos::new(t0, 0), end));
                 }
             }
             Block::Opaque(_) => {}
@@ -239,65 +365,93 @@ fn blocks_have_revisions(blocks: &[Block]) -> bool {
         }
         Block::Table(t) => {
             t.props.change.is_some()
+                || t.grid_change.is_some()
                 || t.rows.iter().any(|r| {
                     r.props.ins.is_some()
                         || r.props.del.is_some()
+                        || r.props.change.is_some()
                         || r.cells
                             .iter()
-                            .any(|c| c.props.change.is_some() || blocks_have_revisions(&c.blocks))
+                            .any(|c| c.props.has_revision() || blocks_have_revisions(&c.blocks))
                 })
         }
         Block::Opaque(_) => false,
     })
 }
 
-/// Largest revision id used in the document (0 when there is none).
-pub fn max_id(doc: &Document) -> i32 {
-    fn blocks(v: &[Block], m: &mut i32) {
-        for b in v {
-            match b {
-                Block::Paragraph(p) => {
-                    for x in [&p.props.mark_ins, &p.props.mark_del].into_iter().flatten() {
+/// Largest revision id in `blocks`.
+fn blocks_max_id(v: &[Block], m: &mut i32) {
+    for b in v {
+        match b {
+            Block::Paragraph(p) => {
+                for x in [&p.props.mark_ins, &p.props.mark_del].into_iter().flatten() {
+                    *m = (*m).max(x.info.id);
+                }
+                if let Some(c) = &p.props.change {
+                    *m = (*m).max(c.info.id);
+                }
+                for r in &p.runs {
+                    for x in [&r.props.ins, &r.props.del].into_iter().flatten() {
                         *m = (*m).max(x.info.id);
                     }
-                    if let Some(c) = &p.props.change {
+                    if let Some(c) = &r.props.change {
                         *m = (*m).max(c.info.id);
                     }
-                    for r in &p.runs {
-                        for x in [&r.props.ins, &r.props.del].into_iter().flatten() {
-                            *m = (*m).max(x.info.id);
-                        }
-                        if let Some(c) = &r.props.change {
-                            *m = (*m).max(c.info.id);
-                        }
-                    }
                 }
-                Block::Table(t) => {
-                    if let Some(c) = &t.props.change {
-                        *m = (*m).max(c.info.id);
-                    }
-                    for row in &t.rows {
-                        for x in [&row.props.ins, &row.props.del].into_iter().flatten() {
-                            *m = (*m).max(x.info.id);
-                        }
-                        for c in &row.cells {
-                            if let Some(ch) = &c.props.change {
-                                *m = (*m).max(ch.info.id);
-                            }
-                            blocks(&c.blocks, m);
-                        }
-                    }
-                }
-                Block::Opaque(_) => {}
             }
+            Block::Table(t) => {
+                if let Some(c) = &t.props.change {
+                    *m = (*m).max(c.info.id);
+                }
+                if let Some(g) = &t.grid_change {
+                    *m = (*m).max(g.info.id);
+                }
+                for row in &t.rows {
+                    for x in [&row.props.ins, &row.props.del].into_iter().flatten() {
+                        *m = (*m).max(x.info.id);
+                    }
+                    if let Some(c) = &row.props.change {
+                        *m = (*m).max(c.info.id);
+                    }
+                    for c in &row.cells {
+                        let p = &c.props;
+                        for info in [
+                            p.change.as_ref().map(|c| &c.info),
+                            p.ins.as_ref().map(|x| &x.info),
+                            p.del.as_ref().map(|x| &x.info),
+                            p.merge.as_ref().map(|x| &x.info),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        {
+                            *m = (*m).max(info.id);
+                        }
+                        blocks_max_id(&c.blocks, m);
+                    }
+                }
+            }
+            Block::Opaque(_) => {}
         }
     }
+}
+
+/// Largest revision id used in the document — main text, headers/footers and notes
+/// (revision ids are unique across the document, §17.13.5) — 0 when there is none.
+pub fn max_id(doc: &Document) -> i32 {
     let mut m = 0;
     for s in &doc.sections {
         if let Some(c) = &s.change {
             m = m.max(c.info.id);
         }
-        blocks(&s.blocks, &mut m);
+        blocks_max_id(&s.blocks, &mut m);
+        for set in [&s.headers, &s.footers] {
+            for b in [&set.default, &set.first, &set.even].into_iter().flatten() {
+                blocks_max_id(b, &mut m);
+            }
+        }
+    }
+    for b in doc.footnotes.values().chain(doc.endnotes.values()) {
+        blocks_max_id(b, &mut m);
     }
     m
 }
@@ -348,6 +502,16 @@ pub(crate) fn resolve_blocks(blocks: &[Block], f: Filter<'_>, accept: bool) -> V
 /// `None` when no row remains.
 fn resolve_table(t: &Table, f: Filter<'_>, accept: bool) -> Option<Table> {
     let hit = |m: &Option<RevMark>| m.as_ref().is_some_and(|m| f(m.info.id));
+    // Cells removed by resolving: accepted deletions, rejected insertions
+    // (§17.13.5.3 cellDel, §17.13.5.4 cellIns).
+    let gone = |c: &Cell| (accept && hit(&c.props.del)) || (!accept && hit(&c.props.ins));
+    // Accepting deleted cells removes the grid columns left without cells.
+    let removed = if accept {
+        t.removed_columns(&gone)
+    } else {
+        Vec::new()
+    };
+    let spans = t.markup_spans();
     let mut t2 = t.clone();
     if let Some(c) = t2.props.change.take() {
         if !f(c.info.id) {
@@ -356,9 +520,51 @@ fn resolve_table(t: &Table, f: Filter<'_>, accept: bool) -> Option<Table> {
             t2.props = c.old;
         }
     }
+    // §17.13.5.33 tblGridChange
+    if let Some(g) = t2.grid_change.take() {
+        if !f(g.info.id) {
+            t2.grid_change = Some(g);
+        } else if !accept {
+            t2.grid = g.old;
+        }
+    }
+    for (row, sp) in t2.rows.iter_mut().zip(&spans) {
+        let mut cells = Vec::with_capacity(row.cells.len());
+        for (mut c, &(s, _)) in std::mem::take(&mut row.cells).into_iter().zip(sp) {
+            if gone(&c) {
+                continue;
+            }
+            // Columns removed under a kept spanning cell shrink it.
+            let k = c.props.grid_span.max(1) as usize;
+            let lost: Vec<usize> = (s..s + k)
+                .filter(|g| removed.get(*g).copied().unwrap_or(false))
+                .collect();
+            if !lost.is_empty() {
+                c.props.grid_span = (k - lost.len()).max(1) as u32;
+                if let Some(TableWidth::Dxa(w)) = &mut c.props.width {
+                    let cut: i32 = lost
+                        .iter()
+                        .filter_map(|g| t.grid.get(*g))
+                        .map(|w| w.0)
+                        .sum();
+                    w.0 = (w.0 - cut).max(0);
+                }
+            }
+            cells.push(c);
+        }
+        row.cells = cells;
+    }
+    if removed.iter().any(|r| *r) {
+        let mut g = 0;
+        t2.grid.retain(|_| {
+            let keep = !removed.get(g).copied().unwrap_or(false);
+            g += 1;
+            keep
+        });
+    }
     t2.rows.retain(|row| {
         let gone = (hit(&row.props.del) && accept) || (hit(&row.props.ins) && !accept);
-        !gone
+        !gone && !row.cells.is_empty()
     });
     for row in &mut t2.rows {
         if hit(&row.props.del) {
@@ -367,12 +573,42 @@ fn resolve_table(t: &Table, f: Filter<'_>, accept: bool) -> Option<Table> {
         if hit(&row.props.ins) {
             row.props.ins = None;
         }
+        // §17.13.5.37 trPrChange
+        if let Some(ch) = row.props.change.take() {
+            if !f(ch.info.id) {
+                row.props.change = Some(ch);
+            } else if !accept {
+                row.props.header = ch.header;
+                row.props.cant_split = ch.cant_split;
+                row.props.height = ch.height;
+            }
+        }
         for c in &mut row.cells {
+            if hit(&c.props.del) {
+                c.props.del = None;
+            }
+            if hit(&c.props.ins) {
+                c.props.ins = None;
+            }
             if let Some(ch) = c.props.change.take() {
                 if !f(ch.info.id) {
                     c.props.change = Some(ch);
                 } else if !accept {
-                    c.props = ch.old;
+                    let keep = c.props.clone();
+                    c.props = CellProps {
+                        ins: keep.ins,
+                        del: keep.del,
+                        merge: keep.merge,
+                        ..ch.old.bare()
+                    };
+                }
+            }
+            // §17.13.5.6 cellMerge
+            if let Some(m) = c.props.merge.take() {
+                if !f(m.info.id) {
+                    c.props.merge = Some(m);
+                } else if !accept {
+                    c.props.v_merge = m.v_merge_orig;
                 }
             }
             c.blocks = resolve_blocks(&c.blocks, f, accept);

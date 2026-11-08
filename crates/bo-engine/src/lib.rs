@@ -20,6 +20,8 @@ mod bundled;
 pub mod collab;
 pub mod edit;
 pub mod fonts;
+pub mod gallery;
+pub mod media;
 pub mod merge;
 pub mod nav;
 mod notes;
@@ -29,6 +31,7 @@ pub mod slide_edit;
 pub mod smartart;
 pub mod story;
 pub mod templates;
+pub mod textbox;
 
 pub use collab::{CollabChange, CollabOut, TextOp};
 pub use edit::{Command, EditResult};
@@ -244,6 +247,8 @@ pub struct Engine {
     hf: Option<story::HfEdit>,
     /// Open footnote/endnote editor (BlueDoc).
     note: Option<notes::NoteEdit>,
+    /// Open text box editor (BlueDoc).
+    textbox: Option<textbox::BoxEdit>,
 }
 
 impl Engine {
@@ -319,6 +324,7 @@ impl Engine {
         } else if is_zip {
             let mut d = bo_docx::read_docx(bytes)?;
             smartart::render_smartart(&mut d, &mut self.fonts);
+            media::convert_media(&mut d, &mut self.fonts);
             d
         } else if bytes.starts_with(CFB_SIGNATURE) {
             match bo_binary::detect(bytes) {
@@ -390,6 +396,7 @@ impl Engine {
         self.slide_collab = None;
         self.hf = None;
         self.note = None;
+        self.textbox = None;
         self.info()
     }
 
@@ -760,6 +767,8 @@ impl Engine {
             .and_then(|d| d.media.get(name))
             .map(|b| b.as_slice())
             .or_else(|| self.images.get(name).map(Vec::as_slice))
+            // Slide media parts (video / audio clips played by the hosts).
+            .or_else(|| self.pres.as_ref().and_then(|p| p.part_data(name)))
     }
 
     /// Set the mail-merge data source (CSV or XLSX); returns the number of records.

@@ -46,14 +46,23 @@ E2E gõ tiếng Việt + lưu + mở lại.
 Ảnh: [mẫu NĐ 30 + thước kẻ](../screenshots/phase2-doc-template.png), [phông/cỡ/màu + Format Painter](../screenshots/phase2-doc-ruler-fonts.png).
 
 ## Hạn chế / chuyển phase sau
-- Chú thích: chưa chia một chú thích dài sang trang sau (§17.11 continuation), `footnotePr`/`endnotePr` cấp tài liệu
-  (settings.xml) chỉ giữ nguyên chứ chưa dùng khi dàn trang, numRestart eachPage làm mọi lần dàn trang thành dàn toàn bộ;
-  cộng tác trực tiếp chưa đồng bộ nội dung chú thích. Liên kết đầu/chân trang: phần đầu tiên không có phần trước để liên kết.
+- Chú thích (bổ sung 2026-11-08): chú thích dài **chuyển tiếp sang trang sau** — dòng tham chiếu chỉ cần dòng đầu của
+  chú thích nằm cùng trang (chú thích cuối cùng của trang được phép tách), phần còn lại mở đầu vùng chú thích trang sau
+  với đường phân cách chuyển tiếp dài bằng bề rộng chữ (§17.11.1 continuationSeparator), có thể sang nhiều trang và sang
+  trang riêng sau trang cuối; thông báo tiếp trang (`w:footnote w:type="continuationNotice"`, §17.18.33) hiện ở cuối phần
+  bị tách; chú thích tiếp trang giữ số của trang đầu khi numRestart eachPage. `footnotePr`/`endnotePr` **cấp tài liệu**
+  trong settings.xml (§17.11.11, §17.11.4) được đọc, ghi (tài liệu mới) và dùng khi dàn trang (định dạng số, số bắt đầu,
+  đánh số lại, vị trí; footnotePr/endnotePr của section ghi đè từng thuộc tính). **numRestart eachPage không còn buộc dàn
+  toàn bộ**: layout tăng dần dùng lại số chú thích theo trang của lần dàn trước, kiểm lại sau khi phân trang và chỉ dàn
+  toàn bộ khi có chú thích đổi trang (test `per_page_footnote_numbers_stay_incremental`). Corpus `notes-05..07`.
+  Còn lại: thông báo tiếp trang chỉ hiển thị (không ghi lại khi viết lại phần chú thích); endnote chưa chia theo dòng
+  (đặt như đoạn thân văn bản); cộng tác trực tiếp chưa đồng bộ nội dung chú thích/đầu-chân trang (để cho nhánh cộng tác).
+  Liên kết đầu/chân trang: phần đầu tiên không có phần trước để liên kết.
 - Thước kẻ đo theo lề trang (trong ô bảng chưa hiện ranh giới ô); thước dọc chỉ kéo lề trên/dưới (chưa kéo khoảng cách đầu/chân trang).
-- Tách ô chưa có hộp thoại n hàng × m cột. Theo dõi thay đổi đã ghi chèn/xoá hàng (`w:trPr/w:ins|del`), thuộc tính ô
-  (`tcPrChange`), thuộc tính bảng (`tblPrChange`), ảnh (chèn/xoá như run) và thiết lập trang (`sectPrChange`); chưa ghi chèn/xoá
-  cột (`cellIns`/`cellDel`), gộp/tách ô, hàng tiêu đề (`trPrChange`), đầu/chân trang và chú thích. Thao tác bảng, thiết lập
-  trang, đầu/chân trang và chú thích chưa đồng bộ trực tiếp khi cộng tác (đến người khác khi lưu version).
+- Tách ô chưa có hộp thoại n hàng × m cột. Theo dõi thay đổi cấu trúc: xem [phase-5.md](phase-5.md) §5 (đã đủ hàng, cột,
+  ô, gộp/tách, thuộc tính hàng, đầu/chân trang, chú thích, ảnh nổi). Bảng có thêm lệnh **chèn ô (đẩy phải)** / **xoá ô (đẩy
+  trái)**. Thao tác bảng, thiết lập trang, đầu/chân trang và chú thích chưa đồng bộ trực tiếp khi cộng tác (đến người khác khi
+  lưu version).
 - Màu tô sáng tuỳ chọn được quy về màu `ST_HighlightColor` gần nhất khi lưu (§17.3.2.15 chỉ cho phép tên màu).
 - Paste Special đọc HTML từ bộ nhớ tạm cần trình duyệt cho phép `clipboard.read`; nếu không, dùng nội dung vừa sao chép trong BlueDoc.
 - Wrap tight dùng hộp bao của đa giác (chưa theo từng cạnh đa giác); chữ trong bảng không chảy quanh ảnh; đoạn bị chia sang

@@ -1,7 +1,9 @@
 //! Paragraph layout: itemization, shaping, line breaking, tabs, alignment, line height.
 //! Output is position-independent (relative to the content box) and cacheable.
 
-use crate::style::{para_style_run, revision_style, run_props, run_style, RunStyle};
+use crate::blocks::Ctx;
+use crate::drawing::{shape_drawing, Drawing, Float};
+use crate::style::{para_style_run, revision_style, run_props, run_style, slot_of, RunStyle};
 use crate::types::{Fragment, GlyphPos, NoteKey};
 use crate::LayoutError;
 use crate::RevisionView;
@@ -215,6 +217,8 @@ pub(crate) struct RelObject {
     pub w: f32,
     pub h: f32,
     pub image: Image,
+    /// Shape / text box drawn in the object box.
+    pub drawing: Option<Arc<Drawing>>,
     /// Tracked insertion/deletion of the picture (§17.13.5.18 / §17.13.5.14 on its run).
     pub revision: Option<(Color, bool)>,
 }
@@ -236,7 +240,7 @@ pub(crate) struct ParaLayout {
     pub indent_left: f32,
     pub indent_right: f32,
     /// Anchored (floating) pictures of this paragraph.
-    pub floats: Vec<Image>,
+    pub floats: Vec<Float>,
 }
 
 #[derive(Debug, Clone)]
@@ -285,9 +289,12 @@ struct Piece {
     /// Label pieces have no caret positions.
     virtual_: bool,
     image: Option<Image>,
+    drawing: Option<Arc<Drawing>>,
     /// Object height above baseline (pictures).
     obj_h: f32,
     note: Option<NoteKey>,
+    /// Bidirectional embedding level (UAX #9; odd = right to left).
+    level: u8,
 }
 
 impl Piece {
@@ -335,6 +342,7 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     inp.width.to_bits().hash(&mut h);
     inp.default_tab.to_bits().hash(&mut h);
     inp.doc.default_run.hash(&mut h);
+    inp.doc.theme_fonts.hash(&mut h);
     inp.note_mark.hash(&mut h);
     inp.view.hash(&mut h);
     for z in inp.wrap {
@@ -371,7 +379,7 @@ pub(crate) fn layout_paragraph(
         return Ok(l.clone());
     }
     cache.misses += 1;
-    let l = Arc::new(layout_uncached(inp, fonts)?);
+    let l = Arc::new(layout_uncached(inp, fonts, cache)?);
     if cache.map.len() > 100_000 {
         cache.map.clear();
     }
@@ -391,6 +399,132 @@ fn field_text(instr: &str, cached: &str, f: FieldContext) -> String {
         "SECTIONPAGES" if f.section_pages > 0 => f.section_pages.to_string(),
         _ => cached.to_owned(),
     }
+}
+
+/// Embedding level of every byte of the paragraph text (UAX #9 via `unicode-bidi`),
+/// base level 1 for a `w:bidi` paragraph (§17.3.1.6); `None` when the paragraph is
+/// left to right with no right-to-left characters (nothing to reorder).
+fn bidi_levels(text: &str, rtl: bool) -> Option<Vec<u8>> {
+    use unicode_bidi::{BidiClass, BidiInfo, Level};
+    if !rtl
+        && !text.chars().any(|c| {
+            matches!(
+                unicode_bidi::bidi_class(c),
+                BidiClass::R | BidiClass::AL | BidiClass::RLE | BidiClass::RLO | BidiClass::RLI
+            )
+        })
+    {
+        return None;
+    }
+    let base = if rtl { Level::rtl() } else { Level::ltr() };
+    let info = BidiInfo::new(text, Some(base));
+    let mut out: Vec<u8> = info.levels.iter().map(|l| l.number()).collect();
+    // L1: trailing whitespace goes back to the paragraph level.
+    for (i, c) in text.char_indices().rev() {
+        if !c.is_whitespace() {
+            break;
+        }
+        for v in &mut out[i..i + c.len_utf8()] {
+            *v = base.number();
+        }
+    }
+    Some(out)
+}
+
+/// Split pieces whose characters have different embedding levels (re-shaped per
+/// level run) and record each piece's level.
+fn split_by_level(
+    pieces: Vec<Piece>,
+    levels: &[u8],
+    styles: &[RunStyle],
+    fonts: &mut FontManager,
+) -> Vec<Piece> {
+    let lv = |o: u32| levels.get(o as usize).copied().unwrap_or(0);
+    let mut out = Vec::with_capacity(pieces.len());
+    for mut p in pieces {
+        let shaped_text = matches!(p.kind, Kind::Text | Kind::Space)
+            && !p.virtual_
+            && p.offsets.len() == p.text.chars().count() + 1;
+        if !shaped_text {
+            p.level = lv(p.start());
+            out.push(p);
+            continue;
+        }
+        let chars: Vec<(usize, char)> = p.text.char_indices().collect();
+        let mut k = 0;
+        while k < chars.len() {
+            let l = lv(p.offsets[k]);
+            let mut j = k + 1;
+            while j < chars.len() && lv(p.offsets[j]) == l {
+                j += 1;
+            }
+            if k == 0 && j == chars.len() {
+                p.level = l;
+                out.push(p.clone());
+                break;
+            }
+            let b0 = chars[k].0;
+            let b1 = chars.get(j).map_or(p.text.len(), |c| c.0);
+            let sub = &p.text[b0..b1];
+            let st = &styles[p.style];
+            let glyphs = fonts.shape_kern(p.face, sub, st.kern);
+            let upem = f32::from(fonts.info(p.face).units_per_em);
+            let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32 * st.size / upem
+                + st.spacing * glyphs.len() as f32;
+            out.push(Piece {
+                text: sub.to_owned(),
+                glyphs,
+                width,
+                offsets: p.offsets[k..=j].to_vec(),
+                level: l,
+                ..p.clone()
+            });
+            k = j;
+        }
+    }
+    out
+}
+
+/// Pieces of one line in visual order (UAX #9 rule L2: from the highest level down
+/// to the lowest odd level, reverse every run at that level or higher). Trailing
+/// spaces and breaks keep the paragraph level (rule L1).
+fn visual_order(pieces: &[Piece], base: u8) -> Vec<Piece> {
+    let mut v: Vec<Piece> = pieces.to_vec();
+    let mut end = v.len();
+    while end > 0 && !matches!(v[end - 1].kind, Kind::Text | Kind::Object) {
+        v[end - 1].level = base;
+        end -= 1;
+    }
+    let max = v.iter().map(|p| p.level).max().unwrap_or(0);
+    let min_odd = v
+        .iter()
+        .map(|p| p.level)
+        .filter(|l| l % 2 == 1)
+        .min()
+        .unwrap_or(max + 1);
+    let mut level = max;
+    while level >= min_odd && level > 0 {
+        let mut i = 0;
+        while i < end {
+            if v[i].level >= level {
+                let mut j = i;
+                while j < end && v[j].level >= level {
+                    j += 1;
+                }
+                v[i..j].reverse();
+                i = j;
+            } else {
+                i += 1;
+            }
+        }
+        level -= 1;
+    }
+    v
+}
+
+/// Combining marks (they keep the font of the character they attach to).
+fn is_combining(c: char) -> bool {
+    matches!(c as u32, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F)
 }
 
 fn kind_of(c: char) -> Kind {
@@ -414,19 +548,56 @@ struct Atom {
     /// Atomic object (picture, field, note reference): one caret unit.
     object: bool,
     image: Option<Image>,
+    /// Laid-out shape / text box of an inline drawing object.
+    drawing: Option<Arc<Drawing>>,
     note: Option<NoteKey>,
+}
+
+/// Lay out the shape / text box of drawing object `img` at index offset `at`.
+fn drawing_of(
+    inp: &ParaInput<'_>,
+    fonts: &mut FontManager,
+    cache: &mut LayoutCache,
+    img: &Image,
+    shape: &bo_model::Shape,
+    at: usize,
+) -> Result<Drawing, LayoutError> {
+    let mut ctx = Ctx {
+        doc: inp.doc,
+        fonts,
+        cache,
+        lists: Default::default(),
+        other_lists: Default::default(),
+        notes: inp.note_numbers.clone(),
+        fields: inp.fields,
+        default_tab: inp.default_tab,
+        next_id: 0,
+        id_origin: 0,
+        endnote_order: Vec::new(),
+        view: inp.view,
+        note: None,
+        textbox: None,
+    };
+    shape_drawing(&mut ctx, img, shape, at as u32)
 }
 
 fn layout_uncached(
     inp: &ParaInput<'_>,
     fonts: &mut FontManager,
+    cache: &mut LayoutCache,
 ) -> Result<ParaLayout, LayoutError> {
     let props = &inp.props;
     let doc = inp.doc;
     let indent_left = props.indent_left.unwrap_or(Twips(0)).to_pt();
     let indent_right = props.indent_right.unwrap_or(Twips(0)).to_pt();
     let first = props.indent_first_line.unwrap_or(Twips(0)).to_pt();
-    let align = props.align.unwrap_or_default();
+    // §17.3.1.6 bidi: in a right-to-left paragraph `left`/`right` are the logical
+    // start/end edges (start = right); no alignment means start.
+    let align = match (props.bidi.unwrap_or(false), props.align) {
+        (true, None | Some(Alignment::Left)) => Alignment::Right,
+        (true, Some(Alignment::Right)) => Alignment::Left,
+        (_, a) => a.unwrap_or_default(),
+    };
     let spacing = props.line_spacing.unwrap_or_default();
     let base_run = para_style_run(doc, props);
 
@@ -447,7 +618,7 @@ fn layout_uncached(
         };
         let rp = run_props(doc, &base_run, &direct);
         styles.push(revision_style(
-            run_style(fonts, &rp).ok_or(LayoutError::NoFonts)?,
+            run_style(doc, fonts, &rp).ok_or(LayoutError::NoFonts)?,
             &rp,
             inp.view,
         ));
@@ -455,7 +626,7 @@ fn layout_uncached(
     }
     let mark_style = match styles.last() {
         Some(s) => s.clone(),
-        None => run_style(fonts, &base_run).ok_or(LayoutError::NoFonts)?,
+        None => run_style(doc, fonts, &base_run).ok_or(LayoutError::NoFonts)?,
     };
     if styles.is_empty() {
         styles.push(mark_style.clone());
@@ -466,9 +637,24 @@ fn layout_uncached(
         let run = &inp.para.runs[sp.run];
         let style = run_style_idx[sp.run];
         let item = &run.content[sp.item];
+        let drawing = match item {
+            RunContent::Image(img) => match &img.shape {
+                Some(s) => Some(Arc::new(drawing_of(inp, fonts, cache, img, s, sp.start)?)),
+                None => None,
+            },
+            _ => None,
+        };
         if let RunContent::Image(img) = item {
             if img.anchor.is_some() {
-                floats.push((**img).clone());
+                // A floating picture deleted (final view) or inserted (original view)
+                // by a tracked change is not shown (§17.13.5.14, §17.13.5.18).
+                if !styles[style].hidden {
+                    floats.push(Float {
+                        img: (**img).clone(),
+                        drawing,
+                        para: None,
+                    });
+                }
                 continue;
             }
         }
@@ -507,6 +693,7 @@ fn layout_uncached(
             text,
             object,
             image,
+            drawing,
             note,
         });
     }
@@ -514,7 +701,7 @@ fn layout_uncached(
     // 2. Words at UAX #14 break opportunities, then pieces.
     let mut words: Vec<Word> = Vec::new();
     if let Some((label, lrp, suffix)) = &inp.label {
-        let lstyle = run_style(fonts, &lrp.inherit(&base_run)).ok_or(LayoutError::NoFonts)?;
+        let lstyle = run_style(doc, fonts, &lrp.inherit(&base_run)).ok_or(LayoutError::NoFonts)?;
         styles.push(lstyle);
         let si = styles.len() - 1;
         let mut pieces = Vec::new();
@@ -534,9 +721,14 @@ fn layout_uncached(
     let breaks: Vec<usize> = unicode_linebreak::linebreaks(&index_text)
         .map(|(i, _)| i)
         .collect();
+    let base_level = u8::from(props.bidi.unwrap_or(false));
+    let levels = bidi_levels(&index_text, base_level == 1);
     for idx in breaks {
         if idx > prev {
-            let pieces = word_pieces(&atoms, prev, idx, &styles, fonts);
+            let mut pieces = word_pieces(&atoms, prev, idx, &styles, fonts);
+            if let Some(lv) = &levels {
+                pieces = split_by_level(pieces, lv, &styles, fonts);
+            }
             if !pieces.is_empty() {
                 words.push(Word { pieces });
             }
@@ -677,7 +869,14 @@ fn layout_uncached(
         let line_segs = &segs[li];
         for (sk, &(s0, start_x, max)) in line_segs.iter().enumerate() {
             let s1 = line_segs.get(sk + 1).map_or(line_pieces.len(), |s| s.0);
-            let pieces = &line_pieces[s0.min(s1)..s1];
+            let reordered;
+            let pieces = match &levels {
+                Some(_) => {
+                    reordered = visual_order(&line_pieces[s0.min(s1)..s1], base_level);
+                    &reordered[..]
+                }
+                None => &line_pieces[s0.min(s1)..s1],
+            };
             let last_seg = sk + 1 == line_segs.len();
             let (xs, ink_end) = position(pieces, start_x, &tab_ctx);
             let slack = (max - ink_end).max(0.0);
@@ -757,6 +956,7 @@ fn layout_uncached(
                                 w: p.width,
                                 h: p.obj_h,
                                 image: img.clone(),
+                                drawing: p.drawing.clone(),
                                 revision: st.revision,
                             });
                         }
@@ -863,6 +1063,43 @@ fn layout_uncached(
                 real.iter().map(|p| p.end()).max().unwrap_or(0),
             )
         };
+        // §17.3.3.29 softHyphen: a line broken at an optional hyphen shows a hyphen.
+        if !is_last
+            && brk.is_none()
+            && index_text
+                .get(..end as usize)
+                .is_some_and(|t| t.ends_with('\u{00AD}'))
+        {
+            if let Some(last) = frags.iter().max_by(|a, b| a.x.total_cmp(&b.x)) {
+                let (face, size, color, x) =
+                    (last.face, last.size, last.color, last.x + last.width);
+                let shaped = fonts.shape_kern(face, "-", false);
+                let k = size / f32::from(fonts.info(face).units_per_em);
+                let w: f32 = shaped.iter().map(|g| g.x_advance as f32 * k).sum();
+                frags.push(Draft {
+                    face,
+                    size,
+                    x,
+                    y: 0.0,
+                    width: w,
+                    color,
+                    underline: bo_model::Underline::None,
+                    strike: false,
+                    double_strike: false,
+                    text: "-".into(),
+                    glyphs: shaped
+                        .iter()
+                        .map(|g| GlyphPos {
+                            id: g.glyph_id,
+                            x: 0.0,
+                            y: 0.0,
+                            cluster: 0,
+                        })
+                        .collect(),
+                    link: None,
+                });
+            }
+        }
         if carets.is_empty() {
             carets.push((start, first_caret.unwrap_or(indent_left)));
         }
@@ -921,6 +1158,21 @@ fn push_carets(
         // Atomic: start and end.
         carets.push((p.start(), x0));
         carets.push((p.end(), x0 + width));
+        return;
+    }
+    if p.level % 2 == 1 {
+        // Right to left: the caret before a character is right of the glyphs of the
+        // characters before it (glyphs come in visual order).
+        for (k, (cb, _)) in p.text.char_indices().enumerate() {
+            let before: f32 = p
+                .glyphs
+                .iter()
+                .filter(|g| (g.cluster as usize) < cb)
+                .map(|g| g.x_advance as f32 * scale + spacing)
+                .sum();
+            carets.push((p.offsets[k], x0 + (width - before).max(0.0)));
+        }
+        carets.push((p.end(), x0));
         return;
     }
     let mut adv_before: Vec<f32> = Vec::with_capacity(p.glyphs.len());
@@ -1084,6 +1336,8 @@ fn special_piece(kind: Kind, style: usize, styles: &[RunStyle], at: u32, virtual
         offsets: vec![at, at + u32::from(!virtual_)],
         virtual_,
         image: None,
+        drawing: None,
+        level: 0,
         obj_h: 0.0,
         note: None,
     }
@@ -1137,10 +1391,40 @@ fn text_pieces(
         };
         let group = &display[b0..b1];
         let mut cursor = k;
-        for (r, face) in fonts.itemize(st.face, group) {
+        // §17.3.2.26: split by font slot (marks stay with their base character), then
+        // by glyph coverage.
+        let mut slots: Vec<(std::ops::Range<usize>, FaceId)> = Vec::new();
+        if st.faces.iter().all(|f| *f == st.face) {
+            slots.push((0..group.len(), st.face));
+        } else {
+            for (i, c) in group.char_indices() {
+                let face = if is_combining(c) {
+                    slots.last().map_or(st.face, |s| s.1)
+                } else {
+                    st.faces[slot_of(c, st.hint_east_asia, st.complex) as usize]
+                };
+                let end = i + c.len_utf8();
+                match slots.last_mut() {
+                    Some(s) if s.1 == face => s.0.end = end,
+                    _ => slots.push((i..end, face)),
+                }
+            }
+        }
+        let items: Vec<(std::ops::Range<usize>, FaceId)> = slots
+            .into_iter()
+            .flat_map(|(r, f)| {
+                let base = r.start;
+                fonts
+                    .itemize(f, &group[r])
+                    .into_iter()
+                    .map(move |(rr, ff)| (rr.start + base..rr.end + base, ff))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        for (r, face) in items {
             let t = &group[r];
             let nc = t.chars().count();
-            let glyphs = fonts.shape(face, t);
+            let glyphs = fonts.shape_kern(face, t, st.kern);
             let upem = f32::from(fonts.info(face).units_per_em);
             let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32 * st.size / upem
                 + st.spacing * glyphs.len() as f32;
@@ -1154,6 +1438,8 @@ fn text_pieces(
                 offsets: offs[cursor..=cursor + nc].to_vec(),
                 virtual_,
                 image: None,
+                drawing: None,
+                level: 0,
                 obj_h: 0.0,
                 note: None,
             });
@@ -1190,6 +1476,8 @@ fn word_pieces(
                     offsets: vec![at.start as u32, at.end as u32],
                     virtual_: false,
                     image: Some(img.clone()),
+                    drawing: at.drawing.clone(),
+                    level: 0,
                     obj_h: img.height.to_pt(),
                     note: None,
                 });
@@ -1233,7 +1521,7 @@ fn word_pieces(
                     sp.offsets = vec![off, off + c.len_utf8() as u32];
                     pieces.push(sp);
                 }
-                // Soft hyphen: invisible (§17.3.3.29), no break rendering in this version.
+                // Soft hyphen (§17.3.3.29): invisible; a hyphen is drawn when a line breaks there.
                 _ if c == '\u{00AD}' => {}
                 _ => {
                     buf.push(c);

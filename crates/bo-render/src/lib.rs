@@ -9,10 +9,11 @@
 #![forbid(unsafe_code)]
 
 pub mod image;
+pub mod metafile;
 
 pub use image::{ImageSource, Media};
 
-use bo_layout::{Layer, LayoutDocument, Line, Page, PageItem};
+use bo_layout::{Layer, LayoutDocument, Line, LineSource, Page, PageItem, PathCmd};
 use bo_model::Underline;
 use bo_text::FontManager;
 use serde::{Deserialize, Serialize};
@@ -344,6 +345,172 @@ fn item_commands(item: &PageItem, out: &mut Vec<Command>) {
             crop: *crop,
             rotation: *rotation,
         }),
+        PageItem::Shape { x, y, paths, .. } => {
+            for p in paths {
+                let segs = p
+                    .segs
+                    .iter()
+                    .map(|s| match *s {
+                        PathCmd::M(a, b) => PathSeg::M(x + a, y + b),
+                        PathCmd::L(a, b) => PathSeg::L(x + a, y + b),
+                        PathCmd::Q(a, b, c, d) => PathSeg::Q(x + a, y + b, x + c, y + d),
+                        PathCmd::C(a, b, c, d, e, f) => {
+                            PathSeg::C(x + a, y + b, x + c, y + d, x + e, y + f)
+                        }
+                        PathCmd::Z => PathSeg::Z,
+                    })
+                    .collect();
+                out.push(Command::Path {
+                    segs,
+                    fill: p.fill.map(|c| Paint::Solid { color: c.into() }),
+                    stroke: p.stroke.as_ref().map(|(w, c, dash)| Stroke {
+                        width: *w,
+                        color: (*c).into(),
+                        dash: shape_dash(dash.as_deref(), *w),
+                        cap: "butt".into(),
+                        join: "miter".into(),
+                    }),
+                });
+            }
+        }
+    }
+}
+
+/// Dash lengths of a preset line dash (ECMA-376 Part 1, §20.1.10.48
+/// `ST_PresetLineDashVal`, in multiples of the line width).
+fn shape_dash(name: Option<&str>, w: f32) -> Vec<f32> {
+    let pat: &[f32] = match name {
+        Some("dot" | "sysDot") => &[1.0, 1.0],
+        Some("dash" | "sysDash") => &[4.0, 3.0],
+        Some("lgDash") => &[8.0, 3.0],
+        Some("dashDot" | "sysDashDot") => &[4.0, 3.0, 1.0, 3.0],
+        Some("lgDashDot") => &[8.0, 3.0, 1.0, 3.0],
+        Some("lgDashDotDot" | "sysDashDotDot") => &[8.0, 3.0, 1.0, 3.0, 1.0, 3.0],
+        _ => &[],
+    };
+    pat.iter().map(|v| v * w.max(0.5)).collect()
+}
+
+/// Horizontal spans `(x0, x1)` of a fragment that carry ink: the whole fragment, or
+/// for `words` underlining (§17.18.99) only the runs of non-space characters.
+fn underline_spans(f: &bo_layout::Fragment, words: bool) -> Vec<(f32, f32)> {
+    if !words {
+        return vec![(f.x, f.x + f.width)];
+    }
+    let mut out = Vec::new();
+    let mut cur: Option<(f32, f32)> = None;
+    for (i, g) in f.glyphs.iter().enumerate() {
+        let next = f.glyphs.get(i + 1).map_or(f.width, |n| n.x);
+        let space = f
+            .text
+            .get(g.cluster as usize..)
+            .and_then(|s| s.chars().next())
+            .is_some_and(char::is_whitespace);
+        if space {
+            out.extend(cur.take());
+        } else {
+            let (x0, x1) = (f.x + g.x, f.x + next.max(g.x));
+            cur = Some(cur.map_or((x0, x1), |(a, _)| (a, x1)));
+        }
+    }
+    out.extend(cur);
+    out
+}
+
+/// Wavy line from `x0` to `x1` around `y` (quadratic arcs).
+fn wave(x0: f32, x1: f32, y: f32, amp: f32) -> Vec<PathSeg> {
+    let step = (amp * 4.0).max(1.5);
+    let mut segs = vec![PathSeg::M(x0, y)];
+    let mut x = x0;
+    let mut up = true;
+    while x < x1 - 0.01 {
+        let nx = (x + step).min(x1);
+        let cy = if up { y - amp * 2.0 } else { y + amp * 2.0 };
+        segs.push(PathSeg::Q((x + nx) / 2.0, cy, nx, y));
+        x = nx;
+        up = !up;
+    }
+    segs
+}
+
+/// Underline of a fragment in every `ST_Underline` style (ECMA-376 Part 1, §17.18.99):
+/// heavy styles are twice as thick, dashes and dots are stroke dash patterns.
+fn underline_commands(
+    f: &bo_layout::Fragment,
+    uy: f32,
+    t: f32,
+    color: Rgba,
+    out: &mut Vec<Command>,
+) {
+    use Underline as U;
+    let heavy = matches!(
+        f.underline,
+        U::Thick
+            | U::DottedHeavy
+            | U::DashedHeavy
+            | U::DashLongHeavy
+            | U::DashDotHeavy
+            | U::DashDotDotHeavy
+            | U::WavyHeavy
+    );
+    let w = if heavy { t * 2.0 } else { t };
+    let dash: Vec<f32> = match f.underline {
+        U::Dotted | U::DottedHeavy => vec![w, w * 2.0],
+        U::Dash | U::DashedHeavy => vec![w * 4.0, w * 2.0],
+        U::DashLong | U::DashLongHeavy => vec![w * 8.0, w * 3.0],
+        U::DotDash | U::DashDotHeavy => vec![w * 4.0, w * 2.0, w, w * 2.0],
+        U::DotDotDash | U::DashDotDotHeavy => vec![w * 4.0, w * 2.0, w, w * 2.0, w, w * 2.0],
+        _ => Vec::new(),
+    };
+    let stroke = |width: f32, dash: Vec<f32>| Stroke {
+        width,
+        color,
+        dash,
+        cap: "butt".into(),
+        join: "miter".into(),
+    };
+    for (x0, x1) in underline_spans(f, f.underline == U::Words) {
+        if x1 - x0 <= 0.01 {
+            continue;
+        }
+        let mut line = |y: f32, width: f32| {
+            out.push(Command::Line {
+                x1: x0,
+                y1: y,
+                x2: x1,
+                y2: y,
+                width,
+                color,
+                dash: None,
+            });
+        };
+        match f.underline {
+            U::None => {}
+            U::Single | U::Words | U::Thick => line(uy, w),
+            U::Double => {
+                line(uy - t, t);
+                line(uy + t * 1.5, t);
+            }
+            U::Wave | U::WavyHeavy => out.push(Command::Path {
+                segs: wave(x0, x1, uy + w * 0.5, w * 0.75),
+                fill: None,
+                stroke: Some(stroke(w, Vec::new())),
+            }),
+            U::WavyDouble => {
+                for dy in [-t * 0.8, t * 1.6] {
+                    out.push(Command::Path {
+                        segs: wave(x0, x1, uy + dy, t * 0.6),
+                        fill: None,
+                        stroke: Some(stroke(t, Vec::new())),
+                    });
+                }
+            }
+            _ => out.push(Command::Path {
+                segs: vec![PathSeg::M(x0, uy), PathSeg::L(x1, uy)],
+                fill: None,
+                stroke: Some(stroke(w, dash.clone())),
+            }),
+        }
     }
 }
 
@@ -369,6 +536,8 @@ fn line_commands(line: &Line, fonts: &FontManager, commands: &mut Vec<Command>) 
         let scale = f.size / f32::from(info.units_per_em);
         let thickness = (f32::from(info.underline_thickness) * scale).max(0.5);
         // Underline: ECMA-376 Part 1, §17.3.2.40; position from the font's `post` table.
+        let uy = f.y - f32::from(info.underline_position) * scale;
+        underline_commands(f, uy, thickness, color, commands);
         let mut deco = |y: f32, width: f32, dash: Option<[f32; 2]>| {
             commands.push(Command::Line {
                 x1: f.x,
@@ -380,18 +549,6 @@ fn line_commands(line: &Line, fonts: &FontManager, commands: &mut Vec<Command>) 
                 dash,
             });
         };
-        let uy = f.y - f32::from(info.underline_position) * scale;
-        match f.underline {
-            Underline::None => {}
-            Underline::Single | Underline::Words | Underline::Wave => deco(uy, thickness, None),
-            Underline::Thick => deco(uy, thickness * 2.0, None),
-            Underline::Double => {
-                deco(uy - thickness, thickness, None);
-                deco(uy + thickness * 1.5, thickness, None);
-            }
-            Underline::Dotted => deco(uy, thickness, Some([thickness, thickness * 2.0])),
-            Underline::Dash => deco(uy, thickness, Some([thickness * 4.0, thickness * 2.0])),
-        }
         let sy = f.y - f32::from(info.strikeout_position) * scale;
         if f.strike {
             deco(sy, thickness, None);
@@ -421,11 +578,16 @@ pub fn build_page_list(page: &Page, fonts: &FontManager) -> PageList {
     for item in page.items.iter().filter(|i| i.layer() == Layer::Back) {
         item_commands(item, &mut commands);
     }
-    for line in &page.lines {
+    let boxed = |l: &Line| matches!(l.source, LineSource::TextBox { .. });
+    for line in page.lines.iter().filter(|l| !boxed(l)) {
         line_commands(line, fonts, &mut commands);
     }
     for item in page.items.iter().filter(|i| i.layer() == Layer::Front) {
         item_commands(item, &mut commands);
+    }
+    // Text box text goes over its shape (§17.17.1 txbxContent).
+    for line in page.lines.iter().filter(|l| boxed(l)) {
+        line_commands(line, fonts, &mut commands);
     }
     PageList {
         width: page.width,

@@ -152,6 +152,38 @@ pub enum PageItem {
         /// Paint order relative to text.
         layer: Layer,
     },
+    /// DrawingML / VML shape outline (ECMA-376 Part 1, §20.1.9 geometry): `paths` are
+    /// relative to the shape box at (`x`, `y`), already rotated and flipped.
+    Shape {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        paths: Vec<ShapePath>,
+        /// The drawing object: [`LineSource::TextBox`] with `sub` 0 (rebased like the
+        /// lines of its paragraph).
+        source: LineSource,
+        layer: Layer,
+    },
+}
+
+/// Path segment of a shape outline (points, relative to the shape box).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub enum PathCmd {
+    M(f32, f32),
+    L(f32, f32),
+    Q(f32, f32, f32, f32),
+    C(f32, f32, f32, f32, f32, f32),
+    Z,
+}
+
+/// One filled and/or stroked path of a shape.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ShapePath {
+    pub segs: Vec<PathCmd>,
+    pub fill: Option<Color>,
+    /// (width in points, colour, `ST_PresetLineDashVal` dash name).
+    pub stroke: Option<(f32, Color, Option<String>)>,
 }
 
 /// One page (points).
@@ -186,8 +218,53 @@ pub enum LineSource {
         /// Paragraph index inside the note.
         para: u32,
     },
+    /// Paragraph `sub` (document order inside the text box) of the text box anchored at
+    /// index offset `at` of body paragraph `para` (§17.17.1 txbxContent); `para` is
+    /// [`LineSource::NO_PARA`] for text boxes outside the body (headers, notes).
+    TextBox {
+        /// Body paragraph of the anchor, or [`LineSource::NO_PARA`].
+        para: u32,
+        /// Index offset of the anchor in that paragraph.
+        at: u32,
+        /// Paragraph index inside the text box.
+        sub: u32,
+    },
     /// Header/footer content and repeated table header rows (not editable in place).
     Other,
+}
+
+impl LineSource {
+    /// `para` of text boxes that are not in the body.
+    pub const NO_PARA: u32 = u32::MAX;
+
+    /// Add `base` to a relative body paragraph id (body lines and body text boxes).
+    pub fn rebase(&mut self, base: u32) {
+        match self {
+            LineSource::Body(id) => *id += base,
+            LineSource::TextBox { para, .. } if *para != Self::NO_PARA => *para += base,
+            _ => {}
+        }
+    }
+
+    /// Shift a body paragraph id by `delta` (incremental layout).
+    pub fn shift(&mut self, delta: i64) {
+        match self {
+            LineSource::Body(id) => *id = (i64::from(*id) + delta) as u32,
+            LineSource::TextBox { para, .. } if *para != Self::NO_PARA => {
+                *para = (i64::from(*para) + delta) as u32;
+            }
+            _ => {}
+        }
+    }
+
+    /// Body lines become [`LineSource::Other`], body text boxes lose their paragraph.
+    pub fn detach(&mut self) {
+        match self {
+            LineSource::Body(_) => *self = LineSource::Other,
+            LineSource::TextBox { para, .. } => *para = Self::NO_PARA,
+            _ => {}
+        }
+    }
 }
 
 /// A positioned line box.
@@ -272,10 +349,20 @@ impl Line {
 }
 
 impl PageItem {
+    /// The drawing object a shape item belongs to (see [`PageItem::Shape`]).
+    pub fn source_mut(&mut self) -> Option<&mut LineSource> {
+        match self {
+            PageItem::Shape { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+
     /// Move the item by (`dx`, `dy`).
     pub fn translate(&mut self, dx: f32, dy: f32) {
         match self {
-            PageItem::Rect { x, y, .. } | PageItem::Image { x, y, .. } => {
+            PageItem::Rect { x, y, .. }
+            | PageItem::Image { x, y, .. }
+            | PageItem::Shape { x, y, .. } => {
                 *x += dx;
                 *y += dy;
             }
@@ -291,7 +378,9 @@ impl PageItem {
     /// Paint layer (rules are always drawn in front of text).
     pub fn layer(&self) -> Layer {
         match self {
-            PageItem::Rect { layer, .. } | PageItem::Image { layer, .. } => *layer,
+            PageItem::Rect { layer, .. }
+            | PageItem::Image { layer, .. }
+            | PageItem::Shape { layer, .. } => *layer,
             PageItem::Rule { .. } => Layer::Front,
         }
     }

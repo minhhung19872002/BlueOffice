@@ -6,11 +6,13 @@
 //!
 //! Every edit replaces the whole table block in one [`Op::Blocks`].
 
+use crate::para;
+use crate::revisions::Tracker;
 use crate::{id_of, EditError, Op, Pos, Result, Selection, Session, TableState};
 use bo_model::index::{blocks_at, body_paragraphs};
 use bo_model::{
-    Alignment, Block, Border, Borders, Cell, CellProps, CellPropsChange, Color, Document,
-    ParaProps, Paragraph, RevisionInfo, Row, RowProps, Table, TableProps, TablePropsChange,
+    Alignment, Block, Border, Borders, Cell, CellMerge, CellPropsChange, Color, Document,
+    GridChange, ParaProps, Paragraph, RevMark, Row, RowProps, Table, TableProps, TablePropsChange,
     TableWidth, Twips, VMerge,
 };
 use serde::{Deserialize, Serialize};
@@ -54,6 +56,14 @@ pub enum TableEdit {
     DeleteRow,
     /// Delete the selected columns.
     DeleteColumn,
+    /// Insert one cell left of the selected cells (`right`: after them) in each
+    /// selected row; the following cells shift right.
+    InsertCell {
+        #[serde(default)]
+        right: bool,
+    },
+    /// Delete the selected cells; the following cells shift left.
+    DeleteCell,
     /// Delete the whole table.
     DeleteTable,
     /// Merge the selected cells into one (gridSpan / vMerge).
@@ -165,7 +175,7 @@ fn empty_para_like(c: &Cell) -> Paragraph {
 
 /// An empty cell with the properties of `like`, spanning `cols` grid columns of `width`.
 fn empty_cell(like: &Cell, cols: u32, width: Option<Twips>) -> Cell {
-    let mut props = like.props.clone();
+    let mut props = like.props.bare();
     props.grid_span = cols.max(1);
     props.v_merge = None;
     if let Some(w) = width {
@@ -184,10 +194,17 @@ fn is_empty_cell(c: &Cell) -> bool {
     })
 }
 
-/// Record tracked property changes of `t` against `old` (same rows and cells):
-/// §17.13.5.34 tblPrChange and §17.13.5.36 tcPrChange keep the properties before the
-/// first tracked change.
-fn record_prop_changes(old: &Table, t: &mut Table, info: &RevisionInfo) {
+/// Cells created by an edit: (row, index of the cell in the new row).
+type Inserted = Vec<(usize, usize)>;
+
+/// Record the changes from `old` to `t` (same rows; `inserted` cells are new) as
+/// tracked changes of `mark` (ECMA-376 Part 1, §17.13.5): new cells §17.13.5.4
+/// cellIns, vertical merges §17.13.5.6 cellMerge, cell properties §17.13.5.36
+/// tcPrChange, row properties §17.13.5.37 trPrChange, table properties §17.13.5.34
+/// tblPrChange and the grid §17.13.5.33 tblGridChange. An existing change keeps the
+/// state before the first tracked change.
+fn record_tracked(old: &Table, t: &mut Table, inserted: &[(usize, usize)], mark: &RevMark) {
+    let info = &mark.info;
     let bare_t = |p: &TableProps| TableProps {
         change: None,
         ..p.clone()
@@ -198,28 +215,134 @@ fn record_prop_changes(old: &Table, t: &mut Table, info: &RevisionInfo) {
             old: bare_t(&old.props),
         }));
     }
-    let bare_c = |p: &CellProps| CellProps {
-        change: None,
-        ..p.clone()
-    };
-    for (ro, rn) in old.rows.iter().zip(&mut t.rows) {
-        for (co, cn) in ro.cells.iter().zip(&mut rn.cells) {
-            if cn.props.change.is_none() && bare_c(&cn.props) != bare_c(&co.props) {
+    if t.grid != old.grid && t.grid_change.is_none() {
+        t.grid_change = Some(Box::new(GridChange {
+            info: info.clone(),
+            old: old.grid.clone(),
+        }));
+    }
+    for (ri, (ro, rn)) in old.rows.iter().zip(&mut t.rows).enumerate() {
+        if rn.props.change.is_none() && !rn.props.same_base(&ro.props) {
+            rn.props.change = Some(Box::new(ro.props.snapshot(info.clone())));
+        }
+        let mut olds = ro.cells.iter();
+        for (ci, cn) in rn.cells.iter_mut().enumerate() {
+            if inserted.contains(&(ri, ci)) {
+                cn.props = cn.props.bare();
+                cn.props.ins = Some(mark.clone());
+                continue;
+            }
+            let Some(co) = olds.next() else { continue };
+            if cn.props.v_merge != co.props.v_merge && cn.props.merge.is_none() {
+                cn.props.merge = Some(Box::new(CellMerge {
+                    info: info.clone(),
+                    v_merge: cn.props.v_merge,
+                    v_merge_orig: co.props.v_merge,
+                }));
+            }
+            let (mut a, mut b) = (cn.props.bare(), co.props.bare());
+            a.v_merge = None;
+            b.v_merge = None;
+            if cn.props.change.is_none() && a != b {
                 cn.props.change = Some(Box::new(CellPropsChange {
                     info: info.clone(),
-                    old: bare_c(&co.props),
+                    old: co.props.bare(),
                 }));
             }
         }
     }
 }
 
+/// Mark the content of a cell deleted (§17.13.5.14 del, §17.13.5.15 on paragraph
+/// marks but the last, §17.13.5.12 for rows of nested tables); the author's own
+/// insertions are removed.
+fn mark_blocks_deleted(blocks: &mut [Block], tr: &Tracker, mark: &RevMark) {
+    let last = blocks
+        .iter()
+        .rposition(|b| matches!(b, Block::Paragraph(_)));
+    for (i, b) in blocks.iter_mut().enumerate() {
+        match b {
+            Block::Paragraph(p) => {
+                let mut atoms = para::flatten(p);
+                let l = para::len(&atoms);
+                crate::revisions::mark_deleted(&mut atoms, 0, l, tr, mark);
+                let mut q = para::with_atoms(p, atoms);
+                if Some(i) != last && q.props.mark_del.is_none() {
+                    q.props.mark_del = Some(mark.clone());
+                }
+                *p = q;
+            }
+            Block::Table(t) => {
+                for r in &mut t.rows {
+                    if r.props.del.is_none() {
+                        r.props.del = Some(mark.clone());
+                    }
+                }
+            }
+            Block::Opaque(_) => {}
+        }
+    }
+}
+
+/// Copy of `blocks` marked inserted by `mark` (§17.13.5.18 ins on runs, §17.13.5.16
+/// on paragraph marks, §17.13.5.19 on rows of nested tables).
+fn mark_blocks_inserted(blocks: &[Block], mark: &RevMark) -> Vec<Block> {
+    blocks
+        .iter()
+        .map(|b| match b {
+            Block::Paragraph(p) => {
+                let mut q = p.clone();
+                q.src = None;
+                for r in &mut q.runs {
+                    r.props.ins = Some(mark.clone());
+                }
+                q.props.mark_ins = Some(mark.clone());
+                Block::Paragraph(q)
+            }
+            Block::Table(t) => {
+                let mut t = t.clone();
+                t.src = None;
+                for r in &mut t.rows {
+                    r.props.ins = Some(mark.clone());
+                }
+                Block::Table(t)
+            }
+            Block::Opaque(_) => b.clone(),
+        })
+        .collect()
+}
+
+/// `target` followed by the tracked insertion of `moved` (content merged into a
+/// cell). The last inserted paragraph takes over the mark of the cell's last
+/// paragraph, whose own mark becomes inserted, so rejecting restores `target`
+/// exactly (§17.13.5.16: a paragraph whose mark is removed joins the next one).
+fn append_inserted(target: &[Block], moved: &[Block], mark: &RevMark) -> Vec<Block> {
+    let mut add = mark_blocks_inserted(moved, mark);
+    let (Some(Block::Paragraph(last_old)), Some(Block::Paragraph(last_new))) =
+        (target.last(), add.last_mut())
+    else {
+        let mut v = target.to_vec();
+        v.extend(add);
+        return v;
+    };
+    last_new.props = last_old.props.clone();
+    last_new.src.clone_from(&last_old.src);
+    let mut out = target[..target.len() - 1].to_vec();
+    if !(target.len() == 1 && last_old.runs.is_empty()) {
+        let mut first = last_old.clone();
+        first.props.mark_ins = Some(mark.clone());
+        out.push(Block::Paragraph(first));
+    }
+    out.extend(add);
+    out
+}
+
 /// Ensure the grid covers every row (malformed files can have short grids).
 fn normalize_grid(t: &mut Table) {
     let cols = t
-        .rows
+        .markup_spans()
         .iter()
-        .map(|r| r.cells.iter().map(span).sum::<usize>())
+        .map(|r| r.last().map_or(0, |(s, k)| s + k))
         .max()
         .unwrap_or(0);
     if t.grid.len() < cols {
@@ -307,6 +430,24 @@ impl Session {
                     let n = old.rows.len().saturating_sub(1);
                     return self.track_delete_rows(&at, old, 0, n);
                 }
+                // Deleted columns and cells are marked (§17.13.5.3 cellDel).
+                TableEdit::DeleteColumn => {
+                    if g0 == 0 && g1 + 1 >= old.grid.len() {
+                        let n = old.rows.len().saturating_sub(1);
+                        return self.track_delete_rows(&at, old, 0, n);
+                    }
+                    let n = old.rows.len().saturating_sub(1);
+                    return self.track_delete_cells(&at, old, (0, n), (g0, g1));
+                }
+                TableEdit::DeleteCell => {
+                    return self.track_delete_cells(&at, old, (r0, r1), (g0, g1));
+                }
+                TableEdit::MergeCells => {
+                    if r0 == r1 && g0 == g1 {
+                        return Ok(self.selection);
+                    }
+                    return self.track_merge(&at, old, (r0, r1), (g0, g1));
+                }
                 _ => {}
             }
         }
@@ -315,10 +456,8 @@ impl Session {
         let base = t.clone();
         // Row inserted by this edit (tracked as an insertion, §17.13.5.19).
         let mut new_row: Option<usize> = None;
-        let tracks_props = matches!(
-            cmd,
-            TableEdit::Shading { .. } | TableEdit::Borders { .. } | TableEdit::Properties { .. }
-        );
+        // Cells inserted by this edit (tracked as §17.13.5.4 cellIns).
+        let mut inserted: Inserted = Vec::new();
         // Caret target after the edit: (row, cell) or None = the block replacing the table.
         let mut caret: Option<(usize, usize)> = Some((at.row, at.cell));
         let mut remove_table = false;
@@ -352,6 +491,9 @@ impl Session {
                     props: RowProps {
                         header: src.props.header && !below,
                         unknown: Vec::new(),
+                        ins: None,
+                        del: None,
+                        change: None,
                         ..src.props.clone()
                     },
                     cells,
@@ -365,7 +507,7 @@ impl Session {
                 let g = if *right { g1 + 1 } else { g0 };
                 let w = t.grid.get(cur_start).copied().unwrap_or(Twips(1440));
                 let total: i32 = t.grid.iter().map(|w| w.0).sum();
-                insert_grid_column(&mut t, g, w, at.row);
+                inserted = insert_grid_column(&mut t, g, w, at.row);
                 // Keep the table width: scale the columns back (§17.4.48 gridCol).
                 if total > 0 {
                     scale(&mut t, total);
@@ -426,6 +568,49 @@ impl Session {
                         .map(|row| (r, cell_covering(row, g0.min(t.grid.len() - 1)).unwrap_or(0)));
                 }
             }
+            TableEdit::InsertCell { right } => {
+                // One cell per selected row, before the selection (or after it).
+                let w = t.grid.get(cur_start).copied().unwrap_or(Twips(1440));
+                for r in r0..=r1 {
+                    let row = &mut t.rows[r];
+                    let i = if *right {
+                        cell_covering(row, g1).map_or(row.cells.len(), |i| i + 1)
+                    } else {
+                        cell_covering(row, g0).unwrap_or(row.cells.len())
+                    };
+                    let like = row
+                        .cells
+                        .get(i.min(row.cells.len().saturating_sub(1)))
+                        .cloned()
+                        .unwrap_or_default();
+                    row.cells.insert(i, empty_cell(&like, 1, Some(w)));
+                    inserted.push((r, i));
+                    if r == at.row {
+                        caret = Some((r, i));
+                    }
+                }
+                normalize_grid(&mut t);
+            }
+            TableEdit::DeleteCell => {
+                for r in (r0..=r1).rev() {
+                    let row = &mut t.rows[r];
+                    let mut gone: Vec<usize> =
+                        (g0..=g1).filter_map(|g| cell_covering(row, g)).collect();
+                    gone.dedup();
+                    for i in gone.into_iter().rev() {
+                        row.cells.remove(i);
+                    }
+                    if row.cells.is_empty() {
+                        t.rows.remove(r);
+                    }
+                }
+                if t.rows.is_empty() {
+                    remove_table = true;
+                } else {
+                    let r = at.row.min(t.rows.len() - 1);
+                    caret = Some((r, at.cell.min(t.rows[r].cells.len() - 1)));
+                }
+            }
             TableEdit::DeleteTable => remove_table = true,
             TableEdit::MergeCells => {
                 if r0 == r1 && g0 == g1 {
@@ -438,7 +623,7 @@ impl Session {
                 let row = &t.rows[at.row];
                 let c = row.cells[at.cell].clone();
                 if span(&c) > 1 || c.props.v_merge.is_some() {
-                    unmerge(&mut t, at.row, at.cell);
+                    inserted = unmerge(&mut t, at.row, at.cell);
                 } else {
                     // Split into two columns: a new grid column inside this one.
                     let w = t.grid[cur_start];
@@ -454,6 +639,7 @@ impl Session {
                             n.props.v_merge = None;
                             row.cells[i].props.width = Some(TableWidth::Dxa(Twips(w.0 - half.0)));
                             row.cells.insert(i + 1, n);
+                            inserted.push((ri, i + 1));
                         } else {
                             row.cells[i].props.grid_span = row.cells[i].props.grid_span.max(1) + 1;
                         }
@@ -556,8 +742,8 @@ impl Session {
             if let Some(tr) = tx.track.as_mut() {
                 if let Some(i) = new_row {
                     t.rows[i].props.ins = Some(tr.mark());
-                } else if tracks_props {
-                    record_prop_changes(&base, &mut t, &tr.mark().info);
+                } else {
+                    record_tracked(&base, &mut t, &inserted, &tr.mark());
                 }
             }
             tx.push(Op::Blocks {
@@ -629,6 +815,174 @@ impl Session {
         })?;
         self.fix_selection();
         Ok(self.selection)
+    }
+
+    /// Mark the cells of rows `r0..=r1` lying within grid columns `g0..=g1` as deleted
+    /// (§17.13.5.3 cellDel; a deleted column is a deleted cell in every row). Cells
+    /// spanning past the range are kept: accepting the deletion narrows them.
+    fn track_delete_cells(
+        &mut self,
+        at: &CellAt,
+        old: Table,
+        (r0, r1): (usize, usize),
+        (g0, g1): (usize, usize),
+    ) -> Result<Selection> {
+        let container = at.container.clone();
+        let index = at.index;
+        let author = self.author.clone();
+        self.edit(move |tx, sel| {
+            let mark = tx
+                .track
+                .as_mut()
+                .map(Tracker::mark)
+                .ok_or(EditError::BadPath)?;
+            let mut t = old.clone();
+            let spans = t.markup_spans();
+            for r in (r0..=r1.min(t.rows.len().saturating_sub(1))).rev() {
+                for (ci, &(s, k)) in spans[r].iter().enumerate().rev() {
+                    let c = &mut t.rows[r].cells[ci];
+                    if !(s >= g0 && s + k - 1 <= g1) || c.props.del.is_some() {
+                        continue;
+                    }
+                    // A cell the author inserted is removed (cellIns and cellDel
+                    // cannot both mark a cell, CT_TcPr).
+                    if c.props
+                        .ins
+                        .as_ref()
+                        .is_some_and(|m| m.info.author == author)
+                    {
+                        t.rows[r].cells.remove(ci);
+                    } else {
+                        c.props.del = Some(mark.clone());
+                    }
+                }
+            }
+            t.rows.retain(|r| !r.cells.is_empty());
+            // Grid columns no row reaches any more go (rejecting restores them from
+            // §17.13.5.33 tblGridChange).
+            let reach = t
+                .markup_spans()
+                .iter()
+                .map(|r| r.last().map_or(0, |(s, k)| s + k))
+                .max()
+                .unwrap_or(0)
+                .max(1);
+            if t.grid.len() > reach {
+                if t.grid_change.is_none() {
+                    t.grid_change = Some(Box::new(GridChange {
+                        info: mark.info.clone(),
+                        old: t.grid.clone(),
+                    }));
+                }
+                t.grid.truncate(reach);
+            }
+            if t == old {
+                return Ok(sel);
+            }
+            if t.rows.is_empty() {
+                let blocks = blocks_at(tx.doc, &container).ok_or(EditError::BadPath)?;
+                let insert = if index + 1 >= blocks.len() {
+                    vec![Block::Paragraph(Paragraph::default())]
+                } else {
+                    Vec::new()
+                };
+                tx.push(Op::Blocks {
+                    path: container.clone(),
+                    index,
+                    remove: vec![Block::Table(old)],
+                    insert,
+                })?;
+                return Ok(sel);
+            }
+            tx.push(Op::Blocks {
+                path: container.clone(),
+                index,
+                remove: vec![Block::Table(old)],
+                insert: vec![Block::Table(t)],
+            })?;
+            Ok(sel)
+        })?;
+        self.fix_selection();
+        Ok(self.selection)
+    }
+
+    /// Tracked merge of grid rectangle rows `r0..=r1`, columns `g0..=g1`: the first
+    /// cell of each row spans the columns (§17.13.5.36 tcPrChange), the cells merged
+    /// into it are deleted cells (§17.13.5.3 cellDel), the rows below continue the
+    /// vertical merge (§17.13.5.6 cellMerge) with their text marked deleted, and the
+    /// merged text is inserted into the top-left cell (§17.13.5.18).
+    fn track_merge(
+        &mut self,
+        at: &CellAt,
+        old: Table,
+        (r0, r1): (usize, usize),
+        (g0, g1): (usize, usize),
+    ) -> Result<Selection> {
+        let container = at.container.clone();
+        let index = at.index;
+        let rect_err = || EditError::Unsupported("cells do not form a rectangle".into());
+        self.edit(move |tx, sel| {
+            let tr = tx.track.as_mut().ok_or(EditError::BadPath)?;
+            let mark = tr.mark();
+            let tr = tr.clone();
+            let mut t = old.clone();
+            let mut moved: Vec<Block> = Vec::new();
+            for r in r0..=r1 {
+                let row = &mut t.rows[r];
+                let st = starts(row);
+                let (Some(i), Some(j)) = (cell_covering(row, g0), cell_covering(row, g1)) else {
+                    return Err(rect_err());
+                };
+                if st[i] != g0 || st[j] + span(&row.cells[j]) - 1 != g1 {
+                    return Err(rect_err());
+                }
+                if r > r0 && !is_empty_cell(&row.cells[i]) {
+                    moved.extend(row.cells[i].blocks.iter().cloned());
+                    mark_blocks_deleted(&mut row.cells[i].blocks, &tr, &mark);
+                }
+                for c in &mut row.cells[i + 1..=j] {
+                    if !is_empty_cell(c) {
+                        moved.extend(c.blocks.iter().cloned());
+                    }
+                    if c.props.del.is_none() {
+                        c.props.del = Some(mark.clone());
+                    }
+                }
+                let first = &mut row.cells[i];
+                first.props.grid_span = (g1 - g0 + 1) as u32;
+                if let Some(TableWidth::Dxa(_)) = first.props.width {
+                    first.props.width = Some(TableWidth::Dxa(Twips(
+                        old.grid
+                            .iter()
+                            .skip(g0)
+                            .take(g1 - g0 + 1)
+                            .map(|w| w.0)
+                            .sum(),
+                    )));
+                }
+                if r1 > r0 {
+                    first.props.v_merge = Some(if r == r0 {
+                        VMerge::Restart
+                    } else {
+                        VMerge::Continue
+                    });
+                }
+            }
+            let top_cell = cell_covering(&t.rows[r0], g0).unwrap_or(0);
+            if let Some(top) = t.rows[r0].cells.get_mut(top_cell) {
+                top.blocks = append_inserted(&top.blocks, &moved, &mark);
+            }
+            record_tracked(&old, &mut t, &[], &mark);
+            tx.push(Op::Blocks {
+                path: container.clone(),
+                index,
+                remove: vec![Block::Table(old)],
+                insert: vec![Block::Table(t)],
+            })?;
+            let mut path = container.clone();
+            path.extend([index, r0, top_cell, 0]);
+            Ok(id_of(tx.doc, &path).map_or(sel, |id| Selection::caret(Pos::new(id, 0))))
+        })
     }
 
     /// Tab in a table: select the next (or previous) cell's text; Tab in the last cell
@@ -724,9 +1078,10 @@ fn scale(t: &mut Table, total: i32) {
 /// Insert a grid column of width `w` before grid column `g` (`g` = grid length appends).
 /// The row `own` always gets a new cell; other rows get one unless a spanning cell
 /// crosses `g`, which is widened instead.
-fn insert_grid_column(t: &mut Table, g: usize, w: Twips, own: usize) {
+fn insert_grid_column(t: &mut Table, g: usize, w: Twips, own: usize) -> Inserted {
     let g = g.min(t.grid.len());
     t.grid.insert(g, w);
+    let mut inserted = Vec::new();
     for (ri, row) in t.rows.iter_mut().enumerate() {
         let st = starts(row);
         let total: usize = row.cells.iter().map(span).sum();
@@ -736,6 +1091,7 @@ fn insert_grid_column(t: &mut Table, g: usize, w: Twips, own: usize) {
                 blocks: Vec::new(),
             });
             row.cells.push(empty_cell(&like, 1, Some(w)));
+            inserted.push((ri, row.cells.len() - 1));
             continue;
         }
         let Some(i) = st.iter().position(|&s| s == g) else {
@@ -744,6 +1100,7 @@ fn insert_grid_column(t: &mut Table, g: usize, w: Twips, own: usize) {
                 if ri == own {
                     let like = row.cells[i].clone();
                     row.cells.insert(i + 1, empty_cell(&like, 1, Some(w)));
+                    inserted.push((ri, i + 1));
                 } else {
                     row.cells[i].props.grid_span = row.cells[i].props.grid_span.max(1) + 1;
                 }
@@ -755,7 +1112,9 @@ fn insert_grid_column(t: &mut Table, g: usize, w: Twips, own: usize) {
         // Continue a vertical merge started above in the same place.
         n.props.v_merge = None;
         row.cells.insert(i, n);
+        inserted.push((ri, i));
     }
+    inserted
 }
 
 /// Merge grid rectangle rows `r0..=r1`, columns `g0..=g1` (§17.4.17, §17.4.85).
@@ -815,7 +1174,7 @@ fn merge(t: &mut Table, r0: usize, r1: usize, g0: usize, g1: usize) -> Result<()
 
 /// Undo merges of cell (`r`, `c`): split its grid span into single cells and end its
 /// vertical merge.
-fn unmerge(t: &mut Table, r: usize, c: usize) {
+fn unmerge(t: &mut Table, r: usize, c: usize) -> Inserted {
     let g = starts(&t.rows[r]).get(c).copied().unwrap_or(0);
     let n = span(&t.rows[r].cells[c]);
     let grid = t.grid.clone();
@@ -830,6 +1189,7 @@ fn unmerge(t: &mut Table, r: usize, c: usize) {
             }
         }
     }
+    let mut inserted = Vec::new();
     for ri in rows {
         let row = &mut t.rows[ri];
         let Some(i) = cell_covering(row, g) else {
@@ -843,7 +1203,9 @@ fn unmerge(t: &mut Table, r: usize, c: usize) {
             for k in 1..n {
                 row.cells
                     .insert(i + k, empty_cell(&like, 1, Some(width_of(g + k))));
+                inserted.push((ri, i + k));
             }
         }
     }
+    inserted
 }

@@ -1409,6 +1409,11 @@ pub struct Animation {
     pub preset_id: Option<u32>,
     /// Preset subtype (`presetSubtype`).
     pub preset_subtype: Option<u32>,
+    /// The effect's `p:par` as read, kept for effects BlueOffice does not model
+    /// (emphasis, motion paths, other filters): regenerated timing reuses it, so
+    /// those effects survive edits of the sequence losslessly.
+    #[serde(default)]
+    pub source: Option<XmlElement>,
 }
 
 /// §19.3.1.48 timing reduced to the main sequence.

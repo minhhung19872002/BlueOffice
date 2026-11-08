@@ -53,7 +53,8 @@
       "merge": "Gộp",
       "tableStyle": "Kiểu bảng",
       "headerFooter": "Đầu và chân trang",
-      "footnotes": "Chú thích"
+      "footnotes": "Chú thích",
+      "arrange": "Sắp xếp"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -187,7 +188,12 @@
       "bordersNone": "Không viền",
       "shading": "Tô nền ô",
       "headerRow": "Lặp hàng tiêu đề",
-      "properties": "Thuộc tính bảng…"
+      "properties": "Thuộc tính bảng…",
+      "insertCell": "Chèn ô (đẩy sang phải)",
+      "deleteCell": "Xoá ô (đẩy sang trái)"
+    },
+    "picture": {
+      "position": "Vị trí ảnh"
     }
   },
   "status": {
@@ -1043,7 +1049,131 @@
     "cellEditor": "Sửa nội dung ô bảng",
     "audienceWindow": "Mở màn hình khán giả",
     "audienceTitle": "Màn hình khán giả",
-    "audienceWaiting": "Đang chờ bản trình chiếu…"
+    "audienceWaiting": "Đang chờ bản trình chiếu…",
+    "exportPng": "Xuất ảnh PNG",
+    "export": "Xuất",
+    "exportSlides": "Slide",
+    "exportCurrent": "Slide hiện tại",
+    "exportAll": "Tất cả {{count}} slide (tệp .zip)",
+    "exportScale": "Kích thước",
+    "exportScaleOption": "{{percent}} % ({{w}} × {{h}} điểm ảnh)",
+    "exported": "Đã xuất ảnh",
+    "cancel": "Huỷ",
+    "ok": "Đồng ý",
+    "close": "Đóng",
+    "chart": "Biểu đồ",
+    "media": "Video / âm thanh",
+    "transitionTab": "Chuyển trang",
+    "animationsTab": "Hiệu ứng",
+    "groupTransition": "Kiểu chuyển trang",
+    "groupTiming": "Thời gian",
+    "applyAll": "Áp dụng cho mọi slide",
+    "preview": "Xem thử",
+    "animPane": "Ngăn hiệu ứng",
+    "groupEntrance": "Xuất hiện",
+    "groupExit": "Biến mất",
+    "groupPreview": "Xem thử",
+    "transition": {
+      "none": "Không",
+      "cut": "Cắt ngay",
+      "fade": "Mờ dần",
+      "push": "Đẩy",
+      "wipe": "Quét",
+      "cover": "Phủ lên",
+      "pull": "Kéo ra",
+      "split": "Tách đôi",
+      "random": "Ngẫu nhiên",
+      "other": "Khác ({{name}})"
+    },
+    "effect": {
+      "appear": "Hiện ra",
+      "fade": "Mờ dần",
+      "flyIn": "Bay vào",
+      "wipe": "Quét",
+      "other": "Hiệu ứng khác"
+    },
+    "effectOut": {
+      "fade": "Mờ đi",
+      "flyIn": "Bay ra",
+      "wipe": "Quét đi"
+    },
+    "animClass": {
+      "entr": "xuất hiện",
+      "exit": "biến mất",
+      "emph": "nhấn mạnh",
+      "path": "đường chuyển động",
+      "other": "khác"
+    },
+    "chartTab": "Biểu đồ",
+    "groupChartData": "Dữ liệu",
+    "editChart": "Sửa biểu đồ",
+    "insertChart": "Chèn biểu đồ",
+    "chartType": "Loại biểu đồ",
+    "chartKinds": {
+      "column": "Cột",
+      "bar": "Thanh ngang",
+      "line": "Đường",
+      "area": "Vùng",
+      "pie": "Tròn",
+      "doughnut": "Vành khuyên"
+    },
+    "chartTitle": "Tiêu đề",
+    "legend": "Chú giải",
+    "legends": {
+      "none": "Không có",
+      "r": "Bên phải",
+      "b": "Bên dưới",
+      "t": "Bên trên",
+      "l": "Bên trái"
+    },
+    "chartCategory": "Danh mục",
+    "chartSeriesName": "Tên chuỗi {{n}}",
+    "chartCategoryN": "Danh mục {{n}}",
+    "chartValue": "Giá trị hàng {{row}}, chuỗi {{col}}",
+    "chartAddRow": "Thêm hàng",
+    "chartRemoveRow": "Bớt hàng",
+    "chartAddSeries": "Thêm chuỗi",
+    "chartRemoveSeries": "Bớt chuỗi",
+    "chartSeries": "Chuỗi {{n}}",
+    "chartDefaultCategory": "Mục {{n}}",
+    "playMedia": "Phát",
+    "stopMedia": "Dừng",
+    "mediaUnsupported": "Không phát được định dạng này — hiển thị ảnh đại diện",
+    "transitionEffect": "Hiệu ứng",
+    "direction": "Hướng",
+    "dir": {
+      "l": "Sang trái",
+      "r": "Sang phải",
+      "u": "Lên trên",
+      "d": "Xuống dưới",
+      "lu": "Chéo lên trái",
+      "ru": "Chéo lên phải",
+      "ld": "Chéo xuống trái",
+      "rd": "Chéo xuống phải",
+      "horz": "Ngang",
+      "vert": "Dọc"
+    },
+    "durationSec": "Thời lượng (giây)",
+    "advanceOnClick": "Chuyển khi bấm chuột",
+    "advanceAfter": "Tự chuyển sau (giây)",
+    "never": "Không",
+    "noAnimations": "Slide này chưa có hiệu ứng. Chọn một đối tượng rồi chọn hiệu ứng trên dải lệnh.",
+    "trigger": "Bắt đầu",
+    "triggers": {
+      "onClick": "Khi bấm",
+      "withPrevious": "Cùng lúc với hiệu ứng trước",
+      "afterPrevious": "Sau hiệu ứng trước"
+    },
+    "from": {
+      "b": "Từ dưới",
+      "t": "Từ trên",
+      "l": "Từ trái",
+      "r": "Từ phải"
+    },
+    "delaySec": "Chờ (giây)",
+    "moveEarlier": "Lên trước",
+    "moveLater": "Xuống sau",
+    "removeAnimation": "Xoá hiệu ứng"
   },
   "review": {
     "title": "Xem lại",
@@ -1062,7 +1192,18 @@
       "rowDelete": "Xoá hàng",
       "cellFormat": "Định dạng ô",
       "tableFormat": "Định dạng bảng",
-      "sectionFormat": "Đổi thiết lập trang"
+      "sectionFormat": "Đổi thiết lập trang",
+      "cellInsert": "Thêm ô/cột",
+      "cellDelete": "Xoá ô/cột",
+      "cellMerge": "Gộp/tách ô",
+      "rowFormat": "Thuộc tính hàng",
+      "tableGrid": "Độ rộng cột"
+    },
+    "story": {
+      "header": "Đầu trang",
+      "footer": "Chân trang",
+      "footnote": "Chú thích cuối trang",
+      "endnote": "Chú thích cuối văn bản"
     }
   },
   "comments": {
@@ -1328,5 +1469,10 @@
     "syncPromptBody": "“{{name}}” nằm trong thư mục đồng bộ BlueDrive. Chuyển sang cộng tác trực tuyến để sửa cùng người khác và lưu thẳng lên BlueDrive?",
     "syncPromptOnline": "Cộng tác trực tuyến",
     "syncPromptLocal": "Tiếp tục sửa trên máy"
+  },
+  "picture": {
+    "position": "Vị trí ảnh",
+    "horizontal": "Ngang",
+    "vertical": "Dọc"
   }
 }

@@ -127,6 +127,7 @@ import {
   NotesPanel,
   PageSetupDialog,
   PasteSpecialDialog,
+  PicturePositionDialog,
   TablePropertiesDialog,
   TemplateDialog,
 } from './DocDialogs';
@@ -1183,6 +1184,9 @@ function EditorInner({
       ['table.insertColumnRight', { kind: 'insertColumn', right: true }],
       ['table.deleteRow', { kind: 'deleteRow' }],
       ['table.deleteColumn', { kind: 'deleteColumn' }],
+      // Cells shifted right / left (tracked as §17.13.5.4 cellIns / §17.13.5.3 cellDel).
+      ['table.insertCell', { kind: 'insertCell', right: false }],
+      ['table.deleteCell', { kind: 'deleteCell' }],
       ['table.deleteTable', { kind: 'deleteTable' }],
       ['table.mergeCells', { kind: 'mergeCells' }, (s) => inTable(s) && !!f(s)?.table?.multiCell],
       ['table.splitCell', { kind: 'splitCell' }],
@@ -1204,6 +1208,12 @@ function EditorInner({
       id: 'table.properties',
       isEnabled: inTable,
       run: () => store.setState({ dialog: 'tableProperties' }),
+    });
+    // Floating picture position (§20.4.2.3 anchor); a tracked move with track changes on.
+    r.register({
+      id: 'picture.position',
+      isEnabled: (s) => hasDoc(s) && !!f(s)?.picture,
+      run: () => store.setState({ dialog: 'picturePosition' }),
     });
     return r;
   }, [platform, store, sampleUrl, openFile, newDocument, fail, i18nInstance, loaded]);
@@ -1289,6 +1299,8 @@ function EditorInner({
                 ),
                 s('table.deleteRow', 'commands.table.deleteRow', <Rows3 size={SMALL} />),
                 s('table.deleteColumn', 'commands.table.deleteColumn', <Columns2 size={SMALL} />),
+                s('table.insertCell', 'commands.table.insertCell', <Grid2x2 size={SMALL} />),
+                s('table.deleteCell', 'commands.table.deleteCell', <SquareDashed size={SMALL} />),
               ],
             },
             {
@@ -1558,6 +1570,11 @@ function EditorInner({
             item('layout.columns', 'commands.layout.columns', <Columns2 size={ICON} />),
             item('layout.pageSetup', 'commands.layout.pageSetup', <Ruler size={ICON} />),
           ],
+        },
+        {
+          id: 'arrange',
+          label: t('ribbon.groups.arrange'),
+          items: [item('picture.position', 'commands.picture.position', <Image size={ICON} />)],
         },
       ],
     },
@@ -1833,6 +1850,14 @@ function EditorInner({
             )}
             {state.dialog === 'pageSetup' && (
               <PageSetupDialog
+                format={fs}
+                run={runCommand}
+                language={state.language}
+                onClose={closeDialog}
+              />
+            )}
+            {state.dialog === 'picturePosition' && (
+              <PicturePositionDialog
                 format={fs}
                 run={runCommand}
                 language={state.language}

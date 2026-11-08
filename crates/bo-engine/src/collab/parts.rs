@@ -314,6 +314,8 @@ impl TableShadow {
         Block::Table(Table {
             props,
             grid,
+            // A tracked grid change (§17.13.5.33 tblGridChange) is not shared live.
+            grid_change: None,
             rows,
             src: None,
         })

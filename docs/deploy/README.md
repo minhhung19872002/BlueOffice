@@ -111,7 +111,9 @@ Thêm `http://tauri.localhost` (Windows/Linux) và `tauri://localhost` (macOS) v
 | `Auth__Authority`, `Auth__Audience` | Realm OIDC và audience của token người dùng |
 | `Storage__MaxUploadBytes` | Giới hạn kích thước upload |
 | `Collab__AutosaveInterval` | Chu kỳ autosave về host khi có thay đổi (mặc định 45 s, nằm trong 30–60 s) |
-| `Collab__SnapshotInterval` | Chu kỳ ghi snapshot đầy đủ của phiên cộng tác vào MinIO (mặc định 60 s) |
+| `Collab__SnapshotInterval` | Chu kỳ ghi snapshot đầy đủ của phiên cộng tác (mặc định 60 s) |
+| `Collab__SnapshotStore` | Nơi giữ log cộng tác (snapshot + cập nhật chưa lưu): `Database` (mặc định, bảng `CollabLog` trong PostgreSQL) hoặc `ObjectStore` (MinIO) |
+| `Wopi__ProofKey`, `Wopi__OldProofKey` | Khoá RSA (PEM hoặc đường dẫn file PEM) ký `X-WOPI-Proof` / `X-WOPI-ProofOld`; khoá công khai ở `/hosting/discovery` (`proof-key`). Bắt buộc ở Production khi có host WOPI; khi xoay khoá, đặt khoá cũ vào `OldProofKey` |
 | `Collab__PermissionRecheckInterval` | Chu kỳ hỏi lại quyền từ host (mặc định 60 s) |
 | `Collab__TimeZone` | Múi giờ dùng trong tên bản xung đột (mặc định `Asia/Ho_Chi_Minh`) |
 | `Jobs__Concurrency`, `WORKER_REPLICAS` | Số job song song mỗi worker / số worker |
@@ -125,6 +127,7 @@ Thêm `http://tauri.localhost` (Windows/Linux) và `tauri://localhost` (macOS) v
 
 - Không có mật khẩu người dùng trong BlueOffice: xác thực bằng OIDC; token host (BlueDrive) xác minh bằng JWKS, ngắn hạn.
 - `Auth:DevSigningKey` bị từ chối khi `ASPNETCORE_ENVIRONMENT=Production`.
+- Mọi request tới host WOPI được ký bằng proof key ([MS-WOPI]); host kiểm tra với khoá công khai trong discovery.
 - Chỉ `api` được publish cổng (bind `127.0.0.1`), các service dữ liệu nằm trong mạng nội bộ của compose.
 - Header bảo mật: `X-Content-Type-Options`, `Referrer-Policy: no-referrer`, `Content-Security-Policy: frame-ancestors`
   chỉ gồm origin host đã cấu hình. CORS chỉ cho phép origin cấu hình.

@@ -18,6 +18,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | Tinos (Regular/Bold/Italic/BoldItalic) | google/fonts `ofl/tinos` | Apache-2.0 / OFL-1.1 | Thay thế metric-compatible cho Times New Roman |
 | Liberation Sans 2.1.5 | liberationfonts | OFL-1.1 (`OFL-Liberation.txt`) | Thay thế metric-compatible cho Arial |
 | Carlito | google/fonts `ofl/carlito` | OFL-1.1 (`OFL-Carlito.txt`) | Thay thế metric-compatible cho Calibri |
+| Caladea (Regular/Bold/Italic/BoldItalic) | google/fonts `ofl/caladea` (Copyright 2012 The Caladea Project Authors) | OFL-1.1 (`OFL-Caladea.txt`) | Thay thế metric-compatible cho Cambria |
 
 ## Rust
 
@@ -29,6 +30,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | ttf-parser | 0.25.1 | MIT OR Apache-2.0 | Đọc font, metric, outline glyph |
 | rustybuzz | 0.20.1 | MIT | Text shaping (port HarfBuzz) |
 | unicode-linebreak | 0.1.5 | Apache-2.0 | Ngắt dòng UAX #14 |
+| unicode-bidi | 0.3.18 | MIT OR Apache-2.0 | Thuật toán hai chiều UAX #9 (sắp xếp lại chữ RTL) |
 | unicode-normalization | 0.1.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | Chuẩn hoá NFC tiếng Việt |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | Grapheme cluster (ngắt từ quá dài) |
 | tiny-skia | 0.12.0 | BSD-3-Clause | Rasterize display list → PNG |
@@ -103,6 +105,7 @@ Công cụ fuzz (`fuzz/`, workspace riêng, không đóng gói vào sản phẩm
 | xunit, xunit.runner.visualstudio (dev) | 2.9.2 / 2.8.2 | Apache-2.0 | Unit test |
 | DocumentFormat.OpenXml (tools/BlueOffice.Validate) | 3.1.1 | MIT | Validate OOXML xuất ra (prompt §7) |
 | Microsoft.NET.Test.Sdk (dev) | 17.11.1 | MIT | Test host |
+| Testcontainers.Redis (Testcontainers, Docker.DotNet.Enhanced, BouncyCastle.Cryptography, SSH.NET, SharpZipLib) (dev) | 4.1.0 | MIT | Test tích hợp Redis thật (bỏ qua khi không có Docker) |
 
 ## Icon
 

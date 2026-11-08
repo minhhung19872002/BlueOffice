@@ -4,10 +4,12 @@ expression: summary(&page.commands)
 ---
 path n=5 [0.0 0.0 960.0 540.0] fill=linear(3)
 transform [1.000 0.000 0.000 1.000 36.0 24.0]
-  text 44.0pt 7.2,57.4 #000000ff "Nền "
-  text 44.0pt 91.5,57.4 #000000ff "theo "
-  text 44.0pt 178.3,57.4 #000000ff "theme "
-  text 44.0pt 296.8,57.4 #000000ff "(bgRef)"
+  text 44.0pt 7.2,56.8 #000000ff "N"
+  text 44.0pt 37.7,56.8 #000000ff "ề"
+  text 44.0pt 57.2,56.8 #000000ff "n "
+  text 44.0pt 91.5,56.8 #000000ff "theo "
+  text 44.0pt 180.3,56.8 #000000ff "theme "
+  text 44.0pt 303.3,56.8 #000000ff "(bgRef)"
 pop transform
 transform [1.000 0.000 0.000 1.000 36.0 126.0]
   text 28.0pt 7.2,25.8 #000000ff "•"

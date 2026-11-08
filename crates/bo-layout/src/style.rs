@@ -12,10 +12,81 @@ use bo_text::{FaceId, FontManager};
 pub const DEFAULT_FONT: &str = "Times New Roman";
 pub const DEFAULT_SIZE_PT: f32 = 10.0;
 
+/// Font slot of a character (ECMA-376 Part 1, §17.3.2.26 rFonts): which of the four
+/// fonts of a run displays it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    Ascii = 0,
+    HAnsi = 1,
+    EastAsia = 2,
+    Cs = 3,
+}
+
+/// Slot of `c` in a run (§17.3.2.26, by Unicode block): complex script runs
+/// (§17.3.2.7 cs, §17.3.2.30 rtl) and complex script blocks use the cs font, East Asian
+/// blocks the eastAsia font, U+0000–U+007F the ascii font, everything else hAnsi —
+/// except that `w:hint="eastAsia"` sends the characters shared between Latin and East
+/// Asian use (Latin-1 symbols, general punctuation, letterlike symbols…) to eastAsia.
+pub fn slot_of(c: char, hint_east_asia: bool, complex_run: bool) -> Slot {
+    let u = c as u32;
+    if complex_run {
+        return Slot::Cs;
+    }
+    match u {
+        0x0590..=0x08FF | 0x0900..=0x0DFF | 0x0E00..=0x0EFF | 0x1780..=0x17FF => Slot::Cs,
+        0xFB1D..=0xFDFF | 0xFE70..=0xFEFF => Slot::Cs,
+        0x1100..=0x11FF
+        | 0x2E80..=0x2FFF
+        | 0x3000..=0x9FFF
+        | 0xA000..=0xA4CF
+        | 0xAC00..=0xD7AF
+        | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE4F
+        | 0xFF00..=0xFFEF
+        | 0x20000..=0x2FFFF => Slot::EastAsia,
+        0..=0x7F => Slot::Ascii,
+        0x00A1..=0x00FF | 0x2000..=0x2BFF if hint_east_asia => Slot::EastAsia,
+        _ => Slot::HAnsi,
+    }
+}
+
+/// Font family names of the four slots of effective run properties (§17.3.2.26),
+/// theme fonts (§17.18.96) resolved with the document's font scheme.
+pub fn slot_families(doc: &Document, rp: &RunProps) -> [String; 4] {
+    let th = |t: &Option<String>| t.as_deref().and_then(|t| doc.theme_fonts.resolve(t));
+    let ascii = th(&rp.theme_ascii)
+        .or(rp.font.as_deref())
+        .unwrap_or(DEFAULT_FONT)
+        .to_owned();
+    let h_ansi = if rp.font_h_ansi.is_none() && rp.theme_h_ansi.is_none() {
+        ascii.clone()
+    } else {
+        th(&rp.theme_h_ansi)
+            .or(rp.font_h_ansi.as_deref())
+            .map_or_else(|| ascii.clone(), str::to_owned)
+    };
+    let east = th(&rp.theme_east_asia)
+        .or(rp.font_east_asia.as_deref())
+        .map_or_else(|| h_ansi.clone(), str::to_owned);
+    let cs = th(&rp.theme_cs)
+        .or(rp.font_cs.as_deref())
+        .map_or_else(|| h_ansi.clone(), str::to_owned);
+    [ascii, h_ansi, east, cs]
+}
+
 /// Fully resolved run formatting used by layout.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunStyle {
+    /// Face of the ascii slot (metrics of empty lines, labels, …).
     pub face: FaceId,
+    /// Faces of the four font slots (see [`Slot`]).
+    pub faces: [FaceId; 4],
+    /// `w:hint="eastAsia"` (§17.18.42).
+    pub hint_east_asia: bool,
+    /// Complex script run (§17.3.2.7 cs / §17.3.2.30 rtl).
+    pub complex: bool,
+    /// Pair kerning applies (§17.3.2.19 kern: font size ≥ the threshold).
+    pub kern: bool,
     /// Effective glyph size (after super/subscript and small caps scaling).
     pub size: f32,
     /// Baseline shift (points, positive = down).
@@ -78,12 +149,22 @@ pub fn run_props(doc: &Document, base: &RunProps, direct: &RunProps) -> RunProps
 }
 
 /// Turn effective run properties into a layout style.
-pub fn run_style(fonts: &mut FontManager, rp: &RunProps) -> Option<RunStyle> {
-    let face = fonts.resolve(
-        rp.font.as_deref().unwrap_or(DEFAULT_FONT),
-        rp.bold.unwrap_or(false),
-        rp.italic.unwrap_or(false),
-    )?;
+pub fn run_style(doc: &Document, fonts: &mut FontManager, rp: &RunProps) -> Option<RunStyle> {
+    let (bold, italic) = (rp.bold.unwrap_or(false), rp.italic.unwrap_or(false));
+    let fam = slot_families(doc, rp);
+    let face = fonts.resolve(&fam[0], bold, italic)?;
+    let mut faces = [face; 4];
+    for i in 1..4 {
+        if fam[i] != fam[0] {
+            faces[i] = fonts.resolve(&fam[i], bold, italic).unwrap_or(face);
+        }
+    }
+    // §17.3.2.19 kern: kerning from this size (half-points) up; absent = no kerning.
+    let kern = match (rp.kern, rp.size) {
+        (Some(k), Some(sz)) => k.0 > 0 && sz.0 >= k.0,
+        (Some(k), None) => k.0 > 0 && DEFAULT_SIZE_PT * 2.0 >= k.0 as f32,
+        _ => false,
+    };
     let mut size = rp.size.map_or(DEFAULT_SIZE_PT, bo_model::HalfPoints::to_pt);
     let mut shift = 0.0;
     match rp.vert_align {
@@ -104,6 +185,10 @@ pub fn run_style(fonts: &mut FontManager, rp: &RunProps) -> Option<RunStyle> {
     }
     Some(RunStyle {
         face,
+        faces,
+        hint_east_asia: rp.font_hint.as_deref() == Some("eastAsia"),
+        complex: rp.complex.unwrap_or(false) || rp.rtl.unwrap_or(false),
+        kern,
         size,
         shift,
         color: rp.color.unwrap_or(Color::BLACK),

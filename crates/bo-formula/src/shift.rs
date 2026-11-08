@@ -3,7 +3,7 @@
 //! (ECMA-376 Part 1, §18.17.2.3: relative references are offsets from the
 //! formula cell; absolute `$` components are fixed).
 
-use crate::ast::Expr;
+use crate::ast::{Expr, UnaryOp};
 use crate::reference::{CellAddr, RefKind, Reference, SheetRef, MAX_COLS, MAX_ROWS};
 use crate::value::ErrorKind;
 
@@ -189,6 +189,15 @@ fn adjust_kind(kind: RefKind, change: StructuralChange) -> Option<RefKind> {
     }
 }
 
+/// A spill reference (`A1#`) whose cells were removed becomes the error itself:
+/// `#REF!#` is not valid formula text, and the spill of an error is that error.
+fn collapse_spill_error(e: Expr) -> Expr {
+    match e {
+        Expr::Unary(UnaryOp::SpillRange, inner) if matches!(*inner, Expr::Error(_)) => *inner,
+        other => other,
+    }
+}
+
 /// Adjust all references in `expr` after a structural change on sheet `changed_sheet`.
 ///
 /// `formula_sheet` is the sheet holding the formula (unqualified references point there).
@@ -221,7 +230,7 @@ pub fn adjust_for_change(
                 None => Expr::Error(ErrorKind::Ref),
             }
         }
-        other => other,
+        other => collapse_spill_error(other),
     })
 }
 
@@ -287,7 +296,7 @@ pub fn offset_relative(expr: &Expr, d_row: i64, d_col: i64) -> Expr {
                 None => Expr::Error(ErrorKind::Ref),
             }
         }
-        other => other,
+        other => collapse_spill_error(other),
     })
 }
 
@@ -374,6 +383,6 @@ pub fn adjust_for_move(expr: &Expr, formula_sheet: &str, block: &MovedBlock) -> 
                 None => Expr::Error(ErrorKind::Ref),
             }
         }
-        other => other,
+        other => collapse_spill_error(other),
     })
 }

@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 1c1bc4d719bb097c2f4de1a2ffe874711fe51fa50f72d2531f8015879309d702 # shrinks to acts = [PageSetup(1)]
+cc 82f7119465613fb8eea7e5754cd42488a9ee6953d11bb772ab9e910085b46879 # shrinks to acts = [Select(2, 1), Merge, InsertRow(false), Shading(0)]

@@ -6,7 +6,7 @@ Không dựa vào `docs/PROGRESS.md`: mọi bằng chứng là file/test đã m�
 
 **Ký hiệu**: ✅ đạt · 🟡 một phần (ghi rõ thiếu gì) · ❌ chưa có · 📝 chỉ kế hoạch (đúng yêu cầu).
 
-**Tổng**: 295 yêu cầu — ✅ 198 · 🟡 84 · ❌ 10 · 📝 3. Danh sách thiếu: mục [Khoảng trống](#khoảng-trống).
+**Tổng**: 295 yêu cầu — ✅ 203 · 🟡 79 · ❌ 10 · 📝 3. Danh sách thiếu: mục [Khoảng trống](#khoảng-trống).
 
 **Các bộ test đã chạy lại trong lần kiểm này** (Windows 11, máy dev, có agent khác build song song):
 
@@ -284,17 +284,17 @@ Tên test Rust được ghi ngắn (`tên_hàm`); đường dẫn là file chứ
 | P4.7 | Fill solid/gradient/pattern/picture, line, shadow | ✅ | `crates/bo-pptx/src/render.rs`; snapshot `slides__slide-images-fill-1`, `slides__slide-shapes-*`; `slide_rich.rs` `blurred_shadows_and_picture_transparency_render` (chưa có 3D) |
 | P4.8 | Group, connector | ✅ | `slide_rich.rs` `connectors_attach_to_sites_and_follow_shapes`, `connector_inside_a_group_follows_its_shapes`, `ungroup_keeps_flips` |
 | P4.9 | Ảnh | ✅ | `slide_editing.rs` `insert_picture_adds_media_part`; e2e `'pastes a slide copied from another deck, with its pictures; kept after reopen'` |
-| P4.10 | Video/audio: giữ nguyên + phát nếu codec hỗ trợ | 🟡 | Giữ nguyên (`corpus_models_features`: `/ppt/media/media1.mp4`); **không phát** (không có `<video>/<audio>` trong `packages/slide-editor`) |
+| P4.10 | Video/audio: giữ nguyên + phát nếu codec hỗ trợ | ✅ | Giữ nguyên (`corpus_models_features`); `bo_engine::slide_edit::media` liệt kê clip (`a:videoFile`/`a:audioFile` + `p14:media`) và chèn clip mới (`slideInsertPicture` với `.mp4/.webm/.mp3/.wav…`, ảnh đại diện tự vẽ); UI `MediaLayer.tsx`: nút phát ở chế độ Thường, `<video>/<audio>` khi trình chiếu, giữ ảnh đại diện khi trình duyệt/webview không giải mã được. `crates/bo-engine/tests/slide_show.rs` `media_clips_are_listed_and_inserted`; e2e `'plays embedded media, shows the poster otherwise, inserts audio and keeps it'`. Chưa: clip liên kết ngoài (chỉ ảnh đại diện), cắt đoạn `p14:trim`, nút media trong `p:timing` |
 | P4.11 | Bảng | ✅ | `slide_rich.rs` `table_cells_rows_columns_merge_fill_and_style`; e2e `'bolds part of a shape text, copies/pastes a shape, edits a table cell, saves and reopens'` |
-| P4.12 | Chart (dùng chung `bo-drawingml`) | 🟡 | Đọc + vẽ: `bo-drawingml/src/chart.rs` `bar_chart_cache`, snapshot `slides__slide-charts-*`; chưa chèn/sửa chart trong BlueSlide |
+| P4.12 | Chart (dùng chung `bo-drawingml`) | ✅ | Đọc + vẽ: `bo-drawingml/src/chart.rs`, snapshot `slides__slide-charts-*`; chèn/sửa: `bo_engine::slide_edit::chart` (part chart sinh bằng `bo_xlsx::chart_write`, workbook nhúng qua `c:externalData`), hộp thoại lưới dữ liệu `ChartDialog.tsx`, tab "Biểu đồ" (loại, tiêu đề, chú giải). `slide_show.rs` `charts_are_inserted_with_an_embedded_workbook_and_edited`, `existing_charts_of_the_corpus_are_editable`; e2e `'inserts a chart, edits its data, saves and reopens it editable'`. Chart đọc từ file khi đã sửa được sinh lại (mất định dạng riêng, như BlueSheet) |
 | P4.13 | Normal (thumbnail + slide + notes) | ✅ | `packages/slide-editor/test/slide.test.tsx` `'opens a deck, shows thumbnails and notes, navigates and saves'` |
-| P4.14 | Slide Sorter | ✅ | `slide.test.tsx` `'switches to the slide sorter and back'` |
-| P4.15 | Reading View | 🟡 | Có code (`BlueSlideEditor.tsx` `view === 'reading'`), chưa có test |
+| P4.14 | Slide Sorter | ✅ | `slide.test.tsx` `'switches to the slide sorter and back'`, `'reorders slides by dragging in the slide sorter and plays slides in reading view'`; e2e kéo thả `'exports PNG pictures, reorders slides in the sorter and reads in reading view'` |
+| P4.15 | Reading View | ✅ | `BlueSlideEditor.tsx` `view === 'reading'` (chạy slide như trình chiếu trong cửa sổ, có hiệu ứng); `slide.test.tsx` `'reorders slides by dragging in the slide sorter and plays slides in reading view'`; e2e `'exports PNG pictures, reorders slides in the sorter and reads in reading view'` |
 | P4.16 | Trình chiếu toàn màn hình | ✅ | `slide.test.tsx` `'maps keys and steps through the deck'` |
 | P4.17 | Presenter View (màn hình 2: slide kế, ghi chú, đồng hồ) | ✅ | `slide.test.tsx` `'runs the presenter view with next slide, notes and timer, Esc exits'`, `'opens a second window and keeps it on the presenter slide'` |
-| P4.18 | Transition & animation (fade, push, wipe, appear, fly-in), timeline | 🟡 | Model/IO: `crates/bo-pptx/src/anim.rs` `transition_alternate_content`, `generated_timing_parses_back`; **khi trình chiếu không chạy hiệu ứng** (chỉ fade CSS chung), chưa có UI đặt transition/animation |
+| P4.18 | Transition & animation (fade, push, wipe, appear, fly-in), timeline | ✅ | Model/IO: `crates/bo-pptx/src/anim.rs` `transition_alternate_content`, `generated_timing_parses_back`, `unknown_effects_survive_a_regenerated_sequence`; lệnh `setTransition`/`addAnimation`/`setAnimation`/`moveAnimation`/`removeAnimation`/`show` (`slide_edit/show.rs`, `slide_show.rs`); phát: `ShowStage.tsx` + `player.ts` (lớp riêng cho mỗi hình có hiệu ứng, Web Animations) ở trình chiếu, Presenter View, màn hình khán giả, Reading View; tab "Chuyển trang"/"Hiệu ứng" + ngăn hiệu ứng (thứ tự, kích hoạt, thời lượng, độ trễ, xem thử). `slide.test.tsx` `'plays click steps in the show before moving to the next slide'`; e2e `'sets a transition and an effect, plays them in the show, saves and reopens'`. Hiệu ứng nhấn mạnh/đường chuyển động: giữ nguyên trong file, khi chiếu chỉ nhấp nháy mờ |
 | P4.19 | Smart guides, căn chỉnh/phân bố, nhóm/bỏ nhóm, thứ tự lớp | ✅ | `crates/bo-engine/src/slide_edit/guides.rs` `snaps_to_slide_centre`; `slide_editing.rs` `arrange_group_align_distribute`, `random_edits_then_undo_all_restore_the_deck`; e2e `'inserts a shape, shows smart guides, adds a slide and edits notes'` |
-| P4.20 | Xuất PDF, PNG từng slide | 🟡 | `slides.rs` `slide_exports_pdf_png_and_saves`; PNG có ở engine/WASM/CLI nhưng UI BlueSlide chưa có lệnh xuất PNG |
+| P4.20 | Xuất PDF, PNG từng slide | ✅ | `slides.rs` `slide_exports_pdf_png_and_saves`; UI: lệnh `file.exportPng` + `ExportDialog.tsx` (slide hiện tại / tất cả thành `.zip`, tỉ lệ 1–3 px/pt); `slide.test.tsx` `'exports the current slide and all slides as PNG'`; e2e `'exports PNG pictures, reorders slides in the sorter and reads in reading view'` |
 
 ### Phase 5 — Định dạng cũ & tính năng nâng cao
 
@@ -495,8 +495,8 @@ Sắp theo mức quan trọng (ảnh hưởng tới mục tiêu tương thích/�
 
 ### BlueSheet / BlueSlide / BlueDoc UI
 29. **BlueSheet chọn nhiều vùng bằng Ctrl (P3.28, ❌)**; **tab sheet chưa kéo thả/màu tab (P3.27)** (đội khác đang làm phần BlueSheet còn lại).
-30. **BlueSlide transition/animation khi trình chiếu (P4.18)**: không chạy hiệu ứng, không có UI đặt hiệu ứng.
-31. **BlueSlide chart (P4.12)**: chưa chèn/sửa; **video/audio không phát (P4.10)**; **xuất PNG chưa có trong UI (P4.20)**; Reading View chưa có test (P4.15).
+30. ~~BlueSlide transition/animation khi trình chiếu (P4.18)~~ — đã làm. Còn lại: hiệu ứng nhấn mạnh/đường chuyển động chỉ phát dạng nhấp nháy mờ; hiệu ứng theo đoạn văn (`p:txEl`) chạy cho cả hình; kiểu chuyển trang ngoài cut/fade/push/wipe/cover/pull/split phát như fade.
+31. ~~BlueSlide chart, video/audio, xuất PNG, test Reading View (P4.12, P4.10, P4.20, P4.15)~~ — đã làm. Còn lại: chart đọc từ file khi sửa được sinh lại (mất định dạng riêng); clip liên kết ngoài không phát; chưa cắt đoạn `p14:trim`.
 32. **SmartArt fallback cho `.pptx`/`.xlsx` (P5.12)**; **cảnh báo macro ở BlueSheet/BlueSlide (P5.15)**; comment có luồng chỉ BlueDoc (P5.8).
 33. **BlueDoc UI**: style gallery chỉ 4 style cố định (P2.15); Find/Replace chưa tìm theo định dạng (P2.16); underline thiếu kiểu (P2.4); kerning không áp dụng (P2.5); `w:hMerge` kiểu cũ (P2.9); desktop chưa có hộp thoại in OS (P2.20).
 34. **TCVN3/VNI chỉ khi mở `.doc` (2.24)**.

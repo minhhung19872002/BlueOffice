@@ -70,6 +70,8 @@ export const SLIDE_READ_COMMANDS: ReadonlySet<string> = new Set([
   'tableSelect',
   'tableHit',
   'tableExit',
+  // Slide show data (layers, effects): viewers present too.
+  'show',
 ]);
 
 /** BlueSheet `exec` commands that only read. */

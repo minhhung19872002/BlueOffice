@@ -29,14 +29,14 @@ public sealed class RoomManager
 
     /// <summary>Creates the manager.</summary>
     public RoomManager(
-        IObjectStore store,
+        CollabLogStore log,
         IHostNotifier notifier,
         IServiceScopeFactory scopes,
         TimeProvider time,
         IOptions<CollabOptions> options,
         ILogger<RoomManager> logger)
     {
-        _svc = new RoomServices(store, notifier, scopes, time, options.Value, logger);
+        _svc = new RoomServices(log.Store, notifier, scopes, time, options.Value, logger);
     }
 
     /// <summary>Options.</summary>

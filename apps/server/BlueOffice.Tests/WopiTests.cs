@@ -20,6 +20,9 @@ public sealed class FakeWopiHost : IAsyncDisposable
     /// <summary>Access token accepted by the host.</summary>
     public const string Token = "wopi-access-token";
 
+    private int _proofChecks;
+    private int _proofFailures;
+
     private FakeWopiHost(WebApplication app)
     {
         App = app;
@@ -40,6 +43,18 @@ public sealed class FakeWopiHost : IAsyncDisposable
 
     /// <summary>Lock by file id.</summary>
     public ConcurrentDictionary<string, string> Locks { get; } = new();
+
+    /// <summary>Validates the proof headers of every request when set ([MS-WOPI] proof keys).</summary>
+    public WopiProofValidator? Proofs { get; set; }
+
+    /// <summary>Number of requests whose proof was checked.</summary>
+    public int ProofChecks => _proofChecks;
+
+    /// <summary>Number of requests with an invalid proof.</summary>
+    public int ProofFailures => _proofFailures;
+
+    /// <summary>CheckFileInfo sends <c>Version</c> as a JSON number (seen in some hosts).</summary>
+    public bool NumericVersion { get; set; }
 
     /// <summary>Overrides received ("LOCK", "PUT", …) with the X-WOPI-Lock value.</summary>
     public ConcurrentQueue<(string Op, string? Lock)> Calls { get; } = new();
@@ -67,6 +82,20 @@ public sealed class FakeWopiHost : IAsyncDisposable
                 return;
             }
 
+            if (Proofs is { } proofs)
+            {
+                // The host checks that the request comes from the WOPI client it trusts (discovery proof keys).
+                Interlocked.Increment(ref _proofChecks);
+                var r = ctx.Request;
+                var url = $"{r.Scheme}://{r.Host}{r.PathBase}{r.Path}{r.QueryString}";
+                if (!proofs.IsValid(Token, url, r.Headers[WopiProof.ProofHeader], r.Headers[WopiProof.ProofOldHeader], r.Headers[WopiProof.TimeStampHeader], DateTimeOffset.UtcNow))
+                {
+                    Interlocked.Increment(ref _proofFailures);
+                    ctx.Response.StatusCode = 500;
+                    return;
+                }
+            }
+
             await next();
         });
 
@@ -77,7 +106,7 @@ public sealed class FakeWopiHost : IAsyncDisposable
                 BaseFileName = id + ".docx",
                 OwnerId = "owner",
                 Size = c.Length,
-                Version = Versions[id].ToString(CultureInfo.InvariantCulture),
+                Version = NumericVersion ? (object)Versions[id] : Versions[id].ToString(CultureInfo.InvariantCulture),
                 UserId = "wopi-user",
                 UserFriendlyName = "Phạm Minh",
                 UserCanWrite = true,
@@ -166,6 +195,10 @@ public sealed class WopiTests : IAsyncLifetime
     {
         _wopi = await FakeWopiHost.StartAsync();
         _app = new TestApp(wopi: _wopi.Server);
+
+        // Like a real WOPI host: trust the proof keys published in the BlueOffice discovery.
+        var discovery = System.Xml.Linq.XDocument.Parse(await _app.CreateClient().GetStringAsync(new Uri("/hosting/discovery", UriKind.Relative)));
+        _wopi.Proofs = WopiProofValidator.FromDiscovery(discovery);
     }
 
     public async Task DisposeAsync()
@@ -221,6 +254,45 @@ public sealed class WopiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task EveryRequestCarriesAValidProofAndTheSessionFollowsTheFileVersion()
+    {
+        _wopi.NumericVersion = true;
+        _wopi.Versions["doc1"] = 41;
+        var s = await OpenAsync();
+        Assert.Equal("41", s.GetProperty("file").GetProperty("version").GetString());
+        var sid = s.GetProperty("sessionId").GetString();
+        var c = _app.CreateClient();
+        c.DefaultRequestHeaders.Add(SessionEndpoints.TokenHeader, s.GetProperty("sessionToken").GetString());
+
+        // No collaboration room: the checkpoint is written with PutFile and returns X-WOPI-ItemVersion.
+        var r = await (await c.PostAsync(new Uri($"/api/sessions/{sid}/checkpoint?save=true", UriKind.Relative), new ByteArrayContent("wopi v42"u8.ToArray())))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("42", r.GetProperty("version").GetString());
+        var info = await c.GetFromJsonAsync<JsonElement>(new Uri($"/api/sessions/{sid}", UriKind.Relative));
+        Assert.Equal("42", info.GetProperty("file").GetProperty("version").GetString());
+
+        // Offline sync against the current version is a plain save (no conflict copy).
+        var sync = await (await c.PostAsync(new Uri($"/api/sessions/{sid}/sync?baseVersion=42", UriKind.Relative), new ByteArrayContent("offline"u8.ToArray())))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("saved", sync.GetProperty("outcome").GetString());
+
+        Assert.True(_wopi.ProofChecks >= 3, $"{_wopi.ProofChecks} checks");
+        Assert.Equal(0, _wopi.ProofFailures);
+    }
+
+    [Fact]
+    public async Task HostRejectsRequestsWithoutAValidProof()
+    {
+        // A host that trusts another client's keys refuses BlueOffice (the session cannot open).
+        using var other = System.Security.Cryptography.RSA.Create(2048);
+        _wopi.Proofs = new WopiProofValidator(other, null);
+        using var form = new FormUrlEncodedContent([new("access_token", FakeWopiHost.Token)]);
+        var res = await _app.CreateClient().PostAsync(new Uri("/edit?WOPISrc=" + Uri.EscapeDataString("http://wopi/wopi/files/doc1"), UriKind.Relative), form);
+        Assert.False(res.IsSuccessStatusCode);
+        Assert.True(_wopi.ProofFailures > 0);
+    }
+
+    [Fact]
     public async Task ConflictCopyUsesPutRelativeFile()
     {
         var s = await OpenAsync();
@@ -256,6 +328,17 @@ public sealed class WopiTests : IAsyncLifetime
         Assert.Equal<string?>(["BlueDoc", "BlueSheet", "BlueSlide"], apps);
         Assert.Contains(doc.Descendants("action"), a => (string?)a.Attribute("ext") == "xlsx" && (string?)a.Attribute("name") == "edit");
         Assert.All(doc.Descendants("action"), a => Assert.StartsWith("http://localhost/edit?", (string?)a.Attribute("urlsrc"), StringComparison.Ordinal));
+
+        // proof-key: CSP PUBLICKEYBLOB (value) + modulus/exponent; no rotation configured, so old = current.
+        var key = Assert.Single(doc.Descendants("proof-key"));
+        var blob = Convert.FromBase64String((string)key.Attribute("value")!);
+        var modulus = Convert.FromBase64String((string)key.Attribute("modulus")!);
+        Assert.Equal(256, modulus.Length);
+        Assert.Equal(20 + 256, blob.Length);
+        Assert.Equal(new byte[] { 0x06, 0x02, 0, 0, 0x00, 0xA4, 0, 0, (byte)'R', (byte)'S', (byte)'A', (byte)'1' }, blob.Take(12).ToArray());
+        Assert.Equal(modulus[^1], blob[20]);
+        Assert.Equal("AQAB", (string?)key.Attribute("exponent"));
+        Assert.Equal((string?)key.Attribute("value"), (string?)key.Attribute("oldvalue"));
     }
 
     [Fact]

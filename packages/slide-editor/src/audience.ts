@@ -8,7 +8,15 @@ import type { MessageBus, Platform } from '@blueoffice/platform';
 export type AudienceMsg =
   | { type: 'hello' }
   | { type: 'deck'; name: string; data: string; slide: number; black: boolean }
-  | { type: 'show'; slide: number; black: boolean; ended: boolean };
+  | {
+      type: 'show';
+      slide: number;
+      black: boolean;
+      ended: boolean;
+      /** Click steps played on the slide and how they were reached (animations). */
+      click?: number;
+      enter?: 'transition' | 'click' | 'jump';
+    };
 
 export function toBase64(bytes: Uint8Array): string {
   let s = '';
@@ -38,7 +46,11 @@ export function isAudienceMsg(m: unknown): m is AudienceMsg {
 export class AudienceLink {
   private bus: MessageBus | null = null;
   private off: (() => void) | null = null;
-  private state = { slide: 0, black: false, ended: false };
+  private state: { slide: number; black: boolean; ended: boolean; click?: number } = {
+    slide: 0,
+    black: false,
+    ended: false,
+  };
 
   constructor(
     private readonly platform: Platform,
@@ -74,10 +86,16 @@ export class AudienceLink {
     } satisfies AudienceMsg);
   }
 
-  /** Current slide / black screen / end of the show. */
-  update(slide: number, black: boolean, ended: boolean): void {
-    this.state = { slide, black, ended };
-    this.bus?.post({ type: 'show', slide, black, ended } satisfies AudienceMsg);
+  /** Current slide (and click step) / black screen / end of the show. */
+  update(
+    slide: number,
+    black: boolean,
+    ended: boolean,
+    click?: number,
+    enter?: 'transition' | 'click' | 'jump',
+  ): void {
+    this.state = { slide, black, ended, click };
+    this.bus?.post({ type: 'show', slide, black, ended, click, enter } satisfies AudienceMsg);
   }
 
   stop(): void {

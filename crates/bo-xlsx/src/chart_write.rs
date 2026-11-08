@@ -308,6 +308,12 @@ fn axis(
     let _ = write!(out, "</c:{tag}>");
 }
 
+/// Summary of a `c:chartSpace` part (§21.2.2.29), e.g. a chart embedded in a
+/// presentation; `None` when the part is not a chart.
+pub fn parse_chart_part(data: &[u8], part: &str) -> Option<Chart> {
+    crate::chart::parse_chart_space(data, part)
+}
+
 /// The `c:chartSpace` part of `chart` (§21.2.2.29).
 pub fn chart_space_xml(chart: &Chart) -> String {
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n");

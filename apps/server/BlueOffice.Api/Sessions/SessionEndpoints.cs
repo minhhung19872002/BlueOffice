@@ -169,10 +169,10 @@ public static class SessionEndpoints
         app.Map("/collab/{fileId}", CollabAsync).AllowAnonymous();
 
         // WOPI discovery ([MS-WOPI] §3.1.5.1): lets WOPI hosts find the BlueOffice action URLs.
-        app.MapGet("/hosting/discovery", (HttpRequest req) =>
+        app.MapGet("/hosting/discovery", (HttpRequest req, WopiProofKeys proofKeys) =>
         {
             var baseUrl = $"{req.Scheme}://{req.Host}{req.PathBase}";
-            return Results.Text(WopiDiscovery(baseUrl), "application/xml", Encoding.UTF8);
+            return Results.Text(WopiDiscovery(baseUrl, proofKeys), "application/xml", Encoding.UTF8);
         }).AllowAnonymous();
     }
 
@@ -302,7 +302,7 @@ public static class SessionEndpoints
 
     private static string FileContentType(string name) => Files.FileService.ContentTypeOf(name);
 
-    private static string WopiDiscovery(string baseUrl)
+    private static string WopiDiscovery(string baseUrl, WopiProofKeys proofKeys)
     {
         // [MS-WOPI] §3.1.5.1.1.1 wopi-discovery/net-zone/app/action; app names follow ADR-0006.
         var url = System.Security.SecurityElement.Escape(baseUrl + "/edit?<ui=UI_LLCC&>");
@@ -327,7 +327,11 @@ public static class SessionEndpoints
             sb.Append("    </app>\n");
         }
 
-        sb.Append("  </net-zone>\n</wopi-discovery>\n");
+        sb.Append("  </net-zone>\n");
+
+        // Public proof keys ([MS-WOPI] §3.1.5.1.1.1 proof-key): hosts verify X-WOPI-Proof / X-WOPI-ProofOld with them.
+        sb.Append("  ").Append(proofKeys.DiscoveryElement().ToString(System.Xml.Linq.SaveOptions.DisableFormatting)).Append('\n');
+        sb.Append("</wopi-discovery>\n");
         return sb.ToString();
     }
 }

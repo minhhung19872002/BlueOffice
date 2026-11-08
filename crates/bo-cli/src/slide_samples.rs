@@ -1507,7 +1507,24 @@ fn anim_decks() -> Vec<(&'static str, Vec<u8>)> {
     t2.tail = fade.into();
     let mut t3 = content_slide("Chuyển trang ngẫu nhiên", &body("", &para("Ngẫu nhiên")));
     t3.tail = r#"<p:transition spd="slow"><p:random/></p:transition>"#.into();
+    // Deck 4: effects BlueSlide does not model (emphasis §19.5.4 animScale, motion
+    // path §19.5.6 animMotion) next to a fade, and a dissolve transition (§19.3.1.18).
+    let emph = r#"<p:par><p:cTn id="9" presetID="6" presetClass="emph" presetSubtype="0" fill="hold" nodeType="withEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:animScale><p:cBhvr><p:cTn id="10" dur="1000" fill="hold"/><p:tgtEl><p:spTgt spid="5"/></p:tgtEl></p:cBhvr><p:by x="150000" y="150000"/></p:animScale></p:childTnLst></p:cTn></p:par>"#;
+    let path = r#"<p:par><p:cTn id="14" presetID="42" presetClass="path" presetSubtype="0" accel="50000" decel="50000" fill="hold" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:animMotion origin="layout" path="M 0 0 L 0.25 0 E" pathEditMode="relative" ptsTypes="AA"><p:cBhvr><p:cTn id="15" dur="2000" fill="hold"/><p:tgtEl><p:spTgt spid="6"/></p:tgtEl><p:attrNameLst><p:attrName>ppt_x</p:attrName><p:attrName>ppt_y</p:attrName></p:attrNameLst></p:cBhvr></p:animMotion></p:childTnLst></p:cTn></p:par>"#;
+    let g4 = click(
+        3,
+        &(effect(5, 4, 10, 0, "clickEffect", "0", &fx_fade(7, 4)) + emph),
+    ) + &click(12, path);
+    let mut u1 = blank_slide("Hiệu ứng nhấn mạnh và đường chuyển động", shapes(3));
+    u1.tail = format!(
+        r#"<p:transition spd="med"><p:dissolve/></p:transition>{}"#,
+        timing(&g4, "")
+    );
     vec![
+        (
+            "slide-anim-unknown.pptx",
+            build(&[u1], &Vec::new(), THEME_BLUE),
+        ),
         (
             "slide-anim-fade-appear.pptx",
             build(&[a1, a1b], &Vec::new(), THEME_BLUE),

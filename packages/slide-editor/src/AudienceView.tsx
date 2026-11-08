@@ -3,8 +3,9 @@ import { useTranslation } from '@blueoffice/i18n';
 import type { DocInfo, Platform } from '@blueoffice/platform';
 import { useEffect, useMemo, useState } from 'react';
 import { fromBase64, isAudienceMsg, type AudienceMsg } from './audience';
+import type { ShowPos } from './player';
 import { fit } from './show';
-import { SlideCanvas } from './SlideCanvas';
+import { ShowCache, ShowStage } from './ShowStage';
 import styles from './SlideEditor.module.css';
 
 export interface AudienceViewProps {
@@ -23,7 +24,14 @@ export function AudienceView({ platform, channel }: AudienceViewProps) {
   const glyphs = useMemo(() => new GlyphStore(engine), [engine]);
   const images = useMemo(() => new ImageStore(engine), [engine]);
   const [info, setInfo] = useState<DocInfo | null>(null);
+  const cache = useMemo(() => new ShowCache(engine), [engine]);
   const [show, setShow] = useState({ slide: 0, black: false, ended: false });
+  const [pos, setPos] = useState<ShowPos & { from: number | null }>({
+    slide: 0,
+    click: 0,
+    enter: 'jump',
+    from: null,
+  });
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
 
   useEffect(() => {
@@ -49,9 +57,16 @@ export function AudienceView({ platform, channel }: AudienceViewProps) {
           if (cancelled) return;
           setInfo(doc);
           setShow({ slide: msg.slide, black: msg.black, ended: false });
+          setPos({ slide: msg.slide, click: 0, enter: 'jump', from: null });
         })();
       } else if (msg.type === 'show') {
         setShow({ slide: msg.slide, black: msg.black, ended: msg.ended });
+        setPos((p) => ({
+          slide: msg.slide,
+          click: msg.click ?? 0,
+          enter: msg.enter ?? 'jump',
+          from: msg.enter === 'transition' && p.slide !== msg.slide ? p.slide : null,
+        }));
       }
     });
     // Ask until the presenter answers (it may still be setting up).
@@ -80,18 +95,21 @@ export function AudienceView({ platform, channel }: AudienceViewProps) {
       {!info ? (
         <p className={styles.endText}>{t('slideEditor.audienceWaiting')}</p>
       ) : visible ? (
-        <div key={show.slide} className={styles.fade}>
-          <SlideCanvas
-            engine={engine}
-            glyphs={glyphs}
-            images={images}
-            index={show.slide}
-            slide={page}
-            width={box.width}
-            revision={1}
-            label={t('slideEditor.slideOf', { n: show.slide + 1, total: count })}
-          />
-        </div>
+        <ShowStage
+          engine={engine}
+          glyphs={glyphs}
+          images={images}
+          cache={cache}
+          pos={pos}
+          from={pos.from}
+          slide={page}
+          width={box.width}
+          label={t('slideEditor.slideOf', { n: show.slide + 1, total: count })}
+          mediaLabels={{
+            play: t('slideEditor.playMedia'),
+            unsupported: t('slideEditor.mediaUnsupported'),
+          }}
+        />
       ) : (
         (show.ended || show.slide >= count) && (
           <p className={styles.endText}>{t('slideEditor.end')}</p>

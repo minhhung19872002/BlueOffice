@@ -14,9 +14,10 @@ pub fn drawing_shapes(xml: &[u8]) -> Option<Vec<ShapeNode>> {
     bo_pptx::diagram::drawing_shapes(xml, "/word/diagrams/drawing.xml")
 }
 
-/// Render a diagram drawing (`w`×`h` EMU) to PNG at 2 px per point.
+/// Render a diagram drawing (`w`×`h` EMU) to PNG at 2 px per point; a data model part (SmartArt saved
+/// without its drawing) is laid out first (`bo_pptx::diagram_layout`).
 pub fn render_png(xml: &[u8], w: i64, h: i64, fonts: &mut FontManager) -> Option<Vec<u8>> {
-    let shapes = drawing_shapes(xml)?;
+    let shapes = bo_pptx::diagram::diagram_shapes(xml, "/word/diagrams/drawing.xml", w, h)?;
     if shapes.is_empty() || w <= 0 || h <= 0 {
         return None;
     }
@@ -43,7 +44,9 @@ pub fn render_png(xml: &[u8], w: i64, h: i64, fonts: &mut FontManager) -> Option
 fn is_drawing_part(bytes: &[u8]) -> bool {
     let head = &bytes[..bytes.len().min(512)];
     let s = String::from_utf8_lossy(head);
-    s.contains("<dsp:drawing") || s.contains(":drawing ") && s.contains("diagram")
+    s.contains("<dsp:drawing")
+        || s.contains(":drawing ") && s.contains("diagram")
+        || s.contains(":dataModel ") && s.contains("drawingml/2006/diagram")
 }
 
 /// Replace the media of SmartArt pictures by a rendering of their drawing part.
@@ -87,5 +90,40 @@ pub fn render_smartart(doc: &mut Document, fonts: &mut FontManager) {
         if let Some(png) = render_png(bytes, w, h, fonts) {
             doc.media.insert(name, Arc::new(png));
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    // source: corpus smartart-04-datamodel.docx (data model only, ECMA-376 Part 1 §21.4.3) — CORE-SMART-002.
+    #[test]
+    fn data_model_smartart_is_laid_out_and_drawn() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/corpus/doc/smartart-04-datamodel.docx"
+        );
+        let mut doc = bo_docx::read_docx(&std::fs::read(path).unwrap()).unwrap();
+        // The picture of the frame is the data model part, kept verbatim.
+        let (name, bytes) = doc
+            .media
+            .iter()
+            .find(|(n, _)| n.ends_with("data1.xml"))
+            .map(|(n, b)| (n.clone(), b.clone()))
+            .unwrap();
+        assert!(String::from_utf8_lossy(&bytes).contains("dgm:dataModel"));
+        let mut fonts = bo_text::FontManager::new();
+        for f in crate::bundled::FONTS {
+            fonts.add_font(f.to_vec());
+        }
+        super::render_smartart(&mut doc, &mut fonts);
+        let png = &doc.media[&name];
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+        // The saved file keeps the data part as it was.
+        let saved =
+            bo_docx::write_docx(&bo_docx::read_docx(&std::fs::read(path).unwrap()).unwrap())
+                .unwrap();
+        let back = bo_docx::read_docx(&saved).unwrap();
+        assert_eq!(back.media[&name].as_slice(), bytes.as_slice());
     }
 }

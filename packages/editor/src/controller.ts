@@ -66,6 +66,21 @@ export class DocController {
     return p;
   }
 
+  /** Run a read-only command (spelling marks) after the previous ones without applying its result:
+   * the caret, selection and open header/note editor are left as the editing commands set them. */
+  query(cmd: EditCommand): Promise<EditResult | null> {
+    const p = this.queue.then(async () => {
+      try {
+        return await this.engine.command({ ...cmd, now: Date.now() });
+      } catch (e) {
+        this.onError(e);
+        return null;
+      }
+    });
+    this.queue = p;
+    return p;
+  }
+
   /** Insert a picture through the engine. */
   insertImage(bytes: Uint8Array, name: string): Promise<EditResult | null> {
     const p = this.queue.then(async () => {

@@ -385,7 +385,10 @@ function EditorInner({
       clearTimeout(spellTimer);
       spellTimer = setTimeout(() => {
         const s = store.getState();
-        if (s.spellingOn || s.grammarOn) void controller.current?.run({ cmd: 'spelling' });
+        if (s.spellingOn || s.grammarOn)
+          void controller.current?.query({ cmd: 'spelling' }).then((r) => {
+            if (r?.spelling) v.setSpelling(r.spelling);
+          });
       }, 400);
     };
     controller.current = new DocController(

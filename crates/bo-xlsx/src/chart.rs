@@ -233,11 +233,13 @@ pub(crate) fn read_diagrams(
             if let Some(d) = &data {
                 d.descendants("dataModelExt", &mut ext);
             }
+            // The drawing part, or the data model itself (laid out when drawn) when there is none.
             let Some(part) = ext
                 .first()
                 .and_then(|e| e.attr("relId"))
                 .and_then(target)
                 .filter(|p| pkg.part(p).is_some())
+                .or_else(|| data.is_some().then(|| data_part.clone()))
             else {
                 continue;
             };

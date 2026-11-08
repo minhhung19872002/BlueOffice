@@ -277,18 +277,30 @@ impl Engine {
         })
     }
 
+    /// The result of a command that changes nothing: the open header/footer or note editor stays open
+    /// (its selection and story state are reported, as its own commands do).
+    pub(crate) fn query_result(&self) -> crate::Result<EditResult> {
+        if self.hf.is_some() {
+            self.story_result(Vec::new(), None)
+        } else if self.note.is_some() {
+            self.note_result(Vec::new(), None)
+        } else {
+            self.edit_result(Vec::new(), (None, None, None), None)
+        }
+    }
+
     /// Spelling commands (they never change the document).
     pub(crate) fn spell_command(&mut self, cmd: &Command) -> crate::Result<Option<EditResult>> {
         match cmd {
             Command::Spelling { pages } => {
                 let marks = self.spelling_marks(pages.as_deref());
-                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                let mut r = self.query_result()?;
                 r.spelling = Some(marks);
                 Ok(Some(r))
             }
             Command::SpellAt { page, x, y } => {
                 let info = self.spell_at(*page, *x, *y);
-                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                let mut r = self.query_result()?;
                 r.spell = info;
                 Ok(Some(r))
             }
@@ -299,25 +311,25 @@ impl Engine {
                     self.spell.speller.add_user_word(word);
                 }
                 self.spell.invalidate();
-                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                let mut r = self.query_result()?;
                 r.spelling = Some(self.spelling_marks(None));
                 Ok(Some(r))
             }
             Command::SetGrammar { on } => {
                 self.spell.grammar = *on;
-                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                let mut r = self.query_result()?;
                 r.spelling = Some(self.spelling_marks(None));
                 Ok(Some(r))
             }
             Command::GrammarIgnore { rule, text } => {
                 self.spell.ignored.insert((rule.clone(), text.clone()));
-                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                let mut r = self.query_result()?;
                 r.spelling = Some(self.spelling_marks(None));
                 Ok(Some(r))
             }
             Command::SetSpelling { on } => {
                 self.spell.enabled = *on;
-                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                let mut r = self.query_result()?;
                 r.spelling = Some(self.spelling_marks(None));
                 Ok(Some(r))
             }
@@ -414,5 +426,25 @@ mod tests {
         assert_eq!(e.spelling_marks(None).len(), 1);
         let r = e.command(Command::SetGrammar { on: false }).unwrap();
         assert_eq!(r.spelling.as_ref().map(Vec::len), Some(0));
+    }
+
+    // Regression: spelling refreshes while a header is open must keep it open (the result carries the
+    // story state, as the header editor's own results do).
+    #[test]
+    fn spelling_keeps_the_header_editor_open() {
+        let mut e = engine("Thân văn bản");
+        let r = e
+            .command(Command::EditHeaderFooter {
+                page: 0,
+                header: true,
+            })
+            .unwrap();
+        assert!(r.story.is_some());
+        let r = e.command(Command::Spelling { pages: None }).unwrap();
+        assert!(r.story.is_some(), "header editor still open");
+        let r = e.command(Command::SetGrammar { on: true }).unwrap();
+        assert!(r.story.is_some());
+        let r = e.command(Command::Equation).unwrap();
+        assert!(r.story.is_some());
     }
 }

@@ -1600,7 +1600,9 @@ fn draw_frame(
         // SmartArt (§21.4.2.6 dgm:relIds): the pre-rendered drawing part
         // ([MS-ODRAWXML] dsp:drawing), shapes positioned inside the frame.
         GraphicContent::Other(gd) if f.uri == crate::diagram::URI_DIAGRAM => {
-            for node in diagram_fallback(cx, gd).unwrap_or_default() {
+            let ext = f.xfrm.ext.unwrap_or((0, 0));
+            let shapes = diagram_fallback(cx, gd).or_else(|| diagram_from_data(cx, gd, ext));
+            for node in shapes.unwrap_or_default() {
                 draw_node(cx, &node, Frame::root(), fonts, images, &mut cmds);
             }
         }
@@ -1628,6 +1630,26 @@ fn diagram_fallback(cx: &Ctx<'_>, gd: &bo_model::slide::XmlElement) -> Option<Ve
         }
     })?;
     crate::diagram::drawing_shapes(cx.pres.part_data(&part)?, &part)
+}
+
+/// A SmartArt without a drawing part laid out from its data model (`crate::diagram_layout`), in the
+/// frame's `ext` (EMU).
+fn diagram_from_data(
+    cx: &Ctx<'_>,
+    gd: &bo_model::slide::XmlElement,
+    ext: (i64, i64),
+) -> Option<Vec<ShapeNode>> {
+    let data_part = crate::diagram::data_rel_id(gd).and_then(|rid| cx.image_part(rid))?;
+    let layout = crate::diagram::layout_rel_id(gd)
+        .and_then(|rid| cx.image_part(rid))
+        .and_then(|p| cx.pres.part_data(&p));
+    crate::diagram_layout::synth(
+        cx.pres.part_data(&data_part)?,
+        &data_part,
+        layout,
+        ext.0,
+        ext.1,
+    )
 }
 
 fn draw_chart_frame(

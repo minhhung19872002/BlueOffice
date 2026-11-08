@@ -47,6 +47,14 @@ pub fn data_rel_id(graphic_data: &XmlElement) -> Option<&str> {
         .and_then(|c| c.attr("r:dm"))
 }
 
+/// Relationship id of the layout definition part (`dgm:relIds@r:lo`, §21.4.2.6).
+pub fn layout_rel_id(graphic_data: &XmlElement) -> Option<&str> {
+    graphic_data
+        .elements()
+        .find(|c| c.local() == "relIds")
+        .and_then(|c| c.attr("r:lo"))
+}
+
 /// Relationship id of the drawing part named by a diagram data part
 /// (`dsp:dataModelExt@relId`, [MS-ODRAWXML]), if any.
 pub fn drawing_rel_id(data_xml: &[u8], part: &str) -> Option<String> {
@@ -75,6 +83,12 @@ pub fn drawing_shapes(xml: &[u8], part: &str) -> Option<Vec<ShapeNode>> {
     Some(out)
 }
 
+/// Shapes of a diagram in a `w`×`h` EMU frame from either its drawing part or, for a SmartArt saved
+/// without one, its data model part (laid out by [`crate::diagram_layout`]).
+pub fn diagram_shapes(xml: &[u8], part: &str, w: i64, h: i64) -> Option<Vec<ShapeNode>> {
+    drawing_shapes(xml, part).or_else(|| crate::diagram_layout::synth(xml, part, None, w, h))
+}
+
 /// Draw a diagram drawing part as vector commands in a `w`×`h` EMU box
 /// (no background; the frame's colours come from the shapes themselves).
 pub fn render_drawing(
@@ -85,7 +99,7 @@ pub fn render_drawing(
     fonts: &mut bo_text::FontManager,
 ) -> Option<Vec<bo_render::Command>> {
     use bo_model::slide::{CommonSlideData, Presentation, Slide, SlideSize};
-    let shapes = drawing_shapes(xml, part)?;
+    let shapes = diagram_shapes(xml, part, w, h)?;
     if shapes.is_empty() || w <= 0 || h <= 0 {
         return None;
     }
@@ -144,6 +158,13 @@ mod tests {
             Some("rId7")
         );
         assert!(drawing_shapes(b"<p:sld/>", "x").is_none());
+        // A data model without a drawing part is laid out instead (CORE-SMART-002).
+        let dm = crate::diagram_layout::tests::data_model(
+            "urn:x/layout/process1",
+            &[("A", None), ("B", None)],
+        );
+        let shapes = diagram_shapes(dm.as_bytes(), "/d.xml", 4_000_000, 1_000_000).unwrap();
+        assert_eq!(shapes.len(), 3, "two steps and an arrow");
         assert!(drawing_shapes(b"not xml <", "x").is_none());
     }
 }

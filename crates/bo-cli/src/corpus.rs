@@ -1206,6 +1206,42 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
 <dsp:drawing xmlns:dgm="{DGM}" xmlns:dsp="{DSP}" xmlns:a="{A}"><dsp:spTree><dsp:nvGrpSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvGrpSpPr/></dsp:nvGrpSpPr><dsp:grpSpPr/>{shapes}</dsp:spTree></dsp:drawing>"#)),
         ]
     };
+    // SmartArt saved with its data model only (no dsp:drawing): laid out by BlueOffice (CORE-SMART-002).
+    let data_only_parts = |lo: &str, cat: &str, nodes: &[(&str, Option<usize>)]| {
+        let x = |root: &str, attrs: &str, inner: &str| {
+            format!(
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<{root} xmlns:dgm="{DGM}" xmlns:a="{A}"{attrs}>{inner}</{root}>"#
+            )
+        };
+        vec![
+            ("diagrams/data1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramData",
+                x("dgm:dataModel", "", &crate::slide_samples::smartart_data_model(lo, nodes))),
+            ("diagrams/layout1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramLayout+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramLayout",
+                x("dgm:layoutDef", &format!(r#" uniqueId="{lo}""#), &format!(r#"<dgm:catLst><dgm:cat type="{cat}" pri="1000"/></dgm:catLst><dgm:layoutNode name="diagram"/>"#))),
+            ("diagrams/quickStyle1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramStyle+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramQuickStyle",
+                x("dgm:styleDef", "", r#"<dgm:styleLbl name="node0"/>"#)),
+            ("diagrams/colors1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramColors+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramColors",
+                x("dgm:colorsDef", "", "")),
+        ]
+    };
+    v.push(("smartart-04-datamodel.docx", "smartart", "SmartArt chỉ có data model (không có dsp:drawing): sơ đồ tổ chức 3 cấp do BlueOffice tự dựng bố cục", Doc {
+        body: [
+            p("Cơ cấu tổ chức:"),
+            format!("<w:p>{}</w:p>", diagram_ref(61, 5_400_000, 2_700_000)),
+            lorem(1),
+        ].concat(),
+        sect: s.clone(),
+        extra: data_only_parts("urn:bluestar.vn/layout/hierarchy", "hierarchy", &[
+            ("Ban giám đốc", None),
+            ("Phòng Kỹ thuật", Some(0)),
+            ("Phòng Kinh doanh", Some(0)),
+            ("Tổ Phần mềm", Some(1)),
+            ("Tổ Hạ tầng", Some(1)),
+            ("Tổ Bán hàng", Some(2)),
+        ]),
+        ..Doc::default()
+    }));
     v.push(("smartart-01-fallback-picture.docx", "smartart", "mc:AlternateContent có mc:Fallback là ảnh (hiển thị ảnh thay cho Choice), trong đoạn và trong ô bảng", Doc {
         body: [
             format!("<w:p>{}</w:p>", alt_pic(31, "rId30")),

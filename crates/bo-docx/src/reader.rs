@@ -1421,12 +1421,19 @@ fn read_drawing_frame(
     // SmartArt: show the pre-rendered drawing ([MS-ODRAWXML] §2.3.2 diagramDrawing,
     // referenced by `dsp:dataModelExt/@relId` of the data model part).
     if img.media.is_empty() {
-        if let Some(drawing) = diagram_data.and_then(|dm| diagram_drawing_part(ctx, &dm)) {
-            if let Some(p) = ctx.pkg.part(&drawing) {
+        // Without a drawing part the data model itself is the "picture" (laid out when rendered);
+        // either part is kept verbatim (an existing part is never rewritten on save).
+        let part = diagram_data.as_deref().and_then(|dm| {
+            diagram_drawing_part(ctx, dm)
+                .filter(|d| ctx.pkg.part(d).is_some())
+                .or_else(|| ctx.target(dm))
+        });
+        if let Some(part) = part {
+            if let Some(p) = ctx.pkg.part(&part) {
                 media
-                    .entry(drawing.clone())
+                    .entry(part.clone())
                     .or_insert_with(|| Arc::new(p.data.clone()));
-                img.media = drawing;
+                img.media = part;
             }
         }
     }

@@ -92,8 +92,18 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     (`cargo run -p bo-spell --example grammar_scan -- <file>`) để loại báo nhầm.
 
 ### SmartArt (§4.4)
-- [p] **CORE-SMART-001** — Hiển thị SmartArt bằng drawing fallback (dsp:drawing) trong Doc/Sheet/Slide · P0 · — · corpus `smartart-*`, `slide-smartart-*`. **Thiếu**: tự dựng layout (002).
-- [ ] **CORE-SMART-002** — Đọc data model (dgm:dataModel: pt/cxn) + tự dựng layout cho các nhóm: danh sách, quy trình, chu trình, phân cấp, ma trận, kim tự tháp, quan hệ · P0 · — · render file không có fallback.
+- [x] **CORE-SMART-001** — Hiển thị SmartArt bằng drawing fallback (dsp:drawing) trong Doc/Sheet/Slide · P0 · — · corpus `smartart-*`, `slide-smartart-*`. _Phần thiếu (tự dựng layout) xong ở CORE-SMART-002._
+- [x] **CORE-SMART-002** — Đọc data model (dgm:dataModel: pt/cxn) + tự dựng layout cho các nhóm: danh sách, quy trình, chu trình, phân cấp, ma trận, kim tự tháp, quan hệ · P0 · — · render file không có fallback.
+  - Xong: `bo-pptx::diagram_layout` — đọc data model (§21.4.3: `dgm:pt` node/asst, nối `parOf` theo `srcOrd`; bỏ qua
+    pres/parTrans/sibTrans), nhóm bố cục từ `dgm:catLst/dgm:cat` của layoutDef hoặc từ `prSet@loTypeId`, bố cục tự viết:
+    danh sách (lưới khối, ý con là gạch đầu dòng), quy trình (hàng khối + mũi tên), chu trình (vòng tròn đều, mũi tên
+    tiếp tuyến), phân cấp (cây: lá chia đều bề rộng, cha giữa các con, đường nối gấp khúc), ma trận (lưới vuông), kim tự
+    tháp (tam giác + hình thang rộng dần), quan hệ (vòng tròn chồng nhau bán trong suốt); bảng màu riêng của BlueOffice.
+    Kết quả là các shape DrawingML như phần dsp:drawing nên dùng chung bộ vẽ. Dùng khi file không có dsp:drawing: BlueSlide
+    (render), BlueDoc (đọc data part làm "ảnh", vẽ khi dàn trang, lưu lại nguyên vẹn), BlueSheet (overlay).
+    Test: `diagram_layout::tests` (đọc cây, nhóm bố cục, từng bố cục: vị trí/thứ tự/không tràn khung), `diagram::tests`
+    (data model → shape), `bo-engine smartart::tests` (docx chỉ có data model → PNG, lưu giữ nguyên data part); corpus
+    `slide-smartart-data-{process,hierarchy,cycle,pyramid}.pptx`, `smartart-04-datamodel.docx` (OpenXmlValidator 0 lỗi).
 - [ ] **CORE-SMART-003** — Tạo SmartArt mới từ thư viện bố cục BlueOffice; ghi data model + layout/style/color + drawing fallback hợp lệ · P0 · 002 · OpenXmlValidator.
 - [ ] **CORE-SMART-004** — Ngăn văn bản SmartArt: sửa nội dung, thêm/xoá/nâng/hạ cấp nút, đổi bố cục/màu/style, chuyển thành shapes · P0 · 003 · E2E.
 

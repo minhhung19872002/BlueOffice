@@ -1680,6 +1680,151 @@ fn smartart_decks() -> Vec<(&'static str, Vec<u8>)> {
     ]
 }
 
+/// SmartArt saved without a drawing part: only the data model (ECMA-376 Part 1, §21.4.3 `dgm:pt` /
+/// `dgm:cxn`) and a layout definition naming its category (§21.4.2.3 `dgm:cat`), so the diagram is laid
+/// out by BlueOffice (CORE-SMART-002).
+pub(crate) fn smartart_data_model(lo: &str, nodes: &[(&str, Option<usize>)]) -> String {
+    use std::fmt::Write as _;
+    let mut pts = format!(
+        r#"<dgm:pt modelId="{{00000000-0000-0000-0000-0000000000D0}}" type="doc"><dgm:prSet loTypeId="{lo}"/><dgm:spPr/><dgm:t><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="vi-VN"/></a:p></dgm:t></dgm:pt>"#
+    );
+    let mut cxns = String::new();
+    let mut ord = std::collections::HashMap::new();
+    for (i, (t, parent)) in nodes.iter().enumerate() {
+        let _ = write!(
+            pts,
+            r#"<dgm:pt modelId="{{00000000-0000-0000-0000-0000000001{i:02}}}"><dgm:prSet phldrT="[Văn bản]"/><dgm:spPr/><dgm:t><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="vi-VN"/><a:t>{t}</a:t></a:r></a:p></dgm:t></dgm:pt>"#
+        );
+        let src = parent.map_or("00000000-0000-0000-0000-0000000000D0".to_owned(), |p| {
+            format!("00000000-0000-0000-0000-0000000001{p:02}")
+        });
+        let o = ord.entry(src.clone()).or_insert(0u32);
+        let _ = write!(
+            cxns,
+            r#"<dgm:cxn modelId="{{00000000-0000-0000-0000-0000000002{i:02}}}" srcId="{{{src}}}" destId="{{00000000-0000-0000-0000-0000000001{i:02}}}" srcOrd="{o}" destOrd="0"/>"#
+        );
+        *o += 1;
+    }
+    format!(r#"<dgm:ptLst>{pts}</dgm:ptLst><dgm:cxnLst>{cxns}</dgm:cxnLst><dgm:bg/><dgm:whole/>"#)
+}
+
+/// Decks whose SmartArt has no drawing part (laid out from the data model).
+fn smartart_data_decks() -> Vec<(&'static str, Vec<u8>)> {
+    const DGM: &str = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
+    const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    let frame = |x: i64, y: i64, cx: i64, cy: i64| {
+        format!(
+            r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Sơ đồ 4"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></p:xfrm><a:graphic><a:graphicData uri="{DGM}"><dgm:relIds xmlns:dgm="{DGM}" r:dm="rId2" r:lo="rId3" r:qs="rId4" r:cs="rId5"/></a:graphicData></a:graphic></p:graphicFrame>"#
+        )
+    };
+    let parts = |lo: &str, cat: &str, nodes: &[(&str, Option<usize>)]| -> Parts {
+        let x = |root: &str, attrs: &str, inner: &str| {
+            format!(r#"{XML_DECL}<{root} xmlns:dgm="{DGM}" xmlns:a="{A}"{attrs}>{inner}</{root}>"#)
+                .into_bytes()
+        };
+        vec![
+            (
+                "/ppt/diagrams/data1.xml".into(),
+                format!("{CT}drawingml.diagramData+xml"),
+                x("dgm:dataModel", "", &smartart_data_model(lo, nodes)),
+            ),
+            (
+                "/ppt/diagrams/layout1.xml".into(),
+                format!("{CT}drawingml.diagramLayout+xml"),
+                x(
+                    "dgm:layoutDef",
+                    &format!(r#" uniqueId="{lo}""#),
+                    &format!(
+                        r#"<dgm:catLst><dgm:cat type="{cat}" pri="1000"/></dgm:catLst><dgm:layoutNode name="diagram"/>"#
+                    ),
+                ),
+            ),
+            (
+                "/ppt/diagrams/quickStyle1.xml".into(),
+                format!("{CT}drawingml.diagramStyle+xml"),
+                x("dgm:styleDef", "", r#"<dgm:styleLbl name="node0"/>"#),
+            ),
+            (
+                "/ppt/diagrams/colors1.xml".into(),
+                format!("{CT}drawingml.diagramColors+xml"),
+                x("dgm:colorsDef", "", ""),
+            ),
+        ]
+    };
+    let rels = || {
+        vec![
+            r("rId2", "diagramData", "../diagrams/data1.xml"),
+            r("rId3", "diagramLayout", "../diagrams/layout1.xml"),
+            r("rId4", "diagramQuickStyle", "../diagrams/quickStyle1.xml"),
+            r("rId5", "diagramColors", "../diagrams/colors1.xml"),
+        ]
+    };
+    let deck = |title: &str, lo: &str, cat: &str, nodes: &[(&str, Option<usize>)]| {
+        let mut slide = blank_slide(title, frame(IN, IN + IN / 2, 8 * IN, 4 * IN));
+        slide.rels = rels();
+        build(&[slide], &parts(lo, cat, nodes), THEME_BLUE)
+    };
+    vec![
+        (
+            "slide-smartart-data-process.pptx",
+            deck(
+                "Quy trình (SmartArt chỉ có data model)",
+                "urn:bluestar.vn/layout/process",
+                "process",
+                &[
+                    ("Tiếp nhận", None),
+                    ("Xử lý", None),
+                    ("Phê duyệt", None),
+                    ("Trả kết quả", None),
+                ],
+            ),
+        ),
+        (
+            "slide-smartart-data-hierarchy.pptx",
+            deck(
+                "Sơ đồ tổ chức (SmartArt chỉ có data model)",
+                "urn:bluestar.vn/layout/hierarchy",
+                "hierarchy",
+                &[
+                    ("Giám đốc", None),
+                    ("Kỹ thuật", Some(0)),
+                    ("Kinh doanh", Some(0)),
+                    ("Phần mềm", Some(1)),
+                    ("Hạ tầng", Some(1)),
+                ],
+            ),
+        ),
+        (
+            "slide-smartart-data-cycle.pptx",
+            deck(
+                "Chu trình PDCA (SmartArt chỉ có data model)",
+                "urn:bluestar.vn/layout/cycle",
+                "cycle",
+                &[
+                    ("Kế hoạch", None),
+                    ("Thực hiện", None),
+                    ("Kiểm tra", None),
+                    ("Cải tiến", None),
+                ],
+            ),
+        ),
+        (
+            "slide-smartart-data-pyramid.pptx",
+            deck(
+                "Kim tự tháp (SmartArt chỉ có data model)",
+                "urn:bluestar.vn/layout/pyramid",
+                "pyramid",
+                &[
+                    ("Tầm nhìn", None),
+                    ("Chiến lược", None),
+                    ("Kế hoạch", None),
+                    ("Hành động", None),
+                ],
+            ),
+        ),
+    ]
+}
+
 fn anim_decks() -> Vec<(&'static str, Vec<u8>)> {
     let fade = r#"<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" Requires="p14"><p:transition spd="slow" p14:dur="1500"><p:fade/></p:transition></mc:Choice><mc:Fallback><p:transition spd="slow"><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>"#;
     let push =
@@ -2068,6 +2213,7 @@ pub fn base_decks() -> Vec<(&'static str, Vec<u8>)> {
     v.extend(media_decks());
     v.extend(notes_theme_decks());
     v.extend(smartart_decks());
+    v.extend(smartart_data_decks());
     v
 }
 

@@ -13,6 +13,7 @@ pub mod build;
 mod chart_render;
 pub mod comments;
 pub mod diagram;
+pub mod diagram_layout;
 pub mod inherit;
 mod pml;
 mod read;

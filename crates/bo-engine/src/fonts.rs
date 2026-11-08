@@ -94,11 +94,7 @@ impl Engine {
             return Ok(Some(r));
         }
         if matches!(cmd, Command::Equation) && self.session.is_some() {
-            return Ok(Some(self.edit_result(
-                Vec::new(),
-                (None, None, None),
-                None,
-            )?));
+            return Ok(Some(self.query_result()?));
         }
         if self.session.is_none() {
             return Ok(None);

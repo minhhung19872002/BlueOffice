@@ -1293,10 +1293,10 @@ pub struct Chart {
 }
 
 /// A SmartArt graphic frame on a sheet (`xdr:graphicFrame` with
-/// `dgm:relIds`, ECMA-376 Part 1, §20.5.2.16 and §21.4.2.6). Laying out the
-/// diagram from its data model is not supported; the pre-rendered drawing part
-/// ([MS-ODRAWXML] `dsp:drawing`) named here is drawn over the cells. The
-/// drawing and diagram parts stay verbatim in the package.
+/// `dgm:relIds`, ECMA-376 Part 1, §20.5.2.16 and §21.4.2.6). The pre-rendered drawing
+/// part ([MS-ODRAWXML] `dsp:drawing`) named here is drawn over the cells; without one,
+/// `part` is the data model part and the diagram is laid out from it. The drawing and
+/// diagram parts stay verbatim in the package.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SheetDiagram {
@@ -1304,7 +1304,7 @@ pub struct SheetDiagram {
     pub from: CellRef,
     /// End anchor cell (`None`: one-cell anchor).
     pub to: Option<CellRef>,
-    /// Absolute part name of the diagram drawing part.
+    /// Absolute part name of the diagram drawing part (or of the data model part).
     pub part: String,
     /// `cNvPr@name` of the frame.
     pub name: String,

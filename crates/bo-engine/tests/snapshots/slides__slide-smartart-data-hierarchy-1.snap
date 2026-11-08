@@ -1,0 +1,56 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Sơ "
+  text 28.0pt 44.5,30.3 #000000ff "đồ "
+  text 28.0pt 81.8,30.3 #000000ff "tổ "
+  text 28.0pt 112.6,30.3 #000000ff "chức "
+  text 28.0pt 175.5,30.3 #000000ff "(SmartArt "
+  text 28.0pt 296.7,30.3 #000000ff "chỉ "
+  text 28.0pt 336.7,30.3 #000000ff "có "
+  text 28.0pt 369.6,30.3 #000000ff "data "
+  text 28.0pt 427.8,30.3 #000000ff "model)"
+pop transform
+transform [1.000 0.000 0.000 1.000 72.0 108.0]
+  path n=9 [211.2 19.2 364.8 76.8] fill=#1f6fb2ff
+  path n=9 [211.2 19.2 364.8 76.8] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 211.2 19.2]
+    text 14.0pt 49.7,33.6 #ffffffff "Giám "
+    text 14.0pt 82.8,33.6 #ffffffff "đốc"
+  pop transform
+  path n=9 [115.2 115.2 268.8 172.8] fill=#1f6fb2ff
+  path n=9 [115.2 115.2 268.8 172.8] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 115.2 115.2]
+    text 14.0pt 53.4,33.6 #ffffffff "Kỹ "
+    text 14.0pt 69.6,33.6 #ffffffff "thuật"
+  pop transform
+  path n=9 [19.2 211.2 172.8 268.8] fill=#1f6fb2ff
+  path n=9 [19.2 211.2 172.8 268.8] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 19.2 211.2]
+    text 14.0pt 46.2,33.6 #ffffffff "Phần "
+    text 14.0pt 78.0,33.6 #ffffffff "mềm"
+  pop transform
+  path n=9 [211.2 211.2 364.8 268.8] fill=#1f6fb2ff
+  path n=9 [211.2 211.2 364.8 268.8] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 211.2 211.2]
+    text 14.0pt 54.9,33.6 #ffffffff "Hạ "
+    text 14.0pt 73.5,33.6 #ffffffff "tầng"
+  pop transform
+  path n=2 [192.0 172.8 192.0 192.0] stroke=#7f7f7fff w1.50
+  path n=2 [96.0 192.0 288.0 192.0] stroke=#7f7f7fff w1.50
+  path n=2 [96.0 192.0 96.0 211.2] stroke=#7f7f7fff w1.50
+  path n=2 [288.0 192.0 288.0 211.2] stroke=#7f7f7fff w1.50
+  path n=9 [403.2 115.2 556.8 172.8] fill=#1f6fb2ff
+  path n=9 [403.2 115.2 556.8 172.8] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 403.2 115.2]
+    text 14.0pt 44.5,33.6 #ffffffff "Kinh "
+    text 14.0pt 72.9,33.6 #ffffffff "doanh"
+  pop transform
+  path n=2 [288.0 76.8 288.0 96.0] stroke=#7f7f7fff w1.50
+  path n=2 [192.0 96.0 480.0 96.0] stroke=#7f7f7fff w1.50
+  path n=2 [192.0 96.0 192.0 115.2] stroke=#7f7f7fff w1.50
+  path n=2 [480.0 96.0 480.0 115.2] stroke=#7f7f7fff w1.50
+pop transform

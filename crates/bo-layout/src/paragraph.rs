@@ -3,7 +3,9 @@
 
 use crate::blocks::Ctx;
 use crate::drawing::{shape_drawing, Drawing, Float};
-use crate::style::{para_style_run, revision_style, run_props, run_style, slot_of, RunStyle};
+use crate::style::{
+    para_style_run, revision_style, run_props, run_style, slot_of, ListCounters, RunStyle,
+};
 use crate::types::{Fragment, GlyphPos, NoteKey};
 use crate::LayoutError;
 use crate::RevisionView;
@@ -427,7 +429,11 @@ fn bidi_levels(text: &str, rtl: bool) -> Option<Vec<u8>> {
     }
     let base = if rtl { Level::rtl() } else { Level::ltr() };
     let info = BidiInfo::new(text, Some(base));
-    let mut out: Vec<u8> = info.levels.iter().map(|l| l.number()).collect();
+    let mut out: Vec<u8> = info
+        .levels
+        .iter()
+        .map(unicode_bidi::Level::number)
+        .collect();
     // L1: trailing whitespace goes back to the paragraph level.
     for (i, c) in text.char_indices().rev() {
         if !c.is_whitespace() {
@@ -575,8 +581,8 @@ fn drawing_of(
         doc: inp.doc,
         fonts,
         cache,
-        lists: Default::default(),
-        other_lists: Default::default(),
+        lists: ListCounters::default(),
+        other_lists: ListCounters::default(),
         notes: inp.note_numbers.clone(),
         fields: inp.fields,
         default_tab: inp.default_tab,

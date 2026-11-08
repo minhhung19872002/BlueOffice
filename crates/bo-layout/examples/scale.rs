@@ -82,7 +82,7 @@ fn repeat(fm: &mut FontManager, path: &str) {
             let t = Instant::now();
             let l = layout_document(&doc, fm, &mut LayoutCache::new());
             best = best.min(t.elapsed().as_secs_f64() * 1e3);
-            pages = l.map(|l| l.pages.len()).unwrap_or(0);
+            pages = l.map_or(0, |l| l.pages.len());
         }
         println!(
             "{path} ×{}: {pages} pages, {best:.1} ms, {:.2} ms/page",
@@ -146,7 +146,7 @@ fn main() {
             let t = Instant::now();
             let l = layout_document(&doc, &mut fm, &mut LayoutCache::new());
             best = best.min(t.elapsed().as_secs_f64() * 1e3);
-            pages = l.map(|l| l.pages.len()).unwrap_or(0);
+            pages = l.map_or(0, |l| l.pages.len());
         }
         println!(
             "{path}: read {:.1} ms, layout {best:.1} ms, {pages} pages",

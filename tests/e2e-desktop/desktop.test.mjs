@@ -180,6 +180,8 @@ async function api(method, url, body, headers = {}) {
 const firstNumber = (text) => Number(/(\d[\d.]*)/.exec(text ?? '')?.[1]?.replace(/\./g, '') ?? NaN);
 
 describe('desktop deep link joins the web users of a BlueDrive file', { skip: collabSkip }, () => {
+  /** Warnings / errors of both editors, reported when a sync step times out. */
+  const webLog = [];
   let stack;
   let browser;
   let web;
@@ -219,6 +221,9 @@ describe('desktop deep link joins the web users of a BlueDrive file', { skip: co
     const { chromium } = createRequire(join(root, 'tests/e2e/package.json'))('@playwright/test');
     browser = await chromium.launch();
     web = await browser.newPage({ viewport: { width: 1366, height: 900 } });
+    web.on('console', (m) => {
+      if (m.type() === 'warning' || m.type() === 'error') webLog.push(m.text());
+    });
     const q = new URLSearchParams({ file: fileId, token: await token('u1'), editor: urls.editor });
     await web.goto(`${urls.host}/?${q}`);
     await waitFor(
@@ -289,19 +294,39 @@ describe('desktop deep link joins the web users of a BlueDrive file', { skip: co
     await waitFor(async () => (await count()) === afterWeb || null, 'web edit on the desktop');
 
     // The desktop user types: the web user sees it.
+    await exec(
+      'window.__boLog = []; for (const k of ["warn", "error"]) { const f = console[k].bind(console); console[k] = (...a) => { window.__boLog.push(a.map((x) => (x instanceof Error ? x.stack : String(x))).join(" ")); f(...a); }; }',
+    );
     const input = await waitFor(() => find('textarea'), 'IME textarea');
     // Put the caret into the first page (WebDriver clicks the element's centre).
     const page = await find('.bo-page[data-page="1"]');
     await wd('POST', s(`/element/${page}/click`), {});
     await wd('POST', s(`/element/${input}/value`), { text: 'Từ máy tính để bàn ' });
+    // WebDriver types key by key: wait until the desktop count settles (an
+    // intermediate count would never match the web's final one).
+    let last = null;
     const afterDesktop = await waitFor(async () => {
       const n = await count();
-      return n !== afterWeb ? n : null;
+      const settled = n !== afterWeb && n === last;
+      last = n;
+      return settled ? n : null;
     }, 'desktop edit');
-    await waitFor(
-      async () => (await webCount()) === afterDesktop || null,
-      'desktop edit on the web',
-    );
+    try {
+      await waitFor(
+        async () => (await webCount()) === afterDesktop || null,
+        'desktop edit on the web',
+      );
+    } catch (e) {
+      const desktopLog = await exec('return window.__boLog ?? [];').catch(() => []);
+      const words = `desktop ${await count()} (typed ${afterDesktop}), web ${await webCount()}`;
+      throw new Error(
+        `${e.message}
+words: ${words}
+web log: ${JSON.stringify(webLog)}
+desktop log: ${JSON.stringify(desktopLog)}`,
+        { cause: e },
+      );
+    }
 
     // Saving on the desktop (Lưu) sends a checkpoint: a new BlueDrive version by both users.
     const save = await find('[data-command="file.save"]');

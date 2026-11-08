@@ -550,3 +550,54 @@ proptest! {
         }
     }
 }
+
+/// Desktop E2E shape: the joiner types at every kind of position of a real
+/// file (tabs, manual breaks, fields, tables) after the seeder's first edit.
+#[test]
+fn joiner_typing_anywhere_in_a_real_file_converges() {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus/doc/phase1-sample.docx");
+    let bytes = std::fs::read(path).unwrap();
+    let open = |id| {
+        let mut engine = Engine::with_bundled_fonts();
+        engine.open(&bytes, "mẫu.docx").unwrap();
+        Peer {
+            engine,
+            replica: Session::with_client_id(id),
+            slides: false,
+        }
+    };
+    let probe = open(1);
+    let paras = probe.text();
+    let mut failures = Vec::new();
+    for (p, t) in paras.iter().enumerate() {
+        let mid = (0..=t.len() / 2)
+            .rev()
+            .find(|&k| t.is_char_boundary(k))
+            .unwrap_or(0);
+        for o in [0, mid, t.len()] {
+            let (mut a, mut b) = (open(81), open(82));
+            a.start(true);
+            b.start(false);
+            connect(&mut a, &mut b);
+            settle(&mut a, &mut b);
+            a.cmd(&sel(0, 0));
+            a.cmd(&insert("Web "));
+            settle(&mut a, &mut b);
+            let r: serde_json::Value =
+                serde_json::from_str(&b.engine.command_json(&sel(p, o)).unwrap()).unwrap();
+            if r.get("error").is_some() {
+                continue;
+            }
+            let c: CollabChange = serde_json::from_value(r["collab"]["change"].clone()).unwrap();
+            b.replica.apply_local(&to_replica(&c)).unwrap();
+            b.cmd(&insert("ZZ"));
+            settle(&mut a, &mut b);
+            let (ta, tb) = (a.text().join("\n"), b.text().join("\n"));
+            if ta != tb || !ta.contains("ZZ") || a.model() != b.model() {
+                failures.push(format!("p={p} o={o} {t:?}\nA: {ta:?}\nB: {tb:?}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n---\n"));
+}

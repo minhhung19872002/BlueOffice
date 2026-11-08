@@ -165,6 +165,10 @@ giữ cổng 4445.
   trước lúc nội dung chung tới thì chỉ hỏng thỉnh thoảng (phụ thuộc thời điểm), và view cũng cuộn xuống cuối. Giờ caret
   được đo trên bản sao riêng của người vào sau rồi kẹp vào độ dài văn bản chung
   (`late_joiner_typing_at_its_first_caret_is_shared` kiểm vị trí chèn).
+  Phần chập chờn còn lại là lỗi của test: WebDriver gõ từng phím, test lấy số từ trung gian ở desktop rồi chờ web
+  khớp con số đó trong khi hai bên đã hội tụ ở số cuối. Test giờ chờ số từ ổn định và in log cảnh báo của cả hai
+  editor khi quá giờ; `joiner_typing_anywhere_in_a_real_file_converges` quét gõ ở mọi đoạn (tab, ngắt dòng, bảng) của
+  file mẫu. Kết quả: E2E desktop 5/5 lần chạy liên tiếp xanh.
 - Người vào sau thấy tài liệu ở trạng thái "Chưa lưu" và view cuộn tới caret sau khi nội dung chung thay thế bản cục bộ.
 - CSP desktop không cho `http://` tới máy chủ khác `localhost` (cần HTTPS hoặc build lại với origin trong CSP).
 

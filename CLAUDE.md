@@ -54,7 +54,9 @@ pnpm dev                                       # http://localhost:5173/doc
 pnpm --filter @blueoffice/web build
 pnpm lint && pnpm typecheck && pnpm test       # test parity cần bo-cli (tự build nếu thiếu)
 pnpm license-check
-pnpm --filter @blueoffice/e2e install-browsers && pnpm test:e2e   # cần web đã build; E2E_PORT=4391 nếu 4173 bận
+pnpm --filter @blueoffice/e2e install-browsers && pnpm test:e2e   # cần web đã build + .NET 8; E2E_PORT=4391 nếu 4173 bận
+pnpm --filter @blueoffice/e2e test:collab      # chỉ E2E cộng tác (tự dựng api + BlueDrive giả lập + proxy; COLLAB_PORT)
+node tests/e2e/collab/stack.mjs                # stack cộng tác để thử tay (COLLAB_STACK_VERBOSE=1)
 
 # Desktop
 pnpm desktop:dev                               # Tauri dev (port 1420)
@@ -62,7 +64,8 @@ pnpm --filter @blueoffice/desktop tauri build --no-bundle   # BlueDoc → target
 pnpm --filter @blueoffice/desktop build:bluesheet          # BlueSheet (vn.bluestar.bluesheet)
 pnpm --filter @blueoffice/desktop build:blueslide          # BlueSlide (vn.bluestar.blueslide)
 cargo install tauri-driver --locked                        # E2E desktop (WebDriver), cần msedgedriver khớp WebView2
-MSEDGEDRIVER=<msedgedriver.exe> pnpm test:e2e:desktop      # chạy trên target/release/bluedoc.exe
+MSEDGEDRIVER=<msedgedriver.exe> pnpm test:e2e:desktop      # target/release/bluedoc.exe (BLUEDOC_EXE=…; COLLAB_E2E=0 bỏ ca deep link)
+BLUEOFFICE_SERVER=http://localhost:5000 bluedoc.exe "bluedoc://open?host=…&file=…&token=…"   # mở file host + cộng tác
 
 # Server (gồm tests/mock-bluedrive, tools/BlueOffice.Validate = bo-validate)
 dotnet test BlueOffice.sln
@@ -83,7 +86,8 @@ bo-collab (Yrs: y-sync, awareness, undo cục bộ) ◄─ bo-wasm (WasmCollab)
 ```
 Package TS: `platform` (PAL, `EngineHost`, `SheetHost`) → `canvas-host`, `ui`, `i18n` → `editor` (BlueDoc + `CommandRegistry`),
 `sheet-editor`, `slide-editor` → `apps/web` (`/doc` `/sheet` `/slide`, nhúng `/edit`), `apps/desktop`;
-`collab` (client WebSocket + binding BlueSheet), `editor-sdk` (host ↔ iframe), `storage-providers`, `engine-wasm` (sinh tự động).
+`collab` (client WebSocket + binding doc/sheet/slide), `hosted` (mở file từ host: phiên server, lưu thành version,
+cộng tác, chế độ chỉ xem — dùng chung cho web nhúng và desktop deep link), `editor-sdk` (host ↔ iframe), `storage-providers`, `engine-wasm` (sinh tự động).
 
 ## Quy ước quan trọng
 - Rust: `#![forbid(unsafe_code)]`, không `unwrap()` trên dữ liệu từ file, clippy pedantic (các lint được cho phép nằm ở `[workspace.lints]`).
@@ -104,8 +108,8 @@ Package TS: `platform` (PAL, `EngineHost`, `SheetHost`) → `canvas-host`, `ui`,
 
 ## Phase hiện tại
 **Phase 1–6A hoàn thành phần chính; Phase 7 (BlueForm, BlueNote) chỉ có kế hoạch.** Ưu tiên của chủ dự án: bộ office
-trước, BlueDrive tính sau. Việc tiếp theo và hạn chế: `docs/PROGRESS.md` mục "Hạn chế đã biết" (cộng tác trực tiếp cho
-BlueDoc/BlueSlide, layout tăng dần, các mục UI còn thiếu).
+trước, BlueDrive tính sau. Việc tiếp theo và hạn chế: `docs/PROGRESS.md` mục "Hạn chế đã biết" (cộng tác cho bảng/style/
+định dạng ô, track changes cấu trúc còn lại, biểu đồ pivot, so sánh với ảnh tham chiếu do người dùng cung cấp).
 
 ## ADR
 - [0001](docs/adr/0001-record-architecture-decisions.md) Ghi quyết định kiến trúc

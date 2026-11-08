@@ -1,5 +1,10 @@
 import { GlyphStore, ImageStore, renderPage } from '@blueoffice/canvas-host';
-import type { EngineHost, PageDisplayList, SlideShowInfo } from '@blueoffice/platform';
+import type {
+  EngineHost,
+  PageDisplayList,
+  SlideShowInfo,
+  SlideTransitionSound,
+} from '@blueoffice/platform';
 import { useEffect, useRef, useState } from 'react';
 import { MediaClip } from './MediaLayer';
 import {
@@ -117,6 +122,43 @@ export interface ShowStageProps {
   mediaLabels?: { play: string; unsupported: string };
 }
 
+/** The transition sound playing (§19.3.1.42 sndAc), shared by the show's slides. */
+let transitionAudio: { el: HTMLAudioElement; url: string } | null = null;
+
+function stopTransitionSound() {
+  if (!transitionAudio) return;
+  transitionAudio.el.pause();
+  URL.revokeObjectURL(transitionAudio.url);
+  transitionAudio = null;
+}
+
+/** Start (or stop) the sound of a transition. */
+function playTransitionSound(engine: EngineHost, sound: SlideTransitionSound | null) {
+  if (!sound) return;
+  if (sound.stop || sound.part) stopTransitionSound();
+  const part = sound.part;
+  if (
+    sound.stop ||
+    !part ||
+    typeof Audio === 'undefined' ||
+    typeof URL.createObjectURL !== 'function'
+  ) {
+    return;
+  }
+  void engine
+    .getMedia(part)
+    .then((bytes) => {
+      const copy = new Uint8Array(bytes.byteLength);
+      copy.set(bytes);
+      const url = URL.createObjectURL(new Blob([copy.buffer], { type: 'audio/wav' }));
+      const el = new Audio(url);
+      el.loop = sound.loop;
+      transitionAudio = { el, url };
+      void el.play()?.catch(() => {});
+    })
+    .catch(() => {});
+}
+
 /**
  * One slide of the slide show: its layers, the transition from the previous
  * slide and the effects of the current click step.
@@ -187,7 +229,8 @@ export function ShowStage({
       if (cancelled) return;
       let delay = 0;
       if (pos.enter === 'transition') {
-        const t = transitionPlan(show.transition);
+        const t = transitionPlan(show.transition, pos.slide);
+        if (media) playTransitionSound(engine, show.transition?.sound ?? null);
         if (t.duration > 0) {
           const opts = { duration: t.duration, easing: 'ease-in-out', fill: 'both' as const };
           if (t.incoming) {
@@ -236,7 +279,7 @@ export function ShowStage({
       clearTimeout(end);
       for (const a of anims) a.cancel();
     };
-  }, [show, pos.slide, pos.click, pos.enter, playing, hasOutgoing, key]);
+  }, [show, pos.slide, pos.click, pos.enter, playing, hasOutgoing, key, media, engine]);
 
   return (
     <div
@@ -254,7 +297,9 @@ export function ShowStage({
         <div
           ref={outgoingRef}
           className={styles.showLayer}
-          style={{ zIndex: transitionPlan(show?.transition ?? null).outgoingOnTop ? 2 : 0 }}
+          style={{
+            zIndex: transitionPlan(show?.transition ?? null, pos.slide).outgoingOnTop ? 2 : 0,
+          }}
         >
           <SlideCanvas
             engine={engine}

@@ -53,7 +53,7 @@ cargo run -p bo-cli -- sample-big out/big.docx           # .docx 300 trang có �
 node scripts/bench-open-wasm.mjs <docx> <xlsx>           # thời gian mở + bộ nhớ WASM
 cargo test -p bo-engine --test fuzz_smoke                # fuzz smoke (corpus đột biến, chạy được trên MSVC)
 pnpm fidelity                                            # round-trip corpus + OpenXmlValidator → docs/fidelity-report.md
-cargo run -p bo-cli -- validate <file-or-dir> [--json] [--openxml auto|require|off]   # OPC cấu trúc + OpenXmlValidator
+cargo run -p bo-cli -- validate <file-or-dir> [--json] [--openxml auto|require|off] [--choice]   # OPC cấu trúc + OpenXmlValidator (--choice: cả nhánh mc:Choice)
 cargo run -p bo-cli -- fidelity-report [--no-validate]   # chạy scripts/fidelity-report.mjs với chính bo-cli này (BO_CLI)
 
 # Web (sau khi đổi Rust phải build lại WASM)

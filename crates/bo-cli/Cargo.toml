@@ -11,6 +11,7 @@ name = "bo-cli"
 path = "src/main.rs"
 
 [dependencies]
+base64 = "0.22"
 bo-engine = { workspace = true, features = ["bundled-fonts"] }
 bo-model.workspace = true
 bo-docx.workspace = true

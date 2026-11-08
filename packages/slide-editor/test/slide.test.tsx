@@ -13,8 +13,10 @@ import type {
   SlideTransitionInfo,
 } from '@blueoffice/platform';
 import {
+  ALL_TRANSITIONS,
   advance,
   AudienceLink,
+  rectsPolygon,
   BlueSlideEditor,
   crc32,
   effectFrames,
@@ -804,6 +806,107 @@ describe('slide show playback', () => {
     // Not modelled: entrance plays as a fade, emphasis as a pulse.
     expect(effectFrames(a({ effect: 'other' }), W, H)).toEqual([{ opacity: 0 }, { opacity: 1 }]);
     expect(effectFrames(a({ class: 'emph', effect: 'other' }), W, H)).toHaveLength(3);
+  });
+
+  // source: ECMA-376 Part 1, §19.3.1 transition effects and [MS-PPTX] p14 / p15 — every transition of
+  // the picker, with each variant, has playable frames: a polygon keeps its point count from frame
+  // to frame (so it interpolates), offsets grow within 0..1 and the incoming slide ends fully shown.
+  it('plans a playable animation for every transition and variant', () => {
+    const VARIANTS: Record<string, string[]> = {
+      cut: ['smooth', 'black'],
+      fade: ['smooth', 'black'],
+      push: ['l', 'u', 'r', 'd'],
+      wipe: ['l', 'u', 'r', 'd'],
+      split: ['horz', 'vert', 'horzIn', 'vertIn'],
+      cover: ['l', 'rd'],
+      pull: ['r', 'lu'],
+      randomBar: ['horz', 'vert'],
+      blinds: ['horz', 'vert'],
+      checker: ['horz', 'vert'],
+      comb: ['horz', 'vert'],
+      strips: ['lu', 'ru', 'ld', 'rd'],
+      wheel: ['1', '4', '8'],
+      wheelReverse: ['2'],
+      zoom: ['in', 'out'],
+      reveal: ['l', 'rBlack'],
+      ripple: ['center', 'rd'],
+      glitter: ['l', 'd', 'rHex'],
+      shred: ['stripIn', 'stripOut', 'rectangleIn', 'rectangleOut'],
+      cube: ['l', 'u', 'r', 'd'],
+      box: ['l', 'd'],
+      doors: ['horz', 'vert'],
+      window: ['horz'],
+      warp: ['in', 'out'],
+      flythrough: ['in', 'outBounce'],
+    };
+    const info = (kind: string, dir: string | null): SlideTransitionInfo => ({
+      kind,
+      known: true,
+      dir,
+      durMs: 900,
+      advanceOnClick: true,
+      advanceAfterMs: null,
+    });
+    const points = (v: unknown) =>
+      typeof v === 'string' && v.startsWith('polygon(') ? v.split(',').length : null;
+    expect(ALL_TRANSITIONS.length).toBe(55);
+    for (const kind of ALL_TRANSITIONS) {
+      for (const dir of VARIANTS[kind] ?? [null]) {
+        const p = transitionPlan(info(kind, dir), 3);
+        const label = `${kind} ${dir ?? ''}`;
+        if (kind === 'cut' && dir === 'smooth') {
+          expect(p.duration, label).toBe(0);
+          continue;
+        }
+        expect(p.duration, label).toBe(900);
+        expect(p.incoming ?? p.outgoing, label).not.toBeNull();
+        for (const frames of [p.incoming, p.outgoing]) {
+          if (!frames) continue;
+          expect(frames.length, label).toBeGreaterThanOrEqual(2);
+          const offs = frames.map((f) => f.offset).filter((o) => o !== undefined) as number[];
+          for (let i = 0; i < offs.length; i++) {
+            expect(offs[i], label).toBeGreaterThanOrEqual(i ? (offs[i - 1] ?? 0) : 0);
+            expect(offs[i], label).toBeLessThanOrEqual(1);
+          }
+          const clips = frames.map((f) => f.clipPath).filter((c) => c !== undefined);
+          if (clips.length) {
+            expect(clips.length, label).toBe(frames.length);
+            const kinds = new Set(clips.map((c) => String(c).split('(')[0]));
+            expect(kinds.size, label).toBe(1);
+            expect(new Set(clips.map(points)).size, label).toBe(1);
+          }
+        }
+        const last = p.incoming?.at(-1);
+        if (last && 'opacity' in last) expect(last.opacity, label).toBe(1);
+        if (last && typeof last.transform === 'string') {
+          expect(last.transform, label).not.toMatch(/scale\((0|0\.\d+)\)$/);
+        }
+      }
+    }
+    // Pieces: six blinds grow from nothing to the whole slide.
+    const blinds = transitionPlan(info('blinds', 'horz')).incoming ?? [];
+    const strips = (p: number) =>
+      Array.from({ length: 6 }, (_, i): [number, number, number, number] => [
+        0,
+        i / 6,
+        1,
+        (i + p) / 6,
+      ]);
+    expect(blinds[0]?.clipPath).toBe(rectsPolygon(strips(0)));
+    expect(blinds.at(-1)?.clipPath).toBe(rectsPolygon(strips(1)));
+    expect(transitionPlan(info('circle', null)).incoming?.at(-1)).toEqual({
+      clipPath: 'circle(72% at 50% 50%)',
+    });
+    // Random picks one effect by the seed (the slide index); dissolving is deterministic too.
+    expect(transitionPlan(info('random', null), 1)).toEqual(transitionPlan(info('push', null), 1));
+    expect(transitionPlan(info('dissolve', null), 4)).toEqual(
+      transitionPlan(info('dissolve', null), 4),
+    );
+    expect(transitionPlan(info('dissolve', null), 4)).not.toEqual(
+      transitionPlan(info('dissolve', null), 5),
+    );
+    // Page curl and the other presets lift the outgoing slide over the incoming one.
+    expect(transitionPlan(info('pageCurlSingle', 'l')).outgoingOnTop).toBe(true);
   });
 
   it('plans transitions and steps through clicks, slides and the end screen', () => {

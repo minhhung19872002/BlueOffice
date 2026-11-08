@@ -91,6 +91,8 @@ pub struct Options {
     pub validator: Option<PathBuf>,
     /// `--format` of OpenXmlValidator (`Office2019` when `None`).
     pub file_format: Option<String>,
+    /// Also validate the mc:Choice branches (`--choice` of the validator).
+    pub choice: bool,
     pub json: bool,
 }
 
@@ -116,7 +118,7 @@ pub fn run(opts: &Options) -> Result<(), String> {
     } else {
         match locate_validator(opts.validator.clone()) {
             Ok(cmd) => {
-                let results = run_validator(&cmd, &opts.inputs, opts.file_format.as_deref())?;
+                let results = run_validator(&cmd, &opts.inputs, opts.file_format.as_deref(), opts.choice)?;
                 merge_openxml(&mut reports, results);
                 "ran".to_owned()
             }
@@ -638,6 +640,7 @@ fn run_validator(
     cmd: &ValidatorCmd,
     inputs: &[PathBuf],
     format: Option<&str>,
+    choice: bool,
 ) -> Result<OpenXmlResults, String> {
     let json = std::env::temp_dir().join(format!(
         "bo-validate-{}-{}.json",
@@ -650,6 +653,9 @@ fn run_validator(
     c.args(&cmd.args).args(inputs).arg("--json").arg(&json);
     if let Some(f) = format {
         c.args(["--format", f]);
+    }
+    if choice {
+        c.arg("--choice");
     }
     // The validator prints its own summary; ours (with the structural checks) replaces it.
     let status = c

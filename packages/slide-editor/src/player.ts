@@ -1,4 +1,4 @@
-import type { SlideAnimInfo, SlideShowInfo, SlideTransitionInfo } from '@blueoffice/platform';
+import type { SlideAnimInfo, SlideShowInfo } from '@blueoffice/platform';
 
 /**
  * Slide show playback, without the DOM: which layers are visible at a click
@@ -130,72 +130,7 @@ export function stepDuration(show: SlideShowInfo, click: number): number {
   return show.animations.filter((a) => a.click === click).reduce((m, a) => Math.max(m, a.endMs), 0);
 }
 
-export interface TransitionPlan {
-  duration: number;
-  /** Frames of the incoming slide (`null` = static). */
-  incoming: Frames | null;
-  /** Frames of the outgoing slide (`null` = static, under the incoming one). */
-  outgoing: Frames | null;
-  /** The outgoing slide is drawn over the incoming one (pull). */
-  outgoingOnTop: boolean;
-}
-
-/** Translation towards side `d` (`l`, `r`, `u`, `d` and the diagonals `lu`, `rd`, …). */
-function offset(d: string, k: number): string {
-  const dx = d.includes('l') ? -k : d.includes('r') ? k : 0;
-  const dy = d.includes('u') ? -k : d.includes('d') ? k : 0;
-  return `translate(${dx * 100}%, ${dy * 100}%)`;
-}
-
-/**
- * Keyframes of a slide transition (§19.3.1.50; directions are where the motion
- * goes). Effects BlueSlide does not model play as a fade.
- */
-export function transitionPlan(t: SlideTransitionInfo | null): TransitionPlan {
-  const none: TransitionPlan = {
-    duration: 0,
-    incoming: null,
-    outgoing: null,
-    outgoingOnTop: false,
-  };
-  if (!t || t.kind === 'cut') return none;
-  const duration = Math.max(1, t.durMs);
-  const dir = t.dir ?? 'l';
-  const plan = (incoming: Frames | null, outgoing: Frames | null, outgoingOnTop = false) => ({
-    duration,
-    incoming,
-    outgoing,
-    outgoingOnTop,
-  });
-  switch (t.kind) {
-    case 'push':
-      return plan(
-        [{ transform: offset(dir, -1) }, { transform: 'translate(0%, 0%)' }],
-        [{ transform: 'translate(0%, 0%)' }, { transform: offset(dir, 1) }],
-      );
-    case 'cover':
-      return plan([{ transform: offset(dir, -1) }, { transform: 'translate(0%, 0%)' }], null);
-    case 'pull':
-      return plan(null, [{ transform: 'translate(0%, 0%)' }, { transform: offset(dir, 1) }], true);
-    case 'wipe': {
-      const start =
-        dir === 'r'
-          ? 'inset(0% 100% 0% 0%)'
-          : dir === 'u'
-            ? 'inset(100% 0% 0% 0%)'
-            : dir === 'd'
-              ? 'inset(0% 0% 100% 0%)'
-              : 'inset(0% 0% 0% 100%)';
-      return plan([{ clipPath: start }, { clipPath: 'inset(0% 0% 0% 0%)' }], null);
-    }
-    case 'split': {
-      const start = dir === 'vert' ? 'inset(0% 50% 0% 50%)' : 'inset(50% 0% 50% 0%)';
-      return plan([{ clipPath: start }, { clipPath: 'inset(0% 0% 0% 0%)' }], null);
-    }
-    default:
-      return plan([{ opacity: 0 }, { opacity: 1 }], null);
-  }
-}
+export { transitionPlan, type TransitionPlan } from './transitionFx';
 
 /** Position in the show: slide and click steps done (0 = the slide's own effects ran). */
 export interface ShowPos {

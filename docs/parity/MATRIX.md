@@ -11,10 +11,10 @@ lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file
 
 | App / nhóm | Hàng | Điểm | % |
 |---|---|---|---|
-| Chung (CORE) | 32 | 9,5 | 30 % |
+| Chung (CORE) | 32 | 11 | 34 % |
 | BlueDoc (DOC) | 18 | 8 | 44 % |
 | BlueSheet (SHEET) | 20 | 7,5 | 38 % |
-| BlueSlide (SLIDE) | 12 | 6 | 50 % |
+| BlueSlide (SLIDE) | 12 | 7 | 58 % |
 | Hàm bảng tính | 515 hàm | 275 | 53 % (`functions.md`) |
 
 ## Chung
@@ -109,7 +109,7 @@ lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file
 | Shape, text, bảng, ảnh | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus + E2E | ✅ | |
 | Master/layout/theme | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | chưa sửa master trong UI |
 | Chế độ xem | — | 🟡 | — | — | ✅ | ✅ | — | E2E | 🟡 | Normal, Sorter, Reading, Presenter |
-| Transition | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus anim-* | 🟡 | vài họ cơ bản |
+| Transition | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus anim-*, slide-edit-transitions-all (Choice + Fallback hợp lệ), transitionFx test, slide-show-media.spec | ✅ | 55 hiệu ứng (§19.3.1 + [MS-PPTX] p14/p15 prstTrans), biến thể hướng, thời lượng, âm thanh WAV/dừng, áp dụng tất cả; Morph ở SLIDE-ANIM-003 |
 | Animation | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus | 🟡 | entrance cơ bản |
 | Morph | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
 | Audio/video | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus media-* | 🟡 | phát cơ bản |

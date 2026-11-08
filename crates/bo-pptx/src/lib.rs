@@ -21,6 +21,7 @@ mod render;
 pub mod table_style;
 mod text_layout;
 mod three_d;
+pub mod transitions;
 mod write;
 
 pub use pml::{parse_node, visit, write_node, URI_TABLE};

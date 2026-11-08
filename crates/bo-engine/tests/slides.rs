@@ -180,7 +180,14 @@ fn slide_display_list_snapshots() {
         let info = e.open(&bytes, &format!("{name}.pptx")).unwrap();
         assert_eq!(info.kind, "slide");
         assert_eq!(info.page_count, e.slide_count());
-        for i in 0..e.slide_count() {
+        // The transitions deck repeats one blank slide per effect (a transition draws nothing on
+        // the slide): its first slides stand for the rest.
+        let shown = if name == "slide-edit-transitions-all" {
+            e.slide_count().min(3)
+        } else {
+            e.slide_count()
+        };
+        for i in 0..shown {
             let page = e.slide(i).unwrap();
             assert!((page.width - 960.0).abs() < 0.01 && (page.height - 540.0).abs() < 0.01);
             insta::assert_snapshot!(format!("{name}-{}", i + 1), summary(&page.commands));

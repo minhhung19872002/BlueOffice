@@ -12,36 +12,39 @@ import type {
 import { ArrowDown, ArrowUp, Play, Trash, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import type { ShowPos } from './player';
+import { ALL_TRANSITIONS, TRANSITION_GROUPS } from './transitionFx';
 import styles from './SlideEditor.module.css';
 import { ShowCache, ShowStage } from './ShowStage';
 
-/** Transitions offered in the pane (ECMA-376 Part 1, §19.3.1.50 children). */
-export const TRANSITIONS: SlideTransitionKind[] = [
-  'none',
-  'cut',
-  'fade',
-  'push',
-  'wipe',
-  'cover',
-  'pull',
-  'split',
-  'random',
-];
+/** Transitions offered in the pane (ECMA-376 Part 1, §19.3.1.50 children, [MS-PPTX] p14 / p15). */
+export const TRANSITIONS: SlideTransitionKind[] = ['none', ...ALL_TRANSITIONS];
 
-/** Directions of a transition kind. */
+/**
+ * Directions of a transition kind before the engine reports them (`SlideTransitionInfo.dirs` is the
+ * source once the transition is set).
+ */
 export function transitionDirs(kind: string): string[] {
   switch (kind) {
     case 'push':
     case 'wipe':
-      return ['l', 'r', 'u', 'd'];
+      return ['l', 'u', 'r', 'd'];
     case 'cover':
     case 'pull':
-      return ['l', 'r', 'u', 'd', 'lu', 'ru', 'ld', 'rd'];
+      return ['l', 'u', 'r', 'd', 'lu', 'ru', 'ld', 'rd'];
     case 'split':
-      return ['horz', 'vert'];
+      return ['horz', 'vert', 'horzIn', 'vertIn'];
     default:
       return [];
   }
+}
+
+/** Bytes → base64 (a WAV sound for the engine). */
+function base64Of(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
 }
 
 const TRIGGERS: SlideAnimTrigger[] = ['onClick', 'withPrevious', 'afterPrevious'];
@@ -66,6 +69,8 @@ export interface AnimationPaneProps {
   onClose: () => void;
   /** Start the preview from outside (ribbon command). */
   previewToken: number;
+  /** Ask for a WAV file (through the platform); `null` when cancelled. */
+  pickSound?: () => Promise<{ bytes: Uint8Array; name: string } | null>;
 }
 
 /** Effect label of an animation (`Xuất hiện`, `Mờ dần (biến mất)`, …). */
@@ -95,6 +100,7 @@ export function AnimationPane({
   run,
   onClose,
   previewToken,
+  pickSound,
 }: AnimationPaneProps) {
   const { t } = useTranslation();
   const label = useEffectLabel();
@@ -136,6 +142,10 @@ export function AnimationPane({
     durMs?: number;
     advanceOnClick?: boolean;
     advanceAfterMs?: number;
+    sound?: 'none' | 'stop';
+    soundData?: string;
+    soundName?: string;
+    soundLoop?: boolean;
   }) =>
     run({
       cmd: 'setTransition',
@@ -145,10 +155,24 @@ export function AnimationPane({
         durMs: patch.durMs,
         advanceOnClick: patch.advanceOnClick,
         advanceAfterMs: patch.advanceAfterMs,
+        sound: patch.sound,
+        soundData: patch.soundData,
+        soundName: patch.soundName,
+        soundLoop: patch.soundLoop,
       },
     });
+  const sound = tr?.sound ?? null;
+  const soundValue = !sound ? 'none' : sound.stop ? 'stop' : 'file';
+  const onSound = async (v: string) => {
+    if (v === 'none' || v === 'stop') {
+      setTransition({ sound: v });
+      return;
+    }
+    const f = pickSound ? await pickSound() : null;
+    if (f) setTransition({ soundData: base64Of(f.bytes), soundName: f.name });
+  };
 
-  const dirs = transitionDirs(kind);
+  const dirs = tr?.dirs ?? transitionDirs(kind);
   return (
     <aside
       className={styles.animPane}
@@ -176,10 +200,15 @@ export function AnimationPane({
                 {t('slideEditor.transition.other', { name: kind })}
               </option>
             )}
-            {TRANSITIONS.map((k) => (
-              <option key={k} value={k}>
-                {t(`slideEditor.transition.${k}`)}
-              </option>
+            <option value="none">{t('slideEditor.transition.none')}</option>
+            {TRANSITION_GROUPS.map((g) => (
+              <optgroup key={g.group} label={t(`slideEditor.transitionGroup.${g.group}`)}>
+                {g.kinds.map((k) => (
+                  <option key={k} value={k}>
+                    {t(`slideEditor.transition.${k}`)}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </label>
@@ -216,6 +245,30 @@ export function AnimationPane({
                 }}
               />
             </label>
+            <label>
+              {t('slideEditor.transitionSound')}
+              <select
+                data-testid="transition-sound"
+                value={soundValue}
+                onChange={(e) => void onSound(e.target.value)}
+              >
+                <option value="none">{t('slideEditor.sound.none')}</option>
+                <option value="stop">{t('slideEditor.sound.stop')}</option>
+                <option value="file">
+                  {sound && !sound.stop ? sound.name : t('slideEditor.sound.file')}
+                </option>
+              </select>
+            </label>
+            {sound && !sound.stop && (
+              <label className={styles.check}>
+                <input
+                  type="checkbox"
+                  checked={sound.loop}
+                  onChange={(e) => setTransition({ soundLoop: e.target.checked })}
+                />
+                {t('slideEditor.sound.loop')}
+              </label>
+            )}
             <label className={styles.check}>
               <input
                 type="checkbox"

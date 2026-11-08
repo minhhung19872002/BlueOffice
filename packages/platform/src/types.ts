@@ -840,18 +840,94 @@ export type SlideCommand =
     };
 
 /** Slide transition effects (ECMA-376 Part 1, §19.3.1.50 transition children). */
+/**
+ * Slide transitions: ECMA-376 Part 1, §19.3.1.50 transition children, [MS-PPTX] p14 effects and the
+ * p15:prstTrans presets (ids of `bo_pptx::transitions::CATALOG`).
+ */
 export type SlideTransitionKind =
-  'none' | 'cut' | 'fade' | 'push' | 'wipe' | 'cover' | 'pull' | 'split' | 'random';
+  | 'none'
+  | 'cut'
+  | 'fade'
+  | 'push'
+  | 'wipe'
+  | 'split'
+  | 'cover'
+  | 'pull'
+  | 'random'
+  | 'randomBar'
+  | 'blinds'
+  | 'checker'
+  | 'comb'
+  | 'circle'
+  | 'diamond'
+  | 'plus'
+  | 'wedge'
+  | 'dissolve'
+  | 'newsflash'
+  | 'strips'
+  | 'wheel'
+  | 'zoom'
+  | 'reveal'
+  | 'flash'
+  | 'vortex'
+  | 'switch'
+  | 'flip'
+  | 'ripple'
+  | 'honeycomb'
+  | 'glitter'
+  | 'shred'
+  | 'gallery'
+  | 'cube'
+  | 'box'
+  | 'rotate'
+  | 'orbit'
+  | 'doors'
+  | 'window'
+  | 'ferris'
+  | 'conveyor'
+  | 'pan'
+  | 'warp'
+  | 'flythrough'
+  | 'wheelReverse'
+  | 'fallOver'
+  | 'drape'
+  | 'curtains'
+  | 'wind'
+  | 'prestige'
+  | 'fracture'
+  | 'crush'
+  | 'peelOff'
+  | 'pageCurlDouble'
+  | 'pageCurlSingle'
+  | 'airplane'
+  | 'origami';
 
 export interface SlideTransitionSpec {
   /** `keep` keeps the effect and changes the timing only. */
   kind: SlideTransitionKind | 'keep';
-  /** `l`/`u`/`r`/`d` (push, wipe, cover, pull), `horz`/`vert` (split). */
+  /** Variant of the effect (see `SlideTransitionInfo.dirs`): `l`/`u`/`r`/`d`, corners, `horz`/`vert`, `horzIn`, `black`, spokes, … */
   dir?: string;
   durMs?: number;
   advanceOnClick?: boolean;
   /** 0 = no automatic advance. */
   advanceAfterMs?: number;
+  /** `none` removes the sound, `stop` stops the sound playing (§19.3.1.42 sndAc). */
+  sound?: 'none' | 'stop';
+  /** A new sound: WAV bytes in base64. */
+  soundData?: string;
+  soundName?: string;
+  /** Play the sound until the next one. */
+  soundLoop?: boolean;
+}
+
+/** Sound of a transition. */
+export interface SlideTransitionSound {
+  /** Stops the sound playing instead of starting one. */
+  stop: boolean;
+  /** Embedded WAV part (`EngineHost.getMedia`). */
+  part: string | null;
+  name: string;
+  loop: boolean;
 }
 
 export interface SlideTransitionInfo {
@@ -859,6 +935,9 @@ export interface SlideTransitionInfo {
   kind: string;
   known: boolean;
   dir: string | null;
+  /** Variants of the effect (first: the default). */
+  dirs?: string[];
+  sound?: SlideTransitionSound | null;
   durMs: number;
   advanceOnClick: boolean;
   advanceAfterMs: number | null;

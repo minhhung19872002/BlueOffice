@@ -1342,9 +1342,32 @@ pub struct Transition {
     pub advance_on_click: Option<bool>,
     /// `advTm` in ms.
     pub advance_after_ms: Option<u32>,
+    /// Attributes of the effect element (`dir`, `orient`, `thruBlk`, `spokes`, [MS-PPTX] `pattern`,
+    /// `prst`, …) as read or as BlueSlide writes them; empty: only [`Transition::dir`] is written.
+    #[serde(default)]
+    pub attrs: Vec<(String, String)>,
+    /// §19.3.1.42 sndAc: the sound played with the transition, or stopping the one playing.
+    #[serde(default)]
+    pub sound: Option<TransitionSound>,
     /// Element as read (`p:transition` or the `mc:AlternateContent` wrapping it).
     /// Written back verbatim while the modelled fields are unchanged.
     pub source: Option<Extra>,
+}
+
+/// §19.3.1.42 sndAc of a transition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TransitionSound {
+    /// §19.3.1.45 stSnd: §19.3.1.44 snd (embedded WAV audio, relationship id and name), `loop`.
+    Start {
+        /// `r:embed` of the audio relationship.
+        embed: String,
+        /// `name` of the sound.
+        name: String,
+        /// `stSnd@loop`: play until the next sound.
+        looped: bool,
+    },
+    /// §19.3.1.19 endSnd: stop the sound playing.
+    Stop,
 }
 
 /// §19.5.29 cTn@presetClass.

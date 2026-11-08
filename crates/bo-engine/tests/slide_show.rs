@@ -91,12 +91,15 @@ fn transitions_are_set_saved_and_undone() {
         Some(2000)
     );
     assert_eq!(p.slides[0].transition.as_ref().unwrap().dur_ms, Some(900));
-    // Fade has no direction (§19.3.1.20); "none" removes the transition.
+    // Fade has no direction (§19.3.1.20): an invalid one falls back to the default variant
+    // (smoothly, not through black); "none" removes the transition.
     let r = run(
         &mut e,
         r#"{"cmd":"setTransition","transition":{"kind":"fade","dir":"l"}}"#,
     );
-    assert_eq!(r.transition.as_ref().unwrap().dir, None);
+    let t = r.transition.as_ref().unwrap();
+    assert_eq!(t.dir.as_deref(), Some("smooth"));
+    assert_eq!(t.dirs, vec!["smooth", "black"]);
     let r = run(
         &mut e,
         r#"{"cmd":"setTransition","transition":{"kind":"none"}}"#,
@@ -104,7 +107,7 @@ fn transitions_are_set_saved_and_undone() {
     assert!(r.transition.is_none());
     let r = try_run(
         &mut e,
-        r#"{"cmd":"setTransition","transition":{"kind":"zoom"}}"#,
+        r#"{"cmd":"setTransition","transition":{"kind":"notAnEffect"}}"#,
     );
     assert_eq!(r.error.as_deref(), Some("badTransition"));
     for _ in 0..5 {
@@ -568,7 +571,10 @@ fn new_chart_types_on_slides() {
         ("cylinder3D", "<c:shape val=\"cylinder\"/>"),
         ("pie3D", "<c:view3D><c:rotX val=\"30\"/>"),
         ("explodedPie3D", "<c:explosion val=\"25\"/>"),
-        ("percentArea3D", "<c:area3DChart><c:grouping val=\"percentStacked\"/>"),
+        (
+            "percentArea3D",
+            "<c:area3DChart><c:grouping val=\"percentStacked\"/>",
+        ),
     ] {
         let data = if kind.starts_with("stock") {
             r#"{"categories":["N1","N2","N3"],"series":[{"name":"O","values":[10,11,12]},{"name":"H","values":[12,13,14]},{"name":"L","values":[9,10,11]},{"name":"C","values":[11,12,11]}]}"#

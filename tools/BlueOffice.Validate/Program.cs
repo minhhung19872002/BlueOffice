@@ -1,6 +1,8 @@
 // Validates OOXML files produced by BlueOffice with DocumentFormat.OpenXml's
 // OpenXmlValidator (prompt §7 "Validation"). Usage:
-//   bo-validate <file-or-dir>... [--json report.json] [--format Office2019]
+//   bo-validate <file-or-dir>... [--json report.json] [--format Office2019] [--choice]
+// --choice also validates the mc:Choice branch of every mc:AlternateContent (the validator itself
+// only checks the Fallback): a copy of the package with each AlternateContent replaced by its Choice.
 // Exit code 0 when every file validates without errors, 1 otherwise.
 using System.Text.Json;
 using DocumentFormat.OpenXml;
@@ -10,6 +12,7 @@ using DocumentFormat.OpenXml.Validation;
 var inputs = new List<string>();
 string? jsonOut = null;
 var format = FileFormatVersions.Office2019;
+var choice = false;
 for (var i = 0; i < args.Length; i++)
 {
     switch (args[i])
@@ -19,6 +22,9 @@ for (var i = 0; i < args.Length; i++)
             break;
         case "--format" when i + 1 < args.Length:
             format = Enum.Parse<FileFormatVersions>(args[++i]);
+            break;
+        case "--choice":
+            choice = true;
             break;
         default:
             inputs.Add(args[i]);
@@ -45,7 +51,7 @@ var validator = new OpenXmlValidator(format);
 var results = new List<FileResult>();
 foreach (var file in files)
 {
-    results.Add(Validate(file, validator));
+    results.Add(Validate(file, validator, choice));
 }
 
 var failed = results.Count(r => r.Errors.Count > 0);
@@ -65,25 +71,83 @@ if (jsonOut is not null)
 }
 return failed == 0 ? 0 : 1;
 
-static FileResult Validate(string file, OpenXmlValidator validator)
+static OpenXmlPackage OpenPackage(string file, Stream stream, bool editable) =>
+    Path.GetExtension(file).ToLowerInvariant() switch
+    {
+        ".docx" or ".docm" => WordprocessingDocument.Open(stream, editable),
+        ".xlsx" or ".xlsm" => SpreadsheetDocument.Open(stream, editable),
+        _ => PresentationDocument.Open(stream, editable),
+    };
+
+static FileResult Validate(string file, OpenXmlValidator validator, bool choice)
 {
     try
     {
-        using OpenXmlPackage doc = Path.GetExtension(file).ToLowerInvariant() switch
+        List<ValidationIssue> errors;
+        using (var stream = File.OpenRead(file))
+        using (var doc = OpenPackage(file, stream, false))
         {
-            ".docx" or ".docm" => WordprocessingDocument.Open(file, false),
-            ".xlsx" or ".xlsm" => SpreadsheetDocument.Open(file, false),
-            _ => PresentationDocument.Open(file, false),
-        };
-        var errors = validator.Validate(doc)
-            .Select(e => new ValidationIssue(e.Part?.Uri.ToString() ?? "", e.Path?.XPath ?? "", e.Description))
-            .ToList();
+            errors = validator.Validate(doc)
+                .Select(e => new ValidationIssue(e.Part?.Uri.ToString() ?? "", e.Path?.XPath ?? "", e.Description))
+                .ToList();
+        }
+        if (choice)
+        {
+            errors.AddRange(ValidateChoices(file, validator));
+        }
         return new FileResult(file, errors);
     }
     catch (Exception ex) when (ex is OpenXmlPackageException or InvalidDataException or IOException or FormatException)
     {
         return new FileResult(file, [new ValidationIssue("", "", $"cannot open package: {ex.Message}")]);
     }
+}
+
+// The package with every mc:AlternateContent replaced by the children of its first mc:Choice.
+static IEnumerable<ValidationIssue> ValidateChoices(string file, OpenXmlValidator validator)
+{
+    using var copy = new MemoryStream();
+    using (var src = File.OpenRead(file))
+    {
+        src.CopyTo(copy);
+    }
+    copy.Position = 0;
+    using var doc = OpenPackage(file, copy, true);
+    var changed = false;
+    foreach (var part in doc.GetAllParts())
+    {
+        var root = part.RootElement;
+        if (root is null)
+        {
+            continue;
+        }
+        var blocks = root.Descendants<AlternateContent>().Reverse().ToList();
+        foreach (var ac in blocks)
+        {
+            var first = ac.GetFirstChild<AlternateContentChoice>();
+            if (first is null)
+            {
+                continue;
+            }
+            foreach (var c in first.ChildElements.ToList())
+            {
+                ac.InsertBeforeSelf(c.CloneNode(true));
+            }
+            ac.Remove();
+            changed = true;
+        }
+        if (blocks.Count > 0)
+        {
+            root.Save();
+        }
+    }
+    if (!changed)
+    {
+        return [];
+    }
+    return validator.Validate(doc)
+        .Select(e => new ValidationIssue(e.Part?.Uri.ToString() ?? "", "[mc:Choice] " + (e.Path?.XPath ?? ""), e.Description))
+        .ToList();
 }
 
 internal sealed record ValidationIssue(string Part, string Path, string Description);

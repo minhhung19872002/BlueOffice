@@ -127,6 +127,63 @@ test('sets a transition and an effect, plays them in the show, saves and reopens
   expect(errors).toEqual([]);
 });
 
+test('picks p14 / p15 transitions with variants and a sound, plays them, saves and reopens', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/slide');
+  await openDeck(page, bullets);
+
+  // Slide 2: vortex downwards with a WAV sound; slide 3: origami from the right.
+  await page.getByTestId('thumb-2').click();
+  await page.getByRole('tab', { name: 'Chuyển trang' }).click();
+  await page.getByRole('button', { name: 'Mờ dần', exact: true }).click();
+  await expect(page.getByTestId('anim-pane')).toBeVisible();
+  await page.getByTestId('transition-kind').selectOption('vortex');
+  await expect(page.getByTestId('transition-kind')).toHaveValue('vortex');
+  await page.getByTestId('transition-dir').selectOption('d');
+  await expect(page.getByTestId('transition-dir')).toHaveValue('d');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('transition-sound').selectOption('file');
+  await (await chooser).setFiles({ name: 'chuong.wav', mimeType: 'audio/wav', buffer: wav() });
+  await expect(page.getByTestId('transition-sound')).toHaveValue('file');
+  await expect(page.getByTestId('transition-sound').locator('option:checked')).toHaveText(
+    'chuong.wav',
+  );
+  await page.getByTestId('thumb-3').click();
+  await page.getByTestId('transition-kind').selectOption('origami');
+  await page.getByTestId('transition-dir').selectOption('r');
+  await expect(page.getByTestId('transition-dir')).toHaveValue('r');
+
+  await saveAndReopen(page, 'transitions.pptx');
+  await page.getByRole('tab', { name: 'Chuyển trang' }).click();
+  await page.getByTestId('thumb-2').click();
+  if (!(await page.getByTestId('anim-pane').isVisible())) {
+    await page.getByRole('button', { name: 'Ngăn hiệu ứng' }).first().click();
+  }
+  await expect(page.getByTestId('transition-kind')).toHaveValue('vortex');
+  await expect(page.getByTestId('transition-dir')).toHaveValue('d');
+  await expect(page.getByTestId('transition-sound')).toHaveValue('file');
+  await page.getByTestId('thumb-3').click();
+  await expect(page.getByTestId('transition-kind')).toHaveValue('origami');
+  await expect(page.getByTestId('transition-dir')).toHaveValue('r');
+
+  // Slide show: each slide comes with its transition.
+  await page.getByTestId('thumb-1').click();
+  await page.keyboard.press('F5');
+  const stage = page.getByTestId('show-stage');
+  await expect(stage).toHaveAttribute('data-slide', '0');
+  await page.keyboard.press('ArrowRight');
+  await expect(stage).toHaveAttribute('data-slide', '1');
+  await expect(stage).toHaveAttribute('data-transition', 'vortex');
+  await page.keyboard.press('ArrowRight');
+  await expect(stage).toHaveAttribute('data-slide', '2');
+  await expect(stage).toHaveAttribute('data-transition', 'origami');
+  await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});
+
 test('inserts a chart, edits its data, saves and reopens it editable', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

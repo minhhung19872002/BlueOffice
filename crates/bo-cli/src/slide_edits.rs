@@ -515,6 +515,61 @@ fn media_clips() -> (Vec<u8>, Vec<u8>) {
     (mp4, mp3)
 }
 
+/// A short WAV clip (PCM, 8 kHz mono, a tenth of a second of a square wave).
+pub fn sample_wav() -> Vec<u8> {
+    let samples: Vec<u8> = (0..800u32)
+        .map(|i| if (i / 10) % 2 == 0 { 96 } else { 160 })
+        .collect();
+    let mut w = Vec::new();
+    w.extend_from_slice(b"RIFF");
+    w.extend_from_slice(&(36 + samples.len() as u32).to_le_bytes());
+    w.extend_from_slice(b"WAVEfmt ");
+    w.extend_from_slice(&16u32.to_le_bytes());
+    w.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    w.extend_from_slice(&1u16.to_le_bytes()); // mono
+    w.extend_from_slice(&8000u32.to_le_bytes());
+    w.extend_from_slice(&8000u32.to_le_bytes());
+    w.extend_from_slice(&1u16.to_le_bytes());
+    w.extend_from_slice(&8u16.to_le_bytes());
+    w.extend_from_slice(b"data");
+    w.extend_from_slice(&(samples.len() as u32).to_le_bytes());
+    w.extend(samples);
+    w
+}
+
+/// Every transition of the catalog (SLIDE-ANIM-002), one slide each with its last variant, a sound
+/// on the first slide and "stop the sound" on the second.
+pub const TRANSITIONS_DECK: &str = "slide-edit-transitions-all.pptx";
+
+fn transitions_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    let (_, b) = base.iter().find(|(n, _)| *n == "slide-text-bullets.pptx")?;
+    let mut e = Engine::with_bundled_fonts();
+    e.open(b, "base.pptx").ok()?;
+    for (i, d) in bo_pptx::transitions::CATALOG.iter().enumerate() {
+        e.slide_command_json(r#"{"cmd":"addSlide"}"#).ok()?;
+        let dir = bo_pptx::transitions::variants(d)
+            .last()
+            .map_or(String::new(), |v| format!(r#","dir":"{v}""#));
+        let c = format!(
+            r#"{{"cmd":"setTransition","transition":{{"kind":"{}"{dir},"durMs":{}}}}}"#,
+            d.id,
+            800 + 50 * (i % 10)
+        );
+        e.slide_command_json(&c).ok()?;
+    }
+    let wav = base64::engine::general_purpose::STANDARD.encode(sample_wav());
+    e.slide_command_json(r#"{"cmd":"goTo","slide":1}"#).ok()?;
+    e.slide_command_json(&format!(
+        r#"{{"cmd":"setTransition","transition":{{"kind":"keep","soundData":"{wav}","soundName":"chuông.wav"}}}}"#
+    ))
+    .ok()?;
+    e.slide_command_json(r#"{"cmd":"goTo","slide":2}"#).ok()?;
+    e.slide_command_json(r#"{"cmd":"setTransition","transition":{"kind":"keep","sound":"stop"}}"#)
+        .ok()?;
+    e.save_pptx().ok()
+}
+
 /// Edited decks, built from the generated base decks.
 pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static str, Vec<u8>)> {
     let mut out = Vec::new();
@@ -540,6 +595,9 @@ pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static 
         if let Ok(b) = e.save_pptx() {
             out.push((s.name, b));
         }
+    }
+    if let Some(d) = transitions_deck(base) {
+        out.push((TRANSITIONS_DECK, d));
     }
     if let Some((_, b)) = base.iter().find(|(n, _)| *n == "slide-shapes-presets.pptx") {
         for (name, h, v) in FLIPPED {
@@ -568,11 +626,65 @@ mod tests {
             }
         }
         let decks = decks(&base, &crate::slide_samples::sample_png());
-        assert_eq!(decks.len(), SCRIPTS.len() + FLIPPED.len());
+        assert_eq!(decks.len(), SCRIPTS.len() + FLIPPED.len() + 1);
         for (name, bytes) in decks {
             let p = bo_pptx::read_pptx(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert!(!p.slides.is_empty(), "{name}");
         }
+    }
+}
+
+#[cfg(test)]
+mod transition_tests {
+    use super::*;
+
+    // source: ECMA-376 Part 1, §19.3.1.50 transition, §19.3.1.42 sndAc; [MS-PPTX] 2.3 p14 / p15 —
+    // every catalog transition with its last variant is read back as itself after saving.
+    #[test]
+    fn every_transition_survives_saving() {
+        let base = crate::slide_samples::base_decks();
+        let b = transitions_deck(&base).expect("deck");
+        let mut e = Engine::with_bundled_fonts();
+        e.open(&b, "transitions.pptx").unwrap();
+        // Each added slide follows the current one: the transitions are slides 1 to N.
+        let first = 1;
+        for (i, d) in bo_pptx::transitions::CATALOG.iter().enumerate() {
+            let r: serde_json::Value = serde_json::from_str(
+                &e.slide_command_json(&format!(r#"{{"cmd":"goTo","slide":{}}}"#, first + i))
+                    .unwrap(),
+            )
+            .unwrap();
+            let t = &r["transition"];
+            assert_eq!(t["kind"], d.id, "{}", d.id);
+            assert_eq!(t["known"], true, "{}", d.id);
+            let last = bo_pptx::transitions::variants(d).last().copied();
+            assert_eq!(t["dir"].as_str(), last, "{}", d.id);
+            assert_eq!(t["durMs"], 800 + 50 * (i % 10) as u64, "{}", d.id);
+        }
+        let r: serde_json::Value =
+            serde_json::from_str(&e.slide_command_json(r#"{"cmd":"goTo","slide":1}"#).unwrap())
+                .unwrap();
+        let snd = &r["transition"]["sound"];
+        assert_eq!(snd["name"], "chuông.wav");
+        let part = snd["part"].as_str().unwrap();
+        assert!(e
+            .presentation()
+            .unwrap()
+            .part_data(part)
+            .is_some_and(|d| d.starts_with(b"RIFF")));
+        let r: serde_json::Value =
+            serde_json::from_str(&e.slide_command_json(r#"{"cmd":"goTo","slide":2}"#).unwrap())
+                .unwrap();
+        assert_eq!(r["transition"]["sound"]["stop"], true);
+        // A sound that is not WAV is refused.
+        let r: serde_json::Value = serde_json::from_str(
+            &e.slide_command_json(
+                r#"{"cmd":"setTransition","transition":{"kind":"keep","soundData":"SUQzBAAAAAAA"}}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r["error"], "badSound");
     }
 }
 

@@ -231,6 +231,10 @@ enum Cmd {
         /// OpenXmlValidator file format version (e.g. Office2019, Office2007).
         #[arg(long)]
         format: Option<String>,
+        /// Also validate the mc:Choice branch of every mc:AlternateContent (the validator checks
+        /// the Fallback only).
+        #[arg(long)]
+        choice: bool,
     },
     /// Round-trip the corpus and validate it (scripts/fidelity-report.mjs, run with
     /// this bo-cli): writes docs/fidelity-report.md and tests/fidelity/history.csv.
@@ -297,11 +301,13 @@ fn run(cli: Cli) -> R {
             openxml,
             validator,
             format,
+            choice,
         } => validate::run(&validate::Options {
             inputs,
             openxml: validate::OpenXmlMode::parse(&openxml).ok_or("bad --openxml")?,
             validator,
             file_format: format,
+            choice,
             json,
         })?,
         Cmd::FidelityReport {

@@ -8,11 +8,12 @@
 use bo_drawingml::dom::{attr_int, parse_bool, El};
 use bo_model::slide::{
     AnimClass, AnimEffect, AnimTrigger, Animation, Extra, Timing, Transition, TransitionKind,
-    XmlElement, XmlNode,
+    TransitionSound, XmlElement, XmlNode,
 };
 
 const NS_MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
 const NS_P14: &str = "http://schemas.microsoft.com/office/powerpoint/2010/main";
+const NS_P15: &str = "http://schemas.microsoft.com/office/powerpoint/2012/main";
 
 /// Position key of `p:transition` / `p:timing` in CT_Slide (§19.3.1.38).
 pub(crate) const KEY_TRANSITION: u16 = 6;
@@ -69,10 +70,34 @@ pub fn parse_transition(el: &XmlElement, key: u16) -> Option<Transition> {
             "p:random" => TransitionKind::Random,
             other => TransitionKind::Other(other.trim_start_matches("p:").to_owned()),
         });
-        out.dir = fx
-            .attr("dir")
-            .or_else(|| fx.attr("orient"))
-            .map(str::to_owned);
+        out.attrs = fx
+            .attrs
+            .iter()
+            .filter(|(k, _)| !k.starts_with("xmlns"))
+            .cloned()
+            .collect();
+        // A catalog effect reads as its variant (`horzIn`, `black`, `8`, …), others as their `dir`.
+        let variant = crate::transitions::recognise(&fx.name, &out.attrs)
+            .and_then(|d| crate::transitions::variant_of(d, &out.attrs));
+        out.dir = variant.map(str::to_owned).or_else(|| {
+            fx.attr("dir")
+                .or_else(|| fx.attr("orient"))
+                .map(str::to_owned)
+        });
+    }
+    // §19.3.1.42 sndAc: §19.3.1.45 stSnd (§19.3.1.44 snd) or §19.3.1.19 endSnd.
+    if let Some(snd) = t.elements().find(|c| c.local() == "sndAc") {
+        if snd.elements().any(|c| c.local() == "endSnd") {
+            out.sound = Some(TransitionSound::Stop);
+        } else if let Some(st) = snd.elements().find(|c| c.local() == "stSnd") {
+            if let Some(w) = st.elements().find(|c| c.local() == "snd") {
+                out.sound = Some(TransitionSound::Start {
+                    embed: w.attr("r:embed").unwrap_or_default().to_owned(),
+                    name: w.attr("name").unwrap_or_default().to_owned(),
+                    looped: st.attr("loop").and_then(parse_bool).unwrap_or(false),
+                });
+            }
+        }
     }
     out.source = Some(Extra {
         key,
@@ -88,9 +113,30 @@ fn same_transition(a: &Transition, b: &Transition) -> bool {
         && a.dur_ms == b.dur_ms
         && a.advance_on_click == b.advance_on_click
         && a.advance_after_ms == b.advance_after_ms
+        && a.attrs == b.attrs
+        && a.sound == b.sound
 }
 
-fn transition_body(t: &Transition, with_dur: bool) -> XmlElement {
+/// The namespace an effect element needs (`p14`, `p15`), if not PresentationML's own.
+fn effect_ns(t: &Transition) -> Option<&'static str> {
+    match &t.kind {
+        Some(TransitionKind::Other(n)) if n.starts_with("p15:") => Some("p15"),
+        Some(TransitionKind::Other(n)) if n.starts_with("p14:") => Some("p14"),
+        _ => None,
+    }
+}
+
+/// `p:transition` with its effect (`fallback`: a fade instead of an effect of a newer namespace).
+fn transition_body(t: &Transition, with_dur: bool, fallback: bool) -> XmlElement {
+    if fallback {
+        let plain = Transition {
+            kind: Some(TransitionKind::Fade),
+            dir: None,
+            attrs: Vec::new(),
+            ..t.clone()
+        };
+        return transition_body(&plain, false, false);
+    }
     let mut e = El::new("p:transition")
         .opt("spd", t.speed.as_ref())
         .optb("advClick", t.advance_on_click)
@@ -116,11 +162,51 @@ fn transition_body(t: &Transition, with_dur: bool) -> XmlElement {
         } else {
             "dir"
         };
-        // An unmodelled effect keeps its element (and attributes) as read.
-        let kept = matches!(k, TransitionKind::Other(_))
-            .then(|| source_effect(t, &name))
-            .flatten();
-        e = e.child(kept.unwrap_or_else(|| El::new(&name).opt(attr, t.dir.as_ref()).done()));
+        // The effect's attributes when known (catalog effects, effects as read); else an unmodelled
+        // effect keeps its element as read, a modelled one its direction.
+        let catalog = crate::transitions::recognise(&name, &[]);
+        let fx = if t.attrs.is_empty() {
+            let kept = matches!(k, TransitionKind::Other(_))
+                .then(|| source_effect(t, &name))
+                .flatten();
+            kept.unwrap_or_else(|| match catalog {
+                // A catalog effect writes the attributes of its variant (`dir` holds the variant).
+                Some(d) => {
+                    let mut el = El::new(&name);
+                    for (a, v) in crate::transitions::attrs_for(d, t.dir.as_deref()) {
+                        el = el.a(&a, v);
+                    }
+                    el.done()
+                }
+                None => El::new(&name).opt(attr, t.dir.as_ref()).done(),
+            })
+        } else {
+            let mut el = El::new(&name);
+            for (a, v) in &t.attrs {
+                el = el.a(a, v);
+            }
+            el.done()
+        };
+        e = e.child(fx);
+    }
+    // §19.3.1.42 sndAc (after the effect, CT_SlideTransition).
+    match &t.sound {
+        Some(TransitionSound::Start {
+            embed,
+            name,
+            looped,
+        }) => {
+            let snd = El::new("p:snd").a("r:embed", embed).a("name", name).done();
+            let st = El::new("p:stSnd")
+                .optb("loop", looped.then_some(true))
+                .child(snd)
+                .done();
+            e = e.child(El::new("p:sndAc").child(st).done());
+        }
+        Some(TransitionSound::Stop) => {
+            e = e.child(El::new("p:sndAc").child(El::new("p:endSnd").done()).done());
+        }
+        None => {}
     }
     e.done()
 }
@@ -142,24 +228,30 @@ pub fn write_transition(t: &Transition) -> Extra {
             return src.clone();
         }
     }
-    let xml = if t.dur_ms.is_some() {
+    // An effect of [MS-PPTX] (p14 / p15) or a p14:dur needs mc:AlternateContent; the fallback of a
+    // newer effect is a fade.
+    let ns = effect_ns(t);
+    let xml = if t.dur_ms.is_some() || ns.is_some() {
+        let mut choice = El::new("mc:Choice").a("xmlns:p14", NS_P14);
+        if ns == Some("p15") {
+            choice = choice.a("xmlns:p15", NS_P15);
+        }
         El::new("mc:AlternateContent")
             .a("xmlns:mc", NS_MC)
             .child(
-                El::new("mc:Choice")
-                    .a("xmlns:p14", NS_P14)
-                    .a("Requires", "p14")
-                    .child(transition_body(t, true))
+                choice
+                    .a("Requires", ns.unwrap_or("p14"))
+                    .child(transition_body(t, true, false))
                     .done(),
             )
             .child(
                 El::new("mc:Fallback")
-                    .child(transition_body(t, false))
+                    .child(transition_body(t, false, ns.is_some()))
                     .done(),
             )
             .done()
     } else {
-        transition_body(t, false)
+        transition_body(t, false, false)
     };
     let key = if xml.name == "p:transition" {
         KEY_TRANSITION

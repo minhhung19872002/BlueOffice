@@ -13,8 +13,9 @@ use super::ops::Tx;
 use super::{refuse, EditError, SlideSel, R};
 use bo_model::slide::{
     AnimClass, AnimEffect, AnimTrigger, Animation, Presentation, ShapeNode, Timing, Transition,
-    TransitionKind,
+    TransitionKind, TransitionSound,
 };
+use bo_pptx::transitions;
 use serde::{Deserialize, Serialize};
 
 /// Default effect duration in ms (new animations).
@@ -31,13 +32,14 @@ pub fn speed_ms(speed: Option<&str>) -> u32 {
 }
 
 /// Transition to set (`kind` = `none` removes it).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransitionSpec {
-    /// `none` | `cut` | `fade` | `push` | `wipe` | `cover` | `pull` | `split` | `random`
-    /// (`keep` keeps the current effect and changes the timing only).
+    /// `none` or a [`bo_pptx::transitions::CATALOG`] id (`fade`, `vortex`, `fallOver`, …); `keep`
+    /// keeps the current effect and changes the timing only.
     pub kind: String,
-    /// Direction (`l` | `u` | `r` | `d`, corners for cover/pull, `horz` | `vert` for split); invalid ones are dropped.
+    /// Variant of the effect (its direction: `l` | `u` | `r` | `d`, corners, `horz` | `vert`,
+    /// `horzIn`, `black`, spokes, …; see `TransitionOut::dirs`); invalid ones fall back to the default.
     #[serde(default)]
     pub dir: Option<String>,
     /// Duration in ms (`p14:dur`); `None` keeps the current one.
@@ -49,6 +51,33 @@ pub struct TransitionSpec {
     /// Advance automatically after this many ms (0 = not automatically).
     #[serde(default)]
     pub advance_after_ms: Option<u32>,
+    /// Sound (§19.3.1.42 sndAc): `none` removes it, `stop` stops the sound playing; `None` keeps it.
+    #[serde(default)]
+    pub sound: Option<String>,
+    /// A new sound: WAV bytes in base64 (§19.3.1.44 snd embeds WAV audio).
+    #[serde(default)]
+    pub sound_data: Option<String>,
+    /// Name of the new sound.
+    #[serde(default)]
+    pub sound_name: Option<String>,
+    /// Loop the sound until the next one (`stSnd@loop`); `None` keeps it.
+    #[serde(default)]
+    pub sound_loop: Option<bool>,
+}
+
+/// The sound of a transition as seen by the UI.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoundOut {
+    /// The transition stops the sound playing (§19.3.1.19 endSnd).
+    pub stop: bool,
+    /// Embedded WAV part (bytes via `Engine::media`).
+    pub part: Option<String>,
+    /// Name of the sound.
+    pub name: String,
+    /// Plays until the next sound.
+    #[serde(rename = "loop")]
+    pub looped: bool,
 }
 
 /// A slide's transition as seen by the UI.
@@ -59,8 +88,12 @@ pub struct TransitionOut {
     pub kind: String,
     /// The host can play it as is (others play as a fade).
     pub known: bool,
-    /// Direction of the effect, if any (see [`TransitionSpec::dir`]).
+    /// Variant of the effect, if any (see [`TransitionSpec::dir`]).
     pub dir: Option<String>,
+    /// Variants the effect offers (first: the default).
+    pub dirs: Vec<&'static str>,
+    /// Sound played with the transition.
+    pub sound: Option<SoundOut>,
     /// Effective duration (p14:dur, else the speed).
     pub dur_ms: u32,
     /// Advance on mouse click (`advClick`).
@@ -161,32 +194,70 @@ pub struct ShowOut {
 // Reading
 // ---------------------------------------------------------------------------
 
-fn kind_name(k: &TransitionKind) -> (String, bool) {
-    let s = match k {
-        TransitionKind::Cut => "cut",
-        TransitionKind::Fade => "fade",
-        TransitionKind::Push => "push",
-        TransitionKind::Wipe => "wipe",
-        TransitionKind::Cover => "cover",
-        TransitionKind::Pull => "pull",
-        TransitionKind::Split => "split",
-        TransitionKind::Random => "random",
-        TransitionKind::Other(n) => return (n.clone(), false),
+/// Catalog id of the transition's effect (`known`), else its element name.
+fn kind_name(t: &Transition) -> (String, bool, Vec<&'static str>) {
+    let Some(k) = &t.kind else {
+        return ("cut".to_owned(), true, Vec::new());
     };
-    (s.to_owned(), true)
+    let element = match k {
+        TransitionKind::Cut => "p:cut".to_owned(),
+        TransitionKind::Fade => "p:fade".to_owned(),
+        TransitionKind::Push => "p:push".to_owned(),
+        TransitionKind::Wipe => "p:wipe".to_owned(),
+        TransitionKind::Cover => "p:cover".to_owned(),
+        TransitionKind::Pull => "p:pull".to_owned(),
+        TransitionKind::Split => "p:split".to_owned(),
+        TransitionKind::Random => "p:random".to_owned(),
+        TransitionKind::Other(n) if n.contains(':') => n.clone(),
+        TransitionKind::Other(n) => format!("p:{n}"),
+    };
+    match transitions::recognise(&element, &t.attrs) {
+        Some(d) => (d.id.to_owned(), true, transitions::variants(d)),
+        None => (
+            element.trim_start_matches("p:").to_owned(),
+            false,
+            Vec::new(),
+        ),
+    }
 }
 
 /// The transition of a slide for the UI.
 pub fn transition_out(pres: &Presentation, slide: usize) -> Option<TransitionOut> {
-    let t = pres.slides.get(slide)?.transition.as_ref()?;
-    let (kind, known) = t
-        .kind
-        .as_ref()
-        .map_or_else(|| ("cut".to_owned(), true), kind_name);
+    let s = pres.slides.get(slide)?;
+    let t = s.transition.as_ref()?;
+    let (kind, known, dirs) = kind_name(t);
+    let sound = t.sound.as_ref().map(|snd| match snd {
+        TransitionSound::Stop => SoundOut {
+            stop: true,
+            part: None,
+            name: String::new(),
+            looped: false,
+        },
+        TransitionSound::Start {
+            embed,
+            name,
+            looped,
+        } => SoundOut {
+            stop: false,
+            part: s
+                .info
+                .rels
+                .iter()
+                .find(|r| &r.id == embed && !r.external)
+                .map(|r| bo_opc::resolve_target(&s.info.part_name, &r.target)),
+            name: name.clone(),
+            looped: *looped,
+        },
+    });
     Some(TransitionOut {
         kind,
         known,
-        dir: t.dir.clone(),
+        dir: t
+            .dir
+            .clone()
+            .or_else(|| dirs.first().map(|d| (*d).to_owned())),
+        dirs,
+        sound,
         dur_ms: t.dur_ms.unwrap_or_else(|| speed_ms(t.speed.as_deref())),
         advance_on_click: t.advance_on_click.unwrap_or(true),
         advance_after_ms: t.advance_after_ms,
@@ -344,53 +415,51 @@ pub fn layer_of(
 // Editing
 // ---------------------------------------------------------------------------
 
-/// Side directions of push/wipe (§19.7.52 ST_TransitionSideDirectionType) and the
-/// eight directions of cover/pull (§19.7.50 ST_TransitionEightDirectionType).
-fn valid_dir(kind: &TransitionKind, dir: Option<&str>) -> Option<String> {
-    let d = dir?;
-    let ok = match kind {
-        TransitionKind::Push | TransitionKind::Wipe => matches!(d, "l" | "u" | "r" | "d"),
-        TransitionKind::Cover | TransitionKind::Pull => {
-            matches!(d, "l" | "u" | "r" | "d" | "lu" | "ru" | "ld" | "rd")
-        }
-        // §19.3.1.47 split@orient (ST_Direction).
-        TransitionKind::Split => matches!(d, "horz" | "vert"),
-        _ => false,
-    };
-    ok.then(|| d.to_owned())
-}
-
-fn parse_kind(k: &str) -> R<Option<TransitionKind>> {
-    Ok(Some(match k {
-        "none" => return Ok(None),
-        "cut" => TransitionKind::Cut,
-        "fade" => TransitionKind::Fade,
-        "push" => TransitionKind::Push,
-        "wipe" => TransitionKind::Wipe,
-        "cover" => TransitionKind::Cover,
-        "pull" => TransitionKind::Pull,
-        "split" => TransitionKind::Split,
-        "random" => TransitionKind::Random,
-        _ => return refuse("badTransition"),
-    }))
+/// The model kind of catalog entry `d` (the eight ECMA effects BlueSlide models by name, the others
+/// by element).
+fn kind_of(d: &transitions::TransitionDef) -> TransitionKind {
+    match d.element {
+        "p:cut" => TransitionKind::Cut,
+        "p:fade" => TransitionKind::Fade,
+        "p:push" => TransitionKind::Push,
+        "p:wipe" => TransitionKind::Wipe,
+        "p:cover" => TransitionKind::Cover,
+        "p:pull" => TransitionKind::Pull,
+        "p:split" => TransitionKind::Split,
+        "p:random" => TransitionKind::Random,
+        e => TransitionKind::Other(e.trim_start_matches("p:").to_owned()),
+    }
 }
 
 /// The transition after applying `spec` to `old`.
 fn with_spec(old: Option<&Transition>, spec: &TransitionSpec) -> R<Option<Transition>> {
     let mut t = old.cloned().unwrap_or_default();
-    if spec.kind != "keep" {
-        let Some(kind) = parse_kind(&spec.kind)? else {
+    // The catalog entry of the new or current effect.
+    let def = if spec.kind == "keep" {
+        let (id, known, _) = kind_name(&t);
+        known.then(|| transitions::by_id(&id)).flatten()
+    } else {
+        if spec.kind == "none" {
             return Ok(None);
-        };
-        if t.kind.as_ref() != Some(&kind) {
+        }
+        let d = transitions::by_id(&spec.kind).ok_or(EditError::Refused("badTransition"))?;
+        let kind = kind_of(d);
+        let (old_id, _, _) = kind_name(&t);
+        if t.kind.as_ref() != Some(&kind) || old_id != d.id {
             t.dir = None;
+            t.attrs.clear();
         }
         t.kind = Some(kind);
-    }
-    if let Some(k) = t.kind.clone() {
-        if spec.dir.is_some() || !matches!(k, TransitionKind::Other(_)) {
-            t.dir = valid_dir(&k, spec.dir.as_deref().or(t.dir.as_deref()));
-        }
+        Some(d)
+    };
+    if let Some(d) = def {
+        let wanted = spec.dir.as_deref().or(t.dir.as_deref());
+        let variant = transitions::variants(d)
+            .into_iter()
+            .find(|v| Some(*v) == wanted)
+            .or_else(|| transitions::variants(d).first().copied());
+        t.attrs = transitions::attrs_for(d, variant);
+        t.dir = variant.map(str::to_owned);
     }
     if let Some(d) = spec.dur_ms {
         t.dur_ms = Some(d.clamp(1, 60_000));
@@ -402,7 +471,22 @@ fn with_spec(old: Option<&Transition>, spec: &TransitionSpec) -> R<Option<Transi
     if let Some(a) = spec.advance_after_ms {
         t.advance_after_ms = (a > 0).then_some(a.min(3_600_000));
     }
+    match spec.sound.as_deref() {
+        Some("none") => t.sound = None,
+        Some("stop") => t.sound = Some(TransitionSound::Stop),
+        _ => {}
+    }
+    if let (Some(l), Some(TransitionSound::Start { looped, .. })) =
+        (spec.sound_loop, t.sound.as_mut())
+    {
+        *looped = l;
+    }
     Ok(Some(t))
+}
+
+/// A WAV file (RIFF … WAVE), the only audio §19.3.1.44 snd embeds.
+fn is_wav(b: &[u8]) -> bool {
+    b.len() > 12 && &b[..4] == b"RIFF" && &b[8..12] == b"WAVE"
 }
 
 /// Set the transition of `slides` (default: the current slide; `all`: every slide).
@@ -422,8 +506,60 @@ pub fn cmd_set_transition(
     if targets.iter().any(|&i| i >= n) {
         return refuse("noSlide");
     }
+    // A new sound: one WAV part, an audio relationship from each slide.
+    let wav = match &spec.sound_data {
+        Some(data) => {
+            use base64::Engine as _;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(data.trim())
+                .map_err(|_| EditError::Refused("badSound"))?;
+            if !is_wav(&bytes) {
+                return refuse("badSound");
+            }
+            let part = super::build::unique_part(tx.pres, "/ppt/media/audio", "wav");
+            let at = tx.pres.parts.len();
+            tx.op(super::ops::SlideOp::Parts {
+                index: at,
+                remove: vec![],
+                insert: vec![bo_model::slide::RawPart {
+                    name: part.clone(),
+                    content_type: Some("audio/wav".into()),
+                    data: bytes,
+                }],
+            })?;
+            Some(part)
+        }
+        None => None,
+    };
     for i in targets {
-        let new = with_spec(tx.pres.slides[i].transition.as_ref(), spec)?;
+        let mut new = with_spec(tx.pres.slides[i].transition.as_ref(), spec)?;
+        if let (Some(part), Some(t)) = (&wav, new.as_mut()) {
+            let rels = &tx.pres.slides[i].info.rels;
+            let id = (1..=rels.len() + 1)
+                .map(|n| format!("rId{n}"))
+                .find(|id| rels.iter().all(|r| &r.id != id))
+                .unwrap_or_default();
+            let target = format!("../media/{}", part.rsplit('/').next().unwrap_or_default());
+            let rel_id = id.clone();
+            tx.fields(i, |f| {
+                // §19.3.1.44 snd: r:embed of an audio relationship.
+                f.rels.push(bo_model::slide::Rel {
+                    id: rel_id,
+                    rel_type: format!("{}audio", bo_pptx::RELATIONSHIP_NS),
+                    target,
+                    external: false,
+                });
+            })?;
+            t.sound = Some(TransitionSound::Start {
+                embed: id,
+                name: spec
+                    .sound_name
+                    .clone()
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| "sound.wav".into()),
+                looped: spec.sound_loop.unwrap_or(false),
+            });
+        }
         tx.fields(i, |f| f.transition = new)?;
     }
     Ok(())
@@ -618,6 +754,7 @@ mod tests {
             dur_ms: Some(800),
             advance_on_click: Some(true),
             advance_after_ms: Some(0),
+            ..TransitionSpec::default()
         }
     }
 
@@ -631,17 +768,56 @@ mod tests {
         let t = with_spec(Some(&t), &spec("fade", Some("u")))
             .unwrap()
             .unwrap();
+        // Fade has no direction: the default variant (smoothly).
         assert_eq!(
-            (t.kind.clone(), t.dir.clone()),
-            (Some(TransitionKind::Fade), None)
+            (t.kind.clone(), t.dir.as_deref()),
+            (Some(TransitionKind::Fade), Some("smooth"))
         );
+        assert_eq!(t.attrs, Vec::<(String, String)>::new());
         let t = with_spec(Some(&t), &spec("split", Some("vert")))
             .unwrap()
             .unwrap();
         assert_eq!(t.dir.as_deref(), Some("vert"));
         assert!(t.advance_on_click.is_none() && t.advance_after_ms.is_none());
         assert!(with_spec(Some(&t), &spec("none", None)).unwrap().is_none());
-        assert!(with_spec(None, &spec("zoom", None)).is_err());
+        assert!(with_spec(None, &spec("nope", None)).is_err());
+        // §19.3.1.47 split: orientation and direction from the variant.
+        let s = with_spec(None, &spec("split", Some("vertIn")))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            s.attrs,
+            vec![
+                ("orient".into(), "vert".into()),
+                ("dir".into(), "in".into())
+            ]
+        );
+        // [MS-PPTX] effects by element; p15 presets by their prst.
+        let v = with_spec(None, &spec("vortex", Some("d")))
+            .unwrap()
+            .unwrap();
+        assert_eq!(v.kind, Some(TransitionKind::Other("p14:vortex".into())));
+        let o = with_spec(None, &spec("origami", Some("r")))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            o.attrs,
+            vec![
+                ("prst".into(), "origami".into()),
+                ("invX".into(), "1".into())
+            ]
+        );
+        // Changing p15 presets keeps nothing of the old one.
+        let c = with_spec(Some(&o), &spec("crush", None)).unwrap().unwrap();
+        assert_eq!(c.attrs, vec![("prst".into(), "crush".into())]);
+        assert_eq!(c.dir.as_deref(), Some("l"));
+        // §19.3.1.42 sndAc: stop the sound, then none.
+        let mut snd = spec("keep", None);
+        snd.sound = Some("stop".into());
+        let st = with_spec(Some(&c), &snd).unwrap().unwrap();
+        assert_eq!(st.sound, Some(TransitionSound::Stop));
+        snd.sound = Some("none".into());
+        assert_eq!(with_spec(Some(&st), &snd).unwrap().unwrap().sound, None);
         let mut keep = spec("keep", None);
         keep.advance_after_ms = Some(3000);
         keep.advance_on_click = Some(false);

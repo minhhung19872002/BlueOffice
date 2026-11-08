@@ -2121,6 +2121,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               run={run}
               onClose={() => setPaneOpen(false)}
               previewToken={previewToken}
+              pickSound={() => platform.files.openFile(['.wav'])}
             />
           )}
         </div>

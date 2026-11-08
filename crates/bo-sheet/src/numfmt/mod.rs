@@ -14,9 +14,11 @@
 
 mod builtin;
 mod date;
+pub mod input;
 mod locale;
 
 pub use builtin::builtin_format;
+pub use input::{parse_typed_date, TypedDate};
 pub use date::{
     civil_from_days, datetime_to_serial, days_from_civil, serial_to_datetime, DateTime,
 };

@@ -283,6 +283,40 @@ fn from_ods(src: &bo_odf::SpreadsheetDoc) -> Workbook {
     wb
 }
 
+/// Turns what the user typed into a cell (keeping the cell's style). Typed
+/// dates and times become serial numbers (§18.17.4); the built-in date number
+/// format to give the cell is returned with it (applied by the caller when the
+/// cell's format is General, see [`date_style`]).
+fn input_to_cell_typed(
+    input: &str,
+    old: Option<&Cell>,
+    locale: &Locale,
+    date1904: bool,
+) -> (Option<Cell>, Option<u32>) {
+    if !input.starts_with(['=', '\'']) {
+        if let Some(t) = bo_sheet::numfmt::parse_typed_date(input, locale, date1904) {
+            let mut cell = old.cloned().unwrap_or_default();
+            cell.formula = None;
+            cell.value = CellValue::Number(t.serial);
+            return (Some(cell), Some(t.num_fmt_id));
+        }
+    }
+    (input_to_cell(input, old, locale), None)
+}
+
+/// Style index giving `style` the built-in number format `fmt_id`, when its
+/// current format is General (§18.8.30 id 0); any other format (a date format
+/// chosen by the user, text `@`, …) is kept.
+fn date_style(styles: &mut bo_model::sheet::Stylesheet, style: u32, fmt_id: u32) -> u32 {
+    let mut xf = styles.xf(style).cloned().unwrap_or_default();
+    if xf.num_fmt_id != 0 {
+        return style;
+    }
+    xf.num_fmt_id = fmt_id;
+    xf.apply_number_format = Some(true);
+    styles.add_xf(xf)
+}
+
 /// Turns what the user typed into a cell (keeping the cell's style).
 fn input_to_cell(input: &str, old: Option<&Cell>, locale: &Locale) -> Option<Cell> {
     let mut cell = old.cloned().unwrap_or_default();
@@ -312,6 +346,24 @@ fn input_to_cell(input: &str, old: Option<&Cell>, locale: &Locale) -> Option<Cel
         },
     };
     Some(cell)
+}
+
+/// Formula-bar text of a number in a cell with a built-in date / time format
+/// (§18.8.30 ids 14, 18–22): the date in the locale's short date form (plus
+/// the time), so that editing and confirming keeps the value. `None` for
+/// other formats.
+fn date_input(n: f64, fmt_id: u32, locale: &Locale, date1904: bool) -> Option<String> {
+    let code = match fmt_id {
+        14 => locale.short_date.to_owned(),
+        22 => format!("{} h:mm:ss", locale.short_date),
+        18..=21 if (0.0..1.0).contains(&n) => "h:mm:ss".to_owned(),
+        _ => return None,
+    };
+    let opts = bo_sheet::numfmt::FormatOptions {
+        locale: *locale,
+        date1904,
+    };
+    Some(bo_sheet::numfmt::format_number(n, &code, &opts).text)
 }
 
 fn number_input(n: f64, locale: &Locale) -> String {
@@ -694,9 +746,11 @@ impl SheetEngine {
                 display: String::new(),
             });
         };
+        let fmt_id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
         let input = match (&cell.formula, &cell.value) {
             (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
-            (_, CellValue::Number(n)) => number_input(*n, &self.locale),
+            (_, CellValue::Number(n)) => date_input(*n, fmt_id, &self.locale, wb.date1904)
+                .unwrap_or_else(|| number_input(*n, &self.locale)),
             (_, CellValue::Bool(b)) => if *b { "TRUE" } else { "FALSE" }.to_owned(),
             (_, CellValue::Text(t)) => t.clone(),
             (_, CellValue::RichText(runs)) => runs.iter().map(|r| r.text.as_str()).collect(),
@@ -736,7 +790,7 @@ impl SheetEngine {
             let wb = self.wb()?;
             let ws = self.sheet(sheet)?;
             for (row, col, input) in cells {
-                let cand = input_to_cell(input, ws.cell(*row, *col), &locale);
+                let cand = input_to_cell_typed(input, ws.cell(*row, *col), &locale, wb.date1904).0;
                 let value = cand.map_or(CellValue::Empty, |c| {
                     if c.formula.is_some() {
                         CellValue::Empty
@@ -764,18 +818,33 @@ impl SheetEngine {
             }
         }
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
-        let ws = wb
-            .sheets
-            .get_mut(sheet)
-            .ok_or(EngineError::PageOutOfRange(sheet))?;
+        if sheet >= wb.sheets.len() {
+            return Err(EngineError::PageOutOfRange(sheet));
+        }
+        let date1904 = wb.date1904;
+        let Workbook { sheets, styles, .. } = &mut *wb;
+        let ws = &mut sheets[sheet];
         let mut old = Vec::with_capacity(cells.len());
         for (row, col, input) in cells {
             if *row >= MAX_ROWS || *col >= MAX_COLS {
                 continue;
             }
             let prev = ws.cells.get(&(*row, *col)).cloned();
-            match input_to_cell(input, prev.as_ref(), &locale) {
-                Some(c) => {
+            // Text-formatted cells (§18.8.30 id 49 `@`) keep what was typed.
+            let text_fmt = prev
+                .as_ref()
+                .and_then(|c| styles.xf(c.style))
+                .is_some_and(|x| x.num_fmt_id == 49);
+            let (cell, date_fmt) = if text_fmt {
+                (input_to_cell(input, prev.as_ref(), &locale), None)
+            } else {
+                input_to_cell_typed(input, prev.as_ref(), &locale, date1904)
+            };
+            match cell {
+                Some(mut c) => {
+                    if let Some(id) = date_fmt {
+                        c.style = date_style(styles, c.style, id);
+                    }
                     ws.cells.insert((*row, *col), c);
                 }
                 None => {

@@ -9,7 +9,7 @@ use super::pivot_cmd::{
     data_field, group_request, pivot_json, updated_spec, PivotFilterSpec, PivotSettings,
     PivotValueSpec,
 };
-use super::{input_to_cell, number_input, SheetEngine, UndoEntry, MAX_COLS, MAX_ROWS};
+use super::{date_input, input_to_cell, number_input, SheetEngine, UndoEntry, MAX_COLS, MAX_ROWS};
 use crate::{EngineError, Result};
 use bo_model::sheet::PivotFilter;
 use bo_model::sheet::{
@@ -1650,9 +1650,16 @@ impl SheetEngine {
 
     /// Input text of a cell (formula bar form).
     fn input_of(&self, cell: &Cell) -> String {
+        let (fmt_id, d1904) = self.wb.as_ref().map_or((0, false), |wb| {
+            (
+                wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id),
+                wb.date1904,
+            )
+        });
         match (&cell.formula, &cell.value) {
             (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
-            (_, CellValue::Number(n)) => number_input(*n, &self.locale),
+            (_, CellValue::Number(n)) => date_input(*n, fmt_id, &self.locale, d1904)
+                .unwrap_or_else(|| number_input(*n, &self.locale)),
             (_, CellValue::Bool(b)) => if *b { "TRUE" } else { "FALSE" }.to_owned(),
             (_, CellValue::Error(e)) => e.as_str().to_owned(),
             (_, v) => v.as_text().unwrap_or_default(),
@@ -2001,6 +2008,84 @@ mod tests {
         let mut back = SheetEngine::with_bundled_fonts();
         back.open(&bytes, "x.xlsx").unwrap();
         back
+    }
+
+    // source: ECMA-376 Part 1, §18.17.4.1 (serial 45351 = 2024-02-29), §18.8.30 (ids 14, 20, 22)
+    #[test]
+    fn typed_dates_become_serials() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "29/02/2024").unwrap();
+        e.set_input(0, 1, 0, "2024-02-29 18:00").unwrap();
+        e.set_input(0, 2, 0, "18:30").unwrap();
+        e.set_input(0, 3, 0, "=DATE(2024;2;29)").unwrap();
+        e.set_input(0, 4, 0, "'29/02/2024").unwrap();
+        e.set_input(0, 5, 0, "1/2").unwrap();
+        e.set_input(0, 6, 0, "2/29/2024").unwrap();
+        let wb = e.workbook().unwrap();
+        let ws = &wb.sheets[0];
+        let fmt = |r: u32| {
+            wb.styles
+                .xf(ws.cell(r, 0).unwrap().style)
+                .unwrap()
+                .num_fmt_id
+        };
+        assert_eq!(ws.cell(0, 0).unwrap().value, CellValue::Number(45351.0));
+        assert_eq!(fmt(0), 14);
+        assert_eq!(ws.cell(1, 0).unwrap().value, CellValue::Number(45351.75));
+        assert_eq!(fmt(1), 22);
+        assert_eq!(fmt(2), 20);
+        assert!(ws.cell(3, 0).unwrap().formula.is_some());
+        assert_eq!(
+            ws.cell(4, 0).unwrap().value,
+            CellValue::Text("29/02/2024".into())
+        );
+        assert_eq!(ws.cell(5, 0).unwrap().value, CellValue::Text("1/2".into()));
+        // Month-first is not a valid vi-VN date: kept as text.
+        assert_eq!(
+            ws.cell(6, 0).unwrap().value,
+            CellValue::Text("2/29/2024".into())
+        );
+        let d = e.cell(0, 0, 0).unwrap();
+        assert_eq!((d.display.as_str(), d.input.as_str()), ("29/02/2024", "29/02/2024"));
+        assert_eq!(e.cell(0, 1, 0).unwrap().input, "29/02/2024 18:00:00");
+        // Re-confirming the formula-bar text keeps the value and format.
+        e.set_input(0, 1, 0, "29/02/2024 18:00:00").unwrap();
+        assert_eq!(
+            e.workbook().unwrap().sheets[0].cell(1, 0).unwrap().value,
+            CellValue::Number(45351.75)
+        );
+        // A date format chosen by the user is kept; a text format keeps text.
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(8, 0, 9, 0), "patch": { "numFmt": "d mmm yyyy" } }),
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(10, 0, 10, 0), "patch": { "numFmt": "@" } }),
+        );
+        e.set_input(0, 8, 0, "1/3/2024").unwrap();
+        e.set_input(0, 10, 0, "1/3/2024").unwrap();
+        assert_eq!(e.cell(0, 8, 0).unwrap().display, "1 Thg 3 2024");
+        assert_eq!(
+            e.workbook().unwrap().sheets[0].cell(10, 0).unwrap().value,
+            CellValue::Text("1/3/2024".into())
+        );
+        // en-US reads month first.
+        e.set_locale("en-US");
+        e.set_input(0, 12, 0, "2/29/2024").unwrap();
+        e.set_input(0, 13, 0, "29/2/2024").unwrap();
+        let ws = &e.workbook().unwrap().sheets[0];
+        assert_eq!(ws.cell(12, 0).unwrap().value, CellValue::Number(45351.0));
+        assert_eq!(
+            ws.cell(13, 0).unwrap().value,
+            CellValue::Text("29/2/2024".into())
+        );
+        // Survives a save.
+        let back = reopen(&mut e);
+        assert_eq!(
+            back.workbook().unwrap().sheets[0].cell(0, 0).unwrap().value,
+            CellValue::Number(45351.0)
+        );
     }
 
     #[test]

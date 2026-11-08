@@ -138,6 +138,9 @@ pub enum PageItem {
         w: f32,
         h: f32,
         paths: Vec<ShapePath>,
+        /// The drawing object: [`LineSource::TextBox`] with `sub` 0 (rebased like the
+        /// lines of its paragraph).
+        source: LineSource,
         layer: Layer,
     },
 }
@@ -293,6 +296,14 @@ impl Line {
 }
 
 impl PageItem {
+    /// The drawing object a shape item belongs to (see [`PageItem::Shape`]).
+    pub fn source_mut(&mut self) -> Option<&mut LineSource> {
+        match self {
+            PageItem::Shape { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+
     /// Move the item by (`dx`, `dy`).
     pub fn translate(&mut self, dx: f32, dy: f32) {
         match self {

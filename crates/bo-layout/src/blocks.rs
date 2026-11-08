@@ -93,6 +93,9 @@ impl Band {
         }
         for i in &mut b.items {
             i.translate(dx, dy);
+            if let Some(s) = i.source_mut() {
+                s.rebase(base);
+            }
         }
         b
     }
@@ -102,6 +105,11 @@ impl Band {
     pub fn set_other(&mut self) {
         for l in &mut self.lines {
             l.source.detach();
+        }
+        for i in &mut self.items {
+            if let Some(s) = i.source_mut() {
+                s.detach();
+            }
         }
     }
 

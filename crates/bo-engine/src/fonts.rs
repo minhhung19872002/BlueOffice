@@ -82,6 +82,9 @@ impl Engine {
                 return Ok(Some(r));
             }
         }
+        if let Some(r) = self.drawing_command(cmd)? {
+            return Ok(Some(r));
+        }
         match cmd {
             // A click on a footnote/endnote edits it in place (§17.11).
             Command::Click { page, y, .. } if self.note_at(*page, *y).is_some() => {
@@ -125,6 +128,14 @@ impl Engine {
             Command::Notes => {
                 let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
                 r.notes = self.session.as_ref().map(bo_edit::Session::notes);
+                Ok(Some(r))
+            }
+            Command::StyleList => {
+                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                r.styles = self
+                    .session
+                    .as_ref()
+                    .map(|s| crate::gallery::styles(s.doc()));
                 Ok(Some(r))
             }
             Command::FontList => {

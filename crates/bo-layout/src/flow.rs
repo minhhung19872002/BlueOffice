@@ -688,7 +688,12 @@ impl Flow {
         let mut float_lines = Vec::new();
         for img in &pb.floats {
             let (items, lines, excl) = float_item(img, &self.setup, self.col_x(), self.y);
-            float_items.extend(items);
+            float_items.extend(items.into_iter().map(|mut i| {
+                if let Some(s) = i.source_mut() {
+                    s.rebase(self.id_base);
+                }
+                i
+            }));
             float_lines.extend(lines.into_iter().map(|mut l| {
                 l.source.rebase(self.id_base);
                 l

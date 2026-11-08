@@ -170,6 +170,11 @@ fn shift_ids(page: &mut Page, delta: i64) {
     for l in &mut page.lines {
         l.source.shift(delta);
     }
+    for i in &mut page.items {
+        if let Some(s) = i.source_mut() {
+            s.shift(delta);
+        }
+    }
 }
 
 /// Add the header and footer of page `pi` (ECMA-376 Part 1, §17.10).

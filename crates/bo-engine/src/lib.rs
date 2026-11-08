@@ -20,6 +20,7 @@ mod bundled;
 pub mod collab;
 pub mod edit;
 pub mod fonts;
+pub mod gallery;
 pub mod media;
 pub mod merge;
 pub mod nav;
@@ -30,6 +31,7 @@ pub mod slide_edit;
 pub mod smartart;
 pub mod story;
 pub mod templates;
+pub mod textbox;
 
 pub use collab::{CollabChange, CollabOut, TextOp};
 pub use edit::{Command, EditResult};
@@ -223,6 +225,8 @@ pub struct Engine {
     hf: Option<story::HfEdit>,
     /// Open footnote/endnote editor (BlueDoc).
     note: Option<notes::NoteEdit>,
+    /// Open text box editor (BlueDoc).
+    textbox: Option<textbox::BoxEdit>,
 }
 
 impl Engine {
@@ -370,6 +374,7 @@ impl Engine {
         self.slide_collab = None;
         self.hf = None;
         self.note = None;
+        self.textbox = None;
         self.info()
     }
 

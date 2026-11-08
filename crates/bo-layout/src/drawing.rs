@@ -30,6 +30,9 @@ impl Drawing {
             .cloned()
             .map(|mut i| {
                 i.translate(x, y);
+                if let Some(LineSource::TextBox { para: p, .. }) = i.source_mut() {
+                    *p = para.unwrap_or(LineSource::NO_PARA);
+                }
                 i
             })
             .collect();
@@ -154,6 +157,11 @@ pub(crate) fn shape_drawing(
             w: w as f32,
             h: h as f32,
             paths,
+            source: LineSource::TextBox {
+                para: 0,
+                at,
+                sub: 0,
+            },
             layer: layer_of(img),
         });
     }

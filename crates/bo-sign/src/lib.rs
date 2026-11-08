@@ -230,6 +230,9 @@ pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
     Sha256::digest(data).into()
 }
 
+/// `ecdsa-with-SHA1` (RFC 3279 §2.2.3).
+const ECDSA_WITH_SHA1: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.4.1");
+
 /// Hash algorithms accepted when verifying (RFC 5754 §2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashAlg {
@@ -256,9 +259,14 @@ impl HashAlg {
         }
     }
 
-    /// From an RSA signature algorithm OID (`sha256WithRSAEncryption`, …).
-    pub fn from_rsa_signature_oid(oid: ObjectIdentifier) -> Result<Self> {
+    /// From an RSA (`sha256WithRSAEncryption`, …, RFC 4055) or ECDSA (`ecdsa-with-SHA256`, …,
+    /// RFC 5758 §3.2) signature algorithm OID.
+    pub fn from_signature_oid(oid: ObjectIdentifier) -> Result<Self> {
         match oid {
+            o if o == rfc5912::ECDSA_WITH_SHA_256 => Ok(Self::Sha256),
+            o if o == rfc5912::ECDSA_WITH_SHA_384 => Ok(Self::Sha384),
+            o if o == rfc5912::ECDSA_WITH_SHA_512 => Ok(Self::Sha512),
+            o if o == ECDSA_WITH_SHA1 => Ok(Self::Sha1),
             o if o == rfc5912::SHA_1_WITH_RSA_ENCRYPTION => Ok(Self::Sha1),
             o if o == rfc5912::SHA_256_WITH_RSA_ENCRYPTION => Ok(Self::Sha256),
             o if o == rfc5912::SHA_384_WITH_RSA_ENCRYPTION => Ok(Self::Sha384),
@@ -304,23 +312,56 @@ pub(crate) fn rsa_key_of(cert: &x509_cert::Certificate) -> Result<rsa::RsaPublic
     rsa::RsaPublicKey::from_pkcs1_der(key_bytes).map_err(|e| SignError::Malformed(e.to_string()))
 }
 
-/// Verifies a PKCS#1 v1.5 signature over an already computed `hashed` value.
-pub(crate) fn verify_rsa(
+/// Verifies a signature over an already computed `hashed` value with the certificate's key: PKCS#1 v1.5
+/// for RSA keys, ECDSA (DER `Ecdsa-Sig-Value`, RFC 5480 / RFC 5758 §3.2) for P-256 and P-384 keys.
+pub(crate) fn verify_sig(
     cert: &x509_cert::Certificate,
     alg: HashAlg,
     hashed: &[u8],
     sig: &[u8],
 ) -> Result<()> {
+    let spki = &cert.tbs_certificate.subject_public_key_info;
+    if spki.algorithm.oid == rfc5912::ID_EC_PUBLIC_KEY {
+        return verify_ecdsa(spki, hashed, sig);
+    }
     rsa_key_of(cert)?
         .verify(alg.padding(), hashed, sig)
         .map_err(|_| SignError::Invalid("RSA signature mismatch".into()))
+}
+
+/// ECDSA verification of a prehashed value (RFC 5480 §2.1.1 named curves).
+fn verify_ecdsa(spki: &spki::SubjectPublicKeyInfoOwned, hashed: &[u8], sig: &[u8]) -> Result<()> {
+    use p256::ecdsa::signature::hazmat::PrehashVerifier;
+    let curve = spki
+        .algorithm
+        .parameters
+        .as_ref()
+        .and_then(|p| p.decode_as::<ObjectIdentifier>().ok())
+        .ok_or_else(|| SignError::Malformed("EC key without a named curve".into()))?;
+    let point = spki
+        .subject_public_key
+        .as_bytes()
+        .ok_or_else(|| SignError::Malformed("public key bit string".into()))?;
+    let bad = |_| SignError::Invalid("ECDSA signature mismatch".into());
+    let malformed = |e: p256::ecdsa::Error| SignError::Malformed(e.to_string());
+    if curve == rfc5912::SECP_256_R_1 {
+        let key = p256::ecdsa::VerifyingKey::from_sec1_bytes(point).map_err(malformed)?;
+        let s = p256::ecdsa::Signature::from_der(sig).map_err(malformed)?;
+        key.verify_prehash(hashed, &s).map_err(bad)
+    } else if curve == rfc5912::SECP_384_R_1 {
+        let key = p384::ecdsa::VerifyingKey::from_sec1_bytes(point).map_err(malformed)?;
+        let s = p384::ecdsa::Signature::from_der(sig).map_err(malformed)?;
+        key.verify_prehash(hashed, &s).map_err(bad)
+    } else {
+        Err(SignError::Unsupported(format!("elliptic curve {curve}")))
+    }
 }
 
 /// Verifies a PKCS#1 v1.5 SHA-256 signature with the certificate's RSA key.
 pub(crate) fn verify_with_cert(cert_der: &[u8], digest: &[u8; 32], sig: &[u8]) -> Result<()> {
     use der::Decode;
     let cert = x509_cert::Certificate::from_der(cert_der)?;
-    verify_rsa(&cert, HashAlg::Sha256, digest, sig)
+    verify_sig(&cert, HashAlg::Sha256, digest, sig)
 }
 
 /// Seconds since the Unix epoch, 0 before it.

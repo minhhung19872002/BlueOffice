@@ -88,7 +88,8 @@
   `docs/deploy/remote-signing.md`); `pyhanko --ltv-profile pades` với PKI thử vẫn đòi tải
   CRL của TSA trực tuyến (cả với file do chính pyHanko `ltvfix` tạo).
 - `verify_ooxml` dựa trên dạng canonical do BlueOffice sinh; chữ ký XAdES của phần mềm khác vẫn báo `Unsupported`.
-- Chỉ khoá RSA (PKCS#1 v1.5); chứng thư/TSA dùng ECDSA báo `Unsupported`.
+- Kiểm tra: khoá RSA (PKCS#1 v1.5) và ECDSA P-256 / P-384 (RFC 5480, RFC 5758) cho chứng thư, CRL, OCSP, dấu thời gian
+  và chữ ký CMS; đường cong khác báo `Unsupported`. Ký: chỉ RSA (token / CA Việt Nam hiện dùng RSA).
 - Trình duyệt chỉ dùng được dịch vụ ký / TSA có bật CORS.
 - Ký lại một .docx đã ký rồi sửa: chữ ký cũ không còn hợp lệ và được báo `invalid` (chưa tự gỡ chữ ký cũ).
 - Crate `rsa` 0.9 có cảnh báo RUSTSEC-2023-0071 (rò rỉ thời gian khi **giải mã/ký** bằng khoá bí mật). Chỉ ảnh hưởng

@@ -28,7 +28,7 @@
 //! certificate; `good` settles it without CRLs; otherwise the CRLs decide.
 
 use crate::crl::CertificateList;
-use crate::{pem_blocks, verify_rsa, HashAlg, Result, SignError};
+use crate::{pem_blocks, verify_sig, HashAlg, Result, SignError};
 use const_oid::db::rfc5280;
 use der::{Decode, Encode};
 use std::fmt;
@@ -466,7 +466,7 @@ fn subject(c: &Certificate) -> String {
 
 /// Checks `child`'s signature with `issuer`'s public key.
 fn signed_by(child: &Certificate, issuer: &Certificate) -> std::result::Result<(), ChainProblem> {
-    let alg = HashAlg::from_rsa_signature_oid(child.signature_algorithm.oid).map_err(|_| {
+    let alg = HashAlg::from_signature_oid(child.signature_algorithm.oid).map_err(|_| {
         ChainProblem::Unsupported {
             subject: subject(child),
             what: format!("signature algorithm {}", child.signature_algorithm.oid),
@@ -480,7 +480,7 @@ fn signed_by(child: &Certificate, issuer: &Certificate) -> std::result::Result<(
         .signature
         .as_bytes()
         .ok_or_else(|| ChainProblem::Malformed("signature bit string".into()))?;
-    match verify_rsa(issuer, alg, &alg.digest(&tbs), sig) {
+    match verify_sig(issuer, alg, &alg.digest(&tbs), sig) {
         Ok(()) => Ok(()),
         Err(SignError::Unsupported(what)) => Err(ChainProblem::Unsupported {
             subject: subject(issuer),
@@ -494,13 +494,13 @@ fn signed_by(child: &Certificate, issuer: &Certificate) -> std::result::Result<(
 
 /// Checks a CRL's signature with `issuer`'s key (RFC 5280 §6.3.3 (f)–(g)).
 fn crl_signed_by(crl: &CertificateList, issuer: &Certificate) -> bool {
-    let Ok(alg) = HashAlg::from_rsa_signature_oid(crl.signature_algorithm.oid) else {
+    let Ok(alg) = HashAlg::from_signature_oid(crl.signature_algorithm.oid) else {
         return false;
     };
     let (Ok(tbs), Some(sig)) = (crl.tbs_cert_list.to_der(), crl.signature.as_bytes()) else {
         return false;
     };
-    verify_rsa(issuer, alg, &alg.digest(&tbs), sig).is_ok()
+    verify_sig(issuer, alg, &alg.digest(&tbs), sig).is_ok()
 }
 
 /// Revocation status of `c` (issued by `issuer`) from the store's CRLs
@@ -782,7 +782,7 @@ pub fn validate_chain(
     // Algorithms weak at the validation time: certificate signatures of the path and the keys of the
     // path and the anchor (ETSI EN 319 102-1 §5.2.8).
     for c in &path {
-        if let Ok(alg) = HashAlg::from_rsa_signature_oid(c.signature_algorithm.oid) {
+        if let Ok(alg) = HashAlg::from_signature_oid(c.signature_algorithm.oid) {
             weak_check(
                 c,
                 store.policy.hash_sunset(alg),

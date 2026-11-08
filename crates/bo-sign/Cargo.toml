@@ -23,6 +23,9 @@ serde_json.workspace = true
 sha2 = "0.10"
 sha1 = { version = "0.10", features = ["oid"] }
 rsa = { version = "0.9", features = ["sha2", "sha1"] }
+# ECDSA verification (FIPS 186-4, RFC 5480 / RFC 5758): P-256 and P-384 certificates and signatures.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+p384 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
 x509-cert = { version = "0.2", features = ["builder"] }
 cms = "0.2"
 der = { version = "0.7", features = ["alloc", "derive", "oid", "std"] }
@@ -35,6 +38,9 @@ p12-keystore = { version = "0.4", optional = true }
 
 [dev-dependencies]
 rand = "0.8"
+# ECDSA test certificates (tests/ecdsa.rs).
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+p384 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
 lopdf = { version = "0.38", default-features = false }
 pdf-writer.workspace = true
 

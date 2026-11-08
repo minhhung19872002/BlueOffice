@@ -54,6 +54,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | tauri-plugin-single-instance | 2.5.5 | Apache-2.0 OR MIT | Chuyển file/deep link sang tiến trình đang chạy |
 | tauri-plugin-updater (feature `updater`) | 2.14.1 | Apache-2.0 OR MIT | Tự cập nhật bản desktop |
 | rsa, sha2, x509-cert, cms, der, spki, const-oid (bo-sign) | 0.9.10, 0.10.9, 0.2.5, 0.2.3, 0.7.10, 0.7.3, 0.9.6 | Apache-2.0 OR MIT | Ký số PAdES / OOXML (RustCrypto) |
+| p256, p384, ecdsa, elliptic-curve, primeorder, sec1, crypto-bigint, ff, group, base16ct, rfc6979 (bo-sign) | 0.13.2, 0.13.1, 0.16.9, 0.13.8, 0.13.6, 0.7.3, 0.5.5, 0.13.1, 0.13.0, 0.2.0, 0.4.0 | Apache-2.0 OR MIT | Kiểm tra chữ ký ECDSA P-256 / P-384 (chứng thư, CRL, OCSP, CMS) |
 | base64 (bo-sign) | 0.22 | Apache-2.0 OR MIT | Mã hoá chữ ký XML-DSig |
 | ureq (bo-sign, feature `http`; kéo theo rustls, ring, webpki-roots) | 3.5.1 | MIT OR Apache-2.0 (ring: Apache-2.0 AND ISC; webpki-roots: CDLA-Permissive-2.0) | HTTP(S) tới máy chủ dấu thời gian RFC 3161 và dịch vụ ký số từ xa |
 | cryptoki (bo-sign, feature `pkcs11`, chỉ desktop) | 0.12.1 | Apache-2.0 | USB token qua PKCS#11 (FFI nằm trong crate, crate của ta vẫn `forbid(unsafe_code)`) |

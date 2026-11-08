@@ -12,7 +12,7 @@
 //! [`Signer`], a USB token or a remote service) is supplied afterwards.
 
 use crate::timestamp::{self, TimestampClient, TimestampInfo};
-use crate::{sha256, verify_rsa, HashAlg, Result, SignError, Signer};
+use crate::{sha256, verify_sig, HashAlg, Result, SignError, Signer};
 use cms::cert::{CertificateChoices, IssuerAndSerialNumber};
 use cms::content_info::{CmsVersion, ContentInfo};
 use cms::signed_data::{
@@ -342,12 +342,15 @@ pub(crate) fn verify_signed_data(cms_der: &[u8], detached: Option<&[u8]>) -> Res
         ));
     }
     // RFC 4055 §5: either `rsaEncryption` (hash from digestAlgorithm) or `shaNWithRSAEncryption`.
-    let sig_alg = if si.signature_algorithm.oid == rfc5912::RSA_ENCRYPTION {
+    // Some producers put the key algorithm (id-ecPublicKey) there instead of ecdsa-with-SHAn.
+    let sig_alg = if si.signature_algorithm.oid == rfc5912::RSA_ENCRYPTION
+        || si.signature_algorithm.oid == rfc5912::ID_EC_PUBLIC_KEY
+    {
         digest_alg
     } else {
-        HashAlg::from_rsa_signature_oid(si.signature_algorithm.oid)?
+        HashAlg::from_signature_oid(si.signature_algorithm.oid)?
     };
-    verify_rsa(
+    verify_sig(
         &cert,
         sig_alg,
         &sig_alg.digest(&attrs.to_der()?),

@@ -14,7 +14,7 @@
 //!   certificate's Authority Information Access extension (RFC 5280 §4.2.2.1).
 
 use crate::http::HttpTransport;
-use crate::{verify_rsa, HashAlg, Result, SignError};
+use crate::{verify_sig, HashAlg, Result, SignError};
 use const_oid::db::{rfc5280, rfc5912};
 use const_oid::ObjectIdentifier;
 use der::asn1::{BitString, GeneralizedTime, OctetString};
@@ -294,13 +294,13 @@ fn authorized(signer: &Certificate, issuer: &Certificate, produced: SystemTime) 
         return false;
     }
     let (Ok(alg), Ok(tbs), Some(sig)) = (
-        HashAlg::from_rsa_signature_oid(signer.signature_algorithm.oid),
+        HashAlg::from_signature_oid(signer.signature_algorithm.oid),
         signer.tbs_certificate.to_der(),
         signer.signature.as_bytes(),
     ) else {
         return false;
     };
-    verify_rsa(issuer, alg, &alg.digest(&tbs), sig).is_ok()
+    verify_sig(issuer, alg, &alg.digest(&tbs), sig).is_ok()
 }
 
 /// Does the responder named by `id` hold `cert`'s key / name (§4.2.1 ResponderID)?
@@ -331,13 +331,13 @@ pub fn status(
         .find(|s| matches(&s.cert_id, cert, issuer))?;
     let produced = data.produced_at.to_system_time();
     let tbs = data.to_der().ok()?;
-    let alg = HashAlg::from_rsa_signature_oid(resp.signature_algorithm.oid).ok()?;
+    let alg = HashAlg::from_signature_oid(resp.signature_algorithm.oid).ok()?;
     let sig = resp.signature.as_bytes()?;
     let candidates = std::iter::once(issuer).chain(resp.certs.iter().flatten());
     let signer = candidates
         .filter(|c| names(&data.responder_id, c))
         .find(|c| {
-            authorized(c, issuer, produced) && verify_rsa(c, alg, &alg.digest(&tbs), sig).is_ok()
+            authorized(c, issuer, produced) && verify_sig(c, alg, &alg.digest(&tbs), sig).is_ok()
         })?;
     let _ = signer;
     Some(Checked {

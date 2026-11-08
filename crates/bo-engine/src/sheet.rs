@@ -645,16 +645,8 @@ impl SheetEngine {
         if full_calc_on_load(&wb) {
             return self.load(wb, name);
         }
-        self.save_password = None;
-        self.macros = false;
         self.live.rebuild_from_file(&mut wb);
-        self.clip = None;
-        self.geometry = (0..wb.sheets.len()).map(|_| None).collect();
-        self.wb = Some(wb);
-        self.name = name.to_owned();
-        self.undo.clear();
-        self.redo.clear();
-        self.info()
+        self.install(wb, name)
     }
 
     /// New empty workbook with one sheet.
@@ -667,9 +659,14 @@ impl SheetEngine {
     }
 
     pub fn load(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
+        self.live.rebuild(&mut wb);
+        self.install(wb, name)
+    }
+
+    /// Makes `wb` (already calculated) the open workbook.
+    fn install(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
         self.save_password = None;
         self.macros = false;
-        self.live.rebuild(&mut wb);
         // One-cell / absolute chart anchors (§20.5.2.24, §20.5.2.1) → cells.
         for si in 0..wb.sheets.len() {
             if wb.sheets[si]

@@ -52,7 +52,8 @@ pub fn parse_auth_callback(url: &str) -> Option<String> {
         return None;
     }
     let action = rest.split(['?', '#']).next().unwrap_or("");
-    (action.trim_end_matches('/') == "auth").then(|| url.to_owned())
+    // `auth`: host sign-in (BlueDrive); `auth/oidc`: BlueOffice user sign-in.
+    matches!(action.trim_end_matches('/'), "auth" | "auth/oidc").then(|| url.to_owned())
 }
 
 /// Opens only web pages in the system browser (sign-in); anything else is refused.
@@ -233,9 +234,53 @@ pub fn normalize_server_url(value: &str) -> Option<String> {
     ok.then(|| v.to_owned())
 }
 
+/// E2E hook: `BLUEOFFICE_E2E_SAVE_DIR=<dir>` makes "Save as" write into that
+/// folder under the suggested name instead of opening the OS save dialog
+/// (which WebDriver cannot drive).
+pub const E2E_SAVE_DIR_ENV: &str = "BLUEOFFICE_E2E_SAVE_DIR";
+
+/// Target of a dialog-less save: the file name part of `suggested` inside `dir`.
+pub fn e2e_save_path(dir: &str, suggested: &str) -> Option<std::path::PathBuf> {
+    let name = Path::new(suggested.rsplit(['/', '\\']).next().unwrap_or(""))
+        .file_name()?
+        .to_owned();
+    (!dir.trim().is_empty() && name != "." && name != "..")
+        .then(|| Path::new(dir.trim()).join(name))
+}
+
+/// `BLUEOFFICE_SYSTEM_FONTS=0` keeps documents on the bundled fonts only
+/// (same rendering as the web app, used by the parity E2E).
+pub const SYSTEM_FONTS_ENV: &str = "BLUEOFFICE_SYSTEM_FONTS";
+
+/// Are installed OS fonts used (default yes)?
+pub fn system_fonts_enabled(env: Option<&str>) -> bool {
+    !matches!(
+        env.map(|v| v.trim().to_ascii_lowercase()).as_deref(),
+        Some("0" | "false" | "off" | "no")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn e2e_saves_stay_inside_the_folder() {
+        let p = e2e_save_path("C:\\out", "Báo cáo.docx").unwrap();
+        assert_eq!(p, Path::new("C:\\out").join("Báo cáo.docx"));
+        let p = e2e_save_path("/tmp/out", "../../etc/passwd").unwrap();
+        assert_eq!(p, Path::new("/tmp/out").join("passwd"));
+        assert!(e2e_save_path("/tmp/out", "..").is_none());
+        assert!(e2e_save_path(" ", "a.docx").is_none());
+    }
+
+    #[test]
+    fn system_fonts_switch() {
+        assert!(system_fonts_enabled(None));
+        assert!(system_fonts_enabled(Some("1")));
+        assert!(!system_fonts_enabled(Some("0")));
+        assert!(!system_fonts_enabled(Some(" Off")));
+    }
 
     #[test]
     fn normalizes_server_urls() {
@@ -322,6 +367,9 @@ mod tests {
         let cb = "bluedoc://auth?code=a%2Bb&state=xyz";
         assert_eq!(parse_auth_callback(cb).as_deref(), Some(cb));
         assert!(parse_auth_callback("BlueSheet://auth/?code=1").is_some());
+        // BlueOffice user sign-in (OIDC) of the desktop app.
+        assert!(parse_auth_callback("bluedoc://auth/oidc?code=1&state=s").is_some());
+        assert!(parse_auth_callback("bluedoc://auth/other?code=1").is_none());
         assert!(parse_auth_callback("bluedoc://open?host=a&file=b").is_none());
         assert!(parse_auth_callback("https://auth?code=1").is_none());
         let reqs = classify_args([cb, "--bluedoc://auth?code=2&state=s"]);

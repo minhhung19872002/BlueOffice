@@ -16,13 +16,15 @@ const exe = process.platform === 'win32' ? 'bo-cli.exe' : 'bo-cli';
 
 /** The most recently built bo-cli (a stale release build must not win). */
 function cli(): string {
+  // cargo honours CARGO_TARGET_DIR (e.g. a build directory on another drive).
+  const target = process.env.CARGO_TARGET_DIR || join(root, 'target');
   const built = ['release', 'debug']
-    .map((p) => join(root, 'target', p, exe))
+    .map((p) => join(target, p, exe))
     .filter((f) => existsSync(f))
     .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
   if (built[0]) return built[0];
   execFileSync('cargo', ['build', '-q', '-p', 'bo-cli'], { cwd: root, stdio: 'inherit' });
-  return join(root, 'target', 'debug', exe);
+  return join(target, 'debug', exe);
 }
 
 let engine: WasmEngine;

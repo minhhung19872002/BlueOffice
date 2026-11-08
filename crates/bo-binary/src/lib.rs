@@ -18,8 +18,11 @@
 #![forbid(unsafe_code)]
 
 mod bytes;
+#[cfg(test)]
+mod corpus_gen;
 pub mod doc;
 pub mod ppt;
+mod ppt_draw;
 pub mod sheet;
 pub mod vba;
 pub mod xls;
@@ -28,6 +31,9 @@ pub mod xlsb;
 
 pub use doc::{read_doc, read_doc_with, DocOptions};
 pub use ppt::{read_ppt, PptDeck, PptSlide, PptText, TextKind};
+pub use ppt_draw::{
+    preset_for, PptParagraph, PptPicture, PptPlaceholder, PptRichText, PptRun, PptShape,
+};
 pub use sheet::{Cell, CellValue, DefinedName, Workbook, Worksheet};
 pub use vba::{has_macros, read_vba_project, VbaProject};
 pub use xls::read_xls;

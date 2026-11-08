@@ -11,8 +11,8 @@
 
 use crate::numfmt::{builtin_format, format_code, Locale};
 use bo_model::sheet::{
-    Border, BorderEdge, CellAlignment, CellRange, CellStyle, CellXf, Fill, Font, SheetColor,
-    Stylesheet, Workbook, Worksheet,
+    Border, BorderEdge, CellAlignment, CellProtection, CellRange, CellStyle, CellXf, Fill, Font,
+    SheetColor, Stylesheet, Workbook, Worksheet,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -56,6 +56,10 @@ pub struct StylePatch {
     pub indent: Option<u32>,
     /// `textRotation` (0–180, 255 = vertical text).
     pub rotation: Option<u32>,
+    /// `protection/@locked` (§18.8.33): edits are refused while the sheet is protected.
+    pub locked: Option<bool>,
+    /// `protection/@hidden` (§18.8.33): the formula is not shown while protected.
+    pub formula_hidden: Option<bool>,
 }
 
 /// Which edges a border command draws.
@@ -136,6 +140,10 @@ pub struct FormatState {
     pub style_name: String,
     /// The cell is part of a merged range.
     pub merged: bool,
+    /// `protection/@locked` (§18.8.33, default true).
+    pub locked: bool,
+    /// `protection/@hidden` (§18.8.33, default false).
+    pub formula_hidden: bool,
 }
 
 /// `RRGGBB` → colour, `""` → `None`.
@@ -269,6 +277,18 @@ pub fn patched_xf(styles: &mut Stylesheet, xf: u32, patch: &StylePatch) -> u32 {
     if touches_alignment(patch) {
         x.alignment = patch_alignment(x.alignment.as_ref(), patch);
         x.apply_alignment = Some(true);
+    }
+    if patch.locked.is_some() || patch.formula_hidden.is_some() {
+        // §18.8.33 protection: `locked` defaults to true, `hidden` to false.
+        let mut p = x.protection.clone().unwrap_or_default();
+        if let Some(l) = patch.locked {
+            p.locked = (!l).then_some(false);
+        }
+        if let Some(h) = patch.formula_hidden {
+            p.hidden = h.then_some(true);
+        }
+        x.protection = (p != CellProtection::default()).then_some(p);
+        x.apply_protection = Some(true);
     }
     if x.xf_id.is_none() {
         x.xf_id = Some(0);
@@ -665,6 +685,16 @@ pub fn format_state(
             ws.merge_at(bo_model::sheet::CellRef::new(row, col))
                 .is_some()
         }),
+        locked: xf
+            .protection
+            .as_ref()
+            .and_then(|p| p.locked)
+            .unwrap_or(true),
+        formula_hidden: xf
+            .protection
+            .as_ref()
+            .and_then(|p| p.hidden)
+            .unwrap_or(false),
     }
 }
 

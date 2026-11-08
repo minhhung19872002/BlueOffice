@@ -98,6 +98,24 @@ public sealed class ApiTests : IDisposable
         Assert.Contains("https://drive.mock", res.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task AuthConfigPublishesTheWebClientOnlyWhenConfigured()
+    {
+        var none = await Client(false).GetFromJsonAsync<System.Text.Json.JsonElement>(new Uri("/api/auth/config", UriKind.Relative));
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, none.GetProperty("oidc").ValueKind);
+
+        using var app = new TestApp(settings: new()
+        {
+            ["Auth:Authority"] = "https://sso.example/realms/blueoffice",
+            ["Auth:WebClient:ClientId"] = "blueoffice-web",
+        });
+        var body = await app.CreateClient().GetFromJsonAsync<System.Text.Json.JsonElement>(new Uri("/api/auth/config", UriKind.Relative));
+        var oidc = body.GetProperty("oidc");
+        Assert.Equal("blueoffice-web", oidc.GetProperty("clientId").GetString());
+        Assert.Equal("https://sso.example/realms/blueoffice", oidc.GetProperty("authority").GetString());
+        Assert.Equal("openid profile", oidc.GetProperty("scope").GetString());
+    }
+
     private sealed record VersionDto(string Name, string Version, int Phase);
 }
 

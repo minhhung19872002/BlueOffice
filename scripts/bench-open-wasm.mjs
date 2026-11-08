@@ -44,8 +44,11 @@ for (const [i, file] of files.entries()) {
     const sheet = new mod.WasmSheet();
     for (const f of fonts) sheet.addFont(f);
     let t = performance.now();
-    sheet.open(bytes, name);
+    const cpu = process.cpuUsage();
+    sheet.open(bytes, name, undefined);
     const open = performance.now() - t;
+    // CPU time of this (single-threaded) open: stable when other processes load the machine.
+    const openCpu = process.cpuUsage(cpu).user / 1000;
     const formula = JSON.parse(sheet.cell(0, 0, 90));
     t = performance.now();
     sheet.setInputs(0, JSON.stringify([[10, 1, '123']]));
@@ -54,6 +57,7 @@ for (const [i, file] of files.entries()) {
       file: name,
       sizeMB: bytes.length / MB,
       openMs: open,
+      openCpuMs: openCpu,
       editLookupCellMs: edit,
       check: `${formula.address} ${formula.input} = ${formula.display}`,
       wasmMemoryMB: memory(),

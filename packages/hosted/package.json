@@ -16,7 +16,9 @@
     "@blueoffice/collab": "workspace:*",
     "@blueoffice/engine-wasm": "workspace:*",
     "@blueoffice/i18n": "workspace:*",
-    "@blueoffice/platform": "workspace:*"
+    "@blueoffice/platform": "workspace:*",
+    "@blueoffice/ui": "workspace:*",
+    "lucide-react": "^1.69.0"
   },
   "peerDependencies": {
     "react": "^18.3.1"

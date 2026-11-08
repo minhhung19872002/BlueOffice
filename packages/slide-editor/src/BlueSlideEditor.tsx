@@ -1,5 +1,10 @@
 import { GlyphStore, ImageStore } from '@blueoffice/canvas-host';
-import { CommandRegistry } from '@blueoffice/editor';
+import {
+  CommandRegistry,
+  MacroBanner,
+  PasswordDialog,
+  SavePasswordPanel,
+} from '@blueoffice/editor';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
   ClipboardContent,
@@ -17,7 +22,14 @@ import type {
   SlideTextEdit,
   SlideTransitionKind,
 } from '@blueoffice/platform';
-import { Ribbon, StatusBar, useResolvedTheme, type RibbonTab } from '@blueoffice/ui';
+import { PASSWORD_REQUIRED, WRONG_PASSWORD } from '@blueoffice/platform';
+import {
+  Ribbon,
+  StatusBar,
+  useResolvedTheme,
+  type RibbonTab,
+  type ThemeSetting,
+} from '@blueoffice/ui';
 import {
   AArrowDown,
   AArrowUp,
@@ -63,6 +75,7 @@ import {
   FileDown,
   FileImage,
   Files,
+  KeyRound,
   FolderOpen,
   Group,
   Highlighter,
@@ -127,6 +140,8 @@ export interface BlueSlideEditorProps {
   language?: Language;
   /** Open as the audience screen of a presenter window (channel id). */
   audience?: string;
+  /** Light, dark or follow the OS (the embedding host sets it, prompt §6A.2). */
+  theme?: ThemeSetting;
 }
 
 export type SlideView = 'normal' | 'sorter' | 'reading' | 'show' | 'presenter';
@@ -252,10 +267,10 @@ function useSize(): [(el: HTMLElement | null) => void, { width: number; height: 
   return [setEl, size];
 }
 
-function SlideEditorInner({ platform }: BlueSlideEditorProps) {
+function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideEditorProps) {
   const { t } = useTranslation();
   const engine = platform.engine;
-  const theme = useResolvedTheme('auto');
+  const theme = useResolvedTheme(themeSetting);
   const [info, setInfo] = useState<DocInfo | null>(null);
   const [fileName, setFileName] = useState('');
   const [current, setCurrent] = useState(0);
@@ -277,6 +292,14 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dropOver, setDropOver] = useState<number | null>(null);
   const [peers, setPeers] = useState<SlidePeer[]>([]);
+  /** An encrypted deck waiting for its password ([MS-OFFCRYPTO]). */
+  const [passwordPrompt, setPasswordPrompt] = useState<{
+    bytes: Uint8Array;
+    name: string;
+    wrong: boolean;
+  } | null>(null);
+  const [savePassword, setSavePassword] = useState(false);
+  const [macroBanner, setMacroBanner] = useState(false);
   const [pos, setPos] = useState<Pos>({ slide: 0, click: 0, enter: 'jump', from: null });
   const [paneOpen, setPaneOpen] = useState(false);
   const [previewToken, setPreviewToken] = useState(0);
@@ -353,16 +376,29 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   const run = useCallback((cmd: SlideCommand) => void ctrl.run(cmd), [ctrl]);
 
   const load = useCallback(
-    async (bytes: Uint8Array, name: string) => {
+    async (bytes: Uint8Array, name: string, password?: string) => {
       setStatus(t('slideEditor.loading'));
       setError('');
       await engine.init();
-      const doc = await engine.open(bytes, name);
+      let doc: DocInfo;
+      try {
+        doc = await engine.open(bytes, name, password);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes(PASSWORD_REQUIRED) || msg.includes(WRONG_PASSWORD)) {
+          setStatus('');
+          setPasswordPrompt({ bytes, name, wrong: msg.includes(WRONG_PASSWORD) });
+          return;
+        }
+        throw e;
+      }
+      setMacroBanner(!!doc.macros);
       images.clear();
       setEditing(null);
       setNotesDraft(null);
       setInfo(doc);
-      setFileName(name);
+      // .ppt / .odp decks are converted: they are saved as .pptx.
+      setFileName(doc.name || name);
       setCurrent(0);
       setRevs([]);
       setEpoch((e) => e + 1);
@@ -741,7 +777,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       shortcut: 'Ctrl+O',
       run: () =>
         guard(async () => {
-          const f = await platform.files.openFile(['.pptx']);
+          const f = await platform.files.openFile(['.pptx', '.ppt', '.odp']);
           if (f) await load(f.bytes, f.name);
         }),
     });
@@ -763,6 +799,11 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
             setStatus(t('slideEditor.saved', { name: saved }));
           }
         }),
+    });
+    reg.register({
+      id: 'file.savePassword',
+      isEnabled: deck,
+      run: () => setSavePassword(true),
     });
     reg.register({
       id: 'file.exportPdf',
@@ -1248,6 +1289,12 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
             items: [
               item('file.open', t('slideEditor.open'), <FolderOpen size={18} />),
               item('file.save', t('slideEditor.save'), <Save size={18} />),
+              item(
+                'file.savePassword',
+                t('commands.review.savePassword'),
+                <KeyRound size={16} />,
+                sm,
+              ),
               item('file.exportPdf', t('slideEditor.exportPdf'), <FileDown size={16} />, sm),
               item('file.exportPng', t('slideEditor.exportPng'), <FileImage size={16} />, sm),
               item('file.print', t('slideEditor.print'), <Printer size={16} />, sm),
@@ -1792,6 +1839,30 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
             // The pane belongs to the Transitions / Animations tabs.
             if ((v === 'transitions' || v === 'animations') && view === 'normal') setPaneOpen(true);
           }}
+        />
+      )}
+      {macroBanner && view === 'normal' && (
+        <MacroBanner inline onDismiss={() => setMacroBanner(false)} />
+      )}
+      {passwordPrompt && (
+        <PasswordDialog
+          name={passwordPrompt.name}
+          wrong={passwordPrompt.wrong}
+          onSubmit={(pw) => {
+            const p = passwordPrompt;
+            setPasswordPrompt(null);
+            void load(p.bytes, p.name, pw).catch(fail);
+          }}
+          onCancel={() => setPasswordPrompt(null)}
+        />
+      )}
+      {savePassword && (
+        <SavePasswordPanel
+          onSet={(password) => {
+            run({ cmd: 'setSavePassword', password });
+            setStatus(password ? t('security.passwordSet') : t('security.passwordRemoved'));
+          }}
+          onClose={() => setSavePassword(false)}
         />
       )}
       {view === 'normal' && (

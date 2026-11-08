@@ -155,6 +155,15 @@
   overflow: visible;
 }
 
+/* Other ranges of a Ctrl multi-range selection. */
+.selectionExtra {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid var(--bo-sheet-accent, #1f7a4d);
+  background: color-mix(in srgb, var(--bo-sheet-accent, #1f7a4d) 16%, transparent);
+  box-sizing: border-box;
+}
+
 .selectionPainter {
   position: absolute;
   pointer-events: none;

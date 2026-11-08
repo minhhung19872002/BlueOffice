@@ -94,4 +94,35 @@ describe('view-mode guard', () => {
     expect(sheet.calls).toEqual(['exec:find']);
     await expect(g.sheet!.save('xlsx', 0)).resolves.toEqual(new Uint8Array([2]));
   });
+
+  it('comment mode runs only comment commands; the host cap limits the server mode', async () => {
+    const { p, engine, sheet } = platform();
+    // The user may edit, but the host opened the file with `mode: 'comment'`.
+    const mode = new SessionMode('edit', 'comment');
+    expect(mode.value).toBe('comment');
+    expect(mode.editable).toBe(false);
+    expect(mode.canComment).toBe(true);
+    const g = guardPlatform(p, mode);
+    await g.engine.command({ cmd: 'insertText', text: 'a' });
+    await g.engine.command({ cmd: 'addComment', text: 'Xem lại số liệu' });
+    await g.engine.command({ cmd: 'replyComment', id: 1, text: 'Đã sửa' });
+    await g.engine.command({ cmd: 'resolveComment', id: 1, done: true });
+    await g.engine.command({ cmd: 'deleteComment', id: 1 });
+    expect(engine.calls).toEqual([
+      'state',
+      'addComment',
+      'replyComment',
+      'resolveComment',
+      'deleteComment',
+    ]);
+    await g.sheet!.setInputs(0, [[0, 0, '1']]);
+    expect(sheet.calls).toEqual([]);
+    // `mode-changed` back to edit never goes above the cap; a downgrade applies.
+    mode.set('edit');
+    expect(mode.value).toBe('comment');
+    mode.set('view');
+    expect(mode.value).toBe('view');
+    await g.engine.command({ cmd: 'addComment', text: 'x' });
+    expect(engine.calls.at(-1)).toBe('state');
+  });
 });

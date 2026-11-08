@@ -895,6 +895,39 @@
         "M10": "October",
         "M11": "November",
         "M12": "December"
+        }
+      },
+    "tabColorNone": "No colour",
+    "protection": {
+      "group": "Protect",
+      "protectSheet": "Protect sheet",
+      "unprotectSheet": "Unprotect sheet",
+      "protectWorkbook": "Protect workbook",
+      "unprotectWorkbook": "Unprotect workbook",
+      "lockCell": "Lock cell",
+      "sheetTitle": "Protect sheet and contents of locked cells",
+      "workbookTitle": "Protect workbook structure",
+      "password": "Password (optional)",
+      "confirm": "Re-enter password",
+      "allow": "Allow all users of this sheet to:",
+      "refused": "This cell or action is protected. Unprotect the sheet to change it.",
+      "workbookRefused": "The workbook structure is protected (add, delete, rename, move sheets).",
+      "wrongPassword": "The protection password is incorrect.",
+      "protectedSheet": "Protected sheet",
+      "opt": {
+        "selectLockedCells": "Select locked cells",
+        "selectUnlockedCells": "Select unlocked cells",
+        "formatCells": "Format cells",
+        "formatColumns": "Format columns",
+        "formatRows": "Format rows",
+        "insertColumns": "Insert columns",
+        "insertRows": "Insert rows",
+        "deleteColumns": "Delete columns",
+        "deleteRows": "Delete rows",
+        "sort": "Sort",
+        "autoFilter": "Use AutoFilter",
+        "pivotTables": "Use pivot tables",
+        "objects": "Edit objects (charts)"
       }
     }
   },
@@ -1261,7 +1294,9 @@
     "confirm": "Confirm password",
     "mismatch": "Passwords do not match",
     "set": "Set",
-    "protected": "Password protected"
+    "protected": "Password protected",
+    "passwordSet": "Will be saved with a password",
+    "passwordRemoved": "Will be saved without a password"
   },
   "collab": {
     "editing": "{{name}} is editing",
@@ -1421,7 +1456,12 @@
     "offlineCopy": "Editing the copy saved on this computer offline — changes sync when the file is opened online again",
     "syncedOffline": "Offline changes were synced to BlueDrive (version {{version}})",
     "conflictCopy": "The file changed while you were offline — your changes were saved as “{{name}}”",
-    "signInAgain": "Could not open the file — sign in to BlueDrive again"
+    "signInAgain": "Could not open the file — sign in to BlueDrive again",
+    "back": "Back",
+    "share": "Share",
+    "close": "Close",
+    "unsaved": "Unsaved changes",
+    "closed": "The document was closed"
   },
   "startScreen": {
     "title": "Start",
@@ -1469,6 +1509,12 @@
     "syncPromptBody": "“{{name}}” is in a BlueDrive sync folder. Switch to online collaboration to edit it together with others and save straight to BlueDrive?",
     "syncPromptOnline": "Collaborate online",
     "syncPromptLocal": "Keep editing on this computer"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "account": "Signed in as {{name}}",
+    "signInFailed": "Could not sign in: {{message}}"
   },
   "picture": {
     "position": "Picture position",

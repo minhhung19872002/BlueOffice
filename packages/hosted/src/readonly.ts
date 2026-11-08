@@ -41,6 +41,18 @@ export const DOC_READ_COMMANDS: ReadonlySet<string> = new Set([
   'cancelFormat',
 ]);
 
+/**
+ * BlueDoc commands allowed in comment mode (prompt §6A.2 `mode: 'comment'`):
+ * reviewers add, answer, resolve and delete comments but cannot change the text.
+ */
+export const DOC_COMMENT_COMMANDS: ReadonlySet<string> = new Set([
+  'addComment',
+  'replyComment',
+  'resolveComment',
+  'deleteComment',
+  'setAuthor',
+]);
+
 /** BlueSlide commands that do not change the presentation. */
 export const SLIDE_READ_COMMANDS: ReadonlySet<string> = new Set([
   'state',
@@ -81,14 +93,21 @@ export const SHEET_READ_COMMANDS: ReadonlySet<string> = new Set([
 
 export const READ_ONLY_ERROR = 'session.readOnly';
 
-/** Wraps the platform's engines so that edits are ignored while `mode` is not editable. */
+/**
+ * Wraps the platform's engines so that edits are ignored while `mode` is not
+ * editable; in comment mode BlueDoc's comment commands still run.
+ */
 export function guardPlatform(p: Platform, mode: SessionMode): Platform {
   const engine = p.engine;
   const docState = () => engine.command({ cmd: 'state' });
   const slideState = () => engine.slideCommand({ cmd: 'state' });
   const guardedEngine = overlay(engine, {
     command: (cmd: TimedCommand): Promise<EditResult> =>
-      mode.editable || DOC_READ_COMMANDS.has(cmd.cmd) ? engine.command(cmd) : docState(),
+      mode.editable ||
+      DOC_READ_COMMANDS.has(cmd.cmd) ||
+      (mode.canComment && DOC_COMMENT_COMMANDS.has(cmd.cmd))
+        ? engine.command(cmd)
+        : docState(),
     insertImage: (bytes: Uint8Array, name: string): Promise<EditResult> =>
       mode.editable ? engine.insertImage(bytes, name) : docState(),
     slideCommand: (cmd: SlideCommand): Promise<SlideEditResult> =>

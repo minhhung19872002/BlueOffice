@@ -1,7 +1,7 @@
 //! `.ods` spreadsheet cells (ODF 1.3 Part 3, §9.1 Tables, §19.385 office:value-type).
 
 use crate::dom::{self, escape, Element, Node};
-use crate::ns::{OFFICE, TABLE, TEXT};
+use crate::ns::{FO, OFFICE, STYLE, TABLE, TEXT};
 use crate::odt_write::XMLNS;
 use crate::package::{meta_xml, OdfPackage};
 use crate::{OdfError, Result, MIME_ODS};
@@ -19,6 +19,31 @@ const MAX_CELLS: usize = 2_000_000;
 pub struct SpreadsheetDoc {
     /// Sheets in document order.
     pub sheets: Vec<Sheet>,
+    /// Automatic cell styles (`style:style` of family `table-cell`, §16.2).
+    pub styles: Vec<CellStyle>,
+}
+
+/// Formatting of a cell style: §20.183 `fo:font-weight`, §20.181
+/// `fo:font-style`, §20.380 `style:text-underline-style`, §20.179
+/// `fo:font-size`, §20.174 `fo:color`, §20.175 `fo:font-family`,
+/// §20.175 `fo:background-color` (table-cell properties), §20.216
+/// `fo:text-align`, §20.396 `fo:wrap-option`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CellStyle {
+    pub name: String,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub font: Option<String>,
+    /// Points.
+    pub size: Option<f64>,
+    /// `RRGGBB`.
+    pub color: Option<String>,
+    /// `RRGGBB`.
+    pub background: Option<String>,
+    /// `start`, `center`, `end`, `justify`.
+    pub align: Option<String>,
+    pub wrap: bool,
 }
 
 /// One `table:table`.
@@ -41,6 +66,8 @@ pub struct Cell {
     pub value: CellValue,
     /// `table:formula` verbatim, including the namespace prefix (e.g. `of:=SUM([.A1:.A3])`).
     pub formula: Option<String>,
+    /// `table:style-name` (§19.726), a [`CellStyle::name`].
+    pub style: Option<String>,
 }
 
 /// Cell value by `office:value-type` (§19.385).
@@ -217,12 +244,13 @@ impl TableReader {
             let creps = repeat(c, "number-columns-repeated");
             if let Some(v) = cell_value(c) {
                 let formula = c.attr(TABLE, "formula").map(str::to_owned);
+                let style = c.attr(TABLE, "style-name").map(str::to_owned);
                 for k in 0..creps {
                     let cc = col.saturating_add(k);
                     if cc >= MAX_COLS {
                         break;
                     }
-                    row_cells.push((cc, v.clone(), formula.clone()));
+                    row_cells.push((cc, v.clone(), formula.clone(), style.clone()));
                     if row_cells.len() > MAX_CELLS {
                         return Err(OdfError::LimitExceeded("too many cells".into()));
                     }
@@ -241,12 +269,13 @@ impl TableReader {
             if self.cells.len() + row_cells.len() > MAX_CELLS {
                 return Err(OdfError::LimitExceeded("too many cells".into()));
             }
-            for (c, v, f) in &row_cells {
+            for (c, v, f, st) in &row_cells {
                 self.cells.push(Cell {
                     row: self.row,
                     col: *c,
                     value: v.clone(),
                     formula: f.clone(),
+                    style: st.clone(),
                 });
             }
             if self.cells.len() > MAX_CELLS {
@@ -268,6 +297,13 @@ pub fn read_ods(bytes: &[u8]) -> Result<SpreadsheetDoc> {
         .and_then(|b| b.child(OFFICE, "spreadsheet"))
         .ok_or_else(|| OdfError::Missing("office:body/office:spreadsheet".into()))?;
     let mut doc = SpreadsheetDoc::default();
+    if let Some(auto) = content.child(OFFICE, "automatic-styles") {
+        for st in auto.children_named(STYLE, "style") {
+            if st.attr(STYLE, "family") == Some("table-cell") {
+                doc.styles.push(read_cell_style(st));
+            }
+        }
+    }
     for t in ss.children_named(TABLE, "table") {
         let mut r = TableReader {
             row: 0,
@@ -280,6 +316,91 @@ pub fn read_ods(bytes: &[u8]) -> Result<SpreadsheetDoc> {
         });
     }
     Ok(doc)
+}
+
+fn hex_color(v: Option<&str>) -> Option<String> {
+    let h = v?.trim().strip_prefix('#')?;
+    (h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit())).then(|| h.to_ascii_uppercase())
+}
+
+fn read_cell_style(st: &Element) -> CellStyle {
+    let mut cs = CellStyle {
+        name: st.attr(STYLE, "name").unwrap_or_default().to_owned(),
+        ..CellStyle::default()
+    };
+    for e in st.elements() {
+        if e.is(STYLE, "text-properties") {
+            cs.bold = e.attr(FO, "font-weight") == Some("bold");
+            cs.italic = e.attr(FO, "font-style") == Some("italic");
+            cs.underline = e
+                .attr(STYLE, "text-underline-style")
+                .is_some_and(|u| u != "none");
+            cs.font = e
+                .attr(STYLE, "font-name")
+                .or_else(|| e.attr(FO, "font-family"))
+                .map(|f| f.trim_matches(['\'', '"']).to_owned());
+            cs.size = e
+                .attr(FO, "font-size")
+                .and_then(crate::units::parse_length)
+                .map(|t| f64::from(t.0) / 20.0);
+            cs.color = hex_color(e.attr(FO, "color"));
+        } else if e.is(STYLE, "table-cell-properties") {
+            cs.background = hex_color(e.attr(FO, "background-color"));
+            cs.wrap = e.attr(FO, "wrap-option") == Some("wrap");
+        } else if e.is(STYLE, "paragraph-properties") {
+            cs.align = e.attr(FO, "text-align").map(str::to_owned);
+        }
+    }
+    cs
+}
+
+fn write_cell_style(out: &mut String, cs: &CellStyle) {
+    out.push_str(&format!(
+        r#"<style:style style:name="{}" style:family="table-cell">"#,
+        escape(&cs.name)
+    ));
+    if cs.background.is_some() || cs.wrap {
+        out.push_str("<style:table-cell-properties");
+        if let Some(b) = &cs.background {
+            out.push_str(&format!(r##" fo:background-color="#{}""##, escape(b)));
+        }
+        if cs.wrap {
+            out.push_str(r#" fo:wrap-option="wrap""#);
+        }
+        out.push_str("/>");
+    }
+    if let Some(a) = &cs.align {
+        out.push_str(&format!(
+            r#"<style:paragraph-properties fo:text-align="{}"/>"#,
+            escape(a)
+        ));
+    }
+    let mut t = String::new();
+    if cs.bold {
+        t.push_str(r#" fo:font-weight="bold""#);
+    }
+    if cs.italic {
+        t.push_str(r#" fo:font-style="italic""#);
+    }
+    if cs.underline {
+        t.push_str(r#" style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color""#);
+    }
+    if let Some(f) = &cs.font {
+        t.push_str(&format!(r#" fo:font-family="{}""#, escape(f)));
+    }
+    if let Some(sz) = cs.size {
+        t.push_str(&format!(
+            r#" fo:font-size="{}pt""#,
+            crate::units::fmt_num(sz, 2)
+        ));
+    }
+    if let Some(c) = &cs.color {
+        t.push_str(&format!(r##" fo:color="#{}""##, escape(c)));
+    }
+    if !t.is_empty() {
+        out.push_str(&format!("<style:text-properties{t}/>"));
+    }
+    out.push_str("</style:style>");
 }
 
 /// xsd:double lexical form.
@@ -295,6 +416,9 @@ fn fmt_double(v: f64) -> String {
 
 fn write_cell(out: &mut String, c: &Cell) {
     out.push_str("<table:table-cell");
+    if let Some(st) = &c.style {
+        out.push_str(&format!(r#" table:style-name="{}""#, escape(st)));
+    }
     if let Some(f) = &c.formula {
         out.push_str(&format!(r#" table:formula="{}""#, escape(f)));
     }
@@ -396,9 +520,16 @@ pub(crate) fn write_text(out: &mut String, s: &str) {
 
 /// Serialize as an `.ods` package.
 pub fn write_ods(doc: &SpreadsheetDoc) -> Result<Vec<u8>> {
-    let mut content = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content {XMLNS}><office:body><office:spreadsheet>"
-    );
+    let mut content =
+        format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content {XMLNS}>");
+    if !doc.styles.is_empty() {
+        content.push_str("<office:automatic-styles>");
+        for cs in &doc.styles {
+            write_cell_style(&mut content, cs);
+        }
+        content.push_str("</office:automatic-styles>");
+    }
+    content.push_str("<office:body><office:spreadsheet>");
     for sheet in &doc.sheets {
         content.push_str(&format!(
             r#"<table:table table:name="{}">"#,
@@ -475,6 +606,7 @@ mod tests {
             col,
             value,
             formula: formula.map(str::to_owned),
+            style: (row == 0).then(|| "ce1".to_owned()),
         };
         SpreadsheetDoc {
             sheets: vec![
@@ -518,6 +650,18 @@ mod tests {
                     cells: vec![],
                 },
             ],
+            styles: vec![CellStyle {
+                name: "ce1".into(),
+                bold: true,
+                italic: true,
+                underline: true,
+                font: Some("Liberation Sans".into()),
+                size: Some(12.5),
+                color: Some("C00000".into()),
+                background: Some("FFF2CC".into()),
+                align: Some("center".into()),
+                wrap: true,
+            }],
         }
     }
 

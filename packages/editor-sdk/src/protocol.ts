@@ -8,9 +8,15 @@ export type EditorMode = 'edit' | 'view' | 'comment';
 export type EditorTheme = 'light' | 'dark' | 'auto';
 export type EditorLang = 'vi-VN' | 'en-US';
 
+/** Host chrome shown above the editor (prompt §3.5, §6A.2). */
 export interface EditorUiOptions {
+  /** "Chia sẻ" button → `share-requested` event (the host shows its own sharing UI). */
   showShare?: boolean;
+  /** Close button → the editor saves pending changes, leaves the session, then `closed` `{ reason: 'close' }`. */
   showClose?: boolean;
+  /** Back button → same as close with `{ reason: 'back' }` (the host navigates back). */
+  showBack?: boolean;
+  /** Host name shown before the app name, e.g. "BlueDrive". */
   brandName?: string;
 }
 
@@ -18,6 +24,25 @@ export type EditorEvent =
   'ready' | 'saved' | 'dirty' | 'closed' | 'share-requested' | 'error' | 'collaborators-changed';
 
 export type EditorCommand = 'save' | 'print' | 'export-pdf' | 'close';
+
+/** Payload of `dirty`: the document has (or no longer has) unsaved local changes. */
+export interface DirtyPayload {
+  dirty: boolean;
+}
+
+/** Payload of `closed`: what closed the editor. */
+export interface ClosedPayload {
+  reason: 'close' | 'back' | 'command';
+  /** Pending changes were saved as a new host version before closing. */
+  saved: boolean;
+}
+
+/** Payload of `error`. */
+export interface ErrorPayload {
+  /** `open-failed`, `save-failed`, `revoked`, `expired`, … */
+  code: string;
+  message: string;
+}
 
 /** Sent by the host once the editor announces `hello`; carries the token. */
 export interface InitPayload {

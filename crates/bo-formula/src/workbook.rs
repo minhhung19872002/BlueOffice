@@ -320,6 +320,97 @@ impl Workbook {
         self.after_edit(id);
     }
 
+    /// Bulk loading (opening a file): a formula whose result may already be known.
+    ///
+    /// With `cached: Some(v)` the cell takes `v` (the value saved with the file,
+    /// ECMA-376 Part 1, §18.3.1.96 `v`) and is *not* marked for calculation, so
+    /// [`Workbook::recalculate`] only evaluates formulas without a cached value,
+    /// volatile formulas and their dependents. `cached: None` behaves like
+    /// [`Workbook::set_formula`]. The formula text is stored as given (no
+    /// re-formatting of the parsed expression).
+    pub fn load_formula(
+        &mut self,
+        sheet: usize,
+        row: u32,
+        col: u32,
+        formula: &str,
+        cached: Option<Value>,
+    ) -> Result<(), ParseError> {
+        if sheet >= self.sheets.len() {
+            return Ok(());
+        }
+        let opts = ParseOptions {
+            origin_row: row,
+            origin_col: col,
+            ..ParseOptions::default()
+        };
+        let expr = parse_with(formula, &opts)?;
+        let text = if formula.starts_with('=') {
+            formula.to_owned()
+        } else {
+            format!("={formula}")
+        };
+        let id = CellId::new(sheet, row, col);
+        if self.sheets[sheet].cells.contains_key(&(row, col)) {
+            self.remove_formula(id);
+        }
+        let (areas, volatile) = self.collect_deps(&expr, id);
+        self.register(id, areas);
+        if volatile {
+            self.volatile.insert(id);
+        }
+        let known = cached.is_some();
+        self.sheets[sheet].cells.insert(
+            (row, col),
+            CellData {
+                formula: Some(Arc::new(Formula { expr, text })),
+                value: cached.unwrap_or_default(),
+            },
+        );
+        self.touch(id);
+        if !known {
+            self.after_edit(id);
+        }
+        Ok(())
+    }
+
+    /// Bulk loading: a constant cell. Unlike [`Workbook::set_value`] it does not
+    /// mark the cell as edited (formulas reading it carry their own cached value
+    /// or are marked by [`Workbook::load_formula`]).
+    pub fn load_value(&mut self, sheet: usize, row: u32, col: u32, value: impl Into<Value>) {
+        let value = value.into();
+        let Some(s) = self.sheets.get_mut(sheet) else {
+            return;
+        };
+        if matches!(value, Value::Empty) || s.cells.contains_key(&(row, col)) {
+            self.set_value(sheet, row, col, value);
+            return;
+        }
+        s.cells.insert(
+            (row, col),
+            CellData {
+                formula: None,
+                value,
+            },
+        );
+        self.touch(CellId::new(sheet, row, col));
+    }
+
+    /// Bulk loading: a hidden row, without marking every formula for
+    /// calculation (cached `SUBTOTAL` results already account for it).
+    pub fn load_row_hidden(&mut self, sheet: usize, row: u32) {
+        if let Some(s) = self.sheets.get_mut(sheet) {
+            s.hidden_rows.insert(row);
+        }
+    }
+
+    /// Reserve room for `additional` cells of `sheet` (bulk loading).
+    pub fn reserve_cells(&mut self, sheet: usize, additional: usize) {
+        if let Some(s) = self.sheets.get_mut(sheet) {
+            s.cells.reserve(additional);
+        }
+    }
+
     /// Set a cell from user input: `=...` is a formula, numbers/booleans/error
     /// literals are parsed, empty clears, anything else is text.
     pub fn set_input(

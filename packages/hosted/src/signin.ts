@@ -4,6 +4,7 @@
  * provider redirects to the app's deep link (`bluedoc://auth?code=…&state=…`).
  * The resulting access token is the user's host token for BOHP.
  */
+import { pkceChallenge, randomToken } from '@blueoffice/platform';
 import type { DriveSignIn } from './drive';
 import type { FetchLike } from './session';
 
@@ -15,19 +16,9 @@ export interface PendingSignIn {
   redirectUri: string;
 }
 
-const b64url = (bytes: Uint8Array): string => {
-  let s = '';
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-};
-
-const random = (n: number): string => b64url(crypto.getRandomValues(new Uint8Array(n)));
-
-/** `BASE64URL(SHA256(verifier))` (RFC 7636 §4.2). */
-export async function pkceChallenge(verifier: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-  return b64url(new Uint8Array(digest));
-}
+// PKCE helpers are shared with the web client's OIDC sign-in (`@blueoffice/platform`).
+export { pkceChallenge };
+const random = (n: number): string => randomToken(n);
 
 /** Builds the authorization URL; `loginHint` pre-selects the account. */
 export async function beginSignIn(

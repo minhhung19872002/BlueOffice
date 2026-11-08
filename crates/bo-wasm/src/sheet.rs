@@ -47,9 +47,24 @@ impl WasmSheet {
         self.inner.set_locale(tag);
     }
 
-    /// Opens `.xlsx`/`.csv`; returns `WorkbookInfo` JSON.
-    pub fn open(&mut self, bytes: &[u8], name: &str) -> Result<String, JsError> {
-        Ok(json(&self.inner.open(bytes, name).map_err(err)?))
+    /// Opens a workbook (decrypting it with `password` when it is protected,
+    /// [MS-OFFCRYPTO]); returns `WorkbookInfo` JSON. Errors `password required` /
+    /// `wrong password` ask for one.
+    // wasm-bindgen passes optional strings by value.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn open(
+        &mut self,
+        bytes: &[u8],
+        name: &str,
+        password: Option<String>,
+    ) -> Result<String, JsError> {
+        crate::reserve_heap(bytes.len());
+        Ok(json(
+            &self
+                .inner
+                .open_with_password(bytes, name, password.as_deref())
+                .map_err(err)?,
+        ))
     }
 
     /// Opens a new empty workbook (one sheet) under the document name `name`; returns its info as JSON.

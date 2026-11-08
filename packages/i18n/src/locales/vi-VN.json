@@ -895,6 +895,39 @@
         "M10": "Tháng 10",
         "M11": "Tháng 11",
         "M12": "Tháng 12"
+        }
+      },
+    "tabColorNone": "Không màu",
+    "protection": {
+      "group": "Bảo vệ",
+      "protectSheet": "Bảo vệ trang tính",
+      "unprotectSheet": "Bỏ bảo vệ trang tính",
+      "protectWorkbook": "Bảo vệ sổ tính",
+      "unprotectWorkbook": "Bỏ bảo vệ sổ tính",
+      "lockCell": "Khoá ô",
+      "sheetTitle": "Bảo vệ trang tính và nội dung ô bị khoá",
+      "workbookTitle": "Bảo vệ cấu trúc sổ tính",
+      "password": "Mật khẩu (không bắt buộc)",
+      "confirm": "Nhập lại mật khẩu",
+      "allow": "Cho phép mọi người dùng:",
+      "refused": "Ô hoặc thao tác này đang được bảo vệ. Bỏ bảo vệ trang tính để sửa.",
+      "workbookRefused": "Cấu trúc sổ tính đang được bảo vệ (thêm, xoá, đổi tên, di chuyển trang tính).",
+      "wrongPassword": "Mật khẩu bảo vệ không đúng.",
+      "protectedSheet": "Trang tính được bảo vệ",
+      "opt": {
+        "selectLockedCells": "Chọn ô bị khoá",
+        "selectUnlockedCells": "Chọn ô không khoá",
+        "formatCells": "Định dạng ô",
+        "formatColumns": "Định dạng cột",
+        "formatRows": "Định dạng hàng",
+        "insertColumns": "Chèn cột",
+        "insertRows": "Chèn hàng",
+        "deleteColumns": "Xoá cột",
+        "deleteRows": "Xoá hàng",
+        "sort": "Sắp xếp",
+        "autoFilter": "Dùng Lọc tự động",
+        "pivotTables": "Dùng bảng tổng hợp",
+        "objects": "Sửa đối tượng (biểu đồ)"
       }
     }
   },
@@ -1261,7 +1294,9 @@
     "confirm": "Nhập lại mật khẩu",
     "mismatch": "Mật khẩu không khớp",
     "set": "Đặt",
-    "protected": "Có mật khẩu"
+    "protected": "Có mật khẩu",
+    "passwordSet": "Sẽ lưu kèm mật khẩu",
+    "passwordRemoved": "Sẽ lưu không có mật khẩu"
   },
   "collab": {
     "editing": "{{name}} đang sửa",
@@ -1421,7 +1456,12 @@
     "offlineCopy": "Đang sửa ngoại tuyến bản lưu trên máy — thay đổi được đồng bộ khi mở lại tệp lúc có mạng",
     "syncedOffline": "Đã đồng bộ thay đổi ngoại tuyến lên BlueDrive (phiên bản {{version}})",
     "conflictCopy": "Tệp đã được sửa trong lúc bạn ngoại tuyến — thay đổi của bạn được lưu thành “{{name}}”",
-    "signInAgain": "Không mở được tệp — hãy đăng nhập lại BlueDrive"
+    "signInAgain": "Không mở được tệp — hãy đăng nhập lại BlueDrive",
+    "back": "Quay lại",
+    "share": "Chia sẻ",
+    "close": "Đóng",
+    "unsaved": "Có thay đổi chưa lưu",
+    "closed": "Đã đóng tài liệu"
   },
   "startScreen": {
     "title": "Bắt đầu",
@@ -1469,6 +1509,12 @@
     "syncPromptBody": "“{{name}}” nằm trong thư mục đồng bộ BlueDrive. Chuyển sang cộng tác trực tuyến để sửa cùng người khác và lưu thẳng lên BlueDrive?",
     "syncPromptOnline": "Cộng tác trực tuyến",
     "syncPromptLocal": "Tiếp tục sửa trên máy"
+  },
+  "auth": {
+    "signIn": "Đăng nhập",
+    "signOut": "Đăng xuất",
+    "account": "Đã đăng nhập: {{name}}",
+    "signInFailed": "Không đăng nhập được: {{message}}"
   },
   "picture": {
     "position": "Vị trí ảnh",

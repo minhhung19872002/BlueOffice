@@ -64,6 +64,28 @@ export function PasswordDialog({
   );
 }
 
+/**
+ * Warning shown when a file carries macros ([MS-OVBA] VBA project, XLM macro
+ * sheets): they are kept when saving but never run. `inline` places it in the
+ * page flow (BlueSheet / BlueSlide) instead of over the document view.
+ */
+export function MacroBanner({ onDismiss, inline }: { onDismiss: () => void; inline?: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className={styles.macroBar}
+      style={inline ? { position: 'relative' } : undefined}
+      role="status"
+      data-testid="macro-warning"
+    >
+      <span>{t('security.macroWarning')}</span>
+      <button type="button" onClick={onDismiss}>
+        {t('security.dismiss')}
+      </button>
+    </div>
+  );
+}
+
 /** "Save with password": new password twice; empty removes the protection. */
 export function SavePasswordPanel({
   onSet,

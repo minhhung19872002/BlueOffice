@@ -395,7 +395,7 @@ describe('BlueSlideEditor', () => {
     const { p, engine, saved } = fakePlatform();
     render(<BlueSlideEditor platform={p} language="vi-VN" />);
     await openDeck(p);
-    expect(engine.open).toHaveBeenCalledWith(expect.any(Uint8Array), 'Báo cáo.pptx');
+    expect(engine.open).toHaveBeenCalledWith(expect.any(Uint8Array), 'Báo cáo.pptx', undefined);
     expect(screen.getAllByRole('img', { name: /Slide \d \/ 3/ }).length).toBeGreaterThanOrEqual(3);
     fireEvent.keyDown(window, { key: 'ArrowDown' });
     await screen.findByDisplayValue('Ghi chú 2');

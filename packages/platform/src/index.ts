@@ -10,3 +10,19 @@ export {
   mimeFor,
 } from './shared';
 export * from './sheet';
+export {
+  OidcSession,
+  fetchOidcConfig,
+  jwtClaims,
+  pkceChallenge,
+  randomToken,
+  resolveOidcEndpoints,
+} from './oidc';
+export type {
+  KeyValueStore,
+  OidcClientConfig,
+  OidcEndpoints,
+  OidcFetch,
+  OidcResponse,
+  OidcSessionOptions,
+} from './oidc';

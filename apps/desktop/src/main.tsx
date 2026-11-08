@@ -184,7 +184,7 @@ async function loadSettings(): Promise<void> {
 }
 
 function showStart(): void {
-  current?.close();
+  void current?.close();
   current = null;
   view = 'start';
   void loadSettings();
@@ -238,6 +238,8 @@ async function pickLocal(): Promise<void> {
     '.ods',
     '.csv',
     '.pptx',
+    '.ppt',
+    '.odp',
   ]);
   if (f) await openLocal(f);
 }
@@ -277,7 +279,7 @@ async function openHostFile(ref: HostFileRef, name: string): Promise<void> {
   // Result of syncing an earlier offline save, shown once the file is open.
   let synced: string | undefined;
   try {
-    current?.close();
+    void current?.close();
     const h = await openHosted({
       platform,
       api: srv,

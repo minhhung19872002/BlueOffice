@@ -19,13 +19,14 @@ bo-xlsx.workspace = true
 bo-binary = { path = "../bo-binary" }
 bo-odf = { path = "../bo-odf" }
 bo-crypto = { path = "../bo-crypto" }
-bo-sign = { path = "../bo-sign" }
+bo-sign = { path = "../bo-sign", features = ["http", "pkcs12"] }
+serde_json.workspace = true
 bo-pptx = { path = "../bo-pptx" }
 clap.workspace = true
 png.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
+rand = "0.8"
 
 [lints]
 workspace = true

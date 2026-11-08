@@ -82,6 +82,11 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses bans sources
+      # The release desktop build enables the updater (reqwest, rustls, minisign-verify, …).
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          arguments: --features bo-desktop/updater
+          command: check licenses bans sources
 
   web:
     name: Web (lint, typecheck, unit, build, E2E)

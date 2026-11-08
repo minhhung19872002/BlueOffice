@@ -52,7 +52,8 @@
       "merge": "Merge",
       "tableStyle": "Table style",
       "headerFooter": "Header & footer",
-      "footnotes": "Notes"
+      "footnotes": "Notes",
+      "arrange": "Arrange"
     },
     "comingLater": "Coming in a later release"
   },
@@ -186,7 +187,12 @@
       "bordersNone": "No borders",
       "shading": "Cell shading",
       "headerRow": "Repeat header row",
-      "properties": "Table properties…"
+      "properties": "Table properties…",
+      "insertCell": "Insert cell (shift right)",
+      "deleteCell": "Delete cell (shift left)"
+    },
+    "picture": {
+      "position": "Picture position"
     }
   },
   "status": {
@@ -1007,7 +1013,18 @@
       "rowDelete": "Row deleted",
       "cellFormat": "Cell formatted",
       "tableFormat": "Table formatted",
-      "sectionFormat": "Page setup changed"
+      "sectionFormat": "Page setup changed",
+      "cellInsert": "Inserted cells",
+      "cellDelete": "Deleted cells",
+      "cellMerge": "Merged/split cells",
+      "rowFormat": "Row properties",
+      "tableGrid": "Column widths"
+    },
+    "story": {
+      "header": "Header",
+      "footer": "Footer",
+      "footnote": "Footnote",
+      "endnote": "Endnote"
     }
   },
   "comments": {
@@ -1221,5 +1238,10 @@
     "opening": "Opening {{name}}…",
     "openFailed": "Could not open the file: {{message}}",
     "noServer": "No BlueOffice server is configured (BLUEOFFICE_SERVER)"
+  },
+  "picture": {
+    "position": "Picture position",
+    "horizontal": "Horizontal",
+    "vertical": "Vertical"
   }
 }

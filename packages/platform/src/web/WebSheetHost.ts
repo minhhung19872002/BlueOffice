@@ -1,4 +1,4 @@
-import { RpcSheetHost, type SheetMethod } from '../sheet';
+import { RpcSheetHost, type SheetMethod, type SheetRpc } from '../sheet';
 import type { FontSource } from '../types';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
@@ -8,9 +8,19 @@ type Reply = { id: number; ok: true; result: unknown } | { id: number; ok: false
 export function createWebSheetHost(
   fonts: FontSource,
   locale: () => string = () => 'vi-VN',
+  createWorker?: () => Worker,
+): RpcSheetHost {
+  const t = webSheetTransport(fonts, locale, createWorker);
+  return new RpcSheetHost(t.rpc, t.init);
+}
+
+/** Transport to the WASM sheet worker (also the desktop fallback engine). */
+export function webSheetTransport(
+  fonts: FontSource,
+  locale: () => string = () => 'vi-VN',
   createWorker: () => Worker = () =>
     new Worker(new URL('./sheet.worker.ts', import.meta.url), { type: 'module' }),
-): RpcSheetHost {
+): { rpc: SheetRpc; init: () => Promise<void> } {
   let worker: Worker | null = null;
   let seq = 0;
   const pending = new Map<number, Pending>();
@@ -52,5 +62,5 @@ export function createWebSheetHost(
     return ready;
   };
 
-  return new RpcSheetHost((method: SheetMethod, args: unknown[]) => post({ method, args }), init);
+  return { rpc: (method: SheetMethod, args: unknown[]) => post({ method, args }), init };
 }

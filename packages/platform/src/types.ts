@@ -1158,6 +1158,23 @@ export interface ShellIntegration {
   onAuthCallback?(handler: (url: string) => void): () => void;
 }
 
+/** Result of an update check (desktop auto-update, Tauri updater). */
+export type UpdateStatus =
+  /** This build has no updater (dev builds, web). */
+  | { state: 'disabled' }
+  /** No signing key / endpoint configured in the release config. */
+  | { state: 'notConfigured' }
+  | { state: 'upToDate'; current: string }
+  | { state: 'available'; current: string; version: string; notes?: string; date?: string }
+  | { state: 'failed'; message: string };
+
+/** Application updates (desktop only). */
+export interface UpdateService {
+  check(): Promise<UpdateStatus>;
+  /** Downloads, verifies and installs the announced update, then restarts the app. */
+  install(): Promise<void>;
+}
+
 /** Everything platform-specific, in one object. */
 export interface Platform {
   readonly kind: 'web' | 'desktop';
@@ -1175,4 +1192,6 @@ export interface Platform {
   channel?(name: string): MessageBus;
   /** BlueSheet engine (absent in hosts that only embed BlueDoc). */
   sheet?: import('./sheet').SheetHost;
+  /** "Check for updates" (desktop). */
+  updates?: UpdateService;
 }

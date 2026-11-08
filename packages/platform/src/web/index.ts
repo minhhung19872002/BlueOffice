@@ -19,9 +19,9 @@ import type {
   WindowManager,
 } from '../types';
 import { WebEngineHost } from './WebEngineHost';
-import { createWebSheetHost } from './WebSheetHost';
+import { createWebSheetHost, webSheetTransport } from './WebSheetHost';
 
-export { WebEngineHost, createWebSheetHost };
+export { WebEngineHost, createWebSheetHost, webSheetTransport };
 export { createWebAuth, AUTH_CALLBACK_PATH } from './auth';
 export { registerServiceWorker } from './pwa';
 

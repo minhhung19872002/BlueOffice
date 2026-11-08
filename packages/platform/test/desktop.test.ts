@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDesktopPlatform, type Invoke } from '../src/desktop';
+import { appForPath, createDesktopPlatform, type Invoke } from '../src/desktop';
 
 describe('DesktopPlatform', () => {
   it('routes engine calls to Tauri commands with raw binary bodies', async () => {
@@ -59,5 +59,16 @@ describe('DesktopPlatform', () => {
     const fake = (async () => null) as unknown as Invoke;
     const p = createDesktopPlatform({ invoke: fake });
     expect(await p.files.openFile(['.docx'])).toBeNull();
+  });
+});
+
+describe('appForPath', () => {
+  it('sends workbooks to BlueSheet, decks to BlueSlide and the rest to BlueDoc', () => {
+    for (const f of ['a.xlsx', 'B.XLSM', 'c.xls', 'd.xlsb', 'e.ods', 'f.csv']) {
+      expect(appForPath(f)).toBe('sheet');
+    }
+    for (const f of ['a.pptx', 'b.ppt', 'c.odp', 'd.potx']) expect(appForPath(f)).toBe('slide');
+    for (const f of ['a.docx', 'b.doc', 'c.odt', 'd.rtf', 'e.txt'])
+      expect(appForPath(f)).toBe('doc');
   });
 });

@@ -1108,11 +1108,61 @@ fn shape_decks() -> Vec<(&'static str, Vec<u8>)> {
         &Vec::new(),
         THEME_BLUE,
     );
+    // §20.1.5 3-D: oblique extrusion with an extrusion colour, an isometric cube with a top bevel and a
+    // contour, a perspective camera with an explicit rotation (§20.1.5.11 rot).
+    let solid3d = |id: u32, x: i64, geom: &str, rgb: &str, scene: &str, sp3d: &str, text: &str| {
+        sp(
+            id,
+            &format!("3D {id}"),
+            "",
+            &(xfrm(x, 2 * IN, 2 * IN, 2 * IN)
+                + &prst(geom)
+                + &solid(rgb)
+                + &format!(
+                    "<a:scene3d>{scene}<a:lightRig rig=\"threePt\" dir=\"t\"/></a:scene3d>{sp3d}"
+                )),
+            Some(&body(r#" anchor="ctr""#, &para(text))),
+            "",
+        )
+    };
+    let deck5 = build(
+        &[blank_slide(
+            "Hình 3D: đùn, vát cạnh, phối cảnh",
+            solid3d(
+                90,
+                IN,
+                "rect",
+                "4472C4",
+                r#"<a:camera prst="obliqueTopRight"/>"#,
+                r#"<a:sp3d extrusionH="381000"><a:extrusionClr><a:srgbClr val="1F3864"/></a:extrusionClr></a:sp3d>"#,
+                "Đùn",
+            ) + &solid3d(
+                91,
+                4 * IN,
+                "rect",
+                "ED7D31",
+                r#"<a:camera prst="isometricLeftDown"/>"#,
+                r#"<a:sp3d extrusionH="762000" contourW="12700"><a:bevelT w="101600" h="101600"/><a:contourClr><a:srgbClr val="FFFFFF"/></a:contourClr></a:sp3d>"#,
+                "Khối",
+            ) + &solid3d(
+                92,
+                7 * IN,
+                "ellipse",
+                "70AD47",
+                r#"<a:camera prst="perspectiveFront"><a:rot lat="1200000" lon="19800000" rev="0"/></a:camera>"#,
+                r#"<a:sp3d extrusionH="254000"><a:bevelT w="63500" h="63500"/></a:sp3d>"#,
+                "Trụ",
+            ),
+        )],
+        &Vec::new(),
+        THEME_BLUE,
+    );
     vec![
         ("slide-shapes-presets.pptx", deck1),
         ("slide-shapes-lines.pptx", deck2),
         ("slide-shapes-groups.pptx", deck3),
         ("slide-shapes-glow.pptx", deck4),
+        ("slide-shapes-3d.pptx", deck5),
     ]
 }
 

@@ -126,7 +126,7 @@ cộng tác, chế độ chỉ xem — dùng chung cho web nhúng và desktop de
 **Phase 1–6A hoàn thành phần chính; Phase 7 (BlueForm, BlueNote) chỉ có kế hoạch.** Ưu tiên của chủ dự án: bộ office
 trước, BlueDrive tính sau. Không còn worktree dở; các nhánh `origin/wip/phase*` là ảnh chụp cũ (2026-11-05) đã làm lại trong
 `main`. Việc tiếp theo và hạn chế: `docs/PROGRESS.md` mục "Hạn chế đã
-biết" (dựng hình 3D slide, quy tắc POE ETSI cho ký số, so sánh với ảnh tham chiếu do người dùng
+biết" (ánh sáng/vật liệu 3D slide, quy tắc POE ETSI cho ký số, so sánh với ảnh tham chiếu do người dùng
 cung cấp).
 
 ## ADR

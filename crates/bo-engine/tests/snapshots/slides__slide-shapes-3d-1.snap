@@ -1,0 +1,110 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Hình "
+  text 28.0pt 68.1,30.3 #000000ff "3D: "
+  text 28.0pt 114.0,30.3 #000000ff "đùn, "
+  text 28.0pt 173.5,30.3 #000000ff "vát "
+  text 28.0pt 216.0,30.3 #000000ff "cạnh, "
+  text 28.0pt 285.0,30.3 #000000ff "phối "
+  text 28.0pt 343.3,30.3 #000000ff "cảnh"
+pop transform
+path n=5 [82.6 133.4 226.6 277.4] fill=#1f3864ff
+path n=5 [81.9 134.1 225.9 278.1] fill=#233b67ff
+path n=5 [81.2 134.8 225.2 278.8] fill=#263f69ff
+path n=5 [80.5 135.5 224.5 279.5] fill=#2a426cff
+path n=5 [79.8 136.2 223.8 280.2] fill=#2e456eff
+path n=5 [79.1 136.9 223.1 280.9] fill=#324971ff
+path n=5 [78.4 137.6 222.4 281.6] fill=#354c74ff
+path n=5 [77.7 138.3 221.7 282.3] fill=#394f76ff
+path n=5 [76.9 139.1 220.9 283.1] fill=#3d5379ff
+path n=5 [76.2 139.8 220.2 283.8] fill=#41567bff
+path n=5 [75.5 140.5 219.5 284.5] fill=#44597eff
+path n=5 [74.8 141.2 218.8 285.2] fill=#485c80ff
+path n=5 [74.1 141.9 218.1 285.9] fill=#4c6083ff
+path n=5 [73.4 142.6 217.4 286.6] fill=#506386ff
+path n=5 [72.7 143.3 216.7 287.3] fill=#536688ff
+path n=5 [72.0 144.0 216.0 288.0] fill=#4472c4ff
+transform [1.000 0.000 0.000 1.000 72.0 144.0]
+  text 18.0pt 7.2,78.2 #000000ff "Đùn"
+pop transform
+path n=5 [266.7 103.3 368.5 279.7] fill=#9a5120ff
+path n=5 [267.5 103.8 369.4 280.2] fill=#9b5221ff
+path n=5 [268.4 104.3 370.3 280.7] fill=#9b5322ff
+path n=5 [269.3 104.9 371.1 281.2] fill=#9c5423ff
+path n=5 [270.2 105.4 372.0 281.7] fill=#9c5525ff
+path n=5 [271.1 105.9 372.9 282.2] fill=#9d5626ff
+path n=5 [272.0 106.4 373.8 282.8] fill=#9d5627ff
+path n=5 [272.8 106.9 374.7 283.3] fill=#9e5728ff
+path n=5 [273.7 107.4 375.6 283.8] fill=#9e5829ff
+path n=5 [274.6 107.9 376.4 284.3] fill=#9f592aff
+path n=5 [275.5 108.4 377.3 284.8] fill=#9f5a2cff
+path n=5 [276.4 108.9 378.2 285.3] fill=#a05b2dff
+path n=5 [277.3 109.4 379.1 285.8] fill=#a05c2eff
+path n=5 [278.2 110.0 380.0 286.3] fill=#a15d2fff
+path n=5 [279.0 110.5 380.9 286.8] fill=#a15e30ff
+path n=5 [279.9 111.0 381.7 287.3] fill=#a25f31ff
+path n=5 [280.8 111.5 382.6 287.9] fill=#a26033ff
+path n=5 [281.7 112.0 383.5 288.4] fill=#a36034ff
+path n=5 [282.6 112.5 384.4 288.9] fill=#a36135ff
+path n=5 [283.5 113.0 385.3 289.4] fill=#a46236ff
+path n=5 [284.3 113.5 386.2 289.9] fill=#a56337ff
+path n=5 [285.2 114.0 387.0 290.4] fill=#a56438ff
+path n=5 [286.1 114.6 387.9 290.9] fill=#a6653aff
+path n=5 [287.0 115.1 388.8 291.4] fill=#a6663bff
+path n=5 [287.9 115.6 389.7 291.9] fill=#a7673cff
+path n=5 [288.8 116.1 390.6 292.4] fill=#a7683dff
+path n=5 [289.6 116.6 391.5 293.0] fill=#a8693eff
+path n=5 [290.5 117.1 392.4 293.5] fill=#a8693fff
+path n=5 [291.4 117.6 393.2 294.0] fill=#a96a41ff
+path n=5 [292.3 118.1 394.1 294.5] fill=#a96b42ff
+path n=5 [293.2 118.6 395.0 295.0] fill=#aa6c43ff
+path n=5 [294.1 119.1 395.9 295.5] fill=#aa6d44ff
+path n=5 [294.9 119.7 396.8 296.0] fill=#ab6e45ff
+path n=5 [295.8 120.2 397.7 296.5] fill=#ab6f46ff
+path n=5 [296.7 120.7 398.5 297.0] fill=#ac7047ff
+path n=5 [297.6 121.2 399.4 297.5] fill=#ac7149ff
+path n=5 [298.5 121.7 400.3 298.1] fill=#ad724aff
+path n=5 [299.4 122.2 401.2 298.6] fill=#ad734bff
+path n=5 [300.2 122.7 402.1 299.1] fill=#ae734cff
+path n=5 [301.1 123.2 403.0 299.6] fill=#af744dff
+path n=5 [302.0 123.7 403.8 300.1] fill=#af754eff
+path n=5 [302.9 124.2 404.7 300.6] fill=#b07650ff
+path n=5 [303.8 124.8 405.6 301.1] fill=#b07751ff
+path n=5 [304.7 125.3 406.5 301.6] fill=#b17852ff
+path n=5 [305.6 125.8 407.4 302.1] fill=#b17953ff
+path n=5 [306.4 126.3 408.3 302.7] fill=#b27a54ff
+path n=5 [307.3 126.8 409.1 303.2] fill=#b27b55ff
+path n=5 [308.2 127.3 410.0 303.7] fill=#b37c57ff
+path n=5 [309.1 127.8 410.9 304.2] fill=#ed7d31ff
+clip path n=5 [309.1 127.8 410.9 304.2]
+  path n=5 [311.9 129.5 413.7 305.8] stroke=#ffffff6e w8.00
+  path n=5 [306.3 126.2 408.1 302.5] stroke=#00000050 w8.00
+pop clip
+path n=5 [309.1 127.8 410.9 304.2] stroke=#ffffffff w1.00
+transform [0.707 -0.408 0.000 0.817 309.1 186.6]
+  text 18.0pt 7.2,78.2 #000000ff "Khối"
+pop transform
+path n=6 [503.6 147.5 628.4 296.4] fill=#49702eff
+path n=6 [504.5 147.0 629.2 295.9] fill=#4d7332ff
+path n=6 [505.3 146.5 630.0 295.4] fill=#517637ff
+path n=6 [506.1 146.0 630.9 294.9] fill=#54793bff
+path n=6 [507.0 145.5 631.7 294.4] fill=#587c3fff
+path n=6 [507.8 145.0 632.5 293.9] fill=#5c7f44ff
+path n=6 [508.6 144.5 633.4 293.4] fill=#608248ff
+path n=6 [509.5 144.0 634.2 292.9] fill=#64854cff
+path n=6 [510.3 143.5 635.0 292.4] fill=#678851ff
+path n=6 [511.1 143.0 635.9 291.9] fill=#6b8b55ff
+path n=6 [512.0 142.5 636.7 291.4] fill=#6f8e5aff
+path n=6 [512.8 142.0 637.5 291.0] fill=#73915eff
+path n=6 [513.6 141.5 638.4 290.5] fill=#70ad47ff
+clip path n=6 [513.6 141.5 638.4 290.5]
+  path n=6 [515.8 144.3 640.5 293.2] stroke=#ffffff6e w5.00
+  path n=6 [511.5 138.8 636.2 287.7] stroke=#00000050 w5.00
+pop clip
+transform [0.866 0.171 0.000 0.940 513.6 136.0]
+  text 18.0pt 28.3,78.2 #000000ff "Trụ"
+pop transform

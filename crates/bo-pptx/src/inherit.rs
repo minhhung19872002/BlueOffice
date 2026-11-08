@@ -182,6 +182,15 @@ pub fn effective_props(chain: &[&Shape]) -> ShapeProps {
             p.effects.clone_from(&s.props.effects);
         }
     }
+    // §20.1.5.8 scene3d / §20.1.5.9 sp3d (kept verbatim): the nearest level that has them.
+    for name in ["a:scene3d", "a:sp3d"] {
+        if let Some(e) = chain
+            .iter()
+            .find_map(|s| s.props.extra.iter().find(|e| e.xml.name == name))
+        {
+            p.extra.push(e.clone());
+        }
+    }
     p
 }
 

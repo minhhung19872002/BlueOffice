@@ -473,6 +473,35 @@ pub fn office97_files() -> Vec<(&'static str, Vec<u8>)> {
             "doc/binary-doc-01-sample.doc",
             crate::doc::build::sample_doc(),
         ),
+        (
+            "doc/binary-doc-02-letter.doc",
+            crate::doc::build::simple_doc(
+                &[
+                    "THƯ MỜI",
+                    "Kính gửi: Quý khách hàng",
+                    "Công ty trân trọng kính mời Quý khách tới dự buổi giới thiệu sản phẩm mới vào lúc 8 giờ 30, ngày 15/12/2026.",
+                    "Trân trọng cảm ơn!",
+                ],
+                3,
+                "Times New Roman",
+                26,
+            ),
+        ),
+        (
+            "doc/binary-doc-03-report.doc",
+            crate::doc::build::simple_doc(
+                &[
+                    "BÁO CÁO TÓM TẮT",
+                    "1. Tình hình thực hiện",
+                    "2. Khó khăn, vướng mắc",
+                    "3. Kiến nghị, đề xuất",
+                    "Người lập báo cáo",
+                ],
+                0,
+                "Arial",
+                22,
+            ),
+        ),
     ]
 }
 

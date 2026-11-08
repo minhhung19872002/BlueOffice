@@ -1501,11 +1501,179 @@ pub(crate) mod build {
         }
         crate::test_util::cfb_file(&[("/WordDocument", w), ("/1Table", t)], &[])
     }
+
+    /// A `.doc` of Unicode paragraphs ([MS-DOC] §2.4.1: one piece of UTF-16
+    /// text): the first paragraph is a centred bold title (sprmPJc80 0x2403,
+    /// sprmCFBold 0x0835), the others use `jc` (0 left, 1 centre, 2 right,
+    /// 3 justify) and 6 pt after (sprmPDyaAfter 0xA414); A4 with 2 cm margins.
+    pub fn simple_doc(paras: &[&str], jc: u8, font: &str, half_points: u16) -> Vec<u8> {
+        let text: String = paras.iter().flat_map(|p| [*p, "\r"]).collect();
+        let units: Vec<u16> = text.encode_utf16().collect();
+        let ccp = units.len() as u32;
+        let mut w = vec![0u8; 4096 + 2 * units.len().next_multiple_of(256)];
+        put16(&mut w, 0, 0xA5EC);
+        put16(&mut w, 2, 0x00C1);
+        put16(&mut w, 10, 0x0200); // fWhichTblStm: 1Table
+        put16(&mut w, 32, 14);
+        put16(&mut w, 62, 22);
+        put32(&mut w, 76, ccp);
+        put16(&mut w, 152, 93);
+        let fc = 4096u32;
+        for (k, u) in units.iter().enumerate() {
+            put16(&mut w, 4096 + 2 * k, *u);
+        }
+        let end = fc + 2 * ccp;
+        // Paragraph starts (file offsets) and the end of the title paragraph.
+        let mut starts = vec![fc];
+        let mut at = fc;
+        for p in paras {
+            at += 2 * (p.encode_utf16().count() as u32 + 1);
+            starts.push(at);
+        }
+        let title_end = starts[1];
+
+        // CHPX FKP at page 4: bold title, then plain text.
+        let page = 2048;
+        let rgfc = [fc, title_end, end];
+        for (i, x) in rgfc.iter().enumerate() {
+            put32(&mut w, page + 4 * i, *x);
+        }
+        let bold: &[u8] = &[0x35, 0x08, 0x01];
+        w[page + 256] = bold.len() as u8;
+        w[page + 257..page + 257 + bold.len()].copy_from_slice(bold);
+        w[page + 4 * 3] = 128; // first run → offset 256 / 2
+        w[page + 4 * 3 + 1] = 0; // second run: no properties
+        w[page + 511] = 2;
+
+        // PAPX FKP at page 5: one entry per paragraph.
+        let page = 2560;
+        let n = paras.len();
+        for (i, x) in starts.iter().enumerate() {
+            put32(&mut w, page + 4 * i, *x);
+        }
+        let title = papx_in_fkp(0, &[0x03, 0x24, 1, 0x14, 0xA4, 240, 0]);
+        let body = papx_in_fkp(0, &[0x03, 0x24, jc, 0x14, 0xA4, 120, 0]);
+        let (mut off, mut off_body) = (200usize, 0usize);
+        for (k, p) in [&title, &body].into_iter().enumerate() {
+            w[page + off..page + off + p.len()].copy_from_slice(p);
+            if k == 1 {
+                off_body = off;
+            }
+            if k == 0 {
+                w[page + 4 * (n + 1)] = (off / 2) as u8;
+            }
+            off += p.len() + p.len() % 2;
+        }
+        for i in 1..n {
+            w[page + 4 * (n + 1) + 13 * i] = (off_body / 2) as u8;
+        }
+        w[page + 511] = n as u8;
+
+        // Sepx at 3072: A4 portrait, 2 cm margins (1134 twips).
+        let sep: [(u16, u16); 6] = [
+            (0xB01F, 11_906),
+            (0xB020, 16_838),
+            (0xB021, 1134),
+            (0xB022, 1134),
+            (0x9023, 1134),
+            (0x9024, 1134),
+        ];
+        put16(&mut w, 3072, (sep.len() * 4) as u16);
+        for (i, (sprm, v)) in sep.iter().enumerate() {
+            put16(&mut w, 3074 + 4 * i, *sprm);
+            put16(&mut w, 3076 + 4 * i, *v);
+        }
+
+        // ---- 1Table ----
+        let mut t: Vec<u8> = Vec::new();
+        let mut fib: Vec<(usize, u32, u32)> = Vec::new();
+        let mut add = |t: &mut Vec<u8>, idx: usize, data: &[u8]| {
+            fib.push((idx, t.len() as u32, data.len() as u32));
+            t.extend_from_slice(data);
+        };
+        // STSH: Normal with the font and size (sprmCRgFtc0 0x4A4F, sprmCHps 0x4A43).
+        let mut stsh = 18u16.to_le_bytes().to_vec();
+        let mut stshi = vec![0u8; 18];
+        put16(&mut stshi, 0, 1);
+        put16(&mut stshi, 2, 10);
+        stsh.extend(stshi);
+        let hps = half_points.to_le_bytes();
+        stsh.extend(std_entry(
+            "Normal",
+            1,
+            0x0FFF,
+            &[
+                vec![0, 0],
+                vec![0x4F, 0x4A, 0, 0, 0x43, 0x4A, hps[0], hps[1]],
+            ],
+        ));
+        add(&mut t, super::fcl::STSHF, &stsh);
+        // SttbfFfn: one font.
+        let mut ffn = 1u16.to_le_bytes().to_vec();
+        ffn.extend(0u16.to_le_bytes());
+        let mut f = vec![0u8; 39];
+        for u in font.encode_utf16() {
+            f.extend(u.to_le_bytes());
+        }
+        f.extend([0, 0]);
+        ffn.push(f.len() as u8);
+        ffn.extend(f);
+        add(&mut t, super::fcl::STTBF_FFN, &ffn);
+        // PlcfSed: one section.
+        let mut sed = 0u32.to_le_bytes().to_vec();
+        sed.extend(ccp.to_le_bytes());
+        sed.extend(0u16.to_le_bytes());
+        sed.extend(3072u32.to_le_bytes());
+        sed.extend(0u16.to_le_bytes());
+        sed.extend(0xFFFF_FFFFu32.to_le_bytes());
+        add(&mut t, super::fcl::PLCF_SED, &sed);
+        let bte = |pn: u32| {
+            let mut v = fc.to_le_bytes().to_vec();
+            v.extend(end.to_le_bytes());
+            v.extend(pn.to_le_bytes());
+            v
+        };
+        add(&mut t, super::fcl::PLCF_BTE_CHPX, &bte(4));
+        add(&mut t, super::fcl::PLCF_BTE_PAPX, &bte(5));
+        // CLX: one Unicode piece.
+        let mut plc = 0u32.to_le_bytes().to_vec();
+        plc.extend(ccp.to_le_bytes());
+        plc.extend(0u16.to_le_bytes());
+        plc.extend(fc.to_le_bytes());
+        plc.extend(0u16.to_le_bytes());
+        let mut clx = vec![0x02];
+        clx.extend((plc.len() as u32).to_le_bytes());
+        clx.extend(plc);
+        add(&mut t, super::fcl::CLX, &clx);
+        for (idx, fc, lcb) in fib {
+            put32(&mut w, 154 + 8 * idx, fc);
+            put32(&mut w, 154 + 8 * idx + 4, lcb);
+        }
+        crate::test_util::cfb_file(&[("/WordDocument", w), ("/1Table", t)], &[])
+    }
 }
 
 #[cfg(test)]
 mod read_tests {
     use super::*;
+
+    // source: [MS-DOC] §2.4.1 (one Unicode piece), §2.6.2 sprmPJc80, §2.6.1 sprmCFBold
+    #[test]
+    fn reads_simple_unicode_doc() {
+        let bytes = build::simple_doc(&["TIÊU ĐỀ", "Đoạn một", "Đoạn hai"], 2, "Arial", 24);
+        let doc = read_doc(&bytes).unwrap();
+        let paras: Vec<&bo_model::Paragraph> = doc.sections[0]
+            .blocks
+            .iter()
+            .filter_map(bo_model::Block::as_paragraph)
+            .collect();
+        let texts: Vec<String> = paras.iter().map(|p| p.plain_text()).collect();
+        assert_eq!(texts, ["TIÊU ĐỀ", "Đoạn một", "Đoạn hai"]);
+        assert_eq!(paras[0].props.align, Some(bo_model::Alignment::Center));
+        assert_eq!(paras[1].props.align, Some(bo_model::Alignment::Right));
+        assert_eq!(paras[0].runs[0].props.bold, Some(true));
+        assert_ne!(paras[1].runs[0].props.bold, Some(true));
+    }
 
     #[test]
     fn reads_built_doc() {

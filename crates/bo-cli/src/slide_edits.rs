@@ -246,7 +246,7 @@ fn link_slides(p: &mut bo_model::slide::Presentation, from: usize, to: usize) {
     let target = p.slides[to].info.part_name.clone();
     let owner = p.slides[from].info.part_name.clone();
     let rels = &mut p.slides[from].info.rels;
-    let id = (1..)
+    let id = (1..=rels.len() + 1)
         .map(|n| format!("rIdL{n}"))
         .find(|i| rels.iter().all(|r| &r.id != i))
         .unwrap_or_default();

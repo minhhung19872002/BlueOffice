@@ -254,7 +254,7 @@ pub fn strip_rel_refs(n: &ShapeNode, ids: &[String]) -> ShapeNode {
                 .attrs
                 .iter()
                 .any(|(k, v)| k.starts_with("r:") && ids.contains(v)),
-            _ => true,
+            XmlNode::Text(_) => true,
         });
         for c in &mut el.children {
             if let XmlNode::Element(e) = c {

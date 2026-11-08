@@ -214,7 +214,7 @@ E2E: `tests/e2e/specs/sheet.spec.ts` (gõ số + SUM, đậm + tô nền, sort, 
   nhóm; kết quả lỗi công thức thành ô trống.
 - Nhóm thủ công: không đặt tên nhóm tùy ý từ UI (dùng "Nhóm {n}"); chưa nhóm của nhóm (trường nhóm cấp 2).
 - Lọc ngày bỏ qua trên trường đã nhóm theo ngày; kỳ tương đối của pivot đọc từ file chỉ áp dụng khi báo cáo được
-  tính lại; ô chọn ngày của UI chỉ hiện giá trị ISO (filter đọc từ file dạng serial hiện trống).
+  tính lại; ô chọn ngày của UI đổi serial sang ngày theo hệ 1900 (workbook `date1904` hiện lệch 4 năm).
 - Ngày gõ: chưa nhận dạng tháng bằng chữ (`15 Thg 1 2024`, `Jan 15`), dạng hai phần `d/m` (năm hiện tại).
 - Biểu đồ `absoluteAnchor` / `oneCellAnchor` hiển thị và kéo theo ô (bỏ phần lẻ trong ô, như `twoCellAnchor`).
 - Cắt–dán sang sheet khác chưa thêm tên sheet nguồn cho tham chiếu tương đối không qualified bên trong khối cắt;

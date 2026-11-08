@@ -2737,18 +2737,15 @@ fn paste_slides_from(
                 return true;
             }
             let old = bo_opc::resolve_target(&s.info.part_name, &r.target);
-            match slide_names
+            if let Some((_, n)) = slide_names
                 .iter()
                 .find(|(o, _)| !o.is_empty() && o.eq_ignore_ascii_case(&old))
             {
-                Some((_, n)) => {
-                    r.target = clip::relative_target(&name, n);
-                    true
-                }
-                None => {
-                    dropped.push(r.id.clone());
-                    false
-                }
+                r.target = clip::relative_target(&name, n);
+                true
+            } else {
+                dropped.push(r.id.clone());
+                false
             }
         });
         if !dropped.is_empty() {

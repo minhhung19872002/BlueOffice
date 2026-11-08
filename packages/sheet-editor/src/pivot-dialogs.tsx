@@ -192,6 +192,13 @@ const num = (s: string): number | null => {
 
 type FilterMode = 'none' | 'top' | 'bottom' | 'label' | 'value' | 'date';
 const isDateKind = (k: string) => (PIVOT_DATE_FILTERS as readonly string[]).includes(k);
+/** A date filter value for the date input: serials (1900 system) become ISO dates. */
+const isoDate = (v: string): string => {
+  const n = Number(v);
+  if (v.trim() === '' || Number.isNaN(n)) return v;
+  // Serial 25569 = 1970-01-01 (ECMA-376 Part 1, §18.17.4.1).
+  return new Date(Math.round((n - 25569) * 86400000)).toISOString().slice(0, 10);
+};
 
 export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
   const { t } = useTranslation();
@@ -236,8 +243,10 @@ export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
   };
   const [op, setOp] = useState<Op>(opOf(current?.kind));
   const [count, setCount] = useState(String(current?.count || 10));
-  const [value1, setValue1] = useState(current?.value1 ?? '');
-  const [value2, setValue2] = useState(current?.value2 ?? '');
+  const dateValue = (v: string | undefined) =>
+    current && isDateKind(current.kind) ? isoDate(v ?? '') : (v ?? '');
+  const [value1, setValue1] = useState(dateValue(current?.value1));
+  const [value2, setValue2] = useState(dateValue(current?.value2));
   const [measure, setMeasure] = useState(current?.measure ?? 0);
   const [dateKind, setDateKind] = useState<PivotDateFilterType>(
     current && isDateKind(current.kind) ? (current.kind as PivotDateFilterType) : 'dateBetween',

@@ -1354,7 +1354,10 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
     // Equations typed in the UnicodeMath linear format (bo-math, CORE-MATH-005), one display line each.
     let linear = |src: &str| {
         let x = bo_math::unicode_math::to_omml(src);
-        display(x.trim_start_matches("<m:oMath>").trim_end_matches("</m:oMath>"))
+        display(
+            x.trim_start_matches("<m:oMath>")
+                .trim_end_matches("</m:oMath>"),
+        )
     };
     v.push(("math-04-linear.docx", "math", "Phương trình nhập bằng cú pháp tuyến tính UnicodeMath: phân số, căn bậc n, tổng, tích phân, giới hạn, ma trận, hệ phương trình, dấu nhấn", Doc {
         body: [
@@ -1375,7 +1378,10 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
     // The same kinds of equations typed in LaTeX (bo-math, CORE-MATH-006).
     let tex = |src: &str| {
         let x = bo_math::latex::to_omml(src);
-        display(x.trim_start_matches("<m:oMath>").trim_end_matches("</m:oMath>"))
+        display(
+            x.trim_start_matches("<m:oMath>")
+                .trim_end_matches("</m:oMath>"),
+        )
     };
     v.push(("math-05-latex.docx", "math", "Phương trình nhập bằng LaTeX: \\frac, \\sqrt[n], \\sum/\\int có cận, \\lim, \\binom, cases, bmatrix, \\left…\\right, \\text", Doc {
         body: [

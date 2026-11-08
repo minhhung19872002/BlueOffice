@@ -15,7 +15,7 @@ export type EngineRequest =
   | { id: number; method: 'savePptx' }
   | { id: number; method: 'slideCommand'; json: string }
   | { id: number; method: 'slideInsertPicture'; bytes: Uint8Array; name: string }
-  | { id: number; method: 'collabStart'; seed: boolean }
+  | { id: number; method: 'collabStart'; seed: boolean; clientId?: number }
   | { id: number; method: 'collabApply'; json: string }
   | { id: number; method: 'collabPeers'; json: string }
   | { id: number; method: 'collabStop' }

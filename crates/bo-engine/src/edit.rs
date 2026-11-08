@@ -404,7 +404,11 @@ impl crate::Engine {
 
     /// Run a command at host time `now` (Unix ms; the system clock when absent).
     fn command_at(&mut self, cmd: Command, now: Option<i64>) -> crate::Result<EditResult> {
-        if let Some(r) = self.special_command(&cmd)? {
+        if let Some(mut r) = self.special_command(&cmd)? {
+            // Header/footer and note editors mirror into the document: share it live.
+            if r.collab.is_none() {
+                r.collab = self.collab_after_edit();
+            }
             return Ok(r);
         }
         let mut extra = (None, None, None);

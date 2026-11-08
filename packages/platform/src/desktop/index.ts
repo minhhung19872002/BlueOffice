@@ -114,8 +114,10 @@ export class NativeEngineHost implements EngineHost {
   async markSaved(): Promise<void> {
     await this.call<null>('engine_mark_saved');
   }
-  async collabStart(seed: boolean): Promise<CollabChange> {
-    return JSON.parse(await this.call<string>('engine_collab_start', { seed })) as CollabChange;
+  async collabStart(seed: boolean, clientId?: number): Promise<CollabChange> {
+    return JSON.parse(
+      await this.call<string>('engine_collab_start', { seed, client: clientId ?? 0 }),
+    ) as CollabChange;
   }
   async collabApply(change: string): Promise<EditResult> {
     return JSON.parse(

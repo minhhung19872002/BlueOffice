@@ -55,7 +55,7 @@ function hostOf(e: WasmEngine) {
       return parse<Result>(e.command(JSON.stringify(c)));
     },
     insertImage: async (b: Uint8Array, n: string) => parse<Result>(e.insertImage(b, n)),
-    collabStart: async (seed: boolean) => parse<object>(e.collabStart(seed)),
+    collabStart: async (seed: boolean, id?: number) => parse<object>(e.collabStart(seed, id)),
     collabApply: async (j: string) => {
       await later();
       return parse<Result>(e.collabApply(j));

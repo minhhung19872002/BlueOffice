@@ -11,8 +11,13 @@
 //!   [`ParaProps`]); the last block of a section carries `sect` (JSON of the
 //!   section properties, ECMA-376 Part 1 §17.6.17 sectPr);
 //! * non-text run content (tabs, breaks, pictures, fields, bookmarks …) is a
-//!   one-position embed `{"c": JSON}`; a table or an unknown block is one embed
-//!   `{"b": JSON}` followed by `\n` (last writer wins for the whole table).
+//!   one-position embed `{"c": JSON}`; a top-level table is the embed
+//!   `{"t": key}` + `\n` with its rows, columns and cells shared cell by cell
+//!   ([`parts`]); a nested table or an unknown block is one embed
+//!   `{"b": JSON}` followed by `\n` (last writer wins for that block).
+//!
+//! Styles, numbering, comments, foot/endnotes, headers/footers travel in the
+//! `meta` map and nested texts ([`parts`]).
 //!
 //! Positions are UTF-16 offsets into that text. The engine keeps a *shadow*
 //! of the shared text (the lines, with the model block each line stands for).
@@ -23,6 +28,9 @@
 //! blocks and applied as one transaction that is not part of the local
 //! history ([`bo_edit::Session::apply_external`]).
 
+pub(crate) mod order;
+mod parts;
+
 use crate::edit::EditResult;
 use crate::{Engine, EngineError};
 use bo_edit::para::{self, atom_len};
@@ -32,6 +40,7 @@ use bo_model::{
     Block, Color, Document, HalfPoints, NumFormat, NumRef, Numbering, ParaProps, Paragraph,
     RunContent, RunProps, Section, StyleSheet,
 };
+use parts::{Seen, Story, TableShadow};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -77,6 +86,25 @@ pub struct CollabChange {
     /// Binary parts added during the session (`{"ct","b64"}` JSON).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub blobs: BTreeMap<String, Option<String>>,
+    /// Other shared objects (JSON strings, last writer wins per key).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub meta: BTreeMap<String, Option<String>>,
+    /// BlueSheet cells by `"<sheet>!<row>,<col>"` ids (`null` = removed).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub cells: BTreeMap<String, Option<String>>,
+    /// Nested texts by key (`null` = removed).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub texts: BTreeMap<String, Option<TextDelta>>,
+}
+
+/// Change of one nested text (`bo_collab::TextChange`): `reset` = recreated
+/// with the content the deltas build from empty.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TextDelta {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reset: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deltas: Vec<Vec<TextOp>>,
 }
 
 impl CollabChange {
@@ -85,6 +113,9 @@ impl CollabChange {
             && self.slides.is_empty()
             && self.shapes.is_empty()
             && self.blobs.is_empty()
+            && self.meta.is_empty()
+            && self.cells.is_empty()
+            && self.texts.is_empty()
     }
 }
 
@@ -398,6 +429,9 @@ struct BuildCtx<'a> {
     base_nums: &'a BTreeSet<i32>,
     numbering_changed: bool,
     styles_changed: bool,
+    /// Shared tables and stories for `{"t"}` lines (body only).
+    tables: Option<&'a BTreeMap<String, TableShadow>>,
+    stories: Option<&'a BTreeMap<String, Story>>,
 }
 
 impl BuildCtx<'_> {
@@ -449,6 +483,14 @@ impl BuildCtx<'_> {
 
     /// The model block a line stands for.
     fn block(&mut self, line: &Line) -> Block {
+        if let Some(key) = parts::table_key(line) {
+            let empty = BTreeMap::new();
+            let stories = self.stories.unwrap_or(&empty);
+            return match self.tables.and_then(|t| t.get(key)) {
+                Some(t) => t.build(key, stories),
+                None => Block::Paragraph(Paragraph::default()),
+            };
+        }
         for s in &line.segs {
             if let Seg::Embed(v, _) = s {
                 if let Some(b) = v
@@ -495,10 +537,19 @@ fn content_embed(c: &RunContent) -> Value {
     Value::Object(o)
 }
 
-/// The line of a model block.
-fn line_of(block: &Block, sect: Option<&str>, ctx: &LineCtx<'_>) -> Line {
+/// The line of a model block (`table` = key of a top-level table shared cell by cell).
+fn line_of(block: &Block, sect: Option<&str>, table: Option<&str>, ctx: &LineCtx<'_>) -> Line {
     let mut segs = Vec::new();
     let mut end = match block {
+        Block::Table(_) if table.is_some() => {
+            let mut o = Map::new();
+            o.insert(
+                "t".into(),
+                Value::String(table.unwrap_or_default().to_owned()),
+            );
+            segs.push(Seg::Embed(Value::Object(o), Arc::new(Attrs::new())));
+            Attrs::new()
+        }
         Block::Paragraph(p) => {
             for (props, c) in para::flatten(p) {
                 let a: Rc = Arc::new(run_attrs(&props));
@@ -562,8 +613,12 @@ fn section_props(s: &Section) -> Section {
     }
 }
 
+/// Section properties shared on the section's last `\n`; header/footer
+/// contents travel as stories (`hf:<section>:<kind>`).
 fn section_json(s: &Section) -> String {
-    serde_json::to_string(&section_props(s)).unwrap_or_default()
+    let mut p = section_props(s);
+    parts::strip_headers(&mut p);
+    serde_json::to_string(&p).unwrap_or_default()
 }
 
 /// Model blocks in document order with the section JSON of each section's last block.
@@ -802,7 +857,7 @@ fn cells_for(cells: &[Cell], i: usize, n: u32) -> usize {
 // The binding
 // ---------------------------------------------------------------------------
 
-/// Shadow of the shared body text.
+/// Shadow of the shared document: body lines, tables, stories and `meta`.
 #[derive(Debug, Default)]
 pub(crate) struct DocCollab {
     entries: Vec<Entry>,
@@ -814,35 +869,47 @@ pub(crate) struct DocCollab {
     known_media: BTreeSet<String>,
     /// Document version the shadow was last compared at.
     version: u64,
+    /// Replica client id and counter for ids of new tables, rows and columns.
+    client: u64,
+    counter: u64,
+    tables: BTreeMap<String, TableShadow>,
+    stories: BTreeMap<String, Story>,
+    /// Shared `meta` entries of the document parts (styles, numbering, comments …).
+    meta: BTreeMap<String, String>,
+    seen: Seen,
+}
+
+/// Prefix/suffix of unchanged blocks: `None` when nothing changed.
+fn region(entries: &[Entry], items: &[(&Block, Option<String>)]) -> Option<(usize, usize)> {
+    let (no, nn) = (entries.len(), items.len());
+    let same = |e: &Entry, it: &(&Block, Option<String>)| e.sect == it.1 && e.block == *it.0;
+    let n = no.min(nn);
+    let mut p = 0;
+    while p < n && same(&entries[p], &items[p]) {
+        p += 1;
+    }
+    let mut s = 0;
+    while s < n - p && same(&entries[no - 1 - s], &items[nn - 1 - s]) {
+        s += 1;
+    }
+    (p != no || p != nn).then_some((p, s))
 }
 
 impl DocCollab {
-    fn new(doc: &Document, seed: bool) -> DocCollab {
-        let mut c = DocCollab {
-            entries: Vec::new(),
+    fn new(doc: &Document, seed: bool, client: u64) -> DocCollab {
+        DocCollab {
             joining: !seed,
             base_nums: doc.numbering.nums.iter().map(|n| n.id).collect(),
             known_media: doc.media.keys().cloned().collect(),
-            version: 0,
-        };
-        if seed {
-            let ctx = LineCtx {
-                numbering: &doc.numbering,
-                base_nums: &c.base_nums,
-            };
-            c.entries = model_items(doc)
-                .into_iter()
-                .map(|(b, s)| {
-                    let line = line_of(b, s.as_deref(), &ctx);
-                    Entry {
-                        block: b.clone(),
-                        len: line.len16(),
-                        sect: s,
-                        line,
-                    }
-                })
-                .collect();
+            client,
+            ..DocCollab::default()
         }
+    }
+
+    /// Shadow of `doc` as the seeder publishes it (positions of a late joiner's caret).
+    fn of(doc: &Document) -> DocCollab {
+        let mut c = DocCollab::new(doc, true, 0);
+        let _ = c.local_change(doc);
         c
     }
 
@@ -850,173 +917,209 @@ impl DocCollab {
         self.entries.iter().map(|e| e.len).sum()
     }
 
-    /// The whole shadow as inserts (the seeder's initial content).
-    fn full_delta(&self) -> Vec<TextOp> {
-        let mut b = DeltaBuilder::default();
-        let mut cells = Vec::new();
-        for e in &self.entries {
-            e.line.explode(&mut cells);
-        }
-        for (u, a) in &cells {
-            b.insert(u, a);
-        }
-        b.finish()
-    }
-
-    /// Delta of the local changes since the last call (model vs shadow).
-    fn local_delta(&mut self, doc: &Document) -> Vec<TextOp> {
+    /// Changes of the document since the last call (model vs shadow); from
+    /// an empty shadow this is the whole document (the seeder's content).
+    fn local_change(&mut self, doc: &Document) -> CollabChange {
+        let mut out = CollabChange::default();
         if self.joining {
-            return Vec::new();
-        }
-        let items = model_items(doc);
-        let (no, nn) = (self.entries.len(), items.len());
-        let same = |e: &Entry, it: &(&Block, Option<String>)| e.sect == it.1 && e.block == *it.0;
-        let n = no.min(nn);
-        let mut p = 0;
-        while p < n && same(&self.entries[p], &items[p]) {
-            p += 1;
-        }
-        let mut s = 0;
-        while s < n - p && same(&self.entries[no - 1 - s], &items[nn - 1 - s]) {
-            s += 1;
-        }
-        if p == no && p == nn {
-            return Vec::new();
+            return out;
         }
         let ctx = LineCtx {
             numbering: &doc.numbering,
             base_nums: &self.base_nums,
         };
-        let fresh: Vec<Entry> = items[p..nn - s]
-            .iter()
-            .map(|(b, sect)| {
-                let line = line_of(b, sect.as_deref(), &ctx);
-                Entry {
+        let (client, counter) = (self.client, &mut self.counter);
+        let mut fresh = || {
+            *counter += 1;
+            format!("{client:x}.{counter}")
+        };
+        let items = model_items(doc);
+        if let Some((p, s)) = region(&self.entries, &items) {
+            let (no, nn) = (self.entries.len(), items.len());
+            // Tables of the changed region keep their key in order.
+            let mut old_tables: Vec<(String, Option<bo_model::Table>)> = self.entries[p..no - s]
+                .iter()
+                .filter_map(|e| {
+                    let k = parts::table_key(&e.line)?;
+                    let t = match &e.block {
+                        Block::Table(t) => Some(t.clone()),
+                        _ => None,
+                    };
+                    Some((k.to_owned(), t))
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            let mut fresh_entries = Vec::with_capacity(nn - s - p);
+            for (b, sect) in &items[p..nn - s] {
+                let key = if let Block::Table(t) = b {
+                    let (key, old) = old_tables.pop().unwrap_or_else(|| (fresh(), None));
+                    parts::TableDiff {
+                        key: &key,
+                        ctx: &ctx,
+                    }
+                    .run(
+                        &mut self.tables,
+                        &mut self.stories,
+                        old.as_ref(),
+                        t,
+                        &mut fresh,
+                        &mut out,
+                    );
+                    Some(key)
+                } else {
+                    None
+                };
+                let line = line_of(b, sect.as_deref(), key.as_deref(), &ctx);
+                fresh_entries.push(Entry {
                     block: (*b).clone(),
                     len: line.len16(),
                     sect: sect.clone(),
                     line,
-                }
-            })
-            .collect();
-        let mut old = Vec::new();
-        for e in &self.entries[p..no - s] {
-            e.line.explode(&mut old);
+                });
+            }
+            for (key, _) in old_tables {
+                parts::drop_table(&mut self.tables, &mut self.stories, &key, &mut out);
+            }
+            let mut old = Vec::new();
+            for e in &self.entries[p..no - s] {
+                e.line.explode(&mut old);
+            }
+            let mut new = Vec::new();
+            for e in &fresh_entries {
+                e.line.explode(&mut new);
+            }
+            let mut b = DeltaBuilder::default();
+            b.retain(self.entries[..p].iter().map(|e| e.len).sum(), Map::new());
+            diff_cells(&mut b, &old, &new);
+            self.entries.splice(p..no - s, fresh_entries);
+            let d = b.finish();
+            if !d.is_empty() {
+                out.body.push(d);
+            }
         }
-        let mut new = Vec::new();
-        for e in &fresh {
-            e.line.explode(&mut new);
-        }
-        let mut b = DeltaBuilder::default();
-        b.retain(self.entries[..p].iter().map(|e| e.len).sum(), Map::new());
-        diff_cells(&mut b, &old, &new);
-        self.entries.splice(p..no - s, fresh);
-        b.finish()
+        parts::share_parts(
+            doc,
+            &self.base_nums,
+            &mut self.seen,
+            &mut self.meta,
+            &mut self.stories,
+            &ctx,
+            &mut out,
+        );
+        out
     }
+}
 
-    /// Applies one remote delta to the shadow; changed lines get blocks from `ctx`.
-    fn apply_delta(&mut self, delta: &[TextOp], ctx: &mut BuildCtx<'_>) -> Result<(), String> {
-        let mut ops: &[TextOp] = delta;
-        while let Some(TextOp::Retain { attributes, .. }) = ops.last() {
-            if !attributes.is_empty() {
-                break;
-            }
-            ops = &ops[..ops.len() - 1];
+/// Applies one remote delta to body or story lines; changed lines get blocks from `ctx`.
+fn apply_entries(
+    entries: &mut Vec<Entry>,
+    delta: &[TextOp],
+    ctx: &mut BuildCtx<'_>,
+) -> Result<(), String> {
+    let mut ops: &[TextOp] = delta;
+    while let Some(TextOp::Retain { attributes, .. }) = ops.last() {
+        if !attributes.is_empty() {
+            break;
         }
-        if ops.is_empty() {
-            return Ok(());
+        ops = &ops[..ops.len() - 1];
+    }
+    if ops.is_empty() {
+        return Ok(());
+    }
+    let (start, rest) = match ops.first() {
+        Some(TextOp::Retain { retain, attributes }) if attributes.is_empty() => {
+            (*retain, &ops[1..])
         }
-        let (start, rest) = match ops.first() {
-            Some(TextOp::Retain { retain, attributes }) if attributes.is_empty() => {
-                (*retain, &ops[1..])
-            }
-            _ => (0, ops),
-        };
-        let span: u32 = rest
-            .iter()
-            .map(|o| match o {
-                TextOp::Retain { retain, .. } => *retain,
-                TextOp::Delete { delete } => *delete,
-                TextOp::Insert { .. } => 0,
-            })
-            .sum();
-        let end = start.saturating_add(span);
-        let total = self.total();
-        if end > total {
-            return Err(format!("delta covers {end} of {total}"));
-        }
-        let n = self.entries.len();
-        let mut starts = Vec::with_capacity(n + 1);
-        let mut acc = 0u32;
-        for e in &self.entries {
-            starts.push(acc);
-            acc += e.len;
-        }
+        _ => (0, ops),
+    };
+    let span: u32 = rest
+        .iter()
+        .map(|o| match o {
+            TextOp::Retain { retain, .. } => *retain,
+            TextOp::Delete { delete } => *delete,
+            TextOp::Insert { .. } => 0,
+        })
+        .sum();
+    let end = start.saturating_add(span);
+    let total: u32 = entries.iter().map(|e| e.len).sum();
+    if end > total {
+        return Err(format!("delta covers {end} of {total}"));
+    }
+    let n = entries.len();
+    let mut starts = Vec::with_capacity(n + 1);
+    let mut acc = 0u32;
+    for e in entries.iter() {
         starts.push(acc);
-        // The line holding `start` (a boundary belongs to the next line; the
-        // end of the text to an unterminated last line).
-        let mut la = (0..n).find(|&k| starts[k + 1] > start).unwrap_or(n);
-        if la == n && n > 0 && self.entries[n - 1].line.end.is_none() {
-            la = n - 1;
-        }
-        let mut lb = la;
-        while lb < n && (lb == la || starts[lb] < end) {
-            lb += 1;
-        }
-        let mut cells = Vec::new();
-        for e in &self.entries[la..lb] {
-            e.line.explode(&mut cells);
-        }
-        let mut i = cell_at(&cells, start - starts[la]);
-        for op in rest {
-            match op {
-                TextOp::Retain { retain, attributes } => {
-                    let k = cells_for(&cells, i, *retain);
-                    if !attributes.is_empty() {
-                        for c in &mut cells[i..i + k] {
-                            let mut a = (*c.1).clone();
-                            for (key, v) in attributes {
-                                if v.is_null() {
-                                    a.remove(key);
-                                } else {
-                                    a.insert(key.clone(), norm(v));
-                                }
+        acc += e.len;
+    }
+    starts.push(acc);
+    // The line holding `start` (a boundary belongs to the next line; the
+    // end of the text to an unterminated last line).
+    let mut la = (0..n).find(|&k| starts[k + 1] > start).unwrap_or(n);
+    if la == n && n > 0 && entries[n - 1].line.end.is_none() {
+        la = n - 1;
+    }
+    let mut lb = la;
+    while lb < n && (lb == la || starts[lb] < end) {
+        lb += 1;
+    }
+    let mut cells = Vec::new();
+    for e in &entries[la..lb] {
+        e.line.explode(&mut cells);
+    }
+    let mut i = cell_at(&cells, start - starts[la]);
+    for op in rest {
+        match op {
+            TextOp::Retain { retain, attributes } => {
+                let k = cells_for(&cells, i, *retain);
+                if !attributes.is_empty() {
+                    for c in &mut cells[i..i + k] {
+                        let mut a = (*c.1).clone();
+                        for (key, v) in attributes {
+                            if v.is_null() {
+                                a.remove(key);
+                            } else {
+                                a.insert(key.clone(), norm(v));
                             }
-                            c.1 = Arc::new(a);
                         }
+                        c.1 = Arc::new(a);
                     }
-                    i += k;
                 }
-                TextOp::Delete { delete } => {
-                    let k = cells_for(&cells, i, *delete);
-                    cells.drain(i..i + k);
-                }
-                TextOp::Insert { insert, attributes } => {
-                    let new = insert_cells(insert, &Arc::new(attrs_of(attributes)));
-                    let k = new.len();
-                    cells.splice(i..i, new);
-                    i += k;
-                }
+                i += k;
+            }
+            TextOp::Delete { delete } => {
+                let k = cells_for(&cells, i, *delete);
+                cells.drain(i..i + k);
+            }
+            TextOp::Insert { insert, attributes } => {
+                let new = insert_cells(insert, &Arc::new(attrs_of(attributes)));
+                let k = new.len();
+                cells.splice(i..i, new);
+                i += k;
             }
         }
-        // A removed paragraph end joins the next line.
-        while lb < n && !matches!(cells.last(), Some((Unit::End, _))) {
-            self.entries[lb].line.explode(&mut cells);
-            lb += 1;
-        }
-        let fresh: Vec<Entry> = implode(cells)
-            .into_iter()
-            .map(|line| Entry {
-                block: ctx.block(&line),
-                sect: line.sect(),
-                len: line.len16(),
-                line,
-            })
-            .collect();
-        self.entries.splice(la..lb, fresh);
-        Ok(())
     }
+    // A removed paragraph end joins the next line.
+    while lb < n && !matches!(cells.last(), Some((Unit::End, _))) {
+        entries[lb].line.explode(&mut cells);
+        lb += 1;
+    }
+    let fresh: Vec<Entry> = implode(cells)
+        .into_iter()
+        .map(|line| Entry {
+            block: ctx.block(&line),
+            sect: line.sect(),
+            len: line.len16(),
+            line,
+        })
+        .collect();
+    entries.splice(la..lb, fresh);
+    Ok(())
+}
 
+impl DocCollab {
     /// Model ops making the document match the shadow.
     fn model_ops(&mut self, doc: &Document) -> Vec<Op> {
         if self.entries.is_empty() {
@@ -1224,28 +1327,23 @@ fn bad(e: impl std::fmt::Display) -> EngineError {
 
 impl Engine {
     /// Bind the open document to a collaboration session. The seeder
-    /// (`seed`, first editor of the room) gets the whole body as the change
-    /// to publish; a late joiner gets nothing and replaces its body with the
-    /// shared text on the first [`Engine::collab_apply`] (edits made before
-    /// that are not shared).
-    pub fn collab_start(&mut self, seed: bool) -> crate::Result<CollabChange> {
+    /// (`seed`, first editor of the room) gets the whole document (body,
+    /// tables, stories, definitions) as the change to publish; a late joiner
+    /// gets nothing and replaces its document with the shared state on the
+    /// first [`Engine::collab_apply`] (edits made before that are not shared).
+    /// `client` is the replica's client id (ids of new tables, rows, columns).
+    pub fn collab_start(&mut self, seed: bool, client: u64) -> crate::Result<CollabChange> {
         let s = self.session.as_ref().ok_or(EngineError::NoDocument)?;
-        let mut c = DocCollab::new(s.doc(), seed);
+        let mut c = DocCollab::new(s.doc(), seed, client);
+        let mut change = c.local_change(s.doc());
+        change.body.retain(|d| !d.is_empty());
         c.version = s.version();
-        let body = if seed {
-            vec![c.full_delta()]
-        } else {
-            Vec::new()
-        };
         self.collab = Some(c);
-        Ok(CollabChange {
-            body: body.into_iter().filter(|d| !d.is_empty()).collect(),
-            ..CollabChange::default()
-        })
+        Ok(change)
     }
 
-    pub fn collab_start_json(&mut self, seed: bool) -> crate::Result<String> {
-        Ok(serde_json::to_string(&self.collab_start(seed)?).unwrap_or_default())
+    pub fn collab_start_json(&mut self, seed: bool, client: u64) -> crate::Result<String> {
+        Ok(serde_json::to_string(&self.collab_start(seed, client)?).unwrap_or_default())
     }
 
     /// Leave the collaboration session.
@@ -1265,10 +1363,7 @@ impl Engine {
         let mut change = CollabChange::default();
         if s.version() != c.version {
             c.version = s.version();
-            let d = c.local_delta(doc);
-            if !d.is_empty() {
-                change.body.push(d);
-            }
+            change = c.local_change(doc);
             if !c.joining {
                 for (name, bytes) in &doc.media {
                     if c.known_media.insert(name.clone()) {
@@ -1287,6 +1382,7 @@ impl Engine {
 
     /// Apply changes from the replica (`WasmCollab.takeRemote`): collaborators'
     /// edits and collaborative undo/redo. Not part of the local history.
+    #[allow(clippy::too_many_lines)]
     pub fn collab_apply(&mut self, change: &CollabChange) -> crate::Result<EditResult> {
         let s = self.session.as_ref().ok_or(EngineError::NoDocument)?;
         let c = self
@@ -1300,7 +1396,7 @@ impl Engine {
         // shared text replaces it) and must not be pushed by that first insert.
         let was_joining = c.joining;
         let (mut anchor, mut focus) = if was_joining {
-            let own = DocCollab::new(doc, true);
+            let own = DocCollab::of(doc);
             (
                 own.index_of(doc, sel.anchor, &paths),
                 own.index_of(doc, sel.focus, &paths),
@@ -1311,20 +1407,53 @@ impl Engine {
                 c.index_of(doc, sel.focus, &paths),
             )
         };
+        // Shared definitions and table structure.
+        let mut touched: BTreeSet<String> = BTreeSet::new();
+        let mut tables_hit: BTreeSet<String> = BTreeSet::new();
+        for (k, v) in &change.meta {
+            match v {
+                Some(j) => c.meta.insert(k.clone(), j.clone()),
+                None => c.meta.remove(k),
+            };
+            if let Some((kind, t, rest)) = parts::split_table_key(k) {
+                c.tables
+                    .entry(t.to_owned())
+                    .or_default()
+                    .set(kind, rest, v.as_ref());
+                tables_hit.insert(t.to_owned());
+            }
+            touched.insert(k.clone());
+        }
+        let defs = parts::rebuild_parts(doc, &c.meta, &c.stories, &touched, was_joining);
         let mut ctx = BuildCtx {
-            numbering: doc.numbering.clone(),
-            styles: doc.styles.clone(),
+            numbering: defs.numbering.unwrap_or_else(|| doc.numbering.clone()),
+            styles: defs.styles.unwrap_or_else(|| doc.styles.clone()),
             base_nums: &c.base_nums,
             numbering_changed: false,
             styles_changed: false,
+            tables: None,
+            stories: None,
         };
-        let mut tmp = DocCollab {
-            entries: std::mem::take(&mut c.entries),
-            ..DocCollab::default()
-        };
+        ctx.numbering_changed = ctx.numbering != doc.numbering;
+        ctx.styles_changed = ctx.styles != doc.styles;
         let mut error = None;
+        // Nested texts (cells, notes, comments, headers).
+        for (k, v) in &change.texts {
+            if let Err(e) = parts::apply_text(&mut c.stories, k, v.as_ref(), &mut ctx) {
+                error = Some(e);
+            }
+            if let Some(t) = parts::story_table(k) {
+                tables_hit.insert(t.to_owned());
+            }
+            touched.insert(k.clone());
+        }
+        c.tables.retain(|_, t| !t.is_empty());
+        ctx.tables = Some(&c.tables);
+        ctx.stories = Some(&c.stories);
+        // The body.
+        let mut entries = std::mem::take(&mut c.entries);
         for d in &change.body {
-            if let Err(e) = tmp.apply_delta(d, &mut ctx) {
+            if let Err(e) = apply_entries(&mut entries, d, &mut ctx) {
                 error = Some(e);
                 break;
             }
@@ -1333,28 +1462,37 @@ impl Engine {
                 focus = transform_index(focus, d);
             }
         }
+        // Tables whose structure or cells changed are rebuilt.
+        for e in &mut entries {
+            if let Some(k) = parts::table_key(&e.line) {
+                if was_joining || tables_hit.contains(k) {
+                    e.block = ctx.block(&e.line);
+                }
+            }
+        }
         if was_joining {
-            let total = tmp.total();
+            let total: u32 = entries.iter().map(|e| e.len).sum();
             anchor = anchor.min(total);
             focus = focus.min(total);
         }
-        let joined = !tmp.entries.is_empty();
+        let joined = !entries.is_empty();
         if c.joining && !joined {
-            c.entries = tmp.entries;
+            c.entries = entries;
             return self.collab_result(None, error);
         }
-        if tmp.entries.is_empty() {
+        if entries.is_empty() {
             let line = Line {
                 segs: Vec::new(),
                 end: None,
             };
-            tmp.entries.push(Entry {
+            entries.push(Entry {
                 block: ctx.block(&line),
                 sect: None,
                 len: 0,
                 line,
             });
         }
+        let content = parts::rebuild_parts(doc, &c.meta, &c.stories, &touched, was_joining);
         let mut ops = Vec::new();
         if ctx.numbering_changed {
             ops.push(Op::Numbering {
@@ -1366,6 +1504,32 @@ impl Engine {
             ops.push(Op::Styles {
                 old: Box::new(doc.styles.clone()),
                 new: Box::new(ctx.styles),
+            });
+        }
+        if let Some(cm) = content.comments.filter(|cm| *cm != doc.comments) {
+            ops.push(Op::Comments {
+                old: doc.comments.clone(),
+                new: cm,
+            });
+        }
+        for (endnote, notes) in [(false, content.footnotes), (true, content.endnotes)] {
+            let cur = if endnote {
+                &doc.endnotes
+            } else {
+                &doc.footnotes
+            };
+            if let Some(n) = notes.filter(|n| n != cur) {
+                ops.push(Op::Notes {
+                    endnote,
+                    old: cur.clone(),
+                    new: n,
+                });
+            }
+        }
+        if let Some(eo) = content.eo.filter(|eo| *eo != doc.even_and_odd_headers) {
+            ops.push(Op::EvenAndOddHeaders {
+                old: doc.even_and_odd_headers,
+                new: eo,
             });
         }
         for (name, v) in &change.blobs {
@@ -1381,6 +1545,10 @@ impl Engine {
                 });
             }
         }
+        let mut tmp = DocCollab {
+            entries,
+            ..DocCollab::default()
+        };
         ops.extend(tmp.model_ops(doc));
         c.entries = tmp.entries;
         c.joining = false;
@@ -1390,9 +1558,22 @@ impl Engine {
             // Cannot happen while the shadow matches the model; the document is unchanged.
             error = Some(e.to_string());
         }
+        // Header/footer contents (after the sections are in place).
+        if let Some(sections) = parts::rebuilt_headers(s.doc(), &c.stories, &touched, true) {
+            let op = Op::Sections {
+                index: 0,
+                remove: s.doc().sections.clone(),
+                insert: sections,
+            };
+            let keep = s.selection();
+            if let Err(e) = s.apply_external(vec![op], keep) {
+                error = Some(e.to_string());
+            }
+        }
         // Positions in the new text.
         let c = self.collab.as_mut().ok_or(EngineError::NoDocument)?;
         let doc = s.doc();
+        c.seen.update(doc);
         let paths = body_paragraphs(doc);
         let selection = Selection {
             anchor: c.pos_of(doc, anchor, &paths),
@@ -1404,7 +1585,6 @@ impl Engine {
         let dirty = self.relayout()?;
         self.collab_result(Some(dirty), error)
     }
-
     fn collab_result(
         &mut self,
         dirty: Option<Vec<usize>>,

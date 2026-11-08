@@ -29,7 +29,7 @@ export interface DocEngineLike {
   newDocument(name: string): Promise<unknown>;
   command(cmd: { cmd: string }): Promise<DocResultLike>;
   insertImage(bytes: Uint8Array, name: string): Promise<DocResultLike>;
-  collabStart?(seed: boolean): Promise<ChangeLike>;
+  collabStart?(seed: boolean, clientId?: number): Promise<ChangeLike>;
   collabApply?(change: string): Promise<DocResultLike>;
   collabPeers?(selections: [number, number][]): Promise<{ caret: unknown; rects: unknown[] }[]>;
 }
@@ -134,11 +134,11 @@ export function collabDocHost<H extends DocEngineLike>(
   const bind = async () => {
     if (!host.collabStart) return;
     if (seedAsked) {
-      replica.seed(JSON.stringify(await host.collabStart(true)));
+      replica.seed(JSON.stringify(await host.collabStart(true, replica.clientId())));
       phase = 'live';
       flush();
     } else {
-      await host.collabStart(false);
+      await host.collabStart(false, replica.clientId());
       phase = 'live';
       // Late joiner: the body becomes the shared text (stays local until it arrives).
       await applyRemote(replica.fullState());
@@ -188,7 +188,7 @@ export function collabDocHost<H extends DocEngineLike>(
         // Bound as a joiner but the room is empty: publish this body.
         const full = JSON.parse(replica.fullState()) as ChangeLike;
         if (isEmptyChange(full)) {
-          replica.seed(JSON.stringify(await host.collabStart(true)));
+          replica.seed(JSON.stringify(await host.collabStart(true, replica.clientId())));
           flush();
         }
       }),

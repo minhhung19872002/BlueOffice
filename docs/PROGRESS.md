@@ -78,7 +78,7 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
    chứng tồn tại cho chữ ký không có dấu thời gian riêng; POE lan theo chuỗi gia hạn B-LTA; thuật toán yếu theo thời
    gian (SHA-1, RSA < 2048 trước 2014-01-01, `weakAlgorithm`, mốc cấu hình được `--sunset`); thu hồi xét tại thời
    điểm POE (ADR-0007). Ký và kiểm tra RSA và ECDSA P-256/P-384 (PAdES + OOXML, kiểm chéo `openssl cms -verify`);
-   XAdES của phần mềm khác chưa kiểm được.
+   chữ ký OOXML của phần mềm khác kiểm được (C14N/Exclusive C14N, RelationshipTransform, kiểm chéo lxml + OpenSSL).
 9. **Server**: chạy được nhiều instance `api` (lease phòng trong Redis, mã 4009, id phiên mang id instance, nginx băm
    theo file — `docker-compose.multi.yml`, `docs/deploy/README.md`); phiên vẫn ở bộ nhớ instance tạo ra nó. Schema bằng EF Core migrations (PostgreSQL + SQLite;
    database cũ tạo bằng `EnsureCreated` được nhận tự động, `docs/deploy/upgrade.md`). Npgsql dùng PostgreSQL License — chấp nhận theo [ADR-0009](adr/0009-npgsql-postgresql-license.md).

@@ -307,7 +307,7 @@ pub fn verify_document(
                     report.signatures.push(SignatureSummary {
                         signer,
                         signing_time: s.signing_time,
-                        covers_whole_document: true,
+                        covers_whole_document: s.unsigned_parts.is_empty(),
                         timestamp,
                         chain,
                         validated_at: crate::iso_utc(crate::unix_secs(at)),

@@ -17,6 +17,7 @@ pkcs12 = ["dep:p12-keystore"]
 
 [dependencies]
 bo-opc.workspace = true
+quick-xml.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -815,6 +815,7 @@ dependencies = [
  "p256",
  "p384",
  "pdf-writer",
+ "quick-xml",
  "rand 0.8.8",
  "rsa",
  "serde",

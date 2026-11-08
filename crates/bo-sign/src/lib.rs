@@ -22,11 +22,13 @@
 //! that obtain the signature asynchronously (the browser).
 #![forbid(unsafe_code)]
 
+pub(crate) mod c14n;
 pub mod cms_sig;
 pub mod crl;
 pub mod http;
 pub mod ocsp;
 pub mod ooxml;
+pub(crate) mod ooxml_verify;
 pub mod pdf;
 #[cfg(feature = "pkcs11")]
 pub mod pkcs11;

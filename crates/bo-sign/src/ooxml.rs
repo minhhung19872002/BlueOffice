@@ -21,7 +21,7 @@
 //! namespace declaration.
 
 use crate::timestamp::{self, TimestampClient, TimestampInfo};
-use crate::{sha256, verify_with_cert, Result, SignError, Signer};
+use crate::{sha256, Result, SignError, Signer};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use bo_opc::{rels_part_name, Limits, Package, Relationship, TargetMode};
@@ -96,6 +96,21 @@ fn source_of_rels(name: &str) -> Option<String> {
 }
 
 /// Output of the Relationship Transform (§12.2.4.24) + C14N for the given ids.
+/// [`transformed_rels`] for the verifier.
+pub(crate) fn transformed_relationships(rels: &[Relationship], ids: &[String]) -> String {
+    transformed_rels(rels, ids)
+}
+
+/// Source part of a relationships part name (`/word/_rels/document.xml.rels` → `/word/document.xml`).
+pub(crate) fn source_of_rels_part(name: &str) -> Option<String> {
+    source_of_rels(name)
+}
+
+/// Part of the signature machinery (origin, signature parts and their relationships).
+pub(crate) fn is_signature_part_name(name: &str) -> bool {
+    is_signature_part(name)
+}
+
 fn transformed_rels(rels: &[Relationship], ids: &[String]) -> String {
     let mut sel: Vec<&Relationship> = rels.iter().filter(|r| ids.contains(&r.id)).collect();
     sel.sort_by(|a, b| a.id.cmp(&b.id));
@@ -421,19 +436,6 @@ fn fresh_id(rels: &[Relationship]) -> String {
         .unwrap_or_else(|| "rIdSig".into())
 }
 
-fn between<'a>(s: &'a str, open: &str, close: &str) -> Option<&'a str> {
-    let a = s.find(open)?;
-    let b = s[a..].find(close)? + a;
-    Some(&s[a..b + close.len()])
-}
-
-fn inner<'a>(s: &'a str, tag: &str) -> Option<&'a str> {
-    let open = format!("<{tag}>");
-    let a = s.find(&open)? + open.len();
-    let b = s[a..].find(&format!("</{tag}>"))? + a;
-    Some(&s[a..b])
-}
-
 /// A verified package signature.
 #[derive(Debug, Clone)]
 pub struct OoxmlSignature {
@@ -447,32 +449,14 @@ pub struct OoxmlSignature {
     pub signing_time: Option<String>,
     /// Verified XAdES `SignatureTimeStamp`, if present.
     pub timestamp: Option<TimestampInfo>,
+    /// Package parts the signature does not cover (empty: the whole package is signed).
+    pub unsigned_parts: Vec<String>,
 }
 
-/// Every `<tag>…</tag>` text in `s`.
-fn all_inner<'a>(s: &'a str, tag: &str) -> Vec<&'a str> {
-    let open = format!("<{tag}>");
-    let close = format!("</{tag}>");
-    let mut out = Vec::new();
-    let mut rest = s;
-    while let Some(a) = rest.find(&open) {
-        let start = a + open.len();
-        let Some(b) = rest[start..].find(&close) else {
-            break;
-        };
-        out.push(&rest[start..start + b]);
-        rest = &rest[start + b + close.len()..];
-    }
-    out
-}
-
-/// Verifies the signatures of a package produced by [`sign_ooxml`]: the
-/// `SignedInfo` RSA signature, the digests of every `SignedInfo` reference
-/// (package object, XAdES signed properties), every manifest reference
-/// against the current package contents, the XAdES signing-certificate
-/// binding and the signature time-stamp. Signatures written by other
-/// producers with a different serialisation are reported as
-/// [`SignError::Unsupported`].
+/// Verifies every signature of a package, whoever wrote it ([`crate::ooxml_verify`]): the `SignedInfo`
+/// signature (RSA or ECDSA), the digests of every `SignedInfo` reference after its canonicalisation,
+/// every manifest reference against the current parts (relationship transform included), the XAdES
+/// signing-certificate binding and the signature time-stamp.
 pub fn verify_ooxml(bytes: &[u8]) -> Result<Vec<OoxmlSignature>> {
     let pkg = Package::read(bytes, &Limits::default())?;
     if pkg.part(ORIGIN_PART).is_none() {
@@ -487,106 +471,14 @@ pub fn verify_ooxml(bytes: &[u8]) -> Result<Vec<OoxmlSignature>> {
         let part = pkg
             .part(&name)
             .ok_or_else(|| SignError::Malformed(format!("missing {name}")))?;
-        let xml = std::str::from_utf8(&part.data)
-            .map_err(|_| SignError::Malformed("signature part is not UTF-8".into()))?;
-        let unsupported = || SignError::Unsupported(format!("{name}: unrecognised serialisation"));
-        let signed_info = between(xml, "<SignedInfo>", "</SignedInfo>").ok_or_else(unsupported)?;
-        let object =
-            between(xml, "<Object Id=\"idPackageObject\">", "</Object>").ok_or_else(unsupported)?;
-        let sig_b64 = inner(xml, "SignatureValue").ok_or_else(unsupported)?;
-        let sig_value = B64
-            .decode(sig_b64)
-            .map_err(|e| SignError::Malformed(e.to_string()))?;
-        let key_info = inner(xml, "KeyInfo").ok_or_else(unsupported)?;
-        let certificates = all_inner(key_info, "X509Certificate")
-            .into_iter()
-            .map(|c| {
-                B64.decode(c)
-                    .map_err(|e| SignError::Malformed(e.to_string()))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let cert = certificates.first().cloned().ok_or_else(unsupported)?;
-        // ECDSA SignatureValue is `r || s` (XML-DSig 1.1 §6.4.3); the verifier takes DER.
-        let sig_value = if signed_info.contains(ECDSA_SHA256) {
-            crate::ecdsa_raw_to_der(&sig_value, crate::KeyKind::of_cert(&cert)?)?
-        } else {
-            sig_value
-        };
-        verify_with_cert(
-            &cert,
-            &sha256(with_dsig_ns(signed_info, "SignedInfo").as_bytes()),
-            &sig_value,
-        )?;
-        let signed_properties = between(
-            xml,
-            "<xd:SignedProperties Id=\"idSignedProperties\">",
-            "</xd:SignedProperties>",
-        );
-        let mut has_object = false;
-        for r in signed_info.split("<Reference ").skip(1) {
-            let uri = r
-                .split_once("URI=\"")
-                .and_then(|(_, rest)| rest.split_once('"'))
-                .map(|(u, _)| u)
-                .ok_or_else(unsupported)?;
-            let digest = inner(r, "DigestValue").ok_or_else(unsupported)?;
-            let expected = match uri {
-                "#idPackageObject" => {
-                    has_object = true;
-                    digest_b64(with_dsig_ns(object, "Object").as_bytes())
-                }
-                "#idSignedProperties" => {
-                    let sp = signed_properties.ok_or_else(unsupported)?;
-                    digest_b64(canonical_signed_properties(sp).as_bytes())
-                }
-                _ => return Err(unsupported()),
-            };
-            if digest != expected {
-                return Err(SignError::Invalid(format!("{name}: {uri} digest mismatch")));
-            }
-        }
-        if !has_object {
-            return Err(unsupported());
-        }
-        // XAdES SigningCertificate must name the KeyInfo certificate (TS 101 903 §7.2.2).
-        if let Some(sp) = signed_properties {
-            let cert_digest = inner(sp, "xd:CertDigest")
-                .and_then(|d| inner(d, "DigestValue"))
-                .ok_or_else(unsupported)?;
-            if cert_digest != digest_b64(&cert) {
-                return Err(SignError::Invalid(format!(
-                    "{name}: signing certificate does not match KeyInfo"
-                )));
-            }
-        }
-        // Every manifest reference must match the package now.
-        let current = manifest(&pkg)?;
-        let signed_manifest = inner(object, "Manifest").ok_or_else(unsupported)?;
-        for r in signed_manifest.split("<Reference ").skip(1) {
-            let full = format!("<Reference {r}");
-            if !current.contains(&full) {
-                let uri = r.split('"').nth(1).unwrap_or("?");
-                return Err(SignError::Invalid(format!("{name}: {uri} was modified")));
-            }
-        }
-        let timestamp = match inner(xml, "xd:EncapsulatedTimeStamp") {
-            Some(t) => {
-                let token = B64
-                    .decode(t)
-                    .map_err(|e| SignError::Malformed(e.to_string()))?;
-                Some(timestamp::verify_token(
-                    &token,
-                    canonical_signature_value(sig_b64).as_bytes(),
-                )?)
-            }
-            None => None,
-        };
+        let v = crate::ooxml_verify::verify_part(&pkg, &name, &part.data)?;
         out.push(OoxmlSignature {
             part: name,
-            certificate_der: cert,
-            certificates,
-            signing_time: inner(object, "mdssi:Value").map(str::to_owned),
-            timestamp,
+            certificate_der: v.certificate_der,
+            certificates: v.certificates,
+            signing_time: v.signing_time,
+            timestamp: v.timestamp,
+            unsigned_parts: v.unsigned_parts,
         });
     }
     Ok(out)

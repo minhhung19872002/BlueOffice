@@ -18,46 +18,70 @@ use std::sync::Arc;
 pub enum Op {
     /// Replace `remove` (currently at `index`) by `insert` in the block container at `path`.
     Blocks {
+        /// Path prefix addressing the block container (see `bo_model::index::blocks_at`).
         path: Vec<usize>,
+        /// Index of the first replaced block.
         index: usize,
+        /// Blocks removed.
         remove: Vec<Block>,
+        /// Blocks inserted in their place.
         insert: Vec<Block>,
     },
     /// Replace sections starting at `index`.
     Sections {
+        /// Index of the first replaced section.
         index: usize,
+        /// Sections removed.
         remove: Vec<Section>,
+        /// Sections inserted in their place.
         insert: Vec<Section>,
     },
     /// Add, replace or remove a media part.
     Media {
+        /// Part name of the media.
         name: String,
+        /// Previous bytes (`None` = absent).
         old: Option<Arc<Vec<u8>>>,
+        /// New bytes (`None` = removed).
         new: Option<Arc<Vec<u8>>>,
     },
     /// Replace the numbering definitions.
     Numbering {
+        /// Previous definitions.
         old: Box<Numbering>,
+        /// New definitions.
         new: Box<Numbering>,
     },
     /// Replace the style sheet.
     Styles {
+        /// Previous style sheet.
         old: Box<StyleSheet>,
+        /// New style sheet.
         new: Box<StyleSheet>,
     },
     /// Replace the comments (§17.13.4).
     Comments {
+        /// Previous comments.
         old: Vec<Comment>,
+        /// New comments.
         new: Vec<Comment>,
     },
     /// Replace the footnotes (`endnote` false) or endnotes (§17.11).
     Notes {
+        /// `true` for endnotes, `false` for footnotes.
         endnote: bool,
+        /// Previous notes by id.
         old: BTreeMap<i32, Vec<Block>>,
+        /// New notes by id.
         new: BTreeMap<i32, Vec<Block>>,
     },
     /// Set the evenAndOddHeaders document setting (§17.15.1.35).
-    EvenAndOddHeaders { old: bool, new: bool },
+    EvenAndOddHeaders {
+        /// Previous value.
+        old: bool,
+        /// New value.
+        new: bool,
+    },
 }
 
 impl Op {
@@ -213,13 +237,16 @@ impl Op {
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
 pub struct Pos {
+    /// Body paragraph id (document order).
     #[serde(rename = "p")]
     pub para: usize,
+    /// Byte offset in the paragraph's index text.
     #[serde(rename = "o")]
     pub offset: usize,
 }
 
 impl Pos {
+    /// Position at byte `offset` of body paragraph `para`.
     pub fn new(para: usize, offset: usize) -> Pos {
         Pos { para, offset }
     }
@@ -228,17 +255,21 @@ impl Pos {
 /// Selection: `anchor` stays put, `focus` moves with Shift+arrows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Selection {
+    /// End that stays put.
     pub anchor: Pos,
+    /// End that moves with the caret.
     pub focus: Pos,
 }
 
 impl Selection {
+    /// Collapsed selection at `p`.
     pub fn caret(p: Pos) -> Selection {
         Selection {
             anchor: p,
             focus: p,
         }
     }
+    /// `anchor` and `focus` coincide.
     pub fn is_collapsed(&self) -> bool {
         self.anchor == self.focus
     }
@@ -255,8 +286,11 @@ impl Selection {
 /// A group of ops undone/redone together.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Transaction {
+    /// Ops in application order.
     pub ops: Vec<Op>,
+    /// Selection before the transaction (restored on undo).
     pub before: Selection,
+    /// Selection after the transaction (restored on redo).
     pub after: Selection,
 }
 

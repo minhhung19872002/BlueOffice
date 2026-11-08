@@ -15,6 +15,7 @@ pub const URI_CHART: &str = "http://schemas.openxmlformats.org/drawingml/2006/ch
 pub enum ChartKind {
     /// §21.2.2.16 barChart (also bar3DChart): `horizontal` = barDir `bar`.
     Bar {
+        /// Bars run horizontally (barDir `bar`) instead of vertically (`col`).
         horizontal: bool,
         /// §21.2.2.76 grouping: `clustered` | `stacked` | `percentStacked`.
         grouping: String,
@@ -24,7 +25,10 @@ pub enum ChartKind {
     /// §21.2.2.97 lineChart (also line3DChart).
     Line,
     /// §21.2.2.141 pieChart / pie3DChart / §21.2.2.50 doughnutChart.
-    Pie { doughnut: bool },
+    Pie {
+        /// Doughnut (with a hole) rather than a full pie.
+        doughnut: bool,
+    },
     /// §21.2.2.5 areaChart.
     Area,
     /// Anything else, by element name (drawn as an empty plot frame).
@@ -34,8 +38,11 @@ pub enum ChartKind {
 /// One data series (§21.2.2.168 ser).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Series {
+    /// Series name (`c:tx`), empty when absent.
     pub name: String,
+    /// Category labels (`c:cat`).
     pub categories: Vec<String>,
+    /// Values (`c:val`); `None` for blank points.
     pub values: Vec<Option<f64>>,
     /// Series fill (`c:spPr`).
     pub fill: Option<Fill>,
@@ -48,9 +55,13 @@ pub struct Series {
 /// A parsed chart.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chart {
+    /// Chart title text (`c:title`), if any.
     pub title: Option<String>,
+    /// Kind of the first chart group in the plot area.
     pub kind: ChartKind,
+    /// Data series in order.
     pub series: Vec<Series>,
+    /// A legend (`c:legend`) is shown.
     pub legend: bool,
     /// §21.2.2.47 c:varyColors (pie slices coloured per point).
     pub vary_colors: bool,

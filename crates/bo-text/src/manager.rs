@@ -10,15 +10,25 @@ pub struct FaceId(pub u32);
 /// Metadata and metrics of a loaded face (metrics in font units).
 #[derive(Debug, Clone)]
 pub struct FaceInfo {
+    /// Family name from the `name` table.
     pub family: String,
+    /// Bold face (bold flag or weight of at least 600).
     pub bold: bool,
+    /// Italic or oblique face.
     pub italic: bool,
+    /// Font units per em.
     pub units_per_em: u16,
+    /// Ascender (positive, above the baseline).
     pub ascender: i16,
+    /// Descender (negative, below the baseline).
     pub descender: i16,
+    /// Extra gap between lines.
     pub line_gap: i16,
+    /// Underline position relative to the baseline.
     pub underline_position: i16,
+    /// Underline thickness.
     pub underline_thickness: i16,
+    /// Strikeout position relative to the baseline.
     pub strikeout_position: i16,
 }
 
@@ -31,11 +41,15 @@ struct Face {
 /// A shaped glyph in font units.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ShapedGlyph {
+    /// Glyph index in the face.
     pub glyph_id: u16,
     /// Byte offset of the cluster in the shaped text.
     pub cluster: u32,
+    /// Horizontal advance.
     pub x_advance: i32,
+    /// Horizontal offset from the pen position.
     pub x_offset: i32,
+    /// Vertical offset from the pen position.
     pub y_offset: i32,
 }
 

@@ -10,6 +10,7 @@ use bo_model::slide::{Presentation, RawPart, Rel, ShapeNode, Slide, XmlElement, 
 /// A relationship referenced by copied shapes, with the part it targets.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClipRel {
+    /// The relationship as it was in the source slide part.
     pub rel: Rel,
     /// Target part (internal relationships), copied for pasting into other decks.
     pub part: Option<RawPart>,
@@ -18,14 +19,18 @@ pub struct ClipRel {
 /// What the clipboard holds.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClipKind {
+    /// Shapes copied from one slide.
     Shapes {
         /// Slide the shapes were copied from.
         slide: usize,
+        /// The copied shapes, top-level nodes of the shape tree in z-order.
         nodes: Vec<ShapeNode>,
+        /// Relationships the copied shapes reference (pictures, media, charts).
         rels: Vec<ClipRel>,
         /// Box around the copied shapes (slide points).
         bounds: Rect,
     },
+    /// Whole slides, in deck order.
     Slides(Vec<Slide>),
 }
 
@@ -34,6 +39,7 @@ pub enum ClipKind {
 pub struct Clip {
     /// Deck the content was copied from (`Engine` open counter).
     pub deck: u64,
+    /// The copied content.
     pub kind: ClipKind,
     /// Pastes onto the source slide so far (each one is offset a bit more).
     pub pastes: usize,
@@ -47,8 +53,11 @@ pub struct Clip {
 /// (pictures, media, …).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SlideSource {
+    /// Slide layouts of the source deck.
     pub layouts: Vec<bo_model::slide::SlideLayout>,
+    /// Slide masters of the source deck.
     pub masters: Vec<bo_model::slide::SlideMaster>,
+    /// Themes of the source deck.
     pub themes: Vec<bo_model::slide::Theme>,
     /// Parts targeted by the copied slides (and their designs), with the parts
     /// those reference in turn: a chart's embedded workbook, colour and style

@@ -43,7 +43,9 @@ const DUPLICATE_OFFSET: f64 = 12.0;
 /// The selection: current slide and selected shape ids (`cNvPr@id`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlideSel {
+    /// 0-based index of the current slide.
     pub slide: usize,
+    /// Selected shape ids (`cNvPr@id`), in selection order.
     pub ids: Vec<u32>,
 }
 
@@ -56,19 +58,31 @@ pub struct SlideSel {
 )]
 pub enum Transform {
     /// Move by (dx, dy) points.
-    Move { dx: f64, dy: f64 },
+    Move {
+        /// Horizontal distance in points.
+        dx: f64,
+        /// Vertical distance in points.
+        dy: f64,
+    },
     /// Drag a resize handle by (dx, dy) points.
     Resize {
+        /// Which handle is dragged.
         handle: HandleKind,
+        /// Horizontal drag distance in points.
         dx: f64,
+        /// Vertical drag distance in points.
         dy: f64,
+        /// Keep the aspect ratio (Shift held).
         #[serde(default)]
         keep_aspect: bool,
     },
     /// Drag the rotation handle to slide point (x, y); `step` snaps to 15°.
     Rotate {
+        /// Pointer x in slide points.
         x: f64,
+        /// Pointer y in slide points.
         y: f64,
+        /// Snap the angle to 15° steps (Shift held).
         #[serde(default)]
         step: bool,
     },
@@ -78,9 +92,13 @@ pub enum Transform {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ZOrder {
+    /// Bring to front (topmost).
     Front,
+    /// Send to back (bottommost).
     Back,
+    /// Bring forward one step.
     Forward,
+    /// Send backward one step.
     Backward,
 }
 
@@ -88,11 +106,17 @@ pub enum ZOrder {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AlignTo {
+    /// Align left edges.
     Left,
+    /// Align horizontal centres.
     Center,
+    /// Align right edges.
     Right,
+    /// Align top edges.
     Top,
+    /// Align vertical middles.
     Middle,
+    /// Align bottom edges.
     Bottom,
 }
 
@@ -100,7 +124,9 @@ pub enum AlignTo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Axis {
+    /// Equal horizontal gaps.
     Horizontal,
+    /// Equal vertical gaps.
     Vertical,
 }
 
@@ -122,80 +148,117 @@ pub enum SlideCommand {
     State,
     /// Make `slide` current (clears the selection).
     GoTo {
+        /// 0-based slide index.
         slide: usize,
     },
+    /// Select shapes by id on the current slide (replaces the selection).
     Select {
+        /// Shape ids (`cNvPr@id`).
         ids: Vec<u32>,
     },
+    /// Select every top-level shape of the current slide.
     SelectAll,
     /// Marquee: select the top-level shapes lying entirely inside `rect`
     /// (`extend` adds them to the selection).
     SelectRect {
+        /// Marquee rectangle in slide points.
         rect: Rect,
+        /// Add to the current selection instead of replacing it.
         #[serde(default)]
         extend: bool,
     },
     /// Select the next (or previous) shape in z-order (Tab / Shift+Tab).
     SelectNext {
+        /// Select the previous shape instead (Shift+Tab).
         #[serde(default)]
         back: bool,
     },
     /// Select the topmost shape at a slide point; `extend` (Shift) toggles it;
     /// `deep` selects inside groups.
     Click {
+        /// Point x in slide points.
         x: f64,
+        /// Point y in slide points.
         y: f64,
+        /// Toggle the hit shape in the selection (Shift held).
         #[serde(default)]
         extend: bool,
+        /// Select inside groups instead of the whole group.
         #[serde(default)]
         deep: bool,
     },
     /// Shapes at a point (topmost first), selection unchanged.
     HitTest {
+        /// Point x in slide points.
         x: f64,
+        /// Point y in slide points.
         y: f64,
+        /// Hit shapes inside groups.
         #[serde(default)]
         deep: bool,
     },
     /// Move / resize / rotate the selection; `preview` only computes the
     /// result (boxes and smart guides) without changing the deck.
     Transform {
+        /// Move, resize or rotate.
         transform: Transform,
+        /// Snap to smart guides (other shapes, slide edges and centre).
         #[serde(default = "yes")]
         snap: bool,
+        /// Snap distance in points.
         #[serde(default = "default_tolerance")]
         tolerance: f64,
+        /// Only compute the preview; the deck is not changed.
         #[serde(default)]
         preview: bool,
     },
+    /// Delete the selected shapes.
     Delete,
+    /// Duplicate the selected shapes (offset by 12 points).
     Duplicate,
+    /// Change the z-order of the selected shapes.
     ZOrder {
+        /// Where the shapes move in the stacking order.
         to: ZOrder,
     },
+    /// Group the selected shapes.
     Group,
+    /// Ungroup the selected groups.
     Ungroup,
+    /// Align the selected shapes.
     Align {
+        /// Which edge or centre to align.
         to: AlignTo,
     },
+    /// Distribute the selected shapes evenly.
     Distribute {
+        /// Distribution direction.
         axis: Axis,
     },
     /// Preset shape (§20.1.10.56 ST_ShapeType, e.g. `rect`, `ellipse`, `rightArrow`).
     InsertShape {
+        /// Preset geometry name.
         preset: String,
+        /// Box in slide points; `None` = a default size centred on the slide.
         #[serde(default)]
         rect: Option<Rect>,
     },
+    /// Insert a text box.
     InsertTextBox {
+        /// Initial text.
         #[serde(default)]
         text: String,
+        /// Box in slide points; `None` = a default size centred on the slide.
         #[serde(default)]
         rect: Option<Rect>,
     },
+    /// Insert a table.
     InsertTable {
+        /// Number of rows.
         rows: usize,
+        /// Number of columns.
         cols: usize,
+        /// Box in slide points; `None` = a default size centred on the slide.
         #[serde(default)]
         rect: Option<Rect>,
     },
@@ -203,11 +266,15 @@ pub enum SlideCommand {
     /// `merge` joins the change with the previous typing in the same shape
     /// (one undo step); `sel` is the text selection afterwards (UTF-16).
     SetText {
+        /// Shape id; `None` = the selected shape.
         #[serde(default)]
         id: Option<u32>,
+        /// New text in the editing format.
         text: String,
+        /// Join with the previous typing in the same shape (one undo step).
         #[serde(default)]
         merge: bool,
+        /// Text selection `[start, end]` afterwards, UTF-16 offsets.
         #[serde(default)]
         sel: Option<[usize; 2]>,
         /// Text of table cell `[row, col]` of table `id` instead of the shape's.
@@ -217,15 +284,20 @@ pub enum SlideCommand {
     /// Format the text selection (`range`, UTF-16, or the current text
     /// selection) or — outside text editing — the whole text of the selection.
     FormatText {
+        /// Character / paragraph properties to set; absent fields are kept.
         format: TextFormat,
+        /// `[start, end]` UTF-16 offsets; `None` = the current text selection.
         #[serde(default)]
         range: Option<[usize; 2]>,
     },
     /// Start / move the text selection inside a shape (UTF-16 offsets).
     TextSelect {
+        /// Shape id; `None` = the selected shape.
         #[serde(default)]
         id: Option<u32>,
+        /// Selection anchor, UTF-16 offset into the shape text.
         start: usize,
+        /// Selection focus, UTF-16 offset into the shape text.
         end: usize,
         /// Table cell `[row, col]` of table `id`.
         #[serde(default)]
@@ -233,20 +305,26 @@ pub enum SlideCommand {
     },
     /// Place the caret at a slide point of the edited shape (`extend` = Shift).
     TextHit {
+        /// Point x in slide points.
         x: f64,
+        /// Point y in slide points.
         y: f64,
+        /// Extend the text selection (Shift held).
         #[serde(default)]
         extend: bool,
     },
     /// Edit the text of the table cell at a slide point on the canvas (caret at the
     /// point; the table is the selected one).
     CellTextHit {
+        /// Point x in slide points.
         x: f64,
+        /// Point y in slide points.
         y: f64,
     },
     /// Edit the next (or previous, `back`) cell of the table whose cell text is edited,
     /// its text selected (Tab / Shift+Tab).
     CellNext {
+        /// Go to the previous cell instead (Shift+Tab).
         #[serde(default)]
         back: bool,
     },
@@ -254,79 +332,113 @@ pub enum SlideCommand {
     TextExit,
     /// Select cells `(r0, c0)..=(r1, c1)` of a table (default: the selected one).
     TableSelect {
+        /// Table shape id; `None` = the selected table.
         #[serde(default)]
         id: Option<u32>,
+        /// First row (0-based).
         r0: usize,
+        /// First column (0-based).
         c0: usize,
+        /// Last row (0-based, inclusive); `None` = `r0`.
         #[serde(default)]
         r1: Option<usize>,
+        /// Last column (0-based, inclusive); `None` = `c0`.
         #[serde(default)]
         c1: Option<usize>,
     },
     /// Select the cell at a slide point (`extend` = Shift grows the range).
     TableHit {
+        /// Point x in slide points.
         x: f64,
+        /// Point y in slide points.
         y: f64,
+        /// Grow the cell range (Shift held).
         #[serde(default)]
         extend: bool,
     },
     /// Text of a cell (default: the first selected cell); `merge` joins typing.
     SetCellText {
+        /// 0-based row; `None` = the first selected cell's row.
         #[serde(default)]
         row: Option<usize>,
+        /// 0-based column; `None` = the first selected cell's column.
         #[serde(default)]
         col: Option<usize>,
+        /// New cell text.
         text: String,
+        /// Join with the previous typing in the same cell (one undo step).
         #[serde(default)]
         merge: bool,
     },
+    /// Insert a row above (or `below`) the selected cells.
     TableInsertRow {
+        /// Insert below instead of above.
         #[serde(default)]
         below: bool,
     },
+    /// Insert a column left (or `right`) of the selected cells.
     TableInsertCol {
+        /// Insert to the right instead of the left.
         #[serde(default)]
         right: bool,
     },
+    /// Delete the rows of the selected cells.
     TableDeleteRows,
+    /// Delete the columns of the selected cells.
     TableDeleteCols,
+    /// Merge the selected cells.
     TableMerge,
+    /// Split the selected merged cell.
     TableSplit,
     /// Fill of the selected cells: `RRGGBB` or `None` (back to the style).
     TableFill {
+        /// Fill colour `RRGGBB`; `None` uses the table style.
         color: Option<String>,
     },
     /// Table style options (§21.1.3.15 tblPr firstRow / bandRow).
     TableOptions {
+        /// Emphasize the header row; `None` keeps it.
         #[serde(default)]
         first_row: Option<bool>,
+        /// Banded rows; `None` keeps them.
         #[serde(default)]
         band_row: Option<bool>,
     },
+    /// Leave table cell selection.
     TableExit,
     /// Drag adjust handle `index` of the selected preset shape to slide point
     /// (x, y) (§20.1.9.5 avLst); `merge` joins the previous drag step.
     Adjust {
+        /// 0-based adjust handle index.
         index: usize,
+        /// Pointer x in slide points.
         x: f64,
+        /// Pointer y in slide points.
         y: f64,
+        /// Join with the previous drag step (one undo step).
         #[serde(default)]
         merge: bool,
     },
     /// Drag end `end` (0 = start, 1 = end) of the selected connector to (x, y):
     /// it attaches to the nearest connection site within `tolerance` points.
     ConnectorEnd {
+        /// Which end: 0 = start, 1 = end.
         end: usize,
+        /// Pointer x in slide points.
         x: f64,
+        /// Pointer y in slide points.
         y: f64,
+        /// Join with the previous drag step (one undo step).
         #[serde(default)]
         merge: bool,
+        /// Snap distance to connection sites, in points.
         #[serde(default = "default_site_tolerance")]
         tolerance: f64,
     },
     /// Connect the two selected shapes with a connector between their
     /// nearest connection sites (`preset` default `straightConnector1`).
     InsertConnector {
+        /// Connector preset (`straightConnector1`, `bentConnector3`, …).
         #[serde(default)]
         preset: Option<String>,
     },
@@ -341,48 +453,68 @@ pub enum SlideCommand {
     Paste,
     /// Copy slides (default: the current one).
     CopySlides {
+        /// 0-based slide indices; `None` = the current slide.
         #[serde(default)]
         indices: Option<Vec<usize>>,
     },
+    /// Cut slides (default: the current one): copy, then delete them.
     CutSlides {
+        /// 0-based slide indices; `None` = the current slide.
         #[serde(default)]
         indices: Option<Vec<usize>>,
     },
     /// `RRGGBB` or `None` for no fill.
     SetFill {
+        /// Fill colour of the selected shapes.
         color: Option<String>,
     },
     /// `RRGGBB` or `None` for no line; width in points.
     SetLine {
+        /// Line colour of the selected shapes.
         color: Option<String>,
+        /// Line width in points; `None` keeps it.
         #[serde(default)]
         width: Option<f64>,
     },
     /// New slide after `after` (default: current) from `layout` (default: like the current one).
     AddSlide {
+        /// 0-based slide index to insert after; `None` = the current slide.
         #[serde(default)]
         after: Option<usize>,
+        /// 0-based layout index (see `layouts`); `None` = the current slide's layout.
         #[serde(default)]
         layout: Option<usize>,
     },
+    /// Delete a slide (default: the current one).
     DeleteSlide {
+        /// 0-based slide index; `None` = the current slide.
         #[serde(default)]
         index: Option<usize>,
     },
+    /// Duplicate a slide (default: the current one) after it.
     DuplicateSlide {
+        /// 0-based slide index; `None` = the current slide.
         #[serde(default)]
         index: Option<usize>,
     },
+    /// Move a slide to another position.
     MoveSlide {
+        /// 0-based index of the slide to move.
         from: usize,
+        /// 0-based index it moves to.
         to: usize,
     },
+    /// Replace the speaker notes of a slide.
     SetNotes {
+        /// 0-based slide index; `None` = the current slide.
         #[serde(default)]
         slide: Option<usize>,
+        /// Notes text in the editing format (`\n` paragraphs).
         text: String,
     },
+    /// Undo the last change.
     Undo,
+    /// Redo the last undone change.
     Redo,
 }
 
@@ -595,10 +727,13 @@ fn shape_text(pres: &Presentation, slide: usize, id: u32) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShapeInfo {
+    /// Shape id (`cNvPr@id`).
     pub id: u32,
+    /// Shape name (`cNvPr@name`).
     pub name: String,
     /// `shape` | `picture` | `group` | `connector` | `table` | `graphic`.
     pub kind: &'static str,
+    /// Box in slide points.
     pub rect: BoxR,
     /// Text in the editing format (shapes only).
     pub text: Option<String>,
@@ -606,14 +741,18 @@ pub struct ShapeInfo {
     pub placeholder: Option<String>,
     /// Resize keeps the aspect ratio by default (pictures).
     pub lock_aspect: bool,
+    /// Its text can be edited in place.
     pub editable_text: bool,
 }
 
 /// A slide layout new slides can be based on.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LayoutInfo {
+    /// 0-based layout index (for `addSlide`).
     pub index: usize,
+    /// Layout name.
     pub name: String,
+    /// Layout type (§19.7.15 `ST_SlideLayoutType`, e.g. `titleOnly`).
     pub kind: Option<String>,
 }
 
@@ -621,11 +760,15 @@ pub struct LayoutInfo {
 #[derive(Debug, Clone, PartialEq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Preview {
+    /// Snapped box of each selected shape.
     pub boxes: Vec<BoxR>,
+    /// Box around all of them.
     pub bounds: Option<BoxR>,
+    /// Smart guide lines to draw.
     pub guides: Vec<Guide>,
     /// Applied move delta after snapping.
     pub dx: f64,
+    /// Applied vertical move delta after snapping.
     pub dy: f64,
     /// Rotation angle (rotate only), degrees.
     pub angle: Option<f64>,
@@ -635,12 +778,15 @@ pub struct Preview {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SlideEditResult {
+    /// Document summary (name, kind, slide count, …).
     pub info: DocInfo,
     /// Current slide.
     pub slide: usize,
+    /// Selected shapes.
     pub selection: Vec<ShapeInfo>,
     /// Box around the selection (the shape's own box for one shape).
     pub bounds: Option<BoxR>,
+    /// Resize and rotate handles of the selection.
     pub handles: Vec<Handle>,
     /// Empty placeholders of the current slide (drawn as dashed outlines).
     pub placeholders: Vec<BoxR>,
@@ -648,15 +794,22 @@ pub struct SlideEditResult {
     pub dirty: Vec<usize>,
     /// The slide list changed (count or order).
     pub slides_changed: bool,
+    /// Changed since opened or last saved.
     pub modified: bool,
+    /// Undo is available.
     pub can_undo: bool,
+    /// Redo is available.
     pub can_redo: bool,
+    /// Ribbon formatting state of the selection.
     pub format: FormatState,
     /// Notes of the current slide in the editing format.
     pub notes: String,
+    /// Slide layouts of the deck (for `addSlide`).
     pub layouts: Vec<LayoutInfo>,
+    /// Result of a `transform` preview.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview: Option<Preview>,
+    /// Shape ids at the point of `hitTest`, topmost first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hits: Option<Vec<u32>>,
     /// Message of a command that could not be applied (the deck is unchanged).
@@ -691,7 +844,9 @@ pub struct SlideEditResult {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipboardOut {
+    /// Plain text of the copied shapes.
     pub text: String,
+    /// PNG image of the copied shapes, base64.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub png: Option<String>,
 }
@@ -699,8 +854,10 @@ pub struct ClipboardOut {
 /// Why a command was refused (codes the UI can translate).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum EditError {
+    /// An operation failed.
     #[error(transparent)]
     Op(#[from] OpError),
+    /// The command does not apply to the current selection (message code).
     #[error("{0}")]
     Refused(&'static str),
 }

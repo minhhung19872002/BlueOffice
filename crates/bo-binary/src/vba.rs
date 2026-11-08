@@ -25,6 +25,7 @@ const MAX_DECOMPRESSED: usize = 64 << 20;
 /// A module of a VBA project.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VbaModule {
+    /// Module name as declared in the `dir` stream.
     pub name: String,
     /// Stream name inside the `VBA` storage.
     pub stream_name: String,
@@ -35,7 +36,9 @@ pub struct VbaModule {
 /// What we know about a VBA project (for the macro warning UI).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VbaProject {
+    /// Project name (`PROJECTNAME` record of the `dir` stream).
     pub name: String,
+    /// Modules of the project.
     pub modules: Vec<VbaModule>,
 }
 

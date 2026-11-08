@@ -11,7 +11,9 @@ use bo_model::sheet::Workbook;
 /// Which axis a structural change applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dimension {
+    /// Row insert/delete (cell references change row numbers).
     Rows,
+    /// Column insert/delete (cell references change column letters).
     Cols,
 }
 
@@ -20,9 +22,11 @@ pub enum Dimension {
 pub struct StructuralChange {
     /// Name of the sheet whose rows/columns change.
     pub sheet: String,
+    /// Whether rows or columns are inserted / deleted.
     pub dimension: Dimension,
     /// First zero-based index affected.
     pub at: u32,
+    /// Number of rows or columns inserted / deleted.
     pub count: u32,
     /// `true` = insertion, `false` = deletion.
     pub insert: bool,
@@ -32,13 +36,21 @@ pub struct StructuralChange {
 /// `first_col..=last_col` of sheet `from_sheet`, now `d_rows` / `d_cols` away on `to_sheet`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CellMove {
+    /// Sheet the cells were cut from.
     pub from_sheet: String,
+    /// Sheet the cells were pasted on (may equal `from_sheet`).
     pub to_sheet: String,
+    /// First zero-based row of the cut block.
     pub first_row: u32,
+    /// First zero-based column of the cut block.
     pub first_col: u32,
+    /// Last zero-based row of the cut block (inclusive).
     pub last_row: u32,
+    /// Last zero-based column of the cut block (inclusive).
     pub last_col: u32,
+    /// Row offset from the cut block to its pasted position.
     pub d_rows: i64,
+    /// Column offset from the cut block to its pasted position.
     pub d_cols: i64,
 }
 

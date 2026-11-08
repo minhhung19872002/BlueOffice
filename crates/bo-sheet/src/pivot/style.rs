@@ -41,12 +41,19 @@ pub const STYLE_NAMES: &[&str] = &[
 /// Colours of one style.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Palette {
+    /// Fill `RRGGBB` of the header row; `None` = no fill.
     pub header_fill: Option<String>,
+    /// Font colour `RRGGBB` of the header row; `None` = automatic.
     pub header_font: Option<String>,
+    /// Colour `RRGGBB` of the line under the header row.
     pub header_border: String,
+    /// Fill `RRGGBB` of subtotal lines; `None` = no fill.
     pub subtotal_fill: Option<String>,
+    /// Fill `RRGGBB` of the grand total line; `None` = no fill.
     pub grand_fill: Option<String>,
+    /// Font colour `RRGGBB` of the grand total line; `None` = automatic.
     pub grand_font: Option<String>,
+    /// Fill `RRGGBB` of banded (striped) rows / columns.
     pub stripe_fill: String,
 }
 

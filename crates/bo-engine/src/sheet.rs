@@ -28,33 +28,44 @@ pub use cmd::{Clip, PasteMode, SheetCommand};
 
 /// Hard limits of the grid (ECMA-376 Part 1, §18.3.1.73 `row/@r` ≤ 1 048 576; 16 384 columns).
 pub const MAX_ROWS: u32 = 1_048_576;
+/// Maximum number of columns (`XFD`).
 pub const MAX_COLS: u32 = 16_384;
 
 /// Summary of an open workbook.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkbookInfo {
+    /// File name of the workbook.
     pub name: String,
+    /// Every sheet, in tab order.
     pub sheets: Vec<SheetInfo>,
 }
 
+/// Summary of one sheet (tab bar, navigation and frozen panes).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SheetInfo {
+    /// Sheet (tab) name.
     pub name: String,
     /// Used range: last row / column with content (0-based), `None` when empty.
     pub last_row: Option<u32>,
+    /// Last used column (0-based), `None` when empty.
     pub last_col: Option<u32>,
+    /// Number of frozen rows at the top.
     pub frozen_rows: u32,
+    /// Number of frozen columns at the left.
     pub frozen_cols: u32,
+    /// The sheet is hidden or very hidden.
     pub hidden: bool,
     /// Hidden row spans `[first, last]` (filtered or hidden rows), for navigation.
     pub hidden_rows: Vec<(u32, u32)>,
+    /// Hidden column spans `[first, last]`, for navigation.
     pub hidden_cols: Vec<(u32, u32)>,
     /// AutoFilter range `[r0, c0, r1, c1]`.
     pub auto_filter: Option<[u32; 4]>,
     /// Merged ranges `[r0, c0, r1, c1]`.
     pub merges: Vec<[u32; 4]>,
+    /// Number of charts on the sheet.
     pub charts: usize,
     /// Number of pivot tables on the sheet.
     pub pivots: usize,
@@ -64,45 +75,65 @@ pub struct SheetInfo {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum HitInfo {
+    /// A grid cell.
     Cell {
+        /// 0-based row.
         row: u32,
+        /// 0-based column.
         col: u32,
     },
+    /// A column header.
     ColumnHeader {
+        /// 0-based column.
         col: u32,
     },
+    /// A row header.
     RowHeader {
+        /// 0-based row.
         row: u32,
     },
     /// Near the right edge of column `col` in the header (resize / autofit).
     ColumnEdge {
+        /// 0-based column.
         col: u32,
     },
     /// Near the bottom edge of row `row` in the header.
     RowEdge {
+        /// 0-based row.
         row: u32,
     },
     /// The AutoFilter button of column `col`.
     FilterButton {
+        /// 0-based row of the AutoFilter header cell.
         row: u32,
+        /// 0-based column.
         col: u32,
     },
     /// A chart placed on the sheet, and the cell under the point.
     Chart {
+        /// 0-based index of the chart in the sheet.
         index: usize,
+        /// 0-based row of the cell under the point.
         row: u32,
+        /// 0-based column of the cell under the point.
         col: u32,
     },
+    /// The top-left corner (select all).
     Corner,
+    /// Outside the grid.
     None,
 }
 
 /// Screen rectangle (points) of a cell or range in the current viewport.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub struct ScreenRect {
+    /// Left edge in points.
     pub x: f64,
+    /// Top edge in points.
     pub y: f64,
+    /// Width in points.
     pub w: f64,
+    /// Height in points.
     pub h: f64,
 }
 
@@ -110,6 +141,7 @@ pub struct ScreenRect {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CellDetails {
+    /// A1-style address (`B7`).
     pub address: String,
     /// Editable input: `=FORMULA`, a plain number, or text.
     pub input: String,
@@ -120,10 +152,15 @@ pub struct CellDetails {
 /// Viewport request from the UI.
 #[derive(Debug, Clone, Copy)]
 pub struct ViewRequest {
+    /// 0-based sheet index.
     pub sheet: usize,
+    /// Horizontal scroll offset of the grid, in points.
     pub scroll_x: f64,
+    /// Vertical scroll offset of the grid, in points.
     pub scroll_y: f64,
+    /// Viewport width in points.
     pub width: f64,
+    /// Viewport height in points.
     pub height: f64,
 }
 
@@ -379,6 +416,7 @@ fn number_input(n: f64, locale: &Locale) -> String {
 }
 
 impl SheetEngine {
+    /// An engine with no workbook and no fonts.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -407,10 +445,12 @@ impl SheetEngine {
         e
     }
 
+    /// Registers a font file (TTF/OTF/TTC); returns the number of faces added.
     pub fn add_font(&mut self, bytes: Vec<u8>) -> usize {
         self.fonts.add_font(bytes).len()
     }
 
+    /// Number of registered font faces.
     #[must_use]
     pub fn face_count(&self) -> usize {
         self.fonts.len()
@@ -478,6 +518,7 @@ impl SheetEngine {
         self.load(wb, name)
     }
 
+    /// Opens a workbook model as the current document (clears undo, clipboard and collaboration).
     pub fn load(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
         self.live.rebuild(&mut wb);
         // One-cell / absolute chart anchors (§20.5.2.24, §20.5.2.1) → cells.
@@ -503,6 +544,7 @@ impl SheetEngine {
         self.info()
     }
 
+    /// The open workbook, if any.
     #[must_use]
     pub fn workbook(&self) -> Option<&Workbook> {
         self.wb.as_ref()
@@ -519,6 +561,7 @@ impl SheetEngine {
             .ok_or(EngineError::PageOutOfRange(i))
     }
 
+    /// Summary of the open workbook.
     pub fn info(&self) -> Result<WorkbookInfo> {
         let wb = self.wb()?;
         Ok(WorkbookInfo {
@@ -602,6 +645,7 @@ impl SheetEngine {
         ))
     }
 
+    /// [`Self::render`] as JSON.
     pub fn render_json(&mut self, req: &ViewRequest) -> Result<String> {
         Ok(serde_json::to_string(&self.render(req)?).unwrap_or_default())
     }
@@ -954,6 +998,7 @@ impl SheetEngine {
         Ok(inverse)
     }
 
+    /// Undoes the last edit; `false` when there is nothing to undo.
     pub fn undo(&mut self) -> Result<bool> {
         let Some(e) = self.undo.pop() else {
             return Ok(false);
@@ -963,6 +1008,7 @@ impl SheetEngine {
         Ok(true)
     }
 
+    /// Redoes the last undone edit; `false` when there is nothing to redo.
     pub fn redo(&mut self) -> Result<bool> {
         let Some(e) = self.redo.pop() else {
             return Ok(false);
@@ -972,11 +1018,13 @@ impl SheetEngine {
         Ok(true)
     }
 
+    /// Undo is available.
     #[must_use]
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
 
+    /// Redo is available.
     #[must_use]
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()

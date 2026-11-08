@@ -7,17 +7,23 @@ use quick_xml::events::Event;
 /// Target mode (§9.3.2.2 `TargetMode`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TargetMode {
+    /// Target is a part inside the package.
     #[default]
     Internal,
+    /// Target is an external resource (URI).
     External,
 }
 
 /// One `Relationship` element.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Relationship {
+    /// `Id`, unique within the relationships part.
     pub id: String,
+    /// `Type`: relationship type URI.
     pub rel_type: String,
+    /// `Target` as written (relative to the source part, or a URI when external).
     pub target: String,
+    /// `TargetMode`.
     pub mode: TargetMode,
 }
 

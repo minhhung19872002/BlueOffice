@@ -19,7 +19,9 @@ pub const EMU_PT: f64 = 12_700.0;
 pub struct Aff(pub [f64; 6]);
 
 impl Aff {
+    /// The identity transform.
     pub const ID: Aff = Aff([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+    /// Translation by `(x, y)`.
     #[must_use]
     pub fn translate(x: f64, y: f64) -> Aff {
         Aff([1.0, 0.0, 0.0, 1.0, x, y])
@@ -38,6 +40,7 @@ impl Aff {
             b * e2 + d * f2 + f,
         ])
     }
+    /// Maps the point `(x, y)` through the transform.
     pub fn apply(self, x: f64, y: f64) -> (f64, f64) {
         let [a, b, c, d, e, f] = self.0;
         (a * x + c * y + e, b * x + d * y + f)
@@ -69,9 +72,13 @@ impl Aff {
 /// Coordinate context of a shape container (spTree or group), as in the renderer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Frame {
+    /// Maps the container's (scaled) child space to slide points.
     pub aff: Aff,
+    /// Origin of the children in the affine input space (points).
     pub off: (f64, f64),
+    /// Child offset `chOff` of the group (points, §20.1.7.5).
     pub ch: (f64, f64),
+    /// Scale from the group's child extents `chExt` to its own `ext`.
     pub scale: (f64, f64),
     /// Accumulated rotation of the enclosing groups, degrees clockwise.
     pub rot: f64,
@@ -84,6 +91,7 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// Frame of the slide's shape tree: identity, no group transform.
     pub fn root() -> Frame {
         Frame {
             aff: Aff::ID,
@@ -194,10 +202,15 @@ pub fn normalize_deg(a: f64) -> f64 {
 /// A (possibly rotated) box in slide points: centre, size, rotation (degrees clockwise).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub struct BoxR {
+    /// Horizontal centre (points).
     pub cx: f64,
+    /// Vertical centre (points).
     pub cy: f64,
+    /// Width before rotation (points).
     pub w: f64,
+    /// Height before rotation (points).
     pub h: f64,
+    /// Rotation about the centre, degrees clockwise.
     pub rot: f64,
 }
 
@@ -257,6 +270,7 @@ impl BoxR {
         let (lx, ly) = self.to_local(x, y);
         lx.abs() <= self.w / 2.0 + tol && ly.abs() <= self.h / 2.0 + tol
     }
+    /// The same box moved by `(dx, dy)` points.
     #[must_use]
     pub fn translated(&self, dx: f64, dy: f64) -> BoxR {
         BoxR {
@@ -270,19 +284,26 @@ impl BoxR {
 /// Axis-aligned rectangle in slide points.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub struct Rect {
+    /// Left edge (points).
     pub x: f64,
+    /// Top edge (points).
     pub y: f64,
+    /// Width (points).
     pub w: f64,
+    /// Height (points).
     pub h: f64,
 }
 
 impl Rect {
+    /// Right edge (points).
     pub fn right(&self) -> f64 {
         self.x + self.w
     }
+    /// Bottom edge (points).
     pub fn bottom(&self) -> f64 {
         self.y + self.h
     }
+    /// Smallest rectangle containing both.
     #[must_use]
     pub fn union(&self, o: &Rect) -> Rect {
         let x = self.x.min(o.x);
@@ -294,6 +315,7 @@ impl Rect {
             h: self.bottom().max(o.bottom()) - y,
         }
     }
+    /// Union of all rectangles; `None` when there are none.
     pub fn union_all(rs: impl IntoIterator<Item = Rect>) -> Option<Rect> {
         rs.into_iter().reduce(|a, b| a.union(&b))
     }
@@ -454,14 +476,23 @@ pub fn hit_test(placed: &[Placed], x: f64, y: f64, tol: f64, deep: bool) -> Opti
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum HandleKind {
+    /// Top-left corner.
     Nw,
+    /// Top edge midpoint.
     N,
+    /// Top-right corner.
     Ne,
+    /// Right edge midpoint.
     E,
+    /// Bottom-right corner.
     Se,
+    /// Bottom edge midpoint.
     S,
+    /// Bottom-left corner.
     Sw,
+    /// Left edge midpoint.
     W,
+    /// Rotation handle above the top edge.
     Rot,
 }
 
@@ -479,6 +510,7 @@ impl HandleKind {
             HandleKind::W => (-1.0, 0.0),
         }
     }
+    /// The eight resize handles, clockwise from the top-left corner.
     pub const RESIZE: [HandleKind; 8] = [
         HandleKind::Nw,
         HandleKind::N,
@@ -494,8 +526,11 @@ impl HandleKind {
 /// A handle position in slide points.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Handle {
+    /// Which handle this is.
     pub kind: HandleKind,
+    /// Horizontal position on the slide (points).
     pub x: f64,
+    /// Vertical position on the slide (points).
     pub y: f64,
 }
 

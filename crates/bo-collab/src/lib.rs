@@ -77,21 +77,27 @@ impl yrs::sync::Clock for HostClock {
 /// Errors of the collaboration layer.
 #[derive(Debug, thiserror::Error)]
 pub enum CollabError {
+    /// A y-sync / awareness message could not be decoded or applied.
     #[error("sync protocol: {0}")]
     Protocol(#[from] yrs::sync::Error),
+    /// A caller-supplied argument is malformed (e.g. an invalid cell reference).
     #[error("invalid argument: {0}")]
     Invalid(String),
+    /// A JSON payload (change, presence, shape properties) is not valid JSON or has the wrong shape.
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
 }
 
+/// Result of the collaboration layer.
 pub type Result<T> = std::result::Result<T, CollabError>;
 
 /// What a user broadcasts about themselves (awareness state).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Presence {
+    /// Stable id of the user (from the host's authentication), shared by all their tabs.
     pub user_id: String,
+    /// Display name shown next to the remote caret.
     pub name: String,
     /// CSS colour of the user's caret/selection.
     pub color: String,
@@ -110,7 +116,9 @@ pub struct Presence {
 /// `insert` is a string, or an object for an embedded item.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeltaRun {
+    /// Inserted text (string) or embedded item (object).
     pub insert: Value,
+    /// Formatting attributes of the run; empty when unformatted.
     #[serde(default, skip_serializing_if = "JsonMap::is_empty")]
     pub attributes: JsonMap<String, Value>,
 }
@@ -124,18 +132,25 @@ pub struct DeltaRun {
 /// * `texts` — nested texts by key (`null` = removed), see [`TextChange`].
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Change {
+    /// Delta batches over the body text, applied in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub body: Vec<Vec<Value>>,
+    /// Slide entries by slide id (`null` = slide removed).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub slides: BTreeMap<String, Option<String>>,
+    /// Shape properties by `slide/shape` key (`null` = shape removed).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub shapes: BTreeMap<String, Option<String>>,
+    /// Binary parts added in the session (pictures) by key, as JSON `{"ct","b64"}` (`null` = removed).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub blobs: BTreeMap<String, Option<String>>,
+    /// Other shared objects (styles, numbering, sheet structure, masters…) as JSON, last writer wins (`null` = removed).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub meta: BTreeMap<String, Option<String>>,
+    /// Sheet cell inputs by `Sheet!A1` key (`null` = cell cleared).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub cells: BTreeMap<String, Option<String>>,
+    /// Nested texts (shape text, notes…) by key (`null` = removed).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub texts: BTreeMap<String, Option<TextChange>>,
 }
@@ -145,13 +160,16 @@ pub struct Change {
 /// content (same op format as the body).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TextChange {
+    /// The text was (re)created: the deltas build it from empty.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reset: bool,
+    /// Delta batches over the text, applied in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deltas: Vec<Vec<Value>>,
 }
 
 impl Change {
+    /// True when the change carries nothing (no body delta, no map entry, no text).
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.body.iter().all(Vec::is_empty)
@@ -554,6 +572,7 @@ impl Session {
         self.clock.0.fetch_max(now_ms, Ordering::Relaxed);
     }
 
+    /// Yjs client id of this replica (also its awareness id).
     #[must_use]
     pub fn client_id(&self) -> u64 {
         self.awareness.client_id()
@@ -880,6 +899,7 @@ impl Session {
         Ok(())
     }
 
+    /// Current plain text of the shared body.
     #[must_use]
     pub fn body_text(&self) -> String {
         self.body.get_string(&self.doc().transact())
@@ -917,6 +937,7 @@ impl Session {
         Ok(())
     }
 
+    /// Removes the cell `cell` of `sheet` from the shared map; fails on an invalid reference.
     pub fn clear_cell(&mut self, sheet: &str, cell: &str) -> Result<()> {
         let key = cell_key(sheet, cell)?;
         let cells = self.cells.clone();
@@ -955,6 +976,7 @@ impl Session {
         Ok(())
     }
 
+    /// Removes the shape `shape` of slide `slide` from the shared map.
     pub fn remove_shape(&mut self, slide: &str, shape: &str) {
         let key = format!("{slide}/{shape}");
         let shapes = self.shapes.clone();
@@ -1010,15 +1032,18 @@ impl Session {
         self.undo_redo(false)
     }
 
+    /// Redoes the last undone local change; false when there is nothing to redo.
     pub fn redo(&mut self) -> bool {
         self.undo_redo(true)
     }
 
+    /// True when a local change can be undone.
     #[must_use]
     pub fn can_undo(&self) -> bool {
         self.undo.can_undo()
     }
 
+    /// True when an undone local change can be redone.
     #[must_use]
     pub fn can_redo(&self) -> bool {
         self.undo.can_redo()

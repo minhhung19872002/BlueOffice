@@ -34,12 +34,16 @@ pub(crate) const REL_NS: &str =
 /// Errors produced by the PresentationML reader/writer.
 #[derive(Debug, thiserror::Error)]
 pub enum PptxError {
+    /// Error from the OPC package layer.
     #[error(transparent)]
     Opc(#[from] bo_opc::OpcError),
+    /// The package has no presentation part.
     #[error("no presentation part in package")]
     NoPresentation,
+    /// A referenced part is absent.
     #[error("missing part {0}")]
     MissingPart(String),
+    /// The slide index is out of range.
     #[error("slide index {0} out of range")]
     NoSuchSlide(usize),
 }

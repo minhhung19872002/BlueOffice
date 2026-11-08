@@ -41,6 +41,7 @@ use std::collections::HashMap;
 /// Layout errors.
 #[derive(Debug, thiserror::Error)]
 pub enum LayoutError {
+    /// The font manager has no fonts to shape with.
     #[error("no fonts are loaded")]
     NoFonts,
 }
@@ -191,6 +192,7 @@ pub enum RevisionView {
 /// Layout options that are not part of the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LayoutOptions {
+    /// Which version of tracked changes to lay out.
     pub view: RevisionView,
 }
 

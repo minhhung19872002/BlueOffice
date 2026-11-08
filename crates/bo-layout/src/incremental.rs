@@ -94,7 +94,10 @@ pub enum UpdateKind {
     Full,
     /// Re-paginated from the first changed block; `resynced`: stopped early and
     /// reused the previous layout's later pages.
-    Incremental { resynced: bool },
+    Incremental {
+        /// Pagination stopped early and reused the previous later pages.
+        resynced: bool,
+    },
 }
 
 /// A layout kept up to date across edits.

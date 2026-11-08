@@ -19,10 +19,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BorderPreset {
+    /// Outer edges and inner gridlines.
     #[default]
     All,
+    /// No borders.
     None,
+    /// Outer edges of the table only.
     Outside,
+    /// Inner gridlines only.
     Inside,
 }
 
@@ -34,16 +38,23 @@ pub enum BorderPreset {
     rename_all_fields = "camelCase"
 )]
 pub enum TableEdit {
+    /// Insert a row next to the caret's row.
     InsertRow {
+        /// Insert below (else above).
         #[serde(default)]
         below: bool,
     },
+    /// Insert a column next to the caret's column.
     InsertColumn {
+        /// Insert to the right (else left).
         #[serde(default)]
         right: bool,
     },
+    /// Delete the selected rows.
     DeleteRow,
+    /// Delete the selected columns.
     DeleteColumn,
+    /// Delete the whole table.
     DeleteTable,
     /// Merge the selected cells into one (gridSpan / vMerge).
     MergeCells,
@@ -51,23 +62,30 @@ pub enum TableEdit {
     SplitCell,
     /// Fill of the selected cells (`None` removes it).
     Shading {
+        /// Fill colour `RRGGBB`; `None` removes it.
         hex: Option<String>,
     },
+    /// Apply a border preset to the table (`w:tblBorders`).
     Borders {
+        /// Which edges get borders.
         preset: BorderPreset,
     },
     /// Preferred width (`width_pct` percent of the text width, else `width` twips,
     /// neither = auto) and alignment.
     Properties {
+        /// Width in percent of the text width.
         #[serde(default)]
         width_pct: Option<u32>,
+        /// Width in twips (used when `width_pct` is `None`).
         #[serde(default)]
         width: Option<i32>,
+        /// Table alignment.
         #[serde(default)]
         align: Option<Alignment>,
     },
     /// Repeat the rows down to the selection as header rows on every page.
     HeaderRow {
+        /// Turn header rows on or off.
         on: bool,
     },
 }

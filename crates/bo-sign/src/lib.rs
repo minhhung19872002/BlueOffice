@@ -24,20 +24,27 @@ use sha2::{Digest, Sha256};
 /// Errors from signing or verification.
 #[derive(Debug, thiserror::Error)]
 pub enum SignError {
+    /// The signer (key, token or remote service) failed.
     #[error("signer failed: {0}")]
     Signer(String),
+    /// The input format or algorithm is not supported.
     #[error("unsupported input: {0}")]
     Unsupported(String),
+    /// The input is not well formed.
     #[error("malformed input: {0}")]
     Malformed(String),
+    /// A signature did not verify.
     #[error("verification failed: {0}")]
     Invalid(String),
+    /// Error from the OPC package layer.
     #[error("package error: {0}")]
     Opc(#[from] bo_opc::OpcError),
+    /// DER encoding or decoding failed.
     #[error("DER error: {0}")]
     Der(#[from] der::Error),
 }
 
+/// Result alias for this crate.
 pub type Result<T> = std::result::Result<T, SignError>;
 
 /// Signs SHA-256 digests with an RSA key (PKCS#1 v1.5, `sha256WithRSAEncryption`).
@@ -59,6 +66,7 @@ pub struct SoftwareSigner {
 }
 
 impl SoftwareSigner {
+    /// Signer from an RSA private key and its DER-encoded certificate.
     #[must_use]
     pub fn new(key: RsaPrivateKey, cert_der: Vec<u8>) -> Self {
         Self { key, cert_der }

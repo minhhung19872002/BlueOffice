@@ -32,8 +32,10 @@ pub const CT_PIVOT_CACHE_RECORDS: &str =
 /// Relationship types (§12.3.11–13).
 pub const REL_PIVOT_TABLE: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable";
+/// Relationship type of the pivot cache definition part.
 pub const REL_PIVOT_CACHE_DEFINITION: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition";
+/// Relationship type of the pivot cache records part.
 pub const REL_PIVOT_CACHE_RECORDS: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheRecords";
 

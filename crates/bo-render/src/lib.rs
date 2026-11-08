@@ -37,88 +37,130 @@ pub struct Glyph(pub u16, pub f32, pub f32, pub u32);
 pub enum Command {
     /// Filled axis-aligned rectangle.
     FillRect {
+        /// Left edge (points).
         x: f32,
+        /// Top edge (points).
         y: f32,
+        /// Width (points).
         w: f32,
+        /// Height (points).
         h: f32,
+        /// Fill colour.
         color: Rgba,
     },
     /// Straight line segment; `dash` = (on, off) lengths for dashed/dotted lines.
     Line {
+        /// Start x (points).
         x1: f32,
+        /// Start y (points).
         y1: f32,
+        /// End x (points).
         x2: f32,
+        /// End y (points).
         y2: f32,
+        /// Stroke width (points).
         width: f32,
+        /// Stroke colour.
         color: Rgba,
+        /// (on, off) dash lengths in points; `None` = solid.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         dash: Option<[f32; 2]>,
     },
 
     /// Glyph run: `face` indexes the engine's font list; `size` in points.
     Glyphs {
+        /// Index into the engine's font list.
         face: u32,
+        /// Font size (points).
         size: f32,
+        /// Run origin x (points).
         x: f32,
+        /// Run origin y on the baseline (points).
         y: f32,
+        /// Text colour.
         color: Rgba,
+        /// Source text of the run (for selection, search and PDF text).
         text: String,
+        /// Positioned glyphs relative to the run origin.
         glyphs: Vec<Glyph>,
     },
     /// Intersect the clip with a rectangle (paired with `PopClip`).
     PushClip {
+        /// Left edge (points).
         x: f32,
+        /// Top edge (points).
         y: f32,
+        /// Width (points).
         w: f32,
+        /// Height (points).
         h: f32,
     },
+    /// Restore the clip saved by the matching `PushClip` / `PushClipPath`.
     PopClip,
     /// Picture drawn into the `w`×`h` box at (`x`, `y`). `image` is an id the host
     /// resolves to PNG/JPEG bytes (`Engine::image_bytes`: a slide media id or a
     /// document media part such as `/word/media/image1.png`); `crop` = l,t,r,b
     /// fractions of the source cut away; `rotation` in degrees clockwise about the box centre.
     Image {
+        /// Left edge of the box (points).
         x: f32,
+        /// Top edge of the box (points).
         y: f32,
+        /// Box width (points).
         w: f32,
+        /// Box height (points).
         h: f32,
+        /// Picture id resolved by the host.
         image: String,
+        /// Left, top, right, bottom fractions of the source cut away.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         crop: Option<[f32; 4]>,
+        /// Clockwise rotation in degrees about the box centre.
         #[serde(default, skip_serializing_if = "is_zero")]
         rotation: f32,
     },
     /// Filled and/or stroked vector path (DrawingML shapes, ECMA-376 Part 1, §20.1.9).
     /// Coordinates are already in page points (after the current transform).
     Path {
+        /// Path segments (points).
         segs: Vec<PathSeg>,
+        /// Fill paint, if filled.
         fill: Option<Paint>,
+        /// Stroke, if outlined.
         stroke: Option<Stroke>,
     },
     /// Concatenate an affine transform `[a, b, c, d, e, f]`
     /// (`x' = a·x + c·y + e`, `y' = b·x + d·y + f`) onto the current one (paired with `PopTransform`).
     PushTransform {
+        /// Affine matrix `[a, b, c, d, e, f]`.
         m: [f32; 6],
     },
     /// Restore the transform saved by the matching `PushTransform`.
     PopTransform,
     /// Intersect the clip with a path (nonzero rule; paired with `PopClip`).
     PushClipPath {
+        /// Clip path segments (points).
         segs: Vec<PathSeg>,
     },
     /// Multiply the opacity of the following commands by `alpha` (0..=1),
     /// paired with `PopOpacity` (DrawingML §20.1.8.4 alphaModFix of pictures).
     PushOpacity {
+        /// Opacity factor in 0..=1.
         alpha: f32,
     },
+    /// Restore the opacity saved by the matching `PushOpacity`.
     PopOpacity,
     /// Filled path blurred by `radius` points (soft shadow, §20.1.8.49
     /// outerShdw@blurRad); grown by `spread` points first (outline stroked
     /// `2 × spread` wide: glow, §20.1.8.32); coordinates as `Path`.
     BlurPath {
+        /// Path segments (points).
         segs: Vec<PathSeg>,
+        /// Shadow/glow colour.
         color: Rgba,
+        /// Blur radius (points).
         radius: f32,
+        /// Outline growth before blurring (points).
         #[serde(default, skip_serializing_if = "is_zero")]
         spread: f32,
     },
@@ -142,7 +184,9 @@ pub enum PathSeg {
 /// Gradient colour stop; `offset` in 0..=1.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GradientStop {
+    /// Position along the gradient in 0..=1.
     pub offset: f32,
+    /// Colour at this stop.
     pub color: Rgba,
 }
 
@@ -151,20 +195,32 @@ pub struct GradientStop {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Paint {
     /// Uniform colour.
-    Solid { color: Rgba },
+    Solid {
+        /// Fill colour.
+        color: Rgba,
+    },
     /// Linear gradient from (x1,y1) to (x2,y2), pad spread.
     Linear {
+        /// Start x (points).
         x1: f32,
+        /// Start y (points).
         y1: f32,
+        /// End x (points).
         x2: f32,
+        /// End y (points).
         y2: f32,
+        /// Colour stops in increasing offset.
         stops: Vec<GradientStop>,
     },
     /// Radial gradient centred at (cx,cy) with radius r, pad spread.
     Radial {
+        /// Centre x (points).
         cx: f32,
+        /// Centre y (points).
         cy: f32,
+        /// Radius (points).
         r: f32,
+        /// Colour stops from centre outwards.
         stops: Vec<GradientStop>,
     },
 }
@@ -172,8 +228,11 @@ pub enum Paint {
 /// Stroke style. `dash` lengths are in points (empty = solid).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Stroke {
+    /// Line width (points).
     pub width: f32,
+    /// Stroke colour.
     pub color: Rgba,
+    /// Dash pattern lengths (points); empty = solid.
     pub dash: Vec<f32>,
     /// `"butt" | "round" | "square"`.
     pub cap: String,
@@ -184,14 +243,18 @@ pub struct Stroke {
 /// Commands of one page.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageList {
+    /// Page width (points).
     pub width: f32,
+    /// Page height (points).
     pub height: f32,
+    /// Drawing commands in painting order.
     pub commands: Vec<Command>,
 }
 
 /// Display list of a whole document.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct DisplayList {
+    /// Pages in document order.
     pub pages: Vec<PageList>,
 }
 

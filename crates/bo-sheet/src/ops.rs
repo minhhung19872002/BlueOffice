@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 /// Errors of structural edits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditError {
+    /// The sheet index (or name) does not exist in the workbook.
     NoSuchSheet,
     /// Index or count outside the sheet limits.
     OutOfRange,

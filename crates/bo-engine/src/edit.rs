@@ -19,9 +19,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BreakKind {
+    /// New page.
     NextPage,
+    /// Same page.
     Continuous,
+    /// Next even-numbered page.
     EvenPage,
+    /// Next odd-numbered page.
     OddPage,
 }
 
@@ -42,85 +46,134 @@ impl From<BreakKind> for SectionBreak {
 pub enum Command {
     /// Return the current state without changing anything.
     State,
+    /// Replace the selection.
     SetSelection {
+        /// New anchor and focus positions.
         selection: Selection,
     },
     /// Mouse click: `count` 1 = caret, 2 = word, 3 = paragraph; `extend` = Shift held.
     Click {
+        /// 0-based page index.
         page: usize,
+        /// Horizontal position in points from the page's left edge.
         x: f32,
+        /// Vertical position in points from the page's top edge.
         y: f32,
+        /// Extend the selection from its anchor (Shift held).
         #[serde(default)]
         extend: bool,
+        /// Click count: 1 = caret, 2 = word, 3 or more = paragraph.
         #[serde(default = "one")]
         count: u8,
     },
     /// Mouse drag to a point (extends the selection).
     DragTo {
+        /// 0-based page index.
         page: usize,
+        /// Horizontal position in points from the page's left edge.
         x: f32,
+        /// Vertical position in points from the page's top edge.
         y: f32,
     },
+    /// Keyboard caret motion (arrows, Home/End, word / paragraph steps, …).
     Move {
+        /// How the caret moves.
         motion: Motion,
+        /// Extend the selection instead of moving the caret (Shift held).
         #[serde(default)]
         extend: bool,
     },
+    /// Select the whole body.
     SelectAll,
+    /// Type text at the selection (replacing it).
     InsertText {
+        /// Text to insert.
         text: String,
     },
+    /// Backspace: delete the selection or the character before the caret.
     DeleteBackward,
+    /// Delete: delete the selection or the character after the caret.
     DeleteForward,
+    /// Enter: split the paragraph at the caret.
     SplitParagraph,
+    /// Apply character formatting to the selection.
     FormatText {
+        /// Properties to set; absent fields are kept.
         format: CharFormat,
     },
+    /// Apply paragraph formatting to the selected paragraphs.
     FormatParagraph {
+        /// Properties to set; absent fields are kept.
         format: ParaFormat,
     },
+    /// Apply a paragraph style to the selected paragraphs.
     ApplyStyle {
+        /// Style id (`w:styleId`).
         id: String,
     },
+    /// Insert an empty table at the caret.
     InsertTable {
+        /// Number of rows.
         rows: usize,
+        /// Number of columns.
         cols: usize,
     },
+    /// Insert a page break at the caret.
     InsertPageBreak,
+    /// Insert a section break at the caret (ECMA-376 Part 1, §17.6.17).
     InsertSectionBreak {
+        /// Where the new section starts.
         kind: BreakKind,
     },
+    /// Undo the last edit.
     Undo,
+    /// Redo the last undone edit.
     Redo,
+    /// Find every match of a query (returned in `matches`).
     Find {
+        /// Text to look for.
         query: String,
+        /// Match case, whole word and regular-expression options.
         #[serde(default)]
         options: FindOptions,
     },
     /// Select a match returned by `find`.
     SelectMatch {
+        /// The match to select.
         #[serde(rename = "match")]
         m: Match,
     },
+    /// Replace one match.
     Replace {
+        /// The match to replace.
         #[serde(rename = "match")]
         m: Match,
+        /// Replacement text.
         with: String,
     },
+    /// Replace every match of a query (the number replaced is returned in `count`).
     ReplaceAll {
+        /// Text to look for.
         query: String,
+        /// Match case, whole word and regular-expression options.
         #[serde(default)]
         options: FindOptions,
+        /// Replacement text.
         with: String,
     },
+    /// Copy the selection (returned in `clip`).
     Copy,
+    /// Cut the selection (returned in `clip`).
     Cut,
     /// Paste: the internal format wins over HTML, HTML over plain text.
     Paste {
+        /// BlueOffice internal clipboard payload (from `clip.internal`).
         #[serde(default)]
         internal: Option<String>,
+        /// HTML clipboard content.
         #[serde(default)]
         html: Option<String>,
+        /// Plain-text clipboard content.
         #[serde(default)]
         text: Option<String>,
         /// Paste Special: keep source formatting (default), merge, or text only.
@@ -131,58 +184,74 @@ pub enum Command {
     Review,
     /// Track-changes mode on/off (ECMA-376 Part 1, §17.13.5).
     SetTrackChanges {
+        /// `true` records insertions and deletions as revisions.
         on: bool,
     },
     /// Author of new revisions and comments (the signed-in user; empty = "BlueOffice").
     SetAuthor {
+        /// Author name.
         name: String,
     },
     /// Markup / final / original display of tracked changes.
     SetRevisionView {
+        /// Which version of the text to display.
         view: RevisionView,
     },
     /// Accept one revision by id, or those at the selection when `id` is absent.
     AcceptRevision {
+        /// Revision id.
         #[serde(default)]
         id: Option<i32>,
     },
     /// Reject one revision by id, or those at the selection when `id` is absent.
     RejectRevision {
+        /// Revision id.
         #[serde(default)]
         id: Option<i32>,
     },
+    /// Accept every revision of the document.
     AcceptAllRevisions,
+    /// Reject every revision of the document.
     RejectAllRevisions,
     /// Select the next (`forward`) or previous revision.
     NextRevision {
+        /// `true` = next, `false` = previous.
         #[serde(default = "yes")]
         forward: bool,
     },
     /// Comment on the selection (ECMA-376 Part 1, §17.13.4).
     AddComment {
+        /// Comment text.
         text: String,
     },
     /// Reply to comment `id` ([MS-DOCX] threading).
     ReplyComment {
+        /// Id of the comment replied to.
         id: i32,
+        /// Reply text.
         text: String,
     },
     /// Mark a thread resolved or open again.
     ResolveComment {
+        /// Comment id.
         id: i32,
+        /// `true` = resolved, `false` = open.
         #[serde(default = "yes")]
         done: bool,
     },
     /// Delete a comment and its replies.
     DeleteComment {
+        /// Comment id.
         id: i32,
     },
     /// Select the text a comment is anchored to.
     SelectComment {
+        /// Comment id.
         id: i32,
     },
     /// Select the next (`forward`) or previous comment.
     NextComment {
+        /// `true` = next, `false` = previous.
         #[serde(default = "yes")]
         forward: bool,
     },
@@ -192,7 +261,9 @@ pub enum Command {
     InsertToc,
     /// Insert a caption (`label n: text`) after the caret's paragraph.
     InsertCaption {
+        /// Caption label (`Figure`, `Table`, …).
         label: String,
+        /// Caption text after the number.
         #[serde(default)]
         text: String,
     },
@@ -200,21 +271,27 @@ pub enum Command {
     CrossReferenceTargets,
     /// Insert a cross-reference to a target: its text or (`page`) its page number.
     InsertCrossReference {
+        /// Target id from `crossReferenceTargets`.
         target: String,
+        /// Insert the target's page number instead of its text.
         #[serde(default)]
         page: bool,
     },
     /// Mail-merge data source (CSV or XLSX bytes, base64).
     MergeData {
+        /// File name (its extension picks CSV or XLSX).
         name: String,
+        /// File bytes, base64-encoded.
         base64: String,
     },
     /// Insert `MERGEFIELD name` (ECMA-376 Part 1, §17.16.5.35) at the caret.
     MergeInsertField {
+        /// Merge field (column) name.
         name: String,
     },
     /// Show record `record` (0-based) in the merge fields, or the field names.
     MergePreview {
+        /// 0-based record index; `None` shows the field names.
         #[serde(default)]
         record: Option<usize>,
     },
@@ -222,74 +299,95 @@ pub enum Command {
     MergeToDocument,
     /// Password for saving ([MS-OFFCRYPTO] Agile Encryption); empty or absent: none.
     SetSavePassword {
+        /// New password; `None` or empty saves unencrypted.
         #[serde(default)]
         password: Option<String>,
     },
     /// Tab key: next (`back`: previous) table cell, else a tab character.
     Tab {
+        /// Shift+Tab: move to the previous cell.
         #[serde(default)]
         back: bool,
     },
     /// Table editing at the selection (ECMA-376 Part 1, §17.4).
     TableEdit {
+        /// The table operation (insert / delete rows and columns, merge, …).
         edit: TableEdit,
     },
     /// Page size, orientation, margins and columns (§17.6.13, §17.6.11, §17.6.4).
     SetPageSetup {
+        /// Page setup values to change.
         setup: PageSetupSpec,
+        /// Apply to the caret's section or the whole document.
         #[serde(default)]
         scope: SetupScope,
     },
     /// "Different first page" (§17.10.6 titlePg) / "different odd & even" (§17.15.1.35).
     SetHeaderOptions {
+        /// Different first page; `None` keeps the current value.
         #[serde(default)]
         title_page: Option<bool>,
+        /// Different odd and even pages; `None` keeps the current value.
         #[serde(default)]
         even_and_odd: Option<bool>,
     },
     /// "Link to previous" for the open header/footer (§17.10.5 headerReference inheritance).
     SetHeaderLink {
+        /// `true` links to the previous section's header/footer.
         linked: bool,
     },
     /// Open the header (`header`) or footer of a page for editing (§17.10).
     EditHeaderFooter {
+        /// 0-based page index.
         page: usize,
+        /// `true` = header, `false` = footer.
         header: bool,
     },
     /// Close the header/footer editor.
     CloseHeaderFooter,
     /// Insert a simple field such as `PAGE` or `NUMPAGES` (§17.16.5.43, §17.16.5.40).
     InsertField {
+        /// Field instruction (e.g. `PAGE`).
         instr: String,
     },
     /// Insert a footnote (or endnote) at the caret (§17.11.14, §17.11.7).
     InsertNote {
+        /// Insert an endnote instead of a footnote.
         #[serde(default)]
         endnote: bool,
+        /// Initial note text.
         #[serde(default)]
         text: String,
     },
     /// Replace the text of a footnote or endnote.
     SetNoteText {
+        /// `true` = endnote, `false` = footnote.
         #[serde(default)]
         endnote: bool,
+        /// Note id.
         id: i32,
+        /// New note text.
         text: String,
     },
     /// List the footnotes and endnotes.
     Notes,
     /// Edit a footnote/endnote in place on its page (caret at the end of its text).
     EditNote {
+        /// `true` = endnote, `false` = footnote.
         #[serde(default)]
         endnote: bool,
+        /// Note id.
         id: i32,
     },
     /// Footnote/endnote numbering and placement of the caret's section or the document
     /// (§17.11.11 footnotePr, §17.11.4 endnotePr).
     SetNoteOptions {
+        /// `true` = endnote options, `false` = footnote options.
         #[serde(default)]
         endnote: bool,
+        /// Numbering format, start, restart and position.
         options: bo_edit::section::NoteOptions,
+        /// Apply to the caret's section or the whole document.
         #[serde(default)]
         scope: SetupScope,
     },
@@ -305,7 +403,9 @@ pub enum Command {
     FontList,
     /// Replace the open document by a new one from a built-in template.
     NewFromTemplate {
+        /// Template id.
         id: String,
+        /// File name of the new document.
         name: String,
     },
 }
@@ -321,8 +421,11 @@ fn one() -> u8 {
 /// Clipboard payload returned by copy/cut.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ClipOut {
+    /// Plain-text form.
     pub text: String,
+    /// HTML form.
     pub html: String,
+    /// BlueOffice internal form (lossless within the suite).
     pub internal: String,
 }
 
@@ -330,19 +433,27 @@ pub struct ClipOut {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditResult {
+    /// Document summary (pages, words, name, …).
     pub info: crate::DocInfo,
+    /// Selection after the command.
     pub selection: Selection,
+    /// Caret rectangle of the selection focus; `None` when it is not laid out.
     pub caret: Option<CaretRect>,
+    /// Highlight rectangles of a range selection.
     pub rects: Vec<SelRect>,
     /// Pages whose display list changed (all pages after a page-count change).
     pub dirty: Vec<usize>,
+    /// Ribbon formatting state at the selection.
     pub format: FormatState,
     /// Document changed since it was opened or last saved.
     pub modified: bool,
+    /// Matches of `find`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matches: Option<Vec<Match>>,
+    /// Number of replacements of `replaceAll`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<usize>,
+    /// Clipboard payload of `copy` / `cut`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clip: Option<ClipOut>,
     /// Error message of a command that could not be applied (state is unchanged).

@@ -61,6 +61,7 @@ pub struct ProtectionHash {
     pub hash_value: String,
     /// Base64 `saltValue`.
     pub salt_value: String,
+    /// `spinCount`, hash iteration count.
     pub spin_count: u32,
 }
 

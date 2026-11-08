@@ -314,11 +314,15 @@ fn blur_fill(
 pub struct BlurMask {
     /// Box covered by the mask, in path coordinates (points).
     pub x: f32,
+    /// Top of the box, in points.
     pub y: f32,
+    /// Box width, in points.
     pub w: f32,
+    /// Box height, in points.
     pub h: f32,
     /// Pixel size.
     pub width: u32,
+    /// Mask height, in pixels.
     pub height: u32,
     /// Row-major coverage, `width × height` bytes.
     pub alpha: Vec<u8>,

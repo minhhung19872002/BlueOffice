@@ -415,9 +415,13 @@ pub fn notes_master(pres: &Presentation) -> Option<String> {
 /// What is needed to give a deck a notes master (§19.3.1.28 notesMaster):
 /// the master part, its theme (a copy of the first slide theme) and their rels.
 pub struct NotesMasterParts {
+    /// New package parts: the notes master, its `.rels` part and its theme.
     pub parts: Vec<RawPart>,
+    /// Part name of the notes master (e.g. `/ppt/notesMasters/notesMaster1.xml`).
     pub master: String,
+    /// Relationship from the presentation part to the notes master.
     pub rel: Rel,
+    /// `p:notesMasterIdLst` element to add to `presentation.xml` (§19.2.1.18).
     pub id_list: XmlElement,
 }
 

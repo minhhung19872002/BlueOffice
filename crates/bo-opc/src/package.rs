@@ -32,7 +32,9 @@ impl Default for Limits {
 /// A part: name (absolute, e.g. `/word/document.xml`) and raw bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Part {
+    /// Absolute part name.
     pub name: String,
+    /// Raw part content.
     pub data: Vec<u8>,
 }
 

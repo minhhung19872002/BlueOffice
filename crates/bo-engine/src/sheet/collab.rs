@@ -1022,10 +1022,12 @@ impl SheetEngine {
         Ok(ch)
     }
 
+    /// [`Self::collab_start`] with the change as JSON.
     pub fn collab_start_json(&mut self, seed: bool, client: u64) -> Result<String> {
         Ok(serde_json::to_string(&self.collab_start(seed, client)?).unwrap_or_default())
     }
 
+    /// Leaves the collaboration session.
     pub fn collab_stop(&mut self) {
         self.collab = None;
     }
@@ -1040,10 +1042,12 @@ impl SheetEngine {
         })
     }
 
+    /// [`Self::collab_local`] as JSON.
     pub fn collab_local_json(&mut self) -> Result<String> {
         Ok(serde_json::to_string(&self.collab_local()?).unwrap_or_default())
     }
 
+    /// [`Self::collab_apply`] with a JSON change; returns the workbook summary as JSON.
     pub fn collab_apply_json(&mut self, json: &str) -> Result<String> {
         let ch: CollabChange =
             serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;

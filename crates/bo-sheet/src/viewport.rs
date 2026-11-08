@@ -18,6 +18,7 @@ pub struct Viewport {
     pub scroll_y: f64,
     /// Size of the drawing surface, headers included.
     pub width: f64,
+    /// Height of the drawing surface, headers included.
     pub height: f64,
     /// Width of the row-number header band (0 = hidden).
     pub header_width: f64,
@@ -42,15 +43,20 @@ impl Viewport {
 /// Which quadrant a region is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaneKind {
+    /// Frozen rows x frozen columns (top-left, never scrolls).
     Corner,
+    /// Frozen rows (scrolls horizontally).
     Top,
+    /// Frozen columns (scrolls vertically).
     Left,
+    /// The scrollable region.
     Main,
 }
 
 /// One visible region of the grid.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PaneRegion {
+    /// Which quadrant this region is.
     pub kind: PaneKind,
     /// Visible rows (may include hidden rows of size 0).
     pub rows: Range<u32>,
@@ -60,6 +66,7 @@ pub struct PaneRegion {
     pub screen: Rect,
     /// Sheet coordinate drawn at `screen.x` / `screen.y`.
     pub sheet_x: f64,
+    /// Sheet y coordinate drawn at `screen.y`.
     pub sheet_y: f64,
 }
 
@@ -100,8 +107,11 @@ pub enum Hit {
 /// Layout of the visible regions.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewLayout {
+    /// Viewport the layout was computed for.
     pub viewport: Viewport,
+    /// Number of frozen rows (`pane/@ySplit`, §18.3.1.66).
     pub frozen_rows: u32,
+    /// Number of frozen columns (`pane/@xSplit`).
     pub frozen_cols: u32,
     /// Regions in drawing order: main, left, top, corner.
     pub panes: Vec<PaneRegion>,

@@ -263,8 +263,11 @@ fn inner<'a>(s: &'a str, tag: &str) -> Option<&'a str> {
 /// A verified package signature.
 #[derive(Debug, Clone)]
 pub struct OoxmlSignature {
+    /// Name of the signature part.
     pub part: String,
+    /// DER-encoded X.509 signer certificate.
     pub certificate_der: Vec<u8>,
+    /// Claimed signing time (`mdssi:SignatureTime` value) verbatim, if present.
     pub signing_time: Option<String>,
 }
 

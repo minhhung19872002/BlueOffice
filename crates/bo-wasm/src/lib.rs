@@ -205,6 +205,7 @@ impl WasmEngine {
             .collect()
     }
 
+    /// Leaves collaboration for the document and slide sessions; local editing continues.
     #[wasm_bindgen(js_name = collabStop)]
     pub fn collab_stop(&mut self) {
         self.inner.collab_stop();

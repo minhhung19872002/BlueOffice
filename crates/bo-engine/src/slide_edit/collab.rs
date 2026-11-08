@@ -34,6 +34,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Collaboration output of a BlueSlide command (part of [`SlideEditResult`]).
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct SlideCollabOut {
+    /// Local change to broadcast to the other replicas.
     pub change: CollabChange,
     /// Key of the selected object (`"<slide>/<shape>"`) for presence.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,7 +44,9 @@ pub struct SlideCollabOut {
 /// Where a collaborator's selected object is.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PeerShape {
+    /// Index of the slide holding the object.
     pub slide: usize,
+    /// Rotated box of the object on that slide (points).
     pub rect: super::geom::BoxR,
 }
 
@@ -588,10 +591,12 @@ impl Engine {
         Ok(change)
     }
 
+    /// [`Self::slide_collab_start`] with the change serialized as JSON (WASM bridge).
     pub fn slide_collab_start_json(&mut self, seed: bool, client: u64) -> crate::Result<String> {
         Ok(serde_json::to_string(&self.slide_collab_start(seed, client)?).unwrap_or_default())
     }
 
+    /// Leave the collaboration session; the presentation stays open locally.
     pub fn slide_collab_stop(&mut self) {
         self.slide_collab = None;
     }
@@ -710,6 +715,8 @@ impl Engine {
         Ok(r)
     }
 
+    /// [`Self::slide_collab_apply`] taking the remote change as JSON and returning
+    /// the edit result as JSON (WASM bridge).
     pub fn slide_collab_apply_json(&mut self, json: &str) -> crate::Result<String> {
         let change: CollabChange =
             serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;
@@ -738,6 +745,8 @@ impl Engine {
             .collect())
     }
 
+    /// [`Self::slide_collab_peers`] taking the keys as a JSON array and returning
+    /// the boxes as JSON (WASM bridge).
     pub fn slide_collab_peers_json(&self, json: &str) -> crate::Result<String> {
         let keys: Vec<String> =
             serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;

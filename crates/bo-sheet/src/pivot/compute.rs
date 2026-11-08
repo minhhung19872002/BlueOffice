@@ -144,15 +144,20 @@ pub enum RowKind {
     Data,
     /// "<item> Total".
     Subtotal,
+    /// An empty separator line (`insertBlankRow`, §18.10.1.33).
     Blank,
+    /// The grand total line.
     Grand,
 }
 
 /// Kind of a report data column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColKind {
+    /// A column of values for one column item.
     Data,
+    /// A subtotal column of an outer column field.
     Subtotal,
+    /// The grand total column.
     Grand,
 }
 
@@ -165,9 +170,13 @@ pub struct Layout {
     pub page_rows: u32,
     /// Body size.
     pub height: u32,
+    /// Body width in columns.
     pub width: u32,
+    /// Body row of the (last) header line.
     pub first_header_row: u32,
+    /// Body row of the first item / value line.
     pub first_data_row: u32,
+    /// Body column of the first value column (after the row labels).
     pub first_data_col: u32,
     /// Body rows drawn bold (headers, subtotals, grand total).
     pub bold_rows: Vec<u32>,
@@ -186,6 +195,7 @@ pub struct Layout {
     pub data_rows: Vec<(u32, usize)>,
     /// `rowItems` / `colItems`.
     pub row_items: Vec<PivotAxisItem>,
+    /// Column axis items written as `colItems` (§18.10.1.13).
     pub col_items: Vec<PivotAxisItem>,
 }
 

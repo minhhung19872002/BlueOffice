@@ -55,17 +55,24 @@ type Rc = Arc<Attrs>;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum TextOp {
+    /// Insert text (or an embed).
     Insert {
         /// Text, or an embed object.
         insert: Value,
+        /// Formatting of the inserted text.
         #[serde(default, skip_serializing_if = "Map::is_empty")]
         attributes: Map<String, Value>,
     },
+    /// Delete characters.
     Delete {
+        /// Number of UTF-16 code units to delete.
         delete: u32,
     },
+    /// Skip characters, optionally changing their formatting.
     Retain {
+        /// Number of UTF-16 code units to keep.
         retain: u32,
+        /// Formatting changes of the retained text.
         #[serde(default, skip_serializing_if = "Map::is_empty")]
         attributes: Map<String, Value>,
     },
@@ -101,13 +108,16 @@ pub struct CollabChange {
 /// with the content the deltas build from empty.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TextDelta {
+    /// The text was recreated: apply `deltas` to an empty text.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reset: bool,
+    /// Deltas applied in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deltas: Vec<Vec<TextOp>>,
 }
 
 impl CollabChange {
+    /// Nothing changed.
     pub fn is_empty(&self) -> bool {
         self.body.iter().all(Vec::is_empty)
             && self.slides.is_empty()
@@ -131,12 +141,15 @@ pub struct CollabOut {
 /// A binary part shared through the `blobs` map.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Blob {
+    /// MIME content type of the part.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ct: Option<String>,
+    /// Part bytes, base64.
     pub b64: String,
 }
 
 impl Blob {
+    /// JSON encoding of a part (content type and base64 bytes).
     pub fn encode(ct: Option<&str>, bytes: &[u8]) -> String {
         use base64::Engine as _;
         serde_json::to_string(&Blob {
@@ -160,7 +173,9 @@ impl Blob {
 /// Peer caret / selection geometry.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PeerRects {
+    /// Caret of the peer's selection focus, if laid out.
     pub caret: Option<crate::nav::CaretRect>,
+    /// Highlight rectangles of the peer's range selection.
     pub rects: Vec<crate::nav::SelRect>,
 }
 
@@ -1402,6 +1417,7 @@ impl Engine {
         Ok(change)
     }
 
+    /// [`Self::collab_start`] with the change as JSON.
     pub fn collab_start_json(&mut self, seed: bool, client: u64) -> crate::Result<String> {
         Ok(serde_json::to_string(&self.collab_start(seed, client)?).unwrap_or_default())
     }
@@ -1411,6 +1427,7 @@ impl Engine {
         self.collab = None;
     }
 
+    /// A collaboration session is running.
     pub fn collab_active(&self) -> bool {
         self.collab.is_some()
     }
@@ -1675,6 +1692,7 @@ impl Engine {
         Ok(r)
     }
 
+    /// [`Self::collab_apply`] with JSON in and out.
     pub fn collab_apply_json(&mut self, json: &str) -> crate::Result<String> {
         let change: CollabChange = serde_json::from_str(json).map_err(bad)?;
         let r = self.collab_apply(&change)?;
@@ -1711,6 +1729,7 @@ impl Engine {
             .collect())
     }
 
+    /// [`Self::collab_peers`] with JSON `[[anchor, head], …]` in and out.
     pub fn collab_peers_json(&self, json: &str) -> crate::Result<String> {
         let sels: Vec<(u32, u32)> = serde_json::from_str(json).map_err(bad)?;
         Ok(serde_json::to_string(&self.collab_peers(&sels)?).unwrap_or_default())

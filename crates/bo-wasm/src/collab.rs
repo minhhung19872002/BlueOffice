@@ -59,6 +59,7 @@ impl WasmCollab {
         pack(&self.inner.drain_outbox())
     }
 
+    /// Sets the shared input of a sheet cell (`"Sheet1"`, `"B2"`); an empty input clears it.
     #[wasm_bindgen(js_name = setCell)]
     pub fn set_cell(&mut self, sheet: &str, cell: &str, input: &str) -> Result<(), JsError> {
         if input.is_empty() {
@@ -128,15 +129,18 @@ impl WasmCollab {
         self.inner.undo()
     }
 
+    /// Redoes this user's last undone change; the result comes from `takeRemote`.
     pub fn redo(&mut self) -> bool {
         self.inner.redo()
     }
 
+    /// True when this user has a change to undo.
     #[wasm_bindgen(js_name = canUndo)]
     pub fn can_undo(&self) -> bool {
         self.inner.can_undo()
     }
 
+    /// True when this user has an undone change to redo.
     #[wasm_bindgen(js_name = canRedo)]
     pub fn can_redo(&self) -> bool {
         self.inner.can_redo()
@@ -153,6 +157,7 @@ impl WasmCollab {
         self.inner.snapshot()
     }
 
+    /// Applies a stored Yjs update (v1 encoding) as the initial state, e.g. a server snapshot.
     #[wasm_bindgen(js_name = loadSnapshot)]
     pub fn load_snapshot(&mut self, update: &[u8]) -> Result<(), JsError> {
         self.inner.load_snapshot(update).map_err(err)

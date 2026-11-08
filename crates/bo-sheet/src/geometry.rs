@@ -198,17 +198,24 @@ impl Axis {
 /// A rectangle in points.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Rect {
+    /// Left edge in points.
     pub x: f64,
+    /// Top edge in points.
     pub y: f64,
+    /// Width in points.
     pub w: f64,
+    /// Height in points.
     pub h: f64,
 }
 
 /// Geometry of one worksheet.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SheetGeometry {
+    /// Column widths and positions.
     pub cols: Axis,
+    /// Row heights and positions.
     pub rows: Axis,
+    /// Default sizes and font metrics used to convert units.
     pub metrics: SheetMetrics,
     merges: Vec<CellRange>,
 }

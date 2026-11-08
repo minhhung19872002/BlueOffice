@@ -12,16 +12,24 @@ use serde::Serialize;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommentInfo {
+    /// Comment id (`w:comment @w:id`).
     pub id: i32,
+    /// Author name.
     pub author: String,
+    /// Author initials, if set.
     pub initials: Option<String>,
+    /// Creation date (`ST_DateTime`), if set.
     pub date: Option<String>,
+    /// Plain text of the comment (paragraphs joined by `
+    /// `).
     pub text: String,
+    /// The comment is marked as resolved.
     pub done: bool,
     /// Id of the comment this one replies to.
     pub parent: Option<i32>,
     /// Anchor range in the main text (missing for comments without range marks).
     pub start: Option<Pos>,
+    /// End of the anchor range.
     pub end: Option<Pos>,
     /// Commented text (shortened).
     pub quote: String,

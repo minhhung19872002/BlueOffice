@@ -19,9 +19,11 @@ const SEGMENT: usize = 4096;
 /// Parameters for [`crate::encrypt_agile_with`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AgileOptions {
+    /// Hash algorithm for key derivation and integrity.
     pub hash: HashAlgorithm,
     /// 128, 192 or 256.
     pub key_bits: usize,
+    /// Password hash iteration count.
     pub spin_count: u32,
 }
 

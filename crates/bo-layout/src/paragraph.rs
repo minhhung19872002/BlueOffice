@@ -156,8 +156,11 @@ const COL_SEP: char = '\u{000B}';
 /// Values of page-dependent fields.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct FieldContext {
+    /// 1-based number of the current page (PAGE).
     pub page: u32,
+    /// Total number of pages (NUMPAGES).
     pub pages: u32,
+    /// Number of pages in the current section (SECTIONPAGES).
     pub section_pages: u32,
 }
 

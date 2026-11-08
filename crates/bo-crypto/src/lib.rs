@@ -34,22 +34,31 @@ pub use primitives::HashAlgorithm;
 /// Errors from this crate.
 #[derive(Debug, thiserror::Error)]
 pub enum CryptoError {
+    /// The compound file container could not be read or written.
     #[error("compound file error: {0}")]
     Cfb(#[from] std::io::Error),
+    /// The input lacks the encryption streams.
     #[error("not an encrypted Office package (no EncryptionInfo/EncryptedPackage streams)")]
     NotEncrypted,
+    /// EncryptionInfo version (major, minor) is not supported.
     #[error("unsupported EncryptionInfo version {0}.{1}")]
     UnsupportedVersion(u16, u16),
+    /// Algorithm, key size or other parameter not supported.
     #[error("unsupported encryption parameters: {0}")]
     Unsupported(String),
+    /// EncryptionInfo or EncryptedPackage is inconsistent or truncated.
     #[error("malformed encryption data: {0}")]
     Malformed(String),
+    /// The password does not match the verifier.
     #[error("wrong password")]
     WrongPassword,
+    /// The document is encrypted and no password was supplied.
     #[error("the document is password protected; a password is required")]
     PasswordRequired,
+    /// The HMAC over the encrypted package did not match.
     #[error("data integrity check failed (HMAC mismatch)")]
     IntegrityCheckFailed,
+    /// The system random number generator failed.
     #[error("random number generator failure: {0}")]
     Random(String),
 }

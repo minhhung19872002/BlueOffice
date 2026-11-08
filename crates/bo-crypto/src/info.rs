@@ -14,7 +14,9 @@ pub const MAX_SPIN_COUNT: u32 = 10_000_000;
 /// Parsed `EncryptionInfo`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EncryptionInfo {
+    /// Standard encryption (EncryptionInfo version 2.2, 3.2 or 4.2).
     Standard(StandardInfo),
+    /// Agile encryption (EncryptionInfo version 4.4, XML descriptor).
     Agile(AgileInfo),
 }
 
@@ -22,7 +24,9 @@ pub enum EncryptionInfo {
 /// §2.3.3 EncryptionVerifier).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StandardInfo {
+    /// EncryptionInfo major version.
     pub version_major: u16,
+    /// EncryptionInfo minor version.
     pub version_minor: u16,
     /// EncryptionHeader.Flags (fCryptoAPI 0x04, fExternal 0x10, fAES 0x20).
     pub flags: u32,
@@ -32,11 +36,17 @@ pub struct StandardInfo {
     pub alg_id_hash: u32,
     /// Key size in bits.
     pub key_bits: u32,
+    /// EncryptionHeader.ProviderType (0x18 for AES, 0x01 for RC4).
     pub provider_type: u32,
+    /// EncryptionHeader.CSPName (cryptographic service provider name).
     pub csp_name: String,
+    /// EncryptionVerifier.Salt.
     pub salt: Vec<u8>,
+    /// EncryptionVerifier.EncryptedVerifier.
     pub encrypted_verifier: Vec<u8>,
+    /// EncryptionVerifier.VerifierHashSize, in bytes.
     pub verifier_hash_size: u32,
+    /// EncryptionVerifier.EncryptedVerifierHash.
     pub encrypted_verifier_hash: Vec<u8>,
 }
 
@@ -44,29 +54,41 @@ pub struct StandardInfo {
 /// ([MS-OFFCRYPTO] §2.3.4.10 CT_KeyData / CT_PasswordKeyEncryptor).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CipherParams {
+    /// `saltValue`.
     pub salt: Vec<u8>,
+    /// `blockSize`, in bytes.
     pub block_size: usize,
+    /// `keyBits`, key size in bits.
     pub key_bits: usize,
+    /// `hashSize`, digest length in bytes.
     pub hash_size: usize,
+    /// `hashAlgorithm`.
     pub hash: HashAlgorithm,
 }
 
 /// Password key encryptor (`p:encryptedKey`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PasswordKeyEncryptor {
+    /// Cipher and hash parameters of the key encryptor.
     pub params: CipherParams,
+    /// `spinCount`, password hash iteration count.
     pub spin_count: u32,
+    /// `encryptedVerifierHashInput`.
     pub encrypted_verifier_hash_input: Vec<u8>,
+    /// `encryptedVerifierHashValue`.
     pub encrypted_verifier_hash_value: Vec<u8>,
+    /// `encryptedKeyValue` (the wrapped intermediate key).
     pub encrypted_key_value: Vec<u8>,
 }
 
 /// Agile encryption description.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgileInfo {
+    /// `keyData`: parameters used to encrypt the package itself.
     pub key_data: CipherParams,
     /// `dataIntegrity` (encryptedHmacKey, encryptedHmacValue), if present.
     pub data_integrity: Option<(Vec<u8>, Vec<u8>)>,
+    /// The password key encryptor.
     pub password: PasswordKeyEncryptor,
 }
 

@@ -49,11 +49,17 @@ pub enum RevKind {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RevisionItem {
+    /// Revision id (`@w:id`).
     pub id: i32,
+    /// Kind of change.
     pub kind: RevKind,
+    /// Author name.
     pub author: String,
+    /// Date of the change (`ST_DateTime`), if set.
     pub date: Option<String>,
+    /// Start of the affected range.
     pub start: Pos,
+    /// End of the affected range.
     pub end: Pos,
     /// Affected text (shortened).
     pub text: String,

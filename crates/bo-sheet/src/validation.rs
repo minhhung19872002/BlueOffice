@@ -21,7 +21,9 @@ pub const MAX_LIST_ITEMS: usize = 1_000;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Rejection {
+    /// Title of the error alert (`errorTitle`).
     pub title: String,
+    /// Text of the error alert (`error`).
     pub message: String,
     /// `stop` / `warning` / `information`.
     pub style: String,
@@ -235,21 +237,28 @@ fn reject(dv: &DataValidation) -> Rejection {
 pub struct ValidationSpec {
     /// `list`, `whole`, `decimal`, `date`, `time`, `textLength`, `custom` or `none` (remove).
     pub kind: String,
+    /// Comparison operator (§18.18.20 `ST_DataValidationOperator`); `None` = `between`.
     #[serde(default)]
     pub operator: Option<String>,
     /// List source (`a,b,c` or `=$A$1:$A$5`) or first threshold.
     #[serde(default)]
     pub formula1: String,
+    /// Second threshold, for `between` / `notBetween`.
     #[serde(default)]
     pub formula2: Option<String>,
+    /// Empty cells are accepted (`allowBlank`).
     #[serde(default = "yes")]
     pub allow_blank: bool,
+    /// Title of the error alert.
     #[serde(default)]
     pub error_title: Option<String>,
+    /// Text of the error alert.
     #[serde(default)]
     pub error: Option<String>,
+    /// `stop` (default), `warning` or `information`.
     #[serde(default)]
     pub error_style: Option<String>,
+    /// Input message shown when the cell is selected (`prompt`).
     #[serde(default)]
     pub prompt: Option<String>,
 }

@@ -20,18 +20,24 @@ use serde::{Deserialize, Serialize};
 pub struct PageSetupSpec {
     /// §17.6.13 pgSz @w:w / @w:h (orientation follows from width > height).
     pub width: i32,
+    /// Page height.
     pub height: i32,
     /// §17.6.11 pgMar.
     pub margin_top: i32,
+    /// Bottom margin.
     pub margin_bottom: i32,
+    /// Left margin.
     pub margin_left: i32,
+    /// Right margin.
     pub margin_right: i32,
     /// §17.6.11 pgMar @w:header / @w:footer: distance of the header/footer from the edge.
     pub header: i32,
+    /// Footer distance from the page bottom.
     pub footer: i32,
     /// §17.6.4 cols @w:num / @w:space.
     #[serde(default = "one")]
     pub columns: u16,
+    /// Space between columns.
     #[serde(default = "half_inch")]
     pub column_space: i32,
 }
@@ -72,7 +78,9 @@ pub enum PasteMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteInfo {
+    /// Note id (`@w:id`).
     pub id: i32,
+    /// `true` for an endnote, `false` for a footnote.
     pub endnote: bool,
     /// Text without the note mark (paragraphs joined by `\n`).
     pub text: String,
@@ -101,6 +109,7 @@ pub struct NoteOptions {
 /// Formatting picked by the Format Painter.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PickedFormat {
+    /// Character formatting.
     pub run: RunProps,
     /// Paragraph formatting, picked when the source was a caret or whole paragraphs.
     pub para: Option<ParaProps>,
@@ -136,9 +145,12 @@ impl PageSetupSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum HfVariant {
+    /// Header/footer of all other pages.
     #[default]
     Default,
+    /// Header/footer of the first page (with `titlePg`).
     First,
+    /// Header/footer of even pages (with `evenAndOddHeaders`).
     Even,
 }
 

@@ -17,12 +17,14 @@ const MAX_CELLS: usize = 2_000_000;
 /// by the BlueSheet integration layer).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SpreadsheetDoc {
+    /// Sheets in document order.
     pub sheets: Vec<Sheet>,
 }
 
 /// One `table:table`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Sheet {
+    /// `table:name`.
     pub name: String,
     /// Non-empty cells in row-major order.
     pub cells: Vec<Cell>,
@@ -31,8 +33,11 @@ pub struct Sheet {
 /// A cell with a value (0-based row / column).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cell {
+    /// 0-based row index.
     pub row: u32,
+    /// 0-based column index.
     pub col: u32,
+    /// Value of the cell.
     pub value: CellValue,
     /// `table:formula` verbatim, including the namespace prefix (e.g. `of:=SUM([.A1:.A3])`).
     pub formula: Option<String>,
@@ -41,17 +46,24 @@ pub struct Cell {
 /// Cell value by `office:value-type` (§19.385).
 #[derive(Debug, Clone, PartialEq)]
 pub enum CellValue {
+    /// `float`: plain number.
     Float(f64),
+    /// `percentage`: number as a fraction (0.25 = 25 %).
     Percentage(f64),
+    /// `currency`: amount with an optional currency code.
     Currency {
+        /// `office:value`, the amount.
         value: f64,
+        /// `office:currency` (ISO 4217 code), if given.
         currency: Option<String>,
     },
     /// `office:date-value` (xsd:date or xsd:dateTime) verbatim.
     Date(String),
     /// `office:time-value` (xsd:duration) verbatim.
     Time(String),
+    /// `boolean`.
     Boolean(bool),
+    /// `string`: the cell text.
     String(String),
 }
 

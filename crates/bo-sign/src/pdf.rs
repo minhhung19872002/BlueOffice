@@ -17,7 +17,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct SignOptions {
     /// `/Name`: signer name shown by viewers.
     pub name: Option<String>,
+    /// `/Reason`: why the document was signed.
     pub reason: Option<String>,
+    /// `/Location`: where it was signed.
     pub location: Option<String>,
     /// `/M`: signing time.
     pub time: SystemTime,
@@ -591,6 +593,7 @@ fn count_sig_fields(file: &PdfFile<'_>, catalog: &[(String, String)]) -> usize {
 /// One verified signature of a PDF.
 #[derive(Debug, Clone)]
 pub struct PdfSignature {
+    /// The verified signer.
     pub signer: VerifiedSigner,
     /// The signature covers the whole file (no later changes).
     pub covers_whole_file: bool,

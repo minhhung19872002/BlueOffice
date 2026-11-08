@@ -44,16 +44,22 @@ use unicode_segmentation::UnicodeSegmentation;
 /// Editing errors.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum EditError {
+    /// The position's block path does not address a paragraph.
     #[error("position does not address a paragraph")]
     BadPath,
+    /// The operation no longer matches the document (stale edit).
     #[error("operation does not match the document (stale edit)")]
     Conflict,
+    /// The position (paragraph id or offset) is invalid.
     #[error("invalid position")]
     BadPosition,
+    /// The command is not supported for this content.
     #[error("unsupported: {0}")]
     Unsupported(String),
+    /// The pasted clipboard payload could not be parsed.
     #[error("invalid clipboard data: {0}")]
     Clipboard(String),
+    /// The find/replace pattern is not a valid regular expression.
     #[error("invalid regular expression: {0}")]
     Regex(String),
 }
@@ -69,26 +75,37 @@ pub type Result<T> = std::result::Result<T, EditError>;
     rename_all_fields = "camelCase"
 )]
 pub enum CharFormat {
+    /// Toggle bold (`w:b`).
     Bold,
+    /// Toggle italic (`w:i`).
     Italic,
+    /// Toggle single underline (`w:u`).
     Underline,
+    /// Toggle strikethrough (`w:strike`).
     Strike,
+    /// Toggle superscript (`w:vertAlign="superscript"`).
     Superscript,
+    /// Toggle subscript (`w:vertAlign="subscript"`).
     Subscript,
+    /// Set the font family (`w:rFonts`).
     Font {
+        /// Font family name.
         name: String,
     },
     /// Size in half-points (§17.3.2.38 sz).
     Size {
+        /// Size in half-points.
         #[serde(alias = "half_points")]
         half_points: u32,
     },
     /// `RRGGBB` or `None` for automatic.
     Color {
+        /// Colour as `RRGGBB`; `None` = automatic.
         hex: Option<String>,
     },
     /// `RRGGBB` or `None` to remove (§17.3.2.15 highlight).
     Highlight {
+        /// Highlight colour as `RRGGBB`; `None` removes it.
         hex: Option<String>,
     },
     /// Remove direct character formatting.
@@ -103,58 +120,83 @@ pub enum CharFormat {
     rename_all_fields = "camelCase"
 )]
 pub enum ParaFormat {
+    /// Paragraph alignment (`w:jc`).
     Align {
+        /// New alignment.
         align: Alignment,
     },
+    /// Left indent (`w:ind @w:left`).
     IndentLeft {
+        /// Indent in twips.
         twips: i32,
     },
+    /// First-line indent (`w:ind @w:firstLine`; negative = hanging).
     IndentFirstLine {
+        /// Indent in twips; negative = hanging indent.
         twips: i32,
     },
+    /// Increase the left indent by one step.
     IncreaseIndent,
+    /// Decrease the left indent by one step.
     DecreaseIndent,
     /// Line spacing in 240ths of a line (240 = single).
     LineSpacing {
+        /// Spacing in 240ths of a line.
         value: u32,
     },
+    /// Space before the paragraph (`w:spacing @w:before`).
     SpaceBefore {
+        /// Space in twips.
         twips: i32,
     },
+    /// Space after the paragraph (`w:spacing @w:after`).
     SpaceAfter {
+        /// Space in twips.
         twips: i32,
     },
+    /// Toggle a bulleted list (`w:numPr`).
     Bullets,
+    /// Toggle a numbered list (`w:numPr`).
     Numbering,
+    /// Apply a paragraph style (`w:pStyle`).
     Style {
+        /// Style id (`w:styleId`).
         id: String,
     },
     /// Remove direct paragraph formatting and the paragraph style.
     Clear,
     /// Right indent (§17.3.1.12 ind @w:right).
     IndentRight {
+        /// Indent in twips.
         twips: i32,
     },
     /// Left, right and first-line indents at once (ruler); `first_line` < 0 is a
     /// hanging indent (§17.3.1.12 ind @w:firstLine / @w:hanging).
     Indents {
+        /// Left indent in twips.
         left: i32,
+        /// Right indent in twips.
         right: i32,
+        /// First-line indent in twips; negative = hanging indent.
         first_line: i32,
     },
     /// Line spacing with its rule (§17.3.1.33 spacing @w:line/@w:lineRule): `auto`
     /// in 240ths of a line, `exact` / `atLeast` in twips.
     LineSpacingRule {
+        /// Spacing rule.
         rule: LineRule,
+        /// 240ths of a line for `auto`, twips otherwise.
         value: u32,
     },
     /// Make the effective tab stops exactly `tabs` (§17.3.1.37 tabs): stops of the
     /// paragraph style that are not wanted are cleared with `w:val="clear"`.
     Tabs {
+        /// Wanted tab stops.
         tabs: Vec<TabSpec>,
     },
     /// Paragraph shading fill (§17.3.1.31 shd) or `None` to remove it.
     Shading {
+        /// Fill colour as `RRGGBB`; `None` removes the shading.
         hex: Option<String>,
     },
 }
@@ -163,9 +205,12 @@ pub enum ParaFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LineRule {
+    /// Proportional spacing in 240ths of a line.
     #[default]
     Auto,
+    /// Exact line height in twips.
     Exact,
+    /// Minimum line height in twips.
     AtLeast,
 }
 
@@ -173,9 +218,12 @@ pub enum LineRule {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TabSpec {
+    /// Position in twips from the left indent origin.
     pub pos: i32,
+    /// Alignment of text at the stop.
     #[serde(default)]
     pub align: TabKind,
+    /// Leader characters filling the tab.
     #[serde(default)]
     pub leader: LeaderKind,
 }
@@ -184,11 +232,16 @@ pub struct TabSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TabKind {
+    /// Text starts at the stop.
     #[default]
     Left,
+    /// Text is centred on the stop.
     Center,
+    /// Text ends at the stop.
     Right,
+    /// The decimal separator aligns on the stop.
     Decimal,
+    /// A vertical bar is drawn at the stop.
     Bar,
 }
 
@@ -196,10 +249,14 @@ pub enum TabKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LeaderKind {
+    /// No leader.
     #[default]
     None,
+    /// Dotted leader.
     Dot,
+    /// Hyphen leader.
     Hyphen,
+    /// Underscore leader.
     Underscore,
 }
 
@@ -248,7 +305,9 @@ impl TabSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineSpacingState {
+    /// Spacing rule.
     pub rule: LineRule,
+    /// 240ths of a line for `auto`, twips otherwise.
     pub value: u32,
 }
 
@@ -257,17 +316,29 @@ pub struct LineSpacingState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SectionState {
+    /// 0-based index of the section.
     pub index: usize,
+    /// Number of sections in the document.
     pub count: usize,
+    /// Page width.
     pub width: i32,
+    /// Page height.
     pub height: i32,
+    /// Top margin.
     pub margin_top: i32,
+    /// Bottom margin.
     pub margin_bottom: i32,
+    /// Left margin.
     pub margin_left: i32,
+    /// Right margin.
     pub margin_right: i32,
+    /// Distance from the page top to the header.
     pub header: i32,
+    /// Distance from the page bottom to the footer.
     pub footer: i32,
+    /// Number of text columns.
     pub columns: u16,
+    /// Space between columns.
     pub column_space: i32,
     /// §17.10.6 titlePg: different first page header/footer.
     pub title_page: bool,
@@ -276,6 +347,7 @@ pub struct SectionState {
     /// §17.11.19 numRestart / §17.11.21 pos of the section's footnotes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub footnote_restart: Option<bo_model::NoteRestart>,
+    /// Footnote placement of the section, when set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub footnote_pos: Option<bo_model::NotePos>,
 }
@@ -284,9 +356,11 @@ pub struct SectionState {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableState {
+    /// Number of rows.
     pub rows: usize,
     /// Grid columns (§17.4.48 tblGrid).
     pub cols: usize,
+    /// 0-based row of the caret's cell.
     pub row: usize,
     /// Grid column of the caret's cell.
     pub col: usize,
@@ -294,9 +368,11 @@ pub struct TableState {
     pub header_row: bool,
     /// Fill of the caret's cell (§17.4.33 shd).
     pub shading: Option<String>,
+    /// Table alignment on the page (§17.4.28 jc).
     pub align: Alignment,
     /// Preferred width: `pct` in percent, else `dxa` twips (0 = auto) (§17.4.63 tblW).
     pub width_pct: Option<u32>,
+    /// Preferred width in twips when not a percentage (0 = auto).
     pub width: i32,
     /// The selection covers more than one cell (merge is possible).
     pub multi_cell: bool,
@@ -308,42 +384,66 @@ pub struct TableState {
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatState {
+    /// Bold is on.
     pub bold: bool,
+    /// Italic is on.
     pub italic: bool,
+    /// Underline is on.
     pub underline: bool,
+    /// Strikethrough is on.
     pub strike: bool,
+    /// Superscript is on.
     pub superscript: bool,
+    /// Subscript is on.
     pub subscript: bool,
+    /// Font family, `None` when mixed or unknown.
     pub font: Option<String>,
+    /// Font size in half-points, `None` when mixed or unknown.
     pub size_half_points: Option<u32>,
+    /// Text colour `RRGGBB`, `None` = automatic.
     pub color: Option<String>,
+    /// Highlight colour `RRGGBB`, if any.
     pub highlight: Option<String>,
+    /// Paragraph alignment.
     pub align: Alignment,
+    /// Paragraph style id, if any.
     pub style: Option<String>,
+    /// The paragraph is in a bulleted list.
     pub bullets: bool,
+    /// The paragraph is in a numbered list.
     pub numbering: bool,
+    /// There is an edit to undo.
     pub can_undo: bool,
+    /// There is an edit to redo.
     pub can_redo: bool,
     /// Effective paragraph indents and spacing (twips).
     pub indent_left: i32,
+    /// Right indent (twips).
     pub indent_right: i32,
     /// Negative = hanging indent.
     pub first_line: i32,
+    /// Space before the paragraph (twips).
     pub space_before: i32,
+    /// Space after the paragraph (twips).
     pub space_after: i32,
+    /// Effective line spacing.
     pub line_spacing: LineSpacingState,
     /// Effective custom tab stops of the paragraph.
     pub tabs: Vec<TabSpec>,
     /// Paragraph shading.
     pub shading: Option<String>,
+    /// Page setup of the caret's section.
     pub section: SectionState,
+    /// The table holding the caret, if any.
     pub table: Option<TableState>,
 }
 
 /// Content copied to the clipboard.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Clip {
+    /// Plain-text rendering.
     pub text: String,
+    /// HTML rendering for other applications.
     pub html: String,
     /// Lossless internal format (JSON of model blocks).
     pub internal: String,
@@ -996,6 +1096,7 @@ impl Session {
         };
     }
 
+    /// Author name stamped on new revisions and comments.
     pub fn author(&self) -> &str {
         &self.author
     }
@@ -1005,6 +1106,7 @@ impl Session {
         self.clock = date;
     }
 
+    /// Date stamped on new revisions and comments, if set.
     pub fn clock(&self) -> Option<&str> {
         self.clock.as_deref()
     }
@@ -1454,6 +1556,7 @@ impl Session {
         Some(r)
     }
 
+    /// The document being edited.
     pub fn doc(&self) -> &Document {
         &self.doc
     }
@@ -1463,6 +1566,7 @@ impl Session {
         self.doc
     }
 
+    /// The current selection.
     pub fn selection(&self) -> Selection {
         self.selection
     }
@@ -1483,10 +1587,12 @@ impl Session {
         &self.changes
     }
 
+    /// There is an edit to undo.
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
 
+    /// There is an edit to redo.
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }

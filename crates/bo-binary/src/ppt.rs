@@ -41,7 +41,9 @@ const RT_CLIENT_TEXTBOX: u16 = 0xF00D;
 pub struct PptDeck {
     /// Slide size in EMU (§2.4.2 DocumentAtom.slideSize, 576 master units per inch).
     pub slide_width: i64,
+    /// Slide height in EMU.
     pub slide_height: i64,
+    /// Slides in presentation order.
     pub slides: Vec<PptSlide>,
     /// A VBAInfoContainer is present (macros are preserved, never executed).
     pub has_macros: bool,
@@ -61,6 +63,7 @@ pub struct PptSlide {
 /// A text block of a shape or placeholder.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PptText {
+    /// Placeholder / text type of the block.
     pub kind: TextKind,
     /// Paragraphs; line breaks inside a paragraph are `\u{2028}`.
     pub paragraphs: Vec<String>,
@@ -69,13 +72,21 @@ pub struct PptText {
 /// §2.13.33 TextTypeEnum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextKind {
+    /// Title placeholder text.
     Title,
+    /// Body placeholder text.
     Body,
+    /// Notes page text.
     Notes,
+    /// Text not in a placeholder.
     Other,
+    /// Body text of a centered (title slide) layout.
     CenterBody,
+    /// Title of a centered (title slide) layout.
     CenterTitle,
+    /// Half-size body placeholder.
     HalfBody,
+    /// Quarter-size body placeholder.
     QuarterBody,
 }
 

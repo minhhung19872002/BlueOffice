@@ -8,6 +8,7 @@ pub type Media = BTreeMap<String, Arc<Vec<u8>>>;
 
 /// Where backends find the encoded bytes of `Image` commands (by `image` id).
 pub trait ImageSource {
+    /// Encoded bytes of the picture with id `id`, if known.
     fn image(&self, id: &str) -> Option<&[u8]>;
 }
 
@@ -35,8 +36,11 @@ impl ImageSource for Chain<'_> {
 /// Container format sniffed from magic bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
+    /// PNG.
     Png,
+    /// JPEG.
     Jpeg,
+    /// Anything else (unsupported by the backends).
     Other,
 }
 

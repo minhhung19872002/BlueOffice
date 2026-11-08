@@ -38,24 +38,34 @@ pub use slide_edit::{SlideCommand, SlideEditResult};
 /// Engine errors (surfaced to JS / Tauri as strings).
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
+    /// The file type cannot be opened.
     #[error("unsupported file type: {0}")]
     Unsupported(String),
+    /// Reading or writing a `.docx` failed.
     #[error("cannot read document: {0}")]
     Docx(#[from] bo_docx::DocxError),
+    /// Reading or writing a `.pptx` failed.
     #[error("cannot read presentation: {0}")]
     Pptx(#[from] bo_pptx::PptxError),
+    /// Layout failed.
     #[error("layout failed: {0}")]
     Layout(#[from] bo_layout::LayoutError),
+    /// The command needs an open document.
     #[error("no document is open")]
     NoDocument,
+    /// Page (or sheet / slide) index out of range.
     #[error("page {0} out of range")]
     PageOutOfRange(usize),
+    /// PDF export failed.
     #[error("PDF export failed: {0}")]
     Pdf(#[from] bo_pdf::PdfError),
+    /// Spreadsheet read / write error.
     #[error("spreadsheet error: {0}")]
     Sheet(String),
+    /// PNG rendering failed.
     #[error("rendering failed: {0}")]
     Raster(#[from] bo_raster::RasterError),
+    /// The JSON command is malformed or does not apply.
     #[error("invalid command: {0}")]
     BadCommand(String),
     /// The file is encrypted ([MS-OFFCRYPTO]) and no password was given.
@@ -65,8 +75,10 @@ pub enum EngineError {
     /// Hosts match the message `wrong password`.
     #[error("wrong password")]
     WrongPassword,
+    /// Encryption or decryption failed.
     #[error("encryption error: {0}")]
     Crypto(String),
+    /// Reading a legacy or ODF document (`.doc`, `.odt`, …) failed.
     #[error("cannot read document: {0}")]
     Format(String),
 }
@@ -80,7 +92,9 @@ pub type Result<T> = std::result::Result<T, EngineError>;
 /// Page size in points.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub struct PageSize {
+    /// Width in points.
     pub width: f32,
+    /// Height in points.
     pub height: f32,
 }
 
@@ -88,11 +102,15 @@ pub struct PageSize {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DocInfo {
+    /// File name of the document.
     pub name: String,
     /// App id of the open file: `doc` (BlueDoc) or `slide` (BlueSlide).
     pub kind: String,
+    /// Number of laid-out pages (slides for BlueSlide).
     pub page_count: usize,
+    /// Size of each page.
     pub pages: Vec<PageSize>,
+    /// Words in the main story.
     pub word_count: usize,
     /// The file contains a VBA project or XLM macros ([MS-OVBA]); kept, never run.
     pub macros: bool,
@@ -111,9 +129,13 @@ impl DocInfo {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GlyphOutline {
+    /// Font face id (index into the registered faces).
     pub face: u32,
+    /// Glyph id within the face.
     pub glyph: u16,
+    /// Font design units per em.
     pub units_per_em: u16,
+    /// SVG path data in font units (y down).
     pub path: String,
 }
 

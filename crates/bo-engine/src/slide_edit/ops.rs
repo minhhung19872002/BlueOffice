@@ -11,13 +11,18 @@ use bo_model::slide::{
 /// Slide-level fields that are not part of the shape tree.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SlideFields {
+    /// Relationships of the slide part (ECMA-376 Part 2, §9.3).
     pub rels: Vec<Rel>,
+    /// Speaker notes (§19.3.1.26 notes).
     pub notes: Option<Notes>,
+    /// Animation timing tree (§19.3.1.48 timing).
     pub timing: Option<Timing>,
+    /// Slide transition (§19.3.1.50 transition).
     pub transition: Option<Transition>,
 }
 
 impl SlideFields {
+    /// Snapshot of these fields of `s`.
     pub fn of(s: &Slide) -> SlideFields {
         SlideFields {
             rels: s.info.rels.clone(),
@@ -38,14 +43,20 @@ impl SlideFields {
 /// masters and themes imported with slides pasted from another deck).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PresFields {
+    /// Relationships of the presentation part.
     pub rels: Vec<Rel>,
+    /// Preserved `presentation.xml` children (e.g. `p:notesMasterIdLst`).
     pub extra: Vec<Extra>,
+    /// Slide layouts (§19.3.1.39 sldLayout).
     pub layouts: Vec<bo_model::slide::SlideLayout>,
+    /// Slide masters (§19.3.1.42 sldMaster).
     pub masters: Vec<bo_model::slide::SlideMaster>,
+    /// Themes (§20.1.6.9 theme).
     pub themes: Vec<bo_model::slide::Theme>,
 }
 
 impl PresFields {
+    /// Snapshot of these fields of `p`.
     pub fn of(p: &Presentation) -> PresFields {
         PresFields {
             rels: p.info.rels.clone(),
@@ -63,33 +74,49 @@ pub enum SlideOp {
     /// Splice the children of a container: the spTree of `slide` (`parent`
     /// empty) or the group at index path `parent`.
     Nodes {
+        /// Slide index.
         slide: usize,
+        /// Index path of the group from the spTree (empty: the spTree itself).
         parent: Vec<usize>,
+        /// First child replaced.
         index: usize,
+        /// Children removed at `index` (must match the model).
         remove: Vec<ShapeNode>,
+        /// Children inserted in their place.
         insert: Vec<ShapeNode>,
     },
     /// Splice the slide list.
     Slides {
+        /// First slide replaced.
         index: usize,
+        /// Slides removed at `index` (must match the model).
         remove: Vec<Slide>,
+        /// Slides inserted in their place.
         insert: Vec<Slide>,
     },
     /// Replace slide-level fields (relationships, notes, timing).
     Fields {
+        /// Slide index.
         slide: usize,
+        /// Fields expected before the op.
         before: Box<SlideFields>,
+        /// Fields after the op.
         after: Box<SlideFields>,
     },
     /// Splice the preserved package parts (media, notes master, …).
     Parts {
+        /// First part replaced in `Presentation::parts`.
         index: usize,
+        /// Parts removed at `index` (must match the model).
         remove: Vec<RawPart>,
+        /// Parts inserted in their place.
         insert: Vec<RawPart>,
     },
     /// Replace presentation-level fields.
     Pres {
+        /// Fields expected before the op.
         before: Box<PresFields>,
+        /// Fields after the op.
         after: Box<PresFields>,
     },
 }
@@ -97,12 +124,16 @@ pub enum SlideOp {
 /// Why an op could not be applied.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum OpError {
+    /// The slide index is out of range.
     #[error("slide {0} does not exist")]
     NoSlide(usize),
+    /// The group index path does not lead to a group.
     #[error("shape container not found")]
     NoContainer,
+    /// The splice range lies outside the list.
     #[error("range out of bounds")]
     Range,
+    /// The model no longer holds what the op expects to remove or replace.
     #[error("the presentation changed under the operation")]
     Stale,
 }
@@ -276,11 +307,14 @@ impl SlideOp {
 
 /// Ops applied so far by one command; rolled back if the command fails.
 pub struct Tx<'a> {
+    /// The presentation being edited.
     pub pres: &'a mut Presentation,
+    /// Ops applied so far, in order.
     pub ops: Vec<SlideOp>,
 }
 
 impl<'a> Tx<'a> {
+    /// Starts an empty transaction on `pres`.
     pub fn new(pres: &'a mut Presentation) -> Self {
         Tx {
             pres,

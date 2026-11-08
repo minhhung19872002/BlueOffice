@@ -30,18 +30,29 @@ pub const MAX_FORMAT_CELLS: u64 = 2_000_000;
 pub struct StylePatch {
     /// Number format code (§18.8.31), e.g. `#,##0 [$₫-42A]` or `dd/mm/yyyy`.
     pub num_fmt: Option<String>,
+    /// Font typeface (§18.8.29 `name`).
     pub font_name: Option<String>,
+    /// Font size in points (§18.4.11 `sz`).
     pub font_size: Option<f64>,
+    /// Bold (`b`).
     pub bold: Option<bool>,
+    /// Italic (`i`).
     pub italic: Option<bool>,
     /// `none` / `single` / `double` (§18.18.82 `ST_UnderlineValues`).
     pub underline: Option<String>,
+    /// Strikethrough (`strike`).
     pub strike: Option<bool>,
+    /// Font colour `RRGGBB` (empty = automatic).
     pub font_color: Option<String>,
+    /// Solid fill colour `RRGGBB` (empty = no fill).
     pub fill_color: Option<String>,
+    /// Horizontal alignment (§18.18.40 `ST_HorizontalAlignment`).
     pub h_align: Option<String>,
+    /// Vertical alignment (§18.18.88 `ST_VerticalAlignment`).
     pub v_align: Option<String>,
+    /// Wrap text (`wrapText`).
     pub wrap: Option<bool>,
+    /// Indent level (`indent`, steps of three spaces).
     pub indent: Option<u32>,
     /// `textRotation` (0–180, 255 = vertical text).
     pub rotation: Option<u32>,
@@ -59,9 +70,13 @@ pub enum BorderPreset {
     Inside,
     /// Remove all borders.
     None,
+    /// Top edge of the range.
     Top,
+    /// Bottom edge of the range.
     Bottom,
+    /// Left edge of the range.
     Left,
+    /// Right edge of the range.
     Right,
 }
 
@@ -69,7 +84,9 @@ pub enum BorderPreset {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BorderSpec {
+    /// Which edges are drawn.
     pub preset: BorderPreset,
+    /// Line style, e.g. `thin`, `medium`, `dashed` (default `thin`).
     #[serde(default = "thin")]
     pub style: String,
     /// `RRGGBB`; `None` = automatic (black).
@@ -85,24 +102,39 @@ fn thin() -> String {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatState {
+    /// Number format code of the cell (§18.8.31).
     pub num_fmt: String,
+    /// Font typeface.
     pub font_name: String,
+    /// Font size in points.
     pub font_size: f64,
+    /// Bold.
     pub bold: bool,
+    /// Italic.
     pub italic: bool,
+    /// Underline (`none` / `single` / `double`).
     pub underline: String,
+    /// Strikethrough.
     pub strike: bool,
+    /// Font colour `RRGGBB` (empty = automatic).
     pub font_color: String,
+    /// Fill colour `RRGGBB` (empty = no fill).
     pub fill_color: String,
+    /// Horizontal alignment (empty = `general`).
     pub h_align: String,
+    /// Vertical alignment (empty = bottom).
     pub v_align: String,
+    /// Wrap text.
     pub wrap: bool,
+    /// Indent level.
     pub indent: u32,
+    /// Text rotation (0–180, 255 = vertical).
     pub rotation: u32,
     /// Line style of each edge (`""` = none): top, right, bottom, left.
     pub borders: [String; 4],
     /// Name of the cell style (`cellStyles`) the cell is based on.
     pub style_name: String,
+    /// The cell is part of a merged range.
     pub merged: bool,
 }
 
@@ -400,6 +432,7 @@ pub fn copy_formats(wb: &mut Workbook, sheet: usize, source: CellRange, target: 
 /// A built-in named style of the gallery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NamedStyle {
+    /// Display name of the style (`cellStyle/@name`).
     pub name: &'static str,
     /// `builtinId` (§18.8.7).
     pub builtin_id: u32,

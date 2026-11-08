@@ -165,20 +165,42 @@ jobs:
             docs/fidelity-visual.md
 
   desktop:
-    name: Desktop (Tauri build)
-    runs-on: windows-latest
+    name: Desktop (${{ matrix.os }}, package + E2E)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows: NSIS installer, then the WebDriver E2E (tauri-driver + msedgedriver).
+          - os: windows-latest
+            bundles: nsis
+            e2e: true
+          # macOS: .app bundle (no WebDriver for WKWebView, so no E2E).
+          - os: macos-latest
+            bundles: app
+            e2e: false
+          # Linux: .deb + AppImage (WebKitGTK).
+          - os: ubuntu-22.04
+            bundles: deb,appimage
+            e2e: false
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      - name: Tauri system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
       - uses: actions/setup-dotnet@v4
+        if: matrix.e2e
         with:
           dotnet-version: 8.0.x
       # The desktop web view runs the bo-collab replica (WASM) for live collaboration.
@@ -186,12 +208,22 @@ jobs:
         run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:wasm
-      - run: pnpm --filter @blueoffice/desktop tauri build --no-bundle
-      # Web shell + browser for the deep-link collaboration case.
+      # Release build with the Tauri updater (plugins.updater in tauri.conf.json, docs/deploy/desktop-update.md).
+      - run: pnpm --filter @blueoffice/desktop tauri build --features updater --bundles ${{ matrix.bundles }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bluedoc-${{ matrix.os }}
+          path: target/release/bundle
+          if-no-files-found: error
+      # Web shell + browser for the deep-link collaboration and the parity (P1.10) cases.
       - run: pnpm --filter @blueoffice/web build
+        if: matrix.e2e
       - run: pnpm --filter @blueoffice/e2e exec playwright install chromium
+        if: matrix.e2e
       # Desktop E2E through Tauri WebDriver (runner ships Edge + msedgedriver in EDGEWEBDRIVER).
       - run: cargo install tauri-driver --locked
+        if: matrix.e2e
       - run: pnpm test:e2e:desktop
+        if: matrix.e2e
         env:
           MSEDGEDRIVER: ${{ env.EDGEWEBDRIVER }}\msedgedriver.exe

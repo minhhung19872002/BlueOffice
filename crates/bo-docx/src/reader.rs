@@ -6,11 +6,12 @@
 use crate::{DocxError, Result};
 use bo_model::{
     fingerprint, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellProps,
-    CellVAlign, Color, Columns, Comment, Document, Emu, HalfPoints, HeaderFooter, HeightRule,
-    Image, Level, LineSpacing, Num, NumFormat, NumRef, Numbering, ParaProps, ParaPropsChange,
-    Paragraph, Raw, RevMark, RevisionInfo, Row, Run, RunContent, RunProps, RunPropsChange, Section,
-    SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table,
-    TableProps, TableWidth, Twips, Underline, VMerge, VertAlign, Wrap, WrapText,
+    CellPropsChange, CellVAlign, Color, Columns, Comment, Document, Emu, HalfPoints, HeaderFooter,
+    HeightRule, Image, Level, LineSpacing, NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef,
+    Numbering, ParaProps, ParaPropsChange, Paragraph, Raw, RevMark, RevisionInfo, Row, Run,
+    RunContent, RunProps, RunPropsChange, Section, SectionBreak, SourcePackage, Style, StyleKind,
+    StyleSheet, TabAlign, TabLeader, TabStop, Table, TableProps, TablePropsChange, TableWidth,
+    Twips, Underline, VMerge, VertAlign, Wrap, WrapText,
 };
 use bo_opc::xml::{attr, unescape, XmlReader};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -1575,6 +1576,19 @@ fn read_tblpr(r: &mut XmlReader<'_>) -> Result<TableProps> {
             b"tblInd" => t.indent = twips(e, b"w"),
             b"tblBorders" if s => t.borders = Some(read_borders(r)?),
             b"tblLayout" => t.fixed_layout = attr(e, b"type").as_deref() == Some("fixed"),
+            // §17.13.5.34 tblPrChange
+            b"tblPrChange" if s => {
+                let info = rev_info(e);
+                let mut old = TableProps::default();
+                children(r, |r, e, s, _| {
+                    if s && name(e) == b"tblPr" {
+                        old = read_tblpr(r)?;
+                        return Ok(true);
+                    }
+                    Ok(!s)
+                })?;
+                t.change = Some(Box::new(TablePropsChange { info, old }));
+            }
             b"tblCellMar" if s => {
                 let (mut l, mut rr) = (Twips(108), Twips(108));
                 children(r, |_, e, s, _| {
@@ -1621,6 +1635,21 @@ fn read_table(
                             children(r, |r, e, s, before| {
                                 match name(e).as_slice() {
                                     b"tblHeader" => row.props.header = on_off(e),
+                                    // §17.13.5.19 ins / §17.13.5.12 del (tracked rows)
+                                    b"ins" => {
+                                        row.props.ins = Some(RevMark {
+                                            info: rev_info(e),
+                                            moved: false,
+                                        });
+                                        return Ok(!s);
+                                    }
+                                    b"del" => {
+                                        row.props.del = Some(RevMark {
+                                            info: rev_info(e),
+                                            moved: false,
+                                        });
+                                        return Ok(!s);
+                                    }
                                     b"cantSplit" => row.props.cant_split = on_off(e),
                                     b"trHeight" => {
                                         row.props.height = twips(e, b"val").map(|h| {
@@ -1721,6 +1750,19 @@ fn read_tcpr(r: &mut XmlReader<'_>) -> Result<CellProps> {
             }
             b"shd" => c.shading = color_attr(e, b"fill"),
             b"tcBorders" if s => c.borders = Some(read_borders(r)?),
+            // §17.13.5.36 tcPrChange
+            b"tcPrChange" if s => {
+                let info = rev_info(e);
+                let mut old = CellProps::default();
+                children(r, |r, e, s, _| {
+                    if s && name(e) == b"tcPr" {
+                        old = read_tcpr(r)?;
+                        return Ok(true);
+                    }
+                    Ok(!s)
+                })?;
+                c.change = Some(Box::new(CellPropsChange { info, old }));
+            }
             b"vAlign" => {
                 c.v_align = match attr(e, b"val").as_deref() {
                     Some("center") => Some(CellVAlign::Center),
@@ -1746,7 +1788,7 @@ fn read_sect_pr(
 ) -> Result<Section> {
     let mut s = Section::default();
     let mut hf: Vec<(bool, String, String)> = Vec::new(); // (is_header, type, rId)
-    children(r, |_, e, st, _| {
+    children(r, |rr, e, st, _| {
         match name(e).as_slice() {
             // §17.10.5 headerReference / §17.10.3 footerReference
             n @ (b"headerReference" | b"footerReference") => {
@@ -1793,6 +1835,32 @@ fn read_sect_pr(
             }
             // §17.6.12 pgNumType
             b"pgNumType" => s.page_number_start = int(e, b"start").map(|v| v.max(0) as u32),
+            // §17.13.5.32 sectPrChange
+            b"sectPrChange" if st => {
+                let info = rev_info(e);
+                let mut old = None;
+                children(rr, |rr, e, st, before| {
+                    if st && name(e) == b"sectPr" {
+                        old = Some(read_sect_pr(rr, ctx, media, before)?);
+                        return Ok(true);
+                    }
+                    Ok(!st)
+                })?;
+                if let Some(o) = old {
+                    s.change = Some(Box::new(o.change_snapshot(info)));
+                }
+                return Ok(true);
+            }
+            // §17.11.11 footnotePr / §17.11.4 endnotePr
+            n @ (b"footnotePr" | b"endnotePr") if st => {
+                let np = read_note_pr(rr)?;
+                if n == b"footnotePr" {
+                    s.footnote_pr = np;
+                } else {
+                    s.endnote_pr = np;
+                }
+                return Ok(true);
+            }
             _ => {}
         }
         Ok(!st)
@@ -1819,6 +1887,27 @@ fn read_sect_pr(
     }
     s.src = Some(Raw::new(r.slice(before, r.pos()), s.props_fingerprint()));
     Ok(s)
+}
+
+/// Children of §17.11.11 footnotePr / §17.11.4 endnotePr in a section.
+fn read_note_pr(r: &mut XmlReader<'_>) -> Result<NoteProps> {
+    let mut np = NoteProps::default();
+    children(r, |_, e, st, _| {
+        let val = attr(e, b"val");
+        match name(e).as_slice() {
+            // §17.11.21 / §17.11.22 pos
+            b"pos" => np.pos = val.as_deref().and_then(NotePos::parse),
+            // §17.11.17 numFmt
+            b"numFmt" => np.fmt = val.as_deref().map(NumFormat::parse),
+            // §17.11.20 numStart
+            b"numStart" => np.start = int(e, b"val").map(|v| v.max(0) as u32),
+            // §17.11.19 numRestart
+            b"numRestart" => np.restart = val.as_deref().and_then(NoteRestart::parse),
+            _ => {}
+        }
+        Ok(!st)
+    })?;
+    Ok(np)
 }
 
 /// §17.10.4 hdr / §17.10.2 ftr

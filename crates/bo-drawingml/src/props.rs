@@ -4,7 +4,7 @@
 use crate::color::{find_color, is_color_element, parse_color, write_color};
 use crate::dom::{attr_int, parse_bool, walk, AttrBag, El, Kids};
 use bo_model::slide::{
-    BlipFill, CustomGeometry, Effect, Fill, FontRef, GeomPath, Geometry, GradientFill,
+    BlipFill, CustomGeometry, Effect, Fill, FontRef, GeomPath, Geometry, Glow, GradientFill,
     GradientShade, GradientStop, Guide, Line, LineEnd, OuterShadow, PathCommand, PatternFill,
     ShapeProps, ShapeStyle, StyleRef, Xfrm, XmlElement,
 };
@@ -576,6 +576,14 @@ pub fn parse_effects(el: &XmlElement) -> Vec<Effect> {
                     color: c.elements().next().and_then(parse_color),
                     attrs: bag.rest(),
                 })
+            } else if c.name == "a:glow" && c.elements().all(|e| is_color_element(&e.name)) {
+                // §20.1.8.32 glow
+                let mut bag = AttrBag::of(c);
+                Effect::Glow(Glow {
+                    rad: bag.int("rad"),
+                    color: c.elements().next().and_then(parse_color),
+                    attrs: bag.rest(),
+                })
             } else {
                 Effect::Other(c.clone())
             }
@@ -595,6 +603,13 @@ pub fn write_effects(effects: &[Effect]) -> XmlElement {
                     .opt("dir", s.dir)
                     .rest(&s.attrs);
                 if let Some(c) = &s.color {
+                    o = o.child(write_color(c));
+                }
+                o.done()
+            }
+            Effect::Glow(g) => {
+                let mut o = El::new("a:glow").opt("rad", g.rad).rest(&g.attrs);
+                if let Some(c) = &g.color {
                     o = o.child(write_color(c));
                 }
                 o.done()

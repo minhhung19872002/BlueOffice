@@ -29,14 +29,52 @@ pub struct SelRect {
 /// Width shown for a selected paragraph mark.
 const MARK_W: f32 = 4.0;
 
+/// Text story positions refer to: the body, or one footnote/endnote whose
+/// paragraphs are numbered in document order inside the note (§17.11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Story {
+    #[default]
+    Body,
+    Note {
+        endnote: bool,
+        id: i32,
+    },
+}
+
+thread_local! {
+    /// Story the navigation functions work on (set with [`with_story`]).
+    static STORY: std::cell::Cell<Story> = const { std::cell::Cell::new(Story::Body) };
+}
+
+/// Run `f` with the navigation functions working on the lines of `story`.
+pub fn with_story<R>(story: Story, f: impl FnOnce() -> R) -> R {
+    let saved = STORY.with(|s| s.replace(story));
+    let r = f();
+    STORY.with(|s| s.set(saved));
+    r
+}
+
 fn body_id(l: &Line) -> Option<usize> {
-    match l.source {
-        LineSource::Body(id) => Some(id as usize),
-        LineSource::Other => None,
+    match (l.source, STORY.with(std::cell::Cell::get)) {
+        (LineSource::Body(id), Story::Body) => Some(id as usize),
+        (LineSource::Note { endnote, id, para }, Story::Note { endnote: e, id: i })
+            if endnote == e && id == i =>
+        {
+            Some(para as usize)
+        }
+        _ => None,
     }
 }
 
-/// All body lines in placement order with their page.
+/// Note shown by a line, if any.
+pub fn note_of(l: &Line) -> Option<(bool, i32)> {
+    match l.source {
+        LineSource::Note { endnote, id, .. } => Some((endnote, id)),
+        _ => None,
+    }
+}
+
+/// All lines of the current story in placement order with their page.
 pub fn body_lines(layout: &LayoutDocument) -> Vec<(usize, &Line)> {
     layout
         .pages

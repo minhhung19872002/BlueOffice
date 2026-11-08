@@ -29,7 +29,14 @@ export interface TextEditing {
   size: number;
   /** Slide point where editing started (caret goes there). */
   at?: { x: number; y: number };
+  /** Table cell `[row, col]` whose text is edited (the rect is the cell's box). */
+  cell?: [number, number];
+  /** Initial text selection (UTF-16 offsets) when the engine placed the caret. */
+  sel?: [number, number];
 }
+
+const sameCell = (a?: [number, number], b?: [number, number]) =>
+  (!a && !b) || (!!a && !!b && a[0] === b[0] && a[1] === b[1]);
 
 /** Is a slide point inside a (rotated) box? */
 export function inBox(b: SlideBox, x: number, y: number, tol = 0): boolean {
@@ -60,8 +67,8 @@ export interface SlideOverlayProps {
   /** Tooltips of adjust handles and connector ends. */
   adjustLabel?: string;
   connectorLabel?: string;
-  /** Accessible name of the table cell editor. */
-  cellLabel?: string;
+  /** Start editing the text of a table cell (result of `cellTextHit` / `cellNext`). */
+  onStartCellEdit?: (te: SlideTextEdit) => void;
   /** Collaborators' selected objects on this slide (live collaboration). */
   peers?: { clientId: number; name: string; color: string; rect: SlideBox; label: string }[];
 }
@@ -120,7 +127,7 @@ export function SlideOverlay({
   editorLabel,
   adjustLabel = '',
   connectorLabel = '',
-  cellLabel = '',
+  onStartCellEdit,
   peers = [],
 }: SlideOverlayProps) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -157,11 +164,18 @@ export function SlideOverlay({
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(
     null,
   );
-  const [cellEdit, setCellEdit] = useState<{ row: number; col: number } | null>(null);
   const table = edit?.table;
   const tableFrame = table && edit?.selection.find((s) => s.id === table.id)?.rect;
   const textEdit: SlideTextEdit | null =
-    editing && edit?.textEdit?.id === editing.id ? edit.textEdit : null;
+    editing && edit?.textEdit?.id === editing.id && sameCell(edit.textEdit.cell, editing.cell)
+      ? edit.textEdit
+      : null;
+  /** Edit the text of the table cell at a slide point. */
+  const editCellAt = (x: number, y: number) =>
+    void controller.run({ cmd: 'cellTextHit', x, y }).then((r) => {
+      const te = r?.textEdit;
+      if (te?.cell) onStartCellEdit?.(te);
+    });
   const scale = slide.width > 0 ? width / slide.width : 1;
   const height = slide.height * scale;
 
@@ -219,6 +233,9 @@ export function SlideOverlay({
         svgRef.current?.setPointerCapture?.(e.pointerId);
         textDrag.current = { busy: false, pending: null };
         hitText(p.x, p.y, e.shiftKey);
+      } else if (editing.cell && tableFrame && inBox(tableFrame, p.x, p.y)) {
+        // Another cell of the same table.
+        editCellAt(p.x, p.y);
       } else {
         onExitEdit();
       }
@@ -229,12 +246,10 @@ export function SlideOverlay({
     // Table editing: cells are selected with the pointer, Shift/drag extends.
     if (table && tableFrame) {
       if (inBox(tableFrame, p.x, p.y)) {
-        setCellEdit(null);
         drag.current = { mode: 'cells', sx: p.x, sy: p.y, started: false, ready: true, last: null };
         void controller.run({ cmd: 'tableHit', x: p.x, y: p.y, extend: e.shiftKey });
         return;
       }
-      setCellEdit(null);
       void controller.run({ cmd: 'tableExit' });
     }
     const target = e.target as Element;
@@ -397,11 +412,8 @@ export function SlideOverlay({
     if (!one) return;
     const p = toPt(e);
     if (one.kind === 'table') {
-      // First double-click enters the table, the next one edits the cell.
-      void controller.run({ cmd: 'tableHit', x: p.x, y: p.y }).then((r) => {
-        const t = r?.table;
-        if (t) setCellEdit({ row: t.sel[0], col: t.sel[1] });
-      });
+      // Double-click a cell: edit its text on the canvas, caret at the point.
+      editCellAt(p.x, p.y);
       return;
     }
     if (one.kind === 'group') {
@@ -600,21 +612,9 @@ export function SlideOverlay({
           ),
         )}
       </svg>
-      {table && cellEdit && (
-        <CellEditor
-          key={`${table.id}/${cellEdit.row}/${cellEdit.col}`}
-          table={table}
-          at={cellEdit}
-          scale={scale}
-          label={cellLabel}
-          controller={controller}
-          onMove={setCellEdit}
-          onClose={() => setCellEdit(null)}
-        />
-      )}
       {editing && (
         <TextEditor
-          key={editing.id}
+          key={`${editing.id}/${editing.cell?.join(',') ?? ''}`}
           editing={editing}
           textEdit={textEdit}
           hitSeq={hitSeq}
@@ -623,6 +623,7 @@ export function SlideOverlay({
           controller={controller}
           onExit={onExitEdit}
           onShortcut={onTextShortcut}
+          onCell={onStartCellEdit}
         />
       )}
     </div>
@@ -639,6 +640,8 @@ interface TextEditorProps {
   controller: SlideController;
   onExit: () => void;
   onShortcut?: (e: KeyboardEvent) => boolean;
+  /** Tab moved to another table cell. */
+  onCell?: (te: SlideTextEdit) => void;
 }
 
 /**
@@ -656,6 +659,7 @@ function TextEditor({
   controller,
   onExit,
   onShortcut,
+  onCell,
 }: TextEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
@@ -671,7 +675,7 @@ function TextEditor({
   const sendSelect = () => {
     if (composing.current) return;
     const [start, end] = selection();
-    void controller.run({ cmd: 'textSelect', id: editing.id, start, end });
+    void controller.run({ cmd: 'textSelect', id: editing.id, start, end, cell: editing.cell });
   };
 
   const sendText = () => {
@@ -685,6 +689,7 @@ function TextEditor({
         text: fromEditorText(ta.value),
         merge: true,
         sel: selection(),
+        cell: editing.cell,
       })
       .finally(() => {
         inflight.current -= 1;
@@ -695,6 +700,12 @@ function TextEditor({
     const ta = ref.current;
     if (!ta) return;
     ta.focus();
+    if (editing.cell) {
+      // The engine already placed the caret (or selected the cell's text).
+      const [a, z] = editing.sel ?? [ta.value.length, ta.value.length];
+      ta.setSelectionRange(a, z);
+      return;
+    }
     ta.setSelectionRange(ta.value.length, ta.value.length);
     const n = ta.value.length;
     void controller.run({ cmd: 'textSelect', id: editing.id, start: n, end: n });
@@ -741,6 +752,15 @@ function TextEditor({
     if (e.key === 'Escape') {
       e.preventDefault();
       onExit();
+      return;
+    }
+    if (e.key === 'Tab' && editing.cell) {
+      // Tab / Shift+Tab in a table: next / previous cell, its text selected.
+      e.preventDefault();
+      void controller.run({ cmd: 'cellNext', back: e.shiftKey }).then((r) => {
+        const te = r?.textEdit;
+        if (te?.cell) onCell?.(te);
+      });
       return;
     }
     if (e.key === 'Tab') {
@@ -790,91 +810,6 @@ function TextEditor({
         if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End') sendSelect();
       }}
       onKeyDown={onKeyDown}
-    />
-  );
-}
-
-interface CellEditorProps {
-  table: NonNullable<SlideEditResult['table']>;
-  at: { row: number; col: number };
-  scale: number;
-  label: string;
-  controller: SlideController;
-  onMove: (at: { row: number; col: number }) => void;
-  onClose: () => void;
-}
-
-/**
- * Text of one table cell, edited in a textarea over the cell; every change is
- * sent live (one undo step), Tab / Shift+Tab move to the next / previous cell,
- * Escape closes. Composition (IME) text is sent once composed.
- */
-function CellEditor({ table, at, scale, label, controller, onMove, onClose }: CellEditorProps) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  const composing = useRef(false);
-  const cell = table.cells.find((c) => c.row === at.row && c.col === at.col);
-  useEffect(() => {
-    const ta = ref.current;
-    if (!ta) return;
-    ta.focus();
-    ta.setSelectionRange(ta.value.length, ta.value.length);
-  }, []);
-  if (!cell) return null;
-  const b = cell.rect;
-  const send = () => {
-    if (!ref.current || composing.current) return;
-    void controller.run({
-      cmd: 'setCellText',
-      row: at.row,
-      col: at.col,
-      text: fromEditorText(ref.current.value),
-      merge: true,
-    });
-  };
-  const go = (delta: number) => {
-    const order = [...table.cells].sort((a, z) => a.row - z.row || a.col - z.col);
-    const i = order.findIndex((c) => c.row === at.row && c.col === at.col);
-    const next = order[(i + delta + order.length) % order.length];
-    if (!next) return;
-    onMove({ row: next.row, col: next.col });
-    void controller.run({ cmd: 'tableSelect', id: table.id, r0: next.row, c0: next.col });
-  };
-  return (
-    <textarea
-      ref={ref}
-      className={styles.cellEditor}
-      data-testid="table-cell-editor"
-      aria-label={label}
-      spellCheck={false}
-      defaultValue={toEditorText(cell.text)}
-      style={{
-        left: (b.cx - b.w / 2) * scale,
-        top: (b.cy - b.h / 2) * scale,
-        width: Math.max(b.w * scale, 30),
-        height: Math.max(b.h * scale, 18),
-        fontSize: Math.max(14 * scale, 8),
-        transform: b.rot ? `rotate(${b.rot}deg)` : undefined,
-      }}
-      onCompositionStart={() => {
-        composing.current = true;
-      }}
-      onCompositionEnd={() => {
-        composing.current = false;
-        send();
-      }}
-      onInput={send}
-      onBlur={onClose}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (composing.current || e.nativeEvent.isComposing) return;
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          onClose();
-        } else if (e.key === 'Tab') {
-          e.preventDefault();
-          go(e.shiftKey ? -1 : 1);
-        }
-      }}
     />
   );
 }

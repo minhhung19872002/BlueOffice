@@ -136,6 +136,30 @@ const SCRIPTS: &[Script] = &[
             r#"{"cmd":"insertConnector","preset":"bentConnector3"}"#,
         ],
     },
+    // Connectors keep their rotation when re-routed (elbow connector turned
+    // 90°, bend recomputed) and connectors inside a group follow their shapes.
+    Script {
+        base: "slide-shapes-presets.pptx",
+        name: "slide-edit-connectors-rotated.pptx",
+        commands: &[
+            r#"{"cmd":"addSlide"}"#,
+            r#"{"cmd":"insertShape","preset":"rect","rect":{"x":80,"y":250,"w":100,"h":60}}"#,
+            r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":400,"y":350,"w":100,"h":60}}"#,
+            r#"{"cmd":"selectRect","rect":{"x":70,"y":240,"w":440,"h":180}}"#,
+            r#"{"cmd":"insertConnector","preset":"bentConnector3"}"#,
+            r#"{"cmd":"transform","transform":{"kind":"rotate","x":2000,"y":330,"step":true}}"#,
+            r#"{"cmd":"click","x":450,"y":380}"#,
+            r#"{"cmd":"transform","transform":{"kind":"move","dx":40,"dy":60},"snap":false}"#,
+            r#"{"cmd":"insertShape","preset":"rect","rect":{"x":560,"y":100,"w":100,"h":60}}"#,
+            r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":760,"y":220,"w":100,"h":60}}"#,
+            r#"{"cmd":"selectRect","rect":{"x":550,"y":90,"w":320,"h":200}}"#,
+            r#"{"cmd":"insertConnector","preset":"curvedConnector3"}"#,
+            r#"{"cmd":"selectRect","rect":{"x":550,"y":90,"w":320,"h":200}}"#,
+            r#"{"cmd":"group"}"#,
+            r#"{"cmd":"click","x":810,"y":250,"deep":true}"#,
+            r#"{"cmd":"transform","transform":{"kind":"move","dx":0,"dy":80},"snap":false}"#,
+        ],
+    },
     // Tables: cell text, rows/columns, merge, cell fill, style options.
     Script {
         base: "slide-tables-basic.pptx",
@@ -160,6 +184,14 @@ const SCRIPTS: &[Script] = &[
             r#"{"cmd":"tableExit"}"#,
         ],
     },
+    // Slides pasted from another deck (pictures copied, layout matched by name or
+    // placeholder types): the clipboard is filled from `slide-images-crop.pptx`
+    // and `slide-tables-basic.pptx` first (see `open_script`).
+    Script {
+        base: "slide-text-bullets.pptx",
+        name: PASTE_DECK,
+        commands: &[r#"{"cmd":"goTo","slide":0}"#, r#"{"cmd":"paste"}"#],
+    },
     // Slides: duplicate, reorder, delete, notes and a picture.
     Script {
         base: "slide-notes-basic.pptx",
@@ -177,15 +209,33 @@ const SCRIPTS: &[Script] = &[
     },
 ];
 
+/// Deck receiving slides copied from other decks.
+const PASTE_DECK: &str = "slide-edit-paste-other-deck.pptx";
+
+/// Open a script's base deck; for [`PASTE_DECK`] the slide clipboard is first filled
+/// with slides of other decks (one engine keeps its clipboard across decks).
+fn open_script(e: &mut Engine, s: &Script, base: &[(&'static str, Vec<u8>)]) -> bool {
+    if s.name == PASTE_DECK {
+        let Some((_, src)) = base.iter().find(|(n, _)| *n == "slide-images-crop.pptx") else {
+            return false;
+        };
+        if e.open(src, "src.pptx").is_err() {
+            return false;
+        }
+        let _ = e.slide_command_json(r#"{"cmd":"copySlides","indices":[0,1]}"#);
+    }
+    let Some((_, bytes)) = base.iter().find(|(n, _)| *n == s.base) else {
+        return false;
+    };
+    e.open(bytes, s.base).is_ok()
+}
+
 /// Edited decks, built from the generated base decks.
 pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static str, Vec<u8>)> {
     let mut out = Vec::new();
     for s in SCRIPTS {
-        let Some((_, bytes)) = base.iter().find(|(n, _)| *n == s.base) else {
-            continue;
-        };
         let mut e = Engine::with_bundled_fonts();
-        if e.open(bytes, s.base).is_err() {
+        if !open_script(&mut e, s, base) {
             continue;
         }
         for c in s.commands {
@@ -211,9 +261,8 @@ mod tests {
     fn every_scripted_command_applies() {
         let base = crate::slide_samples::base_decks();
         for s in SCRIPTS {
-            let (_, bytes) = base.iter().find(|(n, _)| *n == s.base).unwrap();
             let mut e = Engine::with_bundled_fonts();
-            e.open(bytes, s.base).unwrap();
+            assert!(open_script(&mut e, s, &base), "{}", s.name);
             for c in s.commands {
                 let r: serde_json::Value =
                     serde_json::from_str(&e.slide_command_json(c).unwrap()).unwrap();

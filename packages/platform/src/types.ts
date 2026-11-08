@@ -86,7 +86,8 @@ export type DisplayCommand =
   | { op: 'pushOpacity'; alpha: number }
   | { op: 'popOpacity' }
   /** Filled path blurred by `radius` points (soft shadow). */
-  | { op: 'blurPath'; segs: PathSeg[]; color: Rgba; radius: number };
+  /** Soft shadow / glow: the path grown by `spread` (glow, §20.1.8.32) and blurred by `radius`. */
+  | { op: 'blurPath'; segs: PathSeg[]; color: Rgba; radius: number; spread?: number };
 
 /** Path segment as serialised by serde (`bo_render::PathSeg`). */
 export type PathSeg =
@@ -218,6 +219,9 @@ export interface SectionState {
   columnSpace: number;
   titlePage: boolean;
   evenAndOdd: boolean;
+  /** §17.11.19 numRestart / §17.11.21 pos of the section's footnotes. */
+  footnoteRestart?: NoteRestart;
+  footnotePos?: NotePos;
 }
 
 /** Page setup sent with `setPageSetup` (twips). */
@@ -249,14 +253,28 @@ export type TableEdit =
   | { kind: 'properties'; widthPct?: number | null; width?: number | null; align?: Alignment }
   | { kind: 'headerRow'; on: boolean };
 
-/** Open header/footer editor (mirrors `bo_engine::story::StoryState`). */
+/** §17.18.30 / §17.18.21 note placement. */
+export type NotePos = 'pageBottom' | 'beneathText' | 'sectEnd' | 'docEnd';
+/** §17.18.74 note numbering restart. */
+export type NoteRestart = 'continuous' | 'eachSect' | 'eachPage';
+
+/**
+ * Open header/footer or footnote/endnote editor, edited in place on the page
+ * (mirrors `bo_engine::story::StoryState`).
+ */
 export interface StoryState {
-  kind: 'header' | 'footer';
+  kind: 'header' | 'footer' | 'footnote' | 'endnote';
+  /** Id of the note being edited (`footnote` / `endnote`). */
+  note?: number;
   section: number;
   variant: 'default' | 'first' | 'even';
   page: number;
   titlePage: boolean;
   evenAndOdd: boolean;
+  /** Linked to the previous section's header/footer (§17.10.5). */
+  linked: boolean;
+  /** The section has a previous section to link to. */
+  canLink: boolean;
 }
 
 /** A footnote or endnote (mirrors `bo_edit::section::NoteInfo`). */
@@ -335,7 +353,12 @@ export type RevisionKind =
   | 'format'
   | 'paragraphFormat'
   | 'paragraphInsert'
-  | 'paragraphDelete';
+  | 'paragraphDelete'
+  | 'rowInsert'
+  | 'rowDelete'
+  | 'cellFormat'
+  | 'tableFormat'
+  | 'sectionFormat';
 
 /** A tracked change of the main text (mirrors `bo_edit::RevisionItem`). */
 export interface RevisionItem {
@@ -410,6 +433,19 @@ export type EditCommand =
   | { cmd: 'tableEdit'; edit: TableEdit }
   | { cmd: 'setPageSetup'; setup: PageSetupSpec; scope?: 'section' | 'document' }
   | { cmd: 'setHeaderOptions'; titlePage?: boolean; evenAndOdd?: boolean }
+  | { cmd: 'setHeaderLink'; linked: boolean }
+  | { cmd: 'editNote'; endnote?: boolean; id: number }
+  | {
+      cmd: 'setNoteOptions';
+      endnote?: boolean;
+      options: {
+        pos?: NotePos;
+        fmt?: string;
+        start?: number;
+        restart?: NoteRestart;
+      };
+      scope?: 'section' | 'document';
+    }
   | { cmd: 'editHeaderFooter'; page: number; header: boolean }
   | { cmd: 'closeHeaderFooter' | 'notes' | 'clearFormatting' | 'fontList' }
   | { cmd: 'pickFormat' | 'applyFormat' | 'cancelFormat' }
@@ -590,6 +626,8 @@ export interface SlideTextEdit {
   rect: SlideBox;
   /** Text in the editing format. */
   text: string;
+  /** Table cell `[row, col]` being edited (`rect` is the cell's box). */
+  cell?: [number, number];
 }
 
 export type SlideTransform =
@@ -632,10 +670,20 @@ export type SlideCommand =
   | { cmd: 'insertShape'; preset: string; rect?: SlideRect }
   | { cmd: 'insertTextBox'; text?: string; rect?: SlideRect }
   | { cmd: 'insertTable'; rows: number; cols: number; rect?: SlideRect }
-  | { cmd: 'setText'; id?: number; text: string; merge?: boolean; sel?: [number, number] }
+  | {
+      cmd: 'setText';
+      id?: number;
+      text: string;
+      merge?: boolean;
+      sel?: [number, number];
+      /** Text of table cell `[row, col]` of table `id`. */
+      cell?: [number, number];
+    }
   | { cmd: 'formatText'; format: SlideTextFormat; range?: [number, number] }
-  | { cmd: 'textSelect'; id?: number; start: number; end: number }
+  | { cmd: 'textSelect'; id?: number; start: number; end: number; cell?: [number, number] }
   | { cmd: 'textHit'; x: number; y: number; extend?: boolean }
+  | { cmd: 'cellTextHit'; x: number; y: number }
+  | { cmd: 'cellNext'; back?: boolean }
   | { cmd: 'textExit' | 'copy' | 'cut' | 'paste' }
   | { cmd: 'copySlides' | 'cutSlides'; indices?: number[] }
   | { cmd: 'adjust'; index: number; x: number; y: number; merge?: boolean }

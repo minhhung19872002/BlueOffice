@@ -34,11 +34,15 @@ impl SlideFields {
     }
 }
 
-/// Presentation-level fields touched by edits (notes master registration).
+/// Presentation-level fields touched by edits (notes master registration, layouts,
+/// masters and themes imported with slides pasted from another deck).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PresFields {
     pub rels: Vec<Rel>,
     pub extra: Vec<Extra>,
+    pub layouts: Vec<bo_model::slide::SlideLayout>,
+    pub masters: Vec<bo_model::slide::SlideMaster>,
+    pub themes: Vec<bo_model::slide::Theme>,
 }
 
 impl PresFields {
@@ -46,6 +50,9 @@ impl PresFields {
         PresFields {
             rels: p.info.rels.clone(),
             extra: p.extra.clone(),
+            layouts: p.layouts.clone(),
+            masters: p.masters.clone(),
+            themes: p.themes.clone(),
         }
     }
 }
@@ -199,6 +206,9 @@ impl SlideOp {
                 }
                 pres.info.rels.clone_from(&after.rels);
                 pres.extra.clone_from(&after.extra);
+                pres.layouts.clone_from(&after.layouts);
+                pres.masters.clone_from(&after.masters);
+                pres.themes.clone_from(&after.themes);
                 Ok(())
             }
         }

@@ -625,6 +625,22 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         ],
         ..Doc::default()
     }));
+    v.push(("sections-04-link-to-previous.docx", "sections", "Ba section: section 2 liên kết header/footer với section 1 (không có headerReference, §17.10.5), section 3 có header riêng", Doc {
+        body: [
+            lorem(1),
+            r#"<w:p><w:pPr><w:sectPr><w:headerReference w:type="default" r:id="rId10"/><w:footerReference w:type="default" r:id="rId11"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/><w:cols w:space="708"/></w:sectPr></w:pPr><w:r><w:t>Hết section 1</w:t></w:r></w:p>"#.to_owned(),
+            lorem(1),
+            r#"<w:p><w:pPr><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/><w:cols w:space="708"/></w:sectPr></w:pPr><w:r><w:t>Hết section 2 (liên kết)</w:t></w:r></w:p>"#.to_owned(),
+            lorem(1),
+        ].concat(),
+        sect: sect(&hdr_ref("header", "default", "rId12")),
+        hf: vec![
+            ("rId10".into(), "header", hdr("Đầu trang chung (section 1, 2)")),
+            ("rId11".into(), "footer", hdr("Chân trang chung")),
+            ("rId12".into(), "header", hdr("Đầu trang riêng section 3")),
+        ],
+        ..Doc::default()
+    }));
     v.push(("sections-03-even-odd-restart.docx", "sections", "Header chẵn/lẻ (evenAndOddHeaders), section oddPage, đánh số lại pgNumType", Doc {
         body: [
             lorem(60),
@@ -956,6 +972,15 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         body: format!("<w:p><w:r><w:t>Theo Luật</w:t></w:r>{}<w:r><w:t xml:space=\"preserve\"> và Nghị định</w:t></w:r>{}</w:p>{}", fref(1), fref(2), lorem(3)),
         sect: s.clone(),
         footnotes: Some(fnote(1, "Luật giả định số 01/2026.") + &fnote(2, "Nghị định giả định.")),
+        ..Doc::default()
+    }));
+    v.push(("notes-04-numbering-options.docx", "notes", "footnotePr của section: numRestart eachSect, numFmt lowerRoman, numStart, pos beneathText (§17.11.11); hai section", Doc {
+        body: format!(
+            r#"<w:p><w:r><w:t>Phần một</w:t></w:r>{}<w:r><w:t xml:space="preserve"> và </w:t></w:r>{}</w:p><w:p><w:pPr><w:sectPr><w:footnotePr><w:numFmt w:val="decimal"/></w:footnotePr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/><w:cols w:space="708"/></w:sectPr></w:pPr><w:r><w:t>Hết phần một</w:t></w:r></w:p><w:p><w:r><w:t>Phần hai</w:t></w:r>{}</w:p>"#,
+            fref(1), fref(2), fref(3)
+        ),
+        sect: r#"<w:sectPr><w:footnotePr><w:pos w:val="beneathText"/><w:numFmt w:val="lowerRoman"/><w:numStart w:val="1"/><w:numRestart w:val="eachSect"/></w:footnotePr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/><w:cols w:space="708"/></w:sectPr>"#.to_owned(),
+        footnotes: Some(fnote(1, "Ghi chú một.") + &fnote(2, "Ghi chú hai.") + &fnote(3, "Ghi chú của phần hai (đánh số lại: i).")),
         ..Doc::default()
     }));
     v.push(("notes-02-endnotes.docx", "notes", "Chú thích cuối văn bản (endnote)", Doc {
@@ -1332,6 +1357,24 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
             lorem(1),
         ].concat(),
         sect: s.clone(),
+        ..Doc::default()
+    }));
+    v.push(("review-04-tables-pictures-page-setup.docx", "review", "Track changes cấu trúc: hàng chèn/xoá (trPr ins/del), tcPrChange, tblPrChange, ảnh chèn/xoá trong w:ins/w:del, sectPrChange (đổi khổ giấy)", Doc {
+        body: [
+            table(&[4677, 4678], &[
+                row("", &[cell(4677, "", "Hàng gốc"), cell(4678, "", "Không đổi")]),
+                row(&format!(r#"<w:ins w:id="401" {d1}/>"#), &[cell(4677, "", "Hàng mới"), cell(4678, "", "chèn")]),
+                row(&format!(r#"<w:del w:id="402" {d2}/>"#), &[cell(4677, "", "Hàng bị xoá"), cell(4678, "", "xoá")]),
+                row("", &[
+                    cell(4677, &format!(r#"<w:shd w:val="clear" w:color="auto" w:fill="FFEE00"/><w:tcPrChange w:id="403" {d1}><w:tcPr><w:tcW w:w="4677" w:type="dxa"/></w:tcPr></w:tcPrChange>"#), "Ô tô nền"),
+                    cell(4678, "", "Ô thường"),
+                ]),
+            ], r#"<w:tblW w:w="4000" w:type="pct"/><w:jc w:val="center"/>"#).replace("</w:tblPr><w:tblGrid>", &format!(r#"<w:tblPrChange w:id="404" {d2}><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/></w:tblPr></w:tblPrChange></w:tblPr><w:tblGrid>"#)),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Ảnh chèn: </w:t></w:r><w:ins w:id="405" {d1}>{}</w:ins><w:r><w:t xml:space="preserve"> ảnh xoá: </w:t></w:r><w:del w:id="406" {d2}>{}</w:del></w:p>"#, inline_pic(1, "rId20", 457_200, 457_200, "", ""), inline_pic(2, "rId20", 457_200, 457_200, "", "")),
+            lorem(1),
+        ].concat(),
+        sect: format!(r#"<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="709" w:footer="709" w:gutter="0"/><w:cols w:space="708"/><w:sectPrChange w:id="407" {d1}><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/><w:cols w:space="708"/></w:sectPr></w:sectPrChange></w:sectPr>"#),
+        images: vec![("rId20".into(), png(4, 4, [200, 60, 30]))],
         ..Doc::default()
     }));
     v.push(("review-03-paragraph-marks.docx", "review", "Track changes dấu đoạn: ins/del trong pPr/rPr (kèm định dạng dấu đoạn), field trong vùng chèn, bảng có ô chứa thay đổi", Doc {

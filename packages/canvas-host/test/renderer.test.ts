@@ -238,6 +238,37 @@ describe('canvas renderer', () => {
     expect(ops.filter((o) => o === 'save').length).toBe(ops.filter((o) => o === 'restore').length);
   });
 
+  it('draws a glow as a grown, blurred outline', () => {
+    const { ctx } = recorder();
+    const glyphs = new GlyphStore({ getGlyphOutlines: async () => [] }, (d) => `P(${d})`);
+    const c = ctx as typeof ctx & { filter?: string };
+    const strokes: (string | number | undefined)[] = [];
+    const stroke = c.stroke.bind(c);
+    c.stroke = (p?: unknown) => {
+      strokes.push(c.filter, c.lineWidth);
+      stroke(p);
+    };
+    renderPage(
+      c,
+      {
+        width: 10,
+        height: 10,
+        commands: [
+          {
+            op: 'blurPath',
+            segs: [{ M: [0, 0] }, { L: [5, 5] }, 'Z'],
+            color: [255, 192, 0, 160],
+            radius: 8,
+            spread: 4,
+          },
+        ],
+      },
+      glyphs,
+      1,
+    );
+    expect(strokes).toEqual(['blur(4px)', 8]);
+  });
+
   it('formats colours', () => {
     expect(rgba([1, 2, 3, 255])).toBe('rgba(1,2,3,1.000)');
   });

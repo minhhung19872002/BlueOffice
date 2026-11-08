@@ -210,6 +210,9 @@ pub enum SlideCommand {
         merge: bool,
         #[serde(default)]
         sel: Option<[usize; 2]>,
+        /// Text of table cell `[row, col]` of table `id` instead of the shape's.
+        #[serde(default)]
+        cell: Option<[usize; 2]>,
     },
     /// Format the text selection (`range`, UTF-16, or the current text
     /// selection) or — outside text editing — the whole text of the selection.
@@ -224,6 +227,9 @@ pub enum SlideCommand {
         id: Option<u32>,
         start: usize,
         end: usize,
+        /// Table cell `[row, col]` of table `id`.
+        #[serde(default)]
+        cell: Option<[usize; 2]>,
     },
     /// Place the caret at a slide point of the edited shape (`extend` = Shift).
     TextHit {
@@ -231,6 +237,18 @@ pub enum SlideCommand {
         y: f64,
         #[serde(default)]
         extend: bool,
+    },
+    /// Edit the text of the table cell at a slide point on the canvas (caret at the
+    /// point; the table is the selected one).
+    CellTextHit {
+        x: f64,
+        y: f64,
+    },
+    /// Edit the next (or previous, `back`) cell of the table whose cell text is edited,
+    /// its text selected (Tab / Shift+Tab).
+    CellNext {
+        #[serde(default)]
+        back: bool,
     },
     /// Leave text editing.
     TextExit,
@@ -378,6 +396,8 @@ impl SlideCommand {
                 | SlideCommand::FormatText { .. }
                 | SlideCommand::TextSelect { .. }
                 | SlideCommand::TextHit { .. }
+                | SlideCommand::CellTextHit { .. }
+                | SlideCommand::CellNext { .. }
                 | SlideCommand::Undo
                 | SlideCommand::Redo
         )
@@ -400,6 +420,12 @@ impl SlideCommand {
                 | SlideCommand::TableFill { .. }
                 | SlideCommand::TableOptions { .. }
                 | SlideCommand::FormatText { .. }
+                | SlideCommand::SetText { .. }
+                | SlideCommand::TextSelect { .. }
+                | SlideCommand::TextHit { .. }
+                | SlideCommand::CellTextHit { .. }
+                | SlideCommand::CellNext { .. }
+                | SlideCommand::TextExit
                 | SlideCommand::Undo
                 | SlideCommand::Redo
         )
@@ -503,6 +529,56 @@ fn single(ids: &[u32]) -> Option<u32> {
         [one] => Some(*one),
         _ => None,
     }
+}
+
+/// Text being edited: of the shape or of its table cell, in the editing format.
+fn edit_text(pres: &Presentation, slide: usize, t: rich::TextSel) -> Option<String> {
+    match t.cell {
+        Some(rc) => cell_text(pres, slide, t.id, rc),
+        None => shape_text(pres, slide, t.id),
+    }
+}
+
+/// Text of a table cell in the editing format (§21.1.3.16 tc txBody).
+fn cell_text(pres: &Presentation, slide: usize, id: u32, (r, c): (usize, usize)) -> Option<String> {
+    let t = table_of(pres, slide, id)?;
+    let cell = t.rows.get(r)?.cells.get(c)?;
+    Some(cell.text.as_ref().map(text::body_text).unwrap_or_default())
+}
+
+/// A shape holding a cell's text (format state and formatting reuse the shape code).
+fn cell_shape(t: &bo_model::slide::Table, (r, c): (usize, usize)) -> bo_model::slide::Shape {
+    bo_model::slide::Shape {
+        text: t
+            .rows
+            .get(r)
+            .and_then(|row| row.cells.get(c))
+            .and_then(|cell| cell.text.clone()),
+        ..bo_model::slide::Shape::default()
+    }
+}
+
+/// Caret geometry of a table cell's text and the cell's box on the slide.
+fn cell_geometry(
+    pres: &Presentation,
+    slide: usize,
+    frame: &BoxR,
+    t: &bo_model::slide::Table,
+    (r, c): (usize, usize),
+    fonts: &mut bo_text::FontManager,
+) -> Option<(bo_pptx::TextGeometry, BoxR)> {
+    let (g, [x, y, w, h]) = bo_pptx::table_cell_text_geometry(pres, slide, t, r, c, fonts)?;
+    let (cx, cy) = frame.to_slide(x + w / 2.0 - frame.w / 2.0, y + h / 2.0 - frame.h / 2.0);
+    Some((
+        g,
+        BoxR {
+            cx,
+            cy,
+            w,
+            h,
+            rot: frame.rot,
+        },
+    ))
 }
 
 /// Text of a shape in the editing format.
@@ -707,7 +783,7 @@ impl SlideEditor {
         let placed = place_slide(pres, self.sel.slide);
         self.sel.ids.retain(|id| find(&placed, *id).is_some());
         if let Some(t) = self.text {
-            self.text = shape_text(pres, self.sel.slide, t.id).map(|s| {
+            self.text = edit_text(pres, self.sel.slide, t).map(|s| {
                 let n = s.chars().count();
                 rich::TextSel {
                     start: t.start.min(n),
@@ -1652,6 +1728,29 @@ fn cmd_format(
     text_sel: Option<rich::TextSel>,
 ) -> R<()> {
     let placed = place_slide(tx.pres, sel.slide);
+    if let Some((ts, rc)) = text_sel.and_then(|t| Some((t, t.cell?))) {
+        // Inside a table cell's text: same as a shape's, on the cell's text body.
+        let tbl = table_of(tx.pres, sel.slide, ts.id).ok_or(EditError::Refused("noTable"))?;
+        let state = format_state_at(
+            tx.pres,
+            sel.slide,
+            &cell_shape(&tbl, rc),
+            Some((ts.start, ts.end)),
+        );
+        return edit_table(tx, sel, ts.id, |t| {
+            let Some(cell) = t.rows.get_mut(rc.0).and_then(|row| row.cells.get_mut(rc.1)) else {
+                return false;
+            };
+            let tb = cell.text.get_or_insert_with(TextBody::default);
+            let (mut a, mut b) = (ts.start.min(ts.end), ts.start.max(ts.end));
+            if a == b && !f.is_paragraph() {
+                (a, b) = text::word_at(&text::body_text(tb), a);
+            }
+            let default_size = state.size.unwrap_or(18.0);
+            text::apply_format_range(tb, f, &state, default_size, a, b);
+            true
+        });
+    }
     if let Some(ts) = text_sel {
         // Inside the text: format the selected characters / paragraphs.
         let path = find(&placed, ts.id)
@@ -1993,7 +2092,10 @@ fn reroute_connectors(tx: &mut Tx<'_>) -> R<()> {
     for (slide, ids) in changed {
         let placed = place_slide(tx.pres, slide);
         let mut changes = Vec::new();
-        for p in placed.iter().filter(|p| p.path.len() == 1) {
+        // Connectors at any depth (inside groups too).
+        let mut all: Vec<&Placed> = Vec::new();
+        connect::walk(&placed, &mut |p| all.push(p));
+        for p in all {
             if let Some(ShapeNode::Connector(c)) = ops::node_at(tx.pres, slide, &p.path) {
                 let joins_changed = [0, 1]
                     .iter()
@@ -2045,7 +2147,7 @@ fn cmd_connector_end(
     let ShapeNode::Connector(mut c) = n else {
         return refuse("noConnector");
     };
-    if p.path.len() != 1 || end > 1 {
+    if end > 1 {
         return refuse("noConnector");
     }
     let placed = place_slide(tx.pres, sel.slide);
@@ -2059,8 +2161,8 @@ fn cmd_connector_end(
     let to = hit.map_or((x, y), |h| h.2);
     connect::set_cxn_ref(&mut c, end, hit.map(|h| (h.0, h.1)));
     let (a, b) = if end == 0 { (to, b) } else { (a, to) };
-    c.props.xfrm = Some(connect::xfrm_between(&x0, a, b));
-    tx.replace_node(sel.slide, &p.path, ShapeNode::Connector(c))?;
+    let routed = connect::route(&p, &c, a, b);
+    tx.replace_node(sel.slide, &p.path, ShapeNode::Connector(Box::new(routed)))?;
     Ok(())
 }
 
@@ -2143,6 +2245,7 @@ fn copy_shapes(pres: &Presentation, sel: &SlideSel, deck: u64) -> R<(clip::Clip,
     Ok((
         clip::Clip {
             deck,
+            source: None,
             kind: clip::ClipKind::Shapes {
                 slide: sel.slide,
                 nodes,
@@ -2283,7 +2386,11 @@ fn paste_slides(tx: &mut Tx<'_>, sel: &mut SlideSel, c: &clip::Clip, deck: u64) 
         return refuse("noClip");
     };
     if c.deck != deck {
-        return refuse("clipOtherDeck");
+        let src = c
+            .source
+            .as_deref()
+            .ok_or(EditError::Refused("clipOtherDeck"))?;
+        return paste_slides_from(tx, sel, slides, src);
     }
     let first = if tx.pres.slides.is_empty() {
         0
@@ -2301,6 +2408,283 @@ fn paste_slides(tx: &mut Tx<'_>, sel: &mut SlideSel, c: &clip::Clip, deck: u64) 
             insert: vec![copy],
         })?;
     }
+    *sel = SlideSel {
+        slide: first,
+        ids: vec![],
+    };
+    Ok(())
+}
+
+/// Placeholder types of shapes (§19.3.1.36 ph@type; absent = `obj`), `body` and
+/// `obj` counted as one.
+fn ph_types(nodes: &[ShapeNode]) -> Vec<String> {
+    let mut v: Vec<String> = Vec::new();
+    bo_pptx::visit(nodes, &mut |n| {
+        let nv = match n {
+            ShapeNode::Shape(s) => Some(&s.nv),
+            ShapeNode::Picture(p) => Some(&p.nv),
+            ShapeNode::Frame(f) => Some(&f.nv),
+            _ => None,
+        };
+        if let Some(ph) = nv.and_then(|nv| nv.placeholder.as_ref()) {
+            let k = match ph.kind.as_deref() {
+                None | Some("obj" | "body") => "body",
+                Some("ctrTitle" | "title") => "title",
+                Some("subTitle") => "subTitle",
+                Some(o) => o,
+            };
+            if !v.iter().any(|x| x == k) {
+                v.push(k.to_owned());
+            }
+        }
+    });
+    v
+}
+
+/// Layout of the target deck for a slide pasted from another deck (§19.3.1.39):
+/// the layout with the same name, else the one whose placeholder types cover the
+/// slide's best; `None` when none covers them (the source layout is imported).
+fn match_layout(
+    pres: &Presentation,
+    src_layout: &bo_model::slide::SlideLayout,
+    slide: &bo_model::slide::Slide,
+) -> Option<usize> {
+    if let Some(name) = src_layout.data.name.as_deref().filter(|n| !n.is_empty()) {
+        if let Some(i) = pres.layouts.iter().position(|l| {
+            l.data
+                .name
+                .as_deref()
+                .is_some_and(|m| m.eq_ignore_ascii_case(name))
+        }) {
+            return Some(i);
+        }
+    }
+    let need = ph_types(&slide.data.shapes);
+    let want = ph_types(&src_layout.data.shapes);
+    let mut best: Option<(usize, i64)> = None;
+    for (i, l) in pres.layouts.iter().enumerate() {
+        let have = ph_types(&l.data.shapes);
+        if !need.iter().all(|t| have.contains(t)) {
+            continue;
+        }
+        // Same kind first, then the most shared placeholder types, the fewest extra.
+        let same_kind = i64::from(l.kind.is_some() && l.kind == src_layout.kind);
+        let shared = want.iter().filter(|t| have.contains(t)).count() as i64;
+        let extra = have.iter().filter(|t| !want.contains(t)).count() as i64;
+        let score = same_kind * 1000 + shared * 10 - extra;
+        if best.is_none_or(|b| score > b.1) {
+            best = Some((i, score));
+        }
+    }
+    best.map(|b| b.0)
+}
+
+/// Copies parts targeted by the relationships of imported parts under new names.
+struct PartCarrier<'a> {
+    src: &'a clip::SlideSource,
+    /// Source part name → new part name.
+    map: Vec<(String, String)>,
+    taken: Vec<String>,
+    new_parts: Vec<bo_model::slide::RawPart>,
+}
+
+impl PartCarrier<'_> {
+    fn unique(&mut self, pres: &Presentation, name: &str) -> String {
+        let (dir, file) = name.rsplit_once('/').unwrap_or(("/ppt/media", name));
+        let (stem, ext) = file.rsplit_once('.').unwrap_or((file, "bin"));
+        let stem = stem.trim_end_matches(|c: char| c.is_ascii_digit());
+        let n = build::unique_part_except(pres, &format!("{dir}/{stem}"), ext, &self.taken);
+        self.taken.push(n.clone());
+        n
+    }
+
+    /// Relationships of a part moved from `old_owner` to `new_owner`: structural ones
+    /// are kept (the writer re-targets them), the others get a copy of their part;
+    /// relationships to parts the source does not have are dropped.
+    fn rels(
+        &mut self,
+        pres: &Presentation,
+        old_owner: &str,
+        new_owner: &str,
+        rels: &[Rel],
+    ) -> Vec<Rel> {
+        let mut out = Vec::new();
+        for r in rels {
+            if r.external || clip::is_structural(&r.rel_type) {
+                out.push(r.clone());
+                continue;
+            }
+            let Some(old) = clip::rel_part(old_owner, r) else {
+                continue;
+            };
+            let new =
+                if let Some((_, n)) = self.map.iter().find(|(o, _)| o.eq_ignore_ascii_case(&old)) {
+                    n.clone()
+                } else {
+                    let Some(p) = self
+                        .src
+                        .parts
+                        .iter()
+                        .find(|p| p.name.eq_ignore_ascii_case(&old))
+                        .cloned()
+                    else {
+                        continue;
+                    };
+                    let n = self.unique(pres, &p.name);
+                    self.new_parts.push(bo_model::slide::RawPart {
+                        name: n.clone(),
+                        ..p
+                    });
+                    self.map.push((old, n.clone()));
+                    n
+                };
+            out.push(Rel {
+                target: clip::relative_target(new_owner, &new),
+                ..r.clone()
+            });
+        }
+        out
+    }
+}
+
+/// Paste slides copied from another deck: each slide gets the target deck's
+/// layout of the same name, else the closest by placeholder types, else its own
+/// layout imported with its master and theme (§19.3.1.39, §19.3.1.42, §20.1.6.9);
+/// pictures and media come along; relationships stay valid.
+fn paste_slides_from(
+    tx: &mut Tx<'_>,
+    sel: &mut SlideSel,
+    slides: &[bo_model::slide::Slide],
+    src: &clip::SlideSource,
+) -> R<()> {
+    let before = ops::PresFields::of(tx.pres);
+    let mut after = before.clone();
+    let mut carrier = PartCarrier {
+        src,
+        map: Vec::new(),
+        taken: Vec::new(),
+        new_parts: Vec::new(),
+    };
+    // Source index → target index of imported layouts / masters / themes.
+    let mut layouts: Vec<(usize, usize)> = Vec::new();
+    let mut masters: Vec<(usize, usize)> = Vec::new();
+    let mut themes: Vec<(usize, usize)> = Vec::new();
+    let notes_master = build::notes_master(tx.pres);
+    let mut out_slides = Vec::new();
+    for s in slides {
+        let sl = src
+            .layouts
+            .get(s.layout)
+            .ok_or(EditError::Refused("noLayout"))?;
+        let layout = if let Some(&(_, t)) = layouts.iter().find(|(o, _)| *o == s.layout) {
+            t
+        } else if let Some(t) = match_layout(tx.pres, sl, s) {
+            t
+        } else {
+            // Import the layout, its master and the master's theme.
+            let sm = src
+                .masters
+                .get(sl.master)
+                .ok_or(EditError::Refused("noMaster"))?;
+            let master = if let Some(&(_, t)) = masters.iter().find(|(o, _)| *o == sl.master) {
+                t
+            } else {
+                let theme = if let Some(&(_, t)) = themes.iter().find(|(o, _)| *o == sm.theme) {
+                    t
+                } else {
+                    let st = src
+                        .themes
+                        .get(sm.theme)
+                        .ok_or(EditError::Refused("noTheme"))?;
+                    let mut t = st.clone();
+                    let name = carrier.unique(tx.pres, "/ppt/theme/theme1.xml");
+                    t.info.rels = carrier.rels(tx.pres, &st.info.part_name, &name, &st.info.rels);
+                    t.info.part_name = name;
+                    after.themes.push(t);
+                    themes.push((sm.theme, after.themes.len() - 1));
+                    after.themes.len() - 1
+                };
+                let mut m = sm.clone();
+                let name = carrier.unique(tx.pres, "/ppt/slideMasters/slideMaster1.xml");
+                m.info.rels = carrier.rels(tx.pres, &sm.info.part_name, &name, &sm.info.rels);
+                m.info.part_name = name;
+                m.theme = theme;
+                // The writer lists the layouts pointing to it (§19.3.1.41 sldLayoutId).
+                m.layouts = Vec::new();
+                m.master_id = 0;
+                m.pres_rel_id = String::new();
+                after.masters.push(m);
+                masters.push((sl.master, after.masters.len() - 1));
+                after.masters.len() - 1
+            };
+            let mut l = sl.clone();
+            let name = carrier.unique(tx.pres, "/ppt/slideLayouts/slideLayout1.xml");
+            l.info.rels = carrier.rels(tx.pres, &sl.info.part_name, &name, &sl.info.rels);
+            l.info.part_name = name;
+            l.master = master;
+            after.layouts.push(l);
+            after.layouts.len() - 1
+        };
+        layouts.push((s.layout, layout));
+        let mut d = s.clone();
+        let name = carrier.unique(tx.pres, "/ppt/slides/slide1.xml");
+        d.info.rels = carrier.rels(tx.pres, &s.info.part_name, &name, &s.info.rels);
+        d.info.part_name = name;
+        d.layout = layout;
+        d.slide_id = 0;
+        d.pres_rel_id = String::new();
+        // Notes: kept when the deck has a notes master (§19.3.1.28), linked to it.
+        d.notes = match (&d.notes, &notes_master) {
+            (Some(n), Some(nm)) => {
+                let mut n = n.clone();
+                let nn = carrier.unique(tx.pres, "/ppt/notesSlides/notesSlide1.xml");
+                n.info.rels = n
+                    .info
+                    .rels
+                    .iter()
+                    .filter(|r| clip::is_structural(&r.rel_type))
+                    .map(|r| {
+                        if r.rel_type.ends_with("/notesMaster") {
+                            Rel {
+                                target: clip::relative_target(&nn, nm),
+                                ..r.clone()
+                            }
+                        } else {
+                            r.clone()
+                        }
+                    })
+                    .collect();
+                n.info.part_name = nn;
+                Some(n)
+            }
+            _ => None,
+        };
+        out_slides.push(d);
+    }
+    if !carrier.new_parts.is_empty() {
+        let at = tx.pres.parts.len();
+        tx.op(SlideOp::Parts {
+            index: at,
+            remove: vec![],
+            insert: std::mem::take(&mut carrier.new_parts),
+        })?;
+    }
+    if after != before {
+        tx.op(SlideOp::Pres {
+            before: Box::new(before),
+            after: Box::new(after),
+        })?;
+    }
+    let first = if tx.pres.slides.is_empty() {
+        0
+    } else {
+        sel.slide + 1
+    };
+    tx.op(SlideOp::Slides {
+        index: first,
+        remove: vec![],
+        insert: out_slides,
+    })?;
     *sel = SlideSel {
         slide: first,
         ids: vec![],
@@ -2512,6 +2896,52 @@ impl Engine {
                     text,
                     merge,
                     sel: text_sel,
+                    cell: Some([r, c]),
+                } => {
+                    // Text of a table cell edited on the canvas (formatting kept).
+                    let target = id.or(ed.text.map(|t| t.id)).or(single(&ed.sel.ids));
+                    match target {
+                        Some(tid) => {
+                            let key = merge.then_some((ed.sel.slide, tid, 4));
+                            ed.mutate_as(pres, &mut out, key, |tx, sel| {
+                                edit_table(tx, sel, tid, |t| {
+                                    let Some(cell) =
+                                        t.rows.get_mut(r).and_then(|row| row.cells.get_mut(c))
+                                    else {
+                                        return false;
+                                    };
+                                    let tb = cell.text.get_or_insert_with(TextBody::default);
+                                    text::set_text(tb, &text);
+                                    true
+                                })
+                            });
+                            if out.error.is_none() {
+                                let plain = text.replace("\r\n", "\n").replace('\r', "\n");
+                                let [a, b] = text_sel.unwrap_or([0, 0]);
+                                ed.text = Some(rich::TextSel {
+                                    id: tid,
+                                    start: text::char_offset(&plain, a),
+                                    end: text::char_offset(&plain, b),
+                                    cell: Some((r, c)),
+                                });
+                                ed.table = Some(table::TableSel {
+                                    id: tid,
+                                    r0: r,
+                                    c0: c,
+                                    r1: r,
+                                    c1: c,
+                                });
+                            }
+                        }
+                        None => out.error = Some("noTable".into()),
+                    }
+                }
+                SlideCommand::SetText {
+                    id,
+                    text,
+                    merge,
+                    sel: text_sel,
+                    cell: None,
                 } => {
                     let target = id.or(single(&ed.sel.ids));
 
@@ -2529,6 +2959,7 @@ impl Engine {
                             id: t,
                             start: text::char_offset(&plain, a),
                             end: text::char_offset(&plain, b),
+                            cell: None,
                         });
                     }
                 }
@@ -2538,11 +2969,18 @@ impl Engine {
                             let id = cur.map(|t| t.id).or(single(&ed.sel.ids));
 
                             id.and_then(|id| {
-                                let s = shape_text(pres, ed.sel.slide, id)?;
-                                Some(rich::TextSel {
+                                let cell = cur.filter(|t| t.id == id).and_then(|t| t.cell);
+                                let probe = rich::TextSel {
                                     id,
+                                    start: 0,
+                                    end: 0,
+                                    cell,
+                                };
+                                let s = edit_text(pres, ed.sel.slide, probe)?;
+                                Some(rich::TextSel {
                                     start: text::char_offset(&s, a),
                                     end: text::char_offset(&s, b),
+                                    ..probe
                                 })
                             })
                         }
@@ -2550,27 +2988,119 @@ impl Engine {
                     };
                     ed.mutate(pres, &mut out, |tx, sel| cmd_format(tx, sel, &format, ts));
                 }
-                SlideCommand::TextSelect { id, start, end } => {
+                SlideCommand::TextSelect {
+                    id,
+                    start,
+                    end,
+                    cell,
+                } => {
                     let id = id.or(single(&ed.sel.ids));
-
-                    match id.and_then(|id| Some((id, shape_text(pres, ed.sel.slide, id)?))) {
-                        Some((id, s)) => {
-                            if !ed.sel.ids.contains(&id) {
-                                ed.sel.ids = vec![id];
+                    let cell = cell.map(|[r, c]| (r, c));
+                    let probe = id.map(|id| rich::TextSel {
+                        id,
+                        start: 0,
+                        end: 0,
+                        cell,
+                    });
+                    match probe.and_then(|t| Some((t, edit_text(pres, ed.sel.slide, t)?))) {
+                        Some((t, s)) => {
+                            if !ed.sel.ids.contains(&t.id) {
+                                ed.sel.ids = vec![t.id];
                             }
                             ed.text = Some(rich::TextSel {
-                                id,
                                 start: text::char_offset(&s, start),
                                 end: text::char_offset(&s, end),
+                                ..t
                             });
+                            if let Some((r, c)) = cell {
+                                ed.table = Some(table::TableSel {
+                                    id: t.id,
+                                    r0: r,
+                                    c0: c,
+                                    r1: r,
+                                    c1: c,
+                                });
+                            }
                         }
                         None => out.error = Some("noText".into()),
+                    }
+                }
+                SlideCommand::CellTextHit { x, y } => {
+                    let placed = place_slide(pres, ed.sel.slide);
+                    let id = ed.table.map(|t| t.id).or(single(&ed.sel.ids));
+                    let hit = id.and_then(|id| {
+                        let p = find(&placed, id)?;
+                        let t = table_of(pres, ed.sel.slide, id)?;
+                        let (lx, ly) = p.b.to_local(x, y);
+                        let (r, c) = table::cell_at(&t, lx + p.b.w / 2.0, ly + p.b.h / 2.0)?;
+                        let (r, c) = table::anchor_of(&t, r, c);
+                        let (g, b) = cell_geometry(pres, ed.sel.slide, &p.b, &t, (r, c), fonts)?;
+                        Some((id, r, c, rich::offset_at(&g, &b, x, y)))
+                    });
+                    match hit {
+                        Some((id, r, c, off)) => {
+                            ed.sel.ids = vec![id];
+                            ed.table = Some(table::TableSel {
+                                id,
+                                r0: r,
+                                c0: c,
+                                r1: r,
+                                c1: c,
+                            });
+                            ed.text = Some(rich::TextSel {
+                                id,
+                                start: off,
+                                end: off,
+                                cell: Some((r, c)),
+                            });
+                        }
+                        None => out.error = Some("noCell".into()),
+                    }
+                }
+                SlideCommand::CellNext { back } => {
+                    let cur = ed.text.filter(|t| t.cell.is_some());
+                    let next = cur.and_then(|t| {
+                        let tbl = table_of(pres, ed.sel.slide, t.id)?;
+                        let mut order: Vec<(usize, usize)> = table::anchors(&tbl)
+                            .into_iter()
+                            .map(|(r, c, _, _)| (r, c))
+                            .collect();
+                        order.sort_unstable();
+                        let i = order.iter().position(|&rc| Some(rc) == t.cell)?;
+                        let n = order.len();
+                        let j = if back { (i + n - 1) % n } else { (i + 1) % n };
+                        let rc = order[j];
+                        let len = cell_text(pres, ed.sel.slide, t.id, rc)?.chars().count();
+                        Some((t.id, rc, len))
+                    });
+                    match next {
+                        Some((id, (r, c), len)) => {
+                            ed.table = Some(table::TableSel {
+                                id,
+                                r0: r,
+                                c0: c,
+                                r1: r,
+                                c1: c,
+                            });
+                            ed.text = Some(rich::TextSel {
+                                id,
+                                start: 0,
+                                end: len,
+                                cell: Some((r, c)),
+                            });
+                        }
+                        None => out.error = Some("noCell".into()),
                     }
                 }
                 SlideCommand::TextHit { x, y, extend } => {
                     let placed = place_slide(pres, ed.sel.slide);
                     let hit = ed.text.and_then(|t| {
                         let p = find(&placed, t.id)?;
+                        if let Some(rc) = t.cell {
+                            let tbl = table_of(pres, ed.sel.slide, t.id)?;
+                            let (g, b) = cell_geometry(pres, ed.sel.slide, &p.b, &tbl, rc, fonts)?;
+                            return Some((t, rich::offset_at(&g, &b, x, y)));
+                        }
                         let Some(ShapeNode::Shape(s)) = ops::node_at(pres, ed.sel.slide, &p.path)
                         else {
                             return None;
@@ -2586,6 +3116,7 @@ impl Engine {
                                 id: t.id,
                                 start: if extend { t.start } else { off },
                                 end: off,
+                                cell: t.cell,
                             });
                         }
                         None => out.error = Some("noText".into()),
@@ -2830,6 +3361,7 @@ impl Engine {
                                 v.iter().map(|&i| pres.slides[i].clone()).collect(),
                             ),
                             pastes: 0,
+                            source: Some(Box::new(clip::slide_source(pres, &v))),
                         });
                         if matches!(cmd, SlideCommand::CutSlides { .. }) {
                             ed.mutate(pres, &mut out, |tx, sel| {
@@ -2983,7 +3515,27 @@ impl Engine {
         let mut selection = Vec::new();
         let mut format = None;
         let mut text_edit = None;
-        if let Some(t) = ed.text {
+        if let Some((t, rc)) = ed.text.and_then(|t| Some((t, t.cell?))) {
+            if let (Some(p), Some(tbl)) = (find(&placed, t.id), table_of(pres, slide, t.id)) {
+                let s = cell_shape(&tbl, rc);
+                format = Some(format_state_at(pres, slide, &s, Some((t.start, t.end))));
+                let body = s.text.as_ref().map(text::body_text).unwrap_or_default();
+                if let Some((g, b)) = cell_geometry(pres, slide, &p.b, &tbl, rc, &mut self.fonts) {
+                    let (caret, rects) = rich::selection_shapes(&g, &b, t.start, t.end);
+                    let (start, end) = rich::to_utf16(&body, t);
+                    text_edit = Some(rich::TextEditOut {
+                        id: t.id,
+                        start,
+                        end,
+                        caret,
+                        rects,
+                        rect: b,
+                        text: body,
+                        cell: Some([rc.0, rc.1]),
+                    });
+                }
+            }
+        } else if let Some(t) = ed.text {
             if let Some(p) = find(&placed, t.id) {
                 if let Some(ShapeNode::Shape(s)) = ops::node_at(pres, slide, &p.path) {
                     format = Some(format_state_at(pres, slide, s, Some((t.start, t.end))));
@@ -3002,6 +3554,7 @@ impl Engine {
                         rects,
                         rect: p.b,
                         text: body,
+                        cell: None,
                     });
                 }
             }
@@ -3062,7 +3615,7 @@ impl Engine {
         if let [one] = items.as_slice() {
             if let Some(n) = ops::node_at(pres, slide, &one.path) {
                 adjust = connect::adjust_handles(pres, slide, one, n);
-                if let (ShapeNode::Connector(c), true) = (n, one.path.len() == 1) {
+                if let ShapeNode::Connector(c) = n {
                     if let Some(x) = &c.props.xfrm {
                         let [a, b] = connect::ends(one, x);
                         connector = Some(connect::ConnectorOut {

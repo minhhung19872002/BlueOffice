@@ -164,6 +164,226 @@ fn footnotes_in_a_read_document() {
     assert!(f.page_json(0).unwrap().contains("Ghi"));
 }
 
+fn note_runs(e: &Engine, id: i32) -> Vec<bo_model::Run> {
+    doc(e).footnotes[&id]
+        .iter()
+        .filter_map(Block::as_paragraph)
+        .flat_map(|p| p.runs.clone())
+        .collect()
+}
+
+#[test]
+fn footnote_edited_in_place_on_the_page() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Văn bản"}"#);
+    // Inserting a footnote puts the caret into it at the page bottom.
+    let r = cmd(&mut e, r#"{"cmd":"insertNote","endnote":false,"text":""}"#);
+    assert_eq!(r["story"]["kind"], "footnote");
+    let id = r["story"]["note"].as_i64().unwrap() as i32;
+    let caret_y = r["caret"]["y"].as_f64().unwrap();
+    assert!(caret_y > 600.0, "caret in the footnote area: {caret_y}");
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Chú thích đậm"}"#);
+    // Rich text: bold the last word (selection inside the note).
+    cmd(
+        &mut e,
+        r#"{"cmd":"move","motion":"wordLeft","extend":true}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"formatText","format":{"kind":"bold"}}"#);
+    assert_ne!(r["rects"], serde_json::json!([]));
+    assert!(e.page_json(0).unwrap().contains("thích"));
+    // A click in the body closes the note: one undoable change.
+    let r = cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":80}"#);
+    assert!(r.get("story").is_none());
+    let runs = note_runs(&e, id);
+    assert!(runs
+        .iter()
+        .any(|r| r.props.bold == Some(true) && r.plain_text() == "đậm"));
+    // A single click on the footnote line edits it again.
+    let r = cmd(
+        &mut e,
+        &format!(r#"{{"cmd":"click","page":0,"x":200,"y":{caret_y}}}"#),
+    );
+    assert_eq!(r["story"]["note"], id);
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"!"}"#);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    let f = reopen(&e);
+    let text: String = note_runs(&f, *doc(&f).footnotes.keys().max().unwrap())
+        .iter()
+        .map(bo_model::Run::plain_text)
+        .collect();
+    assert!(text.ends_with("Chú thích đậm!"), "{text}");
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert!(!note_runs(&e, id)
+        .iter()
+        .any(|r| r.plain_text().contains('!')));
+    // Deleting the reference mark deletes the note; undo brings it back.
+    cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":80}"#);
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"deleteBackward"}"#);
+    assert!(!doc(&e).footnotes.contains_key(&id));
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert!(doc(&e).footnotes.contains_key(&id));
+}
+
+#[test]
+fn footnote_options_and_copy_paste() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Một"}"#);
+    cmd(&mut e, r#"{"cmd":"insertNote","text":"Ghi chú"}"#);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"setNoteOptions","options":{"restart":"eachPage","pos":"beneathText","fmt":"lowerLetter"}}"#,
+    );
+    assert_eq!(r["format"]["section"]["footnoteRestart"], "eachPage");
+    let f = reopen(&e);
+    let np = &doc(&f).sections[0].footnote_pr;
+    assert_eq!(np.restart, Some(bo_model::NoteRestart::EachPage));
+    assert_eq!(np.pos, Some(bo_model::NotePos::BeneathText));
+    assert_eq!(np.fmt, Some(bo_model::NumFormat::LowerLetter));
+    // Copying the reference carries the note: pasting creates a second note.
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"move","motion":"left","extend":true}"#);
+    let r = cmd(&mut e, r#"{"cmd":"copy"}"#);
+    let internal = r["clip"]["internal"].as_str().unwrap().to_owned();
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    let paste = serde_json::json!({"cmd": "paste", "internal": internal}).to_string();
+    cmd(&mut e, &paste);
+    assert_eq!(doc(&e).footnotes.len(), 2);
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(doc(&e).footnotes.len(), 1);
+}
+
+#[test]
+fn tracked_table_and_page_setup_saved_and_rejected() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertTable","rows":2,"cols":2}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"A"}"#);
+    let original = reopen(&e);
+    let mut e = reopen(&e);
+    cmd(&mut e, r#"{"cmd":"setTrackChanges","on":true}"#);
+    cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":80}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"tableEdit","edit":{"kind":"insertRow","below":true}}"#,
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"tableEdit","edit":{"kind":"shading","hex":"FFEE00"}}"#,
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"tableEdit","edit":{"kind":"properties","widthPct":80,"align":"Center"}}"#,
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"setPageSetup","setup":{"width":16838,"height":11906,"marginTop":1134,"marginBottom":1134,"marginLeft":1134,"marginRight":1134,"header":567,"footer":567},"scope":"section"}"#,
+    );
+    // Saved as trPr/ins, tcPrChange, tblPrChange and sectPrChange, read back.
+    let mut f = reopen(&e);
+    let r = cmd(&mut f, r#"{"cmd":"review"}"#);
+    let kinds: Vec<String> = r["review"]["revisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["kind"].as_str().unwrap().to_owned())
+        .collect();
+    for k in ["rowInsert", "cellFormat", "tableFormat", "sectionFormat"] {
+        assert!(kinds.iter().any(|x| x == k), "{k} in {kinds:?}");
+    }
+    cmd(&mut f, r#"{"cmd":"rejectAllRevisions"}"#);
+    let (a, b) = (doc(&f), doc(&original));
+    assert_eq!(a.sections[0].page, b.sections[0].page);
+    assert!(a.sections[0].change.is_none());
+    let (Block::Table(x), Block::Table(y)) = (&a.sections[0].blocks[0], &b.sections[0].blocks[0])
+    else {
+        panic!("tables");
+    };
+    assert_eq!((&x.props, &x.rows), (&y.props, &y.rows));
+}
+
+#[test]
+fn header_link_to_previous_per_section() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Một"}"#);
+    cmd(&mut e, r#"{"cmd":"insertSectionBreak","kind":"nextPage"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Hai"}"#);
+    // Header of section 1 (page 0).
+    cmd(
+        &mut e,
+        r#"{"cmd":"click","page":0,"x":100,"y":30,"count":2}"#,
+    );
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Đầu A"}"#);
+    // Section 2 is linked: same header, editing it changes section 1's (§17.10.5).
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"click","page":1,"x":100,"y":30,"count":2}"#,
+    );
+    assert_eq!(r["story"]["section"], 1);
+    assert_eq!(r["story"]["linked"], true);
+    assert_eq!(r["story"]["canLink"], true);
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":" chung"}"#);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    assert_eq!(
+        hf_text(doc(&e).sections[0].headers.default.as_ref()),
+        "Đầu A chung"
+    );
+    assert!(doc(&e).sections[1].headers.default.is_none());
+    // Unlink section 2 and give it its own header.
+    cmd(
+        &mut e,
+        r#"{"cmd":"click","page":1,"x":100,"y":30,"count":2}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"setHeaderLink","linked":false}"#);
+    assert_eq!(r["story"]["linked"], false);
+    cmd(&mut e, r#"{"cmd":"selectAll"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Đầu B"}"#);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    assert_eq!(
+        hf_text(doc(&e).sections[0].headers.default.as_ref()),
+        "Đầu A chung"
+    );
+    assert_eq!(
+        hf_text(doc(&e).sections[1].headers.default.as_ref()),
+        "Đầu B"
+    );
+    assert!(e.page_json(1).unwrap().contains("Đầu B"));
+    let f = reopen(&e);
+    assert_eq!(
+        hf_text(doc(&f).sections[1].headers.default.as_ref()),
+        "Đầu B"
+    );
+    // Link again: section 2 shows section 1's header; undo restores its own.
+    cmd(
+        &mut e,
+        r#"{"cmd":"click","page":1,"x":100,"y":30,"count":2}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"setHeaderLink","linked":true}"#);
+    assert_eq!(r["story"]["linked"], true);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    assert!(doc(&e).sections[1].headers.default.is_none());
+    assert!(e.page_json(1).unwrap().contains("chung"));
+    let f = reopen(&e);
+    assert!(doc(&f).sections[1].headers.default.is_none());
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(
+        hf_text(doc(&e).sections[1].headers.default.as_ref()),
+        "Đầu B"
+    );
+    // The first section cannot be linked.
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"click","page":0,"x":100,"y":30,"count":2}"#,
+    );
+    assert_eq!(r["story"]["canLink"], false);
+}
+
 #[test]
 fn table_tab_adds_rows_and_commands() {
     let mut e = Engine::with_bundled_fonts();

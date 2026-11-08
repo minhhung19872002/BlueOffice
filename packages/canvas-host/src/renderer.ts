@@ -322,7 +322,15 @@ function drawCommand(
       const scale = Math.hypot(m.a, m.b);
       ctx.filter = `blur(${(cmd.radius * scale) / 2}px)`;
       ctx.fillStyle = rgba(cmd.color);
-      ctx.fill(glyphs.path(segsToSvg(cmd.segs)));
+      const path = glyphs.path(segsToSvg(cmd.segs));
+      ctx.fill(path);
+      if (cmd.spread) {
+        // Glow (§20.1.8.32): the outline grown by `spread` before the blur.
+        ctx.strokeStyle = rgba(cmd.color);
+        ctx.lineWidth = cmd.spread * 2;
+        ctx.lineJoin = 'round';
+        ctx.stroke(path);
+      }
       ctx.restore();
       break;
     }

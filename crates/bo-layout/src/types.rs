@@ -150,7 +150,10 @@ pub struct Page {
 pub enum LineSource {
     /// Body paragraph with a document-order id (see `bo_model` paragraph indexing).
     Body(u32),
-    /// Header/footer/footnote content (not editable in this version).
+    /// Paragraph `para` (document order inside the note, table cells included) of a
+    /// footnote or endnote (ECMA-376 Part 1, §17.11), edited in place on the page.
+    Note { endnote: bool, id: i32, para: u32 },
+    /// Header/footer content and repeated table header rows (not editable in place).
     Other,
 }
 

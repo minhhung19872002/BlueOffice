@@ -5,8 +5,11 @@ import type {
   EditResult,
   FormatState,
   NoteInfo,
+  NotePos,
+  NoteRestart,
   PageSetupSpec,
   DocPasteMode,
+  SectionState,
   StoryState,
 } from '@blueoffice/platform';
 import { Dialog } from '@blueoffice/ui';
@@ -545,6 +548,16 @@ export function HeaderFooterBar({ story, run }: { story: StoryState; run: Run })
         />{' '}
         {t('hf.differentOddEven')}
       </label>
+      <label>
+        <input
+          type="checkbox"
+          data-testid="hf-link"
+          checked={story.linked}
+          disabled={!story.canLink}
+          onChange={(e) => void run({ cmd: 'setHeaderLink', linked: e.target.checked })}
+        />{' '}
+        {t('hf.linkToPrevious')}
+      </label>
       <button
         type="button"
         data-testid="hf-page-number"
@@ -572,11 +585,21 @@ export function HeaderFooterBar({ story, run }: { story: StoryState; run: Run })
   );
 }
 
-/** Footnotes and endnotes pane: insert, edit the text of each note. */
-export function NotesPanel({ run, onClose }: { run: Run; onClose: () => void }) {
+/**
+ * Footnotes and endnotes pane (optional list): insert, jump to a note to edit it in
+ * place on the page, footnote numbering/placement of the section (§17.11).
+ */
+export function NotesPanel({
+  run,
+  onClose,
+  section,
+}: {
+  run: Run;
+  onClose: () => void;
+  section?: SectionState;
+}) {
   const { t } = useTranslation();
   const [notes, setNotes] = useState<NoteInfo[]>([]);
-  const [draft, setDraft] = useState<Record<string, string>>({});
   useEffect(() => {
     void run({ cmd: 'notes' }).then((r) => setNotes(r?.notes ?? []));
   }, [run]);
@@ -585,6 +608,10 @@ export function NotesPanel({ run, onClose }: { run: Run; onClose: () => void }) 
     const r = await run({ cmd: 'insertNote', endnote, text: '' });
     if (r?.notes) setNotes(r.notes);
   };
+  const options = (restart: NoteRestart, pos: NotePos) =>
+    void run({ cmd: 'setNoteOptions', endnote: false, options: { restart, pos } });
+  const restart = section?.footnoteRestart ?? 'continuous';
+  const pos = section?.footnotePos ?? 'pageBottom';
   return (
     <aside className={styles.reviewPane} aria-label={t('notes.title')} data-testid="notes-pane">
       <div className={styles.reviewHeader}>
@@ -601,41 +628,49 @@ export function NotesPanel({ run, onClose }: { run: Run; onClose: () => void }) 
           {t('notes.insertEndnote')}
         </button>
       </div>
+      <label className={styles.reviewMeta}>
+        {t('notes.restart')}{' '}
+        <select
+          data-testid="note-restart"
+          value={restart}
+          onChange={(e) => options(e.target.value as NoteRestart, pos)}
+        >
+          {(['continuous', 'eachSect', 'eachPage'] as const).map((v) => (
+            <option key={v} value={v}>
+              {t(`notes.restarts.${v}`)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className={styles.reviewMeta}>
+        {t('notes.position')}{' '}
+        <select
+          data-testid="note-position"
+          value={pos}
+          onChange={(e) => options(restart, e.target.value as NotePos)}
+        >
+          {(['pageBottom', 'beneathText'] as const).map((v) => (
+            <option key={v} value={v}>
+              {t(`notes.positions.${v}`)}
+            </option>
+          ))}
+        </select>
+      </label>
       {notes.length === 0 && <div className={styles.reviewMeta}>{t('notes.none')}</div>}
       <ul className={styles.reviewList}>
         {notes.map((n, i) => (
           <li key={key(n)} className={styles.noteItem}>
-            <span className={styles.reviewKind}>
-              {t(n.endnote ? 'notes.endnote' : 'notes.footnote', { n: i + 1 })}
-            </span>
-            <textarea
-              data-testid="note-text"
-              aria-label={t(n.endnote ? 'notes.endnote' : 'notes.footnote', { n: i + 1 })}
-              value={draft[key(n)] ?? n.text}
-              rows={2}
-              onChange={(e) => setDraft({ ...draft, [key(n)]: e.target.value })}
-            />
-            <div className={styles.reviewActions}>
-              <button
-                type="button"
-                data-testid="note-save"
-                disabled={draft[key(n)] === undefined || draft[key(n)] === n.text}
-                onClick={async () => {
-                  const r = await run({
-                    cmd: 'setNoteText',
-                    endnote: n.endnote,
-                    id: n.id,
-                    text: draft[key(n)] ?? n.text,
-                  });
-                  if (r?.notes) setNotes(r.notes);
-                  const next = { ...draft };
-                  delete next[key(n)];
-                  setDraft(next);
-                }}
-              >
-                {t('notes.save')}
-              </button>
-            </div>
+            <button
+              type="button"
+              data-testid="note-item"
+              title={t('notes.goTo')}
+              onClick={() => void run({ cmd: 'editNote', endnote: n.endnote, id: n.id })}
+            >
+              <span className={styles.reviewKind}>
+                {t(n.endnote ? 'notes.endnote' : 'notes.footnote', { n: i + 1 })}
+              </span>{' '}
+              {n.text}
+            </button>
           </li>
         ))}
       </ul>

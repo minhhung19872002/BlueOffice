@@ -155,6 +155,55 @@ test('header: double-click to edit, page number, kept after reopen', async ({ pa
   await expect(page.getByTestId('hf-bar')).toHaveCount(0);
 });
 
+/** Caret y relative to page 1 as a fraction of its height (the view scrolls to the caret). */
+async function caretPageY(page: Page) {
+  const c = await caretBox(page);
+  const b = (await page1(page).boundingBox())!;
+  return (c.y - b.y) / b.height;
+}
+
+test('footnote: typed and formatted on the page, kept after reopen', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await newDocument(page);
+  await page.keyboard.insertText('Văn bản có chú thích');
+  // Insert footnote: the caret moves to the footnote area at the page bottom.
+  await page.keyboard.press('Control+Alt+f');
+  await expect.poll(() => caretPageY(page)).toBeGreaterThan(0.7);
+  await page.keyboard.insertText('Chú thích trên trang');
+  // Partial formatting inside the footnote.
+  await page.keyboard.press('Control+Shift+ArrowLeft');
+  await page.keyboard.press('Control+b');
+  await expect(cmd(page, 'format.bold')).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('End');
+  const box = (await page1(page).boundingBox())!;
+  const noteCaret = await caretBox(page);
+  expect(noteCaret.x - box.x).toBeGreaterThan(150);
+  await page.screenshot({ path: join(outDir, 'web-doc-footnote.png') });
+  // Back to the body, then save and reopen.
+  await page.mouse.move(box.x + box.width / 2, 400);
+  await page.mouse.wheel(0, -5000);
+  await page.waitForTimeout(300);
+  await clickFirstLine(page);
+  await expect.poll(() => caretPageY(page)).toBeLessThan(0.3);
+  await saveAndReopen(page);
+  // A single click on the footnote line edits it in place again.
+  await page.mouse.move(box.x + box.width / 2, 400);
+  await page.mouse.wheel(0, 600);
+  await page.waitForTimeout(300);
+  const again = (await page1(page).boundingBox())!;
+  const ny = (noteCaret.y - box.y + noteCaret.height / 2) / box.height;
+  await page.mouse.click(again.x + again.width * 0.5, again.y + again.height * ny);
+  await expect.poll(() => caretPageY(page)).toBeGreaterThan(0.7);
+  await page.keyboard.press('End');
+  const end = await caretBox(page);
+  const now = (await page1(page).boundingBox())!;
+  expect(Math.abs(end.x - now.x - (noteCaret.x - box.x))).toBeLessThan(3);
+  await page.keyboard.insertText('!');
+  await expect.poll(async () => (await caretBox(page)).x).toBeGreaterThan(end.x);
+  expect(errors).toEqual([]);
+});
+
 test('ruler: drag the left indent and add a tab stop; kept after reopen', async ({ page }) => {
   await newDocument(page);
   await page.keyboard.insertText('Đoạn văn có thụt lề trái');

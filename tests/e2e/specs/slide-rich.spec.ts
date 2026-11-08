@@ -88,11 +88,22 @@ test('bolds part of a shape text, copies/pastes a shape, edits a table cell, sav
   await expect.poll(async () => (await box(page, 'selection-box')).y - t0.y).toBeGreaterThan(100);
   const t = await box(page, 'selection-box');
   const cell = { x: t.x + t.width / 6, y: t.y + (t.height * 3) / 6 };
+  await page.getByRole('tab', { name: 'Trang đầu' }).click();
   await page.mouse.dblclick(cell.x, cell.y);
-  const cellEditor = page.getByTestId('table-cell-editor');
+  // The cell's text is edited on the canvas (caret drawn by the engine).
+  const cellEditor = page.getByTestId('slide-text-editor');
   await expect(cellEditor).toBeFocused();
   await page.keyboard.insertText('Hà Nội');
+  await expect(page.getByTestId('text-caret')).toHaveCount(1);
+  // Bold part of the cell text.
+  await selectChars(page, 0, 2);
+  await page.keyboard.press('Control+b');
+  await expect(bold).toHaveAttribute('aria-pressed', 'true');
+  await selectChars(page, 3, 6);
+  await expect(bold).toHaveAttribute('aria-pressed', 'false');
+  // Tab: next cell.
   await page.keyboard.press('Tab');
+  await expect(page.getByTestId('slide-text-editor')).toHaveValue('');
   await page.keyboard.insertText('Đà Nẵng');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('tab', { name: 'Bảng' })).toBeVisible();
@@ -120,10 +131,45 @@ test('bolds part of a shape text, copies/pastes a shape, edits a table cell, sav
   await expect.poll(() => page.getByTestId('selection-box').count()).toBeGreaterThanOrEqual(3);
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('selection-box')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Trang đầu' }).click();
   await page.mouse.click(cell.x, cell.y);
+  await expect(page.getByTestId('selection-box')).toHaveCount(1);
   await page.mouse.dblclick(cell.x, cell.y);
-  await expect(page.getByTestId('table-cell-editor')).toHaveValue('Hà Nội');
+  await expect(page.getByTestId('slide-text-editor')).toHaveValue('Hà Nội');
+  // The bold part survived.
+  await selectChars(page, 0, 2);
+  await expect(bold).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Tab');
-  await expect(page.getByTestId('table-cell-editor')).toHaveValue('Đà Nẵng');
+  await expect(page.getByTestId('slide-text-editor')).toHaveValue('Đà Nẵng');
+  expect(errors).toEqual([]);
+});
+
+test('pastes a slide copied from another deck, with its pictures; kept after reopen', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/slide');
+  // Copy the first slide (pictures) of one deck…
+  await openDeck(page, join(here, '..', '..', 'corpus', 'slide', 'slide-images-crop.pptx'));
+  await page.getByRole('button', { name: 'Sao chép slide' }).click();
+  // …and paste it into another deck after its first slide.
+  await openDeck(page, deck);
+  const status = await page.getByTestId('slide-status').textContent();
+  const n = Number(/\/ (\d+)/.exec(status ?? '')?.[1] ?? 0);
+  const paste = page.getByRole('button', { name: 'Dán slide' });
+  await expect(paste).toBeEnabled();
+  await paste.click();
+  await expect(page.getByTestId('slide-status')).toHaveText(`Slide 2 / ${n + 1}`);
+  await expect(page.getByTestId('thumb-2')).toBeVisible();
+  // Saved and reopened: the pasted slide is there.
+  const download = page.waitForEvent('download');
+  await page.keyboard.press('Control+s');
+  const saved = await (await download).path();
+  await page.reload();
+  await openDeck(page, saved);
+  await expect(page.getByTestId('slide-status')).toHaveText(`Slide 1 / ${n + 1}`);
+  await page.getByTestId('thumb-2').click();
+  await expect(page.getByTestId('slide-status')).toHaveText(`Slide 2 / ${n + 1}`);
   expect(errors).toEqual([]);
 });

@@ -1079,10 +1079,40 @@ fn shape_decks() -> Vec<(&'static str, Vec<u8>)> {
         &Vec::new(),
         THEME_BLUE,
     );
+    // §20.1.8.32 glow (alone and with a soft shadow, §20.1.8.49), on a shape and a
+    // rotated arrow.
+    let glow = sp(
+        80,
+        "Glow 79",
+        "",
+        &(xfrm(IN, 2 * IN, 3 * IN, IN + IN / 2)
+            + &prst("roundRect")
+            + &solid("FFFFFF")
+            + r#"<a:effectLst><a:glow rad="139700"><a:srgbClr val="FFC000"><a:alpha val="60000"/></a:srgbClr></a:glow></a:effectLst>"#),
+        Some(&body(r#" anchor="ctr""#, &para("Phát sáng"))),
+        "",
+    );
+    let glow_shadow = sp(
+        81,
+        "Glow shadow 80",
+        "",
+        &(r#"<a:xfrm rot="1800000"><a:off x="5486400" y="1828800"/><a:ext cx="2743200" cy="1371600"/></a:xfrm>"#.to_owned()
+            + &prst("rightArrow")
+            + &solid("4472C4")
+            + r#"<a:effectLst><a:glow rad="101600"><a:schemeClr val="accent2"><a:satMod val="175000"/><a:alpha val="40000"/></a:schemeClr></a:glow><a:outerShdw blurRad="114300" dist="76200" dir="2700000" algn="tl" rotWithShape="0"><a:prstClr val="black"><a:alpha val="50000"/></a:prstClr></a:outerShdw></a:effectLst>"#),
+        None,
+        "",
+    );
+    let deck4 = build(
+        &[blank_slide("Phát sáng và đổ bóng mờ", glow + &glow_shadow)],
+        &Vec::new(),
+        THEME_BLUE,
+    );
     vec![
         ("slide-shapes-presets.pptx", deck1),
         ("slide-shapes-lines.pptx", deck2),
         ("slide-shapes-groups.pptx", deck3),
+        ("slide-shapes-glow.pptx", deck4),
     ]
 }
 

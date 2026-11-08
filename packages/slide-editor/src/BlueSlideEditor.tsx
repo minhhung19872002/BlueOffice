@@ -10,6 +10,7 @@ import type {
   SlidePeer,
   SlidePreview,
   SlideShapeInfo,
+  SlideTextEdit,
 } from '@blueoffice/platform';
 import { Ribbon, StatusBar, useResolvedTheme, type RibbonTab } from '@blueoffice/ui';
 import {
@@ -394,6 +395,23 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
         rect: shape.rect,
         size: edit?.format.size ?? 18,
         at,
+      });
+    },
+    [edit],
+  );
+
+  /** Edit the text of a table cell on the canvas (the engine placed the caret). */
+  const startCellEdit = useCallback(
+    (te: SlideTextEdit) => {
+      // Confirmed by the next result showing this text edit (like shapes).
+      editingRef.current = { id: te.id, confirmed: false };
+      setEditing({
+        id: te.id,
+        text: te.text,
+        rect: te.rect,
+        size: edit?.format.size ?? 18,
+        cell: te.cell,
+        sel: [te.start, te.end],
       });
     },
     [edit],
@@ -797,7 +815,8 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       current,
       hasSelection: s.length > 0,
       multi: s.length > 1,
-      hasText: s.some((x) => x.editableText),
+      // Selected shapes with text, or a table cell's text being edited.
+      hasText: s.some((x) => x.editableText) || !!edit?.textEdit,
       isGroup: s.some((x) => x.kind === 'group'),
       canUndo: edit?.canUndo ?? false,
       canRedo: edit?.canRedo ?? false,
@@ -1384,7 +1403,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
                     editorLabel={t('slideEditor.textEditor')}
                     adjustLabel={t('slideEditor.adjustHandle')}
                     connectorLabel={t('slideEditor.connectorEnd')}
-                    cellLabel={t('slideEditor.cellEditor')}
+                    onStartCellEdit={startCellEdit}
                     peers={peers
                       .filter((p) => p.slide === shown)
                       .map((p) => {

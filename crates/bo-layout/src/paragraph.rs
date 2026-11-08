@@ -212,6 +212,8 @@ pub(crate) struct RelObject {
     pub w: f32,
     pub h: f32,
     pub image: Image,
+    /// Tracked insertion/deletion of the picture (§17.13.5.18 / §17.13.5.14 on its run).
+    pub revision: Option<(Color, bool)>,
 }
 
 /// Lines of one paragraph, positioned relative to the content box.
@@ -752,6 +754,7 @@ fn layout_uncached(
                                 w: p.width,
                                 h: p.obj_h,
                                 image: img.clone(),
+                                revision: st.revision,
                             });
                         }
                         continue;

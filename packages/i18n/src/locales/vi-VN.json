@@ -1002,7 +1002,12 @@
       "format": "Định dạng",
       "paragraphFormat": "Định dạng đoạn",
       "paragraphInsert": "Thêm đoạn",
-      "paragraphDelete": "Nối đoạn"
+      "paragraphDelete": "Nối đoạn",
+      "rowInsert": "Thêm hàng",
+      "rowDelete": "Xoá hàng",
+      "cellFormat": "Định dạng ô",
+      "tableFormat": "Định dạng bảng",
+      "sectionFormat": "Đổi thiết lập trang"
     }
   },
   "comments": {
@@ -1178,6 +1183,7 @@
     },
     "differentFirst": "Trang đầu khác",
     "differentOddEven": "Trang chẵn lẻ khác",
+    "linkToPrevious": "Liên kết với phần trước",
     "pageNumber": "Chèn số trang",
     "pageCount": "Chèn tổng số trang",
     "close": "Đóng đầu/chân trang"
@@ -1189,6 +1195,7 @@
     "none": "Chưa có chú thích.",
     "footnote": "Chú thích cuối trang {{n}}",
     "endnote": "Chú thích cuối văn bản {{n}}",
+<<<<<<< HEAD
     "save": "Lưu"
   },
   "hosted": {
@@ -1203,5 +1210,19 @@
     "opening": "Đang mở {{name}}…",
     "openFailed": "Không mở được tệp: {{message}}",
     "noServer": "Chưa cấu hình máy chủ BlueOffice (BLUEOFFICE_SERVER)"
+=======
+    "restart": "Đánh số",
+    "position": "Vị trí chú thích",
+    "goTo": "Sửa trên trang",
+    "restarts": {
+      "continuous": "Liên tục",
+      "eachSect": "Bắt đầu lại mỗi phần",
+      "eachPage": "Bắt đầu lại mỗi trang"
+    },
+    "positions": {
+      "pageBottom": "Cuối trang",
+      "beneathText": "Ngay dưới văn bản"
+    }
+>>>>>>> worktree-agent-ace57e701af5ce14d
   }
 }

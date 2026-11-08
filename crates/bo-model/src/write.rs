@@ -366,6 +366,15 @@ pub struct Section {
     pub break_type: SectionBreak,
     /// `w:pgNumType/@w:start`.
     pub page_number_start: Option<u32>,
+    /// §17.11.11 footnotePr of the section.
+    #[serde(default)]
+    pub footnote_pr: NoteProps,
+    /// §17.11.4 endnotePr of the section.
+    #[serde(default)]
+    pub endnote_pr: NoteProps,
+    /// Tracked change of the section properties (§17.13.5.32 sectPrChange).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<Box<SectionChange>>,
     /// Original `w:sectPr` XML.
     #[serde(skip)]
     pub src: Option<Raw>,
@@ -390,7 +399,104 @@ impl Section {
             self.title_page,
             self.break_type,
             self.page_number_start,
+            &self.footnote_pr,
+            &self.endnote_pr,
+            &self.change,
         ))
+    }
+
+    /// Snapshot of the properties a section property change records (§17.13.5.32).
+    pub fn change_snapshot(&self, info: RevisionInfo) -> SectionChange {
+        SectionChange {
+            info,
+            page: self.page,
+            columns: self.columns,
+            title_page: self.title_page,
+            break_type: self.break_type,
+            page_number_start: self.page_number_start,
+        }
+    }
+}
+
+/// Footnote or endnote numbering and placement (ECMA-376 Part 1, §17.11.11 footnotePr,
+/// §17.11.4 endnotePr); `None` = inherited from the document settings / default.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct NoteProps {
+    /// §17.11.21 pos (footnotes, `ST_FtnPos`) / §17.11.22 pos (endnotes, `ST_EdnPos`).
+    pub pos: Option<NotePos>,
+    /// §17.11.17 numFmt.
+    pub fmt: Option<NumFormat>,
+    /// §17.11.20 numStart.
+    pub start: Option<u32>,
+    /// §17.11.19 numRestart (`ST_RestartNumber`).
+    pub restart: Option<NoteRestart>,
+}
+
+impl NoteProps {
+    /// Nothing set.
+    pub fn is_empty(&self) -> bool {
+        *self == NoteProps::default()
+    }
+}
+
+/// Note placement (§17.18.30 `ST_FtnPos`, §17.18.21 `ST_EdnPos`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NotePos {
+    /// Footnotes at the bottom of the page (default).
+    PageBottom,
+    /// Footnotes right below the last text line of the page.
+    BeneathText,
+    /// Endnotes at the end of the section.
+    SectEnd,
+    /// Endnotes at the end of the document (default).
+    DocEnd,
+}
+
+impl NotePos {
+    pub fn parse(s: &str) -> Option<NotePos> {
+        Some(match s {
+            "pageBottom" => NotePos::PageBottom,
+            "beneathText" => NotePos::BeneathText,
+            "sectEnd" => NotePos::SectEnd,
+            "docEnd" => NotePos::DocEnd,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NotePos::PageBottom => "pageBottom",
+            NotePos::BeneathText => "beneathText",
+            NotePos::SectEnd => "sectEnd",
+            NotePos::DocEnd => "docEnd",
+        }
+    }
+}
+
+/// Note numbering restart (§17.18.74 `ST_RestartNumber`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NoteRestart {
+    Continuous,
+    EachSect,
+    EachPage,
+}
+
+impl NoteRestart {
+    pub fn parse(s: &str) -> Option<NoteRestart> {
+        Some(match s {
+            "continuous" => NoteRestart::Continuous,
+            "eachSect" => NoteRestart::EachSect,
+            "eachPage" => NoteRestart::EachPage,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NoteRestart::Continuous => "continuous",
+            NoteRestart::EachSect => "eachSect",
+            NoteRestart::EachPage => "eachPage",
+        }
     }
 }
 
@@ -985,6 +1091,35 @@ pub struct TableProps {
     /// Default cell margins left/right (`tblCellMar`).
     pub cell_margin: Option<(Twips, Twips)>,
     pub unknown: Vec<Raw>,
+    /// Tracked change of the table properties (§17.13.5.34 tblPrChange).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<Box<TablePropsChange>>,
+}
+
+/// Previous table properties of a tracked change (§17.13.5.34 tblPrChange).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct TablePropsChange {
+    pub info: RevisionInfo,
+    pub old: TableProps,
+}
+
+/// Previous cell properties of a tracked change (§17.13.5.36 tcPrChange).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct CellPropsChange {
+    pub info: RevisionInfo,
+    pub old: CellProps,
+}
+
+/// Previous section properties of a tracked change (§17.13.5.32 sectPrChange; the
+/// properties of `CT_SectPrBase`, without header/footer references).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct SectionChange {
+    pub info: RevisionInfo,
+    pub page: PageSetup,
+    pub columns: Columns,
+    pub title_page: bool,
+    pub break_type: SectionBreak,
+    pub page_number_start: Option<u32>,
 }
 
 /// Vertical merge (§17.4.85 vMerge).
@@ -1012,6 +1147,9 @@ pub struct CellProps {
     pub borders: Option<Borders>,
     pub v_align: Option<CellVAlign>,
     pub unknown: Vec<Raw>,
+    /// Tracked change of the cell properties (§17.13.5.36 tcPrChange).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<Box<CellPropsChange>>,
 }
 
 impl Default for CellProps {
@@ -1024,6 +1162,7 @@ impl Default for CellProps {
             borders: None,
             v_align: None,
             unknown: Vec::new(),
+            change: None,
         }
     }
 }
@@ -1043,6 +1182,12 @@ pub struct RowProps {
     pub cant_split: bool,
     pub height: Option<(Twips, HeightRule)>,
     pub unknown: Vec<Raw>,
+    /// Tracked row insertion (§17.13.5.19 ins in trPr).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ins: Option<RevMark>,
+    /// Tracked row deletion (§17.13.5.12 del in trPr).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub del: Option<RevMark>,
 }
 
 /// A table cell.

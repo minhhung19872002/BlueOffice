@@ -1,9 +1,9 @@
 # Visual diff
 
-Sinh bởi `scripts/visual-diff.mjs` (2026-11-07). Ảnh tham chiếu do người dùng cung cấp đặt ở `tests/fidelity/reference/<nhóm>/<file>.page-<n>.png`; baseline tự sinh (trang 1, scale 0,5) ở `tests/fidelity/baseline/` để phát hiện hồi quy hiển thị.
+Sinh bởi `scripts/visual-diff.mjs` (2026-11-08). Ảnh tham chiếu do người dùng cung cấp đặt ở `tests/fidelity/reference/<nhóm>/<file>.page-<n>.png`; baseline tự sinh (trang 1, scale 0,5) ở `tests/fidelity/baseline/` để phát hiện hồi quy hiển thị.
 
 - Ảnh tham chiếu: **0** trang (chưa có — cần người dùng cung cấp)
-- Baseline: 138 trang, vượt ngưỡng 0.10 %: 0
+- Baseline: 144 trang, vượt ngưỡng 0.10 %: 0
 
 | Nhóm | Loại | Ảnh | Sai lệch | Ngưỡng | |
 |---|---|---|---|---|---|
@@ -34,6 +34,7 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-07). Ảnh tham chiếu do ngườ
 | doc | baseline | notes-01-footnotes.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | notes-02-endnotes.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | notes-03-many-footnotes.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | notes-04-numbering-options.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | doc | baseline | para-01-align-indent.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | para-02-spacing-keep.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | para-03-tabs-borders.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -41,9 +42,11 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-07). Ảnh tham chiếu do ngườ
 | doc | baseline | review-01-insert-delete.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | review-02-format-changes.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | review-03-paragraph-marks.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | review-04-tables-pictures-page-setup.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | doc | baseline | sections-01-landscape-columns.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | sections-02-header-footer.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | sections-03-even-odd-restart.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | sections-04-link-to-previous.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | doc | baseline | smartart-01-fallback-picture.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | smartart-02-process.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | smartart-03-grid.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -122,7 +125,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-07). Ảnh tham chiếu do ngườ
 | slide | baseline | slide-charts-pie.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-arrange.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-clipboard.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-connectors-rotated.pptx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | slide | baseline | slide-edit-connectors.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-paste-other-deck.pptx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | slide | baseline | slide-edit-rich.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-slides.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-tables.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -134,6 +139,7 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-07). Ảnh tham chiếu do ngườ
 | slide | baseline | slide-media-linked.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-media-video.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-notes-basic.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-shapes-glow.pptx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | slide | baseline | slide-shapes-groups.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-shapes-lines.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-shapes-presets.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |

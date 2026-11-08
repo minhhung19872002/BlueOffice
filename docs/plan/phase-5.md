@@ -81,9 +81,15 @@ Playwright `tests/e2e/specs/review.spec.ts` (chấp nhận/từ chối, luồng 
 ### Hạn chế còn lại
 - TOC nằm trong `w:sdt` cấp khối (cách nhiều trình soạn thảo lưu) chưa cập nhật được vì nội dung sdt cấp khối còn là
   `Block::Opaque` (Phase 2); TOC ngoài sdt và mọi field khác cập nhật bình thường.
-- Theo dõi thay đổi chưa ghi nhận chèn/xoá bảng, ảnh nổi, thay đổi thuộc tính bảng/ô (`tblPrChange`, `cellIns`… được
-  giữ nguyên khi đọc/ghi nhưng không hiển thị/chấp nhận); chế độ *Bản gốc* chưa dùng `pPrChange` cho định dạng đoạn;
-  chưa có vạch thay đổi ở lề. Trạng thái bật theo dõi không lưu vào `settings.xml` (`w:trackRevisions`).
+- Theo dõi thay đổi (bổ sung 2026-11-08): ghi nhận chèn/xoá hàng bảng (`trPr/ins|del`, xoá hàng mình chèn thì xoá thật, bảng mới
+  = các hàng được chèn), thuộc tính ô (`tcPrChange`: tô nền, viền) và bảng (`tblPrChange`: rộng, căn, viền), ảnh (chèn/xoá như run,
+  bỏ part ảnh khi từ chối), thiết lập trang/titlePg (`sectPrChange`); hiển thị: hàng tô màu tác giả (hàng xoá gạch ngang), vạch
+  thay đổi bên trái bảng, ảnh có khung màu (ảnh xoá gạch chéo), ẩn trong chế độ bản cuối/bản gốc; ngăn xem lại liệt kê, chấp
+  nhận/từ chối; proptest `track_tests`: sửa cấu trúc ngẫu nhiên có theo dõi rồi từ chối tất cả == ban đầu; corpus
+  `review-04-tables-pictures-page-setup.docx`; E2E chèn hàng có theo dõi → lưu/mở lại → từ chối.
+- Theo dõi thay đổi còn thiếu: ảnh nổi (anchor) đổi vị trí, chèn/xoá cột và ô (`cellIns`/`cellDel`/`cellMerge`, `trPrChange`
+  được giữ nguyên khi đọc/ghi nhưng không hiển thị/chấp nhận); chế độ *Bản gốc* chưa dùng `pPrChange`/`tcPrChange` cho hình
+  thức; vạch thay đổi ở lề chỉ có cho bảng. Trạng thái bật theo dõi không lưu vào `settings.xml` (`w:trackRevisions`).
 - Chú thích: chưa tô vùng được chú thích trên trang, chưa sửa nội dung chú thích đã có, chú thích trong header/footer
   không hiển thị; `commentsExtensible`/`people.xml` giữ nguyên (không cập nhật).
 - Trộn thư: chỉ MERGEFIELD (chưa IF/NEXT/ASK/FILLIN, chưa lọc/sắp xếp bản ghi); "Trộn thành PDF" = trộn rồi xuất PDF.

@@ -37,6 +37,91 @@ pub struct Clip {
     pub kind: ClipKind,
     /// Pastes onto the source slide so far (each one is offset a bit more).
     pub pastes: usize,
+    /// Design of the source deck for copied slides (pasting into another deck).
+    pub source: Option<Box<SlideSource>>,
+}
+
+/// What copied slides need from their deck to be pasted into another one: its
+/// layouts, masters and themes (ECMA-376 Part 1, §19.3.1.39 sldLayout, §19.3.1.42
+/// sldMaster, §20.1.6.9 theme) and the parts their relationships target
+/// (pictures, media, …).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SlideSource {
+    pub layouts: Vec<bo_model::slide::SlideLayout>,
+    pub masters: Vec<bo_model::slide::SlideMaster>,
+    pub themes: Vec<bo_model::slide::Theme>,
+    pub parts: Vec<RawPart>,
+}
+
+/// Structural relationship types (re-targeted by the writer from the model).
+pub fn is_structural(rel_type: &str) -> bool {
+    let t = rel_type.rsplit('/').next().unwrap_or(rel_type);
+    matches!(
+        t,
+        "slideLayout" | "slideMaster" | "theme" | "notesSlide" | "notesMaster" | "slide"
+    )
+}
+
+/// The source design and the parts targeted by the slides (and their layouts,
+/// masters and themes) of deck `pres`.
+pub fn slide_source(pres: &Presentation, slides: &[usize]) -> SlideSource {
+    let mut parts: Vec<RawPart> = Vec::new();
+    let mut add = |owner: &str, rels: &[Rel]| {
+        for r in rels.iter().filter(|r| !is_structural(&r.rel_type)) {
+            if let Some(name) = rel_part(owner, r) {
+                if parts.iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
+                    continue;
+                }
+                if let Some(p) = pres
+                    .parts
+                    .iter()
+                    .find(|p| p.name.eq_ignore_ascii_case(&name))
+                {
+                    parts.push(p.clone());
+                }
+            }
+        }
+    };
+    for &i in slides {
+        if let Some(s) = pres.slides.get(i) {
+            add(&s.info.part_name, &s.info.rels);
+        }
+    }
+    for l in &pres.layouts {
+        add(&l.info.part_name, &l.info.rels);
+    }
+    for m in &pres.masters {
+        add(&m.info.part_name, &m.info.rels);
+    }
+    for t in &pres.themes {
+        add(&t.info.part_name, &t.info.rels);
+    }
+    SlideSource {
+        layouts: pres.layouts.clone(),
+        masters: pres.masters.clone(),
+        themes: pres.themes.clone(),
+        parts,
+    }
+}
+
+/// Relative target of part `to` from part `from` (ECMA-376 Part 2, §9.3.4.4).
+pub fn relative_target(from: &str, to: &str) -> String {
+    let dir: Vec<&str> = from
+        .trim_start_matches('/')
+        .split('/')
+        .collect::<Vec<_>>()
+        .split_last()
+        .map(|(_, d)| d.to_vec())
+        .unwrap_or_default();
+    let target: Vec<&str> = to.trim_start_matches('/').split('/').collect();
+    let common = dir
+        .iter()
+        .zip(&target)
+        .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
+        .count();
+    let mut out: Vec<&str> = vec![".."; dir.len() - common];
+    out.extend(&target[common..]);
+    out.join("/")
 }
 
 /// Visit every attribute of an element tree.

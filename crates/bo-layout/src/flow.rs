@@ -2,15 +2,15 @@
 //! control, tables split across pages, anchored pictures and footnotes.
 
 use crate::blocks::{
-    build_para, deco_items, layout_table, rewrap_para, row_band, row_notes, split_row,
-    stack_blocks, Band, Brk, Ctx, ParaBlock, Stack, TableBox,
+    build_para, deco_items, layout_table, rewrap_para, row_band, row_notes, split_row, stack_note,
+    Band, Brk, Ctx, ParaBlock, Stack, TableBox,
 };
 use crate::paragraph::{WrapZone, MIN_SEGMENT};
 use crate::style::ListCounters;
-use crate::types::{Layer, NoteKey, Page, PageItem};
+use crate::types::{Layer, LineSource, NoteKey, Page, PageItem};
 use crate::LayoutError;
 use bo_model::{
-    Block, Color, Emu, Image, PageSetup, Paragraph, Section, SectionBreak, Wrap, WrapText,
+    Block, Color, Emu, Image, NotePos, PageSetup, Paragraph, Section, SectionBreak, Wrap, WrapText,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -124,6 +124,8 @@ pub(crate) struct Flow {
     pub allow_renumber: bool,
     /// Set when the flow stopped because it re-synchronised.
     pub resynced: Option<Resync>,
+    /// Footnotes of the current section go right below the text (§17.11.21 pos beneathText).
+    beneath: bool,
 }
 
 /// Geometry of a section's body area.
@@ -291,6 +293,7 @@ impl Flow {
             old_foot_order: Vec::new(),
             allow_renumber: false,
             resynced: None,
+            beneath: false,
         }
     }
 
@@ -424,6 +427,18 @@ impl Flow {
         let Some(page) = self.pages.last_mut() else {
             return;
         };
+        if self.beneath {
+            // §17.11.21 pos beneathText: below the last text line of the page.
+            let text = page
+                .lines
+                .iter()
+                .filter(|l| matches!(l.source, LineSource::Body(_)))
+                .map(|l| l.top + l.height)
+                .reduce(f32::max);
+            if let Some(t) = text {
+                y = y.min(t);
+            }
+        }
         page.items.push(PageItem::Rule {
             x1: x,
             y1: y + NOTE_SEPARATOR / 2.0,
@@ -498,7 +513,7 @@ impl Flow {
                     - self.setup.margin_left.to_pt()
                     - self.setup.margin_right.to_pt())
                 .max(36.0);
-                stack_blocks(ctx, b, width, false, mark.as_deref())?
+                stack_note(ctx, key, b, width, mark.as_deref())?
             }
             None => Stack::default(),
         };
@@ -943,6 +958,7 @@ impl Flow {
             } else {
                 self.start_section(si, sec, si == 0);
             }
+            self.beneath = sec.footnote_pr.pos == Some(NotePos::BeneathText);
             let mut next: Option<(Built, u32)> = None;
             while k < sec.blocks.len() {
                 if self.boundary(ctx, si, k, next.is_some()) {
@@ -979,20 +995,38 @@ impl Flow {
                 }
                 k += 1;
             }
+            // §17.11.22 pos sectEnd: the section's endnotes at its end.
+            if sec.endnote_pr.pos == Some(NotePos::SectEnd) {
+                let ids = crate::endnotes_in(&sec.blocks);
+                self.place_endnotes(ctx, &ids)?;
+            }
         }
         if self.pages.is_empty() {
             self.number = 1;
             self.push_page();
         }
-        self.place_endnotes(ctx)?;
+        // Endnotes of the other sections at the end of the document (docEnd, default).
+        let rest: Vec<i32> = {
+            let placed: Vec<i32> = doc
+                .sections
+                .iter()
+                .filter(|s| s.endnote_pr.pos == Some(NotePos::SectEnd))
+                .flat_map(|s| crate::endnotes_in(&s.blocks))
+                .collect();
+            ctx.endnote_order
+                .iter()
+                .copied()
+                .filter(|id| !placed.contains(id))
+                .collect()
+        };
+        self.place_endnotes(ctx, &rest)?;
         self.finish_page();
         Ok(())
     }
 
     /// Endnotes at the end of the document (§17.11.4 endnotePr default position docEnd).
-    fn place_endnotes(&mut self, ctx: &mut Ctx<'_>) -> Result<(), LayoutError> {
-        let keys: Vec<NoteKey> = ctx
-            .endnote_order
+    fn place_endnotes(&mut self, ctx: &mut Ctx<'_>, ids: &[i32]) -> Result<(), LayoutError> {
+        let keys: Vec<NoteKey> = ids
             .iter()
             .filter(|id| ctx.doc.endnotes.contains_key(id))
             .map(|id| (true, *id))
@@ -1014,7 +1048,7 @@ impl Flow {
         for key in keys {
             let blocks = ctx.doc.endnotes.get(&key.1).cloned().unwrap_or_default();
             let mark = ctx.notes.get(&key).cloned();
-            let st = stack_blocks(ctx, &blocks, self.col_w(), false, mark.as_deref())?;
+            let st = stack_note(ctx, key, &blocks, self.col_w(), mark.as_deref())?;
             let mut last_bottom = 0.0f32;
             for (top, band) in &st.bands {
                 // Keep the vertical gaps between bands (paragraph spacing).

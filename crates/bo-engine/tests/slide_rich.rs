@@ -397,11 +397,112 @@ fn copy_cut_paste_slides() {
     assert_eq!(title(&e, 1), t0);
     let bytes = e.save_pptx().unwrap();
     assert_eq!(bo_pptx::read_pptx(&bytes).unwrap().slides.len(), n + 1);
-    // Slides cannot go to another deck.
+    // Slides go to another deck too (layout matched or imported).
     e.open(&deck("slide-shapes-presets.pptx"), "b.pptx")
         .unwrap();
-    let r = try_run(&mut e, r#"{"cmd":"paste"}"#);
-    assert_eq!(r.error.as_deref(), Some("clipOtherDeck"));
+    let m = e.presentation().unwrap().slides.len();
+    run(&mut e, r#"{"cmd":"paste"}"#);
+    assert_eq!(e.presentation().unwrap().slides.len(), m + 1);
+}
+
+/// Every internal relationship of slides, layouts, masters and themes targets an
+/// existing part, and every slide's layout / layout's master / master's theme exists.
+fn assert_rels_valid(bytes: &[u8]) -> bo_model::slide::Presentation {
+    let p = bo_pptx::read_pptx(bytes).unwrap();
+    let pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).unwrap();
+    let names: Vec<String> = pkg.parts().iter().map(|p| p.name.clone()).collect();
+    for name in names {
+        let Ok(rels) = pkg.relationships(&name) else {
+            continue;
+        };
+        for r in rels {
+            if r.mode == bo_opc::TargetMode::External {
+                continue;
+            }
+            let target = bo_opc::resolve_target(&name, &r.target);
+            assert!(
+                pkg.part(&target).is_some(),
+                "{name}: {} → {target} missing",
+                r.id
+            );
+        }
+    }
+    for s in &p.slides {
+        assert!(s.layout < p.layouts.len());
+    }
+    for l in &p.layouts {
+        assert!(l.master < p.masters.len());
+    }
+    for m in &p.masters {
+        assert!(m.theme < p.themes.len());
+    }
+    p
+}
+
+#[test]
+fn paste_slides_into_another_deck_maps_or_imports_layouts() {
+    // Pictures come along; the layout is matched by name or placeholder types.
+    let mut e = open("slide-images-crop.pptx");
+    run(&mut e, r#"{"cmd":"copySlides","indices":[0]}"#);
+    let src_pics = pictures(&e, 0).len();
+    assert!(src_pics > 0);
+    e.open(&deck("slide-text-bullets.pptx"), "b.pptx").unwrap();
+    let layouts = e.presentation().unwrap().layouts.len();
+    let n = e.presentation().unwrap().slides.len();
+    let r = run(&mut e, r#"{"cmd":"paste"}"#);
+    assert_eq!(r.slide, 1);
+    assert_eq!(e.presentation().unwrap().slides.len(), n + 1);
+    assert_eq!(e.presentation().unwrap().layouts.len(), layouts);
+    let pics = pictures(&e, 1);
+    assert_eq!(pics.len(), src_pics);
+    let bytes = e.save_pptx().unwrap();
+    let p = assert_rels_valid(&bytes);
+    assert_eq!(p.slides.len(), n + 1);
+    // Undo removes the slide and the copied pictures again.
+    let parts = e.presentation().unwrap().parts.len();
+    run(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(e.presentation().unwrap().slides.len(), n);
+    assert!(e.presentation().unwrap().parts.len() < parts);
+
+    // A deck without a fitting layout imports the source layout, master and theme.
+    let mut target = bo_pptx::read_pptx(&deck("slide-shapes-presets.pptx")).unwrap();
+    for l in &mut target.layouts {
+        l.data.name = Some("Riêng".into());
+        l.data.shapes.clear();
+    }
+    let bare = bo_pptx::write_pptx(&target).unwrap();
+    let mut e = open("slide-text-bullets.pptx");
+    run(&mut e, r#"{"cmd":"copySlides","indices":[1]}"#);
+    let title =
+        bo_engine::slide_edit::clip::plain_text(&e.presentation().unwrap().slides[1].data.shapes);
+    e.open(&bare, "bare.pptx").unwrap();
+    let (l0, m0, t0) = {
+        let p = e.presentation().unwrap();
+        (p.layouts.len(), p.masters.len(), p.themes.len())
+    };
+    run(&mut e, r#"{"cmd":"paste"}"#);
+    let p = e.presentation().unwrap();
+    assert_eq!(
+        (p.layouts.len(), p.masters.len(), p.themes.len()),
+        (l0 + 1, m0 + 1, t0 + 1)
+    );
+    assert_eq!(p.slides[1].layout, l0);
+    assert_eq!(p.layouts[l0].master, m0);
+    assert_eq!(p.masters[m0].theme, t0);
+    let bytes = e.save_pptx().unwrap();
+    let p = assert_rels_valid(&bytes);
+    assert_eq!(
+        bo_engine::slide_edit::clip::plain_text(&p.slides[1].data.shapes),
+        title
+    );
+    assert_eq!(p.masters.len(), m0 + 1);
+    // Rendering the pasted slide uses its imported layout's placeholders.
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&bytes, "x.pptx").unwrap();
+    assert!(f.slide_json(1).unwrap().len() > 2);
+    // Undo removes the imported design too.
+    run(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(e.presentation().unwrap().layouts.len(), l0);
 }
 
 #[test]
@@ -571,6 +672,119 @@ fn connectors_attach_to_sites_and_follow_shapes() {
     assert_eq!(cxn_ref(&c, 1).map(|r| r.0), Some(b));
 }
 
+fn insert_shape(e: &mut Engine, preset: &str, x: f64, y: f64) -> u32 {
+    run(
+        e,
+        &format!(
+            r#"{{"cmd":"insertShape","preset":"{preset}","rect":{{"x":{x},"y":{y},"w":100,"h":60}}}}"#
+        ),
+    )
+    .selection[0]
+        .id
+}
+
+fn adj1(c: &bo_model::slide::Connector) -> f64 {
+    match &c.props.geometry {
+        Some(bo_model::slide::Geometry::Preset { av, .. }) => av
+            .iter()
+            .find(|g| g.name == "adj1")
+            .and_then(|g| g.fmla.strip_prefix("val "))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(50_000.0),
+        _ => panic!("preset"),
+    }
+}
+
+#[test]
+fn rotated_elbow_connector_keeps_rotation_when_rerouted() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let a = insert_shape(&mut e, "rect", 100.0, 300.0);
+    let b = insert_shape(&mut e, "ellipse", 400.0, 420.0);
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{a},{b}]}}"#));
+    let r = run(
+        &mut e,
+        r#"{"cmd":"insertConnector","preset":"bentConnector3"}"#,
+    );
+    let cid = r.selection[0].id;
+    let (cx, cy) = (r.selection[0].rect.cx, r.selection[0].rect.cy);
+    // Rotate the elbow connector by 90° (vertical first segment).
+    run(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"transform","transform":{{"kind":"rotate","x":{},"y":{cy},"step":true}}}}"#,
+            cx + 1000.0
+        ),
+    );
+    assert_eq!(
+        connector_of(&e, cid).props.xfrm.unwrap().rot,
+        Some(5_400_000)
+    );
+    // Moving a joined shape re-routes it: still rotated, ends on the sites.
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{b}]}}"#));
+    run(
+        &mut e,
+        r#"{"cmd":"transform","transform":{"kind":"move","dx":30,"dy":40},"snap":false}"#,
+    );
+    let c = connector_of(&e, cid);
+    assert_eq!(c.props.xfrm.as_ref().unwrap().rot, Some(5_400_000));
+    let r = run(&mut e, &format!(r#"{{"cmd":"select","ids":[{cid}]}}"#));
+    let conn = r.connector.unwrap();
+    assert_eq!(conn.attached, [true, true]);
+    let sites = r.sites.clone();
+    let near = |p: [f64; 2]| {
+        sites
+            .iter()
+            .any(|s| (s[0] - p[0]).abs() < 0.05 && (s[1] - p[1]).abs() < 0.05)
+    };
+    assert!(
+        near(conn.ends[0]) && near(conn.ends[1]),
+        "{conn:?} {sites:?}"
+    );
+    // The single bend stays between the ends (adjust value recomputed, §20.1.9.5).
+    let v = adj1(&c);
+    assert!((0.0..=100_000.0).contains(&v), "{v}");
+    // Saved and reopened with its rotation.
+    let bytes = e.save_pptx().unwrap();
+    let p = bo_pptx::read_pptx(&bytes).unwrap();
+    let saved = p.slides[0]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            ShapeNode::Connector(c) if c.nv.id == cid => Some(c.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(saved.props.xfrm.unwrap().rot, Some(5_400_000));
+}
+
+#[test]
+fn connector_inside_a_group_follows_its_shapes() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let a = insert_shape(&mut e, "rect", 100.0, 300.0);
+    let b = insert_shape(&mut e, "ellipse", 400.0, 300.0);
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{a},{b}]}}"#));
+    let cid = run(&mut e, r#"{"cmd":"insertConnector"}"#).selection[0].id;
+    run(
+        &mut e,
+        &format!(r#"{{"cmd":"select","ids":[{a},{b},{cid}]}}"#),
+    );
+    run(&mut e, r#"{"cmd":"group"}"#);
+    // Move the ellipse inside the group (deep selection).
+    run(&mut e, r#"{"cmd":"click","x":450,"y":330,"deep":true}"#);
+    let r = run(
+        &mut e,
+        r#"{"cmd":"transform","transform":{"kind":"move","dx":0,"dy":80},"snap":false}"#,
+    );
+    assert_eq!(r.selection[0].id, b);
+    // The nested connector now ends on the moved ellipse's site.
+    let r = run(&mut e, r#"{"cmd":"click","x":300,"y":370,"deep":true}"#);
+    let conn = r.connector.expect("nested connector selected");
+    assert_eq!(r.selection[0].id, cid);
+    assert!((conn.ends[0][1] - 330.0).abs() < 0.5, "{conn:?}");
+    assert!((conn.ends[1][1] - 410.0).abs() < 0.5, "{conn:?}");
+}
+
 fn table_of(e: &Engine, id: u32) -> bo_model::slide::Table {
     e.presentation().unwrap().slides[0]
         .data
@@ -669,6 +883,81 @@ fn table_cells_rows_columns_merge_fill_and_style() {
     // Leaving: another command ends table editing.
     let r = run(&mut e, r#"{"cmd":"select","ids":[]}"#);
     assert!(r.table.is_none());
+}
+
+#[test]
+fn table_cell_text_edited_on_the_canvas_with_partial_formatting() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let r = run(
+        &mut e,
+        r#"{"cmd":"insertTable","rows":2,"cols":2,"rect":{"x":100,"y":100,"w":300,"h":80}}"#,
+    );
+    let id = r.selection[0].id;
+    let b = r.selection[0].rect;
+    let (cx, cy) = (b.cx - b.w / 4.0, b.cy + b.h / 4.0);
+    // Double-click a cell: its text is edited on the canvas, caret in the cell box.
+    let r = run(
+        &mut e,
+        &format!(r#"{{"cmd":"cellTextHit","x":{cx},"y":{cy}}}"#),
+    );
+    let te = r.text_edit.expect("text edit");
+    assert_eq!(te.cell, Some([1, 0]));
+    assert!(te.rect.w > 100.0 && te.rect.w < 200.0, "{:?}", te.rect);
+    assert!(te.caret.is_some());
+    for t in ["H", "Hà", "Hà Nội"] {
+        run(
+            &mut e,
+            &format!(
+                r#"{{"cmd":"setText","id":{id},"text":"{t}","merge":true,"sel":[{n},{n}],"cell":[1,0]}}"#,
+                n = t.encode_utf16().count()
+            ),
+        );
+    }
+    // Bold "Nội" only (partial formatting inside the cell).
+    run(
+        &mut e,
+        &format!(r#"{{"cmd":"textSelect","id":{id},"start":3,"end":6,"cell":[1,0]}}"#),
+    );
+    let r = run(&mut e, r#"{"cmd":"formatText","format":{"kind":"bold"}}"#);
+    assert!(r.format.bold);
+    let te = r.text_edit.expect("still editing");
+    assert_eq!(te.rects.len(), 1);
+    let tb = table_of(&e, id);
+    let runs = &tb.rows[1].cells[0].text.as_ref().unwrap().paragraphs[0].runs;
+    let bold: Vec<(String, bool)> = runs
+        .iter()
+        .filter_map(|r| match r {
+            TextRun::Run { props, text } => Some((text.clone(), props.b == Some(true))),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        bold,
+        vec![("Hà ".to_owned(), false), ("Nội".to_owned(), true)]
+    );
+    // Tab: the next cell, its text selected; Shift+Tab back.
+    let r = run(&mut e, r#"{"cmd":"cellNext"}"#);
+    assert_eq!(r.text_edit.unwrap().cell, Some([1, 1]));
+    let r = run(&mut e, r#"{"cmd":"cellNext","back":true}"#);
+    let te = r.text_edit.unwrap();
+    assert_eq!((te.cell, te.start, te.end), (Some([1, 0]), 0, 6));
+    // Caret by pointer inside the cell.
+    let r = run(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"textHit","x":{},"y":{cy}}}"#,
+            b.cx - b.w / 2.0 + 1.0
+        ),
+    );
+    assert_eq!(r.text_edit.unwrap().end, 0);
+    // One undo step per typing burst; saved and reopened.
+    let bytes = e.save_pptx().unwrap();
+    let mut e2 = Engine::with_bundled_fonts();
+    e2.open(&bytes, "t.pptx").unwrap();
+    assert_eq!(table_of(&e2, id), table_of(&e, id));
+    run(&mut e, r#"{"cmd":"undo"}"#);
+    let tb = table_of(&e, id);
+    assert_eq!(tb.rows[1].cells[0].text.as_ref().unwrap().text(), "Hà Nội");
 }
 
 /// Points of every path on a slide, rounded (for comparing renderings).
@@ -789,13 +1078,21 @@ fn blurred_shadows_and_picture_transparency_render() {
             match n {
                 ShapeNode::Shape(s) if s.nv.id == sid => {
                     // §20.1.8.49 outerShdw with a 6 pt blur.
-                    s.props.effects = Some(vec![Effect::OuterShadow(OuterShadow {
-                        blur_rad: Some(76_200),
-                        dist: Some(38_100),
-                        dir: Some(2_700_000),
-                        color: Some(Color::srgb(0)),
-                        attrs: vec![],
-                    })]);
+                    s.props.effects = Some(vec![
+                        Effect::OuterShadow(OuterShadow {
+                            blur_rad: Some(76_200),
+                            dist: Some(38_100),
+                            dir: Some(2_700_000),
+                            color: Some(Color::srgb(0)),
+                            attrs: vec![],
+                        }),
+                        // §20.1.8.32 glow, 8 pt.
+                        Effect::Glow(bo_model::slide::Glow {
+                            rad: Some(101_600),
+                            color: Some(Color::srgb(0x00FF_C000)),
+                            attrs: vec![],
+                        }),
+                    ]);
                 }
                 ShapeNode::Picture(pic) => {
                     let mut a = XmlElement::new("a:alphaModFix");
@@ -815,10 +1112,17 @@ fn blurred_shadows_and_picture_transparency_render() {
         c,
         bo_render::Command::PushOpacity { alpha } if (*alpha - 0.4).abs() < 1e-3
     )));
-    // Every backend takes the new commands.
+    assert!(page.commands.iter().any(|c| matches!(
+        c,
+        bo_render::Command::BlurPath { radius, spread, .. }
+            if (*radius - 8.0).abs() < 1e-3 && (*spread - 4.0).abs() < 1e-3
+    )));
+    // Every backend takes the new commands: the PDF draws real blurs as soft masks.
     assert!(e.render_png(0, 0.5).unwrap().len() > 100);
     let pdf = e.export_pdf().unwrap();
-    assert!(String::from_utf8_lossy(&pdf).contains("/ca 0.4"));
+    let text = String::from_utf8_lossy(&pdf);
+    assert!(text.contains("/ca 0.4"));
+    assert!(text.matches("/SMask").count() >= 2, "shadow and glow masks");
     // The edit survives a save.
     let bytes = e.save_pptx().unwrap();
     let mut e2 = Engine::with_bundled_fonts();

@@ -1002,7 +1002,12 @@
       "format": "Formatted",
       "paragraphFormat": "Paragraph formatted",
       "paragraphInsert": "Paragraph inserted",
-      "paragraphDelete": "Paragraphs joined"
+      "paragraphDelete": "Paragraphs joined",
+      "rowInsert": "Row inserted",
+      "rowDelete": "Row deleted",
+      "cellFormat": "Cell formatted",
+      "tableFormat": "Table formatted",
+      "sectionFormat": "Page setup changed"
     }
   },
   "comments": {
@@ -1178,6 +1183,7 @@
     },
     "differentFirst": "Different first page",
     "differentOddEven": "Different odd & even pages",
+    "linkToPrevious": "Link to previous",
     "pageNumber": "Insert page number",
     "pageCount": "Insert page count",
     "close": "Close header/footer"
@@ -1189,6 +1195,7 @@
     "none": "No notes yet.",
     "footnote": "Footnote {{n}}",
     "endnote": "Endnote {{n}}",
+<<<<<<< HEAD
     "save": "Save"
   },
   "hosted": {
@@ -1203,5 +1210,19 @@
     "opening": "Opening {{name}}…",
     "openFailed": "Could not open the file: {{message}}",
     "noServer": "No BlueOffice server is configured (BLUEOFFICE_SERVER)"
+=======
+    "restart": "Numbering",
+    "position": "Footnote position",
+    "goTo": "Edit on the page",
+    "restarts": {
+      "continuous": "Continuous",
+      "eachSect": "Restart each section",
+      "eachPage": "Restart each page"
+    },
+    "positions": {
+      "pageBottom": "Bottom of page",
+      "beneathText": "Below text"
+    }
+>>>>>>> worktree-agent-ace57e701af5ce14d
   }
 }

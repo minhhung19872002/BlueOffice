@@ -174,9 +174,13 @@ impl WasmEngine {
 
     /// Bind the open document to a collaboration session; returns the change
     /// to publish (`seed`) as JSON (`CollabChange`).
+    /// `client_id` = the replica's client id (ids of new tables, rows, columns).
     #[wasm_bindgen(js_name = collabStart)]
-    pub fn collab_start(&mut self, seed: bool) -> Result<String, JsError> {
-        self.inner.collab_start_json(seed).map_err(err)
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn collab_start(&mut self, seed: bool, client_id: Option<f64>) -> Result<String, JsError> {
+        self.inner
+            .collab_start_json(seed, client_id.unwrap_or(0.0).max(0.0) as u64)
+            .map_err(err)
     }
 
     /// Apply a replica change (`WasmCollab.takeRemote`); returns `EditResult` as JSON.

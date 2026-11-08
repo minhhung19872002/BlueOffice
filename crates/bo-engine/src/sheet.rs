@@ -19,6 +19,7 @@ use bo_text::FontManager;
 use serde::Serialize;
 
 mod cmd;
+pub(crate) mod collab;
 mod pivot_cmd;
 mod png;
 mod print;
@@ -159,6 +160,8 @@ pub struct SheetEngine {
     adjuster: BoFormula,
     /// Internal clipboard (cell records) for paste / paste special.
     clip: Option<Clip>,
+    /// Live collaboration binding (`bo-collab`).
+    collab: Option<collab::SheetCollab>,
 }
 
 impl Default for SheetEngine {
@@ -337,6 +340,7 @@ impl SheetEngine {
             live: LiveCalc::new(),
             adjuster: BoFormula::new(),
             clip: None,
+            collab: None,
         }
     }
 
@@ -425,6 +429,7 @@ impl SheetEngine {
     pub fn load(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
         self.live.rebuild(&mut wb);
         self.clip = None;
+        self.collab = None;
         self.geometry = (0..wb.sheets.len()).map(|_| None).collect();
         self.wb = Some(wb);
         self.name = name.to_owned();
@@ -820,6 +825,15 @@ impl SheetEngine {
         self.live.rebuild(wb);
         self.invalidate(Some(sheet));
         self.push_undo(UndoEntry::Workbook(before));
+        if let Some(c) = self.collab.as_mut() {
+            c.pending.push(collab::LocalStruct {
+                sheet,
+                rows,
+                at,
+                count,
+                delete,
+            });
+        }
         Ok(())
     }
 

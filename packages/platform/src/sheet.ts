@@ -627,7 +627,17 @@ export interface SheetHost {
    * re-reads info and redraws. Hosts without collaboration omit it.
    */
   onExternalChange?(listener: () => void): () => void;
+  /** Binds the workbook to a live session (`bo_engine::sheet::collab`); the seeder gets its change. */
+  collabStart?(seed: boolean, clientId: number): Promise<SheetCollabChange>;
+  /** Local changes to share since the last call. */
+  collabLocal?(): Promise<SheetCollabChange>;
+  /** Applies a replica change (`WasmCollab.takeRemote`). */
+  collabApply?(change: string): Promise<WorkbookInfo>;
+  collabStop?(): Promise<void>;
 }
+
+/** A `bo-collab` change envelope (cells, meta, texts …) as JSON. */
+export type SheetCollabChange = Record<string, unknown>;
 
 /** Method names understood by both transports (web worker and Tauri). */
 export type SheetMethod =
@@ -649,6 +659,10 @@ export type SheetMethod =
   | 'save'
   | 'exportPdf'
   | 'exec'
+  | 'collabStart'
+  | 'collabLocal'
+  | 'collabApply'
+  | 'collabStop'
   | 'glyphs';
 
 /** One call to the engine; JSON results are already parsed by the transport. */
@@ -733,5 +747,17 @@ export class RpcSheetHost implements SheetHost {
   }
   exec<T = unknown>(cmd: SheetCommand) {
     return this.call<T>('exec', JSON.stringify(cmd));
+  }
+  collabStart(seed: boolean, clientId: number) {
+    return this.call<SheetCollabChange>('collabStart', seed, clientId);
+  }
+  collabLocal() {
+    return this.call<SheetCollabChange>('collabLocal');
+  }
+  collabApply(change: string) {
+    return this.call<WorkbookInfo>('collabApply', change);
+  }
+  collabStop() {
+    return this.call<void>('collabStop');
   }
 }

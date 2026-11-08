@@ -820,7 +820,7 @@ export interface EngineHost {
    * Live collaboration (`bo_engine::collab`): bind the open document to a session.
    * `seed` = first editor of the room; returns the change to publish.
    */
-  collabStart?(seed: boolean): Promise<CollabChange>;
+  collabStart?(seed: boolean, clientId?: number): Promise<CollabChange>;
   /** Apply a change from the replica (JSON `CollabChange`). */
   collabApply?(change: string): Promise<EditResult>;
   /** Geometry of collaborators' selections (UTF-16 `[anchor, head]`). */

@@ -50,7 +50,7 @@ Triển khai: [`docs/deploy/`](../deploy/README.md).
 hạ quyền giữa phiên, các kịch bản BlueDrive (mở file, 2 người cùng phiên + một khoá, lưu tạo version kèm người sửa, autosave,
 lưu khi rời phiên, thu hồi quyền, sửa offline → bản xung đột, khoá bởi client khác), WOPI host giả, job chuyển đổi.
 
-## Cộng tác thời gian thực (BlueDoc, BlueSlide)
+## Cộng tác thời gian thực (BlueDoc, BlueSheet, BlueSlide)
 
 Cả ba ứng dụng dùng chung một replica `bo-collab` (Yrs, offset UTF-16 như Yjs) trong chế độ nhúng
 (`packages/hosted` → `openHosted` / `startCollab`, dùng chung cho web nhúng và deep link desktop). Binding TS ở
@@ -64,7 +64,8 @@ Tauri `engine_collab_*`.
   `bold`, `italic`, `underline`, `strike`, `size` (half-point), `color`, `font`, `highlight` + `r` (JSON phần `RunProps`
   còn lại, gồm cả dấu track changes). Thuộc tính đoạn nằm trên `\n`: `style`, `align`, `list` + `p` (phần `ParaProps`
   còn lại); `\n` cuối mỗi section mang `sect` (JSON sectPr: khổ giấy, lề, cột, header/footer). Tab, ngắt dòng/trang,
-  ảnh, field, bookmark… là embed một vị trí `{"c": JSON}`; bảng và block lạ là embed `{"b": JSON}` + `\n`.
+  ảnh, field, bookmark… là embed một vị trí `{"c": JSON}`; bảng cấp thân bài là embed `{"t": khoá}` + `\n` (chia sẻ từng ô, xem
+  "Cấu trúc đồng bộ trực tiếp"), bảng lồng và block lạ là embed `{"b": JSON}` + `\n`.
 - Sau mỗi lệnh cục bộ engine so mô hình với *shadow* của văn bản chung (so block, rồi tiền tố/hậu tố theo ký tự) và
   trả `collab.change` (delta Quill) trong `EditResult`; delta từ xa áp vào shadow rồi dựng lại các block đổi, áp như
   một transaction **ngoài lịch sử cục bộ** (`bo_edit::Session::apply_external`); con trỏ của mình được dời theo delta.
@@ -78,24 +79,102 @@ Tauri `engine_collab_*`.
 - Presence: BlueDoc gửi vùng chọn (offset UTF-16) → caret màu kèm tên (`DocumentView.setPeers`, lệnh
   `view.collaborators` bật/tắt); BlueSlide gửi đối tượng đang chọn → khung nét đứt màu trên slide.
 
-**Hạn chế**
-- Bảng là một đối tượng: hai người sửa cùng bảng thì người ghi sau thắng cả bảng; văn bản lạc cạnh embed bảng (do sửa
-  đồng thời) bị bỏ như nhau trên mọi replica.
-- Không đồng bộ trực tiếp: định nghĩa style (chỉ tự thêm style dựng sẵn khi được tham chiếu), numbering ngoài kiểu
-  bullet/number, comment, footnote/endnote, header/footer ngoài thuộc tính section; slide master/layout/theme, phần
-  trình bày cấp presentation (notes master). Những phần này đến người khác với version đã lưu.
-- Danh sách tạo trong phiên được chia sẻ theo kiểu (`bullet:<lvl>`/`number:<lvl>`): các danh sách mới cùng kiểu dùng
-  chung một định nghĩa ở replica nhận.
+**Hạn chế** (xem thêm mục "Cấu trúc đồng bộ trực tiếp" bên dưới)
 - Vị trí caret của người khác tính theo offset tuyệt đối (chưa dùng relative position của Yjs) nên có thể lệch tạm thời
   cho tới khi họ gửi presence mới; caret trong ô bảng hiển thị ở đầu bảng.
 - Sửa trước lần đồng bộ đầu tiên của người vào sau không được chia sẻ (bị nội dung chung thay thế).
 - Mỗi lệnh cục bộ so toàn bộ danh sách block với shadow (O(số block), không cấp phát) — đủ nhanh cho tài liệu
   thường; tài liệu rất dài cần đánh dấu block bẩn từ op.
-- Hai người cùng thêm slide cùng lúc nhận `sldId` khác nhau, nhưng tên part `/ppt/slides/slideN.xml` có thể trùng
-  (được đặt lại khi lưu).
 - Server không giữ Y.Doc: sau khi mất kết nối, client đăng lại **toàn bộ** trạng thái replica (`snapshot`) nếu đã sinh
   thay đổi cục bộ kể từ lần kết nối trước (nhật ký room lớn thêm cỡ một tài liệu; compaction thu gọn lại).
 
+## Cấu trúc đồng bộ trực tiếp (2026-11-08)
+
+Replica `bo-collab` có thêm hai cấu trúc dùng chung cho cả ba ứng dụng, đều nằm trong phạm vi `UndoManager` (hoàn tác
+chỉ đảo thay đổi của chính người dùng, kể cả các loại mới):
+
+- `meta` — Y.Map khoá → chuỗi JSON, **last-writer-wins theo khoá** (định nghĩa, cấu trúc bảng, thuộc tính sheet…).
+- `texts` — Y.Map khoá → **Y.Text lồng** ("story"), hợp nhất như văn bản thân bài. Phong bì `Change` mang
+  `texts: {khoá: {reset, deltas} | null}` (`reset` = tạo lại từ rỗng; observer `observe_deep` báo delta theo khoá, tạo
+  mới/thay thế → đọc lại toàn bộ), cùng `meta` và `cells`. `fullState()` gồm mọi thứ cho người vào sau; server lưu
+  `snapshot()` như cũ nên người vào sau nhận đủ các cấu trúc mới.
+
+Thứ tự (hàng/cột bảng, hàng/cột sheet, sheet, slide) dùng **khoá thứ tự** (`bo_engine::collab::order`): mỗi phần tử là
+một mục LWW riêng mang số thứ tự, so sánh `(khoá, id)`; chèn/di chuyển chỉ ghi phần tử mới/được chuyển (giữ dãy tăng dài
+nhất), nên chèn/di chuyển đồng thời các phần tử *khác nhau* đều được giữ, mọi replica sắp như nhau.
+
+**BlueDoc** (`crates/bo-engine/src/collab/parts.rs`)
+- Bảng cấp thân bài: dòng thân bài là embed `{"t": khoá}` + `\n`. `meta`: `tb:<t>` (tblPr), `tr:<t>:<hàng>` =
+  `{"o", "p": trPr}`, `tl:<t>:<cột>` = `{"o", "w": gridCol}`, `tc:<t>:<hàng>:<cột>` (tcPr); nội dung mỗi ô là story
+  `c:<t>:<hàng>:<cột>` (cùng định dạng dòng với thân bài). Hai người sửa hai ô — hoặc cùng một ô — đều được giữ; chèn/xoá
+  hàng/cột hội tụ. Một hàng gồm các ô có khoá `tc`, theo thứ tự cột. Nhận diện bảng/hàng/cột khi so mô hình với shadow:
+  tiền tố/hậu tố bằng nhau rồi ghép theo thứ tự (cột so bằng độ rộng + nội dung ô ở cột đó).
+- Story: chú thích chân trang `fn:<id>` / cuối `en:<id>`, nội dung comment `cm:<id>`, header/footer `hf:<section>:<kind>`
+  (`hd hf he fd ff fe`); JSON `sect` trên `\n` cuối section không còn chứa nội dung header/footer.
+- Định nghĩa LWW theo khoá: style `st:<id>`; numbering của file gốc `nm:<numId>` / `an:<abstractNumId>`; metadata
+  comment `cm:<id>` (`{"o", "c"}`: tác giả, ngày, luồng trả lời, `done`) — thêm/trả lời/đánh dấu xong/xoá đều tới
+  người khác; `doc` = `evenAndOddHeaders`. Thuộc tính section vẫn là thuộc tính `sect` của `\n` (LWW theo section).
+- Người gieo (seeder) = so mô hình với shadow rỗng (`collab_start(seed, clientId)`); id bảng/hàng/cột mới lấy theo client
+  id của replica (WASM `collabStart(seed, clientId)`, Tauri `engine_collab_start { seed, client }`).
+- Sửa header/footer và chú thích tại chỗ (story session) được chia sẻ ngay sau mỗi lệnh.
+- Caret của mình trong ô bảng được giữ theo (bảng, id hàng, id cột, đoạn, offset) khi thay đổi từ xa dựng lại bảng
+  (E2E phát hiện: trước đó caret nhảy về đầu bảng nên chữ gõ tiếp dính vào ô đầu).
+
+**BlueSheet** (`crates/bo-engine/src/sheet/collab.rs`, binding `packages/collab/src/sheet.ts`)
+- **Id hàng/cột ổn định**: hàng `i` của file đã gieo có id `"i"`, khoá `i` (dãy nền vô hạn, không lưu); hàng chèn trong
+  phiên có id của replica và khoá nằm giữa hai hàng kề (`ra:<sheet>:<id>`), hàng xoá được đánh dấu (`rd:<sheet>:<id>`);
+  cột: `ca:` / `cd:`. Vị trí = thứ hạng giữa các hàng còn sống (`Axis`).
+- Ô: map `cells`, khoá `"<sheet>!<id hàng>,<id cột>"` (giá trị hoặc công thức); định dạng `meta` `fm:<cùng khoá>` theo
+  **giá trị** (font, fill, border, numFmt, alignment — không phải chỉ số xf), nên giá trị và định dạng đặt đồng thời
+  đều giữ. **Công thức lưu tham chiếu dạng id hàng/cột** (template + bảng tham chiếu): mỗi replica dựng lại chữ A1
+  theo hàng/cột hiện tại, nên A chèn hàng trong khi B gõ `=A3*10` thì mọi nơi đều thành `=A4*10`; tham chiếu tới hàng
+  bị xoá thành `#REF!`. Thay đổi cấu trúc từ xa áp bằng `bo_sheet::ops` (điều chỉnh công thức như sửa cục bộ) rồi
+  đối chiếu mọi ô dùng chung của sheet.
+- `rp:<sheet>:<hàng>` (row), `cp:<sheet>:<cột đầu>` (col + số cột), gộp ô `mg:<sheet>!<góc trên trái>` = góc dưới phải
+  (theo id), sheet `sh:<sheet>` = khoá thứ tự + sheet không có ô (tên, ẩn, view, page setup…): thêm/đổi tên/xoá/sắp
+  xếp hội tụ; hai sheet cùng tên thêm đồng thời → sheet sau được đánh số "(2)". `cf:<sheet>` (kèm dxf dùng tới),
+  `dv:<sheet>` LWW theo sheet; biểu đồ `ch:<sheet>:<i>`, pivot `pv:<sheet>:<i>` + cache `pc:<i>` LWW theo đối tượng;
+  tên định nghĩa `wb`.
+- Binding TS: host có `collabStart/collabLocal/collabApply` (WASM `WasmSheet.collab*`, Tauri `sheet_call` cùng tên)
+  → sau mỗi lệnh sửa (`setInputs`, `exec`, `structural`, thêm/đổi tên/xoá sheet) lấy `collabLocal()` đưa vào replica
+  (mỗi lệnh một bước hoàn tác); `undo`/`redo` đi qua replica. Host không có binding vẫn dùng đường cũ (chỉ giá trị ô).
+
+**BlueSlide** (`slide_edit/collab.rs`)
+- `pos` của slide là khoá thứ tự: di chuyển chỉ ghi slide được chuyển, hai người chuyển hai slide khác nhau cùng lúc
+  thì cả hai lần chuyển được giữ (cùng một slide: người ghi sau thắng).
+- Ghi chú người trình bày: chữ của placeholder body trong notes là story `n:<sldId>` (văn bản thuần, hợp nhất); phần còn
+  lại của notes đi theo slide.
+- Master / layout / theme: `sm:<i>`, `sl:<i>`, `th:<i>` + `pp` (quan hệ presentation), LWW theo part. Giải mã master
+  (text styles vài chục KB) chạy trên luồng có stack lớn ở bản native (bản debug tràn stack 1–2 MB).
+
+**Kiểm thử**: `crates/bo-collab` (story lồng: reset, delta đồng thời, undo riêng, full state, xoá);
+`crates/bo-engine/tests/collab.rs` (ô bảng cùng lúc, chèn hàng/cột + xoá hàng đồng thời, style/comment/footnote,
+header, proptest thêm thao tác bảng, di chuyển slide đồng thời, ghi chú hợp nhất, master LWW);
+`crates/bo-engine/tests/collab_sheet.rs` (người vào sau, chèn hàng + công thức đồng thời, xoá hàng được tham chiếu +
+chèn cột, định dạng + giá trị, kích thước, gộp ô, sheet thêm/đổi tên/xoá, CF, undo riêng, proptest nhập/công thức/
+chèn-xoá hàng-cột/in đậm); `packages/collab/test/sheet-engine.test.ts` (hai WasmSheet thật); Playwright
+`tests/e2e/specs/collab-structures.spec.ts` với server thật (hai người gõ vào hai ô của cùng một bảng cùng lúc; chèn hàng
+dời ô và công thức của người kia; ghi chú slide).
+
+**Hạn chế còn lại (thật)**
+- Bảng lồng trong ô, bảng trong header/footer/chú thích/comment: vẫn là một embed `{"b"}` (LWW cả bảng).
+- Chèn hàng và chèn cột đồng thời trong cùng bảng BlueDoc: hàng mới thiếu ô ở cột mới (hội tụ, nhưng hàng ngắn hơn).
+  Xoá hàng/cột trong khi người khác gõ vào ô của nó: chữ gõ mất cùng hàng/cột.
+- Id comment/chú thích mới do mỗi replica tự cấp (max+1): hai người thêm comment/chú thích **đúng cùng lúc** có thể
+  trùng id → hai neo trỏ cùng một mục (LWW). Danh sách tạo trong phiên vẫn chia sẻ theo kiểu (`bullet`/`number`).
+  Header/footer khoá theo số thứ tự section: chèn section break đồng thời với sửa header có thể gán nhầm section.
+  `docDefaults`, `defaultTabStop`, latent styles không đồng bộ trực tiếp.
+- BlueSheet: CF, DV, biểu đồ, pivot, hyperlink, bảng (ListObject), autofilter, vùng in, freeze pane lưu **theo vị trí**
+  (LWW): một quy tắc ghi đồng thời với việc người khác chèn hàng không dịch theo hàng đó. Đổi tên sheet không sửa công
+  thức tham chiếu tên cũ (như engine hiện tại). Biểu đồ/pivot/cache khoá theo chỉ số: thêm đồng thời trùng chỉ số →
+  LWW. Ô trong hàng bị xoá vẫn nằm trong map (để hoàn tác khôi phục) cho tới khi lưu version. Kiểu ô lưu `xfId`
+  (style có tên) theo chỉ số. Chèn liên tiếp > ~50 lần đúng một chỗ làm cạn độ chính xác khoá (thứ tự giữa các hàng mới
+  chèn cùng chỗ khi đó theo id).
+- BlueSlide: master/layout/theme khoá theo chỉ số (dán slide từ deck khác đồng thời ở hai nơi → LWW); part gói khác
+  (media đã có, notes master…) không đồng bộ ngoài `blobs`; định dạng chữ ghi chú khi gộp hai bản sửa lấy theo bản
+  ghi notes thắng, chữ thì hợp nhất.
+- Hoàn tác BlueSheet chỉ đi qua replica khi host có binding engine; lịch sử cục bộ của engine bị xoá khi nhận thay đổi
+  từ xa (như BlueSlide).
 ## Kiểm chứng end-to-end (server thật + mock BlueDrive)
 
 Tiêu chí §6A ("mở file từ web, mở từ desktop qua deep link, 2 người cùng sửa, lưu tạo version, thu hồi quyền giữa chừng,

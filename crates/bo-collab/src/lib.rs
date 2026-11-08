@@ -15,7 +15,13 @@
 //! * `slides` — `Y.Map` of BlueSlide slide properties and order keyed by
 //!   slide id (JSON strings);
 //! * `blobs` — `Y.Map` of binary parts added during the session (pictures)
-//!   as JSON strings `{"ct","b64"}`.
+//!   as JSON strings `{"ct","b64"}`;
+//! * `meta` — `Y.Map` of other shared objects as JSON strings, last writer
+//!   wins per key (BlueDoc styles, numbering, comments, table structure;
+//!   BlueSheet sheets, rows, columns, formats, merges, rules; BlueSlide
+//!   masters, layouts, themes);
+//! * `texts` — `Y.Map` of nested `Y.Text`s ("stories" merged like the body:
+//!   table cells, comments, foot/endnotes, headers/footers, slide notes).
 //!
 //! Editor bindings exchange [`Change`] envelopes with the replica: local
 //! edits go in through [`Session::apply_local`]; everything else that changes
@@ -35,13 +41,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use yrs::sync::{Awareness, DefaultProtocol, Message, Protocol, SyncMessage};
 use yrs::types::text::{Diff, YChange};
-use yrs::types::{Attrs, Delta};
+use yrs::types::{Attrs, Delta, Event, PathSegment};
 use yrs::undo::Options as UndoOptions;
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::{Encode, Encoder, EncoderV1};
 use yrs::{
-    Any, Doc, GetString, In, Map, MapRef, Observable, OffsetKind, Options, Origin, Out, ReadTxn,
-    StateVector, Subscription, Text, TextRef, Transact, UndoManager,
+    Any, DeepObservable, Doc, GetString, In, Map, MapRef, Observable, OffsetKind, Options, Origin,
+    Out, ReadTxn, StateVector, Subscription, Text, TextPrelim, TextRef, Transact, UndoManager,
 };
 
 /// Transaction origin of edits made by this replica's user.
@@ -114,7 +120,8 @@ pub struct DeltaRun {
 /// * `body` — deltas over the body `Y.Text`, applied in order; each op is
 ///   `{"insert": text | embed, "attributes"?}`, `{"delete": n}` or
 ///   `{"retain": n, "attributes"?}` (UTF-16 lengths, `null` attribute = remove);
-/// * `slides`, `shapes`, `blobs` — map entries (`null` = removed).
+/// * `slides`, `shapes`, `blobs`, `meta`, `cells` — map entries (`null` = removed);
+/// * `texts` — nested texts by key (`null` = removed), see [`TextChange`].
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Change {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -125,6 +132,23 @@ pub struct Change {
     pub shapes: BTreeMap<String, Option<String>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub blobs: BTreeMap<String, Option<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub meta: BTreeMap<String, Option<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub cells: BTreeMap<String, Option<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub texts: BTreeMap<String, Option<TextChange>>,
+}
+
+/// Change of one nested text: `reset` = the text is (re)created with the
+/// content the deltas build from empty; otherwise deltas over its current
+/// content (same op format as the body).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TextChange {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reset: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deltas: Vec<Vec<Value>>,
 }
 
 impl Change {
@@ -134,6 +158,9 @@ impl Change {
             && self.slides.is_empty()
             && self.shapes.is_empty()
             && self.blobs.is_empty()
+            && self.meta.is_empty()
+            && self.cells.is_empty()
+            && self.texts.is_empty()
     }
 }
 
@@ -144,6 +171,10 @@ struct Pending {
     slides: BTreeSet<String>,
     shapes: BTreeSet<String>,
     blobs: BTreeSet<String>,
+    meta: BTreeSet<String>,
+    cells: BTreeSet<String>,
+    /// Nested texts: `None` = re-read whole (created, replaced or removed).
+    texts: BTreeMap<String, Option<Vec<Vec<Value>>>>,
 }
 
 /// One collaborative editing session (one document, one replica).
@@ -154,6 +185,8 @@ pub struct Session {
     shapes: MapRef,
     slides: MapRef,
     blobs: MapRef,
+    meta: MapRef,
+    texts: MapRef,
     undo: UndoManager,
     outbox: Vec<Vec<u8>>,
     clock: HostClock,
@@ -278,6 +311,71 @@ fn delta_span(ops: &[Delta<In>]) -> u64 {
         .sum()
 }
 
+/// Parses deltas applied in order to a text of length `len`, checking that
+/// each one fits the text it applies to (before anything changes).
+fn parse_deltas(ops: &[Vec<Value>], len: u32, what: &str) -> Result<Vec<Vec<Delta<In>>>> {
+    let deltas = ops
+        .iter()
+        .map(|d| json_to_delta(d))
+        .collect::<Result<Vec<_>>>()?;
+    let mut len = u64::from(len);
+    for d in &deltas {
+        if delta_span(d) > len {
+            return Err(CollabError::Invalid(format!("delta longer than {what}")));
+        }
+        let ins: u64 = d
+            .iter()
+            .map(|x| match x {
+                Delta::Inserted(In::Any(Any::String(s)), _) => s.encode_utf16().count() as u64,
+                Delta::Inserted(..) => 1,
+                _ => 0,
+            })
+            .sum();
+        let del: u64 = d
+            .iter()
+            .map(|x| match x {
+                Delta::Deleted(n) => u64::from(*n),
+                _ => 0,
+            })
+            .sum();
+        len = len + ins - del;
+    }
+    Ok(deltas)
+}
+
+/// The content of a text as one delta of inserts.
+fn text_runs(t: &TextRef, txn: &impl ReadTxn) -> Vec<Value> {
+    t.diff(txn, YChange::identity)
+        .into_iter()
+        .filter_map(|d: Diff<YChange>| {
+            let insert = match d.insert {
+                Out::Any(Any::String(s)) => Value::String(s.to_string()),
+                Out::Any(other) => any_to_json(&other),
+                _ => return None,
+            };
+            let mut o = JsonMap::new();
+            o.insert("insert".into(), insert);
+            if let Some(a) = d.attributes.filter(|a| !a.is_empty()) {
+                o.insert("attributes".into(), Value::Object(attrs_to_json(&a)));
+            }
+            Some(Value::Object(o))
+        })
+        .collect()
+}
+
+/// A nested text as a reset change (empty text → no deltas).
+fn text_reset(t: &TextRef, txn: &impl ReadTxn) -> TextChange {
+    let runs = text_runs(t, txn);
+    TextChange {
+        reset: true,
+        deltas: if runs.is_empty() {
+            Vec::new()
+        } else {
+            vec![runs]
+        },
+    }
+}
+
 fn encode(msg: &Message) -> Vec<u8> {
     let mut enc = EncoderV1::new();
     msg.encode(&mut enc);
@@ -332,6 +430,8 @@ impl Session {
         let shapes = doc.get_or_insert_map("shapes");
         let slides = doc.get_or_insert_map("slides");
         let blobs = doc.get_or_insert_map("blobs");
+        let meta = doc.get_or_insert_map("meta");
+        let texts = doc.get_or_insert_map("texts");
         let quiet = Arc::new(AtomicBool::new(false));
         let pending = Arc::new(Mutex::new(Pending::default()));
         let mut subs = Vec::new();
@@ -350,7 +450,13 @@ impl Session {
                 }
             }));
         }
-        for (map, which) in [(&slides, 0u8), (&shapes, 1), (&blobs, 2)] {
+        for (map, which) in [
+            (&slides, 0u8),
+            (&shapes, 1),
+            (&blobs, 2),
+            (&meta, 3),
+            (&cells, 4),
+        ] {
             let (q, p) = (quiet.clone(), pending.clone());
             subs.push(map.observe(move |txn, e| {
                 if q.load(Ordering::SeqCst) {
@@ -360,9 +466,48 @@ impl Session {
                 let set = match which {
                     0 => &mut p.slides,
                     1 => &mut p.shapes,
-                    _ => &mut p.blobs,
+                    2 => &mut p.blobs,
+                    3 => &mut p.meta,
+                    _ => &mut p.cells,
                 };
                 set.extend(e.keys(txn).keys().map(ToString::to_string));
+            }));
+        }
+        {
+            let (q, p) = (quiet.clone(), pending.clone());
+            subs.push(texts.observe_deep(move |txn, events| {
+                if q.load(Ordering::SeqCst) {
+                    return;
+                }
+                let mut p = p.lock().unwrap_or_else(PoisonError::into_inner);
+                for e in events.iter() {
+                    match e {
+                        // Entries of `texts` itself: created, replaced or removed.
+                        Event::Map(m) if m.path().is_empty() => {
+                            for k in m.keys(txn).keys() {
+                                p.texts.insert(k.to_string(), None);
+                            }
+                        }
+                        Event::Text(t) => {
+                            let Some(PathSegment::Key(k)) = t.path().front().cloned() else {
+                                continue;
+                            };
+                            let ops: Vec<Value> = t.delta(txn).iter().map(delta_to_json).collect();
+                            if ops.is_empty() {
+                                continue;
+                            }
+                            // A pending re-read already covers the deltas.
+                            let slot = p
+                                .texts
+                                .entry(k.to_string())
+                                .or_insert_with(|| Some(Vec::new()));
+                            if let Some(list) = slot {
+                                list.push(ops);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }));
         }
         let clock = HostClock::default();
@@ -383,6 +528,8 @@ impl Session {
         undo.expand_scope(&cells);
         undo.expand_scope(&shapes);
         undo.expand_scope(&slides);
+        undo.expand_scope(&meta);
+        undo.expand_scope(&texts);
         Self {
             awareness: Awareness::with_clock(doc, clock.clone()),
             body,
@@ -390,6 +537,8 @@ impl Session {
             shapes,
             slides,
             blobs,
+            meta,
+            texts,
             undo,
             outbox: Vec::new(),
             clock,
@@ -479,48 +628,63 @@ impl Session {
     // ------------------------------------------------------ editor bindings
 
     fn apply_change(&mut self, origin: &str, change: &Change) -> Result<()> {
-        let deltas = change
-            .body
-            .iter()
-            .map(|d| json_to_delta(d))
-            .collect::<Result<Vec<_>>>()?;
-        // Each delta must fit the text it applies to (checked before anything changes).
-        let mut len = u64::from(self.body_len());
-        for d in &deltas {
-            if delta_span(d) > len {
-                return Err(CollabError::Invalid("delta longer than the body".into()));
+        let deltas = parse_deltas(&change.body, self.body_len(), "body")?;
+        // Nested texts: (key, recreate, deltas); `None` removes the text.
+        let mut nested = Vec::with_capacity(change.texts.len());
+        {
+            let txn = self.doc().transact();
+            for (k, v) in &change.texts {
+                let Some(tc) = v else {
+                    nested.push((k.clone(), None));
+                    continue;
+                };
+                let current = match self.texts.get(&txn, k) {
+                    Some(Out::YText(t)) if !tc.reset => Some(t.len(&txn)),
+                    _ => None,
+                };
+                let d = parse_deltas(&tc.deltas, current.unwrap_or(0), k)?;
+                nested.push((k.clone(), Some((current.is_none(), d))));
             }
-            let ins: u64 = d
-                .iter()
-                .map(|x| match x {
-                    Delta::Inserted(In::Any(Any::String(s)), _) => s.encode_utf16().count() as u64,
-                    Delta::Inserted(..) => 1,
-                    _ => 0,
-                })
-                .sum();
-            let del: u64 = d
-                .iter()
-                .map(|x| match x {
-                    Delta::Deleted(n) => u64::from(*n),
-                    _ => 0,
-                })
-                .sum();
-            len = len + ins - del;
         }
-        let (body, slides, shapes, blobs) = (
+        let (body, slides, shapes, blobs, meta, cells, texts) = (
             self.body.clone(),
             self.slides.clone(),
             self.shapes.clone(),
             self.blobs.clone(),
+            self.meta.clone(),
+            self.cells.clone(),
+            self.texts.clone(),
         );
         self.edit_with(origin, |txn| {
             for d in deltas {
                 body.apply_delta(txn, d);
             }
+            for (k, v) in nested {
+                match v {
+                    None => {
+                        texts.remove(txn, &k);
+                    }
+                    Some((fresh, ds)) => {
+                        let t = if fresh {
+                            texts.insert(txn, k.as_str(), TextPrelim::new(""))
+                        } else {
+                            match texts.get(txn, &k) {
+                                Some(Out::YText(t)) => t,
+                                _ => texts.insert(txn, k.as_str(), TextPrelim::new("")),
+                            }
+                        };
+                        for d in ds {
+                            t.apply_delta(txn, d);
+                        }
+                    }
+                }
+            }
             for (map, entries) in [
                 (&slides, &change.slides),
                 (&shapes, &change.shapes),
                 (&blobs, &change.blobs),
+                (&meta, &change.meta),
+                (&cells, &change.cells),
             ] {
                 for (k, v) in entries {
                     match v {
@@ -562,11 +726,31 @@ impl Session {
                 })
                 .collect()
         };
+        let texts = p
+            .texts
+            .into_iter()
+            .map(|(k, v)| {
+                let tc = match v {
+                    Some(deltas) => Some(TextChange {
+                        reset: false,
+                        deltas,
+                    }),
+                    None => match self.texts.get(&txn, &k) {
+                        Some(Out::YText(t)) => Some(text_reset(&t, &txn)),
+                        _ => None,
+                    },
+                };
+                (k, tc)
+            })
+            .collect();
         Change {
             body: p.body,
             slides: read(&self.slides, p.slides),
             shapes: read(&self.shapes, p.shapes),
             blobs: read(&self.blobs, p.blobs),
+            meta: read(&self.meta, p.meta),
+            cells: read(&self.cells, p.cells),
+            texts,
         }
     }
 
@@ -596,7 +780,44 @@ impl Session {
             slides: map_all(&self.slides, &txn),
             shapes: map_all(&self.shapes, &txn),
             blobs: map_all(&self.blobs, &txn),
+            meta: map_all(&self.meta, &txn),
+            cells: map_all(&self.cells, &txn),
+            texts: self
+                .texts
+                .iter(&txn)
+                .filter_map(|(k, v)| match v {
+                    Out::YText(t) => Some((k.to_owned(), Some(text_reset(&t, &txn)))),
+                    _ => None,
+                })
+                .collect(),
         }
+    }
+
+    /// Entries of the `meta` map (JSON strings).
+    #[must_use]
+    pub fn meta(&self) -> BTreeMap<String, String> {
+        let txn = self.doc().transact();
+        map_all(&self.meta, &txn)
+            .into_iter()
+            .filter_map(|(k, v)| v.map(|v| (k, v)))
+            .collect()
+    }
+
+    /// Plain text of a nested text (embeds left out).
+    #[must_use]
+    pub fn text(&self, key: &str) -> Option<String> {
+        let txn = self.doc().transact();
+        match self.texts.get(&txn, key) {
+            Some(Out::YText(t)) => Some(t.get_string(&txn)),
+            _ => None,
+        }
+    }
+
+    /// Keys of the nested texts.
+    #[must_use]
+    pub fn text_keys(&self) -> Vec<String> {
+        let txn = self.doc().transact();
+        self.texts.keys(&txn).map(str::to_owned).collect()
     }
 
     // ------------------------------------------------------------ BlueDoc
@@ -844,5 +1065,84 @@ impl Session {
 impl Default for Session {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn exchange(a: &mut Session, b: &mut Session) {
+        for _ in 0..3 {
+            for f in a.drain_outbox() {
+                for r in b.receive(&f).unwrap() {
+                    a.receive(&r).unwrap();
+                }
+            }
+            for f in b.drain_outbox() {
+                for r in a.receive(&f).unwrap() {
+                    b.receive(&r).unwrap();
+                }
+            }
+        }
+    }
+
+    fn change(v: serde_json::Value) -> Change {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn nested_texts_and_meta_merge() {
+        let (mut a, mut b) = (Session::with_client_id(1), Session::with_client_id(2));
+        a.apply_local(&change(json!({
+            "texts": {"c:t:r:c": {"reset": true, "deltas": [[{"insert": "ô\n"}]]}},
+            "meta": {"tb:t": "{}"}
+        })))
+        .unwrap();
+        exchange(&mut a, &mut b);
+        let r = b.take_remote();
+        assert_eq!(r.meta["tb:t"].as_deref(), Some("{}"));
+        let t = r.texts["c:t:r:c"].as_ref().unwrap();
+        assert!(t.reset);
+        assert_eq!(b.text("c:t:r:c").as_deref(), Some("ô\n"));
+        // Concurrent edits of the same nested text merge.
+        a.apply_local(&change(json!({
+            "texts": {"c:t:r:c": {"deltas": [[{"insert": "A"}]]}}
+        })))
+        .unwrap();
+        b.apply_local(&change(json!({
+            "texts": {"c:t:r:c": {"deltas": [[{"retain": 1}, {"insert": "B"}]]}}
+        })))
+        .unwrap();
+        exchange(&mut a, &mut b);
+        assert_eq!(a.text("c:t:r:c"), b.text("c:t:r:c"));
+        assert_eq!(a.text("c:t:r:c").as_deref(), Some("AôB\n"));
+        let r = a.take_remote();
+        let d = r.texts["c:t:r:c"].as_ref().unwrap();
+        assert!(!d.reset);
+        assert_eq!(d.deltas.len(), 1);
+        // Undo only reverts the own nested edit.
+        assert!(b.undo());
+        let r = b.take_remote();
+        assert!(r.texts.contains_key("c:t:r:c"));
+        exchange(&mut a, &mut b);
+        assert_eq!(a.text("c:t:r:c").as_deref(), Some("Aô\n"));
+        // Full state carries everything for late joiners.
+        let full = a.full_state();
+        assert!(full.texts["c:t:r:c"].as_ref().unwrap().reset);
+        assert_eq!(full.meta.len(), 1);
+        // Too long a delta is refused before anything changes.
+        assert!(a
+            .apply_local(&change(json!({
+                "texts": {"c:t:r:c": {"deltas": [[{"retain": 99}, {"insert": "x"}]]}}
+            })))
+            .is_err());
+        // Removal.
+        a.apply_local(&change(json!({"texts": {"c:t:r:c": null}})))
+            .unwrap();
+        exchange(&mut a, &mut b);
+        assert_eq!(b.take_remote().texts.get("c:t:r:c"), Some(&None));
+        assert_eq!(b.text("c:t:r:c"), None);
     }
 }

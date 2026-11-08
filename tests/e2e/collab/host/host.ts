@@ -1,6 +1,6 @@
 // Host page standing in for BlueDrive: embeds the editor with the public SDK.
 // `?file=&token=&editor=&user=` (the test gets the token from the mock's /_admin/token);
-// optional `mode=edit|view|comment`, `theme=light|dark|auto`, `brand=`, `chrome=0` (no Share/Close/Back).
+// optional `mode=edit|view|comment`, `theme=light|dark|auto`, `brand=`, `chrome=0` (no brand, Share/Close/Back).
 import {
   BlueOffice,
   EDITOR_EVENTS,
@@ -26,12 +26,9 @@ const editor = BlueOffice.open(document.getElementById('editor')!, {
   lang: 'vi-VN',
   mode: (q.get('mode') as EditorMode | null) ?? 'edit',
   theme: (q.get('theme') as EditorTheme | null) ?? 'light',
-  ui: {
-    showShare: chrome,
-    showClose: chrome,
-    showBack: chrome,
-    brandName: q.get('brand') ?? 'BlueDrive',
-  },
+  ui: chrome
+    ? { showShare: true, showClose: true, showBack: true, brandName: q.get('brand') ?? 'BlueDrive' }
+    : {},
 });
 const events: { event: string; payload: unknown }[] = [];
 for (const e of EDITOR_EVENTS) editor.on(e, (payload) => events.push({ event: e, payload }));

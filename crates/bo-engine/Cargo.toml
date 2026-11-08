@@ -18,6 +18,7 @@ bo-edit.workspace = true
 bo-pptx = { path = "../bo-pptx" }
 bo-drawingml = { path = "../bo-drawingml" }
 bo-text.workspace = true
+bo-spell.workspace = true
 bo-layout.workspace = true
 bo-render.workspace = true
 bo-raster.workspace = true

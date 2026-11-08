@@ -355,6 +355,36 @@ pub enum Command {
         /// `true` links to the previous section's header/footer.
         linked: bool,
     },
+    /// Marks of misspelt words on `pages` (all when absent), in `spelling`.
+    Spelling {
+        /// 0-based pages.
+        #[serde(default)]
+        pages: Option<Vec<usize>>,
+    },
+    /// The misspelt word at a point with suggestions, in `spell`.
+    SpellAt {
+        /// 0-based page.
+        page: usize,
+        /// Point on the page (points).
+        x: f32,
+        /// Point on the page (points).
+        y: f32,
+    },
+    /// Ignore a word everywhere for this session.
+    SpellIgnore {
+        /// The word.
+        word: String,
+    },
+    /// Add a word to the user dictionary.
+    SpellAddWord {
+        /// The word.
+        word: String,
+    },
+    /// Spelling as you type on or off.
+    SetSpelling {
+        /// On.
+        on: bool,
+    },
     /// Open the header (`header`) or footer of a page for editing (§17.10).
     EditHeaderFooter {
         /// 0-based page index.
@@ -539,6 +569,12 @@ pub struct EditResult {
     /// Change to share and selection offsets while collaborating (Engine::collab_start).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collab: Option<crate::collab::CollabOut>,
+    /// Misspelt words (`spelling`, ignore / add-word commands).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spelling: Option<Vec<crate::spell::SpellMark>>,
+    /// Misspelt word at a point (`spellAt`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spell: Option<crate::spell::SpellInfo>,
     /// Open header/footer editor (selection and caret are in it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub story: Option<crate::story::StoryState>,
@@ -738,6 +774,11 @@ impl crate::Engine {
                     | Command::NewFromTemplate { .. }
                     | Command::SetSavePassword { .. }
                     // Handled by `special_command`.
+                    | Command::Spelling { .. }
+                    | Command::SpellAt { .. }
+                    | Command::SpellIgnore { .. }
+                    | Command::SpellAddWord { .. }
+                    | Command::SetSpelling { .. }
                     | Command::EditHeaderFooter { .. }
                     | Command::CloseHeaderFooter
                     | Command::SetHeaderLink { .. }
@@ -1139,6 +1180,8 @@ impl crate::Engine {
             review: None,
             targets: None,
             merge: None,
+            spelling: None,
+            spell: None,
             collab: None,
             story: None,
             notes: None,

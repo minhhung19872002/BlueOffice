@@ -24,5 +24,6 @@ Thumbs.db
 .idea/
 /apps/*/public/fonts/
 /apps/*/public/samples/
+/apps/*/public/dictionaries/
 /.claude/worktrees/
 /deploy/.env

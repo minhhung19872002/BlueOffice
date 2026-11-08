@@ -43,7 +43,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     dấu thanh theo kiểu cũ và kiểu mới (oa/oe/uy). Gợi ý: đổi thanh, đổi a/ă/â e/ê o/ô/ơ u/ư d/đ, đặt lại dấu, xoá/đảo
     ký tự. Test: bảng âm tiết đúng/sai.
   - Xong: `bo-spell::vi::Vietnamese` + `Speller::ignore_all_caps`; test bảng âm tiết đúng/sai, gợi ý (thanh, dấu mũ, vị trí dấu). Quét 8.369 từ tiếng Việt thật trong tài liệu repo (`cargo run -p bo-spell --example vi_scan -- <file>`): chỉ 1 từ bị từ chối (`NĐ`, chữ viết tắt — bỏ qua nhờ `ignore_all_caps`).
-- [ ] **CORE-SPELL-004** — Gạch đỏ trong BlueDoc (display list), gợi ý sửa (menu chuột phải), bỏ qua/bỏ qua tất cả/thêm vào từ điển người dùng · P0 · 002,003 · E2E.
+- [x] **CORE-SPELL-004** — Gạch đỏ trong BlueDoc (display list), gợi ý sửa (menu chuột phải), bỏ qua/bỏ qua tất cả/thêm vào từ điển người dùng · P0 · 002,003 · E2E. _Xong: lệnh `spelling/spellAt/spellIgnore/spellAddWord/setSpelling` (bo-engine `spell.rs`, cache theo đoạn), lớp phủ gạch sóng đỏ (không in), menu chuột phải, từ điển người dùng lưu localStorage, nút Soát lỗi ở tab Xem lại; en_US tải nền ở web, đóng gói ở native. Test: `bo-engine spell::tests`, E2E `specs/spelling.spec.ts`._
 - [ ] **CORE-SPELL-005** — Ngôn ngữ theo đoạn/run (w:lang), kiểm tra toàn tài liệu (hộp thoại) · P1 · 004 · test.
 - [ ] **CORE-SPELL-006** — Soát trong ô BlueSheet và text box BlueSlide · P1 · 004 · E2E.
 - [ ] **CORE-GRAM-001** — Ngữ pháp/văn phong cơ bản (khoảng trắng thừa, dấu câu, viết hoa đầu câu, lặp từ, ngoặc không đóng, dấu thanh sai vị trí kiểu cũ/mới) gạch xanh · P0 · 004 · bảng test quy tắc.

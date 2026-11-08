@@ -36,6 +36,8 @@ export class WebEngineHost implements EngineHost, SignatureBackend {
     private readonly fonts: FontSource,
     private readonly createWorker: () => Worker = () =>
       new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' }),
+    /** Spelling dictionaries (`.aff`, `.dic`) loaded in the background after start-up. */
+    private readonly dictionaries?: () => Promise<{ aff: Uint8Array; dic: Uint8Array }[]>,
   ) {}
 
   private call<T>(body: RequestBody, transfer: Transferable[] = []): Promise<T> {
@@ -70,6 +72,12 @@ export class WebEngineHost implements EngineHost, SignatureBackend {
         { method: 'init', fonts },
         fonts.map((f) => f.buffer as ArrayBuffer),
       );
+      // English spelling is optional: Vietnamese works without data, a missing file is ignored.
+      void this.dictionaries?.()
+        .then((list) =>
+          Promise.all(list.map((d) => this.call<null>({ method: 'loadDictionary', ...d }))),
+        )
+        .catch(() => {});
     })();
     return this.ready;
   }

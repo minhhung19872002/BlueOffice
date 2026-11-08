@@ -1,4 +1,5 @@
 import { DocumentView } from '@blueoffice/canvas-host';
+import { SpellMenu, loadUserWords, saveUserWord } from './SpellMenu';
 import { createI18n, I18nextProvider, type Language } from '@blueoffice/i18n';
 import type {
   CharFormat,
@@ -115,6 +116,7 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  SpellCheck,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -362,14 +364,32 @@ function EditorInner({
         }
       },
       onViewport: () => measure(),
+      // Right click on a misspelt word: corrections and dictionary actions.
+      onContextMenu: (e) => {
+        void controller.current?.run({ cmd: 'spellAt', page: e.page, x: e.x, y: e.y }).then((r) => {
+          store.setState({
+            spellMenu: r?.spell ? { x: e.clientX, y: e.clientY, info: r.spell } : null,
+          });
+        });
+      },
     });
     view.current = v;
+    // Spelling marks follow edits after a short pause (the engine caches unchanged paragraphs).
+    let spellTimer: ReturnType<typeof setTimeout> | undefined;
+    const refreshSpelling = () => {
+      clearTimeout(spellTimer);
+      spellTimer = setTimeout(() => {
+        if (store.getState().spellingOn) void controller.current?.run({ cmd: 'spelling' });
+      }, 400);
+    };
     controller.current = new DocController(
       platform.engine,
       v,
       platform.clipboard,
       (r) => {
         measure();
+        if (r.spelling) v.setSpelling(r.spelling);
+        else if (r.dirty.length) refreshSpelling();
         store.setState({
           edit: r,
           doc: r.info,
@@ -381,7 +401,12 @@ function EditorInner({
       (e) => fail('errors.edit', e),
     );
     platform.engine.init().then(
-      () => store.setState({ engineReady: true }),
+      () => {
+        store.setState({ engineReady: true });
+        // User dictionary kept by this browser / app (a convenience: words re-added each start).
+        for (const word of loadUserWords())
+          void controller.current?.run({ cmd: 'spellAddWord', word });
+      },
       (e: unknown) => fail('errors.engine', e),
     );
     window.addEventListener('resize', measure);
@@ -396,6 +421,7 @@ function EditorInner({
       () => {},
     );
     return () => {
+      clearTimeout(spellTimer);
       window.removeEventListener('resize', measure);
       unOpen();
       unExternal?.();
@@ -1058,6 +1084,15 @@ function EditorInner({
         const r = await controller.current?.run({ cmd: 'convertLegacyText' });
         store.setState({ legacyNotice: r?.info?.legacyConverted ?? 0 });
         view.current?.focus();
+      },
+    });
+    r.register({
+      id: 'review.spelling',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.spellingOn,
+      run: async (s) => {
+        store.setState({ spellingOn: !s.spellingOn });
+        await controller.current?.run({ cmd: 'setSpelling', on: !s.spellingOn });
       },
     });
     r.register({
@@ -1789,6 +1824,11 @@ function EditorInner({
       label: t('ribbon.tabs.review'),
       groups: [
         {
+          id: 'proofing',
+          label: t('ribbon.groups.proofing'),
+          items: [item('review.spelling', 'commands.review.spelling', <SpellCheck size={ICON} />)],
+        },
+        {
           id: 'tracking',
           label: t('ribbon.groups.tracking'),
           items: [
@@ -2115,6 +2155,33 @@ function EditorInner({
                   if (p) void openFile(p.file, p.doc ?? undefined, pw);
                 }}
                 onCancel={() => store.setState({ passwordPrompt: null })}
+              />
+            )}
+            {state.spellMenu && (
+              <SpellMenu
+                menu={state.spellMenu}
+                onPick={(text) => {
+                  const m = store.getState().spellMenu;
+                  store.setState({ spellMenu: null });
+                  if (!m) return;
+                  const { para, start, end } = m.info;
+                  void controller.current
+                    ?.run({
+                      cmd: 'setSelection',
+                      selection: { anchor: { p: para, o: start }, focus: { p: para, o: end } },
+                    })
+                    .then(() => controller.current?.run({ cmd: 'insertText', text }));
+                }}
+                onIgnore={(word) => {
+                  store.setState({ spellMenu: null });
+                  void controller.current?.run({ cmd: 'spellIgnore', word });
+                }}
+                onAdd={(word) => {
+                  store.setState({ spellMenu: null });
+                  saveUserWord(word);
+                  void controller.current?.run({ cmd: 'spellAddWord', word });
+                }}
+                onClose={() => store.setState({ spellMenu: null })}
               />
             )}
             {state.legacyNotice > 0 && (

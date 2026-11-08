@@ -55,7 +55,8 @@
       "headerFooter": "Header & footer",
       "footnotes": "Notes",
       "arrange": "Arrange",
-      "signature": "Signature"
+      "signature": "Signature",
+      "proofing": "Proofing"
     },
     "comingLater": "Coming in a later release"
   },
@@ -159,7 +160,8 @@
       "previousComment": "Previous comment",
       "comments": "Show comments",
       "savePassword": "Save with password",
-      "convertLegacyText": "Convert TCVN3/VNI text to Unicode"
+      "convertLegacyText": "Convert TCVN3/VNI text to Unicode",
+      "spelling": "Check spelling as you type"
     },
     "references": {
       "insertToc": "Table of contents",
@@ -1646,5 +1648,11 @@
     "notConfigured": "This installation has no update server configured.",
     "disabled": "This build has no automatic updates.",
     "installFailed": "Could not install the update: {{message}}"
+  },
+  "spell": {
+    "title": "Spelling",
+    "noSuggestions": "(No suggestions)",
+    "ignoreAll": "Ignore all",
+    "addToDictionary": "Add to dictionary"
   }
 }

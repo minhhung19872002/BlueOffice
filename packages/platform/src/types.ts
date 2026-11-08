@@ -474,6 +474,11 @@ export type EditCommand =
       scope?: 'section' | 'document';
     }
   | { cmd: 'editHeaderFooter'; page: number; header: boolean }
+  /** Spelling as you type (CORE-SPELL-004): marks, word at a point, ignore / add, on-off. */
+  | { cmd: 'spelling'; pages?: number[] }
+  | { cmd: 'spellAt'; page: number; x: number; y: number }
+  | { cmd: 'spellIgnore' | 'spellAddWord'; word: string }
+  | { cmd: 'setSpelling'; on: boolean }
   | { cmd: 'closeHeaderFooter' | 'notes' | 'clearFormatting' | 'fontList' }
   | { cmd: 'pickFormat' | 'applyFormat' | 'cancelFormat' }
   | { cmd: 'insertField'; instr: string }
@@ -541,6 +546,27 @@ export interface EditResult {
   fonts?: FontChoice[];
   /** The Format Painter holds picked formatting. */
   painter?: boolean;
+  /** Misspelt words to underline (`spelling`, `spellIgnore`, `spellAddWord`, `setSpelling`). */
+  spelling?: SpellMark[];
+  /** The misspelt word at a point (`spellAt`). */
+  spell?: SpellInfo;
+}
+
+/** A misspelt word: wavy line on `page` from `x` to `x + w` at `y` (points). */
+export interface SpellMark {
+  page: number;
+  x: number;
+  y: number;
+  w: number;
+}
+
+/** A misspelt word with corrections (select `start..end` of paragraph `para` to replace it). */
+export interface SpellInfo {
+  word: string;
+  para: number;
+  start: number;
+  end: number;
+  suggestions: string[];
 }
 
 // ---------------------------------------------------------------- live collaboration (bo_engine::collab)

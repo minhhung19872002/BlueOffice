@@ -1,6 +1,7 @@
 import type {
   CaretRect,
   DocInfo,
+  SpellMark,
   EngineHost,
   PageDisplayList,
   SelRect,
@@ -28,6 +29,14 @@ export interface DocumentViewOptions {
   onZoomChange?: (zoom: number) => void;
   onInput?: (e: ImeEvent) => void;
   onPointer?: (e: PagePointer) => void;
+  /** Right click on a page (points relative to the page). */
+  onContextMenu?: (e: {
+    page: number;
+    x: number;
+    y: number;
+    clientX: number;
+    clientY: number;
+  }) => void;
   /** The pages moved on screen (scroll, zoom, resize, relayout): rulers follow them. */
   onViewport?: () => void;
 }
@@ -65,6 +74,8 @@ export class DocumentView {
   private dragging = false;
   private caret: CaretRect | null = null;
   private peers: PeerMark[] = [];
+  /** Misspelt words (red wavy underline, never printed). */
+  private spelling: SpellMark[] = [];
   private readonly ime: ImeInput;
   private slots: PageSlot[] = [];
   private lists = new Map<number, Promise<PageDisplayList>>();
@@ -75,7 +86,7 @@ export class DocumentView {
   private readonly opts: Required<
     Omit<
       DocumentViewOptions,
-      'onPageChange' | 'onZoomChange' | 'onInput' | 'onPointer' | 'onViewport'
+      'onPageChange' | 'onZoomChange' | 'onInput' | 'onPointer' | 'onViewport' | 'onContextMenu'
     >
   > &
     DocumentViewOptions;
@@ -102,6 +113,7 @@ export class DocumentView {
     this.scroller.addEventListener('scroll', this.schedule);
     this.scroller.addEventListener('wheel', this.onWheel, { passive: false });
     this.scroller.addEventListener('mousedown', this.onMouseDown);
+    this.scroller.addEventListener('contextmenu', this.onContextMenu);
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
     window.addEventListener('resize', this.schedule);
@@ -109,7 +121,7 @@ export class DocumentView {
       const st = document.createElement('style');
       st.id = 'bo-caret-style';
       st.textContent =
-        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1.5px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(51,120,220,.32);pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}';
+        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1.5px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(51,120,220,.32);pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}';
       document.head.appendChild(st);
     }
   }
@@ -216,6 +228,7 @@ export class DocumentView {
       }
     }
     this.drawPeers(k);
+    this.drawSpelling(k);
     if (caret) {
       const slot = this.slots[caret.page];
       if (slot) {
@@ -230,6 +243,24 @@ export class DocumentView {
           else if (y + h > st + vh) this.scroller.scrollTop = y + h - vh + 24;
         }
       }
+    }
+  }
+
+  /** Underline misspelt words (drawn with the selection overlay). */
+  setSpelling(marks: SpellMark[]): void {
+    this.spelling = marks;
+    this.setSelection(this.caret, this.lastRects, false);
+  }
+
+  private drawSpelling(k: number): void {
+    for (const m of this.spelling) {
+      const slot = this.slots[m.page];
+      if (!slot) continue;
+      const d = document.createElement('div');
+      d.className = 'bo-spell';
+      d.dataset.testid = 'spell-mark';
+      d.style.cssText = `left:${m.x * k}px;top:${m.y * k}px;width:${m.w * k}px;`;
+      slot.overlay.appendChild(d);
     }
   }
 
@@ -282,6 +313,14 @@ export class DocumentView {
     const { page, x, y } = best;
     return { page, x, y };
   }
+
+  private onContextMenu = (e: MouseEvent) => {
+    if (!this.opts.onContextMenu) return;
+    const p = this.pointAt(e);
+    if (!p || !this.info) return;
+    e.preventDefault();
+    this.opts.onContextMenu({ ...p, clientX: e.clientX, clientY: e.clientY });
+  };
 
   private onMouseDown = (e: MouseEvent) => {
     if (e.button !== 0) return;

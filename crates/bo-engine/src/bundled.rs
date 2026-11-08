@@ -11,6 +11,17 @@ macro_rules! font {
     };
 }
 
+/// English (US) spelling dictionary (SCOWL en_US 2020.12.07, THIRD_PARTY_NOTICES.md).
+pub const EN_US_AFF: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/dictionaries/en_US/en_US.aff"
+));
+/// See [`EN_US_AFF`].
+pub const EN_US_DIC: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/dictionaries/en_US/en_US.dic"
+));
+
 /// Bundled font files.
 pub const FONTS: &[&[u8]] = &[
     font!("Tinos-Regular.ttf"),

@@ -1,6 +1,6 @@
 // Copy bundled fonts and corpus samples into an app's public/ directory.
 // Usage: node scripts/sync-assets.mjs <public-dir>
-import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,6 +12,14 @@ const manifest = JSON.parse(readFileSync(join(fontsDir, 'manifest.json'), 'utf8'
 mkdirSync(join(target, 'fonts'), { recursive: true });
 copyFileSync(join(fontsDir, 'manifest.json'), join(target, 'fonts', 'manifest.json'));
 for (const f of manifest.fonts) copyFileSync(join(fontsDir, f), join(target, 'fonts', f));
+
+// Spelling dictionaries (assets/dictionaries/<lang>/*.aff, *.dic, README).
+const dicts = join(root, 'assets', 'dictionaries');
+for (const lang of readdirSync(dicts)) {
+  mkdirSync(join(target, 'dictionaries', lang), { recursive: true });
+  for (const f of readdirSync(join(dicts, lang)))
+    copyFileSync(join(dicts, lang, f), join(target, 'dictionaries', lang, f));
+}
 
 mkdirSync(join(target, 'samples'), { recursive: true });
 copyFileSync(

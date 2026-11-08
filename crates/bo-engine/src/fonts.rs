@@ -90,6 +90,9 @@ impl Engine {
     }
 
     fn special_command_inner(&mut self, cmd: &Command) -> crate::Result<Option<EditResult>> {
+        if let Some(r) = self.spell_command(cmd)? {
+            return Ok(Some(r));
+        }
         if self.session.is_none() {
             return Ok(None);
         }

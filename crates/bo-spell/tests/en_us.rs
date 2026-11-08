@@ -24,7 +24,15 @@ fn english_words_and_misspellings() {
     for w in ok {
         assert!(d.check(w), "{w}");
     }
-    for w in ["teh", "recieve", "occured", "seperate", "definately", "accomodate", "goverment"] {
+    for w in [
+        "teh",
+        "recieve",
+        "occured",
+        "seperate",
+        "definately",
+        "accomodate",
+        "goverment",
+    ] {
         assert!(!d.check(w), "{w}");
     }
 }

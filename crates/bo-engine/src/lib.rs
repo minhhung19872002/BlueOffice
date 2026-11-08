@@ -30,6 +30,7 @@ pub mod review;
 pub mod sheet;
 pub mod slide_edit;
 pub mod smartart;
+pub mod spell;
 pub mod story;
 pub mod templates;
 pub mod textbox;
@@ -258,6 +259,8 @@ pub struct Engine {
     note: Option<notes::NoteEdit>,
     /// Open text box editor (BlueDoc).
     textbox: Option<textbox::BoxEdit>,
+    /// Spelling as you type (BlueDoc).
+    spell: spell::SpellState,
 }
 
 impl Engine {
@@ -273,6 +276,8 @@ impl Engine {
         for f in bundled::FONTS {
             e.add_font(f.to_vec());
         }
+        // English spelling (SCOWL en_US, assets/dictionaries); Vietnamese needs no data.
+        let _ = e.load_dictionary(bundled::EN_US_AFF, bundled::EN_US_DIC);
         e
     }
 

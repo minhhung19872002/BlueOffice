@@ -36,6 +36,14 @@ impl WasmEngine {
         }
     }
 
+    /// Loads a Hunspell spelling dictionary (`.aff`, `.dic` bytes).
+    #[wasm_bindgen(js_name = loadDictionary)]
+    pub fn load_dictionary(&mut self, aff: &[u8], dic: &[u8]) -> Result<(), JsError> {
+        self.inner
+            .load_dictionary(aff, dic)
+            .map_err(|e| JsError::new(&e.to_string()))
+    }
+
     /// Register a font file; returns the number of faces added.
     #[wasm_bindgen(js_name = addFont)]
     pub fn add_font(&mut self, bytes: Vec<u8>) -> usize {

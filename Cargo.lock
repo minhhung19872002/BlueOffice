@@ -670,6 +670,7 @@ dependencies = [
  "bo-raster",
  "bo-render",
  "bo-sheet",
+ "bo-spell",
  "bo-text",
  "bo-xlsx",
  "criterion",

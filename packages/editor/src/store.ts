@@ -1,5 +1,6 @@
 import type { Language } from '@blueoffice/i18n';
 import type {
+  SpellInfo,
   DocInfo,
   EditResult,
   FontChoice,
@@ -73,6 +74,10 @@ export interface EditorState {
   peers: PeerCursor[];
   /** Draw collaborators' carets. */
   showPeers: boolean;
+  /** Spelling as you type (red wavy underline). */
+  spellingOn: boolean;
+  /** Spelling menu open at a point (right click on a misspelt word). */
+  spellMenu: { x: number; y: number; info: SpellInfo } | null;
 }
 
 export const initialState = (language: Language, theme: ThemeSetting): EditorState => ({
@@ -98,6 +103,8 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   signatures: null,
   peers: [],
   showPeers: true,
+  spellingOn: true,
+  spellMenu: null,
 });
 
 export const createEditorStore = (language: Language, theme: ThemeSetting) =>

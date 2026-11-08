@@ -55,7 +55,8 @@
       "headerFooter": "Đầu và chân trang",
       "footnotes": "Chú thích",
       "arrange": "Sắp xếp",
-      "signature": "Chữ ký số"
+      "signature": "Chữ ký số",
+      "proofing": "Soát lỗi"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -159,7 +160,8 @@
       "previousComment": "Chú thích trước",
       "comments": "Hiện chú thích",
       "savePassword": "Lưu kèm mật khẩu",
-      "convertLegacyText": "Chuyển chữ TCVN3/VNI sang Unicode"
+      "convertLegacyText": "Chuyển chữ TCVN3/VNI sang Unicode",
+      "spelling": "Kiểm tra chính tả khi gõ"
     },
     "references": {
       "insertToc": "Mục lục",
@@ -1646,5 +1648,11 @@
     "notConfigured": "Bản cài đặt này chưa được cấu hình máy chủ cập nhật.",
     "disabled": "Bản này không có cập nhật tự động.",
     "installFailed": "Không cài được bản cập nhật: {{message}}"
+  },
+  "spell": {
+    "title": "Chính tả",
+    "noSuggestions": "(Không có gợi ý)",
+    "ignoreAll": "Bỏ qua tất cả",
+    "addToDictionary": "Thêm vào từ điển"
   }
 }

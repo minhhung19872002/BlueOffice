@@ -39,6 +39,9 @@ async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?:
   switch (req.method) {
     case 'open':
       return { result: JSON.parse(engine.open(req.bytes, req.name, req.password)) };
+    case 'loadDictionary':
+      engine.loadDictionary(req.aff, req.dic);
+      return { result: null };
     case 'page':
       return { result: JSON.parse(engine.pageJson(req.index)) };
     case 'glyphs':

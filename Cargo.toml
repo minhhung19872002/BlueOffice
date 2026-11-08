@@ -14,6 +14,7 @@ bo-model = { path = "crates/bo-model" }
 bo-opc = { path = "crates/bo-opc" }
 bo-docx = { path = "crates/bo-docx" }
 bo-text = { path = "crates/bo-text" }
+bo-spell = { path = "crates/bo-spell" }
 bo-layout = { path = "crates/bo-layout" }
 bo-render = { path = "crates/bo-render" }
 bo-raster = { path = "crates/bo-raster" }

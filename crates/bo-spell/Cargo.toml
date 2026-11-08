@@ -1,0 +1,16 @@
+[package]
+name = "bo-spell"
+description = "Spell checking with Hunspell-compatible dictionaries (.aff/.dic), user dictionaries and suggestions."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+unicode-segmentation.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

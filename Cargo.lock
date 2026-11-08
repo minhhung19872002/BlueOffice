@@ -829,6 +829,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo-spell"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "bo-text"
 version = "0.1.0"
 dependencies = [

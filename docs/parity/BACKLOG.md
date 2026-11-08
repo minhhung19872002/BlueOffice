@@ -24,7 +24,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 - [ ] **CORE-MATH-009** — Phương trình trong BlueSlide (a14:m trong txBody) và BlueSheet (shape) hiển thị · P1 · 002 · corpus + render.
 
 ### Soát chính tả & ngữ pháp (§4.2)
-- [~] **CORE-SPELL-001** — Engine soát chính tả tương thích Hunspell (.aff/.dic: affix, compound cơ bản), crate `bo-spell` · P0 · — · test với từ điển mẫu tự viết.
+- [x] **CORE-SPELL-001** — Engine soát chính tả tương thích Hunspell (.aff/.dic: affix, compound cơ bản), crate `bo-spell` · P0 · — · test với từ điển mẫu tự viết.
   - Kế hoạch: crate mới `bo-spell` (MIT, `forbid(unsafe)`), không phụ thuộc ngoài. Đọc `.aff` (SET UTF-8, FLAG
     char/long/num/UTF-8, TRY, KEY, REP, PFX/SFX có điều kiện + strip + append + cờ tiếp, cross product, NOSUGGEST,
     KEEPCASE, FORBIDDENWORD, NEEDAFFIX, COMPOUNDFLAG/BEGIN/MIDDLE/END, COMPOUNDMIN, ONLYINCOMPOUND, WORDCHARS) và
@@ -33,6 +33,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     đôi, chữ hoa; xếp theo khoảng cách sửa + n-gram. API `Dictionary::from_aff_dic`, `Speller` gồm nhiều từ điển +
     từ điển người dùng + danh sách loại trừ; tách từ theo UAX #29. Test: từ điển mẫu tự viết theo đặc tả hunspell(5)
     (tài liệu công khai), mỗi tính năng ≥ 1 test.
+  - Xong: crate `bo-spell` (`aff.rs` + `lib.rs`), 12 test (affix/điều kiện, cross product, hậu tố kép, chữ hoa, KEEPCASE/FORBIDDEN/NEEDAFFIX/NOSUGGEST, ghép từ, gợi ý REP/KEY/TRY/tách từ, ISO 8859-1, tách từ UAX #29, proptest không panic).
 - [ ] **CORE-SPELL-002** — Từ điển tiếng Anh license hợp lệ (SCOWL/en_US — giấy phép kiểu MIT/BSD) · P0 · 001 · ghi THIRD_PARTY_NOTICES; test từ đúng/sai.
 - [ ] **CORE-SPELL-003** — Từ điển tiếng Việt: tự xây từ danh sách âm tiết hợp lệ theo quy tắc chính tả (phụ âm đầu × vần × thanh, tự sinh) + nguồn mở license hợp lệ · P0 · 001 · test âm tiết đúng/sai, dấu đặt sai vị trí.
 - [ ] **CORE-SPELL-004** — Gạch đỏ trong BlueDoc (display list), gợi ý sửa (menu chuột phải), bỏ qua/bỏ qua tất cả/thêm vào từ điển người dùng · P0 · 002,003 · E2E.

@@ -20,7 +20,7 @@ Cập nhật sau mỗi hạng mục BACKLOG.
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Phương trình OMML | Doc | ✅ | 🟡 | ⬜ | ✅ | 🟡 | 🟡 | ✅ | corpus math-0* | 🟡 | dàn trang xấp xỉ, chưa font toán/MATH table, chưa soạn |
 | Phương trình trong Slide/Sheet | Slide/Sheet | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
-| Soát chính tả Việt/Anh | all | — | ⬜ | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
+| Soát chính tả Việt/Anh | all | — | ⬜ | ⬜ | — | ⬜ | ⬜ | — | bo-spell (engine) | 🟡 | engine Hunspell xong; chưa từ điển, chưa UI |
 | Ngữ pháp/văn phong | all | — | ⬜ | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | AutoCorrect | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Tìm/thay (regex, định dạng) | all | — | ✅ | ✅ | — | ✅ | ✅ | — | E2E | 🟡 | thiếu ký tự đặc biệt ^p, wildcard |

@@ -776,12 +776,17 @@ fn layout_uncached(
     }
     let mut atoms: Vec<Atom> = Vec::new();
     let mut floats = Vec::new();
+    // Display equations (m:oMathPara) by start offset: alignment of their own line.
+    let mut display_at: HashMap<u32, Alignment> = HashMap::new();
     for sp in &spans {
         let run = &inp.para.runs[sp.run];
         let style = run_style_idx[sp.run];
         let item = &run.content[sp.item];
         let math = match item {
             RunContent::Markup(raw) if bo_model::index::is_math_xml(&raw.xml) => {
+                if let Some(a) = crate::math::display_alignment(&raw.xml) {
+                    display_at.insert(sp.start as u32, a);
+                }
                 math_object(&raw.xml, &styles[style], fonts)
             }
             _ => None,
@@ -890,6 +895,67 @@ fn layout_uncached(
             }
         }
         prev = idx;
+    }
+
+    // A display equation takes a line of its own: virtual line breaks end the text before it and the
+    // equation itself (unless it ends the paragraph).
+    if !display_at.is_empty() {
+        let mut out: Vec<Word> = Vec::with_capacity(words.len() + 2);
+        for w in words {
+            let mut rest: Vec<Piece> = Vec::new();
+            for p in w.pieces {
+                let display = p.kind == Kind::Object && display_at.contains_key(&p.start());
+                if !display {
+                    // Spaces right after an equation stay on its line (before its break).
+                    let after_eq = rest.is_empty()
+                        && p.kind == Kind::Space
+                        && out.last().is_some_and(|w: &Word| {
+                            w.pieces
+                                .last()
+                                .is_some_and(|b| b.kind == Kind::LineBreak && b.virtual_)
+                        });
+                    if after_eq {
+                        if let Some(w) = out.last_mut() {
+                            let at = w.pieces.len() - 1;
+                            w.pieces.insert(at, p);
+                        }
+                    } else {
+                        rest.push(p);
+                    }
+                    continue;
+                }
+                let ps = p.style;
+                let brk = |at: u32| special_piece(Kind::LineBreak, ps, &styles, at, true);
+                if !rest.is_empty() {
+                    rest.push(brk(p.start()));
+                    out.push(Word {
+                        pieces: std::mem::take(&mut rest),
+                    });
+                } else if let Some(prev) = out.last_mut() {
+                    if prev.brk().is_none() {
+                        prev.pieces.push(brk(p.start()));
+                    }
+                }
+                let end = p.end();
+                let mut obj = vec![p];
+                obj.push(brk(end));
+                out.push(Word { pieces: obj });
+            }
+            if !rest.is_empty() {
+                out.push(Word { pieces: rest });
+            }
+        }
+        // No empty line after an equation that ends the paragraph.
+        if let Some(last) = out.last_mut() {
+            let only_trailing = last
+                .pieces
+                .last()
+                .is_some_and(|p| p.kind == Kind::LineBreak && p.virtual_);
+            if only_trailing {
+                last.pieces.pop();
+            }
+        }
+        words = out;
     }
 
     // 3. Greedy line filling.
@@ -1013,6 +1079,15 @@ fn layout_uncached(
     for (li, line_pieces) in lines.into_iter().enumerate() {
         let is_last = li + 1 == n_lines;
         let brk = line_breaks[li];
+        // A display equation's line follows its m:jc instead of the paragraph alignment.
+        let align = line_pieces
+            .iter()
+            .find_map(|p| {
+                (p.kind == Kind::Object)
+                    .then(|| display_at.get(&p.start()).copied())
+                    .flatten()
+            })
+            .unwrap_or(align);
         let mut ascent = 0.0f32;
         let mut descent = 0.0f32;
         let mut gap = 0.0f32;

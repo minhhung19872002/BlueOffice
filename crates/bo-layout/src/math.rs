@@ -1125,6 +1125,25 @@ fn text_of(el: &XmlElement) -> String {
         .collect()
 }
 
+/// Alignment of a display equation: `Some` for an `m:oMathPara` (ECMA-376 Part 1, §22.1.2.78 oMathPara,
+/// §22.1.2.79 oMathParaPr, §22.1.2.51 jc: left / right / center / centerGroup — the default, centred as a
+/// group), `None` for an inline `m:oMath`.
+pub(crate) fn display_alignment(xml: &str) -> Option<bo_model::Alignment> {
+    let el = bo_drawingml::dom::parse(xml.as_bytes(), "/word/document.xml").ok()?;
+    if el.local() != "oMathPara" {
+        return None;
+    }
+    let jc = el
+        .kid("oMathParaPr")
+        .and_then(|p| p.kid("jc"))
+        .and_then(|j| j.val());
+    Some(match jc {
+        Some("left") => bo_model::Alignment::Left,
+        Some("right") => bo_model::Alignment::Right,
+        _ => bo_model::Alignment::Center,
+    })
+}
+
 /// A box with only an ascent and a descent (a base for script shifts).
 fn opbox_of(asc: f32, desc: f32) -> MathBox {
     MathBox {

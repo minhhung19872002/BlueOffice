@@ -79,7 +79,9 @@ test('tracked header edit is listed with its story and rejected', async ({ page 
   await page.keyboard.insertText('Đầu trang gốc');
   await page.getByTestId('hf-close').click();
   await trackOn(page);
-  await page.mouse.dblclick(box.x + box.width * 0.4, box.y + 30);
+  // The ribbon switched tabs: measure the page again before double clicking its header.
+  const box2 = (await pageN(page, 1).boundingBox())!;
+  await page.mouse.dblclick(box2.x + box2.width * 0.4, box2.y + 30);
   await expect(page.getByTestId('hf-bar')).toBeVisible();
   await page.keyboard.press('End');
   await page.keyboard.insertText(' sửa');

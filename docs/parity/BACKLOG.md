@@ -25,7 +25,11 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     bar/limit/accent theo bảng. Sửa lỗi `MathBox::shifted` không cập nhật asc/desc. Test: `bo-layout math::tests`
     (so với giá trị đọc từ bảng MATH của chính file font: thanh phân số trên trục + độ dày, shift tử/mẫu, biến thể của "(",
     assembly ≥ 3 mảnh cho ma trận 10 hàng, tích phân display ≥ DisplayOperatorMinHeight, căn).
-- [ ] **CORE-MATH-004** — oMathPara: căn lề (m:jc), công thức display chiếm cả dòng · P0 · 002 · test layout vị trí x.
+- [x] **CORE-MATH-004** — oMathPara: căn lề (m:jc), công thức display chiếm cả dòng · P0 · 002 · test layout vị trí x.
+  - Xong: `m:oMathPara` chiếm một dòng riêng (ngắt dòng ảo trước/sau, dấu cách theo sau giữ trên dòng phương trình, không
+    sinh dòng trống cuối đoạn), dòng đó căn theo `m:jc` (left/right; center và centerGroup mặc định → giữa) thay cho căn lề
+    đoạn. Test: `bo-layout/tests/features.rs::display_equation_takes_its_own_aligned_line` (vị trí x cho từng jc, chữ
+    quanh phương trình vẫn căn trái, `m:oMath` trong dòng không tách dòng). Chưa: căn nhóm nhiều dòng theo dấu `=` (centerGroup thật).
 - [ ] **CORE-MATH-005** — Nhập phương trình bằng cú pháp tuyến tính UnicodeMath → OMML · P0 · 002 · bảng test chuỗi → XML.
 - [ ] **CORE-MATH-006** — Nhập LaTeX (tập con phổ biến) → OMML · P0 · 005 · bảng test.
 - [ ] **CORE-MATH-007** — Chèn/sửa phương trình trong BlueDoc (lệnh `insert.equation`, hộp nhập tuyến tính, chuyển chuyên nghiệp ↔ tuyến tính, OMML → UnicodeMath) · P0 · 005 · E2E web: chèn, lưu, mở lại.

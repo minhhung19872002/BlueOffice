@@ -864,3 +864,71 @@ fn tracked_cells_in_each_view() {
     let o = view(RevisionView::Original);
     assert!(o.page_text(0).contains("Ô01"));
 }
+
+/// Paragraph "Trước <equation> sau" with the equation as `m:oMathPara` (jc = `jc`) or inline `m:oMath`.
+fn equation_para(jc: Option<&str>, display: bool) -> Document {
+    let m = r#"xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math""#;
+    let body =
+        "<m:oMath><m:r><m:t>x</m:t></m:r><m:r><m:t>=</m:t></m:r><m:r><m:t>1</m:t></m:r></m:oMath>";
+    let xml = if display {
+        let pr = jc.map_or(String::new(), |j| {
+            format!(r#"<m:oMathParaPr><m:jc m:val="{j}"/></m:oMathParaPr>"#)
+        });
+        format!("<m:oMathPara {m}>{pr}{body}</m:oMathPara>")
+    } else {
+        body.replace("<m:oMath>", &format!("<m:oMath {m}>"))
+    };
+    doc(vec![Section::new(vec![runs(vec![
+        RunContent::Text("Trước ".into()),
+        RunContent::Markup(bo_model::Raw::new(xml, 0)),
+        RunContent::Text(" sau".into()),
+    ])])])
+}
+
+// source: ECMA-376 Part 1, §22.1.2.78 oMathPara (display equation on its own line) and §22.1.2.51 jc
+// (left / right / center / centerGroup; centerGroup is the default).
+#[test]
+fn display_equation_takes_its_own_aligned_line() {
+    let s = PageSetup::default();
+    let (left, right) = (
+        s.margin_left.to_pt(),
+        s.width.to_pt() - s.margin_right.to_pt(),
+    );
+    for (jc, want) in [
+        (None, "center"),
+        (Some("centerGroup"), "center"),
+        (Some("center"), "center"),
+        (Some("left"), "left"),
+        (Some("right"), "right"),
+    ] {
+        let l = run(&equation_para(jc, true));
+        // Body lines (the equation's own glyph lines belong to its drawing).
+        let lines: Vec<_> = l.pages[0]
+            .lines
+            .iter()
+            .filter(|x| matches!(x.source, bo_layout::LineSource::Body(_)))
+            .collect();
+        assert_eq!(lines.len(), 3, "{jc:?}: text / equation / text");
+        let eq = &lines[1];
+        // The equation's own width: its start and end carets (the trailing space is not centred).
+        let (x0, x1) = (eq.carets[0].1, eq.carets[1].1);
+        assert!(x1 > x0);
+        let expected = match want {
+            "left" => left,
+            "right" => right - (x1 - x0),
+            _ => left + (right - left - (x1 - x0)) / 2.0,
+        };
+        assert!((x0 - expected).abs() < 0.5, "{jc:?}: x {x0} vs {expected}");
+        // The texts around it stay left aligned.
+        assert!((lines[0].carets[0].1 - left).abs() < 0.5);
+        assert!((lines[2].carets[0].1 - left).abs() < 0.5);
+    }
+    // An inline equation stays in the text line.
+    let l = run(&equation_para(None, false));
+    let body = l.pages[0]
+        .lines
+        .iter()
+        .filter(|x| matches!(x.source, bo_layout::LineSource::Body(_)))
+        .count();
+    assert_eq!(body, 1);
+}

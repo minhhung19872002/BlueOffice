@@ -18,7 +18,7 @@ Cập nhật sau mỗi hạng mục BACKLOG.
 
 | Tính năng | App | Đọc file | Hiển thị | Tạo/sửa | Round-trip | Web | Desktop | Cộng tác | Test | Trạng thái | Ghi chú |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Phương trình OMML | Doc | ✅ | ✅ | ⬜ | ✅ | ✅ | ✅ | ✅ | corpus math-0*, math::tests | 🟡 | dàn trang theo bảng MATH (STIX Two Math); chưa căn lề oMathPara, chưa soạn |
+| Phương trình OMML | Doc | ✅ | ✅ | ⬜ | ✅ | ✅ | ✅ | ✅ | corpus math-0*, math::tests | 🟡 | dàn trang theo bảng MATH (STIX Two Math), oMathPara dòng riêng căn theo jc; chưa soạn |
 | Phương trình trong Slide/Sheet | Slide/Sheet | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
 | Soát chính tả Việt/Anh | all | — | 🟡 | ✅ | — | ✅ | 🟡 | — | bo-spell, spelling.spec | 🟡 | BlueDoc gạch đỏ + gợi ý + bỏ qua/thêm từ; chưa w:lang, hộp thoại toàn tài liệu, Sheet/Slide |
 | Ngữ pháp/văn phong | all | — | 🟡 | ✅ | — | ✅ | 🟡 | — | bo-spell grammar, spelling.spec | 🟡 | BlueDoc gạch xanh: dấu cách, dấu câu, viết hoa đầu câu, lặp từ, ngoặc/nháy, kiểu dấu thanh; chưa phân tích cú pháp |

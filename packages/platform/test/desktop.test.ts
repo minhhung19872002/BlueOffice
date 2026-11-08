@@ -60,6 +60,50 @@ describe('DesktopPlatform', () => {
     const p = createDesktopPlatform({ invoke: fake });
     expect(await p.files.openFile(['.docx'])).toBeNull();
   });
+
+  it('keeps the offline cache in the local cache folder through Tauri commands', async () => {
+    const disk = new Map<string, Uint8Array>();
+    const fake = vi.fn(async (cmd: string, args?: unknown, options?: unknown) => {
+      const key =
+        cmd === 'cache_put'
+          ? decodeURIComponent(
+              (options as { headers: Record<string, string> }).headers['x-cache-key']!,
+            )
+          : (args as { key: string }).key;
+      if (cmd === 'cache_put') disk.set(key, args as Uint8Array);
+      if (cmd === 'cache_delete') disk.delete(key);
+      if (cmd === 'cache_get') {
+        const v = disk.get(key);
+        if (!v) throw new Error('cache:missing');
+        return v.buffer;
+      }
+      return null;
+    }) as unknown as Invoke;
+    const p = createDesktopPlatform({ invoke: fake });
+    expect(await p.offline.get('hosted.pending.bluedrive.f1')).toBeNull();
+    await p.offline.put('hosted.pending.bluedrive.f1', new Uint8Array([7, 8]));
+    expect([...((await p.offline.get('hosted.pending.bluedrive.f1')) ?? [])]).toEqual([7, 8]);
+    await p.offline.delete('hosted.pending.bluedrive.f1');
+    expect(await p.offline.get('hosted.pending.bluedrive.f1')).toBeNull();
+  });
+
+  it('exposes the Start screen shell services', async () => {
+    const calls: { cmd: string; args: unknown }[] = [];
+    const fake = vi.fn(async (cmd: string, args?: unknown) => {
+      calls.push({ cmd, args });
+      if (cmd === 'has_launch_request') return true;
+      if (cmd === 'server_url') return 'http://localhost:4583';
+      if (cmd === 'read_file') return new Uint8Array([1]).buffer;
+      return null;
+    }) as unknown as Invoke;
+    const p = createDesktopPlatform({ invoke: fake });
+    expect(await p.shell.hasLaunchRequest?.()).toBe(true);
+    expect(await p.shell.serverFromEnvironment?.()).toBe(true);
+    await p.shell.openExternal?.('https://sso.example.vn/auth');
+    expect(calls.at(-1)).toEqual({ cmd: 'open_url', args: { url: 'https://sso.example.vn/auth' } });
+    const f = await p.files.openPath?.('C:\\BlueDrive\\Dự án\\a.docx');
+    expect(f?.name).toBe('a.docx');
+  });
 });
 
 describe('appForPath', () => {

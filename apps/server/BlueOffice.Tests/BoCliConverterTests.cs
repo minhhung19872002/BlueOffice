@@ -8,7 +8,7 @@ namespace BlueOffice.Tests;
 
 public sealed class BoCliConverterTests
 {
-    private static string RepoRoot()
+    internal static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Cargo.toml")))
@@ -19,11 +19,18 @@ public sealed class BoCliConverterTests
         return dir?.FullName ?? throw new InvalidOperationException("repo root not found");
     }
 
-    private static string? FindCli()
+    /// <summary>The built bo-cli: <c>BO_CLI</c>, else <c>$CARGO_TARGET_DIR</c> or <c>target/</c> (release, then debug).</summary>
+    internal static string? FindCli()
     {
+        if (Environment.GetEnvironmentVariable("BO_CLI") is { Length: > 0 } explicitPath && File.Exists(explicitPath))
+        {
+            return explicitPath;
+        }
+
         var exe = OperatingSystem.IsWindows() ? "bo-cli.exe" : "bo-cli";
-        return new[] { "release", "debug" }
-            .Select(p => Path.Combine(RepoRoot(), "target", p, exe))
+        var roots = new[] { Environment.GetEnvironmentVariable("CARGO_TARGET_DIR"), Path.Combine(RepoRoot(), "target") }
+            .Where(r => !string.IsNullOrEmpty(r));
+        return roots.SelectMany(r => new[] { "release", "debug" }.Select(p => Path.Combine(r!, p, exe)))
             .FirstOrDefault(File.Exists);
     }
 

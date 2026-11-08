@@ -150,6 +150,11 @@ run(
     Hosts__0__WebhookUrl: `${urls.mock}/webhooks/blueoffice`,
     Hosts__0__WebhookSecret: 'mock-webhook-secret',
     Hosts__0__AllowedOrigins__0: urls.host,
+    // Desktop Start screen: SSO through the mock (OAuth code + PKCE, docs/bohp.md §A2).
+    Hosts__0__DisplayName: 'BlueDrive',
+    Hosts__0__SignIn__AuthorizeUrl: `${urls.mock}/oauth/authorize`,
+    Hosts__0__SignIn__TokenUrl: `${urls.mock}/oauth/token`,
+    Hosts__0__SignIn__ClientId: 'blueoffice-desktop',
     // Desktop web view origins (Windows/Linux, macOS) for the deep-link E2E.
     Cors__Origins__0: 'http://tauri.localhost',
     Cors__Origins__1: 'tauri://localhost',

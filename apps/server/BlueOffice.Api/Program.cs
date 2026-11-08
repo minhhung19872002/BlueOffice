@@ -150,6 +150,7 @@ app.MapPost("/api/convert/pdf", async (IFormFile file, IDocumentConverter conver
 app.MapFileEndpoints();
 app.MapJobEndpoints();
 app.MapSessionEndpoints();
+app.MapHostBrowseEndpoints();
 
 app.Run();
 

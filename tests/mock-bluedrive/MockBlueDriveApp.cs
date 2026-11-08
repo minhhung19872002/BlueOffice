@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -86,12 +88,28 @@ public static class MockBlueDriveApp
                     .Select(f => new { id = f.Id, name = f.Name, version = f.Version, ownerId = f.OwnerId }).ToList());
             }
         });
+        app.MapPost("/_admin/folders", (CreateFolderRequest r, MockState s) =>
+        {
+            var f = s.CreateFolder(r.Name, r.ParentId ?? "root", r.OwnerId ?? "u1");
+            return Results.Ok(new { id = f.Id, name = f.Name });
+        });
         app.MapGet("/_admin/webhooks", (MockState s) =>
         {
             lock (s)
             {
                 return Results.Ok(s.Webhooks.ToList());
             }
+        });
+        app.MapPost("/_admin/webhooks/fail", (FailRequest r, MockState s) =>
+        {
+            // The next `Count` deliveries are answered with `Status` (retry tests).
+            lock (s)
+            {
+                s.WebhookFailures = Math.Max(0, r.Count);
+                s.WebhookFailureStatus = r.Status ?? 503;
+            }
+
+            return Results.NoContent();
         });
         app.MapPost("/webhooks/blueoffice", async (HttpRequest req, MockState s) =>
         {
@@ -100,18 +118,39 @@ public static class MockBlueDriveApp
             var sig = req.Headers["X-BlueOffice-Signature"].ToString();
             var expected = "sha256=" + Convert.ToHexString(HMACSHA256.HashData(
                 Encoding.UTF8.GetBytes(s.WebhookSecret), Encoding.UTF8.GetBytes(ts + ".").Concat(body).ToArray())).ToLowerInvariant();
+
+            // Replay protection recommended by docs/bohp.md §D: timestamp within ±5 minutes.
+            var fresh = long.TryParse(ts, NumberStyles.Integer, CultureInfo.InvariantCulture, out var unix)
+                && Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - unix) <= 300;
             using var doc = JsonDocument.Parse(body);
             lock (s)
             {
+                s.WebhookAttempts++;
+                if (s.WebhookFailures > 0)
+                {
+                    s.WebhookFailures--;
+                    return Results.StatusCode(s.WebhookFailureStatus);
+                }
+
                 s.Webhooks.Add(new WebhookRecord(
                     req.Headers["X-BlueOffice-Event"].ToString(),
                     doc.RootElement.GetProperty("fileId").GetString() ?? "",
                     Encoding.UTF8.GetString(body),
-                    CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(sig), Encoding.ASCII.GetBytes(expected))));
+                    CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(sig), Encoding.ASCII.GetBytes(expected)) && fresh,
+                    s.WebhookAttempts));
             }
 
             return Results.Ok();
         });
+
+        // ---------------------------------------------------------------- sign-in (OAuth 2.0 code + PKCE, RFC 7636)
+        app.MapGet("/oauth/authorize", (HttpRequest req, MockState s) => s.Authorize(req));
+        app.MapPost("/oauth/token", async (HttpRequest req, HttpResponse res, MockState s) =>
+        {
+            // The desktop web view exchanges the code itself (a form POST is a CORS "simple request").
+            res.Headers.AccessControlAllowOrigin = "*";
+            return s.ExchangeCode(await req.ReadFormAsync());
+        }).DisableAntiforgery();
 
         // ---------------------------------------------------------------- BOHP v1
         var bohp = app.MapGroup("/bohp/v1");
@@ -145,7 +184,7 @@ public static class MockBlueDriveApp
         });
         bohp.MapGet("/files/{id}/contents", async (string id, HttpRequest req, HttpResponse res, MockState s) =>
         {
-            var (_, error) = await s.AuthorizeAsync(req, id, p => p.View);
+            var (user, error) = await s.AuthorizeAsync(req, id, p => p.View);
             if (error is not null)
             {
                 return error;
@@ -154,6 +193,7 @@ public static class MockBlueDriveApp
             lock (s)
             {
                 var f = s.Get(id);
+                s.TouchRecent(user!, id);
                 res.Headers.ETag = $"\"{f.Version}\"";
                 res.Headers["X-BOHP-Version"] = f.Version;
                 return Results.Bytes(f.Current.Content, "application/octet-stream");
@@ -273,6 +313,90 @@ public static class MockBlueDriveApp
                 return Results.Created($"/bohp/v1/files/{f.Id}", new { id = f.Id, name = f.Name, version = f.Version });
             }
         });
+
+        // ---------------------------------------------------------------- BOHP §A2 browsing (user tokens without `fid`)
+        bohp.MapGet("/me", async (HttpRequest req, MockState s) =>
+        {
+            var (user, error) = await s.AuthorizeUserAsync(req);
+            return error ?? Results.Ok(new { id = user, name = s.Users.GetValueOrDefault(user!, user!), avatarUrl = (string?)null });
+        });
+        bohp.MapGet("/folders/{folderId}/children", async (string folderId, HttpRequest req, MockState s) =>
+        {
+            var (user, error) = await s.AuthorizeUserAsync(req);
+            if (error is not null)
+            {
+                return error;
+            }
+
+            lock (s)
+            {
+                if (!s.Folders.TryGetValue(folderId, out var folder))
+                {
+                    return Results.NotFound();
+                }
+
+                var folders = s.Folders.Values.Where(f => f.ParentId == folderId).OrderBy(f => f.Name, StringComparer.Ordinal)
+                    .Select(f => (object)new { kind = "folder", id = f.Id, name = f.Name });
+                var files = s.Files.Values.Where(f => f.FolderId == folderId && f.PermsOf(user!).View).OrderBy(f => f.Name, StringComparer.Ordinal)
+                    .Select(f => s.Item(f));
+                return Results.Ok(new
+                {
+                    folder = new { id = folder.Id, name = folder.Name, parentId = folder.ParentId },
+                    items = folders.Concat(files).ToList(),
+                });
+            }
+        });
+        bohp.MapGet("/shared", async (HttpRequest req, MockState s) =>
+        {
+            var (user, error) = await s.AuthorizeUserAsync(req);
+            if (error is not null)
+            {
+                return error;
+            }
+
+            lock (s)
+            {
+                return Results.Ok(new
+                {
+                    items = s.Files.Values.Where(f => f.OwnerId != user && f.Permissions.TryGetValue(user!, out var p) && p.View)
+                        .OrderBy(f => f.Name, StringComparer.Ordinal).Select(f => s.Item(f)).ToList(),
+                });
+            }
+        });
+        bohp.MapGet("/me/recent", async (int? limit, HttpRequest req, MockState s) =>
+        {
+            var (user, error) = await s.AuthorizeUserAsync(req);
+            if (error is not null)
+            {
+                return error;
+            }
+
+            lock (s)
+            {
+                var recent = s.Recent.GetValueOrDefault(user!) ?? [];
+                return Results.Ok(new
+                {
+                    items = recent.Where(r => s.Files.TryGetValue(r.FileId, out var f) && f.PermsOf(user!).View)
+                        .Take(Math.Clamp(limit ?? 20, 1, 100))
+                        .Select(r => s.Item(s.Files[r.FileId], r.At)).ToList(),
+                });
+            }
+        });
+        bohp.MapGet("/sync/resolve", async (string? path, HttpRequest req, MockState s) =>
+        {
+            // The mock's sync folder mirrors the folder tree under "root": "Dự án/Kế hoạch.docx".
+            var (user, error) = await s.AuthorizeUserAsync(req);
+            if (error is not null)
+            {
+                return error;
+            }
+
+            lock (s)
+            {
+                var f = s.ResolvePath(path ?? "");
+                return f is null || !f.PermsOf(user!).View ? Results.NotFound() : Results.Ok(new { id = f.Id, name = f.Name, version = f.Version });
+            }
+        });
     }
 
     private static async Task<IResult> LockOpAsync(string id, LockRequest r, HttpRequest req, MockState s, string op)
@@ -327,8 +451,23 @@ public sealed record RenameRequest(string Name);
 /// <summary>BOHP permissions.</summary>
 public sealed record Perms(bool View, bool Comment, bool Edit, bool Share, bool Download);
 
-/// <summary>A webhook received from BlueOffice.</summary>
-public sealed record WebhookRecord(string Event, string FileId, string Body, bool SignatureValid);
+/// <summary>POST /_admin/folders.</summary>
+public sealed record CreateFolderRequest(string Name, string? ParentId, string? OwnerId);
+
+/// <summary>POST /_admin/webhooks/fail.</summary>
+public sealed record FailRequest(int Count, int? Status);
+
+/// <summary>A webhook received from BlueOffice (<c>Attempt</c> = deliveries seen by the receiver so far, refused ones included).</summary>
+public sealed record WebhookRecord(string Event, string FileId, string Body, bool SignatureValid, int Attempt);
+
+/// <summary>A folder.</summary>
+public sealed record MockFolder(string Id, string Name, string? ParentId, string OwnerId);
+
+/// <summary>A file opened by a user.</summary>
+public sealed record RecentOpen(string FileId, DateTime At);
+
+/// <summary>A pending authorization code.</summary>
+public sealed record AuthCode(string User, string Challenge, string RedirectUri, string ClientId, DateTime Expires);
 
 /// <summary>A stored version.</summary>
 public sealed record MockVersion(string Version, byte[] Content, string ModifiedBy, string? Note, IReadOnlyList<string> Editors, DateTime At);
@@ -393,7 +532,152 @@ public sealed class MockState
         Audience = config["Mock:Audience"] ?? "blueoffice";
         WebhookSecret = config["Mock:WebhookSecret"] ?? "mock-webhook-secret";
         _key = new RsaSecurityKey(_rsa) { KeyId = "mock-key-1" };
+        Folders["root"] = new MockFolder("root", "BlueDrive", null, "u1");
         CreateFile("Báo cáo.docx", "u1", Encoding.UTF8.GetBytes("seed"), "root");
+    }
+
+    /// <summary>Folders (one tree shared by all mock users; "root" is the top).</summary>
+    public Dictionary<string, MockFolder> Folders { get; } = [];
+
+    /// <summary>Recently opened files per user, newest first.</summary>
+    public Dictionary<string, List<RecentOpen>> Recent { get; } = [];
+
+    /// <summary>Webhook deliveries to refuse next.</summary>
+    public int WebhookFailures { get; set; }
+
+    /// <summary>Status used for refused deliveries.</summary>
+    public int WebhookFailureStatus { get; set; } = 503;
+
+    /// <summary>Webhook deliveries received (accepted or refused).</summary>
+    public int WebhookAttempts { get; set; }
+
+    private Dictionary<string, AuthCode> Codes { get; } = [];
+
+    /// <summary>Creates a folder.</summary>
+    public MockFolder CreateFolder(string name, string parentId, string owner)
+    {
+        lock (this)
+        {
+            var f = new MockFolder($"d{++_nextId}", name, parentId, owner);
+            Folders[f.Id] = f;
+            return f;
+        }
+    }
+
+    /// <summary>Records that <paramref name="user"/> opened <paramref name="fileId"/> (caller holds the lock).</summary>
+    public void TouchRecent(string user, string fileId)
+    {
+        if (!Recent.TryGetValue(user, out var list))
+        {
+            Recent[user] = list = [];
+        }
+
+        list.RemoveAll(r => r.FileId == fileId);
+        list.Insert(0, new RecentOpen(fileId, Now));
+    }
+
+    /// <summary>Listing entry of a file (caller holds the lock).</summary>
+    public object Item(MockFile f, DateTime? openedAt = null) => new
+    {
+        kind = "file",
+        id = f.Id,
+        name = f.Name,
+        size = f.Current.Content.Length,
+        version = f.Version,
+        lastModified = f.Current.At,
+        ownerId = f.OwnerId,
+        openedAt,
+    };
+
+    /// <summary>File at a '/'-separated path under "root" (caller holds the lock).</summary>
+    public MockFile? ResolvePath(string path)
+    {
+        var parts = path.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return null;
+        }
+
+        var folder = "root";
+        foreach (var name in parts[..^1])
+        {
+            var next = Folders.Values.FirstOrDefault(f => f.ParentId == folder && string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (next is null)
+            {
+                return null;
+            }
+
+            folder = next.Id;
+        }
+
+        return Files.Values.FirstOrDefault(f => f.FolderId == folder && string.Equals(f.Name, parts[^1], StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Mock authorization endpoint: signs in <c>login_hint</c> (a mock user id) without a password and redirects back with a
+    /// code; without a hint it shows a page with one link per user.
+    /// </summary>
+    public IResult Authorize(HttpRequest req)
+    {
+        var q = req.Query;
+        string redirect = q["redirect_uri"].ToString(), state = q["state"].ToString(), challenge = q["code_challenge"].ToString();
+        if (q["response_type"] != "code" || q["code_challenge_method"] != "S256" || challenge.Length < 43 || redirect.Length == 0)
+        {
+            return Results.BadRequest(new { error = "invalid_request" });
+        }
+
+        var hint = q["login_hint"].ToString();
+        if (hint.Length == 0 || !Users.ContainsKey(hint))
+        {
+            var links = string.Concat(Users.Keys.Where(u => u != "bluedrive-service").Select(u =>
+                $"<li><a href=\"{WebUtility.HtmlEncode(req.Path + req.QueryString.Add("login_hint", u).ToUriComponent())}\">{WebUtility.HtmlEncode(Users[u])}</a></li>"));
+            return Results.Content($"<!doctype html><meta charset=utf-8><title>BlueDrive (mock)</title><ul>{links}</ul>", "text/html; charset=utf-8");
+        }
+
+        var code = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(24));
+        lock (this)
+        {
+            Codes[code] = new AuthCode(hint, challenge, redirect, q["client_id"].ToString(), Now.AddMinutes(2));
+        }
+
+        var sep = redirect.Contains('?', StringComparison.Ordinal) ? '&' : '?';
+        return Results.Redirect($"{redirect}{sep}code={Uri.EscapeDataString(code)}&state={Uri.EscapeDataString(state)}");
+    }
+
+    /// <summary>Mock token endpoint (authorization_code grant with PKCE S256, RFC 7636 §4.6).</summary>
+    public IResult ExchangeCode(IFormCollection form)
+    {
+        AuthCode? entry;
+        lock (this)
+        {
+            if (!Codes.Remove(form["code"].ToString(), out entry))
+            {
+                return Results.BadRequest(new { error = "invalid_grant" });
+            }
+        }
+
+        var challenge = Base64UrlEncoder.Encode(SHA256.HashData(Encoding.ASCII.GetBytes(form["code_verifier"].ToString())));
+        if (form["grant_type"] != "authorization_code" || entry.Expires < Now || form["redirect_uri"] != entry.RedirectUri
+            || form["client_id"] != entry.ClientId
+            || !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(challenge), Encoding.ASCII.GetBytes(entry.Challenge)))
+        {
+            return Results.BadRequest(new { error = "invalid_grant" });
+        }
+
+        return Results.Ok(new { access_token = IssueToken(entry.User, null, 600), token_type = "Bearer", expires_in = 600 });
+    }
+
+    /// <summary>Validates a user token that is not scoped to one file (browsing endpoints).</summary>
+    public async Task<(string? User, IResult? Error)> AuthorizeUserAsync(HttpRequest req)
+    {
+        var (user, error) = await AuthorizeAsync(req, null, null);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        var jwt = new JsonWebToken(req.Headers.Authorization.ToString()[7..]);
+        return jwt.TryGetPayloadValue<string>("fid", out _) ? (null, Results.StatusCode(403)) : (user, null);
     }
 
     /// <summary>Token issuer.</summary>

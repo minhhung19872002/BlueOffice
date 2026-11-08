@@ -59,6 +59,36 @@ Body 409: `{"error":"version-conflict"|"lock-conflict","currentVersion":"8","loc
 Version là chuỗi mờ (opaque) do host quản lý. Khoá có hạn (BlueOffice xin `Hosts:N:LockDurationSeconds`, mặc định 1800 s,
 gia hạn mỗi nửa thời hạn). **Khoá thuộc về phiên cộng tác** (một lockId cho cả room), không thuộc từng người.
 
+## A2. Duyệt file (tuỳ chọn) — màn hình Start desktop, thư mục đồng bộ
+
+Host cài thêm các endpoint sau nếu muốn desktop có tab "BlueDrive" (duyệt thư mục, gần đây, được chia sẻ) và nhận diện file
+trong thư mục đồng bộ. Gọi bằng **token người dùng không gắn `fid`** (token có `fid` → 403). Desktop không gọi thẳng host:
+BlueOffice server proxy qua `GET /api/hosts/{host}/me`, `/folders/{id}/children`, `/shared`, `/recent?limit=`,
+`/resolve?path=` (token gửi ở `Authorization: Bearer`, server xác minh bằng JWKS của host rồi chuyển nguyên token cho host;
+host WOPI → 501). Danh sách host + cấu hình đăng nhập: `GET /api/hosts` (không bí mật).
+
+| Method & path | Mô tả | Thành công | Lỗi |
+|---|---|---|---|
+| `GET /me` | Người dùng của token | 200 `{"id","name","avatarUrl"}` | 401, 403 |
+| `GET /folders/{folderId}/children` | Thư mục con + file người dùng được xem; `root` = thư mục gốc | 200 `Listing` | 401, 403, 404 |
+| `GET /shared` | File người khác chia sẻ với người dùng | 200 `{"items":[Item]}` | 401, 403 |
+| `GET /me/recent?limit=` | File người dùng mở gần đây (mới nhất trước) | 200 `{"items":[Item]}` | 401, 403 |
+| `GET /sync/resolve?path=` | File ở đường dẫn tương đối (`/`) trong thư mục đồng bộ của người dùng | 200 `{"id","name","version"}` | 404 |
+
+`Item`: `{"kind":"folder"|"file","id","name","size?","version?","lastModified?","ownerId?","openedAt?"}`;
+`Listing`: `{"folder":{"id","name","parentId"},"items":[Item]}`. Server từ chối `path` rỗng, có `.`/`..` hoặc dài quá 1024 ký tự (400).
+
+**Đăng nhập desktop** (`Hosts:N:SignIn` = `AuthorizeUrl`, `TokenUrl`, `ClientId`, `Scope`): OAuth 2.0 authorization code
+(RFC 6749 §4.1) + PKCE S256 (RFC 7636) trong trình duyệt hệ thống, redirect về deep link `bluedoc://auth` (`bluesheet://auth`,
+`blueslide://auth`; RFC 8252 §7.1). Desktop tự đổi code lấy token (token endpoint phải cho phép CORS từ `http://tauri.localhost`).
+Access token nhận được là token BOHP của người dùng. Không cấu hình → desktop chỉ cho dán token.
+
+**Mock** (`tests/mock-bluedrive`): một cây thư mục chung bắt đầu từ `root`; "thư mục đồng bộ" là ánh xạ đường dẫn
+`Thư mục/Con/Tên file` ↔ id theo cây đó; `/me/recent` ghi lại khi người dùng tải nội dung file; `GET /oauth/authorize`
+(tự đăng nhập người dùng `login_hint`, không có thì hiện trang chọn) + `POST /oauth/token` (kiểm PKCE S256, mã dùng một lần);
+`/_admin/folders` tạo thư mục; `/_admin/webhooks/fail {"count","status"}` làm webhook thất bại N lần (thử retry);
+bản ghi webhook có `signatureValid` (chữ ký + timestamp ±5 phút) và `attempt`.
+
 ## B. Mở editor
 
 - Iframe: `GET https://office.<domain>/edit?host=bluedrive&file={id}&token={jwt}` → JSON `SessionInfo`
@@ -97,4 +127,12 @@ API phiên (header `X-Session-Token`): `GET /api/sessions/{id}`, `DELETE`, `GET 
 - Webhook BlueOffice → host (`Hosts:N:WebhookUrl`): `POST` JSON `{"event","host","fileId","at","data"}`, header
   `X-BlueOffice-Event`, `X-BlueOffice-Timestamp` (unix s), `X-BlueOffice-Signature: sha256=hex(HMAC-SHA256(secret, timestamp + "." + body))`.
   Sự kiện: `file.saved`, `file.conflict-copy`, `session.started`, `session.ended`, `audit` (open/edit/export/print/download/restore).
-  Thử lại 3 lần với 5xx/429; host nên trả 2xx nhanh và kiểm tra timestamp (±5 phút).
+  Thử lại khi lỗi mạng / hết thời gian / 5xx / 429: tổng `Webhooks:MaxAttempts` lần (mặc định 3), chờ `n² × Webhooks:RetryBaseDelay`
+  (mặc định 1 s, 4 s); 4xx khác là kết thúc. Host nên trả 2xx nhanh và kiểm tra timestamp (±5 phút).
+- Audit gửi qua webhook `audit` (`data`: `action`, `actor`, `actorName`, `at`, `detail`, `ip`): `open` khi tạo phiên, `edit` mỗi
+  lần lưu, `restore`, và `print` / `export` / `download` do editor báo (`POST /api/sessions/{id}/audit`; editor nhúng và desktop
+  tự báo khi in hoặc xuất định dạng khác — PDF, CSV; `export`/`download` cần quyền `download`).
+- Desktop sửa offline: khi server không truy cập được, nút Lưu ghi bản sao vào thư mục cache cục bộ (`<app data>/offline`) kèm
+  version gốc; có mạng lại trong cùng phiên thì CRDT gửi lại thay đổi và bản sao bị bỏ; nếu phiên đã kết thúc (đóng app),
+  lần mở file tiếp theo gửi bản sao qua `…/sync?baseVersion=` → version mới hoặc bản "(xung đột - …)". Mất mạng ngay lúc
+  mở file: desktop mở bản tải gần nhất trong cache, lưu cũng vào hàng chờ đó.

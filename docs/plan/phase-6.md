@@ -39,7 +39,7 @@ Triển khai: [`docs/deploy/`](../deploy/README.md).
 | Chia sẻ | `GET/POST /api/files/{id}/shares`, `GET/POST /api/folders/{id}/shares`, `DELETE /api/shares/{id}`, `POST /api/files/{id}/links`, `GET /api/links/{token}[/content]` |
 | Audit | `GET/POST /api/files/{id}/audit` |
 | Phiên editor | `GET/POST /edit`, `POST /api/sessions`, `GET/DELETE /api/sessions/{id}`, `GET …/contents`, `POST …/checkpoint`, `…/refresh`, `…/audit`, `GET …/versions`, `POST …/versions/{v}/restore`, `…/rename`, `…/save-as`, `…/sync` |
-| Host | `POST /api/hosts/{host}/notify`, `GET /hosting/discovery` |
+| Host | `POST /api/hosts/{host}/notify`, `GET /hosting/discovery`, `GET /api/hosts`, `GET /api/hosts/{host}/me`, `…/folders/{id}/children`, `…/shared`, `…/recent`, `…/resolve?path=` (proxy BOHP §A2 cho desktop) |
 | Cộng tác | `WS /collab/{fileId}?session=&token=` (hoặc `?access_token=` cho file local) |
 | Chuyển đổi | `POST /convert`, `/thumbnail`, `/preview`, `/extract-text`, `GET /jobs/{id}`, `/jobs/{id}/result`, `POST /api/convert/pdf` (Phase 1) |
 
@@ -172,16 +172,32 @@ giữ cổng 4445.
 - Người vào sau thấy tài liệu ở trạng thái "Chưa lưu" và view cuộn tới caret sau khi nội dung chung thay thế bản cục bộ.
 - CSP desktop không cho `http://` tới máy chủ khác `localhost` (cần HTTPS hoặc build lại với origin trong CSP).
 
+## Hoàn thiện Phase 6A phía desktop (2026-11-08)
+
+| Mục | Cài đặt | Kiểm thử |
+|---|---|---|
+| **Màn hình Start** | `packages/hosted/src/start/StartScreen.tsx`: Trang chủ (tài liệu/bảng tính/trình chiếu trống, mở tệp trên máy, tệp gần đây), tab **BlueDrive** (đăng nhập SSO hoặc dán token, Tệp của tôi theo thư mục, Gần đây, Được chia sẻ với tôi, mở → phiên server + cộng tác), **Cài đặt** (máy chủ BlueOffice — thay cho chỉ biến môi trường; thư mục đồng bộ). Hiện khi desktop khởi động không kèm file/deep link; `Alt+Home` quay lại; `?start=1` cho cửa sổ mới | Vitest `start.test.tsx`, `drive.test.ts`; E2E desktop "Start screen: BlueDrive sign-in…" |
+| **Duyệt BlueDrive** | BOHP §A2 (`/me`, `/folders/{id}/children`, `/shared`, `/me/recent`, `/sync/resolve`) trong mock; server proxy `/api/hosts/{host}/…` (desktop không gọi thẳng host; CSP/CORS chỉ cần server) + `GET /api/hosts` | .NET `HostBrowseTests` |
+| **SSO** | OAuth 2.0 code + PKCE S256 (`signin.ts`), trình duyệt hệ thống (`open_url`, không qua shell), redirect `bluedoc://auth` (`shell.rs::parse_auth_callback`, sự kiện `auth-callback`); mock có `/oauth/authorize` + `/oauth/token` | Vitest (PKCE, state), .NET (mã một lần, sai verifier), Rust `recognises_sign_in_redirects` |
+| **Thư mục đồng bộ** | `syncFolders.ts` (thư mục cụ thể nhất, không phân biệt hoa thường trên Windows, chặn `..`); file mở từ hệ điều hành, Ctrl+O, tệp gần đây nằm trong thư mục đồng bộ + đã đăng nhập BlueDrive → `resolve` → hộp thoại `SyncPrompt` → phiên cộng tác | Vitest; E2E desktop (tệp gần đây trong thư mục đồng bộ → hộp thoại → phiên thứ hai trên server) |
+| **Sửa offline desktop** | `offline.ts`: Lưu khi server không truy cập được → bản sao + version gốc trong `<app data>/offline` (`DesktopDiskCache`, lệnh Tauri `cache_*`, ghi tạm rồi đổi tên); có mạng lại trong phiên → CRDT gửi lại, bỏ bản sao, lưu version; mở lại sau khi đóng app → `…/sync?baseVersion=` → version mới hoặc "(xung đột - người dùng - thời gian)"; mất mạng lúc mở → mở bản tải gần nhất | Vitest `offline.test.ts`; E2E desktop "offline…" (proxy TCP cắt mạng thật, tải version ngoài, mở lại → bản xung đột, bản gốc giữ nguyên) |
+| **Webhook / audit** | Thử lại cả khi timeout, `Webhooks:MaxAttempts/RetryBaseDelay`; editor nhúng và desktop báo `print`/`export` qua `…/audit` (trước đây không client nào gọi) | .NET `WebhooksAreRetried…`, `WebhooksGiveUp…`, `EditorAuditEventsAreForwardedToTheHost`; Vitest |
+| **Khoá / autosave** | Đã có; thêm kiểm thử gia hạn đúng lockId ở nửa thời hạn, không autosave khi không đổi | .NET `SessionLockIsRefreshedAndAutosaveOnlyRunsAfterChanges` |
+| **Dịch vụ phụ trợ** | Ma trận định dạng `ConversionFormats` (docx/docm/doc/odt/txt/md → pdf/docx/odt/txt; xlsx/xlsm/xlsb/xls/ods → pdf/xlsx/ods/csv; pptx → pdf/pptx; ppt/odp → odp/txt); `extract-text` bảng tính = CSV từng sheet; stdout `bo-cli` đọc UTF-8 (lỗi font chữ Việt trên Windows); `bo-cli convert` nhận `.txt/.md` → PDF | .NET `BoCliEndToEndTests` chạy `bo-cli` thật (`BO_CLI` hoặc `$CARGO_TARGET_DIR`) |
+| **Deep link BlueSheet/BlueSlide** | `bluesheet://` `blueslide://` → ứng dụng theo loại file trong cùng shell | E2E desktop: người dùng web gõ công thức, desktop (BlueSheet) lưu version có `<f>2*21</f>`; `blueslide://` mở BlueSlide |
+
+Hạn chế còn lại: SSO chưa có E2E tự động (cần trình duyệt hệ thống) — kiểm bằng .NET/Vitest với mock; token BlueDrive chỉ
+giữ trong bộ nhớ (đóng app phải đăng nhập lại, token mock sống 10 phút, chưa có refresh token); nhận diện thư mục đồng bộ cần
+đã đăng nhập tab BlueDrive; nút quay lại Start chỉ là phím tắt `Alt+Home`; mock dùng một cây thư mục chung cho mọi người dùng.
+
 ## Còn lại (ngoài phạm vi lần này)
 
 - **Ký số** (Phase 6): ký PDF PAdES và OOXML XML-DSig; điểm tích hợp dự kiến: một `ISignatureProvider` (USB token qua agent
   cục bộ trên desktop, ký số từ xa của CA Việt Nam qua REST) + job `sign` trong worker; chưa code.
-- **Desktop**: màn hình Start / tab BlueDrive (duyệt file, SSO), hỏi chuyển sang cộng tác khi mở file trong thư mục
-  đồng bộ BlueDrive; ô nhập server trong giao diện (hiện chỉ biến môi trường + `setServerUrl`).
 - `bo-collab` (Yrs) và editor SDK/TS (postMessage, nút Share/Close, chế độ offline) — luồng chính.
 - Nhiều instance `api` (room đang ở bộ nhớ một tiến trình): cần định tuyến theo file (consistent hashing) hoặc
   Redis pub/sub cho relay.
 - EF Core migrations (hiện `EnsureCreated`); Testcontainers cho PostgreSQL/MinIO/Redis (hiện test dùng SQLite/filesystem/in-memory).
-- Chuyển đổi định dạng ngoài docx→pdf (doc→docx, xls→xlsx, ppt→pptx, xlsx/pptx→pdf) phụ thuộc `bo-cli` của Phase 3–5;
-  `BoCli:AllowedExtensions` hiện là `.docx/.txt/.md`.
+- `ppt`/`odp` → `pptx`/PDF/ảnh: `bo-cli` chưa có đường từ mô hình ODF/[MS-PPT] sang PresentationML (chỉ `odp`, `txt`);
+  `/thumbnail` và `/preview` của hai định dạng này trả 422.
 - Server chưa giữ Y.Doc (không merge được bản offline dạng CRDT ở server): khi xung đột luôn tạo bản sao.

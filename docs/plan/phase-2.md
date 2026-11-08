@@ -69,8 +69,9 @@ E2E gõ tiếng Việt + lưu + mở lại.
   trang sau dùng bề rộng tính theo vị trí ở trang trước; text box/shape hiển thị dạng opaque; chưa chia đoạn qua cột cân bằng.
 - Layout tăng dần: NUMPAGES/SECTIONPAGES trong thân văn bản và sửa đầu/chân trang **đã tăng dần** (xem mục "Layout tăng
   dần: NUMPAGES và đầu/chân trang" bên dưới). Còn dàn lại toàn bộ: thay đổi số trang khi thân có NUMPAGES, đầu/chân trang
-  đổi chiều cao (đẩy thân văn bản), chú thích đổi trang với numRestart eachPage, đổi section, đổi style mặc định hoặc style/danh sách
-  dùng trong đầu/chân trang/chú thích/comment/text box (đổi style hay numbering khác chỉ dàn lại từ khối đầu tiên dùng nó); trang dùng lại
+  đổi chiều cao (đẩy thân văn bản), chú thích đổi trang với numRestart eachPage, đổi thiết lập trang section đầu / số trang bắt đầu /
+  thuộc tính chú thích, đổi style mặc định hoặc style/danh sách dùng trong đầu/chân trang/chú thích/comment/text box (đổi
+  style, numbering khác hay khổ giấy/lề/cột của section sau chỉ dàn lại từ chỗ bị ảnh hưởng); trang dùng lại
   chỉ được dời số trang khi thân văn bản không có field và không có section oddPage/evenPage.
 - Visual diff với ảnh tham chiếu (< 2 % pixel) chưa chạy vì chưa có ảnh tham chiếu do người dùng cung cấp.
 - E2E desktop (Tauri WebDriver) chưa có.

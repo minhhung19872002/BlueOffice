@@ -58,9 +58,10 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
    đồng thời hàng và cột để hàng mới thiếu ô; id comment/chú thích mới là max+1 (hai người thêm cùng lúc có thể trùng);
    docDefaults/defaultTabStop/latent styles chưa đồng bộ; BlueSheet: định dạng có điều kiện, data validation, chart, pivot,
    bộ lọc lưu theo vị trí; master/layout slide khoá theo chỉ số; server một instance (phòng trong bộ nhớ).
-2. **Hiệu năng**: đổi thuộc tính section, style mặc định, hoặc style/danh sách dùng trong header/footer/chú thích/
-   comment/text box vẫn dàn lại toàn bộ; đổi style hay numbering khác chỉ dàn lại từ khối đầu tiên dùng nó
-   (`bo_edit::ops::record_styles` / `record_numbering`). NUMPAGES,
+2. **Hiệu năng**: đổi style mặc định, style/danh sách dùng trong header/footer/chú thích/comment/text box, thiết lập
+   trang của section đầu tiên, số trang bắt đầu hay thuộc tính chú thích của section vẫn dàn lại toàn bộ; đổi style,
+   numbering khác hoặc khổ giấy/lề/cột/kiểu ngắt của section sau chỉ dàn lại từ chỗ bị ảnh hưởng
+   (`bo_edit::ops::record_ops`). NUMPAGES,
    header/footer và chú thích đánh số theo trang đã tăng dần, chỉ dàn lại toàn bộ khi số trang / chiều cao header /
    trang của chú thích đổi.
 3. **BlueDoc**: dòng "tiếp theo" của chú thích tràn trang chỉ hiển thị, chưa ghi ra file; wrap tight lấy bề ngang của đa
@@ -81,7 +82,7 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
   (`bo-cli verify --crl`). Gói zip ghi ra giống hệt nhau trên Windows và Linux (corpus slide hết lệch). Thanh công
   thức hiện ngày cho mọi định dạng ngày. Wrap tight ôm theo cạnh đa giác `wp:wrapPolygon` (giữ đủ đỉnh khi lưu).
   Rà soát lại "Hạn chế đã biết". Sửa lỗi cache layout không theo định nghĩa style (đổi style/undo/mở tài liệu khác hiện
-  cỡ chữ cũ); đổi style / numbering chỉ dàn lại các khối dùng chúng.
+  cỡ chữ cũ); đổi style / numbering / thiết lập trang của section chỉ dàn lại phần bị ảnh hưởng.
 - 2026-11-08 (khuya): pivot đầy đủ (tổng phụ, 3 bố cục, nhóm ngày/số, trường tính toán, 14 kiểu "hiển thị giá trị",
   lọc/top-N, kiểu); E2E cộng tác với server thật + desktop cộng tác qua deep link (sửa lỗi caret người vào sau nhảy cuối
   tài liệu); chú thích sửa trên trang, header/footer liên kết section trước, track changes bảng/ảnh/page setup; ô bảng

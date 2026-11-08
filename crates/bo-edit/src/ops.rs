@@ -344,8 +344,14 @@ impl Transaction {
 pub fn record_ops(ops: &[Op], doc: &Document, changes: &mut BlockChanges) {
     let mut sheets = Vec::new();
     let mut lists = Vec::new();
+    let only_sections = ops.iter().all(|o| matches!(o, Op::Sections { .. }));
     for op in ops {
         match op {
+            Op::Sections {
+                index,
+                remove,
+                insert,
+            } if only_sections && record_section_props(*index, remove, insert, doc, changes) => {}
             Op::Styles { old, new } => sheets.push((&**old, &**new)),
             Op::Numbering { old, new } => lists.push((&**old, &**new)),
             _ => op.record(changes),
@@ -489,6 +495,64 @@ pub fn record_numbering(
             }
         }
     }
+}
+
+/// Record a replacement of sections that changes only their page setup, columns
+/// or break type (ECMA-376 Part 1, §17.6.13 pgSz, §17.6.11 pgMar, §17.6.4 cols,
+/// §17.6.22 type) and/or their headers and footers. The flow restarts at the last
+/// block of the previous non-empty section (a section's first checkpoint is taken
+/// after its section break) and may resynchronise only after the changed
+/// section; its headers are measured again. `false` (nothing recorded) for any
+/// other change: blocks, page numbering, note properties, tracked section changes,
+/// or a change of the first section.
+fn record_section_props(
+    index: usize,
+    remove: &[Section],
+    insert: &[Section],
+    doc: &Document,
+    changes: &mut BlockChanges,
+) -> bool {
+    if remove.len() != insert.len() || changes.is_all() {
+        return false;
+    }
+    let simple = remove.iter().zip(insert).all(|(a, b)| {
+        a.blocks == b.blocks
+            && a.page_number_start == b.page_number_start
+            && a.footnote_pr == b.footnote_pr
+            && a.endnote_pr == b.endnote_pr
+            && a.change == b.change
+    });
+    if !simple {
+        return false;
+    }
+    let mut marks = Vec::new();
+    for (i, (a, b)) in remove.iter().zip(insert).enumerate() {
+        let si = index + i;
+        if a.same_except_headers(b) {
+            marks.push((si, None));
+            continue;
+        }
+        let Some(prev) = (0..si).rev().find(|&s| {
+            doc.sections
+                .get(s)
+                .is_some_and(|sec| !sec.blocks.is_empty())
+        }) else {
+            return false;
+        };
+        let Some(sec) = doc.sections.get(si) else {
+            return false;
+        };
+        marks.push((si, Some((prev, sec.blocks.len()))));
+    }
+    for (si, props) in marks {
+        if let Some((prev, n)) = props {
+            let last = doc.sections[prev].blocks.len() - 1;
+            changes.splice(prev, last, 1, 1);
+            changes.splice(si, 0, n, n);
+        }
+        changes.mark_headers(si);
+    }
+    true
 }
 
 /// Style ids whose effective definition differs between two style sheets: the

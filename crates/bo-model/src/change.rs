@@ -5,7 +5,7 @@
 //! the `modified` flag) from the same ranges. Header/footer edits are recorded as
 //! the first section whose headers or footers changed (the layout decorates the
 //! pages again without re-paginating while their heights stay the same). Other
-//! changes (section properties…) mark everything; a style sheet or numbering
+//! changes mark everything; page setup changes of a later section, a style sheet or numbering
 //! change marks the blocks using it (`bo_edit::ops::record_styles` /
 //! `record_numbering`) and [`BlockChanges::mark_parts`].
 

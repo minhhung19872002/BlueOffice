@@ -72,6 +72,26 @@ fn op() -> impl Strategy<Value = Command> {
             .prop_map(|id| Command::ApplyStyle { id: id.into() }),
         1 => prop_oneof![Just(bo_edit::ParaFormat::Bullets), Just(bo_edit::ParaFormat::Numbering)]
             .prop_map(|format| Command::FormatParagraph { format }),
+        1 => prop_oneof![Just(bo_engine::edit::BreakKind::NextPage), Just(bo_engine::edit::BreakKind::Continuous)]
+            .prop_map(|kind| Command::InsertSectionBreak { kind }),
+        2 => (any::<bool>(), 1u16..3, any::<bool>()).prop_map(|(landscape, columns, all)| {
+            let (w, h) = if landscape { (16_838, 11_906) } else { (11_906, 16_838) };
+            Command::SetPageSetup {
+                setup: bo_edit::PageSetupSpec {
+                    width: w,
+                    height: h,
+                    margin_top: 1_134,
+                    margin_bottom: 1_134,
+                    margin_left: 1_701,
+                    margin_right: 1_134,
+                    header: 720,
+                    footer: 720,
+                    columns,
+                    column_space: 720,
+                },
+                scope: if all { bo_edit::SetupScope::Document } else { bo_edit::SetupScope::Section },
+            }
+        }),
     ]
 }
 
@@ -229,6 +249,55 @@ fn a_new_list_lays_out_only_from_its_first_paragraph() {
     e.command(on.clone()).unwrap();
     let r = e.command(on).unwrap();
     assert!(r.modified);
+}
+
+// source: ECMA-376 Part 1, §17.6.13 pgSz, §17.6.4 cols, §17.6.17 sectPr
+#[test]
+fn a_page_setup_change_lays_out_from_its_section() {
+    let mut e = engine(400);
+    big_doc::caret_at(&mut e, 250, 0);
+    e.command(Command::InsertSectionBreak {
+        kind: bo_engine::edit::BreakKind::NextPage,
+    })
+    .unwrap();
+    big_doc::caret_at(&mut e, 300, 0);
+    let r = e
+        .command(Command::SetPageSetup {
+            setup: bo_edit::PageSetupSpec {
+                width: 16_838,
+                height: 11_906,
+                margin_top: 1_134,
+                margin_bottom: 1_134,
+                margin_left: 1_701,
+                margin_right: 1_134,
+                header: 720,
+                footer: 720,
+                columns: 2,
+                column_space: 720,
+            },
+            scope: bo_edit::SetupScope::Section,
+        })
+        .unwrap();
+    assert!(
+        matches!(e.last_layout_update(), UpdateKind::Incremental { .. }),
+        "{:?}",
+        e.last_layout_update()
+    );
+    assert!(
+        r.dirty.iter().min().copied().unwrap_or(0) > 0,
+        "{:?}",
+        r.dirty
+    );
+    let mut fresh = Engine::with_bundled_fonts();
+    fresh
+        .load(e.document().unwrap().clone(), "full.docx")
+        .unwrap();
+    assert_eq!(
+        serde_json::to_string(e.layout().unwrap()).unwrap(),
+        serde_json::to_string(fresh.layout().unwrap()).unwrap()
+    );
+    let landscape = e.layout().unwrap().pages.last().unwrap();
+    assert!(landscape.width > landscape.height);
 }
 
 #[test]

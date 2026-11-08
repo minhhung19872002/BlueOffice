@@ -15,6 +15,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 bo-engine = { workspace = true, features = ["bundled-fonts"] }
+# Ký số: .p12/.pem, USB token (PKCS#11, desktop only), remote signing, RFC 3161.
+bo-sign = { path = "../../../crates/bo-sign", features = ["http", "pkcs11", "pkcs12"] }
+base64 = "0.22"
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }
@@ -22,6 +25,9 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-updater = { version = "2", optional = true }
+
+[dev-dependencies]
+rand = "0.8"
 
 [features]
 # Auto-update (Tauri updater): needs `plugins.updater` (endpoints + pubkey) in the

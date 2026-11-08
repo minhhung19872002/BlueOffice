@@ -100,6 +100,24 @@ pub fn dispatch(e: &mut SheetEngine, method: &str, a: &[Value]) -> Result<Value,
         "deleteSheet" => s(e.delete_sheet(idx(a, 0)?)),
         "exec" => serde_json::from_str(&e.exec_json(&text(a, 0)?).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string()),
+        // Live collaboration (bo_engine::sheet::collab), same as WasmSheet.collab*.
+        "collabStart" => to_json(
+            &e.collab_start(
+                a.first().and_then(Value::as_bool).unwrap_or(false),
+                a.get(1).and_then(Value::as_u64).unwrap_or(0),
+            )
+            .map_err(|e| e.to_string())?,
+        ),
+        "collabLocal" => to_json(&e.collab_local().map_err(|e| e.to_string())?),
+        "collabApply" => serde_json::from_str(
+            &e.collab_apply_json(&text(a, 0)?)
+                .map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string()),
+        "collabStop" => {
+            e.collab_stop();
+            Ok(Value::Null)
+        }
         "glyphs" => {
             let glyphs: Vec<u16> = a
                 .get(1)

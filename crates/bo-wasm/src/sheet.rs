@@ -182,6 +182,33 @@ impl WasmSheet {
         self.inner.delete_sheet(sheet).map_err(err)
     }
 
+    /// Binds the workbook to a collaboration session; returns the change to
+    /// publish when seeding (JSON `CollabChange`).
+    #[wasm_bindgen(js_name = collabStart)]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn collab_start(&mut self, seed: bool, client_id: f64) -> Result<String, JsError> {
+        self.inner
+            .collab_start_json(seed, client_id.max(0.0) as u64)
+            .map_err(err)
+    }
+
+    /// Local changes since the last call (JSON `CollabChange`).
+    #[wasm_bindgen(js_name = collabLocal)]
+    pub fn collab_local(&mut self) -> Result<String, JsError> {
+        self.inner.collab_local_json().map_err(err)
+    }
+
+    /// Applies a replica change; returns the workbook info JSON.
+    #[wasm_bindgen(js_name = collabApply)]
+    pub fn collab_apply(&mut self, json: &str) -> Result<String, JsError> {
+        self.inner.collab_apply_json(json).map_err(err)
+    }
+
+    #[wasm_bindgen(js_name = collabStop)]
+    pub fn collab_stop(&mut self) {
+        self.inner.collab_stop();
+    }
+
     /// Editing command (`bo_engine::sheet::SheetCommand` JSON) → JSON result.
     pub fn exec(&mut self, command: &str) -> Result<String, JsError> {
         self.inner.exec_json(command).map_err(err)

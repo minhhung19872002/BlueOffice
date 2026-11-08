@@ -23,6 +23,7 @@ bo-render.workspace = true
 bo-raster.workspace = true
 bo-pdf.workspace = true
 bo-sheet.workspace = true
+bo-formula.workspace = true
 bo-xlsx.workspace = true
 bo-binary = { path = "../bo-binary" }
 bo-odf = { path = "../bo-odf" }

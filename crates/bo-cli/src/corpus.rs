@@ -1265,6 +1265,93 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         },
     ));
 
+    // ---- Office Math (ECMA-376 Part 1, §22.1): inline and display equations.
+    let mr = |t: &str| format!(r#"<m:r><m:t>{t}</m:t></m:r>"#);
+    let frac = |n: &str, d: &str| format!("<m:f><m:num>{n}</m:num><m:den>{d}</m:den></m:f>");
+    let sup = |e: &str, x: &str| format!("<m:sSup><m:e>{e}</m:e><m:sup>{x}</m:sup></m:sSup>");
+    let sub = |e: &str, x: &str| format!("<m:sSub><m:e>{e}</m:e><m:sub>{x}</m:sub></m:sSub>");
+    let math = |inner: &str| format!("<m:oMath>{inner}</m:oMath>");
+    let display = |inner: &str| {
+        format!(
+            r#"<w:p><m:oMathPara><m:oMathParaPr><m:jc m:val="center"/></m:oMathParaPr><m:oMath>{inner}</m:oMath></m:oMathPara></w:p>"#
+        )
+    };
+    let quadratic = [
+        sub(&mr("x"), &mr("1,2")),
+        mr("="),
+        frac(
+            &[
+                mr("−b±"),
+                format!(
+                    r#"<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/><m:e>{}{}</m:e></m:rad>"#,
+                    sup(&mr("b"), &mr("2")),
+                    mr("−4ac")
+                ),
+            ]
+            .concat(),
+            &mr("2a"),
+        ),
+    ]
+    .concat();
+    v.push(("math-01-inline.docx", "math", "Công thức trong dòng: phân số, mũ, chỉ số dưới, căn bậc hai (nghiệm phương trình bậc hai)", Doc {
+        body: [
+            format!(
+                r#"<w:p><w:r><w:t xml:space="preserve">Nghiệm của phương trình </w:t></w:r>{}<w:r><w:t xml:space="preserve"> là </w:t></w:r>{}<w:r><w:t xml:space="preserve">, với điều kiện </w:t></w:r>{}<w:r><w:t>.</w:t></w:r></w:p>"#,
+                math(&[sup(&mr("ax"), &mr("2")), mr("+bx+c=0")].concat()),
+                math(&quadratic),
+                math(&[mr("Δ="), sup(&mr("b"), &mr("2")), mr("−4ac≥0")].concat()),
+            ),
+            lorem(1),
+        ]
+        .concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+    let nary = |chr: &str, loc: &str, lo: &str, hi: &str, e: &str| {
+        format!(
+            r#"<m:nary><m:naryPr><m:chr m:val="{chr}"/><m:limLoc m:val="{loc}"/></m:naryPr><m:sub>{lo}</m:sub><m:sup>{hi}</m:sup><m:e>{e}</m:e></m:nary>"#
+        )
+    };
+    let matrix = format!(
+        r#"<m:d><m:dPr><m:begChr m:val="["/><m:endChr m:val="]"/></m:dPr><m:e><m:m><m:mr><m:e>{}</m:e><m:e>{}</m:e></m:mr><m:mr><m:e>{}</m:e><m:e>{}</m:e></m:mr></m:m></m:e></m:d>"#,
+        mr("1"),
+        mr("0"),
+        mr("0"),
+        mr("1")
+    );
+    v.push(("math-02-display.docx", "math", "Công thức đứng riêng dòng: tổng Σ có cận trên/dưới, tích phân, ma trận trong ngoặc vuông, hàm sin", Doc {
+        body: [
+            p("Tổng và tích phân:"),
+            display(&[nary("∑", "undOvr", &mr("k=1"), &mr("n"), &mr("k")), mr("="), frac(&mr("n(n+1)"), &mr("2"))].concat()),
+            display(&[nary("∫", "subSup", &mr("0"), &mr("π"), &[format!(r#"<m:func><m:fName>{}</m:fName><m:e>{}</m:e></m:func>"#, r#"<m:r><m:rPr><m:sty m:val="p"/></m:rPr><m:t>sin</m:t></m:r>"#, mr("x")), mr("dx")].concat()), mr("=2")].concat()),
+            p("Ma trận đơn vị:"),
+            display(&[sub(&mr("I"), &mr("2")), mr("="), matrix].concat()),
+        ]
+        .concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+    v.push(("math-03-delimiters.docx", "math", "Ngoặc co giãn theo nội dung, gạch trên, dấu mũ, giới hạn dưới (lim), hệ phương trình (eqArr)", Doc {
+        body: [
+            display(&[
+                format!(r#"<m:func><m:fName><m:limLow><m:e><m:r><m:rPr><m:sty m:val="p"/></m:rPr><m:t>lim</m:t></m:r></m:e><m:lim>{}</m:lim></m:limLow></m:fName><m:e>{}</m:e></m:func>"#, mr("x→0"), frac(&mr("sin x"), &mr("x"))),
+                mr("=1"),
+            ].concat()),
+            display(&format!(
+                r#"<m:d><m:e>{}</m:e></m:d>{}<m:bar><m:barPr><m:pos m:val="top"/></m:barPr><m:e>{}</m:e></m:bar><m:acc><m:accPr><m:chr m:val="⃗"/></m:accPr><m:e>{}</m:e></m:acc>"#,
+                frac(&mr("a+b"), &mr("c")), mr("+"), mr("AB"), mr("v")
+            )),
+            display(&format!(
+                r#"<m:d><m:dPr><m:begChr m:val="{{"/><m:endChr m:val=""/></m:dPr><m:e><m:eqArr><m:e>{}</m:e><m:e>{}</m:e></m:eqArr></m:e></m:d>"#,
+                mr("x+y=3"), mr("x−y=1")
+            )),
+            lorem(1),
+        ]
+        .concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+
     // ---- comments (§17.13.4) with replies ([MS-DOCX] commentsExtended / commentsIds)
     let comments_part = |inner: &str| {
         (

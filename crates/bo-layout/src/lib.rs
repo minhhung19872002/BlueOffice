@@ -23,6 +23,7 @@ mod blocks;
 mod drawing;
 mod flow;
 mod incremental;
+mod math;
 mod paragraph;
 mod style;
 mod types;

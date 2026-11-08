@@ -139,9 +139,11 @@ fn row_height(
         gap = gap.max(f32::from(info.line_gap) * scale);
     };
     let mut obj = 0.0f32;
+    let mut obj_depth = 0.0f32;
     for p in pieces {
         if p.kind == Kind::Object && p.image.is_some() {
             obj = obj.max(p.obj_h);
+            obj_depth = obj_depth.max(p.obj_d);
         } else {
             let st = &styles[p.style];
             metric(p.face, st.size, st.shift);
@@ -153,7 +155,7 @@ fn row_height(
     {
         metric(mark.face, mark.size, 0.0);
     }
-    let natural = ascent.max(obj) + descent + gap;
+    let natural = ascent.max(obj) + descent.max(obj_depth) + gap;
     match spacing {
         LineSpacing::Auto(v) => natural * v as f32 / 240.0,
         LineSpacing::Exact(t) => t.to_pt(),
@@ -302,6 +304,8 @@ struct Piece {
     drawing: Option<Arc<Drawing>>,
     /// Object height above baseline (pictures).
     obj_h: f32,
+    /// Object depth below the baseline (equations).
+    obj_d: f32,
     note: Option<NoteKey>,
     /// Bidirectional embedding level (UAX #9; odd = right to left).
     level: u8,
@@ -602,6 +606,89 @@ struct Atom {
     /// Laid-out shape / text box of an inline drawing object.
     drawing: Option<Arc<Drawing>>,
     note: Option<NoteKey>,
+    /// Depth below the baseline (equations).
+    obj_d: f32,
+}
+
+/// An Office Math zone (ECMA-376 Part 1, §22.1) as an inline object: the placeholder picture (box above
+/// the baseline), its drawing (glyph runs + rules, origin at the box top) and its depth below the baseline.
+fn math_object(
+    xml: &str,
+    st: &RunStyle,
+    fonts: &mut FontManager,
+) -> Option<(Image, Arc<Drawing>, f32)> {
+    let family = fonts.info(st.face).family.clone();
+    let bold = fonts.info(st.face).bold;
+    let upright = fonts.resolve(&family, bold, false).unwrap_or(st.face);
+    let italic = fonts.resolve(&family, bold, true).unwrap_or(upright);
+    let b = crate::math::layout_math(xml, st.size, fonts, upright, italic)?;
+    let top = b.asc;
+    let fragments = b
+        .runs
+        .into_iter()
+        .map(|r| Fragment {
+            face: r.face,
+            size: r.size,
+            x: r.x,
+            y: top + r.y,
+            width: r.width,
+            color: st.color,
+            underline: bo_model::Underline::None,
+            strike: false,
+            double_strike: false,
+            text: r.text.into(),
+            glyphs: r
+                .glyphs
+                .iter()
+                .map(|&(id, x, y, cluster)| GlyphPos { id, x, y, cluster })
+                .collect::<Vec<_>>()
+                .into(),
+            link: None,
+        })
+        .collect();
+    let items = b
+        .rules
+        .iter()
+        .map(|&(x1, y1, x2, y2, width)| crate::types::PageItem::Rule {
+            x1,
+            y1: top + y1,
+            x2,
+            y2: top + y2,
+            width,
+            color: st.color,
+            style: "single".into(),
+        })
+        .collect();
+    let line = crate::types::Line {
+        top: 0.0,
+        height: 0.0,
+        baseline: top,
+        fragments,
+        source: crate::types::LineSource::Other,
+        start: 0,
+        end: 0,
+        carets: Vec::new(),
+    };
+    let emu = |pt: f32| bo_model::Emu((pt * 12_700.0).round() as i64);
+    let image = Image {
+        media: String::new(),
+        width: emu(b.w),
+        height: emu(top),
+        anchor: None,
+        crop: None,
+        rotation: 0,
+        description: "equation".into(),
+        shape: None,
+        src: None,
+    };
+    Some((
+        image,
+        Arc::new(Drawing {
+            items,
+            lines: vec![line],
+        }),
+        b.desc,
+    ))
 }
 
 /// Lay out the shape / text box of drawing object `img` at index offset `at`.
@@ -688,12 +775,18 @@ fn layout_uncached(
         let run = &inp.para.runs[sp.run];
         let style = run_style_idx[sp.run];
         let item = &run.content[sp.item];
+        let math = match item {
+            RunContent::Markup(raw) if bo_model::index::is_math_xml(&raw.xml) => {
+                math_object(&raw.xml, &styles[style], fonts)
+            }
+            _ => None,
+        };
         let drawing = match item {
             RunContent::Image(img) => match &img.shape {
                 Some(s) => Some(Arc::new(drawing_of(inp, fonts, cache, img, s, sp.start)?)),
                 None => None,
             },
-            _ => None,
+            _ => math.as_ref().map(|m| m.1.clone()),
         };
         if let RunContent::Image(img) = item {
             if img.anchor.is_some() {
@@ -714,6 +807,12 @@ fn layout_uncached(
         }
         let (text, object, image, note) = match item {
             RunContent::Image(img) => (String::new(), true, Some((**img).clone()), None),
+            RunContent::Markup(_) if math.is_some() => (
+                String::new(),
+                true,
+                math.as_ref().map(|m| m.0.clone()),
+                None,
+            ),
             RunContent::Field { instr, cached } => {
                 (field_text(instr, cached, inp.fields), true, None, None)
             }
@@ -746,6 +845,7 @@ fn layout_uncached(
             image,
             drawing,
             note,
+            obj_d: math.as_ref().map_or(0.0, |m| m.2),
         });
     }
 
@@ -974,6 +1074,7 @@ fn layout_uncached(
                 let scale = st.size / f32::from(info.units_per_em);
                 if p.kind == Kind::Object && p.image.is_some() {
                     ascent = ascent.max(p.obj_h);
+                    descent = descent.max(p.obj_d);
                 } else {
                     ascent = ascent.max(f32::from(info.ascender) * scale - st.shift.min(0.0));
                     descent = descent.max(-f32::from(info.descender) * scale + st.shift.max(0.0));
@@ -1390,6 +1491,7 @@ fn special_piece(kind: Kind, style: usize, styles: &[RunStyle], at: u32, virtual
         drawing: None,
         level: 0,
         obj_h: 0.0,
+        obj_d: 0.0,
         note: None,
     }
 }
@@ -1492,6 +1594,7 @@ fn text_pieces(
                 drawing: None,
                 level: 0,
                 obj_h: 0.0,
+                obj_d: 0.0,
                 note: None,
             });
             cursor += nc;
@@ -1530,6 +1633,7 @@ fn word_pieces(
                     drawing: at.drawing.clone(),
                     level: 0,
                     obj_h: img.height.to_pt(),
+                    obj_d: at.obj_d,
                     note: None,
                 });
                 continue;

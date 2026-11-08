@@ -1537,6 +1537,7 @@ impl RunContent {
             // Complex-field structure (§17.16.18 fldChar, §17.16.23 instrText) is not text.
             RunContent::Opaque(r) if r.xml.contains("fldChar") || r.xml.contains("instrText") => {}
             RunContent::Image(_) | RunContent::Opaque(_) => s.push('\u{FFFC}'),
+            RunContent::Markup(r) if crate::index::is_math_xml(&r.xml) => s.push('\u{FFFC}'),
             RunContent::PageBreak
             | RunContent::ColumnBreak
             | RunContent::SoftHyphen

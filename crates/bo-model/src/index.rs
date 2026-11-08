@@ -2,8 +2,8 @@
 //!
 //! Every paragraph has an index text: the concatenation of its run contents
 //! where text contributes its characters and every other editable object one
-//! placeholder character (U+FFFC for pictures/fields/notes, `\t`, U+2028 for line
-//! breaks, U+000C for page breaks …). Verbatim markup contributes nothing.
+//! placeholder character (U+FFFC for pictures/fields/notes/equations, `\t`, U+2028 for
+//! line breaks, U+000C for page breaks …). Other verbatim markup contributes nothing.
 //! Caret positions are byte offsets into this text.
 
 use crate::write::{Block, Document, Paragraph, RunContent};
@@ -11,9 +11,25 @@ use crate::write::{Block, Document, Paragraph, RunContent};
 /// Placeholder for an inline object.
 pub const OBJECT: char = '\u{FFFC}';
 
+/// `true` for verbatim markup that is an Office Math zone (ECMA-376 Part 1, §22.1.2.77 oMath,
+/// §22.1.2.78 oMathPara): it is laid out and edited as one inline object.
+#[must_use]
+pub fn is_math_xml(xml: &str) -> bool {
+    let name = xml
+        .trim_start()
+        .strip_prefix('<')
+        .and_then(|s| {
+            s.split(|c: char| c.is_whitespace() || c == '>' || c == '/')
+                .next()
+        })
+        .unwrap_or("");
+    matches!(name.rsplit(':').next(), Some("oMath" | "oMathPara"))
+}
+
 /// Index-text representation of one content item.
 pub fn item_text(c: &RunContent) -> String {
     match c {
+        RunContent::Markup(r) if is_math_xml(&r.xml) => OBJECT.to_string(),
         RunContent::Text(t) => t.clone(),
         RunContent::Tab => "\t".into(),
         RunContent::LineBreak => "\u{2028}".into(),

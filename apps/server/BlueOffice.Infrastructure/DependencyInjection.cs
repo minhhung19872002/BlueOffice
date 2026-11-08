@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Minio;
 using StackExchange.Redis;
 
@@ -69,6 +70,7 @@ public static class DependencyInjection
         {
             var redisCs = config.GetConnectionString("Redis") ?? "localhost:6379";
             services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisCs));
+            services.AddSingleton<IRedisCommands, RedisCommands>();
             services.AddSingleton<IJobQueue, RedisJobQueue>();
         }
         else
@@ -89,6 +91,11 @@ public static class DependencyInjection
         services.AddHttpClient(WopiClient.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(60));
         services.AddHttpClient(HostWebhookDispatcher.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(10));
         services.AddSingleton<IBohpClient, BohpClient>();
+        services.AddSingleton(sp => WopiProofKeys.Load(
+            config,
+            sp.GetRequiredService<IHostEnvironment>(),
+            config.GetSection("Hosts").GetChildren().Any(h => string.Equals(h["Protocol"], "Wopi", StringComparison.OrdinalIgnoreCase)),
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger("BlueOffice.Wopi")));
         services.AddSingleton<IWopiClient, WopiClient>();
         services.Configure<WebhookOptions>(config.GetSection("Webhooks"));
         services.AddSingleton<HostWebhookDispatcher>();

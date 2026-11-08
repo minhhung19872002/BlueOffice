@@ -20,6 +20,9 @@ public sealed class JobQueueOptions
 
     /// <summary>Number of jobs processed concurrently by one worker process.</summary>
     public int Concurrency { get; set; } = 2;
+
+    /// <summary>Wait between two polls of an empty Redis queue.</summary>
+    public TimeSpan PollInterval { get; set; } = TimeSpan.FromMilliseconds(500);
 }
 
 /// <summary>In-process queue (jobs are serialized so callers never share mutable instances).</summary>
@@ -60,22 +63,65 @@ public sealed class InMemoryJobQueue : IJobQueue
         Task.FromResult(_jobs.TryGetValue(id, out var json) ? JsonSerializer.Deserialize<ConversionJob>(json) : null);
 }
 
-/// <summary>Redis-backed queue: list <c>{prefix}queue</c> (LPUSH/RPOP) + one string per job record.</summary>
-public sealed class RedisJobQueue(IConnectionMultiplexer redis, JobQueueOptions options) : IJobQueue
+/// <summary>
+/// The few Redis commands <see cref="RedisJobQueue"/> needs (seam for tests; <see cref="RedisCommands"/> in production).
+/// </summary>
+public interface IRedisCommands
 {
-    private static readonly TimeSpan PollDelay = TimeSpan.FromMilliseconds(500);
+    /// <summary><c>LPUSH key value</c>.</summary>
+    Task ListLeftPushAsync(string key, string value);
 
+    /// <summary><c>RPOP key</c>; null when the list is empty.</summary>
+    Task<string?> ListRightPopAsync(string key);
+
+    /// <summary><c>SET key value EX ttl</c>.</summary>
+    Task StringSetAsync(string key, string value, TimeSpan ttl);
+
+    /// <summary><c>GET key</c>; null when missing or expired.</summary>
+    Task<string?> StringGetAsync(string key);
+}
+
+/// <summary><see cref="IRedisCommands"/> over StackExchange.Redis.</summary>
+public sealed class RedisCommands(IConnectionMultiplexer redis) : IRedisCommands
+{
     private IDatabase Db => redis.GetDatabase();
 
-    private RedisKey QueueKey => options.KeyPrefix + "queue";
+    /// <inheritdoc />
+    public Task ListLeftPushAsync(string key, string value) => Db.ListLeftPushAsync(key, value);
 
-    private RedisKey JobKey(string id) => options.KeyPrefix + id;
+    /// <inheritdoc />
+    public async Task<string?> ListRightPopAsync(string key)
+    {
+        var v = await Db.ListRightPopAsync(key);
+        return v.HasValue ? v.ToString() : null;
+    }
+
+    /// <inheritdoc />
+    public Task StringSetAsync(string key, string value, TimeSpan ttl) => Db.StringSetAsync(key, value, ttl);
+
+    /// <inheritdoc />
+    public async Task<string?> StringGetAsync(string key)
+    {
+        var v = await Db.StringGetAsync(key);
+        return v.HasValue ? v.ToString() : null;
+    }
+}
+
+/// <summary>
+/// Redis-backed queue: list <c>{prefix}queue</c> (LPUSH + RPOP = first in, first out) + one string per job record
+/// (<c>{prefix}{id}</c>, expires after <see cref="JobQueueOptions.Retention"/>). A queued id whose record expired is skipped.
+/// </summary>
+public sealed class RedisJobQueue(IRedisCommands redis, JobQueueOptions options) : IJobQueue
+{
+    private string QueueKey => options.KeyPrefix + "queue";
+
+    private string JobKey(string id) => options.KeyPrefix + id;
 
     /// <inheritdoc />
     public async Task EnqueueAsync(ConversionJob job, CancellationToken ct)
     {
         await UpdateAsync(job, ct);
-        await Db.ListLeftPushAsync(QueueKey, job.Id);
+        await redis.ListLeftPushAsync(QueueKey, job.Id);
     }
 
     /// <inheritdoc />
@@ -84,27 +130,27 @@ public sealed class RedisJobQueue(IConnectionMultiplexer redis, JobQueueOptions 
         while (true)
         {
             ct.ThrowIfCancellationRequested();
-            var id = await Db.ListRightPopAsync(QueueKey);
-            if (id.HasValue && await GetAsync(id.ToString(), ct) is { } job)
+            var id = await redis.ListRightPopAsync(QueueKey);
+            if (id is not null && await GetAsync(id, ct) is { } job)
             {
                 return job;
             }
 
-            if (!id.HasValue)
+            if (id is null)
             {
-                await Task.Delay(PollDelay, ct);
+                await Task.Delay(options.PollInterval, ct);
             }
         }
     }
 
     /// <inheritdoc />
     public Task UpdateAsync(ConversionJob job, CancellationToken ct) =>
-        Db.StringSetAsync(JobKey(job.Id), JsonSerializer.Serialize(job), options.Retention);
+        redis.StringSetAsync(JobKey(job.Id), JsonSerializer.Serialize(job), options.Retention);
 
     /// <inheritdoc />
     public async Task<ConversionJob?> GetAsync(string id, CancellationToken ct)
     {
-        var v = await Db.StringGetAsync(JobKey(id));
-        return v.HasValue ? JsonSerializer.Deserialize<ConversionJob>(v.ToString()) : null;
+        var v = await redis.StringGetAsync(JobKey(id));
+        return v is not null ? JsonSerializer.Deserialize<ConversionJob>(v) : null;
     }
 }

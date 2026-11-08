@@ -49,7 +49,28 @@ public static class JobEndpoints
                 ? Results.Stream(await store.OpenReadAsync(job.OutputKey, ct), job.OutputContentType, job.OutputFileName)
                 : Results.Conflict(JobDto.From(job));
         });
+
+        // Page images of a PNG preview (POST /preview with format=png): 1-based, owner only.
+        group.MapGet("/jobs/{id}/pages/{page:int}", async (string id, int page, ClaimsPrincipal p, IJobQueue queue, IObjectStore store, CancellationToken ct) =>
+        {
+            var job = await OwnedJobAsync(id, p, queue, ct);
+            if (job.Status != JobStatus.Succeeded)
+            {
+                return Results.Conflict(JobDto.From(job));
+            }
+
+            return job.OutputPages is { } pages && page >= 1 && page <= pages
+                ? Results.Stream(await store.OpenReadAsync(job.PageKey(page), ct), "image/png", $"page-{page}.png")
+                : throw ApiException.NotFound("Page");
+        });
     }
+
+    private static string PreviewFormat(string? format) => (format ?? "pdf").ToLowerInvariant() switch
+    {
+        "pdf" or "" => "pdf",
+        "png" => "png",
+        _ => throw ApiException.BadRequest("Preview 'format' must be 'pdf' or 'png'."),
+    };
 
     private static async Task<ConversionJob> OwnedJobAsync(string id, ClaimsPrincipal p, IJobQueue queue, CancellationToken ct)
     {
@@ -82,7 +103,12 @@ public static class JobEndpoints
             Kind = kind,
             Status = JobStatus.Queued,
             FileName = Path.GetFileName(file.FileName),
-            TargetFormat = kind == JobKind.Convert ? (string?)form["to"] ?? "pdf" : "pdf",
+            TargetFormat = kind switch
+            {
+                JobKind.Convert => ((string?)form["to"] ?? "pdf").ToLowerInvariant(),
+                JobKind.Preview => PreviewFormat(form["format"]),
+                _ => "pdf",
+            },
             Owner = ctx.User.PrincipalKey(),
             CreatedAt = time.GetUtcNow().UtcDateTime,
         };
@@ -94,6 +120,11 @@ public static class JobEndpoints
         if (double.TryParse(form["scale"], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var scale))
         {
             job.Scale = scale;
+        }
+        else if (kind == JobKind.Preview)
+        {
+            // Page images for reading: 1 px per point (72 dpi) unless asked otherwise.
+            job.Scale = 1;
         }
 
         await using (var s = file.OpenReadStream())

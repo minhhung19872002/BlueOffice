@@ -118,6 +118,11 @@ fn block(s: Spec) -> Block {
             content.insert(0, image(wrap));
         }
         20 => props.contextual_spacing = Some(true),
+        // The total page count in the body (laid out with a probe layout).
+        24 => content.push(RunContent::Field {
+            instr: "NUMPAGES".into(),
+            cached: "1".into(),
+        }),
         _ => {
             let cell = |t: String| Cell {
                 props: CellProps::default(),
@@ -240,10 +245,13 @@ enum Edit {
     Replace(usize, Spec),
     Insert(usize, Spec),
     Delete(usize),
+    /// New default header of a section (`seed` picks it, `words` the length: long
+    /// headers are taller and push the body).
+    Header(u32, u32),
 }
 
 fn spec() -> impl Strategy<Value = Spec> {
-    (0u8..24, 0u32..1000, 0u32..90).prop_map(|(kind, seed, words)| Spec { kind, seed, words })
+    (0u8..26, 0u32..1000, 0u32..90).prop_map(|(kind, seed, words)| Spec { kind, seed, words })
 }
 
 fn edit() -> impl Strategy<Value = Edit> {
@@ -251,6 +259,7 @@ fn edit() -> impl Strategy<Value = Edit> {
         4 => (any::<usize>(), spec()).prop_map(|(i, s)| Edit::Replace(i, s)),
         2 => (any::<usize>(), spec()).prop_map(|(i, s)| Edit::Insert(i, s)),
         2 => any::<usize>().prop_map(Edit::Delete),
+        1 => (any::<u32>(), 0u32..60).prop_map(|(s, w)| Edit::Header(s, w)),
     ]
 }
 
@@ -285,6 +294,14 @@ fn apply(doc: &mut Document, e: &Edit, changes: &mut BlockChanges) {
             let (si, k) = locate(*i, false);
             doc.sections[si].blocks.remove(k);
             changes.splice(si, k, 1, 0);
+        }
+        Edit::Header(seed, words) => {
+            let si = *seed as usize % doc.sections.len();
+            doc.sections[si].headers.default = Some(vec![field_para(
+                &format!("{} ", text(*seed, *words)),
+                "PAGE",
+            )]);
+            changes.mark_headers(si);
         }
     }
 }
@@ -440,4 +457,142 @@ fn per_page_footnote_numbers_stay_incremental() {
             serde_json::to_string(&full).unwrap()
         );
     }
+}
+
+/// Lay `doc` out after `changes` and check the result against a full layout.
+fn update_and_compare(
+    inc: &mut IncrementalLayout,
+    doc: &Document,
+    fm: &mut FontManager,
+    cache: &mut LayoutCache,
+    changes: &BlockChanges,
+) -> Vec<usize> {
+    let opts = LayoutOptions::default();
+    let dirty = inc.update(doc, fm, cache, opts, changes).unwrap();
+    let full = layout_document_with(doc, fm, &mut LayoutCache::new(), opts).unwrap();
+    assert_eq!(
+        serde_json::to_string(inc.document()).unwrap(),
+        serde_json::to_string(&full).unwrap()
+    );
+    dirty
+}
+
+#[test]
+fn numpages_in_the_body_stays_incremental() {
+    use bo_layout::UpdateKind;
+    let mut fm = fonts();
+    let specs: Vec<Spec> = (0..200)
+        .map(|i| Spec {
+            kind: if i % 50 == 7 { 24 } else { 0 },
+            seed: i,
+            words: 40,
+        })
+        .collect();
+    let mut doc = document(&specs, 200, 1);
+    let mut inc = IncrementalLayout::new();
+    let mut cache = LayoutCache::new();
+    update_and_compare(
+        &mut inc,
+        &doc,
+        &mut fm,
+        &mut cache,
+        &BlockChanges::everything(),
+    );
+    let pages = inc.document().pages.len();
+    assert!(pages > 10);
+    // Typing that keeps the page count re-paginates around the edit only.
+    let Block::Paragraph(p) = &mut doc.sections[0].blocks[120] else {
+        unreachable!()
+    };
+    p.runs[0].content[0] = RunContent::Text(format!("{} x", text(120, 40)));
+    let mut changes = BlockChanges::default();
+    changes.splice(0, 120, 1, 1);
+    let dirty = update_and_compare(&mut inc, &doc, &mut fm, &mut cache, &changes);
+    assert_eq!(
+        inc.last_update(),
+        UpdateKind::Incremental { resynced: true }
+    );
+    assert!(dirty.len() < 3, "{dirty:?}");
+    // A new page changes every total: laid out again, still equal to a full layout.
+    let long = Spec {
+        kind: 0,
+        seed: 5,
+        words: 400,
+    };
+    for _ in 0..4 {
+        doc.sections[0].blocks.insert(30, block(long));
+    }
+    let mut changes = BlockChanges::default();
+    changes.splice(0, 30, 0, 4);
+    update_and_compare(&mut inc, &doc, &mut fm, &mut cache, &changes);
+    assert!(inc.document().pages.len() > pages);
+}
+
+#[test]
+fn header_edits_redecorate_without_repaginating() {
+    use bo_layout::UpdateKind;
+    let mut fm = fonts();
+    let specs: Vec<Spec> = (0..200)
+        .map(|i| Spec {
+            kind: 0,
+            seed: i,
+            words: 40,
+        })
+        .collect();
+    // Two sections; the second inherits the first one's header (§17.10.5).
+    let mut doc = document(&specs, 120, 0);
+    let mut inc = IncrementalLayout::new();
+    let mut cache = LayoutCache::new();
+    update_and_compare(
+        &mut inc,
+        &doc,
+        &mut fm,
+        &mut cache,
+        &BlockChanges::everything(),
+    );
+    let pages = inc.document().pages.len();
+    let second = inc
+        .document()
+        .pages
+        .iter()
+        .position(|p| p.section == 1)
+        .unwrap();
+    // Typing in the second section's own header: only its pages change.
+    doc.sections[1].headers.default = Some(vec![field_para("Phần hai, trang ", "PAGE")]);
+    let mut changes = BlockChanges::default();
+    changes.mark_headers(1);
+    let dirty = update_and_compare(&mut inc, &doc, &mut fm, &mut cache, &changes);
+    assert_eq!(
+        inc.last_update(),
+        UpdateKind::Incremental { resynced: true }
+    );
+    assert_eq!(dirty, (second..pages).collect::<Vec<_>>());
+    // The first section's header: its pages (the second keeps its own header now).
+    doc.sections[0].headers.default = Some(vec![field_para("Mục lục, trang ", "PAGE")]);
+    let mut changes = BlockChanges::default();
+    changes.mark_headers(0);
+    let dirty = update_and_compare(&mut inc, &doc, &mut fm, &mut cache, &changes);
+    assert_eq!(
+        inc.last_update(),
+        UpdateKind::Incremental { resynced: true }
+    );
+    assert!(dirty.contains(&0) && dirty.contains(&(second - 1)));
+    // Together with a body edit.
+    doc.sections[0].headers.default = Some(vec![field_para("Trang số ", "PAGE")]);
+    let Block::Paragraph(p) = &mut doc.sections[0].blocks[60] else {
+        unreachable!()
+    };
+    p.runs[0].content[0] = RunContent::Text(format!("{} y", text(60, 40)));
+    let mut changes = BlockChanges::default();
+    changes.mark_headers(0);
+    changes.splice(0, 60, 1, 1);
+    update_and_compare(&mut inc, &doc, &mut fm, &mut cache, &changes);
+    assert!(matches!(inc.last_update(), UpdateKind::Incremental { .. }));
+    // A header tall enough to push the body: laid out again.
+    let tall: Vec<Block> = (0..6).map(|i| field_para(&text(i, 30), "PAGE")).collect();
+    doc.sections[0].headers.default = Some(tall);
+    let mut changes = BlockChanges::default();
+    changes.mark_headers(0);
+    update_and_compare(&mut inc, &doc, &mut fm, &mut cache, &changes);
+    assert_eq!(inc.last_update(), UpdateKind::Full);
 }

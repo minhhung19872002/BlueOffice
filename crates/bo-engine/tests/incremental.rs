@@ -133,3 +133,31 @@ fn typing_in_the_middle_is_incremental_and_redraws_one_page() {
     ));
     assert!(r.dirty.len() < r.info.page_count, "{:?}", r.dirty);
 }
+
+#[test]
+fn typing_in_a_header_redecorates_without_repaginating() {
+    let mut e = engine(400);
+    let pages = e.info().unwrap().page_count;
+    e.open_header_footer(3, true).unwrap();
+    let r = e.command(Command::InsertText { text: "x".into() }).unwrap();
+    assert_eq!(
+        e.last_layout_update(),
+        UpdateKind::Incremental { resynced: true }
+    );
+    assert_eq!(r.info.page_count, pages);
+    // Committing the header (one undo step) is incremental too.
+    e.close_header_footer().unwrap();
+    assert_eq!(
+        e.last_layout_update(),
+        UpdateKind::Incremental { resynced: true }
+    );
+    let mut fresh = Engine::with_bundled_fonts();
+    fresh
+        .load(e.document().unwrap().clone(), "full.docx")
+        .unwrap();
+    assert_eq!(
+        serde_json::to_string(e.layout().unwrap()).unwrap(),
+        serde_json::to_string(fresh.layout().unwrap()).unwrap()
+    );
+    assert!(r.modified);
+}

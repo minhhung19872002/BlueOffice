@@ -459,6 +459,36 @@ impl Section {
         }
     }
 
+    /// `other` equals `self` except for the headers, footers and §17.10.6 titlePg
+    /// (what header/footer edits change; the body pagination does not depend on them
+    /// beyond their heights).
+    pub fn same_except_headers(&self, other: &Section) -> bool {
+        // Destructured so that a new field must be classified here.
+        let Section {
+            page,
+            blocks,
+            columns,
+            headers: _,
+            footers: _,
+            title_page: _,
+            break_type,
+            page_number_start,
+            footnote_pr,
+            endnote_pr,
+            change,
+            src,
+        } = self;
+        *page == other.page
+            && *columns == other.columns
+            && *break_type == other.break_type
+            && *page_number_start == other.page_number_start
+            && *footnote_pr == other.footnote_pr
+            && *endnote_pr == other.endnote_pr
+            && *change == other.change
+            && *src == other.src
+            && *blocks == other.blocks
+    }
+
     /// Fingerprint of the modelled section properties (excluding blocks).
     pub fn props_fingerprint(&self) -> u64 {
         fingerprint(&(

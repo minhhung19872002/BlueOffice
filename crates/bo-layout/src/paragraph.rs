@@ -3,9 +3,7 @@
 
 use crate::blocks::Ctx;
 use crate::drawing::{shape_drawing, Drawing, Float};
-use crate::style::{
-    para_style_run, revision_style, run_props, run_style, slot_of, ListCounters, RunStyle,
-};
+use crate::style::{para_style_run, revision_style, run_props, run_style, slot_of, RunStyle};
 use crate::types::{Fragment, GlyphPos, NoteKey};
 use crate::LayoutError;
 use crate::RevisionView;

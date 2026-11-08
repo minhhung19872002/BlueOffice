@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql;
 using Xunit;
 
 namespace BlueOffice.Tests;
@@ -91,6 +92,59 @@ public sealed class MigrationTests
                 .GetDifferences(snapshot.GetRelationalModel(), current.GetRelationalModel());
 #pragma warning restore EF1001
             Assert.True(differences.Count == 0, $"{db.GetType().Name}: {string.Join(", ", differences.Select(d => d.GetType().Name))}");
+        }
+    }
+
+    /// <summary>The same on a real PostgreSQL server when <c>BO_TEST_POSTGRES</c> holds a connection string of a
+    /// role that may create databases (e.g. <c>Host=localhost;Username=bo;Password=bo;Database=bo</c>); a temporary
+    /// database is created and dropped. Without the variable the test does nothing.</summary>
+    [Fact]
+    public async Task PostgresMigrationsAndAdoptionWhenConfigured()
+    {
+        var admin = Environment.GetEnvironmentVariable("BO_TEST_POSTGRES");
+        if (string.IsNullOrEmpty(admin))
+        {
+            return;
+        }
+
+        var name = $"bo_migrate_{Guid.NewGuid():N}";
+        await using (var c = new NpgsqlConnection(admin))
+        {
+            await c.OpenAsync();
+            await using var cmd = new NpgsqlCommand($"CREATE DATABASE \"{name}\"", c);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var cs = new NpgsqlConnectionStringBuilder(admin) { Database = name, Pooling = false }.ConnectionString;
+        var options = new DbContextOptionsBuilder<PostgresBlueOfficeDbContext>().UseNpgsql(cs).Options;
+        try
+        {
+            // Fresh database.
+            await using (var db = new PostgresBlueOfficeDbContext(options))
+            {
+                await DatabaseMigrator.MigrateAsync(db);
+                Assert.Equal(db.Database.GetMigrations(), await db.Database.GetAppliedMigrationsAsync());
+                db.Users.Add(new User { Subject = "dev|alice", DisplayName = "Alice" });
+                await db.SaveChangesAsync();
+                // Back to a ≤ 0.6 database: no history, no CollabLog.
+                await db.Database.ExecuteSqlRawAsync("DROP TABLE \"__EFMigrationsHistory\"");
+                await db.Database.ExecuteSqlRawAsync("DROP TABLE \"CollabLog\"");
+            }
+
+            await using (var db = new PostgresBlueOfficeDbContext(options))
+            {
+                await DatabaseMigrator.MigrateAsync(db);
+                Assert.Equal(db.Database.GetMigrations(), await db.Database.GetAppliedMigrationsAsync());
+                Assert.Equal("Alice", (await db.Users.SingleAsync()).DisplayName);
+                Assert.Equal(0, await db.CollabLog.CountAsync());
+            }
+        }
+        finally
+        {
+            await using var c = new NpgsqlConnection(admin);
+            await c.OpenAsync();
+            await using var cmd = new NpgsqlCommand($"DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)", c);
+            await cmd.ExecuteNonQueryAsync();
         }
     }
 }

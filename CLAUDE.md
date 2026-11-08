@@ -78,6 +78,7 @@ BLUEOFFICE_SERVER=http://localhost:5000 bluedoc.exe "bluedoc://open?host=…&fil
 
 # Server (gồm tests/mock-bluedrive, tools/BlueOffice.Validate = bo-validate)
 dotnet test BlueOffice.sln
+BO_TEST_POSTGRES="Host=localhost;Username=bo;Password=bo;Database=bo" dotnet test BlueOffice.sln   # + migration trên PostgreSQL thật (DB tạm)
 dotnet run --project apps/server/BlueOffice.Api
 dotnet format BlueOffice.sln --verify-no-changes
 dotnet run --project tools/BlueOffice.Validate -- <file-or-dir>   # OpenXmlValidator

@@ -1767,6 +1767,97 @@ fn writer_chartex_funnel(i: usize) -> m::Workbook {
     writer_chartex("funnel", i)
 }
 
+/// Chart components (CORE-CHART-005): trend lines with equation / R², error bars, drop lines, high-low
+/// lines, up/down bars, a data table, a logarithmic value axis and a date axis.
+fn writer_chart_components(i: usize) -> m::Workbook {
+    let mut wb = m::Workbook::new();
+    let ws = &mut wb.sheets[0];
+    let text = |s: &str| m::Cell::new(m::CellValue::Text(s.into()));
+    let num = |v: f64| m::Cell::new(m::CellValue::Number(v));
+    ws.set_cell(0, 0, text("Ngày"));
+    ws.set_cell(0, 1, text("Kế hoạch"));
+    ws.set_cell(0, 2, text("Thực hiện"));
+    for r in 1..=6u32 {
+        let x = f64::from(r);
+        // Dates as serial numbers for the date axis (1 March 2026 = 46082).
+        ws.set_cell(
+            r,
+            0,
+            if i == 3 {
+                num(46_081.0 + x)
+            } else {
+                text(&format!("Kỳ {r}"))
+            },
+        );
+        ws.set_cell(
+            r,
+            1,
+            num(if i == 2 {
+                3.0 * 2f64.powf(x)
+            } else {
+                10.0 + 2.0 * x
+            }),
+        );
+        ws.set_cell(
+            r,
+            2,
+            num(if i == 2 {
+                2.0 * 3f64.powf(x * 0.7)
+            } else {
+                9.0 + 2.5 * x - (x % 2.0)
+            }),
+        );
+    }
+    let kind = if i == 2 { "column" } else { "line" };
+    // The date column holds numbers: it is given as the categories explicitly.
+    let range = if i == 3 { "B1:C7" } else { "A1:C7" };
+    let mut chart = bo_sheet::chart::new_chart(&wb, 0, m::CellRange::parse(range).unwrap(), kind)
+        .expect("chart");
+    if i == 3 {
+        for s in &mut chart.plots[0].series {
+            s.cat_ref = Some("Sheet1!$A$2:$A$7".into());
+            s.categories = (1..=6).map(|r| (46_081 + r).to_string()).collect();
+        }
+    }
+    chart.title = Some(format!("Thành phần biểu đồ {i}"));
+    let tl = |kind: &str, order: u32| m::Trendline {
+        kind: kind.into(),
+        order,
+        disp_eq: true,
+        disp_r2: true,
+    };
+    let eb = |value_type: &str, value: f64| m::ErrorBars {
+        kind: "both".into(),
+        value_type: value_type.into(),
+        value,
+    };
+    let p = &mut chart.plots[0];
+    match i {
+        1 => {
+            p.series[0].trendlines.push(tl("linear", 0));
+            p.series[1].err_bars = Some(eb("fixedVal", 1.0));
+            p.drop_lines = true;
+        }
+        2 => {
+            p.series[0].trendlines.push(tl("exp", 0));
+            p.series[1].trendlines.push(tl("poly", 2));
+            p.series[1].err_bars = Some(eb("percentage", 10.0));
+            chart.axes.log_base = Some(10.0);
+            chart.axes.data_table = true;
+        }
+        _ => {
+            p.series[0].trendlines.push(tl("movingAvg", 2));
+            p.series[1].err_bars = Some(eb("stdDev", 1.0));
+            p.hi_low_lines = true;
+            p.flag = true;
+            chart.axes.date = true;
+        }
+    }
+    chart.dirty = true;
+    wb.sheets[0].charts.push(chart);
+    wb
+}
+
 fn writer_charts_percent(i: usize) -> m::Workbook {
     writer_chart_kind("percent", i)
 }
@@ -2417,6 +2508,7 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-format", "BlueSheet writer: cell formats (vi-VN number formats, fonts, fills, borders, alignment) and a gallery cell style", writer_format),
     ("writer-sheet", "BlueSheet writer: column width / row height, freeze panes, merge, AutoFilter, conditional formats, list validation, page setup + print titles", writer_sheet),
     ("writer-charts", "BlueSheet writer: inserted charts (column, column+line combo, doughnut, scatter) with axis titles and legend", writer_charts),
+    ("writer-charts-components", "BlueSheet writer: chart components (linear trend line, fixed error bars, drop lines; exponential and polynomial trend lines, percentage error bars, data table, log axis; moving average, standard-deviation error bars, high-low lines, up/down bars, date axis)", writer_chart_components),
     ("writer-charts-percent", "BlueSheet writer: 100 % stacked column, bar and area charts", writer_charts_percent),
     ("writer-charts-bubble", "BlueSheet writer: bubble charts (one and two series of X, Y and size; negative values)", writer_charts_bubble),
     ("writer-charts-radar", "BlueSheet writer: radar charts (standard, with markers, filled)", writer_charts_radar),
@@ -2980,16 +3072,24 @@ fn new_chart_types_round_trip() {
             let (a, b) = (&wb.sheets[0].charts[0], &back.sheets[0].charts[0]);
             let ctx = format!("{name}-{i}");
             assert_eq!(b.plots.len(), a.plots.len(), "{ctx}");
+            assert_eq!(b.axes, a.axes, "{ctx}");
             for (pa, pb) in a.plots.iter().zip(&b.plots) {
                 assert_eq!(pb.kind, pa.kind, "{ctx}");
                 assert_eq!(pb.grouping, pa.grouping, "{ctx}");
                 assert_eq!(pb.style, pa.style, "{ctx}");
                 assert_eq!(pb.flag, pa.flag, "{ctx}");
+                assert_eq!(
+                    (pb.drop_lines, pb.hi_low_lines),
+                    (pa.drop_lines, pa.hi_low_lines),
+                    "{ctx}"
+                );
                 assert_eq!(pb.series.len(), pa.series.len(), "{ctx}");
                 for (sa, sb) in pa.series.iter().zip(&pb.series) {
                     assert_eq!(sb.val_ref, sa.val_ref, "{ctx}");
                     assert_eq!(sb.size_ref, sa.size_ref, "{ctx}");
                     assert_eq!(sb.explosion, sa.explosion, "{ctx}");
+                    assert_eq!(sb.trendlines, sa.trendlines, "{ctx}");
+                    assert_eq!(sb.err_bars, sa.err_bars, "{ctx}");
                     assert_eq!(sb.values.len(), sa.values.len(), "{ctx}");
                 }
             }

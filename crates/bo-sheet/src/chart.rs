@@ -229,6 +229,7 @@ pub fn plot_for(kind: &str) -> ChartPlot {
         style: style.map(str::to_owned),
         flag,
         series: Vec::new(),
+        ..ChartPlot::default()
     }
 }
 
@@ -819,6 +820,10 @@ struct Ser {
     levels: Vec<Vec<String>>,
     /// Waterfall totals.
     subtotals: Vec<usize>,
+    /// Trend lines (§21.2.2.211).
+    trendlines: Vec<bo_model::sheet::Trendline>,
+    /// Error bars (§21.2.2.58).
+    err_bars: Option<bo_model::sheet::ErrorBars>,
 }
 
 /// Resolves chart colours: a colour of the file (`Some`) or the default colour of series / point `i`
@@ -960,6 +965,8 @@ pub fn draw_chart_with(
                 explosion: s.explosion,
                 levels: s.levels.clone(),
                 subtotals: s.subtotals.clone(),
+                trendlines: s.trendlines.clone(),
+                err_bars: s.err_bars.clone(),
             });
             idx += 1;
         }
@@ -1135,18 +1142,101 @@ pub fn draw_chart_with(
         out.push(Command::PopTransform);
         left += th;
     }
-    draw_xy(&plots, [left, top, right, bottom], font, locale, label, out);
+    // §21.2.2.54 dTable: a table of the values under the plot.
+    let table_rows = if chart.axes.data_table {
+        plots.iter().map(|(_, s)| s.len()).sum::<usize>() + 1
+    } else {
+        0
+    };
+    let table_h = table_rows as f64 * font * 1.6;
+    let plot_bottom = bottom - table_h;
+    let geo = draw_xy(
+        &plots,
+        [left, top, right, plot_bottom],
+        font,
+        locale,
+        &chart.axes,
+        label,
+        out,
+    );
+    if let Some((pl, pr, n)) = geo.filter(|_| table_rows > 0) {
+        data_table(
+            &plots,
+            [left, plot_bottom, right, bottom],
+            (pl, pr, n),
+            font,
+            locale,
+            label,
+            out,
+        );
+    }
 }
 
-#[allow(clippy::too_many_lines)]
-fn draw_xy(
+/// §21.2.2.54 dTable: one row per series under the categories, with grid lines.
+#[allow(clippy::too_many_arguments)]
+fn data_table(
     plots: &[(&ChartPlot, Vec<Ser>)],
-    [l, t, r, b]: [f64; 4],
+    [l, t, _r, b]: [f64; 4],
+    (pl, pr, n): (f64, f64, usize),
     font: f64,
     locale: &Locale,
     label: &mut LabelFn<'_>,
     out: &mut Vec<Command>,
 ) {
+    let row = font * 1.6;
+    let slot = (pr - pl) / n.max(1) as f64;
+    let series: Vec<&Ser> = plots.iter().flat_map(|(_, s)| s.iter()).collect();
+    let mut y = t + row;
+    out.push(hline(l, pr, y, GRID, 0.5));
+    for s in series {
+        out.push(rect(
+            l + 2.0,
+            y + row * 0.3,
+            font * 0.8,
+            font * 0.8,
+            s.color,
+        ));
+        label(
+            &s.name,
+            [l + font * 1.1, y, pl - 2.0, y + row],
+            Align::Left,
+            font,
+            TEXT,
+            out,
+        );
+        for i in 0..n {
+            if let Some(v) = s.vals.get(i).copied().flatten() {
+                let x = pl + i as f64 * slot;
+                label(
+                    &fmt_num(v, locale),
+                    [x, y, x + slot, y + row],
+                    Align::Center,
+                    font,
+                    TEXT,
+                    out,
+                );
+            }
+        }
+        y += row;
+        out.push(hline(l, pr, y.min(b), GRID, 0.5));
+    }
+    for i in 0..=n {
+        out.push(vline(pl + i as f64 * slot, t, y.min(b), GRID, 0.5));
+    }
+}
+
+/// Draws the axes and plots of a category / XY chart; returns the plot's left and right edges and the
+/// number of categories (for the data table), `None` when there is nothing to draw.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+fn draw_xy(
+    plots: &[(&ChartPlot, Vec<Ser>)],
+    [l, t, r, b]: [f64; 4],
+    font: f64,
+    locale: &Locale,
+    axes: &bo_model::sheet::ChartAxes,
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) -> Option<(f64, f64, usize)> {
     let scatter = plots
         .iter()
         .all(|(p, _)| matches!(p.kind, ChartKind::Scatter | ChartKind::Bubble));
@@ -1162,12 +1252,12 @@ fn draw_xy(
         .max()
         .unwrap_or(0);
     if ncat == 0 {
-        return;
+        return None;
     }
     let val = |s: &Ser, i: usize| s.vals.get(i).copied().flatten().unwrap_or(0.0);
-    // Value range over all plots.
+    // Value range over the plots of the primary axis (the secondary axis has its own, below).
     let (mut vmin, mut vmax) = (0.0_f64, 0.0_f64);
-    for (p, ss) in plots {
+    for (p, ss) in plots.iter().filter(|(p, _)| !p.secondary) {
         for i in 0..ncat {
             if stacked_of(p) {
                 let total: f64 = ss.iter().map(|s| val(s, i).abs()).sum();
@@ -1194,12 +1284,76 @@ fn draw_xy(
             }
         }
     }
+    // Error bars and trend lines widen the range a little.
+    for (_, ss) in plots.iter().filter(|(p, _)| !p.secondary) {
+        for s in ss {
+            if let Some(e) = &s.err_bars {
+                let vs: Vec<f64> = s.vals.iter().flatten().copied().collect();
+                for v in &vs {
+                    let d = err_amount(e, *v, &vs);
+                    vmax = vmax.max(v + d);
+                    vmin = vmin.min(v - d);
+                }
+            }
+        }
+    }
     if vmax <= vmin {
         vmax = vmin + 1.0;
     }
-    let step = nice_step(vmax - vmin, 5.0);
-    let vmax = (vmax / step).ceil() * step;
-    let vmin = (vmin / step).floor() * step;
+    // §21.2.2.100 logBase: the axis runs over powers of the base (values ≤ 0 are not shown).
+    let log = axes.log_base.filter(|b| *b > 1.0);
+    let positive_min = plots
+        .iter()
+        .flat_map(|(_, s)| s.iter().flat_map(|s| s.vals.iter().flatten().copied()))
+        .filter(|v| *v > 0.0)
+        .fold(f64::MAX, f64::min);
+    let tf = |v: f64| match log {
+        Some(base) => v.max(1e-300).log(base),
+        None => v,
+    };
+    let untf = |t: f64| match log {
+        Some(base) => base.powf(t),
+        None => t,
+    };
+    let (vmin, vmax, step) = if log.is_some() {
+        let lo = if positive_min < f64::MAX {
+            tf(positive_min).floor()
+        } else {
+            0.0
+        };
+        let hi = tf(vmax.max(untf(lo + 1.0))).ceil();
+        (lo, hi.max(lo + 1.0), 1.0)
+    } else {
+        let step = nice_step(vmax - vmin, 5.0);
+        (
+            axes.min.unwrap_or((vmin / step).floor() * step),
+            axes.max.unwrap_or((vmax / step).ceil() * step),
+            step,
+        )
+    };
+    let (vmin, vmax) = if vmax > vmin {
+        (vmin, vmax)
+    } else {
+        (vmin, vmin + step)
+    };
+    // Secondary value axis (§21.2.2.226 valAx crossing at the right).
+    let secondary = plots.iter().any(|(p, _)| p.secondary);
+    let (smin, smax, sstep) = {
+        let (mut lo, mut hi) = (0.0_f64, 0.0_f64);
+        for (_, ss) in plots.iter().filter(|(p, _)| p.secondary) {
+            for s in ss {
+                for v in s.vals.iter().flatten() {
+                    lo = lo.min(*v);
+                    hi = hi.max(*v);
+                }
+            }
+        }
+        if hi <= lo {
+            hi = lo + 1.0;
+        }
+        let st = nice_step(hi - lo, 5.0);
+        ((lo / st).floor() * st, (hi / st).ceil() * st, st)
+    };
     // Scatter X range.
     let xs_of = |s: &Ser| -> Vec<f64> {
         (0..s.vals.len())
@@ -1236,18 +1390,34 @@ fn draw_xy(
     };
     let label_w = font * 4.0;
     let label_h = font * 1.6;
+    let right_w = if secondary && !horizontal {
+        label_w
+    } else {
+        0.0
+    };
     let (pl, pt, pr, pb) = if horizontal {
         (l + label_w * 1.4, t, r, b - label_h)
     } else {
-        (l + label_w, t + font * 0.5, r, b - label_h)
+        (l + label_w, t + font * 0.5, r - right_w, b - label_h)
     };
     let (pw, ph) = ((pr - pl).max(1.0), (pb - pt).max(1.0));
-    let vpos = |v: f64| (v - vmin) / (vmax - vmin);
-    // Gridlines + value labels.
-    let mut v = vmin;
+    // On a log axis values at or below the axis minimum (bars from zero) start at the bottom.
+    let vpos1 = |v: f64| {
+        let f = (tf(v) - vmin) / (vmax - vmin);
+        if log.is_some() {
+            f.max(0.0)
+        } else {
+            f
+        }
+    };
+    let vpos2 = |v: f64| (v - smin) / (smax - smin);
+    let vpos = vpos1;
+    // Gridlines + value labels (on a log axis, at each power of the base).
+    let mut tv = vmin;
     let mut guard = 0;
-    while v <= vmax + step * 0.5 && guard < 60 {
-        let f = vpos(v);
+    while tv <= vmax + step * 0.5 && guard < 60 {
+        let v = untf(tv);
+        let f = (tv - vmin) / (vmax - vmin);
         let text = fmt_num(v, locale);
         if horizontal {
             let x = pl + f * pw;
@@ -1272,10 +1442,31 @@ fn draw_xy(
                 out,
             );
         }
-        v += step;
+        tv += step;
         guard += 1;
     }
-    let zero = vpos(0.0_f64.clamp(vmin, vmax));
+    if secondary && !horizontal {
+        let mut v = smin;
+        let mut guard = 0;
+        while v <= smax + sstep * 0.5 && guard < 60 {
+            let y = pb - vpos2(v) * ph;
+            label(
+                &fmt_num(v, locale),
+                [pr + 3.0, y - label_h / 2.0, r, y + label_h / 2.0],
+                Align::Left,
+                font,
+                TEXT,
+                out,
+            );
+            v += sstep;
+            guard += 1;
+        }
+    }
+    let zero = if log.is_some() {
+        0.0
+    } else {
+        vpos(0.0_f64.clamp(vmin, vmax))
+    };
     if horizontal {
         out.push(vline(pl + zero * pw, pt, pb, AXIS, 0.75));
     } else {
@@ -1307,6 +1498,16 @@ fn draw_xy(
                     .find_map(|s| s.cats.get(i).filter(|c| !c.is_empty()).cloned())
                     .unwrap_or_else(|| (i + 1).to_string())
             })
+            // §21.2.2.39 dateAx: serial-number categories shown as dates (dd/mm/yyyy).
+            .map(
+                |c| match c.trim().parse::<f64>().ok().filter(|_| axes.date) {
+                    Some(serial) => crate::numfmt::serial_to_datetime(serial, false, 0)
+                        .map_or(c.clone(), |d| {
+                            format!("{:02}/{:02}/{}", d.day, d.month, d.year)
+                        }),
+                    None => c,
+                },
+            )
             .collect();
         // Thin labels out when they would overlap.
         let every = ((label_w * 0.8) / slot).ceil().max(1.0) as usize;
@@ -1341,6 +1542,7 @@ fn draw_xy(
     });
     let nbar_groups = 1.0;
     for (p, ss) in order {
+        let vpos = |v: f64| if p.secondary { vpos2(v) } else { vpos1(v) };
         match p.kind {
             ChartKind::Bar => {
                 let stacked = stacked_of(p);
@@ -1534,6 +1736,455 @@ fn draw_xy(
                 }
             }
             _ => {}
+        }
+    }
+    // Components (§21.2.2): drop lines, high-low lines, up/down bars, error bars, trend lines.
+    for (p, ss) in plots {
+        let vpos = |v: f64| if p.secondary { vpos2(v) } else { vpos1(v) };
+        let x_of = |i: usize| pl + (i as f64 + 0.5) * slot;
+        let cat_like =
+            matches!(p.kind, ChartKind::Line | ChartKind::Area | ChartKind::Bar) && !horizontal;
+        if cat_like && p.drop_lines {
+            for s in ss {
+                for (i, v) in s.vals.iter().enumerate() {
+                    if let Some(v) = v {
+                        out.push(vline(x_of(i), pb - vpos(*v) * ph, pb, AXIS, 0.5));
+                    }
+                }
+            }
+        }
+        if p.kind == ChartKind::Line && (p.hi_low_lines || p.flag) && ss.len() > 1 {
+            for i in 0..ncat {
+                let vs: Vec<f64> = ss
+                    .iter()
+                    .filter_map(|s| s.vals.get(i).copied().flatten())
+                    .collect();
+                let (Some(lo), Some(hi)) = (
+                    vs.iter().copied().reduce(f64::min),
+                    vs.iter().copied().reduce(f64::max),
+                ) else {
+                    continue;
+                };
+                if p.hi_low_lines {
+                    out.push(vline(
+                        x_of(i),
+                        pb - vpos(hi) * ph,
+                        pb - vpos(lo) * ph,
+                        TEXT,
+                        0.75,
+                    ));
+                }
+                // §21.2.2.218 upDownBars between the first and the last series.
+                if p.flag {
+                    if let (Some(first), Some(last)) = (
+                        ss.first().and_then(|s| s.vals.get(i).copied().flatten()),
+                        ss.last().and_then(|s| s.vals.get(i).copied().flatten()),
+                    ) {
+                        let (y0, y1) = (pb - vpos(first) * ph, pb - vpos(last) * ph);
+                        let fill = if last >= first {
+                            Rgba(255, 255, 255, 255)
+                        } else {
+                            TEXT
+                        };
+                        let w = slot * 0.3;
+                        let (top, h) = (y0.min(y1), (y0 - y1).abs().max(0.75));
+                        out.push(rect(x_of(i) - w / 2.0, top, w, h, fill));
+                        out.push(polyline(
+                            &[
+                                (x_of(i) - w / 2.0, top),
+                                (x_of(i) + w / 2.0, top),
+                                (x_of(i) + w / 2.0, top + h),
+                                (x_of(i) - w / 2.0, top + h),
+                                (x_of(i) - w / 2.0, top),
+                            ],
+                            TEXT,
+                            0.75,
+                        ));
+                    }
+                }
+            }
+        }
+        let scatter_plot = matches!(p.kind, ChartKind::Scatter | ChartKind::Bubble);
+        for (si, s) in ss.iter().enumerate() {
+            // X positions of the points (category centre; the bar's own centre for clustered bars).
+            let bar_x = |i: usize| -> f64 {
+                if p.kind == ChartKind::Bar && !stacked_of(p) {
+                    let group = slot / 2.5;
+                    let bar = group / ss.len().max(1) as f64;
+                    pl + i as f64 * slot + (slot - group) / 2.0 + si as f64 * bar + bar / 2.0
+                } else {
+                    x_of(i)
+                }
+            };
+            let xs = xs_of(s);
+            let px_of = |i: usize| -> f64 {
+                if scatter_plot {
+                    pl + (xs[i] - xmin) / (xmax - xmin) * pw
+                } else {
+                    bar_x(i)
+                }
+            };
+            if let Some(e) = &s.err_bars {
+                if !horizontal {
+                    let vs: Vec<f64> = s.vals.iter().flatten().copied().collect();
+                    let mean = if vs.is_empty() {
+                        0.0
+                    } else {
+                        vs.iter().sum::<f64>() / vs.len() as f64
+                    };
+                    for (i, v) in s.vals.iter().enumerate() {
+                        let Some(v) = v else { continue };
+                        // Standard-deviation bars sit around the mean of the series.
+                        let centre = if e.value_type == "stdDev" { mean } else { *v };
+                        let d = err_amount(e, *v, &vs);
+                        let (hi, lo) = match e.kind.as_str() {
+                            "plus" => (centre + d, centre),
+                            "minus" => (centre, centre - d),
+                            _ => (centre + d, centre - d),
+                        };
+                        let x = px_of(i);
+                        let (yh, yl) = (pb - vpos(hi) * ph, pb - vpos(lo) * ph);
+                        out.push(vline(x, yh, yl, TEXT, 0.75));
+                        let cap = (slot * 0.08).clamp(2.0, 6.0);
+                        if e.kind != "minus" {
+                            out.push(hline(x - cap, x + cap, yh, TEXT, 0.75));
+                        }
+                        if e.kind != "plus" {
+                            out.push(hline(x - cap, x + cap, yl, TEXT, 0.75));
+                        }
+                    }
+                }
+            }
+            for tl in &s.trendlines {
+                if horizontal {
+                    break;
+                }
+                let pts: Vec<(f64, f64)> = s
+                    .vals
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, v)| {
+                        v.map(|v| (if scatter_plot { xs[i] } else { (i + 1) as f64 }, v))
+                    })
+                    .collect();
+                let Some(fit) = Fit::new(tl, &pts) else {
+                    continue;
+                };
+                let (x0, x1) = pts.iter().fold((f64::MAX, f64::MIN), |(a, z), (x, _)| {
+                    (a.min(*x), z.max(*x))
+                });
+                let to_px = |x: f64| {
+                    if scatter_plot {
+                        pl + (x - xmin) / (xmax - xmin) * pw
+                    } else {
+                        pl + (x - 0.5) * slot
+                    }
+                };
+                let curve: Vec<(f64, f64)> = if tl.kind == "movingAvg" {
+                    Fit::moving(&pts, tl.order.max(2) as usize)
+                        .into_iter()
+                        .map(|(x, y)| (to_px(x), pb - vpos(y) * ph))
+                        .collect()
+                } else {
+                    (0..=60)
+                        .map(|k| x0 + (x1 - x0) * f64::from(k) / 60.0)
+                        .filter_map(|x| {
+                            fit.at(x)
+                                .filter(|y| y.is_finite())
+                                .map(|y| (to_px(x), pb - vpos(y).clamp(-0.2, 1.2) * ph))
+                        })
+                        .collect()
+                };
+                let Rgba(cr, cg, cb, _) = s.color;
+                out.push(Command::Path {
+                    segs: curve
+                        .iter()
+                        .enumerate()
+                        .map(|(k, (x, y))| {
+                            if k == 0 {
+                                PathSeg::M(*x as f32, *y as f32)
+                            } else {
+                                PathSeg::L(*x as f32, *y as f32)
+                            }
+                        })
+                        .collect(),
+                    fill: None,
+                    stroke: Some(Stroke {
+                        width: 1.25,
+                        color: Rgba(cr, cg, cb, 255),
+                        dash: vec![4.0, 2.5],
+                        cap: "butt".into(),
+                        join: "round".into(),
+                    }),
+                });
+                // §21.2.2.51 dispEq / §21.2.2.50 dispRSqr near the end of the line.
+                let mut lines = Vec::new();
+                // A moving average has no equation or R².
+                if tl.disp_eq && tl.kind != "movingAvg" {
+                    lines.push(fit.equation(locale));
+                }
+                if tl.disp_r2 && tl.kind != "movingAvg" {
+                    lines.push(format!("R² = {}", fmt_dec(fit.r2(&pts), 4, locale)));
+                }
+                if let Some((x, y)) = curve.last() {
+                    // One block of labels per series, stacked upwards so that they do not overlap.
+                    let lift = font * 1.4 * (lines.len() * si) as f64;
+                    for (k, text) in lines.iter().enumerate() {
+                        let yy = y - lift - font * 1.4 * (lines.len() - k) as f64;
+                        label(
+                            text,
+                            [x - font * 12.0, yy, *x, yy + font * 1.4],
+                            Align::Right,
+                            font,
+                            TEXT,
+                            out,
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Some((pl, pr, ncat))
+}
+
+/// Error amount of a point (§21.2.2.59 errValType).
+fn err_amount(e: &bo_model::sheet::ErrorBars, v: f64, all: &[f64]) -> f64 {
+    let n = all.len() as f64;
+    let mean = if n > 0.0 {
+        all.iter().sum::<f64>() / n
+    } else {
+        0.0
+    };
+    // Sample standard deviation (n − 1).
+    let sd = if n > 1.0 {
+        (all.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt()
+    } else {
+        0.0
+    };
+    match e.value_type.as_str() {
+        "percentage" => v.abs() * e.value / 100.0,
+        "stdDev" => e.value * sd,
+        "stdErr" => {
+            if n > 0.0 {
+                sd / n.sqrt()
+            } else {
+                0.0
+            }
+        }
+        _ => e.value,
+    }
+}
+
+/// A number with at most `digits` decimals (trailing zeros dropped), in the locale.
+fn fmt_dec(v: f64, digits: usize, locale: &Locale) -> String {
+    let s = format!("{v:.digits$}");
+    let s = if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.').to_owned()
+    } else {
+        s
+    };
+    if locale.decimal == ',' {
+        s.replace('.', ",")
+    } else {
+        s
+    }
+}
+
+/// A fitted trend line (§21.2.2.212 trendlineType).
+struct Fit {
+    kind: String,
+    /// Coefficients: linear / log / exp / power (a, b); polynomial c0..cn.
+    c: Vec<f64>,
+}
+
+/// Least squares solution of the normal equations (small systems, Gaussian elimination).
+fn solve(mut m: Vec<Vec<f64>>, mut v: Vec<f64>) -> Option<Vec<f64>> {
+    let n = v.len();
+    for i in 0..n {
+        let p = (i..n).max_by(|a, b| m[*a][i].abs().total_cmp(&m[*b][i].abs()))?;
+        if m[p][i].abs() < 1e-12 {
+            return None;
+        }
+        m.swap(i, p);
+        v.swap(i, p);
+        for r in 0..n {
+            if r != i {
+                let f = m[r][i] / m[i][i];
+                let pivot = m[i].clone();
+                for (cell, p) in m[r].iter_mut().zip(&pivot).skip(i) {
+                    *cell -= f * p;
+                }
+                v[r] -= f * v[i];
+            }
+        }
+    }
+    Some((0..n).map(|i| v[i] / m[i][i]).collect())
+}
+
+impl Fit {
+    fn new(t: &bo_model::sheet::Trendline, pts: &[(f64, f64)]) -> Option<Fit> {
+        if pts.len() < 2 {
+            return None;
+        }
+        // Linear fit of (g(x), h(y)): returns (intercept, slope).
+        let line = |pts: &[(f64, f64)]| -> Option<(f64, f64)> {
+            let n = pts.len() as f64;
+            let (sx, sy) = pts.iter().fold((0.0, 0.0), |(a, b), (x, y)| (a + x, b + y));
+            let (sxx, sxy) = pts
+                .iter()
+                .fold((0.0, 0.0), |(a, b), (x, y)| (a + x * x, b + x * y));
+            let d = n * sxx - sx * sx;
+            if d.abs() < 1e-12 {
+                return None;
+            }
+            let b = (n * sxy - sx * sy) / d;
+            Some(((sy - b * sx) / n, b))
+        };
+        let c = match t.kind.as_str() {
+            "exp" => {
+                let q: Vec<(f64, f64)> = pts
+                    .iter()
+                    .filter(|(_, y)| *y > 0.0)
+                    .map(|(x, y)| (*x, y.ln()))
+                    .collect();
+                let (a, b) = line(&q)?;
+                vec![a.exp(), b]
+            }
+            "log" => {
+                let q: Vec<(f64, f64)> = pts
+                    .iter()
+                    .filter(|(x, _)| *x > 0.0)
+                    .map(|(x, y)| (x.ln(), *y))
+                    .collect();
+                let (a, b) = line(&q)?;
+                vec![a, b]
+            }
+            "power" => {
+                let q: Vec<(f64, f64)> = pts
+                    .iter()
+                    .filter(|(x, y)| *x > 0.0 && *y > 0.0)
+                    .map(|(x, y)| (x.ln(), y.ln()))
+                    .collect();
+                let (a, b) = line(&q)?;
+                vec![a.exp(), b]
+            }
+            "poly" => {
+                let k = (t.order.clamp(2, 6) as usize).min(pts.len() - 1);
+                let m: Vec<Vec<f64>> = (0..=k)
+                    .map(|i| {
+                        (0..=k)
+                            .map(|j| pts.iter().map(|(x, _)| x.powi((i + j) as i32)).sum())
+                            .collect()
+                    })
+                    .collect();
+                let v: Vec<f64> = (0..=k)
+                    .map(|i| pts.iter().map(|(x, y)| y * x.powi(i as i32)).sum())
+                    .collect();
+                solve(m, v)?
+            }
+            "movingAvg" => Vec::new(),
+            _ => {
+                let (a, b) = line(pts)?;
+                vec![a, b]
+            }
+        };
+        Some(Fit {
+            kind: t.kind.clone(),
+            c,
+        })
+    }
+
+    fn at(&self, x: f64) -> Option<f64> {
+        let c = &self.c;
+        Some(match self.kind.as_str() {
+            "exp" => c[0] * (c[1] * x).exp(),
+            "log" if x > 0.0 => c[0] + c[1] * x.ln(),
+            "power" if x > 0.0 => c[0] * x.powf(c[1]),
+            // No value: log / power at x ≤ 0, moving averages (drawn point by point).
+            "log" | "power" | "movingAvg" => return None,
+            "poly" => c
+                .iter()
+                .enumerate()
+                .map(|(i, k)| k * x.powi(i as i32))
+                .sum(),
+            _ => c[0] + c[1] * x,
+        })
+    }
+
+    /// Moving average over `period` points, at each point from the `period`-th.
+    fn moving(pts: &[(f64, f64)], period: usize) -> Vec<(f64, f64)> {
+        pts.windows(period)
+            .map(|w| {
+                (
+                    w[w.len() - 1].0,
+                    w.iter().map(|(_, y)| y).sum::<f64>() / w.len() as f64,
+                )
+            })
+            .collect()
+    }
+
+    /// Coefficient of determination of the fit on `pts` (in the fitted space for exp / power, as the
+    /// spreadsheet reports it).
+    fn r2(&self, pts: &[(f64, f64)]) -> f64 {
+        let tr = |y: f64| {
+            if matches!(self.kind.as_str(), "exp" | "power") {
+                y.ln()
+            } else {
+                y
+            }
+        };
+        let data: Vec<(f64, f64)> = pts
+            .iter()
+            .filter_map(|(x, y)| self.at(*x).map(|f| (tr(*y), tr(f))))
+            .filter(|(y, f)| y.is_finite() && f.is_finite())
+            .collect();
+        let n = data.len() as f64;
+        if n < 2.0 {
+            return 0.0;
+        }
+        let mean = data.iter().map(|(y, _)| y).sum::<f64>() / n;
+        let ss_tot: f64 = data.iter().map(|(y, _)| (y - mean).powi(2)).sum();
+        let ss_res: f64 = data.iter().map(|(y, f)| (y - f).powi(2)).sum();
+        if ss_tot <= 0.0 {
+            1.0
+        } else {
+            1.0 - ss_res / ss_tot
+        }
+    }
+
+    /// The equation shown on the chart (`y = 2x + 1`, `y = 3e^{0,5x}` written `y = 3e^0,5x` …).
+    fn equation(&self, locale: &Locale) -> String {
+        let n = |v: f64| fmt_dec(v, 4, locale);
+        let signed = |v: f64| {
+            if v < 0.0 {
+                format!(" − {}", n(-v))
+            } else {
+                format!(" + {}", n(v))
+            }
+        };
+        let c = &self.c;
+        match self.kind.as_str() {
+            "exp" => format!("y = {}e^{}x", n(c[0]), n(c[1])),
+            "log" => format!("y = {}ln(x){}", n(c[1]), signed(c[0])),
+            "power" => format!("y = {}x^{}", n(c[0]), n(c[1])),
+            "poly" => {
+                let mut s = String::from("y =");
+                for (i, k) in c.iter().enumerate().rev() {
+                    let term = match i {
+                        0 => String::new(),
+                        1 => "x".to_owned(),
+                        _ => format!("x^{i}"),
+                    };
+                    if i == c.len() - 1 {
+                        s.push_str(&format!(" {}{term}", n(*k)));
+                    } else {
+                        s.push_str(&format!("{}{term}", signed(*k)));
+                    }
+                }
+                s
+            }
+            "movingAvg" => String::new(),
+            _ => format!("y = {}x{}", n(c[1]), signed(c[0])),
         }
     }
 }
@@ -2286,6 +2937,8 @@ fn draw_of_pie(s: Option<&Ser>, bar: bool, [l, t, r, b]: [f64; 4], out: &mut Vec
         explosion: 0,
         levels: Vec::new(),
         subtotals: Vec::new(),
+        trendlines: Vec::new(),
+        err_bars: None,
     };
     let split = l + (r - l) * 0.6;
     draw_pie(Some(&main), false, [l, t, split, b], out);
@@ -2331,6 +2984,8 @@ fn draw_of_pie(s: Option<&Ser>, bar: bool, [l, t, r, b]: [f64; 4], out: &mut Vec
             explosion: 0,
             levels: Vec::new(),
             subtotals: Vec::new(),
+            trendlines: Vec::new(),
+            err_bars: None,
         };
         draw_pie(
             Some(&sub),
@@ -2624,5 +3279,107 @@ mod tests {
         );
         assert_eq!(fmt_num(2.5, &Locale::VI_VN), "2,5");
         assert_eq!(nice_step(470.0, 5.0), 100.0);
+    }
+
+    fn tl(kind: &str, order: u32) -> bo_model::sheet::Trendline {
+        bo_model::sheet::Trendline {
+            kind: kind.into(),
+            order,
+            disp_eq: true,
+            disp_r2: true,
+        }
+    }
+
+    // source: data generated from the exact functions (y = 2x + 1, y = 2e^{0.5x}, y = 3 + 2 ln x,
+    // y = 4x^{1.5}, y = x² − 2x + 3); ECMA-376 Part 1, §21.2.2.212 trendlineType.
+    #[test]
+    fn trend_lines_recover_their_functions() {
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        let pts =
+            |f: &dyn Fn(f64) -> f64, xs: &[f64]| xs.iter().map(|x| (*x, f(*x))).collect::<Vec<_>>();
+        let lin = pts(&|x| 2.0 * x + 1.0, &[1.0, 2.0, 3.0, 4.0]);
+        let f = Fit::new(&tl("linear", 0), &lin).unwrap();
+        assert!(close(f.c[0], 1.0) && close(f.c[1], 2.0), "{:?}", f.c);
+        assert!(close(f.r2(&lin), 1.0));
+        assert_eq!(f.equation(&Locale::VI_VN), "y = 2x + 1");
+        let exp = pts(&|x| 2.0 * (0.5 * x).exp(), &[0.0, 1.0, 2.0, 3.0]);
+        let f = Fit::new(&tl("exp", 0), &exp).unwrap();
+        assert!(close(f.c[0], 2.0) && close(f.c[1], 0.5), "{:?}", f.c);
+        assert_eq!(f.equation(&Locale::VI_VN), "y = 2e^0,5x");
+        let log = pts(&|x: f64| 3.0 + 2.0 * x.ln(), &[1.0, 2.0, 4.0, 8.0]);
+        let f = Fit::new(&tl("log", 0), &log).unwrap();
+        assert!(close(f.c[0], 3.0) && close(f.c[1], 2.0), "{:?}", f.c);
+        let pow = pts(&|x: f64| 4.0 * x.powf(1.5), &[1.0, 4.0, 9.0]);
+        let f = Fit::new(&tl("power", 0), &pow).unwrap();
+        assert!(
+            (f.c[0] - 4.0).abs() < 1e-9 && (f.c[1] - 1.5).abs() < 1e-9,
+            "{:?}",
+            f.c
+        );
+        let poly = pts(&|x| x * x - 2.0 * x + 3.0, &[0.0, 1.0, 2.0, 3.0, 4.0]);
+        let f = Fit::new(&tl("poly", 2), &poly).unwrap();
+        assert!(
+            close(f.c[0], 3.0) && close(f.c[1], -2.0) && close(f.c[2], 1.0),
+            "{:?}",
+            f.c
+        );
+        assert_eq!(f.equation(&Locale::EN_US), "y = 1x^2 − 2x + 3");
+        assert!(Fit::new(&tl("movingAvg", 2), &lin).is_some());
+        assert_eq!(
+            Fit::moving(&lin, 2),
+            vec![(2.0, 4.0), (3.0, 6.0), (4.0, 8.0)]
+        );
+        assert!(Fit::new(&tl("linear", 0), &lin[..1]).is_none());
+    }
+
+    // source: ECMA-376 Part 1, §21.2.2.59 errValType (fixed value, percentage, standard deviation of the
+    // series, standard error); sample standard deviation of 2, 4, 4, 4, 5, 5, 7, 9 is √(32/7).
+    #[test]
+    fn error_bar_amounts() {
+        let e = |t: &str, v: f64| bo_model::sheet::ErrorBars {
+            kind: "both".into(),
+            value_type: t.into(),
+            value: v,
+        };
+        let all = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
+        let sd = (32.0_f64 / 7.0).sqrt();
+        assert!((err_amount(&e("fixedVal", 1.5), 9.0, &all) - 1.5).abs() < 1e-12);
+        assert!((err_amount(&e("percentage", 10.0), 20.0, &all) - 2.0).abs() < 1e-12);
+        assert!((err_amount(&e("stdDev", 2.0), 0.0, &all) - 2.0 * sd).abs() < 1e-12);
+        assert!((err_amount(&e("stdErr", 0.0), 0.0, &all) - sd / 8.0_f64.sqrt()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn components_draw_labels_and_tables() {
+        let wb = wb();
+        let mut c = new_chart(&wb, 0, CellRange::parse("A1:C4").unwrap(), "line").unwrap();
+        c.plots[0].series[0].trendlines.push(tl("linear", 0));
+        c.plots[0].series[1].err_bars = Some(bo_model::sheet::ErrorBars {
+            kind: "both".into(),
+            value_type: "fixedVal".into(),
+            value: 1.0,
+        });
+        c.axes.data_table = true;
+        let (_, labels) = draw(&wb, &c);
+        // Series HN 10, HUE 5, DN 7 (2024): the R² label is shown; the table repeats the values.
+        assert!(labels.iter().any(|l| l.starts_with("R² = ")), "{labels:?}");
+        assert!(labels.iter().any(|l| l.starts_with("y = ")), "{labels:?}");
+        assert!(
+            labels.iter().filter(|l| *l == "12").count() >= 1,
+            "{labels:?}"
+        );
+        // Logarithmic value axis: labels at the powers of ten.
+        let mut c2 = new_chart(&wb, 0, CellRange::parse("A1:C4").unwrap(), "column").unwrap();
+        c2.axes.log_base = Some(10.0);
+        let (_, labels) = draw(&wb, &c2);
+        assert!(
+            labels.contains(&"1".to_owned()) && labels.contains(&"10".to_owned()),
+            "{labels:?}"
+        );
+        // Secondary axis: the second series' plot gets its own labels at the right.
+        let mut c3 = new_chart(&wb, 0, CellRange::parse("A1:C4").unwrap(), "combo").unwrap();
+        c3.plots[1].secondary = true;
+        let (out, _) = draw(&wb, &c3);
+        assert!(out.len() > 10);
     }
 }

@@ -1290,6 +1290,53 @@ pub struct Chart {
     /// Show the pivot field buttons on the chart ([MS-ODRAWXML] `c14:pivotOptions`).
     #[serde(default)]
     pub pivot_buttons: bool,
+    /// Axes and table of the plot area (CORE-CHART-005).
+    #[serde(default)]
+    pub axes: ChartAxes,
+}
+
+/// Value / category axis options and the data table of a chart (ECMA-376 Part 1, §21.2.2).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ChartAxes {
+    /// §21.2.2.100 logBase of the (primary) value axis.
+    #[serde(default)]
+    pub log_base: Option<f64>,
+    /// §21.2.2.111 min / §21.2.2.106 max of the value axis.
+    #[serde(default)]
+    pub min: Option<f64>,
+    /// Maximum of the value axis.
+    #[serde(default)]
+    pub max: Option<f64>,
+    /// The category axis is a date axis (§21.2.2.39 dateAx): serial-number categories shown as dates.
+    #[serde(default)]
+    pub date: bool,
+    /// §21.2.2.54 dTable: a data table under the plot.
+    #[serde(default)]
+    pub data_table: bool,
+}
+
+/// §21.2.2.211 trendline.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Trendline {
+    /// §21.2.2.212 trendlineType: `linear`, `exp`, `log`, `poly`, `power`, `movingAvg`.
+    pub kind: String,
+    /// Polynomial order (§21.2.2.130) or moving-average period (§21.2.2.136).
+    pub order: u32,
+    /// §21.2.2.51 dispEq.
+    pub disp_eq: bool,
+    /// §21.2.2.50 dispRSqr.
+    pub disp_r2: bool,
+}
+
+/// §21.2.2.58 errBars.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ErrorBars {
+    /// §21.2.2.58 errBarType: `both`, `plus`, `minus`.
+    pub kind: String,
+    /// §21.2.2.59 errValType: `fixedVal`, `percentage`, `stdDev`, `stdErr`, `cust`.
+    pub value_type: String,
+    /// §21.2.2.229 val.
+    pub value: f64,
 }
 
 /// A SmartArt graphic frame on a sheet (`xdr:graphicFrame` with
@@ -1429,6 +1476,15 @@ pub struct ChartPlot {
     /// Stock chart up/down bars (§21.2.2.218 upDownBars); surface chart wireframe (§21.2.2.230).
     #[serde(default)]
     pub flag: bool,
+    /// §21.2.2.53 dropLines (line / area charts).
+    #[serde(default)]
+    pub drop_lines: bool,
+    /// §21.2.2.80 hiLowLines (line charts).
+    #[serde(default)]
+    pub hi_low_lines: bool,
+    /// The group is plotted on the secondary value axis (the second `c:valAx`).
+    #[serde(default)]
+    pub secondary: bool,
 }
 
 /// A data series (`c:ser`).
@@ -1471,6 +1527,12 @@ pub struct ChartSeries {
     /// Waterfall points drawn as totals (`cx:subtotals/cx:idx`).
     #[serde(default)]
     pub subtotals: Vec<usize>,
+    /// Trend lines of the series.
+    #[serde(default)]
+    pub trendlines: Vec<Trendline>,
+    /// Error bars (value direction).
+    #[serde(default)]
+    pub err_bars: Option<ErrorBars>,
 }
 
 // ---------------------------------------------------------------------------

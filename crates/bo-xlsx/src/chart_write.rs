@@ -210,6 +210,54 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize) {
             );
         }
     }
+    // §21.2.2.211 trendline*, §21.2.2.58 errBars (after dPt / dLbls, before the data).
+    if matches!(
+        kind,
+        ChartKind::Bar | ChartKind::Line | ChartKind::Area | ChartKind::Scatter | ChartKind::Bubble
+    ) {
+        for t in &s.trendlines {
+            let ty = match t.kind.as_str() {
+                k @ ("exp" | "log" | "poly" | "power" | "movingAvg") => k,
+                _ => "linear",
+            };
+            let _ = write!(out, "<c:trendline><c:trendlineType val=\"{ty}\"/>");
+            match ty {
+                "poly" => {
+                    let _ = write!(out, "<c:order val=\"{}\"/>", t.order.clamp(2, 6));
+                }
+                "movingAvg" => {
+                    let _ = write!(out, "<c:period val=\"{}\"/>", t.order.max(2));
+                }
+                _ => {}
+            }
+            let _ = write!(
+                out,
+                "<c:dispRSqr val=\"{}\"/><c:dispEq val=\"{}\"/></c:trendline>",
+                u8::from(t.disp_r2),
+                u8::from(t.disp_eq)
+            );
+        }
+        if let Some(e) = &s.err_bars {
+            let ty = match e.kind.as_str() {
+                k @ ("plus" | "minus") => k,
+                _ => "both",
+            };
+            let vt = match e.value_type.as_str() {
+                k @ ("percentage" | "stdDev" | "stdErr") => k,
+                _ => "fixedVal",
+            };
+            // CT_ErrBars: errDir (not for bar / line / area: only XY series take a direction).
+            out.push_str("<c:errBars>");
+            if matches!(kind, ChartKind::Scatter | ChartKind::Bubble) {
+                out.push_str("<c:errDir val=\"y\"/>");
+            }
+            let _ = write!(
+                out,
+                "<c:errBarType val=\"{ty}\"/><c:errValType val=\"{vt}\"/><c:noEndCap val=\"0\"/><c:val val=\"{}\"/></c:errBars>",
+                e.value
+            );
+        }
+    }
     if matches!(kind, ChartKind::Scatter | ChartKind::Bubble) {
         let xs: Option<Vec<Option<f64>>> = s
             .categories
@@ -295,7 +343,16 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize) -> bool {
                 out,
                 "<c:{tag}><c:grouping val=\"{g}\"/><c:varyColors val=\"0\"/>{sers}"
             );
+            if p.drop_lines {
+                out.push_str("<c:dropLines/>");
+            }
             if p.kind == ChartKind::Line {
+                if p.hi_low_lines {
+                    out.push_str("<c:hiLowLines/>");
+                }
+                if p.flag {
+                    out.push_str("<c:upDownBars><c:gapWidth val=\"150\"/><c:upBars/><c:downBars/></c:upDownBars>");
+                }
                 out.push_str("<c:marker val=\"1\"/>");
             }
             axis_ids(out);
@@ -392,6 +449,7 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize) -> bool {
 }
 
 /// §21.2.2.25 catAx / §21.2.2.226 valAx.
+#[allow(clippy::too_many_arguments)]
 fn axis(
     out: &mut String,
     tag: &str,
@@ -400,10 +458,23 @@ fn axis(
     pos: &str,
     title_text: Option<&str>,
     grid: bool,
+    scale: Option<&bo_model::sheet::ChartAxes>,
 ) {
+    // §21.2.2.160 scaling: logBase?, orientation, max?, min?.
+    let _ = write!(out, "<c:{tag}><c:axId val=\"{id}\"/><c:scaling>");
+    if let Some(b) = scale.and_then(|a| a.log_base).filter(|b| *b >= 2.0) {
+        let _ = write!(out, "<c:logBase val=\"{b}\"/>");
+    }
+    out.push_str("<c:orientation val=\"minMax\"/>");
+    if let Some(v) = scale.and_then(|a| a.max) {
+        let _ = write!(out, "<c:max val=\"{v}\"/>");
+    }
+    if let Some(v) = scale.and_then(|a| a.min) {
+        let _ = write!(out, "<c:min val=\"{v}\"/>");
+    }
     let _ = write!(
         out,
-        "<c:{tag}><c:axId val=\"{id}\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling><c:delete val=\"0\"/><c:axPos val=\"{pos}\"/>"
+        "</c:scaling><c:delete val=\"0\"/><c:axPos val=\"{pos}\"/>"
     );
     if grid {
         out.push_str("<c:majorGridlines/>");
@@ -418,10 +489,13 @@ fn axis(
         out,
         "<c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/><c:crossAx val=\"{cross}\"/><c:crosses val=\"autoZero\"/>"
     );
-    if tag == "valAx" {
-        out.push_str("<c:crossBetween val=\"between\"/>");
-    } else {
-        out.push_str("<c:auto val=\"1\"/><c:lblAlgn val=\"ctr\"/><c:lblOffset val=\"100\"/>");
+    match tag {
+        "valAx" => out.push_str("<c:crossBetween val=\"between\"/>"),
+        // §21.2.2.39 dateAx: no label alignment; the base time unit.
+        "dateAx" => out.push_str(
+            "<c:auto val=\"1\"/><c:lblOffset val=\"100\"/><c:baseTimeUnit val=\"days\"/>",
+        ),
+        _ => out.push_str("<c:auto val=\"1\"/><c:lblAlgn val=\"ctr\"/><c:lblOffset val=\"100\"/>"),
     }
     let _ = write!(out, "</c:{tag}>");
 }
@@ -499,9 +573,28 @@ pub fn chart_space_xml(chart: &Chart) -> String {
             (chart.x_title.as_deref(), chart.y_title.as_deref())
         };
         let (cat_pos, val_pos) = if horizontal { ("l", "b") } else { ("b", "l") };
-        let cat_tag = if scatter { "valAx" } else { "catAx" };
-        axis(&mut out, cat_tag, CAT_AX, VAL_AX, cat_pos, cat_title, false);
-        axis(&mut out, "valAx", VAL_AX, CAT_AX, val_pos, val_title, true);
+        let cat_tag = match (scatter, chart.axes.date) {
+            (true, _) => "valAx",
+            (false, true) => "dateAx",
+            _ => "catAx",
+        };
+        axis(
+            &mut out, cat_tag, CAT_AX, VAL_AX, cat_pos, cat_title, false, None,
+        );
+        axis(
+            &mut out,
+            "valAx",
+            VAL_AX,
+            CAT_AX,
+            val_pos,
+            val_title,
+            true,
+            Some(&chart.axes),
+        );
+        // §21.2.2.54 dTable.
+        if chart.axes.data_table {
+            out.push_str("<c:dTable><c:showHorzBorder val=\"1\"/><c:showVertBorder val=\"1\"/><c:showOutline val=\"1\"/><c:showKeys val=\"1\"/></c:dTable>");
+        }
     }
     out.push_str("</c:plotArea>");
     if let Some(pos) = &chart.legend {

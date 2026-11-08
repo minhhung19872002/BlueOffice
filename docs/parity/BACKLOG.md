@@ -147,7 +147,15 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     (21 file `writer-chartex-*-{1,2,3}.xlsx`, OpenXmlValidator 0 lỗi — đã sửa binCount/axisId dạng text theo validator),
     corpus slide `slide-chartex-{waterfall,treemap,funnel}.pptx` (0 lỗi) + snapshot. **Thiếu**: tạo chartex trong
     BlueSlide/BlueDoc (đang hiển thị), regionMap (bản đồ), nhãn dữ liệu chartex.
-- [ ] **CORE-CHART-005** — Thành phần: trendline (mọi loại + phương trình/R²), error bars, data table, high-low lines, up/down bars, drop lines, trục log/ngày/phụ · P0 · 002 · test.
+- [x] **CORE-CHART-005** — Thành phần: trendline (mọi loại + phương trình/R²), error bars, data table, high-low lines, up/down bars, drop lines, trục log/ngày/phụ · P0 · 002 · test.
+  - Xong: model + đọc + ghi + vẽ (bộ vẽ chung): trendline linear/exp/log/poly (2–6)/power/movingAvg (bình phương tối
+    thiểu; R² trong không gian khớp như bảng tính; phương trình theo locale), thanh sai số fixedVal/percentage/stdDev
+    (quanh trung bình chuỗi)/stdErr, both/plus/minus; dropLines, hiLowLines, upDownBars (biểu đồ đường), bảng dữ liệu
+    `dTable` dưới vùng vẽ, trục giá trị log (logBase) + min/max, trục ngày (dateAx: số sê-ri → dd/mm/yyyy), trục phụ (nhóm
+    trỏ tới valAx thứ hai: thang riêng, nhãn bên phải). Test: `bo-sheet chart::tests` (khớp đúng các hàm sinh dữ liệu: y = 2x
+    + 1, y = 2e^0,5x, y = 3 + 2 ln x, y = 4x^1,5, đa thức bậc 2; trung bình trượt; độ lớn thanh sai số với √(32/7)), đọc
+    (`bo-xlsx chart::tests::chart_components_are_read`), corpus `writer-charts-components-{1,2,3}.xlsx` round-trip +
+    OpenXmlValidator 0 lỗi. Chưa: ghi trục phụ khi tạo mới (đọc/vẽ được).
 - [ ] **CORE-CHART-006** — Map chart (dữ liệu ranh giới license hợp lệ, Việt Nam cấp tỉnh) · P2 · 004 · [!] dữ liệu.
 - [ ] **CORE-CHART-007** — Mẫu biểu đồ (lưu/áp dụng), style & màu biểu đồ · P1 · 002 · test.
 

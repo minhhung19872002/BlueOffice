@@ -323,6 +323,30 @@ pub(crate) fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
             .rfind(|a| a.name == "valAx")
             .and_then(|a| title_of(a));
         (out.x_title, out.y_title) = if horizontal { (val, cat) } else { (cat, val) };
+        // §21.2.2.160 scaling of the first value axis: logBase, min, max.
+        let num = |n: &Node, name: &str| n.val_of(name).and_then(|v| v.trim().parse::<f64>().ok());
+        let val_axes: Vec<&&Node> = axes.iter().filter(|a| a.name == "valAx").collect();
+        if let Some(sc) = val_axes.first().and_then(|a| a.child("scaling")) {
+            out.axes.log_base = num(sc, "logBase");
+            out.axes.min = num(sc, "min");
+            out.axes.max = num(sc, "max");
+        }
+        out.axes.date = axes.iter().any(|a| a.name == "dateAx");
+        out.axes.data_table = pa.child("dTable").is_some();
+        // Groups whose value axis is the second c:valAx are on the secondary axis.
+        if let Some(second) = val_axes.get(1).and_then(|a| a.val_of("axId")) {
+            for (p, g) in out
+                .plots
+                .iter_mut()
+                .zip(pa.children.iter().filter(|c| c.name.ends_with("Chart")))
+            {
+                p.secondary = g
+                    .children
+                    .iter()
+                    .filter(|c| c.name == "axId")
+                    .any(|c| c.attr("val") == Some(second.as_str()));
+            }
+        }
     }
     // §21.2.2.93 legend
     if let Some(l) = chart.child("legend") {
@@ -369,6 +393,9 @@ fn parse_plot(g: &Node) -> ChartPlot {
             .is_some_and(|c| c.attr("val").is_none_or(|v| v == "1" || v == "true"))
     };
     ChartPlot {
+        drop_lines: g.child("dropLines").is_some(),
+        hi_low_lines: g.child("hiLowLines").is_some() && g.name != "stockChart",
+        secondary: false,
         vary_colors: on("varyColors"),
         style: g.val_of("radarStyle").or_else(|| g.val_of("ofPieType")),
         // §21.2.2.218 upDownBars (stock), §21.2.2.230 wireframe (surface).
@@ -493,6 +520,42 @@ fn parse_series(s: &Node) -> ChartSeries {
         .val_of("explosion")
         .and_then(|v| v.trim().parse().ok())
         .unwrap_or(0);
+    // §21.2.2.211 trendline.
+    for t in s.children.iter().filter(|c| c.name == "trendline") {
+        let kind = t.val_of("trendlineType").unwrap_or_else(|| "linear".into());
+        // Order (poly) or period (movingAvg), 2 by default; other types have none.
+        let order = t
+            .val_of("order")
+            .or_else(|| t.val_of("period"))
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(if matches!(kind.as_str(), "poly" | "movingAvg") {
+                2
+            } else {
+                0
+            });
+        let flag = |n: &str| t.val_of(n).is_some_and(|v| v == "1" || v == "true");
+        out.trendlines.push(bo_model::sheet::Trendline {
+            kind,
+            order,
+            disp_eq: flag("dispEq"),
+            disp_r2: flag("dispRSqr"),
+        });
+    }
+    // §21.2.2.58 errBars (the value direction: no errDir, or y).
+    if let Some(e) = s
+        .children
+        .iter()
+        .find(|c| c.name == "errBars" && c.val_of("errDir").is_none_or(|d| d == "y"))
+    {
+        out.err_bars = Some(bo_model::sheet::ErrorBars {
+            kind: e.val_of("errBarType").unwrap_or_else(|| "both".into()),
+            value_type: e.val_of("errValType").unwrap_or_else(|| "fixedVal".into()),
+            value: e
+                .val_of("val")
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(1.0),
+        });
+    }
     out
 }
 
@@ -589,5 +652,25 @@ mod tests {
         assert!(parse_chart_space(b"<x/>", "p").is_none());
         assert!(parse_chart_space(b"<c:chartSpace><c:chart>", "p").is_none());
         assert!(parse_chart_space(b"\xff\xfe", "p").is_none());
+    }
+
+    // source: ECMA-376 Part 1, §21.2.2 trendline, errBars, dTable, scaling/logBase, dateAx, two valAx.
+    #[test]
+    fn chart_components_are_read() {
+        let xml = r#"<c:chartSpace xmlns:c="c" xmlns:a="a"><c:chart><c:plotArea><c:lineChart><c:grouping val="standard"/><c:ser><c:idx val="0"/><c:order val="0"/><c:trendline><c:trendlineType val="poly"/><c:order val="3"/><c:dispRSqr val="1"/><c:dispEq val="1"/></c:trendline><c:errBars><c:errDir val="y"/><c:errBarType val="plus"/><c:errValType val="percentage"/><c:val val="5"/></c:errBars><c:val><c:numRef><c:f>S!$B$1:$B$2</c:f><c:numCache><c:ptCount val="2"/><c:pt idx="0"><c:v>1</c:v></c:pt><c:pt idx="1"><c:v>2</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser><c:dropLines/><c:hiLowLines/><c:axId val="1"/><c:axId val="2"/></c:lineChart><c:barChart><c:barDir val="col"/><c:axId val="3"/><c:axId val="4"/></c:barChart><c:dateAx><c:axId val="1"/></c:dateAx><c:valAx><c:axId val="2"/><c:scaling><c:logBase val="10"/><c:max val="1000"/></c:scaling></c:valAx><c:catAx><c:axId val="3"/></c:catAx><c:valAx><c:axId val="4"/></c:valAx><c:dTable/></c:plotArea></c:chart></c:chartSpace>"#;
+        let c = parse_chart_space(xml.as_bytes(), "/c.xml").unwrap();
+        let s = &c.plots[0].series[0];
+        assert_eq!(s.trendlines[0].kind, "poly");
+        assert_eq!(s.trendlines[0].order, 3);
+        assert!(s.trendlines[0].disp_eq && s.trendlines[0].disp_r2);
+        let e = s.err_bars.as_ref().unwrap();
+        assert_eq!(
+            (e.kind.as_str(), e.value_type.as_str(), e.value),
+            ("plus", "percentage", 5.0)
+        );
+        assert!(c.plots[0].drop_lines && c.plots[0].hi_low_lines);
+        assert_eq!((c.axes.log_base, c.axes.max), (Some(10.0), Some(1000.0)));
+        assert!(c.axes.date && c.axes.data_table);
+        assert!(!c.plots[0].secondary && c.plots[1].secondary);
     }
 }

@@ -122,3 +122,12 @@ Icon giao diện từ **Lucide** (ISC). Logo/favicon BlueOffice tự thiết k�
 - `crates/bo-drawingml/src/presets.dsl`: 187 hình preset chuyển đổi cơ học từ phụ lục
   `presetShapeDefinitions.xml` của **ECMA-376 Part 1** (ECMA International, tài liệu công khai —
   nguồn hợp lệ theo quy tắc clean-room). Chỉ giữ công thức guide, text rect và path.
+
+## Từ điển chính tả
+
+- `assets/dictionaries/en_US/` — **SCOWL / en_US Hunspell Dictionary 2020.12.07** (Kevin Atkinson,
+  http://wordlist.sourceforge.net). Giấy phép cho phép sử dụng, sửa đổi, phân phối kèm thông báo bản quyền
+  (SCOWL, VarCon), một phần public domain (MWords, 12Dicts…), WordNet 1.6 (Princeton, cho phép kèm thông báo),
+  UKACD (J Ross Beresford — phải kèm nguyên văn thông báo) và BSD (affix file từ Ispell). Toàn văn các thông báo nằm
+  trong `assets/dictionaries/en_US/README_en_US.txt`, phân phối kèm từ điển. Dùng cho soát chính tả tiếng Anh (`bo-spell`).
+- Tiếng Việt: không dùng từ điển ngoài — `bo-spell::vi` kiểm tra theo quy tắc chính tả (tự cài).

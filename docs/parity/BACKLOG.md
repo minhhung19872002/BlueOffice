@@ -34,7 +34,8 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     từ điển người dùng + danh sách loại trừ; tách từ theo UAX #29. Test: từ điển mẫu tự viết theo đặc tả hunspell(5)
     (tài liệu công khai), mỗi tính năng ≥ 1 test.
   - Xong: crate `bo-spell` (`aff.rs` + `lib.rs`), 12 test (affix/điều kiện, cross product, hậu tố kép, chữ hoa, KEEPCASE/FORBIDDEN/NEEDAFFIX/NOSUGGEST, ghép từ, gợi ý REP/KEY/TRY/tách từ, ISO 8859-1, tách từ UAX #29, proptest không panic).
-- [ ] **CORE-SPELL-002** — Từ điển tiếng Anh license hợp lệ (SCOWL/en_US — giấy phép kiểu MIT/BSD) · P0 · 001 · ghi THIRD_PARTY_NOTICES; test từ đúng/sai.
+- [x] **CORE-SPELL-002** — Từ điển tiếng Anh license hợp lệ (SCOWL/en_US — giấy phép kiểu MIT/BSD) · P0 · 001 · ghi THIRD_PARTY_NOTICES; test từ đúng/sai.
+  - Xong: SCOWL en_US 2020.12.07 trong `assets/dictionaries/en_US` (README nguyên văn, THIRD_PARTY_NOTICES); test `bo-spell/tests/en_us.rs` (từ đúng/sai, gợi ý). Chưa hỗ trợ `COMPOUNDRULE` (số thứ tự như 21st — số đã được bỏ qua khi kiểm tra) và `ICONV`.
 - [x] **CORE-SPELL-003** — Từ điển tiếng Việt: tự xây từ danh sách âm tiết hợp lệ theo quy tắc chính tả (phụ âm đầu × vần × thanh, tự sinh) + nguồn mở license hợp lệ · P0 · 001 · test âm tiết đúng/sai, dấu đặt sai vị trí.
   - Kế hoạch: `bo-spell::vi::Vietnamese` (Checker) kiểm từng âm tiết theo quy tắc chính tả công khai: tách thanh
     (NFD: huyền/sắc/hỏi/ngã/nặng) và dấu mũ/trăng/móc; âm đầu (b c ch d đ g gh gi h k kh l m n ng ngh nh p ph qu r s t

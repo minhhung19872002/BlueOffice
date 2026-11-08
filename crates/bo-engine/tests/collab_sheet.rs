@@ -399,3 +399,35 @@ fn a_chart_added_during_a_row_insert_follows_the_rows() {
         "{refs:?}"
     );
 }
+
+#[test]
+fn a_filter_and_a_row_insert_from_the_same_peer_shift_once() {
+    let cells = [(4, 0, "Tên"), (4, 1, "Số"), (5, 0, "a"), (5, 1, "1")];
+    let (mut a, mut b) = pair(&cells);
+    settle(&mut a, &mut b);
+    // A turns the filter on, then inserts two rows at the top; B gets both at once.
+    a.exec(r#"{"cmd":"toggleFilter","sheet":0,"range":{"r0":5,"c0":0,"r1":5,"c1":0}}"#);
+    a.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let filter = |p: &Peer| {
+        p.engine.workbook().unwrap().sheets[0]
+            .auto_filter
+            .as_ref()
+            .map(|f| f.range.to_string())
+    };
+    assert_eq!(filter(&a).as_deref(), Some("A7:B8"));
+    assert_eq!(filter(&b), filter(&a));
+}
+
+// source: ECMA-376 Part 1, §18.2.6 definedName _xlnm.Print_Area
+#[test]
+fn a_print_area_set_during_a_row_insert_follows_the_rows() {
+    let (mut a, mut b) = pair(&[(0, 0, "1")]);
+    settle(&mut a, &mut b);
+    a.exec(r#"{"cmd":"setPageSetup","sheet":0,"printArea":{"r0":4,"c0":0,"r1":9,"c1":3}}"#);
+    b.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let pa = |p: &Peer| p.engine.workbook().unwrap().sheets[0].print_area.clone();
+    assert_eq!(pa(&a), pa(&b));
+    assert_eq!(pa(&a).as_deref(), Some("Sheet1!$A$7:$D$12"));
+}

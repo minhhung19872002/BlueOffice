@@ -28,8 +28,9 @@
 //!   `cf:<sheet>` (with the differential formats it uses) and `dv:<sheet>`,
 //!   last writer wins per sheet, their ranges also by row/column ids in
 //!   `cfa:<sheet>` / `dva:<sheet>` so they follow concurrent row/column
-//!   inserts and deletes (hyperlinks, AutoFilter and tables of `sh:<sheet>`
-//!   likewise in `sha:<sheet>`); **charts** `ch:<sheet>:<i>` and **pivot
+//!   inserts and deletes (hyperlinks, AutoFilter, tables and print area /
+//!   titles of `sh:<sheet>` likewise in `sha:<sheet>`, placed after the
+//!   structural changes of the same update); **charts** `ch:<sheet>:<i>` and **pivot
 //!   tables** `pv:<sheet>:<i>` (+ caches `pc:<i>`) last writer wins per
 //!   object; defined names `wb`.
 
@@ -764,7 +765,18 @@ impl SheetCollab {
                 .ok();
                 put(&mut self.meta, &mut out, format!("sh:{sk}"), j);
                 let (ra, ca) = (self.axis(&sk, true), self.axis(&sk, false));
-                let at = BareAt::of(ws, &ra, &ca);
+                let mut at = BareAt::of(ws, &ra, &ca);
+                let shared = |text: &Option<String>| {
+                    text.as_ref().map(|t| {
+                        let f = Formula {
+                            text: t.clone(),
+                            ..Formula::default()
+                        };
+                        self.formula_shared(wb, &keys, &sk, &f)
+                    })
+                };
+                at.pa = shared(&ws.print_area);
+                at.pt = shared(&ws.print_titles);
                 let j = (!at.is_empty())
                     .then(|| serde_json::to_string(&at).ok())
                     .flatten();
@@ -1045,6 +1057,11 @@ struct BareAt {
     af: Option<[String; 4]>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tb: Vec<[String; 4]>,
+    /// Print area / print titles (§18.2.6 `_xlnm.Print_Area`, `_xlnm.Print_Titles`) as id formulas.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pa: Option<SharedFormula>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pt: Option<SharedFormula>,
 }
 
 impl BareAt {
@@ -1061,11 +1078,17 @@ impl BareAt {
             hl: ws.hyperlinks.iter().map(|h| ids(&h.range)).collect(),
             af: ws.auto_filter.as_ref().map(|a| ids(&a.range)),
             tb: ws.tables.iter().map(|t| ids(&t.range)).collect(),
+            pa: None,
+            pt: None,
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.hl.is_empty() && self.af.is_none() && self.tb.is_empty()
+        self.hl.is_empty()
+            && self.af.is_none()
+            && self.tb.is_empty()
+            && self.pa.is_none()
+            && self.pt.is_none()
     }
 
     fn place(&self, ws: &mut Worksheet, ra: &Axis, ca: &Axis) {
@@ -1336,17 +1359,6 @@ impl SheetEngine {
                 ws.sheet_id = next_id;
                 ws
             };
-            // Hyperlinks, AutoFilter and tables where the sender meant them on
-            // this replica's rows and columns (see `BareAt`).
-            if joining || touched_sheets.contains(sk) {
-                if let Some(at) = c
-                    .meta
-                    .get(&format!("sha:{sk}"))
-                    .and_then(|j| serde_json::from_str::<BareAt>(j).ok())
-                {
-                    at.place(&mut ws, &c.axis(sk, true), &c.axis(sk, false));
-                }
-            }
             // Two sheets added at once with the same name: number the later one.
             let mut n = 2;
             let base = ws.name.clone();
@@ -1480,6 +1492,29 @@ impl SheetEngine {
                     .any(|k| k.starts_with(&format!("{p}:{sk}")))
             };
             let (ra, ca) = (c.axis(sk, true), c.axis(sk, false));
+            // Hyperlinks, AutoFilter, tables, print area / titles where the
+            // sender meant them on this replica's rows and columns (`BareAt`),
+            // once the structural changes are applied.
+            if joining || hit("sh") || hit("sha") {
+                if let Some(at) = c
+                    .meta
+                    .get(&format!("sha:{sk}"))
+                    .and_then(|j| serde_json::from_str::<BareAt>(j).ok())
+                {
+                    let text = |sf: &Option<SharedFormula>| {
+                        sf.as_ref().map(|f| c.formula_text(wb, &keys, sk, f))
+                    };
+                    let (pa, pt) = (text(&at.pa), text(&at.pt));
+                    let ws = &mut wb.sheets[si];
+                    at.place(ws, &ra, &ca);
+                    if pa.is_some() {
+                        ws.print_area = pa;
+                    }
+                    if pt.is_some() {
+                        ws.print_titles = pt;
+                    }
+                }
+            }
             let ws = &mut wb.sheets[si];
             let any = rebuild_all && (joining || structural.contains(sk));
             if any || hit("rp") {

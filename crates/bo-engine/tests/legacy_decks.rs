@@ -1,6 +1,8 @@
 //! BlueSlide opens `.ppt` ([MS-PPT] shapes, pictures, text) and `.odp`
 //! (ODF 1.3 drawing) decks and saves them as `.pptx`; BlueSheet / BlueSlide
 //! encryption and macro reporting.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_engine::Engine;
 use bo_model::slide::ShapeNode;

@@ -27,15 +27,20 @@ const MAX_STYLE_DEPTH: usize = 16;
 pub struct OdpDeck {
     /// Page size in EMU.
     pub width: i64,
+    /// Page height in EMU.
     pub height: i64,
+    /// Slides in document order.
     pub slides: Vec<OdpSlide>,
 }
 
 /// One `draw:page`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OdpSlide {
+    /// `draw:name` of the page.
     pub name: String,
+    /// Shapes in z-order (back to front).
     pub shapes: Vec<OdpShape>,
+    /// Paragraphs of the speaker notes (`presentation:notes`).
     pub notes: Vec<String>,
     /// Solid background `RRGGBB`.
     pub background: Option<String>,
@@ -47,7 +52,9 @@ pub enum Paint {
     /// Not specified (inherited).
     #[default]
     Inherit,
+    /// Explicitly not painted (`draw:fill="none"` / `draw:stroke="none"`).
     None,
+    /// Solid colour `RRGGBB`.
     Solid(String),
 }
 
@@ -58,18 +65,25 @@ pub struct OdpShape {
     pub geometry: String,
     /// `presentation:class` of a placeholder frame.
     pub class: Option<String>,
+    /// Left edge in EMU (`svg:x`).
     pub x: i64,
+    /// Top edge in EMU (`svg:y`).
     pub y: i64,
+    /// Width in EMU (`svg:width`).
     pub cx: i64,
+    /// Height in EMU (`svg:height`).
     pub cy: i64,
     /// Clockwise rotation in 60 000ths of a degree.
     pub rotation: i32,
+    /// Fill (`draw:fill`, `draw:fill-color`).
     pub fill: Paint,
+    /// Stroke (`draw:stroke`, `svg:stroke-color`).
     pub stroke: Paint,
     /// Stroke width in EMU.
     pub stroke_width: Option<i64>,
     /// Picture data and extension (`png`, `jpeg`, `gif`, …).
     pub image: Option<(Vec<u8>, String)>,
+    /// Text paragraphs of the shape.
     pub paragraphs: Vec<OdpParagraph>,
     /// `t`, `ctr`, `b` (§20.192 `draw:textarea-vertical-align`).
     pub anchor: Option<String>,
@@ -78,6 +92,7 @@ pub struct OdpShape {
 /// A paragraph.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OdpParagraph {
+    /// Formatted runs (`text:span`).
     pub runs: Vec<OdpRun>,
     /// `l`, `ctr`, `r`, `just`.
     pub align: Option<String>,
@@ -90,14 +105,19 @@ pub struct OdpParagraph {
 /// A run of text with its formatting.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OdpRun {
+    /// Text of the run.
     pub text: String,
+    /// Bold (`fo:font-weight`).
     pub bold: bool,
+    /// Italic (`fo:font-style`).
     pub italic: bool,
+    /// Underlined (`style:text-underline-style`).
     pub underline: bool,
     /// Hundredths of a point.
     pub size: Option<u32>,
     /// `RRGGBB`.
     pub color: Option<String>,
+    /// Font family (`fo:font-family` / `style:font-name`).
     pub font: Option<String>,
 }
 

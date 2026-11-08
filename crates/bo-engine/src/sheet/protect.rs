@@ -161,19 +161,33 @@ fn hash_attrs(prefix: &str, password: &str) -> Result<Attrs> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SheetPermissions {
+    /// Select locked cells (`selectLockedCells`).
     pub select_locked_cells: bool,
+    /// Select unlocked cells (`selectUnlockedCells`).
     pub select_unlocked_cells: bool,
+    /// Format cells (`formatCells`).
     pub format_cells: bool,
+    /// Format columns: width, hide (`formatColumns`).
     pub format_columns: bool,
+    /// Format rows: height, hide (`formatRows`).
     pub format_rows: bool,
+    /// Insert columns (`insertColumns`).
     pub insert_columns: bool,
+    /// Insert rows (`insertRows`).
     pub insert_rows: bool,
+    /// Insert hyperlinks (`insertHyperlinks`).
     pub insert_hyperlinks: bool,
+    /// Delete columns (`deleteColumns`).
     pub delete_columns: bool,
+    /// Delete rows (`deleteRows`).
     pub delete_rows: bool,
+    /// Sort (`sort`).
     pub sort: bool,
+    /// Use AutoFilter (`autoFilter`).
     pub auto_filter: bool,
+    /// Use PivotTable reports (`pivotTables`).
     pub pivot_tables: bool,
+    /// Edit objects: charts, pictures, shapes (`objects`).
     pub objects: bool,
 }
 
@@ -202,17 +216,29 @@ impl Default for SheetPermissions {
 /// An action checked against sheet protection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
+    /// Changing cell formats.
     FormatCells,
+    /// Changing column widths / hiding columns.
     FormatColumns,
+    /// Changing row heights / hiding rows.
     FormatRows,
+    /// Inserting columns.
     InsertColumns,
+    /// Inserting rows.
     InsertRows,
+    /// Inserting hyperlinks.
     InsertHyperlinks,
+    /// Deleting columns.
     DeleteColumns,
+    /// Deleting rows.
     DeleteRows,
+    /// Sorting a range.
     Sort,
+    /// Using AutoFilter.
     AutoFilter,
+    /// Changing pivot tables.
     PivotTables,
+    /// Editing charts, pictures and shapes.
     Objects,
 }
 
@@ -220,8 +246,11 @@ pub enum Action {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SheetProtectionInfo {
+    /// The sheet is protected (`sheetProtection/@sheet`).
     pub protected: bool,
+    /// Unprotecting needs a password (a hash or legacy `password` is stored).
     pub has_password: bool,
+    /// What the protection still permits.
     pub allow: SheetPermissions,
 }
 
@@ -419,8 +448,11 @@ pub fn unprotect_sheet(ws: &mut Worksheet, password: &str) -> Result<()> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkbookProtectionInfo {
+    /// Sheets cannot be added, deleted, renamed or moved (`lockStructure`).
     pub structure: bool,
+    /// Window position and size are locked (`lockWindows`).
     pub windows: bool,
+    /// Unprotecting needs a password (`workbookHashValue` or legacy `workbookPassword`).
     pub has_password: bool,
 }
 

@@ -1,6 +1,8 @@
 //! BlueSheet: password-protected files ([MS-OFFCRYPTO]), sheet / workbook
 //! protection (ECMA-376 Part 1, §18.3.1.85, §18.2.29), sheet tabs (move,
 //! `tabColor` §18.3.1.93), multi-range commands and opening with cached results.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_engine::SheetEngine;
 use serde_json::{json, Value};

@@ -23,7 +23,9 @@ const CLR_MAP: &str = r#"bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent
 pub struct DeckSpec {
     /// Slide size in EMU (§19.2.1.39 `sldSz`; clamped to 914 400 – 51 206 400).
     pub width: i64,
+    /// Slide height in EMU (same range as `width`).
     pub height: i64,
+    /// Slides in presentation order.
     pub slides: Vec<SlideSpec>,
     /// `dc:title` of the core properties.
     pub title: Option<String>,
@@ -32,8 +34,11 @@ pub struct DeckSpec {
 /// Slide layout used by a slide (§19.7.15 `ST_SlideLayoutType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LayoutKind {
+    /// Title slide (`title`): centred title and subtitle.
     Title,
+    /// Title and content (`obj`): title and body placeholder.
     TitleContent,
+    /// Blank layout (`blank`): no placeholders.
     #[default]
     Blank,
 }
@@ -41,7 +46,9 @@ pub enum LayoutKind {
 /// One slide.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SlideSpec {
+    /// Layout the slide is based on.
     pub layout: LayoutKind,
+    /// Shapes of the slide tree, back to front.
     pub shapes: Vec<ShapeSpec>,
     /// Speaker notes, one string per paragraph.
     pub notes: Vec<String>,
@@ -52,9 +59,13 @@ pub struct SlideSpec {
 /// Placeholder role of a shape (§19.7.10 `ST_PlaceholderType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Placeholder {
+    /// `title`.
     Title,
+    /// `ctrTitle` (title slide).
     CenterTitle,
+    /// `subTitle` (title slide).
     SubTitle,
+    /// `body`.
     Body,
 }
 
@@ -79,6 +90,7 @@ pub struct LineSpec {
 /// An embedded picture (§19.3.1.37 `pic`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Picture {
+    /// Encoded image bytes, stored as the media part.
     pub data: Vec<u8>,
     /// File extension: `png`, `jpeg`, `gif`, `bmp`, `tiff`, `emf`, `wmf`.
     pub ext: String,
@@ -87,30 +99,42 @@ pub struct Picture {
 /// A shape, text box or picture.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ShapeSpec {
+    /// Shape name (`p:cNvPr/@name`).
     pub name: String,
+    /// Left offset in EMU (`a:xfrm/a:off/@x`).
     pub x: i64,
+    /// Top offset in EMU (`a:xfrm/a:off/@y`).
     pub y: i64,
+    /// Width in EMU (`a:xfrm/a:ext/@cx`).
     pub cx: i64,
+    /// Height in EMU (`a:xfrm/a:ext/@cy`).
     pub cy: i64,
     /// Rotation in 60 000ths of a degree (§20.1.10.3 `ST_Angle`).
     pub rot: i32,
+    /// Horizontal flip (`a:xfrm/@flipH`).
     pub flip_h: bool,
+    /// Vertical flip (`a:xfrm/@flipV`).
     pub flip_v: bool,
     /// Preset geometry (§20.1.10.56 `ST_ShapeType`), `rect` when empty.
     pub geometry: String,
     /// `None`: inherited (placeholders) / theme style.
     pub fill: Option<Paint>,
+    /// Outline; `None` = inherited / theme style.
     pub line: Option<LineSpec>,
+    /// Placeholder role (`p:nvPr/p:ph`); `None` for a free shape.
     pub placeholder: Option<Placeholder>,
+    /// Paragraphs of the text body; empty = no text.
     pub text: Vec<ParaSpec>,
     /// `bodyPr/@anchor`: `t`, `ctr` or `b`.
     pub anchor: Option<String>,
+    /// Picture content: the shape is written as `p:pic` instead of `p:sp`.
     pub picture: Option<Picture>,
 }
 
 /// A paragraph (§21.1.2.2.6 `p`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ParaSpec {
+    /// Runs of the paragraph.
     pub runs: Vec<RunSpec>,
     /// Outline level 0–8.
     pub level: u8,
@@ -123,13 +147,19 @@ pub struct ParaSpec {
 /// A text run (§21.1.2.3.8 `r`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RunSpec {
+    /// Run text (`a:t`).
     pub text: String,
+    /// Bold (`a:rPr/@b`).
     pub bold: bool,
+    /// Italic (`a:rPr/@i`).
     pub italic: bool,
+    /// Single underline (`a:rPr/@u="sng"`).
     pub underline: bool,
     /// Hundredths of a point.
     pub size: Option<u32>,
+    /// Text colour as `RRGGBB` (`a:solidFill/a:srgbClr`).
     pub color: Option<String>,
+    /// Latin typeface (`a:latin/@typeface`).
     pub font: Option<String>,
 }
 

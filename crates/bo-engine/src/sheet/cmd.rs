@@ -795,55 +795,73 @@ pub enum SheetCommand {
     },
     /// Password for the next `.xlsx` saves ([MS-OFFCRYPTO]); empty/absent removes it.
     SetSavePassword {
+        /// The password; `None` or empty saves unencrypted.
         #[serde(default)]
         password: Option<String>,
     },
     /// Sheet and workbook protection state (§18.3.1.85, §18.2.29).
     Protection {
+        /// 0-based sheet index.
         sheet: usize,
     },
     /// Protects a sheet; `allow` lists what stays permitted.
     ProtectSheet {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Password (hashed with SHA-512 + salt, §18.3.1.85 hashValue); empty = none.
         #[serde(default)]
         password: String,
+        /// Actions still permitted on the protected sheet.
         #[serde(default)]
         allow: super::protect::SheetPermissions,
     },
+    /// Removes the protection of a sheet; fails when the password does not match.
     UnprotectSheet {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Password given when the sheet was protected (empty when it had none).
         #[serde(default)]
         password: String,
     },
     /// Locks the workbook structure (`lockStructure`).
     ProtectWorkbook {
+        /// Password (hashed, §18.2.29 workbookHashValue); empty = none.
         #[serde(default)]
         password: String,
     },
+    /// Removes workbook protection (§18.2.29); fails when the password does not match.
     UnprotectWorkbook {
+        /// Password given when the workbook was protected (empty when it had none).
         #[serde(default)]
         password: String,
     },
     /// Moves sheet `from` to position `to` (sheet tabs drag and drop).
     MoveSheet {
+        /// Current 0-based index of the sheet.
         from: usize,
+        /// 0-based index the sheet ends up at.
         to: usize,
     },
     /// `sheetPr/tabColor` (§18.3.1.93) as `RRGGBB`; `None`/empty removes it.
     SetTabColor {
+        /// 0-based sheet index.
         sheet: usize,
+        /// Tab colour `RRGGBB`; `None` or empty removes it.
         #[serde(default)]
         color: Option<String>,
     },
     /// Several commands as one undo step (e.g. formatting every range of a
     /// multi-range selection); results are returned in order.
     Batch {
+        /// The commands, run in order.
         cmds: Vec<SheetCommand>,
     },
     /// Sum, count and average of the numbers in several ranges (status bar of a
     /// multi-range selection); cells covered twice count once.
     RangeStats {
+        /// 0-based sheet index.
         sheet: usize,
+        /// The ranges of the selection.
         ranges: Vec<Rng>,
     },
 }

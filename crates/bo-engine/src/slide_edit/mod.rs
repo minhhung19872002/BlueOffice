@@ -152,6 +152,7 @@ pub enum SlideCommand {
     /// Password for the next `.pptx` saves ([MS-OFFCRYPTO] Agile Encryption);
     /// empty or absent removes it.
     SetSavePassword {
+        /// The password; `None` or empty saves unencrypted.
         #[serde(default)]
         password: Option<String>,
     },

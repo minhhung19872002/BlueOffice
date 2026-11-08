@@ -30,10 +30,15 @@ pub struct SpreadsheetDoc {
 /// `fo:text-align`, §20.396 `fo:wrap-option`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CellStyle {
+    /// `style:name` of the automatic style.
     pub name: String,
+    /// Bold (`fo:font-weight="bold"`).
     pub bold: bool,
+    /// Italic (`fo:font-style="italic"`).
     pub italic: bool,
+    /// Underlined (`style:text-underline-style` other than `none`).
     pub underline: bool,
+    /// Font family name.
     pub font: Option<String>,
     /// Points.
     pub size: Option<f64>,
@@ -43,6 +48,7 @@ pub struct CellStyle {
     pub background: Option<String>,
     /// `start`, `center`, `end`, `justify`.
     pub align: Option<String>,
+    /// Wrap text (`fo:wrap-option="wrap"`).
     pub wrap: bool,
 }
 

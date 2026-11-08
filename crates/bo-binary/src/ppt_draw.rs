@@ -58,6 +58,7 @@ pub const DEFAULT_SCHEME: [u32; 8] = [
 /// A picture of the BLIP store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PptPicture {
+    /// Picture bytes as stored (PNG or JPEG).
     pub data: Vec<u8>,
     /// `png` or `jpeg`.
     pub ext: &'static str,
@@ -66,26 +67,36 @@ pub struct PptPicture {
 /// Placeholder role ([MS-PPT] §2.13.21 PlaceholderEnum, grouped).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PptPlaceholder {
+    /// Slide title.
     Title,
+    /// Centered title of a title slide.
     CenterTitle,
+    /// Subtitle of a title slide.
     SubTitle,
+    /// Body text.
     Body,
     /// Date, footer, slide number, header.
     Footer,
+    /// Any other placeholder (object, chart, picture, …).
     Other,
 }
 
 /// A run of formatted text.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PptRun {
+    /// Text of the run.
     pub text: String,
+    /// Bold.
     pub bold: bool,
+    /// Italic.
     pub italic: bool,
+    /// Underlined.
     pub underline: bool,
     /// Size in points.
     pub size: Option<u16>,
     /// `0xRRGGBB`.
     pub color: Option<u32>,
+    /// Typeface name; `None` = the default font.
     pub font: Option<String>,
 }
 
@@ -96,14 +107,18 @@ pub struct PptParagraph {
     pub level: u8,
     /// `l`, `ctr`, `r`, `just`, `dist`.
     pub align: Option<&'static str>,
+    /// Bullet on (`Some(true)`) or off; `None` = inherited.
     pub bullet: Option<bool>,
+    /// Formatted runs of the paragraph.
     pub runs: Vec<PptRun>,
 }
 
 /// Text of a shape.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PptRichText {
+    /// Text type of the block (title, body, notes, …).
     pub kind: TextKind,
+    /// Paragraphs of the text.
     pub paragraphs: Vec<PptParagraph>,
 }
 
@@ -114,13 +129,19 @@ pub struct PptShape {
     pub shape_type: u16,
     /// DrawingML preset geometry for the shape type (ECMA-376 §20.1.10.56).
     pub geometry: &'static str,
+    /// Left edge in EMU.
     pub x: i64,
+    /// Top edge in EMU.
     pub y: i64,
+    /// Width in EMU.
     pub cx: i64,
+    /// Height in EMU.
     pub cy: i64,
     /// Clockwise rotation in 60 000ths of a degree.
     pub rotation: i32,
+    /// Flipped horizontally.
     pub flip_h: bool,
+    /// Flipped vertically.
     pub flip_v: bool,
     /// `0xRRGGBB`; `None` = not filled.
     pub fill: Option<u32>,
@@ -130,7 +151,9 @@ pub struct PptShape {
     pub picture: Option<usize>,
     /// A picture whose format is not kept (EMF, WMF, …).
     pub missing_picture: bool,
+    /// Placeholder role, when the shape is a placeholder.
     pub placeholder: Option<PptPlaceholder>,
+    /// Text of the shape, if any.
     pub text: Option<PptRichText>,
     /// `t`, `ctr`, `b` (anchorText §2.3.21.6, simplified).
     pub anchor: Option<&'static str>,

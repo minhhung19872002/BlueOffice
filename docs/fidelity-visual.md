@@ -3,7 +3,7 @@
 Sinh bởi `scripts/visual-diff.mjs` (2026-11-08). Ảnh tham chiếu do người dùng cung cấp đặt ở `tests/fidelity/reference/<nhóm>/<file>.page-<n>.png`; baseline tự sinh (trang 1, scale 0,5) ở `tests/fidelity/baseline/` để phát hiện hồi quy hiển thị.
 
 - Ảnh tham chiếu: **0** trang (chưa có — cần người dùng cung cấp)
-- Baseline: 150 trang, vượt ngưỡng 0.10 %: 0
+- Baseline: 162 trang, vượt ngưỡng 0.10 %: 0
 
 | Nhóm | Loại | Ảnh | Sai lệch | Ngưỡng | |
 |---|---|---|---|---|---|
@@ -35,6 +35,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-08). Ảnh tham chiếu do ngườ
 | doc | baseline | notes-02-endnotes.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | notes-03-many-footnotes.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | notes-04-numbering-options.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | notes-05-long-footnote.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| doc | baseline | notes-06-continuation-notice.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| doc | baseline | notes-07-document-note-settings.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | doc | baseline | para-01-align-indent.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | para-02-spacing-keep.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | para-03-tabs-borders.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -43,6 +46,15 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-08). Ảnh tham chiếu do ngườ
 | doc | baseline | review-02-format-changes.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | review-03-paragraph-marks.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | review-04-tables-pictures-page-setup.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | review-05-columns-cells.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| doc | baseline | review-06-merge-split.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| doc | baseline | review-07-row-properties.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| doc | baseline | review-08-header-footer.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| doc | baseline | review-09-notes.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| doc | baseline | review-10-stories-mixed.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| doc | baseline | review-11-picture-move.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| doc | baseline | review-12-picture-move-paragraph.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
+| doc | baseline | review-13-picture-insert-delete-move.docx.page-1.png | 0.00 % | 0.10 % | 🆕 |
 | doc | baseline | sections-01-landscape-columns.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | sections-02-header-footer.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | sections-03-even-odd-restart.docx.page-1.png | 0.00 % | 0.10 % | ✅ |

@@ -54,7 +54,8 @@
       "tableStyle": "Table style",
       "headerFooter": "Header & footer",
       "footnotes": "Notes",
-      "arrange": "Arrange"
+      "arrange": "Arrange",
+      "signature": "Signature"
     },
     "comingLater": "Coming in a later release"
   },
@@ -67,7 +68,10 @@
       "new": "New",
       "save": "Save",
       "saveAs": "Save as…",
-      "newFromTemplate": "New from template"
+      "newFromTemplate": "New from template",
+      "sign": "Digital signature",
+      "exportSignedPdf": "Export signed PDF",
+      "verifySignatures": "Verify signatures"
     },
     "edit": {
       "paste": "Paste",
@@ -207,7 +211,9 @@
     "saved": "Saved {{name}}",
     "modified": "Unsaved",
     "saving": "Saving…",
-    "autosaved": "Autosaved at {{time}}"
+    "autosaved": "Autosaved at {{time}}",
+    "signing": "Signing…",
+    "signed": "Signed copy saved: {{name}}"
   },
   "start": {
     "title": "Welcome to BlueDoc",
@@ -229,7 +235,9 @@
     "engine": "Could not start the engine: {{message}}",
     "save": "Could not save the file: {{message}}",
     "edit": "Could not do that: {{message}}",
-    "image": "Could not insert the picture: {{message}}"
+    "image": "Could not insert the picture: {{message}}",
+    "sign": "Could not sign: {{message}}",
+    "verify": "Could not verify the signatures: {{message}}"
   },
   "placeholder": {
     "sheet": "BlueSheet (spreadsheets) is developed in Phase 3.",
@@ -1520,5 +1528,74 @@
     "position": "Picture position",
     "horizontal": "Horizontal",
     "vertical": "Vertical"
+  },
+  "sign": {
+    "title": "Digitally sign the document",
+    "titlePdf": "Export a digitally signed PDF",
+    "signer": "Signer",
+    "kind": {
+      "file": "Certificate file",
+      "token": "USB token",
+      "remote": "Remote signing"
+    },
+    "chooseFile": "Choose .p12 / .pfx / .pem…",
+    "noFile": "No file chosen",
+    "password": "Certificate password",
+    "module": "PKCS#11 module",
+    "modulePlaceholder": "Path of the token driver (PKCS#11 .dll)",
+    "readToken": "Read token",
+    "noTokenCerts": "No certificate found on the token.",
+    "certificate": "Certificate",
+    "until": "valid until {{date}}",
+    "pin": "Token PIN",
+    "remoteUrl": "Signing service URL",
+    "credentialId": "Credential ID (optional)",
+    "accessToken": "Access token (optional)",
+    "remoteHint": "Only the document digest is sent; confirm on your signing app if asked.",
+    "tsaUrl": "Time-stamp server URL (optional)",
+    "reason": "Reason",
+    "location": "Location",
+    "sign": "Sign",
+    "cancel": "Cancel",
+    "close": "Close",
+    "needFile": "Choose a certificate file.",
+    "needPassword": "Enter the certificate password.",
+    "needModule": "Enter the PKCS#11 module path.",
+    "needTokenCert": "Read the token and choose a certificate.",
+    "needPin": "Enter the token PIN.",
+    "needRemoteUrl": "Enter the signing service URL (http:// or https://).",
+    "badTsaUrl": "The time-stamp server URL must start with http:// or https://.",
+    "statusTitle": "Digital signatures",
+    "details": "Details",
+    "state": {
+      "none": "No digital signature.",
+      "invalid": "A signature is invalid: the document was changed or the signature is damaged.",
+      "trusted": "Valid and trusted",
+      "untrusted": "Valid, but the certificate is not trusted",
+      "changed": "Valid, but the document was changed after signing"
+    },
+    "bar": {
+      "none": "This document has no digital signature.",
+      "invalid": "This document has an invalid digital signature.",
+      "trusted": "This document is digitally signed (valid, trusted).",
+      "untrusted": "This document is digitally signed, but the certificate is not trusted.",
+      "changed": "This document was changed after it was signed."
+    },
+    "timestampBy": "Time-stamped {{time}} by {{tsa}}",
+    "noTimestamp": "No trusted time-stamp: signing time is the signer’s claim.",
+    "anchor": "Trusted root: {{name}}",
+    "problem": {
+      "noTrustAnchors": "No trusted root certificate is configured.",
+      "unknownIssuer": "The issuer of “{{subject}}” is not a trusted certificate authority.",
+      "expired": "“{{subject}}” has expired.",
+      "notYetValid": "“{{subject}}” is not valid yet.",
+      "badSignature": "The signature on “{{subject}}” does not verify.",
+      "notCa": "“{{subject}}” is not allowed to issue certificates.",
+      "keyUsage": "The key usage of “{{subject}}” does not allow signing.",
+      "extendedKeyUsage": "“{{subject}}” is not a time-stamping certificate.",
+      "unsupported": "“{{subject}}” uses an unsupported algorithm.",
+      "pathTooLong": "The certificate chain is too long.",
+      "malformed": "A certificate is malformed."
+    }
   }
 }

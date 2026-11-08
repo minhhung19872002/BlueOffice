@@ -2,7 +2,8 @@
 
 Tài liệu cho quản trị viên hệ thống. Sao lưu: [backup.md](backup.md) · Nâng cấp: [upgrade.md](upgrade.md) ·
 An toàn thông tin (hồ sơ cấp độ): [security.md](security.md) ·
-Giao thức tích hợp BlueDrive: [../bohp.md](../bohp.md).
+Giao thức tích hợp BlueDrive: [../bohp.md](../bohp.md) · Ký số (ký từ xa, dấu thời gian, USB token, Root CA):
+[remote-signing.md](remote-signing.md).
 
 ## 1. Thành phần
 

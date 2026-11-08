@@ -1,4 +1,4 @@
-//! PAdES baseline B-B PDF signatures (ETSI EN 319 142-1) written as an
+//! PAdES baseline B-B / B-T PDF signatures (ETSI EN 319 142-1) written as an
 //! incremental update (ISO 32000-1 §7.5.6) so earlier revisions — and
 //! earlier signatures — stay byte-identical.
 //!
@@ -6,8 +6,9 @@
 //! §7.5.4), which is what `bo-pdf` produces. Files that use cross-reference
 //! streams are rejected with [`SignError::Unsupported`].
 
-use crate::cms_sig::{sign_detached, verify_detached, VerifiedSigner};
-use crate::{Result, SignError, Signer};
+use crate::cms_sig::{verify_detached, PreparedCms, VerifiedSigner};
+use crate::timestamp::{self, TimestampClient};
+use crate::{sha256, Result, SignError, Signer};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -412,6 +413,75 @@ const BYTE_RANGE_PLACEHOLDER: &str = "[0 0000000000 0000000000 0000000000]";
 
 /// Adds a PAdES B-B signature (invisible signature field on page 1).
 pub fn sign_pdf(pdf: &[u8], signer: &dyn Signer, opts: &SignOptions) -> Result<Vec<u8>> {
+    sign_pdf_with(pdf, signer, opts, None)
+}
+
+/// Adds a PAdES signature; with a time-stamp authority the CMS gets a
+/// signature-time-stamp (baseline B-T, ETSI EN 319 142-1 §6.3).
+pub fn sign_pdf_with(
+    pdf: &[u8],
+    signer: &dyn Signer,
+    opts: &SignOptions,
+    tsa: Option<&dyn TimestampClient>,
+) -> Result<Vec<u8>> {
+    let prepared = prepare_pdf(pdf, signer.certificate_der(), &signer.chain_der(), opts)?;
+    let signature = signer.sign_sha256(&prepared.digest()?)?;
+    let token = match tsa {
+        Some(client) => Some(timestamp::timestamp(
+            client,
+            &signature,
+            timestamp::fresh_nonce(&signature),
+        )?),
+        None => None,
+    };
+    prepared.finish(&signature, token.as_deref())
+}
+
+/// A PDF with its signature dictionary written and `/Contents` reserved,
+/// waiting for the signature value (two-phase signing, e.g. in the browser).
+pub struct PreparedPdf {
+    out: Vec<u8>,
+    contents_start: usize,
+    reserve_hex: usize,
+    cms: PreparedCms,
+}
+
+impl PreparedPdf {
+    /// SHA-256 digest to sign (PKCS#1 v1.5) — the CMS signed attributes.
+    pub fn digest(&self) -> Result<[u8; 32]> {
+        self.cms.digest()
+    }
+
+    /// Embeds the CMS built from `signature` (and an optional RFC 3161
+    /// token over it, see [`timestamp::TimestampRequest`]) into `/Contents`.
+    pub fn finish(self, signature: &[u8], timestamp_token: Option<&[u8]>) -> Result<Vec<u8>> {
+        let mut out = self.out;
+        let cms = self.cms.assemble(signature, timestamp_token)?;
+        let hex: String = cms.iter().fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02X}");
+            s
+        });
+        if hex.len() > self.reserve_hex {
+            return Err(SignError::Unsupported(format!(
+                "signature needs {} hex digits, only {} reserved",
+                hex.len(),
+                self.reserve_hex
+            )));
+        }
+        out[self.contents_start + 1..self.contents_start + 1 + hex.len()]
+            .copy_from_slice(hex.as_bytes());
+        Ok(out)
+    }
+}
+
+/// Writes the incremental update with an empty `/Contents` placeholder for
+/// a signature by `cert_der` (plus `chain` intermediates).
+pub fn prepare_pdf(
+    pdf: &[u8],
+    cert_der: &[u8],
+    chain: &[Vec<u8>],
+    opts: &SignOptions,
+) -> Result<PreparedPdf> {
     let file = PdfFile::parse(pdf)?;
     let root = dict_get(&file.trailer, "Root")
         .and_then(parse_ref)
@@ -560,20 +630,13 @@ pub fn sign_pdf(pdf: &[u8], signer: &dyn Signer, opts: &SignOptions) -> Result<V
     out[byte_range_pos..byte_range_pos + byte_range.len()].copy_from_slice(byte_range.as_bytes());
     let mut signed = out[..contents_start].to_vec();
     signed.extend_from_slice(&out[contents_end..]);
-    let cms = sign_detached(&signed, signer)?;
-    let hex: String = cms.iter().fold(String::new(), |mut s, b| {
-        let _ = write!(s, "{b:02X}");
-        s
-    });
-    if hex.len() > opts.reserve_hex {
-        return Err(SignError::Unsupported(format!(
-            "signature needs {} hex digits, only {} reserved",
-            hex.len(),
-            opts.reserve_hex
-        )));
-    }
-    out[contents_start + 1..contents_start + 1 + hex.len()].copy_from_slice(hex.as_bytes());
-    Ok(out)
+    let cms = PreparedCms::detached(&sha256(&signed), cert_der, chain)?;
+    Ok(PreparedPdf {
+        out,
+        contents_start,
+        reserve_hex: opts.reserve_hex,
+        cms,
+    })
 }
 
 fn count_sig_fields(file: &PdfFile<'_>, catalog: &[(String, String)]) -> usize {
@@ -599,8 +662,9 @@ pub struct PdfSignature {
     pub covers_whole_file: bool,
 }
 
-/// Verifies every `/ByteRange` signature in `pdf` (digest + RSA; trust
-/// chain validation against Vietnamese root CAs is the caller's job).
+/// Verifies every `/ByteRange` signature in `pdf` (digest + RSA, and the
+/// signature time-stamp of B-T signatures; chain validation against the
+/// configured root CAs is done with [`crate::trust::validate_chain`]).
 pub fn verify_pdf(pdf: &[u8]) -> Result<Vec<PdfSignature>> {
     let mut out = Vec::new();
     let mut from = 0;

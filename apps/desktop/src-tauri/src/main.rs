@@ -11,6 +11,7 @@
 mod collab_cmds;
 mod sheet_cmds;
 mod shell;
+mod sign_cmds;
 mod slide_cmds;
 
 use bo_engine::{DocInfo, Engine};
@@ -470,6 +471,10 @@ fn main() {
             sheet_cmds::sheet_open,
             sheet_cmds::sheet_call,
             sheet_cmds::sheet_binary,
+            sign_cmds::sign_document,
+            sign_cmds::verify_document,
+            sign_cmds::sign_defaults,
+            sign_cmds::sign_token_certificates,
             set_title
         ])
         .run(tauri::generate_context!())

@@ -7,8 +7,10 @@
 
 mod collab;
 mod sheet;
+mod sign;
 pub use collab::WasmCollab;
 pub use sheet::WasmSheet;
+pub use sign::WasmPreparedSignature;
 
 use bo_engine::Engine;
 use wasm_bindgen::prelude::*;

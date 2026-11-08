@@ -28,9 +28,9 @@ function listFiles(dir: string, root = dir): string[] {
 }
 
 /**
- * PWA (prompt §3.4): builds `src/sw.ts` as `sw.js` and writes `precache.json`
- * (every emitted file + the public files: fonts, sample, icons) with a
- * version hash, read by the service worker at install.
+ * PWA (prompt §3.4): builds `src/sw.ts` as `sw.js` and writes into it the
+ * list of every emitted file + the public files (fonts, sample, icons) with a
+ * version hash (`__BO_PRECACHE__`), cached by the service worker at install.
  */
 function serviceWorker(): Plugin {
   let publicDir = '';
@@ -43,22 +43,26 @@ function serviceWorker(): Plugin {
     buildStart() {
       this.emitFile({ type: 'chunk', id: 'src/sw.ts', fileName: 'sw.js' });
     },
-    generateBundle(_options, bundle) {
-      const built = Object.keys(bundle).filter((f) => f !== 'sw.js' && !f.endsWith('.map'));
-      const files = [...built, ...(publicDir ? listFiles(publicDir) : [])].sort();
-      const hash = createHash('sha256');
-      for (const f of files) {
-        const item = bundle[f];
-        hash.update(f);
-        if (item?.type === 'chunk') hash.update(item.code);
-        else if (item?.type === 'asset') hash.update(item.source);
-        else hash.update(String(statSync(join(publicDir, f)).size));
-      }
-      this.emitFile({
-        type: 'asset',
-        fileName: 'precache.json',
-        source: JSON.stringify({ version: hash.digest('hex').slice(0, 16), files }),
-      });
+    // After Vite's own plugins have emitted `index.html` and the assets.
+    generateBundle: {
+      order: 'post',
+      handler(_options, bundle) {
+        const sw = bundle['sw.js'];
+        if (sw?.type !== 'chunk') throw new Error('sw.js was not built');
+        const built = Object.keys(bundle).filter((f) => f !== 'sw.js' && !f.endsWith('.map'));
+        const files = [...built, ...(publicDir ? listFiles(publicDir) : [])].sort();
+        const hash = createHash('sha256');
+        for (const f of files) {
+          const item = bundle[f];
+          hash.update(f);
+          if (item?.type === 'chunk') hash.update(item.code);
+          else if (item?.type === 'asset') hash.update(item.source);
+          else hash.update(String(statSync(join(publicDir, f)).size));
+        }
+        const precache = JSON.stringify({ version: hash.digest('hex').slice(0, 16), files });
+        if (!sw.code.includes('__BO_PRECACHE__')) throw new Error('sw.js lost __BO_PRECACHE__');
+        sw.code = sw.code.replaceAll('__BO_PRECACHE__', precache);
+      },
     },
   };
 }

@@ -2,8 +2,10 @@
 /**
  * App-shell service worker of the web editors (prompt §3.4: the web app runs
  * as a PWA and edits offline). Built as `sw.js` next to `index.html`
- * (`vite.config.ts`), with `precache.json` listing every built file (shell,
- * JS chunks, workers, the WASM engine, fonts, the sample).
+ * (`vite.config.ts`), which replaces `__BO_PRECACHE__` with the list of every
+ * built file (shell, JS chunks, workers, the WASM engine, fonts, the sample)
+ * and its version hash — so each build changes `sw.js` itself and the browser
+ * installs the new worker (Service Workers §4.4 update: byte-for-byte check).
  *
  * - install: caches the whole list under `bo-shell-<version>`;
  * - activate: drops shell caches of older versions;
@@ -15,6 +17,8 @@
 export {};
 
 declare const self: ServiceWorkerGlobalScope;
+/** Replaced at build time (`vite.config.ts`). */
+declare const __BO_PRECACHE__: Precache;
 
 const SHELL = 'bo-shell-';
 const SERVER_ROUTES = ['api/', 'collab/', 'hosting/', 'jobs/', 'auth/callback'];
@@ -24,16 +28,17 @@ interface Precache {
   files: string[];
 }
 
+/** Files and version of this build. */
+const PRECACHE: Precache = __BO_PRECACHE__;
+const CACHE = SHELL + PRECACHE.version;
+
 const scope = () => new URL(self.registration.scope);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
-      const res = await fetch(new URL('precache.json', scope()), { cache: 'no-store' });
-      if (!res.ok) throw new Error(`precache.json ${res.status}`);
-      const list = (await res.json()) as Precache;
-      const cache = await caches.open(SHELL + list.version);
-      await cache.addAll(list.files.map((f) => new URL(f, scope()).toString()));
+      const cache = await caches.open(CACHE);
+      await cache.addAll(PRECACHE.files.map((f) => new URL(f, scope()).toString()));
       await self.skipWaiting();
     })(),
   );
@@ -42,10 +47,8 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      const res = await caches.match(new URL('precache.json', scope()).toString());
-      const current = res ? ((await res.json()) as Precache).version : null;
       for (const key of await caches.keys()) {
-        if (key.startsWith(SHELL) && current !== null && key !== SHELL + current) {
+        if (key.startsWith(SHELL) && key !== CACHE) {
           await caches.delete(key);
         }
       }
@@ -67,7 +70,9 @@ self.addEventListener('fetch', (event) => {
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).catch(async () => {
-        const shell = await caches.match(new URL('index.html', scope()).toString());
+        const shell = await caches.match(new URL('index.html', scope()).toString(), {
+          cacheName: CACHE,
+        });
         return shell ?? Response.error();
       }),
     );
@@ -75,7 +80,9 @@ self.addEventListener('fetch', (event) => {
   }
   event.respondWith(
     (async () => {
-      const hit = await caches.match(req);
+      // `crossorigin` module scripts send `Origin`; the precached copies were
+      // fetched without it, so a `Vary: Origin` response must still match.
+      const hit = await caches.match(req, { cacheName: CACHE, ignoreVary: true });
       return hit ?? fetch(req);
     })(),
   );

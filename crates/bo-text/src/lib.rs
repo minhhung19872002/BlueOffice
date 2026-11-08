@@ -12,9 +12,13 @@
 
 mod manager;
 mod outline;
+#[cfg(not(target_arch = "wasm32"))]
+mod system;
 
 pub use manager::{FaceId, FaceInfo, FontManager, ShapedGlyph};
 pub use outline::{outline_svg_path, PathCmd};
+#[cfg(not(target_arch = "wasm32"))]
+pub use system::{probe_file, SystemFontFile, SystemFontIndex};
 /// Re-export of the font parser used by this crate.
 pub use ttf_parser as ttf;
 

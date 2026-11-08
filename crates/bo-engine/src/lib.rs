@@ -33,6 +33,9 @@ pub mod story;
 pub mod templates;
 pub mod textbox;
 
+/// Installed OS fonts (native hosts, see [`Engine::set_system_fonts`]).
+#[cfg(not(target_arch = "wasm32"))]
+pub use bo_text::SystemFontIndex;
 pub use collab::{CollabChange, CollabOut, TextOp};
 pub use edit::{Command, EditResult};
 pub use sheet::SheetEngine;
@@ -256,6 +259,15 @@ impl Engine {
     /// Number of loaded faces.
     pub fn face_count(&self) -> usize {
         self.fonts.len()
+    }
+
+    /// Lets documents use the installed OS fonts (desktop): a family that is not
+    /// bundled loads from the index on first use, with face ids after the bundled ones.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_system_fonts(&mut self, index: bo_text::SystemFontIndex) {
+        self.fonts.set_system_fonts(index);
+        self.cache.clear();
+        self.layout.reset();
     }
 
     /// Access the font manager.

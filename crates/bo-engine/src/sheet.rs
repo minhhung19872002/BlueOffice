@@ -416,6 +416,12 @@ impl SheetEngine {
         self.fonts.len()
     }
 
+    /// Installed OS fonts for families that are not bundled (desktop, see `Engine::set_system_fonts`).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_system_fonts(&mut self, index: bo_text::SystemFontIndex) {
+        self.fonts.set_system_fonts(index);
+    }
+
     /// Sets the clock used by `NOW()`/`TODAY()` (Unix milliseconds, UTC).
     /// Browser hosts call it with `Date.now()` since WASM has no clock.
     #[allow(clippy::cast_precision_loss)]

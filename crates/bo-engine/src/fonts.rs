@@ -1,4 +1,5 @@
-//! Font picker entries: the loaded (bundled) families plus common document fonts
+//! Font picker entries: the loaded (bundled) families, the installed OS fonts
+//! (desktop), plus common document fonts
 //! that are displayed with a metric-compatible substitute (product brief §2,
 //! `bo_text` fallback table).
 
@@ -40,6 +41,16 @@ impl Engine {
         let mut out: Vec<FontChoice> = Vec::new();
         for i in 0..self.fonts.len() {
             let fam = self.fonts.info(FaceId(i as u32)).family.clone();
+            if !out.iter().any(|c| c.name.eq_ignore_ascii_case(&fam)) {
+                out.push(FontChoice {
+                    name: fam,
+                    substitute: None,
+                    available: true,
+                });
+            }
+        }
+        // Installed OS fonts (desktop): loaded when first used.
+        for fam in self.fonts.system_families() {
             if !out.iter().any(|c| c.name.eq_ignore_ascii_case(&fam)) {
                 out.push(FontChoice {
                     name: fam,

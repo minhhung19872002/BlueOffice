@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod collab;
+mod heap;
 mod sheet;
 pub use collab::WasmCollab;
 pub use sheet::WasmSheet;

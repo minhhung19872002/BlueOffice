@@ -46,6 +46,7 @@ impl WasmSheet {
 
     /// Opens `.xlsx`/`.csv`; returns `WorkbookInfo` JSON.
     pub fn open(&mut self, bytes: &[u8], name: &str) -> Result<String, JsError> {
+        crate::heap::reserve_for_package(bytes, crate::heap::SHEET_FACTOR);
         Ok(json(&self.inner.open(bytes, name).map_err(err)?))
     }
 

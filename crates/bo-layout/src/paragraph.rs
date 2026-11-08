@@ -1,7 +1,9 @@
 //! Paragraph layout: itemization, shaping, line breaking, tabs, alignment, line height.
 //! Output is position-independent (relative to the content box) and cacheable.
 
-use crate::style::{para_style_run, revision_style, run_props, run_style, RunStyle};
+use crate::blocks::Ctx;
+use crate::drawing::{shape_drawing, Drawing, Float};
+use crate::style::{para_style_run, revision_style, run_props, run_style, slot_of, RunStyle};
 use crate::types::{Fragment, GlyphPos, NoteKey};
 use crate::LayoutError;
 use crate::RevisionView;
@@ -212,6 +214,8 @@ pub(crate) struct RelObject {
     pub w: f32,
     pub h: f32,
     pub image: Image,
+    /// Shape / text box drawn in the object box.
+    pub drawing: Option<Arc<Drawing>>,
     /// Tracked insertion/deletion of the picture (§17.13.5.18 / §17.13.5.14 on its run).
     pub revision: Option<(Color, bool)>,
 }
@@ -233,7 +237,7 @@ pub(crate) struct ParaLayout {
     pub indent_left: f32,
     pub indent_right: f32,
     /// Anchored (floating) pictures of this paragraph.
-    pub floats: Vec<Image>,
+    pub floats: Vec<Float>,
 }
 
 #[derive(Debug, Clone)]
@@ -282,6 +286,7 @@ struct Piece {
     /// Label pieces have no caret positions.
     virtual_: bool,
     image: Option<Image>,
+    drawing: Option<Arc<Drawing>>,
     /// Object height above baseline (pictures).
     obj_h: f32,
     note: Option<NoteKey>,
@@ -332,6 +337,7 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     inp.width.to_bits().hash(&mut h);
     inp.default_tab.to_bits().hash(&mut h);
     inp.doc.default_run.hash(&mut h);
+    inp.doc.theme_fonts.hash(&mut h);
     inp.note_mark.hash(&mut h);
     inp.view.hash(&mut h);
     for z in inp.wrap {
@@ -368,7 +374,7 @@ pub(crate) fn layout_paragraph(
         return Ok(l.clone());
     }
     cache.misses += 1;
-    let l = Arc::new(layout_uncached(inp, fonts)?);
+    let l = Arc::new(layout_uncached(inp, fonts, cache)?);
     if cache.map.len() > 100_000 {
         cache.map.clear();
     }
@@ -388,6 +394,11 @@ fn field_text(instr: &str, cached: &str, f: FieldContext) -> String {
         "SECTIONPAGES" if f.section_pages > 0 => f.section_pages.to_string(),
         _ => cached.to_owned(),
     }
+}
+
+/// Combining marks (they keep the font of the character they attach to).
+fn is_combining(c: char) -> bool {
+    matches!(c as u32, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F)
 }
 
 fn kind_of(c: char) -> Kind {
@@ -411,12 +422,43 @@ struct Atom {
     /// Atomic object (picture, field, note reference): one caret unit.
     object: bool,
     image: Option<Image>,
+    /// Laid-out shape / text box of an inline drawing object.
+    drawing: Option<Arc<Drawing>>,
     note: Option<NoteKey>,
+}
+
+/// Lay out the shape / text box of drawing object `img` at index offset `at`.
+fn drawing_of(
+    inp: &ParaInput<'_>,
+    fonts: &mut FontManager,
+    cache: &mut LayoutCache,
+    img: &Image,
+    shape: &bo_model::Shape,
+    at: usize,
+) -> Result<Drawing, LayoutError> {
+    let mut ctx = Ctx {
+        doc: inp.doc,
+        fonts,
+        cache,
+        lists: Default::default(),
+        other_lists: Default::default(),
+        notes: inp.note_numbers.clone(),
+        fields: inp.fields,
+        default_tab: inp.default_tab,
+        next_id: 0,
+        id_origin: 0,
+        endnote_order: Vec::new(),
+        view: inp.view,
+        note: None,
+        textbox: None,
+    };
+    shape_drawing(&mut ctx, img, shape, at as u32)
 }
 
 fn layout_uncached(
     inp: &ParaInput<'_>,
     fonts: &mut FontManager,
+    cache: &mut LayoutCache,
 ) -> Result<ParaLayout, LayoutError> {
     let props = &inp.props;
     let doc = inp.doc;
@@ -444,7 +486,7 @@ fn layout_uncached(
         };
         let rp = run_props(doc, &base_run, &direct);
         styles.push(revision_style(
-            run_style(fonts, &rp).ok_or(LayoutError::NoFonts)?,
+            run_style(doc, fonts, &rp).ok_or(LayoutError::NoFonts)?,
             &rp,
             inp.view,
         ));
@@ -452,7 +494,7 @@ fn layout_uncached(
     }
     let mark_style = match styles.last() {
         Some(s) => s.clone(),
-        None => run_style(fonts, &base_run).ok_or(LayoutError::NoFonts)?,
+        None => run_style(doc, fonts, &base_run).ok_or(LayoutError::NoFonts)?,
     };
     if styles.is_empty() {
         styles.push(mark_style.clone());
@@ -463,9 +505,20 @@ fn layout_uncached(
         let run = &inp.para.runs[sp.run];
         let style = run_style_idx[sp.run];
         let item = &run.content[sp.item];
+        let drawing = match item {
+            RunContent::Image(img) => match &img.shape {
+                Some(s) => Some(Arc::new(drawing_of(inp, fonts, cache, img, s, sp.start)?)),
+                None => None,
+            },
+            _ => None,
+        };
         if let RunContent::Image(img) = item {
             if img.anchor.is_some() {
-                floats.push((**img).clone());
+                floats.push(Float {
+                    img: (**img).clone(),
+                    drawing,
+                    para: None,
+                });
                 continue;
             }
         }
@@ -504,6 +557,7 @@ fn layout_uncached(
             text,
             object,
             image,
+            drawing,
             note,
         });
     }
@@ -511,7 +565,7 @@ fn layout_uncached(
     // 2. Words at UAX #14 break opportunities, then pieces.
     let mut words: Vec<Word> = Vec::new();
     if let Some((label, lrp, suffix)) = &inp.label {
-        let lstyle = run_style(fonts, &lrp.inherit(&base_run)).ok_or(LayoutError::NoFonts)?;
+        let lstyle = run_style(doc, fonts, &lrp.inherit(&base_run)).ok_or(LayoutError::NoFonts)?;
         styles.push(lstyle);
         let si = styles.len() - 1;
         let mut pieces = Vec::new();
@@ -754,6 +808,7 @@ fn layout_uncached(
                                 w: p.width,
                                 h: p.obj_h,
                                 image: img.clone(),
+                                drawing: p.drawing.clone(),
                                 revision: st.revision,
                             });
                         }
@@ -1081,6 +1136,7 @@ fn special_piece(kind: Kind, style: usize, styles: &[RunStyle], at: u32, virtual
         offsets: vec![at, at + u32::from(!virtual_)],
         virtual_,
         image: None,
+        drawing: None,
         obj_h: 0.0,
         note: None,
     }
@@ -1134,10 +1190,40 @@ fn text_pieces(
         };
         let group = &display[b0..b1];
         let mut cursor = k;
-        for (r, face) in fonts.itemize(st.face, group) {
+        // §17.3.2.26: split by font slot (marks stay with their base character), then
+        // by glyph coverage.
+        let mut slots: Vec<(std::ops::Range<usize>, FaceId)> = Vec::new();
+        if st.faces.iter().all(|f| *f == st.face) {
+            slots.push((0..group.len(), st.face));
+        } else {
+            for (i, c) in group.char_indices() {
+                let face = if is_combining(c) {
+                    slots.last().map_or(st.face, |s| s.1)
+                } else {
+                    st.faces[slot_of(c, st.hint_east_asia, st.complex) as usize]
+                };
+                let end = i + c.len_utf8();
+                match slots.last_mut() {
+                    Some(s) if s.1 == face => s.0.end = end,
+                    _ => slots.push((i..end, face)),
+                }
+            }
+        }
+        let items: Vec<(std::ops::Range<usize>, FaceId)> = slots
+            .into_iter()
+            .flat_map(|(r, f)| {
+                let base = r.start;
+                fonts
+                    .itemize(f, &group[r])
+                    .into_iter()
+                    .map(move |(rr, ff)| (rr.start + base..rr.end + base, ff))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        for (r, face) in items {
             let t = &group[r];
             let nc = t.chars().count();
-            let glyphs = fonts.shape(face, t);
+            let glyphs = fonts.shape_kern(face, t, st.kern);
             let upem = f32::from(fonts.info(face).units_per_em);
             let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32 * st.size / upem
                 + st.spacing * glyphs.len() as f32;
@@ -1151,6 +1237,7 @@ fn text_pieces(
                 offsets: offs[cursor..=cursor + nc].to_vec(),
                 virtual_,
                 image: None,
+                drawing: None,
                 obj_h: 0.0,
                 note: None,
             });
@@ -1187,6 +1274,7 @@ fn word_pieces(
                     offsets: vec![at.start as u32, at.end as u32],
                     virtual_: false,
                     image: Some(img.clone()),
+                    drawing: at.drawing.clone(),
                     obj_h: img.height.to_pt(),
                     note: None,
                 });

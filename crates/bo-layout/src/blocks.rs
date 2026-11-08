@@ -6,6 +6,7 @@
 //! band are relative to its top-left corner (x = 0 is the left edge of the
 //! content box the band was laid out for).
 
+use crate::drawing::Float;
 use crate::paragraph::{layout_paragraph, FieldContext, LayoutCache, ParaInput, RelLine, WrapZone};
 use crate::style::{para_props, ListCounters};
 use crate::types::{Layer, Line, LineSource, NoteKey, PageItem};
@@ -44,6 +45,9 @@ pub(crate) struct Ctx<'a> {
     /// Note being stacked and its next paragraph index (note lines carry
     /// [`LineSource::Note`]).
     pub note: Option<(NoteKey, u32)>,
+    /// Text box being stacked: (index offset of the shape in its paragraph, next
+    /// paragraph index); its lines carry [`LineSource::TextBox`].
+    pub textbox: Option<(u32, u32)>,
 }
 
 /// Break requested after a band.
@@ -85,9 +89,7 @@ impl Band {
         let mut b = self.clone();
         for l in &mut b.lines {
             l.translate(dx, dy);
-            if let LineSource::Body(id) = &mut l.source {
-                *id += base;
-            }
+            l.source.rebase(base);
         }
         for i in &mut b.items {
             i.translate(dx, dy);
@@ -99,9 +101,7 @@ impl Band {
     /// lines keep their note source.
     pub fn set_other(&mut self) {
         for l in &mut self.lines {
-            if matches!(l.source, LineSource::Body(_)) {
-                l.source = LineSource::Other;
-            }
+            l.source.detach();
         }
     }
 
@@ -134,7 +134,7 @@ pub(crate) struct ParaBlock {
     pub contextual: bool,
     pub style: Option<String>,
     pub deco: Option<Deco>,
-    pub floats: Vec<Image>,
+    pub floats: Vec<Float>,
     /// Depends only on the paragraph and the width: no list label, fields or note
     /// references (so it can be reused by the incremental layout).
     pub pure: bool,
@@ -179,18 +179,30 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
             layer: Layer::Back,
         });
     }
+    let mut boxed = Vec::new();
     for o in &rl.objects {
         let y = rl.baseline - o.h;
-        items.push(PageItem::Image {
-            x: o.x,
-            y,
-            w: o.w,
-            h: o.h,
-            media: o.image.media.clone(),
-            crop: crop_of(&o.image),
-            rotation: rotation_of(&o.image),
-            layer: Layer::Front,
-        });
+        if let Some(d) = &o.drawing {
+            // Inline shape / text box (its text lines follow the paragraph line).
+            let para = match source {
+                LineSource::Body(id) => Some(id),
+                _ => None,
+            };
+            let (its, lines) = d.placed(o.x, y, para);
+            items.extend(its);
+            boxed.extend(lines);
+        } else {
+            items.push(PageItem::Image {
+                x: o.x,
+                y,
+                w: o.w,
+                h: o.h,
+                media: o.image.media.clone(),
+                crop: crop_of(&o.image),
+                rotation: rotation_of(&o.image),
+                layer: Layer::Front,
+            });
+        }
         // A tracked picture is framed in its author's colour, a deleted one crossed out.
         if let Some((color, deleted)) = o.revision {
             let (x0, y0, x1, y1) = (o.x, y, o.x + o.w, rl.baseline);
@@ -215,18 +227,20 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
             }
         }
     }
+    let mut lines = vec![Line {
+        top: 0.0,
+        height: rl.height,
+        baseline: rl.baseline,
+        fragments,
+        source,
+        start: rl.start,
+        end: rl.end,
+        carets: rl.carets.clone(),
+    }];
+    lines.extend(boxed);
     Band {
         h: rl.height,
-        lines: vec![Line {
-            top: 0.0,
-            height: rl.height,
-            baseline: rl.baseline,
-            fragments,
-            source,
-            start: rl.start,
-            end: rl.end,
-            carets: rl.carets.clone(),
-        }],
+        lines,
         items,
         notes: rl.notes.clone(),
         brk: if rl.page_break_after {
@@ -278,6 +292,14 @@ pub(crate) fn build_para(
             endnote: *endnote,
             id: *id,
             para,
+        }
+    } else if let Some((at, next)) = ctx.textbox.as_mut() {
+        let sub = *next;
+        *next += 1;
+        LineSource::TextBox {
+            para: 0,
+            at: *at,
+            sub,
         }
     } else {
         LineSource::Other
@@ -358,7 +380,18 @@ fn para_block(
         contextual: pl.contextual_spacing,
         style: pl.style.clone(),
         deco,
-        floats: pl.floats.clone(),
+        floats: pl
+            .floats
+            .iter()
+            .cloned()
+            .map(|mut f| {
+                f.para = match source {
+                    LineSource::Body(id) => Some(id),
+                    _ => None,
+                };
+                f
+            })
+            .collect(),
         pure,
         label,
     })
@@ -422,7 +455,7 @@ pub(crate) struct Stack {
     pub bands: Vec<(f32, Band)>,
     pub h: f32,
     /// Anchored pictures with the top of their anchor paragraph.
-    pub floats: Vec<(f32, Image)>,
+    pub floats: Vec<(f32, Float)>,
 }
 
 /// Stack the blocks of note `key` (its lines carry [`LineSource::Note`]).
@@ -706,20 +739,28 @@ pub(crate) fn layout_table(
             };
             let mut content = stack.bands;
             // Floating pictures inside cells are positioned relative to the cell (approximation).
-            for (top, img) in stack.floats {
+            for (top, f) in stack.floats {
+                let img = &f.img;
                 let (ix, iy) = img
                     .anchor
                     .as_ref()
                     .map_or((0.0, 0.0), |a| (a.x.to_pt(), a.y.to_pt()));
                 let mut band = Band::empty(0.0);
+                if let Some(d) = &f.drawing {
+                    let (items, lines) = d.placed(ix, 0.0, f.para);
+                    band.items.extend(items);
+                    band.lines.extend(lines);
+                    content.push((top + iy, band));
+                    continue;
+                }
                 band.items.push(PageItem::Image {
                     x: ix,
                     y: 0.0,
                     w: img.width.to_pt(),
                     h: img.height.to_pt(),
                     media: img.media.clone(),
-                    crop: crop_of(&img),
-                    rotation: rotation_of(&img),
+                    crop: crop_of(img),
+                    rotation: rotation_of(img),
                     layer: if img.anchor.as_ref().is_some_and(|a| a.behind) {
                         Layer::Back
                     } else {

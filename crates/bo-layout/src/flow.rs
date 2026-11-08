@@ -5,12 +5,13 @@ use crate::blocks::{
     build_para, deco_items, layout_table, rewrap_para, row_band, row_notes, split_row, stack_note,
     Band, Brk, Ctx, ParaBlock, Stack, TableBox,
 };
+use crate::drawing::Float;
 use crate::paragraph::{WrapZone, MIN_SEGMENT};
 use crate::style::ListCounters;
-use crate::types::{Layer, LineSource, NoteKey, Page, PageItem};
+use crate::types::{Layer, Line, LineSource, NoteKey, Page, PageItem};
 use crate::LayoutError;
 use bo_model::{
-    Block, Color, Emu, Image, NotePos, PageSetup, Paragraph, Section, SectionBreak, Wrap, WrapText,
+    Block, Color, Emu, NotePos, PageSetup, Paragraph, Section, SectionBreak, Wrap, WrapText,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -160,54 +161,74 @@ pub(crate) fn columns(setup: &PageSetup, sec: &Section) -> Vec<(f32, f32)> {
 
 /// Position of an anchored picture (§20.4.2.3 anchor, §20.4.2.10 positionH, §20.4.2.11 positionV).
 pub(crate) fn float_item(
-    img: &Image,
+    f: &Float,
     setup: &PageSetup,
     col_x: f32,
     para_top: f32,
-) -> (PageItem, Option<Excl>) {
-    let Some(a) = &img.anchor else {
-        return (
-            PageItem::Image {
-                x: col_x,
-                y: para_top,
-                w: img.width.to_pt(),
-                h: img.height.to_pt(),
-                media: img.media.clone(),
-                crop: crate::blocks::crop_of(img),
-                rotation: crate::blocks::rotation_of(img),
-                layer: Layer::Front,
-            },
-            None,
-        );
-    };
-    let x = match a.h_relative.as_str() {
-        "page" | "leftMargin" | "insideMargin" => a.x.to_pt(),
-        "rightMargin" | "outsideMargin" => {
-            setup.width.to_pt() - setup.margin_right.to_pt() + a.x.to_pt()
-        }
-        "margin" => setup.margin_left.to_pt() + a.x.to_pt(),
-        _ => col_x + a.x.to_pt(),
-    };
-    let y = match a.v_relative.as_str() {
-        "page" | "topMargin" | "insideMargin" => a.y.to_pt(),
-        "margin" => setup.margin_top.to_pt().abs() + a.y.to_pt(),
-        "bottomMargin" | "outsideMargin" => {
-            setup.height.to_pt() - setup.margin_bottom.to_pt().abs() + a.y.to_pt()
-        }
-        _ => para_top + a.y.to_pt(),
-    };
+) -> (Vec<PageItem>, Vec<Line>, Option<Excl>) {
+    let img = &f.img;
     let w = img.width.to_pt();
     let h = img.height.to_pt();
-    let item = PageItem::Image {
-        x,
-        y,
-        w,
-        h,
-        media: img.media.clone(),
-        crop: crate::blocks::crop_of(img),
-        rotation: crate::blocks::rotation_of(img),
-        layer: if a.behind { Layer::Back } else { Layer::Front },
+    let draw = |x: f32, y: f32, layer: Layer| -> (Vec<PageItem>, Vec<Line>) {
+        match &f.drawing {
+            Some(d) => d.placed(x, y, f.para),
+            None => (
+                vec![PageItem::Image {
+                    x,
+                    y,
+                    w,
+                    h,
+                    media: img.media.clone(),
+                    crop: crate::blocks::crop_of(img),
+                    rotation: crate::blocks::rotation_of(img),
+                    layer,
+                }],
+                Vec::new(),
+            ),
+        }
     };
+    let Some(a) = &img.anchor else {
+        let (items, lines) = draw(col_x, para_top, Layer::Front);
+        return (items, lines, None);
+    };
+    // Reference area of positionH / positionV (§20.4.3.4 ST_RelFromH, §20.4.3.5
+    // ST_RelFromV): (start, extent).
+    let page_w = setup.width.to_pt();
+    let page_h = setup.height.to_pt();
+    let (ml, mr) = (setup.margin_left.to_pt(), setup.margin_right.to_pt());
+    let (mt, mb) = (
+        setup.margin_top.to_pt().abs(),
+        setup.margin_bottom.to_pt().abs(),
+    );
+    let href = match a.h_relative.as_str() {
+        "page" => (0.0, page_w),
+        "leftMargin" | "insideMargin" => (0.0, ml),
+        "rightMargin" | "outsideMargin" => (page_w - mr, mr),
+        "margin" => (ml, page_w - ml - mr),
+        _ => (col_x, page_w - ml - mr),
+    };
+    let vref = match a.v_relative.as_str() {
+        "page" => (0.0, page_h),
+        "topMargin" | "insideMargin" => (0.0, mt),
+        "margin" => (mt, page_h - mt - mb),
+        "bottomMargin" | "outsideMargin" => (page_h - mb, mb),
+        _ => (para_top, 0.0),
+    };
+    // §20.4.2.1 / §20.4.2.2 align replaces the offset.
+    let aligned = |al: &str, (start, ext): (f32, f32), size: f32| match al {
+        "center" => start + (ext - size) / 2.0,
+        "right" | "bottom" | "outside" => start + ext - size,
+        _ => start,
+    };
+    let x = match &a.h_align {
+        Some(al) => aligned(al, href, w),
+        None => href.0 + a.x.to_pt(),
+    };
+    let y = match &a.v_align {
+        Some(al) => aligned(al, vref, h),
+        None => vref.0 + a.y.to_pt(),
+    };
+    let (items, lines) = draw(x, y, if a.behind { Layer::Back } else { Layer::Front });
     let [dt, db, dl, dr] = a.dist.map(Emu::to_pt);
     let excl = match a.wrap {
         Wrap::None => None,
@@ -236,7 +257,7 @@ pub(crate) fn float_item(
             }))
         }
     };
-    (item, excl)
+    (items, lines, excl)
 }
 
 /// Area of a square/tight-wrapped picture on the page (points, distances included).
@@ -664,9 +685,14 @@ impl Flow {
 
         // Anchored pictures are positioned relative to the paragraph's first line.
         let mut float_items = Vec::new();
+        let mut float_lines = Vec::new();
         for img in &pb.floats {
-            let (item, excl) = float_item(img, &self.setup, self.col_x(), self.y);
-            float_items.push(item);
+            let (items, lines, excl) = float_item(img, &self.setup, self.col_x(), self.y);
+            float_items.extend(items);
+            float_lines.extend(lines.into_iter().map(|mut l| {
+                l.source.rebase(self.id_base);
+                l
+            }));
             match excl {
                 Some(Excl::Band(a, b)) => self.excl.push((a, b)),
                 Some(Excl::Side(z)) => {
@@ -689,6 +715,7 @@ impl Flow {
         }
         if let Some(page) = self.pages.last_mut() {
             page.items.extend(float_items);
+            page.lines.extend(float_lines);
         }
         // Lines beside square/tight-wrapped pictures are laid out again around them.
         let rewrapped;

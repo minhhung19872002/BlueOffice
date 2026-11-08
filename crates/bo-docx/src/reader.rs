@@ -4,6 +4,7 @@
 //! reproduce unchanged content byte-for-byte (ADR-0005).
 
 use crate::{DocxError, Result};
+use bo_model::slide::Theme;
 use bo_model::{
     fingerprint, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellProps,
     CellPropsChange, CellVAlign, Color, Columns, Comment, Document, Emu, HalfPoints, HeaderFooter,
@@ -11,7 +12,7 @@ use bo_model::{
     Numbering, ParaProps, ParaPropsChange, Paragraph, Raw, RevMark, RevisionInfo, Row, Run,
     RunContent, RunProps, RunPropsChange, Section, SectionBreak, SourcePackage, Style, StyleKind,
     StyleSheet, TabAlign, TabLeader, TabStop, Table, TableProps, TablePropsChange, TableWidth,
-    Twips, Underline, VMerge, VertAlign, Wrap, WrapText,
+    ThemeFonts, Twips, Underline, VMerge, VertAlign, Wrap, WrapText,
 };
 use bo_opc::xml::{attr, unescape, XmlReader};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -19,6 +20,8 @@ use quick_xml::events::{BytesStart, Event};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+/// ECMA-376 Part 1, §14.2.7 theme part relationship.
+const REL_THEME: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme";
 const REL_NUMBERING: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering";
 const REL_SETTINGS: &str =
@@ -41,6 +44,8 @@ struct Ctx<'p> {
     pkg: &'p Package,
     part: String,
     rels: HashMap<String, Relationship>,
+    /// Document theme (colours of shapes, theme fonts).
+    theme: Option<Arc<Theme>>,
 }
 
 impl<'p> Ctx<'p> {
@@ -54,6 +59,7 @@ impl<'p> Ctx<'p> {
             pkg,
             part: part.to_owned(),
             rels,
+            theme: None,
         })
     }
 
@@ -78,9 +84,9 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         .related_part("/", REL_OFFICE_DOCUMENT)?
         .ok_or(DocxError::NoMainDocument)?;
     let main_part = pkg.part(&main).ok_or(DocxError::NoMainDocument)?;
-    let ctx = Ctx::new(&pkg, &main)?;
-
+    let mut ctx = Ctx::new(&pkg, &main)?;
     let mut doc = Document::default();
+    ctx.theme = read_theme(&pkg, &main, &mut doc);
     if let Some(p) = pkg
         .related_part(&main, REL_STYLES)?
         .and_then(|n| pkg.part(&n))
@@ -103,7 +109,8 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
     for (rel, notes) in [(REL_FOOTNOTES, true), (REL_ENDNOTES, false)] {
         if let Some(name) = pkg.related_part(&main, rel)? {
             if let Some(p) = pkg.part(&name) {
-                let nctx = Ctx::new(&pkg, &name)?;
+                let mut nctx = Ctx::new(&pkg, &name)?;
+                nctx.theme.clone_from(&ctx.theme);
                 let map = read_notes(&p.data, &nctx, &mut media)?;
                 if notes {
                     doc.footnotes = map;
@@ -117,7 +124,8 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
     let mut comments_ids = false;
     if let Some(name) = pkg.related_part(&main, REL_COMMENTS)? {
         if let Some(p) = pkg.part(&name) {
-            let cctx = Ctx::new(&pkg, &name)?;
+            let mut cctx = Ctx::new(&pkg, &name)?;
+            cctx.theme.clone_from(&ctx.theme);
             let (root, list) = read_comments(&p.data, &cctx, &mut media)?;
             comments_root = Some(root);
             doc.comments = list;
@@ -531,6 +539,7 @@ fn read_settings(data: &[u8], part: &str, doc: &mut Document) -> Result<()> {
             Event::Start(e) | Event::Empty(e) => match name(&e).as_slice() {
                 b"defaultTabStop" => doc.default_tab_stop = twips(&e, b"val"),
                 b"evenAndOddHeaders" => doc.even_and_odd_headers = on_off(&e),
+                b"autoHyphenation" => doc.auto_hyphenation = on_off(&e), // §17.15.1.10
                 _ => {}
             },
             Event::Eof => break,
@@ -997,22 +1006,33 @@ fn read_run(
             b"drawing" if s => {
                 let img = read_drawing(r, ctx, media)?;
                 let raw = Raw::new(r.slice(before, r.pos()), 0);
-                match img {
-                    Some(mut img) => {
-                        img.src = Some(raw);
-                        run.content.push(RunContent::Image(Box::new(img)));
-                    }
+                match img.or_else(|| drawing_shape(&raw.xml, ctx, media)) {
+                    Some(img) => run
+                        .content
+                        .push(RunContent::Image(Box::new(with_src(img, raw)))),
                     None => run.content.push(RunContent::Opaque(raw)),
                 }
             }
-            // ECMA-376 Part 3, §10.2.1 AlternateContent: picture fallback, else verbatim.
+            // ECMA-376 Part 3, §10.2.1 AlternateContent: picture fallback, a shape
+            // (DrawingML choice or VML fallback), else verbatim.
             b"AlternateContent" if s => {
                 let raw = capture(r, true, before)?;
-                match alternate_content_picture(&raw.xml, ctx, media) {
-                    Some(mut img) => {
-                        img.src = Some(raw);
-                        run.content.push(RunContent::Image(Box::new(img)));
-                    }
+                match alternate_content_picture(&raw.xml, ctx, media)
+                    .or_else(|| drawing_shape(&raw.xml, ctx, media))
+                {
+                    Some(img) => run
+                        .content
+                        .push(RunContent::Image(Box::new(with_src(img, raw)))),
+                    None => run.content.push(RunContent::Opaque(raw)),
+                }
+            }
+            // ECMA-376 Part 4, §19.1 VML picture container (legacy shapes / text boxes).
+            b"pict" if s => {
+                let raw = capture(r, true, before)?;
+                match drawing_shape(&raw.xml, ctx, media) {
+                    Some(img) => run
+                        .content
+                        .push(RunContent::Image(Box::new(with_src(img, raw)))),
                     None => run.content.push(RunContent::Opaque(raw)),
                 }
             }
@@ -1080,6 +1100,109 @@ fn alternate_content_picture(
     }
 }
 
+/// Attach the source XML of a drawing object; shapes record their fingerprint so an
+/// unchanged shape is written back verbatim.
+fn with_src(mut img: Image, raw: Raw) -> Image {
+    let fp = if img.shape.is_some() {
+        crate::shape::shape_fingerprint(&img)
+    } else {
+        0
+    };
+    img.src = Some(Raw::new(raw.xml, fp));
+    img
+}
+
+/// Theme part of the main document (`word/theme/theme1.xml`, ECMA-376 Part 1 §14.2.7);
+/// its font scheme goes to [`Document::theme_fonts`].
+fn read_theme(pkg: &Package, main: &str, doc: &mut Document) -> Option<Arc<Theme>> {
+    let name = pkg.related_part(main, REL_THEME).ok()??;
+    let part = pkg.part(&name)?;
+    let t = bo_drawingml::theme::parse_theme(&part.data, &part.name).ok()?;
+    let f = &t.fonts;
+    doc.theme_fonts = ThemeFonts {
+        major_latin: f.major.latin.typeface.clone(),
+        major_east_asia: f.major.ea.typeface.clone(),
+        major_cs: f.major.cs.typeface.clone(),
+        minor_latin: f.minor.latin.typeface.clone(),
+        minor_east_asia: f.minor.ea.typeface.clone(),
+        minor_cs: f.minor.cs.typeface.clone(),
+    };
+    Some(Arc::new(t))
+}
+
+/// Text box content (§17.17.1 txbxContent) of the first text box in `xml`.
+fn txbx_blocks(
+    xml: &str,
+    ctx: &Ctx<'_>,
+    media: &mut BTreeMap<String, Arc<Vec<u8>>>,
+) -> Option<Vec<Block>> {
+    let mut r = XmlReader::new(xml.as_bytes(), &ctx.part);
+    loop {
+        match r.read().ok()? {
+            Event::Start(e) if name(&e) == b"txbxContent" => {
+                return read_blocks(&mut r, ctx, media, &mut None).ok();
+            }
+            Event::Empty(e) if name(&e) == b"txbxContent" => return Some(Vec::new()),
+            Event::Eof => return None,
+            _ => {}
+        }
+    }
+}
+
+/// A shape or text box (`wps:wsp`, else the VML fallback `w:pict`) in the XML of a
+/// `w:drawing`, `mc:AlternateContent` or `w:pict` (see the `shape` module).
+fn drawing_shape(
+    xml: &str,
+    ctx: &Ctx<'_>,
+    media: &mut BTreeMap<String, Arc<Vec<u8>>>,
+) -> Option<Image> {
+    use crate::shape::{find_local, shape_from_wsp, vml_shape};
+    let dom = bo_drawingml::dom::parse(xml.as_bytes(), &ctx.part).ok()?;
+    // Groups and canvases (wpg:wgp, wpc:wpc) are not modelled: use the VML fallback.
+    let grouped = find_local(&dom, "wgp").is_some() || find_local(&dom, "wpc").is_some();
+    let wsp = (!grouped).then(|| find_local(&dom, "wsp")).flatten();
+    let mut img = if let Some(wsp) = wsp {
+        // Position and extent from the DrawingML container (§20.4.2.3 / §20.4.2.8).
+        let mut r = XmlReader::new(xml.as_bytes(), &ctx.part);
+        let mut img = None;
+        loop {
+            match r.read().ok()? {
+                Event::Start(e) if name(&e) == b"drawing" => {
+                    img = read_drawing_frame(&mut r, ctx, media).ok();
+                    break;
+                }
+                Event::Eof => break,
+                _ => {}
+            }
+        }
+        let mut img = img?;
+        img.shape = Some(Box::new(shape_from_wsp(wsp, ctx.theme.as_deref())));
+        img
+    } else {
+        let pict = find_local(&dom, "pict")?;
+        // VML pictures (v:imagedata) stay verbatim.
+        if find_local(pict, "imagedata").is_some() {
+            return None;
+        }
+        let (shape, w, h, anchor) = vml_shape(pict)?;
+        Image {
+            media: String::new(),
+            width: w,
+            height: h,
+            anchor,
+            crop: None,
+            rotation: 0,
+            description: String::new(),
+            shape: Some(Box::new(shape)),
+            src: None,
+        }
+    };
+    if let Some(s) = img.shape.as_mut() {
+        s.text = txbx_blocks(xml, ctx, media);
+    }
+    Some(img)
+}
+
 /// `distT` `distB` `distL` `distR` of an anchor or wrap element (§20.4.2.3, §20.4.2.17):
 /// the attributes present replace `base`.
 fn wrap_dist(e: &BytesStart<'_>, base: [Emu; 4]) -> [Emu; 4] {
@@ -1101,6 +1224,21 @@ fn read_drawing(
     ctx: &Ctx<'_>,
     media: &mut BTreeMap<String, Arc<Vec<u8>>>,
 ) -> Result<Option<Image>> {
+    let img = read_drawing_frame(r, ctx, media)?;
+    Ok(if img.media.is_empty() {
+        None
+    } else {
+        Some(img)
+    })
+}
+
+/// Placement (inline/anchor, extent, wrap) and picture data of a `w:drawing`; `media`
+/// stays empty when it holds no picture (e.g. a shape).
+fn read_drawing_frame(
+    r: &mut XmlReader<'_>,
+    ctx: &Ctx<'_>,
+    media: &mut BTreeMap<String, Arc<Vec<u8>>>,
+) -> Result<Image> {
     let end = r.depth() - 1;
     let mut img = Image {
         media: String::new(),
@@ -1110,10 +1248,12 @@ fn read_drawing(
         crop: None,
         rotation: 0,
         description: String::new(),
+        shape: None,
         src: None,
     };
     let mut anchor: Option<Anchor> = None;
     let mut in_polygon = false;
+    let mut in_align = false;
     let mut axis = 0u8; // 1 = positionH, 2 = positionV
                         // SmartArt ([MS-ODRAWXML] dgm:relIds): data model part relationship id.
     let mut diagram_data: Option<String> = None;
@@ -1130,19 +1270,30 @@ fn read_drawing(
                 if n == b"wrapPolygon" {
                     in_polygon = false;
                 }
+                if n == b"align" {
+                    in_align = false;
+                }
                 if r.depth() == end {
                     break;
                 }
                 continue;
             }
             Event::Text(t) if axis != 0 => {
-                if let (Ok(v), Some(a)) =
-                    (unescape(t.as_ref()).trim().parse::<i64>(), anchor.as_mut())
-                {
-                    if axis == 1 {
-                        a.x = Emu(v);
-                    } else {
-                        a.y = Emu(v);
+                let v = unescape(t.as_ref()).trim().to_owned();
+                if let Some(a) = anchor.as_mut() {
+                    if in_align {
+                        // §20.4.2.1 / §20.4.2.2 align (ST_AlignH / ST_AlignV)
+                        if axis == 1 {
+                            a.h_align = Some(v);
+                        } else {
+                            a.v_align = Some(v);
+                        }
+                    } else if let Ok(v) = v.parse::<i64>() {
+                        if axis == 1 {
+                            a.x = Emu(v);
+                        } else {
+                            a.y = Emu(v);
+                        }
                     }
                 }
                 continue;
@@ -1232,6 +1383,9 @@ fn read_drawing(
             b"xfrm" => img.rotation = int(&e, b"rot").unwrap_or(0) as i32,
             // ECMA-376 Part 1, §21.4.2.6 relIds (SmartArt parts).
             b"relIds" => diagram_data = attr(&e, b"dm"),
+            b"align" => in_align = is_start,
+            // Text box content is read separately; its pictures are not the drawing's.
+            b"txbx" | b"txbxContent" if is_start => r.skip_element()?,
             _ => {}
         }
     }
@@ -1248,11 +1402,7 @@ fn read_drawing(
             }
         }
     }
-    Ok(if img.media.is_empty() {
-        None
-    } else {
-        Some(img)
-    })
+    Ok(img)
 }
 
 // ---------------------------------------------------------------- properties
@@ -1274,6 +1424,7 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
             b"pageBreakBefore" => p.page_break_before = Some(on_off(e)), // §17.3.1.23
             b"widowControl" => p.widow_control = Some(on_off(e)),
             b"contextualSpacing" => p.contextual_spacing = Some(on_off(e)),
+            b"bidi" => p.bidi = Some(on_off(e)), // §17.3.1.6
             b"outlineLvl" => p.outline_level = int(e, b"val").map(|v| v.clamp(0, 9) as u8),
             // §17.3.1.19 numPr
             b"numPr" if s => {
@@ -1459,15 +1610,29 @@ fn read_rpr(r: &mut XmlReader<'_>) -> Result<RunProps> {
             b"rStyle" => p.style = attr(e, b"val"),
             // §17.3.2.26 rFonts
             b"rFonts" => {
-                if let Some(f) = attr(e, b"ascii").or_else(|| attr(e, b"hAnsi")) {
-                    p.font = Some(f);
+                p.font = attr(e, b"ascii");
+                p.font_h_ansi = attr(e, b"hAnsi");
+                // §17.18.96 ST_Theme: theme fonts win over the explicit names.
+                p.theme_ascii = attr(e, b"asciiTheme");
+                p.theme_h_ansi = attr(e, b"hAnsiTheme");
+                p.font_east_asia = attr(e, b"eastAsia");
+                p.font_cs = attr(e, b"cs");
+                p.theme_east_asia = attr(e, b"eastAsiaTheme");
+                p.theme_cs = attr(e, b"cstheme");
+                if p.font.is_none() && p.theme_ascii.is_none() {
+                    // hAnsi alone: it also fills the ascii slot of the model.
+                    p.font = p.font_h_ansi.take();
+                    p.theme_ascii = p.theme_h_ansi.take();
+                } else if (&p.font_h_ansi, &p.theme_h_ansi) == (&p.font, &p.theme_ascii) {
+                    // Same as ascii: the model's "ascii stands for both".
+                    p.font_h_ansi = None;
+                    p.theme_h_ansi = None;
                 }
-                p.font_east_asia = attr(e, b"eastAsia").or(p.font_east_asia.take());
-                p.font_cs = attr(e, b"cs").or(p.font_cs.take());
-                if attr(e, b"asciiTheme").is_some() && p.font.is_none() {
-                    // Theme fonts: kept for writing via `unknown`, resolved by layout fallback.
-                    p.unknown.push(capture(r, s, before)?);
+                p.font_hint = attr(e, b"hint"); // §17.18.42 ST_Hint
+                if s {
+                    r.skip_element()?;
                 }
+                let _ = before;
             }
             // §17.3.2.38 sz
             b"sz" => {
@@ -1484,19 +1649,12 @@ fn read_rpr(r: &mut XmlReader<'_>) -> Result<RunProps> {
             b"vanish" => p.hidden = Some(on_off(e)), // §17.3.2.41
             // §17.3.2.40 u
             b"u" => {
-                p.underline = Some(match attr(e, b"val").as_deref() {
-                    Some("none") => Underline::None,
-                    Some("double") => Underline::Double,
-                    Some("thick") => Underline::Thick,
-                    Some("dotted" | "dottedHeavy") => Underline::Dotted,
-                    Some("dash" | "dashLong" | "dashedHeavy" | "dotDash" | "dotDotDash") => {
-                        Underline::Dash
-                    }
-                    Some("wave" | "wavyDouble" | "wavyHeavy") => Underline::Wave,
-                    Some("words") => Underline::Words,
-                    _ => Underline::Single,
-                });
+                // §17.18.99 ST_Underline (absent val = single)
+                p.underline =
+                    Some(attr(e, b"val").map_or(Underline::Single, |v| Underline::parse(&v)));
             }
+            b"rtl" => p.rtl = Some(on_off(e)),    // §17.3.2.30
+            b"cs" => p.complex = Some(on_off(e)), // §17.3.2.7
             // §17.3.2.6 color
             b"color" => {
                 if let Some(c) = color_attr(e, b"val") {
@@ -1711,6 +1869,7 @@ fn read_table(
                     }
                     Ok(true)
                 })?;
+                fold_h_merge(&mut row);
                 t.rows.push(row);
             }
             _ => return Ok(!s),
@@ -1732,6 +1891,51 @@ fn read_table(
         t.grid = vec![Twips(9000 / cols.max(1) as i32); cols];
     }
     Ok(t)
+}
+
+/// `w:hMerge` of a cell (§17.4.22, legacy horizontal merge): `Some(true)` = restart,
+/// `Some(false)` = continue (the default value).
+fn h_merge_of(c: &Cell) -> Option<bool> {
+    c.props.unknown.iter().find_map(|r| {
+        let x = r.xml.trim_start();
+        let rest = x.strip_prefix('<')?;
+        let local = rest.split([' ', '/', '>']).next()?;
+        (local.rsplit(':').next() == Some("hMerge")).then(|| x.contains("\"restart\""))
+    })
+}
+
+/// Fold legacy horizontal merges (§17.4.22 hMerge) into `gridSpan` (§17.4.17): a
+/// continuing cell is absorbed by the cell before it, so layout and editing only see
+/// the modern form. Unchanged tables are still written from their source XML.
+fn fold_h_merge(row: &mut Row) {
+    if !row.cells.iter().any(|c| h_merge_of(c).is_some()) {
+        return;
+    }
+    let mut out: Vec<Cell> = Vec::with_capacity(row.cells.len());
+    for mut c in std::mem::take(&mut row.cells) {
+        let hm = h_merge_of(&c);
+        c.props.unknown.retain(|r| !r.xml.contains("hMerge"));
+        match (hm, out.last_mut()) {
+            (Some(false), Some(prev)) => {
+                prev.props.grid_span += c.props.grid_span.max(1);
+                if let (Some(TableWidth::Dxa(a)), Some(TableWidth::Dxa(b))) =
+                    (prev.props.width, c.props.width)
+                {
+                    prev.props.width = Some(TableWidth::Dxa(Twips(a.0 + b.0)));
+                }
+                // Text left in a continuing cell joins the merged cell.
+                let has_text = c
+                    .blocks
+                    .iter()
+                    .any(|b| b.as_paragraph().is_none_or(|p| !p.plain_text().is_empty()));
+                if has_text {
+                    prev.blocks.extend(c.blocks);
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    row.cells = out;
 }
 
 /// §17.4.70 tcPr
@@ -1872,7 +2076,8 @@ fn read_sect_pr(
         let Some(part) = ctx.pkg.part(&target) else {
             continue;
         };
-        let hctx = Ctx::new(ctx.pkg, &target)?;
+        let mut hctx = Ctx::new(ctx.pkg, &target)?;
+        hctx.theme.clone_from(&ctx.theme);
         let blocks = read_header_part(&part.data, &hctx, media)?;
         let set = if is_header {
             &mut s.headers

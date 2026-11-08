@@ -23,7 +23,7 @@
 use crate::blocks::{stack_blocks, Ctx, Stack};
 use crate::flow::{float_item, hf_blocks, CachedPara, Checkpoint, Flow};
 use crate::style::ListCounters;
-use crate::types::{LayoutDocument, LineSource, NoteKey, Page};
+use crate::types::{LayoutDocument, NoteKey, Page};
 use crate::{content_width, number_notes, FieldContext, LayoutCache, LayoutError, LayoutOptions};
 use bo_model::change::BlockChanges;
 use bo_model::{Block, Document, RunContent, SectionBreak, Twips};
@@ -168,9 +168,7 @@ fn shift_ids(page: &mut Page, delta: i64) {
         return;
     }
     for l in &mut page.lines {
-        if let LineSource::Body(id) = &mut l.source {
-            *id = (i64::from(*id) + delta) as u32;
-        }
+        l.source.shift(delta);
     }
 }
 
@@ -206,6 +204,11 @@ fn decorate(
             lines.extend(b.lines);
             page.items.extend(b.items);
         }
+        for (top, img) in &st.floats {
+            let (items, flines, _) = float_item(img, &setup, left, y0 + top);
+            page.items.extend(items);
+            lines.extend(flines);
+        }
         // Keep reading order: header lines first, footer lines last.
         if header {
             head = lines.len();
@@ -213,10 +216,6 @@ fn decorate(
         } else {
             foot = lines.len();
             page.lines.extend(lines);
-        }
-        for (top, img) in &st.floats {
-            let (item, _) = float_item(img, &setup, left, y0 + top);
-            page.items.push(item);
         }
     }
     Ok((head, foot, page.items.len() - items0))
@@ -243,6 +242,7 @@ fn new_ctx<'a>(
         endnote_order: sc.endnote_order.clone(),
         view: opts.view,
         note: None,
+        textbox: None,
     }
 }
 

@@ -22,6 +22,7 @@ pub use write::{
     HeightRule, Image, Level, LineSpacing, NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef,
     Numbering, PageSetup, ParaProps, ParaPropsChange, Paragraph, Raw, RevMark, RevisionInfo, Row,
     RowProps, Run, RunContent, RunProps, RunPropsChange, Section, SectionBreak, SectionChange,
-    SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table, TableProps,
-    TablePropsChange, TableWidth, Underline, VMerge, VertAlign, Wrap, WrapText,
+    Shape, ShapeLine, SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop,
+    Table, TableProps, TablePropsChange, TableWidth, TextAnchor, ThemeFonts, Underline, VMerge,
+    VertAlign, Wrap, WrapText,
 };

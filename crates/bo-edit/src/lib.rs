@@ -2344,6 +2344,7 @@ impl Session {
                 crop: None,
                 rotation: 0,
                 description: String::new(),
+                shape: None,
                 src: None,
             };
             let caret = tx.insert_atoms(at, vec![(props, RunContent::Image(Box::new(img)))])?;

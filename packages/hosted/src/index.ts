@@ -4,6 +4,8 @@ export * from './readonly';
 export * from './collab';
 export * from './open';
 export * from './HostedBanner';
+export * from './HostedChrome';
+export * from './dirty';
 export * from './drive';
 export * from './signin';
 export * from './syncFolders';

@@ -6,7 +6,8 @@
 import type { CloseReason, CollabClient, SocketFactory } from '@blueoffice/collab';
 import type { Platform } from '@blueoffice/platform';
 import { loadWasmReplica, startCollab, type Replica } from './collab';
-import { HostedStatus, SessionMode, parseMode } from './mode';
+import { DirtyState, trackDirty } from './dirty';
+import { HostedStatus, SessionMode, parseMode, type SessionModeValue } from './mode';
 import { syncPendingSave, type OfflineSaves, type SyncOutcome } from './offline';
 import { guardPlatform } from './readonly';
 import {
@@ -31,11 +32,18 @@ export interface OpenHostedOptions {
   /** What the relative `collab.url` resolves against (`api`, or the page URL when same origin). */
   base: string;
   ref: HostFileRef;
+  /**
+   * Mode the host asked for (`BlueOffice.open({ mode })`); the session never
+   * goes above it nor above the user's permissions (default `edit`).
+   */
+  requestedMode?: SessionModeValue;
   fetchImpl: FetchLike;
   /** Replica factory (default: the WASM `bo-collab`). */
   replica?: () => Promise<Replica>;
   socket?: SocketFactory;
   onSaved?: (result: unknown) => void;
+  /** A save failed (not offline: the server answered with an error). */
+  onSaveError?: (e: unknown) => void;
   onCollaborators?: (collaborators: unknown) => void;
   onEnded?: (r: CloseReason) => void;
   /**
@@ -56,12 +64,18 @@ export interface HostedEditor {
   file: OpenedFile;
   mode: SessionMode;
   status: HostedStatus;
+  /** Unsaved local changes (SDK `dirty` event). */
+  dirty: DirtyState;
   /** Render the editor with this platform. */
   platform: Platform;
   client: CollabClient | null;
-  /** Host commands (`save`, `print`, `export-pdf`, `close`). */
+  /** Host commands (`save`, `print`, `export-pdf`; `close` = {@link HostedEditor.close}). */
   command(cmd: HostCommand): Promise<unknown>;
-  close(): void;
+  /**
+   * Leaves the session: unsaved local changes are saved first as a new host
+   * version (when the session is editable); resolves whether a save happened.
+   */
+  close(): Promise<{ saved: boolean }>;
 }
 
 export async function openHosted(o: OpenHostedOptions): Promise<HostedEditor> {
@@ -96,8 +110,9 @@ export async function openHosted(o: OpenHostedOptions): Promise<HostedEditor> {
     )
     .catch(() => {});
   const app = appForFile(file.name);
-  const mode = new SessionMode(parseMode(session.mode));
+  const mode = new SessionMode(parseMode(session.mode), o.requestedMode ?? 'edit');
   const status = new HostedStatus();
+  const dirty = new DirtyState();
   // Offline = the live connection dropped after it had been up.
   let wasOnline = false;
   let wentOffline = false;
@@ -116,7 +131,11 @@ export async function openHosted(o: OpenHostedOptions): Promise<HostedEditor> {
     app,
     mode,
     fetchImpl: o.fetchImpl,
-    ...(o.onSaved ? { onSaved: o.onSaved } : {}),
+    onSaved: (r) => {
+      dirty.set(false);
+      o.onSaved?.(r);
+    },
+    ...(o.onSaveError ? { onSaveError: o.onSaveError } : {}),
     ...(offline ? { offline } : {}),
   });
   // Commands run against the final platform (collaborative + view-mode guard).
@@ -162,16 +181,33 @@ export async function openHosted(o: OpenHostedOptions): Promise<HostedEditor> {
     client = h.client;
     platform = h.platform;
   }
-  final = guardPlatform(platform, mode);
+  // Outermost: the view/comment guard, then dirty tracking of what really runs.
+  final = guardPlatform(trackDirty(platform, dirty), mode);
+  let closed: Promise<{ saved: boolean }> | null = null;
+  const close = (): Promise<{ saved: boolean }> =>
+    (closed ??= (async () => {
+      let saved = false;
+      if (dirty.dirty && mode.editable) {
+        try {
+          await command('save');
+          saved = true;
+        } catch (e) {
+          o.onSaveError?.(e);
+        }
+      }
+      client?.close();
+      return { saved };
+    })());
   return {
     app,
     session,
     file,
     mode,
     status,
+    dirty,
     platform: final,
     client,
-    command,
-    close: () => client?.close(),
+    command: (cmd) => (cmd === 'close' ? close() : command(cmd)),
+    close,
   };
 }

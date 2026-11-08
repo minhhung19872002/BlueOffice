@@ -7,10 +7,27 @@ import type { CloseReason, CollabStatus } from '@blueoffice/collab';
  */
 export type SessionModeValue = 'edit' | 'comment' | 'view' | 'revoked';
 
+const RANK: Record<SessionModeValue, number> = { revoked: 0, view: 1, comment: 2, edit: 3 };
+
+/** The lower of two modes (`edit` > `comment` > `view` > `revoked`). */
+export const lowerMode = (a: SessionModeValue, b: SessionModeValue): SessionModeValue =>
+  RANK[a] <= RANK[b] ? a : b;
+
 export class SessionMode {
   private readonly listeners = new Set<(m: SessionModeValue) => void>();
+  private current: SessionModeValue;
 
-  constructor(private current: SessionModeValue) {}
+  /**
+   * `cap` is the mode the host asked for (`BlueOffice.open({ mode })`): the
+   * server's mode never raises the session above it (a host may open a file
+   * the user can edit in `view` or `comment` mode).
+   */
+  constructor(
+    initial: SessionModeValue,
+    private readonly cap: SessionModeValue = 'edit',
+  ) {
+    this.current = lowerMode(initial, cap);
+  }
 
   get value(): SessionModeValue {
     return this.current;
@@ -21,7 +38,13 @@ export class SessionMode {
     return this.current === 'edit';
   }
 
-  set(next: SessionModeValue): void {
+  /** Comments may be added, answered, resolved and deleted (`edit` or `comment`). */
+  get canComment(): boolean {
+    return this.current === 'edit' || this.current === 'comment';
+  }
+
+  set(value: SessionModeValue): void {
+    const next = lowerMode(value, this.cap);
     // Revoked is final for this session.
     if (next === this.current || this.current === 'revoked') return;
     this.current = next;

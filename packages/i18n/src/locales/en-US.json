@@ -1225,7 +1225,12 @@
     "offlineCopy": "Editing the copy saved on this computer offline — changes sync when the file is opened online again",
     "syncedOffline": "Offline changes were synced to BlueDrive (version {{version}})",
     "conflictCopy": "The file changed while you were offline — your changes were saved as “{{name}}”",
-    "signInAgain": "Could not open the file — sign in to BlueDrive again"
+    "signInAgain": "Could not open the file — sign in to BlueDrive again",
+    "back": "Back",
+    "share": "Share",
+    "close": "Close",
+    "unsaved": "Unsaved changes",
+    "closed": "The document was closed"
   },
   "startScreen": {
     "title": "Start",
@@ -1273,5 +1278,11 @@
     "syncPromptBody": "“{{name}}” is in a BlueDrive sync folder. Switch to online collaboration to edit it together with others and save straight to BlueDrive?",
     "syncPromptOnline": "Collaborate online",
     "syncPromptLocal": "Keep editing on this computer"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "account": "Signed in as {{name}}",
+    "signInFailed": "Could not sign in: {{message}}"
   }
 }

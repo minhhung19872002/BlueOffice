@@ -12,7 +12,13 @@ import type {
   SlideShapeInfo,
   SlideTextEdit,
 } from '@blueoffice/platform';
-import { Ribbon, StatusBar, useResolvedTheme, type RibbonTab } from '@blueoffice/ui';
+import {
+  Ribbon,
+  StatusBar,
+  useResolvedTheme,
+  type RibbonTab,
+  type ThemeSetting,
+} from '@blueoffice/ui';
 import {
   AArrowDown,
   AArrowUp,
@@ -100,6 +106,8 @@ export interface BlueSlideEditorProps {
   language?: Language;
   /** Open as the audience screen of a presenter window (channel id). */
   audience?: string;
+  /** Light, dark or follow the OS (the embedding host sets it, prompt §6A.2). */
+  theme?: ThemeSetting;
 }
 
 export type SlideView = 'normal' | 'sorter' | 'reading' | 'show' | 'presenter';
@@ -184,10 +192,10 @@ function useSize(): [(el: HTMLElement | null) => void, { width: number; height: 
   return [setEl, size];
 }
 
-function SlideEditorInner({ platform }: BlueSlideEditorProps) {
+function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideEditorProps) {
   const { t } = useTranslation();
   const engine = platform.engine;
-  const theme = useResolvedTheme('auto');
+  const theme = useResolvedTheme(themeSetting);
   const [info, setInfo] = useState<DocInfo | null>(null);
   const [fileName, setFileName] = useState('');
   const [current, setCurrent] = useState(0);

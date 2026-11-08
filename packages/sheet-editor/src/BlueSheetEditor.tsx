@@ -16,7 +16,13 @@ import type {
   StylePatch,
   WorkbookInfo,
 } from '@blueoffice/platform';
-import { Ribbon, StatusBar, useResolvedTheme, type RibbonTab } from '@blueoffice/ui';
+import {
+  Ribbon,
+  StatusBar,
+  useResolvedTheme,
+  type RibbonTab,
+  type ThemeSetting,
+} from '@blueoffice/ui';
 import {
   AArrowDown,
   AArrowUp,
@@ -155,6 +161,8 @@ import styles from './SheetEditor.module.css';
 export interface BlueSheetEditorProps {
   platform: Platform;
   language?: Language;
+  /** Light, dark or follow the OS (the embedding host sets it, prompt §6A.2). */
+  theme?: ThemeSetting;
 }
 
 /** Editor state passed to commands. */
@@ -254,10 +262,10 @@ interface Rect {
   h: number;
 }
 
-function SheetEditorInner({ platform }: BlueSheetEditorProps) {
+function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetEditorProps) {
   const { t, i18n } = useTranslation();
   const host = platform.sheet;
-  const theme = useResolvedTheme('auto');
+  const theme = useResolvedTheme(themeSetting);
   const decimal: ',' | '.' = i18n.language === 'en-US' ? '.' : ',';
 
   const [info, setInfo] = useState<WorkbookInfo | null>(null);

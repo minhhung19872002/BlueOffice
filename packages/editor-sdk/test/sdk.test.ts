@@ -124,4 +124,45 @@ describe('editor-sdk', () => {
     handle.destroy();
     await expect(p).rejects.toThrow('destroyed');
   });
+
+  it('passes theme, ui and mode to the editor and reports the chrome events', async () => {
+    const hostWin = new FakeWindow(HOST);
+    const editorWin = new FakeWindow(EDITOR);
+    const handle = connectEditor(editorWin.from(hostWin), hostWin, {
+      fileId: 'f1',
+      accessToken: 't',
+      host: 'bluedrive',
+      editorUrl: EDITOR,
+      mode: 'comment',
+      theme: 'dark',
+      ui: { showShare: true, showClose: true, showBack: true, brandName: 'BlueDrive' },
+    });
+    const conn = connectHost({ parent: hostWin.from(editorWin), self: editorWin, allowedOrigins: [HOST] });
+    const init = await conn.ready;
+    expect(init).toMatchObject({
+      mode: 'comment',
+      theme: 'dark',
+      ui: { showShare: true, showClose: true, showBack: true, brandName: 'BlueDrive' },
+    });
+    const got: { e: string; p: unknown }[] = [];
+    for (const e of ['dirty', 'share-requested', 'closed', 'error'] as const)
+      handle.on(e, (p) => got.push({ e, p }));
+    // The editor closes itself when asked (`command('close')`) and says so.
+    conn.onCommand(async (cmd) => {
+      if (cmd !== 'close') return null;
+      conn.emit('closed', { reason: 'command', saved: true });
+      return { saved: true };
+    });
+    conn.emit('dirty', { dirty: true });
+    conn.emit('share-requested', { fileId: 'f1' });
+    await expect(handle.command('close')).resolves.toEqual({ saved: true });
+    conn.emit('error', { code: 'save-failed', message: 'session.save 409' });
+    await tick();
+    expect(got).toEqual([
+      { e: 'dirty', p: { dirty: true } },
+      { e: 'share-requested', p: { fileId: 'f1' } },
+      { e: 'closed', p: { reason: 'command', saved: true } },
+      { e: 'error', p: { code: 'save-failed', message: 'session.save 409' } },
+    ]);
+  });
 });

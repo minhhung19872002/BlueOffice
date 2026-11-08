@@ -221,4 +221,53 @@ describe('audit of host files', () => {
       { action: 'export', detail: 'pdf' },
     ]);
   });
+
+  it('close saves unsaved changes first (SDK `close`), not when the host asked for view mode', async () => {
+    const { fetchImpl, calls } = server((url) =>
+      url.endsWith('/api/sessions')
+        ? { body: session('1') }
+        : url.includes('/checkpoint')
+          ? { body: { version: '2' } }
+          : { bytes: [80, 75] },
+    );
+    const withEngine = () => {
+      const p = basePlatform();
+      (p.engine as unknown as Record<string, unknown>).command = async (c: { cmd: string }) => ({
+        cmd: c.cmd,
+      });
+      return p;
+    };
+    const saved: unknown[] = [];
+    const h = await openHosted({
+      platform: withEngine(),
+      api: 'https://office',
+      base: 'https://office',
+      ref: { host: 'bluedrive', fileId: 'f7', accessToken: 'jwt' },
+      fetchImpl,
+      onSaved: (r) => saved.push(r),
+    });
+    const dirty: boolean[] = [];
+    h.dirty.subscribe((d) => dirty.push(d));
+    await h.platform.engine.command({ cmd: 'insertText', text: 'a' });
+    await expect(h.command('close')).resolves.toEqual({ saved: true });
+    expect(calls.filter((c) => c.url.includes('/checkpoint?save=true'))).toHaveLength(1);
+    expect(dirty).toEqual([true, false]);
+    expect(saved).toEqual([{ version: '2' }]);
+    // Closing twice does nothing more.
+    await expect(h.close()).resolves.toEqual({ saved: true });
+
+    const v = await openHosted({
+      platform: withEngine(),
+      api: 'https://office',
+      base: 'https://office',
+      ref: { host: 'bluedrive', fileId: 'f7', accessToken: 'jwt' },
+      requestedMode: 'view',
+      fetchImpl,
+    });
+    expect(v.mode.value).toBe('view');
+    await v.platform.engine.command({ cmd: 'insertText', text: 'a' });
+    expect(v.dirty.dirty).toBe(false);
+    await expect(v.close()).resolves.toEqual({ saved: false });
+    expect(calls.filter((c) => c.url.includes('/checkpoint'))).toHaveLength(1);
+  });
 });

@@ -178,6 +178,8 @@ export function hostedPlatform(
     mode: SessionMode;
     fetchImpl: FetchLike;
     onSaved?: (result: unknown) => void;
+    /** A save was refused by the server (shown to the host as an SDK `error`). */
+    onSaveError?: (e: unknown) => void;
     /** Keep saves locally while the server is unreachable (desktop). */
     offline?: HostedOffline;
   },
@@ -209,6 +211,7 @@ export function hostedPlatform(
       result = await checkpoint(api, session, bytes, fetchImpl);
     } catch (e) {
       if (e instanceof OfflineError && offline) return keepOffline(bytes);
+      opts.onSaveError?.(e);
       throw e;
     }
     const v = (result as { version?: unknown } | null)?.version;

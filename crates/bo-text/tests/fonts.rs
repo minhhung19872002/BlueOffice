@@ -97,3 +97,41 @@ fn kerning_follows_the_flag() {
         .sum();
     assert!(on < off, "{on} vs {off}");
 }
+
+/// System fonts (desktop): an installed family is loaded on first use, after
+/// the bundled faces, whose ids stay as they were.
+#[test]
+fn system_fonts_load_lazily_after_bundled_faces() {
+    use bo_text::{FaceId, SystemFontIndex};
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts");
+    let mut fm = FontManager::new();
+    // "Bundled": Tinos only.
+    for f in ["Tinos-Regular.ttf", "Tinos-Bold.ttf"] {
+        fm.add_font(std::fs::read(dir.join(f)).unwrap());
+    }
+    // "Installed": the whole folder.
+    fm.set_system_fonts(SystemFontIndex::scan(std::slice::from_ref(&dir)));
+    assert_eq!(fm.len(), 2, "nothing is loaded before a document asks");
+    assert!(fm.system_families().iter().any(|f| f == "Carlito"));
+
+    // A bundled family never reads the installed copy.
+    let t = fm.resolve("Tinos", true, false).unwrap();
+    assert_eq!((t, fm.len()), (FaceId(1), 2));
+
+    // Installed family: its four files are loaded, with ids after the bundled ones.
+    let c = fm.resolve("carlito", false, true).unwrap();
+    assert_eq!(fm.len(), 6);
+    assert!(c.0 >= 2);
+    assert_eq!(fm.info(c).family, "Carlito");
+    assert!(fm.info(c).italic);
+    assert_eq!(fm.info(FaceId(0)).family, "Tinos");
+
+    // Calibri is not installed here: the metric-compatible substitute (now loaded) is used.
+    let cal = fm.resolve("Calibri", false, false).unwrap();
+    assert_eq!(fm.info(cal).family, "Carlito");
+    // Unknown family: last resort, and no file is read again.
+    let n = fm.len();
+    let x = fm.resolve("No Such", false, false).unwrap();
+    assert_eq!(fm.info(x).family, "Tinos");
+    assert_eq!(fm.len(), n);
+}

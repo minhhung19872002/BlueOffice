@@ -58,6 +58,15 @@
           "bluedoc"
         ]
       }
+    },
+    "updater": {
+      "pubkey": "REPLACE_WITH_BLUESTAR_UPDATER_PUBLIC_KEY",
+      "endpoints": [
+        "https://updates.bluestar.vn/blueoffice/bluedoc/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

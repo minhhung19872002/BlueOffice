@@ -71,7 +71,8 @@
       "newFromTemplate": "New from template",
       "sign": "Digital signature",
       "exportSignedPdf": "Export signed PDF",
-      "verifySignatures": "Verify signatures"
+      "verifySignatures": "Verify signatures",
+      "checkUpdates": "Check for updates"
     },
     "edit": {
       "paste": "Paste",
@@ -1597,5 +1598,18 @@
       "pathTooLong": "The certificate chain is too long.",
       "malformed": "A certificate is malformed."
     }
+  },
+  "updates": {
+    "title": "Updates",
+    "check": "Check for updates",
+    "checking": "Checking for updates…",
+    "install": "Install and restart",
+    "installing": "Downloading and installing the update…",
+    "available": "Version {{version}} is available (you have {{current}}).",
+    "upToDate": "You have the latest version ({{current}}).",
+    "failed": "Could not check for updates: {{message}}",
+    "notConfigured": "This installation has no update server configured.",
+    "disabled": "This build has no automatic updates.",
+    "installFailed": "Could not install the update: {{message}}"
   }
 }

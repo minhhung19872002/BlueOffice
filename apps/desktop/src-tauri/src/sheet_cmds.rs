@@ -164,7 +164,12 @@ pub fn sheet_binary(
 
 /// Opens a workbook from a raw IPC body (`x-file-name` header).
 #[tauri::command]
-pub fn sheet_open(state: State<'_, SheetState>, request: Request<'_>) -> Result<Value, String> {
+pub fn sheet_open(
+    state: State<'_, SheetState>,
+    fonts: State<'_, crate::FontsReady>,
+    request: Request<'_>,
+) -> Result<Value, String> {
+    fonts.wait(crate::FONT_WAIT);
     let InvokeBody::Raw(bytes) = request.body() else {
         return Err("expected a binary request body".into());
     };

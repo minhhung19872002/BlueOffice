@@ -19,13 +19,13 @@ import type {
   WindowManager,
 } from '../types';
 import { WebEngineHost } from './WebEngineHost';
-import { createWebSheetHost } from './WebSheetHost';
+import { createWebSheetHost, webSheetTransport } from './WebSheetHost';
 import { WebSigning } from './signing';
 
 export { WebSigning } from './signing';
 export type { SignatureBackend, WebSigningOptions } from './signing';
 
-export { WebEngineHost, createWebSheetHost };
+export { WebEngineHost, createWebSheetHost, webSheetTransport };
 export { createWebAuth, AUTH_CALLBACK_PATH } from './auth';
 export { registerServiceWorker } from './pwa';
 

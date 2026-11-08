@@ -10,8 +10,36 @@ import type {
   OfflineCache,
   RecentFile,
   StoredDocument,
+  UpdateStatus,
   UserInfo,
 } from './types';
+
+/** i18n key (`updates.*`) and parameters describing an update check result. */
+export function updateNotice(s: UpdateStatus): { key: string; params: Record<string, string> } {
+  switch (s.state) {
+    case 'available':
+      return { key: 'updates.available', params: { version: s.version, current: s.current } };
+    case 'upToDate':
+      return { key: 'updates.upToDate', params: { current: s.current } };
+    case 'failed':
+      return { key: 'updates.failed', params: { message: s.message } };
+    case 'notConfigured':
+      return { key: 'updates.notConfigured', params: {} };
+    default:
+      return { key: 'updates.disabled', params: {} };
+  }
+}
+
+/** Automatic check at start-up: at most once per `intervalMs` (default one day). */
+export function shouldCheckForUpdates(
+  lastCheck: number | null,
+  now: number,
+  intervalMs = 24 * 60 * 60 * 1000,
+): boolean {
+  if (lastCheck === null || !Number.isFinite(lastCheck)) return true;
+  // A clock set back also allows a check.
+  return now - lastCheck >= intervalMs || now < lastCheck;
+}
 
 /** Async Clipboard API (works in browsers and in the Tauri WebView). */
 export class BrowserClipboard implements ClipboardAccess {

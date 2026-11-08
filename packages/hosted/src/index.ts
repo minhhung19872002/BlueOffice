@@ -9,6 +9,7 @@ export * from './dirty';
 export * from './drive';
 export * from './signin';
 export * from './syncFolders';
+export * from './AccountChip';
 export * from './offline';
 export * from './start/text';
 export * from './start/StartScreen';

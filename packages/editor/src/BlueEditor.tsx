@@ -13,7 +13,7 @@ import type {
   StoredDocument,
   TableEdit,
 } from '@blueoffice/platform';
-import { PASSWORD_REQUIRED, WRONG_PASSWORD } from '@blueoffice/platform';
+import { PASSWORD_REQUIRED, WRONG_PASSWORD, updateNotice } from '@blueoffice/platform';
 import {
   Ribbon,
   StatusBar,
@@ -612,6 +612,18 @@ function EditorInner({
         }
       },
     });
+    const updates = platform.updates;
+    if (updates) {
+      // Desktop auto-update: the result shows in the status line.
+      r.register({
+        id: 'file.checkUpdates',
+        run: async () => {
+          store.setState({ status: { kind: 'info', key: 'updates.checking' } });
+          const n = updateNotice(await updates.check());
+          store.setState({ status: { kind: 'info', key: n.key, params: n.params } });
+        },
+      });
+    }
 
     // Editing.
     r.register({
@@ -1454,6 +1466,16 @@ function EditorInner({
           items: [
             item('file.exportPdf', 'commands.file.exportPdf', <FileDown size={ICON} />),
             item('file.print', 'commands.file.print', <Printer size={ICON} />),
+            ...(registry.has('file.checkUpdates')
+              ? [
+                  item(
+                    'file.checkUpdates',
+                    'commands.file.checkUpdates',
+                    <RefreshCw size={ICON} />,
+                    'small',
+                  ),
+                ]
+              : []),
           ],
         },
         {

@@ -1,5 +1,6 @@
 import { BlueEditor } from '@blueoffice/editor';
 import {
+  AccountChip,
   DriveClient,
   HostedBanner,
   OfflineError,
@@ -7,6 +8,7 @@ import {
   StartScreen,
   SyncPrompt,
   appForFile,
+  authText,
   beginSignIn,
   completeSignIn,
   hostedText,
@@ -15,6 +17,7 @@ import {
   parseSyncFolders,
   serverBase,
   syncFolderOf,
+  updatesText,
   type DriveHostInfo,
   type DriveSession,
   type FetchLike,
@@ -23,8 +26,15 @@ import {
   type HostedEditor,
   type SyncFolder,
 } from '@blueoffice/hosted';
-import type { HostFileLink, OpenedFile, Platform, RecentFile } from '@blueoffice/platform';
-import { createDesktopPlatform } from '@blueoffice/platform/desktop';
+import {
+  shouldCheckForUpdates,
+  updateNotice,
+  type HostFileLink,
+  type OpenedFile,
+  type Platform,
+  type RecentFile,
+} from '@blueoffice/platform';
+import { createDesktopPlatform, isOidcCallback } from '@blueoffice/platform/desktop';
 import { BlueSheetEditor } from '@blueoffice/sheet-editor';
 import { BlueSlideEditor } from '@blueoffice/slide-editor';
 import { LocalStorageProvider } from '@blueoffice/storage-providers';
@@ -36,12 +46,17 @@ import { createRoot } from 'react-dom/client';
 const query = new URLSearchParams(window.location.search);
 const requested = query.get('app');
 const shellApp: HostedApp = requested === 'sheet' || requested === 'slide' ? requested : 'doc';
-const base = createDesktopPlatform({ storage: (files) => new LocalStorageProvider(files) });
+const scheme = shellApp === 'sheet' ? 'bluesheet' : shellApp === 'slide' ? 'blueslide' : 'bluedoc';
+const base = createDesktopPlatform({
+  storage: (files) => new LocalStorageProvider(files),
+  scheme,
+});
 const language = 'vi-VN';
 const fetchImpl = window.fetch.bind(window) as FetchLike;
 const saves = new OfflineSaves(base.offline);
 const root = createRoot(document.getElementById('root')!);
 const SYNC_KEY = 'syncFolders';
+const UPDATE_CHECK_KEY = 'lastUpdateCheck';
 
 /** Platform whose editor opens `file` once (the OS open requests are routed by this shell). */
 function withFile(file: OpenedFile | null): Platform {
@@ -117,6 +132,20 @@ function render(): void {
   root.render(
     <StrictMode>
       {notice ? <Notice text={notice} /> : null}
+      {base.auth.enabled ? (
+        <AccountChip
+          auth={base.auth}
+          language={language}
+          onError={(e) =>
+            say(
+              authText(language, 'signInFailed', {
+                message: e instanceof Error ? e.message : String(e),
+              }),
+              true,
+            )
+          }
+        />
+      ) : null}
       {prompt ? (
         <SyncPrompt
           language={language}
@@ -154,6 +183,7 @@ function render(): void {
             void openHostFile({ host, fileId: item.id, accessToken: token }, item.name)
           }
           signInWithBrowser={signInWithBrowser}
+          updates={base.updates}
         />
       ) : view === 'editor' ? (
         editor
@@ -180,7 +210,22 @@ async function loadSettings(): Promise<void> {
   serverFromEnv = (await base.shell.serverFromEnvironment?.()) ?? false;
   syncFolders = parseSyncFolders((await base.shell.getSetting?.(SYNC_KEY)) ?? null);
   recent = await base.shell.recentFiles();
+  // BlueOffice user sign-in (OIDC) when the server has a client for the desktop apps.
+  await base.auth.configure(server).catch(() => false);
   render();
+}
+
+/** Daily update check at start-up; a newer version is announced in the notice line. */
+async function autoCheckUpdates(): Promise<void> {
+  const last = Number((await base.shell.getSetting?.(UPDATE_CHECK_KEY)) ?? NaN);
+  if (!shouldCheckForUpdates(Number.isFinite(last) ? last : null, Date.now())) return;
+  const status = await base.updates.check();
+  if (status.state === 'disabled' || status.state === 'notConfigured') return;
+  await base.shell.setSetting?.(UPDATE_CHECK_KEY, String(Date.now()));
+  if (status.state === 'available') {
+    const n = updateNotice(status);
+    say(updatesText(language, n.key as `updates.available`, n.params), true);
+  }
 }
 
 function showStart(): void {
@@ -340,8 +385,6 @@ async function signInWithBrowser(host: DriveHostInfo): Promise<string> {
   const cfg = host.signIn;
   if (!cfg || !base.shell.openExternal || !base.shell.onAuthCallback)
     throw new Error('signIn.unsupported');
-  const scheme =
-    shellApp === 'sheet' ? 'bluesheet' : shellApp === 'slide' ? 'blueslide' : 'bluedoc';
   const pending = await beginSignIn(cfg, `${scheme}://auth`);
   const callback = new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -349,6 +392,8 @@ async function signInWithBrowser(host: DriveHostInfo): Promise<string> {
       reject(new Error('signIn.timeout'));
     }, 5 * 60_000);
     const off = base.shell.onAuthCallback!((url) => {
+      // BlueOffice user sign-in redirects belong to DesktopAuth.
+      if (isOidcCallback(url)) return;
       clearTimeout(timer);
       off();
       resolve(url);
@@ -389,6 +434,9 @@ base.shell.onOpenLink?.((link: HostFileLink) => {
 const forceStart = query.get('start') === '1';
 if (!forceStart) base.shell.onOpenRequest((f) => void openLocal(f));
 
+base.auth.onError((e) => say(authText(language, 'signInFailed', { message: e.message }), true));
+base.auth.onChange(() => render());
+
 // Alt+Home: back to the Start screen.
 window.addEventListener('keydown', (e) => {
   if (e.altKey && e.key === 'Home') {
@@ -401,4 +449,5 @@ void (async () => {
   await loadSettings();
   // Started for a file or a deep link: the editor appears when it is opened; else the Start screen.
   if (view === 'blank' && (forceStart || !(await base.shell.hasLaunchRequest?.()))) showStart();
+  void autoCheckUpdates().catch(() => {});
 })();

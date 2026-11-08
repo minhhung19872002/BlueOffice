@@ -771,3 +771,44 @@ fn continued_footnote_is_edited_on_its_second_page() {
     assert_eq!(r["story"]["kind"], "footnote", "{}", r["story"]);
     assert_eq!(r["caret"]["page"], pi, "{}", r["caret"]);
 }
+
+/// Desktop: installed fonts are listed in the font picker and used by documents
+/// (the "installed" folder here is the bundled font folder).
+#[test]
+fn system_fonts_in_font_picker_and_layout() {
+    let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts");
+    let mut e = Engine::new();
+    e.add_font(std::fs::read(assets.join("Tinos-Regular.ttf")).unwrap());
+    e.set_system_fonts(bo_text::SystemFontIndex::scan(&[assets]));
+    e.new_document("a.docx").unwrap();
+    let r = cmd(&mut e, r#"{"cmd":"fontList"}"#);
+    let fonts = r["fonts"].as_array().unwrap();
+    let sans = fonts
+        .iter()
+        .find(|f| f["name"] == "Liberation Sans")
+        .unwrap();
+    assert_eq!(sans["available"], true);
+    // The new document's default font may have loaded its installed substitute;
+    // listing loads nothing.
+    let before = e.face_count();
+    cmd(&mut e, r#"{"cmd":"fontList"}"#);
+    assert_eq!(e.face_count(), before, "listing does not load fonts");
+    assert!(
+        !(0..before).any(|i| e.fonts().info(bo_text::FaceId(i as u32)).family == "Liberation Sans")
+    );
+    cmd(&mut e, r#"{"cmd":"insertText","text":"hệ thống"}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":0,"o":0},"focus":{"p":0,"o":3}}}"#,
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"formatText","format":{"kind":"font","name":"Liberation Sans"}}"#,
+    );
+    e.page_json(0).unwrap();
+    assert!(
+        e.face_count() > before,
+        "the installed family was loaded for layout"
+    );
+    assert_eq!(e.fonts().info(bo_text::FaceId(0)).family, "Tinos");
+}

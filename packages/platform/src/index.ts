@@ -8,6 +8,8 @@ export {
   IndexedDbCache,
   LocalRecentFiles,
   mimeFor,
+  shouldCheckForUpdates,
+  updateNotice,
 } from './shared';
 export * from './sheet';
 export {

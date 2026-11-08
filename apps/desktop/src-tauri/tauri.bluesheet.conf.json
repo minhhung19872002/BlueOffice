@@ -36,6 +36,12 @@
           "bluesheet"
         ]
       }
+    },
+    "updater": {
+      "pubkey": "REPLACE_WITH_BLUESTAR_UPDATER_PUBLIC_KEY",
+      "endpoints": [
+        "https://updates.bluestar.vn/blueoffice/bluesheet/{{target}}/{{arch}}/{{current_version}}"
+      ]
     }
   }
 }

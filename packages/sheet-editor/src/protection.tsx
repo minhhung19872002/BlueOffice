@@ -54,7 +54,9 @@ export function ProtectSheetDialog({
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={t(workbook ? 'sheetEditor.protection.workbookTitle' : 'sheetEditor.protection.sheetTitle')}
+      title={t(
+        workbook ? 'sheetEditor.protection.workbookTitle' : 'sheetEditor.protection.sheetTitle',
+      )}
       testId="protect-dialog"
       footer={
         <>
@@ -135,7 +137,9 @@ export function UnprotectDialog({
       open
       onOpenChange={(o) => !o && onClose()}
       title={t(
-        workbook ? 'sheetEditor.protection.unprotectWorkbook' : 'sheetEditor.protection.unprotectSheet',
+        workbook
+          ? 'sheetEditor.protection.unprotectWorkbook'
+          : 'sheetEditor.protection.unprotectSheet',
       )}
       testId="unprotect-dialog"
       footer={

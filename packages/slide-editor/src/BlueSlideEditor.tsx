@@ -1,5 +1,10 @@
 import { GlyphStore, ImageStore } from '@blueoffice/canvas-host';
-import { CommandRegistry, MacroBanner, PasswordDialog, SavePasswordPanel } from '@blueoffice/editor';
+import {
+  CommandRegistry,
+  MacroBanner,
+  PasswordDialog,
+  SavePasswordPanel,
+} from '@blueoffice/editor';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
   ClipboardContent,

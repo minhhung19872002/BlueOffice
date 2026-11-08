@@ -117,7 +117,12 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
-import { CommandRegistry, MacroBanner, PasswordDialog, SavePasswordPanel } from '@blueoffice/editor';
+import {
+  CommandRegistry,
+  MacroBanner,
+  PasswordDialog,
+  SavePasswordPanel,
+} from '@blueoffice/editor';
 import { ProtectSheetDialog, UnprotectDialog } from './protection';
 import {
   CfDialog,
@@ -360,9 +365,10 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
   const [extra, setExtra] = useState<Range[]>([]);
   const [extraRects, setExtraRects] = useState<Rect[]>([]);
   const [multiStats, setMultiStats] = useState<(RangeStats & { key: string }) | null>(null);
-  const [passwordPrompt, setPasswordPrompt] = useState<{ file: PendingFile; wrong: boolean } | null>(
-    null,
-  );
+  const [passwordPrompt, setPasswordPrompt] = useState<{
+    file: PendingFile;
+    wrong: boolean;
+  } | null>(null);
   const [security, setSecurity] = useState<SecurityPanel | null>(null);
   const [tabMenu, setTabMenu] = useState<{ sheet: number; x: number; y: number } | null>(null);
   const [dragTab, setDragTab] = useState<number | null>(null);
@@ -2332,7 +2338,12 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
                   : t('sheetEditor.protection.protectWorkbook'),
                 <ShieldCheck size={18} />,
               ),
-              item('format.lockCell', t('sheetEditor.protection.lockCell'), <Lock size={s} />, 'small'),
+              item(
+                'format.lockCell',
+                t('sheetEditor.protection.lockCell'),
+                <Lock size={s} />,
+                'small',
+              ),
               item(
                 'review.savePassword',
                 t('commands.review.savePassword'),
@@ -2716,9 +2727,7 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
               className={i === sheet ? styles.tabActive : styles.tab}
               data-testid={`sheet-tab-${i}`}
               data-tab-color={s.tabColor ?? undefined}
-              style={
-                s.tabColor ? { boxShadow: `inset 0 -4px 0 #${s.tabColor}` } : undefined
-              }
+              style={s.tabColor ? { boxShadow: `inset 0 -4px 0 #${s.tabColor}` } : undefined}
               draggable
               onDragStart={(e) => {
                 setDragTab(i);
@@ -2751,7 +2760,9 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
               }}
               onDoubleClick={() => setRenaming(i)}
             >
-              {s.protected && <Lock size={10} aria-label={t('sheetEditor.protection.protectedSheet')} />}
+              {s.protected && (
+                <Lock size={10} aria-label={t('sheetEditor.protection.protectedSheet')} />
+              )}
               {s.name}
             </button>
           ),
@@ -2795,7 +2806,9 @@ function SheetEditorInner({ platform }: BlueSheetEditorProps) {
                 {t('sheetEditor.count')}: {shownStats.count}
               </span>
             )}
-            {info?.encrypted && <span data-testid="sheet-encrypted">{t('security.protected')}</span>}
+            {info?.encrypted && (
+              <span data-testid="sheet-encrypted">{t('security.protected')}</span>
+            )}
             <span>{Math.round(zoom * 100)}%</span>
           </>
         }

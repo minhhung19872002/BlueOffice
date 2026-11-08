@@ -147,6 +147,20 @@ pub fn report_lines(r: &DocumentReport) -> Vec<String> {
             &mut out,
         );
     }
+    for (i, d) in r.document_timestamps.iter().enumerate() {
+        out.push(format!(
+            "document time-stamp {}: {} by {}{}",
+            i + 1,
+            d.timestamp.time,
+            d.timestamp.tsa,
+            if d.covers_whole_document {
+                ""
+            } else {
+                " (document changed after this time-stamp)"
+            }
+        ));
+        chain_lines("time-stamp authority", &d.timestamp.chain, &mut out);
+    }
     out
 }
 
@@ -199,18 +213,34 @@ fn store_with(trust: &[PathBuf], rev: &Revocation) -> R<TrustStore> {
     Ok(store)
 }
 
-/// `bo-cli ltv`: adds the DSS (PAdES B-LT) and returns a short summary.
-pub fn ltv(input: &Path, trust: &[PathBuf], rev: &Revocation, out: &Path) -> R<String> {
+/// `bo-cli ltv`: adds the DSS (PAdES B-LT) and, with a TSA, a document
+/// time-stamp (B-LTA); returns a short summary.
+pub fn ltv(
+    input: &Path,
+    trust: &[PathBuf],
+    rev: &Revocation,
+    tsa: Option<&str>,
+    out: &Path,
+) -> R<String> {
     let bytes = std::fs::read(input)?;
     let store = store_with(trust, rev)?;
     let data = bo_sign::report::collect_validation_data(&bytes, &store, SystemTime::now())?;
-    let ltv = bo_sign::pdf::add_dss(&bytes, &data)?;
+    let mut ltv = bo_sign::pdf::add_dss(&bytes, &data)?;
+    if let Some(url) = tsa {
+        let client = HttpTimestampClient::new(url, Box::new(UreqTransport::default()));
+        ltv = bo_sign::pdf::add_document_timestamp(&ltv, &client)?;
+    }
     std::fs::write(out, ltv)?;
     Ok(format!(
-        "{} certificates, {} CRLs, {} OCSP responses",
+        "{} certificates, {} CRLs, {} OCSP responses{}",
         data.certs.len(),
         data.crls.len(),
-        data.ocsps.len()
+        data.ocsps.len(),
+        if tsa.is_some() {
+            ", document time-stamp"
+        } else {
+            ""
+        }
     ))
 }
 

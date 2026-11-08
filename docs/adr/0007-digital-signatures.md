@@ -68,8 +68,14 @@
   khi chưa có CRL nạp sẵn của CA đó (CRL v1 không có trường version cũng đọc được). PAdES B-LT: `bo-cli ltv` ghi
   chứng thư của các đường dẫn (người ký và TSA) cùng CRL/OCSP vào `/DSS` bằng incremental update; khi xác minh, DSS được
   dùng không cần mạng, và phần thêm chỉ gồm DSS không làm chữ ký bị coi là "đã sửa sau khi ký". Kiểm chéo: pyHanko
-  certvalidator chỉ với DSS (không mạng) xác nhận người ký hợp lệ / bị thu hồi. **Chưa** có B-LTA (document
-  time-stamp `/DocTimeStamp`), chưa ghi VRI; trình duyệt chưa hỏi OCSP / tải CRL trực tuyến (CORS).
+  certvalidator chỉ với DSS (không mạng) xác nhận người ký hợp lệ / bị thu hồi. PAdES B-LTA: `bo-cli ltv --tsa URL`
+  thêm dấu thời gian tài liệu (`/DocTimeStamp`, SubFilter `ETSI.RFC3161`, ISO 32000-2 §12.8.5) phủ chữ ký + DSS; gia
+  hạn bằng cách chạy lại (DSS cho TSA cũ + dấu thời gian mới). Phần thêm sau chữ ký được chấp nhận khi chỉ gồm DSS và
+  dấu thời gian tài liệu (trường/widget mới, `/Annots`, `/Fields` chỉ tăng). pyHanko đánh giá chữ ký "All
+  modifications relate to signature maintenance … VALID" và dấu thời gian tài liệu `ENTIRE_FILE`, trusted. **Chưa**
+  ghi VRI; chưa áp quy tắc POE đầy đủ của ETSI EN 319 102-1 (dùng dấu thời gian tài liệu để xác minh lùi thời
+  điểm); trình duyệt chưa hỏi OCSP / tải CRL trực tuyến (CORS); `pyhanko --ltv-profile pades` với PKI thử vẫn đòi tải
+  CRL của TSA trực tuyến (cả với file do chính pyHanko `ltvfix` tạo).
 - `verify_ooxml` dựa trên dạng canonical do BlueOffice sinh; chữ ký XAdES của phần mềm khác vẫn báo `Unsupported`.
 - Chỉ khoá RSA (PKCS#1 v1.5); chứng thư/TSA dùng ECDSA báo `Unsupported`.
 - Trình duyệt chỉ dùng được dịch vụ ký / TSA có bật CORS.

@@ -65,6 +65,16 @@ pub struct TimestampSummary {
     pub chain: ChainSummary,
 }
 
+/// One verified document time-stamp (PAdES B-LTA).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentTimestampSummary {
+    /// The time-stamp and its TSA path.
+    pub timestamp: TimestampSummary,
+    /// Covers the whole file, or only validation data / time-stamps follow.
+    pub covers_whole_document: bool,
+}
+
 /// One cryptographically valid signature.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -92,6 +102,10 @@ pub struct DocumentReport {
     pub kind: String,
     /// Every cryptographically valid signature, in document order.
     pub signatures: Vec<SignatureSummary>,
+    /// PDF document time-stamps (PAdES B-LTA, `/DocTimeStamp`), in document
+    /// order; the TSA path is validated at the verification time.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub document_timestamps: Vec<DocumentTimestampSummary>,
     /// Set when a signature is cryptographically invalid (document changed,
     /// broken signature) or the file cannot be read.
     pub error: Option<String>,
@@ -144,6 +158,7 @@ pub fn verify_document(
         }
         .to_owned(),
         signatures: Vec::new(),
+        document_timestamps: Vec::new(),
         error: None,
     };
     match kind {
@@ -183,6 +198,36 @@ pub fn verify_document(
                         chain,
                         validated_at: crate::iso_utc(crate::unix_secs(at)),
                     });
+                }
+                match crate::pdf::verify_pdf_timestamps(bytes) {
+                    Ok(list) => {
+                        for t in list {
+                            let pool: Vec<Vec<u8>> = t
+                                .info
+                                .certificates
+                                .iter()
+                                .chain(&dss.certs)
+                                .cloned()
+                                .collect();
+                            report.document_timestamps.push(DocumentTimestampSummary {
+                                timestamp: TimestampSummary {
+                                    time: t.info.gen_time.clone(),
+                                    tsa: t.info.tsa_subject.clone(),
+                                    chain: validate_chain(
+                                        &t.info.tsa_certificate_der,
+                                        &pool,
+                                        &with_dss,
+                                        now,
+                                        Purpose::TimeStamping,
+                                    )
+                                    .into(),
+                                },
+                                covers_whole_document: t.covers_whole_file
+                                    || t.only_validation_data_after,
+                            });
+                        }
+                    }
+                    Err(e) => report.error = Some(e.to_string()),
                 }
             }
             Err(e) => report.error = Some(e.to_string()),
@@ -233,6 +278,23 @@ pub fn collect_validation_data(
             v.push(d);
         }
     };
+    let mut paths = Vec::new();
+    for t in crate::pdf::verify_pdf_timestamps(pdf)? {
+        let pool: Vec<Vec<u8>> = t
+            .info
+            .certificates
+            .iter()
+            .chain(&have.certs)
+            .cloned()
+            .collect();
+        paths.push(validate_chain(
+            &t.info.tsa_certificate_der,
+            &pool,
+            store,
+            now,
+            Purpose::TimeStamping,
+        ));
+    }
     for s in crate::pdf::verify_pdf(pdf)? {
         let pool: Vec<Vec<u8>> = s
             .signer
@@ -241,7 +303,6 @@ pub fn collect_validation_data(
             .chain(&have.certs)
             .cloned()
             .collect();
-        let mut paths = Vec::new();
         let (ts, _, at) = summarize(
             &s.signer.certificate_der,
             &pool,
@@ -266,19 +327,19 @@ pub fn collect_validation_data(
                 Purpose::TimeStamping,
             ));
         }
-        for p in paths {
-            for pair in p.certificates.windows(2) {
-                let (crls, ocsps) = store.revocation_data(&pair[0], &pair[1]);
-                for d in crls {
-                    push(&mut out.crls, d);
-                }
-                for d in ocsps {
-                    push(&mut out.ocsps, d);
-                }
+    }
+    for p in paths {
+        for pair in p.certificates.windows(2) {
+            let (crls, ocsps) = store.revocation_data(&pair[0], &pair[1]);
+            for d in crls {
+                push(&mut out.crls, d);
             }
-            for c in p.certificates {
-                push(&mut out.certs, c);
+            for d in ocsps {
+                push(&mut out.ocsps, d);
             }
+        }
+        for c in p.certificates {
+            push(&mut out.certs, c);
         }
     }
     Ok(out)

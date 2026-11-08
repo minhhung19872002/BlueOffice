@@ -163,3 +163,72 @@ fn validation_data_makes_revocation_checkable_offline() {
             .trusted
     );
 }
+
+// source: ETSI EN 319 142-1 §6.5 (B-LTA), ISO 32000-2 §12.8.5 (document time-stamp)
+#[test]
+fn document_timestamps_cover_signatures_and_dss() {
+    use bo_sign::pdf::{add_document_timestamp, verify_pdf_timestamps};
+    let p = pki();
+    let now = SystemTime::now();
+    let tsa = LocalTsa::new(clone_signer(&p.tsa), now);
+    let mut online = anchors();
+    online
+        .add_crl_der(&issue_crl(
+            &p.intermediate,
+            &[],
+            now - HOUR,
+            Some(now + DAY),
+        ))
+        .unwrap();
+    online
+        .add_crl_der(&issue_crl(&p.root, &[], now - HOUR, Some(now + DAY)))
+        .unwrap();
+    // B-LT, then B-LTA.
+    let lt = add_validation_data(&signed(), &online, now).unwrap();
+    let lta = add_document_timestamp(&lt, &tsa).unwrap();
+    assert!(lta.starts_with(&lt), "incremental update");
+    let sig = &verify_pdf(&lta).unwrap()[0];
+    assert!(!sig.covers_whole_file && sig.only_validation_data_after);
+    let ts = verify_pdf_timestamps(&lta).unwrap();
+    assert_eq!(ts.len(), 1);
+    assert!(ts[0].covers_whole_file);
+    assert!(ts[0].info.tsa_subject.contains("Test TSA"));
+    let r = verify_document(&lta, &anchors(), now).unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert!(r.signatures[0].covers_whole_document && r.signatures[0].chain.trusted);
+    assert_eq!(r.document_timestamps.len(), 1);
+    assert!(r.document_timestamps[0].covers_whole_document);
+    assert!(r.document_timestamps[0].timestamp.chain.trusted);
+
+    // Renewal: validation data for the time-stamp's TSA, then a new time-stamp.
+    let data = collect_validation_data(&lta, &online, now).unwrap();
+    assert!(data.certs.contains(&p.tsa.certificate_der().to_vec()));
+    let renewed = add_document_timestamp(&add_dss(&lta, &data).unwrap(), &tsa).unwrap();
+    let ts = verify_pdf_timestamps(&renewed).unwrap();
+    assert_eq!(ts.len(), 2);
+    assert!(ts[0].only_validation_data_after && ts[1].covers_whole_file);
+    assert!(verify_pdf(&renewed).unwrap()[0].only_validation_data_after);
+
+    // Any other later change is caught for the signature and the time-stamps:
+    // a final DSS update whose dictionary gains a key PAdES does not allow.
+    let extra = Dss {
+        certs: vec![b"extra".to_vec()],
+        ..Dss::default()
+    };
+    let mut tampered = add_dss(&renewed, &extra).unwrap();
+    let pos = tampered.windows(6).rposition(|w| w == b"/Certs").unwrap();
+    tampered[pos + 5] = b'z';
+    let ts = verify_pdf_timestamps(&tampered).unwrap();
+    assert!(ts
+        .iter()
+        .all(|t| !t.covers_whole_file && !t.only_validation_data_after));
+    assert!(!verify_pdf(&tampered).unwrap()[0].only_validation_data_after);
+    // A covered byte changed: the newest time-stamp's imprint no longer matches.
+    let pos = renewed
+        .windows(13)
+        .rposition(|w| w == b"/Type /Catalo")
+        .unwrap();
+    let mut broken = renewed.clone();
+    broken[pos + 13] = b'X';
+    assert!(verify_pdf_timestamps(&broken).is_err());
+}

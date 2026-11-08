@@ -483,6 +483,39 @@ pub fn prepare_pdf(
     chain: &[Vec<u8>],
     opts: &SignOptions,
 ) -> Result<PreparedPdf> {
+    // Signature dictionary (§12.8.1, Table 252; PAdES: SubFilter ETSI.CAdES.detached).
+    let mut head = format!(
+        "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /ETSI.CAdES.detached /ByteRange {BYTE_RANGE_PLACEHOLDER} /M {}",
+        text_string(&pdf_date(opts.time))
+    );
+    for (k, v) in [
+        ("Name", &opts.name),
+        ("Reason", &opts.reason),
+        ("Location", &opts.location),
+    ] {
+        if let Some(v) = v {
+            let _ = write!(head, " /{k} {}", text_string(v));
+        }
+    }
+    let (out, contents_start, signed) = prepare_field(pdf, head, opts.reserve_hex)?;
+    let cms = PreparedCms::detached(&sha256(&signed), cert_der, chain)?;
+    Ok(PreparedPdf {
+        out,
+        contents_start,
+        reserve_hex: opts.reserve_hex,
+        cms,
+    })
+}
+
+/// Adds an invisible signature field whose value dictionary starts with
+/// `sig_head` (must contain the `/ByteRange` placeholder) and ends with a
+/// `/Contents` of `reserve_hex` zero digits; returns the file, the offset of
+/// `/Contents <` and the bytes covered by `/ByteRange` (ISO 32000-1 §12.8.1).
+fn prepare_field(
+    pdf: &[u8],
+    sig_head: String,
+    reserve_hex: usize,
+) -> Result<(Vec<u8>, usize, Vec<u8>)> {
     let file = PdfFile::parse(pdf)?;
     let root = dict_get(&file.trailer, "Root")
         .and_then(parse_ref)
@@ -554,23 +587,10 @@ pub fn prepare_pdf(
     new_objects.push((page, dict_to_string(&page_dict)));
     new_objects.push((widget_num, widget));
 
-    // Signature dictionary (§12.8.1, Table 252; PAdES: SubFilter ETSI.CAdES.detached).
-    let mut sig = format!(
-        "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /ETSI.CAdES.detached /ByteRange {BYTE_RANGE_PLACEHOLDER} /M {}",
-        text_string(&pdf_date(opts.time))
-    );
-    for (k, v) in [
-        ("Name", &opts.name),
-        ("Reason", &opts.reason),
-        ("Location", &opts.location),
-    ] {
-        if let Some(v) = v {
-            let _ = write!(sig, " /{k} {}", text_string(v));
-        }
-    }
+    let mut sig = sig_head;
     sig.push_str(" /Contents <");
     let contents_rel = sig.len() - 1;
-    sig.push_str(&"0".repeat(opts.reserve_hex));
+    sig.push_str(&"0".repeat(reserve_hex));
     sig.push_str("> >>");
     new_objects.push((sig_num, sig));
 
@@ -623,7 +643,7 @@ pub fn prepare_pdf(
     out.extend_from_slice(xref.as_bytes());
 
     // Fill /ByteRange, hash everything except /Contents <…>, sign, embed.
-    let contents_end = contents_start + opts.reserve_hex + 2;
+    let contents_end = contents_start + reserve_hex + 2;
     let byte_range = format!(
         "[0 {contents_start:010} {contents_end:010} {:010}]",
         out.len() - contents_end
@@ -631,13 +651,32 @@ pub fn prepare_pdf(
     out[byte_range_pos..byte_range_pos + byte_range.len()].copy_from_slice(byte_range.as_bytes());
     let mut signed = out[..contents_start].to_vec();
     signed.extend_from_slice(&out[contents_end..]);
-    let cms = PreparedCms::detached(&sha256(&signed), cert_der, chain)?;
-    Ok(PreparedPdf {
-        out,
-        contents_start,
-        reserve_hex: opts.reserve_hex,
-        cms,
-    })
+    Ok((out, contents_start, signed))
+}
+
+/// Adds a document time-stamp (PAdES baseline B-LTA, ETSI EN 319 142-1 §6.5;
+/// ISO 32000-2 §12.8.5): a `/DocTimeStamp` field whose `/Contents` is an
+/// RFC 3161 token (SubFilter `ETSI.RFC3161`) over every byte of the file
+/// before it — signatures and DSS included.
+pub fn add_document_timestamp(pdf: &[u8], client: &dyn TimestampClient) -> Result<Vec<u8>> {
+    let reserve_hex = SignOptions::default().reserve_hex;
+    let head = format!(
+        "<< /Type /DocTimeStamp /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 /ByteRange {BYTE_RANGE_PLACEHOLDER}"
+    );
+    let (mut out, contents_start, signed) = prepare_field(pdf, head, reserve_hex)?;
+    let token = timestamp::timestamp(client, &signed, timestamp::fresh_nonce(&signed))?;
+    let hex: String = token.iter().fold(String::new(), |mut s, b| {
+        let _ = write!(s, "{b:02X}");
+        s
+    });
+    if hex.len() > reserve_hex {
+        return Err(SignError::Unsupported(format!(
+            "time-stamp token needs {} hex digits, only {reserve_hex} reserved",
+            hex.len()
+        )));
+    }
+    out[contents_start + 1..contents_start + 1 + hex.len()].copy_from_slice(hex.as_bytes());
+    Ok(out)
 }
 
 fn count_sig_fields(file: &PdfFile<'_>, catalog: &[(String, String)]) -> usize {
@@ -670,10 +709,74 @@ pub struct PdfSignature {
 /// configured root CAs is done with [`crate::trust::validate_chain`]).
 pub fn verify_pdf(pdf: &[u8]) -> Result<Vec<PdfSignature>> {
     let mut out = Vec::new();
+    for f in byte_range_fields(pdf)? {
+        if f.doc_timestamp {
+            continue;
+        }
+        let whole = f.end == pdf.len();
+        out.push(PdfSignature {
+            signer: verify_detached(&f.der, &f.signed)?,
+            covers_whole_file: whole,
+            only_validation_data_after: !whole && only_validation_data_after(pdf, f.end),
+        });
+    }
+    Ok(out)
+}
+
+/// One verified document time-stamp (PAdES B-LTA, `/DocTimeStamp`).
+#[derive(Debug, Clone)]
+pub struct DocTimestamp {
+    /// The verified token (imprint over the covered bytes).
+    pub info: timestamp::TimestampInfo,
+    /// The time-stamp covers the whole file.
+    pub covers_whole_file: bool,
+    /// The later revisions only add validation data or document time-stamps.
+    pub only_validation_data_after: bool,
+}
+
+/// Verifies every document time-stamp of `pdf` (ISO 32000-2 §12.8.5: the
+/// RFC 3161 token's message imprint is the hash of the `/ByteRange` bytes).
+pub fn verify_pdf_timestamps(pdf: &[u8]) -> Result<Vec<DocTimestamp>> {
+    let mut out = Vec::new();
+    for f in byte_range_fields(pdf)? {
+        if !f.doc_timestamp {
+            continue;
+        }
+        let whole = f.end == pdf.len();
+        out.push(DocTimestamp {
+            info: timestamp::verify_token(&f.der, &f.signed)?,
+            covers_whole_file: whole,
+            only_validation_data_after: !whole && only_validation_data_after(pdf, f.end),
+        });
+    }
+    Ok(out)
+}
+
+/// A `/ByteRange` signature value: its DER `/Contents`, the bytes it covers,
+/// the end of the covered range, and whether it is a document time-stamp.
+struct ByteRangeField {
+    der: Vec<u8>,
+    signed: Vec<u8>,
+    end: usize,
+    doc_timestamp: bool,
+}
+
+fn byte_range_fields(pdf: &[u8]) -> Result<Vec<ByteRangeField>> {
+    let mut out = Vec::new();
     let mut from = 0;
     while let Some(p) = pdf[from..].windows(10).position(|w| w == b"/ByteRange") {
         let at = from + p + 10;
         from = at;
+        // The enclosing object: a document time-stamp has SubFilter
+        // ETSI.RFC3161 / Type DocTimeStamp (ISO 32000-2 Table 255).
+        let obj_start = pdf[..at].windows(3).rposition(|w| w == b"obj").unwrap_or(0);
+        let obj_end = pdf[at..]
+            .windows(6)
+            .position(|w| w == b"endobj")
+            .map_or(pdf.len(), |e| at + e);
+        let region = &pdf[obj_start..obj_end];
+        let has = |pat: &[u8]| region.windows(pat.len()).any(|w| w == pat);
+        let doc_timestamp = has(b"/ETSI.RFC3161") || has(b"/DocTimeStamp");
         let end = value_end(pdf, at, 0)?;
         let arr = String::from_utf8_lossy(&pdf[at..end]);
         let nums: Vec<usize> = arr
@@ -704,11 +807,11 @@ pub fn verify_pdf(pdf: &[u8]) -> Result<Vec<PdfSignature>> {
         der.truncate(der_len);
         let mut signed = pdf[..b].to_vec();
         signed.extend_from_slice(&pdf[c..c + len]);
-        let whole = c + len == pdf.len();
-        out.push(PdfSignature {
-            signer: verify_detached(&der, &signed)?,
-            covers_whole_file: whole,
-            only_validation_data_after: !whole && only_validation_data_after(pdf, c + len),
+        out.push(ByteRangeField {
+            der,
+            signed,
+            end: c + len,
+            doc_timestamp,
         });
     }
     Ok(out)
@@ -963,9 +1066,12 @@ fn append_update(
     out
 }
 
-/// Do the revisions after byte `end` only add long-term validation data
-/// (ETSI EN 319 142-1 §6.4 B-LT): new DSS streams and dictionary, and the
-/// catalog unchanged but for `/DSS`?
+/// Do the revisions after byte `end` only add long-term validation data and
+/// document time-stamps (ETSI EN 319 142-1 §6.4 B-LT, §6.5 B-LTA)? Allowed: new
+/// DSS streams and dictionary; new `/DocTimeStamp` dictionaries and their
+/// signature widgets; the catalog unchanged but for `/DSS` and `/AcroForm`;
+/// `/AcroForm` and pages unchanged but for `/Fields` / `/Annots` gaining those
+/// widgets (and `/SigFlags`).
 fn only_validation_data_after(pdf: &[u8], end: usize) -> bool {
     let check = || -> Result<bool> {
         let old = PdfFile::parse(&pdf[..end])?;
@@ -975,29 +1081,97 @@ fn only_validation_data_after(pdf: &[u8], end: usize) -> bool {
         if root != old_root {
             return Ok(false);
         }
-        let Some((dss_num, dss)) = new.dss()? else {
-            return Ok(false);
-        };
+        let dss = new.dss()?;
+        let dss_num = dss.as_ref().and_then(|d| d.0);
         let mut listed = Vec::new();
-        for key in DSS_KEYS {
-            if let Some(v) = dict_get(&dss, key) {
-                listed.extend(new.ref_list(v)?);
+        if let Some((_, d)) = &dss {
+            for key in DSS_KEYS {
+                if let Some(v) = dict_get(d, key) {
+                    listed.extend(new.ref_list(v)?);
+                }
             }
         }
-        let without = |c: &[(String, String)]| -> Vec<(String, String)> {
-            c.iter().filter(|(k, _)| k != "DSS").cloned().collect()
+        let changed: Vec<u32> = new
+            .offsets
+            .iter()
+            .filter(|(_, &(off, _))| off >= end)
+            .map(|(&n, _)| n)
+            .collect();
+        let added = |n: u32| !old.offsets.contains_key(&n);
+        // New document time-stamp dictionaries and the widgets holding them.
+        let doc_ts: Vec<u32> = changed
+            .iter()
+            .copied()
+            .filter(|&n| added(n))
+            .filter(|&n| {
+                new.object_dict(n)
+                    .is_ok_and(|d| dict_get(&d, "Type") == Some("/DocTimeStamp"))
+            })
+            .collect();
+        let widgets: Vec<u32> = changed
+            .iter()
+            .copied()
+            .filter(|&n| added(n))
+            .filter(|&n| {
+                new.object_dict(n).is_ok_and(|d| {
+                    dict_get(&d, "FT") == Some("/Sig")
+                        && dict_get(&d, "V")
+                            .and_then(parse_ref)
+                            .is_some_and(|(v, _)| doc_ts.contains(&v))
+                })
+            })
+            .collect();
+        let without = |c: &[(String, String)], keys: &[&str]| -> Vec<(String, String)> {
+            c.iter()
+                .filter(|(k, _)| !keys.contains(&k.as_str()))
+                .cloned()
+                .collect()
         };
-        for (&n, &(off, _)) in &new.offsets {
-            if off < end {
-                continue;
-            }
+        // `key` of dictionaries a/b: b's references = a's + some widgets.
+        let grows = |a: &[(String, String)], b: &[(String, String)], key: &str| -> Result<bool> {
+            let before = match dict_get(a, key) {
+                Some(v) => old.ref_list(v)?,
+                None => Vec::new(),
+            };
+            let after = match dict_get(b, key) {
+                Some(v) => new.ref_list(v)?,
+                None => Vec::new(),
+            };
+            Ok(after.starts_with(&before)
+                && after[before.len()..].iter().all(|n| widgets.contains(n)))
+        };
+        let acro_num = dict_get(&catalog, "AcroForm")
+            .and_then(parse_ref)
+            .map(|r| r.0);
+        for &n in &changed {
             let ok = if n == root {
-                without(&catalog) == without(&old_catalog)
+                without(&catalog, &["DSS", "AcroForm"])
+                    == without(&old_catalog, &["DSS", "AcroForm"])
+                    && (dict_get(&catalog, "AcroForm") == dict_get(&old_catalog, "AcroForm")
+                        || acro_num.is_some())
             } else if Some(n) == dss_num {
-                dss.iter()
-                    .all(|(k, _)| k == "Type" || k == "VRI" || DSS_KEYS.contains(&k.as_str()))
+                dss.as_ref().is_some_and(|(_, d)| {
+                    d.iter()
+                        .all(|(k, _)| k == "Type" || k == "VRI" || DSS_KEYS.contains(&k.as_str()))
+                })
+            } else if Some(n) == acro_num {
+                let a = if added(n) {
+                    Vec::new()
+                } else {
+                    old.object_dict(n)?
+                };
+                let b = new.object_dict(n)?;
+                without(&a, &["Fields", "SigFlags"]) == without(&b, &["Fields", "SigFlags"])
+                    && grows(&a, &b, "Fields")?
+            } else if added(n) {
+                listed.contains(&n) || doc_ts.contains(&n) || widgets.contains(&n)
             } else {
-                !old.offsets.contains_key(&n) && listed.contains(&n)
+                // A page gaining the widgets in /Annots.
+                let a = old.object_dict(n)?;
+                let b = new.object_dict(n)?;
+                dict_get(&b, "Type") == Some("/Page")
+                    && without(&a, &["Annots"]) == without(&b, &["Annots"])
+                    && grows(&a, &b, "Annots")?
             };
             if !ok {
                 return Ok(false);

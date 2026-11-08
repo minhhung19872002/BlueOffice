@@ -9,7 +9,7 @@
 //! bo-cli convert secret.docx --password pw --to docx --protect newpw
 //! bo-cli inspect file                               # format, encryption, macros
 //! bo-cli sign in.pdf --p12 me.p12 [--tsa URL] | --key k.pem --cert c.pem | --remote URL
-//! bo-cli ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch] [--out out.pdf]
+//! bo-cli ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch] [--tsa URL] [--out out.pdf]
 //! bo-cli verify in.pdf [--trust root-ca.pem] [--crl ca.crl] [--ocsp resp.der | --ocsp-fetch] [--crl-fetch] [--json]
 //! bo-cli dump input.docx [--page 0]          # display list JSON (parity tests)
 //! bo-cli pack <dir> <out.docx> | unpack <file> <dir>
@@ -137,6 +137,9 @@ enum Cmd {
         trust: Vec<PathBuf>,
         #[command(flatten)]
         rev: sign_cmd::Revocation,
+        /// Also add a document time-stamp from this RFC 3161 TSA (PAdES B-LTA).
+        #[arg(long)]
+        tsa: Option<String>,
         /// Output file (default: `<input>-ltv.pdf`).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -364,6 +367,7 @@ fn run(cli: Cli) -> R {
             input,
             trust,
             rev,
+            tsa,
             out,
         } => {
             let out = out.unwrap_or_else(|| {
@@ -373,7 +377,7 @@ fn run(cli: Cli) -> R {
                     .unwrap_or("signed");
                 input.with_file_name(format!("{stem}-ltv.pdf"))
             });
-            let summary = sign_cmd::ltv(&input, &trust, &rev, &out)?;
+            let summary = sign_cmd::ltv(&input, &trust, &rev, tsa.as_deref(), &out)?;
             println!("{}: {summary}", out.display());
         }
         Cmd::Inspect { input, password } => {

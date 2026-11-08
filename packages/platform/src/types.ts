@@ -1222,6 +1222,11 @@ export interface SignatureSummary {
 export interface SignatureReport {
   kind: 'pdf' | 'ooxml';
   signatures: SignatureSummary[];
+  /** PDF document time-stamps (PAdES B-LTA); absent when there are none. */
+  documentTimestamps?: {
+    timestamp: { time: string; tsa: string; chain: ChainSummary };
+    coversWholeDocument: boolean;
+  }[];
   /** A signature is broken (document changed) or unreadable. */
   error: string | null;
 }

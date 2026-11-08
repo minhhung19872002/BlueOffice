@@ -23,6 +23,7 @@ pub mod media;
 pub mod ops;
 pub mod rich;
 pub mod show;
+pub mod smartart;
 pub mod table;
 pub mod text;
 
@@ -582,6 +583,47 @@ pub enum SlideCommand {
         #[serde(default)]
         rect: Option<Rect>,
     },
+    /// Insert a SmartArt from the BlueOffice layout library (CORE-SMART-003).
+    InsertSmartArt {
+        /// Layout category: `list` | `process` | `cycle` | `hierarchy` | `matrix` | `pyramid` |
+        /// `relationship`.
+        layout: String,
+        /// Text outline (one node per line, `level` 0 = top).
+        items: Vec<smartart::SmartItem>,
+        /// Colours: `colorful` (default) | `blue` | `green` | `orange` | `purple` | `gray`.
+        #[serde(default)]
+        colors: Option<String>,
+        /// Look: `fill` (default) | `outline`.
+        #[serde(default)]
+        style: Option<String>,
+        /// Frame in points; `None` = a default frame on the slide.
+        #[serde(default)]
+        rect: Option<Rect>,
+    },
+    /// Change the text outline and/or layout of SmartArt `id` (default: the selected one).
+    SetSmartArt {
+        /// Shape id of the frame; `None` = the selected SmartArt.
+        #[serde(default)]
+        id: Option<u32>,
+        /// New layout category.
+        #[serde(default)]
+        layout: Option<String>,
+        /// New text outline.
+        #[serde(default)]
+        items: Option<Vec<smartart::SmartItem>>,
+        /// New colours.
+        #[serde(default)]
+        colors: Option<String>,
+        /// New look.
+        #[serde(default)]
+        style: Option<String>,
+    },
+    /// Replace SmartArt `id` (default: the selected one) by a group of ordinary shapes.
+    SmartArtToShapes {
+        /// Shape id of the frame; `None` = the selected SmartArt.
+        #[serde(default)]
+        id: Option<u32>,
+    },
     /// Change type, title, legend or data of chart `id` (default: the selected one).
     SetChart {
         /// Shape id of the chart's graphic frame; `None` = the selected chart.
@@ -953,6 +995,9 @@ pub struct SlideEditResult {
     /// The selected chart (type, title, legend, data).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chart: Option<chart::ChartOut>,
+    /// The selected SmartArt (layout and text outline).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smartart: Option<smartart::SmartArtOut>,
     /// Answer of the `show` command.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show: Option<show::ShowOut>,
@@ -1191,6 +1236,7 @@ fn kind_of(n: &ShapeNode) -> &'static str {
             "table"
         }
         n if chart::is_chart(n) => "chart",
+        n if smartart::is_smartart(n) => "smartart",
         ShapeNode::Frame(_) | ShapeNode::Other(_) => "graphic",
     }
 }
@@ -3906,6 +3952,47 @@ impl Engine {
                         comments::cmd_delete(tx, sel.slide, &id)
                     });
                 }
+                SlideCommand::InsertSmartArt {
+                    layout,
+                    items,
+                    colors,
+                    style,
+                    rect,
+                } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        smartart::cmd_insert_smartart(
+                            tx,
+                            sel,
+                            &layout,
+                            &items,
+                            (colors.as_deref(), style.as_deref()),
+                            rect,
+                        )
+                    });
+                }
+                SlideCommand::SetSmartArt {
+                    id,
+                    layout,
+                    items,
+                    colors,
+                    style,
+                } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        smartart::cmd_set_smartart(
+                            tx,
+                            sel,
+                            id,
+                            layout.as_deref(),
+                            items.as_deref(),
+                            (colors.as_deref(), style.as_deref()),
+                        )
+                    });
+                }
+                SlideCommand::SmartArtToShapes { id } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        smartart::cmd_smartart_to_shapes(tx, sel, id)
+                    });
+                }
                 SlideCommand::SetChart { id, spec } => {
                     ed.mutate(pres, &mut out, |tx, sel| {
                         chart::cmd_set_chart(tx, sel, id, &spec)
@@ -4255,6 +4342,10 @@ impl Engine {
             media: media::media_out(pres, slide),
             chart: match items.as_slice() {
                 [one] => chart::chart_out(pres, slide, one.id),
+                _ => None,
+            },
+            smartart: match items.as_slice() {
+                [one] => smartart::smartart_out(pres, slide, one.id),
                 _ => None,
             },
             show: None,

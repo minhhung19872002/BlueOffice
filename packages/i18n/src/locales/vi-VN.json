@@ -1251,6 +1251,43 @@
       "delete": "Xoá",
       "close": "Đóng bình luận",
       "resolved": "đã xử lý"
+    },
+    "smartart": {
+      "button": "SmartArt",
+      "tab": "SmartArt",
+      "group": "Sơ đồ",
+      "insertTitle": "Chèn SmartArt",
+      "editTitle": "Sửa SmartArt",
+      "insert": "Chèn",
+      "apply": "Áp dụng",
+      "layout": "Bố cục",
+      "textPane": "Ngăn văn bản",
+      "toShapes": "Chuyển thành hình",
+      "hint": "Mỗi dòng là một mục; Tab để hạ cấp, Shift+Tab để nâng cấp.",
+      "sampleItem": "Mục {{n}}",
+      "layouts": {
+        "list": "Danh sách",
+        "process": "Quy trình",
+        "cycle": "Chu trình",
+        "hierarchy": "Phân cấp",
+        "matrix": "Ma trận",
+        "pyramid": "Kim tự tháp",
+        "relationship": "Quan hệ"
+      },
+      "colors": "Màu",
+      "style": "Kiểu",
+      "palette": {
+        "colorful": "Nhiều màu",
+        "blue": "Xanh dương",
+        "green": "Xanh lá",
+        "orange": "Cam",
+        "purple": "Tím",
+        "gray": "Xám"
+      },
+      "styles": {
+        "fill": "Tô màu",
+        "outline": "Viền màu"
+      }
     }
   },
   "review": {

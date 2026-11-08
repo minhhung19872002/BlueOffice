@@ -452,3 +452,100 @@ fn media_clips_are_listed_and_inserted() {
     assert_eq!(r.media.len(), 2);
     assert_eq!(r.media[1].mime.as_deref(), Some("audio/mpeg"));
 }
+
+// source: ECMA-376 Part 1, §21.4 (dataModel, layoutDef, relIds) and [MS-ODRAWXML] dsp:drawing —
+// CORE-SMART-003 / 004.
+#[test]
+fn smartart_inserted_edited_converted_and_saved() {
+    let mut e = open("slide-text-bullets.pptx");
+    let r = run(
+        &mut e,
+        r#"{"cmd":"insertSmartArt","layout":"process","items":[{"text":"Tiếp nhận"},{"text":"Xử lý"},{"text":"Trả kết quả"}]}"#,
+    );
+    assert_eq!(r.selection[0].kind, "smartart");
+    let sa = r.smartart.clone().unwrap();
+    assert_eq!(sa.layout, "process");
+    let texts: Vec<&str> = sa.items.iter().map(|i| i.text.as_str()).collect();
+    assert_eq!(texts, ["Tiếp nhận", "Xử lý", "Trả kết quả"]);
+    // Drawn from its drawing part: the step texts are on the slide.
+    let page = e.slide(r.slide).unwrap().to_json();
+    assert!(page.contains("Xử"), "drawing shown");
+    // Text pane: add a sub-item, switch to a hierarchy.
+    let r = run(
+        &mut e,
+        r#"{"cmd":"setSmartArt","layout":"hierarchy","items":[{"text":"Giám đốc"},{"text":"Kỹ thuật","level":1},{"text":"Kinh doanh","level":1}]}"#,
+    );
+    let sa = r.smartart.clone().unwrap();
+    assert_eq!(sa.layout, "hierarchy");
+    assert_eq!(sa.items[1].level, 1);
+    assert_eq!(
+        (sa.colors.as_str(), sa.style.as_str()),
+        ("colorful", "fill")
+    );
+    // Colours and look.
+    let r = run(
+        &mut e,
+        r#"{"cmd":"setSmartArt","colors":"green","style":"outline"}"#,
+    );
+    let sa2 = r.smartart.clone().unwrap();
+    assert_eq!(
+        (sa2.colors.as_str(), sa2.style.as_str()),
+        ("green", "outline")
+    );
+    assert_eq!(sa2.items, sa.items, "outline kept");
+    assert!(
+        try_run(&mut e, r#"{"cmd":"setSmartArt","colors":"rainbow"}"#)
+            .error
+            .is_some()
+    );
+    // Saved with all diagram parts and relationships; reopened, it reads back the same.
+    let back = reopen(&e);
+    let p = back.presentation().unwrap();
+    for (prefix, ct) in [
+        ("/ppt/diagrams/data", "drawingml.diagramData+xml"),
+        ("/ppt/diagrams/layout", "drawingml.diagramLayout+xml"),
+        ("/ppt/diagrams/quickStyle", "drawingml.diagramStyle+xml"),
+        ("/ppt/diagrams/colors", "drawingml.diagramColors+xml"),
+        ("/ppt/diagrams/drawing", "diagramDrawing+xml"),
+    ] {
+        let part = p.parts.iter().find(|x| x.name.starts_with(prefix)).unwrap();
+        assert!(
+            part.content_type
+                .as_deref()
+                .unwrap_or_default()
+                .ends_with(ct),
+            "{prefix}"
+        );
+    }
+    let mut back = back;
+    let rels = &back.presentation().unwrap().slides[r.slide].info.rels;
+    assert!(rels.iter().any(|r| r.rel_type.ends_with("/diagramData")));
+    assert!(rels.iter().any(|r| r.rel_type.ends_with("/diagramDrawing")));
+    let r2 = run(
+        &mut back,
+        &format!(
+            r#"{{"cmd":"select","slide":{},"ids":[{}]}}"#,
+            r.slide, sa.id
+        ),
+    );
+    assert_eq!(r2.smartart.unwrap().items.len(), 3);
+    // Convert to shapes: a group of ordinary shapes with the same id.
+    let r = run(&mut e, r#"{"cmd":"smartArtToShapes"}"#);
+    assert_eq!(r.selection[0].kind, "group");
+    assert!(r.smartart.is_none());
+    assert!(e.slide(r.slide).unwrap().to_json().contains("Giám"));
+    // Undo brings the SmartArt back.
+    let r = run(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(r.smartart.unwrap().layout, "hierarchy");
+    // Unknown layouts and empty outlines are refused.
+    let r = try_run(
+        &mut e,
+        r#"{"cmd":"insertSmartArt","layout":"spiral","items":[{"text":"x"}]}"#,
+    );
+    assert!(r.error.is_some());
+    let r = try_run(
+        &mut e,
+        r#"{"cmd":"insertSmartArt","layout":"list","items":[{"text":"  "}]}"#,
+    );
+    assert!(r.error.is_some());
+}

@@ -94,6 +94,7 @@ import {
   PaintBucket,
   PanelRight,
   PanelTop,
+  Network,
   Pencil,
   PenLine,
   Play,
@@ -119,12 +120,14 @@ import {
   Undo2,
   Ungroup,
   MessageSquareText,
+  Shapes,
 } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimationPane } from './AnimationPane';
 import { AudienceLink } from './audience';
 import { AudienceView } from './AudienceView';
 import { ChartDialog, type ChartDraft } from './ChartDialog';
+import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
 import { SlideController } from './controller';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
 import { ExportDialog, slidePng, type ExportPngOptions } from './ExportDialog';
@@ -166,6 +169,8 @@ export interface SlideEditorState {
   bandRow?: boolean;
   /** The selection is one chart. */
   isChart?: boolean;
+  /** The selection is one SmartArt. */
+  isSmartArt?: boolean;
   /** Transition kind of the current slide (`none` without one). */
   transition?: string;
 }
@@ -309,6 +314,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [previewToken, setPreviewToken] = useState(0);
   const [ribbonTab, setRibbonTab] = useState('home');
+  const [smartArtDialog, setSmartArtDialog] = useState<{
+    mode: 'insert' | 'edit';
+    initial: SmartArtDraft;
+  } | null>(null);
   const [chartDialog, setChartDialog] = useState<{
     mode: 'insert' | 'edit';
     initial: ChartDraft;
@@ -568,6 +577,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         if (edit?.chart) setChartDialog({ mode: 'edit', initial: chartDraftOf(edit.chart) });
         return;
       }
+      if (shape.kind === 'smartart') {
+        if (edit?.smartart) setSmartArtDialog({ mode: 'edit', initial: edit.smartart });
+        return;
+      }
       if (!shape.editableText) return;
       editingRef.current = { id: shape.id, confirmed: false };
       setEditing({
@@ -708,6 +721,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       },
     }),
     [t],
+  );
+  const openSmartArt = useCallback(() => {
+    const s = edit?.smartart;
+    if (s) setSmartArtDialog({ mode: 'edit', initial: s });
+  }, [edit]);
+  const applySmartArt = useCallback(
+    (d: SmartArtDraft) => {
+      const mode = smartArtDialog?.mode;
+      setSmartArtDialog(null);
+      if (mode === 'insert') run({ cmd: 'insertSmartArt', ...d });
+      else run({ cmd: 'setSmartArt', ...d });
+    },
+    [smartArtDialog, run],
   );
   const openChart = useCallback(() => {
     const c = edit?.chart;
@@ -1094,6 +1120,26 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     });
     const chart = (s: SlideEditorState) => !!s.isChart;
     reg.register({ id: 'chart.edit', isEnabled: chart, run: openChart });
+    reg.register({
+      id: 'insert.smartart',
+      isEnabled: deck,
+      run: () =>
+        setSmartArtDialog({
+          mode: 'insert',
+          initial: {
+            layout: 'process',
+            colors: 'colorful',
+            style: 'fill',
+            items: [1, 2, 3].map((n) => ({
+              text: t('slideEditor.smartart.sampleItem', { n }),
+              level: 0,
+            })),
+          },
+        }),
+    });
+    const smart = (s: SlideEditorState) => !!s.isSmartArt;
+    reg.register({ id: 'smartart.edit', isEnabled: smart, run: openSmartArt });
+    simple('smartart.toShapes', { cmd: 'smartArtToShapes' }, smart);
     for (const k of ['column', 'bar', 'line', 'area', 'pie'] as SlideChartKind[]) {
       simple(`chart.type.${k}`, { cmd: 'setChart', kind: k }, chart);
     }
@@ -1155,6 +1201,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     paneOpen,
     commentsOpen,
     newChart,
+    openSmartArt,
     openChart,
     edit,
     pos.slide,
@@ -1177,6 +1224,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       firstRow: edit?.table?.firstRow,
       bandRow: edit?.table?.bandRow,
       isChart: s.length === 1 && s[0]?.kind === 'chart' && !!edit?.chart,
+      isSmartArt: s.length === 1 && s[0]?.kind === 'smartart' && !!edit?.smartart,
       transition: edit?.transition?.kind ?? 'none',
     };
   }, [count, current, edit]);
@@ -1471,6 +1519,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('insert.picture', t('slideEditor.picture'), <ImagePlus size={18} />),
               item('insert.table', t('slideEditor.table'), <Table size={18} />),
               item('insert.chart', t('slideEditor.chart'), <ChartColumn size={18} />),
+              item('insert.smartart', t('slideEditor.smartart.button'), <Network size={18} />),
               item('insert.media', t('slideEditor.media'), <Clapperboard size={18} />),
             ],
           },
@@ -1622,6 +1671,28 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           },
         ],
       },
+      ...(state.isSmartArt
+        ? [
+            {
+              id: 'smartart',
+              label: t('slideEditor.smartart.tab'),
+              groups: [
+                {
+                  id: 'smartartEdit',
+                  label: t('slideEditor.smartart.group'),
+                  items: [
+                    item('smartart.edit', t('slideEditor.smartart.textPane'), <Pencil size={18} />),
+                    item(
+                      'smartart.toShapes',
+                      t('slideEditor.smartart.toShapes'),
+                      <Shapes size={18} />,
+                    ),
+                  ],
+                },
+              ],
+            },
+          ]
+        : []),
       ...(state.isChart
         ? [
             {
@@ -2189,6 +2260,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           else run({ cmd: 'setLine', color: hex });
         }}
       />
+      {smartArtDialog && (
+        <SmartArtDialog
+          mode={smartArtDialog.mode}
+          initial={smartArtDialog.initial}
+          onClose={() => setSmartArtDialog(null)}
+          onApply={applySmartArt}
+        />
+      )}
       {chartDialog && (
         <ChartDialog
           open

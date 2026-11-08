@@ -810,6 +810,24 @@ export type SlideCommand =
       legend?: SlideLegend;
       rect?: SlideRect;
     }
+  /** SmartArt (CORE-SMART-003/004): insert from the layout library, edit outline/layout, to shapes. */
+  | {
+      cmd: 'insertSmartArt';
+      layout: SlideSmartArtLayout;
+      items: SlideSmartArtItem[];
+      colors?: SlideSmartArtColors;
+      style?: SlideSmartArtStyle;
+      rect?: SlideRect;
+    }
+  | {
+      cmd: 'setSmartArt';
+      id?: number;
+      layout?: SlideSmartArtLayout;
+      items?: SlideSmartArtItem[];
+      colors?: SlideSmartArtColors;
+      style?: SlideSmartArtStyle;
+    }
+  | { cmd: 'smartArtToShapes'; id?: number }
   | {
       cmd: 'setChart';
       id?: number;
@@ -914,6 +932,29 @@ export interface SlideChartData {
   series: { name: string; values: (number | null)[] }[];
 }
 
+/** Layout categories of the BlueOffice SmartArt library. */
+export type SlideSmartArtLayout =
+  'list' | 'process' | 'cycle' | 'hierarchy' | 'matrix' | 'pyramid' | 'relationship';
+
+/** SmartArt colours and look (BlueOffice palettes). */
+export type SlideSmartArtColors = 'colorful' | 'blue' | 'green' | 'orange' | 'purple' | 'gray';
+export type SlideSmartArtStyle = 'fill' | 'outline';
+
+/** One line of the SmartArt text pane (level 0 = top). */
+export interface SlideSmartArtItem {
+  text: string;
+  level: number;
+}
+
+/** The selected SmartArt. */
+export interface SlideSmartArtInfo {
+  id: number;
+  layout: SlideSmartArtLayout;
+  items: SlideSmartArtItem[];
+  colors: SlideSmartArtColors;
+  style: SlideSmartArtStyle;
+}
+
 export interface SlideChartInfo {
   id: number;
   kind: SlideChartKind | 'other';
@@ -1007,6 +1048,8 @@ export interface SlideEditResult {
   media?: SlideMediaInfo[];
   /** The selected chart. */
   chart?: SlideChartInfo;
+  /** The selected SmartArt. */
+  smartart?: SlideSmartArtInfo;
   /** Answer of the `show` command. */
   show?: SlideShowInfo;
 }

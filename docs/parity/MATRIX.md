@@ -27,7 +27,7 @@ lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file
 | Ngữ pháp/văn phong | all | — | 🟡 | ✅ | — | ✅ | 🟡 | — | bo-spell grammar, spelling.spec | 🟡 | BlueDoc gạch xanh: dấu cách, dấu câu, viết hoa đầu câu, lặp từ, ngoặc/nháy, kiểu dấu thanh; chưa phân tích cú pháp |
 | AutoCorrect | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Tìm/thay (regex, định dạng) | all | — | ✅ | ✅ | — | ✅ | ✅ | — | E2E | 🟡 | thiếu ký tự đặc biệt ^p, wildcard |
-| SmartArt | all | ✅ | ✅ | ⬜ | ✅ | ✅ | ✅ | — | corpus smartart-*, diagram_layout | 🟡 | drawing fallback hoặc tự dựng từ data model (7 nhóm bố cục); chưa tạo/sửa |
+| SmartArt | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | corpus smartart-*, diagram_layout, smartart.spec | 🟡 | hiển thị: fallback hoặc tự dựng (7 nhóm); tạo/sửa/đổi màu/chuyển hình: BlueSlide; Doc/Sheet chưa tạo |
 | Biểu đồ c: cơ bản (9 loại) | Sheet/Slide | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | corpus charts-* | 🟡 | thiếu loại khác |
 | Biểu đồ c: nâng cao (bubble, radar, stock, surface, 3D…) | all | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên XML |
 | Biểu đồ cx: (waterfall, treemap…) | all | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
@@ -116,5 +116,5 @@ lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file
 | Trình chiếu + Presenter | — | ✅ | — | — | ✅ | ✅ | — | E2E | 🟡 | thiếu bút/laser, custom show |
 | Ghi thuyết trình / xuất video | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Xuất PDF/PNG | — | ✅ | — | — | ✅ | ✅ | — | tests | 🟡 | thiếu handout, SVG |
-| SmartArt | ✅ | ✅ | ⬜ | ✅ | ✅ | ✅ | — | corpus | 🟡 | fallback hoặc tự dựng; chưa tạo/sửa |
+| SmartArt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus, smartart.spec | ✅ | chèn từ thư viện bố cục, ngăn văn bản, bố cục/màu/kiểu, chuyển thành hình |
 | Comment hiện đại | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |

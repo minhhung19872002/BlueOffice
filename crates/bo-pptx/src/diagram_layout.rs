@@ -201,9 +201,136 @@ pub fn category(lo_type: Option<&str>, layout_xml: Option<&[u8]>) -> Category {
 /// BlueOffice diagram colours (one per top-level node, repeating).
 const PALETTE: [&str; 6] = ["1F6FB2", "2E8B57", "C2571A", "7B4BA0", "B8860B", "2A9D8F"];
 
+/// Colours of a diagram (BlueOffice palettes, named in `dgm:prSet@csTypeId` / `colorsDef@uniqueId`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Palette {
+    /// A different colour per node.
+    #[default]
+    Colorful,
+    /// Every node blue.
+    Blue,
+    /// Every node green.
+    Green,
+    /// Every node orange.
+    Orange,
+    /// Every node purple.
+    Purple,
+    /// Every node grey.
+    Gray,
+}
+
+/// Look of the nodes (named in `dgm:prSet@qsTypeId` / `styleDef@uniqueId`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Fill {
+    /// Filled shapes, white text.
+    #[default]
+    Solid,
+    /// Coloured outline, no fill, coloured text.
+    Outline,
+}
+
+/// Colours and look of a diagram.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Look {
+    /// Colours.
+    pub palette: Palette,
+    /// Fill or outline.
+    pub fill: Fill,
+}
+
+impl Palette {
+    /// Name used in ids and commands.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Palette::Colorful => "colorful",
+            Palette::Blue => "blue",
+            Palette::Green => "green",
+            Palette::Orange => "orange",
+            Palette::Purple => "purple",
+            Palette::Gray => "gray",
+        }
+    }
+
+    /// The palette of a name.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Palette> {
+        Some(match name {
+            "colorful" => Palette::Colorful,
+            "blue" => Palette::Blue,
+            "green" => Palette::Green,
+            "orange" => Palette::Orange,
+            "purple" => Palette::Purple,
+            "gray" => Palette::Gray,
+            _ => return None,
+        })
+    }
+
+    /// The colour of a node drawn `default` in the colourful palette.
+    fn color(self, default: &str) -> &str {
+        match self {
+            Palette::Colorful => default,
+            Palette::Blue => "1F6FB2",
+            Palette::Green => "2E8B57",
+            Palette::Orange => "C2571A",
+            Palette::Purple => "7B4BA0",
+            Palette::Gray => "5F6B7A",
+        }
+    }
+}
+
+impl Fill {
+    /// Name used in ids and commands.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Fill::Solid => "fill",
+            Fill::Outline => "outline",
+        }
+    }
+
+    /// The look of a name.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Fill> {
+        Some(match name {
+            "fill" => Fill::Solid,
+            "outline" => Fill::Outline,
+            _ => return None,
+        })
+    }
+}
+
+const COLORS_ID: &str = "urn:bluestar.vn/blueoffice/colors/";
+const STYLE_ID: &str = "urn:bluestar.vn/blueoffice/quickstyle/";
+
+/// The look named on the document point of a data model (defaults for other producers' ids).
+#[must_use]
+pub fn look_of(data_xml: &[u8], part: &str) -> Look {
+    let Ok(root) = bo_drawingml::dom::parse(data_xml, part) else {
+        return Look::default();
+    };
+    let set = kid(&root, "ptLst")
+        .and_then(|l| kids(l, "pt").find(|p| p.attr("type") == Some("doc")))
+        .and_then(|p| kid(p, "prSet"));
+    let id = |a: &str, prefix: &str| {
+        set.and_then(|s| s.attr(a))
+            .and_then(|v| v.strip_prefix(prefix))
+            .map(str::to_owned)
+    };
+    Look {
+        palette: id("csTypeId", COLORS_ID)
+            .and_then(|n| Palette::parse(&n))
+            .unwrap_or_default(),
+        fill: id("qsTypeId", STYLE_ID)
+            .and_then(|n| Fill::parse(&n))
+            .unwrap_or_default(),
+    }
+}
+
 struct Out {
     xml: String,
     n: usize,
+    look: Look,
 }
 
 /// A shape: (x, y, w, h) EMU, preset geometry, fill (`None`: no fill), alpha (100000 = opaque), text,
@@ -216,6 +343,8 @@ struct Spec<'a> {
     text: &'a [String],
     color: &'a str,
     rot: i64,
+    /// Coloured outline (2 pt) instead of the thin white one.
+    outline: Option<&'a str>,
 }
 
 fn esc(s: &str) -> String {
@@ -226,6 +355,29 @@ fn esc(s: &str) -> String {
 
 impl Out {
     fn shape(&mut self, s: &Spec<'_>) {
+        // Node colours follow the palette; the outline look draws them as coloured frames.
+        let node = s.fill.filter(|c| PALETTE.contains(c));
+        let looked;
+        let s = match node {
+            Some(c) => {
+                let c = self.look.palette.color(c);
+                looked = match self.look.fill {
+                    Fill::Solid => Spec {
+                        fill: Some(c),
+                        ..*s
+                    },
+                    Fill::Outline => Spec {
+                        fill: Some("FFFFFF"),
+                        alpha: 100_000,
+                        color: c,
+                        outline: Some(c),
+                        ..*s
+                    },
+                };
+                &looked
+            }
+            None => s,
+        };
         self.n += 1;
         let (x, y, w, h) = s.rect;
         let rot = if s.rot == 0 {
@@ -241,14 +393,22 @@ impl Out {
             Some(c) => format!(r#"<a:solidFill><a:srgbClr val="{c}"/></a:solidFill>"#),
             None => "<a:noFill/>".to_owned(),
         };
-        let line = if s.prst == "line" {
-            r#"<a:ln w="19050"><a:solidFill><a:srgbClr val="7F7F7F"/></a:solidFill></a:ln>"#
-        } else {
-            r#"<a:ln w="12700"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln>"#
+        let line = match (s.prst, s.outline) {
+            ("line", _) => {
+                r#"<a:ln w="19050"><a:solidFill><a:srgbClr val="7F7F7F"/></a:solidFill></a:ln>"#
+                    .to_owned()
+            }
+            (_, Some(c)) => {
+                format!(
+                    r#"<a:ln w="25400"><a:solidFill><a:srgbClr val="{c}"/></a:solidFill></a:ln>"#
+                )
+            }
+            _ => r#"<a:ln w="12700"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln>"#
+                .to_owned(),
         };
         let _ = write!(
             self.xml,
-            r#"<dsp:sp modelId="{{{n}}}"><dsp:nvSpPr><dsp:cNvPr id="{n}" name=""/><dsp:cNvSpPr/></dsp:nvSpPr><dsp:spPr><a:xfrm{rot}><a:off x="{x}" y="{y}"/><a:ext cx="{w}" cy="{h}"/></a:xfrm><a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>{fill}{line}</dsp:spPr>"#,
+            r#"<dsp:sp modelId="{{B1E50FF2-0000-4000-8000-{n:012X}}}"><dsp:nvSpPr><dsp:cNvPr id="{n}" name=""/><dsp:cNvSpPr/></dsp:nvSpPr><dsp:spPr><a:xfrm{rot}><a:off x="{x}" y="{y}"/><a:ext cx="{w}" cy="{h}"/></a:xfrm><a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>{fill}{line}</dsp:spPr>"#,
             n = self.n,
             prst = s.prst
         );
@@ -285,6 +445,7 @@ impl Out {
             text: &[],
             color: "000000",
             rot: 0,
+            outline: None,
         });
     }
 }
@@ -300,11 +461,26 @@ fn with_children(n: &DiagramNode) -> Vec<String> {
 
 /// Shapes (EMU, relative to a `w` × `h` frame) laying out `nodes` in `cat`.
 #[must_use]
+pub fn layout_shapes(
+    nodes: &[DiagramNode],
+    cat: Category,
+    look: Look,
+    w: i64,
+    h: i64,
+) -> Vec<ShapeNode> {
+    let xml = drawing_xml(nodes, cat, look, w, h);
+    crate::diagram::drawing_shapes(xml.as_bytes(), "/diagram-layout.xml").unwrap_or_default()
+}
+
+/// The diagram drawing part ([MS-ODRAWXML] `dsp:drawing`) laying out `nodes` in `cat` in a `w` × `h`
+/// EMU frame.
+#[must_use]
 #[allow(clippy::too_many_lines)]
-pub fn layout_shapes(nodes: &[DiagramNode], cat: Category, w: i64, h: i64) -> Vec<ShapeNode> {
+pub fn drawing_xml(nodes: &[DiagramNode], cat: Category, look: Look, w: i64, h: i64) -> String {
     let mut out = Out {
         xml: String::new(),
         n: 0,
+        look,
     };
     let n = nodes.len() as i64;
     if n > 0 && w > 0 && h > 0 {
@@ -324,6 +500,7 @@ pub fn layout_shapes(nodes: &[DiagramNode], cat: Category, w: i64, h: i64) -> Ve
                         text: &with_children(node),
                         color: "FFFFFF",
                         rot: 0,
+                        outline: None,
                     });
                 }
             }
@@ -342,6 +519,7 @@ pub fn layout_shapes(nodes: &[DiagramNode], cat: Category, w: i64, h: i64) -> Ve
                         text: &with_children(node),
                         color: "FFFFFF",
                         rot: 0,
+                        outline: None,
                     });
                     if (i as i64) + 1 < n {
                         let aw = unit * 3 / 10;
@@ -354,6 +532,7 @@ pub fn layout_shapes(nodes: &[DiagramNode], cat: Category, w: i64, h: i64) -> Ve
                             text: &[],
                             color: "000000",
                             rot: 0,
+                            outline: None,
                         });
                     }
                 }
@@ -384,6 +563,7 @@ pub fn layout_shapes(nodes: &[DiagramNode], cat: Category, w: i64, h: i64) -> Ve
                         text: &node.text,
                         color: "FFFFFF",
                         rot: 0,
+                        outline: None,
                     });
                 }
                 if n > 1 {
@@ -405,6 +585,7 @@ pub fn layout_shapes(nodes: &[DiagramNode], cat: Category, w: i64, h: i64) -> Ve
                             text: &[],
                             color: "000000",
                             rot: (deg.rem_euclid(360.0) * 60_000.0) as i64,
+                            outline: None,
                         });
                     }
                 }
@@ -444,6 +625,7 @@ pub fn layout_shapes(nodes: &[DiagramNode], cat: Category, w: i64, h: i64) -> Ve
                         text: &n.text,
                         color: "FFFFFF",
                         rot: 0,
+                        outline: None,
                     });
                     let mut leaf = first_leaf;
                     let mut centres = Vec::new();
@@ -496,6 +678,7 @@ pub fn layout_shapes(nodes: &[DiagramNode], cat: Category, w: i64, h: i64) -> Ve
                         text: &with_children(node),
                         color: "FFFFFF",
                         rot: 0,
+                        outline: None,
                     });
                 }
             }
@@ -515,6 +698,7 @@ pub fn layout_shapes(nodes: &[DiagramNode], cat: Category, w: i64, h: i64) -> Ve
                         text: &node.text,
                         color: "FFFFFF",
                         rot: 0,
+                        outline: None,
                     });
                 }
             }
@@ -532,16 +716,240 @@ pub fn layout_shapes(nodes: &[DiagramNode], cat: Category, w: i64, h: i64) -> Ve
                         text: &node.text,
                         color: "1F1F1F",
                         rot: 0,
+                        outline: None,
                     });
                 }
             }
         }
     }
-    let xml = format!(
-        r#"<dsp:drawing xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dsp:spTree><dsp:nvGrpSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvGrpSpPr/></dsp:nvGrpSpPr><dsp:grpSpPr/>{}</dsp:spTree></dsp:drawing>"#,
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<dsp:drawing xmlns:dgm="{DGM}" xmlns:dsp="{DSP}" xmlns:a="{A}"><dsp:spTree><dsp:nvGrpSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvGrpSpPr/></dsp:nvGrpSpPr><dsp:grpSpPr/>{}</dsp:spTree></dsp:drawing>"#,
         out.xml
+    )
+}
+
+const DGM: &str = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
+const DSP: &str = "http://schemas.microsoft.com/office/drawing/2008/diagram";
+const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+
+impl Category {
+    /// The category name of §21.4.2.3 `cat@type`.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Category::List => "list",
+            Category::Process => "process",
+            Category::Cycle => "cycle",
+            Category::Hierarchy => "hierarchy",
+            Category::Matrix => "matrix",
+            Category::Pyramid => "pyramid",
+            Category::Relationship => "relationship",
+        }
+    }
+
+    /// The category of a name (`list`, `process`, …).
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Category> {
+        Some(match name {
+            "list" => Category::List,
+            "process" => Category::Process,
+            "cycle" => Category::Cycle,
+            "hierarchy" => Category::Hierarchy,
+            "matrix" => Category::Matrix,
+            "pyramid" => Category::Pyramid,
+            "relationship" => Category::Relationship,
+            _ => return None,
+        })
+    }
+}
+
+/// Nodes of an outline: (text, level) lines, level 0 = top level; a line deeper than the one before
+/// it becomes that line's child (levels are clamped to one more than the previous line).
+#[must_use]
+pub fn nodes_from_outline(lines: &[(String, usize)]) -> Vec<DiagramNode> {
+    fn take(lines: &[(String, usize)], i: &mut usize, level: usize) -> Vec<DiagramNode> {
+        let mut out = Vec::new();
+        while *i < lines.len() && lines[*i].1 >= level {
+            let text = lines[*i].0.clone();
+            *i += 1;
+            let children = if *i < lines.len() && lines[*i].1 > level {
+                take(lines, i, level + 1)
+            } else {
+                Vec::new()
+            };
+            out.push(DiagramNode {
+                text: vec![text],
+                children,
+            });
+        }
+        out
+    }
+    let mut clamped = Vec::with_capacity(lines.len());
+    let mut prev = 0usize;
+    for (k, (t, l)) in lines.iter().enumerate() {
+        let l = if k == 0 { 0 } else { (*l).min(prev + 1) };
+        clamped.push((t.clone(), l));
+        prev = l;
+    }
+    let mut i = 0;
+    take(&clamped, &mut i, 0)
+}
+
+/// The outline of nodes (inverse of [`nodes_from_outline`]): one line per node, paragraphs joined.
+#[must_use]
+pub fn outline_of(nodes: &[DiagramNode]) -> Vec<(String, usize)> {
+    fn walk(n: &[DiagramNode], level: usize, out: &mut Vec<(String, usize)>) {
+        for d in n {
+            out.push((d.text.join(" "), level));
+            walk(&d.children, level + 1, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(nodes, 0, &mut out);
+    out
+}
+
+/// The parts of a new SmartArt (ECMA-376 Part 1, §21.4): data model, layout definition, quick style,
+/// colours and the drawing part.
+pub struct DiagramParts {
+    /// `dgm:dataModel` (its `dsp:dataModelExt@relId` names `drawing_rel` of the host part).
+    pub data: Vec<u8>,
+    /// `dgm:layoutDef` naming the BlueOffice layout and its category.
+    pub layout: Vec<u8>,
+    /// `dgm:styleDef`.
+    pub style: Vec<u8>,
+    /// `dgm:colorsDef`.
+    pub colors: Vec<u8>,
+    /// `dsp:drawing` laid out for the frame.
+    pub drawing: Vec<u8>,
+}
+
+/// Layout id of a BlueOffice layout (`dgm:layoutDef@uniqueId`, `dgm:prSet@loTypeId`).
+#[must_use]
+pub fn layout_id(cat: Category) -> String {
+    format!("urn:bluestar.vn/blueoffice/layout/{}", cat.name())
+}
+
+fn xml_text(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// The data model of `nodes` (§21.4.3): the document point, one point per node and `parOf`
+/// connections in order, plus the extension naming the drawing part relationship `drawing_rel` (none
+/// when it is empty).
+#[must_use]
+pub fn data_model_xml(
+    nodes: &[DiagramNode],
+    cat: Category,
+    look: Look,
+    drawing_rel: &str,
+) -> String {
+    fn id(n: usize) -> String {
+        format!("{{B1E50FF1-0000-4000-8000-{n:012X}}}")
+    }
+    fn walk(
+        nodes: &[DiagramNode],
+        parent: &str,
+        next: &mut usize,
+        pts: &mut String,
+        cxns: &mut String,
+    ) {
+        for (ord, n) in nodes.iter().enumerate() {
+            *next += 1;
+            let me = id(*next);
+            let paras: String = if n.text.is_empty() {
+                r#"<a:p><a:endParaRPr lang="vi-VN"/></a:p>"#.to_owned()
+            } else {
+                n.text.iter().fold(String::new(), |mut acc, t| {
+                    let _ = write!(
+                        acc,
+                        r#"<a:p><a:r><a:rPr lang="vi-VN"/><a:t>{}</a:t></a:r></a:p>"#,
+                        xml_text(t)
+                    );
+                    acc
+                })
+            };
+            let _ = write!(
+                pts,
+                r#"<dgm:pt modelId="{me}"><dgm:prSet phldrT="[Text]"/><dgm:spPr/><dgm:t><a:bodyPr/><a:lstStyle/>{paras}</dgm:t></dgm:pt>"#
+            );
+            *next += 1;
+            let _ = write!(
+                cxns,
+                r#"<dgm:cxn modelId="{}" srcId="{parent}" destId="{me}" srcOrd="{ord}" destOrd="0"/>"#,
+                id(*next)
+            );
+            walk(&n.children, &me, next, pts, cxns);
+        }
+    }
+    let doc = id(0);
+    let mut pts = format!(
+        r#"<dgm:pt modelId="{doc}" type="doc"><dgm:prSet loTypeId="{}" loCatId="{}" qsTypeId="{STYLE_ID}{}" csTypeId="{COLORS_ID}{}"/><dgm:spPr/><dgm:t><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="vi-VN"/></a:p></dgm:t></dgm:pt>"#,
+        layout_id(cat),
+        cat.name(),
+        look.fill.name(),
+        look.palette.name()
     );
-    crate::diagram::drawing_shapes(xml.as_bytes(), "/diagram-layout.xml").unwrap_or_default()
+    let mut cxns = String::new();
+    let mut next = 0;
+    walk(nodes, &doc, &mut next, &mut pts, &mut cxns);
+    // Without a drawing part (empty `drawing_rel`) the data model names none.
+    let ext = if drawing_rel.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<dgm:extLst><a:ext uri="http://schemas.microsoft.com/office/drawing/2008/diagram"><dsp:dataModelExt xmlns:dsp="{DSP}" relId="{drawing_rel}" minVer="http://schemas.openxmlformats.org/drawingml/2006/diagram"/></a:ext></dgm:extLst>"#
+        )
+    };
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<dgm:dataModel xmlns:dgm="{DGM}" xmlns:a="{A}"><dgm:ptLst>{pts}</dgm:ptLst><dgm:cxnLst>{cxns}</dgm:cxnLst><dgm:bg/><dgm:whole/>{ext}</dgm:dataModel>"#
+    )
+}
+
+/// The layout definition part of a BlueOffice layout: its id and category (§21.4.2.15 layoutDef; the
+/// layout itself is BlueOffice's own, so the definition carries no layout algorithm).
+#[must_use]
+pub fn layout_def_xml(cat: Category) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<dgm:layoutDef xmlns:dgm="{DGM}" xmlns:a="{A}" uniqueId="{}"><dgm:title val="BlueOffice {}"/><dgm:catLst><dgm:cat type="{}" pri="1000"/></dgm:catLst><dgm:layoutNode name="diagram"/></dgm:layoutDef>"#,
+        layout_id(cat),
+        cat.name(),
+        cat.name()
+    )
+}
+
+/// All parts of a new SmartArt for a `w` × `h` EMU frame.
+#[must_use]
+pub fn build_parts(
+    nodes: &[DiagramNode],
+    cat: Category,
+    look: Look,
+    (w, h): (i64, i64),
+    drawing_rel: &str,
+) -> DiagramParts {
+    DiagramParts {
+        data: data_model_xml(nodes, cat, look, drawing_rel).into_bytes(),
+        layout: layout_def_xml(cat).into_bytes(),
+        style: format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<dgm:styleDef xmlns:dgm="{DGM}" xmlns:a="{A}" uniqueId="{STYLE_ID}{}"><dgm:styleLbl name="node0"/></dgm:styleDef>"#,
+            look.fill.name()
+        )
+        .into_bytes(),
+        colors: format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<dgm:colorsDef xmlns:dgm="{DGM}" xmlns:a="{A}" uniqueId="{COLORS_ID}{}"/>"#,
+            look.palette.name()
+        )
+        .into_bytes(),
+        drawing: drawing_xml(nodes, cat, look, w, h).into_bytes(),
+    }
 }
 
 /// Shapes of a diagram laid out from its data model part (`layout_xml`: the layout part, if any).
@@ -557,7 +965,8 @@ pub fn synth(
     if nodes.is_empty() {
         return None;
     }
-    let shapes = layout_shapes(&nodes, category(lo.as_deref(), layout_xml), w, h);
+    let look = look_of(data_xml, data_part);
+    let shapes = layout_shapes(&nodes, category(lo.as_deref(), layout_xml), look, w, h);
     (!shapes.is_empty()).then_some(shapes)
 }
 
@@ -824,5 +1233,74 @@ pub(crate) mod tests {
             "{:?}",
             l[0].5
         );
+    }
+
+    #[test]
+    fn outline_round_trip_and_parts() {
+        let lines: Vec<(String, usize)> = [
+            ("A", 0),
+            ("A1", 1),
+            ("A2", 1),
+            ("A2a", 2),
+            ("B", 0),
+            ("C", 3),
+        ]
+        .iter()
+        .map(|(t, l)| ((*t).to_owned(), *l))
+        .collect();
+        let nodes = nodes_from_outline(&lines);
+        // Top level: A and B (C becomes B's child).
+        assert_eq!(nodes.len(), 2);
+        assert_eq!(nodes[0].children.len(), 2);
+        assert_eq!(nodes[0].children[1].children[0].text, ["A2a"]);
+        // "C" at level 3 after a level-0 line is clamped to level 1 (child of B).
+        assert_eq!(nodes[1].children[0].text, ["C"]);
+        let back = outline_of(&nodes);
+        assert_eq!(back[5], ("C".to_owned(), 1));
+        // Written parts read back as the same tree and category.
+        let look = Look {
+            palette: Palette::Green,
+            fill: Fill::Outline,
+        };
+        let p = build_parts(
+            &nodes,
+            Category::Cycle,
+            look,
+            (4_000_000, 3_000_000),
+            "rId9",
+        );
+        assert_eq!(look_of(&p.data, "/d.xml"), look);
+        // Outline look: coloured 2 pt frames on white, coloured text.
+        let d = String::from_utf8(p.drawing.clone()).unwrap();
+        assert!(
+            d.contains(r#"<a:ln w="25400"><a:solidFill><a:srgbClr val="2E8B57"/>"#),
+            "{d}"
+        );
+        let (read, lo) = parse_data_model(&p.data, "/d.xml").unwrap();
+        assert_eq!(read, nodes);
+        assert_eq!(category(lo.as_deref(), Some(&p.layout)), Category::Cycle);
+        assert_eq!(
+            crate::diagram::drawing_rel_id(&p.data, "/d.xml").as_deref(),
+            Some("rId9")
+        );
+        let shapes = crate::diagram::drawing_shapes(&p.drawing, "/x.xml").unwrap();
+        assert_ne!(shapes.len(), 0);
+        // ST_ModelId is an integer or a GUID ([MS-ODRAWXML] dsp:sp@modelId).
+        let d = String::from_utf8(p.drawing.clone()).unwrap();
+        assert!(
+            d.contains(r#"modelId="{B1E50FF2-0000-4000-8000-000000000001}""#),
+            "{d}"
+        );
+        for c in [
+            "list",
+            "process",
+            "cycle",
+            "hierarchy",
+            "matrix",
+            "pyramid",
+            "relationship",
+        ] {
+            assert_eq!(Category::parse(c).unwrap().name(), c);
+        }
     }
 }

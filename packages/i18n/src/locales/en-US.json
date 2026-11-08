@@ -1251,6 +1251,43 @@
       "delete": "Delete",
       "close": "Close comments",
       "resolved": "resolved"
+    },
+    "smartart": {
+      "button": "SmartArt",
+      "tab": "SmartArt",
+      "group": "Diagram",
+      "insertTitle": "Insert SmartArt",
+      "editTitle": "Edit SmartArt",
+      "insert": "Insert",
+      "apply": "Apply",
+      "layout": "Layout",
+      "textPane": "Text pane",
+      "toShapes": "Convert to shapes",
+      "hint": "One item per line; Tab to demote, Shift+Tab to promote.",
+      "sampleItem": "Item {{n}}",
+      "layouts": {
+        "list": "List",
+        "process": "Process",
+        "cycle": "Cycle",
+        "hierarchy": "Hierarchy",
+        "matrix": "Matrix",
+        "pyramid": "Pyramid",
+        "relationship": "Relationship"
+      },
+      "colors": "Colours",
+      "style": "Style",
+      "palette": {
+        "colorful": "Colourful",
+        "blue": "Blue",
+        "green": "Green",
+        "orange": "Orange",
+        "purple": "Purple",
+        "gray": "Grey"
+      },
+      "styles": {
+        "fill": "Filled",
+        "outline": "Outline"
+      }
     }
   },
   "review": {

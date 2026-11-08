@@ -104,8 +104,22 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     Test: `diagram_layout::tests` (đọc cây, nhóm bố cục, từng bố cục: vị trí/thứ tự/không tràn khung), `diagram::tests`
     (data model → shape), `bo-engine smartart::tests` (docx chỉ có data model → PNG, lưu giữ nguyên data part); corpus
     `slide-smartart-data-{process,hierarchy,cycle,pyramid}.pptx`, `smartart-04-datamodel.docx` (OpenXmlValidator 0 lỗi).
-- [ ] **CORE-SMART-003** — Tạo SmartArt mới từ thư viện bố cục BlueOffice; ghi data model + layout/style/color + drawing fallback hợp lệ · P0 · 002 · OpenXmlValidator.
-- [ ] **CORE-SMART-004** — Ngăn văn bản SmartArt: sửa nội dung, thêm/xoá/nâng/hạ cấp nút, đổi bố cục/màu/style, chuyển thành shapes · P0 · 003 · E2E.
+- [p] **CORE-SMART-003** — Tạo SmartArt mới từ thư viện bố cục BlueOffice; ghi data model + layout/style/color + drawing fallback hợp lệ · P0 · 002 · OpenXmlValidator.
+  - Xong (BlueSlide): lệnh `insertSmartArt {layout, items, colors?, style?, rect?}` ghi đủ 5 phần (data model với điểm
+    doc + node + nối parOf, layoutDef `urn:bluestar.vn/blueoffice/layout/<nhóm>` có catLst, styleDef, colorsDef, dsp:drawing
+    tự dựng) + 5 quan hệ từ slide và khung `dgm:relIds`; `dsp:sp@modelId` dạng GUID (ST_ModelId). Test: `bo-pptx
+    diagram_layout::tests::outline_round_trip_and_parts` (ghi → đọc lại cùng cây/nhóm/màu), `bo-engine slide_show::
+    smartart_inserted_edited_converted_and_saved` (chèn, lưu, mở lại: đủ phần + content type + quan hệ), E2E
+    `specs/smartart.spec.ts`; file lưu từ web qua OpenXmlValidator 0 lỗi. **Thiếu**: chèn SmartArt mới trong BlueDoc /
+    BlueSheet (cần mô hình phần sơ đồ + quan hệ trong docx/xlsx) → CORE-SMART-005.
+- [p] **CORE-SMART-004** — Ngăn văn bản SmartArt: sửa nội dung, thêm/xoá/nâng/hạ cấp nút, đổi bố cục/màu/style, chuyển thành shapes · P0 · 003 · E2E.
+  - Xong (BlueSlide): ngăn văn bản (hộp thoại dàn ý: mỗi dòng một nút, Tab/Shift+Tab hạ/nâng cấp → thêm/xoá/nâng/hạ),
+    đổi bố cục (7 nhóm), màu (6 bảng màu BlueOffice) và kiểu (tô màu / viền màu) qua `setSmartArt` (ghi lại data model,
+    layoutDef, dsp:drawing; id kiểu/màu nằm ở `prSet@csTypeId/qsTypeId`), `smartArtToShapes` (nhóm hình thường, giữ id,
+    hoàn tác được); tab SmartArt trên ribbon, nhấp đúp mở ngăn văn bản. Test: engine (đổi bố cục/màu/kiểu, giữ dàn ý, từ
+    chối giá trị lạ, chuyển thành hình + hoàn tác) và E2E `specs/smartart.spec.ts` (sửa, Tab hạ cấp, màu/kiểu, lưu, mở lại,
+    chuyển thành hình). **Thiếu**: sửa SmartArt trong BlueDoc/BlueSheet (CORE-SMART-005).
+- [ ] **CORE-SMART-005** — SmartArt mới và sửa SmartArt trong BlueDoc / BlueSheet (mô hình phần sơ đồ + quan hệ docx/xlsx, dùng chung `bo-pptx::diagram_layout`) · P1 · 003,004 · E2E. _(Tách ra từ 003/004 khi làm phần BlueSlide.)_
 
 ### Biểu đồ (§6.6)
 - [p] **CORE-CHART-001** — Biểu đồ c: column/bar (clustered/stacked), line, area, pie, doughnut, scatter, combo: đọc/hiển thị/tạo/lưu · P0 · — · corpus `charts-*`. **Thiếu**: 100 %, 3D, bubble, radar, surface, stock, pie of pie, trendline/error bar đầy đủ.

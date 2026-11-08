@@ -18,7 +18,12 @@
 //! that issuer's key; a certificate listed with a revocation date at or before
 //! the validation time is revoked, and a CRL whose `nextUpdate` is before the
 //! validation time is reported as stale. Without a CRL for an issuer the
-//! status is unknown and not reported as a problem; OCSP is not supported.
+//! status is unknown and not reported as a problem.
+//!
+//! OCSP (RFC 6960, [`crate::ocsp`]) is asked first: responses loaded into the
+//! store, else the store's fetcher (online, the certificate's responder URL). A
+//! verified `revoked` status dated at or before the validation time revokes the
+//! certificate; `good` settles it without CRLs; otherwise the CRLs decide.
 
 use crate::{pem_blocks, verify_rsa, HashAlg, Result, SignError};
 use const_oid::db::rfc5280;
@@ -47,6 +52,22 @@ pub enum Purpose {
 pub struct TrustStore {
     anchors: Vec<Certificate>,
     crls: Vec<CertificateList>,
+    ocsp: Vec<crate::ocsp::BasicOcspResponse>,
+    fetcher: Option<OcspFetcher>,
+}
+
+/// Gets an OCSP response (DER OCSPResponse) for a certificate and its issuer,
+/// e.g. from the responder named in the certificate ([`crate::ocsp::fetch`]).
+#[derive(Clone)]
+pub struct OcspFetcher(
+    #[allow(clippy::type_complexity)]
+    pub  std::sync::Arc<dyn Fn(&Certificate, &Certificate) -> Option<Vec<u8>> + Send + Sync>,
+);
+
+impl fmt::Debug for OcspFetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("OcspFetcher")
+    }
 }
 
 impl TrustStore {
@@ -68,8 +89,26 @@ impl TrustStore {
         Ok(())
     }
 
+    /// Adds one DER OCSPResponse (RFC 6960 §4.2.1; `successful`, basic).
+    pub fn add_ocsp_der(&mut self, der: &[u8]) -> Result<()> {
+        self.ocsp.push(crate::ocsp::parse_response(der)?);
+        Ok(())
+    }
+
+    /// Asks `fetcher` for an OCSP response when the store has none for a
+    /// certificate of the path.
+    pub fn set_ocsp_fetcher(&mut self, fetcher: OcspFetcher) {
+        self.fetcher = Some(fetcher);
+    }
+
+    #[must_use]
+    /// Number of loaded OCSP responses.
+    pub fn ocsp_count(&self) -> usize {
+        self.ocsp.len()
+    }
+
     /// Adds every certificate and CRL (`X509 CRL`) of a PEM bundle, or a single
-    /// DER certificate or CRL; returns how many were added.
+    /// DER certificate, CRL or OCSP response; returns how many were added.
     pub fn add_bytes(&mut self, data: &[u8]) -> Result<usize> {
         match std::str::from_utf8(data) {
             Ok(text) if text.contains("-----BEGIN ") => {
@@ -99,15 +138,17 @@ impl TrustStore {
             _ => {
                 if Certificate::from_der(data).is_ok() {
                     self.add_der(data)?;
-                } else {
+                } else if CertificateList::from_der(data).is_ok() {
                     self.add_crl_der(data)?;
+                } else {
+                    self.add_ocsp_der(data)?;
                 }
                 Ok(1)
             }
         }
     }
 
-    /// Loads a PEM bundle / DER file, or every `.pem/.crt/.cer/.der/.crl` file of a directory.
+    /// Loads a PEM bundle / DER file, or every `.pem/.crt/.cer/.der/.crl/.ocsp` file of a directory.
     pub fn add_path(&mut self, path: &Path) -> Result<usize> {
         let io = |e: std::io::Error| SignError::Malformed(format!("{}: {e}", path.display()));
         if path.is_dir() {
@@ -120,7 +161,7 @@ impl TrustStore {
                     p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
                         matches!(
                             e.to_ascii_lowercase().as_str(),
-                            "pem" | "crt" | "cer" | "der" | "crl"
+                            "pem" | "crt" | "cer" | "der" | "crl" | "ocsp"
                         )
                     })
                 })
@@ -369,6 +410,41 @@ fn check_revocation(
     at: SystemTime,
     problems: &mut Vec<ChainProblem>,
 ) {
+    // OCSP first (RFC 6960): loaded responses, then the fetcher.
+    use crate::ocsp::CertStatus;
+    let mut checked: Vec<crate::ocsp::Checked> = store
+        .ocsp
+        .iter()
+        .filter_map(|r| crate::ocsp::status(r, c, issuer))
+        .collect();
+    if checked.is_empty() {
+        if let Some(f) = &store.fetcher {
+            if let Some(r) = (f.0)(c, issuer).and_then(|d| crate::ocsp::parse_response(&d).ok()) {
+                checked.extend(crate::ocsp::status(&r, c, issuer));
+            }
+        }
+    }
+    let revoked = checked
+        .iter()
+        .filter_map(|k| match k.status {
+            CertStatus::Revoked(t) if t <= at => Some(t),
+            _ => None,
+        })
+        .min();
+    if let Some(d) = revoked {
+        problems.push(ChainProblem::Revoked {
+            subject: subject(c),
+            date: crate::iso_utc(crate::unix_secs(d)),
+        });
+        return;
+    }
+    // A good status covering the validation time, or issued after it (a
+    // revocation is permanent, RFC 5280 §3.3): CRLs may still revoke, but an
+    // out-of-date CRL is no longer a problem.
+    let good = checked.iter().any(|k| {
+        matches!(k.status, CertStatus::Good | CertStatus::Revoked(_))
+            && (k.this_update >= at || k.next_update.is_none_or(|n| n >= at))
+    });
     let crls: Vec<&CertificateList> = store
         .crls
         .iter()
@@ -399,7 +475,7 @@ fn check_revocation(
             .next_update
             .is_none_or(|n| n.to_system_time() >= at)
     });
-    if !fresh {
+    if !fresh && !good {
         problems.push(ChainProblem::CrlStale {
             subject: subject(issuer),
         });

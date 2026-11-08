@@ -151,11 +151,32 @@ pub fn report_lines(r: &DocumentReport) -> Vec<String> {
 }
 
 /// `bo-cli verify`: prints the report; non-zero exit when invalid.
-pub fn verify(input: &Path, trust: &[PathBuf], crls: &[PathBuf], json: bool) -> R<bool> {
+/// Revocation sources of `bo-cli verify` (RFC 5280 CRLs, RFC 6960 OCSP).
+#[derive(Debug, Default)]
+pub struct Revocation {
+    /// CRL files or directories.
+    pub crls: Vec<PathBuf>,
+    /// OCSP response files or directories.
+    pub ocsp: Vec<PathBuf>,
+    /// Ask the responders named in the certificates over HTTP.
+    pub ocsp_fetch: bool,
+}
+
+pub fn verify(input: &Path, trust: &[PathBuf], rev: &Revocation, json: bool) -> R<bool> {
     let bytes = std::fs::read(input)?;
     let mut store = trust_store(trust)?;
-    for p in crls {
+    for p in rev.crls.iter().chain(&rev.ocsp) {
         store.add_path(p)?;
+    }
+    if rev.ocsp_fetch {
+        store.set_ocsp_fetcher(bo_sign::trust::OcspFetcher(std::sync::Arc::new(
+            |cert, issuer| {
+                let transport = UreqTransport::default();
+                bo_sign::ocsp::responder_urls(cert)
+                    .iter()
+                    .find_map(|url| bo_sign::ocsp::fetch(&transport, url, cert, issuer).ok())
+            },
+        )));
     }
     let report = verify_document(&bytes, &store, SystemTime::now())?;
     if json {
@@ -220,7 +241,13 @@ mod tests {
         let root = tmp("root.pem");
         std::fs::write(&root, bo_sign::cert_to_pem(pki.root.certificate_der())).unwrap();
 
-        assert!(verify(&path, std::slice::from_ref(&root), &[], false).unwrap());
+        assert!(verify(
+            &path,
+            std::slice::from_ref(&root),
+            &Revocation::default(),
+            false
+        )
+        .unwrap());
         let report =
             verify_document(&signed, &trust_store(&[root]).unwrap(), SystemTime::now()).unwrap();
         let lines = report_lines(&report).join("\n");

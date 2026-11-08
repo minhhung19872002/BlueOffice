@@ -9,7 +9,7 @@
 //! bo-cli convert secret.docx --password pw --to docx --protect newpw
 //! bo-cli inspect file                               # format, encryption, macros
 //! bo-cli sign in.pdf --p12 me.p12 [--tsa URL] | --key k.pem --cert c.pem | --remote URL
-//! bo-cli verify in.pdf [--trust root-ca.pem] [--crl ca.crl] [--json]
+//! bo-cli verify in.pdf [--trust root-ca.pem] [--crl ca.crl] [--ocsp resp.der | --ocsp-fetch] [--json]
 //! bo-cli dump input.docx [--page 0]          # display list JSON (parity tests)
 //! bo-cli pack <dir> <out.docx> | unpack <file> <dir>
 //! bo-cli sample <out.docx>                   # generate the Phase 1 corpus sample
@@ -125,6 +125,13 @@ enum Cmd {
         /// `.crl` files, checked for every certificate of the path; repeatable.
         #[arg(long)]
         crl: Vec<PathBuf>,
+        /// OCSP response (DER, RFC 6960) or directory of `.ocsp` / `.der` files; repeatable.
+        #[arg(long)]
+        ocsp: Vec<PathBuf>,
+        /// Ask the OCSP responder named in each certificate (Authority Information
+        /// Access) over HTTP when no response is given.
+        #[arg(long)]
+        ocsp_fetch: bool,
         /// Machine-readable JSON report.
         #[arg(long)]
         json: bool,
@@ -342,9 +349,16 @@ fn run(cli: Cli) -> R {
             input,
             trust,
             crl,
+            ocsp,
+            ocsp_fetch,
             json,
         } => {
-            if !sign_cmd::verify(&input, &trust, &crl, json)? {
+            let rev = sign_cmd::Revocation {
+                crls: crl,
+                ocsp,
+                ocsp_fetch,
+            };
+            if !sign_cmd::verify(&input, &trust, &rev, json)? {
                 return Err("signature verification failed".into());
             }
         }

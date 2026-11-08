@@ -45,7 +45,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | clap | 4.6.7 | MIT OR Apache-2.0 | CLI `bo-cli` |
 | cfb | 0.14.0 | MIT | Compound File Binary ([MS-CFB]) cho .doc/.xls/.ppt, vbaProject.bin, file mã hoá |
 | aes / cbc / ecb | 0.8.4 / 0.1.2 / 0.1.2 | MIT OR Apache-2.0 / MIT OR Apache-2.0 / MIT | AES-CBC/ECB cho [MS-OFFCRYPTO] |
-| sha1 / sha2 / hmac | 0.10.7 / 0.10.9 / 0.12.1 | MIT OR Apache-2.0 | Băm khoá, HMAC toàn vẹn dữ liệu, hash bảo vệ sheet |
+| sha1 / sha2 / hmac | 0.10.7 / 0.10.9 / 0.12.1 | MIT OR Apache-2.0 | Băm khoá, HMAC toàn vẹn dữ liệu, hash bảo vệ sheet; CertID của OCSP (bo-sign) |
 | base64 | 0.22.1 | MIT OR Apache-2.0 | Thuộc tính base64 trong EncryptionInfo / sheetProtection |
 | getrandom | 0.4.3 | MIT OR Apache-2.0 | Salt / khoá ngẫu nhiên khi mã hoá (WASM: `wasm_js`, crypto.getRandomValues) |
 | tauri / tauri-build | 2.12.5 / 2.7.4 | Apache-2.0 OR MIT | Vỏ desktop |

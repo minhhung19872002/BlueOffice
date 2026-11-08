@@ -250,6 +250,67 @@ pub fn issue_crl(
     .expect("der")
 }
 
+/// A certificate for an OCSP responder delegated by `issuer` (EKU
+/// `id-kp-OCSPSigning`, RFC 6960 §4.2.2.2), or without that EKU when `eku` is false.
+///
+/// # Panics
+/// On RNG/encoding failure (tests only).
+#[must_use]
+pub fn ocsp_responder(
+    rng: &mut impl rsa::rand_core::CryptoRngCore,
+    issuer: &SoftwareSigner,
+    eku: bool,
+    validity: Validity,
+) -> SoftwareSigner {
+    let key = RsaPrivateKey::new(rng, 1024).expect("rsa keygen");
+    let issuer_cert = x509_cert::Certificate::from_der(&issuer.cert_der).expect("cert");
+    let cert = issue(
+        &key,
+        "Test OCSP Responder",
+        Profile::Leaf {
+            issuer: issuer_cert.tbs_certificate.subject,
+            enable_key_agreement: false,
+            enable_key_encipherment: false,
+        },
+        &issuer.key,
+        validity,
+        77,
+        eku.then(|| vec![rfc5280::ID_KP_OCSP_SIGNING]),
+    );
+    SoftwareSigner::new(key, cert)
+}
+
+/// A DER OCSPResponse (RFC 6960 §4.2.1) signed by `responder` about `cert`
+/// (issued by `issuer`), with `status` valid from `this_update` to `next_update`;
+/// the responder's certificate is included when it is not the issuer.
+///
+/// # Panics
+/// On encoding / signing failure (tests only).
+#[must_use]
+pub fn issue_ocsp(
+    responder: &SoftwareSigner,
+    cert_der: &[u8],
+    issuer_der: &[u8],
+    status: crate::ocsp::CertStatus,
+    this_update: SystemTime,
+    next_update: Option<SystemTime>,
+) -> Vec<u8> {
+    let cert = x509_cert::Certificate::from_der(cert_der).expect("cert");
+    let issuer = x509_cert::Certificate::from_der(issuer_der).expect("issuer");
+    let id = crate::ocsp::cert_id(&cert, &issuer).expect("cert id");
+    let delegated = responder.cert_der != issuer_der;
+    let certs = delegated
+        .then(|| vec![x509_cert::Certificate::from_der(&responder.cert_der).expect("cert")]);
+    crate::ocsp::build_response(
+        responder,
+        !delegated,
+        &[(id, status, this_update, next_update)],
+        this_update,
+        certs,
+    )
+    .expect("ocsp response")
+}
+
 /// Misbehaviours of [`LocalTsa`] for negative tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TsaFault {

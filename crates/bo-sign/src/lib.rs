@@ -24,6 +24,7 @@
 
 pub mod cms_sig;
 pub mod http;
+pub mod ocsp;
 pub mod ooxml;
 pub mod pdf;
 #[cfg(feature = "pkcs11")]

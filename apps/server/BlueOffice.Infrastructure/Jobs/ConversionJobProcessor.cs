@@ -18,6 +18,10 @@ public sealed class BoCliProcessRunner(IOptions<BoCliOptions> options) : IBoCliR
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+
+            // bo-cli writes UTF-8 (display lists, errors); never the console code page.
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
             UseShellExecute = false,
             WorkingDirectory = workingDirectory,
         };
@@ -84,19 +88,24 @@ public sealed class ConversionJobProcessor(
             {
                 case JobKind.Convert or JobKind.Preview:
                     {
-                        var to = (job.TargetFormat ?? "pdf").ToLowerInvariant();
-                        if (to != "pdf")
+                        var to = job.Kind == JobKind.Preview ? "pdf" : (job.TargetFormat ?? "pdf").ToLowerInvariant();
+                        if (!ConversionFormats.TargetsFor(ext).Contains(to))
                         {
-                            return Fail(job, $"Target format '{to}' is not supported yet.");
+                            return Fail(job, $"Cannot convert '{ext}' to '{to}'.");
                         }
 
-                        var output = Path.Combine(dir.FullName, "output.pdf");
-                        var r = await runner.RunAsync(["convert", input, "--to", "pdf", "--out", output], dir.FullName, ct);
-                        return await FinishFileAsync(job, r, output, "application/pdf", baseName + ".pdf", ct);
+                        var output = Path.Combine(dir.FullName, "output." + to);
+                        var r = await runner.RunAsync(["convert", input, "--to", to, "--out", output], dir.FullName, ct);
+                        return await FinishFileAsync(job, r, output, ConversionFormats.ContentType(to), baseName + "." + to, ct);
                     }
 
                 case JobKind.Thumbnail:
                     {
+                        if (!ConversionFormats.CanRender(ext))
+                        {
+                            return Fail(job, $"No page renderer for '{ext}' yet.");
+                        }
+
                         var output = Path.Combine(dir.FullName, "thumb.png");
                         var scale = Math.Clamp(job.Scale, 0.05, 4).ToString("0.###", CultureInfo.InvariantCulture);
                         var page = Math.Max(1, job.Page).ToString(CultureInfo.InvariantCulture);
@@ -130,28 +139,69 @@ public sealed class ConversionJobProcessor(
 
     private async Task<ConversionJob> ExtractTextAsync(ConversionJob job, string input, string workDir, string baseName, CancellationToken ct)
     {
+        var ext = Path.GetExtension(input);
         var pages = new List<string>();
-        for (var p = 0; p < MaxTextPages; p++)
+        if (ConversionFormats.IsSpreadsheet(ext))
         {
-            var r = await runner.RunAsync(["dump", input, "--page", p.ToString(CultureInfo.InvariantCulture)], workDir, ct);
-            if (r.ExitCode != 0)
+            // One "page" per sheet: its cells as CSV (values, not formulas).
+            var output = Path.Combine(workDir, "sheet.csv");
+            for (var sheet = 1; sheet <= MaxTextPages; sheet++)
             {
-                if (p > 0 && r.StdErr.Contains("out of range", StringComparison.OrdinalIgnoreCase))
+                var r = await runner.RunAsync(["convert", input, "--to", "csv", "--sheet", sheet.ToString(CultureInfo.InvariantCulture), "--out", output], workDir, ct);
+                if (r.ExitCode != 0)
                 {
-                    break;
+                    if (sheet > 1 && r.StdErr.Contains("out of range", StringComparison.OrdinalIgnoreCase))
+                    {
+                        break;
+                    }
+
+                    return Fail(job, r.StdErr.Trim());
                 }
 
+                pages.Add((await File.ReadAllTextAsync(output, Encoding.UTF8, ct)).TrimEnd('\r', '\n'));
+            }
+        }
+        else if (!ConversionFormats.CanRender(ext))
+        {
+            // .ppt / .odp (no page renderer): slide texts in one block.
+            var output = Path.Combine(workDir, "deck.txt");
+            var r = await runner.RunAsync(["convert", input, "--to", "txt", "--out", output], workDir, ct);
+            if (r.ExitCode != 0 || !File.Exists(output))
+            {
                 return Fail(job, r.StdErr.Trim());
             }
 
-            pages.Add(TextExtraction.FromDisplayList(r.StdOut));
+            pages.Add((await File.ReadAllTextAsync(output, Encoding.UTF8, ct)).TrimEnd('\r', '\n'));
+        }
+        else
+        {
+            for (var p = 0; p < MaxTextPages; p++)
+            {
+                var r = await runner.RunAsync(["dump", input, "--page", p.ToString(CultureInfo.InvariantCulture)], workDir, ct);
+                if (r.ExitCode != 0)
+                {
+                    if (p > 0 && r.StdErr.Contains("out of range", StringComparison.OrdinalIgnoreCase))
+                    {
+                        break;
+                    }
+
+                    return Fail(job, r.StdErr.Trim());
+                }
+
+                pages.Add(TextExtraction.FromDisplayList(r.StdOut));
+            }
         }
 
         var payload = new
         {
             text = string.Join("\n\f\n", pages),
             pages = pages.Count,
-            metadata = new { fileName = job.FileName, characters = pages.Sum(x => x.Length) },
+            metadata = new
+            {
+                fileName = job.FileName,
+                characters = pages.Sum(x => x.Length),
+                kind = ConversionFormats.IsSpreadsheet(ext) ? "spreadsheet" : ConversionFormats.IsPresentation(ext) ? "presentation" : "document",
+            },
         };
         using var ms = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(payload));
         await store.PutAsync(job.OutputKey, ms, "application/json", ct);
@@ -226,4 +276,65 @@ public static class TextExtraction
 
         return sb.ToString();
     }
+}
+
+/// <summary>Input families and output formats of <c>bo-cli convert</c> (prompt §6A.5).</summary>
+public static class ConversionFormats
+{
+    private static readonly string[] Documents = [".docx", ".docm", ".doc", ".odt"];
+    private static readonly string[] PlainText = [".txt", ".md"];
+    private static readonly string[] Spreadsheets = [".xlsx", ".xlsm", ".xlsb", ".xls", ".ods"];
+    private static readonly string[] Presentations = [".pptx", ".ppt", ".odp"];
+
+    /// <summary>Every input extension the worker understands.</summary>
+    public static IReadOnlyList<string> AllInputs { get; } = [.. Documents, .. PlainText, .. Spreadsheets, .. Presentations];
+
+    /// <summary>True for workbook inputs.</summary>
+    public static bool IsSpreadsheet(string ext) => Spreadsheets.Contains(ext, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>True for presentation inputs.</summary>
+    public static bool IsPresentation(string ext) => Presentations.Contains(ext, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Inputs with a page renderer (<c>bo-cli render</c> / <c>dump</c>); .ppt and .odp are read as text only.</summary>
+    public static bool CanRender(string ext) =>
+        AllInputs.Contains(ext, StringComparer.OrdinalIgnoreCase)
+        && !string.Equals(ext, ".ppt", StringComparison.OrdinalIgnoreCase) && !string.Equals(ext, ".odp", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Formats an input can be converted to (lower case, without dot).</summary>
+    public static IReadOnlyList<string> TargetsFor(string ext)
+    {
+        if (Documents.Contains(ext, StringComparer.OrdinalIgnoreCase))
+        {
+            return ["pdf", "docx", "odt", "txt"];
+        }
+
+        if (IsSpreadsheet(ext))
+        {
+            return ["pdf", "xlsx", "ods", "csv"];
+        }
+
+        if (IsPresentation(ext))
+        {
+            // .ppt / .odp have no PresentationML writer path yet (bo-cli converts them to .odp / text only).
+            return string.Equals(ext, ".pptx", StringComparison.OrdinalIgnoreCase) ? ["pdf", "pptx"] : ["odp", "txt"];
+        }
+
+        return PlainText.Contains(ext, StringComparer.OrdinalIgnoreCase) ? ["pdf"] : [];
+    }
+
+    /// <summary>MIME type of an output format.</summary>
+    public static string ContentType(string format) => format switch
+    {
+        "pdf" => "application/pdf",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "odt" => "application/vnd.oasis.opendocument.text",
+        "ods" => "application/vnd.oasis.opendocument.spreadsheet",
+        "odp" => "application/vnd.oasis.opendocument.presentation",
+        "csv" => "text/csv",
+        "txt" => "text/plain",
+        "png" => "image/png",
+        _ => "application/octet-stream",
+    };
 }

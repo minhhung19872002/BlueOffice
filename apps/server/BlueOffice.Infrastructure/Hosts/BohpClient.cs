@@ -6,8 +6,11 @@ using BlueOffice.Domain;
 
 namespace BlueOffice.Infrastructure.Hosts;
 
-/// <summary>Client of the BlueOffice Host Protocol (docs/bohp.md). BOHP maps 1:1 onto <see cref="IHostStorage"/>.</summary>
-public interface IBohpClient : IHostStorage;
+/// <summary>
+/// Client of the BlueOffice Host Protocol (docs/bohp.md). BOHP maps 1:1 onto <see cref="IHostStorage"/> (§A) and
+/// <see cref="IHostBrowser"/> (§A2, optional browsing endpoints).
+/// </summary>
+public interface IBohpClient : IHostStorage, IHostBrowser;
 
 /// <summary>HTTP implementation of <see cref="IBohpClient"/> (named HttpClient <see cref="HttpClientName"/>).</summary>
 public sealed class BohpClient(IHttpClientFactory httpFactory) : IBohpClient
@@ -135,6 +138,65 @@ public sealed class BohpClient(IHttpClientFactory httpFactory) : IBohpClient
         var dto = await ReadAsync<FileDto>(res, ct);
         return new HostCreatedFile(dto.Id ?? "", dto.Name ?? name, dto.Version ?? "");
     }
+
+    /// <inheritdoc />
+    public async Task<HostUser> GetMeAsync(HostCallContext ctx, CancellationToken ct)
+    {
+        using var res = await SendAsync(ctx, HttpMethod.Get, "/me", null, ct);
+        return ToUser(await ReadAsync<UserDto>(res, ct)) ?? new HostUser("", "", null);
+    }
+
+    /// <inheritdoc />
+    public async Task<HostFolderListing> ListChildrenAsync(HostCallContext ctx, string folderId, CancellationToken ct)
+    {
+        using var res = await SendAsync(ctx, HttpMethod.Get, $"/folders/{Uri.EscapeDataString(folderId)}/children", null, ct);
+        var dto = await ReadAsync<ListingDto>(res, ct);
+        var folder = dto.Folder is { } f ? new HostFolder(f.Id ?? folderId, f.Name ?? "", f.ParentId) : new HostFolder(folderId, "", null);
+        return new HostFolderListing(folder, ToItems(dto.Items));
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<HostItem>> ListSharedAsync(HostCallContext ctx, CancellationToken ct)
+    {
+        using var res = await SendAsync(ctx, HttpMethod.Get, "/shared", null, ct);
+        return ToItems((await ReadAsync<ListingDto>(res, ct)).Items);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<HostItem>> ListRecentAsync(HostCallContext ctx, int limit, CancellationToken ct)
+    {
+        using var res = await SendAsync(ctx, HttpMethod.Get, $"/me/recent?limit={limit}", null, ct);
+        return ToItems((await ReadAsync<ListingDto>(res, ct)).Items);
+    }
+
+    /// <inheritdoc />
+    public async Task<HostResolvedFile?> ResolvePathAsync(HostCallContext ctx, string relativePath, CancellationToken ct)
+    {
+        try
+        {
+            using var res = await SendAsync(ctx, HttpMethod.Get, "/sync/resolve?path=" + Uri.EscapeDataString(relativePath), null, ct);
+            var dto = await ReadAsync<FileDto>(res, ct);
+            return dto.Id is null ? null : new HostResolvedFile(dto.Id, dto.Name ?? "", dto.Version);
+        }
+        catch (HostException e) when (e.StatusCode == 404)
+        {
+            return null;
+        }
+    }
+
+    private static List<HostItem> ToItems(List<ItemDto>? items) =>
+        (items ?? [])
+            .Where(i => !string.IsNullOrEmpty(i.Id))
+            .Select(i => new HostItem(
+                string.Equals(i.Kind, "folder", StringComparison.OrdinalIgnoreCase) ? HostItemKind.Folder : HostItemKind.File,
+                i.Id!,
+                i.Name ?? "",
+                i.Size,
+                i.Version,
+                i.LastModified,
+                i.OwnerId,
+                i.OpenedAt))
+            .ToList();
 
     private async Task<HostLockResult> LockOpAsync(HostCallContext ctx, string fileId, string op, string lockId, TimeSpan duration, CancellationToken ct)
     {
@@ -276,6 +338,41 @@ public sealed class BohpClient(IHttpClientFactory httpFactory) : IBohpClient
         public UserDto? User { get; set; }
 
         public LockDto? Lock { get; set; }
+    }
+
+    private sealed class ItemDto
+    {
+        public string? Kind { get; set; }
+
+        public string? Id { get; set; }
+
+        public string? Name { get; set; }
+
+        public long? Size { get; set; }
+
+        public string? Version { get; set; }
+
+        public DateTime? LastModified { get; set; }
+
+        public string? OwnerId { get; set; }
+
+        public DateTime? OpenedAt { get; set; }
+    }
+
+    private sealed class FolderDto
+    {
+        public string? Id { get; set; }
+
+        public string? Name { get; set; }
+
+        public string? ParentId { get; set; }
+    }
+
+    private sealed class ListingDto
+    {
+        public FolderDto? Folder { get; set; }
+
+        public List<ItemDto>? Items { get; set; }
     }
 
     private sealed class VersionDto

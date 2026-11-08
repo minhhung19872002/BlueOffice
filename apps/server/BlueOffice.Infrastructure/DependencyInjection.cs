@@ -90,6 +90,7 @@ public static class DependencyInjection
         services.AddHttpClient(HostWebhookDispatcher.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(10));
         services.AddSingleton<IBohpClient, BohpClient>();
         services.AddSingleton<IWopiClient, WopiClient>();
+        services.Configure<WebhookOptions>(config.GetSection("Webhooks"));
         services.AddSingleton<HostWebhookDispatcher>();
         services.AddSingleton<IHostNotifier>(sp => sp.GetRequiredService<HostWebhookDispatcher>());
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<HostWebhookDispatcher>());

@@ -45,6 +45,32 @@ public sealed class HostConfig
 
     /// <summary>Lock duration requested from the host.</summary>
     public int LockDurationSeconds { get; set; } = 1800;
+
+    /// <summary>Name shown in the desktop Start screen (defaults to <see cref="Name"/>).</summary>
+    public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// Sign-in of the desktop Start screen (OAuth 2.0 authorization code + PKCE, RFC 7636) at the host's / shared SSO identity
+    /// provider. The resulting access token must be accepted by the host's BOHP endpoints and verifiable with <see cref="JwksUrl"/>.
+    /// Null: the desktop only offers pasting a host token (development / mock).
+    /// </summary>
+    public HostSignInConfig? SignIn { get; set; }
+}
+
+/// <summary>OAuth 2.0 / OIDC public-client settings used by the desktop to sign in to a host (section <c>Hosts:N:SignIn</c>). Not secret.</summary>
+public sealed class HostSignInConfig
+{
+    /// <summary>Authorization endpoint (RFC 6749 §3.1).</summary>
+    public string AuthorizeUrl { get; set; } = "";
+
+    /// <summary>Token endpoint (RFC 6749 §3.2).</summary>
+    public string TokenUrl { get; set; } = "";
+
+    /// <summary>Public client id registered for the desktop apps.</summary>
+    public string ClientId { get; set; } = "";
+
+    /// <summary>Requested scopes (space separated).</summary>
+    public string Scope { get; set; } = "openid profile";
 }
 
 /// <summary>Host + the (user's) access token used for a call.</summary>
@@ -143,6 +169,58 @@ public interface IHostStorage
 
     /// <summary>Creates a new file in a folder (Save As / new document).</summary>
     Task<HostCreatedFile> CreateFileAsync(HostCallContext ctx, string folderId, string name, byte[] content, CancellationToken ct);
+}
+
+/// <summary>Kind of an entry in a host folder listing.</summary>
+public enum HostItemKind
+{
+    /// <summary>A folder.</summary>
+    Folder,
+
+    /// <summary>A file.</summary>
+    File,
+}
+
+/// <summary>A file or folder in a host listing (BOHP §A2).</summary>
+public sealed record HostItem(
+    HostItemKind Kind,
+    string Id,
+    string Name,
+    long? Size,
+    string? Version,
+    DateTime? LastModified,
+    string? OwnerId,
+    DateTime? OpenedAt);
+
+/// <summary>A folder as described by a host.</summary>
+public sealed record HostFolder(string Id, string Name, string? ParentId);
+
+/// <summary>Children of a host folder.</summary>
+public sealed record HostFolderListing(HostFolder Folder, IReadOnlyList<HostItem> Items);
+
+/// <summary>A file found by its path inside the user's sync folder.</summary>
+public sealed record HostResolvedFile(string Id, string Name, string? Version);
+
+/// <summary>
+/// Optional browsing operations (BOHP §A2) used by the desktop Start screen and the sync-folder detection. Called with the
+/// user's host token (not scoped to one file).
+/// </summary>
+public interface IHostBrowser
+{
+    /// <summary>The signed-in user.</summary>
+    Task<HostUser> GetMeAsync(HostCallContext ctx, CancellationToken ct);
+
+    /// <summary>Folders and files of a folder (<c>root</c> = the user's root folder).</summary>
+    Task<HostFolderListing> ListChildrenAsync(HostCallContext ctx, string folderId, CancellationToken ct);
+
+    /// <summary>Files shared with the user.</summary>
+    Task<IReadOnlyList<HostItem>> ListSharedAsync(HostCallContext ctx, CancellationToken ct);
+
+    /// <summary>Files the user opened recently, newest first.</summary>
+    Task<IReadOnlyList<HostItem>> ListRecentAsync(HostCallContext ctx, int limit, CancellationToken ct);
+
+    /// <summary>File at <paramref name="relativePath"/> ('/'-separated) inside the user's sync folder; null if none.</summary>
+    Task<HostResolvedFile?> ResolvePathAsync(HostCallContext ctx, string relativePath, CancellationToken ct);
 }
 
 /// <summary>Generic host failure carrying the HTTP status returned by the host.</summary>

@@ -7,6 +7,7 @@ using System.Threading.Channels;
 using BlueOffice.Domain;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace BlueOffice.Infrastructure.Hosts;
 
@@ -39,17 +40,30 @@ public interface IHostNotifier
 /// <summary>A queued webhook.</summary>
 public sealed record WebhookMessage(HostConfig Host, string Event, string FileId, object Data, DateTime At);
 
+/// <summary>Delivery settings of host webhooks (section <c>Webhooks</c>).</summary>
+public sealed class WebhookOptions
+{
+    /// <summary>Attempts per webhook (first try included); retried on network errors, 5xx and 429.</summary>
+    public int MaxAttempts { get; set; } = 3;
+
+    /// <summary>Delay before retry n is n² × this value (1 s, 4 s, …).</summary>
+    public TimeSpan RetryBaseDelay { get; set; } = TimeSpan.FromSeconds(1);
+}
+
 /// <summary>
 /// Sends webhooks as JSON <c>{"event","host","fileId","at","data"}</c>, signed with
 /// <c>X-BlueOffice-Signature: sha256=hex(HMAC-SHA256(secret, timestamp + "." + body))</c>.
 /// </summary>
-public sealed class HostWebhookDispatcher(IHttpClientFactory httpFactory, TimeProvider time, ILogger<HostWebhookDispatcher> logger)
+public sealed class HostWebhookDispatcher(
+    IHttpClientFactory httpFactory,
+    TimeProvider time,
+    IOptions<WebhookOptions> options,
+    ILogger<HostWebhookDispatcher> logger)
     : BackgroundService, IHostNotifier
 {
     /// <summary>Name of the HttpClient.</summary>
     public const string HttpClientName = "webhooks";
 
-    private const int MaxAttempts = 3;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly Channel<WebhookMessage> _queue = Channel.CreateBounded<WebhookMessage>(
         new BoundedChannelOptions(10_000) { FullMode = BoundedChannelFullMode.DropOldest });
@@ -77,7 +91,8 @@ public sealed class HostWebhookDispatcher(IHttpClientFactory httpFactory, TimePr
     {
         await foreach (var msg in _queue.Reader.ReadAllAsync(stoppingToken))
         {
-            for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+            var max = Math.Max(1, options.Value.MaxAttempts);
+            for (var attempt = 1; attempt <= max; attempt++)
             {
                 try
                 {
@@ -90,10 +105,14 @@ public sealed class HostWebhookDispatcher(IHttpClientFactory httpFactory, TimePr
                 {
                     logger.LogWarning("Webhook {Event} to {Host} failed: {Error}", msg.Event, msg.Host.Name, e.Message);
                 }
-
-                if (attempt < MaxAttempts)
+                catch (TaskCanceledException) when (!stoppingToken.IsCancellationRequested)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(attempt * attempt), stoppingToken);
+                    logger.LogWarning("Webhook {Event} to {Host} timed out", msg.Event, msg.Host.Name);
+                }
+
+                if (attempt < max)
+                {
+                    await Task.Delay(options.Value.RetryBaseDelay * (attempt * attempt), stoppingToken);
                 }
             }
         }

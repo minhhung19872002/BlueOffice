@@ -238,9 +238,6 @@ class DesktopWindow implements WindowManager {
 
 type WindowApp = 'doc' | 'sheet' | 'slide';
 
-const windowApp = (app: string | null): WindowApp =>
-  app === 'sheet' || app === 'slide' ? app : 'doc';
-
 /** Which editor opens a file (by extension). */
 export function appForPath(name: string): WindowApp {
   if (/\.(xlsx|xlsm|xltx|xltm|xlsb|xls|ods|csv)$/i.test(name)) return 'sheet';
@@ -295,6 +292,10 @@ class DesktopShell implements ShellIntegration {
     return !!(await this.call<string | null>('server_url').catch(() => null));
   }
   hasLaunchRequest(): Promise<boolean> {
+    // A window opened for a forwarded file (`?path=`) shows that file, not the Start screen.
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('path')) {
+      return Promise.resolve(true);
+    }
     return this.call<boolean>('has_launch_request').catch(() => false);
   }
   async getSetting(key: string): Promise<string | null> {
@@ -327,38 +328,36 @@ class DesktopShell implements ShellIntegration {
   }
   onOpenRequest(handler: (file: OpenedFile) => void): () => void {
     let disposed = false;
-    const query = new URLSearchParams(window.location.search);
-    const current = windowApp(query.get('app'));
-    let opened = false;
-    const openPath = async (path: string, startup: boolean) => {
+    const query = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
+    // The editor shown in this window (the shell picks it from the file's type).
+    let shown: WindowApp | null = null;
+    const openPath = async (path: string) => {
       const name = path.split(/[\\/]/).pop() ?? path;
       const target = appForPath(name);
-      if (target !== current) {
-        // A workbook / deck goes to BlueSheet / BlueSlide: this window becomes
-        // that app while it is still empty, otherwise a new window opens.
+      if (shown && shown !== target) {
+        // This window already edits another kind of document: keep it and
+        // open the file in a new window of the right app.
         const q = `app=${target}&path=${encodeURIComponent(path)}`;
-        if (!startup) await this.call<string>('open_window', { query: q });
-        // A window opened explicitly for another app ignores the command-line file.
-        else if (!opened && !query.get('app')) window.location.search = `?${q}`;
+        await this.call<string>('open_window', { query: q });
         return;
       }
       const bytes = toBytes(await this.call<ArrayBuffer>('read_file', { path }));
       if (disposed) return;
-      opened = true;
+      shown = target;
       handler({ name, path, bytes });
     };
     const routed = query.get('path');
     if (routed) {
-      // Opened for a file routed here from another app's window.
-      void openPath(routed, false);
+      // A window opened for a file forwarded to another window.
+      void openPath(routed);
     } else {
       // File passed on the command line (file association) …
       void this.call<string | null>('startup_file').then((p) => {
-        if (p) void openPath(p, true);
+        if (p) void openPath(p);
       });
     }
     // … or forwarded later by a second instance / deep link.
-    const un = listen<string>('open-file', (e) => void openPath(e.payload, false));
+    const un = listen<string>('open-file', (e) => void openPath(e.payload));
     return () => {
       disposed = true;
       void un.then((f) => f());

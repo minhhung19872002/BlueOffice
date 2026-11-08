@@ -139,7 +139,8 @@ impl Op {
     }
 
     /// Record which top-level blocks this op changes (incremental layout). Without
-    /// the document a style sheet change marks everything; [`record_ops`] narrows it.
+    /// the document a style sheet or numbering change marks everything;
+    /// [`record_ops`] narrows it.
     pub fn record(&self, changes: &mut BlockChanges) {
         match self {
             Op::Blocks {
@@ -342,14 +343,151 @@ impl Transaction {
 /// style (see [`record_styles`]); those are recorded last, in final indexes.
 pub fn record_ops(ops: &[Op], doc: &Document, changes: &mut BlockChanges) {
     let mut sheets = Vec::new();
+    let mut lists = Vec::new();
     for op in ops {
         match op {
             Op::Styles { old, new } => sheets.push((&**old, &**new)),
+            Op::Numbering { old, new } => lists.push((&**old, &**new)),
             _ => op.record(changes),
         }
     }
     for (old, new) in sheets {
         record_styles(old, new, doc, changes);
+    }
+    for (old, new) in lists {
+        record_numbering(old, new, doc, changes);
+    }
+}
+
+/// Numbering instance ids whose labels may change between two numbering
+/// definitions: list counters continue per abstract definition (ECMA-376 Part 1,
+/// §17.9.1 abstractNum, §17.9.15 num), so every instance of an abstract that
+/// changed, or that a changed instance used or now uses.
+fn changed_lists(old: &Numbering, new: &Numbering) -> BTreeSet<i32> {
+    let mut abstracts = BTreeSet::new();
+    for a in &old.abstracts {
+        if new.abstracts.iter().find(|b| b.id == a.id) != Some(a) {
+            abstracts.insert(a.id);
+        }
+    }
+    for a in &new.abstracts {
+        if !old.abstracts.iter().any(|b| b.id == a.id) {
+            abstracts.insert(a.id);
+        }
+    }
+    let mut nums = BTreeSet::new();
+    for (x, y) in [(old, new), (new, old)] {
+        for n in &x.nums {
+            if y.nums.iter().find(|m| m.id == n.id) != Some(n) {
+                nums.insert(n.id);
+                abstracts.insert(n.abstract_id);
+            }
+        }
+    }
+    for sheet in [old, new] {
+        for n in &sheet.nums {
+            if abstracts.contains(&n.abstract_id) {
+                nums.insert(n.id);
+            }
+        }
+    }
+    nums
+}
+
+/// Does any of `blocks` show a list label of one of the `lists`: a paragraph
+/// numbered directly (§17.3.1.19 numPr) or through its paragraph style
+/// (`styled`: the style ids whose resolved numbering is one of them, `default`:
+/// the default paragraph style is one of those). Text boxes count as using
+/// every list (their content is not scanned).
+fn blocks_number(
+    blocks: &[Block],
+    lists: &BTreeSet<i32>,
+    styled: &BTreeSet<String>,
+    default: bool,
+) -> bool {
+    blocks.iter().any(|b| match b {
+        Block::Paragraph(p) => {
+            let listed = match (p.props.num, &p.props.style) {
+                (Some(n), _) => lists.contains(&n.num_id),
+                (None, Some(id)) => styled.contains(id),
+                (None, None) => default,
+            };
+            listed
+                || p.runs.iter().any(|r| {
+                    r.content
+                        .iter()
+                        .any(|c| matches!(c, bo_model::RunContent::Image(i) if i.shape.is_some()))
+                })
+        }
+        Block::Table(t) => t
+            .rows
+            .iter()
+            .flat_map(|r| &r.cells)
+            .any(|c| blocks_number(&c.blocks, lists, styled, default)),
+        Block::Opaque(_) => false,
+    })
+}
+
+/// Record a numbering replacement: the top-level body blocks showing a label of
+/// a changed list (and, through the flow's list counters, the later ones of the
+/// same lists). Everything is marked when headers, footers, notes or comments
+/// show such labels.
+pub fn record_numbering(
+    old: &Numbering,
+    new: &Numbering,
+    doc: &Document,
+    changes: &mut BlockChanges,
+) {
+    if changes.is_all() {
+        return;
+    }
+    changes.mark_parts();
+    let lists = changed_lists(old, new);
+    if lists.is_empty() {
+        return;
+    }
+    // Paragraph styles whose resolved numbering (§17.7.4.17 with pPr/numPr) is a changed list.
+    let styled: BTreeSet<String> = doc
+        .styles
+        .styles
+        .iter()
+        .filter(|s| s.kind == bo_model::StyleKind::Paragraph)
+        .filter(|s| {
+            doc.styles
+                .resolve_paragraph(&s.id)
+                .0
+                .num
+                .is_some_and(|n| lists.contains(&n.num_id))
+        })
+        .map(|s| s.id.clone())
+        .collect();
+    let default = doc
+        .styles
+        .default_of(bo_model::StyleKind::Paragraph)
+        .is_some_and(|s| styled.contains(&s.id));
+    let uses = |b: &[Block]| blocks_number(b, &lists, &styled, default);
+    let elsewhere = doc.sections.iter().any(|s| {
+        [&s.headers, &s.footers]
+            .into_iter()
+            .flat_map(|hf| [&hf.default, &hf.first, &hf.even])
+            .flatten()
+            .any(|b| uses(b))
+    }) || doc
+        .footnotes
+        .values()
+        .chain(doc.endnotes.values())
+        .any(|b| uses(b))
+        || doc.comments.iter().any(|c| uses(&c.blocks));
+    if elsewhere {
+        changes.mark_all();
+        return;
+    }
+    for (si, s) in doc.sections.iter().enumerate() {
+        for (bi, b) in s.blocks.iter().enumerate() {
+            if uses(std::slice::from_ref(b)) {
+                changes.splice(si, bi, 1, 1);
+            }
+        }
     }
 }
 
@@ -421,6 +559,7 @@ pub fn record_styles(
     if changes.is_all() {
         return;
     }
+    changes.mark_parts();
     let styles = changed_styles(old, new);
     if styles.is_empty() {
         return;

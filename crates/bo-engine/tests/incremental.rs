@@ -70,6 +70,8 @@ fn op() -> impl Strategy<Value = Command> {
         1 => Just(Command::Redo),
         1 => prop_oneof![Just("Heading1"), Just("Heading2"), Just("Title"), Just("Quote")]
             .prop_map(|id| Command::ApplyStyle { id: id.into() }),
+        1 => prop_oneof![Just(bo_edit::ParaFormat::Bullets), Just(bo_edit::ParaFormat::Numbering)]
+            .prop_map(|format| Command::FormatParagraph { format }),
     ]
 }
 
@@ -184,6 +186,49 @@ fn a_new_style_lays_out_only_from_the_paragraph_using_it() {
         UpdateKind::Incremental { .. }
     ));
     same(&e);
+}
+
+// source: ECMA-376 Part 1, §17.9.1 abstractNum, §17.9.15 num, §17.3.1.19 numPr
+#[test]
+fn a_new_list_lays_out_only_from_its_first_paragraph() {
+    let mut e = engine(400);
+    big_doc::caret_at(&mut e, 300, 0);
+    let r = e
+        .command(Command::FormatParagraph {
+            format: bo_edit::ParaFormat::Numbering,
+        })
+        .unwrap();
+    assert!(
+        matches!(e.last_layout_update(), UpdateKind::Incremental { .. }),
+        "{:?}",
+        e.last_layout_update()
+    );
+    assert!(
+        r.dirty.iter().min().copied().unwrap_or(0) > 0,
+        "{:?}",
+        r.dirty
+    );
+    let mut fresh = Engine::with_bundled_fonts();
+    fresh
+        .load(e.document().unwrap().clone(), "full.docx")
+        .unwrap();
+    assert_eq!(
+        serde_json::to_string(e.layout().unwrap()).unwrap(),
+        serde_json::to_string(fresh.layout().unwrap()).unwrap()
+    );
+    e.command(Command::Undo).unwrap();
+    assert!(matches!(
+        e.last_layout_update(),
+        UpdateKind::Incremental { .. }
+    ));
+    // Numbering on then off: the paragraphs are as before, but the numbering part
+    // keeps the new list, so the document is still modified.
+    let on = Command::FormatParagraph {
+        format: bo_edit::ParaFormat::Numbering,
+    };
+    e.command(on.clone()).unwrap();
+    let r = e.command(on).unwrap();
+    assert!(r.modified);
 }
 
 #[test]

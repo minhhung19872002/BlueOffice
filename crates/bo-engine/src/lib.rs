@@ -489,10 +489,13 @@ impl Engine {
         let doc = s.doc();
         let mut ch = self.unsaved.clone();
         ch.extend(s.pending_changes());
-        if ch.is_empty() {
+        if ch.is_empty() && !ch.parts_changed() {
             return false;
         }
-        if ch.is_all() || ch.headers().is_some() || saved.sections.len() != doc.sections.len() {
+        if ch.parts_changed()
+            || ch.headers().is_some()
+            || saved.sections.len() != doc.sections.len()
+        {
             return saved != doc;
         }
         ch.sections().iter().any(|c| {

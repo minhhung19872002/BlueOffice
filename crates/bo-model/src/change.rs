@@ -5,8 +5,9 @@
 //! the `modified` flag) from the same ranges. Header/footer edits are recorded as
 //! the first section whose headers or footers changed (the layout decorates the
 //! pages again without re-paginating while their heights stay the same). Other
-//! changes (numbering, section properties…) mark everything; a style sheet change
-//! marks the blocks using a changed style (`bo_edit::ops::record_styles`).
+//! changes (section properties…) mark everything; a style sheet or numbering
+//! change marks the blocks using it (`bo_edit::ops::record_styles` /
+//! `record_numbering`) and [`BlockChanges::mark_parts`].
 
 /// The changed range of one section, in the current block indexes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +47,9 @@ pub struct BlockChanges {
     sections: Vec<SectionChange>,
     /// First section whose headers/footers (or the header selection) changed.
     headers: Option<usize>,
+    /// A document part other than the blocks changed (styles, numbering) without
+    /// necessarily changing the layout of any block.
+    parts: bool,
 }
 
 impl BlockChanges {
@@ -55,6 +59,7 @@ impl BlockChanges {
             all: true,
             sections: Vec::new(),
             headers: None,
+            parts: false,
         }
     }
 
@@ -82,6 +87,18 @@ impl BlockChanges {
     /// them, ECMA-376 Part 1, §17.10.5); `None` when [`BlockChanges::is_all`].
     pub fn headers(&self) -> Option<usize> {
         self.headers
+    }
+
+    /// Record that a document part other than the blocks changed (style sheet,
+    /// numbering); the blocks it affects are recorded separately.
+    pub fn mark_parts(&mut self) {
+        self.parts = true;
+    }
+
+    /// A part other than the blocks changed ([`BlockChanges::mark_parts`]), or
+    /// everything did.
+    pub fn parts_changed(&self) -> bool {
+        self.parts || self.all
     }
 
     /// Mark everything changed.
@@ -131,6 +148,7 @@ impl BlockChanges {
 
     /// Append the changes `later`, made after these.
     pub fn extend(&mut self, later: &BlockChanges) {
+        self.parts |= later.parts;
         if later.all {
             self.mark_all();
             return;

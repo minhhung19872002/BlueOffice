@@ -26,7 +26,32 @@ export interface SignatureBackend {
     bytes: Uint8Array,
     anchorsPem: string,
     nowSecs: number,
+    revocation?: string[],
   ): Promise<SignatureReport>;
+  /** CRL downloads / OCSP requests for the document's certificate paths. */
+  revocationRequests?(
+    bytes: Uint8Array,
+    anchorsPem: string,
+    nowSecs: number,
+  ): Promise<RevocationRequest[]>;
+}
+
+/** `bo_sign::report::RevocationRequest`: what to fetch through the proxy. */
+export interface RevocationRequest {
+  kind: 'crl' | 'ocsp';
+  url: string;
+  /** OCSP: the DER request, base64. */
+  body?: string;
+}
+
+/**
+ * The server's revocation proxy (`POST /api/revocation/fetch`): browsers
+ * cannot reach CRL distribution points / OCSP responders (CORS).
+ */
+export interface RevocationProxyOptions {
+  url: string;
+  /** Headers (e.g. `Authorization`) and editor session id for the request. */
+  auth?: () => Promise<{ headers?: Record<string, string>; session?: string }>;
 }
 
 export interface WebSigningOptions {
@@ -39,6 +64,8 @@ export interface WebSigningOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Maximum wait for a `pending` confirmation (ms). */
   maxWaitMs?: number;
+  /** Check certificate revocation through this proxy when verifying. */
+  revocationProxy?: RevocationProxyOptions;
 }
 
 export function toBase64(bytes: Uint8Array): string {
@@ -184,6 +211,32 @@ export class WebSigning implements SigningService {
 
   async verify(bytes: Uint8Array): Promise<SignatureReport> {
     const anchors = await this.trustAnchors();
-    return this.backend.verifySignatures(bytes, anchors, Math.floor(this.now() / 1000));
+    const now = Math.floor(this.now() / 1000);
+    const revocation = await this.revocationData(bytes, anchors, now);
+    return this.backend.verifySignatures(bytes, anchors, now, revocation);
+  }
+
+  /** CRLs / OCSP responses fetched through the proxy (failures are skipped). */
+  private async revocationData(bytes: Uint8Array, anchors: string, now: number): Promise<string[]> {
+    const proxy = this.opts.revocationProxy;
+    if (!proxy || !this.backend.revocationRequests) return [];
+    const requests = await this.backend.revocationRequests(bytes, anchors, now);
+    if (requests.length === 0) return [];
+    const auth = (await proxy.auth?.()) ?? {};
+    const answers = await Promise.all(
+      requests.map(async (r) => {
+        try {
+          const res = await this.fetch(proxy.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...auth.headers },
+            body: JSON.stringify({ ...r, session: auth.session }),
+          });
+          return res.ok ? toBase64(new Uint8Array(await res.arrayBuffer())) : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return answers.filter((a): a is string => a !== null);
   }
 }

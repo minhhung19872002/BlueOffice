@@ -43,6 +43,15 @@ export type EngineRequest =
       bytes: Uint8Array;
       anchorsPem: string;
       nowSecs: number;
+      /** Base64 CRLs / OCSP responses fetched for `revocationRequests`. */
+      revocation: string[];
+    }
+  | {
+      id: number;
+      method: 'revocationRequests';
+      bytes: Uint8Array;
+      anchorsPem: string;
+      nowSecs: number;
     };
 
 export type EngineResponse =

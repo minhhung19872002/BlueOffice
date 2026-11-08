@@ -135,6 +135,50 @@ describe('WebSigning (remote signing in the browser)', () => {
     expect(b.calls).toEqual(['verify:true:5', 'verify:true:5']);
   });
 
+  it('fetches CRLs / OCSP responses through the revocation proxy before verifying', async () => {
+    const b = backend();
+    b.revocationRequests = vi.fn(async () => [
+      { kind: 'crl' as const, url: 'http://crl.example.vn/ca.crl' },
+      { kind: 'ocsp' as const, url: 'http://ocsp.example.vn/', body: 'MAA=' },
+    ]);
+    let got: string[] | undefined;
+    b.verifySignatures = vi.fn(async (_b, _a, _n, revocation?: string[]) => {
+      got = revocation;
+      return { kind: 'pdf', signatures: [], error: null } satisfies SignatureReport;
+    });
+    const sent: { url: string; headers: Record<string, string>; body: unknown }[] = [];
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { kind: string };
+      sent.push({ url, headers: init?.headers as Record<string, string>, body });
+      // The CRL comes back, the OCSP responder fails (skipped).
+      return body.kind === 'crl' ? new Response(new Uint8Array([0x30, 0x01, 0x05])) : json(502, {});
+    });
+    const s = new WebSigning(b, {
+      fetch: fetch as unknown as typeof globalThis.fetch,
+      now: () => 9_000,
+      revocationProxy: {
+        url: '/api/revocation/fetch',
+        auth: async () => ({ headers: { Authorization: 'Bearer t' }, session: 's1' }),
+      },
+    });
+    await s.verify(new Uint8Array([1]));
+    expect(sent.map((x) => x.url)).toEqual(['/api/revocation/fetch', '/api/revocation/fetch']);
+    expect(sent[0]?.headers.Authorization).toBe('Bearer t');
+    expect(sent[1]?.body).toEqual({
+      kind: 'ocsp',
+      url: 'http://ocsp.example.vn/',
+      body: 'MAA=',
+      session: 's1',
+    });
+    expect(got).toEqual([toBase64(new Uint8Array([0x30, 0x01, 0x05]))]);
+    // Without a proxy nothing is fetched.
+    const quiet = vi.fn();
+    await new WebSigning(b, { fetch: quiet as unknown as typeof globalThis.fetch }).verify(
+      new Uint8Array([1]),
+    );
+    expect(quiet).not.toHaveBeenCalled();
+  });
+
   it('encodes base64 and PEM', () => {
     const bytes = new Uint8Array([0, 1, 2, 250, 255]);
     expect(fromBase64(toBase64(bytes))).toEqual(bytes);

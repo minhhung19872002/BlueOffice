@@ -72,7 +72,8 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
 7. **Fidelity**: visual diff đã chạy (`docs/fidelity-visual.md`, baseline tự sinh 134 trang); so với phần mềm gốc cần người dùng đặt ảnh vào `tests/fidelity/reference/`.
 8. **Ký số**: đã có PAdES B-T / XAdES-T, kiểm tra chuỗi tới CA gốc cấu hình, thu hồi qua CRL và OCSP (nạp sẵn
    hoặc tải/hỏi trực tuyến theo chứng thư), PAdES B-LT / B-LTA (`bo-cli ltv [--tsa]`: DSS + dấu thời gian
-   tài liệu; không ghi VRI vì tuỳ chọn); chưa áp quy tắc POE đầy đủ của ETSI EN 319 102-1 (ADR-0007).
+   tài liệu; không ghi VRI vì tuỳ chọn); web kiểm tra thu hồi qua proxy của server (CORS); chưa áp quy tắc POE đầy đủ
+   của ETSI EN 319 102-1 (ADR-0007).
 9. **Server**: một instance `api` (phòng cộng tác trong bộ nhớ). Schema bằng EF Core migrations (PostgreSQL + SQLite;
    database cũ tạo bằng `EnsureCreated` được nhận tự động, `docs/deploy/upgrade.md`). Npgsql dùng PostgreSQL License — chấp nhận theo [ADR-0009](adr/0009-npgsql-postgresql-license.md).
 10. **Mã hoá**: Agile Encryption đã kiểm chéo hai chiều với một cài đặt độc lập (msoffcrypto-tool, `crates/bo-crypto/tests/interop.rs`).
@@ -92,7 +93,8 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
   BlueSheet: chèn/xoá hàng cột giờ dịch cả biểu đồ (ô neo + tham chiếu series; trước đó biểu đồ trỏ sai dữ liệu), ghi
   lại vào file chỉ sửa `<c:f>` và `<xdr:row>/<xdr:col>` (lossless, OpenXmlValidator hợp lệ). Tương tự pivot: vị trí
   báo cáo và nguồn cache dịch theo (trước đó refresh ghi báo cáo đè lên vị trí cũ); freeze pane: chèn/xoá hàng cột
-  trong vùng đóng băng đổi số hàng/cột đóng băng.
+  trong vùng đóng băng đổi số hàng/cột đóng băng. Ký số trên web: CRL/OCSP qua `POST /api/revocation/fetch` (chống
+  SSRF) — trình duyệt không gọi thẳng CA được.
 - 2026-11-08 (khuya): pivot đầy đủ (tổng phụ, 3 bố cục, nhóm ngày/số, trường tính toán, 14 kiểu "hiển thị giá trị",
   lọc/top-N, kiểu); E2E cộng tác với server thật + desktop cộng tác qua deep link (sửa lỗi caret người vào sau nhảy cuối
   tài liệu); chú thích sửa trên trang, header/footer liên kết section trước, track changes bảng/ảnh/page setup; ô bảng

@@ -380,3 +380,27 @@ fn v1_crl_from_openssl() {
     );
     assert!(r.trusted, "{r:?}");
 }
+
+// The browser path (CORS): the WASM verifier lists what to fetch, the page gets
+// it through the server's proxy, and the answers are loaded before verifying.
+// A PDF signed by openssl-made "Hai" (CRL distribution point on 127.0.0.1:8900),
+// revoked in the issuing CA's CRL.
+#[test]
+fn revocation_requests_then_answers() {
+    let pdf = fixture("signed-hai.pdf");
+    let mut s = TrustStore::new();
+    s.add_der(&pem_cert("root.pem")).unwrap();
+    let reqs = bo_sign::report::revocation_requests(&pdf, &s, fixture_time()).unwrap();
+    assert_eq!(
+        reqs.iter()
+            .map(|r| (r.kind, r.url.as_str()))
+            .collect::<Vec<_>>(),
+        [("crl", "http://127.0.0.1:8900/inter.crl")]
+    );
+    let before = bo_sign::report::verify_document(&pdf, &s, fixture_time()).unwrap();
+    assert!(before.signatures[0].chain.trusted);
+    // The proxied answer (PEM here, as that server sends it).
+    s.add_bytes(&fixture("inter-revokes-hai.crl")).unwrap();
+    let after = bo_sign::report::verify_document(&pdf, &s, fixture_time()).unwrap();
+    assert_eq!(after.signatures[0].chain.problems[0].code, "revoked");
+}

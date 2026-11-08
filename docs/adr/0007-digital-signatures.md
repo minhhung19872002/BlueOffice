@@ -75,7 +75,8 @@
   modifications relate to signature maintenance … VALID" và dấu thời gian tài liệu `ENTIRE_FILE`, trusted. Không ghi VRI
   (ETSI EN 319 142-1 §5.4.2.2: tuỳ chọn, bộ xác minh không dựa vào nó; các cài đặt còn khác nhau về giá trị được băm —
   pyHanko băm chuỗi hex của CMS). **Chưa** áp quy tắc POE đầy đủ của ETSI EN 319 102-1 (dùng dấu thời gian tài liệu để xác minh lùi thời
-  điểm); trình duyệt chưa hỏi OCSP / tải CRL trực tuyến (CORS); `pyhanko --ltv-profile pades` với PKI thử vẫn đòi tải
+  điểm); trình duyệt hỏi OCSP / tải CRL qua proxy của server (`POST /api/revocation/fetch`, chống SSRF, xem
+  `docs/deploy/remote-signing.md`); `pyhanko --ltv-profile pades` với PKI thử vẫn đòi tải
   CRL của TSA trực tuyến (cả với file do chính pyHanko `ltvfix` tạo).
 - `verify_ooxml` dựa trên dạng canonical do BlueOffice sinh; chữ ký XAdES của phần mềm khác vẫn báo `Unsupported`.
 - Chỉ khoá RSA (PKCS#1 v1.5); chứng thư/TSA dùng ECDSA báo `Unsupported`.

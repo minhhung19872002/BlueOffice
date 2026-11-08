@@ -4,6 +4,7 @@
  * (prompt §5.7).
  */
 import init, {
+  revocationRequests,
   signPrepare,
   verifySignatures,
   WasmEngine,
@@ -107,7 +108,13 @@ async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?:
       }
     }
     case 'verifySignatures':
-      return { result: JSON.parse(verifySignatures(req.bytes, req.anchorsPem, req.nowSecs)) };
+      return {
+        result: JSON.parse(
+          verifySignatures(req.bytes, req.anchorsPem, req.nowSecs, JSON.stringify(req.revocation)),
+        ),
+      };
+    case 'revocationRequests':
+      return { result: JSON.parse(revocationRequests(req.bytes, req.anchorsPem, req.nowSecs)) };
   }
 }
 

@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 bo-engine.workspace = true
 bo-collab = { path = "../bo-collab" }
 bo-sign = { path = "../bo-sign" }
+base64 = "0.22"
 bo-opc.workspace = true
 wasm-bindgen.workspace = true
 serde.workspace = true

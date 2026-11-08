@@ -262,62 +262,61 @@ pub fn verify_document(
     Ok(report)
 }
 
-/// Long-term validation data for every signature of a PDF (and its signature
-/// time-stamp): the certificates of each path to the trust anchors and, for
-/// each certificate, the revocation data `store` has or fetches for it (CRLs,
-/// OCSP responses). Validation times as in [`verify_document`].
-pub fn collect_validation_data(
-    pdf: &[u8],
+/// A signature's signer certificate, embedded certificates and time-stamp.
+type SignerParts = (Vec<u8>, Vec<Vec<u8>>, Option<TimestampInfo>);
+
+/// The certificate paths of every signature of a PDF or OOXML file (and of
+/// their time-stamps and the PDF's document time-stamps), each validated at
+/// the time [`verify_document`] uses; a PDF's DSS certificates help build them.
+pub fn certificate_paths(
+    bytes: &[u8],
     store: &TrustStore,
     now: SystemTime,
-) -> Result<crate::pdf::Dss> {
-    let have = crate::pdf::read_dss(pdf)?;
-    let mut out = crate::pdf::Dss::default();
-    let push = |v: &mut Vec<Vec<u8>>, d: Vec<u8>| {
-        if !v.contains(&d) {
-            v.push(d);
-        }
-    };
+) -> Result<Vec<ChainReport>> {
+    let kind = DocumentKind::sniff(bytes)
+        .ok_or_else(|| SignError::Unsupported("not a PDF or OOXML file".into()))?;
+    let mut sigs: Vec<SignerParts> = Vec::new();
     let mut paths = Vec::new();
-    for t in crate::pdf::verify_pdf_timestamps(pdf)? {
-        let pool: Vec<Vec<u8>> = t
-            .info
-            .certificates
-            .iter()
-            .chain(&have.certs)
-            .cloned()
-            .collect();
-        paths.push(validate_chain(
-            &t.info.tsa_certificate_der,
-            &pool,
-            store,
-            now,
-            Purpose::TimeStamping,
-        ));
+    let mut extra: Vec<Vec<u8>> = Vec::new();
+    match kind {
+        DocumentKind::Pdf => {
+            extra = crate::pdf::read_dss(bytes)?.certs;
+            for t in crate::pdf::verify_pdf_timestamps(bytes)? {
+                let pool: Vec<Vec<u8>> =
+                    t.info.certificates.iter().chain(&extra).cloned().collect();
+                paths.push(validate_chain(
+                    &t.info.tsa_certificate_der,
+                    &pool,
+                    store,
+                    now,
+                    Purpose::TimeStamping,
+                ));
+            }
+            for s in crate::pdf::verify_pdf(bytes)? {
+                sigs.push((
+                    s.signer.certificate_der,
+                    s.signer.certificates,
+                    s.signer.timestamp,
+                ));
+            }
+        }
+        DocumentKind::Ooxml => {
+            for s in crate::ooxml::verify_ooxml(bytes)? {
+                sigs.push((s.certificate_der, s.certificates, s.timestamp));
+            }
+        }
     }
-    for s in crate::pdf::verify_pdf(pdf)? {
-        let pool: Vec<Vec<u8>> = s
-            .signer
-            .certificates
-            .iter()
-            .chain(&have.certs)
-            .cloned()
-            .collect();
-        let (ts, _, at) = summarize(
-            &s.signer.certificate_der,
-            &pool,
-            s.signer.timestamp.as_ref(),
-            store,
-            now,
-        );
+    for (signer, certs, ts) in sigs {
+        let pool: Vec<Vec<u8>> = certs.iter().chain(&extra).cloned().collect();
+        let (tss, _, at) = summarize(&signer, &pool, ts.as_ref(), store, now);
         paths.push(validate_chain(
-            &s.signer.certificate_der,
+            &signer,
             &pool,
             store,
             at,
             Purpose::DocumentSigning,
         ));
-        if let (Some(t), Some(_)) = (&s.signer.timestamp, ts) {
+        if let (Some(t), Some(_)) = (&ts, tss) {
             let at = UNIX_EPOCH + Duration::from_secs(t.gen_time_unix);
             paths.push(validate_chain(
                 &t.tsa_certificate_der,
@@ -328,7 +327,25 @@ pub fn collect_validation_data(
             ));
         }
     }
-    for p in paths {
+    Ok(paths)
+}
+
+/// Long-term validation data for every signature of a PDF (and its signature
+/// time-stamp): the certificates of each path to the trust anchors and, for
+/// each certificate, the revocation data `store` has or fetches for it (CRLs,
+/// OCSP responses). Validation times as in [`verify_document`].
+pub fn collect_validation_data(
+    pdf: &[u8],
+    store: &TrustStore,
+    now: SystemTime,
+) -> Result<crate::pdf::Dss> {
+    let mut out = crate::pdf::Dss::default();
+    let push = |v: &mut Vec<Vec<u8>>, d: Vec<u8>| {
+        if !v.contains(&d) {
+            v.push(d);
+        }
+    };
+    for p in certificate_paths(pdf, store, now)? {
         for pair in p.certificates.windows(2) {
             let (crls, ocsps) = store.revocation_data(&pair[0], &pair[1]);
             for d in crls {
@@ -340,6 +357,66 @@ pub fn collect_validation_data(
         }
         for c in p.certificates {
             push(&mut out.certs, c);
+        }
+    }
+    Ok(out)
+}
+
+/// One request a client without direct network access (a browser: CORS)
+/// makes through a proxy to get revocation data: a CRL download (RFC 5280
+/// §4.2.1.13, HTTP GET) or an OCSP request (RFC 6960 Appendix A.1, HTTP POST
+/// `application/ocsp-request` with `body`).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RevocationRequest {
+    /// `crl` or `ocsp`.
+    pub kind: &'static str,
+    /// The distribution point / responder URL from the certificate.
+    pub url: String,
+    /// OCSP: the DER OCSPRequest, base64.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+}
+
+/// The CRL downloads and OCSP requests that would answer the revocation
+/// questions of every certificate path of `bytes` (see [`certificate_paths`]);
+/// the answers are then loaded into the store (`TrustStore::add_bytes`).
+pub fn revocation_requests(
+    bytes: &[u8],
+    store: &TrustStore,
+    now: SystemTime,
+) -> Result<Vec<RevocationRequest>> {
+    use base64::Engine as _;
+    use der::Decode;
+    let mut out: Vec<RevocationRequest> = Vec::new();
+    for p in certificate_paths(bytes, store, now)? {
+        for pair in p.certificates.windows(2) {
+            let (Ok(cert), Ok(issuer)) = (
+                x509_cert::Certificate::from_der(&pair[0]),
+                x509_cert::Certificate::from_der(&pair[1]),
+            ) else {
+                continue;
+            };
+            let mut push = |r: RevocationRequest| {
+                if !out.contains(&r) {
+                    out.push(r);
+                }
+            };
+            for url in crate::ocsp::responder_urls(&cert) {
+                if let Ok(req) = crate::ocsp::request_der(&cert, &issuer) {
+                    push(RevocationRequest {
+                        kind: "ocsp",
+                        url,
+                        body: Some(base64::engine::general_purpose::STANDARD.encode(req)),
+                    });
+                }
+            }
+            for url in crate::crl::distribution_urls(&cert) {
+                push(RevocationRequest {
+                    kind: "crl",
+                    url,
+                    body: None,
+                });
+            }
         }
     }
     Ok(out)

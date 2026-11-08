@@ -127,21 +127,56 @@ pub fn sign_prepare(
     })
 }
 
-/// Verifies every signature; `anchors_pem` is a PEM bundle of trust
-/// anchors and certificate revocation lists (`X509 CRL`, RFC 5280 §5; may be
-/// empty). Returns the `DocumentReport` JSON.
-#[wasm_bindgen(js_name = verifySignatures)]
-pub fn verify_signatures(
-    bytes: &[u8],
-    anchors_pem: &str,
-    now_secs: f64,
-) -> Result<String, JsError> {
+fn store_of(anchors_pem: &str) -> Result<TrustStore, JsError> {
     let mut store = TrustStore::new();
     if anchors_pem.contains("-----BEGIN CERTIFICATE-----")
         || anchors_pem.contains("-----BEGIN X509 CRL-----")
     {
         store.add_bytes(anchors_pem.as_bytes()).map_err(err)?;
     }
+    Ok(store)
+}
+
+/// Verifies every signature; `anchors_pem` is a PEM bundle of trust
+/// anchors and certificate revocation lists (`X509 CRL`, RFC 5280 §5; may be
+/// empty). `revocation_json` is a JSON array of base64 CRLs / OCSP responses
+/// (DER or PEM, e.g. fetched for [`revocation_requests`]; `""` or `[]` for
+/// none; unreadable items are skipped). Returns the `DocumentReport` JSON.
+#[wasm_bindgen(js_name = verifySignatures)]
+pub fn verify_signatures(
+    bytes: &[u8],
+    anchors_pem: &str,
+    now_secs: f64,
+    revocation_json: &str,
+) -> Result<String, JsError> {
+    use base64::Engine as _;
+    let mut store = store_of(anchors_pem)?;
+    let items: Vec<String> = if revocation_json.trim().is_empty() {
+        Vec::new()
+    } else {
+        serde_json::from_str(revocation_json).map_err(err)?
+    };
+    for b64 in items {
+        if let Ok(d) = base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
+            let _ = store.add_bytes(&d);
+        }
+    }
     let report = bo_sign::report::verify_document(bytes, &store, unix(now_secs)).map_err(err)?;
     serde_json::to_string(&report).map_err(err)
+}
+
+/// The CRL downloads and OCSP requests (JSON `[{kind, url, body?}]`, see
+/// `bo_sign::report::RevocationRequest`) whose answers make the revocation of
+/// every certificate path checkable: the page sends them through a proxy (the
+/// browser cannot reach CAs directly, CORS) and passes the answers to
+/// [`verify_signatures`].
+#[wasm_bindgen(js_name = revocationRequests)]
+pub fn revocation_requests(
+    bytes: &[u8],
+    anchors_pem: &str,
+    now_secs: f64,
+) -> Result<String, JsError> {
+    let store = store_of(anchors_pem)?;
+    let list = bo_sign::report::revocation_requests(bytes, &store, unix(now_secs)).map_err(err)?;
+    serde_json::to_string(&list).map_err(err)
 }

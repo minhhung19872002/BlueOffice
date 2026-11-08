@@ -14,7 +14,7 @@ import type {
   TimedCommand,
 } from '../types';
 import type { EngineRequest, EngineResponse } from './protocol';
-import type { SignatureBackend } from './signing';
+import type { RevocationRequest, SignatureBackend } from './signing';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 // Distributive Omit so each union member keeps its own fields.
@@ -126,8 +126,16 @@ export class WebEngineHost implements EngineHost, SignatureBackend {
     bytes: Uint8Array,
     anchorsPem: string,
     nowSecs: number,
+    revocation: string[] = [],
   ): Promise<SignatureReport> {
-    return this.call({ method: 'verifySignatures', bytes, anchorsPem, nowSecs });
+    return this.call({ method: 'verifySignatures', bytes, anchorsPem, nowSecs, revocation });
+  }
+  revocationRequests(
+    bytes: Uint8Array,
+    anchorsPem: string,
+    nowSecs: number,
+  ): Promise<RevocationRequest[]> {
+    return this.call({ method: 'revocationRequests', bytes, anchorsPem, nowSecs });
   }
 
   saveDocx(): Promise<Uint8Array> {

@@ -7,6 +7,7 @@ using BlueOffice.Api.Common;
 using BlueOffice.Api.Files;
 using BlueOffice.Api.Jobs;
 using BlueOffice.Api.Sessions;
+using BlueOffice.Api.Signing;
 using BlueOffice.Domain;
 using BlueOffice.Infrastructure;
 using BlueOffice.Infrastructure.Data;
@@ -64,6 +65,7 @@ builder.Services.AddSingleton<LocalHostStorage>();
 builder.Services.Configure<CollabOptions>(config.GetSection("Collab"));
 builder.Services.AddSingleton(sp => CollabLogStore.Create(sp, config));
 builder.Services.AddSingleton<RoomManager>();
+builder.Services.AddRevocationProxy(config);
 builder.Services.AddSingleton<CollabMaintenanceService>();
 if (serveApi)
 {
@@ -158,6 +160,7 @@ app.MapFileEndpoints();
 app.MapJobEndpoints();
 app.MapSessionEndpoints();
 app.MapHostBrowseEndpoints();
+app.MapRevocationProxy();
 
 app.Run();
 

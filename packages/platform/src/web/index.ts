@@ -241,6 +241,16 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
       tsaUrl: env.VITE_BO_TSA_URL ?? null,
     },
     anchorsUrl: env.VITE_BO_TRUST_ANCHORS_URL ?? `${baseUrl}trust/anchors.pem`,
+    // CRL / OCSP through the BlueOffice server (browsers cannot reach CAs: CORS).
+    revocationProxy: env.VITE_BO_REVOCATION_PROXY_URL
+      ? {
+          url: env.VITE_BO_REVOCATION_PROXY_URL,
+          auth: async () => {
+            const token = await (opts.auth?.getAccessToken() ?? Promise.resolve(null));
+            return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+          },
+        }
+      : undefined,
   });
   return {
     kind: 'web',

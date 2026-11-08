@@ -100,7 +100,21 @@ chấp nhận) từ nguồn chính thức, kiểm tra dấu vân tay, rồi cấ
 
 Kiểm tra: dựng đường dẫn theo tên issuer/subject, chữ ký từng chứng thư (RSA SHA-256/384/512), thời hạn,
 `basicConstraints`/`pathLenConstraint`, `keyUsage` (keyCertSign cho CA; digitalSignature/nonRepudiation cho người
-ký), `id-kp-timeStamping` cho TSA. **Chưa kiểm tra thu hồi (CRL/OCSP).**
+ký), `id-kp-timeStamping` cho TSA, và **thu hồi** (CRL/OCSP):
+
+- CLI / desktop: `--crl FILE`, `--ocsp FILE`, `--crl-fetch`, `--ocsp-fetch` (tải theo `cRLDistributionPoints` / AIA
+  của chứng thư); PDF đã có DSS (`bo-cli ltv`) xác minh không cần mạng.
+- Web: trình duyệt không gọi thẳng CA được (CORS), nên đi qua proxy của server: đặt `VITE_BO_REVOCATION_PROXY_URL`
+  (vd `/api/revocation/fetch`). WASM liệt kê các CRL / OCSP cần hỏi, trang gửi qua `POST /api/revocation/fetch` (người
+  đã đăng nhập, hoặc phiên chỉnh sửa: `session` + header `X-Session-Token`), rồi xác minh với dữ liệu nhận được.
+  Server chỉ gọi URL http/https, **không** gọi địa chỉ loopback / mạng riêng / link-local (kiểm tại lúc kết nối, kể cả
+  sau chuyển hướng), giới hạn kích thước và thời gian:
+
+  | Cấu hình server | Mặc định | Ý nghĩa |
+  | --- | --- | --- |
+  | `Revocation__AllowPrivateNetworks` | `false` | Cho phép CRL/OCSP của CA nội bộ trong mạng riêng |
+  | `Revocation__MaxBytes` | `10485760` | Kích thước tối đa của câu trả lời |
+  | `Revocation__Timeout` | `00:00:15` | Thời gian chờ CA |
 
 ## 5. Giá trị mặc định cho người dùng
 
@@ -110,5 +124,6 @@ ký), `id-kp-timeStamping` cho TSA. **Chưa kiểm tra thu hồi (CRL/OCSP).**
 | URL máy chủ dấu thời gian | `BO_TSA_URL` | `VITE_BO_TSA_URL` |
 | Module PKCS#11 | `BO_PKCS11_MODULE` | — |
 | Trust anchors | `BO_TRUST_ANCHORS` | `VITE_BO_TRUST_ANCHORS_URL` (mặc định `/trust/anchors.pem`) |
+| Proxy CRL / OCSP | — (gọi thẳng) | `VITE_BO_REVOCATION_PROXY_URL` (không đặt: web không kiểm tra thu hồi) |
 
 Người dùng có thể sửa URL trong hộp thoại; lựa chọn gần nhất được nhớ trên máy (không nhớ PIN, mật khẩu, token).

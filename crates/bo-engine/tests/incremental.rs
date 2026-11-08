@@ -68,6 +68,8 @@ fn op() -> impl Strategy<Value = Command> {
         1 => Just(Command::InsertPageBreak),
         1 => Just(Command::Undo),
         1 => Just(Command::Redo),
+        1 => prop_oneof![Just("Heading1"), Just("Heading2"), Just("Title"), Just("Quote")]
+            .prop_map(|id| Command::ApplyStyle { id: id.into() }),
     ]
 }
 
@@ -134,6 +136,54 @@ fn typing_in_the_middle_is_incremental_and_redraws_one_page() {
         UpdateKind::Incremental { .. }
     ));
     assert!(r.dirty.len() < r.info.page_count, "{:?}", r.dirty);
+}
+
+// source: ECMA-376 Part 1, §17.7.4.17 pStyle, §17.7.4.3 basedOn
+#[test]
+fn a_new_style_lays_out_only_from_the_paragraph_using_it() {
+    let mut e = engine(400);
+    // The first heading also adds Normal, the default style: everything changes.
+    big_doc::caret_at(&mut e, 2, 0);
+    e.command(Command::ApplyStyle {
+        id: "Heading1".into(),
+    })
+    .unwrap();
+    // Another new style: only the paragraph using it and the pages it moves.
+    big_doc::caret_at(&mut e, 300, 0);
+    let r = e
+        .command(Command::ApplyStyle {
+            id: "Heading2".into(),
+        })
+        .unwrap();
+    assert!(
+        matches!(e.last_layout_update(), UpdateKind::Incremental { .. }),
+        "{:?}",
+        e.last_layout_update()
+    );
+    let before = r.dirty.iter().min().copied().unwrap_or(0);
+    assert!(
+        before > 0,
+        "pages before the paragraph are kept: {:?}",
+        r.dirty
+    );
+    let same = |e: &Engine| {
+        let mut fresh = Engine::with_bundled_fonts();
+        fresh
+            .load(e.document().unwrap().clone(), "full.docx")
+            .unwrap();
+        assert_eq!(
+            serde_json::to_string(e.layout().unwrap()).unwrap(),
+            serde_json::to_string(fresh.layout().unwrap()).unwrap()
+        );
+    };
+    same(&e);
+    // Undo removes the style again: incremental too.
+    e.command(Command::Undo).unwrap();
+    assert!(matches!(
+        e.last_layout_update(),
+        UpdateKind::Incremental { .. }
+    ));
+    same(&e);
 }
 
 #[test]

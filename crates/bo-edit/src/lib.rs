@@ -1707,9 +1707,7 @@ impl Session {
                 res = Err(e);
             }
         }
-        for op in &tx.ops {
-            op.record(&mut self.changes);
-        }
+        crate::ops::record_ops(&tx.ops, tx.doc, &mut self.changes);
         match res {
             Ok(after) => {
                 let ops = tx.ops;
@@ -1745,9 +1743,7 @@ impl Session {
             after: selection,
         };
         t.apply(&mut self.doc)?;
-        for op in &t.ops {
-            op.record(&mut self.changes);
-        }
+        crate::ops::record_ops(&t.ops, &self.doc, &mut self.changes);
         self.version += 1;
         self.undo.clear();
         self.redo.clear();
@@ -1769,9 +1765,7 @@ impl Session {
         if inv.apply(&mut self.doc).is_err() {
             return false;
         }
-        for op in &inv.ops {
-            op.record(&mut self.changes);
-        }
+        crate::ops::record_ops(&inv.ops, &self.doc, &mut self.changes);
         self.selection = t.before;
         self.version += 1;
         self.redo.push(t);
@@ -1787,9 +1781,7 @@ impl Session {
         if t.apply(&mut self.doc).is_err() {
             return false;
         }
-        for op in &t.ops {
-            op.record(&mut self.changes);
-        }
+        crate::ops::record_ops(&t.ops, &self.doc, &mut self.changes);
         self.selection = t.after;
         self.version += 1;
         self.undo.push(t);

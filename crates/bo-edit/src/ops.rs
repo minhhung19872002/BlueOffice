@@ -10,7 +10,7 @@ use bo_model::change::BlockChanges;
 use bo_model::index::blocks_at_mut;
 use bo_model::{Block, Comment, Document, Numbering, Section, StyleSheet};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// An atomic edit.
@@ -138,7 +138,8 @@ impl Op {
         }
     }
 
-    /// Record which top-level blocks this op changes (incremental layout).
+    /// Record which top-level blocks this op changes (incremental layout). Without
+    /// the document a style sheet change marks everything; [`record_ops`] narrows it.
     pub fn record(&self, changes: &mut BlockChanges) {
         match self {
             Op::Blocks {
@@ -331,6 +332,134 @@ impl Transaction {
             ops: self.ops.iter().rev().map(Op::inverse).collect(),
             before: self.after,
             after: self.before,
+        }
+    }
+}
+
+/// Record which top-level blocks `ops` change (incremental layout), with `doc`
+/// the document after them. Like [`Op::record`] for every op, except that a
+/// style sheet replacement marks only the body blocks that use a changed
+/// style (see [`record_styles`]); those are recorded last, in final indexes.
+pub fn record_ops(ops: &[Op], doc: &Document, changes: &mut BlockChanges) {
+    let mut sheets = Vec::new();
+    for op in ops {
+        match op {
+            Op::Styles { old, new } => sheets.push((&**old, &**new)),
+            _ => op.record(changes),
+        }
+    }
+    for (old, new) in sheets {
+        record_styles(old, new, doc, changes);
+    }
+}
+
+/// Style ids whose effective definition differs between two style sheets: the
+/// styles added, removed or changed, and every style based on one of them
+/// (ECMA-376 Part 1, §17.7.4.3 basedOn) in either sheet.
+fn changed_styles(old: &StyleSheet, new: &StyleSheet) -> BTreeSet<String> {
+    let mut direct = BTreeSet::new();
+    for s in &old.styles {
+        if new.styles.iter().find(|n| n.id == s.id) != Some(s) {
+            direct.insert(s.id.clone());
+        }
+    }
+    for s in &new.styles {
+        if !old.styles.iter().any(|o| o.id == s.id) {
+            direct.insert(s.id.clone());
+        }
+    }
+    if direct.is_empty() {
+        return direct;
+    }
+    let mut out = direct.clone();
+    for sheet in [old, new] {
+        for s in &sheet.styles {
+            if sheet.chain(&s.id).iter().any(|c| direct.contains(&c.id)) {
+                out.insert(s.id.clone());
+            }
+        }
+    }
+    out
+}
+
+/// Does any of `blocks` use one of the `styles` (paragraph, character or table
+/// style, §17.7.4.17 pStyle / §17.7.4.24 rStyle / §17.7.4.47 tblStyle)? Text
+/// boxes count as using every style (their content is not scanned).
+fn blocks_use(blocks: &[Block], styles: &BTreeSet<String>) -> bool {
+    let uses = |s: &Option<String>| s.as_ref().is_some_and(|id| styles.contains(id));
+    blocks.iter().any(|b| match b {
+        Block::Paragraph(p) => {
+            uses(&p.props.style)
+                || p.runs.iter().any(|r| {
+                    uses(&r.props.style)
+                        || r.content.iter().any(
+                            |c| matches!(c, bo_model::RunContent::Image(i) if i.shape.is_some()),
+                        )
+                })
+        }
+        Block::Table(t) => {
+            uses(&t.props.style)
+                || t.rows
+                    .iter()
+                    .flat_map(|r| &r.cells)
+                    .any(|c| blocks_use(&c.blocks, styles))
+        }
+        Block::Opaque(_) => false,
+    })
+}
+
+/// Record a style sheet replacement: the top-level body blocks using a changed
+/// style. Everything is marked when a default style (used by content naming no
+/// style, §17.7.4.17) changed, or when headers, footers, notes or comments use a
+/// changed style.
+pub fn record_styles(
+    old: &StyleSheet,
+    new: &StyleSheet,
+    doc: &Document,
+    changes: &mut BlockChanges,
+) {
+    if changes.is_all() {
+        return;
+    }
+    let styles = changed_styles(old, new);
+    if styles.is_empty() {
+        return;
+    }
+    let default_changed = [
+        bo_model::StyleKind::Paragraph,
+        bo_model::StyleKind::Character,
+        bo_model::StyleKind::Table,
+    ]
+    .into_iter()
+    .any(|k| {
+        let (a, b) = (old.default_of(k), new.default_of(k));
+        a.map(|s| &s.id) != b.map(|s| &s.id)
+            || a.is_some_and(|s| styles.contains(&s.id))
+            || b.is_some_and(|s| styles.contains(&s.id))
+    });
+    let elsewhere = || {
+        doc.sections.iter().any(|s| {
+            [&s.headers, &s.footers]
+                .into_iter()
+                .flat_map(|hf| [&hf.default, &hf.first, &hf.even])
+                .flatten()
+                .any(|b| blocks_use(b, &styles))
+        }) || doc
+            .footnotes
+            .values()
+            .chain(doc.endnotes.values())
+            .any(|b| blocks_use(b, &styles))
+            || doc.comments.iter().any(|c| blocks_use(&c.blocks, &styles))
+    };
+    if default_changed || elsewhere() {
+        changes.mark_all();
+        return;
+    }
+    for (si, s) in doc.sections.iter().enumerate() {
+        for (bi, b) in s.blocks.iter().enumerate() {
+            if blocks_use(std::slice::from_ref(b), &styles) {
+                changes.splice(si, bi, 1, 1);
+            }
         }
     }
 }

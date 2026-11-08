@@ -523,16 +523,31 @@ fn input_to_cell(input: &str, old: Option<&Cell>, locale: &Locale) -> Option<Cel
     Some(cell)
 }
 
-/// Formula-bar text of a number in a cell with a built-in date / time format
-/// (§18.8.30 ids 14, 18–22): the date in the locale's short date form (plus
-/// the time), so that editing and confirming keeps the value. `None` for
-/// other formats.
-fn date_input(n: f64, fmt_id: u32, locale: &Locale, date1904: bool) -> Option<String> {
-    let code = match fmt_id {
-        14 => locale.short_date.to_owned(),
-        22 => format!("{} h:mm:ss", locale.short_date),
-        18..=21 if (0.0..1.0).contains(&n) => "h:mm:ss".to_owned(),
-        _ => return None,
+/// Formula-bar text of a number in a cell with a date / time format — built-in
+/// (§18.8.30 ids 14–22) or custom (§18.8.31 with date/time tokens): the date in
+/// the locale's short date form, plus the time when the value has one (always
+/// for id 22), or the time alone below 1; so that editing and confirming keeps
+/// the value. `None` for other formats.
+fn date_input(
+    n: f64,
+    styles: &bo_model::sheet::Stylesheet,
+    fmt_id: u32,
+    locale: &Locale,
+    date1904: bool,
+) -> Option<String> {
+    if n < 0.0 || !n.is_finite() {
+        return None;
+    }
+    let fmt_code = bo_sheet::numfmt::format_code(styles, fmt_id, locale);
+    if !bo_sheet::numfmt::NumberFormat::parse_with(&fmt_code, locale).is_date() {
+        return None;
+    }
+    let code = if n < 1.0 && fmt_id != 14 {
+        "h:mm:ss".to_owned()
+    } else if fmt_id == 22 || n.fract() != 0.0 {
+        format!("{} h:mm:ss", locale.short_date)
+    } else {
+        locale.short_date.to_owned()
     };
     let opts = bo_sheet::numfmt::FormatOptions {
         locale: *locale,
@@ -1014,8 +1029,10 @@ impl SheetEngine {
         let fmt_id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
         let input = match (&cell.formula, &cell.value) {
             (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
-            (_, CellValue::Number(n)) => date_input(*n, fmt_id, &self.locale, wb.date1904)
-                .unwrap_or_else(|| number_input(*n, &self.locale)),
+            (_, CellValue::Number(n)) => {
+                date_input(*n, &wb.styles, fmt_id, &self.locale, wb.date1904)
+                    .unwrap_or_else(|| number_input(*n, &self.locale))
+            }
             (_, CellValue::Bool(b)) => if *b { "TRUE" } else { "FALSE" }.to_owned(),
             (_, CellValue::Text(t)) => t.clone(),
             (_, CellValue::RichText(runs)) => runs.iter().map(|r| r.text.as_str()).collect(),

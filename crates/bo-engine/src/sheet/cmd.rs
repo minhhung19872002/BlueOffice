@@ -2185,15 +2185,15 @@ impl SheetEngine {
 
     /// Input text of a cell (formula bar form).
     fn input_of(&self, cell: &Cell) -> String {
-        let (fmt_id, d1904) = self.wb.as_ref().map_or((0, false), |wb| {
-            (
-                wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id),
-                wb.date1904,
-            )
-        });
         match (&cell.formula, &cell.value) {
             (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
-            (_, CellValue::Number(n)) => date_input(*n, fmt_id, &self.locale, d1904)
+            (_, CellValue::Number(n)) => self
+                .wb
+                .as_ref()
+                .and_then(|wb| {
+                    let fmt_id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
+                    date_input(*n, &wb.styles, fmt_id, &self.locale, wb.date1904)
+                })
                 .unwrap_or_else(|| number_input(*n, &self.locale)),
             (_, CellValue::Bool(b)) => if *b { "TRUE" } else { "FALSE" }.to_owned(),
             (_, CellValue::Error(e)) => e.as_str().to_owned(),
@@ -2673,6 +2673,25 @@ mod tests {
         assert_eq!(got(2).0, CellValue::Text("29 tháng 2".into()));
         assert_eq!(got(3), (CellValue::Number(45351.0), 15));
         assert_eq!(e.cell(0, 3, 0).unwrap().display, "29-Feb-24");
+        // The formula bar shows the date (not the serial) for these formats
+        // and for a custom date format; confirming it keeps value and format.
+        assert_eq!(e.cell(0, 3, 0).unwrap().input, "2/29/2024");
+        e.set_locale("vi-VN");
+        assert_eq!(e.cell(0, 0, 0).unwrap().input, "29/02/2024");
+        assert_eq!(e.cell(0, 1, 0).unwrap().input, "01/02/2024");
+        e.set_input(0, 0, 0, "29/02/2024").unwrap();
+        let wb = e.workbook().unwrap();
+        let c = wb.sheets[0].cell(0, 0).unwrap();
+        assert_eq!(c.value, CellValue::Number(45351.0));
+        assert_eq!(wb.styles.xf(c.style).unwrap().num_fmt_id, 15);
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(5, 0, 5, 0), "patch": { "numFmt": "d mmm yyyy" } }),
+        );
+        e.set_input(0, 5, 0, "45351,5").unwrap();
+        assert_eq!(e.cell(0, 5, 0).unwrap().input, "29/02/2024 12:00:00");
+        e.set_input(0, 5, 0, "0,25").unwrap();
+        assert_eq!(e.cell(0, 5, 0).unwrap().input, "6:00:00");
     }
 
     // source: ECMA-376 Part 1, §18.17.4.1 (serial 45351 = 2024-02-29), §18.8.30 (ids 14, 20, 22)

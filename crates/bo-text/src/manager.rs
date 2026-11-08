@@ -55,6 +55,8 @@ pub struct ShapedGlyph {
 
 /// Metric-compatible substitutes (product brief §2). Keys are lower-case.
 const FALLBACKS: &[(&str, &[&str])] = &[
+    // Equations (OMML default math font): a font with an OpenType MATH table.
+    ("cambria math", &["stix two math"]),
     ("times new roman", &["liberation serif", "tinos"]),
     ("times", &["liberation serif", "tinos"]),
     ("arial", &["liberation sans", "arimo"]),

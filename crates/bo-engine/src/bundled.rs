@@ -40,4 +40,6 @@ pub const FONTS: &[&[u8]] = &[
     font!("Caladea-Bold.ttf"),
     font!("Caladea-Italic.ttf"),
     font!("Caladea-BoldItalic.ttf"),
+    // Math font with an OpenType MATH table (equations; substitute for Cambria Math).
+    font!("STIXTwoMath-Regular.ttf"),
 ];

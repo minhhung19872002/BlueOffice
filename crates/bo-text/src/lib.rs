@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 
 mod manager;
+pub mod math;
 mod outline;
 #[cfg(not(target_arch = "wasm32"))]
 mod system;

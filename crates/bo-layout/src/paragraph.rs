@@ -621,7 +621,12 @@ fn math_object(
     let bold = fonts.info(st.face).bold;
     let upright = fonts.resolve(&family, bold, false).unwrap_or(st.face);
     let italic = fonts.resolve(&family, bold, true).unwrap_or(upright);
-    let b = crate::math::layout_math(xml, st.size, fonts, upright, italic)?;
+    // The document's math font (OMML default Cambria Math, §22.1.2.61 mathFont) or a substitute with a
+    // MATH table (bundled STIX Two Math); the text font when none has one.
+    let math = fonts
+        .resolve("cambria math", false, false)
+        .filter(|f| fonts.math_constants(*f).is_some());
+    let b = crate::math::layout_math(xml, st.size, fonts, upright, italic, math)?;
     let top = b.asc;
     let fragments = b
         .runs

@@ -15,7 +15,16 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 ### Phương trình (PROMPT §4.4)
 - [x] **CORE-MATH-001** — Đọc/ghi OMML lossless (m:oMath, m:oMathPara giữ nguyên XML) · P0 · — · round-trip corpus `math-0*`, OpenXmlValidator. Test: `bo-docx` corpus.
 - [p] **CORE-MATH-002** — Hiển thị OMML: phân số, mũ/chỉ số, căn, n-ary + cận, ngoặc co giãn, ma trận, eqArr, hàm, dấu nhấn, bar, lim, groupChr, borderBox, phant · P0 · 001 · ảnh render corpus + snapshot. **Thiếu**: dàn trang theo OpenType MATH table (cần font toán OFL), căn giữa oMathPara (jc), `m:box`/`m:sSubSup` canh chỉnh tinh, font STIX Two/Latin Modern Math.
-- [ ] **CORE-MATH-003** — Font toán OFL (STIX Two Math hoặc Latin Modern Math) đóng gói + dùng bảng MATH (constants, variants, assembly) cho dàn trang · P0 · 002 · ngoặc/căn/tích phân dùng biến thể glyph thật; test so kích thước với giá trị MATH table.
+- [x] **CORE-MATH-003** — Font toán OFL (STIX Two Math hoặc Latin Modern Math) đóng gói + dùng bảng MATH (constants, variants, assembly) cho dàn trang · P0 · 002 · ngoặc/căn/tích phân dùng biến thể glyph thật; test so kích thước với giá trị MATH table.
+  - Xong: STIX Two Math 2.13 (OFL-1.1, `assets/fonts/STIXTwoMath-Regular.ttf`, FaceId 16 sau các font văn bản) thay cho
+    Cambria Math (`FALLBACKS`; máy có font toán cài sẵn thì dùng font đó nếu có bảng MATH). `bo-text::math`: MathConstants,
+    extents, italic correction, `stretch` (biến thể kích thước → glyph assembly theo GlyphAssembly, overlap đều ≥
+    MinConnectorOverlap). `bo-layout` math: chữ nghiêng bằng Mathematical Italic (U+1D434…, h → U+210E), phân số
+    (shift/gap/rule theo display/text style), chỉ số trên/dưới (shift, drop, gap tối thiểu), căn (glyph √ co giãn, gap,
+    rule, degree raise/kern), n-ary (DisplayOperatorMinHeight, italic correction cho cận), ngoặc đối xứng quanh trục,
+    bar/limit/accent theo bảng. Sửa lỗi `MathBox::shifted` không cập nhật asc/desc. Test: `bo-layout math::tests`
+    (so với giá trị đọc từ bảng MATH của chính file font: thanh phân số trên trục + độ dày, shift tử/mẫu, biến thể của "(",
+    assembly ≥ 3 mảnh cho ma trận 10 hàng, tích phân display ≥ DisplayOperatorMinHeight, căn).
 - [ ] **CORE-MATH-004** — oMathPara: căn lề (m:jc), công thức display chiếm cả dòng · P0 · 002 · test layout vị trí x.
 - [ ] **CORE-MATH-005** — Nhập phương trình bằng cú pháp tuyến tính UnicodeMath → OMML · P0 · 002 · bảng test chuỗi → XML.
 - [ ] **CORE-MATH-006** — Nhập LaTeX (tập con phổ biến) → OMML · P0 · 005 · bảng test.

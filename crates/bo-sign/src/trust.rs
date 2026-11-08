@@ -27,13 +27,13 @@
 //! verified `revoked` status dated at or before the validation time revokes the
 //! certificate; `good` settles it without CRLs; otherwise the CRLs decide.
 
+use crate::crl::CertificateList;
 use crate::{pem_blocks, verify_rsa, HashAlg, Result, SignError};
 use const_oid::db::rfc5280;
 use der::{Decode, Encode};
 use std::fmt;
 use std::path::Path;
 use std::time::SystemTime;
-use x509_cert::crl::CertificateList;
 use x509_cert::ext::pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage};
 use x509_cert::Certificate;
 
@@ -54,7 +54,8 @@ pub enum Purpose {
 pub struct TrustStore {
     anchors: Vec<Certificate>,
     crls: Vec<CertificateList>,
-    ocsp: Vec<crate::ocsp::BasicOcspResponse>,
+    /// Parsed basic responses with the DER OCSPResponse they came from.
+    ocsp: Vec<(crate::ocsp::BasicOcspResponse, Vec<u8>)>,
     fetcher: Option<OcspFetcher>,
     crl_fetcher: Option<CrlFetcher>,
 }
@@ -108,7 +109,8 @@ impl TrustStore {
 
     /// Adds one DER OCSPResponse (RFC 6960 §4.2.1; `successful`, basic).
     pub fn add_ocsp_der(&mut self, der: &[u8]) -> Result<()> {
-        self.ocsp.push(crate::ocsp::parse_response(der)?);
+        self.ocsp
+            .push((crate::ocsp::parse_response(der)?, der.to_vec()));
         Ok(())
     }
 
@@ -121,6 +123,49 @@ impl TrustStore {
     /// Asks `fetcher` for CRLs when the store has none of a certificate's issuer.
     pub fn set_crl_fetcher(&mut self, fetcher: CrlFetcher) {
         self.crl_fetcher = Some(fetcher);
+    }
+
+    /// Revocation data for `cert` issued by `issuer` (DER), as path validation
+    /// would use it: the matching verified OCSP responses and the issuer's CRLs,
+    /// loaded or fetched. For long-term validation data (PAdES B-LT DSS).
+    #[must_use]
+    pub fn revocation_data(&self, cert: &[u8], issuer: &[u8]) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+        let (Ok(c), Ok(i)) = (Certificate::from_der(cert), Certificate::from_der(issuer)) else {
+            return (Vec::new(), Vec::new());
+        };
+        let mut ocsps: Vec<Vec<u8>> = self
+            .ocsp
+            .iter()
+            .filter(|(r, _)| crate::ocsp::status(r, &c, &i).is_some())
+            .map(|(_, d)| d.clone())
+            .collect();
+        if ocsps.is_empty() {
+            if let Some(f) = &self.fetcher {
+                ocsps.extend((f.0)(&c, &i).filter(|d| {
+                    crate::ocsp::parse_response(d)
+                        .is_ok_and(|r| crate::ocsp::status(&r, &c, &i).is_some())
+                }));
+            }
+        }
+        let of_issuer = |l: &CertificateList| {
+            l.tbs_cert_list.issuer == c.tbs_certificate.issuer && crl_signed_by(l, &i)
+        };
+        let mut crls: Vec<Vec<u8>> = self
+            .crls
+            .iter()
+            .filter(|l| of_issuer(l))
+            .filter_map(|l| l.to_der().ok())
+            .collect();
+        if crls.is_empty() {
+            if let Some(f) = &self.crl_fetcher {
+                crls.extend(
+                    (f.0)(&c)
+                        .into_iter()
+                        .filter(|d| CertificateList::from_der(d).is_ok_and(|l| of_issuer(&l))),
+                );
+            }
+        }
+        (crls, ocsps)
     }
 
     #[must_use]
@@ -378,6 +423,8 @@ pub struct ChainReport {
     pub anchor: Option<String>,
     /// Why the path is not trusted (empty when trusted).
     pub problems: Vec<ChainProblem>,
+    /// DER of the path's certificates, end entity first, then the anchor.
+    pub certificates: Vec<Vec<u8>>,
 }
 
 fn subject(c: &Certificate) -> String {
@@ -437,7 +484,7 @@ fn check_revocation(
     let mut checked: Vec<crate::ocsp::Checked> = store
         .ocsp
         .iter()
-        .filter_map(|r| crate::ocsp::status(r, c, issuer))
+        .filter_map(|(r, _)| crate::ocsp::status(r, c, issuer))
         .collect();
     if checked.is_empty() {
         if let Some(f) = &store.fetcher {
@@ -591,6 +638,7 @@ pub fn validate_chain(
         path: Vec::new(),
         anchor: None,
         problems: Vec::new(),
+        certificates: Vec::new(),
     };
     let leaf = match Certificate::from_der(leaf_der) {
         Ok(c) => c,
@@ -697,6 +745,11 @@ pub fn validate_chain(
         report.anchor = Some(subject(a));
     }
     report.path = path.iter().map(subject).collect();
+    report.certificates = path
+        .iter()
+        .chain(anchor.filter(|a| path.first() != Some(a)))
+        .filter_map(|c| c.to_der().ok())
+        .collect();
     report.trusted = anchor.is_some() && report.problems.is_empty();
     report
 }

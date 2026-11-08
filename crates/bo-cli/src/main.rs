@@ -9,6 +9,7 @@
 //! bo-cli convert secret.docx --password pw --to docx --protect newpw
 //! bo-cli inspect file                               # format, encryption, macros
 //! bo-cli sign in.pdf --p12 me.p12 [--tsa URL] | --key k.pem --cert c.pem | --remote URL
+//! bo-cli ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch] [--out out.pdf]
 //! bo-cli verify in.pdf [--trust root-ca.pem] [--crl ca.crl] [--ocsp resp.der | --ocsp-fetch] [--crl-fetch] [--json]
 //! bo-cli dump input.docx [--page 0]          # display list JSON (parity tests)
 //! bo-cli pack <dir> <out.docx> | unpack <file> <dir>
@@ -121,24 +122,24 @@ enum Cmd {
         /// (default: env BO_TRUST_ANCHORS).
         #[arg(long)]
         trust: Vec<PathBuf>,
-        /// Certificate revocation list (PEM `X509 CRL` / DER) or directory of
-        /// `.crl` files, checked for every certificate of the path; repeatable.
-        #[arg(long)]
-        crl: Vec<PathBuf>,
-        /// OCSP response (DER, RFC 6960) or directory of `.ocsp` / `.der` files; repeatable.
-        #[arg(long)]
-        ocsp: Vec<PathBuf>,
-        /// Ask the OCSP responder named in each certificate (Authority Information
-        /// Access) over HTTP when no response is given.
-        #[arg(long)]
-        ocsp_fetch: bool,
-        /// Download the CRLs named in each certificate (CRL distribution points)
-        /// over HTTP when no CRL of its issuer is given.
-        #[arg(long)]
-        crl_fetch: bool,
+        #[command(flatten)]
+        rev: sign_cmd::Revocation,
         /// Machine-readable JSON report.
         #[arg(long)]
         json: bool,
+    },
+    /// Add long-term validation data (PAdES B-LT DSS: certificate paths, CRLs,
+    /// OCSP responses) to a signed PDF so it can be verified later offline.
+    Ltv {
+        input: PathBuf,
+        /// Trust anchor file or directory; repeatable (default: env BO_TRUST_ANCHORS).
+        #[arg(long)]
+        trust: Vec<PathBuf>,
+        #[command(flatten)]
+        rev: sign_cmd::Revocation,
+        /// Output file (default: `<input>-ltv.pdf`).
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Report the detected format, encryption and macro presence (macros are never run).
     Inspect {
@@ -352,21 +353,28 @@ fn run(cli: Cli) -> R {
         Cmd::Verify {
             input,
             trust,
-            crl,
-            ocsp,
-            ocsp_fetch,
-            crl_fetch,
+            rev,
             json,
         } => {
-            let rev = sign_cmd::Revocation {
-                crls: crl,
-                ocsp,
-                ocsp_fetch,
-                crl_fetch,
-            };
             if !sign_cmd::verify(&input, &trust, &rev, json)? {
                 return Err("signature verification failed".into());
             }
+        }
+        Cmd::Ltv {
+            input,
+            trust,
+            rev,
+            out,
+        } => {
+            let out = out.unwrap_or_else(|| {
+                let stem = input
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("signed");
+                input.with_file_name(format!("{stem}-ltv.pdf"))
+            });
+            let summary = sign_cmd::ltv(&input, &trust, &rev, &out)?;
+            println!("{}: {summary}", out.display());
         }
         Cmd::Inspect { input, password } => {
             let bytes = std::fs::read(&input).map_err(|e| format!("{}: {e}", input.display()))?;

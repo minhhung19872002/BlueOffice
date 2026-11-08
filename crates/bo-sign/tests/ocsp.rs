@@ -361,3 +361,22 @@ fn base64_encode(data: &[u8]) -> String {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD.encode(data)
 }
+
+// source: RFC 5280 §5.1.2.1 (version absent in a v1 CRL, as openssl writes a
+// list without extensions)
+#[test]
+fn v1_crl_from_openssl() {
+    let mut s = TrustStore::new();
+    s.add_der(&pem_cert("root.pem")).unwrap();
+    assert_eq!(s.add_bytes(&fixture("root-v1.crl")).unwrap(), 1);
+    assert_eq!(s.crl_count(), 1);
+    // The root's (empty, signed) list covers the issuing CA: no stale warning.
+    let r = validate_chain(
+        &pem_cert("an.pem"),
+        &[pem_cert("inter.pem")],
+        &s,
+        fixture_time(),
+        Purpose::DocumentSigning,
+    );
+    assert!(r.trusted, "{r:?}");
+}

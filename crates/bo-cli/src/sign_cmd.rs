@@ -151,21 +151,28 @@ pub fn report_lines(r: &DocumentReport) -> Vec<String> {
 }
 
 /// `bo-cli verify`: prints the report; non-zero exit when invalid.
-/// Revocation sources of `bo-cli verify` (RFC 5280 CRLs, RFC 6960 OCSP).
-#[derive(Debug, Default)]
+/// Revocation sources of `bo-cli verify` / `ltv` (RFC 5280 CRLs, RFC 6960 OCSP).
+#[derive(Debug, Default, clap::Args)]
 pub struct Revocation {
-    /// CRL files or directories.
+    /// Certificate revocation list (PEM `X509 CRL` / DER) or directory of
+    /// `.crl` files, checked for every certificate of the path; repeatable.
+    #[arg(long = "crl")]
     pub crls: Vec<PathBuf>,
-    /// OCSP response files or directories.
+    /// OCSP response (DER, RFC 6960) or directory of `.ocsp` / `.der` files; repeatable.
+    #[arg(long)]
     pub ocsp: Vec<PathBuf>,
-    /// Ask the responders named in the certificates over HTTP.
+    /// Ask the OCSP responder named in each certificate (Authority Information
+    /// Access) over HTTP when no response is given.
+    #[arg(long)]
     pub ocsp_fetch: bool,
-    /// Download the CRLs named in the certificates over HTTP.
+    /// Download the CRLs named in each certificate (CRL distribution points)
+    /// over HTTP when no CRL of its issuer is given.
+    #[arg(long)]
     pub crl_fetch: bool,
 }
 
-pub fn verify(input: &Path, trust: &[PathBuf], rev: &Revocation, json: bool) -> R<bool> {
-    let bytes = std::fs::read(input)?;
+/// Trust anchors plus the revocation sources of `rev`.
+fn store_with(trust: &[PathBuf], rev: &Revocation) -> R<TrustStore> {
     let mut store = trust_store(trust)?;
     for p in rev.crls.iter().chain(&rev.ocsp) {
         store.add_path(p)?;
@@ -189,6 +196,27 @@ pub fn verify(input: &Path, trust: &[PathBuf], rev: &Revocation, json: bool) -> 
             },
         )));
     }
+    Ok(store)
+}
+
+/// `bo-cli ltv`: adds the DSS (PAdES B-LT) and returns a short summary.
+pub fn ltv(input: &Path, trust: &[PathBuf], rev: &Revocation, out: &Path) -> R<String> {
+    let bytes = std::fs::read(input)?;
+    let store = store_with(trust, rev)?;
+    let data = bo_sign::report::collect_validation_data(&bytes, &store, SystemTime::now())?;
+    let ltv = bo_sign::pdf::add_dss(&bytes, &data)?;
+    std::fs::write(out, ltv)?;
+    Ok(format!(
+        "{} certificates, {} CRLs, {} OCSP responses",
+        data.certs.len(),
+        data.crls.len(),
+        data.ocsps.len()
+    ))
+}
+
+pub fn verify(input: &Path, trust: &[PathBuf], rev: &Revocation, json: bool) -> R<bool> {
+    let bytes = std::fs::read(input)?;
+    let store = store_with(trust, rev)?;
     let report = verify_document(&bytes, &store, SystemTime::now())?;
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);

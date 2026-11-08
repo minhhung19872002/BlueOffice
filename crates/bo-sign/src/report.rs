@@ -149,18 +149,36 @@ pub fn verify_document(
     match kind {
         DocumentKind::Pdf => match crate::pdf::verify_pdf(bytes) {
             Ok(sigs) => {
+                // Long-term validation data in the file (PAdES B-LT DSS): its
+                // certificates help build paths, its CRLs / OCSP responses
+                // answer revocation without the network.
+                let dss = crate::pdf::read_dss(bytes).unwrap_or_default();
+                let mut with_dss = store.clone();
+                for d in &dss.crls {
+                    let _ = with_dss.add_crl_der(d);
+                }
+                for d in &dss.ocsps {
+                    let _ = with_dss.add_ocsp_der(d);
+                }
                 for s in sigs {
+                    let pool: Vec<Vec<u8>> = s
+                        .signer
+                        .certificates
+                        .iter()
+                        .chain(&dss.certs)
+                        .cloned()
+                        .collect();
                     let (timestamp, chain, at) = summarize(
                         &s.signer.certificate_der,
-                        &s.signer.certificates,
+                        &pool,
                         s.signer.timestamp.as_ref(),
-                        store,
+                        &with_dss,
                         now,
                     );
                     report.signatures.push(SignatureSummary {
                         signer: s.signer.subject,
                         signing_time: None,
-                        covers_whole_document: s.covers_whole_file,
+                        covers_whole_document: s.covers_whole_file || s.only_validation_data_after,
                         timestamp,
                         chain,
                         validated_at: crate::iso_utc(crate::unix_secs(at)),
@@ -197,4 +215,79 @@ pub fn verify_document(
         },
     }
     Ok(report)
+}
+
+/// Long-term validation data for every signature of a PDF (and its signature
+/// time-stamp): the certificates of each path to the trust anchors and, for
+/// each certificate, the revocation data `store` has or fetches for it (CRLs,
+/// OCSP responses). Validation times as in [`verify_document`].
+pub fn collect_validation_data(
+    pdf: &[u8],
+    store: &TrustStore,
+    now: SystemTime,
+) -> Result<crate::pdf::Dss> {
+    let have = crate::pdf::read_dss(pdf)?;
+    let mut out = crate::pdf::Dss::default();
+    let push = |v: &mut Vec<Vec<u8>>, d: Vec<u8>| {
+        if !v.contains(&d) {
+            v.push(d);
+        }
+    };
+    for s in crate::pdf::verify_pdf(pdf)? {
+        let pool: Vec<Vec<u8>> = s
+            .signer
+            .certificates
+            .iter()
+            .chain(&have.certs)
+            .cloned()
+            .collect();
+        let mut paths = Vec::new();
+        let (ts, _, at) = summarize(
+            &s.signer.certificate_der,
+            &pool,
+            s.signer.timestamp.as_ref(),
+            store,
+            now,
+        );
+        paths.push(validate_chain(
+            &s.signer.certificate_der,
+            &pool,
+            store,
+            at,
+            Purpose::DocumentSigning,
+        ));
+        if let (Some(t), Some(_)) = (&s.signer.timestamp, ts) {
+            let at = UNIX_EPOCH + Duration::from_secs(t.gen_time_unix);
+            paths.push(validate_chain(
+                &t.tsa_certificate_der,
+                &t.certificates,
+                store,
+                at,
+                Purpose::TimeStamping,
+            ));
+        }
+        for p in paths {
+            for pair in p.certificates.windows(2) {
+                let (crls, ocsps) = store.revocation_data(&pair[0], &pair[1]);
+                for d in crls {
+                    push(&mut out.crls, d);
+                }
+                for d in ocsps {
+                    push(&mut out.ocsps, d);
+                }
+            }
+            for c in p.certificates {
+                push(&mut out.certs, c);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Adds the long-term validation data of every signature to a PDF's DSS
+/// (PAdES baseline B-LT, ETSI EN 319 142-1 §6.4) without changing the signed
+/// revisions.
+pub fn add_validation_data(pdf: &[u8], store: &TrustStore, now: SystemTime) -> Result<Vec<u8>> {
+    let dss = collect_validation_data(pdf, store, now)?;
+    crate::pdf::add_dss(pdf, &dss)
 }

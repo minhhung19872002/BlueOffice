@@ -42,6 +42,7 @@ cargo test -p bo-edit                          # gồm proptest undo/redo
 cargo run -p bo-cli -- convert in.xls --to xlsx          # doc/xls/xlsb/ppt/odt/ods/odp → OOXML, csv, pdf
 cargo run -p bo-cli -- inspect in.docx                   # định dạng, mã hoá, macro
 cargo run -p bo-cli -- sign in.pdf --key k.pem --cert c.pem   # PAdES / OOXML (bo-sign); --p12 f.p12 | --remote URL; --tsa URL (B-T)
+cargo run -p bo-cli -- ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch]   # PAdES B-LT: DSS (chứng thư + CRL/OCSP)
 cargo run -p bo-cli -- verify in.pdf --trust root-ca.pem [--crl ca.crl] [--ocsp r.der | --ocsp-fetch] [--crl-fetch] [--json]  # chữ ký + dấu thời gian + chuỗi tới trust anchor + thu hồi CRL/OCSP (ADR-0007)
 cargo run -p bo-cli -- sample-slides tests/corpus/slide  # sinh lại corpus slide
 BO_WRITE_CORPUS=1 cargo test -p bo-xlsx --test corpus    # sinh lại corpus sheet

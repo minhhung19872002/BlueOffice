@@ -65,8 +65,11 @@
   response nạp sẵn `--ocsp`, hoặc hỏi trực tuyến responder ghi trong AIA `--ocsp-fetch`; response phải do CA cấp hoặc
   responder được uỷ quyền có `id-kp-OCSPSigning` ký; OCSP "good" không che CRL "revoked"). Kiểm chéo với `openssl ocsp`
   (`crates/bo-sign/tests/data/ocsp`). Tự tải CRL theo `cRLDistributionPoints` (`--crl-fetch`, HTTP GET, DER hoặc PEM)
-  khi chưa có CRL nạp sẵn của CA đó. **Chưa** nhúng dữ liệu xác minh dài hạn (PAdES B-LT/B-LTA: DSS, document
-  time-stamp); trình duyệt chưa hỏi OCSP / tải CRL trực tuyến (CORS).
+  khi chưa có CRL nạp sẵn của CA đó (CRL v1 không có trường version cũng đọc được). PAdES B-LT: `bo-cli ltv` ghi
+  chứng thư của các đường dẫn (người ký và TSA) cùng CRL/OCSP vào `/DSS` bằng incremental update; khi xác minh, DSS được
+  dùng không cần mạng, và phần thêm chỉ gồm DSS không làm chữ ký bị coi là "đã sửa sau khi ký". Kiểm chéo: pyHanko
+  certvalidator chỉ với DSS (không mạng) xác nhận người ký hợp lệ / bị thu hồi. **Chưa** có B-LTA (document
+  time-stamp `/DocTimeStamp`), chưa ghi VRI; trình duyệt chưa hỏi OCSP / tải CRL trực tuyến (CORS).
 - `verify_ooxml` dựa trên dạng canonical do BlueOffice sinh; chữ ký XAdES của phần mềm khác vẫn báo `Unsupported`.
 - Chỉ khoá RSA (PKCS#1 v1.5); chứng thư/TSA dùng ECDSA báo `Unsupported`.
 - Trình duyệt chỉ dùng được dịch vụ ký / TSA có bật CORS.

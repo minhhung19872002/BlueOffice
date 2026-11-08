@@ -1,4 +1,5 @@
-//! PAdES baseline B-B / B-T PDF signatures (ETSI EN 319 142-1) written as an
+//! PAdES baseline B-B / B-T PDF signatures (ETSI EN 319 142-1) — and B-LT
+//! validation data in the DSS ([`add_dss`], [`read_dss`]) — written as an
 //! incremental update (ISO 32000-1 §7.5.6) so earlier revisions — and
 //! earlier signatures — stay byte-identical.
 //!
@@ -660,6 +661,8 @@ pub struct PdfSignature {
     pub signer: VerifiedSigner,
     /// The signature covers the whole file (no later changes).
     pub covers_whole_file: bool,
+    /// The later revisions only add long-term validation data (DSS, B-LT).
+    pub only_validation_data_after: bool,
 }
 
 /// Verifies every `/ByteRange` signature in `pdf` (digest + RSA, and the
@@ -701,9 +704,11 @@ pub fn verify_pdf(pdf: &[u8]) -> Result<Vec<PdfSignature>> {
         der.truncate(der_len);
         let mut signed = pdf[..b].to_vec();
         signed.extend_from_slice(&pdf[c..c + len]);
+        let whole = c + len == pdf.len();
         out.push(PdfSignature {
             signer: verify_detached(&der, &signed)?,
-            covers_whole_file: c + len == pdf.len(),
+            covers_whole_file: whole,
+            only_validation_data_after: !whole && only_validation_data_after(pdf, c + len),
         });
     }
     Ok(out)
@@ -724,6 +729,283 @@ fn der_total_len(d: &[u8]) -> Option<usize> {
         len = (len << 8) | usize::from(*d.get(2 + k)?);
     }
     Some(2 + n + len)
+}
+
+// ------------------------------------------------- long-term validation data
+
+/// Long-term validation data of a PDF: the Document Security Store (PAdES,
+/// ETSI EN 319 142-1 §5.4.2.2; ISO 32000-2 §12.8.4.3 DSS) — DER certificates,
+/// CRLs and OCSP responses.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Dss {
+    /// `/Certs`: DER certificates.
+    pub certs: Vec<Vec<u8>>,
+    /// `/CRLs`: DER certificate revocation lists.
+    pub crls: Vec<Vec<u8>>,
+    /// `/OCSPs`: DER OCSPResponses.
+    pub ocsps: Vec<Vec<u8>>,
+}
+
+impl Dss {
+    /// Nothing stored.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.certs.is_empty() && self.crls.is_empty() && self.ocsps.is_empty()
+    }
+}
+
+/// A DSS dictionary: object number when indirect, entries.
+type DssDict = (Option<u32>, Vec<(String, String)>);
+
+/// DSS array keys (ISO 32000-2, Table 261).
+const DSS_KEYS: [&str; 3] = ["Certs", "CRLs", "OCSPs"];
+
+impl PdfFile<'_> {
+    /// Data of the (unfiltered) stream object `num` (ISO 32000-1 §7.3.8,
+    /// direct `/Length`).
+    fn stream(&self, num: u32) -> Result<Vec<u8>> {
+        let &(off, _) = self
+            .offsets
+            .get(&num)
+            .ok_or_else(|| malformed("missing object"))?;
+        let d = self.data;
+        let head = d
+            .get(off..)
+            .and_then(|r| r.windows(3).position(|w| w == b"obj"))
+            .ok_or_else(|| malformed("object header"))?;
+        let s = skip_ws(d, off + head + 3);
+        let e = value_end(d, s, 0)?;
+        let dict = dict_entries(&d[s..e])?;
+        if dict_get(&dict, "Filter").is_some() {
+            return Err(SignError::Unsupported("filtered DSS stream".into()));
+        }
+        let len: usize = dict_get(&dict, "Length")
+            .and_then(|v| v.trim().parse().ok())
+            .ok_or_else(|| malformed("stream /Length"))?;
+        let mut k = skip_ws(d, e);
+        if d.get(k..k + 6) != Some(b"stream") {
+            return Err(malformed("expected stream"));
+        }
+        k += 6;
+        if d.get(k) == Some(&b'\r') {
+            k += 1;
+        }
+        if d.get(k) == Some(&b'\n') {
+            k += 1;
+        }
+        d.get(k..k + len)
+            .map(<[u8]>::to_vec)
+            .ok_or_else(|| malformed("stream data"))
+    }
+
+    fn catalog(&self) -> Result<(u32, Vec<(String, String)>)> {
+        let root = dict_get(&self.trailer, "Root")
+            .and_then(parse_ref)
+            .ok_or_else(|| malformed("trailer /Root"))?
+            .0;
+        Ok((root, self.object_dict(root)?))
+    }
+
+    /// The DSS dictionary: (object number if indirect, entries).
+    fn dss(&self) -> Result<Option<DssDict>> {
+        let (_, catalog) = self.catalog()?;
+        let Some(v) = dict_get(&catalog, "DSS") else {
+            return Ok(None);
+        };
+        Ok(Some(match parse_ref(v) {
+            Some((n, _)) => (Some(n), self.object_dict(n)?),
+            None => (None, dict_entries(v.as_bytes())?),
+        }))
+    }
+
+    /// Object numbers listed in a DSS array value (direct or indirect array).
+    fn ref_list(&self, v: &str) -> Result<Vec<u32>> {
+        let text = match parse_ref(v) {
+            Some((n, _)) => String::from_utf8_lossy(self.object(n)?).into_owned(),
+            None => v.to_owned(),
+        };
+        let words: Vec<&str> = text
+            .trim()
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .split_ascii_whitespace()
+            .collect();
+        Ok(words
+            .chunks(3)
+            .filter(|w| w.len() == 3 && w[2] == "R")
+            .filter_map(|w| w[0].parse().ok())
+            .collect())
+    }
+}
+
+/// Reads the DSS of `pdf` (empty when absent).
+pub fn read_dss(pdf: &[u8]) -> Result<Dss> {
+    let file = PdfFile::parse(pdf)?;
+    let mut out = Dss::default();
+    let Some((_, dss)) = file.dss()? else {
+        return Ok(out);
+    };
+    for key in DSS_KEYS {
+        let Some(v) = dict_get(&dss, key) else {
+            continue;
+        };
+        let items = file
+            .ref_list(v)?
+            .into_iter()
+            .map(|n| file.stream(n))
+            .collect::<Result<Vec<_>>>()?;
+        match key {
+            "Certs" => out.certs = items,
+            "CRLs" => out.crls = items,
+            _ => out.ocsps = items,
+        }
+    }
+    Ok(out)
+}
+
+/// Adds `add` to the DSS of `pdf` (created if absent; items already stored are
+/// not repeated) in an incremental update (ISO 32000-1 §7.5.6), so every
+/// signature keeps its bytes: PAdES baseline B-LT (ETSI EN 319 142-1 §6.4).
+pub fn add_dss(pdf: &[u8], add: &Dss) -> Result<Vec<u8>> {
+    let file = PdfFile::parse(pdf)?;
+    let (root, mut catalog) = file.catalog()?;
+    let existing = read_dss(pdf)?;
+    let (dss_num, mut dss) = match file.dss()? {
+        Some((n, d)) => (n, d),
+        None => (None, vec![("Type".to_owned(), "/DSS".to_owned())]),
+    };
+    let mut next = file.size()?;
+    let mut objects: Vec<(u32, Vec<u8>)> = Vec::new();
+    for (key, have, items) in [
+        ("Certs", &existing.certs, &add.certs),
+        ("CRLs", &existing.crls, &add.crls),
+        ("OCSPs", &existing.ocsps, &add.ocsps),
+    ] {
+        let mut refs = match dict_get(&dss, key) {
+            Some(v) => file.ref_list(v)?,
+            None => Vec::new(),
+        };
+        let mut seen: Vec<&Vec<u8>> = have.iter().collect();
+        for item in items {
+            if seen.contains(&item) {
+                continue;
+            }
+            seen.push(item);
+            let mut body = format!("<< /Length {} >>\nstream\n", item.len()).into_bytes();
+            body.extend_from_slice(item);
+            body.extend_from_slice(b"\nendstream");
+            objects.push((next, body));
+            refs.push(next);
+            next += 1;
+        }
+        if !refs.is_empty() {
+            let list: Vec<String> = refs.iter().map(|n| format!("{n} 0 R")).collect();
+            dict_set(&mut dss, key, format!("[{}]", list.join(" ")));
+        }
+    }
+    if objects.is_empty() {
+        return Ok(pdf.to_vec());
+    }
+    let dss_obj = dss_num.unwrap_or_else(|| {
+        next += 1;
+        next - 1
+    });
+    objects.push((dss_obj, dict_to_string(&dss).into_bytes()));
+    if dss_num.is_none() {
+        dict_set(&mut catalog, "DSS", format!("{dss_obj} 0 R"));
+        objects.push((root, dict_to_string(&catalog).into_bytes()));
+    }
+    Ok(append_update(pdf, &file, root, objects, next))
+}
+
+/// Appends `objects` as an incremental update with a classic xref section.
+fn append_update(
+    pdf: &[u8],
+    file: &PdfFile<'_>,
+    root: u32,
+    mut objects: Vec<(u32, Vec<u8>)>,
+    size: u32,
+) -> Vec<u8> {
+    let mut out = pdf.to_vec();
+    if !out.ends_with(b"\n") {
+        out.push(b'\n');
+    }
+    objects.sort_by_key(|(n, _)| *n);
+    let mut xref = String::from("xref\n");
+    for (n, body) in &objects {
+        let off = out.len();
+        let gen = file.offsets.get(n).map_or(0, |&(_, g)| g);
+        out.extend_from_slice(format!("{n} {gen} obj\n").as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
+        let _ = write!(xref, "{n} 1\n{off:010} {gen:05} n\r\n");
+    }
+    let xref_pos = out.len();
+    let mut trailer = vec![
+        (
+            "Size".to_owned(),
+            size.max(file.size().unwrap_or(0)).to_string(),
+        ),
+        ("Root".to_owned(), format!("{root} 0 R")),
+        ("Prev".to_owned(), file.startxref.to_string()),
+    ];
+    for k in ["Info", "ID"] {
+        if let Some(v) = dict_get(&file.trailer, k) {
+            trailer.push((k.to_owned(), v.to_owned()));
+        }
+    }
+    let _ = write!(
+        xref,
+        "trailer\n{}\nstartxref\n{xref_pos}\n%%EOF\n",
+        dict_to_string(&trailer)
+    );
+    out.extend_from_slice(xref.as_bytes());
+    out
+}
+
+/// Do the revisions after byte `end` only add long-term validation data
+/// (ETSI EN 319 142-1 §6.4 B-LT): new DSS streams and dictionary, and the
+/// catalog unchanged but for `/DSS`?
+fn only_validation_data_after(pdf: &[u8], end: usize) -> bool {
+    let check = || -> Result<bool> {
+        let old = PdfFile::parse(&pdf[..end])?;
+        let new = PdfFile::parse(pdf)?;
+        let (root, catalog) = new.catalog()?;
+        let (old_root, old_catalog) = old.catalog()?;
+        if root != old_root {
+            return Ok(false);
+        }
+        let Some((dss_num, dss)) = new.dss()? else {
+            return Ok(false);
+        };
+        let mut listed = Vec::new();
+        for key in DSS_KEYS {
+            if let Some(v) = dict_get(&dss, key) {
+                listed.extend(new.ref_list(v)?);
+            }
+        }
+        let without = |c: &[(String, String)]| -> Vec<(String, String)> {
+            c.iter().filter(|(k, _)| k != "DSS").cloned().collect()
+        };
+        for (&n, &(off, _)) in &new.offsets {
+            if off < end {
+                continue;
+            }
+            let ok = if n == root {
+                without(&catalog) == without(&old_catalog)
+            } else if Some(n) == dss_num {
+                dss.iter()
+                    .all(|(k, _)| k == "Type" || k == "VRI" || DSS_KEYS.contains(&k.as_str()))
+            } else {
+                !old.offsets.contains_key(&n) && listed.contains(&n)
+            };
+            if !ok {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+    check().unwrap_or(false)
 }
 
 #[cfg(test)]

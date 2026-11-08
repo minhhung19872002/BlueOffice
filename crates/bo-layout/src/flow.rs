@@ -42,6 +42,7 @@ pub(crate) struct Snap {
     foot_h: f32,
     foot_slack: f32,
     carry: Vec<(NoteKey, usize)>,
+    text_bottom: Option<f32>,
     excl: Vec<(f32, f32)>,
     sides: Vec<SideZone>,
     prev: Option<Prev>,
@@ -103,6 +104,9 @@ pub(crate) struct Flow {
     foot_slack: f32,
     /// Footnotes continued from the previous page: (note, first band shown here).
     carry: Vec<(NoteKey, usize)>,
+    /// Bottom of the lowest body line on the current page (any column); part of the
+    /// checkpoints because the footnote area depends on it.
+    text_bottom: Option<f32>,
     /// Footnote continuation notice (`w:footnote w:type="continuationNotice"`).
     notice: Option<Stack>,
     /// Vertical ranges on the current page occupied by top-and-bottom pictures.
@@ -335,6 +339,7 @@ impl Flow {
             foot_h: 0.0,
             foot_slack: 0.0,
             carry: Vec::new(),
+            text_bottom: None,
             notice: None,
             excl: Vec::new(),
             sides: Vec::new(),
@@ -375,6 +380,7 @@ impl Flow {
                 foot_h: self.foot_h,
                 foot_slack: self.foot_slack,
                 carry: self.carry.clone(),
+                text_bottom: self.text_bottom,
                 excl: self.excl.clone(),
                 sides: self.sides.clone(),
                 prev: self.prev.clone(),
@@ -406,6 +412,7 @@ impl Flow {
         self.foot_h = s.foot_h;
         self.foot_slack = s.foot_slack;
         self.carry.clone_from(&s.carry);
+        self.text_bottom = s.text_bottom;
         self.excl.clone_from(&s.excl);
         self.sides.clone_from(&s.sides);
         self.prev.clone_from(&s.prev);
@@ -474,6 +481,7 @@ impl Flow {
         self.notes_on_page.clear();
         self.foot_h = 0.0;
         self.foot_slack = 0.0;
+        self.text_bottom = None;
         // Footnotes continued from the previous page (ECMA-376 Part 1, §17.11.1
         // continuationSeparator) open the footnote area.
         if !self.carry.is_empty() {
@@ -518,12 +526,7 @@ impl Flow {
         let Some(page) = self.pages.last_mut() else {
             return;
         };
-        let text = page
-            .lines
-            .iter()
-            .filter(|l| matches!(l.source, LineSource::Body(_)))
-            .map(|l| l.top + l.height)
-            .reduce(f32::max);
+        let text = self.text_bottom;
         let split = text.is_some_and(|t| t > y + EPS);
         if split {
             y = text.unwrap_or(y);
@@ -706,6 +709,15 @@ impl Flow {
     fn put(&mut self, ctx: &mut Ctx<'_>, band: &Band, y: f32) -> Result<(), LayoutError> {
         self.register_notes(ctx, &band.notes)?;
         let b = band.translated_ids(self.col_x(), y, self.id_base);
+        if let Some(t) = b
+            .lines
+            .iter()
+            .filter(|l| matches!(l.source, LineSource::Body(_)))
+            .map(|l| l.top + l.height)
+            .reduce(f32::max)
+        {
+            self.text_bottom = Some(self.text_bottom.map_or(t, |x| x.max(t)));
+        }
         if let Some(page) = self.pages.last_mut() {
             page.lines.extend(b.lines);
             page.items.extend(b.items);

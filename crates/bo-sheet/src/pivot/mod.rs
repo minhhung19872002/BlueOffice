@@ -31,7 +31,7 @@ use std::collections::{HashMap, HashSet};
 const MAX_SOURCE_CELLS: u64 = 4_000_000;
 
 /// Captions written into report cells (localized by the host).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PivotLabels {
     pub grand_total: String,
@@ -61,6 +61,12 @@ pub struct PivotLabels {
     pub years_field: String,
     pub quarters_field: String,
     pub months_field: String,
+    /// Caption of a manual group; `{n}` is replaced by its number.
+    pub group: String,
+    /// Today's serial in the workbook's date system, for relative date
+    /// filters (`today`, `thisMonth`, …); set by the engine from its clock.
+    #[serde(skip)]
+    pub today: Option<f64>,
 }
 
 impl Default for PivotLabels {
@@ -86,6 +92,8 @@ impl Default for PivotLabels {
             years_field: "Years".into(),
             quarters_field: "Quarters".into(),
             months_field: "Months".into(),
+            group: "Group{n}".into(),
+            today: None,
         }
     }
 }
@@ -104,6 +112,8 @@ pub struct PivotSpec {
     pub col_grand_totals: bool,
     pub field_filters: Vec<PivotFieldFilter>,
     pub style: Option<PivotStyleInfo>,
+    /// Several value fields are listed down the rows (`dataOnRows`, §18.10.1.73).
+    pub data_on_rows: bool,
 }
 
 impl Default for PivotSpec {
@@ -119,6 +129,7 @@ impl Default for PivotSpec {
             col_grand_totals: true,
             field_filters: Vec::new(),
             style: None,
+            data_on_rows: false,
         }
     }
 }
@@ -137,6 +148,7 @@ impl PivotSpec {
             col_grand_totals: pt.col_grand_totals,
             field_filters: pt.field_filters.clone(),
             style: pt.style.clone(),
+            data_on_rows: pt.data_on_rows,
         }
     }
 
@@ -152,6 +164,7 @@ impl PivotSpec {
         pt.col_grand_totals = self.col_grand_totals;
         pt.field_filters.clone_from(&self.field_filters);
         pt.style.clone_from(&self.style);
+        pt.data_on_rows = self.data_on_rows;
     }
 
     /// Settings of cache field `f`.
@@ -469,6 +482,17 @@ fn render(
         .iter()
         .map(|(c, vi)| (*c, style_for(wb, value_fmt.get(*vi).copied().unwrap_or(0))))
         .collect();
+    // Value fields on rows: the number format follows the row.
+    let row_style: HashMap<u32, u32> = lay
+        .data_rows
+        .iter()
+        .map(|(r, vi)| {
+            (
+                lay.page_rows + r,
+                style_for(wb, value_fmt.get(*vi).copied().unwrap_or(0)),
+            )
+        })
+        .collect();
     let mut label_style: HashMap<(u32, u32), u32> = HashMap::new();
     for (r, c, f) in &lay.label_fields {
         let id = label_fmt.get(*f as usize).copied().unwrap_or(0);
@@ -490,7 +514,11 @@ fn render(
     }
     for (r, c, v) in &lay.cells {
         let style = if *r >= lay.page_rows + lay.first_data_row && *c >= lay.first_data_col {
-            data_style.get(c).copied().unwrap_or(0)
+            row_style
+                .get(r)
+                .or_else(|| data_style.get(c))
+                .copied()
+                .unwrap_or(0)
         } else {
             label_style.get(&(*r, *c)).copied().unwrap_or(0)
         };
@@ -507,7 +535,7 @@ fn render(
     pt.first_header_row = lay.first_header_row;
     pt.first_data_row = lay.first_data_row;
     pt.first_data_col = lay.first_data_col;
-    pt.data_on_rows = false;
+    pt.data_on_rows = pt.data_on_rows && pt.values.len() > 1;
     pt.data_caption.clone_from(&labels.values);
     pt.row_items.clone_from(&lay.row_items);
     pt.col_items.clone_from(&lay.col_items);
@@ -541,7 +569,25 @@ fn render(
             },
         );
     }
+    // Pivot charts follow the report.
+    crate::chart::sync_pivot_charts(wb, sheet);
     Ok(())
+}
+
+/// Point the pivot charts of pivot `name` on sheet `from` at sheet `to`
+/// (`None`: the pivot is gone and the charts become ordinary charts).
+fn retarget_pivot_charts(wb: &mut Workbook, from: &str, name: &str, to: Option<&str>) {
+    for ws in &mut wb.sheets {
+        for c in &mut ws.charts {
+            let hit = c.pivot_ref().is_some_and(|(s, n)| {
+                s.to_lowercase() == from.to_lowercase() && n.to_lowercase() == name.to_lowercase()
+            });
+            if hit {
+                c.pivot_source = to.map(|t| crate::chart::pivot_source_name(t, name));
+                c.dirty = true;
+            }
+        }
+    }
 }
 
 /// Create a pivot table over `source` (header row included) of `src_sheet`,
@@ -794,6 +840,19 @@ fn refresh_cache(wb: &mut Workbook, cache_id: u32, labels: &PivotLabels) -> Resu
         }
     }
     regroup(&mut fields, &records, labels, sys);
+    // Calculated items follow their field and stay items of it (§18.10.1.8).
+    let mut calcs = wb.pivot_caches[ci].calculated_items.clone();
+    calcs.retain_mut(|c| match map.get(c.field as usize).copied().flatten() {
+        Some(n) => {
+            c.field = n;
+            true
+        }
+        None => false,
+    });
+    for c in &calcs {
+        add_item(&mut fields[c.field as usize].items, &c.name);
+    }
+    wb.pivot_caches[ci].calculated_items = calcs;
     let identity = old.is_empty();
     let n_new = fields.len();
     let remap = |f: u32| -> Option<u32> {
@@ -1262,6 +1321,358 @@ pub fn remove_calculated_field(
     Ok(())
 }
 
+/// Append the text item `name` to `items` unless an equal item exists.
+fn add_item(items: &mut Vec<CellValue>, name: &str) {
+    let v = CellValue::Text(name.to_owned());
+    let key = PivotItemKey::of(&v);
+    if !items.iter().any(|x| PivotItemKey::of(x) == key) {
+        items.push(v);
+    }
+}
+
+/// Re-render every pivot table using cache `cache_id`.
+fn render_users(wb: &mut Workbook, cache_id: u32, labels: &PivotLabels) -> Result<(), String> {
+    for (s, i) in users(wb, cache_id) {
+        let area = occupied(&wb.sheets[s].pivots[i]);
+        clear_area(&mut wb.sheets[s], area);
+        render(wb, s, i, labels)?;
+    }
+    Ok(())
+}
+
+/// Add a calculated item to cache field `field` of pivot `index`, or change
+/// the one currently named `old` (§18.10.1.8 `calculatedItem`). The formula
+/// names other items of the field (bare or quoted: `='Hà Nội'+'Đà Nẵng'`).
+#[allow(clippy::too_many_arguments)]
+pub fn set_calculated_item(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    field: u32,
+    old: Option<&str>,
+    name: &str,
+    formula: &str,
+    labels: &PivotLabels,
+) -> Result<(), String> {
+    let cache_id = ensure_records(wb, sheet, index, labels)?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("the item needs a name".into());
+    }
+    let cache = cache_mut(wb, cache_id)?;
+    let f = cache
+        .fields
+        .get(field as usize)
+        .ok_or("unknown pivot field")?;
+    let grouped = f
+        .group
+        .as_ref()
+        .is_some_and(|g| g.range.is_some() || !g.discrete.is_empty());
+    if f.derived || f.formula.is_some() || grouped {
+        return Err("calculated items need an ungrouped source field".into());
+    }
+    let key = |s: &str| PivotItemKey::of(&CellValue::Text(s.to_owned()));
+    let old_key = old.map(key);
+    let taken = f
+        .items
+        .iter()
+        .any(|v| PivotItemKey::of(v) == key(name) && Some(PivotItemKey::of(v)) != old_key);
+    if taken {
+        return Err("an item with this name exists".into());
+    }
+    // Validate the formula against the other items of the field.
+    let others: Vec<PivotCacheField> = f
+        .items
+        .iter()
+        .filter(|v| Some(PivotItemKey::of(v)) != old_key)
+        .map(|v| PivotCacheField {
+            name: value_text(v),
+            ..PivotCacheField::default()
+        })
+        .collect();
+    calc::compile(formula, &others)?;
+    let text = formula.trim();
+    let text = text.strip_prefix('=').unwrap_or(text).trim().to_owned();
+    let items = &mut cache.fields[field as usize].items;
+    if let Some(o) = old {
+        let ok = key(o);
+        let ci = cache
+            .calculated_items
+            .iter_mut()
+            .find(|c| c.field == field && key(&c.name) == ok)
+            .ok_or("not a calculated item")?;
+        ci.name = name.to_owned();
+        ci.formula = text;
+        if let Some(v) = items.iter_mut().find(|v| PivotItemKey::of(v) == ok) {
+            *v = CellValue::Text(name.to_owned());
+        }
+    } else {
+        add_item(items, name);
+        cache.calculated_items.push(bo_model::sheet::PivotCalcItem {
+            field,
+            name: name.to_owned(),
+            formula: text,
+        });
+    }
+    cache.dirty = true;
+    render_users(wb, cache_id, labels)
+}
+
+/// Remove the calculated item `name` of cache field `field`.
+pub fn remove_calculated_item(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    field: u32,
+    name: &str,
+    labels: &PivotLabels,
+) -> Result<(), String> {
+    let cache_id = ensure_records(wb, sheet, index, labels)?;
+    let key = PivotItemKey::of(&CellValue::Text(name.to_owned()));
+    let cache = cache_mut(wb, cache_id)?;
+    let before = cache.calculated_items.len();
+    cache
+        .calculated_items
+        .retain(|c| c.field != field || PivotItemKey::of(&CellValue::Text(c.name.clone())) != key);
+    if cache.calculated_items.len() == before {
+        return Err("not a calculated item".into());
+    }
+    if let Some(f) = cache.fields.get_mut(field as usize) {
+        f.items.retain(|v| PivotItemKey::of(v) != key);
+    }
+    cache.dirty = true;
+    render_users(wb, cache_id, labels)
+}
+
+/// The field a manual grouping of `field` works on: `(base field, existing
+/// group field)` (§18.10.1.27 `fieldGroup/@base`, `discretePr`).
+fn discrete_target(cache: &PivotCache, field: u32) -> Result<(u32, Option<u32>), String> {
+    let f = cache
+        .fields
+        .get(field as usize)
+        .ok_or("unknown pivot field")?;
+    if let Some(g) = &f.group {
+        if f.derived && !g.discrete.is_empty() {
+            return Ok((g.base.ok_or("bad group field")?, Some(field)));
+        }
+        if g.range.is_some() || !g.discrete.is_empty() {
+            return Err("the field is grouped by dates or ranges".into());
+        }
+    }
+    if f.derived || f.formula.is_some() {
+        return Err("only a source field can be grouped".into());
+    }
+    let existing = cache.fields.iter().position(|o| {
+        o.derived
+            && o.group
+                .as_ref()
+                .is_some_and(|g| g.base == Some(field) && !g.discrete.is_empty())
+    });
+    Ok((field, existing.map(|i| i as u32)))
+}
+
+/// Captions of every base item under the manual grouping `group` (or the
+/// items themselves when there is none).
+fn base_captions(cache: &PivotCache, base: u32, group: Option<u32>) -> Vec<CellValue> {
+    let items = &cache.fields[base as usize].items;
+    let g = group.and_then(|g| cache.fields.get(g as usize)?.group.as_ref());
+    items
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            g.and_then(|g| g.items.get(*g.discrete.get(i)? as usize).cloned())
+                .unwrap_or_else(|| v.clone())
+        })
+        .collect()
+}
+
+/// Base items selected through `field`: base items directly, or every base
+/// item of the selected groups.
+fn selected_base(
+    cache: &PivotCache,
+    field: u32,
+    base: u32,
+    group: Option<u32>,
+    items: &[usize],
+) -> Vec<usize> {
+    if Some(field) == group {
+        let g = group
+            .and_then(|g| cache.fields.get(g as usize)?.group.as_ref())
+            .map_or(&[][..], |g| g.discrete.as_slice());
+        g.iter()
+            .enumerate()
+            .filter(|(_, x)| items.contains(&(**x as usize)))
+            .map(|(i, _)| i)
+            .collect()
+    } else {
+        let n = cache.fields[base as usize].items.len();
+        items.iter().copied().filter(|i| *i < n).collect()
+    }
+}
+
+/// Store the captions of the base items as the manual grouping of `base`:
+/// a new grouping field (named after the base, placed before it on its axis)
+/// or the existing one; it is removed when no item is grouped any more.
+fn store_discrete(
+    wb: &mut Workbook,
+    cache_id: u32,
+    base: u32,
+    group: Option<u32>,
+    captions: &[CellValue],
+) -> Result<Option<u32>, String> {
+    let cache = cache_mut(wb, cache_id)?;
+    let own = cache.fields[base as usize].items.clone();
+    let identity = captions
+        .iter()
+        .zip(&own)
+        .all(|(c, o)| PivotItemKey::of(c) == PivotItemKey::of(o));
+    if identity {
+        if let Some(g) = group {
+            if let Some(b) = cache.fields[base as usize].group.as_mut() {
+                b.par = None;
+            }
+            if cache.fields[base as usize]
+                .group
+                .as_ref()
+                .is_some_and(|b| *b == PivotFieldGroup::default())
+            {
+                cache.fields[base as usize].group = None;
+            }
+            remove_cache_fields(wb, cache_id, &[g])?;
+        }
+        return Ok(None);
+    }
+    // groupItems in order of first appearance, discretePr maps each base item.
+    let mut items: Vec<CellValue> = Vec::new();
+    let mut discrete = Vec::with_capacity(captions.len());
+    for c in captions {
+        let key = PivotItemKey::of(c);
+        let at = items
+            .iter()
+            .position(|x| PivotItemKey::of(x) == key)
+            .unwrap_or_else(|| {
+                items.push(c.clone());
+                items.len() - 1
+            });
+        discrete.push(at as u32);
+    }
+    let fg = PivotFieldGroup {
+        base: Some(base),
+        discrete,
+        items,
+        ..PivotFieldGroup::default()
+    };
+    if let Some(g) = group {
+        {
+            let par = cache.fields[g as usize].group.as_ref().and_then(|x| x.par);
+            cache.fields[g as usize].group = Some(PivotFieldGroup { par, ..fg });
+            Ok(Some(g))
+        }
+    } else {
+        {
+            let name = unique_name(cache, &cache.fields[base as usize].name.clone());
+            cache.fields.push(PivotCacheField {
+                name,
+                derived: true,
+                group: Some(fg),
+                ..PivotCacheField::default()
+            });
+            let g = cache.fields.len() as u32 - 1;
+            // §18.10.1.27 par: the base field's grouping parent.
+            let b = &mut cache.fields[base as usize];
+            match &mut b.group {
+                Some(x) => x.par = Some(g),
+                None => {
+                    b.group = Some(PivotFieldGroup {
+                        par: Some(g),
+                        ..PivotFieldGroup::default()
+                    });
+                }
+            }
+            for (s, i) in users(wb, cache_id) {
+                let pt = &mut wb.sheets[s].pivots[i];
+                for axis in [&mut pt.rows, &mut pt.cols] {
+                    if let Some(pos) = axis.iter().position(|f| *f == base) {
+                        axis.insert(pos, g);
+                    }
+                }
+            }
+            Ok(Some(g))
+        }
+    }
+}
+
+/// Group the selected items of `field` (§18.10.1.26 `discretePr`): items of a
+/// source field, or groups / items of its grouping field. The new group is
+/// named [`PivotLabels::group`]. Returns the grouping field.
+pub fn group_items(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    field: u32,
+    items: &[usize],
+    labels: &PivotLabels,
+) -> Result<u32, String> {
+    let cache_id = ensure_records(wb, sheet, index, labels)?;
+    let cache = cache_mut(wb, cache_id)?;
+    if cache.calculated_items.iter().any(|c| c.field == field) {
+        return Err("a field with calculated items cannot be grouped".into());
+    }
+    let (base, group) = discrete_target(cache, field)?;
+    let sel = selected_base(cache, field, base, group, items);
+    if sel.is_empty() {
+        return Err("select the items to group".into());
+    }
+    let mut captions = base_captions(cache, base, group);
+    let taken: Vec<PivotItemKey> = captions
+        .iter()
+        .chain(&cache.fields[base as usize].items)
+        .map(PivotItemKey::of)
+        .collect();
+    let mut n = 1;
+    let caption = loop {
+        let c = CellValue::Text(labels.group.replace("{n}", &n.to_string()));
+        if !taken.contains(&PivotItemKey::of(&c)) {
+            break c;
+        }
+        n += 1;
+    };
+    for i in sel {
+        captions[i] = caption.clone();
+    }
+    let g = store_discrete(wb, cache_id, base, group, &captions)?.ok_or("nothing to group")?;
+    cache_mut(wb, cache_id)?.dirty = true;
+    render_users(wb, cache_id, labels)?;
+    Ok(g)
+}
+
+/// Ungroup the selected groups (or items) of `field`: their base items show
+/// as themselves again; the grouping field goes away with the last group.
+pub fn ungroup_items(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    field: u32,
+    items: &[usize],
+    labels: &PivotLabels,
+) -> Result<(), String> {
+    let cache_id = ensure_records(wb, sheet, index, labels)?;
+    let cache = cache_mut(wb, cache_id)?;
+    let (base, group) = discrete_target(cache, field)?;
+    if group.is_none() {
+        return Err("the field has no groups".into());
+    }
+    let sel = selected_base(cache, field, base, group, items);
+    let own = cache.fields[base as usize].items.clone();
+    let mut captions = base_captions(cache, base, group);
+    for i in sel {
+        captions[i] = own[i].clone();
+    }
+    store_discrete(wb, cache_id, base, group, &captions)?;
+    cache_mut(wb, cache_id)?.dirty = true;
+    render_users(wb, cache_id, labels)
+}
+
 /// The relationships part name of a part (OPC §9.3).
 fn rels_name(part: &str) -> String {
     match part.rsplit_once('/') {
@@ -1279,6 +1690,8 @@ pub fn delete_pivot(wb: &mut Workbook, sheet: usize, index: usize) -> Result<(),
         .and_then(|s| s.pivots.get(index))
         .cloned()
         .ok_or("no such pivot table")?;
+    let sheet_name = wb.sheets[sheet].name.clone();
+    retarget_pivot_charts(wb, &sheet_name, &pt.name, None);
     let ws = &mut wb.sheets[sheet];
     clear_area(ws, occupied(&pt));
     ws.pivots.remove(index);
@@ -1364,6 +1777,13 @@ pub fn move_pivot(
             rel.id = format!("rIdPivot{n}");
             wb.sheets[dest_sheet].rels.push(rel);
         }
+    }
+    if dest_sheet != sheet {
+        let (from, to) = (
+            wb.sheets[sheet].name.clone(),
+            wb.sheets[dest_sheet].name.clone(),
+        );
+        retarget_pivot_charts(wb, &from, &moved.name, Some(&to));
     }
     let ws = &mut wb.sheets[dest_sheet];
     ws.pivots.push(moved);

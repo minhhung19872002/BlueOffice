@@ -239,6 +239,315 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
     Some(data)
 }
 
+// ---------------------------------------------------------------------------
+// Pivot charts (§21.2.2.142 `c:pivotSource`)
+// ---------------------------------------------------------------------------
+
+/// `c:pivotSource/c:name` of pivot `name` on sheet `sheet_name`.
+pub fn pivot_source_name(sheet_name: &str, name: &str) -> String {
+    format!("{}!{name}", crate::cells::quote_sheet(sheet_name))
+}
+
+/// Text of a report cell (number formats applied).
+fn cell_text(wb: &Workbook, sheet: usize, row: u32, col: u32) -> String {
+    wb.sheets
+        .get(sheet)
+        .and_then(|ws| ws.cell(row, col))
+        .map(|c| format_cell(wb, c, &Locale::default()).text)
+        .unwrap_or_default()
+}
+
+/// The series of a pivot chart from the report of pivot `index` of `sheet`
+/// (§18.10.1.73: `location`, `firstDataRow` / `firstDataCol`, `rowItems` /
+/// `colItems`): categories are the innermost row items (outer captions joined
+/// with " / "), one series per innermost column item and value field;
+/// subtotals and grand totals are left out. Ranges are referenced when the
+/// points are contiguous cells, otherwise the data are literals.
+pub fn pivot_series(wb: &Workbook, sheet: usize, index: usize) -> Option<Vec<ChartSeries>> {
+    let ws = wb.sheets.get(sheet)?;
+    let pt = ws.pivots.get(index)?;
+    let cache = wb.pivot_caches.iter().find(|c| c.cache_id == pt.cache_id)?;
+    let r_fields = pt.rows.len();
+    let c_fields = pt.cols.len();
+    let k = pt.values.len();
+    let dor = usize::from(pt.data_on_rows && k > 1);
+    let top = pt.location.first.row + pt.first_data_row;
+    let left = pt.location.first.col + pt.first_data_col;
+    let label_col = |l: usize| {
+        if pt.layout == bo_model::sheet::PivotLayout::Compact {
+            pt.location.first.col
+        } else {
+            pt.location.first.col + l as u32
+        }
+    };
+    // Categories: (sheet row, caption, value index) of the innermost lines.
+    let mut cur: Vec<String> = vec![String::new(); r_fields];
+    let mut cats: Vec<(u32, String, usize)> = Vec::new();
+    for (i, it) in pt.row_items.iter().enumerate() {
+        let row = top + i as u32;
+        let depth = it.items.len().min(r_fields);
+        if it.kind.is_empty() {
+            if pt.layout == bo_model::sheet::PivotLayout::Compact {
+                if it.items.len() <= r_fields && depth > 0 {
+                    let t = cell_text(wb, sheet, row, label_col(0));
+                    if !t.is_empty() {
+                        cur[depth - 1] = t;
+                    }
+                }
+            } else {
+                for (l, slot) in cur.iter_mut().enumerate().take(depth) {
+                    let t = cell_text(wb, sheet, row, label_col(l));
+                    if !t.is_empty() {
+                        *slot = t;
+                    }
+                }
+            }
+        }
+        let leaf = it.kind.is_empty() && it.items.len() == r_fields + dor;
+        if leaf {
+            let caption = if r_fields == 0 {
+                String::new()
+            } else {
+                cur.join(" / ")
+            };
+            let vi = if dor == 1 {
+                it.items.last().copied().unwrap_or(0) as usize
+            } else {
+                0
+            };
+            cats.push((row, caption, vi));
+        }
+    }
+    let field_caption = |f: u32, x: u32| -> String {
+        cache
+            .fields
+            .get(f as usize)
+            .and_then(|fl| crate::pivot::axis_items(fl).get(x as usize))
+            .map(crate::pivot::value_text)
+            .unwrap_or_default()
+    };
+    let value_names: Vec<String> = pt
+        .values
+        .iter()
+        .map(|d| crate::pivot::value_name(cache, d))
+        .collect();
+    // Columns: (sheet col, caption, value index) of the innermost entries.
+    let mut cols: Vec<(u32, String, usize)> = Vec::new();
+    for (j, it) in pt.col_items.iter().enumerate() {
+        if !it.kind.is_empty() {
+            continue;
+        }
+        let col = left + j as u32;
+        let mut parts: Vec<String> = it
+            .items
+            .iter()
+            .take(c_fields)
+            .enumerate()
+            .map(|(l, x)| field_caption(pt.cols[l], *x))
+            .collect();
+        let vi = if dor == 0 && k > 1 {
+            it.items.get(c_fields).copied().unwrap_or(0) as usize
+        } else {
+            0
+        };
+        if dor == 0 && (k > 1 || c_fields == 0) {
+            parts.push(value_names.get(vi).cloned().unwrap_or_default());
+        }
+        cols.push((col, parts.join(" - "), vi));
+    }
+    let contiguous = |rows: &[u32]| rows.windows(2).all(|w| w[1] == w[0] + 1);
+    let name = &ws.name;
+    let mut out = Vec::new();
+    let value_sets: Vec<usize> = if dor == 1 { (0..k).collect() } else { vec![0] };
+    for (col, caption, _) in &cols {
+        for &vi in &value_sets {
+            let points: Vec<&(u32, String, usize)> = cats
+                .iter()
+                .filter(|(_, _, v)| dor == 0 || *v == vi)
+                .collect();
+            if points.is_empty() {
+                continue;
+            }
+            let rows: Vec<u32> = points.iter().map(|p| p.0).collect();
+            let joined = contiguous(&rows) && r_fields <= 1;
+            let range = |c: u32| {
+                CellRange::new(
+                    CellRef::new(rows[0], c),
+                    CellRef::new(rows[rows.len() - 1], c),
+                )
+            };
+            let values: Vec<Option<f64>> = rows
+                .iter()
+                .map(|r| match ws.cell(*r, *col).map(|c| &c.value) {
+                    Some(CellValue::Number(n)) => Some(*n),
+                    _ => None,
+                })
+                .collect();
+            let mut series_name = caption.clone();
+            if dor == 1 {
+                let v = value_names.get(vi).cloned().unwrap_or_default();
+                series_name = if c_fields == 0 {
+                    v
+                } else {
+                    format!("{caption} - {v}")
+                };
+            }
+            out.push(ChartSeries {
+                name: Some(series_name),
+                name_ref: None,
+                cat_ref: (joined && r_fields == 1).then(|| abs_ref(name, range(label_col(0)))),
+                val_ref: joined.then(|| abs_ref(name, range(*col))),
+                categories: points.iter().map(|p| p.1.clone()).collect(),
+                values,
+            });
+        }
+    }
+    Some(out)
+}
+
+/// Re-point every chart plotting pivot `name` of sheet `sheet` at its current
+/// report (after a refresh, filter or layout change). Charts read from a file
+/// get their chart part regenerated.
+pub fn sync_pivot_charts(wb: &mut Workbook, sheet: usize) {
+    let Some(ws) = wb.sheets.get(sheet) else {
+        return;
+    };
+    let sheet_name = ws.name.to_lowercase();
+    let names: Vec<(usize, String)> = ws
+        .pivots
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (i, p.name.to_lowercase()))
+        .collect();
+    for si in 0..wb.sheets.len() {
+        for ci in 0..wb.sheets[si].charts.len() {
+            let Some((s, n)) = wb.sheets[si].charts[ci].pivot_ref() else {
+                continue;
+            };
+            if s.to_lowercase() != sheet_name {
+                continue;
+            }
+            let Some((pi, _)) = names.iter().find(|(_, x)| *x == n.to_lowercase()) else {
+                continue;
+            };
+            let Some(series) = pivot_series(wb, sheet, *pi) else {
+                continue;
+            };
+            let chart = &mut wb.sheets[si].charts[ci];
+            let kept: Vec<ChartPlot> = chart.plots.clone();
+            // One plot (or the first two of a combo) keep their type.
+            let mut plots = if kept.is_empty() {
+                vec![plot_for("column")]
+            } else {
+                kept
+            };
+            for p in &mut plots {
+                p.series.clear();
+            }
+            if plots.len() > 1 {
+                let mut it = series.into_iter();
+                plots[0].series.extend(it.next());
+                plots[1].series.extend(it);
+                plots.truncate(2);
+            } else {
+                plots[0].series = series;
+            }
+            chart.plots = plots;
+            chart.dirty = true;
+        }
+    }
+}
+
+/// A new pivot chart plotting pivot `index` of `sheet` (`kind` as for
+/// [`new_chart`]), placed to the right of the report.
+pub fn new_pivot_chart(wb: &Workbook, sheet: usize, index: usize, kind: &str) -> Option<Chart> {
+    let ws = wb.sheets.get(sheet)?;
+    let pt = ws.pivots.get(index)?;
+    let area = crate::pivot::occupied(pt);
+    let mut chart = Chart {
+        from: CellRef::new(area.first.row, area.last.col + 2),
+        to: Some(CellRef::new(area.first.row + 15, area.last.col + 10)),
+        plots: vec![plot_for(if kind == "combo" { "column" } else { kind })],
+        legend: Some("r".into()),
+        dirty: true,
+        pivot_source: Some(pivot_source_name(&ws.name, &pt.name)),
+        ..Chart::default()
+    };
+    if kind == "combo" {
+        let mut bars = plot_for("column");
+        let lines = plot_for("line");
+        bars.series.clear();
+        chart.plots = vec![bars, lines];
+    }
+    chart.plots[0].series = pivot_series(wb, sheet, index)?;
+    if kind == "combo" {
+        let series: Vec<ChartSeries> = chart
+            .plots
+            .iter_mut()
+            .flat_map(|p| p.series.drain(..))
+            .collect();
+        let mut it = series.into_iter();
+        chart.plots[0].series.extend(it.next());
+        chart.plots[1].series.extend(it);
+    }
+    Some(chart)
+}
+
+/// Cells covered by a one-cell or absolute anchor (§20.5.2.24 / §20.5.2.1):
+/// `from` / `to` from `pos` / `ext` (EMU, 12 700 per point), the corners
+/// snapped to the nearest cell edge.
+pub fn resolve_anchor(chart: &mut Chart, g: &crate::geometry::SheetGeometry) {
+    use bo_model::sheet::ChartAnchor;
+    let pt = |emu: i64| emu as f64 / 12_700.0;
+    let nearest_col = |x: f64| {
+        let c = g.hit_test(x.max(0.0), 0.0).col;
+        if x - g.col_x(c) > g.col_width(c) / 2.0 {
+            c + 1
+        } else {
+            c
+        }
+    };
+    let nearest_row = |y: f64| {
+        let r = g.hit_test(0.0, y.max(0.0)).row;
+        if y - g.row_y(r) > g.row_height(r) / 2.0 {
+            r + 1
+        } else {
+            r
+        }
+    };
+    let (x0, y0) = match (chart.anchor, chart.pos) {
+        (ChartAnchor::Absolute, Some((x, y))) => {
+            let (x, y) = (pt(x), pt(y));
+            let c = g.hit_test(x.max(0.0), y.max(0.0));
+            chart.from = c;
+            (x, y)
+        }
+        (ChartAnchor::OneCell, _) => (g.col_x(chart.from.col), g.row_y(chart.from.row)),
+        _ => return,
+    };
+    if let Some((cx, cy)) = chart.ext {
+        let to = CellRef::new(
+            nearest_row(y0 + pt(cy)).max(chart.from.row + 1),
+            nearest_col(x0 + pt(cx)).max(chart.from.col + 1),
+        );
+        chart.to = Some(to);
+    }
+}
+
+/// The pivot table a chart plots: `(sheet, index)`.
+pub fn chart_pivot(wb: &Workbook, chart: &Chart) -> Option<(usize, usize)> {
+    let (s, n) = chart.pivot_ref()?;
+    let si = wb
+        .sheets
+        .iter()
+        .position(|w| w.name.to_lowercase() == s.to_lowercase())?;
+    let pi = wb.sheets[si]
+        .pivots
+        .iter()
+        .position(|p| p.name.to_lowercase() == n.to_lowercase())?;
+    Some((si, pi))
+}
+
 fn refresh_one(wb: &Workbook, sheet: usize, chart: &mut Chart) {
     for p in &mut chart.plots {
         for s in &mut p.series {

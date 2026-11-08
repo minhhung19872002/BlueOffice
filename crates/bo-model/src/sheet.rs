@@ -1054,6 +1054,54 @@ pub struct Chart {
     pub plots: Vec<ChartPlot>,
     /// `c:legend/c:legendPos` (§21.2.2.94): `r`, `l`, `t`, `b`, `tr`; `None` = no legend.
     pub legend: Option<String>,
+    /// Kind of the drawing anchor holding the chart (§20.5.2.33 twoCellAnchor,
+    /// §20.5.2.24 oneCellAnchor, §20.5.2.1 absoluteAnchor).
+    #[serde(default)]
+    pub anchor: ChartAnchor,
+    /// `xdr:pos` of an absolute anchor (§20.5.2.25), EMU `(x, y)`.
+    #[serde(default)]
+    pub pos: Option<(i64, i64)>,
+    /// `xdr:ext` of a one-cell or absolute anchor (§20.5.2.14), EMU `(cx, cy)`.
+    #[serde(default)]
+    pub ext: Option<(i64, i64)>,
+    /// A pivot chart: `c:pivotSource/c:name` (§21.2.2.142), the pivot table the
+    /// chart plots, as `[file]Sheet!PivotName` or `Sheet!PivotName`.
+    #[serde(default)]
+    pub pivot_source: Option<String>,
+    /// `c:pivotSource/c:fmtId` (§21.2.2.73): the `chartFormat` of the pivot table.
+    #[serde(default)]
+    pub pivot_fmt_id: u32,
+    /// Show the pivot field buttons on the chart ([MS-ODRAWXML] `c14:pivotOptions`).
+    #[serde(default)]
+    pub pivot_buttons: bool,
+}
+
+/// Drawing anchor of a chart (ECMA-376 Part 1, §20.5.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChartAnchor {
+    /// §20.5.2.33: moves and sizes with the cells.
+    #[default]
+    TwoCell,
+    /// §20.5.2.24: the top-left follows a cell, the size is fixed (`ext`).
+    OneCell,
+    /// §20.5.2.1: position and size in EMU (`pos`, `ext`).
+    Absolute,
+}
+
+impl Chart {
+    /// The sheet and pivot table names of [`Chart::pivot_source`]
+    /// (`[Book1.xlsx]Sheet 1!PivotTable1` → `("Sheet 1", "PivotTable1")`).
+    pub fn pivot_ref(&self) -> Option<(String, String)> {
+        let src = self.pivot_source.as_deref()?.trim();
+        let (sheet, name) = src.rsplit_once('!')?;
+        let sheet = sheet.trim().trim_matches('\'');
+        let sheet = match sheet.strip_prefix('[') {
+            Some(rest) => rest.split_once(']').map_or(rest, |(_, r)| r),
+            None => sheet,
+        };
+        Some((sheet.replace("''", "'"), name.trim().to_owned()))
+    }
 }
 
 /// Chart family (`c:barChart` §21.2.2.16, `c:lineChart` §21.2.2.97, …).
@@ -1135,6 +1183,9 @@ pub struct PivotCache {
     pub records: Vec<Vec<CellValue>>,
     /// Regenerate the cache parts on write.
     pub dirty: bool,
+    /// `calculatedItems` (§18.10.1.9) of the cache definition.
+    #[serde(default)]
+    pub calculated_items: Vec<PivotCalcItem>,
 }
 
 /// A cache field (§18.10.1.3 `cacheField`).
@@ -1604,10 +1655,70 @@ pub enum PivotFilterType {
     ValueLessThanOrEqual,
     ValueBetween,
     ValueNotBetween,
+    /// Date filters (§18.18.60): the item (a date) compared with `value1` /
+    /// `value2` (serials of the workbook's date system).
+    DateEqual,
+    DateNotEqual,
+    DateOlderThan,
+    DateOlderThanOrEqual,
+    DateNewerThan,
+    DateNewerThanOrEqual,
+    DateBetween,
+    DateNotBetween,
+    /// Relative dates, evaluated against today.
+    Tomorrow,
+    Today,
+    Yesterday,
+    NextWeek,
+    ThisWeek,
+    LastWeek,
+    NextMonth,
+    ThisMonth,
+    LastMonth,
+    NextQuarter,
+    ThisQuarter,
+    LastQuarter,
+    NextYear,
+    ThisYear,
+    LastYear,
+    YearToDate,
+    /// A quarter / month of any year.
+    #[serde(rename = "Q1")]
+    Q1,
+    #[serde(rename = "Q2")]
+    Q2,
+    #[serde(rename = "Q3")]
+    Q3,
+    #[serde(rename = "Q4")]
+    Q4,
+    #[serde(rename = "M1")]
+    M1,
+    #[serde(rename = "M2")]
+    M2,
+    #[serde(rename = "M3")]
+    M3,
+    #[serde(rename = "M4")]
+    M4,
+    #[serde(rename = "M5")]
+    M5,
+    #[serde(rename = "M6")]
+    M6,
+    #[serde(rename = "M7")]
+    M7,
+    #[serde(rename = "M8")]
+    M8,
+    #[serde(rename = "M9")]
+    M9,
+    #[serde(rename = "M10")]
+    M10,
+    #[serde(rename = "M11")]
+    M11,
+    #[serde(rename = "M12")]
+    M12,
 }
 
 impl PivotFilterType {
-    const ALL: [(PivotFilterType, &'static str); 25] = [
+    const ALL: [(PivotFilterType, &'static str); 65] = [
         (PivotFilterType::Count, "count"),
         (PivotFilterType::Percent, "percent"),
         (PivotFilterType::Sum, "sum"),
@@ -1648,6 +1759,52 @@ impl PivotFilterType {
         ),
         (PivotFilterType::ValueBetween, "valueBetween"),
         (PivotFilterType::ValueNotBetween, "valueNotBetween"),
+        (PivotFilterType::DateEqual, "dateEqual"),
+        (PivotFilterType::DateNotEqual, "dateNotEqual"),
+        (PivotFilterType::DateOlderThan, "dateOlderThan"),
+        (
+            PivotFilterType::DateOlderThanOrEqual,
+            "dateOlderThanOrEqual",
+        ),
+        (PivotFilterType::DateNewerThan, "dateNewerThan"),
+        (
+            PivotFilterType::DateNewerThanOrEqual,
+            "dateNewerThanOrEqual",
+        ),
+        (PivotFilterType::DateBetween, "dateBetween"),
+        (PivotFilterType::DateNotBetween, "dateNotBetween"),
+        (PivotFilterType::Tomorrow, "tomorrow"),
+        (PivotFilterType::Today, "today"),
+        (PivotFilterType::Yesterday, "yesterday"),
+        (PivotFilterType::NextWeek, "nextWeek"),
+        (PivotFilterType::ThisWeek, "thisWeek"),
+        (PivotFilterType::LastWeek, "lastWeek"),
+        (PivotFilterType::NextMonth, "nextMonth"),
+        (PivotFilterType::ThisMonth, "thisMonth"),
+        (PivotFilterType::LastMonth, "lastMonth"),
+        (PivotFilterType::NextQuarter, "nextQuarter"),
+        (PivotFilterType::ThisQuarter, "thisQuarter"),
+        (PivotFilterType::LastQuarter, "lastQuarter"),
+        (PivotFilterType::NextYear, "nextYear"),
+        (PivotFilterType::ThisYear, "thisYear"),
+        (PivotFilterType::LastYear, "lastYear"),
+        (PivotFilterType::YearToDate, "yearToDate"),
+        (PivotFilterType::Q1, "Q1"),
+        (PivotFilterType::Q2, "Q2"),
+        (PivotFilterType::Q3, "Q3"),
+        (PivotFilterType::Q4, "Q4"),
+        (PivotFilterType::M1, "M1"),
+        (PivotFilterType::M2, "M2"),
+        (PivotFilterType::M3, "M3"),
+        (PivotFilterType::M4, "M4"),
+        (PivotFilterType::M5, "M5"),
+        (PivotFilterType::M6, "M6"),
+        (PivotFilterType::M7, "M7"),
+        (PivotFilterType::M8, "M8"),
+        (PivotFilterType::M9, "M9"),
+        (PivotFilterType::M10, "M10"),
+        (PivotFilterType::M11, "M11"),
+        (PivotFilterType::M12, "M12"),
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -1674,6 +1831,36 @@ impl PivotFilterType {
     pub fn is_caption(self) -> bool {
         self.as_str().starts_with("caption")
     }
+
+    /// Date filters (fixed dates, relative periods, quarters and months).
+    pub fn is_date(self) -> bool {
+        self as u32 >= PivotFilterType::DateEqual as u32
+    }
+
+    /// Date filters relative to today (`today`, `thisMonth`, `yearToDate`, …).
+    pub fn is_relative_date(self) -> bool {
+        (PivotFilterType::Tomorrow as u32..=PivotFilterType::YearToDate as u32)
+            .contains(&(self as u32))
+    }
+
+    /// Date filters comparing with one or two dates (`dateEqual` … `dateNotBetween`).
+    pub fn is_fixed_date(self) -> bool {
+        self.is_date() && (self as u32) < PivotFilterType::Tomorrow as u32
+    }
+}
+
+/// A calculated item (§18.10.1.8 `calculatedItem`): an extra item of a cache
+/// field whose values are a formula over other items of the same field
+/// (`='North'+'South'`), evaluated over their sums in every report cell.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PivotCalcItem {
+    /// Cache field index.
+    pub field: u32,
+    /// Caption (also a shared item of the field in the cache definition).
+    pub name: String,
+    /// Formula without `=`; item names bare or quoted (`'Hà Nội'`).
+    pub formula: String,
 }
 
 /// A label, value or top-N filter of a row / column field (§18.10.1.35 `filter`).

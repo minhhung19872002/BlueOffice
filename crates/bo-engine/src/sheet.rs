@@ -476,6 +476,19 @@ impl SheetEngine {
 
     pub fn load(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
         self.live.rebuild(&mut wb);
+        // One-cell / absolute chart anchors (§20.5.2.24, §20.5.2.1) → cells.
+        for si in 0..wb.sheets.len() {
+            if wb.sheets[si]
+                .charts
+                .iter()
+                .any(|c| c.anchor != bo_model::sheet::ChartAnchor::TwoCell)
+            {
+                let g = SheetGeometry::new(&wb.sheets[si], &wb.styles, &mut self.fonts);
+                for c in &mut wb.sheets[si].charts {
+                    bo_sheet::chart::resolve_anchor(c, &g);
+                }
+            }
+        }
         self.clip = None;
         self.geometry = (0..wb.sheets.len()).map(|_| None).collect();
         self.wb = Some(wb);

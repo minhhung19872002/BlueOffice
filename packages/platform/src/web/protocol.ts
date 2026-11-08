@@ -21,7 +21,29 @@ export type EngineRequest =
   | { id: number; method: 'collabStop' }
   | { id: number; method: 'slideCollabStart'; seed: boolean; clientId: number }
   | { id: number; method: 'slideCollabApply'; json: string }
-  | { id: number; method: 'slideCollabPeers'; json: string };
+  | { id: number; method: 'slideCollabPeers'; json: string }
+  | { id: number; method: 'signPrepare'; bytes: Uint8Array; certsPem: string; options: string }
+  | {
+      id: number;
+      method: 'signTimestampRequest';
+      session: number;
+      signature: Uint8Array;
+      nonce: Uint8Array;
+    }
+  | {
+      id: number;
+      method: 'signFinish';
+      session: number;
+      signature: Uint8Array;
+      tsResponse?: Uint8Array;
+    }
+  | {
+      id: number;
+      method: 'verifySignatures';
+      bytes: Uint8Array;
+      anchorsPem: string;
+      nowSecs: number;
+    };
 
 export type EngineResponse =
   { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };

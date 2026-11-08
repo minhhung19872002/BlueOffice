@@ -28,6 +28,11 @@ import type {
   PrintService,
   RecentFile,
   ShellIntegration,
+  SignatureReport,
+  SignerKind,
+  SigningDefaults,
+  SigningService,
+  SignRequest,
   SlideCommand,
   SlideEditResult,
   WindowManager,
@@ -222,6 +227,28 @@ export class DesktopPrint implements PrintService {
   constructor(private readonly call: Invoke = invoke as Invoke) {}
   async printPdf(pdf: Uint8Array, title: string): Promise<void> {
     await this.call('print_pdf', pdf, { headers: { 'x-file-name': encodeURIComponent(title) } });
+  }
+}
+
+/** Digital signatures in the native process (`sign_cmds.rs`, ADR-0007). */
+export class DesktopSigning implements SigningService {
+  readonly kinds: SignerKind[] = ['file', 'token', 'remote'];
+  constructor(private readonly call: Invoke = invoke as Invoke) {}
+  defaults(): Promise<SigningDefaults> {
+    return this.call<SigningDefaults>('sign_defaults');
+  }
+  listTokenCertificates(module: string) {
+    return this.call<import('../types').TokenCertificate[]>('sign_token_certificates', { module });
+  }
+  async sign(bytes: Uint8Array, request: SignRequest): Promise<Uint8Array> {
+    return toBytes(
+      await this.call<ArrayBuffer>('sign_document', bytes, {
+        headers: { 'x-sign-request': encodeURIComponent(JSON.stringify(request)) },
+      }),
+    );
+  }
+  async verify(bytes: Uint8Array): Promise<SignatureReport> {
+    return JSON.parse(await this.call<string>('verify_document', bytes)) as SignatureReport;
   }
 }
 
@@ -422,5 +449,6 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Platfo
     shell: new DesktopShell(call),
     channel: (name: string) => new TauriBus(name),
     sheet: createNativeSheetHost(call),
+    signing: new DesktopSigning(call),
   };
 }

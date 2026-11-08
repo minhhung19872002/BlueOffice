@@ -3,13 +3,27 @@
  * Web Worker hosting the WASM engine so layout never blocks the UI thread
  * (prompt §5.7).
  */
-import init, { WasmEngine } from '@blueoffice/engine-wasm';
+import init, {
+  signPrepare,
+  verifySignatures,
+  WasmEngine,
+  type WasmPreparedSignature,
+} from '@blueoffice/engine-wasm';
 import wasmUrl from '@blueoffice/engine-wasm/wasm?url';
 import type { EngineRequest, EngineResponse } from './protocol';
 
 declare const self: DedicatedWorkerGlobalScope;
 
 let engine: WasmEngine | null = null;
+/** Signatures waiting for their value (two-phase signing, ADR-0007). */
+const prepared = new Map<number, WasmPreparedSignature>();
+let nextSession = 0;
+
+function session(id: number): WasmPreparedSignature {
+  const p = prepared.get(id);
+  if (!p) throw new Error('sign.noSession');
+  return p;
+}
 
 async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?: Transferable[] }> {
   if (req.method === 'init') {
@@ -74,6 +88,26 @@ async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?:
       return { result: JSON.parse(engine.slideCollabApply(req.json)) };
     case 'slideCollabPeers':
       return { result: JSON.parse(engine.slideCollabPeers(req.json)) };
+    case 'signPrepare': {
+      const p = signPrepare(req.bytes, req.certsPem, req.options);
+      const id = ++nextSession;
+      prepared.set(id, p);
+      return { result: { id, digest: p.digest() } };
+    }
+    case 'signTimestampRequest':
+      return { result: session(req.session).timestampRequest(req.signature, req.nonce) };
+    case 'signFinish': {
+      const p = session(req.session);
+      prepared.delete(req.session);
+      try {
+        const bytes = p.finish(req.signature, req.tsResponse);
+        return { result: bytes, transfer: [bytes.buffer] };
+      } finally {
+        p.free();
+      }
+    }
+    case 'verifySignatures':
+      return { result: JSON.parse(verifySignatures(req.bytes, req.anchorsPem, req.nowSecs)) };
   }
 }
 

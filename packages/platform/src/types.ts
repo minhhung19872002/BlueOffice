@@ -1158,6 +1158,94 @@ export interface ShellIntegration {
   onAuthCallback?(handler: (url: string) => void): () => void;
 }
 
+/** Signer kinds of the "Ký số" dialog (ADR-0007). Web: `remote` only. */
+export type SignerKind = 'file' | 'token' | 'remote';
+
+/** Remote signing service of the generic JSON protocol (`docs/deploy/remote-signing.md`). */
+export interface RemoteSignerConfig {
+  url: string;
+  credentialId?: string;
+  accessToken?: string;
+}
+
+/** The signer chosen in the dialog. Secrets (PIN, password, token) are never stored. */
+export type SignerChoice =
+  | { kind: 'file'; fileName: string; fileBase64: string; password?: string }
+  | { kind: 'token'; module: string; slot?: number; id?: string; pin: string }
+  | ({ kind: 'remote' } & RemoteSignerConfig);
+
+export interface SignRequest {
+  signer: SignerChoice;
+  /** RFC 3161 time-stamp authority (PAdES B-T / XAdES-T); empty = no time-stamp. */
+  tsaUrl?: string;
+  /** PDF only: `/Name`, `/Reason`, `/Location`. */
+  name?: string;
+  reason?: string;
+  location?: string;
+  documentName: string;
+}
+
+/** A certificate on a USB token (PKCS#11). */
+export interface TokenCertificate {
+  slot: number;
+  tokenLabel: string;
+  tokenSerial: string;
+  label: string;
+  id: string;
+  subject: string;
+  issuer: string;
+  notAfter: string;
+}
+
+/** `bo_sign::report` structures (JSON). */
+export interface ChainProblemReport {
+  code: string;
+  subject: string | null;
+  message: string;
+}
+export interface ChainSummary {
+  trusted: boolean;
+  path: string[];
+  anchor: string | null;
+  problems: ChainProblemReport[];
+}
+export interface SignatureSummary {
+  signer: string;
+  signingTime: string | null;
+  coversWholeDocument: boolean;
+  timestamp: { time: string; tsa: string; chain: ChainSummary } | null;
+  chain: ChainSummary;
+  validatedAt: string;
+}
+export interface SignatureReport {
+  kind: 'pdf' | 'ooxml';
+  signatures: SignatureSummary[];
+  /** A signature is broken (document changed) or unreadable. */
+  error: string | null;
+}
+
+/** Defaults configured by the deployment. */
+export interface SigningDefaults {
+  remoteUrl?: string | null;
+  tsaUrl?: string | null;
+  pkcs11Module?: string | null;
+}
+
+/**
+ * Digital signatures (desktop: native `bo-sign` via Tauri; web: WASM
+ * two-phase signing + the remote service through `fetch`).
+ */
+export interface SigningService {
+  readonly kinds: SignerKind[];
+  defaults(): Promise<SigningDefaults>;
+  /** Desktop only: certificates on the tokens of a PKCS#11 module. */
+  listTokenCertificates?(module: string): Promise<TokenCertificate[]>;
+  /** Signs a PDF or OOXML file; returns the signed file. */
+  sign(bytes: Uint8Array, request: SignRequest): Promise<Uint8Array>;
+  /** Verifies every signature against the configured trust anchors. */
+  verify(bytes: Uint8Array): Promise<SignatureReport>;
+}
+
 /** Everything platform-specific, in one object. */
 export interface Platform {
   readonly kind: 'web' | 'desktop';
@@ -1175,4 +1263,6 @@ export interface Platform {
   channel?(name: string): MessageBus;
   /** BlueSheet engine (absent in hosts that only embed BlueDoc). */
   sheet?: import('./sheet').SheetHost;
+  /** Digital signatures (absent where not available). */
+  signing?: SigningService;
 }

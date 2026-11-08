@@ -7,6 +7,7 @@ import {
   LocalRecentFiles,
 } from '../shared';
 import type {
+  AuthSession,
   DocumentStorage,
   FileAccess,
   FontDescriptor,
@@ -21,10 +22,80 @@ import { WebEngineHost } from './WebEngineHost';
 import { createWebSheetHost } from './WebSheetHost';
 
 export { WebEngineHost, createWebSheetHost };
+export { createWebAuth, AUTH_CALLBACK_PATH } from './auth';
+export { registerServiceWorker } from './pwa';
 
-/** Upload/download, with the File System Access API when available. */
+/** A file handle of the File System Access API (WICG spec; only the parts used here). */
+export interface FsFileHandle {
+  readonly name: string;
+  getFile(): Promise<{ name: string; arrayBuffer(): Promise<ArrayBuffer> }>;
+  createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }>;
+  queryPermission?(d: { mode: 'readwrite' }): Promise<'granted' | 'denied' | 'prompt'>;
+  requestPermission?(d: { mode: 'readwrite' }): Promise<'granted' | 'denied' | 'prompt'>;
+}
+
+interface PickerType {
+  description: string;
+  accept: Record<string, string[]>;
+}
+
+/** `window.showOpenFilePicker` / `showSaveFilePicker` (Chromium-based browsers). */
+export interface FsPickers {
+  showOpenFilePicker(o: { multiple?: boolean; types?: PickerType[] }): Promise<FsFileHandle[]>;
+  showSaveFilePicker(o: { suggestedName?: string; types?: PickerType[] }): Promise<FsFileHandle>;
+}
+
+/** The pickers when the File System Access API is usable (not under automation: native dialogs cannot be driven). */
+export function fileSystemAccess(w: unknown = globalThis): FsPickers | null {
+  const g = w as Partial<FsPickers> & { navigator?: { webdriver?: boolean } };
+  return typeof g.showOpenFilePicker === 'function' &&
+    typeof g.showSaveFilePicker === 'function' &&
+    !g.navigator?.webdriver
+    ? (g as FsPickers)
+    : null;
+}
+
+const isAbort = (e: unknown) => e instanceof Error && e.name === 'AbortError';
+
+/** Picker filter for a file name ("Tài liệu (.docx)"). */
+function typesFor(name: string, mime: string): PickerType[] {
+  const ext = name.includes('.') ? `.${name.split('.').pop()!.toLowerCase()}` : '';
+  return ext ? [{ description: ext.slice(1).toUpperCase(), accept: { [mime || 'application/octet-stream']: [ext] } }] : [];
+}
+
+/**
+ * Opening and saving files on the web: the File System Access API when the
+ * browser has it (open picker; Save writes back into the file that was
+ * opened, other names ask with the save picker), else `<input type=file>`
+ * and a download.
+ */
 export class WebFileAccess implements FileAccess {
-  openFile(accept: string[]): Promise<OpenedFile | null> {
+  /** Handles of files opened with the picker, by name (Save writes back in place). */
+  private readonly handles = new Map<string, FsFileHandle>();
+
+  constructor(private readonly fs: FsPickers | null = fileSystemAccess()) {}
+
+  async openFile(accept: string[]): Promise<OpenedFile | null> {
+    if (this.fs) {
+      try {
+        const [h] = await this.fs.showOpenFilePicker({
+          multiple: false,
+          types: [
+            {
+              description: accept.join(', '),
+              accept: { 'application/octet-stream': accept.filter((a) => a.startsWith('.')) },
+            },
+          ],
+        });
+        if (!h) return null;
+        const file = await h.getFile();
+        this.handles.set(file.name, h);
+        return { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) };
+      } catch (e) {
+        if (isAbort(e)) return null;
+        // Picker refused (e.g. cross-origin iframe): fall back to the input element.
+      }
+    }
     return new Promise((resolve) => {
       const input = document.createElement('input');
       input.type = 'file';
@@ -47,6 +118,25 @@ export class WebFileAccess implements FileAccess {
 
   async saveFile(bytes: Uint8Array, suggestedName: string, mime: string): Promise<string | null> {
     const blob = new Blob([bytes as BlobPart], { type: mime });
+    if (this.fs) {
+      try {
+        let h = this.handles.get(suggestedName);
+        if (h?.requestPermission) {
+          const p = (await h.queryPermission?.({ mode: 'readwrite' })) ?? 'prompt';
+          if (p !== 'granted' && (await h.requestPermission({ mode: 'readwrite' })) !== 'granted')
+            h = undefined;
+        }
+        h ??= await this.fs.showSaveFilePicker({ suggestedName, types: typesFor(suggestedName, mime) });
+        const w = await h.createWritable();
+        await w.write(blob);
+        await w.close();
+        this.handles.set(h.name, h);
+        return h.name;
+      } catch (e) {
+        if (isAbort(e)) return null;
+        // Not allowed here: download instead.
+      }
+    }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = suggestedName;
@@ -120,6 +210,8 @@ export interface WebPlatformOptions {
   /** Base URL where `fonts/` and `samples/` are served (default: Vite BASE_URL). */
   baseUrl?: string;
   storage?: (files: FileAccess) => DocumentStorage;
+  /** Signed-in session (OIDC, see {@link createWebAuth}); anonymous when absent. */
+  auth?: AuthSession;
 }
 
 /** Build the web platform. */
@@ -135,7 +227,7 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     fonts,
     print: new WebPrint(),
     engine: new WebEngineHost(fonts),
-    auth: new AnonymousSession(),
+    auth: opts.auth ?? new AnonymousSession(),
     window: new WebWindow(),
     offline: new IndexedDbCache(),
     shell: new WebShell(),

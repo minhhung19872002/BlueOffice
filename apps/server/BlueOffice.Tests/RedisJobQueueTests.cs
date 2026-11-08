@@ -75,6 +75,46 @@ public sealed class FakeRedis(TimeProvider clock) : IRedisCommands
     }
 }
 
+/// <summary>
+/// Fact skipped when no Docker endpoint is visible (<c>DOCKER_HOST</c>, the Docker Desktop / engine named pipe on
+/// Windows, <c>/var/run/docker.sock</c> elsewhere), so integration tests report "skipped" instead of passing vacuously.
+/// </summary>
+public sealed class DockerFactAttribute : FactAttribute
+{
+    /// <summary>Sets <see cref="FactAttribute.Skip"/> when Docker is not reachable.</summary>
+    public DockerFactAttribute()
+    {
+        if (!DockerVisible())
+        {
+            Skip = "Docker is not available (no DOCKER_HOST, Docker pipe or socket): Testcontainers integration test skipped.";
+        }
+    }
+
+    private static bool DockerVisible()
+    {
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DOCKER_HOST")))
+        {
+            return true;
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return File.Exists("/var/run/docker.sock");
+        }
+
+        try
+        {
+            return Directory.EnumerateFiles(@"\\.\pipe\")
+                .Select(Path.GetFileName)
+                .Any(n => n is "docker_engine" or "dockerDesktopLinuxEngine");
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+}
+
 /// <summary><see cref="RedisJobQueue"/>: logic with <see cref="FakeRedis"/>, then against a real Redis (Testcontainers) when Docker is reachable.</summary>
 public sealed class RedisJobQueueTests(ITestOutputHelper output)
 {
@@ -138,7 +178,7 @@ public sealed class RedisJobQueueTests(ITestOutputHelper output)
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => q.DequeueAsync(cts.Token));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task WorksAgainstARealRedisWhenDockerIsAvailable()
     {
         RedisContainer container;
@@ -149,7 +189,7 @@ public sealed class RedisJobQueueTests(ITestOutputHelper output)
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
-            // No Docker daemon (or no image available offline): this integration test does not apply here.
+            // Docker visible but unusable (daemon stopped, no image offline): this integration test does not apply here.
             output.WriteLine($"Skipped: Docker/Redis unavailable ({e.GetType().Name}: {e.Message})");
             return;
         }

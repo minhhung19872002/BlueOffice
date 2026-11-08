@@ -74,8 +74,9 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
 8. **Ký số**: đã có PAdES B-T / XAdES-T, kiểm tra chuỗi tới CA gốc cấu hình, thu hồi qua CRL và OCSP (nạp sẵn
    hoặc tải/hỏi trực tuyến theo chứng thư), PAdES B-LT / B-LTA (`bo-cli ltv [--tsa]`: DSS + dấu thời gian
    tài liệu; không ghi VRI vì tuỳ chọn); web kiểm tra thu hồi qua proxy của server (CORS); dấu thời gian tài liệu làm bằng
-   chứng tồn tại cho chữ ký không có dấu thời gian riêng; các quy tắc POE còn lại của ETSI EN 319 102-1 (thuật toán
-   yếu theo thời gian, POE cho dữ liệu thu hồi) chưa làm (ADR-0007).
+   chứng tồn tại cho chữ ký không có dấu thời gian riêng; POE lan theo chuỗi gia hạn B-LTA; thuật toán yếu theo thời
+   gian (SHA-1, RSA < 2048 trước 2014-01-01, `weakAlgorithm`); thu hồi xét tại thời điểm POE. Còn lại: POE riêng cho
+   từng dữ liệu thu hồi, bảng thuật toán cấu hình được (ADR-0007).
 9. **Server**: chạy được nhiều instance `api` (lease phòng trong Redis, mã 4009, id phiên mang id instance, nginx băm
    theo file — `docker-compose.multi.yml`, `docs/deploy/README.md`); phiên vẫn ở bộ nhớ instance tạo ra nó. Schema bằng EF Core migrations (PostgreSQL + SQLite;
    database cũ tạo bằng `EnsureCreated` được nhận tự động, `docs/deploy/upgrade.md`). Npgsql dùng PostgreSQL License — chấp nhận theo [ADR-0009](adr/0009-npgsql-postgresql-license.md).

@@ -30,6 +30,7 @@ pub mod ooxml;
 pub mod pdf;
 #[cfg(feature = "pkcs11")]
 pub mod pkcs11;
+pub mod policy;
 pub mod remote;
 pub mod timestamp;
 pub mod trust;
@@ -232,6 +233,9 @@ pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
 /// Hash algorithms accepted when verifying (RFC 5754 §2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashAlg {
+    /// SHA-1 (FIPS 180-4): verification only, and only with proof of existence before its
+    /// sunset ([`crate::policy`]); never used to sign.
+    Sha1,
     /// SHA-256 (FIPS 180-4).
     Sha256,
     /// SHA-384 (FIPS 180-4).
@@ -244,6 +248,7 @@ impl HashAlg {
     /// From a digest algorithm OID (`id-sha256`, …).
     pub fn from_digest_oid(oid: ObjectIdentifier) -> Result<Self> {
         match oid {
+            o if o == rfc5912::ID_SHA_1 => Ok(Self::Sha1),
             o if o == rfc5912::ID_SHA_256 => Ok(Self::Sha256),
             o if o == rfc5912::ID_SHA_384 => Ok(Self::Sha384),
             o if o == rfc5912::ID_SHA_512 => Ok(Self::Sha512),
@@ -254,6 +259,7 @@ impl HashAlg {
     /// From an RSA signature algorithm OID (`sha256WithRSAEncryption`, …).
     pub fn from_rsa_signature_oid(oid: ObjectIdentifier) -> Result<Self> {
         match oid {
+            o if o == rfc5912::SHA_1_WITH_RSA_ENCRYPTION => Ok(Self::Sha1),
             o if o == rfc5912::SHA_256_WITH_RSA_ENCRYPTION => Ok(Self::Sha256),
             o if o == rfc5912::SHA_384_WITH_RSA_ENCRYPTION => Ok(Self::Sha384),
             o if o == rfc5912::SHA_512_WITH_RSA_ENCRYPTION => Ok(Self::Sha512),
@@ -265,6 +271,7 @@ impl HashAlg {
     /// Hash of `data` with this algorithm.
     pub fn digest(self, data: &[u8]) -> Vec<u8> {
         match self {
+            Self::Sha1 => sha1::Sha1::digest(data).to_vec(),
             Self::Sha256 => Sha256::digest(data).to_vec(),
             Self::Sha384 => Sha384::digest(data).to_vec(),
             Self::Sha512 => Sha512::digest(data).to_vec(),
@@ -273,6 +280,7 @@ impl HashAlg {
 
     fn padding(self) -> Pkcs1v15Sign {
         match self {
+            Self::Sha1 => Pkcs1v15Sign::new::<sha1::Sha1>(),
             Self::Sha256 => Pkcs1v15Sign::new::<Sha256>(),
             Self::Sha384 => Pkcs1v15Sign::new::<Sha384>(),
             Self::Sha512 => Pkcs1v15Sign::new::<Sha512>(),

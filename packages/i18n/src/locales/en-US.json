@@ -1629,6 +1629,7 @@
       "unsupported": "“{{subject}}” uses an unsupported algorithm.",
       "revoked": "“{{subject}}” has been revoked.",
       "crlStale": "The revocation list of “{{subject}}” is out of date.",
+      "weakAlgorithm": "“{{subject}}” uses an algorithm that was no longer accepted at the validation time (no earlier proof of existence).",
       "pathTooLong": "The certificate chain is too long.",
       "malformed": "A certificate is malformed."
     }

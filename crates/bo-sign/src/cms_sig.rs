@@ -231,11 +231,16 @@ pub struct VerifiedSigner {
     pub certificates: Vec<Vec<u8>>,
     /// Verified signature time-stamp (PAdES B-T), if present.
     pub timestamp: Option<TimestampInfo>,
+    /// Hash the signature relies on (the weaker of digestAlgorithm and signatureAlgorithm), checked
+    /// against [`crate::policy`] at the validation time.
+    pub digest_alg: HashAlg,
 }
 
 /// Parts of a verified `SignedData`.
 pub(crate) struct VerifiedCms {
     pub signer: Certificate,
+    /// Weaker of the digest and signature hashes.
+    pub digest_alg: HashAlg,
     pub certificates: Vec<Vec<u8>>,
     pub econtent_type: ObjectIdentifier,
     /// Encapsulated content (for encapsulated signatures).
@@ -352,8 +357,14 @@ pub(crate) fn verify_signed_data(cms_der: &[u8], detached: Option<&[u8]>) -> Res
         .iter()
         .map(Encode::to_der)
         .collect::<std::result::Result<Vec<_>, _>>()?;
+    let weakest = if digest_alg == HashAlg::Sha1 || sig_alg == HashAlg::Sha1 {
+        HashAlg::Sha1
+    } else {
+        digest_alg
+    };
     Ok(VerifiedCms {
         signer: cert,
+        digest_alg: weakest,
         certificates,
         econtent_type: sd.encap_content_info.econtent_type,
         econtent,
@@ -381,5 +392,6 @@ pub fn verify_detached(cms_der: &[u8], content: &[u8]) -> Result<VerifiedSigner>
         certificate_der: v.signer.to_der()?,
         certificates: v.certificates,
         timestamp,
+        digest_alg: v.digest_alg,
     })
 }

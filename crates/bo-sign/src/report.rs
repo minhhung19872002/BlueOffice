@@ -113,12 +113,14 @@ pub struct DocumentReport {
 
 /// `now`: the validation time without a trusted signature time-stamp — the
 /// verification time, or an earlier proof of existence of the signature.
+/// `digest`: hash the signature relies on, checked against [`crate::policy`] at the validation time.
 fn summarize(
     signer_der: &[u8],
     pool: &[Vec<u8>],
     ts: Option<&TimestampInfo>,
     store: &TrustStore,
     now: SystemTime,
+    digest: Option<crate::HashAlg>,
 ) -> (Option<TimestampSummary>, ChainSummary, SystemTime) {
     let ts_summary = ts.map(|t| {
         let at = UNIX_EPOCH + Duration::from_secs(t.gen_time_unix);
@@ -141,8 +143,25 @@ fn summarize(
         (Some(t), Some(s)) if s.chain.trusted => UNIX_EPOCH + Duration::from_secs(t.gen_time_unix),
         _ => now,
     };
-    let chain = validate_chain(signer_der, pool, store, at, Purpose::DocumentSigning).into();
-    (ts_summary, chain, at)
+    let mut chain = validate_chain(signer_der, pool, store, at, Purpose::DocumentSigning);
+    // ETSI EN 319 102-1 §5.2.8: the signature's own hash must still be acceptable at the time of its
+    // proof of existence.
+    if let Some(alg) = digest {
+        if let Some(since) = crate::policy::weak_at(crate::policy::hash_sunset(alg), at) {
+            let subject = <x509_cert::Certificate as der::Decode>::from_der(signer_der)
+                .map(|c| c.tbs_certificate.subject.to_string())
+                .unwrap_or_default();
+            chain
+                .problems
+                .push(crate::trust::ChainProblem::WeakAlgorithm {
+                    subject,
+                    what: crate::policy::hash_name(alg).to_owned(),
+                    since: crate::iso_utc(crate::unix_secs(since)),
+                });
+            chain.trusted = false;
+        }
+    }
+    (ts_summary, chain.into(), at)
 }
 
 /// Verifies every signature of a PDF or OOXML file.
@@ -180,8 +199,23 @@ pub fn verify_document(
                 let mut proofs: Vec<(usize, SystemTime)> = Vec::new();
                 match crate::pdf::verify_pdf_timestamps(bytes) {
                     Ok(list) => {
-                        for t in list {
+                        // Latest first: a trusted later document time-stamp covering an earlier one
+                        // proves it existed then, so the earlier one is validated at that time (the
+                        // B-LTA renewal chain, ETSI EN 319 102-1 §5.6.2.3 / §5.6.3).
+                        let mut order: Vec<usize> = (0..list.len()).collect();
+                        order.sort_by_key(|&i| std::cmp::Reverse(list[i].covered_end));
+                        let mut summaries: Vec<Option<DocumentTimestampSummary>> =
+                            vec![None; list.len()];
+                        for i in order {
+                            let t = &list[i];
                             let end = t.covered_end;
+                            let at = proofs
+                                .iter()
+                                .filter(|(e, _)| *e > end)
+                                .map(|(_, p)| *p)
+                                .min()
+                                .filter(|p| *p < now)
+                                .unwrap_or(now);
                             let gen = UNIX_EPOCH + Duration::from_secs(t.info.gen_time_unix);
                             let pool: Vec<Vec<u8>> = t
                                 .info
@@ -198,7 +232,7 @@ pub fn verify_document(
                                         &t.info.tsa_certificate_der,
                                         &pool,
                                         &with_dss,
-                                        now,
+                                        at,
                                         Purpose::TimeStamping,
                                     )
                                     .into(),
@@ -209,8 +243,11 @@ pub fn verify_document(
                             if summary.timestamp.chain.trusted {
                                 proofs.push((end, gen));
                             }
-                            report.document_timestamps.push(summary);
+                            summaries[i] = Some(summary);
                         }
+                        report
+                            .document_timestamps
+                            .extend(summaries.into_iter().flatten());
                     }
                     Err(e) => report.error = Some(e.to_string()),
                 }
@@ -238,6 +275,7 @@ pub fn verify_document(
                         s.signer.timestamp.as_ref(),
                         &with_dss,
                         poe,
+                        Some(s.signer.digest_alg),
                     );
                     report.signatures.push(SignatureSummary {
                         signer: s.signer.subject,
@@ -260,6 +298,7 @@ pub fn verify_document(
                         s.timestamp.as_ref(),
                         store,
                         now,
+                        None,
                     );
                     let signer =
                         <x509_cert::Certificate as der::Decode>::from_der(&s.certificate_der)
@@ -327,7 +366,7 @@ pub fn certificate_paths(
     }
     for (signer, certs, ts) in sigs {
         let pool: Vec<Vec<u8>> = certs.iter().chain(&extra).cloned().collect();
-        let (tss, _, at) = summarize(&signer, &pool, ts.as_ref(), store, now);
+        let (tss, _, at) = summarize(&signer, &pool, ts.as_ref(), store, now, None);
         paths.push(validate_chain(
             &signer,
             &pool,

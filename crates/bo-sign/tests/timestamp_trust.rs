@@ -584,3 +584,32 @@ fn base64_encode(data: &[u8]) -> String {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD.encode(data)
 }
+
+// source: ETSI EN 319 102-1 §5.2.8 (cryptographic constraints), NIST SP 800-131A (SHA-1 and RSA < 2048
+// disallowed for signatures from 2014)
+#[test]
+fn weak_algorithms_need_proof_of_existence_before_their_sunset() {
+    use bo_sign::testing::{validity_around, weak_certificates};
+    use bo_sign::trust::{validate_chain, Purpose, TrustStore};
+    use std::time::{Duration, UNIX_EPOCH};
+    let y2013 = UNIX_EPOCH + Duration::from_secs(1_370_000_000); // 2013-05-31
+    let now = SystemTime::now();
+    let year = Duration::from_hours(24 * 366);
+    // Valid from 2012 to well after today.
+    let (root, sha1_leaf, short_leaf) = weak_certificates(
+        &mut rand::thread_rng(),
+        validity_around(y2013, year, now.duration_since(y2013).unwrap() + year),
+    );
+    let mut store = TrustStore::new();
+    store.add_der(&root).unwrap();
+    for (leaf, what) in [(&sha1_leaf, "SHA-1"), (&short_leaf, "RSA-1024")] {
+        let today = validate_chain(leaf, &[], &store, now, Purpose::DocumentSigning);
+        assert!(!today.trusted, "{what}: {:?}", today.problems);
+        assert_eq!(today.problems.len(), 1, "{:?}", today.problems);
+        assert_eq!(today.problems[0].code(), "weakAlgorithm");
+        assert!(today.problems[0].to_string().contains(what));
+        // With proof of existence from 2013 (validated then) the algorithm was still acceptable.
+        let then = validate_chain(leaf, &[], &store, y2013, Purpose::DocumentSigning);
+        assert!(then.trusted, "{what}: {:?}", then.problems);
+    }
+}

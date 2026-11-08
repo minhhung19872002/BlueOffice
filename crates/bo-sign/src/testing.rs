@@ -105,6 +105,48 @@ fn issue(
     cert.to_der().expect("der")
 }
 
+/// A root (2048-bit, SHA-256) and two leaves it issues with a weak algorithm (policy tests,
+/// [`crate::policy`]): one signed with sha1WithRSAEncryption, one with a 1024-bit key.
+/// Returns DER `(root, sha1_leaf, rsa1024_leaf)`.
+///
+/// # Panics
+/// On RNG/encoding failure (tests only).
+#[must_use]
+pub fn weak_certificates(
+    rng: &mut impl rsa::rand_core::CryptoRngCore,
+    validity: Validity,
+) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+    let rk = RsaPrivateKey::new(rng, 2048).expect("rsa keygen");
+    let root = issue(&rk, "Weak Root CA", Profile::Root, &rk, validity, 1, None);
+    let leaf_profile = || Profile::Leaf {
+        issuer: name("Weak Root CA"),
+        enable_key_agreement: false,
+        enable_key_encipherment: false,
+    };
+    // sha1WithRSAEncryption certificate signature.
+    let k1 = RsaPrivateKey::new(rng, 2048).expect("rsa keygen");
+    let pub_der = k1.to_public_key().to_public_key_der().expect("spki");
+    let spki = spki::SubjectPublicKeyInfoOwned::try_from(pub_der.as_bytes()).expect("spki");
+    let sha1_signer = SigningKey::<sha1::Sha1>::new(rk.clone());
+    let sha1_leaf = CertificateBuilder::new(
+        leaf_profile(),
+        SerialNumber::from(2u32),
+        validity,
+        name("SHA-1 leaf"),
+        spki,
+        &sha1_signer,
+    )
+    .expect("builder")
+    .build::<rsa::pkcs1v15::Signature>()
+    .expect("cert")
+    .to_der()
+    .expect("der");
+    // 1024-bit key.
+    let k2 = RsaPrivateKey::new(rng, 1024).expect("rsa keygen");
+    let short_leaf = issue(&k2, "RSA-1024 leaf", leaf_profile(), &rk, validity, 3, None);
+    (root, sha1_leaf, short_leaf)
+}
+
 /// Creates a self-signed 2048-bit RSA signer with the given common name.
 ///
 /// # Panics
@@ -140,7 +182,7 @@ pub struct TestPki {
 }
 
 impl TestPki {
-    /// Certificates valid for one day around now (1024-bit keys for speed).
+    /// Certificates valid for one day around now (2048-bit keys).
     #[must_use]
     pub fn new(rng: &mut impl rsa::rand_core::CryptoRngCore) -> Self {
         let day = Duration::from_hours(24);
@@ -153,7 +195,7 @@ impl TestPki {
     /// On RNG/encoding failure (tests only).
     #[must_use]
     pub fn with_validity(rng: &mut impl rsa::rand_core::CryptoRngCore, validity: Validity) -> Self {
-        let mut keygen = || RsaPrivateKey::new(rng, 1024).expect("rsa keygen");
+        let mut keygen = || RsaPrivateKey::new(rng, 2048).expect("rsa keygen");
         let (rk, ik, sk, tk) = (keygen(), keygen(), keygen(), keygen());
         let root = issue(&rk, "Test Root CA", Profile::Root, &rk, validity, 1, None);
         let inter = issue(
@@ -262,7 +304,7 @@ pub fn ocsp_responder(
     eku: bool,
     validity: Validity,
 ) -> SoftwareSigner {
-    let key = RsaPrivateKey::new(rng, 1024).expect("rsa keygen");
+    let key = RsaPrivateKey::new(rng, 2048).expect("rsa keygen");
     let issuer_cert = x509_cert::Certificate::from_der(&issuer.cert_der).expect("cert");
     let cert = issue(
         &key,

@@ -332,6 +332,16 @@ pub enum ChainProblem {
         /// Subject (RFC 4514) of the CRL issuer.
         subject: String,
     },
+    /// An algorithm or key size that had become weak at the validation time ([`crate::policy`];
+    /// ETSI EN 319 102-1 §5.2.8): acceptable only with a proof of existence from before `since`.
+    WeakAlgorithm {
+        /// Subject (RFC 4514) of the certificate concerned (or the signer).
+        subject: String,
+        /// The weak algorithm (`SHA-1`, `RSA-1024`).
+        what: String,
+        /// Sunset (`YYYY-MM-DDThh:mm:ssZ`).
+        since: String,
+    },
     /// The path is longer than the validator accepts.
     PathTooLong,
     /// A certificate could not be decoded.
@@ -354,6 +364,7 @@ impl ChainProblem {
             Self::Unsupported { .. } => "unsupported",
             Self::Revoked { .. } => "revoked",
             Self::CrlStale { .. } => "crlStale",
+            Self::WeakAlgorithm { .. } => "weakAlgorithm",
             Self::PathTooLong => "pathTooLong",
             Self::Malformed(_) => "malformed",
         }
@@ -372,6 +383,7 @@ impl ChainProblem {
             | Self::ExtendedKeyUsage { subject }
             | Self::Revoked { subject, .. }
             | Self::CrlStale { subject }
+            | Self::WeakAlgorithm { subject, .. }
             | Self::Unsupported { subject, .. } => Some(subject),
             _ => None,
         }
@@ -406,6 +418,14 @@ impl fmt::Display for ChainProblem {
             Self::CrlStale { subject } => {
                 write!(f, "the revocation list of \"{subject}\" is out of date")
             }
+            Self::WeakAlgorithm {
+                subject,
+                what,
+                since,
+            } => write!(
+                f,
+                "\"{subject}\" uses {what}, not accepted since {since} without earlier proof of existence"
+            ),
             Self::PathTooLong => write!(f, "certificate path too long"),
             Self::Malformed(m) => write!(f, "malformed certificate: {m}"),
         }
@@ -623,6 +643,22 @@ fn check_end_entity(c: &Certificate, purpose: Purpose, problems: &mut Vec<ChainP
     }
 }
 
+fn weak_check(
+    c: &Certificate,
+    sunset: Option<SystemTime>,
+    what: &str,
+    at: SystemTime,
+    problems: &mut Vec<ChainProblem>,
+) {
+    if let Some(since) = crate::policy::weak_at(sunset, at) {
+        problems.push(ChainProblem::WeakAlgorithm {
+            subject: subject(c),
+            what: what.to_owned(),
+            since: crate::iso_utc(crate::unix_secs(since)),
+        });
+    }
+}
+
 /// Validates `leaf_der` against `store` at time `at`, building the path
 /// through the certificates of `pool` (those embedded in the signature).
 #[must_use]
@@ -728,6 +764,34 @@ pub fn validate_chain(
             check_end_entity(c, purpose, &mut report.problems);
         } else {
             check_ca(c, i - 1, &mut report.problems);
+        }
+    }
+    // Algorithms weak at the validation time: certificate signatures of the path and the keys of the
+    // path and the anchor (ETSI EN 319 102-1 §5.2.8).
+    for c in &path {
+        if let Ok(alg) = HashAlg::from_rsa_signature_oid(c.signature_algorithm.oid) {
+            weak_check(
+                c,
+                crate::policy::hash_sunset(alg),
+                crate::policy::hash_name(alg),
+                at,
+                &mut report.problems,
+            );
+        }
+    }
+    for c in path
+        .iter()
+        .chain(anchor.filter(|a| path.first() != Some(*a)))
+    {
+        if let Ok(key) = crate::rsa_key_of(c) {
+            let bits = rsa::traits::PublicKeyParts::size(&key) * 8;
+            weak_check(
+                c,
+                crate::policy::rsa_sunset(bits),
+                &format!("RSA-{bits}"),
+                at,
+                &mut report.problems,
+            );
         }
     }
     // Revocation of each certificate by its issuer (the next one, or the anchor).

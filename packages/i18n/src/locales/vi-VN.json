@@ -1629,6 +1629,7 @@
       "unsupported": "“{{subject}}” dùng thuật toán chưa hỗ trợ.",
       "revoked": "“{{subject}}” đã bị thu hồi.",
       "crlStale": "Danh sách thu hồi của “{{subject}}” đã quá hạn.",
+      "weakAlgorithm": "“{{subject}}” dùng thuật toán không còn được chấp nhận ở thời điểm kiểm tra (không có bằng chứng tồn tại trước đó).",
       "pathTooLong": "Chuỗi chứng thư quá dài.",
       "malformed": "Chứng thư bị lỗi định dạng."
     }

@@ -290,3 +290,56 @@ fn a_document_time_stamp_proves_a_signature_made_before_the_signer_expired() {
             .trusted
     );
 }
+
+// source: ETSI EN 319 102-1 §5.6.2.3 / §5.6.3 (proof of existence from a later time-stamp), ETSI EN
+// 319 142-1 §6.5 (B-LTA renewal)
+#[test]
+fn a_later_document_time_stamp_keeps_an_expired_one_trusted() {
+    use bo_sign::pdf::add_document_timestamp;
+    use bo_sign::testing::validity_around;
+    let now = SystemTime::now();
+    // An old TSA whose certificate expired yesterday.
+    let old = TestPki::with_validity(
+        &mut rand::thread_rng(),
+        validity_around(now - 5 * DAY, 5 * DAY, 4 * DAY),
+    );
+    let mut anchors = anchors();
+    anchors.add_der(old.root.certificate_der()).unwrap();
+    let first = add_document_timestamp(
+        &signed(),
+        &LocalTsa::new(clone_signer(&old.tsa), now - 3 * DAY),
+    )
+    .unwrap();
+    // Alone, the expired time-stamp is not trusted today.
+    let r = verify_document(&first, &anchors, now).unwrap();
+    assert!(!r.document_timestamps[0].timestamp.chain.trusted);
+    assert_eq!(
+        r.document_timestamps[0].timestamp.chain.problems[0].code,
+        "expired"
+    );
+    // Renewed two days ago (while the old TSA was still valid) by a trusted time-stamp.
+    let renewed = add_document_timestamp(
+        &first,
+        &LocalTsa::new(clone_signer(&pki().tsa), now - 2 * DAY),
+    )
+    .unwrap();
+    let r = verify_document(&renewed, &anchors, now).unwrap();
+    assert_eq!(r.document_timestamps.len(), 2);
+    assert!(r.document_timestamps[1].timestamp.chain.trusted);
+    assert!(
+        r.document_timestamps[0].timestamp.chain.trusted,
+        "{:?}",
+        r.document_timestamps[0].timestamp.chain
+    );
+    // A renewal made after the old TSA expired proves nothing for it.
+    let late =
+        add_document_timestamp(&first, &LocalTsa::new(clone_signer(&pki().tsa), now)).unwrap();
+    assert!(
+        !verify_document(&late, &anchors, now)
+            .unwrap()
+            .document_timestamps[0]
+            .timestamp
+            .chain
+            .trusted
+    );
+}

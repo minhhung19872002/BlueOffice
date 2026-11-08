@@ -1542,7 +1542,83 @@ fn smartart_decks() -> Vec<(&'static str, Vec<u8>)> {
         dsp_sp(4, 0, 2 * IN, c, c, "ellipse", "C55A11", "Cải tiến"),
     ]
     .concat();
+    // Hierarchy (organisation chart): boxes and the connector lines between them.
+    let mut hierarchy = blank_slide(
+        "Sơ đồ tổ chức (SmartArt phân cấp)",
+        frame(4, IN, IN + IN / 2, 8 * IN, 4 * IN),
+    );
+    hierarchy.rels = rels();
+    let (bw, bh) = (2 * IN, IN);
+    let hierarchy_shapes = [
+        dsp_sp(1, 3 * IN, 0, bw, bh, "roundRect", "1F4E79", "Giám đốc"),
+        dsp_sp(
+            2,
+            0,
+            2 * IN,
+            bw,
+            bh,
+            "roundRect",
+            "2E75B6",
+            "Phòng Kỹ thuật",
+        ),
+        dsp_sp(
+            3,
+            3 * IN,
+            2 * IN,
+            bw,
+            bh,
+            "roundRect",
+            "2E75B6",
+            "Phòng Kinh doanh",
+        ),
+        dsp_sp(
+            4,
+            6 * IN,
+            2 * IN,
+            bw,
+            bh,
+            "roundRect",
+            "2E75B6",
+            "Phòng Hành chính",
+        ),
+        dsp_sp(5, 4 * IN - IN / 40, bh, IN / 20, IN, "rect", "7F7F7F", ""),
+        dsp_sp(
+            6,
+            IN,
+            3 * IN / 2 - IN / 40,
+            6 * IN,
+            IN / 20,
+            "rect",
+            "7F7F7F",
+            "",
+        ),
+        dsp_sp(
+            7,
+            IN - IN / 40,
+            3 * IN / 2,
+            IN / 20,
+            IN / 2,
+            "rect",
+            "7F7F7F",
+            "",
+        ),
+        dsp_sp(
+            8,
+            7 * IN - IN / 40,
+            3 * IN / 2,
+            IN / 20,
+            IN / 2,
+            "rect",
+            "7F7F7F",
+            "",
+        ),
+    ]
+    .concat();
     vec![
+        (
+            "slide-smartart-hierarchy.pptx",
+            build(&[hierarchy], &parts(&hierarchy_shapes), THEME_BLUE),
+        ),
         (
             "slide-smartart-process.pptx",
             build(&[process], &parts(&process_shapes), THEME_BLUE),

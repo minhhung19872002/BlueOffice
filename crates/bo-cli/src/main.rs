@@ -21,15 +21,19 @@
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli sample-big <out.docx> [--pages 300]  # §5 benchmark document (text + pictures)
 //! bo-cli bench input.docx [--iterations 5]
+//! bo-cli validate <file-or-dir>... [--json] [--openxml auto|require|off] [--validator PATH]
+//! bo-cli fidelity-report [--no-validate] [--corpus DIR] [--report FILE] [--history FILE]
 //! ```
 #![forbid(unsafe_code)]
 
 mod convert;
 mod corpus;
+mod fidelity;
 mod sample;
 mod sign_cmd;
 mod slide_edits;
 mod slide_samples;
+mod validate;
 
 use bo_engine::Engine;
 use clap::{Parser, Subcommand};
@@ -207,6 +211,49 @@ enum Cmd {
         #[arg(long, default_value_t = 5)]
         iterations: u32,
     },
+    /// Validate OOXML packages: built-in OPC structure checks (content types,
+    /// relationships, XML well-formedness, main part) plus OpenXmlValidator
+    /// (tools/BlueOffice.Validate) when .NET is available. Exit code 1 on errors.
+    Validate {
+        /// Files or directories (searched recursively for .docx/.xlsx/.pptx/…).
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// Print a JSON report instead of text.
+        #[arg(long)]
+        json: bool,
+        /// OpenXmlValidator stage: `auto` runs it when found, `require` fails without it.
+        #[arg(long, default_value = "auto", value_parser = ["auto", "require", "off"])]
+        openxml: String,
+        /// Validator to run: project directory, .csproj, .dll or executable
+        /// (default: env BO_VALIDATE, else tools/BlueOffice.Validate of the repository).
+        #[arg(long)]
+        validator: Option<PathBuf>,
+        /// OpenXmlValidator file format version (e.g. Office2019, Office2007).
+        #[arg(long)]
+        format: Option<String>,
+    },
+    /// Round-trip the corpus and validate it (scripts/fidelity-report.mjs, run with
+    /// this bo-cli): writes docs/fidelity-report.md and tests/fidelity/history.csv.
+    FidelityReport {
+        /// Skip OpenXmlValidator (conversion only).
+        #[arg(long)]
+        no_validate: bool,
+        /// Corpus root with doc/, sheet/ and slide/ (default: tests/corpus).
+        #[arg(long)]
+        corpus: Option<PathBuf>,
+        /// Markdown report (default: docs/fidelity-report.md).
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// History CSV appended to (default: tests/fidelity/history.csv).
+        #[arg(long)]
+        history: Option<PathBuf>,
+        /// Directory of the round-tripped files (default: tests/fidelity/output/roundtrip).
+        #[arg(long)]
+        work: Option<PathBuf>,
+        /// The script to run (default: scripts/fidelity-report.mjs of the repository).
+        #[arg(long)]
+        script: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -244,6 +291,34 @@ fn open(input: &Path) -> Result<Engine, Box<dyn std::error::Error>> {
 
 fn run(cli: Cli) -> R {
     match cli.cmd {
+        Cmd::Validate {
+            inputs,
+            json,
+            openxml,
+            validator,
+            format,
+        } => validate::run(&validate::Options {
+            inputs,
+            openxml: validate::OpenXmlMode::parse(&openxml).ok_or("bad --openxml")?,
+            validator,
+            file_format: format,
+            json,
+        })?,
+        Cmd::FidelityReport {
+            no_validate,
+            corpus,
+            report,
+            history,
+            work,
+            script,
+        } => fidelity::run(&fidelity::Options {
+            no_validate,
+            corpus,
+            report,
+            history,
+            work,
+            script,
+        })?,
         Cmd::Render {
             input,
             out,

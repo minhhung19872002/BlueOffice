@@ -7,8 +7,9 @@
 // `slide:slide-anim`, … — from the corpus file-name prefix, see `featureOf`). The report
 // shows % pass per feature group and the trend of the last runs from the history.
 //
-// Usage: node scripts/fidelity-report.mjs [--no-validate]
-// Needs: `cargo build -p bo-cli` (target/debug/bo-cli) and the .NET 8 SDK.
+// Usage: node scripts/fidelity-report.mjs [--no-validate] [--corpus DIR] [--report FILE]
+//        [--history FILE] [--work DIR]   (also `bo-cli fidelity-report`, which sets BO_CLI)
+// Needs: `cargo build -p bo-cli` (target/debug/bo-cli, or env BO_CLI) and the .NET 8 SDK.
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
@@ -19,15 +20,22 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, join, relative } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const corpus = join(root, 'tests/corpus');
-const out = join(root, 'tests/fidelity/output/roundtrip');
+/** Value of `--name VALUE` on the command line, resolved against the cwd. */
+function arg(name, fallback) {
+  const i = process.argv.indexOf(`--${name}`);
+  return i > 0 && process.argv[i + 1] ? resolve(process.argv[i + 1]) : fallback;
+}
+const corpus = arg('corpus', join(root, 'tests/corpus'));
+const out = arg('work', join(root, 'tests/fidelity/output/roundtrip'));
 const groups = { doc: 'docx', sheet: 'xlsx', slide: 'pptx' };
 const validate = !process.argv.includes('--no-validate');
-const exe = join(root, 'target/debug', process.platform === 'win32' ? 'bo-cli.exe' : 'bo-cli');
+const exe =
+  process.env.BO_CLI ||
+  join(root, 'target/debug', process.platform === 'win32' ? 'bo-cli.exe' : 'bo-cli');
 
 if (!existsSync(exe)) {
   console.error(`missing ${exe} — run: cargo build -p bo-cli`);
@@ -190,7 +198,7 @@ for (const r of rows) {
 }
 
 // Trend: pass % of the previous runs (one point per date + commit) from history.csv.
-const history = join(root, 'tests/fidelity/history.csv');
+const history = arg('history', join(root, 'tests/fidelity/history.csv'));
 const past = existsSync(history)
   ? readFileSync(history, 'utf8')
       .split(/\r?\n/)
@@ -239,7 +247,7 @@ for (const r of rows) {
   const passed = r.validOut ?? r.converted;
   md += `| ${r.group} | ${trend(r.group, r.files ? (100 * passed) / r.files : 0)} |\n`;
 }
-writeFileSync(join(root, 'docs/fidelity-report.md'), md);
+writeFileSync(arg('report', join(root, 'docs/fidelity-report.md')), md);
 
 if (!existsSync(history)) writeFileSync(history, 'date,commit,group,files,converted,valid_out\n');
 for (const r of rows) {

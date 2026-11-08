@@ -22,6 +22,7 @@ bo-odf = { path = "../bo-odf" }
 bo-crypto = { path = "../bo-crypto" }
 bo-sign = { path = "../bo-sign", features = ["http", "pkcs12"] }
 serde_json.workspace = true
+quick-xml.workspace = true
 bo-pptx = { path = "../bo-pptx" }
 clap.workspace = true
 png.workspace = true

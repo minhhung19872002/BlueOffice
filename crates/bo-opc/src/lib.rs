@@ -14,7 +14,9 @@ pub mod xml;
 
 pub use content_types::ContentTypes;
 pub use package::{Limits, Package, Part};
-pub use rels::{rels_part_name, resolve_target, Relationship, TargetMode};
+pub use rels::{
+    parse as parse_relationships, rels_part_name, resolve_target, Relationship, TargetMode,
+};
 
 /// Relationship type of the main office document part.
 /// ECMA-376 Part 1, §15.2.12.1 / Part 2 §9.3.

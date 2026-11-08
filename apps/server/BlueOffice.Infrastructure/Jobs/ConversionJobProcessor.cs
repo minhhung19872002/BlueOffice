@@ -59,6 +59,9 @@ public sealed class ConversionJobProcessor(
     /// <summary>Maximum number of pages read by text extraction.</summary>
     public const int MaxTextPages = 500;
 
+    /// <summary>Maximum number of page images kept by a PNG preview.</summary>
+    public const int MaxPreviewPages = 50;
+
     private static readonly ActivitySource Activity = new("BlueOffice.Jobs");
 
     /// <summary>Runs the job and returns it with its final status (the caller persists it).</summary>
@@ -86,6 +89,9 @@ public sealed class ConversionJobProcessor(
             var baseName = Path.GetFileNameWithoutExtension(job.FileName);
             switch (job.Kind)
             {
+                case JobKind.Preview when string.Equals(job.TargetFormat, "png", StringComparison.OrdinalIgnoreCase):
+                    return await PreviewPagesAsync(job, input, ext, dir.FullName, baseName, ct);
+
                 case JobKind.Convert or JobKind.Preview:
                     {
                         var to = job.Kind == JobKind.Preview ? "pdf" : (job.TargetFormat ?? "pdf").ToLowerInvariant();
@@ -96,7 +102,10 @@ public sealed class ConversionJobProcessor(
 
                         var output = Path.Combine(dir.FullName, "output." + to);
                         var r = await runner.RunAsync(["convert", input, "--to", to, "--out", output], dir.FullName, ct);
-                        return await FinishFileAsync(job, r, output, ConversionFormats.ContentType(to), baseName + "." + to, ct);
+
+                        // bo-cli keeps macros of a macro-enabled input (.doc with VBA → .docm): name and type follow the package.
+                        var outFormat = r.ExitCode == 0 && File.Exists(output) ? ConversionFormats.ActualFormat(to, output) : to;
+                        return await FinishFileAsync(job, r, output, ConversionFormats.ContentType(outFormat), baseName + "." + outFormat, ct);
                     }
 
                 case JobKind.Thumbnail:
@@ -135,6 +144,47 @@ public sealed class ConversionJobProcessor(
                 // Best effort cleanup.
             }
         }
+    }
+
+    private async Task<ConversionJob> PreviewPagesAsync(ConversionJob job, string input, string ext, string workDir, string baseName, CancellationToken ct)
+    {
+        if (!ConversionFormats.CanRender(ext))
+        {
+            return Fail(job, $"No page renderer for '{ext}' yet.");
+        }
+
+        // One PNG per page (spreadsheets: printed pages). bo-cli renders every page; at most MaxPreviewPages are kept.
+        var pagesDir = Directory.CreateDirectory(Path.Combine(workDir, "pages")).FullName;
+        var scale = Math.Clamp(job.Scale, 0.05, 4).ToString("0.###", CultureInfo.InvariantCulture);
+        var r = await runner.RunAsync(["render", input, "--out", Path.Combine(pagesDir, "page-%d.png"), "--scale", scale], workDir, ct);
+        var files = Directory.EnumerateFiles(pagesDir, "page-*.png")
+            .Select(f => (Path: f, Number: int.TryParse(Path.GetFileNameWithoutExtension(f)["page-".Length..], NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : 0))
+            .Where(x => x.Number > 0)
+            .OrderBy(x => x.Number)
+            .ToList();
+        if (r.ExitCode != 0 || files.Count == 0)
+        {
+            logger.LogWarning("bo-cli render failed for job {Job} ({Code}): {Error}", job.Id, r.ExitCode, r.StdErr);
+            return Fail(job, string.IsNullOrWhiteSpace(r.StdErr) ? "Rendering failed." : r.StdErr.Trim());
+        }
+
+        var kept = files.Take(MaxPreviewPages).ToList();
+        for (var i = 0; i < kept.Count; i++)
+        {
+            await using var fs = File.OpenRead(kept[i].Path);
+            await store.PutAsync(job.PageKey(i + 1), fs, "image/png", ct);
+        }
+
+        var payload = new
+        {
+            pages = kept.Count,
+            totalPages = files.Count,
+            images = Enumerable.Range(1, kept.Count).Select(n => $"/jobs/{job.Id}/pages/{n}").ToList(),
+        };
+        using var ms = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(payload));
+        await store.PutAsync(job.OutputKey, ms, "application/json", ct);
+        job.OutputPages = kept.Count;
+        return Succeed(job, "application/json", baseName + ".json");
     }
 
     private async Task<ConversionJob> ExtractTextAsync(ConversionJob job, string input, string workDir, string baseName, CancellationToken ct)
@@ -322,9 +372,48 @@ public static class ConversionFormats
         return PlainText.Contains(ext, StringComparer.OrdinalIgnoreCase) ? ["pdf"] : [];
     }
 
+    /// <summary>
+    /// Format of a written OOXML package: <paramref name="requested"/>, or its macro-enabled variant (docm, xlsm, pptm) when
+    /// the main part has the macro-enabled content type (ECMA-376 Part 2 §10.1.2.2 [Content_Types].xml; [MS-OFFMACRO2]).
+    /// </summary>
+    public static string ActualFormat(string requested, string path)
+    {
+        if (requested is not ("docx" or "xlsx" or "pptx"))
+        {
+            return requested;
+        }
+
+        try
+        {
+            using var zip = System.IO.Compression.ZipFile.OpenRead(path);
+            var entry = zip.GetEntry("[Content_Types].xml");
+            if (entry is null)
+            {
+                return requested;
+            }
+
+            using var reader = new StreamReader(entry.Open(), Encoding.UTF8);
+            var types = reader.ReadToEnd();
+            return requested switch
+            {
+                "docx" when types.Contains("application/vnd.ms-word.document.macroEnabled.main+xml", StringComparison.OrdinalIgnoreCase) => "docm",
+                "xlsx" when types.Contains("application/vnd.ms-excel.sheet.macroEnabled.main+xml", StringComparison.OrdinalIgnoreCase) => "xlsm",
+                "pptx" when types.Contains("application/vnd.ms-powerpoint.presentation.macroEnabled.main+xml", StringComparison.OrdinalIgnoreCase) => "pptm",
+                _ => requested,
+            };
+        }
+        catch (InvalidDataException)
+        {
+            return requested;
+        }
+    }
+
     /// <summary>MIME type of an output format.</summary>
     public static string ContentType(string format) => format switch
     {
+        "docm" => "application/vnd.ms-word.document.macroEnabled.12",
+        "xlsm" => "application/vnd.ms-excel.sheet.macroEnabled.12",
+        "pptm" => "application/vnd.ms-powerpoint.presentation.macroEnabled.12",
         "pdf" => "application/pdf",
         "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

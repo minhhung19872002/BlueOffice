@@ -28,6 +28,9 @@ public sealed class BoCliEndToEndTests : IDisposable
 
     private static string Corpus(string relative) => Path.Combine(BoCliConverterTests.RepoRoot(), "tests", "corpus", relative);
 
+    // Legacy binaries written by the bo-binary test builders (synthetic, no third-party content).
+    private static string Fixture(string name) => Path.Combine(BoCliConverterTests.RepoRoot(), "apps", "server", "BlueOffice.Tests", "Fixtures", name);
+
     private async Task<HttpResponseMessage> PostAsync(string endpoint, byte[] content, string fileName, params (string Key, string Value)[] fields)
     {
         using var form = new MultipartFormDataContent();
@@ -92,6 +95,83 @@ public sealed class BoCliEndToEndTests : IDisposable
         // Combinations bo-cli cannot do are refused before running it.
         var refused = await PostAsync("/convert", docx, "a.docx", ("to", "xlsx"));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task ConvertsLegacyAndOpenFormatsToEveryTargetBoCliSupports()
+    {
+        if (_app is null)
+        {
+            return;
+        }
+
+        const string Docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        const string Xlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        const string Pptx = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+        // .doc → .docx (or .docm when the input carries VBA: the content type tells which).
+        var doc = await File.ReadAllBytesAsync(Fixture("sample.doc"));
+        var fromDoc = await PostAsync("/convert", doc, "Công văn cũ.doc", ("to", "docx"));
+        Assert.Equal(HttpStatusCode.OK, fromDoc.StatusCode);
+        var docType = fromDoc.Content.Headers.ContentType?.MediaType;
+        Assert.True(docType is Docx or "application/vnd.ms-word.document.macroEnabled.12", docType);
+        AssertZipWith(await fromDoc.Content.ReadAsByteArrayAsync(), "word/document.xml");
+        AssertPdf(await OkBytesAsync(await PostAsync("/convert", doc, "Công văn cũ.doc", ("to", "pdf")), "application/pdf"));
+
+        var docx = await File.ReadAllBytesAsync(Corpus("doc/phase1-sample.docx"));
+        AssertZipWith(await OkBytesAsync(await PostAsync("/convert", docx, "a.docx", ("to", "odt")), "application/vnd.oasis.opendocument.text"), "content.xml");
+        var txt = System.Text.Encoding.UTF8.GetString(await OkBytesAsync(await PostAsync("/convert", docx, "a.docx", ("to", "txt")), "text/plain"));
+        Assert.Contains("CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM", txt, StringComparison.Ordinal);
+        AssertZipWith(await OkBytesAsync(await PostAsync("/convert", docx, "a.docx", ("to", "docx")), Docx), "word/document.xml");
+
+        // .xls → .xlsx / .ods / .csv.
+        var xls = await File.ReadAllBytesAsync(Fixture("sample.xls"));
+        AssertZipWith(await OkBytesAsync(await PostAsync("/convert", xls, "Số liệu cũ.xls", ("to", "xlsx")), Xlsx), "xl/workbook.xml");
+        AssertZipWith(await OkBytesAsync(await PostAsync("/convert", xls, "Số liệu cũ.xls", ("to", "ods")), "application/vnd.oasis.opendocument.spreadsheet"), "content.xml");
+        Assert.NotEmpty(await OkBytesAsync(await PostAsync("/convert", xls, "Số liệu cũ.xls", ("to", "csv")), "text/csv"));
+
+        var xlsx = await File.ReadAllBytesAsync(Corpus("sheet/values-1.xlsx"));
+        AssertZipWith(await OkBytesAsync(await PostAsync("/convert", xlsx, "b.xlsx", ("to", "ods")), "application/vnd.oasis.opendocument.spreadsheet"), "content.xml");
+        Assert.Contains("Chuỗi 1", System.Text.Encoding.UTF8.GetString(await OkBytesAsync(await PostAsync("/convert", xlsx, "b.xlsx", ("to", "csv")), "text/csv")), StringComparison.Ordinal);
+
+        // .pptx → .pptx (normalised by the engine); .ppt → .odp / text (no PresentationML writer for it yet).
+        var pptx = await File.ReadAllBytesAsync(Corpus("slide/slide-text-bullets.pptx"));
+        AssertZipWith(await OkBytesAsync(await PostAsync("/convert", pptx, "c.pptx", ("to", "pptx")), Pptx), "ppt/presentation.xml");
+        var ppt = await File.ReadAllBytesAsync(Fixture("sample.ppt"));
+        AssertZipWith(await OkBytesAsync(await PostAsync("/convert", ppt, "Trình chiếu cũ.ppt", ("to", "odp")), "application/vnd.oasis.opendocument.presentation"), "content.xml");
+        Assert.NotEmpty(await OkBytesAsync(await PostAsync("/convert", ppt, "Trình chiếu cũ.ppt", ("to", "txt")), "text/plain"));
+
+        // Pairs bo-cli cannot do: 422 without running it.
+        foreach (var (bytes, name, to) in new[] { (pptx, "c.pptx", "odp"), (ppt, "d.ppt", "pptx"), (xlsx, "b.xlsx", "docx"), (docx, "a.docx", "csv") })
+        {
+            var refused = await PostAsync("/convert", bytes, name, ("to", to));
+            Assert.True(refused.StatusCode == HttpStatusCode.UnprocessableEntity, $"{name} → {to}: {(int)refused.StatusCode}");
+        }
+    }
+
+    [Fact]
+    public async Task PngPreviewRendersEveryPageWithTheRealCli()
+    {
+        if (_app is null)
+        {
+            return;
+        }
+
+        var c = _app.ClientFor("bo-cli-e2e");
+        foreach (var (path, name) in new[] { ("doc/phase1-sample.docx", "a.docx"), ("sheet/values-1.xlsx", "b.xlsx"), ("slide/slide-text-bullets.pptx", "c.pptx") })
+        {
+            var res = await PostAsync("/preview", await File.ReadAllBytesAsync(Corpus(path)), name, ("format", "png"), ("scale", "0.3"));
+            Assert.True(res.StatusCode == HttpStatusCode.OK, $"{name}: {(int)res.StatusCode} {await res.Content.ReadAsStringAsync()}");
+            var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+            var pages = body.GetProperty("pages").GetInt32();
+            Assert.InRange(pages, 1, 50);
+            var images = body.GetProperty("images").EnumerateArray().Select(x => x.GetString()!).ToList();
+            Assert.Equal(pages, images.Count);
+            foreach (var url in images)
+            {
+                AssertPng(await c.GetByteArrayAsync(new Uri(url, UriKind.Relative)));
+            }
+        }
     }
 
     [Fact]

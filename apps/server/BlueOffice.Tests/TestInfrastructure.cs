@@ -39,6 +39,9 @@ public sealed class FakeRunner : IBoCliRunner
     /// <summary>Optional override.</summary>
     public Func<IReadOnlyList<string>, ProcessResult?>? Handler { get; set; }
 
+    /// <summary>Pages written by <c>render</c> without <c>--page</c> (<c>%d</c> in <c>--out</c>).</summary>
+    public int RenderPages { get; set; } = 2;
+
     /// <inheritdoc />
     public async Task<ProcessResult> RunAsync(IReadOnlyList<string> args, string workingDirectory, CancellationToken ct)
     {
@@ -55,8 +58,23 @@ public sealed class FakeRunner : IBoCliRunner
                 await File.WriteAllBytesAsync(Out(), "%PDF-1.7 fake"u8.ToArray(), ct);
                 return new ProcessResult(0, "", "");
             case "render":
-                await File.WriteAllBytesAsync(Out(), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], ct);
-                return new ProcessResult(0, "", "");
+                {
+                    byte[] png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+                    if (!Out().Contains("%d", StringComparison.Ordinal))
+                    {
+                        await File.WriteAllBytesAsync(Out(), png, ct);
+                        return new ProcessResult(0, "", "");
+                    }
+
+                    // Every page: `RenderPages` pages, page number appended to the PNG signature.
+                    for (var p = 1; p <= RenderPages; p++)
+                    {
+                        await File.WriteAllBytesAsync(Out().Replace("%d", p.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal), [.. png, (byte)p], ct);
+                    }
+
+                    return new ProcessResult(0, "", "");
+                }
+
             case "dump":
                 var page = int.Parse(args[^1], System.Globalization.CultureInfo.InvariantCulture);
                 return page switch

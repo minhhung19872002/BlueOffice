@@ -620,7 +620,14 @@
         "stock": "Chứng khoán (cao–thấp–đóng)",
         "stockUpDown": "Chứng khoán có thanh tăng/giảm",
         "surface": "Bề mặt",
-        "surfaceWireframe": "Bề mặt dạng khung"
+        "surfaceWireframe": "Bề mặt dạng khung",
+        "waterfall": "Thác nước",
+        "treemap": "Bản đồ cây",
+        "sunburst": "Hình tia nắng",
+        "histogram": "Tần suất (histogram)",
+        "pareto": "Pareto",
+        "boxWhisker": "Hộp và râu",
+        "funnel": "Phễu"
       },
       "legendPos": {
         "none": "Không",

@@ -1,0 +1,37 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Dòng "
+  text 28.0pt 74.5,30.3 #000000ff "tiền "
+  text 28.0pt 126.4,30.3 #000000ff "(waterfall)"
+pop transform
+transform [1.000 0.000 0.000 1.000 72.0 108.0]
+  text 17.7pt 214.3,24.5 #3c4043ff "Dòng "
+  text 17.7pt 256.1,24.5 #3c4043ff "tiền "
+  text 17.7pt 288.0,24.5 #3c4043ff "(waterfall)"
+  line 58.4,261.1 → 570.0,261.1 w0.50
+  text 13.1pt 48.7,265.5 #3c4043ff "0"
+  line 58.4,187.2 → 570.0,187.2 w0.50
+  text 13.1pt 42.1,191.6 #3c4043ff "50"
+  line 58.4,113.3 → 570.0,113.3 w0.50
+  text 13.1pt 35.5,117.8 #3c4043ff "100"
+  line 58.4,39.4 → 570.0,39.4 w0.50
+  text 13.1pt 35.5,43.9 #3c4043ff "150"
+  rect 83.9,113.3 76.7x147.8 #2e75b6ff
+  line 160.7,113.3 → 211.9,113.3 w0.50
+  rect 211.9,46.8 76.7x66.5 #2e75b6ff
+  line 288.6,46.8 → 339.8,46.8 w0.50
+  rect 339.8,46.8 76.7x44.3 #ed7d31ff
+  line 416.5,91.1 → 467.7,91.1 w0.50
+  rect 467.7,91.1 76.7x169.9 #a5a5a5ff
+  line 58.4,261.1 → 570.0,261.1 w0.75
+  text 13.1pt 104.2,276.5 #3c4043ff "Đầu "
+  text 13.1pt 128.5,276.5 #3c4043ff "kỳ"
+  text 13.1pt 240.2,276.5 #3c4043ff "Thu"
+  text 13.1pt 369.7,276.5 #3c4043ff "Chi"
+  text 13.1pt 486.7,276.5 #3c4043ff "Cuối "
+  text 13.1pt 513.5,276.5 #3c4043ff "kỳ"
+pop transform

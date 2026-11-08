@@ -1584,6 +1584,189 @@ fn writer_chart_kind(group: &str, i: usize) -> m::Workbook {
     wb
 }
 
+/// Chartex charts ([MS-ODRAWXML] 2.24) inserted with `bo_sheet::chart::new_chart` (CORE-CHART-004).
+fn writer_chartex(kind: &str, i: usize) -> m::Workbook {
+    let mut wb = m::Workbook::new();
+    let text = |s: &str| m::Cell::new(m::CellValue::Text(s.into()));
+    let num = |v: f64| m::Cell::new(m::CellValue::Number(v));
+    let rows: Vec<Vec<m::Cell>> = match kind {
+        "waterfall" => {
+            let items: &[(&str, f64)] = match i {
+                1 => &[
+                    ("Đầu kỳ", 120.0),
+                    ("Doanh thu", 80.0),
+                    ("Chi phí", -45.0),
+                    ("Thuế", -15.0),
+                    ("Cuối kỳ", 140.0),
+                ],
+                2 => &[
+                    ("T1", 30.0),
+                    ("T2", -12.0),
+                    ("T3", 25.0),
+                    ("T4", -8.0),
+                    ("T5", 18.0),
+                    ("T6", -20.0),
+                ],
+                _ => &[
+                    ("Vốn", 500.0),
+                    ("Lãi", 60.0),
+                    ("Lỗ", -90.0),
+                    ("Tổng", 470.0),
+                ],
+            };
+            let mut r = vec![vec![text("Khoản mục"), text("Giá trị")]];
+            r.extend(items.iter().map(|(n, v)| vec![text(n), num(*v)]));
+            r
+        }
+        "treemap" | "sunburst" => {
+            let items: &[(&str, &str, &str, f64)] = &[
+                ("Miền Bắc", "Hà Nội", "Ba Đình", 34.0),
+                ("Miền Bắc", "Hà Nội", "Cầu Giấy", 28.0),
+                ("Miền Bắc", "Hải Phòng", "Lê Chân", 19.0),
+                ("Miền Trung", "Đà Nẵng", "Hải Châu", 22.0),
+                ("Miền Trung", "Huế", "Phú Hội", 11.0),
+                ("Miền Nam", "TP.HCM", "Quận 1", 41.0),
+                ("Miền Nam", "TP.HCM", "Thủ Đức", 37.0),
+                ("Miền Nam", "Cần Thơ", "Ninh Kiều", 16.0),
+            ];
+            // Variants: two levels, three levels, two levels of a subset.
+            let three = i == 2;
+            let take = if i == 3 { 5 } else { items.len() };
+            let mut head = vec![text("Vùng"), text("Tỉnh")];
+            if three {
+                head.push(text("Quận"));
+            }
+            head.push(text("Doanh số"));
+            let mut r = vec![head];
+            for (a, b, c, v) in &items[..take] {
+                let mut row = vec![text(a), text(b)];
+                if three {
+                    row.push(text(c));
+                }
+                row.push(num(*v));
+                r.push(row);
+            }
+            r
+        }
+        "histogram" => {
+            // Deterministic scores 40..100 (a linear congruential sequence).
+            let n = [30, 60, 15][i - 1];
+            let mut r = vec![vec![text("Điểm")]];
+            let mut x: u64 = 7 + i as u64;
+            for _ in 0..n {
+                x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345) % 2_147_483_648;
+                r.push(vec![num(40.0 + (x % 61) as f64)]);
+            }
+            r
+        }
+        "pareto" => {
+            let items: &[(&str, f64)] = match i {
+                1 => &[
+                    ("Trễ hạn", 42.0),
+                    ("Sai số liệu", 18.0),
+                    ("Thiếu chữ ký", 9.0),
+                    ("Khác", 5.0),
+                ],
+                2 => &[
+                    ("A", 3.0),
+                    ("B", 27.0),
+                    ("C", 14.0),
+                    ("D", 8.0),
+                    ("E", 21.0),
+                ],
+                _ => &[("Lỗi in", 12.0), ("Lỗi máy", 12.0), ("Lỗi người", 30.0)],
+            };
+            let mut r = vec![vec![text("Nguyên nhân"), text("Số lần")]];
+            r.extend(items.iter().map(|(n, v)| vec![text(n), num(*v)]));
+            r
+        }
+        "boxWhisker" => {
+            let series = if i == 2 { 2 } else { 1 };
+            let mut head = vec![text("Lớp")];
+            for k in 0..series {
+                head.push(text(&format!("Môn {}", k + 1)));
+            }
+            let mut r = vec![head];
+            for (g, base) in [("10A", 6.0), ("10B", 7.0), ("10C", 5.5)] {
+                for k in 0..8 {
+                    let mut row = vec![text(g)];
+                    for sidx in 0..series {
+                        let v = base + f64::from((k * 7 + sidx * 3) % 9) * 0.5 - 2.0;
+                        // An outlier in the third file.
+                        let v = if i == 3 && k == 7 { v + 6.0 } else { v };
+                        row.push(num(v));
+                    }
+                    r.push(row);
+                }
+            }
+            r
+        }
+        _ => {
+            let items: &[(&str, f64)] = match i {
+                1 => &[
+                    ("Truy cập", 5000.0),
+                    ("Đăng ký", 1800.0),
+                    ("Dùng thử", 900.0),
+                    ("Mua", 240.0),
+                ],
+                2 => &[("Hồ sơ", 320.0), ("Phỏng vấn", 96.0), ("Đề nghị", 21.0)],
+                _ => &[
+                    ("Bước 1", 100.0),
+                    ("Bước 2", 80.0),
+                    ("Bước 3", 60.0),
+                    ("Bước 4", 40.0),
+                    ("Bước 5", 20.0),
+                ],
+            };
+            let mut r = vec![vec![text("Giai đoạn"), text("Số lượng")]];
+            r.extend(items.iter().map(|(n, v)| vec![text(n), num(*v)]));
+            r
+        }
+    };
+    let ws = &mut wb.sheets[0];
+    let (nr, nc) = (rows.len() as u32, rows[0].len() as u32);
+    for (r, row) in rows.into_iter().enumerate() {
+        for (c, cell) in row.into_iter().enumerate() {
+            ws.set_cell(r as u32, c as u32, cell);
+        }
+    }
+    let range = m::CellRange::new(m::CellRef::new(0, 0), m::CellRef::new(nr - 1, nc - 1));
+    let mut chart = bo_sheet::chart::new_chart(&wb, 0, range, kind).expect("chart");
+    chart.title = Some(format!("Biểu đồ {kind} {i}"));
+    if kind == "waterfall" && i != 2 {
+        // The last row is a total (cx:subtotals).
+        let s = &mut chart.plots[0].series[0];
+        s.subtotals = vec![s.values.len() - 1];
+    }
+    if kind == "histogram" && i == 2 {
+        chart.plots[0].style = Some("count:6".into());
+    }
+    wb.sheets[0].charts.push(chart);
+    wb
+}
+
+fn writer_chartex_waterfall(i: usize) -> m::Workbook {
+    writer_chartex("waterfall", i)
+}
+fn writer_chartex_treemap(i: usize) -> m::Workbook {
+    writer_chartex("treemap", i)
+}
+fn writer_chartex_sunburst(i: usize) -> m::Workbook {
+    writer_chartex("sunburst", i)
+}
+fn writer_chartex_histogram(i: usize) -> m::Workbook {
+    writer_chartex("histogram", i)
+}
+fn writer_chartex_pareto(i: usize) -> m::Workbook {
+    writer_chartex("pareto", i)
+}
+fn writer_chartex_box(i: usize) -> m::Workbook {
+    writer_chartex("boxWhisker", i)
+}
+fn writer_chartex_funnel(i: usize) -> m::Workbook {
+    writer_chartex("funnel", i)
+}
+
 fn writer_charts_percent(i: usize) -> m::Workbook {
     writer_chart_kind("percent", i)
 }
@@ -2240,6 +2423,13 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-charts-stock", "BlueSheet writer: stock charts (high-low-close; open-high-low-close; with up/down bars)", writer_charts_stock),
     ("writer-charts-surface", "BlueSheet writer: surface charts (3 series; wireframe; 5 series)", writer_charts_surface),
     ("writer-charts-ofpie", "BlueSheet writer: pie of pie, bar of pie and an exploded pie", writer_charts_ofpie),
+    ("writer-chartex-waterfall", "BlueSheet writer: chartex waterfall (with a total; ups and downs; with a total)", writer_chartex_waterfall),
+    ("writer-chartex-treemap", "BlueSheet writer: chartex treemap (2 levels; 3 levels; 2 levels, 5 points)", writer_chartex_treemap),
+    ("writer-chartex-sunburst", "BlueSheet writer: chartex sunburst (2 levels; 3 levels; 2 levels, 5 points)", writer_chartex_sunburst),
+    ("writer-chartex-histogram", "BlueSheet writer: chartex histogram (automatic bins; 6 bins; 15 values)", writer_chartex_histogram),
+    ("writer-chartex-pareto", "BlueSheet writer: chartex pareto (categories sorted by count, cumulative line)", writer_chartex_pareto),
+    ("writer-chartex-box", "BlueSheet writer: chartex box & whisker (one series; two series; an outlier)", writer_chartex_box),
+    ("writer-chartex-funnel", "BlueSheet writer: chartex funnel (4, 3 and 5 stages)", writer_chartex_funnel),
     ("writer-pivots", "BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter)", writer_pivots),
     ("writer-pivot-totals", "BlueSheet writer: pivot report settings (tabular with repeated labels + blank rows and column subtotals; outline with bottom subtotals, sort by value, top-N + label filter, medium style; compact with number format, % of total / parent, rank, value filter, hidden item, dark style)", writer_pivot_totals),
     ("writer-pivot-groups", "BlueSheet writer: pivot grouping and calculations (dates by years / quarters / months; numeric ranges × columns; years + months with a calculated field, difference from previous and running total)", writer_pivot_groups),
@@ -2782,7 +2972,7 @@ fn pivot_dates_in_1904_workbooks() {
 fn new_chart_types_round_trip() {
     for (name, _, f) in WRITER_FEATURES
         .iter()
-        .filter(|(n, _, _)| n.starts_with("writer-charts-"))
+        .filter(|(n, _, _)| n.starts_with("writer-charts-") || n.starts_with("writer-chartex-"))
     {
         for i in 1..=3 {
             let wb = f(i);

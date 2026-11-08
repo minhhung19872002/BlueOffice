@@ -135,7 +135,18 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     `bo-engine slide_show::new_chart_types_on_slides`, snapshot slide biểu đồ cập nhật. **Thiếu**: VHLC/VOHLC (khối lượng trên
     trục phụ), bề mặt 3D thật (CORE-3D-001), splitType/splitPos tuỳ chỉnh của of-pie.
 - [ ] **CORE-CHART-003** — Biểu đồ 3D (column/bar/line/area/pie 3D) hiển thị · P0 · CORE-3D-001 · render.
-- [ ] **CORE-CHART-004** — Biểu đồ mở rộng cx: waterfall, treemap, sunburst, histogram, pareto, box & whisker, funnel: đọc/ghi/hiển thị · P0 · — · corpus + validator.
+- [p] **CORE-CHART-004** — Biểu đồ mở rộng cx: waterfall, treemap, sunburst, histogram, pareto, box & whisker, funnel: đọc/ghi/hiển thị · P0 · — · corpus + validator.
+  - Xong: `bo-xlsx::chartex` theo [MS-ODRAWXML] 2.24 — đọc `cx:chartSpace` (chartData: strDim nhiều cấp, numDim
+    val/size; series layoutId, subtotals, binning, statistics, paretoLine), ghi chartex khi tạo mới (phần `chartEx{n}.xml`,
+    content type + quan hệ chartEx, khung `mc:AlternateContent` Requires cx1/cx2 + Fallback chữ); model: 7 loại mới +
+    `levels`/`subtotals`. Vẽ (bộ vẽ chung, cả BlueSheet/BlueSlide/BlueDoc): thác nước (tổng chạy, mốc tổng, nối), bản đồ
+    cây (squarified theo nhóm cấp ngoài), tia nắng (vòng theo cấp), histogram (bin tự động theo quy tắc Scott / số bin /
+    độ rộng; khoảng (a, b]), Pareto (sắp giảm dần + đường luỹ kế trên trục %), hộp và râu (tứ phân vị exclusive/inclusive,
+    râu 1,5×IQR, ngoại lai, trung bình ×), phễu. BlueSlide vẽ lựa chọn chartex trong `mc:AlternateContent` (các
+    AlternateContent khác: vẽ Fallback). Tạo mới: 7 loại trong BlueSheet. Test: `bo-xlsx corpus::new_chart_types_round_trip`
+    (21 file `writer-chartex-*-{1,2,3}.xlsx`, OpenXmlValidator 0 lỗi — đã sửa binCount/axisId dạng text theo validator),
+    corpus slide `slide-chartex-{waterfall,treemap,funnel}.pptx` (0 lỗi) + snapshot. **Thiếu**: tạo chartex trong
+    BlueSlide/BlueDoc (đang hiển thị), regionMap (bản đồ), nhãn dữ liệu chartex.
 - [ ] **CORE-CHART-005** — Thành phần: trendline (mọi loại + phương trình/R²), error bars, data table, high-low lines, up/down bars, drop lines, trục log/ngày/phụ · P0 · 002 · test.
 - [ ] **CORE-CHART-006** — Map chart (dữ liệu ranh giới license hợp lệ, Việt Nam cấp tỉnh) · P2 · 004 · [!] dữ liệu.
 - [ ] **CORE-CHART-007** — Mẫu biểu đồ (lưu/áp dụng), style & màu biểu đồ · P1 · 002 · test.

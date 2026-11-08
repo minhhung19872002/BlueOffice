@@ -274,6 +274,10 @@ pub(crate) fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
     if dom.name != "chartSpace" {
         return None;
     }
+    // [MS-ODRAWXML] 2.24 chartex: data in cx:chartData.
+    if dom.child("chartData").is_some() {
+        return crate::chartex::parse_chartex(&dom, part);
+    }
     let chart = dom.child("chart")?;
     let mut out = Chart {
         part: part.to_owned(),

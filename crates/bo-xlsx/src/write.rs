@@ -445,9 +445,16 @@ fn write_charts(
     };
     let opaque = |name: &str| wb.opaque.parts.iter().find(|p| p.name == name);
     // Edited charts: regenerate the part in place.
+    let space = |c: &bo_model::sheet::Chart| {
+        if c.plots.first().is_some_and(|p| p.kind.is_ex()) {
+            crate::chartex::chartex_space_xml(c)
+        } else {
+            chart_space_xml(c)
+        }
+    };
     for c in ws.charts.iter().filter(|c| c.dirty && !c.part.is_empty()) {
         if opaque(&c.part).is_some() {
-            overrides.insert(c.part.clone(), chart_space_xml(c).into_bytes());
+            overrides.insert(c.part.clone(), space(c).into_bytes());
         }
     }
     // Anchors of file charts moved by inserted / deleted rows and columns.
@@ -468,16 +475,24 @@ fn write_charts(
     if new.is_empty() {
         return None;
     }
+    let is_ex = |c: &bo_model::sheet::Chart| c.plots.first().is_some_and(|p| p.kind.is_ex());
     let paths: Vec<String> = new
         .iter()
-        .map(|_| names.fresh(|n| format!("/xl/charts/chart{n}.xml")))
+        .map(|c| {
+            if is_ex(c) {
+                names.fresh(|n| format!("/xl/charts/chartEx{n}.xml"))
+            } else {
+                names.fresh(|n| format!("/xl/charts/chart{n}.xml"))
+            }
+        })
         .collect();
     for (c, p) in new.iter().zip(&paths) {
-        out_parts.push((
-            p.clone(),
-            Some(CT_CHART.into()),
-            chart_space_xml(c).into_bytes(),
-        ));
+        let ct = if is_ex(c) {
+            crate::chartex::CT_CHARTEX
+        } else {
+            CT_CHART
+        };
+        out_parts.push((p.clone(), Some(ct.into()), space(c).into_bytes()));
     }
     let existing = ws
         .rels
@@ -493,7 +508,11 @@ fn write_charts(
         ),
     };
     let rels_name = bo_opc::rels_part_name(&dpath);
-    let targets: Vec<String> = paths.iter().map(|p| relative_target(&dpath, p)).collect();
+    let targets: Vec<(String, bool)> = paths
+        .iter()
+        .zip(&new)
+        .map(|(p, c)| (relative_target(&dpath, p), is_ex(c)))
+        .collect();
     let old_rels = overrides
         .get(&rels_name)
         .cloned()

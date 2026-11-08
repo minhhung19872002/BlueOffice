@@ -162,6 +162,13 @@ pub const CHART_TYPES: &[&str] = &[
     "stockUpDown",
     "surface",
     "surfaceWireframe",
+    "waterfall",
+    "treemap",
+    "sunburst",
+    "histogram",
+    "pareto",
+    "boxWhisker",
+    "funnel",
     "combo",
 ];
 
@@ -205,6 +212,13 @@ pub fn plot_for(kind: &str) -> ChartPlot {
         "stockUpDown" => (ChartKind::Stock, None, None, None, true),
         "surface" => (ChartKind::Surface, None, None, None, false),
         "surfaceWireframe" => (ChartKind::Surface, None, None, None, true),
+        "waterfall" => (ChartKind::Waterfall, None, None, None, false),
+        "treemap" => (ChartKind::Treemap, None, None, None, false),
+        "sunburst" => (ChartKind::Sunburst, None, None, None, false),
+        "histogram" => (ChartKind::Histogram, None, None, None, false),
+        "pareto" => (ChartKind::Pareto, None, None, None, false),
+        "boxWhisker" => (ChartKind::BoxWhisker, None, None, Some("exclusive"), false),
+        "funnel" => (ChartKind::Funnel, None, None, None, false),
         _ => (ChartKind::Bar, Some("col"), Some("clustered"), None, false),
     };
     ChartPlot {
@@ -235,6 +249,10 @@ fn shape_series(kind: &str, plot: &mut ChartPlot) {
             }
         }
         "stock" | "stockUpDown" => plot.series.truncate(4),
+        // One series: waterfall, funnel, pareto, histogram, treemap and sunburst.
+        "waterfall" | "funnel" | "pareto" | "histogram" | "treemap" | "sunburst" => {
+            plot.series.truncate(1);
+        }
         "explodedPie" => {
             for s in &mut plot.series {
                 s.explosion = 25;
@@ -281,7 +299,18 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
         && (range.first.row + u32::from(header)..=range.last.row)
             .all(|r| is_text(r, range.first.col) || ws.cell(r, range.first.col).is_none());
     let r0 = range.first.row + u32::from(header);
-    let c0 = range.first.col + u32::from(cat_col);
+    // Treemap / sunburst: every leading text column is a level of the categories.
+    let text_cols = if matches!(kind, "treemap" | "sunburst") && cat_col {
+        (range.first.col..=range.last.col)
+            .take_while(|&c| {
+                (r0..=range.last.row).all(|r| is_text(r, c) || ws.cell(r, c).is_none())
+            })
+            .count() as u32
+    } else {
+        u32::from(cat_col)
+    };
+    let text_cols = text_cols.min(range.cols().saturating_sub(1));
+    let c0 = range.first.col + text_cols.max(u32::from(cat_col));
     if r0 > range.last.row || c0 > range.last.col {
         return None;
     }
@@ -291,7 +320,7 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
             name,
             CellRange::new(
                 CellRef::new(r0, range.first.col),
-                CellRef::new(range.last.row, range.first.col),
+                CellRef::new(range.last.row, range.first.col + text_cols.max(1) - 1),
             ),
         )
     });
@@ -645,11 +674,39 @@ pub fn chart_pivot(wb: &Workbook, chart: &Chart) -> Option<(usize, usize)> {
 
 fn refresh_one(wb: &Workbook, sheet: usize, chart: &mut Chart) {
     for p in &mut chart.plots {
+        let hierarchical = matches!(p.kind, ChartKind::Treemap | ChartKind::Sunburst);
         for s in &mut p.series {
             let (name, cats, vals) = series_data(wb, sheet, s, &Locale::EN_US);
             s.name = name;
-            s.categories = cats;
             s.values = vals;
+            // A category range of several columns holds the levels (outer column first).
+            let levels = s
+                .cat_ref
+                .as_deref()
+                .and_then(|f| resolve_ref(wb, sheet, f))
+                .filter(|(_, r)| r.cols() > 1)
+                .map(|(si, r)| {
+                    (r.first.col..=r.last.col)
+                        .rev()
+                        .map(|c| {
+                            (r.first.row..=r.last.row)
+                                .map(|row| {
+                                    wb.sheets[si]
+                                        .cell(row, c)
+                                        .map(|cell| format_cell(wb, cell, &Locale::EN_US).text)
+                                        .unwrap_or_default()
+                                })
+                                .collect::<Vec<String>>()
+                        })
+                        .collect::<Vec<_>>()
+                });
+            match levels {
+                Some(l) if hierarchical => {
+                    s.categories = l.first().cloned().unwrap_or_default();
+                    s.levels = l;
+                }
+                _ => s.categories = cats,
+            }
         }
     }
 }
@@ -758,6 +815,10 @@ struct Ser {
     sizes: Vec<Option<f64>>,
     /// Pie explosion (percent of the radius).
     explosion: u32,
+    /// Hierarchical labels (innermost level first).
+    levels: Vec<Vec<String>>,
+    /// Waterfall totals.
+    subtotals: Vec<usize>,
 }
 
 /// Resolves chart colours: a colour of the file (`Some`) or the default colour of series / point `i`
@@ -881,6 +942,14 @@ pub fn draw_chart_with(
                     None => c,
                 })
                 .collect();
+            // Hierarchical charts label points with their innermost level (the live range spans
+            // several columns).
+            let cats = match s.levels.first() {
+                Some(inner) if matches!(p.kind, ChartKind::Treemap | ChartKind::Sunburst) => {
+                    inner.clone()
+                }
+                _ => cats,
+            };
             v.push(Ser {
                 name: name.unwrap_or_else(|| format!("{}", idx + 1)),
                 cats,
@@ -889,6 +958,8 @@ pub fn draw_chart_with(
                 pts,
                 sizes: s.sizes.clone(),
                 explosion: s.explosion,
+                levels: s.levels.clone(),
+                subtotals: s.subtotals.clone(),
             });
             idx += 1;
         }
@@ -906,8 +977,14 @@ pub fn draw_chart_with(
     } else {
         Vec::new()
     };
+    let ex = plots
+        .first()
+        .filter(|(p, _)| p.kind.is_ex())
+        .map(|(p, s)| (*p, s));
     // Legend (right or bottom).
-    let entries: Vec<(String, Rgba)> = if pie {
+    let entries: Vec<(String, Rgba)> = if let Some((p, ss)) = ex {
+        ex_entries(p, ss, locale, color)
+    } else if pie {
         plots
             .first()
             .and_then(|(_, s)| s.first())
@@ -983,6 +1060,19 @@ pub fn draw_chart_with(
                 right = w - lw - 6.0;
             }
         }
+    }
+    if let Some((p, ss)) = ex {
+        draw_ex(
+            p,
+            ss,
+            [6.0, top, right, bottom],
+            font,
+            locale,
+            color,
+            label,
+            out,
+        );
+        return;
     }
     if pie {
         if let Some((p, s)) = plots.first() {
@@ -1527,6 +1617,618 @@ fn draw_pie(s: Option<&Ser>, doughnut: bool, [l, t, r, b]: [f64; 4], out: &mut V
     }
 }
 
+/// Legend entries of a chartex chart.
+fn ex_entries(
+    p: &ChartPlot,
+    ss: &[Ser],
+    locale: &Locale,
+    color: &ColorFn<'_>,
+) -> Vec<(String, Rgba)> {
+    let vi = locale.lcid == 0x42A;
+    match p.kind {
+        ChartKind::Waterfall => [
+            (if vi { "Tăng" } else { "Increase" }, 0),
+            (if vi { "Giảm" } else { "Decrease" }, 1),
+            (if vi { "Tổng" } else { "Total" }, 2),
+        ]
+        .iter()
+        .map(|(t, i)| ((*t).to_owned(), color(None, *i)))
+        .collect(),
+        ChartKind::Treemap | ChartKind::Sunburst => ss
+            .first()
+            .map(|s| {
+                top_groups(s)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (g, _))| (g, color(None, i)))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => ss.iter().map(|s| (s.name.clone(), s.color)).collect(),
+    }
+}
+
+/// Top-level groups of a hierarchical series (outermost level), in order, with their point indices.
+fn top_groups(s: &Ser) -> Vec<(String, Vec<usize>)> {
+    let top = s.levels.last().unwrap_or(&s.cats);
+    let mut out: Vec<(String, Vec<usize>)> = Vec::new();
+    for (i, g) in top.iter().enumerate() {
+        match out.iter_mut().find(|(n, _)| n == g) {
+            Some((_, v)) => v.push(i),
+            None => out.push((g.clone(), vec![i])),
+        }
+    }
+    out
+}
+
+/// Value axis of a plot area: gridlines and labels from `vmin` to `vmax`; returns the inner plot rect.
+#[allow(clippy::too_many_arguments)]
+fn value_axis(
+    [l, t, r, b]: [f64; 4],
+    (vmin, vmax): (f64, f64),
+    font: f64,
+    locale: &Locale,
+    percent: bool,
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) -> ([f64; 4], f64, f64) {
+    let step = nice_step((vmax - vmin).max(1e-9), 5.0);
+    let (vmin, vmax) = (
+        (vmin / step).floor() * step,
+        ((vmax / step).ceil() * step).max(vmin + step),
+    );
+    let label_w = font * 4.0;
+    let (pl, pt, pr, pb) = (l + label_w, t + font * 0.5, r, b - font * 1.6);
+    let ph = (pb - pt).max(1.0);
+    let mut v = vmin;
+    let mut guard = 0;
+    while v <= vmax + step * 0.5 && guard < 60 {
+        let y = pb - (v - vmin) / (vmax - vmin) * ph;
+        out.push(hline(pl, pr, y, GRID, 0.5));
+        let text = if percent {
+            format!("{}%", fmt_num(v, locale))
+        } else {
+            fmt_num(v, locale)
+        };
+        label(
+            &text,
+            [l, y - font, pl - 3.0, y + font],
+            Align::Right,
+            font,
+            TEXT,
+            out,
+        );
+        v += step;
+        guard += 1;
+    }
+    ([pl, pt, pr, pb], vmin, vmax)
+}
+
+/// Category labels under `n` slots of a plot rect.
+fn cat_labels(
+    cats: &[String],
+    [pl, _, pr, pb]: [f64; 4],
+    b: f64,
+    font: f64,
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) {
+    let n = cats.len().max(1);
+    let slot = (pr - pl) / n as f64;
+    let every = ((font * 3.2) / slot).ceil().max(1.0) as usize;
+    for (i, c) in cats.iter().enumerate() {
+        if i % every == 0 {
+            let x = pl + i as f64 * slot;
+            label(
+                c,
+                [x - slot * 0.5, pb + 1.0, x + slot * 1.5, b],
+                Align::Center,
+                font,
+                TEXT,
+                out,
+            );
+        }
+    }
+}
+
+/// Histogram bins of `vals`: `count:n`, `size:w` or automatic (Scott's normal reference rule).
+fn bins(vals: &[f64], style: Option<&str>) -> Vec<(f64, f64, usize)> {
+    let (Some(lo), Some(hi)) = (
+        vals.iter().copied().reduce(f64::min),
+        vals.iter().copied().reduce(f64::max),
+    ) else {
+        return Vec::new();
+    };
+    let n = vals.len() as f64;
+    let width = match style {
+        Some(st) if st.starts_with("count:") => {
+            let k: f64 = st[6..].trim().parse().unwrap_or(5.0);
+            (hi - lo).max(1e-9) / k.max(1.0)
+        }
+        Some(st) if st.starts_with("size:") => st[5..].trim().parse().unwrap_or(1.0_f64).max(1e-9),
+        _ => {
+            let mean = vals.iter().sum::<f64>() / n;
+            let sd = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n.max(1.0)).sqrt();
+            if sd > 0.0 {
+                3.5 * sd / n.cbrt()
+            } else {
+                1.0
+            }
+        }
+    };
+    let k = (((hi - lo) / width).ceil() as usize).clamp(1, 200);
+    let mut out: Vec<(f64, f64, usize)> = (0..k)
+        .map(|i| (lo + width * i as f64, lo + width * (i + 1) as f64, 0))
+        .collect();
+    for v in vals {
+        // Intervals closed on the right: (a, b]; the first one also holds its lower bound.
+        let i = (((v - lo) / width).ceil() as usize)
+            .saturating_sub(1)
+            .min(k - 1);
+        out[i].2 += 1;
+    }
+    out
+}
+
+/// Quartiles (exclusive or inclusive method), as used by box & whisker charts.
+fn quartiles(sorted: &[f64], inclusive: bool) -> (f64, f64, f64) {
+    let q = |p: f64| -> f64 {
+        let n = sorted.len() as f64;
+        let h = if inclusive {
+            (n - 1.0) * p
+        } else {
+            (n + 1.0) * p - 1.0
+        };
+        let h = h.clamp(0.0, n - 1.0);
+        let (i, f) = (h.floor() as usize, h - h.floor());
+        let a = sorted[i];
+        let b = sorted[(i + 1).min(sorted.len() - 1)];
+        a + (b - a) * f
+    };
+    (q(0.25), q(0.5), q(0.75))
+}
+
+/// Squarified treemap layout (Bruls, Huizing, van Wijk) of `values` in `rect`.
+fn squarify(values: &[f64], [x, y, w, h]: [f64; 4]) -> Vec<[f64; 4]> {
+    let total: f64 = values.iter().sum();
+    if total <= 0.0 || values.is_empty() {
+        return vec![[x, y, 0.0, 0.0]; values.len()];
+    }
+    let scale = w * h / total;
+    let areas: Vec<f64> = values.iter().map(|v| v.max(0.0) * scale).collect();
+    let mut out = vec![[0.0; 4]; values.len()];
+    let (mut rx, mut ry, mut rw, mut rh) = (x, y, w, h);
+    let mut i = 0;
+    while i < areas.len() {
+        let side = rw.min(rh).max(1e-9);
+        let worst = |row: &[f64]| {
+            let s: f64 = row.iter().sum();
+            let (mx, mn) = row
+                .iter()
+                .fold((0.0_f64, f64::MAX), |(a, b), v| (a.max(*v), b.min(*v)));
+            if s <= 0.0 || mn <= 0.0 {
+                f64::MAX
+            } else {
+                (side * side * mx / (s * s)).max(s * s / (side * side * mn))
+            }
+        };
+        let mut j = i + 1;
+        while j < areas.len() && worst(&areas[i..=j]) <= worst(&areas[i..j]) {
+            j += 1;
+        }
+        let row = &areas[i..j];
+        let s: f64 = row.iter().sum();
+        let thick = s / side;
+        let mut off = 0.0;
+        for (k, a) in row.iter().enumerate() {
+            let len = if thick > 0.0 { a / thick } else { 0.0 };
+            out[i + k] = if rw >= rh {
+                [rx, ry + off, thick, len]
+            } else {
+                [rx + off, ry, len, thick]
+            };
+            off += len;
+        }
+        if rw >= rh {
+            rx += thick;
+            rw -= thick;
+        } else {
+            ry += thick;
+            rh -= thick;
+        }
+        i = j;
+    }
+    out
+}
+
+/// Draws a chartex chart ([MS-ODRAWXML] 2.24 layouts) in `area`.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+fn draw_ex(
+    p: &ChartPlot,
+    ss: &[Ser],
+    [l, t, r, b]: [f64; 4],
+    font: f64,
+    locale: &Locale,
+    color: &ColorFn<'_>,
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) {
+    let Some(s) = ss.first() else { return };
+    let vals: Vec<f64> = s.vals.iter().map(|v| v.unwrap_or(0.0)).collect();
+    let n = vals.len();
+    match p.kind {
+        // Waterfall: running total; totals from zero; increases / decreases / totals coloured.
+        ChartKind::Waterfall => {
+            let mut run = 0.0;
+            let mut bars = Vec::with_capacity(n);
+            for (i, v) in vals.iter().enumerate() {
+                if s.subtotals.contains(&i) {
+                    bars.push((0.0, *v, 2));
+                    run = *v;
+                } else {
+                    let from = run;
+                    run += v;
+                    bars.push((from, run, usize::from(*v < 0.0)));
+                }
+            }
+            let vmin = bars.iter().fold(0.0_f64, |m, (a, z, _)| m.min(a.min(*z)));
+            let vmax = bars.iter().fold(0.0_f64, |m, (a, z, _)| m.max(a.max(*z)));
+            let (pa, vmin, vmax) =
+                value_axis([l, t, r, b], (vmin, vmax), font, locale, false, label, out);
+            let [pl, pt, pr, pb] = pa;
+            let ph = pb - pt;
+            let y = |v: f64| pb - (v - vmin) / (vmax - vmin) * ph;
+            let slot = (pr - pl) / n.max(1) as f64;
+            for (i, (a, z, k)) in bars.iter().enumerate() {
+                let x = pl + i as f64 * slot + slot * 0.2;
+                let (top, bot) = (y(a.max(*z)), y(a.min(*z)));
+                out.push(rect(
+                    x,
+                    top,
+                    slot * 0.6,
+                    (bot - top).max(0.5),
+                    color(None, *k),
+                ));
+                // Connector to the next bar at the running level.
+                if i + 1 < n {
+                    out.push(hline(x + slot * 0.6, x + slot, y(*z), AXIS, 0.5));
+                }
+            }
+            out.push(hline(pl, pr, y(0.0_f64.clamp(vmin, vmax)), AXIS, 0.75));
+            cat_labels(&s.cats, pa, b, font, label, out);
+        }
+        // Funnel: centred bars, widest at the top, the value on each bar.
+        ChartKind::Funnel => {
+            let max = vals.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+            let label_w = font * 6.0;
+            let (pl, pr) = (l + label_w, r);
+            let slot = (b - t) / n.max(1) as f64;
+            let mid = f64::midpoint(pl, pr);
+            for (i, v) in vals.iter().enumerate() {
+                let w = if max > 0.0 {
+                    v.abs() / max * (pr - pl)
+                } else {
+                    0.0
+                };
+                let y = t + i as f64 * slot;
+                out.push(rect(
+                    mid - w / 2.0,
+                    y + slot * 0.08,
+                    w,
+                    slot * 0.84,
+                    s.color,
+                ));
+                label(
+                    &fmt_num(*v, locale),
+                    [mid - w / 2.0, y, mid + w / 2.0, y + slot],
+                    Align::Center,
+                    font,
+                    Rgba(255, 255, 255, 255),
+                    out,
+                );
+                if let Some(c) = s.cats.get(i) {
+                    label(c, [l, y, pl - 3.0, y + slot], Align::Right, font, TEXT, out);
+                }
+            }
+        }
+        // Histogram (and pareto without categories): binned counts as adjacent columns.
+        ChartKind::Histogram | ChartKind::Pareto => {
+            let (cats, heights): (Vec<String>, Vec<f64>) =
+                if p.kind == ChartKind::Pareto && !s.cats.iter().all(String::is_empty) {
+                    // Categories sorted by value, largest first.
+                    let mut pairs: Vec<(String, f64)> =
+                        s.cats.iter().cloned().zip(vals.iter().copied()).collect();
+                    pairs.sort_by(|a, b| b.1.total_cmp(&a.1));
+                    pairs.into_iter().unzip()
+                } else {
+                    let bs = bins(&vals, p.style.as_deref());
+                    (
+                        bs.iter()
+                            .map(|(a, z, _)| {
+                                format!("({}, {}]", fmt_num(*a, locale), fmt_num(*z, locale))
+                            })
+                            .collect(),
+                        bs.iter().map(|(_, _, c)| *c as f64).collect(),
+                    )
+                };
+            let right = if p.kind == ChartKind::Pareto {
+                r - font * 3.0
+            } else {
+                r
+            };
+            let vmax = heights.iter().fold(0.0_f64, |m, v| m.max(*v));
+            let (pa, vmin, vmax) = value_axis(
+                [l, t, right, b],
+                (0.0, vmax),
+                font,
+                locale,
+                false,
+                label,
+                out,
+            );
+            let [pl, pt, pr, pb] = pa;
+            let ph = pb - pt;
+            let k = heights.len().max(1);
+            let slot = (pr - pl) / k as f64;
+            for (i, h) in heights.iter().enumerate() {
+                let top = pb - (h - vmin) / (vmax - vmin) * ph;
+                out.push(rect(
+                    pl + i as f64 * slot + 0.5,
+                    top,
+                    slot - 1.0,
+                    pb - top,
+                    s.color,
+                ));
+            }
+            cat_labels(&cats, pa, b, font, label, out);
+            if p.kind == ChartKind::Pareto {
+                // Cumulative share on a 0–100 % axis at the right.
+                let total: f64 = heights.iter().sum();
+                let mut acc = 0.0;
+                let pts: Vec<(f64, f64)> = heights
+                    .iter()
+                    .enumerate()
+                    .map(|(i, h)| {
+                        acc += h;
+                        let f = if total > 0.0 { acc / total } else { 0.0 };
+                        (pl + (i as f64 + 0.5) * slot, pb - f * ph)
+                    })
+                    .collect();
+                out.push(polyline(&pts, color(None, 1), 2.0));
+                for k in 0..=4 {
+                    let f = f64::from(k) / 4.0;
+                    let y = pb - f * ph;
+                    label(
+                        &format!("{}%", k * 25),
+                        [pr + 2.0, y - font, r, y + font],
+                        Align::Left,
+                        font,
+                        TEXT,
+                        out,
+                    );
+                }
+            }
+        }
+        // Box & whisker: per category and series, quartile box, median line, mean mark, whiskers to the
+        // last values within 1.5 × IQR, outliers as dots.
+        ChartKind::BoxWhisker => {
+            let inclusive = p.style.as_deref() == Some("inclusive");
+            let mut groups: Vec<String> = Vec::new();
+            for s in ss {
+                for c in &s.cats {
+                    if !groups.contains(c) {
+                        groups.push(c.clone());
+                    }
+                }
+            }
+            if groups.is_empty() {
+                groups.push(String::new());
+            }
+            let all: Vec<f64> = ss
+                .iter()
+                .flat_map(|s| s.vals.iter().flatten().copied())
+                .collect();
+            let (Some(lo), Some(hi)) = (
+                all.iter().copied().reduce(f64::min),
+                all.iter().copied().reduce(f64::max),
+            ) else {
+                return;
+            };
+            let (pa, vmin, vmax) = value_axis(
+                [l, t, r, b],
+                (lo.min(0.0), hi),
+                font,
+                locale,
+                false,
+                label,
+                out,
+            );
+            let [pl, pt, pr, pb] = pa;
+            let ph = pb - pt;
+            let y = |v: f64| pb - (v - vmin) / (vmax - vmin) * ph;
+            let slot = (pr - pl) / groups.len() as f64;
+            let sub = slot * 0.8 / ss.len().max(1) as f64;
+            for (gi, g) in groups.iter().enumerate() {
+                for (si, s) in ss.iter().enumerate() {
+                    let mut v: Vec<f64> = s
+                        .cats
+                        .iter()
+                        .zip(&s.vals)
+                        .filter(|(c, _)| *c == g || g.is_empty())
+                        .filter_map(|(_, v)| *v)
+                        .collect();
+                    if v.is_empty() && g.is_empty() {
+                        v = s.vals.iter().flatten().copied().collect();
+                    }
+                    if v.is_empty() {
+                        continue;
+                    }
+                    v.sort_by(f64::total_cmp);
+                    let (q1, med, q3) = quartiles(&v, inclusive);
+                    let iqr = q3 - q1;
+                    let (wl, wh) = (
+                        v.iter()
+                            .copied()
+                            .find(|x| *x >= q1 - 1.5 * iqr)
+                            .unwrap_or(q1),
+                        v.iter()
+                            .rev()
+                            .copied()
+                            .find(|x| *x <= q3 + 1.5 * iqr)
+                            .unwrap_or(q3),
+                    );
+                    let mean = v.iter().sum::<f64>() / v.len() as f64;
+                    let x0 = pl + gi as f64 * slot + slot * 0.1 + si as f64 * sub;
+                    let (bx, bw) = (x0 + sub * 0.15, sub * 0.7);
+                    let cx = bx + bw / 2.0;
+                    let c = s.color;
+                    out.push(vline(cx, y(wh), y(q3), c, 1.0));
+                    out.push(vline(cx, y(q1), y(wl), c, 1.0));
+                    out.push(hline(cx - bw * 0.25, cx + bw * 0.25, y(wh), c, 1.0));
+                    out.push(hline(cx - bw * 0.25, cx + bw * 0.25, y(wl), c, 1.0));
+                    let Rgba(cr, cg, cb, _) = c;
+                    out.push(rect(
+                        bx,
+                        y(q3),
+                        bw,
+                        (y(q1) - y(q3)).max(0.5),
+                        Rgba(cr, cg, cb, 90),
+                    ));
+                    out.push(polyline(
+                        &[
+                            (bx, y(q3)),
+                            (bx + bw, y(q3)),
+                            (bx + bw, y(q1)),
+                            (bx, y(q1)),
+                            (bx, y(q3)),
+                        ],
+                        c,
+                        1.0,
+                    ));
+                    out.push(hline(bx, bx + bw, y(med), c, 1.5));
+                    // Mean as an ×.
+                    let (mx, my, d) = (cx, y(mean), bw * 0.12);
+                    out.push(polyline(&[(mx - d, my - d), (mx + d, my + d)], c, 1.0));
+                    out.push(polyline(&[(mx - d, my + d), (mx + d, my - d)], c, 1.0));
+                    for o in v.iter().filter(|x| **x < wl || **x > wh) {
+                        out.push(Command::Path {
+                            segs: circle(cx, y(*o), 2.0),
+                            fill: None,
+                            stroke: Some(thin(c)),
+                        });
+                    }
+                }
+            }
+            cat_labels(&groups, pa, b, font, label, out);
+        }
+        // Treemap: top-level groups, then their leaves, as squarified rectangles; leaf names inside.
+        ChartKind::Treemap => {
+            let groups = top_groups(s);
+            let sums: Vec<f64> = groups
+                .iter()
+                .map(|(_, ix)| ix.iter().map(|i| vals[*i].max(0.0)).sum())
+                .collect();
+            let cells = squarify(&sums, [l, t, r - l, b - t]);
+            for (gi, ((_, ix), cell)) in groups.iter().zip(&cells).enumerate() {
+                let leaf_vals: Vec<f64> = ix.iter().map(|i| vals[*i].max(0.0)).collect();
+                let leaves = squarify(&leaf_vals, *cell);
+                let c = color(None, gi);
+                for (k, lr) in ix.iter().zip(&leaves) {
+                    let [x, y, w, h] = *lr;
+                    out.push(rect(x, y, w, h, c));
+                    out.push(polyline(
+                        &[(x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)],
+                        Rgba(255, 255, 255, 255),
+                        1.0,
+                    ));
+                    if w > font * 2.5 && h > font * 1.6 {
+                        let name = s.cats.get(*k).cloned().unwrap_or_default();
+                        label(
+                            &name,
+                            [x + 2.0, y + 1.0, x + w - 2.0, y + font * 1.6],
+                            Align::Left,
+                            font,
+                            Rgba(255, 255, 255, 255),
+                            out,
+                        );
+                    }
+                }
+            }
+        }
+        // Sunburst: one ring per level (outermost level at the centre), angles by leaf sizes.
+        ChartKind::Sunburst => {
+            let levels: Vec<&Vec<String>> = if s.levels.is_empty() {
+                vec![&s.cats]
+            } else {
+                s.levels.iter().collect()
+            };
+            let depth = levels.len();
+            let total: f64 = vals.iter().map(|v| v.max(0.0)).sum();
+            if total <= 0.0 {
+                return;
+            }
+            let (cx, cy) = (f64::midpoint(l, r), f64::midpoint(t, b));
+            let rad = ((r - l).min(b - t) / 2.0 - 2.0).max(4.0);
+            let ring = rad / depth as f64;
+            let groups = top_groups(s);
+            let group_of = |i: usize| {
+                groups
+                    .iter()
+                    .position(|(_, ix)| ix.contains(&i))
+                    .unwrap_or(0)
+            };
+            // Ring k (0 = centre) shows level depth-1-k; consecutive leaves with the same label up to that
+            // level form one segment.
+            for k in 0..depth {
+                let lv = depth - 1 - k;
+                let mut a = 0.0;
+                let mut i = 0;
+                while i < n {
+                    let key = |j: usize| -> Vec<&str> {
+                        (lv..depth)
+                            .map(|d| levels[d].get(j).map_or("", String::as_str))
+                            .collect()
+                    };
+                    let mut j = i + 1;
+                    while j < n && key(j) == key(i) {
+                        j += 1;
+                    }
+                    let v: f64 = vals[i..j].iter().map(|v| v.max(0.0)).sum();
+                    let sw = v / total * std::f64::consts::TAU;
+                    if sw > 0.0 {
+                        let Rgba(cr, cg, cb, _) = color(None, group_of(i));
+                        let alpha = (255 - k as u32 * 40).max(110) as u8;
+                        out.push(Command::Path {
+                            segs: wedge(cx, cy, ring * (k + 1) as f64, ring * k as f64, a, sw),
+                            fill: Some(Paint::Solid {
+                                color: Rgba(cr, cg, cb, alpha),
+                            }),
+                            stroke: Some(thin(Rgba(255, 255, 255, 255))),
+                        });
+                        if sw > 0.25 {
+                            let mid = a + sw / 2.0;
+                            let rr = ring * (k as f64 + 0.5);
+                            let (x, y) = (cx + rr * mid.sin(), cy - rr * mid.cos());
+                            let name = levels[lv].get(i).cloned().unwrap_or_default();
+                            label(
+                                &name,
+                                [x - ring, y - font, x + ring, y + font],
+                                Align::Center,
+                                font * 0.9,
+                                Rgba(255, 255, 255, 255),
+                                out,
+                            );
+                        }
+                    }
+                    a += sw;
+                    i = j;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn thin(c: Rgba) -> Stroke {
     Stroke {
         width: 0.75,
@@ -1582,6 +2284,8 @@ fn draw_of_pie(s: Option<&Ser>, bar: bool, [l, t, r, b]: [f64; 4], out: &mut Vec
             .collect(),
         sizes: Vec::new(),
         explosion: 0,
+        levels: Vec::new(),
+        subtotals: Vec::new(),
     };
     let split = l + (r - l) * 0.6;
     draw_pie(Some(&main), false, [l, t, split, b], out);
@@ -1625,6 +2329,8 @@ fn draw_of_pie(s: Option<&Ser>, bar: bool, [l, t, r, b]: [f64; 4], out: &mut Vec
             pts: colors,
             sizes: Vec::new(),
             explosion: 0,
+            levels: Vec::new(),
+            subtotals: Vec::new(),
         };
         draw_pie(
             Some(&sub),

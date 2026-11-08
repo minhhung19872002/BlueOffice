@@ -1103,6 +1103,13 @@ export const CHART_TYPES = [
   'stockUpDown',
   'surface',
   'surfaceWireframe',
+  'waterfall',
+  'treemap',
+  'sunburst',
+  'histogram',
+  'pareto',
+  'boxWhisker',
+  'funnel',
   'combo',
 ];
 

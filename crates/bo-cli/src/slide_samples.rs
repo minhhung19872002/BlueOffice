@@ -1825,6 +1825,105 @@ fn smartart_data_decks() -> Vec<(&'static str, Vec<u8>)> {
     ]
 }
 
+/// Decks with chartex charts ([MS-ODRAWXML] 2.24) in `mc:AlternateContent` frames (CORE-CHART-004).
+fn chartex_decks() -> Vec<(&'static str, Vec<u8>)> {
+    use bo_model::sheet as m;
+    let frame = |req: &str, req_ns: &str| {
+        format!(
+            r#"<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice xmlns:{req}="{req_ns}" Requires="{req}"><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Biểu đồ 4"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></p:xfrm><a:graphic><a:graphicData uri="{ns}"><cx:chart xmlns:cx="{ns}" r:id="rId2"/></a:graphicData></a:graphic></p:graphicFrame></mc:Choice><mc:Fallback><p:sp><p:nvSpPr><p:cNvPr id="4" name="Biểu đồ 4"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="vi-VN"/><a:t>Biểu đồ mở rộng (chartex)</a:t></a:r></a:p></p:txBody></p:sp></mc:Fallback></mc:AlternateContent>"#,
+            x = IN,
+            y = IN + IN / 2,
+            cx = 8 * IN,
+            cy = 4 * IN,
+            ns = bo_xlsx::chartex::CX_NS
+        )
+    };
+    let series = |cats: &[&str], vals: &[f64]| m::ChartSeries {
+        name: Some("Giá trị".into()),
+        categories: cats.iter().map(|c| (*c).to_owned()).collect(),
+        values: vals.iter().map(|v| Some(*v)).collect(),
+        ..m::ChartSeries::default()
+    };
+    let deck = |title: &str, kind: m::ChartKind, s: m::ChartSeries, funnel: bool| {
+        let chart = m::Chart {
+            title: Some(title.to_owned()),
+            plots: vec![m::ChartPlot {
+                kind,
+                series: vec![s],
+                ..m::ChartPlot::default()
+            }],
+            ..m::Chart::default()
+        };
+        let (req, ns) = if funnel {
+            (
+                "cx2",
+                "http://schemas.microsoft.com/office/drawing/2015/10/21/chartex",
+            )
+        } else {
+            (
+                "cx1",
+                "http://schemas.microsoft.com/office/drawing/2015/9/8/chartex",
+            )
+        };
+        let mut slide = blank_slide(title, frame(req, ns));
+        slide.rels = vec![r(
+            "rId2",
+            bo_xlsx::chartex::REL_CHARTEX,
+            "../charts/chartEx1.xml",
+        )];
+        let parts: Parts = vec![(
+            "/ppt/charts/chartEx1.xml".into(),
+            bo_xlsx::chartex::CT_CHARTEX.into(),
+            bo_xlsx::chartex::chartex_space_xml(&chart).into_bytes(),
+        )];
+        build(&[slide], &parts, THEME_BLUE)
+    };
+    let mut water = series(
+        &["Đầu kỳ", "Thu", "Chi", "Cuối kỳ"],
+        &[100.0, 45.0, -30.0, 115.0],
+    );
+    water.subtotals = vec![3];
+    let mut tree = series(
+        &["Ba Đình", "Cầu Giấy", "Hải Châu", "Quận 1", "Thủ Đức"],
+        &[34.0, 28.0, 22.0, 41.0, 37.0],
+    );
+    tree.levels = vec![
+        tree.categories.clone(),
+        ["Hà Nội", "Hà Nội", "Đà Nẵng", "TP.HCM", "TP.HCM"]
+            .map(String::from)
+            .to_vec(),
+    ];
+    vec![
+        (
+            "slide-chartex-waterfall.pptx",
+            deck(
+                "Dòng tiền (waterfall)",
+                m::ChartKind::Waterfall,
+                water,
+                false,
+            ),
+        ),
+        (
+            "slide-chartex-treemap.pptx",
+            deck(
+                "Doanh số theo quận (treemap)",
+                m::ChartKind::Treemap,
+                tree,
+                false,
+            ),
+        ),
+        (
+            "slide-chartex-funnel.pptx",
+            deck(
+                "Phễu bán hàng (funnel)",
+                m::ChartKind::Funnel,
+                series(&["Truy cập", "Đăng ký", "Mua"], &[5000.0, 1800.0, 240.0]),
+                true,
+            ),
+        ),
+    ]
+}
+
 fn anim_decks() -> Vec<(&'static str, Vec<u8>)> {
     let fade = r#"<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" Requires="p14"><p:transition spd="slow" p14:dur="1500"><p:fade/></p:transition></mc:Choice><mc:Fallback><p:transition spd="slow"><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>"#;
     let push =
@@ -2214,6 +2313,7 @@ pub fn base_decks() -> Vec<(&'static str, Vec<u8>)> {
     v.extend(notes_theme_decks());
     v.extend(smartart_decks());
     v.extend(smartart_data_decks());
+    v.extend(chartex_decks());
     v
 }
 

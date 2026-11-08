@@ -620,7 +620,14 @@
         "stock": "Stock (high–low–close)",
         "stockUpDown": "Stock with up/down bars",
         "surface": "Surface",
-        "surfaceWireframe": "Wireframe surface"
+        "surfaceWireframe": "Wireframe surface",
+        "waterfall": "Waterfall",
+        "treemap": "Treemap",
+        "sunburst": "Sunburst",
+        "histogram": "Histogram",
+        "pareto": "Pareto",
+        "boxWhisker": "Box and whisker",
+        "funnel": "Funnel"
       },
       "legendPos": {
         "none": "None",

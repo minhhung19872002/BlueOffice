@@ -1387,6 +1387,33 @@ fn draw_node(
             }
         }
         ShapeNode::Frame(f) => draw_frame(cx, f, frame, fonts, images, out),
+        // mc:AlternateContent (ECMA-376 Part 3, §10.2.1): a chartex choice is drawn
+        // ([MS-ODRAWXML] 2.24), otherwise the fallback content.
+        ShapeNode::Other(el) if el.local() == "AlternateContent" => {
+            let chartex = |e: &bo_model::slide::XmlElement| {
+                e.local() == "graphicFrame"
+                    && e.elements()
+                        .find(|g| g.local() == "graphic")
+                        .and_then(|g| g.elements().find(|d| d.local() == "graphicData"))
+                        .and_then(|d| d.attr("uri"))
+                        == Some(bo_xlsx::chartex::CX_NS)
+            };
+            let choice = el
+                .elements()
+                .filter(|c| c.local() == "Choice")
+                .find_map(|c| c.elements().find(|e| chartex(e)));
+            let nodes: Vec<&bo_model::slide::XmlElement> = match choice {
+                Some(frame) => vec![frame],
+                None => el
+                    .elements()
+                    .find(|c| c.local() == "Fallback")
+                    .map(|f| f.elements().collect())
+                    .unwrap_or_default(),
+            };
+            for e in nodes {
+                draw_node(cx, &crate::parse_node(e), frame, fonts, images, out);
+            }
+        }
         ShapeNode::Other(_) => {}
     }
 }
@@ -1586,7 +1613,9 @@ fn draw_frame(
     match &f.content {
         GraphicContent::Table(t) => draw_table(cx, t, fonts, &mut cmds),
         // §21.2.2.27 chart reference → chart part (cached values).
-        GraphicContent::Other(gd) if f.uri == bo_drawingml::chart::URI_CHART => {
+        GraphicContent::Other(gd)
+            if f.uri == bo_drawingml::chart::URI_CHART || f.uri == bo_xlsx::chartex::CX_NS =>
+        {
             let chart = bo_drawingml::chart::chart_rel_id(gd)
                 .and_then(|rid| cx.image_part(rid))
                 .and_then(|part| {

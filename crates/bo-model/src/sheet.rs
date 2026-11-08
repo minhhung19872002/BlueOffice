@@ -1364,8 +1364,39 @@ pub enum ChartKind {
     Surface,
     /// Pie of pie / bar of pie (`c:ofPieChart`, §21.2.2.126).
     OfPie,
+    /// Chartex waterfall ([MS-ODRAWXML] 2.24, `cx:series@layoutId="waterfall"`).
+    Waterfall,
+    /// Chartex treemap (`treemap`): hierarchical categories, sizes.
+    Treemap,
+    /// Chartex sunburst (`sunburst`).
+    Sunburst,
+    /// Chartex histogram (`clusteredColumn` with `cx:binning`).
+    Histogram,
+    /// Chartex pareto (histogram / sorted columns with the `paretoLine` series).
+    Pareto,
+    /// Chartex box & whisker (`boxWhisker`).
+    BoxWhisker,
+    /// Chartex funnel (`funnel`).
+    Funnel,
     /// Any other plot element, by local name.
     Other(String),
+}
+
+impl ChartKind {
+    /// Stored in a chartex part ([MS-ODRAWXML] `cx:chartSpace`) rather than a `c:chartSpace`.
+    #[must_use]
+    pub fn is_ex(&self) -> bool {
+        matches!(
+            self,
+            ChartKind::Waterfall
+                | ChartKind::Treemap
+                | ChartKind::Sunburst
+                | ChartKind::Histogram
+                | ChartKind::Pareto
+                | ChartKind::BoxWhisker
+                | ChartKind::Funnel
+        )
+    }
 }
 
 /// A colour of a chart element (§20.1.2.3.32 srgbClr / §20.1.2.3.29 schemeClr), resolved by the host
@@ -1433,6 +1464,13 @@ pub struct ChartSeries {
     /// §21.2.2.65 explosion of pie slices (percent of the radius).
     #[serde(default)]
     pub explosion: u32,
+    /// Hierarchical category labels (chartex `cx:strDim` levels): `levels[0]` the innermost (leaf)
+    /// level, then the parents outwards; one label per point.
+    #[serde(default)]
+    pub levels: Vec<Vec<String>>,
+    /// Waterfall points drawn as totals (`cx:subtotals/cx:idx`).
+    #[serde(default)]
+    pub subtotals: Vec<usize>,
 }
 
 // ---------------------------------------------------------------------------

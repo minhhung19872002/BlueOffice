@@ -378,8 +378,8 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize) -> bool {
             );
             return false;
         }
-        // Other kinds are written as clustered columns.
-        ChartKind::Other(_) => {
+        // Other kinds (and chartex kinds, written in their own part) as clustered columns.
+        _ => {
             let _ = write!(
                 out,
                 "<c:barChart><c:barDir val=\"col\"/><c:grouping val=\"clustered\"/><c:varyColors val=\"0\"/>{sers}<c:gapWidth val=\"150\"/>"
@@ -539,6 +539,33 @@ pub fn anchor_xml(chart: &Chart, shape_id: u32, rel_id: &str) -> String {
         "<xdr:twoCellAnchor editAs=\"oneCell\"><xdr:from><xdr:col>{}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>{}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>{}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>{}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>",
         chart.from.col, chart.from.row, to.col, to.row
     );
+    if chart.plots.first().is_some_and(|p| p.kind.is_ex()) {
+        // A chartex frame is an mc:AlternateContent choice (ECMA-376 Part 3, §10.2.1) for the
+        // applications that know the chartex namespaces; others show the fallback text box.
+        let cx = crate::chartex::CX_NS;
+        let (req, req_ns) = if chart
+            .plots
+            .first()
+            .is_some_and(|p| p.kind == ChartKind::Funnel)
+        {
+            (
+                "cx2",
+                "http://schemas.microsoft.com/office/drawing/2015/10/21/chartex",
+            )
+        } else {
+            (
+                "cx1",
+                "http://schemas.microsoft.com/office/drawing/2015/9/8/chartex",
+            )
+        };
+        let _ = write!(
+            out,
+            "<mc:AlternateContent xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\"><mc:Choice xmlns:{req}=\"{req_ns}\" Requires=\"{req}\"><xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"{shape_id}\" name=\"Chart {shape_id}\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm><a:graphic><a:graphicData uri=\"{cx}\"><cx:chart xmlns:cx=\"{cx}\" xmlns:r=\"{R_NS}\" r:id=\"{}\"/></a:graphicData></a:graphic></xdr:graphicFrame></mc:Choice><mc:Fallback><xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"{shape_id}\" name=\"Chart {shape_id}\"/><xdr:cNvSpPr><a:spLocks noTextEdit=\"1\"/></xdr:cNvSpPr></xdr:nvSpPr><xdr:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr><xdr:txBody><a:bodyPr vertOverflow=\"clip\" horzOverflow=\"clip\"/><a:lstStyle/><a:p><a:r><a:rPr lang=\"vi-VN\" sz=\"1100\"/><a:t>{}</a:t></a:r></a:p></xdr:txBody></xdr:sp></mc:Fallback></mc:AlternateContent><xdr:clientData/></xdr:twoCellAnchor>",
+            escape(rel_id),
+            escape("Biểu đồ mở rộng (chartex): cần ứng dụng hỗ trợ để hiển thị.")
+        );
+        return out;
+    }
     let _ = write!(
         out,
         "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"{shape_id}\" name=\"Chart {shape_id}\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm><a:graphic><a:graphicData uri=\"{C_NS}\"><c:chart xmlns:c=\"{C_NS}\" xmlns:r=\"{R_NS}\" r:id=\"{}\"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>",
@@ -567,7 +594,10 @@ pub fn append_to_drawing(data: &[u8], anchors: &str) -> Option<Vec<u8>> {
 
 /// Adds relationships to an existing `.rels` part (or creates one); returns
 /// the part and the ids given to `targets`.
-pub fn add_relationships(existing: Option<&[u8]>, targets: &[String]) -> (Vec<u8>, Vec<String>) {
+pub fn add_relationships(
+    existing: Option<&[u8]>,
+    targets: &[(String, bool)],
+) -> (Vec<u8>, Vec<String>) {
     let base = existing
         .and_then(|d| std::str::from_utf8(d).ok())
         .map_or_else(
@@ -579,7 +609,7 @@ pub fn add_relationships(existing: Option<&[u8]>, targets: &[String]) -> (Vec<u8
     let mut ids = Vec::new();
     let mut add = String::new();
     let mut n = 1;
-    for t in targets {
+    for (t, ex) in targets {
         let id = loop {
             let id = format!("rIdC{n}");
             n += 1;
@@ -587,9 +617,15 @@ pub fn add_relationships(existing: Option<&[u8]>, targets: &[String]) -> (Vec<u8
                 break id;
             }
         };
+        // A chartex part has its own relationship type ([MS-ODRAWXML] 2.1.x chartEx).
+        let ty = if *ex {
+            crate::chartex::REL_CHARTEX
+        } else {
+            REL_CHART
+        };
         let _ = write!(
             add,
-            "<Relationship Id=\"{id}\" Type=\"{REL_CHART}\" Target=\"{}\"/>",
+            "<Relationship Id=\"{id}\" Type=\"{ty}\" Target=\"{}\"/>",
             escape(t)
         );
         ids.push(id);
@@ -981,9 +1017,10 @@ mod tests {
         assert!(String::from_utf8(more)
             .unwrap()
             .ends_with("<x/></xdr:wsDr>"));
-        let (rels, ids) = add_relationships(None, &["../charts/chart1.xml".into()]);
+        let (rels, ids) = add_relationships(None, &[("../charts/chart1.xml".into(), false)]);
         assert_eq!(ids, vec!["rIdC1"]);
-        let (rels2, ids2) = add_relationships(Some(&rels), &["../charts/chart2.xml".into()]);
+        let (rels2, ids2) =
+            add_relationships(Some(&rels), &[("../charts/chart2.xml".into(), false)]);
         assert_eq!(ids2, vec!["rIdC2"]);
         let s = String::from_utf8(rels2).unwrap();
         assert!(s.contains("chart1.xml") && s.contains("chart2.xml"));

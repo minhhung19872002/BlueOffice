@@ -90,6 +90,27 @@ Kiểm thử round-trip: `cargo test -p bo-xlsx --test corpus corpus_roundtrip -
 | `writer-charts-ofpie-1.xlsx` | BlueSheet writer: pie of pie, bar of pie and an exploded pie (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_ofpie` |
 | `writer-charts-ofpie-2.xlsx` | BlueSheet writer: pie of pie, bar of pie and an exploded pie (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_ofpie` |
 | `writer-charts-ofpie-3.xlsx` | BlueSheet writer: pie of pie, bar of pie and an exploded pie (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_charts_ofpie` |
+| `writer-chartex-waterfall-1.xlsx` | BlueSheet writer: chartex waterfall (with a total; ups and downs; with a total) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_waterfall` |
+| `writer-chartex-waterfall-2.xlsx` | BlueSheet writer: chartex waterfall (with a total; ups and downs; with a total) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_waterfall` |
+| `writer-chartex-waterfall-3.xlsx` | BlueSheet writer: chartex waterfall (with a total; ups and downs; with a total) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_waterfall` |
+| `writer-chartex-treemap-1.xlsx` | BlueSheet writer: chartex treemap (2 levels; 3 levels; 2 levels, 5 points) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_treemap` |
+| `writer-chartex-treemap-2.xlsx` | BlueSheet writer: chartex treemap (2 levels; 3 levels; 2 levels, 5 points) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_treemap` |
+| `writer-chartex-treemap-3.xlsx` | BlueSheet writer: chartex treemap (2 levels; 3 levels; 2 levels, 5 points) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_treemap` |
+| `writer-chartex-sunburst-1.xlsx` | BlueSheet writer: chartex sunburst (2 levels; 3 levels; 2 levels, 5 points) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_sunburst` |
+| `writer-chartex-sunburst-2.xlsx` | BlueSheet writer: chartex sunburst (2 levels; 3 levels; 2 levels, 5 points) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_sunburst` |
+| `writer-chartex-sunburst-3.xlsx` | BlueSheet writer: chartex sunburst (2 levels; 3 levels; 2 levels, 5 points) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_sunburst` |
+| `writer-chartex-histogram-1.xlsx` | BlueSheet writer: chartex histogram (automatic bins; 6 bins; 15 values) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_histogram` |
+| `writer-chartex-histogram-2.xlsx` | BlueSheet writer: chartex histogram (automatic bins; 6 bins; 15 values) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_histogram` |
+| `writer-chartex-histogram-3.xlsx` | BlueSheet writer: chartex histogram (automatic bins; 6 bins; 15 values) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_histogram` |
+| `writer-chartex-pareto-1.xlsx` | BlueSheet writer: chartex pareto (categories sorted by count, cumulative line) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_pareto` |
+| `writer-chartex-pareto-2.xlsx` | BlueSheet writer: chartex pareto (categories sorted by count, cumulative line) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_pareto` |
+| `writer-chartex-pareto-3.xlsx` | BlueSheet writer: chartex pareto (categories sorted by count, cumulative line) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_pareto` |
+| `writer-chartex-box-1.xlsx` | BlueSheet writer: chartex box & whisker (one series; two series; an outlier) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_box` |
+| `writer-chartex-box-2.xlsx` | BlueSheet writer: chartex box & whisker (one series; two series; an outlier) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_box` |
+| `writer-chartex-box-3.xlsx` | BlueSheet writer: chartex box & whisker (one series; two series; an outlier) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_box` |
+| `writer-chartex-funnel-1.xlsx` | BlueSheet writer: chartex funnel (4, 3 and 5 stages) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_funnel` |
+| `writer-chartex-funnel-2.xlsx` | BlueSheet writer: chartex funnel (4, 3 and 5 stages) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_funnel` |
+| `writer-chartex-funnel-3.xlsx` | BlueSheet writer: chartex funnel (4, 3 and 5 stages) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_chartex_funnel` |
 | `writer-pivots-1.xlsx` | BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivots` |
 | `writer-pivots-2.xlsx` | BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivots` |
 | `writer-pivots-3.xlsx` | BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_pivots` |

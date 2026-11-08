@@ -1,0 +1,28 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 18.0]
+  text 28.0pt 7.2,30.3 #000000ff "Phễu "
+  text 28.0pt 72.6,30.3 #000000ff "bán "
+  text 28.0pt 122.8,30.3 #000000ff "hàng "
+  text 28.0pt 186.3,30.3 #000000ff "(funnel)"
+pop transform
+transform [1.000 0.000 0.000 1.000 72.0 108.0]
+  text 17.7pt 204.2,24.5 #3c4043ff "Phễu "
+  text 17.7pt 244.7,24.5 #3c4043ff "bán "
+  text 17.7pt 275.7,24.5 #3c4043ff "hàng "
+  text 17.7pt 315.0,24.5 #3c4043ff "(funnel)"
+  rect 84.5,39.5 485.5x69.8 #2e75b6ff
+  text 13.1pt 314.0,78.9 #ffffffff "5000"
+  text 13.1pt 37.1,78.9 #3c4043ff "Truy "
+  text 13.1pt 63.0,78.9 #3c4043ff "cập"
+  rect 239.9,122.6 174.8x69.8 #2e75b6ff
+  text 13.1pt 314.0,161.9 #ffffffff "1800"
+  text 13.1pt 39.2,161.9 #3c4043ff "Đăng "
+  text 13.1pt 69.7,161.9 #3c4043ff "ký"
+  rect 315.6,205.6 23.3x69.8 #2e75b6ff
+  text 13.1pt 317.3,245.0 #ffffffff "240"
+  text 13.1pt 57.2,245.0 #3c4043ff "Mua"
+pop transform

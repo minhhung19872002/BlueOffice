@@ -30,7 +30,7 @@ lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file
 | SmartArt | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | corpus smartart-*, diagram_layout, smartart.spec | 🟡 | hiển thị: fallback hoặc tự dựng (7 nhóm); tạo/sửa/đổi màu/chuyển hình: BlueSlide; Doc/Sheet chưa tạo |
 | Biểu đồ c: cơ bản (9 loại) | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | corpus charts-* | ✅ | một bộ vẽ chung cho Sheet/Slide/Doc |
 | Biểu đồ c: nâng cao (bubble, radar, stock, surface, 3D…) | all | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | — | corpus writer-charts-*, slide_show | 🟡 | 100 %, bubble, radar, stock HLC/OHLC, of-pie, tách miếng, surface (nhìn trên); thiếu VHLC/VOHLC, 3D |
-| Biểu đồ cx: (waterfall, treemap…) | all | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
+| Biểu đồ cx: (waterfall, treemap…) | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | corpus writer-chartex-*, slide-chartex-* | 🟡 | 7 loại đọc/vẽ ở mọi app; tạo trong BlueSheet; chưa regionMap |
 | Shape preset/custom geometry | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 187 preset, snapshots | ✅ | |
 | Edit points / merge shapes | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Hiệu ứng: shadow, glow | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | snapshots | 🟡 | PDF blur dạng ảnh mặt nạ |

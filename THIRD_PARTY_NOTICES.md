@@ -103,6 +103,7 @@ Công cụ fuzz (`fuzz/`, workspace riêng, không đóng gói vào sản phẩm
 | xunit, xunit.runner.visualstudio (dev) | 2.9.2 / 2.8.2 | Apache-2.0 | Unit test |
 | DocumentFormat.OpenXml (tools/BlueOffice.Validate) | 3.1.1 | MIT | Validate OOXML xuất ra (prompt §7) |
 | Microsoft.NET.Test.Sdk (dev) | 17.11.1 | MIT | Test host |
+| Testcontainers.Redis (Testcontainers, Docker.DotNet.Enhanced, BouncyCastle.Cryptography, SSH.NET, SharpZipLib) (dev) | 4.1.0 | MIT | Test tích hợp Redis thật (bỏ qua khi không có Docker) |
 
 ## Icon
 

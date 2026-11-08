@@ -69,6 +69,7 @@ public static class DependencyInjection
         {
             var redisCs = config.GetConnectionString("Redis") ?? "localhost:6379";
             services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisCs));
+            services.AddSingleton<IRedisCommands, RedisCommands>();
             services.AddSingleton<IJobQueue, RedisJobQueue>();
         }
         else

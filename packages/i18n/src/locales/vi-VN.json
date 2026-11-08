@@ -66,7 +66,8 @@
       "new": "Mới",
       "save": "Lưu",
       "saveAs": "Lưu thành…",
-      "newFromTemplate": "Mới từ mẫu"
+      "newFromTemplate": "Mới từ mẫu",
+      "checkUpdates": "Kiểm tra cập nhật"
     },
     "edit": {
       "paste": "Dán",
@@ -1484,5 +1485,18 @@
     "position": "Vị trí ảnh",
     "horizontal": "Ngang",
     "vertical": "Dọc"
+  },
+  "updates": {
+    "title": "Cập nhật",
+    "check": "Kiểm tra cập nhật",
+    "checking": "Đang kiểm tra cập nhật…",
+    "install": "Cài đặt và khởi động lại",
+    "installing": "Đang tải và cài bản cập nhật…",
+    "available": "Đã có phiên bản {{version}} (đang dùng {{current}}).",
+    "upToDate": "Bạn đang dùng phiên bản mới nhất ({{current}}).",
+    "failed": "Không kiểm tra được cập nhật: {{message}}",
+    "notConfigured": "Bản cài đặt này chưa được cấu hình máy chủ cập nhật.",
+    "disabled": "Bản này không có cập nhật tự động.",
+    "installFailed": "Không cài được bản cập nhật: {{message}}"
   }
 }

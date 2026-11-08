@@ -6,7 +6,12 @@
  * files, the system browser, stored settings) comes in through props.
  */
 import type { Language } from '@blueoffice/i18n';
-import type { RecentFile } from '@blueoffice/platform';
+import {
+  updateNotice,
+  type RecentFile,
+  type UpdateService,
+  type UpdateStatus,
+} from '@blueoffice/platform';
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   DriveClient,
@@ -18,7 +23,7 @@ import {
 } from '../drive';
 import type { FetchLike, HostedApp } from '../session';
 import type { SyncFolder } from '../syncFolders';
-import { startText, type StartKey } from './text';
+import { startText, updatesText, type StartKey, type UpdatesKey } from './text';
 
 /** A signed-in host user (the token stays in memory). */
 export interface DriveSession {
@@ -49,6 +54,8 @@ export interface StartScreenProps {
   signInWithBrowser?: (host: DriveHostInfo) => Promise<string>;
   /** Initial tab. */
   tab?: 'home' | 'drive' | 'settings';
+  /** "Check for updates" (desktop auto-update). */
+  updates?: UpdateService;
 }
 
 const C = {
@@ -551,7 +558,87 @@ function SettingsTab(p: StartScreenProps) {
           </button>
         </div>
       </div>
+      {p.updates ? <UpdatesSection language={p.language} updates={p.updates} /> : null}
     </section>
+  );
+}
+
+/** Settings → Updates: check, then install and restart when a newer version exists. */
+export function UpdatesSection({
+  language,
+  updates,
+}: {
+  language: Language;
+  updates: UpdateService;
+}) {
+  const t = (k: UpdatesKey) => updatesText(language, k);
+  const [busy, setBusy] = useState<'check' | 'install' | null>(null);
+  const [status, setStatus] = useState<UpdateStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const check = async () => {
+    setBusy('check');
+    setError(null);
+    try {
+      setStatus(await updates.check());
+    } finally {
+      setBusy(null);
+    }
+  };
+  const install = async () => {
+    setBusy('install');
+    setError(null);
+    try {
+      await updates.install();
+    } catch (e) {
+      setError(
+        updatesText(language, 'installFailed', {
+          message: e instanceof Error ? e.message : String(e),
+        }),
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+  const notice = status ? updateNotice(status) : null;
+  return (
+    <div style={{ display: 'grid', gap: 6 }} data-testid="settings-updates">
+      <strong>{t('title')}</strong>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          style={button}
+          data-testid="settings-update-check"
+          disabled={busy !== null}
+          onClick={() => void check()}
+        >
+          {t('check')}
+        </button>
+        {status?.state === 'available' ? (
+          <button
+            type="button"
+            style={primary}
+            data-testid="settings-update-install"
+            disabled={busy !== null}
+            onClick={() => void install()}
+          >
+            {t('install')}
+          </button>
+        ) : null}
+      </div>
+      <span
+        role="status"
+        data-testid="settings-update-status"
+        data-state={busy ?? status?.state ?? ''}
+        style={{ color: C.muted }}
+      >
+        {busy === 'check'
+          ? t('checking')
+          : busy === 'install'
+            ? t('installing')
+            : (error ??
+              (notice ? updatesText(language, notice.key as UpdatesKey, notice.params) : ''))}
+      </span>
+    </div>
   );
 }
 

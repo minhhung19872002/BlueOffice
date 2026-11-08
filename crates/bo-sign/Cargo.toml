@@ -6,9 +6,20 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+# HTTP transport (ureq + rustls) for RFC 3161 time-stamp authorities and the
+# remote signing service. Off for WASM: the browser goes through `fetch`.
+http = ["dep:ureq"]
+# PKCS#11 USB tokens (cryptoki). Desktop only.
+pkcs11 = ["dep:cryptoki"]
+# Certificate files `.p12` / `.pfx` (PKCS#12).
+pkcs12 = ["dep:p12-keystore"]
+
 [dependencies]
 bo-opc.workspace = true
 thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 sha2 = "0.10"
 rsa = { version = "0.9", features = ["sha2"] }
 x509-cert = { version = "0.2", features = ["builder"] }
@@ -17,6 +28,9 @@ der = { version = "0.7", features = ["alloc", "derive", "oid", "std"] }
 spki = "0.7"
 const-oid = { version = "0.9", features = ["db"] }
 base64 = "0.22"
+ureq = { version = "3", default-features = false, features = ["rustls"], optional = true }
+cryptoki = { version = "0.12", optional = true }
+p12-keystore = { version = "0.4", optional = true }
 
 [dev-dependencies]
 rand = "0.8"

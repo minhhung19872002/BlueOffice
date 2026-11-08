@@ -190,7 +190,7 @@ fn footnote_edited_in_place_on_the_page() {
         r#"{"cmd":"move","motion":"wordLeft","extend":true}"#,
     );
     let r = cmd(&mut e, r#"{"cmd":"formatText","format":{"kind":"bold"}}"#);
-    assert!(!r["rects"].as_array().unwrap().is_empty());
+    assert_ne!(r["rects"], serde_json::json!([]));
     assert!(e.page_json(0).unwrap().contains("thích"));
     // A click in the body closes the note: one undoable change.
     let r = cmd(&mut e, r#"{"cmd":"click","page":0,"x":100,"y":80}"#);

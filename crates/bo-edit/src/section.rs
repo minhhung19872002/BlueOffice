@@ -225,7 +225,7 @@ pub fn note_refs(blocks: &[Block], out: &mut Vec<(bool, i32)>) {
                     }
                 }
             }
-            _ => {}
+            Block::Opaque(_) => {}
         }
     }
 }
@@ -252,7 +252,7 @@ pub(crate) fn renumber_note_ref(blocks: &mut [Block], endnote: bool, from: i32, 
                     }
                 }
             }
-            _ => {}
+            Block::Opaque(_) => {}
         }
     }
 }

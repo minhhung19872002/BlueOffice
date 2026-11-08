@@ -313,6 +313,11 @@ fn empty_tree() -> CommonSlideData {
 
 /// A unique part name `prefix{N}.xml` among slides, notes and preserved parts.
 pub fn unique_part(pres: &Presentation, prefix: &str, ext: &str) -> String {
+    unique_part_except(pres, prefix, ext, &[])
+}
+
+/// [`unique_part`] also avoiding the names in `also` (parts about to be added).
+pub fn unique_part_except(pres: &Presentation, prefix: &str, ext: &str, also: &[String]) -> String {
     let mut used: Vec<String> = pres
         .parts
         .iter()
@@ -339,6 +344,7 @@ pub fn unique_part(pres: &Presentation, prefix: &str, ext: &str) -> String {
             used.push(n.info.part_name.to_ascii_lowercase());
         }
     }
+    used.extend(also.iter().map(|a| a.to_ascii_lowercase()));
     for n in 1.. {
         let name = format!("{prefix}{n}.{ext}");
         if !used.contains(&name.to_ascii_lowercase()) {

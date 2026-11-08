@@ -499,7 +499,7 @@ fn paste_slides_into_another_deck_maps_or_imports_layouts() {
     // Rendering the pasted slide uses its imported layout's placeholders.
     let mut f = Engine::with_bundled_fonts();
     f.open(&bytes, "x.pptx").unwrap();
-    assert!(!f.slide_json(1).unwrap().is_empty());
+    assert!(f.slide_json(1).unwrap().len() > 2);
     // Undo removes the imported design too.
     run(&mut e, r#"{"cmd":"undo"}"#);
     assert_eq!(e.presentation().unwrap().layouts.len(), l0);

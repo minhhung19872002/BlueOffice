@@ -203,7 +203,7 @@ fn tracked_row_insert_delete_and_reject() {
         panic!("table")
     };
     assert_eq!(t.rows.len(), 3);
-    assert!(accepted.revisions().is_empty());
+    assert_eq!(accepted.revisions().len(), 0);
     s.resolve_revisions(None, false).unwrap();
     same(s.doc(), &original).unwrap();
 }

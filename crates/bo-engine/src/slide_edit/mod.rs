@@ -2493,10 +2493,7 @@ impl PartCarrier<'_> {
         let (dir, file) = name.rsplit_once('/').unwrap_or(("/ppt/media", name));
         let (stem, ext) = file.rsplit_once('.').unwrap_or((file, "bin"));
         let stem = stem.trim_end_matches(|c: char| c.is_ascii_digit());
-        let mut n = build::unique_part(pres, &format!("{dir}/{stem}"), ext);
-        while self.taken.iter().any(|t| t.eq_ignore_ascii_case(&n)) {
-            n = format!("{dir}/{stem}{}.{ext}", self.taken.len() + 100);
-        }
+        let n = build::unique_part_except(pres, &format!("{dir}/{stem}"), ext, &self.taken);
         self.taken.push(n.clone());
         n
     }

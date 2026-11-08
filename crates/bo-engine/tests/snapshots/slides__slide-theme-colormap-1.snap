@@ -4,11 +4,17 @@ expression: summary(&page.commands)
 ---
 path n=5 [0.0 0.0 960.0 540.0] fill=linear(2)
 transform [1.000 0.000 0.000 1.000 36.0 24.0]
-  text 44.0pt 7.2,57.4 #ffffffff "Nền "
-  text 44.0pt 91.5,57.4 #ffffffff "gradient, "
-  text 44.0pt 257.7,57.4 #ffffffff "đổi "
-  text 44.0pt 324.9,57.4 #ffffffff "bảng "
-  text 44.0pt 421.4,57.4 #ffffffff "màu"
+  text 44.0pt 7.2,56.8 #ffffffff "N"
+  text 44.0pt 37.7,56.8 #ffffffff "ề"
+  text 44.0pt 57.2,56.8 #ffffffff "n "
+  text 44.0pt 91.5,56.8 #ffffffff "gradient, "
+  text 44.0pt 260.4,56.8 #ffffffff "đ"
+  text 44.0pt 284.8,56.8 #ffffffff "ổ"
+  text 44.0pt 306.8,56.8 #ffffffff "i "
+  text 44.0pt 328.7,56.8 #ffffffff "b"
+  text 44.0pt 351.5,56.8 #ffffffff "ả"
+  text 44.0pt 371.1,56.8 #ffffffff "ng "
+  text 44.0pt 425.5,56.8 #ffffffff "màu"
 pop transform
 transform [1.000 0.000 0.000 1.000 36.0 126.0]
   text 28.0pt 7.2,25.8 #ffffffff "•"

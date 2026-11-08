@@ -300,21 +300,31 @@ pub struct ListCounters {
 impl ListCounters {
     /// Advance the counter for `n` and return the label text and level run props.
     pub fn next(&mut self, doc: &Document, n: NumRef) -> Option<(String, RunProps, String)> {
-        let level = doc.numbering.level(n)?;
-        let abs = doc.numbering.abstract_of(n.num_id)?;
-        let first_use = self.seen_nums.insert(n.num_id);
-        let has_override = doc
+        // One lookup of the instance and its abstract definition (§17.9.15 num,
+        // §17.9.1 abstractNum): documents have hundreds of list instances.
+        let num = doc.numbering.nums.iter().find(|x| x.id == n.num_id)?;
+        let abs_def = doc
             .numbering
-            .nums
+            .abstracts
             .iter()
-            .any(|x| x.id == n.num_id && !x.start_overrides.is_empty());
+            .find(|a| a.id == num.abstract_id)?;
+        let level_of = |ilvl: u8| abs_def.levels.iter().find(|l| l.ilvl == ilvl);
+        let level = level_of(n.ilvl)?;
+        let abs = num.abstract_id;
+        let first_use = self.seen_nums.insert(n.num_id);
+        let has_override = !num.start_overrides.is_empty();
         let entry = self.counters.entry(abs).or_insert([0; 9]);
         let il = usize::from(n.ilvl.min(8));
         if first_use && has_override {
             *entry = [0; 9];
         }
         if entry[il] == 0 {
-            entry[il] = doc.numbering.start(n);
+            // §17.9.26 startOverride, else the level's §17.9.25 start.
+            entry[il] = num
+                .start_overrides
+                .iter()
+                .find(|(l, _)| *l == n.ilvl)
+                .map_or(level.start, |(_, s)| *s);
         } else {
             entry[il] += 1;
         }
@@ -327,10 +337,7 @@ impl ListCounters {
         for (k, &count) in counters.iter().enumerate() {
             let pat = format!("%{}", k + 1);
             if label.contains(&pat) {
-                let lv = doc.numbering.level(NumRef {
-                    num_id: n.num_id,
-                    ilvl: k as u8,
-                });
+                let lv = level_of(k as u8);
                 let value = if count == 0 {
                     lv.map_or(1, |l| l.start)
                 } else {

@@ -94,6 +94,77 @@ public sealed class JobTests : IDisposable
     }
 
     [Fact]
+    public async Task PngPreviewStoresOneImagePerPageForTheOwnerOnly()
+    {
+        _app.Runner.RenderPages = ConversionJobProcessor.MaxPreviewPages + 3;
+        var c = _app.ClientFor("preview-png");
+        using var form = Form("Báo cáo.xlsx", ("format", "png"));
+        var res = await c.PostAsync(new Uri("/preview?wait=true", UriKind.Relative), form);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal("application/json", res.Content.Headers.ContentType?.MediaType);
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(ConversionJobProcessor.MaxPreviewPages, body.GetProperty("pages").GetInt32());
+        Assert.Equal(ConversionJobProcessor.MaxPreviewPages + 3, body.GetProperty("totalPages").GetInt32());
+        var images = body.GetProperty("images").EnumerateArray().Select(x => x.GetString()!).ToList();
+        Assert.Equal(ConversionJobProcessor.MaxPreviewPages, images.Count);
+
+        // One render call for every page at 1 px/pt by default.
+        var args = _app.Runner.Calls.Single(a => a[0] == "render");
+        Assert.EndsWith("page-%d.png", args[3], StringComparison.Ordinal);
+        Assert.Equal(["--scale", "1"], args.Skip(4).Take(2));
+
+        var second = await c.GetAsync(new Uri(images[1], UriKind.Relative));
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Equal("image/png", second.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(2, (await second.Content.ReadAsByteArrayAsync())[^1]);
+        var id = images[0].Split('/')[2];
+        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync(new Uri($"/jobs/{id}/pages/{ConversionJobProcessor.MaxPreviewPages + 1}", UriKind.Relative))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync(new Uri($"/jobs/{id}/pages/0", UriKind.Relative))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _app.ClientFor("someone-else").GetAsync(new Uri(images[0], UriKind.Relative))).StatusCode);
+    }
+
+    [Fact]
+    public async Task PreviewRejectsUnknownFormatsAndUnrenderableInputs()
+    {
+        var c = _app.ClientFor("preview-bad");
+        using (var form = Form("a.docx", ("format", "gif")))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsync(new Uri("/preview?wait=true", UriKind.Relative), form)).StatusCode);
+        }
+
+        using (var form = Form("a.ppt", ("format", "png")))
+        {
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, (await c.PostAsync(new Uri("/preview?wait=true", UriKind.Relative), form)).StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task MacroEnabledPackagesKeepTheirExtensionAndType()
+    {
+        _app.Runner.Handler = args =>
+        {
+            if (args[0] != "convert")
+            {
+                return null;
+            }
+
+            // A .doc with VBA comes back as a macro-enabled package.
+            using var zip = System.IO.Compression.ZipFile.Open(args[^1], System.IO.Compression.ZipArchiveMode.Create);
+            using (var w = new StreamWriter(zip.CreateEntry("[Content_Types].xml").Open()))
+            {
+                w.Write("<Types><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.ms-word.document.macroEnabled.main+xml\"/></Types>");
+            }
+
+            return new ProcessResult(0, "", "note: the input contains macros");
+        };
+        using var form = Form("Biểu mẫu.doc", ("to", "docx"));
+        var res = await _app.ClientFor("macro-user").PostAsync(new Uri("/convert?wait=true", UriKind.Relative), form);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal("application/vnd.ms-word.document.macroEnabled.12", res.Content.Headers.ContentType?.MediaType);
+        Assert.EndsWith(".docm", res.Content.Headers.ContentDisposition?.FileNameStar ?? res.Content.Headers.ContentDisposition?.FileName?.Trim('"'), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task FailuresAreReported()
     {
         var c = _app.ClientFor("fail-user");

@@ -33,6 +33,11 @@ kèm script SQL `upgrade-<from>-<to>.sql` — chạy **sau khi dừng** `api`, *
 $C exec -T postgres psql -U blueoffice -d blueoffice -v ON_ERROR_STOP=1 < upgrade-<from>-<to>.sql
 ```
 
+Bảng thêm vào sau bản đầu tiên (vd `CollabLog`) được api tự tạo khi khởi động (`SchemaUpgrades`, `CREATE TABLE IF NOT
+EXISTS`) nếu `Database__AutoCreate` bật (mặc định); tắt thì chạy script SQL tương ứng. Từ bản có `CollabLog`, log cộng tác mặc định nằm trong cơ sở dữ liệu
+(`Collab__SnapshotStore=Database`): log chưa lưu của bản cũ (MinIO) không được đọc lại, nên lưu hết tài liệu trước khi
+nâng cấp, hoặc giữ `Collab__SnapshotStore=ObjectStore`.
+
 (Chuyển sang EF Core migrations tự động là việc còn lại của Phase 6, xem `docs/plan/phase-6.md`.)
 
 ## Quay lui (rollback)

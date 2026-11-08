@@ -28,6 +28,9 @@ public sealed class BlueOfficeDbContext(DbContextOptions<BlueOfficeDbContext> op
     /// <summary>Collaboration sessions.</summary>
     public DbSet<CollabSession> CollabSessions => Set<CollabSession>();
 
+    /// <summary>Collaboration update log (snapshots + incremental batches), see <see cref="Storage.DatabaseObjectStore"/>.</summary>
+    public DbSet<Storage.CollabLogEntry> CollabLog => Set<Storage.CollabLogEntry>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -80,6 +83,16 @@ public sealed class BlueOfficeDbContext(DbContextOptions<BlueOfficeDbContext> op
             e.HasIndex(x => x.RoomKey);
             e.Property(x => x.RoomKey).HasMaxLength(320);
             e.Property(x => x.FileId).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<Storage.CollabLogEntry>(e =>
+        {
+            e.ToTable(SchemaUpgrades.CollabLogTable);
+            e.HasKey(x => x.Key);
+            e.Property(x => x.Key).HasMaxLength(512);
+            e.Property(x => x.Room).HasMaxLength(512);
+            e.Property(x => x.ContentType).HasMaxLength(128);
+            e.HasIndex(x => x.Room).HasDatabaseName("IX_CollabLog_Room");
         });
 
         // All timestamps are UTC; SQLite returns DateTimeKind.Unspecified, so restore the kind on read.

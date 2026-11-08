@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text.Json;
 using BlueOffice.Api.Collab;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace BlueOffice.Tests;
@@ -206,9 +207,11 @@ public sealed class CollabTests : IDisposable
             await a.WaitEventAsync("pong");
         }
 
-        // Room closes with unsaved changes → snapshot in the object store.
-        var collabDir = Path.Combine(_app.ObjectsRoot, "collab");
-        await Eventually(() => Directory.Exists(collabDir) && Directory.EnumerateFiles(collabDir, "snapshot.bin", SearchOption.AllDirectories).Any());
+        // Room closes with unsaved changes → snapshot in the log store (database by default).
+        var log = _app.Services.GetRequiredService<CollabLogStore>();
+        Assert.Equal("Database", log.Kind);
+        await Eventually(() => log.Store.ListAsync("collab/", CancellationToken.None).GetAwaiter().GetResult().Any(k => k.EndsWith("/snapshot.bin", StringComparison.Ordinal)));
+        Assert.False(Directory.Exists(Path.Combine(_app.ObjectsRoot, "collab")));
 
         var (_, s2) = await SessionAsync("bob", "Bob", fileId);
         await using var b = await ConnectAsync(s2);

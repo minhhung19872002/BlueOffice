@@ -9,7 +9,7 @@ public enum JobKind
     /// <summary><c>bo-cli render --page 1 --scale s</c> → PNG.</summary>
     Thumbnail,
 
-    /// <summary>Quick view for read-only users: PDF of the whole document.</summary>
+    /// <summary>Quick view for read-only users: PDF of the whole document, or one PNG per page (<c>format=png</c>).</summary>
     Preview,
 
     /// <summary>Plain text from the display list (<c>bo-cli dump</c>).</summary>
@@ -47,7 +47,7 @@ public sealed class ConversionJob
     /// <summary>Original file name (used only for the extension and the output name).</summary>
     public string FileName { get; set; } = "";
 
-    /// <summary>Requested target format for <see cref="JobKind.Convert"/> (e.g. "pdf").</summary>
+    /// <summary>Requested target format: <see cref="JobKind.Convert"/> (e.g. "pdf", "docx"), <see cref="JobKind.Preview"/> ("pdf" or "png").</summary>
     public string? TargetFormat { get; set; }
 
     /// <summary>Page (1-based) for thumbnails.</summary>
@@ -64,6 +64,12 @@ public sealed class ConversionJob
 
     /// <summary>Object key of the output.</summary>
     public string OutputKey => $"jobs/{Id}/output";
+
+    /// <summary>Object key of page <paramref name="page"/> (1-based) of a PNG preview.</summary>
+    public string PageKey(int page) => $"jobs/{Id}/pages/{page}";
+
+    /// <summary>Number of page images stored by a PNG preview (null for other jobs).</summary>
+    public int? OutputPages { get; set; }
 
     /// <summary>MIME type of the output.</summary>
     public string? OutputContentType { get; set; }

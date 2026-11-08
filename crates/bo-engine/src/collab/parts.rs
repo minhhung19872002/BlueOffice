@@ -40,23 +40,7 @@ pub(crate) struct Story {
     pub entries: Vec<Entry>,
 }
 
-fn entry_of(b: &Block, ctx: &LineCtx<'_>) -> Entry {
-    let line = line_of(b, None, None, ctx);
-    Entry {
-        block: b.clone(),
-        sect: None,
-        len: line.len16(),
-        line,
-    }
-}
-
 impl Story {
-    pub fn from_blocks(blocks: &[Block], ctx: &LineCtx<'_>) -> Story {
-        Story {
-            entries: blocks.iter().map(|b| entry_of(b, ctx)).collect(),
-        }
-    }
-
     /// The whole story as one delta of inserts.
     pub fn full_delta(&self) -> Vec<TextOp> {
         let mut cells = Vec::new();
@@ -76,40 +60,6 @@ impl Story {
             reset: true,
             deltas: if d.is_empty() { Vec::new() } else { vec![d] },
         }
-    }
-
-    /// Delta turning the shadow into `blocks` (the shadow is updated).
-    pub fn update(&mut self, blocks: &[Block], ctx: &LineCtx<'_>) -> Vec<TextOp> {
-        let (no, nn) = (self.entries.len(), blocks.len());
-        let n = no.min(nn);
-        let mut p = 0;
-        while p < n && self.entries[p].block == blocks[p] {
-            p += 1;
-        }
-        let mut s = 0;
-        while s < n - p && self.entries[no - 1 - s].block == blocks[nn - 1 - s] {
-            s += 1;
-        }
-        if p == no && p == nn {
-            return Vec::new();
-        }
-        let fresh: Vec<Entry> = blocks[p..nn - s].iter().map(|b| entry_of(b, ctx)).collect();
-        let mut old = Vec::new();
-        for e in &self.entries[p..no - s] {
-            e.line.explode(&mut old);
-        }
-        let mut new = Vec::new();
-        for e in &fresh {
-            e.line.explode(&mut new);
-        }
-        let mut b = DeltaBuilder::default();
-        b.retain(
-            self.entries[..p].iter().map(|e| e.len).sum(),
-            serde_json::Map::new(),
-        );
-        diff_cells(&mut b, &old, &new);
-        self.entries.splice(p..no - s, fresh);
-        b.finish()
     }
 
     pub fn blocks(&self) -> Vec<Block> {
@@ -146,32 +96,6 @@ pub(crate) fn apply_text(
         apply_entries(&mut st.entries, d, ctx)?;
     }
     Ok(())
-}
-
-/// Shares `blocks` as the story `key` (created when missing).
-fn share_story(
-    stories: &mut BTreeMap<String, Story>,
-    key: &str,
-    blocks: &[Block],
-    ctx: &LineCtx<'_>,
-    out: &mut CollabChange,
-) {
-    if let Some(st) = stories.get_mut(key) {
-        let d = st.update(blocks, ctx);
-        if !d.is_empty() {
-            out.texts.insert(
-                key.to_owned(),
-                Some(TextDelta {
-                    reset: false,
-                    deltas: vec![d],
-                }),
-            );
-        }
-    } else {
-        let st = Story::from_blocks(blocks, ctx);
-        out.texts.insert(key.to_owned(), Some(st.reset_change()));
-        stories.insert(key.to_owned(), st);
-    }
 }
 
 fn drop_story(stories: &mut BTreeMap<String, Story>, key: &str, out: &mut CollabChange) {
@@ -860,13 +784,20 @@ fn headers_of(doc: &Document) -> Vec<(HeaderFooter, HeaderFooter)> {
 }
 
 /// Shares the parts that changed since the last call.
+///
+/// Comment, note and header/footer stories share their tables cell by cell
+/// (like tables nested in cells, [`share_cell_story`]), so concurrent edits of
+/// different cells of such a table merge.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn share_parts(
     doc: &Document,
     base_nums: &BTreeSet<i32>,
     seen: &mut Seen,
     meta: &mut BTreeMap<String, String>,
+    tables: &mut BTreeMap<String, TableShadow>,
     stories: &mut BTreeMap<String, Story>,
     ctx: &LineCtx<'_>,
+    fresh: &mut impl FnMut() -> String,
     out: &mut CollabChange,
 ) {
     let set = |meta: &mut BTreeMap<String, String>,
@@ -956,7 +887,7 @@ pub(crate) fn share_parts(
             })
             .ok();
             set(meta, out, k.clone(), j);
-            share_story(stories, &k, &c.blocks, ctx, out);
+            share_cell_story(tables, stories, &k, &c.blocks, ctx, fresh, out);
             now.insert(k);
         }
         let gone: Vec<String> = meta
@@ -966,7 +897,7 @@ pub(crate) fn share_parts(
             .collect();
         for k in gone {
             set(meta, out, k.clone(), None);
-            drop_story(stories, &k, out);
+            drop_cell_story(tables, stories, &k, out);
         }
         seen.comments = Some(doc.comments.clone());
     }
@@ -981,7 +912,8 @@ pub(crate) fn share_parts(
         }
         let prefix = if endnote { "en:" } else { "fn:" };
         for (id, blocks) in notes {
-            share_story(stories, &format!("{prefix}{id}"), blocks, ctx, out);
+            let k = format!("{prefix}{id}");
+            share_cell_story(tables, stories, &k, blocks, ctx, fresh, out);
         }
         let gone: Vec<String> = stories
             .keys()
@@ -993,7 +925,7 @@ pub(crate) fn share_parts(
             .cloned()
             .collect();
         for k in gone {
-            drop_story(stories, &k, out);
+            drop_cell_story(tables, stories, &k, out);
         }
         *slot = Some(notes.clone());
     }
@@ -1004,7 +936,7 @@ pub(crate) fn share_parts(
             for kind in HF_KINDS {
                 if let Some(blocks) = hf_slot(s, kind) {
                     let k = format!("hf:{si}:{kind}");
-                    share_story(stories, &k, blocks, ctx, out);
+                    share_cell_story(tables, stories, &k, blocks, ctx, fresh, out);
                     now.insert(k);
                 }
             }
@@ -1015,7 +947,7 @@ pub(crate) fn share_parts(
             .cloned()
             .collect();
         for k in gone {
-            drop_story(stories, &k, out);
+            drop_cell_story(tables, stories, &k, out);
         }
         seen.headers = Some(hfs);
     }
@@ -1190,10 +1122,14 @@ pub(crate) fn rebuilt_headers(
 /// the table shadows and the cell stories, innermost first (one pass per
 /// nesting level), and adds to `hit` every table enclosing a changed one, up to
 /// the top-level table of the body.
+///
+/// Stories that are not cells (comments, notes, headers/footers) holding a
+/// changed table are added to `touched_parts`, so the part is rebuilt.
 pub(crate) fn rebuild_nested(
     tables: &BTreeMap<String, TableShadow>,
     stories: &mut BTreeMap<String, Story>,
     hit: &mut BTreeSet<String>,
+    touched_parts: &mut BTreeSet<String>,
 ) {
     // Child table key → the story holding it.
     let parent: BTreeMap<String, String> = stories
@@ -1215,6 +1151,11 @@ pub(crate) fn rebuild_nested(
             if hit.insert(pt.to_owned()) {
                 todo.push(pt.to_owned());
             }
+        }
+    }
+    for (t, holder) in &parent {
+        if hit.contains(t) && story_table(holder).is_none() {
+            touched_parts.insert(holder.clone());
         }
     }
     let holders: BTreeSet<String> = parent.values().cloned().collect();

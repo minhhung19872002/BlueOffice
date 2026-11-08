@@ -1264,3 +1264,76 @@ fn pictures_pasted_at_once_by_two_peers_keep_their_own_parts() {
         assert_eq!(sorted(pa), sorted(pb));
     });
 }
+
+/// Texts of the cells of the tables in the default header of section 0.
+fn header_cells(p: &Peer) -> Vec<String> {
+    let s = &p.engine.document().unwrap().sections[0];
+    s.headers
+        .default
+        .iter()
+        .flatten()
+        .filter_map(|b| match b {
+            bo_model::Block::Table(t) => Some(t),
+            _ => None,
+        })
+        .flat_map(|t| t.rows.iter().flat_map(|r| r.cells.iter()))
+        .map(|c| {
+            c.blocks
+                .iter()
+                .filter_map(|x| x.as_paragraph())
+                .map(bo_model::Paragraph::plain_text)
+                .collect::<String>()
+        })
+        .collect()
+}
+
+/// A 2×2 table as the engine inserts it.
+fn table_2x2() -> bo_model::Table {
+    let mut e = Engine::with_bundled_fonts();
+    e.load(bo_engine::plain_text_document("x"), "t.docx")
+        .unwrap();
+    e.command_json(&sel(0, 1)).unwrap();
+    e.command_json(r#"{"cmd":"insertTable","rows":2,"cols":2}"#)
+        .unwrap();
+    e.document().unwrap().sections[0]
+        .blocks
+        .iter()
+        .find_map(|b| match b {
+            bo_model::Block::Table(t) => Some(t.clone()),
+            _ => None,
+        })
+        .unwrap()
+}
+
+// source: ECMA-376 Part 1, §17.10.4 hdr holding a §17.4.38 tbl
+#[test]
+fn edits_in_different_cells_of_a_header_table_merge() {
+    let mut doc = bo_engine::plain_text_document("thân");
+    doc.sections[0].headers.default = Some(vec![
+        bo_model::Block::Table(table_2x2()),
+        bo_model::Block::Paragraph(bo_model::Paragraph::default()),
+    ]);
+    let mut a = Peer::doc(1, "x");
+    a.engine.load(doc, "chung.docx").unwrap();
+    let mut b = Peer::doc(2, "khác hẳn");
+    a.start(true);
+    b.start(false);
+    connect(&mut a, &mut b);
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    assert_eq!(header_cells(&b), vec![""; 4]);
+    // A types in the first cell, B in the last one, at the same time.
+    let type_in = |p: &mut Peer, cell: usize, text: &str| {
+        p.cmd(r#"{"cmd":"editHeaderFooter","page":0,"header":true}"#);
+        p.cmd(&sel(cell, 0));
+        p.cmd(&insert(text));
+        p.cmd(r#"{"cmd":"closeHeaderFooter"}"#);
+    };
+    type_in(&mut a, 0, "của A");
+    type_in(&mut b, 3, "của B");
+    settle(&mut a, &mut b);
+    converged(&a, &b);
+    let cells = header_cells(&a);
+    assert_eq!(cells, header_cells(&b));
+    assert_eq!(cells, vec!["của A", "", "", "của B"], "{cells:?}");
+}

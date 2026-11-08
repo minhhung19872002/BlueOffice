@@ -1019,8 +1019,10 @@ impl DocCollab {
             &self.base_nums,
             &mut self.seen,
             &mut self.meta,
+            &mut self.tables,
             &mut self.stories,
             &ctx,
+            &mut fresh,
             &mut out,
         );
         out
@@ -1541,7 +1543,7 @@ impl Engine {
         }
         c.tables.retain(|_, t| !t.is_empty());
         // Tables nested in cells: their blocks, and the tables around changed ones.
-        parts::rebuild_nested(&c.tables, &mut c.stories, &mut tables_hit);
+        parts::rebuild_nested(&c.tables, &mut c.stories, &mut tables_hit, &mut touched);
         ctx.tables = Some(&c.tables);
         ctx.stories = Some(&c.stories);
         // The body.

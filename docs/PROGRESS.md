@@ -54,7 +54,7 @@ Rà soát lại theo code và test ngày 2026-11-08; các mục đã làm (bản
 master slide, định dạng và chèn-xoá hàng cột BlueSheet, ô địa chỉ server trên desktop, track changes cột/ô/gộp-tách/
 header/chú thích/ảnh nổi, chú thích dài tràn trang, biểu đồ pivot, `calculatedItems`, nhóm thủ công, lọc ngày, kéo chart
 neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đã bỏ khỏi danh sách.
-1. **Cộng tác** (`plan/phase-6.md`): bảng trong header/footer/chú thích/comment vẫn là một khối (bảng lồng trong ô bảng đã gộp theo từng ô);
+1. **Cộng tác** (`plan/phase-6.md`): bảng ở thân văn bản, trong ô bảng, header/footer, chú thích và comment đều gộp theo từng ô;
    BlueSheet: mọi vùng (CF/DV, hyperlink, bộ lọc,
    bảng, biểu đồ, vùng in, pivot, freeze pane) theo id hàng/cột; server một instance (phòng **và** phiên trong bộ nhớ;
    thiết kế nhiều instance trong `plan/phase-6.md`).

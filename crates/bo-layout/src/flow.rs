@@ -275,7 +275,7 @@ pub(crate) fn float_item(
 
 /// Revision of the run holding floating picture `img` in `p`: (author colour,
 /// deleted).
-fn float_revision(p: &Paragraph, img: &Image) -> Option<(Color, bool)> {
+fn float_revision(p: &Paragraph, img: &bo_model::Image) -> Option<(Color, bool)> {
     let r = p.runs.iter().find(|r| {
         r.content
             .iter()

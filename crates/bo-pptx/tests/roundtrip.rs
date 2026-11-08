@@ -182,6 +182,7 @@ fn edited_deck_round_trips() {
             dur_ms: 500,
             preset_id: None,
             preset_subtype: None,
+            source: None,
         }],
         source: None,
     });

@@ -4,14 +4,29 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   OpenedFile,
   Platform,
+  SlideAnimInfo,
   SlideCommand,
   SlideEditResult,
+  SlideMediaInfo,
   SlideShapeInfo,
+  SlideShowInfo,
+  SlideTransitionInfo,
 } from '@blueoffice/platform';
 import {
+  advance,
   AudienceLink,
   BlueSlideEditor,
+  crc32,
+  effectFrames,
+  effectsAt,
   fit,
+  fromGrid,
+  parseValue,
+  stepDuration,
+  transitionPlan,
+  visibility,
+  zipStore,
+  type ShowPos,
   formatElapsed,
   fromEditorText,
   hexOf,
@@ -23,6 +38,15 @@ import {
 } from '../src';
 
 afterEach(cleanup);
+
+const TRANSITION: SlideTransitionInfo = {
+  kind: 'fade',
+  known: true,
+  dir: null,
+  durMs: 500,
+  advanceOnClick: true,
+  advanceAfterMs: null,
+};
 
 describe('show logic', () => {
   it('maps keys and steps through the deck', () => {
@@ -111,6 +135,12 @@ function fakePlatform() {
     clip: undefined as 'shapes' | 'slides' | undefined,
     emptyHit: false,
     clipboard: undefined as { text: string; png?: string } | undefined,
+    transition: null as SlideTransitionInfo | null,
+    animations: [] as SlideAnimInfo[],
+    chart: false,
+    media: [] as SlideMediaInfo[],
+    /** The show data of slide 1 has one click step (an entrance). */
+    showAnims: false,
   };
   const info = (name = 'Báo cáo.pptx') => ({
     name,
@@ -122,12 +152,28 @@ function fakePlatform() {
   const shape = (): SlideShapeInfo => ({
     id: 7,
     name: 'Title 1',
-    kind: 'shape',
+    kind: st.chart ? 'chart' : 'shape',
     rect: { cx: 480, cy: 100, w: 600, h: 80, rot: 0 },
     text: st.text,
     placeholder: 'title',
     lockAspect: false,
-    editableText: true,
+    editableText: !st.chart,
+  });
+  const anim = (i: number, a: Partial<SlideAnimInfo>): SlideAnimInfo => ({
+    index: i,
+    shapeId: 7,
+    shapeName: 'Title 1',
+    effect: 'fade',
+    class: 'entr',
+    direction: null,
+    trigger: 'onClick',
+    delayMs: 0,
+    durMs: 500,
+    click: i + 1,
+    startMs: 0,
+    endMs: 500,
+    rect: [180, 60, 600, 80],
+    ...a,
   });
   const result = (): SlideEditResult => ({
     info: info(),
@@ -179,6 +225,33 @@ function fakePlatform() {
             rect: shape().rect,
             text: st.text,
           },
+    transition: st.transition,
+    animations: st.animations,
+    media: st.media,
+    chart:
+      st.chart && st.sel.length
+        ? {
+            id: 7,
+            kind: 'column',
+            title: 'Doanh thu',
+            legend: 'b',
+            data: { categories: ['Q1', 'Q2'], series: [{ name: '2026', values: [1, 2] }] },
+            embedded: true,
+          }
+        : undefined,
+  });
+  const showInfo = (slide: number): SlideShowInfo => ({
+    slide,
+    width: 960,
+    height: 540,
+    transition: slide === 1 ? { ...TRANSITION, kind: 'push', dir: 'u' } : null,
+    layers: [
+      { ids: [2], backdrop: true, page: { width: 960, height: 540, commands: [] } },
+      { ids: [7], backdrop: false, page: { width: 960, height: 540, commands: [] } },
+    ],
+    animations: slide === 0 && st.showAnims ? [{ ...anim(0, {}), layer: 1 }] : [],
+    clicks: slide === 0 && st.showAnims ? 1 : 0,
+    media: [],
   });
   const engine = {
     backend: 'wasm',
@@ -198,6 +271,7 @@ function fakePlatform() {
       if (!keep.includes(c.cmd)) st.editing = null;
       st.clipboard = undefined;
       if (c.cmd === 'hitTest') return { ...result(), hits: st.emptyHit ? [] : [7] };
+      if (c.cmd === 'show') return { ...result(), show: showInfo(c.slide) };
       switch (c.cmd) {
         case 'copy':
         case 'copySlides':
@@ -235,6 +309,44 @@ function fakePlatform() {
           st.modified = true;
           break;
         case 'state':
+          break;
+        case 'setTransition':
+          st.transition =
+            c.transition.kind === 'none'
+              ? null
+              : {
+                  ...TRANSITION,
+                  ...st.transition,
+                  ...(c.transition.kind === 'keep' ? {} : { kind: c.transition.kind }),
+                  ...(c.transition.durMs ? { durMs: c.transition.durMs } : {}),
+                };
+          st.modified = true;
+          break;
+        case 'addAnimation':
+          st.animations = [
+            ...st.animations,
+            anim(st.animations.length, { effect: c.effect ?? 'fade', class: c.class ?? 'entr' }),
+          ];
+          st.modified = true;
+          break;
+        case 'setAnimation':
+          st.animations = st.animations.map((a) =>
+            a.index === c.index
+              ? { ...a, trigger: c.trigger ?? a.trigger, durMs: c.durMs ?? a.durMs }
+              : a,
+          );
+          st.modified = true;
+          break;
+        case 'removeAnimation':
+          st.animations = st.animations
+            .filter((a) => a.index !== c.index)
+            .map((a, i) => ({ ...a, index: i }));
+          st.modified = true;
+          break;
+        case 'insertChart':
+          st.chart = true;
+          st.sel = [7];
+          st.modified = true;
           break;
         default:
           st.modified = true;
@@ -561,5 +673,309 @@ describe('audience screen', () => {
     act(() => link.update(2, false, true));
     await screen.findByText('Kết thúc trình chiếu');
     link.stop();
+  });
+});
+
+describe('slide show playback', () => {
+  const W = 960;
+  const H = 540;
+  const a = (x: Partial<SlideAnimInfo>): SlideAnimInfo => ({
+    index: 0,
+    shapeId: 4,
+    shapeName: 'Shape',
+    effect: 'fade',
+    class: 'entr',
+    direction: null,
+    trigger: 'onClick',
+    delayMs: 0,
+    durMs: 500,
+    click: 1,
+    startMs: 0,
+    endMs: 500,
+    rect: [96, 54, 192, 108],
+    layer: 1,
+    ...x,
+  });
+  const show = (animations: SlideAnimInfo[]): SlideShowInfo => ({
+    slide: 0,
+    width: W,
+    height: H,
+    transition: null,
+    layers: [0, 1, 2].map((i) => ({
+      ids: [i],
+      backdrop: i === 0,
+      page: { width: W, height: H, commands: [] },
+    })),
+    animations,
+    clicks: Math.max(0, ...animations.map((x) => x.click)),
+    media: [],
+  });
+
+  it('hides entering shapes until their click and exiting ones after it', () => {
+    const s = show([
+      a({ layer: 1 }),
+      a({ layer: 2, class: 'exit', click: 2, index: 1 }),
+      a({ layer: 1, class: 'emph', click: 2, index: 2 }),
+    ]);
+    expect(visibility(s, -1)).toEqual([true, false, true]);
+    expect(visibility(s, 0)).toEqual([true, false, true]);
+    expect(visibility(s, 1)).toEqual([true, true, true]);
+    expect(visibility(s, 2)).toEqual([true, true, false]);
+    expect(effectsAt(s, 2).map((e) => [e.layer, e.visibleAfter])).toEqual([
+      [2, false],
+      [1, null],
+    ]);
+    expect(stepDuration(s, 1)).toBe(500);
+  });
+
+  it('builds keyframes for fly-in, wipe, appear, exits and unknown effects', () => {
+    expect(effectFrames(a({ effect: 'flyIn', direction: 'l' }), W, H)[0]).toMatchObject({
+      transform: 'translate(-30%, 0)',
+    });
+    expect(effectFrames(a({ effect: 'flyIn', direction: 'b' }), W, H)[0]).toMatchObject({
+      transform: 'translate(0, 90%)',
+    });
+    // Wipe from the top: the shape box opens downwards.
+    const w = effectFrames(a({ effect: 'wipe', direction: 't' }), W, H);
+    expect(w[0]).toMatchObject({ clipPath: 'inset(10% 70% 90% 10%)' });
+    expect(w[1]).toMatchObject({ clipPath: 'inset(10% 70% 70% 10%)' });
+    expect(effectFrames(a({ effect: 'appear' }), W, H).at(-1)).toMatchObject({ opacity: 1 });
+    const out = effectFrames(a({ effect: 'fade', class: 'exit' }), W, H);
+    expect(out[0]).toMatchObject({ opacity: 1 });
+    expect(out[1]).toMatchObject({ opacity: 0 });
+    // Not modelled: entrance plays as a fade, emphasis as a pulse.
+    expect(effectFrames(a({ effect: 'other' }), W, H)).toEqual([{ opacity: 0 }, { opacity: 1 }]);
+    expect(effectFrames(a({ class: 'emph', effect: 'other' }), W, H)).toHaveLength(3);
+  });
+
+  it('plans transitions and steps through clicks, slides and the end screen', () => {
+    const t = (kind: string, dir: string | null = null): SlideTransitionInfo => ({
+      kind,
+      known: true,
+      dir,
+      durMs: 700,
+      advanceOnClick: true,
+      advanceAfterMs: null,
+    });
+    const push = transitionPlan(t('push', 'u'));
+    expect(push.incoming?.[0]).toEqual({ transform: 'translate(0%, 100%)' });
+    expect(push.outgoing?.[1]).toEqual({ transform: 'translate(0%, -100%)' });
+    expect(transitionPlan(t('wipe', 'r')).incoming?.[0]).toEqual({
+      clipPath: 'inset(0% 100% 0% 0%)',
+    });
+    expect(transitionPlan(t('pull', 'l')).outgoingOnTop).toBe(true);
+    expect(transitionPlan(t('cut')).duration).toBe(0);
+    expect(transitionPlan({ ...t('dissolve'), known: false }).incoming).toEqual([
+      { opacity: 0 },
+      { opacity: 1 },
+    ]);
+    const clicks = (i: number) => [2, 0, 1][i] ?? 0;
+    let pos: ShowPos = { slide: 0, click: 0, enter: 'transition' };
+    const seen: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      pos = advance(pos, 'next', 3, clicks);
+      seen.push(`${pos.slide}.${pos.click}.${pos.enter}`);
+    }
+    expect(seen).toEqual([
+      '0.1.click',
+      '0.2.click',
+      '1.0.transition',
+      '2.0.transition',
+      '2.1.click',
+      '3.0.transition',
+    ]);
+    expect(advance(pos, 'prev', 3, clicks)).toEqual({ slide: 2, click: 1, enter: 'jump' });
+    expect(advance({ slide: 2, click: 0, enter: 'jump' }, 'prev', 3, clicks)).toEqual({
+      slide: 1,
+      click: 0,
+      enter: 'jump',
+    });
+  });
+
+  it('writes a stored zip and reads chart numbers', () => {
+    expect(crc32(new TextEncoder().encode('123456789'))).toBe(0xcbf43926);
+    const z = zipStore([
+      { name: 'a.png', data: new Uint8Array([1, 2, 3]) },
+      { name: 'ảnh.png', data: new Uint8Array([4]) },
+    ]);
+    const v = new DataView(z.buffer);
+    expect(v.getUint32(0, true)).toBe(0x04034b50);
+    expect(v.getUint32(z.length - 22, true)).toBe(0x06054b50);
+    expect(v.getUint16(z.length - 22 + 10, true)).toBe(2);
+    expect(parseValue('1.234,5')).toBe(1234.5);
+    expect(parseValue('12.5')).toBe(12.5);
+    expect(parseValue('')).toBeNull();
+    expect(parseValue('abc')).toBeNull();
+    expect(
+      fromGrid({ categories: ['A'], names: ['S'], cells: [['3,5']] }).series[0]!.values,
+    ).toEqual([3.5]);
+  });
+});
+
+describe('BlueSlideEditor transitions, effects, charts and pictures', () => {
+  it('sets a transition from the ribbon and edits effects in the pane', async () => {
+    const { p, cmds } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chuyển trang' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Đẩy' }));
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'setTransition', transition: { kind: 'push' } }),
+    );
+    // The pane opens with the tab and shows the slide's transition.
+    await screen.findByTestId('anim-pane');
+    await waitFor(() =>
+      expect((screen.getByTestId('transition-kind') as HTMLSelectElement).value).toBe('push'),
+    );
+    fireEvent.click(screen.getByText('Áp dụng cho mọi slide'));
+    await waitFor(() =>
+      expect(cmds()).toContainEqual(expect.objectContaining({ cmd: 'setTransition', all: true })),
+    );
+
+    // Select the title and add a fly-in, then edit its trigger and duration.
+    const overlay = screen.getByTestId('slide-overlay');
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    await screen.findByTestId('selection-box');
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Hiệu ứng' }));
+    fireEvent.click(await screen.findByText('Bay vào'));
+    await screen.findByTestId('anim-item-0');
+    fireEvent.change(screen.getByTestId('anim-trigger-0'), { target: { value: 'afterPrevious' } });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'setAnimation', index: 0, trigger: 'afterPrevious' }),
+    );
+    const dur = screen.getByTestId('anim-duration-0');
+    fireEvent.change(dur, { target: { value: '1,5' } });
+    fireEvent.blur(dur);
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({ cmd: 'setAnimation', index: 0, durMs: 1500 }),
+    );
+    // Preview plays the slide in the pane.
+    fireEvent.click(screen.getByTestId('anim-preview'));
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'show', slide: 0 }));
+    expect(await screen.findAllByTestId('show-stage')).toHaveLength(1);
+    fireEvent.click(screen.getByTestId('anim-remove-0'));
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'removeAnimation', index: 0 }));
+  });
+
+  it('plays click steps in the show before moving to the next slide', async () => {
+    const { p, cmds, st } = fakePlatform();
+    st.showAnims = true;
+    render(<BlueSlideEditor platform={p} language="en-US" />);
+    await openDeck(p, 'Open');
+    fireEvent.keyDown(window, { key: 'F5' });
+    await screen.findByTestId('show-stage');
+    await waitFor(() => expect(screen.getAllByTestId('show-layer')).toHaveLength(2));
+    expect(screen.getByTestId('show-stage').dataset.slide).toBe('0');
+    // The animated title layer starts hidden (entrance on click 1).
+    await waitFor(() =>
+      expect(screen.getAllByTestId('show-layer')[1]!.dataset.visible).toBe('false'),
+    );
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    await waitFor(() => expect(screen.getByTestId('show-stage').dataset.click).toBe('1'));
+    await waitFor(() =>
+      expect(screen.getAllByTestId('show-layer')[1]!.dataset.visible).toBe('true'),
+    );
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    await waitFor(() => expect(screen.getByTestId('show-stage').dataset.slide).toBe('1'));
+    await waitFor(() => expect(screen.getByTestId('show-stage').dataset.transition).toBe('push'));
+    expect(cmds()).toContainEqual({ cmd: 'show', slide: 1 });
+    // Back: the previous slide with its effects done.
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    await waitFor(() => expect(screen.getByTestId('show-stage').dataset.slide).toBe('0'));
+    expect(screen.getByTestId('show-stage').dataset.click).toBe('1');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await screen.findByTestId('slide-overlay');
+  });
+
+  it('inserts a chart from the dialog and edits the selected chart', async () => {
+    const { p, cmds } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chèn' }));
+    fireEvent.click(await screen.findByText('Biểu đồ'));
+    await screen.findByTestId('chart-dialog');
+    fireEvent.change(screen.getByTestId('chart-kind'), { target: { value: 'line' } });
+    fireEvent.change(screen.getByTestId('chart-title'), { target: { value: 'Doanh thu' } });
+    fireEvent.change(screen.getByTestId('chart-cell-0-0'), { target: { value: '7,5' } });
+    fireEvent.click(screen.getByTestId('chart-add-row'));
+    fireEvent.click(screen.getByTestId('chart-ok'));
+    await waitFor(() =>
+      expect(cmds()).toContainEqual(
+        expect.objectContaining({ cmd: 'insertChart', kind: 'line', title: 'Doanh thu' }),
+      ),
+    );
+    const ins = cmds().find((c) => c.cmd === 'insertChart') as Extract<
+      SlideCommand,
+      { cmd: 'insertChart' }
+    >;
+    expect(ins.data?.categories).toEqual(['Mục 1', 'Mục 2', 'Mục 3', 'Mục 4', '5']);
+    expect(ins.data?.series[0]!.values[0]).toBe(7.5);
+    expect(ins.data?.series[0]!.values[4]).toBeNull();
+    // The chart tab edits the selected chart.
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Biểu đồ' }));
+    fireEvent.click(await screen.findByText('Sửa biểu đồ'));
+    await screen.findByTestId('chart-dialog');
+    expect((screen.getByTestId('chart-title') as HTMLInputElement).value).toBe('Doanh thu');
+    fireEvent.change(screen.getByTestId('chart-legend'), { target: { value: 'none' } });
+    fireEvent.click(screen.getByTestId('chart-ok'));
+    await waitFor(() =>
+      expect(cmds()).toContainEqual(expect.objectContaining({ cmd: 'setChart', legend: 'none' })),
+    );
+  });
+
+  it('exports the current slide and all slides as PNG', async () => {
+    const proto = HTMLCanvasElement.prototype as unknown as {
+      getContext: unknown;
+      toBlob: unknown;
+    };
+    const saveCtx = proto.getContext;
+    const saveBlob = proto.toBlob;
+    const ctx = new Proxy({}, { get: () => () => ({ addColorStop: () => {} }) });
+    proto.getContext = () => ctx;
+    proto.toBlob = (cb: (b: Blob) => void) =>
+      cb(new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }));
+    try {
+      const { p, saved } = fakePlatform();
+      render(<BlueSlideEditor platform={p} language="vi-VN" />);
+      await openDeck(p);
+      fireEvent.click(screen.getByText('Xuất ảnh PNG'));
+      await screen.findByTestId('export-png-dialog');
+      fireEvent.click(screen.getByTestId('export-png-ok'));
+      await waitFor(() => expect(saved).toContain('Báo cáo-1.png'));
+      fireEvent.click(screen.getByText('Xuất ảnh PNG'));
+      fireEvent.click(await screen.findByTestId('export-png-all'));
+      fireEvent.change(screen.getByTestId('export-png-scale'), { target: { value: '1' } });
+      fireEvent.click(screen.getByTestId('export-png-ok'));
+      await waitFor(() => expect(saved).toContain('Báo cáo-png.zip'));
+    } finally {
+      proto.getContext = saveCtx;
+      proto.toBlob = saveBlob;
+    }
+  });
+
+  it('reorders slides by dragging in the slide sorter and plays slides in reading view', async () => {
+    const { p, cmds, st } = fakePlatform();
+    st.showAnims = true;
+    render(<BlueSlideEditor platform={p} language="en-US" />);
+    await openDeck(p, 'Open');
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'View' }));
+    fireEvent.click(await screen.findByText('Slide sorter'));
+    const first = await screen.findByTestId('sorter-1');
+    const third = screen.getByTestId('sorter-3');
+    fireEvent.dragStart(first);
+    fireEvent.dragOver(third);
+    fireEvent.drop(third);
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'moveSlide', from: 0, to: 2 }));
+    fireEvent.click(screen.getByText('Reading view'));
+    await screen.findByTestId('reading-view');
+    expect(screen.getByTestId('reading-status').textContent).toBe('Slide 1 of 3');
+    // Slide 1 has one click step: the first "next" plays it, the second changes slide.
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'show', slide: 0 }));
+    fireEvent.click(screen.getByTestId('reading-next'));
+    fireEvent.click(screen.getByTestId('reading-next'));
+    await waitFor(() =>
+      expect(screen.getByTestId('reading-status').textContent).toBe('Slide 2 of 3'),
+    );
   });
 });

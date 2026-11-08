@@ -609,7 +609,7 @@ export interface SlideGuide {
 export interface SlideShapeInfo {
   id: number;
   name: string;
-  kind: 'shape' | 'picture' | 'group' | 'connector' | 'table' | 'graphic';
+  kind: 'shape' | 'picture' | 'group' | 'connector' | 'table' | 'chart' | 'graphic';
   rect: SlideBox;
   /** Text in the editing format: `\n` paragraphs, `\u000b` line breaks. */
   text: string | null;
@@ -738,7 +738,133 @@ export type SlideCommand =
   | { cmd: 'addSlide'; after?: number; layout?: number }
   | { cmd: 'deleteSlide' | 'duplicateSlide'; index?: number }
   | { cmd: 'moveSlide'; from: number; to: number }
-  | { cmd: 'setNotes'; slide?: number; text: string };
+  | { cmd: 'setNotes'; slide?: number; text: string }
+  | { cmd: 'setTransition'; slides?: number[]; all?: boolean; transition: SlideTransitionSpec }
+  | ({ cmd: 'addAnimation' } & SlideAnimSpec)
+  | ({ cmd: 'setAnimation'; index: number } & SlideAnimSpec)
+  | { cmd: 'removeAnimation'; index: number }
+  | { cmd: 'moveAnimation'; from: number; to: number }
+  | { cmd: 'show'; slide: number }
+  | {
+      cmd: 'insertChart';
+      kind: SlideChartKind;
+      title?: string;
+      data?: SlideChartData;
+      legend?: SlideLegend;
+      rect?: SlideRect;
+    }
+  | {
+      cmd: 'setChart';
+      id?: number;
+      kind?: SlideChartKind;
+      /** Empty = no title. */
+      title?: string;
+      /** `none` = no legend. */
+      legend?: SlideLegend;
+      data?: SlideChartData;
+    };
+
+/** Slide transition effects (ECMA-376 Part 1, §19.3.1.50 transition children). */
+export type SlideTransitionKind =
+  'none' | 'cut' | 'fade' | 'push' | 'wipe' | 'cover' | 'pull' | 'split' | 'random';
+
+export interface SlideTransitionSpec {
+  /** `keep` keeps the effect and changes the timing only. */
+  kind: SlideTransitionKind | 'keep';
+  /** `l`/`u`/`r`/`d` (push, wipe, cover, pull), `horz`/`vert` (split). */
+  dir?: string;
+  durMs?: number;
+  advanceOnClick?: boolean;
+  /** 0 = no automatic advance. */
+  advanceAfterMs?: number;
+}
+
+export interface SlideTransitionInfo {
+  /** Modelled kind, or the element name of an effect BlueSlide does not model. */
+  kind: string;
+  known: boolean;
+  dir: string | null;
+  durMs: number;
+  advanceOnClick: boolean;
+  advanceAfterMs: number | null;
+}
+
+export type SlideAnimEffect = 'appear' | 'fade' | 'flyIn' | 'wipe';
+export type SlideAnimTrigger = 'onClick' | 'withPrevious' | 'afterPrevious';
+
+export interface SlideAnimSpec {
+  effect?: SlideAnimEffect;
+  class?: 'entr' | 'exit';
+  /** `l` | `r` | `t` | `b` (fly-in, wipe). */
+  direction?: string;
+  trigger?: SlideAnimTrigger;
+  durMs?: number;
+  delayMs?: number;
+}
+
+/** One effect of the main animation sequence (§19.5). */
+export interface SlideAnimInfo {
+  index: number;
+  shapeId: number;
+  shapeName: string;
+  effect: SlideAnimEffect | 'other';
+  class: 'entr' | 'exit' | 'emph' | 'path' | 'other';
+  direction: string | null;
+  trigger: SlideAnimTrigger;
+  delayMs: number;
+  durMs: number;
+  /** Click step (0 = with the slide) and times relative to it. */
+  click: number;
+  startMs: number;
+  endMs: number;
+  /** Bounds `[x, y, w, h]` (points) of the animated top-level shape. */
+  rect: [number, number, number, number] | null;
+  /** Layer of the slide show holding the shape. */
+  layer?: number | null;
+}
+
+/** A video or audio clip on a slide. */
+export interface SlideMediaInfo {
+  id: number;
+  name: string;
+  kind: 'video' | 'audio';
+  rect: [number, number, number, number];
+  /** Embedded part (bytes from `EngineHost.getMedia`). */
+  part: string | null;
+  mime: string | null;
+  link: string | null;
+}
+
+/** What the slide show needs to play one slide. */
+export interface SlideShowInfo {
+  slide: number;
+  width: number;
+  height: number;
+  transition: SlideTransitionInfo | null;
+  /** Bottom to top; animated shapes have a layer of their own. */
+  layers: { ids: number[]; backdrop: boolean; page: PageDisplayList }[];
+  animations: SlideAnimInfo[];
+  clicks: number;
+  media: SlideMediaInfo[];
+}
+
+export type SlideChartKind = 'column' | 'bar' | 'line' | 'area' | 'pie' | 'doughnut';
+export type SlideLegend = 'none' | 'r' | 'l' | 't' | 'b' | 'tr';
+
+/** Data grid of a chart: categories down, series across. */
+export interface SlideChartData {
+  categories: string[];
+  series: { name: string; values: (number | null)[] }[];
+}
+
+export interface SlideChartInfo {
+  id: number;
+  kind: SlideChartKind | 'other';
+  title: string | null;
+  legend: Exclude<SlideLegend, 'none'> | null;
+  data: SlideChartData;
+  embedded: boolean;
+}
 
 export interface SlidePreview {
   boxes: SlideBox[];
@@ -806,6 +932,16 @@ export interface SlideEditResult {
   clip?: 'shapes' | 'slides';
   /** After copy / cut: content for the system clipboard (`png` in base64). */
   clipboard?: { text: string; png?: string };
+  /** Transition of the current slide. */
+  transition?: SlideTransitionInfo | null;
+  /** Main animation sequence of the current slide. */
+  animations?: SlideAnimInfo[];
+  /** Video and audio clips of the current slide. */
+  media?: SlideMediaInfo[];
+  /** The selected chart. */
+  chart?: SlideChartInfo;
+  /** Answer of the `show` command. */
+  show?: SlideShowInfo;
 }
 
 // ---------------------------------------------------------------- services
@@ -841,7 +977,10 @@ export interface EngineHost {
   savePptx(): Promise<Uint8Array>;
   /** Run a slide editing command (presentations). */
   slideCommand(cmd: SlideCommand): Promise<SlideEditResult>;
-  /** Insert a PNG/JPEG picture on the current slide. */
+  /**
+   * Insert a PNG/JPEG picture on the current slide, or a video / audio clip when
+   * `name` has a media extension (`.mp4`, `.webm`, `.mp3`, `.wav`, …).
+   */
   slideInsertPicture(bytes: Uint8Array, name: string): Promise<SlideEditResult>;
   /**
    * Live collaboration (`bo_engine::collab`): bind the open document to a session.

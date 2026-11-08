@@ -5,12 +5,17 @@ import type {
   ClipboardContent,
   DocInfo,
   Platform,
+  SlideAnimEffect,
+  SlideChartInfo,
+  SlideChartKind,
   SlideCommand,
   SlideEditResult,
   SlidePeer,
   SlidePreview,
   SlideShapeInfo,
+  SlideShowInfo,
   SlideTextEdit,
+  SlideTransitionKind,
 } from '@blueoffice/platform';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD } from '@blueoffice/platform';
 import { Ribbon, StatusBar, useResolvedTheme, type RibbonTab } from '@blueoffice/ui';
@@ -35,19 +40,29 @@ import {
   ArrowRightToLine,
   ArrowUp,
   ArrowUpToLine,
+  ArrowRightLeft,
   Baseline,
+  Blend,
   Bold,
   BookOpen,
   BringToFront,
   Cast,
+  ChartArea,
+  ChartBar,
+  ChartColumn,
+  ChartLine,
+  ChartPie,
   Circle,
+  Clapperboard,
   ClipboardPaste,
   Copy,
   Columns3,
   CopyPlus,
   CornerDownRight,
   Eraser,
+  Eye,
   FileDown,
+  FileImage,
   Files,
   KeyRound,
   FolderOpen,
@@ -60,10 +75,14 @@ import {
   LayoutGrid,
   List,
   ListOrdered,
+  LogIn,
+  LogOut,
   Merge,
   MonitorPlay,
   PaintBucket,
+  PanelRight,
   PanelTop,
+  Pencil,
   PenLine,
   Play,
   Presentation,
@@ -74,6 +93,7 @@ import {
   Scissors,
   SendToBack,
   Slash,
+  Sparkles,
   Spline,
   Split,
   Square,
@@ -88,12 +108,19 @@ import {
   Ungroup,
 } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AnimationPane } from './AnimationPane';
 import { AudienceLink } from './audience';
 import { AudienceView } from './AudienceView';
+import { ChartDialog, type ChartDraft } from './ChartDialog';
 import { SlideController } from './controller';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
-import { fit, formatElapsed, showAction, step } from './show';
+import { ExportDialog, slidePng, type ExportPngOptions } from './ExportDialog';
+import { MediaButtons } from './MediaLayer';
+import { advance, type ShowPos } from './player';
+import { fit, formatElapsed, showAction, step, type ShowAction } from './show';
+import { ShowCache, ShowStage } from './ShowStage';
 import { SlideCanvas } from './SlideCanvas';
+import { zipStore } from './zip';
 import styles from './SlideEditor.module.css';
 import { SlideOverlay, type TextEditing } from './SlideOverlay';
 
@@ -122,9 +149,50 @@ export interface SlideEditorState {
   hasTable?: boolean;
   firstRow?: boolean;
   bandRow?: boolean;
+  /** The selection is one chart. */
+  isChart?: boolean;
+  /** Transition kind of the current slide (`none` without one). */
+  transition?: string;
 }
 
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+
+/** Files offered by "Insert video / audio" (played when the platform has the codec). */
+const MEDIA_FILES = [
+  '.mp4',
+  '.m4v',
+  '.webm',
+  '.ogv',
+  '.mov',
+  '.mp3',
+  '.m4a',
+  '.wav',
+  '.ogg',
+  '.oga',
+];
+
+/** Ribbon transitions (the pane offers every kind). */
+const RIBBON_TRANSITIONS: SlideTransitionKind[] = [
+  'none',
+  'fade',
+  'push',
+  'wipe',
+  'cover',
+  'split',
+];
+const ENTRANCES: SlideAnimEffect[] = ['appear', 'fade', 'flyIn', 'wipe'];
+
+type Pos = ShowPos & { from: number | null };
+
+/** Dialog fields of an existing chart. */
+function chartDraftOf(c: SlideChartInfo): ChartDraft {
+  return {
+    kind: c.kind === 'other' ? 'column' : c.kind,
+    title: c.title ?? '',
+    legend: c.legend ?? 'none',
+    data: c.data,
+  };
+}
 
 type ColorTarget = 'font' | 'fill' | 'line' | 'highlight' | 'cell';
 
@@ -219,6 +287,18 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   } | null>(null);
   const [savePassword, setSavePassword] = useState(false);
   const [macroBanner, setMacroBanner] = useState(false);
+  const [pos, setPos] = useState<Pos>({ slide: 0, click: 0, enter: 'jump', from: null });
+  const [paneOpen, setPaneOpen] = useState(false);
+  const [previewToken, setPreviewToken] = useState(0);
+  const [ribbonTab, setRibbonTab] = useState('home');
+  const [chartDialog, setChartDialog] = useState<{
+    mode: 'insert' | 'edit';
+    initial: ChartDraft;
+  } | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [sortFrom, setSortFrom] = useState<number | null>(null);
+  const [sortOver, setSortOver] = useState<number | null>(null);
   const showRef = useRef<HTMLDivElement>(null);
   const slideRef = useRef<HTMLDivElement>(null);
   const colorId = useId();
@@ -226,6 +306,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   const [stageRef, stage] = useSize();
   const glyphs = useMemo(() => new GlyphStore(engine), [engine]);
   const images = useMemo(() => new ImageStore(engine), [engine]);
+  const showCache = useMemo(() => new ShowCache(engine), [engine]);
 
   const count = info?.pageCount ?? 0;
   const slideSize = info?.pages[0] ?? { width: 960, height: 540 };
@@ -329,13 +410,13 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     if (!info || view !== 'presenter') return;
     let cancelled = false;
     void engine
-      .getSlideNotes(Math.min(current, count - 1))
+      .getSlideNotes(Math.min(pos.slide, count - 1))
       .then((n) => !cancelled && setNotes(n))
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [engine, info, current, count, view]);
+  }, [engine, info, pos.slide, count, view]);
 
   // Clock for the presenter view.
   useEffect(() => {
@@ -366,33 +447,88 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
   useEffect(() => () => audience.stop(), [audience]);
   useEffect(() => {
     if (!audience.open) return;
-    if (view === 'show' || view === 'presenter') audience.update(current, black, false);
-    else {
+    if (view === 'show' || view === 'presenter') {
+      audience.update(pos.slide, black, false, pos.click, pos.enter);
+    } else {
       audience.update(current, false, true);
       audience.stop();
     }
-  }, [audience, view, current, black]);
+  }, [audience, view, current, black, pos]);
 
   const startShow = useCallback(
     (from: number, presenter: boolean) => {
       if (!count) return;
       setReturnView(view === 'show' || view === 'presenter' ? 'normal' : view);
-      setCurrent(Math.max(0, Math.min(from, count - 1)));
+      const first = Math.max(0, Math.min(from, count - 1));
+      setCurrent(first);
+      showCache.clear();
+      setPos({ slide: first, click: 0, enter: 'transition', from: null });
       setBlack(false);
       setStartedAt(Date.now());
       setNow(Date.now());
       setEditing(null);
       setView(presenter ? 'presenter' : 'show');
     },
-    [count, view],
+    [count, view, showCache],
   );
 
   const endShow = useCallback(() => {
     setView(returnView);
-    const n = Math.min(current, Math.max(0, count - 1));
+    const n = Math.min(pos.slide, Math.max(0, count - 1));
+    setCurrent(n);
     run({ cmd: 'goTo', slide: n });
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-  }, [returnView, count, current, run]);
+  }, [returnView, count, pos.slide, run]);
+
+  /** Slide show navigation: clicks play the next effect, then the next slide. */
+  const moveShow = useCallback(
+    (a: ShowAction) => {
+      setBlack(false);
+      const clicks = (i: number) => showCache.peek(i)?.clicks ?? 0;
+      setPos((p) => {
+        if (a === 'first') return { slide: 0, click: 0, enter: 'jump', from: null };
+        if (a === 'last') {
+          const last = Math.max(0, count - 1);
+          return { slide: last, click: clicks(last), enter: 'jump', from: null };
+        }
+        if (a !== 'next' && a !== 'prev') return p;
+        const n = advance(p, a, count, clicks);
+        return { ...n, from: n.enter === 'transition' ? p.slide : null };
+      });
+    },
+    [count, showCache],
+  );
+
+  // Prefetch the next slide's show data (its click count decides what "next" does).
+  useEffect(() => {
+    if ((view === 'show' || view === 'presenter') && pos.slide + 1 < count) {
+      void showCache.get(pos.slide + 1);
+    }
+  }, [view, pos.slide, count, showCache]);
+
+  // Automatic advance (§19.3.1.50 advTm) once the slide's effects are done.
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (autoTimer.current) clearTimeout(autoTimer.current);
+    },
+    [pos, view],
+  );
+  const onShowIdle = useCallback(
+    (s: SlideShowInfo) => {
+      const after = s.transition?.advanceAfterMs;
+      if (autoTimer.current) clearTimeout(autoTimer.current);
+      if (!after || s.slide !== pos.slide || pos.click < s.clicks) return;
+      autoTimer.current = setTimeout(() => moveShow('next'), after);
+    },
+    [pos, moveShow],
+  );
+  /** A mouse click in the show (ignored at the end of a slide whose advClick is off). */
+  const clickShow = useCallback(() => {
+    const s = showCache.peek(pos.slide);
+    if (s && s.transition && !s.transition.advanceOnClick && pos.click >= s.clicks) return;
+    moveShow('next');
+  }, [showCache, pos, moveShow]);
 
   // Full screen while the show runs.
   useEffect(() => {
@@ -410,6 +546,10 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
 
   const startEdit = useCallback(
     (shape: SlideShapeInfo, at?: { x: number; y: number }) => {
+      if (shape.kind === 'chart') {
+        if (edit?.chart) setChartDialog({ mode: 'edit', initial: chartDraftOf(edit.chart) });
+        return;
+      }
       if (!shape.editableText) return;
       editingRef.current = { id: shape.id, confirmed: false };
       setEditing({
@@ -529,6 +669,76 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     return () => window.removeEventListener('paste', onPaste);
   }, [view, info, pasteFrom, fail]);
 
+  const baseName = useCallback(
+    () => fileName.replace(/\.pptx$/i, '') || t('slideEditor.untitled'),
+    [fileName, t],
+  );
+
+  /** Grid of a new chart (localized sample data). */
+  const newChart = useCallback(
+    (): ChartDraft => ({
+      kind: 'column',
+      title: '',
+      legend: 'b',
+      data: {
+        categories: [1, 2, 3, 4].map((n) => t('slideEditor.chartDefaultCategory', { n })),
+        series: [
+          [4.3, 2.5, 3.5, 4.5],
+          [2.4, 4.4, 1.8, 2.8],
+          [2, 2, 3, 5],
+        ].map((values, j) => ({ name: t('slideEditor.chartSeries', { n: j + 1 }), values })),
+      },
+    }),
+    [t],
+  );
+  const openChart = useCallback(() => {
+    const c = edit?.chart;
+    if (c) setChartDialog({ mode: 'edit', initial: chartDraftOf(c) });
+  }, [edit]);
+  const applyChart = useCallback(
+    (d: ChartDraft) => {
+      const mode = chartDialog?.mode;
+      setChartDialog(null);
+      if (mode === 'insert') {
+        run({ cmd: 'insertChart', kind: d.kind, title: d.title, legend: d.legend, data: d.data });
+      } else {
+        run({ cmd: 'setChart', kind: d.kind, title: d.title, legend: d.legend, data: d.data });
+      }
+    },
+    [chartDialog, run],
+  );
+
+  const exportPng = useCallback(
+    async ({ scope, scale }: ExportPngOptions) => {
+      setExporting(true);
+      try {
+        await ctrl.idle();
+        const name = baseName();
+        if (scope === 'current') {
+          const n = Math.min(current, Math.max(0, count - 1));
+          const png = await slidePng(engine, glyphs, images, n, scale);
+          await platform.files.saveFile(png, `${name}-${n + 1}.png`, 'image/png');
+        } else {
+          const files: { name: string; data: Uint8Array }[] = [];
+          for (let i = 0; i < count; i++) {
+            files.push({
+              name: `${name}-${i + 1}.png`,
+              data: await slidePng(engine, glyphs, images, i, scale),
+            });
+          }
+          await platform.files.saveFile(zipStore(files), `${name}-png.zip`, 'application/zip');
+        }
+        setExportOpen(false);
+        setStatus(t('slideEditor.exported'));
+      } catch (e) {
+        fail(e);
+      } finally {
+        setExporting(false);
+      }
+    },
+    [ctrl, baseName, current, count, engine, glyphs, images, platform, t, fail],
+  );
+
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SlideEditorState>();
     const guard = async (f: () => Promise<unknown>) => {
@@ -600,9 +810,72 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       isEnabled: deck,
       run: () => guard(async () => platform.print.printPdf(await engine.exportPdf(), base())),
     });
+    reg.register({ id: 'file.exportPng', isEnabled: deck, run: () => setExportOpen(true) });
     for (const v of ['normal', 'sorter', 'reading'] as const) {
-      reg.register({ id: `view.${v}`, isChecked: () => view === v, run: () => setView(v) });
+      reg.register({
+        id: `view.${v}`,
+        isChecked: () => view === v,
+        run: (s) => {
+          if (v === 'reading') {
+            // Reading view plays the slides like the show, in the window.
+            showCache.clear();
+            setPos({ slide: s.current, click: 0, enter: 'transition', from: null });
+          } else if (view === 'reading') {
+            const n = Math.min(pos.slide, Math.max(0, count - 1));
+            setCurrent(n);
+            run({ cmd: 'goTo', slide: n });
+          }
+          setView(v);
+        },
+      });
     }
+    reg.register({
+      id: 'view.animationPane',
+      isEnabled: deck,
+      isChecked: () => paneOpen,
+      run: () => setPaneOpen((o) => !o),
+    });
+
+    // Transitions (§19.3.1.50) and animations (§19.5).
+    for (const k of RIBBON_TRANSITIONS) {
+      reg.register({
+        id: `transition.${k}`,
+        isEnabled: deck,
+        isChecked: (s) => (s.transition ?? 'none') === k,
+        run: () => run({ cmd: 'setTransition', transition: { kind: k } }),
+      });
+    }
+    reg.register({
+      id: 'transition.applyAll',
+      isEnabled: (s) => s.hasDeck && (s.transition ?? 'none') !== 'none',
+      run: () => {
+        const tr = edit?.transition;
+        if (!tr) return;
+        run({
+          cmd: 'setTransition',
+          all: true,
+          transition: {
+            kind: tr.known ? (tr.kind as SlideTransitionKind) : 'keep',
+            dir: tr.dir ?? undefined,
+            durMs: tr.durMs,
+            advanceOnClick: tr.advanceOnClick,
+            advanceAfterMs: tr.advanceAfterMs ?? 0,
+          },
+        });
+      },
+    });
+    for (const e of ENTRANCES) simple(`anim.in.${e}`, { cmd: 'addAnimation', effect: e }, sel);
+    for (const e of ['fade', 'flyIn', 'wipe'] as const) {
+      simple(`anim.out.${e}`, { cmd: 'addAnimation', effect: e, class: 'exit' }, sel);
+    }
+    reg.register({
+      id: 'anim.preview',
+      isEnabled: deck,
+      run: () => {
+        setPaneOpen(true);
+        setPreviewToken((n) => n + 1);
+      },
+    });
     reg.register({
       id: 'show.fromStart',
       shortcut: 'F5',
@@ -781,6 +1054,25 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
           if (f) await ctrl.insertPicture(f.bytes, f.name);
         }),
     });
+    reg.register({
+      id: 'insert.media',
+      isEnabled: deck,
+      run: () =>
+        guard(async () => {
+          const f = await platform.files.openFile(MEDIA_FILES);
+          if (f) await ctrl.insertPicture(f.bytes, f.name);
+        }),
+    });
+    reg.register({
+      id: 'insert.chart',
+      isEnabled: deck,
+      run: () => setChartDialog({ mode: 'insert', initial: newChart() }),
+    });
+    const chart = (s: SlideEditorState) => !!s.isChart;
+    reg.register({ id: 'chart.edit', isEnabled: chart, run: openChart });
+    for (const k of ['column', 'bar', 'line', 'area', 'pie'] as SlideChartKind[]) {
+      simple(`chart.type.${k}`, { cmd: 'setChart', kind: k }, chart);
+    }
 
     // Table (while cells are selected).
     const tbl = (s: SlideEditorState) => !!s.hasTable;
@@ -834,6 +1126,13 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     toSystem,
     pasteFrom,
     audience,
+    showCache,
+    count,
+    paneOpen,
+    newChart,
+    openChart,
+    edit,
+    pos.slide,
   ]);
 
   const state: SlideEditorState = useMemo(() => {
@@ -852,6 +1151,8 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       hasTable: !!edit?.table,
       firstRow: edit?.table?.firstRow,
       bandRow: edit?.table?.bandRow,
+      isChart: s.length === 1 && s[0]?.kind === 'chart' && !!edit?.chart,
+      transition: edit?.transition?.kind ?? 'none',
     };
   }, [count, current, edit]);
   const exec = useCallback((id: string) => void registry.execute(id, state), [registry, state]);
@@ -878,11 +1179,21 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
         e.preventDefault();
         if (a === 'exit') endShow();
         else if (a === 'black') setBlack((b) => !b);
-        else {
-          setBlack(false);
-          setCurrent((c) => step(c, count, a));
-        }
+        else moveShow(a);
         return;
+      }
+      if (view === 'reading') {
+        const a = showAction(e.key);
+        if (a === 'next' || a === 'prev' || a === 'first' || a === 'last') {
+          e.preventDefault();
+          moveShow(a);
+          return;
+        }
+        if (a === 'exit') {
+          e.preventDefault();
+          exec('view.normal');
+          return;
+        }
       }
       const cmd = registry.match(e);
       if (cmd) {
@@ -933,7 +1244,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [view, count, current, registry, exec, endShow, edit, run, startEdit, goTo]);
+  }, [view, count, current, registry, exec, endShow, edit, run, startEdit, goTo, moveShow]);
 
   const ribbonTabs: RibbonTab[] = useMemo(() => {
     const item = (
@@ -972,6 +1283,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
                 sm,
               ),
               item('file.exportPdf', t('slideEditor.exportPdf'), <FileDown size={16} />, sm),
+              item('file.exportPng', t('slideEditor.exportPng'), <FileImage size={16} />, sm),
               item('file.print', t('slideEditor.print'), <Printer size={16} />, sm),
             ],
           },
@@ -1126,6 +1438,68 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
             items: [
               item('insert.picture', t('slideEditor.picture'), <ImagePlus size={18} />),
               item('insert.table', t('slideEditor.table'), <Table size={18} />),
+              item('insert.chart', t('slideEditor.chart'), <ChartColumn size={18} />),
+              item('insert.media', t('slideEditor.media'), <Clapperboard size={18} />),
+            ],
+          },
+        ],
+      },
+      {
+        id: 'transitions',
+        label: t('slideEditor.transitionTab'),
+        groups: [
+          {
+            id: 'transitionEffects',
+            label: t('slideEditor.groupTransition'),
+            items: RIBBON_TRANSITIONS.map((k) =>
+              item(
+                `transition.${k}`,
+                t(`slideEditor.transition.${k}`),
+                k === 'none' ? (
+                  <Slash size={18} />
+                ) : k === 'fade' ? (
+                  <Blend size={18} />
+                ) : (
+                  <ArrowRightLeft size={18} />
+                ),
+              ),
+            ),
+          },
+          {
+            id: 'transitionTiming',
+            label: t('slideEditor.groupTiming'),
+            items: [
+              item('transition.applyAll', t('slideEditor.applyAll'), <Files size={16} />, sm),
+              item('anim.preview', t('slideEditor.preview'), <Eye size={16} />, sm),
+              item('view.animationPane', t('slideEditor.animPane'), <PanelRight size={16} />, sm),
+            ],
+          },
+        ],
+      },
+      {
+        id: 'animations',
+        label: t('slideEditor.animationsTab'),
+        groups: [
+          {
+            id: 'entrance',
+            label: t('slideEditor.groupEntrance'),
+            items: ENTRANCES.map((e) =>
+              item(`anim.in.${e}`, t(`slideEditor.effect.${e}`), <LogIn size={18} />),
+            ),
+          },
+          {
+            id: 'exit',
+            label: t('slideEditor.groupExit'),
+            items: (['fade', 'flyIn', 'wipe'] as const).map((e) =>
+              item(`anim.out.${e}`, t(`slideEditor.effectOut.${e}`), <LogOut size={16} />, sm),
+            ),
+          },
+          {
+            id: 'animPreview',
+            label: t('slideEditor.groupPreview'),
+            items: [
+              item('anim.preview', t('slideEditor.preview'), <Sparkles size={18} />),
+              item('view.animationPane', t('slideEditor.animPane'), <PanelRight size={16} />, sm),
             ],
           },
         ],
@@ -1216,6 +1590,57 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
           },
         ],
       },
+      ...(state.isChart
+        ? [
+            {
+              id: 'chart',
+              label: t('slideEditor.chartTab'),
+              groups: [
+                {
+                  id: 'chartData',
+                  label: t('slideEditor.groupChartData'),
+                  items: [item('chart.edit', t('slideEditor.editChart'), <Pencil size={18} />)],
+                },
+                {
+                  id: 'chartType',
+                  label: t('slideEditor.chartType'),
+                  items: [
+                    item(
+                      'chart.type.column',
+                      t('slideEditor.chartKinds.column'),
+                      <ChartColumn size={16} />,
+                      sm,
+                    ),
+                    item(
+                      'chart.type.bar',
+                      t('slideEditor.chartKinds.bar'),
+                      <ChartBar size={16} />,
+                      sm,
+                    ),
+                    item(
+                      'chart.type.line',
+                      t('slideEditor.chartKinds.line'),
+                      <ChartLine size={16} />,
+                      sm,
+                    ),
+                    item(
+                      'chart.type.area',
+                      t('slideEditor.chartKinds.area'),
+                      <ChartArea size={16} />,
+                      sm,
+                    ),
+                    item(
+                      'chart.type.pie',
+                      t('slideEditor.chartKinds.pie'),
+                      <ChartPie size={16} />,
+                      sm,
+                    ),
+                  ],
+                },
+              ],
+            },
+          ]
+        : []),
       ...(state.hasTable
         ? [
             {
@@ -1291,6 +1716,7 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
               item('view.normal', t('slideEditor.normal'), <Rows3 size={18} />),
               item('view.sorter', t('slideEditor.sorter'), <LayoutGrid size={18} />),
               item('view.reading', t('slideEditor.reading'), <BookOpen size={18} />),
+              item('view.animationPane', t('slideEditor.animPane'), <PanelRight size={16} />, sm),
             ],
           },
         ],
@@ -1310,6 +1736,27 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
       revision={revision(index)}
       className={className}
       label={t('slideEditor.slideOf', { n: index + 1, total: count })}
+    />
+  );
+
+  const mediaLabels = {
+    play: t('slideEditor.playMedia'),
+    stop: t('slideEditor.stopMedia'),
+    unsupported: t('slideEditor.mediaUnsupported'),
+  };
+  const showStage = (width: number) => (
+    <ShowStage
+      engine={engine}
+      glyphs={glyphs}
+      images={images}
+      cache={showCache}
+      pos={pos}
+      from={pos.from}
+      slide={info?.pages[pos.slide] ?? slideSize}
+      width={width}
+      onIdle={onShowIdle}
+      label={t('slideEditor.slideOf', { n: pos.slide + 1, total: count })}
+      mediaLabels={mediaLabels}
     />
   );
 
@@ -1369,7 +1816,17 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
 
   return (
     <div className={`bo-root ${styles.root}`} data-theme={theme} data-app="slide">
-      {view !== 'show' && view !== 'presenter' && <Ribbon tabs={ribbonTabs} />}
+      {view !== 'show' && view !== 'presenter' && (
+        <Ribbon
+          tabs={ribbonTabs}
+          value={ribbonTabs.some((x) => x.id === ribbonTab) ? ribbonTab : 'home'}
+          onValueChange={(v) => {
+            setRibbonTab(v);
+            // The pane belongs to the Transitions / Animations tabs.
+            if ((v === 'transitions' || v === 'animations') && view === 'normal') setPaneOpen(true);
+          }}
+        />
+      )}
       {macroBanner && view === 'normal' && (
         <MacroBanner inline onDismiss={() => setMacroBanner(false)} />
       )}
@@ -1469,6 +1926,14 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
                         return { ...p, name, label: t('collab.selected', { name }) };
                       })}
                   />
+                  {edit?.slide === shown && (edit.media?.length ?? 0) > 0 && (
+                    <MediaButtons
+                      engine={engine}
+                      media={edit.media ?? []}
+                      scale={main.width / (slideSize.width || 1)}
+                      labels={mediaLabels}
+                    />
+                  )}
                 </div>
               ) : (
                 <p className={styles.empty}>{t('slideEditor.empty')}</p>
@@ -1488,6 +1953,19 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
               </section>
             )}
           </div>
+          {paneOpen && count > 0 && (
+            <AnimationPane
+              engine={engine}
+              glyphs={glyphs}
+              images={images}
+              edit={edit}
+              slideSize={info?.pages[shown] ?? slideSize}
+              revision={revision(shown)}
+              run={run}
+              onClose={() => setPaneOpen(false)}
+              previewToken={previewToken}
+            />
+          )}
         </div>
       )}
       {view === 'sorter' && (
@@ -1496,11 +1974,34 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
             <button
               key={i}
               type="button"
-              className={i === shown ? styles.sortItemActive : styles.sortItem}
+              draggable
+              data-testid={`sorter-${i + 1}`}
+              className={`${i === shown ? styles.sortItemActive : styles.sortItem} ${
+                sortOver === i && sortFrom !== null && sortFrom !== i ? styles.thumbDrop : ''
+              }`}
               onClick={() => goTo(i)}
               onDoubleClick={() => {
                 goTo(i);
                 setView('normal');
+              }}
+              onDragStart={(e) => {
+                setSortFrom(i);
+                e.dataTransfer?.setData('text/plain', String(i));
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setSortOver(i);
+              }}
+              onDragEnd={() => {
+                setSortFrom(null);
+                setSortOver(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const from = sortFrom ?? Number(e.dataTransfer?.getData('text/plain'));
+                setSortFrom(null);
+                setSortOver(null);
+                if (Number.isInteger(from) && from !== i) run({ cmd: 'moveSlide', from, to: i });
               }}
             >
               {canvas(i, 220)}
@@ -1510,37 +2011,52 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
         </div>
       )}
       {view === 'reading' && (
-        <div className={styles.reading} ref={stageRef}>
-          {count > 0 && canvas(shown, fit(slideSize, stage).width)}
+        <div
+          className={styles.reading}
+          ref={stageRef}
+          data-testid="reading-view"
+          onClick={clickShow}
+        >
+          {count > 0 && pos.slide < count ? (
+            showStage(fit(slideSize, { width: stage.width, height: stage.height - 48 }).width)
+          ) : (
+            <p className={styles.endText}>{t('slideEditor.end')}</p>
+          )}
+          <div className={styles.readingNav} onClick={(e) => e.stopPropagation()}>
+            <button type="button" data-testid="reading-prev" onClick={() => moveShow('prev')}>
+              {t('slideEditor.previous')}
+            </button>
+            <span data-testid="reading-status">
+              {t('slideEditor.slideOf', { n: Math.min(pos.slide, count - 1) + 1, total: count })}
+            </span>
+            <button type="button" data-testid="reading-next" onClick={() => moveShow('next')}>
+              {t('slideEditor.next')}
+            </button>
+          </div>
         </div>
       )}
       {view === 'show' && (
         <div
           className={styles.show}
           ref={showRef}
-          onClick={() => setCurrent((c) => step(c, count, 'next'))}
+          onClick={clickShow}
           onContextMenu={(e) => {
             e.preventDefault();
-            setCurrent((c) => step(c, count, 'prev'));
+            moveShow('prev');
           }}
         >
-          {!black && current < count ? (
-            <div key={current} className={styles.fade}>
-              {canvas(
-                current,
+          {!black && pos.slide < count
+            ? showStage(
                 fit(slideSize, { width: window.innerWidth, height: window.innerHeight }).width,
-              )}
-            </div>
-          ) : (
-            current >= count && <p className={styles.endText}>{t('slideEditor.end')}</p>
-          )}
+              )
+            : pos.slide >= count && <p className={styles.endText}>{t('slideEditor.end')}</p>}
         </div>
       )}
       {view === 'presenter' && (
         <div className={styles.presenter}>
           <div className={styles.presenterMain} ref={stageRef}>
-            {current < count && !black ? (
-              canvas(current, main.width)
+            {pos.slide < count && !black ? (
+              showStage(main.width)
             ) : (
               <p className={styles.endText}>{t('slideEditor.end')}</p>
             )}
@@ -1555,14 +2071,14 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
               </span>
             </div>
             <h3>{t('slideEditor.next')}</h3>
-            {current + 1 < count ? canvas(current + 1, 280) : <p>{t('slideEditor.end')}</p>}
+            {pos.slide + 1 < count ? canvas(pos.slide + 1, 280) : <p>{t('slideEditor.end')}</p>}
             <h3>{t('slideEditor.notes')}</h3>
             <div className={styles.presenterNotes}>{notes || t('slideEditor.noNotes')}</div>
             <div className={styles.presenterButtons}>
-              <button type="button" onClick={() => setCurrent((c) => step(c, count, 'prev'))}>
+              <button type="button" onClick={() => moveShow('prev')}>
                 {t('slideEditor.previous')}
               </button>
-              <button type="button" onClick={() => setCurrent((c) => step(c, count, 'next'))}>
+              <button type="button" onClick={() => moveShow('next')}>
                 {t('slideEditor.next')}
               </button>
               <button type="button" onClick={() => setBlack((b) => !b)}>
@@ -1598,6 +2114,25 @@ function SlideEditorInner({ platform }: BlueSlideEditorProps) {
           else run({ cmd: 'setLine', color: hex });
         }}
       />
+      {chartDialog && (
+        <ChartDialog
+          open
+          mode={chartDialog.mode}
+          initial={chartDialog.initial}
+          onClose={() => setChartDialog(null)}
+          onApply={applyChart}
+        />
+      )}
+      {exportOpen && (
+        <ExportDialog
+          open
+          slide={slideSize}
+          count={count}
+          busy={exporting}
+          onClose={() => setExportOpen(false)}
+          onExport={(o) => void exportPng(o)}
+        />
+      )}
       {view !== 'show' && (
         <StatusBar
           left={

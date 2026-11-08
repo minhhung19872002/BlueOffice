@@ -301,3 +301,33 @@ proptest! {
         }
     }
 }
+
+// source: ECMA-376 Part 1, §18.3.1.18 conditionalFormatting / §18.3.1.32 dataValidation sqref
+#[test]
+fn rules_added_during_a_row_insert_follow_the_rows() {
+    let (mut a, mut b) = pair(&[(0, 0, "1")]);
+    settle(&mut a, &mut b);
+    // A adds rules on rows 5..10 while B inserts two rows at the top.
+    a.exec(r#"{"cmd":"addCf","sheet":0,"range":{"r0":4,"c0":0,"r1":9,"c1":0},"rule":{"kind":"cellIs","operator":"greaterThan","formula1":"5","style":{"fill":"FFC7CE"}}}"#);
+    a.exec(r#"{"cmd":"setValidation","sheet":0,"range":{"r0":4,"c0":2,"r1":9,"c1":2},"spec":{"kind":"whole","operator":"greaterThan","formula1":"0"}}"#);
+    b.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let ranges = |p: &Peer| {
+        let ws = &p.engine.workbook().unwrap().sheets[0];
+        (
+            ws.conditional_formats
+                .iter()
+                .flat_map(|c| c.sqref.iter().map(ToString::to_string))
+                .collect::<Vec<_>>(),
+            ws.data_validations
+                .iter()
+                .flat_map(|d| d.sqref.iter().map(ToString::to_string))
+                .collect::<Vec<_>>(),
+        )
+    };
+    assert_eq!(ranges(&a), ranges(&b));
+    assert_eq!(
+        ranges(&a),
+        (vec!["A7:A12".to_owned()], vec!["C7:C12".to_owned()])
+    );
+}

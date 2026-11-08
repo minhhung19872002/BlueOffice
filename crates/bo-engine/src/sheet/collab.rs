@@ -26,7 +26,9 @@
 //!   reorder converge (order keys, see [`crate::collab::order`]).
 //! * **Conditional formats / data validation** (§18.3.1.18, §18.3.1.33):
 //!   `cf:<sheet>` (with the differential formats it uses) and `dv:<sheet>`,
-//!   last writer wins per sheet; **charts** `ch:<sheet>:<i>` and **pivot
+//!   last writer wins per sheet, their ranges also by row/column ids in
+//!   `cfa:<sheet>` / `dva:<sheet>` so they follow concurrent row/column
+//!   inserts and deletes; **charts** `ch:<sheet>:<i>` and **pivot
 //!   tables** `pv:<sheet>:<i>` (+ caches `pc:<i>`) last writer wins per
 //!   object; defined names `wb`.
 
@@ -892,6 +894,12 @@ impl SheetCollab {
                     .then(|| serde_json::to_string(&e).ok())
                     .flatten();
                 put(&mut self.meta, &mut out, format!("cf:{sk}"), j);
+                let at = ranges_by_id(
+                    ws.conditional_formats.iter().map(|c| &c.sqref),
+                    &mut rid,
+                    &mut cid,
+                );
+                put(&mut self.meta, &mut out, format!("cfa:{sk}"), at);
                 seen.cf = Some(ws.conditional_formats.clone());
             }
             if seen.dv.as_ref() != Some(&ws.data_validations) {
@@ -899,6 +907,12 @@ impl SheetCollab {
                     .then(|| serde_json::to_string(&ws.data_validations).ok())
                     .flatten();
                 put(&mut self.meta, &mut out, format!("dv:{sk}"), j);
+                let at = ranges_by_id(
+                    ws.data_validations.iter().map(|d| &d.sqref),
+                    &mut rid,
+                    &mut cid,
+                );
+                put(&mut self.meta, &mut out, format!("dva:{sk}"), at);
                 seen.dv = Some(ws.data_validations.clone());
             }
             if seen.charts.as_ref() != Some(&ws.charts) {
@@ -970,6 +984,60 @@ impl SheetCollab {
 
 /// Structural differences of an axis: ids to delete (old positions,
 /// descending) and to insert (new positions, ascending).
+/// The ranges of each rule (`sqref`, §18.3.1.18 / §18.3.1.32) as row/column ids
+/// `[top, left, bottom, right]` (`cfa:` / `dva:` next to the positional
+/// `cf:` / `dv:`), so a receiver whose rows or columns moved concurrently
+/// places them where the sender meant; `None` when there are no rules.
+fn ranges_by_id<'a>(
+    sqrefs: impl Iterator<Item = &'a Vec<CellRange>>,
+    rid: &mut impl FnMut(u32) -> String,
+    cid: &mut impl FnMut(u32) -> String,
+) -> Option<String> {
+    let at: Vec<Vec<[String; 4]>> = sqrefs
+        .map(|s| {
+            s.iter()
+                .map(|r| {
+                    [
+                        rid(r.first.row),
+                        cid(r.first.col),
+                        rid(r.last.row),
+                        cid(r.last.col),
+                    ]
+                })
+                .collect()
+        })
+        .collect();
+    (!at.is_empty())
+        .then(|| serde_json::to_string(&at).ok())
+        .flatten()
+}
+
+/// Positions of the ranges of [`ranges_by_id`] on this replica's axes; a range
+/// whose rows or columns were deleted (or a sender without ids) keeps its
+/// positional value.
+fn place_by_id<'a>(
+    sqrefs: impl Iterator<Item = &'a mut Vec<CellRange>>,
+    at: Option<&String>,
+    ra: &Axis,
+    ca: &Axis,
+) {
+    let Some(at) = at.and_then(|j| serde_json::from_str::<Vec<Vec<[String; 4]>>>(j).ok()) else {
+        return;
+    };
+    for (sqref, ids) in sqrefs.zip(&at) {
+        if sqref.len() != ids.len() {
+            continue;
+        }
+        for (r, [r1, c1, r2, c2]) in sqref.iter_mut().zip(ids) {
+            if let (Some(a), Some(b), Some(c), Some(d)) =
+                (ra.pos_of(r1), ca.pos_of(c1), ra.pos_of(r2), ca.pos_of(c2))
+            {
+                *r = CellRange::new(CellRef::new(a, b), CellRef::new(c, d));
+            }
+        }
+    }
+}
+
 fn axis_steps(old: &Axis, new: &Axis) -> (Vec<u32>, Vec<u32>) {
     let mut cand = old.special();
     cand.extend(new.special());
@@ -1327,7 +1395,7 @@ impl SheetEngine {
                     })
                     .collect();
             }
-            if joining || hit("cf") {
+            if joining || hit("cf") || hit("cfa") {
                 let e: CfEntry = c
                     .meta
                     .get(&format!("cf:{sk}"))
@@ -1347,15 +1415,20 @@ impl SheetEngine {
                 for rule in cf.iter_mut().flat_map(|x| &mut x.rules) {
                     rule.dxf_id = rule.dxf_id.and_then(|d| map.get(&d).copied());
                 }
+                let at = c.meta.get(&format!("cfa:{sk}"));
+                place_by_id(cf.iter_mut().map(|x| &mut x.sqref), at, &ra, &ca);
                 wb.sheets[si].conditional_formats = cf;
             }
             let ws = &mut wb.sheets[si];
-            if joining || hit("dv") {
-                ws.data_validations = c
+            if joining || hit("dv") || hit("dva") {
+                let mut dv: Vec<DataValidation> = c
                     .meta
                     .get(&format!("dv:{sk}"))
                     .and_then(|j| serde_json::from_str(j).ok())
                     .unwrap_or_default();
+                let at = c.meta.get(&format!("dva:{sk}"));
+                place_by_id(dv.iter_mut().map(|x| &mut x.sqref), at, &ra, &ca);
+                ws.data_validations = dv;
             }
             if joining || hit("ch") {
                 ws.charts = (0..)

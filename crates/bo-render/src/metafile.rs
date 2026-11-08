@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 
 /// A converted metafile.
 pub struct Converted {
+    /// The picture as a display list (`width` × `height`, drawing commands).
     pub page: PageList,
     /// BMP bytes of the bitmaps referenced by `Image` commands.
     pub images: BTreeMap<String, Vec<u8>>,
@@ -149,7 +150,7 @@ impl Player<'_> {
     }
 
     fn stroke(&self) -> Option<Stroke> {
-        let (color, width, null) = self.dc.pen.clone();
+        let (color, width, null) = self.dc.pen;
         (!null).then(|| Stroke {
             width: ((width * self.scale()) as f32).max(0.5),
             color,
@@ -224,7 +225,7 @@ impl Player<'_> {
 
     fn ellipse(&mut self, l: f64, t: f64, r: f64, b: f64) {
         // Four cubic arcs (κ = 0.5523).
-        let (cx, cy, rx, ry) = ((l + r) / 2.0, (t + b) / 2.0, (r - l) / 2.0, (b - t) / 2.0);
+        let (cx, cy, rx, ry) = (f64::midpoint(l, r), f64::midpoint(t, b), (r - l) / 2.0, (b - t) / 2.0);
         let k = 0.552_284_8;
         let p = |x: f64, y: f64| self.pt(x, y);
         let (x0, y0) = p(cx + rx, cy);
@@ -394,9 +395,9 @@ impl Player<'_> {
             2 => ox -= width,
             _ => {}
         }
-        match self.dc.text_align & 24 {
-            24 => {}
-            8 => oy += f32::from(info.descender) * k,
+        match self.dc.text_align & 0x18 {
+            0x18 => {}
+            0x08 => oy += f32::from(info.descender) * k,
             _ => oy += f32::from(info.ascender) * k,
         }
         let mut gx = 0.0;
@@ -715,7 +716,7 @@ pub fn emf_to_display_list(
             43 => p.rect(g(8), g(12), g(16), g(20)),
             44 => p.round_rect(g(8), g(12), g(16), g(20), g(24), g(28)),
             59 => p.path = Some(Vec::new()),
-            60 => {}
+            // 60 EMR_ENDPATH: nothing to do, the path is used by the next fill/stroke record.
             61 => {
                 if let Some(path) = p.path.as_mut() {
                     path.push(PathSeg::Z);
@@ -838,8 +839,8 @@ pub fn wmf_to_display_list(
         let n_at = |at: usize| usize::from(u16le(rec, at).unwrap_or(0)).min(size / 4);
         match f {
             0x0000 => break,
-            // Window org/ext are already folded into the output mapping.
-            0x020B | 0x020C => {}
+            // 0x020B / 0x020C (window org/ext) fall through to the default arm: they are
+            // already folded into the output mapping.
             0x012E => p.dc.text_align = u32::from(u16le(rec, 6).unwrap_or(0)),
             0x0209 => p.dc.text_color = colorref(u32le(rec, 6).unwrap_or(0)),
             0x0214 => p.move_to(w(1), w(0)),
@@ -1034,9 +1035,7 @@ mod tests {
         }
         // META_POLYGON with 3 points
         let mut r = Vec::new();
-        for v in [10u32] {
-            r.extend_from_slice(&v.to_le_bytes());
-        }
+        r.extend_from_slice(&10u32.to_le_bytes());
         r.extend_from_slice(&0x0324u16.to_le_bytes());
         for v in [3i16, 0, 0, 200, 0, 100, 100] {
             r.extend_from_slice(&v.to_le_bytes());

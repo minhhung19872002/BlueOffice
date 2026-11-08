@@ -1,5 +1,7 @@
 //! BlueSlide transitions, animations, slide show layers, charts and media
 //! (Phase 4): edit through the JSON commands, save, reopen.
+// Tests may unwrap: a panic is a test failure.
+#![allow(clippy::unwrap_used)]
 
 use bo_engine::slide_edit::geom::place_slide;
 use bo_engine::slide_edit::{SlideCommand, SlideEditResult};

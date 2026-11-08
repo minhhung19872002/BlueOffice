@@ -426,7 +426,7 @@ fn wave(x0: f32, x1: f32, y: f32, amp: f32) -> Vec<PathSeg> {
     while x < x1 - 0.01 {
         let nx = (x + step).min(x1);
         let cy = if up { y - amp * 2.0 } else { y + amp * 2.0 };
-        segs.push(PathSeg::Q((x + nx) / 2.0, cy, nx, y));
+        segs.push(PathSeg::Q(f32::midpoint(x, nx), cy, nx, y));
         x = nx;
         up = !up;
     }

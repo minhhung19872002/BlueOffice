@@ -520,7 +520,7 @@ impl Writer<'_> {
             self.drawing_id += 1;
             let id = self.drawing_id;
             let graphic = crate::shape::shape_graphic(img, s, id, txbx.as_deref());
-            return self.frame(img, id, "Shape", &graphic);
+            return Self::frame(img, id, "Shape", &graphic);
         }
         self.drawing_id += 1;
         let id = self.drawing_id;
@@ -540,11 +540,11 @@ impl Writer<'_> {
         let graphic = format!(
             "<a:graphic xmlns:a=\"{A_NS}\"><a:graphicData uri=\"{PIC_NS}\"><pic:pic xmlns:pic=\"{PIC_NS}\"><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"Picture {id}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r=\"{R_NS}\" r:embed=\"{rid}\"/>{crop}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm{rot}><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>"
         );
-        self.frame(img, id, "Picture", &graphic)
+        Self::frame(img, id, "Picture", &graphic)
     }
 
     /// `w:drawing` with `graphic` placed inline (§20.4.2.8) or anchored (§20.4.2.3).
-    fn frame(&mut self, img: &Image, id: u32, kind: &str, graphic: &str) -> String {
+    fn frame(img: &Image, id: u32, kind: &str, graphic: &str) -> String {
         let (cx, cy) = (img.width.0, img.height.0);
         let descr = escape(&img.description);
         match &img.anchor {

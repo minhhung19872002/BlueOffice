@@ -1595,6 +1595,8 @@
       "keyUsage": "Mục đích sử dụng khoá của “{{subject}}” không cho phép ký.",
       "extendedKeyUsage": "“{{subject}}” không phải chứng thư dấu thời gian.",
       "unsupported": "“{{subject}}” dùng thuật toán chưa hỗ trợ.",
+      "revoked": "“{{subject}}” đã bị thu hồi.",
+      "crlStale": "Danh sách thu hồi của “{{subject}}” đã quá hạn.",
       "pathTooLong": "Chuỗi chứng thư quá dài.",
       "malformed": "Chứng thư bị lỗi định dạng."
     }

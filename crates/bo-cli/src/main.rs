@@ -9,7 +9,7 @@
 //! bo-cli convert secret.docx --password pw --to docx --protect newpw
 //! bo-cli inspect file                               # format, encryption, macros
 //! bo-cli sign in.pdf --p12 me.p12 [--tsa URL] | --key k.pem --cert c.pem | --remote URL
-//! bo-cli verify in.pdf [--trust root-ca.pem] [--json]
+//! bo-cli verify in.pdf [--trust root-ca.pem] [--crl ca.crl] [--json]
 //! bo-cli dump input.docx [--page 0]          # display list JSON (parity tests)
 //! bo-cli pack <dir> <out.docx> | unpack <file> <dir>
 //! bo-cli sample <out.docx>                   # generate the Phase 1 corpus sample
@@ -121,6 +121,10 @@ enum Cmd {
         /// (default: env BO_TRUST_ANCHORS).
         #[arg(long)]
         trust: Vec<PathBuf>,
+        /// Certificate revocation list (PEM `X509 CRL` / DER) or directory of
+        /// `.crl` files, checked for every certificate of the path; repeatable.
+        #[arg(long)]
+        crl: Vec<PathBuf>,
         /// Machine-readable JSON report.
         #[arg(long)]
         json: bool,
@@ -334,8 +338,13 @@ fn run(cli: Cli) -> R {
             std::fs::write(&out, signed)?;
             println!("{}", out.display());
         }
-        Cmd::Verify { input, trust, json } => {
-            if !sign_cmd::verify(&input, &trust, json)? {
+        Cmd::Verify {
+            input,
+            trust,
+            crl,
+            json,
+        } => {
+            if !sign_cmd::verify(&input, &trust, &crl, json)? {
                 return Err("signature verification failed".into());
             }
         }

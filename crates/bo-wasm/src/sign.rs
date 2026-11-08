@@ -128,7 +128,8 @@ pub fn sign_prepare(
 }
 
 /// Verifies every signature; `anchors_pem` is a PEM bundle of trust
-/// anchors (may be empty). Returns the `DocumentReport` JSON.
+/// anchors and certificate revocation lists (`X509 CRL`, RFC 5280 §5; may be
+/// empty). Returns the `DocumentReport` JSON.
 #[wasm_bindgen(js_name = verifySignatures)]
 pub fn verify_signatures(
     bytes: &[u8],
@@ -136,7 +137,9 @@ pub fn verify_signatures(
     now_secs: f64,
 ) -> Result<String, JsError> {
     let mut store = TrustStore::new();
-    if anchors_pem.contains("-----BEGIN CERTIFICATE-----") {
+    if anchors_pem.contains("-----BEGIN CERTIFICATE-----")
+        || anchors_pem.contains("-----BEGIN X509 CRL-----")
+    {
         store.add_bytes(anchors_pem.as_bytes()).map_err(err)?;
     }
     let report = bo_sign::report::verify_document(bytes, &store, unix(now_secs)).map_err(err)?;

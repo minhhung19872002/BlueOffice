@@ -151,9 +151,12 @@ pub fn report_lines(r: &DocumentReport) -> Vec<String> {
 }
 
 /// `bo-cli verify`: prints the report; non-zero exit when invalid.
-pub fn verify(input: &Path, trust: &[PathBuf], json: bool) -> R<bool> {
+pub fn verify(input: &Path, trust: &[PathBuf], crls: &[PathBuf], json: bool) -> R<bool> {
     let bytes = std::fs::read(input)?;
-    let store = trust_store(trust)?;
+    let mut store = trust_store(trust)?;
+    for p in crls {
+        store.add_path(p)?;
+    }
     let report = verify_document(&bytes, &store, SystemTime::now())?;
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -217,7 +220,7 @@ mod tests {
         let root = tmp("root.pem");
         std::fs::write(&root, bo_sign::cert_to_pem(pki.root.certificate_der())).unwrap();
 
-        assert!(verify(&path, std::slice::from_ref(&root), false).unwrap());
+        assert!(verify(&path, std::slice::from_ref(&root), &[], false).unwrap());
         let report =
             verify_document(&signed, &trust_store(&[root]).unwrap(), SystemTime::now()).unwrap();
         let lines = report_lines(&report).join("\n");

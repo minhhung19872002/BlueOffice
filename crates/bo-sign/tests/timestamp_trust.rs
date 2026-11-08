@@ -498,3 +498,89 @@ fn loads_pkcs12_files() {
     assert!(SoftwareSigner::from_pkcs12(&p12, "sai").is_err());
     assert!(SoftwareSigner::from_pkcs12(b"garbage", "x").is_err());
 }
+
+// source: RFC 5280 §5.1 (CRL), §6.3 (CRL processing)
+#[test]
+fn revocation_lists() {
+    use bo_sign::testing::issue_crl;
+    let p = pki();
+    let leaf = p.signer.certificate_der();
+    let pool = p.signer.chain_der();
+    let now = SystemTime::now();
+    let hour = Duration::from_hours(1);
+    let check = |crls: &[Vec<u8>], at: SystemTime| {
+        let mut s = store(p);
+        for c in crls {
+            s.add_crl_der(c).unwrap();
+        }
+        validate_chain(leaf, &pool, &s, at, Purpose::DocumentSigning)
+    };
+    let next = Some(now + DAY);
+
+    // The issuing CA revoked the signer an hour ago.
+    let crl = issue_crl(&p.intermediate, &[(3, now - hour)], now - hour, next);
+    let r = check(std::slice::from_ref(&crl), now);
+    assert!(!r.trusted);
+    assert!(
+        matches!(&r.problems[..], [ChainProblem::Revoked { subject, .. }] if subject.contains("Nguyễn Văn A")),
+        "{r:?}"
+    );
+    assert_eq!(r.problems[0].code(), "revoked");
+    // A signature made (time-stamped) before the revocation stays trusted.
+    assert!(check(std::slice::from_ref(&crl), now - 2 * hour).trusted);
+
+    // Other serials only, or a revocation dated later: trusted.
+    let other = issue_crl(&p.intermediate, &[(99, now - hour)], now - hour, next);
+    assert!(check(&[other], now).trusted);
+    let later = issue_crl(&p.intermediate, &[(3, now + hour)], now - hour, next);
+    assert!(check(&[later], now).trusted);
+
+    // A CRL with the issuer's name but another key is ignored.
+    let forged = issue_crl(
+        &expired_pki().intermediate,
+        &[(3, now - hour)],
+        now - hour,
+        next,
+    );
+    assert!(check(&[forged], now).trusted);
+
+    // The root revoked the issuing CA.
+    let root_crl = issue_crl(&p.root, &[(2, now - hour)], now - hour, next);
+    let r = check(&[root_crl], now);
+    assert!(
+        matches!(&r.problems[..], [ChainProblem::Revoked { subject, .. }] if subject.contains("Test Issuing CA")),
+        "{r:?}"
+    );
+
+    // An expired CRL does not cover the validation time.
+    let stale = issue_crl(&p.intermediate, &[], now - 3 * hour, Some(now - hour));
+    let r = check(&[stale], now);
+    assert_eq!(
+        r.problems,
+        vec![ChainProblem::CrlStale {
+            subject: r.problems[0].subject().unwrap().to_owned()
+        }]
+    );
+    assert!(r.problems[0].subject().unwrap().contains("Test Issuing CA"));
+
+    // PEM (`X509 CRL`) bundles mixing certificates and CRLs load into the store.
+    let pem = format!(
+        "{}-----BEGIN X509 CRL-----\n{}\n-----END X509 CRL-----\n",
+        bo_sign::cert_to_pem(p.root.certificate_der()),
+        base64_encode(&crl)
+    );
+    let mut s = TrustStore::new();
+    assert_eq!(s.add_bytes(pem.as_bytes()).unwrap(), 2);
+    assert_eq!((s.len(), s.crl_count()), (1, 1));
+    let r = validate_chain(leaf, &pool, &s, now, Purpose::DocumentSigning);
+    assert!(matches!(&r.problems[..], [ChainProblem::Revoked { .. }]));
+    // A DER CRL file loads too.
+    let mut s = store(p);
+    assert_eq!(s.add_bytes(&crl).unwrap(), 1);
+    assert_eq!(s.crl_count(), 1);
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(data)
+}

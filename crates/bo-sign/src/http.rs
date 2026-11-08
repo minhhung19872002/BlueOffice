@@ -112,7 +112,7 @@ impl UreqTransport {
 #[cfg(feature = "http")]
 impl Default for UreqTransport {
     fn default() -> Self {
-        Self::new(std::time::Duration::from_secs(60))
+        Self::new(std::time::Duration::from_mins(1))
     }
 }
 

@@ -203,6 +203,53 @@ impl TestPki {
     }
 }
 
+/// A v2 CRL (RFC 5280 §5.1) signed by `issuer` (sha256WithRSAEncryption)
+/// listing `revoked` serial numbers with their revocation dates.
+///
+/// # Panics
+/// On encoding / signing failure (tests only).
+#[must_use]
+pub fn issue_crl(
+    issuer: &SoftwareSigner,
+    revoked: &[(u32, SystemTime)],
+    this_update: SystemTime,
+    next_update: Option<SystemTime>,
+) -> Vec<u8> {
+    use x509_cert::crl::{CertificateList, RevokedCert, TbsCertList};
+    let issuer_cert = x509_cert::Certificate::from_der(issuer.certificate_der()).expect("cert");
+    let alg = spki::AlgorithmIdentifierOwned {
+        oid: const_oid::db::rfc5912::SHA_256_WITH_RSA_ENCRYPTION,
+        parameters: Some(Any::null()),
+    };
+    let tbs = TbsCertList {
+        version: x509_cert::Version::V2,
+        signature: alg.clone(),
+        issuer: issuer_cert.tbs_certificate.subject,
+        this_update: Time::try_from(this_update).expect("time"),
+        next_update: next_update.map(|t| Time::try_from(t).expect("time")),
+        revoked_certificates: (!revoked.is_empty()).then(|| {
+            revoked
+                .iter()
+                .map(|&(serial, date)| RevokedCert {
+                    serial_number: SerialNumber::from(serial),
+                    revocation_date: Time::try_from(date).expect("time"),
+                    crl_entry_extensions: None,
+                })
+                .collect()
+        }),
+        crl_extensions: None,
+    };
+    let digest = crate::sha256(&tbs.to_der().expect("der"));
+    let sig = issuer.sign_sha256(&digest).expect("sign");
+    CertificateList {
+        tbs_cert_list: tbs,
+        signature_algorithm: alg,
+        signature: der::asn1::BitString::from_bytes(&sig).expect("bits"),
+    }
+    .to_der()
+    .expect("der")
+}
+
 /// Misbehaviours of [`LocalTsa`] for negative tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TsaFault {

@@ -143,8 +143,12 @@ impl Package {
     /// Serialize to ZIP bytes. Parts are written in their current order.
     pub fn write(&self) -> Result<Vec<u8>> {
         let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        // "Version made by" = MS-DOS (APPNOTE 4.4.2) on every platform, so a
+        // package is byte-identical whether written on Windows or Linux
+        // (ECMA-376 Part 2 §8 does not depend on it; committed corpora do).
         let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+            .compression_method(zip::CompressionMethod::Deflated)
+            .system(zip::System::Dos);
         // §C.3: the content types stream should come first for streaming consumers.
         let ordered = self
             .parts
@@ -347,5 +351,22 @@ mod tests {
             Package::read(&bytes, &Limits::default()),
             Err(OpcError::MissingPart(_))
         ));
+    }
+
+    // source: PKWARE APPNOTE.TXT §4.3.12 / §4.4.2 (central directory "version made by")
+    #[test]
+    fn written_bytes_do_not_depend_on_the_platform() {
+        let mut pkg = Package::new();
+        pkg.add_part("/a.xml", "application/xml", b"<a/>".to_vec())
+            .unwrap();
+        let bytes = pkg.write().unwrap();
+        let mut n = 0;
+        for w in bytes.windows(6) {
+            if w[..4] == *b"PK\x01\x02" {
+                assert_eq!(w[5], 0, "version made by: MS-DOS");
+                n += 1;
+            }
+        }
+        assert!(n >= 2);
     }
 }

@@ -1595,6 +1595,8 @@
       "keyUsage": "The key usage of “{{subject}}” does not allow signing.",
       "extendedKeyUsage": "“{{subject}}” is not a time-stamping certificate.",
       "unsupported": "“{{subject}}” uses an unsupported algorithm.",
+      "revoked": "“{{subject}}” has been revoked.",
+      "crlStale": "The revocation list of “{{subject}}” is out of date.",
       "pathTooLong": "The certificate chain is too long.",
       "malformed": "A certificate is malformed."
     }

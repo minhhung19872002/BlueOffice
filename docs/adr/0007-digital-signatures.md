@@ -59,8 +59,10 @@
 - PDF dùng cross-reference stream (§7.5.8) chưa ký được (`Unsupported`); `bo-pdf` sinh xref cổ điển nên không ảnh hưởng.
 - `verify_ooxml` chỉ kiểm chữ ký do BlueOffice tạo (dạng canonical); chữ ký từ phần mềm khác báo `Unsupported`
   (vẫn được giữ nguyên khi lưu nhờ round-trip lossless). Chưa thêm `idOfficeObject`/XAdES của [MS-OFFCRYPTO] §2.5.
-- Đã có PAdES B-T / XAdES-T và kiểm tra chuỗi tới trust anchor cấu hình; **chưa** kiểm tra thu hồi (CRL/OCSP) và
-  chưa nhúng dữ liệu xác minh dài hạn (PAdES B-LT/B-LTA: DSS, document time-stamp).
+- Đã có PAdES B-T / XAdES-T, kiểm tra chuỗi tới trust anchor cấu hình và kiểm tra thu hồi bằng CRL nạp sẵn
+  (RFC 5280 §6.3: `--crl`, file `.crl` trong thư mục `--trust`, khối PEM `X509 CRL`; CRL phải do đúng CA cấp chứng
+  thư ký, chứng thư bị thu hồi **sau** thời điểm ký có dấu thời gian vẫn hợp lệ). **Chưa** có OCSP, chưa tự tải CRL
+  từ `cRLDistributionPoints`, chưa nhúng dữ liệu xác minh dài hạn (PAdES B-LT/B-LTA: DSS, document time-stamp).
 - `verify_ooxml` dựa trên dạng canonical do BlueOffice sinh; chữ ký XAdES của phần mềm khác vẫn báo `Unsupported`.
 - Chỉ khoá RSA (PKCS#1 v1.5); chứng thư/TSA dùng ECDSA báo `Unsupported`.
 - Trình duyệt chỉ dùng được dịch vụ ký / TSA có bật CORS.

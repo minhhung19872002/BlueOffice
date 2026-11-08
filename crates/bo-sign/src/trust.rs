@@ -11,7 +11,14 @@
 //!
 //! Trust anchors are configuration (e.g. the Vietnamese national root CA
 //! certificate supplied by the deployment); none is built in.
-//! Revocation (CRL / OCSP) is not checked yet.
+//!
+//! Revocation: certificate revocation lists (RFC 5280 §5) loaded into the
+//! store are checked for every certificate of the path (§6.3): a CRL counts
+//! when its issuer is the certificate's issuer and its signature verifies with
+//! that issuer's key; a certificate listed with a revocation date at or before
+//! the validation time is revoked, and a CRL whose `nextUpdate` is before the
+//! validation time is reported as stale. Without a CRL for an issuer the
+//! status is unknown and not reported as a problem; OCSP is not supported.
 
 use crate::{pem_blocks, verify_rsa, HashAlg, Result, SignError};
 use const_oid::db::rfc5280;
@@ -19,6 +26,7 @@ use der::{Decode, Encode};
 use std::fmt;
 use std::path::Path;
 use std::time::SystemTime;
+use x509_cert::crl::CertificateList;
 use x509_cert::ext::pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage};
 use x509_cert::Certificate;
 
@@ -38,6 +46,7 @@ pub enum Purpose {
 #[derive(Debug, Clone, Default)]
 pub struct TrustStore {
     anchors: Vec<Certificate>,
+    crls: Vec<CertificateList>,
 }
 
 impl TrustStore {
@@ -53,25 +62,52 @@ impl TrustStore {
         Ok(())
     }
 
-    /// Adds every certificate of a PEM bundle or a single DER certificate;
-    /// returns how many were added.
+    /// Adds one DER certificate revocation list (RFC 5280 §5.1).
+    pub fn add_crl_der(&mut self, der: &[u8]) -> Result<()> {
+        self.crls.push(CertificateList::from_der(der)?);
+        Ok(())
+    }
+
+    /// Adds every certificate and CRL (`X509 CRL`) of a PEM bundle, or a single
+    /// DER certificate or CRL; returns how many were added.
     pub fn add_bytes(&mut self, data: &[u8]) -> Result<usize> {
         match std::str::from_utf8(data) {
-            Ok(text) if text.contains("-----BEGIN CERTIFICATE-----") => {
-                let blocks = pem_blocks(text, "CERTIFICATE")?;
-                for b in &blocks {
+            Ok(text) if text.contains("-----BEGIN ") => {
+                let certs = if text.contains("-----BEGIN CERTIFICATE-----") {
+                    pem_blocks(text, "CERTIFICATE")?
+                } else {
+                    Vec::new()
+                };
+                let crls = if text.contains("-----BEGIN X509 CRL-----") {
+                    pem_blocks(text, "X509 CRL")?
+                } else {
+                    Vec::new()
+                };
+                if certs.is_empty() && crls.is_empty() {
+                    return Err(SignError::Malformed(
+                        "no CERTIFICATE or X509 CRL block".into(),
+                    ));
+                }
+                for b in &certs {
                     self.add_der(b)?;
                 }
-                Ok(blocks.len())
+                for b in &crls {
+                    self.add_crl_der(b)?;
+                }
+                Ok(certs.len() + crls.len())
             }
             _ => {
-                self.add_der(data)?;
+                if Certificate::from_der(data).is_ok() {
+                    self.add_der(data)?;
+                } else {
+                    self.add_crl_der(data)?;
+                }
                 Ok(1)
             }
         }
     }
 
-    /// Loads a PEM bundle / DER file, or every `.pem/.crt/.cer/.der` file of a directory.
+    /// Loads a PEM bundle / DER file, or every `.pem/.crt/.cer/.der/.crl` file of a directory.
     pub fn add_path(&mut self, path: &Path) -> Result<usize> {
         let io = |e: std::io::Error| SignError::Malformed(format!("{}: {e}", path.display()));
         if path.is_dir() {
@@ -84,7 +120,7 @@ impl TrustStore {
                     p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
                         matches!(
                             e.to_ascii_lowercase().as_str(),
-                            "pem" | "crt" | "cer" | "der"
+                            "pem" | "crt" | "cer" | "der" | "crl"
                         )
                     })
                 })
@@ -105,6 +141,12 @@ impl TrustStore {
     /// Number of anchors.
     pub fn len(&self) -> usize {
         self.anchors.len()
+    }
+
+    #[must_use]
+    /// Number of certificate revocation lists.
+    pub fn crl_count(&self) -> usize {
+        self.crls.len()
     }
 
     #[must_use]
@@ -170,6 +212,18 @@ pub enum ChainProblem {
         /// What is unsupported (algorithm, key type).
         what: String,
     },
+    /// The certificate is listed in its issuer's CRL (RFC 5280 §5.3).
+    Revoked {
+        /// Subject (RFC 4514) of the certificate concerned.
+        subject: String,
+        /// Revocation date (`YYYY-MM-DDThh:mm:ssZ`).
+        date: String,
+    },
+    /// The issuer's CRL had expired (`nextUpdate`) at the validation time.
+    CrlStale {
+        /// Subject (RFC 4514) of the CRL issuer.
+        subject: String,
+    },
     /// The path is longer than the validator accepts.
     PathTooLong,
     /// A certificate could not be decoded.
@@ -190,6 +244,8 @@ impl ChainProblem {
             Self::KeyUsage { .. } => "keyUsage",
             Self::ExtendedKeyUsage { .. } => "extendedKeyUsage",
             Self::Unsupported { .. } => "unsupported",
+            Self::Revoked { .. } => "revoked",
+            Self::CrlStale { .. } => "crlStale",
             Self::PathTooLong => "pathTooLong",
             Self::Malformed(_) => "malformed",
         }
@@ -206,6 +262,8 @@ impl ChainProblem {
             | Self::NotCa { subject }
             | Self::KeyUsage { subject }
             | Self::ExtendedKeyUsage { subject }
+            | Self::Revoked { subject, .. }
+            | Self::CrlStale { subject }
             | Self::Unsupported { subject, .. } => Some(subject),
             _ => None,
         }
@@ -234,6 +292,12 @@ impl fmt::Display for ChainProblem {
                 write!(f, "\"{subject}\" is not a time-stamping certificate")
             }
             Self::Unsupported { subject, what } => write!(f, "\"{subject}\": unsupported {what}"),
+            Self::Revoked { subject, date } => {
+                write!(f, "\"{subject}\" was revoked on {date}")
+            }
+            Self::CrlStale { subject } => {
+                write!(f, "the revocation list of \"{subject}\" is out of date")
+            }
             Self::PathTooLong => write!(f, "certificate path too long"),
             Self::Malformed(m) => write!(f, "malformed certificate: {m}"),
         }
@@ -282,6 +346,63 @@ fn signed_by(child: &Certificate, issuer: &Certificate) -> std::result::Result<(
         Err(_) => Err(ChainProblem::BadSignature {
             subject: subject(child),
         }),
+    }
+}
+
+/// Checks a CRL's signature with `issuer`'s key (RFC 5280 §6.3.3 (f)–(g)).
+fn crl_signed_by(crl: &CertificateList, issuer: &Certificate) -> bool {
+    let Ok(alg) = HashAlg::from_rsa_signature_oid(crl.signature_algorithm.oid) else {
+        return false;
+    };
+    let (Ok(tbs), Some(sig)) = (crl.tbs_cert_list.to_der(), crl.signature.as_bytes()) else {
+        return false;
+    };
+    verify_rsa(issuer, alg, &alg.digest(&tbs), sig).is_ok()
+}
+
+/// Revocation status of `c` (issued by `issuer`) from the store's CRLs
+/// (RFC 5280 §6.3; module documentation).
+fn check_revocation(
+    c: &Certificate,
+    issuer: &Certificate,
+    store: &TrustStore,
+    at: SystemTime,
+    problems: &mut Vec<ChainProblem>,
+) {
+    let crls: Vec<&CertificateList> = store
+        .crls
+        .iter()
+        .filter(|l| l.tbs_cert_list.issuer == c.tbs_certificate.issuer)
+        .filter(|l| crl_signed_by(l, issuer))
+        .collect();
+    if crls.is_empty() {
+        return;
+    }
+    let serial = &c.tbs_certificate.serial_number;
+    let revoked = crls
+        .iter()
+        .flat_map(|l| l.tbs_cert_list.revoked_certificates.iter().flatten())
+        .filter(|r| &r.serial_number == serial)
+        .map(|r| r.revocation_date.to_system_time())
+        .filter(|d| *d <= at)
+        .min();
+    if let Some(d) = revoked {
+        problems.push(ChainProblem::Revoked {
+            subject: subject(c),
+            date: crate::iso_utc(crate::unix_secs(d)),
+        });
+        return;
+    }
+    // Fresh when one CRL (issued by `at` or later) still covers `at`.
+    let fresh = crls.iter().any(|l| {
+        l.tbs_cert_list
+            .next_update
+            .is_none_or(|n| n.to_system_time() >= at)
+    });
+    if !fresh {
+        problems.push(ChainProblem::CrlStale {
+            subject: subject(issuer),
+        });
     }
 }
 
@@ -447,6 +568,13 @@ pub fn validate_chain(
             check_end_entity(c, purpose, &mut report.problems);
         } else {
             check_ca(c, i - 1, &mut report.problems);
+        }
+    }
+    // Revocation of each certificate by its issuer (the next one, or the anchor).
+    for (i, c) in path.iter().enumerate() {
+        let issuer = path.get(i + 1).or(anchor.filter(|a| *a != c));
+        if let Some(issuer) = issuer {
+            check_revocation(c, issuer, store, at, &mut report.problems);
         }
     }
     if let Some(a) = anchor {

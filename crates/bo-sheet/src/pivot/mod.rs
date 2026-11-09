@@ -583,6 +583,8 @@ fn render(
     }
     // Pivot charts follow the report.
     crate::chart::sync_pivot_charts(wb, sheet);
+    // Pivot conditional formats scoped to the values follow the data area.
+    crate::cf_manage::sync_pivot(&mut wb.sheets[sheet], index);
     Ok(())
 }
 

@@ -19,6 +19,13 @@ import type {
 } from '@blueoffice/platform';
 import { ChartTemplateList, Dialog, deleteChartTemplate, loadChartTemplates } from '@blueoffice/ui';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  DataBarEditor,
+  IconSetEditor,
+  defaultBarOptions,
+  defaultIconOptions,
+  iconCount,
+} from './cfRules';
 import { layoutTexts } from './chartStyles';
 import { a1 } from './grid';
 import { FilterExtras } from './sortFilter';
@@ -560,20 +567,6 @@ const CF_KINDS = [
   'dataBar',
   'iconSet',
 ] as const;
-const ICON_SETS = [
-  '3Arrows',
-  '3TrafficLights1',
-  '3Flags',
-  '3Symbols',
-  '3Stars',
-  '3Triangles',
-  '4Arrows',
-  '4Rating',
-  '5Arrows',
-  '5Quarters',
-  '5Rating',
-];
-
 export function CfDialog({
   host,
   sheet,
@@ -595,6 +588,10 @@ export function CfDialog({
   const [c3, setC3] = useState('D8F3E3');
   const [three, setThree] = useState(true);
   const [iconSet, setIconSet] = useState('3Arrows');
+  const [reverse, setReverse] = useState(false);
+  const [barOpts, setBarOpts] = useState(defaultBarOptions);
+  const [iconOpts, setIconOpts] = useState(() => defaultIconOptions(iconCount('3Arrows')));
+  const [pivot, setPivot] = useState(false);
 
   const style: CfStyle = { fill, fontColor: font, bold };
   const rule = (): CfRuleSpec => {
@@ -614,14 +611,14 @@ export function CfDialog({
           ? { kind, minColor: c1, midColor: c2, maxColor: c3 }
           : { kind, minColor: c1, maxColor: c3 };
       case 'dataBar':
-        return { kind, color: c1 };
+        return { kind, color: c1, options: barOpts };
       case 'iconSet':
-        return { kind, set: iconSet };
+        return { kind, set: iconSet, reverse, options: iconOpts };
     }
   };
   const ok = async () => {
     try {
-      await host.exec({ cmd: 'addCf', sheet, range, rule: rule() });
+      await host.exec({ cmd: 'addCf', sheet, range, rule: rule(), pivot });
       await onDone();
       onClose();
     } catch (e) {
@@ -751,19 +748,37 @@ export function CfDialog({
             </label>
           </>
         )}
-        {kind === 'dataBar' && color(c1, setC1, t('sheetEditor.cf.barColor'))}
-        {kind === 'iconSet' && (
-          <label>
-            {t('sheetEditor.cf.iconSet')}
-            <select value={iconSet} onChange={(e) => setIconSet(e.target.value)}>
-              {ICON_SETS.map((s) => (
-                <option key={s} value={s}>
-                  {t(`sheetEditor.cf.icons.${s}`)}
-                </option>
-              ))}
-            </select>
-          </label>
+        {kind === 'dataBar' && (
+          <DataBarEditor
+            color={c1}
+            options={barOpts}
+            onChange={(c, o) => {
+              setC1(c);
+              setBarOpts(o);
+            }}
+          />
         )}
+        {kind === 'iconSet' && (
+          <IconSetEditor
+            set={iconSet}
+            reverse={reverse}
+            options={iconOpts}
+            onChange={(s, r, o) => {
+              setIconSet(s);
+              setReverse(r);
+              setIconOpts(o);
+            }}
+          />
+        )}
+        <label className={styles.check}>
+          <input
+            type="checkbox"
+            data-testid="cf-pivot"
+            checked={pivot}
+            onChange={(e) => setPivot(e.target.checked)}
+          />
+          {t('sheetEditor.cfm.pivotValues')}
+        </label>
       </div>
     </Dialog>
   );

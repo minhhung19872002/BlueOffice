@@ -1,6 +1,8 @@
 //! Vector icons for conditional-format icon sets (ECMA-376 Part 1, §18.18.42
-//! `ST_IconSetType`). The shapes and colours are BlueSheet's own simple
-//! designs: arrows, circles, flags, bars, quarters, stars and triangles.
+//! `ST_IconSetType`, plus the [MS-XLSX] x14 sets `3Stars`, `3Triangles`, `5Boxes`).
+//! The shapes and colours are BlueSheet's own simple designs (arrows, discs, a
+//! housing for the framed lights, signs, marks, flags, signal bars, pies, stars,
+//! triangles and box grids); icon 0 is always the lowest band.
 
 use bo_render::{Command, Paint, PathSeg, Rgba, Stroke};
 
@@ -10,8 +12,44 @@ const YELLOW: Rgba = Rgba(0xE0, 0xB4, 0x1F, 255);
 const LIME: Rgba = Rgba(0x8B, 0xC3, 0x4A, 255);
 const GREEN: Rgba = Rgba(0x2F, 0xA3, 0x6B, 255);
 const GRAY: Rgba = Rgba(0x8A, 0x90, 0x99, 255);
+const DARK: Rgba = Rgba(0x3A, 0x3F, 0x47, 255);
 const LIGHT: Rgba = Rgba(0xD9, 0xDD, 0xE2, 255);
 const BLUE: Rgba = Rgba(0x2E, 0x6D, 0xB4, 255);
+const WHITE: Rgba = Rgba(255, 255, 255, 255);
+
+/// Every icon set name BlueSheet draws (§18.18.42 and the x14 additions).
+pub const ICON_SETS: [&str; 20] = [
+    "3Arrows",
+    "3ArrowsGray",
+    "3Flags",
+    "3TrafficLights1",
+    "3TrafficLights2",
+    "3Signs",
+    "3Symbols",
+    "3Symbols2",
+    "3Stars",
+    "3Triangles",
+    "4Arrows",
+    "4ArrowsGray",
+    "4RedToBlack",
+    "4Rating",
+    "4TrafficLights",
+    "5Arrows",
+    "5ArrowsGray",
+    "5Rating",
+    "5Quarters",
+    "5Boxes",
+];
+
+/// Number of icons of a set: the leading digit of its name (3, 4 or 5); 0 for `NoIcons`.
+#[must_use]
+pub fn icon_count(set: &str) -> usize {
+    set.chars()
+        .next()
+        .and_then(|c| c.to_digit(10))
+        .map_or(if set == "NoIcons" { 0 } else { 3 }, |d| d as usize)
+        .clamp(0, 5)
+}
 
 /// Colour of position `i` of `n` on a bad → good ramp.
 fn ramp(i: usize, n: usize) -> Rgba {
@@ -28,6 +66,20 @@ fn fill(segs: Vec<PathSeg>, c: Rgba) -> Command {
         segs,
         fill: Some(Paint::Solid { color: c }),
         stroke: None,
+    }
+}
+
+fn outlined(segs: Vec<PathSeg>, c: Rgba) -> Command {
+    Command::Path {
+        segs,
+        fill: Some(Paint::Solid { color: c }),
+        stroke: Some(Stroke {
+            width: 0.5,
+            color: Rgba(0, 0, 0, 70),
+            dash: vec![],
+            cap: "butt".into(),
+            join: "round".into(),
+        }),
     }
 }
 
@@ -98,17 +150,49 @@ fn star(cx: f64, cy: f64, r: f64) -> Vec<PathSeg> {
     poly(&pts)
 }
 
+fn line(x1: f64, y1: f64, x2: f64, y2: f64, w: f64, c: Rgba) -> Command {
+    Command::Line {
+        x1: x1 as f32,
+        y1: y1 as f32,
+        x2: x2 as f32,
+        y2: y2 as f32,
+        width: w as f32,
+        color: c,
+        dash: None,
+    }
+}
+
+/// Cross (worst), exclamation (middle) or check (best) mark centred at (`cx`, `cy`).
+#[allow(clippy::too_many_arguments)]
+fn mark(out: &mut Vec<Command>, index: usize, n: usize, cx: f64, cy: f64, m: f64, w: f64, c: Rgba) {
+    if index == 0 {
+        out.push(line(cx - m, cy - m, cx + m, cy + m, w, c));
+        out.push(line(cx - m, cy + m, cx + m, cy - m, w, c));
+    } else if index + 1 >= n {
+        out.push(line(cx - m, cy, cx - m * 0.2, cy + m * 0.8, w, c));
+        out.push(line(cx - m * 0.2, cy + m * 0.8, cx + m, cy - m * 0.7, w, c));
+    } else {
+        out.push(line(cx, cy - m, cx, cy + m * 0.25, w, c));
+        out.push(line(cx, cy + m * 0.6, cx, cy + m, w, c));
+    }
+}
+
 /// Commands drawing icon `index` (0 = lowest) of an icon set of `count`
 /// icons, in the `s × s` square at (`x`, `y`).
+#[allow(clippy::too_many_lines)]
 pub fn icon(set: &str, index: usize, count: usize, x: f64, y: f64, s: f64) -> Vec<Command> {
     let (cx, cy, r) = (x + s / 2.0, y + s / 2.0, s / 2.0);
     let n = count.max(2);
-    let gray = set.contains("Gray");
+    let index = index.min(n - 1);
     let mut out = Vec::new();
     if set.contains("Arrows") {
         // Lowest points down, highest up, the others in between.
         let angle = 180.0 - 180.0 * index as f64 / (n - 1) as f64;
-        let c = if gray { GRAY } else { ramp(index, n) };
+        let c = if set.contains("Gray") {
+            GRAY
+        } else {
+            ramp(index, n)
+        };
         out.push(arrow(cx, cy, s * 0.95, angle, c));
     } else if set.contains("Triangles") {
         let c = ramp(index, 3.min(n));
@@ -151,26 +235,32 @@ pub fn icon(set: &str, index: usize, count: usize, x: f64, y: f64, s: f64) -> Ve
             ]),
             c,
         ));
-    } else if set.contains("Rating") || set.contains("Boxes") {
-        // `count` bars; the first `index + 1` are filled (index 0 = one bar).
-        let bars = if set.contains("Boxes") {
-            4
-        } else {
-            n.saturating_sub(1).max(3)
-        };
-        let filled = index * bars / (n - 1);
+    } else if set.contains("Rating") {
+        // Four signal bars of rising height; 5Rating fills `index` bars (0–4),
+        // 4Rating `index + 1` (1–4).
+        let bars = 4;
+        let filled = if n >= 5 { index } else { index + 1 };
         let w = s / (bars as f64 * 1.5);
         for b in 0..bars {
             let hgt = s * (0.3 + 0.7 * (b + 1) as f64 / bars as f64);
             let bx = x + b as f64 * w * 1.5;
             let by = y + s - hgt;
-            let c = if b < filled.max(usize::from(index > 0)) {
-                BLUE
-            } else {
-                LIGHT
-            };
+            let c = if b < filled { BLUE } else { LIGHT };
             out.push(fill(
                 poly(&[(bx, by), (bx + w, by), (bx + w, y + s), (bx, y + s)]),
+                c,
+            ));
+        }
+    } else if set.contains("Boxes") {
+        // 2 × 2 grid of squares; `index` of them filled (0–4), top-left first.
+        let g = s * 0.1;
+        let w = (s - 3.0 * g) / 2.0;
+        for b in 0..4 {
+            let bx = x + g + (b % 2) as f64 * (w + g);
+            let by = y + g + (b / 2) as f64 * (w + g);
+            let c = if b < index { BLUE } else { LIGHT };
+            out.push(fill(
+                poly(&[(bx, by), (bx + w, by), (bx + w, by + w), (bx, by + w)]),
                 c,
             ));
         }
@@ -213,49 +303,56 @@ pub fn icon(set: &str, index: usize, count: usize, x: f64, y: f64, s: f64) -> Ve
                 out.push(Command::PopClip);
             }
         }
+    } else if set.contains("Signs") {
+        // Diamond (worst), upward triangle (middle), disc (best).
+        let c = ramp(index, 3.min(n));
+        let h = r * 0.9;
+        let segs = match index {
+            0 => poly(&[(cx, cy - h), (cx + h, cy), (cx, cy + h), (cx - h, cy)]),
+            i if i + 1 >= n => circle(cx, cy, r * 0.82),
+            _ => poly(&[(cx, cy - h), (cx + h, cy + h * 0.8), (cx - h, cy + h * 0.8)]),
+        };
+        out.push(outlined(segs, c));
+    } else if set.contains("Symbols2") {
+        // Coloured marks without a disc.
+        mark(
+            &mut out,
+            index,
+            n,
+            cx,
+            cy,
+            r * 0.7,
+            s * 0.16,
+            ramp(index, 3.min(n)),
+        );
+    } else if set.contains("Symbols") {
+        out.push(outlined(circle(cx, cy, r * 0.88), ramp(index, 3.min(n))));
+        mark(&mut out, index, n, cx, cy, r * 0.45, s * 0.12, WHITE);
+    } else if set == "3TrafficLights2" {
+        // A dark housing around the light.
+        let h = r * 0.98;
+        out.push(fill(
+            poly(&[
+                (cx - h, cy - h),
+                (cx + h, cy - h),
+                (cx + h, cy + h),
+                (cx - h, cy + h),
+            ]),
+            DARK,
+        ));
+        out.push(fill(circle(cx, cy, r * 0.68), ramp(index, 3)));
     } else {
-        // Traffic lights, signs, symbols, red-to-black: coloured discs.
+        // Traffic lights and red-to-black: coloured discs.
         let c = if set.contains("RedToBlack") {
             let t = index as f64 / (n - 1) as f64;
             let ch = |a: u8, b: u8| (f64::from(a) + (f64::from(b) - f64::from(a)) * t) as u8;
             Rgba(ch(0x20, RED.0), ch(0x20, RED.1), ch(0x20, RED.2), 255)
+        } else if set == "4TrafficLights" {
+            [DARK, RED, YELLOW, GREEN][index.min(3)]
         } else {
             ramp(index, n)
         };
-        out.push(Command::Path {
-            segs: circle(cx, cy, r * 0.85),
-            fill: Some(Paint::Solid { color: c }),
-            stroke: Some(Stroke {
-                width: 0.5,
-                color: Rgba(0, 0, 0, 60),
-                dash: vec![],
-                cap: "butt".into(),
-                join: "round".into(),
-            }),
-        });
-        if set.contains("Symbols") {
-            // A light mark in the disc: check (best), bar (middle), cross (worst).
-            let w = Rgba(255, 255, 255, 255);
-            let m = r * 0.45;
-            let line = |x1: f64, y1: f64, x2: f64, y2: f64| Command::Line {
-                x1: x1 as f32,
-                y1: y1 as f32,
-                x2: x2 as f32,
-                y2: y2 as f32,
-                width: (s * 0.12) as f32,
-                color: w,
-                dash: None,
-            };
-            if index == 0 {
-                out.push(line(cx - m, cy - m, cx + m, cy + m));
-                out.push(line(cx - m, cy + m, cx + m, cy - m));
-            } else if index + 1 >= n {
-                out.push(line(cx - m, cy, cx - m * 0.2, cy + m * 0.8));
-                out.push(line(cx - m * 0.2, cy + m * 0.8, cx + m, cy - m * 0.7));
-            } else {
-                out.push(line(cx - m, cy, cx + m, cy));
-            }
-        }
+        out.push(outlined(circle(cx, cy, r * 0.85), c));
     }
     out
 }
@@ -264,43 +361,57 @@ pub fn icon(set: &str, index: usize, count: usize, x: f64, y: f64, s: f64) -> Ve
 mod tests {
     use super::*;
 
+    fn fill_of(c: &Command) -> Option<Rgba> {
+        match c {
+            Command::Path {
+                fill: Some(Paint::Solid { color }),
+                ..
+            } => Some(*color),
+            _ => None,
+        }
+    }
+
     #[test]
     fn every_family_draws() {
-        for set in [
-            "3Arrows",
-            "3ArrowsGray",
-            "3Flags",
-            "3TrafficLights1",
-            "3TrafficLights2",
-            "3Signs",
-            "3Symbols",
-            "3Symbols2",
-            "4Arrows",
-            "4ArrowsGray",
-            "4RedToBlack",
-            "4Rating",
-            "4TrafficLights",
-            "5Arrows",
-            "5ArrowsGray",
-            "5Rating",
-            "5Quarters",
-            "3Stars",
-            "3Triangles",
-            "5Boxes",
-        ] {
-            let n = usize::from(set.as_bytes()[0] - b'0');
+        for set in ICON_SETS {
+            let n = icon_count(set);
+            assert!((3..=5).contains(&n), "{set}");
             for i in 0..n {
                 assert!(!icon(set, i, n, 0.0, 0.0, 10.0).is_empty(), "{set} {i}");
             }
         }
+        assert_eq!(icon_count("NoIcons"), 0);
         // Arrows: lowest is red, highest green.
-        let lo = icon("3Arrows", 0, 3, 0.0, 0.0, 10.0);
-        assert!(
-            matches!(&lo[0], Command::Path { fill: Some(Paint::Solid { color }), .. } if *color == RED)
+        assert_eq!(
+            fill_of(&icon("3Arrows", 0, 3, 0.0, 0.0, 10.0)[0]),
+            Some(RED)
         );
-        let hi = icon("3Arrows", 2, 3, 0.0, 0.0, 10.0);
-        assert!(
-            matches!(&hi[0], Command::Path { fill: Some(Paint::Solid { color }), .. } if *color == GREEN)
+        assert_eq!(
+            fill_of(&icon("3Arrows", 2, 3, 0.0, 0.0, 10.0)[0]),
+            Some(GREEN)
+        );
+        // Boxes: icon k fills k of the four squares.
+        let filled = |i| {
+            icon("5Boxes", i, 5, 0.0, 0.0, 10.0)
+                .iter()
+                .filter(|c| fill_of(c) == Some(BLUE))
+                .count()
+        };
+        assert_eq!((0..5).map(filled).collect::<Vec<_>>(), vec![0, 1, 2, 3, 4]);
+        // 4Rating starts at one bar, 5Rating at none.
+        let bars = |set: &str, i, n| {
+            icon(set, i, n, 0.0, 0.0, 10.0)
+                .iter()
+                .filter(|c| fill_of(c) == Some(BLUE))
+                .count()
+        };
+        assert_eq!(bars("4Rating", 0, 4), 1);
+        assert_eq!(bars("5Rating", 0, 5), 0);
+        assert_eq!(bars("5Rating", 4, 5), 4);
+        // The framed lights draw a housing first.
+        assert_eq!(
+            fill_of(&icon("3TrafficLights2", 1, 3, 0.0, 0.0, 10.0)[0]),
+            Some(DARK)
         );
     }
 }

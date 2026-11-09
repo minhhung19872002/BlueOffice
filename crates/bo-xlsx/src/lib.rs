@@ -17,6 +17,7 @@
 #![forbid(unsafe_code)]
 
 mod autofilter;
+mod cf_ext;
 mod chart;
 mod chart_format;
 pub mod chart_write;

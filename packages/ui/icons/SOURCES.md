@@ -103,6 +103,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `format.color` | Lucide (ISC) `Baseline` |
 | `format.comma` | Lucide (ISC) `Hash` |
 | `format.conditional` | Lucide (ISC) `Highlighter` |
+| `format.conditionalManage` | Lucide (ISC) `ListOrdered` |
 | `format.currency` | Lucide (ISC) `Coins` |
 | `format.currencyVnd` | Bluestar — tự vẽ (`custom.tsx` CurrencyVnd) |
 | `format.date` | Lucide (ISC) `Calendar` |

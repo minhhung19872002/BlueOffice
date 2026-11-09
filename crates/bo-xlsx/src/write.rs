@@ -349,6 +349,12 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                     &mut out_parts,
                     &mut overrides,
                 );
+                // [MS-XLSX] x14:conditionalFormattings, first ext of the worksheet extLst.
+                let cf_ids = crate::cf_ext::rule_ids(ws);
+                let unknown = match crate::cf_ext::sheet_ext(ws, &cf_ids) {
+                    Some(ext) => crate::cf_ext::with_first_ext(&ws.unknown, &ext),
+                    None => ws.unknown.clone(),
+                };
                 // Sheet exts written from the model: new slicers, sparkline groups.
                 let mut sheet_ext = crate::sparkline::ext_xml(&ws.sparkline_groups);
                 if let Some(n) = &new_slicers {
@@ -356,9 +362,9 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                     sheet_ext.insert_str(0, &n.sheet_ext);
                 }
                 let unknown = if sheet_ext.is_empty() {
-                    ws.unknown.clone()
+                    unknown
                 } else {
-                    crate::slicer::with_ext(&ws.unknown, &sheet_ext)
+                    crate::slicer::with_ext(&unknown, &sheet_ext)
                 };
                 // Form controls: patched, removed and new controls.
                 let unknown = {
@@ -1091,13 +1097,24 @@ fn sheet_xml(
                 out.push_str("</mergeCells>");
             }
             "conditionalFormatting" => {
-                for cf in &ws.conditional_formats {
+                let ids = crate::cf_ext::rule_ids(ws);
+                for (bi, cf) in ws.conditional_formats.iter().enumerate() {
+                    // Rules kept only in the x14 extension are written by `cf_ext`.
+                    let rules: Vec<(usize, &CfRule)> = cf
+                        .rules
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, r)| !crate::cf_ext::ext_only(cf, r))
+                        .collect();
+                    if rules.is_empty() {
+                        continue;
+                    }
                     out.push_str("<conditionalFormatting");
                     a_true(out, "pivot", cf.pivot);
                     a(out, "sqref", &sqref_to_string(&cf.sqref));
                     out.push('>');
-                    for r in &cf.rules {
-                        write_cf_rule(out, r);
+                    for (ri, r) in rules {
+                        write_cf_rule(out, r, ids.get(&(bi, ri)).map(String::as_str));
                     }
                     out.push_str("</conditionalFormatting>");
                 }
@@ -1487,8 +1504,16 @@ fn write_cell(out: &mut String, at: CellRef, cell: &Cell, sst: &mut SharedString
     out.push_str("</c>");
 }
 
-/// §18.3.1.10 cfRule.
-fn write_cf_rule(out: &mut String, r: &CfRule) {
+/// §18.3.1.10 cfRule; `ext_id` links the rule to its `x14:cfRule` ([MS-XLSX] `x14:id`).
+fn write_cf_rule(out: &mut String, r: &CfRule, ext_id: Option<&str>) {
+    let linked;
+    let unknown = match ext_id {
+        Some(id) => {
+            linked = crate::cf_ext::rule_ext_unknown(&r.unknown, id);
+            &linked
+        }
+        None => &r.unknown,
+    };
     out.push_str("<cfRule");
     a(out, "type", &r.kind);
     a_opt(out, "dxfId", r.dxf_id.as_ref());
@@ -1501,7 +1526,7 @@ fn write_cf_rule(out: &mut String, r: &CfRule) {
     emit_ordered(
         out,
         &["formula", "colorScale", "dataBar", "iconSet", "extLst"],
-        &r.unknown,
+        unknown,
         |slot, out| match slot {
             "formula" => {
                 for f in &r.formulas {

@@ -9,10 +9,10 @@
 
 use crate::chart::{parse_dom, Node};
 use bo_model::sheet::{
-    CellError, CellRange, CellValue, PivotAxisItem, PivotCache, PivotCacheField, PivotDataField,
-    PivotFieldFilter, PivotFieldGroup, PivotFieldOptions, PivotFilter, PivotFilterType,
-    PivotFunction, PivotGroupBy, PivotLayout, PivotRangeGroup, PivotShowAs, PivotSort,
-    PivotStyleInfo, PivotTable,
+    CellError, CellRange, CellValue, PivotAxisItem, PivotCache, PivotCacheField,
+    PivotConditionalFormat, PivotDataField, PivotFieldFilter, PivotFieldGroup, PivotFieldOptions,
+    PivotFilter, PivotFilterType, PivotFunction, PivotGroupBy, PivotLayout, PivotRangeGroup,
+    PivotShowAs, PivotSort, PivotStyleInfo, PivotTable,
 };
 use bo_opc::{resolve_target, Package, TargetMode};
 
@@ -523,6 +523,32 @@ pub(crate) fn read_pivot_table(
             .filter_map(read_field_filter)
             .collect();
     }
+    // §18.10.1.16 conditionalFormats / §18.10.1.15 conditionalFormat
+    if let Some(cfs) = dom.child("conditionalFormats") {
+        pt.conditional_formats = cfs
+            .children
+            .iter()
+            .filter(|c| c.name == "conditionalFormat")
+            .map(|c| PivotConditionalFormat {
+                priority: c
+                    .attr("priority")
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(1),
+                scope: c.attr("scope").map(str::to_owned),
+                kind: c.attr("type").map(str::to_owned),
+                areas: c
+                    .child("pivotAreas")
+                    .map(|a| {
+                        a.children
+                            .iter()
+                            .filter(|p| p.name == "pivotArea")
+                            .map(node_xml)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
+            .collect();
+    }
     pt.style = dom.child("pivotTableStyleInfo").map(|s| PivotStyleInfo {
         name: s.attr("name").unwrap_or_default().to_owned(),
         show_row_headers: flag(s, "showRowHeaders", false),
@@ -532,6 +558,33 @@ pub(crate) fn read_pivot_table(
         show_last_column: flag(s, "showLastColumn", false),
     });
     Some(pt)
+}
+
+/// A pivot table element (default SpreadsheetML namespace) serialized back to XML.
+fn node_xml(n: &Node) -> String {
+    let mut out = String::new();
+    write_node(&mut out, n);
+    out
+}
+
+fn write_node(out: &mut String, n: &Node) {
+    out.push('<');
+    out.push_str(&n.name);
+    for (k, v) in &n.attrs {
+        crate::xml::a(out, k, v);
+    }
+    if n.children.is_empty() && n.text.is_empty() {
+        out.push_str("/>");
+        return;
+    }
+    out.push('>');
+    out.push_str(&bo_opc::xml::escape(&n.text));
+    for c in &n.children {
+        write_node(out, c);
+    }
+    out.push_str("</");
+    out.push_str(&n.name);
+    out.push('>');
 }
 
 /// Pivot tables of a worksheet, following its `pivotTable` relationships.

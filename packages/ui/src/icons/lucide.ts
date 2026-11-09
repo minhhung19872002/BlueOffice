@@ -287,6 +287,7 @@ export const LUCIDE_ICONS: Record<string, IconSpec> = {
   'format.color': lucide(Baseline),
   'format.comma': lucide(Hash),
   'format.conditional': lucide(Highlighter),
+  'format.conditionalManage': lucide(ListOrdered),
   'format.currency': lucide(Coins),
   'format.date': lucide(Calendar),
   'format.fill': lucide(PaintBucket),

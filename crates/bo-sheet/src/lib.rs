@@ -14,6 +14,8 @@ pub mod calc;
 pub mod calcopts;
 pub mod cells;
 pub mod cf;
+pub mod cf_draw;
+pub mod cf_manage;
 pub mod chart;
 pub mod chart_style;
 pub mod color;

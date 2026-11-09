@@ -219,8 +219,73 @@ export type CfRuleSpec =
   | { kind: 'top10'; rank: number; bottom?: boolean; percent?: boolean; style: CfStyle }
   | { kind: 'duplicateValues'; style: CfStyle }
   | { kind: 'colorScale'; minColor: string; midColor?: string; maxColor: string }
-  | { kind: 'dataBar'; color: string }
-  | { kind: 'iconSet'; set: string; reverse?: boolean };
+  | { kind: 'dataBar'; color: string; options?: DataBarOptions }
+  | { kind: 'iconSet'; set: string; reverse?: boolean; options?: IconSetOptions };
+
+/** A data bar / icon set threshold (ECMA-376 §18.3.1.11 `cfvo`). */
+export interface CfvoSpec {
+  /** num, percent, percentile, formula, min, max; data bars also autoMin / autoMax. */
+  kind: string;
+  value?: string | null;
+  /** The band starts at values ≥ the threshold (false: >). */
+  gte?: boolean;
+}
+
+/** Data bar options ([MS-XLSX] x14 dataBar: negative bars, axis, border, gradient). */
+export interface DataBarOptions {
+  min: CfvoSpec;
+  max: CfvoSpec;
+  minLength?: number;
+  maxLength?: number;
+  gradient?: boolean;
+  border?: boolean;
+  borderColor?: string | null;
+  negativeColor?: string | null;
+  negativeBorderColor?: string | null;
+  negativeSameColor?: boolean;
+  negativeSameBorder?: boolean;
+  /** automatic | middle | none */
+  axisPosition?: string;
+  axisColor?: string | null;
+  /** context | leftToRight | rightToLeft */
+  direction?: string;
+  showValue?: boolean;
+}
+
+/** An icon of a custom icon set ([MS-XLSX] x14:cfIcon). */
+export interface CfIconSpec {
+  set: string;
+  id: number;
+}
+
+/** Icon set options: thresholds above the lowest band, icon only, custom icons. */
+export interface IconSetOptions {
+  thresholds: CfvoSpec[];
+  showValue?: boolean;
+  icons?: CfIconSpec[];
+}
+
+/** A rule listed by the conditional formatting rules manager (`listCf`). */
+export interface CfRuleInfo {
+  block: number;
+  rule: number;
+  priority: number;
+  kind: string;
+  range: string;
+  stopIfTrue: boolean;
+  pivot: boolean;
+  ext: boolean;
+  spec: CfRuleSpec | null;
+}
+
+/** A change made in the rules manager (`editCf`). */
+export type CfOp =
+  | { op: 'moveUp' }
+  | { op: 'moveDown' }
+  | { op: 'delete' }
+  | { op: 'stopIfTrue'; value: boolean }
+  | { op: 'setRange'; range: string }
+  | { op: 'replace'; rule: CfRuleSpec };
 
 export interface ValidationSpec {
   kind: string;
@@ -652,7 +717,9 @@ export type SheetCommand =
   | { cmd: 'setFilter'; sheet: number; col: number; filter: FilterSpec | null }
   | { cmd: 'autofill'; sheet: number; source: SheetRange; target: SheetRange }
   | { cmd: 'fillDir'; sheet: number; range: SheetRange; dir: 'down' | 'right' }
-  | { cmd: 'addCf'; sheet: number; range: SheetRange; rule: CfRuleSpec }
+  | { cmd: 'addCf'; sheet: number; range: SheetRange; rule: CfRuleSpec; pivot?: boolean }
+  | { cmd: 'listCf'; sheet: number }
+  | { cmd: 'editCf'; sheet: number; block: number; rule: number; op: CfOp }
   | { cmd: 'clearCf'; sheet: number; range: SheetRange }
   | { cmd: 'validation'; sheet: number; row: number; col: number }
   | { cmd: 'setValidation'; sheet: number; range: SheetRange; spec: ValidationSpec }

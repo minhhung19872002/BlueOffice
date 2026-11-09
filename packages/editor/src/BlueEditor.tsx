@@ -171,6 +171,9 @@ import {
   Globe,
   ScrollText,
   Focus,
+  ArrowLeftRight,
+  Bookmark,
+  Scale,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -243,6 +246,7 @@ import {
   LineNumbersDialog,
   TextDirectionDialog,
 } from './LayoutDialogs';
+import { isReferenceDialog, ReferenceDialog } from './ReferenceDialogs';
 import { Rulers, type PageBox } from './Ruler';
 import { NavigationPane } from './NavigationPane';
 import { OutlineView } from './OutlineView';
@@ -1459,6 +1463,21 @@ function EditorInner({
       isEnabled: hasDoc,
       run: () => store.setState({ panel: 'crossref' }),
     });
+    // Tables of figures, indexes, tables of authorities, note conversion (ReferenceDialogs).
+    for (const [id, dialog] of [
+      ['references.tableOfFigures', 'tableOfFigures'],
+      ['references.markEntry', 'markEntry'],
+      ['references.insertIndex', 'insertIndex'],
+      ['references.markCitation', 'markCitation'],
+      ['references.insertToa', 'insertToa'],
+      ['references.convertNotes', 'convertNotes'],
+    ] as const) {
+      r.register({
+        id,
+        isEnabled: (s) => hasDoc(s) && !s.edit?.story,
+        run: () => store.setState({ dialog }),
+      });
+    }
     // Review: track changes (ECMA-376 Part 1, §17.13.5).
     const rv = (s: EditorState) => s.review;
     r.register({
@@ -2582,6 +2601,11 @@ function EditorInner({
             item('insert.footnote', 'commands.insert.footnote', <StickyNote size={ICON} />),
             s('insert.endnote', 'commands.insert.endnote', <StickyNote size={SMALL} />),
             s('references.notes', 'commands.references.notes', <PanelRight size={SMALL} />),
+            s(
+              'references.convertNotes',
+              'commands.references.convertNotes',
+              <ArrowLeftRight size={SMALL} />,
+            ),
           ],
         },
         {
@@ -2598,6 +2622,35 @@ function EditorInner({
               'commands.references.crossReference',
               <Link2 size={ICON} />,
             ),
+            s(
+              'references.tableOfFigures',
+              'commands.references.tableOfFigures',
+              <ListTree size={SMALL} />,
+            ),
+          ],
+        },
+        {
+          id: 'refIndex',
+          label: t('ribbon.groups.refIndex'),
+          items: [
+            item('references.markEntry', 'commands.references.markEntry', <Bookmark size={ICON} />),
+            s(
+              'references.insertIndex',
+              'commands.references.insertIndex',
+              <ListTree size={SMALL} />,
+            ),
+          ],
+        },
+        {
+          id: 'authorities',
+          label: t('ribbon.groups.authorities'),
+          items: [
+            item(
+              'references.markCitation',
+              'commands.references.markCitation',
+              <Scale size={ICON} />,
+            ),
+            s('references.insertToa', 'commands.references.insertToa', <ListTree size={SMALL} />),
           ],
         },
         {
@@ -3266,6 +3319,14 @@ function EditorInner({
             )}
             {state.dialog === 'dropCap' && (
               <DropCapDialog run={runCommand} language={state.language} onClose={closeDialog} />
+            )}
+            {isReferenceDialog(state.dialog) && (
+              <ReferenceDialog
+                which={state.dialog}
+                run={runCommand}
+                language={state.language}
+                onClose={closeDialog}
+              />
             )}
             {state.dialog === 'pageBorders' && (
               <PageBordersDialog run={runCommand} onClose={closeDialog} />

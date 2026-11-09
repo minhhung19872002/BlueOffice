@@ -415,6 +415,44 @@ pub enum Command {
     UpdateFields,
     /// Insert a table of contents at the caret.
     InsertToc,
+    /// Insert a table of figures (`TOC \c` / `\a`), an index (`INDEX`) or a table of
+    /// authorities (`TOA`) at the caret and fill it (ECMA-376 Part 1, §17.16.5.68,
+    /// §17.16.5.28, §17.16.5.67).
+    InsertReferenceTable {
+        /// Field instruction.
+        instr: String,
+        /// Leader of the right-aligned page numbers: `dot`, `hyphen`, `underscore`, `none`.
+        #[serde(default)]
+        leader: Option<String>,
+        /// Text columns of the table (> 1: its own continuous section).
+        #[serde(default)]
+        columns: u16,
+    },
+    /// Mark the selection as an index entry (§17.16.5.72 XE); `all`: the first
+    /// occurrence of the selected text in every paragraph too.
+    MarkIndexEntry {
+        /// The entry.
+        mark: bo_edit::IndexMark,
+        /// Mark every occurrence.
+        #[serde(default)]
+        all: bool,
+    },
+    /// Mark the selection as a citation (§17.16.5.62 TA); `all`: later mentions too.
+    MarkCitation {
+        /// The citation.
+        mark: bo_edit::CitationMark,
+        /// Mark every occurrence.
+        #[serde(default)]
+        all: bool,
+    },
+    /// Convert footnotes ↔ endnotes, all or those referenced in the selection.
+    ConvertNotes {
+        /// Direction.
+        mode: bo_edit::NoteConversion,
+        /// Only the notes referenced inside the selection.
+        #[serde(default)]
+        selection: bool,
+    },
     /// Insert a caption (`label n: text`) after the caret's paragraph.
     InsertCaption {
         /// Caption label (`Figure`, `Table`, …).
@@ -1720,6 +1758,33 @@ impl crate::Engine {
                     }
                     Command::InsertToc => {
                         extra.1 = Some(s.insert_toc(&mut pages_of)?);
+                    }
+                    Command::InsertReferenceTable {
+                        instr,
+                        leader,
+                        columns,
+                    } => {
+                        let leader = leader.as_deref().map(|l| match l {
+                            "none" => bo_model::TabLeader::None,
+                            "hyphen" => bo_model::TabLeader::Hyphen,
+                            "underscore" => bo_model::TabLeader::Underscore,
+                            _ => bo_model::TabLeader::Dot,
+                        });
+                        extra.1 = Some(s.insert_reference_table(
+                            &instr,
+                            leader,
+                            columns,
+                            &mut pages_of,
+                        )?);
+                    }
+                    Command::MarkIndexEntry { mark, all } => {
+                        extra.1 = Some(s.mark_index_entry(&mark, all)?);
+                    }
+                    Command::MarkCitation { mark, all } => {
+                        extra.1 = Some(s.mark_citation(&mark, all)?);
+                    }
+                    Command::ConvertNotes { mode, selection } => {
+                        extra.1 = Some(s.convert_notes(mode, selection)?);
                     }
                     Command::InsertCaption { label, text } => {
                         s.insert_caption(&label, &text)?;

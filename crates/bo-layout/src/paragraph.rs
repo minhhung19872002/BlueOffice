@@ -444,10 +444,18 @@ fn field_text(instr: &str, cached: &str, f: FieldContext) -> String {
         .next()
         .unwrap_or("")
         .to_ascii_uppercase();
+    // The general switches apply (§17.16.4: `PAGE \* ROMAN`, `\# "00"`).
+    let n = |v: u32| {
+        bo_model::field::format(
+            &bo_model::field::FieldValue::Number(f64::from(v)),
+            instr,
+            true,
+        )
+    };
     match kind.as_str() {
-        "PAGE" if f.page > 0 => f.page.to_string(),
-        "NUMPAGES" if f.pages > 0 => f.pages.to_string(),
-        "SECTIONPAGES" if f.section_pages > 0 => f.section_pages.to_string(),
+        "PAGE" if f.page > 0 => n(f.page),
+        "NUMPAGES" if f.pages > 0 => n(f.pages),
+        "SECTIONPAGES" if f.section_pages > 0 => n(f.section_pages),
         _ => cached.to_owned(),
     }
 }
@@ -1848,6 +1856,9 @@ mod tests {
         };
         assert_eq!(field_text("PAGE \\* MERGEFORMAT", "1", f), "3");
         assert_eq!(field_text("NUMPAGES", "1", f), "9");
+        // §17.16.4.3 general formats on page numbers.
+        assert_eq!(field_text("PAGE \\* ROMAN", "1", f), "III");
+        assert_eq!(field_text("PAGE \\# \"00\"", "1", f), "03");
         assert_eq!(
             field_text("DATE \\@ dd/MM/yyyy", "05/11/2026", f),
             "05/11/2026"

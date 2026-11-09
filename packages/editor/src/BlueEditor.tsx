@@ -123,6 +123,7 @@ import {
   TextCursorInput,
   GitCompare,
   GitMerge,
+  Braces,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -151,6 +152,7 @@ import {
   PageSetupDialog,
   PasteSpecialDialog,
   EquationDialog,
+  FieldDialog,
   PicturePositionDialog,
   TablePropertiesDialog,
   TemplateDialog,
@@ -924,6 +926,11 @@ function EditorInner({
       id: 'insert.symbol',
       isEnabled: hasDoc,
       run: () => store.setState({ panel: 'symbols' }),
+    });
+    r.register({
+      id: 'insert.field',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'field' }),
     });
     r.register({
       id: 'insert.equation',
@@ -1748,6 +1755,7 @@ function EditorInner({
           label: t('ribbon.groups.equation'),
           items: [
             item('insert.equation', 'commands.insert.equation', <Sigma size={ICON} />),
+            item('insert.field', 'commands.insert.field', <Braces size={ICON} />),
             item(
               'equation.professional',
               'commands.equation.professional',
@@ -2154,6 +2162,15 @@ function EditorInner({
                   const replace = !!store.getState().edit?.equation;
                   closeDialog();
                   void runFocus({ cmd: 'insertEquation', text, latex, display, replace });
+                }}
+              />
+            )}
+            {state.dialog === 'field' && (
+              <FieldDialog
+                onClose={closeDialog}
+                onInsert={(instr) => {
+                  closeDialog();
+                  void runFocus({ cmd: 'insertField', instr });
                 }}
               />
             )}

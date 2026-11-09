@@ -62,6 +62,7 @@ export interface EditorState {
     | 'picturePosition'
     | 'templates'
     | 'equation'
+    | 'field'
     | null;
   /** Format Painter: off, once (single click) or sticky (double click; Esc stops). */
   painter: 'off' | 'once' | 'sticky';

@@ -895,6 +895,8 @@ impl crate::Engine {
                             "1".to_owned()
                         };
                         s.insert_field(&instr, &cached)?;
+                        // The new field shows its result at once (§17.16.5).
+                        s.update_fields(&mut pages_of)?;
                     }
                     Command::InsertNote { endnote, text } => {
                         new_note = Some((endnote, s.insert_note(endnote, &text)?));

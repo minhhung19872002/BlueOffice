@@ -822,3 +822,205 @@ export function EquationDialog({
     </Dialog>
   );
 }
+
+/** Field kinds of the Insert Field dialog by category (ECMA-376 Part 1, §17.16.5). */
+export const FIELD_KINDS: { group: string; kinds: string[] }[] = [
+  { group: 'date', kinds: ['DATE', 'TIME', 'CREATEDATE', 'SAVEDATE', 'PRINTDATE', 'EDITTIME'] },
+  {
+    group: 'info',
+    kinds: [
+      'AUTHOR',
+      'TITLE',
+      'SUBJECT',
+      'KEYWORDS',
+      'COMMENTS',
+      'LASTSAVEDBY',
+      'TEMPLATE',
+      'FILENAME',
+      'FILESIZE',
+      'REVNUM',
+      'NUMPAGES',
+      'NUMWORDS',
+      'NUMCHARS',
+      'DOCPROPERTY',
+      'DOCVARIABLE',
+    ],
+  },
+  { group: 'user', kinds: ['USERNAME', 'USERINITIALS', 'USERADDRESS'] },
+  { group: 'numbering', kinds: ['PAGE', 'SECTION', 'SECTIONPAGES', 'SEQ', 'AUTONUM', 'LISTNUM'] },
+  { group: 'links', kinds: ['REF', 'PAGEREF', 'STYLEREF', 'NOTEREF', 'HYPERLINK', 'INCLUDETEXT'] },
+  { group: 'formula', kinds: ['=', 'IF', 'COMPARE', 'SET', 'ASK', 'FILLIN', 'QUOTE', 'SYMBOL'] },
+  { group: 'index', kinds: ['TOC', 'TC', 'XE', 'INDEX', 'MACROBUTTON', 'GOTOBUTTON'] },
+];
+
+const NUMBER_FORMATS = [
+  '',
+  'Arabic',
+  'ROMAN',
+  'roman',
+  'ALPHABETIC',
+  'alphabetic',
+  'Ordinal',
+  'CardText',
+  'OrdText',
+  'Hex',
+];
+const TEXT_FORMATS = ['', 'Upper', 'Lower', 'FirstCap', 'Caps'];
+const DATE_PICTURES = ['dd/MM/yyyy', 'd MMMM yyyy', 'dddd, d MMMM yyyy', 'HH:mm', 'h:mm am/pm'];
+const DATE_KINDS = new Set(['DATE', 'TIME', 'CREATEDATE', 'SAVEDATE', 'PRINTDATE']);
+const NUMBER_KINDS = new Set([
+  'PAGE',
+  'NUMPAGES',
+  'NUMWORDS',
+  'NUMCHARS',
+  'SECTION',
+  'SECTIONPAGES',
+  'SEQ',
+  'REVNUM',
+  'EDITTIME',
+  'FILESIZE',
+  '=',
+  'COMPARE',
+]);
+
+const HINTS = new Set([
+  'formula',
+  'IF',
+  'REF',
+  'PAGEREF',
+  'SEQ',
+  'DOCPROPERTY',
+  'DOCVARIABLE',
+  'SET',
+  'ASK',
+  'SYMBOL',
+  'STYLEREF',
+  'QUOTE',
+]);
+
+/** The instruction of a field from the dialog's choices (§17.16.1 syntax). */
+export function fieldInstr(kind: string, args: string, picture: string, format: string): string {
+  const quote = (s: string) => (/\s/.test(s) && !s.startsWith('"') ? `"${s}"` : s);
+  let instr = kind === '=' ? `= ${args.trim()}` : `${kind}${args.trim() ? ` ${args.trim()}` : ''}`;
+  if (picture.trim()) {
+    instr += DATE_KINDS.has(kind)
+      ? ` \\@ ${quote(picture.trim())}`
+      : ` \\# ${quote(picture.trim())}`;
+  }
+  if (format) instr += ` \\* ${format}`;
+  return instr;
+}
+
+/** Insert Field: kind, arguments, format switches (§17.16.4) and the resulting instruction. */
+export function FieldDialog({
+  onInsert,
+  onClose,
+}: {
+  onInsert: (instr: string) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [kind, setKind] = useState('DATE');
+  const [args, setArgs] = useState('');
+  const [picture, setPicture] = useState('dd/MM/yyyy');
+  const [format, setFormat] = useState('');
+  const isDate = DATE_KINDS.has(kind);
+  const isNumber = NUMBER_KINDS.has(kind);
+  const instr = fieldInstr(kind, args, isDate || isNumber ? picture : '', format);
+  const hint = kind === '=' ? 'formula' : kind;
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t('fieldDialog.title')}
+      testId="field-dialog"
+      footer={
+        <>
+          <button type="button" className={styles.dialogButton} onClick={onClose}>
+            {t('security.cancel')}
+          </button>
+          <button
+            type="button"
+            className={styles.dialogPrimary}
+            data-testid="field-ok"
+            onClick={() => onInsert(instr)}
+          >
+            {t('fieldDialog.insert')}
+          </button>
+        </>
+      }
+    >
+      <label className={styles.field}>
+        {t('fieldDialog.kind')}
+        <select
+          data-testid="field-kind"
+          value={kind}
+          onChange={(e) => {
+            const k = e.target.value;
+            setKind(k);
+            setArgs('');
+            setFormat('');
+            setPicture(DATE_KINDS.has(k) ? (k === 'TIME' ? 'HH:mm' : 'dd/MM/yyyy') : '');
+          }}
+        >
+          {FIELD_KINDS.map((g) => (
+            <optgroup key={g.group} label={t(`fieldDialog.groups.${g.group}`)}>
+              {g.kinds.map((k) => (
+                <option key={k} value={k}>
+                  {k === '=' ? t('fieldDialog.formula') : k}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </label>
+      <label className={styles.field}>
+        {t('fieldDialog.args')}
+        <input
+          data-testid="field-args"
+          value={args}
+          spellCheck={false}
+          placeholder={HINTS.has(hint) ? t(`fieldDialog.hint.${hint}`) : undefined}
+          onChange={(e) => setArgs(e.target.value)}
+        />
+      </label>
+      {(isDate || isNumber) && (
+        <label className={styles.field}>
+          {t(isDate ? 'fieldDialog.datePicture' : 'fieldDialog.numberPicture')}
+          <input
+            data-testid="field-picture"
+            list={isDate ? 'field-date-pictures' : undefined}
+            value={picture}
+            spellCheck={false}
+            onChange={(e) => setPicture(e.target.value)}
+          />
+          {isDate && (
+            <datalist id="field-date-pictures">
+              {DATE_PICTURES.map((p) => (
+                <option key={p} value={p} />
+              ))}
+            </datalist>
+          )}
+        </label>
+      )}
+      <label className={styles.field}>
+        {t('fieldDialog.format')}
+        <select
+          data-testid="field-format"
+          value={format}
+          onChange={(e) => setFormat(e.target.value)}
+        >
+          {(isNumber ? NUMBER_FORMATS : TEXT_FORMATS).map((f) => (
+            <option key={f} value={f}>
+              {f ? t(`fieldDialog.formats.${f}`) : t('fieldDialog.formats.none')}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className={styles.field}>
+        {t('fieldDialog.code')}
+        <code data-testid="field-code">{instr}</code>
+      </label>
+    </Dialog>
+  );
+}

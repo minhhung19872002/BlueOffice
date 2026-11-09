@@ -587,3 +587,32 @@ fn combine_two_reviewers_copies() {
     cmd(&mut lan, r#"{"cmd":"rejectAllRevisions"}"#);
     assert_eq!(lan.document().unwrap().plain_text(), text);
 }
+
+// source: ECMA-376 Part 1, §17.16.5 fields over the bridge: inserted fields show their result,
+// read the document properties and the clock, and keep their switches through save / reopen.
+#[test]
+fn fields_show_their_results() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("Báo cáo.docx").unwrap();
+    e.set_clock_ms(1_794_204_300_000); // 2026-11-09T05:25:00Z
+    cmd(&mut e, r#"{"cmd":"setAuthor","name":"Lê Văn Cường"}"#);
+    for f in [
+        r"USERNAME",
+        r"USERINITIALS",
+        r"FILENAME",
+        r#"DATE \\@ \"dd/MM/yyyy\""#,
+        r"= 21 * 2 \\* CardText",
+        r"PAGE \\* ROMAN",
+    ] {
+        cmd(&mut e, &format!(r#"{{"cmd":"insertField","instr":"{f}"}}"#));
+        cmd(&mut e, r#"{"cmd":"insertText","text":" | "}"#);
+    }
+    let text = e.document().unwrap().plain_text();
+    assert_eq!(
+        text,
+        "Lê Văn Cường | LVC | Báo cáo.docx | 09/11/2026 | bốn mươi hai | 1 | "
+    );
+    // The layout shows the page number with its switch.
+    let page = e.page_json(0).unwrap();
+    assert!(page.contains("hai | I | "), "PAGE with a ROMAN format shows I");
+}

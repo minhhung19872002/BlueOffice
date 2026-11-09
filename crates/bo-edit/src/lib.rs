@@ -878,11 +878,15 @@ impl Tx<'_> {
     }
 
     /// Recompute fields until page numbers settle (at most three layouts).
-    fn update_fields(&mut self, pages_of: &mut dyn FnMut(&Document) -> Vec<u32>) -> Result<usize> {
+    fn update_fields(
+        &mut self,
+        pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
+        env: &fields::FieldEnv,
+    ) -> Result<usize> {
         let mut total = 0;
         for round in 0..3 {
             let pages = pages_of(self.doc);
-            let up = fields::update(self.doc, &pages);
+            let up = fields::update(self.doc, &pages, env);
             let unchanged = up.styles.is_none()
                 && up
                     .sections
@@ -1062,6 +1066,8 @@ pub struct Session {
     /// Collaboration: new comment / note ids are ≡ this (mod 65 536), so that two
     /// replicas adding one at the same moment do not pick the same id.
     id_seed: Option<u16>,
+    /// What fields read from outside the text (clock, properties, user, variables).
+    field_env: fields::FieldEnv,
 }
 
 /// Smallest id ≥ `candidate` that is ≡ `seed` (mod 65 536); `candidate` itself
@@ -1105,6 +1111,10 @@ impl Session {
             painter: None,
             id_floor: 0,
             id_seed: None,
+            field_env: fields::FieldEnv {
+                vi: true,
+                ..fields::FieldEnv::default()
+            },
         }
     }
 
@@ -1303,6 +1313,31 @@ impl Session {
         Ok(made)
     }
 
+    /// What fields read from outside the text (clock, document properties, user, variables).
+    pub fn set_field_env(&mut self, env: fields::FieldEnv) {
+        self.field_env = env;
+    }
+
+    /// The field environment with the session clock as "now" when it has none.
+    fn fields_now(&self) -> fields::FieldEnv {
+        let mut env = self.field_env.clone();
+        if env.now.is_none() {
+            env.now = self
+                .clock
+                .as_deref()
+                .and_then(bo_model::field::DateTime::parse_iso);
+        }
+        if env.user_name.is_empty() {
+            env.user_name.clone_from(&self.author);
+        }
+        env
+    }
+
+    /// The environment of field updates.
+    pub fn field_env(&self) -> &fields::FieldEnv {
+        &self.field_env
+    }
+
     /// Accept (`accept`) or reject revisions: `ids = None` resolves all of them.
     /// Returns the number of revisions resolved (one undo step).
     pub fn resolve_revisions(&mut self, ids: Option<&[i32]>, accept: bool) -> Result<usize> {
@@ -1396,8 +1431,9 @@ impl Session {
     ) -> Result<usize> {
         let mut n = 0;
         let sel = self.selection;
+        let env = self.fields_now();
         self.edit(|tx, _| {
-            n = tx.update_fields(pages_of)?;
+            n = tx.update_fields(pages_of, &env)?;
             Ok(sel)
         })?;
         self.fix_selection();
@@ -1408,6 +1444,7 @@ impl Session {
     /// and fill it.
     pub fn insert_toc(&mut self, pages_of: &mut dyn FnMut(&Document) -> Vec<u32>) -> Result<usize> {
         let mut n = 0;
+        let env = self.fields_now();
         self.edit(|tx, sel| {
             let (a, b) = sel.ordered();
             let at = tx.delete_range(a, b)?;
@@ -1431,7 +1468,7 @@ impl Session {
             };
             let toc = fields::new_toc_paragraph("TOC \\o \"1-3\" \\h \\z \\u");
             tx.insert_blocks(prefix, insert_at, vec![Block::Paragraph(toc)])?;
-            n = tx.update_fields(pages_of)?;
+            n = tx.update_fields(pages_of, &env)?;
             let caret = Pos::new(at.para.min(tx.paths().len().saturating_sub(1)), 0);
             Ok(Selection::caret(caret))
         })?;
@@ -1548,6 +1585,7 @@ impl Session {
         pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
     ) -> Result<Selection> {
         let target = target.to_owned();
+        let env = self.fields_now();
         self.edit(|tx, sel| {
             let name = if let Some(pid) = target.strip_prefix("caption:") {
                 let pid: usize = pid.parse().map_err(|_| EditError::BadPosition)?;
@@ -1579,7 +1617,7 @@ impl Session {
                     },
                 )],
             )?;
-            tx.update_fields(pages_of)?;
+            tx.update_fields(pages_of, &env)?;
             Ok(Selection::caret(caret))
         })
     }

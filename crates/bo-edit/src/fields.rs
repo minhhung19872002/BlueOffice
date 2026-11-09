@@ -424,7 +424,7 @@ pub fn new_toc_paragraph(instr: &str) -> Paragraph {
 
 /// Recompute TOC, SEQ, REF, PAGEREF fields. `pages[id]` = displayed page number of
 /// body paragraph `id` (0 = unknown).
-pub fn update(doc: &Document, pages: &[u32]) -> FieldUpdate {
+pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
     let page = |id: usize| pages.get(id).copied().unwrap_or(0);
     let mut sections: Vec<Vec<Block>> = doc.sections.iter().map(|s| s.blocks.clone()).collect();
     let mut count = 0;
@@ -636,7 +636,11 @@ pub fn update(doc: &Document, pages: &[u32]) -> FieldUpdate {
         }
     });
 
-    // ---- 3. REF / PAGEREF (§17.16.5.49, §17.16.5.42) against the updated text.
+    // ---- 3. Document information, dates, user, variables, IF, `=` … (§17.16.5).
+    let (n, set_vars) = evaluate_all(doc, &mut sections, env);
+    count += n;
+
+    // ---- 4. REF / PAGEREF (§17.16.5.49, §17.16.5.42) against the updated text.
     let probe = Document {
         sections: doc
             .sections
@@ -661,7 +665,11 @@ pub fn update(doc: &Document, pages: &[u32]) -> FieldUpdate {
             return;
         };
         let v = match kind.as_str() {
-            "REF" => bm_text.get(name).cloned(),
+            // A SET field defines a bookmark too (§17.16.5.57).
+            "REF" => bm_text
+                .get(name)
+                .cloned()
+                .or_else(|| set_vars.get(&name.to_ascii_lowercase()).cloned()),
             "PAGEREF" => bm_page
                 .get(name)
                 .filter(|p| **p > 0)
@@ -686,6 +694,502 @@ pub fn update(doc: &Document, pages: &[u32]) -> FieldUpdate {
         styles,
         count,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Other fields (§17.16.5): document information, dates, user, variables, IF, `=`, …
+// ---------------------------------------------------------------------------
+
+/// What fields read from outside the document text: the clock, document properties (core and
+/// extended properties, lower-case names: `title`, `subject`, `author`, `keywords`, `comments`,
+/// `lastsavedby`, `template`, `revnum`, `edittime`, `createdate`, `savedate`, `printdate`,
+/// `filename`, `filepath`, `filesize`, `company`, …), the user and the document variables.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FieldEnv {
+    /// Now (DATE, TIME).
+    pub now: Option<bo_model::field::DateTime>,
+    /// Vietnamese month / day names and numbers in words (else English).
+    pub vi: bool,
+    /// Document properties by lower-case name.
+    pub props: std::collections::BTreeMap<String, String>,
+    /// USERNAME, USERINITIALS, USERADDRESS.
+    pub user_name: String,
+    /// User initials.
+    pub user_initials: String,
+    /// User address.
+    pub user_address: String,
+    /// §17.15.1.17 docVars (DOCVARIABLE).
+    pub vars: std::collections::BTreeMap<String, String>,
+}
+
+/// Field kinds whose result this module computes (the others keep their cached result: links,
+/// included files, databases, bibliographies, indexes, form fields, mail merge).
+const COMPUTED: &[&str] = &[
+    "DATE",
+    "TIME",
+    "CREATEDATE",
+    "SAVEDATE",
+    "PRINTDATE",
+    "AUTHOR",
+    "TITLE",
+    "SUBJECT",
+    "KEYWORDS",
+    "COMMENTS",
+    "LASTSAVEDBY",
+    "TEMPLATE",
+    "FILENAME",
+    "FILESIZE",
+    "REVNUM",
+    "EDITTIME",
+    "NUMWORDS",
+    "NUMCHARS",
+    "USERNAME",
+    "USERINITIALS",
+    "USERADDRESS",
+    "DOCPROPERTY",
+    "DOCVARIABLE",
+    "QUOTE",
+    "SYMBOL",
+    "SET",
+    "ASK",
+    "FILLIN",
+    "IF",
+    "=",
+    "SECTION",
+    "STYLEREF",
+    "COMPARE",
+    "MACROBUTTON",
+    "GOTOBUTTON",
+    "AUTONUM",
+    "AUTONUMLGL",
+    "AUTONUMOUT",
+    "LISTNUM",
+    "PRINT",
+    "PRIVATE",
+    "ADVANCE",
+    "TC",
+    "TA",
+    "XE",
+    "RD",
+    "INFO",
+];
+
+/// Numbers in a cell's text (a formula reads its first number).
+fn cell_number(blocks: &[Block]) -> Option<f64> {
+    let mut t = String::new();
+    for b in blocks {
+        if let Block::Paragraph(p) = b {
+            t.push_str(&p.plain_text());
+        }
+    }
+    let s: String = t
+        .chars()
+        .filter(|c| c.is_ascii_digit() || matches!(c, '.' | ',' | '-'))
+        .collect();
+    // 1.234,5 (Vietnamese) and 1,234.5 (English) both read.
+    let s = if s.contains(',') && s.contains('.') {
+        if s.rfind(',') > s.rfind('.') {
+            s.replace('.', "").replace(',', ".")
+        } else {
+            s.replace(',', "")
+        }
+    } else if s.matches(',').count() == 1 && s.split(',').nth(1).is_some_and(|d| d.len() != 3) {
+        s.replace(',', ".")
+    } else {
+        s.replace(',', "")
+    };
+    s.parse().ok()
+}
+
+/// A formula's view of the document: bookmarks and SET values, and the table around the field.
+struct FormulaCtx<'a> {
+    vars: &'a HashMap<String, String>,
+    table: TableAt<'a>,
+}
+
+impl bo_model::field::FormulaEnv for FormulaCtx<'_> {
+    fn bookmark(&self, name: &str) -> Option<f64> {
+        let v = self.vars.get(&name.to_ascii_lowercase())?;
+        let t: String = v.chars().filter(|c| !c.is_whitespace()).collect();
+        t.replace(',', ".").parse().ok()
+    }
+
+    fn cells(&self, r: &str) -> Option<Vec<f64>> {
+        let (t, row, col) = self.table?;
+        let at = |ri: usize, ci: usize| -> Option<f64> {
+            t.rows
+                .get(ri)?
+                .cells
+                .get(ci)
+                .and_then(|c| cell_number(&c.blocks))
+        };
+        let up = r.to_ascii_uppercase();
+        let v: Vec<f64> = match up.as_str() {
+            "ABOVE" => (0..row).filter_map(|ri| at(ri, col)).collect(),
+            "BELOW" => (row + 1..t.rows.len())
+                .filter_map(|ri| at(ri, col))
+                .collect(),
+            "LEFT" => (0..col).filter_map(|ci| at(row, ci)).collect(),
+            "RIGHT" => (col + 1..t.rows.get(row).map_or(0, |x| x.cells.len()))
+                .filter_map(|ci| at(row, ci))
+                .collect(),
+            _ => {
+                let (a, b) = up.split_once(':').unwrap_or((&up, &up));
+                let ((c0, r0), (c1, r1)) =
+                    (bo_model::field::cell_ref(a)?, bo_model::field::cell_ref(b)?);
+                let mut v = Vec::new();
+                for ri in r0.min(r1)..=r0.max(r1) {
+                    for ci in c0.min(c1)..=c0.max(c1) {
+                        v.extend(at(ri, ci));
+                    }
+                }
+                v
+            }
+        };
+        Some(v)
+    }
+}
+
+/// `expr1 op expr2` of IF / COMPARE: numbers compare as numbers, text as text (`?` and `*`
+/// wildcards on the right with `=` / `<>`).
+fn compare_values(a: &str, op: &str, b: &str) -> bool {
+    let na = a.trim().replace(',', ".").parse::<f64>();
+    let nb = b.trim().replace(',', ".").parse::<f64>();
+    if let (Ok(x), Ok(y)) = (na, nb) {
+        return match op {
+            "=" => (x - y).abs() < 1e-12,
+            "<>" => (x - y).abs() >= 1e-12,
+            "<" => x < y,
+            "<=" => x <= y,
+            ">" => x > y,
+            ">=" => x >= y,
+            _ => false,
+        };
+    }
+    let wild = |pat: &str, s: &str| -> bool {
+        fn m(p: &[char], s: &[char]) -> bool {
+            match (p.first(), s.first()) {
+                (None, None) => true,
+                (Some('*'), _) => m(&p[1..], s) || (!s.is_empty() && m(p, &s[1..])),
+                (Some('?'), Some(_)) => m(&p[1..], &s[1..]),
+                (Some(x), Some(y)) if x == y => m(&p[1..], &s[1..]),
+                _ => false,
+            }
+        }
+        m(
+            &pat.chars().collect::<Vec<_>>(),
+            &s.chars().collect::<Vec<_>>(),
+        )
+    };
+    match op {
+        "=" => wild(b, a),
+        "<>" => !wild(b, a),
+        "<" => a < b,
+        "<=" => a <= b,
+        ">" => a > b,
+        ">=" => a >= b,
+        _ => false,
+    }
+}
+
+/// Split `IF`'s condition `a op b` (the operator may stand alone or be glued: `x>5`).
+fn condition(w: &[String]) -> Option<(String, String, String, usize)> {
+    const OPS: [&str; 6] = ["<=", ">=", "<>", "=", "<", ">"];
+    if w.len() >= 3 && OPS.contains(&w[1].as_str()) {
+        return Some((w[0].clone(), w[1].clone(), w[2].clone(), 3));
+    }
+    let first = w.first()?;
+    for op in OPS {
+        if let Some((a, b)) = first.split_once(op) {
+            if !a.is_empty() && !b.is_empty() {
+                return Some((a.into(), op.into(), b.into(), 1));
+            }
+        }
+    }
+    None
+}
+
+/// Plain words of the body (NUMWORDS) and characters without spaces (NUMCHARS).
+fn counts(doc: &Document) -> (usize, usize) {
+    let mut words = 0;
+    let mut chars = 0;
+    for path in body_paragraphs(doc) {
+        if let Some(p) = para_at(doc, &path) {
+            let t = p.plain_text();
+            words += t.split_whitespace().count();
+            chars += t.chars().filter(|c| !c.is_whitespace()).count();
+        }
+    }
+    (words, chars)
+}
+
+/// Where a field sits: the table around it (with its row and column), if any.
+type TableAt<'a> = Option<(&'a bo_model::Table, usize, usize)>;
+
+/// Every paragraph of `blocks`, with the table cell it is in.
+fn walk(blocks: &mut [Block], table: TableAt<'_>, f: &mut dyn FnMut(&mut Paragraph, TableAt<'_>)) {
+    for b in blocks.iter_mut() {
+        match b {
+            Block::Paragraph(p) => f(p, table),
+            Block::Table(t) => {
+                let snapshot = t.clone();
+                for (ri, row) in t.rows.iter_mut().enumerate() {
+                    for (ci, cell) in row.cells.iter_mut().enumerate() {
+                        walk(&mut cell.blocks, Some((&snapshot, ri, ci)), f);
+                    }
+                }
+            }
+            Block::Opaque(_) => {}
+        }
+    }
+}
+
+/// Evaluate the computed fields of every story of the body, in document order.
+#[allow(clippy::too_many_lines)]
+fn evaluate_all(
+    doc: &Document,
+    sections: &mut [Vec<Block>],
+    env: &FieldEnv,
+) -> (usize, HashMap<String, String>) {
+    use bo_model::field::{format, has_switch, switch_values, words, DateTime, FieldValue};
+    let mut count = 0;
+    let mut vars: HashMap<String, String> = bookmarks(doc)
+        .into_iter()
+        .map(|b| (b.name.to_ascii_lowercase(), b.text.trim().to_owned()))
+        .collect();
+    let (nwords, nchars) = counts(doc);
+    let prop = |k: &str| env.props.get(k).cloned().unwrap_or_default();
+    let date_prop = |k: &str| env.props.get(k).and_then(|v| DateTime::parse_iso(v));
+    let mut autonum = 0i64;
+    // The last paragraph text of each style seen (STYLEREF).
+    let mut last_style: HashMap<String, String> = HashMap::new();
+    let style_name = |id: &str| {
+        doc.styles
+            .styles
+            .iter()
+            .find(|s| s.id == id)
+            .map_or_else(|| id.to_owned(), |s| s.name.clone())
+    };
+
+    for (si, blocks) in sections.iter_mut().enumerate() {
+        walk(blocks, None, &mut |p, table| {
+            if let Some(st) = &p.props.style {
+                last_style.insert(style_name(st).to_ascii_lowercase(), p.plain_text());
+                last_style.insert(st.to_ascii_lowercase(), p.plain_text());
+            }
+            let mut changed = false;
+            for r in &mut p.runs {
+                for c in &mut r.content {
+                    let RunContent::Field { instr, cached } = c else {
+                        continue;
+                    };
+                    let w = words(instr);
+                    let kind = w
+                        .first()
+                        .map(|k| k.to_ascii_uppercase())
+                        .unwrap_or_default();
+                    let kind = if kind.starts_with('=') {
+                        "=".to_owned()
+                    } else {
+                        kind
+                    };
+                    if !COMPUTED.contains(&kind.as_str()) {
+                        continue;
+                    }
+                    let arg = |i: usize| w.get(i).filter(|a| !a.starts_with('\\')).cloned();
+                    let text = |s: String| Some(FieldValue::Text(s));
+                    let value: Option<FieldValue> = match kind.as_str() {
+                        "DATE" | "TIME" => env.now.map(FieldValue::Date),
+                        "CREATEDATE" => date_prop("createdate").map(FieldValue::Date),
+                        "SAVEDATE" => date_prop("savedate").map(FieldValue::Date),
+                        "PRINTDATE" => date_prop("printdate").map(FieldValue::Date),
+                        "AUTHOR" => arg(1).or_else(|| Some(prop("author"))).and_then(text),
+                        "TITLE" => arg(1).or_else(|| Some(prop("title"))).and_then(text),
+                        "SUBJECT" => arg(1).or_else(|| Some(prop("subject"))).and_then(text),
+                        "KEYWORDS" => arg(1).or_else(|| Some(prop("keywords"))).and_then(text),
+                        "COMMENTS" => arg(1).or_else(|| Some(prop("comments"))).and_then(text),
+                        "LASTSAVEDBY" => text(prop("lastsavedby")),
+                        "TEMPLATE" => text(prop("template")),
+                        "FILENAME" => text(if has_switch(instr, "\\p") {
+                            prop("filepath")
+                        } else {
+                            prop("filename")
+                        }),
+                        "FILESIZE" => env
+                            .props
+                            .get("filesize")
+                            .and_then(|v| v.parse::<f64>().ok())
+                            .map(|b| {
+                                FieldValue::Number(if has_switch(instr, "\\m") {
+                                    (b / 1_048_576.0).round()
+                                } else if has_switch(instr, "\\k") {
+                                    (b / 1024.0).round()
+                                } else {
+                                    b
+                                })
+                            }),
+                        "REVNUM" => env
+                            .props
+                            .get("revnum")
+                            .and_then(|v| v.parse().ok())
+                            .map(FieldValue::Number),
+                        "EDITTIME" => env
+                            .props
+                            .get("edittime")
+                            .and_then(|v| v.parse().ok())
+                            .map(FieldValue::Number),
+                        "NUMWORDS" => Some(FieldValue::Number(nwords as f64)),
+                        "NUMCHARS" => Some(FieldValue::Number(nchars as f64)),
+                        "USERNAME" => arg(1)
+                            .or_else(|| Some(env.user_name.clone()))
+                            .and_then(text),
+                        "USERINITIALS" => arg(1)
+                            .or_else(|| {
+                                Some(if env.user_initials.is_empty() {
+                                    env.user_name
+                                        .split_whitespace()
+                                        .filter_map(|x| x.chars().next())
+                                        .collect()
+                                } else {
+                                    env.user_initials.clone()
+                                })
+                            })
+                            .and_then(text),
+                        "USERADDRESS" => arg(1)
+                            .or_else(|| Some(env.user_address.clone()))
+                            .and_then(text),
+                        "DOCPROPERTY" | "INFO" => arg(1)
+                            .and_then(|n| {
+                                let k = n.to_ascii_lowercase().replace(' ', "");
+                                env.props
+                                    .get(&k)
+                                    .cloned()
+                                    .or_else(|| env.vars.get(&n).cloned())
+                            })
+                            .and_then(text),
+                        "DOCVARIABLE" => arg(1)
+                            .and_then(|n| env.vars.get(&n).cloned())
+                            .and_then(text),
+                        "QUOTE" => text(
+                            w[1..]
+                                .iter()
+                                .filter(|a| !a.starts_with('\\'))
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                        ),
+                        "SYMBOL" => arg(1)
+                            .and_then(|n| {
+                                let code = n
+                                    .strip_prefix("0x")
+                                    .or_else(|| n.strip_prefix("0X"))
+                                    .map_or_else(
+                                        || n.parse::<u32>().ok(),
+                                        |h| u32::from_str_radix(h, 16).ok(),
+                                    )?;
+                                char::from_u32(code).map(|c| c.to_string())
+                            })
+                            .and_then(text),
+                        "SET" => {
+                            if let (Some(n), Some(v)) = (arg(1), arg(2)) {
+                                vars.insert(n.to_ascii_lowercase(), v);
+                            }
+                            text(String::new())
+                        }
+                        "ASK" | "FILLIN" => {
+                            // No prompt while updating: the default answer (\d).
+                            let d = switch_values(instr, "\\d").first().cloned();
+                            if kind == "ASK" {
+                                if let (Some(n), Some(v)) = (arg(1), d.clone()) {
+                                    vars.insert(n.to_ascii_lowercase(), v);
+                                }
+                                text(String::new())
+                            } else {
+                                d.and_then(text)
+                            }
+                        }
+                        "IF" | "COMPARE" => {
+                            // Bookmark names in the operands read their value.
+                            let rest: Vec<String> = w[1..]
+                                .iter()
+                                .take_while(|a| !a.starts_with('\\'))
+                                .map(|a| {
+                                    vars.get(&a.to_ascii_lowercase())
+                                        .cloned()
+                                        .unwrap_or_else(|| a.clone())
+                                })
+                                .collect();
+                            condition(&rest).map(|(a, op, b, used)| {
+                                let ok = compare_values(&a, &op, &b);
+                                if kind == "COMPARE" {
+                                    FieldValue::Number(f64::from(u8::from(ok)))
+                                } else {
+                                    let pick = if ok {
+                                        rest.get(used)
+                                    } else {
+                                        rest.get(used + 1)
+                                    };
+                                    FieldValue::Text(pick.cloned().unwrap_or_default())
+                                }
+                            })
+                        }
+                        "=" => {
+                            let expr: String = instr
+                                .trim_start()
+                                .trim_start_matches('=')
+                                .split(" \\")
+                                .next()
+                                .unwrap_or("")
+                                .to_owned();
+                            let ctx = FormulaCtx { vars: &vars, table };
+                            bo_model::field::formula(&expr, &ctx).map(FieldValue::Number)
+                        }
+                        "SECTION" => Some(FieldValue::Number((si + 1) as f64)),
+                        "STYLEREF" => arg(1)
+                            .and_then(|s| last_style.get(&s.to_ascii_lowercase()).cloned())
+                            .and_then(text),
+                        "MACROBUTTON" | "GOTOBUTTON" => {
+                            text(w.get(2..).unwrap_or_default().join(" "))
+                        }
+                        "AUTONUM" | "AUTONUMLGL" | "AUTONUMOUT" | "LISTNUM" => {
+                            autonum += 1;
+                            Some(FieldValue::Text(if kind == "AUTONUM" {
+                                format!("{autonum}.")
+                            } else {
+                                autonum.to_string()
+                            }))
+                        }
+                        // Fields that show nothing (§17.16.5: entries, markers, printer codes).
+                        _ => text(String::new()),
+                    };
+                    let Some(v) = value else {
+                        continue;
+                    };
+                    // DATE / TIME without a picture: the default short forms.
+                    let mut ins = instr.clone();
+                    if matches!(v, FieldValue::Date(_)) && switch_values(instr, "\\@").is_empty() {
+                        let pic = match (kind.as_str(), env.vi) {
+                            ("TIME", true) => "HH:mm",
+                            ("TIME", false) => "h:mm am/pm",
+                            (_, true) => "dd/MM/yyyy",
+                            (_, false) => "M/d/yyyy",
+                        };
+                        ins = format!("{ins} \\@ \"{pic}\"");
+                    }
+                    let out = format(&v, &ins, env.vi);
+                    if *cached != out {
+                        *cached = out;
+                        changed = true;
+                        count += 1;
+                    }
+                }
+            }
+            if changed {
+                p.src = None;
+            }
+        });
+    }
+    (count, vars)
 }
 
 /// Mutable block at a body paragraph path inside per-section block lists.
@@ -874,5 +1378,193 @@ mod tests {
         assert_eq!(format_seq(3, "SEQ Bảng \\* alphabetic"), "c");
         assert_eq!(format_seq(12, "SEQ Bảng"), "12");
         assert_eq!(field_kind(" pageref _Toc1 \\h"), "PAGEREF");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod eval_tests {
+    use super::*;
+    use bo_model::{Cell, Row, Section, Table};
+
+    fn field(instr: &str) -> Paragraph {
+        Paragraph::new(
+            ParaProps::default(),
+            vec![Run {
+                props: RunProps::default(),
+                content: vec![RunContent::Field {
+                    instr: instr.into(),
+                    cached: "?".into(),
+                }],
+            }],
+        )
+    }
+
+    fn result(p: &Block) -> String {
+        let Block::Paragraph(p) = p else {
+            return String::new();
+        };
+        p.runs
+            .iter()
+            .flat_map(|r| &r.content)
+            .find_map(|c| match c {
+                RunContent::Field { cached, .. } => Some(cached.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    fn env() -> FieldEnv {
+        let mut props = std::collections::BTreeMap::new();
+        for (k, v) in [
+            ("title", "hợp đồng mua bán"),
+            ("subject", "Mua bán thiết bị"),
+            ("author", "Nguyễn Văn A"),
+            ("keywords", "hợp đồng, thiết bị"),
+            ("comments", "Bản nháp"),
+            ("lastsavedby", "Trần Thị B"),
+            ("template", "Normal.dotm"),
+            ("revnum", "7"),
+            ("edittime", "125"),
+            ("createdate", "2026-01-15T08:30:00Z"),
+            ("savedate", "2026-11-08T17:45:00Z"),
+            ("printdate", "2026-11-09T09:00:00Z"),
+            ("filename", "hop-dong.docx"),
+            ("filepath", "D:\\Ho so\\hop-dong.docx"),
+            ("filesize", "245760"),
+            ("company", "Bluestar"),
+        ] {
+            props.insert(k.into(), v.into());
+        }
+        let mut vars = std::collections::BTreeMap::new();
+        vars.insert("SoHopDong".into(), "HD-2026/15".into());
+        FieldEnv {
+            now: bo_model::field::DateTime::parse_iso("2026-11-09T14:05:00Z"),
+            vi: true,
+            props,
+            user_name: "Lê Văn Cường".into(),
+            user_initials: String::new(),
+            user_address: "Hà Nội".into(),
+            vars,
+        }
+    }
+
+    // source: ECMA-376 Part 1, §17.16.5 — one row per field: instruction → expected result
+    // (values from the environment above; formats per §17.16.4).
+    #[test]
+    fn every_field_kind() {
+        let rows: &[(&str, &str)] = &[
+            ("DATE", "09/11/2026"),
+            ("DATE \\@ \"dddd, d MMMM yyyy\"", "Thứ Hai, 9 Tháng 11 2026"),
+            ("TIME \\@ \"HH:mm\"", "14:05"),
+            ("CREATEDATE \\@ \"dd/MM/yyyy\"", "15/01/2026"),
+            ("SAVEDATE \\@ \"d/M/yy HH:mm\"", "8/11/26 17:45"),
+            ("PRINTDATE \\@ \"yyyy-MM-dd\"", "2026-11-09"),
+            ("AUTHOR", "Nguyễn Văn A"),
+            ("TITLE \\* Caps", "Hợp Đồng Mua Bán"),
+            ("SUBJECT \\* Upper", "MUA BÁN THIẾT BỊ"),
+            ("KEYWORDS", "hợp đồng, thiết bị"),
+            ("COMMENTS", "Bản nháp"),
+            ("LASTSAVEDBY", "Trần Thị B"),
+            ("TEMPLATE", "Normal.dotm"),
+            ("FILENAME", "hop-dong.docx"),
+            ("FILENAME \\p", "D:\\Ho so\\hop-dong.docx"),
+            ("FILESIZE \\k", "240"),
+            ("REVNUM", "7"),
+            ("EDITTIME", "125"),
+            ("USERNAME", "Lê Văn Cường"),
+            ("USERINITIALS", "LVC"),
+            ("USERADDRESS", "Hà Nội"),
+            ("DOCPROPERTY Company", "Bluestar"),
+            ("DOCVARIABLE SoHopDong", "HD-2026/15"),
+            ("QUOTE \"Trích dẫn\"", "Trích dẫn"),
+            ("SYMBOL 169", "©"),
+            ("SYMBOL 0x2192", "→"),
+            ("SET Gia 1500", ""),
+            ("= Gia * 2 \\# \"#,##0\"", "3,000"),
+            ("REF Gia", "1500"),
+            ("IF Gia > 1000 \"đắt\" \"rẻ\"", "đắt"),
+            ("IF \"Hà Nội\" = \"Hà*\" \"có\" \"không\"", "có"),
+            ("COMPARE 3 <= 2", "0"),
+            ("= 12.5 * 4 \\* CardText", "năm mươi"),
+            ("= 5 \\* ROMAN", "V"),
+            ("= 1234567.891 \\# \"#,##0.00\"", "1,234,567.89"),
+            ("ASK Ten \"Tên?\" \\d \"Lan\"", ""),
+            ("FILLIN \"Ghi chú?\" \\d \"Không có\"", "Không có"),
+            ("SECTION", "1"),
+            ("MACROBUTTON NoMacro Bấm vào đây", "Bấm vào đây"),
+            ("AUTONUM", "1."),
+            ("TC \"Mục lục\" \\l 1", ""),
+            ("XE \"Thuật ngữ\"", ""),
+            ("PRINT \"x\"", ""),
+            ("INCLUDETEXT \"a.docx\"", "?"),
+        ];
+        let mut blocks: Vec<Block> = rows
+            .iter()
+            .map(|(i, _)| Block::Paragraph(field(i)))
+            .collect();
+        // A table with a formula under three numbers.
+        let cell = |t: &str| Cell {
+            blocks: vec![Block::Paragraph(Paragraph::new(
+                ParaProps::default(),
+                vec![Run::text(t, RunProps::default())],
+            ))],
+            ..Cell::default()
+        };
+        let fcell = |i: &str| Cell {
+            blocks: vec![Block::Paragraph(field(i))],
+            ..Cell::default()
+        };
+        blocks.push(Block::Table(Table {
+            rows: vec![
+                Row {
+                    cells: vec![cell("10"), cell("1,5")],
+                    ..Row::default()
+                },
+                Row {
+                    cells: vec![cell("20"), cell("2,5")],
+                    ..Row::default()
+                },
+                Row {
+                    cells: vec![cell("30"), fcell("= SUM(LEFT)")],
+                    ..Row::default()
+                },
+                Row {
+                    cells: vec![fcell("= SUM(ABOVE)"), fcell("= AVERAGE(B1:B2) \\# \"0.0\"")],
+                    ..Row::default()
+                },
+            ],
+            ..Table::default()
+        }));
+        let doc = Document {
+            sections: vec![Section {
+                blocks,
+                ..Section::default()
+            }],
+            ..Document::default()
+        };
+        let up = update(&doc, &[], &env());
+        let out = &up.sections[0];
+        for (k, (instr, want)) in rows.iter().enumerate() {
+            assert_eq!(result(&out[k]), *want, "{instr}");
+        }
+        let Block::Table(t) = out.last().unwrap() else {
+            panic!()
+        };
+        // NUMWORDS counts the body as it was: one "?" per field paragraph, five numbers and
+        // three "?" in the table.
+        let mut d2 = doc.clone();
+        d2.sections[0]
+            .blocks
+            .insert(0, Block::Paragraph(field("NUMWORDS")));
+        let up2 = update(&d2, &[], &env());
+        assert_eq!(
+            result(&up2.sections[0][0]),
+            (rows.len() + 1 + 8).to_string()
+        );
+        let r = |ri: usize, ci: usize| result(&t.rows[ri].cells[ci].blocks[0]);
+        assert_eq!(r(2, 1), "30");
+        assert_eq!(r(3, 0), "60");
+        assert_eq!(r(3, 1), "2.0");
     }
 }

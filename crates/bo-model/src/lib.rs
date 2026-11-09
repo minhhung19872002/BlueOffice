@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod change;
+pub mod field;
 pub mod index;
 pub mod sheet;
 pub mod slide;

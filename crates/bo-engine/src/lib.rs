@@ -392,6 +392,15 @@ impl Engine {
             _ => name.to_owned(),
         };
         self.load(doc, &name)?;
+        // Fields read the document properties (§17.16.5: AUTHOR, TITLE, SAVEDATE, …).
+        let props = document_properties(if is_zip { bytes } else { &[] }, &name, bytes.len());
+        if let Some(s) = self.session.as_mut() {
+            s.set_field_env(bo_edit::fields::FieldEnv {
+                vi: true,
+                props,
+                ..bo_edit::fields::FieldEnv::default()
+            });
+        }
         // Text typed in TCVN3 / VNI fonts (.docx, .odt): converted to Unicode as
         // the first undo step, reported in DocInfo (.doc converts while reading).
         if is_zip {
@@ -432,6 +441,12 @@ impl Engine {
         if let Some(a) = &self.author {
             session.set_author(a);
         }
+        // Fields: the file name until the package's properties are read (`open`).
+        session.set_field_env(bo_edit::fields::FieldEnv {
+            vi: true,
+            props: document_properties(&[], name, 0),
+            ..bo_edit::fields::FieldEnv::default()
+        });
         self.session = Some(session);
         self.merge_preview = None;
         self.macros = false;
@@ -941,4 +956,83 @@ pub(crate) fn word_document(bytes: &[u8], name: &str) -> Result<Document> {
         return bo_binary::read_doc(bytes).map_err(|e| EngineError::Format(e.to_string()));
     }
     Err(EngineError::Unsupported(name.to_owned()))
+}
+
+/// Text of the first element `local` (any prefix) of a small XML part, entities decoded.
+fn element_text(xml: &str, local: &str) -> Option<String> {
+    let mut at = 0;
+    while let Some(k) = xml[at..].find('<') {
+        let start = at + k + 1;
+        let end = start + xml[start..].find('>')?;
+        let tag = &xml[start..end];
+        let name = tag.split_whitespace().next().unwrap_or("");
+        let bare = name.rsplit(':').next().unwrap_or(name);
+        if bare == local && !tag.starts_with('/') && !tag.ends_with('/') {
+            let close = xml[end + 1..].find("</")? + end + 1;
+            let v = &xml[end + 1..close];
+            return Some(
+                v.replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&quot;", "\"")
+                    .replace("&apos;", "'")
+                    .replace("&amp;", "&"),
+            );
+        }
+        at = end + 1;
+    }
+    None
+}
+
+/// Document properties for fields: core (§ OPC Part 2, docProps/core.xml) and extended
+/// (docProps/app.xml) properties by lower-case field name, plus the file name and size.
+pub(crate) fn document_properties(
+    bytes: &[u8],
+    name: &str,
+    size: usize,
+) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    out.insert(
+        "filename".to_owned(),
+        name.rsplit(['/', '\\']).next().unwrap_or(name).to_owned(),
+    );
+    out.insert("filepath".to_owned(), name.to_owned());
+    out.insert("filesize".to_owned(), size.to_string());
+    let Ok(pkg) = bo_opc::Package::read(bytes, &bo_opc::Limits::default()) else {
+        return out;
+    };
+    let text = |part: &str| {
+        pkg.part(part)
+            .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+            .unwrap_or_default()
+    };
+    let core = text("/docProps/core.xml");
+    for (tag, key) in [
+        ("title", "title"),
+        ("subject", "subject"),
+        ("creator", "author"),
+        ("keywords", "keywords"),
+        ("description", "comments"),
+        ("lastModifiedBy", "lastsavedby"),
+        ("revision", "revnum"),
+        ("created", "createdate"),
+        ("modified", "savedate"),
+        ("lastPrinted", "printdate"),
+        ("category", "category"),
+    ] {
+        if let Some(v) = element_text(&core, tag).filter(|v| !v.trim().is_empty()) {
+            out.insert(key.to_owned(), v.trim().to_owned());
+        }
+    }
+    let app = text("/docProps/app.xml");
+    for (tag, key) in [
+        ("Template", "template"),
+        ("TotalTime", "edittime"),
+        ("Company", "company"),
+        ("Manager", "manager"),
+    ] {
+        if let Some(v) = element_text(&app, tag).filter(|v| !v.trim().is_empty()) {
+            out.insert(key.to_owned(), v.trim().to_owned());
+        }
+    }
+    out
 }

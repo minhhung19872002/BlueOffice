@@ -125,7 +125,8 @@
       "pageNumber": "Số trang",
       "footnote": "Chèn chú thích cuối trang",
       "endnote": "Chèn chú thích cuối văn bản",
-      "equation": "Phương trình"
+      "equation": "Phương trình",
+      "field": "Trường…"
     },
     "layout": {
       "margins": "Lề",
@@ -1978,5 +1979,55 @@
     "update": "Cập nhật",
     "hintUnicode": "Ví dụ: x=(-b±√(b^2-4ac))/2a · ∑_(k=1)^n k · ■(a&b@c&d) · \\alpha, \\sqrt, \\to",
     "hintLatex": "Ví dụ: \\frac{a}{b} · x^{2} · \\sqrt[3]{x} · \\sum_{k=1}^{n} · \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}"
+  },
+  "fieldDialog": {
+    "title": "Chèn trường",
+    "insert": "Chèn",
+    "kind": "Loại trường",
+    "args": "Tham số",
+    "datePicture": "Mẫu ngày giờ (\\@)",
+    "numberPicture": "Mẫu số (\\#)",
+    "format": "Định dạng (\\*)",
+    "code": "Mã trường",
+    "formula": "= (công thức)",
+    "groups": {
+      "date": "Ngày và giờ",
+      "info": "Thông tin tài liệu",
+      "user": "Thông tin người dùng",
+      "numbering": "Đánh số",
+      "links": "Liên kết và tham chiếu",
+      "formula": "Công thức và điều kiện",
+      "index": "Mục lục và chỉ mục"
+    },
+    "formats": {
+      "none": "(không)",
+      "Arabic": "1, 2, 3",
+      "ROMAN": "I, II, III",
+      "roman": "i, ii, iii",
+      "ALPHABETIC": "A, B, C",
+      "alphabetic": "a, b, c",
+      "Ordinal": "Số thứ tự",
+      "CardText": "Số bằng chữ",
+      "OrdText": "Thứ tự bằng chữ",
+      "Hex": "Thập lục phân",
+      "Upper": "CHỮ HOA",
+      "Lower": "chữ thường",
+      "FirstCap": "Viết hoa chữ đầu",
+      "Caps": "Viết Hoa Mỗi Từ"
+    },
+    "hint": {
+      "formula": "SUM(ABOVE), A1*2, ...",
+      "IF": "Gia > 1000 \"đắt\" \"rẻ\"",
+      "REF": "Tên dấu trang",
+      "PAGEREF": "Tên dấu trang",
+      "SEQ": "Hình",
+      "DOCPROPERTY": "Company",
+      "DOCVARIABLE": "Tên biến",
+      "SET": "Ten \"Giá trị\"",
+      "ASK": "Ten \"Câu hỏi?\" \\d \"Mặc định\"",
+      "SYMBOL": "169",
+      "STYLEREF": "Heading 1",
+      "QUOTE": "\"Văn bản\""
+    }
   }
 }

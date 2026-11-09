@@ -125,7 +125,8 @@
       "pageNumber": "Page number",
       "footnote": "Insert footnote",
       "endnote": "Insert endnote",
-      "equation": "Equation"
+      "equation": "Equation",
+      "field": "Field…"
     },
     "layout": {
       "margins": "Margins",
@@ -1978,5 +1979,55 @@
     "update": "Update",
     "hintUnicode": "Examples: x=(-b±√(b^2-4ac))/2a · ∑_(k=1)^n k · ■(a&b@c&d) · \\alpha, \\sqrt, \\to",
     "hintLatex": "Examples: \\frac{a}{b} · x^{2} · \\sqrt[3]{x} · \\sum_{k=1}^{n} · \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}"
+  },
+  "fieldDialog": {
+    "title": "Insert field",
+    "insert": "Insert",
+    "kind": "Field",
+    "args": "Arguments",
+    "datePicture": "Date-time picture (\\@)",
+    "numberPicture": "Numeric picture (\\#)",
+    "format": "Format (\\*)",
+    "code": "Field code",
+    "formula": "= (formula)",
+    "groups": {
+      "date": "Date and time",
+      "info": "Document information",
+      "user": "User information",
+      "numbering": "Numbering",
+      "links": "Links and references",
+      "formula": "Formulas and conditions",
+      "index": "Contents and index"
+    },
+    "formats": {
+      "none": "(none)",
+      "Arabic": "1, 2, 3",
+      "ROMAN": "I, II, III",
+      "roman": "i, ii, iii",
+      "ALPHABETIC": "A, B, C",
+      "alphabetic": "a, b, c",
+      "Ordinal": "Ordinal",
+      "CardText": "Number in words",
+      "OrdText": "Ordinal in words",
+      "Hex": "Hexadecimal",
+      "Upper": "UPPERCASE",
+      "Lower": "lowercase",
+      "FirstCap": "First capital",
+      "Caps": "Title Case"
+    },
+    "hint": {
+      "formula": "SUM(ABOVE), A1*2, ...",
+      "IF": "Price > 1000 \"high\" \"low\"",
+      "REF": "Bookmark name",
+      "PAGEREF": "Bookmark name",
+      "SEQ": "Figure",
+      "DOCPROPERTY": "Company",
+      "DOCVARIABLE": "Variable name",
+      "SET": "Name \"Value\"",
+      "ASK": "Name \"Question?\" \\d \"Default\"",
+      "SYMBOL": "169",
+      "STYLEREF": "Heading 1",
+      "QUOTE": "\"Text\""
+    }
   }
 }

@@ -6,16 +6,16 @@ Cập nhật sau mỗi hạng mục BACKLOG.
 
 ## Tổng hợp (theo hàng tính năng bên dưới; ✅ = 1, 🟡 = 0,5)
 
-Tính lại khi rà soát định kỳ 2026-11-09 (lần 3, sau 34 mục) từ cột Trạng thái. Fidelity (`pnpm fidelity`, 2026-11-09): .docx 74 file,
-98,6 % hợp lệ sau khi lưu (1 lỗi đã biết); .xlsx 135 file, 97,8 % (3 đã biết); .pptx 64 file, 100 %; ảnh mốc tự sinh 273 trang, 0 vượt
-ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục / content control khối nay hiển thị, bộ vẽ biểu đồ chung, lưới 3D).
+Tính lại khi rà soát định kỳ 2026-11-10 (lần 4, sau 51 mục) từ cột Trạng thái. Fidelity (`pnpm fidelity`, 2026-11-10): .docx 81 file,
+98,8 % hợp lệ sau khi lưu (1 lỗi đã biết); .xlsx 148 file, 98,0 % (3 đã biết); .pptx 64 file, 100 %; ảnh mốc tự sinh 293 trang, 0 vượt
+ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ chữ/độ dày nét/nền có trong file — CORE-CHART-007) và thêm trang cho corpus mới.
 
 | App / nhóm | Hàng | Điểm | % |
 |---|---|---|---|
-| Chung (CORE) | 32 | 11 | 34 % |
-| BlueDoc (DOC) | 18 | 8,5 | 47 % |
-| BlueSheet (SHEET) | 20 | 7,5 | 38 % |
-| BlueSlide (SLIDE) | 12 | 7 | 58 % |
+| Chung (CORE) | 31 | 12,5 | 40 % |
+| BlueDoc (DOC) | 18 | 11 | 61 % |
+| BlueSheet (SHEET) | 20 | 11 | 55 % |
+| BlueSlide (SLIDE) | 12 | 7,5 | 62 % |
 | Hàm bảng tính | 515 hàm | 508 | 98,6 % (`functions.md`) |
 
 ## Chung

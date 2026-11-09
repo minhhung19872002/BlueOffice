@@ -176,7 +176,7 @@ enum Cmd {
     Sample { out: PathBuf },
     /// Write the Phase 2 feature corpus (prints the README table).
     Corpus { dir: PathBuf },
-    /// Open a document and save it again.
+    /// Open a document, workbook or deck and save it again in its format.
     Roundtrip {
         input: PathBuf,
         #[arg(long)]
@@ -612,9 +612,33 @@ fn run(cli: Cli) -> R {
             print!("{}", corpus::generate(&dir)?);
         }
         Cmd::Roundtrip { input, out } => {
-            let engine = open(&input)?;
-            write_file(&out, &engine.save_docx()?)?;
-            println!("{}", out.display());
+            // Workbooks and decks are saved in their own format (the `convert` path); documents
+            // through the document engine.
+            let ext = input
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_default();
+            if matches!(ext.as_str(), "xlsx" | "xlsm" | "pptx" | "pptm") {
+                let to = if ext.starts_with("xls") {
+                    "xlsx"
+                } else {
+                    "pptx"
+                };
+                run_convert(
+                    &input,
+                    to,
+                    Some(out),
+                    None,
+                    None,
+                    0,
+                    &DeckExportArgs::default(),
+                )?;
+            } else {
+                let engine = open(&input)?;
+                write_file(&out, &engine.save_docx()?)?;
+                println!("{}", out.display());
+            }
         }
         Cmd::Fields { input, out } => {
             let mut engine = open(&input)?;

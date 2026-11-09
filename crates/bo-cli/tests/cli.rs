@@ -305,3 +305,34 @@ fn bad_input_fails_cleanly() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(!err.contains("panicked"), "{err}");
 }
+
+/// `roundtrip` saves workbooks and decks in their own format (not as a .docx), and the result
+/// reads back with the same sheets / slides.
+#[test]
+fn roundtrip_keeps_workbooks_and_decks_in_their_format() {
+    let dir = scratch("roundtrip-formats");
+    let xlsx = dir.join("ext-1.xlsx");
+    run(bin()
+        .arg("roundtrip")
+        .arg(corpus("sheet/ext-1.xlsx"))
+        .arg("--out")
+        .arg(&xlsx));
+    let before = bo_xlsx::read_xlsx(&std::fs::read(corpus("sheet/ext-1.xlsx")).unwrap()).unwrap();
+    let after = bo_xlsx::read_xlsx(&std::fs::read(&xlsx).unwrap()).unwrap();
+    assert_eq!(
+        after.sheets.iter().map(|s| &s.name).collect::<Vec<_>>(),
+        before.sheets.iter().map(|s| &s.name).collect::<Vec<_>>()
+    );
+
+    let pptx = dir.join("deck.pptx");
+    run(bin()
+        .arg("roundtrip")
+        .arg(corpus("slide/slide-text-bullets.pptx"))
+        .arg("--out")
+        .arg(&pptx));
+    let bytes = std::fs::read(&pptx).unwrap();
+    // A presentation package: its main part is ppt/presentation.xml, not word/document.xml.
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(text.contains("ppt/presentation.xml"));
+    assert!(!text.contains("word/document.xml"));
+}

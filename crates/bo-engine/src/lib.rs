@@ -264,6 +264,8 @@ pub struct Engine {
     textbox: Option<textbox::BoxEdit>,
     /// Spelling as you type (BlueDoc).
     spell: spell::SpellState,
+    /// AutoCorrect as you type (BlueDoc main text); off until a host sets options.
+    autocorrect: Option<bo_edit::AutoCorrectOptions>,
 }
 
 impl Engine {

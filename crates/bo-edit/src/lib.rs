@@ -9,6 +9,7 @@
 //! order, table cells included) and matches `bo_layout::LineSource::Body`.
 #![forbid(unsafe_code)]
 
+pub mod autocorrect;
 pub mod comments;
 pub mod compare;
 pub mod fields;
@@ -24,6 +25,7 @@ pub mod section;
 pub mod shapes;
 pub mod table;
 
+pub use autocorrect::{AutoCorrectOptions, Replacement};
 pub use comments::CommentInfo;
 pub use fields::RefTarget;
 pub use find::{find, FindOptions, Match};

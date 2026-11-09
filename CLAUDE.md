@@ -47,6 +47,7 @@ cargo run -p bo-cli -- sign in.pdf --key k.pem --cert c.pem   # PAdES / OOXML (b
 cargo run -p bo-cli -- ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch] [--tsa URL]   # PAdES B-LT: DSS (chứng thư + CRL/OCSP); --tsa: B-LTA
 cargo run -p bo-cli -- verify in.pdf --trust root-ca.pem [--crl ca.crl] [--ocsp r.der | --ocsp-fetch] [--crl-fetch] [--sunset SHA-1=2014-01-01] [--json]  # chữ ký + dấu thời gian + chuỗi tới trust anchor + thu hồi CRL/OCSP (ADR-0007)
 cargo run -p bo-cli -- sample-slides tests/corpus/slide  # sinh lại corpus slide
+cargo run -p bo-cli -- convert deck.pptx --to gif        # trình chiếu → GIF động (bo_engine::slide_edit::video; web: MP4/WebM qua WebCodecs)
 BO_WRITE_CORPUS=1 cargo test -p bo-xlsx --test corpus    # sinh lại corpus sheet
 cargo bench -p bo-formula                                # 1 triệu ô / 100k công thức
 cargo run -p bo-cli -- sample-big out/big.docx           # .docx 300 trang có ảnh (đo §5); sample-big-sheet → .xlsx 1 triệu ô

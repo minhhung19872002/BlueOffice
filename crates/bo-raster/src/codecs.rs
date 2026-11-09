@@ -78,7 +78,7 @@ fn i32le(b: &[u8], i: usize) -> Option<i32> {
 // ------------------------------------------------------------------ GIF
 
 /// Variable-length-code LZW decoder of GIF (LSB-first codes, clear and end codes).
-fn gif_lzw(data: &[u8], min_size: u8, max_out: usize) -> Vec<u8> {
+pub(crate) fn gif_lzw(data: &[u8], min_size: u8, max_out: usize) -> Vec<u8> {
     let min = u32::from(min_size.clamp(2, 11));
     let clear = 1u32 << min;
     let eoi = clear + 1;

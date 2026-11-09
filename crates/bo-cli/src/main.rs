@@ -6,6 +6,7 @@
 //! bo-cli convert old.doc --to docx|odt|txt|pdf     # also .odt / .docx input
 //! bo-cli convert book.xls --to csv|ods [--sheet 1]  # also .xlsb / .ods input
 //! bo-cli convert deck.ppt --to odp|txt              # also .odp input
+//! bo-cli convert deck.pptx --to gif                 # slide show as an animated GIF
 //! bo-cli convert secret.docx --password pw --to docx --protect newpw
 //! bo-cli inspect file                               # format, encryption, macros
 //! bo-cli sign in.pdf --p12 me.p12 [--tsa URL] | --key k.pem --cert c.pem | --remote URL
@@ -66,7 +67,7 @@ enum Cmd {
     /// Convert to another format.
     Convert {
         input: PathBuf,
-        #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx", "xlsx"])]
+        #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx", "xlsx", "gif"])]
         to: String,
         #[arg(long)]
         out: Option<PathBuf>,
@@ -748,6 +749,17 @@ fn run_convert(
             }
         }
         (Loaded::Deck(p), "odp") => bo_odf::write_odp(&p)?,
+        // The slide show as an animated GIF (720 px wide, 10 frames per second).
+        (Loaded::Pptx(b), "gif") => {
+            let mut engine = Engine::with_bundled_fonts();
+            engine.open_pptx(&b, &name)?;
+            show_gif(&mut engine)?
+        }
+        (Loaded::Deck(_), "gif") => {
+            let mut engine = Engine::with_bundled_fonts();
+            engine.open(&bytes, &name)?;
+            show_gif(&mut engine)?
+        }
         (Loaded::Deck(p), "txt") => convert::presentation_text(&p).into_bytes(),
         (_, other) => {
             return Err(format!("cannot convert {} to {other}", facts.format).into());
@@ -902,6 +914,17 @@ fn bench_sheet(bytes: &[u8], name: &str, iterations: u32) -> R {
         );
     }
     Ok(())
+}
+
+/// The open presentation's slide show as an animated GIF (720 px wide, 10 frames per second).
+fn show_gif(engine: &mut Engine) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    Ok(
+        engine.export_show_gif(bo_engine::slide_edit::video::VideoOptions {
+            width: 720,
+            fps: 10,
+            ..Default::default()
+        })?,
+    )
 }
 
 /// Spreadsheet output via `SheetEngine` (`sheet` is 1-based for CSV).

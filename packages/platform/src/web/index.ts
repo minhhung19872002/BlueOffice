@@ -21,6 +21,7 @@ import type {
 import { WebEngineHost } from './WebEngineHost';
 import { createWebSheetHost, webSheetTransport } from './WebSheetHost';
 import { WebSigning } from './signing';
+import { WebCodecsVideo } from '../webcodecs';
 
 export { WebSigning } from './signing';
 export type { SignatureBackend, WebSigningOptions } from './signing';
@@ -274,5 +275,6 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     channel: (name: string) => new BroadcastBus(name),
     sheet: createWebSheetHost(fonts, () => document.documentElement.lang || 'vi-VN'),
     signing,
+    video: new WebCodecsVideo(),
   };
 }

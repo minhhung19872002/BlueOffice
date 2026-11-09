@@ -7,6 +7,8 @@ import type {
   GlyphOutline,
   PageDisplayList,
   PeerRects,
+  ShowVideoInfo,
+  ShowVideoOptions,
   SignatureReport,
   SlideBox,
   SlideCommand,
@@ -196,6 +198,22 @@ export class WebEngineHost implements EngineHost, SignatureBackend {
 
   slideCollabPeers(keys: string[]): Promise<({ slide: number; rect: SlideBox } | null)[]> {
     return this.call({ method: 'slideCollabPeers', json: JSON.stringify(keys) });
+  }
+
+  videoBegin(opts: ShowVideoOptions): Promise<ShowVideoInfo> {
+    return this.call<ShowVideoInfo>({ method: 'videoBegin', json: JSON.stringify(opts) });
+  }
+  videoFrame(index: number, png = false): Promise<Uint8Array> {
+    return this.call<Uint8Array>({ method: 'videoFrame', index, png });
+  }
+  videoGifAdd(index: number): Promise<void> {
+    return this.call<void>({ method: 'videoGifAdd', index });
+  }
+  videoGifFinish(): Promise<Uint8Array> {
+    return this.call<Uint8Array>({ method: 'videoGifFinish' });
+  }
+  videoEnd(): Promise<void> {
+    return this.call<void>({ method: 'videoEnd' });
   }
 
   dispose(): void {

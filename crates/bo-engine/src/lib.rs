@@ -273,6 +273,8 @@ pub struct Engine {
     spell: spell::SpellState,
     /// AutoCorrect as you type (BlueDoc main text); off until a host sets options.
     autocorrect: Option<bo_edit::AutoCorrectOptions>,
+    /// Slide show video / GIF export in progress (BlueSlide).
+    video: Option<Box<slide_edit::video::VideoSession>>,
 }
 
 impl Engine {

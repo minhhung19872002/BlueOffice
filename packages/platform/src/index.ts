@@ -13,6 +13,7 @@ export {
   updateNotice,
 } from './shared';
 export * from './sheet';
+export { WebCodecsVideo, VIDEO_CODECS, bitrateFor, hasWebCodecs } from './webcodecs';
 export {
   OidcSession,
   fetchOidcConfig,

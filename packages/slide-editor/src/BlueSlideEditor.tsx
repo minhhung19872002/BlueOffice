@@ -80,6 +80,7 @@ import {
   FileDown,
   FileImage,
   Files,
+  Film,
   KeyRound,
   FolderOpen,
   Group,
@@ -142,6 +143,8 @@ import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
 import { SlideController } from './controller';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
 import { ExportDialog, slidePng, type ExportPngOptions } from './ExportDialog';
+import { ExportVideoDialog } from './exportVideo';
+import { exportShow, type ShowExportRequest } from './video/export';
 import { MediaButtons } from './MediaLayer';
 import { advance, type ShowPos } from './player';
 import { fit, formatElapsed, showAction, step, type ShowAction } from './show';
@@ -339,6 +342,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   } | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [videoOpen, setVideoOpen] = useState(false);
   const [sortFrom, setSortFrom] = useState<number | null>(null);
   const [sortOver, setSortOver] = useState<number | null>(null);
   const showRef = useRef<HTMLDivElement>(null);
@@ -801,6 +805,20 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     [chartDialog, run, t],
   );
 
+  const exportVideo = useCallback(
+    async (
+      req: ShowExportRequest,
+      onProgress: (done: number, total: number) => void,
+      signal: AbortSignal,
+    ) => {
+      await ctrl.idle();
+      const r = await exportShow(engine, platform.video, req, onProgress, signal);
+      await platform.files.saveFile(r.bytes, `${baseName()}.${r.ext}`, r.mime);
+      setStatus(t('slideEditor.videoExported'));
+    },
+    [ctrl, engine, platform, baseName, t],
+  );
+
   const exportPng = useCallback(
     async ({ scope, scale }: ExportPngOptions) => {
       setExporting(true);
@@ -904,6 +922,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       run: () => guard(async () => platform.print.printPdf(await engine.exportPdf(), base())),
     });
     reg.register({ id: 'file.exportPng', isEnabled: deck, run: () => setExportOpen(true) });
+    reg.register({
+      id: 'file.exportVideo',
+      isEnabled: (s) => deck(s) && !!engine.videoBegin,
+      run: () => setVideoOpen(true),
+    });
     for (const v of ['normal', 'sorter', 'reading'] as const) {
       reg.register({
         id: `view.${v}`,
@@ -1418,6 +1441,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               ),
               item('file.exportPdf', t('slideEditor.exportPdf'), <FileDown size={16} />, sm),
               item('file.exportPng', t('slideEditor.exportPng'), <FileImage size={16} />, sm),
+              item('file.exportVideo', t('slideEditor.exportVideo'), <Film size={16} />, sm),
               item('file.print', t('slideEditor.print'), <Printer size={16} />, sm),
             ],
           },
@@ -2412,6 +2436,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           busy={exporting}
           onClose={() => setExportOpen(false)}
           onExport={(o) => void exportPng(o)}
+        />
+      )}
+      {videoOpen && (
+        <ExportVideoDialog
+          slide={slideSize}
+          video={platform.video}
+          onClose={() => setVideoOpen(false)}
+          run={exportVideo}
         />
       )}
       {view !== 'show' && (

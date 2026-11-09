@@ -2530,5 +2530,10 @@
       "format": "Formatting",
       "comment": "Comment"
     }
+  },
+  "commandSearch": {
+    "title": "Find a command",
+    "placeholder": "Find a command (Alt+Q)",
+    "noResults": "No command matches"
   }
 }

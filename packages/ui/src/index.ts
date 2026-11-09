@@ -53,3 +53,11 @@ export {
   type SymbolEntry,
 } from './symbols/catalog';
 export { TitleBar, type QuickAccessItem, type SaveState, type TitleBarProps } from './TitleBar';
+export {
+  CommandSearch,
+  isCommandSearchKey,
+  useCommandSearchShortcut,
+  type CommandSearchLabels,
+  type CommandSearchProps,
+} from './CommandSearch';
+export { flattenRibbon, normalize, searchCommands, type SearchEntry } from './searchRank';

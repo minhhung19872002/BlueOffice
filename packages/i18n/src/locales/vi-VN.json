@@ -2530,5 +2530,10 @@
       "format": "Đổi định dạng",
       "comment": "Bình luận"
     }
+  },
+  "commandSearch": {
+    "title": "Tìm lệnh",
+    "placeholder": "Tìm lệnh (Alt+Q)",
+    "noResults": "Không có lệnh nào khớp"
   }
 }

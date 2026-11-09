@@ -27,8 +27,10 @@ import { PASSWORD_REQUIRED, WRONG_PASSWORD } from '@blueoffice/platform';
 import {
   CommentThreads,
   Ribbon,
+  CommandSearch,
   StatusBar,
   TitleBar,
+  useCommandSearchShortcut,
   useResolvedTheme,
   type RibbonTab,
   type ThemeSetting,
@@ -319,6 +321,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [symbolsOpen, setSymbolsOpen] = useState(false);
   const [previewToken, setPreviewToken] = useState(0);
   const [ribbonTab, setRibbonTab] = useState('home');
+  const [searchOpen, setSearchOpen] = useState(false);
+  useCommandSearchShortcut(() => setSearchOpen(true));
   const [smartArtDialog, setSmartArtDialog] = useState<{
     mode: 'insert' | 'edit';
     initial: SmartArtDraft;
@@ -1964,6 +1968,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           saveState={state.hasDeck && fileName ? (modified ? 'unsaved' : 'saved') : null}
           saveLabel={t(modified ? 'titleBar.unsaved' : 'titleBar.saved')}
           quickAccessLabel={t('titleBar.quickAccess')}
+          search={{
+            label: t('commandSearch.placeholder'),
+            shortcut: 'Alt+Q',
+            onOpen: () => setSearchOpen(true),
+          }}
           quickAccess={(
             [
               ['file.save', 'commands.file.save'],
@@ -1979,6 +1988,16 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           }))}
         />
       )}
+      <CommandSearch
+        tabs={ribbonTabs}
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        labels={{
+          title: t('commandSearch.title'),
+          placeholder: t('commandSearch.placeholder'),
+          noResults: t('commandSearch.noResults'),
+        }}
+      />
       {view !== 'show' && view !== 'presenter' && (
         <Ribbon
           tabs={ribbonTabs}

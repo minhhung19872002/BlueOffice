@@ -1,0 +1,93 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 44px;
+}
+
+.box {
+  width: min(520px, calc(100vw - 32px));
+  background: var(--bo-surface);
+  color: var(--bo-text);
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius-md, 8px);
+  box-shadow: var(--bo-shadow-2);
+  overflow: hidden;
+  animation: bo-search-in var(--bo-duration-fast, 120ms) var(--bo-ease, ease);
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--bo-border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--bo-font-size-14, 14px);
+  outline: none;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.option {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'label kbd'
+    'path kbd';
+  gap: 0 12px;
+  padding: 6px 8px;
+  border-radius: var(--bo-radius-sm, 4px);
+  cursor: pointer;
+}
+
+.option[aria-selected='true'] {
+  background: var(--bo-app-accent-subtle);
+}
+
+.option[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.label {
+  grid-area: label;
+}
+
+.path {
+  grid-area: path;
+  font-size: var(--bo-font-size-11, 11px);
+  color: var(--bo-text-muted);
+}
+
+.kbd {
+  grid-area: kbd;
+  align-self: center;
+  font: inherit;
+  font-size: var(--bo-font-size-11, 11px);
+  color: var(--bo-text-muted);
+}
+
+.empty {
+  padding: 8px;
+  color: var(--bo-text-muted);
+}
+
+@keyframes bo-search-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}

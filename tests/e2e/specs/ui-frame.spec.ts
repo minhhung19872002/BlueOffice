@@ -34,3 +34,33 @@ test('frame: quick-access undo reverts typing in BlueDoc', async ({ page }) => {
   await page.locator('[data-command="qat:edit.undo"]').click();
   await expect(page.getByTestId('status-words')).toHaveText('0 từ');
 });
+
+test('command search: Alt+Q, type an accent-free name, Enter applies bold', async ({ page }) => {
+  await page.goto('/doc');
+  await page.getByTestId('new-document').click();
+  await expect(page.getByTestId('caret')).toBeVisible();
+  await page.keyboard.insertText('Xin chào');
+  await page.keyboard.press('Shift+Home');
+  await page.keyboard.press('Alt+q');
+  const input = page.getByTestId('command-search-input');
+  await expect(input).toBeFocused();
+  await input.fill('dam');
+  await expect(page.locator('[data-command-result="format.bold"]')).toBeVisible();
+  await input.press('Enter');
+  await expect(page.getByTestId('command-search')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Trang đầu' }).click();
+  await expect(page.locator('[data-command="format.bold"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+});
+
+test('command search: the title-bar box opens it in BlueSheet', async ({ page }) => {
+  await page.goto('/sheet');
+  await page.getByTestId('title-search').click();
+  await expect(page.getByTestId('command-search-input')).toBeFocused();
+  await page.keyboard.type('loc');
+  await expect(page.getByRole('option').first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('command-search')).toHaveCount(0);
+});

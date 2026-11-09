@@ -32,8 +32,10 @@ import {
 import {
   CommentThreads,
   Ribbon,
+  CommandSearch,
   StatusBar,
   TitleBar,
+  useCommandSearchShortcut,
   useResolvedTheme,
   type RibbonTab,
   type ThemeSetting,
@@ -507,6 +509,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [loadTicket] = useState(() => new LoadTickets());
   // Busy from mount until the start-up workbook (or a file) is shown.
   const [loading, setLoading] = useState(true);
+  const [searchOpen, setSearchOpen] = useState(false);
+  useCommandSearchShortcut(() => setSearchOpen(true));
   const load = useCallback(
     async (start: () => Promise<WorkbookInfo>, name: string) => {
       const ticket = loadTicket.next();
@@ -2793,6 +2797,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         appName={t('app.sheet')}
         docName={fileName}
         quickAccessLabel={t('titleBar.quickAccess')}
+        search={{
+          label: t('commandSearch.placeholder'),
+          shortcut: 'Alt+Q',
+          onOpen: () => setSearchOpen(true),
+        }}
         quickAccess={(
           [
             ['file.save', 'commands.file.save'],
@@ -2806,6 +2815,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           enabled: state ? registry.isEnabled(id, state) : false,
           onSelect: () => run(id),
         }))}
+      />
+      <CommandSearch
+        tabs={ribbonTabs}
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        labels={{
+          title: t('commandSearch.title'),
+          placeholder: t('commandSearch.placeholder'),
+          noResults: t('commandSearch.noResults'),
+        }}
       />
       <Ribbon tabs={ribbonTabs} moreLabel={t('ribbon.more')} />
       {legacyNotice > 0 && (

@@ -18,8 +18,10 @@ import type {
 import { PASSWORD_REQUIRED, WRONG_PASSWORD, updateNotice } from '@blueoffice/platform';
 import {
   Ribbon,
+  CommandSearch,
   StatusBar,
   TitleBar,
+  useCommandSearchShortcut,
   nextDensity,
   nextTheme,
   setDensity,
@@ -270,6 +272,8 @@ function EditorInner({
     remembered: RememberedSigning;
   } | null>(null);
   const [tab, setTab] = useState('home');
+  const [searchOpen, setSearchOpen] = useState(false);
+  useCommandSearchShortcut(() => setSearchOpen(true));
   const [recent, setRecent] = useState<RecentFile[]>([]);
   const workspace = useRef<HTMLElement>(null);
   const [pageBox, setPageBox] = useState<PageBox | null>(null);
@@ -2406,6 +2410,11 @@ function EditorInner({
         saveState={state.doc ? (state.edit?.modified ? 'unsaved' : 'saved') : null}
         saveLabel={t(state.edit?.modified ? 'titleBar.unsaved' : 'titleBar.saved')}
         quickAccessLabel={t('titleBar.quickAccess')}
+        search={{
+          label: t('commandSearch.placeholder'),
+          shortcut: 'Alt+Q',
+          onOpen: () => setSearchOpen(true),
+        }}
         quickAccess={(
           [
             ['file.save', 'commands.file.save'],
@@ -2441,6 +2450,19 @@ function EditorInner({
       />
       {app === 'doc' ? (
         <>
+          <CommandSearch
+            tabs={[...tabs, ...tableTab]}
+            open={searchOpen}
+            onClose={() => {
+              setSearchOpen(false);
+              view.current?.focus();
+            }}
+            labels={{
+              title: t('commandSearch.title'),
+              placeholder: t('commandSearch.placeholder'),
+              noResults: t('commandSearch.noResults'),
+            }}
+          />
           <Ribbon
             tabs={[...tabs, ...tableTab]}
             value={tab === 'table' && !fs?.table ? 'home' : tab}

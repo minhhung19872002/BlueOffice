@@ -78,8 +78,8 @@ export type SecurityCommand =
   | { cmd: 'setReadOnlyRecommended'; on: boolean }
   | { cmd: 'setWritePassword'; password: string }
   | { cmd: 'setLabel'; label?: LabelSpec | null }
-  | { cmd: 'protectDocument'; password?: string }
-  | { cmd: 'unprotectDocument'; password?: string }
+  | { cmd: 'restrictEditing'; password?: string }
+  | { cmd: 'stopRestrictEditing'; password?: string }
   | { cmd: 'addEditableRegion'; editor?: string | null }
   | { cmd: 'removeEditableRegion'; id: string }
   | { cmd: 'nextEditableRegion'; forward?: boolean }

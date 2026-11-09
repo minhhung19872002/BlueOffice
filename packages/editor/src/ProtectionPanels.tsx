@@ -484,7 +484,7 @@ export function ProtectDialog({
                 type="button"
                 data-testid="protect-stop"
                 onClick={() => {
-                  void send({ cmd: 'unprotectDocument', password: protectPw });
+                  void send({ cmd: 'stopRestrictEditing', password: protectPw });
                   setProtectPw('');
                 }}
               >
@@ -496,7 +496,7 @@ export function ProtectDialog({
                 data-testid="protect-start"
                 disabled={locked}
                 onClick={() => {
-                  void send({ cmd: 'protectDocument', password: protectPw });
+                  void send({ cmd: 'restrictEditing', password: protectPw });
                   setProtectPw('');
                 }}
               >

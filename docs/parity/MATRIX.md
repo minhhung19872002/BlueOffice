@@ -24,7 +24,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Phương trình OMML | Doc | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | ✅ | corpus math-0*, math::tests, equation.spec | 🟡 | bảng MATH (STIX Two Math), oMathPara theo jc, nhập UnicodeMath/LaTeX, sửa, tuyến tính ↔ chuyên nghiệp; chưa soạn trực tiếp trên công thức, thư viện mẫu |
 | Phương trình trong Slide/Sheet | Slide/Sheet | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
-| Soát chính tả Việt/Anh | all | — | 🟡 | ✅ | — | ✅ | 🟡 | — | bo-spell, spelling.spec | 🟡 | BlueDoc gạch đỏ + gợi ý + bỏ qua/thêm từ; chưa w:lang, hộp thoại toàn tài liệu, Sheet/Slide |
+| Soát chính tả Việt/Anh | all | — | 🟡 | ✅ | — | ✅ | 🟡 | — | bo-spell, spelling.spec, proof.rs | 🟡 | BlueDoc: theo w:lang từng run, hộp thoại F7 toàn tài liệu (CORE-SPELL-005); chưa Sheet/Slide |
 | Ngữ pháp/văn phong | all | — | 🟡 | ✅ | — | ✅ | 🟡 | — | bo-spell grammar, spelling.spec | 🟡 | BlueDoc gạch xanh: dấu cách, dấu câu, viết hoa đầu câu, lặp từ, ngoặc/nháy, kiểu dấu thanh; chưa phân tích cú pháp |
 | AutoCorrect | all | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | khi gõ trong thân văn bản BlueDoc (CORE-AUTOCORR-001); thiếu header/footer/text box |
 | Tìm/thay (regex, định dạng) | all | — | ✅ | ✅ | — | ✅ | ✅ | — | E2E | ✅ | ký tự đặc biệt ^p ^t…, wildcard, tô sáng tất cả (CORE-FIND-001) |
@@ -44,7 +44,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 | Cộng tác thời gian thực | all | — | ✅ | ✅ | — | ✅ | ✅ | ✅ | collab tests + E2E | ✅ | |
 | Comment luồng | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu @mention, giao việc |
 | Lịch sử phiên bản | all | — | ✅ | ✅ | — | ✅ | ✅ | — | server tests | 🟡 | thiếu so sánh |
-| Mật khẩu / bảo vệ | all | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | interop | 🟡 | thiếu đánh dấu bản cuối, nhãn độ mật |
+| Mật khẩu / bảo vệ | all | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | interop, protection.rs | 🟡 | + đánh dấu bản cuối, khuyến nghị chỉ đọc, vùng được sửa, nhãn độ mật (CORE-SEC-001); thiếu mật khẩu kiểu cũ w:hash |
 | Ký số | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | bo-sign | 🟡 | thiếu dòng chữ ký trong văn bản |
 | Kiểm tra tài liệu / tiếp cận | all | — | ✅ | ✅ | — | ✅ | ✅ | — | inspect.rs | 🟡 | rà soát nội dung, trợ năng, tương thích (CORE-INSPECT-001); thiếu ngăn bên, sửa nhanh Sheet |
 | VBA | all | ✅ | — | — | ✅ | — | — | — | test | — (chủ ý) | giữ nguyên, cảnh báo, không chạy |
@@ -63,7 +63,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 | Thuộc tính ký tự nâng cao (emboss, ruby, ligature…) | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
 | Style, danh sách đa cấp | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | corpus styles-*, lists-* | 🟡 | định nghĩa danh sách mới, liên kết heading, đặt giá trị (DOC-LIST-001); thiếu restart cấp con, legal-style |
 | Section, cột, header/footer | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus sections-* | ✅ | |
-| Drop cap, đánh số dòng, gạch nối, chữ dọc | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
+| Drop cap, đánh số dòng, gạch nối, chữ dọc | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus layout-0* | 🟡 | DOC-LAYOUT-001; gạch nối tiếng Anh gần đúng, chưa cân cột |
 | Viền trang, nền, watermark | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus page-* | 🟡 | viền thường + nghệ thuật tự vẽ, màu trang, hình mờ chữ/ảnh, chủ đề (DOC-PAGE-001); thiếu in không màu trang, w:frame |
 | Bảng (gộp, lồng, lặp tiêu đề) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus tables-* | 🟡 | + sắp xếp, công thức, AutoFit, văn bản↔bảng, chữ dọc, bảng nổi (DOC-TABLE-001); thiếu vẽ/tẩy bảng |
 | Ảnh & wrap | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus images-* | ✅ | |
@@ -74,8 +74,8 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 | Track changes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests + E2E | 🟡 | chế độ hiển thị + bong bóng + ngăn danh sách (DOC-REVIEW-001); thiếu move, khoá |
 | So sánh / kết hợp | — | — | ✅ | — | ✅ | ✅ | — | compare::tests, compare_with_the_original_document, combine_two_reviewers_copies, review.spec | ✅ | so sánh với bản gốc → track changes (đoạn, từ, định dạng, bảng); kết hợp bản sửa của hai người (trộn 3 chiều theo đoạn/từ, theo tác giả) |
 | Mail merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | 🟡 | thiếu SQL, email, nhãn |
-| Chế độ xem (Read, Outline, Draft…) | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E | 🟡 | chỉ Print Layout |
-| Mẫu hành chính NĐ 30 | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | E2E | 🟡 | 1 mẫu; thiếu thư viện + kiểm tra thể thức |
+| Chế độ xem (Read, Outline, Draft…) | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E doc-views | 🟡 | đọc, web, nháp, dàn ý, tập trung, ngăn điều hướng, ký hiệu định dạng (DOC-VIEW-001) |
+| Mẫu hành chính NĐ 30 | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | E2E, templates tests | ✅ | 8 mẫu + kiểm tra thể thức (DOC-TPL-001) |
 | Phương trình | ✅ | 🟡 | ⬜ | ✅ | 🟡 | 🟡 | ✅ | corpus math-* | 🟡 | xem CORE |
 
 ## BlueSheet
@@ -99,7 +99,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 | Bảng (ListObject) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu total row tự động |
 | Comment luồng / notes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |
 | Bảo vệ sheet/workbook | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | ✅ | |
-| Form controls | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
+| Form controls | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus writer-form-controls-* | 🟡 | 9 loại, ô liên kết hai chiều (SHEET-FORMCTL-001); chưa dịch theo chèn hàng/cột |
 | In bảng tính | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests | 🟡 | |
 | Hiệu năng 1 triệu ô | — | ✅ | ✅ | — | ✅ | ✅ | — | bench | 🟡 | chưa đo 10 triệu ô, pivot 1 triệu dòng |
 
@@ -115,7 +115,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 | Morph | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
 | Audio/video | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus media-* | 🟡 | phát cơ bản |
 | Trình chiếu + Presenter | — | ✅ | — | — | ✅ | ✅ | — | E2E | 🟡 | thiếu bút/laser, custom show |
-| Ghi thuyết trình / xuất video | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
+| Ghi thuyết trình / xuất video | — | — | 🟡 | — | 🟡 | 🟡 | — | slide_video.rs, video.test | 🟡 | xuất GIF/PNG mọi nơi, MP4/WebM qua WebCodecs (SLIDE-EXPORT-001); chưa ghi thuyết trình |
 | Xuất PDF/PNG | — | ✅ | — | — | ✅ | ✅ | — | tests | 🟡 | thiếu handout, SVG |
 | SmartArt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus, smartart.spec | ✅ | chèn từ thư viện bố cục, ngăn văn bản, bố cục/màu/kiểu, chuyển thành hình |
 | Comment hiện đại | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |

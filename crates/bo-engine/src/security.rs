@@ -174,13 +174,13 @@ pub enum SecurityCommand {
         label: Option<LabelSpec>,
     },
     /// BlueDoc: allow changes only in editable regions (`w:edit="readOnly"`).
-    ProtectDocument {
+    RestrictEditing {
         /// Password to stop the protection; empty = none.
         #[serde(default)]
         password: String,
     },
     /// BlueDoc: stop restricted editing.
-    UnprotectDocument {
+    StopRestrictEditing {
         /// The protection's password (empty when it has none).
         #[serde(default)]
         password: String,

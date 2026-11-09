@@ -253,7 +253,7 @@ fn editable_regions_limit_edits_of_a_protected_document() {
     );
     let r = cmd(
         &mut e,
-        &json!({"cmd": "protectDocument", "password": "khoá"}),
+        &json!({"cmd": "restrictEditing", "password": "khoá"}),
     );
     assert_eq!(r["security"]["protection"]["edit"], "readOnly");
     assert_eq!(r["security"]["protection"]["enforced"], true);
@@ -357,12 +357,12 @@ fn editable_regions_limit_edits_of_a_protected_document() {
     );
     let r = cmd(
         &mut f,
-        &json!({"cmd": "unprotectDocument", "password": "sai"}),
+        &json!({"cmd": "stopRestrictEditing", "password": "sai"}),
     );
     assert_eq!(r["error"], "wrong protection password");
     cmd(
         &mut f,
-        &json!({"cmd": "unprotectDocument", "password": "khoá"}),
+        &json!({"cmd": "stopRestrictEditing", "password": "khoá"}),
     );
     let r = cmd(&mut f, &json!({"cmd": "insertText", "text": "!"}));
     assert!(r.get("error").is_none());
@@ -643,7 +643,7 @@ fn write_protected_samples_for_validation() {
     );
     cmd(
         &mut e,
-        &json!({"cmd": "protectDocument", "password": "khoá"}),
+        &json!({"cmd": "restrictEditing", "password": "khoá"}),
     );
     cmd(
         &mut e,

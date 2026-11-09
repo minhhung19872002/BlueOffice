@@ -181,8 +181,8 @@ impl SheetEngine {
             | S::UnlockWrite { .. }
             | S::MarkFinal { .. }
             | S::SetLabel { .. } => {}
-            S::ProtectDocument { .. }
-            | S::UnprotectDocument { .. }
+            S::RestrictEditing { .. }
+            | S::StopRestrictEditing { .. }
             | S::AddEditableRegion { .. }
             | S::RemoveEditableRegion { .. }
             | S::NextEditableRegion { .. }

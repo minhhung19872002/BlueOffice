@@ -3,6 +3,9 @@ import { defineConfig, devices } from '@playwright/test';
 // Port can be overridden (several checkouts may run previews at once).
 const port = Number(process.env.E2E_PORT ?? 4173);
 
+/** Specs that read or write the system clipboard (see the `clipboard` project). */
+const CLIPBOARD_SPECS = /(paste|slide-rich)\.spec\.ts/;
+
 // Web target. The desktop target (Tauri WebDriver) is added with the Phase 2 editing flows.
 export default defineConfig({
   testDir: './specs',
@@ -21,6 +24,16 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: [/collab-.*\.spec\.ts/, CLIPBOARD_SPECS],
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } },
+    },
+    {
+      // The system clipboard is shared by every browser: specs that copy and paste run one
+      // at a time, after the others.
+      name: 'clipboard',
+      testMatch: CLIPBOARD_SPECS,
+      workers: 1,
+      dependencies: ['chromium'],
       use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } },
     },
   ],

@@ -397,6 +397,8 @@ function EditorInner({
         protectUi: null,
       });
       view.current?.setDocument(info);
+      // Focus at once: typing may start while the set-up commands below are still running.
+      view.current?.focus();
       platform.window.setTitle(`${info.name} — ${t('app.doc')}`);
       // New revisions and comments are attributed to the signed-in user (fallback "BlueOffice").
       await controller.current?.run({ cmd: 'setAuthor', name: platform.auth.user?.name ?? '' });
@@ -415,7 +417,6 @@ function EditorInner({
         const f = await controller.current?.run({ cmd: 'fontList' });
         if (f?.fonts) store.setState({ fonts: f.fonts });
       }
-      view.current?.focus();
       onDocumentOpened?.(info.name, info.pageCount);
     },
     [platform, store, t, onDocumentOpened],

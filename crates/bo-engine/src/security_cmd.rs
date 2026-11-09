@@ -224,8 +224,8 @@ impl crate::Engine {
                 self.sec.set_docx_write(None, Some(&password))?;
                 self.sec.write_unlocked = true;
             }
-            S::ProtectDocument { password } => self.sec.protect_doc(&password)?,
-            S::UnprotectDocument { password } => self.sec.unprotect_doc(&password)?,
+            S::RestrictEditing { password } => self.sec.protect_doc(&password)?,
+            S::StopRestrictEditing { password } => self.sec.unprotect_doc(&password)?,
             S::ShowEditableRegions { on } => self.sec.show_regions = on,
             S::NextEditableRegion { forward } => self.next_region(forward),
             S::AddEditableRegion { editor } => {

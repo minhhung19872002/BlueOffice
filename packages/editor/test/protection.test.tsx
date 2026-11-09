@@ -97,7 +97,7 @@ describe('protection UI', () => {
     const run = async (c: SecurityCommand) => {
       sent.push(c);
       if (c.cmd === 'markFinal') state = { ...state, markedFinal: c.on, readOnly: c.on };
-      if (c.cmd === 'protectDocument')
+      if (c.cmd === 'restrictEditing')
         state = { ...state, protection: { edit: 'readOnly', enforced: true, hasPassword: true } };
       if (c.cmd === 'setLabel') state = { ...state, label: c.label ?? null };
       return { security: state };
@@ -118,11 +118,11 @@ describe('protection UI', () => {
       expect(sent.map((c) => c.cmd)).toEqual([
         'setLabel',
         'addEditableRegion',
-        'protectDocument',
+        'restrictEditing',
         'markFinal',
       ]),
     );
-    expect(sent[2]).toEqual({ cmd: 'protectDocument', password: 'k' });
+    expect(sent[2]).toEqual({ cmd: 'restrictEditing', password: 'k' });
   });
 
   it('sheet dialog manages protected ranges', async () => {

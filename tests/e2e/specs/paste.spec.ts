@@ -81,12 +81,14 @@ test('BlueDoc: a pasted web address can become a link', async ({ page }) => {
 test('BlueDoc: clipboard history panel pastes an earlier copy and clears', async ({ page }) => {
   await newDocument(page);
   await page.keyboard.insertText('alpha');
+  await expect(page.getByTestId('status-words')).toHaveText('1 từ');
   await page.keyboard.press('Control+a');
   await page.keyboard.press('Control+c');
   // The copy reaches the system clipboard asynchronously: wait before pasting.
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('alpha');
   await page.keyboard.press('Control+End');
   await page.keyboard.insertText(' beta');
+  await expect(page.getByTestId('status-words')).toHaveText('2 từ');
   await page.keyboard.press('Control+a');
   await page.keyboard.press('Control+c');
   // The copy reaches the system clipboard asynchronously: wait before pasting.

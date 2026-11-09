@@ -19,12 +19,13 @@ use std::sync::OnceLock;
 
 const DEFS: &str = include_str!("presets.dsl");
 
-fn parse_defs() -> HashMap<&'static str, CustomGeometry> {
+/// Parse definitions in the line format above (also used by [`crate::textwarp`]).
+pub(crate) fn parse_defs(defs: &'static str) -> HashMap<&'static str, CustomGeometry> {
     let mut out = HashMap::new();
     let mut name: Option<&'static str> = None;
     let mut cur = CustomGeometry::default();
     let s = |v: &str| v.to_owned();
-    for line in DEFS
+    for line in defs
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
@@ -109,7 +110,7 @@ fn parse_defs() -> HashMap<&'static str, CustomGeometry> {
 
 fn table() -> &'static HashMap<&'static str, CustomGeometry> {
     static T: OnceLock<HashMap<&'static str, CustomGeometry>> = OnceLock::new();
-    T.get_or_init(parse_defs)
+    T.get_or_init(|| parse_defs(DEFS))
 }
 
 /// Definition of a preset shape (`None` when not implemented).

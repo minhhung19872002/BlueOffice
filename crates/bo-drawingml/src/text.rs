@@ -9,7 +9,8 @@ use bo_model::slide::{
 };
 
 const TX_BODY: &[&str] = &["a:bodyPr", "a:lstStyle", "a:p"];
-const BODY_PR: &[&str] = &[
+/// Child sequence of bodyPr (CT_TextBodyProperties).
+pub const BODY_PR: &[&str] = &[
     "a:prstTxWarp",
     "a:noAutofit",
     "a:normAutofit",

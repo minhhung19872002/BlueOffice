@@ -1382,6 +1382,29 @@ export type SlidePointType = 'corner' | 'smooth' | 'symmetric';
 /** Shape merge operations (CORE-SHAPE-001). */
 export type SlideMergeOp = 'union' | 'combine' | 'fragment' | 'intersect' | 'subtract';
 
+/** Text fill of WordArt (CORE-SHAPE-002); colours `RRGGBB`, angle in degrees. */
+export type SlideTextFill =
+  | { type: 'auto' }
+  | { type: 'none' }
+  | { type: 'solid'; color: string }
+  | { type: 'gradient'; from: string; to: string; angle?: number };
+
+/** Shape effect / WordArt edit of the selected shapes (CORE-SHAPE-002). */
+export type SlideEffectOp =
+  /** Reflection: fade length (fraction, absent removes it) and gap in points. */
+  | { kind: 'reflection'; size?: number; distance?: number }
+  /** Soft edges in points (absent or 0 removes them). */
+  | { kind: 'softEdge'; radius?: number }
+  /** 3-D rotation: ST_PresetCameraType (absent removes the scene). */
+  | { kind: 'rotation3d'; preset?: string }
+  /** Text warp: ST_TextShapeType (absent removes it). */
+  | { kind: 'textWarp'; preset?: string }
+  /** Text outline colour (absent removes it), width in points. */
+  | { kind: 'textOutline'; color?: string; width?: number }
+  | { kind: 'textFill'; fill: SlideTextFill }
+  /** Warp gallery thumbnails (answer in `warpPreviews`). */
+  | { kind: 'warpPreviews' };
+
 /** One edit of a freeform outline; coordinates in slide points. */
 export type SlidePointEdit =
   | { kind: 'move'; path: number; point: number; x: number; y: number }
@@ -1487,6 +1510,8 @@ export type SlideCommand =
   | { cmd: 'editPoint'; edit: SlidePointEdit; merge?: boolean }
   /** Merge the selected shapes (selection order: the first gives formatting). */
   | { cmd: 'mergeShapes'; op: SlideMergeOp }
+  /** Shape effects and WordArt of the selected shapes. */
+  | { cmd: 'shapeEffects'; op: SlideEffectOp }
   | { cmd: 'tableSelect'; id?: number; r0: number; c0: number; r1?: number; c1?: number }
   | { cmd: 'tableHit'; x: number; y: number; extend?: boolean }
   | { cmd: 'setCellText'; row?: number; col?: number; text: string; merge?: boolean }
@@ -2004,6 +2029,8 @@ export interface SlideEditResult {
   chart?: SlideChartInfo;
   /** Answer of `chartGallery`. */
   chartGallery?: import('./chartDesign').ChartGallery;
+  /** Answer of `shapeEffects` / `warpPreviews`: SVG paths in a 120 × 72 box. */
+  warpPreviews?: { name: string; d: string }[];
   /** The selected SmartArt. */
   smartart?: SlideSmartArtInfo;
   /** Answer of the `show` command. */

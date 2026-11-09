@@ -113,3 +113,20 @@ export {
   type PictureToolsHost,
   type PictureToolsInfo,
 } from './usePictureTools';
+export {
+  REFLECTION_PRESETS,
+  ROTATION_PRESETS,
+  SOFT_EDGE_PRESETS,
+  ShapeEffectsMenu,
+  TEXT_COLORS,
+  TEXT_GRADIENTS,
+  TextEffectsMenu,
+  WARP_PRESETS,
+  allEffectIds,
+  effectIds,
+  effectOpOf,
+  type EffectLabel,
+  type EffectOp,
+  type ReflectionPreset,
+  type WarpPreview,
+} from './ShapeEffects';

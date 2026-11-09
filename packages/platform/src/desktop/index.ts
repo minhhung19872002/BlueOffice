@@ -22,6 +22,8 @@ import type {
   OpenedFile,
   PageDisplayList,
   PeerRects,
+  ShowVideoInfo,
+  ShowVideoOptions,
   SlideBox,
   TimedCommand,
   Platform,
@@ -44,6 +46,7 @@ import { BundledFontSource } from '../web';
 import { WebEngineHost } from '../web/WebEngineHost';
 import { webSheetTransport } from '../web/WebSheetHost';
 import { DesktopAuth, type DesktopScheme } from './auth';
+import { WebCodecsVideo } from '../webcodecs';
 
 export { DesktopAuth, DESKTOP_OIDC_PATH, isOidcCallback } from './auth';
 export type { DesktopAuthOptions, DesktopScheme } from './auth';
@@ -157,6 +160,23 @@ export class NativeEngineHost implements EngineHost {
     return JSON.parse(
       await this.call<string>('engine_slide_collab_peers', { json: JSON.stringify(keys) }),
     ) as ({ slide: number; rect: SlideBox } | null)[];
+  }
+  async videoBegin(opts: ShowVideoOptions): Promise<ShowVideoInfo> {
+    return JSON.parse(
+      await this.call<string>('engine_video_begin', { json: JSON.stringify(opts) }),
+    ) as ShowVideoInfo;
+  }
+  async videoFrame(index: number, png = false): Promise<Uint8Array> {
+    return toBytes(await this.call<ArrayBuffer>('engine_video_frame', { index, png }));
+  }
+  async videoGifAdd(index: number): Promise<void> {
+    await this.call<null>('engine_video_gif_add', { index });
+  }
+  async videoGifFinish(): Promise<Uint8Array> {
+    return toBytes(await this.call<ArrayBuffer>('engine_video_gif_finish'));
+  }
+  async videoEnd(): Promise<void> {
+    await this.call<null>('engine_video_end');
   }
   dispose(): void {}
 }
@@ -299,6 +319,26 @@ export class FallbackEngineHost implements EngineHost {
   async slideCollabPeers(keys: string[]): Promise<({ slide: number; rect: SlideBox } | null)[]> {
     const h = await this.on();
     return need(h.slideCollabPeers, 'slideCollabPeers').call(h, keys);
+  }
+  async videoBegin(opts: ShowVideoOptions): Promise<ShowVideoInfo> {
+    const h = await this.on();
+    return need(h.videoBegin, 'videoBegin').call(h, opts);
+  }
+  async videoFrame(index: number, png?: boolean): Promise<Uint8Array> {
+    const h = await this.on();
+    return need(h.videoFrame, 'videoFrame').call(h, index, png);
+  }
+  async videoGifAdd(index: number): Promise<void> {
+    const h = await this.on();
+    return need(h.videoGifAdd, 'videoGifAdd').call(h, index);
+  }
+  async videoGifFinish(): Promise<Uint8Array> {
+    const h = await this.on();
+    return need(h.videoGifFinish, 'videoGifFinish').call(h);
+  }
+  async videoEnd(): Promise<void> {
+    const h = await this.on();
+    return need(h.videoEnd, 'videoEnd').call(h);
   }
   dispose(): void {
     this.active.dispose();
@@ -671,5 +711,7 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
     ),
     signing: new DesktopSigning(call),
     updates: new DesktopUpdates(call),
+    // The webview (WebView2 / WebKitGTK) encodes when it has WebCodecs; else GIF / PNG only.
+    video: new WebCodecsVideo(),
   };
 }

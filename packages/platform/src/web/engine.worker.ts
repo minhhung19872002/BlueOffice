@@ -92,6 +92,22 @@ async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?:
       return { result: JSON.parse(engine.slideCollabApply(req.json)) };
     case 'slideCollabPeers':
       return { result: JSON.parse(engine.slideCollabPeers(req.json)) };
+    case 'videoBegin':
+      return { result: JSON.parse(engine.videoBegin(req.json)) };
+    case 'videoFrame': {
+      const bytes = engine.videoFrame(req.index, req.png);
+      return { result: bytes, transfer: [bytes.buffer] };
+    }
+    case 'videoGifAdd':
+      engine.videoGifAdd(req.index);
+      return { result: null };
+    case 'videoGifFinish': {
+      const bytes = engine.videoGifFinish();
+      return { result: bytes, transfer: [bytes.buffer] };
+    }
+    case 'videoEnd':
+      engine.videoEnd();
+      return { result: null };
     case 'signPrepare': {
       const p = signPrepare(req.bytes, req.certsPem, req.options);
       const id = ++nextSession;

@@ -1928,7 +1928,75 @@ export interface EngineHost {
   /** Collaborators' carets / selected objects changed. */
   onPeers?(listener: (peers: PeerCursor[]) => void): () => void;
   onSlidePeers?(listener: (peers: SlidePeer[]) => void): () => void;
+  /**
+   * Slide show export (`bo_engine::slide_edit::video`): lay the show out on a timeline;
+   * then frames by index, as straight RGBA (or PNG), or added to an animated GIF.
+   */
+  videoBegin?(opts: ShowVideoOptions): Promise<ShowVideoInfo>;
+  videoFrame?(index: number, png?: boolean): Promise<Uint8Array>;
+  videoGifAdd?(index: number): Promise<void>;
+  videoGifFinish?(): Promise<Uint8Array>;
+  videoEnd?(): Promise<void>;
   dispose(): void;
+}
+
+/** Options of a slide show export (`bo_engine::slide_edit::video::VideoOptions`). */
+export interface ShowVideoOptions {
+  /** Frame width in pixels (height from the slide ratio). */
+  width: number;
+  fps: number;
+  /** Time on a slide without its own timing. */
+  secondsPerSlide: number;
+  /** Use the slides' "advance after" times. */
+  useTimings: boolean;
+  /** GIF: loop forever. */
+  loop?: boolean;
+  /** GIF: error-diffusion dithering. */
+  dither?: boolean;
+}
+
+/** Size and timeline of a slide show export. */
+export interface ShowVideoInfo {
+  width: number;
+  height: number;
+  fps: number;
+  frameCount: number;
+  durationMs: number;
+  slides: { startMs: number; transitionMs: number; lengthMs: number }[];
+}
+
+/** Container and codec string of a video encoding (WebCodecs). */
+export interface VideoCodecChoice {
+  container: 'mp4' | 'webm';
+  /** WebCodecs codec string (`avc1.…`, `vp09.…`, `vp8`). */
+  codec: string;
+}
+
+/** One encoded video frame. */
+export interface EncodedVideoChunkData {
+  data: Uint8Array;
+  timestampUs: number;
+  durationUs: number;
+  key: boolean;
+}
+
+/** An open video encoder. */
+export interface VideoEncoderSession {
+  encode(rgba: Uint8Array, timestampUs: number, durationUs: number, key: boolean): Promise<void>;
+  /** Waits for every frame; `description` = decoder configuration (H.264 `avcC`), if any. */
+  flush(): Promise<{ chunks: EncodedVideoChunkData[]; description: Uint8Array | null }>;
+  close(): void;
+}
+
+/** Video encoding of the platform (absent or `probe` → `null` where not available). */
+export interface VideoEncoding {
+  probe(width: number, height: number, fps: number): Promise<VideoCodecChoice | null>;
+  open(
+    choice: VideoCodecChoice,
+    width: number,
+    height: number,
+    fps: number,
+  ): Promise<VideoEncoderSession>;
 }
 
 /** A file picked by the user. */
@@ -2216,4 +2284,6 @@ export interface Platform {
   signing?: SigningService;
   /** "Check for updates" (desktop). */
   updates?: UpdateService;
+  /** Video encoding (WebCodecs where the browser / webview has it). */
+  video?: VideoEncoding;
 }

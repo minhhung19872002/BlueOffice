@@ -29,6 +29,7 @@ pub mod show;
 pub mod smartart;
 pub mod table;
 pub mod text;
+pub mod video;
 
 use crate::{DocInfo, Engine, EngineError};
 use bo_model::slide::{Fill, Presentation, Rel, ShapeNode, TextBody, TextRun, Xfrm};

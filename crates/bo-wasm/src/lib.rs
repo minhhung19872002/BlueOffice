@@ -248,6 +248,40 @@ impl WasmEngine {
     pub fn render_png(&self, index: usize, scale: f32) -> Result<Vec<u8>, JsError> {
         self.inner.render_png(index, scale).map_err(err)
     }
+
+    /// Start a slide show video / GIF export (JSON `VideoOptions`); returns `VideoInfo` JSON.
+    #[wasm_bindgen(js_name = videoBegin)]
+    pub fn video_begin(&mut self, opts: &str) -> Result<String, JsError> {
+        self.inner.video_begin_json(opts).map_err(err)
+    }
+
+    /// Frame `index` of the export as straight RGBA (`png` = PNG bytes instead).
+    #[wasm_bindgen(js_name = videoFrame)]
+    pub fn video_frame(&mut self, index: u32, png: bool) -> Result<Vec<u8>, JsError> {
+        if png {
+            self.inner.video_frame_png(index).map_err(err)
+        } else {
+            self.inner.video_frame(index).map_err(err)
+        }
+    }
+
+    /// Render frame `index` into the GIF of the export.
+    #[wasm_bindgen(js_name = videoGifAdd)]
+    pub fn video_gif_add(&mut self, index: u32) -> Result<(), JsError> {
+        self.inner.video_gif_add(index).map_err(err)
+    }
+
+    /// Finish the GIF of the export.
+    #[wasm_bindgen(js_name = videoGifFinish)]
+    pub fn video_gif_finish(&mut self) -> Result<Vec<u8>, JsError> {
+        self.inner.video_gif_finish().map_err(err)
+    }
+
+    /// End the export (frees its frames).
+    #[wasm_bindgen(js_name = videoEnd)]
+    pub fn video_end(&mut self) {
+        self.inner.video_end();
+    }
 }
 
 impl Default for WasmEngine {

@@ -294,6 +294,8 @@ pub struct Engine {
     view_changed: bool,
     /// Formatting marks travel with the page display lists of the view.
     show_marks: bool,
+    /// Slide show video / GIF export in progress (BlueSlide).
+    video: Option<Box<slide_edit::video::VideoSession>>,
 }
 
 impl Engine {

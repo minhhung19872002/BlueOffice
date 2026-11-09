@@ -5,10 +5,13 @@
 #![forbid(unsafe_code)]
 
 pub mod codecs;
+pub mod compose;
+pub mod gif;
 
 use bo_render::{Command, GradientStop, ImageSource, PageList, PathSeg, Rgba};
 use bo_text::{FaceId, FontManager, PathCmd};
 use std::collections::{BTreeMap, HashMap};
+pub use tiny_skia::Pixmap as RasterPixmap;
 use tiny_skia::{
     FillRule, FilterQuality, LineCap, LineJoin, LinearGradient, Mask, Paint, PathBuilder, Pattern,
     Pixmap, Point, RadialGradient, Rect, Shader, SpreadMode, Stroke, StrokeDash, Transform,
@@ -78,13 +81,36 @@ pub fn render_page_with(
     scale: f32,
     images: &dyn ImageSource,
 ) -> Result<Pixmap, RasterError> {
+    render_onto(page, fonts, scale, images, true)
+}
+
+/// Render a page on a transparent canvas (a layer composited later, e.g. one shape
+/// layer of the slide show), resolving `Image` commands from `images`.
+pub fn render_layer(
+    page: &PageList,
+    fonts: &FontManager,
+    scale: f32,
+    images: &dyn ImageSource,
+) -> Result<Pixmap, RasterError> {
+    render_onto(page, fonts, scale, images, false)
+}
+
+fn render_onto(
+    page: &PageList,
+    fonts: &FontManager,
+    scale: f32,
+    images: &dyn ImageSource,
+    opaque: bool,
+) -> Result<Pixmap, RasterError> {
     let w = (page.width * scale).ceil() as u32;
     let h = (page.height * scale).ceil() as u32;
     if w == 0 || h == 0 || w > MAX_DIMENSION || h > MAX_DIMENSION {
         return Err(RasterError::InvalidSize(w, h));
     }
     let mut pm = Pixmap::new(w, h).ok_or(RasterError::InvalidSize(w, h))?;
-    pm.fill(tiny_skia::Color::WHITE);
+    if opaque {
+        pm.fill(tiny_skia::Color::WHITE);
+    }
     let mut t = Transform::from_scale(scale, scale);
     let mut glyph_cache: HashMap<(u32, u16), Option<tiny_skia::Path>> = HashMap::new();
     let mut decoded: HashMap<&str, Option<Pixmap>> = HashMap::new();

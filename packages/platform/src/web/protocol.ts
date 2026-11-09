@@ -23,6 +23,11 @@ export type EngineRequest =
   | { id: number; method: 'slideCollabStart'; seed: boolean; clientId: number }
   | { id: number; method: 'slideCollabApply'; json: string }
   | { id: number; method: 'slideCollabPeers'; json: string }
+  | { id: number; method: 'videoBegin'; json: string }
+  | { id: number; method: 'videoFrame'; index: number; png: boolean }
+  | { id: number; method: 'videoGifAdd'; index: number }
+  | { id: number; method: 'videoGifFinish' }
+  | { id: number; method: 'videoEnd' }
   | { id: number; method: 'signPrepare'; bytes: Uint8Array; certsPem: string; options: string }
   | {
       id: number;

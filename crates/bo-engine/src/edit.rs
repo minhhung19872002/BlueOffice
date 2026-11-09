@@ -140,6 +140,9 @@ pub enum Command {
         /// stretch of text with it).
         #[serde(default)]
         format: Option<bo_edit::find::FindFormat>,
+        /// Also return the highlight rectangles of every match (`highlights`).
+        #[serde(default)]
+        highlight: bool,
     },
     /// Select a match returned by `find`.
     SelectMatch {
@@ -154,6 +157,13 @@ pub enum Command {
         m: Match,
         /// Replacement text.
         with: String,
+        /// The query that found the match: groups of `with` (`$1`, `\1`) are expanded
+        /// against it; without it only special characters (`^p`, `^&` …) are.
+        #[serde(default)]
+        query: Option<String>,
+        /// Options of `query`.
+        #[serde(default)]
+        options: FindOptions,
     },
     /// Replace every match of a query (the number replaced is returned in `count`).
     ReplaceAll {
@@ -636,6 +646,9 @@ pub struct EditResult {
     /// Number of replacements of `replaceAll`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<usize>,
+    /// Highlight rectangles of every match (`find` with `highlight`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub highlights: Option<Vec<SelRect>>,
     /// Clipboard payload of `copy` / `cut`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clip: Option<ClipOut>,
@@ -739,6 +752,13 @@ impl crate::Engine {
             }
             return Ok(r);
         }
+        let highlight = matches!(
+            cmd,
+            Command::Find {
+                highlight: true,
+                ..
+            }
+        );
         let mut extra = (None, None, None);
         let mut error = None;
         let mut changed = false; // set when the document version moves
@@ -1090,6 +1110,7 @@ impl crate::Engine {
                         query,
                         options,
                         format,
+                        ..
                     } => {
                         extra.0 = Some(match &format {
                             Some(f) => s.find_formatted(&query, &options, f)?,
@@ -1098,10 +1119,15 @@ impl crate::Engine {
                     }
                     Command::SelectMatch { m } => s.set_selection(Selection {
                         anchor: Pos::new(m.para, m.start),
-                        focus: Pos::new(m.para, m.end),
+                        focus: Pos::new(m.last_para(), m.end),
                     }),
-                    Command::Replace { m, with } => {
-                        s.replace(m, &with)?;
+                    Command::Replace {
+                        m,
+                        with,
+                        query,
+                        options,
+                    } => {
+                        s.replace_match(m, query.as_deref().map(|q| (q, &options)), &with)?;
                     }
                     Command::ReplaceAll {
                         query,
@@ -1273,6 +1299,9 @@ impl crate::Engine {
             }
         }
         let mut r = self.edit_result(dirty, extra, error)?;
+        if highlight {
+            r.highlights = Some(self.match_rects(r.matches.as_deref().unwrap_or_default()));
+        }
         r.targets = targets;
         if note_cmd {
             r.notes = self.session.as_ref().map(bo_edit::Session::notes);
@@ -1331,6 +1360,23 @@ impl crate::Engine {
         Ok(r)
     }
 
+    /// Highlight rectangles of find matches in the laid-out main text.
+    pub fn match_rects(&self, matches: &[Match]) -> Vec<SelRect> {
+        let layout = self.layout.document();
+        matches
+            .iter()
+            .flat_map(|m| {
+                nav::selection_rects(
+                    layout,
+                    Selection {
+                        anchor: Pos::new(m.para, m.start),
+                        focus: Pos::new(m.last_para(), m.end),
+                    },
+                )
+            })
+            .collect()
+    }
+
     pub(crate) fn edit_result(
         &self,
         dirty: Vec<usize>,
@@ -1353,6 +1399,7 @@ impl crate::Engine {
             modified: self.is_modified(),
             matches: extra.0,
             count: extra.1,
+            highlights: None,
             clip: extra.2,
             error,
             review: None,

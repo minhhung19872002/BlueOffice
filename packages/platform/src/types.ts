@@ -313,12 +313,16 @@ export interface FindOptions {
   matchCase?: boolean;
   wholeWord?: boolean;
   regex?: boolean;
+  /** Wildcard pattern (`?`, `*`, `[a-z]`, `[!x]`, `{n,m}`, `@`, `<`, `>`, `( )`; `\1` in the replacement). */
+  wildcards?: boolean;
 }
 
+/** A match: paragraph `p`, byte offsets; `ep` is the end paragraph of a match spanning paragraph marks. */
 export interface FindMatch {
   p: number;
   start: number;
   end: number;
+  ep?: number;
 }
 
 export type CharFormat =
@@ -449,9 +453,9 @@ export type EditCommand =
   | { cmd: 'applyStyle'; id: string }
   | { cmd: 'insertTable'; rows: number; cols: number }
   | { cmd: 'insertSectionBreak'; kind: 'nextPage' | 'continuous' | 'evenPage' | 'oddPage' }
-  | { cmd: 'find'; query: string; options?: FindOptions }
+  | { cmd: 'find'; query: string; options?: FindOptions; highlight?: boolean }
   | { cmd: 'selectMatch'; match: FindMatch }
-  | { cmd: 'replace'; match: FindMatch; with: string }
+  | { cmd: 'replace'; match: FindMatch; with: string; query?: string; options?: FindOptions }
   | { cmd: 'replaceAll'; query: string; options?: FindOptions; with: string }
   | { cmd: 'paste'; internal?: string; html?: string; text?: string; mode?: DocPasteMode }
   | { cmd: 'tab'; back?: boolean }
@@ -557,6 +561,8 @@ export interface EditResult {
   format: FormatState;
   modified: boolean;
   matches?: FindMatch[];
+  /** Highlight rectangles of every match (`find` with `highlight`). */
+  highlights?: SelRect[];
   count?: number;
   clip?: ClipPayload;
   error?: string;

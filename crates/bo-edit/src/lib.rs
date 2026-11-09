@@ -983,6 +983,45 @@ impl Tx<'_> {
         Ok(Pos::new(at.para + 1, 0))
     }
 
+    /// Replace the match `m` (which may span paragraph marks) by `replacement`, whose
+    /// `\n` characters split paragraphs; `text` and `atoms` are the start paragraph's.
+    fn replace_span(
+        &mut self,
+        m: &Match,
+        text: &str,
+        atoms: &[Atom],
+        replacement: &str,
+    ) -> Result<Selection> {
+        let end_para = m.last_para();
+        let (_, q, _) = self.atoms(end_para)?;
+        let end_text = bo_model::index::para_index_text(&q);
+        if end_para < m.para
+            || m.end > end_text.len()
+            || !end_text.is_char_boundary(m.end)
+            || (end_para == m.para && m.end < m.start)
+        {
+            return Err(EditError::Conflict);
+        }
+        let probe = if m.start < text.len() {
+            m.start + 1
+        } else {
+            m.start
+        };
+        let props = para::props_at(atoms, probe);
+        let (_, at) = self.delete_span(Pos::new(m.para, m.start), Pos::new(end_para, m.end))?;
+        let mut caret = at;
+        for (i, line) in replacement.split('\n').enumerate() {
+            if i > 0 {
+                caret = self.split(caret)?;
+            }
+            caret = self.insert_atoms(caret, para::text_atoms(line, &props))?;
+        }
+        Ok(Selection {
+            anchor: at,
+            focus: caret,
+        })
+    }
+
     fn insert_blocks(
         &mut self,
         container: Vec<usize>,
@@ -3076,9 +3115,23 @@ impl Session {
         find::find(&self.doc, query, opts)
     }
 
-    /// Replace one match (it must still be valid); returns the selection after the replacement.
+    /// Replace one match (it must still be valid); returns the selection after the
+    /// replacement. Special characters of `with` are expanded (`^p` splits the
+    /// paragraph, `^&` is the matched text).
     pub fn replace(&mut self, m: Match, with: &str) -> Result<Selection> {
-        self.replace_matches(&[m], with, None)
+        self.replace_match(m, None, with)
+    }
+
+    /// Replace one match of `query` (groups of `with` are expanded against the match
+    /// found again in context: `$1` in regex mode, `\1` with wildcards).
+    pub fn replace_match(
+        &mut self,
+        m: Match,
+        query: Option<(&str, &FindOptions)>,
+        with: &str,
+    ) -> Result<Selection> {
+        let replacement = find::replacement_for(&self.doc, &m, query, with)?;
+        self.replace_matches(vec![(m, replacement)])
     }
 
     /// Find matches of `query` that have the format `fmt` (an empty query finds every
@@ -3100,57 +3153,50 @@ impl Session {
         fmt: &find::FindFormat,
         with: &str,
     ) -> Result<usize> {
-        let matches = self.find_formatted(query, opts, fmt)?;
-        let n = matches.len();
+        let items = if query.is_empty() {
+            find::find_formatted(&self.doc, query, opts, fmt)?
+                .into_iter()
+                .map(|m| (m, find::expand_replacement(with, None, false)))
+                .collect()
+        } else {
+            find::replacements(&self.doc, query, opts, Some(with), Some(fmt))?
+        };
+        let n = items.len();
         if n > 0 {
-            let re = (opts.regex && !query.is_empty())
-                .then(|| find::build(query, opts))
-                .transpose()?;
-            self.replace_matches(&matches, with, re.as_ref())?;
+            self.replace_matches(items)?;
         }
         Ok(n)
     }
 
     /// Replace every match of `query`; returns the number of replacements (one undo step).
     pub fn replace_all(&mut self, query: &str, opts: &FindOptions, with: &str) -> Result<usize> {
-        let matches = self.find(query, opts)?;
-        let n = matches.len();
+        let items = find::replacements(&self.doc, query, opts, Some(with), None)?;
+        let n = items.len();
         if n > 0 {
-            let re = opts.regex.then(|| find::build(query, opts)).transpose()?;
-            self.replace_matches(&matches, with, re.as_ref())?;
+            self.replace_matches(items)?;
         }
         Ok(n)
     }
 
-    fn replace_matches(
-        &mut self,
-        matches: &[Match],
-        with: &str,
-        re: Option<&regex::Regex>,
-    ) -> Result<Selection> {
-        let mut ordered = matches.to_vec();
-        ordered.sort_by_key(|m| std::cmp::Reverse((m.para, m.start)));
+    /// Replace matches by their replacement texts (`\n` = paragraph mark), last first,
+    /// in one transaction.
+    fn replace_matches(&mut self, mut items: Vec<(Match, String)>) -> Result<Selection> {
+        items.sort_by_key(|(m, _)| std::cmp::Reverse((m.para, m.start)));
         self.edit(|tx, sel| {
             let mut last = sel;
-            for m in ordered {
+            for (m, replacement) in items {
                 let (path, p, mut atoms) = tx.atoms(m.para)?;
                 let text = bo_model::index::para_index_text(&p);
-                if m.end > text.len()
-                    || !text.is_char_boundary(m.start)
-                    || !text.is_char_boundary(m.end)
-                {
+                if m.start > text.len() || !text.is_char_boundary(m.start) {
                     return Err(EditError::Conflict);
                 }
-                let replacement = match re {
-                    Some(re) => {
-                        let mut dst = String::new();
-                        if let Some(caps) = re.captures(&text[m.start..m.end]) {
-                            caps.expand(with, &mut dst);
-                        }
-                        dst
-                    }
-                    None => with.to_owned(),
-                };
+                if m.is_multi_para() || replacement.contains('\n') {
+                    last = tx.replace_span(&m, &text, &atoms, &replacement)?;
+                    continue;
+                }
+                if m.end > text.len() || m.end < m.start || !text.is_char_boundary(m.end) {
+                    return Err(EditError::Conflict);
+                }
                 let props = para::props_at(&atoms, (m.start + 1).min(m.end.max(m.start)));
                 let at = if let Some(tr) = tx.track.as_mut() {
                     let mark = tr.mark();
@@ -3166,7 +3212,10 @@ impl Session {
                 let start = if tx.track.is_some() { at } else { m.start };
                 last = Selection {
                     anchor: Pos::new(m.para, start),
-                    focus: Pos::new(m.para, start + replacement.len()),
+                    focus: Pos::new(
+                        m.para,
+                        start + para::len(&para::text_atoms(&replacement, &props)),
+                    ),
                 };
             }
             Ok(last)

@@ -1,17 +1,33 @@
 import type { EditCommand, EditResult, FindMatch, FindOptions } from '@blueoffice/platform';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@blueoffice/i18n';
 import styles from './Editor.module.css';
 
-/** Find / replace dialog (case, whole word, regex). */
+/** Special characters offered by the "Special" menu (`replaceOnly`: only in "Replace with"). */
+export const FIND_SPECIALS: { code: string; key: string; replaceOnly?: boolean }[] = [
+  { code: '^p', key: 'paragraph' },
+  { code: '^t', key: 'tab' },
+  { code: '^l', key: 'lineBreak' },
+  { code: '^m', key: 'pageBreak' },
+  { code: '^#', key: 'digit' },
+  { code: '^$', key: 'letter' },
+  { code: '^?', key: 'anyChar' },
+  { code: '^^', key: 'caret' },
+  { code: '^&', key: 'found', replaceOnly: true },
+];
+
+/** Find / replace dialog (case, whole word, regex, wildcards, special characters, highlight all). */
 export function FindPanel({
   run,
   replace,
   onClose,
+  onClearHighlights,
 }: {
   run: (cmd: EditCommand) => Promise<EditResult | null>;
   replace: boolean;
   onClose: () => void;
+  /** Remove the "highlight all" boxes from the document view. */
+  onClearHighlights?: () => void;
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
@@ -20,14 +36,42 @@ export function FindPanel({
   const [matches, setMatches] = useState<FindMatch[]>([]);
   const [index, setIndex] = useState(-1);
   const [message, setMessage] = useState('');
+  const [highlight, setHighlight] = useState(false);
+  const [field, setField] = useState<'query' | 'with'>('query');
 
-  const search = async (): Promise<FindMatch[]> => {
-    const r = await run({ cmd: 'find', query, options: opts });
+  // Highlights go away with the panel (the latest callback, whatever the parent passed).
+  const clearRef = useRef(onClearHighlights);
+  useEffect(() => {
+    clearRef.current = onClearHighlights;
+  }, [onClearHighlights]);
+  useEffect(() => () => clearRef.current?.(), []);
+
+  const search = async (hl = highlight): Promise<FindMatch[]> => {
+    const r = await run({ cmd: 'find', query, options: opts, ...(hl ? { highlight: true } : {}) });
     if (r?.error) setMessage(t('find.invalid'));
     const m = r?.matches ?? [];
     setMatches(m);
     if (!r?.error) setMessage(m.length ? t('find.count', { count: m.length }) : t('find.none'));
     return m;
+  };
+
+  const toggleHighlight = async () => {
+    if (highlight) {
+      setHighlight(false);
+      onClearHighlights?.();
+      return;
+    }
+    setHighlight(true);
+    const m = await search(true);
+    if (m.length) setMessage(t('find.highlighted', { count: m.length }));
+  };
+
+  const insertSpecial = (code: string) => {
+    if (field === 'with') setWith(with_ + code);
+    else {
+      setQuery(query + code);
+      setIndex(-1);
+    }
   };
 
   const next = async () => {
@@ -41,19 +85,30 @@ export function FindPanel({
   const replaceOne = async () => {
     const m = matches[index];
     if (!m) return next();
-    await run({ cmd: 'replace', match: m, with: with_ });
+    await run({ cmd: 'replace', match: m, with: with_, query, options: opts });
     setIndex(index - 1);
     await next();
   };
 
   const replaceAll = async () => {
     const r = await run({ cmd: 'replaceAll', query, options: opts, with: with_ });
+    if (highlight) await search(true);
     setMessage(t('find.replaced', { count: r?.count ?? 0 }));
     setMatches([]);
     setIndex(-1);
   };
 
-  const toggle = (k: keyof FindOptions) => setOpts({ ...opts, [k]: !opts[k] });
+  // Regular expressions and wildcards are two ways of reading the query: one at a time.
+  const toggle = (k: keyof FindOptions) => {
+    const on = !opts[k];
+    setOpts({
+      ...opts,
+      [k]: on,
+      ...(on && k === 'regex' ? { wildcards: false } : {}),
+      ...(on && k === 'wildcards' ? { regex: false } : {}),
+    });
+    setIndex(-1);
+  };
 
   return (
     <div
@@ -68,6 +123,7 @@ export function FindPanel({
           aria-label={t('find.query')}
           placeholder={t('find.query')}
           value={query}
+          onFocus={() => setField('query')}
           onChange={(e) => {
             setQuery(e.target.value);
             setIndex(-1);
@@ -80,6 +136,14 @@ export function FindPanel({
         <button type="button" onClick={() => void next()}>
           {t('find.next')}
         </button>
+        <button
+          type="button"
+          data-testid="find-highlight-all"
+          aria-pressed={highlight}
+          onClick={() => void toggleHighlight()}
+        >
+          {t('find.highlightAll')}
+        </button>
         <button type="button" aria-label={t('host.close')} onClick={onClose}>
           ×
         </button>
@@ -91,6 +155,7 @@ export function FindPanel({
             aria-label={t('find.with')}
             placeholder={t('find.with')}
             value={with_}
+            onFocus={() => setField('with')}
             onChange={(e) => setWith(e.target.value)}
           />
           <button type="button" onClick={() => void replaceOne()}>
@@ -102,12 +167,34 @@ export function FindPanel({
         </div>
       )}
       <div className={styles.panelRow}>
-        {(['matchCase', 'wholeWord', 'regex'] as const).map((k) => (
+        {(['matchCase', 'wholeWord', 'regex', 'wildcards'] as const).map((k) => (
           <label key={k}>
-            <input type="checkbox" checked={!!opts[k]} onChange={() => toggle(k)} />{' '}
+            <input
+              type="checkbox"
+              data-testid={`find-${k}`}
+              checked={!!opts[k]}
+              // Wildcard search is always case-sensitive and never whole-word.
+              disabled={!!opts.wildcards && (k === 'matchCase' || k === 'wholeWord')}
+              onChange={() => toggle(k)}
+            />{' '}
             {t(`find.${k}`)}
           </label>
         ))}
+        <select
+          data-testid="find-special"
+          aria-label={t('find.special')}
+          value=""
+          onChange={(e) => {
+            if (e.target.value) insertSpecial(e.target.value);
+          }}
+        >
+          <option value="">{t('find.special')}</option>
+          {FIND_SPECIALS.filter((s) => !s.replaceOnly || (replace && field === 'with')).map((s) => (
+            <option key={s.code} value={s.code}>
+              {t(`find.sp.${s.key}`)}
+            </option>
+          ))}
+        </select>
       </div>
       <div className={styles.panelMessage} data-testid="find-message">
         {message}

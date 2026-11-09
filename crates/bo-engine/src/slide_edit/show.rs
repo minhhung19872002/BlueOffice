@@ -252,6 +252,8 @@ pub struct ShowOut {
     pub clicks: usize,
     /// Shapes that start effects when clicked (interactive sequences), with their boxes.
     pub triggers: Vec<TriggerOut>,
+    /// Shapes whose hyperlink the show follows (custom shows, jumps).
+    pub links: Vec<super::present::LinkOut>,
     /// Video and audio clips of the slide.
     pub media: Vec<MediaOut>,
     /// Morph from the previous slide ([MS-PPTX] p159:morph), when that is the transition.

@@ -1,4 +1,4 @@
-import type { MessageBus, Platform } from '@blueoffice/platform';
+import type { DisplayTarget, MessageBus, Platform, SlideInkStroke } from '@blueoffice/platform';
 
 /**
  * Presenter ↔ audience screen protocol over {@link Platform.channel}.
@@ -16,7 +16,16 @@ export type AudienceMsg =
       /** Click steps played on the slide and how they were reached (animations). */
       click?: number;
       enter?: 'transition' | 'click' | 'jump';
+      /** Presenter tools mirrored on the audience screen (SLIDE-SHOW-001). */
+      tools?: AudienceTools;
     };
+
+/** White screen, zoom (x, y as fractions of the stage) and the slide's ink. */
+export interface AudienceTools {
+  white: boolean;
+  zoom: { scale: number; x: number; y: number };
+  ink: SlideInkStroke[];
+}
 
 export function toBase64(bytes: Uint8Array): string {
   let s = '';
@@ -61,18 +70,35 @@ export class AudienceLink {
     return this.bus !== null;
   }
 
-  /** Open the audience screen (a second window) for a new channel. */
-  async start(slide: number): Promise<void> {
+  /**
+   * Open the audience screen for a new channel: a second window, or — where the
+   * platform has `displays` — a window on another screen or a presentation display.
+   */
+  async start(slide: number, target: DisplayTarget = { kind: 'window' }): Promise<void> {
     this.stop();
     const id = `audience-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const query = `?app=slide&audience=${encodeURIComponent(id)}`;
+    this.state = { slide, black: false, ended: false };
+    const displays = this.platform.displays;
+    if (displays && target.kind === 'presentation') {
+      // The presentation display is reached through its own connection.
+      const own = await displays.open(query, target);
+      if (!own) throw new Error('audience.noChannel');
+      this.attach(own);
+      return;
+    }
     const bus = this.platform.channel?.(id);
     if (!bus) throw new Error('audience.noChannel');
+    this.attach(bus);
+    if (displays && target.kind === 'screen') await displays.open(query, target);
+    else await this.platform.window.openNew(query);
+  }
+
+  private attach(bus: MessageBus): void {
     this.bus = bus;
-    this.state = { slide, black: false, ended: false };
     this.off = bus.onMessage((m) => {
       if (isAudienceMsg(m) && m.type === 'hello') void this.sendDeck();
     });
-    await this.platform.window.openNew(`?app=slide&audience=${encodeURIComponent(id)}`);
   }
 
   private async sendDeck(): Promise<void> {
@@ -93,9 +119,18 @@ export class AudienceLink {
     ended: boolean,
     click?: number,
     enter?: 'transition' | 'click' | 'jump',
+    tools?: AudienceTools,
   ): void {
     this.state = { slide, black, ended, click };
-    this.bus?.post({ type: 'show', slide, black, ended, click, enter } satisfies AudienceMsg);
+    this.bus?.post({
+      type: 'show',
+      slide,
+      black,
+      ended,
+      click,
+      enter,
+      tools,
+    } satisfies AudienceMsg);
   }
 
   stop(): void {

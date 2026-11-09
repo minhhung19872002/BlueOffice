@@ -578,6 +578,83 @@ async fn open_window(app: tauri::AppHandle, query: String) -> Result<String, Str
     Ok(label)
 }
 
+/// A monitor the audience screen of a slide show can go to (logical pixels).
+#[derive(serde::Serialize)]
+struct DisplayOut {
+    id: String,
+    label: String,
+    primary: bool,
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
+}
+
+/// Logical position and size of a monitor.
+fn monitor_box(m: &tauri::Monitor) -> (f64, f64, f64, f64) {
+    let s = m.scale_factor();
+    let (p, z) = (m.position(), m.size());
+    (
+        f64::from(p.x) / s,
+        f64::from(p.y) / s,
+        f64::from(z.width) / s,
+        f64::from(z.height) / s,
+    )
+}
+
+/// Monitors of the system, for the slide show's audience screen.
+#[tauri::command]
+fn list_displays(app: tauri::AppHandle) -> Result<Vec<DisplayOut>, String> {
+    let primary = app.primary_monitor().map_err(|e| e.to_string())?;
+    let list = app.available_monitors().map_err(|e| e.to_string())?;
+    Ok(list
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let (left, top, width, height) = monitor_box(m);
+            DisplayOut {
+                id: i.to_string(),
+                label: m.name().cloned().unwrap_or_default(),
+                primary: primary
+                    .as_ref()
+                    .is_some_and(|p| p.position() == m.position() && p.size() == m.size()),
+                left,
+                top,
+                width,
+                height,
+            }
+        })
+        .collect())
+}
+
+/// Opens a window (`query` e.g. `app=slide&audience=…`) full screen on monitor
+/// `display` (index into `list_displays`), or as a normal window without one.
+#[tauri::command]
+async fn open_window_on(
+    app: tauri::AppHandle,
+    query: String,
+    display: Option<usize>,
+) -> Result<String, String> {
+    let url = shell::window_url(&query)?;
+    let label = shell::next_window_label();
+    let title = app
+        .config()
+        .product_name
+        .clone()
+        .unwrap_or_else(|| "BlueOffice".into());
+    let monitor = display.and_then(|i| app.available_monitors().ok()?.into_iter().nth(i));
+    let mut b = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into())).title(title);
+    b = match monitor {
+        Some(m) => {
+            let (x, y, w, h) = monitor_box(&m);
+            b.position(x, y).inner_size(w, h).fullscreen(true)
+        }
+        None => b.inner_size(1280.0, 860.0).min_inner_size(720.0, 480.0),
+    };
+    b.build().map_err(|e| e.to_string())?;
+    Ok(label)
+}
+
 /// Forwards OS open requests (second instance, deep link) to the focused UI.
 fn dispatch_requests(app: &tauri::AppHandle, requests: Vec<LaunchRequest>) {
     if let Some(w) = app.get_webview_window("main") {
@@ -695,6 +772,8 @@ fn main() {
             cache_put,
             cache_delete,
             open_window,
+            list_displays,
+            open_window_on,
             update_check,
             update_install,
             sheet_cmds::sheet_open,

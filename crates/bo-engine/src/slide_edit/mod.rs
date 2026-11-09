@@ -29,6 +29,7 @@ pub mod ops;
 pub mod outline;
 pub mod page_master;
 pub mod picture;
+pub mod present;
 pub mod rich;
 pub mod sections;
 pub mod show;
@@ -624,6 +625,47 @@ pub enum SlideCommand {
         /// 0-based slide index.
         slide: usize,
     },
+    /// Create (`id` = `None`) or change a custom show (§19.2.1.6 custShow).
+    SetCustomShow {
+        /// Id of the show to change; `None` creates one.
+        #[serde(default)]
+        id: Option<u32>,
+        /// Name of the show.
+        name: String,
+        /// 0-based slides in playing order.
+        slides: Vec<usize>,
+    },
+    /// Delete a custom show.
+    DeleteCustomShow {
+        /// `custShow@id`.
+        id: u32,
+    },
+    /// Change the show setup (§19.2.1.30 showPr).
+    SetShowSetup {
+        /// The new setup.
+        setup: present::ShowSetup,
+    },
+    /// Rehearsed or typed timings (§19.3.1.50 transition@advTm), one undo step.
+    SetTimings {
+        /// Timing of each slide to change.
+        timings: Vec<present::SlideTiming>,
+        /// Also turn "use timings" on or off.
+        #[serde(default)]
+        use_timings: Option<bool>,
+    },
+    /// Hyperlink of the selected shapes in the show (§21.1.2.3.5 hlinkClick).
+    SetShowLink {
+        /// What clicking the shape does.
+        action: present::LinkAction,
+    },
+    /// Keep the ink drawn in the show as freeform shapes.
+    KeepInk {
+        /// Strokes per slide.
+        ink: Vec<present::InkSlide>,
+        /// Base name of the new shapes.
+        #[serde(default)]
+        name: String,
+    },
     /// Insert a chart (`column`, `bar`, `line`, `area`, `pie`, `doughnut`).
     InsertChart {
         /// Chart type (see above).
@@ -757,6 +799,9 @@ impl SlideCommand {
             | SlideCommand::CutSlides { .. }
             | SlideCommand::SetNotes { .. }
             | SlideCommand::SetTransition { .. }
+            | SlideCommand::SetCustomShow { .. }
+            | SlideCommand::SetTimings { .. }
+            | SlideCommand::KeepInk { .. }
             | SlideCommand::AddAnimation { .. }
             | SlideCommand::AddComment { .. }
             | SlideCommand::InspectRemove { .. }
@@ -1109,6 +1154,9 @@ pub struct SlideEditResult {
     /// Answer of the `show` command.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show: Option<show::ShowOut>,
+    /// Custom shows, show setup, hidden slides and timings (Slide Show tab).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presenting: Option<present::PresentOut>,
     /// Comment threads of the current slide ([MS-PPTX] modern comments).
     pub comments: Vec<comments::ThreadOut>,
     /// Check document report (`inspect` and the inspector commands).
@@ -4168,6 +4216,39 @@ impl Engine {
                         out.error = Some("noSlide".into());
                     }
                 }
+                SlideCommand::SetCustomShow { id, name, slides } => {
+                    ed.mutate(pres, &mut out, |tx, _| {
+                        present::cmd_set_custom_show(tx, id, &name, &slides)
+                    });
+                }
+                SlideCommand::DeleteCustomShow { id } => {
+                    ed.mutate(pres, &mut out, |tx, _| {
+                        present::cmd_delete_custom_show(tx, id)
+                    });
+                }
+                SlideCommand::SetShowSetup { setup } => {
+                    ed.mutate(pres, &mut out, |tx, _| {
+                        present::cmd_set_show_setup(tx, &setup)
+                    });
+                }
+                SlideCommand::SetTimings {
+                    timings,
+                    use_timings,
+                } => {
+                    ed.mutate(pres, &mut out, |tx, _| {
+                        present::cmd_set_timings(tx, &timings, use_timings)
+                    });
+                }
+                SlideCommand::SetShowLink { action } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        present::cmd_set_show_link(tx, sel, &action)
+                    });
+                }
+                SlideCommand::KeepInk { ink, name } => {
+                    ed.mutate(pres, &mut out, |tx, _| {
+                        present::cmd_keep_ink(tx, &ink, &name)
+                    });
+                }
                 SlideCommand::InsertChart {
                     kind,
                     title,
@@ -4406,6 +4487,7 @@ impl Engine {
             layers,
             animations,
             triggers: show::triggers_out(pres, slide),
+            links: present::links_out(pres, slide),
             media: media::media_out(pres, slide),
             morph: self.morph_out(slide),
         })
@@ -4703,6 +4785,7 @@ impl Engine {
                 _ => None,
             },
             show: None,
+            presenting: Some(present::present_out(pres)),
             comments: comments::comments_out(pres, slide),
             inspection: None,
             security: None,

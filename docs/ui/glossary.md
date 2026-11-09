@@ -73,6 +73,14 @@ khi dùng.
 | Transition | Hiệu ứng chuyển tiếp |
 | Animation | Hiệu ứng động |
 | Morph | Biến hình |
+| Custom show | Trình chiếu tuỳ chỉnh |
+| Show setup | Thiết lập trình chiếu |
+| Rehearse timings | Diễn tập thời gian |
+| Kiosk (show) | Tự chạy tại quầy |
+| Pen / Highlighter | Bút / Bút dạ quang |
+| Laser pointer | Điểm sáng laser |
+| Ink | Nét mực |
+| Audience screen | Màn hình khán giả |
 | Track changes | Theo dõi thay đổi |
 | Comment | Bình luận |
 | Accept / Reject | Chấp nhận / Từ chối |

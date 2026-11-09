@@ -11,7 +11,7 @@ use crate::{rel_is, Result, REL_NS};
 use bo_drawingml::dom::{self, El, Kids};
 use bo_drawingml::text::write_list_style;
 use bo_drawingml::theme::write_theme;
-use bo_model::slide::{Attrs, Presentation, Rel, SlideSize};
+use bo_model::slide::{Attrs, Extra, Presentation, Rel, SlideSize, XmlNode};
 use bo_opc::{ContentTypes, Package, Relationship, TargetMode};
 use std::collections::HashSet;
 
@@ -428,10 +428,12 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         mlst = mlst.child(El::new("p:sldMasterId").a("id", id).a("r:id", rid).done());
     }
     let mut slst = El::new("p:sldIdLst");
+    let mut slide_rids: HashSet<String> = HashSet::new();
     let mut next_slide_id =
         256_u32.max(pres.slides.iter().map(|s| s.slide_id).max().unwrap_or(0) + 1);
     for (s, sn) in pres.slides.iter().zip(&slide_names) {
         let rid = claim(&mut rels, &s.pres_rel_id, "slide", relative(&pres_name, sn));
+        slide_rids.insert(rid.clone());
         let id = if s.slide_id == 0 {
             next_slide_id += 1;
             next_slide_id - 1
@@ -471,7 +473,10 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
             .as_ref()
             .map(|s| write_list_style(s, "p:defaultTextStyle")),
     );
-    k.extras(&pres.extra);
+    match prune_custom_shows(&pres.extra, &slide_rids) {
+        Some(extra) => k.extras(&extra),
+        None => k.extras(&pres.extra),
+    }
     let root = k.build(El::new("p:presentation").rest(&root_attrs(&pres.info.root_attrs)));
     put(&mut pkg, &pres_name, &root, &rels);
     if ct.get(&pres_name).is_none() {
@@ -494,6 +499,42 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         .retain(|(n, _)| present.contains(&n.to_ascii_lowercase()));
     pkg.set_content_types(&ct);
     Ok(pkg.write()?)
+}
+
+/// §19.2.1.7 custShowLst: leave out references (§19.2.1.33 sld r:id) to slides no
+/// longer in the deck — an r:id must name a relationship of the part (ECMA-376
+/// Part 2, §9.3). `None` when nothing is dropped (the list is written as read).
+fn prune_custom_shows(extra: &[Extra], slide_rids: &HashSet<String>) -> Option<Vec<Extra>> {
+    let is_rid = |k: &str| k.ends_with(":id") && !k.starts_with("xmlns");
+    let dangling = |e: &bo_model::slide::XmlElement| {
+        e.local() == "sld"
+            && e.attrs
+                .iter()
+                .any(|(k, v)| is_rid(k) && !slide_rids.contains(v))
+    };
+    let i = extra.iter().position(|x| x.xml.local() == "custShowLst")?;
+    let any = extra[i].xml.elements().any(|show| {
+        show.elements()
+            .filter(|l| l.local() == "sldLst")
+            .any(|l| l.elements().any(dangling))
+    });
+    if !any {
+        return None;
+    }
+    let mut out = extra.to_vec();
+    for show in &mut out[i].xml.children {
+        let XmlNode::Element(show) = show else {
+            continue;
+        };
+        for l in &mut show.children {
+            let XmlNode::Element(l) = l else { continue };
+            if l.local() == "sldLst" {
+                l.children
+                    .retain(|n| !matches!(n, XmlNode::Element(e) if dangling(e)));
+            }
+        }
+    }
+    Some(out)
 }
 
 fn put_rels(pkg: &mut Package, name: &str, rels: &[Rel]) {

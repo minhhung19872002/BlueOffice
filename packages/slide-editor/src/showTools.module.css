@@ -1,0 +1,250 @@
+/* Presenter tools over the slide show (SLIDE-SHOW-001). */
+
+.surface {
+  position: relative;
+  overflow: hidden;
+  flex: none;
+}
+
+.zoomed {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  transition: transform 180ms ease-out;
+}
+
+.ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.capture {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  touch-action: none;
+}
+
+.capturePen {
+  cursor: crosshair;
+}
+
+.captureLaser {
+  cursor: none;
+}
+
+.captureZoom {
+  cursor: zoom-in;
+}
+
+.captureZoomOut {
+  cursor: zoom-out;
+}
+
+.laser {
+  position: absolute;
+  z-index: 7;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ff3b30 0 40%, rgb(255 59 48 / 35%) 60%, transparent 72%);
+  pointer-events: none;
+}
+
+.band {
+  position: absolute;
+  z-index: 7;
+  border: 2px dashed #fff;
+  background: rgb(255 255 255 / 12%);
+  pointer-events: none;
+}
+
+.cover {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+}
+
+.coverBlack {
+  background: #000;
+}
+
+.coverWhite {
+  background: #fff;
+}
+
+.toolbar {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 9;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 6px;
+  background: rgb(20 20 20 / 70%);
+  opacity: 0.25;
+  transition: opacity 150ms;
+  cursor: default;
+}
+
+.toolbar:hover,
+.toolbar:focus-within {
+  opacity: 1;
+}
+
+.toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #eee;
+  cursor: pointer;
+}
+
+.toolbar button[aria-pressed='true'] {
+  border-color: #6ab0ff;
+  background: rgb(106 176 255 / 25%);
+}
+
+.grid {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
+  background: rgb(10 10 10 / 92%);
+  color: #eee;
+  overflow: auto;
+  cursor: default;
+}
+
+.gridItems {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.gridItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.gridItem[aria-current='true'] {
+  border-color: #6ab0ff;
+}
+
+.gridHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gridHead button,
+.rehearsal button {
+  padding: 4px 10px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #222;
+  color: inherit;
+  cursor: pointer;
+}
+
+.rehearsal {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 1050;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgb(30 30 30 / 92%);
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.form legend {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.row input[type='number'] {
+  width: 72px;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  min-height: 220px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--bo-border, #ccc);
+  border-radius: 4px;
+  list-style: none;
+}
+
+.list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: space-between;
+}
+
+.list li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.muted {
+  opacity: 0.7;
+  font-size: 12px;
+}

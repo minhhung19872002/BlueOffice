@@ -6,6 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { BrowserClipboard, FileAccessStorage, LocalRecentFiles } from '../shared';
+import { DesktopDisplays } from './displays';
 import type {
   CollabChange,
   DocInfo,
@@ -723,5 +724,6 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
     updates: new DesktopUpdates(call),
     // The webview (WebView2 / WebKitGTK) encodes when it has WebCodecs; else GIF / PNG only.
     video: new WebCodecsVideo(),
+    displays: new DesktopDisplays(call),
   };
 }

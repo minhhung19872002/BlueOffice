@@ -2,6 +2,7 @@ import { GlyphStore, ImageStore, renderPage } from '@blueoffice/canvas-host';
 import type {
   EngineHost,
   PageDisplayList,
+  SlideLinkAction,
   SlideShowInfo,
   SlideTransitionSound,
 } from '@blueoffice/platform';
@@ -122,6 +123,10 @@ export interface ShowStageProps {
   onIdle?: (show: SlideShowInfo) => void;
   label?: string;
   mediaLabels?: { play: string; unsupported: string };
+  /** Show without animation: every effect of the slide shown at once (§19.2.1.30 showAnimation). */
+  still?: boolean;
+  /** Follow a shape's hyperlink (custom shows, jumps); without it links are not clickable. */
+  onLink?: (action: SlideLinkAction) => void;
 }
 
 /** The transition sound playing (§19.3.1.42 sndAc), shared by the show's slides. */
@@ -178,6 +183,8 @@ export function ShowStage({
   onIdle,
   label,
   mediaLabels,
+  still = false,
+  onLink,
 }: ShowStageProps) {
   const [show, setShow] = useState<SlideShowInfo | null>(null);
   /** Layer visibility and outgoing slide once the step started / ended (by step key). */
@@ -196,7 +203,9 @@ export function ShowStage({
   const height = size.width > 0 ? Math.round((width * size.height) / size.width) : 0;
   const ready = show !== null && show.slide === pos.slide;
   const key = `${pos.slide}:${pos.click}:${pos.enter}:${from ?? ''}`;
-  const playing = pos.enter !== 'jump';
+  const playing = !still && pos.enter !== 'jump';
+  // Without animation the slide shows with every effect played.
+  const atClick = still && show && show.slide === pos.slide ? show.clicks : pos.click;
   const hasOutgoing = pos.enter === 'transition' && from !== null && from !== pos.slide;
   // Before the step starts: the state before its effects (or after them, for a jump).
   const current =
@@ -204,7 +213,7 @@ export function ShowStage({
       ? phase
       : {
           key,
-          vis: ready && show ? visibility(show, playing ? pos.click - 1 : pos.click) : [],
+          vis: ready && show ? visibility(show, playing ? pos.click - 1 : atClick) : [],
           outgoing: hasOutgoing,
         };
   // Layers shown or hidden by trigger effects (§19.5 interactive sequences) on this step.
@@ -261,7 +270,7 @@ export function ShowStage({
     let cancelled = false;
     const anims: Animation[] = [];
     const endless: Animation[] = [];
-    const start = visibility(show, playing ? pos.click - 1 : pos.click);
+    const start = visibility(show, playing ? pos.click - 1 : atClick);
     let end: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
       if (cancelled) return;
@@ -316,7 +325,7 @@ export function ShowStage({
         if (cancelled) return;
         for (const a of anims) a.cancel();
         // Endless effects keep running after the step (their layer stays shown).
-        setPhase({ key, vis: visibility(show, pos.click), outgoing: false });
+        setPhase({ key, vis: visibility(show, atClick), outgoing: false });
         onIdleRef.current?.(show);
       };
       if (total > 0) end = setTimeout(finish, total + 30);
@@ -329,7 +338,7 @@ export function ShowStage({
       for (const a of anims) a.cancel();
       for (const a of endless) a.cancel();
     };
-  }, [show, pos.slide, pos.click, pos.enter, playing, hasOutgoing, key, media, engine]);
+  }, [show, pos.slide, pos.click, pos.enter, playing, hasOutgoing, key, media, engine, atClick]);
 
   return (
     <div
@@ -433,6 +442,28 @@ export function ShowStage({
                 // A trigger plays its effects instead of advancing the show.
                 e.stopPropagation();
                 playTrigger(tr.shapeId);
+              }}
+            />
+          );
+        })}
+      {ready &&
+        media &&
+        onLink &&
+        (show.links ?? []).map((l) => {
+          const k = width / (show.width || 1);
+          const [x, y, w, h] = l.rect;
+          return (
+            <button
+              key={`link-${l.shapeId}`}
+              type="button"
+              className={styles.showTrigger}
+              data-testid={`show-link-${l.shapeId}`}
+              data-action={l.action.kind}
+              style={{ left: x * k, top: y * k, width: w * k, height: h * k }}
+              onClick={(e) => {
+                // A hyperlink goes where it leads instead of advancing the show.
+                e.stopPropagation();
+                onLink(l.action);
               }}
             />
           );

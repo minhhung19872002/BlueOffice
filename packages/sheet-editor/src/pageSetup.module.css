@@ -1,0 +1,64 @@
+/* Page setup dialog (header / footer editor) and print preview. */
+.hfBox {
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: 4px;
+  padding: 6px 8px 8px;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.hfCodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.hfCodes button {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.hfSections {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.hfSections label {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.hfSections textarea {
+  font: inherit;
+  resize: vertical;
+  padding: 3px 6px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: 3px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.paper {
+  display: flex;
+  justify-content: center;
+  background: var(--bo-surface-muted, #eef1f5);
+  padding: 8px;
+  max-height: 580px;
+  overflow: auto;
+}
+
+.paper canvas {
+  box-shadow: 0 1px 4px rgb(0 0 0 / 25%);
+  background: #fff;
+}

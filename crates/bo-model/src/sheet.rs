@@ -2926,7 +2926,28 @@ pub struct PageSetup {
     pub odd_header: Option<String>,
     /// `oddFooter` text with its `&` codes.
     pub odd_footer: Option<String>,
-    /// Whole `headerFooter` element when it has more than odd header/footer.
+    /// `evenHeader` (§18.3.1.40), used on even pages when `different_odd_even`.
+    #[serde(default)]
+    pub even_header: Option<String>,
+    /// `evenFooter` (§18.3.1.39).
+    #[serde(default)]
+    pub even_footer: Option<String>,
+    /// `firstHeader` (§18.3.1.42), used on the first page when `different_first`.
+    #[serde(default)]
+    pub first_header: Option<String>,
+    /// `firstFooter` (§18.3.1.41).
+    #[serde(default)]
+    pub first_footer: Option<String>,
+    /// `headerFooter/@differentOddEven` (§18.3.1.46).
+    #[serde(default)]
+    pub different_odd_even: bool,
+    /// `headerFooter/@differentFirst` (§18.3.1.46).
+    #[serde(default)]
+    pub different_first: bool,
+    /// Other `headerFooter` attributes (`scaleWithDoc`, `alignWithMargins`).
+    #[serde(default)]
+    pub header_footer_attrs: Vec<RawAttr>,
+    /// Whole `headerFooter` element when it has children this model does not know.
     pub header_footer_raw: Option<String>,
     /// Manual row breaks (zero-based row *after which* a page breaks).
     pub row_breaks: Vec<u32>,

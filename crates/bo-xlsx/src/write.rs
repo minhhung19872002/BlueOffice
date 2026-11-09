@@ -1202,17 +1202,33 @@ fn sheet_xml(
                     out.push_str("/>");
                 }
             }
+            // §18.3.1.46 headerFooter (children in CT_HeaderFooter sequence order).
             "headerFooter" => {
                 let p = &ws.page_setup;
+                let texts = [
+                    ("oddHeader", &p.odd_header),
+                    ("oddFooter", &p.odd_footer),
+                    ("evenHeader", &p.even_header),
+                    ("evenFooter", &p.even_footer),
+                    ("firstHeader", &p.first_header),
+                    ("firstFooter", &p.first_footer),
+                ];
                 if let Some(raw) = &p.header_footer_raw {
                     out.push_str(raw);
-                } else if p.odd_header.is_some() || p.odd_footer.is_some() {
-                    out.push_str("<headerFooter>");
-                    if let Some(h) = &p.odd_header {
-                        let _ = write!(out, "<oddHeader>{}</oddHeader>", escape(h));
-                    }
-                    if let Some(f) = &p.odd_footer {
-                        let _ = write!(out, "<oddFooter>{}</oddFooter>", escape(f));
+                } else if texts.iter().any(|(_, t)| t.is_some())
+                    || p.different_odd_even
+                    || p.different_first
+                    || !p.header_footer_attrs.is_empty()
+                {
+                    out.push_str("<headerFooter");
+                    a_true(out, "differentOddEven", p.different_odd_even);
+                    a_true(out, "differentFirst", p.different_first);
+                    a_raw(out, &p.header_footer_attrs);
+                    out.push('>');
+                    for (name, t) in texts {
+                        if let Some(t) = t {
+                            let _ = write!(out, "<{name}>{}</{name}>", escape(t));
+                        }
                     }
                     out.push_str("</headerFooter>");
                 }

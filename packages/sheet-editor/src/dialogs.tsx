@@ -1,7 +1,7 @@
 /**
  * BlueSheet dialogs and popovers: AutoFilter menu, conditional
  * formatting, data validation, charts, find/replace, go to, paste special,
- * page setup, messages and a generic anchored menu. Every action goes through
+ * messages and a generic anchored menu. Every action goes through
  * the engine command bridge (`SheetHost.exec`).
  */
 import { useTranslation } from '@blueoffice/i18n';
@@ -11,7 +11,6 @@ import type {
   CfStyle,
   ChartInfo,
   ChartTemplate,
-  PageSetupInfo,
   PasteMode,
   SheetHost,
   SheetIcon,
@@ -20,7 +19,6 @@ import type {
 import { ChartTemplateList, Dialog, deleteChartTemplate, loadChartTemplates } from '@blueoffice/ui';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { layoutTexts } from './chartStyles';
-import { a1 } from './grid';
 import { FilterExtras } from './sortFilter';
 import styles from './SheetEditor.module.css';
 
@@ -1355,153 +1353,6 @@ export function PasteSpecialDialog({
         <label className={styles.check}>
           <input type="checkbox" checked={skip} onChange={(e) => setSkip(e.target.checked)} />
           {t('sheetEditor.pasteSpecial.skipBlanks')}
-        </label>
-      </div>
-    </Dialog>
-  );
-}
-
-// ----------------------------------------------------------------- page setup
-
-export function PageSetupDialog({
-  host,
-  sheet,
-  range,
-  onClose,
-  onDone,
-  fail,
-}: Common & { range: SheetRange }) {
-  const { t } = useTranslation();
-  const [ps, setPs] = useState<PageSetupInfo | null>(null);
-  const [fit, setFit] = useState(false);
-  const [areaFromSelection, setAreaFromSelection] = useState(false);
-  const [titles, setTitles] = useState('');
-  useEffect(() => {
-    void host
-      .exec<PageSetupInfo>({ cmd: 'pageSetup', sheet })
-      .then((p) => {
-        setPs(p);
-        setFit(!!p.fit);
-        setTitles(p.titleRows ? `${p.titleRows[0] + 1}:${p.titleRows[1] + 1}` : '');
-      })
-      .catch(fail);
-  }, [host, sheet, fail]);
-  if (!ps) return null;
-  const ok = async () => {
-    try {
-      const m = /^\s*(\d+)\s*(?::\s*(\d+))?\s*$/.exec(titles);
-      const titleRows: [number, number] | null = m
-        ? [Number(m[1]) - 1, Number(m[2] ?? m[1]) - 1]
-        : null;
-      await host.exec({
-        cmd: 'setPageSetup',
-        sheet,
-        orientation: ps.orientation,
-        paperSize: ps.paperSize,
-        scale: ps.scale,
-        fit: fit ? (ps.fit ?? [1, 0]) : null,
-        margins: ps.margins,
-        titleRows,
-        gridLines: ps.gridLines,
-        ...(areaFromSelection ? { printArea: range } : {}),
-      });
-      await onDone();
-      onClose();
-    } catch (e) {
-      fail(e);
-    }
-  };
-  const margin = (i: number, label: string) => (
-    <label>
-      {label}
-      <input
-        type="number"
-        step={0.05}
-        min={0}
-        value={ps.margins[i]}
-        onChange={(e) => {
-          const mm = [...ps.margins] as PageSetupInfo['margins'];
-          mm[i] = Number(e.target.value) || 0;
-          setPs({ ...ps, margins: mm });
-        }}
-      />
-    </label>
-  );
-  return (
-    <Dialog
-      open
-      onOpenChange={(o) => !o && onClose()}
-      title={t('sheetEditor.page.title')}
-      width={460}
-      testId="page-setup"
-      footer={<Buttons onCancel={onClose} onOk={() => void ok()} okId="page-ok" />}
-    >
-      <div className={styles.form}>
-        <label>
-          {t('sheetEditor.page.orientation')}
-          <select
-            value={ps.orientation}
-            onChange={(e) =>
-              setPs({ ...ps, orientation: e.target.value as PageSetupInfo['orientation'] })
-            }
-          >
-            <option value="portrait">{t('sheetEditor.page.portrait')}</option>
-            <option value="landscape">{t('sheetEditor.page.landscape')}</option>
-          </select>
-        </label>
-        <label>
-          {t('sheetEditor.page.paper')}
-          <select
-            value={ps.paperSize}
-            onChange={(e) => setPs({ ...ps, paperSize: Number(e.target.value) })}
-          >
-            <option value={9}>A4</option>
-            <option value={8}>A3</option>
-            <option value={11}>A5</option>
-            <option value={1}>Letter</option>
-            <option value={5}>Legal</option>
-          </select>
-        </label>
-        <label>
-          {t('sheetEditor.page.scale')}
-          <input
-            type="number"
-            min={10}
-            max={400}
-            disabled={fit}
-            value={ps.scale}
-            onChange={(e) => setPs({ ...ps, scale: Number(e.target.value) || 100 })}
-          />
-        </label>
-        <label className={styles.check}>
-          <input type="checkbox" checked={fit} onChange={(e) => setFit(e.target.checked)} />
-          {t('sheetEditor.page.fitWidth')}
-        </label>
-        {margin(0, t('sheetEditor.page.left'))}
-        {margin(1, t('sheetEditor.page.right'))}
-        {margin(2, t('sheetEditor.page.top'))}
-        {margin(3, t('sheetEditor.page.bottom'))}
-        <label>
-          {t('sheetEditor.page.titleRows')}
-          <input placeholder="1:1" value={titles} onChange={(e) => setTitles(e.target.value)} />
-        </label>
-        <label className={styles.check}>
-          <input
-            type="checkbox"
-            checked={areaFromSelection}
-            onChange={(e) => setAreaFromSelection(e.target.checked)}
-          />
-          {t('sheetEditor.page.printArea', {
-            range: `${a1({ row: range.r0, col: range.c0 })}:${a1({ row: range.r1, col: range.c1 })}`,
-          })}
-        </label>
-        <label className={styles.check}>
-          <input
-            type="checkbox"
-            checked={ps.gridLines}
-            onChange={(e) => setPs({ ...ps, gridLines: e.target.checked })}
-          />
-          {t('sheetEditor.page.gridLines')}
         </label>
       </div>
     </Dialog>

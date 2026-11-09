@@ -55,6 +55,10 @@ pub struct RenderOptions {
     /// Pre-drawn SmartArt fallbacks by drawing part name ([`DrawingOverlay`]),
     /// placed at the anchors of the sheet's [`Worksheet::diagrams`].
     pub drawings: std::sync::Arc<std::collections::BTreeMap<String, DrawingOverlay>>,
+    /// Text shown instead of error values when printing (`pageSetup/@errors`,
+    /// ECMA-376 Part 1, §18.3.1.63 and the §18.18 ST_PrintError type): `""` blank, `"--"`, `"#N/A"`;
+    /// `None` shows errors as displayed.
+    pub error_text: Option<String>,
 }
 
 /// Vector drawing of a SmartArt fallback ([MS-ODRAWXML] `dsp:drawing`), drawn
@@ -85,6 +89,7 @@ impl Default for RenderOptions {
             charts: true,
             ignore_frozen: false,
             drawings: std::sync::Arc::default(),
+            error_text: None,
         }
     }
 }
@@ -856,7 +861,10 @@ impl Renderer<'_> {
         if matches!(cell.value, CellValue::Empty) {
             return;
         }
-        let fmt = format_cell(self.wb, cell, &self.opts.locale);
+        let mut fmt = format_cell(self.wb, cell, &self.opts.locale);
+        if let (CellValue::Error(_), Some(t)) = (&cell.value, &self.opts.error_text) {
+            fmt.text.clone_from(t);
+        }
         if fmt.text.is_empty() {
             return;
         }

@@ -983,20 +983,52 @@ pub enum SheetCommand {
         #[serde(default)]
         scale: Option<u32>,
         /// Fit to `[width, height]` pages (0 = no limit); `null` turns fitting off.
-        #[serde(default)]
+        #[serde(default, deserialize_with = "super::print_cmd::nullable")]
         fit: Option<Option<[u32; 2]>>,
         /// Margins in inches: left, right, top, bottom.
         #[serde(default)]
         margins: Option<[f64; 4]>,
         /// `null` clears the print area.
-        #[serde(default)]
+        #[serde(default, deserialize_with = "super::print_cmd::nullable")]
         print_area: Option<Option<Rng>>,
         /// Rows repeated at the top `[first, last]`; `null` clears.
-        #[serde(default)]
+        #[serde(default, deserialize_with = "super::print_cmd::nullable")]
         title_rows: Option<Option<[u32; 2]>>,
         /// Print gridlines.
         #[serde(default)]
         grid_lines: Option<bool>,
+        /// Print titles columns, several print areas, printOptions, pageSetup
+        /// attributes, header / footer (see [`super::print_cmd::PrintSetupExtra`]).
+        #[serde(flatten)]
+        extra: Box<super::print_cmd::PrintSetupExtra>,
+    },
+    /// Inserts or removes a manual page break before `row` and / or `col`
+    /// (ECMA-376 Part 1, §18.3.1.74 rowBreaks, §18.3.1.14 colBreaks).
+    PageBreak {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// First row of the next page.
+        #[serde(default)]
+        row: Option<u32>,
+        /// First column of the next page.
+        #[serde(default)]
+        col: Option<u32>,
+        /// Remove the break instead.
+        #[serde(default)]
+        remove: bool,
+    },
+    /// Removes every manual page break of a sheet.
+    ResetPageBreaks {
+        /// 0-based sheet index.
+        sheet: usize,
+    },
+    /// Print preview: page count and the display list of one printed page.
+    PrintPreview {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based page index (clamped to the last page).
+        #[serde(default)]
+        page: usize,
     },
     /// Password for the next `.xlsx` saves ([MS-OFFCRYPTO]); empty/absent removes it.
     SetSavePassword {
@@ -3216,8 +3248,10 @@ impl SheetEngine {
                     "printArea": ws.print_area,
                     "titleRows": rows.map(|(a, b)| [a, b]),
                     "gridLines": p.print_grid_lines,
+                    "extra": super::print_cmd::extra_json(ws),
                 }))
             }
+            C::PrintPreview { sheet, page } => self.print_preview(sheet, page),
             C::PivotSource { sheet, range } => {
                 let ws = self.sheet(sheet)?;
                 let r = current_region(ws, range.range());
@@ -3478,6 +3512,7 @@ impl SheetEngine {
                 print_area,
                 title_rows,
                 grid_lines,
+                extra,
             } => self.edit(sheet, Recalc::No, |wb, _| {
                 let ws = &mut wb.sheets[sheet];
                 let name = bo_sheet::cells::quote_sheet(&ws.name);
@@ -3522,9 +3557,32 @@ impl SheetEngine {
                     ws.print_area = pa.map(|r| bo_sheet::cells::abs_ref(&ws.name, r.range()));
                 }
                 if let Some(tr) = title_rows {
-                    ws.print_titles =
-                        tr.map(|[a, b]| format!("{name}!${}:${}", a.min(b) + 1, a.max(b) + 1));
+                    let (_, cols) = ws
+                        .print_titles
+                        .as_deref()
+                        .map_or((None, None), super::print::parse_titles);
+                    ws.print_titles = super::print::titles_text(
+                        &name,
+                        tr.map(|[a, b]| (a.min(b), a.max(b))),
+                        cols,
+                    );
                 }
+                super::print_cmd::apply_extra(ws, *extra)?;
+                Ok(json!({ "ok": true }))
+            }),
+            C::PageBreak {
+                sheet,
+                row,
+                col,
+                remove,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                super::print_cmd::page_break(&mut wb.sheets[sheet], row, col, remove);
+                Ok(json!({ "ok": true }))
+            }),
+            C::ResetPageBreaks { sheet } => self.edit(sheet, Recalc::No, |wb, _| {
+                let p = &mut wb.sheets[sheet].page_setup;
+                p.row_breaks.clear();
+                p.col_breaks.clear();
                 Ok(json!({ "ok": true }))
             }),
         }

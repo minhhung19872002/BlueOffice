@@ -64,9 +64,17 @@ fn hidden_cols(ws: &Worksheet) -> usize {
 
 fn has_header_footer(ws: &Worksheet) -> bool {
     let p = &ws.page_setup;
-    [&p.odd_header, &p.odd_footer, &p.header_footer_raw]
-        .iter()
-        .any(|v| v.as_deref().is_some_and(|s| !s.trim().is_empty()))
+    [
+        &p.odd_header,
+        &p.odd_footer,
+        &p.even_header,
+        &p.even_footer,
+        &p.first_header,
+        &p.first_footer,
+        &p.header_footer_raw,
+    ]
+    .iter()
+    .any(|v| v.as_deref().is_some_and(|s| !s.trim().is_empty()))
 }
 
 fn inspector(wb: &Workbook, pkg: &PackageScan) -> Vec<Finding> {
@@ -460,6 +468,10 @@ pub fn remove(
             let p = &mut ws.page_setup;
             p.odd_header = None;
             p.odd_footer = None;
+            p.even_header = None;
+            p.even_footer = None;
+            p.first_header = None;
+            p.first_footer = None;
             p.header_footer_raw = None;
         }
     }

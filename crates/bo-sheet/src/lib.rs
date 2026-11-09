@@ -23,6 +23,7 @@ pub mod flashfill;
 pub mod formctl;
 pub mod formula;
 pub mod geometry;
+pub mod headerfooter;
 pub mod icons;
 pub mod live;
 pub mod numfmt;

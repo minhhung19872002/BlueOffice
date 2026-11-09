@@ -501,24 +501,7 @@ fn compare_with_the_original_document() {
     cmd(&mut e, r#"{"cmd":"insertText","text":"7"}"#);
     let edited = e.document().unwrap().plain_text();
     assert!(edited.contains("ngày 7"));
-    let b64 = {
-        // Standard base64 of the original .docx.
-        const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut s = String::new();
-        for c in original.chunks(3) {
-            let n = (u32::from(c[0]) << 16)
-                | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
-                | u32::from(*c.get(2).unwrap_or(&0));
-            for k in 0..4 {
-                if k <= c.len() {
-                    s.push(T[((n >> (18 - 6 * k)) & 63) as usize] as char);
-                } else {
-                    s.push('=');
-                }
-            }
-        }
-        s
-    };
+    let b64 = b64(&original);
     let r = cmd(
         &mut e,
         &format!(r#"{{"cmd":"compareWith","name":"goc.docx","base64":"{b64}"}}"#),
@@ -555,4 +538,52 @@ fn compare_with_the_original_document() {
         r#"{"cmd":"compareWith","name":"x.docx","base64":"bm9wZQ=="}"#,
     );
     assert!(r["error"].is_string());
+}
+
+/// Select bytes `a..b` of paragraph `p` and type `text` (tracked when tracking is on).
+fn replace(e: &mut Engine, p: usize, a: usize, b: usize, text: &str) {
+    cmd(
+        e,
+        &format!(
+            r#"{{"cmd":"setSelection","selection":{{"anchor":{{"p":{p},"o":{a}}},"focus":{{"p":{p},"o":{b}}}}}}}"#
+        ),
+    );
+    cmd(e, &format!(r#"{{"cmd":"insertText","text":"{text}"}}"#));
+}
+
+// source: prompt §7.1 "Kết hợp" — two reviewers track their edits in copies of one original; the
+// combined document holds both, by author; rejecting all gives the original, accepting all both.
+#[test]
+fn combine_two_reviewers_copies() {
+    let text = "Giá 100 triệu.\nThời hạn một năm.";
+    let mut lan = Engine::with_bundled_fonts();
+    lan.open(text.as_bytes(), "a.txt").unwrap();
+    let mut minh = Engine::with_bundled_fonts();
+    minh.open(&lan.save_docx().unwrap(), "b.docx").unwrap();
+    cmd(&mut lan, r#"{"cmd":"setAuthor","name":"Lan"}"#);
+    cmd(&mut lan, r#"{"cmd":"setTrackChanges","on":true}"#);
+    replace(&mut lan, 0, "Giá ".len(), "Giá 100".len(), "120");
+    cmd(&mut minh, r#"{"cmd":"setAuthor","name":"Minh"}"#);
+    cmd(&mut minh, r#"{"cmd":"setTrackChanges","on":true}"#);
+    replace(&mut minh, 1, "Thời hạn ".len(), "Thời hạn một".len(), "hai");
+    let theirs = minh.save_docx().unwrap();
+    let r = cmd(
+        &mut lan,
+        &format!(
+            r#"{{"cmd":"combineWith","name":"ban-cua-Minh.docx","base64":"{}"}}"#,
+            b64(&theirs)
+        ),
+    );
+    let revs = r["review"]["revisions"].as_array().unwrap();
+    let authors: std::collections::BTreeSet<&str> =
+        revs.iter().map(|x| x["author"].as_str().unwrap()).collect();
+    assert_eq!(authors.into_iter().collect::<Vec<_>>(), vec!["Lan", "Minh"]);
+    cmd(&mut lan, r#"{"cmd":"acceptAllRevisions"}"#);
+    assert_eq!(
+        lan.document().unwrap().plain_text(),
+        "Giá 120 triệu.\nThời hạn hai năm."
+    );
+    cmd(&mut lan, r#"{"cmd":"undo"}"#);
+    cmd(&mut lan, r#"{"cmd":"rejectAllRevisions"}"#);
+    assert_eq!(lan.document().unwrap().plain_text(), text);
 }

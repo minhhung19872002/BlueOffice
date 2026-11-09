@@ -1251,6 +1251,58 @@ impl Session {
         Ok(made)
     }
 
+    /// Combine with another reviewer's copy (prompt §7.1 "Kết hợp"): the original is this
+    /// document with its revisions rejected; the result holds this document's changes (by their
+    /// author) and those of `other` (by its revisions' author, else `other_author`), all as
+    /// tracked changes (one undo step). Returns the number of revisions.
+    pub fn combine_with(&mut self, other: &Document, other_author: &str) -> Result<usize> {
+        let resolved = |d: &Document, accept: bool| {
+            let mut d = d.clone();
+            for s in &mut d.sections {
+                s.blocks = revisions::resolve_blocks(&s.blocks, &|_| true, accept);
+            }
+            d
+        };
+        // The most frequent revision author of a document.
+        let author_of = |d: &Document| {
+            let mut n: std::collections::BTreeMap<String, usize> =
+                std::collections::BTreeMap::new();
+            for r in revisions::list(d) {
+                *n.entry(r.author).or_default() += 1;
+            }
+            n.into_iter().max_by_key(|(_, c)| *c).map(|(a, _)| a)
+        };
+        let base = resolved(&self.doc, false);
+        let mine = resolved(&self.doc, true);
+        let theirs = resolved(other, true);
+        let author_a = author_of(&self.doc).unwrap_or_else(|| self.author.clone());
+        let author_b = author_of(other).unwrap_or_else(|| other_author.to_owned());
+        let first = revisions::max_id(&self.doc).max(revisions::max_id(other));
+        let out = compare::combine(
+            &base,
+            (&mine, &author_a),
+            (&theirs, &author_b),
+            self.clock.as_deref(),
+            first,
+        );
+        let made = revisions::list(&out).len();
+        let caret = self.selection.ordered().0;
+        self.edit(|tx, _| {
+            for (si, sec) in out.sections.iter().enumerate() {
+                if si < tx.doc.sections.len() && tx.doc.sections[si].blocks != sec.blocks {
+                    tx.set_section_blocks(si, &sec.blocks)?;
+                }
+            }
+            Ok(Selection::caret(caret))
+        })?;
+        let c = self.clamp(caret);
+        self.selection = Selection::caret(c);
+        if let Some(t) = self.undo.last_mut() {
+            t.after = self.selection;
+        }
+        Ok(made)
+    }
+
     /// Accept (`accept`) or reject revisions: `ids = None` resolves all of them.
     /// Returns the number of revisions resolved (one undo step).
     pub fn resolve_revisions(&mut self, ids: Option<&[i32]>, accept: bool) -> Result<usize> {

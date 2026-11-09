@@ -145,3 +145,31 @@ test('compare with the original: the differences become tracked changes', async 
   await expect(page.getByTestId('status-words')).toHaveText('4 từ');
   expect(errors).toEqual([]);
 });
+
+test('combine with another copy: both reviewers changes as tracked changes', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await newDocument(page);
+  await page.keyboard.insertText('Giá 100 triệu');
+  // The other reviewer's copy adds " đồng" (no tracking: its file name names the reviewer).
+  await page.keyboard.insertText(' đồng');
+  const download = page.waitForEvent('download');
+  await page.keyboard.press('Control+s');
+  const copy = await (await download).path();
+  for (let i = 0; i < 5; i++) await page.keyboard.press('Backspace');
+  await expect(page.getByTestId('status-words')).toHaveText('3 từ');
+  // This reviewer tracks an insertion.
+  await page.getByRole('tab', { name: 'Xem lại' }).click();
+  await cmd(page, 'review.trackChanges').click();
+  await focusText(page);
+  await page.keyboard.insertText(' VNĐ');
+  await cmd(page, 'review.pane').click();
+  await expect(page.getByTestId('revision-count')).toHaveText('1 thay đổi');
+  const chooser = page.waitForEvent('filechooser');
+  await cmd(page, 'review.combine').click();
+  await (await chooser).setFiles(copy);
+  await expect(page.getByTestId('revision-count')).toHaveText('2 thay đổi');
+  await cmd(page, 'review.rejectAll').click();
+  await expect(page.getByTestId('status-words')).toHaveText('3 từ');
+  expect(errors).toEqual([]);
+});

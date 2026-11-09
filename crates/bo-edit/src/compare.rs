@@ -516,6 +516,12 @@ fn last_mark(blocks: &mut Vec<Block>) {
             runs.append(&mut first_ins.runs);
             first_ins.runs = runs;
         }
+        // The final mark is the original one, unchanged.
+        if let Some(Block::Paragraph(last)) = blocks.last_mut() {
+            last.props.mark_ins = None;
+            last.props.mark_del = None;
+        }
+        return;
     }
     let n = blocks.len();
     let Some(Block::Paragraph(last)) = blocks.last_mut() else {
@@ -580,6 +586,235 @@ pub fn compare(
                 last.blocks.push(deleted_block(b, &mut rev));
             }
         }
+    }
+    out
+}
+
+/// How one revised version treats a block of the original.
+#[derive(Clone)]
+enum Fate<'a> {
+    Same,
+    Changed(&'a Paragraph),
+    Gone,
+}
+
+/// The blocks of `rev` matched to those of `base` (equal, or alike paragraphs within a gap): the
+/// fate of each base block and the blocks inserted before each one (index `base.len()` = at the
+/// end).
+fn fates<'a>(base: &[Block], rev: &'a [Block]) -> (Vec<Fate<'a>>, Vec<Vec<&'a Block>>) {
+    let (bk, rk): (Vec<String>, Vec<String>) = (
+        base.iter().map(block_key).collect(),
+        rev.iter().map(block_key).collect(),
+    );
+    let pairs = lcs(&bk, &rk, |a, b| a == b);
+    let mut fate = vec![Fate::Gone; base.len()];
+    let mut ins: Vec<Vec<&Block>> = vec![Vec::new(); base.len() + 1];
+    let (mut i, mut j) = (0, 0);
+    for &(pi, pj) in pairs
+        .iter()
+        .chain(std::iter::once(&(base.len(), rev.len())))
+    {
+        let (mut a, mut b) = (i, j);
+        let one_for_one = pi - i == 1 && pj - j == 1;
+        while a < pi || b < pj {
+            match (
+                base.get(a).filter(|_| a < pi),
+                rev.get(b).filter(|_| b < pj),
+            ) {
+                (Some(Block::Paragraph(x)), Some(Block::Paragraph(y)))
+                    if one_for_one || similarity(x, y) >= 0.4 =>
+                {
+                    fate[a] = Fate::Changed(y);
+                    a += 1;
+                    b += 1;
+                }
+                _ if a < pi && (b >= pj || (pi - a) >= (pj - b)) => {
+                    fate[a] = Fate::Gone;
+                    a += 1;
+                }
+                _ => {
+                    ins[a].push(&rev[b]);
+                    b += 1;
+                }
+            }
+        }
+        if pi < base.len() {
+            fate[pi] = match (&base[pi], &rev[pj]) {
+                (Block::Paragraph(x), Block::Paragraph(y))
+                    if plain_paragraph(x) != plain_paragraph(y) =>
+                {
+                    Fate::Changed(y)
+                }
+                _ => Fate::Same,
+            };
+        }
+        i = pi + 1;
+        j = pj + 1;
+    }
+    (fate, ins)
+}
+
+/// The revised paragraph of a changed block.
+fn changed<'a>(f: &Fate<'a>) -> Option<&'a Paragraph> {
+    match f {
+        Fate::Changed(q) => Some(q),
+        _ => None,
+    }
+}
+
+/// A paragraph's props and runs without revision marks (what "unchanged" compares).
+fn plain_paragraph(p: &Paragraph) -> (bo_model::ParaProps, Vec<(String, RunProps)>) {
+    let mut props = p.props.clone();
+    props.change = None;
+    props.mark_ins = None;
+    props.mark_del = None;
+    (
+        props,
+        p.runs
+            .iter()
+            .map(|r| (r.plain_text(), plain(&r.props)))
+            .collect(),
+    )
+}
+
+/// Word edits of `new` against the base tokens `bt`: whether each base token is deleted, and the
+/// atoms inserted before each one (index `bt.len()` = at the end).
+fn token_edits(bt: &[(usize, usize, String)], new: &[Atom]) -> (Vec<bool>, Vec<Vec<Atom>>) {
+    let nt = tokens(new);
+    let all = lcs(bt, &nt, |x, y| x.2 == y.2);
+    let pairs: Vec<(usize, usize)> = all
+        .iter()
+        .enumerate()
+        .filter(|(k, (pi, pj))| {
+            !bt[*pi].2.trim().is_empty()
+                || (*k > 0 && all[k - 1] == (pi.wrapping_sub(1), pj.wrapping_sub(1)))
+                || all.get(k + 1) == Some(&(pi + 1, pj + 1))
+        })
+        .map(|(_, p)| *p)
+        .collect();
+    let mut del = vec![true; bt.len()];
+    let mut ins: Vec<Vec<Atom>> = vec![Vec::new(); bt.len() + 1];
+    let (mut i, mut j) = (0, 0);
+    for &(pi, pj) in pairs.iter().chain(std::iter::once(&(bt.len(), nt.len()))) {
+        if j < pj {
+            ins[i].extend(new[nt[j].0..nt[pj - 1].1].iter().cloned());
+        }
+        if pi < bt.len() {
+            del[pi] = false;
+        }
+        i = pi + 1;
+        j = pj + 1;
+    }
+    (del, ins)
+}
+
+/// The base paragraph with the word edits of two reviewers: both deletions; the insertions of
+/// the first, then of the second unless the same.
+fn merge_paragraph(
+    base: &Paragraph,
+    a: Option<&Paragraph>,
+    b: Option<&Paragraph>,
+    ra: &mut Rev,
+    rb: &mut Rev,
+) -> Paragraph {
+    let ba = atoms(base);
+    let bt = tokens(&ba);
+    let ea = a.map(|p| token_edits(&bt, &atoms(p)));
+    let eb = b.map(|p| token_edits(&bt, &atoms(p)));
+    let mut out: Vec<Atom> = Vec::new();
+    let put_ins = |out: &mut Vec<Atom>, atoms: &[Atom], rev: &mut Rev| {
+        if !atoms.is_empty() {
+            let m = rev.mark();
+            out.extend(with_mark(atoms, |r| r.ins = Some(m.clone())));
+        }
+    };
+    for k in 0..=bt.len() {
+        let ia = ea.as_ref().map_or(&[][..], |e| e.1[k].as_slice());
+        let ib = eb.as_ref().map_or(&[][..], |e| e.1[k].as_slice());
+        put_ins(&mut out, ia, ra);
+        let same = ia.len() == ib.len() && ia.iter().zip(ib).all(|(x, y)| x.item == y.item);
+        if !same {
+            put_ins(&mut out, ib, rb);
+        }
+        if k < bt.len() {
+            let span = &ba[bt[k].0..bt[k].1];
+            let da = ea.as_ref().is_some_and(|e| e.0[k]);
+            let db = eb.as_ref().is_some_and(|e| e.0[k]);
+            if da || db {
+                let rev = if da { &mut *ra } else { &mut *rb };
+                let m = rev.mark();
+                out.extend(with_mark(span, |r| r.del = Some(m.clone())));
+            } else {
+                out.extend(span.iter().cloned());
+            }
+        }
+    }
+    Paragraph {
+        props: a
+            .or(b)
+            .map_or_else(|| base.props.clone(), |p| p.props.clone()),
+        runs: runs_of(&out),
+        src: None,
+    }
+}
+
+/// Combine two revised versions of `base` (prompt §7.1 "Kết hợp"): `base` with the changes of
+/// `a` (by `author_a`) and of `b` (by `author_b`) as tracked changes. Paragraphs changed by both
+/// merge their word edits; another block changed by both keeps the first reviewer's version.
+#[must_use]
+pub fn combine(
+    base: &Document,
+    (a, author_a): (&Document, &str),
+    (b, author_b): (&Document, &str),
+    date: Option<&str>,
+    first_id: i32,
+) -> Document {
+    let rev = |author: &str, id: i32| Rev {
+        info: RevisionInfo {
+            id,
+            author: author.to_owned(),
+            date: date.map(str::to_owned),
+        },
+    };
+    let mut ra = rev(author_a, first_id);
+    let mut out = base.clone();
+    for (si, sec) in out.sections.iter_mut().enumerate() {
+        let empty = Vec::new();
+        let ab = a.sections.get(si).map_or(&empty, |s| &s.blocks);
+        let bb = b.sections.get(si).map_or(&empty, |s| &s.blocks);
+        let (fa, ia) = fates(&sec.blocks, ab);
+        let (fb, ib) = fates(&sec.blocks, bb);
+        let mut blocks = Vec::new();
+        for k in 0..=sec.blocks.len() {
+            for x in &ia[k] {
+                blocks.push(inserted_block(x, &mut ra));
+            }
+            // The second reviewer's insertions, unless the first made the same.
+            let mut rb = rev(author_b, ra.info.id);
+            for x in &ib[k] {
+                if !ia[k].iter().any(|y| block_key(y) == block_key(x)) {
+                    blocks.push(inserted_block(x, &mut rb));
+                }
+            }
+            ra.info.id = rb.info.id;
+            let Some(orig) = sec.blocks.get(k) else {
+                break;
+            };
+            let mut rb = rev(author_b, ra.info.id);
+            let block = match (orig, &fa[k], &fb[k]) {
+                (_, Fate::Same, Fate::Same) => orig.clone(),
+                (_, Fate::Gone, _) => deleted_block(orig, &mut ra),
+                (_, _, Fate::Gone) => deleted_block(orig, &mut rb),
+                (Block::Paragraph(p), x, y) => {
+                    Block::Paragraph(merge_paragraph(p, changed(x), changed(y), &mut ra, &mut rb))
+                }
+                _ => orig.clone(),
+            };
+            ra.info.id = rb.info.id;
+            blocks.push(block);
+        }
+        last_mark(&mut blocks);
+        sec.blocks = blocks;
     }
     out
 }
@@ -814,5 +1049,55 @@ mod tests {
                 ("Một câu mới".into(), "ins")
             ]
         );
+    }
+
+    // source: prompt §7.1 "Kết hợp" — two reviewers edit copies of one original: the combined
+    // document holds both reviewers' changes, each by its author; rejecting all gives the original,
+    // accepting all gives both edits.
+    #[test]
+    fn two_reviewers_combine() {
+        let base = doc(vec![
+            para(&[("Điều 1: giá trị là 100 triệu.", false)]),
+            para(&[("Điều 2: thời hạn một năm.", false)]),
+            para(&[("Điều 3: bảo hành.", false)]),
+        ]);
+        // Lan changes the price and removes Điều 3; Minh changes the term and adds Điều 4.
+        let lan = doc(vec![
+            para(&[("Điều 1: giá trị là 120 triệu.", false)]),
+            para(&[("Điều 2: thời hạn một năm.", false)]),
+        ]);
+        let minh = doc(vec![
+            para(&[("Điều 1: giá trị là 100 triệu.", false)]),
+            para(&[("Điều 2: thời hạn hai năm.", false)]),
+            para(&[("Điều 3: bảo hành.", false)]),
+            para(&[("Điều 4: phạt vi phạm.", false)]),
+        ]);
+        let out = combine(&base, (&lan, "Lan"), (&minh, "Minh"), None, 0);
+        let blocks = &out.sections[0].blocks;
+        let rej = resolve_blocks(blocks, &|_| true, false);
+        assert_eq!(text(&rej), text(&base.sections[0].blocks));
+        let acc = resolve_blocks(blocks, &|_| true, true);
+        assert_eq!(
+            text(&acc),
+            vec![
+                "Điều 1: giá trị là 120 triệu.",
+                "Điều 2: thời hạn hai năm.",
+                "Điều 4: phạt vi phạm."
+            ]
+        );
+        let authors: std::collections::BTreeSet<String> = crate::revisions::list(&out)
+            .into_iter()
+            .map(|r| r.author)
+            .collect();
+        assert_eq!(authors.into_iter().collect::<Vec<_>>(), vec!["Lan", "Minh"]);
+        // Both change the same sentence: both edits are kept.
+        let a = doc(vec![para(&[("Giá 100 triệu.", false)])]);
+        let b = doc(vec![para(&[("Giá 100 triệu đồng.", false)])]);
+        let c = doc(vec![para(&[("Giá 150 triệu.", false)])]);
+        let out = combine(&a, (&c, "Lan"), (&b, "Minh"), None, 0);
+        let acc = resolve_blocks(&out.sections[0].blocks, &|_| true, true);
+        assert_eq!(text(&acc), vec!["Giá 150 triệu đồng."]);
+        let rej = resolve_blocks(&out.sections[0].blocks, &|_| true, false);
+        assert_eq!(text(&rej), vec!["Giá 100 triệu."]);
     }
 }

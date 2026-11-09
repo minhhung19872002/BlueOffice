@@ -227,6 +227,14 @@ pub enum Command {
         /// File bytes, base64-encoded.
         base64: String,
     },
+    /// Combine with another reviewer's copy of the same original (prompt §7.1): both
+    /// reviewers' changes as tracked changes (`.docx`, `.odt` or `.doc`).
+    CombineWith {
+        /// File name of the other copy (its stem names the reviewer when it has no revisions).
+        name: String,
+        /// File bytes, base64-encoded.
+        base64: String,
+    },
     /// Accept every revision of the document.
     AcceptAllRevisions,
     /// Reject every revision of the document.
@@ -705,6 +713,7 @@ impl crate::Engine {
                 | Command::SelectComment { .. }
                 | Command::NextComment { .. }
                 | Command::CompareWith { .. }
+                | Command::CombineWith { .. }
         );
         if let Command::SetRevisionView { view } = cmd {
             relayout = self.view != view;
@@ -1101,6 +1110,16 @@ impl crate::Engine {
                             })
                             .map_err(bo_edit::EditError::Unsupported)?;
                         extra.1 = Some(s.compare_with_original(&original)?);
+                    }
+                    Command::CombineWith { name, base64 } => {
+                        let other = crate::merge::base64_decode(&base64)
+                            .ok_or_else(|| "base64".to_owned())
+                            .and_then(|b| {
+                                crate::word_document(&b, &name).map_err(|e| e.to_string())
+                            })
+                            .map_err(bo_edit::EditError::Unsupported)?;
+                        let stem = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s);
+                        extra.1 = Some(s.combine_with(&other, stem)?);
                     }
                     Command::AcceptAllRevisions => {
                         extra.1 = Some(s.resolve_revisions(None, true)?);

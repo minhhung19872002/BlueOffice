@@ -166,7 +166,8 @@
       "convertLegacyText": "Chuyển chữ TCVN3/VNI sang Unicode",
       "spelling": "Kiểm tra chính tả khi gõ",
       "grammar": "Soát ngữ pháp và văn phong khi gõ",
-      "compare": "So sánh với bản gốc…"
+      "compare": "So sánh với bản gốc…",
+      "combine": "Kết hợp bản sửa…"
     },
     "references": {
       "insertToc": "Mục lục",

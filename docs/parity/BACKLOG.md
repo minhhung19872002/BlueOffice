@@ -171,7 +171,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 
 ### So sánh / Kết hợp tài liệu (§5.7)
 - [x] **DOC-COMPARE-001** — So sánh với bản gốc (`bo-edit/src/compare.rs`, lệnh `compareWith`, nút Xem lại → So sánh): đoạn thêm/xoá (cả dấu đoạn §17.13.5.15/16, dấu đoạn cuối chuyển đúng chỗ), từ thay đổi trong đoạn (LCS theo từ, khoảng trắng lẻ không cắt vụn), định dạng (rPrChange/pPrChange), bảng (theo ô khi cùng lưới, khác lưới thì xoá/chèn hàng); một bước hoàn tác; đọc .docx/.odt/.doc · P0 · — · compare::tests (cặp tài liệu: chấp nhận hết = bản mới, từ chối hết = bản gốc), `compare_with_the_original_document`, E2E review.spec.
-- [ ] **DOC-COMPARE-002** — Kết hợp nhiều bản sửa (combine revisions) · P0 · 001 · test.
+- [x] **DOC-COMPARE-002** — Kết hợp bản sửa (`compare::combine`, lệnh `combineWith`, nút Xem lại → Kết hợp): gốc = tài liệu này từ chối hết thay đổi; thay đổi của mình và của bản kia (tác giả theo revision trong file, không có thì theo tên file) trộn 3 chiều theo đoạn (thêm/xoá/sửa) và theo từ trong đoạn cả hai cùng sửa; bảng cả hai cùng sửa giữ bản của người thứ nhất · P0 · 001 · `two_reviewers_combine`, `combine_two_reviewers_copies`, E2E review.spec. Kết hợp nhiều hơn hai bản: lặp lại lệnh.
 - [ ] **DOC-REVIEW-001** — Chế độ hiển thị Simple/All/No markup/Original + bong bóng lề + ngăn Reviewing · P1 · — · E2E.
 - [ ] **DOC-REVIEW-002** — Theo dõi di chuyển (moveFrom/moveTo) và định dạng; khoá track changes bằng mật khẩu · P1 · — · round-trip + test.
 

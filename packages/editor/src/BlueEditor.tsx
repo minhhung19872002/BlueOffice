@@ -122,6 +122,7 @@ import {
   SquareFunction,
   TextCursorInput,
   GitCompare,
+  GitMerge,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -1176,6 +1177,23 @@ function EditorInner({
       },
     });
     r.register({
+      id: 'review.combine',
+      isEnabled: hasDoc,
+      run: async () => {
+        try {
+          const file = await platform.files.openFile(['.docx', '.odt', '.doc']);
+          if (!file) return;
+          let bin = '';
+          for (let i = 0; i < file.bytes.length; i += 0x8000) {
+            bin += String.fromCharCode(...file.bytes.subarray(i, i + 0x8000));
+          }
+          await run({ cmd: 'combineWith', name: file.name, base64: btoa(bin) });
+        } catch (e) {
+          console.error(e);
+        }
+      },
+    });
+    r.register({
       id: 'review.next',
       isEnabled: hasRevisions,
       run: () => run({ cmd: 'nextRevision', forward: true }),
@@ -1926,7 +1944,10 @@ function EditorInner({
         {
           id: 'compare',
           label: t('ribbon.groups.compare'),
-          items: [item('review.compare', 'commands.review.compare', <GitCompare size={ICON} />)],
+          items: [
+            item('review.compare', 'commands.review.compare', <GitCompare size={ICON} />),
+            item('review.combine', 'commands.review.combine', <GitMerge size={ICON} />),
+          ],
         },
         {
           id: 'comments',

@@ -166,7 +166,8 @@
       "convertLegacyText": "Convert TCVN3/VNI text to Unicode",
       "spelling": "Check spelling as you type",
       "grammar": "Check grammar and style as you type",
-      "compare": "Compare with original…"
+      "compare": "Compare with original…",
+      "combine": "Combine revisions…"
     },
     "references": {
       "insertToc": "Table of contents",

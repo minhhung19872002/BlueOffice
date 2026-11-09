@@ -10,6 +10,7 @@ import type {
 } from '@blueoffice/platform';
 import { useTranslation } from '@blueoffice/i18n';
 import { formatStamp } from './ReviewPanel';
+import { revisionDetail } from './TrackingControls';
 import styles from './ReviewingPane.module.css';
 
 type Run = (cmd: EditCommand) => Promise<EditResult | null>;
@@ -155,6 +156,7 @@ export function ReviewingPane({
               : `r-${e.item.story?.kind ?? 'body'}-${e.item.kind}-${e.item.id}-${e.item.start.p}-${e.item.start.o}`;
           const kind =
             e.type === 'comment' ? t('markup.kind.comment') : t(`review.kind.${e.item.kind}`);
+          const detail = e.type === 'revision' ? revisionDetail(t, e.item) : '';
           const text =
             e.type === 'comment'
               ? e.item.text + (e.replies ? ` (+${e.replies})` : '')
@@ -163,6 +165,11 @@ export function ReviewingPane({
             <li key={key} className={styles.item} data-testid="reviewing-item" data-kind={e.group}>
               <button type="button" className={styles.main} onClick={() => go(e)}>
                 <span className={styles.kind}>{kind}</span>
+                {detail && (
+                  <span className={styles.meta} data-testid="reviewing-detail">
+                    {detail}
+                  </span>
+                )}
                 <span className={styles.meta}>
                   {e.item.author}
                   {e.item.date ? ` · ${formatStamp(e.item.date, language)}` : ''}

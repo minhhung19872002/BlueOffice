@@ -240,7 +240,10 @@
       "reviewingPane": "Ngăn danh sách sửa đổi",
       "reviewingPaneBottom": "Danh sách sửa đổi ở dưới",
       "protectForms": "Chỉ cho điền biểu mẫu…",
-      "checkAdminFormat": "Kiểm tra thể thức (NĐ 30)"
+      "checkAdminFormat": "Kiểm tra thể thức (NĐ 30)",
+      "lockTracking": "Khoá theo dõi thay đổi…",
+      "moveParagraphUp": "Chuyển đoạn lên",
+      "moveParagraphDown": "Chuyển đoạn xuống"
     },
     "references": {
       "insertToc": "Mục lục",
@@ -2596,6 +2599,45 @@
       "footer": "Chân trang",
       "footnote": "Chú thích cuối trang",
       "endnote": "Chú thích cuối văn bản"
+    },
+    "prop": {
+      "style": "Kiểu",
+      "font": "Phông chữ",
+      "size": "Cỡ chữ",
+      "bold": "Đậm",
+      "italic": "Nghiêng",
+      "underline": "Gạch chân",
+      "strike": "Gạch ngang",
+      "color": "Màu chữ",
+      "highlight": "Tô sáng hoặc tô nền",
+      "vertAlign": "Chỉ số trên/dưới",
+      "caps": "Chữ hoa",
+      "charSpacing": "Giãn cách ký tự",
+      "hidden": "Chữ ẩn",
+      "language": "Ngôn ngữ",
+      "align": "Căn lề",
+      "indent": "Thụt lề",
+      "paraSpacing": "Giãn cách đoạn",
+      "numbering": "Dấu đầu dòng hoặc đánh số",
+      "pagination": "Ngắt dòng và ngắt trang",
+      "tabs": "Điểm dừng tab",
+      "borders": "Viền hoặc tô nền",
+      "outline": "Cấp đề cương",
+      "direction": "Hướng văn bản",
+      "other": "Thuộc tính khác"
+    },
+    "lock": {
+      "title": "Khoá theo dõi thay đổi",
+      "stopTitle": "Mở khoá theo dõi thay đổi",
+      "hint": "Theo dõi thay đổi luôn bật với mọi người. Muốn tắt, chấp nhận hay từ chối thay đổi phải nhập mật khẩu (không bắt buộc).",
+      "stopHint": "Nhập mật khẩu để cho phép tắt theo dõi và chấp nhận hay từ chối thay đổi trở lại.",
+      "password": "Mật khẩu",
+      "confirm": "Nhập lại mật khẩu",
+      "mismatch": "Hai mật khẩu không giống nhau.",
+      "start": "Khoá",
+      "stop": "Mở khoá",
+      "cancel": "Huỷ",
+      "lockedError": "Theo dõi thay đổi đang bị khoá. Hãy mở khoá (Xem lại › Khoá theo dõi thay đổi) để tắt theo dõi hoặc chấp nhận, từ chối thay đổi."
     }
   },
   "comments": {

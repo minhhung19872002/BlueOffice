@@ -13,8 +13,8 @@ export interface MarkupDrawOptions {
   pageWidth: number;
   /** Page height in points. */
   pageHeight: number;
-  /** Localised label of a change kind, shown before its balloon text. */
-  label?: (kind: MarkKind) => string;
+  /** Localised label of a change kind (of change `id`), shown before its balloon text. */
+  label?: (kind: MarkKind, id: number) => string;
   /** Icons (simple markup) whose balloon is open, by `kind:id`. */
   open: Set<string>;
   onSelect?: (m: MarkupSelect) => void;
@@ -56,7 +56,7 @@ function balloonEl(b: Balloon, o: MarkupDrawOptions, x: number, y: number, w: nu
   head.textContent = b.author;
   const body = document.createElement('div');
   body.style.cssText = 'white-space:pre-wrap;word-break:break-word;';
-  const label = b.kind === 'comment' ? '' : (o.label?.(b.kind) ?? '');
+  const label = b.kind === 'comment' ? '' : (o.label?.(b.kind, b.id) ?? '');
   body.textContent = label ? `${label}: ${b.text}` : b.text;
   el.title = `${b.author}\n${body.textContent}`;
   el.append(head, body);

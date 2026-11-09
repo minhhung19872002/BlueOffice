@@ -502,6 +502,8 @@ export interface RevisionItem {
   end: Pos;
   text: string;
   story?: StoryRef;
+  /** Formatting changes: keys of the changed properties (`bold`, `font`, `align`, …). */
+  detail?: string[];
 }
 
 /** A comment (mirrors `bo_edit::CommentInfo`); threads are rebuilt from `parent`. */
@@ -557,6 +559,10 @@ export interface MergeState {
 /** Review pane state (mirrors `bo_engine::review::ReviewState`). */
 export interface ReviewState {
   trackChanges: boolean;
+  /** Tracking is locked (§17.15.1.29 `w:edit="trackedChanges"`); absent from older engines. */
+  trackingLocked?: boolean;
+  /** Unlocking tracking needs a password. */
+  lockPassword?: boolean;
   author: string;
   view: RevisionView;
   /** Display mode and markup options (absent from older engines). */
@@ -686,6 +692,8 @@ export type EditCommand =
   /** Review display mode / markup options; absent fields are kept. */
   | ({ cmd: 'setMarkup' } & Partial<MarkupOptions>)
   | { cmd: 'acceptRevision' | 'rejectRevision'; id?: number }
+  /** Move the selected paragraphs up/down (a tracked move while tracking, §17.13.5.22/25). */
+  | { cmd: 'moveParagraphs'; up: boolean }
   | { cmd: 'nextRevision'; forward: boolean }
   | { cmd: 'addComment'; text: string }
   | { cmd: 'replyComment'; id: number; text: string }

@@ -1040,6 +1040,12 @@ impl Engine {
     pub fn save_docx(&self) -> Result<Vec<u8>> {
         // Hosts call `mark_saved` once the bytes are stored.
         let doc = self.document().ok_or(EngineError::NoDocument)?;
+        // §17.15.1.89 trackRevisions follows the session's track-changes mode.
+        let tracked = self
+            .session
+            .as_ref()
+            .map(bo_edit::Session::doc_with_track_setting);
+        let doc = tracked.as_deref().unwrap_or(doc);
         let bytes = bo_docx::write_docx(doc)?;
         // Inspector removals of package parts (comment parts only once the comments are gone).
         let mut scrub = self.scrub.clone();

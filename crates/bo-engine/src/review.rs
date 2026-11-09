@@ -11,6 +11,11 @@ use serde::Serialize;
 pub struct ReviewState {
     /// Track changes is on.
     pub track_changes: bool,
+    /// Tracking is locked (§17.15.1.29 documentProtection `w:edit="trackedChanges"`,
+    /// enforced): it cannot be turned off and revisions cannot be accepted or rejected.
+    pub tracking_locked: bool,
+    /// Unlocking needs a password.
+    pub lock_password: bool,
     /// Author of new revisions and comments.
     pub author: String,
     /// How tracked changes are displayed.
@@ -27,6 +32,10 @@ pub struct ReviewState {
 pub fn review_state(s: &Session, markup: &crate::markup::MarkupOptions) -> ReviewState {
     ReviewState {
         track_changes: s.track_changes(),
+        tracking_locked: s.tracking_locked(),
+        lock_password: s.tracking_locked()
+            && s.protection()
+                .is_some_and(bo_model::form::DocProtection::has_password),
         author: s.author().to_owned(),
         view: markup.layout_view(),
         markup: markup.clone(),

@@ -146,6 +146,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
             || src.display_background_shape != doc.design.display_background_shape
             || src.protection != doc.protection
             || src.hyphenation != doc.hyphenation
+            || src.track_revisions != doc.track_revisions
         {
             w.patch_settings(&main)?;
         }
@@ -1616,6 +1617,40 @@ impl Writer<'_> {
                 }
             }
         }
+        // §17.15.1.89 trackRevisions: after revisionView, before doNotTrackMoves …
+        // documentProtection … in CT_Settings (§17.15.1.78).
+        if src.is_none_or(|p| p.track_revisions != self.doc.track_revisions) {
+            s = remove_empty_element(&s, "w:trackRevisions");
+            if self.doc.track_revisions {
+                const AFTER_TRACK: &[&str] = &[
+                    "doNotTrackMoves",
+                    "doNotTrackFormatting",
+                    "documentProtection",
+                    "autoFormatOverride",
+                    "styleLockTheme",
+                    "styleLockQFSet",
+                    "defaultTabStop",
+                    "autoHyphenation",
+                    "consecutiveHyphenLimit",
+                    "hyphenationZone",
+                    "doNotHyphenateCaps",
+                    "showEnvelope",
+                    "summaryLength",
+                    "clickAndTypeStyle",
+                    "defaultTableStyle",
+                    "evenAndOddHeaders",
+                ];
+                let at = AFTER_TRACK
+                    .iter()
+                    .chain(SETTINGS_AFTER_EVEN_ODD)
+                    .filter_map(|n| find_element(&s, &format!("w:{n}")))
+                    .min()
+                    .or_else(|| s.rfind("</w:settings>"));
+                if let Some(at) = at {
+                    s.insert_str(at, "<w:trackRevisions/>");
+                }
+            }
+        }
         // §17.15.1.29 documentProtection: before autoFormatOverride … defaultTabStop … in
         // CT_Settings (§17.15.1.78).
         if src.is_none_or(|p| p.protection != self.doc.protection) {
@@ -1722,6 +1757,10 @@ impl Writer<'_> {
         // §17.15.1.32 displayBackgroundShape (before documentProtection and defaultTabStop).
         if self.doc.design.display_background_shape {
             s.push_str("<w:displayBackgroundShape/>");
+        }
+        // §17.15.1.89 trackRevisions precedes documentProtection.
+        if self.doc.track_revisions {
+            s.push_str("<w:trackRevisions/>");
         }
         // §17.15.1.29 documentProtection precedes defaultTabStop.
         if let Some(p) = &self.doc.protection {

@@ -22,6 +22,7 @@ pub mod html;
 mod inspect;
 pub mod lists;
 pub mod merge;
+mod moves;
 mod ops;
 pub mod outline;
 pub mod page_layout;
@@ -1214,6 +1215,10 @@ pub(crate) fn seeded_id(candidate: i32, seed: Option<u16>) -> i32 {
 /// Author used when the host does not know the user.
 pub const DEFAULT_AUTHOR: &str = "BlueOffice";
 
+/// Error of accepting / rejecting revisions or turning tracking off while tracking is
+/// locked (§17.15.1.29 documentProtection `w:edit="trackedChanges"`).
+pub const TRACKING_LOCKED: &str = "review:locked";
+
 impl Session {
     /// Collaboration (ECMA-376 comment §17.13.4.2 / footnote §17.11.10 ids are
     /// per document): new comment and note ids are taken ≡ `seed` (mod 65 536),
@@ -1225,6 +1230,12 @@ impl Session {
 
     /// Start editing `doc` with the caret at the beginning.
     pub fn new(doc: Document) -> Session {
+        // §17.15.1.89 trackRevisions, or §17.18.37 trackedChanges protection.
+        let track = doc.track_revisions
+            || doc
+                .protection
+                .as_ref()
+                .is_some_and(bo_model::form::DocProtection::tracked_changes_enforced);
         Session {
             doc,
             selection: Selection::default(),
@@ -1233,7 +1244,7 @@ impl Session {
             pending: None,
             typing: false,
             version: 0,
-            track: false,
+            track,
             author: DEFAULT_AUTHOR.to_owned(),
             clock: None,
             changes: BlockChanges::everything(),
@@ -1295,10 +1306,38 @@ impl Session {
         res.map(|_| n)
     }
 
-    /// Turn track-changes mode on or off.
+    /// Turn track-changes mode on or off (hosts save it as §17.15.1.89 trackRevisions,
+    /// see [`Session::doc_with_track_setting`]). While tracking is locked ([`Session::tracking_locked`]) it cannot be turned off.
     pub fn set_track_changes(&mut self, on: bool) {
+        if !on && self.tracking_locked() {
+            return;
+        }
         self.track = on;
         self.typing = false;
+    }
+
+    /// The document with its §17.15.1.89 trackRevisions setting matching the session's
+    /// track-changes mode (borrowed when it already does), for saving.
+    #[must_use]
+    pub fn doc_with_track_setting(&self) -> std::borrow::Cow<'_, Document> {
+        if self.doc.track_revisions == self.track {
+            std::borrow::Cow::Borrowed(&self.doc)
+        } else {
+            let mut d = self.doc.clone();
+            d.track_revisions = self.track;
+            std::borrow::Cow::Owned(d)
+        }
+    }
+
+    /// Tracking is locked: the document allows only tracked changes (§17.15.1.29
+    /// documentProtection `w:edit="trackedChanges"`, enforced), so track changes stays on
+    /// and revisions cannot be accepted or rejected until the protection is stopped.
+    #[must_use]
+    pub fn tracking_locked(&self) -> bool {
+        self.doc
+            .protection
+            .as_ref()
+            .is_some_and(bo_model::form::DocProtection::tracked_changes_enforced)
     }
 
     /// Whether new edits are recorded as revisions.
@@ -1515,21 +1554,30 @@ impl Session {
     /// Accept (`accept`) or reject revisions: `ids = None` resolves all of them.
     /// Returns the number of revisions resolved (one undo step).
     pub fn resolve_revisions(&mut self, ids: Option<&[i32]>, accept: bool) -> Result<usize> {
+        if self.tracking_locked() {
+            return Err(EditError::Unsupported(TRACKING_LOCKED.into()));
+        }
+        // Both halves of a tracked move are resolved together (§17.13.5.22–27).
+        let moves = moves::move_groups(&self.doc);
+        let set: Option<std::collections::HashSet<i32>> = ids.map(|v| moves.expand(v));
+        let dead = moves.dead_markers(set.as_ref());
         let all = self.revisions();
-        let n = match ids {
+        let n = match &set {
             None => all.len(),
             Some(ids) => all.iter().filter(|r| ids.contains(&r.id)).count(),
         };
         if n == 0 {
             return Ok(0);
         }
-        let set: Option<std::collections::HashSet<i32>> = ids.map(|v| v.iter().copied().collect());
         let filter = |id: i32| set.as_ref().is_none_or(|s| s.contains(&id));
+        let resolve = |b: &[Block]| {
+            moves::strip_markers(&revisions::resolve_blocks(b, &filter, accept), &dead)
+        };
         let caret = self.selection.ordered().0;
         self.edit(|tx, _| {
             let before = media_in_body(tx.doc);
             for si in 0..tx.doc.sections.len() {
-                let new = revisions::resolve_blocks(&tx.doc.sections[si].blocks, &filter, accept);
+                let new = resolve(&tx.doc.sections[si].blocks);
                 tx.set_section_blocks(si, &new)?;
                 let mut sec = revisions::resolve_section(&tx.doc.sections[si], &filter, accept);
                 // Revisions inside headers and footers (§17.10).
@@ -1539,7 +1587,7 @@ impl Session {
                     for set in [&mut hf.headers, &mut hf.footers] {
                         let slot = section::hf_slot_mut(set, v);
                         if let Some(b) = slot.as_ref() {
-                            *slot = Some(revisions::resolve_blocks(b, &filter, accept));
+                            *slot = Some(resolve(b));
                         }
                     }
                 }
@@ -1562,10 +1610,8 @@ impl Session {
                 } else {
                     tx.doc.footnotes.clone()
                 };
-                let new: std::collections::BTreeMap<i32, Vec<Block>> = old
-                    .iter()
-                    .map(|(id, b)| (*id, revisions::resolve_blocks(b, &filter, accept)))
-                    .collect();
+                let new: std::collections::BTreeMap<i32, Vec<Block>> =
+                    old.iter().map(|(id, b)| (*id, resolve(b))).collect();
                 if new != old {
                     tx.push(Op::Notes { endnote, old, new })?;
                 }
@@ -3766,6 +3812,8 @@ impl Session {
 mod feature_tests;
 #[cfg(test)]
 mod forms_tests;
+#[cfg(test)]
+mod move_tests;
 #[cfg(test)]
 mod paste_tests;
 #[cfg(test)]

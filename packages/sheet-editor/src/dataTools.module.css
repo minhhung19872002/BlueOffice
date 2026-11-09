@@ -1,0 +1,68 @@
+/* Data tools dialogs and invalid-data circles. */
+
+.previewBox {
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid var(--bo-border, #c8c8c8);
+}
+
+.preview {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.preview th,
+.preview td {
+  border: 1px solid var(--bo-border, #c8c8c8);
+  padding: 2px 6px;
+  text-align: left;
+  white-space: pre;
+}
+
+.preview th select {
+  font: inherit;
+}
+
+.skipped {
+  color: var(--bo-text-muted, #777);
+  background: var(--bo-surface-alt, #f2f2f2);
+}
+
+.toolbar {
+  display: flex;
+  gap: 6px;
+}
+
+.columns {
+  max-height: 180px;
+  overflow: auto;
+  display: grid;
+  gap: 2px;
+}
+
+.sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 120px;
+  overflow: auto;
+  border: 1px solid var(--bo-border, #c8c8c8);
+  min-height: 24px;
+}
+
+.sources li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 6px;
+}
+
+.circle {
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid var(--bo-danger, #c62828);
+  border-radius: 50%;
+  box-sizing: border-box;
+}

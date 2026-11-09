@@ -448,6 +448,7 @@
     "groupCharts": "Biểu đồ",
     "groupSortFilter": "Sắp xếp & lọc",
     "groupDataTools": "Công cụ dữ liệu",
+    "groupOutline": "Dàn ý",
     "groupAnalysis": "Phân tích",
     "groupPageSetup": "Thiết lập trang",
     "groupFreeze": "Cố định",
@@ -1135,6 +1136,116 @@
         "autoFilter": "Dùng Lọc tự động",
         "pivotTables": "Dùng bảng tổng hợp",
         "objects": "Sửa đối tượng (biểu đồ)"
+      }
+    },
+    "dataTools": {
+      "columnN": "Cột {{name}}",
+      "hasHeader": "Hàng đầu tiên là tiêu đề",
+      "function": "Hàm",
+      "fn": {
+        "sum": "Tổng",
+        "count": "Đếm giá trị",
+        "average": "Trung bình",
+        "max": "Lớn nhất",
+        "min": "Nhỏ nhất",
+        "product": "Tích",
+        "countNums": "Đếm số",
+        "stdDev": "Độ lệch chuẩn (mẫu)",
+        "stdDevp": "Độ lệch chuẩn (tổng thể)",
+        "var": "Phương sai (mẫu)",
+        "varp": "Phương sai (tổng thể)"
+      },
+      "split": {
+        "title": "Tách văn bản thành cột",
+        "kind": "Cách tách",
+        "delimited": "Theo ký tự phân cách",
+        "fixed": "Theo vị trí ký tự cố định",
+        "delimiters": "Ký tự phân cách",
+        "tab": "Tab",
+        "semicolon": "Dấu chấm phẩy",
+        "comma": "Dấu phẩy",
+        "space": "Dấu cách",
+        "other": "Ký tự khác",
+        "consecutive": "Coi nhiều dấu phân cách liền nhau là một",
+        "qualifier": "Văn bản đặt trong",
+        "none": "(không có)",
+        "breaks": "Vị trí ngắt (ký tự)",
+        "dest": "Đặt kết quả tại",
+        "columnFormat": "Định dạng cột",
+        "general": "Tự động",
+        "text": "Văn bản",
+        "date": "Ngày {{order}}",
+        "skip": "Bỏ qua",
+        "badBreaks": "Nhập vị trí ngắt là số nguyên, ví dụ 4, 12.",
+        "badDest": "Nhập một ô, ví dụ B2 hoặc Sheet2!B2.",
+        "errors": {
+          "oneColumn": "Hãy chọn các ô trong một cột.",
+          "tooLarge": "Kết quả vượt quá kích thước trang tính."
+        }
+      },
+      "dedupe": {
+        "title": "Xóa hàng trùng lặp",
+        "columns": "So sánh các cột",
+        "selectAll": "Tất cả cột",
+        "selectNone": "Bỏ chọn cột",
+        "noColumns": "Hãy chọn ít nhất một cột.",
+        "resultTitle": "Hàng trùng lặp",
+        "result": "Đã xóa {{removed}} hàng trùng lặp, giữ lại {{remaining}} hàng.",
+        "none": "Không có hàng trùng lặp; giữ lại {{remaining}} hàng."
+      },
+      "consolidate": {
+        "title": "Hợp nhất dữ liệu",
+        "reference": "Vùng",
+        "add": "Thêm vào danh sách",
+        "sources": "Các vùng cần hợp nhất",
+        "remove": "Bỏ khỏi danh sách",
+        "labels": "Ghép theo nhãn ở",
+        "topRow": "Hàng trên cùng",
+        "leftCol": "Cột bên trái",
+        "links": "Giữ công thức liên kết tới các vùng",
+        "dest": "Đặt kết quả tại",
+        "errors": {
+          "noSources": "Hãy thêm ít nhất một vùng.",
+          "badDest": "Nhập một ô, ví dụ F2 hoặc Sheet2!A1.",
+          "badRange": "Có vùng không hợp lệ.",
+          "noData": "Các vùng không có dữ liệu để hợp nhất.",
+          "tooLarge": "Kết quả vượt quá kích thước trang tính.",
+          "overlap": "Kết quả sẽ đè lên một vùng nguồn."
+        }
+      },
+      "subtotal": {
+        "title": "Tổng phụ theo nhóm",
+        "groupBy": "Nhóm mới khi cột này thay đổi",
+        "addTo": "Tính tổng phụ cho",
+        "replace": "Thay thế các tổng phụ hiện có",
+        "pageBreaks": "Mỗi nhóm bắt đầu trang mới",
+        "below": "Hàng tổng phụ nằm dưới mỗi nhóm",
+        "removeAll": "Bỏ tổng phụ",
+        "rowLabel": "Tổng: {0}",
+        "grandLabel": "Tổng cộng",
+        "errors": {
+          "noColumns": "Hãy chọn ít nhất một cột để tính tổng phụ.",
+          "noData": "Danh sách không có hàng nào dưới tiêu đề.",
+          "badColumn": "Các cột đã chọn nằm ngoài danh sách."
+        }
+      },
+      "outline": {
+        "groupRows": "Nhóm hàng",
+        "ungroupRows": "Bỏ nhóm hàng",
+        "groupCols": "Nhóm cột",
+        "ungroupCols": "Bỏ nhóm cột",
+        "auto": "Dàn ý từ công thức",
+        "clear": "Xóa dàn ý",
+        "collapse": "Thu gọn tất cả nhóm",
+        "expand": "Mở rộng tất cả nhóm",
+        "none": "Không tìm thấy công thức tổng hợp các hàng hoặc cột liền kề."
+      },
+      "invalid": {
+        "circle": "Đánh dấu dữ liệu không hợp lệ",
+        "clear": "Xóa đánh dấu dữ liệu không hợp lệ",
+        "found": "{{count}} ô vi phạm quy tắc xác thực dữ liệu.",
+        "none": "Mọi ô có xác thực dữ liệu đều hợp lệ.",
+        "truncated": "Chỉ đánh dấu {{count}} ô đầu tiên."
       }
     },
     "flashFill": {

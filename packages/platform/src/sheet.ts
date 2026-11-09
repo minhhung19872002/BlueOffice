@@ -4,6 +4,7 @@
  * Sizes and coordinates are in points, relative to the viewport.
  */
 import type { InspectCommand } from './inspect';
+import type { DataToolsCommand } from './sheetDataTools';
 import type { GlyphOutline, PageDisplayList } from './types';
 
 export interface SheetSummary {
@@ -587,6 +588,7 @@ export interface SolverResult {
 /** A sheet editing command (`bo_engine::sheet::SheetCommand`). */
 export type SheetCommand =
   | import('./security').SecurityCommand
+  | DataToolsCommand
   | { cmd: 'presets' }
   /** Check document (CORE-INSPECT-001) → `InspectReport`. */
   | InspectCommand

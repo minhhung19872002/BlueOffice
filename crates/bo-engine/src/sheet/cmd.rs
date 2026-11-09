@@ -1381,6 +1381,144 @@ pub enum SheetCommand {
         /// Its column.
         col: u32,
     },
+    /// Text to Columns: split the cells of a one-column range into columns.
+    /// One undo step; `{ rows, columns }`, or with `preview` (nothing changes)
+    /// `{ rows: [[field]], columns }` for the first rows.
+    TextToColumns {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The cells to split (one column).
+        range: Rng,
+        /// Delimited or fixed width.
+        split: bo_sheet::datatools::SplitMode,
+        /// Format of each resulting column (missing: general).
+        #[serde(default)]
+        formats: Vec<bo_sheet::datatools::ColumnFormat>,
+        /// Top-left cell of the result (default: the range itself).
+        #[serde(default)]
+        dest: Option<At>,
+        /// Only return the split fields.
+        #[serde(default)]
+        preview: bool,
+    },
+    /// Remove the rows of a list that repeat the values of an earlier row in `columns`.
+    /// One undo step; `{ removed, remaining }`.
+    RemoveDuplicates {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The list (a single cell: the block of data around it).
+        range: Rng,
+        /// Absolute columns compared (empty: all).
+        #[serde(default)]
+        columns: Vec<u32>,
+        /// The first row is a header.
+        #[serde(default)]
+        header: bool,
+    },
+    /// Consolidate several ranges into a table at `dest`. One undo step; `{ sheet, range }`.
+    Consolidate {
+        /// 0-based sheet the references are relative to.
+        sheet: usize,
+        /// Source ranges (A1, optionally `Sheet!A1:B9`).
+        sources: Vec<String>,
+        /// Summary function.
+        #[serde(default)]
+        function: bo_sheet::datatools::ConsolidateFn,
+        /// Labels in the top row.
+        #[serde(default)]
+        top_row: bool,
+        /// Labels in the left column.
+        #[serde(default)]
+        left_col: bool,
+        /// Write formulas referring to the source cells instead of values.
+        #[serde(default)]
+        links: bool,
+        /// Top-left cell of the table.
+        dest: At,
+    },
+    /// Insert subtotal rows (`SUBTOTAL`) at each change of `groupBy` and build the
+    /// row outline. One undo step; `{ groups, range, levels }`.
+    Subtotal {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The list with its header row (a single cell: the block around it).
+        range: Rng,
+        /// Absolute column whose changes start a group.
+        group_by: u32,
+        /// Summary function.
+        #[serde(default)]
+        function: bo_sheet::datatools::ConsolidateFn,
+        /// Absolute columns that get a subtotal.
+        columns: Vec<u32>,
+        /// Replace the current subtotals.
+        #[serde(default = "default_true")]
+        replace: bool,
+        /// Page break between groups.
+        #[serde(default)]
+        page_breaks: bool,
+        /// Summary rows below the detail.
+        #[serde(default = "default_true")]
+        summary_below: bool,
+        /// Caption of a subtotal row (`{0}` = the group value).
+        #[serde(default)]
+        label: Option<String>,
+        /// Caption of the grand total row.
+        #[serde(default)]
+        grand_label: Option<String>,
+    },
+    /// Delete the subtotal rows of a list and its row outline. One undo step; `{ range }`.
+    RemoveSubtotals {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The list (a single cell: the block around it).
+        range: Rng,
+    },
+    /// Group (or ungroup) rows / columns `first..=last` one outline level. One undo step.
+    OutlineGroup {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Rows (otherwise columns).
+        rows: bool,
+        /// First row / column.
+        first: u32,
+        /// Last row / column.
+        last: u32,
+        /// Ungroup.
+        #[serde(default)]
+        ungroup: bool,
+    },
+    /// Build the outline from the formulas of `range` (default: used range).
+    /// One undo step; `{ rowLevels, colLevels }`.
+    AutoOutline {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The range (a single cell: the block around it).
+        #[serde(default)]
+        range: Option<Rng>,
+    },
+    /// Remove the outline of `range` (default: the whole sheet). One undo step.
+    ClearOutline {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The range.
+        #[serde(default)]
+        range: Option<Rng>,
+    },
+    /// Show outline level `level` of rows / columns (deeper levels hidden). One undo step.
+    OutlineShowLevel {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Rows (otherwise columns).
+        rows: bool,
+        /// Level (1 = outermost summaries only).
+        level: u8,
+    },
+    /// Cells holding values that violate their data validation:
+    /// `{ cells: [[row, col]], truncated }`.
+    InvalidCells {
+        /// 0-based sheet index.
+        sheet: usize,
+    },
 }
 
 /// Recalculation needed after an edit.
@@ -1637,6 +1775,19 @@ impl SheetEngine {
             | C::PivotChangeSource { sheet, .. }
             | C::PivotRefresh { sheet, .. } => check(ws(*sheet)?, A::PivotTables),
             C::MoveSheet { .. } => super::protect::check_structure(wb),
+            C::Subtotal { sheet, .. } | C::RemoveSubtotals { sheet, .. } => {
+                let w = ws(*sheet)?;
+                check(w, A::InsertRows)?;
+                check(w, A::DeleteRows)
+            }
+            C::OutlineGroup { sheet, rows, .. } | C::OutlineShowLevel { sheet, rows, .. } => {
+                check(ws(*sheet)?, rows_or_cols(*rows))
+            }
+            C::AutoOutline { sheet, .. } | C::ClearOutline { sheet, .. } => {
+                let w = ws(*sheet)?;
+                check(w, A::FormatRows)?;
+                check(w, A::FormatColumns)
+            }
             _ => Ok(()),
         }
     }
@@ -2146,6 +2297,103 @@ impl SheetEngine {
                 let ws = self.sheet(sheet)?;
                 Ok(range_stats(ws, &ranges))
             }
+            C::TextToColumns {
+                sheet,
+                range,
+                split,
+                formats,
+                dest,
+                preview,
+            } => self.text_to_columns(
+                sheet,
+                &super::datatools_cmd::TextToColumns {
+                    range,
+                    split,
+                    formats,
+                    dest,
+                    preview,
+                },
+            ),
+            C::RemoveDuplicates {
+                sheet,
+                range,
+                columns,
+                header,
+            } => self.remove_duplicates(sheet, range, &columns, header),
+            C::Consolidate {
+                sheet,
+                sources,
+                function,
+                top_row,
+                left_col,
+                links,
+                dest,
+            } => self.consolidate(
+                sheet,
+                &super::datatools_cmd::Consolidate {
+                    sources,
+                    function,
+                    top_row,
+                    left_col,
+                    links,
+                    dest,
+                },
+            ),
+            C::Subtotal {
+                sheet,
+                range,
+                group_by,
+                function,
+                columns,
+                replace,
+                page_breaks,
+                summary_below,
+                label,
+                grand_label,
+            } => self.subtotal(
+                sheet,
+                range,
+                bo_sheet::outline::SubtotalSpec {
+                    range: range.range(),
+                    group_by,
+                    function,
+                    columns,
+                    replace,
+                    page_breaks,
+                    summary_below,
+                    label,
+                    grand_label,
+                },
+            ),
+            C::RemoveSubtotals { sheet, range } => self.remove_subtotals(sheet, range),
+            C::OutlineGroup {
+                sheet,
+                rows,
+                first,
+                last,
+                ungroup,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                let changed =
+                    bo_sheet::outline::group(&mut wb.sheets[sheet], rows, first, last, ungroup);
+                Ok(json!({ "changed": changed }))
+            }),
+            C::AutoOutline { sheet, range } => self.auto_outline(sheet, range),
+            C::ClearOutline { sheet, range } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::outline::clear_outline(&mut wb.sheets[sheet], range.map(Rng::range));
+                Ok(json!({ "ok": true }))
+            }),
+            C::OutlineShowLevel { sheet, rows, level } => self.edit(sheet, Recalc::All, |wb, _| {
+                let ws = &mut wb.sheets[sheet];
+                // §18.3.1.61 outlinePr: summaries follow their detail unless set to 0.
+                let after = if rows {
+                    ws.props.summary_below != Some(false)
+                } else {
+                    ws.props.summary_right != Some(false)
+                };
+                bo_sheet::outline::show_level(ws, rows, level, after);
+                Ok(json!({ "ok": true }))
+            }),
+            C::InvalidCells { sheet } => self.invalid_cells(sheet),
             C::FlashFill { sheet, row, col } => {
                 let fills = flash_fill_cells(self.wb()?, self.sheet(sheet)?, row, col, &locale);
                 let Some(fills) = fills else {

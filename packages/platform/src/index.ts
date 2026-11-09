@@ -17,6 +17,7 @@ export {
 export * from './sheet';
 export * from './security';
 export { WebCodecsVideo, VIDEO_CODECS, bitrateFor, hasWebCodecs } from './webcodecs';
+export * from './sheetDataTools';
 export {
   OidcSession,
   fetchOidcConfig,

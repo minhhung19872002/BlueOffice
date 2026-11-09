@@ -60,6 +60,8 @@ export interface SlideOverlayProps {
   controller: SlideController;
   editing: TextEditing | null;
   onStartEdit: (shape: SlideShapeInfo, at?: { x: number; y: number }) => void;
+  /** Double-click on an embedded / linked object (CORE-EMBED-001). */
+  onActivateObject?: () => void;
   /** Leave text editing (Escape, click outside the shape). */
   onExitEdit: () => void;
   /** Keyboard shortcut inside the text (Ctrl+B, …); true when handled. */
@@ -123,6 +125,7 @@ export function SlideOverlay({
   controller,
   editing,
   onStartEdit,
+  onActivateObject,
   onExitEdit,
   onTextShortcut,
   label,
@@ -420,6 +423,10 @@ export function SlideOverlay({
     if (one.kind === 'table') {
       // Double-click a cell: edit its text on the canvas, caret at the point.
       editCellAt(p.x, p.y);
+      return;
+    }
+    if (one.kind === 'object') {
+      onActivateObject?.();
       return;
     }
     if (one.kind === 'group') {

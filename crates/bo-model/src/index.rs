@@ -219,6 +219,7 @@ mod tests {
             shape: None,
             format: None,
             src: None,
+            ole: None,
         }));
         let p = Paragraph::new(
             crate::write::ParaProps::default(),

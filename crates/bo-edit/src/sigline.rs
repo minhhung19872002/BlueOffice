@@ -86,6 +86,7 @@ pub fn signature_line_image(line: SignatureLine, media: &str, width: i64, height
             ..Shape::default()
         })),
         src: None,
+        ole: None,
     }
 }
 

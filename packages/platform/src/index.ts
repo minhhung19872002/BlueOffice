@@ -8,6 +8,7 @@ export type * from './sheetTable';
 export type * from './slideExport';
 export type * from './sigline';
 export type * from './picture';
+export type * from './ole';
 export type * from './charfx';
 export type * from './spelling';
 export * from './slideMedia';

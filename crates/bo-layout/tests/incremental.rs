@@ -77,6 +77,7 @@ fn image(wrap: Wrap) -> RunContent {
         shape: None,
         format: None,
         src: None,
+        ole: None,
     }))
 }
 

@@ -37,6 +37,7 @@ export {
 } from './clipboard/PasteOptions';
 export { fromBase64, toBase64 } from './clipboard/docPaste';
 export { pictureTabLabels, presetName, registerPictureCommands } from './pictureTools';
+export { objectPlatform, objectToolsLabels, registerObjectCommands } from './objectTools';
 // Spelling shared with BlueSheet / BlueSlide (CORE-SPELL-006).
 export {
   SpellMenu,

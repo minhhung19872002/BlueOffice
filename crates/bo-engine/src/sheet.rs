@@ -29,6 +29,7 @@ mod comments;
 mod datatools_cmd;
 mod formctl_cmd;
 mod inspect_cmd;
+mod ole_cmd;
 mod paste_opts;
 mod pivot_cmd;
 mod png;

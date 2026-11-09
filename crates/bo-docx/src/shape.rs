@@ -139,7 +139,7 @@ pub(crate) fn shape_from_wsp(wsp: &XmlElement, theme: Option<&Theme>) -> Shape {
 
 /// A CSS length of a VML `style` attribute in EMU (ECMA-376 Part 4, §19.1.2.19:
 /// pt, in, cm, mm, pc, px; no unit = px).
-fn css_len(v: &str) -> Option<i64> {
+pub(crate) fn css_len(v: &str) -> Option<i64> {
     let v = v.trim();
     let split = v
         .find(|c: char| c.is_ascii_alphabetic() || c == '%')

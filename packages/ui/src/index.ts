@@ -114,6 +114,22 @@ export {
   type PictureToolsInfo,
 } from './usePictureTools';
 export {
+  EditObjectDialog,
+  InsertObjectDialog,
+  OBJECT_COMMANDS,
+  ObjectActionsHub,
+  areaOrigin,
+  columnName,
+  resizeGrid,
+  useObjectTools,
+  type ObjectActions,
+  type ObjectToolsCommand,
+  type ObjectToolsHost,
+  type ObjectToolsInfo,
+  type ObjectToolsLabels,
+  type ObjectToolsResult,
+} from './ObjectTools';
+export {
   REFLECTION_PRESETS,
   ROTATION_PRESETS,
   SOFT_EDGE_PRESETS,

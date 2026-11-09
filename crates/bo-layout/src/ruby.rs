@@ -119,6 +119,7 @@ fn boxed(
         shape: None,
         src: None,
         format: None,
+        ole: None,
     };
     (
         image,

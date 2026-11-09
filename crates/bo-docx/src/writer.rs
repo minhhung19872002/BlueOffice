@@ -301,6 +301,22 @@ fn hyphenation_xml(h: &bo_model::Hyphenation) -> String {
     s
 }
 
+/// A file path as a URI for an external relationship target (`file:///C:/a/b.xlsx`);
+/// URIs are kept.
+fn file_uri(path: &str) -> String {
+    if path.contains("://") {
+        return path.to_owned();
+    }
+    let p = path.replace('\\', "/").replace(' ', "%20");
+    if p.starts_with('/') {
+        format!("file://{p}")
+    } else if p.as_bytes().get(1) == Some(&b':') {
+        format!("file:///{p}")
+    } else {
+        p
+    }
+}
+
 fn remove_empty_element(xml: &str, tag: &str) -> String {
     let mut s = xml.to_owned();
     while let Some(at) = find_element(&s, tag) {
@@ -574,6 +590,26 @@ impl Writer<'_> {
                     "<w:footnoteRef/>"
                 }),
                 RunContent::Opaque(r) => cur.push_str(&r.xml),
+                // §17.3.3.19 object (CORE-EMBED-001); a new linked object goes into the
+                // result of a §17.16.5.32 LINK field naming its source.
+                RunContent::Image(img) if img.ole.is_some() => {
+                    let xml = self.ole_object(img);
+                    match img
+                        .ole
+                        .as_deref()
+                        .and_then(|o| o.link.as_ref().map(|l| (o, l)))
+                    {
+                        Some((o, l)) if img.src.is_none() => {
+                            flush(&mut out, &mut cur);
+                            let _ = write!(
+                                out,
+                                "<w:r>{rpr}<w:fldChar w:fldCharType=\"begin\"/></w:r><w:r>{rpr}<w:instrText xml:space=\"preserve\"> {} </w:instrText></w:r><w:r>{rpr}<w:fldChar w:fldCharType=\"separate\"/></w:r><w:r>{rpr}{xml}</w:r><w:r>{rpr}<w:fldChar w:fldCharType=\"end\"/></w:r>",
+                                escape(&bo_model::ole::link_instr(&o.prog_id, l))
+                            );
+                        }
+                        _ => cur.push_str(&xml),
+                    }
+                }
                 RunContent::Image(img) => {
                     let xml = match &img.src {
                         // SmartArt / fallback pictures (media is a drawing part) stay verbatim.
@@ -730,6 +766,37 @@ impl Writer<'_> {
         let embed = media_changed.then(|| self.rels.id_for(REL_IMAGE, &img.media, false));
         crate::picture::patch(xml, embed.as_deref(), &format, crop)
             .unwrap_or_else(|| xml.to_owned())
+    }
+
+    /// `w:object` of an embedded or linked object: the source XML while the object is
+    /// unchanged, else a new one (§17.3.3.19).
+    fn ole_object(&mut self, img: &Image) -> String {
+        if let Some(r) = img
+            .src
+            .as_ref()
+            .filter(|r| !r.xml.is_empty() && r.fingerprint == crate::ole::object_fingerprint(img))
+        {
+            return r.xml.to_string();
+        }
+        let Some(ole) = img.ole.as_deref() else {
+            return String::new();
+        };
+        let image_rid = self.rels.id_for(REL_IMAGE, &img.media, false);
+        let object_rid = match &ole.link {
+            // ECMA-376 Part 2, §9.3.2: an external target is a URI.
+            Some(l) => self
+                .rels
+                .id_for(bo_model::ole::REL_OLE_OBJECT, &file_uri(&l.source), true),
+            None if ole.package.to_ascii_lowercase().ends_with(".bin") => {
+                self.rels
+                    .id_for(bo_model::ole::REL_OLE_OBJECT, &ole.package, false)
+            }
+            None => self
+                .rels
+                .id_for(bo_model::ole::REL_PACKAGE, &ole.package, false),
+        };
+        self.drawing_id += 1;
+        crate::ole::object_xml(img, &image_rid, &object_rid, self.drawing_id)
     }
 
     /// Generate a `w:drawing` for a picture (§20.4.2.8 inline / §20.4.2.3 anchor).
@@ -1750,7 +1817,11 @@ impl Writer<'_> {
         self.drop_removed_media();
         let mut ct = self.pkg.content_types()?;
         for (name, data) in &self.doc.media {
-            if self.pkg.part(name).is_none() {
+            // A re-embedded object (CORE-EMBED-001) replaces its part; other parts of
+            // the source stay (e.g. a SmartArt drawing part whose rendering lives here).
+            let reembedded = name.starts_with("/word/embeddings/")
+                && self.pkg.part(name).is_some_and(|p| p.data != **data);
+            if self.pkg.part(name).is_none() || reembedded {
                 self.pkg.put_part(name, data.as_ref().clone());
             }
             let ext = name
@@ -1766,6 +1837,9 @@ impl Writer<'_> {
                 "emf" => "image/x-emf",
                 "wmf" => "image/x-wmf",
                 "svg" => "image/svg+xml",
+                // Embedded objects (§15.2.11 package, §15.2.15 oleObject).
+                "xlsx" => bo_model::ole::CT_XLSX,
+                "bin" => bo_model::ole::CT_OLE_BIN,
                 _ => "application/octet-stream",
             };
             if ct.get(name).is_none() && !ext.is_empty() {

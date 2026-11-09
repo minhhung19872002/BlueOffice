@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 mod forms;
+mod ole;
 mod picture;
 mod reader;
 mod shape;

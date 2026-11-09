@@ -217,6 +217,7 @@ impl Session {
                 shape: Some(Box::new(shape)),
                 format: None,
                 src: None,
+                ole: None,
             };
             placed = (at.para, at.offset);
             let caret = tx.insert_atoms(at, vec![(props, RunContent::Image(Box::new(img)))])?;

@@ -11,6 +11,9 @@ import {
   clipboardHistory,
   pictureTabLabels,
   registerPictureCommands,
+  objectPlatform,
+  objectToolsLabels,
+  registerObjectCommands,
   type ClipItem,
 } from '@blueoffice/editor';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
@@ -49,12 +52,16 @@ import {
   useResolvedTheme,
   toBase64 as pictureBase64,
   PictureActionsHub,
+  useObjectTools,
+  ObjectActionsHub,
   type RibbonTab,
   type ThemeSetting,
 } from '@blueoffice/ui';
 import {
   AArrowDown,
   AArrowUp,
+  FileSpreadsheet,
+  RefreshCw,
   AlignCenter,
   AlignCenterHorizontal,
   AlignCenterVertical,
@@ -1257,6 +1264,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
 
   /** Actions of the picture tools tab (CORE-PIC-001), behind the `picture.*` commands. */
   const [pictureHub] = useState(() => new PictureActionsHub());
+  /** Embedded / linked workbooks (CORE-EMBED-001), behind the `object.*` commands. */
+  const [objectHub] = useState(() => new ObjectActionsHub());
   /** Actions of the clip Playback / Video format tabs (SLIDE-MEDIA-001), behind `media.*`. */
   const [mediaHub] = useState(() => new MediaActionsHub());
   const registry = useMemo(() => {
@@ -1734,6 +1743,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       (st) => !!st.isPicture,
       () => pictureHub.get(),
     );
+    registerObjectCommands(reg, deck, () => objectHub.get());
     registerMediaCommands(reg, mediaHub);
     // SLIDE-VIEW-001: notes / handout master views (edited in the normal view) and sections.
     registerPageMasterCommands(reg, (cmd) => {
@@ -1782,6 +1792,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     runProtect,
     setProtectUi,
     pictureHub,
+    objectHub,
     setSpellDialog,
     toggleSpelling,
     asYouType,
@@ -1848,6 +1859,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     pickFile: () => platform.files.openFile(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg']),
     shapes: true,
     hub: pictureHub,
+  });
+  // Embedded / linked workbooks (CORE-EMBED-001): insert dialog, editing grid, update links.
+  const objects = useObjectTools({
+    labels: objectToolsLabels(t),
+    run: (c) => ctrl.run(c),
+    ...objectPlatform(platform),
+    onError: (code) => fail(t(`objectTools.error.${code}`)),
+    onUpdated: (count) => setStatus(t('objectTools.updated', { count })),
+    hub: objectHub,
   });
   // Playback / Video format tabs (SLIDE-MEDIA-001) for one selected clip.
   const selectedClip = useMemo(() => {
@@ -2234,6 +2254,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('insert.picture', t('slideEditor.picture'), <ImagePlus size={18} />),
               item('insert.table', t('slideEditor.table'), <Table size={18} />),
               item('insert.chart', t('slideEditor.chart'), <ChartColumn size={18} />),
+              item('object.insert', t('commands.object.insert'), <FileSpreadsheet size={18} />),
+              item('object.updateLinks', t('commands.object.updateLinks'), <RefreshCw size={18} />),
               item('insert.smartart', t('slideEditor.smartart.button'), <Network size={18} />),
               item('insert.media', t('slideEditor.media'), <Clapperboard size={18} />),
             ],
@@ -2844,6 +2866,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         />
       )}
       {picture.dialogs}
+      {objects.dialogs}
       {mediaTools.dialogs}
       <CommandSearch
         tabs={[...ribbonTabs, ...extraTabs]}
@@ -2976,6 +2999,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     adjustLabel={t('slideEditor.adjustHandle')}
                     connectorLabel={t('slideEditor.connectorEnd')}
                     onStartCellEdit={startCellEdit}
+                    onActivateObject={() => void objectHub.activate()}
                     peers={peers
                       .filter((p) => p.slide === shown)
                       .map((p) => {

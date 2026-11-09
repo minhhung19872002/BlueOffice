@@ -66,6 +66,7 @@ fn text_box(anchor: Option<Anchor>, preset: &str, text: &str) -> RunContent {
         })),
         format: None,
         src: None,
+        ole: None,
     }))
 }
 

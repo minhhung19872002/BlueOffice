@@ -43,10 +43,13 @@ import {
   useResolvedTheme,
   usePictureTools,
   PictureActionsHub,
+  useObjectTools,
+  ObjectActionsHub,
   type RibbonTab,
   type ThemeSetting,
 } from '@blueoffice/ui';
 import { pictureTabLabels, registerPictureCommands } from './pictureTools';
+import { objectPlatform, objectToolsLabels, registerObjectCommands } from './objectTools';
 import {
   AArrowDown,
   AArrowUp,
@@ -504,6 +507,8 @@ function EditorInner({
     openFileRef.current = openFile;
   }, [openFile]);
 
+  /** Embedded / linked workbooks (CORE-EMBED-001), behind the `object.*` commands. */
+  const [objectHub] = useState(() => new ObjectActionsHub());
   // Engine + view lifecycle.
   useEffect(() => {
     if (app !== 'doc' || !viewHost.current) return;
@@ -513,6 +518,8 @@ function EditorInner({
       onInput: (e) => controller.current?.input(e),
       onPointer: (e) => {
         controller.current?.pointer(e);
+        // Double-click an embedded workbook: its editing grid (CORE-EMBED-001).
+        if (e.type === 'down' && e.count === 2) void objectHub.activate();
         // Format Painter: the formatting goes to what was clicked or selected.
         const painter = store.getState().painter;
         if (e.type === 'up' && painter !== 'off') {
@@ -625,7 +632,7 @@ function EditorInner({
       view.current = null;
       controller.current = null;
     };
-  }, [app, platform, store, fail, measure, i18nInstance]);
+  }, [app, platform, store, fail, measure, i18nInstance, objectHub]);
 
   // Rulers follow the caret's page and the panels' layout.
   useEffect(() => measure(), [measure, state.showRuler, state.doc, state.panel]);
@@ -2065,6 +2072,8 @@ function EditorInner({
       (s) => hasDoc(s) && !!f(s)?.pictureTools,
       () => pictureHub.get(),
     );
+    // Embedded / linked workbooks (CORE-EMBED-001).
+    registerObjectCommands(r, hasDoc, () => objectHub.get());
     return r;
   }, [
     platform,
@@ -2077,6 +2086,7 @@ function EditorInner({
     loaded,
     printLayoutPdf,
     pictureHub,
+    objectHub,
   ]);
   /* eslint-enable react-hooks/refs */
 
@@ -2144,6 +2154,21 @@ function EditorInner({
     hub: pictureHub,
   });
   const pictureTab: RibbonTab[] = picture.tab ? [picture.tab] : [];
+  // Embedded / linked workbooks (CORE-EMBED-001): insert dialog, editing grid, update links.
+  const objects = useObjectTools({
+    labels: objectToolsLabels(t),
+    run: (c) => controller.current?.run(c) ?? Promise.resolve(null),
+    ...objectPlatform(platform),
+    onError: (code) =>
+      store.setState({
+        status: { kind: 'error', key: `objectTools.error.${code}`, message: code },
+      }),
+    onUpdated: (count) =>
+      store.setState({
+        status: { kind: 'info', key: 'objectTools.updated', params: { count: String(count) } },
+      }),
+    hub: objectHub,
+  });
   // Status bar: proofing language of the selection (§17.3.2.20 lang).
   const languageLabel = fs?.lang
     ? (PROOF_LANGUAGES as readonly string[]).includes(fs.lang)
@@ -2522,6 +2547,8 @@ function EditorInner({
             item('insert.table', 'commands.insert.table', <Table size={ICON} />),
             s('table.fromText', 'commands.table.fromText', <Table2 size={SMALL} />),
             item('insert.image', 'commands.insert.image', <Image size={ICON} />),
+            item('object.insert', 'commands.object.insert', <FileSpreadsheet size={ICON} />),
+            s('object.updateLinks', 'commands.object.updateLinks', <RefreshCw size={SMALL} />),
           ],
         },
         {
@@ -3264,6 +3291,7 @@ function EditorInner({
               />
             )}
             {picture.dialogs}
+            {objects.dialogs}
             {state.dialog === 'picturePosition' && (
               <PicturePositionDialog
                 format={fs}

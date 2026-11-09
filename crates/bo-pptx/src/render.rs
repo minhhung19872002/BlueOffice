@@ -1762,6 +1762,21 @@ fn draw_frame(
                 draw_node(cx, &node, Frame::root(), fonts, images, &mut cmds);
             }
         }
+        // §19.3.2.4 oleObj: its preview picture (`p:pic`) fills the frame; the object
+        // itself is never run (CORE-EMBED-001).
+        GraphicContent::Other(gd) if f.uri == crate::ole::URI_OLE => {
+            if let Some(pic) = crate::ole::ole_picture(gd) {
+                let mut node = crate::parse_node(pic);
+                if let ShapeNode::Picture(p) = &mut node {
+                    let mut x = p.props.xfrm.clone().unwrap_or_default();
+                    x.off = Some((0, 0));
+                    x.ext = f.xfrm.ext;
+                    x.rot = None;
+                    p.props.xfrm = Some(x);
+                }
+                draw_node(cx, &node, Frame::root(), fonts, images, &mut cmds);
+            }
+        }
         GraphicContent::Other(_) => {}
     }
     wrap_transform(aff, cmds, out);

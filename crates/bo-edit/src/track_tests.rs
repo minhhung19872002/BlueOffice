@@ -61,6 +61,7 @@ fn doc() -> Document {
         shape: None,
         format: None,
         src: None,
+        ole: None,
     };
     let floating = Image {
         anchor: Some(Anchor {

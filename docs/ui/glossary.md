@@ -49,6 +49,9 @@ khi dùng.
 | Worksheet / Sheet | Trang tính |
 | Cell | Ô |
 | Range | Vùng |
+| Embedded object | Đối tượng nhúng |
+| Linked object | Đối tượng liên kết |
+| Update links | Cập nhật liên kết |
 | Formula bar | Thanh công thức |
 | Name Box | Hộp tên |
 | PivotTable | Bảng tổng hợp |

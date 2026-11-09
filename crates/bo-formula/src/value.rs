@@ -309,6 +309,27 @@ pub enum Value {
     Refs(Arc<Vec<Area>>),
     /// A `LAMBDA` function value.
     Lambda(Arc<Lambda>),
+    /// A picture returned by `IMAGE` ([MS-XLSX] §2.3.6.1.11 web image rich value).
+    /// In calculations it behaves like `#VALUE!` (the rich value fallback); the
+    /// sheet layer shows the picture.
+    Image(Arc<ImageValue>),
+}
+
+/// The picture an `IMAGE` call asks for. Fetching the pixels is the host's job
+/// (through its platform layer, asynchronously); the formula engine never opens
+/// a network connection.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImageValue {
+    /// Source URL (`http` / `https`).
+    pub source: String,
+    /// Alternative text.
+    pub alt_text: Option<String>,
+    /// Sizing code: 0 fit, 1 fill, 2 original size, 3 custom.
+    pub sizing: u8,
+    /// Custom height in pixels (sizing 3).
+    pub height: Option<f64>,
+    /// Custom width in pixels (sizing 3).
+    pub width: Option<f64>,
 }
 
 impl PartialEq for Value {
@@ -323,6 +344,7 @@ impl PartialEq for Value {
             (Value::Ref(a), Value::Ref(b)) => a == b,
             (Value::Refs(a), Value::Refs(b)) => a == b,
             (Value::Lambda(a), Value::Lambda(b)) => Arc::ptr_eq(a, b),
+            (Value::Image(a), Value::Image(b)) => a == b,
             _ => false,
         }
     }
@@ -462,7 +484,7 @@ impl Value {
     pub fn display(&self) -> String {
         match self.first() {
             Value::Error(e) => e.as_str().to_owned(),
-            Value::Ref(_) | Value::Refs(_) => "#VALUE!".to_owned(),
+            Value::Ref(_) | Value::Refs(_) | Value::Image(_) => "#VALUE!".to_owned(),
             Value::Lambda(_) => "#CALC!".to_owned(),
             v => v.as_text().unwrap_or_default(),
         }

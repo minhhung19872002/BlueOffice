@@ -2548,4 +2548,6 @@ export interface Platform {
   mergeData?: import('./mailMerge').MergeDataProvider;
   /** Sends merged e-mails (server or desktop); absent where none. */
   mail?: import('./mailMerge').MailProvider;
+  /** Pictures from the web for the sheet `IMAGE` function (absent: not allowed). */
+  images?: import('./remoteImages').RemoteImages;
 }

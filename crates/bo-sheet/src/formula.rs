@@ -333,6 +333,8 @@ pub(crate) fn write_back(
         }
         if let Some(cell) = ws.cells.get_mut(&(r, c)) {
             cell.value = to_cell_value(&value);
+            // `IMAGE` results ([MS-XLSX] §2.3.6.1.11): the cell shows the picture.
+            cell.image = crate::cell_image::formula_image(&value);
             if let (Some(a), Some(f)) = (spill, cell.formula.as_mut()) {
                 if !f.text.is_empty() {
                     let range = CellRange::new(

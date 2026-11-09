@@ -20,8 +20,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 
+mod cell_media;
 mod custom_view;
 mod form_control;
+pub use cell_media::{
+    CellImage, CellImageSource, ImageSizing, CALC_ORIGIN_DECORATIVE, CALC_ORIGIN_STANDALONE,
+};
 pub use custom_view::{CustomSheetView, CustomWorkbookView, SheetViewType};
 pub use form_control::{CheckState, ControlAnchor, FormControl, FormControlKind};
 
@@ -643,6 +647,11 @@ pub struct Cell {
     pub vm: Option<u32>,
     /// `ph` show phonetic.
     pub show_phonetic: bool,
+    /// Picture shown in the cell: a `_localImage` rich value read through `vm`
+    /// ([MS-XLSX] §2.3.6.1.10) or the result of `IMAGE` (§2.3.6.1.11). The value
+    /// is then the fallback `#VALUE!`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<Box<CellImage>>,
 }
 
 impl Cell {
@@ -3462,6 +3471,14 @@ pub struct CellXf {
     pub alignment: Option<CellAlignment>,
     /// `protection` child.
     pub protection: Option<CellProtection>,
+    /// The format shows a checkbox cell control ([MS-XLSX] §2.3.9.4 Checkbox,
+    /// reached from `extLst/ext/xfpb:xfComplement` §2.6.238).
+    #[serde(default)]
+    pub checkbox: bool,
+    /// `xfpb:xfComplement/@i` as read ([MS-XLSX] §2.6.238), kept for complements
+    /// other than a checkbox.
+    #[serde(default)]
+    pub complement: Option<u32>,
 }
 
 /// Alias used by the rest of the code base: a cell "style" is an `xf` record.

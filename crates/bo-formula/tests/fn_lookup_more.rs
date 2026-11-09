@@ -1,5 +1,5 @@
 //! ADDRESS, EXPAND, TOCOL, TOROW, WRAPROWS, WRAPCOLS, TRIMRANGE, GROUPBY, PIVOTBY, HYPERLINK,
-//! GETPIVOTDATA, IMAGE, RTD and eta-reduced function arguments.
+//! GETPIVOTDATA, RTD and eta-reduced function arguments.
 //!
 //! Sources: ECMA-376 Part 1, §18.17.7 (ADDRESS, HYPERLINK, GETPIVOTDATA, RTD); [MS-XLSX]
 //! future functions for the rest. Expected values are worked by hand from the data below.
@@ -148,11 +148,6 @@ fn addresses_and_shaping() {
                 "=RTD(\"srv.prog\",\"\",\"topic\")",
                 E("#N/A"),
                 "ECMA-376 §18.17.7 RTD: no server",
-            ),
-            (
-                "=IMAGE(\"https://example.vn/a.png\",\"Logo\")",
-                T("Logo"),
-                "hand: the alternative text",
             ),
             (
                 "=BYROW({1,2;3,4},SUM)",

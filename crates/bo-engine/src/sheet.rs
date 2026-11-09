@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 mod analysis_cmd;
 mod audit_cmd;
+mod cell_media_cmd;
 mod chart_design_cmd;
 mod cmd;
 pub(crate) mod collab;
@@ -297,6 +298,8 @@ pub struct SheetEngine {
     table_auto: table_cmd::TableAuto,
     /// Spelling and grammar checking of text cells (CORE-SPELL-006).
     pub(crate) spell: crate::spell::SpellState,
+    /// `IMAGE` pictures fetched by the host (SHEET-CELL-001).
+    web_images: cell_media_cmd::WebImages,
 }
 
 impl Default for SheetEngine {
@@ -555,6 +558,8 @@ fn input_to_cell_typed(
         if let Some(t) = bo_sheet::numfmt::parse_typed_date(input, locale, date1904) {
             let mut cell = old.cloned().unwrap_or_default();
             cell.formula = None;
+            cell.vm = None;
+            cell.image = None;
             cell.value = CellValue::Number(t.serial);
             return (Some(cell), Some(t.num_fmt_id));
         }
@@ -579,6 +584,9 @@ fn date_style(styles: &mut bo_model::sheet::Stylesheet, style: u32, fmt_id: u32)
 fn input_to_cell(input: &str, old: Option<&Cell>, locale: &Locale) -> Option<Cell> {
     let mut cell = old.cloned().unwrap_or_default();
     cell.formula = None;
+    // Typing replaces a picture / rich value ([MS-XLSX] §2.3.6) with the new value.
+    cell.vm = None;
+    cell.image = None;
     if input.is_empty() {
         if cell.style == 0 {
             return None;
@@ -676,6 +684,7 @@ impl SheetEngine {
             identity: Vec::new(),
             table_auto: table_cmd::TableAuto::default(),
             spell: crate::spell::SpellState::default(),
+            web_images: cell_media_cmd::WebImages::default(),
         }
     }
 
@@ -1005,6 +1014,7 @@ impl SheetEngine {
             locale: self.locale,
             now: self.live.now(),
             drawings: self.drawings.clone(),
+            images: self.web_images.states(),
             ..RenderOptions::default()
         };
         Ok(render_viewport(

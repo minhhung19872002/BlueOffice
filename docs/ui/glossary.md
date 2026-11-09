@@ -104,3 +104,7 @@ khi dùng.
 | Options | Tuỳ chọn |
 | High contrast | Tương phản cao |
 | Density: Normal / Compact / Touch | Mật độ: Thường / Gọn / Cảm ứng |
+| Checkbox (cell control) | Ô đánh dấu |
+| Picture in cell | Ảnh trong ô |
+| Alt text | Văn bản thay thế |
+| Decorative (picture) | Chỉ để trang trí |

@@ -28,6 +28,8 @@ export {
 } from './shared';
 export * from './sheet';
 export * from './fileVariants';
+export * from './remoteImages';
+export * from './cellMedia';
 export * from './security';
 export * from './slideMaster';
 export * from './slideViews';

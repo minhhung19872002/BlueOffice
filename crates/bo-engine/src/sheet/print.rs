@@ -1012,6 +1012,7 @@ impl SheetEngine {
                 self.drawings.clone()
             },
             error_text: st.errors.clone(),
+            images: self.web_images.states(),
             ..RenderOptions::default()
         }
     }
@@ -1047,12 +1048,15 @@ impl SheetEngine {
                 commands: Vec::new(),
             });
         }
-        bo_pdf::write_pdf(
+        // Pictures in cells and IMAGE pictures (SHEET-CELL-001).
+        let images = self.media_of(&pages);
+        bo_pdf::write_pdf_with_images(
             &DisplayList { pages },
             &self.fonts,
             &bo_pdf::PdfMeta {
                 title: Some(self.name.clone()),
             },
+            &images,
         )
         .map_err(EngineError::from)
     }

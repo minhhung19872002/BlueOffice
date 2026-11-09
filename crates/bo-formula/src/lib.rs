@@ -63,5 +63,5 @@ pub use shift::{
 };
 pub use storage::{from_storage, storage_prefix, to_storage};
 pub use trace::{trace_formula, FormulaTrace, TraceStep};
-pub use value::{Area, Array, ErrorKind, Lambda, Value};
+pub use value::{Area, Array, ErrorKind, ImageValue, Lambda, Value};
 pub use workbook::{CellId, IterativeConfig, Workbook};

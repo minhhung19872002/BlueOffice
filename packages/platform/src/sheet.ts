@@ -673,6 +673,8 @@ export type SheetCommand =
   | InspectCommand
   /** Sparklines (SHEET-SPARK-001). */
   | SparklineCommand
+  /** Checkboxes and pictures in cells, IMAGE pictures (SHEET-CELL-001). */
+  | import('./cellMedia').CellMediaCommand
   /** Tables (SHEET-TABLE-001). */
   | TableCommand
   /** TCVN3 / VNI text → Unicode (legacy Vietnamese fonts); one undo step. */

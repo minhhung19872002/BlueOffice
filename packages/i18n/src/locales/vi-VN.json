@@ -1730,6 +1730,15 @@
       "increase": "Tăng",
       "selected": "Đang chọn điều khiển {{name}}",
       "designHint": "Kéo để di chuyển · Enter hoặc nhấp đúp để thiết lập · Delete để xoá · Esc để thôi chọn"
+    },
+    "cellMedia": {
+      "pictureInCell": "Ảnh trong ô",
+      "checkbox": "Ô đánh dấu",
+      "altText": "Văn bản thay thế của ảnh",
+      "altTitle": "Văn bản thay thế cho ảnh trong ô",
+      "altLabel": "Mô tả ảnh cho người dùng trình đọc màn hình",
+      "altHint": "Ví dụ: Biểu trưng công ty",
+      "decorative": "Chỉ để trang trí (không cần mô tả)"
     }
   },
   "recovery": {

@@ -493,12 +493,31 @@ fn read_xf(r: &mut XmlReader<'_>, e: &BytesStart<'_>, empty: bool) -> Result<Cel
         pivot_button: take_bool(&mut at, "pivotButton").unwrap_or(false),
         alignment: None,
         protection: None,
+        checkbox: false,
+        complement: None,
     };
     if !empty {
-        for_children(r, |_, e, _| {
+        for_children(r, |r, e, empty| {
             match lname(e).as_str() {
                 "alignment" => xf.alignment = Some(read_alignment(e)),
                 "protection" => xf.protection = Some(read_protection(e)),
+                // §18.2.10 extLst → [MS-XLSX] §2.2.4.9 ext {C7286773-…} → xfComplement (§2.6.238).
+                "extLst" if !empty => for_children(r, |r, ext, empty| {
+                    let uri = bo_opc::xml::attr(ext, b"uri");
+                    if lname(ext) == "ext"
+                        && !empty
+                        && uri.as_deref() == Some(crate::cellctl::EXT_XF_COMPLEMENT)
+                    {
+                        for_children(r, |_, c, _| {
+                            if lname(c) == "xfComplement" {
+                                xf.complement =
+                                    bo_opc::xml::attr(c, b"i").and_then(|v| v.parse().ok());
+                            }
+                            Ok(())
+                        })?;
+                    }
+                    Ok(())
+                })?,
                 _ => {}
             }
             Ok(())
@@ -522,7 +541,7 @@ fn write_xf(out: &mut String, xf: &CellXf) {
     a_optb(out, "applyBorder", xf.apply_border);
     a_optb(out, "applyAlignment", xf.apply_alignment);
     a_optb(out, "applyProtection", xf.apply_protection);
-    if xf.alignment.is_none() && xf.protection.is_none() {
+    if xf.alignment.is_none() && xf.protection.is_none() && xf.complement.is_none() {
         out.push_str("/>");
         return;
     }
@@ -532,6 +551,15 @@ fn write_xf(out: &mut String, xf: &CellXf) {
     }
     if let Some(p) = &xf.protection {
         write_protection(out, p);
+    }
+    if let Some(i) = xf.complement {
+        // [MS-XLSX] §2.2.4.9: xf/extLst/ext {C7286773-…} → xfpb:xfComplement (§2.6.238).
+        let _ = write!(
+            out,
+            "<extLst><ext uri=\"{}\" xmlns:xfpb=\"{}\"><xfpb:xfComplement i=\"{i}\"/></ext></extLst>",
+            crate::cellctl::EXT_XF_COMPLEMENT,
+            crate::cellctl::NS_FPB
+        );
     }
     out.push_str("</xf>");
 }

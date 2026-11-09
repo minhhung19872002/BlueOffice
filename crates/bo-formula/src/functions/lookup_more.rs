@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use super::{f, flatten, opt_bool, opt_num, shape, FnSpec, VAR};
 use crate::eval::{Ctx, R};
-use crate::value::{compare_values, Array, ErrorKind, Lambda, Value};
+use crate::value::{compare_values, Array, ErrorKind, ImageValue, Lambda, Value};
 
 pub(super) const FUNCTIONS: &[FnSpec] = &[
     f("EXPAND", 2, 4, expand),
@@ -461,17 +461,75 @@ fn getpivotdata(_ctx: &mut Ctx, args: &[Value]) -> R {
     }
 }
 
-/// `IMAGE(source, [alt_text], …)`: pictures are not fetched by the formula engine; the cell
-/// shows the alternative text (or the source).
+/// Longest `source` URL `IMAGE` accepts (characters; Microsoft's published `IMAGE`
+/// function documentation gives 255).
+pub const IMAGE_MAX_URL: usize = 255;
+
+/// `IMAGE(source, [alt_text], [sizing], [height], [width])` ([MS-XLSX] future
+/// function; result type: §2.3.6.1.11 web image rich value).
+///
+/// The formula engine only checks the arguments and returns a
+/// [`Value::Image`] request; the host fetches the picture asynchronously through
+/// its platform layer and the sheet shows it (or `#CONNECT!` / `#BLOCKED!` when the
+/// fetch fails — those come from the host, not from this function).
+///
+/// `#VALUE!` (as the published function documentation describes): `source` empty,
+/// not `https://`, longer than [`IMAGE_MAX_URL`] or not text; `alt_text` not text;
+/// `sizing` not 0–3; `height` / `width` given with sizing 0–2; sizing 3 with both
+/// `height` and `width` missing or below 1.
 fn image(ctx: &mut Ctx, args: &[Value]) -> R {
-    let source = ctx.text(&args[0])?;
-    if source.is_empty() {
+    let text_arg = |v: &Value| -> Result<String, ErrorKind> {
+        match ctx.scalar(v) {
+            Value::Text(s) => Ok(s),
+            Value::Error(e) => Err(e),
+            _ => Err(ErrorKind::Value),
+        }
+    };
+    let source = text_arg(&args[0])?.trim().to_owned();
+    let lower = source.to_ascii_lowercase();
+    if !lower.starts_with("https://")
+        || source.len() <= "https://".len()
+        || source.chars().count() > IMAGE_MAX_URL
+    {
         return Err(ErrorKind::Value);
     }
-    match args.get(1) {
-        Some(v) if !matches!(v, Value::Empty) => Ok(Value::Text(ctx.text(v)?)),
-        _ => Ok(Value::Text(source)),
+    let alt_text = match args.get(1) {
+        None | Some(Value::Empty) => None,
+        Some(v) => Some(text_arg(v)?).filter(|s| !s.is_empty()),
+    };
+    let sizing = opt_num(ctx, args, 2, 0.0)?.trunc();
+    if !(0.0..=3.0).contains(&sizing) {
+        return Err(ErrorKind::Value);
     }
+    let dim = |i: usize| -> Result<Option<f64>, ErrorKind> {
+        match args.get(i) {
+            None | Some(Value::Empty) => Ok(None),
+            Some(v) => ctx.num(v).map(Some),
+        }
+    };
+    let (height, width) = (dim(3)?, dim(4)?);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let sizing = sizing as u8;
+    let (height, width) = if sizing == 3 {
+        let ok = |d: Option<f64>| d.filter(|x| *x >= 1.0);
+        let (h, w) = (ok(height), ok(width));
+        if h.is_none() && w.is_none() {
+            return Err(ErrorKind::Value);
+        }
+        (h, w)
+    } else {
+        if height.is_some() || width.is_some() {
+            return Err(ErrorKind::Value);
+        }
+        (None, None)
+    };
+    Ok(Value::Image(Arc::new(ImageValue {
+        source,
+        alt_text,
+        sizing,
+        height,
+        width,
+    })))
 }
 
 /// `RTD(prog_id, server, topic, …)`: no real-time data server is available → `#N/A`.

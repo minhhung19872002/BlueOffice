@@ -79,6 +79,7 @@ export interface EditorState {
     | 'defineList'
     | 'setNumbering'
     | 'autoCorrect'
+    | 'adminFormat'
     | 'pageBorders'
     | 'watermark'
     | 'checkDocument'

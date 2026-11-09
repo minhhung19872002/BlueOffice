@@ -144,6 +144,7 @@ import {
   ZoomOut,
   SpellCheck,
   SpellCheck2,
+  FileCheck2,
   Sigma,
   SquareFunction,
   TextCursorInput,
@@ -217,8 +218,8 @@ import {
   ControlBar,
   PicturePositionDialog,
   TablePropertiesDialog,
-  TemplateDialog,
 } from './DocDialogs';
+import { AdminFormatDialog, TemplateDialog } from './TemplateDialogs';
 import { ConvertDialog, FormulaDialog, SortDialog } from './TableToolDialogs';
 import {
   FormFieldBar,
@@ -1500,6 +1501,11 @@ function EditorInner({
       run: () => store.setState({ dialog: 'checkDocument' }),
     });
     r.register({
+      id: 'review.checkAdminFormat',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'adminFormat' }),
+    });
+    r.register({
       id: 'review.grammar',
       isEnabled: hasDoc,
       isChecked: (s) => s.grammarOn,
@@ -2671,6 +2677,11 @@ function EditorInner({
             item('review.language', 'commands.review.language', <Languages size={ICON} />),
             item('review.autoCorrect', 'commands.review.autoCorrect', <WandSparkles size={ICON} />),
             item('review.checkDocument', 'inspect.command', <ClipboardCheck size={ICON} />),
+            item(
+              'review.checkAdminFormat',
+              'commands.review.checkAdminFormat',
+              <FileCheck2 size={ICON} />,
+            ),
           ],
         },
         {
@@ -3195,6 +3206,9 @@ function EditorInner({
                 noProof={fs?.noProof ?? false}
                 onClose={closeDialog}
               />
+            )}
+            {state.dialog === 'adminFormat' && (
+              <AdminFormatDialog run={runCommand} onClose={closeDialog} />
             )}
             {state.dialog === 'control' && (
               <ControlDialog

@@ -809,7 +809,11 @@ impl Section {
             &self.endnote_pr,
             &self.change,
             &self.page_borders,
-            (self.form_unprotected, self.line_numbers, self.text_direction),
+            (
+                self.form_unprotected,
+                self.line_numbers,
+                self.text_direction,
+            ),
         ))
     }
 

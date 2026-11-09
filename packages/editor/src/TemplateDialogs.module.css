@@ -1,0 +1,78 @@
+/* Template gallery (File › New from template) and the Nghị định 30/2020 format check. */
+.intro {
+  margin: 0 0 12px;
+  color: var(--bo-text-muted);
+  font-size: 12px;
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  all: unset;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius);
+  cursor: pointer;
+  text-align: center;
+  font-size: 12px;
+}
+
+.card:hover,
+.card:focus-visible {
+  background: var(--bo-hover);
+  border-color: var(--bo-accent);
+}
+
+.thumb {
+  width: 120px;
+  aspect-ratio: 210 / 297;
+  background: #fff;
+  border: 1px solid var(--bo-border);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+
+.issues {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 50vh;
+  overflow: auto;
+}
+
+.issue {
+  all: unset;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--bo-border);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.issue:disabled {
+  cursor: default;
+}
+
+.issue:not(:disabled):hover {
+  background: var(--bo-hover);
+}
+
+li[data-severity='warning'] .issue strong {
+  color: var(--bo-text-muted);
+}
+
+.issue span,
+.issue em {
+  color: var(--bo-text-muted);
+}

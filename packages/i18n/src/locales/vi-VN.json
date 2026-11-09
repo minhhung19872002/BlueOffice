@@ -232,7 +232,8 @@
       "markupAllReviewers": "Mọi người sửa",
       "reviewingPane": "Ngăn danh sách sửa đổi",
       "reviewingPaneBottom": "Danh sách sửa đổi ở dưới",
-      "protectForms": "Chỉ cho điền biểu mẫu…"
+      "protectForms": "Chỉ cho điền biểu mẫu…",
+      "checkAdminFormat": "Kiểm tra thể thức (NĐ 30)"
     },
     "references": {
       "insertToc": "Mục lục",
@@ -2318,10 +2319,46 @@
   },
   "templates": {
     "title": "Mới từ mẫu",
-    "nd30": {
-      "name": "Văn bản hành chính (Nghị định 30/2020)",
-      "description": "Quốc hiệu, tiêu ngữ, số/ký hiệu, nơi nhận; khổ A4, lề trên/dưới 20 mm, trái 30 mm, phải 15 mm; Times New Roman 13.",
-      "file": "Văn bản hành chính.docx"
+    "intro": "Văn bản hành chính theo Nghị định 30/2020/NĐ-CP: khổ A4, lề trên/dưới 20 mm, trái 30 mm, phải 15 mm; Times New Roman; quốc hiệu, tiêu ngữ, số và ký hiệu, nơi nhận, chữ ký.",
+    "cong-van": {
+      "name": "Công văn",
+      "description": "Không có tên loại; trích yếu “V/v …” dưới số và ký hiệu; kính gửi, nơi nhận, chữ ký.",
+      "file": "Công văn.docx"
+    },
+    "quyet-dinh": {
+      "name": "Quyết định",
+      "description": "Thẩm quyền ban hành, các căn cứ, “QUYẾT ĐỊNH:” và các điều; nơi nhận “Như Điều 3”.",
+      "file": "Quyết định.docx"
+    },
+    "to-trinh": {
+      "name": "Tờ trình",
+      "description": "Kính gửi cấp có thẩm quyền; sự cần thiết, nội dung đề xuất, kiến nghị.",
+      "file": "Tờ trình.docx"
+    },
+    "bien-ban": {
+      "name": "Biên bản",
+      "description": "Thời gian, địa điểm, thành phần, nội dung; thư ký và chủ tọa cùng ký.",
+      "file": "Biên bản.docx"
+    },
+    "hop-dong": {
+      "name": "Hợp đồng",
+      "description": "Căn cứ, thông tin hai bên, các điều khoản; đại diện hai bên cùng ký.",
+      "file": "Hợp đồng.docx"
+    },
+    "bao-cao": {
+      "name": "Báo cáo",
+      "description": "Kết quả, tồn tại và nguyên nhân, phương hướng, kiến nghị.",
+      "file": "Báo cáo.docx"
+    },
+    "giay-moi": {
+      "name": "Giấy mời",
+      "description": "Người được mời, nội dung, thời gian, địa điểm.",
+      "file": "Giấy mời.docx"
+    },
+    "ke-hoach": {
+      "name": "Kế hoạch",
+      "description": "Mục đích, yêu cầu; nội dung và tiến độ; tổ chức thực hiện.",
+      "file": "Kế hoạch.docx"
     }
   },
   "hf": {
@@ -3351,6 +3388,77 @@
       "sameFont": "Như đoạn văn",
       "lines": "Cao bằng số dòng",
       "distance": "Cách chữ"
+    }
+  },
+  "adminFormat": {
+    "title": "Kiểm tra thể thức văn bản (Nghị định 30/2020)",
+    "recheck": "Kiểm tra lại",
+    "close": "Đóng",
+    "checking": "Đang kiểm tra…",
+    "ok": "Không phát hiện sai lệch so với thể thức của Nghị định 30/2020/NĐ-CP.",
+    "summary": "Phát hiện {{n}} sai lệch; bấm vào một mục để chuyển tới đoạn văn.",
+    "expected": "Quy định: {{value}}",
+    "actual": "Hiện tại: {{value}}",
+    "components": {
+      "page": "Trang giấy",
+      "font": "Phông chữ",
+      "body": "Nội dung",
+      "quocHieu": "Quốc hiệu",
+      "tieuNgu": "Tiêu ngữ",
+      "coQuanChuQuan": "Tên cơ quan chủ quản",
+      "coQuan": "Tên cơ quan ban hành",
+      "soKyHieu": "Số, ký hiệu",
+      "diaDanh": "Địa danh và thời gian",
+      "tenLoai": "Tên loại văn bản",
+      "trichYeu": "Trích yếu",
+      "trichYeuCongVan": "Trích yếu công văn (V/v)",
+      "kinhGui": "Kính gửi",
+      "chucVu": "Chức vụ người ký",
+      "hoTen": "Họ tên người ký",
+      "noiNhan": "Nơi nhận",
+      "noiNhanList": "Danh sách nơi nhận",
+      "soTrang": "Số trang"
+    },
+    "props": {
+      "size": "Cỡ chữ",
+      "bold": "Chữ đậm",
+      "italic": "Chữ nghiêng",
+      "case": "Chữ in hoa",
+      "align": "Căn lề",
+      "position": "Vị trí",
+      "underline": "Đường kẻ bên dưới",
+      "missing": "Thiếu thành phần",
+      "font": "Tên phông",
+      "paper": "Khổ giấy",
+      "marginTop": "Lề trên",
+      "marginBottom": "Lề dưới",
+      "marginLeft": "Lề trái",
+      "marginRight": "Lề phải",
+      "indent": "Lùi đầu dòng",
+      "spacing": "Khoảng cách đoạn",
+      "lineSpacing": "Khoảng cách dòng",
+      "firstPage": "Số trang ở trang đầu"
+    },
+    "values": {
+      "yes": "có",
+      "no": "không",
+      "upper": "in hoa",
+      "mixed": "có chữ thường",
+      "left": "trái",
+      "center": "giữa",
+      "right": "phải",
+      "justify": "đều hai lề",
+      "present": "có",
+      "missing": "không có",
+      "headerLeft": "cột trái phần đầu",
+      "headerRight": "cột phải phần đầu",
+      "body": "phần nội dung",
+      "signatureLeft": "cột nơi nhận",
+      "signature": "cột chữ ký",
+      "header": "đầu trang",
+      "footer": "chân trang",
+      "hidden": "không hiển thị",
+      "shown": "hiển thị"
     }
   }
 }

@@ -13,6 +13,7 @@ pub mod calc;
 pub mod cells;
 pub mod cf;
 pub mod chart;
+pub mod chart_style;
 pub mod color;
 pub mod fill;
 pub mod filter;

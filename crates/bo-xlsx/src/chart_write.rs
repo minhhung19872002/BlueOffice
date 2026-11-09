@@ -6,8 +6,12 @@
 //! (empty [`Chart::part`]) are added to the sheet's drawing (created when the
 //! sheet has none).
 
+use crate::chart_format as cf;
 use crate::xml::fmt_f64;
-use bo_model::sheet::{CellRef, Chart, ChartAnchor, ChartKind, ChartPlot, ChartSeries, Workbook};
+use bo_model::chart_style::ChartFormat;
+use bo_model::sheet::{
+    CellRef, Chart, ChartAnchor, ChartColor, ChartKind, ChartPlot, ChartSeries, Workbook,
+};
 use bo_opc::xml::escape;
 use std::fmt::Write as _;
 
@@ -39,20 +43,34 @@ const CAT_AX: u32 = 50_010;
 const VAL_AX: u32 = 50_020;
 const SER_AX: u32 = 50_030;
 
-/// `<a:p>` rich text body of a title (§21.2.2.156 rich).
-fn rich(out: &mut String, text: &str) {
+/// `<a:p>` rich text body of a title (§21.2.2.156 rich); a bold run (§21.1.2.3.9 rPr `b`).
+fn rich(out: &mut String, text: &str, bold: bool) {
+    let rpr = if bold {
+        "<a:rPr lang=\"en-US\" b=\"1\"/>"
+    } else {
+        ""
+    };
     let _ = write!(
         out,
-        "<c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>{}</a:t></a:r></a:p></c:rich></c:tx>",
+        "<c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r>{rpr}<a:t>{}</a:t></a:r></a:p></c:rich></c:tx>",
         escape(text)
     );
 }
 
 /// §21.2.2.210 title.
-fn title(out: &mut String, text: &str) {
+fn title(out: &mut String, text: &str, bold: bool) {
     out.push_str("<c:title>");
-    rich(out, text);
+    rich(out, text, bold);
     out.push_str("<c:overlay val=\"0\"/></c:title>");
+}
+
+/// Colour of series (or pie point) `i` without a colour of its own: the format's palette, else
+/// BlueSheet's.
+fn auto_color(fmt: &ChartFormat, i: usize) -> ChartColor {
+    match fmt.palette.len() {
+        0 => ChartColor::Rgb(u32::from_str_radix(PALETTE[i % PALETTE.len()], 16).unwrap_or(0)),
+        n => fmt.palette[i % n].clone(),
+    }
 }
 
 /// §21.2.2.200 strRef with a cache.
@@ -100,20 +118,6 @@ fn num_ref(out: &mut String, f: Option<&str>, pts: &[Option<f64>]) {
     }
 }
 
-fn sp_pr(out: &mut String, color: &str, line: bool) {
-    if line {
-        let _ = write!(
-            out,
-            "<c:spPr><a:ln w=\"28575\" cap=\"rnd\"><a:solidFill><a:srgbClr val=\"{color}\"/></a:solidFill><a:round/></a:ln></c:spPr>"
-        );
-    } else {
-        let _ = write!(
-            out,
-            "<c:spPr><a:solidFill><a:srgbClr val=\"{color}\"/></a:solidFill></c:spPr>"
-        );
-    }
-}
-
 /// The `a:solidFill` colour value of a model colour (sRGB hex or a theme colour element).
 fn fill_xml(c: &bo_model::sheet::ChartColor) -> String {
     match c {
@@ -127,8 +131,13 @@ fn fill_xml(c: &bo_model::sheet::ChartColor) -> String {
 /// One `c:ser` (§21.2.2.150 and the per-type variants: CT_BarSer, CT_LineSer, CT_PieSer, CT_AreaSer,
 /// CT_ScatterSer, CT_RadarSer, CT_BubbleSer, CT_SurfaceSer; children in schema order).
 #[allow(clippy::too_many_lines)]
-fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize) {
-    let color = PALETTE[idx % PALETTE.len()];
+fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize, fmt: &ChartFormat) {
+    let color = s
+        .fill
+        .as_ref()
+        .or(s.line.as_ref())
+        .cloned()
+        .unwrap_or_else(|| auto_color(fmt, idx));
     let _ = write!(out, "<c:ser><c:idx val=\"{idx}\"/><c:order val=\"{idx}\"/>");
     if s.name.is_some() || s.name_ref.is_some() {
         match &s.name_ref {
@@ -158,29 +167,11 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize) {
         // Stock series draw only their high–low lines and ticks (§21.2.2.198).
         out.push_str("<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr><c:marker><c:symbol val=\"none\"/></c:marker>");
     } else if !pie {
-        match s.fill.as_ref().or(s.line.as_ref()) {
-            Some(c) if line_like => {
-                let _ = write!(
-                    out,
-                    "<c:spPr><a:ln w=\"28575\" cap=\"rnd\"><a:solidFill>{}</a:solidFill><a:round/></a:ln></c:spPr>",
-                    fill_xml(c)
-                );
-            }
-            Some(c) => {
-                let _ = write!(
-                    out,
-                    "<c:spPr><a:solidFill>{}</a:solidFill></c:spPr>",
-                    fill_xml(c)
-                );
-            }
-            None => sp_pr(out, color, line_like),
-        }
+        out.push_str(&cf::series_sp_pr(&color, fmt, line_like));
     }
     match kind {
         ChartKind::Bar | ChartKind::Bubble => out.push_str("<c:invertIfNegative val=\"0\"/>"),
-        ChartKind::Line | ChartKind::Radar => {
-            out.push_str("<c:marker><c:symbol val=\"none\"/></c:marker>");
-        }
+        ChartKind::Line | ChartKind::Radar => out.push_str(&cf::marker(&color, fmt)),
         ChartKind::Scatter => {
             out.push_str("<c:marker><c:symbol val=\"circle\"/><c:size val=\"5\"/></c:marker>");
         }
@@ -193,13 +184,15 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize) {
     if pie {
         // Per-point colours (§21.2.2.52 dPt): the file's or the palette.
         for i in 0..s.values.len() {
-            let fill = s.point_fills.iter().find(|(k, _)| *k == i).map_or_else(
-                || format!("<a:srgbClr val=\"{}\"/>", PALETTE[i % PALETTE.len()]),
-                |(_, c)| fill_xml(c),
-            );
+            let fill = s
+                .point_fills
+                .iter()
+                .find(|(k, _)| *k == i)
+                .map_or_else(|| auto_color(fmt, i), |(_, c)| c.clone());
             let _ = write!(
                 out,
-                "<c:dPt><c:idx val=\"{i}\"/><c:bubble3D val=\"0\"/><c:spPr><a:solidFill>{fill}</a:solidFill></c:spPr></c:dPt>"
+                "<c:dPt><c:idx val=\"{i}\"/><c:bubble3D val=\"0\"/>{}</c:dPt>",
+                cf::series_sp_pr(&fill, fmt, false)
             );
         }
     } else {
@@ -321,7 +314,7 @@ fn needs_ser_ax(p: &ChartPlot) -> bool {
 
 /// A 3-D group: §21.2.2.15 bar3DChart, §21.2.2.96 line3DChart, §21.2.2.4 area3DChart,
 /// §21.2.2.140 pie3DChart, §21.2.2.202 surface3DChart. `None` for kinds without a 3-D form.
-fn plot_3d(out: &mut String, p: &ChartPlot, sers: &str) -> Option<bool> {
+fn plot_3d(out: &mut String, p: &ChartPlot, sers: &str, gap: u32) -> Option<bool> {
     let ids = |out: &mut String| {
         axis_ids(out);
         if needs_ser_ax(p) {
@@ -339,7 +332,7 @@ fn plot_3d(out: &mut String, p: &ChartPlot, sers: &str) -> Option<bool> {
             let g = g.unwrap_or("clustered");
             let _ = write!(
                 out,
-                "<c:bar3DChart><c:barDir val=\"{dir}\"/><c:grouping val=\"{g}\"/><c:varyColors val=\"0\"/>{sers}<c:gapWidth val=\"150\"/>"
+                "<c:bar3DChart><c:barDir val=\"{dir}\"/><c:grouping val=\"{g}\"/><c:varyColors val=\"0\"/>{sers}<c:gapWidth val=\"{gap}\"/>"
             );
             if let Some(shape) = p.style.as_deref().filter(|s| {
                 matches!(
@@ -395,14 +388,17 @@ fn plot_3d(out: &mut String, p: &ChartPlot, sers: &str) -> Option<bool> {
 }
 
 /// One plot group (§21.2.2.16 barChart, §21.2.2.97 lineChart, …).
-fn plot(out: &mut String, p: &ChartPlot, first_idx: usize) -> bool {
+fn plot(out: &mut String, p: &ChartPlot, first_idx: usize, fmt: &ChartFormat) -> bool {
     let grouping = p.grouping.as_deref();
     let mut sers = String::new();
     for (i, s) in p.series.iter().enumerate() {
-        series(&mut sers, &p.kind, s, first_idx + i);
+        series(&mut sers, &p.kind, s, first_idx + i, fmt);
     }
+    // §21.2.2.49 dLbls follows the series in every chart group that has it.
+    sers.push_str(&cf::data_labels(fmt, &p.kind, grouping));
+    let gap = fmt.gap_width.unwrap_or(150).min(500);
     if p.three_d {
-        if let Some(axes) = plot_3d(out, p, &sers) {
+        if let Some(axes) = plot_3d(out, p, &sers, gap) {
             return axes;
         }
     }
@@ -416,7 +412,7 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize) -> bool {
             let g = grouping.unwrap_or("clustered");
             let _ = write!(
                 out,
-                "<c:barChart><c:barDir val=\"{dir}\"/><c:grouping val=\"{g}\"/><c:varyColors val=\"0\"/>{sers}<c:gapWidth val=\"150\"/>"
+                "<c:barChart><c:barDir val=\"{dir}\"/><c:grouping val=\"{g}\"/><c:varyColors val=\"0\"/>{sers}<c:gapWidth val=\"{gap}\"/>"
             );
             if g != "clustered" && g != "standard" {
                 out.push_str("<c:overlap val=\"100\"/>");
@@ -549,8 +545,9 @@ fn axis(
     cross: u32,
     pos: &str,
     title_text: Option<&str>,
-    grid: bool,
+    grid: &str,
     scale: Option<&bo_model::sheet::ChartAxes>,
+    sp_pr: &str,
 ) {
     // §21.2.2.160 scaling: logBase?, orientation, max?, min?.
     let _ = write!(out, "<c:{tag}><c:axId val=\"{id}\"/><c:scaling>");
@@ -568,18 +565,17 @@ fn axis(
         out,
         "</c:scaling><c:delete val=\"0\"/><c:axPos val=\"{pos}\"/>"
     );
-    if grid {
-        out.push_str("<c:majorGridlines/>");
-    }
+    // §21.2.2.100 majorGridlines.
+    out.push_str(grid);
     if let Some(t) = title_text.filter(|t| !t.is_empty()) {
-        title(out, t);
+        title(out, t, false);
     }
     if tag == "valAx" {
         out.push_str("<c:numFmt formatCode=\"General\" sourceLinked=\"1\"/>");
     }
     let _ = write!(
         out,
-        "<c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/><c:crossAx val=\"{cross}\"/><c:crosses val=\"autoZero\"/>"
+        "<c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/>{sp_pr}<c:crossAx val=\"{cross}\"/><c:crosses val=\"autoZero\"/>"
     );
     match tag {
         "valAx" => out.push_str("<c:crossBetween val=\"between\"/>"),
@@ -600,10 +596,19 @@ pub fn parse_chart_part(data: &[u8], part: &str) -> Option<Chart> {
 
 /// The `c:chartSpace` part of `chart` (§21.2.2.29).
 pub fn chart_space_xml(chart: &Chart) -> String {
+    chart_space_xml_with(chart, None)
+}
+
+/// The `c:chartSpace` part of `chart` (§21.2.2.29) with an optional §21.2.2.63 externalData
+/// reference to relationship `external` (an embedded workbook holding the data).
+#[allow(clippy::too_many_lines)]
+pub fn chart_space_xml_with(chart: &Chart, external: Option<&str>) -> String {
+    let fmt = &chart.format;
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n");
     let _ = write!(
         out,
-        "<c:chartSpace xmlns:c=\"{C_NS}\" xmlns:a=\"{A_NS}\" xmlns:r=\"{R_NS}\"><c:roundedCorners val=\"0\"/>"
+        "<c:chartSpace xmlns:c=\"{C_NS}\" xmlns:a=\"{A_NS}\" xmlns:r=\"{R_NS}\"><c:roundedCorners val=\"{}\"/>",
+        u8::from(fmt.rounded)
     );
     // §21.2.2.142 pivotSource: name of the pivot table and its chart format id (§21.2.2.73).
     if let Some(src) = chart.pivot_source.as_deref().filter(|s| !s.is_empty()) {
@@ -617,7 +622,7 @@ pub fn chart_space_xml(chart: &Chart) -> String {
     out.push_str("<c:chart>");
     match chart.title.as_deref().filter(|t| !t.is_empty()) {
         Some(t) => {
-            title(&mut out, t);
+            title(&mut out, t, fmt.title_bold);
             out.push_str("<c:autoTitleDeleted val=\"0\"/>");
         }
         None => out.push_str("<c:autoTitleDeleted val=\"1\"/>"),
@@ -665,7 +670,7 @@ pub fn chart_space_xml(chart: &Chart) -> String {
     let mut axes = false;
     let mut idx = 0;
     for p in &chart.plots {
-        axes |= plot(&mut out, p, idx);
+        axes |= plot(&mut out, p, idx, fmt);
         idx += p.series.len();
     }
     if chart.plots.is_empty() {
@@ -696,8 +701,18 @@ pub fn chart_space_xml(chart: &Chart) -> String {
             (false, true) => "dateAx",
             _ => "catAx",
         };
+        let grid = cf::gridlines(fmt);
+        let ax_sp = cf::axis_sp_pr(fmt);
         axis(
-            &mut out, cat_tag, CAT_AX, VAL_AX, cat_pos, cat_title, false, None,
+            &mut out,
+            cat_tag,
+            CAT_AX,
+            VAL_AX,
+            cat_pos,
+            cat_title,
+            if fmt.cat_grid { &grid } else { "" },
+            None,
+            &ax_sp,
         );
         axis(
             &mut out,
@@ -706,8 +721,9 @@ pub fn chart_space_xml(chart: &Chart) -> String {
             CAT_AX,
             val_pos,
             val_title,
-            true,
+            if fmt.hide_val_grid { "" } else { &grid },
             Some(&chart.axes),
+            &ax_sp,
         );
         // §21.2.2.175 serAx: the depth axis of a 3-D chart whose series stand one behind the other.
         if chart.plots.iter().any(needs_ser_ax) {
@@ -721,6 +737,7 @@ pub fn chart_space_xml(chart: &Chart) -> String {
             out.push_str("<c:dTable><c:showHorzBorder val=\"1\"/><c:showVertBorder val=\"1\"/><c:showOutline val=\"1\"/><c:showKeys val=\"1\"/></c:dTable>");
         }
     }
+    out.push_str(&cf::plot_sp_pr(fmt));
     out.push_str("</c:plotArea>");
     if let Some(pos) = &chart.legend {
         let pos = match pos.as_str() {
@@ -733,6 +750,15 @@ pub fn chart_space_xml(chart: &Chart) -> String {
         );
     }
     out.push_str("<c:plotVisOnly val=\"1\"/><c:dispBlanksAs val=\"gap\"/></c:chart>");
+    // §21.2.2.29: spPr, txPr and externalData follow the chart, before extLst.
+    out.push_str(&cf::space_props(fmt));
+    if let Some(rid) = external {
+        let _ = write!(
+            out,
+            "<c:externalData r:id=\"{}\"><c:autoUpdate val=\"0\"/></c:externalData>",
+            escape(rid)
+        );
+    }
     if chart.pivot_source.is_some() {
         // Field buttons of a pivot chart ([MS-ODRAWXML] c14:pivotOptions, chartSpace extension).
         let v = u8::from(chart.pivot_buttons);

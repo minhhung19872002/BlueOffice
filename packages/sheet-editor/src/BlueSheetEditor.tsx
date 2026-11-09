@@ -151,6 +151,16 @@ import { AnalysisDialog } from './analysis';
 import { ProtectSheetDialog, UnprotectDialog } from './protection';
 import { ScenarioDialog } from './scenarios';
 import {
+  SaveChartTemplateDialog,
+  chartDesignGroups,
+  exportChartTemplate,
+  importChartTemplate,
+  layoutTexts,
+  templateMenuItems,
+  templateOfItem,
+  useChartGallery,
+} from './chartStyles';
+import {
   CfDialog,
   ChartDialog,
   ColorMenu,
@@ -407,6 +417,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [guide, setGuide] = useState<{ x?: number; y?: number } | null>(null);
   const [cursor, setCursor] = useState('cell');
   const [chart, setChart] = useState<number | null>(null);
+  /** "Save as template…" of the selected chart is open. */
+  const [saveTemplate, setSaveTemplate] = useState(false);
   const [pivots, setPivots] = useState<{ sheet: number; list: PivotInfo[] }>({
     sheet: -1,
     list: [],
@@ -872,6 +884,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     },
     [host, refreshInfo, fail],
   );
+
+  // Chart Design gallery of the selected chart (previews follow the edits).
+  const loadGallery = useChartGallery(host, sheet, chart, revision);
 
   const chooseSlicerItem = useCallback(
     (info: SlicerInfo, label: string, multi: boolean) => {
@@ -2176,7 +2191,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       onSelect: () => run(id),
     });
     const s = 16;
-    return [
+    const tabs: RibbonTab[] = [
       {
         id: 'home',
         label: t('ribbon.tabs.home'),
@@ -2711,7 +2726,45 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         ],
       },
     ];
-  }, [t, registry, state, run]);
+    // Chart Design contextual tab (CORE-CHART-007) while a chart is selected.
+    if (chart === null) return tabs;
+    return [
+      ...tabs,
+      {
+        id: 'chartDesign',
+        label: t('chartDesign.tab'),
+        groups: chartDesignGroups({
+          t,
+          sheet,
+          index: chart,
+          load: loadGallery,
+          exec: (cmd) => exec(cmd),
+          onSaveTemplate: () => setSaveTemplate(true),
+          onExportTemplate: () => {
+            if (!host) return;
+            void exportChartTemplate(
+              loadGallery,
+              host,
+              platform.files,
+              fileName.replace(/\.(xlsx|xlsm|csv)$/i, '') || t('sheetEditor.untitled'),
+            )
+              .then((saved) => {
+                if (saved) setStatus(t('chartDesign.templateSaved', { name: saved }));
+              })
+              .catch(fail);
+          },
+          onImportTemplate: () => {
+            if (!host) return;
+            void importChartTemplate(host, platform.files)
+              .then((name) => {
+                if (name) setStatus(t('chartDesign.templateSaved', { name }));
+              })
+              .catch(fail);
+          },
+        }),
+      },
+    ];
+  }, [t, registry, state, run, chart, sheet, loadGallery, exec, host, platform, fileName, fail]);
 
   const r = rangeOf(selection);
   const multiKey = `${sheet}:${JSON.stringify(allRanges.map(toRange))}:${revision}`;
@@ -2767,7 +2820,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           label: t(`sheetEditor.numFmt.${p.id}`),
         }));
       case 'chart':
-        return CHART_TYPES.map((k) => ({ id: k, label: t(`sheetEditor.chart.types.${k}`) }));
+        return [
+          ...CHART_TYPES.map((k) => ({ id: k, label: t(`sheetEditor.chart.types.${k}`) })),
+          ...templateMenuItems(t),
+        ];
       default:
         return [];
     }
@@ -2777,10 +2833,19 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (kind === 'borders') void borderSel({ preset: id as BorderPreset, style: 'thin' });
     else if (kind === 'styles') void exec({ cmd: 'cellStyle', sheet, range, name: id });
     else if (kind === 'numFmt') void formatSel({ numFmt: id });
-    else if (kind === 'chart')
-      void exec<{ index: number }>({ cmd: 'insertChart', sheet, range, kind: id }).then((res) => {
+    else if (kind === 'chart') {
+      // A saved chart template inserts its type with its formatting.
+      const template = templateOfItem(id);
+      void exec<{ index: number }>({
+        cmd: 'insertChart',
+        sheet,
+        range,
+        kind: template?.kind ?? id,
+        ...(template ? { template, texts: layoutTexts(t) } : {}),
+      }).then((res) => {
         if (res) setChart(res.index);
       });
+    }
     focusInput();
   };
 
@@ -3515,6 +3580,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       )}
       {dialog?.kind === 'chart' && <ChartDialog {...common} index={dialog.index} />}
+      {saveTemplate && chart !== null && (
+        <SaveChartTemplateDialog
+          load={loadGallery}
+          onClose={() => {
+            setSaveTemplate(false);
+            focusInput();
+          }}
+          onSaved={(name) => setStatus(t('chartDesign.templateSaved', { name }))}
+        />
+      )}
       {dialog?.kind === 'pivot' && (
         <PivotDialog
           {...common}

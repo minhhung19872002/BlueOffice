@@ -15,7 +15,10 @@ use bo_model::sheet::{
 };
 use bo_render::{Command, Paint, PathSeg, Rgba, Stroke};
 
+mod look;
 mod three_d;
+
+use look::Look;
 
 /// Series colours (BlueSheet palette).
 pub const PALETTE: [Rgba; 8] = [
@@ -1024,8 +1027,9 @@ pub fn draw_chart(
 
 /// Draws `chart` into a `w × h` box at the origin (points), colours resolved by `color`; `framed`
 /// paints the white chart area with its border (sheets), otherwise the chart sits on its page (slides,
-/// documents).
-#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+/// documents). The chart's formatting (CORE-CHART-007: palette, series treatment, areas, gridlines,
+/// text colour, data labels) is applied.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_chart_with(
     wb: &Workbook,
     sheet: usize,
@@ -1038,23 +1042,65 @@ pub fn draw_chart_with(
     label: &mut LabelFn<'_>,
     out: &mut Vec<Command>,
 ) {
-    if framed {
-        out.push(rect(0.0, 0.0, w, h, Rgba(255, 255, 255, 255)));
+    let start = out.len();
+    let fmt = &chart.format;
+    // Series without a colour of their own take the format's palette.
+    let pal = |c: Option<&ChartColor>, i: usize| -> Rgba {
+        match (c, fmt.palette.len()) {
+            (None, n) if n > 0 => color(Some(&fmt.palette[i % n]), i),
+            _ => color(c, i),
+        }
+    };
+    let look = Look::new(fmt, &pal);
+    let ink = look.text;
+    let mut text = |t: &str, r: [f64; 4], a: Align, size: f64, c: Rgba, out: &mut Vec<Command>| {
+        let c = if c == TEXT { ink.unwrap_or(c) } else { c };
+        label(t, r, a, size, c, out);
+    };
+    draw_body(
+        wb, sheet, chart, w, h, locale, &pal, framed, &look, &mut text, out,
+    );
+    if let Some(cmds) = out.get_mut(start..) {
+        look.recolor(cmds);
+    }
+}
+
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+fn draw_body(
+    wb: &Workbook,
+    sheet: usize,
+    chart: &Chart,
+    w: f64,
+    h: f64,
+    locale: &Locale,
+    color: &ColorFn<'_>,
+    framed: bool,
+    look: &Look,
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) {
+    // §21.2.2.29 chart space spPr: the chart area's fill and border.
+    if framed || look.chart_fill.is_some() {
+        let bg = look.chart_fill.unwrap_or(Rgba(255, 255, 255, 255));
+        out.push(rect(0.0, 0.0, w, h, bg));
+    }
+    if framed || look.chart_line.is_some() {
+        let fc = look.chart_line.unwrap_or(FRAME);
         for c in [
-            hline(0.0, w, 0.25, FRAME, 0.5),
-            hline(0.0, w, h - 0.25, FRAME, 0.5),
-            vline(0.25, 0.0, h, FRAME, 0.5),
-            vline(w - 0.25, 0.0, h, FRAME, 0.5),
+            hline(0.0, w, 0.25, fc, 0.5),
+            hline(0.0, w, h - 0.25, fc, 0.5),
+            vline(0.25, 0.0, h, fc, 0.5),
+            vline(w - 0.25, 0.0, h, fc, 0.5),
         ] {
             out.push(c);
         }
     }
     // Sheet charts sit among cells; slide and document charts are read from further away.
-    let font = if framed {
+    let font = look.font.unwrap_or(if framed {
         (h / 24.0).clamp(6.0, 11.0)
     } else {
         (h / 22.0).clamp(6.0, 14.0)
-    };
+    });
     let mut top = 6.0;
     if let Some(t) = chart.title.as_deref().filter(|t| !t.is_empty()) {
         let th = font * 1.9;
@@ -1263,7 +1309,14 @@ pub fn draw_chart_with(
             if p.kind == ChartKind::OfPie {
                 draw_of_pie(s.first(), p.style.as_deref() == Some("bar"), area, out);
             } else {
-                draw_pie(s.first(), p.kind == ChartKind::Doughnut, area, out);
+                draw_pie(
+                    s.first(),
+                    p.kind == ChartKind::Doughnut,
+                    area,
+                    (look, font, locale),
+                    label,
+                    out,
+                );
             }
         }
         return;
@@ -1351,6 +1404,7 @@ pub fn draw_chart_with(
         font,
         locale,
         &chart.axes,
+        look,
         label,
         out,
     );
@@ -1429,6 +1483,7 @@ fn draw_xy(
     font: f64,
     locale: &Locale,
     axes: &bo_model::sheet::ChartAxes,
+    look: &Look,
     label: &mut LabelFn<'_>,
     out: &mut Vec<Command>,
 ) -> Option<(f64, f64, usize)> {
@@ -1607,6 +1662,10 @@ fn draw_xy(
     };
     let vpos2 = |v: f64| (v - smin) / (smax - smin);
     let vpos = vpos1;
+    // §21.2.2.145 plot area spPr.
+    if let Some(pf) = look.plot_fill {
+        out.push(rect(pl, pt, pw, ph, pf));
+    }
     // Gridlines + value labels (on a log axis, at each power of the base).
     let mut tv = vmin;
     let mut guard = 0;
@@ -1616,7 +1675,9 @@ fn draw_xy(
         let text = fmt_num(v, locale);
         if horizontal {
             let x = pl + f * pw;
-            out.push(vline(x, pt, pb, GRID, 0.5));
+            if look.val_grid {
+                out.push(vline(x, pt, pb, GRID, 0.5));
+            }
             label(
                 &text,
                 [x - label_w / 2.0, pb, x + label_w / 2.0, b],
@@ -1627,7 +1688,9 @@ fn draw_xy(
             );
         } else {
             let y = pb - f * ph;
-            out.push(hline(pl, pr, y, GRID, 0.5));
+            if look.val_grid {
+                out.push(hline(pl, pr, y, GRID, 0.5));
+            }
             label(
                 &text,
                 [l, y - label_h / 2.0, pl - 3.0, y + label_h / 2.0],
@@ -1668,6 +1731,34 @@ fn draw_xy(
         out.push(hline(pl, pr, pb - zero * ph, AXIS, 0.75));
     }
     let slot = if horizontal { ph } else { pw } / ncat as f64;
+    // §21.2.2.100 majorGridlines of the category axis: between the categories (at the X steps of
+    // a scatter chart).
+    if look.cat_grid {
+        if scatter {
+            let mut x = xmin;
+            let mut guard = 0;
+            while x <= xmax + xstep * 0.5 && guard < 60 {
+                out.push(vline(
+                    pl + (x - xmin) / (xmax - xmin) * pw,
+                    pt,
+                    pb,
+                    GRID,
+                    0.5,
+                ));
+                x += xstep;
+                guard += 1;
+            }
+        } else {
+            for i in 0..=ncat {
+                let o = i as f64 * slot;
+                out.push(if horizontal {
+                    hline(pl, pr, pb - o, GRID, 0.5)
+                } else {
+                    vline(pl + o, pt, pb, GRID, 0.5)
+                });
+            }
+        }
+    }
     if scatter {
         let mut x = xmin;
         let mut guard = 0;
@@ -1741,7 +1832,7 @@ fn draw_xy(
         match p.kind {
             ChartKind::Bar => {
                 let stacked = stacked_of(p);
-                let gap = 1.5 / nbar_groups;
+                let gap = look.gap / nbar_groups;
                 let group = slot / (1.0 + gap);
                 let bar = if stacked {
                     group
@@ -1773,10 +1864,32 @@ fn draw_xy(
                             + (slot - group) / 2.0
                             + if stacked { 0.0 } else { si as f64 * bar };
                         let c = s.pts.get(i).copied().unwrap_or(s.color);
-                        if horizontal {
-                            out.push(rect(pl + lo * pw, pb - off - bar, (hi - lo) * pw, bar, c));
+                        let bx = if horizontal {
+                            [pl + lo * pw, pb - off - bar, (hi - lo) * pw, bar]
                         } else {
-                            out.push(rect(pl + off, pb - hi * ph, bar, (hi - lo) * ph, c));
+                            [pl + off, pb - hi * ph, bar, (hi - lo) * ph]
+                        };
+                        look.bar(bx, c, out);
+                        // §21.2.2.49 data labels: at the outer end of a clustered bar, centred in
+                        // a stacked one.
+                        let total = if percent_of(p) { Some(v / 100.0) } else { None };
+                        let cat = s.cats.get(i).map_or("", String::as_str);
+                        if let Some(text) = look.label_text(&s.name, cat, val(s, i), total, locale)
+                        {
+                            let centre = stacked
+                                || look.labels.as_ref().and_then(|d| d.pos.as_deref())
+                                    == Some("ctr");
+                            let (x, y) = match (horizontal, centre) {
+                                (_, true) => (bx[0] + bx[2] / 2.0, bx[1] + bx[3] / 2.0),
+                                (true, false) => (bx[0] + bx[2] + font * 1.2, bx[1] + bx[3] / 2.0),
+                                (false, false) => (bx[0] + bx[2] / 2.0, bx[1] - font * 0.8),
+                            };
+                            let ink = if centre {
+                                Rgba(255, 255, 255, 255)
+                            } else {
+                                TEXT
+                            };
+                            Look::put_label(&text, x, y, font, ink, label, out);
                         }
                     }
                 }
@@ -1822,15 +1935,33 @@ fn draw_xy(
                         }
                         segs.push(PathSeg::Z);
                         let Rgba(r, g, bl, _) = s.color;
-                        out.push(Command::Path {
-                            segs,
-                            fill: Some(Paint::Solid {
-                                color: Rgba(r, g, bl, 200),
-                            }),
-                            stroke: None,
-                        });
+                        if look.fill == bo_model::chart_style::SeriesFill::Solid
+                            && look.outline.is_none()
+                            && !look.shadow
+                        {
+                            out.push(Command::Path {
+                                segs,
+                                fill: Some(Paint::Solid {
+                                    color: Rgba(r, g, bl, 200),
+                                }),
+                                stroke: None,
+                            });
+                        } else {
+                            look.shape(segs, [pl, pt, pr, pb], s.color, out);
+                        }
                     } else {
-                        out.push(polyline(&pts, s.color, 2.0));
+                        out.push(polyline(&pts, s.color, look.line_w));
+                        look.markers(&pts, s.color, out);
+                    }
+                    if look.labels.is_some() {
+                        for (i, (x, y)) in pts.iter().enumerate() {
+                            let cat = s.cats.get(i).map_or("", String::as_str);
+                            if let Some(text) =
+                                look.label_text(&s.name, cat, share(s, i), None, locale)
+                            {
+                                Look::put_label(&text, *x, y - font * 0.9, font, TEXT, label, out);
+                            }
+                        }
                     }
                     if stacked {
                         for (i, b) in base.iter_mut().enumerate() {
@@ -2004,7 +2135,7 @@ fn draw_xy(
             // X positions of the points (category centre; the bar's own centre for clustered bars).
             let bar_x = |i: usize| -> f64 {
                 if p.kind == ChartKind::Bar && !stacked_of(p) {
-                    let group = slot / 2.5;
+                    let group = slot / (1.0 + look.gap);
                     let bar = group / ss.len().max(1) as f64;
                     pl + i as f64 * slot + (slot - group) / 2.0 + si as f64 * bar + bar / 2.0
                 } else {
@@ -2426,7 +2557,30 @@ fn wedge(cx: f64, cy: f64, r: f64, inner: f64, a0: f64, sw: f64) -> Vec<PathSeg>
     segs
 }
 
-fn draw_pie(s: Option<&Ser>, doughnut: bool, [l, t, r, b]: [f64; 4], out: &mut Vec<Command>) {
+/// A pie without formatting or labels (the parts of a pie of pie).
+fn draw_pie_plain(s: Option<&Ser>, doughnut: bool, area: [f64; 4], out: &mut Vec<Command>) {
+    let look = Look::new(
+        &bo_model::chart_style::ChartFormat::default(),
+        &default_color,
+    );
+    draw_pie(
+        s,
+        doughnut,
+        area,
+        (&look, 10.0, &Locale::default()),
+        &mut |_, _, _, _, _, _| {},
+        out,
+    );
+}
+
+fn draw_pie(
+    s: Option<&Ser>,
+    doughnut: bool,
+    [l, t, r, b]: [f64; 4],
+    (look, font, locale): (&Look, f64, &Locale),
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) {
     let Some(s) = s else { return };
     let vals: Vec<f64> = s.vals.iter().map(|v| v.unwrap_or(0.0).max(0.0)).collect();
     let total: f64 = vals.iter().sum();
@@ -2446,19 +2600,37 @@ fn draw_pie(s: Option<&Ser>, doughnut: bool, [l, t, r, b]: [f64; 4], out: &mut V
         }
         let mid = a + sw / 2.0;
         let (ox, oy) = (rad * ex * mid.sin(), -rad * ex * mid.cos());
-        out.push(Command::Path {
-            segs: wedge(cx + ox, cy + oy, rad, inner, a, sw),
-            fill: Some(Paint::Solid {
-                color: s.pts.get(i).copied().unwrap_or(PALETTE[i % PALETTE.len()]),
-            }),
-            stroke: Some(Stroke {
-                width: 0.75,
-                color: Rgba(255, 255, 255, 255),
-                dash: vec![],
-                cap: "butt".into(),
-                join: "round".into(),
-            }),
-        });
+        let pc = s.pts.get(i).copied().unwrap_or(PALETTE[i % PALETTE.len()]);
+        if look.fill == bo_model::chart_style::SeriesFill::Solid
+            && look.outline.is_none()
+            && !look.shadow
+        {
+            out.push(Command::Path {
+                segs: wedge(cx + ox, cy + oy, rad, inner, a, sw),
+                fill: Some(Paint::Solid { color: pc }),
+                stroke: Some(Stroke {
+                    width: 0.75,
+                    color: Rgba(255, 255, 255, 255),
+                    dash: vec![],
+                    cap: "butt".into(),
+                    join: "round".into(),
+                }),
+            });
+        } else {
+            look.shape(
+                wedge(cx + ox, cy + oy, rad, inner, a, sw),
+                [cx - rad, cy - rad, cx + rad, cy + rad],
+                pc,
+                out,
+            );
+        }
+        // §21.2.2.49 data labels inside the slice.
+        let cat = s.cats.get(i).map_or("", String::as_str);
+        if let Some(text) = look.label_text(&s.name, cat, *v, Some(v / total), locale) {
+            let lr = if doughnut { rad * 0.75 } else { rad * 0.62 };
+            let (lx, ly) = (cx + ox + lr * mid.sin(), cy + oy - lr * mid.cos());
+            Look::put_label(&text, lx, ly, font, Rgba(255, 255, 255, 255), label, out);
+        }
         a += sw;
     }
 }
@@ -3106,7 +3278,7 @@ fn draw_of_pie(s: Option<&Ser>, bar: bool, [l, t, r, b]: [f64; 4], out: &mut Vec
     let Some(s) = s else { return };
     let n = s.vals.len();
     if n < 3 {
-        draw_pie(Some(s), false, [l, t, r, b], out);
+        draw_pie_plain(Some(s), false, [l, t, r, b], out);
         return;
     }
     let k = n.div_ceil(3);
@@ -3136,7 +3308,7 @@ fn draw_of_pie(s: Option<&Ser>, bar: bool, [l, t, r, b]: [f64; 4], out: &mut Vec
         err_bars: None,
     };
     let split = l + (r - l) * 0.6;
-    draw_pie(Some(&main), false, [l, t, split, b], out);
+    draw_pie_plain(Some(&main), false, [l, t, split, b], out);
     let total: f64 = vals[n - k..].iter().sum();
     if total <= 0.0 {
         return;
@@ -3182,7 +3354,7 @@ fn draw_of_pie(s: Option<&Ser>, bar: bool, [l, t, r, b]: [f64; 4], out: &mut Vec
             trendlines: Vec::new(),
             err_bars: None,
         };
-        draw_pie(
+        draw_pie_plain(
             Some(&sub),
             false,
             [sx0, cy - h / 2.0, sx1, cy + h / 2.0],

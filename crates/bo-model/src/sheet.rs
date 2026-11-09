@@ -1347,6 +1347,9 @@ pub struct Chart {
     /// Axes and table of the plot area (CORE-CHART-005).
     #[serde(default)]
     pub axes: ChartAxes,
+    /// Style, colours and quick-layout formatting (CORE-CHART-007).
+    #[serde(default)]
+    pub format: crate::chart_style::ChartFormat,
 }
 
 /// Value / category axis options and the data table of a chart (ECMA-376 Part 1, §21.2.2).

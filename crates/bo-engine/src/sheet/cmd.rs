@@ -475,6 +475,49 @@ pub enum SheetCommand {
         range: Rng,
         /// Chart type (`column`, `bar`, `line`, `pie`, …).
         kind: String,
+        /// Chart template to format the new chart with (CORE-CHART-007).
+        #[serde(default)]
+        template: Option<bo_sheet::chart_style::ChartTemplate>,
+        /// Titles the template adds (localised by the UI).
+        #[serde(default)]
+        texts: bo_sheet::chart_style::LayoutTexts,
+    },
+    /// Chart Design gallery (CORE-CHART-007): previews of the chart styles and quick layouts of
+    /// a chart, the colour variations from the document theme, and the chart's template.
+    ChartGallery {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based index of the chart in the sheet.
+        index: usize,
+        /// Preview width in points (default 96).
+        #[serde(default)]
+        width: Option<f64>,
+        /// Preview height in points (default 64).
+        #[serde(default)]
+        height: Option<f64>,
+    },
+    /// Applies a chart template, style, colour variation and / or quick layout to a chart.
+    ChartDesign {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based index of the chart in the sheet.
+        index: usize,
+        /// What to apply.
+        #[serde(flatten)]
+        spec: crate::chart_design::DesignSpec,
+    },
+    /// A chart template as a `.crtx` package (base64).
+    ChartTemplateExport {
+        /// The template (from `chartGallery`).
+        template: bo_sheet::chart_style::ChartTemplate,
+    },
+    /// The chart template of a `.crtx` package (base64).
+    ChartTemplateImport {
+        /// File bytes, base64-encoded.
+        base64: String,
+        /// File name (the template's name when the package has none).
+        #[serde(default)]
+        name: String,
     },
     /// Charts of a sheet with their properties.
     Charts {
@@ -1356,6 +1399,7 @@ impl SheetEngine {
                 check(ws(*sheet)?, A::AutoFilter)
             }
             C::InsertChart { sheet, .. }
+            | C::ChartDesign { sheet, .. }
             | C::EditChart { sheet, .. }
             | C::DeleteChart { sheet, .. }
             | C::MoveChart { sheet, .. } => check(ws(*sheet)?, A::Objects),
@@ -2336,15 +2380,43 @@ impl SheetEngine {
                     "warning": if blocked { Value::Null } else { serde_json::to_value(&r).unwrap_or(Value::Null) },
                 }))
             }
-            C::InsertChart { sheet, range, kind } => {
+            C::InsertChart {
+                sheet,
+                range,
+                kind,
+                template,
+                texts,
+            } => {
                 let r = current_region(self.sheet(sheet)?, range.range());
-                let chart = bo_sheet::chart::new_chart(self.wb()?, sheet, r, &kind)
+                let mut chart = bo_sheet::chart::new_chart(self.wb()?, sheet, r, &kind)
                     .ok_or_else(|| bad("no data for a chart"))?;
+                if let Some(t) = &template {
+                    let accents = bo_sheet::chart_style::theme_accents(self.wb()?);
+                    let spec = crate::chart_design::DesignSpec {
+                        template: Some(t.clone()),
+                        texts,
+                        ..Default::default()
+                    };
+                    crate::chart_design::apply(&mut chart, &spec, &accents).map_err(bad)?;
+                }
                 self.edit(sheet, Recalc::No, |wb, _| {
                     let charts = &mut wb.sheets[sheet].charts;
                     charts.push(chart);
                     Ok(json!({ "index": charts.len() - 1 }))
                 })
+            }
+            C::ChartGallery {
+                sheet,
+                index,
+                width,
+                height,
+            } => self.chart_gallery(sheet, index, width.unwrap_or(96.0), height.unwrap_or(64.0)),
+            C::ChartDesign { sheet, index, spec } => self.chart_design(sheet, index, &spec),
+            C::ChartTemplateExport { template } => {
+                super::chart_design_cmd::template_export(&template)
+            }
+            C::ChartTemplateImport { base64, name } => {
+                super::chart_design_cmd::template_import(&base64, &name)
             }
             C::Charts { sheet } => {
                 let ws = self.sheet(sheet)?;

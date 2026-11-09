@@ -85,6 +85,9 @@ pub struct ChartSpec {
     /// New data grid (rewrites the caches and the embedded workbook).
     #[serde(default)]
     pub data: Option<ChartData>,
+    /// Chart template, style, colour variation, quick layout (CORE-CHART-007).
+    #[serde(flatten)]
+    pub design: crate::chart_design::DesignSpec,
 }
 
 /// The slide dialog's name of the chart's type (`other` for types the dialog does not offer).
@@ -289,13 +292,7 @@ fn workbook(d: &ChartData) -> R<Vec<u8>> {
 
 /// Chart part XML with the §21.2.2.63 externalData reference to `rid`.
 fn chart_xml(c: &Chart, rid: &str) -> Vec<u8> {
-    let xml = bo_xlsx::chart_write::chart_space_xml(c);
-    let ext = format!(
-        r#"</c:chart><c:externalData r:id="{}"><c:autoUpdate val="0"/></c:externalData></c:chartSpace>"#,
-        build::esc(rid)
-    );
-    xml.replacen("</c:chart></c:chartSpace>", &ext, 1)
-        .into_bytes()
+    bo_xlsx::chart_write::chart_space_xml_with(c, Some(rid)).into_bytes()
 }
 
 /// Relationships of a part stored as a preserved `.rels` part.
@@ -470,6 +467,72 @@ pub struct NewChart<'a> {
     pub legend: Option<String>,
     /// Frame of the chart in points; `None` = the default frame.
     pub rect: Option<super::geom::Rect>,
+    /// Chart template to format the new chart with.
+    pub template: Option<bo_sheet::chart_style::ChartTemplate>,
+    /// Titles the template adds.
+    pub texts: bo_sheet::chart_style::LayoutTexts,
+}
+
+/// The theme accents of the deck (§20.1.6.2 clrScheme `accent1`…`accent6` of the first theme).
+fn theme_accents(pres: &Presentation) -> [u32; 6] {
+    let mut out = bo_sheet::chart_style::DEFAULT_ACCENTS;
+    if let Some(t) = pres.themes.first() {
+        for (i, slot) in out.iter_mut().enumerate() {
+            if let Some(bo_model::slide::ColorKind::Srgb(v)) =
+                t.scheme_color(&format!("accent{}", i + 1)).map(|c| &c.kind)
+            {
+                *slot = *v;
+            }
+        }
+    }
+    out
+}
+
+/// A slide-safe design spec: chart templates of types a slide chart part cannot hold (chartex)
+/// keep the chart's type.
+fn slide_spec(
+    spec: &crate::chart_design::DesignSpec,
+    c: &Chart,
+) -> crate::chart_design::DesignSpec {
+    let mut spec = spec.clone();
+    if let Some(t) = spec.template.as_mut() {
+        if bo_sheet::chart::plot_for(&t.kind).kind.is_ex() || t.kind == "combo" {
+            bo_sheet::chart::type_name(c).clone_into(&mut t.kind);
+        }
+    }
+    spec
+}
+
+/// Gallery of chart `id` on `slide` (previews drawn with the deck's theme accents).
+pub fn chart_gallery(
+    pres: &Presentation,
+    slide: usize,
+    id: u32,
+    w: f64,
+    h: f64,
+) -> Option<serde_json::Value> {
+    let placed = place_slide(pres, slide);
+    let p = find(&placed, id)?;
+    let n = node_at(pres, slide, &p.path)?;
+    let part = chart_part_of(pres, slide, n)?;
+    let c = bo_xlsx::chart_write::parse_chart_part(pres.part_data(&part)?, &part)?;
+    let accents = theme_accents(pres);
+    let color = |c: Option<&bo_model::sheet::ChartColor>, i: usize| -> bo_render::Rgba {
+        use bo_model::sheet::ChartColor;
+        let rgb = match c {
+            Some(ChartColor::Rgb(v)) => *v,
+            Some(ChartColor::Scheme(name)) => match name
+                .strip_prefix("accent")
+                .and_then(|k| k.parse::<usize>().ok())
+            {
+                Some(k) if (1..=6).contains(&k) => accents[k - 1],
+                _ => return bo_sheet::chart::default_color(c, i),
+            },
+            None => accents[i % 6],
+        };
+        bo_render::Rgba((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, 255)
+    };
+    Some(crate::chart_design::gallery(&c, &accents, w, h, &color))
 }
 
 fn legend_of(l: &str) -> R<Option<String>> {
@@ -506,6 +569,16 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
         ..Chart::default()
     };
     bo_sheet::chart::view_for_type(&mut c);
+    if let Some(t) = spec.template {
+        let design = crate::chart_design::DesignSpec {
+            template: Some(t),
+            texts: spec.texts,
+            ..crate::chart_design::DesignSpec::default()
+        };
+        let design = slide_spec(&design, &c);
+        crate::chart_design::apply(&mut c, &design, &theme_accents(tx.pres))
+            .map_err(|_| EditError::Refused("badChart"))?;
+    }
     let slide = sel.slide;
     let (sw, sh) = slide_size(tx.pres);
     let r = rect.unwrap_or(super::geom::Rect {
@@ -573,6 +646,26 @@ pub fn cmd_set_chart(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, spec: &Ch
     let mut c =
         bo_xlsx::chart_write::parse_chart_part(data, &part).ok_or(EditError::Refused("noChart"))?;
     let d = clean(spec.data.clone().unwrap_or_else(|| data_of(&c)))?;
+    // Formatting only (CORE-CHART-007): the chart keeps its plots and their own colours.
+    if spec.kind.is_none() && spec.title.is_none() && spec.legend.is_none() && spec.data.is_none() {
+        if spec.design.is_empty() {
+            return Err(EditError::Refused("noChange"));
+        }
+        let design = slide_spec(&spec.design, &c);
+        crate::chart_design::apply(&mut c, &design, &theme_accents(tx.pres))
+            .map_err(|_| EditError::Refused("badChart"))?;
+        if c.plots.iter().any(|p| p.kind.is_ex()) {
+            return Err(EditError::Refused("badChart"));
+        }
+        // The data is rewritten into the embedded workbook: the references follow it.
+        let refs = series_of(&d);
+        for (s, r) in c.plots.iter_mut().flat_map(|p| &mut p.series).zip(refs) {
+            s.name_ref = r.name_ref;
+            s.cat_ref = r.cat_ref;
+            s.val_ref = r.val_ref;
+        }
+        return store(tx, &part, &c, &d);
+    }
     let kind = spec
         .kind
         .clone()
@@ -593,6 +686,11 @@ pub fn cmd_set_chart(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, spec: &Ch
     }
     if let Some(l) = &spec.legend {
         c.legend = legend_of(l)?;
+    }
+    if !spec.design.is_empty() {
+        let design = slide_spec(&spec.design, &c);
+        crate::chart_design::apply(&mut c, &design, &theme_accents(tx.pres))
+            .map_err(|_| EditError::Refused("badChart"))?;
     }
     c.dirty = true;
     store(tx, &part, &c, &d)

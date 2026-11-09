@@ -368,6 +368,8 @@ pub(crate) fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
             perspective: int("perspective").map_or(d.perspective, |x| x.clamp(0, 240) as u32),
         });
     }
+    // Shape and text properties of the chart's elements (CORE-CHART-007).
+    out.format = crate::chart_format::read_format(&dom, chart);
     // §21.2.2.93 legend
     if let Some(l) = chart.child("legend") {
         out.legend = Some(l.val_of("legendPos").unwrap_or_else(|| "r".into()));
@@ -524,7 +526,7 @@ fn parse_series(s: &Node) -> ChartSeries {
             .collect();
     }
     if let Some(sp) = s.child("spPr") {
-        out.fill = sp.child("solidFill").and_then(color_of);
+        out.fill = crate::chart_format::fill_color(sp);
         out.line = sp
             .child("ln")
             .and_then(|l| l.child("solidFill"))
@@ -533,10 +535,7 @@ fn parse_series(s: &Node) -> ChartSeries {
     // §21.2.2.52 dPt: per-point fills.
     for d in s.children.iter().filter(|c| c.name == "dPt") {
         let idx = d.val_of("idx").and_then(|v| v.trim().parse::<usize>().ok());
-        let fill = d
-            .child("spPr")
-            .and_then(|sp| sp.child("solidFill"))
-            .and_then(color_of);
+        let fill = d.child("spPr").and_then(crate::chart_format::fill_color);
         if let (Some(i), Some(c)) = (idx, fill) {
             out.point_fills.push((i, c));
         }

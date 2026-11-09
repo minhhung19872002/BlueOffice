@@ -1,6 +1,11 @@
 import { useTranslation } from '@blueoffice/i18n';
-import type { SlideChartData, SlideChartKind, SlideLegend } from '@blueoffice/platform';
-import { Dialog } from '@blueoffice/ui';
+import type {
+  ChartTemplate,
+  SlideChartData,
+  SlideChartKind,
+  SlideLegend,
+} from '@blueoffice/platform';
+import { ChartTemplateList, Dialog, deleteChartTemplate, loadChartTemplates } from '@blueoffice/ui';
 import { useState } from 'react';
 import styles from './SlideEditor.module.css';
 
@@ -53,6 +58,8 @@ export interface ChartDraft {
   title: string;
   legend: SlideLegend;
   data: SlideChartData;
+  /** Saved chart template to format the chart with (CORE-CHART-007). */
+  template?: ChartTemplate | null;
 }
 
 /** Grid cells as text (numbers in the UI locale are parsed back by {@link parseValue}). */
@@ -115,6 +122,8 @@ export function ChartDialog({ open, mode, initial, onClose, onApply }: ChartDial
   const [title, setTitle] = useState(initial.title);
   const [legend, setLegend] = useState(initial.legend);
   const [grid, setGrid] = useState<Grid>(() => toGrid(initial.data));
+  const [templates, setTemplates] = useState(() => loadChartTemplates<ChartTemplate>());
+  const [template, setTemplate] = useState<string | null>(null);
 
   const update = (f: (g: Grid) => void) =>
     setGrid((g) => {
@@ -165,7 +174,15 @@ export function ChartDialog({ open, mode, initial, onClose, onApply }: ChartDial
           <button
             type="button"
             data-testid="chart-ok"
-            onClick={() => onApply({ kind, title, legend, data: fromGrid(grid) })}
+            onClick={() =>
+              onApply({
+                kind,
+                title,
+                legend,
+                data: fromGrid(grid),
+                template: templates.find((x) => x.name === template) ?? null,
+              })
+            }
           >
             {t('slideEditor.ok')}
           </button>
@@ -195,6 +212,21 @@ export function ChartDialog({ open, mode, initial, onClose, onApply }: ChartDial
             onChange={(e) => setTitle(e.target.value)}
           />
         </label>
+        <ChartTemplateList
+          templates={templates}
+          value={template}
+          onChange={setTemplate}
+          onDelete={(name) => {
+            setTemplates(deleteChartTemplate<ChartTemplate>(name));
+            if (template === name) setTemplate(null);
+          }}
+          labels={{
+            title: t('chartDesign.templates'),
+            none: t('chartDesign.noTemplates'),
+            noTemplate: t('chartDesign.noTemplate'),
+            remove: t('chartDesign.removeTemplate'),
+          }}
+        />
         <label>
           {t('slideEditor.legend')}
           <select

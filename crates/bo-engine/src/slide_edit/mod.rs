@@ -588,6 +588,26 @@ pub enum SlideCommand {
         /// Frame of the chart in points; `None` = a default frame on the slide.
         #[serde(default)]
         rect: Option<Rect>,
+        /// Chart template to format the new chart with (CORE-CHART-007).
+        #[serde(default)]
+        template: Option<bo_sheet::chart_style::ChartTemplate>,
+        /// Titles the template adds (localised by the UI).
+        #[serde(default)]
+        texts: bo_sheet::chart_style::LayoutTexts,
+    },
+    /// Chart Design gallery of chart `id` (default: the selected one): previews of the chart
+    /// styles and quick layouts, colour variations from the theme, and the chart's template
+    /// (in the result's `chartGallery`; read-only).
+    ChartGallery {
+        /// Shape id of the chart's graphic frame; `None` = the selected chart.
+        #[serde(default)]
+        id: Option<u32>,
+        /// Preview width in points (default 96).
+        #[serde(default)]
+        width: Option<f64>,
+        /// Preview height in points (default 64).
+        #[serde(default)]
+        height: Option<f64>,
     },
     /// Insert a SmartArt from the BlueOffice layout library (CORE-SMART-003).
     InsertSmartArt {
@@ -1003,6 +1023,9 @@ pub struct SlideEditResult {
     /// The selected chart (type, title, legend, data).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chart: Option<chart::ChartOut>,
+    /// Result of `chartGallery`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chart_gallery: Option<serde_json::Value>,
     /// The selected SmartArt (layout and text outline).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub smartart: Option<smartart::SmartArtOut>,
@@ -1077,6 +1100,8 @@ struct Outcome {
     copied_text: Option<String>,
     /// Slide asked for by the `show` command.
     show: Option<usize>,
+    /// Gallery asked for by `chartGallery`.
+    chart_gallery: Option<serde_json::Value>,
 }
 
 impl Outcome {
@@ -3926,6 +3951,8 @@ impl Engine {
                     data,
                     legend,
                     rect,
+                    template,
+                    texts,
                 } => {
                     ed.mutate(pres, &mut out, |tx, sel| {
                         let spec = chart::NewChart {
@@ -3934,9 +3961,29 @@ impl Engine {
                             data,
                             legend,
                             rect,
+                            template,
+                            texts,
                         };
                         chart::cmd_insert_chart(tx, sel, spec)
                     });
+                }
+                SlideCommand::ChartGallery { id, width, height } => {
+                    let id = id.or(match ed.sel.ids.as_slice() {
+                        [one] => Some(*one),
+                        _ => None,
+                    });
+                    match id.and_then(|id| {
+                        chart::chart_gallery(
+                            pres,
+                            ed.sel.slide,
+                            id,
+                            width.unwrap_or(96.0),
+                            height.unwrap_or(64.0),
+                        )
+                    }) {
+                        Some(g) => out.chart_gallery = Some(g),
+                        None => out.error = Some("noChart".into()),
+                    }
                 }
                 SlideCommand::AddComment {
                     text,
@@ -4418,6 +4465,7 @@ impl Engine {
                 [one] => chart::chart_out(pres, slide, one.id),
                 _ => None,
             },
+            chart_gallery: out.chart_gallery,
             smartart: match items.as_slice() {
                 [one] => smartart::smartart_out(pres, slide, one.id),
                 _ => None,

@@ -2038,6 +2038,62 @@
     "sepOther": "Ký tự khác",
     "columns": "Số cột"
   },
+  "chartDesign": {
+    "groupLayouts": "Bố cục biểu đồ",
+    "groupStyles": "Kiểu biểu đồ",
+    "groupTemplates": "Mẫu",
+    "tab": "Thiết kế biểu đồ",
+    "styles": "Kiểu biểu đồ",
+    "colors": "Đổi màu",
+    "layouts": "Bố cục nhanh",
+    "loading": "Đang tạo ảnh xem trước…",
+    "saveTemplate": "Lưu thành mẫu…",
+    "saveTemplateTitle": "Lưu mẫu biểu đồ",
+    "templateName": "Tên mẫu",
+    "templateSaved": "Đã lưu mẫu biểu đồ \"{{name}}\"",
+    "fromTemplate": "Từ mẫu: {{name}}",
+    "templates": "Mẫu của tôi",
+    "noTemplates": "Chưa có mẫu nào được lưu",
+    "noTemplate": "Không dùng mẫu (giữ định dạng)",
+    "removeTemplate": "Xoá mẫu",
+    "exportTemplate": "Xuất mẫu (.crtx)",
+    "importTemplate": "Nhập mẫu (.crtx)…",
+    "titleText": "Tiêu đề biểu đồ",
+    "xTitleText": "Tiêu đề trục",
+    "yTitleText": "Tiêu đề trục",
+    "style": {
+      "clean": "Gọn gàng",
+      "crisp": "Sắc nét",
+      "soft": "Dịu nhẹ",
+      "gradient": "Chuyển sắc",
+      "outline": "Viền",
+      "shadow": "Nổi",
+      "bold": "Đậm",
+      "paper": "Giấy",
+      "slate": "Đá phiến",
+      "night": "Ban đêm",
+      "blueprint": "Bản vẽ",
+      "minimal": "Tối giản"
+    },
+    "palette": {
+      "colorful": "Nhiều màu (chủ đề)",
+      "colorfulAlt": "Nhiều màu, xen kẽ (chủ đề)",
+      "monoAccent1": "Đơn sắc, màu nhấn 1",
+      "monoAccent2": "Đơn sắc, màu nhấn 2",
+      "grey": "Xám",
+      "bluestar": "Bluestar",
+      "lotus": "Sen",
+      "terrace": "Ruộng bậc thang"
+    },
+    "layout": {
+      "layout1": "Tiêu đề và chú giải bên phải",
+      "layout2": "Chú giải bên dưới, có giá trị",
+      "layout3": "Tiêu đề trục",
+      "layout4": "Chú giải phía trên, đủ lưới",
+      "layout5": "Bảng dữ liệu",
+      "layout6": "Nhãn thay chú giải"
+    }
+  },
   "templates": {
     "title": "Mới từ mẫu",
     "nd30": {

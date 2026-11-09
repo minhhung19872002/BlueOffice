@@ -61,3 +61,18 @@ export {
   type CommandSearchProps,
 } from './CommandSearch';
 export { flattenRibbon, normalize, searchCommands, type SearchEntry } from './searchRank';
+export {
+  CHART_TEMPLATES_KEY,
+  ChartColorsMenu,
+  ChartLayoutMenu,
+  ChartStyleGallery,
+  ChartTemplateList,
+  deleteChartTemplate,
+  loadChartTemplates,
+  saveChartTemplate,
+  type ChartDesignGalleryData,
+  type ChartDesignLabels,
+  type ChartPresetPreview,
+  type ChartTemplateListLabels,
+  type NamedChartTemplate,
+} from './ChartDesign';

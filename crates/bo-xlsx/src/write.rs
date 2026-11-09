@@ -349,12 +349,16 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                     &mut out_parts,
                     &mut overrides,
                 );
-                let unknown = match &new_slicers {
-                    Some(n) => {
-                        slicer_caches.extend(n.caches.iter().cloned());
-                        crate::slicer::with_ext(&ws.unknown, &n.sheet_ext)
-                    }
-                    None => ws.unknown.clone(),
+                // Sheet exts written from the model: new slicers, sparkline groups.
+                let mut sheet_ext = crate::sparkline::ext_xml(&ws.sparkline_groups);
+                if let Some(n) = &new_slicers {
+                    slicer_caches.extend(n.caches.iter().cloned());
+                    sheet_ext.insert_str(0, &n.sheet_ext);
+                }
+                let unknown = if sheet_ext.is_empty() {
+                    ws.unknown.clone()
+                } else {
+                    crate::slicer::with_ext(&ws.unknown, &sheet_ext)
                 };
                 // Form controls: patched, removed and new controls.
                 let unknown = {

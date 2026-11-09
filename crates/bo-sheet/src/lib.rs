@@ -38,6 +38,7 @@ pub(crate) mod solver_ga;
 pub(crate) mod solver_nl;
 pub mod solver_report;
 pub mod sort;
+pub mod sparkline;
 pub mod style;
 pub mod table;
 pub mod timeline;

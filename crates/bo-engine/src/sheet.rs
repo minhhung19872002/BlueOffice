@@ -25,8 +25,8 @@ mod chart_design_cmd;
 mod cmd;
 pub(crate) mod collab;
 mod comments;
-mod formctl_cmd;
 mod datatools_cmd;
+mod formctl_cmd;
 mod inspect_cmd;
 mod paste_opts;
 mod pivot_cmd;
@@ -37,6 +37,7 @@ mod scenario_cmd;
 mod security_cmd;
 mod solver_cmd;
 mod sortfilter_cmd;
+mod sparkline_cmd;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
 

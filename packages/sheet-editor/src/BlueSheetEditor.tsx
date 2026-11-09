@@ -24,6 +24,7 @@ import type {
   SheetPermissions,
   FormControlInfo,
   SheetSecurityResult,
+  SparklineGroupInfo,
 } from '@blueoffice/platform';
 import {
   PASSWORD_REQUIRED,
@@ -58,6 +59,7 @@ import {
   Bold,
   Calendar,
   ChartColumn,
+  ChartSpline,
   ClipboardCheck,
   ClipboardList,
   ClipboardPaste,
@@ -192,6 +194,14 @@ import {
 } from './dataTools';
 import { ProtectSheetDialog, UnprotectDialog } from './protection';
 import { ScenarioDialog } from './scenarios';
+import {
+  InsertSparklinesDialog,
+  SparklineOptionsDialog,
+  groupAt,
+  registerSparklineCommands,
+  sparklineTabGroups,
+  useSparklines,
+} from './sparklines';
 import { SheetCheckDocumentDialog, type SheetGoTo } from './inspect';
 import {
   SaveChartTemplateDialog,
@@ -282,6 +292,8 @@ export interface SheetEditorState {
   sheetProtected: boolean;
   /** The workbook structure is locked (§18.2.29). */
   structureLocked: boolean;
+  /** Sparkline group of the active cell. */
+  sparkline: SparklineGroupInfo | null;
 }
 
 /** A file waiting for its password ([MS-OFFCRYPTO]). */
@@ -369,6 +381,8 @@ type DialogState =
   | { kind: 'dv' }
   | { kind: 'goalSeek' }
   | { kind: 'scenarios' }
+  | { kind: 'sparklineInsert' }
+  | { kind: 'sparklineOptions' }
   | { kind: 'checkDocument' }
   | { kind: 'dataTable' }
   | { kind: 'solver' }
@@ -452,6 +466,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     cellStyles: [],
   });
   const [dialog, setDialog] = useState<DialogState | null>(null);
+  // Sparkline group of the active cell (SHEET-SPARK-001): the contextual tab and its commands.
+  const sparklines = useSparklines(host, sheet, revision);
+  const sparkGroup = groupAt(sparklines, selection.active.row, selection.active.col);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [filterMenu, setFilterMenu] = useState<{ col: number; x: number; y: number } | null>(null);
   const [dvList, setDvList] = useState<string[] | null>(null);
@@ -1694,6 +1711,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('insert.symbol', async () => setSymbolsOpen(true), has);
     add('insert.pivot', open({ kind: 'pivot' }), has);
     add('insert.table', (s) => exec({ cmd: 'createTable', sheet: s.sheet, range: rng(s) }), has);
+    registerSparklineCommands(add, {
+      range: rng,
+      exec: (cmd) => exec(cmd),
+      openInsert: () => setDialog({ kind: 'sparklineInsert' }),
+      openOptions: () => setDialog({ kind: 'sparklineOptions' }),
+    });
     add(
       'insert.slicer',
       (s) =>
@@ -2134,9 +2157,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             ranges: allRanges,
             sheetProtected: !!info?.sheets[sheet]?.protected,
             structureLocked: !!info?.structureLocked,
+            sparkline: sparkGroup,
           }
         : null,
-    [host, sheet, selection, info, fmt, chart, activePivot?.index, allRanges],
+    [host, sheet, selection, info, fmt, chart, activePivot?.index, allRanges, sparkGroup],
   );
   const run = useCallback(
     (id: string) => {
@@ -2759,6 +2783,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             label: t('sheetEditor.groupCharts'),
             items: [
               item('insert.chart', t('sheetEditor.chart.insert'), <ChartColumn size={18} />),
+              item('insert.sparklines', t('sparkline.insert'), <ChartSpline size={18} />),
               item(
                 'review.comments',
                 t('sheetEditor.comments.title'),
@@ -3189,6 +3214,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         ],
       },
     ];
+    // Sparkline contextual tab (SHEET-SPARK-001) while the active cell shows a sparkline.
+    if (state?.sparkline) {
+      tabs.push({
+        id: 'sparkline',
+        label: t('sparkline.tab'),
+        groups: sparklineTabGroups(t, item),
+      });
+    }
     // Chart Design contextual tab (CORE-CHART-007) while a chart is selected.
     if (chart === null) return tabs;
     return [
@@ -4127,6 +4160,22 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             });
             if (done) setFormDialog(null);
           }}
+        />
+      )}
+      {dialog?.kind === 'sparklineInsert' && (
+        <InsertSparklinesDialog
+          sheet={sheet}
+          selection={rangeOf(selection)}
+          exec={(cmd) => exec(cmd)}
+          onClose={common.onClose}
+        />
+      )}
+      {dialog?.kind === 'sparklineOptions' && sparkGroup && (
+        <SparklineOptionsDialog
+          sheet={sheet}
+          group={sparkGroup}
+          exec={(cmd) => exec(cmd)}
+          onClose={common.onClose}
         />
       )}
       {dialog?.kind === 'scenarios' && (

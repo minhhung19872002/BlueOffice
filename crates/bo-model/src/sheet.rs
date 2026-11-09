@@ -422,6 +422,9 @@ pub struct Worksheet {
     /// §18.3.1.21 `controls`, legacy VML `x:ClientData`), in drawing order.
     #[serde(default)]
     pub form_controls: Vec<FormControl>,
+    /// Sparkline groups of the sheet ([MS-XLSX] `x14:sparklineGroups` in the worksheet `extLst`).
+    #[serde(default)]
+    pub sparkline_groups: Vec<SparklineGroup>,
     /// What-if scenarios of the sheet (ECMA-376 Part 1, §18.3.1 `scenarios`, CT_Scenarios).
     #[serde(default)]
     pub scenarios: Option<Scenarios>,
@@ -1576,6 +1579,127 @@ pub struct Timeline {
     pub part: String,
     /// The selection changed since the file was read.
     pub dirty: bool,
+}
+
+/// Kind of a sparkline group ([MS-XLSX] `ST_SparklineType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SparklineType {
+    /// `line` (the schema default).
+    #[default]
+    Line,
+    /// `column`.
+    Column,
+    /// `stacked`: win/loss bars.
+    Stacked,
+}
+
+/// How empty cells are drawn ([MS-XLSX] `displayEmptyCellsAs`, ECMA-376 Part 1, §21.2.3.10
+/// `ST_DispBlanksAs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SparklineEmpty {
+    /// `gap`: leave a gap.
+    Gap,
+    /// `zero`: treat as zero (the schema default).
+    #[default]
+    Zero,
+    /// `span`: connect the neighbouring points.
+    Span,
+}
+
+/// Vertical axis bound of a sparkline group ([MS-XLSX] `ST_SparklineAxisMinMax`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SparklineAxis {
+    /// `individual`: each sparkline uses its own data (the schema default).
+    #[default]
+    Individual,
+    /// `group`: the same bound for every sparkline of the group.
+    Group,
+    /// `custom`: `manualMin` / `manualMax`.
+    Custom,
+}
+
+/// Colours of a sparkline group ([MS-XLSX] `x14:colorSeries` … `x14:colorLow`, `CT_Color`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SparklineColors {
+    /// `colorSeries`: line / bars.
+    pub series: Option<SheetColor>,
+    /// `colorNegative`: negative points.
+    pub negative: Option<SheetColor>,
+    /// `colorAxis`: horizontal axis.
+    pub axis: Option<SheetColor>,
+    /// `colorMarkers`: line markers.
+    pub markers: Option<SheetColor>,
+    /// `colorFirst`.
+    pub first: Option<SheetColor>,
+    /// `colorLast`.
+    pub last: Option<SheetColor>,
+    /// `colorHigh`.
+    pub high: Option<SheetColor>,
+    /// `colorLow`.
+    pub low: Option<SheetColor>,
+}
+
+/// One sparkline ([MS-XLSX] `x14:sparkline`): its data (`xm:f`) drawn in one cell (`xm:sqref`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Sparkline {
+    /// `xm:f`: the data range (e.g. `Sheet1!A2:D2`); `None` draws nothing.
+    pub formula: Option<String>,
+    /// `xm:sqref`: the cell the sparkline is drawn in.
+    pub location: CellRef,
+}
+
+/// A group of sparklines sharing their settings ([MS-XLSX] `x14:sparklineGroup`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SparklineGroup {
+    /// `type`.
+    #[serde(rename = "type")]
+    pub kind: SparklineType,
+    /// `x14:sparklines`.
+    pub sparklines: Vec<Sparkline>,
+    /// `displayEmptyCellsAs`.
+    pub empty_as: SparklineEmpty,
+    /// `markers`: a marker on every point (line).
+    pub markers: bool,
+    /// `high`: highlight the highest point.
+    pub high: bool,
+    /// `low`: highlight the lowest point.
+    pub low: bool,
+    /// `first`: highlight the first point.
+    pub first: bool,
+    /// `last`: highlight the last point.
+    pub last: bool,
+    /// `negative`: highlight negative points.
+    pub negative: bool,
+    /// `displayXAxis`: draw the horizontal axis.
+    pub display_x_axis: bool,
+    /// `displayHidden`: include data in hidden rows and columns.
+    pub display_hidden: bool,
+    /// `rightToLeft`: plot the points from right to left.
+    pub right_to_left: bool,
+    /// `minAxisType`.
+    pub min_axis: SparklineAxis,
+    /// `maxAxisType`.
+    pub max_axis: SparklineAxis,
+    /// `manualMin` (used with [`SparklineAxis::Custom`]).
+    pub manual_min: Option<f64>,
+    /// `manualMax` (used with [`SparklineAxis::Custom`]).
+    pub manual_max: Option<f64>,
+    /// `lineWeight` in points (schema default 0.75).
+    pub line_weight: Option<f64>,
+    /// `dateAxis`: place the points by the dates in [`Self::date_range`].
+    pub date_axis: bool,
+    /// Group `xm:f`: the date range of a date axis.
+    pub date_range: Option<String>,
+    /// Colours.
+    pub colors: SparklineColors,
+    /// Other attributes of `sparklineGroup` (e.g. `xr2:uid`), kept as read.
+    pub attrs: Vec<RawAttr>,
 }
 
 /// The data a slicer filters.

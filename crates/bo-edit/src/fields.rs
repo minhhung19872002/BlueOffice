@@ -1,11 +1,13 @@
-//! Field updating (ECMA-376 Part 1, §17.16): tables of contents (§17.16.5.68 TOC),
-//! caption numbers (§17.16.5.56 SEQ), cross-references (§17.16.5.49 REF,
+//! Field updating (ECMA-376 Part 1, §17.16): tables of contents and of figures
+//! (§17.16.5.68 TOC), indexes (§17.16.5.28 INDEX), tables of authorities (§17.16.5.67
+//! TOA), caption numbers (§17.16.5.56 SEQ), cross-references (§17.16.5.49 REF,
 //! §17.16.5.42 PAGEREF) and mail-merge fields (§17.16.5.35 MERGEFIELD).
 //!
 //! Page numbers come from the layout: callers pass the displayed page number of
 //! every body paragraph (by paragraph id, see `bo_model::index`).
 
 use crate::para::{self, Atom};
+use crate::refs;
 use bo_model::index::{body_paragraphs, para_at};
 use bo_model::{
     fingerprint, Alignment, Block, Document, HalfPoints, ParaProps, Paragraph, Raw, Run,
@@ -71,6 +73,50 @@ fn mark_of(c: &RunContent) -> Option<Mark> {
     }
 }
 
+/// Fields of a paragraph's atoms in order: (instruction, first atom, last atom). Both forms
+/// count: simple fields (one [`RunContent::Field`] atom) and complex fields
+/// (§17.16.18 fldChar begin … end, outermost only) complete inside the paragraph.
+pub(crate) fn para_fields(atoms: &[Atom]) -> Vec<(String, usize, usize)> {
+    let mut out = Vec::new();
+    // (begin atom, instruction, instruction finished) of open complex fields.
+    let mut stack: Vec<(usize, String, bool)> = Vec::new();
+    for (i, (props, c)) in atoms.iter().enumerate() {
+        if props.del.is_some() {
+            continue;
+        }
+        if let RunContent::Field { instr, .. } = c {
+            if stack.is_empty() {
+                out.push((instr.trim().to_owned(), i, i));
+            }
+            continue;
+        }
+        match mark_of(c) {
+            Some(Mark::Begin) => stack.push((i, String::new(), false)),
+            Some(Mark::Instr(t)) => {
+                if let Some(o) = stack.last_mut() {
+                    if !o.2 {
+                        o.1.push_str(&t);
+                    }
+                }
+            }
+            Some(Mark::Separate) => {
+                if let Some(o) = stack.last_mut() {
+                    o.2 = true;
+                }
+            }
+            Some(Mark::End) => {
+                if let Some((b, instr, _)) = stack.pop() {
+                    if stack.is_empty() {
+                        out.push((instr.trim().to_owned(), b, i));
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+    out
+}
+
 /// First word of a field instruction, upper-cased.
 pub fn field_kind(instr: &str) -> String {
     instr
@@ -107,11 +153,11 @@ pub fn field_args(instr: &str) -> Vec<String> {
     out
 }
 
-/// A TOC field spanning top-level paragraphs `first..=last` of a section.
+/// A TOC / INDEX / TOA field spanning top-level paragraphs `first..=last` of a section.
 #[derive(Debug, Clone)]
-struct TocRange {
-    first: usize,
-    last: usize,
+pub(crate) struct TocRange {
+    pub(crate) first: usize,
+    pub(crate) last: usize,
     /// Atom index of `begin` in `first` and of `end` in `last`.
     begin: usize,
     end: usize,
@@ -120,8 +166,12 @@ struct TocRange {
     instr: String,
 }
 
-/// TOC fields among the top-level paragraphs of a block list.
-fn toc_ranges(blocks: &[Block]) -> Vec<TocRange> {
+/// Fields whose result is a run of paragraphs (§17.16.5.68 TOC, §17.16.5.28 INDEX,
+/// §17.16.5.67 TOA).
+const BLOCK_FIELDS: [&str; 3] = ["TOC", "INDEX", "TOA"];
+
+/// TOC / INDEX / TOA fields among the top-level paragraphs of a block list.
+pub(crate) fn toc_ranges(blocks: &[Block]) -> Vec<TocRange> {
     struct Open {
         bi: usize,
         ai: usize,
@@ -156,7 +206,8 @@ fn toc_ranges(blocks: &[Block]) -> Vec<TocRange> {
                 }
                 Some(Mark::End) => {
                     if let Some(o) = stack.pop() {
-                        if stack.is_empty() && field_kind(&o.instr) == "TOC" {
+                        if stack.is_empty() && BLOCK_FIELDS.contains(&field_kind(&o.instr).as_str())
+                        {
                             out.push(TocRange {
                                 first: o.bi,
                                 last: bi,
@@ -176,7 +227,7 @@ fn toc_ranges(blocks: &[Block]) -> Vec<TocRange> {
 }
 
 /// Heading levels included by a TOC instruction (`\o "1-3"`; default 1–9).
-fn toc_levels(instr: &str) -> (u8, u8) {
+pub(crate) fn toc_levels(instr: &str) -> (u8, u8) {
     let args = field_args(instr);
     if let Some(i) = args.iter().position(|a| a.eq_ignore_ascii_case("\\o")) {
         if let Some(r) = args.get(i + 1) {
@@ -207,7 +258,7 @@ pub fn outline_level(doc: &Document, p: &Paragraph) -> Option<u8> {
 }
 
 /// Displayed text of content (field results instead of placeholders, deletions left out).
-fn display_text(atoms: &[Atom]) -> String {
+pub(crate) fn display_text(atoms: &[Atom]) -> String {
     let mut s = String::new();
     for (props, item) in atoms {
         if props.del.is_some() {
@@ -227,7 +278,7 @@ fn display_text(atoms: &[Atom]) -> String {
 }
 
 /// Bookmark marks of a paragraph: (atom index, name or "" for an end, id).
-fn bookmark_marks(atoms: &[Atom]) -> Vec<(usize, Option<String>, String)> {
+pub(crate) fn bookmark_marks(atoms: &[Atom]) -> Vec<(usize, Option<String>, String)> {
     let attr = |x: &str, a: &str| {
         let key = format!("{a}=\"");
         let i = x.find(&key)? + key.len();
@@ -361,6 +412,46 @@ pub fn builtin_field_style(id: &str) -> Option<Style> {
         s.ppr.space_after = Some(Twips(100));
         return Some(s);
     }
+    // Index levels: each level indented a step more, wrapped lines hang (§17.16.5.28).
+    if let Some(n) = id.strip_prefix("Index").and_then(|n| n.parse::<i32>().ok()) {
+        if !(1..=9).contains(&n) {
+            return None;
+        }
+        let mut s = Style::new(id, &format!("index {n}"), StyleKind::Paragraph);
+        s.based_on = Some("Normal".into());
+        s.next = Some("Normal".into());
+        s.ppr.indent_left = Some(Twips(240 * n));
+        s.ppr.indent_first_line = Some(Twips(-240));
+        s.ppr.space_after = Some(Twips(0));
+        return Some(s);
+    }
+    let heading = |id: &str, name: &str| {
+        let mut s = Style::new(id, name, StyleKind::Paragraph);
+        s.based_on = Some("Normal".into());
+        s.next = Some("Normal".into());
+        s.ppr.space_before = Some(Twips(120));
+        s.ppr.space_after = Some(Twips(60));
+        s.ppr.keep_next = Some(true);
+        s.rpr.bold = Some(true);
+        s
+    };
+    match id {
+        "IndexHeading" => return Some(heading(id, "index heading")),
+        "TOAHeading" => return Some(heading(id, "toa heading")),
+        "TableofFigures" | "TableofAuthorities" => {
+            let name = if id == "TableofFigures" {
+                "table of figures"
+            } else {
+                "table of authorities"
+            };
+            let mut s = Style::new(id, name, StyleKind::Paragraph);
+            s.based_on = Some("Normal".into());
+            s.next = Some("Normal".into());
+            s.ppr.space_after = Some(Twips(100));
+            return Some(s);
+        }
+        _ => {}
+    }
     if id == "Caption" {
         let mut s = Style::new("Caption", "caption", StyleKind::Paragraph);
         s.based_on = Some("Normal".into());
@@ -388,9 +479,18 @@ pub(crate) fn ensure_styles(sheet: &StyleSheet, ids: &[String]) -> Option<StyleS
 }
 
 /// Content width (twips) of the first section, for the right-aligned TOC tab.
-fn text_width(doc: &Document, section: usize) -> i32 {
+pub(crate) fn text_width(doc: &Document, section: usize) -> i32 {
     doc.sections.get(section).map_or(9355, |s| {
-        (s.page.width.0 - s.page.margin_left.0 - s.page.margin_right.0).max(1440)
+        let w = (s.page.width.0 - s.page.margin_left.0 - s.page.margin_right.0).max(1440);
+        // Inside text columns (§17.6.4 cols) the tab stops at the column's right edge.
+        match (s.columns.cols.first(), s.columns.count) {
+            (Some(c), _) => c.width.0.max(720),
+            (None, n) if n > 1 => {
+                let n = i32::from(n);
+                ((w - s.columns.space.0 * (n - 1)) / n).max(720)
+            }
+            _ => w,
+        }
     })
 }
 
@@ -424,6 +524,20 @@ pub fn new_toc_paragraph(instr: &str) -> Paragraph {
     Paragraph::new(ParaProps::default(), para::rebuild(atoms))
 }
 
+/// A new paragraph holding an empty TOC / INDEX / TOA field; `leader` (with the text
+/// width `width`) sets the right tab stop its entries keep when updated (§17.3.1.37 tab).
+pub fn new_block_field_paragraph(instr: &str, leader: Option<TabLeader>, width: i32) -> Paragraph {
+    let mut p = new_toc_paragraph(instr);
+    if let Some(leader) = leader {
+        p.props.tabs = Some(vec![TabStop {
+            pos: Twips(width),
+            align: TabAlign::Right,
+            leader,
+        }]);
+    }
+    p
+}
+
 /// Recompute TOC, SEQ, REF, PAGEREF fields. `pages[id]` = displayed page number of
 /// body paragraph `id` (0 = unknown).
 pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
@@ -444,7 +558,7 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
         .map(|b| (b.name, page(b.para)))
         .collect();
 
-    // ---- 1. Tables of contents.
+    // ---- 1. Tables of contents and figures, indexes, tables of authorities.
     let tocs: Vec<(usize, TocRange)> = sections
         .iter()
         .enumerate()
@@ -457,9 +571,17 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
                     .iter()
                     .any(|(si, t)| path[0] == *si && (t.first..=t.last).contains(&path[1]))
         };
-        // Headings with their `_Toc` bookmark (added when missing).
+        let tocs_only = || tocs.iter().filter(|(_, t)| field_kind(&t.instr) == "TOC");
+        // Headings go into tables of contents, captions of the listed labels into tables
+        // of figures (`TOC \c` / `\a`, §17.16.5.68).
+        let heading_toc = tocs_only().any(|(_, t)| refs::figure_label(&t.instr).is_none());
+        let labels: Vec<String> = tocs_only()
+            .filter_map(|(_, t)| refs::figure_label(&t.instr))
+            .map(|(l, _)| l.to_lowercase())
+            .collect();
+        // Targets with their `_Toc` bookmark (added when missing).
         let mut next_bm = max_bookmark_id(doc);
-        let mut headings: Vec<(u8, String, String, u32)> = Vec::new(); // level, text, bookmark, page
+        let mut targets: Vec<refs::Target> = Vec::new();
         let mut used_names: Vec<String> = bm_page.keys().cloned().collect();
         for (ordinal, path) in paths.iter().enumerate() {
             if in_toc(path) {
@@ -468,10 +590,20 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
             let Some(p) = para_at(doc, path) else {
                 continue;
             };
-            let Some(level) = outline_level(doc, p) else {
-                continue;
+            let level = if heading_toc {
+                outline_level(doc, p)
+            } else {
+                None
             };
             let atoms = para::flatten(p);
+            let caption = if labels.is_empty() {
+                None
+            } else {
+                refs::caption_of(&atoms).filter(|c| labels.contains(&c.0.to_lowercase()))
+            };
+            if level.is_none() && caption.is_none() {
+                continue;
+            }
             let text = display_text(&atoms).trim().to_owned();
             if text.is_empty() {
                 continue;
@@ -502,10 +634,19 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
                 name
             };
             let pg = bm_page.get(&name).copied().unwrap_or(0);
-            headings.push((level + 1, text, name, pg));
+            targets.push(refs::Target {
+                level: level.map(|l| l + 1),
+                caption,
+                text,
+                name,
+                page: pg,
+            });
         }
-        // Regenerate each TOC (reverse order keeps earlier indices valid).
-        let mut tocs = tocs;
+        // Index entries (§17.16.5.72 XE) and citations (§17.16.5.62 TA) with their pages.
+        let marks = refs::collect_marks(doc, &in_toc);
+        let spans = refs::bookmark_spans(doc);
+        // Regenerate each field (reverse order keeps earlier indices valid).
+        let mut tocs = tocs.clone();
         tocs.sort_by_key(|(si, t)| std::cmp::Reverse((*si, t.first)));
         for (si, t) in tocs {
             let blocks = &mut sections[si];
@@ -526,52 +667,31 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
                 .get(t.end + 1..)
                 .map(<[Atom]>::to_vec)
                 .unwrap_or_default();
-            let (lo, hi) = toc_levels(&t.instr);
-            let link = field_args(&t.instr)
-                .iter()
-                .any(|a| a.eq_ignore_ascii_case("\\h"));
-            let width = text_width(doc, si);
-            let mut entries: Vec<Paragraph> = Vec::new();
-            for (level, text, name, pg) in headings.iter().filter(|h| (lo..=hi).contains(&h.0)) {
-                let style = format!("TOC{level}");
-                if !styles_needed.contains(&style) {
-                    styles_needed.push(style.clone());
-                }
-                let props = RunProps {
-                    link: link.then(|| format!("#{name}")),
-                    ..RunProps::default()
-                };
-                let pg_text = if *pg > 0 {
-                    pg.to_string()
-                } else {
-                    String::new()
-                };
-                entries.push(Paragraph::new(
-                    ParaProps {
-                        style: Some(style),
-                        tabs: Some(vec![TabStop {
-                            pos: Twips(width),
-                            align: TabAlign::Right,
-                            leader: TabLeader::Dot,
-                        }]),
-                        ..ParaProps::default()
-                    },
-                    vec![
-                        Run::text(text.clone(), props.clone()),
-                        Run {
-                            props: props.clone(),
-                            content: vec![
-                                RunContent::Tab,
-                                RunContent::Field {
-                                    instr: format!("PAGEREF {name} \\h"),
-                                    cached: pg_text,
-                                    locked: false,
-                                },
-                            ],
-                        },
-                    ],
-                ));
-            }
+            let layout = refs::EntryLayout {
+                width: text_width(doc, si),
+                leader: refs::leader_of(&first),
+            };
+            let entries: Vec<Paragraph> = match field_kind(&t.instr).as_str() {
+                "INDEX" => refs::index(
+                    &t.instr,
+                    &marks,
+                    &spans,
+                    &page,
+                    layout,
+                    env.vi,
+                    &mut styles_needed,
+                ),
+                "TOA" => refs::authorities(
+                    &t.instr,
+                    &marks,
+                    &spans,
+                    &page,
+                    layout,
+                    env.vi,
+                    &mut styles_needed,
+                ),
+                _ => refs::toc(&t.instr, &targets, layout, &mut styles_needed),
+            };
             let mut out: Vec<Block> = Vec::new();
             if entries.is_empty() {
                 let mut a = prefix;

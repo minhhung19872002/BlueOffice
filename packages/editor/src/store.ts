@@ -15,6 +15,7 @@ import type {
 } from '@blueoffice/platform';
 import type { ThemeSetting } from '@blueoffice/ui';
 import { createStore } from 'zustand/vanilla';
+import type { ReferenceDialogId } from './ReferenceDialogs';
 
 export type Status =
   | { kind: 'idle' }
@@ -92,6 +93,7 @@ export interface EditorState {
     | 'dropCap'
     | 'signatureLine'
     | 'signLine'
+    | ReferenceDialogId
     | null;
   /** Format Painter: off, once (single click) or sticky (double click; Esc stops). */
   painter: 'off' | 'once' | 'sticky';

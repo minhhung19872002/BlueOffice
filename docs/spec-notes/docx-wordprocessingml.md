@@ -36,6 +36,11 @@ chỉnh sửa `crates/bo-edit/src/*`.
   §17.16.5.68, SEQ §17.16.5.56, REF §17.16.5.49, PAGEREF §17.16.5.42, MERGEFIELD §17.16.5.35, switch định dạng số
   §17.16.4.3 (`crates/bo-edit/src/fields.rs`, `crates/bo-edit/src/merge.rs`); PAGE/NUMPAGES/SECTIONPAGES tính ở
   layout (`crates/bo-layout/src/paragraph.rs`).
+- **Mục lục hình/bảng, chỉ mục, bảng trích dẫn** — TOC `\c`/`\a` (§17.16.5.68) lấy đoạn có SEQ; INDEX §17.16.5.28
+  từ XE §17.16.5.72 (`"chính:phụ"`, `\b \i \r \t \f`; INDEX `\e \l \g \k \h \p \r \f \b \z`, `\c` = section liên tục
+  có cột); TOA §17.16.5.67 từ TA §17.16.5.62 (`\l \s \c`; TOA `\c \h \p \e \l \g \b`; tên nhóm do BlueDoc tự đặt).
+  Dấu dẫn của số trang giữ ở tab phải của đoạn đầu trường. Sắp xếp tiếng Việt theo `collate.rs`. Chuyển chú thích
+  chân trang ↔ cuối văn bản: §17.11.14 / §17.11.7 (`crates/bo-edit/src/refs.rs`).
 - **Ảnh** — §20.4.2.8 inline / §20.4.2.3 anchor, §20.4.2.7 extent, wrap §20.4.2.17 wrapSquare, §20.4.2.20 wrapTight +
   §20.4.2.16 wrapPolygon, §20.4.3.7 ST_WrapText; §20.1.8.13 blip, §20.1.8.55 srcRect, §20.1.7.6 xfrm (`read_drawing`).
 - **Lossless** — ADR-0005: XML gốc + fingerprint mỗi block; con không hiểu của pPr/rPr/tblPr/tcPr/trPr ghi lại theo

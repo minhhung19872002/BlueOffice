@@ -68,7 +68,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Bảng (gộp, lồng, lặp tiêu đề) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus tables-* | 🟡 | + sắp xếp, công thức, AutoFit, văn bản↔bảng, chữ dọc, bảng nổi (DOC-TABLE-001); thiếu vẽ/tẩy bảng |
 | Ảnh & wrap | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus images-* | ✅ | |
 | Footnote/endnote, TOC, caption, cross-ref | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests bo-edit | ✅ | |
-| Chỉ mục, TOA, trích dẫn | ✅ | 🟡 | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | kết quả cache |
+| Chỉ mục, TOA, trích dẫn | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | refs_tests, references.rs | ✅ | mục lục hình, INDEX/XE, TOA/TA, chuyển chú thích (DOC-REF-001) |
 | Field đầy đủ | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | 🟡 | tests fields | 🟡 | một phần danh sách |
 | Content controls | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus controls-01, tests bo-docx/bo-edit/bo-engine, content-controls.spec | 🟡 | chèn + điền text/rich/hộp kiểm/danh sách/kết hợp/ngày; thiếu tạo ảnh/phần lặp, hộp thoại thuộc tính, khung viền; + trường biểu mẫu cũ & chế độ chỉ điền (DOC-FORM-001) |
 | Track changes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests + E2E | 🟡 | chế độ hiển thị + bong bóng + ngăn danh sách (DOC-REVIEW-001); thiếu move, khoá |

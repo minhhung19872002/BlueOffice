@@ -511,6 +511,26 @@ export interface CommentInfo {
   quote: string;
 }
 
+/** An index entry to mark (mirrors `bo_edit::IndexMark`, §17.16.5.72 XE). */
+export interface IndexMark {
+  main: string;
+  sub?: string;
+  /** Cross-reference text instead of a page number. */
+  crossRef?: string;
+  /** Page range of this bookmark. */
+  bookmark?: string;
+  bold?: boolean;
+  italic?: boolean;
+}
+
+/** A citation to mark (mirrors `bo_edit::CitationMark`, §17.16.5.62 TA). */
+export interface CitationMark {
+  long: string;
+  short?: string;
+  /** 1–16. */
+  category: number;
+}
+
 /** A cross-reference target (mirrors `bo_edit::RefTarget`). */
 export interface RefTarget {
   /** Bookmark name or `caption:<paragraph id>`. */
@@ -692,6 +712,20 @@ export type EditCommand =
   /** Stop the editing restriction (the password must match). */
   | { cmd: 'unprotectDocument'; password?: string | null }
   | { cmd: 'insertCaption'; label: string; text: string }
+  /** Insert a table of figures (`TOC \c`), an index (`INDEX`) or a table of authorities (`TOA`). */
+  | {
+      cmd: 'insertReferenceTable';
+      instr: string;
+      leader?: 'dot' | 'hyphen' | 'underscore' | 'none';
+      /** More than one: the table gets a continuous section with that many columns. */
+      columns?: number;
+    }
+  /** Mark the selection as an index entry (XE); `all`: every paragraph's first occurrence too. */
+  | { cmd: 'markIndexEntry'; mark: IndexMark; all?: boolean }
+  /** Mark the selection as a citation (TA); `all`: later mentions too. */
+  | { cmd: 'markCitation'; mark: CitationMark; all?: boolean }
+  /** Convert footnotes ↔ endnotes (all, or those referenced in the selection). */
+  | { cmd: 'convertNotes'; mode: 'toEndnotes' | 'toFootnotes' | 'swap'; selection?: boolean }
   | { cmd: 'insertCrossReference'; target: string; page: boolean }
   | { cmd: 'mergeData'; name: string; base64: string }
   | { cmd: 'mergeInsertField'; name: string }

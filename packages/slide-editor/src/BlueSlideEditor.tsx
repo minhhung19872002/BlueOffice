@@ -180,6 +180,7 @@ import { exportShow, type ShowExportRequest } from './video/export';
 import { ExportDocsDialog, exportPlan, type ExportDocsState } from './exportDocs';
 import { MediaButtons } from './MediaLayer';
 import { MediaActionsHub, registerMediaCommands, useMediaTools } from './mediaPlayback';
+import { DrawActionsHub, drawTab, registerDrawCommands, useDrawTools } from './draw/drawTab';
 import type { ShowPos } from './player';
 import { fit, formatElapsed, showAction, step, type ShowAction } from './show';
 import { CustomShowsDialog } from './customShows';
@@ -1259,6 +1260,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [pictureHub] = useState(() => new PictureActionsHub());
   /** Actions of the clip Playback / Video format tabs (SLIDE-MEDIA-001), behind `media.*`. */
   const [mediaHub] = useState(() => new MediaActionsHub());
+  /** Draw tab tools (CORE-INK-001), behind `draw.*`. */
+  const [drawHub] = useState(() => new DrawActionsHub());
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SlideEditorState>();
     const guard = async (f: () => Promise<unknown>) => {
@@ -1735,6 +1738,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       () => pictureHub.get(),
     );
     registerMediaCommands(reg, mediaHub);
+    registerDrawCommands(reg, drawHub);
     // SLIDE-VIEW-001: notes / handout master views (edited in the normal view) and sections.
     registerPageMasterCommands(reg, (cmd) => {
       if (cmd.cmd === 'pageMasterView' && cmd.on) setView('normal');
@@ -1786,6 +1790,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     toggleSpelling,
     asYouType,
     mediaHub,
+    drawHub,
   ]);
 
   const state: SlideEditorState = useMemo(() => {
@@ -1861,6 +1866,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     run: (c) => ctrl.run(c),
     pickFile: (accept) => platform.files.openFile(accept),
     hub: mediaHub,
+  });
+  // Draw tab (CORE-INK-001): pen, highlighter, erasers, ruler, ink replay.
+  const drawShown = Math.min(current, Math.max(0, count - 1));
+  const draw = useDrawTools({
+    t,
+    hub: drawHub,
+    enabled: count > 0 && view === 'normal' && !state.masterView && !state.pageMaster,
+    slide: drawShown,
+    size: info?.pages[drawShown] ?? slideSize,
+    run: (c) => ctrl.run(c),
+    glyphs,
+    images,
+    revision: epoch * 1_000_000 + (revs[drawShown] ?? 0),
   });
   const extraTabs = [...(picture.tab ? [picture.tab] : []), ...mediaTools.tabs];
 
@@ -2301,6 +2319,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           },
         ],
       },
+      drawTab(t, item, draw.state),
       slideShowTab(t, item, setup.useTimings),
       {
         id: 'review',
@@ -2619,6 +2638,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     current,
     setup.useTimings,
     loadWarpPreviews,
+    draw.state,
   ]);
 
   const revision = (i: number) => epoch * 1_000_000 + (revs[i] ?? 0);
@@ -3009,6 +3029,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                       }}
                     />
                   )}
+                  {draw.layer}
+                  {draw.replay(main.width)}
                   {edit?.slide === shown && (edit.media?.length ?? 0) > 0 && (
                     <MediaButtons
                       engine={engine}

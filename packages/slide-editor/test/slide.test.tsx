@@ -1429,3 +1429,29 @@ describe('BlueSlideEditor transitions, effects, charts and pictures', () => {
     );
   });
 });
+
+describe('Draw tab (CORE-INK-001)', () => {
+  it('draws a stroke with the pen as one addInk command', async () => {
+    const { p, cmds } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Vẽ' }));
+    fireEvent.click(await waitFor(() => document.querySelector('[data-command="draw.pen"]')!));
+    const layer = await screen.findByTestId('draw-layer');
+    fireEvent.pointerDown(layer, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(layer, { clientX: 40, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(layer, { clientX: 40, clientY: 10, pointerId: 1 });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual(
+        expect.objectContaining({
+          cmd: 'addInk',
+          name: 'Nét mực',
+          stroke: expect.objectContaining({ color: '1B1B1B', width: 3 }),
+        }),
+      ),
+    );
+    // Escape puts the pen down.
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('draw-layer')).toBeNull());
+  });
+});

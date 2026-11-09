@@ -1444,6 +1444,8 @@ export type SlideCommand =
   | import('./slideViews').SlideViewCommand
   /** Custom shows, show setup, timings, show links, kept ink (SLIDE-SHOW-001). */
   | import('./slideShow').SlidePresentCommand
+  /** Draw tab ink: add, erase, read (CORE-INK-001). */
+  | import('./slideInk').SlideInkCommand
   /** Spelling and grammar of the deck (CORE-SPELL-006). */
   | import('./spelling').SlideSpellCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
@@ -2053,6 +2055,8 @@ export interface SlideEditResult {
   outline?: import('./slideViews').SlideOutlineSlide[];
   /** Answer of `notesPages`. */
   notesPages?: import('./slideViews').SlideNotesPage[];
+  /** Ink of the current slide (`inkInfo` / `addInk` / `eraseInk`, CORE-INK-001). */
+  ink?: import('./slideInk').SlideInkInfo;
 }
 
 // ---------------------------------------------------------------- services

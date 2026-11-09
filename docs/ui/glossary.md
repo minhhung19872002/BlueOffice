@@ -80,6 +80,9 @@ khi dùng.
 | Pen / Highlighter | Bút / Bút dạ quang |
 | Laser pointer | Điểm sáng laser |
 | Ink | Nét mực |
+| Eraser (ink) | Tẩy |
+| Ruler (Draw) | Thước |
+| Ink replay | Phát lại nét mực |
 | Audience screen | Màn hình khán giả |
 | Track changes | Theo dõi thay đổi |
 | Comment | Bình luận |

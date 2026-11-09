@@ -167,6 +167,7 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         comments_ids,
         notes_fingerprint: crate::writer::notes_fingerprint(&doc),
         even_and_odd_headers: doc.even_and_odd_headers,
+        protection: doc.protection.clone(),
     }));
     Ok(doc)
 }
@@ -562,6 +563,10 @@ fn read_settings(data: &[u8], part: &str, doc: &mut Document) -> Result<()> {
                 b"defaultTabStop" => doc.default_tab_stop = twips(&e, b"val"),
                 b"evenAndOddHeaders" => doc.even_and_odd_headers = on_off(&e),
                 b"autoHyphenation" => doc.auto_hyphenation = on_off(&e), // §17.15.1.10
+                // §17.15.1.29 documentProtection
+                b"documentProtection" => {
+                    doc.protection = Some(crate::forms::read_protection(&e));
+                }
                 _ => {}
             },
             Event::Eof => break,
@@ -909,6 +914,7 @@ fn read_paragraph(
 ) -> Result<Paragraph> {
     let mut p = Paragraph::default();
     read_para_children(r, ctx, media, sect, &mut p, &RunCtx::default())?;
+    crate::forms::collapse_form_fields(&mut p.runs);
     collapse_simple_fields(&mut p.runs);
     Ok(p)
 }
@@ -2347,6 +2353,8 @@ fn read_sect_pr(
                 };
             }
             b"titlePg" => s.title_page = on_off(e),
+            // §17.6.6 formProt
+            b"formProt" => s.form_unprotected = !on_off(e),
             // §17.6.22 type
             b"type" => {
                 s.break_type = match attr(e, b"val").as_deref() {

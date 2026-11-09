@@ -216,6 +216,8 @@ fn display_text(atoms: &[Atom]) -> String {
         match item {
             RunContent::Text(t) => s.push_str(t),
             RunContent::Field { cached, .. } => s.push_str(cached),
+            // A check box / drop-down form field shows its state (§17.16.17 ffData).
+            RunContent::FormField(f) => s.push_str(&f.display().unwrap_or_default()),
             RunContent::Tab | RunContent::LineBreak => s.push(' '),
             RunContent::NoBreakHyphen => s.push('-'),
             _ => {}
@@ -306,7 +308,7 @@ pub fn bookmarks(doc: &Document) -> Vec<Bookmark> {
 }
 
 /// Largest bookmark id (`w:id`) in the main text.
-fn max_bookmark_id(doc: &Document) -> i64 {
+pub(crate) fn max_bookmark_id(doc: &Document) -> i64 {
     let mut m = 0;
     for path in body_paragraphs(doc) {
         if let Some(p) = para_at(doc, &path) {
@@ -336,7 +338,7 @@ pub fn format_seq(n: i64, instr: &str) -> String {
     }
 }
 
-fn bookmark_xml(id: i64, name: &str) -> (Raw, Raw) {
+pub(crate) fn bookmark_xml(id: i64, name: &str) -> (Raw, Raw) {
     (
         Raw::new(
             format!("<w:bookmarkStart w:id=\"{id}\" w:name=\"{name}\"/>"),

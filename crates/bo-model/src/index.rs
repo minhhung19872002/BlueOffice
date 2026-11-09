@@ -37,12 +37,16 @@ pub fn item_text(c: &RunContent) -> String {
         RunContent::ColumnBreak => "\u{000B}".into(),
         RunContent::NoBreakHyphen => "\u{2011}".into(),
         RunContent::SoftHyphen => "\u{00AD}".into(),
+        // A check box / drop-down form field is one object; a text field's result is text.
+        RunContent::FormField(f) if f.is_text() => String::new(),
         RunContent::Image(_)
         | RunContent::Field { .. }
+        | RunContent::FormField(_)
         | RunContent::FootnoteRef(_)
         | RunContent::EndnoteRef(_)
         | RunContent::NoteMark => OBJECT.to_string(),
-        RunContent::Opaque(_)
+        RunContent::FormEnd
+        | RunContent::Opaque(_)
         | RunContent::Markup(_)
         | RunContent::CommentStart(_)
         | RunContent::CommentEnd(_)

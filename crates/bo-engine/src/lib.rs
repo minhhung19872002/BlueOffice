@@ -21,6 +21,7 @@ pub mod collab;
 pub mod edit;
 pub mod equation;
 pub mod fonts;
+pub mod forms;
 pub mod gallery;
 mod legacy_slides;
 pub mod media;

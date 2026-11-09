@@ -172,6 +172,9 @@ pub struct SourcePackage {
     /// `evenAndOddHeaders` as read (changed ⇒ the settings part is patched).
     #[serde(default)]
     pub even_and_odd_headers: bool,
+    /// `documentProtection` as read (changed ⇒ the settings part is patched).
+    #[serde(default)]
+    pub protection: Option<crate::form::DocProtection>,
 }
 
 /// A whole word-processing document.
@@ -220,6 +223,9 @@ pub struct Document {
     /// rewritten; shared in collaboration as a document setting.
     #[serde(skip)]
     pub continuation_notice: Option<Vec<Block>>,
+    /// Editing restrictions (ECMA-376 Part 1, §17.15.1.29 documentProtection).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protection: Option<crate::form::DocProtection>,
     /// Source package the document was read from (`None` for a new document).
     pub source: Option<Arc<SourcePackage>>,
 }
@@ -493,6 +499,10 @@ pub struct Section {
     /// Tracked change of the section properties (§17.13.5.32 sectPrChange).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change: Option<Box<SectionChange>>,
+    /// §17.6.6 formProt `w:val="0"`: the section stays editable while filling in forms is
+    /// enforced (omitted ⇒ protected).
+    #[serde(default)]
+    pub form_unprotected: bool,
     /// Original `w:sectPr` XML.
     #[serde(skip)]
     pub src: Option<Raw>,
@@ -524,6 +534,7 @@ impl Section {
             footnote_pr,
             endnote_pr,
             change,
+            form_unprotected,
             src,
         } = self;
         *page == other.page
@@ -533,6 +544,7 @@ impl Section {
             && *footnote_pr == other.footnote_pr
             && *endnote_pr == other.endnote_pr
             && *change == other.change
+            && *form_unprotected == other.form_unprotected
             && *src == other.src
             && *blocks == other.blocks
     }
@@ -550,6 +562,7 @@ impl Section {
             &self.footnote_pr,
             &self.endnote_pr,
             &self.change,
+            self.form_unprotected,
         ))
     }
 
@@ -1531,6 +1544,13 @@ pub enum RunContent {
     ControlStart(Box<ContentControl>),
     /// End of the content control started before (`true`: a block-level one).
     ControlEnd(bool),
+    /// Legacy form field (§17.16.17 ffData): its begin character, instruction (`FORMTEXT`,
+    /// `FORMCHECKBOX`, `FORMDROPDOWN`) and separator. The result content follows up to
+    /// [`RunContent::FormEnd`]; a check box or drop-down list shows its state instead
+    /// (one object character).
+    FormField(Box<crate::form::FormField>),
+    /// End character of the form field started before (§17.16.18 fldChar `end`).
+    FormEnd,
 }
 
 /// The kind of a content control (§17.5.2.38 sdtPr children; [MS-DOCX] w14 / w15).
@@ -1618,7 +1638,13 @@ impl RunContent {
             | RunContent::CommentEnd(_)
             | RunContent::CommentRef(_)
             | RunContent::ControlStart(_)
-            | RunContent::ControlEnd(_) => {}
+            | RunContent::ControlEnd(_)
+            | RunContent::FormEnd => {}
+            RunContent::FormField(f) => {
+                if let Some(d) = f.display() {
+                    s.push_str(&d);
+                }
+            }
         }
     }
 }

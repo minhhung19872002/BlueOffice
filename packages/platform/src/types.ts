@@ -594,6 +594,24 @@ export type EditCommand =
   | { cmd: 'insertControl'; kind: ControlKind; placeholder?: string; items?: string[] }
   /** Fill the control around the caret: toggle a checkbox, pick an item, set a date (ISO) or text. */
   | { cmd: 'setControlValue'; value?: string }
+  /** Insert a legacy form field (§17.16.17 ffData) at the caret. */
+  | { cmd: 'insertFormField'; kind: FormFieldKind }
+  /** Change the properties of the form field at the caret (its kind stays). */
+  | { cmd: 'setFormField'; field: FormFieldData }
+  /** Fill in the form field at the caret: text, a check box (`''` toggles, `'1'` / `'0'`), an entry. */
+  | { cmd: 'setFormFieldValue'; value?: string }
+  /** Select the next (`back`: previous) form field that can be filled in. */
+  | { cmd: 'nextFormField'; back?: boolean }
+  /** Restrict editing (§17.15.1.29 documentProtection); `edit` defaults to `forms`. */
+  | {
+      cmd: 'protectDocument';
+      edit?: string;
+      password?: string | null;
+      /** Sections left editable while filling in forms (§17.6.6 formProt). */
+      unprotectedSections?: number[];
+    }
+  /** Stop the editing restriction (the password must match). */
+  | { cmd: 'unprotectDocument'; password?: string | null }
   | { cmd: 'insertCaption'; label: string; text: string }
   | { cmd: 'insertCrossReference'; target: string; page: boolean }
   | { cmd: 'mergeData'; name: string; base64: string }
@@ -651,6 +669,10 @@ export interface EditResult {
   equation?: EquationInfo;
   /** The content control around the caret. */
   control?: ControlInfo;
+  /** The legacy form field at the caret. */
+  formField?: FormFieldInfo;
+  /** The document's editing restriction, when it has one. */
+  protection?: ProtectionInfo;
   /** Equation templates (`equationTemplates`). */
   templates?: { id: string; linear: string }[];
   /** Current AutoCorrect options (`autoCorrect`). */
@@ -716,6 +738,80 @@ export interface ControlInfo {
   placeholder: boolean;
   /** The contents cannot be edited. */
   locked: boolean;
+}
+
+/** Kind of a legacy form field (`FORMTEXT`, `FORMCHECKBOX`, `FORMDROPDOWN`). */
+export type FormFieldKind = 'text' | 'checkBox' | 'dropDown';
+
+/** §17.18 `ST_FFTextType`. */
+export type FormTextType =
+  'regular' | 'number' | 'date' | 'currentDate' | 'currentTime' | 'calculated';
+
+/** Help / status text of a form field (`autoText`: names an AutoText entry). */
+export interface FormHelpText {
+  autoText: boolean;
+  text: string;
+}
+
+interface FormFieldCommon {
+  /** Field (and bookmark) name. */
+  name?: string | null;
+  enabled: boolean;
+  /** Fields are recalculated when the user leaves this one. */
+  calcOnExit: boolean;
+  /** Macros are kept, never run. */
+  entryMacro?: string | null;
+  exitMacro?: string | null;
+  helpText?: FormHelpText | null;
+  statusText?: FormHelpText | null;
+}
+
+/** The data of a legacy form field (ECMA-376 Part 1, §17.16.17 ffData). */
+export type FormFieldData = FormFieldCommon &
+  (
+    | {
+        kind: 'text';
+        type: FormTextType;
+        /** Default text, or the `=` expression of a calculated field. */
+        default: string;
+        /** 0 = no limit. */
+        maxLength: number;
+        /** Case, numeric picture or date picture. */
+        format: string;
+      }
+    | {
+        kind: 'checkBox';
+        /** Half-points; `null` = the size of the text. */
+        size: number | null;
+        default: boolean;
+        checked: boolean | null;
+      }
+    | {
+        kind: 'dropDown';
+        result: number | null;
+        default: number | null;
+        entries: string[];
+      }
+  );
+
+/** The form field at the caret. */
+export interface FormFieldInfo {
+  field: FormFieldData;
+  /** Result text, the selected entry or ☒ / ☐. */
+  value: string;
+  /** Enabled and not computed. */
+  fillable: boolean;
+}
+
+/** The document's editing restriction (§17.15.1.29). */
+export interface ProtectionInfo {
+  /** `forms`, `readOnly`, `comments`, `trackedChanges` or `none`. */
+  edit: string;
+  enforced: boolean;
+  hasPassword: boolean;
+  /** Sections left editable while filling in forms. */
+  unprotectedSections: number[];
+  sections: number;
 }
 
 /** An equation of the document as the equation editor shows it. */

@@ -144,6 +144,15 @@ pub fn insert(atoms: &mut Vec<Atom>, off: usize, new: Vec<Atom>) {
         }
         i += 1;
     }
+    // At the end of a form field (§17.16.17) the content goes past its end character and the
+    // bookmark ends there: typing after a field does not extend its result (filling in edits
+    // the result itself), and fields of the classic format do not nest.
+    let new_field = new.iter().any(|a| matches!(a.1, RunContent::FormField(_)));
+    if new_field {
+        i = past_marks(atoms, i);
+    } else {
+        i = past_field_end(atoms, i);
+    }
     let typed = new
         .iter()
         .any(|a| matches!(&a.1, RunContent::Text(t) if !t.is_empty()));
@@ -155,6 +164,32 @@ pub fn insert(atoms: &mut Vec<Atom>, off: usize, new: Vec<Atom>) {
         }
     }
     atoms.splice(i..i, new);
+}
+
+/// Past the form-field end characters (§17.16.18 fldChar `end`) and bookmark ends at atom `i`.
+fn past_marks(atoms: &[Atom], mut i: usize) -> usize {
+    while let Some((_, c)) = atoms.get(i) {
+        let end_mark = match c {
+            RunContent::FormEnd => true,
+            RunContent::Markup(r) => r.xml.contains("bookmarkEnd"),
+            _ => false,
+        };
+        if !end_mark {
+            break;
+        }
+        i += 1;
+    }
+    i
+}
+
+/// When atom `i` ends a form field, the index past that end and the bookmark ends after it;
+/// else `i`. Typing or splitting at a field's end keeps the field whole.
+pub fn past_field_end(atoms: &[Atom], i: usize) -> usize {
+    if matches!(atoms.get(i), Some((_, RunContent::FormEnd))) {
+        past_marks(atoms, i)
+    } else {
+        i
+    }
 }
 
 /// Remove the content in `a..b`; zero-width markup (bookmarks, comments) is kept.
@@ -173,7 +208,46 @@ pub fn delete(atoms: &mut Vec<Atom>, a: usize, b: usize) -> Vec<Atom> {
             removed.push(at);
         }
     }
+    // A form field (§17.16.17) wholly inside the range goes with its markers; so does the end
+    // character of a removed check box / drop-down field.
+    let mut gone = removed
+        .iter()
+        .filter(|a| matches!(a.1, RunContent::FormField(_)))
+        .count();
+    let mut out: Vec<Option<Atom>> = Vec::with_capacity(kept.len());
+    let mut open: Vec<usize> = Vec::new();
+    for at in kept {
+        match at.1 {
+            RunContent::FormField(_) => {
+                open.push(out.len());
+                out.push(Some(at));
+            }
+            RunContent::FormEnd => {
+                if let Some(s) = open.pop() {
+                    out[s] = None;
+                } else if gone > 0 {
+                    gone -= 1;
+                } else {
+                    out.push(Some(at));
+                }
+            }
+            _ => out.push(Some(at)),
+        }
+    }
+    let kept: Vec<Atom> = out.into_iter().flatten().collect();
+    let mut k = i + kept.len();
     atoms.splice(i..i, kept);
+    while gone > 0 {
+        match atoms.get(k) {
+            Some((_, RunContent::FormEnd)) => {
+                atoms.remove(k);
+                gone -= 1;
+            }
+            // Bookmark / comment marks between the object and its end stay.
+            Some((_, c)) if atom_len(c) == 0 && !matches!(c, RunContent::FormField(_)) => k += 1,
+            _ => break,
+        }
+    }
     removed
 }
 

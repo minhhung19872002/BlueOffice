@@ -290,6 +290,60 @@ pub enum Command {
         #[serde(default)]
         value: String,
     },
+    /// Insert a legacy form field (§17.16.17 ffData) at the caret.
+    InsertFormField {
+        /// `text` | `checkBox` | `dropDown`.
+        kind: String,
+    },
+    /// Change the properties of the form field at the caret (its type stays).
+    SetFormField {
+        /// The new field data.
+        field: Box<bo_model::FormField>,
+    },
+    /// Fill in the form field at the caret: a text field's result, a check box (`""` toggles,
+    /// `"1"` / `"0"`), a drop-down entry (its text or index).
+    SetFormFieldValue {
+        /// The value.
+        #[serde(default)]
+        value: String,
+    },
+    /// Select the next (`back`: previous) form field that can be filled in.
+    NextFormField {
+        /// Backwards (Shift+Tab).
+        #[serde(default)]
+        back: bool,
+    },
+    /// Typing into the text form field at the caret while filling in a protected form (hosts
+    /// send `insertText`; the restriction turns it into this).
+    FormType {
+        /// Typed text.
+        text: String,
+    },
+    /// Deleting in the text form field at the caret while filling in a protected form.
+    FormDelete {
+        /// Backwards (Backspace).
+        #[serde(default)]
+        back: bool,
+    },
+    /// Start an editing restriction (§17.15.1.29 documentProtection), by default filling in
+    /// forms, with an optional password and the sections left editable (§17.6.6 formProt).
+    ProtectDocument {
+        /// `ST_DocProtect` value (default `forms`).
+        #[serde(default)]
+        edit: String,
+        /// Password needed to stop the restriction.
+        #[serde(default)]
+        password: Option<String>,
+        /// Indices of the sections left editable (`None`: unchanged).
+        #[serde(default)]
+        unprotected_sections: Option<Vec<usize>>,
+    },
+    /// Stop the editing restriction (the password must match when one was set).
+    UnprotectDocument {
+        /// The password.
+        #[serde(default)]
+        password: Option<String>,
+    },
     /// Accept every revision of the document.
     AcceptAllRevisions,
     /// Reject every revision of the document.
@@ -698,6 +752,12 @@ pub struct EditResult {
     /// The content control around the caret (§17.5.2 sdt).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub control: Option<ControlInfo>,
+    /// The legacy form field at the caret (§17.16.17 ffData).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub form_field: Option<bo_edit::forms::FormFieldInfo>,
+    /// The document's editing restriction (§17.15.1.29 documentProtection).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protection: Option<crate::forms::ProtectionInfo>,
     /// Equation templates (`equationTemplates`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub templates: Option<Vec<EquationTemplate>>,
@@ -776,6 +836,21 @@ impl crate::Engine {
     }
 
     fn command_inner(&mut self, cmd: Command, now: Option<i64>) -> crate::Result<EditResult> {
+        // Filling in forms (§17.15.1.29): only form fields, content controls and unprotected
+        // sections change.
+        let cmd = match self.session.as_ref() {
+            Some(s) if self.hf.is_none() && self.note.is_none() => {
+                match crate::forms::gate(cmd, s) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        let mut r = self.query_result()?;
+                        r.error = Some(e.to_owned());
+                        return Ok(r);
+                    }
+                }
+            }
+            _ => cmd,
+        };
         if let Command::AutoCorrect { options, reset } = cmd {
             if reset {
                 self.autocorrect = Some(bo_edit::AutoCorrectOptions::default());
@@ -941,6 +1016,34 @@ impl crate::Engine {
             } else {
                 CmdKind::Other
             };
+            // Leaving a text form field while filling in a form applies its format and may
+            // recalculate fields (§17.16.6 calcOnExit); a click on a check box toggles it.
+            let locked = s.forms_locked();
+            let moves = locked
+                && matches!(
+                    cmd,
+                    Command::Click { .. }
+                        | Command::Move { .. }
+                        | Command::SetSelection { .. }
+                        | Command::NextFormField { .. }
+                        | Command::DragTo { .. }
+                );
+            let click = locked
+                && matches!(
+                    cmd,
+                    Command::Click {
+                        count: 1,
+                        extend: false,
+                        ..
+                    }
+                );
+            let tab = matches!(cmd, Command::NextFormField { .. });
+            let exit_from = if moves {
+                s.form_at(s.selection().focus).filter(|f| f.field.is_text())
+            } else {
+                None
+            };
+            let mut form_error: Option<&'static str> = None;
             let res: bo_edit::Result<()> = (|| {
                 match cmd {
                     // Handled outside the session (view options, merge state).
@@ -1347,11 +1450,86 @@ impl crate::Engine {
                             &bo_edit::merge::placeholder(n),
                         )?;
                     }
+                    Command::InsertFormField { kind } => {
+                        s.insert_form_field(&kind)?;
+                    }
+                    Command::SetFormField { field } => {
+                        extra.1 = Some(usize::from(s.set_form_field(&field)?));
+                    }
+                    Command::SetFormFieldValue { value } => {
+                        extra.1 = Some(usize::from(s.set_form_value(&value)?));
+                    }
+                    Command::NextFormField { back } => {
+                        extra.1 = Some(usize::from(s.next_form_field(back).is_some()));
+                    }
+                    Command::FormType { text } => {
+                        s.form_type(&text)?;
+                    }
+                    Command::FormDelete { back } => {
+                        s.form_delete(back)?;
+                    }
+                    Command::ProtectDocument {
+                        edit,
+                        password,
+                        unprotected_sections,
+                    } => {
+                        crate::forms::protect(
+                            s,
+                            &edit,
+                            password.as_deref(),
+                            unprotected_sections.as_deref(),
+                        )
+                        .map_err(bo_edit::EditError::Unsupported)?;
+                    }
+                    Command::UnprotectDocument { password } => {
+                        if let Err(e) = crate::forms::unprotect(s, password.as_deref()) {
+                            form_error = Some(e);
+                        }
+                    }
+                }
+                if let Some(f) = &exit_from {
+                    let now = s.form_at(s.selection().focus);
+                    // Tab leaves the field even when it comes back to it (the only one).
+                    if tab || now.as_ref().map(|n| (n.para, n.start)) != Some((f.para, f.start)) {
+                        match s.form_exit(f) {
+                            Ok(true) => {
+                                s.update_fields(&mut pages_of)?;
+                            }
+                            Ok(false) => {}
+                            Err(_) => {
+                                // Not valid for its type: back into the field.
+                                let number = matches!(
+                                    &f.field.kind,
+                                    bo_model::FormFieldKind::Text(t)
+                                        if t.input_type == bo_model::form::TextInputType::Number
+                                );
+                                form_error = Some(if number {
+                                    crate::forms::BAD_NUMBER
+                                } else {
+                                    crate::forms::BAD_DATE
+                                });
+                                s.set_selection(Selection {
+                                    anchor: Pos::new(f.para, f.from),
+                                    focus: Pos::new(f.para, f.to),
+                                });
+                            }
+                        }
+                    }
+                }
+                if click && s.selection().is_collapsed() {
+                    if let Some(f) = s.form_at(s.selection().focus) {
+                        if matches!(f.field.kind, bo_model::FormFieldKind::CheckBox(_)) {
+                            s.set_form_value("")?;
+                        }
+                    }
                 }
                 Ok(())
             })();
             if let Err(e) = res {
                 error = Some(e.to_string());
+            }
+            if let Some(e) = form_error {
+                error = Some(e.to_owned());
             }
             changed |= s.version() != before_version;
         }
@@ -1485,6 +1663,8 @@ impl crate::Engine {
                 .selected_equation()
                 .and_then(|(_, xml)| crate::equation::info(&xml)),
             control: s.control_at_caret().map(|c| ControlInfo::of(&c)),
+            form_field: s.form_field_info(),
+            protection: crate::forms::info(s),
             templates: None,
             collab: None,
             story: None,

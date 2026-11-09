@@ -624,6 +624,7 @@ fn section_props(s: &Section) -> Section {
         footnote_pr: s.footnote_pr.clone(),
         endnote_pr: s.endnote_pr.clone(),
         change: s.change.clone(),
+        form_unprotected: s.form_unprotected,
         src: None,
     }
 }

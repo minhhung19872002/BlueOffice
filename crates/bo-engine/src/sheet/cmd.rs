@@ -159,6 +159,23 @@ pub struct At {
     pub col: u32,
 }
 
+fn default_true() -> bool {
+    true
+}
+
+/// One Solver constraint as the UI writes it (A1 addresses).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SolverConstraint {
+    /// Left side (cell or range).
+    pub lhs: String,
+    /// `le` | `ge` | `eq` | `int` | `bin`.
+    pub relation: bo_sheet::solver::Relation,
+    /// Right side: a number or a cell / range address (absent for `int` / `bin`).
+    #[serde(default)]
+    pub rhs: Option<String>,
+}
+
 /// A sheet editing command.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "cmd", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -933,6 +950,28 @@ pub enum SheetCommand {
         #[serde(default)]
         col_input: Option<String>,
     },
+    /// Solver: optimise `objective` by changing `variables` subject to `constraints`
+    /// (simplex; integer / binary by branch and bound). With `apply` an optimal solution is
+    /// entered (one undo step). Returns `{ status, objective, values }`.
+    Solve {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Objective cell (A1).
+        objective: String,
+        /// `max` | `min` | `{ "value": n }`.
+        goal: bo_sheet::solver::Goal,
+        /// Variable cells (A1 ranges).
+        variables: Vec<String>,
+        /// Constraints.
+        #[serde(default)]
+        constraints: Vec<SolverConstraint>,
+        /// Variables are non-negative.
+        #[serde(default = "default_true")]
+        non_negative: bool,
+        /// Enter the solution.
+        #[serde(default)]
+        apply: bool,
+    },
     /// Sum, count and average of the numbers in several ranges (status bar of a
     /// multi-range selection); cells covered twice count once.
     RangeStats {
@@ -1367,6 +1406,62 @@ impl SheetEngine {
                     anchor.formula = Some(table.formula());
                     Ok(json!({ "ok": true }))
                 })
+            }
+            C::Solve {
+                sheet,
+                objective,
+                goal,
+                variables,
+                constraints,
+                non_negative,
+                apply,
+            } => {
+                let range = |a1: &str| {
+                    let t = a1.trim().replace('$', "");
+                    CellRange::parse(&t)
+                        .or_else(|| CellRef::parse(&t).map(|c| CellRange::new(c, c)))
+                        .ok_or_else(|| bad("invalid cell address"))
+                };
+                let obj = range(&objective)?.first;
+                let model = bo_sheet::solver::Model {
+                    objective: (obj.row, obj.col),
+                    goal,
+                    variables: variables.iter().map(|v| range(v)).collect::<Result<_>>()?,
+                    constraints: constraints
+                        .iter()
+                        .map(|c| {
+                            let (rhs_value, rhs) = match c.rhs.as_deref().map(str::trim) {
+                                None | Some("") => (None, None),
+                                Some(t) => match t.replace(',', ".").parse::<f64>() {
+                                    Ok(v) => (Some(v), None),
+                                    Err(_) => (None, Some(range(t)?)),
+                                },
+                            };
+                            Ok(bo_sheet::solver::Constraint {
+                                lhs: range(&c.lhs)?,
+                                relation: c.relation,
+                                rhs_value,
+                                rhs,
+                            })
+                        })
+                        .collect::<Result<_>>()?,
+                    non_negative,
+                };
+                self.sheet(sheet)?;
+                let sol = bo_sheet::solver::solve(self.wb()?, sheet, &model);
+                if apply && sol.status == bo_sheet::solver::Status::Optimal {
+                    let values = sol.values.clone();
+                    self.edit(sheet, Recalc::All, |wb, _| {
+                        let ws = &mut wb.sheets[sheet];
+                        for ((r, c), v) in values {
+                            let cell = ws.cells.entry((r, c)).or_default();
+                            cell.formula = None;
+                            cell.value = CellValue::Number(v);
+                        }
+                        Ok(())
+                    })?;
+                }
+                Ok(serde_json::to_value(sol).unwrap_or(Value::Null))
             }
             C::RangeStats { sheet, ranges } => {
                 let ws = self.sheet(sheet)?;

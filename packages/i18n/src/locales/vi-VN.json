@@ -1033,6 +1033,42 @@
       "rowInput": "Ô nhập theo hàng",
       "colInput": "Ô nhập theo cột",
       "invalid": "Chọn bảng gồm hàng và cột tiêu đề, và nhập ít nhất một ô nhập."
+    },
+    "solver": {
+      "title": "Giải bài toán tối ưu",
+      "objective": "Ô mục tiêu",
+      "goal": "Hướng",
+      "goals": {
+        "max": "Lớn nhất",
+        "min": "Nhỏ nhất",
+        "value": "Bằng giá trị"
+      },
+      "valueOf": "Giá trị",
+      "variables": "Bằng cách thay đổi các ô biến",
+      "constraints": "Với các ràng buộc",
+      "cell": "Ô tham chiếu",
+      "relation": "Quan hệ",
+      "limit": "Ràng buộc",
+      "relations": {
+        "le": "<=",
+        "ge": ">=",
+        "eq": "=",
+        "int": "số nguyên",
+        "bin": "nhị phân"
+      },
+      "add": "Thêm ràng buộc",
+      "remove": "Xoá ràng buộc",
+      "nonNegative": "Các biến không ràng buộc thì không âm",
+      "solve": "Giải",
+      "keep": "Giữ nghiệm",
+      "invalid": "Kiểm tra lại các tham chiếu ô của mô hình.",
+      "found": "Đã tìm được nghiệm tối ưu: mục tiêu {{value}}.",
+      "status": {
+        "infeasible": "Không có nghiệm khả thi: không thể thoả mọi ràng buộc.",
+        "unbounded": "Mục tiêu không hội tụ (không bị chặn).",
+        "notLinear": "Mô hình không tuyến tính; phương pháp tuyến tính không giải được.",
+        "error": "Một ô của mô hình bị lỗi."
+      }
     }
   },
   "recovery": {

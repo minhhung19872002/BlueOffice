@@ -97,6 +97,7 @@ import {
   ShieldCheck,
   Target,
   Grid3x3,
+  Calculator,
   Sigma,
   Group,
   Ungroup,
@@ -144,6 +145,7 @@ import {
   FindDialog,
   GoalSeekDialog,
   DataTableDialog,
+  SolverDialog,
   GoToDialog,
   Menu,
   MessageDialog,
@@ -289,6 +291,7 @@ type DialogState =
   | { kind: 'dv' }
   | { kind: 'goalSeek' }
   | { kind: 'dataTable' }
+  | { kind: 'solver' }
   | { kind: 'chart'; index: number | null }
   | { kind: 'find'; replace: boolean }
   | { kind: 'goto' }
@@ -1587,6 +1590,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('data.validation', open({ kind: 'dv' }));
     add('data.goalSeek', open({ kind: 'goalSeek' }));
     add('data.dataTable', open({ kind: 'dataTable' }));
+    add('data.solver', open({ kind: 'solver' }));
 
     // Page layout
     add('page.setup', open({ kind: 'pageSetup' }));
@@ -2425,6 +2429,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('data.validation', t('sheetEditor.dv.title'), <ShieldCheck size={18} />),
               item('data.goalSeek', t('sheetEditor.goalSeek.title'), <Target size={18} />),
               item('data.dataTable', t('sheetEditor.dataTable.title'), <Grid3x3 size={18} />),
+              item('data.solver', t('sheetEditor.solver.title'), <Calculator size={18} />),
             ],
           },
         ],
@@ -3142,6 +3147,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       {dialog?.kind === 'cf' && <CfDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'dv' && <ValidationDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'dataTable' && <DataTableDialog {...common} range={toRange(r)} />}
+      {dialog?.kind === 'solver' && (
+        <SolverDialog
+          {...common}
+          objective={`${colName(selection.active.col)}${selection.active.row + 1}`}
+        />
+      )}
       {dialog?.kind === 'goalSeek' && (
         <GoalSeekDialog
           {...common}

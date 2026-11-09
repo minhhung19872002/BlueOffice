@@ -94,3 +94,47 @@ fn data_table_fills_results_and_survives_saving() {
     )
     .is_err());
 }
+
+#[test]
+fn solver_optimises_and_applies() {
+    let mut e = SheetEngine::new();
+    e.new_workbook("t.xlsx").unwrap();
+    // Maximise 3x + 5y s.t. x ≤ 4, 2y ≤ 12, 3x + 2y ≤ 18 (x, y in A1:B1) → 36 at (2, 6).
+    e.set_inputs(
+        0,
+        &[
+            (0, 2, "=3*A1+5*B1".into()),
+            (1, 2, "=2*B1".into()),
+            (2, 2, "=3*A1+2*B1".into()),
+            (3, 2, "18".into()),
+        ],
+    )
+    .unwrap();
+    let spec = json!({
+        "cmd": "solve", "sheet": 0, "objective": "C1", "goal": "max", "variables": ["A1:B1"],
+        "constraints": [
+            {"lhs": "A1", "relation": "le", "rhs": "4"},
+            {"lhs": "C2", "relation": "le", "rhs": "12"},
+            {"lhs": "C3", "relation": "le", "rhs": "C4"}
+        ]
+    });
+    let r = exec(&mut e, &spec).unwrap();
+    assert_eq!(r["status"], "optimal");
+    assert!((r["objective"].as_f64().unwrap() - 36.0).abs() < 1e-9);
+    let mut apply = spec.clone();
+    apply["apply"] = json!(true);
+    exec(&mut e, &apply).unwrap();
+    assert_eq!(e.cell(0, 0, 0).unwrap().display, "2");
+    assert_eq!(e.cell(0, 0, 1).unwrap().display, "6");
+    assert_eq!(e.cell(0, 0, 2).unwrap().display, "36");
+    e.undo().unwrap();
+    assert_eq!(e.cell(0, 0, 2).unwrap().display, "0");
+    // A value goal with an integer constraint.
+    let r = exec(
+        &mut e,
+        &json!({"cmd": "solve", "sheet": 0, "objective": "C2", "goal": {"value": 7},
+                "variables": ["B1"], "constraints": [{"lhs": "B1", "relation": "int"}]}),
+    )
+    .unwrap();
+    assert_eq!(r["status"], "infeasible");
+}

@@ -1033,6 +1033,42 @@
       "rowInput": "Row input cell",
       "colInput": "Column input cell",
       "invalid": "Select the table with its header row and column, and give at least one input cell."
+    },
+    "solver": {
+      "title": "Solver",
+      "objective": "Set objective",
+      "goal": "To",
+      "goals": {
+        "max": "Max",
+        "min": "Min",
+        "value": "Value of"
+      },
+      "valueOf": "Value",
+      "variables": "By changing variable cells",
+      "constraints": "Subject to the constraints",
+      "cell": "Cell reference",
+      "relation": "Relation",
+      "limit": "Constraint",
+      "relations": {
+        "le": "<=",
+        "ge": ">=",
+        "eq": "=",
+        "int": "integer",
+        "bin": "binary"
+      },
+      "add": "Add constraint",
+      "remove": "Remove constraint",
+      "nonNegative": "Make unconstrained variables non-negative",
+      "solve": "Solve",
+      "keep": "Keep solution",
+      "invalid": "Check the cell references of the model.",
+      "found": "Optimal solution found: objective {{value}}.",
+      "status": {
+        "infeasible": "No feasible solution: the constraints cannot all be met.",
+        "unbounded": "The objective does not converge (unbounded).",
+        "notLinear": "The model is not linear; the linear method cannot solve it.",
+        "error": "A cell of the model gives an error."
+      }
     }
   },
   "recovery": {

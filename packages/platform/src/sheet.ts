@@ -733,6 +733,21 @@ export type SheetCommand =
       rowInput?: string | null;
       colInput?: string | null;
     }
+  /** Solver (simplex; integer / binary by branch and bound); `apply` enters the solution. */
+  | {
+      cmd: 'solve';
+      sheet: number;
+      objective: string;
+      goal: 'max' | 'min' | { value: number };
+      variables: string[];
+      constraints?: {
+        lhs: string;
+        relation: 'le' | 'ge' | 'eq' | 'int' | 'bin';
+        rhs?: string | null;
+      }[];
+      nonNegative?: boolean;
+      apply?: boolean;
+    }
   /** What-if Goal Seek (A1 addresses); `apply` enters the value found. */
   | {
       cmd: 'goalSeek';

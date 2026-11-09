@@ -172,6 +172,12 @@ pub struct SourcePackage {
     /// `evenAndOddHeaders` as read (changed ⇒ the settings part is patched).
     #[serde(default)]
     pub even_and_odd_headers: bool,
+    /// Page colour as read (changed ⇒ `document.xml`'s §17.2.1 background is patched).
+    #[serde(default)]
+    pub background: Option<Color>,
+    /// §17.15.1.32 displayBackgroundShape as read (changed ⇒ settings patched).
+    #[serde(default)]
+    pub display_background_shape: bool,
 }
 
 /// A whole word-processing document.
@@ -220,8 +226,32 @@ pub struct Document {
     /// rewritten; shared in collaboration as a document setting.
     #[serde(skip)]
     pub continuation_notice: Option<Vec<Block>>,
+    /// Page colour, theme part and related settings (Design tab).
+    #[serde(default)]
+    pub design: DocDesign,
     /// Source package the document was read from (`None` for a new document).
     pub source: Option<Arc<SourcePackage>>,
+}
+
+/// Document-wide page background and theme (Design tab).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocDesign {
+    /// Page colour (ECMA-376 Part 1, §17.2.1 background `w:color`); `None` = none.
+    pub background: Option<Color>,
+    /// §17.15.1.32 displayBackgroundShape: show the background in print layout.
+    #[serde(default)]
+    pub display_background_shape: bool,
+    /// Theme part authored by BlueOffice (`word/theme/theme1.xml`, DrawingML
+    /// §20.1.6.9 theme) replacing the one of the source package; `None` keeps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_xml: Option<Arc<str>>,
+    /// Id of the BlueOffice theme applied (`theme_xml`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_id: Option<String>,
+    /// Id of the paragraph-spacing style set applied last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style_set: Option<String>,
 }
 
 /// Major/minor typefaces of a theme font scheme (§20.1.4.1.24 majorFont,
@@ -493,9 +523,38 @@ pub struct Section {
     /// Tracked change of the section properties (§17.13.5.32 sectPrChange).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change: Option<Box<SectionChange>>,
+    /// Page borders (ECMA-376 Part 1, §17.6.10 pgBorders).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_borders: Option<PageBorders>,
+    /// Source parts of the header/footer variants as read: (header?, `ST_HdrFtr`
+    /// kind, part name). Rewritten header parts start from their relationships so
+    /// verbatim content keeps resolving its `r:id`s.
+    #[serde(skip)]
+    pub hf_parts: HfParts,
     /// Original `w:sectPr` XML.
     #[serde(skip)]
     pub src: Option<Raw>,
+}
+
+/// Source parts of a section's headers and footers: (header?, `ST_HdrFtr` kind, part
+/// name). Provenance only — two sections compare equal whatever parts they came from.
+#[derive(Debug, Clone, Default)]
+pub struct HfParts(pub Vec<(bool, String, String)>);
+
+impl PartialEq for HfParts {
+    fn eq(&self, _: &HfParts) -> bool {
+        true
+    }
+}
+
+impl HfParts {
+    /// Part name of the header (`header`) or footer of `kind` as read.
+    pub fn part(&self, header: bool, kind: &str) -> Option<&str> {
+        self.0
+            .iter()
+            .find(|(h, k, _)| *h == header && k == kind)
+            .map(|(_, _, p)| p.as_str())
+    }
 }
 
 impl Section {
@@ -524,9 +583,12 @@ impl Section {
             footnote_pr,
             endnote_pr,
             change,
+            page_borders,
+            hf_parts: _,
             src,
         } = self;
         *page == other.page
+            && *page_borders == other.page_borders
             && *columns == other.columns
             && *break_type == other.break_type
             && *page_number_start == other.page_number_start
@@ -550,6 +612,7 @@ impl Section {
             &self.footnote_pr,
             &self.endnote_pr,
             &self.change,
+            &self.page_borders,
         ))
     }
 
@@ -870,6 +933,135 @@ impl Border {
     /// Whether the border draws anything.
     pub fn is_visible(&self) -> bool {
         !matches!(self.style.as_str(), "nil" | "none") && self.size > 0
+    }
+}
+
+/// Line styles of `ST_Border` (ECMA-376 Part 1, §17.18.2); every other value names
+/// an art border (a repeated picture motif).
+const LINE_BORDERS: &[&str] = &[
+    "nil",
+    "none",
+    "single",
+    "thick",
+    "double",
+    "dotted",
+    "dashed",
+    "dotDash",
+    "dotDotDash",
+    "triple",
+    "thinThickSmallGap",
+    "thickThinSmallGap",
+    "thinThickThinSmallGap",
+    "thinThickMediumGap",
+    "thickThinMediumGap",
+    "thinThickThinMediumGap",
+    "thinThickLargeGap",
+    "thickThinLargeGap",
+    "thinThickThinLargeGap",
+    "wave",
+    "doubleWave",
+    "dashSmallGap",
+    "dashDotStroked",
+    "threeDEmboss",
+    "threeDEngrave",
+    "outset",
+    "inset",
+];
+
+impl Border {
+    /// The style is an art border (§17.18.2 `ST_Border` values such as
+    /// `basicBlackDots`), whose `w:sz` is in points rather than eighths of a point.
+    pub fn is_art(&self) -> bool {
+        !LINE_BORDERS.contains(&self.style.as_str())
+    }
+}
+
+/// One edge of the page borders (ECMA-376 Part 1, §17.6.21 top, §17.6.2 bottom,
+/// §17.6.7 left, §17.6.15 right: `CT_Border` with `w:shadow` and `w:frame`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PageBorder {
+    /// Style, width (eighths of a point; points for art borders), colour and
+    /// spacing (points) of the edge.
+    pub line: Border,
+    /// `w:shadow`: the edge is drawn with a shadow.
+    #[serde(default)]
+    pub shadow: bool,
+    /// `w:frame`: the edge looks three-dimensional (frame effect).
+    #[serde(default)]
+    pub frame: bool,
+}
+
+/// Pages of a section showing its page borders (§17.18.63 `ST_PageBorderDisplay`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PageBorderDisplay {
+    /// Every page (`allPages`, default).
+    #[default]
+    AllPages,
+    /// Only the first page of the section (`firstPage`).
+    FirstPage,
+    /// Every page but the first (`notFirstPage`).
+    NotFirstPage,
+}
+
+impl PageBorderDisplay {
+    /// Parse an `ST_PageBorderDisplay` value (unknown ⇒ all pages).
+    pub fn parse(s: &str) -> PageBorderDisplay {
+        match s {
+            "firstPage" => PageBorderDisplay::FirstPage,
+            "notFirstPage" => PageBorderDisplay::NotFirstPage,
+            _ => PageBorderDisplay::AllPages,
+        }
+    }
+    /// Serialized attribute value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PageBorderDisplay::AllPages => "allPages",
+            PageBorderDisplay::FirstPage => "firstPage",
+            PageBorderDisplay::NotFirstPage => "notFirstPage",
+        }
+    }
+}
+
+/// Page borders of a section (ECMA-376 Part 1, §17.6.10 pgBorders).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageBorders {
+    /// Top edge (§17.6.21 top).
+    pub top: Option<PageBorder>,
+    /// Left edge (§17.6.7 left).
+    pub left: Option<PageBorder>,
+    /// Bottom edge (§17.6.2 bottom).
+    pub bottom: Option<PageBorder>,
+    /// Right edge (§17.6.15 right).
+    pub right: Option<PageBorder>,
+    /// `w:offsetFrom="page"` (§17.18.64 `ST_PageBorderOffset`): `w:space` is
+    /// measured from the page edge; otherwise (`text`, default) from the text.
+    #[serde(default)]
+    pub offset_from_page: bool,
+    /// `w:display`: which pages show the borders.
+    #[serde(default)]
+    pub display: PageBorderDisplay,
+    /// `w:zOrder="back"` (§17.18.65 `ST_PageBorderZOrder`): drawn behind the text.
+    #[serde(default)]
+    pub behind: bool,
+}
+
+impl PageBorders {
+    /// The four edges in the order top, left, bottom, right.
+    pub fn edges(&self) -> [Option<&PageBorder>; 4] {
+        [
+            self.top.as_ref(),
+            self.left.as_ref(),
+            self.bottom.as_ref(),
+            self.right.as_ref(),
+        ]
+    }
+    /// No edge draws anything.
+    pub fn is_empty(&self) -> bool {
+        self.edges()
+            .iter()
+            .all(|e| e.is_none_or(|b| !b.line.is_visible()))
     }
 }
 
@@ -1447,6 +1639,59 @@ pub struct Shape {
     /// Read from the VML fallback (no DrawingML shape in the source).
     #[serde(default)]
     pub vml: bool,
+    /// WordArt text path, picture fill and opacity (VML watermarks).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub art: Option<Box<ShapeArt>>,
+}
+
+/// Text drawn along a shape (ECMA-376 Part 4, §19.1.2.23 textpath), stretched to
+/// fill the shape box (`fitshape`) as text watermarks are.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextPath {
+    /// `string`: the text.
+    pub text: String,
+    /// `font-family` of the text path style.
+    pub font: String,
+    /// `font-weight:bold`.
+    #[serde(default)]
+    pub bold: bool,
+    /// `font-style:italic`.
+    #[serde(default)]
+    pub italic: bool,
+}
+
+/// Decorative content of a shape: a text path or a picture, with an opacity; the
+/// shape may be a watermark (shown behind the text of every page).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShapeArt {
+    /// Text path (Part 4, §19.1.2.23 textpath).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<TextPath>,
+    /// Picture media part (§19.1.2.11 imagedata `r:id`), key into [`Document::media`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
+    /// The picture is washed out (imagedata `gain` / `blacklevel`).
+    #[serde(default)]
+    pub washout: bool,
+    /// Fill opacity in 1/1000 (§19.1.2.5 fill `opacity`; 1000 = opaque).
+    pub opacity: u16,
+    /// The shape is a watermark (Design › Watermark replaces and removes it).
+    #[serde(default)]
+    pub watermark: bool,
+}
+
+impl Default for ShapeArt {
+    fn default() -> Self {
+        ShapeArt {
+            text: None,
+            picture: None,
+            washout: false,
+            opacity: 1000,
+            watermark: false,
+        }
+    }
 }
 
 impl Shape {

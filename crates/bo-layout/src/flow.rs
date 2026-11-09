@@ -195,6 +195,7 @@ pub(crate) fn float_item(
                     crop: crate::blocks::crop_of(img),
                     rotation: crate::blocks::rotation_of(img),
                     layer,
+                    alpha: 1.0,
                 }],
                 Vec::new(),
             ),
@@ -562,6 +563,7 @@ impl Flow {
             items: Vec::new(),
             number: self.number,
             section: self.section,
+            decor: crate::types::PageDecor::default(),
         });
         self.col = 0;
         self.y = self.top;

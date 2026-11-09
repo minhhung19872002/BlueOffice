@@ -25,6 +25,7 @@ mod flow;
 mod incremental;
 mod markup;
 mod math;
+mod page;
 mod paragraph;
 mod style;
 mod types;
@@ -36,11 +37,12 @@ pub use markup::{
     MarkupStyle, PageMarkup, BALLOON_GAP, MAX_HIDDEN_REVIEWERS,
 };
 pub use math::{layout_equation, EquationGlyphs, EquationRun};
+pub use page::{border_items, border_lines, border_width, ArtMotif};
 pub use paragraph::{FieldContext, LayoutCache};
 pub use style::author_color;
 pub use types::{
     Fragment, GlyphPos, Layer, LayoutDocument, Line, LineRotation, LineSource, NoteKey, Page,
-    PageItem, PathCmd, ShapePath, SharedStr,
+    PageDecor, PageItem, PathCmd, ShapePath, SharedStr,
 };
 
 use bo_model::change::BlockChanges;

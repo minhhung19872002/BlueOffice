@@ -624,6 +624,8 @@ fn section_props(s: &Section) -> Section {
         footnote_pr: s.footnote_pr.clone(),
         endnote_pr: s.endnote_pr.clone(),
         change: s.change.clone(),
+        page_borders: s.page_borders.clone(),
+        hf_parts: bo_model::HfParts::default(),
         src: None,
     }
 }

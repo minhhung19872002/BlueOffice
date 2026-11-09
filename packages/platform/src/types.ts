@@ -656,7 +656,76 @@ export type EditCommand =
   | { cmd: 'mergeInsertField'; name: string }
   | { cmd: 'mergePreview'; record: number | null }
   | { cmd: 'mergeToDocument' }
-  | { cmd: 'setSavePassword'; password?: string };
+  | { cmd: 'setSavePassword'; password?: string }
+  /** Design tab state (page colour, borders, watermark, themes, style sets). */
+  | { cmd: 'design' }
+  /** Page colour (§17.2.1 background), `RRGGBB`; absent removes it. */
+  | { cmd: 'setPageColor'; color?: string | null }
+  /** Page borders (§17.6.10 pgBorders); absent removes them. */
+  | { cmd: 'setPageBorders'; borders?: PageBordersSpec | null; scope?: 'section' | 'document' }
+  /** Text or picture watermark of every page; absent removes it. */
+  | { cmd: 'setWatermark'; watermark?: WatermarkSpec | null }
+  | { cmd: 'applyTheme' | 'applyStyleSet'; id: string };
+
+/** Pages showing the page borders (§17.18.63 ST_PageBorderDisplay). */
+export type PageBorderDisplay = 'allPages' | 'firstPage' | 'notFirstPage';
+
+/** Page borders (mirrors `bo_edit::design::PageBordersSpec`). */
+export interface PageBordersSpec {
+  /** §17.18.2 ST_Border: a line style (`single`, `double`…) or an art style. */
+  style: string;
+  /** Eighths of a point for lines, points (1–31) for art borders. */
+  size: number;
+  /** `RRGGBB`; null = automatic. */
+  color?: string | null;
+  /** Distance in points (0–31). */
+  space?: number;
+  /** Top, left, bottom, right. */
+  sides?: [boolean, boolean, boolean, boolean];
+  offsetFromPage?: boolean;
+  display?: PageBorderDisplay;
+  behind?: boolean;
+  shadow?: boolean;
+}
+
+/** A watermark request (mirrors `bo_engine::design::WatermarkSpec`). */
+export interface WatermarkSpec {
+  text?: string;
+  font?: string;
+  /** Points; absent = automatic. */
+  size?: number | null;
+  color?: string | null;
+  semitransparent?: boolean;
+  diagonal?: boolean;
+  bold?: boolean;
+  italic?: boolean;
+  /** Picture bytes in base64. */
+  picture?: string;
+  /** Percent; absent = automatic. */
+  scale?: number | null;
+  washout?: boolean;
+}
+
+/** Design tab state (mirrors `bo_engine::design::DesignState`). */
+export interface DesignState {
+  pageColor: string | null;
+  borders: (Required<PageBordersSpec> & { art: boolean }) | null;
+  watermark: {
+    text?: string;
+    font?: string;
+    color?: string;
+    picture: boolean;
+    washout: boolean;
+    semitransparent: boolean;
+    diagonal: boolean;
+  } | null;
+  theme: string | null;
+  styleSet: string | null;
+  themes: { id: string; colors: string[]; major: string; minor: string }[];
+  styleSets: string[];
+  /** Art border styles drawn with BlueOffice motifs. */
+  artStyles: string[];
+}
 
 /** A command plus the host clock (Unix ms) used to date new revisions and comments. */
 export type TimedCommand = EditCommand & { now?: number };
@@ -713,6 +782,8 @@ export interface EditResult {
   autocorrect?: AutoCorrectOptions;
   /** The AutoCorrect rule applied after the typed character (undo reverts only it). */
   corrected?: AutoCorrectRule;
+  /** Design tab state (design commands). */
+  design?: DesignState;
 }
 
 /** A replacement-list entry (mirrors `bo_edit::autocorrect::Replacement`). */

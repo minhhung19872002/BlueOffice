@@ -211,6 +211,7 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
                 crop: crop_of(&o.image),
                 rotation: rotation_of(&o.image),
                 layer: Layer::Front,
+                alpha: 1.0,
             });
         }
         // A tracked picture is framed in its author's colour, a deleted one crossed out.
@@ -961,6 +962,7 @@ pub(crate) fn layout_table(
                     } else {
                         Layer::Front
                     },
+                    alpha: 1.0,
                 });
                 content.push((top + iy, band));
             }

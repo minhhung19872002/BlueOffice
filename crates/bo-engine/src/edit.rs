@@ -624,6 +624,39 @@ pub enum Command {
         /// File name of the new document.
         name: String,
     },
+    /// Design tab state: page colour, page borders, watermark, themes, style sets.
+    Design,
+    /// Set (`None`: remove) the page colour (§17.2.1 background), `RRGGBB`.
+    SetPageColor {
+        /// New colour.
+        #[serde(default)]
+        color: Option<String>,
+    },
+    /// Set (`None`: remove) the page borders (§17.6.10 pgBorders).
+    SetPageBorders {
+        /// New borders.
+        #[serde(default)]
+        borders: Option<bo_edit::design::PageBordersSpec>,
+        /// Apply to the caret's section or the whole document.
+        #[serde(default)]
+        scope: SetupScope,
+    },
+    /// Set (`None`: remove) the text or picture watermark of every page.
+    SetWatermark {
+        /// New watermark.
+        #[serde(default)]
+        watermark: Option<crate::design::WatermarkSpec>,
+    },
+    /// Apply a BlueOffice document theme (fonts and colours).
+    ApplyTheme {
+        /// Theme id (`ocean`, `bamboo`, `sunset`, `slate`).
+        id: String,
+    },
+    /// Apply a paragraph-spacing style set.
+    ApplyStyleSet {
+        /// Style set id (`compact`, `balanced`, `airy`, `double`).
+        id: String,
+    },
 }
 
 fn yes() -> bool {
@@ -732,6 +765,9 @@ pub struct EditResult {
     pub corrected: Option<bo_edit::autocorrect::Rule>,
     /// The Format Painter holds picked formatting.
     pub painter: bool,
+    /// Design tab state (design commands).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub design: Option<Box<crate::design::DesignState>>,
 }
 
 impl crate::Engine {
@@ -984,7 +1020,13 @@ impl crate::Engine {
                     | Command::SetDrawingFrame { .. }
                     | Command::EditTextBox { .. }
                     | Command::CloseTextBox
-                    | Command::StyleList => {}
+                    | Command::StyleList
+                    | Command::Design
+                    | Command::SetPageColor { .. }
+                    | Command::SetPageBorders { .. }
+                    | Command::SetWatermark { .. }
+                    | Command::ApplyTheme { .. }
+                    | Command::ApplyStyleSet { .. } => {}
                     Command::Tab { back } => {
                         if s.next_cell(back)?.is_none() && !back {
                             s.insert_text("\t")?;
@@ -1505,6 +1547,7 @@ impl crate::Engine {
             autocorrect: None,
             corrected: None,
             painter: s.picked_format().is_some(),
+            design: None,
         })
     }
 }

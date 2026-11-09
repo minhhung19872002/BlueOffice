@@ -92,6 +92,11 @@ struct Doc {
     /// Further parts related to the main document: (file name in /word, content type,
     /// relationship type, complete XML).
     extra: Vec<(&'static str, &'static str, &'static str, String)>,
+    /// `w:background` element before the body (ECMA-376 Part 1, §17.2.1).
+    background: Option<String>,
+    /// Pictures of header/footer parts: (header/footer rId, picture rId in that part,
+    /// index into `images`).
+    hf_images: Vec<(String, String, usize)>,
 }
 
 fn wrap(root: &str, inner: &str) -> String {
@@ -106,7 +111,12 @@ impl Doc {
         let mut p = Package::new();
         let doc = wrap(
             "document",
-            &format!("<w:body>{}{}</w:body>", self.body, self.sect),
+            &format!(
+                "{}<w:body>{}{}</w:body>",
+                self.background.as_deref().unwrap_or(""),
+                self.body,
+                self.sect
+            ),
         );
         p.add_part("/word/document.xml", CT_MAIN, doc.into_bytes())?;
         let mut rels = Vec::new();
@@ -175,6 +185,21 @@ impl Doc {
                 wrap(root, content).into_bytes(),
             )?;
             rel(id, ty, &name, false);
+            // Pictures referenced from this part (relationships are per part).
+            let own: Vec<Relationship> = self
+                .hf_images
+                .iter()
+                .filter(|(hf, _, _)| hf == id)
+                .map(|(_, rid, k)| Relationship {
+                    id: rid.clone(),
+                    rel_type: REL_IMAGE.into(),
+                    target: format!("media/image{}.png", k + 1),
+                    mode: TargetMode::Internal,
+                })
+                .collect();
+            if !own.is_empty() {
+                p.set_relationships(&format!("/word/{name}"), &own);
+            }
         }
         for (i, (id, bytes)) in self.images.iter().enumerate() {
             let name = format!("media/image{}.png", i + 1);
@@ -1862,7 +1887,40 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         settings: Some(settings(r#"<w:footnotePr><w:numFmt w:val="lowerLetter"/></w:footnotePr><w:endnotePr><w:pos w:val="sectEnd"/><w:numFmt w:val="decimal"/></w:endnotePr>"#)),
         ..Doc::default()
     }));
+
+    // ---- page background (§17.2.1), page borders (§17.6.10) and VML watermarks
+    // (Part 4, §19.1.2.23 textpath, §19.1.2.11 imagedata)
+    let page = r#"<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/>"#;
+    v.push(("page-01-borders-background.docx", "page", "Màu nền trang (w:background, displayBackgroundShape); section 1 viền nét đôi có bóng đo từ chữ; section 2 viền hoạ tiết (chấm tròn trên/dưới, ziczac trái/phải) đo từ mép trang, sau chữ, trừ trang đầu", Doc {
+        body: [
+            lorem(30),
+            format!(r#"<w:p><w:pPr><w:sectPr>{page}<w:pgBorders><w:top w:val="double" w:sz="6" w:space="24" w:color="1F3A68" w:shadow="1"/><w:left w:val="double" w:sz="6" w:space="24" w:color="1F3A68" w:shadow="1"/><w:bottom w:val="double" w:sz="6" w:space="24" w:color="1F3A68" w:shadow="1"/><w:right w:val="double" w:sz="6" w:space="24" w:color="1F3A68" w:shadow="1"/></w:pgBorders><w:cols w:space="708"/></w:sectPr></w:pPr><w:r><w:t>Hết section 1</w:t></w:r></w:p>"#),
+            lorem(80),
+        ].concat(),
+        sect: format!(r#"<w:sectPr>{page}<w:pgBorders w:zOrder="back" w:display="notFirstPage" w:offsetFrom="page"><w:top w:val="basicBlackDots" w:sz="10" w:space="24" w:color="1F6FB2"/><w:left w:val="zigZag" w:sz="10" w:space="24" w:color="2BA3A0"/><w:bottom w:val="basicBlackDots" w:sz="10" w:space="24" w:color="1F6FB2"/><w:right w:val="zigZag" w:sz="10" w:space="24" w:color="2BA3A0"/></w:pgBorders><w:cols w:space="708"/></w:sectPr>"#),
+        background: Some(r#"<w:background w:color="FFF8E7"/>"#.to_owned()),
+        settings: Some(settings_bg()),
+        ..Doc::default()
+    }));
+    let wm_text = r##"<w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:pict><v:shape id="CorpusWatermarkText" style="position:absolute;margin-left:0;margin-top:0;width:430pt;height:107pt;rotation:315;z-index:-251657216;mso-position-horizontal:center;mso-position-horizontal-relative:margin;mso-position-vertical:center;mso-position-vertical-relative:margin" o:allowincell="f" fillcolor="#a6a6a6" stroked="f" coordsize="21600,21600" path="m0,10800l21600,10800e"><v:fill opacity=".5"/><v:path textpathok="t"/><v:textpath on="t" fitshape="t" style="font-family:&quot;Calibri&quot;;font-size:1pt" string="BẢN NHÁP"/></v:shape></w:pict></w:r><w:r><w:t>Đầu trang – tài liệu thử nghiệm</w:t></w:r></w:p>"##;
+    let wm_pic = r#"<w:p><w:r><w:pict><v:shape id="CorpusWatermarkPicture" style="position:absolute;margin-left:0;margin-top:0;width:300pt;height:200pt;z-index:-251656192;mso-position-horizontal:center;mso-position-horizontal-relative:margin;mso-position-vertical:center;mso-position-vertical-relative:margin" o:allowincell="f" stroked="f" filled="f" coordsize="21600,21600" path="m0,0l21600,0,21600,21600,0,21600xe"><v:imagedata r:id="rId1" o:title="" gain="0.3" blacklevel="0.35"/></v:shape></w:pict></w:r><w:r><w:t>Trang bìa</w:t></w:r></w:p>"#;
+    v.push(("page-02-watermarks.docx", "page", "Hình mờ: chữ VML chéo 315°, bán trong suốt ở header mặc định; ảnh làm nhạt (gain/blacklevel) ở header trang đầu (titlePg, quan hệ ảnh riêng của header)", Doc {
+        body: lorem(60),
+        sect: format!(r#"<w:sectPr>{}{}{page}<w:cols w:space="708"/><w:titlePg/></w:sectPr>"#, hdr_ref("header", "default", "rId10"), hdr_ref("header", "first", "rId11")),
+        hf: vec![
+            ("rId10".into(), "header", wm_text.to_owned()),
+            ("rId11".into(), "header", wm_pic.to_owned()),
+        ],
+        images: vec![("rId20".into(), png(8, 6, [70, 120, 190]))],
+        hf_images: vec![("rId11".into(), "rId1".into(), 0)],
+        ..Doc::default()
+    }));
     v
+}
+
+/// Settings with §17.15.1.32 displayBackgroundShape (before defaultTabStop, §17.15.1.78).
+fn settings_bg() -> String {
+    r#"<w:zoom w:percent="100"/><w:displayBackgroundShape/><w:defaultTabStop w:val="720"/><w:characterSpacingControl w:val="doNotCompress"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>"#.to_owned()
 }
 
 /// Write the corpus into `dir`; returns the README table.

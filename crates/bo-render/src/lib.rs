@@ -283,6 +283,23 @@ fn border_dash(style: &str, width: f32) -> Option<[f32; 2]> {
 }
 
 fn item_commands(item: &PageItem, out: &mut Vec<Command>) {
+    // Semi-transparent items (watermarks) are wrapped in an opacity group.
+    let alpha = match item {
+        PageItem::Image { alpha, .. } | PageItem::Shape { alpha, .. } => *alpha,
+        _ => 1.0,
+    };
+    if alpha < 0.999 {
+        out.push(Command::PushOpacity {
+            alpha: alpha.clamp(0.0, 1.0),
+        });
+        item_commands_opaque(item, out);
+        out.push(Command::PopOpacity);
+    } else {
+        item_commands_opaque(item, out);
+    }
+}
+
+fn item_commands_opaque(item: &PageItem, out: &mut Vec<Command>) {
     match item {
         PageItem::Rect {
             x, y, w, h, color, ..
@@ -582,6 +599,22 @@ pub fn build_display_list(layout: &LayoutDocument, fonts: &FontManager) -> Displ
 /// Display list of one laid-out page (see [`build_display_list`]).
 pub fn build_page_list(page: &Page, fonts: &FontManager) -> PageList {
     let mut commands = Vec::new();
+    // Page colour (ECMA-376 Part 1, §17.2.1 background) under everything.
+    if let Some(c) = page.decor.background {
+        commands.push(Command::FillRect {
+            x: 0.0,
+            y: 0.0,
+            w: page.width,
+            h: page.height,
+            color: c.into(),
+        });
+    }
+    // Page borders behind the text (§17.6.10 pgBorders zOrder="back").
+    if page.decor.borders_behind {
+        for item in &page.decor.borders {
+            item_commands(item, &mut commands);
+        }
+    }
     for item in page.items.iter().filter(|i| i.layer() == Layer::Back) {
         item_commands(item, &mut commands);
     }
@@ -591,6 +624,11 @@ pub fn build_page_list(page: &Page, fonts: &FontManager) -> PageList {
     }
     for item in page.items.iter().filter(|i| i.layer() == Layer::Front) {
         item_commands(item, &mut commands);
+    }
+    if !page.decor.borders_behind {
+        for item in &page.decor.borders {
+            item_commands(item, &mut commands);
+        }
     }
     // Text box text goes over its shape (§17.17.1 txbxContent).
     for line in page.lines.iter().filter(|l| boxed(l)) {
@@ -620,6 +658,60 @@ pub fn media_of(page: &PageList) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Page colour first, borders behind the text before it, watermarks wrapped in
+    /// an opacity group (ECMA-376 Part 1, §17.2.1, §17.6.10).
+    #[test]
+    fn page_decor_paint_order() {
+        let rule = PageItem::Rule {
+            x1: 0.0,
+            y1: 5.0,
+            x2: 10.0,
+            y2: 5.0,
+            width: 1.0,
+            color: bo_model::Color::BLACK,
+            style: "single".into(),
+        };
+        let wm = PageItem::Image {
+            x: 1.0,
+            y: 1.0,
+            w: 5.0,
+            h: 5.0,
+            media: "/word/media/w.png".into(),
+            crop: None,
+            rotation: 0.0,
+            layer: Layer::Back,
+            alpha: 0.3,
+        };
+        let mut page = Page {
+            width: 100.0,
+            height: 200.0,
+            lines: Vec::new(),
+            items: vec![wm],
+            number: 1,
+            section: 0,
+            decor: bo_layout::PageDecor {
+                background: bo_model::Color::from_hex("FDF6E3"),
+                borders: vec![rule],
+                borders_behind: true,
+            },
+        };
+        let fm = FontManager::new();
+        let c = build_page_list(&page, &fm).commands;
+        assert!(matches!(
+            c[0],
+            Command::FillRect { x, y, w, h, color: Rgba(0xFD, 0xF6, 0xE3, 255) }
+                if x == 0.0 && y == 0.0 && w == 100.0 && h == 200.0
+        ));
+        assert!(matches!(c[1], Command::Line { .. }));
+        assert!(matches!(c[2], Command::PushOpacity { alpha } if (alpha - 0.3).abs() < 1e-6));
+        assert!(matches!(c[3], Command::Image { .. }));
+        assert!(matches!(c[4], Command::PopOpacity));
+        // In front of the text: the borders come last.
+        page.decor.borders_behind = false;
+        let c = build_page_list(&page, &fm).commands;
+        assert!(matches!(c.last(), Some(Command::Line { .. })));
+    }
 
     #[test]
     fn json_shape() {

@@ -13,6 +13,7 @@ pub mod autocorrect;
 mod collate;
 pub mod comments;
 pub mod compare;
+pub mod design;
 pub mod fields;
 pub mod find;
 pub mod html;

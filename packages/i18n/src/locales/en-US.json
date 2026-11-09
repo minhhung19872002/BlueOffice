@@ -15,6 +15,7 @@
   "ribbon": {
     "more": "More commands",
     "tabs": {
+      "design": "Design",
       "file": "File",
       "home": "Home",
       "insert": "Insert",
@@ -26,6 +27,8 @@
       "table": "Table"
     },
     "groups": {
+      "documentFormatting": "Document formatting",
+      "pageBackground": "Page background",
       "document": "Document",
       "output": "Output",
       "clipboard": "Clipboard",
@@ -67,6 +70,15 @@
     "comingLater": "Coming in a later release"
   },
   "commands": {
+    "design": {
+      "pageColor": "Page colour",
+      "pageBorders": "Page borders",
+      "watermark": "Watermark",
+      "customWatermark": "Custom watermark…",
+      "removeWatermark": "Remove watermark",
+      "themes": "Themes",
+      "styleSets": "Paragraph spacing"
+    },
     "file": {
       "open": "Open file",
       "openSample": "Sample document",
@@ -2591,5 +2603,103 @@
     "title": "Find a command",
     "placeholder": "Find a command (Alt+Q)",
     "noResults": "No command matches"
+  },
+  "design": {
+    "themes": {
+      "ocean": "Ocean",
+      "bamboo": "Bamboo",
+      "sunset": "Sunset",
+      "slate": "Slate"
+    },
+    "themeFonts": "Headings: {{major}} · Body: {{minor}}",
+    "styleSets": {
+      "compact": "Compact",
+      "balanced": "Balanced",
+      "airy": "Airy",
+      "double": "Double"
+    },
+    "styleSetHint": "{{after}} pt after · line {{line}}",
+    "presets": {
+      "draft": "DRAFT",
+      "confidential": "CONFIDENTIAL",
+      "copy": "COPY",
+      "sample": "SAMPLE",
+      "urgent": "URGENT"
+    },
+    "watermark": {
+      "title": "Watermark",
+      "none": "No watermark",
+      "text": "Text watermark",
+      "picture": "Picture watermark",
+      "content": "Text",
+      "font": "Font",
+      "size": "Size",
+      "auto": "Auto",
+      "color": "Colour",
+      "semitransparent": "Semi-transparent",
+      "layout": "Layout",
+      "diagonal": "Diagonal",
+      "horizontal": "Horizontal",
+      "bold": "Bold",
+      "italic": "Italic",
+      "choosePicture": "Choose picture…",
+      "noPicture": "No picture chosen",
+      "scale": "Scale",
+      "washout": "Washout",
+      "current": "Current: {{text}}",
+      "currentPicture": "Current: picture"
+    },
+    "borders": {
+      "title": "Page borders",
+      "setting": "Setting",
+      "none": "None",
+      "box": "Box",
+      "shadow": "Shadow",
+      "custom": "Custom",
+      "style": "Line",
+      "color": "Colour",
+      "automatic": "Automatic",
+      "width": "Width",
+      "art": "Art",
+      "noArt": "(none)",
+      "applyTo": "Apply to",
+      "document": "Whole document",
+      "section": "This section",
+      "sectionFirst": "This section – first page only",
+      "sectionNotFirst": "This section – all except first page",
+      "measureFrom": "Measure from",
+      "fromText": "Text",
+      "fromPage": "Edge of page",
+      "spacing": "Spacing",
+      "behind": "Behind text",
+      "sides": "Edges",
+      "top": "Top",
+      "left": "Left",
+      "bottom": "Bottom",
+      "right": "Right",
+      "preview": "Preview"
+    },
+    "lines": {
+      "single": "Single",
+      "double": "Double",
+      "dotted": "Dotted",
+      "dashed": "Dashed",
+      "thick": "Thick",
+      "dotDash": "Dot and dash"
+    },
+    "art": {
+      "basicBlackDots": "Dots",
+      "basicWhiteDots": "Rings",
+      "basicBlackSquares": "Squares",
+      "basicWhiteSquares": "Outlined squares",
+      "diamondsGray": "Diamonds",
+      "triangles": "Triangles",
+      "zigZag": "Zigzag",
+      "waveline": "Waves",
+      "checkered": "Checks",
+      "sawtooth": "Saw teeth"
+    },
+    "ok": "OK",
+    "cancel": "Cancel"
   }
 }

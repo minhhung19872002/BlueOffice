@@ -14,7 +14,8 @@ use bo_drawingml::color::{resolve, ColorContext};
 use bo_drawingml::props::{parse_sp_pr, parse_style};
 use bo_model::slide::{Fill, Geometry, Theme, XmlElement};
 use bo_model::{
-    fingerprint, Anchor, Color, Emu, Image, Shape, ShapeLine, TextAnchor, Wrap, WrapText,
+    fingerprint, Anchor, Color, Emu, Image, Shape, ShapeArt, ShapeLine, TextAnchor, TextPath, Wrap,
+    WrapText,
 };
 
 /// [MS-ODRAWXML] wordprocessingShape namespace (`wps`).
@@ -184,8 +185,58 @@ fn vml_bool(v: Option<&str>, default: bool) -> bool {
     }
 }
 
-/// A VML shape inside `w:pict` → (shape, width, height, anchor).
-pub(crate) fn vml_shape(pict: &XmlElement) -> Option<(Shape, Emu, Emu, Option<Anchor>)> {
+/// Attribute by local name whatever its prefix (`r:id`, `o:title`).
+fn attr_local<'a>(el: &'a XmlElement, local: &str) -> Option<&'a str> {
+    el.attrs
+        .iter()
+        .find(|(k, _)| k.rsplit(':').next() == Some(local) && k.contains(':'))
+        .map(|(_, v)| v.as_str())
+}
+
+/// A VML fraction (ECMA-376 Part 4, §19.1.2.5 fill@opacity, §19.1.2.11 imagedata
+/// gain / blacklevel): `0.5`, `.5`, `50%` or a 16.16 fixed value `32768f`.
+fn vml_fraction(v: &str) -> Option<f64> {
+    let v = v.trim();
+    if let Some(f) = v.strip_suffix('f') {
+        return f.trim().parse::<f64>().ok().map(|n| n / 65_536.0);
+    }
+    if let Some(p) = v.strip_suffix('%') {
+        return p.trim().parse::<f64>().ok().map(|n| n / 100.0);
+    }
+    v.parse::<f64>().ok()
+}
+
+/// Text path of a VML shape (ECMA-376 Part 4, §19.1.2.23 textpath): its `string`
+/// and the font of its CSS `style`.
+fn vml_text_path(el: &XmlElement) -> Option<TextPath> {
+    let tp = child_local(el, "textpath")?;
+    if !vml_bool(tp.attr("on"), true) {
+        return None;
+    }
+    let text = tp.attr("string")?.to_owned();
+    let mut t = TextPath {
+        text,
+        ..TextPath::default()
+    };
+    for kv in tp.attr("style").unwrap_or("").split(';') {
+        let Some((k, v)) = kv.split_once(':') else {
+            continue;
+        };
+        let v = v.trim().trim_matches(|c| c == '"' || c == '\'');
+        match k.trim().to_ascii_lowercase().as_str() {
+            "font-family" => v.clone_into(&mut t.font),
+            "font-weight" => t.bold = v == "bold" || v.parse::<u32>().is_ok_and(|w| w >= 600),
+            "font-style" => t.italic = v == "italic",
+            _ => {}
+        }
+    }
+    Some(t)
+}
+
+/// A VML shape inside `w:pict` → (shape, width, height, anchor, rotation in
+/// 60 000ths of a degree). A picture fill (`v:imagedata`) is returned in
+/// [`ShapeArt::picture`] as its relationship id; the caller resolves it.
+pub(crate) fn vml_shape(pict: &XmlElement) -> Option<(Shape, Emu, Emu, Option<Anchor>, i32)> {
     let el = pict
         .elements()
         .find(|e| matches!(e.local(), "rect" | "roundrect" | "oval" | "shape"))?;
@@ -259,6 +310,13 @@ pub(crate) fn vml_shape(pict: &XmlElement) -> Option<(Shape, Emu, Emu, Option<An
             Some("topAndBottom") => Wrap::TopAndBottom,
             _ => Wrap::None,
         });
+        // Office VML extension: mso-position-horizontal / -vertical alignment
+        // (left, center, right, inside, outside / top, center, bottom, …).
+        let align = |v: Option<&str>| {
+            v.filter(|a| *a != "absolute")
+                .map(|a| a.trim().to_owned())
+                .filter(|a| !a.is_empty())
+        };
         Anchor {
             h_relative: rel(get("mso-position-horizontal-relative"), "column"),
             v_relative: rel(get("mso-position-vertical-relative"), "paragraph"),
@@ -267,10 +325,57 @@ pub(crate) fn vml_shape(pict: &XmlElement) -> Option<(Shape, Emu, Emu, Option<An
             wrap,
             behind: get("z-index").is_some_and(|z| z.trim_start().starts_with('-')),
             wrap_text: WrapText::BothSides,
+            h_align: align(get("mso-position-horizontal")),
+            v_align: align(get("mso-position-vertical")),
             ..Anchor::default()
         }
     });
-    Some((s, Emu(w), Emu(h), anchor))
+    // §19.1.2.19 shape style `rotation` (degrees clockwise; `fd` = 1/65 536 degree).
+    let rotation = get("rotation")
+        .and_then(|r| {
+            let r = r.trim();
+            match r.strip_suffix("fd") {
+                Some(f) => f.trim().parse::<f64>().ok().map(|v| v / 65_536.0),
+                None => r.parse::<f64>().ok(),
+            }
+        })
+        .map_or(0, |deg| (deg.rem_euclid(360.0) * 60_000.0).round() as i32);
+    // Text path (WordArt, text watermarks) and picture fill (picture watermarks).
+    let text = vml_text_path(el);
+    let image = child_local(el, "imagedata");
+    if text.is_some() || image.is_some() {
+        let id = el.attr("id").unwrap_or("").to_ascii_lowercase();
+        let opacity = child_local(el, "fill")
+            .and_then(|f| f.attr("opacity"))
+            .and_then(vml_fraction)
+            .map_or(1000, |o| (o.clamp(0.0, 1.0) * 1000.0).round() as u16);
+        let mut art = ShapeArt {
+            text,
+            opacity,
+            watermark: id.contains("watermark"),
+            ..ShapeArt::default()
+        };
+        if let Some(img) = image {
+            // §19.1.2.11 imagedata: a lowered gain with a raised black level washes
+            // the picture out.
+            let gain = img.attr("gain").and_then(vml_fraction).unwrap_or(1.0);
+            let black = img.attr("blacklevel").and_then(vml_fraction).unwrap_or(0.0);
+            art.washout = gain < 0.99 && black > 0.01;
+            art.picture = attr_local(img, "id")
+                .or_else(|| attr_local(img, "relid"))
+                .map(str::to_owned);
+            // The picture is the content: no box fill or outline.
+            s.fill = None;
+            s.line = None;
+        }
+        if art.text.is_some() {
+            // The fill paints the letters; there is no box.
+            s.line = None;
+        }
+        s.insets = [Emu(0); 4];
+        s.art = Some(Box::new(art));
+    }
+    Some((s, Emu(w), Emu(h), anchor, rotation))
 }
 
 fn xml_escape(s: &str) -> String {
@@ -381,7 +486,7 @@ mod tests {
     fn reads_vml_text_box() {
         let xml = r##"<w:pict xmlns:w="w" xmlns:v="v" xmlns:w10="w10"><v:rect style="position:absolute;margin-left:10pt;margin-top:20pt;width:100pt;height:50pt;z-index:-1;mso-position-horizontal-relative:page" fillcolor="#ffff00" strokecolor="red" strokeweight="2pt"><v:textbox inset="1pt,2pt,3pt,4pt" style="v-text-anchor:middle"/><w10:wrap type="square"/></v:rect></w:pict>"##;
         let el = bo_drawingml::dom::parse(xml.as_bytes(), "/t").unwrap();
-        let (s, w, h, a) = vml_shape(&el).unwrap();
+        let (s, w, h, a, _) = vml_shape(&el).unwrap();
         assert_eq!((w.0, h.0), (1_270_000, 635_000));
         assert_eq!(s.fill, Color::from_hex("FFFF00"));
         assert_eq!(s.line.as_ref().map(|l| l.width.0), Some(25_400));

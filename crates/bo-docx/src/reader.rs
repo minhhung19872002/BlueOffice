@@ -13,11 +13,12 @@ use bo_model::{
     fingerprint, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellMerge,
     CellProps, CellPropsChange, CellVAlign, Color, Columns, Comment, ContentControl, ControlKind,
     Document, Emu, GridChange, HalfPoints, HeaderFooter, HeightRule, Image, Level, LineSpacing,
-    NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering, ParaProps, ParaPropsChange,
-    Paragraph, Raw, RevMark, RevisionInfo, Row, RowPropsChange, Run, RunContent, RunProps,
-    RunPropsChange, Section, SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign,
-    TabLeader, TabStop, Table, TableFloat, TableProps, TablePropsChange, TableWidth, TextDirection,
-    ThemeFonts, Twips, Underline, VMerge, VertAlign, Wrap, WrapText,
+    NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering, PageBorder,
+    PageBorderDisplay, PageBorders, ParaProps, ParaPropsChange, Paragraph, Raw, RevMark,
+    RevisionInfo, Row, RowPropsChange, Run, RunContent, RunProps, RunPropsChange, Section,
+    SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table,
+    TableFloat, TableProps, TablePropsChange, TableWidth, TextDirection, ThemeFonts, Twips,
+    Underline, VMerge, VertAlign, Wrap, WrapText,
 };
 use bo_opc::xml::{attr, unescape, XmlReader};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -167,6 +168,8 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         comments_ids,
         notes_fingerprint: crate::writer::notes_fingerprint(&doc),
         even_and_odd_headers: doc.even_and_odd_headers,
+        background: doc.design.background,
+        display_background_shape: doc.design.display_background_shape,
     }));
     Ok(doc)
 }
@@ -318,6 +321,11 @@ fn name(e: &BytesStart<'_>) -> Vec<u8> {
 fn on_off(e: &BytesStart<'_>) -> bool {
     // §17.17.4 ST_OnOff: absent val means true.
     !matches!(attr(e, b"val").as_deref(), Some("0" | "false" | "off"))
+}
+
+/// An `ST_OnOff` attribute value (§17.17.4).
+fn on_off_value(v: &str) -> bool {
+    !matches!(v, "0" | "false" | "off")
 }
 
 fn twips(e: &BytesStart<'_>, a: &[u8]) -> Option<Twips> {
@@ -562,6 +570,8 @@ fn read_settings(data: &[u8], part: &str, doc: &mut Document) -> Result<()> {
                 b"defaultTabStop" => doc.default_tab_stop = twips(&e, b"val"),
                 b"evenAndOddHeaders" => doc.even_and_odd_headers = on_off(&e),
                 b"autoHyphenation" => doc.auto_hyphenation = on_off(&e), // §17.15.1.10
+                // §17.15.1.32 displayBackgroundShape
+                b"displayBackgroundShape" => doc.design.display_background_shape = on_off(&e),
                 _ => {}
             },
             Event::Eof => break,
@@ -622,6 +632,10 @@ fn read_body(
     let mut r = XmlReader::new(data, &ctx.part);
     loop {
         match r.read()? {
+            // §17.2.1 background (before the body): the page colour.
+            Event::Start(e) | Event::Empty(e) if name(&e) == b"background" => {
+                doc.design.background = color_attr(&e, b"color");
+            }
             Event::Start(e) if name(&e) == b"body" => {
                 let prefix = r.slice(0, r.pos());
                 let mut sections: Vec<Section> = Vec::new();
@@ -1392,18 +1406,26 @@ fn drawing_shape(
         img
     } else {
         let pict = find_local(&dom, "pict")?;
-        // VML pictures (v:imagedata) stay verbatim.
+        let (mut shape, w, h, anchor, rotation) = vml_shape(pict)?;
+        // VML pictures (v:imagedata) stay verbatim unless they float, as picture
+        // watermarks do (ECMA-376 Part 4, §19.1.2.11 imagedata).
         if find_local(pict, "imagedata").is_some() {
-            return None;
+            let art = shape.art.as_mut()?;
+            let media_name = ctx.target(art.picture.as_deref()?)?;
+            anchor.as_ref()?;
+            if !media.contains_key(&media_name) {
+                let data = ctx.pkg.part(&media_name)?.data.clone();
+                media.insert(media_name.clone(), Arc::new(data));
+            }
+            art.picture = Some(media_name);
         }
-        let (shape, w, h, anchor) = vml_shape(pict)?;
         Image {
             media: String::new(),
             width: w,
             height: h,
             anchor,
             crop: None,
-            rotation: 0,
+            rotation,
             description: String::new(),
             shape: Some(Box::new(shape)),
             src: None,
@@ -2359,6 +2381,39 @@ fn read_sect_pr(
             }
             // §17.6.12 pgNumType
             b"pgNumType" => s.page_number_start = int(e, b"start").map(|v| v.max(0) as u32),
+            // §17.6.10 pgBorders
+            b"pgBorders" => {
+                let mut pb = PageBorders {
+                    // §17.18.64 ST_PageBorderOffset (default text)
+                    offset_from_page: attr(e, b"offsetFrom").as_deref() == Some("page"),
+                    // §17.18.63 ST_PageBorderDisplay (default allPages)
+                    display: PageBorderDisplay::parse(attr(e, b"display").as_deref().unwrap_or("")),
+                    // §17.18.65 ST_PageBorderZOrder (default front)
+                    behind: attr(e, b"zOrder").as_deref() == Some("back"),
+                    ..PageBorders::default()
+                };
+                if st {
+                    children(rr, |_, e, st, _| {
+                        let flag = |a: &[u8]| attr(e, a).is_some_and(|v| on_off_value(&v));
+                        // §17.6.21 top, §17.6.7 left, §17.6.2 bottom, §17.6.15 right
+                        let edge = Some(PageBorder {
+                            line: read_border(e),
+                            shadow: flag(b"shadow"),
+                            frame: flag(b"frame"),
+                        });
+                        match name(e).as_slice() {
+                            b"top" => pb.top = edge,
+                            b"left" | b"start" => pb.left = edge,
+                            b"bottom" => pb.bottom = edge,
+                            b"right" | b"end" => pb.right = edge,
+                            _ => {}
+                        }
+                        Ok(!st)
+                    })?;
+                }
+                s.page_borders = Some(pb);
+                return Ok(true);
+            }
             // §17.13.5.32 sectPrChange
             b"sectPrChange" if st => {
                 let info = rev_info(e);
@@ -2399,6 +2454,7 @@ fn read_sect_pr(
         let mut hctx = Ctx::new(ctx.pkg, &target)?;
         hctx.theme.clone_from(&ctx.theme);
         let blocks = read_header_part(&part.data, &hctx, media)?;
+        s.hf_parts.0.push((is_header, kind.clone(), target.clone()));
         let set = if is_header {
             &mut s.headers
         } else {

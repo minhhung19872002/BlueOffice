@@ -516,6 +516,7 @@ fn read_level<'a>(r: &mut XmlReader<'a>, e: &BytesStart<'a>) -> Result<Level> {
         rpr: RunProps::default(),
         restart: None,
         suffix: "tab".into(),
+        pstyle: None,
     };
     children(r, |r, e, s, _| {
         match name(e).as_slice() {
@@ -524,6 +525,8 @@ fn read_level<'a>(r: &mut XmlReader<'a>, e: &BytesStart<'a>) -> Result<Level> {
             b"lvlText" => l.text = attr(e, b"val").unwrap_or_default(),
             b"lvlJc" => l.align = align(attr(e, b"val").as_deref()).unwrap_or_default(),
             b"lvlRestart" => l.restart = int(e, b"val").map(|v| v.clamp(0, 9) as u8),
+            // §17.9.23 pStyle: paragraph style linked to the level.
+            b"pStyle" => l.pstyle = attr(e, b"val").filter(|v| !v.is_empty()),
             b"suff" => l.suffix = attr(e, b"val").unwrap_or_else(|| "tab".into()),
             b"pPr" if s => {
                 l.ppr = read_ppr(r, None)?;

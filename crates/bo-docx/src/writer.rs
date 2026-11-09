@@ -911,6 +911,10 @@ impl Writer<'_> {
                 if let Some(rs) = l.restart {
                     let _ = write!(s, "<w:lvlRestart w:val=\"{rs}\"/>");
                 }
+                // §17.9.23 pStyle (CT_Lvl order: start, numFmt, lvlRestart, pStyle, isLgl, suff, lvlText, …).
+                if let Some(ps) = &l.pstyle {
+                    let _ = write!(s, "<w:pStyle w:val=\"{}\"/>", escape(ps));
+                }
                 if l.suffix != "tab" {
                     let _ = write!(s, "<w:suff w:val=\"{}\"/>", escape(&l.suffix));
                 }
@@ -2326,6 +2330,40 @@ mod tests {
             st.src = None;
         }
         d
+    }
+
+    #[test]
+    fn linked_list_levels_and_start_overrides_round_trip() {
+        // §17.9.23 pStyle on a level, the style's numPr, §17.9.26 startOverride.
+        let mut doc = sample();
+        let id = doc.numbering.nums[0].id;
+        doc.numbering.abstracts[0].levels[0].pstyle = Some("Heading1".into());
+        doc.numbering.nums.push(bo_model::Num {
+            id: id + 1,
+            abstract_id: doc.numbering.nums[0].abstract_id,
+            start_overrides: vec![(0, 7)],
+        });
+        let h1 = doc
+            .styles
+            .styles
+            .iter_mut()
+            .find(|s| s.id == "Heading1")
+            .unwrap();
+        h1.ppr.num = Some(NumRef {
+            num_id: id,
+            ilvl: 0,
+        });
+        let bytes = write_docx(&doc).unwrap();
+        let back = strip(read_docx(&bytes).unwrap());
+        assert_eq!(back.numbering, doc.numbering);
+        assert_eq!(back.styles, doc.styles);
+        let pkg = Package::read(&bytes, &Limits::default()).unwrap();
+        let xml = String::from_utf8(pkg.part("/word/numbering.xml").unwrap().data.clone()).unwrap();
+        // CT_Lvl order: start, numFmt, (lvlRestart), pStyle, …, lvlText.
+        let at = |s: &str| xml.find(s).unwrap();
+        assert!(at("<w:numFmt") < at("<w:pStyle w:val=\"Heading1\"/>"));
+        assert!(at("<w:pStyle w:val=\"Heading1\"/>") < at("<w:lvlText"));
+        assert!(xml.contains("<w:startOverride w:val=\"7\"/>"));
     }
 
     #[test]

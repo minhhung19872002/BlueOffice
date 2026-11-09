@@ -14,6 +14,7 @@ pub mod compare;
 pub mod fields;
 pub mod find;
 pub mod html;
+pub mod lists;
 pub mod merge;
 mod ops;
 pub mod para;
@@ -26,6 +27,7 @@ pub mod table;
 pub use comments::CommentInfo;
 pub use fields::RefTarget;
 pub use find::{find, FindOptions, Match};
+pub use lists::{ListLevelSpec, ListNumbering};
 pub use ops::{Op, Pos, Selection, Transaction};
 use revisions::Tracker;
 pub use revisions::{RevKind, RevisionItem, StoryRef};
@@ -1051,6 +1053,11 @@ pub fn builtin_style(id: &str) -> Option<bo_model::Style> {
         "Heading1" => Style::new("Heading1", "heading 1", StyleKind::Paragraph),
         "Heading2" => Style::new("Heading2", "heading 2", StyleKind::Paragraph),
         "Heading3" => Style::new("Heading3", "heading 3", StyleKind::Paragraph),
+        // Deeper headings, e.g. for a multilevel list linked to heading styles (§17.9.23).
+        "Heading4" | "Heading5" | "Heading6" | "Heading7" | "Heading8" | "Heading9" => {
+            let n = id.trim_start_matches("Heading");
+            Style::new(id, &format!("heading {n}"), StyleKind::Paragraph)
+        }
         _ => return None,
     };
     s.based_on = Some("Normal".into());
@@ -1063,7 +1070,15 @@ pub fn builtin_style(id: &str) -> Option<bo_model::Style> {
         "Title" => (40, None),
         "Heading1" => (32, Some(0)),
         "Heading2" => (28, Some(1)),
-        _ => (26, Some(2)),
+        "Heading3" => (26, Some(2)),
+        // §17.3.1.20 outlineLvl: Heading4 … Heading9 → 3 … 8.
+        _ => (
+            24,
+            id.trim_start_matches("Heading")
+                .parse::<u8>()
+                .ok()
+                .map(|n| n.saturating_sub(1)),
+        ),
     };
     s.rpr.size = Some(HalfPoints(size));
     s.ppr.outline_level = level;

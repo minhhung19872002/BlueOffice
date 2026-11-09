@@ -2373,6 +2373,10 @@ pub struct Level {
     pub restart: Option<u8>,
     /// `suff`: tab (default), space or nothing.
     pub suffix: String,
+    /// Paragraph style linked to this level (§17.9.23 pStyle): paragraphs of that style
+    /// numbered through the style's `numPr` take this level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pstyle: Option<String>,
 }
 
 /// Abstract numbering definition (§17.9.1 abstractNum).
@@ -2423,6 +2427,28 @@ impl Numbering {
         ov.or_else(|| self.level(r).map(|l| l.start)).unwrap_or(1)
     }
 
+    /// The level a style-numbered paragraph takes: a style's `numPr` names the list and
+    /// the level whose `pStyle` is that style gives `ilvl` (ECMA-376 Part 1, §17.9.23
+    /// pStyle, §17.7.4.17 with §17.3.1.19 numPr); otherwise `r` unchanged.
+    pub fn level_for_style(&self, r: NumRef, style: &str) -> NumRef {
+        let ilvl = self
+            .abstract_of(r.num_id)
+            .and_then(|a| self.abstracts.iter().find(|x| x.id == a))
+            .and_then(|a| a.levels.iter().find(|l| l.pstyle.as_deref() == Some(style)))
+            .map_or(r.ilvl, |l| l.ilvl);
+        NumRef { ilvl, ..r }
+    }
+
+    /// Next free abstract numbering id (`w:abstractNumId`).
+    pub fn next_abstract_id(&self) -> i32 {
+        self.abstracts.iter().map(|a| a.id).max().unwrap_or(-1) + 1
+    }
+
+    /// Next free numbering instance id (`w:numId`; 0 means "no numbering").
+    pub fn next_num_id(&self) -> i32 {
+        self.nums.iter().map(|n| n.id).max().unwrap_or(0).max(0) + 1
+    }
+
     /// Abstract id of a numbering instance.
     pub fn abstract_of(&self, num_id: i32) -> Option<i32> {
         self.nums
@@ -2464,6 +2490,7 @@ impl Numbering {
                 rpr: RunProps::default(),
                 restart: None,
                 suffix: "tab".into(),
+                pstyle: None,
             })
             .collect();
         self.abstracts.push(AbstractNum { id: abs_id, levels });

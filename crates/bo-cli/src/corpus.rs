@@ -601,6 +601,38 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         numbering: Some(numbering(&[(0, multi), (1, bullets)], &format!(r#"{nums_basic}<w:num w:numId="3"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="5"/></w:lvlOverride></w:num>"#))),
         ..Doc::default()
     }));
+    // Heading styles numbered through their numPr; the level comes from lvl/pStyle
+    // (§17.9.23): Heading1's numPr has no ilvl.
+    let linked_styles = default_styles().replacen(
+        r#"<w:keepLines/><w:spacing w:before="240" w:after="120"/><w:outlineLvl w:val="0"/>"#,
+        r#"<w:keepLines/><w:numPr><w:numId w:val="1"/></w:numPr><w:spacing w:before="240" w:after="120"/><w:outlineLvl w:val="0"/>"#,
+        1,
+    ) + r#"<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Heading1"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:sz w:val="28"/></w:rPr></w:style>"#;
+    let linked_lvl = |ilvl: u8, fmt: &str, text: &str, style: &str| {
+        let ind = 432 * (u32::from(ilvl) + 1);
+        format!(
+            r#"<w:lvl w:ilvl="{ilvl}"><w:start w:val="1"/><w:numFmt w:val="{fmt}"/><w:pStyle w:val="{style}"/><w:lvlText w:val="{text}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="{ind}" w:hanging="432"/></w:pPr></w:lvl>"#
+        )
+    };
+    v.push(("lists-04-heading-linked.docx", "lists", "Danh sách đa cấp liên kết Heading1/Heading2 qua lvl/pStyle và numPr của style (1., 1.1.)", Doc {
+        body: [
+            heading(1, "Tổng quan"),
+            heading(2, "Phạm vi"),
+            heading(2, "Thuật ngữ"),
+            p("Nội dung"),
+            heading(1, "Thiết kế"),
+            heading(2, "Mô hình"),
+        ]
+        .concat(),
+        sect: s.clone(),
+        styles: Some(linked_styles),
+        numbering: Some(format!(
+            r#"<w:abstractNum w:abstractNumId="0"><w:nsid w:val="1A2B3C40"/><w:multiLevelType w:val="multilevel"/>{}{}</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>"#,
+            linked_lvl(0, "decimal", "%1.", "Heading1"),
+            linked_lvl(1, "decimal", "%1.%2.", "Heading2"),
+        )),
+        ..Doc::default()
+    }));
 
     // ---- sections, headers/footers (§17.6, §17.10)
     let hdr = |t: &str| p(t);

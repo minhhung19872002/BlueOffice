@@ -121,7 +121,14 @@ pub fn para_props(doc: &Document, p: &Paragraph) -> ParaProps {
         let (sp, _) = doc.styles.resolve_paragraph(id);
         eff = sp.inherit(&eff);
     }
-    let num = p.props.num.or(eff.num);
+    // A style's numPr takes the level linked to the style (§17.9.23 pStyle).
+    let num = p.props.num.or_else(|| {
+        let n = eff.num?;
+        Some(match &style_id {
+            Some(id) => doc.numbering.level_for_style(n, id),
+            None => n,
+        })
+    });
     if let Some(n) = num.filter(|n| n.num_id != 0) {
         if let Some(level) = doc.numbering.level(n) {
             eff = level.ppr.inherit(&eff);

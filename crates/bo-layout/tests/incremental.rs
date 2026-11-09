@@ -228,6 +228,7 @@ fn document(specs: &[Spec], split: usize, variant: u8) -> Document {
                     rpr: RunProps::default(),
                     restart: None,
                     suffix: "tab".into(),
+                    pstyle: None,
                 }],
             }],
             nums: vec![Num {

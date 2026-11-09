@@ -11,7 +11,11 @@ export function canPlay(mime: string | null, kind: 'video' | 'audio'): boolean {
 }
 
 /** Object URL of an embedded clip, revoked when the component goes away. */
-function useClipUrl(engine: EngineHost, clip: SlideMediaInfo, enabled: boolean): string | null {
+export function useClipUrl(
+  engine: EngineHost,
+  clip: SlideMediaInfo,
+  enabled: boolean,
+): string | null {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!enabled || !clip.part || typeof URL.createObjectURL !== 'function') return;

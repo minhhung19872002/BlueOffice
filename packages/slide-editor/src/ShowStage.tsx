@@ -6,7 +6,8 @@ import type {
   SlideTransitionSound,
 } from '@blueoffice/platform';
 import { useEffect, useRef, useState } from 'react';
-import { MediaClip } from './MediaLayer';
+import { showMediaCarry } from './mediaControl';
+import { ShowMediaClip } from './showMedia';
 import {
   effectsAt,
   stepDuration,
@@ -212,10 +213,33 @@ export function ShowStage({
     key: '',
     vis: {},
   });
-  const vis = current.vis.map((v, i) => (triggered.key === key ? (triggered.vis[i] ?? v) : v));
-  const playTrigger = (shapeId: number) => {
+  // Clips hidden while not playing (SLIDE-MEDIA-001), by `slide:shapeId`.
+  const [hiddenMedia, setHiddenMedia] = useState<Record<string, boolean>>({});
+  const layerHidden = (i: number) => {
+    const l = show?.layers[i];
+    return (
+      !!l &&
+      !l.backdrop &&
+      l.ids.length > 0 &&
+      l.ids.every((id) => hiddenMedia[`${pos.slide}:${id}`] === true)
+    );
+  };
+  const vis = current.vis.map(
+    (v, i) => (triggered.key === key ? (triggered.vis[i] ?? v) : v) && !layerHidden(i),
+  );
+  // A clip playing across slides stops outside its span, and with the show.
+  useEffect(() => {
+    if (media) showMediaCarry.showSlide(pos.slide);
+  }, [media, pos.slide]);
+  useEffect(
+    () => () => {
+      if (media) showMediaCarry.stop();
+    },
+    [media],
+  );
+  const playTrigger = (shapeId: number, bookmark: string | null = null) => {
     if (!show) return;
-    const fx = triggerEffects(show, shapeId);
+    const fx = triggerEffects(show, shapeId, bookmark);
     const shown: Record<number, boolean> = {};
     for (const e of fx) {
       shown[e.layer] = true;
@@ -408,12 +432,21 @@ export function ShowStage({
         {ready &&
           media &&
           show.media.map((m) => (
-            <MediaClip
+            <ShowMediaClip
               key={`${pos.slide}-${m.id}`}
               engine={engine}
               clip={m}
               scale={width / (show.width || 1)}
+              slide={pos.slide}
+              click={pos.click}
+              stage={{ width, height }}
               labels={mediaLabels}
+              onBookmark={(id, name) => playTrigger(id, name)}
+              onHidden={(id, hidden) =>
+                setHiddenMedia((h) =>
+                  h[`${pos.slide}:${id}`] === hidden ? h : { ...h, [`${pos.slide}:${id}`]: hidden },
+                )
+              }
             />
           ))}
       </div>

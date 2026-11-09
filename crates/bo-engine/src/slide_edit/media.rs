@@ -103,6 +103,7 @@ pub fn media_out(pres: &Presentation, slide: usize) -> Vec<MediaOut> {
                 .or_else(|| media_kind(name).map(|(_, m)| m.to_owned()))
         });
         let r = p.b.bounds();
+        let playback = super::media_playback::playback_of(pres, slide, pic, p.id);
         out.push(MediaOut {
             id: p.id,
             name: pic.nv.name.clone(),
@@ -111,6 +112,7 @@ pub fn media_out(pres: &Presentation, slide: usize) -> Vec<MediaOut> {
             part,
             mime,
             link: link.filter(|r| r.external).map(|r| r.target.clone()),
+            playback,
         });
     }
     out

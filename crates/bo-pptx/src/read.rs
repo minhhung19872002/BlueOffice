@@ -291,7 +291,7 @@ pub fn read_pptx(bytes: &[u8]) -> Result<Presentation> {
             let x = s.extra.remove(i);
             s.transition = anim::parse_transition(&x.xml, x.key);
         }
-        if let Some(i) = s.extra.iter().position(|x| x.xml.name == "p:timing") {
+        if let Some(i) = s.extra.iter().position(|x| anim::is_timing(&x.xml)) {
             let x = s.extra.remove(i);
             s.timing = Some(anim::parse_timing(&x.xml, x.key));
         }

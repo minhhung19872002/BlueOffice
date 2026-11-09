@@ -1442,6 +1442,10 @@ pub struct Animation {
     /// nodeType `interactiveSeq`); `None` = the main sequence.
     #[serde(default)]
     pub trigger_shape: Option<u32>,
+    /// The media bookmark of `trigger_shape` that starts the effect ([MS-PPTX] §2.3.1.1 bmkTgt
+    /// in the sequence's start condition); `None` = a click on the shape.
+    #[serde(default)]
+    pub trigger_bookmark: Option<String>,
     /// The effect's `p:par` as read, kept for effects BlueOffice does not model
     /// (emphasis, motion paths, other filters): regenerated timing reuses it, so
     /// those effects survive edits of the sequence losslessly.
@@ -1454,7 +1458,13 @@ pub struct Animation {
 pub struct Timing {
     /// Main-sequence effects in order.
     pub animations: Vec<Animation>,
-    /// `p:timing` as read; written back verbatim while `animations` is unchanged.
+    /// Children of the root time node other than the main and interactive sequences, as read:
+    /// the §19.5 `p:video` / `p:audio` media nodes (CT_TLMediaNodeVideo / CT_TLMediaNodeAudio)
+    /// and anything not modelled. Written after the sequences when the timing is regenerated.
+    #[serde(default)]
+    pub others: Vec<XmlElement>,
+    /// `p:timing` as read (or its `mc:AlternateContent` wrapper); written back verbatim while
+    /// `animations` and `others` are unchanged.
     pub source: Option<Extra>,
 }
 
@@ -1482,17 +1492,17 @@ impl Timing {
     /// the order of [`Timing::animations`]. A repeated effect lasts its runs (once for "until the
     /// next click").
     pub fn timeline(&self) -> Vec<TimelineEntry> {
-        // Per sequence (None = main): click, previous start, previous end.
-        let mut state: Vec<(Option<u32>, usize, u32, u32)> = Vec::new();
+        // Per sequence (None = main; a shape's clicks and each of its bookmarks are sequences of
+        // their own): click, previous start, previous end.
+        type Seq<'a> = (Option<u32>, Option<&'a str>);
+        let mut state: Vec<(Seq<'_>, usize, u32, u32)> = Vec::new();
         let mut out: Vec<TimelineEntry> = Vec::new();
         for (i, a) in self.animations.iter().enumerate() {
-            let k = state
-                .iter()
-                .position(|s| s.0 == a.trigger_shape)
-                .unwrap_or_else(|| {
-                    state.push((a.trigger_shape, 0, 0, 0));
-                    state.len() - 1
-                });
+            let seq = (a.trigger_shape, a.trigger_bookmark.as_deref());
+            let k = state.iter().position(|s| s.0 == seq).unwrap_or_else(|| {
+                state.push((seq, 0, 0, 0));
+                state.len() - 1
+            });
             let (_, click, prev_start, prev_end) = &mut state[k];
             let base = match a.trigger {
                 AnimTrigger::OnClick => {

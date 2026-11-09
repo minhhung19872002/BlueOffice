@@ -184,7 +184,7 @@ fn retarget(tx: &mut Tx<'_>, slide: usize, rid: &str, part: &str) -> R<()> {
     Ok(())
 }
 
-fn drop_if_unused(tx: &mut Tx<'_>, old: &str) -> R<()> {
+pub(super) fn drop_if_unused(tx: &mut Tx<'_>, old: &str) -> R<()> {
     if part_referenced(tx.pres, old) {
         return Ok(());
     }

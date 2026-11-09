@@ -1370,6 +1370,8 @@ export type SlideTextFormat =
 /** Slide editing command (JSON bridge, ADR-0008). */
 export type SlideCommand =
   | import('./security').SecurityCommand
+  /** Playback options of video / audio clips (SLIDE-MEDIA-001). */
+  | import('./slideMedia').SlideMediaCommand
   /** Slide masters, layouts, themes, slide size (SLIDE-MASTER-001). */
   | import('./slideMaster').SlideMasterCommand
   | import('./picture').PictureCommand
@@ -1691,6 +1693,10 @@ export interface SlideAnimInfo {
   repeat?: number;
   /** Shape whose click starts the effect (interactive sequence). */
   triggerShape?: number | null;
+  /** Bookmark of the trigger shape's media that starts the effect ([MS-PPTX] bmkTgt). */
+  triggerBookmark?: string | null;
+  /** §19.5 cmd of a media call effect: the show plays the clip, the shape does not move. */
+  mediaCmd?: string | null;
   /** Variants the effect offers (first: the default). */
   dirs?: string[];
   /** What the effect does, read from its behaviours (§19.5). */
@@ -1729,6 +1735,8 @@ export interface SlideMediaInfo {
   part: string | null;
   mime: string | null;
   link: string | null;
+  /** How the clip plays (SLIDE-MEDIA-001). */
+  playback?: import('./slideMedia').SlideMediaPlayback;
 }
 
 /** What the slide show needs to play one slide. */

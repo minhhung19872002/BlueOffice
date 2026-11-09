@@ -23,6 +23,7 @@ mod inspect_cmd;
 pub mod keep_source;
 pub mod master;
 pub mod media;
+pub mod media_playback;
 pub mod morph;
 pub mod ops;
 pub mod outline;
@@ -1764,6 +1765,7 @@ fn remove_animations(tx: &mut Tx<'_>, slide: usize, ids: &[u32]) -> R<()> {
     tx.fields(slide, |f| {
         if let Some(t) = &mut f.timing {
             t.animations.retain(|a| !ids.contains(&a.shape_id));
+            media_playback::forget_clips(t, ids);
         }
     })?;
     Ok(())
@@ -3318,6 +3320,13 @@ impl Engine {
             let cmd: master::MasterCommand =
                 serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;
             let r = self.slide_master_command(cmd)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        if let Some(mc) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| media_playback::MediaCommand::parse(&v))
+        {
+            let r = self.slide_media_command(mc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         if let Some(pc) = serde_json::from_str::<serde_json::Value>(json)

@@ -186,8 +186,10 @@ fn edited_deck_round_trips() {
             preset_subtype: None,
             repeat: None,
             trigger_shape: None,
+            trigger_bookmark: None,
             source: None,
         }],
+        others: vec![],
         source: None,
     });
     // Duplicate a slide (new part, new ids).

@@ -23,6 +23,7 @@ export {
 export * from './sheet';
 export * from './security';
 export * from './slideMaster';
+export * from './slideViews';
 export { WebCodecsVideo, VIDEO_CODECS, bitrateFor, hasWebCodecs } from './webcodecs';
 export * from './sheetDataTools';
 export {

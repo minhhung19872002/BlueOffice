@@ -1373,6 +1373,8 @@ export type SlideCommand =
   /** Slide masters, layouts, themes, slide size (SLIDE-MASTER-001). */
   | import('./slideMaster').SlideMasterCommand
   | import('./picture').PictureCommand
+  /** Outline, notes page, notes / handout master views, sections (SLIDE-VIEW-001). */
+  | import('./slideViews').SlideViewCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
   /** Check document (CORE-INSPECT-001) → `inspection`. */
   | InspectCommand
@@ -1950,6 +1952,14 @@ export interface SlideEditResult {
   masterView?: import('./slideMaster').SlideMasterViewInfo;
   /** The selected picture (picture tools commands, CORE-PIC-001). */
   picture?: import('./picture').PictureInfo;
+  /** Sections of the deck (absent without sections). */
+  sections?: import('./slideViews').SlideSection[];
+  /** The notes / handout master view's pane, while it is open. */
+  pageMaster?: import('./slideViews').SlidePageMasterInfo;
+  /** Answer of `outline` / `applyOutline`. */
+  outline?: import('./slideViews').SlideOutlineSlide[];
+  /** Answer of `notesPages`. */
+  notesPages?: import('./slideViews').SlideNotesPage[];
 }
 
 // ---------------------------------------------------------------- services

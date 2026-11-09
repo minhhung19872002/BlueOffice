@@ -26,7 +26,7 @@ mod three_d;
 pub mod transitions;
 mod write;
 
-pub use pml::{parse_node, visit, write_node, URI_TABLE};
+pub use pml::{parse_csld, parse_node, visit, write_csld, write_node, URI_TABLE};
 pub use read::read_pptx;
 pub use render::{
     render_level, render_slide, render_thumbnail, render_with, shape_text_geometry,

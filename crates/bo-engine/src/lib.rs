@@ -795,7 +795,8 @@ impl Engine {
     pub fn save_pptx(&self) -> Result<Vec<u8>> {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
         // While the master view is open the deck's slides are set aside.
-        let assembled = slide_edit::master::assemble(pres, &self.slides);
+        let assembled = slide_edit::master::assemble(pres, &self.slides)
+            .or_else(|| slide_edit::page_master::assemble(pres, &self.slides));
         let bytes = bo_pptx::write_pptx(assembled.as_ref().unwrap_or(pres))?;
         let bytes = inspect::package::scrub(&bytes, &self.scrub)?;
         let bytes = self.sec.apply(bytes)?;

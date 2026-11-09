@@ -7,6 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+bo-drawingml = { path = "../bo-drawingml" }
+bo-model.workspace = true
 bo-render.workspace = true
 bo-text.workspace = true
 tiny-skia.workspace = true

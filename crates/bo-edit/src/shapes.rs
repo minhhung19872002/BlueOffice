@@ -215,6 +215,7 @@ impl Session {
                 rotation: 0,
                 description: String::new(),
                 shape: Some(Box::new(shape)),
+                format: None,
                 src: None,
             };
             placed = (at.para, at.offset);

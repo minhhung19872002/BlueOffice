@@ -313,6 +313,7 @@ fn sample_doc() -> Document {
                 rotation: 0,
                 description: String::new(),
                 shape: None,
+                format: None,
                 src: None,
             }))],
         }],

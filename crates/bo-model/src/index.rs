@@ -201,6 +201,7 @@ mod tests {
             rotation: 0,
             description: String::new(),
             shape: None,
+            format: None,
             src: None,
         }));
         let p = Paragraph::new(

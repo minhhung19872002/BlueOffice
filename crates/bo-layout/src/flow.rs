@@ -308,7 +308,7 @@ pub(crate) fn float_item(
                     y,
                     w,
                     h,
-                    media: img.media.clone(),
+                    media: img.display_id(),
                     crop: crate::blocks::crop_of(img),
                     rotation: crate::blocks::rotation_of(img),
                     layer,

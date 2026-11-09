@@ -236,6 +236,8 @@ export interface FormatState {
   table?: TableState | null;
   /** Floating picture at the selection (mirrors `bo_edit::picture::PictureState`). */
   picture?: PictureState | null;
+  /** A picture the picture tools act on is at the selection (CORE-PIC-001). */
+  pictureTools?: boolean;
   /** Proofing language of the selection (§17.3.2.20 lang, BCP 47), null when not set. */
   lang?: string | null;
   /** Spelling and grammar are not checked (§17.3.2.21 noProof). */
@@ -569,6 +571,7 @@ export type ListNumbering = { kind: 'restart'; value: number } | { kind: 'contin
 /** Editing command sent to the engine (JSON bridge, ADR-0008). */
 export type EditCommand =
   | import('./security').SecurityCommand
+  | import('./picture').PictureCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
   | { cmd: 'setSelection'; selection: Selection }
@@ -922,6 +925,8 @@ export interface EditResult {
   design?: DesignState;
   /** Protection state (security commands; after edits while regions are shown). */
   security?: import('./security').SecurityInfo;
+  /** The picture at the selection (picture tools commands, CORE-PIC-001). */
+  picture?: import('./picture').PictureInfo;
   /** Document outline (`outline` and outline commands). */
   outline?: OutlineItem[];
   /** Find results with context (`findResults`). */
@@ -1324,6 +1329,7 @@ export type SlideTextFormat =
 /** Slide editing command (JSON bridge, ADR-0008). */
 export type SlideCommand =
   | import('./security').SecurityCommand
+  | import('./picture').PictureCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
   /** Check document (CORE-INSPECT-001) → `inspection`. */
   | InspectCommand
@@ -1895,6 +1901,8 @@ export interface SlideEditResult {
   show?: SlideShowInfo;
   /** Protection state (security commands, CORE-SEC-001). */
   security?: import('./security').SecurityInfo;
+  /** The selected picture (picture tools commands, CORE-PIC-001). */
+  picture?: import('./picture').PictureInfo;
 }
 
 // ---------------------------------------------------------------- services

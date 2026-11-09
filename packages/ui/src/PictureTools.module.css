@@ -1,0 +1,134 @@
+.gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sectionTitle {
+  padding: 4px 6px 2px;
+  color: var(--bo-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.grid {
+  display: grid;
+  gap: 4px;
+}
+
+.thumb {
+  all: unset;
+  box-sizing: border-box;
+  width: 64px;
+  height: 48px;
+  padding: 2px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius);
+  background: var(--bo-surface);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.thumb:hover,
+.thumb:focus-visible {
+  border-color: var(--bo-accent);
+  box-shadow: 0 0 0 1px var(--bo-accent);
+}
+
+.thumb img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.placeholder {
+  color: var(--bo-text-muted);
+  font-size: 11px;
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  min-width: 260px;
+  max-width: 340px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 6px 6px;
+}
+
+.chip {
+  all: unset;
+  padding: 3px 8px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius);
+  font-size: 12px;
+  color: var(--bo-text);
+  cursor: pointer;
+}
+
+.chip:hover,
+.chip:focus-visible,
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--bo-hover, rgba(0, 0, 0, 0.06));
+}
+
+.menuItem {
+  all: unset;
+  padding: 6px 10px;
+  border-radius: var(--bo-radius);
+  font-size: 12px;
+  color: var(--bo-text);
+  cursor: pointer;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 140px 1fr 64px 16px;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+.number {
+  width: 64px;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.fieldset {
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius);
+  margin: 8px 0;
+  padding: 6px 10px;
+}
+
+.note {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--bo-text-muted);
+}

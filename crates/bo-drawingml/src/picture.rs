@@ -1,0 +1,447 @@
+//! Picture adjustments in DrawingML markup (CORE-PIC-001): reading and writing the
+//! colour transforms of `a:blip` (ECMA-376 Part 1, §20.1.8.13 blip) and the
+//! [MS-ODRAWXML] picture effects of the `a14:imgProps` blip extension, shared by the
+//! presentation, spreadsheet and word-processing crates.
+//!
+//! Writing is lossless: only the elements BlueOffice models are replaced; any other
+//! blip child (e.g. `a:alphaInv`, artistic effects, `useLocalDpi`) stays as it was.
+
+use crate::color::{is_color_element, parse_color, resolve, ColorContext};
+use crate::dom::{attr_int, El};
+use bo_model::picture::{ColorChange, PictureFx};
+use bo_model::slide::{Color, XmlElement, XmlNode};
+
+/// [MS-ODRAWXML] extension URI of `a14:imgProps` in `a:blip/a:extLst`.
+pub const IMG_PROPS_EXT: &str = "{BEBA8EAE-BF5A-486C-A8C5-ECC9F3942E4B}";
+/// [MS-ODRAWXML] namespace of the `a14:` elements.
+pub const NS_A14: &str = "http://schemas.microsoft.com/office/drawing/2010/main";
+/// [MS-ODRAWXML] extension URI of `asvg:svgBlip` (SVG picture next to its PNG fallback).
+pub const SVG_BLIP_EXT: &str = "{96DAC541-7B7A-43D3-8B79-37D633B846F1}";
+
+/// Blip children that [`write_fx`] owns (replaced on every write).
+const OWNED: [&str; 6] = [
+    "lum",
+    "grayscl",
+    "biLevel",
+    "duotone",
+    "clrChange",
+    "alphaModFix",
+];
+/// `a14:imgEffect` children that [`write_fx`] owns.
+const OWNED_A14: [&str; 3] = ["sharpenSoften", "saturation", "brightnessContrast"];
+
+/// `0xRRGGBB` of a colour without a theme (scheme colours resolve to black).
+pub fn plain_rgb(c: &Color) -> Option<u32> {
+    Some(resolve(c, &ColorContext::default()).to_hex() & 0xFF_FFFF)
+}
+
+fn colors(el: &XmlElement, rgb: &dyn Fn(&Color) -> Option<u32>) -> Vec<u32> {
+    el.elements()
+        .filter(|e| is_color_element(&e.name))
+        .filter_map(parse_color)
+        .filter_map(|c| rgb(&c))
+        .collect()
+}
+
+/// The `a14:imgEffect` elements of the blip's `a14:imgProps` extension.
+fn img_effects(children: &[XmlElement]) -> Vec<&XmlElement> {
+    let mut out = Vec::new();
+    for ext in children
+        .iter()
+        .filter(|c| c.local() == "extLst")
+        .flat_map(bo_model::slide::XmlElement::elements)
+        .filter(|e| e.attr("uri") == Some(IMG_PROPS_EXT))
+    {
+        for layer in ext
+            .elements()
+            .filter(|e| e.local() == "imgProps")
+            .flat_map(bo_model::slide::XmlElement::elements)
+            .filter(|e| e.local() == "imgLayer")
+        {
+            out.extend(
+                layer
+                    .elements()
+                    .filter(|e| e.local() == "imgEffect")
+                    .flat_map(bo_model::slide::XmlElement::elements),
+            );
+        }
+    }
+    out
+}
+
+/// Adjustments of a blip from its children; colours resolved by `rgb`.
+pub fn read_fx_with(children: &[XmlElement], rgb: &dyn Fn(&Color) -> Option<u32>) -> PictureFx {
+    let mut fx = PictureFx::default();
+    for c in children {
+        match c.local() {
+            // §20.1.8.42 lum
+            "lum" => {
+                fx.bright = attr_int(c, "bright").unwrap_or(0);
+                fx.contrast = attr_int(c, "contrast").unwrap_or(0);
+            }
+            // §20.1.8.34 grayscl
+            "grayscl" => fx.grayscale = true,
+            // §20.1.8.11 biLevel
+            "biLevel" => fx.bilevel = Some(attr_int(c, "thresh").unwrap_or(50_000)),
+            // §20.1.8.23 duotone (exactly two colours)
+            "duotone" => {
+                if let [a, b] = colors(c, rgb)[..] {
+                    fx.duotone = Some([a, b]);
+                }
+            }
+            // §20.1.8.16 clrChange (§20.1.8.17 clrFrom, §20.1.8.18 clrTo)
+            "clrChange" => {
+                let from = c.elements().find(|e| e.local() == "clrFrom");
+                let to = c.elements().find(|e| e.local() == "clrTo");
+                if let (Some(f), Some(t)) = (from, to) {
+                    let alpha_of = |el: &XmlElement| {
+                        el.elements()
+                            .filter(|e| is_color_element(&e.name))
+                            .flat_map(bo_model::slide::XmlElement::elements)
+                            .find(|m| m.local() == "alpha")
+                            .and_then(|m| attr_int(m, "val"))
+                            .unwrap_or(100_000)
+                    };
+                    if let (Some(&fc), Some(&tc)) = (colors(f, rgb).first(), colors(t, rgb).first())
+                    {
+                        fx.color_change = Some(ColorChange {
+                            from: fc,
+                            to: tc,
+                            alpha: alpha_of(t),
+                        });
+                    }
+                }
+            }
+            // §20.1.8.4 alphaModFix
+            "alphaModFix" => fx.alpha = Some(attr_int(c, "amt").unwrap_or(100_000)),
+            _ => {}
+        }
+    }
+    for e in img_effects(children) {
+        match e.local() {
+            "sharpenSoften" => fx.sharpen = attr_int(e, "amount").unwrap_or(0),
+            "saturation" => fx.saturation = attr_int(e, "sat"),
+            // Brightness/contrast stored as a picture effect (when no a:lum).
+            "brightnessContrast" if fx.bright == 0 && fx.contrast == 0 => {
+                fx.bright = attr_int(e, "bright").unwrap_or(0);
+                fx.contrast = attr_int(e, "contrast").unwrap_or(0);
+            }
+            _ => {}
+        }
+    }
+    fx.clamped()
+}
+
+/// Adjustments of a blip from its children (colours without a theme).
+pub fn read_fx(children: &[XmlElement]) -> PictureFx {
+    read_fx_with(children, &plain_rgb)
+}
+
+fn srgb(c: u32) -> XmlElement {
+    El::new("a:srgbClr")
+        .a("val", format!("{:06X}", c & 0xFF_FFFF))
+        .done()
+}
+
+/// The modelled transform elements for `fx` (in BlueOffice's write order).
+pub fn fx_elements(fx: &PictureFx) -> Vec<XmlElement> {
+    let fx = fx.clamped();
+    let mut out = Vec::new();
+    if let Some(a) = fx.alpha.filter(|a| *a < 100_000) {
+        // §20.1.8.4 alphaModFix
+        out.push(El::new("a:alphaModFix").a("amt", a).done());
+    }
+    if let Some(cc) = fx.color_change {
+        // §20.1.8.16 clrChange; clrTo carries the §20.1.2.3.1 alpha of the new colour.
+        let mut to = El::new("a:srgbClr").a("val", format!("{:06X}", cc.to));
+        if cc.alpha < 100_000 {
+            to = to.child(El::new("a:alpha").a("val", cc.alpha).done());
+        }
+        out.push(
+            El::new("a:clrChange")
+                .child(El::new("a:clrFrom").child(srgb(cc.from)).done())
+                .child(El::new("a:clrTo").child(to.done()).done())
+                .done(),
+        );
+    }
+    if let Some(t) = fx.bilevel {
+        // §20.1.8.11 biLevel
+        out.push(El::new("a:biLevel").a("thresh", t).done());
+    }
+    if let Some([a, b]) = fx.duotone {
+        // §20.1.8.23 duotone
+        out.push(El::new("a:duotone").child(srgb(a)).child(srgb(b)).done());
+    }
+    if fx.grayscale {
+        // §20.1.8.34 grayscl
+        out.push(El::new("a:grayscl").done());
+    }
+    if fx.bright != 0 || fx.contrast != 0 {
+        // §20.1.8.42 lum
+        let mut l = El::new("a:lum");
+        if fx.bright != 0 {
+            l = l.a("bright", fx.bright);
+        }
+        if fx.contrast != 0 {
+            l = l.a("contrast", fx.contrast);
+        }
+        out.push(l.done());
+    }
+    out
+}
+
+/// `a14:imgEffect` elements for the [MS-ODRAWXML] effects of `fx`.
+fn a14_effects(fx: &PictureFx) -> Vec<XmlElement> {
+    let mut out = Vec::new();
+    if fx.sharpen != 0 {
+        out.push(
+            El::new("a14:imgEffect")
+                .child(El::new("a14:sharpenSoften").a("amount", fx.sharpen).done())
+                .done(),
+        );
+    }
+    if let Some(s) = fx.saturation.filter(|s| *s != 100_000) {
+        out.push(
+            El::new("a14:imgEffect")
+                .child(El::new("a14:saturation").a("sat", s).done())
+                .done(),
+        );
+    }
+    out
+}
+
+fn is_owned_effect(e: &XmlElement) -> bool {
+    e.local() == "imgEffect"
+        && e.elements()
+            .next()
+            .is_some_and(|c| OWNED_A14.contains(&c.local()))
+}
+
+/// Replace the modelled adjustments among the blip children `children` by `fx`;
+/// every other child is kept in place. The colour transforms go before `a:extLst`
+/// (CT_Blip: a choice of transforms, then extLst); sharpen/soften and saturation go
+/// into the `a14:imgProps` extension, created or updated as needed.
+pub fn write_fx(children: &mut Vec<XmlElement>, fx: &PictureFx) {
+    children.retain(|c| !OWNED.contains(&c.local()));
+    let at = children
+        .iter()
+        .position(|c| c.local() == "extLst")
+        .unwrap_or(children.len());
+    for (i, e) in fx_elements(fx).into_iter().enumerate() {
+        children.insert(at + i, e);
+    }
+    // a14:imgProps: drop the owned effects, then add the new ones to the first layer.
+    let new_effects = a14_effects(&fx.clamped());
+    let li = children.iter().position(|c| c.local() == "extLst");
+    if let Some(li) = li {
+        let list = &mut children[li];
+        for ext in &mut list.children {
+            let XmlNode::Element(ext) = ext else { continue };
+            if ext.attr("uri") != Some(IMG_PROPS_EXT) {
+                continue;
+            }
+            for props in &mut ext.children {
+                let XmlNode::Element(props) = props else {
+                    continue;
+                };
+                for layer in &mut props.children {
+                    let XmlNode::Element(layer) = layer else {
+                        continue;
+                    };
+                    layer.children.retain(|n| match n {
+                        XmlNode::Element(e) => !is_owned_effect(e),
+                        XmlNode::Text(_) => true,
+                    });
+                }
+                props.children.retain(|n| match n {
+                    XmlNode::Element(e) => {
+                        e.local() != "imgLayer"
+                            || e.elements().next().is_some()
+                            || e.attrs.iter().any(|(k, _)| k.ends_with("embed"))
+                    }
+                    XmlNode::Text(_) => true,
+                });
+            }
+        }
+    }
+    if !new_effects.is_empty() {
+        let li = li.unwrap_or_else(|| {
+            children.push(El::new("a:extLst").done());
+            children.len() - 1
+        });
+        let list = &mut children[li];
+        let has = list
+            .elements()
+            .any(|e| e.attr("uri") == Some(IMG_PROPS_EXT));
+        if !has {
+            // [MS-ODRAWXML] imgProps extension with one picture layer.
+            let ext = El::new("a:ext")
+                .a("uri", IMG_PROPS_EXT)
+                .child(
+                    El::new("a14:imgProps")
+                        .a("xmlns:a14", NS_A14)
+                        .child(El::new("a14:imgLayer").done())
+                        .done(),
+                )
+                .done();
+            list.children.insert(0, XmlNode::Element(ext));
+        }
+        for ext in &mut list.children {
+            let XmlNode::Element(ext) = ext else { continue };
+            if ext.attr("uri") != Some(IMG_PROPS_EXT) {
+                continue;
+            }
+            let Some(XmlNode::Element(props)) = ext
+                .children
+                .iter_mut()
+                .find(|n| matches!(n, XmlNode::Element(e) if e.local() == "imgProps"))
+            else {
+                continue;
+            };
+            let prefix = props.name.split(':').next().unwrap_or("a14").to_owned();
+            if !props.elements().any(|e| e.local() == "imgLayer") {
+                props
+                    .children
+                    .push(XmlNode::Element(XmlElement::new(&format!(
+                        "{prefix}:imgLayer"
+                    ))));
+            }
+            if let Some(XmlNode::Element(layer)) = props
+                .children
+                .iter_mut()
+                .find(|n| matches!(n, XmlNode::Element(e) if e.local() == "imgLayer"))
+            {
+                for mut e in new_effects.clone() {
+                    rename_prefix(&mut e, &prefix);
+                    layer.children.push(XmlNode::Element(e));
+                }
+            }
+            break;
+        }
+    }
+    // Drop an emptied imgProps extension and an emptied extLst.
+    if let Some(li) = children.iter().position(|c| c.local() == "extLst") {
+        let list = &mut children[li];
+        list.children.retain(|n| match n {
+            XmlNode::Element(e) if e.attr("uri") == Some(IMG_PROPS_EXT) => e
+                .elements()
+                .flat_map(bo_model::slide::XmlElement::elements)
+                .any(|l| {
+                    l.elements().next().is_some()
+                        || l.attrs.iter().any(|(k, _)| k.ends_with("embed"))
+                }),
+            _ => true,
+        });
+        if list.elements().next().is_none() {
+            children.remove(li);
+        }
+    }
+}
+
+fn rename_prefix(e: &mut XmlElement, prefix: &str) {
+    if let Some((_, local)) = e.name.split_once(':') {
+        e.name = format!("{prefix}:{local}");
+    }
+    for c in &mut e.children {
+        if let XmlNode::Element(c) = c {
+            rename_prefix(c, prefix);
+        }
+    }
+}
+
+/// Relationship id of the SVG picture of a blip ([MS-ODRAWXML] `asvg:svgBlip@r:embed`
+/// in the blip's extension list), if any.
+pub fn svg_blip_embed(children: &[XmlElement]) -> Option<String> {
+    children
+        .iter()
+        .filter(|c| c.local() == "extLst")
+        .flat_map(bo_model::slide::XmlElement::elements)
+        .filter(|e| e.attr("uri") == Some(SVG_BLIP_EXT))
+        .flat_map(bo_model::slide::XmlElement::elements)
+        .find(|e| e.local() == "svgBlip")
+        .and_then(|e| {
+            e.attrs
+                .iter()
+                .find(|(k, _)| k.ends_with(":embed"))
+                .map(|(_, v)| v.clone())
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dom::{parse, write_element};
+
+    fn blip(xml: &str) -> XmlElement {
+        parse(xml.as_bytes(), "t").unwrap()
+    }
+
+    fn children(el: &XmlElement) -> Vec<XmlElement> {
+        el.elements().cloned().collect()
+    }
+
+    #[test]
+    fn reads_transforms() {
+        let b = blip(
+            r#"<a:blip xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="r"><a:alphaModFix amt="60000"/><a:duotone><a:prstClr val="black"/><a:srgbClr val="D9C3A5"/></a:duotone><a:lum bright="20000" contrast="-40000"/><a:extLst><a:ext uri="{BEBA8EAE-BF5A-486C-A8C5-ECC9F3942E4B}"><a14:imgProps xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main"><a14:imgLayer r:embed="rId9"><a14:imgEffect><a14:sharpenSoften amount="25000"/></a14:imgEffect><a14:imgEffect><a14:saturation sat="0"/></a14:imgEffect></a14:imgLayer></a14:imgProps></a:ext></a:extLst></a:blip>"#,
+        );
+        let fx = read_fx(&children(&b));
+        assert_eq!(fx.bright, 20_000);
+        assert_eq!(fx.contrast, -40_000);
+        assert_eq!(fx.alpha, Some(60_000));
+        assert_eq!(fx.duotone, Some([0x00_0000, 0xD9_C3A5]));
+        assert_eq!(fx.sharpen, 25_000);
+        assert_eq!(fx.saturation, Some(0));
+    }
+
+    #[test]
+    fn writes_and_keeps_unknown_children() {
+        let b = blip(
+            r#"<a:blip xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:alphaInv/><a:lum bright="10000"/><a:extLst><a:ext uri="{28A0092B-C50C-407E-A947-70E740481C1C}"><a14:useLocalDpi xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" val="0"/></a:ext></a:extLst></a:blip>"#,
+        );
+        let mut c = children(&b);
+        let fx = PictureFx {
+            grayscale: true,
+            contrast: 40_000,
+            sharpen: -50_000,
+            ..PictureFx::default()
+        };
+        write_fx(&mut c, &fx);
+        let mut s = String::new();
+        for e in &c {
+            write_element(e, &mut s);
+        }
+        assert_eq!(
+            s,
+            "<a:alphaInv/><a:grayscl/><a:lum contrast=\"40000\"/><a:extLst><a:ext uri=\"{BEBA8EAE-BF5A-486C-A8C5-ECC9F3942E4B}\"><a14:imgProps xmlns:a14=\"http://schemas.microsoft.com/office/drawing/2010/main\"><a14:imgLayer><a14:imgEffect><a14:sharpenSoften amount=\"-50000\"/></a14:imgEffect></a14:imgLayer></a14:imgProps></a:ext><a:ext uri=\"{28A0092B-C50C-407E-A947-70E740481C1C}\"><a14:useLocalDpi xmlns:a14=\"http://schemas.microsoft.com/office/drawing/2010/main\" val=\"0\"/></a:ext></a:extLst>"
+        );
+        assert_eq!(read_fx(&c), fx);
+        // Reset: back to the unknown children only.
+        write_fx(&mut c, &PictureFx::default());
+        let mut s = String::new();
+        for e in &c {
+            write_element(e, &mut s);
+        }
+        assert_eq!(
+            s,
+            "<a:alphaInv/><a:extLst><a:ext uri=\"{28A0092B-C50C-407E-A947-70E740481C1C}\"><a14:useLocalDpi xmlns:a14=\"http://schemas.microsoft.com/office/drawing/2010/main\" val=\"0\"/></a:ext></a:extLst>"
+        );
+    }
+
+    #[test]
+    fn colour_change_round_trip() {
+        let fx = PictureFx {
+            color_change: Some(ColorChange {
+                from: 0xFF_FFFF,
+                to: 0xFF_FFFF,
+                alpha: 0,
+            }),
+            bilevel: Some(50_000),
+            alpha: Some(40_000),
+            ..PictureFx::default()
+        };
+        let mut c = Vec::new();
+        write_fx(&mut c, &fx);
+        assert_eq!(read_fx(&c), fx);
+    }
+}

@@ -666,12 +666,19 @@ fn draw_image(
     } else {
         aff.apply(0.0, 0.0)
     };
+    // Colour transforms and picture effects of the blip (§20.1.8, CORE-PIC-001):
+    // drawn through a derived image id; the opacity stays a group opacity above.
+    let colors = cx.colors(None);
+    let fx = bo_drawingml::picture::read_fx_with(&b.blip_children, &|c| {
+        Some(resolve(c, &colors).to_hex())
+    });
+    let image = fx.without_alpha().derived_id(&part);
     out.push(Command::Image {
         x: x as f32,
         y: y as f32,
         w: w as f32,
         h: h as f32,
-        image: part,
+        image,
         crop,
         rotation: 0.0,
     });

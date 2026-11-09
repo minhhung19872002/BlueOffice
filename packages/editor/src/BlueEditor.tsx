@@ -41,9 +41,12 @@ import {
   getDensity,
   useDensity,
   useResolvedTheme,
+  usePictureTools,
+  PictureActionsHub,
   type RibbonTab,
   type ThemeSetting,
 } from '@blueoffice/ui';
+import { pictureTabLabels, registerPictureCommands } from './pictureTools';
 import {
   AArrowDown,
   AArrowUp,
@@ -725,6 +728,8 @@ function EditorInner({
     await platform.offline.delete(AUTOSAVE_NAME_KEY);
   }, [platform, store]);
 
+  /** Actions of the picture tools tab (CORE-PIC-001), behind the `picture.*` commands. */
+  const [pictureHub] = useState(() => new PictureActionsHub());
   // Command callbacks only dereference refs when executed (event time), never during render.
   /* eslint-disable react-hooks/refs */
   const registry: Registry = useMemo(() => {
@@ -1979,6 +1984,12 @@ function EditorInner({
       isEnabled: (s) => hasDoc(s) && !!f(s)?.picture,
       run: () => store.setState({ dialog: 'picturePosition' }),
     });
+    // Picture tools (CORE-PIC-001): buttons of the "Picture tools" tab.
+    registerPictureCommands(
+      r,
+      (s) => hasDoc(s) && !!f(s)?.pictureTools,
+      () => pictureHub.get(),
+    );
     return r;
   }, [
     platform,
@@ -1990,6 +2001,7 @@ function EditorInner({
     i18nInstance,
     loaded,
     printLayoutPdf,
+    pictureHub,
   ]);
   /* eslint-enable react-hooks/refs */
 
@@ -2045,6 +2057,18 @@ function EditorInner({
     onSelect: () => void registry.execute(id, store.getState()),
   });
   const fs = state.edit?.format;
+  // Picture tools tab (CORE-PIC-001) for the picture at the selection.
+  const picture = usePictureTools({
+    labels: pictureTabLabels(t),
+    enabled: !!state.doc && !!fs?.pictureTools,
+    selectionKey: JSON.stringify(state.edit?.selection ?? null),
+    run: (c) => controller.current?.run(c) ?? Promise.resolve(null),
+    exec: (id) => void registry.execute(id, store.getState()),
+    pickFile: () => platform.files.openFile(['.png', '.jpg', '.jpeg', '.gif', '.bmp']),
+    onError: (code) => fail(`pictureTools.error.${code}`, code),
+    hub: pictureHub,
+  });
+  const pictureTab: RibbonTab[] = picture.tab ? [picture.tab] : [];
   // Status bar: proofing language of the selection (§17.3.2.20 lang).
   const languageLabel = fs?.lang
     ? (PROOF_LANGUAGES as readonly string[]).includes(fs.lang)
@@ -2965,7 +2989,7 @@ function EditorInner({
       {app === 'doc' ? (
         <>
           <CommandSearch
-            tabs={[...tabs, ...tableTab]}
+            tabs={[...tabs, ...tableTab, ...pictureTab]}
             open={searchOpen}
             onClose={() => {
               setSearchOpen(false);
@@ -2979,8 +3003,12 @@ function EditorInner({
           />
           {!(state.focusMode && state.doc) && (
             <Ribbon
-              tabs={[...tabs, ...tableTab]}
-              value={tab === 'table' && !fs?.table ? 'home' : tab}
+              tabs={[...tabs, ...tableTab, ...pictureTab]}
+              value={
+                (tab === 'table' && !fs?.table) || (tab === 'pictureFormat' && !picture.tab)
+                  ? 'home'
+                  : tab
+              }
               onValueChange={setTab}
               moreLabel={t('ribbon.more')}
             />
@@ -3104,6 +3132,7 @@ function EditorInner({
                 onClose={closeDialog}
               />
             )}
+            {picture.dialogs}
             {state.dialog === 'picturePosition' && (
               <PicturePositionDialog
                 format={fs}

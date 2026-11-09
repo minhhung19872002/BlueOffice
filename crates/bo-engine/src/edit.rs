@@ -990,6 +990,9 @@ pub struct EditResult {
     /// Administrative format check (`checkAdminFormat`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub admin_format: Option<Box<crate::templates::check::FormatReport>>,
+    /// The picture at the selection (picture tools commands, CORE-PIC-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub picture: Option<Box<crate::picture_tools::PictureInfo>>,
 }
 
 impl crate::Engine {
@@ -1005,6 +1008,10 @@ impl crate::Engine {
             .and_then(|n| n.as_f64());
         if let Some(sc) = crate::security::SecurityCommand::parse(&v) {
             let r = self.doc_security(sc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        if let Some(pc) = crate::picture_tools::PictureCommand::parse(&v) {
+            let r = self.doc_picture_command(pc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         let cmd: Command =
@@ -2018,6 +2025,7 @@ impl crate::Engine {
             results: None,
             page_layout: None,
             admin_format: None,
+            picture: None,
         })
     }
 }

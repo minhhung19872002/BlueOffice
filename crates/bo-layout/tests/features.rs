@@ -425,6 +425,7 @@ fn image(w: i64, h: i64, anchor: Option<Anchor>) -> RunContent {
         rotation: 0,
         description: String::new(),
         shape: None,
+        format: None,
         src: None,
     }))
 }

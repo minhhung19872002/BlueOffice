@@ -591,6 +591,7 @@ impl Session {
                     art: Some(Box::new(art)),
                     ..Shape::default()
                 })),
+                format: None,
                 src: None,
             };
             Run {

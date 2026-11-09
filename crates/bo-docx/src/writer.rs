@@ -543,7 +543,7 @@ impl Writer<'_> {
                                 && img.shape.is_none()
                                 && (!Self::image_changed(img) || img.media.ends_with(".xml")) =>
                         {
-                            r.xml.to_string()
+                            self.patched_picture(&r.xml, img)
                         }
                         _ => self.drawing(img),
                     };
@@ -669,6 +669,30 @@ impl Writer<'_> {
                 && x.contains(&format!("cy=\"{}\"", img.height.0)))
     }
 
+    /// Source XML of an unmoved picture, patched when its media, adjustments, crop or
+    /// crop shape changed (CORE-PIC-001); everything else in it is kept.
+    fn patched_picture(&mut self, xml: &str, img: &Image) -> String {
+        let Some(p) = crate::picture::read(xml) else {
+            return xml.to_owned();
+        };
+        let format = img.format.as_deref().cloned().unwrap_or_default();
+        let target = p.embed.as_deref().and_then(|id| {
+            self.rels
+                .list
+                .iter()
+                .find(|r| r.id == id)
+                .map(|r| bo_opc::resolve_target(&self.rels.part, &r.target))
+        });
+        let media_changed = target.is_some_and(|t| t != img.media) && !img.media.is_empty();
+        let crop = img.crop.filter(|c| c.iter().any(|v| *v != 0));
+        if !media_changed && p.format == format && p.crop == crop {
+            return xml.to_owned();
+        }
+        let embed = media_changed.then(|| self.rels.id_for(REL_IMAGE, &img.media, false));
+        crate::picture::patch(xml, embed.as_deref(), &format, crop)
+            .unwrap_or_else(|| xml.to_owned())
+    }
+
     /// Generate a `w:drawing` for a picture (§20.4.2.8 inline / §20.4.2.3 anchor).
     fn drawing(&mut self, img: &Image) -> String {
         if let Some(s) = &img.shape {
@@ -708,8 +732,21 @@ impl Writer<'_> {
         } else {
             format!(" rot=\"{}\"", img.rotation)
         };
+        // §20.1.8.13 blip children (colour transforms, a14 effects) and the
+        // §20.1.9.18 prstGeom the picture is cropped to (CORE-PIC-001).
+        let fx = img
+            .format
+            .as_deref()
+            .map(crate::picture::blip_children_xml)
+            .unwrap_or_default();
+        let prst = escape(
+            img.format
+                .as_deref()
+                .and_then(|f| f.shape.as_deref())
+                .unwrap_or("rect"),
+        );
         let graphic = format!(
-            "<a:graphic xmlns:a=\"{A_NS}\"><a:graphicData uri=\"{PIC_NS}\"><pic:pic xmlns:pic=\"{PIC_NS}\"><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"Picture {id}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r=\"{R_NS}\" r:embed=\"{rid}\"/>{crop}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm{rot}><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>"
+            "<a:graphic xmlns:a=\"{A_NS}\"><a:graphicData uri=\"{PIC_NS}\"><pic:pic xmlns:pic=\"{PIC_NS}\"><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"Picture {id}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r=\"{R_NS}\" r:embed=\"{rid}\">{fx}</a:blip>{crop}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm{rot}><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"{prst}\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>"
         );
         Self::frame(img, id, "Picture", &graphic)
     }
@@ -1638,6 +1675,7 @@ impl Writer<'_> {
     }
 
     fn write_media(&mut self) -> Result<()> {
+        self.drop_removed_media();
         let mut ct = self.pkg.content_types()?;
         for (name, data) in &self.doc.media {
             if self.pkg.part(name).is_none() {
@@ -1664,6 +1702,57 @@ impl Writer<'_> {
         }
         self.pkg.set_content_types(&ct);
         Ok(())
+    }
+
+    /// Pictures of the source package that the document no longer holds (replaced by
+    /// "Compress pictures" / "Change picture", CORE-PIC-001) are left out together
+    /// with the main part's relationships to them, unless the written main part or
+    /// another part still refers to them.
+    fn drop_removed_media(&mut self) {
+        if self.doc.source.is_none() {
+            return;
+        }
+        let gone: Vec<String> = self
+            .pkg
+            .parts()
+            .iter()
+            .map(|p| p.name.clone())
+            .filter(|n| n.starts_with("/word/media/") && !self.doc.media.contains_key(n))
+            .collect();
+        for name in gone {
+            let other = self
+                .pkg
+                .parts()
+                .iter()
+                .filter(|p| p.name.ends_with(".rels") && !p.name.ends_with("document.xml.rels"))
+                .any(|p| {
+                    let file = name.rsplit('/').next().unwrap_or(&name);
+                    std::str::from_utf8(&p.data).is_ok_and(|t| t.contains(file))
+                });
+            let main = self.rels.part.clone();
+            // Still used by the written main part (e.g. a VML picture kept verbatim).
+            let text = self
+                .pkg
+                .part(&main)
+                .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+                .unwrap_or_default();
+            let used = self.rels.list.iter().any(|r| {
+                r.mode == TargetMode::Internal
+                    && bo_opc::resolve_target(&main, &r.target) == name
+                    && text.contains(&format!("\"{}\"", r.id))
+            });
+            if other || used {
+                continue;
+            }
+            let before = self.rels.list.len();
+            self.rels.list.retain(|r| {
+                r.mode == TargetMode::External || bo_opc::resolve_target(&main, &r.target) != name
+            });
+            if self.rels.list.len() != before {
+                self.rels.changed = true;
+            }
+            self.pkg.remove_part(&name);
+        }
     }
 }
 

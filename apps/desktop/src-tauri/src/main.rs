@@ -142,7 +142,9 @@ fn engine_insert_image(
 fn engine_media(state: State<'_, EngineState>, name: String) -> Result<Response, String> {
     let e = state.0.lock().map_err(|e| e.to_string())?;
     Ok(Response::new(
-        e.media(&name).map(<[u8]>::to_vec).unwrap_or_default(),
+        e.media_resolved(&name)
+            .map(std::borrow::Cow::into_owned)
+            .unwrap_or_default(),
     ))
 }
 

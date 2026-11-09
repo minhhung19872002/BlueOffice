@@ -24,6 +24,7 @@ pub mod keep_source;
 pub mod media;
 pub mod morph;
 pub mod ops;
+pub mod picture;
 pub mod rich;
 pub mod show;
 pub mod smartart;
@@ -1068,6 +1069,9 @@ pub struct SlideEditResult {
     /// Protection state (security commands, CORE-SEC-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security: Option<crate::security::SecurityInfo>,
+    /// The selected picture (picture tools commands, CORE-PIC-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub picture: Option<Box<crate::picture_tools::PictureInfo>>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -3255,6 +3259,13 @@ impl Engine {
             let r = self.slide_security(sc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        if let Some(pc) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| picture::PictureCommand::parse(&v))
+        {
+            let r = self.slide_picture_command(pc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         let cmd: SlideCommand =
             serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;
         let r = self.slide_command(cmd)?;
@@ -4546,6 +4557,7 @@ impl Engine {
             comments: comments::comments_out(pres, slide),
             inspection: None,
             security: None,
+            picture: None,
         })
     }
 }

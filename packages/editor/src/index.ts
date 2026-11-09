@@ -36,3 +36,4 @@ export {
   type PasteOptionsProps,
 } from './clipboard/PasteOptions';
 export { fromBase64, toBase64 } from './clipboard/docPaste';
+export { pictureTabLabels, presetName, registerPictureCommands } from './pictureTools';

@@ -213,7 +213,7 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
                 y,
                 w: o.w,
                 h: o.h,
-                media: o.image.media.clone(),
+                media: o.image.display_id(),
                 crop: crop_of(&o.image),
                 rotation: rotation_of(&o.image),
                 layer: Layer::Front,
@@ -963,7 +963,7 @@ pub(crate) fn layout_table(
                     y: 0.0,
                     w: img.width.to_pt(),
                     h: img.height.to_pt(),
-                    media: img.media.clone(),
+                    media: img.display_id(),
                     crop: crop_of(img),
                     rotation: rotation_of(img),
                     layer: if img.anchor.as_ref().is_some_and(|a| a.behind) {

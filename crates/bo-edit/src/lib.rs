@@ -27,6 +27,7 @@ pub mod page_layout;
 pub mod para;
 mod paste;
 pub mod picture;
+pub mod picture_tools;
 pub mod proofing;
 pub mod revisions;
 pub mod section;
@@ -485,6 +486,8 @@ pub struct FormatState {
     pub table: Option<TableState>,
     /// Floating picture at the selection (§20.4.2.3 anchor).
     pub picture: Option<picture::PictureState>,
+    /// A picture the picture tools act on is at the selection (CORE-PIC-001).
+    pub picture_tools: bool,
 }
 
 /// Content copied to the clipboard.
@@ -3129,6 +3132,7 @@ impl Session {
             section: self.section_state(),
             table: self.table_state(),
             picture: self.picture_state(),
+            picture_tools: self.tools_target().is_some(),
         }
     }
 
@@ -3216,6 +3220,7 @@ impl Session {
                 rotation: 0,
                 description: String::new(),
                 shape: None,
+                format: None,
                 src: None,
             };
             let caret = tx.insert_atoms(at, vec![(props, RunContent::Image(Box::new(img)))])?;

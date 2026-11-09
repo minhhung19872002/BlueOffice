@@ -7,6 +7,8 @@
 pub mod codecs;
 pub mod compose;
 pub mod gif;
+pub mod jpeg;
+pub mod picfx;
 
 use bo_render::{Command, GradientStop, ImageSource, PageList, PathSeg, Rgba};
 use bo_text::{FaceId, FontManager, PathCmd};
@@ -256,9 +258,14 @@ fn render_onto(
                 crop,
                 rotation,
             } => {
-                let img = decoded
-                    .entry(image.as_str())
-                    .or_insert_with(|| images.image(image).and_then(decode_image));
+                let img =
+                    decoded
+                        .entry(image.as_str())
+                        .or_insert_with(|| match images.image(image) {
+                            Some(b) => decode_image(b),
+                            // Derived id: the picture with its adjustments (CORE-PIC-001).
+                            None => picfx::resolve_rgba(images, image).and_then(pixmap_of),
+                        });
                 let Some(img) = img.as_ref() else {
                     // Missing or undecodable image: light grey placeholder.
                     if let Some(r) = Rect::from_xywh(*x, *y, *w, *h) {

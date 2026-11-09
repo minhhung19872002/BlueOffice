@@ -580,6 +580,27 @@ pub enum Command {
         /// The flagged text.
         text: String,
     },
+    /// Check the whole document (every story) for spelling and grammar, in `proof`
+    /// (CORE-SPELL-005).
+    ProofCheck,
+    /// Corrections of the spelling and grammar check (replace words, set their language) in any
+    /// story: one undo step.
+    ProofEdit {
+        /// The corrections.
+        edits: Vec<bo_edit::proofing::ProofEdit>,
+    },
+    /// Proofing options (absent fields are kept); the result reports them in `proofOptions`.
+    ProofOptions {
+        /// Do not check words in capitals.
+        #[serde(default)]
+        ignore_caps: Option<bool>,
+        /// Do not check words with digits.
+        #[serde(default)]
+        ignore_digits: Option<bool>,
+        /// Detect the language of typed text and tag it (§17.3.2.20 lang).
+        #[serde(default)]
+        auto_language: Option<bool>,
+    },
     /// Open the header (`header`) or footer of a page for editing (§17.10).
     EditHeaderFooter {
         /// 0-based page index.
@@ -849,6 +870,12 @@ pub struct EditResult {
     /// Check document report (`inspect` and the inspector commands).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inspection: Option<Box<crate::inspect::Report>>,
+    /// Whole-document spelling and grammar check (`proofCheck`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof: Option<Box<crate::proof::ProofReport>>,
+    /// Proofing options (`proofOptions`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_options: Option<crate::proof::ProofOptionsOut>,
     /// The Format Painter holds picked formatting.
     pub painter: bool,
     /// Design tab state (design commands).
@@ -1087,6 +1114,7 @@ impl crate::Engine {
                     .unwrap_or_default()
             };
             let autocorrect = self.autocorrect.as_ref();
+            let auto_language = self.spell.auto_language;
             let before_version = s.version();
             let sel = s.selection();
             let cmd_kind = if matches!(cmd, Command::AcceptRevision { .. }) {
@@ -1146,6 +1174,8 @@ impl crate::Engine {
                     | Command::Equation
                     | Command::SetGrammar { .. }
                     | Command::GrammarIgnore { .. }
+                    | Command::ProofCheck
+                    | Command::ProofOptions { .. }
                     | Command::EditHeaderFooter { .. }
                     | Command::CloseHeaderFooter
                     | Command::SetHeaderLink { .. }
@@ -1326,6 +1356,15 @@ impl crate::Engine {
                         if let (Some(c), None, Some(o)) = (cs.next(), cs.next(), autocorrect) {
                             corrected = s.autocorrect(o, c)?;
                         }
+                        // Language detection after a word (its own undo step, off by default).
+                        if auto_language && text.chars().count() == 1 {
+                            s.tag_language(&|t| {
+                                bo_spell::lang::detect(t).map(str::to_owned)
+                            })?;
+                        }
+                    }
+                    Command::ProofEdit { edits } => {
+                        s.proof_edit(&edits)?;
                     }
                     Command::DeleteBackward => {
                         s.delete_backward()?;
@@ -1766,6 +1805,8 @@ impl crate::Engine {
             autocorrect: None,
             corrected: None,
             inspection: None,
+            proof: None,
+            proof_options: None,
             painter: s.picked_format().is_some(),
             design: None,
         })

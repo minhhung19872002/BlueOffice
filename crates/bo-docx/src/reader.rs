@@ -12,8 +12,8 @@ const W15_NS: &str = "http://schemas.microsoft.com/office/word/2012/wordml";
 use bo_model::{
     fingerprint, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellMerge,
     CellProps, CellPropsChange, CellVAlign, Color, Columns, Comment, ContentControl, ControlKind,
-    Document, Emu, GridChange, HalfPoints, HeaderFooter, HeightRule, Image, Level, LineSpacing,
-    NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering, PageBorder,
+    Document, Emu, GridChange, HalfPoints, HeaderFooter, HeightRule, Image, Lang, Level,
+    LineSpacing, NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering, PageBorder,
     PageBorderDisplay, PageBorders, ParaProps, ParaPropsChange, Paragraph, Raw, RevMark,
     RevisionInfo, Row, RowPropsChange, Run, RunContent, RunProps, RunPropsChange, Section,
     SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table,
@@ -1798,6 +1798,18 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
                         if s {
                             r.skip_element()?;
                         }
+                    } else if n.as_slice() == b"lang" {
+                        // §17.3.2.20 lang of the paragraph mark.
+                        p.mark_lang = Some(read_lang(e));
+                        if s {
+                            r.skip_element()?;
+                        }
+                    } else if n.as_slice() == b"noProof" {
+                        // §17.3.2.21 noProof of the paragraph mark.
+                        p.mark_no_proof = Some(on_off(e));
+                        if s {
+                            r.skip_element()?;
+                        }
                     } else {
                         kept.push_str(&capture(r, s, at)?.xml);
                     }
@@ -1806,8 +1818,12 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
                 })?;
                 let close = r.slice(last, r.pos());
                 let close = close.trim_start();
-                // An rPr that only held revision marks is regenerated from them.
-                if !kept.is_empty() || (p.mark_ins.is_none() && p.mark_del.is_none()) {
+                // An rPr that only held modelled children is regenerated from them.
+                let modelled = p.mark_ins.is_some()
+                    || p.mark_del.is_some()
+                    || p.mark_lang.is_some()
+                    || p.mark_no_proof.is_some();
+                if !kept.is_empty() || !modelled {
                     let xml = format!("{}{kept}{close}", r.slice(before, tag_end));
                     p.unknown.push(Raw::new(xml, 0));
                 }
@@ -1848,6 +1864,15 @@ fn read_borders(r: &mut XmlReader<'_>) -> Result<Borders> {
         Ok(!s)
     })?;
     Ok(b)
+}
+
+/// ECMA-376 Part 1, §17.3.2.20 lang (`ST_Lang` tags for Latin, East Asian and complex script text).
+fn read_lang(e: &BytesStart<'_>) -> Lang {
+    Lang {
+        val: attr(e, b"val"),
+        east_asia: attr(e, b"eastAsia"),
+        bidi: attr(e, b"bidi"),
+    }
 }
 
 /// ECMA-376 Part 1, §17.3.2.28 rPr (Run Properties).
@@ -1903,6 +1928,13 @@ fn read_rpr(r: &mut XmlReader<'_>) -> Result<RunProps> {
             }
             b"rtl" => p.rtl = Some(on_off(e)),    // §17.3.2.30
             b"cs" => p.complex = Some(on_off(e)), // §17.3.2.7
+            b"lang" => {
+                p.lang = Some(read_lang(e));
+                if s {
+                    r.skip_element()?;
+                }
+            }
+            b"noProof" => p.no_proof = Some(on_off(e)), // §17.3.2.21
             // §17.3.2.6 color
             b"color" => {
                 if let Some(c) = color_attr(e, b"val") {

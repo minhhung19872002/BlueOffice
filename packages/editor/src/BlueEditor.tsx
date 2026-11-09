@@ -1,5 +1,11 @@
 import { DocumentView } from '@blueoffice/canvas-host';
-import { SpellMenu, loadUserWords, saveUserWord } from './SpellMenu';
+import { SpellMenu, loadIgnoredWords, loadUserWords, saveUserWord } from './SpellMenu';
+import {
+  LanguageDialog,
+  PROOF_LANGUAGES,
+  SpellCheckDialog,
+  loadProofOptions,
+} from './SpellCheckDialog';
 import { AutoCorrectDialog, autoCorrectCommand, loadAutoCorrect } from './AutoCorrectDialog';
 import { DocCheckDocumentDialog } from './DocCheckDocument';
 import { createI18n, I18nextProvider, type Language } from '@blueoffice/i18n';
@@ -506,6 +512,11 @@ function EditorInner({
         // User dictionary kept by this browser / app (a convenience: words re-added each start).
         for (const word of loadUserWords())
           void controller.current?.run({ cmd: 'spellAddWord', word });
+        // Words ignored everywhere and the proofing options, kept the same way.
+        for (const word of loadIgnoredWords())
+          void controller.current?.run({ cmd: 'spellIgnore', word });
+        const proof = loadProofOptions();
+        if (proof) void controller.current?.run({ cmd: 'proofOptions', ...proof });
       },
       (e: unknown) => fail('errors.engine', e),
     );
@@ -1320,6 +1331,18 @@ function EditorInner({
       isEnabled: hasDoc,
       run: () => store.setState({ dialog: 'autoCorrect' }),
     });
+    // Whole-document spelling and grammar check; proofing language of the selection.
+    r.register({
+      id: 'review.checkDocument',
+      shortcut: 'F7',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'spellCheck' }),
+    });
+    r.register({
+      id: 'review.language',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'language' }),
+    });
     r.register({
       id: 'review.checkDocument',
       isEnabled: hasDoc,
@@ -1754,6 +1777,12 @@ function EditorInner({
     onSelect: () => void registry.execute(id, store.getState()),
   });
   const fs = state.edit?.format;
+  // Status bar: proofing language of the selection (§17.3.2.20 lang).
+  const languageLabel = fs?.lang
+    ? (PROOF_LANGUAGES as readonly string[]).includes(fs.lang)
+      ? t(`spell.lang.${fs.lang}`)
+      : fs.lang
+    : t('spell.lang.none');
   const noDoc = !state.doc;
   const focusDoc = () => view.current?.focus();
   const runFocus = (c: EditCommand) =>
@@ -2348,6 +2377,12 @@ function EditorInner({
           items: [
             item('review.spelling', 'commands.review.spelling', <SpellCheck size={ICON} />),
             item('review.grammar', 'commands.review.grammar', <SpellCheck2 size={ICON} />),
+            item(
+              'review.checkDocument',
+              'commands.review.checkDocument',
+              <SpellCheck size={ICON} />,
+            ),
+            item('review.language', 'commands.review.language', <Languages size={ICON} />),
             item('review.autoCorrect', 'commands.review.autoCorrect', <WandSparkles size={ICON} />),
             item('review.checkDocument', 'inspect.command', <ClipboardCheck size={ICON} />),
           ],
@@ -2747,6 +2782,31 @@ function EditorInner({
                 }}
               />
             )}
+            {state.dialog === 'spellCheck' && (
+              <SpellCheckDialog
+                run={runCommand}
+                onClose={closeDialog}
+                onShow={(i) => {
+                  // Select a word of the main text so it shows behind the dialog.
+                  if (i.story.kind === 'body')
+                    void controller.current?.run({
+                      cmd: 'setSelection',
+                      selection: {
+                        anchor: { p: i.para, o: i.start },
+                        focus: { p: i.para, o: i.end },
+                      },
+                    });
+                }}
+              />
+            )}
+            {state.dialog === 'language' && (
+              <LanguageDialog
+                run={runCommand}
+                lang={fs?.lang ?? null}
+                noProof={fs?.noProof ?? false}
+                onClose={closeDialog}
+              />
+            )}
             {state.dialog === 'control' && (
               <ControlDialog
                 onClose={closeDialog}
@@ -3086,6 +3146,18 @@ function EditorInner({
               <span data-testid="status-words">
                 {t('status.words', { count: state.doc.wordCount })}
               </span>
+            )}
+            {state.doc && (
+              <button
+                type="button"
+                className={styles.statusButton}
+                data-testid="status-language"
+                aria-label={t('spell.statusLanguage', { lang: languageLabel })}
+                title={t('spell.statusLanguage', { lang: languageLabel })}
+                onClick={() => void registry.execute('review.language', state)}
+              >
+                {languageLabel}
+              </button>
             )}
             {state.edit?.modified && (
               <span data-testid="status-modified">{t('status.modified')}</span>

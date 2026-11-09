@@ -33,6 +33,7 @@ pub mod media;
 pub mod merge;
 pub mod nav;
 mod notes;
+pub mod proof;
 pub mod review;
 pub mod sheet;
 pub mod slide_edit;

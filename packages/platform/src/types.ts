@@ -233,6 +233,10 @@ export interface FormatState {
   table?: TableState | null;
   /** Floating picture at the selection (mirrors `bo_edit::picture::PictureState`). */
   picture?: PictureState | null;
+  /** Proofing language of the selection (§17.3.2.20 lang, BCP 47), null when not set. */
+  lang?: string | null;
+  /** Spelling and grammar are not checked (§17.3.2.21 noProof). */
+  noProof?: boolean;
 }
 
 /** Position of a floating picture in points (§20.4.2.10 positionH / §20.4.2.11 positionV). */
@@ -399,7 +403,11 @@ export type CharFormat =
   | { kind: 'font'; name: string }
   | { kind: 'size'; halfPoints: number }
   | { kind: 'color'; hex: string | null }
-  | { kind: 'highlight'; hex: string | null };
+  | { kind: 'highlight'; hex: string | null }
+  /** Proofing language (§17.3.2.20 lang); null removes the direct language. */
+  | { kind: 'language'; lang: string | null }
+  /** Do not check spelling or grammar (§17.3.2.21 noProof). */
+  | { kind: 'noProof'; on: boolean };
 
 export type ParaFormat =
   | { kind: 'align'; align: Alignment }
@@ -599,6 +607,10 @@ export type EditCommand =
   | { cmd: 'spellAt'; page: number; x: number; y: number }
   | { cmd: 'spellIgnore' | 'spellAddWord'; word: string }
   | { cmd: 'setSpelling'; on: boolean }
+  /** Whole-document spelling and grammar check (CORE-SPELL-005): report, corrections, options. */
+  | { cmd: 'proofCheck' }
+  | { cmd: 'proofEdit'; edits: ProofEdit[] }
+  | { cmd: 'proofOptions'; ignoreCaps?: boolean; ignoreDigits?: boolean; autoLanguage?: boolean }
   /** AutoCorrect as you type (CORE-AUTOCORR-001): set (`options`), restore defaults (`reset`) or query. */
   | { cmd: 'autoCorrect'; options?: AutoCorrectOptions; reset?: boolean }
   /** Equations (CORE-MATH-007): insert from UnicodeMath / LaTeX, query, linear ↔ built-up. */
@@ -800,6 +812,10 @@ export interface EditResult {
   spelling?: SpellMark[];
   /** The misspelt word at a point (`spellAt`). */
   spell?: SpellInfo;
+  /** Whole-document spelling and grammar check (`proofCheck`). */
+  proof?: ProofReport;
+  /** Proofing options (`proofOptions`). */
+  proofOptions?: ProofOptions;
   /** The equation the selection covers or the caret follows. */
   equation?: EquationInfo;
   /** The content control around the caret. */
@@ -980,6 +996,73 @@ export interface SpellInfo {
   suggestions: string[];
   /** Grammar rule id (`extraSpace`, `capitalize`, `toneStyle` …) when this is a grammar issue. */
   rule?: string;
+}
+
+/** A story of a document (mirrors `bo_edit::proofing::Story`). */
+export type ProofStory =
+  | { kind: 'body' }
+  | { kind: 'header' | 'footer'; section: number; variant: 'default' | 'first' | 'even' }
+  | { kind: 'footnote' | 'endnote'; id: number }
+  | { kind: 'comment'; index: number };
+
+/** One issue of the whole-document check (mirrors `bo_engine::proof::ProofIssue`). */
+export interface ProofIssue {
+  story: ProofStory;
+  /** Position of the story in checking order. */
+  order: number;
+  /** Paragraph in the story (body paragraph id for the main text). */
+  para: number;
+  /** Byte offsets in the paragraph index text. */
+  start: number;
+  end: number;
+  word: string;
+  grammar?: boolean;
+  /** Grammar rule id. */
+  rule?: string;
+  suggestions: string[];
+  /** Language the word was checked in. */
+  lang?: string;
+  /** Sentence text around the word. */
+  before: string;
+  after: string;
+}
+
+/** Readability statistics of the main text. */
+export interface ProofStats {
+  words: number;
+  characters: number;
+  sentences: number;
+  paragraphs: number;
+  wordsPerSentence: number;
+  sentencesPerParagraph: number;
+  charactersPerWord: number;
+}
+
+/** Result of `proofCheck`. */
+export interface ProofReport {
+  issues: ProofIssue[];
+  /** Languages in the text without a dictionary (not checked). */
+  unchecked: string[];
+  /** Primary subtags of the languages with a dictionary (`vi`, `en`). */
+  languages: string[];
+  stats: ProofStats;
+}
+
+/** A correction of the check: replace the range and/or set its language. */
+export interface ProofEdit {
+  story: ProofStory;
+  para: number;
+  start: number;
+  end: number;
+  text?: string;
+  lang?: string;
+}
+
+/** Proofing options. */
+export interface ProofOptions {
+  ignoreCaps: boolean;
+  ignoreDigits: boolean;
+  autoLanguage: boolean;
 }
 
 // ---------------------------------------------------------------- live collaboration (bo_engine::collab)

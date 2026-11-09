@@ -1169,6 +1169,13 @@ pub struct ParaProps {
     pub mark_ins: Option<RevMark>,
     /// Tracked deletion of the paragraph mark.
     pub mark_del: Option<RevMark>,
+    /// Language of the paragraph mark (§17.3.2.20 lang in `w:pPr/w:rPr`, §17.3.1.29): text
+    /// typed at the end of the paragraph takes it. Never inherited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mark_lang: Option<Lang>,
+    /// `w:noProof` of the paragraph mark (§17.3.2.21 in `w:pPr/w:rPr`). Never inherited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mark_no_proof: Option<bool>,
     /// Tracked paragraph formatting change (§17.13.5.29 pPrChange). Never inherited.
     pub change: Option<Box<ParaPropsChange>>,
     /// Unknown `w:pPr` children kept verbatim.
@@ -1201,6 +1208,8 @@ impl ParaProps {
             bidi: self.bidi.or(base.bidi),
             mark_ins: self.mark_ins.clone(),
             mark_del: self.mark_del.clone(),
+            mark_lang: self.mark_lang.clone(),
+            mark_no_proof: self.mark_no_proof,
             change: self.change.clone(),
             unknown: if self.unknown.is_empty() {
                 base.unknown.clone()
@@ -1322,6 +1331,55 @@ pub enum VertAlign {
     Subscript,
 }
 
+/// Languages of a run (ECMA-376 Part 1, §17.3.2.20 lang): one BCP 47 tag per script class
+/// (§17.18.48 `ST_Lang`). Each attribute is inherited on its own through the style hierarchy.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Lang {
+    /// `@w:val`: language of Latin (and other non East Asian, non complex script) text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub val: Option<String>,
+    /// `@w:eastAsia`: language of East Asian text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub east_asia: Option<String>,
+    /// `@w:bidi`: language of complex script (right-to-left) text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bidi: Option<String>,
+}
+
+impl Lang {
+    /// A language for Latin text only.
+    pub fn latin(tag: &str) -> Lang {
+        Lang {
+            val: Some(tag.to_owned()),
+            ..Lang::default()
+        }
+    }
+
+    /// No attribute is set.
+    pub fn is_empty(&self) -> bool {
+        self.val.is_none() && self.east_asia.is_none() && self.bidi.is_none()
+    }
+
+    /// Overlay `self` on top of `base`, attribute by attribute.
+    #[must_use]
+    pub fn inherit(&self, base: &Lang) -> Lang {
+        Lang {
+            val: self.val.clone().or_else(|| base.val.clone()),
+            east_asia: self.east_asia.clone().or_else(|| base.east_asia.clone()),
+            bidi: self.bidi.clone().or_else(|| base.bidi.clone()),
+        }
+    }
+}
+
+fn inherit_lang(own: Option<&Lang>, base: Option<&Lang>) -> Option<Lang> {
+    match (own, base) {
+        (Some(o), Some(b)) => Some(o.inherit(b)),
+        (Some(l), None) | (None, Some(l)) => Some(l.clone()),
+        (None, None) => None,
+    }
+}
+
 /// Run properties. `None` means "inherit".
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct RunProps {
@@ -1392,6 +1450,12 @@ pub struct RunProps {
     pub kern: Option<HalfPoints>,
     /// Hidden text (`w:vanish`).
     pub hidden: Option<bool>,
+    /// Languages of the run (§17.3.2.20 lang), used to pick the proofing dictionary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang: Option<Lang>,
+    /// Do not check spelling or grammar (§17.3.2.21 noProof).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_proof: Option<bool>,
     /// Hyperlink target (URL or `#bookmark`) when the run is inside `w:hyperlink`.
     pub link: Option<String>,
     /// The run is inside `w:ins` / `w:moveTo` (§17.13.5.18, §17.13.5.25). Never inherited.
@@ -1487,6 +1551,8 @@ impl RunProps {
             spacing: self.spacing.or(base.spacing),
             kern: self.kern.or(base.kern),
             hidden: self.hidden.or(base.hidden),
+            lang: inherit_lang(self.lang.as_ref(), base.lang.as_ref()),
+            no_proof: self.no_proof.or(base.no_proof),
             link: self.link.clone().or_else(|| base.link.clone()),
             ins: self.ins.clone(),
             del: self.del.clone(),

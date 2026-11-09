@@ -5,19 +5,92 @@
 //! placement is checked against the style most used in the document.
 //!
 //! Vietnamese is always checked (rule based, `bo_spell::vi`); other languages come from Hunspell
-//! dictionaries loaded with [`crate::Engine::load_dictionary`] (native builds bundle `en_US`). A word is
-//! correct when any language accepts it (Vietnamese documents mix in English terms).
+//! dictionaries loaded with [`crate::Engine::load_dictionary`] (native builds bundle `en_US`).
+//!
+//! Each run is checked in its resolved language (§17.3.2.20 lang `@w:val`, through docDefaults,
+//! paragraph style, character style and direct formatting, CORE-SPELL-005): `vi-*` with the
+//! Vietnamese rules, `en-*` with the English dictionary; a language without a checker is not
+//! checked and reported. Text without any language is correct when any checker accepts it.
+//! Runs with `noProof` (§17.3.2.21), hidden text (§17.3.2.41 vanish) and deleted text are skipped.
+//! Two rules keep Vietnamese text typed in runs tagged with another language usable: a word with a
+//! Vietnamese letter (`ă â đ ê ô ơ ư`, tone marks) is checked as Vietnamese, and in a paragraph
+//! whose text reads as Vietnamese (`bo_spell::lang::detect`) a word the Vietnamese rules accept is
+//! correct too.
 
 use crate::edit::{Command, EditResult};
 use crate::nav;
 use crate::Engine;
 use bo_layout::{Line, LineSource};
+use bo_model::{Document, Paragraph};
 use bo_spell::grammar::{self, Issue};
 use bo_spell::vi::ToneStyle;
 use bo_spell::Speller;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fmt::Write as _;
 use std::ops::Range;
+
+/// A stretch of a paragraph index text with one proofing language.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Span {
+    /// Byte range in the index text.
+    pub range: Range<usize>,
+    /// Resolved language (`None`: not set, or `x-none`).
+    pub lang: Option<String>,
+    /// Not checked: `noProof`, hidden or deleted text.
+    pub skip: bool,
+}
+
+/// Language spans of a paragraph from its runs' resolved properties.
+pub(crate) fn spans(doc: &Document, p: &Paragraph) -> Vec<Span> {
+    let (_, items) = bo_model::index::para_index(p);
+    let mut out: Vec<Span> = Vec::new();
+    let mut resolved: HashMap<usize, (Option<String>, bool)> = HashMap::new();
+    for it in items {
+        if it.end == it.start {
+            continue;
+        }
+        let (lang, skip) = resolved
+            .entry(it.run)
+            .or_insert_with(|| {
+                let direct = &p.runs[it.run].props;
+                let eff = bo_edit::effective_run(doc, p, direct);
+                let lang = eff
+                    .lang
+                    .and_then(|l| l.val)
+                    .filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case("x-none"));
+                let skip = eff.no_proof.unwrap_or(false)
+                    || eff.hidden.unwrap_or(false)
+                    || direct.del.is_some();
+                (lang, skip)
+            })
+            .clone();
+        match out.last_mut() {
+            Some(s) if s.range.end == it.start && s.lang == lang && s.skip == skip => {
+                s.range.end = it.end;
+            }
+            _ => out.push(Span {
+                range: it.start..it.end,
+                lang,
+                skip,
+            }),
+        }
+    }
+    out
+}
+
+fn span_at(spans: &[Span], at: usize) -> Option<&Span> {
+    spans
+        .iter()
+        .find(|s| s.range.start <= at && at < s.range.end)
+}
+
+/// A misspelt word: its range and the language it was checked in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Misspelt {
+    pub range: Range<usize>,
+    pub lang: Option<String>,
+}
 
 /// A misspelt word on a page (points): draw a wavy line from `x` to `x + w` at `y`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -55,17 +128,24 @@ pub struct SpellInfo {
 }
 
 /// Cached checks of one paragraph text.
-struct Analysis {
-    misspelt: Vec<Range<usize>>,
-    issues: Vec<Issue>,
-    styles: Vec<(Range<usize>, ToneStyle)>,
+pub(crate) struct Analysis {
+    pub misspelt: Vec<Misspelt>,
+    pub issues: Vec<Issue>,
+    pub styles: Vec<(Range<usize>, ToneStyle)>,
+    /// Languages of checked text without a checker.
+    pub unchecked: BTreeSet<String>,
 }
+
+/// A paragraph to check: index text and language spans.
+pub(crate) type ProofText = (String, Vec<Span>);
 
 /// Speller of the engine plus a cache of misspelt ranges per paragraph text.
 pub(crate) struct SpellState {
     pub speller: Speller,
     pub enabled: bool,
     pub grammar: bool,
+    /// Tag typed text with the language detected for it (off by default).
+    pub auto_language: bool,
     /// Ignored grammar issues: (rule id, flagged text).
     ignored: HashSet<(String, String)>,
     cache: HashMap<String, Analysis>,
@@ -74,38 +154,122 @@ pub(crate) struct SpellState {
 impl Default for SpellState {
     fn default() -> Self {
         let mut speller = Speller::new();
-        speller.add(Box::new(bo_spell::vi::Vietnamese));
+        speller.add_language("vi", Box::new(bo_spell::vi::Vietnamese));
         SpellState {
             speller,
             enabled: true,
             grammar: true,
+            auto_language: false,
             ignored: HashSet::new(),
             cache: HashMap::new(),
         }
     }
 }
 
+/// Cache key of a paragraph: its text and language spans.
+fn key(text: &str, spans: &[Span]) -> String {
+    let mut k = String::with_capacity(text.len() + 16);
+    k.push_str(text);
+    for s in spans {
+        let _ = write!(
+            k,
+            "\u{1}{}-{}:{}:{}",
+            s.range.start,
+            s.range.end,
+            s.lang.as_deref().unwrap_or(""),
+            u8::from(s.skip)
+        );
+    }
+    k
+}
+
 impl SpellState {
-    fn analysis(&mut self, text: &str) -> &Analysis {
-        if !self.cache.contains_key(text) {
+    /// Checks one word of a paragraph in its language: `None` when no checker serves it.
+    fn check_word(&self, word: &str, lang: Option<&str>, para_vi: bool) -> (bool, Option<String>) {
+        let vi_word = bo_spell::lang::has_vietnamese_letter(word);
+        let non_vi = lang.is_some_and(|l| bo_spell::primary_language(l) != "vi");
+        let vi_ok = || self.speller.check_in(word, Some("vi")) == Some(true);
+        // A word written with Vietnamese letters is Vietnamese whatever the run says.
+        let lang = if non_vi && vi_word && self.speller.has_language(Some("vi")) {
+            Some("vi-VN")
+        } else {
+            lang
+        };
+        match self.speller.check_in(word, lang) {
+            Some(true) => (true, None),
+            Some(false) if non_vi && para_vi && vi_ok() => (true, None),
+            Some(false) => (false, None),
+            None => (true, lang.map(str::to_owned)),
+        }
+    }
+
+    pub(crate) fn analysis(&mut self, text: &str, spans: &[Span]) -> &Analysis {
+        let k = key(text, spans);
+        if !self.cache.contains_key(&k) {
+            let para_vi = bo_spell::lang::detect(text) == Some("vi-VN");
+            let mut misspelt = Vec::new();
+            let mut unchecked = BTreeSet::new();
+            for r in bo_spell::checkable_words(text) {
+                let Some(span) = span_at(spans, r.start) else {
+                    continue;
+                };
+                if span.skip {
+                    continue;
+                }
+                let word = &text[r.clone()];
+                let lang = span.lang.as_deref();
+                let (ok, none) = self.check_word(word, lang, para_vi);
+                if let Some(l) = none {
+                    unchecked.insert(l);
+                } else if !ok {
+                    let checked_in = if lang.is_some_and(|l| bo_spell::primary_language(l) != "vi")
+                        && bo_spell::lang::has_vietnamese_letter(word)
+                    {
+                        Some("vi-VN".to_owned())
+                    } else {
+                        span.lang.clone()
+                    };
+                    misspelt.push(Misspelt {
+                        range: r,
+                        lang: checked_in,
+                    });
+                }
+            }
+            let skipped = |r: &Range<usize>| {
+                spans.iter().any(|s| {
+                    s.skip && s.range.start < r.end.max(r.start + 1) && r.start < s.range.end
+                })
+            };
             let a = Analysis {
-                misspelt: self.speller.misspelt(text),
-                issues: grammar::check(text),
-                styles: grammar::tone_styles(text),
+                misspelt,
+                issues: grammar::check(text)
+                    .into_iter()
+                    .filter(|i| !skipped(&i.range))
+                    .collect(),
+                styles: grammar::tone_styles(text)
+                    .into_iter()
+                    .filter(|(r, _)| !skipped(r))
+                    .collect(),
+                unchecked,
             };
             if self.cache.len() > 20_000 {
                 self.cache.clear();
             }
-            self.cache.insert(text.to_owned(), a);
+            self.cache.insert(k.clone(), a);
         }
-        &self.cache[text]
+        &self.cache[&k]
+    }
+
+    /// Suggestions for a misspelt word in the language it was checked in.
+    pub(crate) fn suggest(&self, word: &str, lang: Option<&str>) -> Vec<String> {
+        self.speller.suggest_in(word, lang)
     }
 
     /// The tone placement most used in `texts` (`None` when no word shows one).
-    fn document_style(&mut self, texts: &[String]) -> Option<ToneStyle> {
+    pub(crate) fn document_style(&mut self, texts: &[ProofText]) -> Option<ToneStyle> {
         let (mut old, mut new) = (0usize, 0usize);
-        for t in texts {
-            for (_, s) in &self.analysis(t).styles {
+        for (t, sp) in texts {
+            for (_, s) in &self.analysis(t, sp).styles {
                 match s {
                     ToneStyle::Old => old += 1,
                     ToneStyle::New => new += 1,
@@ -120,15 +284,29 @@ impl SpellState {
     }
 
     /// Grammar issues of a paragraph not ignored, the tone style ones included.
-    fn issues(&mut self, text: &str, style: Option<ToneStyle>) -> Vec<Issue> {
+    pub(crate) fn issues(
+        &mut self,
+        text: &str,
+        spans: &[Span],
+        style: Option<ToneStyle>,
+    ) -> Vec<Issue> {
         if !self.grammar {
             return Vec::new();
         }
-        let mut out = self.analysis(text).issues.clone();
-        if let Some(style) = style {
-            if self.analysis(text).styles.iter().any(|(_, s)| *s != style) {
-                out.extend(grammar::tone_style_issues(text, style));
-            }
+        let a = self.analysis(text, spans);
+        let mut out = a.issues.clone();
+        let other_style = style.filter(|st| a.styles.iter().any(|(_, s)| s != st));
+        if let Some(style) = other_style {
+            let styled: Vec<Range<usize>> = a.styles.iter().map(|(r, _)| r.clone()).collect();
+            out.extend(
+                grammar::tone_style_issues(text, style)
+                    .into_iter()
+                    .filter(|i| {
+                        styled
+                            .iter()
+                            .any(|r| r.start <= i.range.start && i.range.end <= r.end)
+                    }),
+            );
         }
         out.retain(|i| {
             !self
@@ -145,18 +323,23 @@ impl SpellState {
 }
 
 impl Engine {
-    /// Loads a Hunspell dictionary (`.aff` + `.dic` bytes) for spelling (web hosts fetch them; native
-    /// builds bundle `en_US`).
+    /// Loads a Hunspell dictionary (`.aff` + `.dic` bytes) for English spelling (web hosts fetch
+    /// them; native builds bundle `en_US`), used for every `en-*` language.
     pub fn load_dictionary(&mut self, aff: &[u8], dic: &[u8]) -> crate::Result<()> {
+        self.load_dictionary_for("en", aff, dic)
+    }
+
+    /// Loads a Hunspell dictionary for the language `lang` (BCP 47; its primary subtag counts).
+    pub fn load_dictionary_for(&mut self, lang: &str, aff: &[u8], dic: &[u8]) -> crate::Result<()> {
         let d =
             bo_spell::Dictionary::from_aff_dic(aff, dic).map_err(crate::EngineError::BadCommand)?;
-        self.spell.speller.add(Box::new(d));
+        self.spell.speller.add_language(lang, Box::new(d));
         self.spell.invalidate();
         Ok(())
     }
 
-    /// Index text of every body paragraph by id.
-    fn body_texts(&self) -> Vec<String> {
+    /// Index text and language spans of every body paragraph by id.
+    pub(crate) fn body_texts(&self) -> Vec<ProofText> {
         let Some(doc) = self.document() else {
             return Vec::new();
         };
@@ -164,7 +347,7 @@ impl Engine {
             .iter()
             .map(|p| {
                 bo_model::index::para_at(doc, p)
-                    .map(|para| bo_model::index::para_index(para).0)
+                    .map(|para| (bo_model::index::para_index(para).0, spans(doc, para)))
                     .unwrap_or_default()
             })
             .collect()
@@ -201,20 +384,20 @@ impl Engine {
             let LineSource::Body(id) = l.source else {
                 continue;
             };
-            let Some(text) = texts.get(id as usize) else {
+            let Some((text, sp)) = texts.get(id as usize) else {
                 continue;
             };
             let (ls, le) = (l.start as usize, l.end as usize);
             let mut ranges: Vec<(Range<usize>, bool)> = self
                 .spell
-                .analysis(text)
+                .analysis(text, sp)
                 .misspelt
                 .iter()
-                .map(|r| (r.clone(), false))
+                .map(|m| (m.range.clone(), false))
                 .collect();
             ranges.extend(
                 self.spell
-                    .issues(text, style)
+                    .issues(text, sp, style)
                     .into_iter()
                     .map(|i| (i.range, true)),
             );
@@ -244,27 +427,29 @@ impl Engine {
         let layout = self.layout()?;
         let pos = nav::hit_test(layout, page, x, y)?;
         let texts = self.body_texts();
-        let text = texts.get(pos.para)?.clone();
-        let word = bo_spell::words(&text)
-            .into_iter()
-            .find(|r| r.start <= pos.offset && pos.offset <= r.end);
-        if let Some(r) = word {
-            let word = text[r.clone()].to_owned();
-            if !self.spell.speller.check(&word) {
-                return Some(SpellInfo {
-                    suggestions: self.spell.speller.suggest(&word),
-                    word,
-                    para: pos.para,
-                    start: r.start,
-                    end: r.end,
-                    rule: None,
-                });
-            }
+        let (text, sp) = texts.get(pos.para)?.clone();
+        let hit = self
+            .spell
+            .analysis(&text, &sp)
+            .misspelt
+            .iter()
+            .find(|m| m.range.start <= pos.offset && pos.offset <= m.range.end)
+            .cloned();
+        if let Some(m) = hit {
+            let word = text[m.range.clone()].to_owned();
+            return Some(SpellInfo {
+                suggestions: self.spell.suggest(&word, m.lang.as_deref()),
+                word,
+                para: pos.para,
+                start: m.range.start,
+                end: m.range.end,
+                rule: None,
+            });
         }
         let style = self.spell.document_style(&texts);
         let issue = self
             .spell
-            .issues(&text, style)
+            .issues(&text, &sp, style)
             .into_iter()
             .find(|i| i.range.start <= pos.offset && pos.offset <= i.range.end)?;
         Some(SpellInfo {
@@ -332,6 +517,38 @@ impl Engine {
                 let mut r = self.query_result()?;
                 r.spelling = Some(self.spelling_marks(None));
                 Ok(Some(r))
+            }
+            Command::ProofCheck => {
+                let report = self.proof_check();
+                let mut r = self.query_result()?;
+                r.proof = Some(Box::new(report));
+                Ok(Some(r))
+            }
+            Command::ProofOptions {
+                ignore_caps,
+                ignore_digits,
+                auto_language,
+            } => {
+                if let Some(v) = ignore_caps {
+                    self.spell.speller.ignore_all_caps = *v;
+                }
+                if let Some(v) = ignore_digits {
+                    self.spell.speller.ignore_digits = *v;
+                }
+                if let Some(v) = auto_language {
+                    self.spell.auto_language = *v;
+                }
+                self.spell.invalidate();
+                let mut r = self.query_result()?;
+                r.proof_options = Some(self.proof_options());
+                r.spelling = Some(self.spelling_marks(None));
+                Ok(Some(r))
+            }
+            Command::ProofEdit { .. } => {
+                // Corrections go to the document itself: leave the header/footer or note editor.
+                self.close_header_footer()?;
+                self.close_note()?;
+                Ok(None)
             }
             _ => Ok(None),
         }

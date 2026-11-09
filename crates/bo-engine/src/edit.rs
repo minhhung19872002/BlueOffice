@@ -801,6 +801,47 @@ pub enum Command {
         #[serde(default)]
         options: FindOptions,
     },
+    /// Layout tab state: columns, line numbers, hyphenation, text direction, drop cap.
+    PageLayout,
+    /// Text columns (§17.6.4 cols) of the caret's section, every section or from
+    /// the caret's paragraph on.
+    SetColumns {
+        /// Columns.
+        columns: bo_edit::page_layout::ColumnsSpec,
+        /// Where they apply.
+        #[serde(default)]
+        scope: bo_edit::page_layout::LayoutScope,
+    },
+    /// Line numbering (§17.6.8 lnNumType; `None`: off).
+    SetLineNumbering {
+        /// Numbering.
+        #[serde(default)]
+        numbering: Option<bo_model::LineNumbering>,
+        /// Caret's section or every section.
+        #[serde(default)]
+        scope: SetupScope,
+    },
+    /// Text direction of sections (§17.6.20 textDirection: `tbRl`, `btLr`; `None`:
+    /// horizontal).
+    SetSectionTextDirection {
+        /// `ST_TextDirection` value.
+        #[serde(default)]
+        dir: Option<String>,
+        /// Caret's section or every section.
+        #[serde(default)]
+        scope: SetupScope,
+    },
+    /// Hyphenation settings of the document (§17.15.1.10 autoHyphenation, …).
+    SetHyphenation {
+        /// New settings.
+        hyphenation: bo_model::Hyphenation,
+    },
+    /// Drop cap of the caret's paragraph (§17.3.1.11 framePr; `None`: remove).
+    SetDropCap {
+        /// New drop cap.
+        #[serde(default)]
+        drop_cap: Option<bo_edit::page_layout::DropCapSpec>,
+    },
 }
 
 fn yes() -> bool {
@@ -940,6 +981,9 @@ pub struct EditResult {
     /// Find results with context (`findResults`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub results: Option<Vec<crate::views::FindResult>>,
+    /// Layout tab state (page layout commands).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_layout: Option<Box<bo_edit::page_layout::PageLayoutState>>,
 }
 
 impl crate::Engine {
@@ -1299,7 +1343,13 @@ impl crate::Engine {
                     | Command::SetOutlineLevel { .. }
                     | Command::MoveOutline { .. }
                     | Command::MoveOutlineTo { .. }
-                    | Command::FindResults { .. } => {}
+                    | Command::FindResults { .. }
+                    | Command::PageLayout
+                    | Command::SetColumns { .. }
+                    | Command::SetLineNumbering { .. }
+                    | Command::SetSectionTextDirection { .. }
+                    | Command::SetHyphenation { .. }
+                    | Command::SetDropCap { .. } => {}
                     Command::Tab { back } => {
                         if s.next_cell(back)?.is_none() && !back {
                             s.insert_text("\t")?;
@@ -1959,6 +2009,7 @@ impl crate::Engine {
             security: None,
             outline: None,
             results: None,
+            page_layout: None,
         })
     }
 }

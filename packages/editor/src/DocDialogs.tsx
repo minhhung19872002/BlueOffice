@@ -63,7 +63,7 @@ function marginsOf(s: PageSetupSpec): string {
 }
 
 /** Number input in cm / inches bound to a twips value. */
-function Length({
+export function Length({
   label,
   twips,
   onChange,

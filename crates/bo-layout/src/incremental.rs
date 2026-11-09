@@ -420,6 +420,12 @@ impl IncrementalLayout {
         };
         let mut incremental = self.st.as_ref().is_some_and(|st| {
             !changes.is_all()
+                // Pages of vertical sections (§17.6.20 textDirection) are turned when
+                // finished: they are always laid out again.
+                && !doc
+                    .sections
+                    .iter()
+                    .any(|s| s.text_direction.is_some_and(|d| d.rotation() != 0))
                 && st.opts == opts
                 && st.total == total
                 && st.scan_notes == sc.notes

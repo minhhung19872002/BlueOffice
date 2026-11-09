@@ -22,6 +22,7 @@
 mod blocks;
 mod drawing;
 mod flow;
+mod hyphen;
 mod incremental;
 mod markup;
 mod math;

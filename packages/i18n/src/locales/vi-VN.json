@@ -155,14 +155,18 @@
       "formText": "Ô nhập chữ (biểu mẫu)",
       "formCheckBox": "Ô đánh dấu (biểu mẫu)",
       "formDropDown": "Danh sách chọn (biểu mẫu)",
-      "formProperties": "Tuỳ chọn trường biểu mẫu…"
+      "formProperties": "Tuỳ chọn trường biểu mẫu…",
+      "dropCap": "Chữ hoa đầu đoạn"
     },
     "layout": {
       "margins": "Lề",
       "orientation": "Hướng giấy",
       "size": "Khổ giấy",
       "columns": "Cột",
-      "pageSetup": "Thiết lập trang…"
+      "pageSetup": "Thiết lập trang…",
+      "lineNumbers": "Số dòng",
+      "hyphenation": "Ngắt từ tự động",
+      "textDirection": "Hướng chữ của trang"
     },
     "view": {
       "zoomIn": "Phóng to",
@@ -3265,6 +3269,71 @@
     },
     "focus": {
       "exit": "Thoát tập trung"
+    }
+  },
+  "layout": {
+    "ok": "Áp dụng",
+    "cancel": "Huỷ",
+    "applyTo": "Áp dụng cho",
+    "thisSection": "Section này",
+    "wholeDocument": "Mọi section",
+    "forward": "Từ con trỏ đến hết",
+    "columns": {
+      "title": "Chia cột văn bản",
+      "presets": "Mẫu nhanh",
+      "one": "Một cột",
+      "two": "Hai cột đều",
+      "three": "Ba cột đều",
+      "left": "Cột trái hẹp",
+      "right": "Cột phải hẹp",
+      "count": "Số cột",
+      "equal": "Các cột rộng bằng nhau",
+      "separator": "Kẻ đường giữa các cột",
+      "column": "Cột {{n}}",
+      "width": "Độ rộng",
+      "space": "Khoảng cách sau",
+      "gap": "Khoảng cách giữa các cột",
+      "preview": "Phác thảo bố cục"
+    },
+    "lineNumbers": {
+      "title": "Đánh số các dòng",
+      "mode": "Cách đánh số",
+      "none": "Tắt",
+      "continuous": "Liên tục cả tài liệu",
+      "newPage": "Bắt đầu lại mỗi trang",
+      "newSection": "Bắt đầu lại mỗi section",
+      "start": "Số đầu tiên",
+      "countBy": "Hiện cách mỗi",
+      "distance": "Cách chữ",
+      "auto": "Tự động",
+      "suppress": "Bỏ qua đoạn hiện tại"
+    },
+    "hyphenation": {
+      "title": "Ngắt từ",
+      "auto": "Tự động ngắt từ dài ở cuối dòng",
+      "noCaps": "Giữ nguyên các từ viết hoa",
+      "zone": "Chỉ ngắt khi khoảng trống cuối dòng tối thiểu",
+      "limit": "Số dòng ngắt từ liên tiếp tối đa",
+      "noLimit": "Không giới hạn",
+      "suppress": "Không ngắt từ trong đoạn hiện tại",
+      "note": "Chỉ ngắt từ tiếng Anh; văn bản tiếng Việt xuống dòng tại dấu cách."
+    },
+    "textDirection": {
+      "title": "Hướng chữ của trang",
+      "horizontal": "Ngang trang",
+      "tbRl": "Dọc xuống, dòng bắt đầu từ bên phải",
+      "btLr": "Dọc lên, dòng bắt đầu từ bên trái"
+    },
+    "dropCap": {
+      "title": "Chữ cái lớn đầu đoạn",
+      "position": "Vị trí",
+      "none": "Không có",
+      "drop": "Trong đoạn văn",
+      "margin": "Ở lề trái",
+      "font": "Phông chữ",
+      "sameFont": "Như đoạn văn",
+      "lines": "Cao bằng số dòng",
+      "distance": "Cách chữ"
     }
   }
 }

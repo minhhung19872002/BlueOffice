@@ -121,6 +121,9 @@ impl Engine {
         if let Some(r) = self.design_command(cmd)? {
             return Ok(Some(r));
         }
+        if let Some(r) = self.page_layout_command(cmd)? {
+            return Ok(Some(r));
+        }
         match cmd {
             // A click on a footnote/endnote edits it in place (§17.11).
             Command::Click { page, y, .. } if self.note_at(*page, *y).is_some() => {

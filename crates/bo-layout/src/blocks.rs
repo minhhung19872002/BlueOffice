@@ -150,6 +150,12 @@ pub(crate) struct ParaBlock {
     pub pure: bool,
     /// List label (kept to lay the paragraph out again around wrapped pictures).
     pub label: Option<(String, bo_model::RunProps, String)>,
+    /// Drop cap frame (ECMA-376 Part 1, §17.3.1.11 framePr `w:dropCap`).
+    pub frame: Option<bo_model::FrameProps>,
+    /// Lines counted by line numbering (§17.3.1.35 suppressLineNumbers off).
+    pub numbered: bool,
+    /// Width the lines were laid out for (columns of unequal width lay it out again).
+    pub width: f32,
 }
 
 impl ParaBlock {
@@ -407,6 +413,9 @@ fn para_block(
             .collect(),
         pure,
         label,
+        frame: pl.frame,
+        width,
+        numbered: pl.numbered,
     })
 }
 
@@ -719,7 +728,7 @@ fn natural_length(ctx: &mut Ctx<'_>, blocks: &[Block], body: bool) -> Result<f32
 
 /// Where a rotation takes a page item (rectangles and rules exactly; pictures and
 /// shapes turn about their centre).
-fn rotate_item(it: &mut PageItem, r: &LineRotation) {
+pub(crate) fn rotate_item(it: &mut PageItem, r: &LineRotation) {
     match it {
         PageItem::Rect { x, y, w, h, .. } => {
             let (ax, ay) = r.apply(*x, *y);

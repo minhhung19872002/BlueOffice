@@ -145,6 +145,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
         if src.even_and_odd_headers != doc.even_and_odd_headers
             || src.display_background_shape != doc.design.display_background_shape
             || src.protection != doc.protection
+            || src.hyphenation != doc.hyphenation
         {
             w.patch_settings(&main)?;
         }
@@ -192,6 +193,75 @@ fn find_element(xml: &str, tag: &str) -> Option<usize> {
 }
 
 /// Remove every empty element `<tag …/>` (or `<tag …></tag>`).
+/// CT_Settings children that follow the hyphenation settings (§17.15.1.78).
+const AFTER_HYPHENATION: &[&str] = &[
+    "showEnvelope",
+    "summaryLength",
+    "clickAndTypeStyle",
+    "defaultTableStyle",
+    "evenAndOddHeaders",
+    "bookFoldRevPrinting",
+    "bookFoldPrinting",
+    "bookFoldPrintingSheets",
+    "drawingGridHorizontalSpacing",
+    "drawingGridVerticalSpacing",
+    "displayHorizontalDrawingGridEvery",
+    "displayVerticalDrawingGridEvery",
+    "doNotUseMarginsForDrawingGridOrigin",
+    "drawingGridHorizontalOrigin",
+    "drawingGridVerticalOrigin",
+    "doNotShadeFormData",
+    "noPunctuationKerning",
+    "characterSpacingControl",
+    "printTwoOnOne",
+    "strictFirstAndLastChars",
+    "noLineBreaksAfter",
+    "noLineBreaksBefore",
+    "savePreviewPicture",
+    "updateFields",
+    "hdrShapeDefaults",
+    "footnotePr",
+    "endnotePr",
+    "compat",
+    "docVars",
+    "rsids",
+    "mathPr",
+    "attachedSchema",
+    "themeFontLang",
+    "clrSchemeMapping",
+    "doNotIncludeSubdocsInStats",
+    "doNotAutoCompressPictures",
+    "forceUpgrade",
+    "captions",
+    "readModeInkLockDown",
+    "smartTagType",
+    "schemaLibrary",
+    "shapeDefaults",
+    "doNotEmbedSmartTags",
+    "decimalSymbol",
+    "listSeparator",
+];
+
+/// Hyphenation settings in CT_Settings order: §17.15.1.10 autoHyphenation,
+/// §17.15.1.21 consecutiveHyphenLimit, §17.15.1.52 hyphenationZone, §17.15.1.40
+/// doNotHyphenateCaps (defaults omitted).
+fn hyphenation_xml(h: &bo_model::Hyphenation) -> String {
+    let mut s = String::new();
+    if h.auto {
+        s.push_str("<w:autoHyphenation/>");
+    }
+    if let Some(n) = h.consecutive_limit.filter(|n| *n > 0) {
+        let _ = write!(s, "<w:consecutiveHyphenLimit w:val=\"{n}\"/>");
+    }
+    if let Some(z) = h.zone {
+        let _ = write!(s, "<w:hyphenationZone w:val=\"{}\"/>", z.0.max(0));
+    }
+    if h.no_caps {
+        s.push_str("<w:doNotHyphenateCaps/>");
+    }
+    s
+}
+
 fn remove_empty_element(xml: &str, tag: &str) -> String {
     let mut s = xml.to_owned();
     while let Some(at) = find_element(&s, tag) {
@@ -1000,7 +1070,7 @@ impl Writer<'_> {
         if let Some(ch) = &sec.change {
             let old = Section {
                 page: ch.page,
-                columns: ch.columns,
+                columns: ch.columns.clone(),
                 title_page: ch.title_page,
                 break_type: ch.break_type,
                 page_number_start: ch.page_number_start,
@@ -1484,6 +1554,25 @@ impl Writer<'_> {
                 s.insert_str(at, "<w:evenAndOddHeaders/>");
             }
         }
+        for tag in [
+            "w:autoHyphenation",
+            "w:consecutiveHyphenLimit",
+            "w:hyphenationZone",
+            "w:doNotHyphenateCaps",
+        ] {
+            s = remove_empty_element(&s, tag);
+        }
+        let hy = hyphenation_xml(&self.doc.hyphenation);
+        if !hy.is_empty() {
+            let at = AFTER_HYPHENATION
+                .iter()
+                .filter_map(|n| find_element(&s, &format!("w:{n}")))
+                .min()
+                .or_else(|| s.rfind("</w:settings>"));
+            if let Some(at) = at {
+                s.insert_str(at, &hy);
+            }
+        }
         self.pkg.put_part(&part, s.into_bytes());
         Ok(())
     }
@@ -1534,6 +1623,7 @@ impl Writer<'_> {
         if let Some(t) = self.doc.default_tab_stop {
             let _ = write!(s, "<w:defaultTabStop w:val=\"{}\"/>", t.0);
         }
+        s.push_str(&hyphenation_xml(&self.doc.hyphenation));
         if self.doc.even_and_odd_headers {
             s.push_str("<w:evenAndOddHeaders/>");
         }
@@ -1914,19 +2004,21 @@ fn sect_props_xml(sec: &Section) -> String {
     if let Some(pb) = &sec.page_borders {
         s.push_str(&page_borders_xml(pb));
     }
+    // §17.6.8 lnNumType (countBy, start, distance, restart).
+    if let Some(ln) = &sec.line_numbers {
+        let _ = write!(s, "<w:lnNumType w:countBy=\"{}\"", ln.count_by.max(1));
+        if ln.start > 0 {
+            let _ = write!(s, " w:start=\"{}\"", ln.start);
+        }
+        if let Some(d) = ln.distance {
+            let _ = write!(s, " w:distance=\"{}\"", d.0.max(0));
+        }
+        let _ = write!(s, " w:restart=\"{}\"/>", ln.restart.as_str());
+    }
     if let Some(st) = sec.page_number_start {
         let _ = write!(s, "<w:pgNumType w:start=\"{st}\"/>");
     }
-    // §17.6.4 cols: @num defaults to 1, @space to 720.
-    if sec.columns.count > 1 {
-        let _ = write!(
-            s,
-            "<w:cols w:num=\"{}\" w:space=\"{}\"/>",
-            sec.columns.count, sec.columns.space.0
-        );
-    } else if sec.columns.space.0 != 720 {
-        let _ = write!(s, "<w:cols w:space=\"{}\"/>", sec.columns.space.0);
-    }
+    s.push_str(&cols_xml(&sec.columns));
     // §17.6.6 formProt (after cols, before titlePg in CT_SectPr).
     if sec.form_unprotected {
         s.push_str("<w:formProt w:val=\"0\"/>");
@@ -1934,7 +2026,44 @@ fn sect_props_xml(sec: &Section) -> String {
     if sec.title_page {
         s.push_str("<w:titlePg/>");
     }
+    // §17.6.20 textDirection (after titlePg in CT_SectPrBase).
+    if let Some(d) = sec.text_direction.filter(|d| d.rotation() != 0) {
+        let _ = write!(s, "<w:textDirection w:val=\"{}\"/>", d.as_str());
+    }
     s
+}
+
+/// §17.6.4 cols: @num defaults to 1, @space to 720; `w:sep` draws a line between the
+/// columns; unequal columns are `w:equalWidth="0"` with one §17.6.3 `w:col` each.
+fn cols_xml(c: &bo_model::Columns) -> String {
+    let sep = if c.separator { " w:sep=\"1\"" } else { "" };
+    if c.unequal() {
+        let mut s = format!(
+            "<w:cols w:num=\"{}\" w:space=\"{}\"{sep} w:equalWidth=\"0\">",
+            c.cols.len(),
+            c.space.0.max(0)
+        );
+        let n = c.cols.len();
+        for (i, d) in c.cols.iter().enumerate() {
+            let _ = write!(s, "<w:col w:w=\"{}\"", d.width.0.max(0));
+            if i + 1 < n {
+                let _ = write!(s, " w:space=\"{}\"", d.space.0.max(0));
+            }
+            s.push_str("/>");
+        }
+        s.push_str("</w:cols>");
+        return s;
+    }
+    if c.count > 1 {
+        format!(
+            "<w:cols w:num=\"{}\" w:space=\"{}\"{sep}/>",
+            c.count, c.space.0
+        )
+    } else if c.space.0 != 720 || c.separator {
+        format!("<w:cols w:space=\"{}\"{sep}/>", c.space.0)
+    } else {
+        String::new()
+    }
 }
 
 /// Children of a §17.4.70 tcPr (with §17.13.5.36 tcPrChange), unordered.
@@ -2305,7 +2434,32 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
     v.extend(flag("keepNext", p.keep_next));
     v.extend(flag("keepLines", p.keep_lines));
     v.extend(flag("pageBreakBefore", p.page_break_before));
+    // §17.3.1.11 framePr of a drop cap (§17.18.20 ST_DropCap): the frame wraps the
+    // following text and is anchored to it (§17.3.1.11 wrap, vAnchor, hAnchor).
+    if let Some(f) = &p.frame {
+        let hs = if f.h_space.0 > 0 {
+            format!(" w:hSpace=\"{}\"", f.h_space.0)
+        } else {
+            String::new()
+        };
+        v.push((
+            "framePr".into(),
+            format!(
+                "<w:framePr w:dropCap=\"{}\" w:lines=\"{}\"{hs} w:wrap=\"around\" w:vAnchor=\"text\" w:hAnchor=\"{}\"/>",
+                f.drop_cap.as_str(),
+                f.lines.clamp(1, 10),
+                if f.drop_cap == bo_model::DropCap::Margin {
+                    "page"
+                } else {
+                    "text"
+                }
+            ),
+        ));
+    }
     v.extend(flag("widowControl", p.widow_control));
+    // §17.3.1.35 suppressLineNumbers / §17.3.1.34 suppressAutoHyphens
+    v.extend(flag("suppressLineNumbers", p.suppress_line_numbers));
+    v.extend(flag("suppressAutoHyphens", p.suppress_auto_hyphens));
     if let Some(n) = p.num {
         v.push((
             "numPr".into(),

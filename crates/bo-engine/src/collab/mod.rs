@@ -615,7 +615,7 @@ fn section_props(s: &Section) -> Section {
     Section {
         page: s.page,
         blocks: Vec::new(),
-        columns: s.columns,
+        columns: s.columns.clone(),
         headers: s.headers.clone(),
         footers: s.footers.clone(),
         title_page: s.title_page,
@@ -625,6 +625,8 @@ fn section_props(s: &Section) -> Section {
         endnote_pr: s.endnote_pr.clone(),
         change: s.change.clone(),
         page_borders: s.page_borders.clone(),
+        line_numbers: s.line_numbers,
+        text_direction: s.text_direction,
         hf_parts: bo_model::HfParts::default(),
         form_unprotected: s.form_unprotected,
         src: None,

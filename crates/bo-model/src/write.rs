@@ -181,6 +181,9 @@ pub struct SourcePackage {
     /// `documentProtection` as read (changed ⇒ the settings part is patched).
     #[serde(default)]
     pub protection: Option<crate::form::DocProtection>,
+    /// Hyphenation settings as read (changed ⇒ settings patched).
+    #[serde(default)]
+    pub hyphenation: Hyphenation,
 }
 
 /// A whole word-processing document.
@@ -213,9 +216,9 @@ pub struct Document {
     /// §20.1.4.1.18 fontScheme) used to resolve theme fonts of runs.
     #[serde(default)]
     pub theme_fonts: ThemeFonts,
-    /// `w:autoHyphenation` (§17.15.1.10).
+    /// Automatic hyphenation settings (§17.15.1.10 autoHyphenation, …).
     #[serde(default)]
-    pub auto_hyphenation: bool,
+    pub hyphenation: Hyphenation,
     /// Document-wide footnote properties (ECMA-376 Part 1, §17.11.11 footnotePr in
     /// `settings.xml`); a section's own footnotePr overrides them.
     #[serde(default)]
@@ -472,12 +475,28 @@ pub enum SectionBreak {
     NextColumn,
 }
 
-/// Text columns (§17.6.4 cols).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Text columns (ECMA-376 Part 1, §17.6.4 cols).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Columns {
-    /// Number of columns (`w:num`).
+    /// Number of columns (`w:num`, at most 45).
     pub count: u16,
-    /// Gap between columns (`w:space`), in twips.
+    /// Gap between columns (`w:space`), in twips (equal-width columns).
+    pub space: Twips,
+    /// §17.6.4 `w:sep`: a vertical line is drawn between the columns.
+    #[serde(default)]
+    pub separator: bool,
+    /// Columns of unequal width (`w:equalWidth="0"` with one §17.6.3 `w:col` per
+    /// column, in order); empty = `count` equal columns `space` apart.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cols: Vec<ColumnDef>,
+}
+
+/// One text column of unequal-width columns (ECMA-376 Part 1, §17.6.3 col).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ColumnDef {
+    /// Column width (`w:w`), in twips.
+    pub width: Twips,
+    /// Space after the column (`w:space`), in twips.
     pub space: Twips,
 }
 
@@ -486,8 +505,162 @@ impl Default for Columns {
         Columns {
             count: 1,
             space: Twips(720),
+            separator: false,
+            cols: Vec::new(),
         }
     }
+}
+
+impl Columns {
+    /// `count` equal columns `space` apart.
+    #[must_use]
+    pub fn equal(count: u16, space: Twips) -> Columns {
+        Columns {
+            count: count.clamp(1, 45),
+            space,
+            ..Columns::default()
+        }
+    }
+
+    /// The column widths are given per column (§17.6.4 `w:equalWidth` false).
+    #[must_use]
+    pub fn unequal(&self) -> bool {
+        !self.cols.is_empty()
+    }
+
+    /// Number of columns in use (1 to 45).
+    #[must_use]
+    pub fn len(&self) -> usize {
+        if self.cols.is_empty() {
+            usize::from(self.count.clamp(1, 45))
+        } else {
+            self.cols.len().min(45)
+        }
+    }
+
+    /// Never empty: a section has at least one column.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+}
+
+/// Restart rule of line numbers (ECMA-376 Part 1, §17.18.47 `ST_LineNumberRestart`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LineNumberRestart {
+    /// Restart on each page (`newPage`, the default).
+    #[default]
+    NewPage,
+    /// Restart at the start of each section (`newSection`).
+    NewSection,
+    /// Continue from the previous section (`continuous`).
+    Continuous,
+}
+
+impl LineNumberRestart {
+    /// The `ST_LineNumberRestart` value.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LineNumberRestart::NewPage => "newPage",
+            LineNumberRestart::NewSection => "newSection",
+            LineNumberRestart::Continuous => "continuous",
+        }
+    }
+
+    /// Parse an `ST_LineNumberRestart` value (unknown = `newPage`).
+    #[must_use]
+    pub fn parse(s: &str) -> LineNumberRestart {
+        match s {
+            "newSection" => LineNumberRestart::NewSection,
+            "continuous" => LineNumberRestart::Continuous,
+            _ => LineNumberRestart::NewPage,
+        }
+    }
+}
+
+/// Line numbering of a section (ECMA-376 Part 1, §17.6.8 lnNumType).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineNumbering {
+    /// `w:countBy`: numbers shown on multiples of this value (1 = every line).
+    pub count_by: u16,
+    /// `w:start` as stored: the first number is `start + 1` (files written by
+    /// common word processors store the starting number less one; an absent
+    /// attribute starts at 1).
+    pub start: u32,
+    /// `w:distance`: gap between the numbers and the text; `None` = automatic.
+    pub distance: Option<Twips>,
+    /// `w:restart`.
+    pub restart: LineNumberRestart,
+}
+
+impl Default for LineNumbering {
+    fn default() -> Self {
+        LineNumbering {
+            count_by: 1,
+            start: 0,
+            distance: None,
+            restart: LineNumberRestart::NewPage,
+        }
+    }
+}
+
+/// Automatic hyphenation settings (ECMA-376 Part 1, §17.15.1.10 autoHyphenation,
+/// §17.15.1.52 hyphenationZone, §17.15.1.21 consecutiveHyphenLimit, §17.15.1.40
+/// doNotHyphenateCaps).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Hyphenation {
+    /// Hyphenate automatically.
+    pub auto: bool,
+    /// Hyphenation zone: the line-end gap below which words are not hyphenated
+    /// (`None` = the default, 0.25 inch).
+    pub zone: Option<Twips>,
+    /// Most consecutive hyphenated lines (`None` or 0 = no limit).
+    pub consecutive_limit: Option<u16>,
+    /// Do not hyphenate words in capitals.
+    pub no_caps: bool,
+}
+
+impl Hyphenation {
+    /// Default hyphenation zone (0.25 inch).
+    pub const DEFAULT_ZONE: Twips = Twips(360);
+}
+
+/// Position of a drop cap (ECMA-376 Part 1, §17.18.20 `ST_DropCap`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DropCap {
+    /// In the text: the following lines are indented beside it (`drop`).
+    Drop,
+    /// In the left margin (`margin`).
+    Margin,
+}
+
+impl DropCap {
+    /// The `ST_DropCap` value.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DropCap::Drop => "drop",
+            DropCap::Margin => "margin",
+        }
+    }
+}
+
+/// Text frame of a drop cap paragraph (ECMA-376 Part 1, §17.3.1.11 framePr with
+/// `w:dropCap`). Other text frames stay verbatim in [`ParaProps::unknown`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameProps {
+    /// `w:dropCap`.
+    pub drop_cap: DropCap,
+    /// `w:lines`: height of the drop cap in lines of the following paragraph.
+    pub lines: u8,
+    /// `w:hSpace`: distance from the text.
+    pub h_space: Twips,
 }
 
 /// Header or footer variants (§17.10.5 headerReference).
@@ -532,6 +705,13 @@ pub struct Section {
     /// Page borders (ECMA-376 Part 1, §17.6.10 pgBorders).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_borders: Option<PageBorders>,
+    /// Line numbering (ECMA-376 Part 1, §17.6.8 lnNumType); `None` = off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_numbers: Option<LineNumbering>,
+    /// Direction of the text of the section's pages (ECMA-376 Part 1, §17.6.20
+    /// textDirection); `None` = horizontal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_direction: Option<TextDirection>,
     /// Source parts of the header/footer variants as read: (header?, `ST_HdrFtr`
     /// kind, part name). Rewritten header parts start from their relationships so
     /// verbatim content keeps resolving its `r:id`s.
@@ -594,12 +774,16 @@ impl Section {
             endnote_pr,
             change,
             page_borders,
+            line_numbers,
+            text_direction,
             hf_parts: _,
             form_unprotected,
             src,
         } = self;
         *page == other.page
             && *page_borders == other.page_borders
+            && *line_numbers == other.line_numbers
+            && *text_direction == other.text_direction
             && *columns == other.columns
             && *break_type == other.break_type
             && *page_number_start == other.page_number_start
@@ -615,7 +799,7 @@ impl Section {
     pub fn props_fingerprint(&self) -> u64 {
         fingerprint(&(
             self.page,
-            self.columns,
+            &self.columns,
             &self.headers,
             &self.footers,
             self.title_page,
@@ -625,7 +809,7 @@ impl Section {
             &self.endnote_pr,
             &self.change,
             &self.page_borders,
-            self.form_unprotected,
+            (self.form_unprotected, self.line_numbers, self.text_direction),
         ))
     }
 
@@ -634,7 +818,7 @@ impl Section {
         SectionChange {
             info,
             page: self.page,
-            columns: self.columns,
+            columns: self.columns.clone(),
             title_page: self.title_page,
             break_type: self.break_type,
             page_number_start: self.page_number_start,
@@ -1164,6 +1348,15 @@ pub struct ParaProps {
     /// `w:bidi` (§17.3.1.6): right-to-left paragraph (base direction for bidi reordering).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bidi: Option<bool>,
+    /// Drop cap text frame (§17.3.1.11 framePr with `w:dropCap`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame: Option<FrameProps>,
+    /// §17.3.1.35 suppressLineNumbers: the paragraph's lines are not numbered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suppress_line_numbers: Option<bool>,
+    /// §17.3.1.34 suppressAutoHyphens: no automatic hyphenation in the paragraph.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suppress_auto_hyphens: Option<bool>,
     /// Tracked insertion / deletion of the paragraph mark (§17.13.5.16 / §17.13.5.15,
     /// children of `w:pPr/w:rPr`). Never inherited.
     pub mark_ins: Option<RevMark>,
@@ -1206,6 +1399,9 @@ impl ParaProps {
             borders: self.borders.clone().or_else(|| base.borders.clone()),
             outline_level: self.outline_level.or(base.outline_level),
             bidi: self.bidi.or(base.bidi),
+            frame: self.frame.or(base.frame),
+            suppress_line_numbers: self.suppress_line_numbers.or(base.suppress_line_numbers),
+            suppress_auto_hyphens: self.suppress_auto_hyphens.or(base.suppress_auto_hyphens),
             mark_ins: self.mark_ins.clone(),
             mark_del: self.mark_del.clone(),
             mark_lang: self.mark_lang.clone(),

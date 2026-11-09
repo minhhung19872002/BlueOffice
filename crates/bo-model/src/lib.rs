@@ -22,13 +22,14 @@ pub use form::{DocProtection, FormField, FormFieldKind};
 pub use units::{Emu, HalfPoints, Twips};
 pub use write::{
     fingerprint, format_number, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell,
-    CellMerge, CellPlace, CellProps, CellPropsChange, CellVAlign, Color, Columns, Comment,
-    ContentControl, ControlKind, DocDesign, Document, GridChange, HeaderFooter, HeightRule,
-    HfParts, Image, Lang, Level, LineSpacing, NotePos, NoteProps, NoteRestart, Num, NumFormat,
-    NumRef, Numbering, PageBorder, PageBorderDisplay, PageBorders, PageSetup, ParaProps,
-    ParaPropsChange, Paragraph, Raw, RevMark, RevisionInfo, Row, RowProps, RowPropsChange, Run,
-    RunContent, RunProps, RunPropsChange, Section, SectionBreak, SectionChange, Shape, ShapeArt,
-    ShapeLine, SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table,
-    TableFloat, TableGeometry, TableProps, TablePropsChange, TableView, TableWidth, TextAnchor,
-    TextDirection, TextPath, ThemeFonts, Underline, VMerge, VertAlign, Wrap, WrapText,
+    CellMerge, CellPlace, CellProps, CellPropsChange, CellVAlign, Color, ColumnDef, Columns,
+    Comment, ContentControl, ControlKind, DocDesign, Document, DropCap, FrameProps, GridChange,
+    HeaderFooter, HeightRule, HfParts, Hyphenation, Image, Lang, Level, LineNumberRestart,
+    LineNumbering, LineSpacing, NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering,
+    PageBorder, PageBorderDisplay, PageBorders, PageSetup, ParaProps, ParaPropsChange, Paragraph,
+    Raw, RevMark, RevisionInfo, Row, RowProps, RowPropsChange, Run, RunContent, RunProps,
+    RunPropsChange, Section, SectionBreak, SectionChange, Shape, ShapeArt, ShapeLine,
+    SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table, TableFloat,
+    TableGeometry, TableProps, TablePropsChange, TableView, TableWidth, TextAnchor, TextDirection,
+    TextPath, ThemeFonts, Underline, VMerge, VertAlign, Wrap, WrapText,
 };

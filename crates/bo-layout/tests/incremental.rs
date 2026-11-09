@@ -199,10 +199,7 @@ fn document(specs: &[Spec], split: usize, variant: u8) -> Document {
         s1.footers.default = Some(vec![field_para("Tổng ", "NUMPAGES")]);
     }
     if variant & 2 == 2 {
-        s2.columns = Columns {
-            count: 2,
-            space: Twips(720),
-        };
+        s2.columns = Columns::equal(2, Twips(720));
         s2.break_type = SectionBreak::Continuous;
     }
     if variant & 4 == 4 {

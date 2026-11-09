@@ -11,14 +11,15 @@ const W14_NS: &str = "http://schemas.microsoft.com/office/word/2010/wordml";
 const W15_NS: &str = "http://schemas.microsoft.com/office/word/2012/wordml";
 use bo_model::{
     fingerprint, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellMerge,
-    CellProps, CellPropsChange, CellVAlign, Color, Columns, Comment, ContentControl, ControlKind,
-    Document, Emu, GridChange, HalfPoints, HeaderFooter, HeightRule, Image, Lang, Level,
-    LineSpacing, NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering, PageBorder,
-    PageBorderDisplay, PageBorders, ParaProps, ParaPropsChange, Paragraph, Raw, RevMark,
-    RevisionInfo, Row, RowPropsChange, Run, RunContent, RunProps, RunPropsChange, Section,
-    SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table,
-    TableFloat, TableProps, TablePropsChange, TableWidth, TextDirection, ThemeFonts, Twips,
-    Underline, VMerge, VertAlign, Wrap, WrapText,
+    CellProps, CellPropsChange, CellVAlign, Color, ColumnDef, Columns, Comment, ContentControl,
+    ControlKind, Document, DropCap, Emu, FrameProps, GridChange, HalfPoints, HeaderFooter,
+    HeightRule, Image, Lang, Level, LineNumberRestart, LineNumbering, LineSpacing, NotePos,
+    NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering, PageBorder, PageBorderDisplay,
+    PageBorders, ParaProps, ParaPropsChange, Paragraph, Raw, RevMark, RevisionInfo, Row,
+    RowPropsChange, Run, RunContent, RunProps, RunPropsChange, Section, SectionBreak,
+    SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table, TableFloat,
+    TableProps, TablePropsChange, TableWidth, TextDirection, ThemeFonts, Twips, Underline, VMerge,
+    VertAlign, Wrap, WrapText,
 };
 use bo_opc::xml::{attr, unescape, XmlReader};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -171,6 +172,7 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         background: doc.design.background,
         display_background_shape: doc.design.display_background_shape,
         protection: doc.protection.clone(),
+        hyphenation: doc.hyphenation,
     }));
     Ok(doc)
 }
@@ -570,7 +572,16 @@ fn read_settings(data: &[u8], part: &str, doc: &mut Document) -> Result<()> {
             Event::Start(e) | Event::Empty(e) => match name(&e).as_slice() {
                 b"defaultTabStop" => doc.default_tab_stop = twips(&e, b"val"),
                 b"evenAndOddHeaders" => doc.even_and_odd_headers = on_off(&e),
-                b"autoHyphenation" => doc.auto_hyphenation = on_off(&e), // §17.15.1.10
+                b"autoHyphenation" => doc.hyphenation.auto = on_off(&e), // §17.15.1.10
+                // §17.15.1.52 hyphenationZone
+                b"hyphenationZone" => doc.hyphenation.zone = twips(&e, b"val"),
+                // §17.15.1.21 consecutiveHyphenLimit
+                b"consecutiveHyphenLimit" => {
+                    doc.hyphenation.consecutive_limit =
+                        int(&e, b"val").map(|v| v.clamp(0, 32_767) as u16);
+                }
+                // §17.15.1.40 doNotHyphenateCaps
+                b"doNotHyphenateCaps" => doc.hyphenation.no_caps = on_off(&e),
                 // §17.15.1.32 displayBackgroundShape
                 b"displayBackgroundShape" => doc.design.display_background_shape = on_off(&e),
                 // §17.15.1.29 documentProtection
@@ -1673,6 +1684,26 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
             b"widowControl" => p.widow_control = Some(on_off(e)),
             b"contextualSpacing" => p.contextual_spacing = Some(on_off(e)),
             b"bidi" => p.bidi = Some(on_off(e)), // §17.3.1.6
+            // §17.3.1.35 suppressLineNumbers
+            b"suppressLineNumbers" => p.suppress_line_numbers = Some(on_off(e)),
+            // §17.3.1.34 suppressAutoHyphens
+            b"suppressAutoHyphens" => p.suppress_auto_hyphens = Some(on_off(e)),
+            // §17.3.1.11 framePr: a drop cap frame (§17.18.20 ST_DropCap drop / margin)
+            // is modelled; other text frames stay verbatim.
+            b"framePr" if matches!(attr(e, b"dropCap").as_deref(), Some("drop" | "margin")) => {
+                p.frame = Some(FrameProps {
+                    drop_cap: if attr(e, b"dropCap").as_deref() == Some("margin") {
+                        DropCap::Margin
+                    } else {
+                        DropCap::Drop
+                    },
+                    lines: int(e, b"lines").unwrap_or(1).clamp(1, 10) as u8,
+                    h_space: twips(e, b"hSpace").unwrap_or(Twips(0)),
+                });
+                if s {
+                    r.skip_element()?;
+                }
+            }
             b"outlineLvl" => p.outline_level = int(e, b"val").map(|v| v.clamp(0, 9) as u8),
             // §17.3.1.19 numPr
             b"numPr" if s => {
@@ -2401,10 +2432,50 @@ fn read_sect_pr(
             }
             // §17.6.4 cols
             b"cols" => {
-                s.columns = Columns {
+                let mut cols = Columns {
                     count: int(e, b"num").unwrap_or(1).clamp(1, 45) as u16,
                     space: twips(e, b"space").unwrap_or(Twips(720)),
+                    // §17.6.4 @w:sep
+                    separator: attr(e, b"sep").is_some_and(|v| on_off_value(&v)),
+                    cols: Vec::new(),
                 };
+                // §17.6.4 @w:equalWidth false: one §17.6.3 col (w, space) per column.
+                let equal = attr(e, b"equalWidth").is_none_or(|v| on_off_value(&v));
+                if st {
+                    let mut defs = Vec::new();
+                    children(rr, |_, e, st, _| {
+                        if name(e) == b"col" {
+                            defs.push(ColumnDef {
+                                width: twips(e, b"w").unwrap_or(Twips(0)),
+                                space: twips(e, b"space").unwrap_or(Twips(0)),
+                            });
+                        }
+                        Ok(!st)
+                    })?;
+                    if !equal && !defs.is_empty() {
+                        defs.truncate(45);
+                        cols.count = defs.len() as u16;
+                        cols.cols = defs;
+                    }
+                }
+                s.columns = cols;
+                return Ok(true);
+            }
+            // §17.6.8 lnNumType
+            b"lnNumType" => {
+                s.line_numbers = Some(LineNumbering {
+                    count_by: int(e, b"countBy").unwrap_or(1).clamp(1, 100) as u16,
+                    start: int(e, b"start").unwrap_or(0).max(0) as u32,
+                    distance: twips(e, b"distance").filter(|t| t.0 >= 0),
+                    restart: LineNumberRestart::parse(attr(e, b"restart").as_deref().unwrap_or("")),
+                });
+            }
+            // §17.6.20 textDirection of the section
+            b"textDirection" => {
+                s.text_direction = attr(e, b"val")
+                    .as_deref()
+                    .and_then(TextDirection::parse)
+                    .filter(|d| d.rotation() != 0);
             }
             b"titlePg" => s.title_page = on_off(e),
             // §17.6.6 formProt

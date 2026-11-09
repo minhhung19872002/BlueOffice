@@ -257,6 +257,20 @@ pub(crate) struct ParaLayout {
     pub indent_right: f32,
     /// Anchored (floating) pictures of this paragraph.
     pub floats: Vec<Float>,
+    /// Drop cap frame (§17.3.1.11 framePr `w:dropCap`).
+    pub frame: Option<bo_model::FrameProps>,
+    /// The lines are counted by line numbering (§17.3.1.35 suppressLineNumbers off).
+    pub numbered: bool,
+}
+
+/// Automatic hyphenation of a paragraph (ECMA-376 Part 1, §17.15.1.10).
+struct Hyph {
+    /// §17.15.1.52 hyphenationZone (points).
+    zone: f32,
+    /// §17.15.1.21 consecutiveHyphenLimit (0 = none).
+    limit: usize,
+    /// §17.15.1.40 doNotHyphenateCaps.
+    no_caps: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -361,6 +375,7 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     inp.default_tab.to_bits().hash(&mut h);
     inp.doc.default_run.hash(&mut h);
     inp.doc.theme_fonts.hash(&mut h);
+    inp.doc.hyphenation.hash(&mut h);
     // Run properties coming from the style definitions (ECMA-376 Part 1,
     // §17.7.2 style hierarchy): the paragraph style chain and the character
     // styles of the runs. The paragraph and runs above only name the styles, so
@@ -1044,6 +1059,22 @@ fn layout_uncached(
     let mut line_breaks: Vec<Option<Kind>> = Vec::new();
     let mut cur: Vec<Piece> = Vec::new();
     let mut queue: std::collections::VecDeque<Word> = words.into();
+    // §17.15.1.10 autoHyphenation unless §17.3.1.34 suppressAutoHyphens.
+    let hyph = (doc.hyphenation.auto && !props.suppress_auto_hyphens.unwrap_or(false)).then(|| {
+        let h = &doc.hyphenation;
+        Hyph {
+            zone: h
+                .zone
+                .unwrap_or(bo_model::Hyphenation::DEFAULT_ZONE)
+                .to_pt()
+                .max(0.0),
+            limit: usize::from(h.consecutive_limit.unwrap_or(0)),
+            no_caps: h.no_caps,
+        }
+    });
+    // Lines ending in an automatic hyphen, and how many in a row end so.
+    let mut hyph_lines: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut in_row = 0usize;
     // Segments of each line: (first piece, start x, width). One per line unless the
     // line flows around a wrapped picture.
     let mut segs: Vec<Vec<(usize, f32, f32)>> = Vec::new();
@@ -1081,8 +1112,33 @@ fn layout_uncached(
                 }
                 continue;
             }
-            let end = if overflow && !cur.is_empty() {
+            let split = if overflow && !cur.is_empty() {
+                hyph.as_ref()
+                    .filter(|h| h.limit == 0 || in_row < h.limit)
+                    .and_then(|h| {
+                        hyphenate(
+                            &word,
+                            &cur[seg_start..],
+                            start_x,
+                            max,
+                            &tab_ctx,
+                            &styles,
+                            fonts,
+                            h,
+                        )
+                    })
+            } else {
+                None
+            };
+            let end = if let Some((head, tail)) = split {
+                cur.extend(head.pieces);
+                queue.push_front(tail);
+                hyph_lines.insert(lines.len());
+                in_row += 1;
+                Some(None)
+            } else if overflow && !cur.is_empty() {
                 queue.push_front(word);
+                in_row = 0;
                 Some(None)
             } else {
                 let brk = word.brk();
@@ -1110,10 +1166,27 @@ fn layout_uncached(
         let mut trial = cur.clone();
         trial.extend(word.pieces.iter().cloned());
         let (_, ink) = position(&trial, start_x, &tab_ctx);
+        if ink > max + 0.01 {
+            // §17.15.1.10 autoHyphenation: the first part of the word and a hyphen.
+            let split = hyph
+                .as_ref()
+                .filter(|h| h.limit == 0 || in_row < h.limit)
+                .and_then(|h| hyphenate(&word, &cur, start_x, max, &tab_ctx, &styles, fonts, h));
+            if let Some((head, tail)) = split {
+                cur.extend(head.pieces);
+                hyph_lines.insert(lines.len());
+                lines.push(std::mem::take(&mut cur));
+                line_breaks.push(None);
+                queue.push_front(tail);
+                in_row += 1;
+                continue;
+            }
+        }
         if ink > max + 0.01 && !cur.is_empty() {
             lines.push(std::mem::take(&mut cur));
             line_breaks.push(None);
             queue.push_front(word);
+            in_row = 0;
             continue;
         }
         if cur.is_empty() && ink > max + 0.01 && word.char_count() > 1 {
@@ -1367,12 +1440,14 @@ fn layout_uncached(
                 real.iter().map(|p| p.end()).max().unwrap_or(0),
             )
         };
-        // §17.3.3.29 softHyphen: a line broken at an optional hyphen shows a hyphen.
+        // §17.3.3.29 softHyphen: a line broken at an optional hyphen shows a hyphen;
+        // so does a line ended by automatic hyphenation (§17.15.1.10).
         if !is_last
             && brk.is_none()
-            && index_text
-                .get(..end as usize)
-                .is_some_and(|t| t.ends_with('\u{00AD}'))
+            && (hyph_lines.contains(&li)
+                || index_text
+                    .get(..end as usize)
+                    .is_some_and(|t| t.ends_with('\u{00AD}')))
         {
             if let Some(last) = frags.iter().max_by(|a, b| a.x.total_cmp(&b.x)) {
                 let (face, size, color, x) =
@@ -1441,7 +1516,124 @@ fn layout_uncached(
         indent_left,
         indent_right,
         floats,
+        frame: props.frame,
+        numbered: !props.suppress_line_numbers.unwrap_or(false),
     })
+}
+
+/// Split `word` at an automatic hyphenation point (ECMA-376 Part 1, §17.15.1.10)
+/// so that its first part and a hyphen fit after `cur` in a line `max` wide: the
+/// last point that fits, when the gap left without hyphenating is at least the
+/// hyphenation zone (§17.15.1.52) and the word is not in capitals with
+/// §17.15.1.40 doNotHyphenateCaps.
+#[allow(clippy::too_many_arguments)]
+fn hyphenate(
+    word: &Word,
+    cur: &[Piece],
+    start_x: f32,
+    max: f32,
+    tab: &TabCtx<'_>,
+    styles: &[RunStyle],
+    fonts: &mut FontManager,
+    h: &Hyph,
+) -> Option<(Word, Word)> {
+    let (_, ink0) = position(cur, start_x, tab);
+    if !cur.is_empty() && max - ink0 < h.zone {
+        return None;
+    }
+    // The leading text pieces (real text with one offset per character).
+    let n_text = word
+        .pieces
+        .iter()
+        .take_while(|p| {
+            p.kind == Kind::Text
+                && !p.virtual_
+                && p.image.is_none()
+                && p.note.is_none()
+                && p.offsets.len() == p.text.chars().count() + 1
+        })
+        .count();
+    if n_text == 0 {
+        return None;
+    }
+    let text: String = word.pieces[..n_text]
+        .iter()
+        .map(|p| p.text.as_str())
+        .collect();
+    let letters_len = text.bytes().take_while(u8::is_ascii_alphabetic).count();
+    let letters = &text[..letters_len];
+    if h.no_caps && letters.bytes().all(|b| b.is_ascii_uppercase()) {
+        return None;
+    }
+    for &at in crate::hyphen::points(letters).iter().rev() {
+        let (head, tail) = split_word(word, n_text, at, styles, fonts)?;
+        let last = head.pieces.last()?;
+        let st = &styles[last.style];
+        let upem = f32::from(fonts.info(last.face).units_per_em);
+        let hw = fonts
+            .shape_kern(last.face, "-", false)
+            .iter()
+            .map(|g| g.x_advance)
+            .sum::<i32>() as f32
+            * st.size
+            / upem;
+        let mut trial = cur.to_vec();
+        trial.extend(head.pieces.iter().cloned());
+        let (_, ink) = position(&trial, start_x, tab);
+        if ink + hw <= max + 0.01 {
+            return Some((head, tail));
+        }
+    }
+    None
+}
+
+/// Split `word` at byte `at` of the text of its first `n_text` pieces (the piece
+/// holding that offset is shaped again in two).
+fn split_word(
+    word: &Word,
+    n_text: usize,
+    at: usize,
+    styles: &[RunStyle],
+    fonts: &mut FontManager,
+) -> Option<(Word, Word)> {
+    let mut head = Vec::new();
+    let mut tail = Vec::new();
+    let mut acc = 0usize;
+    for (i, p) in word.pieces.iter().enumerate() {
+        let len = p.text.len();
+        if i >= n_text || acc >= at {
+            tail.push(p.clone());
+        } else if acc + len <= at {
+            head.push(p.clone());
+        } else {
+            let k = at - acc;
+            if !p.text.is_char_boundary(k) {
+                return None;
+            }
+            let ci = p.text[..k].chars().count();
+            let st = &styles[p.style];
+            let upem = f32::from(fonts.info(p.face).units_per_em);
+            let mut part = |t: &str, offs: &[u32]| {
+                let glyphs = fonts.shape_kern(p.face, t, st.kern);
+                let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32 * st.size / upem
+                    + st.spacing * glyphs.len() as f32;
+                Piece {
+                    text: t.to_owned(),
+                    glyphs,
+                    width,
+                    offsets: offs.to_vec(),
+                    ..p.clone()
+                }
+            };
+            head.push(part(&p.text[..k], &p.offsets[..=ci]));
+            tail.push(part(&p.text[k..], &p.offsets[ci..]));
+        }
+        acc += len;
+    }
+    if head.is_empty() || tail.is_empty() {
+        return None;
+    }
+    Some((Word { pieces: head }, Word { pieces: tail }))
 }
 
 /// Caret stops for a piece: one per original char boundary.

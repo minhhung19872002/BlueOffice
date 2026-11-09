@@ -41,6 +41,7 @@ mod solver_cmd;
 mod sortfilter_cmd;
 mod sparkline_cmd;
 mod table_cmd;
+mod view_cmd;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
 

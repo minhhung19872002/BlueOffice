@@ -15,6 +15,11 @@ pub use bo_model::sheet::{col_to_letters, letters_to_col};
 /// Points per pixel at 96 dpi.
 pub const PT_PER_PX: f64 = 0.75;
 
+/// Column width factor while a sheet shows formulas (`sheetView/@showFormulas`,
+/// ECMA-376 Part 1, §18.3.1.87): formula text is usually longer than the result,
+/// so every column is drawn twice as wide (our choice; the file widths are unchanged).
+pub const SHOW_FORMULAS_WIDTH: f64 = 2.0;
+
 /// Font-derived sheet metrics.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SheetMetrics {
@@ -228,7 +233,16 @@ impl SheetGeometry {
 
     /// Geometry from known metrics.
     pub fn with_metrics(ws: &Worksheet, metrics: SheetMetrics) -> SheetGeometry {
-        let col_default = metrics.default_col_pt(ws);
+        let widen = if ws
+            .views
+            .first()
+            .is_some_and(bo_model::sheet::SheetView::show_formulas)
+        {
+            SHOW_FORMULAS_WIDTH
+        } else {
+            1.0
+        };
+        let col_default = metrics.default_col_pt(ws) * widen;
         let cols = ws
             .cols
             .iter()
@@ -237,7 +251,8 @@ impl SheetGeometry {
                 let size = if c.hidden {
                     0.0
                 } else {
-                    c.width.map_or(col_default, |w| metrics.width_to_pt(w))
+                    c.width
+                        .map_or(col_default, |w| metrics.width_to_pt(w) * widen)
                 };
                 (c.min, c.max, size)
             })

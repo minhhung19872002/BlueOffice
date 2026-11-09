@@ -35,7 +35,7 @@ pub struct ThreadView {
 
 /// A GUID-shaped id (`{XXXXXXXX-XXXX-4XXX-8XXX-XXXXXXXXXXXX}`, [MS-XLSX] ST_Guid)
 /// derived from `seed`, distinct from every id in `taken`.
-fn guid(seed: &impl Hash, taken: &dyn Fn(&str) -> bool) -> String {
+pub(super) fn guid(seed: &impl Hash, taken: &dyn Fn(&str) -> bool) -> String {
     let mut n = 0u64;
     loop {
         let mut h = std::collections::hash_map::DefaultHasher::new();

@@ -361,6 +361,10 @@ fn read_workbook(data: &[u8], part: &str, wb: &mut Workbook) -> Result<Vec<Sheet
                 Ok(())
             })?,
             "pivotCaches" => {}
+            // §18.2.3 customWorkbookViews
+            "customWorkbookViews" => {
+                wb.custom_views = crate::custom_views::read_custom_workbook_views(r, empty)?;
+            }
             _ => {
                 let xml = capture(r, e, empty)?;
                 push_unknown(&mut unknown, &mut prev, WORKBOOK_SCHEMA, &name, xml);
@@ -813,112 +817,17 @@ fn read_sheet(
                 Ok(())
             })?,
             "hyperlinks" => {}
-            // §18.3.1.70 printOptions
-            "printOptions" => {
-                let mut at = attrs(e);
-                let p = &mut ws.page_setup;
-                p.has_print_options = true;
-                p.print_grid_lines = take_bool(&mut at, "gridLines").unwrap_or(false);
-                p.print_headings = take_bool(&mut at, "headings").unwrap_or(false);
-                p.horizontal_centered = take_bool(&mut at, "horizontalCentered").unwrap_or(false);
-                p.vertical_centered = take_bool(&mut at, "verticalCentered").unwrap_or(false);
-            }
-            // §18.3.1.62 pageMargins
-            "pageMargins" => {
-                let mut at = attrs(e);
-                let d = PageMargins::default();
-                ws.page_setup.margins = Some(PageMargins {
-                    left: take_f64(&mut at, "left").unwrap_or(d.left),
-                    right: take_f64(&mut at, "right").unwrap_or(d.right),
-                    top: take_f64(&mut at, "top").unwrap_or(d.top),
-                    bottom: take_f64(&mut at, "bottom").unwrap_or(d.bottom),
-                    header: take_f64(&mut at, "header").unwrap_or(d.header),
-                    footer: take_f64(&mut at, "footer").unwrap_or(d.footer),
-                });
-            }
-            // §18.3.1.63 pageSetup
-            "pageSetup" => {
-                let mut at = attrs(e);
-                let p = &mut ws.page_setup;
-                p.has_page_setup = true;
-                p.paper_size = take_u32(&mut at, "paperSize");
-                p.orientation = take(&mut at, "orientation");
-                p.scale = take_u32(&mut at, "scale");
-                p.fit_to_width = take_u32(&mut at, "fitToWidth");
-                p.fit_to_height = take_u32(&mut at, "fitToHeight");
-                p.attrs = at;
-            }
-            // §18.3.1.46 headerFooter: odd/even/first headers and footers
-            // (§18.3.1.39–42, §18.3.1.48–49) plus differentOddEven / differentFirst.
-            "headerFooter" => {
-                let mut at = attrs(e);
-                let p = &mut ws.page_setup;
-                p.different_odd_even = take_bool(&mut at, "differentOddEven").unwrap_or(false);
-                p.different_first = take_bool(&mut at, "differentFirst").unwrap_or(false);
-                p.header_footer_attrs = at;
-                let xml = capture(r, e, empty)?;
-                // Parse the captured element again for its children.
-                let mut r2 = XmlReader::new(xml.as_bytes(), "headerFooter");
-                let (_, e2) = root(&mut r2)?;
-                let mut texts: [Option<String>; 6] = Default::default();
-                let mut other = false;
-                if !e2 {
-                    for_children(&mut r2, |r2, c, cempty| {
-                        let slot = match lname(c).as_str() {
-                            "oddHeader" => 0,
-                            "oddFooter" => 1,
-                            "evenHeader" => 2,
-                            "evenFooter" => 3,
-                            "firstHeader" => 4,
-                            "firstFooter" => 5,
-                            _ => {
-                                other = true;
-                                return Ok(());
-                            }
-                        };
-                        if !cempty {
-                            texts[slot] = Some(read_text(r2)?);
-                        }
-                        Ok(())
-                    })?;
-                }
-                if other {
-                    p.header_footer_raw = Some(xml);
-                } else {
-                    let [oh, of, eh, ef, fh, ff] = texts;
-                    p.odd_header = oh;
-                    p.odd_footer = of;
-                    p.even_header = eh;
-                    p.even_footer = ef;
-                    p.first_header = fh;
-                    p.first_footer = ff;
-                }
-            }
-            // §18.3.1.74 rowBreaks / §18.3.1.14 colBreaks (brk §18.3.1.3)
-            "rowBreaks" | "colBreaks" if !empty => {
-                let mut v = Vec::new();
-                for_children(r, |_, e, _| {
-                    if lname(e) == "brk" {
-                        let mut at = attrs(e);
-                        if let Some(id) = take_u32(&mut at, "id") {
-                            // `id` is the zero-based index of the first row/col of the next page.
-                            if id > 0 {
-                                v.push(id - 1);
-                            }
-                        }
-                    }
-                    Ok(())
-                })?;
-                if name == "rowBreaks" {
-                    ws.page_setup.row_breaks = v;
-                } else {
-                    ws.page_setup.col_breaks = v;
-                }
-            }
-            "rowBreaks" | "colBreaks" => {}
+            // §18.3.1.70 printOptions, §18.3.1.62 pageMargins, §18.3.1.63 pageSetup,
+            // §18.3.1.46 headerFooter, §18.3.1.74 rowBreaks, §18.3.1.14 colBreaks
+            "printOptions" | "pageMargins" | "pageSetup" | "headerFooter" | "rowBreaks"
+            | "colBreaks" => read_page_part(r, e, empty, &name, &mut ws.page_setup)?,
             // §18.3.1 scenarios (CT_Scenarios)
             "scenarios" => {
                 ws.scenarios = Some(crate::scenario::read_scenarios(r, e, empty)?);
+            }
+            // §18.3.1.26 customSheetViews
+            "customSheetViews" => {
+                ws.custom_views = crate::custom_views::read_custom_sheet_views(r, empty)?;
             }
             // §18.3.1.2 autoFilter
             "autoFilter" => {
@@ -948,6 +857,136 @@ fn read_sheet(
     Ok(tables)
 }
 
+/// Print settings shared by `worksheet` and `customSheetView` (§18.3.1.25):
+/// `printOptions`, `pageMargins`, `pageSetup`, `headerFooter`, `rowBreaks`, `colBreaks`.
+pub(crate) fn read_page_part(
+    r: &mut XmlReader<'_>,
+    e: &quick_xml::events::BytesStart<'_>,
+    empty: bool,
+    name: &str,
+    p: &mut bo_model::sheet::PageSetup,
+) -> Result<()> {
+    match name {
+        // §18.3.1.70 printOptions
+        "printOptions" => {
+            let mut at = attrs(e);
+            p.has_print_options = true;
+            p.print_grid_lines = take_bool(&mut at, "gridLines").unwrap_or(false);
+            p.print_headings = take_bool(&mut at, "headings").unwrap_or(false);
+            p.horizontal_centered = take_bool(&mut at, "horizontalCentered").unwrap_or(false);
+            p.vertical_centered = take_bool(&mut at, "verticalCentered").unwrap_or(false);
+        }
+        // §18.3.1.62 pageMargins
+        "pageMargins" => {
+            let mut at = attrs(e);
+            let d = PageMargins::default();
+            p.margins = Some(PageMargins {
+                left: take_f64(&mut at, "left").unwrap_or(d.left),
+                right: take_f64(&mut at, "right").unwrap_or(d.right),
+                top: take_f64(&mut at, "top").unwrap_or(d.top),
+                bottom: take_f64(&mut at, "bottom").unwrap_or(d.bottom),
+                header: take_f64(&mut at, "header").unwrap_or(d.header),
+                footer: take_f64(&mut at, "footer").unwrap_or(d.footer),
+            });
+        }
+        // §18.3.1.63 pageSetup
+        "pageSetup" => {
+            let mut at = attrs(e);
+            p.has_page_setup = true;
+            p.paper_size = take_u32(&mut at, "paperSize");
+            p.orientation = take(&mut at, "orientation");
+            p.scale = take_u32(&mut at, "scale");
+            p.fit_to_width = take_u32(&mut at, "fitToWidth");
+            p.fit_to_height = take_u32(&mut at, "fitToHeight");
+            p.attrs = at;
+        }
+        // §18.3.1.46 headerFooter: odd/even/first headers and footers
+        // (§18.3.1.39–42, §18.3.1.48–49) plus differentOddEven / differentFirst.
+        "headerFooter" => {
+            let mut at = attrs(e);
+            p.different_odd_even = take_bool(&mut at, "differentOddEven").unwrap_or(false);
+            p.different_first = take_bool(&mut at, "differentFirst").unwrap_or(false);
+            p.header_footer_attrs = at;
+            let xml = capture(r, e, empty)?;
+            // Parse the captured element again for its children.
+            let mut r2 = XmlReader::new(xml.as_bytes(), "headerFooter");
+            let (_, e2) = root(&mut r2)?;
+            let mut texts: [Option<String>; 6] = Default::default();
+            let mut other = false;
+            if !e2 {
+                for_children(&mut r2, |r2, c, cempty| {
+                    let slot = match lname(c).as_str() {
+                        "oddHeader" => 0,
+                        "oddFooter" => 1,
+                        "evenHeader" => 2,
+                        "evenFooter" => 3,
+                        "firstHeader" => 4,
+                        "firstFooter" => 5,
+                        _ => {
+                            other = true;
+                            return Ok(());
+                        }
+                    };
+                    if !cempty {
+                        texts[slot] = Some(read_text(r2)?);
+                    }
+                    Ok(())
+                })?;
+            }
+            if other {
+                p.header_footer_raw = Some(xml);
+            } else {
+                let [oh, of, eh, ef, fh, ff] = texts;
+                p.odd_header = oh;
+                p.odd_footer = of;
+                p.even_header = eh;
+                p.even_footer = ef;
+                p.first_header = fh;
+                p.first_footer = ff;
+            }
+        }
+        // §18.3.1.74 rowBreaks / §18.3.1.14 colBreaks (brk §18.3.1.3)
+        "rowBreaks" | "colBreaks" if !empty => {
+            let mut v = Vec::new();
+            for_children(r, |_, e, _| {
+                if lname(e) == "brk" {
+                    let mut at = attrs(e);
+                    if let Some(id) = take_u32(&mut at, "id") {
+                        // `id` is the zero-based index of the first row/col of the next page.
+                        if id > 0 {
+                            v.push(id - 1);
+                        }
+                    }
+                }
+                Ok(())
+            })?;
+            if name == "rowBreaks" {
+                p.row_breaks = v;
+            } else {
+                p.col_breaks = v;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// §18.3.1.66 pane.
+pub(crate) fn read_pane(e: &quick_xml::events::BytesStart<'_>) -> Pane {
+    let mut at = attrs(e);
+    Pane {
+        x_split: take_f64(&mut at, "xSplit").unwrap_or(0.0),
+        y_split: take_f64(&mut at, "ySplit").unwrap_or(0.0),
+        top_left_cell: take(&mut at, "topLeftCell"),
+        active_pane: take(&mut at, "activePane"),
+        state: match take(&mut at, "state").as_deref() {
+            Some("frozen") => PaneState::Frozen,
+            Some("frozenSplit") => PaneState::FrozenSplit,
+            _ => PaneState::Split,
+        },
+    }
+}
+
 /// §18.3.1.87 sheetView.
 fn read_sheet_view(
     r: &mut XmlReader<'_>,
@@ -974,20 +1013,7 @@ fn read_sheet_view(
         let name = lname(e);
         match name.as_str() {
             // §18.3.1.66 pane
-            "pane" => {
-                let mut at = attrs(e);
-                v.pane = Some(Pane {
-                    x_split: take_f64(&mut at, "xSplit").unwrap_or(0.0),
-                    y_split: take_f64(&mut at, "ySplit").unwrap_or(0.0),
-                    top_left_cell: take(&mut at, "topLeftCell"),
-                    active_pane: take(&mut at, "activePane"),
-                    state: match take(&mut at, "state").as_deref() {
-                        Some("frozen") => PaneState::Frozen,
-                        Some("frozenSplit") => PaneState::FrozenSplit,
-                        _ => PaneState::Split,
-                    },
-                });
-            }
+            "pane" => v.pane = Some(read_pane(e)),
             // §18.3.1.78 selection
             "selection" => v.selections.push(attrs(e)),
             _ => {

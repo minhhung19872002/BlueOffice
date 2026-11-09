@@ -1852,6 +1852,9 @@ impl SheetEngine {
         if let Some(sc) = crate::security::SecurityCommand::parse(&v) {
             return Ok(self.sheet_security(sc)?.to_string());
         }
+        if let Some(vc) = super::view_cmd::ViewCommand::parse(&v) {
+            return Ok(self.view_command(vc)?.to_string());
+        }
         if let Some(ac) = super::audit_cmd::AuditCommand::parse(&v) {
             return Ok(self.audit(ac)?.to_string());
         }

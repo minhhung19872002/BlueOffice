@@ -662,6 +662,8 @@ export type SheetCommand =
   | DataToolsCommand
   /** Formula auditing and calculation (SHEET-AUDIT-001). */
   | import('./audit').AuditCommand
+  /** Workbook views (SHEET-VIEW-001). */
+  | import('./sheetViews').SheetViewCommand
   | { cmd: 'presets' }
   /** Check document (CORE-INSPECT-001) → `InspectReport`. */
   | InspectCommand

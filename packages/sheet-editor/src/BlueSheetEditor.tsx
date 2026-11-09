@@ -260,6 +260,15 @@ import {
 import { FormatCellsDialog, type NumberPreset } from './FormatCellsDialog';
 import { PageSetupDialog, PrintPreviewDialog } from './pageSetup';
 import { AdvancedFilterDialog, SortDialog } from './sortFilter';
+import {
+  CustomViewsDialog,
+  PageBreakOverlay,
+  PageLayoutView,
+  sheetViewTabGroups,
+  TempViewsDialog,
+  useSheetViews,
+  useTempViews,
+} from './sheetViews';
 import { PivotDialog, PivotPanel, pivotAt, pivotSelectionItems, usePivotLabels } from './pivot';
 import {
   PivotCalcDialog,
@@ -431,6 +440,8 @@ type DialogState =
   | { kind: 'pasteSpecial' }
   | { kind: 'pageSetup' }
   | { kind: 'printPreview' }
+  | { kind: 'customViews' }
+  | { kind: 'tempViews' }
   | { kind: 'pivot' }
   | { kind: 'pivotField'; pivot: PivotInfo; field: number }
   | { kind: 'pivotValue'; pivot: PivotInfo; idx: number }
@@ -1040,6 +1051,20 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     },
     [host, refreshInfo, fail],
   );
+
+  // Workbook views (SHEET-VIEW-001): view type, show formulas, temporary views.
+  const sheetViews = useSheetViews({
+    host,
+    sheet,
+    revision,
+    loadKey: loadSeq,
+    zoom,
+    setZoom,
+    exec,
+  });
+  const { mode: viewMode, setMode: setViewMode, toggleFormulas } = sheetViews;
+  const showingFormulas = !!sheetViews.state?.showFormulas;
+  const tempViews = useTempViews();
 
   // Formula auditing and calculation (SHEET-AUDIT-001).
   const audit = useAudit({ host, sheet, revision, onDone: refreshInfo, fail });
@@ -2200,6 +2225,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     });
     add('view.zoomIn', async () => setZoom((z) => ZOOMS.find((v) => v > z) ?? z));
     add('view.zoomOut', async () => setZoom((z) => [...ZOOMS].reverse().find((v) => v < z) ?? z));
+    // Workbook views (SHEET-VIEW-001).
+    for (const m of ['normal', 'pageBreakPreview', 'pageLayout'] as const) {
+      add(`view.${m}`, () => setViewMode(m), { isChecked: () => viewMode === m, ...has });
+    }
+    add('view.showFormulas', () => toggleFormulas(), {
+      shortcut: 'Ctrl+`',
+      isChecked: () => showingFormulas,
+      ...has,
+    });
+    add('view.customViews', open({ kind: 'customViews' }), has);
+    add('view.tempViews', open({ kind: 'tempViews' }), has);
 
     // Formulas: auditing and calculation (SHEET-AUDIT-001)
     const traceCmd = (dependents: boolean) => async (s: SheetEditorState) => {
@@ -2258,6 +2294,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     runProtect,
     setProtectUi,
     circlesOn,
+    viewMode,
+    setViewMode,
+    toggleFormulas,
+    showingFormulas,
   ]);
 
   const state: SheetEditorState | null = useMemo(
@@ -3437,6 +3477,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('view.zoomOut', t('sheetEditor.zoomOut'), <ZoomOut size={s} />, 'small'),
             ],
           },
+          ...sheetViewTabGroups(t, item),
         ],
       },
     ];
@@ -3709,9 +3750,28 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         selectionRef={rangeA1(rangeOf(selection))}
       />
       <div className={styles.workArea}>
+        {viewMode === 'pageLayout' && host && (
+          <PageLayoutView
+            host={host}
+            sheet={sheet}
+            revision={revision}
+            zoom={zoom}
+            onCell={(row, col) => setSelection(single({ row, col }))}
+            onHeaderFooter={() => setDialog({ kind: 'pageSetup' })}
+            onKeyDown={(e) => {
+              const c = registry.match(e);
+              if (c) {
+                e.preventDefault();
+                run(c.id);
+              }
+            }}
+            fail={fail}
+          />
+        )}
         <div
           className={styles.scroller}
           ref={scrollerRef}
+          hidden={viewMode === 'pageLayout'}
           onScroll={(e) => {
             const el = e.currentTarget;
             setScroll({ x: el.scrollLeft / scale, y: el.scrollTop / scale });
@@ -3739,6 +3799,22 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 />
               ))}
             <InvalidCircles rects={circlesOn === sheet ? circleRects : []} />
+            {viewMode === 'pageBreakPreview' && host && (
+              <PageBreakOverlay
+                host={host}
+                view={view}
+                revision={revision}
+                scale={scale}
+                width={size.w}
+                height={size.h}
+                frozen={{ rows: summary?.frozenRows ?? 0, cols: summary?.frozenCols ?? 0 }}
+                onMove={(m) =>
+                  void exec<{ scale: number | null }>({ cmd: 'movePageBreak', sheet, ...m }).then(
+                    (r) => r?.scale && setStatus(t('sheetViews.scaled', { pct: r.scale })),
+                  )
+                }
+              />
+            )}
             {audit.arrows.length > 0 && (
               <TraceArrowsOverlay
                 host={host}
@@ -4618,6 +4694,41 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       )}
       {dialog?.kind === 'pageSetup' && <PageSetupDialog {...common} range={toRange(r)} />}
+      {dialog?.kind === 'customViews' && host && (
+        <CustomViewsDialog
+          host={host}
+          exec={exec}
+          sheet={sheet}
+          current={() => ({
+            zoom,
+            active: [selection.active.row, selection.active.col],
+            sqref: rangeA1(rangeOf(selection)),
+          })}
+          onApplied={(v) => {
+            setSheet(v.sheet);
+            if (v.zoom) setZoom(v.zoom / 100);
+            if (v.active) setSelection(single({ row: v.active[0], col: v.active[1] }));
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === 'tempViews' && (
+        <TempViewsDialog
+          views={tempViews.views}
+          onKeep={(name) => tempViews.add({ name, sheet, zoom, scroll, active: selection.active })}
+          onShow={(v) => {
+            setSheet(v.sheet);
+            setZoom(v.zoom);
+            setSelection(single(v.active));
+            const px = PX_PER_PT * v.zoom;
+            requestAnimationFrame(() =>
+              scrollerRef.current?.scrollTo(v.scroll.x * px, v.scroll.y * px),
+            );
+          }}
+          onDelete={tempViews.remove}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {dialog?.kind === 'printPreview' && (
         <PrintPreviewDialog
           {...common}

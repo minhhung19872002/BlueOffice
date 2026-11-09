@@ -22,8 +22,8 @@ use crate::geometry::{col_to_letters, Rect, SheetGeometry, PT_PER_PX};
 use crate::numfmt::{format_code, FormatOptions, Formatted, Locale, NumberFormat};
 use crate::viewport::{PaneKind, PaneRegion, ViewLayout, Viewport};
 use bo_model::sheet::{
-    BorderEdge, Cell, CellRange, CellRef, CellValue, CellXf, Fill, Font, ThemeColors, Workbook,
-    Worksheet,
+    BorderEdge, Cell, CellRange, CellRef, CellValue, CellXf, Fill, Font, SheetView, ThemeColors,
+    Workbook, Worksheet,
 };
 use bo_render::{Command, Glyph, PageList, Rgba};
 use bo_text::{FaceId, FontManager};
@@ -62,6 +62,9 @@ pub struct RenderOptions {
     /// ECMA-376 Part 1, §18.3.1.63 and the §18.18 ST_PrintError type): `""` blank, `"--"`, `"#N/A"`;
     /// `None` shows errors as displayed.
     pub error_text: Option<String>,
+    /// Override the sheet view's `showFormulas` (§18.3.1.87): formula cells show
+    /// their formula text instead of the result.
+    pub show_formulas: Option<bool>,
 }
 
 /// Vector drawing of a SmartArt fallback ([MS-ODRAWXML] `dsp:drawing`), drawn
@@ -93,6 +96,7 @@ impl Default for RenderOptions {
             ignore_frozen: false,
             drawings: std::sync::Arc::default(),
             error_text: None,
+            show_formulas: None,
         }
     }
 }
@@ -187,10 +191,14 @@ pub fn render_viewport(
     } else {
         ViewLayout::for_sheet(geom, ws, &vp)
     };
+    let show_formulas = opts
+        .show_formulas
+        .unwrap_or_else(|| view.is_some_and(SheetView::show_formulas));
     let mut r = Renderer {
         wb,
         ws,
         sheet,
+        show_formulas,
         cf: std::collections::HashMap::new(),
         geom,
         opts,
@@ -211,6 +219,8 @@ struct Renderer<'a> {
     wb: &'a Workbook,
     ws: &'a Worksheet,
     sheet: usize,
+    /// `sheetView/@showFormulas` (§18.3.1.87): formula cells show `=formula`.
+    show_formulas: bool,
     /// Conditional formatting of the pane being drawn.
     cf: std::collections::HashMap<(u32, u32), CellFormat>,
     geom: &'a SheetGeometry,
@@ -869,8 +879,27 @@ impl Renderer<'_> {
         if matches!(cell.value, CellValue::Empty) {
             return;
         }
-        let mut fmt = format_cell(self.wb, cell, &self.opts.locale);
-        if let (CellValue::Error(_), Some(t)) = (&cell.value, &self.opts.error_text) {
+        // Show formulas (§18.3.1.87 showFormulas): the formula text, left aligned
+        // unless the cell sets an alignment (our choice), without number formatting.
+        let formula = if self.show_formulas {
+            cell.formula
+                .as_ref()
+                .filter(|f| !f.text.is_empty())
+                .map(|f| format!("={}", f.text))
+        } else {
+            None
+        };
+        let as_formula = formula.is_some();
+        let mut fmt = match formula {
+            Some(text) => Formatted {
+                text,
+                ..Formatted::default()
+            },
+            None => format_cell(self.wb, cell, &self.opts.locale),
+        };
+        if let (false, CellValue::Error(_), Some(t)) =
+            (as_formula, &cell.value, &self.opts.error_text)
+        {
             fmt.text.clone_from(t);
         }
         if fmt.text.is_empty() {
@@ -924,6 +953,7 @@ impl Renderer<'_> {
             Some("left" | "fill" | "justify" | "distributed") => HAlign::Left,
             Some("center" | "centerContinuous") => HAlign::Center,
             Some("right") => HAlign::Right,
+            _ if as_formula => HAlign::Left,
             _ => match cell.value {
                 CellValue::Number(_) | CellValue::Date(_) => HAlign::Right,
                 CellValue::Bool(_) | CellValue::Error(_) => HAlign::Center,
@@ -1419,6 +1449,52 @@ mod tests {
         let c = wb.sheets[0].cell(1, 1).unwrap();
         assert_eq!(format_cell(&wb, c, &Locale::VI_VN).text, "1.234,50");
         assert_eq!(format_cell(&wb, c, &Locale::EN_US).text, "1,234.50");
+    }
+
+    #[test]
+    fn show_formulas_draws_formula_text_and_widens_columns() {
+        let mut wb = workbook();
+        let mut c = Cell::new(CellValue::Number(2.0));
+        c.formula = Some(bo_model::sheet::Formula::normal("1+1"));
+        wb.sheets[0].set_cell(5, 0, c);
+        let texts = |wb: &Workbook, opts: &RenderOptions| -> Vec<String> {
+            let geom = SheetGeometry::with_metrics(&wb.sheets[0], SheetMetrics::default());
+            let vp = Viewport::new(600.0, 300.0);
+            render_viewport(wb, 0, &geom, &vp, opts, &mut fonts())
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    Command::Glyphs { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        if fonts().is_empty() {
+            return;
+        }
+        let plain = texts(&wb, &RenderOptions::default());
+        assert!(plain.iter().any(|t| t == "2"), "{plain:?}");
+        assert!(!plain.iter().any(|t| t.contains("=1+1")));
+        // The render option, then the sheet view attribute (§18.3.1.87 showFormulas).
+        let forced = texts(
+            &wb,
+            &RenderOptions {
+                show_formulas: Some(true),
+                ..RenderOptions::default()
+            },
+        );
+        assert!(forced.iter().any(|t| t == "=1+1"), "{forced:?}");
+        let mut view = bo_model::sheet::SheetView::default();
+        view.set_show_formulas(true);
+        wb.sheets[0].views.push(view);
+        let from_view = texts(&wb, &RenderOptions::default());
+        assert!(from_view.iter().any(|t| t == "=1+1"));
+        // Text cells are unchanged.
+        assert!(from_view.iter().any(|t| t.starts_with("Xin")));
+        // Columns are drawn twice as wide: default 8 chars of a 7 px digit =
+        // 8·7 + 5 = 61 px → 64 px (multiple of 8) = 48 pt, so 96 pt.
+        let geom = SheetGeometry::with_metrics(&wb.sheets[0], SheetMetrics::default());
+        assert!((geom.col_width(0) - 96.0).abs() < 1e-9);
     }
 
     #[test]

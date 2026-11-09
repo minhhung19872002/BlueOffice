@@ -50,3 +50,47 @@ fn goal_seek_finds_and_enters_the_input() {
     )
     .is_err());
 }
+
+#[test]
+fn data_table_fills_results_and_survives_saving() {
+    let mut e = SheetEngine::new();
+    e.new_workbook("t.xlsx").unwrap();
+    // A1 = rate input; B2 = A1*100 (formula row); A3:A5 = rates; results B3:B5.
+    e.set_inputs(
+        0,
+        &[
+            (0, 0, "1".into()),
+            (1, 1, "=A1*100".into()),
+            (2, 0, "2".into()),
+            (3, 0, "3".into()),
+            (4, 0, "5".into()),
+        ],
+    )
+    .unwrap();
+    exec(
+        &mut e,
+        &json!({"cmd": "dataTable", "sheet": 0, "range": {"r0": 1, "c0": 0, "r1": 4, "c1": 1}, "colInput": "A1"}),
+    )
+    .unwrap();
+    let shown = |e: &SheetEngine, row: u32, col: u32| e.cell(0, row, col).unwrap().display;
+    assert_eq!(shown(&e, 2, 1), "200");
+    assert_eq!(shown(&e, 3, 1), "300");
+    assert_eq!(shown(&e, 4, 1), "500");
+    assert_eq!(shown(&e, 0, 0), "1");
+    // Changing the formula recalculates the table.
+    e.set_inputs(0, &[(1, 1, "=A1*10".into())]).unwrap();
+    assert_eq!(shown(&e, 4, 1), "50");
+    // Saved as t="dataTable" and read back with its results.
+    let bytes = e.save("xlsx", 0).unwrap();
+    let mut f = SheetEngine::new();
+    f.open(&bytes, "t.xlsx").unwrap();
+    assert_eq!(shown(&f, 3, 1), "30");
+    f.set_inputs(0, &[(1, 1, "=A1+1".into())]).unwrap();
+    assert_eq!(shown(&f, 3, 1), "4");
+    // A table needs an input cell.
+    assert!(exec(
+        &mut e,
+        &json!({"cmd": "dataTable", "sheet": 0, "range": {"r0": 1, "c0": 0, "r1": 4, "c1": 1}}),
+    )
+    .is_err());
+}

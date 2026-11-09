@@ -1027,6 +1027,12 @@
       "invalid": "Ô đích phải có công thức và ô thay đổi phải là hằng số.",
       "found": "Đã tìm thấy: giá trị vào {{input}} cho kết quả {{result}}.",
       "notFound": "Không tìm thấy nghiệm; kết quả cuối cùng là {{result}}."
+    },
+    "dataTable": {
+      "title": "Bảng dữ liệu",
+      "rowInput": "Ô nhập theo hàng",
+      "colInput": "Ô nhập theo cột",
+      "invalid": "Chọn bảng gồm hàng và cột tiêu đề, và nhập ít nhất một ô nhập."
     }
   },
   "recovery": {

@@ -280,6 +280,7 @@ impl FormulaEngine for BoFormula {
                 .collect();
             write_back(&fw, wb, si, &anchors);
         }
+        crate::whatif::calculate_data_tables(&mut fw, wb);
     }
 }
 

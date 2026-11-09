@@ -1819,3 +1819,63 @@ export function GoalSeekDialog({
     </Dialog>
   );
 }
+
+// ----------------------------------------------------------------- data table
+
+/** What-if data table over the selection: input cells for the top row and/or left column. */
+export function DataTableDialog({
+  host,
+  sheet,
+  onClose,
+  onDone,
+  range,
+}: Omit<Common, 'fail'> & { range: SheetRange }) {
+  const { t } = useTranslation();
+  const [rowInput, setRowInput] = useState('');
+  const [colInput, setColInput] = useState('');
+  const [error, setError] = useState('');
+  const ok = async () => {
+    try {
+      await host.exec({
+        cmd: 'dataTable',
+        sheet,
+        range,
+        rowInput: rowInput.trim() || null,
+        colInput: colInput.trim() || null,
+      });
+      await onDone();
+      onClose();
+    } catch {
+      setError(t('sheetEditor.dataTable.invalid'));
+    }
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t('sheetEditor.dataTable.title')}
+      testId="datatable-dialog"
+      footer={<Buttons onCancel={onClose} onOk={() => void ok()} okId="datatable-ok" />}
+    >
+      <div className={styles.form}>
+        <label>
+          {t('sheetEditor.dataTable.rowInput')}
+          <input
+            data-testid="datatable-row"
+            value={rowInput}
+            onChange={(e) => setRowInput(e.target.value)}
+          />
+        </label>
+        <label>
+          {t('sheetEditor.dataTable.colInput')}
+          <input
+            data-testid="datatable-col"
+            value={colInput}
+            onChange={(e) => setColInput(e.target.value)}
+          />
+        </label>
+        {error && <p role="alert">{error}</p>}
+      </div>
+    </Dialog>
+  );
+}

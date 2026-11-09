@@ -1027,6 +1027,12 @@
       "invalid": "The set cell needs a formula and the changing cell a constant.",
       "found": "Solution found: input {{input}} gives {{result}}.",
       "notFound": "No solution found; the last result was {{result}}."
+    },
+    "dataTable": {
+      "title": "Data Table",
+      "rowInput": "Row input cell",
+      "colInput": "Column input cell",
+      "invalid": "Select the table with its header row and column, and give at least one input cell."
     }
   },
   "recovery": {

@@ -725,6 +725,14 @@ export type SheetCommand =
   | { cmd: 'setTabColor'; sheet: number; color?: string | null }
   | { cmd: 'batch'; cmds: SheetCommand[] }
   | { cmd: 'rangeStats'; sheet: number; ranges: SheetRange[] }
+  /** What-if data table over `range` (headers included); input cells as A1 addresses. */
+  | {
+      cmd: 'dataTable';
+      sheet: number;
+      range: SheetRange;
+      rowInput?: string | null;
+      colInput?: string | null;
+    }
   /** What-if Goal Seek (A1 addresses); `apply` enters the value found. */
   | {
       cmd: 'goalSeek';

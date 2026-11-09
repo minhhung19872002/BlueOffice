@@ -918,6 +918,21 @@ pub enum SheetCommand {
         #[serde(default)]
         apply: bool,
     },
+    /// What-if data table over `range` (its first row and column hold the input values and
+    /// the formulas): `rowInput` takes the top row's values, `colInput` the left column's
+    /// (§18.3.1.40 `t="dataTable"`). One undo step.
+    DataTable {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The whole table, headers included.
+        range: Rng,
+        /// Input cell for the values across the top row (A1).
+        #[serde(default)]
+        row_input: Option<String>,
+        /// Input cell for the values down the left column (A1).
+        #[serde(default)]
+        col_input: Option<String>,
+    },
     /// Sum, count and average of the numbers in several ranges (status bar of a
     /// multi-range selection); cells covered twice count once.
     RangeStats {
@@ -1280,6 +1295,78 @@ impl SheetEngine {
                     })?;
                 }
                 Ok(serde_json::to_value(r).unwrap_or(Value::Null))
+            }
+            C::DataTable {
+                sheet,
+                range,
+                row_input,
+                col_input,
+            } => {
+                let cell = |a1: &str| {
+                    CellRef::parse(&a1.trim().replace('$', ""))
+                        .ok_or_else(|| bad("invalid cell address"))
+                };
+                let row_in = row_input
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .map(cell)
+                    .transpose()?;
+                let col_in = col_input
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .map(cell)
+                    .transpose()?;
+                let r = range.range();
+                if r.last.row <= r.first.row || r.last.col <= r.first.col {
+                    return Err(bad("a data table needs a header row and column"));
+                }
+                let results = CellRange::new(
+                    CellRef {
+                        row: r.first.row + 1,
+                        col: r.first.col + 1,
+                    },
+                    r.last,
+                );
+                let table = match (row_in, col_in) {
+                    (Some(a), Some(b)) => bo_sheet::whatif::DataTable {
+                        range: results,
+                        two_d: true,
+                        row_input: false,
+                        r1: a,
+                        r2: Some(b),
+                    },
+                    (Some(a), None) => bo_sheet::whatif::DataTable {
+                        range: results,
+                        two_d: false,
+                        row_input: true,
+                        r1: a,
+                        r2: None,
+                    },
+                    (None, Some(b)) => bo_sheet::whatif::DataTable {
+                        range: results,
+                        two_d: false,
+                        row_input: false,
+                        r1: b,
+                        r2: None,
+                    },
+                    (None, None) => return Err(bad("an input cell is needed")),
+                };
+                self.edit(sheet, Recalc::All, |wb, _| {
+                    let ws = &mut wb.sheets[sheet];
+                    for row in results.first.row..=results.last.row {
+                        for col in results.first.col..=results.last.col {
+                            if let Some(c) = ws.cells.get_mut(&(row, col)) {
+                                c.formula = None;
+                            }
+                        }
+                    }
+                    let anchor = ws
+                        .cells
+                        .entry((results.first.row, results.first.col))
+                        .or_default();
+                    anchor.formula = Some(table.formula());
+                    Ok(json!({ "ok": true }))
+                })
             }
             C::RangeStats { sheet, ranges } => {
                 let ws = self.sheet(sheet)?;

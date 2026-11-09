@@ -96,6 +96,7 @@ import {
   Settings2,
   ShieldCheck,
   Target,
+  Grid3x3,
   Sigma,
   Group,
   Ungroup,
@@ -142,6 +143,7 @@ import {
   FilterMenu,
   FindDialog,
   GoalSeekDialog,
+  DataTableDialog,
   GoToDialog,
   Menu,
   MessageDialog,
@@ -286,6 +288,7 @@ type DialogState =
   | { kind: 'cf' }
   | { kind: 'dv' }
   | { kind: 'goalSeek' }
+  | { kind: 'dataTable' }
   | { kind: 'chart'; index: number | null }
   | { kind: 'find'; replace: boolean }
   | { kind: 'goto' }
@@ -1583,6 +1586,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     });
     add('data.validation', open({ kind: 'dv' }));
     add('data.goalSeek', open({ kind: 'goalSeek' }));
+    add('data.dataTable', open({ kind: 'dataTable' }));
 
     // Page layout
     add('page.setup', open({ kind: 'pageSetup' }));
@@ -2420,6 +2424,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             items: [
               item('data.validation', t('sheetEditor.dv.title'), <ShieldCheck size={18} />),
               item('data.goalSeek', t('sheetEditor.goalSeek.title'), <Target size={18} />),
+              item('data.dataTable', t('sheetEditor.dataTable.title'), <Grid3x3 size={18} />),
             ],
           },
         ],
@@ -3136,6 +3141,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       {dialog?.kind === 'sort' && <SortDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'cf' && <CfDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'dv' && <ValidationDialog {...common} range={toRange(r)} />}
+      {dialog?.kind === 'dataTable' && <DataTableDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'goalSeek' && (
         <GoalSeekDialog
           {...common}

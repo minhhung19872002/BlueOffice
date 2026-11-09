@@ -207,7 +207,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 
 ### What-if (§6.2)
 - [x] **SHEET-WHATIF-001** — Goal Seek · P0 · — · test hội tụ. `bo-sheet/src/whatif.rs`: secant từ giá trị hiện tại, chuyển sang chia đôi khi đã kẹp được nghiệm, nới rộng khi chưa; tính lại tăng dần trên bản sao của engine công thức; dung sai 0,001, tối đa 100 vòng; nghiệm làm tròn 15 chữ số. Lệnh `goalSeek` (A1, `apply` = một bước undo), hộp thoại Dữ liệu → Tìm giá trị đích (Tìm → Áp dụng); test `whatif::tests` (tuyến tính, PMT, √2, vô nghiệm, kiểm tham số), `sheet_whatif`, E2E `sheet-whatif.spec`.
-- [ ] **SHEET-WHATIF-002** — Data Table 1 và 2 biến ({=TABLE()}) đọc/ghi/tính · P0 · — · test.
+- [x] **SHEET-WHATIF-002** — Data Table 1 và 2 biến ({=TABLE()}) đọc/ghi/tính · P0 · — · test. `bo_sheet::whatif::{DataTable, calculate_data_tables}`: đọc/ghi §18.3.1.40 `t="dataTable"` (ref, dt2D, dtr, r1, r2), tính sau mỗi lần tính lại (thử từng giá trị đầu hàng/cột vào ô nhập trên engine công thức, khôi phục ô nhập, rồi tính lại các công thức dùng kết quả); mở file giữ giá trị cache. Lệnh `dataTable` (một bước undo), hộp thoại Dữ liệu → Bảng dữ liệu; file lưu qua OpenXmlValidator; test `data_tables_one_and_two_inputs`, `data_table_fills_results_and_survives_saving`, E2E `sheet-whatif.spec`.
 - [ ] **SHEET-WHATIF-003** — Scenario Manager + báo cáo tóm tắt · P1 · — · test.
 - [ ] **SHEET-SOLVER-001** — Solver: simplex (tuyến tính), ràng buộc nguyên/nhị phân (branch & bound) · P0 · — · bài toán chuẩn có nghiệm đã biết.
 - [ ] **SHEET-SOLVER-002** — Solver GRG (phi tuyến), tiến hoá, alldifferent, báo cáo answer/sensitivity/limits · P1 · 001 · test.

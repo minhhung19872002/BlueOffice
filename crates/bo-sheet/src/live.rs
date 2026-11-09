@@ -52,6 +52,7 @@ impl LiveCalc {
                 .collect();
             write_back(&fw, wb, si, &anchors);
         }
+        crate::whatif::calculate_data_tables(&mut fw, wb);
         self.engine = Some(fw);
     }
 
@@ -126,6 +127,7 @@ impl LiveCalc {
                 write_back(fw, wb, si, anchors);
             }
         }
+        crate::whatif::calculate_data_tables(fw, wb);
     }
 
     /// Number of formula evaluations of the last recalculation (diagnostics).

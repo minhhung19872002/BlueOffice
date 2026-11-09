@@ -1393,6 +1393,13 @@ export interface SheetHost {
   deleteSheet(sheet: number): Promise<void>;
   save(format: SheetSaveFormat, sheet: number): Promise<Uint8Array>;
   exportPdf(): Promise<Uint8Array>;
+  /** PDF of a print job (CORE-PRINT-001). */
+  printPdf?(options: import('./print').PrintOptions): Promise<Uint8Array>;
+  /** Sheet `index` of a print job's PDF (print panel preview). */
+  printPreview?(
+    options: import('./print').PrintOptions,
+    index: number,
+  ): Promise<import('./print').PrintPreview>;
   getGlyphOutlines(face: number, glyphs: number[]): Promise<GlyphOutline[]>;
   /** Runs an editing command; the result shape depends on the command. */
   exec<T = unknown>(cmd: SheetCommand): Promise<T>;
@@ -1432,6 +1439,8 @@ export type SheetMethod =
   | 'deleteSheet'
   | 'save'
   | 'exportPdf'
+  | 'printPdf'
+  | 'printPreview'
   | 'exec'
   | 'collabStart'
   | 'collabLocal'
@@ -1515,6 +1524,16 @@ export class RpcSheetHost implements SheetHost {
   }
   exportPdf() {
     return this.call<Uint8Array>('exportPdf');
+  }
+  printPdf(options: import('./print').PrintOptions) {
+    return this.call<Uint8Array>('printPdf', JSON.stringify(options));
+  }
+  printPreview(options: import('./print').PrintOptions, index: number) {
+    return this.call<import('./print').PrintPreview>(
+      'printPreview',
+      JSON.stringify(options),
+      index,
+    );
   }
   getGlyphOutlines(face: number, glyphs: number[]) {
     return this.call<GlyphOutline[]>('glyphs', face, glyphs);

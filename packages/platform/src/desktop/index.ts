@@ -44,6 +44,7 @@ import type {
 } from '../types';
 import { RpcSheetHost, type SheetMethod, type SheetRpc } from '../sheet';
 import type { SlideExportOptions } from '../slideExport';
+import type { PrintOptions, PrintPreview } from '../print';
 import { BundledFontSource } from '../web';
 import { WebEngineHost } from '../web/WebEngineHost';
 import { webSheetTransport } from '../web/WebSheetHost';
@@ -120,6 +121,16 @@ export class NativeEngineHost implements EngineHost {
     return toBytes(
       await this.call<ArrayBuffer>('engine_slide_export', { json: JSON.stringify(options) }),
     );
+  }
+  async printPdf(options: PrintOptions): Promise<Uint8Array> {
+    return toBytes(
+      await this.call<ArrayBuffer>('engine_print_pdf', { json: JSON.stringify(options) }),
+    );
+  }
+  async printPreview(options: PrintOptions, index: number): Promise<PrintPreview> {
+    return JSON.parse(
+      await this.call<string>('engine_print_preview', { json: JSON.stringify(options), index }),
+    ) as PrintPreview;
   }
   async slideCommand(cmd: SlideCommand): Promise<SlideEditResult> {
     return JSON.parse(
@@ -200,7 +211,7 @@ function nativeSheetRpc(call: Invoke): SheetRpc {
         headers['x-password'] = encodeURIComponent(args[2]);
       return call('sheet_open', args[0] as Uint8Array, { headers });
     }
-    if (method === 'save' || method === 'exportPdf') {
+    if (method === 'save' || method === 'exportPdf' || method === 'printPdf') {
       return toBytes(await call<ArrayBuffer>('sheet_binary', { method, args }));
     }
     return call('sheet_call', { method, args });
@@ -297,6 +308,14 @@ export class FallbackEngineHost implements EngineHost {
   async exportSlides(options: SlideExportOptions): Promise<Uint8Array> {
     const h = await this.on();
     return need(h.exportSlides, 'exportSlides').call(h, options);
+  }
+  async printPdf(options: PrintOptions): Promise<Uint8Array> {
+    const h = await this.on();
+    return need(h.printPdf, 'printPdf').call(h, options);
+  }
+  async printPreview(options: PrintOptions, index: number): Promise<PrintPreview> {
+    const h = await this.on();
+    return need(h.printPreview, 'printPreview').call(h, options, index);
   }
   async slideCommand(cmd: SlideCommand): Promise<SlideEditResult> {
     return (await this.on()).slideCommand(cmd);

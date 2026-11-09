@@ -86,3 +86,24 @@ pub fn engine_slide_export(
         .map(Response::new)
         .map_err(|e| e.to_string())
 }
+
+/// PDF of a print job (JSON `bo_engine::print::PrintOptions`, CORE-PRINT-001).
+#[tauri::command]
+pub fn engine_print_pdf(state: State<'_, EngineState>, json: String) -> Result<Response, String> {
+    let mut e = state.0.lock().map_err(|e| e.to_string())?;
+    e.print_pdf_json(&json)
+        .map(Response::new)
+        .map_err(|e| e.to_string())
+}
+
+/// Sheet `index` of a print job (print panel preview) as JSON.
+#[tauri::command]
+pub fn engine_print_preview(
+    state: State<'_, EngineState>,
+    json: String,
+    index: usize,
+) -> Result<String, String> {
+    let mut e = state.0.lock().map_err(|e| e.to_string())?;
+    e.print_preview_json(&json, index)
+        .map_err(|e| e.to_string())
+}

@@ -71,6 +71,10 @@ function dispatch(e: WasmSheet, method: SheetMethod, a: unknown[]): unknown {
       return e.save(s(a[0]), n(a[1]));
     case 'exportPdf':
       return e.exportPdf();
+    case 'printPdf':
+      return e.printPdf(s(a[0]));
+    case 'printPreview':
+      return parse(e.printPreview(s(a[0]), n(a[1])));
     case 'exec':
       return parse(e.exec(s(a[0])));
     case 'collabStart':

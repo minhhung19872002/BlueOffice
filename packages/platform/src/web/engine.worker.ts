@@ -74,6 +74,12 @@ async function handle(req: EngineRequest): Promise<{ result: unknown; transfer?:
       const bytes = engine.exportSlides(req.json);
       return { result: bytes, transfer: [bytes.buffer] };
     }
+    case 'printPdf': {
+      const bytes = engine.printPdf(req.json);
+      return { result: bytes, transfer: [bytes.buffer] };
+    }
+    case 'printPreview':
+      return { result: JSON.parse(engine.printPreview(req.json, req.index)) };
     case 'slideCommand':
       return { result: JSON.parse(engine.slideCommand(req.json)) };
     case 'slideInsertPicture':

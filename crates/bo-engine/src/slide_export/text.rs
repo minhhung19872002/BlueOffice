@@ -10,14 +10,14 @@ use bo_text::{FaceId, FontManager};
 const INSET_X: f32 = 7.2;
 const INSET_Y: f32 = 3.6;
 
-fn face(fonts: &mut FontManager) -> Option<FaceId> {
+pub(crate) fn face(fonts: &mut FontManager) -> Option<FaceId> {
     fonts
         .resolve("Calibri", false, false)
         .or_else(|| fonts.resolve("Liberation Sans", false, false))
 }
 
 /// Shaped run of `text` with its origin at (`x`, `y` = baseline); returns its width.
-fn run(
+pub(crate) fn run(
     fonts: &mut FontManager,
     id: FaceId,
     text: &str,

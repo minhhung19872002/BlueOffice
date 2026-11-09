@@ -1,7 +1,16 @@
 # In, font hệ thống và lõi dự phòng của bản desktop
 
 ## In (prompt §3.4 `print`, P2.20)
-Lệnh **In** (Ctrl+P) xuất PDF bằng lõi rồi gọi `print_pdf` (`apps/desktop/src-tauri/src/print.rs`):
+Lệnh **In** (Ctrl+P) mở bảng In dùng chung cho ba ứng dụng (CORE-PRINT-001, `packages/editor/src/print/PrintPanel.tsx`):
+chọn trang (tất cả / hiện tại / phần chọn / dãy `1-3, 5, 8-`, BlueDoc thêm `p2s1`), trang chẵn/lẻ, số bản, theo bộ,
+in ngược, 1/2/4/6/8/16 trang mỗi tờ, co giãn theo khổ giấy, màu / thang xám / đen trắng; BlueDoc: in sửa đổi và
+bình luận, trang thuộc tính; BlueSlide: trang chiếu / trang ghi chú / dàn ý / tài liệu phát tay, trang chiếu ẩn,
+đóng khung; BlueSheet: trang tính hiện hành / cả sổ / vùng chọn, đường lưới, tiêu đề hàng cột, hàng/cột lặp lại,
+bỏ qua vùng in. Lõi dựng PDF của lệnh in (`bo_engine::print`, `printPdf`) và bản xem trước vẽ đúng tờ thứ i của
+PDF đó (`printPreview`). Lệnh **In ngay** (`file.printNow`) in cả tài liệu không qua bảng. Dòng lệnh:
+`bo-cli convert in.docx --to pdf --pages "1-3" --per-sheet 4 --paper a4 [--print-options JSON]`.
+
+PDF của lệnh in được gửi tới `print_pdf` (`apps/desktop/src-tauri/src/print.rs`):
 
 | Hệ điều hành | Cách in |
 |---|---|

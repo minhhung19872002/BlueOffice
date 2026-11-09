@@ -7,6 +7,7 @@ export type * from './views';
 export type * from './sparkline';
 export type * from './sheetTable';
 export type * from './slideExport';
+export type * from './print';
 export type * from './sigline';
 export type * from './picture';
 export type * from './charfx';

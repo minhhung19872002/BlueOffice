@@ -1,0 +1,79 @@
+/* Print panel (CORE-PRINT-001): settings left, preview right. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(0, 440px);
+  gap: 16px;
+  align-items: start;
+}
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 560px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.heading {
+  margin: 8px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bo-text-muted);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.error {
+  color: var(--bo-danger, #c62828);
+  font-size: 12px;
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.paper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 440px;
+  height: 540px;
+  background: var(--bo-canvas, #e8e8e8);
+  border-radius: 4px;
+}
+
+.paper canvas {
+  box-shadow: 0 1px 4px rgb(0 0 0 / 25%);
+  background: #fff;
+}
+
+@media (width <= 720px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .paper {
+    width: 100%;
+  }
+}

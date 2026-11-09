@@ -35,6 +35,7 @@ mod pivot_cmd;
 mod png;
 mod print;
 mod print_cmd;
+mod print_job;
 pub mod protect;
 mod scenario_cmd;
 mod security_cmd;
@@ -300,6 +301,8 @@ pub struct SheetEngine {
     pub(crate) spell: crate::spell::SpellState,
     /// `IMAGE` pictures fetched by the host (SHEET-CELL-001).
     web_images: cell_media_cmd::WebImages,
+    /// Sheets of the last print preview (CORE-PRINT-001).
+    print_cache: crate::print::PreviewCache,
 }
 
 impl Default for SheetEngine {
@@ -685,6 +688,7 @@ impl SheetEngine {
             table_auto: table_cmd::TableAuto::default(),
             spell: crate::spell::SpellState::default(),
             web_images: cell_media_cmd::WebImages::default(),
+            print_cache: crate::print::PreviewCache::default(),
         }
     }
 

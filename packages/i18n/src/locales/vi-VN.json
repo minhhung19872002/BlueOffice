@@ -97,6 +97,7 @@
       "newFromTemplate": "Mới từ mẫu",
       "sign": "Ký số",
       "exportSignedPdf": "Xuất PDF có ký số",
+      "printNow": "In ngay",
       "verifySignatures": "Kiểm tra chữ ký",
       "checkUpdates": "Kiểm tra cập nhật",
       "signLine": "Ký vào dòng chữ ký…"
@@ -5032,6 +5033,113 @@
       "source": "Nguồn dữ liệu",
       "query": "Truy vấn",
       "none": "Máy chủ chưa có nguồn dữ liệu nào"
+    }
+  },
+  "print": {
+    "title": "In",
+    "print": "In",
+    "cancel": "Huỷ",
+    "copies": "Số bản",
+    "collate": "In theo từng bộ",
+    "reverse": "In ngược thứ tự",
+    "whatTitle": "Nội dung in",
+    "pages": "Trang",
+    "pageChoice": {
+      "all": "Tất cả",
+      "current": "Trang hiện tại",
+      "selection": "Phần đang chọn",
+      "range": "Trang tuỳ chọn"
+    },
+    "range": "Các trang",
+    "rangeHint": "Ví dụ: 1-3, 5, 8-",
+    "rangeHintDoc": "Ví dụ: 1-3, 5, 8- hoặc p1s2",
+    "rangeError": "Không đọc được dãy trang. Dùng số trang, dấu gạch nối và dấu phẩy, ví dụ 1-3, 5.",
+    "subset": "Trang chẵn/lẻ",
+    "subsets": {
+      "all": "Mọi trang",
+      "odd": "Chỉ trang lẻ",
+      "even": "Chỉ trang chẵn"
+    },
+    "layoutTitle": "Bố trí trên giấy",
+    "perSheet": "Số trang mỗi tờ",
+    "perSheetN": "{{n}} trang",
+    "order": "Thứ tự",
+    "orders": {
+      "across": "Theo hàng ngang trước",
+      "down": "Theo cột dọc trước"
+    },
+    "paper": "Co giãn theo giấy",
+    "papers": {
+      "none": "Giữ kích thước trang",
+      "a3": "A3",
+      "a4": "A4",
+      "a5": "A5",
+      "b5": "B5 (JIS)",
+      "letter": "Letter",
+      "legal": "Legal"
+    },
+    "color": "Màu",
+    "colors": {
+      "color": "Màu",
+      "grayscale": "Thang xám",
+      "blackWhite": "Đen trắng"
+    },
+    "frame": "Viền mảnh quanh mỗi trang",
+    "prev": "Trước",
+    "next": "Sau",
+    "nothing": "Không có trang nào để in",
+    "sheetOf": "Tờ {{sheet}}/{{sheets}} · {{copies}} bản",
+    "previewLabel": "Xem trước bản in",
+    "doc": {
+      "markup": "In sửa đổi và bình luận",
+      "properties": "Thêm trang thuộc tính tài liệu",
+      "props": {
+        "title": "Tiêu đề",
+        "subject": "Chủ đề",
+        "author": "Tác giả",
+        "keywords": "Từ khoá",
+        "comments": "Ghi chú",
+        "category": "Danh mục",
+        "template": "Mẫu",
+        "createdate": "Ngày tạo",
+        "savedate": "Ngày lưu",
+        "lastsavedby": "Người lưu gần nhất",
+        "revnum": "Số lần sửa",
+        "filename": "Tên tệp",
+        "pages": "Số trang",
+        "words": "Số từ"
+      }
+    },
+    "slide": {
+      "layout": "Bố cục in",
+      "layouts": {
+        "slides": "Trang chiếu",
+        "notes": "Trang ghi chú",
+        "outline": "Dàn ý",
+        "handouts": "Tài liệu phát tay"
+      },
+      "perPage": "Số trang chiếu mỗi trang",
+      "hidden": "In cả trang chiếu ẩn",
+      "frame": "Đóng khung trang chiếu"
+    },
+    "sheet": {
+      "scope": "Phạm vi",
+      "scopes": {
+        "active": "Trang tính hiện hành",
+        "workbook": "Toàn bộ sổ làm việc",
+        "selection": "Vùng ô đang chọn"
+      },
+      "noSelection": "Chưa chọn vùng ô: in theo vùng in của trang tính.",
+      "gridlines": "Đường lưới",
+      "headings": "Tiêu đề hàng và cột",
+      "tri": {
+        "setup": "Theo thiết lập trang",
+        "on": "In",
+        "off": "Không in"
+      },
+      "titleRows": "Hàng lặp lại",
+      "titleCols": "Cột lặp lại",
+      "ignorePrintArea": "Bỏ qua vùng in"
     }
   }
 }

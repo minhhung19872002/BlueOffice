@@ -10,7 +10,7 @@
 //! the PDF, the raster and the SVG backends all draw the same pages.
 
 pub mod handout;
-mod masters;
+pub(crate) mod masters;
 mod package;
 pub mod svg;
 mod text;

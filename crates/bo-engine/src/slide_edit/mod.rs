@@ -25,12 +25,16 @@ pub mod master;
 pub mod media;
 pub mod morph;
 pub mod ops;
+pub mod outline;
+pub mod page_master;
 pub mod rich;
+pub mod sections;
 pub mod show;
 pub mod smartart;
 pub mod table;
 pub mod text;
 pub mod video;
+pub mod views;
 
 use crate::{DocInfo, Engine, EngineError};
 use bo_model::slide::{Fill, Presentation, Rel, ShapeNode, TextBody, TextRun, Xfrm};
@@ -1097,6 +1101,18 @@ pub struct SlideEditResult {
     /// The master view's pane, while it is open.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub master_view: Option<master::MasterViewOut>,
+    /// Sections of the deck in slide order (SLIDE-VIEW-001; empty without sections).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<sections::SectionOut>,
+    /// The notes / handout master view's pane, while it is open.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_master: Option<page_master::PageMasterOut>,
+    /// Answer of `outline` / `applyOutline`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outline: Option<Vec<outline::OutlineSlide>>,
+    /// Answer of `notesPages`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes_pages: Option<Vec<page_master::NotesPageOut>>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -1152,6 +1168,8 @@ pub struct SlideEditor {
     pub(crate) read_only: bool,
     /// The master view is open (SLIDE-MASTER-001).
     master: Option<master::MasterView>,
+    /// The notes or handout master view is open (SLIDE-VIEW-001).
+    page: Option<page_master::PageView>,
 }
 
 #[derive(Default)]
@@ -1196,6 +1214,7 @@ impl SlideEditor {
     pub fn mark_saved(&mut self) {
         self.saved = self.state_id();
         self.master_saved();
+        self.page_saved();
     }
 
     /// Keep the selection valid for the deck.
@@ -3297,6 +3316,14 @@ impl Engine {
             let r = self.slide_master_command(cmd)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        let is_view = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| v.get("cmd").and_then(|c| c.as_str()).map(views::handles))
+            .unwrap_or(false);
+        if is_view {
+            let r = self.slide_view_command_json(json)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         let cmd: SlideCommand =
             serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;
         let r = self.slide_command(cmd)?;
@@ -3328,7 +3355,7 @@ impl Engine {
             ed.clamp(pres);
             let history = matches!(cmd, SlideCommand::Undo | SlideCommand::Redo);
             let mark = ed.history_mark();
-            let cmd = if ed.in_master_view() && cmd.blocked_in_master_view(clipboard.as_ref()) {
+            let cmd = if ed.in_any_master_view() && cmd.blocked_in_master_view(clipboard.as_ref()) {
                 out.error = Some("masterView".into());
                 SlideCommand::State
             } else {
@@ -4184,6 +4211,7 @@ impl Engine {
                 SlideCommand::Redo => ed.redo(pres, &mut out),
             }
             ed.master_sync(pres, &mut out, mark, history);
+            ed.sections_sync(pres, mark, history);
             ed.clamp(pres);
         }
         let copied = out.copied.take();
@@ -4554,11 +4582,7 @@ impl Engine {
             placeholders,
             dirty,
             slides_changed: out.all,
-            modified: ed
-                .master
-                .as_ref()
-                .map_or(ed.state_id() != ed.saved, |mv| mv.modified(ed.state_id()))
-                || self.sec.dirty(),
+            modified: ed.is_modified() || self.sec.dirty(),
             can_undo: !ed.undo.is_empty(),
             can_redo: !ed.redo.is_empty(),
             format: format.unwrap_or_default(),
@@ -4607,6 +4631,14 @@ impl Engine {
             security: None,
             design: Some(master::design_out(pres, ed)),
             master_view: master::view_out(pres, ed),
+            sections: if ed.in_any_master_view() {
+                Vec::new()
+            } else {
+                sections::sections_out(pres)
+            },
+            page_master: page_master::view_out(pres, ed),
+            outline: None,
+            notes_pages: None,
         })
     }
 }

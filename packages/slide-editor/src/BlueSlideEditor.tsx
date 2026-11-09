@@ -100,6 +100,9 @@ import {
   LayoutGrid,
   List,
   ListOrdered,
+  ListTree,
+  NotebookText,
+  StickyNote,
   LogIn,
   LogOut,
   Merge,
@@ -181,6 +184,24 @@ import {
   type MasterState,
 } from './masterView';
 import masterStyles from './masterView.module.css';
+import { NotesPageView } from './notesPage';
+import { OutlineView } from './outlineView';
+import {
+  HandoutSlots,
+  pageMasterState,
+  pageMasterTab,
+  registerPageMasterCommands,
+  type PageMasterState,
+} from './pageMasterView';
+import {
+  SectionHeader,
+  SectionRenameDialog,
+  paneEntries,
+  registerSectionCommands,
+  sectionState,
+  sectionsGroup,
+  type SectionState,
+} from './sections';
 
 export interface BlueSlideEditorProps {
   platform: Platform;
@@ -191,10 +212,11 @@ export interface BlueSlideEditorProps {
   theme?: ThemeSetting;
 }
 
-export type SlideView = 'normal' | 'sorter' | 'reading' | 'show' | 'presenter';
+export type SlideView =
+  'normal' | 'sorter' | 'reading' | 'show' | 'presenter' | 'outline' | 'notesPage';
 
 /** State passed to registry commands. */
-export interface SlideEditorState extends MasterState {
+export interface SlideEditorState extends MasterState, SectionState, PageMasterState {
   hasDeck: boolean;
   current: number;
   hasSelection: boolean;
@@ -360,6 +382,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   /** Slide size dialog and master / layout rename dialog (SLIDE-MASTER-001). */
   const [sizeOpen, setSizeOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  /** Sections (SLIDE-VIEW-001): collapsed section ids, the header picked last, rename dialog. */
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [sectionPick, setSectionPick] = useState<number | null>(null);
+  const [sectionRename, setSectionRename] = useState(false);
   /** Clipboard history panel (Clipboard group launcher). */
   const [clipPanel, setClipPanel] = useState(false);
   /** Text and picture of the last shapes copied here (paste as picture / text). */
@@ -1067,7 +1093,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       run: () => setVideoOpen(true),
     });
     reg.register({ id: 'file.exportDocs', isEnabled: deck, run: () => setExportDocsOpen(true) });
-    for (const v of ['normal', 'sorter', 'reading'] as const) {
+    for (const v of ['normal', 'sorter', 'reading', 'outline', 'notesPage'] as const) {
       reg.register({
         id: `view.${v}`,
         isChecked: () => view === v,
@@ -1411,6 +1437,23 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         master: t('slideEditor.master.newMaster'),
       }),
     });
+    // SLIDE-VIEW-001: notes / handout master views (edited in the normal view) and sections.
+    registerPageMasterCommands(reg, (cmd) => {
+      if (cmd.cmd === 'pageMasterView' && cmd.on) setView('normal');
+      run(cmd);
+    });
+    registerSectionCommands(reg, {
+      run: (cmd) => {
+        setSectionPick(null);
+        run(cmd);
+      },
+      openRename: () => setSectionRename(true),
+      names: () => ({
+        section: t('slideEditor.sections.newSection'),
+        first: t('slideEditor.sections.firstSection'),
+      }),
+      collapse: (ids) => setCollapsed(new Set(ids)),
+    });
     return reg;
   }, [
     fail,
@@ -1460,8 +1503,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isSmartArt: s.length === 1 && s[0]?.kind === 'smartart' && !!edit?.smartart,
       transition: edit?.transition?.kind ?? 'none',
       ...masterState(edit),
+      ...sectionState(edit?.sections, current, sectionPick),
+      ...pageMasterState(edit),
     };
-  }, [count, current, edit]);
+  }, [count, current, edit, sectionPick]);
   // Built-in themes and variants (one command each).
   const design = edit?.design;
   useEffect(() => registerDesignChoices(registry, run, design), [registry, run, design]);
@@ -1588,6 +1633,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     const sm = 'small' as const;
     return [
       ...(state.masterView ? [masterTab(t, item, state, run)] : []),
+      ...(state.pageMaster ? [pageMasterTab(t, item, state.pageMaster)] : []),
       {
         id: 'home',
         label: t('ribbon.tabs.home'),
@@ -2102,10 +2148,31 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('view.normal', t('slideEditor.normal'), <Rows3 size={18} />),
               item('view.sorter', t('slideEditor.sorter'), <LayoutGrid size={18} />),
               item('view.reading', t('slideEditor.reading'), <BookOpen size={18} />),
-              item('view.slideMaster', t('slideEditor.master.view'), <PanelTop size={18} />),
+              item('view.outline', t('slideEditor.views.outline'), <ListTree size={18} />),
+              item('view.notesPage', t('slideEditor.views.notesPage'), <NotebookText size={18} />),
               item('view.animationPane', t('slideEditor.animPane'), <PanelRight size={16} />, sm),
             ],
           },
+          {
+            id: 'masterViews',
+            label: t('slideEditor.views.groupMasters'),
+            items: [
+              item('view.slideMaster', t('slideEditor.master.view'), <PanelTop size={18} />),
+              item(
+                'view.handoutMaster',
+                t('slideEditor.views.handoutMaster'),
+                <Printer size={16} />,
+                sm,
+              ),
+              item(
+                'view.notesMaster',
+                t('slideEditor.views.notesMaster'),
+                <StickyNote size={16} />,
+                sm,
+              ),
+            ],
+          },
+          sectionsGroup(t, item),
         ],
       },
     ];
@@ -2148,52 +2215,83 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   );
 
   const shown = Math.min(current, Math.max(0, count - 1));
+  // Section headers (SLIDE-VIEW-001) before their slides; collapsed sections hide them.
+  const entries = paneEntries(count, edit?.sections, collapsed);
+  const sectionHeader = (k: number, sec: NonNullable<SlideEditResult['sections']>[number]) => (
+    <SectionHeader
+      key={`s${sec.id}`}
+      section={sec}
+      index={k}
+      collapsed={collapsed.has(sec.id)}
+      current={state.section === k}
+      onToggle={() =>
+        setCollapsed((c) => {
+          const n = new Set(c);
+          if (n.has(sec.id)) n.delete(sec.id);
+          else n.add(sec.id);
+          return n;
+        })
+      }
+      onPick={() => {
+        setSectionPick(sec.count > 0 ? null : k);
+        if (sec.count > 0) goTo(sec.first);
+      }}
+      onRename={() => {
+        setSectionPick(k);
+        setSectionRename(true);
+      }}
+    />
+  );
   const thumbs = (
     <nav className={styles.thumbs} aria-label={t('slideEditor.thumbnails')} data-slide-thumbs>
-      {Array.from({ length: count }, (_, i) => (
-        <button
-          key={i}
-          type="button"
-          draggable
-          data-testid={`thumb-${i + 1}`}
-          className={`${i === shown ? styles.thumbActive : styles.thumb} ${
-            dropOver === i && dragFrom !== null && dragFrom !== i ? styles.thumbDrop : ''
-          } ${edit?.masterView?.items[i]?.kind === 'layout' ? masterStyles.thumbLayout : ''}`}
-          title={
-            edit?.masterView?.items[i] ? masterThumbLabel(t, edit.masterView.items[i]) : undefined
-          }
-          aria-current={i === shown}
-          onClick={() => goTo(i)}
-          onDragStart={(e) => {
-            setDragFrom(i);
-            e.dataTransfer?.setData('text/plain', String(i));
-          }}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDropOver(i);
-          }}
-          onDragEnd={() => {
-            setDragFrom(null);
-            setDropOver(null);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            const from = dragFrom ?? Number(e.dataTransfer?.getData('text/plain'));
-            setDragFrom(null);
-            setDropOver(null);
-            if (Number.isInteger(from) && from !== i) run({ cmd: 'moveSlide', from, to: i });
-          }}
-        >
-          <span className={styles.thumbNo}>{i + 1}</span>
-          {canvas(i, 150)}
-          {edit?.masterView?.items[i] && (
-            <span className={masterStyles.thumbName}>
-              {edit.masterView.items[i].name || t('slideEditor.master.unnamed')}
-            </span>
-          )}
-        </button>
-      ))}
-      {count > 0 && !state.masterView && (
+      {entries.map((en) => {
+        if (en.kind === 'section') return sectionHeader(en.index, en.section);
+        const i = en.index;
+        return (
+          <button
+            key={i}
+            type="button"
+            draggable
+            data-testid={`thumb-${i + 1}`}
+            className={`${i === shown ? styles.thumbActive : styles.thumb} ${
+              dropOver === i && dragFrom !== null && dragFrom !== i ? styles.thumbDrop : ''
+            } ${edit?.masterView?.items[i]?.kind === 'layout' ? masterStyles.thumbLayout : ''}`}
+            title={
+              edit?.masterView?.items[i] ? masterThumbLabel(t, edit.masterView.items[i]) : undefined
+            }
+            aria-current={i === shown}
+            onClick={() => goTo(i)}
+            onDragStart={(e) => {
+              setDragFrom(i);
+              e.dataTransfer?.setData('text/plain', String(i));
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDropOver(i);
+            }}
+            onDragEnd={() => {
+              setDragFrom(null);
+              setDropOver(null);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const from = dragFrom ?? Number(e.dataTransfer?.getData('text/plain'));
+              setDragFrom(null);
+              setDropOver(null);
+              if (Number.isInteger(from) && from !== i) run({ cmd: 'moveSlide', from, to: i });
+            }}
+          >
+            <span className={styles.thumbNo}>{i + 1}</span>
+            {canvas(i, 150)}
+            {edit?.masterView?.items[i] && (
+              <span className={masterStyles.thumbName}>
+                {edit.masterView.items[i].name || t('slideEditor.master.unnamed')}
+              </span>
+            )}
+          </button>
+        );
+      })}
+      {count > 0 && !state.masterView && !state.pageMaster && (
         <button type="button" className={styles.thumbAdd} onClick={() => exec('slide.new')}>
           {t('slideEditor.addSlide')}
         </button>
@@ -2361,6 +2459,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                         return { ...p, name, label: t('collab.selected', { name }) };
                       })}
                   />
+                  <HandoutSlots
+                    info={edit?.pageMaster}
+                    scale={main.width / (slideSize.width || 1)}
+                  />
                   {edit?.slide === shown && (edit.media?.length ?? 0) > 0 && (
                     <MediaButtons
                       engine={engine}
@@ -2374,7 +2476,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 <p className={styles.empty}>{t('slideEditor.empty')}</p>
               )}
             </div>
-            {count > 0 && !state.masterView && (
+            {count > 0 && !state.masterView && !state.pageMaster && (
               <section className={styles.notes} aria-label={t('slideEditor.notes')}>
                 <textarea
                   className={styles.notesEditor}
@@ -2399,6 +2501,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             onApply={(cmd) => {
               setSizeOpen(false);
               run(cmd);
+            }}
+          />
+          <SectionRenameDialog
+            open={sectionRename}
+            initial={state.section != null ? (edit?.sections?.[state.section]?.name ?? '') : ''}
+            onClose={() => setSectionRename(false)}
+            onRename={(name) => {
+              setSectionRename(false);
+              if (state.section != null) run({ cmd: 'renameSection', index: state.section, name });
             }}
           />
           <RenameDialog
@@ -2486,45 +2597,73 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       )}
       {view === 'sorter' && (
         <div className={styles.sorter}>
-          {Array.from({ length: count }, (_, i) => (
-            <button
-              key={i}
-              type="button"
-              draggable
-              data-testid={`sorter-${i + 1}`}
-              className={`${i === shown ? styles.sortItemActive : styles.sortItem} ${
-                sortOver === i && sortFrom !== null && sortFrom !== i ? styles.thumbDrop : ''
-              }`}
-              onClick={() => goTo(i)}
-              onDoubleClick={() => {
-                goTo(i);
-                setView('normal');
-              }}
-              onDragStart={(e) => {
-                setSortFrom(i);
-                e.dataTransfer?.setData('text/plain', String(i));
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setSortOver(i);
-              }}
-              onDragEnd={() => {
-                setSortFrom(null);
-                setSortOver(null);
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                const from = sortFrom ?? Number(e.dataTransfer?.getData('text/plain'));
-                setSortFrom(null);
-                setSortOver(null);
-                if (Number.isInteger(from) && from !== i) run({ cmd: 'moveSlide', from, to: i });
-              }}
-            >
-              {canvas(i, 220)}
-              <span>{i + 1}</span>
-            </button>
-          ))}
+          {entries.map((en) => {
+            if (en.kind === 'section')
+              return (
+                <div key={`s${en.section.id}`} style={{ flexBasis: '100%' }}>
+                  {sectionHeader(en.index, en.section)}
+                </div>
+              );
+            const i = en.index;
+            return (
+              <button
+                key={i}
+                type="button"
+                draggable
+                data-testid={`sorter-${i + 1}`}
+                className={`${i === shown ? styles.sortItemActive : styles.sortItem} ${
+                  sortOver === i && sortFrom !== null && sortFrom !== i ? styles.thumbDrop : ''
+                }`}
+                onClick={() => goTo(i)}
+                onDoubleClick={() => {
+                  goTo(i);
+                  setView('normal');
+                }}
+                onDragStart={(e) => {
+                  setSortFrom(i);
+                  e.dataTransfer?.setData('text/plain', String(i));
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setSortOver(i);
+                }}
+                onDragEnd={() => {
+                  setSortFrom(null);
+                  setSortOver(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const from = sortFrom ?? Number(e.dataTransfer?.getData('text/plain'));
+                  setSortFrom(null);
+                  setSortOver(null);
+                  if (Number.isInteger(from) && from !== i) run({ cmd: 'moveSlide', from, to: i });
+                }}
+              >
+                {canvas(i, 220)}
+                <span>{i + 1}</span>
+              </button>
+            );
+          })}
         </div>
+      )}
+      {view === 'outline' && (
+        <OutlineView
+          runResult={runResult}
+          revision={revs.reduce((a, b) => a + b, epoch * 1_000_000)}
+          current={shown}
+          onSelect={goTo}
+          preview={count > 0 ? canvas(shown, 420) : undefined}
+        />
+      )}
+      {view === 'notesPage' && (
+        <NotesPageView
+          runResult={runResult}
+          run={run}
+          revision={revs.reduce((a, b) => a + b, epoch * 1_000_000)}
+          current={shown}
+          onSelect={goTo}
+          canvas={(i, w) => canvas(i, w)}
+        />
       )}
       {view === 'reading' && (
         <div

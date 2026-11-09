@@ -849,6 +849,7 @@ impl Engine {
                     masters,
                     themes,
                     slide_size: before.slide_size.clone(),
+                    notes_size: before.notes_size.clone(),
                 };
                 if after != before {
                     let op = SlideOp::Pres {

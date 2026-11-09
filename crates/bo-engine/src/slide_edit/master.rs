@@ -2141,6 +2141,8 @@ impl Engine {
             ed.table = None;
             let mark = ed.history_mark();
             match cmd {
+                // The notes / handout master view is open (SLIDE-VIEW-001).
+                _ if ed.in_page_master_view() => out.error = Some("masterView".into()),
                 MasterCommand::MasterView { on: true } => {
                     if collab {
                         out.error = Some("masterViewCollab".into());

@@ -61,7 +61,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 |---|---|---|---|---|---|---|---|---|---|---|
 | Định dạng ký tự/đoạn cơ bản | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus text-*, para-* | ✅ | |
 | Thuộc tính ký tự nâng cao (emboss, ruby, ligature…) | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
-| Style, danh sách đa cấp | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | corpus styles-*, lists-* | 🟡 | thiếu định nghĩa danh sách mới |
+| Style, danh sách đa cấp | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | corpus styles-*, lists-* | 🟡 | định nghĩa danh sách mới, liên kết heading, đặt giá trị (DOC-LIST-001); thiếu restart cấp con, legal-style |
 | Section, cột, header/footer | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus sections-* | ✅ | |
 | Drop cap, đánh số dòng, gạch nối, chữ dọc | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
 | Viền trang, nền, watermark | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
@@ -93,8 +93,8 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 | Slicer / Timeline | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | slicers.rs, timelines.rs, writer-slicers-*, timeline-1, sheet-slicer/timeline.spec | 🟡 | slicer bảng tạo/lọc/lưu; slicer pivot và timeline đọc/lọc/lưu lựa chọn (chưa tạo mới) |
 | Goal Seek / Data Table / Solver | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Power Query / data model | 🟡 | — | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
-| Flash Fill, Text to Columns | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
-| Analysis ToolPak | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
+| Flash Fill, Text to Columns | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | Flash Fill học từ ví dụ (SHEET-FLASH-001); thiếu gợi ý khi gõ |
+| Analysis ToolPak | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | 19 công cụ phân tích thống kê (SHEET-ATP-001); thiếu biểu đồ đầu ra |
 | Sparklines | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
 | Bảng (ListObject) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu total row tự động |
 | Comment luồng / notes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |

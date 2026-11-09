@@ -86,7 +86,7 @@ neo tuyệt đối, dán slide sang deck khác, connector trong nhóm lật) đ�
 10. **Mã hoá**: Agile Encryption đã kiểm chéo hai chiều với một cài đặt độc lập (msoffcrypto-tool, `crates/bo-crypto/tests/interop.rs`).
 
 ## Lịch sử
-- 2026-11-09: giao diện (BlueOffice-UI-PROMPT): `docs/ui/` (DESIGN, glossary, shortcuts, BACKLOG); token thiết kế sinh tự động (brand tạm #1F6FEB, màu nhấn chàm/xanh ngọc/hồng san hô theo `data-app`, thang xám 12 bậc, trạng thái, light/dark/tương phản cao, mật độ, chuyển động), bộ icon theo command id + SOURCES.md, font UI Be Vietnam Pro. Parity: tìm/thay nâng cao (CORE-FIND-001). Agent song song trong worktree (CARGO_TARGET_DIR riêng).
+- 2026-11-09: giao diện (BlueOffice-UI-PROMPT): `docs/ui/` (DESIGN, glossary, shortcuts, BACKLOG); token thiết kế sinh tự động (brand tạm #1F6FEB, màu nhấn chàm/xanh ngọc/hồng san hô theo `data-app`, thang xám 12 bậc, trạng thái, light/dark/tương phản cao, mật độ, chuyển động), bộ icon theo command id + SOURCES.md, font UI Be Vietnam Pro. Parity: tìm/thay nâng cao (CORE-FIND-001), Flash Fill (SHEET-FLASH-001, một phần), công cụ phân tích thống kê (SHEET-ATP-001, một phần; nhãn kết quả viết lại theo cách diễn đạt riêng), danh sách đa cấp mới + liên kết heading + đặt giá trị (DOC-LIST-001, một phần). Agent song song trong worktree (CARGO_TARGET_DIR riêng).
 - 2026-11-08 (phiên cuối): hợp nhất nhánh `wip/misc-formats` còn dở (comment luồng BlueSheet [MS-XLSX] threadedComments,
   comment hiện đại BlueSlide [MS-PPTX] p188, vẽ SmartArt fallback trong BlueSheet/BlueSlide, chuyển TCVN3/VNI khi mở
   .docx/.xlsx, nhóm corpus slide-notes/theme/smartart ≥ 3 file) — giữ thanh cảnh báo macro, mật khẩu, bảo vệ sheet của

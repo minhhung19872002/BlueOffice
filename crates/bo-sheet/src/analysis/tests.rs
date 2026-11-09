@@ -378,7 +378,11 @@ fn f_test_variances() {
     close(n(&row(&t, "F")[1]), 0.25, TOL);
     close(n(&row(&t, "p-value (one-sided)")[1]), 0.104, 1e-9);
     // F table: F(0.05; 4, 4) = 6.3882 upper, so the lower critical value is 1/6.3882.
-    close(n(&row(&t, "Critical F (one-sided)")[1]), 1.0 / 6.388_233, 1e-6);
+    close(
+        n(&row(&t, "Critical F (one-sided)")[1]),
+        1.0 / 6.388_233,
+        1e-6,
+    );
     // Swapped, F = 4 > 1 uses the upper tail: P = 1 − I_0.8(2, 2) = 1 − (1.92 − 1.024).
     let t = run_en(
         &Tool::FTest {
@@ -415,7 +419,11 @@ fn t_test_paired() {
     );
     close(n(&row(&t, "df")[1]), 4.0, TOL);
     close(n(&row(&t, "t statistic")[1]), ts, 1e-12);
-    close(n(&row(&t, "p-value (one-sided)")[1]), 1.0 - t4_cdf(ts), 1e-9);
+    close(
+        n(&row(&t, "p-value (one-sided)")[1]),
+        1.0 - t4_cdf(ts),
+        1e-9,
+    );
     close(
         n(&row(&t, "p-value (two-sided)")[1]),
         2.0 * (1.0 - t4_cdf(ts)),
@@ -502,7 +510,11 @@ fn t_test_two_sample() {
         Some(&d),
     );
     close(n(&row(&u, "df")[1]), 5.0, TOL);
-    close(n(&row(&u, "t statistic")[1]), -4.0 / (7f64 / 3.0).sqrt(), 1e-12);
+    close(
+        n(&row(&u, "t statistic")[1]),
+        -4.0 / (7f64 / 3.0).sqrt(),
+        1e-12,
+    );
     // t table: t(0.95, 5) = 2.015048, t(0.975, 5) = 2.570582.
     close(n(&row(&u, "Critical t (one-sided)")[1]), 2.015_048, 1e-6);
     close(n(&row(&u, "Critical t (two-sided)")[1]), 2.570_582, 1e-6);
@@ -841,7 +853,7 @@ fn regression_anscombe() {
     close(n(&total[1]), 10.0, TOL);
     let b0 = row(&t, "Intercept");
     close(n(&b0[1]), 3.00, 5e-3);
-    let b1 = row(&t, "X Variable 1");
+    let b1 = row(&t, "X 1");
     close(n(&b1[1]), 0.500, 5e-4);
     close(n(&b1[2]), 0.118, 5e-4);
     // hand: t = b/se, interval b ± t(0.975, 9)·se with t table t(0.975, 9) = 2.262157.

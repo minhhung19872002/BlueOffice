@@ -590,6 +590,8 @@ export interface SolverResult {
 export type SheetCommand =
   | import('./security').SecurityCommand
   | DataToolsCommand
+  /** Formula auditing and calculation (SHEET-AUDIT-001). */
+  | import('./audit').AuditCommand
   | { cmd: 'presets' }
   /** Check document (CORE-INSPECT-001) → `InspectReport`. */
   | InspectCommand

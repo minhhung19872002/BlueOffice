@@ -11,12 +11,14 @@
 pub mod advfilter;
 pub mod analysis;
 pub mod calc;
+pub mod calcopts;
 pub mod cells;
 pub mod cf;
 pub mod chart;
 pub mod chart_style;
 pub mod color;
 pub mod datatools;
+pub mod errcheck;
 pub mod fill;
 pub mod filter;
 pub mod flashfill;

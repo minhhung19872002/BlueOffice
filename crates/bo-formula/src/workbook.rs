@@ -173,6 +173,9 @@ pub struct Workbook {
     area_cache: RwLock<FxHashMap<Area, Arc<Array>>>,
     /// Exact-match indexes of lookup vectors, valid during one recalculation pass.
     index_cache: RwLock<FxHashMap<Area, Arc<ExactIndex>>>,
+    /// Decimal places numbers of a cell are rounded to when read ("precision
+    /// as displayed", §18.2.2 calcPr `fullPrecision`).
+    round_to: FxHashMap<CellId, i32>,
 }
 
 impl Default for Workbook {
@@ -205,6 +208,7 @@ impl Workbook {
             recalculated: Vec::new(),
             area_cache: RwLock::new(FxHashMap::default()),
             index_cache: RwLock::new(FxHashMap::default()),
+            round_to: FxHashMap::default(),
         }
     }
 
@@ -895,6 +899,96 @@ impl Workbook {
             .is_some_and(|c| c.formula.is_some())
     }
 
+    // ------------------------------------------------------------ auditing
+
+    /// Areas the formula of a cell reads directly (defined names and table
+    /// references resolved); whole-column / whole-row references are clipped
+    /// to the used part of their sheet. Empty for constants. Dynamic references
+    /// (`INDIRECT`, `OFFSET`) are not known statically and are not listed.
+    pub fn direct_precedents(&self, sheet: usize, row: u32, col: u32) -> Vec<Area> {
+        let Some(areas) = self.precedents.get(&CellId::new(sheet, row, col)) else {
+            return Vec::new();
+        };
+        let mut out: Vec<Area> = Vec::new();
+        for a in areas {
+            let (rows, cols) = self.used_extent(a.sheet);
+            let r2 = if a.r2 >= MAX_ROWS - 1 {
+                a.r2.min(rows.max(a.r1 + 1) - 1)
+            } else {
+                a.r2
+            };
+            let c2 = if a.c2 >= MAX_COLS - 1 {
+                a.c2.min(cols.max(a.c1 + 1) - 1)
+            } else {
+                a.c2
+            };
+            let clipped = Area::new(a.sheet, a.r1, a.c1, r2, c2);
+            if !out.contains(&clipped) {
+                out.push(clipped);
+            }
+        }
+        out
+    }
+
+    /// Formula cells reading a cell directly, sorted.
+    pub fn direct_dependents(&self, sheet: usize, row: u32, col: u32) -> Vec<CellId> {
+        let mut out = Vec::new();
+        self.for_each_reader(CellId::new(sheet, row, col), &mut |d| out.push(d));
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Step-by-step evaluation of the formula of a cell against the current
+    /// values (`None` for a cell without a formula).
+    pub fn trace(&self, sheet: usize, row: u32, col: u32) -> Option<crate::trace::FormulaTrace> {
+        let f = self
+            .sheets
+            .get(sheet)?
+            .cells
+            .get(&(row, col))?
+            .formula
+            .clone()?;
+        Some(crate::trace::trace_formula(
+            &f.expr,
+            self,
+            sheet,
+            row,
+            col,
+            &self.config,
+        ))
+    }
+
+    /// "Precision as displayed" (ECMA-376 Part 1, §18.2.2 calcPr
+    /// `fullPrecision="0"`): numbers read from this cell are rounded to
+    /// `decimals` places (negative: tens, hundreds…); `None` restores full
+    /// precision. Marks the cell's readers for recalculation.
+    pub fn set_display_precision(
+        &mut self,
+        sheet: usize,
+        row: u32,
+        col: u32,
+        decimals: Option<i32>,
+    ) {
+        let id = CellId::new(sheet, row, col);
+        let changed = match decimals {
+            Some(d) => self.round_to.insert(id, d) != Some(d),
+            None => self.round_to.remove(&id).is_some(),
+        };
+        if changed {
+            self.after_edit(id);
+        }
+    }
+
+    /// Removes every "precision as displayed" rounding.
+    pub fn clear_display_precision(&mut self) {
+        let ids: Vec<CellId> = self.round_to.keys().copied().collect();
+        self.round_to.clear();
+        for id in ids {
+            self.after_edit(id);
+        }
+    }
+
     /// Formula cells reading `cell` directly (static precedents).
     fn for_each_reader(&self, cell: CellId, f: &mut dyn FnMut(CellId)) {
         if let Some(ds) = self.dependents.get(&cell) {
@@ -1211,6 +1305,9 @@ impl Workbook {
                     };
                     self.eval_cell(*id, &view)
                 };
+                self.store(*id, v);
+                // Compared as read back (rounded under "precision as displayed").
+                let v = self.read(*id);
                 let delta = match (&old, &v) {
                     (Value::Number(a), Value::Number(b)) => (a - b).abs(),
                     (Value::Empty, Value::Number(b)) => b.abs(),
@@ -1218,7 +1315,6 @@ impl Workbook {
                     _ => f64::INFINITY,
                 };
                 max_delta = max_delta.max(delta);
-                self.store(*id, v);
             }
             if max_delta < it.max_change {
                 break;
@@ -1336,6 +1432,17 @@ impl Workbook {
     }
 
     fn read(&self, id: CellId) -> Value {
+        let v = self.read_full(id);
+        if self.round_to.is_empty() {
+            return v;
+        }
+        match (v, self.round_to.get(&id)) {
+            (Value::Number(n), Some(&d)) => Value::Number(round_decimals(n, d)),
+            (v, _) => v,
+        }
+    }
+
+    fn read_full(&self, id: CellId) -> Value {
         let Some(sheet) = self.sheets.get(id.sheet) else {
             return Value::Error(ErrorKind::Ref);
         };
@@ -1360,6 +1467,19 @@ impl Workbook {
             }
         }
         Value::Empty
+    }
+}
+
+/// Round half away from zero to `d` decimal places (negative `d`: to tens,
+/// hundreds…), after removing binary noise beyond 15 significant digits.
+fn round_decimals(n: f64, d: i32) -> f64 {
+    let d = d.clamp(-15, 15);
+    let m = 10f64.powi(d);
+    let r = crate::value::round_sig15(n * m).round() / m;
+    if r.is_finite() {
+        r
+    } else {
+        n
     }
 }
 

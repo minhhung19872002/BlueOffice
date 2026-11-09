@@ -179,6 +179,9 @@ pub(crate) fn load_with(
     };
     let names: Vec<&str> = wb.sheets.iter().map(|s| s.name.as_str()).collect();
     let mut fw = bo_formula::Workbook::with_sheets(&names);
+    let calc = crate::calcopts::CalcSettings::read(wb);
+    // Before any formula is loaded (it marks every formula for calculation).
+    fw.set_iterative(calc.iterative());
     fw.set_date_system(system);
     fw.set_now(now);
     // TEXT() renders with the full number-format engine (§18.8.31).
@@ -263,6 +266,9 @@ pub(crate) fn load_with(
                 }
             }
         }
+    }
+    if !calc.full_precision {
+        crate::calcopts::apply_display_precision(&mut fw, wb);
     }
     fw
 }

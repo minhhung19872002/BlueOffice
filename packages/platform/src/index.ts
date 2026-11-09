@@ -1,6 +1,7 @@
 export type * from './types';
 export type * from './chartDesign';
 export type * from './inspect';
+export type * from './audit';
 export type * from './views';
 export type * from './sparkline';
 export type * from './slideExport';

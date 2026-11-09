@@ -3456,6 +3456,99 @@
       "models3d": "3D models"
     }
   },
+  "sheetAudit": {
+    "tab": "Formulas",
+    "groupAudit": "Formula auditing",
+    "groupCalc": "Calculation",
+    "tracePrecedents": "Trace precedents",
+    "traceDependents": "Trace dependents",
+    "removeArrows": "Remove arrows",
+    "errorCheck": "Error checking",
+    "evaluate": "Evaluate formula",
+    "watch": "Watch window",
+    "options": "Calculation options",
+    "calcNow": "Calculate now",
+    "calcSheet": "Calculate sheet",
+    "calcFull": "Recalculate everything",
+    "close": "Close",
+    "noFormula": "The active cell does not contain a formula.",
+    "noPrecedents": "This formula does not read any cell.",
+    "noDependents": "No formula reads this cell.",
+    "otherSheet": "Link to another sheet",
+    "status": {
+      "calculate": "Calculate",
+      "circular": "Circular reference: {{cells}}"
+    },
+    "circular": {
+      "title": "Circular reference",
+      "body": "A formula uses its own result, directly or through other cells, so it cannot be calculated. Change the formula, or turn on iterative calculation in the calculation options.",
+      "cells": "Cells involved: {{cells}}"
+    },
+    "eval": {
+      "title": "Evaluate formula",
+      "evaluate": "Evaluate",
+      "restart": "Start over",
+      "stepIn": "Step in",
+      "stepOut": "Step out",
+      "hint": "The underlined part is evaluated next.",
+      "done": "This is the final result.",
+      "canStepIn": "{{cell}} holds a formula: step in to evaluate it."
+    },
+    "errors": {
+      "title": "Error checking",
+      "none": "No problems found on this sheet.",
+      "count": "Finding {{index}} of {{count}}",
+      "previous": "Previous",
+      "next": "Next",
+      "ignore": "Ignore",
+      "copyFormula": "Use the formula of the neighbouring cells",
+      "convert": "Convert to number",
+      "showSteps": "Show calculation steps",
+      "options": "Rules",
+      "reset": "Show ignored findings again",
+      "rules": {
+        "evalError": "The formula returns an error",
+        "inconsistentFormula": "The formula differs from the formulas around it",
+        "numberAsText": "A number is stored as text",
+        "emptyRef": "The formula reads an empty cell",
+        "unlockedFormula": "The formula is in an unlocked cell"
+      },
+      "detail": {
+        "evalError": "Step through the formula to see where the error comes from.",
+        "inconsistentFormula": "The cells on both sides use {{formula}}.",
+        "numberAsText": "The text can be read as the number {{number}}.",
+        "emptyRef": "{{cell}} is empty.",
+        "unlockedFormula": "Anyone can change this formula even when the sheet is protected."
+      }
+    },
+    "watchWin": {
+      "title": "Watch window",
+      "add": "Add watch",
+      "remove": "Delete watch",
+      "empty": "Nothing is watched yet. Select cells and choose Add watch.",
+      "book": "Workbook",
+      "sheet": "Sheet",
+      "name": "Name",
+      "cell": "Cell",
+      "value": "Value",
+      "formula": "Formula"
+    },
+    "opts": {
+      "title": "Calculation options",
+      "mode": "When to calculate",
+      "auto": "Automatically",
+      "autoNoTable": "Automatically, except data tables",
+      "manual": "Only when asked (F9)",
+      "calcOnSave": "Calculate before saving",
+      "iteration": "Circular references",
+      "iterate": "Allow iterative calculation",
+      "maxIterations": "Maximum number of iterations",
+      "maxChange": "Stop when values change by less than",
+      "precision": "Calculate with the precision shown",
+      "precisionWarn": "Numbers are rounded to the decimals their format shows before they are used in formulas.",
+      "invalid": "Enter a whole number of iterations from 1 to {{max}} and a change of 0 or more."
+    }
+  },
   "formFields": {
     "title": "Form field options",
     "kinds": {

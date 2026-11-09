@@ -192,6 +192,17 @@ import {
   TextToColumnsDialog,
   type CircleRect,
 } from './dataTools';
+import {
+  AuditIcons,
+  CalcOptionsDialog,
+  CalcStatus,
+  CircularWarning,
+  ErrorCheckDialog,
+  EvaluateFormulaDialog,
+  TraceArrowsOverlay,
+  WatchWindow,
+  useAudit,
+} from './audit';
 import { ProtectSheetDialog, UnprotectDialog } from './protection';
 import { ScenarioDialog } from './scenarios';
 import {
@@ -998,6 +1009,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     },
     [host, refreshInfo, fail],
   );
+
+  // Formula auditing and calculation (SHEET-AUDIT-001).
+  const audit = useAudit({ host, sheet, revision, onDone: refreshInfo, fail });
+  const {
+    trace: auditTrace,
+    calculate: auditCalculate,
+    removeArrows,
+    setDialog: setAuditDialog,
+    setWatchOpen,
+    traces: auditTraces,
+    watchOpen,
+  } = audit;
 
   // Chart Design gallery of the selected chart (previews follow the edits).
   const loadGallery = useChartGallery(host, sheet, chart, revision);
@@ -2112,8 +2135,37 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     });
     add('view.zoomIn', async () => setZoom((z) => ZOOMS.find((v) => v > z) ?? z));
     add('view.zoomOut', async () => setZoom((z) => [...ZOOMS].reverse().find((v) => v < z) ?? z));
+
+    // Formulas: auditing and calculation (SHEET-AUDIT-001)
+    const traceCmd = (dependents: boolean) => async (s: SheetEditorState) => {
+      const { row, col } = s.selection.active;
+      if ((await auditTrace(dependents, { sheet: s.sheet, row, col })) === 'none') {
+        setStatus(t(dependents ? 'sheetAudit.noDependents' : 'sheetAudit.noPrecedents'));
+      }
+    };
+    add('formulas.tracePrecedents', traceCmd(false));
+    add('formulas.traceDependents', traceCmd(true));
+    add('formulas.removeArrows', async () => removeArrows(), {
+      isEnabled: () => auditTraces.length > 0,
+    });
+    add('formulas.errorCheck', async () => setAuditDialog({ kind: 'errors' }));
+    add('formulas.evaluate', async (s) =>
+      setAuditDialog({ kind: 'evaluate', cell: { sheet: s.sheet, ...s.selection.active } }),
+    );
+    add('formulas.watch', async () => setWatchOpen((o) => !o), { isChecked: () => watchOpen });
+    add('formulas.calcOptions', async () => setAuditDialog({ kind: 'options' }));
+    add('formulas.calcNow', () => auditCalculate('workbook'), { shortcut: 'F9' });
+    add('formulas.calcSheet', () => auditCalculate('sheet'), { shortcut: 'Shift+F9' });
+    add('formulas.calcFull', () => auditCalculate('full'), { shortcut: 'Ctrl+Alt+F9' });
     return reg;
   }, [
+    auditTrace,
+    auditCalculate,
+    removeArrows,
+    setAuditDialog,
+    setWatchOpen,
+    auditTraces,
+    watchOpen,
     t,
     openFile,
     fail,
@@ -2993,6 +3045,76 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         ],
       },
       {
+        id: 'formulas',
+        label: t('sheetAudit.tab'),
+        groups: [
+          {
+            id: 'formulaAudit',
+            label: t('sheetAudit.groupAudit'),
+            items: [
+              item(
+                'formulas.tracePrecedents',
+                t('sheetAudit.tracePrecedents'),
+                <AuditIcons.precedents size={s} />,
+                'small',
+              ),
+              item(
+                'formulas.traceDependents',
+                t('sheetAudit.traceDependents'),
+                <AuditIcons.dependents size={s} />,
+                'small',
+              ),
+              item(
+                'formulas.removeArrows',
+                t('sheetAudit.removeArrows'),
+                <AuditIcons.removeArrows size={s} />,
+                'small',
+              ),
+              item(
+                'formulas.errorCheck',
+                t('sheetAudit.errorCheck'),
+                <AuditIcons.errors size={18} />,
+              ),
+              item(
+                'formulas.evaluate',
+                t('sheetAudit.evaluate'),
+                <AuditIcons.evaluate size={18} />,
+              ),
+              item('formulas.watch', t('sheetAudit.watch'), <AuditIcons.watch size={18} />),
+            ],
+          },
+          {
+            id: 'calculation',
+            label: t('sheetAudit.groupCalc'),
+            items: [
+              item(
+                'formulas.calcOptions',
+                t('sheetAudit.options'),
+                <AuditIcons.options size={18} />,
+              ),
+              item(
+                'formulas.calcNow',
+                t('sheetAudit.calcNow'),
+                <AuditIcons.calcNow size={s} />,
+                'small',
+              ),
+              item(
+                'formulas.calcSheet',
+                t('sheetAudit.calcSheet'),
+                <AuditIcons.calcSheet size={s} />,
+                'small',
+              ),
+              item(
+                'formulas.calcFull',
+                t('sheetAudit.calcFull'),
+                <AuditIcons.calcFull size={s} />,
+                'small',
+              ),
+            ],
+          },
+        ],
+      },
+      {
         id: 'data',
         label: t('sheetEditor.tabData'),
         groups: [
@@ -3487,6 +3609,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 />
               ))}
             <InvalidCircles rects={circlesOn === sheet ? circleRects : []} />
+            {audit.arrows.length > 0 && (
+              <TraceArrowsOverlay
+                host={host}
+                view={view}
+                arrows={audit.arrows}
+                toScreen={px}
+                width={size.w}
+                height={size.h}
+              />
+            )}
             {selRect && chart === null && (
               <div
                 className={painter ? styles.selectionPainter : styles.selection}
@@ -3935,6 +4067,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         }
         right={
           <>
+            <CalcStatus state={audit.calc} onCalculate={() => void auditCalculate('workbook')} />
             {shownStats && shownStats.numbers > 0 && (
               <>
                 <span>
@@ -4176,6 +4309,72 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           group={sparkGroup}
           exec={(cmd) => exec(cmd)}
           onClose={common.onClose}
+        />
+      )}
+      {audit.dialog?.kind === 'evaluate' && (
+        <EvaluateFormulaDialog
+          host={host}
+          cell={audit.dialog.cell}
+          onClose={() => {
+            setAuditDialog(null);
+            focusInput();
+          }}
+        />
+      )}
+      {audit.dialog?.kind === 'errors' && (
+        <ErrorCheckDialog
+          host={host}
+          sheet={sheet}
+          rules={audit.rules}
+          onRules={audit.setRules}
+          onGoto={(row, col) => setSelection(single({ row, col }))}
+          onEvaluate={(row, col) => setAuditDialog({ kind: 'evaluate', cell: { sheet, row, col } })}
+          onDone={refreshInfo}
+          onClose={() => {
+            setAuditDialog(null);
+            focusInput();
+          }}
+          fail={fail}
+        />
+      )}
+      {audit.dialog?.kind === 'options' && (
+        <CalcOptionsDialog
+          host={host}
+          onClose={() => {
+            setAuditDialog(null);
+            focusInput();
+          }}
+          onDone={async (s) => {
+            audit.setCalc(s);
+            await refreshInfo();
+          }}
+          fail={fail}
+        />
+      )}
+      {audit.dialog?.kind === 'circular' && (
+        <CircularWarning
+          labels={audit.dialog.labels}
+          onOptions={() => setAuditDialog({ kind: 'options' })}
+          onClose={() => {
+            setAuditDialog(null);
+            focusInput();
+          }}
+        />
+      )}
+      {watchOpen && (
+        <WatchWindow
+          host={host}
+          watches={audit.watches}
+          revision={revision}
+          selection={rangeOf(selection)}
+          sheet={sheet}
+          onAdd={audit.addWatches}
+          onRemove={(i) => audit.setWatches((w) => w.filter((_, j) => j !== i))}
+          onGoto={(c) => {
+            setSheet(c.sheet);
+            setSelection(single({ row: c.row, col: c.col }));
+          }}
+          onClose={() => setWatchOpen(false)}
         />
       )}
       {dialog?.kind === 'scenarios' && (

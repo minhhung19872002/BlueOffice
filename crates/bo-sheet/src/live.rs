@@ -7,9 +7,16 @@
 //! editing uses [`LiveCalc::update`] instead: the edited cells are pushed into the
 //! live engine, which recalculates the dirty cells, and only those values are
 //! written back into the model.
+//!
+//! The workbook's calculation mode (ECMA-376 Part 1, §18.2.2 `calcPr/@calcMode`,
+//! see [`crate::calcopts`]) is honoured by [`LiveCalc::update`]: in manual mode
+//! an edited formula shows its own result but nothing else is recalculated until
+//! [`LiveCalc::calculate`]; in "automatic except tables" mode data tables wait
+//! for it. Rebuilds (opening, structural edits) always calculate.
 
-use crate::formula::{load, load_with, to_value, write_back};
-use bo_formula::{DateSystem, WebProvider};
+use crate::calcopts::{CalcMode, CalcSettings};
+use crate::formula::{load, load_with, to_cell_value, to_value, write_back};
+use bo_formula::{CellId, DateSystem, WebProvider};
 use bo_model::sheet::Workbook;
 use std::sync::Arc;
 
@@ -20,6 +27,13 @@ pub struct LiveCalc {
     now: Option<f64>,
     /// Fetcher for `WEBSERVICE`; `None` (default) keeps web access disabled.
     web: Option<Arc<dyn WebProvider>>,
+    /// Manual mode: edits not calculated yet.
+    pending: bool,
+    /// "Automatic except tables": data tables not calculated yet.
+    tables_pending: bool,
+    /// Results calculated but not written into the model yet (other sheets
+    /// after [`LiveCalc::calculate`] for one sheet).
+    unwritten: Vec<CellId>,
 }
 
 impl LiveCalc {
@@ -67,6 +81,9 @@ impl LiveCalc {
         }
         crate::whatif::calculate_data_tables(&mut fw, wb);
         self.engine = Some(fw);
+        self.pending = false;
+        self.tables_pending = false;
+        self.unwritten.clear();
     }
 
     /// Loads a workbook just read from a file, keeping the saved results of
@@ -93,6 +110,9 @@ impl LiveCalc {
             }
         }
         self.engine = Some(fw);
+        self.pending = false;
+        self.tables_pending = false;
+        self.unwritten.clear();
     }
 
     /// Pushes the current content of `cells` of sheet `sheet` into the live
@@ -129,19 +149,70 @@ impl LiveCalc {
                 None => fw.clear(sheet, r, c),
             }
         }
+        let mode = CalcSettings::read(wb).mode;
+        if mode == CalcMode::Manual {
+            // Only the edited formulas show a result (against current values).
+            let ws = &mut wb.sheets[sheet];
+            for &(r, c) in cells {
+                let Some(cell) = ws.cells.get_mut(&(r, c)) else {
+                    continue;
+                };
+                let Some(text) = cell.formula.as_ref().map(|f| f.text.clone()) else {
+                    continue;
+                };
+                if let Ok(v) = fw.evaluate(sheet, r, c, &text) {
+                    cell.value = to_cell_value(&v);
+                }
+            }
+            self.pending = true;
+            return;
+        }
         fw.recalculate();
-        let mut by_sheet: Vec<Vec<(u32, u32)>> = vec![Vec::new(); wb.sheets.len()];
-        for id in fw.last_recalculated() {
-            if let Some(v) = by_sheet.get_mut(id.sheet) {
-                v.push((id.row, id.col));
-            }
+        let ids = fw.last_recalculated().to_vec();
+        write_ids(fw, wb, &ids, None);
+        if mode == CalcMode::AutoNoTable {
+            self.tables_pending = true;
+        } else {
+            crate::whatif::calculate_data_tables(fw, wb);
         }
-        for (si, anchors) in by_sheet.iter().enumerate() {
-            if !anchors.is_empty() {
-                write_back(fw, wb, si, anchors);
-            }
-        }
+    }
+
+    /// Calculates what is pending (manual mode, "automatic except tables"):
+    /// cells edited since the last calculation, their dependents, volatile
+    /// functions and data tables. With `sheet`, only that sheet's results are
+    /// shown; the others wait for the next calculation of the workbook.
+    pub fn calculate(&mut self, wb: &mut Workbook, sheet: Option<usize>) {
+        let Some(fw) = self.engine.as_mut() else {
+            self.rebuild(wb);
+            return;
+        };
+        fw.recalculate();
+        let mut ids = std::mem::take(&mut self.unwritten);
+        ids.extend_from_slice(fw.last_recalculated());
+        ids.sort_unstable();
+        ids.dedup();
+        self.unwritten = write_ids(fw, wb, &ids, sheet);
         crate::whatif::calculate_data_tables(fw, wb);
+        self.pending = false;
+        self.tables_pending = false;
+    }
+
+    /// Whether results are out of date (manual mode or data tables waiting).
+    pub fn needs_calculation(&self) -> bool {
+        self.pending || self.tables_pending || !self.unwritten.is_empty()
+    }
+
+    /// Cells in circular references (found by the last calculations), sorted.
+    pub fn circular_references(&self) -> Vec<CellId> {
+        self.engine
+            .as_ref()
+            .map(bo_formula::Workbook::circular_references)
+            .unwrap_or_default()
+    }
+
+    /// The formula engine (dependency graph, current values), when loaded.
+    pub fn engine(&self) -> Option<&bo_formula::Workbook> {
+        self.engine.as_ref()
     }
 
     /// Number of formula evaluations of the last recalculation (diagnostics).
@@ -155,6 +226,31 @@ impl LiveCalc {
     pub fn invalidate(&mut self) {
         self.engine = None;
     }
+}
+
+/// Writes the engine results of formula cells `ids` into the model (only those
+/// of sheet `only`, when given); returns the cells left out.
+fn write_ids(
+    fw: &bo_formula::Workbook,
+    wb: &mut Workbook,
+    ids: &[CellId],
+    only: Option<usize>,
+) -> Vec<CellId> {
+    let mut by_sheet: Vec<Vec<(u32, u32)>> = vec![Vec::new(); wb.sheets.len()];
+    let mut left = Vec::new();
+    for id in ids {
+        if only.is_some_and(|s| s != id.sheet) {
+            left.push(*id);
+        } else if let Some(v) = by_sheet.get_mut(id.sheet) {
+            v.push((id.row, id.col));
+        }
+    }
+    for (si, anchors) in by_sheet.iter().enumerate() {
+        if !anchors.is_empty() {
+            write_back(fw, wb, si, anchors);
+        }
+    }
+    left
 }
 
 #[cfg(test)]
@@ -230,5 +326,90 @@ mod tests {
             wb.sheets[0].cell(0, 3).unwrap().value,
             CellValue::Number(40_001.0)
         );
+    }
+
+    fn num(wb: &Workbook, s: usize, r: u32, c: u32) -> CellValue {
+        wb.sheets[s].cell(r, c).unwrap().value.clone()
+    }
+
+    #[test]
+    fn manual_mode_waits_for_calculate() {
+        let mut wb = Workbook::new();
+        wb.sheets.push(bo_model::sheet::Worksheet::new("Two"));
+        wb.sheets[0].set_cell(0, 0, Cell::new(CellValue::Number(1.0)));
+        wb.sheets[0].set_cell(0, 1, Cell::default().with_formula("A1*2"));
+        wb.sheets[1].set_cell(0, 0, Cell::default().with_formula("Sheet1!A1+100"));
+        crate::calcopts::CalcSettings {
+            mode: CalcMode::Manual,
+            ..CalcSettings::default()
+        }
+        .write(&mut wb);
+        let mut live = LiveCalc::new();
+        live.rebuild(&mut wb);
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(2.0));
+        assert!(!live.needs_calculation());
+        // Editing A1 does not recalculate B1 or Two!A1.
+        wb.sheets[0].cells.get_mut(&(0, 0)).unwrap().value = CellValue::Number(5.0);
+        live.update(&mut wb, 0, &[(0, 0)]);
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(2.0));
+        assert!(live.needs_calculation());
+        // A formula typed in manual mode shows its own result: A1*3 = 15.
+        wb.sheets[0].set_cell(0, 2, Cell::default().with_formula("A1*3"));
+        live.update(&mut wb, 0, &[(0, 2)]);
+        assert_eq!(num(&wb, 0, 0, 2), CellValue::Number(15.0));
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(2.0));
+        // Calculating the first sheet only: B1 = 10, Two!A1 still 101.
+        live.calculate(&mut wb, Some(0));
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(10.0));
+        assert_eq!(num(&wb, 1, 0, 0), CellValue::Number(101.0));
+        assert!(live.needs_calculation());
+        // Calculating the workbook: Two!A1 = 105.
+        live.calculate(&mut wb, None);
+        assert_eq!(num(&wb, 1, 0, 0), CellValue::Number(105.0));
+        assert!(!live.needs_calculation());
+    }
+
+    #[test]
+    fn calc_pr_drives_iteration_and_precision() {
+        let mut wb = Workbook::new();
+        wb.sheets[0].set_cell(0, 0, Cell::default().with_formula("(A1+10)/2"));
+        let mut live = LiveCalc::new();
+        live.rebuild(&mut wb);
+        // No iteration: a circular reference is an error, reported as such.
+        assert!(matches!(num(&wb, 0, 0, 0), CellValue::Error(_)));
+        assert_eq!(live.circular_references(), vec![CellId::new(0, 0, 0)]);
+        // iterate="1" iterateCount="3": 5, 7.5, 8.75.
+        crate::calcopts::CalcSettings {
+            iterate: true,
+            iterate_count: 3,
+            ..CalcSettings::default()
+        }
+        .write(&mut wb);
+        wb.sheets[0].set_cell(0, 0, Cell::default().with_formula("(A1+10)/2"));
+        live.rebuild(&mut wb);
+        assert_eq!(num(&wb, 0, 0, 0), CellValue::Number(8.75));
+        // fullPrecision="0": B1 = 1.234 shown as 0.00 is used as 1.23.
+        let mut wb = Workbook::new();
+        let two_dp = crate::style::patched_xf(
+            &mut wb.styles,
+            0,
+            &crate::style::StylePatch {
+                num_fmt: Some("0.00".into()),
+                ..crate::style::StylePatch::default()
+            },
+        );
+        let mut b1 = Cell::new(CellValue::Number(1.234));
+        b1.style = two_dp;
+        wb.sheets[0].set_cell(0, 1, b1);
+        wb.sheets[0].set_cell(0, 2, Cell::default().with_formula("B1*100"));
+        live.rebuild(&mut wb);
+        assert_eq!(num(&wb, 0, 0, 2), CellValue::Number(123.4));
+        crate::calcopts::CalcSettings {
+            full_precision: false,
+            ..CalcSettings::default()
+        }
+        .write(&mut wb);
+        live.rebuild(&mut wb);
+        assert_eq!(num(&wb, 0, 0, 2), CellValue::Number(123.0));
     }
 }

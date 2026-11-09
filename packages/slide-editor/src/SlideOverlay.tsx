@@ -680,6 +680,27 @@ function TextEditor({
   const ref = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
   const inflight = useRef(0);
+  // Set once the editor is leaving (Escape) or unmounted: a selection event fired while the
+  // textarea goes away must not reach the engine after `textExit` (it would reopen text editing
+  // there, and a following undo / redo would act inside that text session).
+  const closed = useRef(false);
+  // The user typed or pressed a key: a late caret placement from the engine (the opening
+  // double-click's `textHit`) must not move the selection any more.
+  const touched = useRef(false);
+  // The engine's text when our last local edit was sent: a late result still carrying it (from
+  // a command issued before that edit) must not overwrite what was typed since.
+  const staleText = useRef<string | null>(null);
+  const engineTextNow = useRef<string | undefined>(textEdit?.text);
+  const latestEngineText = textEdit?.text;
+  useEffect(() => {
+    engineTextNow.current = latestEngineText;
+  }, [latestEngineText]);
+  useEffect(
+    () => () => {
+      closed.current = true;
+    },
+    [],
+  );
   const b = editing.rect;
   const minH = Math.max(b.h, editing.size * 1.6);
 
@@ -689,7 +710,7 @@ function TextEditor({
   };
 
   const sendSelect = () => {
-    if (composing.current) return;
+    if (composing.current || closed.current) return;
     const [start, end] = selection();
     void controller.run({ cmd: 'textSelect', id: editing.id, start, end, cell: editing.cell });
   };
@@ -697,6 +718,9 @@ function TextEditor({
   const sendText = () => {
     const ta = ref.current;
     if (!ta) return;
+    touched.current = true;
+    if (engineTextNow.current !== undefined && engineTextNow.current !== fromEditorText(ta.value))
+      staleText.current = engineTextNow.current;
     inflight.current += 1;
     void controller
       .run({
@@ -728,7 +752,7 @@ function TextEditor({
     if (editing.at) {
       void controller.run({ cmd: 'textHit', x: editing.at.x, y: editing.at.y }).then((r) => {
         const te = r?.textEdit;
-        if (te && ref.current) ref.current.setSelectionRange(te.start, te.end);
+        if (te && ref.current && !touched.current) ref.current.setSelectionRange(te.start, te.end);
       });
     }
     // Runs once per edited shape (the component is keyed by the shape id).
@@ -740,6 +764,7 @@ function TextEditor({
   useEffect(() => {
     const ta = ref.current;
     if (!ta || engineText === undefined || composing.current || inflight.current > 0) return;
+    if (engineText === staleText.current) return;
     const shown = toEditorText(engineText);
     if (ta.value !== shown) {
       ta.value = shown;
@@ -763,10 +788,12 @@ function TextEditor({
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     e.stopPropagation();
+    touched.current = true;
     if (composing.current || e.nativeEvent.isComposing) return;
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === 'Escape') {
       e.preventDefault();
+      closed.current = true;
       onExit();
       return;
     }
@@ -791,6 +818,8 @@ function TextEditor({
     if (mod && !e.altKey && (e.key === 'z' || e.key === 'y' || e.key === 'Z')) {
       e.preventDefault();
       const redo = e.key === 'y' || (e.key === 'Z' && e.shiftKey) || (e.key === 'z' && e.shiftKey);
+      // Undo / redo may bring an earlier text back: follow the engine again.
+      staleText.current = null;
       void controller.run({ cmd: redo ? 'redo' : 'undo' });
       return;
     }

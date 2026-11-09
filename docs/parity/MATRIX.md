@@ -108,7 +108,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Tính năng | Đọc | Hiển thị | Tạo/sửa | Round-trip | Web | Desktop | Cộng tác | Test | Trạng thái | Ghi chú |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Shape, text, bảng, ảnh | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus + E2E | ✅ | |
-| Master/layout/theme | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | chưa sửa master trong UI |
+| Master/layout/theme | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests, slide_master.rs | 🟡 | sửa master/layout, theme + biến thể, kích thước slide (SLIDE-MASTER-001); chưa co cỡ chữ khi đổi kích thước |
 | Chế độ xem | — | 🟡 | — | — | ✅ | ✅ | — | E2E | 🟡 | Normal, Sorter, Reading, Presenter |
 | Transition | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus anim-*, slide-edit-transitions-all (Choice + Fallback hợp lệ), transitionFx test, slide-show-media.spec | ✅ | 55 hiệu ứng (§19.3.1 + [MS-PPTX] p14/p15 prstTrans), biến thể hướng, thời lượng, âm thanh WAV/dừng, áp dụng tất cả; Morph theo đối tượng (vị trí/cỡ/xoay/màu; chưa theo từ/ký tự) |
 | Animation | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | corpus slide-edit-animations-all, anim_play/anim_catalog tests, effectFx test, slide-show-media.spec | 🟡 | phát mọi hiệu ứng trong file (bộ thông dịch §19.5); tạo 25 xuất hiện/biến mất, 7 nhấn mạnh, 13 đường chuyển động; chưa vẽ đường tuỳ ý, chưa hiện đổi màu, chưa theo từ/chữ |

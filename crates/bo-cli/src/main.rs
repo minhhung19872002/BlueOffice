@@ -21,7 +21,7 @@
 //! bo-cli corpus <dir>                         # generate the Phase 2 round-trip corpus
 //! bo-cli roundtrip <file.docx> --out <out>    # open and save again (lossless check)
 //! bo-cli fields <file.docx> --out <out.docx>  # update TOC / SEQ / REF / PAGEREF fields
-//! bo-cli merge <template.docx> <data.csv|xlsx> --to docx|pdf --out <out>  # mail merge
+//! bo-cli merge <template.docx> <data.csv|xlsx|vcf|json> --to docx|pdf|zip --out <out> [--pattern "«Field»"]  # mail merge
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli templates <dir>                     # write the BlueDoc templates + thumbnails (assets/templates/doc)
 //! bo-cli sample-big <out.docx> [--pages 300]  # §5 benchmark document (text + pictures)
@@ -195,10 +195,14 @@ enum Cmd {
     Merge {
         template: PathBuf,
         data: PathBuf,
-        #[arg(long, value_parser = ["docx", "pdf"], default_value = "docx")]
+        /// `zip`: one PDF per record, named by `--pattern`.
+        #[arg(long, value_parser = ["docx", "pdf", "zip"], default_value = "docx")]
         to: String,
         #[arg(long)]
         out: PathBuf,
+        /// File name pattern of `--to zip` (`«Field»` = the record's value).
+        #[arg(long, default_value = "")]
+        pattern: String,
     },
     /// Write the BlueSlide corpus decks into a directory.
     SampleSlides { dir: PathBuf },
@@ -665,6 +669,7 @@ fn run(cli: Cli) -> R {
             data,
             to,
             out,
+            pattern,
         } => {
             let mut engine = open(&template)?;
             let bytes = std::fs::read(&data).map_err(|e| format!("{}: {e}", data.display()))?;
@@ -674,6 +679,17 @@ fn run(cli: Cli) -> R {
                 .unwrap_or("data")
                 .to_owned();
             let records = engine.set_merge_data(&bytes, &name)?;
+            if to == "zip" {
+                let r = engine.command(bo_engine::Command::MergeToPdfs { pattern })?;
+                if let Some(e) = r.error {
+                    return Err(e.into());
+                }
+                let out_files = r.merge_out.and_then(|m| m.zip).ok_or("no output")?;
+                let zip = bo_engine::merge::base64_decode(&out_files).ok_or("base64")?;
+                write_file(&out, &zip)?;
+                println!("{records} records → {}", out.display());
+                return Ok(());
+            }
             let r = engine.command(bo_engine::Command::MergeToDocument)?;
             if let Some(e) = r.error {
                 return Err(e.into());

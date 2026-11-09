@@ -111,6 +111,9 @@ import {
   ListTree,
   Lock,
   Mails,
+  Mail,
+  Database,
+  Tags,
   Maximize2,
   MessageSquarePlus,
   MessagesSquare,
@@ -253,6 +256,18 @@ import {
 import { AdminFormatDialog, TemplateDialog } from './TemplateDialogs';
 import { ConvertDialog, FormulaDialog, SortDialog } from './TableToolDialogs';
 import {
+  CommandMenu,
+  EnvelopeDialog,
+  FinishDialog,
+  LabelsDialog,
+  ProviderDialog,
+  RecipientsDialog,
+  RuleDialog,
+  RULE_KINDS,
+  type FinishMode,
+  type RuleKind,
+} from './MergeDialogs';
+import {
   FormFieldBar,
   FormFieldDialog,
   ProtectFormsDialog,
@@ -376,6 +391,9 @@ function EditorInner({
     remembered: RememberedSigning;
   } | null>(null);
   const [tab, setTab] = useState('home');
+  /** Mail merge: rule kind of the rule dialog, finish mode of the finish dialog. */
+  const [ruleKind, setRuleKind] = useState<RuleKind>('if');
+  const [finishMode, setFinishMode] = useState<FinishMode>('document');
   /** View to return to when read mode ends. */
   const beforeRead = useRef<EditorState['viewMode']>('print');
   /** View layout last sent to the engine (`mode:width`). */
@@ -1500,7 +1518,7 @@ function EditorInner({
       isEnabled: hasDoc,
       run: async () => {
         try {
-          const file = await platform.files.openFile(['.csv', '.xlsx']);
+          const file = await platform.files.openFile(['.csv', '.xlsx', '.vcf', '.json']);
           if (!file) return;
           const res = await controller.current?.run({
             cmd: 'mergeData',
@@ -1570,6 +1588,48 @@ function EditorInner({
       run: async () => {
         if (await mergeToDocument()) await exportPdf();
       },
+    });
+    // Extended mail merge (DOC-MERGE-001): dialogs in MergeDialogs.tsx.
+    r.register({
+      id: 'mailings.fromServer',
+      isEnabled: (s) => hasDoc(s) && !!platform.mergeData,
+      run: () => store.setState({ dialog: 'mergeProvider' }),
+    });
+    r.register({
+      id: 'mailings.editRecipients',
+      isEnabled: hasData,
+      run: () => store.setState({ dialog: 'mergeRecipients' }),
+    });
+    for (const kind of RULE_KINDS) {
+      r.register({
+        id: `mailings.rule.${kind}`,
+        isEnabled: hasDoc,
+        run: () => {
+          setRuleKind(kind);
+          store.setState({ dialog: 'mergeRule' });
+        },
+      });
+    }
+    r.register({
+      id: 'mailings.envelopes',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'mergeEnvelope' }),
+    });
+    r.register({
+      id: 'mailings.labels',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'mergeLabels' }),
+    });
+    const finish = (mode: FinishMode) => () => {
+      setFinishMode(mode);
+      store.setState({ dialog: 'mergeFinish' });
+    };
+    r.register({ id: 'mailings.finishDocument', isEnabled: hasData, run: finish('document') });
+    r.register({ id: 'mailings.finishPdfs', isEnabled: hasData, run: finish('pdfs') });
+    r.register({
+      id: 'mailings.finishEmail',
+      isEnabled: (s) => hasData(s) && !!platform.mail,
+      run: finish('email'),
     });
     // References: TOC, captions, cross-references (ECMA-376 Part 1, §17.16).
     const updateFields = async () => {
@@ -2239,6 +2299,13 @@ function EditorInner({
   const s = (id: string, key: string, icon: ReactNode) => item(id, key, icon, 'small');
   /** A custom ribbon control (combobox, colour picker). */
   const custom = (id: string, render: ReactNode) => ({ id, label: id, onSelect: () => {}, render });
+  /** A registry command shown in a dropdown menu (mail merge Rules ▾ / Finish ▾). */
+  const menuEntry = (id: string, key: string) => ({
+    id,
+    label: t(key),
+    enabled: registry.isEnabled(id, state),
+    onSelect: () => void registry.execute(id, store.getState()),
+  });
   /** A checkable registry command shown in a review markup menu. */
   const markupEntry = (id: string, key: string) => ({
     id,
@@ -2899,6 +2966,38 @@ function EditorInner({
               <FileSpreadsheet size={ICON} />,
             ),
             item('mailings.insertField', 'commands.mailings.insertField', <Mails size={ICON} />),
+            s(
+              'mailings.editRecipients',
+              'commands.mailings.editRecipients',
+              <ListChecks size={SMALL} />,
+            ),
+            s('mailings.fromServer', 'commands.mailings.fromServer', <Database size={SMALL} />),
+          ],
+        },
+        {
+          id: 'mergeRules',
+          label: t('ribbon.groups.mergeRules'),
+          items: [
+            custom(
+              'mailings.rules',
+              <CommandMenu
+                label={t('commands.mailings.rules')}
+                icon={<ListChecks size={SMALL} />}
+                testId="merge-rules-menu"
+                disabled={noDoc}
+                entries={RULE_KINDS.map((k) =>
+                  menuEntry(`mailings.rule.${k}`, `mailMerge.rule.${k}`),
+                )}
+              />,
+            ),
+          ],
+        },
+        {
+          id: 'mergeCreate',
+          label: t('ribbon.groups.mergeCreate'),
+          items: [
+            s('mailings.envelopes', 'commands.mailings.envelopes', <Mail size={SMALL} />),
+            s('mailings.labels', 'commands.mailings.labels', <Tags size={SMALL} />),
           ],
         },
         {
@@ -2924,6 +3023,22 @@ function EditorInner({
               <Files size={ICON} />,
             ),
             item('mailings.mergePdf', 'commands.mailings.mergePdf', <FileDown size={ICON} />),
+            custom(
+              'mailings.finish',
+              <CommandMenu
+                label={t('commands.mailings.finish')}
+                icon={<Files size={SMALL} />}
+                testId="merge-finish-menu"
+                disabled={noDoc}
+                entries={(
+                  [
+                    ['mailings.finishDocument', 'commands.mailings.finishDocument'],
+                    ['mailings.finishPdfs', 'commands.mailings.finishPdfs'],
+                    ['mailings.finishEmail', 'commands.mailings.finishEmail'],
+                  ] as const
+                ).map(([id, key]) => menuEntry(id, key))}
+              />,
+            ),
           ],
         },
       ],
@@ -3659,6 +3774,58 @@ function EditorInner({
                     }
                   })();
                 }}
+              />
+            )}
+            {state.dialog === 'mergeRecipients' && (
+              <RecipientsDialog merge={state.merge} run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'mergeRule' && (
+              <RuleDialog
+                kind={ruleKind}
+                fields={state.merge?.fields ?? []}
+                run={runCommand}
+                onClose={closeDialog}
+              />
+            )}
+            {state.dialog === 'mergeProvider' && platform.mergeData && (
+              <ProviderDialog
+                provider={platform.mergeData}
+                run={runCommand}
+                onLoaded={(res) => {
+                  if (res.merge) store.setState({ merge: res.merge, panel: 'merge' });
+                }}
+                onClose={closeDialog}
+              />
+            )}
+            {(state.dialog === 'mergeEnvelope' || state.dialog === 'mergeLabels') &&
+              (() => {
+                const Comp = state.dialog === 'mergeEnvelope' ? EnvelopeDialog : LabelsDialog;
+                return (
+                  <Comp
+                    fields={state.merge?.fields ?? []}
+                    run={runCommand}
+                    onDone={async (res) => {
+                      stored.current = null;
+                      await loaded(res.info);
+                    }}
+                    onClose={closeDialog}
+                  />
+                );
+              })()}
+            {state.dialog === 'mergeFinish' && (
+              <FinishDialog
+                mode={finishMode}
+                merge={state.merge}
+                run={runCommand}
+                host={{
+                  onMerged: async (res) => {
+                    stored.current = null;
+                    await loaded(res.info);
+                  },
+                  saveZip: (bytes, name) => platform.files.saveFile(bytes, name, 'application/zip'),
+                  mail: platform.mail,
+                }}
+                onClose={closeDialog}
               />
             )}
             {(state.panel === 'find' || state.panel === 'replace') && (

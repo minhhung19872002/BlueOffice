@@ -29,7 +29,7 @@ pub struct FieldUpdate {
 
 /// Complex-field structure marks (§17.16.18 fldChar, §17.16.23 instrText).
 #[derive(Debug, Clone, PartialEq)]
-enum Mark {
+pub(crate) enum Mark {
     Begin,
     Separate,
     End,
@@ -44,7 +44,7 @@ fn unescape(s: &str) -> String {
         .replace("&amp;", "&")
 }
 
-fn mark_of(c: &RunContent) -> Option<Mark> {
+pub(crate) fn mark_of(c: &RunContent) -> Option<Mark> {
     let RunContent::Opaque(raw) = c else {
         return None;
     };
@@ -975,7 +975,7 @@ impl bo_model::field::FormulaEnv for FormulaCtx<'_> {
 
 /// `expr1 op expr2` of IF / COMPARE: numbers compare as numbers, text as text (`?` and `*`
 /// wildcards on the right with `=` / `<>`).
-fn compare_values(a: &str, op: &str, b: &str) -> bool {
+pub(crate) fn compare_values(a: &str, op: &str, b: &str) -> bool {
     let na = a.trim().replace(',', ".").parse::<f64>();
     let nb = b.trim().replace(',', ".").parse::<f64>();
     if let (Ok(x), Ok(y)) = (na, nb) {
@@ -1016,7 +1016,7 @@ fn compare_values(a: &str, op: &str, b: &str) -> bool {
 }
 
 /// Split `IF`'s condition `a op b` (the operator may stand alone or be glued: `x>5`).
-fn condition(w: &[String]) -> Option<(String, String, String, usize)> {
+pub(crate) fn condition(w: &[String]) -> Option<(String, String, String, usize)> {
     const OPS: [&str; 6] = ["<=", ">=", "<>", "=", "<", ">"];
     if w.len() >= 3 && OPS.contains(&w[1].as_str()) {
         return Some((w[0].clone(), w[1].clone(), w[2].clone(), 3));

@@ -196,7 +196,16 @@ pub fn past_field_end(atoms: &[Atom], i: usize) -> usize {
     if matches!(atoms.get(i), Some((_, RunContent::FormEnd))) {
         past_marks(atoms, i)
     } else {
-        i
+        // A complex field's end mark (§17.16.18 fldChar `end`) is zero-width: content at the
+        // field's end goes after it, as at the end of a form field.
+        let mut j = i;
+        while let Some((_, RunContent::Opaque(r))) = atoms.get(j) {
+            if !(r.xml.contains("fldChar") && r.xml.contains("\"end\"")) {
+                break;
+            }
+            j += 1;
+        }
+        j
     }
 }
 

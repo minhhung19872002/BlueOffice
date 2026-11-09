@@ -13,6 +13,7 @@ export type * from './charfx';
 export type * from './spelling';
 export * from './slideMedia';
 export type * from './customXml';
+export type * from './mailMerge';
 export { PASSWORD_REQUIRED, WRONG_PASSWORD } from './types';
 export {
   AnonymousSession,

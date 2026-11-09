@@ -28,6 +28,9 @@ struct PrepareOptions {
     reason: Option<String>,
     #[serde(default)]
     location: Option<String>,
+    /// The signature signs this signature line (CORE-SIGLINE-001, OOXML only).
+    #[serde(default)]
+    signature_line: Option<bo_sign::ooxml::SignatureLineRequest>,
 }
 
 fn unix(secs: f64) -> std::time::SystemTime {
@@ -119,6 +122,11 @@ pub fn sign_prepare(
         location: o.location,
         time: unix(o.time_secs),
         reserve_hex: 32_768,
+        signature_line: o
+            .signature_line
+            .map(bo_sign::ooxml::SignatureLineRequest::into_signing)
+            .transpose()
+            .map_err(err)?,
     };
     let inner = PreparedSignature::prepare(bytes, &cert, &certs, &opts).map_err(err)?;
     Ok(WasmPreparedSignature {

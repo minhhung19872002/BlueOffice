@@ -94,7 +94,8 @@
       "sign": "Digital signature",
       "exportSignedPdf": "Export signed PDF",
       "verifySignatures": "Verify signatures",
-      "checkUpdates": "Check for updates"
+      "checkUpdates": "Check for updates",
+      "signLine": "Sign a signature line…"
     },
     "edit": {
       "paste": "Paste",
@@ -156,7 +157,8 @@
       "formCheckBox": "Check box form field",
       "formDropDown": "Drop-down form field",
       "formProperties": "Form field options…",
-      "dropCap": "Large initial"
+      "dropCap": "Large initial",
+      "signatureLine": "Signature line…"
     },
     "layout": {
       "margins": "Margins",
@@ -2742,6 +2744,32 @@
       "pathTooLong": "The certificate chain is too long.",
       "malformed": "A certificate is malformed."
     }
+  },
+  "sigline": {
+    "insertTitle": "Signature line",
+    "suggestedSigner": "Suggested signer",
+    "suggestedSigner2": "Signer's title",
+    "suggestedSignerEmail": "Signer's e-mail address",
+    "instructions": "Instructions for the signer",
+    "allowComments": "Let the signer add a comment",
+    "showDate": "Show the signing date on the line",
+    "insert": "Insert",
+    "cancel": "Cancel",
+    "signTitle": "Sign a signature line",
+    "line": "Signature line",
+    "unnamed": "(no suggested signer)",
+    "noLines": "This document has no signature line left to sign.",
+    "name": "Name to show on the line",
+    "choosePicture": "Use a picture of my signature…",
+    "noPicture": "No picture",
+    "removePicture": "Remove picture",
+    "comments": "Comment",
+    "next": "Continue",
+    "needLine": "Choose a signature line.",
+    "needName": "Type a name or choose a picture.",
+    "statusTitle": "Signature lines",
+    "valid": "Valid signature",
+    "invalid": "Invalid signature"
   },
   "updates": {
     "title": "Updates",

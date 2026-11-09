@@ -40,6 +40,7 @@ pub mod review;
 pub mod security;
 mod security_cmd;
 pub mod sheet;
+pub mod sigline;
 pub mod slide_edit;
 pub mod slide_export;
 pub mod smartart;
@@ -430,6 +431,8 @@ impl Engine {
             _ => name.to_owned(),
         };
         self.load(doc, &name)?;
+        // Pictures of signed signature lines (CORE-SIGLINE-001).
+        self.register_signature_images();
         // Fields read the document properties (§17.16.5: AUTHOR, TITLE, SAVEDATE, …).
         let props = document_properties(if is_zip { bytes } else { &[] }, &name, bytes.len());
         if let Some(s) = self.session.as_mut() {

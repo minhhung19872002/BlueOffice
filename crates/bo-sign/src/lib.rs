@@ -609,8 +609,12 @@ impl PreparedSignature {
             Some(DocumentKind::Pdf) => {
                 Ok(Self::Pdf(pdf::prepare_pdf(bytes, cert_der, chain, opts)?))
             }
-            Some(DocumentKind::Ooxml) => Ok(Self::Ooxml(ooxml::prepare_ooxml(
-                bytes, cert_der, chain, opts.time,
+            Some(DocumentKind::Ooxml) => Ok(Self::Ooxml(ooxml::prepare_ooxml_line(
+                bytes,
+                cert_der,
+                chain,
+                opts.time,
+                opts.signature_line.as_ref(),
             )?)),
             None => Err(SignError::Unsupported(
                 "only PDF and OOXML files can be signed".into(),

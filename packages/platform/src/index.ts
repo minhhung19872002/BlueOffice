@@ -4,6 +4,7 @@ export type * from './inspect';
 export type * from './views';
 export type * from './sparkline';
 export type * from './slideExport';
+export type * from './sigline';
 export { PASSWORD_REQUIRED, WRONG_PASSWORD } from './types';
 export {
   AnonymousSession,

@@ -609,6 +609,7 @@ dependencies = [
 name = "bo-docx"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "bo-drawingml",
  "bo-model",
  "bo-opc",
@@ -675,6 +676,7 @@ dependencies = [
  "bo-raster",
  "bo-render",
  "bo-sheet",
+ "bo-sign",
  "bo-spell",
  "bo-text",
  "bo-xlsx",
@@ -682,6 +684,7 @@ dependencies = [
  "insta",
  "png",
  "proptest",
+ "rand 0.8.8",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

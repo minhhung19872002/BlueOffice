@@ -9,6 +9,7 @@
 
 import type { InspectFix, InspectReport, InspectCommand } from './inspect';
 import type { FindResult, FormatMark, OutlineItem, ViewCommand } from './views';
+import type { SignatureLineCommand, SignatureLineImages, SignatureLineInfo } from './sigline';
 
 // ---------------------------------------------------------------- engine data
 
@@ -730,7 +731,9 @@ export type EditCommand =
   /** Hyphenation settings (§17.15.1.10 autoHyphenation, …). */
   | { cmd: 'setHyphenation'; hyphenation: HyphenationSettings }
   /** Drop cap of the caret's paragraph (§17.3.1.11 framePr); null removes it. */
-  | { cmd: 'setDropCap'; dropCap: DropCapSpec | null };
+  | { cmd: 'setDropCap'; dropCap: DropCapSpec | null }
+  /** Signature lines (CORE-SIGLINE-001). */
+  | SignatureLineCommand;
 
 /** One column of unequal columns (twips). */
 export interface ColumnWidth {
@@ -930,6 +933,10 @@ export interface EditResult {
   pageLayout?: PageLayoutState;
   /** Nghị định 30/2020 format check (`checkAdminFormat`). */
   adminFormat?: AdminFormatReport;
+  /** Signature lines of the document (signature line commands). */
+  signatureLines?: SignatureLineInfo[];
+  /** Pictures for signing a line (`signatureLineImages`). */
+  signatureLineImages?: SignatureLineImages;
 }
 
 /** One deviation from Nghị định 30/2020 (mirrors `bo_engine::templates::check::FormatIssue`). */
@@ -2208,6 +2215,22 @@ export interface SignRequest {
   reason?: string;
   location?: string;
   documentName: string;
+  /** OOXML: the signature signs this signature line (CORE-SIGLINE-001). */
+  signatureLine?: SignatureLineSignRequest;
+}
+
+/** What signing a signature line adds (`bo_sign::ooxml::SignatureLineRequest`). */
+export interface SignatureLineSignRequest {
+  /** The line's GUID (`o:signatureline/@id`). */
+  id: string;
+  /** Typed name. */
+  text?: string;
+  /** Signer's picture (PNG / JPEG, base64). */
+  imageBase64?: string;
+  comments?: string;
+  /** Pictures of the line as signed and as invalid (PNG, base64). */
+  validImageBase64?: string;
+  invalidImageBase64?: string;
 }
 
 /** A certificate on a USB token (PKCS#11). */
@@ -2241,6 +2264,16 @@ export interface SignatureSummary {
   timestamp: { time: string; tsa: string; chain: ChainSummary } | null;
   chain: ChainSummary;
   validatedAt: string;
+  /** OOXML: id of the signature line this signature signs. */
+  signatureLine?: string;
+}
+/** One signed signature line, verified on its own (`bo_sign::report::SignatureLineStatus`). */
+export interface SignatureLineStatus {
+  id: string;
+  valid: boolean;
+  signer: string | null;
+  text: string | null;
+  error: string | null;
 }
 export interface SignatureReport {
   kind: 'pdf' | 'ooxml';
@@ -2252,6 +2285,8 @@ export interface SignatureReport {
   }[];
   /** A signature is broken (document changed) or unreadable. */
   error: string | null;
+  /** OOXML: the signatures of signature lines; absent when there are none. */
+  signatureLines?: SignatureLineStatus[];
 }
 
 /** Defaults configured by the deployment. */

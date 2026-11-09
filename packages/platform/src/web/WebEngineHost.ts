@@ -9,6 +9,7 @@ import type {
   PeerRects,
   ShowVideoInfo,
   ShowVideoOptions,
+  SignatureLineSignRequest,
   SignatureReport,
   SlideBox,
   SlideCommand,
@@ -123,7 +124,13 @@ export class WebEngineHost implements EngineHost, SignatureBackend {
   signPrepare(
     bytes: Uint8Array,
     certsPem: string,
-    options: { timeSecs: number; name?: string; reason?: string; location?: string },
+    options: {
+      timeSecs: number;
+      name?: string;
+      reason?: string;
+      location?: string;
+      signatureLine?: SignatureLineSignRequest;
+    },
   ): Promise<{ id: number; digest: Uint8Array }> {
     return this.call({ method: 'signPrepare', bytes, certsPem, options: JSON.stringify(options) });
   }

@@ -8,6 +8,7 @@ import type {
 } from '@blueoffice/platform';
 import { useState } from 'react';
 import styles from './Editor.module.css';
+import { SignatureLineStatusList } from './SignatureLineDialogs';
 import {
   bytesToBase64,
   commonName,
@@ -306,6 +307,7 @@ export function SignaturesPanel({
           </div>
         );
       })}
+      {report?.signatureLines && <SignatureLineStatusList lines={report.signatureLines} />}
       <div className={styles.panelRow}>
         <button type="button" onClick={onClose}>
           {t('sign.close')}

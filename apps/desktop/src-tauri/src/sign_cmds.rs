@@ -62,6 +62,9 @@ pub struct SignSpec {
     #[serde(default)]
     pub location: Option<String>,
     pub document_name: String,
+    /// The signature signs this signature line (CORE-SIGLINE-001, OOXML only).
+    #[serde(default)]
+    pub signature_line: Option<bo_sign::ooxml::SignatureLineRequest>,
 }
 
 /// Defaults shown in the dialog (`docs/deploy/remote-signing.md` §5).
@@ -174,6 +177,12 @@ pub fn sign_bytes(bytes: &[u8], spec: &SignSpec) -> Result<Vec<u8>, String> {
         name: spec.name.clone(),
         reason: spec.reason.clone(),
         location: spec.location.clone(),
+        signature_line: spec
+            .signature_line
+            .clone()
+            .map(bo_sign::ooxml::SignatureLineRequest::into_signing)
+            .transpose()
+            .map_err(|e| e.to_string())?,
         ..SignOptions::default()
     };
     let tsa = spec

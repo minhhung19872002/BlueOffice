@@ -845,6 +845,38 @@ pub enum Command {
         #[serde(default)]
         drop_cap: Option<bo_edit::page_layout::DropCapSpec>,
     },
+    /// Insert a signature line at the caret (ECMA-376 Part 4, §19.2.2.30).
+    InsertSignatureLine {
+        /// What the dialog asked for.
+        #[serde(default)]
+        spec: bo_edit::sigline::SignatureLineSpec,
+        /// Braced GUID of the line (host-generated); derived when absent.
+        #[serde(default)]
+        id: Option<String>,
+    },
+    /// The document's signature lines (answer: `signatureLines`).
+    SignatureLines,
+    /// Pictures of line `id` as signed and as invalid, for its signature
+    /// ([MS-OFFCRYPTO] idValidSigLnImg / idInvalidSigLnImg; answer:
+    /// `signatureLineImages`).
+    SignatureLineImages {
+        /// The line id.
+        id: String,
+        /// Typed name.
+        #[serde(default)]
+        text: String,
+        /// Signer's picture (PNG / JPEG, base64).
+        #[serde(default)]
+        image_base64: Option<String>,
+        /// Signing date shown on the line (`YYYY-MM-DD`).
+        #[serde(default)]
+        date: String,
+    },
+    /// Show the verification result on the signed lines (display only).
+    SetSignatureLineStatus {
+        /// Result per line id.
+        lines: Vec<crate::sigline::LineStatus>,
+    },
 }
 
 fn yes() -> bool {
@@ -990,6 +1022,12 @@ pub struct EditResult {
     /// Administrative format check (`checkAdminFormat`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub admin_format: Option<Box<crate::templates::check::FormatReport>>,
+    /// Signature lines of the document (signature line commands).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature_lines: Option<Vec<bo_edit::sigline::SignatureLineInfo>>,
+    /// Pictures for signing a line (`SignatureLineImages`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature_line_images: Option<crate::sigline::SignatureLineImages>,
 }
 
 impl crate::Engine {
@@ -1340,6 +1378,10 @@ impl crate::Engine {
                     | Command::SetWatermark { .. }
                     | Command::ApplyTheme { .. }
                     | Command::ApplyStyleSet { .. }
+                    | Command::InsertSignatureLine { .. }
+                    | Command::SignatureLines
+                    | Command::SignatureLineImages { .. }
+                    | Command::SetSignatureLineStatus { .. }
                     | Command::Inspect
                     | Command::InspectRemove { .. }
                     | Command::InspectKeep { .. }
@@ -2018,6 +2060,8 @@ impl crate::Engine {
             results: None,
             page_layout: None,
             admin_format: None,
+            signature_lines: None,
+            signature_line_images: None,
         })
     }
 }

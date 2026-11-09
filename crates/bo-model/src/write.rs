@@ -1959,6 +1959,9 @@ pub struct ShapeArt {
     /// The shape is a watermark (Design › Watermark replaces and removes it).
     #[serde(default)]
     pub watermark: bool,
+    /// The picture is a signature line (Part 4, Office VML `o:signatureline`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature_line: Option<Box<crate::SignatureLine>>,
 }
 
 impl Default for ShapeArt {
@@ -1969,6 +1972,7 @@ impl Default for ShapeArt {
             washout: false,
             opacity: 1000,
             watermark: false,
+            signature_line: None,
         }
     }
 }

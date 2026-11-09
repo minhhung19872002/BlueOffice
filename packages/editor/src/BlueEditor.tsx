@@ -171,6 +171,7 @@ import {
   Globe,
   ScrollText,
   Focus,
+  PenLine,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -195,6 +196,17 @@ import {
   ProtectionStatus,
 } from './ProtectionPanels';
 import { SignaturesPanel, SignDialog } from './SignaturePanels';
+import {
+  bytesToSign,
+  imagesCommand,
+  InsertSignatureLineDialog,
+  isoDay,
+  type LineChoice,
+  lineSignRequest,
+  newLineId,
+  SignLineDialog,
+  statusCommand,
+} from './SignatureLineDialogs';
 import {
   bytesToBase64,
   documentState,
@@ -329,6 +341,9 @@ function EditorInner({
   const stored = useRef<StoredDocument | null>(null);
   /** Bytes of the opened file (its digital signatures are verified on them). */
   const openedBytes = useRef<Uint8Array | null>(null);
+  /** Signature line chosen in "sign a signature line", signed by the next "Ký số". */
+  const pendingLine = useRef<LineChoice | null>(null);
+  const signLineRef = useRef<((choice: LineChoice) => void) | null>(null);
   const [signSetup, setSignSetup] = useState<{
     defaults: SigningDefaults;
     remembered: RememberedSigning;
@@ -434,7 +449,12 @@ function EditorInner({
         if (platform.signing && looksSigned(file.bytes)) {
           void platform.signing
             .verify(file.bytes)
-            .then((report) => store.setState({ signatures: report }))
+            .then((report) => {
+              store.setState({ signatures: report });
+              // Signature lines show whether their signature verifies (CORE-SIGLINE-001).
+              const status = statusCommand(report);
+              if (status) void controller.current?.run(status);
+            })
             .catch(() => {});
         }
         if (file.path)
@@ -869,7 +889,26 @@ function EditorInner({
         fail('errors.sign', e);
       }
     };
-    r.register({ id: 'file.sign', isEnabled: canSign, run: () => openSign('sign') });
+    r.register({
+      id: 'file.sign',
+      isEnabled: canSign,
+      run: () => {
+        pendingLine.current = null;
+        return openSign('sign');
+      },
+    });
+    // Signature lines (CORE-SIGLINE-001): choose the line, then the signer.
+    r.register({
+      id: 'file.signLine',
+      isEnabled: canSign,
+      run: () => store.setState({ dialog: 'signLine' }),
+    });
+    const signLine = (choice: LineChoice) => {
+      pendingLine.current = choice;
+      store.setState({ dialog: null });
+      void openSign('sign');
+    };
+    signLineRef.current = signLine;
     r.register({
       id: 'file.exportSignedPdf',
       isEnabled: canSign,
@@ -885,6 +924,8 @@ function EditorInner({
         try {
           const report = await platform.signing.verify(bytes);
           store.setState({ signatures: report, panel: 'signatures' });
+          const status = statusCommand(report);
+          if (status) await controller.current?.run(status);
         } catch (e) {
           fail('errors.verify', e);
         }
@@ -1224,6 +1265,11 @@ function EditorInner({
       id: 'insert.control',
       isEnabled: hasDoc,
       run: () => store.setState({ dialog: 'control' }),
+    });
+    r.register({
+      id: 'insert.signatureLine',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'signatureLine' }),
     });
     // Legacy form fields (§17.16.17) and the "filling in forms" restriction (§17.15.1.29).
     const formsLocked = (s: EditorState) =>
@@ -2254,6 +2300,7 @@ function EditorInner({
           label: t('ribbon.groups.signature'),
           items: [
             item('file.sign', 'commands.file.sign', <Signature size={ICON} />),
+            item('file.signLine', 'commands.file.signLine', <PenLine size={ICON} />),
             item('file.exportSignedPdf', 'commands.file.exportSignedPdf', <FileDown size={ICON} />),
             item(
               'file.verifySignatures',
@@ -2436,6 +2483,7 @@ function EditorInner({
             item('insert.equation', 'commands.insert.equation', <Sigma size={ICON} />),
             item('insert.field', 'commands.insert.field', <Braces size={ICON} />),
             item('insert.control', 'commands.insert.control', <ListChecks size={ICON} />),
+            item('insert.signatureLine', 'commands.insert.signatureLine', <PenLine size={ICON} />),
             item(
               'equation.professional',
               'commands.equation.professional',
@@ -2863,8 +2911,25 @@ function EditorInner({
     try {
       await controller.current?.idle();
       const pdf = form.output === 'pdf';
-      const bytes = pdf ? await printLayoutPdf() : await platform.engine.saveDocx();
-      const signed = await signing.sign(bytes, request);
+      const line = pdf ? null : pendingLine.current;
+      pendingLine.current = null;
+      let bytes: Uint8Array;
+      let req = request;
+      if (line) {
+        // A signature line: its pictures as signed / invalid come from the engine
+        // ([MS-OFFCRYPTO] idValidSigLnImg / idInvalidSigLnImg); an unchanged file is
+        // signed as opened so its earlier signatures stay valid.
+        const r = await controller.current?.run(imagesCommand(line, isoDay(new Date())));
+        const images = r?.signatureLineImages;
+        if (!images) throw new Error(r?.error ?? 'signature line');
+        req = { ...request, signatureLine: lineSignRequest(line, images) };
+        bytes = await bytesToSign(!!store.getState().edit?.modified, openedBytes.current, () =>
+          platform.engine.saveDocx(),
+        );
+      } else {
+        bytes = pdf ? await printLayoutPdf() : await platform.engine.saveDocx();
+      }
+      const signed = await signing.sign(bytes, req);
       await platform.shell.setSetting?.(SIGNING_SETTING_KEY, JSON.stringify(remember(form)));
       const name = request.documentName;
       const saved = await platform.files.saveFile(
@@ -3269,6 +3334,26 @@ function EditorInner({
             )}
             {state.dialog === 'pageBorders' && (
               <PageBordersDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'signatureLine' && (
+              <InsertSignatureLineDialog
+                onClose={closeDialog}
+                onInsert={(spec) => {
+                  closeDialog();
+                  void runFocus({ cmd: 'insertSignatureLine', spec, id: newLineId() });
+                }}
+              />
+            )}
+            {state.dialog === 'signLine' && (
+              <SignLineDialog
+                run={runCommand}
+                pickPicture={async () => {
+                  const f = await platform.files.openFile(['.png', '.jpg', '.jpeg']);
+                  return f ? { name: f.name, bytes: f.bytes } : null;
+                }}
+                onClose={closeDialog}
+                onContinue={(choice) => signLineRef.current?.(choice)}
+              />
             )}
             {state.dialog === 'watermark' && (
               <WatermarkDialog

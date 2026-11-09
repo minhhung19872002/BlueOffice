@@ -9,6 +9,7 @@
 mod forms;
 mod reader;
 mod shape;
+pub mod sigline;
 mod writer;
 
 pub use reader::read_docx;

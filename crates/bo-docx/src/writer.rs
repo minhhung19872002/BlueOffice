@@ -172,6 +172,45 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
     Ok(w.pkg.write()?)
 }
 
+/// `o:signatureline` (ECMA-376 Part 4, §19.2.2.30; `CT_SignatureLine`): the
+/// `suggestedsigner*` attributes are namespace-qualified, the others are not.
+fn signature_line_xml(l: &bo_model::SignatureLine) -> String {
+    let tf = |b: bool| if b { "t" } else { "f" };
+    let mut x = format!(
+        "<o:signatureline v:ext=\"edit\" id=\"{}\" provid=\"{}\"",
+        escape(&l.id),
+        escape(if l.provider_id.is_empty() {
+            "{00000000-0000-0000-0000-000000000000}"
+        } else {
+            &l.provider_id
+        })
+    );
+    for (name, v) in [
+        ("o:suggestedsigner", &l.suggested_signer),
+        ("o:suggestedsigner2", &l.suggested_signer2),
+        ("o:suggestedsigneremail", &l.suggested_signer_email),
+    ] {
+        if !v.is_empty() {
+            let _ = write!(x, " {name}=\"{}\"", escape(v));
+        }
+    }
+    if !l.signing_instructions.is_empty() {
+        let _ = write!(
+            x,
+            " signinginstructionsset=\"t\" signinginstructions=\"{}\"",
+            escape(&l.signing_instructions)
+        );
+    }
+    if l.allow_comments {
+        x.push_str(" allowcomments=\"t\"");
+    }
+    if !l.show_sign_date {
+        x.push_str(" showsigndate=\"f\"");
+    }
+    let _ = write!(x, " issignatureline=\"{}\"/>", tf(l.is_signature_line));
+    x
+}
+
 /// Fingerprint of the footnotes and endnotes (detects edited notes).
 pub(crate) fn notes_fingerprint(doc: &Document) -> u64 {
     fingerprint(&(&doc.footnotes, &doc.endnotes))
@@ -727,6 +766,10 @@ impl Writer<'_> {
             let v = (f64::from(e.to_pt()) * 100.0).round() / 100.0;
             format!("{v}pt")
         };
+        // An inline signature line has only a size (§19.1.2.19 shape style).
+        if let (Some(line), Some(p), None) = (&art.signature_line, &art.picture, &img.anchor) {
+            return self.vml_signature_line(img, line, p, id);
+        }
         let mut style = String::from("position:absolute");
         let a = img.anchor.clone().unwrap_or_default();
         let _ = write!(
@@ -808,13 +851,42 @@ impl Writer<'_> {
             } else {
                 ""
             };
+            let line = art
+                .signature_line
+                .as_deref()
+                .map(signature_line_xml)
+                .unwrap_or_default();
             let _ = write!(
                 x,
-                "<v:shape id=\"{name}\" o:spt=\"75\" style=\"{style}\" o:allowincell=\"f\" stroked=\"f\" filled=\"f\" coordsize=\"21600,21600\" path=\"m0,0l21600,0,21600,21600,0,21600xe\"><v:imagedata xmlns:r=\"{R_NS}\" r:id=\"{rid}\" o:title=\"\"{wash}/></v:shape>"
+                "<v:shape id=\"{name}\" o:spt=\"75\" style=\"{style}\" o:allowincell=\"f\" stroked=\"f\" filled=\"f\" coordsize=\"21600,21600\" path=\"m0,0l21600,0,21600,21600,0,21600xe\"><v:imagedata xmlns:r=\"{R_NS}\" r:id=\"{rid}\" o:title=\"\"{wash}/>{line}</v:shape>"
             );
         }
         x.push_str("</w:pict>");
         x
+    }
+
+    /// An inline signature line: a VML picture shape (Part 4, §19.1.2.19 shape,
+    /// §19.1.2.11 imagedata) holding `o:signatureline` (§19.2.2.30).
+    fn vml_signature_line(
+        &mut self,
+        img: &Image,
+        line: &bo_model::SignatureLine,
+        picture: &str,
+        id: u32,
+    ) -> String {
+        const V_NS: &str = "urn:schemas-microsoft-com:vml";
+        const O_NS: &str = "urn:schemas-microsoft-com:office:office";
+        let pt = |e: bo_model::Emu| {
+            let v = (f64::from(e.to_pt()) * 100.0).round() / 100.0;
+            format!("{v}pt")
+        };
+        let rid = self.rels.id_for(REL_IMAGE, picture, false);
+        format!(
+            "<w:pict xmlns:v=\"{V_NS}\" xmlns:o=\"{O_NS}\"><v:shape id=\"BlueOfficeSignatureLine{id}\" o:spt=\"75\" style=\"width:{};height:{}\" stroked=\"f\" filled=\"f\" coordsize=\"21600,21600\" path=\"m0,0l21600,0,21600,21600,0,21600xe\"><v:imagedata xmlns:r=\"{R_NS}\" r:id=\"{rid}\" o:title=\"\"/>{}</v:shape></w:pict>",
+            pt(img.width),
+            pt(img.height),
+            signature_line_xml(line)
+        )
     }
 
     /// `w:drawing` with `graphic` placed inline (§20.4.2.8) or anchored (§20.4.2.3).

@@ -9,7 +9,7 @@
 use crate::{Result, CT_DOCUMENT, CT_STYLES};
 use bo_model::{
     fingerprint, Alignment, Block, Border, Borders, Cell, CellVAlign, ContentControl, ControlKind,
-    Document, HeightRule, Image, LineSpacing, ParaProps, Paragraph, Raw, RevisionInfo, Run,
+    Document, HeightRule, Image, Lang, LineSpacing, ParaProps, Paragraph, Raw, RevisionInfo, Run,
     RunContent, RunProps, Section, SectionBreak, StyleKind, TabAlign, TabLeader, Table, TableProps,
     TableWidth, VMerge, VertAlign, Wrap, WrapText,
 };
@@ -1686,6 +1686,146 @@ fn mark_revisions(p: &ParaProps) -> String {
     s
 }
 
+/// ECMA-376 Part 1, §17.3.2.20 lang (`None` when no attribute is set).
+fn lang_item(l: &Lang) -> Option<(String, String)> {
+    if l.is_empty() {
+        return None;
+    }
+    let mut s = String::from("<w:lang");
+    for (k, v) in [
+        ("val", &l.val),
+        ("eastAsia", &l.east_asia),
+        ("bidi", &l.bidi),
+    ] {
+        if let Some(v) = v {
+            let _ = write!(s, " w:{k}=\"{}\"", escape(v));
+        }
+    }
+    s.push_str("/>");
+    Some(("lang".into(), s))
+}
+
+/// CT_ParaRPr order (§17.3.1.29): the revision marks, then the CT_RPrBase children.
+const PARA_RPR_ORDER: &[&str] = &[
+    "ins",
+    "del",
+    "moveFrom",
+    "moveTo",
+    "rStyle",
+    "rFonts",
+    "b",
+    "bCs",
+    "i",
+    "iCs",
+    "caps",
+    "smallCaps",
+    "strike",
+    "dstrike",
+    "outline",
+    "shadow",
+    "emboss",
+    "imprint",
+    "noProof",
+    "snapToGrid",
+    "vanish",
+    "webHidden",
+    "color",
+    "spacing",
+    "w",
+    "kern",
+    "position",
+    "sz",
+    "szCs",
+    "highlight",
+    "u",
+    "effect",
+    "bdr",
+    "shd",
+    "fitText",
+    "vertAlign",
+    "rtl",
+    "cs",
+    "em",
+    "lang",
+    "eastAsianLayout",
+    "specVanish",
+    "oMath",
+    "rPrChange",
+];
+
+/// End (exclusive) of the tag starting at `at` (`<`), skipping quoted attribute values.
+fn tag_end(xml: &str, at: usize) -> Option<usize> {
+    let mut quote = None;
+    for (i, c) in xml[at..].char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '>') => return Some(at + i + 1),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `element` (verbatim XML) with `extra` children added, all children sorted by `order`. The
+/// element is returned unchanged when it cannot be split into its children.
+fn with_children(element: &str, order: &[&str], extra: Vec<(String, String)>) -> String {
+    let Some(open_end) = tag_end(element, 0) else {
+        return element.to_owned();
+    };
+    let open = &element[..open_end];
+    if let Some(open) = open.strip_suffix("/>") {
+        let name = open
+            .trim_start_matches('<')
+            .split(|c: char| c.is_whitespace())
+            .next()
+            .unwrap_or_default();
+        return format!("{}>{}</{name}>", open.trim_end(), ordered(order, extra));
+    }
+    let mut items = extra;
+    let mut pos = open_end;
+    let mut close = None;
+    while pos < element.len() {
+        let Some(lt) = element[pos..].find('<').map(|i| pos + i) else {
+            break;
+        };
+        if element[lt..].starts_with("</") {
+            close = Some(lt);
+            break;
+        }
+        // One child element (with its descendants).
+        let mut depth = 0i32;
+        let mut at = lt;
+        let mut end = None;
+        while let Some(te) = tag_end(element, at) {
+            let tag = &element[at..te];
+            if tag.starts_with("</") {
+                depth -= 1;
+            } else if !(tag.ends_with("/>") || tag.starts_with("<?") || tag.starts_with("<!")) {
+                depth += 1;
+            }
+            if depth <= 0 {
+                end = Some(te);
+                break;
+            }
+            match element[te..].find('<') {
+                Some(i) => at = te + i,
+                None => break,
+            }
+        }
+        let Some(end) = end else {
+            return element.to_owned();
+        };
+        let child = &element[lt..end];
+        items.push((raw_local_name(child), child.to_owned()));
+        pos = end;
+    }
+    let Some(close) = close else {
+        return element.to_owned();
+    };
+    format!("{open}{}{}", ordered(order, items), &element[close..])
+}
+
 fn flag(name: &str, v: Option<bool>) -> Option<(String, String)> {
     v.map(|b| {
         (
@@ -1860,9 +2000,15 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
         ));
     }
     let marks = mark_revisions(p);
+    // Modelled children of the paragraph mark rPr besides its revisions (§17.3.1.29).
+    let mut extra: Vec<(String, String)> = Vec::new();
+    extra.extend(flag("noProof", p.mark_no_proof)); // §17.3.2.21
+    if let Some(l) = &p.mark_lang {
+        extra.extend(lang_item(l)); // §17.3.2.20
+    }
     let mut has_rpr = false;
     for (name, xml) in raw_items(&p.unknown) {
-        if name == "rPr" && !marks.is_empty() {
+        if name == "rPr" && (!marks.is_empty() || !extra.is_empty()) {
             // CT_ParaRPr: ins/del/moveFrom/moveTo come first (§17.3.1.29).
             has_rpr = true;
             let xml = match xml.find('>') {
@@ -1872,13 +2018,21 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
                 Some(i) => format!("{}{marks}{}", &xml[..=i], &xml[i + 1..]),
                 None => xml,
             };
+            let xml = if extra.is_empty() {
+                xml
+            } else {
+                with_children(&xml, PARA_RPR_ORDER, extra.clone())
+            };
             v.push((name, xml));
         } else {
             v.push((name, xml));
         }
     }
-    if !has_rpr && !marks.is_empty() {
-        v.push(("rPr".into(), format!("<w:rPr>{marks}</w:rPr>")));
+    if !has_rpr && (!marks.is_empty() || !extra.is_empty()) {
+        v.push((
+            "rPr".into(),
+            format!("<w:rPr>{marks}{}</w:rPr>", ordered(PARA_RPR_ORDER, extra)),
+        ));
     }
     if let Some(c) = &p.change {
         // §17.13.5.29 pPrChange holds a CT_PPrBase (no rPr / sectPr / pPrChange).
@@ -1991,6 +2145,10 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
     }
     v.extend(flag("rtl", p.rtl)); // §17.3.2.30
     v.extend(flag("cs", p.complex)); // §17.3.2.7
+    v.extend(flag("noProof", p.no_proof)); // §17.3.2.21
+    if let Some(l) = &p.lang {
+        v.extend(lang_item(l)); // §17.3.2.20
+    }
     v.extend(raw_items(&p.unknown));
     if let Some(c) = &p.change {
         // §17.13.5.31 rPrChange holds a CT_RPrOriginal (no rPrChange of its own).

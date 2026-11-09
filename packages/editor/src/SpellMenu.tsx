@@ -6,8 +6,27 @@ const USER_WORDS_KEY = 'bo.spell.userWords';
 
 /** Words the user added to the dictionary (kept by this browser / app; a per-user convenience). */
 export function loadUserWords(): string[] {
+  return loadWords(USER_WORDS_KEY);
+}
+
+export function saveUserWord(word: string): void {
+  saveWord(USER_WORDS_KEY, word);
+}
+
+const IGNORED_WORDS_KEY = 'bo.spell.ignoredWords';
+
+/** Words the user chose to ignore everywhere ("ignore all"), kept with the user dictionary. */
+export function loadIgnoredWords(): string[] {
+  return loadWords(IGNORED_WORDS_KEY);
+}
+
+export function saveIgnoredWord(word: string): void {
+  saveWord(IGNORED_WORDS_KEY, word);
+}
+
+function loadWords(key: string): string[] {
   try {
-    const raw = localStorage.getItem(USER_WORDS_KEY);
+    const raw = localStorage.getItem(key);
     const list: unknown = raw ? JSON.parse(raw) : [];
     return Array.isArray(list) ? list.filter((w): w is string => typeof w === 'string') : [];
   } catch {
@@ -15,11 +34,10 @@ export function loadUserWords(): string[] {
   }
 }
 
-export function saveUserWord(word: string): void {
+function saveWord(key: string, word: string): void {
   try {
-    const words = loadUserWords();
-    if (!words.includes(word))
-      localStorage.setItem(USER_WORDS_KEY, JSON.stringify([...words, word]));
+    const words = loadWords(key);
+    if (!words.includes(word)) localStorage.setItem(key, JSON.stringify([...words, word]));
   } catch {
     // Storage unavailable (private mode): the word stays for this session only.
   }

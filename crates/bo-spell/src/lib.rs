@@ -12,6 +12,7 @@
 
 pub mod aff;
 pub mod grammar;
+pub mod lang;
 pub mod vi;
 
 use aff::{AffixFile, Flag};
@@ -417,13 +418,19 @@ impl Checker for Dictionary {
     }
 }
 
-/// Checkers for one language plus a user dictionary and an ignore list.
+/// Checkers tagged by language plus a user dictionary and an ignore list.
+///
+/// A checker added with [`Speller::add`] serves every language; one added with
+/// [`Speller::add_language`] serves the texts of its primary language subtag (`vi` for `vi-VN`,
+/// `en` for `en-US` and `en-GB`).
 pub struct Speller {
-    checkers: Vec<Box<dyn Checker>>,
+    checkers: Vec<(Option<String>, Box<dyn Checker>)>,
     user: HashSet<String>,
     ignored: HashSet<String>,
     /// Words written entirely in capitals (abbreviations such as `UBND`, `NĐ`) are not checked (default on).
     pub ignore_all_caps: bool,
+    /// Words with digits (`A4`, `mp3`, `2nd`) are not checked (default on).
+    pub ignore_digits: bool,
 }
 
 impl Default for Speller {
@@ -433,8 +440,18 @@ impl Default for Speller {
             user: HashSet::new(),
             ignored: HashSet::new(),
             ignore_all_caps: true,
+            ignore_digits: true,
         }
     }
+}
+
+/// Primary language subtag of a BCP 47 tag, lower case (`vi-VN` → `vi`).
+#[must_use]
+pub fn primary_language(tag: &str) -> String {
+    tag.split(['-', '_'])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
 }
 
 impl Speller {
@@ -444,9 +461,31 @@ impl Speller {
         Speller::default()
     }
 
-    /// Adds a checker; a word is correct when any checker accepts it.
+    /// Adds a checker for every language; a word is correct when any checker accepts it.
     pub fn add(&mut self, c: Box<dyn Checker>) {
-        self.checkers.push(c);
+        self.checkers.push((None, c));
+    }
+
+    /// Adds a checker for one language (BCP 47 tag; only the primary subtag counts).
+    pub fn add_language(&mut self, lang: &str, c: Box<dyn Checker>) {
+        self.checkers.push((Some(primary_language(lang)), c));
+    }
+
+    /// A checker serves `lang` (`None`: any language).
+    #[must_use]
+    pub fn has_language(&self, lang: Option<&str>) -> bool {
+        self.serving(lang).next().is_some()
+    }
+
+    fn serving<'a>(&'a self, lang: Option<&str>) -> impl Iterator<Item = &'a dyn Checker> + 'a {
+        let want = lang.map(primary_language);
+        self.checkers
+            .iter()
+            .filter(move |(tag, _)| match (&want, tag) {
+                (None, _) | (Some(_), None) => true,
+                (Some(w), Some(t)) => w == t,
+            })
+            .map(|(_, c)| c.as_ref())
     }
 
     /// Adds a word to the user dictionary.
@@ -459,24 +498,56 @@ impl Speller {
         self.ignored.insert(w.to_owned());
     }
 
-    /// The word is correct.
-    #[must_use]
-    pub fn check(&self, w: &str) -> bool {
-        if self.ignore_all_caps && case_of(w) == Case::All {
-            return true;
-        }
-        self.checkers.is_empty()
+    /// The word needs no dictionary: user word, ignored, abbreviation in capitals, with digits or
+    /// without letters.
+    fn exempt(&self, w: &str) -> bool {
+        (self.ignore_all_caps && case_of(w) == Case::All)
+            || (self.ignore_digits && w.chars().any(char::is_numeric))
+            || !w.chars().any(char::is_alphabetic)
             || self.user.contains(w)
             || self.ignored.contains(w)
             || self.user.contains(&w.to_lowercase())
-            || self.checkers.iter().any(|c| c.check(w))
+    }
+
+    /// The word is correct in any language.
+    #[must_use]
+    pub fn check(&self, w: &str) -> bool {
+        self.check_in(w, None).unwrap_or(true)
+    }
+
+    /// The word is correct in `lang` (`None`: any language); `None` when no checker serves the
+    /// language (the word is then not checked).
+    #[must_use]
+    pub fn check_in(&self, w: &str, lang: Option<&str>) -> Option<bool> {
+        if self.checkers.is_empty() || self.exempt(w) {
+            return Some(true);
+        }
+        // Checkers accept words with digits; asked to check them, they are wrong unless the user
+        // dictionary has them.
+        if w.chars().any(char::is_numeric) {
+            return self.has_language(lang).then_some(false);
+        }
+        let mut any = false;
+        for c in self.serving(lang) {
+            any = true;
+            if c.check(w) {
+                return Some(true);
+            }
+        }
+        any.then_some(false)
     }
 
     /// Suggestions from every checker, merged in order.
     #[must_use]
     pub fn suggest(&self, w: &str) -> Vec<String> {
+        self.suggest_in(w, None)
+    }
+
+    /// Suggestions from the checkers of `lang` (`None`: every checker), merged in order.
+    #[must_use]
+    pub fn suggest_in(&self, w: &str, lang: Option<&str>) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        for c in &self.checkers {
+        for c in self.serving(lang) {
             for s in c.suggest(w) {
                 if !out.contains(&s) {
                     out.push(s);
@@ -487,10 +558,11 @@ impl Speller {
         out
     }
 
-    /// Byte ranges of the misspelt words of `text`.
+    /// Byte ranges of the misspelt words of `text` (URLs, e-mail addresses and numbers are
+    /// skipped, see [`checkable_words`]).
     #[must_use]
     pub fn misspelt(&self, text: &str) -> Vec<Range<usize>> {
-        words(text)
+        checkable_words(text)
             .into_iter()
             .filter(|r| !self.check(&text[r.clone()]))
             .collect()
@@ -504,6 +576,51 @@ pub fn words(text: &str) -> Vec<Range<usize>> {
         .filter(|(_, w)| w.chars().any(char::is_alphanumeric))
         .map(|(i, w)| i..i + w.len())
         .collect()
+}
+
+/// The words of `text` worth checking: [`words`] without the ones inside a URL (`http://…`,
+/// `www.…`, `mailto:…`) or an e-mail address, and without numbers (no letter at all).
+#[must_use]
+pub fn checkable_words(text: &str) -> Vec<Range<usize>> {
+    let skip = skipped_tokens(text);
+    words(text)
+        .into_iter()
+        .filter(|r| text[r.clone()].chars().any(char::is_alphabetic))
+        .filter(|r| !skip.iter().any(|s| s.start <= r.start && r.end <= s.end))
+        .collect()
+}
+
+/// Byte ranges of the whitespace-separated tokens that are URLs or e-mail addresses.
+fn skipped_tokens(text: &str) -> Vec<Range<usize>> {
+    fn special(t: &str) -> bool {
+        let t = t.trim_matches(|c: char| "()[]{}<>\"'“”‘’,;".contains(c));
+        let lower = t.to_lowercase();
+        let url =
+            lower.contains("://") || lower.starts_with("www.") || lower.starts_with("mailto:");
+        let mail = t.split_once('@').is_some_and(|(user, host)| {
+            !user.is_empty() && host.contains('.') && !host.starts_with('.')
+        });
+        url || mail
+    }
+    let mut out = Vec::new();
+    let mut start = None;
+    for (i, c) in text.char_indices() {
+        if c.is_whitespace() {
+            if let Some(s) = start.take() {
+                if special(&text[s..i]) {
+                    out.push(s..i);
+                }
+            }
+        } else if start.is_none() {
+            start = Some(i);
+        }
+    }
+    if let Some(s) = start {
+        if special(&text[s..]) {
+            out.push(s..text.len());
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -635,6 +752,42 @@ happi/N
         assert!(s.check("UBND"));
         s.ignore_all_caps = false;
         assert!(!s.check("UBND"));
+    }
+
+    #[test]
+    fn checkers_by_language() {
+        let mut s = Speller::new();
+        s.add_language("en-US", Box::new(dict()));
+        s.add_language("vi-VN", Box::new(vi::Vietnamese));
+        // English words are English, Vietnamese syllables Vietnamese; en-GB shares the en checker.
+        assert_eq!(s.check_in("walked", Some("en-GB")), Some(true));
+        assert_eq!(s.check_in("walked", Some("vi-VN")), Some(false));
+        assert_eq!(s.check_in("chào", Some("vi-VN")), Some(true));
+        assert_eq!(s.check_in("chào", Some("en-US")), Some(false));
+        // No checker for French: not checked.
+        assert_eq!(s.check_in("bonjour", Some("fr-FR")), None);
+        assert!(!s.has_language(Some("fr-FR")) && s.has_language(Some("en-AU")));
+        // Without a language any checker may accept the word.
+        assert_eq!(s.check_in("chào", None), Some(true));
+        // Suggestions come from the language's checker only.
+        assert!(s
+            .suggest_in("wlak", Some("vi-VN"))
+            .iter()
+            .all(|w| w != "walk"));
+        assert!(s
+            .suggest_in("wlak", Some("en-US"))
+            .contains(&"walk".to_owned()));
+        // Words with digits are skipped unless asked.
+        assert!(s.check("mp3x"));
+        s.ignore_digits = false;
+        assert!(!s.check("mp3x"));
+    }
+
+    #[test]
+    fn urls_mails_and_numbers_are_not_checked() {
+        let t = "See www.exampel.org, mail tom@exampel.com or (https://exampel.net/pagee) 12,5 now";
+        let w: Vec<&str> = checkable_words(t).into_iter().map(|r| &t[r]).collect();
+        assert_eq!(w, vec!["See", "mail", "or", "now"]);
     }
 
     #[test]

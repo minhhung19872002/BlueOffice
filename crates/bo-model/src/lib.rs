@@ -20,9 +20,9 @@ pub use units::{Emu, HalfPoints, Twips};
 pub use write::{
     fingerprint, format_number, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell,
     CellMerge, CellPlace, CellProps, CellPropsChange, CellVAlign, Color, Columns, Comment,
-    ContentControl, ControlKind, Document, GridChange, HeaderFooter, HeightRule, Image, Level,
-    LineSpacing, NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering, PageSetup,
-    ParaProps, ParaPropsChange, Paragraph, Raw, RevMark, RevisionInfo, Row, RowProps,
+    ContentControl, ControlKind, Document, GridChange, HeaderFooter, HeightRule, Image, Lang,
+    Level, LineSpacing, NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering,
+    PageSetup, ParaProps, ParaPropsChange, Paragraph, Raw, RevMark, RevisionInfo, Row, RowProps,
     RowPropsChange, Run, RunContent, RunProps, RunPropsChange, Section, SectionBreak,
     SectionChange, Shape, ShapeLine, SourcePackage, Style, StyleKind, StyleSheet, TabAlign,
     TabLeader, TabStop, Table, TableFloat, TableGeometry, TableProps, TablePropsChange, TableView,

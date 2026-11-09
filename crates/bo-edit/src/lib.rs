@@ -21,6 +21,7 @@ pub mod merge;
 mod ops;
 pub mod para;
 pub mod picture;
+pub mod proofing;
 pub mod revisions;
 pub mod section;
 pub mod shapes;
@@ -116,6 +117,17 @@ pub enum CharFormat {
     Highlight {
         /// Highlight colour as `RRGGBB`; `None` removes it.
         hex: Option<String>,
+    },
+    /// Proofing language of the text (§17.3.2.20 lang `@w:val`, a BCP 47 tag such as `vi-VN`);
+    /// `None` removes the direct language (the style's applies again).
+    Language {
+        /// Language tag; `None` = inherit.
+        lang: Option<String>,
+    },
+    /// Do not check spelling or grammar (§17.3.2.21 noProof): `on` sets it, `false` removes it.
+    NoProof {
+        /// Skip proofing.
+        on: bool,
     },
     /// Remove direct character formatting.
     Clear,
@@ -419,6 +431,10 @@ pub struct FormatState {
     pub color: Option<String>,
     /// Highlight colour `RRGGBB`, if any.
     pub highlight: Option<String>,
+    /// Proofing language of Latin text (§17.3.2.20 lang `@w:val`), `None` when not set anywhere.
+    pub lang: Option<String>,
+    /// Spelling and grammar are not checked (§17.3.2.21 noProof).
+    pub no_proof: bool,
     /// Paragraph alignment.
     pub align: Alignment,
     /// Paragraph style id, if any.
@@ -2640,6 +2656,18 @@ impl Session {
                 let c = hex.as_deref().and_then(Color::from_hex);
                 Box::new(move |r| r.highlight = c)
             }
+            CharFormat::Language { lang } => {
+                let tag = lang.clone().filter(|t| !t.trim().is_empty());
+                Box::new(move |r| {
+                    let mut l = r.lang.take().unwrap_or_default();
+                    l.val.clone_from(&tag);
+                    r.lang = (!l.is_empty()).then_some(l);
+                })
+            }
+            CharFormat::NoProof { on } => {
+                let on = *on;
+                Box::new(move |r| r.no_proof = on.then_some(true))
+            }
             CharFormat::Clear => Box::new(|r| {
                 let link = r.link.take();
                 *r = RunProps {
@@ -2961,6 +2989,8 @@ impl Session {
             size_half_points: r.size.map(|s| s.0),
             color: r.color.map(Color::to_hex),
             highlight: r.highlight.map(Color::to_hex),
+            lang: r.lang.as_ref().and_then(|l| l.val.clone()),
+            no_proof: r.no_proof.unwrap_or(false),
             align: pp.align.or(align).unwrap_or_default(),
             style,
             bullets: list(true),

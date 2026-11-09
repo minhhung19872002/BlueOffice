@@ -44,6 +44,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `data.dataTable` | Lucide (ISC) `Grid3x3` |
 | `data.filter` | Lucide (ISC) `Funnel` |
 | `data.goalSeek` | Lucide (ISC) `Target` |
+| `data.scenarios` | Lucide (ISC) `Layers` |
 | `data.solver` | Lucide (ISC) `Calculator` |
 | `data.sort` | Lucide (ISC) `ArrowUpDown` |
 | `data.sortAsc` | Lucide (ISC) `ArrowDownAZ` |

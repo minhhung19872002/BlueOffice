@@ -993,6 +993,74 @@ pub enum SheetCommand {
         #[serde(default)]
         sheet_name: Option<String>,
     },
+    /// What-if scenarios of a sheet (§18.3.1 `scenarios`): `{ items: [{ index, name, cells,
+    /// values, comment, user, locked, hidden }], current, show, results, protected }`.
+    Scenarios {
+        /// 0-based sheet index.
+        sheet: usize,
+    },
+    /// Add a scenario (no `index`) or replace the one at `index`. One undo step; `{ index }`.
+    ScenarioSave {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Scenario to replace.
+        #[serde(default)]
+        index: Option<usize>,
+        /// Scenario name (unique on the sheet, case-insensitive).
+        name: String,
+        /// Changing cells: A1 cells / ranges separated by commas or spaces (at most 32 cells).
+        cells: String,
+        /// One value per changing cell; absent: the scenario's or the cells' current values.
+        #[serde(default)]
+        values: Option<Vec<String>>,
+        /// Comment.
+        #[serde(default)]
+        comment: Option<String>,
+        /// Author.
+        #[serde(default)]
+        user: Option<String>,
+        /// Refuse changes while the sheet's scenarios are protected.
+        #[serde(default = "default_true")]
+        locked: bool,
+        /// Hide while the sheet's scenarios are protected.
+        #[serde(default)]
+        hidden: bool,
+    },
+    /// Delete a scenario. One undo step.
+    ScenarioDelete {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Scenario index.
+        index: usize,
+    },
+    /// Enter a scenario's values into its changing cells. One undo step.
+    ScenarioShow {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Scenario index.
+        index: usize,
+    },
+    /// Copy the scenarios of sheet `from` into `sheet` (clashing names get a number).
+    /// One undo step; `{ merged }`.
+    ScenarioMerge {
+        /// 0-based sheet index (destination).
+        sheet: usize,
+        /// 0-based index of the sheet to copy from.
+        from: usize,
+    },
+    /// Scenario summary on a new sheet: changing cells and `results` for the current values
+    /// and each scenario (recalculated, the sheet is left as it was). One undo step;
+    /// `{ sheet }` (index of the new sheet).
+    ScenarioSummary {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Result cells (A1 cells / ranges); absent: those chosen last.
+        #[serde(default)]
+        results: Option<String>,
+        /// Captions of the report (localized by the host).
+        #[serde(default)]
+        labels: Option<bo_sheet::scenario::SummaryLabels>,
+    },
     /// Turn a range into a table (§18.5); its first row names the columns. One undo step.
     CreateTable {
         /// 0-based sheet index.
@@ -1629,6 +1697,38 @@ impl SheetEngine {
                 dest,
                 sheet_name.as_deref(),
             ),
+            C::Scenarios { sheet } => self.scenario_list(sheet),
+            C::ScenarioSave {
+                sheet,
+                index,
+                name,
+                cells,
+                values,
+                comment,
+                user,
+                locked,
+                hidden,
+            } => self.scenario_save(
+                sheet,
+                super::scenario_cmd::SaveRequest {
+                    index,
+                    name,
+                    cells,
+                    values,
+                    comment,
+                    user,
+                    locked,
+                    hidden,
+                },
+            ),
+            C::ScenarioDelete { sheet, index } => self.scenario_delete(sheet, index),
+            C::ScenarioShow { sheet, index } => self.scenario_show(sheet, index),
+            C::ScenarioMerge { sheet, from } => self.scenario_merge(sheet, from),
+            C::ScenarioSummary {
+                sheet,
+                results,
+                labels,
+            } => self.scenario_summary(sheet, results.as_deref(), labels),
             C::CreateTable { sheet, range } => self.edit(sheet, Recalc::No, |wb, _| {
                 let i = bo_sheet::table::create_table(wb, sheet, range.range(), &locale)
                     .map_err(|e| bad(&e))?;

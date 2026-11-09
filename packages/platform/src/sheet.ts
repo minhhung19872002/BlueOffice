@@ -797,6 +797,34 @@ export type SheetCommand =
       goal: number;
       changing: string;
       apply?: boolean;
+    }
+  /** What-if scenarios of a sheet → {@link ScenarioList}. */
+  | { cmd: 'scenarios'; sheet: number }
+  /** Add (no `index`) or replace a scenario → `{ index }`. `cells`: A1 cells / ranges
+   *  separated by commas or spaces; `values`: one per cell (absent: current values). */
+  | {
+      cmd: 'scenarioSave';
+      sheet: number;
+      index?: number | null;
+      name: string;
+      cells: string;
+      values?: string[] | null;
+      comment?: string | null;
+      user?: string | null;
+      locked?: boolean;
+      hidden?: boolean;
+    }
+  | { cmd: 'scenarioDelete'; sheet: number; index: number }
+  /** Enter a scenario's values into its changing cells (one undo step). */
+  | { cmd: 'scenarioShow'; sheet: number; index: number }
+  /** Copy the scenarios of sheet `from` → `{ merged }`. */
+  | { cmd: 'scenarioMerge'; sheet: number; from: number }
+  /** Summary report on a new sheet → `{ sheet }`. */
+  | {
+      cmd: 'scenarioSummary';
+      sheet: number;
+      results?: string | null;
+      labels?: ScenarioSummaryLabels;
     };
 
 /** Distribution of the `random` analysis tool (`discrete` reads value / probability pairs). */
@@ -877,6 +905,42 @@ export const ANALYSIS_ERROR_CODES = [
   'badName',
 ] as const;
 export type AnalysisErrorCode = (typeof ANALYSIS_ERROR_CODES)[number];
+
+/** A what-if scenario as the engine lists it. */
+export interface ScenarioInfo {
+  index: number;
+  name: string;
+  /** Changing cells (A1). */
+  cells: string[];
+  /** One value per changing cell, as text. */
+  values: string[];
+  comment: string | null;
+  user: string | null;
+  locked: boolean;
+  hidden: boolean;
+}
+
+/** The scenarios of a sheet. */
+export interface ScenarioList {
+  items: ScenarioInfo[];
+  current: number | null;
+  show: number | null;
+  /** Result cells chosen last for the summary (space-separated A1). */
+  results: string;
+  /** Scenarios are protected with the sheet. */
+  protected: boolean;
+}
+
+/** Captions of the scenario summary sheet (`{sheet}` in `title` = source sheet name). */
+export interface ScenarioSummaryLabels {
+  sheet?: string;
+  title?: string;
+  current?: string;
+  changing?: string;
+  results?: string;
+  comment?: string;
+  note?: string;
+}
 
 /** A timeline as the engine lists it. */
 export interface TimelineInfo {

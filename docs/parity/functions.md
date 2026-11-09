@@ -4,11 +4,11 @@ Sinh tự động bởi `python scripts/parity-functions.py` từ danh mục hà
 (nhóm theo tài liệu hàm công khai) đối chiếu với các bảng `FUNCTIONS` trong `crates/bo-formula/src/functions/`.
 Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng ghi nguồn).
 
-**Tổng: 329/515 hàm (64 %).**
+**Tổng: 414/515 hàm (80 %).**
 
 | Nhóm | Đã có | Tổng |
 |---|---|---|
-| Compatibility | 17 | 42 |
+| Compatibility | 42 | 42 |
 | Cube | 0 | 7 |
 | Database | 0 | 12 |
 | Date & Time | 25 | 25 |
@@ -18,55 +18,55 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | Logical | 19 | 19 |
 | Lookup & Reference | 27 | 40 |
 | Math & Trig | 70 | 80 |
-| Statistical | 50 | 110 |
+| Statistical | 110 | 110 |
 | Text | 29 | 46 |
 | Web | 0 | 3 |
 | BlueOffice | 0 | 1 |
 
 | Hàm | Nhóm | Trạng thái | Cài đặt |
 |---|---|---|---|
-| BETADIST | Compatibility | [ ] |  |
-| BETAINV | Compatibility | [ ] |  |
-| BINOMDIST | Compatibility | [ ] |  |
+| BETADIST | Compatibility | [x] | bo-formula |
+| BETAINV | Compatibility | [x] | bo-formula |
+| BINOMDIST | Compatibility | [x] | bo-formula |
 | CEILING | Compatibility | [x] | bo-formula |
-| CHIDIST | Compatibility | [ ] |  |
-| CHIINV | Compatibility | [ ] |  |
-| CHITEST | Compatibility | [ ] |  |
+| CHIDIST | Compatibility | [x] | bo-formula |
+| CHIINV | Compatibility | [x] | bo-formula |
+| CHITEST | Compatibility | [x] | bo-formula |
 | CONCATENATE | Compatibility | [x] | bo-formula |
-| CONFIDENCE | Compatibility | [ ] |  |
+| CONFIDENCE | Compatibility | [x] | bo-formula |
 | COVAR | Compatibility | [x] | bo-formula |
-| CRITBINOM | Compatibility | [ ] |  |
-| EXPONDIST | Compatibility | [ ] |  |
-| FDIST | Compatibility | [ ] |  |
-| FINV | Compatibility | [ ] |  |
+| CRITBINOM | Compatibility | [x] | bo-formula |
+| EXPONDIST | Compatibility | [x] | bo-formula |
+| FDIST | Compatibility | [x] | bo-formula |
+| FINV | Compatibility | [x] | bo-formula |
 | FLOOR | Compatibility | [x] | bo-formula |
 | FORECAST | Compatibility | [x] | bo-formula |
-| FTEST | Compatibility | [ ] |  |
-| GAMMADIST | Compatibility | [ ] |  |
-| GAMMAINV | Compatibility | [ ] |  |
-| HYPGEOMDIST | Compatibility | [ ] |  |
-| LOGINV | Compatibility | [ ] |  |
-| LOGNORMDIST | Compatibility | [ ] |  |
+| FTEST | Compatibility | [x] | bo-formula |
+| GAMMADIST | Compatibility | [x] | bo-formula |
+| GAMMAINV | Compatibility | [x] | bo-formula |
+| HYPGEOMDIST | Compatibility | [x] | bo-formula |
+| LOGINV | Compatibility | [x] | bo-formula |
+| LOGNORMDIST | Compatibility | [x] | bo-formula |
 | MODE | Compatibility | [x] | bo-formula |
-| NEGBINOMDIST | Compatibility | [ ] |  |
+| NEGBINOMDIST | Compatibility | [x] | bo-formula |
 | NORMDIST | Compatibility | [x] | bo-formula |
 | NORMINV | Compatibility | [x] | bo-formula |
 | NORMSDIST | Compatibility | [x] | bo-formula |
 | NORMSINV | Compatibility | [x] | bo-formula |
 | PERCENTILE | Compatibility | [x] | bo-formula |
-| PERCENTRANK | Compatibility | [ ] |  |
-| POISSON | Compatibility | [ ] |  |
+| PERCENTRANK | Compatibility | [x] | bo-formula |
+| POISSON | Compatibility | [x] | bo-formula |
 | QUARTILE | Compatibility | [x] | bo-formula |
 | RANK | Compatibility | [x] | bo-formula |
 | STDEV | Compatibility | [x] | bo-formula |
 | STDEVP | Compatibility | [x] | bo-formula |
-| TDIST | Compatibility | [ ] |  |
-| TINV | Compatibility | [ ] |  |
-| TTEST | Compatibility | [ ] |  |
+| TDIST | Compatibility | [x] | bo-formula |
+| TINV | Compatibility | [x] | bo-formula |
+| TTEST | Compatibility | [x] | bo-formula |
 | VAR | Compatibility | [x] | bo-formula |
 | VARP | Compatibility | [x] | bo-formula |
-| WEIBULL | Compatibility | [ ] |  |
-| ZTEST | Compatibility | [ ] |  |
+| WEIBULL | Compatibility | [x] | bo-formula |
+| ZTEST | Compatibility | [x] | bo-formula |
 | CUBEKPIMEMBER | Cube | [ ] |  |
 | CUBEMEMBER | Cube | [ ] |  |
 | CUBEMEMBERPROPERTY | Cube | [ ] |  |
@@ -385,18 +385,18 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | AVERAGEA | Statistical | [x] | bo-formula |
 | AVERAGEIF | Statistical | [x] | bo-formula |
 | AVERAGEIFS | Statistical | [x] | bo-formula |
-| BETA.DIST | Statistical | [ ] |  |
-| BETA.INV | Statistical | [ ] |  |
-| BINOM.DIST | Statistical | [ ] |  |
-| BINOM.DIST.RANGE | Statistical | [ ] |  |
-| BINOM.INV | Statistical | [ ] |  |
-| CHISQ.DIST | Statistical | [ ] |  |
-| CHISQ.DIST.RT | Statistical | [ ] |  |
-| CHISQ.INV | Statistical | [ ] |  |
-| CHISQ.INV.RT | Statistical | [ ] |  |
-| CHISQ.TEST | Statistical | [ ] |  |
-| CONFIDENCE.NORM | Statistical | [ ] |  |
-| CONFIDENCE.T | Statistical | [ ] |  |
+| BETA.DIST | Statistical | [x] | bo-formula |
+| BETA.INV | Statistical | [x] | bo-formula |
+| BINOM.DIST | Statistical | [x] | bo-formula |
+| BINOM.DIST.RANGE | Statistical | [x] | bo-formula |
+| BINOM.INV | Statistical | [x] | bo-formula |
+| CHISQ.DIST | Statistical | [x] | bo-formula |
+| CHISQ.DIST.RT | Statistical | [x] | bo-formula |
+| CHISQ.INV | Statistical | [x] | bo-formula |
+| CHISQ.INV.RT | Statistical | [x] | bo-formula |
+| CHISQ.TEST | Statistical | [x] | bo-formula |
+| CONFIDENCE.NORM | Statistical | [x] | bo-formula |
+| CONFIDENCE.T | Statistical | [x] | bo-formula |
 | CORREL | Statistical | [x] | bo-formula |
 | COUNT | Statistical | [x] | bo-formula |
 | COUNTA | Statistical | [x] | bo-formula |
@@ -406,37 +406,37 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | COVARIANCE.P | Statistical | [x] | bo-formula |
 | COVARIANCE.S | Statistical | [x] | bo-formula |
 | DEVSQ | Statistical | [x] | bo-formula |
-| EXPON.DIST | Statistical | [ ] |  |
-| F.DIST | Statistical | [ ] |  |
-| F.DIST.RT | Statistical | [ ] |  |
-| F.INV | Statistical | [ ] |  |
-| F.INV.RT | Statistical | [ ] |  |
-| F.TEST | Statistical | [ ] |  |
-| FISHER | Statistical | [ ] |  |
-| FISHERINV | Statistical | [ ] |  |
-| FORECAST.ETS | Statistical | [ ] |  |
-| FORECAST.ETS.CONFINT | Statistical | [ ] |  |
-| FORECAST.ETS.SEASONALITY | Statistical | [ ] |  |
-| FORECAST.ETS.STAT | Statistical | [ ] |  |
+| EXPON.DIST | Statistical | [x] | bo-formula |
+| F.DIST | Statistical | [x] | bo-formula |
+| F.DIST.RT | Statistical | [x] | bo-formula |
+| F.INV | Statistical | [x] | bo-formula |
+| F.INV.RT | Statistical | [x] | bo-formula |
+| F.TEST | Statistical | [x] | bo-formula |
+| FISHER | Statistical | [x] | bo-formula |
+| FISHERINV | Statistical | [x] | bo-formula |
+| FORECAST.ETS | Statistical | [x] | bo-formula |
+| FORECAST.ETS.CONFINT | Statistical | [x] | bo-formula |
+| FORECAST.ETS.SEASONALITY | Statistical | [x] | bo-formula |
+| FORECAST.ETS.STAT | Statistical | [x] | bo-formula |
 | FORECAST.LINEAR | Statistical | [x] | bo-formula |
-| FREQUENCY | Statistical | [ ] |  |
-| GAMMA | Statistical | [ ] |  |
-| GAMMA.DIST | Statistical | [ ] |  |
-| GAMMA.INV | Statistical | [ ] |  |
-| GAMMALN | Statistical | [ ] |  |
-| GAMMALN.PRECISE | Statistical | [ ] |  |
-| GAUSS | Statistical | [ ] |  |
+| FREQUENCY | Statistical | [x] | bo-formula |
+| GAMMA | Statistical | [x] | bo-formula |
+| GAMMA.DIST | Statistical | [x] | bo-formula |
+| GAMMA.INV | Statistical | [x] | bo-formula |
+| GAMMALN | Statistical | [x] | bo-formula |
+| GAMMALN.PRECISE | Statistical | [x] | bo-formula |
+| GAUSS | Statistical | [x] | bo-formula |
 | GEOMEAN | Statistical | [x] | bo-formula |
-| GROWTH | Statistical | [ ] |  |
+| GROWTH | Statistical | [x] | bo-formula |
 | HARMEAN | Statistical | [x] | bo-formula |
-| HYPGEOM.DIST | Statistical | [ ] |  |
+| HYPGEOM.DIST | Statistical | [x] | bo-formula |
 | INTERCEPT | Statistical | [x] | bo-formula |
-| KURT | Statistical | [ ] |  |
+| KURT | Statistical | [x] | bo-formula |
 | LARGE | Statistical | [x] | bo-formula |
-| LINEST | Statistical | [ ] |  |
-| LOGEST | Statistical | [ ] |  |
-| LOGNORM.DIST | Statistical | [ ] |  |
-| LOGNORM.INV | Statistical | [ ] |  |
+| LINEST | Statistical | [x] | bo-formula |
+| LOGEST | Statistical | [x] | bo-formula |
+| LOGNORM.DIST | Statistical | [x] | bo-formula |
+| LOGNORM.INV | Statistical | [x] | bo-formula |
 | MAX | Statistical | [x] | bo-formula |
 | MAXA | Statistical | [x] | bo-formula |
 | MAXIFS | Statistical | [x] | bo-formula |
@@ -444,9 +444,9 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | MIN | Statistical | [x] | bo-formula |
 | MINA | Statistical | [x] | bo-formula |
 | MINIFS | Statistical | [x] | bo-formula |
-| MODE.MULT | Statistical | [ ] |  |
+| MODE.MULT | Statistical | [x] | bo-formula |
 | MODE.SNGL | Statistical | [x] | bo-formula |
-| NEGBINOM.DIST | Statistical | [ ] |  |
+| NEGBINOM.DIST | Statistical | [x] | bo-formula |
 | NORM.DIST | Statistical | [x] | bo-formula |
 | NORM.INV | Statistical | [x] | bo-formula |
 | NORM.S.DIST | Statistical | [x] | bo-formula |
@@ -454,42 +454,42 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | PEARSON | Statistical | [x] | bo-formula |
 | PERCENTILE.EXC | Statistical | [x] | bo-formula |
 | PERCENTILE.INC | Statistical | [x] | bo-formula |
-| PERCENTRANK.EXC | Statistical | [ ] |  |
-| PERCENTRANK.INC | Statistical | [ ] |  |
+| PERCENTRANK.EXC | Statistical | [x] | bo-formula |
+| PERCENTRANK.INC | Statistical | [x] | bo-formula |
 | PERMUT | Statistical | [x] | bo-formula |
 | PERMUTATIONA | Statistical | [x] | bo-formula |
-| PHI | Statistical | [ ] |  |
-| POISSON.DIST | Statistical | [ ] |  |
-| PROB | Statistical | [ ] |  |
+| PHI | Statistical | [x] | bo-formula |
+| POISSON.DIST | Statistical | [x] | bo-formula |
+| PROB | Statistical | [x] | bo-formula |
 | QUARTILE.EXC | Statistical | [x] | bo-formula |
 | QUARTILE.INC | Statistical | [x] | bo-formula |
 | RANK.AVG | Statistical | [x] | bo-formula |
 | RANK.EQ | Statistical | [x] | bo-formula |
 | RSQ | Statistical | [x] | bo-formula |
-| SKEW | Statistical | [ ] |  |
-| SKEW.P | Statistical | [ ] |  |
+| SKEW | Statistical | [x] | bo-formula |
+| SKEW.P | Statistical | [x] | bo-formula |
 | SLOPE | Statistical | [x] | bo-formula |
 | SMALL | Statistical | [x] | bo-formula |
 | STANDARDIZE | Statistical | [x] | bo-formula |
 | STDEV.P | Statistical | [x] | bo-formula |
 | STDEV.S | Statistical | [x] | bo-formula |
 | STDEVA | Statistical | [x] | bo-formula |
-| STDEVPA | Statistical | [ ] |  |
-| STEYX | Statistical | [ ] |  |
-| T.DIST | Statistical | [ ] |  |
-| T.DIST.2T | Statistical | [ ] |  |
-| T.DIST.RT | Statistical | [ ] |  |
-| T.INV | Statistical | [ ] |  |
-| T.INV.2T | Statistical | [ ] |  |
-| T.TEST | Statistical | [ ] |  |
-| TREND | Statistical | [ ] |  |
-| TRIMMEAN | Statistical | [ ] |  |
+| STDEVPA | Statistical | [x] | bo-formula |
+| STEYX | Statistical | [x] | bo-formula |
+| T.DIST | Statistical | [x] | bo-formula |
+| T.DIST.2T | Statistical | [x] | bo-formula |
+| T.DIST.RT | Statistical | [x] | bo-formula |
+| T.INV | Statistical | [x] | bo-formula |
+| T.INV.2T | Statistical | [x] | bo-formula |
+| T.TEST | Statistical | [x] | bo-formula |
+| TREND | Statistical | [x] | bo-formula |
+| TRIMMEAN | Statistical | [x] | bo-formula |
 | VAR.P | Statistical | [x] | bo-formula |
 | VAR.S | Statistical | [x] | bo-formula |
 | VARA | Statistical | [x] | bo-formula |
-| VARPA | Statistical | [ ] |  |
-| WEIBULL.DIST | Statistical | [ ] |  |
-| Z.TEST | Statistical | [ ] |  |
+| VARPA | Statistical | [x] | bo-formula |
+| WEIBULL.DIST | Statistical | [x] | bo-formula |
+| Z.TEST | Statistical | [x] | bo-formula |
 | ARRAYTOTEXT | Text | [ ] |  |
 | ASC | Text | [ ] |  |
 | BAHTTEXT | Text | [ ] |  |

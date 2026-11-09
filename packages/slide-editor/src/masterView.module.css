@@ -1,0 +1,88 @@
+/* BlueSlide master view and Design tab (SLIDE-MASTER-001). */
+
+.swatch {
+  display: inline-flex;
+  gap: 1px;
+  align-items: center;
+  min-width: 18px;
+  height: 14px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.chip {
+  display: inline-block;
+  width: 4px;
+  height: 14px;
+  border-radius: 1px;
+}
+
+.colorPick {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.colorPick input {
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--bo-border, #d0d7de);
+  background: transparent;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px;
+  border: none;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.row input[type='number'] {
+  width: 80px;
+  margin-left: 4px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--bo-danger, #cf222e);
+  font-size: 12px;
+}
+
+/* Layouts sit under their master in the master view's slide pane. */
+.thumbLayout {
+  margin-left: 16px;
+}
+
+.thumbLayout canvas {
+  max-width: 134px;
+}
+
+.thumbName {
+  display: block;
+  font-size: 11px;
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
+
+.banner {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--bo-surface-2, #f6f8fa);
+  border-bottom: 1px solid var(--bo-border, #d0d7de);
+}

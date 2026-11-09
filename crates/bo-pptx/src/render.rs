@@ -277,6 +277,102 @@ pub fn render_with(
     })
 }
 
+/// Render a slide master or layout itself (master editing view): the
+/// background of the nearest level that defines one (§19.3.1.1 bg), the
+/// master's non-placeholder shapes behind a layout unless the layout hides
+/// them (§19.3.1.39 `showMasterSp`), then every shape of the level, its
+/// placeholders included (§19.3.1.36 ph). Placeholders are outlined with a thin
+/// dashed line so empty ones stay visible in thumbnails.
+pub fn render_level(
+    pres: &Presentation,
+    level: Level,
+    fonts: &mut FontManager,
+    images: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<PageList> {
+    let width = pres.slide_size.cx as f64 / EMU_PT;
+    let height = pres.slide_size.cy as f64 / EMU_PT;
+    let opts = RenderOptions::default();
+    let mut out = Vec::new();
+    let (master, show_master) = match level {
+        Level::Master(m) => {
+            if m >= pres.masters.len() {
+                return Err(PptxError::NoSuchSlide(m));
+            }
+            (m, false)
+        }
+        Level::Layout(l) => {
+            let lay = pres.layouts.get(l).ok_or(PptxError::NoSuchSlide(l))?;
+            (lay.master, lay.show_master_sp != Some(false))
+        }
+        Level::Slide(i) => return render_slide(pres, i, fonts, images),
+    };
+    let mut bg_levels = vec![level];
+    if matches!(level, Level::Layout(_)) {
+        bg_levels.push(Level::Master(master));
+    }
+    for lv in bg_levels {
+        let Some((data, rels, part)) = level_data(pres, lv) else {
+            continue;
+        };
+        if let Some(bg) = &data.background {
+            let cx = make_ctx(pres, level, rels, part, 0, &opts);
+            draw_background(&cx, bg, width, height, images, &mut out);
+            break;
+        }
+    }
+    let mut levels = Vec::new();
+    if show_master {
+        levels.push(Level::Master(master));
+    }
+    levels.push(level);
+    for lv in levels {
+        let Some((data, rels, part)) = level_data(pres, lv) else {
+            continue;
+        };
+        let mut cx = make_ctx(pres, lv, rels, part, 0, &opts);
+        cx.clr_map = clr_map_of(pres, level);
+        let own = lv == level;
+        for n in &data.shapes {
+            if !own && is_placeholder(n) {
+                continue;
+            }
+            draw_node(&cx, n, Frame::root(), fonts, images, &mut out);
+            if own && is_placeholder(n) {
+                outline_placeholder(pres, lv, n, &mut out);
+            }
+        }
+    }
+    Ok(PageList {
+        width: width as f32,
+        height: height as f32,
+        commands: out,
+    })
+}
+
+/// Thin dashed outline of a placeholder box (master editing view only).
+fn outline_placeholder(pres: &Presentation, level: Level, n: &ShapeNode, out: &mut Vec<Command>) {
+    let ShapeNode::Shape(s) = n else { return };
+    let ch = chain(pres, level, s);
+    let Some(x) = effective_props(&ch).xfrm else {
+        return;
+    };
+    let Some(r) = Frame::root().rect(&x) else {
+        return;
+    };
+    let aff = Frame::root().shape_aff(&x, r);
+    out.push(Command::Path {
+        segs: rect_segs(aff, r.2, r.3),
+        fill: None,
+        stroke: Some(Stroke {
+            width: 0.75,
+            color: Rgba(128, 128, 128, 255),
+            dash: vec![3.0, 2.0],
+            cap: "butt".into(),
+            join: "miter".into(),
+        }),
+    });
+}
+
 /// Render a slide scaled to `width` points (thumbnail).
 pub fn render_thumbnail(
     pres: &Presentation,

@@ -21,6 +21,7 @@ pub mod geom;
 pub mod guides;
 mod inspect_cmd;
 pub mod keep_source;
+pub mod master;
 pub mod media;
 pub mod morph;
 pub mod ops;
@@ -721,6 +722,28 @@ pub enum SlideCommand {
 }
 
 impl SlideCommand {
+    /// Commands on the slide list, notes and timing do not apply to the
+    /// masters and layouts shown by the master view.
+    fn blocked_in_master_view(&self, clip: Option<&clip::Clip>) -> bool {
+        match self {
+            SlideCommand::AddSlide { .. }
+            | SlideCommand::DeleteSlide { .. }
+            | SlideCommand::DuplicateSlide { .. }
+            | SlideCommand::MoveSlide { .. }
+            | SlideCommand::CopySlides { .. }
+            | SlideCommand::CutSlides { .. }
+            | SlideCommand::SetNotes { .. }
+            | SlideCommand::SetTransition { .. }
+            | SlideCommand::AddAnimation { .. }
+            | SlideCommand::AddComment { .. }
+            | SlideCommand::InspectRemove { .. }
+            | SlideCommand::InspectFix { .. } => true,
+            SlideCommand::Paste { .. } => {
+                matches!(clip.map(|c| &c.kind), Some(clip::ClipKind::Slides(_)))
+            }
+            _ => false,
+        }
+    }
     /// Commands that keep the text selection of the shape being edited.
     fn keeps_text_selection(&self) -> bool {
         matches!(
@@ -1068,6 +1091,12 @@ pub struct SlideEditResult {
     /// Protection state (security commands, CORE-SEC-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security: Option<crate::security::SecurityInfo>,
+    /// Slide size, theme and masters (Design tab, SLIDE-MASTER-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub design: Option<master::DesignOut>,
+    /// The master view's pane, while it is open.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub master_view: Option<master::MasterViewOut>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -1121,6 +1150,8 @@ pub struct SlideEditor {
     table: Option<table::TableSel>,
     /// The deck is open read-only (CORE-SEC-001): edits are refused.
     pub(crate) read_only: bool,
+    /// The master view is open (SLIDE-MASTER-001).
+    master: Option<master::MasterView>,
 }
 
 #[derive(Default)]
@@ -1164,6 +1195,7 @@ impl SlideEditor {
     /// Mark the current state as saved.
     pub fn mark_saved(&mut self) {
         self.saved = self.state_id();
+        self.master_saved();
     }
 
     /// Keep the selection valid for the deck.
@@ -3255,6 +3287,16 @@ impl Engine {
             let r = self.slide_security(sc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        let is_master = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| v.get("cmd").and_then(|c| c.as_str()).map(str::to_owned))
+            .is_some_and(|c| master::COMMANDS.contains(&c.as_str()));
+        if is_master {
+            let cmd: master::MasterCommand =
+                serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;
+            let r = self.slide_master_command(cmd)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         let cmd: SlideCommand =
             serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;
         let r = self.slide_command(cmd)?;
@@ -3284,6 +3326,14 @@ impl Engine {
             let clipboard = &mut self.slide_clip;
             let deck = self.deck_seq;
             ed.clamp(pres);
+            let history = matches!(cmd, SlideCommand::Undo | SlideCommand::Redo);
+            let mark = ed.history_mark();
+            let cmd = if ed.in_master_view() && cmd.blocked_in_master_view(clipboard.as_ref()) {
+                out.error = Some("masterView".into());
+                SlideCommand::State
+            } else {
+                cmd
+            };
             if !cmd.keeps_text_selection() {
                 ed.text = None;
             }
@@ -4133,6 +4183,7 @@ impl Engine {
                 SlideCommand::Undo => ed.undo(pres, &mut out),
                 SlideCommand::Redo => ed.redo(pres, &mut out),
             }
+            ed.master_sync(pres, &mut out, mark, history);
             ed.clamp(pres);
         }
         let copied = out.copied.take();
@@ -4199,6 +4250,7 @@ impl Engine {
             let ed = &mut self.slides;
             ed.clamp(pres);
             ed.text = None;
+            let mark = ed.history_mark();
             if let Some((kind, _)) = media::media_kind(name) {
                 let poster =
                     bo_raster::render_page_png(&media::poster_page(kind), &self.fonts, 2.0)
@@ -4209,6 +4261,7 @@ impl Engine {
             } else {
                 ed.mutate(pres, &mut out, |tx, sel| cmd_picture(tx, sel, bytes, name));
             }
+            ed.master_sync(pres, &mut out, mark, false);
         }
         let mut r = self.finish_slide_command(out)?;
         r.collab = self.slide_collab_after_edit();
@@ -4317,10 +4370,12 @@ impl Engine {
     /// Re-render every slide (after the slide list changed).
     fn rerender_slides(&mut self) -> crate::Result<()> {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
+        let in_view = self.slides.in_master_view();
         let mut pages = Vec::with_capacity(pres.slides.len());
         for i in 0..pres.slides.len() {
-            pages.push(bo_pptx::render_slide(
+            pages.push(master::render_page(
                 pres,
+                in_view,
                 i,
                 &mut self.fonts,
                 &mut self.images,
@@ -4499,7 +4554,11 @@ impl Engine {
             placeholders,
             dirty,
             slides_changed: out.all,
-            modified: ed.state_id() != ed.saved || self.sec.dirty(),
+            modified: ed
+                .master
+                .as_ref()
+                .map_or(ed.state_id() != ed.saved, |mv| mv.modified(ed.state_id()))
+                || self.sec.dirty(),
             can_undo: !ed.undo.is_empty(),
             can_redo: !ed.redo.is_empty(),
             format: format.unwrap_or_default(),
@@ -4546,6 +4605,8 @@ impl Engine {
             comments: comments::comments_out(pres, slide),
             inspection: None,
             security: None,
+            design: Some(master::design_out(pres, ed)),
+            master_view: master::view_out(pres, ed),
         })
     }
 }

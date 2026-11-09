@@ -53,6 +53,8 @@ pub struct PresFields {
     pub masters: Vec<bo_model::slide::SlideMaster>,
     /// Themes (§20.1.6.9 theme).
     pub themes: Vec<bo_model::slide::Theme>,
+    /// Slide size (§19.2.1.39 sldSz).
+    pub slide_size: bo_model::slide::SlideSize,
 }
 
 impl PresFields {
@@ -64,6 +66,7 @@ impl PresFields {
             layouts: p.layouts.clone(),
             masters: p.masters.clone(),
             themes: p.themes.clone(),
+            slide_size: p.slide_size.clone(),
         }
     }
 }
@@ -240,6 +243,7 @@ impl SlideOp {
                 pres.layouts.clone_from(&after.layouts);
                 pres.masters.clone_from(&after.masters);
                 pres.themes.clone_from(&after.themes);
+                pres.slide_size.clone_from(&after.slide_size);
                 Ok(())
             }
         }

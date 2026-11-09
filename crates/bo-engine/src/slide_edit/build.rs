@@ -277,7 +277,12 @@ pub fn group(
 
 /// Placeholder shape copied from a layout placeholder (§19.3.1.36 ph): only the
 /// placeholder reference — position and formatting are inherited.
-fn placeholder(id: u32, kind: Option<&str>, idx: Option<u32>, name: &str) -> Option<ShapeNode> {
+pub(crate) fn placeholder(
+    id: u32,
+    kind: Option<&str>,
+    idx: Option<u32>,
+    name: &str,
+) -> Option<ShapeNode> {
     let mut ph = String::from("<p:ph");
     if let Some(k) = kind {
         ph.push_str(&format!(r#" type="{}""#, esc(k)));

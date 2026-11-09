@@ -704,7 +704,13 @@ impl Engine {
     /// Re-render one slide after the presentation model was edited.
     pub fn refresh_slide(&mut self, index: usize) -> Result<&PageList> {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
-        let page = bo_pptx::render_slide(pres, index, &mut self.fonts, &mut self.images)?;
+        let page = slide_edit::master::render_page(
+            pres,
+            self.slides.in_master_view(),
+            index,
+            &mut self.fonts,
+            &mut self.images,
+        )?;
         let display = self.display.as_mut().ok_or(EngineError::NoDocument)?;
         let slot = display
             .pages
@@ -745,8 +751,18 @@ impl Engine {
     /// Thumbnail display list of a slide scaled to `width` points, as JSON.
     pub fn slide_thumbnail_json(&mut self, index: usize, width: f32) -> Result<String> {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
-        let page =
-            bo_pptx::render_thumbnail(pres, index, &mut self.fonts, &mut self.images, width)?;
+        let page = if self.slides.in_master_view() {
+            let p = slide_edit::master::render_page(
+                pres,
+                true,
+                index,
+                &mut self.fonts,
+                &mut self.images,
+            )?;
+            slide_edit::master::scaled(p, width)
+        } else {
+            bo_pptx::render_thumbnail(pres, index, &mut self.fonts, &mut self.images, width)?
+        };
         Ok(page.to_json())
     }
 
@@ -772,7 +788,9 @@ impl Engine {
     /// when one is set ([MS-OFFCRYPTO] §2.3.4.10 Agile Encryption).
     pub fn save_pptx(&self) -> Result<Vec<u8>> {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
-        let bytes = bo_pptx::write_pptx(pres)?;
+        // While the master view is open the deck's slides are set aside.
+        let assembled = slide_edit::master::assemble(pres, &self.slides);
+        let bytes = bo_pptx::write_pptx(assembled.as_ref().unwrap_or(pres))?;
         let bytes = inspect::package::scrub(&bytes, &self.scrub)?;
         let bytes = self.sec.apply(bytes)?;
         match &self.save_password {

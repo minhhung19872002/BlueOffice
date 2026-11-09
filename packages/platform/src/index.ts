@@ -16,6 +16,7 @@ export {
 } from './shared';
 export * from './sheet';
 export * from './security';
+export * from './slideMaster';
 export { WebCodecsVideo, VIDEO_CODECS, bitrateFor, hasWebCodecs } from './webcodecs';
 export {
   OidcSession,

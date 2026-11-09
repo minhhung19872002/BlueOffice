@@ -190,6 +190,10 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
             let tables: Vec<&bo_model::sheet::Table> = ws.tables.iter().collect();
             ws.slicers = crate::slicer::read_slicers(&pkg, &wb_path, target, &rels, &tables);
             ws.timelines = crate::timeline::read_timelines(&pkg, &wb_path, target, &rels);
+            // Form controls and ActiveX controls (the parts stay verbatim in the package).
+            ws.form_controls = crate::formctl::file_controls(&ws.rels, &ws.unknown, &|n| {
+                pkg.part(n).map(|p| p.data.clone())
+            });
         } else {
             ws.kind = SheetKind::Opaque {
                 rel_type: rel_type.clone(),

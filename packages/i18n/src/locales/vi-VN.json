@@ -1323,6 +1323,54 @@
         "2": "Tháng",
         "3": "Ngày"
       }
+    },
+    "formControl": {
+      "group": "Điều khiển biểu mẫu",
+      "kinds": {
+        "button": "Nút bấm",
+        "checkBox": "Ô đánh dấu",
+        "optionButton": "Nút chọn một",
+        "comboBox": "Hộp thả xuống",
+        "listBox": "Hộp danh sách",
+        "scrollBar": "Thanh trượt giá trị",
+        "spinner": "Nút tăng giảm",
+        "groupBox": "Khung nhóm",
+        "label": "Nhãn chữ",
+        "activeX": "Điều khiển ActiveX"
+      },
+      "format": "Thiết lập điều khiển…",
+      "delete": "Xoá điều khiển",
+      "formatTitle": "Thiết lập: {{kind}}",
+      "name": "Tên điều khiển",
+      "caption": "Chữ hiển thị",
+      "link": "Ô nhận kết quả",
+      "inputRange": "Vùng chứa danh sách mục",
+      "dropLines": "Số mục hiện khi mở",
+      "value": "Giá trị hiện tại",
+      "min": "Giá trị thấp nhất",
+      "max": "Giá trị cao nhất",
+      "inc": "Bước mỗi lần bấm mũi tên",
+      "page": "Bước khi bấm vào rãnh",
+      "horiz": "Đặt nằm ngang",
+      "flat": "Vẽ phẳng (không nổi khối)",
+      "state": "Trạng thái",
+      "states": {
+        "unchecked": "Bỏ trống",
+        "checked": "Được đánh dấu",
+        "mixed": "Chưa xác định"
+      },
+      "macro": "Macro được gán",
+      "macroHint": "BlueSheet lưu lại tên macro cùng tệp nhưng không chạy macro.",
+      "badNumber": "Hãy nhập số nguyên (số mục phải từ 1 trở lên).",
+      "badLimits": "Giá trị thấp nhất không được lớn hơn giá trị cao nhất.",
+      "badStep": "Các bước nhảy phải từ 1 trở lên.",
+      "macroKept": "Nút “{{name}}” được gán macro {{macro}}. BlueSheet giữ macro trong tệp nhưng không chạy.",
+      "noMacro": "Nút “{{name}}” chưa được gán macro nào.",
+      "activeXKept": "“{{name}}” là điều khiển ActiveX: được giữ nguyên trong tệp, chỉ hiển thị ảnh thay thế.",
+      "decrease": "Giảm",
+      "increase": "Tăng",
+      "selected": "Đang chọn điều khiển {{name}}",
+      "designHint": "Kéo để di chuyển · Enter hoặc nhấp đúp để thiết lập · Delete để xoá · Esc để thôi chọn"
     }
   },
   "recovery": {

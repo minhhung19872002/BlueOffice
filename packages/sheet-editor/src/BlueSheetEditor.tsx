@@ -21,6 +21,7 @@ import type {
   RangeStats,
   FlashFillResult,
   SheetPermissions,
+  FormControlInfo,
 } from '@blueoffice/platform';
 import {
   PASSWORD_REQUIRED,
@@ -130,6 +131,16 @@ import {
   ZoomIn,
   ZoomOut,
   MessageSquareText,
+  RectangleHorizontal,
+  SquareCheck,
+  CircleDot,
+  SquareChevronDown,
+  List,
+  GalleryVertical,
+  ChevronsUpDown,
+  SquareDashed,
+  Type,
+  SlidersHorizontal,
 } from 'lucide-react';
 import {
   useCallback,
@@ -170,6 +181,7 @@ import {
   templateOfItem,
   useChartGallery,
 } from './chartStyles';
+import { FormatControlDialog, FormControlLayer, INSERTABLE } from './formControls';
 import {
   CfDialog,
   ChartDialog,
@@ -813,6 +825,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       cancelled = true;
     };
   }, [host, sheet, view, px, revision]);
+
+  // Form controls of the sheet: selected one (design mode), list, settings dialog.
+  // The selection belongs to one sheet of one opened file.
+  const [formSelAt, setFormSelAt] = useState<{ key: string; index: number } | null>(null);
+  const formKey = `${loadSeq}:${sheet}`;
+  const formSel = formSelAt?.key === formKey ? formSelAt.index : null;
+  const setFormSel = useCallback(
+    (index: number | null) => setFormSelAt(index === null ? null : { key: formKey, index }),
+    [formKey],
+  );
+  const [formList, setFormList] = useState<FormControlInfo[]>([]);
+  const [formDialog, setFormDialog] = useState<FormControlInfo | null>(null);
 
   // Pivot tables of the sheet (field list panel).
   useEffect(() => {
@@ -1597,6 +1621,50 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         }),
       has,
     );
+    // Form controls ([MS-XLSX] control properties, legacy VML client data).
+    for (const kind of INSERTABLE) {
+      add(
+        `insert.formControl.${kind}`,
+        async (s) => {
+          const label = t(`sheetEditor.formControl.kinds.${kind}`);
+          const n = formList.filter((c) => c.kind === kind).length + 1;
+          const r = await exec<{ index: number }>({
+            cmd: 'insertFormControl',
+            sheet: s.sheet,
+            kind,
+            row: s.selection.active.row,
+            col: s.selection.active.col,
+            text: label,
+            name: `${label} ${n}`,
+          });
+          if (r) setFormSel(r.index);
+        },
+        has,
+      );
+    }
+    const selectedControl = () => formList.find((c) => c.index === formSel) ?? null;
+    const editable = () => {
+      const c = selectedControl();
+      return !!c && c.kind !== 'activeX';
+    };
+    add(
+      'formControl.format',
+      async () => {
+        const c = selectedControl();
+        if (c && c.kind !== 'activeX') setFormDialog(c);
+      },
+      { isEnabled: editable },
+    );
+    add(
+      'formControl.delete',
+      async (s) => {
+        const c = selectedControl();
+        if (!c || c.kind === 'activeX') return;
+        setFormSel(null);
+        await exec({ cmd: 'deleteFormControl', sheet: s.sheet, index: c.index });
+      },
+      { isEnabled: editable },
+    );
     add(
       'pivot.refresh',
       async (s) => {
@@ -1893,6 +1961,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     pivotPanel,
     commentsOpen,
     activePivot,
+    formList,
+    formSel,
+    setFormSel,
   ]);
 
   const state: SheetEditorState | null = useMemo(
@@ -2067,6 +2138,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (!hit || !host) return;
     const last = info?.sheets[sheet];
     setChart(null);
+    setFormSel(null);
     const multi = (e.ctrlKey || e.metaKey) && !e.shiftKey;
     // Ctrl+click / Ctrl+drag starts another range of a multi-range selection.
     if (multi && (hit.kind === 'cell' || hit.kind === 'columnHeader' || hit.kind === 'rowHeader'))
@@ -2570,6 +2642,43 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 'pivot.fieldList',
                 t('sheetEditor.pivot.fieldList'),
                 <ListTree size={s} />,
+                'small',
+              ),
+            ],
+          },
+          {
+            id: 'formControls',
+            label: t('sheetEditor.formControl.group'),
+            items: [
+              ...INSERTABLE.map((kind) =>
+                item(
+                  `insert.formControl.${kind}`,
+                  t(`sheetEditor.formControl.kinds.${kind}`),
+                  {
+                    button: <RectangleHorizontal size={s} />,
+                    checkBox: <SquareCheck size={s} />,
+                    optionButton: <CircleDot size={s} />,
+                    comboBox: <SquareChevronDown size={s} />,
+                    listBox: <List size={s} />,
+                    scrollBar: <GalleryVertical size={s} />,
+                    spinner: <ChevronsUpDown size={s} />,
+                    groupBox: <SquareDashed size={s} />,
+                    label: <Type size={s} />,
+                    activeX: null,
+                  }[kind],
+                  'small',
+                ),
+              ),
+              item(
+                'formControl.format',
+                t('sheetEditor.formControl.format'),
+                <SlidersHorizontal size={s} />,
+                'small',
+              ),
+              item(
+                'formControl.delete',
+                t('sheetEditor.formControl.delete'),
+                <Trash size={s} />,
                 'small',
               ),
             ],
@@ -3240,6 +3349,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 </div>
               </div>
             ))}
+            {host && (
+              <FormControlLayer
+                host={host}
+                sheet={sheet}
+                view={view}
+                scale={scale}
+                revision={revision}
+                exec={exec}
+                selected={formSel}
+                onSelect={setFormSel}
+                onFormat={setFormDialog}
+                onNotice={setStatus}
+                onList={setFormList}
+              />
+            )}
             {fillRect && (
               <div
                 className={styles.fillPreview}
@@ -3698,6 +3822,24 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       )}
       {dialog?.kind === 'checkDocument' && (
         <SheetCheckDocumentDialog exec={exec} goTo={goToRange} onClose={common.onClose} />
+      )}
+      {formDialog && (
+        <FormatControlDialog
+          info={formDialog}
+          onClose={() => {
+            setFormDialog(null);
+            focusInput();
+          }}
+          onApply={async (spec) => {
+            const done = await exec({
+              cmd: 'formatFormControl',
+              sheet,
+              index: formDialog.index,
+              spec,
+            });
+            if (done) setFormDialog(null);
+          }}
+        />
       )}
       {dialog?.kind === 'scenarios' && (
         <ScenarioDialog

@@ -141,6 +141,10 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
     let mut out_parts: Vec<(String, Option<String>, Vec<u8>)> = Vec::new();
     // Opaque parts rewritten because a chart was edited or added.
     let mut overrides: HashMap<String, Vec<u8>> = HashMap::new();
+    // Opaque parts left out (e.g. the control properties part of a deleted form control).
+    let mut dropped: HashSet<String> = HashSet::new();
+    // Next free VML shape-id block for new legacy drawings.
+    let mut vml_block = crate::formctl::first_free_block(&wb.opaque.parts);
     let wb_path = names.fresh(|n| {
         if n == 1 {
             "/xl/workbook.xml".into()
@@ -345,17 +349,37 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                     &mut out_parts,
                     &mut overrides,
                 );
-                let with_slicers;
-                let ws_out = match &new_slicers {
+                let unknown = match &new_slicers {
                     Some(n) => {
                         slicer_caches.extend(n.caches.iter().cloned());
-                        with_slicers = Worksheet {
-                            unknown: crate::slicer::with_ext(&ws.unknown, &n.sheet_ext),
-                            ..ws.clone()
-                        };
-                        &with_slicers
+                        crate::slicer::with_ext(&ws.unknown, &n.sheet_ext)
                     }
-                    None => ws,
+                    None => ws.unknown.clone(),
+                };
+                // Form controls: patched, removed and new controls.
+                let unknown = {
+                    let mut ctx = crate::formctl::WriteCtx {
+                        sheet_path: &path,
+                        opaque: &wb.opaque.parts,
+                        overrides: &mut overrides,
+                        dropped: &mut dropped,
+                        rels: &mut rels,
+                        out_parts: &mut out_parts,
+                        block: &mut vml_block,
+                    };
+                    let mut fresh = |p: &str, ext: &str| names.fresh(|n| format!("{p}{n}.{ext}"));
+                    let mut alloc = || ids.alloc();
+                    crate::formctl::write_controls(ws, unknown, &mut ctx, &mut fresh, &mut alloc)
+                };
+                let with_changes;
+                let ws_out = if unknown == ws.unknown {
+                    ws
+                } else {
+                    with_changes = Worksheet {
+                        unknown,
+                        ..ws.clone()
+                    };
+                    &with_changes
                 };
                 let xml = sheet_xml(
                     ws_out,
@@ -502,7 +526,12 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
             ct.defaults.push((ext.into(), t.into()));
         }
     }
-    for p in &wb.opaque.parts {
+    for p in wb
+        .opaque
+        .parts
+        .iter()
+        .filter(|p| !dropped.contains(&p.name))
+    {
         if let Some(t) = &p.content_type {
             ct.overrides.push((p.name.clone(), t.clone()));
         }
@@ -518,7 +547,12 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
     for (name, _, data) in out_parts {
         pkg.put_part(&name, data);
     }
-    for p in &wb.opaque.parts {
+    for p in wb
+        .opaque
+        .parts
+        .iter()
+        .filter(|p| !dropped.contains(&p.name))
+    {
         let data = overrides.remove(&p.name).unwrap_or_else(|| p.data.clone());
         pkg.put_part(&p.name, data);
     }

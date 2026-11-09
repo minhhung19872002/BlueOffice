@@ -1323,6 +1323,54 @@
         "2": "Months",
         "3": "Days"
       }
+    },
+    "formControl": {
+      "group": "Form controls",
+      "kinds": {
+        "button": "Push button",
+        "checkBox": "Tick box",
+        "optionButton": "Choice button",
+        "comboBox": "Drop-down box",
+        "listBox": "List box",
+        "scrollBar": "Value slider",
+        "spinner": "Up-down button",
+        "groupBox": "Group frame",
+        "label": "Text label",
+        "activeX": "ActiveX control"
+      },
+      "format": "Control settings…",
+      "delete": "Remove control",
+      "formatTitle": "Settings: {{kind}}",
+      "name": "Control name",
+      "caption": "Shown text",
+      "link": "Result cell",
+      "inputRange": "Range holding the items",
+      "dropLines": "Items shown when open",
+      "value": "Current value",
+      "min": "Lowest value",
+      "max": "Highest value",
+      "inc": "Step per arrow click",
+      "page": "Step per click in the track",
+      "horiz": "Lay out horizontally",
+      "flat": "Flat look (no raised edges)",
+      "state": "State",
+      "states": {
+        "unchecked": "Empty",
+        "checked": "Ticked",
+        "mixed": "Undetermined"
+      },
+      "macro": "Assigned macro",
+      "macroHint": "BlueSheet keeps the macro name in the file but never runs macros.",
+      "badNumber": "Enter a whole number (at least 1 item).",
+      "badLimits": "The lowest value cannot be above the highest value.",
+      "badStep": "Steps must be 1 or more.",
+      "macroKept": "“{{name}}” is assigned to macro {{macro}}. BlueSheet keeps it in the file but does not run it.",
+      "noMacro": "No macro is assigned to “{{name}}”.",
+      "activeXKept": "“{{name}}” is an ActiveX control: it stays in the file unchanged and only its substitute picture is shown.",
+      "decrease": "Decrease",
+      "increase": "Increase",
+      "selected": "Control {{name}} selected",
+      "designHint": "Drag to move · Enter or double-click for settings · Delete to remove · Esc to deselect"
     }
   },
   "recovery": {

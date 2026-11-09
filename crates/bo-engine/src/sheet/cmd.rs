@@ -1198,6 +1198,91 @@ pub enum SheetCommand {
         /// Index of the slicer on the sheet.
         index: usize,
     },
+    /// Form controls of a sheet with their state, items, anchors and fallback pictures.
+    FormControls {
+        /// 0-based sheet index.
+        sheet: usize,
+    },
+    /// Insert a form control with its top-left corner at `row`, `col`. One undo step.
+    InsertFormControl {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// What to insert.
+        kind: bo_model::sheet::FormControlKind,
+        /// Top-left cell.
+        row: u32,
+        /// Its column.
+        col: u32,
+        /// Caption (defaults to the name).
+        #[serde(default)]
+        text: Option<String>,
+        /// Name (defaults to the kind and a number).
+        #[serde(default)]
+        name: Option<String>,
+    },
+    /// Click a form control: toggles a check box, chooses an option button, reports a
+    /// button's macro (not run).
+    FormControlClick {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the control on the sheet.
+        index: usize,
+    },
+    /// Choose item `sel` (1-based, 0 = none) of a combo / list box. One undo step.
+    FormControlSelect {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the control on the sheet.
+        index: usize,
+        /// Item.
+        sel: u32,
+    },
+    /// Set or step a scroll bar / spin button. One undo step.
+    FormControlValue {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the control on the sheet.
+        index: usize,
+        /// New value.
+        #[serde(default)]
+        value: Option<i32>,
+        /// Steps (negative: down / left).
+        #[serde(default)]
+        step: Option<i32>,
+        /// Step by pages instead of arrow steps.
+        #[serde(default)]
+        page: bool,
+    },
+    /// The Format Control dialog. One undo step.
+    FormatFormControl {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the control on the sheet.
+        index: usize,
+        /// The settings.
+        spec: super::formctl_cmd::FormatControlSpec,
+    },
+    /// Move a form control (size in cells kept). One undo step.
+    MoveFormControl {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the control on the sheet.
+        index: usize,
+        /// New top-left cell.
+        row: u32,
+        /// Its column.
+        col: u32,
+        /// Offset into the cell in points (x, y).
+        #[serde(default)]
+        offset: Option<(f64, f64)>,
+    },
+    /// Delete a form control (not an ActiveX control). One undo step.
+    DeleteFormControl {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the control on the sheet.
+        index: usize,
+    },
     /// Sum, count and average of the numbers in several ranges (status bar of a
     /// multi-range selection); cells covered twice count once.
     RangeStats {
@@ -1435,7 +1520,11 @@ impl SheetEngine {
             | C::ChartDesign { sheet, .. }
             | C::EditChart { sheet, .. }
             | C::DeleteChart { sheet, .. }
-            | C::MoveChart { sheet, .. } => check(ws(*sheet)?, A::Objects),
+            | C::MoveChart { sheet, .. }
+            | C::InsertFormControl { sheet, .. }
+            | C::FormatFormControl { sheet, .. }
+            | C::MoveFormControl { sheet, .. }
+            | C::DeleteFormControl { sheet, .. } => check(ws(*sheet)?, A::Objects),
             C::PivotCreate { sheet, .. }
             | C::PivotUpdate { sheet, .. }
             | C::PivotGroup { sheet, .. }
@@ -1919,6 +2008,37 @@ impl SheetEngine {
                 wb.defined_names.retain(|d| d.name != s.cache);
                 Ok(json!({ "ok": true }))
             }),
+            C::FormControls { sheet } => self.form_controls_list(sheet),
+            C::InsertFormControl {
+                sheet,
+                kind,
+                row,
+                col,
+                text,
+                name,
+            } => self.form_control_insert(sheet, kind, row, col, text, name),
+            C::FormControlClick { sheet, index } => self.form_control_click(sheet, index),
+            C::FormControlSelect { sheet, index, sel } => {
+                self.form_control_select(sheet, index, sel)
+            }
+            C::FormControlValue {
+                sheet,
+                index,
+                value,
+                step,
+                page,
+            } => self.form_control_value(sheet, index, value, step, page),
+            C::FormatFormControl { sheet, index, spec } => {
+                self.form_control_format(sheet, index, spec)
+            }
+            C::MoveFormControl {
+                sheet,
+                index,
+                row,
+                col,
+                offset,
+            } => self.form_control_move(sheet, index, row, col, offset.unwrap_or_default()),
+            C::DeleteFormControl { sheet, index } => self.form_control_delete(sheet, index),
             C::RangeStats { sheet, ranges } => {
                 let ws = self.sheet(sheet)?;
                 Ok(range_stats(ws, &ranges))

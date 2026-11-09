@@ -20,6 +20,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 
+mod form_control;
+pub use form_control::{CheckState, ControlAnchor, FormControl, FormControlKind};
+
 /// Maximum number of rows in a worksheet (ECMA-376 Part 1, §18.3.1.73: `r` ≤ 1048576).
 pub const MAX_ROWS: u32 = 1_048_576;
 /// Maximum number of columns in a worksheet (16384 = `XFD`).
@@ -415,6 +418,10 @@ pub struct Worksheet {
     /// Timelines of the sheet ([MS-XLSX] timelines and timeline caches).
     #[serde(default)]
     pub timelines: Vec<Timeline>,
+    /// Form controls and ActiveX controls of the sheet ([MS-XLSX] control properties parts,
+    /// §18.3.1.21 `controls`, legacy VML `x:ClientData`), in drawing order.
+    #[serde(default)]
+    pub form_controls: Vec<FormControl>,
     /// What-if scenarios of the sheet (ECMA-376 Part 1, §18.3.1 `scenarios`, CT_Scenarios).
     #[serde(default)]
     pub scenarios: Option<Scenarios>,

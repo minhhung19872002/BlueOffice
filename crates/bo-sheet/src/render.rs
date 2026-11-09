@@ -13,6 +13,9 @@
 //! Row/column default styles are drawn on empty cells; rotated (and stacked) text is drawn
 //! with a transform (§18.8.1 `textRotation`).
 
+use crate::cell_layout::{
+    layout_line, rotated_extent, rotation_degrees, shrink_scale, Place, RotatedLine,
+};
 use crate::cf::CellFormat;
 use crate::color::resolve_color;
 use crate::geometry::{col_to_letters, Rect, SheetGeometry, PT_PER_PX};
@@ -875,7 +878,7 @@ impl Renderer<'_> {
         if let Some(u) = cf.underline {
             font.underline = u.then(|| "single".to_owned());
         }
-        let size = font.size.unwrap_or(11.0) as f32;
+        let mut size = font.size.unwrap_or(11.0) as f32;
         let name = font.name.clone().unwrap_or_else(|| "Calibri".into());
         let Some(face) = self.fonts.resolve(&name, font.bold, font.italic) else {
             return;
@@ -917,16 +920,34 @@ impl Renderer<'_> {
             f64::from(align.indent.unwrap_or(0)) * 3.0 * self.geom.metrics.mdw_px * PT_PER_PX;
         let info = self.fonts.info(face).clone();
         let upem = f64::from(info.units_per_em.max(1));
+        let rotation = align
+            .text_rotation
+            .filter(|r| *r != 0 && (*r <= 180 || *r == 255));
+        // §18.8.1 alignment/@shrinkToFit: scale the font down until the (unwrapped,
+        // possibly rotated) text fits the cell width.
+        if align.shrink_to_fit && !align.wrap_text && rotation != Some(255) {
+            let avail = (rect.w - 2.0 * pad - indent).max(0.0);
+            let mut one = fmt.clone();
+            one.text = one.text.replace('\n', " ");
+            let w = layout_line(&one, 0.0, &mut |t: &str| self.measure(face, t, size)).width;
+            let needed = match rotation.and_then(rotation_degrees) {
+                Some(deg) => {
+                    let lh = f64::from(i32::from(info.ascender) - i32::from(info.descender))
+                        * f64::from(size)
+                        / upem;
+                    rotated_extent(w, lh, deg).0
+                }
+                None => w,
+            };
+            size = (f64::from(size) * shrink_scale(needed, avail)) as f32;
+        }
         let ascent = f64::from(info.ascender) * f64::from(size) / upem;
         let descent = -f64::from(info.descender) * f64::from(size) / upem;
         let line_h = ascent + descent + f64::from(info.line_gap.max(0)) * f64::from(size) / upem;
 
         // §18.8.1 alignment/@textRotation: 1–90 counter-clockwise, 91–180 clockwise
         // by (value − 90) degrees, 255 = vertical (stacked) text.
-        if let Some(rot) = align
-            .text_rotation
-            .filter(|r| *r != 0 && (*r <= 180 || *r == 255))
-        {
+        if let Some(rot) = rotation {
             let v = align.vertical.as_deref();
             let text = fmt.text.replace('\n', " ");
             self.out.push(Command::PushClip {
@@ -954,41 +975,35 @@ impl Renderer<'_> {
                     self.emit_text(face, &s, size, x, top + line_h * i as f64 + ascent, color);
                 }
             } else {
-                let deg = if rot <= 90 {
-                    f64::from(rot)
-                } else {
-                    -f64::from(rot - 90)
-                };
-                let (sin, cos) = deg.to_radians().sin_cos();
+                let deg = rotation_degrees(rot).unwrap_or(0.0);
                 let w = self.measure(face, &text, size);
-                let h = ascent + descent;
                 // Bounding box of the rotated line, placed by the cell alignment.
-                let bw = (w * cos).abs() + (h * sin).abs();
-                let bh = (w * sin).abs() + (h * cos).abs();
-                let cx = match halign {
-                    HAlign::Left => rect.x + pad + indent + bw / 2.0,
-                    HAlign::Right => rect.x + rect.w - pad - bw / 2.0,
-                    HAlign::Center => rect.x + rect.w / 2.0,
+                let place_h = match halign {
+                    HAlign::Left => Place::Start,
+                    HAlign::Right => Place::End,
+                    HAlign::Center => Place::Center,
                 };
-                let cy = match v {
-                    Some("top") => rect.y + pad / 2.0 + bh / 2.0,
-                    Some("center" | "justify" | "distributed") => rect.y + rect.h / 2.0,
-                    _ => rect.y + rect.h - pad / 2.0 - bh / 2.0,
+                let place_v = match v {
+                    Some("top") => Place::Start,
+                    Some("center" | "justify" | "distributed") => Place::Center,
+                    _ => Place::End,
                 };
+                let geo =
+                    RotatedLine::new(rect, w, ascent, descent, deg, place_h, place_v, pad, indent);
                 // Counter-clockwise on screen (y down): x' = cos·x + sin·y, y' = −sin·x + cos·y.
                 self.out.push(Command::PushTransform {
-                    m: [f(cos), f(-sin), f(sin), f(cos), f(cx), f(cy)],
+                    m: geo.matrix().map(f),
                 });
-                let baseline = ascent - h / 2.0;
-                let width = self.emit_text(face, &text, size, -w / 2.0, baseline, color);
+                let (x0, baseline) = (geo.local_x, geo.local_y);
+                let width = self.emit_text(face, &text, size, x0, baseline, color);
                 let thick = (f64::from(info.underline_thickness) * f64::from(size) / upem).max(0.5);
                 if font.underline.as_deref().is_some_and(|u| u != "none") {
                     let y = baseline - f64::from(info.underline_position) * f64::from(size) / upem;
-                    self.line(-w / 2.0, y, -w / 2.0 + width, y, thick, color);
+                    self.line(x0, y, x0 + width, y, thick, color);
                 }
                 if font.strike {
                     let y = baseline - f64::from(info.strikeout_position) * f64::from(size) / upem;
-                    self.line(-w / 2.0, y, -w / 2.0 + width, y, thick, color);
+                    self.line(x0, y, x0 + width, y, thick, color);
                 }
                 self.out.push(Command::PopTransform);
             }
@@ -999,16 +1014,15 @@ impl Renderer<'_> {
         // Lines: wrapped text or a single line.
         let avail = (rect.w - 2.0 * pad - indent).max(0.0);
         let mut lines: Vec<String> = Vec::new();
-        let mut text = fmt.text.clone();
-        if let Some((pos, ch)) = fmt.fill {
-            // `*x` fill: repeat the character to fill the cell (§18.8.31).
-            let base = self.measure(face, &text, size);
-            let cw = self.measure(face, &ch.to_string(), size).max(0.1);
-            let n = ((avail - base) / cw).floor().max(0.0) as usize;
-            if pos <= text.len() && text.is_char_boundary(pos) {
-                text.insert_str(pos, &ch.to_string().repeat(n.min(1000)));
-            }
-        }
+        // `_x` gaps and `*x` fill (§18.8.31) for a single unwrapped line.
+        let mut one = fmt.clone();
+        one.text = one.text.replace('\n', " ");
+        let mut single = layout_line(&one, avail, &mut |t: &str| self.measure(face, t, size));
+        let text = if fmt.fill.is_some() {
+            single.text.clone()
+        } else {
+            fmt.text.clone()
+        };
         if align.wrap_text && !is_number {
             for para in text.split('\n') {
                 let mut cur = String::new();
@@ -1028,21 +1042,30 @@ impl Renderer<'_> {
                 lines.push(cur);
             }
         } else {
-            lines.push(text.replace('\n', " "));
+            lines.push(single.text.clone());
         }
-        // Numbers that do not fit show `#` across the cell.
-        if is_number
-            && !align.shrink_to_fit
-            && (fmt.invalid || self.measure(face, &lines[0], size) > avail)
-        {
+        let mut use_single = !align.wrap_text || is_number;
+        // Numbers that do not fit show `#` across the cell (shrunk numbers are
+        // allowed a rounding tolerance).
+        let tolerance = if align.shrink_to_fit { 0.5 } else { 0.0 };
+        if is_number && (fmt.invalid || single.width > avail + tolerance) {
             let hw = self.measure(face, "#", size).max(0.1);
             let n = ((avail / hw).floor() as usize).max(1);
             lines = vec!["#".repeat(n.min(255))];
+            use_single = false;
+        }
+        if use_single {
+            // Draw the laid-out runs (gaps are not drawn).
+            single.segments.retain(|sg| !sg.text.is_empty());
         }
 
         // Clip: the cell, or for unwrapped left/right text the run of empty cells it overflows into.
         let mut clip = rect;
-        let width0 = self.measure(face, &lines[0], size);
+        let width0 = if use_single {
+            single.width
+        } else {
+            self.measure(face, &lines[0], size)
+        };
         if !align.wrap_text
             && !is_number
             && width0 > avail
@@ -1096,14 +1119,25 @@ impl Renderer<'_> {
             _ => rect.y + rect.h - total_h - pad / 2.0,
         };
         for (i, line) in lines.iter().enumerate() {
-            let w = self.measure(face, line, size);
+            let w = if use_single {
+                single.width
+            } else {
+                self.measure(face, line, size)
+            };
             let x = match halign {
                 HAlign::Left => rect.x + pad + indent,
                 HAlign::Right => rect.x + rect.w - pad - w - indent,
                 HAlign::Center => rect.x + (rect.w - w) / 2.0,
             };
             let baseline = top + line_h * i as f64 + ascent;
-            let width = self.emit_text(face, line, size, x, baseline, color);
+            let width = if use_single {
+                for sg in single.segments.clone() {
+                    self.emit_text(face, &sg.text, size, x + sg.x, baseline, color);
+                }
+                single.width
+            } else {
+                self.emit_text(face, line, size, x, baseline, color)
+            };
             // §18.8.22 font u / strike: underline below the baseline, strike through x-height.
             let thick = (f64::from(info.underline_thickness) * f64::from(size) / upem).max(0.5);
             if font.underline.as_deref().is_some_and(|u| u != "none") {
@@ -1597,5 +1631,65 @@ mod tests {
                 .iter()
                 .any(|c| matches!(c, Command::Glyphs { text, .. } if text == ch)));
         }
+    }
+
+    #[test]
+    fn shrink_to_fit_scales_the_font_and_skip_leaves_a_gap() {
+        let mut wb = workbook();
+        let shrink = wb.styles.add_xf(CellXf {
+            alignment: Some(CellAlignment {
+                shrink_to_fit: true,
+                ..CellAlignment::default()
+            }),
+            ..CellXf::default()
+        });
+        let plain_id = wb.styles.add_num_fmt("0");
+        let skip_id = wb.styles.add_num_fmt("0_W");
+        let plain = wb.styles.add_xf(CellXf {
+            num_fmt_id: plain_id,
+            ..CellXf::default()
+        });
+        let skip = wb.styles.add_xf(CellXf {
+            num_fmt_id: skip_id,
+            ..CellXf::default()
+        });
+        let ws = &mut wb.sheets[0];
+        let long = "Một dòng chữ rất dài không vừa ô";
+        ws.set_cell(
+            8,
+            1,
+            Cell::new(CellValue::Text(long.into())).with_style(shrink),
+        );
+        ws.set_cell(9, 1, Cell::new(CellValue::Number(7.0)).with_style(plain));
+        ws.set_cell(10, 1, Cell::new(CellValue::Number(8.0)).with_style(skip));
+        let geom = SheetGeometry::with_metrics(&wb.sheets[0], SheetMetrics::default());
+        let vp = Viewport::new(400.0, 250.0);
+        let mut fm = fonts();
+        if fm.is_empty() {
+            return;
+        }
+        let page = render_viewport(&wb, 0, &geom, &vp, &RenderOptions::default(), &mut fm);
+        let glyph = |t: &str| {
+            page.commands.iter().find_map(|c| match c {
+                Command::Glyphs { text, size, x, .. } if text == t => Some((*size, *x)),
+                _ => None,
+            })
+        };
+        // The long text is drawn smaller than 11 pt, starting inside its cell.
+        let (size, _) = glyph(long).expect("shrunk text");
+        assert!(size < 11.0 && size > 1.0, "{size}");
+        // `_W` keeps a gap as wide as "W" to the right of the digit, so the
+        // right-aligned 8 sits further left than the plain 7 by that width.
+        let (_, x7) = glyph("7").expect("plain number");
+        let (_, x8) = glyph("8").expect("number with gap");
+        let face = fm.resolve("Calibri", false, false).expect("font");
+        let gap = fm.measure(face, "W", 11.0);
+        let d7 = fm.measure(face, "7", 11.0);
+        let d8 = fm.measure(face, "8", 11.0);
+        // Right edges: x7 + w(7) and x8 + w(8) + w(W) coincide.
+        assert!(
+            ((x7 + d7) - (x8 + d8 + gap)).abs() < 0.01,
+            "{x7} {x8} {gap}"
+        );
     }
 }

@@ -12,6 +12,7 @@ pub mod advfilter;
 pub mod analysis;
 pub mod calc;
 pub mod calcopts;
+pub mod cell_layout;
 pub mod cells;
 pub mod cf;
 pub mod cf_draw;

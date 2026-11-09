@@ -167,6 +167,8 @@ export interface StylePatch {
   wrap?: boolean;
   indent?: number;
   rotation?: number;
+  /** `alignment/@shrinkToFit` (§18.8.1). */
+  shrink?: boolean;
   /** `protection/@locked` (§18.8.33). */
   locked?: boolean;
   /** `protection/@hidden` (§18.8.33). */
@@ -197,6 +199,8 @@ export interface CellFormatState {
   wrap: boolean;
   indent: number;
   rotation: number;
+  /** Shrink to fit (`shrinkToFit`). */
+  shrink?: boolean;
   /** top, right, bottom, left line styles (`''` = none). */
   borders: [string, string, string, string];
   styleName: string;

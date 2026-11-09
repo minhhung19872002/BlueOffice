@@ -56,6 +56,8 @@ pub struct StylePatch {
     pub indent: Option<u32>,
     /// `textRotation` (0–180, 255 = vertical text).
     pub rotation: Option<u32>,
+    /// `shrinkToFit` (§18.8.1): scale the font so the text fits the cell width.
+    pub shrink: Option<bool>,
     /// `protection/@locked` (§18.8.33): edits are refused while the sheet is protected.
     pub locked: Option<bool>,
     /// `protection/@hidden` (§18.8.33): the formula is not shown while protected.
@@ -134,6 +136,8 @@ pub struct FormatState {
     pub indent: u32,
     /// Text rotation (0–180, 255 = vertical).
     pub rotation: u32,
+    /// Shrink to fit (`shrinkToFit`).
+    pub shrink: bool,
     /// Line style of each edge (`""` = none): top, right, bottom, left.
     pub borders: [String; 4],
     /// Name of the cell style (`cellStyles`) the cell is based on.
@@ -228,6 +232,10 @@ fn patch_alignment(base: Option<&CellAlignment>, p: &StylePatch) -> Option<CellA
     if let Some(r) = p.rotation {
         a.text_rotation = (r > 0 && (r <= 180 || r == 255)).then_some(r);
     }
+    // ECMA-376 Part 1, §18.8.1 alignment/@shrinkToFit.
+    if let Some(sh) = p.shrink {
+        a.shrink_to_fit = sh;
+    }
     (a != CellAlignment::default()).then_some(a)
 }
 
@@ -247,6 +255,7 @@ fn touches_alignment(p: &StylePatch) -> bool {
         || p.wrap.is_some()
         || p.indent.is_some()
         || p.rotation.is_some()
+        || p.shrink.is_some()
 }
 
 /// New `cellXfs` index for `xf` with `patch` applied.
@@ -675,6 +684,7 @@ pub fn format_state(
         wrap: al.wrap_text,
         indent: al.indent.unwrap_or(0),
         rotation: al.text_rotation.unwrap_or(0),
+        shrink: al.shrink_to_fit,
         borders: [es(&b.top), es(&b.right), es(&b.bottom), es(&b.left)],
         style_name: styles
             .cell_styles
@@ -760,6 +770,29 @@ mod tests {
         apply_patch(&mut wb, 0, rng("A1"), &unbold);
         let s = wb.sheets[0].cell(0, 0).unwrap().style;
         assert_eq!(wb.styles.cell_xfs[s as usize].font_id, 0);
+    }
+
+    #[test]
+    fn rotation_and_shrink_patches() {
+        let mut wb = Workbook::new();
+        let p = StylePatch {
+            rotation: Some(135),
+            shrink: Some(true),
+            ..StylePatch::default()
+        };
+        apply_patch(&mut wb, 0, rng("C3"), &p);
+        let st = format_state(&wb, 0, 2, 2, &Locale::VI_VN);
+        assert_eq!(st.rotation, 135);
+        assert!(st.shrink);
+        let off = StylePatch {
+            rotation: Some(255),
+            shrink: Some(false),
+            ..StylePatch::default()
+        };
+        apply_patch(&mut wb, 0, rng("C3"), &off);
+        let st = format_state(&wb, 0, 2, 2, &Locale::VI_VN);
+        assert_eq!(st.rotation, 255);
+        assert!(!st.shrink);
     }
 
     #[test]

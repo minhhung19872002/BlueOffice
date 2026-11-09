@@ -73,6 +73,7 @@ import {
   ListIndentIncrease,
   ListTree,
   LocateFixed,
+  Layers,
   Lock,
   LockOpen,
   MoveHorizontal,
@@ -140,6 +141,7 @@ import {
   SavePasswordPanel,
 } from '@blueoffice/editor';
 import { ProtectSheetDialog, UnprotectDialog } from './protection';
+import { ScenarioDialog } from './scenarios';
 import {
   CfDialog,
   ChartDialog,
@@ -294,6 +296,7 @@ type DialogState =
   | { kind: 'cf' }
   | { kind: 'dv' }
   | { kind: 'goalSeek' }
+  | { kind: 'scenarios' }
   | { kind: 'dataTable' }
   | { kind: 'solver' }
   | { kind: 'chart'; index: number | null }
@@ -1680,6 +1683,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     });
     add('data.validation', open({ kind: 'dv' }));
     add('data.goalSeek', open({ kind: 'goalSeek' }));
+    add('data.scenarios', open({ kind: 'scenarios' }));
     add('data.dataTable', open({ kind: 'dataTable' }));
     add('data.solver', open({ kind: 'solver' }));
 
@@ -2521,6 +2525,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             items: [
               item('data.validation', t('sheetEditor.dv.title'), <ShieldCheck size={18} />),
               item('data.goalSeek', t('sheetEditor.goalSeek.title'), <Target size={18} />),
+              item('data.scenarios', t('sheetEditor.scenario.title'), <Layers size={18} />),
               item('data.dataTable', t('sheetEditor.dataTable.title'), <Grid3x3 size={18} />),
               item('data.solver', t('sheetEditor.solver.title'), <Calculator size={18} />),
             ],
@@ -3352,6 +3357,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         <GoalSeekDialog
           {...common}
           target={`${colName(selection.active.col)}${selection.active.row + 1}`}
+        />
+      )}
+      {dialog?.kind === 'scenarios' && (
+        <ScenarioDialog
+          {...common}
+          sheets={info?.sheets.map((s) => s.name) ?? []}
+          selection={rangeA1(rangeOf(selection))}
+          author={platform.auth?.user?.name ?? ''}
+          onReport={(s) => {
+            setSheet(s);
+            setSelection(single({ row: 0, col: 0 }));
+          }}
         />
       )}
       {dialog?.kind === 'chart' && <ChartDialog {...common} index={dialog.index} />}

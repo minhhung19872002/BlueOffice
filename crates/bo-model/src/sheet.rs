@@ -415,6 +415,9 @@ pub struct Worksheet {
     /// Timelines of the sheet ([MS-XLSX] timelines and timeline caches).
     #[serde(default)]
     pub timelines: Vec<Timeline>,
+    /// What-if scenarios of the sheet (ECMA-376 Part 1, §18.3.1 `scenarios`, CT_Scenarios).
+    #[serde(default)]
+    pub scenarios: Option<Scenarios>,
     /// Print area formula (defined name `_xlnm.Print_Area`, §18.2.6).
     pub print_area: Option<String>,
     /// Print titles formula (defined name `_xlnm.Print_Titles`).
@@ -922,6 +925,51 @@ pub struct Comment {
     pub author: String,
     /// Comment text as rich text runs.
     pub text: Vec<TextRun>,
+}
+
+/// The scenarios of a worksheet (ECMA-376 Part 1, §18.3.1 `scenarios`, CT_Scenarios).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Scenarios {
+    /// Index of the scenario shown last (`current`).
+    pub current: Option<u32>,
+    /// Index of the scenario selected in the list (`show`).
+    pub show: Option<u32>,
+    /// Result cells chosen for the summary report (`sqref`).
+    pub sqref: Vec<CellRange>,
+    /// The scenarios (`scenario`, at least one in a valid file).
+    pub items: Vec<Scenario>,
+}
+
+/// One named set of input values (CT_Scenario, `scenario`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Scenario {
+    /// `name` (required).
+    pub name: String,
+    /// `locked`: cannot be changed while the sheet's scenarios are protected.
+    pub locked: bool,
+    /// `hidden`: not listed while the sheet's scenarios are protected.
+    pub hidden: bool,
+    /// `user`: who last changed it.
+    pub user: Option<String>,
+    /// `comment`.
+    pub comment: Option<String>,
+    /// The changing cells with their values (`inputCells`, at least one).
+    pub cells: Vec<ScenarioCell>,
+}
+
+/// A changing cell of a scenario (CT_InputCells, `inputCells`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ScenarioCell {
+    /// `r`: the cell.
+    pub cell: CellRef,
+    /// `val`: the value as text (a number in invariant form, or a string).
+    pub value: String,
+    /// `deleted`: the cell was deleted.
+    pub deleted: bool,
+    /// `undone`: the change was undone.
+    pub undone: bool,
+    /// `numFmtId`: number format of the value.
+    pub num_fmt_id: Option<u32>,
 }
 
 /// Data validation (§18.3.1.32 `dataValidation`).

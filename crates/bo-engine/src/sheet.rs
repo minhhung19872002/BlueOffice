@@ -27,6 +27,7 @@ mod pivot_cmd;
 mod png;
 mod print;
 pub mod protect;
+mod scenario_cmd;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
 

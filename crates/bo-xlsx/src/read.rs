@@ -890,6 +890,10 @@ fn read_sheet(
                 }
             }
             "rowBreaks" | "colBreaks" => {}
+            // §18.3.1 scenarios (CT_Scenarios)
+            "scenarios" => {
+                ws.scenarios = Some(crate::scenario::read_scenarios(r, e, empty)?);
+            }
             // §18.3.1.2 autoFilter
             "autoFilter" => {
                 ws.auto_filter = Some(crate::autofilter::read_auto_filter(r, e, empty)?);

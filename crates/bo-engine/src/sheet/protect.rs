@@ -286,6 +286,15 @@ pub fn sheet_info(ws: &Worksheet) -> SheetProtectionInfo {
     }
 }
 
+/// Whether the sheet is protected with its scenarios (`sheetProtection/@scenarios`,
+/// §18.3.1.85, default false): scenarios can then only be shown.
+pub fn scenarios_protected(ws: &Worksheet) -> bool {
+    find(&ws.unknown, "sheetProtection").is_some_and(|i| {
+        let a = parse_attrs(&ws.unknown[i].xml);
+        flag(&a, "sheet", false) && flag(&a, "scenarios", false)
+    })
+}
+
 /// Whether `action` is refused on `ws`.
 pub fn refuses(ws: &Worksheet, action: Action) -> bool {
     let info = sheet_info(ws);

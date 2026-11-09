@@ -1034,6 +1034,12 @@ fn sheet_xml(
                 out.push_str("</cols>");
             }
             "sheetData" => write_sheet_data(out, ws, sst),
+            // §18.3.1 scenarios (CT_Scenarios)
+            "scenarios" => {
+                if let Some(sc) = &ws.scenarios {
+                    crate::scenario::write_scenarios(out, sc);
+                }
+            }
             "autoFilter" => {
                 if let Some(af) = &ws.auto_filter {
                     crate::autofilter::write_auto_filter(out, af);

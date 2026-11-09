@@ -23,6 +23,7 @@ pub mod ops;
 pub mod pivot;
 pub mod render;
 pub mod rowcol;
+pub mod scenario;
 pub mod slicer;
 pub mod solver;
 pub mod sort;

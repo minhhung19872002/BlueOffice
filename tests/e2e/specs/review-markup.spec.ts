@@ -106,7 +106,7 @@ test('markup modes: bars, balloons, icons, options and the change list', async (
   await expect(pane).toHaveAttribute('data-dock', 'left');
   await expect(page.getByTestId('reviewing-count-insert')).toHaveText('Thêm: 1');
   await expect(page.getByTestId('reviewing-count-delete')).toHaveText('Xoá: 1');
-  await expect(page.getByTestId('reviewing-count-comment')).toHaveText('Chú thích: 1');
+  await expect(page.getByTestId('reviewing-count-comment')).toHaveText('Bình luận: 1');
   await expect(page.getByTestId('reviewing-item')).toHaveCount(3);
   await page.getByTestId('reviewing-accept').first().click();
   await expect(page.getByTestId('reviewing-item')).toHaveCount(2);

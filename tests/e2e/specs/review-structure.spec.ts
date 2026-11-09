@@ -57,7 +57,15 @@ test('tracked column insert and cell delete: listed, rejected', async ({ page })
   await page.getByRole('tab', { name: 'Bảng' }).click();
   // §17.13.5.4 cellIns in every row, §17.13.5.3 cellDel for the deleted cell.
   await cmd(page, 'table.insertColumnRight').click();
-  await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.08);
+  // The first tracked change adds the markup area beside the page: measure it again.
+  let box2 = (await pageN(page, 1).boundingBox())!;
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(100);
+    const b = (await pageN(page, 1).boundingBox())!;
+    if (b.x === box2.x && b.width === box2.width) break;
+    box2 = b;
+  }
+  await page.mouse.click(box2.x + box2.width * 0.15, box2.y + box2.height * 0.08);
   await cmd(page, 'table.deleteCell').click();
   await reviewPane(page);
   await expect(page.getByTestId('revision').filter({ hasText: 'Thêm ô/cột' })).toHaveCount(1);

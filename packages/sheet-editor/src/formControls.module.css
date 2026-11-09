@@ -1,0 +1,297 @@
+/* BlueSheet form controls over the grid — BlueOffice's own look (accent = sheet teal). */
+
+.control {
+  position: absolute;
+  box-sizing: border-box;
+  z-index: 3;
+  font-family: var(--bo-font-ui, system-ui, sans-serif);
+  color: var(--bo-text, #1f2933);
+  user-select: none;
+}
+
+/* A group frame lets clicks reach the cells and controls inside it. */
+.passThrough {
+  pointer-events: none;
+}
+
+.passThrough .legend,
+.passThrough .selected {
+  pointer-events: auto;
+}
+
+.button {
+  width: 100%;
+  height: 100%;
+  font: inherit;
+  border: 1px solid var(--bo-sheet-accent, #0b7a6b);
+  border-radius: 6px;
+  background: linear-gradient(var(--bo-surface, #fff), var(--bo-surface-alt, #eef4f3));
+  color: var(--bo-sheet-accent, #0b7a6b);
+  font-weight: 600;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.button:hover {
+  background: var(--bo-hover, #e3efed);
+}
+
+.button:active {
+  transform: translateY(1px);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  outline: none;
+}
+
+.check:focus-visible .checkMark,
+.check:focus-visible .radioMark {
+  box-shadow: 0 0 0 2px var(--bo-sheet-accent, #0b7a6b);
+}
+
+.checkMark,
+.radioMark {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--bo-text-muted, #52606d);
+  background: var(--bo-surface, #fff);
+  position: relative;
+}
+
+.checkMark {
+  border-radius: 3px;
+}
+
+.radioMark {
+  border-radius: 50%;
+}
+
+.checkMark.on,
+.checkMark.mixed {
+  background: var(--bo-sheet-accent, #0b7a6b);
+  border-color: var(--bo-sheet-accent, #0b7a6b);
+}
+
+/* Tick: two borders of a rotated box. */
+.checkMark.on::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 3px;
+  height: 7px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.checkMark.mixed::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 4px;
+  height: 2px;
+  background: #fff;
+}
+
+.radioMark.on::after {
+  content: '';
+  position: absolute;
+  inset: 2.5px;
+  border-radius: 50%;
+  background: var(--bo-sheet-accent, #0b7a6b);
+}
+
+.flat {
+  border-width: 1px;
+}
+
+.caption {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.combo {
+  width: 100%;
+  height: 100%;
+  font: inherit;
+  box-sizing: border-box;
+  border: 1px solid var(--bo-border, #c9d1dc);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  padding: 0 4px;
+}
+
+.list {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  border: 1px solid var(--bo-border, #c9d1dc);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  outline: none;
+}
+
+.list:focus-visible {
+  border-color: var(--bo-sheet-accent, #0b7a6b);
+}
+
+.item,
+.itemOn {
+  padding: 1px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--bo-hover, #e3efed);
+}
+
+.itemOn {
+  background: var(--bo-sheet-accent, #0b7a6b);
+  color: #fff;
+}
+
+.scroll,
+.scrollAcross,
+.spin,
+.spinAcross {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--bo-border, #c9d1dc);
+  border-radius: 4px;
+  background: var(--bo-surface-alt, #f3f6f8);
+  overflow: hidden;
+}
+
+.scroll,
+.spin {
+  flex-direction: column;
+}
+
+.arrow {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  line-height: 1;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text-muted, #52606d);
+  cursor: pointer;
+}
+
+.scroll .arrow,
+.scrollAcross .arrow {
+  flex: 0 0 16px;
+}
+
+.arrow:hover {
+  background: var(--bo-hover, #e3efed);
+  color: var(--bo-sheet-accent, #0b7a6b);
+}
+
+.track {
+  position: relative;
+  flex: 1 1 auto;
+  cursor: pointer;
+}
+
+.thumb {
+  position: absolute;
+  background: var(--bo-sheet-accent, #0b7a6b);
+  opacity: 0.55;
+  border-radius: 3px;
+}
+
+.scroll .thumb {
+  left: 2px;
+  right: 2px;
+  height: 20%;
+}
+
+.scrollAcross .thumb {
+  top: 2px;
+  bottom: 2px;
+  width: 20%;
+}
+
+.group {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--bo-text-muted, #52606d);
+  border-radius: 4px;
+}
+
+.legend {
+  margin-left: 6px;
+  padding: 0 3px;
+  white-space: nowrap;
+}
+
+.label {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+
+.picture {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}
+
+.placeholder {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--bo-border, #c9d1dc);
+  background: var(--bo-surface-alt, #f3f6f8);
+  color: var(--bo-text-muted, #52606d);
+  overflow: hidden;
+}
+
+/* Design mode: the selected control can be moved, set up or deleted. */
+.selected {
+  position: absolute;
+  inset: -3px;
+  border: 1.5px dashed var(--bo-sheet-accent, #0b7a6b);
+  cursor: move;
+  outline: none;
+  background: rgb(11 122 107 / 6%);
+}
+
+.states {
+  display: flex;
+  gap: 12px;
+  border: 1px solid var(--bo-border, #c9d1dc);
+  border-radius: 4px;
+  padding: 4px 8px;
+}

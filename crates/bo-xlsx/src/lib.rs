@@ -21,6 +21,7 @@ mod chart;
 pub mod chart_write;
 pub mod chartex;
 mod csv;
+pub mod formctl;
 mod pivot;
 pub mod pivot_write;
 mod read;

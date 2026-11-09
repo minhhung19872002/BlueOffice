@@ -2552,7 +2552,137 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-pivot-datarows", "BlueSheet writer: value fields on rows (tabular; compact × columns; outline with three values)", writer_pivot_datarows),
     ("writer-pivot-charts", "BlueSheet writer: pivot charts (column; line following a hidden item; combo with field buttons)", writer_pivot_charts),
     ("writer-slicers", "BlueSheet writer: table slicers (one slicer; filtered to one item; two slicers on two columns, both filtered)", writer_slicers),
+    ("writer-form-controls", "BlueSheet writer: form controls with control properties, VML client data and linked cells (check box, button with macro, label; drop-down + list box over a range, option buttons in a group frame; scroll bar + up-down button and every kind)", writer_form_controls),
 ];
+
+/// Form controls inserted through the model and worked with `bo_sheet::formctl` (the linked
+/// cells hold the values the controls wrote).
+fn writer_form_controls(i: usize) -> m::Workbook {
+    use bo_sheet::formctl as fc;
+    use m::{CellRef, CheckState, ControlAnchor, FormControl, FormControlKind as K};
+    let mut wb = m::Workbook::new();
+    wb.sheets[0].name = "Biểu mẫu".into();
+    for (r, t) in ["Hà Nội", "Đà Nẵng", "Cần Thơ", "Huế"].iter().enumerate() {
+        wb.sheets[0].set_cell(r as u32, 0, m::Cell::new(m::CellValue::Text((*t).into())));
+    }
+    let place = |r: u32, c: u32, rows: u32, cols: u32| ControlAnchor {
+        from: CellRef::new(r, c),
+        from_off: (19_050, 19_050),
+        to: CellRef::new(r + rows, c + cols),
+        to_off: (0, 0),
+    };
+    let ctl =
+        |kind: K, name: &str, text: &str, anchor: ControlAnchor, link: Option<&str>| FormControl {
+            kind,
+            name: name.into(),
+            text: text.into(),
+            anchor,
+            link: link.map(str::to_owned),
+            ..FormControl::default()
+        };
+    let mut list = Vec::new();
+    if i == 1 || i == 3 {
+        list.push(ctl(
+            K::CheckBox,
+            "Ô đánh dấu 1",
+            "Đã kiểm tra",
+            place(1, 3, 1, 2),
+            Some("$H$1"),
+        ));
+        let mut b = ctl(K::Button, "Nút 1", "Tổng hợp", place(3, 3, 2, 2), None);
+        b.macro_name = Some("TongHop".into());
+        list.push(b);
+        list.push(ctl(
+            K::Label,
+            "Nhãn 1",
+            "Chọn tỉnh:",
+            place(6, 3, 1, 2),
+            None,
+        ));
+    }
+    if i == 2 || i == 3 {
+        let mut combo = ctl(
+            K::ComboBox,
+            "Thả xuống 1",
+            "",
+            place(8, 3, 1, 2),
+            Some("$H$2"),
+        );
+        combo.input_range = Some("$A$1:$A$4".into());
+        combo.drop_lines = 4;
+        list.push(combo);
+        let mut lb = ctl(
+            K::ListBox,
+            "Danh sách 1",
+            "",
+            place(10, 3, 4, 2),
+            Some("$H$3"),
+        );
+        lb.input_range = Some("'Biểu mẫu'!$A$1:$A$4".into());
+        list.push(lb);
+        list.push(ctl(
+            K::GroupBox,
+            "Khung 1",
+            "Giới tính",
+            place(15, 3, 4, 3),
+            None,
+        ));
+        list.push(ctl(
+            K::OptionButton,
+            "Chọn 1",
+            "Nam",
+            place(16, 3, 1, 2),
+            Some("$H$4"),
+        ));
+        list.push(ctl(
+            K::OptionButton,
+            "Chọn 2",
+            "Nữ",
+            place(17, 3, 1, 2),
+            Some("$H$4"),
+        ));
+    }
+    if i == 3 {
+        let mut sc = ctl(K::ScrollBar, "Thanh 1", "", place(1, 7, 1, 3), Some("$H$5"));
+        (sc.min, sc.max, sc.inc, sc.page, sc.horiz) = (10, 200, 5, 25, true);
+        list.push(sc);
+        let mut sp = ctl(
+            K::Spinner,
+            "Tăng giảm 1",
+            "",
+            place(3, 7, 2, 0),
+            Some("$H$6"),
+        );
+        sp.anchor.to_off = (228_600, 0);
+        (sp.min, sp.max) = (1, 12);
+        list.push(sp);
+    }
+    wb.sheets[0].form_controls = list;
+    let locale = bo_sheet::numfmt::Locale::VI_VN;
+    let n = wb.sheets[0].form_controls.len();
+    for k in 0..n {
+        match wb.sheets[0].form_controls[k].kind {
+            K::CheckBox => fc::set_checked(&mut wb, 0, k, CheckState::Checked).unwrap(),
+            K::ComboBox => fc::select(&mut wb, 0, k, 3, &locale).unwrap(),
+            K::ListBox => fc::select(&mut wb, 0, k, i as u32, &locale).unwrap(),
+            K::ScrollBar => {
+                fc::set_value(&mut wb, 0, k, 85).unwrap();
+            }
+            K::Spinner => {
+                fc::step(&mut wb, 0, k, 4, false).unwrap();
+            }
+            _ => {}
+        }
+    }
+    if let Some(k) = wb.sheets[0]
+        .form_controls
+        .iter()
+        .rposition(|c| c.kind == K::OptionButton)
+    {
+        fc::click(&mut wb, 0, k).unwrap();
+    }
+    wb
+}
 
 /// Table slicers inserted with `bo_sheet::slicer` (each file one variant).
 fn writer_slicers(i: usize) -> m::Workbook {

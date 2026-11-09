@@ -760,6 +760,44 @@ export type SheetCommand =
   | { cmd: 'slicerSelect'; sheet: number; index: number; items: string[] }
   /** Delete a slicer inserted in this session. */
   | { cmd: 'deleteSlicer'; sheet: number; index: number }
+  /** Form controls of a sheet ([MS-XLSX] control properties, legacy VML client data). */
+  | { cmd: 'formControls'; sheet: number }
+  /** Insert a form control with its top-left corner at a cell. */
+  | {
+      cmd: 'insertFormControl';
+      sheet: number;
+      kind: FormControlKind;
+      row: number;
+      col: number;
+      text?: string;
+      name?: string;
+    }
+  /** Click a control (check box, option button, button: reports its macro, not run). */
+  | { cmd: 'formControlClick'; sheet: number; index: number }
+  /** Choose item `sel` (1-based, 0 none) of a combo / list box. */
+  | { cmd: 'formControlSelect'; sheet: number; index: number; sel: number }
+  /** Set (`value`) or step (`step` arrow steps, pages with `page`) a scroll bar / spin button. */
+  | {
+      cmd: 'formControlValue';
+      sheet: number;
+      index: number;
+      value?: number;
+      step?: number;
+      page?: boolean;
+    }
+  /** Format Control dialog: absent fields stay, an empty reference / macro clears it. */
+  | { cmd: 'formatFormControl'; sheet: number; index: number; spec: FormatControlSpec }
+  /** Move a control (its size in cells is kept); `offset` in points. */
+  | {
+      cmd: 'moveFormControl';
+      sheet: number;
+      index: number;
+      row: number;
+      col: number;
+      offset?: [number, number];
+    }
+  /** Delete a form control (ActiveX controls are kept). */
+  | { cmd: 'deleteFormControl'; sheet: number; index: number }
   /** Solver (simplex; integer / binary by branch and bound); `apply` enters the solution. */
   | {
       cmd: 'solve';
@@ -953,6 +991,73 @@ export interface TimelineInfo {
   to: [number, number];
   filtered: boolean;
   periods: { label: string; start: number; end: number; selected: boolean }[];
+}
+
+/** Kinds of form controls; `activeX` controls are kept as they are (fallback picture). */
+export type FormControlKind =
+  | 'button'
+  | 'checkBox'
+  | 'comboBox'
+  | 'listBox'
+  | 'optionButton'
+  | 'scrollBar'
+  | 'spinner'
+  | 'groupBox'
+  | 'label'
+  | 'activeX';
+
+export type CheckState = 'unchecked' | 'checked' | 'mixed';
+
+/** Settings of the Format Control dialog. */
+export interface FormatControlSpec {
+  text?: string;
+  name?: string;
+  link?: string;
+  inputRange?: string;
+  checked?: CheckState;
+  val?: number;
+  min?: number;
+  max?: number;
+  inc?: number;
+  page?: number;
+  dropLines?: number;
+  noThreeD?: boolean;
+  horiz?: boolean;
+  macroName?: string;
+}
+
+/** A form control as the engine lists it (state read from its linked cell). */
+export interface FormControlInfo {
+  index: number;
+  kind: FormControlKind;
+  name: string;
+  text: string;
+  link: string | null;
+  inputRange: string | null;
+  /** Items of a combo / list box. */
+  items: string[] | null;
+  checked: CheckState;
+  /** Chosen item, 1-based (0 none). */
+  sel: number;
+  val: number;
+  min: number;
+  max: number;
+  inc: number;
+  page: number;
+  dropLines: number;
+  horiz: boolean;
+  noThreeD: boolean;
+  macro: string | null;
+  /** Option-button group (index), `null` for other kinds. */
+  group: number | null;
+  /** Anchor cells [row, col] and offsets into them in points [x, y]. */
+  from: [number, number];
+  fromOff: [number, number];
+  to: [number, number];
+  toOff: [number, number];
+  /** Fallback picture of an ActiveX control (data URL). */
+  image: string | null;
+  isNew: boolean;
 }
 
 /** A slicer as the engine lists it. */

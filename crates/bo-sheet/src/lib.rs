@@ -17,6 +17,7 @@ pub mod color;
 pub mod fill;
 pub mod filter;
 pub mod flashfill;
+pub mod formctl;
 pub mod formula;
 pub mod geometry;
 pub mod icons;

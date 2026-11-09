@@ -24,6 +24,7 @@ mod analysis_cmd;
 mod cmd;
 pub(crate) mod collab;
 mod comments;
+mod formctl_cmd;
 mod pivot_cmd;
 mod png;
 mod print;
@@ -1447,6 +1448,8 @@ impl SheetEngine {
                 {
                     bo_sheet::chart::refresh_caches(wb, &locale);
                 }
+                // Form controls agree with their linked cells in the saved file.
+                bo_sheet::formctl::sync_from_links(wb);
             }
         }
         let wb = self.wb()?;

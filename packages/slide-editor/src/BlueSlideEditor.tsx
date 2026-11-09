@@ -70,6 +70,7 @@ import {
   ChartPie,
   Circle,
   Clapperboard,
+  ClipboardCheck,
   ClipboardPaste,
   Copy,
   Columns3,
@@ -139,6 +140,7 @@ import {
   slideGalleryLoader,
 } from './chartStyles';
 import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
+import { SlideCheckDocumentDialog } from './inspect';
 import { SlideController } from './controller';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
 import { ExportDialog, slidePng, type ExportPngOptions } from './ExportDialog';
@@ -325,6 +327,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [commentsOpen, setCommentsOpen] = useState(false);
   /** Symbol picker panel (inserts into the text being edited, else a new text box). */
   const [symbolsOpen, setSymbolsOpen] = useState(false);
+  const [checkOpen, setCheckOpen] = useState(false);
   const [previewToken, setPreviewToken] = useState(0);
   const [ribbonTab, setRibbonTab] = useState('home');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -406,6 +409,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   // Chart Design gallery of the selected chart (CORE-CHART-007), loaded when a menu opens.
   const loadGallery = useMemo(() => slideGalleryLoader((cmd) => ctrl.run(cmd)), [ctrl]);
   const [saveTemplate, setSaveTemplate] = useState(false);
+  const runResult = useCallback((cmd: SlideCommand) => ctrl.run(cmd), [ctrl]);
 
   // Symbol picker: typed into the shape text being edited (its textarea sends `setText`
   // on input, one undo step), else placed in a new text box.
@@ -1125,6 +1129,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     simple('insert.textBox', { cmd: 'insertTextBox', text: '' }, deck);
     reg.register({ id: 'insert.symbol', isEnabled: deck, run: async () => setSymbolsOpen(true) });
     reg.register({
+      id: 'review.checkDocument',
+      isEnabled: deck,
+      run: async () => setCheckOpen(true),
+    });
+    reg.register({
       id: 'review.comments',
       isEnabled: deck,
       isChecked: () => commentsOpen,
@@ -1652,6 +1661,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         ],
       },
       {
+        id: 'review',
+        label: t('ribbon.tabs.review'),
+        groups: [
+          {
+            id: 'check',
+            label: t('inspect.title'),
+            items: [
+              item('review.checkDocument', t('inspect.command'), <ClipboardCheck size={18} />),
+            ],
+          },
+        ],
+      },
+      {
         id: 'arrange',
         label: t('slideEditor.arrangeTab'),
         groups: [
@@ -2168,6 +2190,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               </section>
             )}
           </div>
+          {checkOpen && (
+            <SlideCheckDocumentDialog run={runResult} onClose={() => setCheckOpen(false)} />
+          )}
           {symbolsOpen && (
             <SymbolPanel
               fonts={[...new Set([edit?.format.font, ...FONTS].filter((x): x is string => !!x))]}

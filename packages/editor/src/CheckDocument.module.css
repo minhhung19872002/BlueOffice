@@ -1,0 +1,157 @@
+.tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--bo-border);
+  margin-bottom: 8px;
+}
+
+.tab,
+.tabOn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--bo-text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tabOn {
+  color: var(--bo-text);
+  border-bottom-color: var(--bo-app-accent-strong, var(--bo-accent));
+  font-weight: 600;
+}
+
+.tab:hover {
+  background: var(--bo-hover);
+}
+
+.badge,
+.badgeError {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--bo-surface-2, var(--bo-hover));
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.badgeError {
+  background: var(--bo-danger);
+  color: var(--bo-brand-contrast);
+}
+
+.body {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.intro {
+  margin: 4px 0 8px;
+  color: var(--bo-text-muted);
+  font-size: 12px;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--bo-border);
+}
+
+.itemHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.itemTitle {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.found {
+  color: var(--bo-warning-text, var(--bo-text));
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.clean {
+  color: var(--bo-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.details,
+.hint,
+.note {
+  margin-top: 2px;
+  color: var(--bo-text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.note {
+  font-style: italic;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.fixRow {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.group {
+  margin-bottom: 8px;
+}
+
+.groupTitle {
+  margin: 8px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--bo-text-muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.chip {
+  padding: 1px 6px;
+  border: 1px solid var(--bo-border);
+  border-radius: 9px;
+  font-size: 11px;
+}

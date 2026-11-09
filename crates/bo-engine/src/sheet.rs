@@ -25,6 +25,7 @@ mod chart_design_cmd;
 mod cmd;
 pub(crate) mod collab;
 mod comments;
+mod inspect_cmd;
 mod pivot_cmd;
 mod png;
 mod print;
@@ -265,6 +266,8 @@ pub struct SheetEngine {
     legacy_converted: usize,
     /// SmartArt drawing fallbacks of the open workbook, drawn once on load.
     drawings: Arc<BTreeMap<String, DrawingOverlay>>,
+    /// Package parts the document inspector drops on the next save.
+    scrub: crate::inspect::package::Scrub,
 }
 
 impl Default for SheetEngine {
@@ -636,6 +639,7 @@ impl SheetEngine {
             macros: false,
             legacy_converted: 0,
             drawings: Arc::default(),
+            scrub: crate::inspect::package::Scrub::default(),
         }
     }
 
@@ -810,6 +814,7 @@ impl SheetEngine {
     /// Makes `wb` (already calculated) the open workbook.
     fn install(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
         self.save_password = None;
+        self.scrub = crate::inspect::package::Scrub::default();
         self.macros = false;
         // One-cell / absolute chart anchors (§20.5.2.24, §20.5.2.1) → cells.
         for si in 0..wb.sheets.len() {
@@ -1456,6 +1461,7 @@ impl SheetEngine {
             "xlsx" => {
                 let bytes =
                     bo_xlsx::write_xlsx(wb).map_err(|e| EngineError::Sheet(e.to_string()))?;
+                let bytes = crate::inspect::package::scrub(&bytes, &self.scrub)?;
                 match &self.save_password {
                     // [MS-OFFCRYPTO] §2.3.4.10 Agile Encryption (AES-256 / SHA-512).
                     Some(pw) => bo_crypto::encrypt(&bytes, pw)

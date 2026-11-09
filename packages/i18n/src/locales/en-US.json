@@ -2737,5 +2737,160 @@
     },
     "ok": "OK",
     "cancel": "Cancel"
+  },
+  "inspect": {
+    "title": "Check document",
+    "command": "Check document",
+    "tab": {
+      "inspector": "Inspect",
+      "accessibility": "Accessibility",
+      "compatibility": "Compatibility"
+    },
+    "inspectorIntro": "Look for content you may not want to share: personal details, hidden content and notes.",
+    "found": "{{count}} found",
+    "noneFound": "Nothing found",
+    "pendingOnSave": "Will be taken out of the file the next time you save.",
+    "removeAll": "Remove",
+    "removeOnSave": "Remove when saving",
+    "keep": "Keep",
+    "acceptAll": "Accept all changes",
+    "reportOnly": "Review these yourself; they are not removed automatically.",
+    "removeEverything": "Remove everything found",
+    "recheck": "Check again",
+    "close": "Close",
+    "checking": "Checking…",
+    "noIssues": "No accessibility problems found.",
+    "moreIssues": "{{count}} more are not shown.",
+    "ratio": "Contrast {{ratio}}:1",
+    "goTo": "Go to",
+    "apply": "Apply",
+    "altTextPlaceholder": "Describe what it shows",
+    "altTextLabel": "Alternative text",
+    "fix": {
+      "altText": "Add alternative text",
+      "headerRow": "Use first row as header"
+    },
+    "compatIntro": "Features that are lost or changed when the file is saved in another format.",
+    "compatNone": "Nothing in this file is affected.",
+    "occurrences": "× {{count}}",
+    "format": {
+      "legacy": "97–2003 formats (.doc, .xls, .ppt)",
+      "odf": "OpenDocument (.odt, .ods, .odp)"
+    },
+    "severity": {
+      "error": "Errors",
+      "warning": "Warnings",
+      "tip": "Tips"
+    },
+    "category": {
+      "comments": "Comments and their authors",
+      "revisions": "Tracked changes",
+      "properties": "Document properties and personal details",
+      "customProperties": "Custom properties",
+      "customXml": "Custom XML data",
+      "serverProperties": "Server properties",
+      "macros": "Macros (VBA project)",
+      "hiddenText": "Hidden text",
+      "hiddenRows": "Hidden rows",
+      "hiddenColumns": "Hidden columns",
+      "hiddenSheets": "Hidden worksheets",
+      "hiddenSlides": "Hidden slides",
+      "offSlide": "Objects outside the slide",
+      "notes": "Speaker notes",
+      "headersFooters": "Headers and footers",
+      "watermarks": "Watermarks",
+      "invisibleObjects": "Invisible objects",
+      "embedded": "Embedded documents"
+    },
+    "rule": {
+      "altText": {
+        "title": "Missing alternative text",
+        "hint": "Describe pictures, shapes and charts so screen reader users know what they show."
+      },
+      "tableHeader": {
+        "title": "Table has no header row",
+        "hint": "Mark the first row as the header so each cell can be read with its column name."
+      },
+      "mergedCells": {
+        "title": "Merged cells",
+        "hint": "Merged cells make it hard to move through the data cell by cell; unmerge them where you can."
+      },
+      "headingOrder": {
+        "title": "Heading level skipped",
+        "hint": "Go down one heading level at a time so the outline stays easy to follow."
+      },
+      "noHeadings": {
+        "title": "Long document without headings",
+        "hint": "Use heading styles to split long text into sections people can jump between."
+      },
+      "contrast": {
+        "title": "Text is hard to read",
+        "hint": "Pick a text or background colour with more contrast (at least 4.5:1, or 3:1 for large text)."
+      },
+      "linkText": {
+        "title": "Link text is not descriptive",
+        "hint": "Use words that say where the link goes instead of an empty link or a bare address."
+      },
+      "slideTitle": {
+        "title": "Slide has no title",
+        "hint": "Give each slide a title so people can find their way through the deck."
+      },
+      "duplicateTitle": {
+        "title": "Same title as another slide",
+        "hint": "Make slide titles distinct so slides can be told apart."
+      },
+      "readingOrder": {
+        "title": "Check the reading order",
+        "hint": "The title should be the first object read on the slide; reorder the objects if needed."
+      },
+      "sheetName": {
+        "title": "Sheet tab keeps its default name",
+        "hint": "Rename the sheet after what it contains."
+      },
+      "layoutTable": {
+        "title": "Table may be used for layout",
+        "hint": "An empty row or column suggests spacing; use formatting for layout and keep tables for data."
+      },
+      "documentTitle": {
+        "title": "Document has no title",
+        "hint": "Add a title in the document properties; assistive technology announces it."
+      }
+    },
+    "feature": {
+      "contentControls": "Content controls",
+      "equations": "Equations",
+      "smartArt": "SmartArt graphics",
+      "charts": "Charts",
+      "modernCharts": "Newer chart types (waterfall, treemap…)",
+      "tables": "Tables",
+      "drawings": "Pictures and shapes",
+      "comments": "Comments",
+      "commentThreads": "Comment replies and resolved threads",
+      "trackedChanges": "Tracked changes",
+      "headersFooters": "Headers and footers",
+      "notes": "Footnotes and endnotes",
+      "textEffects": "Text effects (glow, outline, reflection)",
+      "longBookmarks": "Bookmark names over 40 characters",
+      "wideTables": "Tables wider than 63 columns",
+      "fields": "Fields (kept as their current result)",
+      "beyondGrid": "Cells beyond 65,536 rows or 256 columns",
+      "newFunctions": "Newer worksheet functions",
+      "dynamicArrays": "Dynamic array formulas",
+      "slicers": "Slicers",
+      "timelines": "Timelines",
+      "sparklines": "Sparklines",
+      "conditionalFormats": "Conditional formatting",
+      "advancedConditionalFormats": "Data bars, colour scales, icon sets or more than three rules",
+      "dataValidation": "Data validation",
+      "pivotTables": "PivotTables",
+      "longSheetNames": "Sheet names over 31 characters",
+      "manyCellFormats": "More than 4,000 cell formats",
+      "media": "Audio and video",
+      "transitions": "Slide transitions",
+      "morph": "Morph transitions",
+      "animations": "Animations",
+      "sections": "Slide sections",
+      "models3d": "3D models"
+    }
   }
 }

@@ -77,6 +77,7 @@ export interface EditorState {
     | 'autoCorrect'
     | 'pageBorders'
     | 'watermark'
+    | 'checkDocument'
     | null;
   /** Format Painter: off, once (single click) or sticky (double click; Esc stops). */
   painter: 'off' | 'once' | 'sticky';

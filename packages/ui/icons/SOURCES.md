@@ -204,6 +204,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `references.updateToc` | Lucide (ISC) `RefreshCw` |
 | `review.accept` | Lucide (ISC) `Check` |
 | `review.acceptAll` | Lucide (ISC) `CheckCheck` |
+| `review.checkDocument` | Lucide (ISC) `ClipboardCheck` |
 | `review.combine` | Lucide (ISC) `GitMerge` |
 | `review.comments` | Lucide (ISC) `MessagesSquare` |
 | `review.compare` | Lucide (ISC) `GitCompare` |

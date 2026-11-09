@@ -294,6 +294,25 @@ pub enum Command {
     },
     /// Accept every revision of the document.
     AcceptAllRevisions,
+    /// Check document (CORE-INSPECT-001): inspector, accessibility and
+    /// compatibility report in `inspection`.
+    Inspect,
+    /// Remove what the inspector found in `categories`: model content as one undo
+    /// step, package parts when the document is next saved. Returns the new report.
+    InspectRemove {
+        /// Inspector categories.
+        categories: Vec<crate::inspect::Category>,
+    },
+    /// Keep package-level categories queued by `inspectRemove` (cancel the removal).
+    InspectKeep {
+        /// Inspector categories.
+        categories: Vec<crate::inspect::Category>,
+    },
+    /// Apply an accessibility quick fix (alternative text, header row); one undo step.
+    InspectFix {
+        /// The fix.
+        fix: crate::inspect::Fix,
+    },
     /// Reject every revision of the document.
     RejectAllRevisions,
     /// Select the next (`forward`) or previous revision.
@@ -763,6 +782,9 @@ pub struct EditResult {
     /// The rule AutoCorrect applied after the typed character (one undo step).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub corrected: Option<bo_edit::autocorrect::Rule>,
+    /// Check document report (`inspect` and the inspector commands).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inspection: Option<Box<crate::inspect::Report>>,
     /// The Format Painter holds picked formatting.
     pub painter: bool,
     /// Design tab state (design commands).
@@ -1026,7 +1048,11 @@ impl crate::Engine {
                     | Command::SetPageBorders { .. }
                     | Command::SetWatermark { .. }
                     | Command::ApplyTheme { .. }
-                    | Command::ApplyStyleSet { .. } => {}
+                    | Command::ApplyStyleSet { .. }
+                    | Command::Inspect
+                    | Command::InspectRemove { .. }
+                    | Command::InspectKeep { .. }
+                    | Command::InspectFix { .. } => {}
                     Command::Tab { back } => {
                         if s.next_cell(back)?.is_none() && !back {
                             s.insert_text("\t")?;
@@ -1546,6 +1572,7 @@ impl crate::Engine {
             styles: None,
             autocorrect: None,
             corrected: None,
+            inspection: None,
             painter: s.picked_format().is_some(),
             design: None,
         })

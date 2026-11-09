@@ -17,6 +17,7 @@ pub mod design;
 pub mod fields;
 pub mod find;
 pub mod html;
+mod inspect;
 pub mod lists;
 pub mod merge;
 mod ops;

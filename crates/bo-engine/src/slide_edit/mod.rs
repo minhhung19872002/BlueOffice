@@ -19,6 +19,7 @@ pub mod comments;
 pub mod connect;
 pub mod geom;
 pub mod guides;
+mod inspect_cmd;
 pub mod media;
 pub mod morph;
 pub mod ops;
@@ -152,6 +153,25 @@ fn default_site_tolerance() -> f64 {
 pub enum SlideCommand {
     /// Current state, nothing changes.
     State,
+    /// Check document (CORE-INSPECT-001): inspector, accessibility and
+    /// compatibility report in `inspection`.
+    Inspect,
+    /// Remove what the inspector found in `categories` (slides, objects, notes:
+    /// one undo step; package parts on the next save).
+    InspectRemove {
+        /// Inspector categories.
+        categories: Vec<crate::inspect::Category>,
+    },
+    /// Cancel queued package-level removals.
+    InspectKeep {
+        /// Inspector categories.
+        categories: Vec<crate::inspect::Category>,
+    },
+    /// Accessibility quick fix (alternative text, table header row); one undo step.
+    InspectFix {
+        /// The fix.
+        fix: crate::inspect::Fix,
+    },
     /// Password for the next `.pptx` saves ([MS-OFFCRYPTO] Agile Encryption);
     /// empty or absent removes it.
     SetSavePassword {
@@ -1034,6 +1054,9 @@ pub struct SlideEditResult {
     pub show: Option<show::ShowOut>,
     /// Comment threads of the current slide ([MS-PPTX] modern comments).
     pub comments: Vec<comments::ThreadOut>,
+    /// Check document report (`inspect` and the inspector commands).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inspection: Option<Box<crate::inspect::Report>>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -3208,6 +3231,9 @@ impl Engine {
             self.set_save_password(password.as_deref());
             return self.slide_command(SlideCommand::State);
         }
+        if let Some(r) = self.slide_inspect_command(&cmd)? {
+            return Ok(r);
+        }
         // New part names of a collaborating replica never clash with another's.
         let _salt = build::salt_names(
             self.slide_collab
@@ -3229,7 +3255,12 @@ impl Engine {
                 ed.table = None;
             }
             match cmd {
-                SlideCommand::State | SlideCommand::SetSavePassword { .. } => {}
+                SlideCommand::State
+                | SlideCommand::SetSavePassword { .. }
+                | SlideCommand::Inspect
+                | SlideCommand::InspectRemove { .. }
+                | SlideCommand::InspectKeep { .. }
+                | SlideCommand::InspectFix { .. } => {}
                 SlideCommand::GoTo { slide } => {
                     if slide < pres.slides.len() {
                         ed.sel = SlideSel { slide, ids: vec![] };
@@ -4472,6 +4503,7 @@ impl Engine {
             },
             show: None,
             comments: comments::comments_out(pres, slide),
+            inspection: None,
         })
     }
 }

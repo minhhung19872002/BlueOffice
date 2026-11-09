@@ -24,6 +24,7 @@ pub mod edit;
 pub mod equation;
 pub mod fonts;
 pub mod gallery;
+pub mod inspect;
 mod legacy_slides;
 pub mod markup;
 pub mod media;
@@ -273,6 +274,8 @@ pub struct Engine {
     spell: spell::SpellState,
     /// AutoCorrect as you type (BlueDoc main text); off until a host sets options.
     autocorrect: Option<bo_edit::AutoCorrectOptions>,
+    /// Package parts the document inspector drops on the next save.
+    scrub: inspect::package::Scrub,
 }
 
 impl Engine {
@@ -474,6 +477,7 @@ impl Engine {
         self.textbox = None;
         self.page_markup.clear();
         self.refresh_markup(&mut Vec::new());
+        self.scrub = inspect::package::Scrub::default();
         self.info()
     }
 
@@ -652,6 +656,7 @@ impl Engine {
         self.slide_collab = None;
         self.macros = false;
         self.save_password = None;
+        self.scrub = inspect::package::Scrub::default();
         self.info()
     }
 
@@ -727,6 +732,7 @@ impl Engine {
     pub fn save_pptx(&self) -> Result<Vec<u8>> {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
         let bytes = bo_pptx::write_pptx(pres)?;
+        let bytes = inspect::package::scrub(&bytes, &self.scrub)?;
         match &self.save_password {
             Some(pw) => {
                 bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))
@@ -942,6 +948,10 @@ impl Engine {
         // Hosts call `mark_saved` once the bytes are stored.
         let doc = self.document().ok_or(EngineError::NoDocument)?;
         let bytes = bo_docx::write_docx(doc)?;
+        // Inspector removals of package parts (comment parts only once the comments are gone).
+        let mut scrub = self.scrub.clone();
+        scrub.comments &= doc.comments.is_empty();
+        let bytes = inspect::package::scrub(&bytes, &scrub)?;
         match &self.save_password {
             Some(pw) => {
                 bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))

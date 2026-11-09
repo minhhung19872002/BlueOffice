@@ -199,6 +199,8 @@ pub(crate) struct ParaInput<'a> {
     pub wrap: &'a [WrapZone],
     /// How tracked changes are shown.
     pub view: RevisionView,
+    /// Markup filter of the all-markup view.
+    pub marks: crate::MarkFilter,
 }
 
 /// Cache of laid-out paragraphs (see crate docs, "Incremental layout").
@@ -378,6 +380,7 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     }
     inp.note_mark.hash(&mut h);
     inp.view.hash(&mut h);
+    inp.marks.hash(&mut h);
     for z in inp.wrap {
         for v in [z.top, z.bottom, z.left, z.right] {
             v.to_bits().hash(&mut h);
@@ -732,6 +735,7 @@ fn drawing_of(
         id_origin: 0,
         endnote_order: Vec::new(),
         view: inp.view,
+        marks: inp.marks,
         note: None,
         textbox: None,
     };
@@ -778,6 +782,7 @@ fn layout_uncached(
             run_style(doc, fonts, &rp).ok_or(LayoutError::NoFonts)?,
             &rp,
             inp.view,
+            &inp.marks,
         ));
         run_style_idx.push(styles.len() - 1);
     }

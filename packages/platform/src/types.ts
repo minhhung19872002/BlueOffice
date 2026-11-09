@@ -122,6 +122,44 @@ export interface PageDisplayList {
   width: number;
   height: number;
   commands: DisplayCommand[];
+  /** Review markup drawn beside the page in the view only (BlueDoc). */
+  markup?: PageMarkup;
+}
+
+/** Kind of a mark in the review markup (mirrors `bo_layout::MarkKind`). */
+export type MarkKind = 'insert' | 'delete' | 'format' | 'comment';
+
+/** Change bar in the left margin (points; mirrors `bo_layout::ChangeBar`). */
+export interface ChangeBar {
+  x: number;
+  top: number;
+  bottom: number;
+  color: string;
+}
+
+/** Balloon (or collapsed icon) in the markup area (points; mirrors `bo_layout::Balloon`). */
+export interface Balloon {
+  id: number;
+  kind: MarkKind;
+  author: string;
+  date: string | null;
+  text: string;
+  done: boolean;
+  color: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  anchorX: number;
+  anchorY: number;
+  icon: boolean;
+}
+
+/** Markup of a page: the view's page grows by `width` (mirrors `bo_layout::PageMarkup`). */
+export interface PageMarkup {
+  width: number;
+  bars: ChangeBar[];
+  balloons: Balloon[];
 }
 
 /** Glyph outline: SVG path in font units with y pointing down. */
@@ -391,6 +429,20 @@ export type Motion =
 /** How tracked changes are displayed (mirrors `bo_layout::RevisionView`). */
 export type RevisionView = 'markup' | 'final' | 'original';
 
+/** Review display mode (mirrors `bo_engine::markup::MarkupMode`). */
+export type MarkupMode = 'simple' | 'all' | 'none' | 'original';
+
+/** Review display settings (mirrors `bo_engine::markup::MarkupOptions`). */
+export interface MarkupOptions {
+  mode: MarkupMode;
+  insertionsDeletions: boolean;
+  formatting: boolean;
+  comments: boolean;
+  hiddenReviewers: string[];
+  /** All markup: deletions and formatting changes in balloons instead of inline. */
+  deletionBalloons: boolean;
+}
+
 export type RevisionKind =
   | 'insert'
   | 'delete'
@@ -463,6 +515,8 @@ export interface ReviewState {
   trackChanges: boolean;
   author: string;
   view: RevisionView;
+  /** Display mode and markup options (absent from older engines). */
+  markup?: MarkupOptions;
   revisions: RevisionItem[];
   comments: CommentInfo[];
 }
@@ -576,6 +630,8 @@ export type EditCommand =
   | { cmd: 'convertLegacyText' }
   | { cmd: 'setAuthor'; name: string }
   | { cmd: 'setRevisionView'; view: RevisionView }
+  /** Review display mode / markup options; absent fields are kept. */
+  | ({ cmd: 'setMarkup' } & Partial<MarkupOptions>)
   | { cmd: 'acceptRevision' | 'rejectRevision'; id?: number }
   | { cmd: 'nextRevision'; forward: boolean }
   | { cmd: 'addComment'; text: string }

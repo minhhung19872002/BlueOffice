@@ -1702,7 +1702,7 @@ impl Engine {
         let mut r = self.edit_result(dirty.unwrap_or_default(), (None, None, None), error)?;
         if changed {
             if let Some(s) = self.session.as_ref() {
-                r.review = Some(crate::review::review_state(s, self.revision_view()));
+                r.review = Some(crate::review::review_state(s, self.markup_options()));
             }
         }
         r.collab = self.collab_after_edit();

@@ -168,9 +168,9 @@
       "rejectAll": "Reject all",
       "next": "Next change",
       "previous": "Previous change",
-      "viewMarkup": "All markup",
-      "viewFinal": "No markup",
-      "viewOriginal": "Original",
+      "viewMarkup": "Every change shown",
+      "viewFinal": "Accepted text, unmarked",
+      "viewOriginal": "Text before changes",
       "pane": "Review pane",
       "newComment": "New comment",
       "deleteComment": "Delete comment",
@@ -184,7 +184,21 @@
       "grammar": "Check grammar and style as you type",
       "autoCorrect": "AutoCorrect options…",
       "compare": "Compare with original…",
-      "combine": "Combine revisions…"
+      "combine": "Combine revisions…",
+      "markupMode": "How changes appear",
+      "markupSimple": "Clean, with margin bars",
+      "markupAll": "Every change shown",
+      "markupNone": "Accepted text, unmarked",
+      "markupOriginal": "Text before changes",
+      "showMarkup": "Marks to show",
+      "markupInsDel": "Added and removed text",
+      "markupFormatting": "Formatting edits",
+      "markupComments": "Comments",
+      "markupBalloons": "Move removals and formatting to the margin",
+      "markupReviewers": "People",
+      "markupAllReviewers": "Everyone",
+      "reviewingPane": "Change list pane",
+      "reviewingPaneBottom": "Change list at the bottom"
     },
     "references": {
       "insertToc": "Table of contents",
@@ -2497,5 +2511,24 @@
     "saved": "Saved",
     "unsaved": "Not saved",
     "saving": "Saving…"
+  },
+  "markup": {
+    "title": "Change list",
+    "summary": "{{count}} items",
+    "empty": "No changes or comments yet",
+    "dockLeft": "Dock on the left",
+    "dockBottom": "Dock at the bottom",
+    "counts": {
+      "insert": "Added",
+      "delete": "Removed",
+      "format": "Formatting",
+      "comment": "Comments"
+    },
+    "kind": {
+      "insert": "Added",
+      "delete": "Removed",
+      "format": "Formatting",
+      "comment": "Comment"
+    }
   }
 }

@@ -20,3 +20,4 @@ export {
   type PathFactory,
 } from './renderer';
 export { ImeInput, INTERNAL_MIME, type ImeEvent } from './ime';
+export { drawMarkup, markupKey, type MarkupDrawOptions, type MarkupSelect } from './markup';

@@ -266,16 +266,29 @@ pub fn author_color(author: &str) -> Color {
 }
 
 /// Apply the tracked-change display (ECMA-376 Part 1, §17.13.5) to a run style.
-pub fn revision_style(mut st: RunStyle, rp: &RunProps, view: crate::RevisionView) -> RunStyle {
+/// In the markup view, `marks` can leave the changes of hidden reviewers (or every
+/// insertion/deletion) unmarked, shown as if accepted, and can move deleted text out
+/// of the line into the markup area's balloons.
+pub fn revision_style(
+    mut st: RunStyle,
+    rp: &RunProps,
+    view: crate::RevisionView,
+    marks: &crate::MarkFilter,
+) -> RunStyle {
     use crate::RevisionView as V;
     match view {
         V::Markup => {
+            let plain = |author: &str| marks.hide_ins_del || marks.hides(author);
             // A deletion wins over the insertion it removes (inserted, then deleted).
             if let Some(d) = &rp.del {
-                st.strike = true;
-                st.color = author_color(&d.info.author);
-                st.revision = Some((st.color, true));
-            } else if let Some(i) = &rp.ins {
+                if plain(&d.info.author) || marks.deletions_in_balloons {
+                    st.hidden = true;
+                } else {
+                    st.strike = true;
+                    st.color = author_color(&d.info.author);
+                    st.revision = Some((st.color, true));
+                }
+            } else if let Some(i) = rp.ins.as_ref().filter(|i| !plain(&i.info.author)) {
                 st.revision = Some((author_color(&i.info.author), false));
                 st.underline = if i.moved {
                     Underline::Double

@@ -1,6 +1,8 @@
 import type {
   CaretRect,
   DocInfo,
+  MarkKind,
+  PageMarkup,
   SpellMark,
   EngineHost,
   PageDisplayList,
@@ -8,6 +10,7 @@ import type {
 } from '@blueoffice/platform';
 import { ImeInput, type ImeEvent } from './ime';
 import { GlyphStore, ImageStore, PX_PER_PT, renderPage } from './renderer';
+import { drawMarkup, type MarkupSelect } from './markup';
 
 /** Pointer input on a page, in points relative to the page's top-left corner. */
 export interface PagePointer {
@@ -39,6 +42,10 @@ export interface DocumentViewOptions {
   }) => void;
   /** The pages moved on screen (scroll, zoom, resize, relayout): rulers follow them. */
   onViewport?: () => void;
+  /** A review balloon was clicked (BlueDoc markup area). */
+  onMarkupSelect?: (m: MarkupSelect) => void;
+  /** Localised name of a change kind shown in its balloon. */
+  markupLabel?: (kind: MarkKind) => string;
 }
 
 export const MIN_ZOOM = 0.25;
@@ -47,6 +54,10 @@ export const MAX_ZOOM = 5;
 interface PageSlot {
   el: HTMLDivElement;
   overlay: HTMLDivElement;
+  /** Review markup (change bars, markup area, balloons); kept across selections. */
+  markup: HTMLDivElement;
+  /** Width of the page's markup area (points). */
+  markupWidth: number;
   canvas: HTMLCanvasElement | null;
   renderedAt: string | null;
 }
@@ -88,7 +99,14 @@ export class DocumentView {
   private readonly opts: Required<
     Omit<
       DocumentViewOptions,
-      'onPageChange' | 'onZoomChange' | 'onInput' | 'onPointer' | 'onViewport' | 'onContextMenu'
+      | 'onPageChange'
+      | 'onZoomChange'
+      | 'onInput'
+      | 'onPointer'
+      | 'onViewport'
+      | 'onContextMenu'
+      | 'onMarkupSelect'
+      | 'markupLabel'
     >
   > &
     DocumentViewOptions;
@@ -151,8 +169,12 @@ export class DocumentView {
     overlay.className = 'bo-overlay';
     overlay.style.cssText = 'position:absolute;inset:0;z-index:2;pointer-events:none;';
     el.appendChild(overlay);
+    const markup = document.createElement('div');
+    markup.className = 'bo-markup';
+    markup.style.cssText = 'position:absolute;left:0;top:0;z-index:3;pointer-events:none;';
+    el.appendChild(markup);
     this.content.appendChild(el);
-    return { el, overlay, canvas: null, renderedAt: null };
+    return { el, overlay, markup, markupWidth: 0, canvas: null, renderedAt: null };
   }
 
   private buildSlots(info: DocInfo): void {
@@ -387,10 +409,11 @@ export class DocumentView {
     this.schedule();
   }
 
-  /** Fit page width into the viewport. */
+  /** Fit page width (with its markup area) into the viewport. */
   fitWidth(): void {
-    const w = this.info?.pages[0]?.width;
-    if (!w) return;
+    const page = this.info?.pages[0]?.width;
+    if (!page) return;
+    const w = page + (this.slots[0]?.markupWidth ?? 0);
     this.setZoom((this.scroller.clientWidth - 2 * this.opts.pageGap - 16) / (w * PX_PER_PT));
   }
 
@@ -435,6 +458,8 @@ export class DocumentView {
       if (!slot) return;
       slot.el.style.width = `${Math.round(p.width * PX_PER_PT * this.zoomValue)}px`;
       slot.el.style.height = `${Math.round(p.height * PX_PER_PT * this.zoomValue)}px`;
+      // The view's page grows by its markup area (the page itself keeps its size).
+      slot.el.style.marginRight = `${Math.round(slot.markupWidth * PX_PER_PT * this.zoomValue)}px`;
     });
   }
 
@@ -458,6 +483,29 @@ export class DocumentView {
     });
     if (first < 0) return [0, Math.min(this.slots.length - 1, 0)];
     return [first, last];
+  }
+
+  /** Icons (simple markup) whose balloon is open. */
+  private openMarkup = new Set<string>();
+
+  private paintMarkup(slot: PageSlot, w: number, h: number, markup: PageMarkup | undefined): void {
+    const width = markup?.width ?? 0;
+    if (width !== slot.markupWidth) {
+      slot.markupWidth = width;
+      this.layoutSlots();
+    }
+    slot.el.dataset.markup = width > 0 ? 'true' : 'false';
+    const draw = () =>
+      drawMarkup(slot.markup, markup, {
+        k: PX_PER_PT * this.zoomValue,
+        pageWidth: w,
+        pageHeight: h,
+        label: this.opts.markupLabel,
+        open: this.openMarkup,
+        onSelect: this.opts.onMarkupSelect,
+        onToggle: draw,
+      });
+    draw();
   }
 
   private pageList(i: number): Promise<PageDisplayList> {
@@ -503,6 +551,7 @@ export class DocumentView {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         renderPage(ctx, list, this.glyphs, scale, this.images);
+        this.paintMarkup(slot, list.width, list.height, list.markup);
         if (!slot.canvas) {
           slot.el.insertBefore(canvas, slot.overlay);
           slot.canvas = canvas;

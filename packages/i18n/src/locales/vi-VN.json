@@ -184,7 +184,21 @@
       "grammar": "Soát ngữ pháp và văn phong khi gõ",
       "autoCorrect": "Tuỳ chọn tự động sửa…",
       "compare": "So sánh với bản gốc…",
-      "combine": "Kết hợp bản sửa…"
+      "combine": "Kết hợp bản sửa…",
+      "markupMode": "Cách hiện sửa đổi",
+      "markupSimple": "Gọn, có vạch lề",
+      "markupAll": "Hiện đủ mọi sửa đổi",
+      "markupNone": "Bản đã chấp nhận, không đánh dấu",
+      "markupOriginal": "Bản trước khi sửa",
+      "showMarkup": "Đánh dấu cần hiện",
+      "markupInsDel": "Chữ thêm và chữ xoá",
+      "markupFormatting": "Đổi định dạng",
+      "markupComments": "Bình luận",
+      "markupBalloons": "Đưa phần xoá và định dạng ra lề",
+      "markupReviewers": "Người sửa",
+      "markupAllReviewers": "Mọi người sửa",
+      "reviewingPane": "Ngăn danh sách sửa đổi",
+      "reviewingPaneBottom": "Danh sách sửa đổi ở dưới"
     },
     "references": {
       "insertToc": "Mục lục",
@@ -2497,5 +2511,24 @@
     "saved": "Đã lưu",
     "unsaved": "Chưa lưu",
     "saving": "Đang lưu…"
+  },
+  "markup": {
+    "title": "Danh sách sửa đổi",
+    "summary": "{{count}} mục",
+    "empty": "Chưa có sửa đổi hay bình luận",
+    "dockLeft": "Đặt bên trái",
+    "dockBottom": "Đặt bên dưới",
+    "counts": {
+      "insert": "Thêm",
+      "delete": "Xoá",
+      "format": "Định dạng",
+      "comment": "Bình luận"
+    },
+    "kind": {
+      "insert": "Đã thêm",
+      "delete": "Đã xoá",
+      "format": "Đổi định dạng",
+      "comment": "Bình luận"
+    }
   }
 }

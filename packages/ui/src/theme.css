@@ -27,3 +27,14 @@
 [data-theme='hc'] .bo-icon-accent {
   color: currentColor;
 }
+
+/* Windows high contrast / forced colours: let system colours through and keep focus visible. */
+@media (forced-colors: active) {
+  .bo-root *:focus-visible {
+    outline: 2px solid Highlight;
+  }
+  .bo-icon-accent {
+    color: CanvasText;
+    forced-color-adjust: auto;
+  }
+}

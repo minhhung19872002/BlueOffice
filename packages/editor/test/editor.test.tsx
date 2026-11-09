@@ -177,8 +177,12 @@ describe('BlueEditor', () => {
     await waitFor(() => expect(screen.getByRole('tab', { name: 'View' })).toBeTruthy());
     const root = document.querySelector('.bo-root')!;
     expect(root.getAttribute('data-theme')).toBe('light');
-    fireEvent.click(screen.getByText('Light / Dark'));
+    fireEvent.click(screen.getByText('Light / Dark / High contrast'));
     await waitFor(() => expect(root.getAttribute('data-theme')).toBe('dark'));
+    fireEvent.click(screen.getByText('Light / Dark / High contrast'));
+    await waitFor(() => expect(root.getAttribute('data-theme')).toBe('hc'));
+    fireEvent.click(screen.getByText('Light / Dark / High contrast'));
+    await waitFor(() => expect(root.getAttribute('data-theme')).toBe('light'));
   });
 
   it('honours host configuration', () => {

@@ -5,7 +5,7 @@
  */
 
 export type EditorMode = 'edit' | 'view' | 'comment';
-export type EditorTheme = 'light' | 'dark' | 'auto';
+export type EditorTheme = 'light' | 'dark' | 'hc' | 'auto';
 export type EditorLang = 'vi-VN' | 'en-US';
 
 /** Host chrome shown above the editor (prompt §3.5, §6A.2). */

@@ -13,7 +13,14 @@ export {
   type RibbonLayoutPlan,
 } from './ribbonLayout';
 export { StatusBar, type StatusBarProps } from './StatusBar';
-export { useResolvedTheme, type ResolvedTheme, type ThemeSetting } from './theme';
+export {
+  nextTheme,
+  resolveTheme,
+  useResolvedTheme,
+  type ResolvedTheme,
+  type SystemThemeSignals,
+  type ThemeSetting,
+} from './theme';
 export { Popover, type PopoverProps } from './Popover';
 export {
   CommentThreads,

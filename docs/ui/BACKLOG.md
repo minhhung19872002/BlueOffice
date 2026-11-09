@@ -10,8 +10,8 @@ icon. Làm xen kẽ với `docs/parity/BACKLOG.md`.
 - [x] **UI-TOKENS-001** (P0) Bộ token `packages/ui/src/tokens` (CSS `--bo-*` + `tokens.ts`): brand `#1F6FEB` (tạm), accent theo
   app qua `[data-app=doc|sheet|slide]`, thang xám 12 bậc, trạng thái 3 bậc, cỡ chữ, khoảng cách 4px, bo góc 4/8, bóng 3 mức,
   thời lượng chuyển động. *Xong khi:* test so khớp token CSS ↔ TS; test tương phản WCAG AA cho chữ trên nền/nhấn ở mọi theme. **Đã có:** `packages/ui/src/tokens/tokens.ts` → `tokens.css` (sinh tự động, test đồng bộ), `theme.css` import; light/dark/hc (hc dùng cho UI-TOKENS-002), `[data-app]` → `--bo-app-accent*` + `--bo-accent`, `[data-density]`, reduced motion; test tương phản WCAG (`test/tokens.test.ts`).
-- [ ] **UI-TOKENS-002** (P0) Theme high-contrast (`[data-theme=hc]` + `forced-colors`), lựa chọn theme Light/Dark/Tương phản
-  cao/Theo hệ thống. *Xong khi:* test tương phản ≥ 7:1 cho chữ chính; E2E đổi theme.
+- [x] **UI-TOKENS-002** (P0) Theme high-contrast (`[data-theme=hc]` + `forced-colors`), lựa chọn theme Light/Dark/Tương phản
+  cao/Theo hệ thống. *Xong khi:* test tương phản ≥ 7:1 cho chữ chính; E2E đổi theme. **Đã có:** `ThemeSetting` thêm `hc`; `resolveTheme` (auto theo `forced-colors: active` / `prefers-contrast: more` trước rồi mới tới dark); lệnh Xem › Sáng / Tối / Tương phản cao xoay vòng; `@media (forced-colors: active)` giữ viền focus Highlight; SDK `EditorTheme` nhận `hc`; test `theme.test.ts`, test tương phản hc ≥ 7:1, E2E open-sample.
 - [ ] **UI-TOKENS-003** (P1) Mật độ Thường/Gọn/Cảm ứng (`[data-density]`), nhớ theo người dùng. *Xong khi:* test kích thước nút
   ribbon theo mật độ; vùng chạm ≥ 40px ở Cảm ứng.
 - [ ] **UI-TOKENS-004** (P1) Font UI Be Vietnam Pro / Inter (OFL) đóng gói, fallback hệ thống. *Xong khi:* ghi

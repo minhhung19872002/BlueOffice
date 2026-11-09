@@ -54,8 +54,23 @@ test('switches to English and dark theme', async ({ page }) => {
   await page.getByRole('tab', { name: 'Xem', exact: true }).click();
   await page.getByRole('button', { name: 'English' }).click();
   await expect(page.getByRole('tab', { name: 'View', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Light / Dark' }).click();
+  await page.getByRole('button', { name: 'Light / Dark / High contrast' }).click();
   await expect(page.locator('.bo-root')).toHaveAttribute('data-theme', 'dark');
+  await page.getByRole('button', { name: 'Light / Dark / High contrast' }).click();
+  const root = page.locator('.bo-root');
+  await expect(root).toHaveAttribute('data-theme', 'hc');
+  // High contrast: white text on black, BlueDoc accent replaced by the high-contrast yellow.
+  const vars = await root.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    // The minified build may lower-case and shorten hex colours (#ffffff → #fff).
+    const hex = (v: string) =>
+      v
+        .trim()
+        .toLowerCase()
+        .replace(/^#(\w)(\w)(\w)$/, '#$1$1$2$2$3$3');
+    return [hex(cs.getPropertyValue('--bo-text')), hex(cs.getPropertyValue('--bo-app-accent'))];
+  });
+  expect(vars).toEqual(['#ffffff', '#ffd600']);
 });
 
 test('exports a PDF', async ({ page }) => {

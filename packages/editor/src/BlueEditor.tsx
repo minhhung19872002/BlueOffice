@@ -18,6 +18,7 @@ import { PASSWORD_REQUIRED, WRONG_PASSWORD, updateNotice } from '@blueoffice/pla
 import {
   Ribbon,
   StatusBar,
+  nextTheme,
   useResolvedTheme,
   type RibbonTab,
   type ThemeSetting,
@@ -995,8 +996,9 @@ function EditorInner({
     });
     r.register({
       id: 'view.toggleTheme',
-      isChecked: (s) => s.theme === 'dark',
-      run: (s) => store.setState({ theme: s.theme === 'dark' ? 'light' : 'dark' }),
+      isChecked: (s) => s.theme === 'dark' || s.theme === 'hc',
+      // Light → dark → high contrast → light (UI-TOKENS-002).
+      run: (s) => store.setState({ theme: nextTheme(s.theme) }),
     });
     r.register({
       id: 'view.toggleLanguage',

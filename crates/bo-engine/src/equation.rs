@@ -41,6 +41,26 @@ pub fn build(text: &str, latex: bool, display: bool) -> String {
     wrap(&bo_math::to_omml(&nodes), display)
 }
 
+/// BlueOffice's equation templates (UnicodeMath linear format): well-known formulas, written for
+/// BlueOffice; the UI names them by id (`equation.templates.<id>`).
+pub const TEMPLATES: &[(&str, &str)] = &[
+    ("pythagoras", "a^2+b^2=c^2"),
+    ("quadratic", "x=(-b±√(b^2-4ac))/2a"),
+    ("circle", "S=πr^2"),
+    ("sphere", "V=4/3 πr^3"),
+    ("binomial", "(a+b)^n=∑_(k=0)^n (n¦k) a^(n-k) b^k"),
+    ("geometric", "∑_(k=0)^(n-1) q^k=(1-q^n)/(1-q)"),
+    ("squares", "∑_(k=1)^n k^2=(n(n+1)(2n+1))/6"),
+    ("exp", "e^x=∑_(n=0)^∞ x^n/n!"),
+    ("limit", "lim_(n→∞) (1+1/n)^n=e"),
+    ("euler", "e^(iπ)+1=0"),
+    ("gauss", "∫_(-∞)^∞ e^(-x^2) dx=√π"),
+    ("derivative", "f'(x)=lim_(h→0) (f(x+h)-f(x))/h"),
+    ("trig", "sin^2 α+cos^2 α=1"),
+    ("cosine", "c^2=a^2+b^2-2ab cos γ"),
+    ("matrix", "A=[■(a&b@c&d)], det A=ad-bc"),
+];
+
 /// `true` for an `m:oMathPara` zone.
 #[must_use]
 pub fn is_display(xml: &str) -> bool {
@@ -125,6 +145,7 @@ mod tests {
                 latex: false,
                 display: false,
                 replace: false,
+                numbered: None,
             })
             .unwrap();
         let info = r.equation.clone().unwrap();
@@ -144,6 +165,7 @@ mod tests {
                 latex: true,
                 display: true,
                 replace: true,
+                numbered: None,
             })
             .unwrap();
         let info = r.equation.unwrap();

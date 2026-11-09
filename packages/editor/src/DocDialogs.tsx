@@ -749,17 +749,21 @@ export function NotesPanel({
  * place when the selection covers one). */
 export function EquationDialog({
   initial,
+  templates,
   onInsert,
   onClose,
 }: {
   initial: EquationInfo | null;
-  onInsert: (text: string, latex: boolean, display: boolean) => void;
+  /** BlueOffice's equation templates (UnicodeMath). */
+  templates: { id: string; linear: string }[];
+  onInsert: (text: string, latex: boolean, display: boolean, numbered: boolean) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const [text, setText] = useState(initial?.linear ?? '');
   const [latex, setLatex] = useState(false);
   const [display, setDisplay] = useState(initial?.display ?? false);
+  const [numbered, setNumbered] = useState(false);
   return (
     <Dialog
       open
@@ -776,13 +780,36 @@ export function EquationDialog({
             className={styles.dialogPrimary}
             data-testid="equation-ok"
             disabled={!text.trim()}
-            onClick={() => onInsert(text, latex, display)}
+            onClick={() => onInsert(text, latex, display, numbered)}
           >
             {t(initial ? 'equation.update' : 'equation.insert')}
           </button>
         </>
       }
     >
+      {!initial && templates.length > 0 && (
+        <label className={styles.field}>
+          {t('equation.template')}
+          <select
+            data-testid="equation-template"
+            value=""
+            onChange={(e) => {
+              const tpl = templates.find((x) => x.id === e.target.value);
+              if (tpl) {
+                setText(tpl.linear);
+                setLatex(false);
+              }
+            }}
+          >
+            <option value="">{t('equation.templatePick')}</option>
+            {templates.map((x) => (
+              <option key={x.id} value={x.id}>
+                {t(`equation.templates.${x.id}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className={styles.field}>
         {t('equation.input')}
         <textarea
@@ -820,6 +847,17 @@ export function EquationDialog({
         />{' '}
         {t('equation.display')}
       </label>
+      {!initial && (
+        <label>
+          <input
+            type="checkbox"
+            data-testid="equation-numbered"
+            checked={numbered}
+            onChange={(e) => setNumbered(e.target.checked)}
+          />{' '}
+          {t('equation.numbered')}
+        </label>
+      )}
       <div className={styles.hint}>{t(latex ? 'equation.hintLatex' : 'equation.hintUnicode')}</div>
     </Dialog>
   );

@@ -480,7 +480,16 @@ export type EditCommand =
   | { cmd: 'spellIgnore' | 'spellAddWord'; word: string }
   | { cmd: 'setSpelling'; on: boolean }
   /** Equations (CORE-MATH-007): insert from UnicodeMath / LaTeX, query, linear ↔ built-up. */
-  | { cmd: 'insertEquation'; text: string; latex?: boolean; display?: boolean; replace?: boolean }
+  | {
+      cmd: 'insertEquation';
+      text: string;
+      latex?: boolean;
+      display?: boolean;
+      replace?: boolean;
+      /** A numbered equation paragraph with this SEQ label. */
+      numbered?: string;
+    }
+  | { cmd: 'equationTemplates' }
   | { cmd: 'equation' }
   | { cmd: 'equationFormat'; linear: boolean }
   /** Grammar and style as you type (CORE-GRAM-001). */
@@ -575,6 +584,8 @@ export interface EditResult {
   equation?: EquationInfo;
   /** The content control around the caret. */
   control?: ControlInfo;
+  /** Equation templates (`equationTemplates`). */
+  templates?: { id: string; linear: string }[];
 }
 
 /** Kinds of content control the editor inserts. */

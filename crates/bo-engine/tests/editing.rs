@@ -758,3 +758,38 @@ fn content_control_split_by_enter_still_saves_well_formed() {
  cuối"
     );
 }
+
+#[test]
+fn equation_templates_and_numbered_equations() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    let r = cmd(&mut e, r#"{"cmd":"equationTemplates"}"#);
+    let list = r["templates"].as_array().unwrap();
+    assert!(list.len() >= 10);
+    assert!(list.iter().any(|t| t["id"] == "quadratic"));
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Định lý:"}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertEquation","text":"a^2+b^2=c^2","numbered":"Phương_trình"}"#,
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertEquation","text":"e^(iπ)+1=0","numbered":"Phương_trình"}"#,
+    );
+    let doc = e.document().unwrap();
+    let text = doc.plain_text();
+    // Each equation is its own paragraph, numbered (1) and (2) at the right margin.
+    assert!(text.contains("\t(1)"), "{text:?}");
+    assert!(text.contains("\t(2)"), "{text:?}");
+    let saved = e.save_docx().unwrap();
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "a.docx").unwrap();
+    let back = f.document().unwrap().plain_text();
+    assert!(back.contains("(1)") && back.contains("(2)"), "{back:?}");
+    // A label with a space is refused.
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"insertEquation","text":"x","numbered":"Phương trình"}"#,
+    );
+    assert!(r.get("error").is_some_and(|v| !v.is_null()), "{r}");
+}

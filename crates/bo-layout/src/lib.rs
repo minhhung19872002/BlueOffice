@@ -29,6 +29,7 @@ mod style;
 mod types;
 
 pub use incremental::{IncrementalLayout, UpdateKind};
+pub use math::{layout_equation, EquationGlyphs, EquationRun};
 pub use paragraph::{FieldContext, LayoutCache};
 pub use style::author_color;
 pub use types::{

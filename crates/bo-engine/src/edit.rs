@@ -440,7 +440,12 @@ pub enum Command {
         /// Replace the equation the selection covers (or the one just before the caret).
         #[serde(default)]
         replace: bool,
+        /// Insert as a numbered equation paragraph with this SEQ label (e.g. `Phương_trình`).
+        #[serde(default)]
+        numbered: Option<String>,
     },
+    /// The equation templates ([`crate::equation::TEMPLATES`]): `{ "templates": [{id, linear}] }`.
+    EquationTemplates,
     /// Report the selected equation (`equation` of the result; every result carries it).
     Equation,
     /// Show the selected equation in the linear form (`linear`) or build it up (professional form).
@@ -655,6 +660,9 @@ pub struct EditResult {
     /// The content control around the caret (§17.5.2 sdt).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub control: Option<ControlInfo>,
+    /// Equation templates (`equationTemplates`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub templates: Option<Vec<EquationTemplate>>,
     /// Misspelt words (`spelling`, ignore / add-word commands).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spelling: Option<Vec<crate::spell::SpellMark>>,
@@ -869,6 +877,7 @@ impl crate::Engine {
                     | Command::MergeToDocument
                     | Command::NewFromTemplate { .. }
                     | Command::SetSavePassword { .. }
+                    | Command::EquationTemplates
                     // Handled by `special_command`.
                     | Command::Spelling { .. }
                     | Command::SpellAt { .. }
@@ -913,6 +922,17 @@ impl crate::Engine {
                         latex,
                         display,
                         replace,
+                        numbered: Some(label),
+                    } if !replace => {
+                        s.insert_numbered_equation(&crate::equation::build(&text, latex, false), &label)?;
+                        let _ = display;
+                    }
+                    Command::InsertEquation {
+                        text,
+                        latex,
+                        display,
+                        replace,
+                        ..
                     } => {
                         if replace {
                             if let Some((sel, _)) = s.selected_equation() {
@@ -1344,6 +1364,7 @@ impl crate::Engine {
                 .selected_equation()
                 .and_then(|(_, xml)| crate::equation::info(&xml)),
             control: s.control_at_caret().map(|c| ControlInfo::of(&c)),
+            templates: None,
             collab: None,
             story: None,
             notes: None,
@@ -1392,6 +1413,15 @@ pub fn image_size(bytes: &[u8]) -> Option<(u32, u32)> {
         }
         bo_render::image::Format::Other => None,
     }
+}
+
+/// An equation template: its id (named by the UI) and UnicodeMath text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EquationTemplate {
+    /// Template id.
+    pub id: String,
+    /// UnicodeMath linear form.
+    pub linear: String,
 }
 
 /// A content control as the host sees it (§17.5.2 sdt).

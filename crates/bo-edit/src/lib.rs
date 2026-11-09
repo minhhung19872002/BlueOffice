@@ -1566,6 +1566,64 @@ impl Session {
         })
     }
 
+    /// Insert a numbered equation as a new paragraph after the caret's: the equation centred
+    /// (centre tab stop) and its number `(SEQ label)` at the right margin (right tab stop),
+    /// numbered like captions (§17.16.5.56 SEQ).
+    pub fn insert_numbered_equation(&mut self, math_xml: &str, label: &str) -> Result<Selection> {
+        let label = label.trim();
+        if label.is_empty() || label.contains(char::is_whitespace) {
+            return Err(EditError::Unsupported("equation label".into()));
+        }
+        let at = self.selection.ordered().1;
+        let n = fields::next_seq(&self.doc, label, at.para);
+        self.edit(|tx, _| {
+            let paths = tx.paths();
+            let path = path_of(tx.doc, &paths, at.para)?;
+            let section = path.first().copied().unwrap_or(0);
+            let width = tx.doc.sections.get(section).map_or(9355, |s| {
+                s.page.width.0 - s.page.margin_left.0 - s.page.margin_right.0
+            });
+            let (prefix, index) = split_path(&path);
+            let tab = |pos: i32, align: TabAlign| bo_model::TabStop {
+                pos: Twips(pos),
+                align,
+                leader: bo_model::TabLeader::None,
+            };
+            let props = bo_model::ParaProps {
+                tabs: Some(vec![
+                    tab(width / 2, TabAlign::Center),
+                    tab(width, TabAlign::Right),
+                ]),
+                ..bo_model::ParaProps::default()
+            };
+            let rp = RunProps::default();
+            let atoms = vec![
+                (rp.clone(), RunContent::Tab),
+                (
+                    rp.clone(),
+                    RunContent::Markup(bo_model::Raw::new(math_xml, 0)),
+                ),
+                (rp.clone(), RunContent::Tab),
+                (rp.clone(), RunContent::Text("(".into())),
+                (
+                    rp.clone(),
+                    RunContent::Field {
+                        instr: format!("SEQ {label} \\* ARABIC"),
+                        cached: n.to_string(),
+                        locked: false,
+                    },
+                ),
+                (rp, RunContent::Text(")".into())),
+            ];
+            let mut p = bo_model::Paragraph::new(props, para::rebuild(atoms));
+            tx.new_mark(&mut p.props);
+            p.runs = para::rebuild(tx.mark_new(&[], 0, para::flatten(&p)));
+            let len = para_len(&p);
+            tx.insert_blocks(prefix, index + 1, vec![Block::Paragraph(p)])?;
+            Ok(Selection::caret(Pos::new(at.para + 1, len)))
+        })
+    }
+
     /// Insert a simple field (§17.16.19 fldSimple) with its current result at the caret.
     pub fn insert_field(&mut self, instr: &str, cached: &str) -> Result<Selection> {
         let field = RunContent::Field {

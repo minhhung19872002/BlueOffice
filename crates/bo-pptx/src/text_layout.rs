@@ -42,6 +42,8 @@ struct Piece {
     trailing: f64,
     /// Source range in the paragraph's editing text (characters; breaks count 1).
     src: (usize, usize),
+    /// An equation (`a14:m`, [MS-ODRAWXML]) laid out by `bo-layout` instead of text.
+    math: Option<std::sync::Arc<bo_layout::EquationGlyphs>>,
 }
 
 struct Line {
@@ -220,6 +222,8 @@ fn layout_paragraph(
     let mar_r = ppr.mar_r.unwrap_or(0) as f64 / EMU_PT;
     // Flatten runs into (text, style, forced break after, source range) spans.
     let mut spans: Vec<(String, Style, bool, (usize, usize))> = Vec::new();
+    // Equations by span index (the span's text is U+FFFC).
+    let mut maths: Vec<(usize, std::sync::Arc<bo_layout::EquationGlyphs>)> = Vec::new();
     let mut first_rp: Option<RunProps> = None;
     let mut src = 0usize;
     for r in &para.runs {
@@ -250,6 +254,26 @@ fn layout_paragraph(
                     spans.push((String::new(), st, true, (src, src + 1)));
                 }
                 src += 1;
+            }
+            // [MS-ODRAWXML] a14:m: an Office Math zone inside the paragraph.
+            TextRun::Other(el) if el.local() == "m" => {
+                let rp =
+                    TextStyleStack::run(ppr, first_rp.as_ref().unwrap_or(&RunProps::default()));
+                let Some(st) = style_for(&rp, scale, env, fonts) else {
+                    continue;
+                };
+                let Some(zone) = el
+                    .elements()
+                    .find(|e| e.local() == "oMathPara" || e.local() == "oMath")
+                else {
+                    continue;
+                };
+                let mut xml = String::new();
+                bo_drawingml::dom::write_element(zone, &mut xml);
+                if let Some(g) = bo_layout::layout_equation(&xml, st.size as f32, fonts, st.face) {
+                    maths.push((spans.len(), std::sync::Arc::new(g)));
+                    spans.push(("\u{FFFC}".to_owned(), st, false, (src, src)));
+                }
             }
             TextRun::Other(_) => {}
         }
@@ -294,6 +318,7 @@ fn layout_paragraph(
                     width: w,
                     trailing: 0.0,
                     src: (0, 0),
+                    math: None,
                 });
             }
         }
@@ -314,6 +339,24 @@ fn layout_paragraph(
     let mut words: Vec<(Vec<Piece>, bool)> = Vec::new(); // bool = forced break after word
     let mut cur: Vec<Piece> = Vec::new();
     for (si, (t, st, forced, range)) in spans.iter().enumerate() {
+        // An equation is a word of its own.
+        if let Some((_, g)) = maths.iter().find(|(k, _)| *k == si) {
+            if !cur.is_empty() {
+                words.push((std::mem::take(&mut cur), false));
+            }
+            words.push((
+                vec![Piece {
+                    text: t.clone(),
+                    style: st.clone(),
+                    width: f64::from(g.w),
+                    trailing: 0.0,
+                    src: *range,
+                    math: Some(g.clone()),
+                }],
+                false,
+            ));
+            continue;
+        }
         let start = span_starts[si];
         let mut pos = 0;
         let map = SrcMap::new(t, *range);
@@ -371,7 +414,10 @@ fn layout_paragraph(
         let mut asc: f64 = 0.0;
         let mut desc: f64 = 0.0;
         for p in &pieces {
-            let (a, d) = metrics(fonts, &p.style);
+            let (a, d) = match &p.math {
+                Some(g) => (f64::from(g.asc), f64::from(g.desc)),
+                None => metrics(fonts, &p.style),
+            };
             asc = asc.max(a);
             desc = desc.max(d);
         }
@@ -484,6 +530,7 @@ fn push_piece(
         width,
         trailing,
         src,
+        math: None,
     });
 }
 
@@ -640,7 +687,17 @@ pub(crate) fn draw_text(
     fonts: &mut FontManager,
     out: &mut Vec<Command>,
 ) {
-    if body.paragraphs.iter().all(|p| p.text().trim().is_empty()) {
+    // Nothing to draw: no text and no equation (a14:m) in any paragraph.
+    let has_math = |p: &bo_model::slide::Paragraph| {
+        p.runs
+            .iter()
+            .any(|r| matches!(r, TextRun::Other(el) if el.local() == "m"))
+    };
+    if body
+        .paragraphs
+        .iter()
+        .all(|p| p.text().trim().is_empty() && !has_math(p))
+    {
         return;
     }
     let a = arrange(body, bp, stack, rect, env, fonts, false);
@@ -899,6 +956,34 @@ fn layout_all(
 }
 
 fn emit(fonts: &mut FontManager, p: &Piece, x: f64, baseline: f64, out: &mut Vec<Command>) {
+    if let Some(g) = &p.math {
+        for (rx, ry, face, size, text, glyphs) in &g.runs {
+            out.push(Command::Glyphs {
+                face: face.0,
+                size: *size,
+                x: x as f32 + rx,
+                y: baseline as f32 + ry,
+                color: p.style.color,
+                text: text.clone(),
+                glyphs: glyphs
+                    .iter()
+                    .map(|&(id, dx, dy, cluster)| Glyph(id, dx, dy, cluster))
+                    .collect(),
+            });
+        }
+        for &(x1, y1, x2, y2, width) in &g.rules {
+            out.push(Command::Line {
+                x1: x as f32 + x1,
+                y1: baseline as f32 + y1,
+                x2: x as f32 + x2,
+                y2: baseline as f32 + y2,
+                width,
+                color: p.style.color,
+                dash: None,
+            });
+        }
+        return;
+    }
     let text = p.text.trim_end_matches(['\n', '\r']);
     if text.is_empty() {
         return;

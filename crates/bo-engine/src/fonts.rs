@@ -165,6 +165,19 @@ impl Engine {
                     .map(|s| crate::gallery::styles(s.doc()));
                 Ok(Some(r))
             }
+            Command::EquationTemplates => {
+                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                r.templates = Some(
+                    crate::equation::TEMPLATES
+                        .iter()
+                        .map(|(id, linear)| crate::edit::EquationTemplate {
+                            id: (*id).to_owned(),
+                            linear: (*linear).to_owned(),
+                        })
+                        .collect(),
+                );
+                Ok(Some(r))
+            }
             Command::FontList => {
                 let fonts = self.font_choices();
                 let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;

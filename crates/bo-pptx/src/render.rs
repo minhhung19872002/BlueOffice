@@ -1291,9 +1291,16 @@ fn draw_node(
                 .elements()
                 .filter(|c| c.local() == "Choice")
                 .find_map(|c| c.elements().find(|e| chartex(e)));
-            let nodes: Vec<&bo_model::slide::XmlElement> = match choice {
-                Some(frame) => vec![frame],
-                None => el
+            // A shape whose text holds equations (a14:m): drawn with the math layout.
+            let math_choice: Option<Vec<&bo_model::slide::XmlElement>> = el
+                .elements()
+                .filter(|c| c.local() == "Choice")
+                .find(|c| c.elements().any(has_math))
+                .map(|c| c.elements().collect());
+            let nodes: Vec<&bo_model::slide::XmlElement> = match (choice, math_choice) {
+                (Some(frame), _) => vec![frame],
+                (None, Some(nodes)) => nodes,
+                (None, None) => el
                     .elements()
                     .find(|c| c.local() == "Fallback")
                     .map(|f| f.elements().collect())
@@ -1305,6 +1312,11 @@ fn draw_node(
         }
         ShapeNode::Other(_) => {}
     }
+}
+
+/// An element holding a paragraph with an equation (`a:p/a14:m`, [MS-ODRAWXML]).
+fn has_math(e: &bo_model::slide::XmlElement) -> bool {
+    (e.local() == "p" && e.elements().any(|c| c.local() == "m")) || e.elements().any(has_math)
 }
 
 fn draw_shape_text(

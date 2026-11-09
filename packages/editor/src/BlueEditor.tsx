@@ -250,6 +250,14 @@ function EditorInner({
   /** Clipboard contents read for Paste Special. */
   const pasteClip = useRef<{ text: string; html: string; internal: string } | null>(null);
   const [pasteAvail, setPasteAvail] = useState({ html: false, text: false });
+  const [equationTemplates, setEquationTemplates] = useState<{ id: string; linear: string }[]>([]);
+  const dialogOpen = state.dialog;
+  useEffect(() => {
+    if (dialogOpen !== 'equation' || equationTemplates.length > 0) return;
+    void controller.current
+      ?.run({ cmd: 'equationTemplates' })
+      .then((r) => r?.templates && setEquationTemplates(r.templates));
+  }, [dialogOpen, equationTemplates.length]);
   const boxFrame = useRef(0);
   // Page box of the caret's page in workspace coordinates (rulers follow it).
   const measure = useCallback(() => {
@@ -2202,11 +2210,19 @@ function EditorInner({
             {state.dialog === 'equation' && (
               <EquationDialog
                 initial={state.edit?.equation ?? null}
+                templates={equationTemplates}
                 onClose={closeDialog}
-                onInsert={(text, latex, display) => {
+                onInsert={(text, latex, display, numbered) => {
                   const replace = !!store.getState().edit?.equation;
                   closeDialog();
-                  void runFocus({ cmd: 'insertEquation', text, latex, display, replace });
+                  void runFocus({
+                    cmd: 'insertEquation',
+                    text,
+                    latex,
+                    display,
+                    replace,
+                    numbered: numbered && !replace ? t('equation.numberLabel') : undefined,
+                  });
                 }}
               />
             )}

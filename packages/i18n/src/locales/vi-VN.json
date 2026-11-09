@@ -2055,7 +2055,28 @@
     "insert": "Chèn",
     "update": "Cập nhật",
     "hintUnicode": "Ví dụ: x=(-b±√(b^2-4ac))/2a · ∑_(k=1)^n k · ■(a&b@c&d) · \\alpha, \\sqrt, \\to",
-    "hintLatex": "Ví dụ: \\frac{a}{b} · x^{2} · \\sqrt[3]{x} · \\sum_{k=1}^{n} · \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}"
+    "hintLatex": "Ví dụ: \\frac{a}{b} · x^{2} · \\sqrt[3]{x} · \\sum_{k=1}^{n} · \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}",
+    "template": "Mẫu",
+    "templatePick": "Chọn một mẫu…",
+    "numbered": "Đánh số (số phương trình ở lề phải)",
+    "numberLabel": "Phương_trình",
+    "templates": {
+      "pythagoras": "Định lý Pythagoras",
+      "quadratic": "Nghiệm phương trình bậc hai",
+      "circle": "Diện tích hình tròn",
+      "sphere": "Thể tích hình cầu",
+      "binomial": "Nhị thức Newton",
+      "geometric": "Tổng cấp số nhân",
+      "squares": "Tổng các bình phương",
+      "exp": "Chuỗi hàm mũ",
+      "limit": "Giới hạn định nghĩa e",
+      "euler": "Đồng nhất thức Euler",
+      "gauss": "Tích phân Gauss",
+      "derivative": "Định nghĩa đạo hàm",
+      "trig": "Hệ thức lượng giác cơ bản",
+      "cosine": "Định lý cosin",
+      "matrix": "Định thức ma trận 2×2"
+    }
   },
   "fieldDialog": {
     "title": "Chèn trường",

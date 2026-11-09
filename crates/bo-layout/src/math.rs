@@ -1336,3 +1336,52 @@ mod tests {
         assert!(bar.unwrap().0 > sign_x);
     }
 }
+
+/// A glyph run of an [`EquationGlyphs`]: position (x, y from the baseline), face, size, text and
+/// glyphs (id, x offset, y offset, cluster).
+pub type EquationRun = (f32, f32, FaceId, f32, String, Vec<(u16, f32, f32, u32)>);
+
+/// A laid-out equation for other renderers (slides, sheet shapes): glyph runs and rules around a
+/// baseline at y = 0 (positive y downwards).
+#[derive(Debug, Clone, Default)]
+pub struct EquationGlyphs {
+    /// Advance width (points).
+    pub w: f32,
+    /// Height above the baseline.
+    pub asc: f32,
+    /// Depth below the baseline.
+    pub desc: f32,
+    /// Glyph runs.
+    pub runs: Vec<EquationRun>,
+    /// Rules (x1, y1, x2, y2, width).
+    pub rules: Vec<(f32, f32, f32, f32, f32)>,
+}
+
+/// Lay out an OMML zone (`m:oMath` / `m:oMathPara`) at `size` points with the text face `face`
+/// (its family's italic for variables) and the math font (a face with a MATH table: Cambria
+/// Math or the bundled STIX Two Math).
+pub fn layout_equation(
+    xml: &str,
+    size: f32,
+    fonts: &mut FontManager,
+    face: FaceId,
+) -> Option<EquationGlyphs> {
+    let family = fonts.info(face).family.clone();
+    let upright = fonts.resolve(&family, false, false).unwrap_or(face);
+    let italic = fonts.resolve(&family, false, true).unwrap_or(upright);
+    let math = fonts
+        .resolve("cambria math", false, false)
+        .filter(|f| fonts.math_constants(*f).is_some());
+    let b = layout_math(xml, size, fonts, upright, italic, math)?;
+    Some(EquationGlyphs {
+        w: b.w,
+        asc: b.asc,
+        desc: b.desc,
+        runs: b
+            .runs
+            .into_iter()
+            .map(|r| (r.x, r.y, r.face, r.size, r.text, r.glyphs))
+            .collect(),
+        rules: b.rules,
+    })
+}

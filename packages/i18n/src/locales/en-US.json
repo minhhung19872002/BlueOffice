@@ -2055,7 +2055,28 @@
     "insert": "Insert",
     "update": "Update",
     "hintUnicode": "Examples: x=(-b±√(b^2-4ac))/2a · ∑_(k=1)^n k · ■(a&b@c&d) · \\alpha, \\sqrt, \\to",
-    "hintLatex": "Examples: \\frac{a}{b} · x^{2} · \\sqrt[3]{x} · \\sum_{k=1}^{n} · \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}"
+    "hintLatex": "Examples: \\frac{a}{b} · x^{2} · \\sqrt[3]{x} · \\sum_{k=1}^{n} · \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}",
+    "template": "Template",
+    "templatePick": "Choose a template…",
+    "numbered": "Numbered (equation number at the right margin)",
+    "numberLabel": "Equation",
+    "templates": {
+      "pythagoras": "Pythagorean theorem",
+      "quadratic": "Quadratic formula",
+      "circle": "Area of a circle",
+      "sphere": "Volume of a sphere",
+      "binomial": "Binomial theorem",
+      "geometric": "Geometric series",
+      "squares": "Sum of squares",
+      "exp": "Exponential series",
+      "limit": "Limit defining e",
+      "euler": "Euler's identity",
+      "gauss": "Gaussian integral",
+      "derivative": "Derivative",
+      "trig": "Pythagorean trigonometric identity",
+      "cosine": "Law of cosines",
+      "matrix": "2×2 determinant"
+    }
   },
   "fieldDialog": {
     "title": "Insert field",

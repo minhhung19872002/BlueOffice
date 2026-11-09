@@ -63,3 +63,29 @@ test('inserts an equation, switches its format, keeps it after save and reopen',
   await expect(page.getByTestId('equation-input')).toHaveValue('a/b');
   expect(errors).toEqual([]);
 });
+
+test('inserts a template equation as a numbered paragraph', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/doc');
+  await page.getByTestId('new-document').click();
+  await expect(page.getByTestId('caret')).toBeVisible();
+  await page.keyboard.insertText('Ta có');
+  await page.getByRole('tab', { name: 'Chèn' }).click();
+  await cmd(page, 'insert.equation').click();
+  const dialog = page.getByTestId('equation-dialog');
+  await dialog.getByTestId('equation-template').selectOption('quadratic');
+  await expect(dialog.getByTestId('equation-input')).toHaveValue('x=(-b±√(b^2-4ac))/2a');
+  await dialog.getByTestId('equation-numbered').check();
+  await dialog.getByTestId('equation-ok').click();
+  await expect(dialog).toHaveCount(0);
+  // A second paragraph now holds the equation and its number (1).
+  await expect(page.getByTestId('status-paragraphs').or(page.getByTestId('status-words'))).toBeVisible();
+  await cmd(page, 'insert.equation').click();
+  await dialog.getByTestId('equation-template').selectOption('euler');
+  await dialog.getByTestId('equation-numbered').check();
+  await dialog.getByTestId('equation-ok').click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page1(page)).toBeVisible();
+  expect(errors).toEqual([]);
+});

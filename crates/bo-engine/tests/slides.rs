@@ -282,3 +282,43 @@ fn edit_and_refresh_slide() {
     assert_ne!(before, after);
     assert!(after.contains("sửa"));
 }
+
+/// [MS-ODRAWXML] a14:m: a text box whose paragraph holds an Office Math zone, inside
+/// mc:AlternateContent (Choice Requires="a14", Fallback text): the equation is laid out and
+/// drawn (glyphs + the fraction rule), not the fallback.
+#[test]
+fn slide_equations_are_drawn() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/slide/slide-anim-fade-appear.pptx");
+    let bytes = std::fs::read(path).unwrap();
+    let mut pkg = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+    let slide =
+        String::from_utf8(pkg.part("/ppt/slides/slide1.xml").unwrap().data.clone()).unwrap();
+    let shape = r#"<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" Requires="a14"><p:sp><p:nvSpPr><p:cNvPr id="90" name="Equation"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="3200400"/><a:ext cx="3657600" cy="1371600"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a14:m><m:oMathPara xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:oMath><m:f><m:num><m:r><m:t>a</m:t></m:r></m:num><m:den><m:r><m:t>b</m:t></m:r></m:den></m:f></m:oMath></m:oMathPara></a14:m><a:endParaRPr lang="vi-VN" sz="2800"/></a:p></p:txBody></p:sp></mc:Choice><mc:Fallback><p:sp><p:nvSpPr><p:cNvPr id="90" name="Equation"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="3200400"/><a:ext cx="3657600" cy="1371600"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="vi-VN"/><a:t>FALLBACKTEXT</a:t></a:r></a:p></p:txBody></p:sp></mc:Fallback></mc:AlternateContent>"#;
+    let slide = slide.replacen("</p:spTree>", &format!("{shape}</p:spTree>"), 1);
+    pkg.put_part("/ppt/slides/slide1.xml", slide.into_bytes());
+    let deck = pkg.write().unwrap();
+    let mut e = bo_engine::Engine::with_bundled_fonts();
+    e.open(&deck, "eq.pptx").unwrap();
+    let json = e.page_json(0).unwrap();
+    assert!(!json.contains("FALLBACKTEXT"), "the fallback is not drawn");
+    // The numerator and denominator glyph runs (math italic a, b) and a fraction rule.
+    assert!(
+        json.contains("\"text\":\"𝑎\"") || json.contains("\"text\":\"a\""),
+        "numerator"
+    );
+    assert!(
+        json.contains("\"text\":\"𝑏\"") || json.contains("\"text\":\"b\""),
+        "denominator"
+    );
+    assert!(
+        json.contains("\"Line\"") || json.contains("\"line\""),
+        "fraction rule"
+    );
+    // Saved as it was read.
+    let saved = e.save_pptx().unwrap();
+    let again = bo_opc::Package::read(&saved, &bo_opc::Limits::default()).unwrap();
+    let xml =
+        String::from_utf8(again.part("/ppt/slides/slide1.xml").unwrap().data.clone()).unwrap();
+    assert!(xml.contains("<a14:m>") && xml.contains("m:oMathPara"));
+}

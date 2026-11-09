@@ -249,6 +249,9 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
                 || (e == "xml" && t == "application/xml"))
         })
         .collect();
+    // [MS-XLSX] checkbox cell controls and pictures placed in cells.
+    crate::cellctl::resolve(&mut wb);
+    crate::richdata::resolve(&mut wb);
     Ok(wb)
 }
 

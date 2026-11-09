@@ -1,4 +1,4 @@
-import { GlyphStore, PX_PER_PT, renderPage } from '@blueoffice/canvas-host';
+import { GlyphStore, ImageStore, PX_PER_PT, renderPage } from '@blueoffice/canvas-host';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
   TimelineInfo,
@@ -157,6 +157,8 @@ import {
   ChevronsDownUp,
   WandSparkles,
   ListX,
+  ImagePlus,
+  ScanText,
 } from 'lucide-react';
 import {
   useCallback,
@@ -239,6 +241,17 @@ import {
   useChartGallery,
 } from './chartStyles';
 import { FormatControlDialog, FormControlLayer, INSERTABLE } from './formControls';
+import {
+  type AltTextTarget,
+  CellPictureAltDialog,
+  clickCheckbox,
+  deleteCheckboxes,
+  loadRequestedImages,
+  mediaState,
+  registerCellMediaCommands,
+  sheetMediaSource,
+} from './cellMedia';
+import type { CellMediaState } from '@blueoffice/platform';
 import { CfManagerDialog } from './cfRules';
 import {
   CfDialog,
@@ -560,6 +573,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   /** Input that last had the caret while editing (the symbol picker inserts there). */
   const lastInput = useRef<'cell' | 'bar'>('cell');
   const glyphs = useMemo(() => (host ? new GlyphStore(host) : null), [host]);
+  // Pictures in cells and IMAGE pictures of the display list (SHEET-CELL-001).
+  const cellImages = useMemo(() => (host ? new ImageStore(sheetMediaSource(host)) : null), [host]);
   const renderSeq = useRef(0);
   const drag = useRef<Drag | null>(null);
   const fillTo = useRef<Range | null>(null);
@@ -739,7 +754,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     const frame = requestAnimationFrame(() => {
       void (async () => {
         const page = await host.render(view);
-        await glyphs.ensure(page);
+        await Promise.all([glyphs.ensure(page), cellImages?.ensure(page)]);
         if (seq !== renderSeq.current) return;
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
@@ -749,12 +764,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         canvas.height = Math.round(size.h * dpr);
         canvas.style.width = `${size.w}px`;
         canvas.style.height = `${size.h}px`;
-        renderPage(ctx, page, glyphs, scale * dpr);
+        renderPage(ctx, page, glyphs, scale * dpr, cellImages ?? undefined);
         canvas.dataset.rendered = String(seq);
+        // IMAGE formulas: fetch what the engine still needs, then draw again.
+        if (await loadRequestedImages(host, platform.images)) setRevision((r) => r + 1);
       })().catch(fail);
     });
     return () => cancelAnimationFrame(frame);
-  }, [host, glyphs, info, view, size, scale, revision, fail]);
+  }, [host, glyphs, cellImages, info, view, size, scale, revision, fail, platform.images]);
 
   const px = useCallback(
     (x: Rect | null) => x && { x: x.x * scale, y: x.y * scale, w: x.w * scale, h: x.h * scale },
@@ -856,6 +873,22 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setHasRule(!!dv?.kind);
       setDvOpen(false);
     })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, info, sheet, selection.active, revision]);
+
+  // Checkbox / picture of the active cell, and the alt-text dialog (SHEET-CELL-001).
+  const [activeMedia, setActiveMedia] = useState<CellMediaState | null>(null);
+  const [altDialog, setAltDialog] = useState<AltTextTarget | null>(null);
+  // Checkbox / picture of the active cell (Space toggles a checkbox).
+  useEffect(() => {
+    if (!host || !info) return;
+    let cancelled = false;
+    const { row, col } = selection.active;
+    void mediaState(host, sheet, row, col)
+      .then((m) => !cancelled && setActiveMedia(m))
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -1560,6 +1593,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           setChart(null);
           return;
         }
+        // Checkbox cells: values first, then the control (SHEET-CELL-001).
+        if (await deleteCheckboxes((cmd) => exec(cmd), s.sheet, rng(s))) return;
         await clearSelection();
       },
       { shortcut: 'Delete' },
@@ -1802,6 +1837,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           col: s.selection.active.col,
         }),
       has,
+    );
+    // Checkboxes and pictures in cells (SHEET-CELL-001).
+    registerCellMediaCommands<SheetEditorState>(
+      add,
+      (s) => ({
+        host: s.host,
+        hasWorkbook: s.hasWorkbook,
+        sheet: s.sheet,
+        active: s.selection.active,
+        range: rng(s),
+      }),
+      {
+        exec: (cmd) => exec(cmd),
+        pickFile: (accept) => platform.files.openFile(accept),
+        openAltText: (d) => setAltDialog(d),
+        fail,
+      },
     );
     // Form controls ([MS-XLSX] control properties, legacy VML client data).
     for (const kind of INSERTABLE) {
@@ -2343,6 +2395,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setDvOpen(true);
       return;
     }
+    if (
+      e.key === ' ' &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      !e.shiftKey &&
+      activeMedia?.checkbox
+    ) {
+      e.preventDefault();
+      run('cell.toggleCheckbox');
+      return;
+    }
     const cmd = registry.match(e);
     if (cmd) {
       e.preventDefault();
@@ -2457,6 +2521,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       const p = { row: hit.row, col: hit.col };
       setSelection(e.shiftKey ? { ...selection, focus: p } : single(p));
       drag.current = { kind: 'select' };
+      // A click on a checkbox toggles it (one undo step).
+      const at = point(e);
+      if (!e.shiftKey && !multi && at) {
+        const box = await host.rangeRect(view, hit.row, hit.col, hit.row, hit.col);
+        if (await clickCheckbox(host, (c) => exec(c), sheet, hit.row, hit.col, box, at.x, at.y))
+          drag.current = null;
+      }
     } else if (hit.kind === 'columnEdge' || hit.kind === 'rowEdge') {
       const rows = hit.kind === 'rowEdge';
       const index = rows ? hit.row : hit.col;
@@ -2921,6 +2992,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             items: [
               item('insert.chart', t('sheetEditor.chart.insert'), <ChartColumn size={18} />),
               item('insert.sparklines', t('sparkline.insert'), <ChartSpline size={18} />),
+              item(
+                'insert.pictureInCell',
+                t('sheetEditor.cellMedia.pictureInCell'),
+                <ImagePlus size={18} />,
+              ),
+              item(
+                'insert.checkbox',
+                t('sheetEditor.cellMedia.checkbox'),
+                <SquareCheck size={s} />,
+                'small',
+              ),
+              item(
+                'cell.pictureAltText',
+                t('sheetEditor.cellMedia.altText'),
+                <ScanText size={s} />,
+                'small',
+              ),
               item(
                 'review.comments',
                 t('sheetEditor.comments.title'),
@@ -4408,6 +4496,29 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       )}
       {dialog?.kind === 'checkDocument' && (
         <SheetCheckDocumentDialog exec={exec} goTo={goToRange} onClose={common.onClose} />
+      )}
+      {altDialog && (
+        <CellPictureAltDialog
+          initial={altDialog.alt}
+          decorative={altDialog.decorative}
+          onClose={() => {
+            setAltDialog(null);
+            focusInput();
+          }}
+          onApply={async (alt, decorative) => {
+            const d = altDialog;
+            setAltDialog(null);
+            await exec({
+              cmd: 'cellImageAlt',
+              sheet: d.sheet,
+              row: d.row,
+              col: d.col,
+              alt,
+              decorative,
+            });
+            focusInput();
+          }}
+        />
       )}
       {formDialog && (
         <FormatControlDialog

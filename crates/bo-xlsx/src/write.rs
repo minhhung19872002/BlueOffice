@@ -38,20 +38,20 @@ pub(crate) fn root_attrs(out: &mut String, attrs: &[RawAttr], need_r: bool) {
 }
 
 /// Allocates relationship ids that do not collide with preserved ones.
-struct RelIds {
+pub(crate) struct RelIds {
     used: HashSet<String>,
     next: u32,
 }
 
 impl RelIds {
-    fn new(preserved: &[OpaqueRel]) -> Self {
+    pub(crate) fn new(preserved: &[OpaqueRel]) -> Self {
         RelIds {
             used: preserved.iter().map(|r| r.id.clone()).collect(),
             next: 1,
         }
     }
 
-    fn alloc(&mut self) -> String {
+    pub(crate) fn alloc(&mut self) -> String {
         loop {
             let id = format!("rId{}", self.next);
             self.next += 1;
@@ -107,12 +107,12 @@ fn to_rels(source: &str, opaque: &[OpaqueRel]) -> Vec<Relationship> {
 }
 
 /// Generates part names that do not collide with preserved parts.
-struct Names {
+pub(crate) struct Names {
     used: HashSet<String>,
 }
 
 impl Names {
-    fn fresh(&mut self, f: impl Fn(u32) -> String) -> String {
+    pub(crate) fn fresh(&mut self, f: impl Fn(u32) -> String) -> String {
         let mut n = 1;
         loop {
             let name = f(n);
@@ -197,11 +197,37 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
         &mut overrides,
     );
 
+    // [MS-XLSX] pictures placed in cells since reading: rich values and their `vm`.
+    let new_vms = crate::richdata::write_new(
+        wb,
+        &mut crate::richdata::WriteCtx {
+            wb_path: &wb_path,
+            names: &mut names,
+            wb_ids: &mut wb_ids,
+            wb_rels: &mut wb_rels,
+            out_parts: &mut out_parts,
+            overrides: &mut overrides,
+        },
+    );
+
     let mut sheet_rel_ids = Vec::with_capacity(wb.sheets.len());
     // Slicer caches created for new slicers ([MS-XLSX] slicer parts).
     let mut slicer_caches: Vec<String> = Vec::new();
     let all_tables: Vec<&Table> = wb.sheets.iter().flat_map(|s| s.tables.iter()).collect();
-    for ws in &wb.sheets {
+    for (si, ws) in wb.sheets.iter().enumerate() {
+        let with_vms;
+        let ws = if new_vms.keys().any(|k| k.0 == si) {
+            let mut copy = ws.clone();
+            for (&(_, r, c), &vm) in new_vms.iter().filter(|(k, _)| k.0 == si) {
+                if let Some(cell) = copy.cells.get_mut(&(r, c)) {
+                    cell.vm = Some(vm);
+                }
+            }
+            with_vms = copy;
+            &with_vms
+        } else {
+            ws
+        };
         let rid = wb_ids.alloc();
         match &ws.kind {
             SheetKind::Worksheet => {
@@ -453,10 +479,36 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
         target: relative_target(&wb_path, &styles_path),
         mode: TargetMode::Internal,
     });
+    // [MS-XLSX] §2.3.9 checkbox cell controls: complement index on each format and
+    // the feature property bag part (kept, patched or created).
+    let ctl = crate::cellctl::plan(wb);
+    let mut styles = wb.styles.clone();
+    for xf in &mut styles.cell_xfs {
+        xf.complement = crate::cellctl::complement_of(xf, &ctl);
+    }
+    if let (Some(part), Some(data)) = (crate::cellctl::fpb_part(wb), ctl.patched) {
+        overrides.insert(part, data);
+    }
+    if let Some(data) = ctl.created {
+        let fpb = names.fresh(|n| {
+            if n == 1 {
+                "/xl/featurePropertyBag/featurePropertyBag.xml".into()
+            } else {
+                format!("/xl/featurePropertyBag/featurePropertyBag{n}.xml")
+            }
+        });
+        wb_rels.push(Relationship {
+            id: wb_ids.alloc(),
+            rel_type: crate::cellctl::REL_FPB.into(),
+            target: relative_target(&wb_path, &fpb),
+            mode: TargetMode::Internal,
+        });
+        out_parts.push((fpb, Some(crate::cellctl::CT_FPB.into()), data));
+    }
     out_parts.push((
         styles_path,
         Some(CT_STYLES.into()),
-        write_styles(&wb.styles).into_bytes(),
+        write_styles(&styles).into_bytes(),
     ));
 
     if !sst.items.is_empty() {

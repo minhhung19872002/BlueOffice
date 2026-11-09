@@ -62,6 +62,9 @@ pub struct RenderOptions {
     /// ECMA-376 Part 1, §18.3.1.63 and the §18.18 ST_PrintError type): `""` blank, `"--"`, `"#N/A"`;
     /// `None` shows errors as displayed.
     pub error_text: Option<String>,
+    /// Pixel sizes / fetch states of pictures in cells, by media id
+    /// ([`crate::cell_image`]); stored pictures missing here are measured from their bytes.
+    pub images: std::sync::Arc<crate::cell_image::ImageStates>,
 }
 
 /// Vector drawing of a SmartArt fallback ([MS-ODRAWXML] `dsp:drawing`), drawn
@@ -93,6 +96,7 @@ impl Default for RenderOptions {
             ignore_frozen: false,
             drawings: std::sync::Arc::default(),
             error_text: None,
+            images: std::sync::Arc::default(),
         }
     }
 }
@@ -277,6 +281,30 @@ impl Renderer<'_> {
         self.wb.styles.xf(cell.style)
     }
 
+    /// A boolean or empty cell whose format carries a checkbox ([MS-XLSX] §2.3.9.4).
+    fn shows_checkbox(&self, cell: &Cell) -> bool {
+        matches!(cell.value, CellValue::Bool(_) | CellValue::Empty)
+            && (cell.formula.is_none() || matches!(cell.value, CellValue::Bool(_)))
+            && self.xf(cell).is_some_and(|x| x.checkbox)
+    }
+
+    /// Sheet rectangle of the cell at `at` (the whole merge for a merge anchor).
+    fn cell_box(&self, at: CellRef, merges: &[CellRange]) -> Rect {
+        match merges.iter().find(|m| m.first == at) {
+            Some(m) => {
+                let a = self.geom.cell_rect(m.first.row, m.first.col);
+                let b = self.geom.cell_rect(m.last.row, m.last.col);
+                Rect {
+                    x: a.x,
+                    y: a.y,
+                    w: b.x + b.w - a.x,
+                    h: b.y + b.h - a.y,
+                }
+            }
+            None => self.geom.cell_rect(at.row, at.col),
+        }
+    }
+
     fn pane(&mut self, p: &PaneRegion, show_grid: bool) {
         let s = p.screen;
         if s.w <= 0.0 || s.h <= 0.0 {
@@ -384,7 +412,36 @@ impl Renderer<'_> {
             }
         }
         self.sparklines(p);
+        // Pictures in cells and checkbox controls ([MS-XLSX] §2.3.6.1.10–11, §2.3.9.4).
+        let mut failed: std::collections::HashMap<(u32, u32), String> =
+            std::collections::HashMap::new();
         for &(at, cell) in &cells {
+            let rect = Self::screen_rect(p, self.cell_box(at, &merges));
+            if let Some(img) = cell.image.as_deref() {
+                match crate::cell_image::draw(img, rect, &self.opts.images) {
+                    Ok(cmds) => self.out.extend(cmds),
+                    Err(e) => {
+                        failed.insert((at.row, at.col), e);
+                    }
+                }
+            } else if self.shows_checkbox(cell) {
+                let on = matches!(cell.value, CellValue::Bool(true));
+                self.out.extend(crate::cell_image::checkbox(rect, on));
+            }
+        }
+        for &(at, cell) in &cells {
+            if cell.image.is_some() || self.shows_checkbox(cell) {
+                let Some(e) = failed.get(&(at.row, at.col)) else {
+                    continue;
+                };
+                let shown = Cell {
+                    value: CellValue::Error(bo_model::sheet::CellError::parse(e)),
+                    image: None,
+                    ..cell.clone()
+                };
+                self.cell_text(p, at, &shown, &merges);
+                continue;
+            }
             self.cell_text(p, at, cell, &merges);
         }
         for &(at, cell) in &cells {

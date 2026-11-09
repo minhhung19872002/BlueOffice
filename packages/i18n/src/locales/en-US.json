@@ -1712,6 +1712,15 @@
       "increase": "Increase",
       "selected": "Control {{name}} selected",
       "designHint": "Drag to move · Enter or double-click for settings · Delete to remove · Esc to deselect"
+    },
+    "cellMedia": {
+      "pictureInCell": "Picture in cell",
+      "checkbox": "Checkbox",
+      "altText": "Picture alt text",
+      "altTitle": "Alternative text for the picture in this cell",
+      "altLabel": "Describe the picture for screen reader users",
+      "altHint": "For example: Company logo",
+      "decorative": "Decorative only (no description needed)"
     }
   },
   "recovery": {

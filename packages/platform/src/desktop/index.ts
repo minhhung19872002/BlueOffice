@@ -48,6 +48,7 @@ import { WebEngineHost } from '../web/WebEngineHost';
 import { webSheetTransport } from '../web/WebSheetHost';
 import { DesktopAuth, type DesktopScheme } from './auth';
 import { WebCodecsVideo } from '../webcodecs';
+import { FetchRemoteImages } from '../remoteImages';
 
 export { DesktopAuth, DESKTOP_OIDC_PATH, isOidcCallback } from './auth';
 export type { DesktopAuthOptions, DesktopScheme } from './auth';
@@ -723,5 +724,6 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
     updates: new DesktopUpdates(call),
     // The webview (WebView2 / WebKitGTK) encodes when it has WebCodecs; else GIF / PNG only.
     video: new WebCodecsVideo(),
+    images: new FetchRemoteImages(),
   };
 }

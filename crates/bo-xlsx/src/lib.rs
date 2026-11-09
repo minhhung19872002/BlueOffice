@@ -17,6 +17,7 @@
 #![forbid(unsafe_code)]
 
 mod autofilter;
+mod cellctl;
 mod cf_ext;
 mod chart;
 mod chart_format;
@@ -27,6 +28,7 @@ pub mod formctl;
 mod pivot;
 pub mod pivot_write;
 mod read;
+mod richdata;
 mod scenario;
 pub mod slicer;
 pub mod sparkline;
@@ -35,6 +37,7 @@ mod threaded;
 pub mod timeline;
 mod write;
 mod xml;
+mod xmlpatch;
 
 pub use csv::{read_csv, write_csv, CsvOptions};
 pub use read::{read_xlsx, read_xlsx_with_limits};

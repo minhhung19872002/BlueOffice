@@ -2450,4 +2450,6 @@ export interface Platform {
   updates?: UpdateService;
   /** Video encoding (WebCodecs where the browser / webview has it). */
   video?: VideoEncoding;
+  /** Pictures from the web for the sheet `IMAGE` function (absent: not allowed). */
+  images?: import('./remoteImages').RemoteImages;
 }

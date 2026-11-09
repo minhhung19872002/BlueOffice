@@ -362,6 +362,7 @@ fn render(v: &Value, ctx: &Ctx) -> String {
             out
         }
         Value::Lambda(_) => "LAMBDA".to_owned(),
+        Value::Image(i) => format!("IMAGE(\"{}\")", i.source),
     }
 }
 

@@ -22,6 +22,7 @@ import { WebEngineHost } from './WebEngineHost';
 import { createWebSheetHost, webSheetTransport } from './WebSheetHost';
 import { WebSigning } from './signing';
 import { WebCodecsVideo } from '../webcodecs';
+import { FetchRemoteImages } from '../remoteImages';
 
 export { WebSigning } from './signing';
 export type { SignatureBackend, WebSigningOptions } from './signing';
@@ -276,5 +277,6 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     sheet: createWebSheetHost(fonts, () => document.documentElement.lang || 'vi-VN'),
     signing,
     video: new WebCodecsVideo(),
+    images: new FetchRemoteImages(),
   };
 }

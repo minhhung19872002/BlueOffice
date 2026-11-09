@@ -634,7 +634,7 @@ pub(crate) fn resolve_section(s: &Section, f: Filter<'_>, accept: bool) -> Optio
     n.change = None;
     if !accept {
         n.page = ch.page;
-        n.columns = ch.columns;
+        n.columns = ch.columns.clone();
         n.title_page = ch.title_page;
         n.break_type = ch.break_type;
         n.page_number_start = ch.page_number_start;

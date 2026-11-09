@@ -30,6 +30,7 @@ pub mod media;
 pub mod merge;
 pub mod nav;
 mod notes;
+mod page_layout;
 pub mod review;
 pub mod sheet;
 pub mod slide_edit;

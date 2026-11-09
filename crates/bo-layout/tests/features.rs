@@ -369,10 +369,7 @@ fn footnote_numbering_restarts_per_section_and_page() {
 #[test]
 fn two_columns() {
     let mut sec = Section::new((0..80).map(|i| p(&format!("Cột {i}"))).collect());
-    sec.columns = Columns {
-        count: 2,
-        space: Twips(720),
-    };
+    sec.columns = Columns::equal(2, Twips(720));
     let l = run(&doc(vec![sec]));
     let mid = PageSetup::default().width.to_pt() / 2.0;
     let xs: Vec<f32> = l.pages[0].lines.iter().map(|l| l.fragments[0].x).collect();

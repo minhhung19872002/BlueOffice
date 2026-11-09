@@ -8,7 +8,9 @@
 use crate::EditError;
 use bo_model::change::BlockChanges;
 use bo_model::index::blocks_at_mut;
-use bo_model::{Block, Comment, DocDesign, Document, Numbering, Section, StyleSheet, ThemeFonts};
+use bo_model::{
+    Block, Comment, DocDesign, Document, Hyphenation, Numbering, Section, StyleSheet, ThemeFonts,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -97,6 +99,13 @@ pub enum Op {
         /// New design and theme fonts.
         new: Box<(DocDesign, ThemeFonts)>,
     },
+    /// Replace the hyphenation settings (§17.15.1.10 autoHyphenation, …).
+    Hyphenation {
+        /// Previous settings.
+        old: Hyphenation,
+        /// New settings.
+        new: Hyphenation,
+    },
 }
 
 impl Op {
@@ -157,6 +166,10 @@ impl Op {
             Op::Design { old, new } => Op::Design {
                 old: new.clone(),
                 new: old.clone(),
+            },
+            Op::Hyphenation { old, new } => Op::Hyphenation {
+                old: *new,
+                new: *old,
             },
         }
     }
@@ -280,6 +293,12 @@ impl Op {
                 }
                 doc.design = new.0.clone();
                 doc.theme_fonts = new.1.clone();
+            }
+            Op::Hyphenation { old, new } => {
+                if doc.hyphenation != *old {
+                    return Err(EditError::Conflict);
+                }
+                doc.hyphenation = *new;
             }
         }
         Ok(())

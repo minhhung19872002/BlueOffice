@@ -410,6 +410,8 @@ export type ParaFormat =
   | { kind: 'indents'; left: number; right: number; firstLine: number }
   | { kind: 'tabs'; tabs: TabSpec[] }
   | { kind: 'shading'; hex: string | null }
+  /** §17.3.1.35 suppressLineNumbers / §17.3.1.34 suppressAutoHyphens. */
+  | { kind: 'suppressLineNumbers' | 'suppressAutoHyphens'; on: boolean }
   | { kind: 'style'; id: string };
 
 export type Motion =
@@ -665,7 +667,86 @@ export type EditCommand =
   | { cmd: 'setPageBorders'; borders?: PageBordersSpec | null; scope?: 'section' | 'document' }
   /** Text or picture watermark of every page; absent removes it. */
   | { cmd: 'setWatermark'; watermark?: WatermarkSpec | null }
-  | { cmd: 'applyTheme' | 'applyStyleSet'; id: string };
+  | { cmd: 'applyTheme' | 'applyStyleSet'; id: string }
+  /** Layout tab state (columns, line numbers, hyphenation, text direction, drop cap). */
+  | { cmd: 'pageLayout' }
+  /** Text columns (§17.6.4 cols); `forward` starts a continuous section at the caret. */
+  | { cmd: 'setColumns'; columns: ColumnsSpec; scope?: 'section' | 'document' | 'forward' }
+  /** Line numbering (§17.6.8 lnNumType); null turns it off. */
+  | {
+      cmd: 'setLineNumbering';
+      numbering: LineNumbering | null;
+      scope?: 'section' | 'document';
+    }
+  /** Text direction of sections (§17.6.20); null = horizontal. */
+  | {
+      cmd: 'setSectionTextDirection';
+      dir: 'tbRl' | 'btLr' | null;
+      scope?: 'section' | 'document';
+    }
+  /** Hyphenation settings (§17.15.1.10 autoHyphenation, …). */
+  | { cmd: 'setHyphenation'; hyphenation: HyphenationSettings }
+  /** Drop cap of the caret's paragraph (§17.3.1.11 framePr); null removes it. */
+  | { cmd: 'setDropCap'; dropCap: DropCapSpec | null };
+
+/** One column of unequal columns (twips). */
+export interface ColumnWidth {
+  width: number;
+  /** Space after the column. */
+  space: number;
+}
+
+/** Text columns (mirrors `bo_edit::page_layout::ColumnsSpec`). */
+export interface ColumnsSpec {
+  count: number;
+  /** Gap between equal columns (twips). */
+  space: number;
+  separator: boolean;
+  /** One per column for unequal columns; empty = equal. */
+  widths: ColumnWidth[];
+}
+
+/** §17.6.8 lnNumType (mirrors `bo_model::LineNumbering`). */
+export interface LineNumbering {
+  countBy: number;
+  /** Stored less one: 0 starts at 1. */
+  start: number;
+  /** Twips; null = automatic. */
+  distance: number | null;
+  restart: 'newPage' | 'newSection' | 'continuous';
+}
+
+/** Hyphenation settings (mirrors `bo_model::Hyphenation`). */
+export interface HyphenationSettings {
+  auto: boolean;
+  /** Twips; null = 0.25 inch. */
+  zone: number | null;
+  /** Null or 0 = no limit. */
+  consecutiveLimit: number | null;
+  noCaps: boolean;
+}
+
+/** A drop cap (mirrors `bo_edit::page_layout::DropCapSpec`). */
+export interface DropCapSpec {
+  position: 'drop' | 'margin';
+  font?: string | null;
+  lines: number;
+  /** Distance from the text (twips). */
+  distance: number;
+}
+
+/** Layout tab state (mirrors `bo_edit::page_layout::PageLayoutState`). */
+export interface PageLayoutState {
+  columns: ColumnsSpec;
+  /** Text width of the caret's section (twips). */
+  textWidth: number;
+  lineNumbers?: LineNumbering;
+  textDirection?: 'tbRl' | 'btLr';
+  hyphenation: HyphenationSettings;
+  dropCap?: DropCapSpec;
+  suppressLineNumbers: boolean;
+  suppressAutoHyphens: boolean;
+}
 
 /** Pages showing the page borders (§17.18.63 ST_PageBorderDisplay). */
 export type PageBorderDisplay = 'allPages' | 'firstPage' | 'notFirstPage';
@@ -784,6 +865,8 @@ export interface EditResult {
   corrected?: AutoCorrectRule;
   /** Design tab state (design commands). */
   design?: DesignState;
+  /** Layout tab state (page layout commands). */
+  pageLayout?: PageLayoutState;
 }
 
 /** A replacement-list entry (mirrors `bo_edit::autocorrect::Replacement`). */

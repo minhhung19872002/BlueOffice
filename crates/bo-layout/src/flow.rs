@@ -8,10 +8,11 @@ use crate::blocks::{
 use crate::drawing::Float;
 use crate::paragraph::{WrapZone, MIN_SEGMENT};
 use crate::style::ListCounters;
-use crate::types::{Layer, Line, LineSource, NoteKey, Page, PageItem};
+use crate::types::{Layer, Line, LineRotation, LineSource, NoteKey, Page, PageItem};
 use crate::LayoutError;
 use bo_model::{
-    Block, Color, Emu, NotePos, PageSetup, Paragraph, Section, SectionBreak, Wrap, WrapText,
+    Block, Color, DropCap, Emu, FrameProps, LineNumberRestart, LineNumbering, NotePos, PageSetup,
+    Paragraph, Section, SectionBreak, Twips, Wrap, WrapText,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -51,6 +52,9 @@ pub(crate) struct Snap {
     other_lists: ListCounters,
     /// Length of [`Flow::foot_order`].
     pub foot_keys: usize,
+    cols_top: f32,
+    cols_low: f32,
+    line_no: u32,
 }
 
 /// Where the flow stood before a top-level block (incremental layout, prompt §5.4).
@@ -140,7 +144,38 @@ pub(crate) struct Flow {
     pub resynced: Option<Resync>,
     /// Footnotes of the current section go right below the text (§17.11.21 pos beneathText).
     beneath: bool,
+    /// §17.6.4 `w:sep` of the current section: a line between the columns.
+    separator: bool,
+    /// Top of the current section's columns on this page.
+    cols_top: f32,
+    /// Bottom of the lowest content of the current columns on this page.
+    cols_low: f32,
+    /// §17.6.8 lnNumType of the current section.
+    line_numbers: Option<LineNumbering>,
+    /// Number of the last numbered line.
+    line_no: u32,
+    /// Shaped line numbers by value.
+    number_cache: HashMap<u32, Band>,
+    /// A drop cap waiting for its paragraph (§17.3.1.11 framePr `w:dropCap`).
+    drop: Option<PendingDrop>,
+    /// Vertical section (§17.6.20 textDirection): the physical page and the turn
+    /// that takes the pages laid out with swapped axes to it.
+    vertical: Option<(PageSetup, LineRotation)>,
 }
+
+/// A drop cap paragraph laid out, placed beside the next paragraph's first lines.
+struct PendingDrop {
+    /// Its lines stacked (relative body ids).
+    band: Band,
+    /// Body id of the drop cap paragraph.
+    base: u32,
+    /// Width of its text.
+    width: f32,
+    frame: FrameProps,
+}
+
+/// Line numbers are this far left of the text when the distance is automatic.
+const LINE_NUMBER_GAP: f32 = 18.0;
 
 /// Geometry of a section's body area.
 fn body_area(setup: &PageSetup, hf: (f32, f32)) -> (f32, f32) {
@@ -161,15 +196,97 @@ fn body_area(setup: &PageSetup, hf: (f32, f32)) -> (f32, f32) {
     (top, bottom.max(top + 36.0))
 }
 
-/// Column boxes (§17.6.4 cols): equal widths separated by `space`.
+/// Column boxes (§17.6.4 cols): equal widths separated by `space`, or the widths
+/// and spaces of each §17.6.3 col (`w:equalWidth` false), scaled down to the text
+/// width when they add up to more.
 pub(crate) fn columns(setup: &PageSetup, sec: &Section) -> Vec<(f32, f32)> {
     let left = setup.margin_left.to_pt();
     let width =
         (setup.width.to_pt() - setup.margin_left.to_pt() - setup.margin_right.to_pt()).max(36.0);
-    let n = usize::from(sec.columns.count.clamp(1, 45));
-    let space = sec.columns.space.to_pt().max(0.0);
+    let c = &sec.columns;
+    if c.unequal() {
+        let defs = &c.cols[..c.len()];
+        let n = defs.len();
+        let total: f32 = defs
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                d.width.to_pt().max(0.0)
+                    + if i + 1 < n {
+                        d.space.to_pt().max(0.0)
+                    } else {
+                        0.0
+                    }
+            })
+            .sum();
+        let k = if total > width + 0.5 {
+            width / total
+        } else {
+            1.0
+        };
+        let mut x = left;
+        let mut out = Vec::with_capacity(n);
+        for d in defs {
+            let w = (d.width.to_pt() * k).max(18.0);
+            out.push((x, w));
+            x += w + d.space.to_pt().max(0.0) * k;
+        }
+        return out;
+    }
+    let n = c.len();
+    let space = c.space.to_pt().max(0.0);
     let w = ((width - space * (n - 1) as f32) / n as f32).max(18.0);
     (0..n).map(|i| (left + i as f32 * (w + space), w)).collect()
+}
+
+/// Page setup with swapped axes for a vertical section (ECMA-376 Part 1, §17.6.20
+/// textDirection) and the turn back to the page: lines run along the virtual
+/// width (`tbRl`: top to bottom, stacked right to left; `btLr`: bottom to top,
+/// stacked left to right). The body area is that of the physical page (`top`,
+/// `bottom` from its header and footer).
+pub(crate) fn vertical_setup(
+    phys: &PageSetup,
+    top: f32,
+    bottom: f32,
+    rot: i32,
+) -> (PageSetup, LineRotation) {
+    let (w, h) = (phys.width, phys.height);
+    let tw = |pt: f32| Twips((pt * 20.0).round() as i32);
+    let (ml, mr) = (phys.margin_left, phys.margin_right);
+    let (start, end) = if rot > 0 {
+        (tw(top), Twips((h.0 - tw(bottom).0).max(0)))
+    } else {
+        (Twips((h.0 - tw(bottom).0).max(0)), tw(top))
+    };
+    let (first, last) = if rot > 0 { (mr, ml) } else { (ml, mr) };
+    let v = PageSetup {
+        width: h,
+        height: w,
+        margin_left: start,
+        margin_right: end,
+        margin_top: first,
+        margin_bottom: last,
+        header: Twips(0),
+        footer: Twips(0),
+    };
+    // Clockwise about (W/2, W/2) takes (x, y) to (W - y, x); anticlockwise about
+    // (H/2, H/2) takes it to (y, H - x).
+    let r = if rot > 0 {
+        let c = w.to_pt() / 2.0;
+        LineRotation {
+            degrees: 90.0,
+            cx: c,
+            cy: c,
+        }
+    } else {
+        let c = h.to_pt() / 2.0;
+        LineRotation {
+            degrees: -90.0,
+            cx: c,
+            cy: c,
+        }
+    };
+    (v, r)
 }
 
 /// Position of an anchored picture (§20.4.2.3 anchor, §20.4.2.10 positionH, §20.4.2.11 positionV).
@@ -446,6 +563,14 @@ impl Flow {
             allow_renumber: false,
             resynced: None,
             beneath: false,
+            separator: false,
+            cols_top: 0.0,
+            cols_low: 0.0,
+            line_numbers: None,
+            line_no: 0,
+            number_cache: HashMap::new(),
+            drop: None,
+            vertical: None,
         }
     }
 
@@ -477,6 +602,9 @@ impl Flow {
                 lists: ctx.lists.clone(),
                 other_lists: ctx.other_lists.clone(),
                 foot_keys: self.foot_order.len(),
+                cols_top: self.cols_top,
+                cols_low: self.cols_low,
+                line_no: self.line_no,
             },
             number: self.number,
             page: self.pages.len().saturating_sub(1),
@@ -506,6 +634,14 @@ impl Flow {
         self.excl.clone_from(&s.excl);
         self.sides.clone_from(&s.sides);
         self.prev.clone_from(&s.prev);
+        self.cols_top = s.cols_top;
+        self.cols_low = s.cols_low;
+        self.line_no = s.line_no;
+        if let Some(sec) = ctx.doc.sections.get(s.section) {
+            self.separator = sec.columns.separator;
+            self.line_numbers = sec.line_numbers;
+        }
+        self.drop = None;
         self.number = cp.number;
         ctx.lists.clone_from(&s.lists);
         ctx.other_lists.clone_from(&s.other_lists);
@@ -556,9 +692,10 @@ impl Flow {
     }
 
     fn push_page(&mut self) {
+        let phys = self.vertical.map_or(self.setup, |v| v.0);
         self.pages.push(Page {
-            width: self.setup.width.to_pt(),
-            height: self.setup.height.to_pt(),
+            width: phys.width.to_pt(),
+            height: phys.height.to_pt(),
             lines: Vec::new(),
             items: Vec::new(),
             number: self.number,
@@ -567,6 +704,14 @@ impl Flow {
         });
         self.col = 0;
         self.y = self.top;
+        self.cols_top = self.top;
+        self.cols_low = self.top;
+        // §17.18.47 newPage: numbering starts again on each page.
+        if let Some(ln) = self.line_numbers {
+            if ln.restart == LineNumberRestart::NewPage {
+                self.line_no = ln.start;
+            }
+        }
         self.col_has_content = false;
         self.page_has_content = false;
         self.notes_on_page.clear();
@@ -605,6 +750,58 @@ impl Flow {
     /// §17.11.1 continuationSeparator; the continuation notice, §17.18.33
     /// `continuationNotice`, ends the part shown here).
     fn finish_page(&mut self) {
+        self.close_columns();
+        self.place_page_notes();
+        self.turn_page();
+    }
+
+    /// Separator lines between the current columns (ECMA-376 Part 1, §17.6.4
+    /// `w:sep`), as tall as the longest column on this page.
+    fn close_columns(&mut self) {
+        if self.separator && self.cols.len() > 1 && self.cols_low > self.cols_top + EPS {
+            let (y1, y2) = (self.cols_top, self.cols_low);
+            let xs: Vec<f32> = self
+                .cols
+                .windows(2)
+                .map(|w| (w[0].0 + w[0].1 + w[1].0) / 2.0)
+                .collect();
+            if let Some(page) = self.pages.last_mut() {
+                for x in xs {
+                    page.items.push(PageItem::Rule {
+                        x1: x,
+                        y1,
+                        x2: x,
+                        y2,
+                        width: 0.5,
+                        color: Color::BLACK,
+                        style: "single".into(),
+                    });
+                }
+            }
+        }
+        self.cols_top = self.cols_low.max(self.y);
+    }
+
+    /// Turn the page of a vertical section (§17.6.20 textDirection) from its
+    /// swapped axes to the physical page.
+    fn turn_page(&mut self) {
+        let Some((_, r)) = self.vertical else {
+            return;
+        };
+        let Some(page) = self.pages.last_mut() else {
+            return;
+        };
+        for l in &mut page.lines {
+            if l.rotation.is_none() {
+                l.rotation = Some(r);
+            }
+        }
+        for it in &mut page.items {
+            crate::blocks::rotate_item(it, &r);
+        }
+    }
+
+    fn place_page_notes(&mut self) {
         if self.notes_on_page.is_empty() && self.carry.is_empty() {
             return;
         }
@@ -700,7 +897,8 @@ impl Flow {
     fn next_column(&mut self) {
         if self.col + 1 < self.cols.len() {
             self.col += 1;
-            self.y = self.top;
+            // Columns of a section starting on this page begin below the previous one.
+            self.y = self.cols_top;
             self.col_has_content = false;
             self.prev = None;
         } else {
@@ -814,9 +1012,102 @@ impl Flow {
             page.items.extend(b.items);
         }
         self.y = y + band.h;
+        self.cols_low = self.cols_low.max(self.y);
         self.col_has_content = true;
         self.page_has_content = true;
         Ok(())
+    }
+
+    /// Number body line `line` just placed at `y` (ECMA-376 Part 1, §17.6.8
+    /// lnNumType): every counted line advances the number, multiples of
+    /// `countBy` are drawn right-aligned `distance` left of the column.
+    fn number_line(&mut self, ctx: &mut Ctx<'_>, line: &Band, y: f32) -> Result<(), LayoutError> {
+        let Some(ln) = self.line_numbers else {
+            return Ok(());
+        };
+        let Some(base) = line
+            .lines
+            .iter()
+            .find(|l| matches!(l.source, LineSource::Body(_)))
+            .map(|l| l.baseline)
+        else {
+            return Ok(());
+        };
+        self.line_no += 1;
+        let n = self.line_no;
+        if !n.is_multiple_of(u32::from(ln.count_by.max(1))) {
+            return Ok(());
+        }
+        let band = if let Some(b) = self.number_cache.get(&n) {
+            b.clone()
+        } else {
+            let b = number_band(ctx, n)?;
+            self.number_cache.insert(n, b.clone());
+            b
+        };
+        let Some(first) = band.lines.first() else {
+            return Ok(());
+        };
+        let right = first
+            .fragments
+            .iter()
+            .map(|f| f.x + f.width)
+            .fold(0.0f32, f32::max);
+        let gap = ln.distance.map_or(LINE_NUMBER_GAP, Twips::to_pt);
+        let dx = self.col_x() - gap - right;
+        let dy = y + base - first.baseline;
+        let b = band.translated(dx, dy);
+        if let Some(page) = self.pages.last_mut() {
+            page.lines.extend(b.lines);
+            page.items.extend(b.items);
+        }
+        Ok(())
+    }
+
+    /// Place a waiting drop cap beside paragraph `pb` starting at the current
+    /// position (ECMA-376 Part 1, §17.3.1.11 framePr): `lines` lines of `pb` tall,
+    /// its baseline on the last of them; `drop` keeps those lines `hSpace` clear of
+    /// it, `margin` puts it in the left margin.
+    fn place_drop(&mut self, d: &PendingDrop, pb: &ParaBlock) {
+        let Some(first) = pb.lines.first() else {
+            return;
+        };
+        let lh = first.h.max(1.0);
+        let n = f32::from(d.frame.lines.max(1));
+        let first_base = first
+            .lines
+            .iter()
+            .find(|l| matches!(l.source, LineSource::Body(_)))
+            .map_or(lh * 0.8, |l| l.baseline);
+        let cap_base = d
+            .band
+            .lines
+            .iter()
+            .find(|l| matches!(l.source, LineSource::Body(_)))
+            .map_or(d.band.h, |l| l.baseline);
+        let gap = d.frame.h_space.to_pt().max(0.0);
+        let x = match d.frame.drop_cap {
+            DropCap::Drop => self.col_x(),
+            DropCap::Margin => self.col_x() - d.width - gap,
+        };
+        let dy = self.y + (n - 1.0) * lh + first_base - cap_base;
+        let b = d.band.translated_ids(x, dy, d.base);
+        if let Some(page) = self.pages.last_mut() {
+            page.lines.extend(b.lines);
+            page.items.extend(b.items);
+        }
+        self.page_has_content = true;
+        if d.frame.drop_cap == DropCap::Drop {
+            let cx = self.col_x();
+            self.sides.push(SideZone {
+                y0: self.y,
+                y1: self.y + n * lh - 0.5,
+                x0: cx - 1.0,
+                x1: cx + d.width + gap,
+                side: WrapText::Right,
+                outline: None,
+            });
+        }
     }
 
     /// Content `h` tall fits at `y` with `notes_add` more footnote height, of which
@@ -920,6 +1211,9 @@ impl Flow {
             self.next_column();
         }
 
+        if let Some(d) = self.drop.take() {
+            self.place_drop(&d, pb);
+        }
         // Anchored pictures are positioned relative to the paragraph's first line.
         let mut float_items = Vec::new();
         let mut float_lines = Vec::new();
@@ -972,7 +1266,10 @@ impl Flow {
         // Lines beside square/tight-wrapped pictures are laid out again around them.
         let rewrapped;
         let pb = match src {
-            Some(p) if self.sides.iter().any(|z| z.y1 > self.y) => {
+            Some(p)
+                if self.sides.iter().any(|z| z.y1 > self.y)
+                    || (self.col_w() - pb.width).abs() > 0.01 =>
+            {
                 let (top, cx) = (self.y, self.col_x());
                 let zones: Vec<WrapZone> = self
                     .sides
@@ -1023,6 +1320,9 @@ impl Flow {
                 let y = self.skip_excl(self.y, line.h);
                 y0.get_or_insert(y);
                 self.put(ctx, line, y)?;
+                if pb.numbered {
+                    self.number_line(ctx, line, y)?;
+                }
                 i += 1;
                 if line.brk != Brk::None {
                     break;
@@ -1254,25 +1554,56 @@ impl Flow {
 
     /// Start section `si`.
     fn start_section(&mut self, si: usize, sec: &Section, first: bool) {
-        let same_size = self.setup.width == sec.page.width && self.setup.height == sec.page.height;
+        let phys = self.vertical.map_or(self.setup, |v| v.0);
+        let same_size = phys.width == sec.page.width && phys.height == sec.page.height;
+        let rot = sec
+            .text_direction
+            .map_or(0, bo_model::TextDirection::rotation);
+        let same_dir = self.vertical.map_or(0, |v| v.1.degrees as i32) == rot;
         let continuous = !first
             && matches!(
                 sec.break_type,
                 SectionBreak::Continuous | SectionBreak::NextColumn
             )
-            && same_size;
+            && same_size
+            && same_dir;
         if !first && !continuous {
             self.finish_page();
+        } else if continuous {
+            // The new columns start below the lowest text of the previous ones.
+            self.close_columns();
+            self.y = self.cols_top;
         }
-        self.setup = sec.page;
         let hf = self.hf_heights.get(si).copied().unwrap_or((0.0, 0.0));
         let (top, bottom) = body_area(&sec.page, hf);
-        self.cols = columns(&sec.page, sec);
-        self.top = top;
-        self.bottom = bottom;
+        if rot == 0 {
+            self.vertical = None;
+            self.setup = sec.page;
+            self.top = top;
+            self.bottom = bottom;
+        } else {
+            let (v, r) = vertical_setup(&sec.page, top, bottom, rot);
+            self.vertical = Some((sec.page, r));
+            self.setup = v;
+            let (vt, vb) = body_area(&v, (0.0, 0.0));
+            self.top = vt;
+            self.bottom = vb;
+        }
+        self.cols = columns(&self.setup, sec);
+        self.separator = sec.columns.separator;
+        // §17.6.8 lnNumType: numbering restarts with the section unless continuous.
+        let prev_numbered = self.line_numbers.is_some();
+        self.line_numbers = sec.line_numbers;
+        if let Some(ln) = sec.line_numbers {
+            if first || !prev_numbered || ln.restart == LineNumberRestart::NewSection {
+                self.line_no = ln.start;
+            }
+        }
         if continuous {
             self.section = si;
             self.col = 0;
+            self.cols_top = self.y;
+            self.cols_low = self.y;
             if sec.break_type == SectionBreak::NextColumn && self.col_has_content {
                 self.next_column();
             }
@@ -1326,7 +1657,7 @@ impl Flow {
             self.beneath = doc.footnote_props(si).pos == Some(NotePos::BeneathText);
             let mut next: Option<(Built, u32)> = None;
             while k < sec.blocks.len() {
-                if self.boundary(ctx, si, k, next.is_some()) {
+                if self.boundary(ctx, si, k, next.is_some() || self.drop.is_some()) {
                     return Ok(());
                 }
                 let (cur, base) = match next.take() {
@@ -1347,7 +1678,12 @@ impl Flow {
                     }
                 }
                 self.id_base = base;
+                // §17.3.1.11 framePr dropCap: the paragraph is set beside the next one.
+                let drop_next = matches!(sec.blocks.get(k + 1), Some(Block::Paragraph(_)));
                 match &cur {
+                    Built::Para(pb) if pb.frame.is_some() && drop_next && self.drop.is_none() => {
+                        self.drop = Some(pending_drop(pb, base));
+                    }
                     Built::Para(pb) => {
                         let src = match &sec.blocks[k] {
                             Block::Paragraph(p) => Some(p),
@@ -1436,6 +1772,69 @@ impl Flow {
         }
         Ok(())
     }
+}
+
+/// A drop cap paragraph's lines stacked into one band, with its text width.
+fn pending_drop(pb: &ParaBlock, base: u32) -> PendingDrop {
+    let mut band = Band::empty(pb.height());
+    let mut top = 0.0;
+    let mut width = 0.0f32;
+    for b in &pb.lines {
+        for l in &b.lines {
+            for f in &l.fragments {
+                width = width.max(f.x + f.width);
+            }
+        }
+        band.absorb(b.translated(0.0, top));
+        top += b.h;
+    }
+    PendingDrop {
+        band,
+        base,
+        width,
+        frame: pb.frame.unwrap_or(FrameProps {
+            drop_cap: DropCap::Drop,
+            lines: 3,
+            h_space: Twips(0),
+        }),
+    }
+}
+
+/// The shaped number `n` of line numbering, in the "Line Number" character style
+/// when the document defines it (ECMA-376 Part 1, §17.6.8).
+fn number_band(ctx: &mut Ctx<'_>, n: u32) -> Result<Band, LayoutError> {
+    let style = ctx
+        .doc
+        .style("LineNumber")
+        .is_some()
+        .then(|| "LineNumber".to_owned());
+    let p = Paragraph::new(
+        bo_model::ParaProps {
+            space_before: Some(Twips(0)),
+            space_after: Some(Twips(0)),
+            indent_left: Some(Twips(0)),
+            indent_right: Some(Twips(0)),
+            indent_first_line: Some(Twips(0)),
+            ..bo_model::ParaProps::default()
+        },
+        vec![bo_model::Run::text(
+            n.to_string(),
+            bo_model::RunProps {
+                style,
+                ..bo_model::RunProps::default()
+            },
+        )],
+    );
+    let saved = (ctx.note.take(), ctx.textbox.take());
+    let pb = build_para(ctx, &p, 200.0, false, None);
+    (ctx.note, ctx.textbox) = saved;
+    let mut band = pb?
+        .lines
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| Band::empty(0.0));
+    band.set_other();
+    Ok(band)
 }
 
 /// Header/footer lookup with inheritance from previous sections (§17.10.5 headerReference).

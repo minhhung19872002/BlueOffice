@@ -134,10 +134,15 @@ impl PageSetupSpec {
             header: Twips(self.header.clamp(0, h / 2)),
             footer: Twips(self.footer.clamp(0, h / 2)),
         };
-        *cols = Columns {
-            count: self.columns.clamp(1, 45),
-            space: Twips(self.column_space.clamp(0, 5760)),
-        };
+        // Same number and spacing: keep the column widths and the separator line.
+        let count = self.columns.clamp(1, 45);
+        let space = Twips(self.column_space.clamp(0, 5760));
+        if cols.len() != usize::from(count) || cols.space != space {
+            *cols = Columns {
+                separator: cols.separator,
+                ..Columns::equal(count, space)
+            };
+        }
     }
 }
 

@@ -145,3 +145,4 @@ cung cấp).
 - [0008](docs/adr/0008-editing-transactions-and-command-bridge.md) Transaction op khả nghịch + cầu lệnh JSON cho chỉnh sửa
 - [0009](docs/adr/0009-npgsql-postgresql-license.md) Chấp nhận Npgsql (PostgreSQL License, kiểu BSD) cho server
 - [0010](docs/adr/0010-library-deviations-from-prompt.md) Thư viện khác prompt: cầu nối chuỗi JSON, serial date tự cài, không TanStack Query, CSS Modules một phần
+- [0011](docs/adr/0011-own-english-hyphenation-rules.md) Gạch nối tự động: quy tắc tiếng Anh tự viết (không tệp mẫu bên thứ ba), tiếng Việt chỉ ngắt ở dấu cách

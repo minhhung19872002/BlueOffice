@@ -197,6 +197,13 @@ import {
   WatermarkDialog,
   WatermarkMenu,
 } from './PageBackgroundDialogs';
+import {
+  ColumnsDialog,
+  DropCapDialog,
+  HyphenationDialog,
+  LineNumbersDialog,
+  TextDirectionDialog,
+} from './LayoutDialogs';
 import { Rulers, type PageBox } from './Ruler';
 
 /** Options controlled by the embedding host (prompt §3.5). */
@@ -1482,11 +1489,26 @@ function EditorInner({
       run: () => run({ cmd: 'nextComment', forward: false }),
     });
     // Page setup (ECMA-376 Part 1, §17.6.13 pgSz, §17.6.11 pgMar, §17.6.4 cols).
-    for (const id of ['layout.margins', 'layout.size', 'layout.pageSetup', 'layout.columns']) {
+    for (const id of ['layout.margins', 'layout.size', 'layout.pageSetup']) {
       r.register({
         id,
         isEnabled: (s) => hasDoc(s) && !!f(s)?.section,
         run: () => store.setState({ dialog: 'pageSetup' }),
+      });
+    }
+    // Columns (§17.6.4), line numbers (§17.6.8), hyphenation (§17.15.1.10), page
+    // text direction (§17.6.20) and large initial letters (§17.3.1.11 framePr).
+    for (const [id, dialog] of [
+      ['layout.columns', 'columns'],
+      ['layout.lineNumbers', 'lineNumbers'],
+      ['layout.hyphenation', 'hyphenation'],
+      ['layout.textDirection', 'textDirection'],
+      ['insert.dropCap', 'dropCap'],
+    ] as const) {
+      r.register({
+        id,
+        isEnabled: (s) => hasDoc(s) && !!f(s)?.section,
+        run: () => store.setState({ dialog }),
       });
     }
     r.register({
@@ -2061,7 +2083,10 @@ function EditorInner({
         {
           id: 'symbols',
           label: t('ribbon.groups.symbols'),
-          items: [item('insert.symbol', 'commands.insert.symbol', <Omega size={ICON} />)],
+          items: [
+            item('insert.symbol', 'commands.insert.symbol', <Omega size={ICON} />),
+            item('insert.dropCap', 'commands.insert.dropCap', <Type size={ICON} />),
+          ],
         },
         {
           id: 'equation',
@@ -2162,6 +2187,9 @@ function EditorInner({
             item('layout.size', 'commands.layout.size', <Scaling size={ICON} />),
             item('layout.columns', 'commands.layout.columns', <Columns2 size={ICON} />),
             item('layout.pageSetup', 'commands.layout.pageSetup', <Ruler size={ICON} />),
+            s('layout.lineNumbers', 'commands.layout.lineNumbers', <Rows4 size={SMALL} />),
+            s('layout.hyphenation', 'commands.layout.hyphenation', <WrapText size={SMALL} />),
+            s('layout.textDirection', 'commands.layout.textDirection', <RotateCw size={SMALL} />),
           ],
         },
         {
@@ -2676,6 +2704,21 @@ function EditorInner({
             )}
             {state.dialog === 'setNumbering' && (
               <SetNumberingDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'columns' && (
+              <ColumnsDialog run={runCommand} language={state.language} onClose={closeDialog} />
+            )}
+            {state.dialog === 'lineNumbers' && (
+              <LineNumbersDialog run={runCommand} language={state.language} onClose={closeDialog} />
+            )}
+            {state.dialog === 'hyphenation' && (
+              <HyphenationDialog run={runCommand} language={state.language} onClose={closeDialog} />
+            )}
+            {state.dialog === 'textDirection' && (
+              <TextDirectionDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'dropCap' && (
+              <DropCapDialog run={runCommand} language={state.language} onClose={closeDialog} />
             )}
             {state.dialog === 'pageBorders' && (
               <PageBordersDialog run={runCommand} onClose={closeDialog} />

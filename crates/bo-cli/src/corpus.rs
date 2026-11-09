@@ -1915,6 +1915,63 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         hf_images: vec![("rId11".into(), "rId1".into(), 0)],
         ..Doc::default()
     }));
+    // ---- drop caps (§17.3.1.11 framePr), columns (§17.6.4 cols, §17.6.3 col),
+    // line numbering (§17.6.8), hyphenation (§17.15.1.10), text direction (§17.6.20)
+    let cap = |kind: &str, lines: u8, space: i32, letter: &str, font: &str| {
+        format!(
+            r#"<w:p><w:pPr><w:keepNext/><w:framePr w:dropCap="{kind}" w:lines="{lines}" w:hSpace="{space}" w:wrap="around" w:vAnchor="text" w:hAnchor="text"/><w:spacing w:after="0"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="{font}" w:hAnsi="{font}"/><w:sz w:val="86"/></w:rPr><w:t>{letter}</w:t></w:r></w:p>"#
+        )
+    };
+    let long = |n: usize, text: &str| p(&vec![text; n].join(" "));
+    v.push(("layout-01-drop-caps-columns.docx", "layout", "Chữ hoa thả 3 dòng (drop, hSpace) và 2 dòng ở lề (margin); section 2 continuous: 2 cột không đều (1,5 + 4,25 in, w:equalWidth=\"0\") có đường kẻ giữa (w:sep) và ngắt cột (w:br type=column); section 3: 3 cột đều có đường kẻ", Doc {
+        body: [
+            cap("drop", 3, 113, "N", "Times New Roman"),
+            long(5, "gày xửa ngày xưa, ở một vương quốc nọ có một ông vua hiền lành cai quản muôn dân."),
+            cap("margin", 2, 57, "T", "Arial"),
+            long(4, "rong khu vườn của nhà vua có một cây táo nở hoa trắng xoá mỗi độ xuân về."),
+            format!(r#"<w:p><w:pPr><w:sectPr>{page}<w:cols w:space="708"/></w:sectPr></w:pPr><w:r><w:t>Hết section 1</w:t></w:r></w:p>"#),
+            lorem(8),
+            r#"<w:p><w:r><w:t>Trước ngắt cột</w:t></w:r><w:r><w:br w:type="column"/></w:r><w:r><w:t>Sau ngắt cột</w:t></w:r></w:p>"#.to_owned(),
+            lorem(30),
+            format!(r#"<w:p><w:pPr><w:sectPr><w:type w:val="continuous"/>{page}<w:cols w:num="2" w:space="708" w:sep="1" w:equalWidth="0"><w:col w:w="2160" w:space="567"/><w:col w:w="6628"/></w:cols></w:sectPr></w:pPr><w:r><w:t>Hết section 2</w:t></w:r></w:p>"#),
+            lorem(40),
+        ].concat(),
+        sect: format!(r#"<w:sectPr>{page}<w:cols w:num="3" w:space="425" w:sep="1"/></w:sectPr>"#),
+        ..Doc::default()
+    }));
+    let en = |text: &str| {
+        format!(
+            r#"<w:p><w:r><w:rPr><w:lang w:val="en-US"/></w:rPr><w:t xml:space="preserve">{text}</w:t></w:r></w:p>"#
+        )
+    };
+    let en_text = "International organisations demonstrate considerable responsibility regarding environmental documentation, establishing comprehensive information requirements for independent establishments and understanding everything wonderfully.";
+    v.push(("layout-02-line-numbers-hyphenation.docx", "layout", "Đánh số dòng (lnNumType countBy=5, distance, restart newPage) với một đoạn suppressLineNumbers; gạch nối tự động (autoHyphenation, consecutiveHyphenLimit 2, hyphenationZone, doNotHyphenateCaps) cho đoạn tiếng Anh trong 3 cột, một đoạn suppressAutoHyphens; tiếng Việt chỉ ngắt ở dấu cách", Doc {
+        body: [
+            lorem(6),
+            pr("<w:suppressLineNumbers/>", "", "Đoạn này không được đánh số dòng."),
+            lorem(6),
+            format!(r#"<w:p><w:pPr><w:sectPr>{page}<w:lnNumType w:countBy="5" w:distance="283" w:restart="newPage"/><w:cols w:space="708"/></w:sectPr></w:pPr><w:r><w:t>Hết section 1</w:t></w:r></w:p>"#),
+            en(en_text),
+            en(en_text),
+            format!(r#"<w:p><w:pPr><w:suppressAutoHyphens/></w:pPr><w:r><w:rPr><w:lang w:val="en-US"/></w:rPr><w:t xml:space="preserve">{en_text}</w:t></w:r></w:p>"#),
+            en("UNDERSTANDING INTERNATIONAL ORGANISATIONS REQUIRES DOCUMENTATION."),
+            lorem(8),
+        ].concat(),
+        sect: format!(r#"<w:sectPr><w:type w:val="continuous"/>{page}<w:cols w:num="3" w:space="425"/></w:sectPr>"#),
+        settings: Some(r#"<w:zoom w:percent="100"/><w:defaultTabStop w:val="720"/><w:autoHyphenation/><w:consecutiveHyphenLimit w:val="2"/><w:hyphenationZone w:val="227"/><w:doNotHyphenateCaps/><w:characterSpacingControl w:val="doNotCompress"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>"#.to_owned()),
+        ..Doc::default()
+    }));
+    v.push(("layout-03-vertical-sections.docx", "layout", "Hướng chữ của section (w:textDirection trên sectPr): trang 1 ngang, section 2 chữ dọc từ trên xuống (tbRl, dòng xếp từ phải sang trái), section 3 từ dưới lên (btLr, dòng từ trái sang phải)", Doc {
+        body: [
+            lorem(4),
+            format!(r#"<w:p><w:pPr><w:sectPr>{page}<w:cols w:space="708"/></w:sectPr></w:pPr><w:r><w:t>Hết section ngang</w:t></w:r></w:p>"#),
+            lorem(6),
+            format!(r#"<w:p><w:pPr><w:sectPr>{page}<w:cols w:space="708"/><w:textDirection w:val="tbRl"/></w:sectPr></w:pPr><w:r><w:t>Hết section dọc trên xuống</w:t></w:r></w:p>"#),
+            lorem(6),
+        ].concat(),
+        sect: format!(r#"<w:sectPr>{page}<w:cols w:space="708"/><w:textDirection w:val="btLr"/></w:sectPr>"#),
+        ..Doc::default()
+    }));
     v
 }
 

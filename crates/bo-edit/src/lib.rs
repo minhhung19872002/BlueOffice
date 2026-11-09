@@ -20,6 +20,7 @@ pub mod html;
 pub mod lists;
 pub mod merge;
 mod ops;
+pub mod page_layout;
 pub mod para;
 pub mod picture;
 pub mod revisions;
@@ -208,6 +209,16 @@ pub enum ParaFormat {
     Shading {
         /// Fill colour as `RRGGBB`; `None` removes the shading.
         hex: Option<String>,
+    },
+    /// Leave the paragraphs out of line numbering (§17.3.1.35 suppressLineNumbers).
+    SuppressLineNumbers {
+        /// Suppress (`true`) or number again.
+        on: bool,
+    },
+    /// Do not hyphenate the paragraphs (§17.3.1.34 suppressAutoHyphens).
+    SuppressAutoHyphens {
+        /// Suppress (`true`) or hyphenate again.
+        on: bool,
     },
 }
 
@@ -2819,6 +2830,12 @@ impl Session {
                     }
                     ParaFormat::Shading { hex } => {
                         pr.shading = hex.as_deref().and_then(Color::from_hex);
+                    }
+                    ParaFormat::SuppressLineNumbers { on } => {
+                        pr.suppress_line_numbers = on.then_some(true);
+                    }
+                    ParaFormat::SuppressAutoHyphens { on } => {
+                        pr.suppress_auto_hyphens = on.then_some(true);
                     }
                     ParaFormat::Clear => {
                         let unknown = std::mem::take(&mut pr.unknown);

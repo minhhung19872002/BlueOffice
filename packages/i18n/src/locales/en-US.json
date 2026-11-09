@@ -148,14 +148,18 @@
       "endnote": "Insert endnote",
       "equation": "Equation",
       "field": "Field…",
-      "control": "Content control…"
+      "control": "Content control…",
+      "dropCap": "Large initial"
     },
     "layout": {
       "margins": "Margins",
       "orientation": "Orientation",
       "size": "Size",
       "columns": "Columns",
-      "pageSetup": "Page setup…"
+      "pageSetup": "Page setup…",
+      "lineNumbers": "Line numbers",
+      "hyphenation": "Hyphenation",
+      "textDirection": "Page text direction"
     },
     "view": {
       "zoomIn": "Zoom in",
@@ -2701,5 +2705,70 @@
     },
     "ok": "OK",
     "cancel": "Cancel"
+  },
+  "layout": {
+    "ok": "Apply",
+    "cancel": "Cancel",
+    "applyTo": "Use for",
+    "thisSection": "This section",
+    "wholeDocument": "All sections",
+    "forward": "From the cursor to the end",
+    "columns": {
+      "title": "Text columns",
+      "presets": "Quick layouts",
+      "one": "Single",
+      "two": "Two equal",
+      "three": "Three equal",
+      "left": "Narrow left",
+      "right": "Narrow right",
+      "count": "How many columns",
+      "equal": "Keep columns the same width",
+      "separator": "Rule between columns",
+      "column": "Column {{n}}",
+      "width": "Width",
+      "space": "Gap after",
+      "gap": "Gap between columns",
+      "preview": "Layout sketch"
+    },
+    "lineNumbers": {
+      "title": "Numbering of lines",
+      "mode": "Numbering",
+      "none": "Off",
+      "continuous": "Run through the document",
+      "newPage": "Start again on each page",
+      "newSection": "Start again in each section",
+      "start": "First number",
+      "countBy": "Show every",
+      "distance": "Gap from the text",
+      "auto": "Automatic",
+      "suppress": "Skip the current paragraph"
+    },
+    "hyphenation": {
+      "title": "Word breaking",
+      "auto": "Break long words at line ends automatically",
+      "noCaps": "Leave words in capitals whole",
+      "zone": "Break only when the line-end gap is at least",
+      "limit": "Most broken lines in a row",
+      "noLimit": "Any number",
+      "suppress": "Never break words in the current paragraph",
+      "note": "Only English words are broken; Vietnamese text wraps at spaces."
+    },
+    "textDirection": {
+      "title": "Page text direction",
+      "horizontal": "Across the page",
+      "tbRl": "Downwards, lines from the right",
+      "btLr": "Upwards, lines from the left"
+    },
+    "dropCap": {
+      "title": "Large initial letter",
+      "position": "Placement",
+      "none": "None",
+      "drop": "In the paragraph",
+      "margin": "In the margin",
+      "font": "Typeface",
+      "sameFont": "As the paragraph",
+      "lines": "Height in lines",
+      "distance": "Gap from the text"
+    }
   }
 }

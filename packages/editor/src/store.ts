@@ -77,6 +77,11 @@ export interface EditorState {
     | 'autoCorrect'
     | 'pageBorders'
     | 'watermark'
+    | 'columns'
+    | 'lineNumbers'
+    | 'hyphenation'
+    | 'textDirection'
+    | 'dropCap'
     | null;
   /** Format Painter: off, once (single click) or sticky (double click; Esc stops). */
   painter: 'off' | 'once' | 'sticky';

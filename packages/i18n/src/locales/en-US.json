@@ -126,7 +126,8 @@
       "footnote": "Insert footnote",
       "endnote": "Insert endnote",
       "equation": "Equation",
-      "field": "Field…"
+      "field": "Field…",
+      "control": "Content control…"
     },
     "layout": {
       "margins": "Margins",
@@ -2035,5 +2036,32 @@
       "STYLEREF": "Heading 1",
       "QUOTE": "\"Text\""
     }
+  },
+  "controlDialog": {
+    "title": "Insert content control",
+    "insert": "Insert",
+    "kind": "Control",
+    "placeholder": "Placeholder text",
+    "items": "List items (one per line)",
+    "kinds": {
+      "text": "Plain text",
+      "richText": "Rich text",
+      "checkbox": "Check box",
+      "dropDown": "Drop-down list",
+      "comboBox": "Combo box",
+      "date": "Date picker"
+    },
+    "defaultPlaceholder": "Click or tap here to enter text.",
+    "defaultItem": "Choose an item.",
+    "defaultDate": "Click or tap to enter a date."
+  },
+  "controlBar": {
+    "label": "Content control",
+    "toggle": "Check / uncheck",
+    "choose": "Choose an item",
+    "value": "Value",
+    "date": "Date",
+    "locked": "Contents locked",
+    "apply": "Apply"
   }
 }

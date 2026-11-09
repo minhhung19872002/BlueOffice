@@ -79,3 +79,65 @@ fn not_a_docx() {
     p.put_part("/a.xml", b"<a/>".to_vec());
     assert!(read_docx(&p.write().unwrap()).is_err());
 }
+
+#[test]
+fn content_controls_inline_and_block() {
+    use bo_model::ControlKind;
+    let body = r#"<w:p><w:sdt><w:sdtPr><w:alias w:val="Tên"/><w:id w:val="5"/><w:showingPlcHdr/><w:text/></w:sdtPr><w:sdtContent><w:r><w:t>Nhập tên</w:t></w:r></w:sdtContent></w:sdt><w:sdt><w:sdtPr><w14:checkbox><w14:checked w14:val="1"/><w14:checkedState w14:val="2612"/><w14:uncheckedState w14:val="2610"/></w14:checkbox></w:sdtPr><w:sdtContent><w:r><w:t>☒</w:t></w:r></w:sdtContent></w:sdt></w:p>
+<w:sdt><w:sdtPr><w:tag w:val="k"/><w:lock w:val="sdtContentLocked"/><w:dropDownList><w:listItem w:displayText="A" w:value="a"/></w:dropDownList></w:sdtPr><w:sdtContent><w:p><w:r><w:t>một</w:t></w:r></w:p><w:p><w:r><w:t>hai</w:t></w:r></w:p></w:sdtContent></w:sdt>"#;
+    let doc = read_docx(&docx(body)).unwrap();
+    let blocks = &doc.sections[0].blocks;
+    assert_eq!(blocks.len(), 3);
+    let Block::Paragraph(p) = &blocks[0] else {
+        panic!("paragraph")
+    };
+    assert_eq!(p.plain_text(), "Nhập tên☒");
+    let starts: Vec<_> = p
+        .runs
+        .iter()
+        .flat_map(|r| &r.content)
+        .filter_map(|c| match c {
+            RunContent::ControlStart(cc) => Some(cc),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(starts.len(), 2);
+    assert_eq!(starts[0].alias.as_deref(), Some("Tên"));
+    assert_eq!(starts[0].id, Some(5));
+    assert!(starts[0].placeholder);
+    assert_eq!(starts[0].kind, ControlKind::Text { multi_line: false });
+    assert!(matches!(
+        starts[1].kind,
+        ControlKind::Checkbox {
+            checked: true,
+            on: '\u{2612}',
+            off: '\u{2610}'
+        }
+    ));
+    // A block control's markers sit at the start of its first and the end of its last paragraph.
+    let (Block::Paragraph(a), Block::Paragraph(b)) = (&blocks[1], &blocks[2]) else {
+        panic!("paragraphs")
+    };
+    let Some(RunContent::ControlStart(cc)) = a.runs[0].content.first() else {
+        panic!("start marker")
+    };
+    assert!(cc.block);
+    assert_eq!(cc.tag.as_deref(), Some("k"));
+    assert_eq!(cc.lock.as_deref(), Some("sdtContentLocked"));
+    assert_eq!(
+        cc.kind,
+        ControlKind::DropDown(vec![("A".into(), "a".into())])
+    );
+    assert!(matches!(
+        b.runs.last().and_then(|r| r.content.last()),
+        Some(RunContent::ControlEnd(true))
+    ));
+    // Written back as one sdt around both paragraphs, its properties as read.
+    let out = bo_docx::write_docx(&doc).unwrap();
+    let again = read_docx(&out).unwrap();
+    assert_eq!(again.sections[0].blocks.len(), 3);
+    let pkg = Package::read(&out, &bo_opc::Limits::default()).unwrap();
+    let xml = String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap();
+    assert_eq!(xml.matches("<w:sdt>").count(), 3);
+    assert!(xml.contains(r#"<w:lock w:val="sdtContentLocked"/>"#));
+}

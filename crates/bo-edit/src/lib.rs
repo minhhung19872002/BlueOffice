@@ -35,9 +35,9 @@ pub use table::{BorderPreset, TableEdit};
 use bo_model::change::BlockChanges;
 use bo_model::index::{blocks_at, body_paragraphs, para_at, ParaPath};
 use bo_model::{
-    Alignment, Block, Color, Document, HalfPoints, Image, LineSpacing, NumRef, ParaProps,
-    Paragraph, RunContent, RunProps, Section, SectionBreak, StyleKind, TabAlign, TabLeader,
-    TabStop, Table, Twips, Underline, VertAlign,
+    Alignment, Block, Color, ContentControl, ControlKind, Document, HalfPoints, Image, LineSpacing,
+    NumRef, ParaProps, Paragraph, RunContent, RunProps, Section, SectionBreak, StyleKind, TabAlign,
+    TabLeader, TabStop, Table, Twips, Underline, VertAlign,
 };
 use para::Atom;
 use serde::{Deserialize, Serialize};
@@ -1037,6 +1037,21 @@ pub fn builtin_style(id: &str) -> Option<bo_model::Style> {
     Some(s)
 }
 
+/// Largest content-control id of the body (§17.5.2.18 id).
+fn max_control_id(doc: &Document) -> i64 {
+    body_paragraphs(doc)
+        .iter()
+        .filter_map(|path| para_at(doc, path))
+        .flat_map(|p| p.runs.iter().flat_map(|r| &r.content))
+        .filter_map(|c| match c {
+            RunContent::ControlStart(cc) => cc.id,
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0)
+        .max(0)
+}
+
 // ------------------------------------------------------------------ session
 
 /// An editing session: the document, its selection and the undo history.
@@ -1565,6 +1580,173 @@ impl Session {
             let props = para::props_at(&atoms, at.offset);
             Ok(Selection::caret(tx.insert_atoms(at, vec![(props, field)])?))
         })
+    }
+
+    /// Insert an inline content control (§17.5.2.31 sdt) of `kind` (`text`, `richText`,
+    /// `checkbox`, `dropDown`, `comboBox`, `date`) at the caret, showing `placeholder` (a
+    /// checkbox shows ☐); the content is selected. List controls offer `items`.
+    pub fn insert_control(
+        &mut self,
+        kind: &str,
+        placeholder: &str,
+        items: &[String],
+    ) -> Result<Selection> {
+        let list: Vec<(String, String)> = items.iter().map(|i| (i.clone(), i.clone())).collect();
+        let ck = match kind {
+            "text" => ControlKind::Text { multi_line: false },
+            "richText" => ControlKind::RichText,
+            "checkbox" => ControlKind::Checkbox {
+                checked: false,
+                on: '\u{2612}',
+                off: '\u{2610}',
+            },
+            "dropDown" => ControlKind::DropDown(list),
+            "comboBox" => ControlKind::ComboBox(list),
+            "date" => ControlKind::Date {
+                format: "dd/MM/yyyy".into(),
+                full_date: None,
+            },
+            _ => return Err(EditError::Unsupported(format!("control {kind}"))),
+        };
+        let checkbox = matches!(ck, ControlKind::Checkbox { .. });
+        let id = 1 + max_control_id(&self.doc);
+        let cc = ContentControl {
+            id: Some(id),
+            alias: None,
+            tag: None,
+            kind: ck,
+            lock: None,
+            placeholder: !checkbox,
+            block: false,
+            props_xml: None,
+        };
+        let text = if checkbox {
+            "\u{2610}".to_owned()
+        } else {
+            placeholder.to_owned()
+        };
+        self.edit(|tx, sel| {
+            let (a, b) = sel.ordered();
+            let at = tx.delete_range(a, b)?;
+            let (_, _, atoms) = tx.atoms(at.para)?;
+            let props = para::props_at(&atoms, at.offset);
+            // One insertion, so the placeholder text stays marked as such.
+            let n = text.len();
+            tx.insert_atoms(
+                at,
+                vec![
+                    (RunProps::default(), RunContent::ControlStart(Box::new(cc))),
+                    (props, RunContent::Text(text)),
+                    (RunProps::default(), RunContent::ControlEnd(false)),
+                ],
+            )?;
+            Ok(Selection {
+                anchor: at,
+                focus: Pos::new(at.para, at.offset + n),
+            })
+        })
+    }
+
+    /// The inline content control around the caret: its properties, the paragraph and the atom
+    /// indices of its start and end markers.
+    fn control_span(&self) -> Option<(ContentControl, usize, usize, usize)> {
+        let caret = self.selection.focus;
+        let path = body_paragraphs(&self.doc).get(caret.para)?.clone();
+        let p = para_at(&self.doc, &path)?;
+        let atoms = para::flatten(p);
+        let mut pos = 0;
+        let mut open: Vec<(usize, usize)> = Vec::new(); // (atom index, offset)
+        let mut found = None;
+        for (i, (_, c)) in atoms.iter().enumerate() {
+            match c {
+                RunContent::ControlStart(cc) if !cc.block => open.push((i, pos)),
+                RunContent::ControlEnd(false) => {
+                    if let Some((s, so)) = open.pop() {
+                        if so <= caret.offset && caret.offset <= pos {
+                            if let RunContent::ControlStart(cc) = &atoms[s].1 {
+                                // The innermost control around the caret.
+                                if found.is_none() {
+                                    found = Some(((**cc).clone(), caret.para, s, i));
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            pos += para::atom_len(c);
+        }
+        found
+    }
+
+    /// The content control around the caret, for the host.
+    #[must_use]
+    pub fn control_at_caret(&self) -> Option<ContentControl> {
+        self.control_span().map(|c| c.0)
+    }
+
+    /// Set the content of the control around the caret: toggle a checkbox (`value` ignored), pick
+    /// a list item or type a combo-box value, set a date (ISO 8601; shown in the control's format),
+    /// or put text in a text control. Returns whether a control was changed (one undo step).
+    pub fn set_control_value(&mut self, value: &str, vi: bool) -> Result<bool> {
+        let Some((mut cc, para_id, s, e)) = self.control_span() else {
+            return Ok(false);
+        };
+        if matches!(
+            cc.lock.as_deref(),
+            Some("contentLocked" | "sdtContentLocked")
+        ) {
+            return Ok(false);
+        }
+        let text = match &mut cc.kind {
+            ControlKind::Checkbox { checked, on, off } => {
+                *checked = !*checked;
+                if *checked {
+                    on.to_string()
+                } else {
+                    off.to_string()
+                }
+            }
+            ControlKind::DropDown(items) => {
+                match items.iter().find(|(d, v)| d == value || v == value) {
+                    Some((d, _)) => d.clone(),
+                    None => return Ok(false),
+                }
+            }
+            ControlKind::Date { format, full_date } => {
+                let Some(d) = bo_model::field::DateTime::parse_iso(value) else {
+                    return Ok(false);
+                };
+                *full_date = Some(format!(
+                    "{:04}-{:02}-{:02}T00:00:00Z",
+                    d.year, d.month, d.day
+                ));
+                bo_model::field::format_date(&d, format, vi)
+            }
+            ControlKind::Group | ControlKind::RepeatingSection | ControlKind::Picture => {
+                return Ok(false)
+            }
+            _ => value.to_owned(),
+        };
+        cc.placeholder = false;
+        let caret = self.selection;
+        self.edit(|tx, _| {
+            let (path, p, atoms) = tx.atoms(para_id)?;
+            let props = atoms
+                .get(s + 1..e)
+                .and_then(|x| x.iter().find(|a| matches!(a.1, RunContent::Text(_))))
+                .map_or_else(|| atoms[s].0.clone(), |a| a.0.clone());
+            let mut out: Vec<para::Atom> = atoms[..s].to_vec();
+            out.push((atoms[s].0.clone(), RunContent::ControlStart(Box::new(cc))));
+            if !text.is_empty() {
+                out.push((props, RunContent::Text(text)));
+            }
+            out.extend_from_slice(&atoms[e..]);
+            tx.replace_para(&path, para::with_atoms(&p, out))?;
+            Ok(caret)
+        })?;
+        self.fix_selection();
+        Ok(true)
     }
 
     /// Insert an Office Math zone in place of the selection (`xml`: an `m:oMath` or `m:oMathPara`

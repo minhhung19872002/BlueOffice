@@ -5,15 +5,19 @@
 
 use crate::{DocxError, Result};
 use bo_model::slide::Theme;
+
+const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+const W14_NS: &str = "http://schemas.microsoft.com/office/word/2010/wordml";
+const W15_NS: &str = "http://schemas.microsoft.com/office/word/2012/wordml";
 use bo_model::{
     fingerprint, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellMerge,
-    CellProps, CellPropsChange, CellVAlign, Color, Columns, Comment, Document, Emu, GridChange,
-    HalfPoints, HeaderFooter, HeightRule, Image, Level, LineSpacing, NotePos, NoteProps,
-    NoteRestart, Num, NumFormat, NumRef, Numbering, ParaProps, ParaPropsChange, Paragraph, Raw,
-    RevMark, RevisionInfo, Row, RowPropsChange, Run, RunContent, RunProps, RunPropsChange, Section,
-    SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign, TabLeader, TabStop, Table,
-    TableProps, TablePropsChange, TableWidth, ThemeFonts, Twips, Underline, VMerge, VertAlign,
-    Wrap, WrapText,
+    CellProps, CellPropsChange, CellVAlign, Color, Columns, Comment, ContentControl, ControlKind,
+    Document, Emu, GridChange, HalfPoints, HeaderFooter, HeightRule, Image, Level, LineSpacing,
+    NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering, ParaProps, ParaPropsChange,
+    Paragraph, Raw, RevMark, RevisionInfo, Row, RowPropsChange, Run, RunContent, RunProps,
+    RunPropsChange, Section, SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign,
+    TabLeader, TabStop, Table, TableProps, TablePropsChange, TableWidth, ThemeFonts, Twips,
+    Underline, VMerge, VertAlign, Wrap, WrapText,
 };
 use bo_opc::xml::{attr, unescape, XmlReader};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -633,7 +637,7 @@ fn read_body(
                             } else {
                                 let mut sect = None;
                                 let b = read_block(&mut r, &e, ctx, media, before, &mut sect)?;
-                                blocks.push(b);
+                                blocks.extend(b);
                                 if let Some(mut sec) = sect {
                                     sec.blocks = std::mem::take(&mut blocks);
                                     sections.push(sec);
@@ -696,7 +700,7 @@ fn read_blocks(
                     r.skip_element()?;
                 } else {
                     let b = read_block(r, &e, ctx, media, before, sect)?;
-                    out.push(b);
+                    out.extend(b);
                 }
             }
             Event::Empty(e) => {
@@ -723,8 +727,11 @@ fn read_block<'a>(
     media: &mut BTreeMap<String, Arc<Vec<u8>>>,
     before: usize,
     sect: &mut Option<Section>,
-) -> Result<Block> {
-    Ok(match name(e).as_slice() {
+) -> Result<Vec<Block>> {
+    if name(e) == b"sdt" {
+        return read_sdt_block(r, ctx, media, before, sect);
+    }
+    Ok(vec![match name(e).as_slice() {
         b"p" => {
             let mut p = read_paragraph(r, ctx, media, sect)?;
             p.src = Some(Raw::new(r.slice(before, r.pos()), p.content_fingerprint()));
@@ -736,7 +743,158 @@ fn read_block<'a>(
             Block::Table(t)
         }
         _ => Block::Opaque(capture(r, true, before)?),
-    })
+    }])
+}
+
+/// §17.5.2.29 sdt around block content: its paragraphs with markers at the start of the first and
+/// the end of the last; a control around tables or nothing stays as read.
+fn read_sdt_block(
+    r: &mut XmlReader<'_>,
+    ctx: &Ctx<'_>,
+    media: &mut BTreeMap<String, Arc<Vec<u8>>>,
+    before: usize,
+    sect: &mut Option<Section>,
+) -> Result<Vec<Block>> {
+    let mut cc = None;
+    let mut inner: Option<Vec<Block>> = None;
+    children(r, |r, e, s, at| match name(e).as_slice() {
+        b"sdtPr" => {
+            let raw = capture(r, s, at)?;
+            cc = Some(parse_sdt_pr(&raw.xml, true));
+            Ok(true)
+        }
+        b"sdtContent" if s => {
+            inner = Some(read_blocks(r, ctx, media, sect)?);
+            Ok(true)
+        }
+        _ => Ok(!s),
+    })?;
+    let raw = Raw::new(r.slice(before, r.pos()), 0);
+    match (cc, inner) {
+        (Some(cc), Some(mut blocks))
+            if !blocks.is_empty() && blocks.iter().all(|b| matches!(b, Block::Paragraph(_))) =>
+        {
+            let n = blocks.len();
+            for (k, b) in blocks.iter_mut().enumerate() {
+                let Block::Paragraph(p) = b else { continue };
+                if k == 0 {
+                    p.runs.insert(
+                        0,
+                        Run {
+                            props: RunProps::default(),
+                            content: vec![RunContent::ControlStart(Box::new(cc.clone()))],
+                        },
+                    );
+                }
+                if k + 1 == n {
+                    p.runs.push(Run {
+                        props: RunProps::default(),
+                        content: vec![RunContent::ControlEnd(true)],
+                    });
+                }
+                // The paragraph's own XML still stands for it (the markers are written around).
+                let fp = p.content_fingerprint();
+                if let Some(src) = p.src.take() {
+                    p.src = Some(Raw::new(src.xml, fp));
+                }
+            }
+            Ok(blocks)
+        }
+        _ => Ok(vec![Block::Opaque(raw)]),
+    }
+}
+
+/// §17.5.2.38 sdtPr: id, alias, tag, lock, placeholder and the kind of control.
+pub(crate) fn parse_sdt_pr(xml: &str, block: bool) -> ContentControl {
+    let mut cc = ContentControl {
+        id: None,
+        alias: None,
+        tag: None,
+        kind: ControlKind::RichText,
+        lock: None,
+        placeholder: false,
+        block,
+        props_xml: Some(xml.to_owned()),
+    };
+    let wrapped =
+        format!("<x xmlns:w=\"{W_NS}\" xmlns:w14=\"{W14_NS}\" xmlns:w15=\"{W15_NS}\">{xml}</x>");
+    let Ok(root) = bo_drawingml::dom::parse(wrapped.as_bytes(), "/sdtPr") else {
+        return cc;
+    };
+    let Some(pr) = root.elements().next() else {
+        return cc;
+    };
+    let val = |e: &bo_model::slide::XmlElement| {
+        e.attrs
+            .iter()
+            .find(|(k, _)| k.rsplit(':').next() == Some("val"))
+            .map(|(_, v)| v.clone())
+    };
+    let attr_of = |e: &bo_model::slide::XmlElement, local: &str| {
+        e.attrs
+            .iter()
+            .find(|(k, _)| k.rsplit(':').next() == Some(local))
+            .map(|(_, v)| v.clone())
+    };
+    let on = |v: Option<String>| !matches!(v.as_deref(), Some("0" | "false" | "off"));
+    let items = |e: &bo_model::slide::XmlElement| -> Vec<(String, String)> {
+        e.elements()
+            .filter(|li| li.local() == "listItem")
+            .map(|li| {
+                let v = attr_of(li, "value").unwrap_or_default();
+                (attr_of(li, "displayText").unwrap_or_else(|| v.clone()), v)
+            })
+            .collect()
+    };
+    let symbol = |e: Option<&bo_model::slide::XmlElement>, default: char| {
+        e.and_then(|s| attr_of(s, "val"))
+            .and_then(|h| u32::from_str_radix(&h, 16).ok())
+            .and_then(char::from_u32)
+            .unwrap_or(default)
+    };
+    for c in pr.elements() {
+        match c.local() {
+            "id" => cc.id = val(c).and_then(|v| v.trim().parse().ok()),
+            "alias" => cc.alias = val(c),
+            "tag" => cc.tag = val(c),
+            "lock" => cc.lock = val(c),
+            "showingPlcHdr" => cc.placeholder = on(val(c)),
+            "text" => {
+                cc.kind = ControlKind::Text {
+                    multi_line: attr_of(c, "multiLine").is_some_and(|v| v == "1" || v == "true"),
+                };
+            }
+            "richText" => cc.kind = ControlKind::RichText,
+            "picture" => cc.kind = ControlKind::Picture,
+            "comboBox" => cc.kind = ControlKind::ComboBox(items(c)),
+            "dropDownList" => cc.kind = ControlKind::DropDown(items(c)),
+            "date" => {
+                cc.kind = ControlKind::Date {
+                    format: c
+                        .elements()
+                        .find(|x| x.local() == "dateFormat")
+                        .and_then(val)
+                        .unwrap_or_else(|| "dd/MM/yyyy".into()),
+                    full_date: attr_of(c, "fullDate"),
+                };
+            }
+            "checkbox" => {
+                let el = |n: &str| c.elements().find(|x| x.local() == n);
+                cc.kind = ControlKind::Checkbox {
+                    checked: el("checked").is_some_and(|x| on(val(x))),
+                    on: symbol(el("checkedState"), '\u{2612}'),
+                    off: symbol(el("uncheckedState"), '\u{2610}'),
+                };
+            }
+            "repeatingSection" => cc.kind = ControlKind::RepeatingSection,
+            "group" => cc.kind = ControlKind::Group,
+            "citation" | "bibliography" | "equation" | "docPartObj" | "docPartList" => {
+                cc.kind = ControlKind::Other;
+            }
+            _ => {}
+        }
+    }
+    cc
 }
 
 /// ECMA-376 Part 1, §17.3.1.22 p.
@@ -874,14 +1032,33 @@ fn read_para_children(
             b"smartTag" | b"customXml" if s => {
                 read_para_children(r, ctx, media, sect, p, rc)?;
             }
+            // §17.5.2.31 sdt (run-level content control): its content between markers.
             b"sdt" if s => {
-                children(r, |r, e, s, _| {
-                    if s && name(e) == b"sdtContent" {
-                        read_para_children(r, ctx, media, sect, p, rc)?;
-                        return Ok(true);
+                let mut started = false;
+                children(r, |r, e, s, at| match name(e).as_slice() {
+                    b"sdtPr" => {
+                        let raw = capture(r, s, at)?;
+                        p.runs.push(Run {
+                            props: RunProps::default(),
+                            content: vec![RunContent::ControlStart(Box::new(parse_sdt_pr(
+                                &raw.xml, false,
+                            )))],
+                        });
+                        started = true;
+                        Ok(true)
                     }
-                    Ok(!s)
+                    b"sdtContent" if s => {
+                        read_para_children(r, ctx, media, sect, p, rc)?;
+                        Ok(true)
+                    }
+                    _ => Ok(!s),
                 })?;
+                if started {
+                    p.runs.push(Run {
+                        props: RunProps::default(),
+                        content: vec![RunContent::ControlEnd(false)],
+                    });
+                }
             }
             // Other paragraph-level markup is kept verbatim.
             _ => {
@@ -1910,7 +2087,7 @@ fn read_table(
                                     }
                                     Event::Start(e) => {
                                         let mut sect = None;
-                                        cell.blocks.push(read_block(
+                                        cell.blocks.extend(read_block(
                                             r, &e, ctx, media, before, &mut sect,
                                         )?);
                                     }

@@ -126,7 +126,8 @@
       "footnote": "Chèn chú thích cuối trang",
       "endnote": "Chèn chú thích cuối văn bản",
       "equation": "Phương trình",
-      "field": "Trường…"
+      "field": "Trường…",
+      "control": "Điều khiển nội dung…"
     },
     "layout": {
       "margins": "Lề",
@@ -2035,5 +2036,32 @@
       "STYLEREF": "Heading 1",
       "QUOTE": "\"Văn bản\""
     }
+  },
+  "controlDialog": {
+    "title": "Chèn điều khiển nội dung",
+    "insert": "Chèn",
+    "kind": "Loại điều khiển",
+    "placeholder": "Văn bản giữ chỗ",
+    "items": "Các mục danh sách (mỗi dòng một mục)",
+    "kinds": {
+      "text": "Văn bản thuần",
+      "richText": "Văn bản có định dạng",
+      "checkbox": "Hộp kiểm",
+      "dropDown": "Danh sách thả xuống",
+      "comboBox": "Hộp kết hợp",
+      "date": "Chọn ngày"
+    },
+    "defaultPlaceholder": "Bấm vào đây để nhập văn bản.",
+    "defaultItem": "Chọn một mục.",
+    "defaultDate": "Bấm vào đây để nhập ngày."
+  },
+  "controlBar": {
+    "label": "Điều khiển nội dung",
+    "toggle": "Chọn / bỏ chọn",
+    "choose": "Chọn một mục",
+    "value": "Giá trị",
+    "date": "Ngày",
+    "locked": "Nội dung bị khoá",
+    "apply": "Áp dụng"
   }
 }

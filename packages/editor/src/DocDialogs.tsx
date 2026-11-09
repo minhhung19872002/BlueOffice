@@ -1,6 +1,8 @@
 import { useTranslation } from '@blueoffice/i18n';
 import type {
   Alignment,
+  ControlInfo,
+  ControlKind,
   EditCommand,
   EditResult,
   EquationInfo,
@@ -1022,5 +1024,185 @@ export function FieldDialog({
         <code data-testid="field-code">{instr}</code>
       </label>
     </Dialog>
+  );
+}
+
+const CONTROL_KINDS: ControlKind[] = [
+  'text',
+  'richText',
+  'checkbox',
+  'dropDown',
+  'comboBox',
+  'date',
+];
+
+/** Insert a content control (§17.5.2 sdt): its kind, placeholder and list items. */
+export function ControlDialog({
+  onInsert,
+  onClose,
+}: {
+  onInsert: (cmd: EditCommand) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [kind, setKind] = useState<ControlKind>('text');
+  const [placeholder, setPlaceholder] = useState(t('controlDialog.defaultPlaceholder'));
+  const [items, setItems] = useState('');
+  const list = kind === 'dropDown' || kind === 'comboBox';
+  const pick = (k: ControlKind) => {
+    setKind(k);
+    setPlaceholder(
+      k === 'dropDown' || k === 'comboBox'
+        ? t('controlDialog.defaultItem')
+        : k === 'date'
+          ? t('controlDialog.defaultDate')
+          : t('controlDialog.defaultPlaceholder'),
+    );
+  };
+  const insert = () =>
+    onInsert({
+      cmd: 'insertControl',
+      kind,
+      placeholder,
+      items: list
+        ? items
+            .split('\n')
+            .map((i) => i.trim())
+            .filter((i) => i !== '')
+        : [],
+    });
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t('controlDialog.title')}
+      testId="control-dialog"
+      footer={
+        <>
+          <button type="button" className={styles.dialogButton} onClick={onClose}>
+            {t('security.cancel')}
+          </button>
+          <button
+            type="button"
+            className={styles.dialogPrimary}
+            data-testid="control-ok"
+            onClick={insert}
+          >
+            {t('controlDialog.insert')}
+          </button>
+        </>
+      }
+    >
+      <label className={styles.field}>
+        {t('controlDialog.kind')}
+        <select
+          data-testid="control-kind"
+          value={kind}
+          onChange={(e) => pick(e.target.value as ControlKind)}
+        >
+          {CONTROL_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {t(`controlDialog.kinds.${k}`)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {kind !== 'checkbox' && (
+        <label className={styles.field}>
+          {t('controlDialog.placeholder')}
+          <input
+            data-testid="control-placeholder"
+            value={placeholder}
+            onChange={(e) => setPlaceholder(e.target.value)}
+          />
+        </label>
+      )}
+      {list && (
+        <label className={styles.field}>
+          {t('controlDialog.items')}
+          <textarea
+            data-testid="control-items"
+            rows={4}
+            value={items}
+            onChange={(e) => setItems(e.target.value)}
+          />
+        </label>
+      )}
+    </Dialog>
+  );
+}
+
+/** The content control around the caret: toggle, pick an item or a date. */
+export function ControlBar({ control, run }: { control: ControlInfo; run: Run }) {
+  const { t } = useTranslation();
+  const [value, setValue] = useState('');
+  const known = (CONTROL_KINDS as string[]).includes(control.kind);
+  const set = (v: string) => void run({ cmd: 'setControlValue', value: v });
+  return (
+    <div
+      className={`${styles.hfBar} ${styles.ccBar}`}
+      role="toolbar"
+      data-testid="control-bar"
+      aria-label={t('controlBar.label')}
+    >
+      <strong data-testid="control-kind-label">
+        {known ? t(`controlDialog.kinds.${control.kind}`) : t('controlBar.label')}
+        {control.title ? ` · ${control.title}` : ''}
+      </strong>
+      {control.locked && <span>{t('controlBar.locked')}</span>}
+      {!control.locked && control.kind === 'checkbox' && (
+        <button
+          type="button"
+          data-testid="control-toggle"
+          aria-pressed={!!control.checked}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => set('')}
+        >
+          {control.checked ? '☒' : '☐'} {t('controlBar.toggle')}
+        </button>
+      )}
+      {!control.locked && (control.kind === 'dropDown' || control.kind === 'comboBox') && (
+        <select
+          data-testid="control-choose"
+          aria-label={t('controlBar.choose')}
+          value=""
+          onChange={(e) => e.target.value !== '' && set(e.target.value)}
+        >
+          <option value="">{t('controlBar.choose')}</option>
+          {control.items.map((i) => (
+            <option key={i} value={i}>
+              {i}
+            </option>
+          ))}
+        </select>
+      )}
+      {!control.locked && control.kind === 'comboBox' && (
+        <>
+          <input
+            data-testid="control-value"
+            aria-label={t('controlBar.value')}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+          />
+          <button
+            type="button"
+            data-testid="control-apply"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => value !== '' && set(value)}
+          >
+            {t('controlBar.apply')}
+          </button>
+        </>
+      )}
+      {!control.locked && control.kind === 'date' && (
+        <input
+          type="date"
+          data-testid="control-date"
+          aria-label={t('controlBar.date')}
+          value={control.date?.slice(0, 10) ?? ''}
+          onChange={(e) => e.target.value !== '' && set(e.target.value)}
+        />
+      )}
+    </div>
   );
 }

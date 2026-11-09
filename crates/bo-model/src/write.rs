@@ -1526,6 +1526,72 @@ pub enum RunContent {
     CommentEnd(i32),
     /// Comment reference mark inside a run (§17.13.4.5 commentReference).
     CommentRef(i32),
+    /// Start of a content control (§17.5.2.29 sdt); written outside runs. A block-level control
+    /// (`block`) starts at the beginning of its first paragraph and wraps whole paragraphs.
+    ControlStart(Box<ContentControl>),
+    /// End of the content control started before (`true`: a block-level one).
+    ControlEnd(bool),
+}
+
+/// The kind of a content control (§17.5.2.38 sdtPr children; [MS-DOCX] w14 / w15).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ControlKind {
+    /// §17.5.2.44 text (plain text; `multi_line`).
+    Text {
+        /// Line breaks allowed.
+        multi_line: bool,
+    },
+    /// Rich text (no type element).
+    RichText,
+    /// §17.5.2.26 picture.
+    Picture,
+    /// §17.5.2.5 comboBox: items (display text, value); free text allowed.
+    ComboBox(Vec<(String, String)>),
+    /// §17.5.2.15 dropDownList: items (display text, value).
+    DropDown(Vec<(String, String)>),
+    /// §17.5.2.7 date: display format (`dd/MM/yyyy`) and the full date (ISO 8601).
+    Date {
+        /// §17.5.2.18 dateFormat.
+        format: String,
+        /// `w:fullDate`.
+        full_date: Option<String>,
+    },
+    /// [MS-DOCX] w14:checkbox: checked, and the checked / unchecked characters.
+    Checkbox {
+        /// w14:checked.
+        checked: bool,
+        /// Shown when checked (default ☒).
+        on: char,
+        /// Shown when unchecked (default ☐).
+        off: char,
+    },
+    /// [MS-DOCX] w15:repeatingSection.
+    RepeatingSection,
+    /// §17.5.2.15 group.
+    Group,
+    /// Another kind (citation, bibliography, equation, doc-part gallery…).
+    Other,
+}
+
+/// A content control's properties (§17.5.2.38 sdtPr).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ContentControl {
+    /// §17.5.2.18 id.
+    pub id: Option<i64>,
+    /// §17.5.2.1 alias (the title shown).
+    pub alias: Option<String>,
+    /// §17.5.2.42 tag.
+    pub tag: Option<String>,
+    /// What the control holds.
+    pub kind: ControlKind,
+    /// §17.5.2.23 lock: `sdtLocked`, `contentLocked`, `sdtContentLocked`.
+    pub lock: Option<String>,
+    /// The content shows the placeholder (§17.5.2.39 showingPlcHdr).
+    pub placeholder: bool,
+    /// A block-level control (around paragraphs).
+    pub block: bool,
+    /// `w:sdtPr` as read (written back while the parsed fields are unchanged).
+    pub props_xml: Option<String>,
 }
 
 impl RunContent {
@@ -1550,7 +1616,9 @@ impl RunContent {
             | RunContent::Markup(_)
             | RunContent::CommentStart(_)
             | RunContent::CommentEnd(_)
-            | RunContent::CommentRef(_) => {}
+            | RunContent::CommentRef(_)
+            | RunContent::ControlStart(_)
+            | RunContent::ControlEnd(_) => {}
         }
     }
 }

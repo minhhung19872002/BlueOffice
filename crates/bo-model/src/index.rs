@@ -46,7 +46,9 @@ pub fn item_text(c: &RunContent) -> String {
         | RunContent::Markup(_)
         | RunContent::CommentStart(_)
         | RunContent::CommentEnd(_)
-        | RunContent::CommentRef(_) => String::new(),
+        | RunContent::CommentRef(_)
+        | RunContent::ControlStart(_)
+        | RunContent::ControlEnd(_) => String::new(),
     }
 }
 

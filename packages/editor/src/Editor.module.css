@@ -597,3 +597,13 @@
   color: inherit;
   font: inherit;
 }
+
+/* Content control bar sits above the header/footer bar when both show. */
+.ccBar {
+  bottom: 60px;
+}
+
+.ccBar select,
+.ccBar input {
+  font-size: 12px;
+}

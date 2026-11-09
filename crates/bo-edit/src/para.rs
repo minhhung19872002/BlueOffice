@@ -105,8 +105,55 @@ pub fn props_at(atoms: &[Atom], off: usize) -> RunProps {
 }
 
 /// Insert atoms at `off`.
+///
+/// At content-control boundaries (§17.5.2 sdt) the content goes past the end of a control whose
+/// value is picked (check box, list, date, picture) and inside a control that starts there; text
+/// typed into a control showing its placeholder clears the placeholder flag.
 pub fn insert(atoms: &mut Vec<Atom>, off: usize, new: Vec<Atom>) {
-    let i = split_at(atoms, off);
+    let mut i = split_at(atoms, off);
+    // Inline controls open before `i` (atom indices of their starts).
+    let mut open: Vec<usize> = Vec::new();
+    for (k, (_, c)) in atoms[..i].iter().enumerate() {
+        match c {
+            RunContent::ControlStart(cc) if !cc.block => open.push(k),
+            RunContent::ControlEnd(false) => {
+                open.pop();
+            }
+            _ => {}
+        }
+    }
+    let picked = |cc: &bo_model::ContentControl| {
+        use bo_model::ControlKind as K;
+        matches!(
+            cc.kind,
+            K::Checkbox { .. } | K::DropDown(_) | K::Date { .. } | K::Picture
+        )
+    };
+    while let (Some((_, RunContent::ControlEnd(false))), Some(&s)) = (atoms.get(i), open.last()) {
+        match &atoms[s].1 {
+            RunContent::ControlStart(cc) if picked(cc) => {
+                open.pop();
+                i += 1;
+            }
+            _ => break,
+        }
+    }
+    while let Some((_, RunContent::ControlStart(cc))) = atoms.get(i) {
+        if !cc.block {
+            open.push(i);
+        }
+        i += 1;
+    }
+    let typed = new
+        .iter()
+        .any(|a| matches!(&a.1, RunContent::Text(t) if !t.is_empty()));
+    if typed {
+        if let Some(&s) = open.last() {
+            if let RunContent::ControlStart(cc) = &mut atoms[s].1 {
+                cc.placeholder = false;
+            }
+        }
+    }
     atoms.splice(i..i, new);
 }
 
@@ -240,6 +287,45 @@ mod tests {
         assert_eq!(rebuild(s)[0].plain_text(), "iệ");
         format(&mut a, 1, 3, &|r| r.italic = Some(true));
         assert_eq!(with_atoms(&p, a).plain_text(), "việt");
+    }
+
+    #[test]
+    fn insert_at_control_boundaries() {
+        use bo_model::{ContentControl, ControlKind};
+        let cc = |kind, placeholder| {
+            RunContent::ControlStart(Box::new(ContentControl {
+                id: None,
+                alias: None,
+                tag: None,
+                kind,
+                lock: None,
+                placeholder,
+                block: false,
+                props_xml: None,
+            }))
+        };
+        let d = RunProps::default();
+        let check = ControlKind::Checkbox {
+            checked: false,
+            on: 'x',
+            off: 'o',
+        };
+        let mut a = vec![
+            (d.clone(), cc(check, false)),
+            (d.clone(), RunContent::Text("o".into())),
+            (d.clone(), RunContent::ControlEnd(false)),
+            (d.clone(), cc(ControlKind::Text { multi_line: false }, true)),
+            (d.clone(), RunContent::ControlEnd(false)),
+        ];
+        // After the check box: outside it, and inside the empty text control that starts there.
+        insert(&mut a, 1, text_atoms("ab", &d));
+        assert!(matches!(&a[2].1, RunContent::ControlEnd(false)));
+        assert!(matches!(&a[4].1, RunContent::Text(t) if t == "ab"));
+        assert!(matches!(&a[3].1, RunContent::ControlStart(c) if !c.placeholder));
+        // At the end of a text control's content the text stays inside it.
+        insert(&mut a, 3, text_atoms("c", &d));
+        assert!(matches!(&a[5].1, RunContent::Text(t) if t == "c"));
+        assert!(matches!(&a[6].1, RunContent::ControlEnd(false)));
     }
 
     #[test]

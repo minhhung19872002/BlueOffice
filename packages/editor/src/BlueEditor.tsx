@@ -124,6 +124,7 @@ import {
   GitCompare,
   GitMerge,
   Braces,
+  ListChecks,
   LockOpen,
   Unlink,
 } from 'lucide-react';
@@ -155,6 +156,8 @@ import {
   PasteSpecialDialog,
   EquationDialog,
   FieldDialog,
+  ControlDialog,
+  ControlBar,
   PicturePositionDialog,
   TablePropertiesDialog,
   TemplateDialog,
@@ -933,6 +936,11 @@ function EditorInner({
       id: 'insert.field',
       isEnabled: hasDoc,
       run: () => store.setState({ dialog: 'field' }),
+    });
+    r.register({
+      id: 'insert.control',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'control' }),
     });
     r.register({
       id: 'insert.equation',
@@ -1787,6 +1795,7 @@ function EditorInner({
           items: [
             item('insert.equation', 'commands.insert.equation', <Sigma size={ICON} />),
             item('insert.field', 'commands.insert.field', <Braces size={ICON} />),
+            item('insert.control', 'commands.insert.control', <ListChecks size={ICON} />),
             item(
               'equation.professional',
               'commands.equation.professional',
@@ -2158,6 +2167,7 @@ function EditorInner({
             {(state.edit?.story?.kind === 'header' || state.edit?.story?.kind === 'footer') && (
               <HeaderFooterBar story={state.edit.story} run={runCommand} />
             )}
+            {state.edit?.control && <ControlBar control={state.edit.control} run={runCommand} />}
             {state.panel === 'notes' && (
               <NotesPanel
                 run={runCommand}
@@ -2197,6 +2207,15 @@ function EditorInner({
                   const replace = !!store.getState().edit?.equation;
                   closeDialog();
                   void runFocus({ cmd: 'insertEquation', text, latex, display, replace });
+                }}
+              />
+            )}
+            {state.dialog === 'control' && (
+              <ControlDialog
+                onClose={closeDialog}
+                onInsert={(cmd) => {
+                  closeDialog();
+                  void runFocus(cmd);
                 }}
               />
             )}

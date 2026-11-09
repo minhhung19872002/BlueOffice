@@ -8,10 +8,10 @@
 
 use crate::{Result, CT_DOCUMENT, CT_STYLES};
 use bo_model::{
-    fingerprint, Alignment, Block, Border, Borders, Cell, CellVAlign, Document, HeightRule, Image,
-    LineSpacing, ParaProps, Paragraph, Raw, RevisionInfo, Run, RunContent, RunProps, Section,
-    SectionBreak, StyleKind, TabAlign, TabLeader, Table, TableProps, TableWidth, VMerge, VertAlign,
-    Wrap, WrapText,
+    fingerprint, Alignment, Block, Border, Borders, Cell, CellVAlign, ContentControl, ControlKind,
+    Document, HeightRule, Image, LineSpacing, ParaProps, Paragraph, Raw, RevisionInfo, Run,
+    RunContent, RunProps, Section, SectionBreak, StyleKind, TabAlign, TabLeader, Table, TableProps,
+    TableWidth, VMerge, VertAlign, Wrap, WrapText,
 };
 use bo_opc::xml::escape;
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -102,6 +102,8 @@ struct Writer<'d> {
     drawing_id: u32,
     /// Writing endnote content (`NoteMark` becomes `w:endnoteRef`).
     in_endnote: bool,
+    /// Inline content controls open in the paragraph being written.
+    sdt_depth: usize,
 }
 
 /// Serialize a document to `.docx` bytes.
@@ -126,6 +128,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
         hf_counter: 0,
         drawing_id: 1000,
         in_endnote: false,
+        sdt_depth: 0,
     };
     w.write_main(&main)?;
     w.write_styles(&main)?;
@@ -211,6 +214,7 @@ impl Writer<'_> {
             ),
         };
         let mut body = String::new();
+        let mut cc_depth = 0;
         let n = self.doc.sections.len();
         for (si, sec) in self.doc.sections.iter().enumerate() {
             let last = si + 1 == n;
@@ -221,6 +225,8 @@ impl Writer<'_> {
             let count = sec.blocks.len();
             for (bi, b) in sec.blocks.iter().enumerate() {
                 let carries_sect = !last && bi + 1 == count;
+                // §17.5.2.29 block-level sdt around paragraphs.
+                open_block_controls(&mut body, b, &mut cc_depth);
                 match b {
                     Block::Paragraph(p) if carries_sect => {
                         // The paragraph mark holds this section's sectPr (§17.6.17).
@@ -249,7 +255,9 @@ impl Writer<'_> {
                         }
                     }
                 }
+                close_block_controls(&mut body, b, &mut cc_depth);
             }
+            close_all_block_controls(&mut body, &mut cc_depth);
             if last {
                 let sp = self.sect_pr(sec)?;
                 body.push_str(&sp);
@@ -280,15 +288,20 @@ impl Writer<'_> {
 
     fn blocks(&mut self, blocks: &[Block]) -> String {
         let mut s = String::new();
+        let mut depth = 0;
         for b in blocks {
+            open_block_controls(&mut s, b, &mut depth);
             s.push_str(&self.block(b));
+            close_block_controls(&mut s, b, &mut depth);
         }
+        close_all_block_controls(&mut s, &mut depth);
         s
     }
 
     // ------------------------------------------------------------ paragraph
 
     fn paragraph(&mut self, p: &Paragraph, sect_pr: Option<&str>) -> String {
+        let outer_sdt = std::mem::take(&mut self.sdt_depth);
         let mut s = String::from("<w:p>");
         let mut props = ppr_children(&p.props);
         if let Some(sp) = sect_pr {
@@ -332,6 +345,11 @@ impl Writer<'_> {
                 i = j;
             }
         }
+        // A start whose end was split into another paragraph closes here.
+        for _ in 0..self.sdt_depth {
+            s.push_str("</w:sdtContent></w:sdt>");
+        }
+        self.sdt_depth = outer_sdt;
         s.push_str("</w:p>");
         s
     }
@@ -491,6 +509,23 @@ impl Writer<'_> {
                 // §17.13.4.5 commentReference
                 RunContent::CommentRef(id) => {
                     let _ = write!(cur, "<w:commentReference w:id=\"{id}\"/>");
+                }
+                // §17.5.2.31 sdt around runs; block-level controls are written around the
+                // paragraphs (`blocks`).
+                RunContent::ControlStart(cc) => {
+                    flush(&mut out, &mut cur);
+                    if !cc.block {
+                        let _ = write!(out, "<w:sdt>{}<w:sdtContent>", sdt_pr(cc));
+                        self.sdt_depth += 1;
+                    }
+                }
+                RunContent::ControlEnd(block) => {
+                    flush(&mut out, &mut cur);
+                    // An end whose start was split into another paragraph is dropped.
+                    if !block && self.sdt_depth > 0 {
+                        out.push_str("</w:sdtContent></w:sdt>");
+                        self.sdt_depth -= 1;
+                    }
                 }
             }
         }
@@ -1021,13 +1056,17 @@ impl Writer<'_> {
                 .blocks
                 .iter()
                 .rposition(|b| matches!(b, Block::Paragraph(_)));
+            let mut cc_depth = 0;
             for (i, b) in c.blocks.iter().enumerate() {
+                open_block_controls(&mut s, b, &mut cc_depth);
                 let xml = self.block(b);
                 match (&c.para_id, Some(i) == last) {
                     (Some(pid), true) => s.push_str(&with_para_id(&xml, pid)),
                     _ => s.push_str(&xml),
                 }
+                close_block_controls(&mut s, b, &mut cc_depth);
             }
+            close_all_block_controls(&mut s, &mut cc_depth);
             if last.is_none() {
                 match &c.para_id {
                     Some(pid) => {
@@ -2006,6 +2045,131 @@ fn tblpr_children(t: &TableProps) -> Vec<(String, String)> {
     v.extend(raw_items(&t.unknown));
     v
 }
+
+/// §17.5.2.29 sdt around paragraphs: each block-level start marker in `b` opens one before it.
+fn open_block_controls(out: &mut String, b: &Block, depth: &mut usize) {
+    let Block::Paragraph(p) = b else { return };
+    for c in p.runs.iter().flat_map(|r| &r.content) {
+        if let RunContent::ControlStart(cc) = c {
+            if cc.block {
+                let _ = write!(out, "<w:sdt>{}<w:sdtContent>", sdt_pr(cc));
+                *depth += 1;
+            }
+        }
+    }
+}
+
+/// Each block-level end marker in `b` closes an open control after it (an unmatched one is
+/// dropped, so edits that remove a start marker still give well-formed XML).
+fn close_block_controls(out: &mut String, b: &Block, depth: &mut usize) {
+    let Block::Paragraph(p) = b else { return };
+    for c in p.runs.iter().flat_map(|r| &r.content) {
+        if matches!(c, RunContent::ControlEnd(true)) && *depth > 0 {
+            out.push_str("</w:sdtContent></w:sdt>");
+            *depth -= 1;
+        }
+    }
+}
+
+/// Close the controls still open at the end of a container.
+fn close_all_block_controls(out: &mut String, depth: &mut usize) {
+    for _ in 0..*depth {
+        out.push_str("</w:sdtContent></w:sdt>");
+    }
+    *depth = 0;
+}
+
+/// §17.5.2.38 sdtPr: as read while the modelled fields are unchanged, else written from them.
+fn sdt_pr(cc: &ContentControl) -> String {
+    if let Some(xml) = &cc.props_xml {
+        let mut read = crate::reader::parse_sdt_pr(xml, cc.block);
+        read.props_xml.clone_from(&cc.props_xml);
+        if read == *cc {
+            return xml.clone();
+        }
+    }
+    let mut s = String::from("<w:sdtPr>");
+    // CT_SdtPr order: alias, tag, id, lock, showingPlcHdr, then the kind.
+    if let Some(a) = &cc.alias {
+        let _ = write!(s, "<w:alias w:val=\"{}\"/>", escape(a));
+    }
+    if let Some(t) = &cc.tag {
+        let _ = write!(s, "<w:tag w:val=\"{}\"/>", escape(t));
+    }
+    if let Some(id) = cc.id {
+        let _ = write!(s, "<w:id w:val=\"{id}\"/>");
+    }
+    if let Some(l) = &cc.lock {
+        let _ = write!(s, "<w:lock w:val=\"{}\"/>", escape(l));
+    }
+    if cc.placeholder {
+        s.push_str("<w:showingPlcHdr/>");
+    }
+    let list = |s: &mut String, items: &[(String, String)]| {
+        for (d, v) in items {
+            let _ = write!(
+                s,
+                "<w:listItem w:displayText=\"{}\" w:value=\"{}\"/>",
+                escape(d),
+                escape(v)
+            );
+        }
+    };
+    match &cc.kind {
+        ControlKind::Text { multi_line } => {
+            if *multi_line {
+                s.push_str("<w:text w:multiLine=\"1\"/>");
+            } else {
+                s.push_str("<w:text/>");
+            }
+        }
+        ControlKind::RichText | ControlKind::Other => {}
+        ControlKind::Picture => s.push_str("<w:picture/>"),
+        ControlKind::ComboBox(items) => {
+            s.push_str("<w:comboBox>");
+            list(&mut s, items);
+            s.push_str("</w:comboBox>");
+        }
+        ControlKind::DropDown(items) => {
+            s.push_str("<w:dropDownList>");
+            list(&mut s, items);
+            s.push_str("</w:dropDownList>");
+        }
+        ControlKind::Date { format, full_date } => {
+            match full_date {
+                Some(d) => {
+                    let _ = write!(s, "<w:date w:fullDate=\"{}\">", escape(d));
+                }
+                None => s.push_str("<w:date>"),
+            }
+            let _ = write!(
+                s,
+                "<w:dateFormat w:val=\"{}\"/><w:lid w:val=\"vi-VN\"/><w:storeMappedDataAs w:val=\"dateTime\"/><w:calendar w:val=\"gregorian\"/></w:date>",
+                escape(format)
+            );
+        }
+        // [MS-DOCX] w14:checkbox.
+        ControlKind::Checkbox { checked, on, off } => {
+            let _ = write!(
+                s,
+                "<w14:checkbox xmlns:w14=\"{W14}\"><w14:checked w14:val=\"{}\"/><w14:checkedState w14:val=\"{:04X}\" w14:font=\"MS Gothic\"/><w14:uncheckedState w14:val=\"{:04X}\" w14:font=\"MS Gothic\"/></w14:checkbox>",
+                u8::from(*checked),
+                u32::from(*on),
+                u32::from(*off)
+            );
+        }
+        // [MS-DOCX] w15:repeatingSection.
+        ControlKind::RepeatingSection => {
+            let _ = write!(s, "<w15:repeatingSection xmlns:w15=\"{W15}\"/>");
+        }
+        ControlKind::Group => s.push_str("<w:group/>"),
+    }
+    s.push_str("</w:sdtPr>");
+    s
+}
+
+const W14: &str = "http://schemas.microsoft.com/office/word/2010/wordml";
+const W15: &str = "http://schemas.microsoft.com/office/word/2012/wordml";
 
 #[cfg(test)]
 mod tests {

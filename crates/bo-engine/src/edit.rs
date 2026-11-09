@@ -247,6 +247,24 @@ pub enum Command {
         /// Codes shown.
         on: bool,
     },
+    /// Insert an inline content control (§17.5.2.31 sdt) at the caret.
+    InsertControl {
+        /// `text` | `richText` | `checkbox` | `dropDown` | `comboBox` | `date`.
+        kind: String,
+        /// Placeholder text shown until the control is filled.
+        #[serde(default)]
+        placeholder: String,
+        /// Items of a list control.
+        #[serde(default)]
+        items: Vec<String>,
+    },
+    /// Fill the content control around the caret: toggle a checkbox, pick an item, set a date
+    /// (ISO 8601) or text.
+    SetControlValue {
+        /// The value (ignored by a checkbox).
+        #[serde(default)]
+        value: String,
+    },
     /// Accept every revision of the document.
     AcceptAllRevisions,
     /// Reject every revision of the document.
@@ -634,6 +652,9 @@ pub struct EditResult {
     /// The equation the selection covers or the caret follows (CORE-MATH-007).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub equation: Option<crate::equation::EquationInfo>,
+    /// The content control around the caret (§17.5.2 sdt).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub control: Option<ControlInfo>,
     /// Misspelt words (`spelling`, ignore / add-word commands).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spelling: Option<Vec<crate::spell::SpellMark>>,
@@ -1149,6 +1170,16 @@ impl crate::Engine {
                     Command::UnlinkFields => {
                         extra.1 = Some(s.set_fields_locked(None)?);
                     }
+                    Command::InsertControl {
+                        kind,
+                        placeholder,
+                        items,
+                    } => {
+                        s.insert_control(&kind, &placeholder, &items)?;
+                    }
+                    Command::SetControlValue { value } => {
+                        extra.1 = Some(usize::from(s.set_control_value(&value, true)?));
+                    }
                     Command::AcceptAllRevisions => {
                         extra.1 = Some(s.resolve_revisions(None, true)?);
                     }
@@ -1312,6 +1343,7 @@ impl crate::Engine {
             equation: s
                 .selected_equation()
                 .and_then(|(_, xml)| crate::equation::info(&xml)),
+            control: s.control_at_caret().map(|c| ControlInfo::of(&c)),
             collab: None,
             story: None,
             notes: None,
@@ -1359,5 +1391,80 @@ pub fn image_size(bytes: &[u8]) -> Option<(u32, u32)> {
             bo_render::image::jpeg_info(bytes).map(|(w, h, _)| (w, h))
         }
         bo_render::image::Format::Other => None,
+    }
+}
+
+/// A content control as the host sees it (§17.5.2 sdt).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ControlInfo {
+    /// `text` | `richText` | `picture` | `comboBox` | `dropDown` | `date` | `checkbox` |
+    /// `repeatingSection` | `group` | `other`.
+    pub kind: &'static str,
+    /// Title (§17.5.2.1 alias).
+    pub title: Option<String>,
+    /// Tag (§17.5.2.42).
+    pub tag: Option<String>,
+    /// Items of a list control (display texts).
+    pub items: Vec<String>,
+    /// A checkbox is checked.
+    pub checked: Option<bool>,
+    /// A date control's date (ISO 8601) and display format.
+    pub date: Option<String>,
+    /// Display format of a date control.
+    pub format: Option<String>,
+    /// The content shows the placeholder.
+    pub placeholder: bool,
+    /// The content cannot be edited (§17.5.2.23 lock).
+    pub locked: bool,
+}
+
+impl ControlInfo {
+    fn of(c: &bo_model::ContentControl) -> ControlInfo {
+        use bo_model::ControlKind as K;
+        let (kind, items, checked, date, format) = match &c.kind {
+            K::Text { .. } => ("text", vec![], None, None, None),
+            K::RichText => ("richText", vec![], None, None, None),
+            K::Picture => ("picture", vec![], None, None, None),
+            K::ComboBox(i) => (
+                "comboBox",
+                i.iter().map(|x| x.0.clone()).collect(),
+                None,
+                None,
+                None,
+            ),
+            K::DropDown(i) => (
+                "dropDown",
+                i.iter().map(|x| x.0.clone()).collect(),
+                None,
+                None,
+                None,
+            ),
+            K::Date { format, full_date } => (
+                "date",
+                vec![],
+                None,
+                full_date.clone(),
+                Some(format.clone()),
+            ),
+            K::Checkbox { checked, .. } => ("checkbox", vec![], Some(*checked), None, None),
+            K::RepeatingSection => ("repeatingSection", vec![], None, None, None),
+            K::Group => ("group", vec![], None, None, None),
+            K::Other => ("other", vec![], None, None, None),
+        };
+        ControlInfo {
+            kind,
+            title: c.alias.clone(),
+            tag: c.tag.clone(),
+            items,
+            checked,
+            date,
+            format,
+            placeholder: c.placeholder,
+            locked: matches!(
+                c.lock.as_deref(),
+                Some("contentLocked" | "sdtContentLocked")
+            ),
+        }
     }
 }

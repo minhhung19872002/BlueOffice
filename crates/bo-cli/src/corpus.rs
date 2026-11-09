@@ -1043,6 +1043,18 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         sect: s.clone(),
         ..Doc::default()
     }));
+    // Form content controls (§17.5.2; [MS-DOCX] w14:checkbox, w15:repeatingSection).
+    v.push(("controls-01-forms.docx", "controls", "Content control biểu mẫu: văn bản thuần (placeholder), hộp kiểm w14 đã/chưa chọn, danh sách thả xuống, hộp kết hợp, chọn ngày, nhóm nhiều đoạn có khoá", Doc {
+        body: [
+            r#"<w:p><w:r><w:t xml:space="preserve">Họ tên: </w:t></w:r><w:sdt><w:sdtPr><w:alias w:val="Họ tên"/><w:tag w:val="ho_ten"/><w:id w:val="2001"/><w:showingPlcHdr/><w:text/></w:sdtPr><w:sdtContent><w:r><w:rPr><w:color w:val="808080"/></w:rPr><w:t>Nhập họ tên</w:t></w:r></w:sdtContent></w:sdt></w:p>"#.to_owned(),
+            r#"<w:p><w:sdt><w:sdtPr><w:id w:val="2002"/><w14:checkbox><w14:checked w14:val="1"/><w14:checkedState w14:val="2612" w14:font="MS Gothic"/><w14:uncheckedState w14:val="2610" w14:font="MS Gothic"/></w14:checkbox></w:sdtPr><w:sdtContent><w:r><w:t>☒</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t xml:space="preserve"> Đồng ý điều khoản   </w:t></w:r><w:sdt><w:sdtPr><w:id w:val="2003"/><w14:checkbox><w14:checked w14:val="0"/><w14:checkedState w14:val="2612" w14:font="MS Gothic"/><w14:uncheckedState w14:val="2610" w14:font="MS Gothic"/></w14:checkbox></w:sdtPr><w:sdtContent><w:r><w:t>☐</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t xml:space="preserve"> Nhận bản tin</w:t></w:r></w:p>"#.to_owned(),
+            r#"<w:p><w:r><w:t xml:space="preserve">Phòng ban: </w:t></w:r><w:sdt><w:sdtPr><w:alias w:val="Phòng ban"/><w:id w:val="2004"/><w:dropDownList><w:listItem w:displayText="Kế toán" w:value="KT"/><w:listItem w:displayText="Kỹ thuật" w:value="KTh"/><w:listItem w:displayText="Kinh doanh" w:value="KD"/></w:dropDownList></w:sdtPr><w:sdtContent><w:r><w:t>Kỹ thuật</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t xml:space="preserve">   Tỉnh: </w:t></w:r><w:sdt><w:sdtPr><w:id w:val="2005"/><w:comboBox><w:listItem w:displayText="Hà Nội" w:value="HN"/><w:listItem w:displayText="Đà Nẵng" w:value="DN"/></w:comboBox></w:sdtPr><w:sdtContent><w:r><w:t>Huế</w:t></w:r></w:sdtContent></w:sdt></w:p>"#.to_owned(),
+            r#"<w:p><w:r><w:t xml:space="preserve">Ngày ký: </w:t></w:r><w:sdt><w:sdtPr><w:id w:val="2006"/><w:date w:fullDate="2026-11-09T00:00:00Z"><w:dateFormat w:val="dd/MM/yyyy"/><w:lid w:val="vi-VN"/><w:storeMappedDataAs w:val="dateTime"/><w:calendar w:val="gregorian"/></w:date></w:sdtPr><w:sdtContent><w:r><w:t>09/11/2026</w:t></w:r></w:sdtContent></w:sdt></w:p>"#.to_owned(),
+            r#"<w:sdt><w:sdtPr><w:alias w:val="Điều khoản"/><w:tag w:val="dieu_khoan"/><w:id w:val="2007"/><w:lock w:val="sdtContentLocked"/><w:richText/></w:sdtPr><w:sdtContent><w:p><w:r><w:t>Điều 1. Hai bên cam kết thực hiện đúng hợp đồng.</w:t></w:r></w:p><w:p><w:r><w:t>Điều 2. Tranh chấp được giải quyết bằng thương lượng.</w:t></w:r></w:p></w:sdtContent></w:sdt>"#.to_owned(),
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
     v.push(("unknown-02-alternate-content.docx", "unknown", "mc:AlternateContent (Choice wps / Fallback VML), w14 trong rPr, ký hiệu w:sym", Doc {
         body: [
             r#"<w:p><w:r><mc:AlternateContent><mc:Choice Requires="w14"><w14:dummy/><w:t>Choice</w:t></mc:Choice><mc:Fallback><w:t>Fallback</w:t></mc:Fallback></mc:AlternateContent></w:r></w:p>"#.to_owned(),

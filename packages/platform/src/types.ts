@@ -516,6 +516,10 @@ export type EditCommand =
   | { cmd: 'unlinkFields' }
   /** Field codes instead of results (Alt+F9). */
   | { cmd: 'showFieldCodes'; on: boolean }
+  /** Insert an inline content control (§17.5.2 sdt) at the caret. */
+  | { cmd: 'insertControl'; kind: ControlKind; placeholder?: string; items?: string[] }
+  /** Fill the control around the caret: toggle a checkbox, pick an item, set a date (ISO) or text. */
+  | { cmd: 'setControlValue'; value?: string }
   | { cmd: 'insertCaption'; label: string; text: string }
   | { cmd: 'insertCrossReference'; target: string; page: boolean }
   | { cmd: 'mergeData'; name: string; base64: string }
@@ -569,6 +573,28 @@ export interface EditResult {
   spell?: SpellInfo;
   /** The equation the selection covers or the caret follows. */
   equation?: EquationInfo;
+  /** The content control around the caret. */
+  control?: ControlInfo;
+}
+
+/** Kinds of content control the editor inserts. */
+export type ControlKind = 'text' | 'richText' | 'checkbox' | 'dropDown' | 'comboBox' | 'date';
+
+/** A content control (§17.5.2 sdt) as the engine reports it. */
+export interface ControlInfo {
+  kind: ControlKind | 'picture' | 'repeatingSection' | 'group' | 'other';
+  title: string | null;
+  tag: string | null;
+  /** Display texts of a list control. */
+  items: string[];
+  checked: boolean | null;
+  /** A date control's date (ISO 8601). */
+  date: string | null;
+  format: string | null;
+  /** The content shows the placeholder. */
+  placeholder: boolean;
+  /** The contents cannot be edited. */
+  locked: boolean;
 }
 
 /** An equation of the document as the equation editor shows it. */

@@ -12,7 +12,7 @@ lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file
 | App / nhóm | Hàng | Điểm | % |
 |---|---|---|---|
 | Chung (CORE) | 32 | 11 | 34 % |
-| BlueDoc (DOC) | 18 | 8 | 44 % |
+| BlueDoc (DOC) | 18 | 8,5 | 47 % |
 | BlueSheet (SHEET) | 20 | 7,5 | 38 % |
 | BlueSlide (SLIDE) | 12 | 7 | 58 % |
 | Hàm bảng tính | 515 hàm | 275 | 53 % (`functions.md`) |
@@ -69,7 +69,7 @@ lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file
 | Footnote/endnote, TOC, caption, cross-ref | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests bo-edit | ✅ | |
 | Chỉ mục, TOA, trích dẫn | ✅ | 🟡 | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | kết quả cache |
 | Field đầy đủ | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | 🟡 | tests fields | 🟡 | một phần danh sách |
-| Content controls | 🟡 | 🟡 | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
+| Content controls | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus controls-01, tests bo-docx/bo-edit/bo-engine, content-controls.spec | 🟡 | chèn + điền text/rich/hộp kiểm/danh sách/kết hợp/ngày; thiếu tạo ảnh/phần lặp, hộp thoại thuộc tính, khung viền |
 | Track changes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests + E2E | 🟡 | thiếu move, chế độ hiển thị, khoá |
 | So sánh / kết hợp | — | — | ✅ | — | ✅ | ✅ | — | compare::tests, compare_with_the_original_document, combine_two_reviewers_copies, review.spec | ✅ | so sánh với bản gốc → track changes (đoạn, từ, định dạng, bảng); kết hợp bản sửa của hai người (trộn 3 chiều theo đoạn/từ, theo tác giả) |
 | Mail merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | 🟡 | thiếu SQL, email, nhãn |

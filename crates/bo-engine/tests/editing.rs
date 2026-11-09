@@ -666,3 +666,95 @@ fn lock_unlink_and_show_field_codes() {
     assert_eq!(fields, 0);
     assert_eq!(e.document().unwrap().plain_text(), "Minh");
 }
+
+// source: ECMA-376 Part 1, §17.5.2 content controls (sdt) — inserted, filled (checkbox, list,
+// date), saved and read back with their kind and value.
+#[test]
+fn content_controls_insert_fill_and_save() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Đồng ý: "}"#);
+    let r = cmd(&mut e, r#"{"cmd":"insertControl","kind":"checkbox"}"#);
+    assert_eq!(r["control"]["kind"], "checkbox");
+    assert_eq!(r["control"]["checked"], false);
+    let r = cmd(&mut e, r#"{"cmd":"setControlValue"}"#);
+    assert_eq!(r["control"]["checked"], true);
+    cmd(&mut e, r#"{"cmd":"move","motion":"lineEnd"}"#);
+    // Typed after the check box, outside it.
+    let r = cmd(&mut e, r#"{"cmd":"insertText","text":" Loại: "}"#);
+    assert!(r.get("control").is_none());
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"insertControl","kind":"dropDown","placeholder":"Chọn một mục","items":["Hợp đồng","Phụ lục"]}"#,
+    );
+    assert_eq!(r["control"]["placeholder"], true);
+    assert_eq!(
+        r["control"]["items"],
+        serde_json::json!(["Hợp đồng", "Phụ lục"])
+    );
+    cmd(&mut e, r#"{"cmd":"setControlValue","value":"Phụ lục"}"#);
+    cmd(&mut e, r#"{"cmd":"move","motion":"lineEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":" Ngày: "}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertControl","kind":"date","placeholder":"Chọn ngày"}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"setControlValue","value":"2026-11-09"}"#);
+    assert_eq!(r["control"]["date"], "2026-11-09T00:00:00Z");
+    assert_eq!(
+        e.document().unwrap().plain_text(),
+        "Đồng ý: ☒ Loại: Phụ lục Ngày: 09/11/2026"
+    );
+    // Saved as w:sdt and read back as controls.
+    let saved = e.save_docx().unwrap();
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "a.docx").unwrap();
+    assert_eq!(
+        f.document().unwrap().plain_text(),
+        "Đồng ý: ☒ Loại: Phụ lục Ngày: 09/11/2026"
+    );
+    let n = "Đồng ý: ".len() + 1;
+    let r = cmd(
+        &mut f,
+        &format!(
+            r#"{{"cmd":"setSelection","selection":{{"anchor":{{"p":0,"o":{n}}},"focus":{{"p":0,"o":{n}}}}}}}"#
+        ),
+    );
+    assert_eq!(r["control"]["kind"], "checkbox");
+    assert_eq!(r["control"]["checked"], true);
+    // Untouched controls keep their properties as read.
+    let saved2 = f.save_docx().unwrap();
+    let mut g = Engine::with_bundled_fonts();
+    g.open(&saved2, "b.docx").unwrap();
+    assert_eq!(
+        g.document().unwrap().plain_text(),
+        f.document().unwrap().plain_text()
+    );
+}
+
+#[test]
+fn content_control_split_by_enter_still_saves_well_formed() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertControl","kind":"richText","placeholder":"Nội dung"}"#,
+    );
+    cmd(&mut e, r#"{"cmd":"insertText","text":"đầu cuối"}"#);
+    let n = "đầu".len();
+    cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"setSelection","selection":{{"anchor":{{"p":0,"o":{n}}},"focus":{{"p":0,"o":{n}}}}}}}"#
+        ),
+    );
+    cmd(&mut e, r#"{"cmd":"splitParagraph"}"#);
+    let saved = e.save_docx().unwrap();
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "a.docx").unwrap();
+    assert_eq!(
+        f.document().unwrap().plain_text(),
+        "đầu
+ cuối"
+    );
+}

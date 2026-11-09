@@ -1,6 +1,7 @@
 export type * from './types';
 export type * from './chartDesign';
 export type * from './inspect';
+export type * from './audit';
 export type * from './views';
 export { PASSWORD_REQUIRED, WRONG_PASSWORD } from './types';
 export {

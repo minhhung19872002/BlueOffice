@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 mod analysis_cmd;
+mod audit_cmd;
 mod chart_design_cmd;
 mod cmd;
 pub(crate) mod collab;
@@ -1479,6 +1480,12 @@ impl SheetEngine {
                 }
                 // Form controls agree with their linked cells in the saved file.
                 bo_sheet::formctl::sync_from_links(wb);
+                // Manual calculation with calcPr/@calcOnSave (§18.2.2): calculate first.
+                let calc = bo_sheet::calcopts::CalcSettings::read(wb);
+                if calc.calc_on_save && self.live.needs_calculation() {
+                    self.live.calculate(wb, None);
+                    self.invalidate(None);
+                }
             }
         }
         let wb = self.wb()?;

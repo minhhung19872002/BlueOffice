@@ -168,6 +168,12 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// Bind a variable visible to the rest of this evaluation (used by the
+    /// step-by-step evaluator to stand in for evaluated sub-expressions).
+    pub(crate) fn bind(&mut self, name: String, v: Value) {
+        self.scopes.push((name, v));
+    }
+
     /// Current date-time serial.
     pub(crate) fn now(&self) -> f64 {
         self.now

@@ -18,8 +18,40 @@ pub fn format(expr: &Expr) -> String {
 /// Format an expression with the given reference style and origin cell.
 pub fn format_with(expr: &Expr, opts: &ParseOptions) -> String {
     let mut out = String::new();
-    write_expr(&mut out, expr, opts);
+    let f = Fmt { opts, spans: None };
+    write_expr(&mut out, expr, &f);
     out
+}
+
+/// Format an expression in A1 style and report where each node was written:
+/// `spans[i]` is the byte range of the `i`-th node in pre-order (the order of
+/// [`Expr::walk`]), parentheses added around it excluded.
+pub(crate) fn format_spans(expr: &Expr) -> (String, Vec<(usize, usize)>) {
+    let opts = ParseOptions::default();
+    let f = Fmt {
+        opts: &opts,
+        spans: Some(std::cell::RefCell::new(Vec::new())),
+    };
+    let mut out = String::new();
+    write_expr(&mut out, expr, &f);
+    let spans = f
+        .spans
+        .map(std::cell::RefCell::into_inner)
+        .unwrap_or_default();
+    (out, spans)
+}
+
+/// Formatting options plus the optional recorder of node spans.
+struct Fmt<'a> {
+    opts: &'a ParseOptions,
+    spans: Option<std::cell::RefCell<Vec<(usize, usize)>>>,
+}
+
+impl std::ops::Deref for Fmt<'_> {
+    type Target = ParseOptions;
+    fn deref(&self) -> &ParseOptions {
+        self.opts
+    }
 }
 
 fn precedence(e: &Expr) -> u8 {
@@ -32,7 +64,7 @@ fn precedence(e: &Expr) -> u8 {
     }
 }
 
-fn write_child(out: &mut String, e: &Expr, opts: &ParseOptions, paren: bool) {
+fn write_child(out: &mut String, e: &Expr, opts: &Fmt, paren: bool) {
     if paren {
         out.push('(');
         write_expr(out, e, opts);
@@ -56,7 +88,23 @@ fn write_string(out: &mut String, s: &str) {
     out.push('"');
 }
 
-fn write_expr(out: &mut String, e: &Expr, opts: &ParseOptions) {
+fn write_expr(out: &mut String, e: &Expr, opts: &Fmt) {
+    let Some(spans) = &opts.spans else {
+        write_node(out, e, opts);
+        return;
+    };
+    let ix = {
+        let mut v = spans.borrow_mut();
+        v.push((out.len(), out.len()));
+        v.len() - 1
+    };
+    write_node(out, e, opts);
+    if let Some(s) = spans.borrow_mut().get_mut(ix) {
+        s.1 = out.len();
+    }
+}
+
+fn write_node(out: &mut String, e: &Expr, opts: &Fmt) {
     match e {
         Expr::Number(n) => write_number(out, *n),
         Expr::Text(s) => write_string(out, s),
@@ -147,7 +195,7 @@ fn write_expr(out: &mut String, e: &Expr, opts: &ParseOptions) {
     }
 }
 
-fn write_args(out: &mut String, args: &[Expr], opts: &ParseOptions) {
+fn write_args(out: &mut String, args: &[Expr], opts: &Fmt) {
     out.push('(');
     for (i, a) in args.iter().enumerate() {
         if i > 0 {

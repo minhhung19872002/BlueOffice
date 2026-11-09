@@ -1,0 +1,168 @@
+/* BlueSheet formula auditing (SHEET-AUDIT-001): trace arrows, evaluation steps,
+   watch window and calculation status — BlueOffice's own look. */
+
+.arrows {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 2;
+}
+
+.arrow {
+  stroke: var(--bo-audit-arrow, #2f5bd3);
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.error {
+  stroke: var(--bo-audit-error, #c62f2f);
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.head {
+  fill: var(--bo-audit-arrow, #2f5bd3);
+  stroke: none;
+}
+
+.headError {
+  fill: var(--bo-audit-error, #c62f2f);
+  stroke: none;
+}
+
+.dot {
+  stroke: none;
+  fill: var(--bo-audit-arrow, #2f5bd3);
+}
+
+.error .dot {
+  fill: var(--bo-audit-error, #c62f2f);
+}
+
+.box {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.sheetIcon rect {
+  fill: var(--bo-surface, #fff);
+  stroke-width: 1.2;
+}
+
+.sheetIcon path {
+  stroke-width: 0.8;
+}
+
+.frame,
+.frameParent {
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}
+
+.frameParent {
+  opacity: 0.65;
+}
+
+.frameHead {
+  font-size: 12px;
+  color: var(--bo-text-muted, #57606a);
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
+.evalText {
+  font-family: var(--bo-font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: 2.6em;
+  max-height: 10em;
+  overflow: auto;
+}
+
+.evalText u {
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  background: color-mix(in srgb, var(--bo-sheet-accent, #0b7a6b) 12%, transparent);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.group {
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 6px;
+  padding: 6px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.watch {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  z-index: 20;
+  width: min(640px, calc(100% - 32px));
+  max-height: 40%;
+  overflow: auto;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text, #1b1f24);
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+  padding: 8px;
+}
+
+.watchHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.watchHead strong {
+  flex: 1;
+}
+
+.watchTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.watchTable th,
+.watchTable td {
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--bo-border, #d0d7de);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.picked {
+  background: color-mix(in srgb, var(--bo-sheet-accent, #0b7a6b) 14%, transparent);
+}
+
+.circular {
+  color: var(--bo-audit-error, #c62f2f);
+}
+
+.calcButton {
+  font: inherit;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  padding: 0 6px;
+  cursor: pointer;
+}

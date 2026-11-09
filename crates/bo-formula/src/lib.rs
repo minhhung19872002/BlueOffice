@@ -41,6 +41,7 @@ pub mod reference;
 mod shift;
 pub mod stat;
 mod storage;
+mod trace;
 pub mod value;
 mod workbook;
 
@@ -61,5 +62,6 @@ pub use shift::{
     adjust_for_change, adjust_for_move, offset_relative, MovedBlock, StructuralChange,
 };
 pub use storage::{from_storage, storage_prefix, to_storage};
+pub use trace::{trace_formula, FormulaTrace, TraceStep};
 pub use value::{Area, Array, ErrorKind, Lambda, Value};
 pub use workbook::{CellId, IterativeConfig, Workbook};

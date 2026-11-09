@@ -3167,6 +3167,99 @@
       "models3d": "Mô hình 3D"
     }
   },
+  "sheetAudit": {
+    "tab": "Công thức",
+    "groupAudit": "Kiểm tra công thức",
+    "groupCalc": "Tính toán",
+    "tracePrecedents": "Truy ô nguồn",
+    "traceDependents": "Truy ô phụ thuộc",
+    "removeArrows": "Xoá mũi tên",
+    "errorCheck": "Kiểm tra lỗi",
+    "evaluate": "Tính từng bước",
+    "watch": "Cửa sổ theo dõi",
+    "options": "Tuỳ chọn tính toán",
+    "calcNow": "Tính ngay",
+    "calcSheet": "Tính trang tính",
+    "calcFull": "Tính lại toàn bộ",
+    "close": "Đóng",
+    "noFormula": "Ô hiện hành không chứa công thức.",
+    "noPrecedents": "Công thức này không đọc ô nào.",
+    "noDependents": "Không có công thức nào đọc ô này.",
+    "otherSheet": "Liên kết tới trang tính khác",
+    "status": {
+      "calculate": "Tính lại",
+      "circular": "Tham chiếu vòng: {{cells}}"
+    },
+    "circular": {
+      "title": "Tham chiếu vòng",
+      "body": "Một công thức dùng chính kết quả của nó, trực tiếp hoặc qua các ô khác, nên không tính được. Hãy sửa công thức, hoặc bật tính lặp trong tuỳ chọn tính toán.",
+      "cells": "Các ô liên quan: {{cells}}"
+    },
+    "eval": {
+      "title": "Tính công thức từng bước",
+      "evaluate": "Tính",
+      "restart": "Bắt đầu lại",
+      "stepIn": "Đi vào",
+      "stepOut": "Đi ra",
+      "hint": "Phần gạch chân sẽ được tính ở bước tiếp theo.",
+      "done": "Đây là kết quả cuối cùng.",
+      "canStepIn": "{{cell}} chứa công thức: chọn Đi vào để tính công thức đó."
+    },
+    "errors": {
+      "title": "Kiểm tra lỗi",
+      "none": "Không thấy vấn đề nào trên trang tính này.",
+      "count": "Mục {{index}} / {{count}}",
+      "previous": "Trước",
+      "next": "Tiếp",
+      "ignore": "Bỏ qua",
+      "copyFormula": "Dùng công thức của các ô bên cạnh",
+      "convert": "Chuyển thành số",
+      "showSteps": "Xem các bước tính",
+      "options": "Quy tắc",
+      "reset": "Hiện lại các mục đã bỏ qua",
+      "rules": {
+        "evalError": "Công thức trả về lỗi",
+        "inconsistentFormula": "Công thức khác với các công thức xung quanh",
+        "numberAsText": "Số được lưu dạng văn bản",
+        "emptyRef": "Công thức đọc một ô trống",
+        "unlockedFormula": "Công thức nằm trong ô không khoá"
+      },
+      "detail": {
+        "evalError": "Hãy tính từng bước để xem lỗi phát sinh từ đâu.",
+        "inconsistentFormula": "Các ô hai bên dùng {{formula}}.",
+        "numberAsText": "Văn bản này đọc được thành số {{number}}.",
+        "emptyRef": "{{cell}} đang trống.",
+        "unlockedFormula": "Công thức này vẫn sửa được khi trang tính được bảo vệ."
+      }
+    },
+    "watchWin": {
+      "title": "Cửa sổ theo dõi",
+      "add": "Thêm ô theo dõi",
+      "remove": "Xoá ô theo dõi",
+      "empty": "Chưa theo dõi ô nào. Chọn ô rồi bấm Thêm ô theo dõi.",
+      "book": "Sổ tính",
+      "sheet": "Trang tính",
+      "name": "Tên",
+      "cell": "Ô",
+      "value": "Giá trị",
+      "formula": "Công thức"
+    },
+    "opts": {
+      "title": "Tuỳ chọn tính toán",
+      "mode": "Thời điểm tính",
+      "auto": "Tự động",
+      "autoNoTable": "Tự động, trừ bảng dữ liệu",
+      "manual": "Chỉ khi yêu cầu (F9)",
+      "calcOnSave": "Tính trước khi lưu",
+      "iteration": "Tham chiếu vòng",
+      "iterate": "Cho phép tính lặp",
+      "maxIterations": "Số lần lặp tối đa",
+      "maxChange": "Dừng khi giá trị thay đổi ít hơn",
+      "precision": "Tính theo độ chính xác hiển thị",
+      "precisionWarn": "Số được làm tròn theo số chữ số thập phân định dạng hiển thị trước khi dùng trong công thức.",
+      "invalid": "Nhập số lần lặp nguyên từ 1 đến {{max}} và mức thay đổi từ 0 trở lên."
+    }
+  },
   "formFields": {
     "title": "Tuỳ chọn trường biểu mẫu",
     "kinds": {

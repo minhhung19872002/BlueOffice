@@ -564,6 +564,8 @@ export interface SolverResult {
 /** A sheet editing command (`bo_engine::sheet::SheetCommand`). */
 export type SheetCommand =
   | import('./security').SecurityCommand
+  /** Formula auditing and calculation (SHEET-AUDIT-001). */
+  | import('./audit').AuditCommand
   | { cmd: 'presets' }
   /** Check document (CORE-INSPECT-001) → `InspectReport`. */
   | InspectCommand

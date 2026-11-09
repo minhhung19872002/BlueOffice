@@ -430,16 +430,19 @@ fn last_of_feb(y: i64, m: u32, d: u32) -> bool {
 }
 
 fn yearfrac(ctx: &mut Ctx, args: &[Value]) -> R {
-    let mut a = serial(ctx, &args[0])?.floor();
-    let mut b = serial(ctx, &args[1])?.floor();
+    let a = serial(ctx, &args[0])?.floor();
+    let b = serial(ctx, &args[1])?.floor();
     let basis = opt_num(ctx, args, 2, 0.0)?.trunc() as i64;
     if !(0..=4).contains(&basis) {
         return Err(ErrorKind::Num);
     }
-    if a > b {
-        std::mem::swap(&mut a, &mut b);
-    }
-    let sys = ctx.date_system;
+    Ok(Value::Number(year_frac(a, b, basis, ctx.date_system)?))
+}
+
+/// Fraction of a year between two whole serials under `basis` (0 US 30/360, 1 actual/actual,
+/// 2 actual/360, 3 actual/365, 4 European 30/360).
+pub(crate) fn year_frac(a: f64, b: f64, basis: i64, sys: DateSystem) -> Result<f64, ErrorKind> {
+    let (a, b) = if a > b { (b, a) } else { (a, b) };
     let (y1, m1, d1) = serial_to_ymd(a, sys).ok_or(ErrorKind::Num)?;
     let (y2, m2, d2) = serial_to_ymd(b, sys).ok_or(ErrorKind::Num)?;
     let thirty = |d1: i64, d2: i64| -> f64 {
@@ -484,5 +487,5 @@ fn yearfrac(ctx: &mut Ctx, args: &[Value]) -> R {
         3 => (b - a) / 365.0,
         _ => thirty(i64::from(d1).min(30), i64::from(d2).min(30)),
     };
-    Ok(Value::Number(r))
+    Ok(r)
 }

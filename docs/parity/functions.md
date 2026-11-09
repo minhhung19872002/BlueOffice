@@ -4,7 +4,7 @@ Sinh tự động bởi `python scripts/parity-functions.py` từ danh mục hà
 (nhóm theo tài liệu hàm công khai) đối chiếu với các bảng `FUNCTIONS` trong `crates/bo-formula/src/functions/`.
 Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng ghi nguồn).
 
-**Tổng: 414/515 hàm (80 %).**
+**Tổng: 450/515 hàm (87 %).**
 
 | Nhóm | Đã có | Tổng |
 |---|---|---|
@@ -13,7 +13,7 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | Database | 0 | 12 |
 | Date & Time | 25 | 25 |
 | Engineering | 54 | 54 |
-| Financial | 19 | 55 |
+| Financial | 55 | 55 |
 | Information | 19 | 21 |
 | Logical | 19 | 19 |
 | Lookup & Reference | 27 | 40 |
@@ -165,61 +165,61 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | OCT2BIN | Engineering | [x] | bo-formula |
 | OCT2DEC | Engineering | [x] | bo-formula |
 | OCT2HEX | Engineering | [x] | bo-formula |
-| ACCRINT | Financial | [ ] |  |
-| ACCRINTM | Financial | [ ] |  |
-| AMORDEGRC | Financial | [ ] |  |
-| AMORLINC | Financial | [ ] |  |
-| COUPDAYBS | Financial | [ ] |  |
-| COUPDAYS | Financial | [ ] |  |
-| COUPDAYSNC | Financial | [ ] |  |
-| COUPNCD | Financial | [ ] |  |
-| COUPNUM | Financial | [ ] |  |
-| COUPPCD | Financial | [ ] |  |
+| ACCRINT | Financial | [x] | bo-formula |
+| ACCRINTM | Financial | [x] | bo-formula |
+| AMORDEGRC | Financial | [x] | bo-formula |
+| AMORLINC | Financial | [x] | bo-formula |
+| COUPDAYBS | Financial | [x] | bo-formula |
+| COUPDAYS | Financial | [x] | bo-formula |
+| COUPDAYSNC | Financial | [x] | bo-formula |
+| COUPNCD | Financial | [x] | bo-formula |
+| COUPNUM | Financial | [x] | bo-formula |
+| COUPPCD | Financial | [x] | bo-formula |
 | CUMIPMT | Financial | [x] | bo-formula |
 | CUMPRINC | Financial | [x] | bo-formula |
 | DB | Financial | [x] | bo-formula |
 | DDB | Financial | [x] | bo-formula |
-| DISC | Financial | [ ] |  |
-| DOLLARDE | Financial | [ ] |  |
-| DOLLARFR | Financial | [ ] |  |
-| DURATION | Financial | [ ] |  |
+| DISC | Financial | [x] | bo-formula |
+| DOLLARDE | Financial | [x] | bo-formula |
+| DOLLARFR | Financial | [x] | bo-formula |
+| DURATION | Financial | [x] | bo-formula |
 | EFFECT | Financial | [x] | bo-formula |
 | FV | Financial | [x] | bo-formula |
-| FVSCHEDULE | Financial | [ ] |  |
-| INTRATE | Financial | [ ] |  |
+| FVSCHEDULE | Financial | [x] | bo-formula |
+| INTRATE | Financial | [x] | bo-formula |
 | IPMT | Financial | [x] | bo-formula |
 | IRR | Financial | [x] | bo-formula |
-| ISPMT | Financial | [ ] |  |
-| MDURATION | Financial | [ ] |  |
-| MIRR | Financial | [ ] |  |
+| ISPMT | Financial | [x] | bo-formula |
+| MDURATION | Financial | [x] | bo-formula |
+| MIRR | Financial | [x] | bo-formula |
 | NOMINAL | Financial | [x] | bo-formula |
 | NPER | Financial | [x] | bo-formula |
 | NPV | Financial | [x] | bo-formula |
-| ODDFPRICE | Financial | [ ] |  |
-| ODDFYIELD | Financial | [ ] |  |
-| ODDLPRICE | Financial | [ ] |  |
-| ODDLYIELD | Financial | [ ] |  |
-| PDURATION | Financial | [ ] |  |
+| ODDFPRICE | Financial | [x] | bo-formula |
+| ODDFYIELD | Financial | [x] | bo-formula |
+| ODDLPRICE | Financial | [x] | bo-formula |
+| ODDLYIELD | Financial | [x] | bo-formula |
+| PDURATION | Financial | [x] | bo-formula |
 | PMT | Financial | [x] | bo-formula |
 | PPMT | Financial | [x] | bo-formula |
-| PRICE | Financial | [ ] |  |
-| PRICEDISC | Financial | [ ] |  |
-| PRICEMAT | Financial | [ ] |  |
+| PRICE | Financial | [x] | bo-formula |
+| PRICEDISC | Financial | [x] | bo-formula |
+| PRICEMAT | Financial | [x] | bo-formula |
 | PV | Financial | [x] | bo-formula |
 | RATE | Financial | [x] | bo-formula |
-| RECEIVED | Financial | [ ] |  |
-| RRI | Financial | [ ] |  |
+| RECEIVED | Financial | [x] | bo-formula |
+| RRI | Financial | [x] | bo-formula |
 | SLN | Financial | [x] | bo-formula |
 | SYD | Financial | [x] | bo-formula |
-| TBILLEQ | Financial | [ ] |  |
-| TBILLPRICE | Financial | [ ] |  |
-| TBILLYIELD | Financial | [ ] |  |
-| VDB | Financial | [ ] |  |
+| TBILLEQ | Financial | [x] | bo-formula |
+| TBILLPRICE | Financial | [x] | bo-formula |
+| TBILLYIELD | Financial | [x] | bo-formula |
+| VDB | Financial | [x] | bo-formula |
 | XIRR | Financial | [x] | bo-formula |
 | XNPV | Financial | [x] | bo-formula |
-| YIELD | Financial | [ ] |  |
-| YIELDDISC | Financial | [ ] |  |
-| YIELDMAT | Financial | [ ] |  |
+| YIELD | Financial | [x] | bo-formula |
+| YIELDDISC | Financial | [x] | bo-formula |
+| YIELDMAT | Financial | [x] | bo-formula |
 | CELL | Information | [x] | bo-formula |
 | ERROR.TYPE | Information | [x] | bo-formula |
 | INFO | Information | [ ] |  |

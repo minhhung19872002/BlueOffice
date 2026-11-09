@@ -11,6 +11,7 @@ use crate::ast::Expr;
 use crate::eval::{Ctx, R};
 use crate::value::{ErrorKind, Value};
 
+mod bonds;
 mod datetime;
 mod distributions;
 mod engineering;
@@ -142,6 +143,7 @@ fn registry() -> &'static HashMap<&'static str, FnSpec> {
             engineering::FUNCTIONS,
             distributions::FUNCTIONS,
             regression::FUNCTIONS,
+            bonds::FUNCTIONS,
         ] {
             for spec in group {
                 map.insert(spec.name, *spec);

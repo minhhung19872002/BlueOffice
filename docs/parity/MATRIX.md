@@ -51,7 +51,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | BlueScript / recorder | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Add-in | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Dịch / đọc chính tả / đọc to | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
-| Định dạng mẫu/macro (.dotx…) | all | 🟡 | 🟡 | ⬜ | 🟡 | 🟡 | 🟡 | — | — | 🟡 | mở được như tài liệu thường |
+| Định dạng mẫu/macro (.dotx…) | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | variants.rs, bo-cli tests | 🟡 | 14 biến thể theo content type, lưu thành giữ/bỏ VBA, mở mẫu thành tài liệu mới, .thmx (CORE-FMT-001); thiếu bỏ XLM macro |
 | PDF/A, PDF có thẻ | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | xuất PDF thường ✅ |
 | In nâng cao | all | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E print | 🟡 | |
 
@@ -70,8 +70,8 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Footnote/endnote, TOC, caption, cross-ref | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests bo-edit | ✅ | |
 | Chỉ mục, TOA, trích dẫn | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | refs_tests, references.rs | ✅ | mục lục hình, INDEX/XE, TOA/TA, chuyển chú thích (DOC-REF-001) |
 | Field đầy đủ | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | 🟡 | tests fields | 🟡 | một phần danh sách |
-| Content controls | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus controls-01, tests bo-docx/bo-edit/bo-engine, content-controls.spec | 🟡 | chèn + điền text/rich/hộp kiểm/danh sách/kết hợp/ngày; thiếu tạo ảnh/phần lặp, hộp thoại thuộc tính, khung viền; + trường biểu mẫu cũ & chế độ chỉ điền (DOC-FORM-001) |
-| Track changes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests + E2E | 🟡 | chế độ hiển thị + bong bóng + ngăn danh sách (DOC-REVIEW-001); thiếu move, khoá |
+| Content controls | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus controls-01/03, tests bo-docx/bo-edit/bo-engine, content-controls.spec | 🟡 | Custom XML + data binding hai chiều (DOC-CC-002); chèn + điền text/rich/hộp kiểm/danh sách/kết hợp/ngày; thiếu tạo ảnh/phần lặp, hộp thoại thuộc tính, khung viền; + trường biểu mẫu cũ & chế độ chỉ điền (DOC-FORM-001) |
+| Track changes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests + E2E, track_moves.rs | 🟡 | chế độ hiển thị + bong bóng + ngăn danh sách (DOC-REVIEW-001); cặp di chuyển, chi tiết định dạng, khoá mật khẩu (DOC-REVIEW-002); cắt-dán chưa thành di chuyển |
 | So sánh / kết hợp | — | — | ✅ | — | ✅ | ✅ | — | compare::tests, compare_with_the_original_document, combine_two_reviewers_copies, review.spec | ✅ | so sánh với bản gốc → track changes (đoạn, từ, định dạng, bảng); kết hợp bản sửa của hai người (trộn 3 chiều theo đoạn/từ, theo tác giả) |
 | Mail merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | 🟡 | thiếu SQL, email, nhãn |
 | Chế độ xem (Read, Outline, Draft…) | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E doc-views | 🟡 | đọc, web, nháp, dàn ý, tập trung, ngăn điều hướng, ký hiệu định dạng (DOC-VIEW-001) |
@@ -101,7 +101,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Comment luồng / notes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |
 | Bảo vệ sheet/workbook | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | ✅ | |
 | Form controls | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus writer-form-controls-* | 🟡 | 9 loại, ô liên kết hai chiều (SHEET-FORMCTL-001); chưa dịch theo chèn hàng/cột |
-| In bảng tính | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests | 🟡 | |
+| In bảng tính | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests, view_cmd_tests, sheet-views.spec | 🟡 | + Page Break Preview kéo ngắt, Page Layout view, Custom Views, Show Formulas (SHEET-VIEW-001) |
 | Hiệu năng 1 triệu ô | — | ✅ | ✅ | — | ✅ | ✅ | — | bench | 🟡 | chưa đo 10 triệu ô, pivot 1 triệu dòng |
 
 ## BlueSlide

@@ -184,8 +184,8 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 - [ ] **DOC-FORM-001** — Legacy form fields + chế độ chỉ điền biểu mẫu · P1 · CC-001 · test.
 
 ### Hàm bảng tính (§6.1) — chi tiết từng hàm trong `functions.md`
-- [p] **SHEET-FN-000** — 275/515 hàm (Date & Time, Logical đủ) · P0 · — · `functions.md`.
-- [ ] **SHEET-FN-ENG** — Engineering (54 hàm: BESSEL*, chuyển cơ số, BIT*, COMPLEX/IM*, CONVERT, DELTA, GESTEP, ERF*) · P0 · — · bảng test từng hàm.
+- [p] **SHEET-FN-000** — 329/515 hàm (Date & Time, Logical, Engineering đủ) · P0 · — · `functions.md`.
+- [x] **SHEET-FN-ENG** — Engineering (54 hàm: BESSEL*, chuyển cơ số, BIT*, COMPLEX/IM*, CONVERT, DELTA, GESTEP, ERF*) · P0 · — · bảng test từng hàm. `functions/engineering.rs`: đổi cơ số bù hai 10 chữ số, BIT* 48 bit, erf chuỗi Maclaurin + liên phân số erfc, Bessel J (truy hồi lùi Miller), Y (chuỗi Neumann), I (chuỗi), K (tích phân hình thang), số phức text `x+yi`/`x+yj`, CONVERT theo định nghĩa đơn vị chính xác (tiền tố SI và nhị phân, m2/m3 bình phương/lập phương tiền tố); test `fn_engineering` (183 dòng: tay + bảng Abramowitz & Stegun, kiểm lại SciPy) + đẳng thức Wronskian.
 - [ ] **SHEET-FN-STAT** — Statistical còn thiếu (60 hàm: phân phối BETA/BINOM/CHISQ/F/GAMMA/HYPGEOM/LOGNORM/NEGBINOM/POISSON/T/WEIBULL/Z, LINEST/LOGEST/TREND/GROWTH, FORECAST.ETS*, SKEW/KURT, FREQUENCY…) · P0 · — · test.
 - [ ] **SHEET-FN-FIN** — Financial còn thiếu (36 hàm: trái phiếu/chứng khoán, CUMIPMT, MIRR, VDB…) · P0 · — · test.
 - [ ] **SHEET-FN-DB** — Database (12 hàm D*) · P0 · — · test.
@@ -196,6 +196,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 - [ ] **SHEET-FN-INFO** — Information còn thiếu (INFO, CELL đầy đủ…) · P0 · — · test.
 - [ ] **SHEET-FN-WEB** — ENCODEURL; WEBSERVICE/FILTERXML (mặc định tắt, quản trị bật) · P1 · — · test.
 - [ ] **SHEET-FN-CUBE** — Cube: giữ công thức + giá trị cache · P2 · — · round-trip.
+- [ ] **SHEET-FORMULA-002** — Ghi tiền tố `_xlfn.` / `_xlws.` cho hàm tương lai ([MS-XLSX] 2.2.2) khi lưu .xlsx (hiện ghi nguyên văn công thức người dùng nhập) · P0 · — · round-trip + OpenXmlValidator.
 - [ ] **SHEET-FORMULA-001** — Toán tử @ (implicit intersection), trim ref (.:.), CSE kiểu cũ, liên kết workbook ngoài (cập nhật/sửa/ngắt) · P0 · — · test.
 
 ### Slicer / Timeline / PivotChart (§6.2)

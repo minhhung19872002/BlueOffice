@@ -4,7 +4,7 @@ Sinh tự động bởi `python scripts/parity-functions.py` từ danh mục hà
 (nhóm theo tài liệu hàm công khai) đối chiếu với các bảng `FUNCTIONS` trong `crates/bo-formula/src/functions/`.
 Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng ghi nguồn).
 
-**Tổng: 275/515 hàm (53 %).**
+**Tổng: 329/515 hàm (64 %).**
 
 | Nhóm | Đã có | Tổng |
 |---|---|---|
@@ -12,7 +12,7 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | Cube | 0 | 7 |
 | Database | 0 | 12 |
 | Date & Time | 25 | 25 |
-| Engineering | 0 | 54 |
+| Engineering | 54 | 54 |
 | Financial | 19 | 55 |
 | Information | 19 | 21 |
 | Logical | 19 | 19 |
@@ -111,60 +111,60 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | WORKDAY.INTL | Date & Time | [x] | bo-formula |
 | YEAR | Date & Time | [x] | bo-formula |
 | YEARFRAC | Date & Time | [x] | bo-formula |
-| BESSELI | Engineering | [ ] |  |
-| BESSELJ | Engineering | [ ] |  |
-| BESSELK | Engineering | [ ] |  |
-| BESSELY | Engineering | [ ] |  |
-| BIN2DEC | Engineering | [ ] |  |
-| BIN2HEX | Engineering | [ ] |  |
-| BIN2OCT | Engineering | [ ] |  |
-| BITAND | Engineering | [ ] |  |
-| BITLSHIFT | Engineering | [ ] |  |
-| BITOR | Engineering | [ ] |  |
-| BITRSHIFT | Engineering | [ ] |  |
-| BITXOR | Engineering | [ ] |  |
-| COMPLEX | Engineering | [ ] |  |
-| CONVERT | Engineering | [ ] |  |
-| DEC2BIN | Engineering | [ ] |  |
-| DEC2HEX | Engineering | [ ] |  |
-| DEC2OCT | Engineering | [ ] |  |
-| DELTA | Engineering | [ ] |  |
-| ERF | Engineering | [ ] |  |
-| ERF.PRECISE | Engineering | [ ] |  |
-| ERFC | Engineering | [ ] |  |
-| ERFC.PRECISE | Engineering | [ ] |  |
-| GESTEP | Engineering | [ ] |  |
-| HEX2BIN | Engineering | [ ] |  |
-| HEX2DEC | Engineering | [ ] |  |
-| HEX2OCT | Engineering | [ ] |  |
-| IMABS | Engineering | [ ] |  |
-| IMAGINARY | Engineering | [ ] |  |
-| IMARGUMENT | Engineering | [ ] |  |
-| IMCONJUGATE | Engineering | [ ] |  |
-| IMCOS | Engineering | [ ] |  |
-| IMCOSH | Engineering | [ ] |  |
-| IMCOT | Engineering | [ ] |  |
-| IMCSC | Engineering | [ ] |  |
-| IMCSCH | Engineering | [ ] |  |
-| IMDIV | Engineering | [ ] |  |
-| IMEXP | Engineering | [ ] |  |
-| IMLN | Engineering | [ ] |  |
-| IMLOG10 | Engineering | [ ] |  |
-| IMLOG2 | Engineering | [ ] |  |
-| IMPOWER | Engineering | [ ] |  |
-| IMPRODUCT | Engineering | [ ] |  |
-| IMREAL | Engineering | [ ] |  |
-| IMSEC | Engineering | [ ] |  |
-| IMSECH | Engineering | [ ] |  |
-| IMSIN | Engineering | [ ] |  |
-| IMSINH | Engineering | [ ] |  |
-| IMSQRT | Engineering | [ ] |  |
-| IMSUB | Engineering | [ ] |  |
-| IMSUM | Engineering | [ ] |  |
-| IMTAN | Engineering | [ ] |  |
-| OCT2BIN | Engineering | [ ] |  |
-| OCT2DEC | Engineering | [ ] |  |
-| OCT2HEX | Engineering | [ ] |  |
+| BESSELI | Engineering | [x] | bo-formula |
+| BESSELJ | Engineering | [x] | bo-formula |
+| BESSELK | Engineering | [x] | bo-formula |
+| BESSELY | Engineering | [x] | bo-formula |
+| BIN2DEC | Engineering | [x] | bo-formula |
+| BIN2HEX | Engineering | [x] | bo-formula |
+| BIN2OCT | Engineering | [x] | bo-formula |
+| BITAND | Engineering | [x] | bo-formula |
+| BITLSHIFT | Engineering | [x] | bo-formula |
+| BITOR | Engineering | [x] | bo-formula |
+| BITRSHIFT | Engineering | [x] | bo-formula |
+| BITXOR | Engineering | [x] | bo-formula |
+| COMPLEX | Engineering | [x] | bo-formula |
+| CONVERT | Engineering | [x] | bo-formula |
+| DEC2BIN | Engineering | [x] | bo-formula |
+| DEC2HEX | Engineering | [x] | bo-formula |
+| DEC2OCT | Engineering | [x] | bo-formula |
+| DELTA | Engineering | [x] | bo-formula |
+| ERF | Engineering | [x] | bo-formula |
+| ERF.PRECISE | Engineering | [x] | bo-formula |
+| ERFC | Engineering | [x] | bo-formula |
+| ERFC.PRECISE | Engineering | [x] | bo-formula |
+| GESTEP | Engineering | [x] | bo-formula |
+| HEX2BIN | Engineering | [x] | bo-formula |
+| HEX2DEC | Engineering | [x] | bo-formula |
+| HEX2OCT | Engineering | [x] | bo-formula |
+| IMABS | Engineering | [x] | bo-formula |
+| IMAGINARY | Engineering | [x] | bo-formula |
+| IMARGUMENT | Engineering | [x] | bo-formula |
+| IMCONJUGATE | Engineering | [x] | bo-formula |
+| IMCOS | Engineering | [x] | bo-formula |
+| IMCOSH | Engineering | [x] | bo-formula |
+| IMCOT | Engineering | [x] | bo-formula |
+| IMCSC | Engineering | [x] | bo-formula |
+| IMCSCH | Engineering | [x] | bo-formula |
+| IMDIV | Engineering | [x] | bo-formula |
+| IMEXP | Engineering | [x] | bo-formula |
+| IMLN | Engineering | [x] | bo-formula |
+| IMLOG10 | Engineering | [x] | bo-formula |
+| IMLOG2 | Engineering | [x] | bo-formula |
+| IMPOWER | Engineering | [x] | bo-formula |
+| IMPRODUCT | Engineering | [x] | bo-formula |
+| IMREAL | Engineering | [x] | bo-formula |
+| IMSEC | Engineering | [x] | bo-formula |
+| IMSECH | Engineering | [x] | bo-formula |
+| IMSIN | Engineering | [x] | bo-formula |
+| IMSINH | Engineering | [x] | bo-formula |
+| IMSQRT | Engineering | [x] | bo-formula |
+| IMSUB | Engineering | [x] | bo-formula |
+| IMSUM | Engineering | [x] | bo-formula |
+| IMTAN | Engineering | [x] | bo-formula |
+| OCT2BIN | Engineering | [x] | bo-formula |
+| OCT2DEC | Engineering | [x] | bo-formula |
+| OCT2HEX | Engineering | [x] | bo-formula |
 | ACCRINT | Financial | [ ] |  |
 | ACCRINTM | Financial | [ ] |  |
 | AMORDEGRC | Financial | [ ] |  |

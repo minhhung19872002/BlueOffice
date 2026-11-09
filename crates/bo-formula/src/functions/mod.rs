@@ -12,6 +12,7 @@ use crate::eval::{Ctx, R};
 use crate::value::{ErrorKind, Value};
 
 mod datetime;
+mod engineering;
 mod financial;
 mod info;
 mod logical;
@@ -136,6 +137,7 @@ fn registry() -> &'static HashMap<&'static str, FnSpec> {
             stats::FUNCTIONS,
             financial::FUNCTIONS,
             info::FUNCTIONS,
+            engineering::FUNCTIONS,
         ] {
             for spec in group {
                 map.insert(spec.name, *spec);

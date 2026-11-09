@@ -15,7 +15,7 @@ lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file
 | BlueDoc (DOC) | 18 | 8,5 | 47 % |
 | BlueSheet (SHEET) | 20 | 7,5 | 38 % |
 | BlueSlide (SLIDE) | 12 | 7 | 58 % |
-| Hàm bảng tính | 515 hàm | 275 | 53 % (`functions.md`) |
+| Hàm bảng tính | 515 hàm | 329 | 64 % (`functions.md`) |
 
 ## Chung
 
@@ -81,7 +81,7 @@ lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file
 
 | Tính năng | Đọc | Hiển thị | Tạo/sửa | Round-trip | Web | Desktop | Cộng tác | Test | Trạng thái | Ghi chú |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Hàm (515) | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | functions.md | 🟡 | 275/515 |
+| Hàm (515) | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | functions.md | 🟡 | 329/515 (Engineering đủ 54) |
 | Mảng động, LET, LAMBDA | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |
 | @, trim ref, liên kết ngoài | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
 | Định dạng số | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu [DBNum], lịch âm |

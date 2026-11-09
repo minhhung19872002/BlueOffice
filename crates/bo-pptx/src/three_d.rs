@@ -300,6 +300,29 @@ mod tests {
         assert_eq!(s.fov, None);
     }
 
+    /// §20.1.5.11 rot lat = 0, lon = 30° with an orthographic camera: a turn about the vertical
+    /// axis. Projected orthographically, a point (x, y, 0) of the face lands at (x·cos 30°, y):
+    /// the corners of a 100 × 50 rectangle about its centre, (±50, ±25), go to (±43.301, ±25).
+    #[test]
+    fn rotation_about_the_vertical_axis_projects_a_rectangle() {
+        let e = extra(&format!(
+            r#"<p:spPr {NS} xmlns:p="p"><a:scene3d><a:camera prst="orthographicFront"><a:rot lat="0" lon="1800000" rev="0"/></a:camera><a:lightRig rig="threePt" dir="t"/></a:scene3d></p:spPr>"#
+        ));
+        let s = solid_of(&e).unwrap();
+        let [a, b, c, d] = s.face();
+        let proj = |x: f64, y: f64| (a * x + c * y, b * x + d * y);
+        let k = 30f64.to_radians().cos() * 50.0;
+        for (x, y) in [(-50.0, -25.0), (50.0, -25.0), (50.0, 25.0), (-50.0, 25.0)] {
+            let (px, py) = proj(x, y);
+            assert!(
+                (px.abs() - k).abs() < 1e-9 && (px.signum() - f64::signum(x)).abs() < 1e-9,
+                "{x} {y} → {px}"
+            );
+            assert!((py - y).abs() < 1e-9, "{x} {y} → {py}");
+        }
+        assert_eq!(s.fov, None);
+    }
+
     #[test]
     fn light_material_and_perspective() {
         let flat = extra(&format!(

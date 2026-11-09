@@ -20,10 +20,12 @@ mod mesh3d;
 mod pml;
 mod read;
 mod render;
+mod shape_fx;
 pub mod table_style;
 mod text_layout;
 mod three_d;
 pub mod transitions;
+mod wordart;
 mod write;
 
 pub use pml::{parse_csld, parse_node, visit, write_csld, write_node, URI_TABLE};

@@ -8,10 +8,12 @@ use crate::inherit::TextStyleStack;
 use bo_drawingml::color::{resolve, ColorContext};
 use bo_drawingml::theme::resolve_typeface;
 use bo_model::slide::{
-    Autofit, BodyProps, Bullet, Fill, ParaProps, RunProps, Spacing, TextBody, TextRun, Theme,
+    Autofit, BodyProps, Bullet, Fill, Line as LineProps, ParaProps, RunProps, Spacing, TextBody,
+    TextRun, Theme,
 };
-use bo_render::{Command, Glyph, Rgba};
+use bo_render::{Command, Glyph, PathSeg, Rgba};
 use bo_text::{FaceId, FontManager};
+use std::sync::Arc;
 
 const EMU_PT: f64 = 12_700.0;
 
@@ -31,6 +33,91 @@ struct Style {
     underline: bool,
     strike: bool,
     baseline: f64,
+    /// Gradient / pattern / picture fill or outline of the glyphs (WordArt, CORE-SHAPE-002).
+    fx: Option<Arc<RunFx>>,
+}
+
+/// Text fill and outline beyond a plain colour (§21.1.2.3.9 rPr: `a:ln`, `a:gradFill`,
+/// `a:pattFill`, `a:blipFill`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RunFx {
+    /// Non-solid fill of the glyphs (`None`: the run colour, already on the path).
+    pub fill: Option<Fill>,
+    /// Glyph outline (`a:ln` with a visible fill).
+    pub line: Option<LineProps>,
+}
+
+/// A run drawn as glyph outlines (a `Command::Path` at `index` of the output) whose fill
+/// or outline the caller paints ([`RunFx`]).
+#[derive(Debug, Clone)]
+pub(crate) struct TextFx {
+    /// Index of the placeholder path in the output commands.
+    pub index: usize,
+    /// What to paint.
+    pub fx: Arc<RunFx>,
+}
+
+/// The [`RunFx`] of run properties, if the run needs more than a glyph colour.
+fn run_fx(rp: &RunProps) -> Option<Arc<RunFx>> {
+    let fill = match &rp.fill {
+        Some(f @ (Fill::Gradient(_) | Fill::Pattern(_) | Fill::Picture(_))) => Some(f.clone()),
+        _ => None,
+    };
+    let line = rp
+        .line
+        .as_ref()
+        .filter(|l| l.fill.as_ref().is_some_and(|f| !matches!(f, Fill::None)))
+        .cloned();
+    (fill.is_some() || line.is_some()).then(|| Arc::new(RunFx { fill, line }))
+}
+
+/// Outline of positioned glyphs as one path (points, y down): run origin (`x`, `y`),
+/// glyph offsets as in [`Command::Glyphs`].
+pub(crate) fn glyph_path(
+    fonts: &FontManager,
+    face: FaceId,
+    size: f64,
+    (x, y): (f64, f64),
+    glyphs: &[Glyph],
+) -> Vec<PathSeg> {
+    use bo_text::PathCmd;
+    let upem = f64::from(fonts.info(face).units_per_em.max(1));
+    let k = size / upem;
+    let mut segs = Vec::new();
+    for g in glyphs {
+        let (ox, oy) = (x + f64::from(g.1), y + f64::from(g.2));
+        let p = |px: f32, py: f32| {
+            (
+                (ox + f64::from(px) * k) as f32,
+                (oy - f64::from(py) * k) as f32,
+            )
+        };
+        for c in fonts.outline(face, g.0) {
+            segs.push(match c {
+                PathCmd::MoveTo(a, b) => {
+                    let (a, b) = p(a, b);
+                    PathSeg::M(a, b)
+                }
+                PathCmd::LineTo(a, b) => {
+                    let (a, b) = p(a, b);
+                    PathSeg::L(a, b)
+                }
+                PathCmd::QuadTo(a, b, c2, d) => {
+                    let (a, b) = p(a, b);
+                    let (c2, d) = p(c2, d);
+                    PathSeg::Q(a, b, c2, d)
+                }
+                PathCmd::CubicTo(a, b, c2, d, e, f) => {
+                    let (a, b) = p(a, b);
+                    let (c2, d) = p(c2, d);
+                    let (e, f) = p(e, f);
+                    PathSeg::C(a, b, c2, d, e, f)
+                }
+                PathCmd::Close => PathSeg::Z,
+            });
+        }
+    }
+    segs
 }
 
 #[derive(Clone)]
@@ -104,6 +191,7 @@ fn style_for(
         underline: rp.u.as_deref().is_some_and(|u| u != "none"),
         strike: rp.strike.as_deref().is_some_and(|s| s != "noStrike"),
         baseline: baseline * base * scale,
+        fx: run_fx(rp),
     })
 }
 
@@ -687,6 +775,21 @@ pub(crate) fn draw_text(
     fonts: &mut FontManager,
     out: &mut Vec<Command>,
 ) {
+    draw_text_fx(body, bp, stack, rect, env, fonts, out);
+}
+
+/// [`draw_text`], also returning the runs drawn as outlines whose fill / outline the
+/// caller paints (until then they show in their run colour).
+pub(crate) fn draw_text_fx(
+    body: &TextBody,
+    bp: &BodyProps,
+    stack: &TextStyleStack,
+    rect: [f64; 4],
+    env: &TextEnv<'_>,
+    fonts: &mut FontManager,
+    out: &mut Vec<Command>,
+) -> Vec<TextFx> {
+    let mut fx = Vec::new();
     // Nothing to draw: no text and no equation (a14:m) in any paragraph.
     let has_math = |p: &bo_model::slide::Paragraph| {
         p.runs
@@ -698,20 +801,21 @@ pub(crate) fn draw_text(
         .iter()
         .all(|p| p.text().trim().is_empty() && !has_math(p))
     {
-        return;
+        return fx;
     }
     let a = arrange(body, bp, stack, rect, env, fonts, false);
     for pl in &a.lines {
         let line = &a.layout[pl.para].lines[pl.line];
         if let Some(bu) = &line.bullet {
-            emit(fonts, bu, pl.x0 + line.bullet_x, pl.baseline, out);
+            emit(fonts, bu, pl.x0 + line.bullet_x, pl.baseline, out, &mut fx);
         }
         let mut x = pl.x_start;
         for p in &line.pieces {
-            emit(fonts, p, x, pl.baseline, out);
+            emit(fonts, p, x, pl.baseline, out, &mut fx);
             x += p.width;
         }
     }
+    fx
 }
 
 /// A line of a text body for caret placement: offsets are characters of the
@@ -955,7 +1059,14 @@ fn layout_all(
     out
 }
 
-fn emit(fonts: &mut FontManager, p: &Piece, x: f64, baseline: f64, out: &mut Vec<Command>) {
+fn emit(
+    fonts: &mut FontManager,
+    p: &Piece,
+    x: f64,
+    baseline: f64,
+    out: &mut Vec<Command>,
+    fx: &mut Vec<TextFx>,
+) {
     if let Some(g) = &p.math {
         for (rx, ry, face, size, text, glyphs) in &g.runs {
             out.push(Command::Glyphs {
@@ -1007,7 +1118,18 @@ fn emit(fonts: &mut FontManager, p: &Piece, x: f64, baseline: f64, out: &mut Vec
             ));
             adv += f64::from(g.x_advance);
         }
-        if !sub.trim().is_empty() && st.color.3 > 0 {
+        if let (Some(f), false) = (&st.fx, sub.trim().is_empty()) {
+            // WordArt fill / outline: the glyph outlines as a path, painted by the caller.
+            fx.push(TextFx {
+                index: out.len(),
+                fx: f.clone(),
+            });
+            out.push(Command::Path {
+                segs: glyph_path(fonts, face, st.size, (x + gx, y), &glyphs),
+                fill: (st.color.3 > 0).then_some(bo_render::Paint::Solid { color: st.color }),
+                stroke: None,
+            });
+        } else if !sub.trim().is_empty() && st.color.3 > 0 {
             out.push(Command::Glyphs {
                 face: face.0,
                 size: st.size as f32,

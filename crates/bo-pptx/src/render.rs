@@ -4,7 +4,7 @@ use crate::inherit::{
     chain, clr_map_of, effective_body, effective_props, show_master_shapes, theme_of, Level,
     TextStyleStack,
 };
-use crate::text_layout::{draw_text, TextEnv};
+use crate::text_layout::{draw_text, draw_text_fx, TextEnv};
 use crate::{PptxError, Result};
 use bo_drawingml::color::{resolve, ColorContext};
 use bo_drawingml::geom::{evaluate, rect_geometry, Evaluated, FillMode, Seg};
@@ -957,6 +957,56 @@ fn glow_of(
     from_list(&parse_effects(es.child("a:effectLst")?))
 }
 
+/// The effect list of a shape: its own `effectLst`, else its style's effect (§20.1.4.2.8).
+fn effects_of(cx: &Ctx<'_>, effects: Option<&Vec<Effect>>, st: Option<&ShapeStyle>) -> Vec<Effect> {
+    if let Some(e) = effects {
+        return e.clone();
+    }
+    let Some(st) = st.filter(|s| s.effect_ref.idx > 0) else {
+        return Vec::new();
+    };
+    cx.theme
+        .and_then(|t| t.formats.effect_styles.get(st.effect_ref.idx as usize - 1))
+        .and_then(|es| es.child("a:effectLst"))
+        .map(parse_effects)
+        .unwrap_or_default()
+}
+
+/// §20.1.8.53 softEdge: the flat drawing `content` of a `w × h` shape (fill and outline)
+/// drawn in steps clipped to its outline inset towards the centre (see
+/// [`bo_drawingml::effects::soft_edge_steps`]).
+fn soft_edged(
+    rad: f64,
+    geom: &Evaluated,
+    aff: Aff,
+    (w, h): (f64, f64),
+    content: Vec<Command>,
+    out: &mut Vec<Command>,
+) {
+    let outline: Vec<Seg> = geom
+        .paths
+        .iter()
+        .filter(|p| p.fill != FillMode::None)
+        .flat_map(|p| p.segs.iter().copied())
+        .collect();
+    let steps = bo_drawingml::effects::soft_edge_steps(rad, w, h);
+    if outline.is_empty() || content.is_empty() || steps.is_empty() {
+        out.extend(content);
+        return;
+    }
+    for (_, m, alpha) in steps {
+        out.push(Command::PushClipPath {
+            segs: to_segs(&outline, aff.then(Aff(m))),
+        });
+        out.push(Command::PushOpacity {
+            alpha: alpha as f32,
+        });
+        out.extend(content.iter().cloned());
+        out.push(Command::PopOpacity);
+        out.push(Command::PopClip);
+    }
+}
+
 /// §20.1.8.32 glow: a soft band of the glow colour `rad` wide around the shape's
 /// outline, behind the shape (the outline grown by half the radius, blurred by it).
 fn draw_glow(
@@ -1203,6 +1253,12 @@ fn draw_node(
             let aff = frame.shape_aff(&x, r);
             let geom = evaluate(props.geometry.as_ref(), r.2, r.3, &mut warnings);
             let style = ch.iter().find_map(|s| s.style.as_ref());
+            let fx_list = effects_of(cx, props.effects.as_ref(), style);
+            // §20.1.8.50 reflection: everything the shape draws, mirrored below it.
+            let reflection = crate::shape_fx::reflection_in(&fx_list);
+            let page = out;
+            let mut buf = Vec::new();
+            let out = &mut buf;
             let (sfill, fph) = style_fill(cx, style);
             let fill = props.fill.clone().or(sfill);
             let (line, lph) = effective_line(cx, props.line.as_ref(), style);
@@ -1239,17 +1295,41 @@ fn draw_node(
                         out,
                     );
                 }
-                None => draw_geometry(
-                    cx,
-                    &geom,
-                    aff,
-                    (r.2, r.3),
-                    fill.as_ref().map(|f| (f, fph)),
-                    line.as_ref().map(|l| (l, lph)),
-                    shadow.as_ref(),
-                    images,
-                    out,
-                ),
+                None => match crate::shape_fx::soft_edge_in(&fx_list) {
+                    // §20.1.8.53 softEdge: the shadow stays behind the faded shape.
+                    Some(rad) => {
+                        let has_fill = fill
+                            .as_ref()
+                            .is_some_and(|f| !matches!(f, Fill::None | Fill::Group));
+                        if let (Some(sh), true) = (shadow.as_ref(), has_fill) {
+                            draw_shadow(cx, sh, &geom, aff, out);
+                        }
+                        let mut flat = Vec::new();
+                        draw_geometry(
+                            cx,
+                            &geom,
+                            aff,
+                            (r.2, r.3),
+                            fill.as_ref().map(|f| (f, fph)),
+                            line.as_ref().map(|l| (l, lph)),
+                            None,
+                            images,
+                            &mut flat,
+                        );
+                        soft_edged(rad, &geom, aff, (r.2, r.3), flat, out);
+                    }
+                    None => draw_geometry(
+                        cx,
+                        &geom,
+                        aff,
+                        (r.2, r.3),
+                        fill.as_ref().map(|f| (f, fph)),
+                        line.as_ref().map(|l| (l, lph)),
+                        shadow.as_ref(),
+                        images,
+                        out,
+                    ),
+                },
             }
             if !cx.opts.skip_text {
                 if let Some(tb) = &s.text {
@@ -1276,9 +1356,18 @@ fn draw_node(
                         }
                         None => text_aff,
                     };
-                    draw_shape_text(cx, &ch, tb, &geom, text_aff, fonts, out);
+                    draw_shape_text(cx, &ch, tb, &geom, text_aff, fonts, images, out);
                 }
             }
+            if let Some(rf) = &reflection {
+                let corners = [(0.0, 0.0), (r.2, 0.0), (r.2, r.3), (0.0, r.3)];
+                if let Some(bx) =
+                    crate::shape_fx::box_of(corners.iter().map(|&(px, py)| aff.apply(px, py)))
+                {
+                    crate::shape_fx::draw_reflection(rf, bx, &buf, page);
+                }
+            }
+            page.extend(buf);
         }
         ShapeNode::Connector(c) => {
             let Some(x) = c.props.xfrm.clone() else {
@@ -1422,6 +1511,7 @@ fn has_math(e: &bo_model::slide::XmlElement) -> bool {
     (e.local() == "p" && e.elements().any(|c| c.local() == "m")) || e.elements().any(has_math)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_shape_text(
     cx: &Ctx<'_>,
     ch: &[&bo_model::slide::Shape],
@@ -1429,6 +1519,7 @@ fn draw_shape_text(
     geom: &Evaluated,
     aff: Aff,
     fonts: &mut FontManager,
+    images: &mut BTreeMap<String, Vec<u8>>,
     out: &mut Vec<Command>,
 ) {
     let bp = effective_body(ch);
@@ -1440,7 +1531,39 @@ fn draw_shape_text(
     };
     let mut cmds = Vec::new();
     // Text rotation follows the shape unless bodyPr@upright is set.
-    draw_text(tb, &bp, &stack, geom.text_rect, &env, fonts, &mut cmds);
+    let fx = draw_text_fx(tb, &bp, &stack, geom.text_rect, &env, fonts, &mut cmds);
+    // §20.1.9.19 prstTxWarp: WordArt transform over the text box.
+    // (bodyPr children are not merged by `effective_body`: the nearest one wins.)
+    let warp = ch.iter().find_map(|s| {
+        s.text
+            .as_ref()
+            .and_then(|t| crate::wordart::warp_of(&t.body_pr))
+    });
+    if let Some(w) = warp {
+        let bx = crate::wordart::inner_box(geom.text_rect, &bp);
+        crate::wordart::apply_warp(&mut cmds, fonts, bx, &w);
+    }
+    // §21.1.2.3.9 rPr ln / gradFill / pattFill / blipFill of WordArt runs.
+    let cmds = crate::wordart::finish(
+        cmds,
+        &fx,
+        |f, segs, ink, o| {
+            if let Some(fill) = &f.fill {
+                paint_fill(
+                    cx,
+                    fill,
+                    None,
+                    segs,
+                    Aff::translate(ink[0], ink[1]),
+                    (ink[2] - ink[0], ink[3] - ink[1]),
+                    FillMode::Norm,
+                    images,
+                    o,
+                );
+            }
+        },
+        |l| make_stroke(cx, l, None, 1.0),
+    );
     wrap_transform(aff, cmds, out);
 }
 

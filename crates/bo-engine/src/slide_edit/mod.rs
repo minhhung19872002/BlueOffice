@@ -17,6 +17,7 @@ pub mod clip;
 pub mod collab;
 pub mod comments;
 pub mod connect;
+pub mod effects;
 pub mod freeform;
 pub mod geom;
 pub mod guides;
@@ -500,6 +501,12 @@ pub enum SlideCommand {
     MergeShapes {
         /// Union, combine, fragment, intersect or subtract.
         op: freeform::MergeOp,
+    },
+    /// Shape effects and WordArt of the selected shapes (CORE-SHAPE-002): reflection, soft
+    /// edges, 3-D rotation, text warp, text outline and fill; or the warp gallery previews.
+    ShapeEffects {
+        /// The edit.
+        op: effects::EffectOp,
     },
     /// Copy the selected shapes to the internal clipboard (full shapes and
     /// the pictures they use); the result carries text and a PNG for the
@@ -1103,6 +1110,9 @@ pub struct SlideEditResult {
     /// Result of `chartGallery`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chart_gallery: Option<serde_json::Value>,
+    /// Text warp gallery thumbnails (`shapeEffects` / `warpPreviews`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warp_previews: Option<Vec<effects::WarpPreview>>,
     /// The selected SmartArt (layout and text outline).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub smartart: Option<smartart::SmartArtOut>,
@@ -1212,6 +1222,8 @@ struct Outcome {
     show: Option<usize>,
     /// Gallery asked for by `chartGallery`.
     chart_gallery: Option<serde_json::Value>,
+    /// Text warp previews asked for by `shapeEffects` / `warpPreviews`.
+    warp_previews: Option<Vec<effects::WarpPreview>>,
 }
 
 impl Outcome {
@@ -4028,6 +4040,13 @@ impl Engine {
                 SlideCommand::MergeShapes { op } => {
                     ed.mutate(pres, &mut out, |tx, sel| freeform::cmd_merge(tx, sel, op));
                 }
+                SlideCommand::ShapeEffects {
+                    op: effects::EffectOp::WarpPreviews,
+                } => out.warp_previews = Some(effects::warp_previews()),
+                SlideCommand::ShapeEffects { ref op } => {
+                    let op = op.clone();
+                    ed.mutate(pres, &mut out, |tx, sel| effects::cmd_effects(tx, sel, &op));
+                }
                 SlideCommand::InsertConnector { ref preset } => {
                     let preset = preset.clone();
                     ed.mutate(pres, &mut out, |tx, sel| {
@@ -4698,6 +4717,7 @@ impl Engine {
                 _ => None,
             },
             chart_gallery: out.chart_gallery,
+            warp_previews: out.warp_previews,
             smartart: match items.as_slice() {
                 [one] => smartart::smartart_out(pres, slide, one.id),
                 _ => None,

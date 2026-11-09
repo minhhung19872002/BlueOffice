@@ -11,12 +11,15 @@
 //!   shape definitions (§20.1.9).
 //! * [`freeform`], [`boolean`] — editing outlines as custom geometry and
 //!   polygon boolean operations for merging shapes.
+//! * [`effects`], [`textwarp`] — reflection / soft-edge geometry and the preset
+//!   text warps (WordArt) of §20.1.9.19.
 #![forbid(unsafe_code)]
 
 pub mod boolean;
 pub mod chart;
 pub mod color;
 pub mod dom;
+pub mod effects;
 pub mod freeform;
 pub mod geom;
 pub mod handles;
@@ -26,6 +29,7 @@ pub mod props;
 pub mod svg;
 pub mod table;
 pub mod text;
+pub mod textwarp;
 pub mod theme;
 
 pub use color::{resolve as resolve_color, ColorContext, Rgba};

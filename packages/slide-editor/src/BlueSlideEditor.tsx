@@ -179,6 +179,7 @@ import styles from './SlideEditor.module.css';
 import { SlideOverlay, type TextEditing } from './SlideOverlay';
 import { EditPointsOverlay } from './editPoints';
 import { registerShapeTools, shapeFormatTab } from './shapeFormat';
+import { registerShapeEffects, shapeEffectsGroup, warpPreviewLoader } from './shapeEffects';
 import {
   RenameDialog,
   SlideSizeDialog,
@@ -1556,6 +1557,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     () => registerShapeTools(registry, run, setEditingPoints),
     [registry, run, setEditingPoints],
   );
+  useEffect(() => registerShapeEffects(registry, run), [registry, run]);
+  const loadWarpPreviews = useMemo(() => warpPreviewLoader(runResult), [runResult]);
   const exec = useCallback(
     (id: string) => {
       // Undo / redo typed in quick succession arrive before the previous result has refreshed
@@ -2058,6 +2061,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               state,
               enabled: (id) => registry.isEnabled(id, state),
               exec,
+              extraGroups: [shapeEffectsGroup({ t, state, exec, loadPreviews: loadWarpPreviews })],
             }),
           ]
         : []),
@@ -2244,7 +2248,18 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         ],
       },
     ];
-  }, [t, registry, state, exec, edit, run, loadGallery, setSaveTemplate, current]);
+  }, [
+    t,
+    registry,
+    state,
+    exec,
+    edit,
+    run,
+    loadGallery,
+    setSaveTemplate,
+    current,
+    loadWarpPreviews,
+  ]);
 
   const revision = (i: number) => epoch * 1_000_000 + (revs[i] ?? 0);
   const canvas = (index: number, width: number, className?: string) => (

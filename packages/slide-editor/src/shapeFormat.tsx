@@ -7,7 +7,7 @@
 import type { CommandRegistry } from '@blueoffice/editor';
 import type { useTranslation } from '@blueoffice/i18n';
 import type { SlideCommand, SlideMergeOp } from '@blueoffice/platform';
-import { Popover, type RibbonTab } from '@blueoffice/ui';
+import { Popover, type RibbonGroup, type RibbonTab } from '@blueoffice/ui';
 import { Combine, PenTool } from 'lucide-react';
 import styles from './shapeFormat.module.css';
 
@@ -117,11 +117,14 @@ export function shapeFormatTab<S extends ShapeToolState>({
   state,
   enabled,
   exec,
+  extraGroups = [],
 }: {
   t: T;
   state: S;
   enabled: (id: string) => boolean;
   exec: (id: string) => void;
+  /** Further groups of the tab (shape effects, CORE-SHAPE-002). */
+  extraGroups?: RibbonGroup[];
 }): RibbonTab {
   const none = () => {};
   const mergeEntries: MenuEntry[] = MERGE_OPS.map((op) => ({
@@ -202,6 +205,7 @@ export function shapeFormatTab<S extends ShapeToolState>({
           },
         ],
       },
+      ...extraGroups,
     ],
   };
 }

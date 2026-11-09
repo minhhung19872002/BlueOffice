@@ -27,6 +27,8 @@ pub(crate) mod regression;
 pub(crate) mod stats;
 mod text;
 mod text_more;
+mod web;
+mod xpath;
 
 /// Which arguments are scalar (array arguments in those positions are broadcast).
 #[derive(Clone, Copy, Debug)]
@@ -152,6 +154,7 @@ fn registry() -> &'static HashMap<&'static str, FnSpec> {
             text_more::FUNCTIONS,
             math_more::FUNCTIONS,
             lookup_more::FUNCTIONS,
+            web::FUNCTIONS,
         ] {
             for spec in group {
                 map.insert(spec.name, *spec);

@@ -27,7 +27,7 @@ use crate::functions::is_volatile_function;
 use crate::fxhash::{FxHashMap, FxHashSet};
 use crate::lookupindex::ExactIndex;
 use crate::parser::{parse_with, ParseError, ParseOptions};
-use crate::provider::{CellProvider, TableInfo};
+use crate::provider::{CellProvider, TableInfo, WebProvider};
 use crate::rangeindex::RangeIndex;
 use crate::reference::{parse_a1_cell, MAX_COLS, MAX_ROWS};
 use crate::shift::{
@@ -254,6 +254,14 @@ impl Workbook {
     pub fn set_text_formatter(&mut self, formatter: Option<TextFormatter>) {
         self.config.text_formatter = formatter;
         self.mark_all_formulas();
+    }
+
+    /// Install (or remove with `None`) the fetcher used by `WEBSERVICE`. Web access is off
+    /// by default; hosts install a provider only when an administrator enables it.
+    /// `WEBSERVICE` is volatile, so the next [`Workbook::recalculate`] uses the new provider
+    /// without recalculating anything else.
+    pub fn set_web_provider(&mut self, provider: Option<Arc<dyn WebProvider>>) {
+        self.config.web_provider = provider;
     }
 
     /// Seed the generator used by `RAND`/`RANDBETWEEN`/`RANDARRAY`.

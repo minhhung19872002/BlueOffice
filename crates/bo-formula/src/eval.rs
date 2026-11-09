@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::ast::{BinaryOp, Expr, StructItem, StructRef, UnaryOp};
 use crate::date::DateSystem;
 use crate::functions::{self, FnKind, Lift};
-use crate::provider::{CellProvider, TableInfo};
+use crate::provider::{CellProvider, TableInfo, WebProvider};
 use crate::reference::{RefKind, Reference, SheetRef};
 use crate::value::{compare_values, text_to_number, Area, Array, ErrorKind, Lambda, Value};
 
@@ -33,7 +33,7 @@ pub enum FormatInput<'a> {
 pub type TextFormatter = fn(FormatInput<'_>, &str, DateSystem) -> Option<String>;
 
 /// Settings for an evaluation.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct EvalConfig {
     /// Date system for serial numbers.
     pub date_system: DateSystem,
@@ -42,6 +42,20 @@ pub struct EvalConfig {
     pub now: Option<f64>,
     /// Number-format renderer for `TEXT`; `None` uses the built-in compact one.
     pub text_formatter: Option<TextFormatter>,
+    /// Fetcher for `WEBSERVICE`; `None` (the default) disables web access, and the
+    /// function returns `#VALUE!`. Only an administrator-enabled host installs one.
+    pub web_provider: Option<Arc<dyn WebProvider>>,
+}
+
+impl std::fmt::Debug for EvalConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EvalConfig")
+            .field("date_system", &self.date_system)
+            .field("now", &self.now)
+            .field("text_formatter", &self.text_formatter.is_some())
+            .field("web_provider", &self.web_provider.is_some())
+            .finish()
+    }
 }
 
 impl PartialEq for EvalConfig {
@@ -52,7 +66,12 @@ impl PartialEq for EvalConfig {
             (None, None) => true,
             _ => false,
         };
-        self.date_system == other.date_system && self.now == other.now && same_formatter
+        let same_web = match (&self.web_provider, &other.web_provider) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        self.date_system == other.date_system && self.now == other.now && same_formatter && same_web
     }
 }
 
@@ -88,6 +107,8 @@ pub(crate) struct Ctx<'a> {
     pub col: u32,
     pub date_system: DateSystem,
     pub text_formatter: Option<TextFormatter>,
+    /// Fetcher for `WEBSERVICE` (`None`: web access disabled).
+    pub web: Option<&'a dyn WebProvider>,
     now: Option<f64>,
     rng: &'a AtomicU64,
     scopes: Vec<(String, Value)>,
@@ -102,7 +123,7 @@ impl<'a> Ctx<'a> {
         sheet: usize,
         row: u32,
         col: u32,
-        config: &EvalConfig,
+        config: &'a EvalConfig,
         rng: &'a AtomicU64,
     ) -> Self {
         Ctx {
@@ -112,6 +133,7 @@ impl<'a> Ctx<'a> {
             col,
             date_system: config.date_system,
             text_formatter: config.text_formatter,
+            web: config.web_provider.as_deref(),
             now: config.now,
             rng,
             scopes: Vec::new(),

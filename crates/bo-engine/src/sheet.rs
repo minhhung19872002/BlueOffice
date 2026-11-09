@@ -677,6 +677,16 @@ impl SheetEngine {
         self.live.set_now(Some(serial));
     }
 
+    /// Enables `WEBSERVICE` with a host fetcher, or disables it again with `None`.
+    ///
+    /// Web access is **off by default** and only an administrator enables it (deployment
+    /// policy); while it is off `WEBSERVICE` returns `#VALUE!`. The web and desktop hosts do
+    /// not install a fetcher yet; `bo-formula` itself never opens network connections.
+    /// Takes effect at the next recalculation (the function is volatile).
+    pub fn set_web_provider(&mut self, provider: Option<Arc<dyn bo_formula::WebProvider>>) {
+        self.live.set_web_provider(provider);
+    }
+
     /// Locale for input parsing and display (`vi-VN` default).
     pub fn set_locale(&mut self, tag: &str) {
         self.locale = if tag.eq_ignore_ascii_case("en-US") {

@@ -128,3 +128,32 @@ pub trait CellProvider {
         false
     }
 }
+
+/// Why a [`WebProvider`] could not return a response for `WEBSERVICE`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WebError {
+    /// The host does not allow web access (an administrator enables it).
+    Disabled,
+    /// The URL is not allowed by the host's policy (allow-list, private address, ...).
+    Blocked,
+    /// The request failed (network error, HTTP error status, timeout, ...).
+    Failed(String),
+}
+
+/// Pluggable fetcher behind `WEBSERVICE` ([MS-XLSX] future function `_xlfn.WEBSERVICE`).
+///
+/// `bo-formula` never opens network connections itself: without a provider installed
+/// (see [`crate::EvalConfig::web_provider`] / [`crate::Workbook::set_web_provider`]) the
+/// function is disabled and returns `#VALUE!`. Hosts install one only when an administrator
+/// has enabled web access; the provider decides timeouts, proxies and allow-lists.
+///
+/// The formula engine has already checked that the URL is `http`/`https` and at most
+/// 2048 characters long; the provider returns the response body as text.
+pub trait WebProvider: Send + Sync {
+    /// Fetch `url` (HTTP GET) and return the response body.
+    ///
+    /// # Errors
+    ///
+    /// Any [`WebError`]; `WEBSERVICE` reports every failure as `#VALUE!`.
+    fn fetch(&self, url: &str) -> Result<String, WebError>;
+}

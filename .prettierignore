@@ -20,3 +20,4 @@ assets/fonts/*.json
 tests/mock-bluedrive
 tools
 packages/ui/src/tokens/tokens.css
+packages/ui/icons/SOURCES.md

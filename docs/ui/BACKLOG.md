@@ -20,9 +20,9 @@ icon. Làm xen kẽ với `docs/parity/BACKLOG.md`.
 
 ## Icon (§4)
 
-- [ ] **UI-ICONS-001** (P0) Hạ tầng icon `packages/ui/icons`: component `<Icon name>` tree-shakable theo command id, cỡ
+- [x] **UI-ICONS-001** (P0) Hạ tầng icon `packages/ui/icons`: component `<Icon name>` tree-shakable theo command id, cỡ
   16/20/24/32, hai tông (nét chữ + điểm nhấn app), bản đơn sắc cho high-contrast, `SOURCES.md`. *Xong khi:* test mọi icon có
-  nguồn trong SOURCES.md; test viewBox/kích thước.
+  nguồn trong SOURCES.md; test viewBox/kích thước. **Đã có:** `packages/ui/src/icons` — `<Icon name size label>` (16/20/24/32, nét 1.5, trang trí ⇒ `aria-hidden`), 271 id lệnh gom từ ribbon 3 app (Lucide ISC, chọn một icon duy nhất cho mỗi id), icon tự vẽ `custom.tsx` (dấu app nháp, phân cách nghìn, ₫) có phần nhấn `.bo-icon-accent` theo `--bo-app-accent`, đơn sắc ở hc; `packages/ui/icons/SOURCES.md` sinh tự động; test `test/icons.test.tsx`.
 - [ ] **UI-ICONS-002** (P0) Icon chung + định dạng chữ + đoạn văn (danh mục §4). *Xong khi:* có icon cho mọi command id của
   nhóm; test không thiếu icon trên ribbon Trang đầu.
 - [ ] **UI-ICONS-003** (P1) Icon chèn, bảng tính, trình chiếu. *Xong khi:* test phủ icon cho ribbon 3 app.

@@ -23,3 +23,4 @@ export {
   type ThreadComment,
 } from './CommentThreads';
 export * from './tokens';
+export * from './icons';

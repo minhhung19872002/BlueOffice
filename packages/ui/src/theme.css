@@ -13,3 +13,17 @@
   outline: 2px solid var(--bo-focus);
   outline-offset: 1px;
 }
+
+/* Icons: the accent part follows the app accent; high contrast draws it in the text colour. */
+:root {
+  --bo-icon-on: #ffffff;
+}
+.bo-icon-accent {
+  color: var(--bo-app-accent);
+}
+[data-theme='hc'] {
+  --bo-icon-on: #000000;
+}
+[data-theme='hc'] .bo-icon-accent {
+  color: currentColor;
+}

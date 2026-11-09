@@ -762,6 +762,20 @@ export type SheetCommand =
       nonNegative?: boolean;
       apply?: boolean;
     }
+  /**
+   * Analysis tool on the values of `input` (and `input2`: second sample, histogram bins or
+   * regression x); writes the output table at `dest` or on a new sheet named `sheetName`.
+   * Returns `{ sheet, range }`; errors carry `analysis: <code>` (see `AnalysisErrorCode`).
+   */
+  | {
+      cmd: 'analysis';
+      sheet: number;
+      tool: AnalysisTool;
+      input?: string | null;
+      input2?: string | null;
+      dest?: CellAt | null;
+      sheetName?: string | null;
+    }
   /** What-if Goal Seek (A1 addresses); `apply` enters the value found. */
   | {
       cmd: 'goalSeek';
@@ -771,6 +785,85 @@ export type SheetCommand =
       changing: string;
       apply?: boolean;
     };
+
+/** Distribution of the `random` analysis tool (`discrete` reads value / probability pairs). */
+export type AnalysisRandomDist =
+  | { kind: 'uniform'; lo: number; hi: number }
+  | { kind: 'normal'; mean: number; sd: number }
+  | { kind: 'bernoulli'; p: number }
+  | { kind: 'binomial'; p: number; trials: number }
+  | { kind: 'poisson'; lambda: number }
+  | { kind: 'discrete' };
+
+/** An analysis tool with its options (`bo_sheet::analysis::Tool`). */
+export type AnalysisTool =
+  | {
+      tool: 'descriptive';
+      byRows?: boolean;
+      labels?: boolean;
+      confidence?: number | null;
+      kthLargest?: number | null;
+      kthSmallest?: number | null;
+    }
+  | { tool: 'correlation' | 'covariance' | 'rankPercentile'; byRows?: boolean; labels?: boolean }
+  | { tool: 'anovaSingle'; byRows?: boolean; labels?: boolean; alpha?: number }
+  | { tool: 'anovaTwoFactor'; labels?: boolean; alpha?: number }
+  | { tool: 'anovaTwoFactorRep'; rowsPerSample: number; alpha?: number }
+  | { tool: 'fTest'; labels?: boolean; alpha?: number }
+  | {
+      tool: 'tTestPaired' | 'tTestEqual' | 'tTestUnequal';
+      labels?: boolean;
+      alpha?: number;
+      hypothesized?: number;
+    }
+  | {
+      tool: 'zTest';
+      labels?: boolean;
+      alpha?: number;
+      hypothesized?: number;
+      varA: number;
+      varB: number;
+    }
+  | { tool: 'expSmoothing'; labels?: boolean; damping?: number; stdErrors?: boolean }
+  | { tool: 'movingAverage'; labels?: boolean; interval?: number; stdErrors?: boolean }
+  | { tool: 'histogram'; labels?: boolean; pareto?: boolean; cumulative?: boolean }
+  | {
+      tool: 'random';
+      columns: number;
+      count: number;
+      seed?: number | null;
+      dist: AnalysisRandomDist;
+    }
+  | {
+      tool: 'sampling';
+      labels?: boolean;
+      method: { kind: 'periodic'; period: number } | { kind: 'random'; count: number };
+      seed?: number | null;
+    }
+  | {
+      tool: 'regression';
+      labels?: boolean;
+      constant?: boolean;
+      confidence?: number;
+      residuals?: boolean;
+      stdResiduals?: boolean;
+    }
+  | { tool: 'fourier'; labels?: boolean; inverse?: boolean };
+
+/** Codes in `analysis: <code>` errors of the `analysis` command. */
+export const ANALYSIS_ERROR_CODES = [
+  'nonNumeric',
+  'tooFew',
+  'shape',
+  'powerOfTwo',
+  'param',
+  'tooLarge',
+  'badRange',
+  'noInput',
+  'overlap',
+  'badName',
+] as const;
+export type AnalysisErrorCode = (typeof ANALYSIS_ERROR_CODES)[number];
 
 /** A timeline as the engine lists it. */
 export interface TimelineInfo {

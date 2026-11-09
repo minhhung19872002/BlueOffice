@@ -7,6 +7,7 @@
 //! * [`geometry`] — column widths / row heights, offsets, hidden, merges, hit-testing.
 #![forbid(unsafe_code)]
 
+pub mod analysis;
 pub mod calc;
 pub mod cells;
 pub mod cf;

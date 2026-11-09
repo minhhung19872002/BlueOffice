@@ -139,6 +139,7 @@ import {
   PasswordDialog,
   SavePasswordPanel,
 } from '@blueoffice/editor';
+import { AnalysisDialog } from './analysis';
 import { ProtectSheetDialog, UnprotectDialog } from './protection';
 import {
   CfDialog,
@@ -296,6 +297,7 @@ type DialogState =
   | { kind: 'goalSeek' }
   | { kind: 'dataTable' }
   | { kind: 'solver' }
+  | { kind: 'analysis' }
   | { kind: 'chart'; index: number | null }
   | { kind: 'find'; replace: boolean }
   | { kind: 'goto' }
@@ -1682,6 +1684,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('data.goalSeek', open({ kind: 'goalSeek' }));
     add('data.dataTable', open({ kind: 'dataTable' }));
     add('data.solver', open({ kind: 'solver' }));
+    add('data.analysis', open({ kind: 'analysis' }));
 
     // Page layout
     add('page.setup', open({ kind: 'pageSetup' }));
@@ -2525,6 +2528,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('data.solver', t('sheetEditor.solver.title'), <Calculator size={18} />),
             ],
           },
+          {
+            id: 'analysis',
+            label: t('sheetEditor.groupAnalysis'),
+            items: [item('data.analysis', t('sheetEditor.analysis.title'), <Sigma size={18} />)],
+          },
         ],
       },
       {
@@ -3346,6 +3354,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         <SolverDialog
           {...common}
           objective={`${colName(selection.active.col)}${selection.active.row + 1}`}
+        />
+      )}
+      {dialog?.kind === 'analysis' && (
+        <AnalysisDialog
+          {...common}
+          sheets={info?.sheets.map((s) => s.name) ?? []}
+          input={rangeA1(r)}
+          onCreated={(s) => setSheet(s)}
         />
       )}
       {dialog?.kind === 'goalSeek' && (

@@ -39,12 +39,12 @@ fn matrix(ctx: &Ctx, v: &Value) -> Result<(Vec<f64>, usize, usize), ErrorKind> {
 }
 
 /// Observations: y (n values) and the regressors as n rows of k values.
-struct Data {
-    y: Vec<f64>,
-    x: Vec<Vec<f64>>,
-    k: usize,
+pub(crate) struct Data {
+    pub(crate) y: Vec<f64>,
+    pub(crate) x: Vec<Vec<f64>>,
+    pub(crate) k: usize,
     /// y is one row (the x variables are rows of the x range).
-    by_row: bool,
+    pub(crate) by_row: bool,
 }
 
 fn data(ctx: &Ctx, args: &[Value]) -> Result<Data, ErrorKind> {
@@ -91,19 +91,19 @@ fn regressors(
 
 // ------------------------------------------------------------------ least squares
 
-struct Fit {
+pub(crate) struct Fit {
     /// Coefficients of the x variables (in their order) and the constant.
-    m: Vec<f64>,
-    b: f64,
+    pub(crate) m: Vec<f64>,
+    pub(crate) b: f64,
     /// Standard errors of `m` and of `b` (`None` without a constant).
-    se_m: Vec<f64>,
-    se_b: Option<f64>,
-    r2: f64,
-    se_y: f64,
-    f: f64,
-    df: f64,
-    ss_reg: f64,
-    ss_resid: f64,
+    pub(crate) se_m: Vec<f64>,
+    pub(crate) se_b: Option<f64>,
+    pub(crate) r2: f64,
+    pub(crate) se_y: f64,
+    pub(crate) f: f64,
+    pub(crate) df: f64,
+    pub(crate) ss_reg: f64,
+    pub(crate) ss_resid: f64,
 }
 
 /// Inverse of a symmetric matrix by Gauss–Jordan elimination; columns whose pivot vanishes are
@@ -163,7 +163,7 @@ fn invert(mut a: Vec<Vec<f64>>) -> (Vec<Vec<f64>>, Vec<bool>) {
     (inv, dropped)
 }
 
-fn least_squares(d: &Data, constant: bool) -> Result<Fit, ErrorKind> {
+pub(crate) fn least_squares(d: &Data, constant: bool) -> Result<Fit, ErrorKind> {
     let n = d.y.len();
     let p = d.k + usize::from(constant);
     let row = |i: usize| -> Vec<f64> {

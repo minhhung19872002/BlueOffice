@@ -39,6 +39,7 @@ pub mod provider;
 mod rangeindex;
 pub mod reference;
 mod shift;
+pub mod stat;
 mod storage;
 pub mod value;
 mod workbook;

@@ -815,6 +815,7 @@ dependencies = [
  "bo-text",
  "bo-xlsx",
  "serde",
+ "serde_json",
  "unicode-normalization",
 ]
 

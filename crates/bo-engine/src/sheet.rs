@@ -39,6 +39,7 @@ mod security_cmd;
 mod solver_cmd;
 mod sortfilter_cmd;
 mod sparkline_cmd;
+mod spell_cmd;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
 
@@ -281,6 +282,8 @@ pub struct SheetEngine {
     pub(crate) open_ranges: Vec<(String, String)>,
     /// Names of the current user (password-to-modify user name).
     pub(crate) identity: Vec<String>,
+    /// Spelling and grammar checking of text cells (CORE-SPELL-006).
+    pub(crate) spell: crate::spell::SpellState,
 }
 
 impl Default for SheetEngine {
@@ -656,6 +659,7 @@ impl SheetEngine {
             sec: crate::security::FileSecurity::default(),
             open_ranges: Vec::new(),
             identity: Vec::new(),
+            spell: crate::spell::SpellState::default(),
         }
     }
 
@@ -667,6 +671,8 @@ impl SheetEngine {
         for f in crate::bundled::FONTS {
             e.add_font(f.to_vec());
         }
+        // English spelling (SCOWL en_US, assets/dictionaries); Vietnamese needs no data.
+        let _ = e.load_dictionary(crate::bundled::EN_US_AFF, crate::bundled::EN_US_DIC);
         e
     }
 

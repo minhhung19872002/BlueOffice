@@ -1367,6 +1367,8 @@ export type SlideCommand =
   | import('./security').SecurityCommand
   /** Slide masters, layouts, themes, slide size (SLIDE-MASTER-001). */
   | import('./slideMaster').SlideMasterCommand
+  /** Spelling and grammar of the deck (CORE-SPELL-006). */
+  | import('./spelling').SlideSpellCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
   /** Check document (CORE-INSPECT-001) → `inspection`. */
   | InspectCommand

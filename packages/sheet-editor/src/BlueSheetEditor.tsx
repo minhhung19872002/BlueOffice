@@ -61,6 +61,7 @@ import {
   ChartColumn,
   ChartSpline,
   ClipboardCheck,
+  SpellCheck,
   ClipboardList,
   ClipboardPaste,
   Coins,
@@ -215,6 +216,7 @@ import {
   useSparklines,
 } from './sparklines';
 import { SheetCheckDocumentDialog, type SheetGoTo } from './inspect';
+import { SheetEditSpelling, SheetSpellDialog, useSheetSpelling } from './spelling';
 import {
   SaveChartTemplateDialog,
   chartDesignGroups,
@@ -529,6 +531,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const barRef = useRef<HTMLInputElement>(null);
+  const spellInputs = useMemo(() => [inputRef, barRef], []);
   /** Input that last had the caret while editing (the symbol picker inserts there). */
   const lastInput = useRef<'cell' | 'bar'>('cell');
   const glyphs = useMemo(() => (host ? new GlyphStore(host) : null), [host]);
@@ -992,6 +995,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     setRevision((r) => r + 1);
   }, [host]);
 
+  // Spelling of typed text and of every text cell (CORE-SPELL-006).
+  const spelling = useSheetSpelling(host, fileName, i18n.language);
+  const { setDialog: setSpellDialog, toggle: toggleSpelling, asYouType } = spelling;
+
   // Collaborators' edits arrive through the host: redraw.
   useEffect(
     () => host?.onExternalChange?.(() => void refreshInfo().catch(() => {})),
@@ -1035,6 +1042,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       active: { row: to.r0, col: to.c0 },
     });
   }, []);
+  const spellShow = useCallback(
+    (s: number, row: number, col: number) =>
+      goToRange({ sheet: s, r0: row, c0: col, r1: row, c1: col }),
+    [goToRange],
+  );
   // CORE-SEC-001: final mark, read-only recommendation, password to modify,
   // labels, protected ranges.
   const runSecurity = useCallback(
@@ -1653,6 +1665,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     );
     add('review.savePassword', async () => setSecurity({ kind: 'savePassword' }), has);
     add('review.checkDocument', open({ kind: 'checkDocument' }), has);
+    add('review.spellingDialog', async () => setSpellDialog(true), { ...has, shortcut: 'F7' });
+    add('review.spelling', async () => toggleSpelling(), {
+      ...has,
+      isChecked: () => asYouType,
+    });
     // CORE-SEC-001: final mark, write protection, label, protected ranges.
     add(
       'file.protect',
@@ -2197,6 +2214,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     runProtect,
     setProtectUi,
     circlesOn,
+    setSpellDialog,
+    toggleSpelling,
+    asYouType,
   ]);
 
   const state: SheetEditorState | null = useMemo(
@@ -3309,6 +3329,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('review.checkDocument', t('inspect.command'), <ClipboardCheck size={18} />),
             ],
           },
+          {
+            id: 'proofing',
+            label: t('ribbon.groups.proofing'),
+            items: [
+              item(
+                'review.spellingDialog',
+                t('commands.review.spellingDialog'),
+                <SpellCheck size={18} />,
+              ),
+              item(
+                'review.spelling',
+                t('commands.review.spelling'),
+                <SpellCheck size={s} />,
+                'small',
+              ),
+            ],
+          },
         ],
       },
       {
@@ -4287,6 +4324,26 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       )}
       {dialog?.kind === 'checkDocument' && (
         <SheetCheckDocumentDialog exec={exec} goTo={goToRange} onClose={common.onClose} />
+      )}
+      <SheetEditSpelling
+        host={host}
+        inputs={spellInputs}
+        text={edit ? edit.text : null}
+        lang={spelling.lang}
+        enabled={spelling.asYouType}
+      />
+      {spelling.dialog && host && (
+        <SheetSpellDialog
+          host={host}
+          lang={spelling.lang}
+          setLang={spelling.setLang}
+          onClose={() => {
+            setSpellDialog(false);
+            focusInput();
+          }}
+          onShow={spellShow}
+          onChanged={refreshInfo}
+        />
       )}
       {formDialog && (
         <FormatControlDialog

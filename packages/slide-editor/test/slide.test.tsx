@@ -274,7 +274,8 @@ function fakePlatform() {
     exportPdf: async () => new Uint8Array([37]),
     slideCommand: vi.fn(async (c: SlideCommand) => {
       const keep = ['state', 'setText', 'formatText', 'textSelect', 'textHit', 'undo', 'redo'];
-      if (!keep.includes(c.cmd)) st.editing = null;
+      // Spelling queries (CORE-SPELL-006) leave the selection and text editing alone.
+      if (!keep.includes(c.cmd) && !c.cmd.startsWith('slideSpell')) st.editing = null;
       st.clipboard = undefined;
       if (c.cmd === 'hitTest') return { ...result(), hits: st.emptyHit ? [] : [7] };
       if (c.cmd === 'show') return { ...result(), show: showInfo(c.slide) };

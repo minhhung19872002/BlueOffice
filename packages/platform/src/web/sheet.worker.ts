@@ -11,6 +11,8 @@ declare const self: DedicatedWorkerGlobalScope;
 
 export type SheetWorkerRequest =
   | { id: number; method: 'init'; fonts: Uint8Array[]; locale: string }
+  /** Spelling dictionary (`.aff`, `.dic`) loaded after start-up (CORE-SPELL-006). */
+  | { id: number; method: 'loadDictionary'; aff: Uint8Array; dic: Uint8Array }
   | { id: number; method: SheetMethod; args: unknown[] };
 
 let engine: WasmSheet | null = null;
@@ -96,6 +98,10 @@ self.onmessage = async (ev: MessageEvent<SheetWorkerRequest>) => {
         engine.setLocale(req.locale);
         for (const f of req.fonts) engine.addFont(f);
       }
+      result = null;
+    } else if (req.method === 'loadDictionary') {
+      if (!engine) throw new Error('engine.notInitialized');
+      engine.loadDictionary(req.aff, req.dic);
       result = null;
     } else {
       if (!engine) throw new Error('engine.notInitialized');

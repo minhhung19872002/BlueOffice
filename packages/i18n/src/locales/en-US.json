@@ -2999,7 +2999,14 @@
       "repeatedWord": "The same word appears twice in a row, usually by accident.",
       "unbalanced": "An opening bracket or quotation mark has no partner (or the other way round).",
       "toneStyle": "Most of the document places tone marks one way (for example hoà or hòa); this word uses the other way."
-    }
+    },
+    "workbookLanguage": "Check this workbook as",
+    "anyLanguage": "Any language with a dictionary",
+    "inCell": "Sheet {{sheet}}, cell {{cell}}",
+    "inSlide": "Slide {{n}}",
+    "inSlideTable": "Slide {{n}}, table",
+    "inSlideNotes": "Slide {{n}}, speaker notes",
+    "inSlideSmartArt": "Slide {{n}}, SmartArt diagram"
   },
   "grammar": {
     "extraSpace": "Extra space",

@@ -28,6 +28,7 @@ pub mod ops;
 pub mod rich;
 pub mod show;
 pub mod smartart;
+pub mod spell;
 pub mod table;
 pub mod text;
 pub mod video;
@@ -3280,6 +3281,9 @@ fn slides_text(pres: &Presentation, indices: &[usize]) -> String {
 impl Engine {
     /// Run a JSON [`SlideCommand`]; returns the [`SlideEditResult`] as JSON.
     pub fn slide_command_json(&mut self, json: &str) -> crate::Result<String> {
+        if let Some(sc) = spell::SlideSpellCommand::parse(json) {
+            return self.slide_spell(sc);
+        }
         if let Some(sc) = serde_json::from_str::<serde_json::Value>(json)
             .ok()
             .and_then(|v| crate::security::SecurityCommand::parse(&v))

@@ -1765,6 +1765,9 @@ impl SheetEngine {
         if let Some(ac) = super::audit_cmd::AuditCommand::parse(&v) {
             return Ok(self.audit(ac)?.to_string());
         }
+        if let Some(sc) = super::spell_cmd::SpellCommand::parse(&v) {
+            return Ok(self.spell_command(sc)?.to_string());
+        }
         let cmd: SheetCommand =
             serde_json::from_value(v).map_err(|e| bad(format!("bad command: {e}")))?;
         if !self.sec.read_only {

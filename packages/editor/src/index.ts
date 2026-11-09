@@ -36,3 +36,19 @@ export {
   type PasteOptionsProps,
 } from './clipboard/PasteOptions';
 export { fromBase64, toBase64 } from './clipboard/docPaste';
+// Spelling shared with BlueSheet / BlueSlide (CORE-SPELL-006).
+export {
+  SpellMenu,
+  loadIgnoredWords,
+  loadUserWords,
+  saveIgnoredWord,
+  saveUserWord,
+} from './SpellMenu';
+export { PROOF_LANGUAGES } from './SpellCheckDialog';
+export {
+  ProofWalkDialog,
+  nextWalkIssue,
+  posBefore,
+  type ProofWalkActions,
+  type WalkIssue,
+} from './ProofWalkDialog';

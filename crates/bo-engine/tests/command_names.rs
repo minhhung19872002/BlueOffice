@@ -72,3 +72,26 @@ fn security_commands_do_not_shadow_app_commands() {
         "BlueSlide"
     );
 }
+
+// CORE-SPELL-006: the spelling commands are parsed before the app commands as well.
+#[test]
+fn spelling_commands_do_not_shadow_app_commands() {
+    let sheet = variants(include_str!("../src/sheet/cmd.rs"), "SheetCommand");
+    let slide = variants(include_str!("../src/slide_edit/mod.rs"), "SlideCommand");
+    let sheet_spell = variants(include_str!("../src/sheet/spell_cmd.rs"), "SpellCommand");
+    let slide_spell = variants(
+        include_str!("../src/slide_edit/spell.rs"),
+        "SlideSpellCommand",
+    );
+    assert!(sheet_spell.contains("spellCheck") && slide_spell.contains("slideSpellCheck"));
+    assert_eq!(
+        overlap(&sheet_spell, &sheet),
+        Vec::<String>::new(),
+        "BlueSheet"
+    );
+    assert_eq!(
+        overlap(&slide_spell, &slide),
+        Vec::<String>::new(),
+        "BlueSlide"
+    );
+}

@@ -657,6 +657,8 @@ export type SheetCommand =
   | DataToolsCommand
   /** Formula auditing and calculation (SHEET-AUDIT-001). */
   | import('./audit').AuditCommand
+  /** Spelling and grammar of text cells (CORE-SPELL-006). */
+  | import('./spelling').SheetSpellCommand
   | { cmd: 'presets' }
   /** Check document (CORE-INSPECT-001) → `InspectReport`. */
   | InspectCommand

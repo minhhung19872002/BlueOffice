@@ -2999,7 +2999,14 @@
       "repeatedWord": "Một từ xuất hiện hai lần liền nhau, thường do gõ nhầm.",
       "unbalanced": "Có ngoặc hoặc dấu nháy mở mà không có dấu đóng (hoặc ngược lại).",
       "toneStyle": "Phần lớn tài liệu đặt dấu thanh theo một kiểu (ví dụ hoà hoặc hòa); từ này đặt theo kiểu còn lại."
-    }
+    },
+    "workbookLanguage": "Soát sổ làm việc này theo",
+    "anyLanguage": "Mọi ngôn ngữ có từ điển",
+    "inCell": "Trang tính {{sheet}}, ô {{cell}}",
+    "inSlide": "Trang chiếu {{n}}",
+    "inSlideTable": "Trang chiếu {{n}}, bảng",
+    "inSlideNotes": "Trang chiếu {{n}}, ghi chú",
+    "inSlideSmartArt": "Trang chiếu {{n}}, sơ đồ SmartArt"
   },
   "grammar": {
     "extraSpace": "Thừa dấu cách",

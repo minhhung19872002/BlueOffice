@@ -234,14 +234,15 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
   const baseUrl = opts.baseUrl ?? import.meta.env.BASE_URL ?? '/';
   const files = new WebFileAccess();
   const fonts = new BundledFontSource(baseUrl);
-  const engine = new WebEngineHost(fonts, undefined, async () => {
+  const dictionaries = async () => {
     const get = async (f: string) => {
       const res = await fetch(`${baseUrl}dictionaries/en_US/${f}`);
       if (!res.ok) throw new Error(`dictionary ${f}: ${res.status}`);
       return new Uint8Array(await res.arrayBuffer());
     };
     return [{ aff: await get('en_US.aff'), dic: await get('en_US.dic') }];
-  });
+  };
+  const engine = new WebEngineHost(fonts, undefined, dictionaries);
   const env = import.meta.env as Record<string, string | undefined>;
   const signing = new WebSigning(engine, {
     defaults: {
@@ -273,7 +274,12 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     offline: new IndexedDbCache(),
     shell: new WebShell(),
     channel: (name: string) => new BroadcastBus(name),
-    sheet: createWebSheetHost(fonts, () => document.documentElement.lang || 'vi-VN'),
+    sheet: createWebSheetHost(
+      fonts,
+      () => document.documentElement.lang || 'vi-VN',
+      undefined,
+      dictionaries,
+    ),
     signing,
     video: new WebCodecsVideo(),
   };

@@ -25,6 +25,7 @@ mod chart_design_cmd;
 mod cmd;
 pub(crate) mod collab;
 mod comments;
+mod datatools_cmd;
 mod inspect_cmd;
 mod paste_opts;
 mod pivot_cmd;

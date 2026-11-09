@@ -424,6 +424,7 @@
     "groupCharts": "Charts",
     "groupSortFilter": "Sort & filter",
     "groupDataTools": "Data tools",
+    "groupOutline": "Outline",
     "groupAnalysis": "Analysis",
     "groupPageSetup": "Page setup",
     "groupFreeze": "Freeze",
@@ -1073,6 +1074,116 @@
         "autoFilter": "Use AutoFilter",
         "pivotTables": "Use pivot tables",
         "objects": "Edit objects (charts)"
+      }
+    },
+    "dataTools": {
+      "columnN": "Column {{name}}",
+      "hasHeader": "The first row holds headers",
+      "function": "Function",
+      "fn": {
+        "sum": "Sum",
+        "count": "Count of values",
+        "average": "Average",
+        "max": "Largest",
+        "min": "Smallest",
+        "product": "Product",
+        "countNums": "Count of numbers",
+        "stdDev": "Standard deviation (sample)",
+        "stdDevp": "Standard deviation (population)",
+        "var": "Variance (sample)",
+        "varp": "Variance (population)"
+      },
+      "split": {
+        "title": "Split text into columns",
+        "kind": "How the text is divided",
+        "delimited": "By separator characters",
+        "fixed": "By fixed character positions",
+        "delimiters": "Separators",
+        "tab": "Tab",
+        "semicolon": "Semicolon",
+        "comma": "Comma",
+        "space": "Space",
+        "other": "Other character",
+        "consecutive": "Treat a run of separators as one",
+        "qualifier": "Text enclosed in",
+        "none": "(nothing)",
+        "breaks": "Break positions (characters)",
+        "dest": "Put the result at",
+        "columnFormat": "Column format",
+        "general": "Automatic",
+        "text": "Text",
+        "date": "Date {{order}}",
+        "skip": "Leave out",
+        "badBreaks": "Enter break positions as whole numbers, e.g. 4, 12.",
+        "badDest": "Enter a cell such as B2 or Sheet2!B2.",
+        "errors": {
+          "oneColumn": "Select cells in a single column.",
+          "tooLarge": "The result does not fit on the sheet."
+        }
+      },
+      "dedupe": {
+        "title": "Delete repeated rows",
+        "columns": "Compare these columns",
+        "selectAll": "All columns",
+        "selectNone": "No columns",
+        "noColumns": "Choose at least one column.",
+        "resultTitle": "Repeated rows",
+        "result": "{{removed}} repeated rows deleted, {{remaining}} rows kept.",
+        "none": "No repeated rows were found; {{remaining}} rows kept."
+      },
+      "consolidate": {
+        "title": "Combine ranges",
+        "reference": "Range",
+        "add": "Add to list",
+        "sources": "Ranges to combine",
+        "remove": "Remove from list",
+        "labels": "Match by labels in",
+        "topRow": "The top row",
+        "leftCol": "The left column",
+        "links": "Keep formulas linked to the ranges",
+        "dest": "Put the result at",
+        "errors": {
+          "noSources": "Add at least one range.",
+          "badDest": "Enter a cell such as F2 or Sheet2!A1.",
+          "badRange": "One of the ranges is not valid.",
+          "noData": "The ranges hold no data to combine.",
+          "tooLarge": "The result does not fit on the sheet.",
+          "overlap": "The result would cover one of the ranges."
+        }
+      },
+      "subtotal": {
+        "title": "Subtotals by group",
+        "groupBy": "New group when this column changes",
+        "addTo": "Add a subtotal to",
+        "replace": "Replace the existing subtotals",
+        "pageBreaks": "Start each group on a new page",
+        "below": "Subtotal rows below each group",
+        "removeAll": "Remove subtotals",
+        "rowLabel": "Total: {0}",
+        "grandLabel": "Total of all",
+        "errors": {
+          "noColumns": "Choose at least one column for the subtotal.",
+          "noData": "The list has no rows below its header.",
+          "badColumn": "The chosen columns are outside the list."
+        }
+      },
+      "outline": {
+        "groupRows": "Group rows",
+        "ungroupRows": "Ungroup rows",
+        "groupCols": "Group columns",
+        "ungroupCols": "Ungroup columns",
+        "auto": "Outline from formulas",
+        "clear": "Remove outline",
+        "collapse": "Collapse all groups",
+        "expand": "Expand all groups",
+        "none": "No formulas summing neighbouring rows or columns were found."
+      },
+      "invalid": {
+        "circle": "Mark invalid data",
+        "clear": "Clear invalid-data marks",
+        "found": "{{count}} cells break their validation rule.",
+        "none": "Every validated cell meets its rule.",
+        "truncated": "Only the first {{count}} cells are marked."
       }
     },
     "flashFill": {

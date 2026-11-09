@@ -105,6 +105,19 @@ fn tidy_cols(ws: &mut Worksheet) {
     ws.cols = out;
 }
 
+/// Applies `f` to the column record of every column in `first..=last` (records are
+/// split and merged back as needed), e.g. to change outline levels.
+pub fn update_cols(ws: &mut Worksheet, first: u32, last: u32, mut f: impl FnMut(&mut ColInfo)) {
+    let (first, last) = (first.min(MAX_COLS - 1), last.min(MAX_COLS - 1));
+    if first > last {
+        return;
+    }
+    for i in col_span(ws, first, last) {
+        f(&mut ws.cols[i]);
+    }
+    tidy_cols(ws);
+}
+
 /// Sets the width of columns `first..=last` in points.
 pub fn set_col_width(ws: &mut Worksheet, m: &SheetMetrics, first: u32, last: u32, pt: f64) {
     let (first, last) = (first.min(MAX_COLS - 1), last.min(MAX_COLS - 1));

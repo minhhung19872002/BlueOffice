@@ -20,6 +20,7 @@ import type {
   WorkbookInfo,
   RangeStats,
   FlashFillResult,
+  InvalidCellsResult,
   SheetPermissions,
 } from '@blueoffice/platform';
 import {
@@ -130,6 +131,13 @@ import {
   ZoomIn,
   ZoomOut,
   MessageSquareText,
+  CopyX,
+  Combine,
+  CircleSlash,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  WandSparkles,
+  ListX,
 } from 'lucide-react';
 import {
   useCallback,
@@ -157,6 +165,15 @@ import {
   type SheetPasteChoice,
 } from './pasteOptions';
 import { AnalysisDialog } from './analysis';
+import {
+  ConsolidateDialog,
+  InvalidCircles,
+  MAX_CIRCLES,
+  RemoveDuplicatesDialog,
+  SubtotalDialog,
+  TextToColumnsDialog,
+  type CircleRect,
+} from './dataTools';
 import { ProtectSheetDialog, UnprotectDialog } from './protection';
 import { ScenarioDialog } from './scenarios';
 import { SheetCheckDocumentDialog, type SheetGoTo } from './inspect';
@@ -338,6 +355,10 @@ type DialogState =
   | { kind: 'dataTable' }
   | { kind: 'solver' }
   | { kind: 'analysis' }
+  | { kind: 'textToColumns' }
+  | { kind: 'dedupe' }
+  | { kind: 'consolidate' }
+  | { kind: 'subtotal' }
   | { kind: 'chart'; index: number | null }
   | { kind: 'find'; replace: boolean }
   | { kind: 'goto' }
@@ -471,6 +492,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   /** Other ranges of a Ctrl multi-range selection (the current one is `selection`). */
   const [extra, setExtra] = useState<Range[]>([]);
   const [extraRects, setExtraRects] = useState<Rect[]>([]);
+  /** Sheet whose invalid data is circled (`null`: none). */
+  const [circlesOn, setCirclesOn] = useState<number | null>(null);
+  const [circleRects, setCircleRects] = useState<CircleRect[]>([]);
   const [multiStats, setMultiStats] = useState<(RangeStats & { key: string }) | null>(null);
   const [passwordPrompt, setPasswordPrompt] = useState<{
     file: PendingFile;
@@ -698,6 +722,24 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       cancelled = true;
     };
   }, [host, info, extra, view, px, revision]);
+
+  // Circles around invalid data: the list is fetched again after every edit, so a
+  // corrected cell loses its circle.
+  useEffect(() => {
+    if (!host || !info || circlesOn !== sheet) return;
+    let cancelled = false;
+    void (async () => {
+      const r = await host.exec<InvalidCellsResult>({ cmd: 'invalidCells', sheet });
+      const cells = r.cells.slice(0, MAX_CIRCLES);
+      const rects = await Promise.all(
+        cells.map(([row, col]) => host.rangeRect(view, row, col, row, col)),
+      );
+      if (!cancelled) setCircleRects(rects.map(px).filter((x): x is Rect => !!x));
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, info, sheet, circlesOn, view, px, revision]);
 
   // Status-bar figures of a multi-range selection (computed by the engine).
   useEffect(() => {
@@ -1842,6 +1884,71 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('data.dataTable', open({ kind: 'dataTable' }));
     add('data.solver', open({ kind: 'solver' }));
     add('data.analysis', open({ kind: 'analysis' }));
+    add('data.textToColumns', open({ kind: 'textToColumns' }));
+    add('data.removeDuplicates', open({ kind: 'dedupe' }));
+    add('data.consolidate', open({ kind: 'consolidate' }));
+    add('data.subtotal', open({ kind: 'subtotal' }));
+    const outlineGroup = (rows: boolean, ungroup: boolean) => (s: SheetEditorState) => {
+      const r = rangeOf(s.selection);
+      return exec({
+        cmd: 'outlineGroup',
+        sheet: s.sheet,
+        rows,
+        first: rows ? r.r0 : r.c0,
+        last: rows ? r.r1 : r.c1,
+        ungroup,
+      });
+    };
+    add('data.groupRows', outlineGroup(true, false));
+    add('data.ungroupRows', outlineGroup(true, true));
+    add('data.groupCols', outlineGroup(false, false));
+    add('data.ungroupCols', outlineGroup(false, true));
+    add('data.autoOutline', async (s) => {
+      const r = rangeOf(s.selection);
+      try {
+        await s.host.exec({
+          cmd: 'autoOutline',
+          sheet: s.sheet,
+          range: cellsOf(r) === 1 ? null : toRange(r),
+        });
+        await refreshInfo();
+      } catch (e) {
+        if (String(e instanceof Error ? e.message : e).includes('autoOutline: none')) {
+          setStatus(t('sheetEditor.dataTools.outline.none'));
+        } else throw e;
+      }
+    });
+    add('data.clearOutline', (s) => exec({ cmd: 'clearOutline', sheet: s.sheet }));
+    const showLevel = (level: number) => (s: SheetEditorState) =>
+      exec({
+        cmd: 'batch',
+        cmds: [
+          { cmd: 'outlineShowLevel', sheet: s.sheet, rows: true, level },
+          { cmd: 'outlineShowLevel', sheet: s.sheet, rows: false, level },
+        ],
+      });
+    add('data.collapseOutline', showLevel(1));
+    add('data.expandOutline', showLevel(8));
+    add(
+      'data.circleInvalid',
+      async (s) => {
+        const r = await exec<InvalidCellsResult>({ cmd: 'invalidCells', sheet: s.sheet }, false);
+        if (!r) return;
+        setCirclesOn(r.cells.length > 0 ? s.sheet : null);
+        const n = r.cells.length;
+        setStatus(
+          n === 0
+            ? t('sheetEditor.dataTools.invalid.none')
+            : r.truncated || n > MAX_CIRCLES
+              ? t('sheetEditor.dataTools.invalid.truncated', { count: MAX_CIRCLES })
+              : t('sheetEditor.dataTools.invalid.found', { count: n }),
+        );
+      },
+      { isChecked: (s) => circlesOn === s.sheet },
+    );
+    add('data.clearCircles', async () => setCirclesOn(null), {
+      isEnabled: () => circlesOn !== null,
+    });
 
     // Page layout
     add('page.setup', open({ kind: 'pageSetup' }));
@@ -1893,6 +2000,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     pivotPanel,
     commentsOpen,
     activePivot,
+    circlesOn,
   ]);
 
   const state: SheetEditorState | null = useMemo(
@@ -2728,6 +2836,91 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('data.scenarios', t('sheetEditor.scenario.title'), <Layers size={18} />),
               item('data.dataTable', t('sheetEditor.dataTable.title'), <Grid3x3 size={18} />),
               item('data.solver', t('sheetEditor.solver.title'), <Calculator size={18} />),
+              item(
+                'data.textToColumns',
+                t('sheetEditor.dataTools.split.title'),
+                <Columns3 size={s} />,
+                'small',
+              ),
+              item(
+                'data.removeDuplicates',
+                t('sheetEditor.dataTools.dedupe.title'),
+                <CopyX size={s} />,
+                'small',
+              ),
+              item(
+                'data.consolidate',
+                t('sheetEditor.dataTools.consolidate.title'),
+                <Combine size={s} />,
+                'small',
+              ),
+              item(
+                'data.circleInvalid',
+                t('sheetEditor.dataTools.invalid.circle'),
+                <CircleSlash size={s} />,
+                'small',
+              ),
+              item(
+                'data.clearCircles',
+                t('sheetEditor.dataTools.invalid.clear'),
+                <Eraser size={s} />,
+                'small',
+              ),
+            ],
+          },
+          {
+            id: 'outline',
+            label: t('sheetEditor.groupOutline'),
+            items: [
+              item('data.subtotal', t('sheetEditor.dataTools.subtotal.title'), <Sigma size={18} />),
+              item(
+                'data.groupRows',
+                t('sheetEditor.dataTools.outline.groupRows'),
+                <Group size={s} />,
+                'small',
+              ),
+              item(
+                'data.ungroupRows',
+                t('sheetEditor.dataTools.outline.ungroupRows'),
+                <Ungroup size={s} />,
+                'small',
+              ),
+              item(
+                'data.groupCols',
+                t('sheetEditor.dataTools.outline.groupCols'),
+                <Group size={s} />,
+                'small',
+              ),
+              item(
+                'data.ungroupCols',
+                t('sheetEditor.dataTools.outline.ungroupCols'),
+                <Ungroup size={s} />,
+                'small',
+              ),
+              item(
+                'data.autoOutline',
+                t('sheetEditor.dataTools.outline.auto'),
+                <WandSparkles size={s} />,
+                'small',
+              ),
+              item(
+                'data.clearOutline',
+                t('sheetEditor.dataTools.outline.clear'),
+                <ListX size={s} />,
+                'small',
+              ),
+              item(
+                'data.collapseOutline',
+                t('sheetEditor.dataTools.outline.collapse'),
+                <ChevronsDownUp size={s} />,
+                'small',
+              ),
+              item(
+                'data.expandOutline',
+                t('sheetEditor.dataTools.outline.expand'),
+                <ChevronsUpDown size={s} />,
+                'small',
+              ),
             ],
           },
           {
@@ -3095,6 +3288,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   style={{ left: x.x, top: x.y, width: x.w, height: x.h }}
                 />
               ))}
+            <InvalidCircles rects={circlesOn === sheet ? circleRects : []} />
             {selRect && chart === null && (
               <div
                 className={painter ? styles.selectionPainter : styles.selection}
@@ -3690,6 +3884,40 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           onCreated={(s) => setSheet(s)}
         />
       )}
+      {dialog?.kind === 'textToColumns' && (
+        <TextToColumnsDialog
+          {...common}
+          sheets={info?.sheets.map((s) => s.name) ?? []}
+          range={toRange(r)}
+        />
+      )}
+      {dialog?.kind === 'dedupe' && (
+        <RemoveDuplicatesDialog
+          {...common}
+          range={toRange(r)}
+          onResult={(res) =>
+            setDialog({
+              kind: 'message',
+              title: t('sheetEditor.dataTools.dedupe.resultTitle'),
+              message:
+                res.removed === 0
+                  ? t('sheetEditor.dataTools.dedupe.none', { remaining: res.remaining })
+                  : t('sheetEditor.dataTools.dedupe.result', {
+                      removed: res.removed,
+                      remaining: res.remaining,
+                    }),
+            })
+          }
+        />
+      )}
+      {dialog?.kind === 'consolidate' && (
+        <ConsolidateDialog
+          {...common}
+          sheets={info?.sheets.map((s) => s.name) ?? []}
+          selection={rangeA1(r)}
+        />
+      )}
+      {dialog?.kind === 'subtotal' && <SubtotalDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'goalSeek' && (
         <GoalSeekDialog
           {...common}

@@ -14,6 +14,7 @@ export {
   updateNotice,
 } from './shared';
 export * from './sheet';
+export * from './sheetDataTools';
 export {
   OidcSession,
   fetchOidcConfig,

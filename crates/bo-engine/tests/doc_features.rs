@@ -468,22 +468,40 @@ fn fonts_painter_and_paste_special() {
 }
 
 #[test]
-fn new_from_template_nd30() {
+fn new_from_template_and_check_admin_format() {
     let mut e = Engine::with_bundled_fonts();
     e.new_document("a.docx").unwrap();
+    // A blank document misses the components of Nghị định 30/2020.
+    let r = cmd(&mut e, r#"{"cmd":"checkAdminFormat"}"#);
+    let ids: Vec<&str> = r["adminFormat"]["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["id"].as_str().unwrap())
+        .collect();
+    assert!(ids.contains(&"quocHieu.missing"), "{ids:?}");
     let r = cmd(
         &mut e,
-        r#"{"cmd":"newFromTemplate","id":"nd30","name":"Công văn.docx"}"#,
+        r#"{"cmd":"newFromTemplate","id":"cong-van","name":"Công văn.docx"}"#,
     );
     assert_eq!(r["info"]["name"], "Công văn.docx");
     assert_eq!(r["format"]["section"]["marginLeft"], 1701);
     let text = e.page_json(0).unwrap();
     assert!(text.contains("CỘNG"));
+    let r = cmd(&mut e, r#"{"cmd":"checkAdminFormat"}"#);
+    assert_eq!(r["adminFormat"]["issues"], serde_json::json!([]));
+    assert!(r["adminFormat"]["found"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("quocHieu")));
     let f = reopen(&e);
     let s = &doc(&f).sections[0];
     assert!(s.title_page);
     assert_eq!(s.page.margin_right.0, 851);
     assert!(doc(&f).plain_text().contains("Độc lập - Tự do - Hạnh phúc"));
+    // The saved file passes the check too.
+    let report = bo_engine::templates::check::check(doc(&f));
+    assert!(report.issues.is_empty(), "{:#?}", report.issues);
 }
 
 fn kinds(e: &mut Engine) -> Vec<(String, Option<String>)> {

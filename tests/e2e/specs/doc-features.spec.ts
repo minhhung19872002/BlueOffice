@@ -243,8 +243,8 @@ test('ruler: drag the left indent and add a tab stop; kept after reopen', async 
 test('page setup dialog and the administrative template', async ({ page }) => {
   await page.goto('/doc');
   await page.getByTestId('new-from-template').click();
-  await page.getByTestId('template-nd30').click();
-  await expect(page.getByTestId('doc-name')).toHaveText('Văn bản hành chính.docx');
+  await page.getByTestId('template-cong-van').click();
+  await expect(page.getByTestId('doc-name')).toHaveText('Công văn.docx');
   await expect(page1(page)).toHaveAttribute('data-rendered', 'true');
   await page.screenshot({ path: join(outDir, 'web-doc-template.png') });
   await expect(page.getByTestId('ruler-margin-left')).toHaveAttribute('data-twips', '1701');

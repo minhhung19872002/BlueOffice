@@ -624,6 +624,9 @@ pub enum Command {
         /// File name of the new document.
         name: String,
     },
+    /// Check the document against Nghị định 30/2020/NĐ-CP (administrative document
+    /// format): `adminFormat` of the result lists the deviations.
+    CheckAdminFormat,
     /// Design tab state: page colour, page borders, watermark, themes, style sets.
     Design,
     /// Set (`None`: remove) the page colour (§17.2.1 background), `RRGGBB`.
@@ -768,6 +771,9 @@ pub struct EditResult {
     /// Design tab state (design commands).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub design: Option<Box<crate::design::DesignState>>,
+    /// Administrative format check (`checkAdminFormat`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admin_format: Option<Box<crate::templates::check::FormatReport>>,
 }
 
 impl crate::Engine {
@@ -999,6 +1005,7 @@ impl crate::Engine {
                     | Command::MergePreview { .. }
                     | Command::MergeToDocument
                     | Command::NewFromTemplate { .. }
+                    | Command::CheckAdminFormat
                     | Command::SetSavePassword { .. }
                     | Command::EquationTemplates
                     // Handled by `special_command`.
@@ -1548,6 +1555,7 @@ impl crate::Engine {
             corrected: None,
             painter: s.picked_format().is_some(),
             design: None,
+            admin_format: None,
         })
     }
 }

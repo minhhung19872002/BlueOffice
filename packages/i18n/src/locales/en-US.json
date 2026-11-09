@@ -210,7 +210,8 @@
       "markupReviewers": "People",
       "markupAllReviewers": "Everyone",
       "reviewingPane": "Change list pane",
-      "reviewingPaneBottom": "Change list at the bottom"
+      "reviewingPaneBottom": "Change list at the bottom",
+      "checkAdminFormat": "Check administrative format"
     },
     "references": {
       "insertToc": "Table of contents",
@@ -2108,10 +2109,46 @@
   },
   "templates": {
     "title": "New from template",
-    "nd30": {
-      "name": "Vietnamese administrative document (Decree 30/2020)",
-      "description": "National title and motto, number/symbol, recipients; A4, margins top/bottom 20 mm, left 30 mm, right 15 mm; Times New Roman 13.",
-      "file": "Administrative document.docx"
+    "intro": "Administrative documents per Decree 30/2020/NĐ-CP: A4, margins top/bottom 20 mm, left 30 mm, right 15 mm; Times New Roman; national title, motto, number and symbol, recipients, signature.",
+    "cong-van": {
+      "name": "Official letter (công văn)",
+      "description": "No document type name; the “V/v …” summary below the number; addressee, recipients, signature.",
+      "file": "Official letter.docx"
+    },
+    "quyet-dinh": {
+      "name": "Decision (quyết định)",
+      "description": "Issuing authority, legal bases, “QUYẾT ĐỊNH:” and articles; recipients “Như Điều 3”.",
+      "file": "Decision.docx"
+    },
+    "to-trinh": {
+      "name": "Submission (tờ trình)",
+      "description": "Addressed to the competent authority; rationale, proposal, recommendation.",
+      "file": "Submission.docx"
+    },
+    "bien-ban": {
+      "name": "Minutes (biên bản)",
+      "description": "Time, place, participants, content; signed by the secretary and the chair.",
+      "file": "Minutes.docx"
+    },
+    "hop-dong": {
+      "name": "Contract (hợp đồng)",
+      "description": "Legal bases, both parties, the articles; signed by both representatives.",
+      "file": "Contract.docx"
+    },
+    "bao-cao": {
+      "name": "Report (báo cáo)",
+      "description": "Results, shortcomings and causes, next steps, recommendations.",
+      "file": "Report.docx"
+    },
+    "giay-moi": {
+      "name": "Invitation (giấy mời)",
+      "description": "Invitee, event, time and place.",
+      "file": "Invitation.docx"
+    },
+    "ke-hoach": {
+      "name": "Plan (kế hoạch)",
+      "description": "Purpose and requirements; tasks and schedule; implementation.",
+      "file": "Plan.docx"
     }
   },
   "hf": {
@@ -2701,5 +2738,76 @@
     },
     "ok": "OK",
     "cancel": "Cancel"
+  },
+  "adminFormat": {
+    "title": "Administrative format check (Decree 30/2020)",
+    "recheck": "Check again",
+    "close": "Close",
+    "checking": "Checking…",
+    "ok": "No deviation from the format of Decree 30/2020/NĐ-CP.",
+    "summary": "{{n}} deviations found; click one to go to its paragraph.",
+    "expected": "Required: {{value}}",
+    "actual": "Found: {{value}}",
+    "components": {
+      "page": "Page",
+      "font": "Font",
+      "body": "Body text",
+      "quocHieu": "National title",
+      "tieuNgu": "Motto",
+      "coQuanChuQuan": "Parent body",
+      "coQuan": "Issuing body",
+      "soKyHieu": "Number and symbol",
+      "diaDanh": "Place and date",
+      "tenLoai": "Document type",
+      "trichYeu": "Summary",
+      "trichYeuCongVan": "Letter summary (V/v)",
+      "kinhGui": "Addressee",
+      "chucVu": "Signer title",
+      "hoTen": "Signer name",
+      "noiNhan": "Recipients heading",
+      "noiNhanList": "Recipient list",
+      "soTrang": "Page number"
+    },
+    "props": {
+      "size": "Font size",
+      "bold": "Bold",
+      "italic": "Italic",
+      "case": "Capitals",
+      "align": "Alignment",
+      "position": "Position",
+      "underline": "Line below",
+      "missing": "Missing component",
+      "font": "Font name",
+      "paper": "Paper size",
+      "marginTop": "Top margin",
+      "marginBottom": "Bottom margin",
+      "marginLeft": "Left margin",
+      "marginRight": "Right margin",
+      "indent": "First-line indent",
+      "spacing": "Paragraph spacing",
+      "lineSpacing": "Line spacing",
+      "firstPage": "Number on the first page"
+    },
+    "values": {
+      "yes": "yes",
+      "no": "no",
+      "upper": "capitals",
+      "mixed": "lower case",
+      "left": "left",
+      "center": "centre",
+      "right": "right",
+      "justify": "justified",
+      "present": "present",
+      "missing": "missing",
+      "headerLeft": "header, left column",
+      "headerRight": "header, right column",
+      "body": "body",
+      "signatureLeft": "recipients column",
+      "signature": "signature column",
+      "header": "header",
+      "footer": "footer",
+      "hidden": "hidden",
+      "shown": "shown"
+    }
   }
 }

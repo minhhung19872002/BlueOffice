@@ -130,6 +130,7 @@ import {
   ZoomOut,
   SpellCheck,
   SpellCheck2,
+  FileCheck2,
   Sigma,
   SquareFunction,
   TextCursorInput,
@@ -185,8 +186,8 @@ import {
   ControlBar,
   PicturePositionDialog,
   TablePropertiesDialog,
-  TemplateDialog,
 } from './DocDialogs';
+import { AdminFormatDialog, TemplateDialog } from './TemplateDialogs';
 import { ConvertDialog, FormulaDialog, SortDialog } from './TableToolDialogs';
 import { ColorPicker, FontFamilyPicker, FontSizeBox, SpacingMenu } from './FontControls';
 import { DefineListDialog, MultilevelMenu, SetNumberingDialog } from './ListDialogs';
@@ -1284,6 +1285,11 @@ function EditorInner({
       run: () => store.setState({ dialog: 'autoCorrect' }),
     });
     r.register({
+      id: 'review.checkAdminFormat',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'adminFormat' }),
+    });
+    r.register({
       id: 'review.grammar',
       isEnabled: hasDoc,
       isChecked: (s) => s.grammarOn,
@@ -2279,6 +2285,11 @@ function EditorInner({
             item('review.spelling', 'commands.review.spelling', <SpellCheck size={ICON} />),
             item('review.grammar', 'commands.review.grammar', <SpellCheck2 size={ICON} />),
             item('review.autoCorrect', 'commands.review.autoCorrect', <WandSparkles size={ICON} />),
+            item(
+              'review.checkAdminFormat',
+              'commands.review.checkAdminFormat',
+              <FileCheck2 size={ICON} />,
+            ),
           ],
         },
         {
@@ -2635,6 +2646,9 @@ function EditorInner({
             )}
             {state.dialog === 'autoCorrect' && (
               <AutoCorrectDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'adminFormat' && (
+              <AdminFormatDialog run={runCommand} onClose={closeDialog} />
             )}
             {state.dialog === 'control' && (
               <ControlDialog

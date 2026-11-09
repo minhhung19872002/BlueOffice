@@ -19,6 +19,7 @@
 //! bo-cli fields <file.docx> --out <out.docx>  # update TOC / SEQ / REF / PAGEREF fields
 //! bo-cli merge <template.docx> <data.csv|xlsx> --to docx|pdf --out <out>  # mail merge
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
+//! bo-cli templates <dir>                     # write the BlueDoc templates + thumbnails (assets/templates/doc)
 //! bo-cli sample-big <out.docx> [--pages 300]  # §5 benchmark document (text + pictures)
 //! bo-cli bench input.docx [--iterations 5]
 //! bo-cli validate <file-or-dir>... [--json] [--openxml auto|require|off] [--validator PATH]
@@ -33,6 +34,7 @@ mod sample;
 mod sign_cmd;
 mod slide_edits;
 mod slide_samples;
+mod templates;
 mod validate;
 
 use bo_engine::Engine;
@@ -191,6 +193,8 @@ enum Cmd {
     },
     /// Write the BlueSlide corpus decks into a directory.
     SampleSlides { dir: PathBuf },
+    /// Write the built-in BlueDoc templates (.docx) and their thumbnails (.png).
+    Templates { dir: PathBuf },
     /// Write the §5 benchmark document: about N A4 pages of text with inline pictures.
     SampleBig {
         out: PathBuf,
@@ -583,6 +587,13 @@ fn run(cli: Cli) -> R {
         }
         Cmd::SampleSlides { dir } => {
             for (name, bytes) in slide_samples::decks() {
+                let path = dir.join(name);
+                write_file(&path, &bytes)?;
+                println!("{}", path.display());
+            }
+        }
+        Cmd::Templates { dir } => {
+            for (name, bytes) in templates::files()? {
                 let path = dir.join(name);
                 write_file(&path, &bytes)?;
                 println!("{}", path.display());

@@ -620,6 +620,7 @@ export type EditCommand =
   | { cmd: 'insertNote'; endnote?: boolean; text?: string }
   | { cmd: 'setNoteText'; endnote?: boolean; id: number; text: string }
   | { cmd: 'newFromTemplate'; id: string; name: string }
+  | { cmd: 'checkAdminFormat' }
   | { cmd: 'review' | 'acceptAllRevisions' | 'rejectAllRevisions' }
   /** Compare with an original (.docx / .odt / .doc): the differences become tracked changes. */
   | { cmd: 'compareWith'; name: string; base64: string }
@@ -784,6 +785,33 @@ export interface EditResult {
   corrected?: AutoCorrectRule;
   /** Design tab state (design commands). */
   design?: DesignState;
+  /** Nghị định 30/2020 format check (`checkAdminFormat`). */
+  adminFormat?: AdminFormatReport;
+}
+
+/** One deviation from Nghị định 30/2020 (mirrors `bo_engine::templates::check::FormatIssue`). */
+export interface AdminFormatIssue {
+  /** `<component>.<property>`, e.g. `quocHieu.size`. */
+  id: string;
+  component: string;
+  property: string;
+  severity: 'error' | 'warning';
+  /** A number with its unit ("12–13 pt") or a token (`yes`, `center`, `headerRight`, …). */
+  expected: string;
+  actual: string;
+  /** Body paragraph id of the first occurrence. */
+  para?: number;
+  section?: number;
+  /** Start of the paragraph's text. */
+  text?: string;
+  count: number;
+}
+
+/** Result of `checkAdminFormat`. */
+export interface AdminFormatReport {
+  issues: AdminFormatIssue[];
+  /** Components recognised. */
+  found: string[];
 }
 
 /** A replacement-list entry (mirrors `bo_edit::autocorrect::Replacement`). */

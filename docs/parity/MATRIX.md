@@ -86,7 +86,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Mảng động, LET, LAMBDA | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |
 | @, trim ref, liên kết ngoài | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
 | Định dạng số | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu [DBNum], lịch âm |
-| CF / DV | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus cf-*, dv-* | 🟡 | thiếu một số icon set/data bar âm |
+| CF / DV | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus cf-*, writer-cf-*, dv-* | ✅ | data bar âm/trục, 20 bộ biểu tượng + tuỳ chỉnh, Stop If True, CF pivot (SHEET-CF-001) |
 | Sort / filter | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | E2E, advfilter tests | ✅ | theo màu/biểu tượng/danh sách, top N, trung bình, ngày động, Advanced Filter (SHEET-DATA-001) |
 | Pivot | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | tests + E2E | 🟡 | thiếu drill-down |
 | PivotChart | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests | 🟡 | |

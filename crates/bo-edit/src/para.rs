@@ -394,6 +394,7 @@ mod tests {
                 placeholder,
                 block: false,
                 props_xml: None,
+                data_binding: None,
             }))
         };
         let d = RunProps::default();

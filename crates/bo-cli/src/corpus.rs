@@ -97,6 +97,9 @@ struct Doc {
     /// Pictures of header/footer parts: (header/footer rId, picture rId in that part,
     /// index into `images`).
     hf_images: Vec<(String, String, usize)>,
+    /// Custom XML data storage parts (ECMA-376 Part 1, §15.2.4): (item XML, `ds:itemID`),
+    /// written as `/customXml/itemN.xml` with an `itemPropsN.xml` properties part (§15.2.5).
+    custom_xml: Vec<(String, String)>,
 }
 
 fn wrap(root: &str, inner: &str) -> String {
@@ -212,6 +215,39 @@ impl Doc {
         for (i, (name, ct, ty, xml)) in self.extra.iter().enumerate() {
             p.add_part(&format!("/word/{name}"), ct, xml.clone().into_bytes())?;
             rel(&format!("rIdX{}", i + 1), ty, name, false);
+        }
+        for (i, (xml, id)) in self.custom_xml.iter().enumerate() {
+            let k = i + 1;
+            let item = format!("/customXml/item{k}.xml");
+            let props = bo_model::custom_xml::CustomXmlPart {
+                part_name: item.clone(),
+                xml: xml.clone(),
+                item_id: Some(id.clone()),
+                schema_refs: Vec::new(),
+                props_part: Some(format!("/customXml/itemProps{k}.xml")),
+            }
+            .props_xml();
+            p.add_part(&item, "application/xml", xml.clone().into_bytes())?;
+            p.add_part(
+                &format!("/customXml/itemProps{k}.xml"),
+                "application/vnd.openxmlformats-officedocument.customXmlProperties+xml",
+                props.into_bytes(),
+            )?;
+            p.set_relationships(
+                &item,
+                &[Relationship {
+                    id: "rId1".into(),
+                    rel_type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXmlProps".into(),
+                    target: format!("itemProps{k}.xml"),
+                    mode: TargetMode::Internal,
+                }],
+            );
+            rel(
+                &format!("rIdC{k}"),
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml",
+                &format!("../customXml/item{k}.xml"),
+                false,
+            );
         }
         p.set_relationships("/word/document.xml", &rels);
         let core = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1141,6 +1177,33 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         ].concat(),
         sect: sect(r#"<w:type w:val="continuous"/>"#).replace("<w:cols w:space=\"708\"/>", "<w:cols w:space=\"708\"/><w:formProt w:val=\"0\"/>"),
         settings: Some(r#"<w:zoom w:percent="100"/><w:documentProtection w:edit="forms" w:enforcement="1"/><w:defaultTabStop w:val="720"/><w:characterSpacingControl w:val="doNotCompress"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>"#.to_owned()),
+        ..Doc::default()
+    }));
+    // Content controls bound to a custom XML part (§17.5.2.6 dataBinding, §15.2.4).
+    let bind = |xpath: &str| {
+        format!(
+            r#"<w:dataBinding w:prefixMappings="xmlns:ns0='urn:bluestar:corpus:don-hang'" w:xpath="{xpath}" w:storeItemID="{{3B0F6A52-1C7D-4E8A-9B21-6D4C0E5F7A13}}"/>"#
+        )
+    };
+    v.push(("controls-03-data-binding.docx", "controls", "Content control gắn dữ liệu XML tuỳ chỉnh (customXml/item1.xml + itemProps1.xml): hai ô văn bản cùng một nút, hộp kiểm, ngày (storeMappedDataAs date), danh sách theo giá trị, thuộc tính @ma, một nút không tồn tại giữ nội dung cũ", Doc {
+        body: [
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Khách hàng: </w:t></w:r><w:sdt><w:sdtPr><w:alias w:val="Khách hàng"/><w:id w:val="3001"/>{}<w:text/></w:sdtPr><w:sdtContent><w:r><w:t>Công ty Sao Xanh</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t xml:space="preserve">   Mã đơn: </w:t></w:r><w:sdt><w:sdtPr><w:id w:val="3002"/>{}<w:text/></w:sdtPr><w:sdtContent><w:r><w:t>DH-0042</w:t></w:r></w:sdtContent></w:sdt></w:p>"#, bind("/ns0:donHang[1]/ns0:khachHang[1]"), bind("/ns0:donHang[1]/@ma")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Kính gửi </w:t></w:r><w:sdt><w:sdtPr><w:id w:val="3003"/>{}<w:text/></w:sdtPr><w:sdtContent><w:r><w:rPr><w:b/></w:rPr><w:t>Công ty Sao Xanh</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t>,</w:t></w:r></w:p>"#, bind("/ns0:donHang[1]/ns0:khachHang[1]")),
+            format!(r#"<w:p><w:sdt><w:sdtPr><w:id w:val="3004"/>{}<w14:checkbox><w14:checked w14:val="1"/><w14:checkedState w14:val="2612" w14:font="MS Gothic"/><w14:uncheckedState w14:val="2610" w14:font="MS Gothic"/></w14:checkbox></w:sdtPr><w:sdtContent><w:r><w:t>☒</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t xml:space="preserve"> Giao hàng tận nơi</w:t></w:r></w:p>"#, bind("/ns0:donHang[1]/ns0:giaoTanNoi[1]")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Ngày giao: </w:t></w:r><w:sdt><w:sdtPr><w:id w:val="3005"/>{}<w:date w:fullDate="2026-12-15T00:00:00Z"><w:dateFormat w:val="dd/MM/yyyy"/><w:lid w:val="vi-VN"/><w:storeMappedDataAs w:val="date"/><w:calendar w:val="gregorian"/></w:date></w:sdtPr><w:sdtContent><w:r><w:t>15/12/2026</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t xml:space="preserve">   Hình thức: </w:t></w:r><w:sdt><w:sdtPr><w:id w:val="3006"/>{}<w:dropDownList><w:listItem w:displayText="Chuyển khoản" w:value="CK"/><w:listItem w:displayText="Tiền mặt" w:value="TM"/></w:dropDownList></w:sdtPr><w:sdtContent><w:r><w:t>Chuyển khoản</w:t></w:r></w:sdtContent></w:sdt></w:p>"#, bind("/ns0:donHang[1]/ns0:ngayGiao[1]"), bind("/ns0:donHang[1]/ns0:thanhToan[1]")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Ghi chú: </w:t></w:r><w:sdt><w:sdtPr><w:id w:val="3007"/>{}<w:text/></w:sdtPr><w:sdtContent><w:r><w:t>(không có nút này trong dữ liệu)</w:t></w:r></w:sdtContent></w:sdt></w:p>"#, bind("/ns0:donHang[1]/ns0:ghiChu[1]")),
+        ].concat(),
+        sect: s.clone(),
+        custom_xml: vec![(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>
+<dh:donHang xmlns:dh=\"urn:bluestar:corpus:don-hang\" ma=\"DH-0042\">
+  <dh:khachHang>Công ty Sao Xanh</dh:khachHang>
+  <dh:giaoTanNoi>true</dh:giaoTanNoi>
+  <dh:ngayGiao>2026-12-15</dh:ngayGiao>
+  <dh:thanhToan>CK</dh:thanhToan>
+</dh:donHang>".to_owned(),
+            "{3B0F6A52-1C7D-4E8A-9B21-6D4C0E5F7A13}".to_owned(),
+        )],
         ..Doc::default()
     }));
     v.push(("unknown-02-alternate-content.docx", "unknown", "mc:AlternateContent (Choice wps / Fallback VML), w14 trong rPr, ký hiệu w:sym", Doc {

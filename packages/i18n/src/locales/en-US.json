@@ -155,6 +155,7 @@
       "equation": "Equation",
       "field": "Field…",
       "control": "Content control…",
+      "xmlMapping": "XML data mapping…",
       "formText": "Text form field",
       "formCheckBox": "Check box form field",
       "formDropDown": "Drop-down form field",
@@ -3307,6 +3308,43 @@
     "date": "Date",
     "locked": "Contents locked",
     "apply": "Apply"
+  },
+  "xmlMapping": {
+    "title": "XML data mapping",
+    "close": "Close",
+    "part": "Data part",
+    "noParts": "This document has no custom XML data parts.",
+    "addFile": "Add from file…",
+    "paste": "Paste XML",
+    "pasteHint": "Paste an XML document here",
+    "addPasted": "Add part",
+    "remove": "Remove part",
+    "nodes": "Nodes",
+    "broken": "This part is not well-formed XML.",
+    "boundCount": "Bound content controls: {{count}}",
+    "control": {
+      "none": "Place the cursor in a content control to bind it to a node.",
+      "unbound": "The content control at the cursor is not bound.",
+      "bound": "Bound to {{xpath}}",
+      "missing": "Bound to {{xpath}}; the node is missing, so the saved content is shown."
+    },
+    "unbind": "Remove binding",
+    "bindHint": "Click a node to bind the content control at the cursor to it.",
+    "value": "Value",
+    "setValue": "Set value",
+    "error": {
+      "badXml": "The XML is not well-formed.",
+      "badPart": "That data part no longer exists.",
+      "badXPath": "This node path is not supported.",
+      "noNode": "The node was not found.",
+      "notLeaf": "Only attributes and elements without child elements hold a value.",
+      "noControl": "The cursor is not in a content control.",
+      "locked": "The content control is locked.",
+      "notBindable": "This kind of content control cannot be bound.",
+      "tooLarge": "The XML part is too large.",
+      "protected": "The document only allows filling in forms.",
+      "other": "The change could not be made."
+    }
   },
   "autoCorrect": {
     "title": "AutoCorrect as you type",

@@ -4,6 +4,7 @@
 //! reproduce unchanged content byte-for-byte (ADR-0005).
 
 use crate::{DocxError, Result};
+use bo_model::custom_xml::DataBinding;
 use bo_model::slide::Theme;
 
 const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
@@ -157,6 +158,14 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
     }
     let (prefix, suffix) = read_body(&main_part.data, &ctx, &mut doc, &mut media)?;
     doc.media = media;
+    // §15.2.4 custom XML parts; bound content controls show their nodes (§17.5.2.6).
+    doc.custom_xml = crate::custom_xml::read_parts(&pkg, &main)?;
+    let custom_xml = doc.custom_xml.clone();
+    bo_model::custom_xml::binding::sync(
+        &mut doc,
+        bo_model::custom_xml::binding::SyncMode::FromParts,
+        true,
+    );
     // Signed signature lines (ECMA-376 Part 2, §12; [MS-OFFCRYPTO] SignatureInfoV1).
     let line_sigs = crate::sigline::line_signatures(&pkg);
     if !line_sigs.is_empty() {
@@ -178,6 +187,7 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         display_background_shape: doc.design.display_background_shape,
         protection: doc.protection.clone(),
         hyphenation: doc.hyphenation,
+        custom_xml,
     }));
     Ok(doc)
 }
@@ -853,6 +863,7 @@ pub(crate) fn parse_sdt_pr(xml: &str, block: bool) -> ContentControl {
         placeholder: false,
         block,
         props_xml: Some(xml.to_owned()),
+        data_binding: None,
     };
     let wrapped =
         format!("<x xmlns:w=\"{W_NS}\" xmlns:w14=\"{W14_NS}\" xmlns:w15=\"{W15_NS}\">{xml}</x>");
@@ -914,6 +925,11 @@ pub(crate) fn parse_sdt_pr(xml: &str, block: bool) -> ContentControl {
                         .and_then(val)
                         .unwrap_or_else(|| "dd/MM/yyyy".into()),
                     full_date: attr_of(c, "fullDate"),
+                    // §17.5.2.40 storeMappedDataAs.
+                    store_as: c
+                        .elements()
+                        .find(|x| x.local() == "storeMappedDataAs")
+                        .and_then(val),
                 };
             }
             "checkbox" => {
@@ -923,6 +939,15 @@ pub(crate) fn parse_sdt_pr(xml: &str, block: bool) -> ContentControl {
                     on: symbol(el("checkedState"), '\u{2612}'),
                     off: symbol(el("uncheckedState"), '\u{2610}'),
                 };
+            }
+            // §17.5.2.6 dataBinding (w:xpath, w:prefixMappings, w:storeItemID); the w15
+            // variant ([MS-DOCX] w15:dataBinding) is kept in the XML only.
+            "dataBinding" if c.name.starts_with("w:") => {
+                cc.data_binding = attr_of(c, "xpath").map(|xpath| DataBinding {
+                    xpath,
+                    prefix_mappings: attr_of(c, "prefixMappings").unwrap_or_default(),
+                    store_item_id: attr_of(c, "storeItemID"),
+                });
             }
             "repeatingSection" => cc.kind = ControlKind::RepeatingSection,
             "group" => cc.kind = ControlKind::Group,

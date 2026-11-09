@@ -593,6 +593,7 @@ export type ListNumbering = { kind: 'restart'; value: number } | { kind: 'contin
 export type EditCommand =
   | import('./security').SecurityCommand
   | import('./picture').PictureCommand
+  | import('./customXml').CustomXmlCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
   | { cmd: 'setSelection'; selection: Selection }
@@ -964,6 +965,8 @@ export interface EditResult {
   security?: import('./security').SecurityInfo;
   /** The picture at the selection (picture tools commands, CORE-PIC-001). */
   picture?: import('./picture').PictureInfo;
+  /** Custom XML parts (`customXml*` commands, §15.2.4). */
+  customXml?: import('./customXml').CustomXmlPartInfo[];
   /** Document outline (`outline` and outline commands). */
   outline?: OutlineItem[];
   /** Find results with context (`findResults`). */
@@ -1060,6 +1063,10 @@ export interface ControlInfo {
   placeholder: boolean;
   /** The contents cannot be edited. */
   locked: boolean;
+  /** Bound node (§17.5.2.6 dataBinding `w:xpath`). */
+  binding?: string;
+  /** The bound node exists (`false`: unbound, the cached content stays). */
+  bound?: boolean;
 }
 
 /** Kind of a legacy form field (`FORMTEXT`, `FORMCHECKBOX`, `FORMDROPDOWN`). */

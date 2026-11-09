@@ -20,6 +20,7 @@ mod bundled;
 pub mod chart_design;
 mod clip_picture;
 pub mod collab;
+pub mod custom_xml;
 pub mod design;
 mod doc_picture;
 pub mod edit;

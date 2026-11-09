@@ -37,7 +37,7 @@ fn overlaps(a: CellRange, b: CellRange) -> bool {
 }
 
 /// A sheet name not yet used: `base`, else `base (2)`, `base (3)`, …
-fn free_name(wb: &Workbook, base: &str) -> String {
+pub(super) fn free_name(wb: &Workbook, base: &str) -> String {
     let taken = |n: &str| wb.sheets.iter().any(|s| s.name.eq_ignore_ascii_case(n));
     if !taken(base) {
         return base.to_owned();

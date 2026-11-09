@@ -1224,7 +1224,8 @@
         "ge": ">=",
         "eq": "=",
         "int": "số nguyên",
-        "bin": "nhị phân"
+        "bin": "nhị phân",
+        "dif": "khác nhau (1..n)"
       },
       "add": "Thêm ràng buộc",
       "remove": "Xoá ràng buộc",
@@ -1237,8 +1238,43 @@
         "infeasible": "Không có nghiệm khả thi: không thể thoả mọi ràng buộc.",
         "unbounded": "Mục tiêu không hội tụ (không bị chặn).",
         "notLinear": "Mô hình không tuyến tính; phương pháp tuyến tính không giải được.",
-        "error": "Một ô của mô hình bị lỗi."
-      }
+        "error": "Một ô của mô hình bị lỗi.",
+        "missingBounds": "Phương pháp tiến hoá cần cận dưới và cận trên cho mọi ô biến.",
+        "limit": "Đã dừng do chạm giới hạn; điểm tốt nhất hiện có: mục tiêu {{value}}.",
+        "limitEmpty": "Đã dừng do chạm giới hạn trước khi tìm được điểm thoả các ràng buộc."
+      },
+      "method": "Phương pháp giải",
+      "methods": {
+        "simplex": "Tuyến tính (đơn hình)",
+        "nonlinear": "Phi tuyến trơn",
+        "evolutionary": "Tiến hoá"
+      },
+      "methodHints": {
+        "simplex": "Dùng khi mục tiêu và ràng buộc là hàm tuyến tính của các ô biến.",
+        "nonlinear": "Dùng cho mô hình cong và trơn; tìm cực trị địa phương gần giá trị ban đầu.",
+        "evolutionary": "Dùng cho mô hình gồ ghề hoặc không trơn; mỗi ô biến cần cận dưới và cận trên."
+      },
+      "options": "Tuỳ chọn",
+      "maxTime": "Giới hạn thời gian (giây)",
+      "maxSubproblems": "Giới hạn số bài toán con (ô số nguyên)",
+      "maxIterations": {
+        "nonlinear": "Giới hạn số vòng lặp",
+        "evolutionary": "Giới hạn số thế hệ"
+      },
+      "convergence": "Ngưỡng hội tụ",
+      "multistart": "Thử thêm từ các điểm ngẫu nhiên",
+      "starts": "Số điểm xuất phát ngẫu nhiên",
+      "seed": "Hạt giống ngẫu nhiên",
+      "population": "Kích thước quần thể",
+      "mutation": "Tỉ lệ đột biến (0–1)",
+      "reports": "Ghi báo cáo ra trang tính mới",
+      "reportKinds": {
+        "answer": "Kết quả",
+        "sensitivity": "Độ nhạy",
+        "limits": "Giới hạn"
+      },
+      "foundLocal": "Đã tìm được cực trị địa phương: mục tiêu {{value}}.",
+      "foundBest": "Nghiệm tốt nhất tìm được: mục tiêu {{value}}."
     },
     "table": {
       "insert": "Bảng"

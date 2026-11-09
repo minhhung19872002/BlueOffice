@@ -29,6 +29,7 @@ mod png;
 mod print;
 pub mod protect;
 mod scenario_cmd;
+mod solver_cmd;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
 

@@ -132,3 +132,17 @@ export function removeEmpty(lines: OutlineLine[], i: number): OutlineChange | nu
   const prev = lines[i - 1]!;
   return { lines: lines.filter((_, k) => k !== i), focus: i - 1, caret: prev.text.length };
 }
+
+/**
+ * Comparison key of `applyOutline` slides: a body of only empty paragraphs counts as no
+ * bullets (the engine keeps one empty paragraph in a body placeholder whose bullets were all
+ * removed), so the engine's answer to our own edit compares equal to what was sent.
+ */
+export function outlineKey(slides: SlideOutlineEdit[]): string {
+  return JSON.stringify(
+    slides.map((s) => ({
+      title: s.title,
+      bullets: s.bullets.every((b) => b.text === '') ? [] : s.bullets,
+    })),
+  );
+}

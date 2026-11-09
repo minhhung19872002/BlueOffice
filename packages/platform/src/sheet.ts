@@ -1296,7 +1296,8 @@ export type PrintComments = 'none' | 'atEnd' | 'asDisplayed';
 export type PageOrder = 'downThenOver' | 'overThenDown';
 
 /** Optional `setPageSetup` fields beyond the basics. */
-export interface PrintSetupExtra {
+// A type alias (not an interface) so `setPageSetup` stays assignable to `{ cmd: string; [k: string]: unknown }`.
+export type PrintSetupExtra = {
   titleCols?: [number, number] | null;
   printAreas?: SheetRange[];
   headings?: boolean;
@@ -1311,7 +1312,7 @@ export interface PrintSetupExtra {
   /** Header and footer margins in inches. */
   hfMargins?: [number, number];
   headerFooter?: HeaderFooterSpec;
-}
+};
 
 /** `pageSetup` query: the extra print settings. */
 export interface PrintSetupInfo {

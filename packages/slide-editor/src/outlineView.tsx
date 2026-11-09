@@ -6,7 +6,7 @@
  * engine.
  */
 import { useTranslation } from '@blueoffice/i18n';
-import type { SlideCommand, SlideEditResult } from '@blueoffice/platform';
+import type { SlideCommand, SlideEditResult, SlideOutlineEdit } from '@blueoffice/platform';
 import {
   useCallback,
   useEffect,
@@ -23,6 +23,7 @@ import {
   enter,
   linesOf,
   newSlide,
+  outlineKey,
   promote,
   removeEmpty,
   renumber,
@@ -60,6 +61,12 @@ export function OutlineView({ runResult, revision, current, onSelect, preview }:
     const r = await runResult({ cmd: 'outline' });
     if (!r?.outline || dirty.current || inFlight.current > 0) return;
     const next = linesOf(r.outline);
+    // The engine's answer to our own last edit: keep the lines as typed (focus, empty lines).
+    if (
+      sent.current &&
+      outlineKey(editsOf(next)) === outlineKey(JSON.parse(sent.current) as SlideOutlineEdit[])
+    )
+      return;
     sent.current = JSON.stringify(editsOf(next));
     setLines(next);
   }, [runResult]);

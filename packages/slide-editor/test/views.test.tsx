@@ -426,3 +426,15 @@ describe('notes / handout master views', () => {
     expect(slot.style.width).toBe('234px');
   });
 });
+
+describe('outlineKey', () => {
+  it('treats a body of empty paragraphs as no bullets and ignores slide indexes', async () => {
+    const { outlineKey } = await import('../src/outlineModel');
+    expect(outlineKey([{ title: 'A', slide: 3, bullets: [{ text: '', level: 0 }] }])).toBe(
+      outlineKey([{ title: 'A', bullets: [] }]),
+    );
+    expect(outlineKey([{ title: 'A', bullets: [{ text: 'x', level: 0 }] }])).not.toBe(
+      outlineKey([{ title: 'A', bullets: [] }]),
+    );
+  });
+});

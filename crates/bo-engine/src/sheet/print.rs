@@ -149,6 +149,54 @@ pub(super) struct Settings {
     pub comments: CommentsMode,
 }
 
+impl Settings {
+    /// Printable width and height of the paper inside the margins (points).
+    pub(super) fn avail(&self) -> (f64, f64) {
+        let [ml, mr, mt, mb, ..] = self.margins;
+        let (pw, ph) = self.page;
+        ((pw - ml - mr).max(36.0), (ph - mt - mb).max(36.0))
+    }
+}
+
+/// Where the printed block of one page goes (see `SheetEngine::frame_box`).
+struct FrameBox {
+    /// Page position of the block (margins and centring applied).
+    x0: f64,
+    y0: f64,
+    /// Heading column width / heading row height (unscaled).
+    hw: f64,
+    hh: f64,
+    /// Repeated title columns width / title rows height (unscaled).
+    tw: f64,
+    th: f64,
+    rows_band: Span,
+    cols_band: Span,
+    /// Body width / height (unscaled).
+    bw: f64,
+    bh: f64,
+}
+
+/// Cells of one printed page (page layout view).
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct PageCells {
+    pub cols: (u32, u32),
+    pub rows: (u32, u32),
+    pub scale: f64,
+    /// Page position (points) of the top-left corner of the first body cell.
+    pub origin: (f64, f64),
+}
+
+/// One printed page (page layout view).
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct PageBox {
+    /// Paper width and height in points (after orientation).
+    pub size: (f64, f64),
+    /// Left, right, top, bottom, header, footer margins in points.
+    pub margins: [f64; 6],
+    /// `None` for an end-of-sheet comments page.
+    pub cells: Option<PageCells>,
+}
+
 pub(super) fn settings(ws: &Worksheet) -> Settings {
     let ps = &ws.page_setup;
     let (mut pw, mut ph) = paper(ps.paper_size);
@@ -255,6 +303,8 @@ pub(super) struct Pagination {
     pub rows: Vec<(u32, u32)>,
     /// Pages in print order as `(column span index, row span index)`.
     pub order: Vec<(usize, usize)>,
+    /// Width / height repeated on every page (from [`PageInput::fixed`]).
+    pub fixed: (f64, f64),
 }
 
 /// Scale and page breaks of one print area. Fitting (§18.3.1.63) uses
@@ -302,6 +352,7 @@ pub(super) fn paginate(p: &PageInput<'_>) -> Pagination {
         cols,
         rows,
         order,
+        fixed: p.fixed,
     }
 }
 
@@ -505,8 +556,69 @@ impl SheetEngine {
         lines
     }
 
-    /// Pages of one sheet in print order (cells pages, then comments pages).
-    fn frames(&mut self, sheet: usize, st: &Settings) -> Result<Vec<Frame>> {
+    /// Where the cells of a page go: the page origin of the printed block
+    /// (margins and centring applied) and the bands in front of the body.
+    fn frame_box(
+        &mut self,
+        sheet: usize,
+        st: &Settings,
+        (c0, c1): (u32, u32),
+        (r0, r1): (u32, u32),
+        scale: f64,
+    ) -> Result<FrameBox> {
+        let ws = self.sheet(sheet)?;
+        let (titles_rows, titles_cols) = ws
+            .print_titles
+            .as_deref()
+            .map_or((None, None), parse_titles);
+        let g = self.geometry(sheet)?;
+        let width = |a: u32, b: u32| g.col_x(b + 1) - g.col_x(a);
+        let height = |a: u32, b: u32| g.row_y(b + 1) - g.row_y(a);
+        let (pw, ph) = st.page;
+        let [ml, mr, mt, mb, ..] = st.margins;
+        let (aw0, ah0) = ((pw - ml - mr).max(36.0), (ph - mt - mb).max(36.0));
+        // Titles already on the page are not repeated.
+        let rows_band = titles_rows.filter(|(_, b)| r0 > *b);
+        let cols_band = titles_cols.filter(|(_, b)| c0 > *b);
+        let th = rows_band.map_or(0.0, |(a, b)| height(a, b));
+        let tw = cols_band.map_or(0.0, |(a, b)| width(a, b));
+        let (hw, hh) = if st.headings {
+            let last = titles_rows.map_or(r1, |(_, b)| b.max(r1));
+            (heading_width(last), HEADING_H)
+        } else {
+            (0.0, 0.0)
+        };
+        let bw = width(c0, c1);
+        let bh = height(r0, r1);
+        let mut x0 = ml;
+        let mut y0 = mt;
+        if st.center_h {
+            x0 += ((aw0 - (bw + tw + hw) * scale) / 2.0).max(0.0);
+        }
+        if st.center_v {
+            y0 += ((ah0 - (bh + th + hh) * scale) / 2.0).max(0.0);
+        }
+        Ok(FrameBox {
+            x0,
+            y0,
+            hw,
+            hh,
+            tw,
+            th,
+            rows_band,
+            cols_band,
+            bw,
+            bh,
+        })
+    }
+
+    /// Pagination of every print area of `sheet` (§18.2.6 `_xlnm.Print_Area`, else
+    /// the used range), in print order.
+    pub(super) fn paginations(
+        &mut self,
+        sheet: usize,
+        st: &Settings,
+    ) -> Result<Vec<(CellRange, Pagination)>> {
         let wb = self.wb()?;
         let ws = self.sheet(sheet)?;
         let areas = print_areas(wb, sheet, ws);
@@ -519,9 +631,7 @@ impl SheetEngine {
         let g = self.geometry(sheet)?.clone();
         let width = |a: u32, b: u32| g.col_x(b + 1) - g.col_x(a);
         let height = |a: u32, b: u32| g.row_y(b + 1) - g.row_y(a);
-        let [ml, mr, mt, mb, ..] = st.margins;
-        let (pw, ph) = st.page;
-        let avail = ((pw - ml - mr).max(36.0), (ph - mt - mb).max(36.0));
+        let avail = st.avail();
         let mut out = Vec::new();
         for area in areas {
             let last_row = titles_rows.map_or(area.last.row, |(_, b)| b.max(area.last.row));
@@ -546,6 +656,16 @@ impl SheetEngine {
                 row_breaks: &row_breaks,
                 over_then_down: st.over_then_down,
             });
+            out.push((area, p));
+        }
+        Ok(out)
+    }
+
+    /// Pages of one sheet in print order (cells pages, then comments pages).
+    fn frames(&mut self, sheet: usize, st: &Settings) -> Result<Vec<Frame>> {
+        let avail = st.avail();
+        let mut out = Vec::new();
+        for (_, p) in self.paginations(sheet, st)? {
             for (c, r) in p.order {
                 out.push(Frame::Cells {
                     cols: p.cols[c],
@@ -560,6 +680,35 @@ impl SheetEngine {
             for chunk in lines.chunks(per_page) {
                 out.push(Frame::Comments(chunk.to_vec()));
             }
+        }
+        Ok(out)
+    }
+
+    /// Page layout of a sheet (SHEET-VIEW-001 page layout view): paper size,
+    /// margins and, for pages of cells, the cell spans, the scale and the page
+    /// position of the first body cell.
+    pub(super) fn page_layout(&mut self, sheet: usize) -> Result<Vec<PageBox>> {
+        let st = settings(self.sheet(sheet)?);
+        let frames = self.frames(sheet, &st)?;
+        let mut out = Vec::with_capacity(frames.len());
+        for fr in &frames {
+            let cells = match fr {
+                Frame::Cells { cols, rows, scale } => {
+                    let b = self.frame_box(sheet, &st, *cols, *rows, *scale)?;
+                    Some(PageCells {
+                        cols: *cols,
+                        rows: *rows,
+                        scale: *scale,
+                        origin: (b.x0 + (b.hw + b.tw) * scale, b.y0 + (b.hh + b.th) * scale),
+                    })
+                }
+                Frame::Comments(_) => None,
+            };
+            out.push(PageBox {
+                size: st.page,
+                margins: st.margins,
+                cells,
+            });
         }
         Ok(out)
     }
@@ -590,35 +739,21 @@ impl SheetEngine {
             } => {
                 let (c0, c1, r0, r1, scale) = (*c0, *c1, *r0, *r1, *scale);
                 page_scale = scale;
-                let ws = self.sheet(sheet)?;
-                let (titles_rows, titles_cols) = ws
-                    .print_titles
-                    .as_deref()
-                    .map_or((None, None), parse_titles);
                 let g = self.geometry(sheet)?.clone();
                 let width = |a: u32, b: u32| g.col_x(b + 1) - g.col_x(a);
                 let height = |a: u32, b: u32| g.row_y(b + 1) - g.row_y(a);
-                // Titles already on the page are not repeated.
-                let rows_band = titles_rows.filter(|(_, b)| r0 > *b);
-                let cols_band = titles_cols.filter(|(_, b)| c0 > *b);
-                let th = rows_band.map_or(0.0, |(a, b)| height(a, b));
-                let tw = cols_band.map_or(0.0, |(a, b)| width(a, b));
-                let (hw, hh) = if st.headings {
-                    let last = titles_rows.map_or(r1, |(_, b)| b.max(r1));
-                    (heading_width(last), HEADING_H)
-                } else {
-                    (0.0, 0.0)
-                };
-                let bw = width(c0, c1);
-                let bh = height(r0, r1);
-                let mut x0 = ml;
-                let mut y0 = mt;
-                if st.center_h {
-                    x0 += ((aw0 - (bw + tw + hw) * scale) / 2.0).max(0.0);
-                }
-                if st.center_v {
-                    y0 += ((ah0 - (bh + th + hh) * scale) / 2.0).max(0.0);
-                }
+                let FrameBox {
+                    x0,
+                    y0,
+                    hw,
+                    hh,
+                    tw,
+                    th,
+                    rows_band,
+                    cols_band,
+                    bw,
+                    bh,
+                } = self.frame_box(sheet, st, (c0, c1), (r0, r1), scale)?;
                 // Local (unscaled) origin of the cells, right / below the headings.
                 let lx = hw;
                 let ly = hh;
@@ -853,7 +988,18 @@ impl SheetEngine {
     pub(crate) fn print_pages(&mut self, sheet: usize) -> Result<Vec<PageList>> {
         let st = settings(self.sheet(sheet)?);
         let frames = self.frames(sheet, &st)?;
-        let opts = RenderOptions {
+        let opts = self.print_options(&st);
+        let n = frames.len();
+        frames
+            .iter()
+            .enumerate()
+            .map(|(i, fr)| self.draw_frame(sheet, &st, fr, i, n, &opts))
+            .collect()
+    }
+
+    /// Render options of printed pages.
+    fn print_options(&self, st: &Settings) -> RenderOptions {
+        RenderOptions {
             locale: self.locale,
             now: self.live.now(),
             gridlines: Some(st.gridlines),
@@ -867,20 +1013,20 @@ impl SheetEngine {
             },
             error_text: st.errors.clone(),
             ..RenderOptions::default()
-        };
-        let n = frames.len();
-        frames
-            .iter()
-            .enumerate()
-            .map(|(i, fr)| self.draw_frame(sheet, &st, fr, i, n, &opts))
-            .collect()
+        }
     }
 
-    /// Print preview: page count of `sheet` and the display list of page `page`.
+    /// Print preview: page count of `sheet` and the display list of page `page`
+    /// (only that page is drawn).
     pub(crate) fn print_preview(&mut self, sheet: usize, page: usize) -> Result<serde_json::Value> {
-        let pages = self.print_pages(sheet)?;
-        let n = pages.len();
-        let p = pages.into_iter().nth(page.min(n.saturating_sub(1)));
+        let st = settings(self.sheet(sheet)?);
+        let frames = self.frames(sheet, &st)?;
+        let n = frames.len();
+        let opts = self.print_options(&st);
+        let p = match frames.get(page.min(n.saturating_sub(1))) {
+            Some(fr) => Some(self.draw_frame(sheet, &st, fr, page.min(n - 1), n, &opts)?),
+            None => None,
+        };
         Ok(serde_json::json!({ "pages": n, "page": p }))
     }
 

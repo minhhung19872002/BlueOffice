@@ -664,6 +664,8 @@ export type SheetCommand =
   | import('./audit').AuditCommand
   /** Spelling and grammar of text cells (CORE-SPELL-006). */
   | import('./spelling').SheetSpellCommand
+  /** Workbook views (SHEET-VIEW-001). */
+  | import('./sheetViews').SheetViewCommand
   | { cmd: 'presets' }
   /** Check document (CORE-INSPECT-001) → `InspectReport`. */
   | InspectCommand

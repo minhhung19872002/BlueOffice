@@ -20,7 +20,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 
+mod custom_view;
 mod form_control;
+pub use custom_view::{CustomSheetView, CustomWorkbookView, SheetViewType};
 pub use form_control::{CheckState, ControlAnchor, FormControl, FormControlKind};
 
 /// Maximum number of rows in a worksheet (ECMA-376 Part 1, §18.3.1.73: `r` ≤ 1048576).
@@ -272,6 +274,9 @@ pub struct Workbook {
     /// Authors of threaded comments ([MS-XLSX] person part, `CT_Person`).
     #[serde(default)]
     pub persons: Vec<Person>,
+    /// `customWorkbookViews` (§18.2.3): named custom views.
+    #[serde(default)]
+    pub custom_views: Vec<CustomWorkbookView>,
     /// Preserved package content.
     pub opaque: Opaque,
 }
@@ -434,6 +439,9 @@ pub struct Worksheet {
     pub print_titles: Option<String>,
     /// `printOptions`, `pageMargins`, `pageSetup`, `headerFooter`, breaks.
     pub page_setup: PageSetup,
+    /// `customSheetViews` (§18.3.1.26): this sheet's half of the custom views.
+    #[serde(default)]
+    pub custom_views: Vec<CustomSheetView>,
     /// Attributes of the root `worksheet` element.
     pub root_attrs: Vec<RawAttr>,
     /// Unknown children of `worksheet` (sheetProtection, autoFilter, drawing, extLst, …).

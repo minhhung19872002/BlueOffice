@@ -950,6 +950,10 @@ fn workbook_xml(
                 let _ = write!(out, "<definedNames>{items}</definedNames>");
             }
         }
+        // §18.2.3 customWorkbookViews
+        "customWorkbookViews" => {
+            crate::custom_views::write_custom_workbook_views(out, &wb.custom_views);
+        }
         // §18.2.22 pivotCaches
         "pivotCaches" if !wb.pivot_caches.is_empty() => {
             out.push_str("<pivotCaches>");
@@ -1058,6 +1062,10 @@ fn sheet_xml(
             }
             "sheetViews" if !ws.views.is_empty() => write_views(out, ws),
             "sheetFormatPr" => write_format(out, ws),
+            // §18.3.1.26 customSheetViews
+            "customSheetViews" => {
+                crate::custom_views::write_custom_sheet_views(out, &ws.custom_views);
+            }
             "cols" if !ws.cols.is_empty() => {
                 out.push_str("<cols>");
                 for c in &ws.cols {
@@ -1171,87 +1179,10 @@ fn sheet_xml(
                 }
                 out.push_str("</hyperlinks>");
             }
-            "printOptions" => {
-                let p = &ws.page_setup;
-                if p.has_print_options
-                    || p.print_grid_lines
-                    || p.print_headings
-                    || p.horizontal_centered
-                    || p.vertical_centered
-                {
-                    out.push_str("<printOptions");
-                    a_true(out, "horizontalCentered", p.horizontal_centered);
-                    a_true(out, "verticalCentered", p.vertical_centered);
-                    a_true(out, "headings", p.print_headings);
-                    a_true(out, "gridLines", p.print_grid_lines);
-                    out.push_str("/>");
-                }
-            }
-            "pageMargins" => {
-                if let Some(m) = &ws.page_setup.margins {
-                    out.push_str("<pageMargins");
-                    a(out, "left", &fmt_f64(m.left));
-                    a(out, "right", &fmt_f64(m.right));
-                    a(out, "top", &fmt_f64(m.top));
-                    a(out, "bottom", &fmt_f64(m.bottom));
-                    a(out, "header", &fmt_f64(m.header));
-                    a(out, "footer", &fmt_f64(m.footer));
-                    out.push_str("/>");
-                }
-            }
-            "pageSetup" => {
-                let p = &ws.page_setup;
-                if p.has_page_setup
-                    || p.paper_size.is_some()
-                    || p.orientation.is_some()
-                    || p.scale.is_some()
-                    || p.fit_to_width.is_some()
-                    || p.fit_to_height.is_some()
-                    || !p.attrs.is_empty()
-                {
-                    out.push_str("<pageSetup");
-                    a_opt(out, "paperSize", p.paper_size.as_ref());
-                    a_opt(out, "scale", p.scale.as_ref());
-                    a_opt(out, "fitToWidth", p.fit_to_width.as_ref());
-                    a_opt(out, "fitToHeight", p.fit_to_height.as_ref());
-                    a_opt(out, "orientation", p.orientation.as_ref());
-                    a_raw(out, &p.attrs);
-                    out.push_str("/>");
-                }
-            }
-            // §18.3.1.46 headerFooter (children in CT_HeaderFooter sequence order).
-            "headerFooter" => {
-                let p = &ws.page_setup;
-                let texts = [
-                    ("oddHeader", &p.odd_header),
-                    ("oddFooter", &p.odd_footer),
-                    ("evenHeader", &p.even_header),
-                    ("evenFooter", &p.even_footer),
-                    ("firstHeader", &p.first_header),
-                    ("firstFooter", &p.first_footer),
-                ];
-                if let Some(raw) = &p.header_footer_raw {
-                    out.push_str(raw);
-                } else if texts.iter().any(|(_, t)| t.is_some())
-                    || p.different_odd_even
-                    || p.different_first
-                    || !p.header_footer_attrs.is_empty()
-                {
-                    out.push_str("<headerFooter");
-                    a_true(out, "differentOddEven", p.different_odd_even);
-                    a_true(out, "differentFirst", p.different_first);
-                    a_raw(out, &p.header_footer_attrs);
-                    out.push('>');
-                    for (name, t) in texts {
-                        if let Some(t) = t {
-                            let _ = write!(out, "<{name}>{}</{name}>", escape(t));
-                        }
-                    }
-                    out.push_str("</headerFooter>");
-                }
-            }
-            "rowBreaks" => write_breaks(out, "rowBreaks", &ws.page_setup.row_breaks, 16_383),
-            "colBreaks" => write_breaks(out, "colBreaks", &ws.page_setup.col_breaks, 1_048_575),
+            // §18.3.1.70 printOptions, §18.3.1.62 pageMargins, §18.3.1.63 pageSetup,
+            // §18.3.1.46 headerFooter, §18.3.1.74 rowBreaks, §18.3.1.14 colBreaks
+            "printOptions" | "pageMargins" | "pageSetup" | "headerFooter" | "rowBreaks"
+            | "colBreaks" => write_page_part(out, slot, &ws.page_setup),
             // §18.3.1.36 drawing (only when the writer created the drawing part).
             "drawing" if drawing_rid.is_some() => {
                 let _ = write!(
@@ -1272,6 +1203,92 @@ fn sheet_xml(
     );
     out.push_str("</worksheet>");
     out
+}
+
+/// Print settings shared by `worksheet` and `customSheetView` (§18.3.1.25):
+/// `printOptions`, `pageMargins`, `pageSetup`, `headerFooter`, `rowBreaks`, `colBreaks`.
+pub(crate) fn write_page_part(out: &mut String, slot: &str, p: &bo_model::sheet::PageSetup) {
+    match slot {
+        "printOptions" => {
+            if p.has_print_options
+                || p.print_grid_lines
+                || p.print_headings
+                || p.horizontal_centered
+                || p.vertical_centered
+            {
+                out.push_str("<printOptions");
+                a_true(out, "horizontalCentered", p.horizontal_centered);
+                a_true(out, "verticalCentered", p.vertical_centered);
+                a_true(out, "headings", p.print_headings);
+                a_true(out, "gridLines", p.print_grid_lines);
+                out.push_str("/>");
+            }
+        }
+        "pageMargins" => {
+            if let Some(m) = &p.margins {
+                out.push_str("<pageMargins");
+                a(out, "left", &fmt_f64(m.left));
+                a(out, "right", &fmt_f64(m.right));
+                a(out, "top", &fmt_f64(m.top));
+                a(out, "bottom", &fmt_f64(m.bottom));
+                a(out, "header", &fmt_f64(m.header));
+                a(out, "footer", &fmt_f64(m.footer));
+                out.push_str("/>");
+            }
+        }
+        "pageSetup" => {
+            if p.has_page_setup
+                || p.paper_size.is_some()
+                || p.orientation.is_some()
+                || p.scale.is_some()
+                || p.fit_to_width.is_some()
+                || p.fit_to_height.is_some()
+                || !p.attrs.is_empty()
+            {
+                out.push_str("<pageSetup");
+                a_opt(out, "paperSize", p.paper_size.as_ref());
+                a_opt(out, "scale", p.scale.as_ref());
+                a_opt(out, "fitToWidth", p.fit_to_width.as_ref());
+                a_opt(out, "fitToHeight", p.fit_to_height.as_ref());
+                a_opt(out, "orientation", p.orientation.as_ref());
+                a_raw(out, &p.attrs);
+                out.push_str("/>");
+            }
+        }
+        // §18.3.1.46 headerFooter (children in CT_HeaderFooter sequence order).
+        "headerFooter" => {
+            let texts = [
+                ("oddHeader", &p.odd_header),
+                ("oddFooter", &p.odd_footer),
+                ("evenHeader", &p.even_header),
+                ("evenFooter", &p.even_footer),
+                ("firstHeader", &p.first_header),
+                ("firstFooter", &p.first_footer),
+            ];
+            if let Some(raw) = &p.header_footer_raw {
+                out.push_str(raw);
+            } else if texts.iter().any(|(_, t)| t.is_some())
+                || p.different_odd_even
+                || p.different_first
+                || !p.header_footer_attrs.is_empty()
+            {
+                out.push_str("<headerFooter");
+                a_true(out, "differentOddEven", p.different_odd_even);
+                a_true(out, "differentFirst", p.different_first);
+                a_raw(out, &p.header_footer_attrs);
+                out.push('>');
+                for (name, t) in texts {
+                    if let Some(t) = t {
+                        let _ = write!(out, "<{name}>{}</{name}>", escape(t));
+                    }
+                }
+                out.push_str("</headerFooter>");
+            }
+        }
+        "rowBreaks" => write_breaks(out, "rowBreaks", &p.row_breaks, 16_383),
+        "colBreaks" => write_breaks(out, "colBreaks", &p.col_breaks, 1_048_575),
+        _ => {}
+    }
 }
 
 /// §18.3.1.74 rowBreaks / §18.3.1.14 colBreaks.
@@ -1341,21 +1358,7 @@ fn write_views(out: &mut String, ws: &Worksheet) {
         out.push('>');
         emit_unknown(out, &v.unknown, "");
         if let Some(p) = &v.pane {
-            out.push_str("<pane");
-            if p.x_split != 0.0 {
-                a(out, "xSplit", &fmt_f64(p.x_split));
-            }
-            if p.y_split != 0.0 {
-                a(out, "ySplit", &fmt_f64(p.y_split));
-            }
-            a_opt(out, "topLeftCell", p.top_left_cell.as_ref());
-            a_opt(out, "activePane", p.active_pane.as_ref());
-            match p.state {
-                PaneState::Split => {}
-                PaneState::Frozen => a(out, "state", "frozen"),
-                PaneState::FrozenSplit => a(out, "state", "frozenSplit"),
-            }
-            out.push_str("/>");
+            write_pane(out, p);
         }
         emit_unknown(out, &v.unknown, "pane");
         for s in &v.selections {
@@ -1369,6 +1372,25 @@ fn write_views(out: &mut String, ws: &Worksheet) {
         out.push_str("</sheetView>");
     }
     out.push_str("</sheetViews>");
+}
+
+/// §18.3.1.66 pane.
+pub(crate) fn write_pane(out: &mut String, p: &bo_model::sheet::Pane) {
+    out.push_str("<pane");
+    if p.x_split != 0.0 {
+        a(out, "xSplit", &fmt_f64(p.x_split));
+    }
+    if p.y_split != 0.0 {
+        a(out, "ySplit", &fmt_f64(p.y_split));
+    }
+    a_opt(out, "topLeftCell", p.top_left_cell.as_ref());
+    a_opt(out, "activePane", p.active_pane.as_ref());
+    match p.state {
+        PaneState::Split => {}
+        PaneState::Frozen => a(out, "state", "frozen"),
+        PaneState::FrozenSplit => a(out, "state", "frozenSplit"),
+    }
+    out.push_str("/>");
 }
 
 /// §18.3.1.81 sheetFormatPr.

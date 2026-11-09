@@ -42,6 +42,7 @@ mod sortfilter_cmd;
 mod sparkline_cmd;
 mod spell_cmd;
 mod table_cmd;
+mod view_cmd;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
 

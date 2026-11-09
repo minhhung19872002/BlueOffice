@@ -1144,6 +1144,57 @@ pub enum SheetCommand {
         /// The range, header row included.
         range: Rng,
     },
+    /// Sparkline groups of a sheet ([MS-XLSX] `x14:sparklineGroup`) with resolved colours.
+    Sparklines {
+        /// 0-based sheet index.
+        sheet: usize,
+    },
+    /// Insert a group of sparklines over `data` into `location` (one row or column). One undo step.
+    SparklineInsert {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// `line`, `column` or `stacked` (win/loss).
+        #[serde(rename = "type")]
+        kind: bo_model::sheet::SparklineType,
+        /// Data range (A1, optionally sheet-qualified).
+        data: String,
+        /// Cells that show the sparklines.
+        location: Rng,
+    },
+    /// Change the settings of a sparkline group. One undo step.
+    SparklineEdit {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Group index (from `sparklines`).
+        group: usize,
+        /// What to change.
+        #[serde(flatten)]
+        patch: bo_sheet::sparkline::SparklinePatch,
+    },
+    /// Put the sparklines in a range into one group. One undo step.
+    SparklineGroup {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The range.
+        range: Rng,
+    },
+    /// Split the groups with a sparkline in a range into single sparklines. One undo step.
+    SparklineUngroup {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The range.
+        range: Rng,
+    },
+    /// Remove the sparklines in a range (or their whole groups). One undo step.
+    SparklineClear {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The range.
+        range: Rng,
+        /// Remove every group with a sparkline in the range.
+        #[serde(default)]
+        whole_groups: bool,
+    },
     /// Timelines of a sheet with their periods and anchors.
     Timelines {
         /// 0-based sheet index.
@@ -1435,7 +1486,12 @@ impl SheetEngine {
             | C::ChartDesign { sheet, .. }
             | C::EditChart { sheet, .. }
             | C::DeleteChart { sheet, .. }
-            | C::MoveChart { sheet, .. } => check(ws(*sheet)?, A::Objects),
+            | C::MoveChart { sheet, .. }
+            | C::SparklineInsert { sheet, .. }
+            | C::SparklineEdit { sheet, .. }
+            | C::SparklineGroup { sheet, .. }
+            | C::SparklineUngroup { sheet, .. }
+            | C::SparklineClear { sheet, .. } => check(ws(*sheet)?, A::Objects),
             C::PivotCreate { sheet, .. }
             | C::PivotUpdate { sheet, .. }
             | C::PivotGroup { sheet, .. }
@@ -1802,6 +1858,25 @@ impl SheetEngine {
                     .map_err(|e| bad(&e))?;
                 Ok(json!({ "index": i }))
             }),
+            C::Sparklines { sheet } => self.sparkline_list(sheet),
+            C::SparklineInsert {
+                sheet,
+                kind,
+                data,
+                location,
+            } => self.sparkline_insert(sheet, kind, &data, location),
+            C::SparklineEdit {
+                sheet,
+                group,
+                patch,
+            } => self.sparkline_edit(sheet, group, &patch),
+            C::SparklineGroup { sheet, range } => self.sparkline_group(sheet, range),
+            C::SparklineUngroup { sheet, range } => self.sparkline_ungroup(sheet, range),
+            C::SparklineClear {
+                sheet,
+                range,
+                whole_groups,
+            } => self.sparkline_clear(sheet, range, whole_groups),
             C::Timelines { sheet } => {
                 let wb = self.wb()?;
                 let ws = self.sheet(sheet)?;

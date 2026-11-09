@@ -27,6 +27,7 @@ pub mod pivot_write;
 mod read;
 mod scenario;
 pub mod slicer;
+pub mod sparkline;
 mod styles;
 mod threaded;
 pub mod timeline;

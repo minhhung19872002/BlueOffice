@@ -1114,6 +1114,64 @@ fn extensions(i: usize) -> Book {
     }
 }
 
+/// Sparkline groups in the worksheet `extLst` ([MS-XLSX] `x14:sparklineGroups`).
+fn sparklines(i: usize) -> Book {
+    const X14: &str = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main";
+    const XM: &str = "http://schemas.microsoft.com/office/excel/2006/main";
+    let line = |f: usize| {
+        format!(
+            r"<x14:sparkline><xm:f>'Dữ liệu'!A{f}:D{f}</xm:f><xm:sqref>F{f}</xm:sqref></x14:sparkline>"
+        )
+    };
+    let groups = match i {
+        1 => format!(
+            r#"<x14:sparklineGroup displayEmptyCellsAs="gap" markers="1" high="1" low="1"><x14:colorSeries rgb="FF2E6DB4"/><x14:colorNegative rgb="FFD64545"/><x14:colorAxis rgb="FF000000"/><x14:colorMarkers rgb="FF1F4E8C"/><x14:colorFirst theme="5"/><x14:colorLast theme="5" tint="-0.249977111117893"/><x14:colorHigh rgb="FF2FA36B"/><x14:colorLow rgb="FFD64545"/><x14:sparklines>{}{}{}</x14:sparklines></x14:sparklineGroup>"#,
+            line(1),
+            line(2),
+            line(3)
+        ),
+        2 => format!(
+            r#"<x14:sparklineGroup manualMax="50" manualMin="-10" type="column" displayEmptyCellsAs="zero" negative="1" displayXAxis="1" minAxisType="custom" maxAxisType="custom"><x14:colorSeries theme="4"/><x14:colorNegative rgb="FFC00000"/><x14:colorAxis rgb="FF404040"/><x14:sparklines>{}{}</x14:sparklines></x14:sparklineGroup><x14:sparklineGroup type="stacked" displayEmptyCellsAs="gap" first="1" last="1" rightToLeft="1"><x14:colorSeries rgb="FF5AA454"/><x14:colorFirst rgb="FFF28C28"/><x14:colorLast rgb="FFF28C28"/><x14:sparklines>{}</x14:sparklines></x14:sparklineGroup>"#,
+            line(1),
+            line(2),
+            line(3)
+        ),
+        _ => format!(
+            r#"<x14:sparklineGroup lineWeight="1.5" dateAxis="1" displayEmptyCellsAs="span" displayHidden="1" minAxisType="group" maxAxisType="group"><x14:colorSeries rgb="FF7B1FA2"/><x14:colorMarkers rgb="FF7B1FA2"/><xm:f>'Dữ liệu'!A5:D5</xm:f><x14:sparklines>{}{}{}</x14:sparklines></x14:sparklineGroup>"#,
+            line(1),
+            line(2),
+            line(3)
+        ),
+    };
+    // Variant 2 keeps another worksheet ext next to the sparklines.
+    let other = if i == 2 {
+        format!(
+            r#"<ext uri="{{CCE6A557-97BC-4b89-ADB6-D9C93CAAB3DF}}" xmlns:x14="{X14}"><x14:dataValidations count="1" xmlns:xm="{XM}"><x14:dataValidation type="list" allowBlank="1"><x14:formula1><xm:f>'Dữ liệu'!$A$1:$A$3</xm:f></x14:formula1><xm:sqref>G1</xm:sqref></x14:dataValidation></x14:dataValidations></ext>"#
+        )
+    } else {
+        String::new()
+    };
+    let mut data = rows(3, 4, f64::from(i as u32) - 25.0);
+    // Row 5: dates (serials) for the date axis; B2 empty for the empty-cell rules.
+    data = data.replace(r#"<c r="B2"><v>"#, r#"<c r="B2" s="0"><v>"#);
+    data = data.replacen(
+        &format!(
+            r#"<c r="B2" s="0"><v>{}</v></c>"#,
+            f64::from(i as u32) - 25.0 + 21.0
+        ),
+        "",
+        1,
+    );
+    data.push_str(r#"<row r="5"><c r="A5"><v>45292</v></c><c r="B5"><v>45299</v></c><c r="C5"><v>45320</v></c><c r="D5"><v>45351</v></c></row>"#);
+    let body = format!(
+        r#"<sheetData>{data}</sheetData><extLst>{other}<ext uri="{{05C60535-1F16-4fd2-B633-F4F36F0B64E0}}" xmlns:x14="{X14}"><x14:sparklineGroups xmlns:xm="{XM}">{groups}</x14:sparklineGroups></ext></extLst>"#
+    );
+    Book {
+        sheets: vec![sheet("Dữ liệu", &body)],
+        ..Book::default()
+    }
+}
+
 type Feature = (&'static str, &'static str, fn(usize) -> Book);
 
 const FEATURES: &[Feature] = &[
@@ -1134,6 +1192,7 @@ const FEATURES: &[Feature] = &[
     ("ext", "extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml", extensions),
     ("smartart", "SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback", smartart),
     ("threaded", "threaded comments + replies + resolved thread ([MS-XLSX] threadedComments, persons) with legacy notes", threaded),
+    ("sparklines", "sparklines ([MS-XLSX] x14:sparklineGroups): line with markers/high/low and theme colours; column with custom axis + negative and win/loss right-to-left next to a data validation ext; line on a date axis with group axes, span and hidden data", sparklines),
 ];
 
 // ---------------------------------------------------------------------------
@@ -2552,7 +2611,70 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-pivot-datarows", "BlueSheet writer: value fields on rows (tabular; compact × columns; outline with three values)", writer_pivot_datarows),
     ("writer-pivot-charts", "BlueSheet writer: pivot charts (column; line following a hidden item; combo with field buttons)", writer_pivot_charts),
     ("writer-slicers", "BlueSheet writer: table slicers (one slicer; filtered to one item; two slicers on two columns, both filtered)", writer_slicers),
+    ("writer-sparklines", "BlueSheet writer: inserted sparklines (line group with markers; column group with custom axis and a win/loss group; a line group ungrouped, then two of its sparklines regrouped as columns)", writer_sparklines),
 ];
+
+/// Sparklines inserted and edited with `bo_sheet::sparkline` (each file one variant).
+fn writer_sparklines(i: usize) -> m::Workbook {
+    use bo_sheet::sparkline::{self as sp, SparklinePatch};
+    let mut wb = m::Workbook::new();
+    wb.sheets[0].name = "Doanh số".into();
+    let vals = [
+        [5.0, 8.0, 3.0, 9.0],
+        [-2.0, 4.0, -1.0, 6.0],
+        [7.0, 7.0, 2.0, -3.0],
+    ];
+    for (r, row) in vals.iter().enumerate() {
+        for (c, v) in row.iter().enumerate() {
+            wb.sheets[0].set_cell(r as u32, c as u32, m::Cell::new(m::CellValue::Number(*v)));
+        }
+    }
+    let r = |s: &str| m::CellRange::parse(s).unwrap();
+    match i {
+        1 => {
+            let g = sp::insert(&mut wb, 0, m::SparklineType::Line, "A1:D3", r("F1:F3")).unwrap();
+            let p = SparklinePatch {
+                markers: Some(true),
+                high: Some(true),
+                low: Some(true),
+                ..SparklinePatch::default()
+            };
+            sp::edit(&mut wb, 0, g, &p).unwrap();
+        }
+        2 => {
+            let g = sp::insert(&mut wb, 0, m::SparklineType::Column, "A1:D2", r("F1:F2")).unwrap();
+            let p = SparklinePatch {
+                negative: Some(true),
+                display_x_axis: Some(true),
+                min_axis: Some(m::SparklineAxis::Custom),
+                max_axis: Some(m::SparklineAxis::Custom),
+                manual_min: Some(-5.0),
+                manual_max: Some(10.0),
+                ..SparklinePatch::default()
+            };
+            sp::edit(&mut wb, 0, g, &p).unwrap();
+            sp::insert(
+                &mut wb,
+                0,
+                m::SparklineType::Stacked,
+                "'Doanh số'!A3:D3",
+                r("F3"),
+            )
+            .unwrap();
+        }
+        _ => {
+            sp::insert(&mut wb, 0, m::SparklineType::Line, "A1:D3", r("F1:F3")).unwrap();
+            sp::ungroup(&mut wb, 0, r("F2")).unwrap();
+            let g = sp::group(&mut wb, 0, r("F2:F3")).unwrap();
+            let p = SparklinePatch {
+                kind: Some(m::SparklineType::Column),
+                ..SparklinePatch::default()
+            };
+            sp::edit(&mut wb, 0, g, &p).unwrap();
+        }
+    }
+    wb
+}
 
 /// Table slicers inserted with `bo_sheet::slicer` (each file one variant).
 fn writer_slicers(i: usize) -> m::Workbook {

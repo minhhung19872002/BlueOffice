@@ -449,7 +449,12 @@ pub(crate) fn with_ext(
     ext: &str,
 ) -> Vec<bo_model::sheet::RawXml> {
     let mut out = unknown.to_vec();
-    if let Some(x) = out.iter_mut().find(|u| u.xml.contains("<extLst")) {
+    // The worksheet's own `extLst` (anchored at its schema slot), not one nested in a fragment.
+    let own = out
+        .iter()
+        .position(|u| u.after == "extLst" && u.xml.trim_start().starts_with("<extLst"))
+        .or_else(|| out.iter().position(|u| u.xml.contains("<extLst")));
+    if let Some(x) = own.map(|i| &mut out[i]) {
         if let Some(k) = x.xml.rfind("</extLst>") {
             x.xml.insert_str(k, ext);
             return out;

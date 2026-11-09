@@ -385,11 +385,7 @@ fn compatibility(wb: &Workbook, pkg: &PackageScan) -> Vec<super::CompatItem> {
         tables += ws.tables.len();
         slicers += ws.slicers.len();
         timelines += ws.timelines.len();
-        sparklines += ws
-            .unknown
-            .iter()
-            .map(|u| package::count_elements(&u.xml, "sparklineGroup"))
-            .sum::<usize>();
+        sparklines += ws.sparkline_groups.len();
         pivots += ws.pivots.len();
         threads += ws
             .threaded_comments

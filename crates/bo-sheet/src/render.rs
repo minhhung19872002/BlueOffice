@@ -6,7 +6,8 @@
 //! Headers (column letters, row numbers) are drawn last. Coordinates are points.
 //!
 //! Conditional formatting (§18.3.1.18) overlays fills, font changes, data bars
-//! and icons; AutoFilter header buttons (§18.3.1.2) and charts placed on the
+//! and icons; sparklines ([MS-XLSX] `x14:sparklineGroup`, [`crate::sparkline`]) are drawn
+//! in their cells before the text; AutoFilter header buttons (§18.3.1.2) and charts placed on the
 //! sheet (§20.5 drawing anchors) are drawn on top of the cells.
 //!
 //! Row/column default styles are drawn on empty cells; rotated (and stacked) text is drawn
@@ -369,6 +370,7 @@ impl Renderer<'_> {
                 self.out.extend(cmds);
             }
         }
+        self.sparklines(p);
         for &(at, cell) in &cells {
             self.cell_text(p, at, cell, &merges);
         }
@@ -382,6 +384,35 @@ impl Renderer<'_> {
             self.charts(p);
         }
         self.out.push(Command::PopClip);
+    }
+
+    /// Sparklines ([MS-XLSX] `x14:sparklineGroup`) located in the pane, clipped to their cell.
+    fn sparklines(&mut self, p: &PaneRegion) {
+        for (gi, g) in self.ws.sparkline_groups.iter().enumerate() {
+            for (si, s) in g.sparklines.iter().enumerate() {
+                let at = s.location;
+                if !p.rows.contains(&at.row)
+                    || !p.cols.contains(&at.col)
+                    || self.geom.row_height(at.row) <= 0.0
+                    || self.geom.col_width(at.col) <= 0.0
+                {
+                    continue;
+                }
+                let rect = Self::screen_rect(p, self.geom.cell_rect(at.row, at.col));
+                let cmds = crate::sparkline::render(self.wb, self.sheet, gi, si, rect);
+                if cmds.is_empty() {
+                    continue;
+                }
+                self.out.push(Command::PushClip {
+                    x: f(rect.x),
+                    y: f(rect.y),
+                    w: f(rect.w),
+                    h: f(rect.h),
+                });
+                self.out.extend(cmds);
+                self.out.push(Command::PopClip);
+            }
+        }
     }
 
     /// Style-only cells for visible empty positions of styled rows / columns.
@@ -1386,6 +1417,55 @@ mod tests {
         assert_eq!(push, pop);
         // JSON bridge works.
         assert!(page.to_json().contains("\"op\":\"fillRect\""));
+    }
+
+    #[test]
+    fn draws_sparklines_in_their_cells() {
+        let mut wb = Workbook::new();
+        for (c, v) in [1.0, 3.0, 2.0].iter().enumerate() {
+            wb.sheets[0].set_cell(0, c as u32, Cell::new(CellValue::Number(*v)));
+        }
+        crate::sparkline::insert(
+            &mut wb,
+            0,
+            bo_model::sheet::SparklineType::Column,
+            "A1:C1",
+            CellRange::parse("D1").unwrap(),
+        )
+        .unwrap();
+        let geom = SheetGeometry::with_metrics(&wb.sheets[0], SheetMetrics::default());
+        let cell = geom.cell_rect(0, 3);
+        let opts = RenderOptions {
+            headers: Some(false),
+            ..RenderOptions::default()
+        };
+        let page = render_viewport(
+            &wb,
+            0,
+            &geom,
+            &Viewport::new(400.0, 200.0),
+            &opts,
+            &mut fonts(),
+        );
+        let series = Rgba(0x2E, 0x6D, 0xB4, 255);
+        let bars: Vec<(f32, f32, f32, f32)> = page
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::FillRect { x, y, w, h, color } if *color == series => {
+                    Some((*x, *y, *w, *h))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(bars.len(), 3);
+        // The tallest bar (3 of 0..3) fills the plot box: cell height − 2 × 2 pt.
+        let tall = bars[1];
+        assert!((tall.3 - (cell.h - 4.0) as f32).abs() < 1e-3);
+        assert!((tall.1 - (cell.y + 2.0) as f32).abs() < 1e-3);
+        assert!(bars
+            .iter()
+            .all(|b| b.0 >= cell.x as f32 && b.0 + b.2 <= (cell.x + cell.w) as f32));
     }
 
     #[test]

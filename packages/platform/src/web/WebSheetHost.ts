@@ -1,6 +1,9 @@
 import { RpcSheetHost, type SheetMethod, type SheetRpc } from '../sheet';
 import type { FontSource } from '../types';
 
+/** Spelling dictionaries (`.aff`, `.dic`) loaded in the background after start-up. */
+export type Dictionaries = () => Promise<{ aff: Uint8Array; dic: Uint8Array }[]>;
+
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 type Reply = { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };
 
@@ -9,8 +12,9 @@ export function createWebSheetHost(
   fonts: FontSource,
   locale: () => string = () => 'vi-VN',
   createWorker?: () => Worker,
+  dictionaries?: Dictionaries,
 ): RpcSheetHost {
-  const t = webSheetTransport(fonts, locale, createWorker);
+  const t = webSheetTransport(fonts, locale, createWorker, dictionaries);
   return new RpcSheetHost(t.rpc, t.init);
 }
 
@@ -20,6 +24,7 @@ export function webSheetTransport(
   locale: () => string = () => 'vi-VN',
   createWorker: () => Worker = () =>
     new Worker(new URL('./sheet.worker.ts', import.meta.url), { type: 'module' }),
+  dictionaries?: Dictionaries,
 ): { rpc: SheetRpc; init: () => Promise<void> } {
   let worker: Worker | null = null;
   let seq = 0;
@@ -58,6 +63,10 @@ export function webSheetTransport(
         { method: 'init', fonts: data, locale: locale() },
         data.map((d) => d.buffer as ArrayBuffer),
       );
+      // English spelling is optional: Vietnamese works without data, a missing file is ignored.
+      void dictionaries?.()
+        .then((list) => Promise.all(list.map((d) => post({ method: 'loadDictionary', ...d }))))
+        .catch(() => {});
     })();
     return ready;
   };

@@ -118,6 +118,7 @@ fn boxed(
         description: what.into(),
         shape: None,
         src: None,
+        format: None,
     };
     (
         image,

@@ -16,6 +16,7 @@ import {
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
   ClipboardContent,
+  SlideIssue,
   DocInfo,
   Platform,
   SlideAnimEffect,
@@ -87,6 +88,7 @@ import {
   Circle,
   Clapperboard,
   ClipboardCheck,
+  SpellCheck,
   ClipboardPaste,
   Copy,
   Columns3,
@@ -164,6 +166,7 @@ import {
 import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
 import { SlideCheckDocumentDialog } from './inspect';
 import { SlideController } from './controller';
+import { SlideSpellDialog, SlideSpellLayer, useSlideSpelling } from './spelling';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
 import {
   SlideClipboardUi,
@@ -553,6 +556,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     };
   }, [engine, apply]);
   const run = useCallback((cmd: SlideCommand) => void ctrl.run(cmd), [ctrl]);
+  // Spelling of the shown slide and of the whole deck (CORE-SPELL-006).
+  const spelling = useSlideSpelling(engine, edit, current, count > 0);
+  const { setDialog: setSpellDialog, toggle: toggleSpelling, asYouType } = spelling;
   // Chart Design gallery of the selected chart (CORE-CHART-007), loaded when a menu opens.
   const loadGallery = useMemo(() => slideGalleryLoader((cmd) => ctrl.run(cmd)), [ctrl]);
   const [saveTemplate, setSaveTemplate] = useState(false);
@@ -666,6 +672,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       run({ cmd: 'goTo', slide: n });
     },
     [count, run],
+  );
+
+  // The spelling dialog shows an issue: its slide, its shape selected.
+  const showSpellIssue = useCallback(
+    (i: SlideIssue) => {
+      if (i.slide !== current) goTo(i.slide);
+      if ('id' in i.target) run({ cmd: 'select', ids: [i.target.id] });
+    },
+    [current, goTo, run],
   );
 
   // Audience screen (second window) of the presenter view.
@@ -1576,6 +1591,18 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       run: async () => setCheckOpen(true),
     });
     reg.register({
+      id: 'review.spellingDialog',
+      shortcut: 'F7',
+      isEnabled: deck,
+      run: async () => setSpellDialog(true),
+    });
+    reg.register({
+      id: 'review.spelling',
+      isEnabled: deck,
+      isChecked: () => asYouType,
+      run: async () => toggleSpelling(),
+    });
+    reg.register({
       id: 'review.comments',
       isEnabled: deck,
       isChecked: () => commentsOpen,
@@ -1750,6 +1777,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     runProtect,
     setProtectUi,
     pictureHub,
+    setSpellDialog,
+    toggleSpelling,
+    asYouType,
   ]);
 
   const state: SlideEditorState = useMemo(() => {
@@ -2259,6 +2289,18 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             label: t('inspect.title'),
             items: [
               item('review.checkDocument', t('inspect.command'), <ClipboardCheck size={18} />),
+            ],
+          },
+          {
+            id: 'proofing',
+            label: t('ribbon.groups.proofing'),
+            items: [
+              item(
+                'review.spellingDialog',
+                t('commands.review.spellingDialog'),
+                <SpellCheck size={18} />,
+              ),
+              item('review.spelling', t('commands.review.spelling'), <SpellCheck size={16} />, sm),
             ],
           },
         ],
@@ -2883,6 +2925,18 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                   style={{ width: main.width, height: main.height }}
                 >
                   {canvas(shown, main.width, styles.mainSlide)}
+                  {asYouType && !state.masterView && (
+                    <SlideSpellLayer
+                      engine={engine}
+                      controller={ctrl}
+                      container={slideRef}
+                      slide={shown}
+                      size={info?.pages[shown] ?? slideSize}
+                      width={main.width}
+                      marks={spelling.marks}
+                      onChanged={spelling.refresh}
+                    />
+                  )}
                   <SlideOverlay
                     slide={info?.pages[shown] ?? slideSize}
                     width={main.width}
@@ -2960,6 +3014,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           </div>
           {checkOpen && (
             <SlideCheckDocumentDialog run={runResult} onClose={() => setCheckOpen(false)} />
+          )}
+          {spelling.dialog && (
+            <SlideSpellDialog
+              engine={engine}
+              controller={ctrl}
+              onClose={() => setSpellDialog(false)}
+              onShow={showSpellIssue}
+              onChanged={spelling.refresh}
+            />
           )}
           <SlideSizeDialog
             open={sizeOpen}

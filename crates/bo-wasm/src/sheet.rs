@@ -28,6 +28,12 @@ impl WasmSheet {
         }
     }
 
+    /// Loads a Hunspell spelling dictionary (`.aff`, `.dic` bytes) for English cell text.
+    #[wasm_bindgen(js_name = loadDictionary)]
+    pub fn load_dictionary(&mut self, aff: &[u8], dic: &[u8]) -> Result<(), JsError> {
+        self.inner.load_dictionary(aff, dic).map_err(err)
+    }
+
     /// Registers a font file (TTF/OTF bytes) and returns its face id.
     #[wasm_bindgen(js_name = addFont)]
     pub fn add_font(&mut self, bytes: Vec<u8>) -> usize {

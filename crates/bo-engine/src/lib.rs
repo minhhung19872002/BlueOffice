@@ -38,6 +38,7 @@ mod page_layout;
 pub mod perm;
 pub mod picture_tools;
 pub mod proof;
+pub mod proof_text;
 pub mod review;
 pub mod security;
 mod security_cmd;

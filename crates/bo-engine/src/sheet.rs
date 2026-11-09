@@ -40,6 +40,7 @@ mod security_cmd;
 mod solver_cmd;
 mod sortfilter_cmd;
 mod sparkline_cmd;
+mod spell_cmd;
 mod table_cmd;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
@@ -285,6 +286,8 @@ pub struct SheetEngine {
     pub(crate) identity: Vec<String>,
     /// Automatic table behaviour after typing (SHEET-TABLE-001).
     table_auto: table_cmd::TableAuto,
+    /// Spelling and grammar checking of text cells (CORE-SPELL-006).
+    pub(crate) spell: crate::spell::SpellState,
 }
 
 impl Default for SheetEngine {
@@ -661,6 +664,7 @@ impl SheetEngine {
             open_ranges: Vec::new(),
             identity: Vec::new(),
             table_auto: table_cmd::TableAuto::default(),
+            spell: crate::spell::SpellState::default(),
         }
     }
 
@@ -672,6 +676,8 @@ impl SheetEngine {
         for f in crate::bundled::FONTS {
             e.add_font(f.to_vec());
         }
+        // English spelling (SCOWL en_US, assets/dictionaries); Vietnamese needs no data.
+        let _ = e.load_dictionary(crate::bundled::EN_US_AFF, crate::bundled::EN_US_DIC);
         e
     }
 

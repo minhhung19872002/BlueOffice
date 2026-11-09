@@ -9,6 +9,7 @@ export type * from './slideExport';
 export type * from './sigline';
 export type * from './picture';
 export type * from './charfx';
+export type * from './spelling';
 export { PASSWORD_REQUIRED, WRONG_PASSWORD } from './types';
 export {
   AnonymousSession,

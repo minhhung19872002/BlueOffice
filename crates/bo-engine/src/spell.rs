@@ -316,6 +316,11 @@ impl SpellState {
         out
     }
 
+    /// Ignore a grammar issue (rule id, flagged text) from now on.
+    pub(crate) fn ignore_issue(&mut self, rule: &str, text: &str) {
+        self.ignored.insert((rule.to_owned(), text.to_owned()));
+    }
+
     /// Forget cached results (dictionaries or user words changed).
     pub fn invalidate(&mut self) {
         self.cache.clear();

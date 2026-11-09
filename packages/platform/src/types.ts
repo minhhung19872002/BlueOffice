@@ -1419,6 +1419,8 @@ export type SlideCommand =
   | import('./slideViews').SlideViewCommand
   /** Custom shows, show setup, timings, show links, kept ink (SLIDE-SHOW-001). */
   | import('./slideShow').SlidePresentCommand
+  /** Spelling and grammar of the deck (CORE-SPELL-006). */
+  | import('./spelling').SlideSpellCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
   /** Check document (CORE-INSPECT-001) → `inspection`. */
   | InspectCommand

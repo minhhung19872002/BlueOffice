@@ -9,7 +9,7 @@
 use crate::drawing::Float;
 use crate::paragraph::{layout_paragraph, FieldContext, LayoutCache, ParaInput, RelLine, WrapZone};
 use crate::style::{para_props, ListCounters};
-use crate::types::{Layer, Line, LineSource, NoteKey, PageItem};
+use crate::types::{Layer, Line, LineRotation, LineSource, NoteKey, PageItem};
 use crate::{LayoutError, RevisionView};
 use bo_model::{
     Block, Border, Borders, CellPlace, CellVAlign, Color, Document, HeightRule, Image, Paragraph,
@@ -244,6 +244,7 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
         start: rl.start,
         end: rl.end,
         carets: rl.carets.clone(),
+        rotation: None,
     }];
     lines.extend(boxed);
     Band {
@@ -596,6 +597,8 @@ pub(crate) struct TableBox {
     /// Offset of the table's left edge from the content box left.
     pub x: f32,
     pub rows: Vec<RowBox>,
+    /// Floating position (§17.4.58 tblpPr) of a table the text wraps around.
+    pub float: Option<bo_model::TableFloat>,
 }
 
 fn table_borders(doc: &Document, t: &Table) -> Borders {
@@ -664,6 +667,168 @@ fn grid_widths(t: &Table, geo: &TableGeometry, avail: f32) -> Vec<f32> {
         }
     }
     grid
+}
+
+/// Right edge of the widest line in `bands` (points from the box's left edge).
+fn widest_line(bands: &[(f32, Band)]) -> f32 {
+    bands
+        .iter()
+        .flat_map(|(_, b)| &b.lines)
+        .flat_map(|l| &l.fragments)
+        .map(|f| f.x + f.width)
+        .fold(0.0f32, f32::max)
+}
+
+/// Stack `blocks` at `width` without side effects on `ctx` (ids, list counters):
+/// the widest line and the height.
+fn measure_blocks(
+    ctx: &mut Ctx<'_>,
+    blocks: &[Block],
+    width: f32,
+    body: bool,
+) -> Result<(f32, f32), LayoutError> {
+    let saved = (
+        ctx.next_id,
+        ctx.lists.clone(),
+        ctx.other_lists.clone(),
+        ctx.endnote_order.len(),
+        ctx.note,
+        ctx.textbox,
+    );
+    let st = stack_blocks(ctx, blocks, width, body, None);
+    ctx.next_id = saved.0;
+    ctx.lists = saved.1;
+    ctx.other_lists = saved.2;
+    ctx.endnote_order.truncate(saved.3);
+    ctx.note = saved.4;
+    ctx.textbox = saved.5;
+    let st = st?;
+    Ok((widest_line(&st.bands), st.h))
+}
+
+/// Line length of a vertical cell whose row has no set height: its longest line,
+/// at least as long as the stack is thick (an empty cell keeps a square shape).
+fn natural_length(ctx: &mut Ctx<'_>, blocks: &[Block], body: bool) -> Result<f32, LayoutError> {
+    let (w, h) = measure_blocks(ctx, blocks, 2000.0, body)?;
+    Ok((w + 0.5).max(h).max(6.0))
+}
+
+/// Where a rotation takes a page item (rectangles and rules exactly; pictures and
+/// shapes turn about their centre).
+fn rotate_item(it: &mut PageItem, r: &LineRotation) {
+    match it {
+        PageItem::Rect { x, y, w, h, .. } => {
+            let (ax, ay) = r.apply(*x, *y);
+            let (bx, by) = r.apply(*x + *w, *y + *h);
+            (*x, *y, *w, *h) = (ax.min(bx), ay.min(by), (ax - bx).abs(), (ay - by).abs());
+        }
+        PageItem::Rule { x1, y1, x2, y2, .. } => {
+            (*x1, *y1) = r.apply(*x1, *y1);
+            (*x2, *y2) = r.apply(*x2, *y2);
+        }
+        PageItem::Image {
+            x,
+            y,
+            w,
+            h,
+            rotation,
+            ..
+        } => {
+            let (cx, cy) = r.apply(*x + *w / 2.0, *y + *h / 2.0);
+            (*x, *y) = (cx - *w / 2.0, cy - *h / 2.0);
+            *rotation += r.degrees;
+        }
+        PageItem::Shape { x, y, w, h, .. } => {
+            let (cx, cy) = r.apply(*x + *w / 2.0, *y + *h / 2.0);
+            (*x, *y) = (cx - *w / 2.0, cy - *h / 2.0);
+        }
+    }
+}
+
+/// Turn the content of a vertical cell (ECMA-376 Part 1, §17.4.72 textDirection):
+/// lines `len` long stacked `thick` deep become columns; `rot` 90 = top to bottom
+/// (first line on the right), -90 = bottom to top (first line on the left). The
+/// result is one band `len` tall, moved `shift` points right.
+fn rotate_content(bands: Vec<(f32, Band)>, rot: i32, thick: f32, len: f32, shift: f32) -> Band {
+    let mut all = Band::empty(len);
+    for (top, b) in bands {
+        all.absorb(b.translated(0.0, top));
+    }
+    // A quarter turn about (p, p) takes the box [0, len] × [0, thick] to
+    // [0, thick] × [0, len]: p = thick / 2 clockwise, len / 2 anticlockwise.
+    let r = if rot > 0 {
+        LineRotation {
+            degrees: 90.0,
+            cx: thick / 2.0,
+            cy: thick / 2.0,
+        }
+    } else {
+        LineRotation {
+            degrees: -90.0,
+            cx: len / 2.0,
+            cy: len / 2.0,
+        }
+    };
+    for l in &mut all.lines {
+        l.rotation = Some(r);
+    }
+    for it in &mut all.items {
+        rotate_item(it, &r);
+    }
+    all.translated(shift, 0.0)
+}
+
+/// Measurements of a table for the table tools (points).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TableMeasure {
+    /// Laid-out height of every row.
+    pub row_heights: Vec<f32>,
+    /// Width of each grid column with no line wrapped (plus the cell margins).
+    pub max_widths: Vec<f32>,
+}
+
+/// Measure `t` laid out in a box `avail` points wide: row heights and the content
+/// widths of each grid column (cells spanning one column only).
+pub(crate) fn measure_table(
+    ctx: &mut Ctx<'_>,
+    t: &Table,
+    avail: f32,
+) -> Result<TableMeasure, LayoutError> {
+    let tb = layout_table(ctx, t, avail, false)?;
+    let (ml, mr) = t
+        .props
+        .cell_margin
+        .map_or((DEFAULT_CELL_MARGIN, DEFAULT_CELL_MARGIN), |(l, r)| {
+            (l.to_pt(), r.to_pt())
+        });
+    let cols = t.grid.len().max(
+        t.rows
+            .iter()
+            .map(|r| {
+                r.cells
+                    .iter()
+                    .map(|c| c.props.grid_span.max(1) as usize)
+                    .sum()
+            })
+            .max()
+            .unwrap_or(0),
+    );
+    let mut max_widths = vec![ml + mr; cols];
+    for row in &t.rows {
+        let mut g = 0usize;
+        for c in &row.cells {
+            let n = c.props.grid_span.max(1) as usize;
+            if n == 1 && c.props.v_merge != Some(VMerge::Continue) && g < cols {
+                let (wide, _) = measure_blocks(ctx, &c.blocks, 20_000.0, false)?;
+                max_widths[g] = max_widths[g].max(wide + ml + mr);
+            }
+            g += n;
+        }
+    }
+    Ok(TableMeasure {
+        row_heights: tb.rows.iter().map(|r| r.h).collect(),
+        max_widths,
+    })
 }
 
 /// Lay out a table (ECMA-376 Part 1, §17.4.38 tbl) for a content box `avail` points wide.
@@ -736,8 +901,21 @@ pub(crate) fn layout_table(
                 avail / ncols.max(1) as f32
             };
             let continued = pl.v_merge == Some(VMerge::Continue);
+            // ECMA-376 Part 1, §17.4.72 textDirection: vertical lines as long as the
+            // row's height (§17.4.81 trHeight), else as long as the longest line.
+            let rot = match cell.props.text_direction {
+                Some(d) if !continued && !pl.hidden => d.rotation(),
+                _ => 0,
+            };
+            let mut vlen = 0.0f32;
             let mut stack = if continued {
                 Stack::default()
+            } else if rot != 0 {
+                vlen = match row.props.height {
+                    Some((v, _)) if v.to_pt() > 1.0 => v.to_pt(),
+                    _ => natural_length(ctx, &cell.blocks, body)?,
+                };
+                stack_blocks(ctx, &cell.blocks, vlen.max(1.0), body, None)?
             } else {
                 // Hidden cells are laid out too (at an ordinary width): their
                 // paragraphs keep their ids.
@@ -783,7 +961,26 @@ pub(crate) fn layout_table(
                 });
                 content.push((top + iy, band));
             }
-            let content_h = stack.h;
+            let mut content_h = stack.h;
+            let mut v_align = cell.props.v_align.unwrap_or(CellVAlign::Top);
+            if rot != 0 {
+                // The stacked lines turn into columns `stack.h` wide; §17.4.84 vAlign
+                // then places them across the cell (top = where the lines begin).
+                let free = (w - ml - mr - stack.h).max(0.0);
+                let shift = match (v_align, rot > 0) {
+                    (CellVAlign::Center, _) => free / 2.0,
+                    (CellVAlign::Top, true) | (CellVAlign::Bottom, false) => free,
+                    _ => 0.0,
+                };
+                content = vec![(0.0, rotate_content(content, rot, stack.h, vlen, shift))];
+                content_h = vlen;
+                // Bottom-to-top lines start at the bottom of the cell.
+                v_align = if rot > 0 {
+                    CellVAlign::Top
+                } else {
+                    CellVAlign::Bottom
+                };
+            }
             let first_row = ri == 0;
             let last_row = ri + 1 == nrows;
             let first_col = g == 0;
@@ -844,7 +1041,7 @@ pub(crate) fn layout_table(
                 } else {
                     edges
                 },
-                v_align: cell.props.v_align.unwrap_or(CellVAlign::Top),
+                v_align,
                 continued,
                 merged_below,
                 revision,
@@ -917,7 +1114,11 @@ pub(crate) fn layout_table(
             }
         }
     }
-    Ok(TableBox { x, rows })
+    Ok(TableBox {
+        x,
+        rows,
+        float: t.props.float.clone(),
+    })
 }
 
 /// Render a row (or a split part of it) `h` tall as a band. `force_top` / `force_bottom`

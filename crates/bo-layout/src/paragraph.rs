@@ -686,6 +686,7 @@ fn math_object(
         start: 0,
         end: 0,
         carets: Vec::new(),
+        rotation: None,
     };
     let emu = |pt: f32| bo_model::Emu((pt * 12_700.0).round() as i64);
     let image = Image {

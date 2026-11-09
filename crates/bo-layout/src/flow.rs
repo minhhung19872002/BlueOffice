@@ -1075,6 +1075,9 @@ impl Flow {
     /// Place a table row by row; rows split across pages unless `cantSplit`, and
     /// `tblHeader` rows repeat at the top of each page (§17.4.49 tblHeader).
     fn place_table(&mut self, ctx: &mut Ctx<'_>, tb: &TableBox) -> Result<(), LayoutError> {
+        if let Some(f) = &tb.float {
+            return self.place_floating_table(ctx, tb, f);
+        }
         let header_count = tb.rows.iter().take_while(|r| r.header).count();
         let mut idx = 0;
         while idx < tb.rows.len() {
@@ -1108,6 +1111,81 @@ impl Flow {
                 continuation = continuation || idx > 0;
             }
             idx += 1;
+        }
+        self.prev = None;
+        Ok(())
+    }
+
+    /// Place a floating table (ECMA-376 Part 1, §17.4.58 tblpPr) at its anchor
+    /// position, whole on the current page, and let the following text wrap around
+    /// it on both sides, `leftFromText` / `rightFromText` / `topFromText` /
+    /// `bottomFromText` away. The flow position does not move.
+    fn place_floating_table(
+        &mut self,
+        ctx: &mut Ctx<'_>,
+        tb: &TableBox,
+        f: &bo_model::TableFloat,
+    ) -> Result<(), LayoutError> {
+        let w = tb
+            .rows
+            .iter()
+            .filter_map(|r| r.cells.last().map(|c| c.x + c.w))
+            .fold(0.0f32, f32::max);
+        let h: f32 = tb.rows.iter().map(|r| r.h).sum();
+        let s = &self.setup;
+        let (page_w, page_h) = (s.width.to_pt(), s.height.to_pt());
+        let (ml, mr) = (s.margin_left.to_pt(), s.margin_right.to_pt());
+        let (mt, mb) = (s.margin_top.to_pt().abs(), s.margin_bottom.to_pt().abs());
+        // §17.18.35 ST_HAnchor / §17.18.100 ST_VAnchor: (start, extent) of the reference.
+        let href = match f.horz_anchor.as_deref() {
+            Some("page") => (0.0, page_w),
+            Some("margin") => (ml, page_w - ml - mr),
+            _ => (self.col_x(), self.col_w()),
+        };
+        let vref = match f.vert_anchor.as_deref() {
+            Some("page") => (0.0, page_h),
+            Some("margin") => (mt, page_h - mt - mb),
+            _ => (self.y, 0.0),
+        };
+        // §17.18.106 ST_XAlign / §17.18.109 ST_YAlign replace the offsets.
+        let x = match f.x_align.as_deref() {
+            Some("center") => href.0 + (href.1 - w) / 2.0,
+            Some("right" | "outside") => href.0 + href.1 - w,
+            Some("left" | "inside") => href.0,
+            _ => href.0 + f.x.to_pt(),
+        };
+        let y = match f.y_align.as_deref() {
+            Some("top" | "inside") => vref.0,
+            Some("center") => vref.0 + (vref.1 - h) / 2.0,
+            Some("bottom" | "outside") => vref.0 + vref.1 - h,
+            _ => vref.0 + f.y.to_pt(),
+        };
+        let mut top = y;
+        for row in &tb.rows {
+            let band = row_band(row, row.h, 0.0, false, false);
+            self.register_notes(ctx, &band.notes)?;
+            let b = band.translated_ids(x, top, self.id_base);
+            if let Some(page) = self.pages.last_mut() {
+                page.lines.extend(b.lines);
+                page.items.extend(b.items);
+            }
+            top += row.h;
+        }
+        self.page_has_content = true;
+        let z = SideZone {
+            y0: y - f.top_from_text.to_pt(),
+            y1: y + h + f.bottom_from_text.to_pt(),
+            x0: x - f.left_from_text.to_pt(),
+            x1: x + w + f.right_from_text.to_pt(),
+            side: WrapText::BothSides,
+            outline: None,
+        };
+        // No room for text beside the table: text continues below it.
+        let room = (z.x0 - self.col_x()).max(self.col_x() + self.col_w() - z.x1);
+        if room < MIN_SEGMENT {
+            self.excl.push((z.y0, z.y1));
+        } else {
+            self.sides.push(z);
         }
         self.prev = None;
         Ok(())

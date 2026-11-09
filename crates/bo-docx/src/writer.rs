@@ -1564,6 +1564,13 @@ fn tcpr_items(p: &bo_model::CellProps) -> Vec<(String, String)> {
             ),
         ));
     }
+    // ECMA-376 Part 1, §17.4.72 textDirection.
+    if let Some(d) = p.text_direction {
+        items.push((
+            "textDirection".into(),
+            format!("<w:textDirection w:val=\"{}\"/>", d.as_str()),
+        ));
+    }
     if let Some(v) = p.v_align {
         let v = match v {
             CellVAlign::Top => "top",
@@ -2039,6 +2046,31 @@ fn tblpr_children(t: &TableProps) -> Vec<(String, String)> {
     }
     if t.fixed_layout {
         v.push(("tblLayout".into(), "<w:tblLayout w:type=\"fixed\"/>".into()));
+    }
+    // ECMA-376 Part 1, §17.4.58 tblpPr (floating table position).
+    if let Some(f) = &t.float {
+        let mut x = format!(
+            "<w:tblpPr w:leftFromText=\"{}\" w:rightFromText=\"{}\" w:topFromText=\"{}\" w:bottomFromText=\"{}\"",
+            f.left_from_text.0, f.right_from_text.0, f.top_from_text.0, f.bottom_from_text.0
+        );
+        let mut opt = |name: &str, v: &Option<String>| {
+            if let Some(v) = v {
+                let _ = write!(x, " w:{name}=\"{}\"", escape(v));
+            }
+        };
+        opt("vertAnchor", &f.vert_anchor);
+        opt("horzAnchor", &f.horz_anchor);
+        opt("tblpXSpec", &f.x_align);
+        if f.x_align.is_none() {
+            let _ = write!(x, " w:tblpX=\"{}\"", f.x.0);
+        }
+        if let Some(ya) = &f.y_align {
+            let _ = write!(x, " w:tblpYSpec=\"{}\"", escape(ya));
+        } else {
+            let _ = write!(x, " w:tblpY=\"{}\"", f.y.0);
+        }
+        x.push_str("/>");
+        v.push(("tblpPr".into(), x));
     }
     if let Some((l, r)) = t.cell_margin {
         v.push((

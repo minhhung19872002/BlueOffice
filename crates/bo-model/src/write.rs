@@ -1653,11 +1653,100 @@ pub struct TableProps {
     pub fixed_layout: bool,
     /// Default cell margins left/right (`tblCellMar`).
     pub cell_margin: Option<(Twips, Twips)>,
+    /// Floating table position (§17.4.58 tblpPr); `None` = the table is inline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub float: Option<TableFloat>,
     /// Unknown `w:tblPr` children kept verbatim.
     pub unknown: Vec<Raw>,
     /// Tracked change of the table properties (§17.13.5.34 tblPrChange).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change: Option<Box<TablePropsChange>>,
+}
+
+/// Floating table positioning (ECMA-376 Part 1, §17.4.58 tblpPr). Distances are in
+/// twips; anchors keep their `ST_HAnchor` / `ST_VAnchor` value (§17.18.35, §17.18.100:
+/// `text`, `margin`, `page`) and the alignments their `ST_XAlign` / `ST_YAlign` value
+/// (§17.18.106, §17.18.109), which replace the offsets when present.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct TableFloat {
+    /// Distance from the text on the left (`w:leftFromText`).
+    pub left_from_text: Twips,
+    /// Distance from the text on the right (`w:rightFromText`).
+    pub right_from_text: Twips,
+    /// Distance from the text above (`w:topFromText`).
+    pub top_from_text: Twips,
+    /// Distance from the text below (`w:bottomFromText`).
+    pub bottom_from_text: Twips,
+    /// Horizontal anchor (`w:horzAnchor`), `None` = attribute omitted.
+    pub horz_anchor: Option<String>,
+    /// Vertical anchor (`w:vertAnchor`), `None` = attribute omitted.
+    pub vert_anchor: Option<String>,
+    /// Horizontal offset from the anchor (`w:tblpX`).
+    pub x: Twips,
+    /// Horizontal alignment relative to the anchor (`w:tblpXSpec`).
+    pub x_align: Option<String>,
+    /// Vertical offset from the anchor (`w:tblpY`).
+    pub y: Twips,
+    /// Vertical alignment relative to the anchor (`w:tblpYSpec`).
+    pub y_align: Option<String>,
+}
+
+/// Direction of the text flow in a cell (ECMA-376 Part 1, §17.18.93 `ST_TextDirection`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TextDirection {
+    /// Horizontal lines, top to bottom (`lrTb`, strict `tb`).
+    LrTb,
+    /// Vertical lines read top to bottom, stacked right to left (`tbRl`, strict `rl`).
+    TbRl,
+    /// Vertical lines read bottom to top, stacked left to right (`btLr`, strict `lr`).
+    BtLr,
+    /// Horizontal, East Asian characters rotated (`lrTbV`, strict `tbV`).
+    LrTbV,
+    /// Vertical top to bottom, East Asian characters upright (`tbRlV`, strict `rlV`).
+    TbRlV,
+    /// Vertical top to bottom, stacked left to right (`tbLrV`, strict `lrV`).
+    TbLrV,
+}
+
+impl TextDirection {
+    /// Parse a transitional or strict `ST_TextDirection` value.
+    #[must_use]
+    pub fn parse(s: &str) -> Option<TextDirection> {
+        Some(match s {
+            "lrTb" | "tb" => TextDirection::LrTb,
+            "tbRl" | "rl" => TextDirection::TbRl,
+            "btLr" | "lr" => TextDirection::BtLr,
+            "lrTbV" | "tbV" => TextDirection::LrTbV,
+            "tbRlV" | "rlV" => TextDirection::TbRlV,
+            "tbLrV" | "lrV" => TextDirection::TbLrV,
+            _ => return None,
+        })
+    }
+
+    /// The transitional `ST_TextDirection` value.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TextDirection::LrTb => "lrTb",
+            TextDirection::TbRl => "tbRl",
+            TextDirection::BtLr => "btLr",
+            TextDirection::LrTbV => "lrTbV",
+            TextDirection::TbRlV => "tbRlV",
+            TextDirection::TbLrV => "tbLrV",
+        }
+    }
+
+    /// Clockwise rotation of the lines in degrees: 90 for top-to-bottom text, -90 for
+    /// bottom-to-top text, 0 for horizontal text.
+    #[must_use]
+    pub fn rotation(self) -> i32 {
+        match self {
+            TextDirection::TbRl | TextDirection::TbRlV | TextDirection::TbLrV => 90,
+            TextDirection::BtLr => -90,
+            TextDirection::LrTb | TextDirection::LrTbV => 0,
+        }
+    }
 }
 
 /// Previous table properties of a tracked change (§17.13.5.34 tblPrChange).
@@ -1731,6 +1820,9 @@ pub struct CellProps {
     pub borders: Option<Borders>,
     /// Vertical alignment of the content (`w:vAlign`).
     pub v_align: Option<CellVAlign>,
+    /// Text flow direction (`w:textDirection`, §17.4.72).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_direction: Option<TextDirection>,
     /// Unknown `w:tcPr` children kept verbatim.
     pub unknown: Vec<Raw>,
     /// Tracked change of the cell properties (§17.13.5.36 tcPrChange).
@@ -1756,6 +1848,7 @@ impl Default for CellProps {
             shading: None,
             borders: None,
             v_align: None,
+            text_direction: None,
             unknown: Vec::new(),
             change: None,
             ins: None,

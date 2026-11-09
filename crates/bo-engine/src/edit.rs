@@ -921,6 +921,11 @@ impl crate::Engine {
                     field_codes: self.field_codes,
                 },
             );
+            // Table tools measure the table first (row heights, content widths).
+            let mut cmd = cmd;
+            if let Command::TableEdit { edit } = &mut cmd {
+                measure_for_table_tool(edit, s, fonts, cache);
+            }
             // Lays a document out for field updates (page numbers per body paragraph).
             let mut pages_of = |doc: &bo_model::Document| -> Vec<u32> {
                 let n = bo_model::index::body_paragraphs(doc).len();
@@ -1491,6 +1496,54 @@ impl crate::Engine {
             corrected: None,
             painter: s.picked_format().is_some(),
         })
+    }
+}
+
+/// Fill in the layout measurements a table tool needs (ECMA-376 Part 1, §17.4): row
+/// heights for distributing rows, content widths for AutoFit to the contents. A
+/// measurement that fails leaves the command as it is (the tool then falls back to
+/// the table's own sizes).
+fn measure_for_table_tool(
+    edit: &mut TableEdit,
+    s: &bo_edit::Session,
+    fonts: &mut bo_text::FontManager,
+    cache: &mut bo_layout::LayoutCache,
+) {
+    let wants = match edit {
+        TableEdit::DistributeRows { heights } => heights.is_empty(),
+        TableEdit::AutoFit {
+            mode: bo_edit::table_tools::AutoFit::Contents,
+            widths,
+        } => widths.is_empty(),
+        _ => false,
+    };
+    if !wants {
+        return;
+    }
+    let Some((t, avail)) = s.caret_table() else {
+        return;
+    };
+    let Ok(m) = bo_layout::measure_table(s.doc(), fonts, cache, t, avail.to_pt()) else {
+        return;
+    };
+    let twips = |pt: f32| (pt * 20.0).round() as i32;
+    match edit {
+        TableEdit::DistributeRows { heights } => {
+            *heights = m.row_heights.iter().map(|h| twips(*h)).collect();
+        }
+        TableEdit::AutoFit { widths, .. } => {
+            // Columns as wide as their widest line; when the table would not fit,
+            // all columns shrink in proportion to fill the available width.
+            let total: f32 = m.max_widths.iter().sum();
+            let room = avail.to_pt() - t.props.indent.map_or(0.0, |i| i.to_pt().max(0.0));
+            let k = if total > room && total > 0.0 {
+                room / total
+            } else {
+                1.0
+            };
+            *widths = m.max_widths.iter().map(|w| twips(w * k).max(1)).collect();
+        }
+        _ => {}
     }
 }
 

@@ -334,6 +334,41 @@ enum Action {
     Paste,
     Replace,
     Style,
+    TableTool(u8),
+}
+
+/// Table tools (sort, distribute, AutoFit, direction, wrap, text ↔ table).
+fn table_tool(k: u8) -> TableEdit {
+    use crate::table_tools::{AutoFit, SortKey, SortKind};
+    match k {
+        0 => TableEdit::Sort {
+            keys: vec![SortKey {
+                column: 0,
+                kind: SortKind::Text,
+                descending: true,
+            }],
+            header: false,
+        },
+        1 => TableEdit::DistributeRows {
+            heights: vec![200, 400, 300],
+        },
+        2 => TableEdit::DistributeColumns,
+        3 => TableEdit::AutoFit {
+            mode: AutoFit::Window,
+            widths: Vec::new(),
+        },
+        4 => TableEdit::TextDirection {
+            dir: Some(bo_model::TextDirection::TbRl),
+        },
+        5 => TableEdit::Wrap { around: true },
+        6 => TableEdit::ToText {
+            separator: "\t".into(),
+        },
+        _ => TableEdit::FromText {
+            separator: " ".into(),
+            cols: None,
+        },
+    }
 }
 
 fn action() -> impl Strategy<Value = Action> {
@@ -353,6 +388,7 @@ fn action() -> impl Strategy<Value = Action> {
         Just(Action::Paste),
         Just(Action::Replace),
         Just(Action::Style),
+        (0u8..8).prop_map(Action::TableTool),
     ]
 }
 
@@ -382,6 +418,7 @@ proptest! {
                 Action::Paste => { let c = s.copy(); s.paste_internal(&c.internal) }
                 Action::Replace => s.replace_all("a", &FindOptions::default(), "ă").map(|_| s.selection()),
                 Action::Style => s.apply_style("Heading1"),
+                Action::TableTool(k) => s.edit_table(&table_tool(*k)),
             };
             // The selection always addresses existing text.
             let sel = s.selection();

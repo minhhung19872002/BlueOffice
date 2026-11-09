@@ -8,12 +8,13 @@
 
 use crate::para;
 use crate::revisions::Tracker;
+use crate::table_tools::{self as tools, AutoFit, SortKey};
 use crate::{id_of, EditError, Op, Pos, Result, Selection, Session, TableState};
 use bo_model::index::{blocks_at, body_paragraphs};
 use bo_model::{
     Alignment, Block, Border, Borders, Cell, CellMerge, CellPropsChange, Color, Document,
     GridChange, ParaProps, Paragraph, RevMark, Row, RowProps, Table, TableProps, TablePropsChange,
-    TableView, TableWidth, Twips, VMerge,
+    TableView, TableWidth, TextDirection, Twips, VMerge,
 };
 use serde::{Deserialize, Serialize};
 
@@ -99,6 +100,60 @@ pub enum TableEdit {
         /// Turn header rows on or off.
         on: bool,
     },
+    /// Give the selected rows (all rows for a single cell) the same height (§17.4.81
+    /// trHeight). `heights`: the measured height of every row, in twips (filled in by
+    /// the engine from the layout; empty = use the rows' own heights).
+    DistributeRows {
+        /// Measured row heights in twips, one per row.
+        #[serde(default)]
+        heights: Vec<i32>,
+    },
+    /// Give the selected grid columns (all for a single cell) the same width.
+    DistributeColumns,
+    /// AutoFit (§17.4.53 tblLayout, §17.4.63 tblW). `widths`: content widths per grid
+    /// column in twips for [`AutoFit::Contents`] (filled in by the engine).
+    AutoFit {
+        /// How to size the columns.
+        mode: AutoFit,
+        /// Content widths per grid column, in twips.
+        #[serde(default)]
+        widths: Vec<i32>,
+    },
+    /// Sort the selected rows (all rows for a single cell) by up to three keys.
+    Sort {
+        /// Sort keys, most significant first.
+        keys: Vec<SortKey>,
+        /// The first row of the sorted range is a header and stays in place.
+        #[serde(default)]
+        header: bool,
+    },
+    /// Text direction of the selected cells (§17.4.72); `None` = horizontal.
+    TextDirection {
+        /// New direction.
+        #[serde(default)]
+        dir: Option<TextDirection>,
+    },
+    /// Let the text wrap around the table (§17.4.58 tblpPr) or keep it in line.
+    Wrap {
+        /// Text wraps around the table.
+        around: bool,
+    },
+    /// Replace the table by paragraphs, cells joined by `separator` (`"\t"`, `","`,
+    /// `"\n"` = a paragraph per cell, or any text).
+    ToText {
+        /// Text between the cells of a row.
+        separator: String,
+    },
+    /// Turn the selected paragraphs into a table (the caret need not be in a table):
+    /// cells split at `separator`, or with `"\n"` one cell per paragraph and `cols`
+    /// cells per row.
+    FromText {
+        /// Text between the cells of a row.
+        separator: String,
+        /// Number of columns (paragraph separator only).
+        #[serde(default)]
+        cols: Option<usize>,
+    },
 }
 
 /// Where a body paragraph sits in its innermost table.
@@ -134,7 +189,7 @@ fn table_of<'d>(doc: &'d Document, at: &CellAt) -> Option<&'d Table> {
 }
 
 /// Grid column where each cell of a row starts (§17.4.17 gridSpan).
-fn starts(row: &Row) -> Vec<usize> {
+pub(crate) fn starts(row: &Row) -> Vec<usize> {
     let mut g = 0;
     row.cells
         .iter()
@@ -146,12 +201,12 @@ fn starts(row: &Row) -> Vec<usize> {
         .collect()
 }
 
-fn span(c: &Cell) -> usize {
+pub(crate) fn span(c: &Cell) -> usize {
     c.props.grid_span.max(1) as usize
 }
 
 /// Index of the cell covering grid column `g`.
-fn cell_covering(row: &Row, g: usize) -> Option<usize> {
+pub(crate) fn cell_covering(row: &Row, g: usize) -> Option<usize> {
     starts(row)
         .iter()
         .zip(&row.cells)
@@ -365,6 +420,119 @@ fn normalize_grid(t: &mut Table) {
     }
 }
 
+/// Rows a sort covers: the selected rows, or every row below the repeated header rows
+/// (§17.4.49 tblHeader) when the selection is in one row; `header` keeps the first of
+/// them in place.
+fn sort_range(t: &Table, r0: usize, r1: usize, header: bool) -> (usize, usize) {
+    let (mut lo, hi) = if r0 == r1 {
+        let heads = t.rows.iter().take_while(|r| r.props.header).count();
+        (heads, t.rows.len().saturating_sub(1))
+    } else {
+        (r0, r1)
+    };
+    if header {
+        lo += 1;
+    }
+    (lo, hi)
+}
+
+/// Width available to a table in `container` (twips): the section's text width for a
+/// top-level table, the grid width of the enclosing cell (less the default cell
+/// margins, §17.4.42 tblCellMar) for a nested one.
+fn avail_width(doc: &Document, container: &[usize]) -> Twips {
+    let section = container.first().copied().unwrap_or(0);
+    let page = doc.sections.get(section).map_or(Twips(9355), |s| {
+        Twips(s.page.width.0 - s.page.margin_left.0 - s.page.margin_right.0)
+    });
+    let n = container.len();
+    if n < 4 {
+        return page;
+    }
+    let parent = blocks_at(doc, &container[..n - 3]).and_then(|b| match b.get(container[n - 3]) {
+        Some(Block::Table(t)) => Some(t),
+        _ => None,
+    });
+    let Some(t) = parent else { return page };
+    let Some(row) = t.rows.get(container[n - 2]) else {
+        return page;
+    };
+    let (Some(&s), Some(c)) = (
+        starts(row).get(container[n - 1]),
+        row.cells.get(container[n - 1]),
+    ) else {
+        return page;
+    };
+    let w: i32 = t.grid.iter().skip(s).take(span(c)).map(|g| g.0).sum();
+    if w > 216 {
+        Twips(w - 216)
+    } else {
+        page
+    }
+}
+
+impl Session {
+    /// The table holding the caret and the width available to it (twips), for
+    /// measuring it before a table tool.
+    pub fn caret_table(&self) -> Option<(&Table, Twips)> {
+        let a = self.selection.ordered().0;
+        let at = cell_at(&self.doc, a.para)?;
+        let t = table_of(&self.doc, &at)?;
+        Some((t, avail_width(&self.doc, &at.container)))
+    }
+
+    /// Turn the selected paragraphs (side by side in one container) into a table.
+    fn text_to_table(&mut self, sep: &str, cols: Option<usize>) -> Result<Selection> {
+        if self.track {
+            return Err(EditError::Unsupported(
+                "converting text to a table is not recorded as a tracked change".into(),
+            ));
+        }
+        let (a, b) = self.selection.ordered();
+        let paths = body_paragraphs(&self.doc);
+        let pa = paths.get(a.para).ok_or(EditError::BadPosition)?;
+        let pb = paths.get(b.para).ok_or(EditError::BadPosition)?;
+        let (prefix, i0) = crate::split_path(pa);
+        let (prefix_b, mut i1) = crate::split_path(pb);
+        if prefix != prefix_b {
+            return Err(EditError::Unsupported(
+                "select paragraphs that follow each other".into(),
+            ));
+        }
+        // A selection ending at the start of a (non-empty) paragraph does not include it.
+        let ends_before = b.offset == 0 && self.para_text(b.para).is_some_and(|t| !t.is_empty());
+        if ends_before && i1 > i0 {
+            i1 -= 1;
+        }
+        let blocks = blocks_at(&self.doc, &prefix).ok_or(EditError::BadPath)?;
+        let removed: Vec<Block> = blocks.get(i0..=i1).ok_or(EditError::BadPath)?.to_vec();
+        let paras: Vec<Paragraph> = removed
+            .iter()
+            .map(|b| b.as_paragraph().cloned())
+            .collect::<Option<_>>()
+            .ok_or_else(|| EditError::Unsupported("the selection holds a table".into()))?;
+        let need_after = i1 + 1 >= blocks.len();
+        let width = avail_width(&self.doc, &prefix);
+        let table = tools::paragraphs_to_table(&paras, sep, cols, width);
+        self.edit(move |tx, _| {
+            let mut insert = vec![Block::Table(table)];
+            // A table never ends its container (§17.4.66).
+            if need_after {
+                insert.push(Block::Paragraph(Paragraph::default()));
+            }
+            tx.push(Op::Blocks {
+                path: prefix.clone(),
+                index: i0,
+                remove: removed,
+                insert,
+            })?;
+            let mut path = prefix;
+            path.extend([i0, 0, 0, 0]);
+            let id = id_of(tx.doc, &path).ok_or(EditError::BadPath)?;
+            Ok(Selection::caret(Pos::new(id, 0)))
+        })
+    }
+}
+
 fn nil_border() -> Border {
     Border {
         style: "nil".into(),
@@ -405,6 +573,9 @@ impl Session {
             width,
             multi_cell: multi,
             merged: span(cell) > 1 || cell.props.v_merge.is_some(),
+            direction: cell.props.text_direction,
+            wrap: t.props.float.is_some(),
+            fixed_layout: t.props.fixed_layout,
         })
     }
 
@@ -429,6 +600,9 @@ impl Session {
 
     /// Apply a table command at the selection (one undo step).
     pub fn edit_table(&mut self, cmd: &TableEdit) -> Result<Selection> {
+        if let TableEdit::FromText { separator, cols } = cmd {
+            return self.text_to_table(separator, *cols);
+        }
         let a = self.selection.ordered().0;
         let at = cell_at(&self.doc, a.para)
             .ok_or_else(|| EditError::Unsupported("the caret is not in a table".into()))?;
@@ -436,6 +610,37 @@ impl Session {
             .cloned()
             .ok_or(EditError::BadPath)?;
         let ((r0, r1), (g0, g1)) = self.cell_rect(&at, &old);
+        match cmd {
+            TableEdit::ToText { .. } | TableEdit::Sort { .. } if self.track => {
+                return Err(EditError::Unsupported(
+                    "this table command is not recorded as a tracked change".into(),
+                ));
+            }
+            TableEdit::ToText { separator } => {
+                let blocks = tools::table_to_blocks(&old, separator);
+                let container = at.container.clone();
+                let index = at.index;
+                return self.edit(move |tx, _| {
+                    tx.push(Op::Blocks {
+                        path: container.clone(),
+                        index,
+                        remove: vec![Block::Table(old)],
+                        insert: blocks,
+                    })?;
+                    let mut path = container;
+                    path.push(index);
+                    let id = id_of(tx.doc, &path).ok_or(EditError::BadPath)?;
+                    Ok(Selection::caret(Pos::new(id, 0)))
+                });
+            }
+            TableEdit::Sort { header, .. } => {
+                let (lo, hi) = sort_range(&old, r0, r1, *header);
+                if let Some(why) = tools::sort_blocker(&old, lo, hi) {
+                    return Err(EditError::Unsupported(why.into()));
+                }
+            }
+            _ => {}
+        }
         // Track changes: deleted rows are marked, not removed (§17.13.5.12 del in trPr).
         if self.track {
             match cmd {
@@ -740,6 +945,24 @@ impl Session {
                     }
                 }
             }
+            TableEdit::DistributeRows { heights } => {
+                tools::distribute_rows(&mut t, r0, r1, heights);
+            }
+            TableEdit::DistributeColumns => tools::distribute_columns(&mut t, g0, g1),
+            TableEdit::AutoFit { mode, widths } => {
+                let avail = avail_width(&self.doc, &at.container);
+                tools::auto_fit(&mut t, *mode, widths, avail);
+            }
+            TableEdit::Sort { keys, header } => {
+                let (lo, hi) = sort_range(&t, r0, r1, *header);
+                tools::sort_rows(&mut t, lo, hi, keys);
+            }
+            TableEdit::TextDirection { dir } => {
+                tools::set_direction(&mut t, (r0, r1), (g0, g1), *dir);
+            }
+            TableEdit::Wrap { around } => tools::set_wrap(&mut t, *around),
+            // Handled before the table is copied.
+            TableEdit::ToText { .. } | TableEdit::FromText { .. } => {}
         }
         if !remove_table && t == old {
             return Ok(self.selection);

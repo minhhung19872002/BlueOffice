@@ -196,7 +196,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 - [x] **SHEET-FN-INFO** — Information còn thiếu (INFO, CELL đầy đủ…) · P0 · — · test. INFO (directory/numfile/origin/osversion/recalc/release/system; không lộ thư mục làm việc), ISOMITTED (tham số LAMBDA để trống `f(1,)`; gọi thiếu đối số vẫn #VALUE!); CELL đã có từ trước; test `info_and_isomitted`.
 - [ ] **SHEET-FN-WEB** — ENCODEURL; WEBSERVICE/FILTERXML (mặc định tắt, quản trị bật) · P1 · — · test.
 - [ ] **SHEET-FN-CUBE** — Cube: giữ công thức + giá trị cache · P2 · — · round-trip.
-- [ ] **SHEET-FORMULA-002** — Ghi tiền tố `_xlfn.` / `_xlws.` cho hàm tương lai ([MS-XLSX] 2.2.2) khi lưu .xlsx (hiện ghi nguyên văn công thức người dùng nhập) · P0 · — · round-trip + OpenXmlValidator.
+- [x] **SHEET-FORMULA-002** — Ghi tiền tố `_xlfn.` / `_xlws.` cho hàm tương lai ([MS-XLSX] 2.2.2) khi lưu .xlsx (hiện ghi nguyên văn công thức người dùng nhập) · P0 · — · round-trip + OpenXmlValidator. `bo_formula::{to_storage, from_storage}` (`storage.rs`): biến đổi mức token giữ nguyên chuỗi, tên sheet trong nháy, tham chiếu bảng; hàm tương lai = hàm đã cài không thuộc danh mục ECMA-376 bản đầu → `_xlfn.` (FILTER/SORT `_xlfn._xlws.`), tham số LET/LAMBDA → `_xlpm.`; đọc chỉ bỏ tiền tố mà khi ghi sẽ thêm lại (hàm tương lai chưa biết giữ `_xlfn.`) nên round-trip lossless; áp cho công thức ô, tên định nghĩa, CF, DV, cột tính toán/tổng của bảng; test `storage::tests`, `future_functions_get_storage_prefixes`, corpus bo-xlsx.
 - [ ] **SHEET-FORMULA-001** — Toán tử @ (implicit intersection), trim ref (.:.), CSE kiểu cũ, liên kết workbook ngoài (cập nhật/sửa/ngắt) · P0 · — · test.
 
 ### Slicer / Timeline / PivotChart (§6.2)

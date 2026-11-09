@@ -482,3 +482,40 @@ fn assert_wb_eq(a: &bo_model::sheet::Workbook, b: &bo_model::sheet::Workbook) {
     };
     assert_eq!(names(a), names(b));
 }
+
+/// [MS-XLSX] 2.2.2: future functions are stored with `_xlfn.` (FILTER / SORT with
+/// `_xlfn._xlws.`), LET / LAMBDA parameters with `_xlpm.`; the model holds the formula as
+/// people write it.
+#[test]
+fn future_functions_get_storage_prefixes() {
+    let mut wb = read_xlsx(&fixture()).unwrap();
+    let ws = &mut wb.sheets[0];
+    ws.set_cell(
+        9,
+        0,
+        bo_model::sheet::Cell::default().with_formula("XLOOKUP(1,A2:A5,B2:B5)+LET(x,2,x*3)"),
+    );
+    ws.set_cell(
+        9,
+        1,
+        bo_model::sheet::Cell::default().with_formula("SUM(FILTER(A2:A5,A2:A5>0))"),
+    );
+    let out = write_xlsx(&wb).unwrap();
+    let xml = String::from_utf8(part(&out, "/xl/worksheets/sheet1.xml").unwrap()).unwrap();
+    assert!(xml.contains("<f>_xlfn.XLOOKUP(1,A2:A5,B2:B5)+_xlfn.LET(_xlpm.x,2,_xlpm.x*3)</f>"));
+    assert!(xml.contains("<f>SUM(_xlfn._xlws.FILTER(A2:A5,A2:A5&gt;0))</f>"));
+    // Unchanged formulas keep their text; reading removes the prefixes again.
+    assert!(xml.contains("<f ca=\"1\">RAND()</f>"));
+    let back = read_xlsx(&out).unwrap();
+    let f = |a1: &str| {
+        back.sheets[0]
+            .cell_a1(a1)
+            .unwrap()
+            .formula
+            .clone()
+            .unwrap()
+            .text
+    };
+    assert_eq!(f("A10"), "XLOOKUP(1,A2:A5,B2:B5)+LET(x,2,x*3)");
+    assert_eq!(f("B10"), "SUM(FILTER(A2:A5,A2:A5>0))");
+}

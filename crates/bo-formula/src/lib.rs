@@ -39,6 +39,7 @@ pub mod provider;
 mod rangeindex;
 pub mod reference;
 mod shift;
+mod storage;
 pub mod value;
 mod workbook;
 
@@ -58,5 +59,6 @@ pub use reference::{CellAddr, RefKind, Reference, SheetRef};
 pub use shift::{
     adjust_for_change, adjust_for_move, offset_relative, MovedBlock, StructuralChange,
 };
+pub use storage::{from_storage, storage_prefix, to_storage};
 pub use value::{Area, Array, ErrorKind, Lambda, Value};
 pub use workbook::{CellId, IterativeConfig, Workbook};

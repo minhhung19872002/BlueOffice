@@ -883,6 +883,7 @@ dependencies = [
 name = "bo-xlsx"
 version = "0.1.0"
 dependencies = [
+ "bo-formula",
  "bo-model",
  "bo-opc",
  "bo-sheet",

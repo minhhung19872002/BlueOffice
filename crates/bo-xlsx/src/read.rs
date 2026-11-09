@@ -320,7 +320,12 @@ fn read_workbook(data: &[u8], part: &str, wb: &mut Workbook) -> Result<Vec<Sheet
                     let name = take(&mut at, "name").unwrap_or_default();
                     let local_sheet = take_u32(&mut at, "localSheetId");
                     let hidden = take_bool(&mut at, "hidden").unwrap_or(false);
-                    let formula = if empty { String::new() } else { read_text(r)? };
+                    // [MS-XLSX] 2.2.2: storage prefixes (_xlfn., _xlpm.) are removed for display.
+                    let formula = if empty {
+                        String::new()
+                    } else {
+                        bo_formula::from_storage(&read_text(r)?)
+                    };
                     wb.defined_names.push(DefinedName {
                         name,
                         formula,
@@ -620,8 +625,12 @@ fn read_table_column(
     for_children(r, |r, e, empty| {
         let name = lname(e);
         match name.as_str() {
-            "calculatedColumnFormula" if !empty => c.calculated_formula = Some(read_text(r)?),
-            "totalsRowFormula" if !empty => c.totals_row_formula = Some(read_text(r)?),
+            "calculatedColumnFormula" if !empty => {
+                c.calculated_formula = Some(bo_formula::from_storage(&read_text(r)?));
+            }
+            "totalsRowFormula" if !empty => {
+                c.totals_row_formula = Some(bo_formula::from_storage(&read_text(r)?));
+            }
             _ => {
                 let xml = capture(r, e, empty)?;
                 push_unknown(&mut c.unknown, &mut prev, COL_SCHEMA, &name, xml);
@@ -991,9 +1000,11 @@ fn read_cf_rule(
     for_children(r, |r, e, empty| {
         let name = lname(e);
         match name.as_str() {
-            "formula" => rule
-                .formulas
-                .push(if empty { String::new() } else { read_text(r)? }),
+            "formula" => rule.formulas.push(if empty {
+                String::new()
+            } else {
+                bo_formula::from_storage(&read_text(r)?)
+            }),
             // §18.3.1.16 colorScale
             "colorScale" if !empty => {
                 let mut cs = ColorScale::default();
@@ -1103,8 +1114,12 @@ fn read_data_validation(
         for_children(r, |r, e, empty| {
             match lname(e).as_str() {
                 // §18.3.1.40-ish formula1/formula2 (CT_Formula text)
-                "formula1" if !empty => dv.formula1 = Some(read_text(r)?),
-                "formula2" if !empty => dv.formula2 = Some(read_text(r)?),
+                "formula1" if !empty => {
+                    dv.formula1 = Some(bo_formula::from_storage(&read_text(r)?));
+                }
+                "formula2" if !empty => {
+                    dv.formula2 = Some(bo_formula::from_storage(&read_text(r)?));
+                }
                 _ => {}
             }
             Ok(())
@@ -1247,7 +1262,11 @@ fn read_sheet_data(r: &mut XmlReader<'_>, sst: &[CellValue], ws: &mut Worksheet)
                                     FormulaKind::Normal
                                 }
                             };
-                            let text = if empty { String::new() } else { read_text(r)? };
+                            let text = if empty {
+                                String::new()
+                            } else {
+                                bo_formula::from_storage(&read_text(r)?)
+                            };
                             cell.formula = Some(Formula {
                                 text,
                                 kind,

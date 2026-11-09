@@ -786,7 +786,12 @@ fn workbook_xml(
                         a_opt(&mut items, "localSheetId", local.as_ref());
                         a_true(&mut items, "hidden", hidden);
                         a_raw(&mut items, attrs);
-                        let _ = write!(items, ">{}</definedName>", escape(f));
+                        // [MS-XLSX] 2.2.2 storage prefixes.
+                        let _ = write!(
+                            items,
+                            ">{}</definedName>",
+                            escape(&bo_formula::to_storage(f))
+                        );
                     };
                 for d in &wb.defined_names {
                     dn(&d.name, d.local_sheet, d.hidden, &d.attrs, &d.formula);
@@ -978,10 +983,18 @@ fn sheet_xml(
                     a_raw(out, &dv.attrs);
                     out.push('>');
                     if let Some(f) = &dv.formula1 {
-                        let _ = write!(out, "<formula1>{}</formula1>", escape(f));
+                        let _ = write!(
+                            out,
+                            "<formula1>{}</formula1>",
+                            escape(&bo_formula::to_storage(f))
+                        );
                     }
                     if let Some(f) = &dv.formula2 {
-                        let _ = write!(out, "<formula2>{}</formula2>", escape(f));
+                        let _ = write!(
+                            out,
+                            "<formula2>{}</formula2>",
+                            escape(&bo_formula::to_storage(f))
+                        );
                     }
                     out.push_str("</dataValidation>");
                 }
@@ -1314,7 +1327,8 @@ fn write_cell(out: &mut String, at: CellRef, cell: &Cell, sst: &mut SharedString
         if f.text.is_empty() {
             out.push_str("/>");
         } else {
-            let _ = write!(out, ">{}</f>", escape(&f.text));
+            // [MS-XLSX] 2.2.2: future functions as _xlfn.NAME, LET/LAMBDA parameters as _xlpm.
+            let _ = write!(out, ">{}</f>", escape(&bo_formula::to_storage(&f.text)));
         }
     }
     if let Some(v) = v {
@@ -1350,7 +1364,11 @@ fn write_cf_rule(out: &mut String, r: &CfRule) {
         |slot, out| match slot {
             "formula" => {
                 for f in &r.formulas {
-                    let _ = write!(out, "<formula>{}</formula>", escape(f));
+                    let _ = write!(
+                        out,
+                        "<formula>{}</formula>",
+                        escape(&bo_formula::to_storage(f))
+                    );
                 }
             }
             "colorScale" => {
@@ -1489,7 +1507,7 @@ fn table_xml(t: &Table) -> String {
                                 let _ = write!(
                                     out,
                                     "<calculatedColumnFormula>{}</calculatedColumnFormula>",
-                                    escape(f)
+                                    escape(&bo_formula::to_storage(f))
                                 );
                             }
                         }
@@ -1498,7 +1516,7 @@ fn table_xml(t: &Table) -> String {
                                 let _ = write!(
                                     out,
                                     "<totalsRowFormula>{}</totalsRowFormula>",
-                                    escape(f)
+                                    escape(&bo_formula::to_storage(f))
                                 );
                             }
                         }

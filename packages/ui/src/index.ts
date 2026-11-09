@@ -22,3 +22,4 @@ export {
   type CommentThreadsProps,
   type ThreadComment,
 } from './CommentThreads';
+export * from './tokens';

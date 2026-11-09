@@ -31,18 +31,39 @@ test('BlueSheet: a timeline filters its pivot table by period', async ({ page })
   await expect(tl).toBeVisible();
   await expect(tl).toContainText('Quý');
   // The file selects Q2 2023.
-  await expect(tl.getByRole('button', { name: 'Quý 2 2023' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(tl.getByRole('button', { name: 'Quý 3 2023' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(tl.getByRole('button', { name: 'Quý 2 2023' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(tl.getByRole('button', { name: 'Quý 3 2023' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
   // Choose Q1 2024, then extend to Q2 2024 with Shift.
   await tl.getByRole('button', { name: 'Quý 1 2024' }).click();
-  await expect(tl.getByRole('button', { name: 'Quý 1 2024' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(tl.getByRole('button', { name: 'Quý 2 2023' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(tl.getByRole('button', { name: 'Quý 1 2024' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(tl.getByRole('button', { name: 'Quý 2 2023' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
   await tl.getByRole('button', { name: 'Quý 2 2024' }).click({ modifiers: ['Shift'] });
-  await expect(tl.getByRole('button', { name: 'Quý 2 2024' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(tl.getByRole('button', { name: 'Quý 1 2024' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(tl.getByRole('button', { name: 'Quý 2 2024' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(tl.getByRole('button', { name: 'Quý 1 2024' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   // Clear: nothing is filtered.
   await tl.getByTestId('timeline-clear').click();
-  await expect(tl.getByRole('button', { name: 'Quý 1 2024' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(tl.getByRole('button', { name: 'Quý 1 2024' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
   await expect(tl.getByTestId('timeline-clear')).toBeDisabled();
   expect(errors).toEqual([]);
 });

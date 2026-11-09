@@ -80,7 +80,9 @@ test('inserts a template equation as a numbered paragraph', async ({ page }) => 
   await dialog.getByTestId('equation-ok').click();
   await expect(dialog).toHaveCount(0);
   // A second paragraph now holds the equation and its number (1).
-  await expect(page.getByTestId('status-paragraphs').or(page.getByTestId('status-words'))).toBeVisible();
+  await expect(
+    page.getByTestId('status-paragraphs').or(page.getByTestId('status-words')),
+  ).toBeVisible();
   await cmd(page, 'insert.equation').click();
   await dialog.getByTestId('equation-template').selectOption('euler');
   await dialog.getByTestId('equation-numbered').check();

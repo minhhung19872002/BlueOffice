@@ -40,7 +40,7 @@
 }
 
 .thumbActive {
-  border-color: var(--bo-slide-accent, #c2410c);
+  border-color: var(--bo-slide-accent, #c2185b);
 }
 
 .thumbNo {
@@ -121,7 +121,7 @@
 }
 
 .sortItemActive {
-  border-color: var(--bo-slide-accent, #c2410c);
+  border-color: var(--bo-slide-accent, #c2185b);
 }
 
 .reading {
@@ -268,21 +268,21 @@
 
 .selected {
   fill: none;
-  stroke: var(--bo-slide-accent, #c2410c);
+  stroke: var(--bo-slide-accent, #c2185b);
   stroke-width: 1.5px;
   cursor: move;
 }
 
 .bounds {
   fill: none;
-  stroke: var(--bo-slide-accent, #c2410c);
+  stroke: var(--bo-slide-accent, #c2185b);
   stroke-width: 1px;
   stroke-dasharray: 3 3;
 }
 
 .handle {
   fill: #fff;
-  stroke: var(--bo-slide-accent, #c2410c);
+  stroke: var(--bo-slide-accent, #c2185b);
   stroke-width: 1.5px;
 }
 
@@ -291,13 +291,13 @@ circle.handle {
 }
 
 .rotLine {
-  stroke: var(--bo-slide-accent, #c2410c);
+  stroke: var(--bo-slide-accent, #c2185b);
   stroke-width: 1px;
 }
 
 .ghost {
   fill: rgb(194 65 12 / 8%);
-  stroke: var(--bo-slide-accent, #c2410c);
+  stroke: var(--bo-slide-accent, #c2185b);
   stroke-width: 1px;
   stroke-dasharray: 5 3;
 }
@@ -334,7 +334,7 @@ circle.handle {
 
 .editingFrame {
   fill: none;
-  stroke: var(--bo-slide-accent, #c2410c);
+  stroke: var(--bo-slide-accent, #c2185b);
   stroke-width: 1px;
   stroke-dasharray: 4 2;
 }
@@ -380,7 +380,7 @@ circle.handle {
 }
 
 .thumbDrop {
-  box-shadow: inset 0 3px 0 var(--bo-slide-accent, #c2410c);
+  box-shadow: inset 0 3px 0 var(--bo-slide-accent, #c2185b);
 }
 
 .modified {
@@ -621,7 +621,7 @@ circle.handle {
 }
 
 .animItemActive {
-  border-color: var(--bo-slide-accent, #c2410c);
+  border-color: var(--bo-slide-accent, #c2185b);
 }
 
 .animName {

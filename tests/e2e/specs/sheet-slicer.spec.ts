@@ -40,7 +40,10 @@ test('BlueSheet: a table slicer filters the table rows', async ({ page }) => {
   await expect(slicer.getByRole('button', { name: 'Bắc' })).toHaveAttribute('aria-pressed', 'true');
   // Choosing "Nam" filters out the Bắc rows.
   await slicer.getByRole('button', { name: 'Nam' }).click();
-  await expect(slicer.getByRole('button', { name: 'Bắc' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(slicer.getByRole('button', { name: 'Bắc' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
   await goTo(page, 'D6:D7');
   await expect(page.getByTestId('status-sum')).toHaveText('Tổng: 2');
   // Ctrl+click adds Bắc back; the clear button shows every row.

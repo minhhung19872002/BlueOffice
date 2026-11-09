@@ -1,0 +1,285 @@
+/* Generated from tokens.ts — do not edit by hand (BO_WRITE_TOKENS=1 pnpm --filter @blueoffice/ui test). */
+:root {
+  --bo-font: 'Be Vietnam Pro', 'Inter', 'Segoe UI', system-ui, -apple-system, 'Noto Sans', Roboto, sans-serif;
+  --bo-font-ui: var(--bo-font);
+  --bo-font-size-11: 11px;
+  --bo-font-size-12: 12px;
+  --bo-font-size-13: 13px;
+  --bo-font-size-14: 14px;
+  --bo-font-size-16: 16px;
+  --bo-font-size-20: 20px;
+  --bo-font-size-24: 24px;
+  --bo-font-size-32: 32px;
+  --bo-space-1: 4px;
+  --bo-space-2: 8px;
+  --bo-space-3: 12px;
+  --bo-space-4: 16px;
+  --bo-space-5: 20px;
+  --bo-space-6: 24px;
+  --bo-space-7: 28px;
+  --bo-space-8: 32px;
+  --bo-radius-sm: 4px;
+  --bo-radius-md: 8px;
+  --bo-radius: var(--bo-radius-sm);
+  --bo-shadow-1: 0 2px 6px rgba(15, 23, 42, 0.12);
+  --bo-shadow-2: 0 8px 24px rgba(15, 23, 42, 0.18);
+  --bo-shadow-3: 0 16px 40px rgba(15, 23, 42, 0.24);
+  --bo-duration-fast: 120ms;
+  --bo-duration-normal: 160ms;
+  --bo-duration-slow: 200ms;
+  --bo-ease: cubic-bezier(0.2, 0, 0, 1);
+  --bo-control-h: 28px;
+  --bo-ribbon-large-h: 66px;
+  --bo-bg: #eef1f5;
+  --bo-surface: #ffffff;
+  --bo-surface-2: #f7f8fa;
+  --bo-border: #d3d9e2;
+  --bo-text: #1b2430;
+  --bo-text-muted: #4f5a6a;
+  --bo-hover: rgba(27, 36, 48, 0.06);
+  --bo-active: rgba(27, 36, 48, 0.12);
+  --bo-focus: #1F6FEB;
+  --bo-canvas-bg: #e3e7ee;
+  --bo-brand: #1A5FCC;
+  --bo-brand-strong: #154FA9;
+  --bo-brand-contrast: #ffffff;
+  --bo-gray-1: #fcfcfd;
+  --bo-gray-2: #f7f8fa;
+  --bo-gray-3: #eef1f5;
+  --bo-gray-4: #e6e9ef;
+  --bo-gray-5: #dde2e9;
+  --bo-gray-6: #d3d9e2;
+  --bo-gray-7: #c3cad6;
+  --bo-gray-8: #a9b2c1;
+  --bo-gray-9: #7c8696;
+  --bo-gray-10: #6d7787;
+  --bo-gray-11: #4f5a6a;
+  --bo-gray-12: #1b2430;
+  --bo-success-bg: #E6F4EA;
+  --bo-success-border: #2E8540;
+  --bo-success-text: #1E6B30;
+  --bo-warning-bg: #FFF4CE;
+  --bo-warning-border: #A87400;
+  --bo-warning-text: #7A4F00;
+  --bo-danger-bg: #FDECEA;
+  --bo-danger-border: #D93025;
+  --bo-danger-text: #B42318;
+  --bo-info-bg: #E8F0FD;
+  --bo-info-border: #1F6FEB;
+  --bo-info-text: #1A5FCC;
+  --bo-brand-accent: #1F6FEB;
+  --bo-brand-accent-strong: #1A5FCC;
+  --bo-brand-accent-on: #ffffff;
+  --bo-brand-accent-text: #1A5FCC;
+  --bo-brand-accent-subtle: #E8F0FD;
+  --bo-doc-accent: #4F46E5;
+  --bo-doc-accent-strong: #4F46E5;
+  --bo-doc-accent-on: #ffffff;
+  --bo-doc-accent-text: #4338CA;
+  --bo-doc-accent-subtle: #EEEDFC;
+  --bo-sheet-accent: #0F9D8A;
+  --bo-sheet-accent-strong: #0B7A6B;
+  --bo-sheet-accent-on: #ffffff;
+  --bo-sheet-accent-text: #0B7A6B;
+  --bo-sheet-accent-subtle: #E3F4F1;
+  --bo-slide-accent: #E0457B;
+  --bo-slide-accent-strong: #C2185B;
+  --bo-slide-accent-on: #ffffff;
+  --bo-slide-accent-text: #B5195A;
+  --bo-slide-accent-subtle: #FCE9F0;
+  --bo-surface-alt: var(--bo-surface-2);
+  --bo-muted: var(--bo-text-muted);
+  --bo-danger: var(--bo-danger-text);
+  --bo-app-accent: var(--bo-brand-accent);
+  --bo-app-accent-strong: var(--bo-brand-accent-strong);
+  --bo-app-accent-on: var(--bo-brand-accent-on);
+  --bo-app-accent-text: var(--bo-brand-accent-text);
+  --bo-app-accent-subtle: var(--bo-brand-accent-subtle);
+  --bo-accent: var(--bo-app-accent-text);
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bo-bg: #1e232b;
+  --bo-surface: #1a1f27;
+  --bo-surface-2: #242a33;
+  --bo-border: #323a46;
+  --bo-text: #e3e9f1;
+  --bo-text-muted: #a4afbd;
+  --bo-hover: rgba(227, 233, 241, 0.08);
+  --bo-active: rgba(227, 233, 241, 0.16);
+  --bo-focus: #7FB0FF;
+  --bo-canvas-bg: #0d1015;
+  --bo-brand: #173B73;
+  --bo-brand-strong: #102C57;
+  --bo-brand-contrast: #E8EEF7;
+  --bo-gray-1: #111418;
+  --bo-gray-2: #171b21;
+  --bo-gray-3: #1e232b;
+  --bo-gray-4: #242a33;
+  --bo-gray-5: #2a313b;
+  --bo-gray-6: #323a46;
+  --bo-gray-7: #3e4855;
+  --bo-gray-8: #546070;
+  --bo-gray-9: #6c788a;
+  --bo-gray-10: #7d899a;
+  --bo-gray-11: #a4afbd;
+  --bo-gray-12: #e3e9f1;
+  --bo-success-bg: #15301D;
+  --bo-success-border: #4CAF68;
+  --bo-success-text: #7DD69A;
+  --bo-warning-bg: #3A2E0A;
+  --bo-warning-border: #E0A800;
+  --bo-warning-text: #F5CF5B;
+  --bo-danger-bg: #3B1715;
+  --bo-danger-border: #F2685C;
+  --bo-danger-text: #FF8A80;
+  --bo-info-bg: #1A2C47;
+  --bo-info-border: #4C8DF0;
+  --bo-info-text: #7FB0FF;
+  --bo-brand-accent: #4C8DF0;
+  --bo-brand-accent-strong: #1A5FCC;
+  --bo-brand-accent-on: #ffffff;
+  --bo-brand-accent-text: #7FB0FF;
+  --bo-brand-accent-subtle: #1A2C47;
+  --bo-doc-accent: #7C75F0;
+  --bo-doc-accent-strong: #4F46E5;
+  --bo-doc-accent-on: #ffffff;
+  --bo-doc-accent-text: #A9A4FF;
+  --bo-doc-accent-subtle: #25234A;
+  --bo-sheet-accent: #2CC2AD;
+  --bo-sheet-accent-strong: #0B7A6B;
+  --bo-sheet-accent-on: #ffffff;
+  --bo-sheet-accent-text: #4FD6C2;
+  --bo-sheet-accent-subtle: #14332F;
+  --bo-slide-accent: #F0709C;
+  --bo-slide-accent-strong: #C2185B;
+  --bo-slide-accent-on: #ffffff;
+  --bo-slide-accent-text: #FF8FB4;
+  --bo-slide-accent-subtle: #3D1A28;
+  --bo-surface-alt: var(--bo-surface-2);
+  --bo-muted: var(--bo-text-muted);
+  --bo-danger: var(--bo-danger-text);
+  --bo-app-accent: var(--bo-brand-accent);
+  --bo-app-accent-strong: var(--bo-brand-accent-strong);
+  --bo-app-accent-on: var(--bo-brand-accent-on);
+  --bo-app-accent-text: var(--bo-brand-accent-text);
+  --bo-app-accent-subtle: var(--bo-brand-accent-subtle);
+  --bo-accent: var(--bo-app-accent-text);
+  color-scheme: dark;
+}
+
+[data-theme='hc'] {
+  --bo-bg: #000000;
+  --bo-surface: #000000;
+  --bo-surface-2: #0a0a0a;
+  --bo-border: #ffffff;
+  --bo-text: #ffffff;
+  --bo-text-muted: #ffffff;
+  --bo-hover: rgba(255, 214, 0, 0.2);
+  --bo-active: rgba(255, 214, 0, 0.35);
+  --bo-focus: #FFD600;
+  --bo-canvas-bg: #000000;
+  --bo-brand: #000000;
+  --bo-brand-strong: #000000;
+  --bo-brand-contrast: #ffffff;
+  --bo-gray-1: #000000;
+  --bo-gray-2: #000000;
+  --bo-gray-3: #0a0a0a;
+  --bo-gray-4: #141414;
+  --bo-gray-5: #1f1f1f;
+  --bo-gray-6: #ffffff;
+  --bo-gray-7: #ffffff;
+  --bo-gray-8: #ffffff;
+  --bo-gray-9: #ffffff;
+  --bo-gray-10: #ffffff;
+  --bo-gray-11: #ffffff;
+  --bo-gray-12: #ffffff;
+  --bo-success-bg: #000000;
+  --bo-success-border: #3FF23F;
+  --bo-success-text: #3FF23F;
+  --bo-warning-bg: #000000;
+  --bo-warning-border: #FFD600;
+  --bo-warning-text: #FFD600;
+  --bo-danger-bg: #000000;
+  --bo-danger-border: #FF6B6B;
+  --bo-danger-text: #FF6B6B;
+  --bo-info-bg: #000000;
+  --bo-info-border: #6FC3FF;
+  --bo-info-text: #6FC3FF;
+  --bo-brand-accent: #FFD600;
+  --bo-brand-accent-strong: #FFD600;
+  --bo-brand-accent-on: #000000;
+  --bo-brand-accent-text: #FFD600;
+  --bo-brand-accent-subtle: #1f1f1f;
+  --bo-doc-accent: #FFD600;
+  --bo-doc-accent-strong: #FFD600;
+  --bo-doc-accent-on: #000000;
+  --bo-doc-accent-text: #FFD600;
+  --bo-doc-accent-subtle: #1f1f1f;
+  --bo-sheet-accent: #FFD600;
+  --bo-sheet-accent-strong: #FFD600;
+  --bo-sheet-accent-on: #000000;
+  --bo-sheet-accent-text: #FFD600;
+  --bo-sheet-accent-subtle: #1f1f1f;
+  --bo-slide-accent: #FFD600;
+  --bo-slide-accent-strong: #FFD600;
+  --bo-slide-accent-on: #000000;
+  --bo-slide-accent-text: #FFD600;
+  --bo-slide-accent-subtle: #1f1f1f;
+  --bo-surface-alt: var(--bo-surface-2);
+  --bo-muted: var(--bo-text-muted);
+  --bo-danger: var(--bo-danger-text);
+  --bo-app-accent: var(--bo-brand-accent);
+  --bo-app-accent-strong: var(--bo-brand-accent-strong);
+  --bo-app-accent-on: var(--bo-brand-accent-on);
+  --bo-app-accent-text: var(--bo-brand-accent-text);
+  --bo-app-accent-subtle: var(--bo-brand-accent-subtle);
+  --bo-accent: var(--bo-app-accent-text);
+  color-scheme: dark;
+}
+
+[data-app='doc'] {
+  --bo-app-accent: var(--bo-doc-accent);
+  --bo-app-accent-strong: var(--bo-doc-accent-strong);
+  --bo-app-accent-on: var(--bo-doc-accent-on);
+  --bo-app-accent-text: var(--bo-doc-accent-text);
+  --bo-app-accent-subtle: var(--bo-doc-accent-subtle);
+  --bo-accent: var(--bo-app-accent-text);
+}
+
+[data-app='sheet'] {
+  --bo-app-accent: var(--bo-sheet-accent);
+  --bo-app-accent-strong: var(--bo-sheet-accent-strong);
+  --bo-app-accent-on: var(--bo-sheet-accent-on);
+  --bo-app-accent-text: var(--bo-sheet-accent-text);
+  --bo-app-accent-subtle: var(--bo-sheet-accent-subtle);
+  --bo-accent: var(--bo-app-accent-text);
+}
+
+[data-app='slide'] {
+  --bo-app-accent: var(--bo-slide-accent);
+  --bo-app-accent-strong: var(--bo-slide-accent-strong);
+  --bo-app-accent-on: var(--bo-slide-accent-on);
+  --bo-app-accent-text: var(--bo-slide-accent-text);
+  --bo-app-accent-subtle: var(--bo-slide-accent-subtle);
+  --bo-accent: var(--bo-app-accent-text);
+}
+
+[data-density='compact'] {
+  --bo-control-h: 24px;
+  --bo-ribbon-large-h: 58px;
+}
+
+[data-density='touch'] {
+  --bo-control-h: 40px;
+  --bo-ribbon-large-h: 76px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --bo-duration-fast: 0ms;
+    --bo-duration-normal: 0ms;
+    --bo-duration-slow: 0ms;
+  }
+}

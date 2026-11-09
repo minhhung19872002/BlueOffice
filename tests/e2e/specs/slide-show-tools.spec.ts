@@ -304,6 +304,8 @@ test('rehearsed timings are saved per slide and played', async ({ page }) => {
   });
   await page.getByTestId('rehearsal-next').click();
   await expect(stage).toHaveAttribute('data-slide', '1');
+  // The timer text can still show the previous slide's time for a moment: really wait.
+  await page.waitForTimeout(1200);
   await expect(page.getByTestId('rehearsal-slide-time')).toHaveText(/^00:0[1-9]$/, {
     timeout: 5000,
   });
@@ -312,6 +314,8 @@ test('rehearsed timings are saved per slide and played', async ({ page }) => {
   await page.getByTestId('rehearsal-pause').click();
   await page.getByTestId('rehearsal-next').click();
   await expect(stage).toHaveAttribute('data-slide', '2');
+  // The timer text can still show the previous slide's time for a moment: really wait.
+  await page.waitForTimeout(1200);
   await expect(page.getByTestId('rehearsal-slide-time')).toHaveText(/^00:0[1-9]$/, {
     timeout: 5000,
   });

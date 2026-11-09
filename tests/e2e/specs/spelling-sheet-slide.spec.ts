@@ -20,11 +20,15 @@ async function valueOf(page: Page, ref: string) {
   return page.getByLabel('Thanh công thức');
 }
 
-/** Right click just above a wavy mark (on the word it underlines). */
-async function rightClickMark(page: Page, testId: string) {
+/**
+ * Right click on the word a mark underlines: cell marks are spans around the word itself
+ * (`above` 0: their middle), slide marks are the wavy line under it (`above` 4 points up).
+ */
+async function rightClickMark(page: Page, testId: string, above = 4) {
   const b = (await page.getByTestId(testId).first().boundingBox())!;
   expect(b).not.toBeNull();
-  await page.mouse.click(b.x + b.width / 2, b.y - 4, { button: 'right' });
+  const y = above === 0 ? b.y + b.height / 2 : b.y - above;
+  await page.mouse.click(b.x + b.width / 2, y, { button: 'right' });
 }
 
 test('BlueSheet: underlines typed words, F7 replaces everywhere in one undo step', async ({
@@ -41,7 +45,7 @@ test('BlueSheet: underlines typed words, F7 replaces everywhere in one undo step
   const marks = page.getByTestId('cell-spell-mark');
   await expect(marks.first()).toBeVisible({ timeout: 15_000 });
   await expect(marks.first()).toHaveText('chaò');
-  await rightClickMark(page, 'cell-spell-mark');
+  await rightClickMark(page, 'cell-spell-mark', 0);
   const menu = page.getByTestId('spell-menu');
   await expect(menu).toBeVisible();
   await menu.getByRole('menuitem', { name: 'chào', exact: true }).click();
@@ -130,7 +134,9 @@ test('BlueSlide: underlines text box words, corrects while editing, F7 walks the
   }
   await expect(word).toHaveText('documnet');
   await expect(page.getByTestId('spellcheck-where')).toHaveText('Trang chiếu 2');
-  await page.getByTestId('spellcheck-replacement').fill('document');
+  // The text box is Vietnamese (the deck's language): an English replacement would be
+  // underlined again, so the typo becomes a Vietnamese word.
+  await page.getByTestId('spellcheck-replacement').fill('đẹp');
   await page.getByTestId('spellcheck-change').click();
   await expect(word.or(page.getByTestId('spellcheck-done'))).toBeVisible({ timeout: 15_000 });
   await page.getByTestId('spellcheck-close').click();

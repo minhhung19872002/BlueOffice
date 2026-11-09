@@ -24,7 +24,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Phương trình OMML | Doc | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | ✅ | corpus math-0*, math::tests, equation.spec | 🟡 | bảng MATH (STIX Two Math), oMathPara theo jc, nhập UnicodeMath/LaTeX, sửa, tuyến tính ↔ chuyên nghiệp; chưa soạn trực tiếp trên công thức, thư viện mẫu |
 | Phương trình trong Slide/Sheet | Slide/Sheet | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
-| Soát chính tả Việt/Anh | all | — | 🟡 | ✅ | — | ✅ | 🟡 | — | bo-spell, spelling.spec, proof.rs | 🟡 | BlueDoc: theo w:lang từng run, hộp thoại F7 toàn tài liệu (CORE-SPELL-005); chưa Sheet/Slide |
+| Soát chính tả Việt/Anh | all | — | ✅ | ✅ | — | ✅ | 🟡 | — | bo-spell, spelling.spec, spelling-sheet-slide.spec, proof.rs | ✅ | BlueDoc theo w:lang (CORE-SPELL-005); ô BlueSheet + text BlueSlide, F7 toàn sổ/bài (CORE-SPELL-006) |
 | Ngữ pháp/văn phong | all | — | 🟡 | ✅ | — | ✅ | 🟡 | — | bo-spell grammar, spelling.spec | 🟡 | BlueDoc gạch xanh: dấu cách, dấu câu, viết hoa đầu câu, lặp từ, ngoặc/nháy, kiểu dấu thanh; chưa phân tích cú pháp |
 | AutoCorrect | all | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | khi gõ trong thân văn bản BlueDoc (CORE-AUTOCORR-001); thiếu header/footer/text box |
 | Tìm/thay (regex, định dạng) | all | — | ✅ | ✅ | — | ✅ | ✅ | — | E2E | ✅ | ký tự đặc biệt ^p ^t…, wildcard, tô sáng tất cả (CORE-FIND-001) |
@@ -35,9 +35,9 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Shape preset/custom geometry | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 187 preset, snapshots | ✅ | |
 | Edit points / merge shapes | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Hiệu ứng: shadow, glow | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | snapshots | 🟡 | PDF blur dạng ảnh mặt nạ |
-| Hiệu ứng: reflection, soft edge | all | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
+| Hiệu ứng: reflection, soft edge | all | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | — | shape_effects.rs | 🟡 | BlueSlide vẽ + sửa + xoay 3D (CORE-SHAPE-002); Doc/Sheet chưa |
 | 3D (scene3d/sp3d) | all | ✅ | ✅ | ⬜ | ✅ | ✅ | ✅ | — | corpus slide-shapes-3d, mesh3d::tests | 🟡 | khối thật: đùn, bevel trên/dưới, camera/phối cảnh, ánh sáng + material (phần mềm, ADR-0010 §5); chưa có UI chỉnh 3D |
-| WordArt / text warp | all | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
+| WordArt / text warp | all | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | — | shape_effects.rs | 🟡 | 40 preset prstTxWarp, viền/tô chữ ở BlueSlide (CORE-SHAPE-002); Doc/Sheet chưa |
 | Ảnh: crop, xoay, alpha | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | corpus images-* | 🟡 | thiếu chỉnh màu, xoá nền |
 | Ink | all | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
 | Mô hình 3D | all | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
@@ -60,7 +60,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Tính năng | Đọc | Hiển thị | Tạo/sửa | Round-trip | Web | Desktop | Cộng tác | Test | Trạng thái | Ghi chú |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Định dạng ký tự/đoạn cơ bản | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus text-*, para-* | ✅ | |
-| Thuộc tính ký tự nâng cao (emboss, ruby, ligature…) | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
+| Thuộc tính ký tự nâng cao (emboss, ruby, ligature…) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | char_props.rs, corpus text-04..07 | 🟡 | w14 effects, OpenType, ruby, combine (DOC-FMT-001); combine chỉ 1 run |
 | Style, danh sách đa cấp | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | corpus styles-*, lists-* | 🟡 | định nghĩa danh sách mới, liên kết heading, đặt giá trị (DOC-LIST-001); thiếu restart cấp con, legal-style |
 | Section, cột, header/footer | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus sections-* | ✅ | |
 | Drop cap, đánh số dòng, gạch nối, chữ dọc | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus layout-0* | 🟡 | DOC-LAYOUT-001; gạch nối tiếng Anh gần đúng, chưa cân cột |
@@ -114,8 +114,8 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Transition | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus anim-*, slide-edit-transitions-all (Choice + Fallback hợp lệ), transitionFx test, slide-show-media.spec | ✅ | 55 hiệu ứng (§19.3.1 + [MS-PPTX] p14/p15 prstTrans), biến thể hướng, thời lượng, âm thanh WAV/dừng, áp dụng tất cả; Morph theo đối tượng (vị trí/cỡ/xoay/màu; chưa theo từ/ký tự) |
 | Animation | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | corpus slide-edit-animations-all, anim_play/anim_catalog tests, effectFx test, slide-show-media.spec | 🟡 | phát mọi hiệu ứng trong file (bộ thông dịch §19.5); tạo 25 xuất hiện/biến mất, 7 nhấn mạnh, 13 đường chuyển động; chưa vẽ đường tuỳ ý, chưa hiện đổi màu, chưa theo từ/chữ |
 | Morph | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
-| Audio/video | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus media-* | 🟡 | phát cơ bản |
-| Trình chiếu + Presenter | — | ✅ | — | — | ✅ | ✅ | — | E2E | 🟡 | thiếu bút/laser, custom show |
+| Audio/video | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus media-*, slide_media.rs | ✅ | trim, fade, bookmark, phụ đề WebVTT, chế độ bắt đầu (SLIDE-MEDIA-001) |
+| Trình chiếu + Presenter | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | E2E, slide_present.rs | 🟡 | custom show, tập dượt, bút/laser, phóng, kiosk (SLIDE-SHOW-001); thiếu thuyết minh |
 | Ghi thuyết trình / xuất video | — | — | 🟡 | — | 🟡 | 🟡 | — | slide_video.rs, video.test | 🟡 | xuất GIF/PNG mọi nơi, MP4/WebM qua WebCodecs (SLIDE-EXPORT-001); chưa ghi thuyết trình |
 | Xuất PDF/PNG | — | ✅ | — | — | ✅ | ✅ | — | tests, slide_export.rs | 🟡 | + handout 1–9, trang ghi chú, JPEG/SVG, gói (SLIDE-EXPORT-002); thiếu media liên kết |
 | SmartArt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus, smartart.spec | ✅ | chèn từ thư viện bố cục, ngăn văn bản, bố cục/màu/kiểu, chuyển thành hình |

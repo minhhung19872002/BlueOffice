@@ -770,6 +770,7 @@ name = "bo-pptx"
 version = "0.1.0"
 dependencies = [
  "bo-drawingml",
+ "bo-layout",
  "bo-model",
  "bo-opc",
  "bo-render",

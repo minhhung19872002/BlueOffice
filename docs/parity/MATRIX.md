@@ -6,8 +6,9 @@ Cập nhật sau mỗi hạng mục BACKLOG.
 
 ## Tổng hợp (theo hàng tính năng bên dưới; ✅ = 1, 🟡 = 0,5)
 
-Tính lại khi rà soát định kỳ 2026-11-09 từ cột Trạng thái. Fidelity (`pnpm fidelity`, 2026-11-09): .docx 72 file, 98,6 % hợp lệ sau khi
-lưu (1 lỗi đã biết); .xlsx 84 file, 96,4 % (3 đã biết); .pptx 55 file, 100 %; ảnh mốc tự sinh 216 trang, 0 vượt ngưỡng.
+Tính lại khi rà soát định kỳ 2026-11-09 (lần 3, sau 34 mục) từ cột Trạng thái. Fidelity (`pnpm fidelity`, 2026-11-09): .docx 74 file,
+98,6 % hợp lệ sau khi lưu (1 lỗi đã biết); .xlsx 135 file, 97,8 % (3 đã biết); .pptx 64 file, 100 %; ảnh mốc tự sinh 273 trang, 0 vượt
+ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục / content control khối nay hiển thị, bộ vẽ biểu đồ chung, lưới 3D).
 
 | App / nhóm | Hàng | Điểm | % |
 |---|---|---|---|

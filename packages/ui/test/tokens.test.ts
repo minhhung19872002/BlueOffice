@@ -95,3 +95,13 @@ describe('design tokens', () => {
     expect(css).toContain("[data-density='touch'] {");
   });
 });
+
+describe('motion tokens', () => {
+  it('stay within 120–200 ms', async () => {
+    const { MOTION } = await import('../src/tokens');
+    for (const v of Object.values(MOTION)) {
+      expect(v).toBeGreaterThanOrEqual(120);
+      expect(v).toBeLessThanOrEqual(200);
+    }
+  });
+});

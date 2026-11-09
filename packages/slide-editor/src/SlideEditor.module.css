@@ -145,7 +145,7 @@
 }
 
 .fade {
-  animation: fade 300ms ease-out;
+  animation: fade var(--bo-duration-slow, 200ms) var(--bo-ease, ease-out);
 }
 
 @keyframes fade {

@@ -29,6 +29,9 @@
   opacity: 0.85;
   border-radius: var(--bo-radius) var(--bo-radius) 0 0;
   font-size: 13px;
+  transition:
+    background-color var(--bo-duration-fast, 120ms) var(--bo-ease, ease),
+    opacity var(--bo-duration-fast, 120ms) var(--bo-ease, ease);
 }
 
 .tab:hover {
@@ -104,6 +107,7 @@
   font-size: 12px;
   line-height: 1.2;
   color: var(--bo-text);
+  transition: background-color var(--bo-duration-fast, 120ms) var(--bo-ease, ease);
 }
 
 .button.small {

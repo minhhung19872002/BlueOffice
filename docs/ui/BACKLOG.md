@@ -14,8 +14,8 @@ icon. Làm xen kẽ với `docs/parity/BACKLOG.md`.
   cao/Theo hệ thống. *Xong khi:* test tương phản ≥ 7:1 cho chữ chính; E2E đổi theme. **Đã có:** `ThemeSetting` thêm `hc`; `resolveTheme` (auto theo `forced-colors: active` / `prefers-contrast: more` trước rồi mới tới dark); lệnh Xem › Sáng / Tối / Tương phản cao xoay vòng; `@media (forced-colors: active)` giữ viền focus Highlight; SDK `EditorTheme` nhận `hc`; test `theme.test.ts`, test tương phản hc ≥ 7:1, E2E open-sample.
 - [x] **UI-TOKENS-003** (P1) Mật độ Thường/Gọn/Cảm ứng (`[data-density]`), nhớ theo người dùng. *Xong khi:* test kích thước nút
   ribbon theo mật độ; vùng chạm ≥ 40px ở Cảm ứng. **Đã có:** `packages/ui/src/density.ts` (`setDensity`/`useDensity`, nhớ `localStorage` có try/catch, đặt `data-density` trên `<html>` nên áp cho cả 3 app), ribbon dùng `--bo-control-h`/`--bo-ribbon-large-h`, nút nhỏ ≥ 40×40 ở Cảm ứng; lệnh `view.density` (BlueDoc › Xem); chọn trong Tùy chọn sẽ có ở UI-FILE-006. Test `density.test.ts`, editor test, E2E `ui-density.spec.ts`.
-- [ ] **UI-TOKENS-004** (P1) Font UI Be Vietnam Pro / Inter (OFL) đóng gói, fallback hệ thống. *Xong khi:* ghi
-  THIRD_PARTY_NOTICES; test font được nạp.
+- [x] **UI-TOKENS-004** (P1) Font UI Be Vietnam Pro / Inter (OFL) đóng gói, fallback hệ thống. *Xong khi:* ghi
+  THIRD_PARTY_NOTICES; test font được nạp. **Đã có:** Be Vietnam Pro 400/500/600/700 (google/fonts, OFL) trong `packages/ui/fonts/` + `@font-face` (`font-display: swap`) trong `theme.css`; font UI tách khỏi font tài liệu (không đụng FaceId); test `fonts.test.ts`.
 - [ ] **UI-TOKENS-005** (P1) Chuyển động 120–200ms, tắt khi `prefers-reduced-motion`. *Xong khi:* test CSS media query.
 
 ## Icon (§4)

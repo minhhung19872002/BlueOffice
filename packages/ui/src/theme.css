@@ -2,6 +2,36 @@
    [data-theme='dark' | 'hc'] switches, [data-app='doc' | 'sheet' | 'slide'] picks the accent. */
 @import './tokens/tokens.css';
 
+/* Be Vietnam Pro (SIL OFL 1.1, packages/ui/fonts/OFL-BeVietnamPro.txt) — UI font, not a document font. */
+@font-face {
+  font-family: 'Be Vietnam Pro';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/BeVietnamPro-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Be Vietnam Pro';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../fonts/BeVietnamPro-Medium.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Be Vietnam Pro';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../fonts/BeVietnamPro-SemiBold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Be Vietnam Pro';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/BeVietnamPro-Bold.ttf') format('truetype');
+}
+
 .bo-root {
   font-family: var(--bo-font);
   font-size: var(--bo-font-size-13);

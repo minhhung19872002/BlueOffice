@@ -42,7 +42,8 @@ cargo run -p bo-cli -- roundtrip in.docx --out out.docx   # mở rồi lưu lạ
 cargo test -p bo-docx --test corpus -- --nocapture       # % round-trip corpus
 cargo test -p bo-edit                          # gồm proptest undo/redo
 cargo run -p bo-cli -- convert in.xls --to xlsx          # doc/xls/xlsb/ppt/odt/ods/odp → OOXML, csv, pdf
-cargo run -p bo-cli -- inspect in.docx                   # định dạng, mã hoá, macro
+cargo run -p bo-cli -- inspect in.docx                   # định dạng, biến thể (dotx/xlsm/ppsx…), mã hoá, macro
+cargo run -p bo-cli -- convert in.docm --to dotx         # mẫu / có macro / trình chiếu (bỏ macro khi kiểu đích không chứa được); --to thmx: tệp chủ đề
 cargo run -p bo-cli -- sign in.pdf --key k.pem --cert c.pem   # PAdES / OOXML (bo-sign); --p12 f.p12 | --remote URL; --tsa URL (B-T)
 cargo run -p bo-cli -- ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch] [--tsa URL]   # PAdES B-LT: DSS (chứng thư + CRL/OCSP); --tsa: B-LTA
 cargo run -p bo-cli -- verify in.pdf --trust root-ca.pem [--crl ca.crl] [--ocsp r.der | --ocsp-fetch] [--crl-fetch] [--sunset SHA-1=2014-01-01] [--json]  # chữ ký + dấu thời gian + chuỗi tới trust anchor + thu hồi CRL/OCSP (ADR-0007)

@@ -378,6 +378,12 @@ fn read_workbook(data: &[u8], part: &str, wb: &mut Workbook) -> Result<Vec<Sheet
     Ok(entries)
 }
 
+/// Colour scheme (§20.1.6.2 clrScheme) of a theme part (§14.2.7), `None` when it
+/// has none or is not well formed (CORE-FMT-001: theme files applied to a workbook).
+pub fn theme_colors(data: &[u8]) -> Option<ThemeColors> {
+    read_theme(data, "/xl/theme/theme1.xml").ok().flatten()
+}
+
 /// §20.1.6.2 clrScheme inside the theme part (§14.2.7).
 fn read_theme(data: &[u8], part: &str) -> Result<Option<ThemeColors>> {
     let mut r = XmlReader::new(data, part);

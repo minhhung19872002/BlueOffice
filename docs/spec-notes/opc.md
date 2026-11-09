@@ -56,9 +56,28 @@ không chép văn bản spec; chỉ ghi số mục. Mã: `crates/bo-opc`.
   sửa đổi do bo-opc chép nguyên byte.
 - Kiểm chứng: `crates/bo-docx/tests/corpus.rs` `corpus_round_trips_losslessly` (so sánh part sau chuẩn hoá XML).
 
+## 4b. Biến thể gói: mẫu, có macro, trình chiếu, tệp chủ đề (CORE-FMT-001)
+
+- `crates/bo-engine/src/variant.rs`: biến thể xác định theo content type của main part (đích quan hệ
+  `officeDocument`), không theo đuôi tệp — ECMA-376 Part 1 §11.3.10 (`…wordprocessingml.document|template.main+xml`),
+  §12.3.23 (`…spreadsheetml.sheet|template.main+xml`), §13.3.6 (`…presentationml.presentation|slideshow|template.main+xml`)
+  và các kiểu có macro của [MS-OFFMACRO2] (`application/vnd.ms-word.document.macroEnabled.main+xml`,
+  `…ms-word.template.macroEnabledTemplate.main+xml`, `…ms-excel.sheet|template.macroEnabled.main+xml`,
+  `…ms-powerpoint.presentation|slideshow|template.macroEnabled.main+xml`). Cả 14 chuỗi khớp bảng content type của
+  Open XML SDK 3.1.1 (MIT). Lưu ý: OpenXmlValidator **không** từ chối main content type lạ, nên test
+  `content_types_are_the_published_ones` kiểm tra trực tiếp các chuỗi.
+- Đổi biến thể = đổi Override của main part (Part 2 §10.1.2.2.3). Sang kiểu không macro: bỏ `vbaProject.bin`
+  (quan hệ `…/2006/relationships/vbaProject`), các part chỉ nó trỏ tới (`vbaData.xml`), `keyMapCustomizations`
+  và customUI có callback (`onAction`, `get…`, `loadImage` — [MS-CUSTOMUI]); sang kiểu có macro: giữ nguyên byte.
+- `.thmx`: main part là theme manager (`a:themeManager`, DrawingML §20.1.6.11, content type
+  `application/vnd.openxmlformats-officedocument.themeManager+xml`) có quan hệ `theme` (§14.2.7) tới `theme1.xml`;
+  đọc thêm được gói mà main part là chính theme part. Cấu trúc theme manager lấy từ quan sát black-box tệp chủ đề
+  (không có trong ECMA-376 / SDK) — xem mục 5.
+
 ## 5. Quan sát black-box
 
-- Không có quan sát black-box nào được ghi trong code/test của `bo-opc`.
+- Tệp chủ đề `.thmx`: `/theme/theme/themeManager.xml` (main part) → `theme1.xml` qua quan hệ theme (CORE-FMT-001).
+- Ngoài mục trên, không có quan sát black-box nào được ghi trong code/test của `bo-opc`.
 
 ## 6. Chưa hỗ trợ
 

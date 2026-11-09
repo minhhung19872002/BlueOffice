@@ -6,11 +6,14 @@ import {
   useFileProtection,
   MacroBanner,
   PasswordDialog,
+  SaveAsTypeDialog,
   SavePasswordPanel,
   SymbolPanel,
   clipboardHistory,
   pictureTabLabels,
+  planOpen,
   registerPictureCommands,
+  saveName,
   type ClipItem,
 } from '@blueoffice/editor';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
@@ -33,11 +36,15 @@ import type {
 } from '@blueoffice/platform';
 import {
   DEFAULT_SHOW_SETUP,
+  PASSWORD_REQUIRED,
+  THEME_MIME,
+  WRONG_PASSWORD,
+  mimeFor,
+  openExtensions,
   type DisplayTarget,
   type SlideLinkAction,
   type SlideShowSetup,
 } from '@blueoffice/platform';
-import { PASSWORD_REQUIRED, WRONG_PASSWORD } from '@blueoffice/platform';
 import {
   CommentThreads,
   Ribbon,
@@ -294,6 +301,8 @@ export interface SlideEditorState extends MasterState, SectionState, PageMasterS
 }
 
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+/** File name without the extension of a deck variant (CORE-FMT-001). */
+const deckBase = (name: string) => name.replace(/\.(pptx|pptm|potx|potm|ppsx|ppsm)$/i, '');
 
 /** Files offered by "Insert video / audio" (played when the platform has the codec). */
 const MEDIA_FILES = [
@@ -400,6 +409,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [info, setInfo] = useState<DocInfo | null>(null);
   /** The open deck has macros (kept, never run): show the warning bar. */
   const [fileName, setFileName] = useState('');
+  /** The template the open deck was created from (CORE-FMT-001: "Edit template"). */
+  const [templateFile, setTemplateFile] = useState<{ bytes: Uint8Array; name: string } | null>(
+    null,
+  );
+  /** A slide show file (.ppsx / .ppsm) was opened: start the show once it is shown. */
+  const [autoShow, setAutoShow] = useState(false);
+  /** "Save as" file type dialog. */
+  const [saveAsType, setSaveAsType] = useState(false);
   const [current, setCurrent] = useState(0);
   const [view, setView] = useState<SlideView>('normal');
   const [returnView, setReturnView] = useState<SlideView>('normal');
@@ -604,7 +621,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   );
 
   const load = useCallback(
-    async (bytes: Uint8Array, name: string, password?: string) => {
+    async (bytes: Uint8Array, name: string, password?: string, editTemplate = false) => {
       setStatus(t('slideEditor.loading'));
       setError('');
       await engine.init();
@@ -620,6 +637,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         }
         throw e;
       }
+      // CORE-FMT-001: a template (.potx / .potm) starts a new, untitled deck of the
+      // matching type unless the user asked to edit it; a slide show starts the show.
+      const plan = planOpen(doc.variant, doc.name || name, editTemplate);
+      if (plan.saveAs)
+        doc = (await engine.slideCommand({ cmd: 'saveFormat', ext: plan.saveAs })).info;
+      setTemplateFile(plan.variant?.template ? { bytes, name } : null);
       setMacroBanner(!!doc.macros);
       images.clear();
       setEditing(null);
@@ -631,8 +654,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       setRevs([]);
       setEpoch((e) => e + 1);
       setStatus('');
-      platform.window.setTitle(`${name} — ${t('app.slide')}`);
+      platform.window.setTitle(`${doc.name || name} — ${t('app.slide')}`);
       await ctrl.run({ cmd: 'state' });
+      if (plan.fromTemplate) setStatus(t('fileVariants.fromTemplate', { name }));
+      setAutoShow(plan.show);
     },
     [engine, images, platform, t, ctrl],
   );
@@ -754,6 +779,16 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     },
     [count, view, showCache, edit, ink],
   );
+
+  // .ppsx / .ppsm open straight into the slide show (the deck itself opens normally).
+  useEffect(() => {
+    if (!autoShow || !count) return;
+    const timer = setTimeout(() => {
+      setAutoShow(false);
+      startShow(0, false);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [autoShow, count, startShow]);
 
   const endShow = useCallback(() => {
     setView(returnView);
@@ -1259,6 +1294,45 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [pictureHub] = useState(() => new PictureActionsHub());
   /** Actions of the clip Playback / Video format tabs (SLIDE-MEDIA-001), behind `media.*`. */
   const [mediaHub] = useState(() => new MediaActionsHub());
+  // The deck keeps its type: presentation, template, slide show, with or without
+  // macros (CORE-FMT-001).
+  const saveDeck = useCallback(
+    async (variant?: string | null) => {
+      await ctrl.idle();
+      const name = saveName(
+        deckBase(fileName) || t('slideEditor.untitled'),
+        variant ?? info?.variant,
+        'pptx',
+      );
+      const saved = await platform.files.saveFile(
+        await engine.savePptx(),
+        name,
+        mimeFor(name) || PPTX_MIME,
+      );
+      if (saved) {
+        await engine.markSaved();
+        await ctrl.run({ cmd: 'state' });
+        setStatus(t('slideEditor.saved', { name: saved }));
+      }
+    },
+    [ctrl, fileName, info, t, platform, engine],
+  );
+  /** Save as the type picked in the "Save as" dialog. */
+  const saveAsTypeChosen = useCallback(
+    async (ext: string) => {
+      try {
+        const r = await ctrl.run({ cmd: 'saveFormat', ext });
+        if (!r || r.error) return;
+        setInfo(r.info);
+        setFileName(r.info.name);
+        await saveDeck(ext);
+      } catch (e) {
+        fail(e);
+      }
+    },
+    [ctrl, saveDeck, fail],
+  );
+
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SlideEditorState>();
     const guard = async (f: () => Promise<unknown>) => {
@@ -1268,7 +1342,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         fail(e);
       }
     };
-    const base = () => fileName.replace(/\.pptx$/i, '') || t('slideEditor.untitled');
+    const base = () => deckBase(fileName) || t('slideEditor.untitled');
     const deck = (s: SlideEditorState) => s.hasDeck;
     const sel = (s: SlideEditorState) => s.hasSelection;
     const text = (s: SlideEditorState) => s.hasText;
@@ -1284,7 +1358,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       shortcut: 'Ctrl+O',
       run: () =>
         guard(async () => {
-          const f = await platform.files.openFile(['.pptx', '.ppt', '.odp']);
+          const f = await platform.files.openFile([...openExtensions('slide'), '.ppt', '.odp']);
           if (f) await load(f.bytes, f.name);
         }),
     });
@@ -1292,19 +1366,38 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       id: 'file.save',
       shortcut: 'Ctrl+S',
       isEnabled: deck,
+      run: () => guard(() => saveDeck()),
+    });
+    reg.register({
+      id: 'file.editTemplate',
+      isEnabled: () => !!templateFile,
       run: () =>
         guard(async () => {
-          await ctrl.idle();
-          const saved = await platform.files.saveFile(
-            await engine.savePptx(),
-            `${base()}.pptx`,
-            PPTX_MIME,
-          );
-          if (saved) {
-            await engine.markSaved();
-            await ctrl.run({ cmd: 'state' });
-            setStatus(t('slideEditor.saved', { name: saved }));
+          if (templateFile) await load(templateFile.bytes, templateFile.name, undefined, true);
+        }),
+    });
+    reg.register({
+      id: 'file.saveAs',
+      shortcut: 'Ctrl+Shift+S',
+      isEnabled: deck,
+      run: () => setSaveAsType(true),
+    });
+
+    // Theme files (CORE-FMT-001): the deck's theme as a .thmx (apply one: design.themeFile).
+    reg.register({
+      id: 'design.saveThemeFile',
+      isEnabled: deck,
+      run: () =>
+        guard(async () => {
+          const r = await ctrl.run({ cmd: 'saveThemeFile' });
+          const b64 = r?.design?.themeFile;
+          if (!b64) {
+            setStatus(t('fileVariants.noTheme'));
+            return;
           }
+          const name = `${base()}.thmx`;
+          const saved = await platform.files.saveFile(fromBase64(b64), name, THEME_MIME);
+          if (saved) setStatus(t('fileVariants.themeSaved', { name }));
         }),
     });
     reg.register({
@@ -1756,6 +1849,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   }, [
     fail,
     fileName,
+    saveDeck,
+    templateFile,
     t,
     platform,
     load,
@@ -2051,6 +2146,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             items: [
               item('file.open', t('slideEditor.open'), <FolderOpen size={18} />),
               item('file.save', t('slideEditor.save'), <Save size={18} />),
+              item('file.saveAs', t('commands.file.saveAs'), <Save size={16} />, sm),
+              item(
+                'file.editTemplate',
+                t('fileVariants.editTemplate'),
+                <FolderOpen size={16} />,
+                sm,
+              ),
+              item('design.saveThemeFile', t('fileVariants.saveThemeFile'), <Save size={16} />, sm),
               item(
                 'file.savePassword',
                 t('commands.review.savePassword'),
@@ -2871,6 +2974,17 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           }}
         />
       )}
+      <SaveAsTypeDialog
+        open={saveAsType}
+        app="slide"
+        current={info?.variant}
+        macros={info?.macros}
+        onCancel={() => setSaveAsType(false)}
+        onConfirm={(ext) => {
+          setSaveAsType(false);
+          void saveAsTypeChosen(ext);
+        }}
+      />
       {macroBanner && view === 'normal' && (
         <MacroBanner inline onDismiss={() => setMacroBanner(false)} />
       )}

@@ -4811,5 +4811,35 @@
       "dusk": "Lavender",
       "steel": "Steel"
     }
+  },
+  "fileVariants": {
+    "saveAsTitle": "Save as",
+    "type": "File type",
+    "save": "Save",
+    "cancel": "Cancel",
+    "types": {
+      "docx": "Document (.docx)",
+      "docm": "Document with macros (.docm)",
+      "dotx": "Document template (.dotx)",
+      "dotm": "Document template with macros (.dotm)",
+      "xlsx": "Workbook (.xlsx)",
+      "xlsm": "Workbook with macros (.xlsm)",
+      "xltx": "Workbook template (.xltx)",
+      "xltm": "Workbook template with macros (.xltm)",
+      "pptx": "Presentation (.pptx)",
+      "pptm": "Presentation with macros (.pptm)",
+      "potx": "Presentation template (.potx)",
+      "potm": "Presentation template with macros (.potm)",
+      "ppsx": "Self-starting slide show (.ppsx)",
+      "ppsm": "Self-starting slide show with macros (.ppsm)"
+    },
+    "macroDropped": "The open file has macros. This file type cannot hold macros, so they will be left out when saving. Pick a type “with macros” to keep them.",
+    "fromTemplate": "A new document was created from the template “{{name}}”. Use “Edit template” to change the template file itself.",
+    "editTemplate": "Edit template",
+    "applyThemeFile": "Theme from a file…",
+    "saveThemeFile": "Save theme…",
+    "themeSaved": "Theme saved to “{{name}}”.",
+    "themeApplied": "Theme applied from “{{name}}”.",
+    "noTheme": "This file has no theme to use."
   }
 }

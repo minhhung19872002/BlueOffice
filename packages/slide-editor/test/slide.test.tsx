@@ -154,6 +154,8 @@ function fakePlatform() {
     wordCount: 0,
     kind: 'slide' as const,
     macros: name.endsWith('.pptm'),
+    // The engine reports the package variant by content type (CORE-FMT-001).
+    variant: name.split('.').pop()?.toLowerCase(),
   });
   const shape = (): SlideShapeInfo => ({
     id: 7,
@@ -408,6 +410,55 @@ describe('BlueSlideEditor', () => {
     expect(bar.textContent).toContain('macro');
     fireEvent.click(bar.querySelector('button')!);
     await waitFor(() => expect(screen.queryByTestId('macro-warning')).toBeNull());
+  });
+
+  it('opens a .ppsx slide show straight into the show (CORE-FMT-001)', async () => {
+    const { p, open } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    expect(screen.queryByTestId('show-stage')).toBeNull();
+    act(() => open({ name: 'Tự chạy.ppsx', bytes: new Uint8Array([1]) }));
+    await screen.findByTestId('show-stage');
+  });
+
+  it('opens a template as a new deck and saves as another type (CORE-FMT-001)', async () => {
+    const { p, cmds, saved, open } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="en-US" />);
+    await openDeck(p, 'Open');
+    act(() => open({ name: 'Mẫu.potx', bytes: new Uint8Array([1]) }));
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'saveFormat', ext: 'pptx' }));
+    await screen.findByText(/A new document was created from the template “Mẫu.potx”/);
+    // Save as: pick the slide show type.
+    fireEvent.keyDown(window, { key: 'S', ctrlKey: true, shiftKey: true });
+    const dialog = await screen.findByTestId('file-type-dialog');
+    expect(dialog.textContent).toContain('Presentation template with macros (.potm)');
+    fireEvent.click(screen.getByTestId('file-type-ppsx'));
+    expect(screen.queryByTestId('file-type-warning')).toBeNull();
+    fireEvent.click(screen.getByTestId('file-type-ok'));
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'saveFormat', ext: 'ppsx' }));
+    await waitFor(() => expect(saved.at(-1)).toBe('Báo cáo.ppsx'));
+  });
+
+  it('warns that saving a macro deck as a macro-free type drops the macros', async () => {
+    const { p, open, engine } = fakePlatform();
+    // The engine keeps reporting the macro deck after the open.
+    const base = engine.slideCommand.getMockImplementation()!;
+    engine.slideCommand.mockImplementation(async (c: SlideCommand) => {
+      const r = await base(c);
+      return { ...r, info: { ...r.info, name: 'Có macro.pptm', macros: true, variant: 'pptm' } };
+    });
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    act(() => open({ name: 'Có macro.pptm', bytes: new Uint8Array([1]) }));
+    await screen.findByTestId('macro-warning');
+    fireEvent.keyDown(window, { key: 'S', ctrlKey: true, shiftKey: true });
+    await screen.findByTestId('file-type-dialog');
+    // The macro-enabled type is preselected: no warning.
+    expect(screen.queryByTestId('file-type-warning')).toBeNull();
+    fireEvent.click(screen.getByTestId('file-type-pptx'));
+    expect(screen.getByTestId('file-type-warning').textContent).toContain('macro');
+    fireEvent.click(screen.getByTestId('file-type-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('file-type-dialog')).toBeNull());
   });
 
   it('opens a deck, shows thumbnails and notes, navigates and saves', async () => {

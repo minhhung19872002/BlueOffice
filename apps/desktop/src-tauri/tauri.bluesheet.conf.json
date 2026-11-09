@@ -26,6 +26,33 @@
         "description": "Tương thích định dạng Microsoft Excel (.xlsx)",
         "role": "Editor",
         "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      },
+      {
+        "ext": [
+          "xlsm"
+        ],
+        "name": "BlueSheet macro-enabled workbook",
+        "description": "Tương thích định dạng bảng tính có macro (.xlsm)",
+        "role": "Editor",
+        "mimeType": "application/vnd.ms-excel.sheet.macroEnabled.12"
+      },
+      {
+        "ext": [
+          "xltx"
+        ],
+        "name": "BlueSheet template",
+        "description": "Tương thích định dạng mẫu bảng tính (.xltx)",
+        "role": "Editor",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+      },
+      {
+        "ext": [
+          "xltm"
+        ],
+        "name": "BlueSheet macro-enabled template",
+        "description": "Tương thích định dạng mẫu bảng tính có macro (.xltm)",
+        "role": "Editor",
+        "mimeType": "application/vnd.ms-excel.template.macroEnabled.12"
       }
     ]
   },

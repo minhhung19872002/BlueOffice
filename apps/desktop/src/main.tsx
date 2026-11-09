@@ -27,6 +27,7 @@ import {
   type SyncFolder,
 } from '@blueoffice/hosted';
 import {
+  openExtensions,
   shouldCheckForUpdates,
   updateNotice,
   type HostFileLink,
@@ -274,15 +275,17 @@ async function openLocal(file: OpenedFile): Promise<void> {
 }
 
 async function pickLocal(): Promise<void> {
+  // Documents, workbooks and decks with their templates, macro-enabled variants and
+  // slide shows (CORE-FMT-001).
   const f = await base.files.openFile([
-    '.docx',
+    ...openExtensions('doc'),
     '.doc',
     '.odt',
-    '.xlsx',
+    ...openExtensions('sheet'),
     '.xls',
     '.ods',
     '.csv',
-    '.pptx',
+    ...openExtensions('slide'),
     '.ppt',
     '.odp',
   ]);

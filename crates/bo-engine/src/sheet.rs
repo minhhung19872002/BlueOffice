@@ -43,6 +43,7 @@ mod sparkline_cmd;
 mod spell_cmd;
 mod table_cmd;
 mod view_cmd;
+mod theme_file;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
 
@@ -105,6 +106,9 @@ pub struct WorkbookInfo {
     /// Cells converted from TCVN3 / VNI fonts to Unicode on open (0 = none);
     /// the conversion is the first undo step.
     pub legacy_converted: usize,
+    /// Package variant (`xlsx`, `xlsm`, `xltx`, `xltm`) the next `.xlsx` save produces
+    /// — the opened file's unless `saveFormat` changed it (CORE-FMT-001).
+    pub variant: Option<String>,
 }
 
 /// Summary of one sheet (tab bar, navigation and frozen panes).
@@ -273,6 +277,10 @@ pub struct SheetEngine {
     collab: Option<collab::SheetCollab>,
     /// The open file has macros (warning bar; preserved, never executed).
     macros: bool,
+    /// Package variant of the open file (what the writer reproduces, CORE-FMT-001).
+    file_variant: Option<crate::variant::Variant>,
+    /// Variant the next saves produce when it differs (`saveFormat`).
+    save_variant: Option<crate::variant::Variant>,
     /// Cells the last legacy-font conversion changed.
     legacy_converted: usize,
     /// SmartArt drawing fallbacks of the open workbook, drawn once on load.
@@ -658,6 +666,8 @@ impl SheetEngine {
             save_password: None,
             collab: None,
             macros: false,
+            file_variant: None,
+            save_variant: None,
             legacy_converted: 0,
             drawings: Arc::default(),
             scrub: crate::inspect::package::Scrub::default(),
@@ -752,6 +762,7 @@ impl SheetEngine {
         let bytes = plain.as_deref().unwrap_or(bytes);
         let info = self.open_plain(bytes, name)?;
         self.macros = bo_binary::has_macros(bytes);
+        self.file_variant = crate::variant::detect(bytes).or(self.file_variant);
         self.open_security(bytes);
         self.save_password = if encrypted {
             password.map(str::to_owned)
@@ -759,6 +770,21 @@ impl SheetEngine {
             None
         };
         self.info().or(Ok(info))
+    }
+
+    /// Package variant of the next `.xlsx` saves by file extension (`xlsx`, `xlsm`,
+    /// `xltx`, `xltm`; CORE-FMT-001): a macro-free variant drops the VBA project; the
+    /// workbook name takes the new extension.
+    pub fn set_save_format(&mut self, ext: &str) -> Result<()> {
+        self.wb()?;
+        let v = crate::variant::Variant::from_ext(ext)
+            .filter(|v| v.app() == "sheet")
+            .ok_or_else(|| EngineError::Unsupported(ext.to_owned()))?;
+        self.save_variant = (Some(v) != self.file_variant).then_some(v);
+        if !self.name.is_empty() {
+            self.name = crate::with_ext(&self.name, v.ext());
+        }
+        Ok(())
     }
 
     /// Password for the next `.xlsx` saves (`None` or empty: not encrypted).
@@ -845,6 +871,8 @@ impl SheetEngine {
         self.save_password = None;
         self.scrub = crate::inspect::package::Scrub::default();
         self.macros = false;
+        self.file_variant = Some(crate::variant::Variant::Xlsx);
+        self.save_variant = None;
         // One-cell / absolute chart anchors (§20.5.2.24, §20.5.2.1) → cells.
         for si in 0..wb.sheets.len() {
             if wb.sheets[si]
@@ -929,6 +957,10 @@ impl SheetEngine {
             macros: self.macros,
             structure_locked: protect::workbook_info(wb).structure,
             legacy_converted: self.legacy_converted,
+            variant: self
+                .save_variant
+                .or(self.file_variant)
+                .map(|v| v.ext().to_owned()),
         })
     }
 
@@ -1510,6 +1542,12 @@ impl SheetEngine {
             "xlsx" => {
                 let bytes =
                     bo_xlsx::write_xlsx(wb).map_err(|e| EngineError::Sheet(e.to_string()))?;
+                let bytes = match self.save_variant {
+                    Some(v) if Some(v) != self.file_variant => {
+                        crate::variant::convert(&bytes, v)?.bytes
+                    }
+                    _ => bytes,
+                };
                 let bytes = crate::inspect::package::scrub(&bytes, &self.scrub)?;
                 let bytes = self.sec.apply(bytes)?;
                 match &self.save_password {

@@ -61,8 +61,9 @@ pub enum PptxError {
 /// Result alias.
 pub type Result<T> = std::result::Result<T, PptxError>;
 
-/// Is `bytes` a PresentationML package (`.pptx`, `.pptm`, `.potx`, `.ppsx`)?
-/// Decided by the content type of the main part (ECMA-376 Part 1, §13.3.6).
+/// Is `bytes` a PresentationML package (`.pptx`, `.pptm`, `.potx`, `.potm`, `.ppsx`, `.ppsm`)?
+/// Decided by the content type of the main part (ECMA-376 Part 1, §13.3.6; the
+/// macro-enabled types of [MS-OFFMACRO2] are `application/vnd.ms-powerpoint.*`).
 pub fn is_pptx(bytes: &[u8]) -> bool {
     let Ok(pkg) = bo_opc::Package::read(bytes, &bo_opc::Limits::default()) else {
         return false;
@@ -72,7 +73,10 @@ pub fn is_pptx(bytes: &[u8]) -> bool {
     };
     pkg.content_types()
         .ok()
-        .and_then(|ct| ct.get(&main).map(|t| t.contains("presentationml")))
+        .and_then(|ct| {
+            ct.get(&main)
+                .map(|t| t.contains("presentationml") || t.contains("vnd.ms-powerpoint."))
+        })
         .unwrap_or(false)
 }
 

@@ -6,6 +6,7 @@
  * and by the desktop deep link (`bluedoc://open?host=…&file=…&token=…`).
  */
 import type { DocumentStorage, OpenedFile, Platform, StoredDocument } from '@blueoffice/platform';
+import { variantOf } from '@blueoffice/platform';
 import type { SessionMode } from './mode';
 import { OfflineError, reach, type OfflineSaves } from './offline';
 
@@ -46,8 +47,11 @@ export type FetchLike = (
 
 export const appForFile = (name: string): HostedApp => {
   const ext = name.toLowerCase().split('.').pop() ?? '';
-  if (['xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'csv'].includes(ext)) return 'sheet';
-  if (['pptx', 'ppt', 'odp'].includes(ext)) return 'slide';
+  // Templates, macro-enabled variants and slide shows (CORE-FMT-001).
+  const variant = variantOf(ext);
+  if (variant) return variant.app;
+  if (['xlsb', 'xls', 'ods', 'csv'].includes(ext)) return 'sheet';
+  if (['ppt', 'odp'].includes(ext)) return 'slide';
   return 'doc';
 };
 
@@ -160,6 +164,8 @@ export async function currentBytes(platform: Platform, app: HostedApp): Promise<
 }
 
 export const savedName = (name: string, app: HostedApp): string => {
+  // A variant of the app's type keeps its extension: the engine keeps the variant.
+  if (variantOf(name)?.app === app) return name;
   const base = name.replace(/\.[^.]+$/, '');
   return `${base}.${app === 'sheet' ? 'xlsx' : app === 'slide' ? 'pptx' : 'docx'}`;
 };

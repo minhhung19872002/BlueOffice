@@ -409,6 +409,18 @@ impl Session {
         self.design_op(old, new)
     }
 
+    /// Apply a theme part read from a theme file (`.thmx`) or another document
+    /// (DrawingML §20.1.6.9 theme, written as the document's theme part §14.2.7)
+    /// with its font scheme (§20.1.4.1.18) in one undo step (CORE-FMT-001).
+    pub fn apply_theme_xml(&mut self, xml: &str, fonts: ThemeFonts) -> Result<()> {
+        let old = (self.doc.design.clone(), self.doc.theme_fonts.clone());
+        let mut new = old.clone();
+        new.0.theme_xml = Some(xml.into());
+        new.0.theme_id = None;
+        new.1 = fonts;
+        self.design_op(old, new)
+    }
+
     /// Apply BlueOffice theme `id` (theme part, theme fonts, heading colours and
     /// fonts) in one undo step.
     pub fn apply_theme(&mut self, id: &str) -> Result<()> {

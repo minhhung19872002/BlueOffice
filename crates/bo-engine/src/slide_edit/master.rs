@@ -1871,10 +1871,9 @@ pub fn theme_from_bytes(bytes: &[u8]) -> Option<Theme> {
         let m = p.masters.first()?;
         return p.themes.get(m.theme).cloned();
     }
-    let pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).ok()?;
-    let main = pkg.related_part("/", bo_opc::REL_OFFICE_DOCUMENT).ok()??;
-    let part = pkg.part(&main)?;
-    bo_drawingml::theme::parse_theme(&part.data, &main).ok()
+    // Theme part as main part, or behind a theme manager (§20.1.6.11, CORE-FMT-001).
+    let xml = crate::variant::theme_of_thmx(bytes)?;
+    bo_drawingml::theme::parse_theme(&xml, "/theme/theme/theme1.xml").ok()
 }
 
 fn theme_from_file(b64: &str) -> Option<Theme> {
@@ -1949,6 +1948,9 @@ pub struct DesignOut {
     pub color_variants: Vec<Choice>,
     /// Built-in font variants.
     pub font_variants: Vec<Choice>,
+    /// The theme as a `.thmx` file, base64 (`saveThemeFile` only, CORE-FMT-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme_file: Option<String>,
 }
 
 /// One entry of the master view's slide pane.
@@ -2067,6 +2069,7 @@ pub(crate) fn design_out(pres: &Presentation, ed: &SlideEditor) -> DesignOut {
         themes,
         color_variants,
         font_variants,
+        theme_file: None,
     }
 }
 

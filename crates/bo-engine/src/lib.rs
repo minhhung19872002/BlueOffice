@@ -51,6 +51,8 @@ pub mod spell;
 pub mod story;
 pub mod templates;
 pub mod textbox;
+pub mod theme_file;
+pub mod variant;
 pub mod views;
 
 /// Installed OS fonts (native hosts, see [`Engine::set_system_fonts`]).
@@ -145,6 +147,9 @@ pub struct DocInfo {
     /// Runs converted from TCVN3 / VNI to Unicode on open (0 = none); the
     /// conversion is the first undo step.
     pub legacy_converted: usize,
+    /// Package variant (file extension: `docx`, `dotm`, `ppsx`, …) the next save
+    /// produces — the opened file's unless `saveFormat` changed it (CORE-FMT-001).
+    pub variant: Option<String>,
 }
 
 impl DocInfo {
@@ -269,6 +274,10 @@ pub struct Engine {
     pub(crate) legacy_converted: usize,
     /// Password used by `save_docx` (Agile Encryption); `None` saves unencrypted.
     save_password: Option<String>,
+    /// Package variant of the open file (what the writers reproduce, CORE-FMT-001).
+    file_variant: Option<variant::Variant>,
+    /// Variant the next saves produce when it differs (`saveFormat`).
+    save_variant: Option<variant::Variant>,
     /// Live collaboration binding of the open document (BlueDoc).
     collab: Option<collab::DocCollab>,
     /// Live collaboration binding of the open presentation (BlueSlide).
@@ -396,6 +405,9 @@ impl Engine {
                 }
             }
             self.macros = macros;
+            if is_zip {
+                self.file_variant = variant::detect(bytes).or(self.file_variant);
+            }
             // An encrypted deck is saved with the same password unless changed.
             self.save_password = if encrypted {
                 password.map(str::to_owned)
@@ -452,6 +464,9 @@ impl Engine {
             self.open_security(bytes);
         }
         self.macros = macros;
+        if is_zip {
+            self.file_variant = variant::detect(bytes).or(self.file_variant);
+        }
         // An encrypted document is saved with the same password unless changed.
         self.save_password = if encrypted {
             password.map(str::to_owned)
@@ -504,6 +519,8 @@ impl Engine {
         self.macros = false;
         self.legacy_converted = 0;
         self.save_password = None;
+        self.file_variant = Some(variant::Variant::Docx);
+        self.save_variant = None;
         self.display = None;
         self.goal_x = None;
         self.pres = None;
@@ -698,6 +715,8 @@ impl Engine {
         self.images = images;
         self.slides = slide_edit::SlideEditor::default();
         self.macros = false;
+        self.file_variant = Some(variant::Variant::Pptx);
+        self.save_variant = None;
         self.deck_seq += 1;
         self.collab = None;
         self.slide_collab = None;
@@ -799,6 +818,7 @@ impl Engine {
         let assembled = slide_edit::master::assemble(pres, &self.slides)
             .or_else(|| slide_edit::page_master::assemble(pres, &self.slides));
         let bytes = bo_pptx::write_pptx(assembled.as_ref().unwrap_or(pres))?;
+        let bytes = self.apply_variant(bytes)?;
         let bytes = inspect::package::scrub(&bytes, &self.scrub)?;
         let bytes = self.sec.apply(bytes)?;
         match &self.save_password {
@@ -860,6 +880,10 @@ impl Engine {
             macros: self.macros,
             protected: self.save_password.is_some(),
             legacy_converted: self.legacy_converted,
+            variant: self
+                .save_variant
+                .or(self.file_variant)
+                .map(|v| v.ext().to_owned()),
         })
     }
 
@@ -1047,6 +1071,7 @@ impl Engine {
             .map(bo_edit::Session::doc_with_track_setting);
         let doc = tracked.as_deref().unwrap_or(doc);
         let bytes = bo_docx::write_docx(doc)?;
+        let bytes = self.apply_variant(bytes)?;
         // Inspector removals of package parts (comment parts only once the comments are gone).
         let mut scrub = self.scrub.clone();
         scrub.comments &= doc.comments.is_empty();
@@ -1057,6 +1082,39 @@ impl Engine {
                 bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))
             }
             None => Ok(bytes),
+        }
+    }
+}
+
+impl Engine {
+    /// Choose the package variant of the next saves by file extension (`docx`, `dotx`,
+    /// `docm`, `dotm` for documents; `pptx`, `pptm`, `potx`, `potm`, `ppsx`, `ppsm` for
+    /// presentations). Saving to a macro-free variant drops the VBA project
+    /// ([`variant::convert`]); the document name takes the new extension. Errors when
+    /// the extension is not a variant of the open file's type.
+    pub fn set_save_format(&mut self, ext: &str) -> Result<()> {
+        let app = if self.pres.is_some() {
+            "slide"
+        } else if self.session.is_some() {
+            "doc"
+        } else {
+            return Err(EngineError::NoDocument);
+        };
+        let v = variant::Variant::from_ext(ext)
+            .filter(|v| v.app() == app)
+            .ok_or_else(|| EngineError::Unsupported(ext.to_owned()))?;
+        self.save_variant = (Some(v) != self.file_variant).then_some(v);
+        if !self.name.is_empty() {
+            self.name = with_ext(&self.name, v.ext());
+        }
+        Ok(())
+    }
+
+    /// Writer output re-typed as the chosen variant (CORE-FMT-001).
+    fn apply_variant(&self, bytes: Vec<u8>) -> Result<Vec<u8>> {
+        match self.save_variant {
+            Some(v) if Some(v) != self.file_variant => Ok(variant::convert(&bytes, v)?.bytes),
+            _ => Ok(bytes),
         }
     }
 }

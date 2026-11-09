@@ -4811,5 +4811,35 @@
       "dusk": "Oải hương",
       "steel": "Thép"
     }
+  },
+  "fileVariants": {
+    "saveAsTitle": "Lưu thành",
+    "type": "Kiểu tệp",
+    "save": "Lưu",
+    "cancel": "Hủy",
+    "types": {
+      "docx": "Tài liệu (.docx)",
+      "docm": "Tài liệu có macro (.docm)",
+      "dotx": "Mẫu tài liệu (.dotx)",
+      "dotm": "Mẫu tài liệu có macro (.dotm)",
+      "xlsx": "Bảng tính (.xlsx)",
+      "xlsm": "Bảng tính có macro (.xlsm)",
+      "xltx": "Mẫu bảng tính (.xltx)",
+      "xltm": "Mẫu bảng tính có macro (.xltm)",
+      "pptx": "Bản trình chiếu (.pptx)",
+      "pptm": "Bản trình chiếu có macro (.pptm)",
+      "potx": "Mẫu trình chiếu (.potx)",
+      "potm": "Mẫu trình chiếu có macro (.potm)",
+      "ppsx": "Trình chiếu tự mở (.ppsx)",
+      "ppsm": "Trình chiếu tự mở có macro (.ppsm)"
+    },
+    "macroDropped": "Tệp đang mở có macro. Kiểu tệp này không chứa được macro nên macro sẽ bị bỏ khi lưu. Chọn kiểu “có macro” nếu muốn giữ lại.",
+    "fromTemplate": "Đã tạo tài liệu mới từ mẫu “{{name}}”. Dùng “Sửa mẫu” nếu muốn chỉnh chính tệp mẫu.",
+    "editTemplate": "Sửa mẫu",
+    "applyThemeFile": "Chủ đề từ tệp…",
+    "saveThemeFile": "Lưu chủ đề…",
+    "themeSaved": "Đã lưu chủ đề vào “{{name}}”.",
+    "themeApplied": "Đã áp dụng chủ đề từ “{{name}}”.",
+    "noTheme": "Tệp này không có chủ đề để dùng."
   }
 }

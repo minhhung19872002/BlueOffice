@@ -38,7 +38,7 @@ mod write;
 mod xml;
 
 pub use csv::{read_csv, write_csv, CsvOptions};
-pub use read::{read_xlsx, read_xlsx_with_limits};
+pub use read::{read_xlsx, read_xlsx_with_limits, theme_colors};
 pub use write::write_xlsx;
 pub use xml::canonicalize_xml;
 

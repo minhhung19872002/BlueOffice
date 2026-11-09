@@ -8,6 +8,7 @@ import {
   hostedPlatform,
   openSession,
   parseMode,
+  savedName,
   serverBase,
   type FetchLike,
 } from '../src';
@@ -69,6 +70,14 @@ describe('hosted session', () => {
     expect(appForFile('bảng.xlsx')).toBe('sheet');
     expect(appForFile('x.ods')).toBe('sheet');
     expect(appForFile('deck.pptx')).toBe('slide');
+    // Templates, macro-enabled variants and slide shows (CORE-FMT-001).
+    expect(appForFile('mẫu.xltm')).toBe('sheet');
+    expect(appForFile('tự chạy.PPSM')).toBe('slide');
+    expect(appForFile('mẫu.potx')).toBe('slide');
+    expect(appForFile('mẫu.dotm')).toBe('doc');
+    expect(savedName('bảng.xlsm', 'sheet')).toBe('bảng.xlsm');
+    expect(savedName('mẫu.potx', 'slide')).toBe('mẫu.potx');
+    expect(savedName('cũ.xls', 'sheet')).toBe('cũ.xlsx');
     expect(serverBase(' https://office.example.vn// ')).toBe('https://office.example.vn');
   });
 

@@ -55,6 +55,8 @@ export interface WorkbookInfo {
   structureLocked: boolean;
   /** Cells converted from TCVN3 / VNI fonts to Unicode on open (undo restores them). */
   legacyConverted?: number;
+  /** Package variant the next `.xlsx` save produces (`xlsx`, `xlsm`, `xltx`, `xltm`). */
+  variant?: string;
 }
 
 /** What stays allowed on a protected sheet (§18.3.1.85, inverted flags). */
@@ -899,6 +901,12 @@ export type SheetCommand =
   | { cmd: 'resetPageBreaks'; sheet: number }
   | { cmd: 'printPreview'; sheet: number; page?: number }
   | { cmd: 'setSavePassword'; password?: string }
+  /** Package variant of the next `.xlsx` saves → `{ ok, variant }` / `{ ok: false, error }`. */
+  | { cmd: 'saveFormat'; ext: string }
+  /** Theme of a `.thmx` (or another file), base64 → `{ ok }` / `{ ok: false, error: 'noTheme' }`. */
+  | { cmd: 'applyThemeFile'; file: string }
+  /** The workbook's theme as a `.thmx` → `{ ok, file }` (base64). */
+  | { cmd: 'saveThemeFile' }
   | { cmd: 'protection'; sheet: number }
   | { cmd: 'protectSheet'; sheet: number; password?: string; allow?: Partial<SheetPermissions> }
   | { cmd: 'unprotectSheet'; sheet: number; password?: string }

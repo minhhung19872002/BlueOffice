@@ -122,6 +122,9 @@ pub struct DesignState {
     pub style_sets: Vec<String>,
     /// Art border styles with a BlueOffice motif (`ST_Border` values).
     pub art_styles: Vec<String>,
+    /// The theme as a `.thmx` file, base64 (`saveThemeFile` only, CORE-FMT-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme_file: Option<String>,
 }
 
 impl Engine {
@@ -169,6 +172,7 @@ impl Engine {
                 .iter()
                 .map(|m| m.style().to_owned())
                 .collect(),
+            theme_file: None,
         })
     }
 
@@ -272,11 +276,22 @@ impl Engine {
                 | Command::SetPageBorders { .. }
                 | Command::SetWatermark { .. }
                 | Command::ApplyTheme { .. }
+                | Command::ApplyThemeFile { .. }
                 | Command::ApplyStyleSet { .. }
         );
-        if !edit && !matches!(cmd, Command::Design) {
+        if !edit && !matches!(cmd, Command::Design | Command::SaveThemeFile) {
             return Ok(None);
         }
+        // CORE-FMT-001: the theme of a theme file / another file, read before editing.
+        let theme_in = match cmd {
+            Command::ApplyThemeFile { file } => {
+                crate::theme_file::theme_xml_of_b64(file).and_then(|x| {
+                    let fonts = crate::theme_file::theme_fonts(&x)?;
+                    Some((String::from_utf8(x).ok()?, fonts))
+                })
+            }
+            _ => None,
+        };
         let mut error = None;
         let mut dirty = Vec::new();
         if edit {
@@ -313,6 +328,14 @@ impl Engine {
                     }
                 }
                 Command::ApplyTheme { id } => s.apply_theme(id),
+                Command::ApplyThemeFile { .. } => {
+                    if let Some((xml, fonts)) = theme_in {
+                        s.apply_theme_xml(&xml, fonts)
+                    } else {
+                        error = Some("noTheme".to_owned());
+                        Ok(())
+                    }
+                }
                 Command::ApplyStyleSet { id } => s.apply_style_set(id),
                 _ => Ok(()),
             };
@@ -323,6 +346,17 @@ impl Engine {
         }
         let mut r = self.edit_result(dirty, (None, None, None), error)?;
         r.design = self.design_state().map(Box::new);
+        if matches!(cmd, Command::SaveThemeFile) {
+            use base64::Engine as _;
+            match self.theme_file() {
+                Ok(b) => {
+                    if let Some(d) = r.design.as_mut() {
+                        d.theme_file = Some(base64::engine::general_purpose::STANDARD.encode(b));
+                    }
+                }
+                Err(_) => r.error = Some("noTheme".into()),
+            }
+        }
         if edit {
             r.collab = self.collab_after_edit();
         }

@@ -27,6 +27,11 @@ pub const REL_VBA: &str = "http://schemas.microsoft.com/office/2006/relationship
 /// Word key map customizations (macro key bindings).
 pub const REL_KEYMAP: &str =
     "http://schemas.microsoft.com/office/2006/relationships/keyMapCustomizations";
+/// Ribbon customizations ([MS-CUSTOMUI] `customUI` part, 2006 and 2009 schemas).
+pub const REL_CUSTOM_UI: [&str; 2] = [
+    "http://schemas.microsoft.com/office/2006/relationships/ui/extensibility",
+    "http://schemas.microsoft.com/office/2007/relationships/ui/extensibility",
+];
 /// Part 1, §15.2.6 comments (WordprocessingML, legacy PresentationML).
 pub const REL_COMMENTS: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
@@ -397,6 +402,24 @@ fn rels_source(rels: &str) -> Option<String> {
     })
 }
 
+/// A ribbon customization names a macro callback: an attribute `on…` / `get…`
+/// (`onAction`, `onLoad`, `getEnabled`, …) or `loadImage` ([MS-CUSTOMUI] §2.3).
+fn has_callbacks(xml: &str) -> bool {
+    start_tags(xml).any(|(_, tag)| {
+        tag.split(|c: char| c.is_whitespace())
+            .filter_map(|a| a.split_once('=').map(|(n, _)| n.trim()))
+            .any(|n| {
+                let n = bare(n);
+                n == "loadImage"
+                    || ["on", "get"].iter().any(|p| {
+                        n.strip_prefix(p)
+                            .and_then(|r| r.chars().next())
+                            .is_some_and(char::is_uppercase)
+                    })
+            })
+    })
+}
+
 /// Remove an element (`<name …>…</name>` or `<name …/>`, exact qualified name).
 fn strip_element(xml: &str, name: &str) -> String {
     let mut out = xml.to_owned();
@@ -504,6 +527,12 @@ pub fn scrub(bytes: &[u8], s: &Scrub) -> Result<Vec<u8>> {
     if s.macros {
         remove.extend(want(REL_VBA, &any));
         remove.extend(want(REL_KEYMAP, &any));
+        // Ribbon customizations whose controls call macros ([MS-CUSTOMUI] callback
+        // attributes `onAction`, `getLabel`, `onLoad`, …) lose their target with the
+        // VBA project; customizations using built-in commands only are kept.
+        for t in REL_CUSTOM_UI {
+            remove.extend(want(t, &|d| has_callbacks(&String::from_utf8_lossy(d))));
+        }
     }
     if s.comments {
         for t in [
@@ -639,6 +668,19 @@ mod tests {
         assert_eq!(s.custom_names, vec!["Client".to_owned()]);
         assert_eq!((s.custom_xml, s.server_properties), (1, 1));
         assert_eq!((s.macros, s.embedded), (1, 1));
+    }
+
+    #[test]
+    fn finds_ribbon_callbacks() {
+        assert!(has_callbacks(
+            r#"<customUI xmlns="x"><ribbon><tabs><tab id="t"><group id="g"><button id="b" onAction="Run"/></group></tab></tabs></ribbon></customUI>"#
+        ));
+        assert!(has_callbacks(r#"<customUI onLoad="Init"/>"#));
+        assert!(!has_callbacks(
+            r#"<customUI xmlns="x"><ribbon><tabs><tab idMso="TabHome" visible="false"/></tabs></ribbon></customUI>"#
+        ));
+        // `online` is not a callback.
+        assert!(!has_callbacks(r#"<a online="1"/>"#));
     }
 
     #[test]

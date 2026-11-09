@@ -246,3 +246,62 @@ fn grouping() {
         ],
     );
 }
+
+#[test]
+fn trim_references() {
+    check(
+        DATA,
+        &[
+            (
+                "=ROWS(H1:.H5)",
+                N(3.0),
+                "MS-XLSX trim reference: trailing blanks (rows 4-5) dropped",
+            ),
+            (
+                "=ROWS(H1.:H5)",
+                N(4.0),
+                "MS-XLSX trim reference: the leading blank row dropped",
+            ),
+            (
+                "=ROWS(H1.:.H5)",
+                N(2.0),
+                "MS-XLSX trim reference: both sides",
+            ),
+            ("=SUM(H1.:.H5)", N(11.0), "hand: 5+6"),
+            (
+                "=ROWS(H1:H5)",
+                N(5.0),
+                "hand: an ordinary range keeps its size",
+            ),
+        ],
+    );
+    // Multi-byte text right after a token start does not trip the trim-operator check.
+    for f in ["Đơn_giá*2", "\"Hà Nội\"&ĐVT", "Ẩn!A1"] {
+        let _ = bo_formula::parse(f);
+    }
+    // The spelling survives parse → format.
+    for f in ["H1:.H5", "H1.:H5", "H1.:.H5"] {
+        let e = bo_formula::parse(f).unwrap();
+        assert_eq!(bo_formula::format(&e), f);
+    }
+}
+
+#[test]
+fn external_references_parse() {
+    // Stored external references parse; without the linked book they evaluate to #REF!.
+    for (f, shown) in [
+        ("[1]Sheet1!A1", "'[1]Sheet1'!A1"),
+        ("SUM([2]Data!A1:B2)", "SUM('[2]Data'!A1:B2)"),
+    ] {
+        let e = bo_formula::parse(f).unwrap();
+        assert_eq!(bo_formula::format(&e), shown);
+    }
+    check(
+        DATA,
+        &[(
+            "=[1]Sheet1!A1",
+            E("#REF!"),
+            "hand: the linked book is not open",
+        )],
+    );
+}

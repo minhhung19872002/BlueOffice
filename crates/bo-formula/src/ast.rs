@@ -48,6 +48,12 @@ pub enum BinaryOp {
     Ge,
     /// `:` range operator.
     Range,
+    /// `.:` range trimming leading blank rows and columns ([MS-XLSX] trim reference).
+    RangeTrimLeading,
+    /// `:.` range trimming trailing blank rows and columns.
+    RangeTrimTrailing,
+    /// `.:.` range trimming blanks on both sides.
+    RangeTrimBoth,
     /// `,` union operator (only inside parentheses).
     Union,
     /// ` ` (space) intersection operator.
@@ -71,6 +77,9 @@ impl BinaryOp {
             BinaryOp::Gt => ">",
             BinaryOp::Ge => ">=",
             BinaryOp::Range => ":",
+            BinaryOp::RangeTrimLeading => ".:",
+            BinaryOp::RangeTrimTrailing => ":.",
+            BinaryOp::RangeTrimBoth => ".:.",
             BinaryOp::Union => ",",
             BinaryOp::Intersect => " ",
         }
@@ -92,7 +101,10 @@ impl BinaryOp {
             BinaryOp::Pow => 5,
             BinaryOp::Union => 8,
             BinaryOp::Intersect => 9,
-            BinaryOp::Range => 10,
+            BinaryOp::Range
+            | BinaryOp::RangeTrimLeading
+            | BinaryOp::RangeTrimTrailing
+            | BinaryOp::RangeTrimBoth => 10,
         }
     }
 }

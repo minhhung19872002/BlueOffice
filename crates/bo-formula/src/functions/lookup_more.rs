@@ -169,35 +169,9 @@ fn trimrange(ctx: &mut Ctx, args: &[Value]) -> R {
     if !(0.0..=3.0).contains(&rows_mode) || !(0.0..=3.0).contains(&cols_mode) {
         return Err(ErrorKind::Value);
     }
-    let a = ctx.clip(area);
-    // Bounding box of the non-blank cells.
-    let (mut r1, mut r2, mut c1, mut c2) = (u32::MAX, 0u32, u32::MAX, 0u32);
-    ctx.for_each_area(&a, &mut |r, c, v| {
-        if !matches!(v, Value::Empty) {
-            r1 = r1.min(r);
-            r2 = r2.max(r);
-            c1 = c1.min(c);
-            c2 = c2.max(c);
-        }
-    });
-    if r1 == u32::MAX {
-        return Err(ErrorKind::Ref);
-    }
-    let mut out = a;
-    let (rm, cm) = (rows_mode as u8, cols_mode as u8);
-    if rm & 1 != 0 {
-        out.r1 = r1;
-    }
-    if rm & 2 != 0 {
-        out.r2 = r2;
-    }
-    if cm & 1 != 0 {
-        out.c1 = c1;
-    }
-    if cm & 2 != 0 {
-        out.c2 = c2;
-    }
-    Ok(Value::Ref(out))
+    ctx.trim_area(area, rows_mode as u8, cols_mode as u8)
+        .map(Value::Ref)
+        .ok_or(ErrorKind::Ref)
 }
 
 // ------------------------------------------------------------------ GROUPBY / PIVOTBY

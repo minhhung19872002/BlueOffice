@@ -428,6 +428,23 @@ impl Ctx<'_> {
                 let y = self.eval(b);
                 ref_op(op, &x, &y)
             }
+            BinaryOp::RangeTrimLeading | BinaryOp::RangeTrimTrailing | BinaryOp::RangeTrimBoth => {
+                let x = self.eval(a);
+                let y = self.eval(b);
+                match ref_op(BinaryOp::Range, &x, &y) {
+                    Value::Ref(area) => {
+                        let (lead, trail) = match op {
+                            BinaryOp::RangeTrimLeading => (true, false),
+                            BinaryOp::RangeTrimTrailing => (false, true),
+                            _ => (true, true),
+                        };
+                        let mode = u8::from(lead) | (u8::from(trail) << 1);
+                        self.trim_area(&area, mode, mode)
+                            .map_or(Value::Error(ErrorKind::Ref), Value::Ref)
+                    }
+                    other => other,
+                }
+            }
             _ => {
                 let x = self.eval(a);
                 let x = self.deref(x);
@@ -796,6 +813,38 @@ impl Ctx<'_> {
         self.omitted = saved_omitted;
         self.depth -= 1;
         Ok(v)
+    }
+
+    /// `area` without its blank leading (bit 1) and trailing (bit 2) rows and columns; `None`
+    /// when every cell is blank.
+    pub(crate) fn trim_area(&self, area: &Area, rows: u8, cols: u8) -> Option<Area> {
+        let a = self.clip(area);
+        let (mut r1, mut r2, mut c1, mut c2) = (u32::MAX, 0u32, u32::MAX, 0u32);
+        self.for_each_area(&a, &mut |r, c, v| {
+            if !matches!(v, Value::Empty) {
+                r1 = r1.min(r);
+                r2 = r2.max(r);
+                c1 = c1.min(c);
+                c2 = c2.max(c);
+            }
+        });
+        if r1 == u32::MAX {
+            return None;
+        }
+        let mut out = a;
+        if rows & 1 != 0 {
+            out.r1 = r1;
+        }
+        if rows & 2 != 0 {
+            out.r2 = r2;
+        }
+        if cols & 1 != 0 {
+            out.c1 = c1;
+        }
+        if cols & 2 != 0 {
+            out.c2 = c2;
+        }
+        Some(out)
     }
 
     /// Whether the `LAMBDA` parameter `name` was left out of the current call.

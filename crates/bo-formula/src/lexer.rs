@@ -114,6 +114,23 @@ impl<'a> Lexer<'a> {
     }
 
     fn next_token(&mut self, c: char) -> Result<Tok, ParseError> {
+        // Trim references: `A1.:A9`, `A1:.A9`, `A1.:.A9`.
+        for (spelling, op) in [
+            (".:.", BinaryOp::RangeTrimBoth),
+            (".:", BinaryOp::RangeTrimLeading),
+            (":.", BinaryOp::RangeTrimTrailing),
+        ] {
+            let rest = self.rest();
+            let Some(after) = rest.strip_prefix(spelling) else {
+                continue;
+            };
+            // `:.5` is a range to a number, not a trim reference.
+            let next = after.chars().next();
+            if !next.is_some_and(|n| n.is_ascii_digit() && spelling == ":.") {
+                self.pos += spelling.len();
+                return Ok(Tok::Op(op));
+            }
+        }
         let simple = match c {
             '(' => Some(Tok::LParen),
             ')' => Some(Tok::RParen),
@@ -167,6 +184,10 @@ impl<'a> Lexer<'a> {
                 self.after_sheet(sheet)
             }
             '[' => {
+                // External workbook reference as stored: `[1]Sheet1!A1` ([MS-XLSX] 2.2.2).
+                if let Some(sheet) = self.try_external_sheet() {
+                    return self.after_sheet(sheet);
+                }
                 let items = self.struct_body()?;
                 Ok(Tok::Struct(StructRef { table: None, items }))
             }
@@ -279,6 +300,27 @@ impl<'a> Lexer<'a> {
         &rest[..len]
     }
 
+    /// `[n]Sheet!` — an external workbook index and sheet; the qualifier keeps the index in
+    /// the sheet name (`[1]Sheet1`), as the quoted spelling `'[1]Sheet1'!` does.
+    fn try_external_sheet(&mut self) -> Option<SheetRef> {
+        let rest = self.rest();
+        let close = rest.find(']')?;
+        if close < 2 || !rest[1..close].bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let after = &rest[close + 1..];
+        let n = after
+            .char_indices()
+            .find(|&(_, c)| !(c.is_alphanumeric() || c == '_' || c == '.'))
+            .map_or(after.len(), |(i, _)| i);
+        if !after[n..].starts_with('!') {
+            return None;
+        }
+        let name = rest[..close + 1 + n].to_owned();
+        self.pos += close + 1 + n + 1;
+        Some(SheetRef::single(name))
+    }
+
     /// Try an unquoted sheet qualifier `Name!` / `Name1:Name2!` at the current position.
     fn try_unquoted_sheet(&mut self) -> Option<SheetRef> {
         let rest = self.rest();
@@ -389,7 +431,9 @@ impl<'a> Lexer<'a> {
         }?;
         // A reference must not run into an identifier or a call: `LOG10(`, `A1B`.
         let next = s[found.1..].chars().next();
-        if next.is_some_and(|c| is_ident_char(c) || c == '(' || c == '[' || c == '!') {
+        // `A1.:A9` (a trim reference) continues with `.:`, which is not part of a name.
+        let trim = s[found.1..].starts_with(".:");
+        if !trim && next.is_some_and(|c| is_ident_char(c) || c == '(' || c == '[' || c == '!') {
             return None;
         }
         Some(found)

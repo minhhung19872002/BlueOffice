@@ -95,6 +95,7 @@
       "newFromTemplate": "New from template",
       "sign": "Digital signature",
       "exportSignedPdf": "Export signed PDF",
+      "printNow": "Print now",
       "verifySignatures": "Verify signatures",
       "checkUpdates": "Check for updates",
       "signLine": "Sign a signature line…"
@@ -4733,6 +4734,113 @@
       "meadow": "Meadow",
       "dusk": "Lavender",
       "steel": "Steel"
+    }
+  },
+  "print": {
+    "title": "Print",
+    "print": "Print",
+    "cancel": "Cancel",
+    "copies": "Copies",
+    "collate": "Collate copies",
+    "reverse": "Last page first",
+    "whatTitle": "What to print",
+    "pages": "Pages",
+    "pageChoice": {
+      "all": "All",
+      "current": "Current page",
+      "selection": "Selection",
+      "range": "Custom range"
+    },
+    "range": "Page range",
+    "rangeHint": "For example 1-3, 5, 8-",
+    "rangeHintDoc": "For example 1-3, 5, 8- or p1s2",
+    "rangeError": "The page range cannot be read. Use page numbers, dashes and commas, for example 1-3, 5.",
+    "subset": "Odd/even pages",
+    "subsets": {
+      "all": "All pages",
+      "odd": "Odd pages only",
+      "even": "Even pages only"
+    },
+    "layoutTitle": "On the paper",
+    "perSheet": "Pages per sheet",
+    "perSheetN": "{{n}} per sheet",
+    "order": "Order",
+    "orders": {
+      "across": "Across, then down",
+      "down": "Down, then across"
+    },
+    "paper": "Scale to paper",
+    "papers": {
+      "none": "Keep the page size",
+      "a3": "A3",
+      "a4": "A4",
+      "a5": "A5",
+      "b5": "B5 (JIS)",
+      "letter": "Letter",
+      "legal": "Legal"
+    },
+    "color": "Colour",
+    "colors": {
+      "color": "Colour",
+      "grayscale": "Greyscale",
+      "blackWhite": "Black and white"
+    },
+    "frame": "Thin border around each page",
+    "prev": "Previous",
+    "next": "Next",
+    "nothing": "Nothing to print",
+    "sheetOf": "Sheet {{sheet}} of {{sheets}} · {{copies}} copies",
+    "previewLabel": "Print preview",
+    "doc": {
+      "markup": "Print changes and comments",
+      "properties": "Add a document properties page",
+      "props": {
+        "title": "Title",
+        "subject": "Subject",
+        "author": "Author",
+        "keywords": "Keywords",
+        "comments": "Comments",
+        "category": "Category",
+        "template": "Template",
+        "createdate": "Created",
+        "savedate": "Saved",
+        "lastsavedby": "Last saved by",
+        "revnum": "Revision",
+        "filename": "File name",
+        "pages": "Pages",
+        "words": "Words"
+      }
+    },
+    "slide": {
+      "layout": "Print layout",
+      "layouts": {
+        "slides": "Slides",
+        "notes": "Notes pages",
+        "outline": "Outline",
+        "handouts": "Handouts"
+      },
+      "perPage": "Slides per page",
+      "hidden": "Include hidden slides",
+      "frame": "Frame slides"
+    },
+    "sheet": {
+      "scope": "Print",
+      "scopes": {
+        "active": "Active sheet",
+        "workbook": "Entire workbook",
+        "selection": "Selected cells"
+      },
+      "noSelection": "No cells selected: the sheet's print area is printed.",
+      "gridlines": "Gridlines",
+      "headings": "Row and column headings",
+      "tri": {
+        "setup": "As in page setup",
+        "on": "Print",
+        "off": "Do not print"
+      },
+      "titleRows": "Rows to repeat",
+      "titleCols": "Columns to repeat",
+      "ignorePrintArea": "Ignore print area"
     }
   }
 }

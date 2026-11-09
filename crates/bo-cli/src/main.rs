@@ -10,6 +10,7 @@
 //! bo-cli convert deck.pptx --to pdf --handout 6 [--vertical] [--letter] | --notes-pages
 //! bo-cli convert deck.pptx --to png|jpg|svg [--width 1280] [--slide 1]   # zip of all slides without --slide
 //! bo-cli convert deck.pptx --to zip                  # presentation package (deck, media, OFL fonts)
+//! bo-cli convert in.docx|deck.pptx|book.xlsx --to pdf --pages "1-3, 5" [--per-sheet 4] [--paper a4] [--copies 2] [--print-options JSON]
 //! bo-cli convert secret.docx --password pw --to docx --protect newpw
 //! bo-cli inspect file                               # format, encryption, macros
 //! bo-cli sign in.pdf --p12 me.p12 [--tsa URL] | --key k.pem --cert c.pem | --remote URL
@@ -313,6 +314,63 @@ struct DeckExportArgs {
     /// Slide decks, --to png|jpg|svg: only this slide (1-based) instead of a zip of all.
     #[arg(long)]
     slide: Option<usize>,
+    #[command(flatten)]
+    print: PrintArgs,
+}
+
+/// Print job options of `convert --to pdf` (CORE-PRINT-001, `bo_engine::print`).
+#[derive(clap::Args, Debug, Default)]
+struct PrintArgs {
+    /// Pages to print: `1-3, 5, 8-` (BlueDoc also `p2s1`: page 2 of section 1).
+    #[arg(long)]
+    pages: Option<String>,
+    /// Pages per sheet: 1, 2, 4, 6, 8 or 16.
+    #[arg(long)]
+    per_sheet: Option<u8>,
+    /// Scale to paper: a3, a4, a5, b5, letter, legal.
+    #[arg(long, value_parser = ["a3", "a4", "a5", "b5", "letter", "legal"])]
+    paper: Option<String>,
+    /// Copies (collated).
+    #[arg(long)]
+    copies: Option<u32>,
+    /// Full print job as JSON (`bo_engine::print::PrintOptions`); the flags above override it.
+    #[arg(long)]
+    print_options: Option<String>,
+}
+
+impl PrintArgs {
+    /// The print job JSON, `None` when no print option is given.
+    fn json(&self) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        if self.pages.is_none()
+            && self.per_sheet.is_none()
+            && self.paper.is_none()
+            && self.copies.is_none()
+            && self.print_options.is_none()
+        {
+            return Ok(None);
+        }
+        let mut v: serde_json::Value = match &self.print_options {
+            Some(s) => serde_json::from_str(s)?,
+            None => serde_json::json!({}),
+        };
+        let o = v
+            .as_object_mut()
+            .ok_or("--print-options must be a JSON object")?;
+        if let Some(p) = &self.pages {
+            o.insert("pages".into(), "range".into());
+            o.insert("range".into(), p.clone().into());
+        }
+        if let Some(n) = self.per_sheet {
+            o.insert("perSheet".into(), n.into());
+        }
+        if let Some(p) = &self.paper {
+            o.insert("paper".into(), p.clone().into());
+        }
+        if let Some(c) = self.copies {
+            o.insert("copies".into(), c.into());
+        }
+        Ok(Some(v.to_string()))
+    }
 }
 
 /// Exported bytes and the output file extension.
@@ -804,11 +862,40 @@ fn run_convert(
         eprintln!("note: the input contains macros; they are preserved where the output format allows and never executed");
     }
     let mut out_ext = to.to_owned();
+    let job = if to == "pdf" {
+        deck.print.json()?
+    } else {
+        None
+    };
     let data: Vec<u8> = match (loaded, to) {
         (Loaded::Document { doc, .. }, "pdf") => {
             let mut engine = Engine::with_bundled_fonts();
             engine.load(doc, &name)?;
-            engine.export_pdf()?
+            match &job {
+                Some(j) => engine.print_pdf_json(j)?,
+                None => engine.export_pdf()?,
+            }
+        }
+        // A print job on a deck or a workbook (pages, pages per sheet, copies …).
+        (Loaded::Pptx(b), "pdf") if job.is_some() => {
+            let mut engine = Engine::with_bundled_fonts();
+            engine.open_pptx(&b, &name)?;
+            engine.print_pdf_json(job.as_deref().unwrap_or("{}"))?
+        }
+        (Loaded::Deck(_), "pdf") if job.is_some() => {
+            let mut engine = Engine::with_bundled_fonts();
+            engine.open(&bytes, &name)?;
+            engine.print_pdf_json(job.as_deref().unwrap_or("{}"))?
+        }
+        (Loaded::Xlsx(b), "pdf") if job.is_some() => {
+            let mut engine = bo_engine::SheetEngine::with_bundled_fonts();
+            engine.open(&b, &name)?;
+            engine.print_pdf_json(job.as_deref().unwrap_or("{}"))?
+        }
+        (Loaded::Workbook(_) | Loaded::Spreadsheet(_), "pdf") if job.is_some() => {
+            let mut engine = bo_engine::SheetEngine::with_bundled_fonts();
+            engine.open(&bytes, &name)?;
+            engine.print_pdf_json(job.as_deref().unwrap_or("{}"))?
         }
         (Loaded::Document { doc, source }, "docx") => {
             let (docx, carried) = convert::document_to_docx(&doc, source.as_ref())?;

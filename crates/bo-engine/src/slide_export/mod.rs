@@ -13,7 +13,7 @@ pub mod handout;
 pub(crate) mod masters;
 mod package;
 pub mod svg;
-mod text;
+pub(crate) mod text;
 
 use crate::{Engine, EngineError, Result};
 use bo_render::{Command, DisplayList, PageList, PathSeg, Rgba, Stroke};
@@ -78,6 +78,8 @@ pub struct HandoutOptions {
     /// Header and footer.
     #[serde(flatten)]
     pub hf: HeaderFooter,
+    /// 0-based slides to put on the pages, in order (`None`: every slide).
+    pub slides: Option<Vec<usize>>,
 }
 
 impl Default for HandoutOptions {
@@ -88,6 +90,7 @@ impl Default for HandoutOptions {
             frame: true,
             paper: Paper::A4,
             hf: HeaderFooter::default(),
+            slides: None,
         }
     }
 }
@@ -101,6 +104,8 @@ pub struct NotesOptions {
     /// Header and footer.
     #[serde(flatten)]
     pub hf: HeaderFooter,
+    /// 0-based slides to print, in order (`None`: every slide).
+    pub slides: Option<Vec<usize>>,
 }
 
 /// Picture format of a slide image export.
@@ -247,12 +252,16 @@ impl Engine {
         })?;
         let master = masters::handout_master(self.deck()?);
         let n = self.slide_count();
+        let list: Vec<usize> = o.slides.as_ref().map_or_else(
+            || (0..n).collect(),
+            |v| v.iter().copied().filter(|&i| i < n).collect(),
+        );
         let k = usize::from(o.per_page);
-        let mut pages = Vec::with_capacity(n.div_ceil(k));
-        for (page_no, first) in (0..n).step_by(k).enumerate() {
+        let mut pages = Vec::with_capacity(list.len().div_ceil(k));
+        for (page_no, chunk) in list.chunks(k).enumerate() {
             let mut cmds = Vec::new();
-            for i in first..(first + k).min(n) {
-                let slot = handout::slot(i - first, o.per_page, o.order);
+            for (pos, &i) in chunk.iter().enumerate() {
+                let slot = handout::slot(pos, o.per_page, o.order);
                 let Some(frame) = layout.frames.get(slot) else {
                     continue;
                 };
@@ -299,7 +308,12 @@ impl Engine {
         let (sx, sy) = (pw / notes_size.0, ph / notes_size.1);
         let master = masters::notes_master(self.deck()?);
         let mut pages = Vec::new();
-        for i in 0..self.slide_count() {
+        let n = self.slide_count();
+        let list: Vec<usize> = o.slides.as_ref().map_or_else(
+            || (0..n).collect(),
+            |v| v.iter().copied().filter(|&i| i < n).collect(),
+        );
+        for i in list {
             let own = self
                 .deck()?
                 .slides

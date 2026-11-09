@@ -252,6 +252,18 @@ impl WasmEngine {
         self.inner.export_slides_json(json).map_err(err)
     }
 
+    /// PDF of a print job (JSON `bo_engine::print::PrintOptions`).
+    #[wasm_bindgen(js_name = printPdf)]
+    pub fn print_pdf(&mut self, json: &str) -> Result<Vec<u8>, JsError> {
+        self.inner.print_pdf_json(json).map_err(err)
+    }
+
+    /// Sheet `index` of a print job as JSON `{"sheets","copies","index","page"}`.
+    #[wasm_bindgen(js_name = printPreview)]
+    pub fn print_preview(&mut self, json: &str, index: usize) -> Result<String, JsError> {
+        self.inner.print_preview_json(json, index).map_err(err)
+    }
+
     /// Render a page to PNG bytes.
     #[wasm_bindgen(js_name = renderPng)]
     pub fn render_png(&self, index: usize, scale: f32) -> Result<Vec<u8>, JsError> {

@@ -263,6 +263,18 @@ impl WasmSheet {
         self.inner.export_pdf().map_err(err)
     }
 
+    /// PDF of a print job (JSON `bo_engine::print::PrintOptions`).
+    #[wasm_bindgen(js_name = printPdf)]
+    pub fn print_pdf(&mut self, json: &str) -> Result<Vec<u8>, JsError> {
+        self.inner.print_pdf_json(json).map_err(err)
+    }
+
+    /// Sheet `index` of a print job as JSON `{"sheets","copies","index","page"}`.
+    #[wasm_bindgen(js_name = printPreview)]
+    pub fn print_preview(&mut self, json: &str, index: usize) -> Result<String, JsError> {
+        self.inner.print_preview_json(json, index).map_err(err)
+    }
+
     /// Outlines of `glyphs` of font face `face` as JSON paths, for canvas drawing (ADR-0002).
     #[wasm_bindgen(js_name = glyphOutlines)]
     pub fn glyph_outlines(&self, face: u32, glyphs: &[u16]) -> String {

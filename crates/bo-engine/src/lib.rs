@@ -37,6 +37,7 @@ mod notes;
 mod page_layout;
 pub mod perm;
 pub mod picture_tools;
+pub mod print;
 pub mod proof;
 pub mod proof_text;
 pub mod review;
@@ -226,6 +227,8 @@ impl WordCount {
 #[derive(Default)]
 pub struct Engine {
     fonts: FontManager,
+    /// Sheets of the last print preview (CORE-PRINT-001).
+    print_cache: print::PreviewCache,
     cache: LayoutCache,
     name: String,
     session: Option<bo_edit::Session>,
@@ -515,6 +518,7 @@ impl Engine {
         self.textbox = None;
         self.sec = security::FileSecurity::default();
         self.page_markup.clear();
+        self.print_cache.clear();
         self.refresh_markup(&mut Vec::new());
         self.scrub = inspect::package::Scrub::default();
         self.info()

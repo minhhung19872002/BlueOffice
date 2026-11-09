@@ -17,6 +17,7 @@ import type {
   TimedCommand,
 } from '../types';
 import type { SlideExportOptions } from '../slideExport';
+import type { PrintOptions, PrintPreview } from '../print';
 import type { EngineRequest, EngineResponse } from './protocol';
 import type { RevocationRequest, SignatureBackend } from './signing';
 
@@ -170,6 +171,18 @@ export class WebEngineHost implements EngineHost, SignatureBackend {
 
   exportSlides(options: SlideExportOptions): Promise<Uint8Array> {
     return this.call<Uint8Array>({ method: 'exportSlides', json: JSON.stringify(options) });
+  }
+
+  printPdf(options: PrintOptions): Promise<Uint8Array> {
+    return this.call<Uint8Array>({ method: 'printPdf', json: JSON.stringify(options) });
+  }
+
+  printPreview(options: PrintOptions, index: number): Promise<PrintPreview> {
+    return this.call<PrintPreview>({
+      method: 'printPreview',
+      json: JSON.stringify(options),
+      index,
+    });
   }
 
   slideCommand(cmd: SlideCommand): Promise<SlideEditResult> {

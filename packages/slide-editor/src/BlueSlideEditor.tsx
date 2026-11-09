@@ -8,6 +8,7 @@ import {
   PasswordDialog,
   SavePasswordPanel,
   SymbolPanel,
+  PrintPanel,
   clipboardHistory,
   pictureTabLabels,
   registerPictureCommands,
@@ -492,6 +493,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   } | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportDocsOpen, setExportDocsOpen] = useState(false);
+  /** Print panel (CORE-PRINT-001). */
+  const [printOpen, setPrintOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
   const [sortFrom, setSortFrom] = useState<number | null>(null);
@@ -1335,6 +1338,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     reg.register({
       id: 'file.print',
       shortcut: 'Ctrl+P',
+      isEnabled: deck,
+      // The print panel (slides / notes / outline / handouts, pages per sheet, preview).
+      run: () =>
+        engine.printPdf && engine.printPreview
+          ? setPrintOpen(true)
+          : guard(async () => platform.print.printPdf(await engine.exportPdf(), base())),
+    });
+    reg.register({
+      id: 'file.printNow',
       isEnabled: deck,
       run: () => guard(async () => platform.print.printPdf(await engine.exportPdf(), base())),
     });
@@ -3423,6 +3435,26 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           video={platform.video}
           onClose={() => setVideoOpen(false)}
           run={exportVideo}
+        />
+      )}
+      {printOpen && engine.printPdf && engine.printPreview && (
+        <PrintPanel
+          app="slide"
+          host={{
+            printPdf: engine.printPdf.bind(engine),
+            printPreview: engine.printPreview.bind(engine),
+            getGlyphOutlines: engine.getGlyphOutlines.bind(engine),
+            getMedia: engine.getMedia.bind(engine),
+          }}
+          initial={{ current }}
+          onPrint={(pdf) =>
+            platform.print.printPdf(
+              pdf,
+              fileName.replace(/\.pptx$/i, '') || t('slideEditor.untitled'),
+            )
+          }
+          onClose={() => setPrintOpen(false)}
+          fail={fail}
         />
       )}
       {exportDocsOpen && (

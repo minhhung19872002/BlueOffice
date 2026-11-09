@@ -252,6 +252,8 @@ describe(
       const before = await wd('GET', s('/window/handles'));
       await clickTab('Tệp');
       await clickCss('[data-command="file.print"]');
+      // The print panel (CORE-PRINT-001): print the job it previews.
+      await clickCss('[data-testid="print-go"]:not([disabled])');
       const handles = await waitFor(async () => {
         const h = await wd('GET', s('/window/handles'));
         return h.length > before.length ? h : null;

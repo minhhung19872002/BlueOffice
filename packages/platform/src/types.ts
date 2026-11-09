@@ -2088,6 +2088,13 @@ export interface EngineHost {
   savePptx(): Promise<Uint8Array>;
   /** Handout / notes PDF, slide pictures or presentation package (presentations). */
   exportSlides?(options: import('./slideExport').SlideExportOptions): Promise<Uint8Array>;
+  /** PDF of a print job (CORE-PRINT-001): pages, pages per sheet, copies, markup, slides layout. */
+  printPdf?(options: import('./print').PrintOptions): Promise<Uint8Array>;
+  /** Sheet `index` of a print job's PDF, for the print panel's preview. */
+  printPreview?(
+    options: import('./print').PrintOptions,
+    index: number,
+  ): Promise<import('./print').PrintPreview>;
   /** Run a slide editing command (presentations). */
   slideCommand(cmd: SlideCommand): Promise<SlideEditResult>;
   /**

@@ -34,6 +34,7 @@ mod pivot_cmd;
 mod png;
 mod print;
 mod print_cmd;
+mod print_job;
 pub mod protect;
 mod scenario_cmd;
 mod security_cmd;
@@ -288,6 +289,8 @@ pub struct SheetEngine {
     table_auto: table_cmd::TableAuto,
     /// Spelling and grammar checking of text cells (CORE-SPELL-006).
     pub(crate) spell: crate::spell::SpellState,
+    /// Sheets of the last print preview (CORE-PRINT-001).
+    print_cache: crate::print::PreviewCache,
 }
 
 impl Default for SheetEngine {
@@ -665,6 +668,7 @@ impl SheetEngine {
             identity: Vec::new(),
             table_auto: table_cmd::TableAuto::default(),
             spell: crate::spell::SpellState::default(),
+            print_cache: crate::print::PreviewCache::default(),
         }
     }
 

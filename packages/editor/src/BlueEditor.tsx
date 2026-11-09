@@ -267,6 +267,7 @@ import { Rulers, type PageBox } from './Ruler';
 import { NavigationPane } from './NavigationPane';
 import { OutlineView } from './OutlineView';
 import { ReadMode } from './ReadMode';
+import { PrintPanel } from './print/PrintPanel';
 import { demoted, promoted } from './outlineModel';
 import viewStyles from './Views.module.css';
 
@@ -362,6 +363,8 @@ function EditorInner({
   /** View layout last sent to the engine (`mode:width`). */
   const sentLayout = useRef('print:0');
   const [searchOpen, setSearchOpen] = useState(false);
+  /** Print panel (CORE-PRINT-001). */
+  const [printOpen, setPrintOpen] = useState(false);
   useCommandSearchShortcut(() => setSearchOpen(true));
   const [recent, setRecent] = useState<RecentFile[]>([]);
   const workspace = useRef<HTMLElement>(null);
@@ -941,18 +944,25 @@ function EditorInner({
         }
       },
     });
+    const printNow = async (s: EditorState) => {
+      try {
+        await platform.print.printPdf(await printLayoutPdf(), s.doc?.name ?? '');
+      } catch (e) {
+        fail('errors.export', e);
+      }
+    };
+    // The print panel (pages, pages per sheet, copies, markup, preview) when the engine
+    // has the print pipeline; otherwise the whole document goes to the platform's print.
     r.register({
       id: 'file.print',
       shortcut: 'Ctrl+P',
       isEnabled: hasDoc,
       run: async (s) => {
-        try {
-          await platform.print.printPdf(await printLayoutPdf(), s.doc?.name ?? '');
-        } catch (e) {
-          fail('errors.export', e);
-        }
+        if (platform.engine.printPdf && platform.engine.printPreview) setPrintOpen(true);
+        else await printNow(s);
       },
     });
+    r.register({ id: 'file.printNow', isEnabled: hasDoc, run: printNow });
     const updates = platform.updates;
     if (updates) {
       // Desktop auto-update: the result shows in the status line.
@@ -3314,6 +3324,21 @@ function EditorInner({
             )}
             {state.dialog === 'autoCorrect' && (
               <AutoCorrectDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {printOpen && platform.engine.printPdf && platform.engine.printPreview && (
+              <PrintPanel
+                app="doc"
+                host={{
+                  printPdf: platform.engine.printPdf.bind(platform.engine),
+                  printPreview: platform.engine.printPreview.bind(platform.engine),
+                  getGlyphOutlines: platform.engine.getGlyphOutlines.bind(platform.engine),
+                  getMedia: platform.engine.getMedia.bind(platform.engine),
+                }}
+                initial={{ current: state.edit?.caret?.page ?? state.page }}
+                onPrint={(pdf) => platform.print.printPdf(pdf, state.doc?.name ?? '')}
+                onClose={() => setPrintOpen(false)}
+                fail={(e) => fail('errors.export', e)}
+              />
             )}
             {state.dialog === 'checkDocument' && (
               <DocCheckDocumentDialog run={runCommand} onClose={closeDialog} />

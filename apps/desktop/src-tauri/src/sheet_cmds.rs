@@ -100,6 +100,12 @@ pub fn dispatch(e: &mut SheetEngine, method: &str, a: &[Value]) -> Result<Value,
         "deleteSheet" => s(e.delete_sheet(idx(a, 0)?)),
         "exec" => serde_json::from_str(&e.exec_json(&text(a, 0)?).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string()),
+        // Print panel preview (CORE-PRINT-001).
+        "printPreview" => serde_json::from_str(
+            &e.print_preview_json(&text(a, 0)?, idx(a, 1)?)
+                .map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string()),
         // Live collaboration (bo_engine::sheet::collab), same as WasmSheet.collab*.
         "collabStart" => to_json(
             &e.collab_start(
@@ -145,7 +151,7 @@ pub fn sheet_call(
     dispatch(&mut e, &method, &args)
 }
 
-/// Binary results: `save` (format, sheet) and `exportPdf`.
+/// Binary results: `save` (format, sheet), `exportPdf` and `printPdf` (options JSON).
 #[tauri::command]
 pub fn sheet_binary(
     state: State<'_, SheetState>,
@@ -156,6 +162,7 @@ pub fn sheet_binary(
     let bytes = match method.as_str() {
         "save" => e.save(&text(&args, 0)?, idx(&args, 1)?),
         "exportPdf" => e.export_pdf(),
+        "printPdf" => e.print_pdf_json(&text(&args, 0)?),
         other => return Err(format!("unknown sheet method '{other}'")),
     }
     .map_err(|e| e.to_string())?;

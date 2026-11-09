@@ -682,6 +682,7 @@ dependencies = [
  "bo-xlsx",
  "criterion",
  "insta",
+ "miniz_oxide 0.8.9",
  "png",
  "proptest",
  "rand 0.8.8",

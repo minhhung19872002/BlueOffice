@@ -178,6 +178,7 @@ import {
   PasswordDialog,
   SavePasswordPanel,
   SymbolPanel,
+  PrintPanel,
   clipboardHistory,
   type ClipItem,
 } from '@blueoffice/editor';
@@ -433,6 +434,7 @@ type DialogState =
   | { kind: 'pasteSpecial' }
   | { kind: 'pageSetup' }
   | { kind: 'printPreview' }
+  | { kind: 'print' }
   | { kind: 'pivot' }
   | { kind: 'pivotField'; pivot: PivotInfo; field: number }
   | { kind: 'pivotValue'; pivot: PivotInfo; idx: number }
@@ -1532,10 +1534,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       },
       has,
     );
-    add('file.print', async (s) => platform.print.printPdf(await s.host.exportPdf(), baseName()), {
-      shortcut: 'Ctrl+P',
-      ...has,
-    });
+    const printNow = async (s: SheetEditorState) =>
+      platform.print.printPdf(await s.host.exportPdf(), baseName());
+    // The print panel (sheets, selection, titles, gridlines, pages per sheet, preview).
+    add(
+      'file.print',
+      async (s) => {
+        if (s.host.printPdf && s.host.printPreview) setDialog({ kind: 'print' });
+        else await printNow(s);
+      },
+      { shortcut: 'Ctrl+P', ...has },
+    );
+    add('file.printNow', printNow, has);
 
     // Edit / clipboard
     add(
@@ -4681,8 +4691,33 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           onSetup={() => setDialog({ kind: 'pageSetup' })}
           onPrint={() => {
             setDialog(null);
-            run('file.print');
+            run('file.printNow');
           }}
+        />
+      )}
+      {dialog?.kind === 'print' && host.printPdf && host.printPreview && (
+        <PrintPanel
+          app="sheet"
+          host={{
+            printPdf: host.printPdf.bind(host),
+            printPreview: host.printPreview.bind(host),
+            getGlyphOutlines: host.getGlyphOutlines.bind(host),
+          }}
+          initial={{
+            sheet: {
+              scope: 'active',
+              sheets: [sheet],
+              selection: `${colName(r.c0)}${r.r0 + 1}:${colName(r.c1)}${r.r1 + 1}`,
+            },
+          }}
+          onPrint={(pdf) =>
+            platform.print.printPdf(
+              pdf,
+              fileName.replace(/\.(xlsx|xlsm|csv)$/i, '') || t('sheetEditor.untitled'),
+            )
+          }
+          onClose={common.onClose}
+          fail={fail}
         />
       )}
       {dialog?.kind === 'find' && (

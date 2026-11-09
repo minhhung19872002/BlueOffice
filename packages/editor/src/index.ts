@@ -53,3 +53,12 @@ export {
   type ProofWalkActions,
   type WalkIssue,
 } from './ProofWalkDialog';
+// Print panel shared by the three apps (CORE-PRINT-001).
+export {
+  PrintPanel,
+  jobOptions,
+  PER_SHEET,
+  PAPERS,
+  type PrintApp,
+  type PrintPanelProps,
+} from './print/PrintPanel';

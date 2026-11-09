@@ -40,6 +40,8 @@ zip.workspace = true
 
 [dev-dependencies]
 zune-jpeg = { version = "0.4", default-features = false, features = ["std"] }
+# Content streams of printed PDFs are inflated in tests (CORE-PRINT-001).
+miniz_oxide = "0.8"
 bo-collab = { path = "../bo-collab" }
 # Signature lines are signed with bo-sign (tests/sigline.rs).
 bo-sign = { path = "../bo-sign" }

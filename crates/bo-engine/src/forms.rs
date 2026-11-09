@@ -178,7 +178,8 @@ pub(crate) fn protect(
 }
 
 /// Stop the restriction when `password` matches its verifier (the restriction type is kept,
-/// not enforced). A legacy verifier (`w:hash`, Word 2007 key derivation) is not checked.
+/// not enforced). A legacy verifier (`w:hash` / `w:salt`, §17.15.1.29 legacy attributes) cannot
+/// be checked yet, so such a protection is refused rather than accepting any password.
 pub(crate) fn unprotect(s: &mut Session, password: Option<&str>) -> Result<(), &'static str> {
     let Some(p) = s.protection().cloned() else {
         return Ok(());
@@ -200,6 +201,8 @@ pub(crate) fn unprotect(s: &mut Session, password: Option<&str>) -> Result<(), &
         if !bo_crypto::protection::verify_protection(password.unwrap_or_default(), &h) {
             return Err(WRONG_PASSWORD);
         }
+    } else if p.attr("hash").is_some() || p.attr("cryptProviderType").is_some() {
+        return Err(crate::security::UNSUPPORTED_HASH);
     }
     s.set_protection(Some(DocProtection {
         edit: p.edit,
@@ -208,4 +211,62 @@ pub(crate) fn unprotect(s: &mut Session, password: Option<&str>) -> Result<(), &
         attrs: Vec::new(),
     }));
     Ok(())
+}
+
+#[cfg(test)]
+mod legacy_password_tests {
+    use super::{unprotect, WRONG_PASSWORD};
+    use bo_edit::Session;
+    use bo_model::{DocProtection, Document};
+
+    fn protected(attrs: &[(&str, &str)]) -> Session {
+        let mut s = Session::new(Document::default());
+        s.set_protection(Some(DocProtection {
+            edit: "forms".into(),
+            enforced: true,
+            formatting: false,
+            attrs: attrs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
+        }));
+        s
+    }
+
+    /// A legacy verifier (`w:hash` / `w:salt`) cannot be checked: stopping is refused and the
+    /// restriction stays enforced, whatever password is given.
+    #[test]
+    fn legacy_verifier_is_refused_not_bypassed() {
+        let mut s = protected(&[
+            ("cryptProviderType", "rsaFull"),
+            ("hash", "AbCd"),
+            ("salt", "EfGh"),
+        ]);
+        assert_eq!(
+            unprotect(&mut s, Some("anything")),
+            Err(crate::security::UNSUPPORTED_HASH)
+        );
+        assert_eq!(
+            unprotect(&mut s, None),
+            Err(crate::security::UNSUPPORTED_HASH)
+        );
+        assert!(s.protection().is_some_and(|p| p.enforced));
+    }
+
+    #[test]
+    fn no_password_stops_and_a_wrong_modern_one_is_rejected() {
+        let mut s = protected(&[]);
+        assert_eq!(unprotect(&mut s, None), Ok(()));
+        assert!(s.protection().is_some_and(|p| !p.enforced));
+
+        let h = bo_crypto::protection::new_protection_hash("đúng").unwrap();
+        let mut s = protected(&[
+            ("algorithmName", h.algorithm_name.as_str()),
+            ("hashValue", h.hash_value.as_str()),
+            ("saltValue", h.salt_value.as_str()),
+            ("spinCount", &h.spin_count.to_string()),
+        ]);
+        assert_eq!(unprotect(&mut s, Some("sai")), Err(WRONG_PASSWORD));
+        assert_eq!(unprotect(&mut s, Some("đúng")), Ok(()));
+    }
 }

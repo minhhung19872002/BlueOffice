@@ -1064,6 +1064,9 @@ pub struct SlideEditResult {
     /// Check document report (`inspect` and the inspector commands).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inspection: Option<Box<crate::inspect::Report>>,
+    /// Protection state (security commands, CORE-SEC-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security: Option<crate::security::SecurityInfo>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -1115,6 +1118,8 @@ pub struct SlideEditor {
     text: Option<rich::TextSel>,
     /// Selected cells while a table is edited.
     table: Option<table::TableSel>,
+    /// The deck is open read-only (CORE-SEC-001): edits are refused.
+    pub(crate) read_only: bool,
 }
 
 #[derive(Default)]
@@ -1200,6 +1205,10 @@ impl SlideEditor {
         typing: Option<(usize, u32, u8)>,
         f: impl FnOnce(&mut Tx<'_>, &mut SlideSel) -> R<()>,
     ) {
+        if self.read_only {
+            out.error = Some(crate::security::READ_ONLY.into());
+            return;
+        }
         let before = self.sel.clone();
         let mut sel = self.sel.clone();
         let mut tx = Tx::new(pres);
@@ -1238,6 +1247,10 @@ impl SlideEditor {
     }
 
     fn undo(&mut self, pres: &mut Presentation, out: &mut Outcome) {
+        if self.read_only {
+            out.error = Some(crate::security::READ_ONLY.into());
+            return;
+        }
         let Some(t) = self.undo.pop() else { return };
         let mut done = Vec::new();
         for op in t.ops.iter().rev() {
@@ -1259,6 +1272,10 @@ impl SlideEditor {
     }
 
     fn redo(&mut self, pres: &mut Presentation, out: &mut Outcome) {
+        if self.read_only {
+            out.error = Some(crate::security::READ_ONLY.into());
+            return;
+        }
         let Some(t) = self.redo.pop() else { return };
         let mut done: Vec<&SlideOp> = Vec::new();
         for op in &t.ops {
@@ -3230,6 +3247,13 @@ fn slides_text(pres: &Presentation, indices: &[usize]) -> String {
 impl Engine {
     /// Run a JSON [`SlideCommand`]; returns the [`SlideEditResult`] as JSON.
     pub fn slide_command_json(&mut self, json: &str) -> crate::Result<String> {
+        if let Some(sc) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| crate::security::SecurityCommand::parse(&v))
+        {
+            let r = self.slide_security(sc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         let cmd: SlideCommand =
             serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;
         let r = self.slide_command(cmd)?;
@@ -4474,7 +4498,7 @@ impl Engine {
             placeholders,
             dirty,
             slides_changed: out.all,
-            modified: ed.state_id() != ed.saved,
+            modified: ed.state_id() != ed.saved || self.sec.dirty(),
             can_undo: !ed.undo.is_empty(),
             can_redo: !ed.redo.is_empty(),
             format: format.unwrap_or_default(),
@@ -4520,6 +4544,7 @@ impl Engine {
             show: None,
             comments: comments::comments_out(pres, slide),
             inspection: None,
+            security: None,
         })
     }
 }

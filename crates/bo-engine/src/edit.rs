@@ -881,6 +881,9 @@ pub struct EditResult {
     /// Design tab state (design commands).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub design: Option<Box<crate::design::DesignState>>,
+    /// Protection state (security commands; after edits while regions are shown).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security: Option<crate::security::SecurityInfo>,
 }
 
 impl crate::Engine {
@@ -894,6 +897,10 @@ impl crate::Engine {
             .as_object_mut()
             .and_then(|o| o.remove("now"))
             .and_then(|n| n.as_f64());
+        if let Some(sc) = crate::security::SecurityCommand::parse(&v) {
+            let r = self.doc_security(sc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         let cmd: Command =
             serde_json::from_value(v).map_err(|e| crate::EngineError::BadCommand(e.to_string()))?;
         let r = self.command_at(cmd, now.map(|ms| ms as i64))?;
@@ -965,6 +972,23 @@ impl crate::Engine {
                 });
             let mut r = self.query_result()?;
             r.autocorrect = Some(Box::new(current));
+            return Ok(r);
+        }
+        // Read-only files and restricted editing: headers, notes and drawings
+        // cannot be opened for editing (CORE-SEC-001).
+        if (self.sec.read_only || self.sec.regions_enforced())
+            && matches!(
+                cmd,
+                Command::EditHeaderFooter { .. }
+                    | Command::EditNote { .. }
+                    | Command::EditTextBox { .. }
+                    | Command::InsertShape { .. }
+                    | Command::SetDrawingFrame { .. }
+                    | Command::SetHeaderLink { .. }
+            )
+        {
+            let mut r = self.query_result()?;
+            r.error = Some(self.sec.refusal().into());
             return Ok(r);
         }
         if let Some(mut r) = self.special_command(&cmd)? {
@@ -1115,6 +1139,22 @@ impl crate::Engine {
             };
             let autocorrect = self.autocorrect.as_ref();
             let auto_language = self.spell.auto_language;
+            // CORE-SEC-001: edits of a read-only file, or outside the editable
+            // regions of a protected one, are applied then taken back.
+            let guard = self.sec.read_only || self.sec.regions_enforced();
+            let history = s.history_len();
+            let step = match cmd {
+                Command::Undo => -1,
+                Command::Redo => 1,
+                _ => 0,
+            };
+            if guard {
+                s.end_typing();
+                if !self.sec.read_only && self.sec.skeleton.is_none_or(|(v, _)| v != s.version()) {
+                    self.sec.skeleton =
+                        Some((s.version(), crate::perm::skeleton(s.doc(), &self.identity)));
+                }
+            }
             let before_version = s.version();
             let sel = s.selection();
             let cmd_kind = if matches!(cmd, Command::AcceptRevision { .. }) {
@@ -1661,6 +1701,30 @@ impl crate::Engine {
             if let Some(e) = form_error {
                 error = Some(e.to_owned());
             }
+            if guard && s.version() != before_version {
+                let refused = self.sec.read_only || {
+                    let h = crate::perm::skeleton(s.doc(), &self.identity);
+                    let same = self.sec.skeleton.is_some_and(|(_, old)| old == h);
+                    if same {
+                        self.sec.skeleton = Some((s.version(), h));
+                    }
+                    !same
+                };
+                if refused {
+                    let old = self.sec.skeleton.map(|(_, h)| h);
+                    match step {
+                        -1 => {
+                            s.redo();
+                        }
+                        1 => {
+                            s.undo();
+                        }
+                        _ => while s.history_len() > history && s.discard_last() {},
+                    }
+                    self.sec.skeleton = old.map(|h| (s.version(), h));
+                    error = Some(self.sec.refusal().into());
+                }
+            }
             changed |= s.version() != before_version;
         }
         if !keep_goal {
@@ -1702,12 +1766,32 @@ impl crate::Engine {
                 r.review = Some(crate::review::review_state(s, &self.markup));
             }
         }
+        // Highlighted editable regions move with the text.
+        if (changed || relayout) && self.sec.show_regions {
+            r.security = Some(self.security_info());
+        }
         Ok(r)
     }
 
     /// Insert a picture (PNG, JPEG; GIF, BMP, TIFF converted to PNG) at the selection;
     /// sized at 96 dpi, capped to the text width.
     pub fn insert_image(&mut self, bytes: Vec<u8>, name: &str) -> crate::Result<EditResult> {
+        // CORE-SEC-001: read-only files; restricted editing allows pictures only
+        // inside a region the user may edit.
+        if self.sec.read_only || self.sec.regions_enforced() {
+            let inside = !self.sec.read_only
+                && self.session.as_ref().is_some_and(|s| {
+                    let (a, b) = s.selection().ordered();
+                    crate::perm::regions(s.doc(), &self.identity)
+                        .iter()
+                        .any(|r| r.mine && r.start <= a && b <= r.end)
+                });
+            if !inside {
+                let mut r = self.query_result()?;
+                r.error = Some(self.sec.refusal().into());
+                return Ok(r);
+            }
+        }
         // GIF, BMP and TIFF pictures are stored as PNG.
         let bytes = if image_size(&bytes).is_none() {
             bo_raster::transcode_to_png(&bytes).unwrap_or(bytes)
@@ -1809,6 +1893,7 @@ impl crate::Engine {
             proof_options: None,
             painter: s.picked_format().is_some(),
             design: None,
+            security: None,
         })
     }
 }

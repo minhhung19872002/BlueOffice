@@ -1472,9 +1472,28 @@ fn replace_text(hay: &str, needle: &str, with: &str, match_case: bool) -> (Strin
 impl SheetEngine {
     /// Runs a command given as JSON; returns the JSON result.
     pub fn exec_json(&mut self, json: &str) -> Result<String> {
+        let v: Value = serde_json::from_str(json).map_err(|e| bad(format!("bad command: {e}")))?;
+        if let Some(sc) = crate::security::SecurityCommand::parse(&v) {
+            return Ok(self.sheet_security(sc)?.to_string());
+        }
         let cmd: SheetCommand =
-            serde_json::from_str(json).map_err(|e| bad(format!("bad command: {e}")))?;
-        Ok(self.exec(cmd)?.to_string())
+            serde_json::from_value(v).map_err(|e| bad(format!("bad command: {e}")))?;
+        if !self.sec.read_only {
+            return Ok(self.exec(cmd)?.to_string());
+        }
+        // Read-only workbook (CORE-SEC-001): a command that recorded an edit
+        // is taken back and refused.
+        let depth = self.undo.len();
+        let out = self.exec(cmd);
+        if self.undo.len() > depth {
+            while self.undo.len() > depth {
+                if let Some(e) = self.undo.pop() {
+                    self.apply(e)?;
+                }
+            }
+            return Err(EngineError::Sheet(crate::security::READ_ONLY.into()));
+        }
+        Ok(out?.to_string())
     }
 
     /// Refuses a command that sheet or workbook protection forbids
@@ -1511,7 +1530,13 @@ impl SheetEngine {
             C::Sort { sheet, range, .. } => {
                 let w = ws(*sheet)?;
                 check(w, A::Sort)?;
-                check_range(wb, w, range.r0, range.c0, range.r1, range.c1)
+                check_range(
+                    wb,
+                    w,
+                    &self.open_ranges(*sheet),
+                    (range.r0, range.c0),
+                    (range.r1, range.c1),
+                )
             }
             C::ToggleFilter { sheet, .. } | C::SetFilter { sheet, .. } => {
                 check(ws(*sheet)?, A::AutoFilter)
@@ -1558,7 +1583,7 @@ impl SheetEngine {
                 return Err(e);
             }
         };
-        if let Err(e) = locked_cells_unchanged(&before, wb) {
+        if let Err(e) = locked_cells_unchanged(&before, wb, &self.open_ranges) {
             *wb = *before;
             return Err(e);
         }
@@ -3455,7 +3480,12 @@ impl SheetEngine {
 
 /// Content (value or formula) of locked cells of protected sheets must not
 /// change (ECMA-376 Part 1, §18.3.1.85 with §18.8.33 `protection/@locked`).
-fn locked_cells_unchanged(before: &Workbook, after: &Workbook) -> Result<()> {
+/// `open`: protected ranges unlocked in this session, as (sheet name, range name).
+fn locked_cells_unchanged(
+    before: &Workbook,
+    after: &Workbook,
+    open: &[(String, String)],
+) -> Result<()> {
     for (si, old) in before.sheets.iter().enumerate() {
         if !super::protect::sheet_info(old).protected {
             continue;
@@ -3468,10 +3498,17 @@ fn locked_cells_unchanged(before: &Workbook, after: &Workbook) -> Result<()> {
             (None, None) => true,
             (Some(c), None) | (None, Some(c)) => !non_empty(c),
         };
+        let names: Vec<String> = open
+            .iter()
+            .filter(|(s, _)| *s == old.name)
+            .map(|(_, n)| n.clone())
+            .collect();
+        let ranges = super::protect::protected_ranges(old);
         let keys = old.cells.keys().chain(new.cells.keys());
         for &(r, c) in keys {
             if !same(old.cells.get(&(r, c)), new.cells.get(&(r, c)))
                 && super::protect::cell_locked(before, old, r, c)
+                && !super::protect::in_open_range(&ranges, &names, r, c)
             {
                 return Err(EngineError::Sheet(super::protect::SHEET_PROTECTED.into()));
             }

@@ -8,6 +8,7 @@ import type {
   OpenedFile,
   PeerCursor,
   ReviewState,
+  SecurityInfo,
   SignatureReport,
   StoredDocument,
 } from '@blueoffice/platform';
@@ -107,6 +108,10 @@ export interface EditorState {
   grammarOn: boolean;
   /** Spelling menu open at a point (right click on a misspelt word). */
   spellMenu: { x: number; y: number; info: SpellInfo } | null;
+  /** Final mark, read-only state, label, restricted editing (CORE-SEC-001). */
+  security: SecurityInfo | null;
+  /** Protection UI: the Protect dialog, or the "view only / edit" prompt on open. */
+  protectUi: 'panel' | 'prompt' | null;
 }
 
 export const initialState = (language: Language, theme: ThemeSetting): EditorState => ({
@@ -137,6 +142,8 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   spellingOn: true,
   grammarOn: true,
   spellMenu: null,
+  security: null,
+  protectUi: null,
 });
 
 export const createEditorStore = (language: Language, theme: ThemeSetting) =>

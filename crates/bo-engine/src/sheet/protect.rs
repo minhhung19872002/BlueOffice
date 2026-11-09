@@ -27,10 +27,10 @@ pub const WORKBOOK_PROTECTED: &str = "workbook protected";
 /// Error message of a wrong protection password.
 pub const WRONG_PROTECTION_PASSWORD: &str = "wrong protection password";
 
-type Attrs = Vec<(String, String)>;
+pub(crate) type Attrs = Vec<(String, String)>;
 
 /// Attributes of the first element of `xml` (`<x a="1" b='2'/>`), unescaped.
-fn parse_attrs(xml: &str) -> Attrs {
+pub(crate) fn parse_attrs(xml: &str) -> Attrs {
     let mut out = Vec::new();
     let Some(start) = xml.find('<') else {
         return out;
@@ -58,11 +58,11 @@ fn parse_attrs(xml: &str) -> Attrs {
     out
 }
 
-fn local(name: &str) -> &str {
+pub(crate) fn local(name: &str) -> &str {
     name.rsplit_once(':').map_or(name, |(_, l)| l)
 }
 
-fn element_name(xml: &str) -> &str {
+pub(crate) fn element_name(xml: &str) -> &str {
     let t = xml.trim_start().trim_start_matches('<');
     let end = t
         .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
@@ -70,22 +70,22 @@ fn element_name(xml: &str) -> &str {
     local(&t[..end])
 }
 
-fn get<'a>(attrs: &'a Attrs, name: &str) -> Option<&'a str> {
+pub(crate) fn get<'a>(attrs: &'a Attrs, name: &str) -> Option<&'a str> {
     attrs
         .iter()
         .find(|(k, _)| local(k) == name)
         .map(|(_, v)| v.as_str())
 }
 
-fn flag(attrs: &Attrs, name: &str, default: bool) -> bool {
+pub(crate) fn flag(attrs: &Attrs, name: &str, default: bool) -> bool {
     get(attrs, name).map_or(default, |v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
-fn find(unknown: &[RawXml], name: &str) -> Option<usize> {
+pub(crate) fn find(unknown: &[RawXml], name: &str) -> Option<usize> {
     unknown.iter().position(|x| element_name(&x.xml) == name)
 }
 
-fn to_xml(name: &str, attrs: &Attrs) -> String {
+pub(crate) fn to_xml(name: &str, attrs: &Attrs) -> String {
     let mut s = format!("<{name}");
     for (k, v) in attrs {
         s.push_str(&format!(" {k}=\"{}\"", bo_opc::xml::escape(v)));
@@ -97,7 +97,7 @@ fn to_xml(name: &str, attrs: &Attrs) -> String {
 /// Verifies `password` against the hash attributes (`prefix` is `""` for
 /// `sheetProtection`, `workbook` for `workbookProtection`). No hash: any
 /// password (or none) is accepted.
-fn verify(attrs: &Attrs, legacy: &str, prefix: &str, password: &str) -> bool {
+pub(crate) fn verify(attrs: &Attrs, legacy: &str, prefix: &str, password: &str) -> bool {
     let key = |n: &str| {
         if prefix.is_empty() {
             n.to_owned()
@@ -133,7 +133,7 @@ fn verify(attrs: &Attrs, legacy: &str, prefix: &str, password: &str) -> bool {
 }
 
 /// Hash attributes for a new password (empty: none).
-fn hash_attrs(prefix: &str, password: &str) -> Result<Attrs> {
+pub(crate) fn hash_attrs(prefix: &str, password: &str) -> Result<Attrs> {
     if password.is_empty() {
         return Ok(Vec::new());
     }
@@ -353,32 +353,34 @@ pub fn cell_locked(wb: &Workbook, ws: &Worksheet, row: u32, col: u32) -> bool {
 }
 
 /// `Err(sheet protected)` when the sheet is protected and one of the cells
-/// (`rows` × `cols`, inclusive) is locked. Large ranges are checked per
-/// stored cell plus row/column styles to stay fast.
+/// is locked and outside the open protected ranges ([`range_open`]; `open` =
+/// names unlocked with their password in this session). Large ranges are
+/// checked per stored cell plus row/column styles to stay fast.
 pub fn check_cells(
     wb: &Workbook,
     ws: &Worksheet,
+    open: &[String],
     cells: impl IntoIterator<Item = (u32, u32)>,
 ) -> Result<()> {
     if !sheet_info(ws).protected {
         return Ok(());
     }
+    let ranges = protected_ranges(ws);
     for (r, c) in cells {
-        if cell_locked(wb, ws, r, c) {
+        if cell_locked(wb, ws, r, c) && !in_open_range(&ranges, open, r, c) {
             return Err(EngineError::Sheet(SHEET_PROTECTED.into()));
         }
     }
     Ok(())
 }
 
-/// [`check_cells`] for a rectangle.
+/// [`check_cells`] for a rectangle (`rows` × `cols`, inclusive).
 pub fn check_range(
     wb: &Workbook,
     ws: &Worksheet,
-    r0: u32,
-    c0: u32,
-    r1: u32,
-    c1: u32,
+    open: &[String],
+    (r0, c0): (u32, u32),
+    (r1, c1): (u32, u32),
 ) -> Result<()> {
     if !sheet_info(ws).protected {
         return Ok(());
@@ -398,8 +400,292 @@ pub fn check_range(
     check_cells(
         wb,
         ws,
+        open,
         (r0..=r1).flat_map(move |r| (c0..=c1).map(move |c| (r, c))),
     )
+}
+
+// ------------------------------------------------------------ protected ranges
+
+/// One `protectedRange` (ECMA-376 Part 1, §18.3.1.71): cells users may edit
+/// on the protected sheet, with or without a password of their own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtectedRange {
+    /// `name` (unique on the sheet).
+    pub name: String,
+    /// `sqref`: the cells, e.g. `B2:C9 E4`.
+    pub sqref: String,
+    /// A password is needed before the range can be edited.
+    pub has_password: bool,
+    /// The range carries Windows access rules (`securityDescriptor`); they are
+    /// kept in the file but not evaluated.
+    pub has_security_descriptor: bool,
+    /// Attributes of the element (the password hash, for verification).
+    #[serde(skip)]
+    pub attrs: Attrs,
+}
+
+/// Start and end byte offsets of every `protectedRange` element in `xml`.
+fn range_spans(xml: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while let Some(k) = xml[i..].find('<') {
+        let start = i + k;
+        let rest = &xml[start + 1..];
+        let end_name = rest
+            .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
+            .unwrap_or(rest.len());
+        let qname = &rest[..end_name];
+        if local(qname) != "protectedRange" {
+            i = start + 1;
+            continue;
+        }
+        let Some(gt) = rest.find('>') else { break };
+        let tag_end = start + 1 + gt + 1;
+        let end = if rest[..gt].ends_with('/') {
+            tag_end
+        } else {
+            let close = format!("</{qname}>");
+            xml[tag_end..]
+                .find(&close)
+                .map_or(xml.len(), |c| tag_end + c + close.len())
+        };
+        out.push((start, end));
+        i = end;
+    }
+    out
+}
+
+/// Protected ranges of a sheet (`protectedRanges`, §18.3.1.72), in file order.
+pub fn protected_ranges(ws: &Worksheet) -> Vec<ProtectedRange> {
+    let Some(i) = find(&ws.unknown, "protectedRanges") else {
+        return Vec::new();
+    };
+    let xml = &ws.unknown[i].xml;
+    range_spans(xml)
+        .into_iter()
+        .map(|(a, b)| {
+            let el = &xml[a..b];
+            let attrs = parse_attrs(el);
+            ProtectedRange {
+                name: get(&attrs, "name").unwrap_or_default().to_owned(),
+                sqref: get(&attrs, "sqref").unwrap_or_default().to_owned(),
+                has_password: get(&attrs, "password").is_some()
+                    || get(&attrs, "hashValue").is_some(),
+                has_security_descriptor: get(&attrs, "securityDescriptor").is_some()
+                    || el.contains("securityDescriptor>"),
+                attrs,
+            }
+        })
+        .collect()
+}
+
+/// Whether cell (`r`, `c`) lies in an open protected range: one without a
+/// password, or one named in `open`.
+pub(crate) fn in_open_range(ranges: &[ProtectedRange], open: &[String], r: u32, c: u32) -> bool {
+    let at = bo_model::sheet::CellRef::new(r, c);
+    ranges.iter().any(|p| {
+        (!p.has_password || open.iter().any(|n| n.eq_ignore_ascii_case(&p.name)))
+            && bo_model::sheet::CellRange::parse_sqref(&p.sqref)
+                .iter()
+                .any(|q| q.contains(at))
+    })
+}
+
+/// [`in_open_range`] reading the sheet's ranges.
+pub fn range_open(ws: &Worksheet, open: &[String], r: u32, c: u32) -> bool {
+    in_open_range(&protected_ranges(ws), open, r, c)
+}
+
+/// Adds (or replaces, by name) a protected range; `password` empty = none.
+/// Other ranges keep their exact XML (security descriptors included).
+pub fn add_protected_range(
+    ws: &mut Worksheet,
+    name: &str,
+    sqref: &str,
+    password: &str,
+) -> Result<()> {
+    let name = name.trim();
+    let refs = bo_model::sheet::CellRange::parse_sqref(sqref);
+    if name.is_empty() || refs.is_empty() {
+        return Err(EngineError::BadCommand(
+            "protected range: name and cells".into(),
+        ));
+    }
+    let sq = refs
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut a = hash_attrs("", password)?;
+    a.push(("sqref".into(), sq));
+    a.push(("name".into(), name.to_owned()));
+    let new_el = to_xml("protectedRange", &a);
+    let xml = find(&ws.unknown, "protectedRanges")
+        .map(|i| ws.unknown[i].xml.clone())
+        .unwrap_or_default();
+    let mut kept = String::new();
+    for (a0, b0) in range_spans(&xml) {
+        let el = &xml[a0..b0];
+        if get(&parse_attrs(el), "name").is_some_and(|n| n.eq_ignore_ascii_case(name)) {
+            continue;
+        }
+        kept.push_str(el);
+    }
+    kept.push_str(&new_el);
+    set_ranges_xml(ws, &xml, &kept);
+    Ok(())
+}
+
+/// Writes the `protectedRanges` wrapper around `inner` (keeping the source
+/// wrapper's start tag), or removes it when `inner` is empty.
+fn set_ranges_xml(ws: &mut Worksheet, old: &str, inner: &str) {
+    let slot = find(&ws.unknown, "protectedRanges");
+    if inner.is_empty() {
+        if let Some(i) = slot {
+            ws.unknown.remove(i);
+        }
+        return;
+    }
+    let open = old
+        .find('>')
+        .map(|g| &old[..=g])
+        .filter(|t| !t.ends_with("/>"))
+        .unwrap_or("<protectedRanges>");
+    let t = open.trim_start().trim_start_matches('<');
+    let qname = &t[..t
+        .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
+        .unwrap_or(t.len())];
+    let raw = RawXml {
+        after: "protectedRanges".into(),
+        xml: format!("{open}{inner}</{qname}>"),
+    };
+    match slot {
+        Some(i) => ws.unknown[i] = raw,
+        None => ws.unknown.push(raw),
+    }
+}
+
+/// Removes a protected range by name; `false` when there is none.
+pub fn remove_protected_range(ws: &mut Worksheet, name: &str) -> bool {
+    let Some(i) = find(&ws.unknown, "protectedRanges") else {
+        return false;
+    };
+    let xml = ws.unknown[i].xml.clone();
+    let mut kept = String::new();
+    let mut found = false;
+    for (a, b) in range_spans(&xml) {
+        let el = &xml[a..b];
+        if get(&parse_attrs(el), "name").is_some_and(|n| n.eq_ignore_ascii_case(name)) {
+            found = true;
+        } else {
+            kept.push_str(el);
+        }
+    }
+    if found {
+        set_ranges_xml(ws, &xml, &kept);
+    }
+    found
+}
+
+/// Checks the password of a protected range (`true` when it has none).
+pub fn verify_range_password(ws: &Worksheet, name: &str, password: &str) -> Result<bool> {
+    let r = protected_ranges(ws)
+        .into_iter()
+        .find(|p| p.name.eq_ignore_ascii_case(name))
+        .ok_or_else(|| EngineError::BadCommand(format!("no protected range {name}")))?;
+    Ok(verify(&r.attrs, "password", "", password))
+}
+
+// ------------------------------------------------------------ file sharing
+
+/// Write protection of the workbook (`fileSharing`, §18.2.12).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileSharingInfo {
+    /// `readOnlyRecommended`: suggest opening read-only.
+    pub read_only_recommended: bool,
+    /// A password to modify is set (`reservationPassword` or `hashValue`).
+    pub has_password: bool,
+    /// `userName` of the person who set it.
+    pub user_name: Option<String>,
+}
+
+/// `fileSharing` of a workbook.
+pub fn file_sharing_info(wb: &Workbook) -> FileSharingInfo {
+    let Some(i) = find(&wb.unknown, "fileSharing") else {
+        return FileSharingInfo::default();
+    };
+    let a = parse_attrs(&wb.unknown[i].xml);
+    FileSharingInfo {
+        read_only_recommended: flag(&a, "readOnlyRecommended", false),
+        has_password: get(&a, "reservationPassword").is_some() || get(&a, "hashValue").is_some(),
+        user_name: get(&a, "userName").map(str::to_owned),
+    }
+}
+
+/// Checks the password to modify (`true` when none is set).
+pub fn verify_file_sharing(wb: &Workbook, password: &str) -> bool {
+    find(&wb.unknown, "fileSharing").is_none_or(|i| {
+        verify(
+            &parse_attrs(&wb.unknown[i].xml),
+            "reservationPassword",
+            "",
+            password,
+        )
+    })
+}
+
+/// Sets `readOnlyRecommended` and/or the password to modify (`Some("")`
+/// removes it); the element is dropped when neither remains.
+pub fn set_file_sharing(
+    wb: &mut Workbook,
+    recommended: Option<bool>,
+    password: Option<&str>,
+    user: Option<&str>,
+) -> Result<()> {
+    let slot = find(&wb.unknown, "fileSharing");
+    let mut a = slot
+        .map(|i| parse_attrs(&wb.unknown[i].xml))
+        .unwrap_or_default();
+    let hash_keys = [
+        "reservationPassword",
+        "algorithmName",
+        "hashValue",
+        "saltValue",
+        "spinCount",
+    ];
+    if let Some(pw) = password {
+        a.retain(|(k, _)| !hash_keys.contains(&local(k)) && local(k) != "userName");
+        if !pw.is_empty() {
+            if let Some(u) = user.filter(|u| !u.trim().is_empty()) {
+                a.push(("userName".into(), u.trim().to_owned()));
+            }
+            a.extend(hash_attrs("", pw)?);
+        }
+    }
+    if let Some(on) = recommended {
+        a.retain(|(k, _)| local(k) != "readOnlyRecommended");
+        if on {
+            a.insert(0, ("readOnlyRecommended".into(), "1".into()));
+        }
+    }
+    let keep = a
+        .iter()
+        .any(|(k, _)| local(k) == "readOnlyRecommended" || hash_keys.contains(&local(k)));
+    match (slot, keep) {
+        (Some(i), false) => {
+            wb.unknown.remove(i);
+        }
+        (Some(i), true) => wb.unknown[i].xml = to_xml("fileSharing", &a),
+        (None, true) => wb.unknown.push(RawXml {
+            after: "fileSharing".into(),
+            xml: to_xml("fileSharing", &a),
+        }),
+        (None, false) => {}
+    }
+    Ok(())
 }
 
 /// Protects a sheet (§18.3.1.85), replacing any previous protection.
@@ -553,6 +839,60 @@ mod tests {
         assert!(unprotect_workbook(&mut wb, "x").is_err());
         unprotect_workbook(&mut wb, "wb").unwrap();
         assert!(check_structure(&wb).is_ok());
+    }
+
+    #[test]
+    fn protected_ranges_open_locked_cells() {
+        let wb = Workbook::new();
+        let mut ws = Worksheet::default();
+        ws.unknown.push(RawXml {
+            after: "protectedRanges".into(),
+            xml: r#"<protectedRanges><protectedRange sqref="B2:C3" name="Nhap" securityDescriptor="O:WDG:WDD:(A;;CC;;;WD)"/></protectedRanges>"#.into(),
+        });
+        protect_sheet(&mut ws, "", &SheetPermissions::default()).unwrap();
+        // B2 (row 1, col 1) and C3 are in the open range; A1 is not.
+        assert!(check_cells(&wb, &ws, &[], [(1, 1), (2, 2)]).is_ok());
+        assert!(check_cells(&wb, &ws, &[], [(0, 0)]).is_err());
+        let r = protected_ranges(&ws);
+        assert_eq!(r.len(), 1);
+        assert!(r[0].has_security_descriptor && !r[0].has_password);
+        // A range with a password stays closed until unlocked.
+        add_protected_range(&mut ws, "Kho", "E5:E9", "kho").unwrap();
+        assert!(check_cells(&wb, &ws, &[], [(4, 4)]).is_err());
+        assert!(!verify_range_password(&ws, "kho", "sai").unwrap());
+        assert!(verify_range_password(&ws, "Kho", "kho").unwrap());
+        assert!(check_cells(&wb, &ws, &["Kho".into()], [(4, 4)]).is_ok());
+        // The first range keeps its exact XML.
+        let x = &ws.unknown[find(&ws.unknown, "protectedRanges").unwrap()].xml;
+        assert!(x.contains(
+            r#"<protectedRange sqref="B2:C3" name="Nhap" securityDescriptor="O:WDG:WDD:(A;;CC;;;WD)"/>"#
+        ));
+        assert!(remove_protected_range(&mut ws, "Nhap"));
+        assert!(remove_protected_range(&mut ws, "Kho"));
+        assert!(find(&ws.unknown, "protectedRanges").is_none());
+    }
+
+    #[test]
+    fn file_sharing_recommendation_and_password() {
+        let mut wb = Workbook::new();
+        set_file_sharing(&mut wb, Some(true), None, None).unwrap();
+        assert_eq!(
+            wb.unknown[0].xml,
+            r#"<fileSharing readOnlyRecommended="1"/>"#
+        );
+        set_file_sharing(&mut wb, None, Some("sửa"), Some("An")).unwrap();
+        let i = file_sharing_info(&wb);
+        assert!(i.read_only_recommended && i.has_password);
+        assert_eq!(i.user_name.as_deref(), Some("An"));
+        assert!(verify_file_sharing(&wb, "sửa") && !verify_file_sharing(&wb, "x"));
+        set_file_sharing(&mut wb, Some(false), Some(""), None).unwrap();
+        assert_eq!(wb.unknown, Vec::<RawXml>::new());
+        // Legacy 16-bit reservation password ("test" → CBEB).
+        wb.unknown.push(RawXml {
+            after: "fileSharing".into(),
+            xml: r#"<fileSharing reservationPassword="CBEB"/>"#.into(),
+        });
+        assert!(verify_file_sharing(&wb, "test"));
     }
 
     #[test]

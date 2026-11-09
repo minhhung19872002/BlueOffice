@@ -33,6 +33,7 @@ mod png;
 mod print;
 pub mod protect;
 mod scenario_cmd;
+mod security_cmd;
 mod solver_cmd;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
@@ -270,6 +271,12 @@ pub struct SheetEngine {
     drawings: Arc<BTreeMap<String, DrawingOverlay>>,
     /// Package parts the document inspector drops on the next save.
     scrub: crate::inspect::package::Scrub,
+    /// Final mark, labels and read-only state (CORE-SEC-001).
+    pub(crate) sec: crate::security::FileSecurity,
+    /// Protected ranges unlocked with their password: (sheet name, range name).
+    pub(crate) open_ranges: Vec<(String, String)>,
+    /// Names of the current user (password-to-modify user name).
+    pub(crate) identity: Vec<String>,
 }
 
 impl Default for SheetEngine {
@@ -642,6 +649,9 @@ impl SheetEngine {
             legacy_converted: 0,
             drawings: Arc::default(),
             scrub: crate::inspect::package::Scrub::default(),
+            sec: crate::security::FileSecurity::default(),
+            open_ranges: Vec::new(),
+            identity: Vec::new(),
         }
     }
 
@@ -726,6 +736,7 @@ impl SheetEngine {
         let bytes = plain.as_deref().unwrap_or(bytes);
         let info = self.open_plain(bytes, name)?;
         self.macros = bo_binary::has_macros(bytes);
+        self.open_security(bytes);
         self.save_password = if encrypted {
             password.map(str::to_owned)
         } else {
@@ -840,6 +851,8 @@ impl SheetEngine {
         self.undo.clear();
         self.redo.clear();
         self.legacy_converted = 0;
+        self.sec = crate::security::FileSecurity::default();
+        self.open_ranges.clear();
         self.info()
     }
 
@@ -1159,6 +1172,7 @@ impl SheetEngine {
         cells: &[(u32, u32, String)],
         validate: bool,
     ) -> Result<Option<bo_sheet::validation::Rejection>> {
+        self.writable()?;
         let locale = self.locale;
         let mut notice = None;
         if validate {
@@ -1196,7 +1210,8 @@ impl SheetEngine {
             // §18.3.1.85: locked cells of a protected sheet cannot be edited.
             let wb = self.wb()?;
             let ws = self.sheet(sheet)?;
-            protect::check_cells(wb, ws, cells.iter().map(|(r, c, _)| (*r, *c)))?;
+            let open = self.open_ranges(sheet);
+            protect::check_cells(wb, ws, &open, cells.iter().map(|(r, c, _)| (*r, *c)))?;
         }
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
         if sheet >= wb.sheets.len() {
@@ -1254,6 +1269,7 @@ impl SheetEngine {
         count: u32,
         delete: bool,
     ) -> Result<()> {
+        self.writable()?;
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
         if sheet >= wb.sheets.len() || count == 0 {
             return Ok(());
@@ -1326,6 +1342,7 @@ impl SheetEngine {
 
     /// Undoes the last edit; `false` when there is nothing to undo.
     pub fn undo(&mut self) -> Result<bool> {
+        self.writable()?;
         let Some(e) = self.undo.pop() else {
             return Ok(false);
         };
@@ -1336,6 +1353,7 @@ impl SheetEngine {
 
     /// Redoes the last undone edit; `false` when there is nothing to redo.
     pub fn redo(&mut self) -> Result<bool> {
+        self.writable()?;
         let Some(e) = self.redo.pop() else {
             return Ok(false);
         };
@@ -1358,6 +1376,7 @@ impl SheetEngine {
 
     /// Adds a sheet at the end; returns its index.
     pub fn add_sheet(&mut self, name: Option<&str>) -> Result<usize> {
+        self.writable()?;
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
         protect::check_structure(wb)?;
         let before = Box::new(wb.clone());
@@ -1391,6 +1410,7 @@ impl SheetEngine {
 
     /// Renames a sheet (ECMA-376 §18.2.19: ≤ 31 chars, no `[]:*?/\`).
     pub fn rename_sheet(&mut self, sheet: usize, name: &str) -> Result<()> {
+        self.writable()?;
         let name = name.trim();
         if name.is_empty()
             || name.chars().count() > 31
@@ -1430,6 +1450,7 @@ impl SheetEngine {
 
     /// Deletes a sheet (a workbook keeps at least one).
     pub fn delete_sheet(&mut self, sheet: usize) -> Result<()> {
+        self.writable()?;
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
         protect::check_structure(wb)?;
         if wb.sheets.len() <= 1 || sheet >= wb.sheets.len() {
@@ -1466,6 +1487,7 @@ impl SheetEngine {
                 let bytes =
                     bo_xlsx::write_xlsx(wb).map_err(|e| EngineError::Sheet(e.to_string()))?;
                 let bytes = crate::inspect::package::scrub(&bytes, &self.scrub)?;
+                let bytes = self.sec.apply(bytes)?;
                 match &self.save_password {
                     // [MS-OFFCRYPTO] §2.3.4.10 Agile Encryption (AES-256 / SHA-512).
                     Some(pw) => bo_crypto::encrypt(&bytes, pw)

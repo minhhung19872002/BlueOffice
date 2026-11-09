@@ -40,6 +40,13 @@ export const DOC_READ_COMMANDS: ReadonlySet<string> = new Set([
   'crossReferenceTargets',
   'closeHeaderFooter',
   'cancelFormat',
+  // Protection state and session-only switches (CORE-SEC-001).
+  'security',
+  'setIdentity',
+  'setReadOnly',
+  'unlockWrite',
+  'nextEditableRegion',
+  'showEditableRegions',
 ]);
 
 /**
@@ -75,6 +82,10 @@ export const SLIDE_READ_COMMANDS: ReadonlySet<string> = new Set([
   'show',
   // Chart Design previews (CORE-CHART-007).
   'chartGallery',
+  'security',
+  'setIdentity',
+  'setReadOnly',
+  'unlockWrite',
 ]);
 
 /** BlueSheet `exec` commands that only read. */
@@ -95,6 +106,12 @@ export const SHEET_READ_COMMANDS: ReadonlySet<string> = new Set([
   'chartGallery',
   'chartTemplateExport',
   'chartTemplateImport',
+  'security',
+  'setIdentity',
+  'setReadOnly',
+  'unlockWrite',
+  'protectedRanges',
+  'unlockProtectedRange',
 ]);
 
 export const READ_ONLY_ERROR = 'session.readOnly';

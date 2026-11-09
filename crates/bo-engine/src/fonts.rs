@@ -115,6 +115,9 @@ impl Engine {
         if let Some(r) = self.drawing_command(cmd)? {
             return Ok(Some(r));
         }
+        if let Some(r) = self.sigline_command(cmd)? {
+            return Ok(Some(r));
+        }
         if let Some(r) = self.design_command(cmd)? {
             return Ok(Some(r));
         }

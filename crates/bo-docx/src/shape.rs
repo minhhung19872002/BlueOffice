@@ -14,8 +14,8 @@ use bo_drawingml::color::{resolve, ColorContext};
 use bo_drawingml::props::{parse_sp_pr, parse_style};
 use bo_model::slide::{Fill, Geometry, Theme, XmlElement};
 use bo_model::{
-    fingerprint, Anchor, Color, Emu, Image, Shape, ShapeArt, ShapeLine, TextAnchor, TextPath, Wrap,
-    WrapText,
+    fingerprint, Anchor, Color, Emu, Image, Shape, ShapeArt, ShapeLine, SignatureLine, TextAnchor,
+    TextPath, Wrap, WrapText,
 };
 
 /// [MS-ODRAWXML] wordprocessingShape namespace (`wps`).
@@ -193,6 +193,34 @@ fn attr_local<'a>(el: &'a XmlElement, local: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
+/// Attribute `local` with or without a namespace prefix (`o:signatureline`
+/// qualifies some attributes and not others).
+fn any_attr<'a>(el: &'a XmlElement, local: &str) -> Option<&'a str> {
+    el.attrs
+        .iter()
+        .find(|(k, _)| k.rsplit(':').next() == Some(local))
+        .map(|(_, v)| v.as_str())
+}
+
+/// ECMA-376 Part 4, §19.2.2.30 signatureline (Office VML, `CT_SignatureLine`):
+/// `id`, `provid`, `issignatureline`, `o:suggestedsigner`, `o:suggestedsigner2`,
+/// `o:suggestedsigneremail`, `signinginstructions`, `allowcomments`, `showsigndate`.
+pub(crate) fn signature_line(el: &XmlElement) -> SignatureLine {
+    let text = |k: &str| any_attr(el, k).unwrap_or_default().to_owned();
+    SignatureLine {
+        id: text("id"),
+        provider_id: text("provid"),
+        is_signature_line: vml_bool(any_attr(el, "issignatureline"), true),
+        suggested_signer: text("suggestedsigner"),
+        suggested_signer2: text("suggestedsigner2"),
+        suggested_signer_email: text("suggestedsigneremail"),
+        signing_instructions: text("signinginstructions"),
+        allow_comments: vml_bool(any_attr(el, "allowcomments"), false),
+        show_sign_date: vml_bool(any_attr(el, "showsigndate"), true),
+        signed: None,
+    }
+}
+
 /// A VML fraction (ECMA-376 Part 4, §19.1.2.5 fill@opacity, §19.1.2.11 imagedata
 /// gain / blacklevel): `0.5`, `.5`, `50%` or a 16.16 fixed value `32768f`.
 fn vml_fraction(v: &str) -> Option<f64> {
@@ -367,6 +395,9 @@ pub(crate) fn vml_shape(pict: &XmlElement) -> Option<(Shape, Emu, Emu, Option<An
             // The picture is the content: no box fill or outline.
             s.fill = None;
             s.line = None;
+            art.signature_line = child_local(el, "signatureline")
+                .map(signature_line)
+                .map(Box::new);
         }
         if art.text.is_some() {
             // The fill paints the letters; there is no box.

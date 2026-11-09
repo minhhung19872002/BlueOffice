@@ -108,6 +108,11 @@ pub(crate) fn shape_drawing(
             (cy + dx * sin + dy * cos) as f32,
         )
     };
+    if let Some(line) = shape.art.as_ref().and_then(|a| a.signature_line.as_deref()) {
+        return Ok(crate::sigline::signature_line_drawing(
+            ctx.fonts, img, line, at,
+        ));
+    }
     if let Some(art) = &shape.art {
         return Ok(art_drawing(ctx, img, shape, art, at, &tf));
     }

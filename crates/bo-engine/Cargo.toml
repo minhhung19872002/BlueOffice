@@ -39,6 +39,9 @@ base64 = "0.22"
 
 [dev-dependencies]
 bo-collab = { path = "../bo-collab" }
+# Signature lines are signed with bo-sign (tests/sigline.rs).
+bo-sign = { path = "../bo-sign" }
+rand = "0.8"
 png.workspace = true
 bo-opc.workspace = true
 bo-engine = { path = ".", features = ["bundled-fonts"] }

@@ -8,6 +8,7 @@
  */
 
 import type { InspectFix, InspectReport, InspectCommand } from './inspect';
+import type { SignatureLineCommand, SignatureLineImages, SignatureLineInfo } from './sigline';
 
 // ---------------------------------------------------------------- engine data
 
@@ -689,7 +690,9 @@ export type EditCommand =
   | { cmd: 'applyTheme' | 'applyStyleSet'; id: string }
   /** Check document (CORE-INSPECT-001): `inspect`, `inspectRemove`, `inspectKeep` → `inspection`. */
   | InspectCommand
-  | { cmd: 'inspectFix'; fix: InspectFix };
+  | { cmd: 'inspectFix'; fix: InspectFix }
+  /** Signature lines (CORE-SIGLINE-001). */
+  | SignatureLineCommand;
 
 /** Pages showing the page borders (§17.18.63 ST_PageBorderDisplay). */
 export type PageBorderDisplay = 'allPages' | 'firstPage' | 'notFirstPage';
@@ -816,6 +819,10 @@ export interface EditResult {
   corrected?: AutoCorrectRule;
   /** Design tab state (design commands). */
   design?: DesignState;
+  /** Signature lines of the document (signature line commands). */
+  signatureLines?: SignatureLineInfo[];
+  /** Pictures for signing a line (`signatureLineImages`). */
+  signatureLineImages?: SignatureLineImages;
 }
 
 /** A replacement-list entry (mirrors `bo_edit::autocorrect::Replacement`). */
@@ -1929,6 +1936,22 @@ export interface SignRequest {
   reason?: string;
   location?: string;
   documentName: string;
+  /** OOXML: the signature signs this signature line (CORE-SIGLINE-001). */
+  signatureLine?: SignatureLineSignRequest;
+}
+
+/** What signing a signature line adds (`bo_sign::ooxml::SignatureLineRequest`). */
+export interface SignatureLineSignRequest {
+  /** The line's GUID (`o:signatureline/@id`). */
+  id: string;
+  /** Typed name. */
+  text?: string;
+  /** Signer's picture (PNG / JPEG, base64). */
+  imageBase64?: string;
+  comments?: string;
+  /** Pictures of the line as signed and as invalid (PNG, base64). */
+  validImageBase64?: string;
+  invalidImageBase64?: string;
 }
 
 /** A certificate on a USB token (PKCS#11). */
@@ -1962,6 +1985,16 @@ export interface SignatureSummary {
   timestamp: { time: string; tsa: string; chain: ChainSummary } | null;
   chain: ChainSummary;
   validatedAt: string;
+  /** OOXML: id of the signature line this signature signs. */
+  signatureLine?: string;
+}
+/** One signed signature line, verified on its own (`bo_sign::report::SignatureLineStatus`). */
+export interface SignatureLineStatus {
+  id: string;
+  valid: boolean;
+  signer: string | null;
+  text: string | null;
+  error: string | null;
 }
 export interface SignatureReport {
   kind: 'pdf' | 'ooxml';
@@ -1973,6 +2006,8 @@ export interface SignatureReport {
   }[];
   /** A signature is broken (document changed) or unreadable. */
   error: string | null;
+  /** OOXML: the signatures of signature lines; absent when there are none. */
+  signatureLines?: SignatureLineStatus[];
 }
 
 /** Defaults configured by the deployment. */

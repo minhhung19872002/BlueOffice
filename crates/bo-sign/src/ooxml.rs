@@ -58,6 +58,118 @@ const ORIGIN_PART: &str = "/_xmlsignatures/origin.sigs";
 const XADES_NS: &str = "http://uri.etsi.org/01903/v1.3.2#";
 const XADES_SIGNED_PROPERTIES: &str = "http://uri.etsi.org/01903#SignedProperties";
 
+/// [MS-OFFCRYPTO] "idOfficeObject Object Element": `SignatureInfoV1` namespace.
+const DIGSIG_NS: &str = "http://schemas.microsoft.com/office/2006/digsig";
+const DSIG_OBJECT: &str = "http://www.w3.org/2000/09/xmldsig#Object";
+
+/// A signature that signs a signature line (CORE-SIGLINE-001): written as the
+/// Office object of [MS-OFFCRYPTO] ("idOfficeObject Object Element") — a
+/// `SignatureInfoV1` whose `SetupID` names the line (`o:signatureline/@id`,
+/// ECMA-376 Part 4, §19.2.2.30) and `SignatureType` 2 — plus the two objects that
+/// type requires, `idValidSigLnImg` and `idInvalidSigLnImg` (the pictures of the
+/// line as signed and as invalid; BlueOffice writes PNG, the specification does
+/// not restrict the format). All three objects are covered by `SignedInfo`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SignatureLineSigning {
+    /// `SetupID`: the line's GUID with braces.
+    pub setup_id: String,
+    /// `SignatureText`: the typed name (at most 100 characters).
+    pub text: String,
+    /// `SignatureImage`: the signer's picture (empty: none).
+    pub image: Vec<u8>,
+    /// `SignatureComments` (at most 255 characters).
+    pub comments: String,
+    /// Picture of the signed line (`idValidSigLnImg`).
+    pub valid_image: Vec<u8>,
+    /// Picture of the line when the signature is invalid (`idInvalidSigLnImg`).
+    pub invalid_image: Vec<u8>,
+}
+
+/// [`SignatureLineSigning`] as hosts send it (`SignRequest.signatureLine` in
+/// `packages/platform/src/types.ts`): pictures in base64.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SignatureLineRequest {
+    /// The line's GUID.
+    pub id: String,
+    /// Typed name.
+    pub text: String,
+    /// Signer's picture (base64; empty: none).
+    pub image_base64: String,
+    /// Signer's comment.
+    pub comments: String,
+    /// Picture of the signed line (base64).
+    pub valid_image_base64: String,
+    /// Picture of the invalid line (base64).
+    pub invalid_image_base64: String,
+}
+
+impl SignatureLineRequest {
+    /// Decodes the pictures.
+    pub fn into_signing(self) -> Result<SignatureLineSigning> {
+        let dec = |s: &str| -> Result<Vec<u8>> {
+            let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+            B64.decode(clean)
+                .map_err(|e| SignError::Malformed(format!("signature line picture: {e}")))
+        };
+        Ok(SignatureLineSigning {
+            image: dec(&self.image_base64)?,
+            valid_image: dec(&self.valid_image_base64)?,
+            invalid_image: dec(&self.invalid_image_base64)?,
+            setup_id: self.id,
+            text: self.text,
+            comments: self.comments,
+        })
+    }
+}
+
+/// What a verified signature says about the signature line it signs.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SignedLineInfo {
+    /// `SetupID`.
+    pub setup_id: String,
+    /// `SignatureText`.
+    pub text: String,
+    /// `SignatureComments`.
+    pub comments: String,
+}
+
+/// First `max` characters of `s` (schema `maxLength` restrictions).
+fn clip(s: &str, max: usize) -> String {
+    s.chars().take(max).collect()
+}
+
+/// The Office object and the two line pictures, in canonical form (C14N 1.0).
+/// `SignatureInfoV1` children follow the schema order of `EG_RequiredChildren`;
+/// the display fields (monitors, resolution, colour depth) are nominal values —
+/// a browser signer cannot know them and they carry no meaning for verification.
+fn office_objects(line: &SignatureLineSigning) -> [(String, &'static str); 3] {
+    let info = format!(
+        "<Object Id=\"idOfficeObject\"><SignatureProperties><SignatureProperty Id=\"idOfficeV1Details\" Target=\"#idPackageSignature\"><SignatureInfoV1 xmlns=\"{DIGSIG_NS}\"><SetupID>{}</SetupID><SignatureText>{}</SignatureText><SignatureImage>{}</SignatureImage><SignatureComments>{}</SignatureComments><WindowsVersion></WindowsVersion><OfficeVersion></OfficeVersion><ApplicationVersion>BlueOffice</ApplicationVersion><Monitors>1</Monitors><HorizontalResolution>1920</HorizontalResolution><VerticalResolution>1080</VerticalResolution><ColorDepth>32</ColorDepth><SignatureProviderId>{{00000000-0000-0000-0000-000000000000}}</SignatureProviderId><SignatureProviderUrl></SignatureProviderUrl><SignatureProviderDetails>0</SignatureProviderDetails><SignatureType>2</SignatureType></SignatureInfoV1></SignatureProperty></SignatureProperties></Object>",
+        c14n_escape(line.setup_id.trim(), false),
+        c14n_escape(&clip(&line.text, 100), false),
+        B64.encode(&line.image),
+        c14n_escape(&clip(&line.comments, 255), false),
+    );
+    [
+        (info, "idOfficeObject"),
+        (
+            format!(
+                "<Object Id=\"idValidSigLnImg\">{}</Object>",
+                B64.encode(&line.valid_image)
+            ),
+            "idValidSigLnImg",
+        ),
+        (
+            format!(
+                "<Object Id=\"idInvalidSigLnImg\">{}</Object>",
+                B64.encode(&line.invalid_image)
+            ),
+            "idInvalidSigLnImg",
+        ),
+    ]
+}
+
 /// Escapes text/attribute content as Canonical XML 1.0 requires (§2.3 of C14N).
 fn c14n_escape(s: &str, attr: bool) -> String {
     let mut out = String::with_capacity(s.len());
@@ -271,6 +383,8 @@ pub struct PreparedOoxml {
     origin_rels: Vec<Relationship>,
     signed_info: String,
     object: String,
+    /// Office object and line pictures of a signature-line signature.
+    extra_objects: String,
     signed_properties: String,
     cert_der: Vec<u8>,
     chain: Vec<Vec<u8>>,
@@ -324,10 +438,11 @@ impl PreparedOoxml {
             None => String::new(),
         };
         let xml = format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Signature xmlns=\"{DSIG_NS}\" Id=\"idPackageSignature\">{}<SignatureValue>{}</SignatureValue><KeyInfo><X509Data>{certs}</X509Data></KeyInfo>{}<Object><xd:QualifyingProperties xmlns:xd=\"{XADES_NS}\" Target=\"#idPackageSignature\">{}{unsigned}</xd:QualifyingProperties></Object></Signature>",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Signature xmlns=\"{DSIG_NS}\" Id=\"idPackageSignature\">{}<SignatureValue>{}</SignatureValue><KeyInfo><X509Data>{certs}</X509Data></KeyInfo>{}{}<Object><xd:QualifyingProperties xmlns:xd=\"{XADES_NS}\" Target=\"#idPackageSignature\">{}{unsigned}</xd:QualifyingProperties></Object></Signature>",
             self.signed_info,
             B64.encode(signature),
             self.object,
+            self.extra_objects,
             self.signed_properties,
         );
         self.pkg
@@ -381,6 +496,20 @@ pub fn prepare_ooxml(
     chain: &[Vec<u8>],
     time: SystemTime,
 ) -> Result<PreparedOoxml> {
+    prepare_ooxml_line(bytes, cert_der, chain, time, None)
+}
+
+/// [`prepare_ooxml`] for a signature that signs signature line `line`.
+pub fn prepare_ooxml_line(
+    bytes: &[u8],
+    cert_der: &[u8],
+    chain: &[Vec<u8>],
+    time: SystemTime,
+    line: Option<&SignatureLineSigning>,
+) -> Result<PreparedOoxml> {
+    if line.is_some_and(|l| l.setup_id.trim().is_empty()) {
+        return Err(SignError::Malformed("signature line without an id".into()));
+    }
     let mut pkg = Package::read(bytes, &Limits::default())?;
 
     // Origin part + package relationship (§12.2.3).
@@ -411,8 +540,22 @@ pub fn prepare_ooxml(
     );
     let signed_properties = xades_signed_properties(cert_der, time)?;
     let method = signature_method(cert_der)?;
+    // Signature-line objects ([MS-OFFCRYPTO] idOfficeObject, idValidSigLnImg,
+    // idInvalidSigLnImg), each referenced from SignedInfo.
+    let mut extra_objects = String::new();
+    let mut extra_refs = String::new();
+    if let Some(l) = line {
+        for (obj, id) in office_objects(l) {
+            let _ = write!(
+                extra_refs,
+                "<Reference Type=\"{DSIG_OBJECT}\" URI=\"#{id}\"><DigestMethod Algorithm=\"{SHA256}\"></DigestMethod><DigestValue>{}</DigestValue></Reference>",
+                digest_b64(with_dsig_ns(&obj, "Object").as_bytes())
+            );
+            extra_objects.push_str(&obj);
+        }
+    }
     let signed_info = format!(
-        "<SignedInfo><CanonicalizationMethod Algorithm=\"{C14N}\"></CanonicalizationMethod><SignatureMethod Algorithm=\"{method}\"></SignatureMethod><Reference Type=\"{DSIG_NS}Object\" URI=\"#idPackageObject\"><DigestMethod Algorithm=\"{SHA256}\"></DigestMethod><DigestValue>{}</DigestValue></Reference><Reference Type=\"{XADES_SIGNED_PROPERTIES}\" URI=\"#idSignedProperties\"><Transforms><Transform Algorithm=\"{C14N}\"></Transform></Transforms><DigestMethod Algorithm=\"{SHA256}\"></DigestMethod><DigestValue>{}</DigestValue></Reference></SignedInfo>",
+        "<SignedInfo><CanonicalizationMethod Algorithm=\"{C14N}\"></CanonicalizationMethod><SignatureMethod Algorithm=\"{method}\"></SignatureMethod><Reference Type=\"{DSIG_NS}Object\" URI=\"#idPackageObject\"><DigestMethod Algorithm=\"{SHA256}\"></DigestMethod><DigestValue>{}</DigestValue></Reference>{extra_refs}<Reference Type=\"{XADES_SIGNED_PROPERTIES}\" URI=\"#idSignedProperties\"><Transforms><Transform Algorithm=\"{C14N}\"></Transform></Transforms><DigestMethod Algorithm=\"{SHA256}\"></DigestMethod><DigestValue>{}</DigestValue></Reference></SignedInfo>",
         digest_b64(with_dsig_ns(&object, "Object").as_bytes()),
         digest_b64(canonical_signed_properties(&signed_properties).as_bytes()),
     );
@@ -423,6 +566,7 @@ pub fn prepare_ooxml(
         origin_rels,
         signed_info,
         object,
+        extra_objects,
         signed_properties,
         cert_der: cert_der.to_vec(),
         chain: chain.to_vec(),
@@ -451,6 +595,8 @@ pub struct OoxmlSignature {
     pub timestamp: Option<TimestampInfo>,
     /// Package parts the signature does not cover (empty: the whole package is signed).
     pub unsigned_parts: Vec<String>,
+    /// The signature line it signs (a signed `SignatureInfoV1` with a `SetupID`).
+    pub signature_line: Option<SignedLineInfo>,
 }
 
 /// Verifies every signature of a package, whoever wrote it ([`crate::ooxml_verify`]): the `SignedInfo`
@@ -479,6 +625,60 @@ pub fn verify_ooxml(bytes: &[u8]) -> Result<Vec<OoxmlSignature>> {
             signing_time: v.signing_time,
             timestamp: v.timestamp,
             unsigned_parts: v.unsigned_parts,
+            signature_line: v.signature_line,
+        });
+    }
+    Ok(out)
+}
+
+/// One signature part of a package, verified on its own.
+#[derive(Debug, Clone)]
+pub struct PartVerification {
+    /// Name of the signature part.
+    pub part: String,
+    /// `SetupID` read from the part (not trusted unless `result` is `Ok`).
+    pub setup_id: Option<String>,
+    /// The verified signature, or why it does not verify.
+    pub result: std::result::Result<OoxmlSignature, String>,
+}
+
+/// Verifies each signature part separately (one bad signature does not hide the
+/// others): what a per-line status needs.
+pub fn verify_ooxml_each(bytes: &[u8]) -> Result<Vec<PartVerification>> {
+    let pkg = Package::read(bytes, &Limits::default())?;
+    if pkg.part(ORIGIN_PART).is_none() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for rel in pkg.relationships(ORIGIN_PART)? {
+        if rel.rel_type != REL_SIGNATURE {
+            continue;
+        }
+        let name = bo_opc::resolve_target(ORIGIN_PART, &rel.target);
+        let Some(part) = pkg.part(&name) else {
+            out.push(PartVerification {
+                part: name.clone(),
+                setup_id: None,
+                result: Err(format!("missing {name}")),
+            });
+            continue;
+        };
+        let setup_id = crate::ooxml_verify::setup_id_of(&part.data);
+        let result = crate::ooxml_verify::verify_part(&pkg, &name, &part.data)
+            .map(|v| OoxmlSignature {
+                part: name.clone(),
+                certificate_der: v.certificate_der,
+                certificates: v.certificates,
+                signing_time: v.signing_time,
+                timestamp: v.timestamp,
+                unsigned_parts: v.unsigned_parts,
+                signature_line: v.signature_line,
+            })
+            .map_err(|e| e.to_string());
+        out.push(PartVerification {
+            part: name,
+            setup_id,
+            result,
         });
     }
     Ok(out)

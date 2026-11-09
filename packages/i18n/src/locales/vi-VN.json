@@ -92,7 +92,8 @@
       "sign": "Ký số",
       "exportSignedPdf": "Xuất PDF có ký số",
       "verifySignatures": "Kiểm tra chữ ký",
-      "checkUpdates": "Kiểm tra cập nhật"
+      "checkUpdates": "Kiểm tra cập nhật",
+      "signLine": "Ký vào dòng chữ ký…"
     },
     "edit": {
       "paste": "Dán",
@@ -153,7 +154,8 @@
       "formText": "Ô nhập chữ (biểu mẫu)",
       "formCheckBox": "Ô đánh dấu (biểu mẫu)",
       "formDropDown": "Danh sách chọn (biểu mẫu)",
-      "formProperties": "Tuỳ chọn trường biểu mẫu…"
+      "formProperties": "Tuỳ chọn trường biểu mẫu…",
+      "signatureLine": "Dòng chữ ký…"
     },
     "layout": {
       "margins": "Lề",
@@ -2350,6 +2352,32 @@
       "pathTooLong": "Chuỗi chứng thư quá dài.",
       "malformed": "Chứng thư bị lỗi định dạng."
     }
+  },
+  "sigline": {
+    "insertTitle": "Dòng chữ ký",
+    "suggestedSigner": "Người ký đề xuất",
+    "suggestedSigner2": "Chức danh người ký",
+    "suggestedSignerEmail": "Địa chỉ e-mail người ký",
+    "instructions": "Hướng dẫn cho người ký",
+    "allowComments": "Cho phép người ký thêm ghi chú",
+    "showDate": "Hiển thị ngày ký trên dòng chữ ký",
+    "insert": "Chèn",
+    "cancel": "Hủy",
+    "signTitle": "Ký vào dòng chữ ký",
+    "line": "Dòng chữ ký",
+    "unnamed": "(chưa có người ký đề xuất)",
+    "noLines": "Văn bản không còn dòng chữ ký nào chưa ký.",
+    "name": "Tên hiển thị trên dòng chữ ký",
+    "choosePicture": "Dùng ảnh chữ ký của tôi…",
+    "noPicture": "Chưa có ảnh",
+    "removePicture": "Bỏ ảnh",
+    "comments": "Ghi chú",
+    "next": "Tiếp tục",
+    "needLine": "Hãy chọn một dòng chữ ký.",
+    "needName": "Hãy nhập tên hoặc chọn ảnh chữ ký.",
+    "statusTitle": "Dòng chữ ký",
+    "valid": "Chữ ký hợp lệ",
+    "invalid": "Chữ ký không hợp lệ"
   },
   "updates": {
     "title": "Cập nhật",

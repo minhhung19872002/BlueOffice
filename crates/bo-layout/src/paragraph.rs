@@ -355,6 +355,20 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     inp.para.props.hash(&mut h);
     inp.para.runs.hash(&mut h);
+    // Signature lines leave their signed state out of their hash (display only);
+    // it changes their drawing all the same.
+    for c in inp.para.runs.iter().flat_map(|r| &r.content) {
+        if let RunContent::Image(img) = c {
+            if let Some(l) = img
+                .shape
+                .as_ref()
+                .and_then(|s| s.art.as_ref())
+                .and_then(|a| a.signature_line.as_ref())
+            {
+                l.signed.hash(&mut h);
+            }
+        }
+    }
     inp.props.hash(&mut h);
     inp.label.hash(&mut h);
     inp.width.to_bits().hash(&mut h);

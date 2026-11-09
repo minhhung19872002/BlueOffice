@@ -10,6 +10,7 @@ import type {
   SignerKind,
   SigningDefaults,
   SigningService,
+  SignatureLineSignRequest,
   SignRequest,
 } from '../types';
 
@@ -18,7 +19,13 @@ export interface SignatureBackend {
   signPrepare(
     bytes: Uint8Array,
     certsPem: string,
-    options: { timeSecs: number; name?: string; reason?: string; location?: string },
+    options: {
+      timeSecs: number;
+      name?: string;
+      reason?: string;
+      location?: string;
+      signatureLine?: SignatureLineSignRequest;
+    },
   ): Promise<{ id: number; digest: Uint8Array }>;
   signTimestampRequest(id: number, signature: Uint8Array, nonce: Uint8Array): Promise<Uint8Array>;
   signFinish(id: number, signature: Uint8Array, tsResponse?: Uint8Array): Promise<Uint8Array>;
@@ -158,6 +165,7 @@ export class WebSigning implements SigningService {
       name: req.name,
       reason: req.reason,
       location: req.location,
+      signatureLine: req.signatureLine,
     });
     let resp = await this.post<SignResponse>(
       `${base}/sign`,

@@ -27,6 +27,7 @@ mod markup;
 mod math;
 mod page;
 mod paragraph;
+mod sigline;
 mod style;
 mod types;
 
@@ -39,6 +40,7 @@ pub use markup::{
 pub use math::{layout_equation, EquationGlyphs, EquationRun};
 pub use page::{border_items, border_lines, border_width, ArtMotif};
 pub use paragraph::{FieldContext, LayoutCache};
+pub use sigline::signature_line_page;
 pub use style::author_color;
 pub use types::{
     Fragment, GlyphPos, Layer, LayoutDocument, Line, LineRotation, LineSource, NoteKey, Page,

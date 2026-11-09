@@ -92,6 +92,25 @@ pub struct SignatureSummary {
     pub chain: ChainSummary,
     /// Validation time used for the signer path.
     pub validated_at: String,
+    /// OOXML: `SetupID` of the signature line this signature signs.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub signature_line: Option<String>,
+}
+
+/// Verification state of one signed signature line (CORE-SIGLINE-001).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureLineStatus {
+    /// `SetupID` = `o:signatureline/@id`.
+    pub id: String,
+    /// The signature verifies and covers the whole package.
+    pub valid: bool,
+    /// Signer certificate subject, when the signature verifies.
+    pub signer: Option<String>,
+    /// `SignatureText` of a verified signature.
+    pub text: Option<String>,
+    /// Why it does not verify (or which parts it leaves unsigned).
+    pub error: Option<String>,
 }
 
 /// Verification of a whole document.
@@ -109,6 +128,9 @@ pub struct DocumentReport {
     /// Set when a signature is cryptographically invalid (document changed,
     /// broken signature) or the file cannot be read.
     pub error: Option<String>,
+    /// OOXML: every signature that signs a signature line, verified on its own.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub signature_lines: Vec<SignatureLineStatus>,
 }
 
 /// `now`: the validation time without a trusted signature time-stamp — the
@@ -181,6 +203,7 @@ pub fn verify_document(
         signatures: Vec::new(),
         document_timestamps: Vec::new(),
         error: None,
+        signature_lines: Vec::new(),
     };
     match kind {
         DocumentKind::Pdf => match crate::pdf::verify_pdf(bytes) {
@@ -284,6 +307,7 @@ pub fn verify_document(
                         timestamp,
                         chain,
                         validated_at: crate::iso_utc(crate::unix_secs(at)),
+                        signature_line: None,
                     });
                 }
             }
@@ -311,13 +335,64 @@ pub fn verify_document(
                         timestamp,
                         chain,
                         validated_at: crate::iso_utc(crate::unix_secs(at)),
+                        signature_line: s.signature_line.map(|l| l.setup_id),
                     });
                 }
             }
             Err(e) => report.error = Some(e.to_string()),
         },
     }
+    if kind == DocumentKind::Ooxml {
+        report.signature_lines = line_statuses(bytes);
+    }
     Ok(report)
+}
+
+/// Per-line status: each signature part with a `SetupID`, verified on its own.
+fn line_statuses(bytes: &[u8]) -> Vec<SignatureLineStatus> {
+    let Ok(parts) = crate::ooxml::verify_ooxml_each(bytes) else {
+        return Vec::new();
+    };
+    parts
+        .into_iter()
+        .filter_map(|p| {
+            let id = p.setup_id?;
+            Some(match p.result {
+                Ok(s) => {
+                    let signer =
+                        <x509_cert::Certificate as der::Decode>::from_der(&s.certificate_der)
+                            .map(|c| c.tbs_certificate.subject.to_string())
+                            .ok();
+                    let whole = s.unsigned_parts.is_empty();
+                    // A verified signature whose SignatureInfoV1 is not signed does not
+                    // vouch for the line.
+                    let line = s.signature_line;
+                    let error = match (&line, whole) {
+                        (None, _) => Some("the signature line object is not signed".to_owned()),
+                        (Some(_), false) => Some(format!(
+                            "parts added after signing: {}",
+                            s.unsigned_parts.join(", ")
+                        )),
+                        _ => None,
+                    };
+                    SignatureLineStatus {
+                        id,
+                        valid: error.is_none(),
+                        signer,
+                        text: line.map(|l| l.text),
+                        error,
+                    }
+                }
+                Err(e) => SignatureLineStatus {
+                    id,
+                    valid: false,
+                    signer: None,
+                    text: None,
+                    error: Some(e),
+                },
+            })
+        })
+        .collect()
 }
 
 /// A signature's signer certificate, embedded certificates and time-stamp.

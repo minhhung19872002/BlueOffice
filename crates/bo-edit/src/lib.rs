@@ -28,6 +28,7 @@ pub mod picture;
 pub mod revisions;
 pub mod section;
 pub mod shapes;
+pub mod sigline;
 pub mod table;
 pub mod table_tools;
 

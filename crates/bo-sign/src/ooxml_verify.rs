@@ -24,6 +24,25 @@ pub(crate) struct Verified {
     pub timestamp: Option<TimestampInfo>,
     /// Parts of the package the manifest does not cover (signature parts and `[Content_Types].xml` excluded).
     pub unsigned_parts: Vec<String>,
+    /// Signed `SignatureInfoV1` with a `SetupID` ([MS-OFFCRYPTO] idOfficeObject).
+    pub signature_line: Option<crate::ooxml::SignedLineInfo>,
+}
+
+/// Text of the first child `local` of `e`.
+fn child_text(e: &Element, local: &str) -> String {
+    e.elements()
+        .find(|c| c.local() == local)
+        .map(Element::text)
+        .unwrap_or_default()
+}
+
+/// `SetupID` of a signature part, unverified (`None`: no signature line).
+pub(crate) fn setup_id_of(xml: &[u8]) -> Option<String> {
+    let root = c14n::parse(xml).ok()?;
+    let info = c14n::find_path(&root, &|e| e.local() == "SignatureInfoV1")
+        .and_then(|p| c14n::at(&root, &p))?;
+    let id = child_text(info, "SetupID").trim().to_owned();
+    (!id.is_empty()).then_some(id)
 }
 
 /// XML-DSig §6.2 digest methods (SHA-1 only where policy allows it, see [`crate::policy`]).
@@ -380,11 +399,22 @@ pub(crate) fn verify_part(pkg: &Package, name: &str, xml: &[u8]) -> Result<Verif
                 .and_then(|p| c14n::at(&root, &p))
                 .map(Element::text)
         });
+    // [MS-OFFCRYPTO] idOfficeObject: the signature line, when its object is signed.
+    let signature_line = c14n::find_path(&root, &|e| e.local() == "SignatureInfoV1")
+        .filter(|p| referenced.iter().any(|r| p.starts_with(r)))
+        .and_then(|p| c14n::at(&root, &p))
+        .map(|info| crate::ooxml::SignedLineInfo {
+            setup_id: child_text(info, "SetupID").trim().to_owned(),
+            text: child_text(info, "SignatureText"),
+            comments: child_text(info, "SignatureComments"),
+        })
+        .filter(|l| !l.setup_id.is_empty());
     Ok(Verified {
         certificate_der: cert_der,
         certificates,
         signing_time,
         timestamp,
         unsigned_parts,
+        signature_line,
     })
 }

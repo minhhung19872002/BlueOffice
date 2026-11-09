@@ -156,6 +156,11 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
     }
     let (prefix, suffix) = read_body(&main_part.data, &ctx, &mut doc, &mut media)?;
     doc.media = media;
+    // Signed signature lines (ECMA-376 Part 2, §12; [MS-OFFCRYPTO] SignatureInfoV1).
+    let line_sigs = crate::sigline::line_signatures(&pkg);
+    if !line_sigs.is_empty() {
+        crate::sigline::apply_signatures(&mut doc, &line_sigs);
+    }
     doc.source = Some(Arc::new(SourcePackage {
         bytes: Arc::new(bytes.to_vec()),
         main_part: main,
@@ -1418,7 +1423,10 @@ fn drawing_shape(
         if find_local(pict, "imagedata").is_some() {
             let art = shape.art.as_mut()?;
             let media_name = ctx.target(art.picture.as_deref()?)?;
-            anchor.as_ref()?;
+            // Signature lines (Part 4, §19.2.2.30 signatureline) are usually inline.
+            if art.signature_line.is_none() {
+                anchor.as_ref()?;
+            }
             if !media.contains_key(&media_name) {
                 let data = ctx.pkg.part(&media_name)?.data.clone();
                 media.insert(media_name.clone(), Arc::new(data));

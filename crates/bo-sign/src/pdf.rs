@@ -27,6 +27,8 @@ pub struct SignOptions {
     pub time: SystemTime,
     /// Hex digits reserved for `/Contents` (CMS DER is half of that).
     pub reserve_hex: usize,
+    /// OOXML only: the signature signs this signature line.
+    pub signature_line: Option<crate::ooxml::SignatureLineSigning>,
 }
 
 impl Default for SignOptions {
@@ -37,6 +39,7 @@ impl Default for SignOptions {
             location: None,
             time: SystemTime::now(),
             reserve_hex: 32_768,
+            signature_line: None,
         }
     }
 }

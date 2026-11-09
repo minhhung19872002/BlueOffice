@@ -222,6 +222,7 @@ export const LUCIDE_ICONS: Record<string, IconSpec> = {
   'chart.type.column': lucide(ChartColumn),
   'chart.type.line': lucide(ChartLine),
   'chart.type.pie': lucide(ChartPie),
+  'data.analysis': lucide(Sigma),
   'data.dataTable': lucide(Grid3x3),
   'data.filter': lucide(Funnel),
   'data.goalSeek': lucide(Target),

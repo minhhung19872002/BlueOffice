@@ -40,6 +40,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `chart.type.column` | Lucide (ISC) `ChartColumn` |
 | `chart.type.line` | Lucide (ISC) `ChartLine` |
 | `chart.type.pie` | Lucide (ISC) `ChartPie` |
+| `data.analysis` | Lucide (ISC) `Sigma` |
 | `data.dataTable` | Lucide (ISC) `Grid3x3` |
 | `data.filter` | Lucide (ISC) `Funnel` |
 | `data.goalSeek` | Lucide (ISC) `Target` |

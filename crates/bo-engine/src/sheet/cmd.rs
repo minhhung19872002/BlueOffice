@@ -972,6 +972,27 @@ pub enum SheetCommand {
         #[serde(default)]
         apply: bool,
     },
+    /// Analysis tool (`bo_sheet::analysis`): reads the values of `input` (and `input2` for
+    /// two-sample tests, histogram bins and regression x), writes the output table at `dest`
+    /// or on a new sheet (`sheetName`). One undo step. Returns `{ sheet, range }`.
+    Analysis {
+        /// 0-based sheet the references are relative to.
+        sheet: usize,
+        /// The tool and its options.
+        tool: bo_sheet::analysis::Tool,
+        /// Input range (A1, optionally `Sheet!A1:B9`).
+        #[serde(default)]
+        input: Option<String>,
+        /// Second input range.
+        #[serde(default)]
+        input2: Option<String>,
+        /// Top-left output cell; `None` = a new sheet.
+        #[serde(default)]
+        dest: Option<At>,
+        /// Name of the new sheet.
+        #[serde(default)]
+        sheet_name: Option<String>,
+    },
     /// Turn a range into a table (§18.5); its first row names the columns. One undo step.
     CreateTable {
         /// 0-based sheet index.
@@ -1593,6 +1614,21 @@ impl SheetEngine {
                 }
                 Ok(serde_json::to_value(sol).unwrap_or(Value::Null))
             }
+            C::Analysis {
+                sheet,
+                tool,
+                input,
+                input2,
+                dest,
+                sheet_name,
+            } => self.analysis(
+                sheet,
+                &tool,
+                input.as_deref(),
+                input2.as_deref(),
+                dest,
+                sheet_name.as_deref(),
+            ),
             C::CreateTable { sheet, range } => self.edit(sheet, Recalc::No, |wb, _| {
                 let i = bo_sheet::table::create_table(wb, sheet, range.range(), &locale)
                     .map_err(|e| bad(&e))?;

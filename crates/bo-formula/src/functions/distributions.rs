@@ -264,7 +264,7 @@ fn beta_cf(x: f64, a: f64, b: f64) -> f64 {
 
 /// The x in `lo..hi` with `cdf(x) = p` for an increasing `cdf` (the upper bound grows while
 /// the CDF is still below `p`).
-fn invert(cdf: impl Fn(f64) -> f64, p: f64, mut lo: f64, mut hi: f64) -> f64 {
+pub(crate) fn invert(cdf: impl Fn(f64) -> f64, p: f64, mut lo: f64, mut hi: f64) -> f64 {
     let mut grow = 0;
     while cdf(hi) < p && grow < 2000 {
         lo = hi;
@@ -292,7 +292,7 @@ fn ln_choose(n: f64, k: f64) -> f64 {
 
 // ------------------------------------------------------------------ distribution kernels
 
-fn chisq_cdf(x: f64, k: f64) -> f64 {
+pub(crate) fn chisq_cdf(x: f64, k: f64) -> f64 {
     gamma_p(k / 2.0, x / 2.0)
 }
 
@@ -307,7 +307,7 @@ fn chisq_pdf(x: f64, k: f64) -> f64 {
     ((k / 2.0 - 1.0) * x.ln() - x / 2.0 - k / 2.0 * 2f64.ln() - ln_gamma(k / 2.0)).exp()
 }
 
-fn t_cdf(x: f64, v: f64) -> f64 {
+pub(crate) fn t_cdf(x: f64, v: f64) -> f64 {
     let tail = 0.5 * beta_i(v / (v + x * x), v / 2.0, 0.5);
     if x > 0.0 {
         1.0 - tail
@@ -324,7 +324,7 @@ fn t_pdf(x: f64, v: f64) -> f64 {
     .exp()
 }
 
-fn f_cdf(x: f64, a: f64, b: f64) -> f64 {
+pub(crate) fn f_cdf(x: f64, a: f64, b: f64) -> f64 {
     if x <= 0.0 {
         return 0.0;
     }
@@ -658,7 +658,7 @@ fn f_dist(ctx: &mut Ctx, args: &[Value]) -> R {
     }
 }
 
-fn f_rt(x: f64, a: f64, b: f64) -> f64 {
+pub(crate) fn f_rt(x: f64, a: f64, b: f64) -> f64 {
     if x <= 0.0 {
         return 1.0;
     }
@@ -942,7 +942,7 @@ fn tdist(ctx: &mut Ctx, args: &[Value]) -> R {
 }
 
 /// The t with P(T ≤ t) = p.
-fn t_quantile(p: f64, v: f64) -> f64 {
+pub(crate) fn t_quantile(p: f64, v: f64) -> f64 {
     if p == 0.5 {
         return 0.0;
     }

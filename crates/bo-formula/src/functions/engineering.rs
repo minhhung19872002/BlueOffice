@@ -604,11 +604,16 @@ fn parse_complex(ctx: &Ctx, v: &Value) -> Result<(C, Option<char>), ErrorKind> {
         Value::Empty => return Ok((C::new(0.0, 0.0), None)),
         other => other.as_text()?,
     };
+    parse_complex_text(&t)
+}
+
+/// `x+yi` text as a complex number and its suffix (`None` without an imaginary part).
+fn parse_complex_text(t: &str) -> Result<(C, Option<char>), ErrorKind> {
     if t.is_empty() {
         return Ok((C::new(0.0, 0.0), None));
     }
     let Some(suffix) = t.chars().last().filter(|c| *c == 'i' || *c == 'j') else {
-        return plain_number(&t)
+        return plain_number(t)
             .map(|n| (C::new(n, 0.0), None))
             .ok_or(ErrorKind::Num);
     };
@@ -656,6 +661,19 @@ fn format_complex(z: C, suffix: char) -> R {
         format!("{}{}", number_to_text(re), imag(im))
     };
     Ok(Value::Text(s))
+}
+
+/// `(re, im)` of complex text as `COMPLEX` writes it (`None` when it is not one).
+pub(crate) fn complex_from_text(t: &str) -> Option<(f64, f64)> {
+    parse_complex_text(t.trim()).ok().map(|(z, _)| (z.re, z.im))
+}
+
+/// The `COMPLEX` text of `re + im·i` (`None` when not finite).
+pub(crate) fn complex_to_text(re: f64, im: f64) -> Option<String> {
+    match format_complex(C::new(re, im), 'i') {
+        Ok(Value::Text(s)) => Some(s),
+        _ => None,
+    }
 }
 
 /// Suffix shared by several arguments (`i` when none has one; mixing is `#VALUE!`).

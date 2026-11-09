@@ -266,6 +266,27 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         ));
     }
 
+    // §19.2.1.27 sldMasterId / §19.3.1.41 sldLayoutId: ids of masters and layouts
+    // share one space (≥ 2 147 483 648, unique in the package); new ones (0) are
+    // allocated above every id in use, so imported masters never clash.
+    let mut next_global = pres
+        .masters
+        .iter()
+        .flat_map(|m| std::iter::once(m.master_id).chain(m.layouts.iter().map(|l| l.id)))
+        .max()
+        .unwrap_or(0)
+        .max(2_147_483_647)
+        .saturating_add(1);
+    let mut master_ids: Vec<u32> = Vec::with_capacity(pres.masters.len());
+    for m in &pres.masters {
+        if m.master_id == 0 {
+            master_ids.push(next_global);
+            next_global = next_global.saturating_add(1);
+        } else {
+            master_ids.push(m.master_id);
+        }
+    }
+
     // Masters.
     for (mi, (m, name)) in pres.masters.iter().zip(&master_names).enumerate() {
         let mut rels: Vec<Rel> = m.info.rels.clone();
@@ -274,8 +295,6 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         }
         let mut lst = El::new("p:sldLayoutIdLst");
         let mut placed: HashSet<String> = HashSet::new();
-        let mut next_id =
-            2_147_483_649_u32.max(m.layouts.iter().map(|l| l.id).max().unwrap_or(0) + 1);
         // Layouts owned by this master: the recorded list, plus layouts pointing here.
         let mut layout_refs = m.layouts.clone();
         for (li, l) in pres.layouts.iter().enumerate() {
@@ -299,8 +318,8 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
                 relative(name, ln),
             );
             let id = if lr.id == 0 {
-                next_id += 1;
-                next_id - 1
+                next_global = next_global.saturating_add(1);
+                next_global - 1
             } else {
                 lr.id
             };
@@ -399,20 +418,13 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>> {
         place_rel(rels, &mut placed, want, kind, target)
     };
     let mut mlst = El::new("p:sldMasterIdLst");
-    let mut next_master_id = 2_147_483_648_u32;
-    for (m, mn) in pres.masters.iter().zip(&master_names) {
+    for ((m, mn), &id) in pres.masters.iter().zip(&master_names).zip(&master_ids) {
         let rid = claim(
             &mut rels,
             &m.pres_rel_id,
             "slideMaster",
             relative(&pres_name, mn),
         );
-        let id = if m.master_id == 0 {
-            next_master_id
-        } else {
-            m.master_id
-        };
-        next_master_id = next_master_id.max(id) + 1;
         mlst = mlst.child(El::new("p:sldMasterId").a("id", id).a("r:id", rid).done());
     }
     let mut slst = El::new("p:sldIdLst");

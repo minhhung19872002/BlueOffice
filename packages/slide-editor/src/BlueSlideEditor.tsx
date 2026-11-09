@@ -169,6 +169,18 @@ import { SlideCanvas } from './SlideCanvas';
 import { zipStore } from './zip';
 import styles from './SlideEditor.module.css';
 import { SlideOverlay, type TextEditing } from './SlideOverlay';
+import {
+  RenameDialog,
+  SlideSizeDialog,
+  designTab,
+  masterState,
+  masterTab,
+  masterThumbLabel,
+  registerDesignChoices,
+  registerMasterCommands,
+  type MasterState,
+} from './masterView';
+import masterStyles from './masterView.module.css';
 
 export interface BlueSlideEditorProps {
   platform: Platform;
@@ -182,7 +194,7 @@ export interface BlueSlideEditorProps {
 export type SlideView = 'normal' | 'sorter' | 'reading' | 'show' | 'presenter';
 
 /** State passed to registry commands. */
-export interface SlideEditorState {
+export interface SlideEditorState extends MasterState {
   hasDeck: boolean;
   current: number;
   hasSelection: boolean;
@@ -345,6 +357,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   /** Symbol picker panel (inserts into the text being edited, else a new text box). */
   const [symbolsOpen, setSymbolsOpen] = useState(false);
   const [checkOpen, setCheckOpen] = useState(false);
+  /** Slide size dialog and master / layout rename dialog (SLIDE-MASTER-001). */
+  const [sizeOpen, setSizeOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
   /** Clipboard history panel (Clipboard group launcher). */
   const [clipPanel, setClipPanel] = useState(false);
   /** Text and picture of the last shapes copied here (paste as picture / text). */
@@ -1383,6 +1398,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     }
     simple('arrange.distributeH', { cmd: 'distribute', axis: 'horizontal' }, sel);
     simple('arrange.distributeV', { cmd: 'distribute', axis: 'vertical' }, sel);
+    registerMasterCommands(reg, {
+      run,
+      openSize: () => setSizeOpen(true),
+      openRename: () => setRenameOpen(true),
+      pickThemeFile: async () => {
+        const f = await platform.files.openFile(['.thmx', '.pptx']);
+        return f?.bytes ?? null;
+      },
+      names: () => ({
+        layout: t('slideEditor.master.newLayout'),
+        master: t('slideEditor.master.newMaster'),
+      }),
+    });
     return reg;
   }, [
     fail,
@@ -1431,8 +1459,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChart: s.length === 1 && s[0]?.kind === 'chart' && !!edit?.chart,
       isSmartArt: s.length === 1 && s[0]?.kind === 'smartart' && !!edit?.smartart,
       transition: edit?.transition?.kind ?? 'none',
+      ...masterState(edit),
     };
   }, [count, current, edit]);
+  // Built-in themes and variants (one command each).
+  const design = edit?.design;
+  useEffect(() => registerDesignChoices(registry, run, design), [registry, run, design]);
   const exec = useCallback(
     (id: string) => {
       // Undo / redo typed in quick succession arrive before the previous result has refreshed
@@ -1555,6 +1587,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     const f = edit?.format;
     const sm = 'small' as const;
     return [
+      ...(state.masterView ? [masterTab(t, item, state, run)] : []),
       {
         id: 'home',
         label: t('ribbon.tabs.home'),
@@ -1754,6 +1787,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           },
         ],
       },
+      designTab(t, item, edit?.design, state, current, run),
       {
         id: 'transitions',
         label: t('slideEditor.transitionTab'),
@@ -2068,13 +2102,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('view.normal', t('slideEditor.normal'), <Rows3 size={18} />),
               item('view.sorter', t('slideEditor.sorter'), <LayoutGrid size={18} />),
               item('view.reading', t('slideEditor.reading'), <BookOpen size={18} />),
+              item('view.slideMaster', t('slideEditor.master.view'), <PanelTop size={18} />),
               item('view.animationPane', t('slideEditor.animPane'), <PanelRight size={16} />, sm),
             ],
           },
         ],
       },
     ];
-  }, [t, registry, state, exec, edit, run, loadGallery, setSaveTemplate]);
+  }, [t, registry, state, exec, edit, run, loadGallery, setSaveTemplate, current]);
 
   const revision = (i: number) => epoch * 1_000_000 + (revs[i] ?? 0);
   const canvas = (index: number, width: number, className?: string) => (
@@ -2123,7 +2158,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           data-testid={`thumb-${i + 1}`}
           className={`${i === shown ? styles.thumbActive : styles.thumb} ${
             dropOver === i && dragFrom !== null && dragFrom !== i ? styles.thumbDrop : ''
-          }`}
+          } ${edit?.masterView?.items[i]?.kind === 'layout' ? masterStyles.thumbLayout : ''}`}
+          title={
+            edit?.masterView?.items[i] ? masterThumbLabel(t, edit.masterView.items[i]) : undefined
+          }
           aria-current={i === shown}
           onClick={() => goTo(i)}
           onDragStart={(e) => {
@@ -2148,9 +2186,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         >
           <span className={styles.thumbNo}>{i + 1}</span>
           {canvas(i, 150)}
+          {edit?.masterView?.items[i] && (
+            <span className={masterStyles.thumbName}>
+              {edit.masterView.items[i].name || t('slideEditor.master.unnamed')}
+            </span>
+          )}
         </button>
       ))}
-      {count > 0 && (
+      {count > 0 && !state.masterView && (
         <button type="button" className={styles.thumbAdd} onClick={() => exec('slide.new')}>
           {t('slideEditor.addSlide')}
         </button>
@@ -2331,7 +2374,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 <p className={styles.empty}>{t('slideEditor.empty')}</p>
               )}
             </div>
-            {count > 0 && (
+            {count > 0 && !state.masterView && (
               <section className={styles.notes} aria-label={t('slideEditor.notes')}>
                 <textarea
                   className={styles.notesEditor}
@@ -2348,6 +2391,25 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           {checkOpen && (
             <SlideCheckDocumentDialog run={runResult} onClose={() => setCheckOpen(false)} />
           )}
+          <SlideSizeDialog
+            open={sizeOpen}
+            cx={edit?.design?.cx ?? 12_192_000}
+            cy={edit?.design?.cy ?? 6_858_000}
+            onClose={() => setSizeOpen(false)}
+            onApply={(cmd) => {
+              setSizeOpen(false);
+              run(cmd);
+            }}
+          />
+          <RenameDialog
+            open={renameOpen}
+            initial={edit?.masterView?.items[edit.slide]?.name ?? ''}
+            onClose={() => setRenameOpen(false)}
+            onRename={(name) => {
+              setRenameOpen(false);
+              run({ cmd: 'renameMasterItem', name });
+            }}
+          />
           <SlideClipboardUi
             paste={pasteUi && pasteUi.result === edit ? pasteUi : null}
             anchor={selectionCorner}

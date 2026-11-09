@@ -1365,6 +1365,8 @@ export type SlideTextFormat =
 /** Slide editing command (JSON bridge, ADR-0008). */
 export type SlideCommand =
   | import('./security').SecurityCommand
+  /** Slide masters, layouts, themes, slide size (SLIDE-MASTER-001). */
+  | import('./slideMaster').SlideMasterCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
   /** Check document (CORE-INSPECT-001) → `inspection`. */
   | InspectCommand
@@ -1936,6 +1938,10 @@ export interface SlideEditResult {
   show?: SlideShowInfo;
   /** Protection state (security commands, CORE-SEC-001). */
   security?: import('./security').SecurityInfo;
+  /** Slide size, theme and masters (Design tab). */
+  design?: import('./slideMaster').SlideDesignInfo;
+  /** The master view's pane, while it is open. */
+  masterView?: import('./slideMaster').SlideMasterViewInfo;
 }
 
 // ---------------------------------------------------------------- services

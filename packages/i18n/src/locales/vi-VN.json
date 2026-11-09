@@ -65,7 +65,8 @@
       "signature": "Chữ ký số",
       "proofing": "Soát lỗi",
       "equation": "Phương trình",
-      "compare": "So sánh"
+      "compare": "So sánh",
+      "formFields": "Biểu mẫu cổ điển"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -148,7 +149,11 @@
       "endnote": "Chèn chú thích cuối văn bản",
       "equation": "Phương trình",
       "field": "Trường…",
-      "control": "Điều khiển nội dung…"
+      "control": "Điều khiển nội dung…",
+      "formText": "Ô nhập chữ (biểu mẫu)",
+      "formCheckBox": "Ô đánh dấu (biểu mẫu)",
+      "formDropDown": "Danh sách chọn (biểu mẫu)",
+      "formProperties": "Tuỳ chọn trường biểu mẫu…"
     },
     "layout": {
       "margins": "Lề",
@@ -210,7 +215,8 @@
       "markupReviewers": "Người sửa",
       "markupAllReviewers": "Mọi người sửa",
       "reviewingPane": "Ngăn danh sách sửa đổi",
-      "reviewingPaneBottom": "Danh sách sửa đổi ở dưới"
+      "reviewingPaneBottom": "Danh sách sửa đổi ở dưới",
+      "protectForms": "Chỉ cho điền biểu mẫu…"
     },
     "references": {
       "insertToc": "Mục lục",
@@ -2891,6 +2897,70 @@
       "animations": "Hoạt ảnh",
       "sections": "Phần trang chiếu",
       "models3d": "Mô hình 3D"
+    }
+  },
+  "formFields": {
+    "title": "Tuỳ chọn trường biểu mẫu",
+    "kinds": {
+      "text": "Ô nhập chữ",
+      "checkBox": "Ô đánh dấu",
+      "dropDown": "Danh sách chọn"
+    },
+    "type": "Loại dữ liệu",
+    "types": {
+      "regular": "Chữ tuỳ ý",
+      "number": "Số",
+      "date": "Ngày tháng",
+      "currentDate": "Ngày hôm nay",
+      "currentTime": "Giờ hiện tại",
+      "calculated": "Tính từ các trường khác"
+    },
+    "default": "Nội dung hiện sẵn",
+    "expression": "Biểu thức (ví dụ =DonGia*SoLuong)",
+    "maxLength": "Độ dài tối đa (0 = không giới hạn)",
+    "format": "Định dạng",
+    "size": "Cỡ ô",
+    "sizeAuto": "Theo cỡ chữ",
+    "sizeExact": "Cố định",
+    "sizePoints": "Cỡ (pt)",
+    "defaultChecked": "Đánh dấu sẵn",
+    "checked": "Đang đánh dấu",
+    "entries": "Các lựa chọn, mỗi dòng một mục",
+    "selected": "Lựa chọn đang hiện",
+    "name": "Tên trường (cũng là tên bookmark)",
+    "enabled": "Cho phép điền",
+    "calcOnExit": "Cập nhật các trường khi rời ô này",
+    "statusText": "Gợi ý trên thanh trạng thái",
+    "helpText": "Trợ giúp khi người dùng hỏi",
+    "macros": "Macro gắn kèm được giữ nguyên nhưng không bao giờ chạy (khi vào: {{entry}}, khi rời: {{exit}}).",
+    "ok": "Đồng ý",
+    "cancel": "Huỷ",
+    "bar": {
+      "label": "Trường biểu mẫu",
+      "toggle": "Đánh dấu / bỏ dấu",
+      "choose": "Chọn một mục",
+      "previous": "Trường trước",
+      "next": "Trường sau",
+      "readOnly": "Không sửa được"
+    },
+    "protect": {
+      "title": "Chỉ cho điền biểu mẫu",
+      "hint": "Người đọc chỉ điền được các trường biểu mẫu và điều khiển nội dung; phím Tab chuyển giữa các trường.",
+      "password": "Mật khẩu (không bắt buộc)",
+      "confirm": "Nhập lại mật khẩu",
+      "mismatch": "Hai mật khẩu không giống nhau.",
+      "sections": "Các section vẫn được sửa tự do",
+      "section": "Section {{n}}",
+      "start": "Bật giới hạn",
+      "stopTitle": "Bỏ giới hạn chỉ điền biểu mẫu",
+      "stopHint": "Toàn bộ văn bản sẽ sửa được trở lại.",
+      "stop": "Bỏ giới hạn"
+    },
+    "errors": {
+      "protected": "Ở đây chỉ sửa được các trường biểu mẫu.",
+      "number": "Trường này cần một con số.",
+      "date": "Trường này cần một ngày (ví dụ 25/12/2026).",
+      "password": "Mật khẩu chưa đúng."
     }
   }
 }

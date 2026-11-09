@@ -1112,6 +1112,37 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         sect: s.clone(),
         ..Doc::default()
     }));
+    // ---- legacy form fields (§17.16.17 ffData) and forms protection (§17.15.1.29, §17.6.6)
+    let ff = |name: &str, id: u32, ff: &str, instr: &str, result: &str| -> String {
+        let sep = if result.is_empty() && instr != "FORMTEXT" {
+            String::new()
+        } else {
+            r#"<w:r><w:fldChar w:fldCharType="separate"/></w:r>"#.to_owned()
+        };
+        let res = if result.is_empty() {
+            String::new()
+        } else {
+            format!(r#"<w:r><w:t xml:space="preserve">{result}</w:t></w:r>"#)
+        };
+        format!(
+            r#"<w:bookmarkStart w:id="{id}" w:name="{name}"/><w:r><w:fldChar w:fldCharType="begin"><w:ffData><w:name w:val="{name}"/>{ff}</w:ffData></w:fldChar></w:r><w:r><w:instrText xml:space="preserve"> {instr} </w:instrText></w:r>{sep}{res}<w:r><w:fldChar w:fldCharType="end"/></w:r><w:bookmarkEnd w:id="{id}"/>"#
+        )
+    };
+    let run = |t: &str| format!(r#"<w:r><w:t xml:space="preserve">{t}</w:t></w:r>"#);
+    v.push(("controls-02-legacy-forms.docx", "controls", "Trường biểu mẫu kiểu cũ (FORMTEXT thường/số/ngày/tính toán, FORMCHECKBOX tự động/cỡ cố định, FORMDROPDOWN), macro và trợ giúp giữ nguyên, REF tới bookmark trường, bảo vệ “chỉ điền biểu mẫu” với một section không bảo vệ (formProt)", Doc {
+        body: [
+            format!("<w:p>{}{}</w:p>", run("Họ và tên: "), ff("HoTen", 1, r#"<w:enabled/><w:calcOnExit w:val="0"/><w:entryMacro w:val="VaoHoTen"/><w:helpText w:type="text" w:val="Ghi đầy đủ họ tên"/><w:statusText w:type="text" w:val="Họ tên"/><w:textInput><w:maxLength w:val="40"/><w:format w:val="TITLE CASE"/></w:textInput>"#, "FORMTEXT", "Nguyễn Văn An")),
+            format!("<w:p>{}{}</w:p>", run("Ngày sinh: "), ff("NgaySinh", 2, r#"<w:enabled/><w:calcOnExit w:val="0"/><w:textInput><w:type w:val="date"/><w:format w:val="dd/MM/yyyy"/></w:textInput>"#, "FORMTEXT", "01/02/1990")),
+            format!("<w:p>{}{}{}{}</w:p>", run("Số lượng: "), ff("SoLuong", 3, r##"<w:enabled/><w:calcOnExit/><w:textInput><w:type w:val="number"/><w:default w:val="1"/><w:format w:val="#,##0"/></w:textInput>"##, "FORMTEXT", "3"), run("   Thành tiền: "), ff("ThanhTien", 4, r##"<w:enabled w:val="0"/><w:calcOnExit w:val="0"/><w:textInput><w:type w:val="calculated"/><w:default w:val="=SoLuong*150000"/><w:format w:val="#,##0"/></w:textInput>"##, "FORMTEXT", "450,000")),
+            format!("<w:p>{}{}{}{}</w:p>", ff("DongY", 5, r#"<w:enabled/><w:calcOnExit w:val="0"/><w:checkBox><w:sizeAuto/><w:default w:val="0"/><w:checked/></w:checkBox>"#, "FORMCHECKBOX", ""), run(" Đồng ý điều khoản   "), ff("NhanThu", 6, r#"<w:enabled/><w:calcOnExit w:val="0"/><w:exitMacro w:val="RaNhanThu"/><w:checkBox><w:size w:val="28"/><w:default w:val="0"/></w:checkBox>"#, "FORMCHECKBOX", ""), run(" Nhận thư")),
+            format!("<w:p>{}{}</w:p>", run("Tỉnh/thành: "), ff("Tinh", 7, r#"<w:enabled/><w:calcOnExit w:val="0"/><w:ddList><w:result w:val="1"/><w:listEntry w:val="Hà Nội"/><w:listEntry w:val="Huế"/><w:listEntry w:val="Đà Nẵng"/><w:listEntry w:val="Cần Thơ"/></w:ddList>"#, "FORMDROPDOWN", "")),
+            format!(r#"<w:p><w:pPr>{}</w:pPr>{}{}</w:p>"#, sect(""), run("Xác nhận: "), field_complex("REF HoTen \\h", "Nguyễn Văn An")),
+            p("Ghi chú (phần này không bị bảo vệ, sửa tự do):"),
+        ].concat(),
+        sect: sect(r#"<w:type w:val="continuous"/>"#).replace("<w:cols w:space=\"708\"/>", "<w:cols w:space=\"708\"/><w:formProt w:val=\"0\"/>"),
+        settings: Some(r#"<w:zoom w:percent="100"/><w:documentProtection w:edit="forms" w:enforcement="1"/><w:defaultTabStop w:val="720"/><w:characterSpacingControl w:val="doNotCompress"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>"#.to_owned()),
+        ..Doc::default()
+    }));
     v.push(("unknown-02-alternate-content.docx", "unknown", "mc:AlternateContent (Choice wps / Fallback VML), w14 trong rPr, ký hiệu w:sym", Doc {
         body: [
             r#"<w:p><w:r><mc:AlternateContent><mc:Choice Requires="w14"><w14:dummy/><w:t>Choice</w:t></mc:Choice><mc:Fallback><w:t>Fallback</w:t></mc:Fallback></mc:AlternateContent></w:r></w:p>"#.to_owned(),

@@ -150,6 +150,10 @@ import {
   Table2,
   WrapText,
   Frame,
+  SquareCheck,
+  SquareChevronDown,
+  SlidersHorizontal,
+  LockKeyhole,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -190,6 +194,12 @@ import {
   TemplateDialog,
 } from './DocDialogs';
 import { ConvertDialog, FormulaDialog, SortDialog } from './TableToolDialogs';
+import {
+  FormFieldBar,
+  FormFieldDialog,
+  ProtectFormsDialog,
+  formErrorKey,
+} from './FormFieldDialogs';
 import { ColorPicker, FontFamilyPicker, FontSizeBox, SpacingMenu } from './FontControls';
 import { DefineListDialog, MultilevelMenu, SetNumberingDialog } from './ListDialogs';
 import {
@@ -483,7 +493,7 @@ function EditorInner({
           ...(r.review ? { review: r.review } : {}),
           ...(r.merge ? { merge: r.merge } : {}),
         });
-        if (r.error) fail('errors.edit', r.error);
+        if (r.error) fail(formErrorKey(r.error) ?? 'errors.edit', r.error);
       },
       (e) => fail('errors.edit', e),
     );
@@ -1047,6 +1057,28 @@ function EditorInner({
       id: 'insert.control',
       isEnabled: hasDoc,
       run: () => store.setState({ dialog: 'control' }),
+    });
+    // Legacy form fields (§17.16.17) and the "filling in forms" restriction (§17.15.1.29).
+    const formsLocked = (s: EditorState) =>
+      !!s.edit?.protection?.enforced && s.edit.protection.edit === 'forms';
+    const canDesign = (s: EditorState) => hasDoc(s) && !formsLocked(s);
+    for (const [id, kind] of [
+      ['insert.formText', 'text'],
+      ['insert.formCheckBox', 'checkBox'],
+      ['insert.formDropDown', 'dropDown'],
+    ] as const) {
+      r.register({ id, isEnabled: canDesign, run: () => run({ cmd: 'insertFormField', kind }) });
+    }
+    r.register({
+      id: 'insert.formProperties',
+      isEnabled: (s) => canDesign(s) && !!s.edit?.formField,
+      run: () => store.setState({ dialog: 'formField' }),
+    });
+    r.register({
+      id: 'review.protectForms',
+      isEnabled: hasDoc,
+      isChecked: formsLocked,
+      run: () => store.setState({ dialog: 'protectForms' }),
     });
     r.register({
       id: 'insert.equation',
@@ -2086,6 +2118,29 @@ function EditorInner({
           ],
         },
         {
+          id: 'formFields',
+          label: t('ribbon.groups.formFields'),
+          items: [
+            item('insert.formText', 'commands.insert.formText', <TextCursorInput size={ICON} />),
+            s('insert.formCheckBox', 'commands.insert.formCheckBox', <SquareCheck size={SMALL} />),
+            s(
+              'insert.formDropDown',
+              'commands.insert.formDropDown',
+              <SquareChevronDown size={SMALL} />,
+            ),
+            s(
+              'insert.formProperties',
+              'commands.insert.formProperties',
+              <SlidersHorizontal size={SMALL} />,
+            ),
+            item(
+              'review.protectForms',
+              'commands.review.protectForms',
+              <LockKeyhole size={ICON} />,
+            ),
+          ],
+        },
+        {
           id: 'pages',
           label: t('ribbon.groups.pages'),
           items: [
@@ -2389,6 +2444,11 @@ function EditorInner({
           label: t('ribbon.groups.protect'),
           items: [
             item('review.savePassword', 'commands.review.savePassword', <KeyRound size={ICON} />),
+            item(
+              'review.protectForms',
+              'commands.review.protectForms',
+              <LockKeyhole size={ICON} />,
+            ),
           ],
         },
       ],
@@ -2578,6 +2638,13 @@ function EditorInner({
               <HeaderFooterBar story={state.edit.story} run={runCommand} />
             )}
             {state.edit?.control && <ControlBar control={state.edit.control} run={runCommand} />}
+            {state.edit?.formField && (
+              <FormFieldBar
+                info={state.edit.formField}
+                protection={state.edit.protection ?? null}
+                run={runCommand}
+              />
+            )}
             {state.panel === 'notes' && (
               <NotesPanel
                 run={runCommand}
@@ -2646,6 +2713,31 @@ function EditorInner({
             )}
             {state.dialog === 'checkDocument' && (
               <DocCheckDocumentDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'formField' && state.edit?.formField && (
+              <FormFieldDialog
+                info={state.edit.formField}
+                onClose={closeDialog}
+                onApply={(cmd) => {
+                  closeDialog();
+                  void runFocus(cmd);
+                }}
+              />
+            )}
+            {state.dialog === 'protectForms' && (
+              <ProtectFormsDialog
+                protection={state.edit?.protection ?? null}
+                sections={state.edit?.format.section?.count ?? 1}
+                onClose={closeDialog}
+                onApply={(cmd) => {
+                  void runCommand(cmd).then((r) => {
+                    if (r && !r.error) {
+                      closeDialog();
+                      focusDoc();
+                    }
+                  });
+                }}
+              />
             )}
             {state.dialog === 'control' && (
               <ControlDialog

@@ -72,6 +72,8 @@ export interface EditorState {
     | 'equation'
     | 'field'
     | 'control'
+    | 'formField'
+    | 'protectForms'
     | 'defineList'
     | 'setNumbering'
     | 'autoCorrect'

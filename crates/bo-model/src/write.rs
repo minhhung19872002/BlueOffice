@@ -178,6 +178,9 @@ pub struct SourcePackage {
     /// §17.15.1.32 displayBackgroundShape as read (changed ⇒ settings patched).
     #[serde(default)]
     pub display_background_shape: bool,
+    /// `documentProtection` as read (changed ⇒ the settings part is patched).
+    #[serde(default)]
+    pub protection: Option<crate::form::DocProtection>,
 }
 
 /// A whole word-processing document.
@@ -229,6 +232,9 @@ pub struct Document {
     /// Page colour, theme part and related settings (Design tab).
     #[serde(default)]
     pub design: DocDesign,
+    /// Editing restrictions (ECMA-376 Part 1, §17.15.1.29 documentProtection).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protection: Option<crate::form::DocProtection>,
     /// Source package the document was read from (`None` for a new document).
     pub source: Option<Arc<SourcePackage>>,
 }
@@ -531,6 +537,10 @@ pub struct Section {
     /// verbatim content keeps resolving its `r:id`s.
     #[serde(skip)]
     pub hf_parts: HfParts,
+    /// §17.6.6 formProt `w:val="0"`: the section stays editable while filling in forms is
+    /// enforced (omitted ⇒ protected).
+    #[serde(default)]
+    pub form_unprotected: bool,
     /// Original `w:sectPr` XML.
     #[serde(skip)]
     pub src: Option<Raw>,
@@ -585,6 +595,7 @@ impl Section {
             change,
             page_borders,
             hf_parts: _,
+            form_unprotected,
             src,
         } = self;
         *page == other.page
@@ -595,6 +606,7 @@ impl Section {
             && *footnote_pr == other.footnote_pr
             && *endnote_pr == other.endnote_pr
             && *change == other.change
+            && *form_unprotected == other.form_unprotected
             && *src == other.src
             && *blocks == other.blocks
     }
@@ -613,6 +625,7 @@ impl Section {
             &self.endnote_pr,
             &self.change,
             &self.page_borders,
+            self.form_unprotected,
         ))
     }
 
@@ -1776,6 +1789,13 @@ pub enum RunContent {
     ControlStart(Box<ContentControl>),
     /// End of the content control started before (`true`: a block-level one).
     ControlEnd(bool),
+    /// Legacy form field (§17.16.17 ffData): its begin character, instruction (`FORMTEXT`,
+    /// `FORMCHECKBOX`, `FORMDROPDOWN`) and separator. The result content follows up to
+    /// [`RunContent::FormEnd`]; a check box or drop-down list shows its state instead
+    /// (one object character).
+    FormField(Box<crate::form::FormField>),
+    /// End character of the form field started before (§17.16.18 fldChar `end`).
+    FormEnd,
 }
 
 /// The kind of a content control (§17.5.2.38 sdtPr children; [MS-DOCX] w14 / w15).
@@ -1863,7 +1883,13 @@ impl RunContent {
             | RunContent::CommentEnd(_)
             | RunContent::CommentRef(_)
             | RunContent::ControlStart(_)
-            | RunContent::ControlEnd(_) => {}
+            | RunContent::ControlEnd(_)
+            | RunContent::FormEnd => {}
+            RunContent::FormField(f) => {
+                if let Some(d) = f.display() {
+                    s.push_str(&d);
+                }
+            }
         }
     }
 }

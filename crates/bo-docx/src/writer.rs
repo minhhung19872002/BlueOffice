@@ -104,6 +104,8 @@ struct Writer<'d> {
     in_endnote: bool,
     /// Inline content controls open in the paragraph being written.
     sdt_depth: usize,
+    /// Form fields (§17.16.17) begun and not yet ended in the current paragraph.
+    form_depth: usize,
 }
 
 /// Serialize a document to `.docx` bytes.
@@ -129,6 +131,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
         drawing_id: 1000,
         in_endnote: false,
         sdt_depth: 0,
+        form_depth: 0,
     };
     w.write_main(&main)?;
     w.write_styles(&main)?;
@@ -141,6 +144,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
         }
         if src.even_and_odd_headers != doc.even_and_odd_headers
             || src.display_background_shape != doc.design.display_background_shape
+            || src.protection != doc.protection
         {
             w.patch_settings(&main)?;
         }
@@ -310,6 +314,7 @@ impl Writer<'_> {
 
     fn paragraph(&mut self, p: &Paragraph, sect_pr: Option<&str>) -> String {
         let outer_sdt = std::mem::take(&mut self.sdt_depth);
+        let outer_form = std::mem::take(&mut self.form_depth);
         let mut s = String::from("<w:p>");
         let mut props = ppr_children(&p.props);
         if let Some(sp) = sect_pr {
@@ -353,6 +358,11 @@ impl Writer<'_> {
                 i = j;
             }
         }
+        // A form field whose end was split off ends here (§17.16.18 fldChar).
+        for _ in 0..self.form_depth {
+            s.push_str("<w:r><w:fldChar w:fldCharType=\"end\"/></w:r>");
+        }
+        self.form_depth = outer_form;
         // A start whose end was split into another paragraph closes here.
         for _ in 0..self.sdt_depth {
             s.push_str("</w:sdtContent></w:sdt>");
@@ -525,6 +535,39 @@ impl Writer<'_> {
                     if !cc.block {
                         let _ = write!(out, "<w:sdt>{}<w:sdtContent>", sdt_pr(cc));
                         self.sdt_depth += 1;
+                    }
+                }
+                // §17.16.18 fldChar begin with §17.16.17 ffData, §17.16.23 instrText and the
+                // separator of a legacy form field.
+                RunContent::FormField(f) => {
+                    flush(&mut out, &mut cur);
+                    let it = if deleted { "delInstrText" } else { "instrText" };
+                    let lock = if f.locked { " w:fldLock=\"1\"" } else { "" };
+                    let instr = if f.instr.trim().is_empty() {
+                        format!(" {} ", f.kind.keyword())
+                    } else {
+                        f.instr.clone()
+                    };
+                    let _ = write!(
+                        out,
+                        "<w:r>{rpr}<w:fldChar w:fldCharType=\"begin\"{lock}>{}</w:fldChar></w:r><w:r>{rpr}<w:{it} xml:space=\"preserve\">{}</w:{it}></w:r>",
+                        crate::forms::ff_data_xml(f),
+                        escape(&instr)
+                    );
+                    if f.separate || f.is_text() {
+                        let _ = write!(
+                            out,
+                            "<w:r>{rpr}<w:fldChar w:fldCharType=\"separate\"/></w:r>"
+                        );
+                    }
+                    self.form_depth += 1;
+                }
+                RunContent::FormEnd => {
+                    flush(&mut out, &mut cur);
+                    // An end whose begin was removed is dropped.
+                    if self.form_depth > 0 {
+                        let _ = write!(out, "<w:r>{rpr}<w:fldChar w:fldCharType=\"end\"/></w:r>");
+                        self.form_depth -= 1;
                     }
                 }
                 RunContent::ControlEnd(block) => {
@@ -1321,126 +1364,117 @@ impl Writer<'_> {
         else {
             return self.write_settings(main);
         };
-        let mut s = remove_empty_element(&xml, "w:evenAndOddHeaders");
-        s = remove_empty_element(&s, "w:displayBackgroundShape");
-        if self.doc.design.display_background_shape {
-            // CT_Settings: displayBackgroundShape follows doNotDisplayPageBoundaries and
-            // precedes printPostScriptOverText … defaultTabStop … (§17.15.1.78).
-            const AFTER_BG: &[&str] = &[
-                "printPostScriptOverText",
-                "printFractionalCharacterWidth",
-                "printFormsData",
-                "embedTrueTypeFonts",
-                "embedSystemFonts",
-                "saveSubsetFonts",
-                "saveFormsData",
-                "mirrorMargins",
-                "alignBordersAndEdges",
-                "bordersDoNotSurroundHeader",
-                "bordersDoNotSurroundFooter",
-                "gutterAtTop",
-                "hideSpellingErrors",
-                "hideGrammaticalErrors",
-                "activeWritingStyle",
-                "proofState",
-                "formsDesign",
-                "attachedTemplate",
-                "linkStyles",
-                "stylePaneFormatFilter",
-                "stylePaneSortMethod",
-                "documentType",
-                "mailMerge",
-                "revisionView",
-                "trackRevisions",
-                "doNotTrackMoves",
-                "doNotTrackFormatting",
-                "documentProtection",
-                "autoFormatOverride",
-                "styleLockTheme",
-                "styleLockQFSet",
-                "defaultTabStop",
-                "autoHyphenation",
-                "consecutiveHyphenLimit",
-                "hyphenationZone",
-                "doNotHyphenateCaps",
-                "showEnvelope",
-                "summaryLength",
-                "clickAndTypeStyle",
-                "defaultTableStyle",
-                "evenAndOddHeaders",
-                "bookFoldRevPrinting",
-                "bookFoldPrinting",
-                "characterSpacingControl",
-                "compat",
-                "rsids",
-                "themeFontLang",
-                "clrSchemeMapping",
-                "shapeDefaults",
-                "decimalSymbol",
-                "listSeparator",
-            ];
-            let at = AFTER_BG
-                .iter()
-                .filter_map(|n| find_element(&s, &format!("w:{n}")))
-                .min()
-                .or_else(|| s.rfind("</w:settings>"));
-            if let Some(at) = at {
-                s.insert_str(at, "<w:displayBackgroundShape/>");
+        let src = self.doc.source.as_ref();
+        let mut s = xml.clone();
+        // §17.15.1.32 displayBackgroundShape, re-placed only when it changed.
+        if src
+            .is_none_or(|p| p.display_background_shape != self.doc.design.display_background_shape)
+        {
+            s = remove_empty_element(&s, "w:displayBackgroundShape");
+            if self.doc.design.display_background_shape {
+                // CT_Settings: displayBackgroundShape follows doNotDisplayPageBoundaries and
+                // precedes printPostScriptOverText … defaultTabStop … (§17.15.1.78).
+                const AFTER_BG: &[&str] = &[
+                    "printPostScriptOverText",
+                    "printFractionalCharacterWidth",
+                    "printFormsData",
+                    "embedTrueTypeFonts",
+                    "embedSystemFonts",
+                    "saveSubsetFonts",
+                    "saveFormsData",
+                    "mirrorMargins",
+                    "alignBordersAndEdges",
+                    "bordersDoNotSurroundHeader",
+                    "bordersDoNotSurroundFooter",
+                    "gutterAtTop",
+                    "hideSpellingErrors",
+                    "hideGrammaticalErrors",
+                    "activeWritingStyle",
+                    "proofState",
+                    "formsDesign",
+                    "attachedTemplate",
+                    "linkStyles",
+                    "stylePaneFormatFilter",
+                    "stylePaneSortMethod",
+                    "documentType",
+                    "mailMerge",
+                    "revisionView",
+                    "trackRevisions",
+                    "doNotTrackMoves",
+                    "doNotTrackFormatting",
+                    "documentProtection",
+                    "autoFormatOverride",
+                    "styleLockTheme",
+                    "styleLockQFSet",
+                    "defaultTabStop",
+                    "autoHyphenation",
+                    "consecutiveHyphenLimit",
+                    "hyphenationZone",
+                    "doNotHyphenateCaps",
+                    "showEnvelope",
+                    "summaryLength",
+                    "clickAndTypeStyle",
+                    "defaultTableStyle",
+                    "evenAndOddHeaders",
+                    "bookFoldRevPrinting",
+                    "bookFoldPrinting",
+                    "characterSpacingControl",
+                    "compat",
+                    "rsids",
+                    "themeFontLang",
+                    "clrSchemeMapping",
+                    "shapeDefaults",
+                    "decimalSymbol",
+                    "listSeparator",
+                ];
+                let at = AFTER_BG
+                    .iter()
+                    .filter_map(|n| find_element(&s, &format!("w:{n}")))
+                    .min()
+                    .or_else(|| s.rfind("</w:settings>"));
+                if let Some(at) = at {
+                    s.insert_str(at, "<w:displayBackgroundShape/>");
+                }
             }
         }
-        if self.doc.even_and_odd_headers {
-            const AFTER: &[&str] = &[
-                "bookFoldRevPrinting",
-                "bookFoldPrinting",
-                "bookFoldPrintingSheets",
-                "drawingGridHorizontalSpacing",
-                "drawingGridVerticalSpacing",
-                "displayHorizontalDrawingGridEvery",
-                "displayVerticalDrawingGridEvery",
-                "doNotUseMarginsForDrawingGridOrigin",
-                "drawingGridHorizontalOrigin",
-                "drawingGridVerticalOrigin",
-                "doNotShadeFormData",
-                "noPunctuationKerning",
-                "characterSpacingControl",
-                "printTwoOnOne",
-                "strictFirstAndLastChars",
-                "noLineBreaksAfter",
-                "noLineBreaksBefore",
-                "savePreviewPicture",
-                "doNotValidateAgainstSchema",
-                "saveInvalidXml",
-                "ignoreMixedContent",
-                "alwaysShowPlaceholderText",
-                "doNotDemarcateInvalidXml",
-                "saveXmlDataOnly",
-                "useXSLTWhenSaving",
-                "saveThroughXslt",
-                "showXMLTags",
-                "alwaysMergeEmptyNamespace",
-                "updateFields",
-                "hdrShapeDefaults",
-                "footnotePr",
-                "endnotePr",
-                "compat",
-                "docVars",
-                "rsids",
-                "mathPr",
-                "attachedSchema",
-                "themeFontLang",
-                "clrSchemeMapping",
-                "doNotIncludeSubdocsInStats",
-                "doNotAutoCompressPictures",
-                "forceUpgrade",
-                "captions",
-                "readModeInkLockDown",
-                "smartTagType",
-                "schemaLibrary",
-                "shapeDefaults",
-                "doNotEmbedSmartTags",
-                "decimalSymbol",
-                "listSeparator",
-            ];
+        // §17.15.1.29 documentProtection: before autoFormatOverride … defaultTabStop … in
+        // CT_Settings (§17.15.1.78).
+        if src.is_none_or(|p| p.protection != self.doc.protection) {
+            s = remove_empty_element(&s, "w:documentProtection");
+            if let Some(p) = &self.doc.protection {
+                const AFTER_PROTECTION: &[&str] = &[
+                    "autoFormatOverride",
+                    "styleLockTheme",
+                    "styleLockQFSet",
+                    "defaultTabStop",
+                    "autoHyphenation",
+                    "consecutiveHyphenLimit",
+                    "hyphenationZone",
+                    "doNotHyphenateCaps",
+                    "showEnvelope",
+                    "summaryLength",
+                    "clickAndTypeStyle",
+                    "defaultTableStyle",
+                    "evenAndOddHeaders",
+                ];
+                let at = AFTER_PROTECTION
+                    .iter()
+                    .chain(SETTINGS_AFTER_EVEN_ODD)
+                    .filter_map(|n| find_element(&s, &format!("w:{n}")))
+                    .min()
+                    .or_else(|| s.rfind("</w:settings>"));
+                if let Some(at) = at {
+                    s.insert_str(at, &crate::forms::protection_xml(p));
+                }
+            }
+        }
+        if src.is_none_or(|p| p.even_and_odd_headers != self.doc.even_and_odd_headers) {
+            s = remove_empty_element(&s, "w:evenAndOddHeaders");
+        }
+        if self.doc.even_and_odd_headers
+            && src.is_none_or(|p| p.even_and_odd_headers != self.doc.even_and_odd_headers)
+        {
+            const AFTER: &[&str] = SETTINGS_AFTER_EVEN_ODD;
             let at = AFTER
                 .iter()
                 .filter_map(|n| find_element(&s, &format!("w:{n}")))
@@ -1487,9 +1521,13 @@ impl Writer<'_> {
 
     fn write_settings(&mut self, _main: &str) -> Result<()> {
         let mut s = format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:settings xmlns:w=\"{W_NS}\">");
-        // §17.15.1.32 displayBackgroundShape (before defaultTabStop).
+        // §17.15.1.32 displayBackgroundShape (before documentProtection and defaultTabStop).
         if self.doc.design.display_background_shape {
             s.push_str("<w:displayBackgroundShape/>");
+        }
+        // §17.15.1.29 documentProtection precedes defaultTabStop.
+        if let Some(p) = &self.doc.protection {
+            s.push_str(&crate::forms::protection_xml(p));
         }
         // CT_Settings order (§17.15.1.78): defaultTabStop precedes evenAndOddHeaders.
         // §17.15.1.25 defaultTabStop (omitted ⇒ 720).
@@ -1794,6 +1832,60 @@ fn page_borders_xml(pb: &bo_model::PageBorders) -> String {
 
 /// `CT_SectPrBase` children after the header/footer references (§17.6.17: footnotePr …
 /// titlePg), in schema order.
+/// CT_Settings children after `w:evenAndOddHeaders` (ECMA-376 Part 1, §17.15.1.78).
+const SETTINGS_AFTER_EVEN_ODD: &[&str] = &[
+    "bookFoldRevPrinting",
+    "bookFoldPrinting",
+    "bookFoldPrintingSheets",
+    "drawingGridHorizontalSpacing",
+    "drawingGridVerticalSpacing",
+    "displayHorizontalDrawingGridEvery",
+    "displayVerticalDrawingGridEvery",
+    "doNotUseMarginsForDrawingGridOrigin",
+    "drawingGridHorizontalOrigin",
+    "drawingGridVerticalOrigin",
+    "doNotShadeFormData",
+    "noPunctuationKerning",
+    "characterSpacingControl",
+    "printTwoOnOne",
+    "strictFirstAndLastChars",
+    "noLineBreaksAfter",
+    "noLineBreaksBefore",
+    "savePreviewPicture",
+    "doNotValidateAgainstSchema",
+    "saveInvalidXml",
+    "ignoreMixedContent",
+    "alwaysShowPlaceholderText",
+    "doNotDemarcateInvalidXml",
+    "saveXmlDataOnly",
+    "useXSLTWhenSaving",
+    "saveThroughXslt",
+    "showXMLTags",
+    "alwaysMergeEmptyNamespace",
+    "updateFields",
+    "hdrShapeDefaults",
+    "footnotePr",
+    "endnotePr",
+    "compat",
+    "docVars",
+    "rsids",
+    "mathPr",
+    "attachedSchema",
+    "themeFontLang",
+    "clrSchemeMapping",
+    "doNotIncludeSubdocsInStats",
+    "doNotAutoCompressPictures",
+    "forceUpgrade",
+    "captions",
+    "readModeInkLockDown",
+    "smartTagType",
+    "schemaLibrary",
+    "shapeDefaults",
+    "doNotEmbedSmartTags",
+    "decimalSymbol",
+    "listSeparator",
+];
+
 fn sect_props_xml(sec: &Section) -> String {
     let mut s = String::new();
     s.push_str(&note_pr_xml("footnotePr", &sec.footnote_pr));
@@ -1834,6 +1926,10 @@ fn sect_props_xml(sec: &Section) -> String {
         );
     } else if sec.columns.space.0 != 720 {
         let _ = write!(s, "<w:cols w:space=\"{}\"/>", sec.columns.space.0);
+    }
+    // §17.6.6 formProt (after cols, before titlePg in CT_SectPr).
+    if sec.form_unprotected {
+        s.push_str("<w:formProt w:val=\"0\"/>");
     }
     if sec.title_page {
         s.push_str("<w:titlePg/>");

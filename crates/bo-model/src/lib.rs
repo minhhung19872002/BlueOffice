@@ -11,12 +11,14 @@
 pub mod change;
 pub mod chart_style;
 pub mod field;
+pub mod form;
 pub mod index;
 pub mod sheet;
 pub mod slide;
 pub mod units;
 pub mod write;
 
+pub use form::{DocProtection, FormField, FormFieldKind};
 pub use units::{Emu, HalfPoints, Twips};
 pub use write::{
     fingerprint, format_number, AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell,

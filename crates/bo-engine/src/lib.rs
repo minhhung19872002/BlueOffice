@@ -23,6 +23,7 @@ pub mod design;
 pub mod edit;
 pub mod equation;
 pub mod fonts;
+pub mod forms;
 pub mod gallery;
 pub mod inspect;
 mod legacy_slides;

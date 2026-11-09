@@ -626,6 +626,7 @@ fn section_props(s: &Section) -> Section {
         change: s.change.clone(),
         page_borders: s.page_borders.clone(),
         hf_parts: bo_model::HfParts::default(),
+        form_unprotected: s.form_unprotected,
         src: None,
     }
 }

@@ -65,7 +65,8 @@
       "signature": "Signature",
       "proofing": "Proofing",
       "equation": "Equation",
-      "compare": "Compare"
+      "compare": "Compare",
+      "formFields": "Classic forms"
     },
     "comingLater": "Coming in a later release"
   },
@@ -148,7 +149,11 @@
       "endnote": "Insert endnote",
       "equation": "Equation",
       "field": "Field…",
-      "control": "Content control…"
+      "control": "Content control…",
+      "formText": "Text form field",
+      "formCheckBox": "Check box form field",
+      "formDropDown": "Drop-down form field",
+      "formProperties": "Form field options…"
     },
     "layout": {
       "margins": "Margins",
@@ -210,7 +215,8 @@
       "markupReviewers": "People",
       "markupAllReviewers": "Everyone",
       "reviewingPane": "Change list pane",
-      "reviewingPaneBottom": "Change list at the bottom"
+      "reviewingPaneBottom": "Change list at the bottom",
+      "protectForms": "Restrict to form filling…"
     },
     "references": {
       "insertToc": "Table of contents",
@@ -2891,6 +2897,70 @@
       "animations": "Animations",
       "sections": "Slide sections",
       "models3d": "3D models"
+    }
+  },
+  "formFields": {
+    "title": "Form field options",
+    "kinds": {
+      "text": "Text box",
+      "checkBox": "Tick box",
+      "dropDown": "Pick list"
+    },
+    "type": "Kind of entry",
+    "types": {
+      "regular": "Any text",
+      "number": "Number",
+      "date": "Date",
+      "currentDate": "Today's date",
+      "currentTime": "Current time",
+      "calculated": "Computed from other fields"
+    },
+    "default": "Text shown at first",
+    "expression": "Expression (e.g. =Price*Qty)",
+    "maxLength": "Longest entry (0 = unlimited)",
+    "format": "Format",
+    "size": "Box size",
+    "sizeAuto": "Same as the text",
+    "sizeExact": "Fixed",
+    "sizePoints": "Size (pt)",
+    "defaultChecked": "Ticked to begin with",
+    "checked": "Ticked now",
+    "entries": "Choices, one per line",
+    "selected": "Choice shown",
+    "name": "Field name (also its bookmark)",
+    "enabled": "Can be filled in",
+    "calcOnExit": "Update fields after leaving this one",
+    "statusText": "Hint in the status bar",
+    "helpText": "Help shown on request",
+    "macros": "Linked macros are kept but never run (on entry: {{entry}}, on exit: {{exit}}).",
+    "ok": "OK",
+    "cancel": "Cancel",
+    "bar": {
+      "label": "Form field",
+      "toggle": "Tick / untick",
+      "choose": "Pick a choice",
+      "previous": "Previous field",
+      "next": "Next field",
+      "readOnly": "Not editable"
+    },
+    "protect": {
+      "title": "Restrict to form filling",
+      "hint": "Readers will only be able to fill in the form fields and content controls; Tab moves between fields.",
+      "password": "Password (optional)",
+      "confirm": "Type the password again",
+      "mismatch": "The two passwords differ.",
+      "sections": "Sections left free to edit",
+      "section": "Section {{n}}",
+      "start": "Restrict",
+      "stopTitle": "Lift the form-filling restriction",
+      "stopHint": "The whole document becomes editable again.",
+      "stop": "Lift restriction"
+    },
+    "errors": {
+      "protected": "Only the form fields can be changed here.",
+      "number": "This field takes a number.",
+      "date": "This field takes a date (for example 25/12/2026).",
+      "password": "That password is not right."
     }
   }
 }

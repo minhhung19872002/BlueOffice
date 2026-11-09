@@ -443,6 +443,14 @@ pub(crate) fn layout_paragraph(
     Ok(l)
 }
 
+/// Shading of form field results (light grey, as the classic format shows them unless
+/// the doNotShadeFormData setting of §17.15.1 is on).
+const FORM_SHADING: Color = Color {
+    r: 0xD9,
+    g: 0xD9,
+    b: 0xD9,
+};
+
 fn field_text(instr: &str, cached: &str, f: FieldContext) -> String {
     if f.codes {
         return format!("{{ {} }}", instr.trim());
@@ -797,10 +805,45 @@ fn layout_uncached(
     let mut floats = Vec::new();
     // Display equations (m:oMathPara) by start offset: alignment of their own line.
     let mut display_at: HashMap<u32, Alignment> = HashMap::new();
+    // Legacy form fields (§17.16.17): open fields (text field?) and the shaded / resized
+    // variants of the run styles.
+    let mut forms: Vec<bool> = Vec::new();
+    let mut form_styles: HashMap<(usize, Option<u32>), usize> = HashMap::new();
     for sp in &spans {
         let run = &inp.para.runs[sp.run];
-        let style = run_style_idx[sp.run];
+        let mut style = run_style_idx[sp.run];
         let item = &run.content[sp.item];
+        match item {
+            RunContent::FormField(f) => forms.push(f.is_text()),
+            RunContent::FormEnd => {
+                forms.pop();
+                continue;
+            }
+            // The result of a check box / drop-down field is not shown, its state is.
+            _ if forms.last() == Some(&false) => continue,
+            _ => {}
+        }
+        if !forms.is_empty() {
+            // Form field results are shaded; a check box of a fixed size (§17.16.29) has it.
+            let size = match item {
+                RunContent::FormField(f) => match &f.kind {
+                    bo_model::FormFieldKind::CheckBox(c) => c.size,
+                    _ => None,
+                },
+                _ => None,
+            };
+            style = *form_styles.entry((style, size)).or_insert_with(|| {
+                let mut st = styles[style].clone();
+                if st.highlight.is_none() {
+                    st.highlight = Some(FORM_SHADING);
+                }
+                if let Some(hp) = size {
+                    st.size = hp.max(2) as f32 / 2.0;
+                }
+                styles.push(st);
+                styles.len() - 1
+            });
+        }
         let math = match item {
             RunContent::Markup(raw) if bo_model::index::is_math_xml(&raw.xml) => {
                 if let Some(a) = crate::math::display_alignment(&raw.xml) {
@@ -845,6 +888,16 @@ fn layout_uncached(
             RunContent::Field { instr, cached, .. } => {
                 (field_text(instr, cached, inp.fields), true, None, None)
             }
+            RunContent::FormField(f) => (
+                if inp.fields.codes {
+                    format!("{{ {} }}", f.kind.keyword())
+                } else {
+                    f.display().unwrap_or_default()
+                },
+                true,
+                None,
+                None,
+            ),
             RunContent::FootnoteRef(id) | RunContent::EndnoteRef(id) => {
                 let key = (matches!(item, RunContent::EndnoteRef(_)), *id);
                 (

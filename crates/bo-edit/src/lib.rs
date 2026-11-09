@@ -16,6 +16,7 @@ pub mod compare;
 pub mod design;
 pub mod fields;
 pub mod find;
+pub mod forms;
 pub mod html;
 mod inspect;
 pub mod lists;
@@ -964,6 +965,8 @@ impl Tx<'_> {
         let (path, p, mut left) = self.atoms(at.para)?;
         let total = para::len(&left);
         let i = para::split_at(&mut left, at.offset);
+        // A form field's end character stays with its field (§17.16.18).
+        let i = para::past_field_end(&left, i);
         let right = left.split_off(i);
         let mut right_props = p.props.clone();
         // §17.7.4.10 next: a new paragraph after a heading gets the style's "next" style.
@@ -1555,11 +1558,12 @@ impl Session {
         &mut self,
         pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
     ) -> Result<usize> {
-        let mut n = 0;
+        // Computed form fields first: REF fields may show their results (§17.16.17).
+        let mut n = self.recalc_form_fields()?;
         let sel = self.selection;
         let env = self.fields_now();
         self.edit(|tx, _| {
-            n = tx.update_fields(pages_of, &env)?;
+            n += tx.update_fields(pages_of, &env)?;
             Ok(sel)
         })?;
         self.fix_selection();
@@ -3608,6 +3612,8 @@ impl Session {
 
 #[cfg(test)]
 mod feature_tests;
+#[cfg(test)]
+mod forms_tests;
 #[cfg(test)]
 mod table_tools_tests;
 #[cfg(test)]

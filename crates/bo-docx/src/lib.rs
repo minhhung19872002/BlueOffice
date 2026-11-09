@@ -6,6 +6,7 @@
 //! tables, drawings and lossless round-trip of unknown elements arrive in Phase 2.
 #![forbid(unsafe_code)]
 
+mod forms;
 mod reader;
 mod shape;
 mod writer;

@@ -16,7 +16,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 | BlueDoc (DOC) | 18 | 8,5 | 47 % |
 | BlueSheet (SHEET) | 20 | 7,5 | 38 % |
 | BlueSlide (SLIDE) | 12 | 7 | 58 % |
-| Hàm bảng tính | 515 hàm | 462 | 90 % (`functions.md`) |
+| Hàm bảng tính | 515 hàm | 480 | 93 % (`functions.md`) |
 
 ## Chung
 
@@ -82,7 +82,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 
 | Tính năng | Đọc | Hiển thị | Tạo/sửa | Round-trip | Web | Desktop | Cộng tác | Test | Trạng thái | Ghi chú |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Hàm (515) | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | functions.md | 🟡 | 462/515 (Engineering, Statistical, Compatibility, Financial, Database đủ) |
+| Hàm (515) | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | functions.md | 🟡 | 480/515 (Engineering, Statistical, Compatibility, Financial, Database, Text đủ) |
 | Mảng động, LET, LAMBDA | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |
 | @, trim ref, liên kết ngoài | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
 | Định dạng số | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu [DBNum], lịch âm |

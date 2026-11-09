@@ -24,6 +24,7 @@ mod math;
 mod regression;
 mod stats;
 mod text;
+mod text_more;
 
 /// Which arguments are scalar (array arguments in those positions are broadcast).
 #[derive(Clone, Copy, Debug)]
@@ -146,6 +147,7 @@ fn registry() -> &'static HashMap<&'static str, FnSpec> {
             regression::FUNCTIONS,
             bonds::FUNCTIONS,
             database::FUNCTIONS,
+            text_more::FUNCTIONS,
         ] {
             for spec in group {
                 map.insert(spec.name, *spec);

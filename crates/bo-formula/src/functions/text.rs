@@ -97,7 +97,7 @@ fn char_find(
     (start..hay.len()).find(|&i| eq(hay, i))
 }
 
-fn find(ctx: &mut Ctx, args: &[Value]) -> R {
+pub(super) fn find(ctx: &mut Ctx, args: &[Value]) -> R {
     let needle: Vec<char> = txt(ctx, args, 0)?.chars().collect();
     let hay: Vec<char> = txt(ctx, args, 1)?.chars().collect();
     let start = opt_num(ctx, args, 2, 1.0)?.trunc();
@@ -111,7 +111,7 @@ fn find(ctx: &mut Ctx, args: &[Value]) -> R {
         .ok_or(ErrorKind::Value)
 }
 
-fn search(ctx: &mut Ctx, args: &[Value]) -> R {
+pub(super) fn search(ctx: &mut Ctx, args: &[Value]) -> R {
     let needle = txt(ctx, args, 0)?;
     let hay: Vec<char> = txt(ctx, args, 1)?.chars().collect();
     let start = opt_num(ctx, args, 2, 1.0)?.trunc();
@@ -547,7 +547,7 @@ fn t(_ctx: &mut Ctx, args: &[Value]) -> R {
     }
 }
 
-fn fixed(ctx: &mut Ctx, args: &[Value]) -> R {
+pub(super) fn fixed(ctx: &mut Ctx, args: &[Value]) -> R {
     let x = ctx.num(&args[0])?;
     let d = opt_num(ctx, args, 1, 2.0)?.trunc();
     let no_commas = opt_bool(ctx, args, 2, false)?;

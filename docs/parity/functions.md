@@ -4,7 +4,7 @@ Sinh tự động bởi `python scripts/parity-functions.py` từ danh mục hà
 (nhóm theo tài liệu hàm công khai) đối chiếu với các bảng `FUNCTIONS` trong `crates/bo-formula/src/functions/`.
 Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng ghi nguồn).
 
-**Tổng: 462/515 hàm (90 %).**
+**Tổng: 480/515 hàm (93 %).**
 
 | Nhóm | Đã có | Tổng |
 |---|---|---|
@@ -19,9 +19,9 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | Lookup & Reference | 27 | 40 |
 | Math & Trig | 70 | 80 |
 | Statistical | 110 | 110 |
-| Text | 29 | 46 |
+| Text | 46 | 46 |
 | Web | 0 | 3 |
-| BlueOffice | 0 | 1 |
+| BlueOffice | 1 | 1 |
 
 | Hàm | Nhóm | Trạng thái | Cài đặt |
 |---|---|---|---|
@@ -490,39 +490,39 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | VARPA | Statistical | [x] | bo-formula |
 | WEIBULL.DIST | Statistical | [x] | bo-formula |
 | Z.TEST | Statistical | [x] | bo-formula |
-| ARRAYTOTEXT | Text | [ ] |  |
-| ASC | Text | [ ] |  |
-| BAHTTEXT | Text | [ ] |  |
+| ARRAYTOTEXT | Text | [x] | bo-formula |
+| ASC | Text | [x] | bo-formula |
+| BAHTTEXT | Text | [x] | bo-formula |
 | CHAR | Text | [x] | bo-formula |
 | CLEAN | Text | [x] | bo-formula |
 | CODE | Text | [x] | bo-formula |
 | CONCAT | Text | [x] | bo-formula |
-| DBCS | Text | [ ] |  |
-| DOLLAR | Text | [ ] |  |
+| DBCS | Text | [x] | bo-formula |
+| DOLLAR | Text | [x] | bo-formula |
 | EXACT | Text | [x] | bo-formula |
 | FIND | Text | [x] | bo-formula |
-| FINDB | Text | [ ] |  |
+| FINDB | Text | [x] | bo-formula |
 | FIXED | Text | [x] | bo-formula |
 | LEFT | Text | [x] | bo-formula |
-| LEFTB | Text | [ ] |  |
+| LEFTB | Text | [x] | bo-formula |
 | LEN | Text | [x] | bo-formula |
-| LENB | Text | [ ] |  |
+| LENB | Text | [x] | bo-formula |
 | LOWER | Text | [x] | bo-formula |
 | MID | Text | [x] | bo-formula |
-| MIDB | Text | [ ] |  |
+| MIDB | Text | [x] | bo-formula |
 | NUMBERVALUE | Text | [x] | bo-formula |
-| PHONETIC | Text | [ ] |  |
+| PHONETIC | Text | [x] | bo-formula |
 | PROPER | Text | [x] | bo-formula |
-| REGEXEXTRACT | Text | [ ] |  |
-| REGEXREPLACE | Text | [ ] |  |
-| REGEXTEST | Text | [ ] |  |
+| REGEXEXTRACT | Text | [x] | bo-formula |
+| REGEXREPLACE | Text | [x] | bo-formula |
+| REGEXTEST | Text | [x] | bo-formula |
 | REPLACE | Text | [x] | bo-formula |
-| REPLACEB | Text | [ ] |  |
+| REPLACEB | Text | [x] | bo-formula |
 | REPT | Text | [x] | bo-formula |
 | RIGHT | Text | [x] | bo-formula |
-| RIGHTB | Text | [ ] |  |
+| RIGHTB | Text | [x] | bo-formula |
 | SEARCH | Text | [x] | bo-formula |
-| SEARCHB | Text | [ ] |  |
+| SEARCHB | Text | [x] | bo-formula |
 | SUBSTITUTE | Text | [x] | bo-formula |
 | T | Text | [x] | bo-formula |
 | TEXT | Text | [x] | bo-formula |
@@ -535,8 +535,8 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | UNICODE | Text | [x] | bo-formula |
 | UPPER | Text | [x] | bo-formula |
 | VALUE | Text | [x] | bo-formula |
-| VALUETOTEXT | Text | [ ] |  |
+| VALUETOTEXT | Text | [x] | bo-formula |
 | ENCODEURL | Web | [ ] |  |
 | FILTERXML | Web | [ ] |  |
 | WEBSERVICE | Web | [ ] |  |
-| BO.DOCSO | BlueOffice | [ ] |  |
+| BO.DOCSO | BlueOffice | [x] | bo-formula |

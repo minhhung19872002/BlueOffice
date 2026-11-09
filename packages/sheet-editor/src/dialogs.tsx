@@ -1693,3 +1693,129 @@ export function MessageDialog({
     </Dialog>
   );
 }
+
+// ----------------------------------------------------------------- goal seek
+
+interface GoalSeekResult {
+  found: boolean;
+  input: number;
+  result: number;
+  iterations: number;
+}
+
+/** What-if analysis: find the input that makes a formula reach a value. */
+export function GoalSeekDialog({
+  host,
+  sheet,
+  onClose,
+  onDone,
+  target: initial,
+}: Omit<Common, 'fail'> & { target: string }) {
+  const { t } = useTranslation();
+  const [target, setTarget] = useState(initial);
+  const [goal, setGoal] = useState('');
+  const [changing, setChanging] = useState('');
+  const [result, setResult] = useState<GoalSeekResult | null>(null);
+  const [error, setError] = useState('');
+  const run = async (apply: boolean) => {
+    const value = Number(goal.replace(',', '.'));
+    if (goal.trim() === '' || !Number.isFinite(value)) {
+      setError(t('sheetEditor.goalSeek.badGoal'));
+      return;
+    }
+    try {
+      const r = await host.exec<GoalSeekResult>({
+        cmd: 'goalSeek',
+        sheet,
+        target,
+        goal: value,
+        changing,
+        apply,
+      });
+      setError('');
+      if (apply) {
+        await onDone();
+        onClose();
+      } else {
+        setResult(r);
+      }
+    } catch {
+      setError(t('sheetEditor.goalSeek.invalid'));
+    }
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t('sheetEditor.goalSeek.title')}
+      testId="goalseek-dialog"
+      footer={
+        result?.found ? (
+          <Buttons
+            onCancel={onClose}
+            onOk={() => void run(true)}
+            okLabel={t('sheetEditor.goalSeek.apply')}
+            okId="goalseek-apply"
+          />
+        ) : (
+          <Buttons
+            onCancel={onClose}
+            onOk={() => void run(false)}
+            okLabel={t('sheetEditor.goalSeek.find')}
+            okId="goalseek-find"
+          />
+        )
+      }
+    >
+      <div className={styles.form}>
+        <label>
+          {t('sheetEditor.goalSeek.target')}
+          <input
+            data-testid="goalseek-target"
+            value={target}
+            onChange={(e) => {
+              setTarget(e.target.value);
+              setResult(null);
+            }}
+          />
+        </label>
+        <label>
+          {t('sheetEditor.goalSeek.goal')}
+          <input
+            data-testid="goalseek-goal"
+            inputMode="decimal"
+            value={goal}
+            onChange={(e) => {
+              setGoal(e.target.value);
+              setResult(null);
+            }}
+          />
+        </label>
+        <label>
+          {t('sheetEditor.goalSeek.changing')}
+          <input
+            data-testid="goalseek-changing"
+            value={changing}
+            onChange={(e) => {
+              setChanging(e.target.value);
+              setResult(null);
+            }}
+          />
+        </label>
+        {error && <p role="alert">{error}</p>}
+        {result && (
+          <p data-testid="goalseek-result" role="status">
+            {result.found
+              ? t('sheetEditor.goalSeek.found', {
+                  input: Number(result.input.toPrecision(10)),
+                  result: Number(result.result.toPrecision(10)),
+                })
+              : t('sheetEditor.goalSeek.notFound', {
+                  result: Number(result.result.toPrecision(10)),
+                })}
+          </p>
+        )}
+      </div>
+    </Dialog>
+  );
+}

@@ -206,7 +206,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 - [ ] **SHEET-TIMELINE-001** — Timeline (bộ lọc ngày) đọc/ghi/hiển thị/lọc · P0 · SLICER-001 · test.
 
 ### What-if (§6.2)
-- [ ] **SHEET-WHATIF-001** — Goal Seek · P0 · — · test hội tụ.
+- [x] **SHEET-WHATIF-001** — Goal Seek · P0 · — · test hội tụ. `bo-sheet/src/whatif.rs`: secant từ giá trị hiện tại, chuyển sang chia đôi khi đã kẹp được nghiệm, nới rộng khi chưa; tính lại tăng dần trên bản sao của engine công thức; dung sai 0,001, tối đa 100 vòng; nghiệm làm tròn 15 chữ số. Lệnh `goalSeek` (A1, `apply` = một bước undo), hộp thoại Dữ liệu → Tìm giá trị đích (Tìm → Áp dụng); test `whatif::tests` (tuyến tính, PMT, √2, vô nghiệm, kiểm tham số), `sheet_whatif`, E2E `sheet-whatif.spec`.
 - [ ] **SHEET-WHATIF-002** — Data Table 1 và 2 biến ({=TABLE()}) đọc/ghi/tính · P0 · — · test.
 - [ ] **SHEET-WHATIF-003** — Scenario Manager + báo cáo tóm tắt · P1 · — · test.
 - [ ] **SHEET-SOLVER-001** — Solver: simplex (tuyến tính), ràng buộc nguyên/nhị phân (branch & bound) · P0 · — · bài toán chuẩn có nghiệm đã biết.

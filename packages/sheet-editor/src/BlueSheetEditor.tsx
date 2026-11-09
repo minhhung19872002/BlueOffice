@@ -95,6 +95,7 @@ import {
   Settings,
   Settings2,
   ShieldCheck,
+  Target,
   Sigma,
   Group,
   Ungroup,
@@ -140,6 +141,7 @@ import {
   CHART_TYPES,
   FilterMenu,
   FindDialog,
+  GoalSeekDialog,
   GoToDialog,
   Menu,
   MessageDialog,
@@ -283,6 +285,7 @@ type DialogState =
   | { kind: 'sort' }
   | { kind: 'cf' }
   | { kind: 'dv' }
+  | { kind: 'goalSeek' }
   | { kind: 'chart'; index: number | null }
   | { kind: 'find'; replace: boolean }
   | { kind: 'goto' }
@@ -1579,6 +1582,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       isChecked: () => !!summary?.autoFilter,
     });
     add('data.validation', open({ kind: 'dv' }));
+    add('data.goalSeek', open({ kind: 'goalSeek' }));
 
     // Page layout
     add('page.setup', open({ kind: 'pageSetup' }));
@@ -2413,7 +2417,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           {
             id: 'tools',
             label: t('sheetEditor.groupDataTools'),
-            items: [item('data.validation', t('sheetEditor.dv.title'), <ShieldCheck size={18} />)],
+            items: [
+              item('data.validation', t('sheetEditor.dv.title'), <ShieldCheck size={18} />),
+              item('data.goalSeek', t('sheetEditor.goalSeek.title'), <Target size={18} />),
+            ],
           },
         ],
       },
@@ -3129,6 +3136,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       {dialog?.kind === 'sort' && <SortDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'cf' && <CfDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'dv' && <ValidationDialog {...common} range={toRange(r)} />}
+      {dialog?.kind === 'goalSeek' && (
+        <GoalSeekDialog
+          {...common}
+          target={`${colName(selection.active.col)}${selection.active.row + 1}`}
+        />
+      )}
       {dialog?.kind === 'chart' && <ChartDialog {...common} index={dialog.index} />}
       {dialog?.kind === 'pivot' && (
         <PivotDialog

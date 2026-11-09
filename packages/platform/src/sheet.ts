@@ -724,7 +724,16 @@ export type SheetCommand =
   | { cmd: 'moveSheet'; from: number; to: number }
   | { cmd: 'setTabColor'; sheet: number; color?: string | null }
   | { cmd: 'batch'; cmds: SheetCommand[] }
-  | { cmd: 'rangeStats'; sheet: number; ranges: SheetRange[] };
+  | { cmd: 'rangeStats'; sheet: number; ranges: SheetRange[] }
+  /** What-if Goal Seek (A1 addresses); `apply` enters the value found. */
+  | {
+      cmd: 'goalSeek';
+      sheet: number;
+      target: string;
+      goal: number;
+      changing: string;
+      apply?: boolean;
+    };
 
 export interface ChartInfo {
   index: number;

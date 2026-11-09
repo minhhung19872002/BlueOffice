@@ -902,6 +902,22 @@ pub enum SheetCommand {
         /// The commands, run in order.
         cmds: Vec<SheetCommand>,
     },
+    /// Goal Seek: the value of `changing` (a constant) that makes the formula in `target`
+    /// equal `goal`. With `apply` the value found is entered (one undo step). Returns
+    /// `{ found, input, result, iterations }`.
+    GoalSeek {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The formula cell, A1 address.
+        target: String,
+        /// The value it should reach.
+        goal: f64,
+        /// The input cell, A1 address.
+        changing: String,
+        /// Enter the value found.
+        #[serde(default)]
+        apply: bool,
+    },
     /// Sum, count and average of the numbers in several ranges (status bar of a
     /// multi-range selection); cells covered twice count once.
     RangeStats {
@@ -1221,6 +1237,50 @@ impl SheetEngine {
                 Ok(json!({ "ok": true }))
             }),
             C::Batch { cmds } => self.batch(cmds),
+            C::GoalSeek {
+                sheet,
+                target,
+                goal,
+                changing,
+                apply,
+            } => {
+                let cell = |a1: &str| {
+                    CellRef::parse(a1.trim().trim_start_matches('$').replace('$', "").as_str())
+                        .ok_or_else(|| bad("invalid cell address"))
+                };
+                let (t, c) = (cell(&target)?, cell(&changing)?);
+                self.sheet(sheet)?;
+                let r = bo_sheet::whatif::goal_seek(
+                    self.wb()?,
+                    sheet,
+                    (t.row, t.col),
+                    goal,
+                    (c.row, c.col),
+                    100,
+                    0.001,
+                )
+                .map_err(|e| {
+                    bad(match e {
+                        bo_sheet::whatif::GoalSeekError::TargetNotFormula => {
+                            "target has no formula"
+                        }
+                        bo_sheet::whatif::GoalSeekError::ChangingIsFormula => {
+                            "changing cell holds a formula"
+                        }
+                    })
+                })?;
+                if apply && r.found {
+                    let input = r.input;
+                    self.edit(sheet, Recalc::All, |wb, _| {
+                        let ws = &mut wb.sheets[sheet];
+                        let cell = ws.cells.entry((c.row, c.col)).or_default();
+                        cell.formula = None;
+                        cell.value = CellValue::Number(input);
+                        Ok(())
+                    })?;
+                }
+                Ok(serde_json::to_value(r).unwrap_or(Value::Null))
+            }
             C::RangeStats { sheet, ranges } => {
                 let ws = self.sheet(sheet)?;
                 Ok(range_stats(ws, &ranges))

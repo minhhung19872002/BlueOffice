@@ -1015,6 +1015,18 @@
         "pivotTables": "Use pivot tables",
         "objects": "Edit objects (charts)"
       }
+    },
+    "goalSeek": {
+      "title": "Goal Seek",
+      "target": "Set cell",
+      "goal": "To value",
+      "changing": "By changing cell",
+      "find": "Find",
+      "apply": "Apply",
+      "badGoal": "Enter a number to reach.",
+      "invalid": "The set cell needs a formula and the changing cell a constant.",
+      "found": "Solution found: input {{input}} gives {{result}}.",
+      "notFound": "No solution found; the last result was {{result}}."
     }
   },
   "recovery": {

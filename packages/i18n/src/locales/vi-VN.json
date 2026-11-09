@@ -1015,6 +1015,18 @@
         "pivotTables": "Dùng bảng tổng hợp",
         "objects": "Sửa đối tượng (biểu đồ)"
       }
+    },
+    "goalSeek": {
+      "title": "Tìm giá trị đích",
+      "target": "Ô đích",
+      "goal": "Đạt giá trị",
+      "changing": "Bằng cách đổi ô",
+      "find": "Tìm",
+      "apply": "Áp dụng",
+      "badGoal": "Nhập số cần đạt.",
+      "invalid": "Ô đích phải có công thức và ô thay đổi phải là hằng số.",
+      "found": "Đã tìm thấy: giá trị vào {{input}} cho kết quả {{result}}.",
+      "notFound": "Không tìm thấy nghiệm; kết quả cuối cùng là {{result}}."
     }
   },
   "recovery": {

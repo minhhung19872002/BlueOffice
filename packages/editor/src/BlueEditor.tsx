@@ -1,6 +1,7 @@
 import { DocumentView } from '@blueoffice/canvas-host';
 import { SpellMenu, loadUserWords, saveUserWord } from './SpellMenu';
 import { AutoCorrectDialog, autoCorrectCommand, loadAutoCorrect } from './AutoCorrectDialog';
+import { DocCheckDocumentDialog } from './DocCheckDocument';
 import { createI18n, I18nextProvider, type Language } from '@blueoffice/i18n';
 import type {
   CharFormat,
@@ -33,6 +34,7 @@ import {
   AArrowDown,
   AArrowUp,
   WandSparkles,
+  ClipboardCheck,
   AlignCenter,
   AlignJustify,
   AlignLeft,
@@ -1235,6 +1237,11 @@ function EditorInner({
       run: () => store.setState({ dialog: 'autoCorrect' }),
     });
     r.register({
+      id: 'review.checkDocument',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'checkDocument' }),
+    });
+    r.register({
       id: 'review.grammar',
       isEnabled: hasDoc,
       isChecked: (s) => s.grammarOn,
@@ -2135,6 +2142,7 @@ function EditorInner({
             item('review.spelling', 'commands.review.spelling', <SpellCheck size={ICON} />),
             item('review.grammar', 'commands.review.grammar', <SpellCheck2 size={ICON} />),
             item('review.autoCorrect', 'commands.review.autoCorrect', <WandSparkles size={ICON} />),
+            item('review.checkDocument', 'inspect.command', <ClipboardCheck size={ICON} />),
           ],
         },
         {
@@ -2420,6 +2428,9 @@ function EditorInner({
             )}
             {state.dialog === 'autoCorrect' && (
               <AutoCorrectDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'checkDocument' && (
+              <DocCheckDocumentDialog run={runCommand} onClose={closeDialog} />
             )}
             {state.dialog === 'control' && (
               <ControlDialog

@@ -7,6 +7,8 @@
  * the rest of the code base is shared 100%.
  */
 
+import type { InspectFix, InspectReport, InspectCommand } from './inspect';
+
 // ---------------------------------------------------------------- engine data
 
 /** Page size in points. */
@@ -600,7 +602,10 @@ export type EditCommand =
   | { cmd: 'mergeInsertField'; name: string }
   | { cmd: 'mergePreview'; record: number | null }
   | { cmd: 'mergeToDocument' }
-  | { cmd: 'setSavePassword'; password?: string };
+  | { cmd: 'setSavePassword'; password?: string }
+  /** Check document (CORE-INSPECT-001): `inspect`, `inspectRemove`, `inspectKeep` → `inspection`. */
+  | InspectCommand
+  | { cmd: 'inspectFix'; fix: InspectFix };
 
 /** A command plus the host clock (Unix ms) used to date new revisions and comments. */
 export type TimedCommand = EditCommand & { now?: number };
@@ -643,6 +648,8 @@ export interface EditResult {
   fonts?: FontChoice[];
   /** The Format Painter holds picked formatting. */
   painter?: boolean;
+  /** Check document report (`inspect` and the inspector commands). */
+  inspection?: InspectReport;
   /** Misspelt words to underline (`spelling`, `spellIgnore`, `spellAddWord`, `setSpelling`). */
   spelling?: SpellMark[];
   /** The misspelt word at a point (`spellAt`). */
@@ -885,6 +892,9 @@ export type SlideTextFormat =
 /** Slide editing command (JSON bridge, ADR-0008). */
 export type SlideCommand =
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
+  /** Check document (CORE-INSPECT-001) → `inspection`. */
+  | InspectCommand
+  | { cmd: 'inspectFix'; fix: InspectFix }
   /** Password for the next saves ([MS-OFFCRYPTO]); empty removes it. */
   | { cmd: 'setSavePassword'; password?: string }
   | { cmd: 'undo' | 'redo' }
@@ -1391,6 +1401,8 @@ export interface SlideEditResult {
   collab?: { change: CollabChange; shape?: string };
   /** Comment threads of the current slide. */
   comments?: SlideThreadInfo[];
+  /** Check document report (`inspect` and the inspector commands). */
+  inspection?: InspectReport;
   /** Text editing inside a shape. */
   textEdit?: SlideTextEdit;
   /** Table being edited: anchor cells (merged cells once) and the selection. */

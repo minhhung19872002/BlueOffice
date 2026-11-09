@@ -5,3 +5,5 @@ export { CommandRegistry, type Command } from './commands';
 export { MacroBanner, PasswordDialog, SavePasswordPanel } from './SecurityPanels';
 export type { EditorState } from './store';
 export { SymbolPanel, useSymbolPickerLabels } from './SymbolPanel';
+export { CheckDocumentDialog, type CheckDocumentBridge, type CheckTab } from './CheckDocument';
+export { DocCheckDocumentDialog, docCheckBridge } from './DocCheckDocument';

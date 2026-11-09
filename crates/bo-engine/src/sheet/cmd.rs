@@ -182,6 +182,21 @@ pub struct SolverConstraint {
 pub enum SheetCommand {
     /// Number formats, cell styles and chart types offered by the UI.
     Presets,
+    /// Check document (CORE-INSPECT-001): inspector, accessibility and
+    /// compatibility report (`bo_engine::inspect::Report`).
+    Inspect,
+    /// Remove what the inspector found in `categories` (comments, hidden rows /
+    /// columns / sheets, headers and footers: one undo step; package parts on the
+    /// next save). Returns the new report.
+    InspectRemove {
+        /// Inspector categories.
+        categories: Vec<crate::inspect::Category>,
+    },
+    /// Cancel queued package-level removals. Returns the new report.
+    InspectKeep {
+        /// Inspector categories.
+        categories: Vec<crate::inspect::Category>,
+    },
     /// Convert cells in legacy Vietnamese fonts (TCVN3 / VNI) to Unicode; one
     /// undo step. Returns `{ "converted": n }`.
     ConvertLegacyText,
@@ -1874,6 +1889,9 @@ impl SheetEngine {
                 }
                 Ok(json!({ "found": true, "filled": filled }))
             }
+            C::Inspect => self.inspect_json(),
+            C::InspectRemove { categories } => self.inspect_remove(&categories),
+            C::InspectKeep { categories } => self.inspect_keep(&categories),
             C::Presets => Ok(json!({
                 "numberFormats": bo_sheet::style::NUMBER_PRESETS
                     .iter()

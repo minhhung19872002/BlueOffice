@@ -3,6 +3,7 @@
  * WASM in a Web Worker (web) or natively behind Tauri commands (desktop).
  * Sizes and coordinates are in points, relative to the viewport.
  */
+import type { InspectCommand } from './inspect';
 import type { GlyphOutline, PageDisplayList } from './types';
 
 export interface SheetSummary {
@@ -534,6 +535,8 @@ export interface CellAt {
 /** A sheet editing command (`bo_engine::sheet::SheetCommand`). */
 export type SheetCommand =
   | { cmd: 'presets' }
+  /** Check document (CORE-INSPECT-001) → `InspectReport`. */
+  | InspectCommand
   /** TCVN3 / VNI text → Unicode (legacy Vietnamese fonts); one undo step. */
   | { cmd: 'convertLegacyText' }
   /** Threaded comments of a sheet ([MS-XLSX] threaded comments) → `SheetThreadInfo[]`. */

@@ -2497,5 +2497,160 @@
     "saved": "Đã lưu",
     "unsaved": "Chưa lưu",
     "saving": "Đang lưu…"
+  },
+  "inspect": {
+    "title": "Kiểm tra tài liệu",
+    "command": "Kiểm tra tài liệu",
+    "tab": {
+      "inspector": "Rà soát nội dung",
+      "accessibility": "Trợ năng",
+      "compatibility": "Tương thích"
+    },
+    "inspectorIntro": "Tìm nội dung có thể bạn không muốn chia sẻ: thông tin cá nhân, nội dung ẩn và ghi chú.",
+    "found": "Tìm thấy {{count}}",
+    "noneFound": "Không có",
+    "pendingOnSave": "Sẽ được gỡ khỏi tệp ở lần lưu tiếp theo.",
+    "removeAll": "Gỡ bỏ",
+    "removeOnSave": "Gỡ khi lưu",
+    "keep": "Giữ lại",
+    "acceptAll": "Chấp nhận mọi thay đổi",
+    "reportOnly": "Hãy tự xem lại; mục này không được gỡ tự động.",
+    "removeEverything": "Gỡ mọi thứ tìm thấy",
+    "recheck": "Kiểm tra lại",
+    "close": "Đóng",
+    "checking": "Đang kiểm tra…",
+    "noIssues": "Không phát hiện vấn đề trợ năng.",
+    "moreIssues": "Còn {{count}} mục chưa hiển thị.",
+    "ratio": "Độ tương phản {{ratio}}:1",
+    "goTo": "Đi tới",
+    "apply": "Áp dụng",
+    "altTextPlaceholder": "Mô tả nội dung được hiển thị",
+    "altTextLabel": "Văn bản thay thế",
+    "fix": {
+      "altText": "Thêm văn bản thay thế",
+      "headerRow": "Dùng hàng đầu làm tiêu đề"
+    },
+    "compatIntro": "Các tính năng bị mất hoặc thay đổi khi lưu tệp sang định dạng khác.",
+    "compatNone": "Không có nội dung nào trong tệp bị ảnh hưởng.",
+    "occurrences": "× {{count}}",
+    "format": {
+      "legacy": "Định dạng 97–2003 (.doc, .xls, .ppt)",
+      "odf": "OpenDocument (.odt, .ods, .odp)"
+    },
+    "severity": {
+      "error": "Lỗi",
+      "warning": "Cảnh báo",
+      "tip": "Gợi ý"
+    },
+    "category": {
+      "comments": "Chú thích và người viết",
+      "revisions": "Thay đổi được theo dõi",
+      "properties": "Thuộc tính tài liệu và thông tin cá nhân",
+      "customProperties": "Thuộc tính tùy chỉnh",
+      "customXml": "Dữ liệu XML tùy chỉnh",
+      "serverProperties": "Thuộc tính máy chủ",
+      "macros": "Macro (dự án VBA)",
+      "hiddenText": "Văn bản ẩn",
+      "hiddenRows": "Hàng ẩn",
+      "hiddenColumns": "Cột ẩn",
+      "hiddenSheets": "Trang tính ẩn",
+      "hiddenSlides": "Trang chiếu ẩn",
+      "offSlide": "Đối tượng nằm ngoài trang chiếu",
+      "notes": "Ghi chú của người trình bày",
+      "headersFooters": "Đầu trang và chân trang",
+      "watermarks": "Hình mờ",
+      "invisibleObjects": "Đối tượng vô hình",
+      "embedded": "Tài liệu nhúng"
+    },
+    "rule": {
+      "altText": {
+        "title": "Thiếu văn bản thay thế",
+        "hint": "Mô tả hình ảnh, hình vẽ và biểu đồ để người dùng trình đọc màn hình biết chúng thể hiện gì."
+      },
+      "tableHeader": {
+        "title": "Bảng chưa có hàng tiêu đề",
+        "hint": "Đánh dấu hàng đầu là tiêu đề để mỗi ô được đọc kèm tên cột."
+      },
+      "mergedCells": {
+        "title": "Ô đã hợp nhất",
+        "hint": "Ô hợp nhất làm khó việc duyệt dữ liệu từng ô; hãy tách ô khi có thể."
+      },
+      "headingOrder": {
+        "title": "Bỏ qua cấp đề mục",
+        "hint": "Hạ từng cấp đề mục một để dàn ý dễ theo dõi."
+      },
+      "noHeadings": {
+        "title": "Tài liệu dài nhưng không có đề mục",
+        "hint": "Dùng kiểu đề mục để chia văn bản dài thành các phần có thể chuyển nhanh tới."
+      },
+      "contrast": {
+        "title": "Chữ khó đọc",
+        "hint": "Chọn màu chữ hoặc màu nền có độ tương phản cao hơn (tối thiểu 4,5:1, hoặc 3:1 với chữ lớn)."
+      },
+      "linkText": {
+        "title": "Văn bản liên kết chưa rõ nghĩa",
+        "hint": "Dùng từ ngữ cho biết liên kết dẫn tới đâu thay vì để trống hoặc chỉ ghi địa chỉ."
+      },
+      "slideTitle": {
+        "title": "Trang chiếu không có tiêu đề",
+        "hint": "Đặt tiêu đề cho mỗi trang chiếu để người xem dễ định hướng."
+      },
+      "duplicateTitle": {
+        "title": "Trùng tiêu đề với trang chiếu khác",
+        "hint": "Đặt tiêu đề khác nhau để phân biệt các trang chiếu."
+      },
+      "readingOrder": {
+        "title": "Kiểm tra thứ tự đọc",
+        "hint": "Tiêu đề nên là đối tượng được đọc đầu tiên; hãy sắp xếp lại các đối tượng nếu cần."
+      },
+      "sheetName": {
+        "title": "Trang tính còn tên mặc định",
+        "hint": "Đổi tên trang tính theo nội dung của nó."
+      },
+      "layoutTable": {
+        "title": "Bảng có thể đang dùng để dàn trang",
+        "hint": "Hàng hoặc cột trống cho thấy bảng dùng để căn chỉnh; hãy dùng định dạng để dàn trang và để bảng cho dữ liệu."
+      },
+      "documentTitle": {
+        "title": "Tài liệu chưa có tiêu đề",
+        "hint": "Thêm tiêu đề trong thuộc tính tài liệu; công nghệ hỗ trợ sẽ đọc tiêu đề này."
+      }
+    },
+    "feature": {
+      "contentControls": "Điều khiển nội dung",
+      "equations": "Phương trình",
+      "smartArt": "Đồ họa SmartArt",
+      "charts": "Biểu đồ",
+      "modernCharts": "Kiểu biểu đồ mới (thác nước, bản đồ cây…)",
+      "tables": "Bảng",
+      "drawings": "Hình ảnh và hình vẽ",
+      "comments": "Chú thích",
+      "commentThreads": "Trả lời chú thích và chuỗi đã giải quyết",
+      "trackedChanges": "Thay đổi được theo dõi",
+      "headersFooters": "Đầu trang và chân trang",
+      "notes": "Chú thích cuối trang và cuối tài liệu",
+      "textEffects": "Hiệu ứng chữ (phát sáng, viền, phản chiếu)",
+      "longBookmarks": "Tên dấu trang dài hơn 40 ký tự",
+      "wideTables": "Bảng rộng hơn 63 cột",
+      "fields": "Trường (giữ lại kết quả hiện tại)",
+      "beyondGrid": "Ô vượt quá 65.536 hàng hoặc 256 cột",
+      "newFunctions": "Hàm trang tính mới",
+      "dynamicArrays": "Công thức mảng động",
+      "slicers": "Slicer",
+      "timelines": "Dòng thời gian",
+      "sparklines": "Biểu đồ thu nhỏ trong ô",
+      "conditionalFormats": "Định dạng có điều kiện",
+      "advancedConditionalFormats": "Thanh dữ liệu, thang màu, bộ biểu tượng hoặc hơn ba quy tắc",
+      "dataValidation": "Kiểm tra dữ liệu nhập",
+      "pivotTables": "PivotTable",
+      "longSheetNames": "Tên trang tính dài hơn 31 ký tự",
+      "manyCellFormats": "Hơn 4.000 định dạng ô",
+      "media": "Âm thanh và video",
+      "transitions": "Hiệu ứng chuyển trang",
+      "morph": "Chuyển trang biến hình",
+      "animations": "Hoạt ảnh",
+      "sections": "Phần trang chiếu",
+      "models3d": "Mô hình 3D"
+    }
   }
 }

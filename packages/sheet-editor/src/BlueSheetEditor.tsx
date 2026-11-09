@@ -52,6 +52,7 @@ import {
   Bold,
   Calendar,
   ChartColumn,
+  ClipboardCheck,
   ClipboardList,
   ClipboardPaste,
   Coins,
@@ -148,6 +149,7 @@ import {
 import { AnalysisDialog } from './analysis';
 import { ProtectSheetDialog, UnprotectDialog } from './protection';
 import { ScenarioDialog } from './scenarios';
+import { SheetCheckDocumentDialog, type SheetGoTo } from './inspect';
 import {
   CfDialog,
   ChartDialog,
@@ -312,6 +314,7 @@ type DialogState =
   | { kind: 'dv' }
   | { kind: 'goalSeek' }
   | { kind: 'scenarios' }
+  | { kind: 'checkDocument' }
   | { kind: 'dataTable' }
   | { kind: 'solver' }
   | { kind: 'analysis' }
@@ -869,6 +872,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [host, refreshInfo, fail],
   );
 
+  const goToRange = useCallback((to: SheetGoTo) => {
+    setSheet(to.sheet);
+    setSelection({
+      anchor: { row: to.r0, col: to.c0 },
+      focus: { row: to.r1, col: to.c1 },
+      active: { row: to.r0, col: to.c0 },
+    });
+  }, []);
+
   const chooseSlicerItem = useCallback(
     (info: SlicerInfo, label: string, multi: boolean) => {
       const chosen = info.items.filter((i) => i.selected).map((i) => i.label);
@@ -1391,6 +1403,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       { ...has, isChecked: (s) => s.structureLocked },
     );
     add('review.savePassword', async () => setSecurity({ kind: 'savePassword' }), has);
+    add('review.checkDocument', open({ kind: 'checkDocument' }), has);
 
     // Cells, rows and columns
     const structural = (rows: boolean, remove: boolean) => async (s: SheetEditorState) => {
@@ -2670,6 +2683,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               ),
             ],
           },
+          {
+            id: 'check',
+            label: t('inspect.title'),
+            items: [
+              item('review.checkDocument', t('inspect.command'), <ClipboardCheck size={18} />),
+            ],
+          },
         ],
       },
       {
@@ -3482,6 +3502,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           {...common}
           target={`${colName(selection.active.col)}${selection.active.row + 1}`}
         />
+      )}
+      {dialog?.kind === 'checkDocument' && (
+        <SheetCheckDocumentDialog exec={exec} goTo={goToRange} onClose={common.onClose} />
       )}
       {dialog?.kind === 'scenarios' && (
         <ScenarioDialog

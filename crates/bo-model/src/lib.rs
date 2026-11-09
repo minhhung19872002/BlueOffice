@@ -14,6 +14,7 @@ pub mod field;
 pub mod form;
 pub mod index;
 pub mod picture;
+pub mod run_fx;
 pub mod sheet;
 pub mod sigline;
 pub mod slide;

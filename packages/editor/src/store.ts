@@ -91,6 +91,9 @@ export interface EditorState {
     | 'hyphenation'
     | 'textDirection'
     | 'dropCap'
+    | 'fontEffects'
+    | 'phoneticGuide'
+    | 'combineChars'
     | 'signatureLine'
     | 'signLine'
     | ReferenceDialogId

@@ -275,6 +275,20 @@ fn pr(ppr: &str, rpr: &str, text: &str) -> String {
     )
 }
 
+/// A paragraph of runs `(rPr children, text)`.
+fn rpara(runs: &[(&str, &str)]) -> String {
+    let mut s = String::from("<w:p>");
+    for (rpr, text) in runs {
+        s.push_str("<w:r>");
+        if !rpr.is_empty() {
+            s.push_str(&format!("<w:rPr>{rpr}</w:rPr>"));
+        }
+        s.push_str(&format!(r#"<w:t xml:space="preserve">{text}</w:t></w:r>"#));
+    }
+    s.push_str("</w:p>");
+    s
+}
+
 const VI: &[&str] = &[
     "Căn cứ Luật Tổ chức Chính phủ ngày 19 tháng 6 năm 2015;",
     "Theo đề nghị của Giám đốc Trung tâm Công nghệ thông tin (giả định);",
@@ -2001,6 +2015,56 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
             lorem(6),
         ].concat(),
         sect: format!(r#"<w:sectPr>{page}<w:cols w:space="708"/><w:textDirection w:val="btLr"/></w:sectPr>"#),
+        ..Doc::default()
+    }));
+    // DOC-FMT-001: character effects, spacing/scale, OpenType typography, ruby, combine.
+    let big = r#"<w:sz w:val="40"/><w:szCs w:val="40"/>"#;
+    v.push(("text-04-effects.docx", "text", "Hiệu ứng ký tự: viền rỗng (w:outline), bóng (w:shadow), nổi (w:emboss), chìm (w:imprint); hiệu ứng w14: phát sáng, bóng mờ, phản chiếu, viền chữ, tô chuyển màu; viền ký tự (w:bdr) và tô nền theo mẫu (w:shd pct25)", Doc {
+        body: [
+            rpara(&[(&format!("<w:outline/>{big}"), "Chữ viền rỗng "), (&format!("<w:shadow/>{big}"), "Chữ có bóng")]),
+            rpara(&[(&format!(r#"<w:emboss/><w:color w:val="C0C0C0"/>{big}"#), "Chữ nổi "), (&format!(r#"<w:imprint/><w:color w:val="C0C0C0"/>{big}"#), "Chữ chìm")]),
+            rpara(&[(&format!(r#"<w:color w:val="1F3A68"/>{big}<w14:glow w14:rad="101600"><w14:srgbClr w14:val="FFC000"><w14:alpha w14:val="40000"/></w14:srgbClr></w14:glow>"#), "Phát sáng vàng")]),
+            rpara(&[(&format!(r#"{big}<w14:shadow w14:blurRad="50800" w14:dist="38100" w14:dir="2700000" w14:sx="100000" w14:sy="100000" w14:kx="0" w14:ky="0" w14:algn="tl"><w14:srgbClr w14:val="000000"><w14:alpha w14:val="60000"/></w14:srgbClr></w14:shadow>"#), "Bóng mờ lệch phải dưới")]),
+            rpara(&[(&format!(r#"{big}<w14:reflection w14:blurRad="6350" w14:stA="55000" w14:stPos="0" w14:endA="300" w14:endPos="45500" w14:dist="0" w14:dir="5400000" w14:fadeDir="5400000" w14:sx="100000" w14:sy="-100000" w14:kx="0" w14:ky="0" w14:algn="bl"/>"#), "Phản chiếu")]),
+            rpara(&[(&format!(r#"<w:color w:val="FFFFFF"/>{big}<w14:textOutline w14:w="12700" w14:cap="flat" w14:cmpd="sng" w14:algn="ctr"><w14:solidFill><w14:srgbClr w14:val="C00000"/></w14:solidFill><w14:prstDash w14:val="solid"/><w14:round/></w14:textOutline>"#), "Viền chữ đỏ 1 pt")]),
+            rpara(&[(&format!(r#"<w:b/>{big}<w14:textFill><w14:gradFill><w14:gsLst><w14:gs w14:pos="0"><w14:srgbClr w14:val="C00000"/></w14:gs><w14:gs w14:pos="100000"><w14:schemeClr w14:val="accent1"><w14:lumMod w14:val="75000"/></w14:schemeClr></w14:gs></w14:gsLst><w14:lin w14:ang="0" w14:scaled="0"/></w14:gradFill></w14:textFill>"#), "Tô chuyển màu ngang")]),
+            rpara(&[("", "Viền ký tự: "), (r#"<w:bdr w:val="single" w:sz="8" w:space="0" w:color="1F3A68"/>"#, "khung đơn"), ("", " và "), (r#"<w:shd w:val="pct25" w:color="auto" w:fill="FFFF00"/>"#, "tô nền mẫu 25 %")]),
+        ].concat(),
+        sect: sect(""),
+        ..Doc::default()
+    }));
+    v.push(("text-05-spacing-scale.docx", "text", "Giãn/co ký tự (w:spacing ±), nâng/hạ (w:position ±), co giãn ngang (w:w 50/150/200 %), kerning từ 12 pt (w:kern)", Doc {
+        body: [
+            rpara(&[(r#"<w:spacing w:val="60"/>"#, "Giãn 3 pt "), (r#"<w:spacing w:val="-20"/>"#, "co 1 pt")]),
+            rpara(&[("", "Chuẩn "), (r#"<w:position w:val="8"/>"#, "nâng 4 pt"), ("", " và "), (r#"<w:position w:val="-8"/>"#, "hạ 4 pt")]),
+            rpara(&[(r#"<w:w w:val="50"/>"#, "Co 50 % "), (r#"<w:w w:val="150"/>"#, "giãn 150 % "), (r#"<w:w w:val="200"/>"#, "200 %")]),
+            rpara(&[(&format!(r#"<w:rFonts w:ascii="Liberation Sans" w:hAnsi="Liberation Sans"/><w:kern w:val="24"/>{big}"#), "AVATAR Wave To"), (&format!(r#"<w:rFonts w:ascii="Liberation Sans" w:hAnsi="Liberation Sans"/>{big}"#), " AVATAR Wave To")]),
+        ].concat(),
+        sect: sect(""),
+        ..Doc::default()
+    }));
+    v.push(("text-06-opentype.docx", "text", "Kiểu chữ OpenType w14: ligature none/standard (\"office ffi\" bằng Carlito), số kiểu cũ/bảng (numForm, numSpacing), bộ kiểu (stylisticSets), thay thế ngữ cảnh (cntxtAlts)", Doc {
+        body: [
+            rpara(&[(&format!(r#"<w:rFonts w:ascii="Carlito" w:hAnsi="Carlito"/>{big}<w14:ligatures w14:val="none"/>"#), "office affine ffi — tắt")]),
+            rpara(&[(&format!(r#"<w:rFonts w:ascii="Carlito" w:hAnsi="Carlito"/>{big}<w14:ligatures w14:val="standard"/>"#), "office affine ffi — chuẩn")]),
+            rpara(&[(&format!(r#"<w:rFonts w:ascii="Carlito" w:hAnsi="Carlito"/>{big}<w14:numForm w14:val="oldStyle"/><w14:numSpacing w14:val="tabular"/>"#), "0123456789")]),
+            rpara(&[(&format!(r#"<w:rFonts w:ascii="Carlito" w:hAnsi="Carlito"/>{big}<w14:ligatures w14:val="standardContextual"/><w14:stylisticSets><w14:styleSet w14:id="1"/></w14:stylisticSets><w14:cntxtAlts/>"#), "Stylistic set 1")]),
+        ].concat(),
+        sect: sect(""),
+        ..Doc::default()
+    }));
+    let ruby = |base: &str, guide: &str, align: &str| {
+        format!(
+            r#"<w:r><w:ruby><w:rubyPr><w:rubyAlign w:val="{align}"/><w:hps w:val="12"/><w:hpsRaise w:val="26"/><w:hpsBaseText w:val="26"/><w:lid w:val="vi-VN"/></w:rubyPr><w:rt><w:r><w:rPr><w:sz w:val="12"/></w:rPr><w:t>{guide}</w:t></w:r></w:rt><w:rubyBase><w:r><w:rPr><w:sz w:val="26"/></w:rPr><w:t>{base}</w:t></w:r></w:rubyBase></w:ruby></w:r>"#
+        )
+    };
+    v.push(("text-07-ruby-combine.docx", "text", "Chú âm (w:ruby: rubyPr, rt, rubyBase; căn giữa/trái/phải) và hai dòng trong một (w:eastAsianLayout combine, ngoặc tròn/vuông), chữ ngang trong dọc (vert)", Doc {
+        body: [
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Chú âm: </w:t></w:r>{}<w:r><w:t xml:space="preserve"> · </w:t></w:r>{}<w:r><w:t xml:space="preserve"> · </w:t></w:r>{}</w:p>"#, ruby("Hà Nội", "thủ đô", "center"), ruby("Huế", "cố đô", "left"), ruby("ABC", "a-bê-xê", "right")),
+            rpara(&[("", "Hai dòng trong một: "), (r#"<w:eastAsianLayout w:id="1" w:combine="1"/>"#, "BlueDoc"), ("", " — có ngoặc: "), (r#"<w:eastAsianLayout w:id="2" w:combine="1" w:combineBrackets="round"/>"#, "Dòng1Dòng2"), ("", " "), (r#"<w:eastAsianLayout w:id="3" w:combine="1" w:combineBrackets="square"/>"#, "ABCD")]),
+            rpara(&[("", "Ngang trong dọc: "), (r#"<w:eastAsianLayout w:id="4" w:vert="1" w:vertCompress="1"/>"#, "12")]),
+        ].concat(),
+        sect: sect(""),
         ..Doc::default()
     }));
     v

@@ -31,6 +31,7 @@ struct Draft {
     text: String,
     glyphs: Vec<GlyphPos>,
     link: Option<String>,
+    fx: Option<Arc<crate::charfx::TextFx>>,
 }
 
 impl Draft {
@@ -48,6 +49,7 @@ impl Draft {
             text: self.text.into(),
             glyphs: self.glyphs.into(),
             link: self.link,
+            fx: self.fx,
         }
     }
 }
@@ -284,6 +286,8 @@ pub(crate) struct RelLine {
     pub objects: Vec<RelObject>,
     /// Highlight rectangles: (x, w, color) spanning ascent..descent.
     pub highlights: Vec<(f32, f32, Color)>,
+    /// Character borders (§17.3.2.4 bdr): (x, w, border) spanning ascent..descent.
+    pub borders: Vec<(f32, f32, bo_model::Border)>,
     pub ascent: f32,
     pub descent: f32,
     pub start: u32,
@@ -575,7 +579,7 @@ fn split_by_level(
             let b1 = chars.get(j).map_or(p.text.len(), |c| c.0);
             let sub = &p.text[b0..b1];
             let st = &styles[p.style];
-            let glyphs = fonts.shape_kern(p.face, sub, st.kern);
+            let glyphs = shape_run(fonts, p.face, sub, st);
             let upem = f32::from(fonts.info(p.face).units_per_em);
             let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32 * st.size / upem
                 + st.spacing * glyphs.len() as f32;
@@ -702,6 +706,7 @@ fn math_object(
                 .collect::<Vec<_>>()
                 .into(),
             link: None,
+            fx: None,
         })
         .collect();
     let items = b
@@ -804,6 +809,8 @@ fn layout_uncached(
     let (index_text, spans) = para_index(inp.para);
     let mut styles: Vec<RunStyle> = Vec::new();
     let mut run_style_idx: Vec<usize> = Vec::new();
+    // Effective run properties (phonetic guides inherit them).
+    let mut run_rps: Vec<RunProps> = Vec::new();
     for r in &inp.para.runs {
         // The original view shows the formatting before a tracked change (§17.13.5.31).
         let direct = match (&r.props.change, inp.view) {
@@ -816,6 +823,7 @@ fn layout_uncached(
             _ => r.props.clone(),
         };
         let rp = run_props(doc, &base_run, &direct);
+        run_rps.push(rp.clone());
         styles.push(revision_style(
             run_style(doc, fonts, &rp).ok_or(LayoutError::NoFonts)?,
             &rp,
@@ -881,6 +889,13 @@ fn layout_uncached(
                 }
                 math_object(&raw.xml, &styles[style], fonts)
             }
+            // §17.3.3.25 ruby; §17.3.2.10 eastAsianLayout combine.
+            RunContent::Opaque(raw) if bo_model::index::is_ruby_xml(&raw.xml) => {
+                crate::ruby::ruby_object(&raw.xml, &run_rps[sp.run], doc, fonts)
+            }
+            RunContent::Text(t) if styles[style].combine && !styles[style].hidden => {
+                crate::ruby::combine_object(t, &styles[style], fonts)
+            }
             _ => None,
         };
         let drawing = match item {
@@ -909,12 +924,16 @@ fn layout_uncached(
         }
         let (text, object, image, note) = match item {
             RunContent::Image(img) => (String::new(), true, Some((**img).clone()), None),
-            RunContent::Markup(_) if math.is_some() => (
-                String::new(),
-                true,
-                math.as_ref().map(|m| m.0.clone()),
-                None,
-            ),
+            RunContent::Markup(_) | RunContent::Opaque(_) | RunContent::Text(_)
+                if math.is_some() =>
+            {
+                (
+                    String::new(),
+                    true,
+                    math.as_ref().map(|m| m.0.clone()),
+                    None,
+                )
+            }
             RunContent::Field { instr, cached, .. } => {
                 (field_text(instr, cached, inp.fields), true, None, None)
             }
@@ -1255,6 +1274,7 @@ fn layout_uncached(
         let mut carets: Vec<(u32, f32)> = Vec::new();
         let mut objects = Vec::new();
         let mut highlights = Vec::new();
+        let mut borders: Vec<(f32, f32, bo_model::Border)> = Vec::new();
         let mut notes = Vec::new();
         let mut first_caret = None;
         let line_segs = &segs[li];
@@ -1378,6 +1398,13 @@ fn layout_uncached(
                 if let Some(h) = st.highlight {
                     highlights.push((x0, gx, h));
                 }
+                // §17.3.2.4 bdr: adjacent runs with the same border share one box.
+                if let Some(b) = &st.border {
+                    match borders.last_mut() {
+                        Some(l) if l.2 == *b && (l.0 + l.1 - x0).abs() < 0.01 => l.1 += gx,
+                        _ => borders.push((x0, gx, b.clone())),
+                    }
+                }
                 if let Some(last) = frags.last_mut() {
                     let same = last.face == p.face
                         && last.size == st.size
@@ -1386,6 +1413,7 @@ fn layout_uncached(
                         && last.strike == st.strike
                         && last.double_strike == st.double_strike
                         && last.link == st.link
+                        && last.fx == st.fx
                         && (last.x + last.width - x0).abs() < 0.001
                         && last.glyphs.iter().all(|g| (g.y - st.shift).abs() < 1e-4)
                         && glyphs.iter().all(|g| (g.y - st.shift).abs() < 1e-4);
@@ -1415,6 +1443,7 @@ fn layout_uncached(
                     text: p.text.clone(),
                     glyphs,
                     link: st.link.clone(),
+                    fx: st.fx.clone(),
                 });
             }
         }
@@ -1491,6 +1520,7 @@ fn layout_uncached(
                         })
                         .collect(),
                     link: None,
+                    fx: None,
                 });
             }
         }
@@ -1506,6 +1536,7 @@ fn layout_uncached(
             carets,
             objects,
             highlights,
+            borders,
             ascent,
             descent,
             start,
@@ -1629,7 +1660,7 @@ fn split_word(
             let st = &styles[p.style];
             let upem = f32::from(fonts.info(p.face).units_per_em);
             let mut part = |t: &str, offs: &[u32]| {
-                let glyphs = fonts.shape_kern(p.face, t, st.kern);
+                let glyphs = shape_run(fonts, p.face, t, st);
                 let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32 * st.size / upem
                     + st.spacing * glyphs.len() as f32;
                 Piece {
@@ -1785,6 +1816,7 @@ fn leader_fragment(
         text,
         glyphs,
         link: None,
+        fx: None,
     })
 }
 
@@ -1853,6 +1885,27 @@ fn special_piece(kind: Kind, style: usize, styles: &[RunStyle], at: u32, virtual
         obj_d: 0.0,
         note: None,
     }
+}
+
+/// Shape `text` with a run's kerning and OpenType features ([MS-DOCX] w14 typography),
+/// advances scaled by its horizontal scale (§17.3.2.43 w).
+pub(crate) fn shape_run(
+    fonts: &mut FontManager,
+    face: FaceId,
+    text: &str,
+    st: &RunStyle,
+) -> Arc<[ShapedGlyph]> {
+    let g = fonts.shape_features(face, text, st.kern, &st.features);
+    if (st.scale_x - 1.0).abs() < 1e-6 {
+        return g;
+    }
+    g.iter()
+        .map(|g| ShapedGlyph {
+            x_advance: (g.x_advance as f32 * st.scale_x).round() as i32,
+            x_offset: (g.x_offset as f32 * st.scale_x).round() as i32,
+            ..*g
+        })
+        .collect()
 }
 
 /// Shape `text` (one style) into Text/Space pieces. `offsets` gives the original byte
@@ -1936,7 +1989,7 @@ fn text_pieces(
         for (r, face) in items {
             let t = &group[r];
             let nc = t.chars().count();
-            let glyphs = fonts.shape_kern(face, t, st.kern);
+            let glyphs = shape_run(fonts, face, t, st);
             let upem = f32::from(fonts.info(face).units_per_em);
             let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32 * st.size / upem
                 + st.spacing * glyphs.len() as f32;
@@ -1978,6 +2031,10 @@ fn word_pieces(
             continue;
         }
         if at.object {
+            // A multi-character object (two lines in one) belongs to its first word.
+            if at.start < a {
+                continue;
+            }
             if let Some(img) = &at.image {
                 pieces.push(Piece {
                     style: at.style,

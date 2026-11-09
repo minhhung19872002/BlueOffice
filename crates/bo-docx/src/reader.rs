@@ -94,6 +94,7 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
     let mut ctx = Ctx::new(&pkg, &main)?;
     let mut doc = Document::default();
     ctx.theme = read_theme(&pkg, &main, &mut doc);
+    crate::textfx::set_theme(ctx.theme.clone());
     if let Some(p) = pkg
         .related_part(&main, REL_STYLES)?
         .and_then(|n| pkg.part(&n))
@@ -179,6 +180,7 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         protection: doc.protection.clone(),
         hyphenation: doc.hyphenation,
     }));
+    crate::textfx::set_theme(None);
     Ok(doc)
 }
 
@@ -1924,6 +1926,16 @@ fn read_lang(e: &BytesStart<'_>) -> Lang {
 fn read_rpr(r: &mut XmlReader<'_>) -> Result<RunProps> {
     let mut p = RunProps::default();
     children(r, |r, e, s, before| {
+        // [MS-DOCX] w14 run extensions (text effects, OpenType typography).
+        if e.name().prefix().is_some_and(|x| x.as_ref() == "w14") {
+            let raw = capture(r, s, before)?;
+            let mut fx = p.effects.take().map(|b| *b).unwrap_or_default();
+            if !crate::textfx::read_w14(&raw.xml, &mut fx) {
+                p.unknown.push(raw);
+            }
+            p.effects = (!fx.is_empty()).then(|| Box::new(fx));
+            return Ok(true);
+        }
         match name(e).as_slice() {
             b"rStyle" => p.style = attr(e, b"val"),
             // §17.3.2.26 rFonts
@@ -1991,7 +2003,39 @@ fn read_rpr(r: &mut XmlReader<'_>) -> Result<RunProps> {
             b"highlight" => {
                 p.highlight = attr(e, b"val").as_deref().and_then(Color::from_highlight);
             } // §17.3.2.15
-            b"shd" => p.shading = color_attr(e, b"fill"), // §17.3.2.32
+            // §17.3.2.32 shd: fill, plus the pattern (§17.18.78 ST_Shd) and its colour.
+            b"shd" => {
+                p.shading = color_attr(e, b"fill");
+                let val = attr(e, b"val").unwrap_or_else(|| "clear".into());
+                let color = color_attr(e, b"color");
+                if val != "clear" || color.is_some() {
+                    p.shading_pattern = Some(bo_model::run_fx::ShadingPattern { val, color });
+                }
+            }
+            b"outline" => p.outline = Some(on_off(e)), // §17.3.2.23
+            b"shadow" => p.shadow = Some(on_off(e)),   // §17.3.2.31
+            b"emboss" => p.emboss = Some(on_off(e)),   // §17.3.2.13
+            b"imprint" => p.imprint = Some(on_off(e)), // §17.3.2.18
+            // §17.3.2.24 position (ST_SignedHpsMeasure)
+            b"position" => p.position = int(e, b"val").map(|v| v.clamp(-3168, 3168) as i32),
+            // §17.3.2.43 w (ST_TextScale, 1–600 percent)
+            b"w" => {
+                p.scale = attr(e, b"val")
+                    .and_then(|v| v.trim().trim_end_matches('%').parse::<f64>().ok())
+                    .map(|v| v.clamp(1.0, 600.0) as u32);
+            }
+            b"bdr" => p.border = Some(read_border(e)), // §17.3.2.4
+            // §17.3.2.10 eastAsianLayout
+            b"eastAsianLayout" => {
+                let flag = |a: &[u8]| attr(e, a).map(|v| on_off_value(&v));
+                p.east_asian = Some(bo_model::run_fx::EastAsianLayout {
+                    id: int(e, b"id"),
+                    combine: flag(b"combine"),
+                    combine_brackets: attr(e, b"combineBrackets"),
+                    vert: flag(b"vert"),
+                    vert_compress: flag(b"vertCompress"),
+                });
+            }
             // §17.3.2.42 vertAlign
             b"vertAlign" => {
                 p.vert_align = match attr(e, b"val").as_deref() {

@@ -11,6 +11,7 @@ mod picture;
 mod reader;
 mod shape;
 pub mod sigline;
+pub(crate) mod textfx;
 mod writer;
 
 pub use reader::read_docx;

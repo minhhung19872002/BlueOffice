@@ -107,6 +107,18 @@ pub struct RunStyle {
     pub link: Option<String>,
     /// Tracked insertion/deletion shown in markup: (author colour, deleted).
     pub revision: Option<(Color, bool)>,
+    /// OpenType features for the shaper ([MS-DOCX] w14 typography).
+    pub features: std::sync::Arc<[([u8; 4], u32)]>,
+    /// Horizontal glyph scale (§17.3.2.43 w; 1 = 100 %).
+    pub scale_x: f32,
+    /// Border around the run (§17.3.2.4 bdr).
+    pub border: Option<bo_model::Border>,
+    /// Two lines in one (§17.3.2.10 eastAsianLayout `w:combine`).
+    pub combine: bool,
+    /// Brackets around combined text (§17.18.8 `ST_CombineBrackets`).
+    pub combine_brackets: Option<(char, char)>,
+    /// Glyph effects for the renderer.
+    pub fx: Option<std::sync::Arc<crate::charfx::TextFx>>,
 }
 
 /// Effective paragraph properties of `p`.
@@ -190,6 +202,10 @@ pub fn run_style(doc: &Document, fonts: &mut FontManager, rp: &RunProps) -> Opti
         }
         _ => {}
     }
+    // §17.3.2.24 position: raised (positive) or lowered text, in half-points.
+    if let Some(pos) = rp.position {
+        shift -= pos as f32 / 2.0;
+    }
     let small_caps = rp.small_caps.unwrap_or(false);
     if small_caps && !rp.caps.unwrap_or(false) {
         size *= 0.8;
@@ -206,12 +222,24 @@ pub fn run_style(doc: &Document, fonts: &mut FontManager, rp: &RunProps) -> Opti
         underline: rp.underline.unwrap_or(Underline::None),
         strike: rp.strike.unwrap_or(false),
         double_strike: rp.double_strike.unwrap_or(false),
-        highlight: rp.highlight.or(rp.shading),
+        highlight: rp.highlight.or_else(|| crate::charfx::shading_color(rp)),
         caps: rp.caps.unwrap_or(false) || small_caps,
         spacing: rp.spacing.map_or(0.0, bo_model::Twips::to_pt),
         hidden: rp.hidden.unwrap_or(false),
         link: rp.link.clone(),
         revision: None,
+        features: crate::charfx::features_of(rp).into(),
+        scale_x: rp.scale.map_or(1.0, |w| w.clamp(1, 600) as f32 / 100.0),
+        border: rp.border.clone().filter(bo_model::Border::is_visible),
+        combine: rp
+            .east_asian
+            .as_ref()
+            .is_some_and(|e| e.combine == Some(true)),
+        combine_brackets: rp
+            .east_asian
+            .as_ref()
+            .and_then(bo_model::run_fx::EastAsianLayout::brackets),
+        fx: crate::charfx::TextFx::of(rp).map(std::sync::Arc::new),
     })
 }
 

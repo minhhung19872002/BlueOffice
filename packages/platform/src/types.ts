@@ -10,6 +10,7 @@
 import type { InspectFix, InspectReport, InspectCommand } from './inspect';
 import type { FindResult, FormatMark, OutlineItem, ViewCommand } from './views';
 import type { SignatureLineCommand, SignatureLineImages, SignatureLineInfo } from './sigline';
+import type { CharAdvanced, CharAdvancedPatch, RubySpec } from './charfx';
 
 // ---------------------------------------------------------------- engine data
 
@@ -243,6 +244,8 @@ export interface FormatState {
   lang?: string | null;
   /** Spelling and grammar are not checked (§17.3.2.21 noProof). */
   noProof?: boolean;
+  /** Advanced character formatting (Font dialog, DOC-FMT-001). */
+  advanced?: CharAdvanced;
 }
 
 /** Position of a floating picture in points (§20.4.2.10 positionH / §20.4.2.11 positionV). */
@@ -413,7 +416,9 @@ export type CharFormat =
   /** Proofing language (§17.3.2.20 lang); null removes the direct language. */
   | { kind: 'language'; lang: string | null }
   /** Do not check spelling or grammar (§17.3.2.21 noProof). */
-  | { kind: 'noProof'; on: boolean };
+  | { kind: 'noProof'; on: boolean }
+  /** Font dialog: effects, spacing, position, scale, border, typography (DOC-FMT-001). */
+  | { kind: 'advanced'; patch: CharAdvancedPatch };
 
 export type ParaFormat =
   | { kind: 'align'; align: Alignment }
@@ -653,6 +658,8 @@ export type EditCommand =
       /** A numbered equation paragraph with this SEQ label. */
       numbered?: string;
     }
+  /** Phonetic guide (§17.3.3.25 ruby); `replace` replaces the selected one. */
+  | { cmd: 'insertRuby'; ruby: RubySpec; replace?: boolean }
   | { cmd: 'equationTemplates' }
   | { cmd: 'equation' }
   | { cmd: 'equationFormat'; linear: boolean }
@@ -946,6 +953,8 @@ export interface EditResult {
   proofOptions?: ProofOptions;
   /** The equation the selection covers or the caret follows. */
   equation?: EquationInfo;
+  /** The phonetic guide the selection covers or the caret follows. */
+  ruby?: RubySpec;
   /** The content control around the caret. */
   control?: ControlInfo;
   /** The legacy form field at the caret. */

@@ -111,6 +111,9 @@
       "pasteSpecial": "Dán đặc biệt…"
     },
     "format": {
+      "fontDialog": "Hiệu ứng ký tự…",
+      "phoneticGuide": "Chú âm…",
+      "combineChars": "Hai dòng trong một…",
       "bold": "Đậm",
       "italic": "Nghiêng",
       "underline": "Gạch chân",
@@ -4463,6 +4466,103 @@
       "badRatio": "Tỷ lệ khung không hợp lệ.",
       "badShape": "Không có hình này.",
       "unsupported": "Chức năng này chưa có cho loại tài liệu này."
+    }
+  },
+  "charFx": {
+    "title": "Hiệu ứng và giãn cách ký tự",
+    "ok": "Áp dụng",
+    "cancel": "Huỷ",
+    "none": "Không",
+    "preview": "Xem trước",
+    "tabs": {
+      "effects": "Hiệu ứng",
+      "spacing": "Giãn cách và kiểu chữ"
+    },
+    "classic": "Hiệu ứng cơ bản",
+    "outline": "Chữ rỗng",
+    "shadow": "Đổ bóng",
+    "emboss": "Chữ nổi",
+    "imprint": "Chữ chìm",
+    "glow": "Phát sáng",
+    "softShadow": "Bóng mờ",
+    "reflection": "Phản chiếu",
+    "textOutline": "Viền nét chữ",
+    "gradient": "Tô chuyển màu",
+    "border": "Khung quanh chữ",
+    "borderStyle": "Kiểu nét",
+    "borderStyles": {
+      "single": "Đơn",
+      "double": "Đôi",
+      "dotted": "Chấm",
+      "dashed": "Gạch",
+      "thick": "Đậm"
+    },
+    "shading": "Màu nền",
+    "color": "Màu",
+    "from": "Màu đầu",
+    "to": "Màu cuối",
+    "radiusPt": "Độ rộng (pt)",
+    "blurPt": "Độ nhòe (pt)",
+    "distancePt": "Khoảng cách (pt)",
+    "widthPt": "Độ dày (pt)",
+    "angle": "Hướng (°)",
+    "transparency": "Độ trong suốt (%)",
+    "sizePercent": "Độ dài (% chiều cao chữ)",
+    "spacingPt": "Giãn ký tự (pt, âm = co lại)",
+    "positionPt": "Nâng chữ (pt, âm = hạ xuống)",
+    "scalePercent": "Tỉ lệ bề ngang (%)",
+    "kerning": "Tinh chỉnh khoảng cách cặp chữ",
+    "kernFromPt": "Từ cỡ chữ (pt)",
+    "opentype": "Tính năng OpenType",
+    "ligatures": "Chữ ghép",
+    "ligatureKinds": {
+      "unset": "Theo phông",
+      "none": "Tắt",
+      "standard": "Chuẩn",
+      "standardContextual": "Chuẩn và theo ngữ cảnh",
+      "historicalDiscretional": "Cổ và tùy chọn",
+      "all": "Tất cả"
+    },
+    "numForm": "Kiểu chữ số",
+    "numForms": {
+      "unset": "Theo phông",
+      "lining": "Thẳng hàng",
+      "oldStyle": "Kiểu cổ"
+    },
+    "numSpacing": "Bề rộng chữ số",
+    "numSpacings": {
+      "unset": "Theo phông",
+      "proportional": "Theo tỉ lệ",
+      "tabular": "Bằng nhau (bảng)"
+    },
+    "stylisticSet": "Bộ kiểu dáng",
+    "contextualAlternates": "Dạng thay thế theo ngữ cảnh",
+    "ruby": {
+      "title": "Chú âm",
+      "base": "Chữ",
+      "guide": "Chữ chú âm",
+      "align": "Vị trí",
+      "aligns": {
+        "center": "Giữa",
+        "distributeLetter": "Rải đều theo chữ",
+        "distributeSpace": "Rải đều có lề",
+        "left": "Trái",
+        "right": "Phải"
+      },
+      "sizePt": "Cỡ chữ chú âm (pt)",
+      "raisePt": "Độ cao trên chữ (pt)"
+    },
+    "combine": {
+      "title": "Hai dòng trong một",
+      "on": "Xếp chữ thành hai dòng chồng nhau",
+      "brackets": "Đặt trong",
+      "bracketKinds": {
+        "none": "Không có",
+        "round": "( )",
+        "square": "[ ]",
+        "angle": "< >",
+        "curly": "{ }"
+      }
     }
   }
 }

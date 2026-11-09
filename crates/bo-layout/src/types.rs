@@ -395,6 +395,9 @@ pub struct Fragment {
     pub glyphs: Arc<[GlyphPos]>,
     /// Hyperlink target, if any.
     pub link: Option<String>,
+    /// Glyph effects (outline, shadow, glow, gradient fill, horizontal scale…).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fx: Option<Arc<crate::charfx::TextFx>>,
 }
 
 /// A glyph relative to its fragment origin (points, y down).

@@ -38,6 +38,9 @@ struct Face {
     info: FaceInfo,
 }
 
+/// Shape cache key: face, kerning, OpenType features (tag, value), text.
+type ShapeKey = (FaceId, bool, Vec<([u8; 4], u32)>, String);
+
 /// A shaped glyph in font units.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ShapedGlyph {
@@ -82,7 +85,7 @@ const LAST_RESORT: &[&str] = &["tinos", "liberation serif", "carlito", "liberati
 pub struct FontManager {
     faces: Vec<Face>,
     by_family: HashMap<String, Vec<FaceId>>,
-    shape_cache: HashMap<(FaceId, bool, String), Arc<[ShapedGlyph]>>,
+    shape_cache: HashMap<ShapeKey, Arc<[ShapedGlyph]>>,
     resolve_cache: HashMap<(String, bool, bool), Option<FaceId>>,
     /// Installed OS fonts, loaded per family on first use (native hosts that opt in).
     #[cfg(not(target_arch = "wasm32"))]
@@ -368,7 +371,21 @@ impl FontManager {
     /// processing applies kerning only from the size given by `w:kern`, ECMA-376
     /// Part 1 §17.3.2.19). Cached.
     pub fn shape_kern(&mut self, id: FaceId, text: &str, kern: bool) -> Arc<[ShapedGlyph]> {
-        let key = (id, kern, text.to_owned());
+        self.shape_features(id, text, kern, &[])
+    }
+
+    /// Shape `text` with pair kerning on or off and extra OpenType features as
+    /// (tag, value) pairs (OpenType feature registry, e.g. `liga` = 0 turns standard
+    /// ligatures off, `ss03` = 1 selects stylistic set 3), applied to the whole text.
+    /// Features not listed keep the shaper's defaults. Cached.
+    pub fn shape_features(
+        &mut self,
+        id: FaceId,
+        text: &str,
+        kern: bool,
+        features: &[([u8; 4], u32)],
+    ) -> Arc<[ShapedGlyph]> {
+        let key = (id, kern, features.to_vec(), text.to_owned());
         if let Some(g) = self.shape_cache.get(&key) {
             return g.clone();
         }
@@ -377,13 +394,15 @@ impl FontManager {
             Some(face) => {
                 let mut buf = rustybuzz::UnicodeBuffer::new();
                 buf.push_str(text);
-                let off = [rustybuzz::Feature::new(
-                    rustybuzz::ttf_parser::Tag::from_bytes(b"kern"),
-                    0,
-                    ..,
-                )];
-                let features: &[rustybuzz::Feature] = if kern { &[] } else { &off };
-                let out = rustybuzz::shape(&face, features, buf);
+                let tag = rustybuzz::ttf_parser::Tag::from_bytes;
+                let mut feats: Vec<rustybuzz::Feature> = features
+                    .iter()
+                    .map(|(t, v)| rustybuzz::Feature::new(tag(t), *v, ..))
+                    .collect();
+                if !kern {
+                    feats.push(rustybuzz::Feature::new(tag(b"kern"), 0, ..));
+                }
+                let out = rustybuzz::shape(&face, &feats, buf);
                 out.glyph_infos()
                     .iter()
                     .zip(out.glyph_positions())

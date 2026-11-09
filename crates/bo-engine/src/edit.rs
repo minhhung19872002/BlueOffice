@@ -582,6 +582,16 @@ pub enum Command {
         #[serde(default)]
         numbered: Option<String>,
     },
+    /// Insert a phonetic guide (ECMA-376 Part 1, §17.3.3.25 ruby) in place of the selection;
+    /// with `replace`, the guide the selection covers (or the one before the caret) is replaced.
+    /// Every result reports the selected guide in `ruby`.
+    InsertRuby {
+        /// Base text, guide text, alignment and sizes.
+        ruby: bo_edit::charfx::RubySpec,
+        /// Replace the selected guide.
+        #[serde(default)]
+        replace: bool,
+    },
     /// The equation templates ([`crate::equation::TEMPLATES`]): `{ "templates": [{id, linear}] }`.
     EquationTemplates,
     /// Report the selected equation (`equation` of the result; every result carries it).
@@ -992,6 +1002,9 @@ pub struct EditResult {
     /// The equation the selection covers or the caret follows (CORE-MATH-007).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub equation: Option<crate::equation::EquationInfo>,
+    /// The phonetic guide the selection covers or the caret follows (§17.3.3.25 ruby).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ruby: Option<bo_edit::charfx::RubySpec>,
     /// The content control around the caret (§17.5.2 sdt).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub control: Option<ControlInfo>,
@@ -1486,6 +1499,14 @@ impl crate::Engine {
                             }
                         }
                         s.insert_equation(&crate::equation::build(&text, latex, display))?;
+                    }
+                    Command::InsertRuby { ruby, replace } => {
+                        if replace {
+                            if let Some((sel, _)) = s.selected_ruby() {
+                                s.set_selection(sel);
+                            }
+                        }
+                        s.insert_ruby(&ruby)?;
                     }
                     Command::EquationFormat { linear } => {
                         if let Some((sel, xml)) = s.selected_equation() {
@@ -2110,6 +2131,7 @@ impl crate::Engine {
             equation: s
                 .selected_equation()
                 .and_then(|(_, xml)| crate::equation::info(&xml)),
+            ruby: s.selected_ruby().map(|(_, r)| r),
             control: s.control_at_caret().map(|c| ControlInfo::of(&c)),
             form_field: s.form_field_info(),
             protection: crate::forms::info(s),

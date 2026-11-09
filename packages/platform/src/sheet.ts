@@ -6,6 +6,7 @@
 import type { InspectCommand } from './inspect';
 import type { DataToolsCommand } from './sheetDataTools';
 import type { SparklineCommand } from './sparkline';
+import type { TableCommand } from './sheetTable';
 import type { GlyphOutline, PageDisplayList } from './types';
 
 export interface SheetSummary {
@@ -595,6 +596,8 @@ export type SheetCommand =
   | InspectCommand
   /** Sparklines (SHEET-SPARK-001). */
   | SparklineCommand
+  /** Tables (SHEET-TABLE-001). */
+  | TableCommand
   /** TCVN3 / VNI text → Unicode (legacy Vietnamese fonts); one undo step. */
   | { cmd: 'convertLegacyText' }
   /** Threaded comments of a sheet ([MS-XLSX] threaded comments) → `SheetThreadInfo[]`. */

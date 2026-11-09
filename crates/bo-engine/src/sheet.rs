@@ -38,6 +38,7 @@ mod security_cmd;
 mod solver_cmd;
 mod sortfilter_cmd;
 mod sparkline_cmd;
+mod table_cmd;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
 
@@ -280,6 +281,8 @@ pub struct SheetEngine {
     pub(crate) open_ranges: Vec<(String, String)>,
     /// Names of the current user (password-to-modify user name).
     pub(crate) identity: Vec<String>,
+    /// Automatic table behaviour after typing (SHEET-TABLE-001).
+    table_auto: table_cmd::TableAuto,
 }
 
 impl Default for SheetEngine {
@@ -655,6 +658,7 @@ impl SheetEngine {
             sec: crate::security::FileSecurity::default(),
             open_ranges: Vec::new(),
             identity: Vec::new(),
+            table_auto: table_cmd::TableAuto::default(),
         }
     }
 
@@ -1255,6 +1259,8 @@ impl SheetEngine {
         let coords: Vec<(u32, u32)> = old.iter().map(|(r, c, _)| (*r, *c)).collect();
         self.live.update(wb, sheet, &coords);
         self.push_undo(UndoEntry::Cells { sheet, cells: old });
+        // Tables: header names, automatic expansion, calculated columns (SHEET-TABLE-001).
+        self.tables_after_input(sheet, &coords);
         Ok(notice)
     }
 

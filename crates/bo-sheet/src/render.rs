@@ -324,6 +324,14 @@ impl Renderer<'_> {
             p.cols.clone(),
             self.opts.now,
         );
+        // Table styles (§18.5.1.5) under the conditional formats.
+        crate::table_style::overlay(
+            self.wb,
+            self.sheet,
+            p.rows.clone(),
+            p.cols.clone(),
+            &mut self.cf,
+        );
         for &(at, cell) in &cells {
             let rect = Self::screen_rect(p, self.geom.cell_rect(at.row, at.col));
             self.cell_fill(cell, rect);

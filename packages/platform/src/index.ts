@@ -3,6 +3,7 @@ export type * from './chartDesign';
 export type * from './inspect';
 export type * from './views';
 export type * from './sparkline';
+export type * from './sheetTable';
 export type * from './slideExport';
 export type * from './sigline';
 export { PASSWORD_REQUIRED, WRONG_PASSWORD } from './types';

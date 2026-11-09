@@ -52,6 +52,79 @@ impl TableInfo {
     pub fn last_col(&self) -> u32 {
         self.first_col + self.columns.len().max(1) as u32 - 1
     }
+
+    /// The cells `(first row, first col, last row, last col)` the specifiers `items` of a
+    /// structured reference select when written in row `row` (ECMA-376 Part 1, §18.5.1 tables;
+    /// `[#This Row]` / `@` selects the formula's row, no item means `[#Data]`).
+    ///
+    /// # Errors
+    /// `#REF!` for an unknown column or a missing header / totals row, `#VALUE!` for
+    /// `[#This Row]` outside the data rows.
+    pub fn resolve(
+        &self,
+        items: &[crate::ast::StructItem],
+        row: u32,
+    ) -> Result<(u32, u32, u32, u32), crate::value::ErrorKind> {
+        use crate::ast::StructItem;
+        use crate::value::ErrorKind;
+        let mut col_lo = self.first_col;
+        let mut col_hi = self.last_col();
+        let mut cols_given = false;
+        let mut rows: Option<(u32, u32)> = None;
+        let mut add_rows = |lo: u32, hi: u32| {
+            rows = Some(match rows {
+                Some((a, b)) => (a.min(lo), b.max(hi)),
+                None => (lo, hi),
+            });
+        };
+        let mut add_cols = |lo: u32, hi: u32| {
+            if cols_given {
+                col_lo = col_lo.min(lo);
+                col_hi = col_hi.max(hi);
+            } else {
+                (col_lo, col_hi) = (lo, hi);
+                cols_given = true;
+            }
+        };
+        for item in items {
+            match item {
+                StructItem::All => add_rows(self.first_row, self.last_row),
+                StructItem::Data => add_rows(self.data_first_row(), self.data_last_row()),
+                StructItem::Headers => {
+                    if !self.header_row {
+                        return Err(ErrorKind::Ref);
+                    }
+                    add_rows(self.first_row, self.first_row);
+                }
+                StructItem::Totals => {
+                    if !self.totals_row {
+                        return Err(ErrorKind::Ref);
+                    }
+                    add_rows(self.last_row, self.last_row);
+                }
+                StructItem::ThisRow => {
+                    if row < self.data_first_row() || row > self.data_last_row() {
+                        return Err(ErrorKind::Value);
+                    }
+                    add_rows(row, row);
+                }
+                StructItem::Column(c) => {
+                    let i = self.column_index(c).ok_or(ErrorKind::Ref)?;
+                    add_cols(i, i);
+                }
+                StructItem::ColumnRange(a, b) => {
+                    let i = self.column_index(a).ok_or(ErrorKind::Ref)?;
+                    let j = self.column_index(b).ok_or(ErrorKind::Ref)?;
+                    add_cols(i.min(j), i.max(j));
+                }
+            }
+        }
+        let (r1, r2) = rows.unwrap_or((self.data_first_row(), self.data_last_row()));
+        if r1 > r2 {
+            return Err(ErrorKind::Ref);
+        }
+        Ok((r1, col_lo, r2, col_hi))
+    }
 }
 
 /// Read access to workbook data needed during evaluation.

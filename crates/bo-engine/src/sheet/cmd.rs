@@ -1221,6 +1221,64 @@ pub enum SheetCommand {
         /// The range, header row included.
         range: Rng,
     },
+    /// Tables of a sheet with their columns and options (SHEET-TABLE-001):
+    /// `{ tables, autoExpand, autoCalc, lastAuto }`.
+    Tables {
+        /// 0-based sheet index.
+        sheet: usize,
+    },
+    /// Styles of the table style gallery (`TableStyleLight1`…`TableStyleDark7`) with preview colours.
+    TableStyles,
+    /// Change a table: name, header / totals rows, style name and options (§18.5.1.5). One undo step.
+    TableUpdate {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Table index (from `tables`).
+        table: usize,
+        /// What to change.
+        #[serde(flatten)]
+        update: super::table_cmd::TableUpdate,
+    },
+    /// Totals row function of a column (§18.18.86 `ST_TotalsRowFunction`; `custom` takes
+    /// `formula`). One undo step.
+    TableTotal {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Table index.
+        table: usize,
+        /// 0-based column of the table.
+        column: usize,
+        /// `none`, `sum`, `min`, `max`, `average`, `count`, `countNums`, `stdDev`, `var`, `custom`.
+        function: String,
+        /// Formula of a `custom` total.
+        #[serde(default)]
+        formula: Option<String>,
+    },
+    /// Resize a table (header row stays in place). One undo step.
+    TableResize {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Table index.
+        table: usize,
+        /// New range, header and totals rows included.
+        range: Rng,
+    },
+    /// Convert a table to a plain range (structured references become A1 references). One undo step.
+    TableConvert {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Table index.
+        table: usize,
+    },
+    /// Automatic table behaviour after typing (expansion, calculated columns); returns the options.
+    TableOptions {
+        /// Expand tables when typing next to them.
+        #[serde(default)]
+        auto_expand: Option<bool>,
+        /// Fill calculated columns.
+        #[serde(default)]
+        auto_calc: Option<bool>,
+    },
     /// Sparkline groups of a sheet ([MS-XLSX] `x14:sparklineGroup`) with resolved colours.
     Sparklines {
         /// 0-based sheet index.
@@ -2196,11 +2254,35 @@ impl SheetEngine {
                 results,
                 labels,
             } => self.scenario_summary(sheet, results.as_deref(), labels),
-            C::CreateTable { sheet, range } => self.edit(sheet, Recalc::No, |wb, _| {
+            C::CreateTable { sheet, range } => self.edit(sheet, Recalc::All, |wb, _| {
                 let i = bo_sheet::table::create_table(wb, sheet, range.range(), &locale)
                     .map_err(|e| bad(&e))?;
                 Ok(json!({ "index": i }))
             }),
+            C::Tables { sheet } => self.table_list(sheet),
+            C::TableStyles => Ok(Self::table_styles()),
+            C::TableUpdate {
+                sheet,
+                table,
+                update,
+            } => self.table_update(sheet, table, &update),
+            C::TableTotal {
+                sheet,
+                table,
+                column,
+                function,
+                formula,
+            } => self.table_total(sheet, table, column, &function, formula.as_deref()),
+            C::TableResize {
+                sheet,
+                table,
+                range,
+            } => self.table_resize(sheet, table, range),
+            C::TableConvert { sheet, table } => self.table_convert(sheet, table),
+            C::TableOptions {
+                auto_expand,
+                auto_calc,
+            } => Ok(self.table_options(auto_expand, auto_calc)),
             C::Sparklines { sheet } => self.sparkline_list(sheet),
             C::SparklineInsert {
                 sheet,
@@ -3921,6 +4003,13 @@ impl SheetEngine {
         if cut {
             // A cut is pasted once.
             self.clip = None;
+        }
+        // Tables: a paste next to a table expands it, pasted headers rename columns.
+        if u64::from(target.rows()) * u64::from(target.cols()) <= 100_000 {
+            let cells: Vec<(u32, u32)> = (target.first.row..=target.last.row)
+                .flat_map(|r| (target.first.col..=target.last.col).map(move |c| (r, c)))
+                .collect();
+            self.tables_after_input(sheet, &cells);
         }
         Ok(out)
     }

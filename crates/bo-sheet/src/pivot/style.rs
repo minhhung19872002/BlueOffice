@@ -74,12 +74,16 @@ fn shade(hex: &str, t: f64) -> String {
     format!("{:02X}{:02X}{:02X}", ch(16), ch(8), ch(0))
 }
 
-/// The palette of a style name; unknown names use the light family.
+/// The palette of a pivot or table style name (`PivotStyleMedium2`, `TableStyleMedium2`);
+/// unknown names use the light family.
 pub fn palette(name: &str) -> Palette {
     let (family, number) = ["Light", "Medium", "Dark"]
         .iter()
         .find_map(|f| {
-            let rest = name.strip_prefix("PivotStyle")?.strip_prefix(f)?;
+            let rest = name
+                .strip_prefix("PivotStyle")
+                .or_else(|| name.strip_prefix("TableStyle"))?
+                .strip_prefix(f)?;
             Some((*f, rest.parse::<usize>().ok()?))
         })
         .unwrap_or(("Light", 16));

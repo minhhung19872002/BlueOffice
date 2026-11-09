@@ -41,6 +41,7 @@ pub mod sort;
 pub mod sparkline;
 pub mod style;
 pub mod table;
+pub mod table_style;
 pub mod timeline;
 pub mod validation;
 pub mod viewport;

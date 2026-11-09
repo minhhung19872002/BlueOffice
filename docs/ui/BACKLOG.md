@@ -23,8 +23,8 @@ icon. Làm xen kẽ với `docs/parity/BACKLOG.md`.
 - [x] **UI-ICONS-001** (P0) Hạ tầng icon `packages/ui/icons`: component `<Icon name>` tree-shakable theo command id, cỡ
   16/20/24/32, hai tông (nét chữ + điểm nhấn app), bản đơn sắc cho high-contrast, `SOURCES.md`. *Xong khi:* test mọi icon có
   nguồn trong SOURCES.md; test viewBox/kích thước. **Đã có:** `packages/ui/src/icons` — `<Icon name size label>` (16/20/24/32, nét 1.5, trang trí ⇒ `aria-hidden`), 271 id lệnh gom từ ribbon 3 app (Lucide ISC, chọn một icon duy nhất cho mỗi id), icon tự vẽ `custom.tsx` (dấu app nháp, phân cách nghìn, ₫) có phần nhấn `.bo-icon-accent` theo `--bo-app-accent`, đơn sắc ở hc; `packages/ui/icons/SOURCES.md` sinh tự động; test `test/icons.test.tsx`.
-- [ ] **UI-ICONS-002** (P0) Icon chung + định dạng chữ + đoạn văn (danh mục §4). *Xong khi:* có icon cho mọi command id của
-  nhóm; test không thiếu icon trên ribbon Trang đầu.
+- [x] **UI-ICONS-002** (P0) Icon chung + định dạng chữ + đoạn văn (danh mục §4). *Xong khi:* có icon cho mọi command id của
+  nhóm; test không thiếu icon trên ribbon Trang đầu. **Đã có:** `Ribbon` lấy icon theo command id từ bộ icon (bộ icon thắng icon riêng của app; id ngoài bộ giữ icon riêng) — 24px nút lớn, 20px nút nhỏ và chế độ gọn; nút nhỏ có icon từ bộ vẫn hiện nhãn; ở mức gọn các nút lớn xếp thành lưới hai hàng ô vuông icon (nhóm Tệp của BlueSheet 371 → 189px ở 1280px, các nhóm Số/Căn lề không còn bị thu lại); nhãn ẩn chuyển vào tooltip; thêm 10 id còn thiếu (chủ đề, mẫu, xuất, bảo vệ, kết hợp ký tự, phông, hướng dẫn phiên âm); test `ribbon.test.tsx`, E2E `ribbon-icons.spec.ts` (thẻ Trang đầu cả 3 app không còn nút thiếu icon).
 - [ ] **UI-ICONS-003** (P1) Icon chèn, bảng tính, trình chiếu. *Xong khi:* test phủ icon cho ribbon 3 app.
 - [ ] **UI-ICONS-004** (P1) Bản nháp logo BlueOffice + 3 icon app trong `assets/brand/drafts/` (cùng khung, khác ký hiệu, không
   kiểu chữ cái lớn chồng tờ giấy). *Xong khi:* SVG nháp + mục NEEDS_HUMAN duyệt bản chính thức.

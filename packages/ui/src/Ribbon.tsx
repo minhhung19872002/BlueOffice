@@ -1,6 +1,7 @@
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { hasIcon, Icon } from './icons';
 import { Popover } from './Popover';
 import styles from './Ribbon.module.css';
 import {
@@ -81,6 +82,18 @@ export interface RibbonProps {
 
 type ButtonMode = 'normal' | 'iconOnly' | 'menu';
 
+/**
+ * The item's icon: the BlueOffice icon of its command id (UI-ICONS-002: one look for every
+ * ribbon), else the one it brings — 24px on large buttons (fits the 66px row with a two-line
+ * label), 20px elsewhere.
+ */
+function itemIcon(item: RibbonItem, iconOnly = false): ReactNode {
+  if (hasIcon(item.id)) {
+    return <Icon name={item.id} size={item.size === 'small' || iconOnly ? 20 : 24} />;
+  }
+  return item.icon;
+}
+
 function RibbonButton({
   item,
   mode = 'normal',
@@ -91,10 +104,14 @@ function RibbonButton({
   onDone?: () => void;
 }) {
   const disabled = item.enabled === false;
-  // Small buttons and compact groups show only the icon; the label stays for
-  // screen readers and tests, and moves into the tooltip.
+  const icon = itemIcon(item, mode === 'iconOnly');
+  // Compact groups, and small buttons that bring their own icon, show only the icon; the label
+  // stays for screen readers and tests, and moves into the tooltip. A small button whose icon
+  // comes from the icon set keeps its visible label.
   const hideLabel =
-    mode !== 'menu' && Boolean(item.icon) && (item.size === 'small' || mode === 'iconOnly');
+    mode !== 'menu' &&
+    Boolean(icon) &&
+    (mode === 'iconOnly' || (item.size === 'small' && Boolean(item.icon)));
   const sizeClass = mode === 'menu' ? styles.menuItem : item.size === 'small' ? styles.small : '';
   const button = (
     <button
@@ -112,15 +129,11 @@ function RibbonButton({
         onDone?.();
       }}
     >
-      {item.icon && <span className={styles.icon}>{item.icon}</span>}
+      {icon && <span className={styles.icon}>{icon}</span>}
       <span className={hideLabel ? styles.srOnly : undefined}>{item.label}</span>
     </button>
   );
-  const tip = [
-    mode === 'iconOnly' && item.size !== 'small' ? item.label : '',
-    item.tooltip,
-    item.shortcut,
-  ]
+  const tip = [hideLabel ? item.label : '', item.tooltip, item.shortcut]
     .filter(Boolean)
     .join(' · ');
   if (!tip || mode === 'menu') return button;
@@ -172,7 +185,7 @@ function GroupMenu({ group, close }: { group: RibbonGroup; close: () => void }) 
 
 function RibbonGroupView({ group, level }: { group: RibbonGroup; level: CollapseLevel }) {
   if (level === 'collapsed') {
-    const icon = group.items.find((i) => i.icon)?.icon;
+    const icon = group.items.map((i) => itemIcon(i)).find(Boolean);
     return (
       <div
         className={`${styles.group} ${styles.collapsedGroup}`}
@@ -208,7 +221,16 @@ function RibbonGroupView({ group, level }: { group: RibbonGroup; level: Collapse
       data-group={group.id}
       data-level={level}
     >
-      <div className={`${styles.groupItems} ${itemsClass(group)}`}>
+      <div
+        className={[
+          styles.groupItems,
+          itemsClass(group),
+          // Compact level: three or more plain buttons stack in two rows of icons.
+          level === 'compact' && !itemsClass(group) && group.items.length > 2 ? styles.stacked : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
         {group.items.map((i) =>
           i.render ? (
             <div key={i.id} className={styles.control} data-control={i.id}>

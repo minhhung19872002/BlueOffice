@@ -218,8 +218,19 @@
   text-overflow: ellipsis;
 }
 
+/* Labels hidden: large buttons become icon squares in two rows (more than two of them). */
 .compactGroup .button:not(.small) {
   min-width: 32px;
+  min-height: var(--bo-control-h, 28px);
+  padding: 2px 4px;
+  justify-content: center;
+}
+
+.compactGroup .groupItems.stacked {
+  display: grid;
+  grid-template-rows: repeat(2, auto);
+  grid-auto-flow: column;
+  align-content: start;
 }
 
 /* A group collapsed into one dropdown button. */

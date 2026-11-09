@@ -1,6 +1,7 @@
-//! Mail-merge data sources: CSV (RFC 4180, `,` `;` or tab separated, UTF-8) and
-//! the first visible sheet of an `.xlsx` workbook (ECMA-376 Part 1, §18), the
-//! first row naming the fields.
+//! Mail-merge data sources: CSV (RFC 4180, `,` `;` or tab separated, UTF-8), the
+//! first visible sheet of an `.xlsx` workbook (ECMA-376 Part 1, §18), the first row
+//! naming the fields; vCard address books and JSON arrays (`merge_sources`); tables
+//! handed over by a host data provider (SQL through the server).
 
 use bo_edit::merge::MergeData;
 
@@ -17,8 +18,12 @@ pub struct MergeState {
     pub fields: Vec<String>,
     /// Number of records.
     pub count: usize,
-    /// Record shown in the preview (0-based), if any.
+    /// Record shown in the preview (0-based position in the recipient list), if any.
     pub preview: Option<usize>,
+    /// Records in the recipient list (after filter and exclusions).
+    pub active: usize,
+    /// Filter, sort and excluded records of the recipient list.
+    pub options: bo_edit::merge::recipients::RecipientOptions,
 }
 
 /// Decode standard base64 (RFC 4648 §4; whitespace ignored, padding optional).
@@ -71,6 +76,18 @@ fn table(rows: Vec<Vec<String>>, name: &str) -> MergeData {
 
 /// Read a data source from bytes; the format comes from the content, then the name.
 pub fn read_data(bytes: &[u8], name: &str) -> crate::Result<MergeData> {
+    let lower = name.to_lowercase();
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(64)]);
+    let head = head.trim_start_matches('\u{feff}').trim_start();
+    if lower.ends_with(".vcf")
+        || lower.ends_with(".vcard")
+        || head.to_ascii_uppercase().starts_with("BEGIN:VCARD")
+    {
+        return Ok(crate::merge_sources::read_vcard(bytes, name));
+    }
+    if lower.ends_with(".json") || head.starts_with('[') || head.starts_with('{') {
+        return crate::merge_sources::read_json(bytes, name);
+    }
     if bytes.starts_with(b"PK\x03\x04") {
         let wb = bo_xlsx::read_xlsx(bytes).map_err(|e| crate::EngineError::Sheet(e.to_string()))?;
         let ws = wb

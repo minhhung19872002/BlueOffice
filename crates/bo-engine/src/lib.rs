@@ -31,6 +31,8 @@ mod legacy_slides;
 pub mod markup;
 pub mod media;
 pub mod merge;
+pub mod merge_cmd;
+pub mod merge_sources;
 pub mod nav;
 mod notes;
 mod page_layout;
@@ -260,6 +262,12 @@ pub struct Engine {
     /// Mail-merge data source and the previewed record.
     merge: Option<bo_edit::merge::MergeData>,
     merge_preview: Option<usize>,
+    /// Filter, sort and exclusions of the recipient list.
+    merge_opts: bo_edit::merge::recipients::RecipientOptions,
+    /// Data rows of the recipient list (follows `merge` and `merge_opts`).
+    merge_order: Vec<usize>,
+    /// Answers to the document's ASK / FILLIN prompts.
+    merge_answers: bo_edit::merge::rules::Answers,
     /// The open file has macros (warning bar; they are preserved, never executed).
     macros: bool,
     /// Runs the last `ConvertLegacyText` converted (reported in [`DocInfo`]).
@@ -594,7 +602,15 @@ impl Engine {
         self.words.update(doc, &changes);
         // Mail-merge preview: the record's values in the merge fields (§17.16.5.35).
         let preview = match (&self.merge, self.merge_preview) {
-            (Some(m), Some(r)) => Some(bo_edit::merge::preview(doc, m, Some(r))),
+            (Some(m), Some(r)) => Some(bo_edit::merge::rules::preview_run(
+                doc,
+                bo_edit::merge::rules::MergeRun {
+                    data: m,
+                    order: &self.merge_order,
+                    answers: &self.merge_answers,
+                },
+                Some(r),
+            )),
             _ => None,
         };
         if preview.is_some() || self.laid_out_preview || self.view_changed {
@@ -999,7 +1015,7 @@ impl Engine {
     pub fn set_merge_data(&mut self, bytes: &[u8], name: &str) -> Result<usize> {
         let d = merge::read_data(bytes, name)?;
         let n = d.rows.len();
-        self.merge = Some(d);
+        self.set_merge_source(d);
         Ok(n)
     }
 

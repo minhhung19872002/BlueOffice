@@ -1,9 +1,16 @@
 //! Mail merge (ECMA-376 Part 1, §17.16.5.35 MERGEFIELD; §17.14 mail merge):
 //! filling merge fields from one data record, and producing one merged
-//! document with a section per record.
+//! document with a section per record. Rule fields live in [`rules`], recipient
+//! list editing in [`recipients`], envelopes and label sheets in [`sheets`].
 
 use crate::fields::{field_args, field_kind};
-use bo_model::{Block, Document, Paragraph, Run, RunContent, Section, SectionBreak};
+use bo_model::{Block, Document, Section, SectionBreak};
+
+pub mod recipients;
+pub mod rules;
+pub mod sheets;
+#[cfg(test)]
+mod tests_ext;
 
 /// Recipient data: column names and records (all values as display text).
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize)]
@@ -82,117 +89,39 @@ pub fn merge_text(instr: &str, value: &str) -> String {
     v
 }
 
-fn map_blocks(blocks: &mut [Block], f: &mut dyn FnMut(&mut Paragraph)) {
-    for b in blocks {
-        match b {
-            Block::Paragraph(p) => f(p),
-            Block::Table(t) => {
-                for row in &mut t.rows {
-                    for c in &mut row.cells {
-                        map_blocks(&mut c.blocks, f);
-                    }
-                }
-            }
-            Block::Opaque(_) => {}
-        }
-    }
-}
-
-fn map_doc(doc: &mut Document, f: &mut dyn FnMut(&mut Paragraph)) {
-    for s in &mut doc.sections {
-        map_blocks(&mut s.blocks, f);
-        for hf in [&mut s.headers, &mut s.footers] {
-            for b in [&mut hf.default, &mut hf.first, &mut hf.even]
-                .into_iter()
-                .flatten()
-            {
-                map_blocks(b, f);
-            }
-        }
-    }
+/// Data rows of every record, in source order.
+fn all_rows(data: &MergeData) -> Vec<usize> {
+    (0..data.rows.len()).collect()
 }
 
 /// Copy of `doc` showing record `row` in its merge fields (fields are kept; used
 /// for the preview). `None` shows the `«name»` placeholders.
 pub fn preview(doc: &Document, data: &MergeData, row: Option<usize>) -> Document {
-    let mut d = doc.clone();
-    map_doc(&mut d, &mut |p| {
-        for r in &mut p.runs {
-            for c in &mut r.content {
-                if let RunContent::Field { instr, cached, .. } = c {
-                    if let Some(name) = merge_field_name(instr) {
-                        *cached = match row {
-                            Some(i) => merge_text(instr, data.value(i, &name).unwrap_or("")),
-                            None => placeholder(&name),
-                        };
-                    }
-                }
-            }
-        }
-    });
-    d
+    let order = all_rows(data);
+    let answers = rules::Answers::default();
+    rules::preview_run(
+        doc,
+        rules::MergeRun {
+            data,
+            order: &order,
+            answers: &answers,
+        },
+        row,
+    )
 }
 
-/// Replace merge fields of a paragraph with plain text of record `row`.
-fn fill(p: &mut Paragraph, data: &MergeData, row: usize) {
-    let mut changed = false;
-    let runs: Vec<Run> = std::mem::take(&mut p.runs)
-        .into_iter()
-        .map(|mut r| {
-            r.content = r
-                .content
-                .into_iter()
-                .filter_map(|c| match c {
-                    RunContent::Field {
-                        instr,
-                        cached,
-                        locked,
-                    } => match merge_field_name(&instr) {
-                        Some(name) => {
-                            changed = true;
-                            let v = merge_text(&instr, data.value(row, &name).unwrap_or(""));
-                            (!v.is_empty()).then_some(RunContent::Text(v))
-                        }
-                        None => Some(RunContent::Field {
-                            instr,
-                            cached,
-                            locked,
-                        }),
-                    },
-                    // Comments of the template are not copied into the letters.
-                    RunContent::CommentStart(_)
-                    | RunContent::CommentEnd(_)
-                    | RunContent::CommentRef(_) => {
-                        changed = true;
-                        None
-                    }
-                    other => Some(other),
-                })
-                .collect();
-            r
-        })
-        .collect();
-    p.runs = runs;
-    if changed {
-        p.src = None;
-    }
-}
-
-/// One document with the template repeated for every record (each record starts
-/// on a new page, §17.6.22 nextPage).
-pub fn merge_all(doc: &Document, data: &MergeData) -> Document {
-    let mut out = doc.clone();
+/// Join merged documents into one: each starts on a new page (§17.6.22 nextPage).
+pub fn combine(template: &Document, docs: Vec<rules::MergedDoc>) -> Document {
+    let mut out = template.clone();
     out.sections.clear();
     out.comments.clear();
-    for row in 0..data.rows.len() {
-        let mut copy = doc.clone();
-        map_doc(&mut copy, &mut |p| fill(p, data, row));
-        for (i, mut s) in copy.sections.into_iter().enumerate() {
-            if row > 0 && i == 0 && s.break_type == SectionBreak::Continuous {
+    for (n, m) in docs.into_iter().enumerate() {
+        for (i, mut s) in m.doc.sections.into_iter().enumerate() {
+            if n > 0 && i == 0 && s.break_type == SectionBreak::Continuous {
                 s.break_type = SectionBreak::NextPage;
             }
             // Filled headers/footers need their own parts: regenerate the sectPr.
-            if let Some(orig) = doc.sections.get(i) {
+            if let Some(orig) = template.sections.get(i) {
                 if orig.headers != s.headers || orig.footers != s.footers {
                     s.src = None;
                 }
@@ -205,15 +134,33 @@ pub fn merge_all(doc: &Document, data: &MergeData) -> Document {
         }
     }
     if out.sections.is_empty() {
-        out.sections = doc.sections.clone();
+        out.sections = template.sections.clone();
     }
     out
+}
+
+/// One document with the template repeated for every record (each record starts
+/// on a new page, §17.6.22 nextPage).
+pub fn merge_all(doc: &Document, data: &MergeData) -> Document {
+    let order = all_rows(data);
+    let answers = rules::Answers::default();
+    combine(
+        doc,
+        rules::merge_each(
+            doc,
+            rules::MergeRun {
+                data,
+                order: &order,
+                answers: &answers,
+            },
+        ),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bo_model::{ParaProps, RunProps};
+    use bo_model::{ParaProps, Paragraph, Run, RunContent, RunProps};
 
     fn template() -> Document {
         let f = |name: &str, extra: &str| RunContent::Field {

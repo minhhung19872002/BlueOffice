@@ -1742,6 +1742,23 @@ impl Session {
         })
     }
 
+    /// Insert a mail-merge rule as a complex field (§17.16.18) whose instruction holds
+    /// `parts` (nested MERGEFIELDs), showing `shown` until merged.
+    pub fn insert_merge_rule(
+        &mut self,
+        parts: &[merge::rules::RulePart],
+        shown: &str,
+    ) -> Result<Selection> {
+        self.edit(|tx, sel| {
+            let (a, b) = sel.ordered();
+            let at = tx.delete_range(a, b)?;
+            let (_, _, atoms) = tx.atoms(at.para)?;
+            let props = para::props_at(&atoms, at.offset);
+            let field = merge::rules::complex_field(parts, shown, &props);
+            Ok(Selection::caret(tx.insert_atoms(at, field)?))
+        })
+    }
+
     /// Insert an inline content control (§17.5.2.31 sdt) of `kind` (`text`, `richText`,
     /// `checkbox`, `dropDown`, `comboBox`, `date`) at the caret, showing `placeholder` (a
     /// checkbox shows ☐); the content is selected. List controls offer `items`.

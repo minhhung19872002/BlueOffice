@@ -543,8 +543,12 @@ export interface MergeState {
   name: string;
   fields: string[];
   count: number;
-  /** Previewed record (0-based) or null when field names are shown. */
+  /** Previewed record (0-based position in the recipient list) or null when field names are shown. */
   preview: number | null;
+  /** Records in the recipient list after filter and exclusions. */
+  active?: number;
+  /** Filter, sort and exclusions of the recipient list. */
+  options?: import('./mailMerge').RecipientOptions;
 }
 
 /** Review pane state (mirrors `bo_engine::review::ReviewState`). */
@@ -731,6 +735,8 @@ export type EditCommand =
   | { cmd: 'mergeInsertField'; name: string }
   | { cmd: 'mergePreview'; record: number | null }
   | { cmd: 'mergeToDocument' }
+  /** Extended mail merge (recipients, rules, prompts, outputs, envelopes, labels). */
+  | import('./mailMerge').MailMergeCommand
   | { cmd: 'setSavePassword'; password?: string }
   /** Design tab state (page colour, borders, watermark, themes, style sets). */
   | { cmd: 'design' }
@@ -921,6 +927,8 @@ export interface EditResult {
   targets?: RefTarget[];
   /** Mail-merge state (after merge commands and `state`). */
   merge?: MergeState;
+  /** Extended mail-merge results (records, prompts, files, e-mails, presets). */
+  mergeOut?: import('./mailMerge').MergeOut;
   /** While collaborating: the change to share and the selection as UTF-16 offsets. */
   collab?: { change: CollabChange; selection: [number, number] };
   /** Open header/footer editor (the selection is in it). */
@@ -2385,4 +2393,8 @@ export interface Platform {
   updates?: UpdateService;
   /** Video encoding (WebCodecs where the browser / webview has it). */
   video?: VideoEncoding;
+  /** Mail-merge recipients from the host (SQL through the server); absent where none. */
+  mergeData?: import('./mailMerge').MergeDataProvider;
+  /** Sends merged e-mails (server or desktop); absent where none. */
+  mail?: import('./mailMerge').MailProvider;
 }

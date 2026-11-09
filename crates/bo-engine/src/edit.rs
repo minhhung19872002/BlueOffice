@@ -491,6 +491,94 @@ pub enum Command {
     },
     /// Replace the open document by the merged one (one section per record).
     MergeToDocument,
+    /// Mail-merge data handed over by a host data provider (e.g. a SQL query the
+    /// server ran): field names and rows of display text.
+    MergeTable {
+        /// Data source name.
+        name: String,
+        /// Field names.
+        fields: Vec<String>,
+        /// Records.
+        rows: Vec<Vec<String>>,
+    },
+    /// Filter, sort and excluded records of the recipient list.
+    MergeSetRecipients {
+        /// The list options.
+        options: bo_edit::merge::recipients::RecipientOptions,
+    },
+    /// Records of the data source for the recipient list editor (`mergeOut.records`).
+    MergeRecords {
+        /// First data row.
+        #[serde(default)]
+        offset: usize,
+        /// Number of rows (default 500).
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    /// Groups of duplicate records (`mergeOut.duplicates`); no fields = every field.
+    MergeDuplicates {
+        /// Fields compared.
+        #[serde(default)]
+        fields: Vec<String>,
+    },
+    /// Insert a merge rule field (IF, SKIPIF, NEXTIF, NEXT, MERGEREC, MERGESEQ, ASK,
+    /// FILLIN, SET; ECMA-376 Part 1, §17.16.5) at the caret.
+    MergeInsertRule {
+        /// The rule.
+        rule: bo_edit::merge::rules::MergeRule,
+    },
+    /// ASK / FILLIN prompts of the document (`mergeOut.prompts`).
+    MergePrompts,
+    /// Answers to the prompts, used by the preview and the next merges.
+    MergeSetAnswers {
+        /// Prompt key → one answer, or one per record of the recipient list.
+        answers: bo_edit::merge::rules::Answers,
+    },
+    /// One PDF per merged document, zipped (`mergeOut.zip`, `mergeOut.files`).
+    MergeToPdfs {
+        /// File name pattern (`«Field»` replaced by the record's value).
+        #[serde(default)]
+        pattern: String,
+    },
+    /// One e-mail per merged document (`mergeOut.mails`), sent by the host's
+    /// `MailProvider`.
+    MergeToEmails {
+        /// Field holding the address.
+        to: String,
+        /// Subject pattern (`«Field»` replaced by the record's value).
+        subject: String,
+        /// Attachment: `none` (default), `pdf` or `docx`.
+        #[serde(default)]
+        attach: String,
+        /// Attachment file name pattern.
+        #[serde(default)]
+        attachment_name: String,
+    },
+    /// Replace the open document by an envelope (delivery address lines with
+    /// `«Field»` merge fields).
+    MergeEnvelope {
+        /// Envelope size.
+        size: bo_edit::merge::sheets::EnvelopeSize,
+        /// Delivery address lines.
+        delivery: String,
+        /// Return address lines.
+        #[serde(default)]
+        return_address: String,
+        /// Delivery address position from the page's top-left corner, mm.
+        #[serde(default)]
+        at: Option<(f64, f64)>,
+    },
+    /// Replace the open document by a label sheet.
+    MergeLabels {
+        /// Sheet geometry.
+        sheet: bo_edit::merge::sheets::LabelSheet,
+        /// Label lines with `«Field»` merge fields.
+        text: String,
+        /// One record per label, or the same label on the whole page.
+        mode: bo_edit::merge::sheets::LabelMode,
+    },
+    /// Label sheet and envelope presets (`mergeOut.presets`).
+    MergePresets,
     /// Password for saving ([MS-OFFCRYPTO] Agile Encryption); empty or absent: none.
     SetSavePassword {
         /// New password; `None` or empty saves unencrypted.
@@ -986,6 +1074,9 @@ pub struct EditResult {
     /// Mail-merge state (after merge commands and `state`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merge: Option<crate::merge::MergeState>,
+    /// Mail-merge results (records, prompts, output files and e-mails, presets).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge_out: Option<Box<crate::merge_cmd::MergeOut>>,
     /// Change to share and selection offsets while collaborating (Engine::collab_start).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collab: Option<crate::collab::CollabOut>,
@@ -1246,14 +1337,14 @@ impl crate::Engine {
                     .and_then(|b| crate::merge::read_data(&b, name))
                 {
                     Ok(d) => {
-                        self.merge = Some(d);
+                        self.set_merge_source(d);
                         relayout |= self.merge_preview.is_some();
                     }
                     Err(e) => error = Some(e.to_string()),
                 }
             }
             Command::MergePreview { record } => {
-                let n = self.merge.as_ref().map_or(0, |m| m.rows.len());
+                let n = self.merge_order.len();
                 let r = record.filter(|_| n > 0).map(|r| r.min(n - 1));
                 relayout |= r != self.merge_preview;
                 self.merge_preview = r;
@@ -1266,8 +1357,16 @@ impl crate::Engine {
                 None => error = Some(format!("unknown template {id}")),
             },
             Command::MergeToDocument => match (&self.merge, self.session.as_ref()) {
-                (Some(m), Some(s)) if !m.rows.is_empty() => {
-                    let merged = bo_edit::merge::merge_all(s.doc(), m);
+                (Some(m), Some(s)) if !self.merge_order.is_empty() => {
+                    let run = bo_edit::merge::rules::MergeRun {
+                        data: m,
+                        order: &self.merge_order,
+                        answers: &self.merge_answers,
+                    };
+                    let merged = bo_edit::merge::combine(
+                        s.doc(),
+                        bo_edit::merge::rules::merge_each(s.doc(), run),
+                    );
                     let stem = self
                         .name
                         .rsplit_once('.')
@@ -1384,6 +1483,17 @@ impl crate::Engine {
                     | Command::MergeData { .. }
                     | Command::MergePreview { .. }
                     | Command::MergeToDocument
+                    | Command::MergeTable { .. }
+                    | Command::MergeSetRecipients { .. }
+                    | Command::MergeRecords { .. }
+                    | Command::MergeDuplicates { .. }
+                    | Command::MergePrompts
+                    | Command::MergeSetAnswers { .. }
+                    | Command::MergeToPdfs { .. }
+                    | Command::MergeToEmails { .. }
+                    | Command::MergeEnvelope { .. }
+                    | Command::MergeLabels { .. }
+                    | Command::MergePresets
                     | Command::NewFromTemplate { .. }
                     | Command::CheckAdminFormat
                     | Command::SetSavePassword { .. }
@@ -1847,6 +1957,12 @@ impl crate::Engine {
                             &bo_edit::merge::placeholder(n),
                         )?;
                     }
+                    Command::MergeInsertRule { rule } => {
+                        let (parts, shown) = rule.parts().ok_or_else(|| {
+                            bo_edit::EditError::Unsupported("merge rule".into())
+                        })?;
+                        s.insert_merge_rule(&parts, &shown)?;
+                    }
                     Command::InsertFormField { kind } => {
                         s.insert_form_field(&kind)?;
                     }
@@ -1981,12 +2097,7 @@ impl crate::Engine {
         }
         r.collab = self.collab_after_edit();
         if merge_cmd {
-            r.merge = self.merge.as_ref().map(|m| crate::merge::MergeState {
-                name: m.name.clone(),
-                fields: m.fields.clone(),
-                count: m.rows.len(),
-                preview: self.merge_preview,
-            });
+            r.merge = self.merge_state();
         }
         if changed || relayout || review {
             if let Some(s) = self.session.as_ref() {
@@ -2098,6 +2209,7 @@ impl crate::Engine {
             review: None,
             targets: None,
             merge: None,
+            merge_out: None,
             spelling: None,
             spell: None,
             equation: s

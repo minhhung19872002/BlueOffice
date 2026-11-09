@@ -671,6 +671,7 @@ fn main() {
             slide_cmds::engine_video_gif_add,
             slide_cmds::engine_video_gif_finish,
             slide_cmds::engine_video_end,
+            slide_cmds::engine_slide_export,
             collab_cmds::engine_collab_start,
             collab_cmds::engine_collab_apply,
             collab_cmds::engine_collab_peers,

@@ -73,3 +73,16 @@ pub fn engine_video_end(state: State<'_, EngineState>) -> Result<(), String> {
     e.video_end();
     Ok(())
 }
+
+/// Handout / notes PDF, slide pictures or presentation package
+/// (JSON `bo_engine::slide_export::SlideExport`) → file bytes.
+#[tauri::command]
+pub fn engine_slide_export(
+    state: State<'_, EngineState>,
+    json: String,
+) -> Result<Response, String> {
+    let mut e = state.0.lock().map_err(|e| e.to_string())?;
+    e.export_slides_json(&json)
+        .map(Response::new)
+        .map_err(|e| e.to_string())
+}

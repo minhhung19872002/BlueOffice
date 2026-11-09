@@ -15,6 +15,7 @@ import type {
   SlideEditResult,
   TimedCommand,
 } from '../types';
+import type { SlideExportOptions } from '../slideExport';
 import type { EngineRequest, EngineResponse } from './protocol';
 import type { RevocationRequest, SignatureBackend } from './signing';
 
@@ -158,6 +159,10 @@ export class WebEngineHost implements EngineHost, SignatureBackend {
 
   savePptx(): Promise<Uint8Array> {
     return this.call<Uint8Array>({ method: 'savePptx' });
+  }
+
+  exportSlides(options: SlideExportOptions): Promise<Uint8Array> {
+    return this.call<Uint8Array>({ method: 'exportSlides', json: JSON.stringify(options) });
   }
 
   slideCommand(cmd: SlideCommand): Promise<SlideEditResult> {

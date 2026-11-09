@@ -41,6 +41,7 @@ pub mod security;
 mod security_cmd;
 pub mod sheet;
 pub mod slide_edit;
+pub mod slide_export;
 pub mod smartart;
 pub mod spell;
 pub mod story;

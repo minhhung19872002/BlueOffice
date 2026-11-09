@@ -1928,6 +1928,8 @@ export interface EngineHost {
   getSlideNotes(index: number): Promise<string>;
   /** Saves the open presentation as `.pptx`. */
   savePptx(): Promise<Uint8Array>;
+  /** Handout / notes PDF, slide pictures or presentation package (presentations). */
+  exportSlides?(options: import('./slideExport').SlideExportOptions): Promise<Uint8Array>;
   /** Run a slide editing command (presentations). */
   slideCommand(cmd: SlideCommand): Promise<SlideEditResult>;
   /**

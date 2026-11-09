@@ -66,6 +66,9 @@ khi dùng.
 | Slide master | Trang chiếu cái |
 | Layout (slide) | Bố cục |
 | Speaker notes | Ghi chú |
+| Handout | Tài liệu phát tay |
+| Notes pages | Trang ghi chú |
+| Presentation package | Gói bản trình bày |
 | Presenter view | Dạng xem người thuyết trình |
 | Transition | Hiệu ứng chuyển tiếp |
 | Animation | Hiệu ứng động |

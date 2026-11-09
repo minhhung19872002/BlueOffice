@@ -243,6 +243,13 @@ impl WasmEngine {
         self.inner.slide_collab_peers_json(json).map_err(err)
     }
 
+    /// Handout / notes PDF, slide pictures or presentation package
+    /// (JSON `bo_engine::slide_export::SlideExport`) as file bytes.
+    #[wasm_bindgen(js_name = exportSlides)]
+    pub fn export_slides(&mut self, json: &str) -> Result<Vec<u8>, JsError> {
+        self.inner.export_slides_json(json).map_err(err)
+    }
+
     /// Render a page to PNG bytes.
     #[wasm_bindgen(js_name = renderPng)]
     pub fn render_png(&self, index: usize, scale: f32) -> Result<Vec<u8>, JsError> {

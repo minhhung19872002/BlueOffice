@@ -14,6 +14,7 @@ export type EngineRequest =
   | { id: number; method: 'markSaved' }
   | { id: number; method: 'notes'; index: number }
   | { id: number; method: 'savePptx' }
+  | { id: number; method: 'exportSlides'; json: string }
   | { id: number; method: 'slideCommand'; json: string }
   | { id: number; method: 'slideInsertPicture'; bytes: Uint8Array; name: string }
   | { id: number; method: 'collabStart'; seed: boolean; clientId?: number }

@@ -82,6 +82,7 @@ import {
   Eye,
   FileDown,
   FileImage,
+  FileStack,
   Files,
   KeyRound,
   FolderOpen,
@@ -152,6 +153,7 @@ import {
   type SlidePasteChoice,
 } from './pasteOptions';
 import { ExportDialog, slidePng, type ExportPngOptions } from './ExportDialog';
+import { ExportDocsDialog, exportPlan, type ExportDocsState } from './exportDocs';
 import { MediaButtons } from './MediaLayer';
 import { advance, type ShowPos } from './player';
 import { fit, formatElapsed, showAction, step, type ShowAction } from './show';
@@ -296,7 +298,7 @@ function useSize(): [(el: HTMLElement | null) => void, { width: number; height: 
 }
 
 function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideEditorProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const engine = platform.engine;
   const theme = useResolvedTheme(themeSetting);
   const [info, setInfo] = useState<DocInfo | null>(null);
@@ -361,6 +363,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     initial: ChartDraft;
   } | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportDocsOpen, setExportDocsOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [sortFrom, setSortFrom] = useState<number | null>(null);
   const [sortOver, setSortOver] = useState<number | null>(null);
@@ -910,6 +913,26 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     [ctrl, baseName, current, count, engine, glyphs, images, platform, t, fail],
   );
 
+  const exportDocs = useCallback(
+    async (s: ExportDocsState) => {
+      setExporting(true);
+      try {
+        if (!engine.exportSlides) throw new Error(t('slideExport.unsupported'));
+        await ctrl.idle();
+        const plan = exportPlan(s, baseName(), current, count);
+        const bytes = await engine.exportSlides(plan.options);
+        await platform.files.saveFile(bytes, plan.name, plan.mime);
+        setExportDocsOpen(false);
+        setStatus(t('slideExport.done'));
+      } catch (e) {
+        fail(e);
+      } finally {
+        setExporting(false);
+      }
+    },
+    [ctrl, baseName, current, count, engine, platform, t, fail],
+  );
+
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SlideEditorState>();
     const guard = async (f: () => Promise<unknown>) => {
@@ -982,6 +1005,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       run: () => guard(async () => platform.print.printPdf(await engine.exportPdf(), base())),
     });
     reg.register({ id: 'file.exportPng', isEnabled: deck, run: () => setExportOpen(true) });
+    reg.register({ id: 'file.exportDocs', isEnabled: deck, run: () => setExportDocsOpen(true) });
     for (const v of ['normal', 'sorter', 'reading'] as const) {
       reg.register({
         id: `view.${v}`,
@@ -1501,6 +1525,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               ),
               item('file.exportPdf', t('slideEditor.exportPdf'), <FileDown size={16} />, sm),
               item('file.exportPng', t('slideEditor.exportPng'), <FileImage size={16} />, sm),
+              item('file.exportDocs', t('slideExport.title'), <FileStack size={16} />, sm),
               item('file.print', t('slideEditor.print'), <Printer size={16} />, sm),
             ],
           },
@@ -2524,6 +2549,17 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           busy={exporting}
           onClose={() => setExportOpen(false)}
           onExport={(o) => void exportPng(o)}
+        />
+      )}
+      {exportDocsOpen && (
+        <ExportDocsDialog
+          open
+          count={count}
+          slide={slideSize}
+          today={new Date().toLocaleDateString(i18n.language)}
+          busy={exporting}
+          onClose={() => setExportDocsOpen(false)}
+          onExport={(s) => void exportDocs(s)}
         />
       )}
       {view !== 'show' && (

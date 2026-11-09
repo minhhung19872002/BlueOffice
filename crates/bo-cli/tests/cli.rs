@@ -131,6 +131,64 @@ fn convert_sheet_and_deck() {
     assert!(std::fs::read(&deck_pdf).unwrap().starts_with(b"%PDF"));
 }
 
+fn pdf_pages(path: &Path) -> usize {
+    let b = std::fs::read(path).unwrap();
+    let s = String::from_utf8_lossy(&b);
+    s.matches("/Type /Page").count() - s.matches("/Type /Pages").count()
+}
+
+#[test]
+fn convert_deck_handouts_notes_pictures_package() {
+    let dir = scratch("convert-handout");
+    let pptx = corpus("slide/slide-anim-transitions.pptx");
+    let plain = dir.join("deck.pdf");
+    run(bin()
+        .arg("convert")
+        .arg(&pptx)
+        .args(["--to", "pdf", "--out"])
+        .arg(&plain));
+    let n = pdf_pages(&plain);
+    assert!(n >= 2, "{n}");
+    // Handouts: ceil(n / k) pages.
+    for k in [2usize, 6] {
+        let out = dir.join(format!("handout-{k}.pdf"));
+        run(bin()
+            .arg("convert")
+            .arg(&pptx)
+            .args(["--to", "pdf", "--handout", &k.to_string(), "--out"])
+            .arg(&out));
+        assert_eq!(pdf_pages(&out), n.div_ceil(k), "{k} per page");
+    }
+    let notes = dir.join("notes.pdf");
+    run(bin()
+        .arg("convert")
+        .arg(&pptx)
+        .args(["--to", "pdf", "--notes-pages", "--letter", "--out"])
+        .arg(&notes));
+    assert_eq!(pdf_pages(&notes), n);
+    let svg = dir.join("slide1.svg");
+    run(bin()
+        .arg("convert")
+        .arg(&pptx)
+        .args(["--to", "svg", "--slide", "1", "--width", "800", "--out"])
+        .arg(&svg));
+    assert!(std::fs::read_to_string(&svg).unwrap().contains("<svg "));
+    let jpgs = dir.join("slides.zip");
+    run(bin()
+        .arg("convert")
+        .arg(&pptx)
+        .args(["--to", "jpg", "--out"])
+        .arg(&jpgs));
+    assert!(std::fs::read(&jpgs).unwrap().starts_with(b"PK"));
+    let pkg = dir.join("package.zip");
+    run(bin()
+        .arg("convert")
+        .arg(&pptx)
+        .args(["--to", "zip", "--out"])
+        .arg(&pkg));
+    assert!(std::fs::read(&pkg).unwrap().starts_with(b"PK"));
+}
+
 #[test]
 fn roundtrip_keeps_the_document_openable() {
     let dir = scratch("roundtrip");

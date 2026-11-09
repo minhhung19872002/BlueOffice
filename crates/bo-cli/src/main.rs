@@ -6,6 +6,9 @@
 //! bo-cli convert old.doc --to docx|odt|txt|pdf     # also .odt / .docx input
 //! bo-cli convert book.xls --to csv|ods [--sheet 1]  # also .xlsb / .ods input
 //! bo-cli convert deck.ppt --to odp|txt              # also .odp input
+//! bo-cli convert deck.pptx --to pdf --handout 6 [--vertical] [--letter] | --notes-pages
+//! bo-cli convert deck.pptx --to png|jpg|svg [--width 1280] [--slide 1]   # zip of all slides without --slide
+//! bo-cli convert deck.pptx --to zip                  # presentation package (deck, media, OFL fonts)
 //! bo-cli convert secret.docx --password pw --to docx --protect newpw
 //! bo-cli inspect file                               # format, encryption, macros
 //! bo-cli sign in.pdf --p12 me.p12 [--tsa URL] | --key k.pem --cert c.pem | --remote URL
@@ -66,7 +69,7 @@ enum Cmd {
     /// Convert to another format.
     Convert {
         input: PathBuf,
-        #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx", "xlsx"])]
+        #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx", "xlsx", "png", "jpg", "svg", "zip"])]
         to: String,
         #[arg(long)]
         out: Option<PathBuf>,
@@ -79,6 +82,8 @@ enum Cmd {
         /// Sheet for CSV output (1-based).
         #[arg(long, default_value_t = 1)]
         sheet: usize,
+        #[command(flatten)]
+        deck: DeckExportArgs,
     },
     /// Digitally sign a PDF (PAdES B-B/B-T) or .docx/.xlsx/.pptx (ECMA-376 Part 2 §12,
     /// XAdES) with a PEM key + certificate, a .p12 file or a remote signing service.
@@ -282,6 +287,81 @@ fn main() -> ExitCode {
 
 type R = Result<(), Box<dyn std::error::Error>>;
 
+/// Slide deck exports of `convert` (SLIDE-EXPORT-002).
+#[derive(clap::Args, Debug, Default)]
+struct DeckExportArgs {
+    /// Slide decks, --to pdf: handouts with N slides per page (1, 2, 3, 4, 6 or 9).
+    #[arg(long)]
+    handout: Option<u8>,
+    /// Handouts: order the slides down each column first.
+    #[arg(long)]
+    vertical: bool,
+    /// Handouts / notes pages: US Letter paper instead of A4.
+    #[arg(long)]
+    letter: bool,
+    /// Slide decks, --to pdf: notes pages (slide and speaker notes).
+    #[arg(long)]
+    notes_pages: bool,
+    /// Slide decks, --to png|jpg|svg: picture width in pixels.
+    #[arg(long, default_value_t = 1280)]
+    width: u32,
+    /// Slide decks, --to png|jpg|svg: only this slide (1-based) instead of a zip of all.
+    #[arg(long)]
+    slide: Option<usize>,
+}
+
+/// Exported bytes and the output file extension.
+type Exported = Option<(Vec<u8>, String)>;
+
+/// Deck export through the BlueSlide engine: `None` for a plain conversion.
+fn deck_export(
+    engine: &mut Engine,
+    to: &str,
+    a: &DeckExportArgs,
+) -> Result<Exported, Box<dyn std::error::Error>> {
+    use bo_engine::slide_export::{
+        handout::Order, HandoutOptions, ImageFormat, ImageOptions, NotesOptions, Paper, SlideExport,
+    };
+    let paper = if a.letter { Paper::Letter } else { Paper::A4 };
+    let opts = match to {
+        "pdf" if a.notes_pages => SlideExport::Notes(NotesOptions {
+            paper,
+            ..NotesOptions::default()
+        }),
+        "pdf" => match a.handout {
+            Some(per_page) => SlideExport::Handout(HandoutOptions {
+                per_page,
+                order: if a.vertical {
+                    Order::Vertical
+                } else {
+                    Order::Horizontal
+                },
+                paper,
+                ..HandoutOptions::default()
+            }),
+            None => return Ok(None),
+        },
+        "png" | "jpg" | "svg" => SlideExport::Image(ImageOptions {
+            format: match to {
+                "png" => ImageFormat::Png,
+                "jpg" => ImageFormat::Jpg,
+                _ => ImageFormat::Svg,
+            },
+            slides: a.slide.map(|n| vec![n.saturating_sub(1)]),
+            width: a.width,
+            ..ImageOptions::default()
+        }),
+        "zip" => SlideExport::Package,
+        _ => return Ok(None),
+    };
+    let one = a.slide.is_some() || engine.slide_count() == 1;
+    let ext = match to {
+        "png" | "jpg" | "svg" if !one => "zip",
+        other => other,
+    };
+    Ok(Some((engine.export_slides(&opts)?, ext.to_owned())))
+}
+
 fn open(input: &Path) -> Result<Engine, Box<dyn std::error::Error>> {
     let bytes = std::fs::read(input).map_err(|e| format!("{}: {e}", input.display()))?;
     let mut engine = Engine::with_bundled_fonts();
@@ -376,6 +456,7 @@ fn run(cli: Cli) -> R {
             password,
             protect,
             sheet,
+            deck,
         } => run_convert(
             &input,
             &to,
@@ -383,6 +464,7 @@ fn run(cli: Cli) -> R {
             password.as_deref(),
             protect.as_deref(),
             sheet,
+            &deck,
         )?,
         Cmd::Sign {
             input,
@@ -663,6 +745,7 @@ fn run_convert(
     password: Option<&str>,
     protect: Option<&str>,
     sheet: usize,
+    deck: &DeckExportArgs,
 ) -> R {
     use convert::Loaded;
     let bytes = std::fs::read(input).map_err(|e| format!("{}: {e}", input.display()))?;
@@ -716,10 +799,16 @@ fn run_convert(
             convert::ods_sheet_to_worksheet(s).to_csv().into_bytes()
         }
         (Loaded::Spreadsheet(d), "ods") => bo_odf::write_ods(&d)?,
-        (Loaded::Pptx(b), "pdf") => {
+        (Loaded::Pptx(b), "pdf" | "png" | "jpg" | "svg" | "zip") => {
             let mut engine = Engine::with_bundled_fonts();
             engine.open_pptx(&b, &name)?;
-            engine.export_pdf()?
+            match deck_export(&mut engine, to, deck)? {
+                Some((data, ext)) => {
+                    out_ext = ext;
+                    data
+                }
+                None => engine.export_pdf()?,
+            }
         }
         (Loaded::Pptx(b), "pptx") => {
             let mut engine = Engine::with_bundled_fonts();
@@ -738,13 +827,16 @@ fn run_convert(
             sheet_convert(&bytes, &name, to, sheet)?
         }
         // .ppt / .odp decks with their drawing, through the BlueSlide engine.
-        (Loaded::Deck(_), "pptx" | "pdf") => {
+        (Loaded::Deck(_), "pptx" | "pdf" | "png" | "jpg" | "svg" | "zip") => {
             let mut engine = Engine::with_bundled_fonts();
             engine.open(&bytes, &name)?;
-            if to == "pdf" {
-                engine.export_pdf()?
-            } else {
-                engine.save_pptx()?
+            match deck_export(&mut engine, to, deck)? {
+                Some((data, ext)) => {
+                    out_ext = ext;
+                    data
+                }
+                None if to == "pdf" => engine.export_pdf()?,
+                None => engine.save_pptx()?,
             }
         }
         (Loaded::Deck(p), "odp") => bo_odf::write_odp(&p)?,

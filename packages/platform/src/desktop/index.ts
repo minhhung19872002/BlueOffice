@@ -40,6 +40,7 @@ import type {
   WindowManager,
 } from '../types';
 import { RpcSheetHost, type SheetMethod, type SheetRpc } from '../sheet';
+import type { SlideExportOptions } from '../slideExport';
 import { BundledFontSource } from '../web';
 import { WebEngineHost } from '../web/WebEngineHost';
 import { webSheetTransport } from '../web/WebSheetHost';
@@ -109,6 +110,11 @@ export class NativeEngineHost implements EngineHost {
   }
   async savePptx(): Promise<Uint8Array> {
     return toBytes(await this.call<ArrayBuffer>('engine_save_pptx'));
+  }
+  async exportSlides(options: SlideExportOptions): Promise<Uint8Array> {
+    return toBytes(
+      await this.call<ArrayBuffer>('engine_slide_export', { json: JSON.stringify(options) }),
+    );
   }
   async slideCommand(cmd: SlideCommand): Promise<SlideEditResult> {
     return JSON.parse(
@@ -265,6 +271,10 @@ export class FallbackEngineHost implements EngineHost {
   }
   async savePptx(): Promise<Uint8Array> {
     return (await this.on()).savePptx();
+  }
+  async exportSlides(options: SlideExportOptions): Promise<Uint8Array> {
+    const h = await this.on();
+    return need(h.exportSlides, 'exportSlides').call(h, options);
   }
   async slideCommand(cmd: SlideCommand): Promise<SlideEditResult> {
     return (await this.on()).slideCommand(cmd);

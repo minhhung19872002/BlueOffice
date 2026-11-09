@@ -2,7 +2,7 @@
 //! the WASM `slideCommand` / `slideInsertPicture` methods used by `EngineHost`.
 
 use crate::{header_name, raw_body, EngineState};
-use tauri::ipc::Request;
+use tauri::ipc::{Request, Response};
 use tauri::State;
 
 /// Slide editing command (JSON `bo_engine::SlideCommand`) → `SlideEditResult` JSON.
@@ -25,4 +25,17 @@ pub fn engine_slide_insert_picture(
         .slide_insert_picture(bytes, &name)
         .map_err(|e| e.to_string())?;
     serde_json::to_string(&r).map_err(|e| e.to_string())
+}
+
+/// Handout / notes PDF, slide pictures or presentation package
+/// (JSON `bo_engine::slide_export::SlideExport`) → file bytes.
+#[tauri::command]
+pub fn engine_slide_export(
+    state: State<'_, EngineState>,
+    json: String,
+) -> Result<Response, String> {
+    let mut e = state.0.lock().map_err(|e| e.to_string())?;
+    e.export_slides_json(&json)
+        .map(Response::new)
+        .map_err(|e| e.to_string())
 }

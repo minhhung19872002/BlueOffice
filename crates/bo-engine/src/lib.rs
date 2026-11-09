@@ -36,6 +36,7 @@ mod notes;
 pub mod review;
 pub mod sheet;
 pub mod slide_edit;
+pub mod slide_export;
 pub mod smartart;
 pub mod spell;
 pub mod story;

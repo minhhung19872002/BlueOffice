@@ -666,6 +666,7 @@ fn main() {
             engine_mark_saved,
             slide_cmds::engine_slide_command,
             slide_cmds::engine_slide_insert_picture,
+            slide_cmds::engine_slide_export,
             collab_cmds::engine_collab_start,
             collab_cmds::engine_collab_apply,
             collab_cmds::engine_collab_peers,

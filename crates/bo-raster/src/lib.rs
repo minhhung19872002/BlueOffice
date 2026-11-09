@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 pub mod codecs;
+pub mod jpeg;
 
 use bo_render::{Command, GradientStop, ImageSource, PageList, PathSeg, Rgba};
 use bo_text::{FaceId, FontManager, PathCmd};
@@ -644,6 +645,20 @@ pub fn render_page_png_with(
     render_page_with(page, fonts, scale, images)?
         .encode_png()
         .map_err(|e| RasterError::Encode(e.to_string()))
+}
+
+/// Render a page with images and encode it as a baseline JPEG (`quality` 1..=100).
+pub fn render_page_jpeg_with(
+    page: &PageList,
+    fonts: &FontManager,
+    scale: f32,
+    images: &dyn ImageSource,
+    quality: u8,
+) -> Result<Vec<u8>, RasterError> {
+    let pm = render_page_with(page, fonts, scale, images)?;
+    // The page is painted on opaque white, so premultiplied = straight RGBA.
+    jpeg::encode_jpeg(pm.data(), pm.width(), pm.height(), quality)
+        .ok_or_else(|| RasterError::Encode("JPEG".into()))
 }
 
 #[cfg(test)]

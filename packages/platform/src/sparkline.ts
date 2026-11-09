@@ -56,7 +56,8 @@ export interface SparklineGroupInfo {
 }
 
 /** Settings to change on a group; colours are `#RRGGBB`. */
-export interface SparklinePatch {
+// A type alias (not an interface) so commands stay assignable to `{ cmd: string; [k: string]: unknown }`.
+export type SparklinePatch = {
   type?: SparklineType;
   markers?: boolean;
   high?: boolean;
@@ -81,7 +82,7 @@ export interface SparklinePatch {
   colorLast?: string;
   colorHigh?: string;
   colorLow?: string;
-}
+};
 
 /** Sparkline commands of the sheet command bridge. */
 export type SparklineCommand =

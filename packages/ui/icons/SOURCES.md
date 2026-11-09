@@ -85,6 +85,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `file.saveCsv` | Lucide (ISC) `Table2` |
 | `file.savePassword` | Lucide (ISC) `KeyRound` |
 | `file.sign` | Lucide (ISC) `Signature` |
+| `file.signLine` | Lucide (ISC) `Signature` |
 | `file.verifySignatures` | Lucide (ISC) `ShieldCheck` |
 | `format.alignBottom` | Lucide (ISC) `ArrowDownToLine` |
 | `format.alignCenter` | Lucide (ISC) `TextAlignCenter` |
@@ -155,6 +156,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `insert.pivot` | Lucide (ISC) `TableProperties` |
 | `insert.rect` | Lucide (ISC) `Square` |
 | `insert.sectionBreak` | Lucide (ISC) `SeparatorHorizontal` |
+| `insert.signatureLine` | Lucide (ISC) `PenLine` |
 | `insert.slicer` | Lucide (ISC) `ListFilter` |
 | `insert.smartart` | Lucide (ISC) `Network` |
 | `insert.symbol` | Lucide (ISC) `Omega` |

@@ -133,6 +133,23 @@ pub fn sites(pres: &Presentation, slide: usize, p: &Placed, n: &ShapeNode) -> Ve
         .collect()
 }
 
+/// Outward directions of the connection sites of a placed shape, degrees
+/// clockwise from +x on the slide (§20.1.9.9 cxn@ang, with the shape's flips
+/// and rotation).
+pub fn site_angles(pres: &Presentation, slide: usize, p: &Placed, n: &ShapeNode) -> Vec<f64> {
+    let f = visual(p, flips(pres, slide, n));
+    bo_drawingml::handles::connection_sites(geometry(n), p.b.w, p.b.h)
+        .into_iter()
+        .map(|s| {
+            let t = s.angle.to_radians();
+            let (dx, dy) = (t.cos(), t.sin());
+            let dx = if f.0 { -dx } else { dx };
+            let dy = if f.1 { -dy } else { dy };
+            (dy.atan2(dx).to_degrees() + p.b.rot).rem_euclid(360.0)
+        })
+        .collect()
+}
+
 /// `a:stCxn` / `a:endCxn` of a connector: (shape id, site index).
 pub fn cxn_ref(c: &Connector, end: usize) -> Option<(u32, u32)> {
     let name = if end == 0 { "a:stCxn" } else { "a:endCxn" };

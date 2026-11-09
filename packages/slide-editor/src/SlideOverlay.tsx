@@ -18,6 +18,8 @@ import {
 } from 'react';
 import type { SlideController } from './controller';
 import { fromEditorText, toEditorText } from './editing';
+import { nearestSite } from './editPoints';
+import shapeStyles from './shapeFormat.module.css';
 import styles from './SlideEditor.module.css';
 
 /** Text being edited inside a shape. */
@@ -164,6 +166,8 @@ export function SlideOverlay({
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(
     null,
   );
+  // Connection site a dragged connector end will snap to (CORE-SHAPE-001).
+  const [snapSite, setSnapSite] = useState<[number, number] | null>(null);
   const table = edit?.table;
   const tableFrame = table && edit?.selection.find((s) => s.id === table.id)?.rect;
   const textEdit: SlideTextEdit | null =
@@ -331,6 +335,7 @@ export function SlideOverlay({
       return;
     }
     if (d.mode === 'cxnEnd') {
+      setSnapSite(nearestSite(edit?.sites ?? [], p.x, p.y, SITE_PX / (scale || 1)));
       runLive({
         cmd: 'connectorEnd',
         end: d.index === 1 ? 1 : 0,
@@ -364,6 +369,7 @@ export function SlideOverlay({
     drag.current = null;
     svgRef.current?.releasePointerCapture?.(e.pointerId);
     live.current.active = false;
+    setSnapSite(null);
     if (!d?.started || d.mode === 'cells') return;
     const p = toPt(e);
     if (d.mode === 'adjust') {
@@ -546,6 +552,16 @@ export function SlideOverlay({
               vectorEffect="non-scaling-stroke"
             />
           ))}
+        {snapSite && (
+          <circle
+            className={shapeStyles.snapSite}
+            data-testid="connector-snap-site"
+            cx={snapSite[0]}
+            cy={snapSite[1]}
+            r={hs}
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
         {showHandles &&
           edit.connector?.ends.map(([x, y], i) => (
             <circle

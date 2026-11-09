@@ -210,8 +210,10 @@ pub fn connection_sites(geom: Option<&Geometry>, w: f64, h: f64) -> Vec<Site> {
             },
         ]
     };
-    let Some(Geometry::Preset { name, av }) = geom else {
-        return fallback();
+    let (name, av) = match geom {
+        Some(Geometry::Preset { name, av }) => (name, av),
+        Some(Geometry::Custom(c)) => return custom_sites(c, w, h).unwrap_or_else(fallback),
+        None => return fallback(),
     };
     let (Some(def), Some(d)) = (crate::presets::preset(name), table().get(name.as_str())) else {
         return fallback();
@@ -227,6 +229,28 @@ pub fn connection_sites(geom: Option<&Geometry>, w: f64, h: f64) -> Vec<Site> {
             Some(Site { x, y, angle })
         })
         .collect()
+}
+
+/// Connection sites of a custom geometry's `a:cxnLst` (§20.1.9.10, kept as an
+/// extra child): `None` when it has none.
+fn custom_sites(c: &CustomGeometry, w: f64, h: f64) -> Option<Vec<Site>> {
+    let list = c.extra.iter().find(|e| e.xml.local() == "cxnLst")?;
+    // Positions are shape coordinates (guide names or literals).
+    let g = guides(c, &[], w, h).ok()?;
+    let sites: Vec<Site> = list
+        .xml
+        .elements()
+        .filter(|e| e.local() == "cxn")
+        .filter_map(|e| {
+            // §20.1.9.9 cxn@ang, §20.1.9.17 pos@x/@y.
+            let pos = e.elements().find(|p| p.local() == "pos")?;
+            let x = g.arg(pos.attr("x")?).ok()?;
+            let y = g.arg(pos.attr("y")?).ok()?;
+            let angle = g.arg(e.attr("ang").unwrap_or("0")).ok()? / 60_000.0;
+            Some(Site { x, y, angle })
+        })
+        .collect();
+    (!sites.is_empty()).then_some(sites)
 }
 
 /// Current value of adjust guide `name` (definition default when not overridden).

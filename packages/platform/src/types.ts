@@ -1362,6 +1362,39 @@ export type SlideTextFormat =
   | { kind: 'level'; delta: number }
   | { kind: 'lineSpacing'; value: number };
 
+/** Type of a freeform anchor point (how its control points move together). */
+export type SlidePointType = 'corner' | 'smooth' | 'symmetric';
+
+/** Shape merge operations (CORE-SHAPE-001). */
+export type SlideMergeOp = 'union' | 'combine' | 'fragment' | 'intersect' | 'subtract';
+
+/** One edit of a freeform outline; coordinates in slide points. */
+export type SlidePointEdit =
+  | { kind: 'move'; path: number; point: number; x: number; y: number }
+  /** Control point: `side` 0 = incoming, 1 = outgoing. */
+  | { kind: 'handle'; path: number; point: number; side: 0 | 1; x: number; y: number }
+  | { kind: 'add'; x: number; y: number; tolerance?: number }
+  | { kind: 'delete'; path: number; point: number }
+  | { kind: 'segment'; path: number; segment: number; curved: boolean }
+  | { kind: 'pointType'; path: number; point: number; pointType: SlidePointType };
+
+/** Editable outline of the selected freeform (slide points). */
+export interface SlideFreeformInfo {
+  id: number;
+  paths: {
+    points: {
+      x: number;
+      y: number;
+      kind: SlidePointType;
+      /** Incoming and outgoing control points (`null` beside straight segments). */
+      handles: [[number, number] | null, [number, number] | null];
+    }[];
+    segments: { curved: boolean; mid: [number, number] }[];
+    /** Outline as an SVG path in slide points. */
+    d: string;
+  }[];
+}
+
 /** Slide editing command (JSON bridge, ADR-0008). */
 export type SlideCommand =
   | import('./security').SecurityCommand
@@ -1425,6 +1458,12 @@ export type SlideCommand =
       tolerance?: number;
     }
   | { cmd: 'insertConnector'; preset?: string }
+  /** Edit points: the selected shape's outline becomes a freeform (custGeom). */
+  | { cmd: 'convertToFreeform' }
+  /** Edit a point or segment of the selected freeform (`merge`: same drag). */
+  | { cmd: 'editPoint'; edit: SlidePointEdit; merge?: boolean }
+  /** Merge the selected shapes (selection order: the first gives formatting). */
+  | { cmd: 'mergeShapes'; op: SlideMergeOp }
   | { cmd: 'tableSelect'; id?: number; r0: number; c0: number; r1?: number; c1?: number }
   | { cmd: 'tableHit'; x: number; y: number; extend?: boolean }
   | { cmd: 'setCellText'; row?: number; col?: number; text: string; merge?: boolean }
@@ -1918,6 +1957,8 @@ export interface SlideEditResult {
   };
   /** Connection sites of the other shapes while a connector is selected. */
   sites?: [number, number][];
+  /** The selected freeform's anchor points and segments (edit points). */
+  freeform?: SlideFreeformInfo;
   /** What the internal clipboard holds. */
   clip?: 'shapes' | 'slides';
   /** After copy / cut: content for the system clipboard (`png` in base64). */

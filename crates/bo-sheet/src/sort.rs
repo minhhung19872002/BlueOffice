@@ -601,6 +601,7 @@ pub(crate) mod tests {
         wb.sheets[0].conditional_formats.push(ConditionalFormat {
             sqref: vec![CellRange::parse(sqref).unwrap()],
             pivot: false,
+            ext: false,
             rules: vec![CfRule {
                 kind: "iconSet".into(),
                 priority: 1,

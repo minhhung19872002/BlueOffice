@@ -54,6 +54,7 @@ export interface EditorState {
     | 'sign'
     | 'signPdf'
     | 'signatures'
+    | 'xmlMapping'
     | null;
   /** Verification of the opened file's digital signatures (null: unsigned / not checked). */
   signatures: SignatureReport | null;

@@ -12,6 +12,7 @@ export type * from './picture';
 export type * from './charfx';
 export type * from './spelling';
 export * from './slideMedia';
+export type * from './customXml';
 export { PASSWORD_REQUIRED, WRONG_PASSWORD } from './types';
 export {
   AnonymousSession,

@@ -1,0 +1,125 @@
+.pane {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--bo-xml-pane-size, 300px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+  padding: 8px 10px;
+  border-left: 1px solid var(--bo-border);
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text);
+  font-size: 13px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header strong {
+  flex: 1;
+}
+
+.header button,
+.actions button,
+.status button,
+.paste button {
+  padding: 2px 8px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.paste {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.paste textarea {
+  font-family: var(--bo-font-mono, monospace);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.meta {
+  color: var(--bo-text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.error {
+  color: var(--bo-danger, #b42318);
+  font-size: 12px;
+}
+
+.tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.node {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.node:hover,
+.node:focus-visible {
+  background: var(--bo-hover, rgba(0, 0, 0, 0.05));
+}
+
+.picked {
+  outline: 1px solid var(--bo-border);
+}
+
+.bound {
+  background: var(--bo-selection, rgba(30, 100, 220, 0.12));
+}
+
+.name {
+  white-space: nowrap;
+}
+
+.value {
+  color: var(--bo-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

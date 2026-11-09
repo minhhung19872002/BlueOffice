@@ -166,6 +166,9 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
         );
     }
     w.write_media()?;
+    if crate::custom_xml::write_parts(&mut w.pkg, &main, &mut w.rels.list, doc)? {
+        w.rels.changed = true;
+    }
     if w.rels.changed || doc.source.is_none() {
         let rels = w.rels.list.clone();
         w.pkg.set_relationships(&main, &rels);
@@ -3135,8 +3138,22 @@ fn sdt_pr(cc: &ContentControl) -> String {
             return xml.clone();
         }
     }
+    // Children of the source sdtPr this model does not hold (kept when it is rewritten).
+    let kept = cc
+        .props_xml
+        .as_deref()
+        .map(sdt_pr_unmodelled)
+        .unwrap_or_default();
+    let take = |names: &[&str]| -> String {
+        kept.iter()
+            .filter(|(n, _)| names.contains(&n.as_str()))
+            .map(|(_, x)| x.as_str())
+            .collect()
+    };
     let mut s = String::from("<w:sdtPr>");
-    // CT_SdtPr order: alias, tag, id, lock, showingPlcHdr, then the kind.
+    // CT_SdtPr order (§17.5.2.38): rPr, alias, tag, id, lock, placeholder, temporary,
+    // showingPlcHdr, dataBinding, label, tabIndex, then the kind.
+    s.push_str(&take(&["w:rPr"]));
     if let Some(a) = &cc.alias {
         let _ = write!(s, "<w:alias w:val=\"{}\"/>", escape(a));
     }
@@ -3149,9 +3166,23 @@ fn sdt_pr(cc: &ContentControl) -> String {
     if let Some(l) = &cc.lock {
         let _ = write!(s, "<w:lock w:val=\"{}\"/>", escape(l));
     }
+    s.push_str(&take(&["w:placeholder", "w:temporary"]));
     if cc.placeholder {
         s.push_str("<w:showingPlcHdr/>");
     }
+    // §17.5.2.6 dataBinding.
+    if let Some(b) = &cc.data_binding {
+        s.push_str("<w:dataBinding");
+        if !b.prefix_mappings.is_empty() {
+            let _ = write!(s, " w:prefixMappings=\"{}\"", escape(&b.prefix_mappings));
+        }
+        let _ = write!(s, " w:xpath=\"{}\"", escape(&b.xpath));
+        if let Some(id) = &b.store_item_id {
+            let _ = write!(s, " w:storeItemID=\"{}\"", escape(id));
+        }
+        s.push_str("/>");
+    }
+    s.push_str(&take(&["w:label", "w:tabIndex"]));
     let list = |s: &mut String, items: &[(String, String)]| {
         for (d, v) in items {
             let _ = write!(
@@ -3182,16 +3213,24 @@ fn sdt_pr(cc: &ContentControl) -> String {
             list(&mut s, items);
             s.push_str("</w:dropDownList>");
         }
-        ControlKind::Date { format, full_date } => {
+        ControlKind::Date {
+            format,
+            full_date,
+            store_as,
+        } => {
             match full_date {
                 Some(d) => {
                     let _ = write!(s, "<w:date w:fullDate=\"{}\">", escape(d));
                 }
                 None => s.push_str("<w:date>"),
             }
+            // §17.5.2.40 storeMappedDataAs (written when known).
+            let store = store_as.as_deref().map_or(String::new(), |v| {
+                format!("<w:storeMappedDataAs w:val=\"{}\"/>", escape(v))
+            });
             let _ = write!(
                 s,
-                "<w:dateFormat w:val=\"{}\"/><w:lid w:val=\"vi-VN\"/><w:storeMappedDataAs w:val=\"dateTime\"/><w:calendar w:val=\"gregorian\"/></w:date>",
+                "<w:dateFormat w:val=\"{}\"/><w:lid w:val=\"vi-VN\"/>{store}<w:calendar w:val=\"gregorian\"/></w:date>",
                 escape(format)
             );
         }
@@ -3211,8 +3250,56 @@ fn sdt_pr(cc: &ContentControl) -> String {
         }
         ControlKind::Group => s.push_str("<w:group/>"),
     }
+    for (n, x) in &kept {
+        if !matches!(
+            n.as_str(),
+            "w:rPr" | "w:placeholder" | "w:temporary" | "w:label" | "w:tabIndex"
+        ) {
+            s.push_str(x);
+        }
+    }
     s.push_str("</w:sdtPr>");
     s
+}
+
+/// Children of a source `w:sdtPr` that [`ContentControl`] does not model, as (qualified
+/// name, XML): rPr, placeholder, temporary, label, tabIndex, the kind of an `Other` control
+/// (citation, docPartObj, …) and extension elements other than w14:checkbox /
+/// w15:repeatingSection.
+fn sdt_pr_unmodelled(xml: &str) -> Vec<(String, String)> {
+    const MODELLED: &[&str] = &[
+        "w:alias",
+        "w:tag",
+        "w:id",
+        "w:lock",
+        "w:showingPlcHdr",
+        "w:dataBinding",
+        "w:text",
+        "w:richText",
+        "w:picture",
+        "w:comboBox",
+        "w:dropDownList",
+        "w:date",
+        "w:group",
+        "w14:checkbox",
+        "w15:repeatingSection",
+    ];
+    let wrapped =
+        format!("<x xmlns:w=\"{W_NS}\" xmlns:w14=\"{W14}\" xmlns:w15=\"{W15}\">{xml}</x>");
+    let Ok(root) = bo_drawingml::dom::parse(wrapped.as_bytes(), "/sdtPr") else {
+        return Vec::new();
+    };
+    let Some(pr) = root.elements().next() else {
+        return Vec::new();
+    };
+    pr.elements()
+        .filter(|e| !MODELLED.contains(&e.name.as_str()))
+        .map(|e| {
+            let mut x = String::new();
+            bo_drawingml::dom::write_element(e, &mut x);
+            (e.name.clone(), x)
+        })
+        .collect()
 }
 
 const W14: &str = "http://schemas.microsoft.com/office/word/2010/wordml";

@@ -14,6 +14,7 @@ pub mod charfx;
 mod collate;
 pub mod comments;
 pub mod compare;
+pub mod custom_xml;
 pub mod design;
 pub mod fields;
 pub mod find;
@@ -695,6 +696,11 @@ impl Tx<'_> {
         op.apply(self.doc)?;
         self.ops.push(op);
         Ok(())
+    }
+
+    /// Record an op already applied to the document.
+    fn record_applied(&mut self, op: Op) {
+        self.ops.push(op);
     }
 
     /// Remove the notes whose last reference this transaction removed and, in
@@ -1824,6 +1830,7 @@ impl Session {
             "date" => ControlKind::Date {
                 format: "dd/MM/yyyy".into(),
                 full_date: None,
+                store_as: Some("dateTime".into()),
             },
             _ => return Err(EditError::Unsupported(format!("control {kind}"))),
         };
@@ -1838,6 +1845,7 @@ impl Session {
             placeholder: !checkbox,
             block: false,
             props_xml: None,
+            data_binding: None,
         };
         let text = if checkbox {
             "\u{2610}".to_owned()
@@ -1932,7 +1940,9 @@ impl Session {
                     None => return Ok(false),
                 }
             }
-            ControlKind::Date { format, full_date } => {
+            ControlKind::Date {
+                format, full_date, ..
+            } => {
                 let Some(d) = bo_model::field::DateTime::parse_iso(value) else {
                     return Ok(false);
                 };
@@ -2395,6 +2405,13 @@ impl Session {
             if let Err(e) = tx.drop_orphan_notes() {
                 res = Err(e);
             }
+        }
+        if res.is_ok() && !tx.doc.custom_xml.is_empty() {
+            // Bound content controls edited here update their nodes (§17.5.2.6), in this step.
+            custom_xml::sync_in(
+                &mut tx,
+                bo_model::custom_xml::binding::SyncMode::FromControls,
+            );
         }
         crate::ops::record_ops(&tx.ops, tx.doc, &mut self.changes);
         match res {

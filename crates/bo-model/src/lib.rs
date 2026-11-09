@@ -10,6 +10,7 @@
 
 pub mod change;
 pub mod chart_style;
+pub mod custom_xml;
 pub mod field;
 pub mod form;
 pub mod index;

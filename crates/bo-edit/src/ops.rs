@@ -7,6 +7,7 @@
 
 use crate::EditError;
 use bo_model::change::BlockChanges;
+use bo_model::custom_xml::CustomXmlPart;
 use bo_model::index::blocks_at_mut;
 use bo_model::{
     Block, Comment, DocDesign, Document, Hyphenation, Numbering, Section, StyleSheet, ThemeFonts,
@@ -106,6 +107,13 @@ pub enum Op {
         /// New settings.
         new: Hyphenation,
     },
+    /// Replace the custom XML parts (ECMA-376 Part 1, §15.2.4 / §15.2.5).
+    CustomXml {
+        /// Previous parts.
+        old: Vec<CustomXmlPart>,
+        /// New parts.
+        new: Vec<CustomXmlPart>,
+    },
 }
 
 impl Op {
@@ -171,6 +179,10 @@ impl Op {
                 old: *new,
                 new: *old,
             },
+            Op::CustomXml { old, new } => Op::CustomXml {
+                old: new.clone(),
+                new: old.clone(),
+            },
         }
     }
 
@@ -206,6 +218,8 @@ impl Op {
             }
             // §17.15.1.35 evenAndOddHeaders only selects which header a page shows.
             Op::EvenAndOddHeaders { .. } => changes.mark_headers(0),
+            // Data parts are not laid out (bound controls change through `Blocks`).
+            Op::CustomXml { .. } => {}
             _ => changes.mark_all(),
         }
     }
@@ -299,6 +313,12 @@ impl Op {
                     return Err(EditError::Conflict);
                 }
                 doc.hyphenation = *new;
+            }
+            Op::CustomXml { old, new } => {
+                if doc.custom_xml != *old {
+                    return Err(EditError::Conflict);
+                }
+                doc.custom_xml.clone_from(new);
             }
         }
         Ok(())

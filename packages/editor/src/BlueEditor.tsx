@@ -159,6 +159,7 @@ import {
   GitMerge,
   Braces,
   ListChecks,
+  FileCode,
   LockOpen,
   Unlink,
   AlignHorizontalSpaceAround,
@@ -277,6 +278,7 @@ import { CombineCharsDialog, FontEffectsDialog, PhoneticGuideDialog } from './Fo
 import { isReferenceDialog, ReferenceDialog } from './ReferenceDialogs';
 import { Rulers, type PageBox } from './Ruler';
 import { NavigationPane } from './NavigationPane';
+import { XmlMappingPane } from './XmlMappingPane';
 import { OutlineView } from './OutlineView';
 import { ReadMode } from './ReadMode';
 import { demoted, promoted } from './outlineModel';
@@ -1386,6 +1388,13 @@ function EditorInner({
       id: 'insert.control',
       isEnabled: hasDoc,
       run: () => store.setState({ dialog: 'control' }),
+    });
+    // Custom XML parts and content control data binding (§15.2.4, §17.5.2.6).
+    r.register({
+      id: 'insert.xmlMapping',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.panel === 'xmlMapping',
+      run: (s) => store.setState({ panel: s.panel === 'xmlMapping' ? null : 'xmlMapping' }),
     });
     r.register({
       id: 'insert.signatureLine',
@@ -2647,6 +2656,7 @@ function EditorInner({
             item('insert.equation', 'commands.insert.equation', <Sigma size={ICON} />),
             item('insert.field', 'commands.insert.field', <Braces size={ICON} />),
             item('insert.control', 'commands.insert.control', <ListChecks size={ICON} />),
+            item('insert.xmlMapping', 'commands.insert.xmlMapping', <FileCode size={ICON} />),
             item('insert.signatureLine', 'commands.insert.signatureLine', <PenLine size={ICON} />),
             item(
               'equation.professional',
@@ -3377,6 +3387,14 @@ function EditorInner({
                 info={state.edit.formField}
                 protection={state.edit.protection ?? null}
                 run={runCommand}
+              />
+            )}
+            {state.panel === 'xmlMapping' && state.doc && (
+              <XmlMappingPane
+                run={runCommand}
+                control={state.edit?.control ?? null}
+                pickFile={async () => (await platform.files.openFile(['.xml']))?.bytes ?? null}
+                onClose={closePanel}
               />
             )}
             {state.panel === 'notes' && (

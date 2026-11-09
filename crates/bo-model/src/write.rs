@@ -187,6 +187,9 @@ pub struct SourcePackage {
     /// §17.15.1.89 trackRevisions as read (changed ⇒ settings patched).
     #[serde(default)]
     pub track_revisions: bool,
+    /// Custom XML parts as read (ECMA-376 Part 1, §15.2.4; changed ⇒ parts rewritten).
+    #[serde(default)]
+    pub custom_xml: Vec<crate::custom_xml::CustomXmlPart>,
 }
 
 /// A whole word-processing document.
@@ -244,6 +247,10 @@ pub struct Document {
     /// Track changes is on (ECMA-376 Part 1, §17.15.1.89 trackRevisions in settings).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub track_revisions: bool,
+    /// Custom XML data storage parts (ECMA-376 Part 1, §15.2.4) with their properties
+    /// (§15.2.5), in relationship order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_xml: Vec<crate::custom_xml::CustomXmlPart>,
     /// Source package the document was read from (`None` for a new document).
     pub source: Option<Arc<SourcePackage>>,
 }
@@ -2158,6 +2165,10 @@ pub enum ControlKind {
         format: String,
         /// `w:fullDate`.
         full_date: Option<String>,
+        /// §17.5.2.40 storeMappedDataAs (`text`, `date`, `dateTime`): how a bound date is
+        /// stored in its custom XML node.
+        #[serde(default)]
+        store_as: Option<String>,
     },
     /// [MS-DOCX] w14:checkbox: checked, and the checked / unchecked characters.
     Checkbox {
@@ -2195,6 +2206,9 @@ pub struct ContentControl {
     pub block: bool,
     /// `w:sdtPr` as read (written back while the parsed fields are unchanged).
     pub props_xml: Option<String>,
+    /// §17.5.2.6 dataBinding: the custom XML node the content mirrors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_binding: Option<crate::custom_xml::DataBinding>,
 }
 
 impl RunContent {

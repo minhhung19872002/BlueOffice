@@ -1104,6 +1104,9 @@ pub struct EditResult {
     /// The picture at the selection (picture tools commands, CORE-PIC-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub picture: Option<Box<crate::picture_tools::PictureInfo>>,
+    /// Custom XML parts and their nodes (custom XML commands, §15.2.4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_xml: Option<Vec<bo_edit::custom_xml::CustomXmlInfo>>,
 }
 
 impl crate::Engine {
@@ -1123,6 +1126,10 @@ impl crate::Engine {
         }
         if let Some(pc) = crate::picture_tools::PictureCommand::parse(&v) {
             let r = self.doc_picture_command(pc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        if let Some(xc) = crate::custom_xml::CustomXmlCommand::parse(&v) {
+            let r = self.doc_custom_xml_command(xc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         let cmd: Command =
@@ -2179,7 +2186,11 @@ impl crate::Engine {
                 .selected_equation()
                 .and_then(|(_, xml)| crate::equation::info(&xml)),
             ruby: s.selected_ruby().map(|(_, r)| r),
-            control: s.control_at_caret().map(|c| ControlInfo::of(&c)),
+            control: s.control_at_caret().map(|c| {
+                let mut i = ControlInfo::of(&c);
+                i.bound = s.control_binding_status();
+                i
+            }),
             form_field: s.form_field_info(),
             protection: crate::forms::info(s),
             templates: None,
@@ -2204,6 +2215,7 @@ impl crate::Engine {
             signature_lines: None,
             signature_line_images: None,
             picture: None,
+            custom_xml: None,
         })
     }
 }
@@ -2327,6 +2339,12 @@ pub struct ControlInfo {
     pub placeholder: bool,
     /// The content cannot be edited (§17.5.2.23 lock).
     pub locked: bool,
+    /// Bound node (§17.5.2.6 dataBinding `w:xpath`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binding: Option<String>,
+    /// The bound node exists (`false`: unbound, the control keeps its content).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bound: Option<bool>,
 }
 
 impl ControlInfo {
@@ -2350,7 +2368,9 @@ impl ControlInfo {
                 None,
                 None,
             ),
-            K::Date { format, full_date } => (
+            K::Date {
+                format, full_date, ..
+            } => (
                 "date",
                 vec![],
                 None,
@@ -2375,6 +2395,8 @@ impl ControlInfo {
                 c.lock.as_deref(),
                 Some("contentLocked" | "sdtContentLocked")
             ),
+            binding: c.data_binding.as_ref().map(|b| b.xpath.clone()),
+            bound: None,
         }
     }
 }

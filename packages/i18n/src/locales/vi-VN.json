@@ -158,6 +158,7 @@
       "equation": "Phương trình",
       "field": "Trường…",
       "control": "Điều khiển nội dung…",
+      "xmlMapping": "Ánh xạ dữ liệu XML…",
       "formText": "Ô nhập chữ (biểu mẫu)",
       "formCheckBox": "Ô đánh dấu (biểu mẫu)",
       "formDropDown": "Danh sách chọn (biểu mẫu)",
@@ -3462,6 +3463,43 @@
     "date": "Ngày",
     "locked": "Nội dung bị khoá",
     "apply": "Áp dụng"
+  },
+  "xmlMapping": {
+    "title": "Ánh xạ dữ liệu XML",
+    "close": "Đóng",
+    "part": "Phần dữ liệu",
+    "noParts": "Tài liệu chưa có phần dữ liệu XML tuỳ chỉnh.",
+    "addFile": "Thêm từ tệp…",
+    "paste": "Dán XML",
+    "pasteHint": "Dán một tài liệu XML vào đây",
+    "addPasted": "Thêm phần",
+    "remove": "Xoá phần",
+    "nodes": "Các nút",
+    "broken": "Phần này không phải XML hợp lệ.",
+    "boundCount": "Điều khiển nội dung đã gắn: {{count}}",
+    "control": {
+      "none": "Đặt con trỏ vào một điều khiển nội dung để gắn nó với một nút.",
+      "unbound": "Điều khiển nội dung tại con trỏ chưa gắn dữ liệu.",
+      "bound": "Đã gắn với {{xpath}}",
+      "missing": "Gắn với {{xpath}}; không tìm thấy nút nên đang hiện nội dung đã lưu."
+    },
+    "unbind": "Bỏ gắn dữ liệu",
+    "bindHint": "Bấm vào một nút để gắn điều khiển nội dung tại con trỏ với nút đó.",
+    "value": "Giá trị",
+    "setValue": "Đặt giá trị",
+    "error": {
+      "badXml": "XML không hợp lệ.",
+      "badPart": "Phần dữ liệu này không còn nữa.",
+      "badXPath": "Đường dẫn nút này chưa được hỗ trợ.",
+      "noNode": "Không tìm thấy nút.",
+      "notLeaf": "Chỉ thuộc tính và phần tử không có phần tử con mới mang giá trị.",
+      "noControl": "Con trỏ không nằm trong điều khiển nội dung.",
+      "locked": "Điều khiển nội dung đang bị khoá.",
+      "notBindable": "Loại điều khiển nội dung này không gắn dữ liệu được.",
+      "tooLarge": "Phần XML quá lớn.",
+      "protected": "Tài liệu chỉ cho phép điền biểu mẫu.",
+      "other": "Không thực hiện được thay đổi."
+    }
   },
   "autoCorrect": {
     "title": "Tự động sửa khi gõ",

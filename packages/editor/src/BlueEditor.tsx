@@ -14,6 +14,7 @@ import type {
   SignRequest,
   StoredDocument,
   TableEdit,
+  ViewLayoutMode,
 } from '@blueoffice/platform';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD, updateNotice } from '@blueoffice/platform';
 import {
@@ -148,6 +149,10 @@ import {
   Table2,
   WrapText,
   Frame,
+  BookOpen,
+  Globe,
+  ScrollText,
+  Focus,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -198,6 +203,11 @@ import {
   WatermarkMenu,
 } from './PageBackgroundDialogs';
 import { Rulers, type PageBox } from './Ruler';
+import { NavigationPane } from './NavigationPane';
+import { OutlineView } from './OutlineView';
+import { ReadMode } from './ReadMode';
+import { demoted, promoted } from './outlineModel';
+import viewStyles from './Views.module.css';
 
 /** Options controlled by the embedding host (prompt §3.5). */
 export interface HostConfig {
@@ -226,6 +236,8 @@ const ICON = 20;
 const SMALL = 16;
 /** Room the docked reviewing pane takes from the pages (CSS px, see ReviewingPane.module.css). */
 const REVIEWING_SIZE = { left: 300, bottom: 220 };
+/** Width of the docked navigation pane (CSS px, see Views.module.css). */
+const NAV_SIZE = 260;
 /** Offline-cache keys of the crash-recovery copy (prompt §6 Phase 2: autosave + recovery). */
 export const AUTOSAVE_KEY = 'bluedoc.autosave.docx';
 export const AUTOSAVE_NAME_KEY = 'bluedoc.autosave.name';
@@ -281,6 +293,10 @@ function EditorInner({
     remembered: RememberedSigning;
   } | null>(null);
   const [tab, setTab] = useState('home');
+  /** View to return to when read mode ends. */
+  const beforeRead = useRef<EditorState['viewMode']>('print');
+  /** View layout last sent to the engine (`mode:width`). */
+  const sentLayout = useRef('print:0');
   const [searchOpen, setSearchOpen] = useState(false);
   useCommandSearchShortcut(() => setSearchOpen(true));
   const [recent, setRecent] = useState<RecentFile[]>([]);
@@ -478,6 +494,8 @@ function EditorInner({
         store.setState({
           edit: r,
           doc: r.info,
+          ...(r.outline ? { outline: r.outline } : {}),
+          ...(r.dirty.length ? { layoutVersion: store.getState().layoutVersion + 1 } : {}),
           ...(r.review ? { review: r.review } : {}),
           ...(r.merge ? { merge: r.merge } : {}),
         });
@@ -519,6 +537,80 @@ function EditorInner({
 
   // Rulers follow the caret's page and the panels' layout.
   useEffect(() => measure(), [measure, state.showRuler, state.doc, state.panel]);
+
+  // View layout (print / web / draft) in the engine and the page view (DOC-VIEW-001).
+  const hasDocument = !!state.doc;
+  useEffect(() => {
+    const v = view.current;
+    if (!v || !hasDocument || !state.engineReady) return;
+    const mode: ViewLayoutMode =
+      state.viewMode === 'web' ? 'web' : state.viewMode === 'draft' ? 'draft' : 'print';
+    v.setPageMode(mode);
+    const send = () => {
+      const width = mode === 'web' ? Math.floor(v.contentWidthPt()) : 0;
+      const key = `${mode}:${width}`;
+      if (key === sentLayout.current) return;
+      sentLayout.current = key;
+      void controller.current?.run(
+        mode === 'web' ? { cmd: 'setViewLayout', mode, width } : { cmd: 'setViewLayout', mode },
+      );
+    };
+    send();
+    if (mode !== 'web') return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onResize = () => {
+      clearTimeout(timer);
+      timer = setTimeout(send, 150);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [
+    state.viewMode,
+    state.zoom,
+    state.navPane,
+    state.reviewingPane,
+    state.focusMode,
+    hasDocument,
+    state.engineReady,
+  ]);
+
+  // The outline follows the document while the outline view or the heading tree shows it.
+  const needOutline = state.viewMode === 'outline' || state.navPane === 'headings';
+  useEffect(() => {
+    if (!needOutline || !hasDocument) return;
+    const timer = setTimeout(() => {
+      void controller.current
+        ?.query({ cmd: 'outline' })
+        .then((r) => r?.outline && store.setState({ outline: r.outline }));
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [needOutline, hasDocument, state.layoutVersion, store]);
+
+  /** Draw a page into a canvas (page thumbnails, read mode). */
+  const renderThumb = useCallback(
+    (i: number, c: HTMLCanvasElement, w: number) =>
+      view.current?.renderThumbnail(i, c, w) ?? Promise.resolve(),
+    [],
+  );
+
+  /** PDF of the printed pages (the web and draft views lay out other pages for the screen). */
+  const printLayoutPdf = useCallback(async (): Promise<Uint8Array> => {
+    const mode = store.getState().viewMode;
+    if (mode !== 'web' && mode !== 'draft') return platform.engine.exportPdf();
+    await controller.current?.run({ cmd: 'setViewLayout', mode: 'print' });
+    try {
+      return await platform.engine.exportPdf();
+    } finally {
+      const width = Math.floor(view.current?.contentWidthPt() ?? 0);
+      sentLayout.current = `${mode}:${mode === 'web' ? width : 0}`;
+      await controller.current?.run(
+        mode === 'web' ? { cmd: 'setViewLayout', mode, width } : { cmd: 'setViewLayout', mode },
+      );
+    }
+  }, [platform, store]);
 
   // Collaborators' carets (live collaboration), drawn by the view.
   useEffect(() => {
@@ -583,7 +675,7 @@ function EditorInner({
     const exportPdf = async () => {
       store.setState({ status: { kind: 'busy', key: 'status.exporting' } });
       try {
-        const pdf = await platform.engine.exportPdf();
+        const pdf = await printLayoutPdf();
         const name = (store.getState().doc?.name ?? 'document').replace(/\.[^.]+$/, '') + '.pdf';
         const saved = await platform.files.saveFile(pdf, name, 'application/pdf');
         store.setState({
@@ -718,7 +810,7 @@ function EditorInner({
       isEnabled: hasDoc,
       run: async (s) => {
         try {
-          await platform.print.printPdf(await platform.engine.exportPdf(), s.doc?.name ?? '');
+          await platform.print.printPdf(await printLayoutPdf(), s.doc?.name ?? '');
         } catch (e) {
           fail('errors.export', e);
         }
@@ -876,16 +968,17 @@ function EditorInner({
       isEnabled: (s) => !!s.edit?.painter,
       run: () => run({ cmd: 'applyFormat' }),
     });
-    // Esc: stop the Format Painter, else leave the header/footer.
+    // Esc: stop the Format Painter, else leave the header/footer, else leave focus mode.
     r.register({
       id: 'edit.escape',
       shortcut: 'Escape',
-      isEnabled: (s) => s.painter !== 'off' || !!s.edit?.story,
+      isEnabled: (s) => s.painter !== 'off' || !!s.edit?.story || s.focusMode,
       run: async (s) => {
         if (s.painter !== 'off') {
           store.setState({ painter: 'off' });
           await run({ cmd: 'cancelFormat' });
-        } else await run({ cmd: 'closeHeaderFooter' });
+        } else if (s.edit?.story) await run({ cmd: 'closeHeaderFooter' });
+        else store.setState({ focusMode: false });
       },
     });
     r.register({
@@ -1523,6 +1616,91 @@ function EditorInner({
       isChecked: (s) => s.showRuler,
       run: (s) => store.setState({ showRuler: !s.showRuler }),
     });
+    // Views (DOC-VIEW-001): layouts, outline, read mode, focus, navigation pane, marks.
+    const viewIds = {
+      print: 'view.printLayout',
+      web: 'view.webLayout',
+      draft: 'view.draft',
+      outline: 'view.outline',
+      read: 'view.readMode',
+    } as const;
+    for (const mode of ['print', 'web', 'draft', 'outline', 'read'] as const) {
+      r.register({
+        id: viewIds[mode],
+        isEnabled: hasDoc,
+        isChecked: (s) => s.viewMode === mode,
+        run: (s) => {
+          if (mode === 'read' && s.viewMode !== 'read') beforeRead.current = s.viewMode;
+          store.setState({ viewMode: mode, ...(mode === 'read' ? { focusMode: false } : {}) });
+          if (mode !== 'outline' && mode !== 'read') view.current?.focus();
+        },
+      });
+    }
+    r.register({
+      id: 'view.focus',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.focusMode,
+      run: (s) => {
+        store.setState({ focusMode: !s.focusMode });
+        view.current?.focus();
+      },
+    });
+    r.register({
+      id: 'view.navigationPane',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.navPane !== null,
+      run: (s) => store.setState({ navPane: s.navPane ? null : 'headings' }),
+    });
+    r.register({
+      id: 'view.formattingMarks',
+      shortcut: 'Ctrl+Shift+8',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.showMarks,
+      run: async (s) => {
+        store.setState({ showMarks: !s.showMarks });
+        await run({ cmd: 'showFormattingMarks', on: !s.showMarks });
+      },
+    });
+    // Outline: promote / demote / move a heading with its subordinate text (caret paragraph).
+    const outlineNow = async () => {
+      const s = store.getState();
+      const live = s.viewMode === 'outline' || s.navPane === 'headings';
+      return (
+        (live ? s.outline : null) ??
+        (await controller.current?.query({ cmd: 'outline' }))?.outline ??
+        []
+      );
+    };
+    const runOutline = async (c: EditCommand) => {
+      await controller.current?.run(c);
+      if (store.getState().viewMode !== 'outline') view.current?.focus();
+    };
+    const levelCommand = (id: string, shortcut: string | undefined, pick: typeof promoted) =>
+      r.register({
+        id,
+        shortcut,
+        isEnabled: (s) => hasDoc(s) && !s.edit?.story,
+        run: async (s) => {
+          const para = s.edit?.selection.focus.p;
+          if (para === undefined) return;
+          const level = pick(await outlineNow(), para);
+          if (level !== undefined) await runOutline({ cmd: 'setOutlineLevel', para, level });
+        },
+      });
+    levelCommand('outline.promote', 'Alt+Shift+ArrowLeft', promoted);
+    levelCommand('outline.demote', 'Alt+Shift+ArrowRight', demoted);
+    levelCommand('outline.bodyText', undefined, () => null);
+    for (const [id, shortcut, up] of [
+      ['outline.moveUp', 'Alt+Shift+ArrowUp', true],
+      ['outline.moveDown', 'Alt+Shift+ArrowDown', false],
+    ] as const) {
+      r.register({
+        id,
+        shortcut,
+        isEnabled: (s) => hasDoc(s) && !s.edit?.story,
+        run: () => runOutline({ cmd: 'moveOutline', up }),
+      });
+    }
     r.register({
       id: 'file.newFromTemplate',
       run: () => store.setState({ dialog: 'templates' }),
@@ -1657,7 +1835,17 @@ function EditorInner({
       run: () => store.setState({ dialog: 'picturePosition' }),
     });
     return r;
-  }, [platform, store, sampleUrl, openFile, newDocument, fail, i18nInstance, loaded]);
+  }, [
+    platform,
+    store,
+    sampleUrl,
+    openFile,
+    newDocument,
+    fail,
+    i18nInstance,
+    loaded,
+    printLayoutPdf,
+  ]);
   /* eslint-enable react-hooks/refs */
 
   // Keyboard shortcuts (registry); plain typing and caret keys go through the IME textarea.
@@ -2390,6 +2578,26 @@ function EditorInner({
       label: t('ribbon.tabs.view'),
       groups: [
         {
+          id: 'views',
+          label: t('ribbon.groups.views'),
+          items: [
+            item('view.readMode', 'commands.view.readMode', <BookOpen size={ICON} />),
+            item('view.printLayout', 'commands.view.printLayout', <FileText size={ICON} />),
+            item('view.webLayout', 'commands.view.webLayout', <Globe size={ICON} />),
+            item('view.outline', 'commands.view.outline', <ListTree size={ICON} />),
+            item('view.draft', 'commands.view.draft', <ScrollText size={ICON} />),
+            item('view.focus', 'commands.view.focus', <Focus size={ICON} />),
+          ],
+        },
+        {
+          id: 'show',
+          label: t('ribbon.groups.show'),
+          items: [
+            item('view.navigationPane', 'commands.view.navigationPane', <PanelLeft size={ICON} />),
+            item('view.formattingMarks', 'commands.view.formattingMarks', <Pilcrow size={ICON} />),
+          ],
+        },
+        {
           id: 'zoom',
           label: t('ribbon.groups.zoom'),
           items: [
@@ -2434,7 +2642,7 @@ function EditorInner({
     try {
       await controller.current?.idle();
       const pdf = form.output === 'pdf';
-      const bytes = pdf ? await platform.engine.exportPdf() : await platform.engine.saveDocx();
+      const bytes = pdf ? await printLayoutPdf() : await platform.engine.saveDocx();
       const signed = await signing.sign(bytes, request);
       await platform.shell.setSetting?.(SIGNING_SETTING_KEY, JSON.stringify(remember(form)));
       const name = request.documentName;
@@ -2461,6 +2669,26 @@ function EditorInner({
     store.setState({ dialog: null });
     view.current?.focus();
   };
+  const navOpen = !!state.navPane && !!state.doc && !state.focusMode;
+  const rulersOn =
+    state.showRuler && !!state.doc && !state.focusMode && state.viewMode !== 'outline';
+  const sideLeft =
+    (navOpen ? NAV_SIZE : 0) +
+    (state.reviewingPane === 'left' && state.doc ? REVIEWING_SIZE.left : 0);
+  const hostStyle =
+    sideLeft || (state.reviewingPane === 'bottom' && state.doc)
+      ? {
+          ...(sideLeft ? { left: sideLeft } : {}),
+          ...(state.reviewingPane === 'bottom' && state.doc
+            ? { bottom: REVIEWING_SIZE.bottom }
+            : {}),
+        }
+      : undefined;
+  const goToPara = (para: number) =>
+    void runFocus({
+      cmd: 'setSelection',
+      selection: { anchor: { p: para, o: 0 }, focus: { p: para, o: 0 } },
+    });
   return (
     <div
       className={`bo-root ${styles.root}`}
@@ -2528,14 +2756,21 @@ function EditorInner({
               noResults: t('commandSearch.noResults'),
             }}
           />
-          <Ribbon
-            tabs={[...tabs, ...tableTab]}
-            value={tab === 'table' && !fs?.table ? 'home' : tab}
-            onValueChange={setTab}
-            moreLabel={t('ribbon.more')}
-          />
-          <main ref={workspace} className={styles.workspace}>
-            {state.showRuler && state.doc && (
+          {!(state.focusMode && state.doc) && (
+            <Ribbon
+              tabs={[...tabs, ...tableTab]}
+              value={tab === 'table' && !fs?.table ? 'home' : tab}
+              onValueChange={setTab}
+              moreLabel={t('ribbon.more')}
+            />
+          )}
+          <main
+            ref={workspace}
+            className={styles.workspace}
+            data-view={state.viewMode}
+            data-focus={state.focusMode ? 'true' : undefined}
+          >
+            {rulersOn && (
               <Rulers
                 box={pageBox}
                 format={fs}
@@ -2546,16 +2781,72 @@ function EditorInner({
             )}
             <div
               ref={viewHost}
-              className={`${styles.viewHost} ${state.showRuler && state.doc ? styles.withRulers : ''}`}
-              style={
-                state.reviewingPane && state.doc
-                  ? state.reviewingPane === 'left'
-                    ? { left: REVIEWING_SIZE.left }
-                    : { bottom: REVIEWING_SIZE.bottom }
-                  : undefined
-              }
+              className={`${styles.viewHost} ${rulersOn ? styles.withRulers : ''}`}
+              style={hostStyle}
               data-testid="document-view"
+              data-marks={state.showMarks ? 'true' : undefined}
             />
+            {navOpen && state.navPane && state.doc && (
+              <NavigationPane
+                tab={state.navPane}
+                onTab={(navPane) => store.setState({ navPane })}
+                outline={state.outline}
+                caretPara={state.edit?.selection.focus.p}
+                page={state.page}
+                pageCount={state.doc.pageCount}
+                layoutVersion={state.layoutVersion}
+                renderThumbnail={renderThumb}
+                goToPage={(i) => view.current?.scrollToPage(i)}
+                run={runCommand}
+                onClearHighlights={() => view.current?.setFindHighlights([])}
+                onClose={() => {
+                  store.setState({ navPane: null });
+                  view.current?.focus();
+                }}
+              />
+            )}
+            {state.viewMode === 'outline' && state.doc && (
+              <div className={viewStyles.outlineHost} style={{ left: navOpen ? NAV_SIZE : 0 }}>
+                <OutlineView
+                  items={state.outline}
+                  caretPara={state.edit?.selection.focus.p}
+                  run={runCommand}
+                  onCommand={(id) => void registry.execute(id, store.getState())}
+                  onClose={(para) => {
+                    store.setState({ viewMode: 'print' });
+                    if (para !== undefined) goToPara(para);
+                    else view.current?.focus();
+                  }}
+                />
+              </div>
+            )}
+            {state.viewMode === 'read' && state.doc && (
+              <ReadMode
+                name={state.doc.name}
+                pages={state.doc.pages}
+                start={state.page}
+                renderPage={renderThumb}
+                onExit={(page) => {
+                  const back = beforeRead.current;
+                  store.setState({ viewMode: back === 'read' ? 'print' : back });
+                  requestAnimationFrame(() => view.current?.scrollToPage(page));
+                  view.current?.focus();
+                }}
+              />
+            )}
+            {state.focusMode && state.doc && (
+              <button
+                type="button"
+                className={viewStyles.focusExit}
+                data-testid="focus-exit"
+                onClick={() => {
+                  store.setState({ focusMode: false });
+                  view.current?.focus();
+                }}
+              >
+                {t('views.focus.exit')}
+              </button>
+            )}
             {state.reviewingPane && state.doc && (
               <ReviewingPane
                 review={state.review}
@@ -2954,60 +3245,62 @@ function EditorInner({
           </div>
         </main>
       )}
-      <StatusBar
-        left={
-          <>
-            <span data-testid="status-page">
-              {state.doc
-                ? t('status.page', { current: state.page + 1, total: state.doc.pageCount })
-                : t('status.ready')}
-            </span>
-            {state.doc && (
-              <span data-testid="status-words">
-                {t('status.words', { count: state.doc.wordCount })}
+      {!(state.focusMode && state.doc) && (
+        <StatusBar
+          left={
+            <>
+              <span data-testid="status-page">
+                {state.doc
+                  ? t('status.page', { current: state.page + 1, total: state.doc.pageCount })
+                  : t('status.ready')}
               </span>
-            )}
-            {state.edit?.modified && (
-              <span data-testid="status-modified">{t('status.modified')}</span>
-            )}
-            {state.doc?.protected && (
-              <span data-testid="status-protected">{t('security.protected')}</span>
-            )}
-            {status.kind === 'busy' && <span>{t(status.key)}</span>}
-            {status.kind === 'info' && (
-              <span data-testid="status-info">{t(status.key, status.params)}</span>
-            )}
-          </>
-        }
-        right={
-          <>
-            <span data-testid="status-engine">
-              {t('status.engine', {
-                backend: platform.engine.backend === 'wasm' ? 'WASM' : 'native',
-              })}
-            </span>
-            <button
-              type="button"
-              className={styles.statusButton}
-              onClick={() => void registry.execute('view.zoomOut', state)}
-              aria-label={t('commands.view.zoomOut')}
-            >
-              −
-            </button>
-            <span data-testid="status-zoom">
-              {t('status.zoom', { value: Math.round(state.zoom * 100) })}
-            </span>
-            <button
-              type="button"
-              className={styles.statusButton}
-              onClick={() => void registry.execute('view.zoomIn', state)}
-              aria-label={t('commands.view.zoomIn')}
-            >
-              +
-            </button>
-          </>
-        }
-      />
+              {state.doc && (
+                <span data-testid="status-words">
+                  {t('status.words', { count: state.doc.wordCount })}
+                </span>
+              )}
+              {state.edit?.modified && (
+                <span data-testid="status-modified">{t('status.modified')}</span>
+              )}
+              {state.doc?.protected && (
+                <span data-testid="status-protected">{t('security.protected')}</span>
+              )}
+              {status.kind === 'busy' && <span>{t(status.key)}</span>}
+              {status.kind === 'info' && (
+                <span data-testid="status-info">{t(status.key, status.params)}</span>
+              )}
+            </>
+          }
+          right={
+            <>
+              <span data-testid="status-engine">
+                {t('status.engine', {
+                  backend: platform.engine.backend === 'wasm' ? 'WASM' : 'native',
+                })}
+              </span>
+              <button
+                type="button"
+                className={styles.statusButton}
+                onClick={() => void registry.execute('view.zoomOut', state)}
+                aria-label={t('commands.view.zoomOut')}
+              >
+                −
+              </button>
+              <span data-testid="status-zoom">
+                {t('status.zoom', { value: Math.round(state.zoom * 100) })}
+              </span>
+              <button
+                type="button"
+                className={styles.statusButton}
+                onClick={() => void registry.execute('view.zoomIn', state)}
+                aria-label={t('commands.view.zoomIn')}
+              >
+                +
+              </button>
+            </>
+          }
+        />
+      )}
     </div>
   );
 }

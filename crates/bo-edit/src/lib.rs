@@ -20,6 +20,7 @@ pub mod html;
 pub mod lists;
 pub mod merge;
 mod ops;
+pub mod outline;
 pub mod para;
 pub mod picture;
 pub mod revisions;

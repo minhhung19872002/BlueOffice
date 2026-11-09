@@ -26,6 +26,8 @@ const MOTIONS: Record<string, [Motion, Motion]> = {
  */
 export function keyToCommand(k: KeyPress): EditCommand | null {
   const m = MOTIONS[k.key];
+  // Alt+Shift+arrows are outline commands (registry), not caret motions.
+  if (m && k.alt && k.shift) return null;
   if (m) return { cmd: 'move', motion: k.ctrl ? m[1] : m[0], extend: k.shift };
   if (k.alt) return null;
   switch (k.key) {

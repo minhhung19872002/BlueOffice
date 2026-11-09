@@ -7,6 +7,8 @@
  * the rest of the code base is shared 100%.
  */
 
+import type { FindResult, FormatMark, OutlineItem, ViewCommand } from './views';
+
 // ---------------------------------------------------------------- engine data
 
 /** Page size in points. */
@@ -124,6 +126,8 @@ export interface PageDisplayList {
   commands: DisplayCommand[];
   /** Review markup drawn beside the page in the view only (BlueDoc). */
   markup?: PageMarkup;
+  /** Formatting marks (¶ · →) when shown (view only, BlueDoc). */
+  marks?: FormatMark[];
 }
 
 /** Kind of a mark in the review markup (mirrors `bo_layout::MarkKind`). */
@@ -665,7 +669,9 @@ export type EditCommand =
   | { cmd: 'setPageBorders'; borders?: PageBordersSpec | null; scope?: 'section' | 'document' }
   /** Text or picture watermark of every page; absent removes it. */
   | { cmd: 'setWatermark'; watermark?: WatermarkSpec | null }
-  | { cmd: 'applyTheme' | 'applyStyleSet'; id: string };
+  | { cmd: 'applyTheme' | 'applyStyleSet'; id: string }
+  /** View layouts, formatting marks, outline, navigation-pane results. */
+  | ViewCommand;
 
 /** Pages showing the page borders (§17.18.63 ST_PageBorderDisplay). */
 export type PageBorderDisplay = 'allPages' | 'firstPage' | 'notFirstPage';
@@ -784,6 +790,10 @@ export interface EditResult {
   corrected?: AutoCorrectRule;
   /** Design tab state (design commands). */
   design?: DesignState;
+  /** Document outline (`outline` and outline commands). */
+  outline?: OutlineItem[];
+  /** Find results with context (`findResults`). */
+  results?: FindResult[];
 }
 
 /** A replacement-list entry (mirrors `bo_edit::autocorrect::Replacement`). */

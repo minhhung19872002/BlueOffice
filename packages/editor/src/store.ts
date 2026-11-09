@@ -6,6 +6,7 @@ import type {
   FontChoice,
   MergeState,
   OpenedFile,
+  OutlineItem,
   PeerCursor,
   ReviewState,
   SignatureReport,
@@ -102,6 +103,18 @@ export interface EditorState {
   grammarOn: boolean;
   /** Spelling menu open at a point (right click on a misspelt word). */
   spellMenu: { x: number; y: number; info: SpellInfo } | null;
+  /** BlueDoc view (View › Views): print, web or draft layout, outline view, read mode. */
+  viewMode: 'print' | 'web' | 'draft' | 'outline' | 'read';
+  /** Focus mode: ribbon and status bar hidden. */
+  focusMode: boolean;
+  /** Navigation pane tab (null: closed). */
+  navPane: 'headings' | 'pages' | 'results' | null;
+  /** Formatting marks (¶ · →) shown. */
+  showMarks: boolean;
+  /** Document outline (outline view, navigation pane headings). */
+  outline: OutlineItem[] | null;
+  /** Bumped whenever page content changes (thumbnails, outline follow it). */
+  layoutVersion: number;
 }
 
 export const initialState = (language: Language, theme: ThemeSetting): EditorState => ({
@@ -132,6 +145,12 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   spellingOn: true,
   grammarOn: true,
   spellMenu: null,
+  viewMode: 'print',
+  focusMode: false,
+  navPane: null,
+  showMarks: false,
+  outline: null,
+  layoutVersion: 0,
 });
 
 export const createEditorStore = (language: Language, theme: ThemeSetting) =>

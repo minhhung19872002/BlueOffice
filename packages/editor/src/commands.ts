@@ -50,13 +50,18 @@ export class CommandRegistry<S> {
     return true;
   }
 
-  /** Find the command bound to a keyboard event. */
+  /** Find the command bound to a keyboard event (by key, else by physical key: Ctrl+Shift+8 = Ctrl+*). */
   match(
-    e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>,
+    e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'> &
+      Partial<Pick<KeyboardEvent, 'code'>>,
   ): Command<S> | undefined {
-    const combo = shortcutOf(e);
-    for (const c of this.commands.values()) {
-      if (c.shortcut && normalize(c.shortcut) === combo) return c;
+    const combos = [shortcutOf(e)];
+    const physical = /^(?:Digit|Key)([0-9A-Z])$/.exec(e.code ?? '')?.[1];
+    if (physical) combos.push(shortcutOf({ ...e, key: physical }));
+    for (const combo of combos) {
+      for (const c of this.commands.values()) {
+        if (c.shortcut && normalize(c.shortcut) === combo) return c;
+      }
     }
     return undefined;
   }

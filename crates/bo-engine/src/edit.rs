@@ -657,6 +657,56 @@ pub enum Command {
         /// Style set id (`compact`, `balanced`, `airy`, `double`).
         id: String,
     },
+    /// View layout: print pages, web (text reflows to `width` points) or draft.
+    SetViewLayout {
+        /// Layout.
+        #[serde(default)]
+        mode: crate::views::ViewMode,
+        /// Window width in points (web layout; absent keeps the last one).
+        #[serde(default)]
+        width: Option<f32>,
+    },
+    /// Show or hide formatting marks (¶ · → ↵) in the view's page display lists.
+    ShowFormattingMarks {
+        /// Show them.
+        on: bool,
+    },
+    /// Document outline (`outline`): top-level paragraphs with their outline level.
+    Outline,
+    /// Set the outline level of a paragraph through the heading styles (§17.3.1.20).
+    SetOutlineLevel {
+        /// Body paragraph id (absent: the caret's paragraph).
+        #[serde(default)]
+        para: Option<usize>,
+        /// 0-based level; absent = body text.
+        #[serde(default)]
+        level: Option<u8>,
+    },
+    /// Move a heading with its subordinate content (or a body paragraph) up or down.
+    MoveOutline {
+        /// Body paragraph id (absent: the caret's paragraph).
+        #[serde(default)]
+        para: Option<usize>,
+        /// Up (`true`) or down.
+        up: bool,
+    },
+    /// Move a heading with its subordinate content before body paragraph `before`
+    /// (absent: to the end of the document) — drag and drop in the outline.
+    MoveOutlineTo {
+        /// Body paragraph id of the heading.
+        para: usize,
+        /// Body paragraph id of the target block.
+        #[serde(default)]
+        before: Option<usize>,
+    },
+    /// Find results with context (`results`, `matches`, `highlights`).
+    FindResults {
+        /// Text to look for.
+        query: String,
+        /// Match case, whole word and regular-expression options.
+        #[serde(default)]
+        options: FindOptions,
+    },
 }
 
 fn yes() -> bool {
@@ -768,6 +818,12 @@ pub struct EditResult {
     /// Design tab state (design commands).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub design: Option<Box<crate::design::DesignState>>,
+    /// Document outline (`outline` and outline commands).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outline: Option<Vec<crate::views::OutlineItem>>,
+    /// Find results with context (`findResults`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub results: Option<Vec<crate::views::FindResult>>,
 }
 
 impl crate::Engine {
@@ -1026,7 +1082,14 @@ impl crate::Engine {
                     | Command::SetPageBorders { .. }
                     | Command::SetWatermark { .. }
                     | Command::ApplyTheme { .. }
-                    | Command::ApplyStyleSet { .. } => {}
+                    | Command::ApplyStyleSet { .. }
+                    | Command::SetViewLayout { .. }
+                    | Command::ShowFormattingMarks { .. }
+                    | Command::Outline
+                    | Command::SetOutlineLevel { .. }
+                    | Command::MoveOutline { .. }
+                    | Command::MoveOutlineTo { .. }
+                    | Command::FindResults { .. } => {}
                     Command::Tab { back } => {
                         if s.next_cell(back)?.is_none() && !back {
                             s.insert_text("\t")?;
@@ -1548,6 +1611,8 @@ impl crate::Engine {
             corrected: None,
             painter: s.picked_format().is_some(),
             design: None,
+            outline: None,
+            results: None,
         })
     }
 }

@@ -65,7 +65,9 @@
       "signature": "Signature",
       "proofing": "Proofing",
       "equation": "Equation",
-      "compare": "Compare"
+      "compare": "Compare",
+      "views": "Views",
+      "show": "Show"
     },
     "comingLater": "Coming in a later release"
   },
@@ -170,7 +172,15 @@
         "touch": "Density: Touch"
       },
       "toggleLanguage": "Tiếng Việt",
-      "ruler": "Ruler"
+      "ruler": "Ruler",
+      "printLayout": "Print layout",
+      "webLayout": "Web layout",
+      "draft": "Draft",
+      "outline": "Outline",
+      "readMode": "Read mode",
+      "focus": "Focus",
+      "navigationPane": "Navigation pane",
+      "formattingMarks": "Formatting marks"
     },
     "review": {
       "trackChanges": "Track changes",
@@ -272,6 +282,13 @@
       "lock": "Lock fields",
       "unlock": "Unlock fields",
       "unlink": "Unlink fields"
+    },
+    "outline": {
+      "promote": "Raise level",
+      "demote": "Lower level",
+      "bodyText": "Make body text",
+      "moveUp": "Move up",
+      "moveDown": "Move down"
     }
   },
   "status": {
@@ -2701,5 +2718,44 @@
     },
     "ok": "OK",
     "cancel": "Cancel"
+  },
+  "views": {
+    "nav": {
+      "title": "Navigation",
+      "headings": "Headings",
+      "pages": "Pages",
+      "results": "Results",
+      "search": "Search in the document",
+      "noHeadings": "No headings yet. Paragraphs with a heading style are listed here.",
+      "noResults": "Nothing matches.",
+      "resultCount": "{{count}} matches",
+      "close": "Close navigation",
+      "expand": "Show subheadings",
+      "collapse": "Hide subheadings",
+      "page": "Page {{n}}",
+      "dropEnd": "Drop here to move to the end"
+    },
+    "outline": {
+      "title": "Outline",
+      "showLevel": "Show",
+      "allLevels": "Every level",
+      "level": "Level {{n}}",
+      "upTo": "Levels 1–{{n}}",
+      "bodyText": "Body text",
+      "close": "Close outline",
+      "empty": "The document has no paragraphs yet.",
+      "dropEnd": "Drop here to move to the end"
+    },
+    "read": {
+      "title": "Reading",
+      "previous": "Previous screen",
+      "next": "Next screen",
+      "exit": "Leave read mode",
+      "page": "Page {{n}} of {{total}}",
+      "pages": "Pages {{from}}–{{to}} of {{total}}"
+    },
+    "focus": {
+      "exit": "Leave focus"
+    }
   }
 }

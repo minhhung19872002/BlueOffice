@@ -99,6 +99,9 @@ impl Engine {
         if self.session.is_none() {
             return Ok(None);
         }
+        if let Some(r) = self.view_command(cmd)? {
+            return Ok(Some(r));
+        }
         if self.hf.is_some() {
             if let Some(r) = self.story_command(cmd)? {
                 return Ok(Some(r));
@@ -127,13 +130,17 @@ impl Engine {
                 self.open_header_footer(*page, *header)?;
                 Ok(Some(self.story_result(Vec::new(), None)?))
             }
-            Command::Click { page, y, count, .. } if *count >= 2 => match self.hf_zone(*page, *y) {
-                Some(header) => {
-                    self.open_header_footer(*page, header)?;
-                    Ok(Some(self.story_result(Vec::new(), None)?))
+            Command::Click { page, y, count, .. }
+                if *count >= 2 && self.view_layout().mode == crate::views::ViewMode::Print =>
+            {
+                match self.hf_zone(*page, *y) {
+                    Some(header) => {
+                        self.open_header_footer(*page, header)?;
+                        Ok(Some(self.story_result(Vec::new(), None)?))
+                    }
+                    None => Ok(None),
                 }
-                None => Ok(None),
-            },
+            }
             Command::CloseHeaderFooter => {
                 self.close_header_footer()?;
                 self.close_note()?;

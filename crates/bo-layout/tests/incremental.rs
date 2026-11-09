@@ -108,6 +108,7 @@ fn block(s: Spec) -> Block {
             RunContent::Field {
                 instr: "PAGE".into(),
                 cached: "1".into(),
+                locked: false,
             },
         ),
         18 => content.push(RunContent::PageBreak),
@@ -124,6 +125,7 @@ fn block(s: Spec) -> Block {
         24 => content.push(RunContent::Field {
             instr: "NUMPAGES".into(),
             cached: "1".into(),
+            locked: false,
         }),
         _ => {
             let cell = |t: String| Cell {
@@ -177,6 +179,7 @@ fn field_para(prefix: &str, instr: &str) -> Block {
                 RunContent::Field {
                     instr: instr.into(),
                     cached: "1".into(),
+                    locked: false,
                 },
             ],
         }],

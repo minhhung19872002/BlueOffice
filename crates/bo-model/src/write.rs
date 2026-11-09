@@ -1505,6 +1505,9 @@ pub enum RunContent {
         instr: String,
         /// Result text cached in the document, shown until the field is updated.
         cached: String,
+        /// Locked (§17.16.18 fldLock): updates leave the result as it is.
+        #[serde(default)]
+        locked: bool,
     },
     /// §17.11.14 footnoteReference
     FootnoteRef(i32),

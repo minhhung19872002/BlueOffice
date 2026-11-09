@@ -124,6 +124,8 @@ import {
   GitCompare,
   GitMerge,
   Braces,
+  LockOpen,
+  Unlink,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -1100,6 +1102,35 @@ function EditorInner({
       run: updateFields,
     });
     r.register({
+      id: 'fields.toggleCodes',
+      shortcut: 'Alt+F9',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.fieldCodes,
+      run: async () => {
+        const on = !store.getState().fieldCodes;
+        const res = await controller.current?.run({ cmd: 'showFieldCodes', on });
+        if (res && !res.error) store.setState({ fieldCodes: on });
+      },
+    });
+    r.register({
+      id: 'fields.lock',
+      shortcut: 'Ctrl+F11',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'lockFields', lock: true }),
+    });
+    r.register({
+      id: 'fields.unlock',
+      shortcut: 'Ctrl+Shift+F11',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'lockFields', lock: false }),
+    });
+    r.register({
+      id: 'fields.unlink',
+      shortcut: 'Ctrl+Shift+F9',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'unlinkFields' }),
+    });
+    r.register({
       id: 'references.insertCaption',
       isEnabled: hasDoc,
       run: () => store.setState({ panel: 'caption' }),
@@ -1863,6 +1894,10 @@ function EditorInner({
               'commands.references.updateFields',
               <RefreshCw size={ICON} />,
             ),
+            s('fields.toggleCodes', 'commands.fields.toggleCodes', <Braces size={SMALL} />),
+            s('fields.lock', 'commands.fields.lock', <Lock size={SMALL} />),
+            s('fields.unlock', 'commands.fields.unlock', <LockOpen size={SMALL} />),
+            s('fields.unlink', 'commands.fields.unlink', <Unlink size={SMALL} />),
           ],
         },
       ],

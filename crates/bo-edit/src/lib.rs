@@ -1338,6 +1338,51 @@ impl Session {
         &self.field_env
     }
 
+    /// Lock (`Some(true)`), unlock (`Some(false)`) or unlink (`None`: the result becomes plain
+    /// text) the fields in the selection — a caret acts on the field it touches (§17.16.18
+    /// fldLock). Returns the number of fields (one undo step).
+    pub fn set_fields_locked(&mut self, lock: Option<bool>) -> Result<usize> {
+        let ranges = self.selected_ranges(self.selection);
+        let (a, b) = self.selection.ordered();
+        let collapsed = a == b;
+        let mut n = 0;
+        self.edit(|tx, sel| {
+            for (id, s, e) in ranges {
+                let (path, p, mut atoms) = tx.atoms(id)?;
+                let mut pos = 0;
+                let mut changed = false;
+                for at in &mut atoms {
+                    let l = para::atom_len(&at.1);
+                    let touched = if collapsed {
+                        pos == s || pos + l == s
+                    } else {
+                        pos < e && pos + l > s
+                    };
+                    pos += l;
+                    if !touched {
+                        continue;
+                    }
+                    if let RunContent::Field { cached, locked, .. } = &mut at.1 {
+                        if let Some(v) = lock {
+                            *locked = v;
+                        } else {
+                            let text = std::mem::take(cached);
+                            at.1 = RunContent::Text(text);
+                        }
+                        changed = true;
+                        n += 1;
+                    }
+                }
+                if changed {
+                    tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+                }
+            }
+            Ok(sel)
+        })?;
+        self.fix_selection();
+        Ok(n)
+    }
+
     /// Accept (`accept`) or reject revisions: `ids = None` resolves all of them.
     /// Returns the number of revisions resolved (one undo step).
     pub fn resolve_revisions(&mut self, ids: Option<&[i32]>, accept: bool) -> Result<usize> {
@@ -1511,6 +1556,7 @@ impl Session {
         let field = RunContent::Field {
             instr: instr.trim().to_owned(),
             cached: cached.to_owned(),
+            locked: false,
         };
         self.edit(|tx, sel| {
             let (a, b) = sel.ordered();
@@ -1614,6 +1660,7 @@ impl Session {
                     RunContent::Field {
                         instr,
                         cached: String::new(),
+                        locked: false,
                     },
                 )],
             )?;

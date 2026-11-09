@@ -119,7 +119,7 @@ pub fn preview(doc: &Document, data: &MergeData, row: Option<usize>) -> Document
     map_doc(&mut d, &mut |p| {
         for r in &mut p.runs {
             for c in &mut r.content {
-                if let RunContent::Field { instr, cached } = c {
+                if let RunContent::Field { instr, cached, .. } = c {
                     if let Some(name) = merge_field_name(instr) {
                         *cached = match row {
                             Some(i) => merge_text(instr, data.value(i, &name).unwrap_or("")),
@@ -143,13 +143,21 @@ fn fill(p: &mut Paragraph, data: &MergeData, row: usize) {
                 .content
                 .into_iter()
                 .filter_map(|c| match c {
-                    RunContent::Field { instr, cached } => match merge_field_name(&instr) {
+                    RunContent::Field {
+                        instr,
+                        cached,
+                        locked,
+                    } => match merge_field_name(&instr) {
                         Some(name) => {
                             changed = true;
                             let v = merge_text(&instr, data.value(row, &name).unwrap_or(""));
                             (!v.is_empty()).then_some(RunContent::Text(v))
                         }
-                        None => Some(RunContent::Field { instr, cached }),
+                        None => Some(RunContent::Field {
+                            instr,
+                            cached,
+                            locked,
+                        }),
                     },
                     // Comments of the template are not copied into the letters.
                     RunContent::CommentStart(_)
@@ -211,6 +219,7 @@ mod tests {
         let f = |name: &str, extra: &str| RunContent::Field {
             instr: format!("MERGEFIELD {name}{extra} \\* MERGEFORMAT"),
             cached: placeholder(name),
+            locked: false,
         };
         Document {
             sections: vec![Section::new(vec![Block::Paragraph(Paragraph::new(

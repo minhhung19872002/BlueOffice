@@ -815,6 +815,9 @@ fn read_para_children(
             // §17.16.19 fldSimple
             b"fldSimple" => {
                 let instr = attr(e, b"instr").unwrap_or_default();
+                // §17.16.18 fldLock.
+                let locked =
+                    attr(e, b"fldLock").is_some_and(|v| v == "1" || v == "true" || v == "on");
                 let mut inner = Paragraph::default();
                 if s {
                     read_para_children(r, ctx, media, sect, &mut inner, rc)?;
@@ -830,6 +833,7 @@ fn read_para_children(
                     content: vec![RunContent::Field {
                         instr: instr.trim().to_owned(),
                         cached: inner.plain_text(),
+                        locked,
                     }],
                 });
             }
@@ -960,6 +964,7 @@ fn collapse_simple_fields(runs: &mut Vec<Run>) {
                         content: vec![RunContent::Field {
                             instr: instr.trim().to_owned(),
                             cached,
+                            locked: false,
                         }],
                     }],
                 );

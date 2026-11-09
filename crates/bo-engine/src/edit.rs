@@ -235,6 +235,18 @@ pub enum Command {
         /// File bytes, base64-encoded.
         base64: String,
     },
+    /// Lock (`lock: true`) or unlock the fields in the selection (§17.16.18 fldLock).
+    LockFields {
+        /// Lock or unlock.
+        lock: bool,
+    },
+    /// Replace the fields in the selection by their results (plain text).
+    UnlinkFields,
+    /// Show field codes instead of field results (`on`), or the results again.
+    ShowFieldCodes {
+        /// Codes shown.
+        on: bool,
+    },
     /// Accept every revision of the document.
     AcceptAllRevisions,
     /// Reject every revision of the document.
@@ -719,6 +731,10 @@ impl crate::Engine {
             relayout = self.view != view;
             self.view = view;
         }
+        if let Command::ShowFieldCodes { on } = cmd {
+            relayout |= self.field_codes != on;
+            self.field_codes = on;
+        }
         if let Command::SetAuthor { name } = &cmd {
             let n = name.trim();
             self.author = (!n.is_empty()).then(|| n.to_owned());
@@ -801,7 +817,10 @@ impl crate::Engine {
             let (fonts, cache, opts) = (
                 &mut self.fonts,
                 &mut self.cache,
-                LayoutOptions { view: self.view },
+                LayoutOptions {
+                    view: self.view,
+                    field_codes: self.field_codes,
+                },
             );
             // Lays a document out for field updates (page numbers per body paragraph).
             let mut pages_of = |doc: &bo_model::Document| -> Vec<u32> {
@@ -823,6 +842,7 @@ impl crate::Engine {
                     Command::State
                     | Command::Review
                     | Command::SetRevisionView { .. }
+                    | Command::ShowFieldCodes { .. }
                     | Command::MergeData { .. }
                     | Command::MergePreview { .. }
                     | Command::MergeToDocument
@@ -1122,6 +1142,12 @@ impl crate::Engine {
                             .map_err(bo_edit::EditError::Unsupported)?;
                         let stem = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s);
                         extra.1 = Some(s.combine_with(&other, stem)?);
+                    }
+                    Command::LockFields { lock } => {
+                        extra.1 = Some(s.set_fields_locked(Some(lock))?);
+                    }
+                    Command::UnlinkFields => {
+                        extra.1 = Some(s.set_fields_locked(None)?);
                     }
                     Command::AcceptAllRevisions => {
                         extra.1 = Some(s.resolve_revisions(None, true)?);

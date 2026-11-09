@@ -205,6 +205,8 @@ pub enum RevisionView {
 pub struct LayoutOptions {
     /// Which version of tracked changes to lay out.
     pub view: RevisionView,
+    /// Show field codes (`{ PAGE \* ROMAN }`) instead of field results.
+    pub field_codes: bool,
 }
 
 /// Lay out a whole document.

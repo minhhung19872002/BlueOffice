@@ -205,6 +205,7 @@ fn nd30() -> Document {
             content: vec![RunContent::Field {
                 instr: "PAGE".into(),
                 cached: "2".into(),
+                locked: false,
             }],
         }],
         c,

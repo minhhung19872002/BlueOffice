@@ -443,23 +443,35 @@ impl Writer<'_> {
                     };
                     cur.push_str(&xml);
                 }
-                RunContent::Field { instr, cached } if complex_fields => {
+                RunContent::Field {
+                    instr,
+                    cached,
+                    locked,
+                } if complex_fields => {
                     flush(&mut out, &mut cur);
                     let it = if deleted { "delInstrText" } else { "instrText" };
+                    // §17.16.18 fldLock on the field's begin character.
+                    let lock = if *locked { " w:fldLock=\"1\"" } else { "" };
                     let _ = write!(
                         out,
-                        "<w:r>{rpr}<w:fldChar w:fldCharType=\"begin\"/></w:r><w:r>{rpr}<w:{it} xml:space=\"preserve\"> {} </w:{it}></w:r><w:r>{rpr}<w:fldChar w:fldCharType=\"separate\"/></w:r><w:r>{rpr}<w:{text_tag} xml:space=\"preserve\">{}</w:{text_tag}></w:r><w:r>{rpr}<w:fldChar w:fldCharType=\"end\"/></w:r>",
+                        "<w:r>{rpr}<w:fldChar w:fldCharType=\"begin\"{lock}/></w:r><w:r>{rpr}<w:{it} xml:space=\"preserve\"> {} </w:{it}></w:r><w:r>{rpr}<w:fldChar w:fldCharType=\"separate\"/></w:r><w:r>{rpr}<w:{text_tag} xml:space=\"preserve\">{}</w:{text_tag}></w:r><w:r>{rpr}<w:fldChar w:fldCharType=\"end\"/></w:r>",
                         escape(instr),
                         escape(cached)
                     );
                 }
-                RunContent::Field { instr, cached } => {
+                RunContent::Field {
+                    instr,
+                    cached,
+                    locked,
+                } => {
                     flush(&mut out, &mut cur);
                     // §17.16.19 fldSimple with cached result.
                     let _ = write!(
                         out,
-                        "<w:fldSimple w:instr=\"{}\"><w:r>{rpr}<w:t xml:space=\"preserve\">{}</w:t></w:r></w:fldSimple>",
+                        "<w:fldSimple w:instr=\"{}\"{}><w:r>{rpr}<w:t xml:space=\"preserve\">{}</w:t></w:r></w:fldSimple>",
                         escape(&format!(" {instr} ")),
+                        // §17.16.18 fldLock.
+                        if *locked { " w:fldLock=\"1\"" } else { "" },
                         escape(cached)
                     );
                 }
@@ -2041,6 +2053,7 @@ mod tests {
                             content: vec![RunContent::Field {
                                 instr: "PAGE".into(),
                                 cached: "1".into(),
+                                locked: false,
                             }],
                         }],
                     ))]),

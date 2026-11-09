@@ -563,6 +563,7 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
                                 RunContent::Field {
                                     instr: format!("PAGEREF {name} \\h"),
                                     cached: pg_text,
+                                    locked: false,
                                 },
                             ],
                         },
@@ -980,7 +981,13 @@ fn evaluate_all(
             let mut changed = false;
             for r in &mut p.runs {
                 for c in &mut r.content {
-                    let RunContent::Field { instr, cached } = c else {
+                    // A locked field keeps its result (§17.16.18 fldLock).
+                    let RunContent::Field {
+                        instr,
+                        cached,
+                        locked: false,
+                    } = c
+                    else {
                         continue;
                     };
                     let w = words(instr);
@@ -1220,7 +1227,13 @@ pub(crate) fn visit_fields(sections: &mut [Vec<Block>], f: &mut dyn FnMut(&str, 
                 Block::Paragraph(p) => {
                     for r in &mut p.runs {
                         for c in &mut r.content {
-                            if let RunContent::Field { instr, cached } = c {
+                            // Locked fields keep their result (§17.16.18 fldLock).
+                            if let RunContent::Field {
+                                instr,
+                                cached,
+                                locked: false,
+                            } = c
+                            {
                                 f(instr, cached);
                             }
                         }
@@ -1275,6 +1288,7 @@ pub fn caption_paragraph(label: &str, n: i64, text: &str) -> Paragraph {
             content: vec![RunContent::Field {
                 instr: format!("SEQ {label} \\* ARABIC"),
                 cached: n.to_string(),
+                locked: false,
             }],
         },
     ];
@@ -1395,6 +1409,7 @@ mod eval_tests {
                 content: vec![RunContent::Field {
                     instr: instr.into(),
                     cached: "?".into(),
+                    locked: false,
                 }],
             }],
         )

@@ -213,6 +213,12 @@
     "equation": {
       "linear": "Linear format",
       "professional": "Professional format"
+    },
+    "fields": {
+      "toggleCodes": "Show field codes (Alt+F9)",
+      "lock": "Lock fields",
+      "unlock": "Unlock fields",
+      "unlink": "Unlink fields"
     }
   },
   "status": {

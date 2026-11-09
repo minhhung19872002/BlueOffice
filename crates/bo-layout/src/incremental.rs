@@ -259,7 +259,10 @@ fn new_ctx<'a>(
         lists: ListCounters::default(),
         other_lists: ListCounters::default(),
         notes: sc.notes.clone(),
-        fields: FieldContext::default(),
+        fields: FieldContext {
+            codes: opts.field_codes,
+            ..FieldContext::default()
+        },
         default_tab: doc.default_tab_stop.unwrap_or(Twips(720)).to_pt(),
         next_id: 0,
         id_origin: 0,
@@ -793,6 +796,7 @@ fn decorate_all(
             page: number,
             pages: total,
             section_pages: section_pages.get(&si).copied().unwrap_or(0),
+            codes: ctx.fields.codes,
         };
         let key = HfKey {
             section: si,

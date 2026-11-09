@@ -54,6 +54,8 @@ export interface EditorState {
     | null;
   /** Verification of the opened file's digital signatures (null: unsigned / not checked). */
   signatures: SignatureReport | null;
+  /** Field codes shown instead of field results (Alt+F9). */
+  fieldCodes: boolean;
   /** Modal dialog. */
   dialog:
     | 'pageSetup'
@@ -111,6 +113,7 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   macroWarning: false,
   legacyNotice: 0,
   signatures: null,
+  fieldCodes: false,
   peers: [],
   showPeers: true,
   spellingOn: true,

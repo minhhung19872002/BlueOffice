@@ -213,6 +213,12 @@
     "equation": {
       "linear": "Dạng tuyến tính",
       "professional": "Dạng chuyên nghiệp"
+    },
+    "fields": {
+      "toggleCodes": "Hiện mã trường (Alt+F9)",
+      "lock": "Khoá trường",
+      "unlock": "Mở khoá trường",
+      "unlink": "Chuyển trường thành văn bản"
     }
   },
   "status": {

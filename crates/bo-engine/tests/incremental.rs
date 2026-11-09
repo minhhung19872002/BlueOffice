@@ -40,6 +40,7 @@ fn engine(paragraphs: usize) -> Engine {
                     RunContent::Field {
                         instr: "PAGE".into(),
                         cached: "1".into(),
+                        locked: false,
                     },
                 ],
             }],

@@ -178,7 +178,10 @@ impl Engine {
 
     /// Lay the story out and place it on the page.
     fn hf_layout(&mut self, hf: &mut HfEdit) -> Result<()> {
-        let opts = LayoutOptions { view: self.view };
+        let opts = LayoutOptions {
+            view: self.view,
+            field_codes: self.field_codes,
+        };
         hf.layout = layout_document_with(hf.sub.doc(), &mut self.fonts, &mut self.cache, opts)?;
         let sub_top = hf
             .layout

@@ -176,6 +176,8 @@ pub struct FieldContext {
     pub pages: u32,
     /// Number of pages in the current section (SECTIONPAGES).
     pub section_pages: u32,
+    /// Show field codes instead of results.
+    pub codes: bool,
 }
 
 /// Inputs of a paragraph layout.
@@ -439,6 +441,9 @@ pub(crate) fn layout_paragraph(
 }
 
 fn field_text(instr: &str, cached: &str, f: FieldContext) -> String {
+    if f.codes {
+        return format!("{{ {} }}", instr.trim());
+    }
     let kind = instr
         .split_whitespace()
         .next()
@@ -831,7 +836,7 @@ fn layout_uncached(
                 math.as_ref().map(|m| m.0.clone()),
                 None,
             ),
-            RunContent::Field { instr, cached } => {
+            RunContent::Field { instr, cached, .. } => {
                 (field_text(instr, cached, inp.fields), true, None, None)
             }
             RunContent::FootnoteRef(id) | RunContent::EndnoteRef(id) => {
@@ -1853,7 +1858,13 @@ mod tests {
             page: 3,
             pages: 9,
             section_pages: 2,
+            codes: false,
         };
+        // Field codes shown instead of results (Alt+F9).
+        assert_eq!(
+            field_text("PAGE", "1", FieldContext { codes: true, ..f }),
+            "{ PAGE }"
+        );
         assert_eq!(field_text("PAGE \\* MERGEFORMAT", "1", f), "3");
         assert_eq!(field_text("NUMPAGES", "1", f), "9");
         // §17.16.4.3 general formats on page numbers.

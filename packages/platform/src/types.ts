@@ -510,6 +510,12 @@ export type EditCommand =
   | { cmd: 'deleteComment' | 'selectComment'; id: number }
   | { cmd: 'nextComment'; forward: boolean }
   | { cmd: 'updateFields' | 'insertToc' | 'crossReferenceTargets' }
+  /** Lock / unlock the fields in the selection (§17.16.18 fldLock). */
+  | { cmd: 'lockFields'; lock: boolean }
+  /** Fields in the selection become their results as plain text. */
+  | { cmd: 'unlinkFields' }
+  /** Field codes instead of results (Alt+F9). */
+  | { cmd: 'showFieldCodes'; on: boolean }
   | { cmd: 'insertCaption'; label: string; text: string }
   | { cmd: 'insertCrossReference'; target: string; page: boolean }
   | { cmd: 'mergeData'; name: string; base64: string }

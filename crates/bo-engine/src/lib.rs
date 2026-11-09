@@ -235,6 +235,8 @@ pub struct Engine {
     slides: slide_edit::SlideEditor,
     /// How tracked changes are displayed.
     view: RevisionView,
+    /// Field codes are shown instead of field results (Alt+F9).
+    field_codes: bool,
     /// Author of new revisions and comments (kept across documents).
     author: Option<String>,
     /// Mail-merge data source and the previewed record.
@@ -471,7 +473,10 @@ impl Engine {
 
     /// Layout options from the view settings.
     fn options(&self) -> LayoutOptions {
-        LayoutOptions { view: self.view }
+        LayoutOptions {
+            view: self.view,
+            field_codes: self.field_codes,
+        }
     }
 
     /// How tracked changes are displayed.

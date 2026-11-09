@@ -175,6 +175,7 @@ fn field(instr: &str) -> RunContent {
     RunContent::Field {
         instr: instr.into(),
         cached: "1".into(),
+        locked: false,
     }
 }
 
@@ -711,7 +712,10 @@ fn tracked_changes_markup_final_and_original_views() {
             &d,
             &mut fonts(),
             &mut LayoutCache::new(),
-            LayoutOptions { view: v },
+            LayoutOptions {
+                view: v,
+                ..LayoutOptions::default()
+            },
         )
         .unwrap()
     };
@@ -845,7 +849,10 @@ fn tracked_cells_in_each_view() {
             &d,
             &mut fonts(),
             &mut LayoutCache::new(),
-            LayoutOptions { view: v },
+            LayoutOptions {
+                view: v,
+                ..LayoutOptions::default()
+            },
         )
         .unwrap()
     };

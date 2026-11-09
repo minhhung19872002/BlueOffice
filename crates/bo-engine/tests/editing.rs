@@ -614,5 +614,55 @@ fn fields_show_their_results() {
     );
     // The layout shows the page number with its switch.
     let page = e.page_json(0).unwrap();
-    assert!(page.contains("hai | I | "), "PAGE with a ROMAN format shows I");
+    assert!(
+        page.contains("hai | I | "),
+        "PAGE with a ROMAN format shows I"
+    );
+}
+
+// source: ECMA-376 Part 1, §17.16.18 fldLock — a locked field keeps its result through updates
+// and saving; unlocked it updates again; field codes show instead of results; unlinking leaves
+// the result as text.
+#[test]
+fn lock_unlink_and_show_field_codes() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"setAuthor","name":"Lan"}"#);
+    cmd(&mut e, r#"{"cmd":"insertField","instr":"USERNAME"}"#);
+    assert_eq!(e.document().unwrap().plain_text(), "Lan");
+    // The caret is right after the field: lock it, change the user, update.
+    let r = cmd(&mut e, r#"{"cmd":"lockFields","lock":true}"#);
+    assert_eq!(r["count"], 1);
+    cmd(&mut e, r#"{"cmd":"setAuthor","name":"Minh"}"#);
+    cmd(&mut e, r#"{"cmd":"updateFields"}"#);
+    assert_eq!(e.document().unwrap().plain_text(), "Lan");
+    // Saved locked (w:fldLock) and read back locked.
+    let saved = e.save_docx().unwrap();
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "a.docx").unwrap();
+    cmd(&mut f, r#"{"cmd":"setAuthor","name":"Minh"}"#);
+    cmd(&mut f, r#"{"cmd":"updateFields"}"#);
+    assert_eq!(f.document().unwrap().plain_text(), "Lan");
+    // Unlocked: the update shows the new user.
+    cmd(&mut e, r#"{"cmd":"lockFields","lock":false}"#);
+    cmd(&mut e, r#"{"cmd":"updateFields"}"#);
+    assert_eq!(e.document().unwrap().plain_text(), "Minh");
+    // Field codes on the page instead of the result.
+    cmd(&mut e, r#"{"cmd":"showFieldCodes","on":true}"#);
+    assert!(e.page_json(0).unwrap().contains("{ USERNAME }"));
+    cmd(&mut e, r#"{"cmd":"showFieldCodes","on":false}"#);
+    assert!(!e.page_json(0).unwrap().contains("{ USERNAME }"));
+    // Unlinked: plain text, no field left.
+    let r = cmd(&mut e, r#"{"cmd":"unlinkFields"}"#);
+    assert_eq!(r["count"], 1);
+    let fields = e.document().unwrap().sections[0]
+        .blocks
+        .iter()
+        .filter_map(|b| b.as_paragraph())
+        .flat_map(|p| &p.runs)
+        .flat_map(|r| &r.content)
+        .filter(|c| matches!(c, bo_model::RunContent::Field { .. }))
+        .count();
+    assert_eq!(fields, 0);
+    assert_eq!(e.document().unwrap().plain_text(), "Minh");
 }

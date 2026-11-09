@@ -409,6 +409,9 @@ pub struct Worksheet {
     /// drawing fallback (read-only, see [`SheetDiagram`]).
     #[serde(default)]
     pub diagrams: Vec<SheetDiagram>,
+    /// Slicers of the sheet ([MS-XLSX] slicers and slicer caches).
+    #[serde(default)]
+    pub slicers: Vec<Slicer>,
     /// Print area formula (defined name `_xlnm.Print_Area`, §18.2.6).
     pub print_area: Option<String>,
     /// Print titles formula (defined name `_xlnm.Print_Titles`).
@@ -1402,6 +1405,74 @@ pub struct SheetDiagram {
     pub part: String,
     /// `cNvPr@name` of the frame.
     pub name: String,
+}
+
+/// A slicer: a box of item buttons that filters a pivot table field or a table column
+/// ([MS-XLSX] 2.4.x `x14:slicer` in a slicers part, its `slicerCacheDefinition`, and the
+/// drawing frame `sle:slicer` that places it).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Slicer {
+    /// `slicer/@name` (also the drawing frame's `sle:slicer/@name`).
+    pub name: String,
+    /// `slicer/@caption`, the header text.
+    pub caption: String,
+    /// `slicer/@cache`: the slicer cache's name (a defined name of the workbook).
+    pub cache: String,
+    /// What the slicer filters.
+    pub source: SlicerSource,
+    /// `slicer/@columnCount` (default 1).
+    pub columns: u32,
+    /// `slicer/@style`.
+    pub style: Option<String>,
+    /// `slicer/@rowHeight` in EMU.
+    pub row_height: Option<i64>,
+    /// Anchor cells of the drawing frame (§20.5.2.33).
+    pub from: CellRef,
+    /// End anchor cell.
+    pub to: Option<CellRef>,
+    /// Absolute part name of the slicer cache definition (empty for a new slicer).
+    pub cache_part: String,
+    /// Absolute part name of the slicers part holding this slicer (empty for a new slicer).
+    pub part: String,
+    /// The selection changed since the file was read: the cache part is rewritten on save.
+    pub dirty: bool,
+}
+
+/// The data a slicer filters.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SlicerSource {
+    /// A field of one or more pivot tables sharing a pivot cache.
+    Pivot {
+        /// `slicerCacheDefinition/@sourceName`: the pivot cache field's name.
+        field: String,
+        /// `pivotTables/pivotTable/@name` connected to the slicer.
+        pivots: Vec<String>,
+        /// `tabular/@pivotCacheId`.
+        cache_id: u32,
+        /// `tabular/items/i`: shared item index and whether it is selected (`s`).
+        items: Vec<(u32, bool)>,
+    },
+    /// A column of a table (`x15:tableSlicerCache`).
+    Table {
+        /// `tableSlicerCache/@tableId`.
+        table_id: u32,
+        /// `tableSlicerCache/@column`: 1-based table column id.
+        column: u32,
+        /// Values the table's filter shows for the column (`None`: not filtered, all shown).
+        shown: Option<Vec<String>>,
+    },
+}
+
+impl Default for SlicerSource {
+    fn default() -> Self {
+        SlicerSource::Table {
+            table_id: 0,
+            column: 1,
+            shown: None,
+        }
+    }
 }
 
 /// Drawing anchor of a chart (ECMA-376 Part 1, §20.5.2).

@@ -1,6 +1,7 @@
 import { GlyphStore, PX_PER_PT, renderPage } from '@blueoffice/canvas-host';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
+  SlicerInfo,
   BorderPreset,
   BorderSpec,
   CellFormatState,
@@ -97,6 +98,8 @@ import {
   ShieldCheck,
   Target,
   Grid3x3,
+  ListFilter,
+  FunnelX,
   Calculator,
   Sigma,
   Group,
@@ -691,6 +694,33 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     };
   }, [host, chart, sheet, view, px, revision]);
 
+  // Slicers of the sheet: item buttons over the grid.
+  const [slicers, setSlicers] = useState<{ info: SlicerInfo; rect: Rect }[]>([]);
+  useEffect(() => {
+    if (!host) return;
+    let cancelled = false;
+    void (async () => {
+      const list = (await host.exec<SlicerInfo[]>({ cmd: 'slicers', sheet })) ?? [];
+      const placed = await Promise.all(
+        list.map(async (info) => {
+          const r = await host.rangeRect(
+            view,
+            info.from[0],
+            info.from[1],
+            info.to[0] - 1,
+            info.to[1] - 1,
+          );
+          const rect = px(r);
+          return rect ? { info, rect } : null;
+        }),
+      );
+      if (!cancelled) setSlicers(placed.filter((x): x is { info: SlicerInfo; rect: Rect } => !!x));
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, sheet, view, px, revision]);
+
   // Pivot tables of the sheet (field list panel).
   useEffect(() => {
     if (!host || !info?.sheets[sheet]?.pivots) return;
@@ -783,6 +813,25 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       }
     },
     [host, refreshInfo, fail],
+  );
+
+  const chooseSlicerItem = useCallback(
+    (info: SlicerInfo, label: string, multi: boolean) => {
+      const chosen = info.items.filter((i) => i.selected).map((i) => i.label);
+      const all = chosen.length === info.items.length;
+      let next: string[];
+      if (multi) {
+        next = all
+          ? [label]
+          : chosen.includes(label)
+            ? chosen.filter((l) => l !== label)
+            : [...chosen, label];
+      } else {
+        next = !all && chosen.length === 1 && chosen[0] === label ? [] : [label];
+      }
+      void exec({ cmd: 'slicerSelect', sheet, index: info.index, items: next });
+    },
+    [exec, sheet],
   );
 
   // ------------------------------------------------------------- comments
@@ -1362,6 +1411,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     // Insert
     add('insert.chart', popup('chart', 'insert.chart'), has);
     add('insert.pivot', open({ kind: 'pivot' }), has);
+    add('insert.table', (s) => exec({ cmd: 'createTable', sheet: s.sheet, range: rng(s) }), has);
+    add(
+      'insert.slicer',
+      (s) =>
+        exec({
+          cmd: 'insertSlicer',
+          sheet: s.sheet,
+          row: s.selection.active.row,
+          col: s.selection.active.col,
+        }),
+      has,
+    );
     add(
       'pivot.refresh',
       async (s) => {
@@ -2263,6 +2324,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             label: t('sheetEditor.groupTables'),
             items: [
               item('insert.pivot', t('sheetEditor.pivot.insert'), <TableProperties size={18} />),
+              item('insert.table', t('sheetEditor.table.insert'), <Table2 size={18} />),
+              item('insert.slicer', t('sheetEditor.slicer.insert'), <ListFilter size={18} />),
               item(
                 'pivot.options',
                 t('sheetEditor.pivot.options'),
@@ -2742,6 +2805,49 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 />
               </div>
             )}
+            {slicers.map(({ info, rect }) => (
+              <div
+                key={info.index}
+                className={styles.slicer}
+                data-testid="slicer"
+                role="group"
+                aria-label={info.caption}
+                style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className={styles.slicerHeader}>
+                  <span>{info.caption}</span>
+                  <button
+                    type="button"
+                    data-testid="slicer-clear"
+                    title={t('sheetEditor.slicer.clear')}
+                    aria-label={t('sheetEditor.slicer.clear')}
+                    disabled={info.items.every((i) => i.selected)}
+                    onClick={() =>
+                      void exec({ cmd: 'slicerSelect', sheet, index: info.index, items: [] })
+                    }
+                  >
+                    <FunnelX size={14} />
+                  </button>
+                </div>
+                <div
+                  className={styles.slicerItems}
+                  style={{ gridTemplateColumns: `repeat(${info.columns}, 1fr)` }}
+                >
+                  {info.items.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className={item.selected ? styles.slicerOn : styles.slicerOff}
+                      aria-pressed={item.selected}
+                      onClick={(e) => chooseSlicerItem(info, item.label, e.ctrlKey || e.metaKey)}
+                    >
+                      {item.label || t('sheetEditor.slicer.blank')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
             {fillRect && (
               <div
                 className={styles.fillPreview}

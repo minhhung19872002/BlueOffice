@@ -733,6 +733,16 @@ export type SheetCommand =
       rowInput?: string | null;
       colInput?: string | null;
     }
+  /** Turn a range into a table (first row = column names). */
+  | { cmd: 'createTable'; sheet: number; range: SheetRange }
+  /** Slicers of a sheet. */
+  | { cmd: 'slicers'; sheet: number }
+  /** Insert a slicer for the table column of a cell. */
+  | { cmd: 'insertSlicer'; sheet: number; row: number; col: number }
+  /** Choose a slicer's items (empty: clear its filter). */
+  | { cmd: 'slicerSelect'; sheet: number; index: number; items: string[] }
+  /** Delete a slicer inserted in this session. */
+  | { cmd: 'deleteSlicer'; sheet: number; index: number }
   /** Solver (simplex; integer / binary by branch and bound); `apply` enters the solution. */
   | {
       cmd: 'solve';
@@ -757,6 +767,18 @@ export type SheetCommand =
       changing: string;
       apply?: boolean;
     };
+
+/** A slicer as the engine lists it. */
+export interface SlicerInfo {
+  index: number;
+  name: string;
+  caption: string;
+  columns: number;
+  /** Anchor cells [row, col]: top-left and bottom-right. */
+  from: [number, number];
+  to: [number, number];
+  items: { label: string; selected: boolean }[];
+}
 
 export interface ChartInfo {
   index: number;

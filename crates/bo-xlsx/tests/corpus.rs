@@ -2551,7 +2551,65 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-pivot-dates", "BlueSheet writer: pivot date filters (dateBetween; Q2; dateNewerThanOrEqual in a 1904 workbook with a year grouping)", writer_pivot_dates),
     ("writer-pivot-datarows", "BlueSheet writer: value fields on rows (tabular; compact × columns; outline with three values)", writer_pivot_datarows),
     ("writer-pivot-charts", "BlueSheet writer: pivot charts (column; line following a hidden item; combo with field buttons)", writer_pivot_charts),
+    ("writer-slicers", "BlueSheet writer: table slicers (one slicer; filtered to one item; two slicers on two columns, both filtered)", writer_slicers),
 ];
+
+/// Table slicers inserted with `bo_sheet::slicer` (each file one variant).
+fn writer_slicers(i: usize) -> m::Workbook {
+    let mut ws = m::Worksheet::new("Bán hàng");
+    let rows = [
+        ("Vùng", "Kênh", "Doanh số"),
+        ("Bắc", "Online", "10"),
+        ("Nam", "Cửa hàng", "20"),
+        ("Bắc", "Cửa hàng", "30"),
+        ("Trung", "Online", "40"),
+        ("Nam", "Online", "50"),
+    ];
+    for (r, (a, b, c)) in rows.iter().enumerate() {
+        let r = r as u32;
+        ws.set_cell(r, 0, m::Cell::new(m::CellValue::Text((*a).into())));
+        ws.set_cell(r, 1, m::Cell::new(m::CellValue::Text((*b).into())));
+        let v = c
+            .parse::<f64>()
+            .map_or_else(|_| m::CellValue::Text((*c).into()), m::CellValue::Number);
+        ws.set_cell(r, 2, m::Cell::new(v));
+    }
+    ws.tables.push(m::Table {
+        id: 1,
+        name: "BanHang".into(),
+        display_name: "BanHang".into(),
+        range: m::CellRange::parse("A1:C6").unwrap(),
+        columns: ["Vùng", "Kênh", "Doanh số"]
+            .iter()
+            .enumerate()
+            .map(|(k, n)| m::TableColumn {
+                id: k as u32 + 1,
+                name: (*n).into(),
+                ..m::TableColumn::default()
+            })
+            .collect(),
+        style: Some(m::TableStyleInfo {
+            name: Some("TableStyleMedium2".into()),
+            show_row_stripes: true,
+            ..m::TableStyleInfo::default()
+        }),
+        ..m::Table::default()
+    });
+    let mut wb = m::Workbook::new();
+    wb.sheets = vec![ws];
+    let locale = bo_sheet::numfmt::Locale::VI_VN;
+    let labels = bo_sheet::pivot::PivotLabels::default();
+    let a = bo_sheet::slicer::insert_table_slicer(&mut wb, 0, 1, 1, m::CellRef::new(0, 4)).unwrap();
+    if i >= 2 {
+        bo_sheet::slicer::select(&mut wb, 0, a, &["Bắc".into()], &locale, &labels).unwrap();
+    }
+    if i == 3 {
+        let b =
+            bo_sheet::slicer::insert_table_slicer(&mut wb, 0, 1, 2, m::CellRef::new(0, 8)).unwrap();
+        bo_sheet::slicer::select(&mut wb, 0, b, &["Online".into()], &locale, &labels).unwrap();
+    }
+    wb
+}
 
 fn corpus_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus/sheet")

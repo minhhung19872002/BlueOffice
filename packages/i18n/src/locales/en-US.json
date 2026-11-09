@@ -1069,6 +1069,14 @@
         "notLinear": "The model is not linear; the linear method cannot solve it.",
         "error": "A cell of the model gives an error."
       }
+    },
+    "table": {
+      "insert": "Table"
+    },
+    "slicer": {
+      "insert": "Slicer",
+      "clear": "Clear filter",
+      "blank": "(blank)"
     }
   },
   "recovery": {

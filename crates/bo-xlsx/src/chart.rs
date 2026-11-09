@@ -259,7 +259,7 @@ pub(crate) fn read_diagrams(
 }
 
 /// §20.5.2.15 from / §20.5.2.32 to (`xdr:col`, `xdr:row`, zero-based).
-fn anchor_cell(n: &Node) -> CellRef {
+pub(crate) fn anchor_cell(n: &Node) -> CellRef {
     let num = |name: &str| {
         n.child(name)
             .and_then(|c| c.text.trim().parse::<u32>().ok())

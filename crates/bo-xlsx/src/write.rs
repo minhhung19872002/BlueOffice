@@ -194,6 +194,9 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
     );
 
     let mut sheet_rel_ids = Vec::with_capacity(wb.sheets.len());
+    // Slicer caches created for new slicers ([MS-XLSX] slicer parts).
+    let mut slicer_caches: Vec<String> = Vec::new();
+    let all_tables: Vec<&Table> = wb.sheets.iter().flat_map(|s| s.tables.iter()).collect();
     for ws in &wb.sheets {
         let rid = wb_ids.alloc();
         match &ws.kind {
@@ -260,6 +263,41 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                         crate::threaded::threaded_xml(&ws.threaded_comments).into_bytes(),
                     ));
                 }
+                // New slicers: cache parts, the slicers part and their drawing frames.
+                let new_slicers = {
+                    let mut fresh = |p: &str| names.fresh(|n| format!("{p}{n}.xml"));
+                    let mut alloc = || ids.alloc();
+                    crate::slicer::write_new(
+                        ws,
+                        &all_tables,
+                        &path,
+                        &mut fresh,
+                        &mut alloc,
+                        &mut rels,
+                        &mut out_parts,
+                    )
+                };
+                // Changed selections of file slicers: the cache part's item flags.
+                for s in ws
+                    .slicers
+                    .iter()
+                    .filter(|s| s.dirty && !s.cache_part.is_empty())
+                {
+                    if let bo_model::sheet::SlicerSource::Pivot { items, .. } = &s.source {
+                        let current = overrides.get(&s.cache_part).cloned().or_else(|| {
+                            wb.opaque
+                                .parts
+                                .iter()
+                                .find(|p| p.name == s.cache_part)
+                                .map(|p| p.data.clone())
+                        });
+                        if let Some(xml) = current.and_then(|d| String::from_utf8(d).ok()) {
+                            if let Some(patched) = crate::slicer::patch_cache_items(&xml, items) {
+                                overrides.insert(s.cache_part.clone(), patched.into_bytes());
+                            }
+                        }
+                    }
+                }
                 // Charts (§20.5 drawing → §21.2 chart parts).
                 let drawing_rid = write_charts(
                     wb,
@@ -270,6 +308,7 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                     &mut rels,
                     &mut out_parts,
                     &mut overrides,
+                    new_slicers.as_ref().map_or("", |n| n.anchors.as_str()),
                 );
                 // Pivot tables (§18.10.1.73).
                 write_pivot_tables(
@@ -283,7 +322,25 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                     &mut out_parts,
                     &mut overrides,
                 );
-                let xml = sheet_xml(ws, &mut sst, &link_ids, &table_rids, drawing_rid.as_deref());
+                let with_slicers;
+                let ws_out = match &new_slicers {
+                    Some(n) => {
+                        slicer_caches.extend(n.caches.iter().cloned());
+                        with_slicers = Worksheet {
+                            unknown: crate::slicer::with_ext(&ws.unknown, &n.sheet_ext),
+                            ..ws.clone()
+                        };
+                        &with_slicers
+                    }
+                    None => ws,
+                };
+                let xml = sheet_xml(
+                    ws_out,
+                    &mut sst,
+                    &link_ids,
+                    &table_rids,
+                    drawing_rid.as_deref(),
+                );
                 if !rels.is_empty() {
                     out_parts.push((
                         bo_opc::rels_part_name(&path),
@@ -366,6 +423,25 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
         ));
     }
 
+    // Slicer caches of new slicers: workbook relationships and the extension listing them.
+    let slicer_rids: Vec<String> = slicer_caches
+        .iter()
+        .map(|part| {
+            let id = wb_ids.alloc();
+            wb_rels.push(Relationship {
+                id: id.clone(),
+                rel_type: crate::slicer::REL_SLICER_CACHE.into(),
+                target: relative_target(&wb_path, part),
+                mode: TargetMode::Internal,
+            });
+            id
+        })
+        .collect();
+    let wb_unknown = if slicer_rids.is_empty() {
+        wb.unknown.clone()
+    } else {
+        crate::slicer::with_ext(&wb.unknown, &crate::slicer::workbook_ext(&slicer_rids))
+    };
     out_parts.push((
         bo_opc::rels_part_name(&wb_path),
         None,
@@ -379,7 +455,7 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
     out_parts.push((
         wb_path.clone(),
         Some(wb_ct),
-        workbook_xml(wb, &sheet_ids, &sheet_rel_ids, &cache_rids).into_bytes(),
+        workbook_xml(wb, &wb_unknown, &sheet_ids, &sheet_rel_ids, &cache_rids).into_bytes(),
     ));
     out_parts.push((
         "/_rels/.rels".into(),
@@ -438,6 +514,7 @@ fn write_charts(
     rels: &mut Vec<Relationship>,
     out_parts: &mut Vec<(String, Option<String>, Vec<u8>)>,
     overrides: &mut HashMap<String, Vec<u8>>,
+    extra_anchors: &str,
 ) -> Option<String> {
     use crate::chart_write::{
         add_relationships, anchor_xml, append_to_drawing, chart_space_xml, drawing_xml, CT_CHART,
@@ -472,7 +549,7 @@ fn write_charts(
     }
     let new: Vec<&bo_model::sheet::Chart> =
         ws.charts.iter().filter(|c| c.part.is_empty()).collect();
-    if new.is_empty() {
+    if new.is_empty() && extra_anchors.is_empty() {
         return None;
     }
     let is_ex = |c: &bo_model::sheet::Chart| c.plots.first().is_some_and(|p| p.kind.is_ex());
@@ -524,12 +601,13 @@ fn write_charts(
     } else {
         1000 + 10 * ws.charts.len() as u32
     };
-    let anchors: String = new
+    let mut anchors: String = new
         .iter()
         .zip(&chart_ids)
         .enumerate()
         .map(|(i, (c, id))| anchor_xml(c, base_id + i as u32, id))
         .collect();
+    anchors.push_str(extra_anchors);
     if opaque(&rels_name).is_some() {
         overrides.insert(rels_name, rels_bytes);
     } else {
@@ -739,6 +817,7 @@ fn bo_opc_rels_xml(rels: &[Relationship]) -> String {
 /// §18.2.27 workbook.
 fn workbook_xml(
     wb: &Workbook,
+    unknown: &[bo_model::sheet::RawXml],
     sheet_ids: &[u32],
     rel_ids: &[String],
     cache_rids: &[String],
@@ -747,81 +826,76 @@ fn workbook_xml(
     out.push_str("<workbook");
     root_attrs(&mut out, &wb.root_attrs, true);
     out.push('>');
-    emit_ordered(
-        &mut out,
-        WORKBOOK_SCHEMA,
-        &wb.unknown,
-        |slot, out| match slot {
-            // §18.2.28 workbookPr
-            "workbookPr" if wb.date1904 || !wb.workbook_pr_attrs.is_empty() => {
-                out.push_str("<workbookPr");
-                a_true(out, "date1904", wb.date1904);
-                a_raw(out, &wb.workbook_pr_attrs);
+    emit_ordered(&mut out, WORKBOOK_SCHEMA, unknown, |slot, out| match slot {
+        // §18.2.28 workbookPr
+        "workbookPr" if wb.date1904 || !wb.workbook_pr_attrs.is_empty() => {
+            out.push_str("<workbookPr");
+            a_true(out, "date1904", wb.date1904);
+            a_raw(out, &wb.workbook_pr_attrs);
+            out.push_str("/>");
+        }
+        // §18.2.20 sheets
+        "sheets" => {
+            out.push_str("<sheets>");
+            for (i, ws) in wb.sheets.iter().enumerate() {
+                out.push_str("<sheet");
+                a(out, "name", &ws.name);
+                a(out, "sheetId", &sheet_ids[i].to_string());
+                match ws.state {
+                    SheetState::Visible => {}
+                    SheetState::Hidden => a(out, "state", "hidden"),
+                    SheetState::VeryHidden => a(out, "state", "veryHidden"),
+                }
+                a(out, "r:id", &rel_ids[i]);
                 out.push_str("/>");
             }
-            // §18.2.20 sheets
-            "sheets" => {
-                out.push_str("<sheets>");
-                for (i, ws) in wb.sheets.iter().enumerate() {
-                    out.push_str("<sheet");
-                    a(out, "name", &ws.name);
-                    a(out, "sheetId", &sheet_ids[i].to_string());
-                    match ws.state {
-                        SheetState::Visible => {}
-                        SheetState::Hidden => a(out, "state", "hidden"),
-                        SheetState::VeryHidden => a(out, "state", "veryHidden"),
-                    }
-                    a(out, "r:id", &rel_ids[i]);
-                    out.push_str("/>");
-                }
-                out.push_str("</sheets>");
+            out.push_str("</sheets>");
+        }
+        // §18.2.6 definedNames
+        "definedNames" => {
+            let mut items = String::new();
+            let mut dn =
+                |name: &str, local: Option<u32>, hidden: bool, attrs: &[RawAttr], f: &str| {
+                    items.push_str("<definedName");
+                    a(&mut items, "name", name);
+                    a_opt(&mut items, "localSheetId", local.as_ref());
+                    a_true(&mut items, "hidden", hidden);
+                    a_raw(&mut items, attrs);
+                    // [MS-XLSX] 2.2.2 storage prefixes.
+                    let _ = write!(
+                        items,
+                        ">{}</definedName>",
+                        escape(&bo_formula::to_storage(f))
+                    );
+                };
+            for d in &wb.defined_names {
+                dn(&d.name, d.local_sheet, d.hidden, &d.attrs, &d.formula);
             }
-            // §18.2.6 definedNames
-            "definedNames" => {
-                let mut items = String::new();
-                let mut dn =
-                    |name: &str, local: Option<u32>, hidden: bool, attrs: &[RawAttr], f: &str| {
-                        items.push_str("<definedName");
-                        a(&mut items, "name", name);
-                        a_opt(&mut items, "localSheetId", local.as_ref());
-                        a_true(&mut items, "hidden", hidden);
-                        a_raw(&mut items, attrs);
-                        // [MS-XLSX] 2.2.2 storage prefixes.
-                        let _ = write!(
-                            items,
-                            ">{}</definedName>",
-                            escape(&bo_formula::to_storage(f))
-                        );
-                    };
-                for d in &wb.defined_names {
-                    dn(&d.name, d.local_sheet, d.hidden, &d.attrs, &d.formula);
+            for (i, ws) in wb.sheets.iter().enumerate() {
+                if let Some(f) = &ws.print_area {
+                    dn("_xlnm.Print_Area", Some(i as u32), false, &[], f);
                 }
-                for (i, ws) in wb.sheets.iter().enumerate() {
-                    if let Some(f) = &ws.print_area {
-                        dn("_xlnm.Print_Area", Some(i as u32), false, &[], f);
-                    }
-                    if let Some(f) = &ws.print_titles {
-                        dn("_xlnm.Print_Titles", Some(i as u32), false, &[], f);
-                    }
-                }
-                if !items.is_empty() {
-                    let _ = write!(out, "<definedNames>{items}</definedNames>");
+                if let Some(f) = &ws.print_titles {
+                    dn("_xlnm.Print_Titles", Some(i as u32), false, &[], f);
                 }
             }
-            // §18.2.22 pivotCaches
-            "pivotCaches" if !wb.pivot_caches.is_empty() => {
-                out.push_str("<pivotCaches>");
-                for (c, rid) in wb.pivot_caches.iter().zip(cache_rids) {
-                    out.push_str("<pivotCache");
-                    a(out, "cacheId", &c.cache_id.to_string());
-                    a(out, "r:id", rid);
-                    out.push_str("/>");
-                }
-                out.push_str("</pivotCaches>");
+            if !items.is_empty() {
+                let _ = write!(out, "<definedNames>{items}</definedNames>");
             }
-            _ => {}
-        },
-    );
+        }
+        // §18.2.22 pivotCaches
+        "pivotCaches" if !wb.pivot_caches.is_empty() => {
+            out.push_str("<pivotCaches>");
+            for (c, rid) in wb.pivot_caches.iter().zip(cache_rids) {
+                out.push_str("<pivotCache");
+                a(out, "cacheId", &c.cache_id.to_string());
+                a(out, "r:id", rid);
+                out.push_str("/>");
+            }
+            out.push_str("</pivotCaches>");
+        }
+        _ => {}
+    });
     out.push_str("</workbook>");
     out
 }

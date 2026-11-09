@@ -1069,6 +1069,14 @@
         "notLinear": "Mô hình không tuyến tính; phương pháp tuyến tính không giải được.",
         "error": "Một ô của mô hình bị lỗi."
       }
+    },
+    "table": {
+      "insert": "Bảng"
+    },
+    "slicer": {
+      "insert": "Slicer",
+      "clear": "Xoá bộ lọc",
+      "blank": "(trống)"
     }
   },
   "recovery": {

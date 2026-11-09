@@ -972,6 +972,46 @@ pub enum SheetCommand {
         #[serde(default)]
         apply: bool,
     },
+    /// Turn a range into a table (§18.5); its first row names the columns. One undo step.
+    CreateTable {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The range, header row included.
+        range: Rng,
+    },
+    /// Slicers of a sheet with their items and anchors.
+    Slicers {
+        /// 0-based sheet index.
+        sheet: usize,
+    },
+    /// Insert a slicer for the table column holding `row`, `col`, placed right of the table.
+    InsertSlicer {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// A cell of the table column (0-based).
+        row: u32,
+        /// Its column.
+        col: u32,
+    },
+    /// Choose the items of a slicer (empty: clear its filter). One undo step.
+    SlicerSelect {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the slicer on the sheet.
+        index: usize,
+        /// Labels of the chosen items.
+        items: Vec<String>,
+        /// Labels for re-rendered pivot tables.
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Delete a slicer (its filter is cleared first). One undo step.
+    DeleteSlicer {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the slicer on the sheet.
+        index: usize,
+    },
     /// Sum, count and average of the numbers in several ranges (status bar of a
     /// multi-range selection); cells covered twice count once.
     RangeStats {
@@ -1463,6 +1503,89 @@ impl SheetEngine {
                 }
                 Ok(serde_json::to_value(sol).unwrap_or(Value::Null))
             }
+            C::CreateTable { sheet, range } => self.edit(sheet, Recalc::No, |wb, _| {
+                let i = bo_sheet::table::create_table(wb, sheet, range.range(), &locale)
+                    .map_err(|e| bad(&e))?;
+                Ok(json!({ "index": i }))
+            }),
+            C::Slicers { sheet } => {
+                let wb = self.wb()?;
+                let ws = self.sheet(sheet)?;
+                let list: Vec<Value> = ws
+                    .slicers
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| {
+                        let to =
+                            s.to.unwrap_or(CellRef::new(s.from.row + 10, s.from.col + 2));
+                        json!({
+                            "index": i,
+                            "name": s.name,
+                            "caption": s.caption,
+                            "columns": s.columns.max(1),
+                            "from": [s.from.row, s.from.col],
+                            "to": [to.row, to.col],
+                            "items": bo_sheet::slicer::items(wb, sheet, i, &locale),
+                        })
+                    })
+                    .collect();
+                Ok(Value::Array(list))
+            }
+            C::InsertSlicer { sheet, row, col } => {
+                let wb = self.wb()?;
+                let (table_id, column, at) = wb
+                    .sheets
+                    .get(sheet)
+                    .and_then(|ws| {
+                        ws.tables.iter().find_map(|t| {
+                            let r = t.range;
+                            let inside = (r.first.row..=r.last.row).contains(&row)
+                                && (r.first.col..=r.last.col).contains(&col);
+                            inside.then(|| {
+                                let id = t
+                                    .columns
+                                    .get((col - r.first.col) as usize)
+                                    .map_or(1, |c| c.id);
+                                (t.id, id, CellRef::new(r.first.row, r.last.col + 2))
+                            })
+                        })
+                    })
+                    .ok_or_else(|| bad("select a cell of a table"))?;
+                self.edit(sheet, Recalc::No, |wb, _| {
+                    let i = bo_sheet::slicer::insert_table_slicer(wb, sheet, table_id, column, at)
+                        .map_err(|e| bad(&e))?;
+                    Ok(json!({ "index": i }))
+                })
+            }
+            C::SlicerSelect {
+                sheet,
+                index,
+                items,
+                labels,
+            } => {
+                let labels = labels.unwrap_or_default();
+                self.edit(sheet, Recalc::All, |wb, _| {
+                    bo_sheet::slicer::select(wb, sheet, index, &items, &locale, &labels)
+                        .map_err(|e| bad(&e))?;
+                    Ok(json!({ "ok": true }))
+                })
+            }
+            C::DeleteSlicer { sheet, index } => self.edit(sheet, Recalc::All, |wb, _| {
+                // Slicers read from a file keep their parts in the package; only new ones go.
+                if wb.sheets[sheet]
+                    .slicers
+                    .get(index)
+                    .is_none_or(|s| !s.part.is_empty())
+                {
+                    return Err(bad("only a slicer inserted in this session can be deleted"));
+                }
+                let labels = PivotLabels::default();
+                bo_sheet::slicer::select(wb, sheet, index, &[], &locale, &labels)
+                    .map_err(|e| bad(&e))?;
+                let s = wb.sheets[sheet].slicers.remove(index);
+                wb.defined_names.retain(|d| d.name != s.cache);
+                Ok(json!({ "ok": true }))
+            }),
             C::RangeStats { sheet, ranges } => {
                 let ws = self.sheet(sheet)?;
                 Ok(range_stats(ws, &ranges))

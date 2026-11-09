@@ -90,7 +90,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 | Sort / filter | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | E2E | 🟡 | thiếu theo màu, advanced filter |
 | Pivot | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | tests + E2E | 🟡 | thiếu drill-down |
 | PivotChart | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests | 🟡 | |
-| Slicer / Timeline | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
+| Slicer / Timeline | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | slicers.rs, writer-slicers-*, sheet-slicer.spec | 🟡 | slicer bảng tạo/lọc/lưu; slicer pivot đọc/lọc/lưu lựa chọn (chưa tạo mới); chưa có timeline |
 | Goal Seek / Data Table / Solver | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Power Query / data model | 🟡 | — | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
 | Flash Fill, Text to Columns | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |

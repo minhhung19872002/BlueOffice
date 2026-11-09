@@ -138,3 +138,62 @@ fn solver_optimises_and_applies() {
     .unwrap();
     assert_eq!(r["status"], "infeasible");
 }
+
+#[test]
+fn table_slicer_commands() {
+    let mut e = SheetEngine::new();
+    e.new_workbook("t.xlsx").unwrap();
+    e.set_inputs(
+        0,
+        &[
+            (0, 0, "Vùng".into()),
+            (0, 1, "Số".into()),
+            (1, 0, "Bắc".into()),
+            (1, 1, "1".into()),
+            (2, 0, "Nam".into()),
+            (2, 1, "2".into()),
+            (3, 0, "Bắc".into()),
+            (3, 1, "3".into()),
+        ],
+    )
+    .unwrap();
+    // A slicer needs a table.
+    assert!(exec(
+        &mut e,
+        &json!({"cmd": "insertSlicer", "sheet": 0, "row": 1, "col": 0})
+    )
+    .is_err());
+    exec(
+        &mut e,
+        &json!({"cmd": "createTable", "sheet": 0, "range": {"r0": 0, "c0": 0, "r1": 3, "c1": 1}}),
+    )
+    .unwrap();
+    let r = exec(
+        &mut e,
+        &json!({"cmd": "insertSlicer", "sheet": 0, "row": 1, "col": 0}),
+    )
+    .unwrap();
+    assert_eq!(r["index"], 0);
+    let list = exec(&mut e, &json!({"cmd": "slicers", "sheet": 0})).unwrap();
+    assert_eq!(list[0]["caption"], "Vùng");
+    assert_eq!(list[0]["items"].as_array().unwrap().len(), 2);
+    exec(
+        &mut e,
+        &json!({"cmd": "slicerSelect", "sheet": 0, "index": 0, "items": ["Nam"]}),
+    )
+    .unwrap();
+    let list = exec(&mut e, &json!({"cmd": "slicers", "sheet": 0})).unwrap();
+    assert_eq!(list[0]["items"][0]["selected"], false);
+    assert_eq!(list[0]["items"][1]["selected"], true);
+    // Undo restores the unfiltered table; delete removes the new slicer.
+    e.undo().unwrap();
+    let list = exec(&mut e, &json!({"cmd": "slicers", "sheet": 0})).unwrap();
+    assert_eq!(list[0]["items"][0]["selected"], true);
+    exec(
+        &mut e,
+        &json!({"cmd": "deleteSlicer", "sheet": 0, "index": 0}),
+    )
+    .unwrap();
+    let list = exec(&mut e, &json!({"cmd": "slicers", "sheet": 0})).unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 0);
+}

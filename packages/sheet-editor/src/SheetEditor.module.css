@@ -586,3 +586,68 @@
   color: inherit;
   cursor: pointer;
 }
+
+/* Slicers: a box of item buttons over the grid. */
+.slicer {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border: 1px solid var(--bo-border, #c9d1dc);
+  background: var(--bo-surface, #fff);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+  font-size: 12px;
+  overflow: hidden;
+  z-index: 3;
+}
+
+.slicerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  font-weight: 600;
+}
+
+.slicerHeader button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+}
+
+.slicerHeader button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.slicerItems {
+  display: grid;
+  gap: 3px;
+  padding: 0 6px 6px;
+  overflow: auto;
+}
+
+.slicerOn,
+.slicerOff {
+  font: inherit;
+  text-align: left;
+  padding: 3px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slicerOn {
+  border: 1px solid var(--bo-sheet-accent, #1f7a4d);
+  background: color-mix(in srgb, var(--bo-sheet-accent, #1f7a4d) 18%, transparent);
+  color: inherit;
+}
+
+.slicerOff {
+  border: 1px solid var(--bo-border, #d7dde7);
+  background: transparent;
+  color: var(--bo-muted, #8a94a3);
+}

@@ -24,6 +24,7 @@ mod csv;
 mod pivot;
 pub mod pivot_write;
 mod read;
+pub mod slicer;
 mod styles;
 mod threaded;
 mod write;

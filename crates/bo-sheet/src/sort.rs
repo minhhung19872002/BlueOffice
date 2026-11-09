@@ -1,6 +1,8 @@
 //! Multi-level sort of a cell range: rows reordered top-to-bottom, or columns
 //! left-to-right (ECMA-376 Part 1, §18.3.1.92 `sortState/@columnSort`), by
-//! value or by cell / font colour (§18.3.1.91 `sortCondition/@sortBy`).
+//! value, by cell / font colour or by conditional-format icon (§18.3.1.91
+//! `sortCondition/@sortBy`), or in the order of a custom list
+//! (`sortCondition/@customList`).
 //!
 //! Ascending order follows the usual spreadsheet convention: numbers, then text
 //! (case-insensitive unless requested), then logical values (FALSE < TRUE), then
@@ -13,7 +15,7 @@ use bo_model::sheet::{Cell, CellRange, CellValue, Workbook, Worksheet};
 use std::cmp::Ordering;
 
 /// What a sort level compares (§18.18.79 `ST_SortBy`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum SortBy {
     /// Compare cell values (numbers before text, blanks last).
     #[default]
@@ -22,10 +24,18 @@ pub enum SortBy {
     CellColor((u8, u8, u8)),
     /// Cells whose font has this colour first (last when descending).
     FontColor((u8, u8, u8)),
+    /// Cells showing icon `id` (zero-based) of conditional-format icon set `set`
+    /// (§18.18.42 `ST_IconSetType`) first (last when descending).
+    Icon {
+        /// Icon set name, e.g. `3Arrows`.
+        set: String,
+        /// Zero-based icon of the set (0 = icon of the lowest band).
+        id: u32,
+    },
 }
 
 /// One sort level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SortKey {
     /// Absolute zero-based column of the key (the key row when sorting left to right).
     pub col: u32,
@@ -35,6 +45,10 @@ pub struct SortKey {
     pub case_sensitive: bool,
     /// What the level compares.
     pub by: SortBy,
+    /// Custom order of a value key (`sortCondition/@customList`): text matching an
+    /// entry (case-insensitively) sorts in list order, before any other value;
+    /// descending reverses the list.
+    pub custom_list: Option<Vec<String>>,
 }
 
 impl SortKey {
@@ -45,6 +59,7 @@ impl SortKey {
             descending: false,
             case_sensitive: false,
             by: SortBy::Value,
+            custom_list: None,
         }
     }
 
@@ -55,6 +70,7 @@ impl SortKey {
             descending: true,
             case_sensitive: false,
             by: SortBy::Value,
+            custom_list: None,
         }
     }
 }
@@ -125,7 +141,21 @@ fn cell_at(line: &[(u32, Cell)], pos: u32) -> Option<&Cell> {
     line.iter().find(|(c, _)| *c == pos).map(|(_, cell)| cell)
 }
 
-fn key_cmp(a: Option<&CellValue>, b: Option<&CellValue>, k: SortKey) -> Ordering {
+/// Position of a value in a custom list (case-insensitive text match).
+fn list_index(v: &CellValue, list: &[String]) -> Option<usize> {
+    let t = v.as_text()?.to_lowercase();
+    list.iter().position(|x| x.to_lowercase() == t)
+}
+
+/// Split a `customList` attribute value into its entries (comma-separated).
+pub fn split_custom_list(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|x| x.trim().to_owned())
+        .filter(|x| !x.is_empty())
+        .collect()
+}
+
+fn key_cmp(a: Option<&CellValue>, b: Option<&CellValue>, k: &SortKey) -> Ordering {
     match (is_blank(a), is_blank(b)) {
         (true, true) => Ordering::Equal,
         (true, false) => Ordering::Greater,
@@ -134,6 +164,18 @@ fn key_cmp(a: Option<&CellValue>, b: Option<&CellValue>, k: SortKey) -> Ordering
             let (Some(a), Some(b)) = (a, b) else {
                 return Ordering::Equal;
             };
+            if let Some(list) = k.custom_list.as_deref() {
+                // Listed values first, in list order (reversed when descending); the
+                // others after them, by value in the level's direction.
+                match (list_index(a, list), list_index(b, list)) {
+                    (Some(x), Some(y)) => {
+                        return if k.descending { y.cmp(&x) } else { x.cmp(&y) };
+                    }
+                    (Some(_), None) => return Ordering::Less,
+                    (None, Some(_)) => return Ordering::Greater,
+                    (None, None) => {}
+                }
+            }
             let o = compare_values(a, b, k.case_sensitive);
             if k.descending {
                 o.reverse()
@@ -164,8 +206,8 @@ pub fn sort_range_with(
 ) {
     let keys: Vec<SortKey> = keys
         .iter()
-        .copied()
         .filter(|k| k.by == SortBy::Value)
+        .cloned()
         .collect();
     let mut wb = Workbook {
         sheets: vec![std::mem::take(ws)],
@@ -177,7 +219,9 @@ pub fn sort_range_with(
 
 /// Sort `range` of sheet `sheet`: rows by key columns, or with `by_columns`
 /// the columns left to right by key rows. With `has_header` the first row
-/// (first column) stays in place. Colour keys use the workbook's styles.
+/// (first column) stays in place. Colour keys use the workbook's styles, icon keys
+/// the icons its conditional formats show (§18.3.1.49 `iconSet`).
+#[allow(clippy::too_many_lines)]
 pub fn sort_lines(
     wb: &mut Workbook,
     sheet: usize,
@@ -194,8 +238,8 @@ pub fn sort_lines(
     };
     let keys: Vec<SortKey> = keys
         .iter()
-        .copied()
         .filter(|k| k.col >= lo && k.col <= hi)
+        .cloned()
         .collect();
     let (start, end) = if by_columns {
         (range.first.col + u32::from(has_header), range.last.col)
@@ -205,6 +249,21 @@ pub fn sort_lines(
     if keys.is_empty() || start >= end || sheet >= wb.sheets.len() {
         return;
     }
+    // Icons shown by conditional formats, computed before the cells move.
+    let icons = if keys.iter().any(|k| matches!(k.by, SortBy::Icon { .. })) {
+        crate::cf::evaluate(
+            wb,
+            sheet,
+            range.first.row..range.last.row + 1,
+            range.first.col..range.last.col + 1,
+            None,
+        )
+        .into_iter()
+        .filter_map(|(k, f)| f.icon.map(|i| (k, (i.set, i.index))))
+        .collect::<std::collections::HashMap<(u32, u32), (String, usize)>>()
+    } else {
+        std::collections::HashMap::new()
+    };
     // Take the lines out: (original index, [(position across the line, cell)]).
     let mut lines: Vec<(u32, Vec<(u32, Cell)>)> = Vec::with_capacity((end - start + 1) as usize);
     {
@@ -231,35 +290,47 @@ pub fn sort_lines(
             lines.push((i, line));
         }
     }
-    let colour_of = |cell: Option<&Cell>, by: SortBy| -> bool {
-        let Some(cell) = cell else { return false };
-        match by {
+    // Whether the key cell of line `idx` matches a colour / icon level.
+    let matches = |idx: u32, cell: Option<&Cell>, k: &SortKey| -> bool {
+        match &k.by {
             SortBy::Value => false,
-            SortBy::CellColor(c) => crate::color::cell_fill_rgb(wb, cell) == Some(c),
-            SortBy::FontColor(c) => crate::color::cell_font_rgb(wb, cell).unwrap_or((0, 0, 0)) == c,
+            SortBy::CellColor(c) => {
+                cell.is_some_and(|cell| crate::color::cell_fill_rgb(wb, cell) == Some(*c))
+            }
+            SortBy::FontColor(c) => cell.is_some_and(|cell| {
+                crate::color::cell_font_rgb(wb, cell).unwrap_or((0, 0, 0)) == *c
+            }),
+            SortBy::Icon { set, id } => {
+                let at = if by_columns {
+                    (k.col, idx)
+                } else {
+                    (idx, k.col)
+                };
+                icons
+                    .get(&at)
+                    .is_some_and(|(s, i)| s == set && *i == *id as usize)
+            }
         }
     };
-    let cmp = |a: &[(u32, Cell)], b: &[(u32, Cell)]| -> Ordering {
+    let cmp = |(ia, a): &(u32, Vec<(u32, Cell)>), (ib, b): &(u32, Vec<(u32, Cell)>)| -> Ordering {
         keys.iter()
             .map(|k| {
                 let (ca, cb) = (cell_at(a, k.col), cell_at(b, k.col));
-                match k.by {
-                    SortBy::Value => key_cmp(ca.map(|c| &c.value), cb.map(|c| &c.value), *k),
-                    by => {
-                        // Matching cells on top (descending: at the bottom).
-                        let o = colour_of(cb, by).cmp(&colour_of(ca, by));
-                        if k.descending {
-                            o.reverse()
-                        } else {
-                            o
-                        }
-                    }
+                if k.by == SortBy::Value {
+                    return key_cmp(ca.map(|c| &c.value), cb.map(|c| &c.value), k);
+                }
+                // Matching cells on top (descending: at the bottom).
+                let o = matches(*ib, cb, k).cmp(&matches(*ia, ca, k));
+                if k.descending {
+                    o.reverse()
+                } else {
+                    o
                 }
             })
             .find(|o| *o != Ordering::Equal)
             .unwrap_or(Ordering::Equal)
     };
-    lines.sort_by(|(_, a), (_, b)| cmp(a, b));
+    lines.sort_by(&cmp);
     let ws = &mut wb.sheets[sheet];
     for (n, (from, line)) in lines.into_iter().enumerate() {
         let to = start + n as u32;
@@ -277,6 +348,35 @@ pub fn sort_lines(
             ws.cells.insert(key, cell);
         }
     }
+}
+
+/// Distinct conditional-format icons `(icon set, icon id)` shown in one column (row
+/// when `by_columns`) of `range`, for the "sort / filter by icon" choices.
+pub fn line_icons(
+    wb: &Workbook,
+    sheet: usize,
+    range: CellRange,
+    key: u32,
+    by_columns: bool,
+) -> Vec<(String, u32)> {
+    let (rows, cols) = if by_columns {
+        (key..key + 1, range.first.col..range.last.col + 1)
+    } else {
+        (range.first.row..range.last.row + 1, key..key + 1)
+    };
+    let mut found: Vec<((u32, u32), (String, u32))> =
+        crate::cf::evaluate(wb, sheet, rows, cols, None)
+            .into_iter()
+            .filter_map(|(k, f)| f.icon.map(|i| (k, (i.set, i.index as u32))))
+            .collect();
+    found.sort_by_key(|(k, _)| *k);
+    let mut out: Vec<(String, u32)> = Vec::new();
+    for (_, icon) in found {
+        if !out.contains(&icon) {
+            out.push(icon);
+        }
+    }
+    out
 }
 
 /// Distinct fill and font colours (`RRGGBB`) in one column (row when
@@ -319,7 +419,7 @@ pub fn line_colors(
     (fills, fonts)
 }
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use bo_model::sheet::CellError;
 
@@ -463,7 +563,7 @@ mod tests {
             &mut wb,
             0,
             range,
-            &[red_key, blue_key],
+            &[red_key.clone(), blue_key],
             false,
             false,
             &NoFormulas,
@@ -488,5 +588,120 @@ mod tests {
                 _ => f64::NAN,
             })
             .collect()
+    }
+
+    /// Icon set rule on `sqref`: below 10 → icon 0, 10–19 → icon 1, 20 and up → icon 2.
+    pub(crate) fn arrows(wb: &mut Workbook, sqref: &str) {
+        use bo_model::sheet::{CfRule, Cfvo, ConditionalFormat, IconSet};
+        let num = |v: &str| Cfvo {
+            kind: "num".into(),
+            val: Some(v.into()),
+            gte: None,
+        };
+        wb.sheets[0].conditional_formats.push(ConditionalFormat {
+            sqref: vec![CellRange::parse(sqref).unwrap()],
+            pivot: false,
+            rules: vec![CfRule {
+                kind: "iconSet".into(),
+                priority: 1,
+                icon_set: Some(IconSet {
+                    icon_set: Some("3Arrows".into()),
+                    cfvos: vec![num("0"), num("10"), num("20")],
+                    ..IconSet::default()
+                }),
+                ..CfRule::default()
+            }],
+        });
+    }
+
+    // source: ECMA-376 Part 1, §18.3.1.91 sortCondition (sortBy="icon", iconSet, iconId)
+    #[test]
+    fn by_conditional_format_icon() {
+        let mut wb = Workbook::new();
+        for (r, v) in [5.0, 25.0, 12.0, 30.0, 8.0, 15.0].iter().enumerate() {
+            wb.sheets[0].set_cell(r as u32, 0, Cell::new(CellValue::Number(*v)));
+        }
+        arrows(&mut wb, "A1:A6");
+        let range = CellRange::parse("A1:A6").unwrap();
+        // Icons: 5→0, 25→2, 12→1, 30→2, 8→0, 15→1 (first seen order).
+        assert_eq!(
+            line_icons(&wb, 0, range, 0, false),
+            [
+                ("3Arrows".to_owned(), 0),
+                ("3Arrows".to_owned(), 2),
+                ("3Arrows".to_owned(), 1)
+            ]
+        );
+        let icon = |id: u32| SortKey {
+            by: SortBy::Icon {
+                set: "3Arrows".into(),
+                id,
+            },
+            ..SortKey::asc(0)
+        };
+        let vals = |wb: &Workbook| -> Vec<f64> {
+            (0..6)
+                .map(|r| match wb.sheets[0].cell(r, 0).map(|c| &c.value) {
+                    Some(CellValue::Number(n)) => *n,
+                    _ => f64::NAN,
+                })
+                .collect()
+        };
+        let mut one = wb.clone();
+        sort_lines(&mut one, 0, range, &[icon(2)], false, false, &NoFormulas);
+        // Up-arrow cells on top, the rest keep their order (stable).
+        assert_eq!(vals(&one), [25.0, 30.0, 5.0, 12.0, 8.0, 15.0]);
+        sort_lines(
+            &mut wb,
+            0,
+            range,
+            &[icon(2), icon(1)],
+            false,
+            false,
+            &NoFormulas,
+        );
+        assert_eq!(vals(&wb), [25.0, 30.0, 12.0, 15.0, 5.0, 8.0]);
+    }
+
+    // source: ECMA-376 Part 1, §18.3.1.91 sortCondition/@customList
+    #[test]
+    fn by_custom_list() {
+        let words = ["Cao", "Thấp", "Khác", "Vừa", "thấp", "", "A"];
+        let mk = || {
+            let mut ws = Worksheet::new("S");
+            for (r, w) in words.iter().enumerate() {
+                if !w.is_empty() {
+                    ws.set_cell(r as u32, 0, Cell::new(CellValue::Text((*w).into())));
+                }
+            }
+            ws
+        };
+        let list = split_custom_list("Thấp, Vừa,Cao");
+        assert_eq!(list, ["Thấp", "Vừa", "Cao"]);
+        let range = CellRange::parse("A1:A7").unwrap();
+        let read = |ws: &Worksheet| -> Vec<String> {
+            (0..7)
+                .map(|r| {
+                    ws.cell(r, 0)
+                        .and_then(|c| c.value.as_text())
+                        .unwrap_or_default()
+                })
+                .collect()
+        };
+        let mut ws = mk();
+        let key = SortKey {
+            custom_list: Some(list.clone()),
+            ..SortKey::asc(0)
+        };
+        sort_range(&mut ws, range, std::slice::from_ref(&key), false);
+        // List order (case-insensitive), then other values ascending, blanks last.
+        assert_eq!(read(&ws), ["Thấp", "thấp", "Vừa", "Cao", "A", "Khác", ""]);
+        let mut ws = mk();
+        let desc = SortKey {
+            descending: true,
+            ..key
+        };
+        sort_range(&mut ws, range, &[desc], false);
+        assert_eq!(read(&ws), ["Cao", "Vừa", "Thấp", "thấp", "Khác", "A", ""]);
     }
 }

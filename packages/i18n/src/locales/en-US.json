@@ -550,7 +550,16 @@
       "onValue": "Cell values",
       "onCellColor": "Cell colour",
       "onFontColor": "Font colour",
-      "color": "Colour"
+      "color": "Colour",
+      "onIcon": "Formatting icon",
+      "icon": "Icon",
+      "iconName": "{{set}} – icon {{n}}",
+      "customList": "Custom order",
+      "listPreset": "Pick a ready-made list",
+      "listEntries": "List entries",
+      "listHint": "One entry per line, in the wanted order",
+      "onTop": "Move to the top",
+      "onBottom": "Move to the bottom"
     },
     "filter": {
       "toggle": "Filter",
@@ -566,6 +575,20 @@
       "cellColor": "Cell colour {{color}}",
       "fontColor": "Font colour {{color}}",
       "month": "Month {{n}}",
+      "quarter": "Quarter {{n}} (any year)",
+      "monthAny": "Month {{n}} (any year)",
+      "topN": "Value group:",
+      "topDir": "Largest or smallest",
+      "top": "Largest",
+      "bottom": "Smallest",
+      "topCount": "Count",
+      "topUnit": "Unit",
+      "items": "values",
+      "percent": "percent",
+      "apply": "Filter",
+      "period": "Filter by quarter / month…",
+      "byIcon": "Filter by icon:",
+      "noIcon": "No icon",
       "dyn": {
         "today": "Today",
         "yesterday": "Yesterday",
@@ -581,8 +604,23 @@
         "lastYear": "Last year",
         "yearToDate": "Year to date",
         "aboveAverage": "Above average",
-        "belowAverage": "Below average"
+        "belowAverage": "Below average",
+        "lastQuarter": "Previous quarter",
+        "nextQuarter": "Following quarter",
+        "nextYear": "Following year"
       }
+    },
+    "adv": {
+      "title": "Advanced filter",
+      "hint": "The first row of the criteria range holds column names; cells on one row must all hold, separate rows are alternatives.",
+      "inPlace": "Filter the data where it is",
+      "copy": "Copy the results elsewhere",
+      "list": "Data range",
+      "criteria": "Criteria range",
+      "copyTo": "Copy to",
+      "unique": "Leave out repeated records",
+      "badRange": "The range address is not valid.",
+      "showAll": "Show every row again"
     },
     "cf": {
       "title": "New formatting rule",

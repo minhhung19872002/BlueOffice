@@ -3551,6 +3551,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         <SolverDialog
           {...common}
           objective={`${colName(selection.active.col)}${selection.active.row + 1}`}
+          onCreated={(s) => setSheet(s)}
         />
       )}
       {dialog?.kind === 'analysis' && (

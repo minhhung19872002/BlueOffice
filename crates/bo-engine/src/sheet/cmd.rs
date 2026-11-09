@@ -169,9 +169,9 @@ fn default_true() -> bool {
 pub struct SolverConstraint {
     /// Left side (cell or range).
     pub lhs: String,
-    /// `le` | `ge` | `eq` | `int` | `bin`.
+    /// `le` | `ge` | `eq` | `int` | `bin` | `dif` (the cells take 1..=n, each once).
     pub relation: bo_sheet::solver::Relation,
-    /// Right side: a number or a cell / range address (absent for `int` / `bin`).
+    /// Right side: a number or a cell / range address (absent for `int` / `bin` / `dif`).
     #[serde(default)]
     pub rhs: Option<String>,
 }
@@ -994,8 +994,10 @@ pub enum SheetCommand {
         col_input: Option<String>,
     },
     /// Solver: optimise `objective` by changing `variables` subject to `constraints`
-    /// (simplex; integer / binary by branch and bound). With `apply` an optimal solution is
-    /// entered (one undo step). Returns `{ status, objective, values }`.
+    /// with `method` (`simplex` default, `nonlinear`, `evolutionary`; integer / binary /
+    /// `dif` by branch and bound or permutation genes). With `apply` a solution is entered;
+    /// `reports` (`answer`, `sensitivity`, `limits`) are written on new sheets (one undo
+    /// step for both). Returns `{ status, objective, values, reports?: [{ kind, sheet }] }`.
     Solve {
         /// 0-based sheet index.
         sheet: usize,
@@ -1011,6 +1013,15 @@ pub enum SheetCommand {
         /// Variables are non-negative.
         #[serde(default = "default_true")]
         non_negative: bool,
+        /// Solving method.
+        #[serde(default)]
+        method: bo_sheet::solver::Method,
+        /// Method options (limits, tolerances, seed, population, …).
+        #[serde(default)]
+        options: bo_sheet::solver::Options,
+        /// Reports to write on new sheets.
+        #[serde(default)]
+        reports: Vec<bo_sheet::solver_report::ReportKind>,
         /// Enter the solution.
         #[serde(default)]
         apply: bool,
@@ -1677,6 +1688,9 @@ impl SheetEngine {
                 variables,
                 constraints,
                 non_negative,
+                method,
+                options,
+                reports,
                 apply,
             } => {
                 let range = |a1: &str| {
@@ -1709,22 +1723,10 @@ impl SheetEngine {
                         })
                         .collect::<Result<_>>()?,
                     non_negative,
+                    method,
+                    options,
                 };
-                self.sheet(sheet)?;
-                let sol = bo_sheet::solver::solve(self.wb()?, sheet, &model);
-                if apply && sol.status == bo_sheet::solver::Status::Optimal {
-                    let values = sol.values.clone();
-                    self.edit(sheet, Recalc::All, |wb, _| {
-                        let ws = &mut wb.sheets[sheet];
-                        for ((r, c), v) in values {
-                            let cell = ws.cells.entry((r, c)).or_default();
-                            cell.formula = None;
-                            cell.value = CellValue::Number(v);
-                        }
-                        Ok(())
-                    })?;
-                }
-                Ok(serde_json::to_value(sol).unwrap_or(Value::Null))
+                self.solve_model(sheet, &model, &reports, apply)
             }
             C::Analysis {
                 sheet,

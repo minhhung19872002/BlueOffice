@@ -531,6 +531,35 @@ export interface CellAt {
   col: number;
 }
 
+/** Solver constraint relation (`bo_sheet::solver::Relation`); `dif` = permutation of 1..n. */
+export type SolverRelation = 'le' | 'ge' | 'eq' | 'int' | 'bin' | 'dif';
+/** Solver method (`bo_sheet::solver::Method`). */
+export type SolverMethod = 'simplex' | 'nonlinear' | 'evolutionary';
+/** Solver report (`bo_sheet::solver_report::ReportKind`). */
+export type SolverReportKind = 'answer' | 'sensitivity' | 'limits';
+/** Solver options (`bo_sheet::solver::Options`); omitted fields use method defaults. */
+export interface SolverOptions {
+  maxTimeMs?: number;
+  maxIterations?: number;
+  precision?: number;
+  convergence?: number;
+  multistart?: boolean;
+  starts?: number;
+  seed?: number;
+  population?: number;
+  mutation?: number;
+  maxSubproblems?: number;
+}
+/** Result of the `solve` command. */
+export interface SolverResult {
+  status:
+    'optimal' | 'infeasible' | 'unbounded' | 'notLinear' | 'error' | 'missingBounds' | 'limit';
+  objective: number;
+  values: [[number, number], number][];
+  /** Report sheets written (with `reports`). */
+  reports?: { kind: SolverReportKind; sheet: number }[];
+}
+
 /** A sheet editing command (`bo_engine::sheet::SheetCommand`). */
 export type SheetCommand =
   | { cmd: 'presets' }
@@ -776,7 +805,11 @@ export type SheetCommand =
   | { cmd: 'slicerSelect'; sheet: number; index: number; items: string[] }
   /** Delete a slicer inserted in this session. */
   | { cmd: 'deleteSlicer'; sheet: number; index: number }
-  /** Solver (simplex; integer / binary by branch and bound); `apply` enters the solution. */
+  /**
+   * Solver (`simplex` default, `nonlinear`, `evolutionary`; integer / binary / `dif` by branch
+   * and bound or permutation genes); `apply` enters the solution and `reports` are written on
+   * new sheets (one undo step). Returns `SolverResult`.
+   */
   | {
       cmd: 'solve';
       sheet: number;
@@ -785,10 +818,13 @@ export type SheetCommand =
       variables: string[];
       constraints?: {
         lhs: string;
-        relation: 'le' | 'ge' | 'eq' | 'int' | 'bin';
+        relation: SolverRelation;
         rhs?: string | null;
       }[];
       nonNegative?: boolean;
+      method?: SolverMethod;
+      options?: SolverOptions;
+      reports?: SolverReportKind[];
       apply?: boolean;
     }
   /**

@@ -1250,7 +1250,8 @@
         "ge": ">=",
         "eq": "=",
         "int": "integer",
-        "bin": "binary"
+        "bin": "binary",
+        "dif": "all different (1..n)"
       },
       "add": "Add constraint",
       "remove": "Remove constraint",
@@ -1263,8 +1264,43 @@
         "infeasible": "No feasible solution: the constraints cannot all be met.",
         "unbounded": "The objective does not converge (unbounded).",
         "notLinear": "The model is not linear; the linear method cannot solve it.",
-        "error": "A cell of the model gives an error."
-      }
+        "error": "A cell of the model gives an error.",
+        "missingBounds": "The evolutionary method needs a lower and an upper limit on every variable cell.",
+        "limit": "Stopped at a limit; best point so far: objective {{value}}.",
+        "limitEmpty": "Stopped at a limit before any point met the constraints."
+      },
+      "method": "Solving method",
+      "methods": {
+        "simplex": "Linear (simplex)",
+        "nonlinear": "Smooth nonlinear",
+        "evolutionary": "Evolutionary"
+      },
+      "methodHints": {
+        "simplex": "For models whose objective and constraints are linear in the variable cells.",
+        "nonlinear": "For smooth curved models; finds a local optimum near the start values.",
+        "evolutionary": "For rough or non-smooth models; every variable cell needs a lower and an upper limit."
+      },
+      "options": "Options",
+      "maxTime": "Time limit (seconds)",
+      "maxSubproblems": "Subproblem limit (integer cells)",
+      "maxIterations": {
+        "nonlinear": "Iteration limit",
+        "evolutionary": "Generation limit"
+      },
+      "convergence": "Convergence tolerance",
+      "multistart": "Also start from random points",
+      "starts": "Number of random starts",
+      "seed": "Random seed",
+      "population": "Population size",
+      "mutation": "Mutation rate (0–1)",
+      "reports": "Write reports on new sheets",
+      "reportKinds": {
+        "answer": "Result",
+        "sensitivity": "Sensitivity",
+        "limits": "Limits"
+      },
+      "foundLocal": "Local optimum found: objective {{value}}.",
+      "foundBest": "Best solution found: objective {{value}}."
     },
     "table": {
       "insert": "Table"

@@ -236,7 +236,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 - [ ] **CORE-LANG-004** — Trình đọc tập trung (immersive reader) · P2 · — · E2E.
 - [ ] **CORE-AUTOCORR-001** — AutoCorrect (danh sách thay thế, viết hoa đầu câu, hai chữ hoa, ký hiệu, nháy thông minh, gạch ngang, phân số, tự đánh số/gạch đầu dòng, link) · P1 · — · bảng test.
 - [ ] **CORE-THES-001** — Từ điển đồng nghĩa (Anh: WordNet license kiểu BSD; Việt nếu có) · P2 · — · test.
-- [ ] **CORE-FIND-001** — Tìm/thay nâng cao: ký tự đặc biệt (^p ^t), wildcard, highlight tất cả · P1 · — · test.
+- [x] **CORE-FIND-001** — Tìm/thay nâng cao: ký tự đặc biệt (^p ^t), wildcard, highlight tất cả · P1 · — · test. Văn bản tìm = các đoạn nối bằng dấu đoạn; ký tự đặc biệt `^p ^t ^l ^m ^n ^^ ^# ^$ ^? ^w ^nnn` (cả chế độ thường và wildcard), thay bằng `^&` (đoạn khớp) và `^p` (tách đoạn) / thay `^p` (gộp đoạn) bằng op khả nghịch — một lần hoàn tác; wildcard `? * [abc] [a-z] [!x] {n} {n,} {n,m} @ < > \( \)` + `\1` khi thay (`bo_edit::find::pattern`); không khớp xuyên ô bảng; "Tô sáng tất cả" (lệnh `find` `highlight: true` trả hình chữ nhật từng dòng, `DocumentView.setFindHighlights`), menu "Ký tự đặc biệt" trong ngăn Tìm; test `find::tests`, `find_advanced.rs`, `find-panel.test.tsx`.
 - [ ] **CORE-PASTE-001** — Dán: giữ nguồn/gộp/chỉ văn bản/ảnh/liên kết + lịch sử clipboard · P1 · — · E2E.
 - [ ] **CORE-SYMBOL-001** — Bảng ký tự Unicode có tìm kiếm · P1 · — · E2E.
 - [ ] **CORE-UI-001** — Tab ngữ cảnh (bảng/ảnh/biểu đồ/shape/header), ribbon đơn giản (một hàng) · P1 · — · E2E.

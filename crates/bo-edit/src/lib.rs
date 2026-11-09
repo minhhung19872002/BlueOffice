@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 pub mod comments;
+pub mod compare;
 pub mod fields;
 pub mod find;
 pub mod html;
@@ -1215,6 +1216,39 @@ impl Session {
         ids.sort_unstable();
         ids.dedup();
         ids
+    }
+
+    /// Compare with `original` (prompt §7.1): the body becomes this document with its differences
+    /// from the original as tracked changes by the session's author (one undo step). Returns the
+    /// number of revisions made.
+    pub fn compare_with_original(&mut self, original: &Document) -> Result<usize> {
+        let first = revisions::max_id(&self.doc).max(revisions::max_id(original));
+        let out = compare::compare(
+            original,
+            &self.doc,
+            &self.author.clone(),
+            self.clock.clone(),
+            first,
+        );
+        let made = (revisions::max_id(&out) - first).max(0) as usize;
+        if made == 0 {
+            return Ok(0);
+        }
+        let caret = self.selection.ordered().0;
+        self.edit(|tx, _| {
+            for (si, sec) in out.sections.iter().enumerate() {
+                if si < tx.doc.sections.len() && tx.doc.sections[si].blocks != sec.blocks {
+                    tx.set_section_blocks(si, &sec.blocks)?;
+                }
+            }
+            Ok(Selection::caret(caret))
+        })?;
+        let c = self.clamp(caret);
+        self.selection = Selection::caret(c);
+        if let Some(t) = self.undo.last_mut() {
+            t.after = self.selection;
+        }
+        Ok(made)
     }
 
     /// Accept (`accept`) or reject revisions: `ids = None` resolves all of them.

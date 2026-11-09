@@ -57,7 +57,8 @@
       "arrange": "Arrange",
       "signature": "Signature",
       "proofing": "Proofing",
-      "equation": "Equation"
+      "equation": "Equation",
+      "compare": "Compare"
     },
     "comingLater": "Coming in a later release"
   },
@@ -164,7 +165,8 @@
       "savePassword": "Save with password",
       "convertLegacyText": "Convert TCVN3/VNI text to Unicode",
       "spelling": "Check spelling as you type",
-      "grammar": "Check grammar and style as you type"
+      "grammar": "Check grammar and style as you type",
+      "compare": "Compare with original…"
     },
     "references": {
       "insertToc": "Table of contents",

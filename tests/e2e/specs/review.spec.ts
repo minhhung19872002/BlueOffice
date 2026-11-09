@@ -120,3 +120,28 @@ test('comments: add, reply, resolve and delete', async ({ page }) => {
   await page.getByTestId('comment-delete').click();
   await expect(page.getByTestId('comment')).toHaveCount(0);
 });
+
+test('compare with the original: the differences become tracked changes', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await newDocument(page);
+  await page.keyboard.insertText('Hợp đồng số 1');
+  // The original: saved as it is now.
+  const download = page.waitForEvent('download');
+  await page.keyboard.press('Control+s');
+  const original = await (await download).path();
+  // Edited afterwards, without tracking.
+  await focusText(page);
+  await page.keyboard.insertText(' bản sửa');
+  await expect(page.getByTestId('status-words')).toHaveText('6 từ');
+  await page.getByRole('tab', { name: 'Xem lại' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await cmd(page, 'review.compare').click();
+  await (await chooser).setFiles(original);
+  await cmd(page, 'review.pane').click();
+  await expect(page.getByTestId('revision-count')).toHaveText('1 thay đổi');
+  // Rejecting the comparison's change gives the original text back.
+  await cmd(page, 'review.rejectAll').click();
+  await expect(page.getByTestId('status-words')).toHaveText('4 từ');
+  expect(errors).toEqual([]);
+});

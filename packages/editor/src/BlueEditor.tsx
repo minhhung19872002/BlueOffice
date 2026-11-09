@@ -121,6 +121,7 @@ import {
   Sigma,
   SquareFunction,
   TextCursorInput,
+  GitCompare,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -1158,6 +1159,23 @@ function EditorInner({
       run: () => run({ cmd: 'rejectAllRevisions' }),
     });
     r.register({
+      id: 'review.compare',
+      isEnabled: hasDoc,
+      run: async () => {
+        try {
+          const file = await platform.files.openFile(['.docx', '.odt', '.doc']);
+          if (!file) return;
+          let bin = '';
+          for (let i = 0; i < file.bytes.length; i += 0x8000) {
+            bin += String.fromCharCode(...file.bytes.subarray(i, i + 0x8000));
+          }
+          await run({ cmd: 'compareWith', name: file.name, base64: btoa(bin) });
+        } catch (e) {
+          console.error(e);
+        }
+      },
+    });
+    r.register({
       id: 'review.next',
       isEnabled: hasRevisions,
       run: () => run({ cmd: 'nextRevision', forward: true }),
@@ -1904,6 +1922,11 @@ function EditorInner({
             s('review.previous', 'commands.review.previous', <ChevronLeft size={SMALL} />),
             s('review.next', 'commands.review.next', <ChevronRight size={SMALL} />),
           ],
+        },
+        {
+          id: 'compare',
+          label: t('ribbon.groups.compare'),
+          items: [item('review.compare', 'commands.review.compare', <GitCompare size={ICON} />)],
         },
         {
           id: 'comments',

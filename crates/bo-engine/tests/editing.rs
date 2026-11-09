@@ -475,3 +475,84 @@ fn comment_threads_save_and_reopen() {
     assert_eq!(r["review"]["comments"].as_array().unwrap().len(), 0);
     assert_eq!(f.document().unwrap().plain_text(), "Quyết định số 12");
 }
+
+// source: prompt §7.1 "So sánh" — test pair: the edited document compared with the original it
+// came from; ECMA-376 Part 1, §17.13.5: rejecting every revision gives the original back,
+// accepting them the edited text; one undo step removes the comparison.
+#[test]
+fn compare_with_the_original_document() {
+    let mut e = Engine::with_bundled_fonts();
+    e.open(
+        "Hợp đồng số 1 ký ngày 5.\nĐiều 1: Giá trị.\nĐiều 2: Thời hạn.".as_bytes(),
+        "a.txt",
+    )
+    .unwrap();
+    let original = e.save_docx().unwrap();
+    cmd(&mut e, r#"{"cmd":"setAuthor","name":"Người so sánh"}"#);
+    // An edit without tracking: the date "5" becomes "7".
+    let o = "Hợp đồng số 1 ký ngày ".len();
+    cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"setSelection","selection":{{"anchor":{{"p":0,"o":{o}}},"focus":{{"p":0,"o":{}}}}}}}"#,
+            o + 1
+        ),
+    );
+    cmd(&mut e, r#"{"cmd":"insertText","text":"7"}"#);
+    let edited = e.document().unwrap().plain_text();
+    assert!(edited.contains("ngày 7"));
+    let b64 = {
+        // Standard base64 of the original .docx.
+        const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut s = String::new();
+        for c in original.chunks(3) {
+            let n = (u32::from(c[0]) << 16)
+                | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
+                | u32::from(*c.get(2).unwrap_or(&0));
+            for k in 0..4 {
+                if k <= c.len() {
+                    s.push(T[((n >> (18 - 6 * k)) & 63) as usize] as char);
+                } else {
+                    s.push('=');
+                }
+            }
+        }
+        s
+    };
+    let r = cmd(
+        &mut e,
+        &format!(r#"{{"cmd":"compareWith","name":"goc.docx","base64":"{b64}"}}"#),
+    );
+    assert!(r["count"].as_u64().unwrap() >= 2, "{}", r["count"]);
+    let revs = r["review"]["revisions"].as_array().unwrap();
+    assert!(
+        revs.iter().any(|x| x["kind"] == "delete") && revs.iter().any(|x| x["kind"] == "insert")
+    );
+    assert!(revs.iter().all(|x| x["author"] == "Người so sánh"));
+    // Saved with the revisions, the comparison reads back; reject all → the original.
+    let saved = e.save_docx().unwrap();
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "so-sanh.docx").unwrap();
+    cmd(&mut f, r#"{"cmd":"rejectAllRevisions"}"#);
+    assert_eq!(
+        f.document().unwrap().plain_text(),
+        "Hợp đồng số 1 ký ngày 5.\nĐiều 1: Giá trị.\nĐiều 2: Thời hạn."
+    );
+    cmd(&mut f, r#"{"cmd":"undo"}"#);
+    cmd(&mut f, r#"{"cmd":"acceptAllRevisions"}"#);
+    assert_eq!(f.document().unwrap().plain_text(), edited);
+    // Undo in the comparing editor: the edited document without revisions.
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(
+        cmd(&mut e, r#"{"cmd":"review"}"#)["review"]["revisions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"compareWith","name":"x.docx","base64":"bm9wZQ=="}"#,
+    );
+    assert!(r["error"].is_string());
+}

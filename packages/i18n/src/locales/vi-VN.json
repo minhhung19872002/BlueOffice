@@ -57,7 +57,8 @@
       "arrange": "Sắp xếp",
       "signature": "Chữ ký số",
       "proofing": "Soát lỗi",
-      "equation": "Phương trình"
+      "equation": "Phương trình",
+      "compare": "So sánh"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -164,7 +165,8 @@
       "savePassword": "Lưu kèm mật khẩu",
       "convertLegacyText": "Chuyển chữ TCVN3/VNI sang Unicode",
       "spelling": "Kiểm tra chính tả khi gõ",
-      "grammar": "Soát ngữ pháp và văn phong khi gõ"
+      "grammar": "Soát ngữ pháp và văn phong khi gõ",
+      "compare": "So sánh với bản gốc…"
     },
     "references": {
       "insertToc": "Mục lục",

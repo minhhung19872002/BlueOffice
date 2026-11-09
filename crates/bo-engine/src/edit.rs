@@ -219,6 +219,14 @@ pub enum Command {
         #[serde(default)]
         id: Option<i32>,
     },
+    /// Compare with an original document (prompt §7.1): this document's differences from it become
+    /// tracked changes (`.docx`, `.odt` or `.doc`).
+    CompareWith {
+        /// File name of the original.
+        name: String,
+        /// File bytes, base64-encoded.
+        base64: String,
+    },
     /// Accept every revision of the document.
     AcceptAllRevisions,
     /// Reject every revision of the document.
@@ -696,6 +704,7 @@ impl crate::Engine {
                 | Command::NextRevision { .. }
                 | Command::SelectComment { .. }
                 | Command::NextComment { .. }
+                | Command::CompareWith { .. }
         );
         if let Command::SetRevisionView { view } = cmd {
             relayout = self.view != view;
@@ -1082,6 +1091,16 @@ impl crate::Engine {
                         if !ids.is_empty() {
                             extra.1 = Some(s.resolve_revisions(Some(&ids), accept)?);
                         }
+                    }
+                    Command::CompareWith { name, base64 } => {
+                        // A file that cannot be read is refused like an unsupported edit.
+                        let original = crate::merge::base64_decode(&base64)
+                            .ok_or_else(|| "base64".to_owned())
+                            .and_then(|b| {
+                                crate::word_document(&b, &name).map_err(|e| e.to_string())
+                            })
+                            .map_err(bo_edit::EditError::Unsupported)?;
+                        extra.1 = Some(s.compare_with_original(&original)?);
                     }
                     Command::AcceptAllRevisions => {
                         extra.1 = Some(s.resolve_revisions(None, true)?);

@@ -925,3 +925,20 @@ pub fn plain_text_document(text: &str) -> Document {
         ..Default::default()
     }
 }
+
+/// A word-processing document read from `.docx`, `.odt` or `.doc` bytes (for comparing).
+pub(crate) fn word_document(bytes: &[u8], name: &str) -> Result<Document> {
+    let is_zip = bytes.starts_with(b"PK");
+    if is_zip && bo_odf::detect_mimetype(bytes).as_deref() == Some(bo_odf::MIME_ODT) {
+        return bo_odf::read_odt(bytes).map_err(|e| EngineError::Format(e.to_string()));
+    }
+    if is_zip {
+        return Ok(bo_docx::read_docx(bytes)?);
+    }
+    if bytes.starts_with(CFB_SIGNATURE)
+        && matches!(bo_binary::detect(bytes), Some(bo_binary::LegacyKind::Doc))
+    {
+        return bo_binary::read_doc(bytes).map_err(|e| EngineError::Format(e.to_string()));
+    }
+    Err(EngineError::Unsupported(name.to_owned()))
+}

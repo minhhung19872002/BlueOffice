@@ -170,7 +170,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 - [x] **SLIDE-ANIM-005** — Ngăn hiệu ứng: thanh thời gian từng hiệu ứng theo bước bấm, thứ tự, bắt đầu/chờ/thời lượng, lặp lại (§19.5.29 repeatCount: n lần / đến lần bấm sau), kích hoạt khi bấm vào một hình (chuỗi tương tác `interactiveSeq`, đọc/ghi; trình chiếu có vùng bấm, không chuyển bước), chép hiệu ứng (Animation Painter, đổi `spTgt` của hiệu ứng giữ nguyên XML) · P0 · 004 · `repeats_triggers_and_the_animation_painter`, test player (lặp, trigger ngoài bước bấm), E2E slide-show-media. Ghi chú: trigger theo dấu trang media chưa có.
 
 ### So sánh / Kết hợp tài liệu (§5.7)
-- [ ] **DOC-COMPARE-001** — So sánh hai tài liệu → tài liệu kết quả có track changes (đoạn, từ, định dạng, bảng) · P0 · — · bảng test cặp tài liệu.
+- [x] **DOC-COMPARE-001** — So sánh với bản gốc (`bo-edit/src/compare.rs`, lệnh `compareWith`, nút Xem lại → So sánh): đoạn thêm/xoá (cả dấu đoạn §17.13.5.15/16, dấu đoạn cuối chuyển đúng chỗ), từ thay đổi trong đoạn (LCS theo từ, khoảng trắng lẻ không cắt vụn), định dạng (rPrChange/pPrChange), bảng (theo ô khi cùng lưới, khác lưới thì xoá/chèn hàng); một bước hoàn tác; đọc .docx/.odt/.doc · P0 · — · compare::tests (cặp tài liệu: chấp nhận hết = bản mới, từ chối hết = bản gốc), `compare_with_the_original_document`, E2E review.spec.
 - [ ] **DOC-COMPARE-002** — Kết hợp nhiều bản sửa (combine revisions) · P0 · 001 · test.
 - [ ] **DOC-REVIEW-001** — Chế độ hiển thị Simple/All/No markup/Original + bong bóng lề + ngăn Reviewing · P1 · — · E2E.
 - [ ] **DOC-REVIEW-002** — Theo dõi di chuyển (moveFrom/moveTo) và định dạng; khoá track changes bằng mật khẩu · P1 · — · round-trip + test.

@@ -493,6 +493,8 @@ export type EditCommand =
   | { cmd: 'setNoteText'; endnote?: boolean; id: number; text: string }
   | { cmd: 'newFromTemplate'; id: string; name: string }
   | { cmd: 'review' | 'acceptAllRevisions' | 'rejectAllRevisions' }
+  /** Compare with an original (.docx / .odt / .doc): the differences become tracked changes. */
+  | { cmd: 'compareWith'; name: string; base64: string }
   | { cmd: 'setTrackChanges'; on: boolean }
   /** TCVN3 / VNI text → Unicode (legacy Vietnamese fonts); one undo step. */
   | { cmd: 'convertLegacyText' }

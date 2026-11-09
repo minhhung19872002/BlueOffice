@@ -52,3 +52,4 @@ export {
   type SymbolBlock,
   type SymbolEntry,
 } from './symbols/catalog';
+export { TitleBar, type QuickAccessItem, type SaveState, type TitleBarProps } from './TitleBar';

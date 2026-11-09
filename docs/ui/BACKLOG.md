@@ -31,9 +31,9 @@ icon. Làm xen kẽ với `docs/parity/BACKLOG.md`.
 
 ## Khung cửa sổ (§5)
 
-- [ ] **UI-FRAME-001** (P0) Component `AppFrame` dùng chung: thanh tiêu đề 40px (icon app, truy cập nhanh, tên tài liệu + trạng
+- [x] **UI-FRAME-001** (P0) Component `AppFrame` dùng chung: thanh tiêu đề 40px (icon app, truy cập nhanh, tên tài liệu + trạng
   thái lưu, khu phải: cộng tác, Bình luận, Chia sẻ, tài khoản), hàng tab, thân ribbon, vùng làm việc, thanh trạng thái 24px.
-  *Xong khi:* 3 app dùng chung khung; test unit vai trò ARIA landmark; E2E đo chiều cao.
+  *Xong khi:* 3 app dùng chung khung; test unit vai trò ARIA landmark; E2E đo chiều cao. **Đã có:** `TitleBar` (`packages/ui`, `<header>` 40px trên dải màu nhấn `--bo-app-accent-strong`: dấu app, thanh truy cập nhanh Lưu/Hoàn tác/Làm lại từ registry, tên tài liệu + trạng thái lưu, chỗ cho ô tìm lệnh và nút bên phải), hàng thẻ ribbon nối cùng dải màu nhấn, icon ribbon theo màu nhấn app, `StatusBar` 24px nền `--bo-surface-2`; dùng ở cả BlueDoc/BlueSheet/BlueSlide (ẩn khi trình chiếu); test `titlebar.test.tsx`, E2E `ui-frame.spec.ts` (chiều cao, màu nhấn từng app, hoàn tác từ thanh truy cập nhanh). Ô tìm lệnh: UI-FRAME-003; avatar cộng tác/Chia sẻ/tài khoản trong khung: theo từng app khi có.
 - [ ] **UI-FRAME-002** (P1) Thanh truy cập nhanh tùy biến (thêm/bớt lệnh, nhớ theo người dùng). *Xong khi:* test thêm/bớt.
 - [ ] **UI-FRAME-003** (P0) Ô tìm lệnh Ctrl+Q / Alt+Q: tìm trong registry (nhãn, từ khóa, không dấu), chạy lệnh, gợi ý tìm
   trong tài liệu. *Xong khi:* unit test xếp hạng; E2E định dạng chữ bằng ô tìm lệnh.

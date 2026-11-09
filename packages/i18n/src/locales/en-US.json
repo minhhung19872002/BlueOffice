@@ -2491,5 +2491,11 @@
       "degree": "Degree sign",
       "bullet": "Round bullet"
     }
+  },
+  "titleBar": {
+    "quickAccess": "Quick access",
+    "saved": "Saved",
+    "unsaved": "Not saved",
+    "saving": "Saving…"
   }
 }

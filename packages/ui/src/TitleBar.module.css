@@ -1,0 +1,112 @@
+/* Title bar: 40px on the app accent band (docs/ui/DESIGN.md). */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--bo-space-3, 12px);
+  height: 40px;
+  min-height: 40px;
+  padding: 0 var(--bo-space-2, 8px) 0 var(--bo-space-3, 12px);
+  background: var(--bo-app-accent-strong);
+  color: var(--bo-app-accent-on);
+  font-size: var(--bo-font-size-13, 13px);
+  min-width: 0;
+}
+
+.app {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+  /* The app mark keeps its own on-accent drawing. */
+  --bo-app-accent: var(--bo-app-accent-on);
+  --bo-icon-on: var(--bo-app-accent-strong);
+}
+
+.qat {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.qatButton {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--bo-radius-sm, 4px);
+  cursor: pointer;
+  transition: background-color var(--bo-duration-fast, 120ms) var(--bo-ease, ease);
+}
+
+.qatButton:hover:not(:disabled) {
+  background: rgb(255 255 255 / 16%);
+}
+
+.qatButton:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.qatButton:focus-visible,
+.search:focus-visible {
+  outline: 2px solid var(--bo-app-accent-on);
+  outline-offset: 1px;
+}
+
+.doc {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: var(--bo-space-2, 8px);
+  white-space: nowrap;
+}
+
+.docName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.save {
+  opacity: 0.85;
+  font-size: var(--bo-font-size-12, 12px);
+}
+
+.search {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  min-width: 160px;
+  border-radius: var(--bo-radius-sm, 4px);
+  background: rgb(255 255 255 / 14%);
+  cursor: text;
+  font-size: var(--bo-font-size-12, 12px);
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 720px) {
+  .appName,
+  .search span {
+    display: none;
+  }
+  .search {
+    min-width: 0;
+  }
+}
+
+/* High contrast: the band is yellow on black text; hover uses a solid outline instead. */
+:global([data-theme='hc']) .qatButton:hover:not(:disabled) {
+  background: transparent;
+  outline: 1px solid currentColor;
+}

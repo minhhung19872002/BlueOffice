@@ -19,6 +19,7 @@ import { PASSWORD_REQUIRED, WRONG_PASSWORD, updateNotice } from '@blueoffice/pla
 import {
   Ribbon,
   StatusBar,
+  TitleBar,
   nextDensity,
   nextTheme,
   setDensity,
@@ -2287,31 +2288,46 @@ function EditorInner({
       data-app={app}
       lang={state.language}
     >
-      <header className={styles.titleBar}>
-        <span className={styles.logo}>
-          <FileText size={18} aria-hidden />{' '}
-          {host?.brandName ? `${host.brandName} · ${appName}` : appName}
-        </span>
-        <span className={styles.docName} data-testid="doc-name">
-          {state.doc?.name ?? ''}
-          {state.edit?.modified ? ' •' : ''}
-        </span>
-        {host?.showShare && (
-          <button type="button" className={styles.hostButton} onClick={host.onShare}>
-            <Share2 size={14} /> {t('host.share')}
-          </button>
-        )}
-        {host?.showClose && (
-          <button
-            type="button"
-            className={styles.hostButton}
-            onClick={host.onClose}
-            aria-label={t('host.close')}
-          >
-            <X size={16} />
-          </button>
-        )}
-      </header>
+      <TitleBar
+        app={app}
+        appName={host?.brandName ? `${host.brandName} · ${appName}` : appName}
+        docName={state.doc?.name ?? ''}
+        saveState={state.doc ? (state.edit?.modified ? 'unsaved' : 'saved') : null}
+        saveLabel={t(state.edit?.modified ? 'titleBar.unsaved' : 'titleBar.saved')}
+        quickAccessLabel={t('titleBar.quickAccess')}
+        quickAccess={(
+          [
+            ['file.save', 'commands.file.save'],
+            ['edit.undo', 'commands.edit.undo'],
+            ['edit.redo', 'commands.edit.redo'],
+          ] as const
+        ).map(([id, key]) => ({
+          id,
+          label: t(key),
+          shortcut: registry.get(id)?.shortcut,
+          enabled: registry.isEnabled(id, state),
+          onSelect: () => void registry.execute(id, store.getState()),
+        }))}
+        actions={
+          <>
+            {host?.showShare && (
+              <button type="button" className={styles.hostButton} onClick={host.onShare}>
+                <Share2 size={14} /> {t('host.share')}
+              </button>
+            )}
+            {host?.showClose && (
+              <button
+                type="button"
+                className={styles.hostButton}
+                onClick={host.onClose}
+                aria-label={t('host.close')}
+              >
+                <X size={16} />
+              </button>
+            )}
+          </>
+        }
+      />
       {app === 'doc' ? (
         <>
           <Ribbon

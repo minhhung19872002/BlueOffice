@@ -2491,5 +2491,11 @@
       "degree": "Ký hiệu độ",
       "bullet": "Chấm tròn đầu dòng"
     }
+  },
+  "titleBar": {
+    "quickAccess": "Thanh truy cập nhanh",
+    "saved": "Đã lưu",
+    "unsaved": "Chưa lưu",
+    "saving": "Đang lưu…"
   }
 }

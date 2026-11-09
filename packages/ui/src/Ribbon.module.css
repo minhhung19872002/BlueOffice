@@ -6,7 +6,8 @@
 .tabStrip {
   display: flex;
   align-items: center;
-  background: var(--bo-brand);
+  /* Tabs continue the title bar's app accent band. */
+  background: var(--bo-app-accent-strong);
   min-width: 0;
 }
 
@@ -18,15 +19,15 @@
   flex-wrap: wrap;
   gap: 2px;
   padding: 0 8px;
-  background: var(--bo-brand);
+  background: var(--bo-app-accent-strong);
 }
 
 .tab {
   all: unset;
   cursor: pointer;
   padding: 7px 14px 6px;
-  color: var(--bo-brand-contrast);
-  opacity: 0.85;
+  color: var(--bo-app-accent-on);
+  opacity: 0.9;
   border-radius: var(--bo-radius) var(--bo-radius) 0 0;
   font-size: 13px;
   transition:
@@ -134,7 +135,7 @@
 
 .icon {
   display: flex;
-  color: var(--bo-brand);
+  color: var(--bo-app-accent-text);
 }
 
 [data-theme='dark'] .icon {

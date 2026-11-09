@@ -28,6 +28,7 @@ import {
   CommentThreads,
   Ribbon,
   StatusBar,
+  TitleBar,
   useResolvedTheme,
   type RibbonTab,
   type ThemeSetting,
@@ -1955,6 +1956,29 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
 
   return (
     <div className={`bo-root ${styles.root}`} data-theme={theme} data-app="slide">
+      {view !== 'show' && view !== 'presenter' && (
+        <TitleBar
+          app="slide"
+          appName={t('app.slide')}
+          docName={fileName}
+          saveState={state.hasDeck && fileName ? (modified ? 'unsaved' : 'saved') : null}
+          saveLabel={t(modified ? 'titleBar.unsaved' : 'titleBar.saved')}
+          quickAccessLabel={t('titleBar.quickAccess')}
+          quickAccess={(
+            [
+              ['file.save', 'commands.file.save'],
+              ['edit.undo', 'commands.edit.undo'],
+              ['edit.redo', 'commands.edit.redo'],
+            ] as const
+          ).map(([id, key]) => ({
+            id,
+            label: t(key),
+            shortcut: registry.get(id)?.shortcut,
+            enabled: registry.isEnabled(id, state),
+            onSelect: () => exec(id),
+          }))}
+        />
+      )}
       {view !== 'show' && view !== 'presenter' && (
         <Ribbon
           tabs={ribbonTabs}

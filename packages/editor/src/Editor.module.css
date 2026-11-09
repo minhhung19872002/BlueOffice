@@ -7,33 +7,6 @@
   overflow: hidden;
 }
 
-.titleBar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 34px;
-  padding: 0 12px;
-  background: var(--bo-brand-strong);
-  color: var(--bo-brand-contrast);
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-}
-
-.docName {
-  flex: 1;
-  text-align: center;
-  opacity: 0.9;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .hostButton {
   all: unset;
   cursor: pointer;
@@ -42,7 +15,7 @@
   gap: 4px;
   padding: 4px 10px;
   border-radius: var(--bo-radius);
-  color: var(--bo-brand-contrast);
+  color: var(--bo-app-accent-on);
   font-size: 12px;
 }
 

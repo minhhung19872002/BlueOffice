@@ -33,6 +33,7 @@ import {
   CommentThreads,
   Ribbon,
   StatusBar,
+  TitleBar,
   useResolvedTheme,
   type RibbonTab,
   type ThemeSetting,
@@ -2787,6 +2788,25 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       data-load-seq={loadSeq}
       aria-busy={loading}
     >
+      <TitleBar
+        app="sheet"
+        appName={t('app.sheet')}
+        docName={fileName}
+        quickAccessLabel={t('titleBar.quickAccess')}
+        quickAccess={(
+          [
+            ['file.save', 'commands.file.save'],
+            ['edit.undo', 'commands.edit.undo'],
+            ['edit.redo', 'commands.edit.redo'],
+          ] as const
+        ).map(([id, key]) => ({
+          id,
+          label: t(key),
+          shortcut: registry.get(id)?.shortcut,
+          enabled: state ? registry.isEnabled(id, state) : false,
+          onSelect: () => run(id),
+        }))}
+      />
       <Ribbon tabs={ribbonTabs} moreLabel={t('ribbon.more')} />
       {legacyNotice > 0 && (
         <div className={styles.macroBar} role="status" data-testid="legacy-notice">

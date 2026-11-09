@@ -180,7 +180,7 @@ import { exportShow, type ShowExportRequest } from './video/export';
 import { ExportDocsDialog, exportPlan, type ExportDocsState } from './exportDocs';
 import { MediaButtons } from './MediaLayer';
 import { MediaActionsHub, registerMediaCommands, useMediaTools } from './mediaPlayback';
-import { advance, type ShowPos } from './player';
+import type { ShowPos } from './player';
 import { fit, formatElapsed, showAction, step, type ShowAction } from './show';
 import { CustomShowsDialog } from './customShows';
 import { InkLayer, type PresenterTool } from './ink';

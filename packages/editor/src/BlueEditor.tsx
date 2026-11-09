@@ -258,6 +258,7 @@ import {
   LineNumbersDialog,
   TextDirectionDialog,
 } from './LayoutDialogs';
+import { CombineCharsDialog, FontEffectsDialog, PhoneticGuideDialog } from './FontEffectsDialog';
 import { isReferenceDialog, ReferenceDialog } from './ReferenceDialogs';
 import { Rulers, type PageBox } from './Ruler';
 import { NavigationPane } from './NavigationPane';
@@ -1067,6 +1068,15 @@ function EditorInner({
       isEnabled: hasDoc,
       run: () => run({ cmd: 'clearFormatting' }),
     });
+    // Character effects / spacing, phonetic guide (§17.3.3.25 ruby) and two lines in
+    // one (§17.3.2.10 combine) — DOC-FMT-001.
+    for (const [id, dialog] of [
+      ['format.fontDialog', 'fontEffects'],
+      ['format.phoneticGuide', 'phoneticGuide'],
+      ['format.combineChars', 'combineChars'],
+    ] as const) {
+      r.register({ id, isEnabled: hasDoc, run: () => store.setState({ dialog }) });
+    }
     // Format Painter: click = once, double click = until Esc (or a third click).
     r.register({
       id: 'format.painter',
@@ -2412,6 +2422,9 @@ function EditorInner({
               />,
             ),
             s('format.clear', 'commands.format.clear', <RemoveFormatting size={SMALL} />),
+            s('format.fontDialog', 'commands.format.fontDialog', <WandSparkles size={SMALL} />),
+            s('format.phoneticGuide', 'commands.format.phoneticGuide', <Languages size={SMALL} />),
+            s('format.combineChars', 'commands.format.combineChars', <Rows3 size={SMALL} />),
           ],
         },
         {
@@ -3384,6 +3397,15 @@ function EditorInner({
             )}
             {state.dialog === 'dropCap' && (
               <DropCapDialog run={runCommand} language={state.language} onClose={closeDialog} />
+            )}
+            {state.dialog === 'fontEffects' && (
+              <FontEffectsDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'phoneticGuide' && (
+              <PhoneticGuideDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'combineChars' && (
+              <CombineCharsDialog run={runCommand} onClose={closeDialog} />
             )}
             {isReferenceDialog(state.dialog) && (
               <ReferenceDialog

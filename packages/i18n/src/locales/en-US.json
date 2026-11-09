@@ -111,6 +111,9 @@
       "pasteSpecial": "Paste special…"
     },
     "format": {
+      "fontDialog": "Character effects…",
+      "phoneticGuide": "Pronunciation guide…",
+      "combineChars": "Two lines in one…",
       "bold": "Bold",
       "italic": "Italic",
       "underline": "Underline",
@@ -4032,5 +4035,102 @@
     "cat6": "Regulations",
     "cat7": "Constitutional provisions",
     "catN": "Category {{n}}"
+  },
+  "charFx": {
+    "title": "Character effects and spacing",
+    "ok": "Apply",
+    "cancel": "Cancel",
+    "none": "None",
+    "preview": "Preview",
+    "tabs": {
+      "effects": "Effects",
+      "spacing": "Spacing and typography"
+    },
+    "classic": "Basic effects",
+    "outline": "Hollow letters",
+    "shadow": "Drop shadow",
+    "emboss": "Raised",
+    "imprint": "Engraved",
+    "glow": "Glow",
+    "softShadow": "Soft shadow",
+    "reflection": "Reflection",
+    "textOutline": "Letter outline",
+    "gradient": "Gradient fill",
+    "border": "Box around text",
+    "borderStyle": "Line",
+    "borderStyles": {
+      "single": "Single",
+      "double": "Double",
+      "dotted": "Dotted",
+      "dashed": "Dashed",
+      "thick": "Thick"
+    },
+    "shading": "Background colour",
+    "color": "Colour",
+    "from": "Start colour",
+    "to": "End colour",
+    "radiusPt": "Size (pt)",
+    "blurPt": "Softness (pt)",
+    "distancePt": "Distance (pt)",
+    "widthPt": "Width (pt)",
+    "angle": "Direction (°)",
+    "transparency": "Transparency (%)",
+    "sizePercent": "Length (% of text height)",
+    "spacingPt": "Letter spacing (pt, negative = tighter)",
+    "positionPt": "Raise (pt, negative = lower)",
+    "scalePercent": "Width scale (%)",
+    "kerning": "Kern letter pairs",
+    "kernFromPt": "From size (pt)",
+    "opentype": "OpenType features",
+    "ligatures": "Ligatures",
+    "ligatureKinds": {
+      "unset": "Font default",
+      "none": "Off",
+      "standard": "Standard",
+      "standardContextual": "Standard and contextual",
+      "historicalDiscretional": "Historical and optional",
+      "all": "All"
+    },
+    "numForm": "Digit style",
+    "numForms": {
+      "unset": "Font default",
+      "lining": "Lining",
+      "oldStyle": "Old-style"
+    },
+    "numSpacing": "Digit widths",
+    "numSpacings": {
+      "unset": "Font default",
+      "proportional": "Proportional",
+      "tabular": "Tabular (equal)"
+    },
+    "stylisticSet": "Stylistic set",
+    "contextualAlternates": "Contextual alternates",
+    "ruby": {
+      "title": "Pronunciation guide",
+      "base": "Text",
+      "guide": "Guide text",
+      "align": "Placement",
+      "aligns": {
+        "center": "Centred",
+        "distributeLetter": "Spread over letters",
+        "distributeSpace": "Spread with margins",
+        "left": "Left",
+        "right": "Right"
+      },
+      "sizePt": "Guide size (pt)",
+      "raisePt": "Height above text (pt)"
+    },
+    "combine": {
+      "title": "Two lines in one",
+      "on": "Set the text in two stacked lines",
+      "brackets": "Enclose in",
+      "bracketKinds": {
+        "none": "Nothing",
+        "round": "( )",
+        "square": "[ ]",
+        "angle": "< >",
+        "curly": "{ }"
+      }
+    }
   }
 }

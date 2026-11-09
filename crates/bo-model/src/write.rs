@@ -1650,6 +1650,37 @@ pub struct RunProps {
     pub kern: Option<HalfPoints>,
     /// Hidden text (`w:vanish`).
     pub hidden: Option<bool>,
+    /// Hollow outline glyphs (§17.3.2.23 outline).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<bool>,
+    /// Shadowed glyphs (§17.3.2.31 shadow).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<bool>,
+    /// Raised (embossed) glyphs (§17.3.2.13 emboss).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emboss: Option<bool>,
+    /// Engraved (imprinted) glyphs (§17.3.2.18 imprint).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imprint: Option<bool>,
+    /// Raised (> 0) or lowered (< 0) baseline, half-points (§17.3.2.24 position).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<i32>,
+    /// Horizontal scale of the glyphs in percent (§17.3.2.43 w, 1–600).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<u32>,
+    /// Border around the run (§17.3.2.4 bdr).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<Border>,
+    /// Shading pattern and pattern colour (§17.3.2.32 shd `w:val`, `w:color`); the
+    /// fill is [`RunProps::shading`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shading_pattern: Option<crate::run_fx::ShadingPattern>,
+    /// East Asian layout: two lines in one, horizontal in vertical (§17.3.2.10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub east_asian: Option<crate::run_fx::EastAsianLayout>,
+    /// [MS-DOCX] w14 text effects and OpenType features.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effects: Option<Box<crate::run_fx::TextEffects>>,
     /// Languages of the run (§17.3.2.20 lang), used to pick the proofing dictionary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<Lang>,
@@ -1751,6 +1782,23 @@ impl RunProps {
             spacing: self.spacing.or(base.spacing),
             kern: self.kern.or(base.kern),
             hidden: self.hidden.or(base.hidden),
+            outline: self.outline.or(base.outline),
+            shadow: self.shadow.or(base.shadow),
+            emboss: self.emboss.or(base.emboss),
+            imprint: self.imprint.or(base.imprint),
+            position: self.position.or(base.position),
+            scale: self.scale.or(base.scale),
+            border: self.border.clone().or_else(|| base.border.clone()),
+            shading_pattern: self
+                .shading_pattern
+                .clone()
+                .or_else(|| base.shading_pattern.clone()),
+            east_asian: self.east_asian.clone().or_else(|| base.east_asian.clone()),
+            effects: match (&self.effects, &base.effects) {
+                (Some(o), Some(b)) => Some(Box::new(o.inherit(b))),
+                (Some(e), None) | (None, Some(e)) => Some(e.clone()),
+                (None, None) => None,
+            },
             lang: inherit_lang(self.lang.as_ref(), base.lang.as_ref()),
             no_proof: self.no_proof.or(base.no_proof),
             link: self.link.clone().or_else(|| base.link.clone()),

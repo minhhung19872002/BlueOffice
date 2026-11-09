@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 
 mod blocks;
+mod charfx;
 mod drawing;
 mod flow;
 mod hyphen;
@@ -28,11 +29,13 @@ mod markup;
 mod math;
 mod page;
 mod paragraph;
+mod ruby;
 mod sigline;
 mod style;
 mod types;
 
 pub use blocks::TableMeasure;
+pub use charfx::{FxPaint, FxReflection, FxRgba, FxShadow, TextFx};
 pub use incremental::{measure_table, IncrementalLayout, UpdateKind};
 pub use markup::{
     balloon_height, page_markup, stack_balloons, Balloon, ChangeBar, Mark, MarkFilter, MarkKind,

@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 pub mod autocorrect;
+pub mod charfx;
 mod collate;
 pub mod comments;
 pub mod compare;
@@ -137,6 +138,13 @@ pub enum CharFormat {
     NoProof {
         /// Skip proofing.
         on: bool,
+    },
+    /// Advanced character formatting from the Font dialog: effects, spacing, position,
+    /// scale, kerning, border, shading, two lines in one, w14 text effects and
+    /// typography ([`charfx::CharAdvancedPatch`]).
+    Advanced {
+        /// The changes.
+        patch: Box<charfx::CharAdvancedPatch>,
     },
     /// Remove direct character formatting.
     Clear,
@@ -488,6 +496,8 @@ pub struct FormatState {
     pub table: Option<TableState>,
     /// Floating picture at the selection (§20.4.2.3 anchor).
     pub picture: Option<picture::PictureState>,
+    /// Advanced character formatting (Font dialog).
+    pub advanced: charfx::CharAdvanced,
 }
 
 /// Content copied to the clipboard.
@@ -2768,6 +2778,10 @@ impl Session {
                 let on = *on;
                 Box::new(move |r| r.no_proof = on.then_some(true))
             }
+            CharFormat::Advanced { patch } => {
+                let patch = patch.clone();
+                Box::new(move |r| patch.apply(r))
+            }
             CharFormat::Clear => Box::new(|r| {
                 let link = r.link.take();
                 *r = RunProps {
@@ -3132,6 +3146,7 @@ impl Session {
             section: self.section_state(),
             table: self.table_state(),
             picture: self.picture_state(),
+            advanced: charfx::CharAdvanced::of(&r),
         }
     }
 

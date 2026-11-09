@@ -26,10 +26,26 @@ pub fn is_math_xml(xml: &str) -> bool {
     matches!(name.rsplit(':').next(), Some("oMath" | "oMathPara"))
 }
 
+/// `true` for verbatim run content that is a phonetic guide (ECMA-376 Part 1,
+/// §17.3.3.25 ruby): it is laid out and edited as one inline object.
+#[must_use]
+pub fn is_ruby_xml(xml: &str) -> bool {
+    let name = xml
+        .trim_start()
+        .strip_prefix('<')
+        .and_then(|s| {
+            s.split(|c: char| c.is_whitespace() || c == '>' || c == '/')
+                .next()
+        })
+        .unwrap_or("");
+    name.rsplit(':').next() == Some("ruby")
+}
+
 /// Index-text representation of one content item.
 pub fn item_text(c: &RunContent) -> String {
     match c {
         RunContent::Markup(r) if is_math_xml(&r.xml) => OBJECT.to_string(),
+        RunContent::Opaque(r) if is_ruby_xml(&r.xml) => OBJECT.to_string(),
         RunContent::Text(t) => t.clone(),
         RunContent::Tab => "\t".into(),
         RunContent::LineBreak => "\u{2028}".into(),

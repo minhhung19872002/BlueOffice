@@ -1862,6 +1862,19 @@ const RPR_ORDER: &[&str] = &[
     "eastAsianLayout",
     "specVanish",
     "oMath",
+    // [MS-DOCX] w14 run extensions (CT_RPr extension sequence).
+    "w14:glow",
+    "w14:shadow",
+    "w14:reflection",
+    "w14:textOutline",
+    "w14:textFill",
+    "w14:scene3d",
+    "w14:props3d",
+    "w14:ligatures",
+    "w14:numForm",
+    "w14:numSpacing",
+    "w14:stylisticSets",
+    "w14:cntxtAlts",
     "rPrChange",
 ];
 
@@ -1918,6 +1931,15 @@ fn raw_local_name(xml: &str) -> String {
         .unwrap_or(t.len());
     let q = &t[..end];
     q.rsplit(':').next().unwrap_or(q).to_owned()
+}
+
+fn raw_qualified_name(xml: &str) -> String {
+    let t = xml.trim_start();
+    let t = t.strip_prefix('<').unwrap_or(t);
+    let end = t
+        .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+        .unwrap_or(t.len());
+    t[..end].to_owned()
 }
 
 fn raw_items(raws: &[Raw]) -> Vec<(String, String)> {
@@ -2357,6 +2379,19 @@ const PARA_RPR_ORDER: &[&str] = &[
     "eastAsianLayout",
     "specVanish",
     "oMath",
+    // [MS-DOCX] w14 run extensions (CT_RPr extension sequence).
+    "w14:glow",
+    "w14:shadow",
+    "w14:reflection",
+    "w14:textOutline",
+    "w14:textFill",
+    "w14:scene3d",
+    "w14:props3d",
+    "w14:ligatures",
+    "w14:numForm",
+    "w14:numSpacing",
+    "w14:stylisticSets",
+    "w14:cntxtAlts",
     "rPrChange",
 ];
 
@@ -2729,7 +2764,47 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
     v.extend(flag("smallCaps", p.small_caps));
     v.extend(flag("strike", p.strike));
     v.extend(flag("dstrike", p.double_strike));
+    v.extend(flag("outline", p.outline)); // §17.3.2.23
+    v.extend(flag("shadow", p.shadow)); // §17.3.2.31
+    v.extend(flag("emboss", p.emboss)); // §17.3.2.13
+    v.extend(flag("imprint", p.imprint)); // §17.3.2.18
     v.extend(flag("vanish", p.hidden));
+    if let Some(w) = p.scale {
+        // §17.3.2.43 w (ST_TextScale)
+        v.push(("w".into(), format!("<w:w w:val=\"{}\"/>", w.clamp(1, 600))));
+    }
+    if let Some(pos) = p.position {
+        // §17.3.2.24 position
+        v.push(("position".into(), format!("<w:position w:val=\"{pos}\"/>")));
+    }
+    if let Some(b) = &p.border {
+        v.push(("bdr".into(), border_xml("bdr", b))); // §17.3.2.4
+    }
+    if let Some(ea) = &p.east_asian {
+        // §17.3.2.10 eastAsianLayout
+        let mut s = String::from("<w:eastAsianLayout");
+        if let Some(id) = ea.id {
+            let _ = write!(s, " w:id=\"{id}\"");
+        }
+        let on = |b: bool| if b { "1" } else { "0" };
+        if let Some(c) = ea.combine {
+            let _ = write!(s, " w:combine=\"{}\"", on(c));
+        }
+        if let Some(b) = &ea.combine_brackets {
+            let _ = write!(s, " w:combineBrackets=\"{}\"", escape(b));
+        }
+        if let Some(c) = ea.vert {
+            let _ = write!(s, " w:vert=\"{}\"", on(c));
+        }
+        if let Some(c) = ea.vert_compress {
+            let _ = write!(s, " w:vertCompress=\"{}\"", on(c));
+        }
+        s.push_str("/>");
+        v.push(("eastAsianLayout".into(), s));
+    }
+    if let Some(fx) = &p.effects {
+        v.extend(crate::textfx::w14_items(fx));
+    }
     if let Some(c) = p.color {
         v.push((
             "color".into(),
@@ -2755,12 +2830,20 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
         // §17.3.2.40 u, §17.18.99 ST_Underline
         v.push(("u".into(), format!("<w:u w:val=\"{}\"/>", u.as_str())));
     }
-    if let Some(c) = p.shading {
+    if p.shading.is_some() || p.shading_pattern.is_some() {
+        // §17.3.2.32 shd: pattern (§17.18.78), pattern colour and fill.
+        let (val, color) = p
+            .shading_pattern
+            .as_ref()
+            .map_or(("clear", None), |s| (s.val.as_str(), s.color));
         v.push((
             "shd".into(),
             format!(
-                "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{}\"/>",
-                c.to_hex()
+                "<w:shd w:val=\"{}\" w:color=\"{}\" w:fill=\"{}\"/>",
+                escape(val),
+                color.map_or_else(|| "auto".to_owned(), bo_model::Color::to_hex),
+                p.shading
+                    .map_or_else(|| "auto".to_owned(), bo_model::Color::to_hex)
             ),
         ));
     }
@@ -2781,7 +2864,17 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
     if let Some(l) = &p.lang {
         v.extend(lang_item(l)); // §17.3.2.20
     }
-    v.extend(raw_items(&p.unknown));
+    // Unknown children: w14 extensions keep their prefix so they sort after the
+    // ECMA-376 children (`w14:shadow` is not `w:shadow`).
+    v.extend(p.unknown.iter().map(|r| {
+        let q = raw_qualified_name(&r.xml);
+        let name = if q.starts_with("w14:") {
+            q
+        } else {
+            raw_local_name(&r.xml)
+        };
+        (name, r.xml.to_string())
+    }));
     if let Some(c) = &p.change {
         // §17.13.5.31 rPrChange holds a CT_RPrOriginal (no rPrChange of its own).
         let inner: Vec<(String, String)> = rpr_children(&c.old.without_revisions())

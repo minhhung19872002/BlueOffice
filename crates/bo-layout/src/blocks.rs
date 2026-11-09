@@ -195,6 +195,30 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
             layer: Layer::Back,
         });
     }
+    // §17.3.2.4 bdr: a box around the run, `space` points away from the text.
+    for (x, w, b) in &rl.borders {
+        let pad = b.space as f32;
+        let (x0, x1) = (x - pad, x + w + pad);
+        let (y0, y1) = (rl.baseline - rl.ascent, rl.baseline + rl.descent);
+        let width = (b.size as f32 / 8.0).max(0.25);
+        let color = b.color.unwrap_or(bo_model::Color::BLACK);
+        for (a, bb, c, d) in [
+            (x0, y0, x1, y0),
+            (x0, y1, x1, y1),
+            (x0, y0, x0, y1),
+            (x1, y0, x1, y1),
+        ] {
+            items.push(PageItem::Rule {
+                x1: a,
+                y1: bb,
+                x2: c,
+                y2: d,
+                width,
+                color,
+                style: b.style.clone(),
+            });
+        }
+    }
     let mut boxed = Vec::new();
     for o in &rl.objects {
         let y = rl.baseline - o.h;

@@ -10,6 +10,7 @@
 
 pub mod image;
 pub mod metafile;
+mod textfx;
 
 pub use image::{ImageSource, Media};
 
@@ -538,20 +539,40 @@ fn line_commands(line: &Line, fonts: &FontManager, commands: &mut Vec<Command>) 
     }
     for f in &line.fragments {
         let color: Rgba = f.color.into();
-        if !f.glyphs.is_empty() && !f.text.trim().is_empty() {
+        let fx = f.fx.as_deref();
+        let inked = !f.glyphs.is_empty() && !f.text.trim().is_empty();
+        if let (Some(fx), true) = (fx, inked) {
+            textfx::behind(f, fx, color, fonts, commands);
+        }
+        if inked {
+            // §17.3.2.43 w: glyphs scaled horizontally about the fragment origin
+            // (positions are already scaled by layout).
+            let sx = fx.map_or(1.0, |x| x.scale_x);
+            let scaled = (sx - 1.0).abs() > 1e-6;
+            if scaled {
+                commands.push(Command::PushTransform {
+                    m: [sx, 0.0, 0.0, 1.0, (1.0 - sx) * f.x, 0.0],
+                });
+            }
             commands.push(Command::Glyphs {
                 face: f.face.0,
                 size: f.size,
                 x: f.x,
                 y: f.y,
-                color,
+                color: fx.map_or(color, |x| textfx::glyph_color(x, color)),
                 text: f.text.to_string(),
                 glyphs: f
                     .glyphs
                     .iter()
-                    .map(|g| Glyph(g.id, g.x, g.y, g.cluster))
+                    .map(|g| Glyph(g.id, g.x / sx, g.y, g.cluster))
                     .collect(),
             });
+            if scaled {
+                commands.push(Command::PopTransform);
+            }
+            if let Some(fx) = fx {
+                textfx::front(f, fx, color, fonts, commands);
+            }
         }
         let info = fonts.info(f.face);
         let scale = f.size / f32::from(info.units_per_em);

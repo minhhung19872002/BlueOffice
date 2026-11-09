@@ -77,6 +77,7 @@ export interface EditorState {
     | 'control'
     | 'formField'
     | 'protectForms'
+    | 'lockTracking'
     | 'defineList'
     | 'setNumbering'
     | 'autoCorrect'

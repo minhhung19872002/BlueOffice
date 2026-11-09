@@ -178,6 +178,7 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         display_background_shape: doc.design.display_background_shape,
         protection: doc.protection.clone(),
         hyphenation: doc.hyphenation,
+        track_revisions: doc.track_revisions,
     }));
     Ok(doc)
 }
@@ -593,6 +594,8 @@ fn read_settings(data: &[u8], part: &str, doc: &mut Document) -> Result<()> {
                 b"documentProtection" => {
                     doc.protection = Some(crate::forms::read_protection(&e));
                 }
+                // §17.15.1.89 trackRevisions (CT_OnOff)
+                b"trackRevisions" => doc.track_revisions = on_off(&e),
                 _ => {}
             },
             Event::Eof => break,

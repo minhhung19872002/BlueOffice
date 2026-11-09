@@ -50,6 +50,8 @@ import { pictureTabLabels, registerPictureCommands } from './pictureTools';
 import {
   AArrowDown,
   AArrowUp,
+  ArrowDownToLine,
+  ArrowUpToLine,
   WandSparkles,
   ClipboardCheck,
   AlignCenter,
@@ -191,6 +193,12 @@ import { CaptionPanel, CrossRefPanel, MergeFieldPanel } from './ReferencePanels'
 import { CommentsPanel, ReviewPanel } from './ReviewPanel';
 import { MarkupModeSelect, reviewersOf, ShowMarkupMenu } from './MarkupMenus';
 import { ReviewingPane } from './ReviewingPane';
+import {
+  balloonLabel,
+  LockTrackingDialog,
+  registerTrackingCommands,
+  reviewErrorKey,
+} from './TrackingControls';
 import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
 import {
   identityNames,
@@ -538,7 +546,14 @@ function EditorInner({
           });
         }
       },
-      markupLabel: (kind) => i18nInstance.t(`markup.kind.${kind}`),
+      markupLabel: (kind, id) =>
+        balloonLabel(
+          (k, o) => i18nInstance.t(k, o),
+          kind,
+          kind === 'format'
+            ? store.getState().review?.revisions.find((x) => x.id === id && !x.story)
+            : undefined,
+        ),
       // Right click on a misspelt word: corrections and dictionary actions.
       onContextMenu: (e) => {
         void controller.current?.run({ cmd: 'spellAt', page: e.page, x: e.x, y: e.y }).then((r) => {
@@ -585,7 +600,8 @@ function EditorInner({
         });
         if (isProtectionRefusal(r.error))
           store.setState({ status: { kind: 'info', key: refusalKey(r.error) } });
-        else if (r.error) fail(formErrorKey(r.error) ?? 'errors.edit', r.error);
+        else if (r.error)
+          fail(formErrorKey(r.error) ?? reviewErrorKey(r.error) ?? 'errors.edit', r.error);
       },
       (e) => fail('errors.edit', e),
     );
@@ -1584,6 +1600,11 @@ function EditorInner({
         store.setState({ grammarOn: !s.grammarOn });
         await controller.current?.run({ cmd: 'setGrammar', on: !s.grammarOn });
       },
+    });
+    registerTrackingCommands(r, {
+      hasDoc,
+      run,
+      openLockDialog: () => store.setState({ dialog: 'lockTracking' }),
     });
     r.register({
       id: 'review.trackChanges',
@@ -2819,6 +2840,17 @@ function EditorInner({
               'commands.review.trackChanges',
               <FilePenLine size={ICON} />,
             ),
+            s('review.lockTracking', 'commands.review.lockTracking', <Lock size={SMALL} />),
+            s(
+              'review.moveParagraphUp',
+              'commands.review.moveParagraphUp',
+              <ArrowUpToLine size={SMALL} />,
+            ),
+            s(
+              'review.moveParagraphDown',
+              'commands.review.moveParagraphDown',
+              <ArrowDownToLine size={SMALL} />,
+            ),
             custom(
               'review.markupMode',
               <MarkupModeSelect
@@ -3312,6 +3344,20 @@ function EditorInner({
                 onApply={(cmd) => {
                   closeDialog();
                   void runFocus(cmd);
+                }}
+              />
+            )}
+            {state.dialog === 'lockTracking' && (
+              <LockTrackingDialog
+                review={state.review}
+                onClose={closeDialog}
+                onApply={(cmd) => {
+                  void runCommand(cmd).then((r) => {
+                    if (r && !r.error) {
+                      closeDialog();
+                      focusDoc();
+                    }
+                  });
                 }}
               />
             )}

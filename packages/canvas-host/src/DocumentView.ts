@@ -53,7 +53,7 @@ export interface DocumentViewOptions {
   /** A review balloon was clicked (BlueDoc markup area). */
   onMarkupSelect?: (m: MarkupSelect) => void;
   /** Localised name of a change kind shown in its balloon. */
-  markupLabel?: (kind: MarkKind) => string;
+  markupLabel?: (kind: MarkKind, id: number) => string;
 }
 
 export const MIN_ZOOM = 0.25;

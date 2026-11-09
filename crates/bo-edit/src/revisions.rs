@@ -114,6 +114,10 @@ pub struct RevisionItem {
     /// Header/footer or note holding the revision (`None`: main text).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub story: Option<StoryRef>,
+    /// Formatting changes: which properties changed (keys such as `bold`, `font`,
+    /// `align`, `indent`; see [`run_detail`] and [`para_detail`]).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub detail: Vec<&'static str>,
 }
 
 const MAX_TEXT: usize = 80;
@@ -182,7 +186,12 @@ fn list_main(doc: &Document) -> Vec<RevisionItem> {
     {
         return out;
     }
-    let mut add = |kind: RevKind, info: &RevisionInfo, start: Pos, end: Pos, text: &str| {
+    let mut add = |kind: RevKind,
+                   info: &RevisionInfo,
+                   start: Pos,
+                   end: Pos,
+                   text: &str,
+                   detail: &[&'static str]| {
         if let Some(it) = out
             .iter_mut()
             .rev()
@@ -190,6 +199,11 @@ fn list_main(doc: &Document) -> Vec<RevisionItem> {
         {
             it.end = it.end.max(end);
             push_text(it, text);
+            for d in detail {
+                if !it.detail.contains(d) {
+                    it.detail.push(d);
+                }
+            }
             return;
         }
         let mut it = RevisionItem {
@@ -201,6 +215,7 @@ fn list_main(doc: &Document) -> Vec<RevisionItem> {
             end,
             text: String::new(),
             story: None,
+            detail: detail.to_vec(),
         };
         push_text(&mut it, text);
         out.push(it);
@@ -218,6 +233,7 @@ fn list_main(doc: &Document) -> Vec<RevisionItem> {
                 Pos::new(pid, 0),
                 Pos::new(pid, len),
                 "",
+                &para_detail(&c.old, &p.props),
             );
         }
         let mut off = 0;
@@ -231,7 +247,7 @@ fn list_main(doc: &Document) -> Vec<RevisionItem> {
                 } else {
                     RevKind::Insert
                 };
-                add(k, &m.info, s, e, &text);
+                add(k, &m.info, s, e, &text, &[]);
             }
             if let Some(m) = &props.del {
                 let k = if m.moved {
@@ -239,19 +255,39 @@ fn list_main(doc: &Document) -> Vec<RevisionItem> {
                 } else {
                     RevKind::Delete
                 };
-                add(k, &m.info, s, e, &text);
+                add(k, &m.info, s, e, &text, &[]);
             }
             if let Some(c) = &props.change {
-                add(RevKind::Format, &c.info, s, e, &text);
+                add(
+                    RevKind::Format,
+                    &c.info,
+                    s,
+                    e,
+                    &text,
+                    &run_detail(&c.old, props),
+                );
             }
             off += l;
         }
-        for (m, k) in [
-            (&p.props.mark_ins, RevKind::ParagraphInsert),
-            (&p.props.mark_del, RevKind::ParagraphDelete),
+        for (m, k, moved) in [
+            (&p.props.mark_ins, RevKind::ParagraphInsert, RevKind::MoveTo),
+            (
+                &p.props.mark_del,
+                RevKind::ParagraphDelete,
+                RevKind::MoveFrom,
+            ),
         ] {
             if let Some(m) = m {
-                add(k, &m.info, Pos::new(pid, len), Pos::new(pid + 1, 0), "¶");
+                // A moved paragraph mark is part of its move (§17.13.5.22 / .25).
+                let k = if m.moved { moved } else { k };
+                add(
+                    k,
+                    &m.info,
+                    Pos::new(pid, len),
+                    Pos::new(pid + 1, 0),
+                    "¶",
+                    &[],
+                );
             }
         }
     }
@@ -295,10 +331,47 @@ fn list_main(doc: &Document) -> Vec<RevisionItem> {
         _ => true,
     });
     for (k, info, s, e) in structural {
-        add(k, &info, s, e, "");
+        add(k, &info, s, e, "", &[]);
     }
+    merge_move_halves(doc, &mut out);
     out.sort_by_key(|i| i.start);
     out
+}
+
+/// One item per half of a named move: a file gives every element its own id
+/// (§17.13.1), so the text and paragraph marks of one half arrive with several ids
+/// tied by their range name (§17.13.5.23 moveFromRangeStart `w:name`). Resolving the
+/// kept id resolves the whole move ([`crate::moves::MoveGroups::expand`]).
+fn merge_move_halves(doc: &Document, out: &mut Vec<RevisionItem>) {
+    if !out
+        .iter()
+        .any(|i| matches!(i.kind, RevKind::MoveFrom | RevKind::MoveTo))
+    {
+        return;
+    }
+    let groups = crate::moves::move_groups(doc);
+    let mut kept: Vec<RevisionItem> = Vec::with_capacity(out.len());
+    for it in out.drain(..) {
+        let name = matches!(it.kind, RevKind::MoveFrom | RevKind::MoveTo)
+            .then(|| groups.name_of(it.id))
+            .flatten();
+        let into = name.and_then(|n| {
+            kept.iter_mut().find(|k| {
+                k.kind == it.kind && k.author == it.author && groups.name_of(k.id) == Some(n)
+            })
+        });
+        match into {
+            Some(k) => {
+                k.start = k.start.min(it.start);
+                k.end = k.end.max(it.end);
+                if it.text != "¶" {
+                    push_text(k, &it.text);
+                }
+            }
+            None => kept.push(it),
+        }
+    }
+    *out = kept;
 }
 
 type Structural = (RevKind, RevisionInfo, Pos, Pos);
@@ -463,7 +536,106 @@ pub fn max_id(doc: &Document) -> i32 {
     for b in doc.footnotes.values().chain(doc.endnotes.values()) {
         blocks_max_id(b, &mut m);
     }
-    m
+    // Move range markers share the id space (§17.13.5.23 moveFromRangeStart w:id).
+    m.max(crate::moves::move_groups(doc).max_marker_id())
+}
+
+/// Which run properties a formatting change (§17.13.5.31 rPrChange) changed, as keys
+/// the hosts translate; `other` when only properties not listed here differ.
+pub fn run_detail(old: &RunProps, new: &RunProps) -> Vec<&'static str> {
+    let (o, n) = (old, new);
+    let checks: [(&'static str, bool); 14] = [
+        ("style", o.style != n.style),
+        (
+            "font",
+            o.font != n.font
+                || o.font_east_asia != n.font_east_asia
+                || o.font_cs != n.font_cs
+                || o.font_h_ansi != n.font_h_ansi
+                || o.theme_ascii != n.theme_ascii
+                || o.theme_h_ansi != n.theme_h_ansi
+                || o.theme_east_asia != n.theme_east_asia
+                || o.theme_cs != n.theme_cs,
+        ),
+        ("size", o.size != n.size),
+        ("bold", o.bold != n.bold),
+        ("italic", o.italic != n.italic),
+        ("underline", o.underline != n.underline),
+        (
+            "strike",
+            o.strike != n.strike || o.double_strike != n.double_strike,
+        ),
+        ("color", o.color != n.color),
+        (
+            "highlight",
+            o.highlight != n.highlight || o.shading != n.shading,
+        ),
+        ("vertAlign", o.vert_align != n.vert_align),
+        ("caps", o.caps != n.caps || o.small_caps != n.small_caps),
+        ("charSpacing", o.spacing != n.spacing || o.kern != n.kern),
+        ("hidden", o.hidden != n.hidden),
+        ("language", o.lang != n.lang),
+    ];
+    let mut v: Vec<&'static str> = checks.iter().filter(|c| c.1).map(|c| c.0).collect();
+    if v.is_empty() {
+        let bare = |p: &RunProps| RunProps {
+            link: None,
+            ..p.without_revisions()
+        };
+        if bare(o) != bare(n) {
+            v.push("other");
+        }
+    }
+    v
+}
+
+/// Which paragraph properties a formatting change (§17.13.5.29 pPrChange) changed, as
+/// keys the hosts translate; `other` when only properties not listed here differ.
+pub fn para_detail(old: &ParaProps, new: &ParaProps) -> Vec<&'static str> {
+    let (o, n) = (old, new);
+    let checks: [(&'static str, bool); 10] = [
+        ("style", o.style != n.style),
+        ("align", o.align != n.align),
+        (
+            "indent",
+            o.indent_left != n.indent_left
+                || o.indent_right != n.indent_right
+                || o.indent_first_line != n.indent_first_line,
+        ),
+        (
+            "paraSpacing",
+            o.space_before != n.space_before
+                || o.space_after != n.space_after
+                || o.line_spacing != n.line_spacing
+                || o.contextual_spacing != n.contextual_spacing,
+        ),
+        ("numbering", o.num != n.num),
+        (
+            "pagination",
+            o.page_break_before != n.page_break_before
+                || o.keep_next != n.keep_next
+                || o.keep_lines != n.keep_lines
+                || o.widow_control != n.widow_control,
+        ),
+        ("tabs", o.tabs != n.tabs),
+        ("borders", o.borders != n.borders || o.shading != n.shading),
+        ("outline", o.outline_level != n.outline_level),
+        ("direction", o.bidi != n.bidi),
+    ];
+    let mut v: Vec<&'static str> = checks.iter().filter(|c| c.1).map(|c| c.0).collect();
+    if v.is_empty() {
+        let bare = |p: &ParaProps| ParaProps {
+            mark_ins: None,
+            mark_del: None,
+            change: None,
+            unknown: Vec::new(),
+            ..p.clone()
+        };
+        if bare(o) != bare(n) {
+            v.push("other");
+        }
+    }
+    v
 }
 
 /// Which revisions to resolve.

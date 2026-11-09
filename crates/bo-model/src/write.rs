@@ -184,6 +184,9 @@ pub struct SourcePackage {
     /// Hyphenation settings as read (changed ⇒ settings patched).
     #[serde(default)]
     pub hyphenation: Hyphenation,
+    /// §17.15.1.89 trackRevisions as read (changed ⇒ settings patched).
+    #[serde(default)]
+    pub track_revisions: bool,
 }
 
 /// A whole word-processing document.
@@ -238,6 +241,9 @@ pub struct Document {
     /// Editing restrictions (ECMA-376 Part 1, §17.15.1.29 documentProtection).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protection: Option<crate::form::DocProtection>,
+    /// Track changes is on (ECMA-376 Part 1, §17.15.1.89 trackRevisions in settings).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub track_revisions: bool,
     /// Source package the document was read from (`None` for a new document).
     pub source: Option<Arc<SourcePackage>>,
 }

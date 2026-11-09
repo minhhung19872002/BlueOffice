@@ -174,6 +174,10 @@ pub(crate) fn protect(
         formatting: false,
         attrs,
     }));
+    // §17.18.37 trackedChanges: every change is tracked while the protection holds.
+    if s.tracking_locked() {
+        s.set_track_changes(true);
+    }
     Ok(())
 }
 

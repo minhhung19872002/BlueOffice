@@ -254,6 +254,8 @@ impl FormField {
 
 /// §17.18 `ST_DocProtect`.
 pub const PROTECT_FORMS: &str = "forms";
+/// `ST_DocProtect` value allowing only tracked changes (§17.18.37 `trackedChanges`).
+pub const PROTECT_TRACKED: &str = "trackedChanges";
 
 /// Document editing restrictions (§17.15.1.29 documentProtection in settings).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -284,6 +286,13 @@ impl DocProtection {
     #[must_use]
     pub fn forms_enforced(&self) -> bool {
         self.enforced && self.edit == PROTECT_FORMS
+    }
+
+    /// Only tracked changes are allowed (§17.18.37 `trackedChanges`, enforced): track
+    /// changes cannot be turned off and revisions cannot be accepted or rejected.
+    #[must_use]
+    pub fn tracked_changes_enforced(&self) -> bool {
+        self.enforced && self.edit == PROTECT_TRACKED
     }
 
     /// A password verifier is present.

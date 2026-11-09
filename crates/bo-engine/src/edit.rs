@@ -246,6 +246,13 @@ pub enum Command {
         #[serde(default)]
         id: Option<i32>,
     },
+    /// Move the paragraphs of the selection above the previous paragraph (`up`) or
+    /// below the next one; in track-changes mode a tracked move (§17.13.5.22 moveFrom,
+    /// §17.13.5.25 moveTo).
+    MoveParagraphs {
+        /// Up (`true`) or down.
+        up: bool,
+    },
     /// Compare with an original document (prompt §7.1): this document's differences from it become
     /// tracked changes (`.docx`, `.odt` or `.doc`).
     CompareWith {
@@ -1203,6 +1210,8 @@ impl crate::Engine {
             Command::State
                 | Command::Review
                 | Command::SetTrackChanges { .. }
+                | Command::ProtectDocument { .. }
+                | Command::UnprotectDocument { .. }
                 | Command::SetAuthor { .. }
                 | Command::SetRevisionView { .. }
                 | Command::SetMarkup(_)
@@ -1731,7 +1740,20 @@ impl crate::Engine {
                             s.paste_text(&t)?;
                         }
                     }
+                    // Locked tracking (§17.15.1.29 w:edit="trackedChanges").
+                    Command::SetTrackChanges { on: false }
+                    | Command::AcceptRevision { .. }
+                    | Command::RejectRevision { .. }
+                    | Command::AcceptAllRevisions
+                    | Command::RejectAllRevisions
+                        if s.tracking_locked() =>
+                    {
+                        form_error = Some(bo_edit::TRACKING_LOCKED);
+                    }
                     Command::SetTrackChanges { on } => s.set_track_changes(on),
+                    Command::MoveParagraphs { up } => {
+                        s.move_paragraphs(up)?;
+                    }
                     Command::ConvertLegacyText => {
                         self.legacy_converted = s.convert_legacy_text()?;
                     }

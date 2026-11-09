@@ -259,6 +259,15 @@ const AUTHOR_COLORS: [Color; 8] = [
     },
 ];
 
+/// Colour of tracked moves (§17.13.5.22 moveFrom, §17.13.5.25 moveTo), the same for
+/// every author so that both halves of a move read as one change (BlueOffice's own
+/// choice; the specification leaves the display to applications).
+pub const MOVE_COLOR: Color = Color {
+    r: 0x1B,
+    g: 0x7A,
+    b: 0x3E,
+};
+
 /// Stable colour of a revision author.
 pub fn author_color(author: &str) -> Color {
     let h = bo_model::fingerprint(author);
@@ -283,19 +292,31 @@ pub fn revision_style(
             if let Some(d) = &rp.del {
                 if plain(&d.info.author) || marks.deletions_in_balloons {
                     st.hidden = true;
+                } else if d.moved {
+                    // Moved away: double strikethrough in the move colour.
+                    st.double_strike = true;
+                    st.strike = false;
+                    st.color = MOVE_COLOR;
+                    st.revision = Some((MOVE_COLOR, true));
                 } else {
                     st.strike = true;
                     st.color = author_color(&d.info.author);
                     st.revision = Some((st.color, true));
                 }
             } else if let Some(i) = rp.ins.as_ref().filter(|i| !plain(&i.info.author)) {
-                st.revision = Some((author_color(&i.info.author), false));
+                // Moved here: double underline in the move colour.
+                let color = if i.moved {
+                    MOVE_COLOR
+                } else {
+                    author_color(&i.info.author)
+                };
+                st.revision = Some((color, false));
                 st.underline = if i.moved {
                     Underline::Double
                 } else {
                     Underline::Single
                 };
-                st.color = author_color(&i.info.author);
+                st.color = color;
             }
         }
         V::Final => {

@@ -163,6 +163,7 @@ import {
   TemplateDialog,
 } from './DocDialogs';
 import { ColorPicker, FontFamilyPicker, FontSizeBox, SpacingMenu } from './FontControls';
+import { DefineListDialog, MultilevelMenu, SetNumberingDialog } from './ListDialogs';
 import { Rulers, type PageBox } from './Ruler';
 
 /** Options controlled by the embedding host (prompt §3.5). */
@@ -879,6 +880,27 @@ function EditorInner({
       isEnabled: hasDoc,
       isChecked: (s) => !!f(s)?.numbering,
       run: () => para({ kind: 'numbering' }),
+    });
+    // Multilevel lists (ECMA-376 Part 1, §17.9): define, link to headings, set value.
+    r.register({
+      id: 'format.defineList',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'defineList' }),
+    });
+    r.register({
+      id: 'format.setNumberingValue',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'setNumbering' }),
+    });
+    r.register({
+      id: 'format.restartNumbering',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'setListNumbering', numbering: { kind: 'restart', value: 1 } }),
+    });
+    r.register({
+      id: 'format.continueNumbering',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'setListNumbering', numbering: { kind: 'continue' } }),
     });
     r.register({
       id: 'format.indent',
@@ -1747,6 +1769,23 @@ function EditorInner({
           items: [
             s('format.bullets', 'commands.format.bullets', <List size={SMALL} />),
             s('format.numbering', 'commands.format.numbering', <ListOrdered size={SMALL} />),
+            custom(
+              'format.multilevel',
+              <MultilevelMenu
+                disabled={noDoc}
+                entries={(
+                  [
+                    ['format.defineList', 'commands.format.defineList'],
+                    ['format.setNumberingValue', 'commands.format.setNumberingValue'],
+                    ['format.restartNumbering', 'commands.format.restartNumbering'],
+                    ['format.continueNumbering', 'commands.format.continueNumbering'],
+                  ] as const
+                ).map(([id, key]) => {
+                  const it = item(id, key, null);
+                  return { id, label: it.label, enabled: it.enabled, onSelect: it.onSelect };
+                })}
+              />,
+            ),
             s('format.outdent', 'commands.format.outdent', <ListIndentDecrease size={SMALL} />),
             s('format.indent', 'commands.format.indent', <ListIndentIncrease size={SMALL} />),
             s('format.alignLeft', 'commands.format.alignLeft', <AlignLeft size={SMALL} />),
@@ -2254,6 +2293,18 @@ function EditorInner({
                   if (c) void runFocus({ cmd: 'paste', ...c, mode });
                 }}
               />
+            )}
+            {state.dialog === 'defineList' && (
+              <DefineListDialog
+                onClose={closeDialog}
+                onApply={(levels, apply) => {
+                  closeDialog();
+                  void runFocus({ cmd: 'defineList', levels, apply });
+                }}
+              />
+            )}
+            {state.dialog === 'setNumbering' && (
+              <SetNumberingDialog run={runCommand} onClose={closeDialog} />
             )}
             {state.dialog === 'templates' && (
               <TemplateDialog

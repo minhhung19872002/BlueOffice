@@ -435,6 +435,35 @@ export interface ReviewState {
   comments: CommentInfo[];
 }
 
+/** Number format of a list level (ECMA-376 Part 1, §17.18.59 `ST_NumberFormat` subset). */
+export type ListNumFormat =
+  | 'decimal'
+  | 'decimalZero'
+  | 'lowerLetter'
+  | 'upperLetter'
+  | 'lowerRoman'
+  | 'upperRoman'
+  | 'bullet'
+  | 'none';
+
+/** One level of a new multilevel list (mirrors `bo_edit::ListLevelSpec`; §17.9.6 lvl). */
+export interface ListLevelSpec {
+  format: ListNumFormat;
+  /** Level text (§17.9.11 lvlText): `%1`…`%9` stand for the levels' numbers. */
+  text: string;
+  /** Start value (§17.9.25 start). */
+  start: number;
+  /** Left indent of the text, twips. */
+  indent: number;
+  /** Hanging indent of the number, twips. */
+  hanging: number;
+  /** Paragraph style linked to the level (§17.9.23 pStyle), e.g. `Heading1`. */
+  style?: string | null;
+}
+
+/** Set numbering value (mirrors `bo_edit::ListNumbering`). */
+export type ListNumbering = { kind: 'restart'; value: number } | { kind: 'continue' };
+
 /** Editing command sent to the engine (JSON bridge, ADR-0008). */
 export type EditCommand =
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
@@ -447,6 +476,8 @@ export type EditCommand =
   | { cmd: 'formatText'; format: CharFormat }
   | { cmd: 'formatParagraph'; format: ParaFormat }
   | { cmd: 'applyStyle'; id: string }
+  | { cmd: 'defineList'; levels: ListLevelSpec[]; apply?: boolean }
+  | { cmd: 'setListNumbering'; numbering: ListNumbering }
   | { cmd: 'insertTable'; rows: number; cols: number }
   | { cmd: 'insertSectionBreak'; kind: 'nextPage' | 'continuous' | 'evenPage' | 'oddPage' }
   | { cmd: 'find'; query: string; options?: FindOptions }

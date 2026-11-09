@@ -66,6 +66,8 @@ export interface EditorState {
     | 'equation'
     | 'field'
     | 'control'
+    | 'defineList'
+    | 'setNumbering'
     | null;
   /** Format Painter: off, once (single click) or sticky (double click; Esc stops). */
   painter: 'off' | 'once' | 'sticky';

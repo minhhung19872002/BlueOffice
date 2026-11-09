@@ -111,6 +111,21 @@ pub enum Command {
         /// Style id (`w:styleId`).
         id: String,
     },
+    /// Define a new multilevel list (ECMA-376 Part 1, §17.9.1 abstractNum, §17.9.6 lvl)
+    /// whose levels may be linked to paragraph styles (§17.9.23 pStyle).
+    DefineList {
+        /// Levels 1… (at most 9; missing levels get defaults).
+        levels: Vec<bo_edit::ListLevelSpec>,
+        /// Number the selected paragraphs with the new list.
+        #[serde(default = "yes")]
+        apply: bool,
+    },
+    /// Set numbering value: restart the list at the caret at a value or continue the
+    /// list above (§17.9.15 num, §17.9.8 lvlOverride, §17.9.26 startOverride).
+    SetListNumbering {
+        /// Restart at a value or continue.
+        numbering: bo_edit::ListNumbering,
+    },
     /// Insert an empty table at the caret.
     InsertTable {
         /// Number of rows.
@@ -1070,6 +1085,12 @@ impl crate::Engine {
                     }
                     Command::ApplyStyle { id } => {
                         s.apply_style(&id)?;
+                    }
+                    Command::DefineList { levels, apply } => {
+                        s.define_list(&levels, apply)?;
+                    }
+                    Command::SetListNumbering { numbering } => {
+                        s.set_list_numbering(numbering)?;
                     }
                     Command::InsertTable { rows, cols } => {
                         s.insert_table(rows, cols)?;

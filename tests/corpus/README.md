@@ -26,6 +26,7 @@ Kiểm thử: `cargo test -p bo-docx --test corpus` (round-trip, ngưỡng ≥ 9
 | `doc/lists-01-multilevel.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | lists: Danh sách số nhiều cấp (decimal, lowerLetter, lowerRoman, upperRoman) |
 | `doc/lists-02-bullets.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | lists: Danh sách gạch đầu dòng các cấp xen đoạn thường |
 | `doc/lists-03-restart-override.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | lists: Hai num cùng abstractNum, lvlOverride/startOverride khởi động lại |
+| `doc/lists-04-heading-linked.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | lists: Danh sách đa cấp liên kết Heading1/Heading2 qua lvl/pStyle và numPr của style (1., 1.1.) |
 | `doc/merge-01-letter.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | merge: Thư trộn: MERGEFIELD fldSimple và field phức, tên trường có dấu cách ("Họ tên"), \* Upper |
 | `doc/merge-02-table.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | merge: Trường trộn trong bảng, \b / \f (chữ trước/sau khi có giá trị), số tiền |
 | `doc/merge-03-header-sections.docx` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/corpus.rs`) | merge: Trường trộn ở đầu trang và hai section (dọc + ngang) — mỗi bản ghi lặp lại cả hai |

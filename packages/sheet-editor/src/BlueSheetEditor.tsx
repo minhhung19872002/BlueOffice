@@ -19,6 +19,7 @@ import type {
   StylePatch,
   WorkbookInfo,
   RangeStats,
+  FlashFillResult,
   SheetPermissions,
 } from '@blueoffice/platform';
 import {
@@ -98,6 +99,7 @@ import {
   Settings2,
   ShieldCheck,
   Target,
+  Sparkles,
   Grid3x3,
   ListFilter,
   FunnelX,
@@ -1679,6 +1681,20 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       isChecked: () => !!summary?.autoFilter,
     });
     add('data.validation', open({ kind: 'dv' }));
+    add(
+      'data.flashFill',
+      async (s) => {
+        const { row, col } = s.selection.active;
+        const r = await exec<FlashFillResult>({ cmd: 'flashFill', sheet: s.sheet, row, col });
+        if (!r) return;
+        setStatus(
+          r.found && r.filled > 0
+            ? t('sheetEditor.flashFill.done', { count: r.filled })
+            : t('sheetEditor.flashFill.none'),
+        );
+      },
+      { shortcut: 'Ctrl+E' },
+    );
     add('data.goalSeek', open({ kind: 'goalSeek' }));
     add('data.dataTable', open({ kind: 'dataTable' }));
     add('data.solver', open({ kind: 'solver' }));
@@ -2520,6 +2536,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             label: t('sheetEditor.groupDataTools'),
             items: [
               item('data.validation', t('sheetEditor.dv.title'), <ShieldCheck size={18} />),
+              item('data.flashFill', t('sheetEditor.flashFill.title'), <Sparkles size={18} />),
               item('data.goalSeek', t('sheetEditor.goalSeek.title'), <Target size={18} />),
               item('data.dataTable', t('sheetEditor.dataTable.title'), <Grid3x3 size={18} />),
               item('data.solver', t('sheetEditor.solver.title'), <Calculator size={18} />),

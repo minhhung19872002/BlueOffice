@@ -1041,6 +1041,19 @@ pub enum SheetCommand {
         /// The ranges of the selection.
         ranges: Vec<Rng>,
     },
+    /// Flash Fill: learn a text pattern from the filled cells of column `col` in the
+    /// block of data around `row`, `col` (the other columns of the block are the
+    /// sources; a header row is skipped) and fill its empty cells below the first
+    /// example. One undo step. Returns `{ found, filled }`; `found` is false when no
+    /// consistent, unambiguous pattern exists (nothing changes).
+    FlashFill {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// A cell of the column to fill (0-based).
+        row: u32,
+        /// Its column.
+        col: u32,
+    },
 }
 
 /// Recalculation needed after an edit.
@@ -1057,6 +1070,62 @@ fn bad(msg: impl Into<String>) -> EngineError {
 
 fn non_empty(c: &Cell) -> bool {
     !matches!(c.value, CellValue::Empty) || c.formula.is_some()
+}
+
+/// Flash Fill over the block of data around `row`, `col`: the cells of column `col`
+/// to fill and their text, or `None` when no pattern fits the examples.
+fn flash_fill_cells(
+    wb: &Workbook,
+    ws: &Worksheet,
+    row: u32,
+    col: u32,
+    locale: &bo_sheet::numfmt::Locale,
+) -> Option<Vec<(u32, String)>> {
+    use bo_sheet::flashfill::{flash_fill, Example};
+    let at = CellRef::new(row.min(MAX_ROWS - 1), col.min(MAX_COLS - 1));
+    let region = current_region(ws, CellRange::new(at, at));
+    let sources: Vec<u32> = (region.first.col..=region.last.col)
+        .filter(|&c| c != col)
+        .collect();
+    if sources.is_empty() {
+        return None;
+    }
+    // What the user sees in a cell (numbers and dates as formatted).
+    let text = |r: u32, c: u32| {
+        ws.cell(r, c)
+            .filter(|cell| non_empty(cell))
+            .map(|cell| bo_sheet::render::format_cell(wb, cell, locale).text)
+            .unwrap_or_default()
+    };
+    let mut examples: Vec<(u32, Example)> = Vec::new();
+    let mut targets: Vec<(u32, Vec<String>)> = Vec::new();
+    for r in region.first.row..=region.last.row {
+        let inputs: Vec<String> = sources.iter().map(|&c| text(r, c)).collect();
+        let output = text(r, col);
+        if !output.is_empty() {
+            examples.push((r, Example { inputs, output }));
+        } else if !examples.is_empty() && inputs.iter().any(|s| !s.is_empty()) {
+            targets.push((r, inputs));
+        }
+    }
+    let rows: Vec<Vec<String>> = targets.iter().map(|(_, i)| i.clone()).collect();
+    let learn = |ex: &[(u32, Example)]| {
+        let ex: Vec<Example> = ex.iter().map(|(_, e)| e.clone()).collect();
+        flash_fill(&ex, &rows)
+    };
+    let mut result = learn(&examples);
+    // The first row may be a header ("Họ tên" | "Tên") rather than an example.
+    if result.is_none() && examples.len() >= 2 && examples[0].0 == region.first.row {
+        result = learn(&examples[1..]);
+    }
+    let result = result?;
+    Some(
+        targets
+            .iter()
+            .zip(result)
+            .filter_map(|((r, _), v)| v.map(|t| (*r, t)))
+            .collect(),
+    )
 }
 
 /// The contiguous block of data around a single cell (Ctrl+A / sort / filter).
@@ -1649,6 +1718,25 @@ impl SheetEngine {
             C::RangeStats { sheet, ranges } => {
                 let ws = self.sheet(sheet)?;
                 Ok(range_stats(ws, &ranges))
+            }
+            C::FlashFill { sheet, row, col } => {
+                let fills = flash_fill_cells(self.wb()?, self.sheet(sheet)?, row, col, &locale);
+                let Some(fills) = fills else {
+                    return Ok(json!({ "found": false, "filled": 0 }));
+                };
+                let filled = fills.len();
+                if filled > 0 {
+                    self.edit(sheet, Recalc::All, |wb, _| {
+                        let ws = &mut wb.sheets[sheet];
+                        for (r, text) in fills {
+                            let cell = ws.cells.entry((r, col)).or_default();
+                            cell.formula = None;
+                            cell.value = CellValue::Text(text);
+                        }
+                        Ok(())
+                    })?;
+                }
+                Ok(json!({ "found": true, "filled": filled }))
             }
             C::Presets => Ok(json!({
                 "numberFormats": bo_sheet::style::NUMBER_PRESETS

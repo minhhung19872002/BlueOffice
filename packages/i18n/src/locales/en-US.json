@@ -1021,6 +1021,11 @@
         "objects": "Edit objects (charts)"
       }
     },
+    "flashFill": {
+      "title": "Flash Fill",
+      "done": "Flash Fill filled {{count}} cells.",
+      "none": "Flash Fill found no pattern. Type one or two more examples, then try again."
+    },
     "goalSeek": {
       "title": "Goal Seek",
       "target": "Set cell",

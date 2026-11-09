@@ -11,6 +11,14 @@ import type {
 import { ImeInput, type ImeEvent } from './ime';
 import { GlyphStore, ImageStore, PX_PER_PT, renderPage } from './renderer';
 import { drawMarkup, type MarkupSelect } from './markup';
+import { drawFormattingMarks } from './marks';
+
+/**
+ * How pages are shown: printed pages with gaps and shadows; web layout (the
+ * engine lays text out to the window width, strips stacked without gaps);
+ * draft (no page decorations, page boundaries as dashed lines).
+ */
+export type PageMode = 'print' | 'web' | 'draft';
 
 /** Pointer input on a page, in points relative to the page's top-left corner. */
 export interface PagePointer {
@@ -98,6 +106,7 @@ export class DocumentView {
   private zoomValue = 1;
   private frame = 0;
   private currentPage = -1;
+  private mode: PageMode = 'print';
   private readonly opts: Required<
     Omit<
       DocumentViewOptions,
@@ -167,6 +176,7 @@ export class DocumentView {
     el.setAttribute('aria-label', `page ${i + 1}`);
     el.style.cssText =
       'position:relative;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.06);flex:none;cursor:text;';
+    this.stylePage(el, i);
     const overlay = document.createElement('div');
     overlay.className = 'bo-overlay';
     overlay.style.cssText = 'position:absolute;inset:0;z-index:2;pointer-events:none;';
@@ -415,6 +425,55 @@ export class DocumentView {
     if (p) this.opts.onPointer?.({ type: 'up', ...p, shift: e.shiftKey, count: 1 });
   };
 
+  /** Show pages as printed, as web layout strips or as draft (see {@link PageMode}). */
+  setPageMode(mode: PageMode): void {
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.content.dataset.mode = mode;
+    const gap = mode === 'print' ? this.opts.pageGap : 0;
+    this.content.style.gap = `${gap}px`;
+    this.content.style.padding = mode === 'print' ? `${gap}px 0` : '0';
+    this.slots.forEach((s, i) => this.stylePage(s.el, i));
+    this.schedule();
+  }
+
+  get pageMode(): PageMode {
+    return this.mode;
+  }
+
+  private stylePage(el: HTMLElement, i: number): void {
+    const print = this.mode === 'print';
+    el.style.boxShadow = print ? '0 1px 3px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.06)' : 'none';
+    // Draft: a dashed line where a new page starts.
+    el.style.borderTop = this.mode === 'draft' && i > 0 ? '1px dashed #9aa3b2' : '';
+    el.style.boxSizing = 'content-box';
+  }
+
+  /** Width available to a web layout page, in points at the current zoom. */
+  contentWidthPt(): number {
+    // Room for a vertical scroll bar that the reflowed text may bring.
+    return Math.max(1, this.scroller.clientWidth - 20) / (PX_PER_PT * this.zoomValue);
+  }
+
+  /** Number of pages shown. */
+  get pageCount(): number {
+    return this.slots.length;
+  }
+
+  /** Draw page `index` into `canvas`, `width` CSS pixels wide (page thumbnails). */
+  async renderThumbnail(index: number, canvas: HTMLCanvasElement, width: number): Promise<void> {
+    const list = await this.pageList(index);
+    await Promise.all([this.glyphs.ensure(list), this.images.ensure(list)]);
+    const dpr = window.devicePixelRatio || 1;
+    const scale = (width / list.width) * dpr;
+    canvas.width = Math.max(1, Math.round(list.width * scale));
+    canvas.height = Math.max(1, Math.round(list.height * scale));
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${Math.round((width * list.height) / list.width)}px`;
+    const ctx = canvas.getContext('2d');
+    if (ctx) renderPage(ctx, list, this.glyphs, scale, this.images);
+  }
+
   setZoom(z: number): void {
     const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 100) / 100));
     if (next === this.zoomValue) return;
@@ -572,6 +631,8 @@ export class DocumentView {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         renderPage(ctx, list, this.glyphs, scale, this.images);
+        if (list.marks?.length) drawFormattingMarks(ctx, list.marks, scale);
+        slot.el.dataset.marks = String(list.marks?.length ?? 0);
         this.paintMarkup(slot, list.width, list.height, list.markup);
         if (!slot.canvas) {
           slot.el.insertBefore(canvas, slot.overlay);

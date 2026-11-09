@@ -5,7 +5,9 @@ export {
   type DocumentViewOptions,
   type PagePointer,
   type PeerMark,
+  type PageMode,
 } from './DocumentView';
+export { drawFormattingMarks, markSymbol, MARK_COLOR, type MarkCanvas } from './marks';
 export {
   GlyphStore,
   ImageStore,

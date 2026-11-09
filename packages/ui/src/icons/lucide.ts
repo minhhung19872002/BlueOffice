@@ -387,6 +387,7 @@ export const LUCIDE_ICONS: Record<string, IconSpec> = {
   'review.accept': lucide(Check),
   'review.acceptAll': lucide(CheckCheck),
   'review.checkDocument': lucide(ClipboardCheck),
+  'review.spellingDialog': lucide(SpellCheck),
   'review.combine': lucide(GitMerge),
   'review.comments': lucide(MessagesSquare),
   'review.compare': lucide(GitCompare),

@@ -45,6 +45,7 @@ pub mod spell;
 pub mod story;
 pub mod templates;
 pub mod textbox;
+pub mod views;
 
 /// Installed OS fonts (native hosts, see [`Engine::set_system_fonts`]).
 #[cfg(not(target_arch = "wasm32"))]
@@ -286,6 +287,12 @@ pub struct Engine {
     pub(crate) sec: security::FileSecurity,
     /// Names of the current user for editable regions (kept across documents).
     pub(crate) identity: Vec<String>,
+    /// Print / web / draft layout of the view (BlueDoc).
+    view_layout: views::ViewLayout,
+    /// The view layout changed since the last layout (lay out everything again).
+    view_changed: bool,
+    /// Formatting marks travel with the page display lists of the view.
+    show_marks: bool,
 }
 
 impl Engine {
@@ -454,8 +461,15 @@ impl Engine {
         let opts = self.options();
         self.layout.reset();
         let all = BlockChanges::everything();
-        self.layout
-            .update(&doc, &mut self.fonts, &mut self.cache, opts, &all)?;
+        let shown = views::view_document(&doc, self.view_layout);
+        self.view_changed = false;
+        self.layout.update(
+            shown.as_ref().unwrap_or(&doc),
+            &mut self.fonts,
+            &mut self.cache,
+            opts,
+            &all,
+        )?;
         self.doc_display = (0..self.layout.document().pages.len())
             .map(|_| OnceCell::new())
             .collect();
@@ -576,11 +590,15 @@ impl Engine {
             (Some(m), Some(r)) => Some(bo_edit::merge::preview(doc, m, Some(r))),
             _ => None,
         };
-        if preview.is_some() || self.laid_out_preview {
+        if preview.is_some() || self.laid_out_preview || self.view_changed {
             changes = BlockChanges::everything();
         }
+        self.view_changed = false;
         self.laid_out_preview = preview.is_some();
         let doc = preview.as_ref().unwrap_or(doc);
+        // Web and draft layouts lay out a view copy (same blocks, other page setup).
+        let shown = views::view_document(doc, self.view_layout);
+        let doc = shown.as_ref().unwrap_or(doc);
         let dirty = self
             .layout
             .update(doc, &mut self.fonts, &mut self.cache, opts, &changes)?;
@@ -887,13 +905,28 @@ impl Engine {
         struct WithMarkup<'a> {
             #[serde(flatten)]
             page: &'a PageList,
-            markup: &'a bo_layout::PageMarkup,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            markup: Option<&'a bo_layout::PageMarkup>,
+            /// Formatting marks (¶ · →) when shown (view only).
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            marks: Vec<views::FormatMark>,
         }
         let page = self.page(index)?;
-        let Some(markup) = self.session.as_ref().and(self.page_markup(index)) else {
-            return Ok(page.to_json());
+        let markup = self.session.as_ref().and(self.page_markup(index));
+        let marks = if self.show_marks {
+            self.formatting_marks(index)
+        } else {
+            Vec::new()
         };
-        Ok(serde_json::to_string(&WithMarkup { page, markup }).unwrap_or_default())
+        if markup.is_none() && marks.is_empty() {
+            return Ok(page.to_json());
+        }
+        Ok(serde_json::to_string(&WithMarkup {
+            page,
+            markup,
+            marks,
+        })
+        .unwrap_or_default())
     }
 
     /// Glyph outlines for the canvas renderer.

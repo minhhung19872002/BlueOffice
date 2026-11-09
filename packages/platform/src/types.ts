@@ -8,6 +8,7 @@
  */
 
 import type { InspectFix, InspectReport, InspectCommand } from './inspect';
+import type { FindResult, FormatMark, OutlineItem, ViewCommand } from './views';
 
 // ---------------------------------------------------------------- engine data
 
@@ -126,6 +127,8 @@ export interface PageDisplayList {
   commands: DisplayCommand[];
   /** Review markup drawn beside the page in the view only (BlueDoc). */
   markup?: PageMarkup;
+  /** Formatting marks (¶ · →) when shown (view only, BlueDoc). */
+  marks?: FormatMark[];
 }
 
 /** Kind of a mark in the review markup (mirrors `bo_layout::MarkKind`). */
@@ -702,7 +705,9 @@ export type EditCommand =
   | { cmd: 'applyTheme' | 'applyStyleSet'; id: string }
   /** Check document (CORE-INSPECT-001): `inspect`, `inspectRemove`, `inspectKeep` → `inspection`. */
   | InspectCommand
-  | { cmd: 'inspectFix'; fix: InspectFix };
+  | { cmd: 'inspectFix'; fix: InspectFix }
+  /** View layouts, formatting marks, outline, navigation-pane results. */
+  | ViewCommand;
 
 /** Pages showing the page borders (§17.18.63 ST_PageBorderDisplay). */
 export type PageBorderDisplay = 'allPages' | 'firstPage' | 'notFirstPage';
@@ -835,6 +840,10 @@ export interface EditResult {
   design?: DesignState;
   /** Protection state (security commands; after edits while regions are shown). */
   security?: import('./security').SecurityInfo;
+  /** Document outline (`outline` and outline commands). */
+  outline?: OutlineItem[];
+  /** Find results with context (`findResults`). */
+  results?: FindResult[];
 }
 
 /** A replacement-list entry (mirrors `bo_edit::autocorrect::Replacement`). */

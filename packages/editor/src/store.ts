@@ -6,6 +6,7 @@ import type {
   FontChoice,
   MergeState,
   OpenedFile,
+  OutlineItem,
   PeerCursor,
   ReviewState,
   SecurityInfo,
@@ -112,6 +113,18 @@ export interface EditorState {
   security: SecurityInfo | null;
   /** Protection UI: the Protect dialog, or the "view only / edit" prompt on open. */
   protectUi: 'panel' | 'prompt' | null;
+  /** BlueDoc view (View › Views): print, web or draft layout, outline view, read mode. */
+  viewMode: 'print' | 'web' | 'draft' | 'outline' | 'read';
+  /** Focus mode: ribbon and status bar hidden. */
+  focusMode: boolean;
+  /** Navigation pane tab (null: closed). */
+  navPane: 'headings' | 'pages' | 'results' | null;
+  /** Formatting marks (¶ · →) shown. */
+  showMarks: boolean;
+  /** Document outline (outline view, navigation pane headings). */
+  outline: OutlineItem[] | null;
+  /** Bumped whenever page content changes (thumbnails, outline follow it). */
+  layoutVersion: number;
 }
 
 export const initialState = (language: Language, theme: ThemeSetting): EditorState => ({
@@ -144,6 +157,12 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   spellMenu: null,
   security: null,
   protectUi: null,
+  viewMode: 'print',
+  focusMode: false,
+  navPane: null,
+  showMarks: false,
+  outline: null,
+  layoutVersion: 0,
 });
 
 export const createEditorStore = (language: Language, theme: ThemeSetting) =>

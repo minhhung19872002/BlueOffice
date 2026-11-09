@@ -66,7 +66,9 @@
       "proofing": "Soát lỗi",
       "equation": "Phương trình",
       "compare": "So sánh",
-      "formFields": "Biểu mẫu cổ điển"
+      "formFields": "Biểu mẫu cổ điển",
+      "views": "Kiểu xem",
+      "show": "Hiển thị"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -175,7 +177,15 @@
         "touch": "Mật độ: Cảm ứng"
       },
       "toggleLanguage": "English",
-      "ruler": "Thước kẻ"
+      "ruler": "Thước kẻ",
+      "printLayout": "Bố cục trang in",
+      "webLayout": "Bố cục web",
+      "draft": "Bản nháp",
+      "outline": "Dàn ý",
+      "readMode": "Chế độ đọc",
+      "focus": "Tập trung",
+      "navigationPane": "Ngăn điều hướng",
+      "formattingMarks": "Ký hiệu định dạng"
     },
     "review": {
       "trackChanges": "Theo dõi thay đổi",
@@ -199,7 +209,7 @@
       "convertLegacyText": "Chuyển chữ TCVN3/VNI sang Unicode",
       "spelling": "Kiểm tra chính tả khi gõ",
       "grammar": "Soát ngữ pháp và văn phong khi gõ",
-      "checkDocument": "Soát chính tả và ngữ pháp…",
+      "spellingDialog": "Soát chính tả và ngữ pháp…",
       "language": "Ngôn ngữ soát lỗi…",
       "autoCorrect": "Tuỳ chọn tự động sửa…",
       "compare": "So sánh với bản gốc…",
@@ -280,6 +290,13 @@
       "lock": "Khoá trường",
       "unlock": "Mở khoá trường",
       "unlink": "Chuyển trường thành văn bản"
+    },
+    "outline": {
+      "promote": "Nâng cấp đề mục",
+      "demote": "Hạ cấp đề mục",
+      "bodyText": "Chuyển thành văn bản thường",
+      "moveUp": "Đưa lên",
+      "moveDown": "Đưa xuống"
     }
   },
   "status": {
@@ -3209,6 +3226,45 @@
       "shapes": "Hình",
       "slides": "Slide",
       "picture": "Ảnh"
+    }
+  },
+  "views": {
+    "nav": {
+      "title": "Điều hướng",
+      "headings": "Đề mục",
+      "pages": "Trang",
+      "results": "Kết quả",
+      "search": "Tìm trong tài liệu",
+      "noHeadings": "Chưa có đề mục. Đoạn văn mang kiểu đề mục sẽ hiện ở đây.",
+      "noResults": "Không có kết quả phù hợp.",
+      "resultCount": "{{count}} kết quả",
+      "close": "Đóng ngăn điều hướng",
+      "expand": "Hiện đề mục con",
+      "collapse": "Ẩn đề mục con",
+      "page": "Trang {{n}}",
+      "dropEnd": "Thả vào đây để chuyển xuống cuối"
+    },
+    "outline": {
+      "title": "Dàn ý",
+      "showLevel": "Hiện",
+      "allLevels": "Mọi cấp",
+      "level": "Cấp {{n}}",
+      "upTo": "Cấp 1–{{n}}",
+      "bodyText": "Văn bản thường",
+      "close": "Đóng dàn ý",
+      "empty": "Tài liệu chưa có đoạn văn nào.",
+      "dropEnd": "Thả vào đây để chuyển xuống cuối"
+    },
+    "read": {
+      "title": "Đọc",
+      "previous": "Màn hình trước",
+      "next": "Màn hình sau",
+      "exit": "Thoát chế độ đọc",
+      "page": "Trang {{n}} / {{total}}",
+      "pages": "Trang {{from}}–{{to}} / {{total}}"
+    },
+    "focus": {
+      "exit": "Thoát tập trung"
     }
   }
 }

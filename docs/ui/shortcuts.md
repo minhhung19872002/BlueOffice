@@ -45,6 +45,12 @@ Trên macOS, Ctrl ⇒ ⌘. Người dùng cấu hình lại được ở Tùy ch
 | Ctrl+Shift+R | Theo dõi thay đổi | có |
 | Ctrl+Alt+M | Bình luận mới | có |
 | Ctrl+Alt+F / Ctrl+Alt+D | Chú thích chân trang / cuối văn bản | có |
+| Ctrl+Shift+8 | Bật/tắt ký hiệu định dạng ¶ · → (`view.formattingMarks`) | có |
+| Alt+Shift+← / Alt+Shift+→ | Nâng / hạ cấp đề mục (`outline.promote` / `outline.demote`) | có |
+| Alt+Shift+↑ / Alt+Shift+↓ | Đưa đề mục cùng nội dung con lên / xuống (`outline.moveUp` / `outline.moveDown`) | có |
+| Tab / Shift+Tab (dạng xem dàn ý) | Hạ / nâng cấp đoạn đang chọn | có |
+| ← → / PageUp PageDown / Space, Home / End (chế độ đọc) | Lật màn hình, về đầu / cuối | có |
+| Escape (chế độ đọc, tập trung) | Thoát về dạng xem trước | có |
 | Ctrl+E / Ctrl+L / Ctrl+R / Ctrl+J | Căn giữa / trái / phải / đều | dự kiến |
 | Ctrl+= / Ctrl+Shift+= | Chỉ số dưới / trên | dự kiến (Ctrl+Shift+= hiện là phóng to; chuyển phóng to sang Ctrl+Alt+=) |
 | Shift+F3 | Đổi chữ hoa/thường | dự kiến |

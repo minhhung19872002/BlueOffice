@@ -22,6 +22,7 @@ mod inspect;
 pub mod lists;
 pub mod merge;
 mod ops;
+pub mod outline;
 pub mod para;
 mod paste;
 pub mod picture;

@@ -220,6 +220,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `review.resolveComment` | Lucide (ISC) `CircleCheck` |
 | `review.savePassword` | Lucide (ISC) `Lock` |
 | `review.spelling` | Lucide (ISC) `SpellCheck` |
+| `review.spellingDialog` | Lucide (ISC) `SpellCheck` |
 | `review.trackChanges` | Lucide (ISC) `FilePenLine` |
 | `review.viewFinal` | Lucide (ISC) `Eye` |
 | `review.viewMarkup` | Lucide (ISC) `Eye` |

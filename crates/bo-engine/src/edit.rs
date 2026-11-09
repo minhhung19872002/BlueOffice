@@ -232,6 +232,8 @@ pub enum Command {
         /// Which version of the text to display.
         view: RevisionView,
     },
+    /// Review display mode and markup options (absent fields are kept).
+    SetMarkup(crate::markup::MarkupUpdate),
     /// Accept one revision by id, or those at the selection when `id` is absent.
     AcceptRevision {
         /// Revision id.
@@ -819,6 +821,7 @@ impl crate::Engine {
                 | Command::SetTrackChanges { .. }
                 | Command::SetAuthor { .. }
                 | Command::SetRevisionView { .. }
+                | Command::SetMarkup(_)
                 | Command::NextRevision { .. }
                 | Command::SelectComment { .. }
                 | Command::NextComment { .. }
@@ -826,8 +829,13 @@ impl crate::Engine {
                 | Command::CombineWith { .. }
         );
         if let Command::SetRevisionView { view } = cmd {
-            relayout = self.view != view;
-            self.view = view;
+            relayout = self.set_markup(crate::markup::MarkupUpdate {
+                mode: Some(crate::markup::MarkupOptions::mode_of(view)),
+                ..Default::default()
+            });
+        }
+        if let Command::SetMarkup(u) = &cmd {
+            relayout = self.set_markup(u.clone());
         }
         if let Command::ShowFieldCodes { on } = cmd {
             relayout |= self.field_codes != on;
@@ -919,6 +927,7 @@ impl crate::Engine {
                 LayoutOptions {
                     view: self.view,
                     field_codes: self.field_codes,
+                    marks: self.markup.filter(),
                 },
             );
             // Lays a document out for field updates (page numbers per body paragraph).
@@ -943,6 +952,7 @@ impl crate::Engine {
                     | Command::AutoCorrect { .. }
                     | Command::Review
                     | Command::SetRevisionView { .. }
+                    | Command::SetMarkup(_)
                     | Command::ShowFieldCodes { .. }
                     | Command::MergeData { .. }
                     | Command::MergePreview { .. }
@@ -1386,7 +1396,7 @@ impl crate::Engine {
         }
         if changed || relayout || review {
             if let Some(s) = self.session.as_ref() {
-                r.review = Some(crate::review::review_state(s, self.view));
+                r.review = Some(crate::review::review_state(s, &self.markup));
             }
         }
         Ok(r)

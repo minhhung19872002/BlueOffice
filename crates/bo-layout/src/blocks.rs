@@ -42,6 +42,8 @@ pub(crate) struct Ctx<'a> {
     pub endnote_order: Vec<i32>,
     /// How tracked changes are shown.
     pub view: RevisionView,
+    /// Markup filter of the all-markup view (see [`crate::MarkFilter`]).
+    pub marks: crate::MarkFilter,
     /// Note being stacked and its next paragraph index (note lines carry
     /// [`LineSource::Note`]).
     pub note: Option<(NoteKey, u32)>,
@@ -362,6 +364,7 @@ fn para_block(
         note_numbers: &ctx.notes,
         note_mark,
         view: ctx.view,
+        marks: ctx.marks,
         wrap,
     };
     let pl = layout_paragraph(&inp, ctx.fonts, ctx.cache)?;

@@ -15,6 +15,8 @@ pub struct ReviewState {
     pub author: String,
     /// How tracked changes are displayed.
     pub view: RevisionView,
+    /// Review display mode and markup options.
+    pub markup: crate::markup::MarkupOptions,
     /// Revisions of the document.
     pub revisions: Vec<RevisionItem>,
     /// Comments (ECMA-376 Part 1, §17.13.4) with their thread parent.
@@ -22,11 +24,12 @@ pub struct ReviewState {
 }
 
 /// Current review state of a session.
-pub fn review_state(s: &Session, view: RevisionView) -> ReviewState {
+pub fn review_state(s: &Session, markup: &crate::markup::MarkupOptions) -> ReviewState {
     ReviewState {
         track_changes: s.track_changes(),
         author: s.author().to_owned(),
-        view,
+        view: markup.layout_view(),
+        markup: markup.clone(),
         revisions: s.revisions(),
         comments: s.comments(),
     }

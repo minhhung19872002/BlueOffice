@@ -268,6 +268,7 @@ fn new_ctx<'a>(
         id_origin: 0,
         endnote_order: sc.endnote_order.clone(),
         view: opts.view,
+        marks: opts.marks,
         note: None,
         textbox: None,
     }

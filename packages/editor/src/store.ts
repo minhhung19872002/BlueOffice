@@ -54,6 +54,8 @@ export interface EditorState {
     | null;
   /** Verification of the opened file's digital signatures (null: unsigned / not checked). */
   signatures: SignatureReport | null;
+  /** Docked list of changes and comments (null: hidden). */
+  reviewingPane: 'left' | 'bottom' | null;
   /** Field codes shown instead of field results (Alt+F9). */
   fieldCodes: boolean;
   /** Modal dialog. */
@@ -117,6 +119,7 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   macroWarning: false,
   legacyNotice: 0,
   signatures: null,
+  reviewingPane: null,
   fieldCodes: false,
   peers: [],
   showPeers: true,

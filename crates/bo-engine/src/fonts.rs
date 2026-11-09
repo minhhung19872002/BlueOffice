@@ -83,7 +83,7 @@ impl Engine {
         // the review pane follows them.
         if let (Some(r), Some(s)) = (r.as_mut(), self.session.as_ref()) {
             if r.review.is_none() {
-                r.review = Some(crate::review::review_state(s, self.view));
+                r.review = Some(crate::review::review_state(s, self.markup_options()));
             }
         }
         Ok(r)

@@ -1,0 +1,121 @@
+.pane {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+  padding: 8px 10px;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text);
+  font-size: 13px;
+}
+
+.left {
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--bo-reviewing-size, 300px);
+  border-right: 1px solid var(--bo-border);
+}
+
+.bottom {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--bo-reviewing-size, 220px);
+  border-top: 1px solid var(--bo-border);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header strong {
+  flex: 1;
+}
+
+.header button,
+.actions button {
+  padding: 2px 8px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--bo-text-muted);
+  font-size: 12px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.item {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  border-left: 3px solid var(--bo-border);
+  padding: 4px 6px;
+  border-radius: 3px;
+  background: var(--bo-hover, rgba(0, 0, 0, 0.03));
+}
+
+.main {
+  all: unset;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.kind {
+  font-weight: 600;
+}
+
+.meta {
+  color: var(--bo-text-muted);
+  font-size: 12px;
+}
+
+.text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  gap: 4px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.modeSelect {
+  font-size: 12px;
+  max-width: 190px;
+}

@@ -23,12 +23,17 @@ mod blocks;
 mod drawing;
 mod flow;
 mod incremental;
+mod markup;
 mod math;
 mod paragraph;
 mod style;
 mod types;
 
 pub use incremental::{IncrementalLayout, UpdateKind};
+pub use markup::{
+    balloon_height, page_markup, stack_balloons, Balloon, ChangeBar, Mark, MarkFilter, MarkKind,
+    MarkupStyle, PageMarkup, BALLOON_GAP, MAX_HIDDEN_REVIEWERS,
+};
 pub use math::{layout_equation, EquationGlyphs, EquationRun};
 pub use paragraph::{FieldContext, LayoutCache};
 pub use style::author_color;
@@ -208,6 +213,8 @@ pub struct LayoutOptions {
     pub view: RevisionView,
     /// Show field codes (`{ PAGE \* ROMAN }`) instead of field results.
     pub field_codes: bool,
+    /// What the markup view marks (reviewer filter, insertions/deletions, balloons).
+    pub marks: MarkFilter,
 }
 
 /// Lay out a whole document.

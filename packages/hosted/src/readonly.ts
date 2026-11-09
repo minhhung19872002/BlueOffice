@@ -33,6 +33,7 @@ export const DOC_READ_COMMANDS: ReadonlySet<string> = new Set([
   'notes',
   'review',
   'setRevisionView',
+  'setMarkup',
   'nextRevision',
   'nextComment',
   'selectComment',

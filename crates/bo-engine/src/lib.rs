@@ -23,6 +23,7 @@ pub mod equation;
 pub mod fonts;
 pub mod gallery;
 mod legacy_slides;
+pub mod markup;
 pub mod media;
 pub mod merge;
 pub mod nav;
@@ -233,8 +234,12 @@ pub struct Engine {
     images: BTreeMap<String, Vec<u8>>,
     /// Selection and undo history of the open presentation.
     slides: slide_edit::SlideEditor,
-    /// How tracked changes are displayed.
+    /// How tracked changes are displayed (follows `markup.mode`).
     view: RevisionView,
+    /// Review display mode and markup options (BlueDoc).
+    markup: markup::MarkupOptions,
+    /// Markup (change bars, balloons) of each laid-out page; empty when none is drawn.
+    page_markup: Vec<bo_layout::PageMarkup>,
     /// Field codes are shown instead of field results (Alt+F9).
     field_codes: bool,
     /// Author of new revisions and comments (kept across documents).
@@ -465,6 +470,8 @@ impl Engine {
         self.hf = None;
         self.note = None;
         self.textbox = None;
+        self.page_markup.clear();
+        self.refresh_markup(&mut Vec::new());
         self.info()
     }
 
@@ -478,7 +485,55 @@ impl Engine {
         LayoutOptions {
             view: self.view,
             field_codes: self.field_codes,
+            marks: self.markup.filter(),
         }
+    }
+
+    /// Review display mode and markup options.
+    pub fn markup_options(&self) -> &markup::MarkupOptions {
+        &self.markup
+    }
+
+    /// Update the markup options; returns whether they changed (the caller lays out
+    /// again).
+    pub(crate) fn set_markup(&mut self, u: markup::MarkupUpdate) -> bool {
+        let changed = self.markup.apply(u);
+        self.view = self.markup.layout_view();
+        changed
+    }
+
+    /// Recompute the markup of every page; pages whose markup changed are added to
+    /// `dirty` (the host draws them again).
+    fn refresh_markup(&mut self, dirty: &mut Vec<usize>) {
+        let next = match &self.session {
+            Some(s) => {
+                let marks = self.markup.marks(&s.revisions(), &s.comments());
+                if marks.is_empty() {
+                    Vec::new()
+                } else {
+                    bo_layout::page_markup(
+                        self.layout.document(),
+                        &marks,
+                        &self.markup.style(&marks),
+                    )
+                }
+            }
+            None => Vec::new(),
+        };
+        let empty = bo_layout::PageMarkup::default();
+        for i in 0..self.layout.document().pages.len() {
+            let a = self.page_markup.get(i).unwrap_or(&empty);
+            let b = next.get(i).unwrap_or(&empty);
+            if a != b && !dirty.contains(&i) {
+                dirty.push(i);
+            }
+        }
+        self.page_markup = next;
+    }
+
+    /// Markup of a page (change bars and balloons drawn beside it), if any.
+    pub fn page_markup(&self, index: usize) -> Option<&bo_layout::PageMarkup> {
+        self.page_markup.get(index).filter(|m| !m.is_empty())
     }
 
     /// How tracked changes are displayed.
@@ -516,6 +571,8 @@ impl Engine {
                 *c = OnceCell::new();
             }
         }
+        let mut dirty = dirty;
+        self.refresh_markup(&mut dirty);
         Ok(dirty)
     }
 
@@ -582,6 +639,7 @@ impl Engine {
         self.goal_x = None;
         self.layout.reset();
         self.doc_display.clear();
+        self.page_markup.clear();
         self.display = Some(DisplayList { pages });
         self.pres = Some(pres);
         self.images = images;
@@ -794,7 +852,19 @@ impl Engine {
 
     /// Display list of a page as JSON (the bridge format for JS hosts).
     pub fn page_json(&self, index: usize) -> Result<String> {
-        Ok(self.page(index)?.to_json())
+        // The markup travels with the page for the view only (printing and PDF export
+        // use the display list alone).
+        #[derive(serde::Serialize)]
+        struct WithMarkup<'a> {
+            #[serde(flatten)]
+            page: &'a PageList,
+            markup: &'a bo_layout::PageMarkup,
+        }
+        let page = self.page(index)?;
+        let Some(markup) = self.session.as_ref().and(self.page_markup(index)) else {
+            return Ok(page.to_json());
+        };
+        Ok(serde_json::to_string(&WithMarkup { page, markup }).unwrap_or_default())
     }
 
     /// Glyph outlines for the canvas renderer.

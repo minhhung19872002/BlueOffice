@@ -93,6 +93,7 @@ import {
   MoonStar,
   Rows4,
   Omega,
+  PanelLeft,
   PanelRight,
   Pilcrow,
   Printer,
@@ -144,6 +145,8 @@ import styles from './Editor.module.css';
 import { FindPanel, SymbolPanel } from './Panels';
 import { CaptionPanel, CrossRefPanel, MergeFieldPanel } from './ReferencePanels';
 import { CommentsPanel, ReviewPanel } from './ReviewPanel';
+import { MarkupModeSelect, reviewersOf, ShowMarkupMenu } from './MarkupMenus';
+import { ReviewingPane } from './ReviewingPane';
 import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
 import { SignaturesPanel, SignDialog } from './SignaturePanels';
 import {
@@ -199,6 +202,8 @@ export interface BlueEditorProps {
 
 const ICON = 20;
 const SMALL = 16;
+/** Room the docked reviewing pane takes from the pages (CSS px, see ReviewingPane.module.css). */
+const REVIEWING_SIZE = { left: 300, bottom: 220 };
 /** Offline-cache keys of the crash-recovery copy (prompt §6 Phase 2: autosave + recovery). */
 export const AUTOSAVE_KEY = 'bluedoc.autosave.docx';
 export const AUTOSAVE_NAME_KEY = 'bluedoc.autosave.name';
@@ -398,6 +403,21 @@ function EditorInner({
         }
       },
       onViewport: () => measure(),
+      // A balloon in the markup area: go to its comment or change.
+      onMarkupSelect: (m) => {
+        if (m.kind === 'comment') {
+          void controller.current?.run({ cmd: 'selectComment', id: m.id });
+          return;
+        }
+        const r = store.getState().review?.revisions.find((x) => x.id === m.id && !x.story);
+        if (r) {
+          void controller.current?.run({
+            cmd: 'setSelection',
+            selection: { anchor: r.start, focus: r.end },
+          });
+        }
+      },
+      markupLabel: (kind) => i18nInstance.t(`markup.kind.${kind}`),
       // Right click on a misspelt word: corrections and dictionary actions.
       onContextMenu: (e) => {
         void controller.current?.run({ cmd: 'spellAt', page: e.page, x: e.x, y: e.y }).then((r) => {
@@ -471,7 +491,7 @@ function EditorInner({
       view.current = null;
       controller.current = null;
     };
-  }, [app, platform, store, fail, measure]);
+  }, [app, platform, store, fail, measure, i18nInstance]);
 
   // Rulers follow the caret's page and the panels' layout.
   useEffect(() => measure(), [measure, state.showRuler, state.doc, state.panel]);
@@ -1316,6 +1336,53 @@ function EditorInner({
         run: () => run({ cmd: 'setRevisionView', view }),
       });
     }
+    // Review display modes and markup options (view settings, never the document).
+    const mk = (s: EditorState) => rv(s)?.markup;
+    for (const [id, mode] of [
+      ['review.markup.simple', 'simple'],
+      ['review.markup.all', 'all'],
+      ['review.markup.none', 'none'],
+      ['review.markup.original', 'original'],
+    ] as const) {
+      r.register({
+        id,
+        isEnabled: hasDoc,
+        isChecked: (s) => (mk(s)?.mode ?? 'all') === mode,
+        run: () => run({ cmd: 'setMarkup', mode }),
+      });
+    }
+    for (const [id, key] of [
+      ['review.markup.insDel', 'insertionsDeletions'],
+      ['review.markup.formatting', 'formatting'],
+      ['review.markup.comments', 'comments'],
+      ['review.markup.balloons', 'deletionBalloons'],
+    ] as const) {
+      const on = (s: EditorState) => mk(s)?.[key] ?? key !== 'deletionBalloons';
+      r.register({
+        id,
+        isEnabled: hasDoc,
+        isChecked: on,
+        run: (s) => run({ cmd: 'setMarkup', [key]: !on(s) }),
+      });
+    }
+    r.register({
+      id: 'review.markup.allReviewers',
+      isEnabled: hasDoc,
+      isChecked: (s) => (mk(s)?.hiddenReviewers.length ?? 0) === 0,
+      run: () => run({ cmd: 'setMarkup', hiddenReviewers: [] }),
+    });
+    r.register({
+      id: 'review.reviewingPane',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.reviewingPane !== null,
+      run: (s) => store.setState({ reviewingPane: s.reviewingPane ? null : 'left' }),
+    });
+    r.register({
+      id: 'review.reviewingPaneBottom',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.reviewingPane === 'bottom',
+      run: (s) => store.setState({ reviewingPane: s.reviewingPane === 'bottom' ? null : 'bottom' }),
+    });
     r.register({
       id: 'review.pane',
       isEnabled: hasDoc,
@@ -1558,6 +1625,14 @@ function EditorInner({
   const s = (id: string, key: string, icon: ReactNode) => item(id, key, icon, 'small');
   /** A custom ribbon control (combobox, colour picker). */
   const custom = (id: string, render: ReactNode) => ({ id, label: id, onSelect: () => {}, render });
+  /** A checkable registry command shown in a review markup menu. */
+  const markupEntry = (id: string, key: string) => ({
+    id,
+    label: t(key),
+    checked: registry.isChecked(id, state),
+    enabled: registry.isEnabled(id, state),
+    onSelect: () => void registry.execute(id, store.getState()),
+  });
   const fs = state.edit?.format;
   const noDoc = !state.doc;
   const focusDoc = () => view.current?.focus();
@@ -2048,9 +2123,45 @@ function EditorInner({
               'commands.review.trackChanges',
               <FilePenLine size={ICON} />,
             ),
-            s('review.viewMarkup', 'commands.review.viewMarkup', <Eye size={SMALL} />),
-            s('review.viewFinal', 'commands.review.viewFinal', <Eye size={SMALL} />),
-            s('review.viewOriginal', 'commands.review.viewOriginal', <Eye size={SMALL} />),
+            custom(
+              'review.markupMode',
+              <MarkupModeSelect
+                disabled={noDoc}
+                entries={(
+                  [
+                    ['review.markup.simple', 'commands.review.markupSimple'],
+                    ['review.markup.all', 'commands.review.markupAll'],
+                    ['review.markup.none', 'commands.review.markupNone'],
+                    ['review.markup.original', 'commands.review.markupOriginal'],
+                  ] as const
+                ).map(([id, key]) => markupEntry(id, key))}
+              />,
+            ),
+            custom(
+              'review.showMarkup',
+              <ShowMarkupMenu
+                disabled={noDoc}
+                entries={(
+                  [
+                    ['review.markup.insDel', 'commands.review.markupInsDel'],
+                    ['review.markup.formatting', 'commands.review.markupFormatting'],
+                    ['review.markup.comments', 'commands.review.markupComments'],
+                    ['review.markup.balloons', 'commands.review.markupBalloons'],
+                  ] as const
+                ).map(([id, key]) => markupEntry(id, key))}
+                reviewers={reviewersOf(state.review)}
+                hidden={state.review?.markup?.hiddenReviewers ?? []}
+                onReviewers={(hiddenReviewers) =>
+                  void runCommand({ cmd: 'setMarkup', hiddenReviewers })
+                }
+              />,
+            ),
+            s('review.reviewingPane', 'commands.review.reviewingPane', <PanelLeft size={SMALL} />),
+            s(
+              'review.reviewingPaneBottom',
+              'commands.review.reviewingPaneBottom',
+              <PanelBottom size={SMALL} />,
+            ),
             item('review.pane', 'commands.review.pane', <PanelRight size={ICON} />),
           ],
         },
@@ -2236,8 +2347,25 @@ function EditorInner({
             <div
               ref={viewHost}
               className={`${styles.viewHost} ${state.showRuler && state.doc ? styles.withRulers : ''}`}
+              style={
+                state.reviewingPane && state.doc
+                  ? state.reviewingPane === 'left'
+                    ? { left: REVIEWING_SIZE.left }
+                    : { bottom: REVIEWING_SIZE.bottom }
+                  : undefined
+              }
               data-testid="document-view"
             />
+            {state.reviewingPane && state.doc && (
+              <ReviewingPane
+                review={state.review}
+                run={runCommand}
+                language={state.language}
+                dock={state.reviewingPane}
+                onDock={(reviewingPane) => store.setState({ reviewingPane })}
+                onClose={() => store.setState({ reviewingPane: null })}
+              />
+            )}
             {(state.edit?.story?.kind === 'header' || state.edit?.story?.kind === 'footer') && (
               <HeaderFooterBar story={state.edit.story} run={runCommand} />
             )}

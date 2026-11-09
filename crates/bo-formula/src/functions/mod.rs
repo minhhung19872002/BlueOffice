@@ -21,6 +21,7 @@ mod info;
 mod logical;
 mod lookup;
 mod math;
+mod math_more;
 mod regression;
 mod stats;
 mod text;
@@ -148,6 +149,7 @@ fn registry() -> &'static HashMap<&'static str, FnSpec> {
             bonds::FUNCTIONS,
             database::FUNCTIONS,
             text_more::FUNCTIONS,
+            math_more::FUNCTIONS,
         ] {
             for spec in group {
                 map.insert(spec.name, *spec);

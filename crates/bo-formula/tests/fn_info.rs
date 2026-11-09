@@ -203,3 +203,55 @@ fn info_edge_cases() {
         ],
     );
 }
+
+#[test]
+fn info_and_isomitted() {
+    check(
+        DATA,
+        &[
+            (
+                "=INFO(\"recalc\")",
+                T("Automatic"),
+                "ECMA-376 §18.17.7 INFO",
+            ),
+            ("=INFO(\"system\")", T("pcdos"), "ECMA-376 §18.17.7 INFO"),
+            ("=INFO(\"origin\")", T("$A:$A$1"), "ECMA-376 §18.17.7 INFO"),
+            (
+                "=INFO(\"numfile\")",
+                N(3.0),
+                "hand: the harness has Sheet1, Sheet2, Sheet3",
+            ),
+            ("=INFO(\"colour\")", E("#VALUE!"), "ECMA-376 §18.17.7 INFO"),
+            (
+                "=LAMBDA(a,b,ISOMITTED(a))(,2)",
+                B(true),
+                "MS-XLSX _xlfn.ISOMITTED: first argument empty",
+            ),
+            (
+                "=LAMBDA(a,b,ISOMITTED(b))(1,)",
+                B(true),
+                "MS-XLSX _xlfn.ISOMITTED: empty argument",
+            ),
+            (
+                "=LAMBDA(a,b,ISOMITTED(b))(1,2)",
+                B(false),
+                "MS-XLSX _xlfn.ISOMITTED",
+            ),
+            (
+                "=LAMBDA(a,b,IF(ISOMITTED(b),a,a+b))(5,)",
+                N(5.0),
+                "hand: default when b is left out",
+            ),
+            (
+                "=LAMBDA(a,b,IF(ISOMITTED(b),a,a+b))(5,2)",
+                N(7.0),
+                "hand: 5+2",
+            ),
+            (
+                "=LAMBDA(a,a)(1,2)",
+                E("#VALUE!"),
+                "MS-XLSX _xlfn.LAMBDA: too many arguments",
+            ),
+        ],
+    );
+}

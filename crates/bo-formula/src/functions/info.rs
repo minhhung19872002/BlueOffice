@@ -1,6 +1,7 @@
 //! Information functions (ECMA-376 Part 1, §18.17.7).
 
-use super::{f, s, FnSpec};
+use super::{f, l, s, FnSpec};
+use crate::ast::Expr;
 use crate::eval::{Ctx, R};
 use crate::reference::CellAddr;
 use crate::value::{ErrorKind, Value};
@@ -26,7 +27,34 @@ pub(super) const FUNCTIONS: &[FnSpec] = &[
     f("SHEET", 0, 1, sheet),
     f("SHEETS", 0, 1, sheets),
     f("FORMULATEXT", 1, 1, formulatext),
+    s("INFO", 1, 1, info),
+    l("ISOMITTED", 1, 1, isomitted),
 ];
+
+/// `INFO(type)`: facts about the operating environment (§18.17.7 INFO). BlueOffice reports
+/// itself; the working directory is not exposed.
+fn info(ctx: &mut Ctx, args: &[Value]) -> R {
+    let kind = ctx.text(&args[0])?.to_lowercase();
+    Ok(match kind.as_str() {
+        "directory" => Value::Text(String::new()),
+        "numfile" => Value::number(ctx.provider.sheet_count() as f64),
+        "origin" => Value::Text("$A:$A$1".to_owned()),
+        "osversion" => Value::Text("BlueOffice".to_owned()),
+        "recalc" => Value::Text("Automatic".to_owned()),
+        "release" => Value::Text(env!("CARGO_PKG_VERSION").to_owned()),
+        "system" => Value::Text("pcdos".to_owned()),
+        _ => return Err(ErrorKind::Value),
+    })
+}
+
+/// `ISOMITTED(parameter)`: whether a `LAMBDA` parameter was left out of the call.
+fn isomitted(ctx: &mut Ctx, args: &[Expr]) -> R {
+    match &args[0] {
+        Expr::Name { sheet: None, name } => Ok(Value::Bool(ctx.is_omitted(name))),
+        Expr::Missing => Ok(Value::Bool(true)),
+        _ => Ok(Value::Bool(false)),
+    }
+}
 
 fn isblank(_ctx: &mut Ctx, args: &[Value]) -> R {
     Ok(Value::Bool(matches!(args[0], Value::Empty)))

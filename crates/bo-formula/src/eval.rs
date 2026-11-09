@@ -91,6 +91,8 @@ pub(crate) struct Ctx<'a> {
     now: Option<f64>,
     rng: &'a AtomicU64,
     scopes: Vec<(String, Value)>,
+    /// Parameters left out of the `LAMBDA` call being evaluated (`ISOMITTED`).
+    omitted: Vec<String>,
     depth: u32,
 }
 
@@ -113,6 +115,7 @@ impl<'a> Ctx<'a> {
             now: config.now,
             rng,
             scopes: Vec::new(),
+            omitted: Vec::new(),
             depth: 0,
         }
     }
@@ -190,8 +193,8 @@ impl<'a> Ctx<'a> {
                         _ => Value::Error(ErrorKind::Value),
                     };
                 };
-                let vals: Vec<Value> = args.iter().map(|a| self.eval(a)).collect();
-                self.invoke_lambda(&lam, vals).unwrap_or_else(Value::Error)
+                self.invoke_lambda_exprs(&lam, args)
+                    .unwrap_or_else(Value::Error)
             }
         }
     }
@@ -649,15 +652,13 @@ impl Ctx<'_> {
 
     fn call(&mut self, name: &str, args: &[Expr]) -> R {
         if let Some(Value::Lambda(lam)) = self.lookup_var(name) {
-            let vals: Vec<Value> = args.iter().map(|a| self.eval(a)).collect();
-            return self.invoke_lambda(&lam, vals);
+            return self.invoke_lambda_exprs(&lam, args);
         }
         let Some(spec) = functions::lookup(name) else {
             // A defined name holding a LAMBDA can be called like a function.
             if let Some(def) = self.provider.defined_name(self.sheet, name) {
                 if let Value::Lambda(lam) = self.eval(&def) {
-                    let vals: Vec<Value> = args.iter().map(|a| self.eval(a)).collect();
-                    return self.invoke_lambda(&lam, vals);
+                    return self.invoke_lambda_exprs(&lam, args);
                 }
             }
             return Err(ErrorKind::Name);
@@ -738,18 +739,49 @@ impl Ctx<'_> {
         if args.len() != lam.params.len() {
             return Err(ErrorKind::Value);
         }
+        self.invoke_lambda_with(lam, args, Vec::new())
+    }
+
+    /// Call a `LAMBDA` written in a formula: an empty argument (`f(1,)`) leaves its parameter
+    /// omitted — blank inside the body and reported by `ISOMITTED`.
+    fn invoke_lambda_exprs(&mut self, lam: &Lambda, args: &[Expr]) -> R {
+        if args.len() != lam.params.len() {
+            return Err(ErrorKind::Value);
+        }
+        let mut vals = Vec::with_capacity(lam.params.len());
+        let mut omitted = Vec::new();
+        for (i, p) in lam.params.iter().enumerate() {
+            match args.get(i) {
+                Some(a) if !matches!(a, Expr::Missing) => vals.push(self.eval(a)),
+                _ => {
+                    vals.push(Value::Empty);
+                    omitted.push(p.clone());
+                }
+            }
+        }
+        self.invoke_lambda_with(lam, vals, omitted)
+    }
+
+    fn invoke_lambda_with(&mut self, lam: &Lambda, args: Vec<Value>, omitted: Vec<String>) -> R {
         if self.depth > MAX_DEPTH {
             return Err(ErrorKind::Num);
         }
         self.depth += 1;
         let saved = std::mem::replace(&mut self.scopes, lam.env.clone());
+        let saved_omitted = std::mem::replace(&mut self.omitted, omitted);
         for (p, v) in lam.params.iter().zip(args) {
             self.scopes.push((p.clone(), v));
         }
         let v = self.eval(&lam.body);
         self.scopes = saved;
+        self.omitted = saved_omitted;
         self.depth -= 1;
         Ok(v)
+    }
+
+    /// Whether the `LAMBDA` parameter `name` was left out of the current call.
+    pub(crate) fn is_omitted(&self, name: &str) -> bool {
+        self.omitted.iter().any(|p| p.eq_ignore_ascii_case(name))
     }
 
     /// `LET(name1, value1, ..., body)`.

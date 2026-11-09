@@ -4,7 +4,7 @@ Sinh tự động bởi `python scripts/parity-functions.py` từ danh mục hà
 (nhóm theo tài liệu hàm công khai) đối chiếu với các bảng `FUNCTIONS` trong `crates/bo-formula/src/functions/`.
 Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng ghi nguồn).
 
-**Tổng: 480/515 hàm (93 %).**
+**Tổng: 492/515 hàm (96 %).**
 
 | Nhóm | Đã có | Tổng |
 |---|---|---|
@@ -14,10 +14,10 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | Date & Time | 25 | 25 |
 | Engineering | 54 | 54 |
 | Financial | 55 | 55 |
-| Information | 19 | 21 |
+| Information | 21 | 21 |
 | Logical | 19 | 19 |
 | Lookup & Reference | 27 | 40 |
-| Math & Trig | 70 | 80 |
+| Math & Trig | 80 | 80 |
 | Statistical | 110 | 110 |
 | Text | 46 | 46 |
 | Web | 0 | 3 |
@@ -222,7 +222,7 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | YIELDMAT | Financial | [x] | bo-formula |
 | CELL | Information | [x] | bo-formula |
 | ERROR.TYPE | Information | [x] | bo-formula |
-| INFO | Information | [ ] |  |
+| INFO | Information | [x] | bo-formula |
 | ISBLANK | Information | [x] | bo-formula |
 | ISERR | Information | [x] | bo-formula |
 | ISERROR | Information | [x] | bo-formula |
@@ -233,7 +233,7 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | ISNONTEXT | Information | [x] | bo-formula |
 | ISNUMBER | Information | [x] | bo-formula |
 | ISODD | Information | [x] | bo-formula |
-| ISOMITTED | Information | [ ] |  |
+| ISOMITTED | Information | [x] | bo-formula |
 | ISREF | Information | [x] | bo-formula |
 | ISTEXT | Information | [x] | bo-formula |
 | N | Information | [x] | bo-formula |
@@ -306,13 +306,13 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | ACOT | Math & Trig | [x] | bo-formula |
 | ACOTH | Math & Trig | [x] | bo-formula |
 | AGGREGATE | Math & Trig | [x] | bo-formula |
-| ARABIC | Math & Trig | [ ] |  |
+| ARABIC | Math & Trig | [x] | bo-formula |
 | ASIN | Math & Trig | [x] | bo-formula |
 | ASINH | Math & Trig | [x] | bo-formula |
 | ATAN | Math & Trig | [x] | bo-formula |
 | ATAN2 | Math & Trig | [x] | bo-formula |
 | ATANH | Math & Trig | [x] | bo-formula |
-| BASE | Math & Trig | [ ] |  |
+| BASE | Math & Trig | [x] | bo-formula |
 | CEILING.MATH | Math & Trig | [x] | bo-formula |
 | CEILING.PRECISE | Math & Trig | [x] | bo-formula |
 | COMBIN | Math & Trig | [x] | bo-formula |
@@ -323,7 +323,7 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | COTH | Math & Trig | [x] | bo-formula |
 | CSC | Math & Trig | [x] | bo-formula |
 | CSCH | Math & Trig | [x] | bo-formula |
-| DECIMAL | Math & Trig | [ ] |  |
+| DECIMAL | Math & Trig | [x] | bo-formula |
 | DEGREES | Math & Trig | [x] | bo-formula |
 | EVEN | Math & Trig | [x] | bo-formula |
 | EXP | Math & Trig | [x] | bo-formula |
@@ -338,15 +338,15 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | LN | Math & Trig | [x] | bo-formula |
 | LOG | Math & Trig | [x] | bo-formula |
 | LOG10 | Math & Trig | [x] | bo-formula |
-| MDETERM | Math & Trig | [ ] |  |
-| MINVERSE | Math & Trig | [ ] |  |
-| MMULT | Math & Trig | [ ] |  |
+| MDETERM | Math & Trig | [x] | bo-formula |
+| MINVERSE | Math & Trig | [x] | bo-formula |
+| MMULT | Math & Trig | [x] | bo-formula |
 | MOD | Math & Trig | [x] | bo-formula |
 | MROUND | Math & Trig | [x] | bo-formula |
 | MULTINOMIAL | Math & Trig | [x] | bo-formula |
-| MUNIT | Math & Trig | [ ] |  |
+| MUNIT | Math & Trig | [x] | bo-formula |
 | ODD | Math & Trig | [x] | bo-formula |
-| PERCENTOF | Math & Trig | [ ] |  |
+| PERCENTOF | Math & Trig | [x] | bo-formula |
 | PI | Math & Trig | [x] | bo-formula |
 | POWER | Math & Trig | [x] | bo-formula |
 | PRODUCT | Math & Trig | [x] | bo-formula |
@@ -355,14 +355,14 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | RAND | Math & Trig | [x] | bo-formula |
 | RANDARRAY | Math & Trig | [x] | bo-formula |
 | RANDBETWEEN | Math & Trig | [x] | bo-formula |
-| ROMAN | Math & Trig | [ ] |  |
+| ROMAN | Math & Trig | [x] | bo-formula |
 | ROUND | Math & Trig | [x] | bo-formula |
 | ROUNDDOWN | Math & Trig | [x] | bo-formula |
 | ROUNDUP | Math & Trig | [x] | bo-formula |
 | SEC | Math & Trig | [x] | bo-formula |
 | SECH | Math & Trig | [x] | bo-formula |
 | SEQUENCE | Math & Trig | [x] | bo-formula |
-| SERIESSUM | Math & Trig | [ ] |  |
+| SERIESSUM | Math & Trig | [x] | bo-formula |
 | SIGN | Math & Trig | [x] | bo-formula |
 | SIN | Math & Trig | [x] | bo-formula |
 | SINH | Math & Trig | [x] | bo-formula |

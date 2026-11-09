@@ -110,6 +110,7 @@ import {
   Save,
   Scissors,
   Search,
+  SeparatorHorizontal,
   Settings,
   Settings2,
   ShieldCheck,
@@ -252,12 +253,12 @@ import {
   GoToDialog,
   Menu,
   MessageDialog,
-  PageSetupDialog,
   PasteSpecialDialog,
   ValidationDialog,
   type MenuItem,
 } from './dialogs';
 import { FormatCellsDialog, type NumberPreset } from './FormatCellsDialog';
+import { PageSetupDialog, PrintPreviewDialog } from './pageSetup';
 import { AdvancedFilterDialog, SortDialog } from './sortFilter';
 import { PivotDialog, PivotPanel, pivotAt, pivotSelectionItems, usePivotLabels } from './pivot';
 import {
@@ -429,6 +430,7 @@ type DialogState =
   | { kind: 'goto' }
   | { kind: 'pasteSpecial' }
   | { kind: 'pageSetup' }
+  | { kind: 'printPreview' }
   | { kind: 'pivot' }
   | { kind: 'pivotField'; pivot: PivotInfo; field: number }
   | { kind: 'pivotValue'; pivot: PivotInfo; idx: number }
@@ -2166,6 +2168,19 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('page.clearPrintArea', (s) =>
       exec({ cmd: 'setPageSetup', sheet: s.sheet, printArea: null }),
     );
+    add('page.preview', open({ kind: 'printPreview' }), has);
+    // Manual page breaks go before the active cell's row and column (row / column 0: none).
+    const pageBreak = (remove: boolean) => (s: SheetEditorState) =>
+      exec({
+        cmd: 'pageBreak',
+        sheet: s.sheet,
+        row: s.selection.active.row,
+        col: s.selection.active.col,
+        remove,
+      });
+    add('page.insertBreak', pageBreak(false));
+    add('page.removeBreak', pageBreak(true));
+    add('page.resetBreaks', (s) => exec({ cmd: 'resetPageBreaks', sheet: s.sheet }));
 
     // View
     const freeze = (rows: number, cols: number) => (s: SheetEditorState) =>
@@ -3321,6 +3336,25 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 'small',
               ),
               item('file.exportPdf', t('sheetEditor.exportPdf'), <FileDown size={s} />, 'small'),
+              item('page.preview', t('sheetEditor.printSetup.preview'), <Eye size={s} />, 'small'),
+              item(
+                'page.insertBreak',
+                t('sheetEditor.printSetup.insertBreak'),
+                <SeparatorHorizontal size={s} />,
+                'small',
+              ),
+              item(
+                'page.removeBreak',
+                t('sheetEditor.printSetup.removeBreak'),
+                <SeparatorHorizontal size={s} />,
+                'small',
+              ),
+              item(
+                'page.resetBreaks',
+                t('sheetEditor.printSetup.resetBreaks'),
+                <Eraser size={s} />,
+                'small',
+              ),
             ],
           },
         ],
@@ -4584,6 +4618,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       )}
       {dialog?.kind === 'pageSetup' && <PageSetupDialog {...common} range={toRange(r)} />}
+      {dialog?.kind === 'printPreview' && (
+        <PrintPreviewDialog
+          {...common}
+          onSetup={() => setDialog({ kind: 'pageSetup' })}
+          onPrint={() => {
+            setDialog(null);
+            run('file.print');
+          }}
+        />
+      )}
       {dialog?.kind === 'find' && (
         <FindDialog
           {...common}

@@ -33,6 +33,7 @@ mod paste_opts;
 mod pivot_cmd;
 mod png;
 mod print;
+mod print_cmd;
 pub mod protect;
 mod scenario_cmd;
 mod security_cmd;

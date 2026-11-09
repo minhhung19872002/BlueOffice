@@ -922,6 +922,88 @@
       "setArea": "Đặt vùng in",
       "clearArea": "Xoá vùng in"
     },
+    "printSetup": {
+      "tab": {
+        "page": "Trang",
+        "margins": "Lề",
+        "headerFooter": "Đầu / chân trang",
+        "sheet": "Trang tính"
+      },
+      "scaleTo": "Phóng to / thu nhỏ theo phần trăm",
+      "fitTo": "Thu nhỏ cho vừa số trang",
+      "pagesWide": "Số trang theo chiều ngang",
+      "pagesTall": "Số trang theo chiều dọc",
+      "fitHint": "0 trang = không giới hạn theo chiều đó.",
+      "firstPage": "Số của trang đầu tiên",
+      "auto": "Tự động",
+      "headerMargin": "Khoảng cách đầu trang (inch)",
+      "footerMargin": "Khoảng cách chân trang (inch)",
+      "centerH": "Căn giữa trang theo chiều ngang",
+      "centerV": "Căn giữa trang theo chiều dọc",
+      "oddEven": "Đầu / chân trang riêng cho trang chẵn",
+      "firstDifferent": "Đầu / chân trang riêng cho trang đầu",
+      "scaleWithDoc": "Co giãn theo tỷ lệ in",
+      "alignMargins": "Thẳng hàng với lề trang",
+      "hf": {
+        "oddHeader": "Đầu trang",
+        "oddFooter": "Chân trang",
+        "evenHeader": "Đầu trang chẵn",
+        "evenFooter": "Chân trang chẵn",
+        "firstHeader": "Đầu trang đầu tiên",
+        "firstFooter": "Chân trang đầu tiên"
+      },
+      "section": {
+        "left": "Phần trái",
+        "center": "Phần giữa",
+        "right": "Phần phải"
+      },
+      "code": {
+        "page": "Số trang",
+        "pages": "Tổng số trang",
+        "date": "Ngày",
+        "time": "Giờ",
+        "path": "Đường dẫn + tệp",
+        "file": "Tên tệp",
+        "sheet": "Tên trang tính",
+        "bold": "Đậm",
+        "italic": "Nghiêng",
+        "underline": "Gạch chân"
+      },
+      "area": "Vùng cần in",
+      "useSelection": "Dùng vùng đang chọn",
+      "titleCols": "Cột lặp lại bên trái",
+      "headings": "In số hàng và chữ cột",
+      "blackWhite": "Chỉ in đen trắng",
+      "draft": "Bản nháp (bỏ đồ hoạ)",
+      "comments": "Bình luận",
+      "commentsMode": {
+        "none": "Không in",
+        "atEnd": "Liệt kê sau trang tính",
+        "asDisplayed": "Như đang hiển thị"
+      },
+      "errors": "Ô có lỗi",
+      "errorsMode": {
+        "displayed": "Như đang hiển thị",
+        "blank": "Để trống",
+        "dash": "Hai gạch (--)",
+        "NA": "#N/A"
+      },
+      "order": "Thứ tự trang",
+      "orderMode": {
+        "downThenOver": "Từ trên xuống, rồi sang phải",
+        "overThenDown": "Từ trái sang phải, rồi xuống dưới"
+      },
+      "badArea": "Vùng in không hợp lệ (ví dụ A1:F40, H1:K20).",
+      "badTitles": "Hàng lặp lại có dạng 1:2, cột có dạng A:B.",
+      "preview": "Xem trước khi in",
+      "prev": "Trang trước",
+      "next": "Trang sau",
+      "pageOf": "Trang {{page}} / {{pages}}",
+      "nothing": "Trang tính này không có gì để in",
+      "insertBreak": "Chèn ngắt trang",
+      "removeBreak": "Bỏ ngắt trang",
+      "resetBreaks": "Đặt lại mọi ngắt trang"
+    },
     "groupTables": "Bảng",
     "pivot": {
       "insert": "Bảng tổng hợp (Pivot)",

@@ -848,32 +848,50 @@ fn read_sheet(
                 p.fit_to_height = take_u32(&mut at, "fitToHeight");
                 p.attrs = at;
             }
-            // §18.3.1.46 headerFooter
+            // §18.3.1.46 headerFooter: odd/even/first headers and footers
+            // (§18.3.1.39–42, §18.3.1.48–49) plus differentOddEven / differentFirst.
             "headerFooter" => {
-                let at = attrs(e);
-                let mut odd_header = None;
-                let mut odd_footer = None;
-                let mut other = !at.is_empty();
+                let mut at = attrs(e);
+                let p = &mut ws.page_setup;
+                p.different_odd_even = take_bool(&mut at, "differentOddEven").unwrap_or(false);
+                p.different_first = take_bool(&mut at, "differentFirst").unwrap_or(false);
+                p.header_footer_attrs = at;
                 let xml = capture(r, e, empty)?;
-                // Parse the captured element again for the two common children.
+                // Parse the captured element again for its children.
                 let mut r2 = XmlReader::new(xml.as_bytes(), "headerFooter");
                 let (_, e2) = root(&mut r2)?;
+                let mut texts: [Option<String>; 6] = Default::default();
+                let mut other = false;
                 if !e2 {
                     for_children(&mut r2, |r2, c, cempty| {
-                        match lname(c).as_str() {
-                            "oddHeader" if !cempty => odd_header = Some(read_text(r2)?),
-                            "oddFooter" if !cempty => odd_footer = Some(read_text(r2)?),
-                            _ => other = true,
+                        let slot = match lname(c).as_str() {
+                            "oddHeader" => 0,
+                            "oddFooter" => 1,
+                            "evenHeader" => 2,
+                            "evenFooter" => 3,
+                            "firstHeader" => 4,
+                            "firstFooter" => 5,
+                            _ => {
+                                other = true;
+                                return Ok(());
+                            }
+                        };
+                        if !cempty {
+                            texts[slot] = Some(read_text(r2)?);
                         }
                         Ok(())
                     })?;
                 }
-                let p = &mut ws.page_setup;
                 if other {
                     p.header_footer_raw = Some(xml);
                 } else {
-                    p.odd_header = odd_header;
-                    p.odd_footer = odd_footer;
+                    let [oh, of, eh, ef, fh, ff] = texts;
+                    p.odd_header = oh;
+                    p.odd_footer = of;
+                    p.even_header = eh;
+                    p.even_footer = ef;
+                    p.first_header = fh;
+                    p.first_footer = ff;
                 }
             }
             // §18.3.1.74 rowBreaks / §18.3.1.14 colBreaks (brk §18.3.1.3)

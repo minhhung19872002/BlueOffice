@@ -875,7 +875,7 @@ export type SheetCommand =
       labels?: PivotLabels;
     }
   | { cmd: 'pivotRefreshAll'; labels?: PivotLabels }
-  | {
+  | ({
       cmd: 'setPageSetup';
       sheet: number;
       orientation?: 'portrait' | 'landscape';
@@ -886,7 +886,10 @@ export type SheetCommand =
       printArea?: SheetRange | null;
       titleRows?: [number, number] | null;
       gridLines?: boolean;
-    }
+    } & PrintSetupExtra)
+  | { cmd: 'pageBreak'; sheet: number; row?: number; col?: number; remove?: boolean }
+  | { cmd: 'resetPageBreaks'; sheet: number }
+  | { cmd: 'printPreview'; sheet: number; page?: number }
   | { cmd: 'setSavePassword'; password?: string }
   | { cmd: 'protection'; sheet: number }
   | { cmd: 'protectSheet'; sheet: number; password?: string; allow?: Partial<SheetPermissions> }
@@ -1271,6 +1274,68 @@ export interface PageSetupInfo {
   printArea: string | null;
   titleRows: [number, number] | null;
   gridLines: boolean;
+  extra: PrintSetupInfo;
+}
+
+/** Header / footer texts with `&` codes (ECMA-376 Part 1, §18.3.1.46). */
+export interface HeaderFooterSpec {
+  oddHeader: string;
+  oddFooter: string;
+  evenHeader: string;
+  evenFooter: string;
+  firstHeader: string;
+  firstFooter: string;
+  differentOddEven: boolean;
+  differentFirst: boolean;
+  scaleWithDoc?: boolean;
+  alignWithMargins?: boolean;
+}
+
+export type PrintErrors = 'displayed' | 'blank' | 'dash' | 'NA';
+export type PrintComments = 'none' | 'atEnd' | 'asDisplayed';
+export type PageOrder = 'downThenOver' | 'overThenDown';
+
+/** Optional `setPageSetup` fields beyond the basics. */
+export interface PrintSetupExtra {
+  titleCols?: [number, number] | null;
+  printAreas?: SheetRange[];
+  headings?: boolean;
+  centerH?: boolean;
+  centerV?: boolean;
+  pageOrder?: PageOrder;
+  firstPageNumber?: number | null;
+  blackAndWhite?: boolean;
+  draft?: boolean;
+  errors?: PrintErrors;
+  comments?: PrintComments;
+  /** Header and footer margins in inches. */
+  hfMargins?: [number, number];
+  headerFooter?: HeaderFooterSpec;
+}
+
+/** `pageSetup` query: the extra print settings. */
+export interface PrintSetupInfo {
+  titleCols: [number, number] | null;
+  headings: boolean;
+  centerH: boolean;
+  centerV: boolean;
+  pageOrder: PageOrder;
+  firstPageNumber: number | null;
+  blackAndWhite: boolean;
+  draft: boolean;
+  errors: PrintErrors;
+  comments: PrintComments;
+  hfMargins: [number, number];
+  headerFooter: Required<HeaderFooterSpec>;
+  /** 1-based first row / column of each page after a manual break. */
+  rowBreaks: number[];
+  colBreaks: number[];
+}
+
+/** `printPreview` result. */
+export interface PrintPreviewInfo {
+  pages: number;
+  page: PageDisplayList | null;
 }
 
 export interface SheetHost {

@@ -922,6 +922,88 @@
       "setArea": "Set print area",
       "clearArea": "Clear print area"
     },
+    "printSetup": {
+      "tab": {
+        "page": "Page",
+        "margins": "Margins",
+        "headerFooter": "Header / footer",
+        "sheet": "Sheet"
+      },
+      "scaleTo": "Adjust to a percentage of normal size",
+      "fitTo": "Shrink to fit a number of pages",
+      "pagesWide": "Pages across",
+      "pagesTall": "Pages down",
+      "fitHint": "0 pages = no limit in that direction.",
+      "firstPage": "Number of the first page",
+      "auto": "Automatic",
+      "headerMargin": "Header distance (in)",
+      "footerMargin": "Footer distance (in)",
+      "centerH": "Centre on the page horizontally",
+      "centerV": "Centre on the page vertically",
+      "oddEven": "Separate header / footer for even pages",
+      "firstDifferent": "Separate header / footer for the first page",
+      "scaleWithDoc": "Resize with the print scale",
+      "alignMargins": "Line up with the page margins",
+      "hf": {
+        "oddHeader": "Header",
+        "oddFooter": "Footer",
+        "evenHeader": "Even page header",
+        "evenFooter": "Even page footer",
+        "firstHeader": "First page header",
+        "firstFooter": "First page footer"
+      },
+      "section": {
+        "left": "Left part",
+        "center": "Middle part",
+        "right": "Right part"
+      },
+      "code": {
+        "page": "Page no.",
+        "pages": "Page count",
+        "date": "Date",
+        "time": "Time",
+        "path": "Path + file",
+        "file": "File name",
+        "sheet": "Sheet name",
+        "bold": "Bold",
+        "italic": "Italic",
+        "underline": "Underline"
+      },
+      "area": "Area to print",
+      "useSelection": "Use the current selection",
+      "titleCols": "Columns to repeat on the left",
+      "headings": "Print row numbers and column letters",
+      "blackWhite": "Black and white only",
+      "draft": "Draft (leave out graphics)",
+      "comments": "Comments",
+      "commentsMode": {
+        "none": "Do not print",
+        "atEnd": "List after the sheet",
+        "asDisplayed": "As shown on the sheet"
+      },
+      "errors": "Cells with errors",
+      "errorsMode": {
+        "displayed": "As shown",
+        "blank": "Empty",
+        "dash": "Two dashes (--)",
+        "NA": "#N/A"
+      },
+      "order": "Order of pages",
+      "orderMode": {
+        "downThenOver": "Top to bottom, then left to right",
+        "overThenDown": "Left to right, then top to bottom"
+      },
+      "badArea": "The print area is not a valid list of ranges (for example A1:F40, H1:K20).",
+      "badTitles": "Rows to repeat look like 1:2, columns like A:B.",
+      "preview": "Print preview",
+      "prev": "Previous page",
+      "next": "Next page",
+      "pageOf": "Page {{page}} of {{pages}}",
+      "nothing": "Nothing to print on this sheet",
+      "insertBreak": "Insert page break",
+      "removeBreak": "Remove page break",
+      "resetBreaks": "Reset all page breaks"
+    },
     "groupTables": "Tables",
     "pivot": {
       "insert": "Pivot table",

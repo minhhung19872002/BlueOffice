@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use crate::ast::{BinaryOp, Expr, StructItem, StructRef, UnaryOp};
+use crate::ast::{BinaryOp, Expr, StructRef, UnaryOp};
 use crate::date::DateSystem;
 use crate::functions::{self, FnKind, Lift};
 use crate::provider::{CellProvider, TableInfo, WebProvider};
@@ -332,73 +332,12 @@ pub(crate) fn struct_area(
     row: u32,
     col: u32,
 ) -> Result<Area, ErrorKind> {
-    {
-        let table: TableInfo = match &s.table {
-            Some(name) => provider.table(name).ok_or(ErrorKind::Ref)?,
-            None => provider.table_at(sheet, row, col).ok_or(ErrorKind::Ref)?,
-        };
-        let mut col_lo = table.first_col;
-        let mut col_hi = table.last_col();
-        let mut cols_given = false;
-        let mut rows: Option<(u32, u32)> = None;
-        let mut add_rows = |lo: u32, hi: u32| {
-            rows = Some(match rows {
-                Some((a, b)) => (a.min(lo), b.max(hi)),
-                None => (lo, hi),
-            });
-        };
-        for item in &s.items {
-            match item {
-                StructItem::All => add_rows(table.first_row, table.last_row),
-                StructItem::Data => add_rows(table.data_first_row(), table.data_last_row()),
-                StructItem::Headers => {
-                    if !table.header_row {
-                        return Err(ErrorKind::Ref);
-                    }
-                    add_rows(table.first_row, table.first_row);
-                }
-                StructItem::Totals => {
-                    if !table.totals_row {
-                        return Err(ErrorKind::Ref);
-                    }
-                    add_rows(table.last_row, table.last_row);
-                }
-                StructItem::ThisRow => {
-                    if row < table.data_first_row() || row > table.data_last_row() {
-                        return Err(ErrorKind::Value);
-                    }
-                    add_rows(row, row);
-                }
-                StructItem::Column(c) => {
-                    let i = table.column_index(c).ok_or(ErrorKind::Ref)?;
-                    if cols_given {
-                        col_lo = col_lo.min(i);
-                        col_hi = col_hi.max(i);
-                    } else {
-                        (col_lo, col_hi) = (i, i);
-                        cols_given = true;
-                    }
-                }
-                StructItem::ColumnRange(a, b) => {
-                    let i = table.column_index(a).ok_or(ErrorKind::Ref)?;
-                    let j = table.column_index(b).ok_or(ErrorKind::Ref)?;
-                    let (lo, hi) = (i.min(j), i.max(j));
-                    if cols_given {
-                        col_lo = col_lo.min(lo);
-                        col_hi = col_hi.max(hi);
-                    } else {
-                        (col_lo, col_hi) = (lo, hi);
-                        cols_given = true;
-                    }
-                }
-            }
-        }
-        let (r1, r2) = rows.unwrap_or((table.data_first_row(), table.data_last_row()));
-        if r1 > r2 {
-            return Err(ErrorKind::Ref);
-        }
-        Ok(Area::new(table.sheet, r1, col_lo, r2, col_hi))
-    }
+    let table: TableInfo = match &s.table {
+        Some(name) => provider.table(name).ok_or(ErrorKind::Ref)?,
+        None => provider.table_at(sheet, row, col).ok_or(ErrorKind::Ref)?,
+    };
+    let (r1, c1, r2, c2) = table.resolve(&s.items, row)?;
+    Ok(Area::new(table.sheet, r1, c1, r2, c2))
 }
 
 impl Ctx<'_> {

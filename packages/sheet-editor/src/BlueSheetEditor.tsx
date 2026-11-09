@@ -25,6 +25,8 @@ import type {
   FormControlInfo,
   SheetSecurityResult,
   SparklineGroupInfo,
+  TableInfo,
+  TableStyleEntry,
 } from '@blueoffice/platform';
 import {
   PASSWORD_REQUIRED,
@@ -214,6 +216,16 @@ import {
   sparklineTabGroups,
   useSparklines,
 } from './sparklines';
+import {
+  TableAutoBar,
+  TableNameDialog,
+  TableResizeDialog,
+  TableTotalsDialog,
+  registerTableCommands,
+  tableAt,
+  tableDesignTabGroups,
+  useTables,
+} from './tableDesign';
 import { SheetCheckDocumentDialog, type SheetGoTo } from './inspect';
 import {
   SaveChartTemplateDialog,
@@ -307,6 +319,10 @@ export interface SheetEditorState {
   structureLocked: boolean;
   /** Sparkline group of the active cell. */
   sparkline: SparklineGroupInfo | null;
+  /** Table of the active cell (SHEET-TABLE-001). */
+  table: TableInfo | null;
+  /** Automatic table behaviour options. */
+  tableAuto: { autoExpand: boolean; autoCalc: boolean } | null;
 }
 
 /** A file waiting for its password ([MS-OFFCRYPTO]). */
@@ -397,6 +413,9 @@ type DialogState =
   | { kind: 'scenarios' }
   | { kind: 'sparklineInsert' }
   | { kind: 'sparklineOptions' }
+  | { kind: 'tableRename' }
+  | { kind: 'tableResize' }
+  | { kind: 'tableTotals' }
   | { kind: 'checkDocument' }
   | { kind: 'dataTable' }
   | { kind: 'solver' }
@@ -483,6 +502,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   // Sparkline group of the active cell (SHEET-SPARK-001): the contextual tab and its commands.
   const sparklines = useSparklines(host, sheet, revision);
   const sparkGroup = groupAt(sparklines, selection.active.row, selection.active.col);
+  // Table of the active cell (SHEET-TABLE-001): the Table Design contextual tab.
+  const tables = useTables(host, sheet, revision);
+  const activeTable = tableAt(tables, selection.active.row, selection.active.col);
+  const tableAuto = useMemo(
+    () => (tables ? { autoExpand: tables.autoExpand, autoCalc: tables.autoCalc } : null),
+    [tables],
+  );
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [filterMenu, setFilterMenu] = useState<{ col: number; x: number; y: number } | null>(null);
   const [dvList, setDvList] = useState<string[] | null>(null);
@@ -1025,6 +1051,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     watchOpen,
   } = audit;
 
+  // Table style gallery (SHEET-TABLE-001): swatch colours from the engine.
+  const loadTableStyles = useCallback(
+    async () => (host ? ((await host.exec<TableStyleEntry[]>({ cmd: 'tableStyles' })) ?? []) : []),
+    [host],
+  );
   // Chart Design gallery of the selected chart (previews follow the edits).
   const loadGallery = useChartGallery(host, sheet, chart, revision);
   const goToRange = useCallback((to: SheetGoTo) => {
@@ -1744,6 +1775,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       openInsert: () => setDialog({ kind: 'sparklineInsert' }),
       openOptions: () => setDialog({ kind: 'sparklineOptions' }),
     });
+    registerTableCommands(add, {
+      exec: (cmd) => exec(cmd),
+      totalLabel: () => t('tableDesign.totalLabel'),
+      openRename: () => setDialog({ kind: 'tableRename' }),
+      openResize: () => setDialog({ kind: 'tableResize' }),
+      openTotals: () => setDialog({ kind: 'tableTotals' }),
+      openDedupe: (r) => {
+        setSelection({
+          anchor: { row: r.r0, col: r.c0 },
+          focus: { row: r.r1, col: r.c1 },
+          active: { row: r.r0, col: r.c0 },
+        });
+        setDialog({ kind: 'dedupe' });
+      },
+    });
     add(
       'insert.slicer',
       (s) =>
@@ -2214,9 +2260,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             sheetProtected: !!info?.sheets[sheet]?.protected,
             structureLocked: !!info?.structureLocked,
             sparkline: sparkGroup,
+            table: activeTable,
+            tableAuto,
           }
         : null,
-    [host, sheet, selection, info, fmt, chart, activePivot?.index, allRanges, sparkGroup],
+    [
+      host,
+      sheet,
+      selection,
+      info,
+      fmt,
+      chart,
+      activePivot?.index,
+      allRanges,
+      sparkGroup,
+      activeTable,
+      tableAuto,
+    ],
   );
   const run = useCallback(
     (id: string) => {
@@ -3354,6 +3414,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         groups: sparklineTabGroups(t, item),
       });
     }
+    // Table Design contextual tab (SHEET-TABLE-001) while the active cell is in a table.
+    if (state?.table) {
+      tabs.push({
+        id: 'tableDesign',
+        label: t('tableDesign.tab'),
+        groups: tableDesignTabGroups(t, item, {
+          table: state.table,
+          loadStyles: loadTableStyles,
+          run,
+        }),
+      });
+    }
     // Chart Design contextual tab (CORE-CHART-007) while a chart is selected.
     if (chart === null) return tabs;
     return [
@@ -3392,7 +3464,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         }),
       },
     ];
-  }, [t, registry, state, run, chart, sheet, loadGallery, exec, host, platform, fileName, fail]);
+  }, [
+    t,
+    registry,
+    state,
+    run,
+    chart,
+    sheet,
+    loadGallery,
+    exec,
+    host,
+    platform,
+    fileName,
+    fail,
+    loadTableStyles,
+  ]);
 
   const r = rangeOf(selection);
   const multiKey = `${sheet}:${JSON.stringify(allRanges.map(toRange))}:${revision}`;
@@ -3774,6 +3860,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 </div>
               </div>
             ))}
+            <TableAutoBar last={tables?.lastAuto ?? null} run={run} />
             {host && (
               <FormControlLayer
                 host={host}
@@ -4304,6 +4391,30 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             });
             if (done) setFormDialog(null);
           }}
+        />
+      )}
+      {dialog?.kind === 'tableRename' && activeTable && (
+        <TableNameDialog
+          sheet={sheet}
+          table={activeTable}
+          exec={(cmd) => exec(cmd)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === 'tableResize' && activeTable && (
+        <TableResizeDialog
+          sheet={sheet}
+          table={activeTable}
+          exec={(cmd) => exec(cmd)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === 'tableTotals' && activeTable && (
+        <TableTotalsDialog
+          sheet={sheet}
+          table={activeTable}
+          exec={(cmd) => exec(cmd)}
+          onClose={() => setDialog(null)}
         />
       )}
       {dialog?.kind === 'sparklineInsert' && (

@@ -4,6 +4,7 @@ import {
   MacroBanner,
   PasswordDialog,
   SavePasswordPanel,
+  SymbolPanel,
 } from '@blueoffice/editor';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
@@ -95,6 +96,7 @@ import {
   PanelRight,
   PanelTop,
   Network,
+  Omega,
   Pencil,
   PenLine,
   Play,
@@ -312,6 +314,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [paneOpen, setPaneOpen] = useState(false);
   /** Comments side panel ([MS-PPTX] modern comments). */
   const [commentsOpen, setCommentsOpen] = useState(false);
+  /** Symbol picker panel (inserts into the text being edited, else a new text box). */
+  const [symbolsOpen, setSymbolsOpen] = useState(false);
   const [previewToken, setPreviewToken] = useState(0);
   const [ribbonTab, setRibbonTab] = useState('home');
   const [smartArtDialog, setSmartArtDialog] = useState<{
@@ -388,6 +392,21 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     };
   }, [engine, apply]);
   const run = useCallback((cmd: SlideCommand) => void ctrl.run(cmd), [ctrl]);
+
+  // Symbol picker: typed into the shape text being edited (its textarea sends `setText`
+  // on input, one undo step), else placed in a new text box.
+  const insertSymbol = useCallback(
+    (char: string) => {
+      const ta = slideRef.current?.querySelector('textarea');
+      if (ta) {
+        ta.setRangeText(char, ta.selectionStart, ta.selectionEnd, 'end');
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+      }
+      run({ cmd: 'insertTextBox', text: char });
+    },
+    [run],
+  );
 
   const load = useCallback(
     async (bytes: Uint8Array, name: string, password?: string) => {
@@ -1074,6 +1093,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
 
     // Insert.
     simple('insert.textBox', { cmd: 'insertTextBox', text: '' }, deck);
+    reg.register({ id: 'insert.symbol', isEnabled: deck, run: async () => setSymbolsOpen(true) });
     reg.register({
       id: 'review.comments',
       isEnabled: deck,
@@ -1505,6 +1525,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 <MessageSquareText size={18} />,
               ),
             ],
+          },
+          {
+            id: 'symbols',
+            label: t('ribbon.groups.symbols'),
+            items: [item('insert.symbol', t('commands.insert.symbol'), <Omega size={18} />)],
           },
           {
             id: 'shapes',
@@ -2068,6 +2093,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               </section>
             )}
           </div>
+          {symbolsOpen && (
+            <SymbolPanel
+              fonts={[...new Set([edit?.format.font, ...FONTS].filter((x): x is string => !!x))]}
+              font={edit?.format.font ?? undefined}
+              onInsert={insertSymbol}
+              onClose={() => setSymbolsOpen(false)}
+            />
+          )}
           {commentsOpen && count > 0 && (
             <CommentThreads
               threads={(edit?.comments ?? []).map((th) => ({

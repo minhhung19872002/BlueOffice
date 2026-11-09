@@ -375,6 +375,24 @@ describe('BlueSheetEditor', () => {
     );
   });
 
+  it('inserts symbols into the active cell from the picker', async () => {
+    const { host, cells } = fakeHost();
+    cells.set('0,0', 'Giá ');
+    const { p } = platform(host);
+    render(<BlueSheetEditor platform={p} language="vi-VN" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chèn' }));
+    fireEvent.click(await waitFor(() => document.querySelector('[data-command="insert.symbol"]')!));
+    const search = await screen.findByTestId('symbol-search');
+    fireEvent.change(search, { target: { value: 'U+20AB' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    const input = screen.getByLabelText('Ô đang nhập') as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe('Giá ₫'));
+    fireEvent.keyDown(screen.getByTestId('symbol-panel'), { key: 'Escape' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(cells.get('0,0')).toBe('Giá ₫'));
+  });
+
   it('IME composition does not commit early', async () => {
     const { host } = fakeHost();
     const { p } = platform(host);

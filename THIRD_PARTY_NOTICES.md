@@ -124,6 +124,10 @@ Icon giao diện từ **Lucide** (ISC). Logo/favicon BlueOffice tự thiết k�
 - `crates/bo-drawingml/src/presets.dsl`: 187 hình preset chuyển đổi cơ học từ phụ lục
   `presetShapeDefinitions.xml` của **ECMA-376 Part 1** (ECMA International, tài liệu công khai —
   nguồn hợp lệ theo quy tắc clean-room). Chỉ giữ công thức guide, text rect và path.
+- `packages/ui/src/symbols/data.ts`: tên ký tự và khối Unicode (25 khối, ~3.460 ký tự) sinh bằng
+  `scripts/gen-symbols.mjs` từ `UnicodeData.txt` + `Blocks.txt` của **Unicode Character Database 16.0.0**
+  — © 1991-2024 Unicode, Inc., **Unicode License v3** (permissive; https://www.unicode.org/license.txt).
+  Dùng cho bảng chọn ký hiệu (CORE-SYMBOL-001). Từ khoá tiếng Việt và nhãn ký tự đặc biệt do BlueOffice tự viết.
 
 ## Từ điển chính tả
 

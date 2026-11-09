@@ -139,7 +139,8 @@ import { useStore } from 'zustand';
 import { CommandRegistry } from './commands';
 import { DocController } from './controller';
 import styles from './Editor.module.css';
-import { FindPanel, SymbolPanel } from './Panels';
+import { FindPanel } from './Panels';
+import { SymbolPanel } from './SymbolPanel';
 import { CaptionPanel, CrossRefPanel, MergeFieldPanel } from './ReferencePanels';
 import { CommentsPanel, ReviewPanel } from './ReviewPanel';
 import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
@@ -1849,8 +1850,12 @@ function EditorInner({
           items: [
             item('insert.table', 'commands.insert.table', <Table size={ICON} />),
             item('insert.image', 'commands.insert.image', <Image size={ICON} />),
-            item('insert.symbol', 'commands.insert.symbol', <Omega size={ICON} />),
           ],
+        },
+        {
+          id: 'symbols',
+          label: t('ribbon.groups.symbols'),
+          items: [item('insert.symbol', 'commands.insert.symbol', <Omega size={ICON} />)],
         },
         {
           id: 'equation',
@@ -2494,9 +2499,10 @@ function EditorInner({
             )}
             {state.panel === 'symbols' && (
               <SymbolPanel
-                onPick={(sym) => {
+                fonts={state.fonts.map((f) => f.name)}
+                font={state.edit?.format?.font ?? undefined}
+                onInsert={(sym) => {
                   void controller.current?.run({ cmd: 'insertText', text: sym });
-                  view.current?.focus();
                 }}
                 onClose={closePanel}
               />

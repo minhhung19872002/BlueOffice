@@ -641,6 +641,32 @@ describe('BlueSlideEditor', () => {
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'selectNext', back: true }));
   });
 
+  it('inserts symbols into the edited text, else into a new text box', async () => {
+    const { p, cmds } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chèn' }));
+    fireEvent.click(await waitFor(() => document.querySelector('[data-command="insert.symbol"]')!));
+    const search = await screen.findByTestId('symbol-search');
+    fireEvent.change(search, { target: { value: 'mũi tên phải' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'insertTextBox', text: '→' }));
+
+    const overlay = screen.getByTestId('slide-overlay');
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    await screen.findByTestId('selection-box');
+    fireEvent.doubleClick(overlay);
+    const ta = (await screen.findByTestId('slide-text-editor')) as HTMLTextAreaElement;
+    ta.setSelectionRange(0, 0);
+    fireEvent.keyDown(search, { key: 'Enter' });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual(
+        expect.objectContaining({ cmd: 'setText', id: 7, text: '→Tiêu đề', merge: true }),
+      ),
+    );
+  });
+
   it('edits notes, inserts shapes and adds slides', async () => {
     const { p, cmds } = fakePlatform();
     render(<BlueSlideEditor platform={p} language="vi-VN" />);

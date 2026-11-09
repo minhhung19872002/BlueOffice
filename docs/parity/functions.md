@@ -4,7 +4,7 @@ Sinh tự động bởi `python scripts/parity-functions.py` từ danh mục hà
 (nhóm theo tài liệu hàm công khai) đối chiếu với các bảng `FUNCTIONS` trong `crates/bo-formula/src/functions/`.
 Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng ghi nguồn).
 
-**Tổng: 492/515 hàm (96 %).**
+**Tổng: 505/515 hàm (98 %).**
 
 | Nhóm | Đã có | Tổng |
 |---|---|---|
@@ -16,7 +16,7 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | Financial | 55 | 55 |
 | Information | 21 | 21 |
 | Logical | 19 | 19 |
-| Lookup & Reference | 27 | 40 |
+| Lookup & Reference | 40 | 40 |
 | Math & Trig | 80 | 80 |
 | Statistical | 110 | 110 |
 | Text | 46 | 46 |
@@ -260,7 +260,7 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | SWITCH | Logical | [x] | bo-formula |
 | TRUE | Logical | [x] | bo-formula |
 | XOR | Logical | [x] | bo-formula |
-| ADDRESS | Lookup & Reference | [ ] |  |
+| ADDRESS | Lookup & Reference | [x] | bo-formula |
 | AREAS | Lookup & Reference | [x] | bo-formula |
 | CHOOSE | Lookup & Reference | [x] | bo-formula |
 | CHOOSECOLS | Lookup & Reference | [x] | bo-formula |
@@ -268,36 +268,36 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | COLUMN | Lookup & Reference | [x] | bo-formula |
 | COLUMNS | Lookup & Reference | [x] | bo-formula |
 | DROP | Lookup & Reference | [x] | bo-formula |
-| EXPAND | Lookup & Reference | [ ] |  |
+| EXPAND | Lookup & Reference | [x] | bo-formula |
 | FILTER | Lookup & Reference | [x] | bo-formula |
 | FORMULATEXT | Lookup & Reference | [x] | bo-formula |
-| GETPIVOTDATA | Lookup & Reference | [ ] |  |
-| GROUPBY | Lookup & Reference | [ ] |  |
+| GETPIVOTDATA | Lookup & Reference | [x] | bo-formula |
+| GROUPBY | Lookup & Reference | [x] | bo-formula |
 | HLOOKUP | Lookup & Reference | [x] | bo-formula |
 | HSTACK | Lookup & Reference | [x] | bo-formula |
-| HYPERLINK | Lookup & Reference | [ ] |  |
-| IMAGE | Lookup & Reference | [ ] |  |
+| HYPERLINK | Lookup & Reference | [x] | bo-formula |
+| IMAGE | Lookup & Reference | [x] | bo-formula |
 | INDEX | Lookup & Reference | [x] | bo-formula |
 | INDIRECT | Lookup & Reference | [x] | bo-formula |
 | LOOKUP | Lookup & Reference | [x] | bo-formula |
 | MATCH | Lookup & Reference | [x] | bo-formula |
 | OFFSET | Lookup & Reference | [x] | bo-formula |
-| PIVOTBY | Lookup & Reference | [ ] |  |
+| PIVOTBY | Lookup & Reference | [x] | bo-formula |
 | ROW | Lookup & Reference | [x] | bo-formula |
 | ROWS | Lookup & Reference | [x] | bo-formula |
-| RTD | Lookup & Reference | [ ] |  |
+| RTD | Lookup & Reference | [x] | bo-formula |
 | SORT | Lookup & Reference | [x] | bo-formula |
 | SORTBY | Lookup & Reference | [x] | bo-formula |
 | TAKE | Lookup & Reference | [x] | bo-formula |
-| TOCOL | Lookup & Reference | [ ] |  |
-| TOROW | Lookup & Reference | [ ] |  |
+| TOCOL | Lookup & Reference | [x] | bo-formula |
+| TOROW | Lookup & Reference | [x] | bo-formula |
 | TRANSPOSE | Lookup & Reference | [x] | bo-formula |
-| TRIMRANGE | Lookup & Reference | [ ] |  |
+| TRIMRANGE | Lookup & Reference | [x] | bo-formula |
 | UNIQUE | Lookup & Reference | [x] | bo-formula |
 | VLOOKUP | Lookup & Reference | [x] | bo-formula |
 | VSTACK | Lookup & Reference | [x] | bo-formula |
-| WRAPCOLS | Lookup & Reference | [ ] |  |
-| WRAPROWS | Lookup & Reference | [ ] |  |
+| WRAPCOLS | Lookup & Reference | [x] | bo-formula |
+| WRAPROWS | Lookup & Reference | [x] | bo-formula |
 | XLOOKUP | Lookup & Reference | [x] | bo-formula |
 | XMATCH | Lookup & Reference | [x] | bo-formula |
 | ABS | Math & Trig | [x] | bo-formula |

@@ -20,6 +20,7 @@ mod financial;
 mod info;
 mod logical;
 mod lookup;
+mod lookup_more;
 mod math;
 mod math_more;
 mod regression;
@@ -150,6 +151,7 @@ fn registry() -> &'static HashMap<&'static str, FnSpec> {
             database::FUNCTIONS,
             text_more::FUNCTIONS,
             math_more::FUNCTIONS,
+            lookup_more::FUNCTIONS,
         ] {
             for spec in group {
                 map.insert(spec.name, *spec);

@@ -65,7 +65,7 @@ def implemented():
     for f in os.listdir(d):
         if f.endswith(".rs"):
             text = open(os.path.join(d, f), encoding="utf-8").read()
-            names.update(re.findall(r'^\s+[a-z_]+\("([A-Z][A-Z0-9._]*)"', text, re.M))
+            names.update(re.findall(r'^\s+(?:super::)?[a-z_]+\("([A-Z][A-Z0-9._]*)"', text, re.M))
     src = os.path.join(ROOT, "crates", "bo-formula", "src")
     for f in os.listdir(src):
         if f.endswith(".rs"):

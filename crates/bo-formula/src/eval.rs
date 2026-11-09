@@ -257,6 +257,25 @@ impl<'a> Ctx<'a> {
                 };
                 return self.eval_struct(&s).unwrap_or_else(Value::Error);
             }
+            // A bare built-in function name passed as a value (eta reduction, as in
+            // `GROUPBY(…, SUM)` or `BYROW(…, MAX)`) is a one-parameter LAMBDA.
+            if sheet.is_none() {
+                let upper = name.to_uppercase();
+                if functions::lookup(&upper).is_some_and(|f| f.min <= 1 && f.max >= 1) {
+                    let param = "_ETA_ARG".to_owned();
+                    return Value::Lambda(Arc::new(Lambda {
+                        params: vec![param.clone()],
+                        body: Expr::Call {
+                            name: upper,
+                            args: vec![Expr::Name {
+                                sheet: None,
+                                name: param,
+                            }],
+                        },
+                        env: Vec::new(),
+                    }));
+                }
+            }
             return Value::Error(ErrorKind::Name);
         };
         if self.depth > MAX_DEPTH {

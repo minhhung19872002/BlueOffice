@@ -652,7 +652,11 @@ impl Session {
                 if span(&c) > 1 || c.props.v_merge.is_some() {
                     inserted = unmerge(&mut t, at.row, at.cell);
                 } else {
-                    // Split into two columns: a new grid column inside this one.
+                    // Split into two columns: a new grid column inside this one. A ragged row
+                    // can reach past the grid (§17.4.49 tblGrid is only a hint); extend it first.
+                    while t.grid.len() <= cur_start {
+                        t.grid.push(Twips(1440));
+                    }
                     let w = t.grid[cur_start];
                     t.grid[cur_start] = Twips(w.0 - w.0 / 2);
                     t.grid.insert(cur_start + 1, Twips(w.0 / 2));

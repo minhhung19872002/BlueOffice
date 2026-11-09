@@ -7,3 +7,4 @@
 cc 1c1bc4d719bb097c2f4de1a2ffe874711fe51fa50f72d2531f8015879309d702 # shrinks to acts = [PageSetup(1)]
 cc 82f7119465613fb8eea7e5754cd42488a9ee6953d11bb772ab9e910085b46879 # shrinks to acts = [Select(2, 1), Merge, InsertRow(false), Shading(0)]
 cc e542c7aa0a13fce2e9c53d51ff13c3078ae703d111d4eebdd9f35d49fb428827 # shrinks to acts = [Select(6, 5), DeleteCell, InsertRow(false)]
+cc 3ea29244bf9ddd9cd27a75938aa4ad305eaff604497c393b69b5dd04bc22db9a # shrinks to acts = [Select(1, 7), DeleteColumn, Caret(6), InsertColumn(true), InsertCell(true), Split]

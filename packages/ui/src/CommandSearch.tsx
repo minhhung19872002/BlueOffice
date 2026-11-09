@@ -32,6 +32,25 @@ export function CommandSearch({ tabs, open, onClose, labels }: CommandSearchProp
     if (open) input.current?.focus();
   }, [open]);
 
+  // Escape closes even when the host moved the focus back to its own input meanwhile.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    if (!open) return;
+    const f = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setQuery('');
+      setActive(0);
+      closeRef.current();
+    };
+    window.addEventListener('keydown', f, true);
+    return () => window.removeEventListener('keydown', f, true);
+  }, [open]);
+
   if (!open) return null;
   const close = () => {
     setQuery('');

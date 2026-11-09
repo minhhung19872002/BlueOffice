@@ -89,4 +89,14 @@ export class SlideController {
     if (mark) return mark === this.clipMark;
     return this.clipText !== null && (text ?? '') === this.clipText;
   }
+
+  private copiedShapes: { text: string; png?: string } | null = null;
+
+  get shapesCopy(): { text: string; png?: string } | null {
+    return this.copiedShapes;
+  }
+
+  rememberShapesCopy(copy: { text: string; png?: string } | null): void {
+    this.copiedShapes = copy;
+  }
 }

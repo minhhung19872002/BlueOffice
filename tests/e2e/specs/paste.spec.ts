@@ -29,6 +29,8 @@ test('BlueDoc: paste options switch the last paste in one undo step', async ({ p
   await page.keyboard.press('Control+a');
   await page.keyboard.press('Control+b');
   await page.keyboard.press('Control+c');
+  // The copy reaches the system clipboard asynchronously: wait before pasting.
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Một hai');
   await page.keyboard.press('Control+End');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Control+v');
@@ -52,7 +54,8 @@ test('BlueDoc: paste options switch the last paste in one undo step', async ({ p
 
   // As a picture (the copy carries a picture of the selection), then text only again.
   await choose(page, /Dạng ảnh/);
-  await expect(words).toHaveText('2 từ');
+  // The picture counts as one object word, like an equation: "Một hai" + picture.
+  await expect(words).toHaveText('3 từ');
   await choose(page, /Chỉ văn bản thuần/);
   await expect(words).toHaveText('4 từ');
 
@@ -80,10 +83,14 @@ test('BlueDoc: clipboard history panel pastes an earlier copy and clears', async
   await page.keyboard.insertText('alpha');
   await page.keyboard.press('Control+a');
   await page.keyboard.press('Control+c');
+  // The copy reaches the system clipboard asynchronously: wait before pasting.
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('alpha');
   await page.keyboard.press('Control+End');
   await page.keyboard.insertText(' beta');
   await page.keyboard.press('Control+a');
   await page.keyboard.press('Control+c');
+  // The copy reaches the system clipboard asynchronously: wait before pasting.
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('alpha beta');
   await page.keyboard.press('Control+End');
   await page.keyboard.insertText(' ');
 
@@ -152,6 +159,8 @@ test('BlueSlide: paste options for copied shapes', async ({ page }) => {
   await page.mouse.click(tb.x + tb.width / 2, tb.y + tb.height / 2);
   await expect(page.getByTestId('selection-box')).toHaveCount(1);
   await page.keyboard.press('Control+c');
+  // The copy reaches the system clipboard asynchronously: wait before pasting.
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Hộp chữ');
   await page.keyboard.press('Control+v');
   await expect(page.getByTestId('paste-options')).toBeVisible();
   await choose(page, /Giữ nguyên định dạng gốc/);

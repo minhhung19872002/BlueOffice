@@ -702,7 +702,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       const c = r?.clipboard;
       if (!c) return;
       const kind = r?.clip === 'slides' ? 'slides' : 'shapes';
-      setShapesCopy(kind === 'shapes' ? { text: c.text, png: c.png } : null);
+      const copied = kind === 'shapes' ? { text: c.text, png: c.png } : null;
+      ctrl.rememberShapesCopy(copied);
+      setShapesCopy(copied);
       clipboardHistory.push({ app: 'slide', kind, text: c.text, png: c.png });
       const mark = ctrl.newClipMark(c.text);
       const html = `<div ${CLIP_MARK}="${mark}">${escapeHtml(c.text)}</div>`;
@@ -720,17 +722,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     [platform, ctrl],
   );
   const pasteFrom = useCallback(
-    async (sys: ClipboardContent | null) => {
+    async (read: ClipboardContent | null) => {
+      const sys = read;
       const mark = sys?.html ? new RegExp(`${CLIP_MARK}="([^"]+)"`).exec(sys.html)?.[1] : undefined;
       const external = sys && (sys.image || sys.text?.trim()) && !ctrl.isOwnClip(mark, sys.text);
-      if (!external) {
+      if (!sys || !external) {
         // The engine refuses (noClip) when its clipboard is empty.
         const r = await ctrl.run({ cmd: 'paste' });
-        if (r && !r.error && r.clip === 'shapes' && shapesCopy) {
+        const copied = ctrl.shapesCopy;
+        if (r && !r.error && r.clip === 'shapes' && copied) {
           setPasteUi((old) => ({
             n: (old?.n ?? 0) + 1,
             mode: 'theme',
-            choices: slidePasteChoices(shapesCopy),
+            choices: slidePasteChoices(copied),
             result: r,
           }));
         }
@@ -739,7 +743,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       if (sys.image) await ctrl.insertPicture(sys.image, 'clipboard.png');
       else if (sys.text) await ctrl.run({ cmd: 'insertTextBox', text: fromEditorText(sys.text) });
     },
-    [ctrl, shapesCopy],
+    [ctrl],
   );
 
   /** Redo the last shape paste in another mode: undo it, paste again (one undo step overall). */

@@ -390,7 +390,7 @@ test('exports PNG pictures, reorders slides in the sorter and reads in reading v
   const notes = page.getByTestId('notes-editor');
   await notes.fill('Slide đầu tiên');
   await page.getByTestId('thumb-2').click();
-  await page.getByRole('tab', { name: 'Xem' }).click();
+  await page.getByRole('tab', { name: 'Xem', exact: true }).click();
   await page.getByRole('button', { name: 'Sắp xếp slide' }).click();
   await page.getByTestId('sorter-1').dragTo(page.getByTestId('sorter-3'));
   await expect(page.getByTestId('status-modified')).toBeVisible();
@@ -401,7 +401,7 @@ test('exports PNG pictures, reorders slides in the sorter and reads in reading v
   await expect(page.getByTestId('notes-editor')).not.toHaveValue('Slide đầu tiên');
 
   // Reading view: slides in the window, buttons and keys move through them.
-  await page.getByRole('tab', { name: 'Xem' }).click();
+  await page.getByRole('tab', { name: 'Xem', exact: true }).click();
   await page.getByRole('button', { name: 'Chế độ đọc' }).click();
   await expect(page.getByTestId('reading-view')).toBeVisible();
   await expect(page.getByTestId('reading-status')).toHaveText(`Slide 1 / ${total}`);

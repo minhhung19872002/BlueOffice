@@ -67,6 +67,10 @@ test('bolds part of a shape text, copies/pastes a shape, edits a table cell, sav
   await expect(page.getByTestId('selection-box')).toHaveCount(1);
   const orig = await box(page, 'selection-box');
   await page.keyboard.press('Control+c');
+  // The copy reaches the system clipboard asynchronously: wait before pasting.
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe('Xin chào Việt Nam');
   await page.keyboard.press('Control+v');
   await expect.poll(async () => (await box(page, 'selection-box')).x - orig.x).toBeGreaterThan(5);
   const pasted = await box(page, 'selection-box');

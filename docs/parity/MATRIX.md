@@ -46,7 +46,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 | Lịch sử phiên bản | all | — | ✅ | ✅ | — | ✅ | ✅ | — | server tests | 🟡 | thiếu so sánh |
 | Mật khẩu / bảo vệ | all | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | interop | 🟡 | thiếu đánh dấu bản cuối, nhãn độ mật |
 | Ký số | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | bo-sign | 🟡 | thiếu dòng chữ ký trong văn bản |
-| Kiểm tra tài liệu / tiếp cận | all | — | ⬜ | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
+| Kiểm tra tài liệu / tiếp cận | all | — | ✅ | ✅ | — | ✅ | ✅ | — | inspect.rs | 🟡 | rà soát nội dung, trợ năng, tương thích (CORE-INSPECT-001); thiếu ngăn bên, sửa nhanh Sheet |
 | VBA | all | ✅ | — | — | ✅ | — | — | — | test | — (chủ ý) | giữ nguyên, cảnh báo, không chạy |
 | BlueScript / recorder | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Add-in | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
@@ -70,7 +70,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 | Footnote/endnote, TOC, caption, cross-ref | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests bo-edit | ✅ | |
 | Chỉ mục, TOA, trích dẫn | ✅ | 🟡 | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | kết quả cache |
 | Field đầy đủ | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | 🟡 | tests fields | 🟡 | một phần danh sách |
-| Content controls | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus controls-01, tests bo-docx/bo-edit/bo-engine, content-controls.spec | 🟡 | chèn + điền text/rich/hộp kiểm/danh sách/kết hợp/ngày; thiếu tạo ảnh/phần lặp, hộp thoại thuộc tính, khung viền |
+| Content controls | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus controls-01, tests bo-docx/bo-edit/bo-engine, content-controls.spec | 🟡 | chèn + điền text/rich/hộp kiểm/danh sách/kết hợp/ngày; thiếu tạo ảnh/phần lặp, hộp thoại thuộc tính, khung viền; + trường biểu mẫu cũ & chế độ chỉ điền (DOC-FORM-001) |
 | Track changes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests + E2E | 🟡 | chế độ hiển thị + bong bóng + ngăn danh sách (DOC-REVIEW-001); thiếu move, khoá |
 | So sánh / kết hợp | — | — | ✅ | — | ✅ | ✅ | — | compare::tests, compare_with_the_original_document, combine_two_reviewers_copies, review.spec | ✅ | so sánh với bản gốc → track changes (đoạn, từ, định dạng, bảng); kết hợp bản sửa của hai người (trộn 3 chiều theo đoạn/từ, theo tác giả) |
 | Mail merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | 🟡 | thiếu SQL, email, nhãn |
@@ -91,7 +91,7 @@ ngưỡng sau khi làm mới 9 trang thay đổi có chủ đích (mục lục /
 | Pivot | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | tests + E2E | 🟡 | thiếu drill-down |
 | PivotChart | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests | 🟡 | |
 | Slicer / Timeline | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | slicers.rs, timelines.rs, writer-slicers-*, timeline-1, sheet-slicer/timeline.spec | 🟡 | slicer bảng tạo/lọc/lưu; slicer pivot và timeline đọc/lọc/lưu lựa chọn (chưa tạo mới) |
-| Goal Seek / Data Table / Solver | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | + Scenario Manager & báo cáo (SHEET-WHATIF-003); Solver phi tuyến còn thiếu |
+| Goal Seek / Data Table / Solver | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | + Scenario Manager & báo cáo (SHEET-WHATIF-003); Solver phi tuyến/tiến hoá/`dif` + 3 báo cáo (SHEET-SOLVER-002) |
 | Power Query / data model | 🟡 | — | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
 | Flash Fill, Text to Columns | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | Flash Fill học từ ví dụ (SHEET-FLASH-001); thiếu gợi ý khi gõ |
 | Analysis ToolPak | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | 19 công cụ phân tích thống kê (SHEET-ATP-001); thiếu biểu đồ đầu ra |

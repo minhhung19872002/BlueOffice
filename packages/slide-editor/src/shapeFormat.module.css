@@ -1,0 +1,124 @@
+/* Shape tools: ribbon dropdowns and the point editor (CORE-SHAPE-001). */
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  min-width: 180px;
+}
+
+.entry {
+  all: unset;
+  padding: 5px 10px;
+  border-radius: var(--bo-radius, 4px);
+  font-size: 12px;
+  color: var(--bo-text, #1b1f24);
+  cursor: pointer;
+}
+
+.entry:hover:not(:disabled),
+.entry:focus-visible {
+  background: var(--bo-surface-alt, #eef1f4);
+}
+
+.entry:disabled {
+  color: var(--bo-text-muted, #6b7280);
+  cursor: default;
+}
+
+.entry[aria-checked='true'] {
+  font-weight: 600;
+}
+
+/* Point editor overlay. */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  outline: none;
+}
+
+.svg {
+  display: block;
+  overflow: visible;
+  touch-action: none;
+}
+
+.outline {
+  fill: none;
+  stroke: var(--bo-slide-accent, #c2185b);
+  stroke-width: 1px;
+  stroke-dasharray: 4 2;
+}
+
+.outlineHit {
+  fill: none;
+  stroke: transparent;
+  pointer-events: stroke;
+  cursor: copy;
+}
+
+.anchor {
+  fill: var(--bo-surface, #fff);
+  stroke: var(--bo-slide-accent, #c2185b);
+  stroke-width: 1.5px;
+  cursor: move;
+}
+
+.anchorSelected {
+  fill: var(--bo-slide-accent, #c2185b);
+  stroke: var(--bo-slide-accent, #c2185b);
+  stroke-width: 1.5px;
+  cursor: move;
+}
+
+.handleLine {
+  stroke: var(--bo-text-muted, #6b7280);
+  stroke-width: 1px;
+}
+
+.handle {
+  fill: var(--bo-surface, #fff);
+  stroke: var(--bo-text-muted, #6b7280);
+  stroke-width: 1px;
+  cursor: pointer;
+}
+
+.hint {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 2px 8px;
+  border-radius: var(--bo-radius, 4px);
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text-muted, #6b7280);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.context {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  min-width: 160px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: var(--bo-radius, 4px);
+  background: var(--bo-surface, #fff);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+}
+
+/* Connection site a dragged connector end will snap to. */
+.snapSite {
+  fill: none;
+  stroke: var(--bo-slide-accent, #c2185b);
+  stroke-width: 2px;
+}

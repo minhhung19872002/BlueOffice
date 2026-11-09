@@ -17,6 +17,7 @@ pub mod clip;
 pub mod collab;
 pub mod comments;
 pub mod connect;
+pub mod freeform;
 pub mod geom;
 pub mod guides;
 mod inspect_cmd;
@@ -482,6 +483,23 @@ pub enum SlideCommand {
         /// Connector preset (`straightConnector1`, `bentConnector3`, …).
         #[serde(default)]
         preset: Option<String>,
+    },
+    /// Edit points: turn the selected shape's outline into a freeform (custom
+    /// geometry with literal coordinates, ECMA-376 Part 1, §20.1.9.8 custGeom).
+    ConvertToFreeform,
+    /// Edit a point or segment of the selected freeform (converted first when
+    /// needed); `merge` joins the previous drag step (one undo step).
+    EditPoint {
+        /// The edit.
+        edit: freeform::PointEdit,
+        /// Join with the previous drag step (one undo step).
+        #[serde(default)]
+        merge: bool,
+    },
+    /// Merge the selected shapes (two or more) into freeforms.
+    MergeShapes {
+        /// Union, combine, fragment, intersect or subtract.
+        op: freeform::MergeOp,
     },
     /// Copy the selected shapes to the internal clipboard (full shapes and
     /// the pictures they use); the result carries text and a PNG for the
@@ -1062,6 +1080,9 @@ pub struct SlideEditResult {
     /// Connection sites of the slide's shapes while a connector is selected.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub sites: Vec<[f64; 2]>,
+    /// The selected freeform's points and segments (edit points).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub freeform: Option<freeform::FreeformOut>,
     /// What the internal clipboard holds: `shapes` | `slides`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clip: Option<&'static str>,
@@ -2662,6 +2683,33 @@ fn cmd_insert_connector(tx: &mut Tx<'_>, sel: &mut SlideSel, preset: Option<&str
     connect::set_cxn_ref(&mut c, 1, Some((p1.id, j as u32)));
     let base = c.props.xfrm.clone().unwrap_or_default();
     c.props.xfrm = Some(connect::xfrm_between(&base, s0[i], s1[j]));
+    // Elbow and curved connectors leave a site along its outward direction
+    // (§20.1.9.9 cxn@ang): a vertical start turns the connector by 90°, so its
+    // first segment (along the local x axis) runs vertically.
+    let bent = matches!(
+        c.props.geometry,
+        Some(bo_model::slide::Geometry::Preset { ref name, .. })
+            if name.starts_with("bentConnector") || name.starts_with("curvedConnector")
+    );
+    let vertical = connect::site_angles(tx.pres, sel.slide, p0, n0)
+        .get(i)
+        .is_some_and(|a| (a.rem_euclid(180.0) - 90.0).abs() < 45.0);
+    if bent && vertical {
+        let at = Placed {
+            id,
+            path: Vec::new(),
+            b: BoxR {
+                rot: 90.0,
+                ..BoxR::default()
+            },
+            frame: geom::Frame::root(),
+            children: Vec::new(),
+        };
+        let mut routed = connect::route(&at, &c, s0[i], s1[j]);
+        // A new connector keeps its default bends (adjust values, §20.1.9.5).
+        routed.props.geometry = c.props.geometry.clone();
+        *c = routed;
+    }
     insert_top(tx, sel, Some(ShapeNode::Connector(c)))
 }
 
@@ -3965,6 +4013,21 @@ impl Engine {
                         cmd_connector_end(tx, sel, end, x, y, tolerance)
                     });
                 }
+                SlideCommand::ConvertToFreeform => {
+                    ed.mutate(pres, &mut out, |tx, sel| freeform::cmd_convert(tx, sel));
+                }
+                SlideCommand::EditPoint { ref edit, merge } => {
+                    let key = single(&ed.sel.ids)
+                        .filter(|_| merge)
+                        .map(|id| (ed.sel.slide, id, 3));
+                    let edit = edit.clone();
+                    ed.mutate_as(pres, &mut out, key, |tx, sel| {
+                        freeform::cmd_point_edit(tx, sel, &edit)
+                    });
+                }
+                SlideCommand::MergeShapes { op } => {
+                    ed.mutate(pres, &mut out, |tx, sel| freeform::cmd_merge(tx, sel, op));
+                }
                 SlideCommand::InsertConnector { ref preset } => {
                     let preset = preset.clone();
                     ed.mutate(pres, &mut out, |tx, sel| {
@@ -4541,9 +4604,11 @@ impl Engine {
         let mut adjust = Vec::new();
         let mut connector = None;
         let mut sites = Vec::new();
+        let mut freeform_state = None;
         if let [one] = items.as_slice() {
             if let Some(n) = ops::node_at(pres, slide, &one.path) {
                 adjust = connect::adjust_handles(pres, slide, one, n);
+                freeform_state = freeform::freeform_out(pres, slide, one, n);
                 if let ShapeNode::Connector(c) = n {
                     if let Some(x) = &c.props.xfrm {
                         let [a, b] = connect::ends(one, x);
@@ -4617,6 +4682,7 @@ impl Engine {
             adjust,
             connector,
             sites,
+            freeform: freeform_state,
             clip: match self.slide_clip.as_ref().map(|c| &c.kind) {
                 Some(clip::ClipKind::Shapes { .. }) => Some("shapes"),
                 Some(clip::ClipKind::Slides(_)) => Some("slides"),

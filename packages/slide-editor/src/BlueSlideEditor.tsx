@@ -177,6 +177,8 @@ import { SlideCanvas } from './SlideCanvas';
 import { zipStore } from './zip';
 import styles from './SlideEditor.module.css';
 import { SlideOverlay, type TextEditing } from './SlideOverlay';
+import { EditPointsOverlay } from './editPoints';
+import { registerShapeTools, shapeFormatTab } from './shapeFormat';
 import {
   RenameDialog,
   SlideSizeDialog,
@@ -244,6 +246,12 @@ export interface SlideEditorState extends MasterState, SectionState, PageMasterS
   isPicture?: boolean;
   /** Transition kind of the current slide (`none` without one). */
   transition?: string;
+  /** One plain shape is selected (edit points). */
+  isShape?: boolean;
+  /** Two or more top-level shapes are selected (merge shapes). */
+  mergeable?: boolean;
+  /** The point editor is open on the selected shape. */
+  editingPoints?: boolean;
 }
 
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
@@ -489,6 +497,17 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const loadGallery = useMemo(() => slideGalleryLoader((cmd) => ctrl.run(cmd)), [ctrl]);
   const [saveTemplate, setSaveTemplate] = useState(false);
   const runResult = useCallback((cmd: SlideCommand) => ctrl.run(cmd), [ctrl]);
+  // Edit points (CORE-SHAPE-001): the shape whose points are being edited.
+  const [pointsFor, setPointsFor] = useState<number | null>(null);
+  const selectedId = edit?.selection.length === 1 ? (edit.selection[0]?.id ?? null) : null;
+  const selectedIdRef = useRef(selectedId);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+  const setEditingPoints = useCallback(
+    (on: boolean) => setPointsFor(on ? selectedIdRef.current : null),
+    [],
+  );
   // CORE-SEC-001: final mark, password to modify, label.
   const runSecurity = useCallback((cmd: SlideCommand) => ctrl.run(cmd), [ctrl]);
   const protection = useFileProtection(runSecurity, (platform as Partial<Platform>).auth?.user);
@@ -1522,14 +1541,21 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isSmartArt: s.length === 1 && s[0]?.kind === 'smartart' && !!edit?.smartart,
       isPicture: s.length > 0 && s.every((x) => x.kind === 'picture'),
       transition: edit?.transition?.kind ?? 'none',
+      isShape: s.length === 1 && s[0]?.kind === 'shape',
+      mergeable: s.length > 1 && s.every((x) => x.kind === 'shape'),
+      editingPoints: pointsFor !== null && pointsFor === selectedId,
       ...masterState(edit),
       ...sectionState(edit?.sections, current, sectionPick),
       ...pageMasterState(edit),
     };
-  }, [count, current, edit, sectionPick]);
+  }, [count, current, edit, sectionPick, pointsFor, selectedId]);
   // Built-in themes and variants (one command each).
   const design = edit?.design;
   useEffect(() => registerDesignChoices(registry, run, design), [registry, run, design]);
+  useEffect(
+    () => registerShapeTools(registry, run, setEditingPoints),
+    [registry, run, setEditingPoints],
+  );
   const exec = useCallback(
     (id: string) => {
       // Undo / redo typed in quick succession arrive before the previous result has refreshed
@@ -2025,6 +2051,16 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           },
         ],
       },
+      ...(state.isShape || state.mergeable
+        ? [
+            shapeFormatTab({
+              t,
+              state,
+              enabled: (id) => registry.isEnabled(id, state),
+              exec,
+            }),
+          ]
+        : []),
       ...(state.isSmartArt
         ? [
             {
@@ -2501,6 +2537,28 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     info={edit?.pageMaster}
                     scale={main.width / (slideSize.width || 1)}
                   />
+                  {state.editingPoints && edit?.freeform && edit.slide === shown && (
+                    <EditPointsOverlay
+                      key={edit.freeform.id}
+                      slide={info?.pages[shown] ?? slideSize}
+                      width={main.width}
+                      freeform={edit.freeform}
+                      run={runResult}
+                      onExit={() => setEditingPoints(false)}
+                      labels={{
+                        overlay: t('slideEditor.shapeTools.overlay'),
+                        point: (n) => t('slideEditor.shapeTools.point', { n }),
+                        handle: t('slideEditor.shapeTools.handle'),
+                        addHint: t('slideEditor.shapeTools.addHint'),
+                        deletePoint: t('slideEditor.shapeTools.deletePoint'),
+                        corner: t('slideEditor.shapeTools.corner'),
+                        smooth: t('slideEditor.shapeTools.smooth'),
+                        symmetric: t('slideEditor.shapeTools.symmetric'),
+                        straight: t('slideEditor.shapeTools.straight'),
+                        curved: t('slideEditor.shapeTools.curved'),
+                      }}
+                    />
+                  )}
                   {edit?.slide === shown && (edit.media?.length ?? 0) > 0 && (
                     <MediaButtons
                       engine={engine}

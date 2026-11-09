@@ -9,11 +9,15 @@
 //! * [`theme`] — theme parts (§20.1.6).
 //! * [`geom`], [`presets`] — guide formulas, path evaluation and the preset
 //!   shape definitions (§20.1.9).
+//! * [`freeform`], [`boolean`] — editing outlines as custom geometry and
+//!   polygon boolean operations for merging shapes.
 #![forbid(unsafe_code)]
 
+pub mod boolean;
 pub mod chart;
 pub mod color;
 pub mod dom;
+pub mod freeform;
 pub mod geom;
 pub mod handles;
 pub mod picture;

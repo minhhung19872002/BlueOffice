@@ -268,6 +268,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `transition.applyAll` | Lucide (ISC) `Files` |
 | `view.animationPane` | Lucide (ISC) `PanelRight` |
 | `view.collaborators` | Lucide (ISC) `Users` |
+| `view.density` | Lucide (ISC) `Rows4` |
 | `view.fitWidth` | Lucide (ISC) `Maximize2` |
 | `view.freezeFirstCol` | Lucide (ISC) `PanelLeft` |
 | `view.freezePanes` | Lucide (ISC) `Snowflake` |

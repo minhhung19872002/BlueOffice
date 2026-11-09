@@ -46,7 +46,8 @@
 .panel {
   display: flex;
   align-items: stretch;
-  min-height: 84px;
+  /* Large buttons + group label; follows the density tokens (--bo-ribbon-large-h). */
+  min-height: calc(var(--bo-ribbon-large-h, 66px) + 18px);
   padding: 6px 8px 2px;
   /* Groups collapse to fit (planRibbonLayout); nothing may scroll or spill out. */
   overflow: hidden;
@@ -95,6 +96,7 @@
   gap: 4px;
   min-width: 56px;
   max-width: 84px;
+  min-height: var(--bo-ribbon-large-h, 66px);
   padding: 6px 6px 4px;
   border-radius: var(--bo-radius);
   cursor: pointer;
@@ -106,9 +108,11 @@
 
 .button.small {
   flex-direction: row;
+  align-items: center;
   min-width: 0;
   max-width: none;
-  padding: 5px 6px;
+  min-height: var(--bo-control-h, 28px);
+  padding: 0 6px;
 }
 
 .button:hover:not([aria-disabled='true']) {
@@ -246,4 +250,10 @@
 .overflowSection .groupLabel {
   text-align: left;
   padding: 2px 8px;
+}
+
+/* Touch density: every small button is at least a 40 × 40 target. */
+:global([data-density='touch']) .button.small {
+  min-width: 40px;
+  justify-content: center;
 }

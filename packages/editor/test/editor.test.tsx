@@ -183,6 +183,14 @@ describe('BlueEditor', () => {
     await waitFor(() => expect(root.getAttribute('data-theme')).toBe('hc'));
     fireEvent.click(screen.getByText('Light / Dark / High contrast'));
     await waitFor(() => expect(root.getAttribute('data-theme')).toBe('light'));
+    fireEvent.click(screen.getByText('Density: Normal'));
+    await waitFor(() =>
+      expect(document.documentElement.getAttribute('data-density')).toBe('compact'),
+    );
+    expect(screen.getByText('Density: Compact')).toBeTruthy();
+    fireEvent.click(screen.getByText('Density: Compact'));
+    fireEvent.click(screen.getByText('Density: Touch'));
+    await waitFor(() => expect(document.documentElement.hasAttribute('data-density')).toBe(false));
   });
 
   it('honours host configuration', () => {

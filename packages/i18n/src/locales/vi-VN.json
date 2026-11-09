@@ -143,6 +143,11 @@
       "fitWidth": "Vừa chiều rộng",
       "collaborators": "Người cùng sửa",
       "toggleTheme": "Sáng / Tối / Tương phản cao",
+      "densityIs": {
+        "normal": "Mật độ: Thường",
+        "compact": "Mật độ: Gọn",
+        "touch": "Mật độ: Cảm ứng"
+      },
       "toggleLanguage": "English",
       "ruler": "Thước kẻ"
     },

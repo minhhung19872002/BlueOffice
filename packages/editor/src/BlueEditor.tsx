@@ -18,7 +18,11 @@ import { PASSWORD_REQUIRED, WRONG_PASSWORD, updateNotice } from '@blueoffice/pla
 import {
   Ribbon,
   StatusBar,
+  nextDensity,
   nextTheme,
+  setDensity,
+  getDensity,
+  useDensity,
   useResolvedTheme,
   type RibbonTab,
   type ThemeSetting,
@@ -85,6 +89,7 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   MoonStar,
+  Rows4,
   Omega,
   PanelRight,
   Pilcrow,
@@ -234,6 +239,7 @@ function EditorInner({
   const [store] = useState(() => createEditorStore(language, theme));
   const state = useStore(store);
   const resolvedTheme = useResolvedTheme(state.theme);
+  const density = useDensity();
   const viewHost = useRef<HTMLDivElement>(null);
   const view = useRef<DocumentView | null>(null);
   const controller = useRef<DocController | null>(null);
@@ -999,6 +1005,11 @@ function EditorInner({
       isChecked: (s) => s.theme === 'dark' || s.theme === 'hc',
       // Light → dark → high contrast → light (UI-TOKENS-002).
       run: (s) => store.setState({ theme: nextTheme(s.theme) }),
+    });
+    r.register({
+      id: 'view.density',
+      // Normal → Compact → Touch (UI-TOKENS-003), remembered per user.
+      run: () => setDensity(nextDensity(getDensity())),
     });
     r.register({
       id: 'view.toggleLanguage',
@@ -2069,6 +2080,7 @@ function EditorInner({
             item('view.ruler', 'commands.view.ruler', <Ruler size={ICON} />),
             item('view.collaborators', 'commands.view.collaborators', <Users size={ICON} />),
             item('view.toggleTheme', 'commands.view.toggleTheme', <MoonStar size={ICON} />),
+            item('view.density', `commands.view.densityIs.${density}`, <Rows4 size={ICON} />),
             item('view.toggleLanguage', 'commands.view.toggleLanguage', <Languages size={ICON} />),
           ],
         },

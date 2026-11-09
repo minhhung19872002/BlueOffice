@@ -182,6 +182,7 @@ import {
   Users,
   ZoomIn,
   ZoomOut,
+  Rows4,
 } from 'lucide-react';
 import type { IconSpec } from './types';
 
@@ -456,6 +457,7 @@ export const LUCIDE_ICONS: Record<string, IconSpec> = {
   'view.ruler': lucide(Ruler),
   'view.sorter': lucide(LayoutGrid),
   'view.toggleLanguage': lucide(Languages),
+  'view.density': lucide(Rows4),
   'view.toggleTheme': lucide(MoonStar),
   'view.unfreeze': lucide(Columns2),
   'view.zoomIn': lucide(ZoomIn),

@@ -143,6 +143,11 @@
       "fitWidth": "Fit width",
       "collaborators": "Collaborators",
       "toggleTheme": "Light / Dark / High contrast",
+      "densityIs": {
+        "normal": "Density: Normal",
+        "compact": "Density: Compact",
+        "touch": "Density: Touch"
+      },
       "toggleLanguage": "Tiếng Việt",
       "ruler": "Ruler"
     },

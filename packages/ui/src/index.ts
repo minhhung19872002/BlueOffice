@@ -31,3 +31,4 @@ export {
 } from './CommentThreads';
 export * from './tokens';
 export * from './icons';
+export { getDensity, nextDensity, setDensity, useDensity, type Density } from './density';

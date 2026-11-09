@@ -133,6 +133,14 @@ import {
   ListChecks,
   LockOpen,
   Unlink,
+  AlignHorizontalSpaceAround,
+  AlignVerticalSpaceAround,
+  ArrowDownUp,
+  Expand,
+  RotateCw,
+  Shrink,
+  Table2,
+  WrapText,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -168,6 +176,7 @@ import {
   TablePropertiesDialog,
   TemplateDialog,
 } from './DocDialogs';
+import { ConvertDialog, FormulaDialog, SortDialog } from './TableToolDialogs';
 import { ColorPicker, FontFamilyPicker, FontSizeBox, SpacingMenu } from './FontControls';
 import { Rulers, type PageBox } from './Ruler';
 
@@ -1474,6 +1483,44 @@ function EditorInner({
       isEnabled: inTable,
       run: () => store.setState({ dialog: 'tableProperties' }),
     });
+    // Table tools: sizes (§17.4.53 tblLayout, §17.4.81 trHeight), sort, formula
+    // (§17.16.5.1), text direction (§17.4.72), wrapping (§17.4.58), text ↔ table.
+    const toolCmds: [string, TableEdit][] = [
+      ['table.distributeRows', { kind: 'distributeRows' }],
+      ['table.distributeColumns', { kind: 'distributeColumns' }],
+      ['table.autoFitContents', { kind: 'autoFit', mode: 'contents' }],
+      ['table.autoFitWindow', { kind: 'autoFit', mode: 'window' }],
+      ['table.autoFitFixed', { kind: 'autoFit', mode: 'fixed' }],
+    ];
+    for (const [id, edit] of toolCmds) {
+      r.register({ id, isEnabled: inTable, run: () => tbl(edit) });
+    }
+    const dialogCmds: [string, EditorState['dialog'], (s: EditorState) => boolean][] = [
+      ['table.sort', 'tableSort', inTable],
+      ['table.formula', 'tableFormula', inTable],
+      ['table.toText', 'tableToText', inTable],
+      ['table.fromText', 'textToTable', (s) => hasDoc(s) && !s.edit?.story],
+    ];
+    for (const [id, dialog, enabled] of dialogCmds) {
+      r.register({ id, isEnabled: enabled, run: () => store.setState({ dialog }) });
+    }
+    r.register({
+      id: 'table.textDirection',
+      isEnabled: inTable,
+      isChecked: (s) => !!f(s)?.table?.direction,
+      // Horizontal → top to bottom → bottom to top → horizontal.
+      run: (s) => {
+        const d = f(s)?.table?.direction ?? null;
+        const next = d === null || d === 'lrTb' ? 'tbRl' : d === 'tbRl' ? 'btLr' : null;
+        return tbl({ kind: 'textDirection', dir: next });
+      },
+    });
+    r.register({
+      id: 'table.wrap',
+      isEnabled: inTable,
+      isChecked: (s) => !!f(s)?.table?.wrap,
+      run: (s) => tbl({ kind: 'wrap', around: !f(s)?.table?.wrap }),
+    });
     // Floating picture position (§20.4.2.3 anchor); a tracked move with track changes on.
     r.register({
       id: 'picture.position',
@@ -1616,6 +1663,50 @@ function EditorInner({
                   'commands.table.properties',
                   <TableProperties size={SMALL} />,
                 ),
+              ],
+            },
+            {
+              id: 'cellSize',
+              label: t('ribbon.groups.cellSize'),
+              items: [
+                s(
+                  'table.distributeRows',
+                  'commands.table.distributeRows',
+                  <AlignVerticalSpaceAround size={SMALL} />,
+                ),
+                s(
+                  'table.distributeColumns',
+                  'commands.table.distributeColumns',
+                  <AlignHorizontalSpaceAround size={SMALL} />,
+                ),
+                s(
+                  'table.autoFitContents',
+                  'commands.table.autoFitContents',
+                  <Shrink size={SMALL} />,
+                ),
+                s('table.autoFitWindow', 'commands.table.autoFitWindow', <Expand size={SMALL} />),
+                s('table.autoFitFixed', 'commands.table.autoFitFixed', <Lock size={SMALL} />),
+              ],
+            },
+            {
+              id: 'tableText',
+              label: t('ribbon.groups.tableText'),
+              items: [
+                item(
+                  'table.textDirection',
+                  'commands.table.textDirection',
+                  <RotateCw size={ICON} />,
+                ),
+                s('table.wrap', 'commands.table.wrap', <WrapText size={SMALL} />),
+              ],
+            },
+            {
+              id: 'tableData',
+              label: t('ribbon.groups.tableData'),
+              items: [
+                item('table.sort', 'commands.table.sort', <ArrowDownUp size={ICON} />),
+                item('table.formula', 'commands.table.formula', <SquareFunction size={ICON} />),
+                s('table.toText', 'commands.table.toText', <FileText size={SMALL} />),
               ],
             },
           ],
@@ -1809,6 +1900,7 @@ function EditorInner({
           label: t('ribbon.groups.insertObjects'),
           items: [
             item('insert.table', 'commands.insert.table', <Table size={ICON} />),
+            s('table.fromText', 'commands.table.fromText', <Table2 size={SMALL} />),
             item('insert.image', 'commands.insert.image', <Image size={ICON} />),
             item('insert.symbol', 'commands.insert.symbol', <Omega size={ICON} />),
           ],
@@ -2221,6 +2313,19 @@ function EditorInner({
                 format={fs}
                 run={runCommand}
                 language={state.language}
+                onClose={closeDialog}
+              />
+            )}
+            {state.dialog === 'tableSort' && (
+              <SortDialog table={fs?.table} run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'tableFormula' && (
+              <FormulaDialog table={fs?.table} run={runCommand} onClose={closeDialog} />
+            )}
+            {(state.dialog === 'textToTable' || state.dialog === 'tableToText') && (
+              <ConvertDialog
+                toTable={state.dialog === 'textToTable'}
+                run={runCommand}
                 onClose={closeDialog}
               />
             )}

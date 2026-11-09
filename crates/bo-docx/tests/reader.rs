@@ -141,3 +141,61 @@ fn content_controls_inline_and_block() {
     assert_eq!(xml.matches("<w:sdt>").count(), 3);
     assert!(xml.contains(r#"<w:lock w:val="sdtContentLocked"/>"#));
 }
+
+/// ECMA-376 Part 1, §17.4.58 tblpPr and §17.4.72 textDirection are read into the model,
+/// survive a write of a changed table, and strict values (`lr`) read like transitional.
+#[test]
+fn floating_table_and_vertical_text_round_trip() {
+    let body = r#"<w:tbl><w:tblPr><w:tblpPr w:leftFromText="180" w:rightFromText="200" w:topFromText="10" w:bottomFromText="20" w:vertAnchor="page" w:horzAnchor="margin" w:tblpXSpec="center" w:tblpY="1440"/><w:tblW w:w="4000" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid>
+<w:tr><w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:textDirection w:val="btLr"/></w:tcPr><w:p/></w:tc><w:tc><w:tcPr><w:textDirection w:val="lr"/></w:tcPr><w:p/></w:tc></w:tr></w:tbl><w:p/>"#;
+    let doc = read_docx(&docx(body)).unwrap();
+    let Block::Table(t) = &doc.sections[0].blocks[0] else {
+        panic!("table")
+    };
+    let f = t.props.float.clone().unwrap();
+    assert_eq!(
+        (
+            f.left_from_text,
+            f.right_from_text,
+            f.top_from_text,
+            f.bottom_from_text
+        ),
+        (Twips(180), Twips(200), Twips(10), Twips(20))
+    );
+    assert_eq!(f.vert_anchor.as_deref(), Some("page"));
+    assert_eq!(f.horz_anchor.as_deref(), Some("margin"));
+    assert_eq!(f.x_align.as_deref(), Some("center"));
+    assert_eq!((f.y, f.y_align.as_deref()), (Twips(1440), None));
+    assert_eq!(t.props.unknown, Vec::new());
+    let dirs: Vec<_> = t.rows[0]
+        .cells
+        .iter()
+        .map(|c| c.props.text_direction)
+        .collect();
+    assert_eq!(
+        dirs,
+        vec![
+            Some(bo_model::TextDirection::BtLr),
+            Some(bo_model::TextDirection::BtLr)
+        ]
+    );
+    // Change the table so it is written from the model, not from its source XML.
+    let mut doc = doc;
+    if let Block::Table(t) = &mut doc.sections[0].blocks[0] {
+        t.rows[0].cells[1].props.text_direction = Some(bo_model::TextDirection::TbRl);
+    }
+    let out = bo_docx::write_docx(&doc).unwrap();
+    let pkg = Package::read(&out, &bo_opc::Limits::default()).unwrap();
+    let xml = String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap();
+    assert!(xml.contains(r#"<w:textDirection w:val="tbRl"/>"#), "{xml}");
+    assert!(xml.contains(r#"w:tblpXSpec="center""#));
+    let back = read_docx(&out).unwrap();
+    let Block::Table(t2) = &back.sections[0].blocks[0] else {
+        panic!("table")
+    };
+    assert_eq!(t2.props.float, Some(f));
+    assert_eq!(
+        t2.rows[0].cells[1].props.text_direction,
+        Some(bo_model::TextDirection::TbRl)
+    );
+}

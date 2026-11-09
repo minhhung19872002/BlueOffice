@@ -25,6 +25,7 @@ pub use write::{
     ParaProps, ParaPropsChange, Paragraph, Raw, RevMark, RevisionInfo, Row, RowProps,
     RowPropsChange, Run, RunContent, RunProps, RunPropsChange, Section, SectionBreak,
     SectionChange, Shape, ShapeLine, SourcePackage, Style, StyleKind, StyleSheet, TabAlign,
-    TabLeader, TabStop, Table, TableGeometry, TableProps, TablePropsChange, TableView, TableWidth,
-    TextAnchor, ThemeFonts, Underline, VMerge, VertAlign, Wrap, WrapText,
+    TabLeader, TabStop, Table, TableFloat, TableGeometry, TableProps, TablePropsChange, TableView,
+    TableWidth, TextAnchor, TextDirection, ThemeFonts, Underline, VMerge, VertAlign, Wrap,
+    WrapText,
 };

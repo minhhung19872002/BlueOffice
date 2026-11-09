@@ -28,13 +28,14 @@ mod paragraph;
 mod style;
 mod types;
 
-pub use incremental::{IncrementalLayout, UpdateKind};
+pub use blocks::TableMeasure;
+pub use incremental::{measure_table, IncrementalLayout, UpdateKind};
 pub use math::{layout_equation, EquationGlyphs, EquationRun};
 pub use paragraph::{FieldContext, LayoutCache};
 pub use style::author_color;
 pub use types::{
-    Fragment, GlyphPos, Layer, LayoutDocument, Line, LineSource, NoteKey, Page, PageItem, PathCmd,
-    ShapePath, SharedStr,
+    Fragment, GlyphPos, Layer, LayoutDocument, Line, LineRotation, LineSource, NoteKey, Page,
+    PageItem, PathCmd, ShapePath, SharedStr,
 };
 
 use bo_model::change::BlockChanges;

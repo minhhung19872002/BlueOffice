@@ -154,12 +154,36 @@ fn line_of<'l>(lines: &[(usize, &'l Line)], pos: Pos) -> Option<(usize, usize, &
 pub fn caret_rect(layout: &LayoutDocument, pos: Pos) -> Option<CaretRect> {
     let lines = body_lines(layout);
     let (_, page, l) = line_of(&lines, pos)?;
+    let x = caret_x(l, pos.offset);
+    // Vertical text (§17.4.72 textDirection): a short bar where the caret turns to.
+    if let Some(r) = l.rotation {
+        let (cx, cy) = r.apply(x, l.top + l.height / 2.0);
+        return Some(CaretRect {
+            page,
+            x: cx,
+            y: cy - 2.0,
+            h: 4.0,
+        });
+    }
     Some(CaretRect {
         page,
-        x: caret_x(l, pos.offset),
+        x,
         y: l.top,
         h: l.height,
     })
+}
+
+/// Axis-aligned box of a rectangle of a rotated line.
+fn rotated_rect(
+    r: &bo_layout::LineRotation,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) -> (f32, f32, f32, f32) {
+    let (ax, ay) = r.apply(x, y);
+    let (bx, by) = r.apply(x + w, y + h);
+    (ax.min(bx), ay.min(by), (ax - bx).abs(), (ay - by).abs())
 }
 
 /// Highlight rectangles of a selection.
@@ -187,13 +211,12 @@ pub fn selection_rects(layout: &LayoutDocument, sel: Selection) -> Vec<SelRect> 
         if continues && e == le {
             x1 = x1.max(right_x(l)) + MARK_W;
         }
-        out.push(SelRect {
-            page,
-            x: x0,
-            y: l.top,
-            w: (x1 - x0).max(0.5),
-            h: l.height,
-        });
+        let (x, y, w, h) = (x0, l.top, (x1 - x0).max(0.5), l.height);
+        let (x, y, w, h) = match &l.rotation {
+            Some(r) => rotated_rect(r, x, y, w, h),
+            None => (x, y, w, h),
+        };
+        out.push(SelRect { page, x, y, w, h });
     }
     out
 }
@@ -213,8 +236,10 @@ fn offset_at(l: &Line, x: f32) -> usize {
 /// Position under a point of a page (nearest line, then nearest caret stop).
 pub fn hit_test(layout: &LayoutDocument, page: usize, x: f32, y: f32) -> Option<Pos> {
     let p = layout.pages.get(page)?;
-    let mut best: Option<(&Line, f32)> = None;
+    let mut best: Option<(&Line, f32, f32)> = None;
     for l in p.lines.iter().filter(|l| body_id(l).is_some()) {
+        // Vertical text (§17.4.72): measure in the line's own, unrotated frame.
+        let (x, y) = l.rotation.map_or((x, y), |r| r.invert(x, y));
         let dy = if y < l.top {
             l.top - y
         } else if y > l.top + l.height {
@@ -233,16 +258,16 @@ pub fn hit_test(layout: &LayoutDocument, page: usize, x: f32, y: f32) -> Option<
         // Vertical distance dominates; horizontal breaks ties (table cells side by side).
         let score = dy * 1000.0 + dx;
         if best.is_none_or(|b| score < b.1) {
-            best = Some((l, score));
+            best = Some((l, score, x));
         }
     }
-    let (l, _) = best.or_else(|| {
+    let (l, _, lx) = best.or_else(|| {
         // Page without body text: snap to the nearest body line of other pages.
         let lines = body_lines(layout);
         let after = lines.iter().find(|(pi, _)| *pi >= page).or(lines.last())?;
-        Some((after.1, 0.0))
+        Some((after.1, 0.0, x))
     })?;
-    Some(Pos::new(body_id(l)?, offset_at(l, x)))
+    Some(Pos::new(body_id(l)?, offset_at(l, lx)))
 }
 
 /// Caret movement kinds handled with layout information.
@@ -335,6 +360,7 @@ mod tests {
             carets: (start..=end)
                 .map(|o| (o, x0 + (o - start) as f32 * 5.0))
                 .collect(),
+            rotation: None,
         }
     }
 

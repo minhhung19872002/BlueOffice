@@ -9,6 +9,7 @@
 //! order, table cells included) and matches `bo_layout::LineSource::Body`.
 #![forbid(unsafe_code)]
 
+mod collate;
 pub mod comments;
 pub mod compare;
 pub mod fields;
@@ -22,6 +23,7 @@ pub mod revisions;
 pub mod section;
 pub mod shapes;
 pub mod table;
+pub mod table_tools;
 
 pub use comments::CommentInfo;
 pub use fields::RefTarget;
@@ -381,6 +383,12 @@ pub struct TableState {
     pub multi_cell: bool,
     /// The caret's cell is merged (split is possible).
     pub merged: bool,
+    /// Text direction of the caret's cell (§17.4.72 textDirection; `None` = horizontal).
+    pub direction: Option<bo_model::TextDirection>,
+    /// Text wraps around the table (§17.4.58 tblpPr).
+    pub wrap: bool,
+    /// Fixed column widths (§17.4.53 tblLayout `fixed`).
+    pub fixed_layout: bool,
 }
 
 /// Formatting at the selection start (drives ribbon toggle states).
@@ -3581,6 +3589,8 @@ impl Session {
 
 #[cfg(test)]
 mod feature_tests;
+#[cfg(test)]
+mod table_tools_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

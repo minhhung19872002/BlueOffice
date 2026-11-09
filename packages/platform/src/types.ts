@@ -252,6 +252,23 @@ export interface TableState {
   width: number;
   multiCell: boolean;
   merged: boolean;
+  /** Text direction of the caret's cell (§17.4.72); null = horizontal. */
+  direction: TextDirection | null;
+  /** Text wraps around the table (§17.4.58 tblpPr). */
+  wrap: boolean;
+  /** Fixed column widths (§17.4.53 tblLayout). */
+  fixedLayout: boolean;
+}
+
+/** §17.18.93 ST_TextDirection (transitional names). */
+export type TextDirection = 'lrTb' | 'tbRl' | 'btLr' | 'lrTbV' | 'tbRlV' | 'tbLrV';
+
+/** One level of a table sort (mirrors `bo_edit::table_tools::SortKey`). */
+export interface TableSortKey {
+  /** Grid column, 0-based. */
+  column: number;
+  kind: 'text' | 'number' | 'date';
+  descending: boolean;
 }
 
 export type TableEdit =
@@ -265,7 +282,18 @@ export type TableEdit =
   | { kind: 'shading'; hex: string | null }
   | { kind: 'borders'; preset: 'all' | 'none' | 'outside' | 'inside' }
   | { kind: 'properties'; widthPct?: number | null; width?: number | null; align?: Alignment }
-  | { kind: 'headerRow'; on: boolean };
+  | { kind: 'headerRow'; on: boolean }
+  /** Heights are measured by the engine when omitted. */
+  | { kind: 'distributeRows'; heights?: number[] }
+  | { kind: 'distributeColumns' }
+  /** Content widths are measured by the engine when omitted. */
+  | { kind: 'autoFit'; mode: 'contents' | 'window' | 'fixed'; widths?: number[] }
+  | { kind: 'sort'; keys: TableSortKey[]; header: boolean }
+  | { kind: 'textDirection'; dir: TextDirection | null }
+  | { kind: 'wrap'; around: boolean }
+  /** Separator: "\t", ",", "\n" (one paragraph per cell) or any text. */
+  | { kind: 'toText'; separator: string }
+  | { kind: 'fromText'; separator: string; cols?: number | null };
 
 /** §17.18.30 / §17.18.21 note placement. */
 export type NotePos = 'pageBottom' | 'beneathText' | 'sectEnd' | 'docEnd';

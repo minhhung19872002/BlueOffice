@@ -515,6 +515,10 @@ fn underline_commands(
 }
 
 fn line_commands(line: &Line, fonts: &FontManager, commands: &mut Vec<Command>) {
+    // Vertical text in a table cell (ECMA-376 Part 1, §17.4.72 textDirection).
+    if let Some(r) = line.rotation.filter(|_| !line.fragments.is_empty()) {
+        commands.push(Command::PushTransform { m: r.matrix() });
+    }
     for f in &line.fragments {
         let color: Rgba = f.color.into();
         if !f.glyphs.is_empty() && !f.text.trim().is_empty() {
@@ -557,6 +561,9 @@ fn line_commands(line: &Line, fonts: &FontManager, commands: &mut Vec<Command>) 
             deco(sy - thickness, thickness, None);
             deco(sy + thickness, thickness, None);
         }
+    }
+    if line.rotation.is_some() && !line.fragments.is_empty() {
+        commands.push(Command::PopTransform);
     }
 }
 

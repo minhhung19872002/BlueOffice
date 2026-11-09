@@ -16,8 +16,8 @@ use bo_model::{
     NotePos, NoteProps, NoteRestart, Num, NumFormat, NumRef, Numbering, ParaProps, ParaPropsChange,
     Paragraph, Raw, RevMark, RevisionInfo, Row, RowPropsChange, Run, RunContent, RunProps,
     RunPropsChange, Section, SectionBreak, SourcePackage, Style, StyleKind, StyleSheet, TabAlign,
-    TabLeader, TabStop, Table, TableProps, TablePropsChange, TableWidth, ThemeFonts, Twips,
-    Underline, VMerge, VertAlign, Wrap, WrapText,
+    TabLeader, TabStop, Table, TableFloat, TableProps, TablePropsChange, TableWidth, TextDirection,
+    ThemeFonts, Twips, Underline, VMerge, VertAlign, Wrap, WrapText,
 };
 use bo_opc::xml::{attr, unescape, XmlReader};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
@@ -1951,6 +1951,23 @@ fn read_tblpr(r: &mut XmlReader<'_>) -> Result<TableProps> {
             b"tblInd" => t.indent = twips(e, b"w"),
             b"tblBorders" if s => t.borders = Some(read_borders(r)?),
             b"tblLayout" => t.fixed_layout = attr(e, b"type").as_deref() == Some("fixed"),
+            // ECMA-376 Part 1, §17.4.58 tblpPr (floating table position).
+            b"tblpPr" => {
+                let tw = |a: &[u8]| twips(e, a).unwrap_or(Twips(0));
+                t.float = Some(TableFloat {
+                    left_from_text: tw(b"leftFromText"),
+                    right_from_text: tw(b"rightFromText"),
+                    top_from_text: tw(b"topFromText"),
+                    bottom_from_text: tw(b"bottomFromText"),
+                    horz_anchor: attr(e, b"horzAnchor"),
+                    vert_anchor: attr(e, b"vertAnchor"),
+                    x: tw(b"tblpX"),
+                    x_align: attr(e, b"tblpXSpec"),
+                    y: tw(b"tblpY"),
+                    y_align: attr(e, b"tblpYSpec"),
+                });
+                return Ok(!s);
+            }
             // §17.13.5.34 tblPrChange
             b"tblPrChange" if s => {
                 let info = rev_info(e);
@@ -2263,6 +2280,16 @@ fn read_tcpr(r: &mut XmlReader<'_>) -> Result<CellProps> {
                     Some("bottom") => Some(CellVAlign::Bottom),
                     _ => Some(CellVAlign::Top),
                 };
+            }
+            // ECMA-376 Part 1, §17.4.72 textDirection (§17.18.93 ST_TextDirection).
+            b"textDirection"
+                if attr(e, b"val")
+                    .as_deref()
+                    .and_then(TextDirection::parse)
+                    .is_some() =>
+            {
+                c.text_direction = attr(e, b"val").as_deref().and_then(TextDirection::parse);
+                return Ok(!s);
             }
             _ => c.unknown.push(capture(r, s, before)?),
         }

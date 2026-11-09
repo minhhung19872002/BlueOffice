@@ -299,6 +299,55 @@ pub struct Line {
     pub end: u32,
     /// Caret stops: (offset in paragraph index text, absolute x), ascending by offset.
     pub carets: Vec<(u32, f32)>,
+    /// Vertical text (ECMA-376 Part 1, §17.4.72 textDirection): the line is drawn
+    /// rotated about a pivot; its own coordinates are those before the rotation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<LineRotation>,
+}
+
+/// Rotation of a line about a pivot point (page coordinates, points).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct LineRotation {
+    /// Degrees clockwise (90 = text reads top to bottom, -90 = bottom to top).
+    pub degrees: f32,
+    /// Pivot x.
+    pub cx: f32,
+    /// Pivot y.
+    pub cy: f32,
+}
+
+impl LineRotation {
+    /// Where the rotation takes the unrotated point (`x`, `y`).
+    #[must_use]
+    pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
+        let (s, c) = self.degrees.to_radians().sin_cos();
+        let (dx, dy) = (x - self.cx, y - self.cy);
+        (self.cx + dx * c - dy * s, self.cy + dx * s + dy * c)
+    }
+
+    /// The unrotated point that the rotation takes to (`x`, `y`) (hit testing).
+    #[must_use]
+    pub fn invert(&self, x: f32, y: f32) -> (f32, f32) {
+        LineRotation {
+            degrees: -self.degrees,
+            ..*self
+        }
+        .apply(x, y)
+    }
+
+    /// Affine matrix `[a, b, c, d, e, f]` of the rotation (`x' = a·x + c·y + e`).
+    #[must_use]
+    pub fn matrix(&self) -> [f32; 6] {
+        let (s, c) = self.degrees.to_radians().sin_cos();
+        [
+            c,
+            s,
+            -s,
+            c,
+            self.cx - c * self.cx + s * self.cy,
+            self.cy - s * self.cx - c * self.cy,
+        ]
+    }
 }
 
 /// A run of glyphs sharing face, size and colour.
@@ -357,6 +406,10 @@ impl Line {
         }
         for c in &mut self.carets {
             c.1 += dx;
+        }
+        if let Some(r) = &mut self.rotation {
+            r.cx += dx;
+            r.cy += dy;
         }
     }
 }

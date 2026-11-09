@@ -245,6 +245,23 @@ fn decorate(
     Ok((head, foot, page.items.len() - items0))
 }
 
+/// Measure a table of `doc` for the table tools (distribute rows, AutoFit to the
+/// contents) as laid out in a box `avail` points wide.
+pub fn measure_table(
+    doc: &Document,
+    fonts: &mut FontManager,
+    cache: &mut LayoutCache,
+    table: &bo_model::Table,
+    avail: f32,
+) -> Result<crate::blocks::TableMeasure, LayoutError> {
+    if fonts.is_empty() {
+        return Err(LayoutError::NoFonts);
+    }
+    let sc = scan(doc);
+    let mut ctx = new_ctx(doc, fonts, cache, LayoutOptions::default(), &sc);
+    crate::blocks::measure_table(&mut ctx, table, avail)
+}
+
 fn new_ctx<'a>(
     doc: &'a Document,
     fonts: &'a mut FontManager,

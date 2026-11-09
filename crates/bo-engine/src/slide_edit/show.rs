@@ -139,6 +139,13 @@ pub struct AnimOut {
     pub repeat: u32,
     /// Shape whose click starts the effect (interactive sequence), if any.
     pub trigger_shape: Option<u32>,
+    /// Bookmark of the trigger shape's media that starts the effect ([MS-PPTX] bmkTgt).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_bookmark: Option<String>,
+    /// The §19.5 `p:cmd` of a media call effect (`playFrom(0.0)`, `togglePause`, …): the slide
+    /// show plays the clip instead of animating the shape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_cmd: Option<String>,
     /// Show layer holding the shape (slide show only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layer: Option<usize>,
@@ -175,6 +182,8 @@ pub struct MediaOut {
     pub mime: Option<String>,
     /// External target of linked media (not played).
     pub link: Option<String>,
+    /// How the clip plays (trim, fades, bookmarks, start, options, captions).
+    pub playback: super::media_playback::MediaPlayback,
 }
 
 /// A top-level shape of a slide.
@@ -218,8 +227,23 @@ pub fn triggers_out(pres: &Presentation, slide: usize) -> Vec<TriggerOut> {
     };
     let placed = place_slide(pres, slide);
     let mut out: Vec<TriggerOut> = Vec::new();
-    for id in t.animations.iter().filter_map(|a| a.trigger_shape) {
-        if out.iter().any(|o| o.shape_id == id) {
+    // Clicks on the shape (not its media bookmarks); a clip whose click only plays or pauses
+    // itself is no trigger button: the clip handles the click.
+    let clicks = |id: u32| {
+        t.animations
+            .iter()
+            .filter(move |a| a.trigger_shape == Some(id) && a.trigger_bookmark.is_none())
+    };
+    let own_media = |a: &bo_model::slide::Animation, id: u32| {
+        a.shape_id == id && a.class == bo_model::slide::AnimClass::Other("mediacall".into())
+    };
+    for id in t
+        .animations
+        .iter()
+        .filter(|a| a.trigger_bookmark.is_none())
+        .filter_map(|a| a.trigger_shape)
+    {
+        if out.iter().any(|o| o.shape_id == id) || clicks(id).all(|a| own_media(a, id)) {
             continue;
         }
         if let Some(p) = find(&placed, id) {
@@ -452,6 +476,8 @@ pub fn animations_out(pres: &Presentation, slide: usize) -> Vec<AnimOut> {
                     None => 1,
                 },
                 trigger_shape: a.trigger_shape,
+                trigger_bookmark: a.trigger_bookmark.clone(),
+                media_cmd: super::media_playback::media_cmd(a).map(str::to_owned),
                 layer: None,
                 play,
             }
@@ -831,6 +857,7 @@ pub fn cmd_add_animation(tx: &mut Tx<'_>, sel: &SlideSel, spec: &AnimSpec) -> R<
                 preset_subtype: None,
                 repeat: spec.repeat.and_then(repeat_of),
                 trigger_shape: spec.trigger_shape.filter(|t| *t != 0),
+                trigger_bookmark: None,
                 source: None,
             });
         }
@@ -882,6 +909,7 @@ pub fn cmd_set_animation(tx: &mut Tx<'_>, sel: &SlideSel, index: usize, spec: &A
         }
         if let Some(t) = spec.trigger_shape {
             a.trigger_shape = (t != 0).then_some(t);
+            a.trigger_bookmark = None;
         }
         Ok(())
     })

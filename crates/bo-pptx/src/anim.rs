@@ -277,14 +277,6 @@ fn descendants<'a>(el: &'a XmlElement, out: &mut Vec<&'a XmlElement>) {
     }
 }
 
-/// The mainSeq time node (§19.5.29 cTn nodeType="mainSeq").
-fn main_seq(timing: &XmlElement) -> Option<&XmlElement> {
-    let mut all = Vec::new();
-    descendants(timing, &mut all);
-    all.into_iter()
-        .find(|e| e.name == "p:cTn" && e.attr("nodeType") == Some("mainSeq"))
-}
-
 fn delay_of(ctn: &XmlElement) -> u32 {
     ctn.child("p:stCondLst")
         .and_then(|l| l.child("p:cond"))
@@ -406,6 +398,7 @@ fn parse_effect(ctn: &XmlElement) -> Option<Animation> {
             None => None,
         },
         trigger_shape: None,
+        trigger_bookmark: None,
         preset_subtype: attr_int(ctn, "presetSubtype"),
         source: None,
     })
@@ -424,67 +417,146 @@ pub fn effect_xml(a: &Animation) -> XmlElement {
     effect_node(&mut Ids(0), a)
 }
 
-/// The interactive sequences (§19.5.65 seq, cTn nodeType `interactiveSeq`) with their trigger
-/// shape (the §19.5.25 cond `onClick` target).
-fn interactive_seqs(timing: &XmlElement) -> Vec<(u32, &XmlElement)> {
-    let mut all = Vec::new();
-    descendants(timing, &mut all);
-    all.into_iter()
-        .filter(|e| e.name == "p:cTn" && e.attr("nodeType") == Some("interactiveSeq"))
-        .filter_map(|c| {
-            let mut d = Vec::new();
-            descendants(c.child("p:stCondLst")?, &mut d);
-            let spid = d
-                .iter()
-                .find(|e| e.name == "p:spTgt")
-                .and_then(|e| attr_int(e, "spid"))?;
-            Some((spid, c))
-        })
-        .collect()
+/// The `p:timing` of a slide child: itself, or the one inside `mc:AlternateContent` (Choice
+/// first: [MS-PPTX] §2.2.2 puts a timing using p14 extensions, e.g. bookmark triggers, there).
+fn timing_el(el: &XmlElement) -> Option<&XmlElement> {
+    match el.local() {
+        "timing" => Some(el),
+        "AlternateContent" => el
+            .elements()
+            .filter(|c| matches!(c.local(), "Choice" | "Fallback"))
+            .find_map(|c| c.elements().find(|t| t.local() == "timing")),
+        _ => None,
+    }
 }
 
-/// Parse §19.3.1.48 timing: the effects of the main sequence in order, then those of the
-/// interactive sequences.
-pub fn parse_timing(el: &XmlElement, key: u16) -> Timing {
+/// Is this a timing (possibly wrapped in `mc:AlternateContent`)?
+pub(crate) fn is_timing(el: &XmlElement) -> bool {
+    timing_el(el).is_some()
+}
+
+/// Children of the root time node (§19.5.87 tnLst → §19.5.53 par → §19.5.29 cTn `tmRoot`).
+fn root_children(timing: &XmlElement) -> Option<Vec<&XmlElement>> {
+    let root = timing.child("p:tnLst")?.child("p:par")?.child("p:cTn")?;
+    Some(root.child("p:childTnLst")?.elements().collect())
+}
+
+/// What starts an interactive sequence (§19.5.65 seq, cTn nodeType `interactiveSeq`): a click on
+/// a shape (§19.5.25 cond `onClick` on a §19.5.72 spTgt) or a media bookmark ([MS-PPTX]
+/// §2.3.1.1 bmkTgt `spid` + `bmkName`).
+fn interactive_trigger(seq_ctn: &XmlElement) -> Option<(u32, Option<String>)> {
+    let mut d = Vec::new();
+    descendants(seq_ctn.child("p:stCondLst")?, &mut d);
+    if let Some(spid) = d
+        .iter()
+        .find(|e| e.name == "p:spTgt")
+        .and_then(|e| attr_int(e, "spid"))
+    {
+        return Some((spid, None));
+    }
+    let b = d.iter().find(|e| e.local() == "bmkTgt")?;
+    Some((attr_int(b, "spid")?, Some(b.attr("bmkName")?.to_owned())))
+}
+
+/// A sequence of the root time node BlueOffice models.
+enum Seq<'a> {
+    Main(&'a XmlElement),
+    Interactive(u32, Option<String>, &'a XmlElement),
+}
+
+fn seq_of(el: &XmlElement) -> Option<Seq<'_>> {
+    if el.name != "p:seq" {
+        return None;
+    }
+    let ctn = el.child("p:cTn")?;
+    match ctn.attr("nodeType")? {
+        "mainSeq" => Some(Seq::Main(ctn)),
+        "interactiveSeq" => interactive_trigger(ctn).map(|(s, b)| Seq::Interactive(s, b, ctn)),
+        _ => None,
+    }
+}
+
+/// The effects of one sequence's time node, in document order.
+fn seq_effects(
+    seq: &XmlElement,
+    shape: Option<u32>,
+    bookmark: Option<&str>,
+    out: &mut Vec<Animation>,
+) {
+    let mut all = Vec::new();
+    descendants(seq, &mut all);
+    // §19.5.53 par → §19.5.29 cTn of each effect, in document order.
+    for par in all.into_iter().filter(|e| e.name == "p:par") {
+        let Some(ctn) = par.child("p:cTn") else {
+            continue;
+        };
+        if let Some(mut a) = parse_effect(ctn) {
+            a.trigger_shape = shape;
+            a.trigger_bookmark = bookmark.map(str::to_owned);
+            if keeps_source(&a) {
+                a.source = Some(par.clone());
+            }
+            // A motion path of the catalog, recognised by its path.
+            if a.class == AnimClass::Path && a.effect == AnimEffect::Other {
+                if let Some(d) = path_by_play(&a, par) {
+                    a.effect = AnimEffect::Named(d.to_owned());
+                }
+            }
+            if let AnimEffect::Named(n) = &a.effect {
+                if let Some(v) =
+                    crate::anim_catalog::by_id(n).and_then(|d| variant_by_play(d, &a, par))
+                {
+                    a.direction = Some(v.to_owned());
+                }
+            }
+            out.push(a);
+        }
+    }
+}
+
+/// Parse §19.3.1.48 timing (or its `mc:AlternateContent` wrapper): the effects of the main
+/// sequence in order, then those of the interactive sequences; the other children of the root
+/// time node (media nodes, …) are kept as read.
+pub fn parse_timing(src: &XmlElement, key: u16) -> Timing {
+    let el = timing_el(src).unwrap_or(src);
     let mut animations = Vec::new();
-    let mut seqs: Vec<(Option<u32>, &XmlElement)> =
-        main_seq(el).map(|s| (None, s)).into_iter().collect();
-    seqs.extend(interactive_seqs(el).into_iter().map(|(t, s)| (Some(t), s)));
-    for (trigger, seq) in seqs {
+    let mut others = Vec::new();
+    if let Some(kids) = root_children(el) {
+        let mut main = None;
+        let mut inter = Vec::new();
+        for c in kids {
+            match seq_of(c) {
+                Some(Seq::Main(ctn)) if main.is_none() => main = Some(ctn),
+                Some(Seq::Interactive(shape, bmk, ctn)) => inter.push((shape, bmk, ctn)),
+                _ => others.push(c.clone()),
+            }
+        }
+        if let Some(m) = main {
+            seq_effects(m, None, None, &mut animations);
+        }
+        for (shape, bmk, ctn) in inter {
+            seq_effects(ctn, Some(shape), bmk.as_deref(), &mut animations);
+        }
+    } else {
+        // Not the usual tree: the sequences wherever they are.
         let mut all = Vec::new();
-        descendants(seq, &mut all);
-        // §19.5.53 par → §19.5.29 cTn of each effect, in document order.
-        for par in all.into_iter().filter(|e| e.name == "p:par") {
-            let Some(ctn) = par.child("p:cTn") else {
-                continue;
-            };
-            if let Some(mut a) = parse_effect(ctn) {
-                a.trigger_shape = trigger;
-                if keeps_source(&a) {
-                    a.source = Some(par.clone());
+        descendants(el, &mut all);
+        for c in all.into_iter().filter(|e| e.name == "p:seq") {
+            match seq_of(c) {
+                Some(Seq::Main(ctn)) => seq_effects(ctn, None, None, &mut animations),
+                Some(Seq::Interactive(shape, bmk, ctn)) => {
+                    seq_effects(ctn, Some(shape), bmk.as_deref(), &mut animations);
                 }
-                // A motion path of the catalog, recognised by its path.
-                if a.class == AnimClass::Path && a.effect == AnimEffect::Other {
-                    if let Some(d) = path_by_play(&a, par) {
-                        a.effect = AnimEffect::Named(d.to_owned());
-                    }
-                }
-                if let AnimEffect::Named(n) = &a.effect {
-                    if let Some(v) =
-                        crate::anim_catalog::by_id(n).and_then(|d| variant_by_play(d, &a, par))
-                    {
-                        a.direction = Some(v.to_owned());
-                    }
-                }
-                animations.push(a);
+                None => {}
             }
         }
     }
     Timing {
         animations,
+        others,
         source: Some(Extra {
             key,
-            xml: el.clone(),
+            xml: src.clone(),
         }),
     }
 }
@@ -946,7 +1018,7 @@ fn click_pars(ids: &mut Ids, anims: &[&Animation], auto_first: bool) -> Vec<XmlE
     out
 }
 
-fn build_timing(anims: &[Animation]) -> XmlElement {
+fn build_timing(anims: &[Animation], others: &[XmlElement]) -> XmlElement {
     let mut ids = Ids(2);
     let cond_lst = |name: &str, evt: &str| {
         El::new(name)
@@ -985,26 +1057,38 @@ fn build_timing(anims: &[Animation]) -> XmlElement {
                 .done(),
         );
     }
-    // §19.5.65 interactive sequences: started by a click on their trigger shape.
-    let mut triggers: Vec<u32> = Vec::new();
+    // §19.5.65 interactive sequences: started by a click on their trigger shape, or by a media
+    // bookmark of it ([MS-PPTX] §2.3.1.1 bmkTgt; event `onMediaBookmark` of ST_TLTriggerEvent,
+    // ISO/IEC 29500-4 transitional schema).
+    let mut triggers: Vec<(u32, Option<&str>)> = Vec::new();
     for a in anims {
         if let Some(t) = a.trigger_shape {
-            if !triggers.contains(&t) {
-                triggers.push(t);
+            let k = (t, a.trigger_bookmark.as_deref());
+            if !triggers.contains(&k) {
+                triggers.push(k);
             }
         }
     }
-    for t in triggers {
+    for (t, bmk) in triggers {
         let group: Vec<&Animation> = anims
             .iter()
-            .filter(|a| a.trigger_shape == Some(t))
+            .filter(|a| a.trigger_shape == Some(t) && a.trigger_bookmark.as_deref() == bmk)
             .collect();
-        let on_click = || {
-            El::new("p:cond")
+        let on_click = || match bmk {
+            None => El::new("p:cond")
                 .a("evt", "onClick")
                 .a("delay", 0)
                 .child(tgt(t))
-                .done()
+                .done(),
+            Some(name) => El::new("p:cond")
+                .a("evt", "onMediaBookmark")
+                .a("delay", 0)
+                .child(
+                    El::new("p:tgtEl")
+                        .child(El::new("p14:bmkTgt").a("spid", t).a("bmkName", name).done())
+                        .done(),
+                )
+                .done(),
         };
         let mut kids = El::new("p:childTnLst");
         for c in click_pars(&mut ids, &group, true) {
@@ -1037,6 +1121,12 @@ fn build_timing(anims: &[Animation]) -> XmlElement {
                 .done(),
         );
     }
+    // Media nodes and other children as read, with fresh time node ids.
+    for o in others {
+        let mut o = o.clone();
+        renumber(&mut o, &mut ids);
+        root = root.child(o);
+    }
     El::new("p:timing")
         .child(
             El::new("p:tnLst")
@@ -1058,19 +1148,52 @@ fn build_timing(anims: &[Animation]) -> XmlElement {
         .done()
 }
 
-/// Serialize timing: the source when the animations are unchanged.
+/// Serialize timing: the source when the animations and the other time nodes are unchanged.
+///
+/// A timing with bookmark-triggered sequences ([MS-PPTX] §2.3.1.1 bmkTgt) is written in
+/// `mc:AlternateContent` as [MS-PPTX] §2.2.2 requires: the p14 Choice holds it all, the Fallback
+/// the same timing without those sequences.
 pub fn write_timing(t: &Timing) -> Option<Extra> {
     if let Some(src) = &t.source {
-        if parse_timing(&src.xml, src.key).animations == t.animations {
+        let p = parse_timing(&src.xml, src.key);
+        if p.animations == t.animations && p.others == t.others {
             return Some(src.clone());
         }
     }
-    if t.animations.is_empty() {
+    if t.animations.is_empty() && t.others.is_empty() {
         return None;
     }
+    let full = build_timing(&t.animations, &t.others);
+    if t.animations.iter().all(|a| a.trigger_bookmark.is_none()) {
+        return Some(Extra {
+            key: KEY_TIMING,
+            xml: full,
+        });
+    }
+    let plain: Vec<Animation> = t
+        .animations
+        .iter()
+        .filter(|a| a.trigger_bookmark.is_none())
+        .cloned()
+        .collect();
+    let mut fallback = El::new("mc:Fallback");
+    if !plain.is_empty() || !t.others.is_empty() {
+        fallback = fallback.child(build_timing(&plain, &t.others));
+    }
+    let xml = El::new("mc:AlternateContent")
+        .a("xmlns:mc", NS_MC)
+        .child(
+            El::new("mc:Choice")
+                .a("xmlns:p14", NS_P14)
+                .a("Requires", "p14")
+                .child(full)
+                .done(),
+        )
+        .child(fallback.done())
+        .done();
     Some(Extra {
-        key: KEY_TIMING,
-        xml: build_timing(&t.animations),
+        key: KEY_TIMING + 1,
+        xml,
     })
 }
 
@@ -1092,6 +1215,7 @@ mod tests {
             preset_subtype: None,
             repeat: None,
             trigger_shape: None,
+            trigger_bookmark: None,
             source: None,
         }
     }
@@ -1128,6 +1252,7 @@ mod tests {
         ];
         let t = Timing {
             animations: anims.clone(),
+            others: vec![],
             source: None,
         };
         let x = write_timing(&t).unwrap();
@@ -1197,5 +1322,87 @@ mod tests {
         bo_drawingml::dom::write_element(&w.xml, &mut text);
         assert!(text.contains(r#"<p:dissolve thruBlk="1"/>"#), "{text}");
         assert!(text.contains(r#"spd="slow""#), "{text}");
+    }
+
+    #[test]
+    fn media_nodes_survive_a_regenerated_sequence() {
+        // A fade on click plus the §19.5 p:video node of clip 7: editing the fade regenerates
+        // the tree; the media node is written after the sequences, with a fresh id.
+        let xml = r#"<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst><p:par><p:cTn id="3" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="4" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="5" presetID="10" presetClass="entr" presetSubtype="0" fill="hold" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:set><p:cBhvr><p:cTn id="6" dur="1" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="4"/></p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="visible"/></p:to></p:set><p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="7" dur="500"/><p:tgtEl><p:spTgt spid="4"/></p:tgtEl></p:cBhvr></p:animEffect></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq><p:video><p:cMediaNode vol="80000" numSld="2"><p:cTn id="8" fill="hold" display="0"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="7"/></p:tgtEl></p:cMediaNode></p:video></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>"#;
+        let el = parse(xml.as_bytes(), "/t").unwrap();
+        let t = parse_timing(&el, KEY_TIMING);
+        assert_eq!(t.animations.len(), 1);
+        assert_eq!(t.others.len(), 1);
+        assert_eq!(t.others[0].name, "p:video");
+        assert_eq!(write_timing(&t).unwrap().xml, el);
+        let mut edited = t.clone();
+        edited.animations[0].dur_ms = 800;
+        let w = write_timing(&edited).unwrap();
+        let back = parse_timing(&w.xml, w.key);
+        assert_eq!(back.animations[0].dur_ms, 800);
+        assert_eq!(back.others.len(), 1);
+        let node = &back.others[0];
+        let cm = node.child("p:cMediaNode").unwrap();
+        assert_eq!(cm.attr("vol"), Some("80000"));
+        assert_eq!(cm.attr("numSld"), Some("2"));
+        // Unique time node ids.
+        let mut all = Vec::new();
+        descendants(&w.xml, &mut all);
+        let mut ids: Vec<&str> = all
+            .iter()
+            .filter(|e| e.name == "p:cTn")
+            .filter_map(|e| e.attr("id"))
+            .collect();
+        let n = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), n);
+        // Only media nodes left: still written.
+        let only = Timing {
+            animations: vec![],
+            others: t.others.clone(),
+            source: None,
+        };
+        assert!(write_timing(&only).is_some());
+    }
+
+    #[test]
+    fn bookmark_sequences_go_in_alternate_content() {
+        let mut a = anim(AnimEffect::Fade, None, AnimTrigger::OnClick);
+        a.trigger_shape = Some(9);
+        a.trigger_bookmark = Some("B".into());
+        let plain = anim(AnimEffect::Appear, None, AnimTrigger::OnClick);
+        let t = Timing {
+            animations: vec![plain.clone(), a.clone()],
+            others: vec![],
+            source: None,
+        };
+        let w = write_timing(&t).unwrap();
+        // [MS-PPTX] §2.2.2: mc:AlternateContent, p14 Choice, Fallback without bmkTgt.
+        assert_eq!(w.xml.name, "mc:AlternateContent");
+        assert_eq!(w.key, KEY_TIMING + 1);
+        let choice = w.xml.child("mc:Choice").unwrap();
+        assert_eq!(choice.attr("Requires"), Some("p14"));
+        let mut text = String::new();
+        bo_drawingml::dom::write_element(choice, &mut text);
+        assert!(
+            text.contains(r#"<p:cond evt="onMediaBookmark" delay="0"><p:tgtEl><p14:bmkTgt spid="9" bmkName="B"/></p:tgtEl></p:cond>"#),
+            "{text}"
+        );
+        let mut fb = String::new();
+        bo_drawingml::dom::write_element(w.xml.child("mc:Fallback").unwrap(), &mut fb);
+        assert!(!fb.contains("bmkTgt"), "{fb}");
+        assert!(fb.contains("mainSeq"), "{fb}");
+        // Read back from the Choice: the trigger and its bookmark.
+        let back = parse_timing(&w.xml, w.key);
+        assert_eq!(back.animations.len(), 2);
+        assert_eq!(back.animations[1].trigger_shape, Some(9));
+        assert_eq!(back.animations[1].trigger_bookmark.as_deref(), Some("B"));
+        assert!(is_timing(&w.xml));
+        assert!(!is_transition(&w.xml));
+        // The timeline: the bookmark sequence counts its own clicks.
+        let tl = back.timeline();
+        assert_eq!((tl[0].click, tl[1].click), (1, 1));
+        assert_eq!(back.click_count(), 1);
     }
 }

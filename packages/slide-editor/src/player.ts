@@ -59,6 +59,8 @@ const pct = (v: number) => `${Math.round(v * 10000) / 100}%`;
 
 /** Keyframes of one effect, for a slide of `width` × `height` points. */
 export function effectFrames(a: SlideAnimInfo, width: number, height: number): Frames {
+  // Media calls play the clip (showMedia.tsx); the shape itself does not change.
+  if (a.mediaCmd) return [];
   // Effects with behaviours read by the engine play them (§19.5); the rest below.
   const sampled = playFrames(a, width, height);
   if (sampled) return sampled;
@@ -139,10 +141,18 @@ export function effectsAt(show: SlideShowInfo, click: number): PlannedEffect[] {
     .map((a) => planned(a, show));
 }
 
-/** Effects started by a click on trigger shape `shapeId` (§19.5 interactive sequence). */
-export function triggerEffects(show: SlideShowInfo, shapeId: number): PlannedEffect[] {
+/** Effects started by a click on trigger shape `shapeId` (§19.5 interactive sequence), or by
+ * its media reaching `bookmark` ([MS-PPTX] bmkTgt). */
+export function triggerEffects(
+  show: SlideShowInfo,
+  shapeId: number,
+  bookmark: string | null = null,
+): PlannedEffect[] {
   return show.animations
-    .filter((a) => a.triggerShape === shapeId && a.layer != null)
+    .filter(
+      (a) =>
+        a.triggerShape === shapeId && (a.triggerBookmark ?? null) === bookmark && a.layer != null,
+    )
     .map((a) => planned(a, show));
 }
 

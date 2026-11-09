@@ -179,7 +179,8 @@ import { ExportVideoDialog } from './exportVideo';
 import { exportShow, type ShowExportRequest } from './video/export';
 import { ExportDocsDialog, exportPlan, type ExportDocsState } from './exportDocs';
 import { MediaButtons } from './MediaLayer';
-import type { ShowPos } from './player';
+import { MediaActionsHub, registerMediaCommands, useMediaTools } from './mediaPlayback';
+import { advance, type ShowPos } from './player';
 import { fit, formatElapsed, showAction, step, type ShowAction } from './show';
 import { CustomShowsDialog } from './customShows';
 import { InkLayer, type PresenterTool } from './ink';
@@ -1255,6 +1256,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
 
   /** Actions of the picture tools tab (CORE-PIC-001), behind the `picture.*` commands. */
   const [pictureHub] = useState(() => new PictureActionsHub());
+  /** Actions of the clip Playback / Video format tabs (SLIDE-MEDIA-001), behind `media.*`. */
+  const [mediaHub] = useState(() => new MediaActionsHub());
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SlideEditorState>();
     const guard = async (f: () => Promise<unknown>) => {
@@ -1730,6 +1733,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       (st) => !!st.isPicture,
       () => pictureHub.get(),
     );
+    registerMediaCommands(reg, mediaHub);
     // SLIDE-VIEW-001: notes / handout master views (edited in the normal view) and sections.
     registerPageMasterCommands(reg, (cmd) => {
       if (cmd.cmd === 'pageMasterView' && cmd.on) setView('normal');
@@ -1780,6 +1784,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     setSpellDialog,
     toggleSpelling,
     asYouType,
+    mediaHub,
   ]);
 
   const state: SlideEditorState = useMemo(() => {
@@ -1841,6 +1846,20 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     shapes: true,
     hub: pictureHub,
   });
+  // Playback / Video format tabs (SLIDE-MEDIA-001) for one selected clip.
+  const selectedClip = useMemo(() => {
+    const s = edit?.selection ?? [];
+    return s.length === 1 ? ((edit?.media ?? []).find((m) => m.id === s[0]?.id) ?? null) : null;
+  }, [edit]);
+  const mediaTools = useMediaTools({
+    engine,
+    clip: selectedClip,
+    animations: edit?.animations ?? [],
+    run: (c) => ctrl.run(c),
+    pickFile: (accept) => platform.files.openFile(accept),
+    hub: mediaHub,
+  });
+  const extraTabs = [...(picture.tab ? [picture.tab] : []), ...mediaTools.tabs];
 
   // Shortcuts typed inside the shape text (format.*, edit.*).
   const textShortcut = useCallback(
@@ -2820,8 +2839,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         />
       )}
       {picture.dialogs}
+      {mediaTools.dialogs}
       <CommandSearch
-        tabs={picture.tab ? [...ribbonTabs, picture.tab] : ribbonTabs}
+        tabs={[...ribbonTabs, ...extraTabs]}
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         labels={{
@@ -2832,11 +2852,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       />
       {view !== 'show' && view !== 'presenter' && (
         <Ribbon
-          tabs={picture.tab ? [...ribbonTabs, picture.tab] : ribbonTabs}
+          tabs={[...ribbonTabs, ...extraTabs]}
           moreLabel={t('ribbon.more')}
           value={
-            ribbonTabs.some((x) => x.id === ribbonTab) ||
-            (picture.tab && ribbonTab === picture.tab.id)
+            ribbonTabs.some((x) => x.id === ribbonTab) || extraTabs.some((x) => x.id === ribbonTab)
               ? ribbonTab
               : 'home'
           }

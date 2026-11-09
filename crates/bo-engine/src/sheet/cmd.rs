@@ -979,6 +979,27 @@ pub enum SheetCommand {
         /// The range, header row included.
         range: Rng,
     },
+    /// Timelines of a sheet with their periods and anchors.
+    Timelines {
+        /// 0-based sheet index.
+        sheet: usize,
+    },
+    /// Filter a timeline to the days `start..=end` (serials); without them, clear it.
+    TimelineSelect {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the timeline on the sheet.
+        index: usize,
+        /// First day (serial).
+        #[serde(default)]
+        start: Option<f64>,
+        /// Last day (serial).
+        #[serde(default)]
+        end: Option<f64>,
+        /// Labels for re-rendered pivot tables.
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
     /// Slicers of a sheet with their items and anchors.
     Slicers {
         /// 0-based sheet index.
@@ -1508,6 +1529,45 @@ impl SheetEngine {
                     .map_err(|e| bad(&e))?;
                 Ok(json!({ "index": i }))
             }),
+            C::Timelines { sheet } => {
+                let wb = self.wb()?;
+                let ws = self.sheet(sheet)?;
+                let vi = locale == bo_sheet::numfmt::Locale::VI_VN;
+                let list: Vec<Value> = ws
+                    .timelines
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| {
+                        let to = t.to.unwrap_or(CellRef::new(t.from.row + 7, t.from.col + 6));
+                        json!({
+                            "index": i,
+                            "name": t.name,
+                            "caption": t.caption,
+                            "level": t.level,
+                            "from": [t.from.row, t.from.col],
+                            "to": [to.row, to.col],
+                            "filtered": t.start.is_some(),
+                            "periods": bo_sheet::timeline::periods(wb, sheet, i, vi),
+                        })
+                    })
+                    .collect();
+                Ok(Value::Array(list))
+            }
+            C::TimelineSelect {
+                sheet,
+                index,
+                start,
+                end,
+                labels,
+            } => {
+                let labels = labels.unwrap_or_default();
+                let range = start.zip(end);
+                self.edit(sheet, Recalc::All, |wb, _| {
+                    bo_sheet::timeline::select(wb, sheet, index, range, &labels)
+                        .map_err(|e| bad(&e))?;
+                    Ok(json!({ "ok": true }))
+                })
+            }
             C::Slicers { sheet } => {
                 let wb = self.wb()?;
                 let ws = self.sheet(sheet)?;

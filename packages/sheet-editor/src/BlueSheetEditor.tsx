@@ -1,6 +1,7 @@
 import { GlyphStore, PX_PER_PT, renderPage } from '@blueoffice/canvas-host';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
+  TimelineInfo,
   SlicerInfo,
   BorderPreset,
   BorderSpec,
@@ -693,6 +694,35 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       cancelled = true;
     };
   }, [host, chart, sheet, view, px, revision]);
+
+  // Timelines of the sheet: a strip of periods over the grid.
+  const [timelines, setTimelines] = useState<{ info: TimelineInfo; rect: Rect }[]>([]);
+  const timelineAnchor = useRef<number | null>(null);
+  useEffect(() => {
+    if (!host) return;
+    let cancelled = false;
+    void (async () => {
+      const list = (await host.exec<TimelineInfo[]>({ cmd: 'timelines', sheet })) ?? [];
+      const placed = await Promise.all(
+        list.map(async (info) => {
+          const r = await host.rangeRect(
+            view,
+            info.from[0],
+            info.from[1],
+            info.to[0] - 1,
+            info.to[1] - 1,
+          );
+          const rect = px(r);
+          return rect ? { info, rect } : null;
+        }),
+      );
+      if (!cancelled)
+        setTimelines(placed.filter((x): x is { info: TimelineInfo; rect: Rect } => !!x));
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, sheet, view, px, revision]);
 
   // Slicers of the sheet: item buttons over the grid.
   const [slicers, setSlicers] = useState<{ info: SlicerInfo; rect: Rect }[]>([]);
@@ -2805,6 +2835,65 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 />
               </div>
             )}
+            {timelines.map(({ info, rect }) => (
+              <div
+                key={`t${info.index}`}
+                className={styles.slicer}
+                data-testid="timeline"
+                role="group"
+                aria-label={info.caption}
+                style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className={styles.slicerHeader}>
+                  <span>
+                    {info.caption}
+                    <span className={styles.timelineLevel}>
+                      {' · '}
+                      {t(`sheetEditor.timeline.levels.${info.level}`)}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="timeline-clear"
+                    title={t('sheetEditor.slicer.clear')}
+                    aria-label={t('sheetEditor.slicer.clear')}
+                    disabled={!info.filtered}
+                    onClick={() => void exec({ cmd: 'timelineSelect', sheet, index: info.index })}
+                  >
+                    <FunnelX size={14} />
+                  </button>
+                </div>
+                <div className={styles.timelineStrip}>
+                  {info.periods.map((p, k) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      className={info.filtered && p.selected ? styles.slicerOn : styles.slicerOff}
+                      aria-pressed={info.filtered && p.selected}
+                      onClick={(e) => {
+                        const from =
+                          e.shiftKey && timelineAnchor.current !== null
+                            ? timelineAnchor.current
+                            : k;
+                        if (!e.shiftKey) timelineAnchor.current = k;
+                        const a = info.periods[Math.min(from, k)] ?? p;
+                        const b = info.periods[Math.max(from, k)] ?? p;
+                        void exec({
+                          cmd: 'timelineSelect',
+                          sheet,
+                          index: info.index,
+                          start: a.start,
+                          end: b.end,
+                        });
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
             {slicers.map(({ info, rect }) => (
               <div
                 key={info.index}

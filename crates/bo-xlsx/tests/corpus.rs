@@ -2652,7 +2652,74 @@ fn generate_corpus() {
             );
         }
     }
+    // A timeline over the pivot table with dates ([MS-XLSX] timeline parts added by hand).
+    std::fs::write(dir.join("timeline-1.xlsx"), timeline_fixture()).unwrap();
+    let _ = writeln!(
+        readme,
+        "| `timeline-1.xlsx` | Timeline (x15 timelineCacheDefinition + timelines part) over a pivot table's date field, filtered to Q2 2023 | tự sinh, `corpus.rs::timeline_fixture` |"
+    );
     std::fs::write(dir.join("README.md"), readme).unwrap();
+}
+
+/// `writer-pivot-dates` variant 1 with a timeline on its date field "Ngày".
+fn timeline_fixture() -> Vec<u8> {
+    const X15: &str = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main";
+    let wb = writer_pivot_dates(1);
+    let bytes = write_xlsx(&wb).unwrap();
+    let (si, pivot) = wb
+        .sheets
+        .iter()
+        .enumerate()
+        .find_map(|(i, s)| s.pivots.first().map(|p| (i, p.name.clone())))
+        .unwrap();
+    let mut pkg = Package::read(&bytes, &Limits::default()).unwrap();
+    let wb_part = "/xl/workbook.xml";
+    let sheet_rel = pkg
+        .relationships(wb_part)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.rel_type.ends_with("/worksheet"))
+        .nth(si)
+        .unwrap();
+    let sheet_part = resolve_target(wb_part, &sheet_rel.target);
+    let cache = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<timelineCacheDefinition xmlns="{X15}" name="NativeTimeline_Ngay" sourceName="Ngày"><pivotTables><pivotTable tabId="{}" name="{pivot}"/></pivotTables><state minimalRefreshVersion="6" lastRefreshVersion="6" pivotCacheId="1" filterType="dateBetween"><selection startDate="2023-04-01T00:00:00" endDate="2023-06-30T00:00:00"/><bounds startDate="2023-01-01T00:00:00" endDate="2025-01-01T00:00:00"/></state></timelineCacheDefinition>"#,
+        si + 1
+    );
+    pkg.add_part(
+        "/xl/timelineCaches/timelineCache1.xml",
+        "application/vnd.ms-excel.timelineCache+xml",
+        cache.into_bytes(),
+    )
+    .unwrap();
+    let timelines = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<timelines xmlns="{X15}"><timeline name="Ngày" cache="NativeTimeline_Ngay" caption="Ngày" level="1" selectionLevel="1"/></timelines>"#
+    );
+    pkg.add_part(
+        "/xl/timelines/timeline1.xml",
+        "application/vnd.ms-excel.timeline+xml",
+        timelines.into_bytes(),
+    )
+    .unwrap();
+    let mut wrels = pkg.relationships(wb_part).unwrap();
+    wrels.push(bo_opc::Relationship {
+        id: "rId90".into(),
+        rel_type: bo_xlsx::timeline::REL_TIMELINE_CACHE.into(),
+        target: "timelineCaches/timelineCache1.xml".into(),
+        mode: bo_opc::TargetMode::Internal,
+    });
+    pkg.set_relationships(wb_part, &wrels);
+    let mut srels = pkg.relationships(&sheet_part).unwrap();
+    srels.push(bo_opc::Relationship {
+        id: "rId90".into(),
+        rel_type: bo_xlsx::timeline::REL_TIMELINE.into(),
+        target: "../timelines/timeline1.xml".into(),
+        mode: bo_opc::TargetMode::Internal,
+    });
+    pkg.set_relationships(&sheet_part, &srels);
+    pkg.write().unwrap()
 }
 
 // ---------------------------------------------------------------------------

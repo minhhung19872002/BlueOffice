@@ -412,6 +412,9 @@ pub struct Worksheet {
     /// Slicers of the sheet ([MS-XLSX] slicers and slicer caches).
     #[serde(default)]
     pub slicers: Vec<Slicer>,
+    /// Timelines of the sheet ([MS-XLSX] timelines and timeline caches).
+    #[serde(default)]
+    pub timelines: Vec<Timeline>,
     /// Print area formula (defined name `_xlnm.Print_Area`, §18.2.6).
     pub print_area: Option<String>,
     /// Print titles formula (defined name `_xlnm.Print_Titles`).
@@ -1436,6 +1439,40 @@ pub struct Slicer {
     /// Absolute part name of the slicers part holding this slicer (empty for a new slicer).
     pub part: String,
     /// The selection changed since the file was read: the cache part is rewritten on save.
+    pub dirty: bool,
+}
+
+/// A timeline: a date filter over a pivot table's date field, shown as a strip of periods
+/// ([MS-XLSX] `x15:timeline` in a timelines part, its `x15:timelineCacheDefinition` and the
+/// drawing frame `tsle:timeslicer`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Timeline {
+    /// `timeline/@name`.
+    pub name: String,
+    /// `timeline/@caption`.
+    pub caption: String,
+    /// `timeline/@cache`: the timeline cache's name.
+    pub cache: String,
+    /// `timelineCacheDefinition/@sourceName`: the pivot cache date field.
+    pub field: String,
+    /// Connected pivot tables (`pivotTables/pivotTable/@name`).
+    pub pivots: Vec<String>,
+    /// `timeline/@level`: 0 years, 1 quarters, 2 months, 3 days.
+    pub level: u32,
+    /// `state/selection/@startDate` (ISO date-time), `None` when nothing is filtered.
+    pub start: Option<String>,
+    /// `state/selection/@endDate`.
+    pub end: Option<String>,
+    /// Anchor cells of the drawing frame.
+    pub from: CellRef,
+    /// End anchor cell.
+    pub to: Option<CellRef>,
+    /// Absolute part name of the timeline cache definition.
+    pub cache_part: String,
+    /// Absolute part name of the timelines part.
+    pub part: String,
+    /// The selection changed since the file was read.
     pub dirty: bool,
 }
 

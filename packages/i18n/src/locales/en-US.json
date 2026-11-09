@@ -1077,6 +1077,14 @@
       "insert": "Slicer",
       "clear": "Clear filter",
       "blank": "(blank)"
+    },
+    "timeline": {
+      "levels": {
+        "0": "Years",
+        "1": "Quarters",
+        "2": "Months",
+        "3": "Days"
+      }
     }
   },
   "recovery": {

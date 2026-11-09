@@ -735,6 +735,10 @@ export type SheetCommand =
     }
   /** Turn a range into a table (first row = column names). */
   | { cmd: 'createTable'; sheet: number; range: SheetRange }
+  /** Timelines of a sheet. */
+  | { cmd: 'timelines'; sheet: number }
+  /** Filter a timeline to the days start..end (serials); without them, clear it. */
+  | { cmd: 'timelineSelect'; sheet: number; index: number; start?: number; end?: number }
   /** Slicers of a sheet. */
   | { cmd: 'slicers'; sheet: number }
   /** Insert a slicer for the table column of a cell. */
@@ -767,6 +771,19 @@ export type SheetCommand =
       changing: string;
       apply?: boolean;
     };
+
+/** A timeline as the engine lists it. */
+export interface TimelineInfo {
+  index: number;
+  name: string;
+  caption: string;
+  /** 0 years, 1 quarters, 2 months, 3 days. */
+  level: number;
+  from: [number, number];
+  to: [number, number];
+  filtered: boolean;
+  periods: { label: string; start: number; end: number; selected: boolean }[];
+}
 
 /** A slicer as the engine lists it. */
 export interface SlicerInfo {

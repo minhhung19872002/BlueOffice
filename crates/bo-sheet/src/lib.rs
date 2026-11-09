@@ -28,6 +28,7 @@ pub mod solver;
 pub mod sort;
 pub mod style;
 pub mod table;
+pub mod timeline;
 pub mod validation;
 pub mod viewport;
 pub mod whatif;

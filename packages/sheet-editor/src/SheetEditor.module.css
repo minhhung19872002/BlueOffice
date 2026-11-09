@@ -651,3 +651,15 @@
   background: transparent;
   color: var(--bo-muted, #8a94a3);
 }
+
+.timelineLevel {
+  font-weight: 400;
+  color: var(--bo-muted, #8a94a3);
+}
+
+.timelineStrip {
+  display: flex;
+  gap: 3px;
+  padding: 0 6px 6px;
+  overflow-x: auto;
+}

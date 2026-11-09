@@ -27,6 +27,7 @@ mod read;
 pub mod slicer;
 mod styles;
 mod threaded;
+pub mod timeline;
 mod write;
 mod xml;
 

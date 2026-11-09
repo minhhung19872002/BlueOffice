@@ -1077,6 +1077,14 @@
       "insert": "Slicer",
       "clear": "Xoá bộ lọc",
       "blank": "(trống)"
+    },
+    "timeline": {
+      "levels": {
+        "0": "Năm",
+        "1": "Quý",
+        "2": "Tháng",
+        "3": "Ngày"
+      }
     }
   },
   "recovery": {

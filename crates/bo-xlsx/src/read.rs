@@ -189,6 +189,7 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
             // [MS-XLSX] slicers (the parts stay verbatim in the package).
             let tables: Vec<&bo_model::sheet::Table> = ws.tables.iter().collect();
             ws.slicers = crate::slicer::read_slicers(&pkg, &wb_path, target, &rels, &tables);
+            ws.timelines = crate::timeline::read_timelines(&pkg, &wb_path, target, &rels);
         } else {
             ws.kind = SheetKind::Opaque {
                 rel_type: rel_type.clone(),

@@ -150,3 +150,4 @@ Kiểm thử round-trip: `cargo test -p bo-xlsx --test corpus corpus_roundtrip -
 | `writer-slicers-1.xlsx` | BlueSheet writer: table slicers (one slicer; filtered to one item; two slicers on two columns, both filtered) (biến thể 1) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_slicers` |
 | `writer-slicers-2.xlsx` | BlueSheet writer: table slicers (one slicer; filtered to one item; two slicers on two columns, both filtered) (biến thể 2) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_slicers` |
 | `writer-slicers-3.xlsx` | BlueSheet writer: table slicers (one slicer; filtered to one item; two slicers on two columns, both filtered) (biến thể 3) | tự sinh bằng `write_xlsx`, `corpus.rs::writer_slicers` |
+| `timeline-1.xlsx` | Timeline (x15 timelineCacheDefinition + timelines part) over a pivot table's date field, filtered to Q2 2023 | tự sinh, `corpus.rs::timeline_fixture` |

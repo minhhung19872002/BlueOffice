@@ -298,6 +298,29 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                         }
                     }
                 }
+                // Changed timeline selections: the cache's `state/selection`.
+                for tl in ws
+                    .timelines
+                    .iter()
+                    .filter(|t| t.dirty && !t.cache_part.is_empty())
+                {
+                    let current = overrides.get(&tl.cache_part).cloned().or_else(|| {
+                        wb.opaque
+                            .parts
+                            .iter()
+                            .find(|p| p.name == tl.cache_part)
+                            .map(|p| p.data.clone())
+                    });
+                    if let Some(xml) = current.and_then(|d| String::from_utf8(d).ok()) {
+                        if let Some(patched) = crate::timeline::patch_selection(
+                            &xml,
+                            tl.start.as_deref(),
+                            tl.end.as_deref(),
+                        ) {
+                            overrides.insert(tl.cache_part.clone(), patched.into_bytes());
+                        }
+                    }
+                }
                 // Charts (§20.5 drawing → §21.2 chart parts).
                 let drawing_rid = write_charts(
                     wb,

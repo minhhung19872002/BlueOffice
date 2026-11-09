@@ -726,6 +726,31 @@ pub fn pivot_table_xml(pt: &PivotTable, cache: &PivotCache) -> String {
         }
         out.push_str("</dataFields>");
     }
+    if !pt.conditional_formats.is_empty() {
+        // §18.10.1.16 conditionalFormats: scope of the sheet's pivot cfRules (by priority).
+        let _ = write!(
+            out,
+            "<conditionalFormats count=\"{}\">",
+            pt.conditional_formats.len()
+        );
+        for c in &pt.conditional_formats {
+            // §18.10.1.15 conditionalFormat
+            out.push_str("<conditionalFormat");
+            if let Some(s) = &c.scope {
+                a(&mut out, "scope", s);
+            }
+            if let Some(k) = &c.kind {
+                a(&mut out, "type", k);
+            }
+            a(&mut out, "priority", &c.priority.to_string());
+            let _ = write!(out, "><pivotAreas count=\"{}\">", c.areas.len());
+            for p in &c.areas {
+                out.push_str(p);
+            }
+            out.push_str("</pivotAreas></conditionalFormat>");
+        }
+        out.push_str("</conditionalFormats>");
+    }
     if let Some(s) = &pt.style {
         // §18.10.1 pivotTableStyleInfo
         out.push_str("<pivotTableStyleInfo");

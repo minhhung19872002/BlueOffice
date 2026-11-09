@@ -598,9 +598,17 @@ fn conditional(i: usize) -> Book {
         r#"<conditionalFormatting sqref="F1:F20"><cfRule type="top10" dxfId="0" priority="6" rank="3" percent="1" bottom="1"/></conditionalFormatting>"#,
         r#"<conditionalFormatting sqref="G1:G20 H1:H5"><cfRule type="containsText" dxfId="1" priority="7" operator="containsText" text="lỗi"><formula>NOT(ISERROR(SEARCH("lỗi",G1)))</formula></cfRule><cfRule type="duplicateValues" dxfId="0" priority="8"/></conditionalFormatting>"#,
     ];
-    let pick: String = rules.iter().copied().skip(i - 1).take(4 + i).collect();
+    let mut pick: String = rules.iter().copied().skip(i - 1).take(4 + i).collect();
+    if i == 3 {
+        // The data bar links to its x14 extension (negative bars, axis) by id.
+        pick = pick.replacen(
+            r#"<color theme="4"/></dataBar></cfRule>"#,
+            r#"<color theme="4"/></dataBar><extLst><ext uri="{B025F937-C7B1-47D3-B67F-A62EFF666E3E}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:id>{00000000-0000-0000-0000-00000000000B}</x14:id></ext></extLst></cfRule>"#,
+            1,
+        );
+    }
     let ext = if i == 3 {
-        r#"<extLst><ext uri="{78C0D931-6437-407d-A8EE-F0AAD7539E65}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:conditionalFormattings><x14:conditionalFormatting xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main"><x14:cfRule type="iconSet" priority="9" id="{00000000-0000-0000-0000-00000000000A}"><x14:iconSet iconSet="3Stars" custom="1"><x14:cfvo type="percent"><xm:f>0</xm:f></x14:cfvo><x14:cfvo type="percent"><xm:f>33</xm:f></x14:cfvo><x14:cfvo type="percent"><xm:f>67</xm:f></x14:cfvo></x14:iconSet></x14:cfRule><xm:sqref>J1:J9</xm:sqref></x14:conditionalFormatting></x14:conditionalFormattings></ext></extLst>"#
+        r#"<extLst><ext uri="{78C0D931-6437-407d-A8EE-F0AAD7539E65}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:conditionalFormattings><x14:conditionalFormatting xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main"><x14:cfRule type="dataBar" id="{00000000-0000-0000-0000-00000000000B}"><x14:dataBar minLength="0" maxLength="100" border="1" negativeBarBorderColorSameAsPositive="0" axisPosition="middle"><x14:cfvo type="autoMin"/><x14:cfvo type="num"><xm:f>0</xm:f></x14:cfvo><x14:fillColor theme="4"/><x14:borderColor rgb="FF1F3F66"/><x14:negativeFillColor rgb="FFFF0000"/><x14:negativeBorderColor rgb="FF800000"/><x14:axisColor rgb="FF000000"/></x14:dataBar></x14:cfRule><xm:sqref>D1:D20</xm:sqref></x14:conditionalFormatting><x14:conditionalFormatting xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main"><x14:cfRule type="iconSet" priority="9" id="{00000000-0000-0000-0000-00000000000A}"><x14:iconSet iconSet="3Stars" custom="1"><x14:cfvo type="percent"><xm:f>0</xm:f></x14:cfvo><x14:cfvo type="percent"><xm:f>33</xm:f></x14:cfvo><x14:cfvo type="percent"><xm:f>67</xm:f></x14:cfvo></x14:iconSet></x14:cfRule><xm:sqref>J1:J9</xm:sqref></x14:conditionalFormatting></x14:conditionalFormattings></ext></extLst>"#
     } else {
         ""
     };
@@ -1142,6 +1150,8 @@ const FEATURES: &[Feature] = &[
 
 use bo_model::sheet as m;
 
+mod cf_corpus;
+
 /// Cell formats as the Format Cells dialog / ribbon writes them: deduplicated
 /// fonts, solid fills, borders, alignment and vi-VN number formats.
 fn writer_format(i: usize) -> m::Workbook {
@@ -1307,6 +1317,7 @@ fn writer_sheet(i: usize) -> m::Workbook {
     ws.conditional_formats.push(m::ConditionalFormat {
         sqref: vec![m::CellRange::parse("B2:B11").unwrap()],
         pivot: false,
+        ext: false,
         rules: vec![
             m::CfRule {
                 kind: "cellIs".into(),
@@ -2552,6 +2563,10 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-pivot-datarows", "BlueSheet writer: value fields on rows (tabular; compact × columns; outline with three values)", writer_pivot_datarows),
     ("writer-pivot-charts", "BlueSheet writer: pivot charts (column; line following a hidden item; combo with field buttons)", writer_pivot_charts),
     ("writer-slicers", "BlueSheet writer: table slicers (one slicer; filtered to one item; two slicers on two columns, both filtered)", writer_slicers),
+    ("writer-cf-databars", "BlueSheet writer: data bars with negative values (automatic axis + gradient, all-negative, all-positive; middle axis, solid fill, borders, own negative colours; right-to-left, no axis, percent / percentile / formula thresholds, bar only) as 2006 dataBar + x14:dataBar", cf_corpus::writer_cf_databars),
+    ("writer-cf-icons", "BlueSheet writer: every icon set family (ten 3-icon sets incl. x14 3Stars / 3Triangles; 4-icon sets plain and reversed; 5-icon sets incl. x14 5Boxes, number / percentile / formula thresholds, icon only)", cf_corpus::writer_cf_icons),
+    ("writer-cf-custom", "BlueSheet writer: custom icon sets (x14:cfIcon, NoIcons) under a Stop If True rule; three rules re-ordered with Stop If True; mixed custom icons + colour scale under a stopping top-N rule", cf_corpus::writer_cf_custom),
+    ("writer-cf-pivot", "BlueSheet writer: conditional formats on pivot table values (data bar; icon set × column field; colour scale + top 1) with pivot conditionalFormat scope=data", cf_corpus::writer_cf_pivot),
     ("writer-form-controls", "BlueSheet writer: form controls with control properties, VML client data and linked cells (check box, button with macro, label; drop-down + list box over a range, option buttons in a group frame; scroll bar + up-down button and every kind)", writer_form_controls),
 ];
 

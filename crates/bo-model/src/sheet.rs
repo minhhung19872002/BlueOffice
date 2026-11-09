@@ -1023,6 +1023,12 @@ pub struct ConditionalFormat {
     pub pivot: bool,
     /// Rules of the block (`cfRule`).
     pub rules: Vec<CfRule>,
+    /// The block is stored only in the worksheet extension
+    /// `x14:conditionalFormattings` ([MS-XLSX] x14 `CT_ConditionalFormattings`,
+    /// ext uri `{78C0D931-6437-407d-A8EE-F0AAD7539E65}`): rules the 2006 schema cannot
+    /// express (icon sets 3Stars / 3Triangles / 5Boxes, custom icons, `x14:dxf`, …).
+    #[serde(default)]
+    pub ext: bool,
 }
 
 /// A conditional formatting rule (§18.3.1.10 `cfRule`).
@@ -1052,6 +1058,31 @@ pub struct CfRule {
     pub attrs: Vec<RawAttr>,
     /// Unknown children (extLst).
     pub unknown: Vec<RawXml>,
+    /// `id` of the matching `x14:cfRule` ([MS-XLSX] `CT_CfRule/@id`, a GUID), referenced
+    /// from `cfRule/extLst/ext/x14:id` for rules that also have a 2010 extension.
+    #[serde(default)]
+    pub ext_id: Option<String>,
+}
+
+impl CfRule {
+    /// Icon set names only defined by the 2010 extension ([MS-XLSX] x14 `ST_IconSetType`).
+    pub const X14_ICON_SETS: [&'static str; 4] = ["3Stars", "3Triangles", "5Boxes", "NoIcons"];
+
+    /// The rule cannot be written as a 2006 `cfRule` (§18.3.1.10) and is stored only in
+    /// the `x14:conditionalFormattings` extension: an icon set from the 2010 list,
+    /// custom icons (`x14:cfIcon`) or `autoMin` / `autoMax` thresholds.
+    #[must_use]
+    pub fn needs_ext(&self) -> bool {
+        self.icon_set.as_ref().is_some_and(|i| {
+            i.custom
+                || i.icon_set
+                    .as_deref()
+                    .is_some_and(|s| Self::X14_ICON_SETS.contains(&s))
+                || i.cfvos
+                    .iter()
+                    .any(|c| matches!(c.kind.as_str(), "autoMin" | "autoMax"))
+        })
+    }
 }
 
 /// Conditional format value object (§18.3.1.11 `cfvo`).
@@ -1087,6 +1118,53 @@ pub struct DataBar {
     pub max_length: Option<u32>,
     /// `showValue` (default true): also show the cell value.
     pub show_value: Option<bool>,
+    /// The 2010 extension (`x14:dataBar`): negative bars, axis, border, gradient.
+    #[serde(default)]
+    pub x14: Option<DataBarX14>,
+}
+
+/// `x14:dataBar` ([MS-XLSX] x14 `CT_DataBar`, extension of §18.3.1.28 `dataBar`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DataBarX14 {
+    /// `minLength` (default 10): shortest bar in percent.
+    pub min_length: Option<u32>,
+    /// `maxLength` (default 90): longest bar in percent.
+    pub max_length: Option<u32>,
+    /// `border` (default false): draw a border around the bar.
+    pub border: bool,
+    /// `gradient` (default true): fade the bar fill towards its end.
+    pub gradient: Option<bool>,
+    /// `direction` (`ST_DataBarDirection`: context, leftToRight, rightToLeft).
+    pub direction: Option<String>,
+    /// `negativeBarColorSameAsPositive` (default false).
+    pub negative_same_color: bool,
+    /// `negativeBarBorderColorSameAsPositive` (default true).
+    pub negative_same_border: Option<bool>,
+    /// `axisPosition` (`ST_DataBarAxisPosition`: automatic, middle, none).
+    pub axis_position: Option<String>,
+    /// Minimum and maximum thresholds (`x14:cfvo`, types include autoMin / autoMax;
+    /// the value is the `xm:f` child).
+    pub cfvos: Vec<Cfvo>,
+    /// `fillColor`: bar colour of positive values.
+    pub fill_color: Option<SheetColor>,
+    /// `borderColor`: bar border colour of positive values.
+    pub border_color: Option<SheetColor>,
+    /// `negativeFillColor`.
+    pub negative_fill_color: Option<SheetColor>,
+    /// `negativeBorderColor`.
+    pub negative_border_color: Option<SheetColor>,
+    /// `axisColor`.
+    pub axis_color: Option<SheetColor>,
+}
+
+/// One icon of a custom icon set (`x14:cfIcon`, [MS-XLSX] `CT_CfIcon`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct CfIcon {
+    /// `iconSet`: the set the icon is taken from (`NoIcons` = no icon).
+    pub set: String,
+    /// `iconId`: zero-based index of the icon in that set.
+    pub id: u32,
 }
 
 /// Icon set (§18.3.1.49).
@@ -1102,6 +1180,12 @@ pub struct IconSet {
     pub percent: Option<bool>,
     /// `reverse`: icons in reverse order.
     pub reverse: Option<bool>,
+    /// `custom` ([MS-XLSX] `x14:iconSet/@custom`): `icons` replace the set's icons.
+    #[serde(default)]
+    pub custom: bool,
+    /// `x14:cfIcon`: icon of each threshold of a custom set.
+    #[serde(default)]
+    pub icons: Vec<CfIcon>,
 }
 
 // ---------------------------------------------------------------------------
@@ -2579,6 +2663,21 @@ pub struct PivotFieldFilter {
     pub count: f64,
 }
 
+/// A pivot table `conditionalFormat` (§18.10.1.15): links the worksheet `cfRule` with
+/// the same `priority` (in a `conditionalFormatting pivot="1"` block) to pivot areas.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PivotConditionalFormat {
+    /// `priority` of the linked `cfRule`.
+    pub priority: i32,
+    /// `scope` (`ST_Scope`: selection (default), data, field).
+    pub scope: Option<String>,
+    /// `type` (`ST_Type`: none (default), all, row, column).
+    pub kind: Option<String>,
+    /// `pivotAreas/pivotArea` (§18.3.1.68), serialized.
+    pub areas: Vec<String>,
+}
+
 /// `pivotTableStyleInfo` (§18.10.1 `CT_PivotTableStyle`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -2671,6 +2770,8 @@ pub struct PivotTable {
     pub row_items: Vec<PivotAxisItem>,
     /// Column axis lines (`colItems`); see [`PivotTable::row_items`].
     pub col_items: Vec<PivotAxisItem>,
+    /// `conditionalFormats` (§18.10.1.16): scope of the sheet's pivot rules.
+    pub conditional_formats: Vec<PivotConditionalFormat>,
     /// Regenerate the part on write.
     pub dirty: bool,
 }
@@ -2699,6 +2800,7 @@ impl Default for PivotTable {
             style: None,
             row_items: Vec::new(),
             col_items: Vec::new(),
+            conditional_formats: Vec::new(),
             dirty: false,
         }
     }

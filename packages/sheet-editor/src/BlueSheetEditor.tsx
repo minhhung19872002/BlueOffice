@@ -79,6 +79,7 @@ import {
   KeyRound,
   ListIndentDecrease,
   ListIndentIncrease,
+  ListOrdered,
   ListTree,
   LocateFixed,
   Layers,
@@ -187,6 +188,7 @@ import {
   useChartGallery,
 } from './chartStyles';
 import { FormatControlDialog, FormControlLayer, INSERTABLE } from './formControls';
+import { CfManagerDialog } from './cfRules';
 import {
   CfDialog,
   ChartDialog,
@@ -348,6 +350,7 @@ type DialogState =
   | { kind: 'format' }
   | { kind: 'sort' }
   | { kind: 'cf' }
+  | { kind: 'cfManage' }
   | { kind: 'dv' }
   | { kind: 'goalSeek' }
   | { kind: 'scenarios' }
@@ -1526,6 +1529,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     // Styles
     add('format.cellStyles', popup('styles', 'format.cellStyles'));
     add('format.conditional', open({ kind: 'cf' }));
+    add('format.conditionalManage', open({ kind: 'cfManage' }));
     add('format.clearConditional', (s) => exec({ cmd: 'clearCf', sheet: s.sheet, range: rng(s) }));
     add('format.cells', open({ kind: 'format' }), { shortcut: 'Ctrl+1' });
     add('format.painter', async (s) => setPainter((p) => (p ? null : rangeOf(s.selection))), {
@@ -2563,6 +2567,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 'format.conditional',
                 t('sheetEditor.conditional'),
                 <Highlighter size={s} />,
+                'small',
+              ),
+              item(
+                'format.conditionalManage',
+                t('sheetEditor.cfm.manage'),
+                <ListOrdered size={s} />,
                 'small',
               ),
               item(
@@ -3851,6 +3861,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       )}
       {dialog?.kind === 'sort' && <SortDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'cf' && <CfDialog {...common} range={toRange(r)} />}
+      {dialog?.kind === 'cfManage' && <CfManagerDialog {...common} />}
       {dialog?.kind === 'dv' && <ValidationDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'dataTable' && <DataTableDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'solver' && (

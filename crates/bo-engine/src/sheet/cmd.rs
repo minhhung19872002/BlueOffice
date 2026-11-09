@@ -446,6 +446,26 @@ pub enum SheetCommand {
         range: Rng,
         /// The rule (type, operator, formulas, format).
         rule: CfRuleSpec,
+        /// Apply the rule to the values of the pivot table covering the range's first
+        /// cell (`conditionalFormatting pivot="1"` + pivot `conditionalFormat scope="data"`).
+        #[serde(default)]
+        pivot: bool,
+    },
+    /// Conditional formatting rules of a sheet in priority order (rules manager).
+    ListCf {
+        /// 0-based sheet index.
+        sheet: usize,
+    },
+    /// Changes one conditional formatting rule (move, Stop If True, range, replace, delete).
+    EditCf {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// `conditionalFormatting` block index (from `listCf`).
+        block: usize,
+        /// Rule index in the block.
+        rule: usize,
+        /// The change.
+        op: bo_sheet::cf_manage::CfOp,
     },
     /// Removes the conditional formatting rules over a range.
     ClearCf {
@@ -1522,6 +1542,7 @@ impl SheetEngine {
             | C::Merge { sheet, .. }
             | C::Unmerge { sheet, .. }
             | C::AddCf { sheet, .. }
+            | C::EditCf { sheet, .. }
             | C::ClearCf { sheet, .. }
             | C::SetValidation { sheet, .. } => check(ws(*sheet)?, A::FormatCells),
             C::Resize { sheet, rows, .. }
@@ -2510,10 +2531,37 @@ impl SheetEngine {
                     Ok(json!({ "ok": true }))
                 })
             }
-            C::AddCf { sheet, range, rule } => self.edit(sheet, Recalc::No, |wb, _| {
+            C::AddCf {
+                sheet,
+                range,
+                rule,
+                pivot: true,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::cf_manage::add_pivot_rule(wb, sheet, range.r0, range.c0, &rule)
+                    .map(|a| json!({ "ok": true, "range": a.to_string() }))
+                    .map_err(bad)
+            }),
+            C::AddCf {
+                sheet, range, rule, ..
+            } => self.edit(sheet, Recalc::No, |wb, _| {
                 bo_sheet::cf::add_rule(wb, sheet, range.range(), &rule)
                     .then_some(json!({ "ok": true }))
                     .ok_or_else(|| bad("invalid rule"))
+            }),
+            C::ListCf { sheet } => {
+                let wb = self.wb()?;
+                self.sheet(sheet)?;
+                Ok(json!({ "rules": bo_sheet::cf_manage::list(wb, sheet) }))
+            }
+            C::EditCf {
+                sheet,
+                block,
+                rule,
+                op,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::cf_manage::apply(wb, sheet, block, rule, &op)
+                    .map(|()| json!({ "ok": true }))
+                    .map_err(bad)
             }),
             C::ClearCf { sheet, range } => self.edit(sheet, Recalc::No, |wb, _| {
                 Ok(json!({ "removed": bo_sheet::cf::clear_rules(wb, sheet, range.range()) }))

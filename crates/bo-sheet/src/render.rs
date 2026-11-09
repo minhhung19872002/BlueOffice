@@ -345,16 +345,13 @@ impl Renderer<'_> {
             }
             if let Some(bar) = f.bar {
                 let pad = 2.0 * PT_PER_PX;
-                let Rgba(rr, gg, bb, _) = bar.color;
-                self.fill_rect(
-                    Rect {
-                        x: rect.x + pad,
-                        y: rect.y + pad,
-                        w: ((rect.w - 2.0 * pad) * bar.fraction).max(0.0),
-                        h: (rect.h - 2.0 * pad).max(0.0),
-                    },
-                    Rgba(rr, gg, bb, 170),
-                );
+                let inner = Rect {
+                    x: rect.x + pad,
+                    y: rect.y + pad,
+                    w: (rect.w - 2.0 * pad).max(0.0),
+                    h: (rect.h - 2.0 * pad).max(0.0),
+                };
+                self.out.extend(crate::cf_draw::data_bar(&bar, inner));
             }
             if let Some(icon) = &f.icon {
                 let s = (rect.h - 4.0).clamp(4.0, 12.0);

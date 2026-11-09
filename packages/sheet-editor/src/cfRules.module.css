@@ -1,0 +1,86 @@
+/* Conditional formatting editors and rules manager — BlueOffice's own look. */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.cfvo,
+.band {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cfvo input {
+  width: 9em;
+}
+
+.bandName {
+  min-width: 5.5em;
+  font-weight: 600;
+}
+
+.otherwise {
+  color: var(--bo-text-muted, #5f6b76);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--bo-border, #d0d7de);
+}
+
+.table td input:not([type='checkbox']) {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.table tbody tr {
+  cursor: pointer;
+}
+
+.selected {
+  background: var(--bo-selection, #e3f1ef);
+}
+
+.tag {
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--bo-surface-alt, #eef4f3);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.editPanel {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--bo-border, #d0d7de);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

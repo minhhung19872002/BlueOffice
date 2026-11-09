@@ -775,6 +775,7 @@ dependencies = [
  "bo-sheet",
  "bo-text",
  "bo-xlsx",
+ "serde",
  "serde_json",
  "thiserror 2.0.21",
  "unicode-linebreak",

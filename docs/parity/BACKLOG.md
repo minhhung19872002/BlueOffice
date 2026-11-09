@@ -122,7 +122,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 - [ ] **CORE-SMART-005** — SmartArt mới và sửa SmartArt trong BlueDoc / BlueSheet (mô hình phần sơ đồ + quan hệ docx/xlsx, dùng chung `bo-pptx::diagram_layout`) · P1 · 003,004 · E2E. _(Tách ra từ 003/004 khi làm phần BlueSlide.)_
 
 ### Biểu đồ (§6.6)
-- [p] **CORE-CHART-001** — Biểu đồ c: column/bar (clustered/stacked), line, area, pie, doughnut, scatter, combo: đọc/hiển thị/tạo/lưu · P0 · — · corpus `charts-*`. **Thiếu**: 100 %, 3D, bubble, radar, surface, stock, pie of pie, trendline/error bar đầy đủ.
+- [x] **CORE-CHART-001** — Biểu đồ c: column/bar (clustered/stacked), line, area, pie, doughnut, scatter, combo: đọc/hiển thị/tạo/lưu · P0 · — · corpus `charts-*`. _Rà soát định kỳ 2026-11-09 (lần 3): phần thiếu trước đây đã xong qua CORE-CHART-002 (100 %, bubble, radar, stock, surface, of-pie) và CORE-CHART-003 (3D); trendline (§21.2.2.211) và error bar (§21.2.2.55) đọc/ghi/vẽ trong bộ vẽ chung `bo-sheet/src/chart.rs` có test `chart::tests`. Phần còn lại của các loại khác theo dõi ở CHART-002._
 - [p] **CORE-CHART-002** — Loại c: còn lại: 100 % stacked, bubble, radar (marker/filled), stock (HLC/OHLC/VHLC/VOHLC), surface/contour, pie of pie / bar of pie, explode · P0 · — · corpus 3 file/loại + render + round-trip.
   - Xong: một bộ vẽ biểu đồ dùng chung (bo-sheet) cho BlueSheet, BlueSlide, BlueDoc — slide/doc vẽ từ giá trị cache,
     màu theme qua callback (accent1…6), không khung vùng biểu đồ. Model đọc/ghi: màu series/điểm (srgbClr/schemeClr, dPt),
@@ -184,11 +184,11 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 - [ ] **DOC-FORM-001** — Legacy form fields + chế độ chỉ điền biểu mẫu · P1 · CC-001 · test.
 
 ### Hàm bảng tính (§6.1) — chi tiết từng hàm trong `functions.md`
-- [p] **SHEET-FN-000** — 450/515 hàm (Date & Time, Logical, Engineering, Statistical, Compatibility, Financial đủ) · P0 · — · `functions.md`.
+- [p] **SHEET-FN-000** — 462/515 hàm (Date & Time, Logical, Engineering, Statistical, Compatibility, Financial, Database đủ) · P0 · — · `functions.md`.
 - [x] **SHEET-FN-ENG** — Engineering (54 hàm: BESSEL*, chuyển cơ số, BIT*, COMPLEX/IM*, CONVERT, DELTA, GESTEP, ERF*) · P0 · — · bảng test từng hàm. `functions/engineering.rs`: đổi cơ số bù hai 10 chữ số, BIT* 48 bit, erf chuỗi Maclaurin + liên phân số erfc, Bessel J (truy hồi lùi Miller), Y (chuỗi Neumann), I (chuỗi), K (tích phân hình thang), số phức text `x+yi`/`x+yj`, CONVERT theo định nghĩa đơn vị chính xác (tiền tố SI và nhị phân, m2/m3 bình phương/lập phương tiền tố); test `fn_engineering` (183 dòng: tay + bảng Abramowitz & Stegun, kiểm lại SciPy) + đẳng thức Wronskian.
 - [x] **SHEET-FN-STAT** — Statistical còn thiếu (60 hàm: phân phối BETA/BINOM/CHISQ/F/GAMMA/HYPGEOM/LOGNORM/NEGBINOM/POISSON/T/WEIBULL/Z, LINEST/LOGEST/TREND/GROWTH, FORECAST.ETS*, SKEW/KURT, FREQUENCY…) · P0 · — · test. `functions/distributions.rs`: log-gamma Lanczos, gamma/beta không đầy đủ chuẩn hoá (chuỗi + liên phân số Lentz), hàm ngược bằng chia đôi CDF; T.TEST 3 kiểu, F.TEST, CHISQ.TEST, Z.TEST; KURT/SKEW/TRIMMEAN/PERCENTRANK/MODE.MULT/FREQUENCY/PROB/STEYX; `functions/regression.rs`: LINEST/LOGEST (nhiều biến, thống kê 5 dòng, biến cộng tuyến hệ số 0), TREND/GROWTH, FORECAST.ETS* (Holt–Winters cộng, tối ưu hằng số làm trơn theo SSE, tự dò mùa bằng tự tương quan — tham số có thể khác phần mềm tham chiếu, chưa có giá trị tham chiếu); test `fn_distributions`, `fn_regression` (giá trị chuẩn tính độc lập bằng SciPy/NumPy, chuỗi chính xác cho ETS).
 - [x] **SHEET-FN-FIN** — Financial còn thiếu (36 hàm: trái phiếu/chứng khoán, CUMIPMT, MIRR, VDB…) · P0 · — · test. `functions/bonds.rs`: lịch coupon (lùi từ ngày đáo hạn, giữ cuối tháng), COUP*, PRICE/YIELD/DURATION/MDURATION, ODDF*/ODDL* (kỳ lẻ theo kỳ coupon giả định), ACCRINT (Σ Aᵢ/NLᵢ)/ACCRINTM, DISC/INTRATE/RECEIVED/PRICEDISC/YIELDDISC/PRICEMAT/YIELDMAT, TBILL*, DOLLARDE/FR, FVSCHEDULE, ISPMT, MIRR, PDURATION, RRI, VDB, AMORLINC/AMORDEGRC; test `fn_securities` (tính tay theo định nghĩa + đẳng thức: kỳ đều của ODD* = PRICE, YIELD nghịch đảo PRICE, duration trái phiếu ngang giá).
-- [ ] **SHEET-FN-DB** — Database (12 hàm D*) · P0 · — · test.
+- [x] **SHEET-FN-DB** — Database (12 hàm D*) · P0 · — · test. `functions/database.rs`: nhãn cột không phân biệt hoa thường hoặc số cột, điều kiện cùng dòng AND / các dòng OR, ô trống khớp mọi bản ghi; DGET #VALUE!/#NUM!; test `fn_database`.
 - [x] **SHEET-FN-COMPAT** — Compatibility còn thiếu (25 hàm) · P0 · STAT · test. 42/42: tên cũ dùng chung cài đặt với hàm mới (BETADIST, CHIDIST, TDIST hai/một đuôi, HYPGEOMDIST/NEGBINOMDIST chỉ xác suất điểm…), test cùng bảng `fn_distributions`.
 - [ ] **SHEET-FN-TEXT** — Text còn thiếu (17 hàm: REGEX*, ARRAYTOTEXT, VALUETOTEXT, FIXED, DOLLAR, BAHTTEXT, ASC/DBCS, *B…) + `BO.DOCSO` (đọc số tiền tiếng Việt) · P0 · — · test.
 - [ ] **SHEET-FN-LOOKUP** — Lookup còn thiếu (13 hàm: AREAS, GROUPBY, PIVOTBY, TRIMRANGE, HYPERLINK, GETPIVOTDATA, RTD, IMAGE…) · P0 · — · test.
@@ -304,6 +304,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
 
 ## P3
 - [ ] **CORE-MISC-001** — Phần còn lại phát hiện khi rà soát định kỳ (bổ sung tại đây).
+- [ ] **CORE-MISC-002** — Nợ kỹ thuật (rà soát 2026-11-09 lần 3): bình phương tối thiểu nhân đôi giữa `bo-sheet/src/chart.rs` (trendline) và `bo-formula/src/functions/regression.rs` (LINEST) → dùng chung một bộ giải; `year_frac`/đếm ngày 30/360 có ở `datetime.rs` và `bonds.rs` → gom về `bo-formula::date` · P3 · — · test hiện có.
 
 ---
 

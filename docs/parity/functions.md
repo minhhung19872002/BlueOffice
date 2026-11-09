@@ -4,13 +4,13 @@ Sinh tự động bởi `python scripts/parity-functions.py` từ danh mục hà
 (nhóm theo tài liệu hàm công khai) đối chiếu với các bảng `FUNCTIONS` trong `crates/bo-formula/src/functions/`.
 Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng ghi nguồn).
 
-**Tổng: 450/515 hàm (87 %).**
+**Tổng: 462/515 hàm (90 %).**
 
 | Nhóm | Đã có | Tổng |
 |---|---|---|
 | Compatibility | 42 | 42 |
 | Cube | 0 | 7 |
-| Database | 0 | 12 |
+| Database | 12 | 12 |
 | Date & Time | 25 | 25 |
 | Engineering | 54 | 54 |
 | Financial | 55 | 55 |
@@ -74,18 +74,18 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | CUBESET | Cube | [ ] |  |
 | CUBESETCOUNT | Cube | [ ] |  |
 | CUBEVALUE | Cube | [ ] |  |
-| DAVERAGE | Database | [ ] |  |
-| DCOUNT | Database | [ ] |  |
-| DCOUNTA | Database | [ ] |  |
-| DGET | Database | [ ] |  |
-| DMAX | Database | [ ] |  |
-| DMIN | Database | [ ] |  |
-| DPRODUCT | Database | [ ] |  |
-| DSTDEV | Database | [ ] |  |
-| DSTDEVP | Database | [ ] |  |
-| DSUM | Database | [ ] |  |
-| DVAR | Database | [ ] |  |
-| DVARP | Database | [ ] |  |
+| DAVERAGE | Database | [x] | bo-formula |
+| DCOUNT | Database | [x] | bo-formula |
+| DCOUNTA | Database | [x] | bo-formula |
+| DGET | Database | [x] | bo-formula |
+| DMAX | Database | [x] | bo-formula |
+| DMIN | Database | [x] | bo-formula |
+| DPRODUCT | Database | [x] | bo-formula |
+| DSTDEV | Database | [x] | bo-formula |
+| DSTDEVP | Database | [x] | bo-formula |
+| DSUM | Database | [x] | bo-formula |
+| DVAR | Database | [x] | bo-formula |
+| DVARP | Database | [x] | bo-formula |
 | DATE | Date & Time | [x] | bo-formula |
 | DATEDIF | Date & Time | [x] | bo-formula |
 | DATEVALUE | Date & Time | [x] | bo-formula |

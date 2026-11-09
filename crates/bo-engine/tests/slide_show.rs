@@ -742,3 +742,73 @@ fn entrance_emphasis_exit_and_path_effects() {
     let r = try_run(&mut e, r#"{"cmd":"addAnimation","effect":"nope"}"#);
     assert_eq!(r.error.as_deref(), Some("badEffect"));
 }
+
+// source: ECMA-376 Part 1, §19.5.29 cTn@repeatCount, §19.5.65 seq nodeType="interactiveSeq" (a
+// click on the trigger shape starts it) — repeats, triggers and the animation painter.
+#[test]
+fn repeats_triggers_and_the_animation_painter() {
+    let mut e = open("slide-shapes-presets.pptx");
+    let ids = free_ids(&e, 0);
+    let (a, b, c, d) = (ids[0], ids[1], ids[2], ids[3]);
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{a}]}}"#));
+    run(
+        &mut e,
+        r#"{"cmd":"addAnimation","effect":"spin","durMs":400,"repeat":3}"#,
+    );
+    run(
+        &mut e,
+        r#"{"cmd":"addAnimation","effect":"pulse","repeat":0,"trigger":"afterPrevious"}"#,
+    );
+    // Shape b appears when shape c is clicked.
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{b}]}}"#));
+    let r = run(
+        &mut e,
+        &format!(r#"{{"cmd":"addAnimation","effect":"zoom","triggerShape":{c}}}"#),
+    );
+    assert_eq!(r.animations[2].trigger_shape, Some(c));
+    assert_eq!(r.animations[0].repeat, 3);
+    assert_eq!(r.animations[1].repeat, 0);
+    // Three runs of 400 ms; the trigger's effect is not a click step of the slide.
+    assert_eq!(
+        (r.animations[0].start_ms, r.animations[0].end_ms),
+        (0, 1200)
+    );
+    let show = run(&mut e, r#"{"cmd":"show","slide":0}"#).show.unwrap();
+    assert_eq!(show.clicks, 1);
+    assert_eq!(show.triggers.len(), 1);
+    assert_eq!(show.triggers[0].shape_id, c);
+    // Painter: shape d gets shape a's two effects.
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{d}]}}"#));
+    let r = run(&mut e, &format!(r#"{{"cmd":"copyAnimations","from":{a}}}"#));
+    assert_eq!(r.animations.len(), 5);
+    assert_eq!(
+        r.animations[3..]
+            .iter()
+            .map(|x| (x.shape_id, x.effect.as_str(), x.repeat))
+            .collect::<Vec<_>>(),
+        vec![(d, "spin", 3), (d, "pulse", 0)]
+    );
+    // Saved and read back.
+    let back = reopen(&e);
+    let t = back.presentation().unwrap().slides[0]
+        .timing
+        .clone()
+        .unwrap();
+    let got: Vec<(u32, Option<u32>, Option<u32>)> = t
+        .animations
+        .iter()
+        .map(|x| (x.shape_id, x.repeat, x.trigger_shape))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            (a, Some(3000), None),
+            (a, Some(u32::MAX), None),
+            (d, Some(3000), None),
+            (d, Some(u32::MAX), None),
+            (b, None, Some(c)),
+        ]
+    );
+    let r = try_run(&mut e, &format!(r#"{{"cmd":"copyAnimations","from":{c}}}"#));
+    assert_eq!(r.error.as_deref(), Some("noAnimation"));
+}

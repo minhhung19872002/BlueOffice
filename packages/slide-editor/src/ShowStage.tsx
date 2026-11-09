@@ -11,6 +11,7 @@ import {
   effectsAt,
   stepDuration,
   transitionPlan,
+  triggerEffects,
   visibility,
   type Frames,
   type ShowPos,
@@ -206,7 +207,41 @@ export function ShowStage({
           vis: ready && show ? visibility(show, playing ? pos.click - 1 : pos.click) : [],
           outgoing: hasOutgoing,
         };
-  const vis = current.vis;
+  // Layers shown or hidden by trigger effects (§19.5 interactive sequences) on this step.
+  const [triggered, setTriggered] = useState<{ key: string; vis: Record<number, boolean> }>({
+    key: '',
+    vis: {},
+  });
+  const vis = current.vis.map((v, i) => (triggered.key === key ? (triggered.vis[i] ?? v) : v));
+  const playTrigger = (shapeId: number) => {
+    if (!show) return;
+    const fx = triggerEffects(show, shapeId);
+    const shown: Record<number, boolean> = {};
+    for (const e of fx) {
+      shown[e.layer] = true;
+      animate(layerRefs.current[e.layer], e.frames, {
+        delay: e.delay,
+        duration: e.duration,
+        iterations: e.iterations,
+        easing: 'ease-out',
+        fill: 'both',
+      });
+    }
+    setTriggered((t) => ({ key, vis: { ...(t.key === key ? t.vis : {}), ...shown } }));
+    const end = fx.reduce(
+      (m, e) =>
+        Math.max(m, e.delay + e.duration * (Number.isFinite(e.iterations) ? e.iterations : 1)),
+      0,
+    );
+    setTimeout(() => {
+      setTriggered((t) => {
+        if (t.key !== key) return t;
+        const after: Record<number, boolean> = { ...t.vis };
+        for (const e of fx) if (e.visibleAfter !== null) after[e.layer] = e.visibleAfter;
+        return { key, vis: after };
+      });
+    }, end + 30);
+  };
   const outgoing = current.outgoing && from !== null ? from : null;
 
   useEffect(() => {
@@ -225,6 +260,7 @@ export function ShowStage({
     if (!show || show.slide !== pos.slide) return;
     let cancelled = false;
     const anims: Animation[] = [];
+    const endless: Animation[] = [];
     const start = visibility(show, playing ? pos.click - 1 : pos.click);
     let end: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
@@ -264,11 +300,14 @@ export function ShowStage({
           const a = animate(layerRefs.current[e.layer], e.frames, {
             delay: delay + e.delay,
             duration: e.duration,
+            iterations: e.iterations,
             easing: 'ease-out',
             fill: seen.has(e.layer) ? 'forwards' : 'both',
           });
           seen.add(e.layer);
-          if (a) anims.push(a);
+          if (a && Number.isFinite(e.iterations)) anims.push(a);
+          // "Until the next click": runs on; cancelled with the step.
+          else if (a) endless.push(a);
         }
         setPhase({ key, vis: next, outgoing: hasOutgoing });
         total += stepDuration(show, pos.click);
@@ -276,6 +315,7 @@ export function ShowStage({
       const finish = () => {
         if (cancelled) return;
         for (const a of anims) a.cancel();
+        // Endless effects keep running after the step (their layer stays shown).
         setPhase({ key, vis: visibility(show, pos.click), outgoing: false });
         onIdleRef.current?.(show);
       };
@@ -287,6 +327,7 @@ export function ShowStage({
       clearTimeout(timer);
       clearTimeout(end);
       for (const a of anims) a.cancel();
+      for (const a of endless) a.cancel();
     };
   }, [show, pos.slide, pos.click, pos.enter, playing, hasOutgoing, key, media, engine]);
 
@@ -376,6 +417,26 @@ export function ShowStage({
             />
           ))}
       </div>
+      {ready &&
+        media &&
+        (show.triggers ?? []).map((tr) => {
+          const k = width / (show.width || 1);
+          const [x, y, w, h] = tr.rect;
+          return (
+            <button
+              key={tr.shapeId}
+              type="button"
+              className={styles.showTrigger}
+              data-testid={`show-trigger-${tr.shapeId}`}
+              style={{ left: x * k, top: y * k, width: w * k, height: h * k }}
+              onClick={(e) => {
+                // A trigger plays its effects instead of advancing the show.
+                e.stopPropagation();
+                playTrigger(tr.shapeId);
+              }}
+            />
+          );
+        })}
     </div>
   );
 }

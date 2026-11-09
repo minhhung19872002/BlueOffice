@@ -15,6 +15,7 @@ import type {
 import {
   ALL_TRANSITIONS,
   advance,
+  triggerEffects,
   playFrames,
   morphLayers,
   AudienceLink,
@@ -1076,6 +1077,64 @@ describe('slide show playback', () => {
     }
     // No behaviours: the old frames.
     expect(playFrames({ ...anim('entr', []), play: undefined }, W, H)).toBeNull();
+  });
+
+  // source: ECMA-376 Part 1, §19.5.29 repeatCount and §19.5.65 interactive sequences — a repeated
+  // effect plays one run `repeat` times (endless until the next click); a trigger's effects are not
+  // click steps and keep their shape hidden until the trigger is clicked.
+  it('repeats effects and keeps trigger effects out of the click steps', () => {
+    const base: SlideAnimInfo = {
+      index: 0,
+      shapeId: 4,
+      shapeName: 'A',
+      effect: 'spin',
+      class: 'emph',
+      direction: null,
+      trigger: 'onClick',
+      delayMs: 0,
+      durMs: 400,
+      click: 1,
+      startMs: 0,
+      endMs: 1200,
+      rect: [0, 0, 10, 10],
+      layer: 1,
+      repeat: 3,
+      triggerShape: null,
+    };
+    const show = {
+      slide: 0,
+      width: 100,
+      height: 100,
+      transition: null,
+      layers: [],
+      clicks: 1,
+      media: [],
+      animations: [
+        base,
+        { ...base, index: 1, repeat: 0, startMs: 1200, endMs: 1600 },
+        {
+          ...base,
+          index: 2,
+          effect: 'zoom',
+          class: 'entr',
+          layer: 2,
+          click: 1,
+          startMs: 0,
+          endMs: 500,
+          repeat: 1,
+          triggerShape: 9,
+        },
+      ],
+    } as unknown as SlideShowInfo;
+    const fx = effectsAt(show, 1);
+    expect(fx.map((e) => [e.layer, e.duration, e.iterations])).toEqual([
+      [1, 400, 3],
+      [1, 400, Infinity],
+    ]);
+    expect(stepDuration(show, 1)).toBe(1600);
+    expect(triggerEffects(show, 9).map((e) => [e.layer, e.visibleAfter])).toEqual([[2, true]]);
+    // The trigger's shape starts hidden and stays hidden through the click steps.
+    expect(visibility(show, 1)[2]).toBe(false);
   });
 
   it('plans transitions and steps through clicks, slides and the end screen', () => {

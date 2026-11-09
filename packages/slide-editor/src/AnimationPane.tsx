@@ -170,6 +170,25 @@ export function AnimationPane({
   const kind = tr?.kind ?? 'none';
   const known = !tr || tr.known;
   const selectedIds = new Set((edit?.selection ?? []).map((s) => s.id));
+  const objects = edit?.objects ?? [];
+  // Timeline: each effect's bar on its click step (or trigger) scale.
+  const span = new Map<string, number>();
+  for (const a of anims) {
+    const g = `${a.triggerShape ?? 'main'}:${a.click}`;
+    span.set(g, Math.max(span.get(g) ?? 0, a.endMs));
+  }
+  // Animation painter: the next selection gets the effects of the shape picked here.
+  const [painter, setPainter] = useState<number | null>(null);
+  const firstSelected = edit?.selection?.[0]?.id ?? null;
+  const [painterSeen, setPainterSeen] = useState<number | null>(null);
+  if (painter !== null && firstSelected !== null && firstSelected !== painterSeen) {
+    // Adjusting state while rendering (React docs): apply once to the new selection.
+    setPainterSeen(firstSelected);
+    if (firstSelected !== painter) {
+      setPainter(null);
+      run({ cmd: 'copyAnimations', from: painter });
+    }
+  }
 
   // Preview: the slide plays with its transition and every click step in turn.
   // Each run has its own show data (`run` = deck revision + slide + start).
@@ -361,6 +380,18 @@ export function AnimationPane({
 
       <section className={styles.animSection}>
         <h4>{t('slideEditor.animationsTab')}</h4>
+        <button
+          type="button"
+          data-testid="anim-painter"
+          className={painter !== null ? styles.animPainterOn : undefined}
+          disabled={firstSelected === null || !anims.some((a) => a.shapeId === firstSelected)}
+          onClick={() => {
+            setPainterSeen(firstSelected);
+            setPainter(painter === null ? firstSelected : null);
+          }}
+        >
+          {painter !== null ? t('slideEditor.painterPick') : t('slideEditor.painter')}
+        </button>
         <label>
           {t('slideEditor.addEffect')}
           <select
@@ -415,10 +446,21 @@ export function AnimationPane({
                     className={styles.animName}
                     onClick={() => run({ cmd: 'select', ids: [a.shapeId] })}
                   >
-                    <span className={styles.animStep}>{a.click}</span>
+                    <span className={styles.animStep}>
+                      {a.triggerShape != null ? '⚡' : a.click}
+                    </span>
                     <span>{a.shapeName || `#${a.shapeId}`}</span>
                     <em>{label(a)}</em>
                   </button>
+                  <div className={styles.animTimeline} aria-hidden="true">
+                    <span
+                      className={styles.animBar}
+                      style={{
+                        left: `${(100 * a.startMs) / Math.max(1, span.get(`${a.triggerShape ?? 'main'}:${a.click}`) ?? 1)}%`,
+                        width: `${Math.max(2, (100 * (a.endMs - a.startMs)) / Math.max(1, span.get(`${a.triggerShape ?? 'main'}:${a.click}`) ?? 1))}%`,
+                      }}
+                    />
+                  </div>
                   <div className={styles.animFields}>
                     <select
                       aria-label={t('slideEditor.trigger')}
@@ -475,6 +517,35 @@ export function AnimationPane({
                         }}
                       />
                     </label>
+                    <select
+                      aria-label={t('slideEditor.repeat')}
+                      data-testid={`anim-repeat-${a.index}`}
+                      value={a.repeat ?? 1}
+                      onChange={(e) => set({ repeat: Number(e.target.value) })}
+                    >
+                      {[1, 2, 3, 4, 5, 10, 0].map((n) => (
+                        <option key={n} value={n}>
+                          {n === 0
+                            ? t('slideEditor.repeatUntilClick')
+                            : t('slideEditor.repeatTimes', { n })}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label={t('slideEditor.triggerShape')}
+                      data-testid={`anim-trigger-shape-${a.index}`}
+                      value={a.triggerShape ?? 0}
+                      onChange={(e) => set({ triggerShape: Number(e.target.value) })}
+                    >
+                      <option value={0}>{t('slideEditor.triggerSequence')}</option>
+                      {objects
+                        .filter((o) => o.id !== a.shapeId)
+                        .map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {t('slideEditor.triggerOnClickOf', { name: o.name || `#${o.id}` })}
+                          </option>
+                        ))}
+                    </select>
                     <label>
                       {t('slideEditor.delaySec')}
                       <input

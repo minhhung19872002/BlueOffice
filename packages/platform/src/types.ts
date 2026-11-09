@@ -801,6 +801,8 @@ export type SlideCommand =
   | ({ cmd: 'setAnimation'; index: number } & SlideAnimSpec)
   | { cmd: 'removeAnimation'; index: number }
   | { cmd: 'moveAnimation'; from: number; to: number }
+  /** Animation painter: the selected shapes get the effects of shape `from`. */
+  | { cmd: 'copyAnimations'; from: number }
   | { cmd: 'show'; slide: number }
   | {
       cmd: 'insertChart';
@@ -1002,6 +1004,10 @@ export interface SlideAnimSpec {
   trigger?: SlideAnimTrigger;
   durMs?: number;
   delayMs?: number;
+  /** Runs: 1 = once, 0 = until the next click. */
+  repeat?: number;
+  /** Shape whose click starts the effect (0 = the slide's sequence). */
+  triggerShape?: number;
 }
 
 /** One effect of the main animation sequence (§19.5). */
@@ -1023,6 +1029,10 @@ export interface SlideAnimInfo {
   rect: [number, number, number, number] | null;
   /** Layer of the slide show holding the shape. */
   layer?: number | null;
+  /** Runs of the effect; 0 = until the next click. */
+  repeat?: number;
+  /** Shape whose click starts the effect (interactive sequence). */
+  triggerShape?: number | null;
   /** Variants the effect offers (first: the default). */
   dirs?: string[];
   /** What the effect does, read from its behaviours (§19.5). */
@@ -1073,6 +1083,8 @@ export interface SlideShowInfo {
   layers: { ids: number[]; backdrop: boolean; page: PageDisplayList }[];
   animations: SlideAnimInfo[];
   clicks: number;
+  /** Shapes that start effects when clicked, with their boxes `[x, y, w, h]`. */
+  triggers?: { shapeId: number; rect: [number, number, number, number] }[];
   media: SlideMediaInfo[];
   /** Morph from the previous slide ([MS-PPTX] p159:morph), when that is the transition. */
   morph?: SlideMorphInfo;
@@ -1201,6 +1213,8 @@ export interface SlideThreadInfo {
 export interface SlideEditResult {
   info: DocInfo;
   slide: number;
+  /** Top-level shapes of the current slide (what can trigger an effect). */
+  objects?: { id: number; name: string }[];
   selection: SlideShapeInfo[];
   bounds: SlideBox | null;
   handles: SlideHandle[];

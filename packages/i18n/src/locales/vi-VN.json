@@ -1536,7 +1536,15 @@
       "path": "Đường chuyển động"
     },
     "addEffect": "Thêm hiệu ứng",
-    "addEffectPick": "Chọn hiệu ứng cho đối tượng đã chọn…"
+    "addEffectPick": "Chọn hiệu ứng cho đối tượng đã chọn…",
+    "repeat": "Lặp lại",
+    "repeatTimes": "{{n}} lần",
+    "repeatUntilClick": "Đến lần bấm sau",
+    "triggerShape": "Kích hoạt",
+    "triggerSequence": "Theo trình tự bấm",
+    "triggerOnClickOf": "Khi bấm vào {{name}}",
+    "painter": "Chép hiệu ứng",
+    "painterPick": "Chọn đối tượng nhận hiệu ứng…"
   },
   "review": {
     "title": "Xem lại",

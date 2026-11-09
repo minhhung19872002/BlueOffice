@@ -228,6 +228,53 @@ test('adds emphasis, motion-path and exit effects from the pane, changes them, s
   expect(errors).toEqual([]);
 });
 
+test('repeats an effect, starts one from a trigger shape, copies effects with the painter', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/slide');
+  await openDeck(page, bullets);
+  await page.getByRole('tab', { name: 'Hiệu ứng' }).click();
+  // The title flies in twice.
+  await clickSlide(page, 0.48, 0.3);
+  await expect(page.getByTestId('selection-box')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Bay vào', exact: true }).click();
+  await page.getByTestId('anim-repeat-0').selectOption('2');
+  await expect(page.getByTestId('anim-repeat-0')).toHaveValue('2');
+  // The body spins when the title is clicked.
+  await clickSlide(page, 0.5, 0.62);
+  await expect(page.getByTestId('selection-box')).toHaveCount(1);
+  await page.getByTestId('anim-add').selectOption('emph:spin');
+  await expect(page.getByTestId('anim-item-1')).toBeVisible();
+  await page.getByTestId('anim-trigger-shape-1').selectOption({ index: 1 });
+  await expect(page.getByTestId('anim-trigger-shape-1')).not.toHaveValue('0');
+  // Painter: the title's fly-in copied onto the body.
+  await clickSlide(page, 0.48, 0.3);
+  await page.getByTestId('anim-painter').click();
+  await clickSlide(page, 0.5, 0.62);
+  await expect(page.getByTestId('anim-item-2')).toBeVisible();
+  await expect(page.getByTestId('anim-effect-2')).toHaveValue('flyIn');
+
+  await saveAndReopen(page, 'triggers.pptx');
+  await page.getByRole('tab', { name: 'Hiệu ứng' }).click();
+  await expect(page.getByTestId('anim-repeat-0')).toHaveValue('2');
+  await expect(page.getByTestId('anim-effect-2')).toHaveValue('spin');
+  await expect(page.getByTestId('anim-trigger-shape-2')).not.toHaveValue('0');
+
+  // The show: the trigger plays its spin without advancing.
+  await page.keyboard.press('F5');
+  const stage = page.getByTestId('show-stage');
+  await expect(stage).toHaveAttribute('data-clicks', '2');
+  const trigger = page.locator('[data-testid^="show-trigger-"]');
+  await expect(trigger).toHaveCount(1);
+  await trigger.click();
+  await expect(stage).toHaveAttribute('data-click', '0');
+  await expect(stage).toHaveAttribute('data-slide', '0');
+  await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});
+
 test('inserts a chart, edits its data, saves and reopens it editable', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

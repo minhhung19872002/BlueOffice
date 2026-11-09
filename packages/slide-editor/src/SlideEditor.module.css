@@ -750,3 +750,34 @@ circle.handle {
   color: inherit;
   cursor: pointer;
 }
+
+/* A shape that starts effects when clicked (slide show trigger). */
+.showTrigger {
+  position: absolute;
+  z-index: 4;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Animation pane: timeline bar of an effect within its click step. */
+.animTimeline {
+  position: relative;
+  height: 4px;
+  margin: 2px 0 4px;
+  border-radius: 2px;
+  background: var(--bo-border, #e1e4e8);
+}
+
+.animBar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: var(--bo-accent, #2f6fde);
+}
+
+.animPainterOn {
+  outline: 2px solid var(--bo-accent, #2f6fde);
+}

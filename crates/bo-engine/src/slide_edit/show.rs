@@ -135,6 +135,10 @@ pub struct AnimOut {
     pub end_ms: u32,
     /// Bounds of the animated top-level shape `[x, y, w, h]` in points.
     pub rect: Option<[f64; 4]>,
+    /// Runs of the effect (§19.5.29 repeatCount); 0 = until the next click.
+    pub repeat: u32,
+    /// Shape whose click starts the effect (interactive sequence), if any.
+    pub trigger_shape: Option<u32>,
     /// Show layer holding the shape (slide show only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layer: Option<usize>,
@@ -173,6 +177,61 @@ pub struct MediaOut {
     pub link: Option<String>,
 }
 
+/// A top-level shape of a slide.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ObjectOut {
+    /// Shape id (`cNvPr@id`).
+    pub id: u32,
+    /// Shape name (`cNvPr@name`).
+    pub name: String,
+}
+
+/// The top-level shapes of a slide.
+pub fn objects_out(pres: &Presentation, slide: usize) -> Vec<ObjectOut> {
+    pres.slides.get(slide).map_or_else(Vec::new, |s| {
+        s.data
+            .shapes
+            .iter()
+            .filter_map(ShapeNode::nv)
+            .map(|nv| ObjectOut {
+                id: nv.id,
+                name: nv.name.clone(),
+            })
+            .collect()
+    })
+}
+
+/// A shape whose click starts effects.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerOut {
+    /// Shape id (`cNvPr@id`).
+    pub shape_id: u32,
+    /// Bounds `[x, y, w, h]` in points.
+    pub rect: [f64; 4],
+}
+
+/// The trigger shapes of a slide's interactive sequences.
+pub fn triggers_out(pres: &Presentation, slide: usize) -> Vec<TriggerOut> {
+    let Some(t) = pres.slides.get(slide).and_then(|s| s.timing.as_ref()) else {
+        return Vec::new();
+    };
+    let placed = place_slide(pres, slide);
+    let mut out: Vec<TriggerOut> = Vec::new();
+    for id in t.animations.iter().filter_map(|a| a.trigger_shape) {
+        if out.iter().any(|o| o.shape_id == id) {
+            continue;
+        }
+        if let Some(p) = find(&placed, id) {
+            out.push(TriggerOut {
+                shape_id: id,
+                rect: rect_of(&p.b),
+            });
+        }
+    }
+    out
+}
+
 /// Everything the slide show needs to play a slide.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -191,6 +250,8 @@ pub struct ShowOut {
     pub animations: Vec<AnimOut>,
     /// Clicks needed to play every effect.
     pub clicks: usize,
+    /// Shapes that start effects when clicked (interactive sequences), with their boxes.
+    pub triggers: Vec<TriggerOut>,
     /// Video and audio clips of the slide.
     pub media: Vec<MediaOut>,
     /// Morph from the previous slide ([MS-PPTX] p159:morph), when that is the transition.
@@ -383,6 +444,12 @@ pub fn animations_out(pres: &Presentation, slide: usize) -> Vec<AnimOut> {
                 start_ms: entry.map_or(0, |e| e.start_ms),
                 end_ms: entry.map_or(0, |e| e.end_ms),
                 rect: top.and_then(|id| find(&placed, id)).map(|p| rect_of(&p.b)),
+                repeat: match a.repeat {
+                    Some(u32::MAX) => 0,
+                    Some(r) => (r / 1000).max(1),
+                    None => 1,
+                },
+                trigger_shape: a.trigger_shape,
                 layer: None,
                 play,
             }
@@ -699,6 +766,21 @@ pub struct AnimSpec {
     /// Delay before the effect, in ms.
     #[serde(default)]
     pub delay_ms: Option<u32>,
+    /// Runs of the effect (1 = once, 0 = until the next click).
+    #[serde(default)]
+    pub repeat: Option<u32>,
+    /// Shape whose click starts the effect (0 = the main sequence).
+    #[serde(default)]
+    pub trigger_shape: Option<u32>,
+}
+
+/// The model repeat (§19.5.29 repeatCount in 1000ths) of a count of runs.
+fn repeat_of(n: u32) -> Option<u32> {
+    match n {
+        0 => Some(u32::MAX),
+        1 => None,
+        n => Some(n.min(1000) * 1000),
+    }
 }
 
 fn edit_timing(
@@ -745,6 +827,8 @@ pub fn cmd_add_animation(tx: &mut Tx<'_>, sel: &SlideSel, spec: &AnimSpec) -> R<
                 dur_ms: spec.dur_ms.unwrap_or(DEFAULT_ANIM_MS).clamp(1, 600_000),
                 preset_id: None,
                 preset_subtype: None,
+                repeat: spec.repeat.and_then(repeat_of),
+                trigger_shape: spec.trigger_shape.filter(|t| *t != 0),
                 source: None,
             });
         }
@@ -790,6 +874,57 @@ pub fn cmd_set_animation(tx: &mut Tx<'_>, sel: &SlideSel, index: usize, spec: &A
         }
         if let Some(d) = spec.delay_ms {
             a.delay_ms = d.min(600_000);
+        }
+        if let Some(r) = spec.repeat {
+            a.repeat = repeat_of(r);
+        }
+        if let Some(t) = spec.trigger_shape {
+            a.trigger_shape = (t != 0).then_some(t);
+        }
+        Ok(())
+    })
+}
+
+/// Shape ids of `p:spTgt@spid` in an effect as read, from `from` to `to` (§19.5.72 spTgt).
+fn retarget(el: &mut bo_model::slide::XmlElement, from: u32, to: u32) {
+    if el.name == "p:spTgt" {
+        for (k, v) in &mut el.attrs {
+            if k == "spid" && v.parse::<u32>().ok() == Some(from) {
+                *v = to.to_string();
+            }
+        }
+    }
+    for c in &mut el.children {
+        if let bo_model::slide::XmlNode::Element(e) = c {
+            retarget(e, from, to);
+        }
+    }
+}
+
+/// Animation painter: the effects of shape `from` appended for each selected shape.
+pub fn cmd_copy_animations(tx: &mut Tx<'_>, sel: &SlideSel, from: u32) -> R<()> {
+    let targets: Vec<u32> = sel.ids.iter().copied().filter(|id| *id != from).collect();
+    if targets.is_empty() {
+        return refuse("noSelection");
+    }
+    edit_timing(tx, sel.slide, |anims| {
+        let src: Vec<Animation> = anims
+            .iter()
+            .filter(|a| a.shape_id == from)
+            .cloned()
+            .collect();
+        if src.is_empty() {
+            return refuse("noAnimation");
+        }
+        for to in targets {
+            for a in &src {
+                let mut c = a.clone();
+                c.shape_id = to;
+                if let Some(x) = c.source.as_mut() {
+                    retarget(x, from, to);
+                }
+                anims.push(c);
+            }
         }
         Ok(())
     })

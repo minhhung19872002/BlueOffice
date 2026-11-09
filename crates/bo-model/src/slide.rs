@@ -1434,6 +1434,14 @@ pub struct Animation {
     pub preset_id: Option<u32>,
     /// Preset subtype (`presetSubtype`).
     pub preset_subtype: Option<u32>,
+    /// §19.5.29 cTn@repeatCount of the effect in 1000ths (`2000` = twice); `u32::MAX` = until the
+    /// next click (`indefinite`); `None` = once.
+    #[serde(default)]
+    pub repeat: Option<u32>,
+    /// The shape whose click starts the effect (an interactive sequence, §19.5.65 seq with
+    /// nodeType `interactiveSeq`); `None` = the main sequence.
+    #[serde(default)]
+    pub trigger_shape: Option<u32>,
     /// The effect's `p:par` as read, kept for effects BlueOffice does not model
     /// (emphasis, motion paths, other filters): regenerated timing reuses it, so
     /// those effects survive edits of the sequence losslessly.
@@ -1455,8 +1463,11 @@ pub struct Timing {
 pub struct TimelineEntry {
     /// Index into [`Timing::animations`].
     pub animation: usize,
-    /// 0 = starts with the slide, n = after the n-th click.
+    /// 0 = starts with the slide, n = after the n-th click (of its trigger shape, for an
+    /// interactive sequence).
     pub click: usize,
+    /// Trigger shape of an interactive sequence.
+    pub trigger_shape: Option<u32>,
     /// Start / end in ms, relative to the click.
     pub start_ms: u32,
     /// End in ms, relative to the click.
@@ -1466,38 +1477,68 @@ pub struct TimelineEntry {
 impl Timing {
     /// Simple timeline: `OnClick` opens a new click step, `WithPrevious`
     /// starts with the previous effect, `AfterPrevious` when it ends.
+    ///
+    /// The main sequence and each trigger shape's sequence count their own clicks; entries are in
+    /// the order of [`Timing::animations`]. A repeated effect lasts its runs (once for "until the
+    /// next click").
     pub fn timeline(&self) -> Vec<TimelineEntry> {
+        // Per sequence (None = main): click, previous start, previous end.
+        let mut state: Vec<(Option<u32>, usize, u32, u32)> = Vec::new();
         let mut out: Vec<TimelineEntry> = Vec::new();
-        let mut click = 0;
-        let mut prev_start = 0;
-        let mut prev_end = 0;
         for (i, a) in self.animations.iter().enumerate() {
+            let k = state
+                .iter()
+                .position(|s| s.0 == a.trigger_shape)
+                .unwrap_or_else(|| {
+                    state.push((a.trigger_shape, 0, 0, 0));
+                    state.len() - 1
+                });
+            let (_, click, prev_start, prev_end) = &mut state[k];
             let base = match a.trigger {
                 AnimTrigger::OnClick => {
-                    click += 1;
-                    prev_end = 0;
+                    *click += 1;
+                    *prev_end = 0;
                     0
                 }
-                AnimTrigger::WithPrevious => prev_start,
-                AnimTrigger::AfterPrevious => prev_end,
+                // The first effect of a trigger sequence starts with the trigger's click.
+                AnimTrigger::WithPrevious | AnimTrigger::AfterPrevious
+                    if *click == 0 && a.trigger_shape.is_some() =>
+                {
+                    *click = 1;
+                    0
+                }
+                AnimTrigger::WithPrevious => *prev_start,
+                AnimTrigger::AfterPrevious => *prev_end,
+            };
+            let runs = match a.repeat {
+                Some(r) if r != u32::MAX => {
+                    (u64::from(a.dur_ms) * u64::from(r) / 1000).min(u64::from(u32::MAX)) as u32
+                }
+                _ => a.dur_ms,
             };
             let start = base + a.delay_ms;
-            let end = start + a.dur_ms;
+            let end = start + runs;
             out.push(TimelineEntry {
                 animation: i,
-                click,
+                click: *click,
                 start_ms: start,
                 end_ms: end,
+                trigger_shape: a.trigger_shape,
             });
-            prev_start = start;
-            prev_end = prev_end.max(end);
+            *prev_start = start;
+            *prev_end = (*prev_end).max(end);
         }
         out
     }
 
-    /// Number of clicks needed to play every effect.
+    /// Number of clicks needed to play every effect of the main sequence.
     pub fn click_count(&self) -> usize {
-        self.timeline().last().map_or(0, |e| e.click)
+        self.timeline()
+            .iter()
+            .filter(|e| e.trigger_shape.is_none())
+            .map(|e| e.click)
+            .max()
+            .unwrap_or(0)
     }
 }
 

@@ -562,6 +562,11 @@ pub enum SlideCommand {
         /// New 0-based position of the effect.
         to: usize,
     },
+    /// Animation painter: give each selected shape the effects of shape `from` (appended).
+    CopyAnimations {
+        /// Shape id (`cNvPr@id`) whose effects are copied.
+        from: u32,
+    },
     /// What the slide show needs to play `slide` (layers, effects, media); read-only.
     Show {
         /// 0-based slide index.
@@ -991,6 +996,8 @@ pub struct SlideEditResult {
     pub transition: Option<show::TransitionOut>,
     /// Main animation sequence of the current slide.
     pub animations: Vec<show::AnimOut>,
+    /// Top-level shapes of the current slide (id, name): what a trigger can be.
+    pub objects: Vec<show::ObjectOut>,
     /// Video and audio clips of the current slide.
     pub media: Vec<show::MediaOut>,
     /// The selected chart (type, title, legend, data).
@@ -3901,6 +3908,11 @@ impl Engine {
                         show::cmd_move_animation(tx, sel, from, to)
                     });
                 }
+                SlideCommand::CopyAnimations { from } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        show::cmd_copy_animations(tx, sel, from)
+                    });
+                }
                 SlideCommand::Show { slide } => {
                     if slide < pres.slides.len() {
                         out.show = Some(slide);
@@ -4119,6 +4131,7 @@ impl Engine {
                 .map_or(0, bo_model::slide::Timing::click_count),
             layers,
             animations,
+            triggers: show::triggers_out(pres, slide),
             media: media::media_out(pres, slide),
             morph: self.morph_out(slide),
         })
@@ -4399,6 +4412,7 @@ impl Engine {
             clipboard: None,
             transition: show::transition_out(pres, slide),
             animations: show::animations_out(pres, slide),
+            objects: show::objects_out(pres, slide),
             media: media::media_out(pres, slide),
             chart: match items.as_slice() {
                 [one] => chart::chart_out(pres, slide, one.id),

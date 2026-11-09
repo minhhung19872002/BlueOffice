@@ -399,6 +399,13 @@ fn parse_effect(ctn: &XmlElement) -> Option<Animation> {
         delay_ms: delay_of(ctn),
         dur_ms,
         preset_id: attr_int(ctn, "presetID"),
+        // §19.5.29 repeatCount: 1000ths, or `indefinite` (until the next click).
+        repeat: match ctn.attr("repeatCount") {
+            Some("indefinite") => Some(u32::MAX),
+            Some(v) => v.parse::<u32>().ok().filter(|r| *r != 1000),
+            None => None,
+        },
+        trigger_shape: None,
         preset_subtype: attr_int(ctn, "presetSubtype"),
         source: None,
     })
@@ -417,10 +424,33 @@ pub fn effect_xml(a: &Animation) -> XmlElement {
     effect_node(&mut Ids(0), a)
 }
 
-/// Parse §19.3.1.48 timing: the effects of the main sequence in order.
+/// The interactive sequences (§19.5.65 seq, cTn nodeType `interactiveSeq`) with their trigger
+/// shape (the §19.5.25 cond `onClick` target).
+fn interactive_seqs(timing: &XmlElement) -> Vec<(u32, &XmlElement)> {
+    let mut all = Vec::new();
+    descendants(timing, &mut all);
+    all.into_iter()
+        .filter(|e| e.name == "p:cTn" && e.attr("nodeType") == Some("interactiveSeq"))
+        .filter_map(|c| {
+            let mut d = Vec::new();
+            descendants(c.child("p:stCondLst")?, &mut d);
+            let spid = d
+                .iter()
+                .find(|e| e.name == "p:spTgt")
+                .and_then(|e| attr_int(e, "spid"))?;
+            Some((spid, c))
+        })
+        .collect()
+}
+
+/// Parse §19.3.1.48 timing: the effects of the main sequence in order, then those of the
+/// interactive sequences.
 pub fn parse_timing(el: &XmlElement, key: u16) -> Timing {
     let mut animations = Vec::new();
-    if let Some(seq) = main_seq(el) {
+    let mut seqs: Vec<(Option<u32>, &XmlElement)> =
+        main_seq(el).map(|s| (None, s)).into_iter().collect();
+    seqs.extend(interactive_seqs(el).into_iter().map(|(t, s)| (Some(t), s)));
+    for (trigger, seq) in seqs {
         let mut all = Vec::new();
         descendants(seq, &mut all);
         // §19.5.53 par → §19.5.29 cTn of each effect, in document order.
@@ -429,6 +459,7 @@ pub fn parse_timing(el: &XmlElement, key: u16) -> Timing {
                 continue;
             };
             if let Some(mut a) = parse_effect(ctn) {
+                a.trigger_shape = trigger;
                 if keeps_source(&a) {
                     a.source = Some(par.clone());
                 }
@@ -680,6 +711,11 @@ fn reused_effect(ids: &mut Ids, a: &Animation, src: &XmlElement) -> XmlElement {
             Some((_, v)) => *v = node_type.to_owned(),
             None => ctn.attrs.push(("nodeType".into(), node_type.to_owned())),
         }
+        // §19.5.29 repeatCount of the model.
+        ctn.attrs.retain(|(k, _)| k != "repeatCount");
+        if let Some(r) = repeat_attr(a.repeat) {
+            ctn.attrs.push(("repeatCount".into(), r));
+        }
         let delay = a.delay_ms.to_string();
         let at = ctn
             .children
@@ -704,6 +740,15 @@ fn reused_effect(ids: &mut Ids, a: &Animation, src: &XmlElement) -> XmlElement {
         break;
     }
     par
+}
+
+/// §19.5.29 repeatCount of a repeat (1000ths, `indefinite`).
+fn repeat_attr(r: Option<u32>) -> Option<String> {
+    match r {
+        Some(u32::MAX) => Some("indefinite".into()),
+        Some(n) if n != 1000 => Some(n.to_string()),
+        _ => None,
+    }
 }
 
 fn node_type(t: AnimTrigger) -> &'static str {
@@ -827,6 +872,7 @@ fn effect_node(ids: &mut Ids, a: &Animation) -> XmlElement {
                 .opt("presetID", preset)
                 .a("presetClass", class)
                 .opt("presetSubtype", subtype)
+                .opt("repeatCount", repeat_attr(a.repeat))
                 .a("fill", "hold")
                 .a("nodeType", node_type)
                 .child(cond(&a.delay_ms.to_string()))
@@ -854,9 +900,8 @@ fn par(ids: &mut Ids, delay: &str, children: Vec<XmlElement>) -> XmlElement {
 }
 
 /// Build `p:timing` for a list of animations (§19.5 structure).
-fn build_timing(anims: &[Animation]) -> XmlElement {
-    let mut ids = Ids(2);
-    // Group into click steps, then into start groups (after-previous starts a new group).
+/// The click steps of a sequence: start groups of effects (after-previous starts a new group).
+fn click_pars(ids: &mut Ids, anims: &[&Animation], auto_first: bool) -> Vec<XmlElement> {
     let mut clicks: Vec<Vec<Vec<&Animation>>> = Vec::new();
     for a in anims {
         match a.trigger {
@@ -871,29 +916,38 @@ fn build_timing(anims: &[Animation]) -> XmlElement {
             },
         }
     }
-    let mut click_pars = Vec::new();
+    let mut out = Vec::new();
     for (ci, groups) in clicks.iter().enumerate() {
-        let first_auto = ci == 0
-            && anims
-                .first()
-                .is_some_and(|a| a.trigger != AnimTrigger::OnClick);
+        let first_auto = ci == 0 && auto_first;
         let mut group_pars = Vec::new();
         let mut t = 0u32;
         for g in groups {
-            let effects: Vec<XmlElement> = g.iter().map(|a| effect_node(&mut ids, a)).collect();
-            group_pars.push(par(&mut ids, &t.to_string(), effects));
-            t += g.iter().map(|a| a.delay_ms + a.dur_ms).max().unwrap_or(0);
+            let effects: Vec<XmlElement> = g.iter().map(|a| effect_node(ids, a)).collect();
+            group_pars.push(par(ids, &t.to_string(), effects));
+            t += g
+                .iter()
+                .map(|a| {
+                    let runs = match a.repeat {
+                        Some(r) if r != u32::MAX => u64::from(a.dur_ms) * u64::from(r) / 1000,
+                        _ => u64::from(a.dur_ms),
+                    };
+                    a.delay_ms
+                        .saturating_add(u32::try_from(runs).unwrap_or(u32::MAX))
+                })
+                .max()
+                .unwrap_or(0);
         }
-        click_pars.push(par(
-            &mut ids,
+        out.push(par(
+            ids,
             if first_auto { "0" } else { "indefinite" },
             group_pars,
         ));
     }
-    let mut seq_kids = El::new("p:childTnLst");
-    for c in click_pars {
-        seq_kids = seq_kids.child(c);
-    }
+    out
+}
+
+fn build_timing(anims: &[Animation]) -> XmlElement {
+    let mut ids = Ids(2);
     let cond_lst = |name: &str, evt: &str| {
         El::new(name)
             .child(
@@ -904,20 +958,85 @@ fn build_timing(anims: &[Animation]) -> XmlElement {
             )
             .done()
     };
-    let seq = El::new("p:seq")
-        .a("concurrent", 1)
-        .a("nextAc", "seek")
-        .child(
-            El::new("p:cTn")
-                .a("id", 2)
-                .a("dur", "indefinite")
-                .a("nodeType", "mainSeq")
-                .child(seq_kids.done())
+    let mut root = El::new("p:childTnLst");
+    let main: Vec<&Animation> = anims.iter().filter(|a| a.trigger_shape.is_none()).collect();
+    if !main.is_empty() {
+        let first_auto = main
+            .first()
+            .is_some_and(|a| a.trigger != AnimTrigger::OnClick);
+        let mut seq_kids = El::new("p:childTnLst");
+        for c in click_pars(&mut ids, &main, first_auto) {
+            seq_kids = seq_kids.child(c);
+        }
+        root = root.child(
+            El::new("p:seq")
+                .a("concurrent", 1)
+                .a("nextAc", "seek")
+                .child(
+                    El::new("p:cTn")
+                        .a("id", 2)
+                        .a("dur", "indefinite")
+                        .a("nodeType", "mainSeq")
+                        .child(seq_kids.done())
+                        .done(),
+                )
+                .child(cond_lst("p:prevCondLst", "onPrev"))
+                .child(cond_lst("p:nextCondLst", "onNext"))
                 .done(),
-        )
-        .child(cond_lst("p:prevCondLst", "onPrev"))
-        .child(cond_lst("p:nextCondLst", "onNext"))
-        .done();
+        );
+    }
+    // §19.5.65 interactive sequences: started by a click on their trigger shape.
+    let mut triggers: Vec<u32> = Vec::new();
+    for a in anims {
+        if let Some(t) = a.trigger_shape {
+            if !triggers.contains(&t) {
+                triggers.push(t);
+            }
+        }
+    }
+    for t in triggers {
+        let group: Vec<&Animation> = anims
+            .iter()
+            .filter(|a| a.trigger_shape == Some(t))
+            .collect();
+        let on_click = || {
+            El::new("p:cond")
+                .a("evt", "onClick")
+                .a("delay", 0)
+                .child(tgt(t))
+                .done()
+        };
+        let mut kids = El::new("p:childTnLst");
+        for c in click_pars(&mut ids, &group, true) {
+            kids = kids.child(c);
+        }
+        let id = ids.next();
+        root = root.child(
+            El::new("p:seq")
+                .a("concurrent", 1)
+                .a("nextAc", "seek")
+                .child(
+                    El::new("p:cTn")
+                        .a("id", id)
+                        .a("restart", "whenNotActive")
+                        .a("fill", "hold")
+                        .a("evtFilter", "cancelBubble")
+                        .a("nodeType", "interactiveSeq")
+                        .child(El::new("p:stCondLst").child(on_click()).done())
+                        .child(
+                            El::new("p:endSync")
+                                .a("evt", "end")
+                                .a("delay", 0)
+                                .child(El::new("p:rtn").a("val", "all").done())
+                                .done(),
+                        )
+                        .child(kids.done())
+                        .done(),
+                )
+                .child(El::new("p:nextCondLst").child(on_click()).done())
+                .done(),
+        );
+    }
     El::new("p:timing")
         .child(
             El::new("p:tnLst")
@@ -929,7 +1048,7 @@ fn build_timing(anims: &[Animation]) -> XmlElement {
                                 .a("dur", "indefinite")
                                 .a("restart", "never")
                                 .a("nodeType", "tmRoot")
-                                .child(El::new("p:childTnLst").child(seq).done())
+                                .child(root.done())
                                 .done(),
                         )
                         .done(),
@@ -971,6 +1090,8 @@ mod tests {
             dur_ms: 500,
             preset_id: None,
             preset_subtype: None,
+            repeat: None,
+            trigger_shape: None,
             source: None,
         }
     }

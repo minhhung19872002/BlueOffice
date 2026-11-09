@@ -22,6 +22,8 @@ export interface PlannedEffect {
   duration: number;
   /** Visibility once the effect is done (`null` = unchanged). */
   visibleAfter: boolean | null;
+  /** Runs (`Infinity`: until the next click). */
+  iterations: number;
 }
 
 /** Final visibility of an effect's shape (`null` = emphasis / path: unchanged). */
@@ -45,7 +47,8 @@ export function visibility(show: SlideShowInfo, click: number): boolean[] {
     if (a.class === 'entr') vis[a.layer] = false;
   }
   for (const a of show.animations) {
-    if (a.layer == null || a.click > click) continue;
+    // Effects of a trigger shape play when it is clicked, not with the click steps.
+    if (a.layer == null || a.click > click || a.triggerShape != null) continue;
     const v = after(a);
     if (v !== null) vis[a.layer] = v;
   }
@@ -116,22 +119,38 @@ export function effectFrames(a: SlideAnimInfo, width: number, height: number): F
   }
 }
 
+/** Effect `a` as the show plays it (one run, repeated `iterations` times). */
+function planned(a: SlideAnimInfo, show: SlideShowInfo): PlannedEffect {
+  const runs = a.repeat ?? 1;
+  return {
+    layer: a.layer ?? 0,
+    frames: effectFrames(a, show.width, show.height),
+    delay: a.startMs,
+    duration: Math.max(1, (a.endMs - a.startMs) / Math.max(1, runs)),
+    visibleAfter: after(a),
+    iterations: runs === 0 ? Infinity : runs,
+  };
+}
+
 /** Effects started by click step `click` (0 = with the slide). */
 export function effectsAt(show: SlideShowInfo, click: number): PlannedEffect[] {
   return show.animations
-    .filter((a) => a.click === click && a.layer != null)
-    .map((a) => ({
-      layer: a.layer ?? 0,
-      frames: effectFrames(a, show.width, show.height),
-      delay: a.startMs,
-      duration: Math.max(1, a.endMs - a.startMs),
-      visibleAfter: after(a),
-    }));
+    .filter((a) => a.click === click && a.layer != null && a.triggerShape == null)
+    .map((a) => planned(a, show));
+}
+
+/** Effects started by a click on trigger shape `shapeId` (§19.5 interactive sequence). */
+export function triggerEffects(show: SlideShowInfo, shapeId: number): PlannedEffect[] {
+  return show.animations
+    .filter((a) => a.triggerShape === shapeId && a.layer != null)
+    .map((a) => planned(a, show));
 }
 
 /** When the effects of a click step are all done (ms). */
 export function stepDuration(show: SlideShowInfo, click: number): number {
-  return show.animations.filter((a) => a.click === click).reduce((m, a) => Math.max(m, a.endMs), 0);
+  return show.animations
+    .filter((a) => a.click === click && a.triggerShape == null)
+    .reduce((m, a) => Math.max(m, a.endMs), 0);
 }
 
 export { transitionPlan, type TransitionPlan } from './transitionFx';

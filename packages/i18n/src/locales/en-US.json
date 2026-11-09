@@ -1536,7 +1536,15 @@
       "path": "Motion paths"
     },
     "addEffect": "Add effect",
-    "addEffectPick": "Pick an effect for the selection…"
+    "addEffectPick": "Pick an effect for the selection…",
+    "repeat": "Repeat",
+    "repeatTimes": "{{n}} times",
+    "repeatUntilClick": "Until next click",
+    "triggerShape": "Trigger",
+    "triggerSequence": "As part of the click sequence",
+    "triggerOnClickOf": "On click of {{name}}",
+    "painter": "Copy effects",
+    "painterPick": "Pick the shape that gets the effects…"
   },
   "review": {
     "title": "Review",

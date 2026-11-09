@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
 pub mod collab;
+pub mod design;
 pub mod edit;
 pub mod equation;
 pub mod fonts;

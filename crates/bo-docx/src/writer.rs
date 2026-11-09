@@ -139,10 +139,13 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
         if src.notes_fingerprint != notes_fingerprint(doc) {
             w.write_notes(&main)?;
         }
-        if src.even_and_odd_headers != doc.even_and_odd_headers {
+        if src.even_and_odd_headers != doc.even_and_odd_headers
+            || src.display_background_shape != doc.design.display_background_shape
+        {
             w.patch_settings(&main)?;
         }
     }
+    w.write_theme(&main)?;
     if doc.source.is_none() {
         w.write_settings(&main)?;
         w.write_notes(&main)?;
@@ -263,6 +266,11 @@ impl Writer<'_> {
                 body.push_str(&sp);
             }
         }
+        let bg = self.doc.design.background;
+        let prefix = match &self.doc.source {
+            Some(s) if s.background == bg => prefix,
+            _ => with_background(&prefix, bg),
+        };
         let xml = format!("{prefix}{body}{suffix}");
         if self.doc.source.is_some() {
             self.pkg.put_part(main, xml.into_bytes());
@@ -557,6 +565,9 @@ impl Writer<'_> {
             }) {
                 return r.xml.to_string();
             }
+            if let Some(art) = &s.art {
+                return self.vml_art(img, s, art);
+            }
             let txbx = s.text.as_ref().map(|b| {
                 if b.is_empty() {
                     "<w:p/>".to_owned()
@@ -588,6 +599,109 @@ impl Writer<'_> {
             "<a:graphic xmlns:a=\"{A_NS}\"><a:graphicData uri=\"{PIC_NS}\"><pic:pic xmlns:pic=\"{PIC_NS}\"><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"Picture {id}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r=\"{R_NS}\" r:embed=\"{rid}\"/>{crop}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm{rot}><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>"
         );
         Self::frame(img, id, "Picture", &graphic)
+    }
+
+    /// A text-path or picture shape (watermarks) as VML in `w:pict` (ECMA-376 Part 1,
+    /// §17.3.3.19 pict; Part 4, §19.1.2.19 shape, §19.1.2.23 textpath, §19.1.2.11
+    /// imagedata, §19.1.2.5 fill, §19.1.2.14 path). Namespaces are declared on the
+    /// `w:pict` element so the part's root need not know VML.
+    fn vml_art(&mut self, img: &Image, s: &bo_model::Shape, art: &bo_model::ShapeArt) -> String {
+        const V_NS: &str = "urn:schemas-microsoft-com:vml";
+        const O_NS: &str = "urn:schemas-microsoft-com:office:office";
+        self.drawing_id += 1;
+        let id = self.drawing_id;
+        let pt = |e: bo_model::Emu| {
+            let v = (f64::from(e.to_pt()) * 100.0).round() / 100.0;
+            format!("{v}pt")
+        };
+        let mut style = String::from("position:absolute");
+        let a = img.anchor.clone().unwrap_or_default();
+        let _ = write!(
+            style,
+            ";margin-left:{};margin-top:{};width:{};height:{}",
+            pt(a.x),
+            pt(a.y),
+            pt(img.width),
+            pt(img.height)
+        );
+        if img.rotation != 0 {
+            let deg = f64::from(img.rotation) / 60_000.0;
+            let _ = write!(style, ";rotation:{deg}");
+        }
+        // z-index below 0 puts the shape behind the text.
+        let z = if a.behind {
+            -251_650_000 + i64::from(id)
+        } else {
+            i64::from(id)
+        };
+        let _ = write!(style, ";z-index:{z}");
+        // Office VML extension: alignment and reference of the position.
+        let rel = |r: &str, text: &'static str| match r {
+            "page" => "page",
+            "margin" => "margin",
+            _ => text,
+        };
+        if let Some(al) = &a.h_align {
+            let _ = write!(style, ";mso-position-horizontal:{}", escape(al));
+        }
+        let _ = write!(
+            style,
+            ";mso-position-horizontal-relative:{}",
+            rel(&a.h_relative, "text")
+        );
+        if let Some(al) = &a.v_align {
+            let _ = write!(style, ";mso-position-vertical:{}", escape(al));
+        }
+        let _ = write!(
+            style,
+            ";mso-position-vertical-relative:{}",
+            rel(&a.v_relative, "text")
+        );
+        let name = if art.watermark {
+            format!("BlueOfficeWatermark{id}")
+        } else {
+            format!("BlueOfficeArt{id}")
+        };
+        let mut x = format!("<w:pict xmlns:v=\"{V_NS}\" xmlns:o=\"{O_NS}\">");
+        let opacity = if art.opacity < 1000 {
+            format!("<v:fill opacity=\"{}\"/>", f64::from(art.opacity) / 1000.0)
+        } else {
+            String::new()
+        };
+        if let Some(t) = &art.text {
+            let fill = s.fill.unwrap_or(bo_model::Color {
+                r: 192,
+                g: 192,
+                b: 192,
+            });
+            let mut font = format!("font-family:&quot;{}&quot;;font-size:1pt", escape(&t.font));
+            if t.bold {
+                font.push_str(";font-weight:bold");
+            }
+            if t.italic {
+                font.push_str(";font-style:italic");
+            }
+            let _ = write!(
+                x,
+                "<v:shape id=\"{name}\" o:spt=\"136\" style=\"{style}\" o:allowincell=\"f\" fillcolor=\"#{}\" stroked=\"f\" coordsize=\"21600,21600\" path=\"m0,10800l21600,10800e\">{opacity}<v:path textpathok=\"t\"/><v:textpath on=\"t\" fitshape=\"t\" style=\"{font}\" string=\"{}\"/></v:shape>",
+                fill.to_hex(),
+                escape(&t.text)
+            );
+        } else if let Some(p) = &art.picture {
+            let rid = self.rels.id_for(REL_IMAGE, p, false);
+            // §19.1.2.11 imagedata gain / blacklevel: lower contrast, lighter picture.
+            let wash = if art.washout {
+                " gain=\"0.3\" blacklevel=\"0.35\""
+            } else {
+                ""
+            };
+            let _ = write!(
+                x,
+                "<v:shape id=\"{name}\" o:spt=\"75\" style=\"{style}\" o:allowincell=\"f\" stroked=\"f\" filled=\"f\" coordsize=\"21600,21600\" path=\"m0,0l21600,0,21600,21600,0,21600xe\"><v:imagedata xmlns:r=\"{R_NS}\" r:id=\"{rid}\" o:title=\"\"{wash}/></v:shape>"
+            );
+        }
+        x.push_str("</w:pict>");
+        x
     }
 
     /// `w:drawing` with `graphic` placed inline (§20.4.2.8) or anchored (§20.4.2.3).
@@ -762,20 +876,67 @@ impl Writer<'_> {
                 self.hf_counter
             );
             let part = format!("/word/{file}");
+            // The header part gets relationships of its own (pictures, links), starting
+            // from those of the part it was read from so that verbatim content keeps
+            // resolving its `r:id`s (ECMA-376 Part 2, §9.3 relationships are per part).
+            let src_part = sec.hf_parts.part(is_header, kind);
+            let inherited = src_part
+                .and_then(|src| {
+                    let rels = self.pkg.relationships(src).ok()?;
+                    Some(
+                        rels.into_iter()
+                            .map(|mut r| {
+                                // Internal targets made absolute (valid from any part).
+                                if r.mode == TargetMode::Internal {
+                                    r.target = bo_opc::resolve_target(src, &r.target);
+                                }
+                                r
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .unwrap_or_default();
+            let main_rels = std::mem::replace(
+                &mut self.rels,
+                Rels {
+                    part: part.clone(),
+                    list: Vec::new(),
+                    changed: false,
+                },
+            );
+            self.rels.list = inherited;
             let body = self.blocks(blocks);
+            let part_rels = std::mem::replace(&mut self.rels, main_rels);
             let body = if body.is_empty() {
                 "<w:p/>".to_owned()
             } else {
                 body
             };
+            // Root start tag: the source part's (its namespace declarations serve the
+            // verbatim content), completed with the ones generated content uses.
+            let mut root = src_part
+                .and_then(|src| self.pkg.part(src))
+                .and_then(|p| {
+                    let x = String::from_utf8_lossy(&p.data).into_owned();
+                    let at = find_element(&x, &format!("w:{tag}"))?;
+                    let end = at + x[at..].find('>')?;
+                    Some(x[at..end].trim_end_matches('/').to_owned() + ">")
+                })
+                .unwrap_or_else(|| format!("<w:{tag} xmlns:w=\"{W_NS}\">"));
+            for (prefix, ns) in [("r", R_NS), ("wp", WP_NS), ("a", A_NS), ("pic", PIC_NS)] {
+                root = with_namespace(&root, prefix, ns);
+            }
             let xml = format!(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:{tag} xmlns:w=\"{W_NS}\" xmlns:r=\"{R_NS}\" xmlns:wp=\"{WP_NS}\" xmlns:a=\"{A_NS}\" xmlns:pic=\"{PIC_NS}\">{body}</w:{tag}>"
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n{root}{body}</w:{tag}>"
             );
             self.pkg.add_part(
                 &part,
                 if is_header { CT_HEADER } else { CT_FOOTER },
                 xml.into_bytes(),
             )?;
+            if !part_rels.list.is_empty() {
+                self.pkg.set_relationships(&part, &part_rels.list);
+            }
             let id = self.rels.id_for(
                 if is_header { REL_HEADER } else { REL_FOOTER },
                 &part,
@@ -1161,6 +1322,72 @@ impl Writer<'_> {
             return self.write_settings(main);
         };
         let mut s = remove_empty_element(&xml, "w:evenAndOddHeaders");
+        s = remove_empty_element(&s, "w:displayBackgroundShape");
+        if self.doc.design.display_background_shape {
+            // CT_Settings: displayBackgroundShape follows doNotDisplayPageBoundaries and
+            // precedes printPostScriptOverText … defaultTabStop … (§17.15.1.78).
+            const AFTER_BG: &[&str] = &[
+                "printPostScriptOverText",
+                "printFractionalCharacterWidth",
+                "printFormsData",
+                "embedTrueTypeFonts",
+                "embedSystemFonts",
+                "saveSubsetFonts",
+                "saveFormsData",
+                "mirrorMargins",
+                "alignBordersAndEdges",
+                "bordersDoNotSurroundHeader",
+                "bordersDoNotSurroundFooter",
+                "gutterAtTop",
+                "hideSpellingErrors",
+                "hideGrammaticalErrors",
+                "activeWritingStyle",
+                "proofState",
+                "formsDesign",
+                "attachedTemplate",
+                "linkStyles",
+                "stylePaneFormatFilter",
+                "stylePaneSortMethod",
+                "documentType",
+                "mailMerge",
+                "revisionView",
+                "trackRevisions",
+                "doNotTrackMoves",
+                "doNotTrackFormatting",
+                "documentProtection",
+                "autoFormatOverride",
+                "styleLockTheme",
+                "styleLockQFSet",
+                "defaultTabStop",
+                "autoHyphenation",
+                "consecutiveHyphenLimit",
+                "hyphenationZone",
+                "doNotHyphenateCaps",
+                "showEnvelope",
+                "summaryLength",
+                "clickAndTypeStyle",
+                "defaultTableStyle",
+                "evenAndOddHeaders",
+                "bookFoldRevPrinting",
+                "bookFoldPrinting",
+                "characterSpacingControl",
+                "compat",
+                "rsids",
+                "themeFontLang",
+                "clrSchemeMapping",
+                "shapeDefaults",
+                "decimalSymbol",
+                "listSeparator",
+            ];
+            let at = AFTER_BG
+                .iter()
+                .filter_map(|n| find_element(&s, &format!("w:{n}")))
+                .min()
+                .or_else(|| s.rfind("</w:settings>"));
+            if let Some(at) = at {
+                s.insert_str(at, "<w:displayBackgroundShape/>");
+            }
+        }
         if self.doc.even_and_odd_headers {
             const AFTER: &[&str] = &[
                 "bookFoldRevPrinting",
@@ -1227,8 +1454,43 @@ impl Writer<'_> {
         Ok(())
     }
 
+    /// A theme authored by BlueOffice (ECMA-376 Part 1, §14.2.7 theme part; DrawingML
+    /// §20.1.6.9 theme) replaces the source's theme part, or is added as
+    /// `word/theme/theme1.xml`; without one the source part is kept.
+    fn write_theme(&mut self, main: &str) -> Result<()> {
+        const REL_THEME: &str =
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme";
+        const CT_THEME: &str = "application/vnd.openxmlformats-officedocument.theme+xml";
+        let Some(xml) = self.doc.design.theme_xml.clone() else {
+            return Ok(());
+        };
+        let existing = if self.doc.source.is_some() {
+            self.pkg.related_part(main, REL_THEME)?
+        } else {
+            None
+        };
+        if let Some(part) = existing {
+            self.pkg.put_part(&part, xml.as_bytes().to_vec());
+            return Ok(());
+        }
+        let mut part = "/word/theme/theme1.xml".to_owned();
+        let mut n = 1;
+        while self.pkg.part(&part).is_some() {
+            n += 1;
+            part = format!("/word/theme/theme{n}.xml");
+        }
+        self.pkg
+            .add_part(&part, CT_THEME, xml.as_bytes().to_vec())?;
+        self.rels.id_for(REL_THEME, &part, false);
+        Ok(())
+    }
+
     fn write_settings(&mut self, _main: &str) -> Result<()> {
         let mut s = format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:settings xmlns:w=\"{W_NS}\">");
+        // §17.15.1.32 displayBackgroundShape (before defaultTabStop).
+        if self.doc.design.display_background_shape {
+            s.push_str("<w:displayBackgroundShape/>");
+        }
         // CT_Settings order (§17.15.1.78): defaultTabStop precedes evenAndOddHeaders.
         // §17.15.1.25 defaultTabStop (omitted ⇒ 720).
         if let Some(t) = self.doc.default_tab_stop {
@@ -1278,6 +1540,16 @@ impl Writer<'_> {
 }
 
 // ---------------------------------------------------------------- property serialization
+
+/// The main part's text before the body with its §17.2.1 background (the page
+/// colour, first child of `w:document`) replaced by `color` (`None` removes it).
+fn with_background(prefix: &str, color: Option<bo_model::Color>) -> String {
+    let mut s = remove_empty_element(prefix, "w:background");
+    if let (Some(c), Some(at)) = (color, find_element(&s, "w:body")) {
+        s.insert_str(at, &format!("<w:background w:color=\"{}\"/>", c.to_hex()));
+    }
+    s
+}
 
 /// Add `xmlns:{prefix}` to a root start tag that does not declare it.
 fn with_namespace(root: &str, prefix: &str, ns: &str) -> String {
@@ -1485,6 +1757,41 @@ fn note_pr_xml(tag: &str, np: &bo_model::NoteProps) -> String {
     s
 }
 
+/// §17.6.10 pgBorders: attributes `w:zOrder`, `w:display`, `w:offsetFrom` (written
+/// when not the default) and the edges in schema order top, left, bottom, right
+/// (§17.6.21, §17.6.7, §17.6.2, §17.6.15), each a `CT_Border` (§17.18.2 `ST_Border`
+/// `w:val`, `w:sz`, `w:space`, `w:color`, `w:shadow`, `w:frame`).
+fn page_borders_xml(pb: &bo_model::PageBorders) -> String {
+    let mut s = String::from("<w:pgBorders");
+    if pb.behind {
+        s.push_str(" w:zOrder=\"back\"");
+    }
+    if pb.display != bo_model::PageBorderDisplay::AllPages {
+        let _ = write!(s, " w:display=\"{}\"", pb.display.as_str());
+    }
+    if pb.offset_from_page {
+        s.push_str(" w:offsetFrom=\"page\"");
+    }
+    s.push('>');
+    for (tag, e) in ["top", "left", "bottom", "right"].iter().zip(pb.edges()) {
+        let Some(e) = e else { continue };
+        let b = &e.line;
+        let _ = write!(
+            s,
+            "<w:{tag} w:val=\"{}\" w:sz=\"{}\" w:space=\"{}\" w:color=\"{}\"{}{}/>",
+            escape(&b.style),
+            b.size,
+            b.space.min(31),
+            b.color
+                .map_or_else(|| "auto".to_owned(), bo_model::Color::to_hex),
+            if e.shadow { " w:shadow=\"1\"" } else { "" },
+            if e.frame { " w:frame=\"1\"" } else { "" },
+        );
+    }
+    s.push_str("</w:pgBorders>");
+    s
+}
+
 /// `CT_SectPrBase` children after the header/footer references (§17.6.17: footnotePr …
 /// titlePg), in schema order.
 fn sect_props_xml(sec: &Section) -> String {
@@ -1512,6 +1819,9 @@ fn sect_props_xml(sec: &Section) -> String {
             "<w:pgSz w:w=\"{}\" w:h=\"{}\"{orient}/><w:pgMar w:top=\"{}\" w:right=\"{}\" w:bottom=\"{}\" w:left=\"{}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"0\"/>",
             p.width.0, p.height.0, p.margin_top.0, p.margin_right.0, p.margin_bottom.0, p.margin_left.0, p.header.0, p.footer.0
         );
+    if let Some(pb) = &sec.page_borders {
+        s.push_str(&page_borders_xml(pb));
+    }
     if let Some(st) = sec.page_number_start {
         let _ = write!(s, "<w:pgNumType w:start=\"{st}\"/>");
     }

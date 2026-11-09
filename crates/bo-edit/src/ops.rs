@@ -8,7 +8,7 @@
 use crate::EditError;
 use bo_model::change::BlockChanges;
 use bo_model::index::blocks_at_mut;
-use bo_model::{Block, Comment, Document, Numbering, Section, StyleSheet};
+use bo_model::{Block, Comment, DocDesign, Document, Numbering, Section, StyleSheet, ThemeFonts};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -89,6 +89,14 @@ pub enum Op {
         /// New notice.
         new: Option<Vec<Block>>,
     },
+    /// Replace the page colour / theme settings and the theme font scheme
+    /// (§17.2.1 background, §17.15.1.32 displayBackgroundShape, DrawingML theme).
+    Design {
+        /// Previous design and theme fonts.
+        old: Box<(DocDesign, ThemeFonts)>,
+        /// New design and theme fonts.
+        new: Box<(DocDesign, ThemeFonts)>,
+    },
 }
 
 impl Op {
@@ -143,6 +151,10 @@ impl Op {
                 new: *old,
             },
             Op::ContinuationNotice { old, new } => Op::ContinuationNotice {
+                old: new.clone(),
+                new: old.clone(),
+            },
+            Op::Design { old, new } => Op::Design {
                 old: new.clone(),
                 new: old.clone(),
             },
@@ -261,6 +273,13 @@ impl Op {
                     return Err(EditError::Conflict);
                 }
                 doc.continuation_notice.clone_from(new);
+            }
+            Op::Design { old, new } => {
+                if doc.design != old.0 || doc.theme_fonts != old.1 {
+                    return Err(EditError::Conflict);
+                }
+                doc.design = new.0.clone();
+                doc.theme_fonts = new.1.clone();
             }
         }
         Ok(())

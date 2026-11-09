@@ -151,6 +151,8 @@ pub enum PageItem {
         rotation: f32,
         /// Paint order relative to text.
         layer: Layer,
+        /// Opacity in 0..=1 (washed-out picture watermarks).
+        alpha: f32,
     },
     /// DrawingML / VML shape outline (ECMA-376 Part 1, §20.1.9 geometry): `paths` are
     /// relative to the shape box at (`x`, `y`), already rotated and flipped.
@@ -170,7 +172,21 @@ pub enum PageItem {
         source: LineSource,
         /// Paint order relative to text.
         layer: Layer,
+        /// Opacity in 0..=1 (VML fill opacity of text watermarks).
+        alpha: f32,
     },
+}
+
+/// Page-level decoration drawn around the content: the page colour (ECMA-376
+/// Part 1, §17.2.1 background) and the page borders (§17.6.10 pgBorders).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct PageDecor {
+    /// Page colour, painted first over the whole page.
+    pub background: Option<Color>,
+    /// Page border lines and art motifs.
+    pub borders: Vec<PageItem>,
+    /// The borders go behind the text (§17.18.65 `ST_PageBorderZOrder` back).
+    pub borders_behind: bool,
 }
 
 /// Path segment of a shape outline (points, relative to the shape box).
@@ -214,6 +230,8 @@ pub struct Page {
     pub number: u32,
     /// Section index this page belongs to.
     pub section: usize,
+    /// Page colour and page borders.
+    pub decor: PageDecor,
 }
 
 /// Where a line's text comes from (for editing).

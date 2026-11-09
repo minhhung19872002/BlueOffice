@@ -15,6 +15,7 @@
   "ribbon": {
     "more": "Thêm lệnh",
     "tabs": {
+      "design": "Thiết kế",
       "file": "Tệp",
       "home": "Trang đầu",
       "insert": "Chèn",
@@ -26,6 +27,8 @@
       "table": "Bảng"
     },
     "groups": {
+      "documentFormatting": "Định dạng tài liệu",
+      "pageBackground": "Nền trang",
       "document": "Tài liệu",
       "output": "Xuất bản",
       "clipboard": "Bộ nhớ tạm",
@@ -63,6 +66,15 @@
     "comingLater": "Sẽ có ở phiên bản sau"
   },
   "commands": {
+    "design": {
+      "pageColor": "Màu trang",
+      "pageBorders": "Viền trang",
+      "watermark": "Hình mờ",
+      "customWatermark": "Hình mờ tuỳ chỉnh…",
+      "removeWatermark": "Gỡ hình mờ",
+      "themes": "Chủ đề",
+      "styleSets": "Giãn cách đoạn"
+    },
     "file": {
       "open": "Mở tệp",
       "openSample": "Tài liệu mẫu",
@@ -2381,6 +2393,104 @@
     "exceptions": "Không viết hoa sau các chữ viết tắt (mỗi dòng một mục)",
     "capsExceptions": "Giữ nguyên hai chữ hoa đầu cho các từ (mỗi dòng một mục)",
     "reset": "Khôi phục mặc định",
+    "ok": "Đồng ý",
+    "cancel": "Huỷ"
+  },
+  "design": {
+    "themes": {
+      "ocean": "Biển",
+      "bamboo": "Tre",
+      "sunset": "Hoàng hôn",
+      "slate": "Đá phiến"
+    },
+    "themeFonts": "Tiêu đề: {{major}} · Nội dung: {{minor}}",
+    "styleSets": {
+      "compact": "Gọn",
+      "balanced": "Cân đối",
+      "airy": "Thoáng",
+      "double": "Giãn đôi"
+    },
+    "styleSetHint": "Sau đoạn {{after}} pt · dòng {{line}}",
+    "presets": {
+      "draft": "BẢN NHÁP",
+      "confidential": "MẬT",
+      "copy": "BẢN SAO",
+      "sample": "MẪU",
+      "urgent": "KHẨN"
+    },
+    "watermark": {
+      "title": "Hình mờ",
+      "none": "Không có hình mờ",
+      "text": "Hình mờ chữ",
+      "picture": "Hình mờ ảnh",
+      "content": "Nội dung",
+      "font": "Phông chữ",
+      "size": "Cỡ chữ",
+      "auto": "Tự động",
+      "color": "Màu",
+      "semitransparent": "Bán trong suốt",
+      "layout": "Hướng",
+      "diagonal": "Chéo",
+      "horizontal": "Ngang",
+      "bold": "Đậm",
+      "italic": "Nghiêng",
+      "choosePicture": "Chọn ảnh…",
+      "noPicture": "Chưa chọn ảnh",
+      "scale": "Tỉ lệ",
+      "washout": "Làm nhạt",
+      "current": "Hiện tại: {{text}}",
+      "currentPicture": "Hiện tại: ảnh"
+    },
+    "borders": {
+      "title": "Viền trang",
+      "setting": "Kiểu khung",
+      "none": "Không",
+      "box": "Hộp",
+      "shadow": "Đổ bóng",
+      "custom": "Tuỳ chỉnh",
+      "style": "Nét",
+      "color": "Màu",
+      "automatic": "Tự động",
+      "width": "Độ dày",
+      "art": "Hoạ tiết",
+      "noArt": "(không)",
+      "applyTo": "Áp dụng cho",
+      "document": "Cả tài liệu",
+      "section": "Mục này",
+      "sectionFirst": "Mục này – chỉ trang đầu",
+      "sectionNotFirst": "Mục này – trừ trang đầu",
+      "measureFrom": "Đo từ",
+      "fromText": "Chữ",
+      "fromPage": "Mép trang",
+      "spacing": "Khoảng cách",
+      "behind": "Sau chữ",
+      "sides": "Cạnh",
+      "top": "Trên",
+      "left": "Trái",
+      "bottom": "Dưới",
+      "right": "Phải",
+      "preview": "Xem trước"
+    },
+    "lines": {
+      "single": "Nét đơn",
+      "double": "Nét đôi",
+      "dotted": "Chấm",
+      "dashed": "Gạch",
+      "thick": "Nét đậm",
+      "dotDash": "Chấm gạch"
+    },
+    "art": {
+      "basicBlackDots": "Chấm tròn",
+      "basicWhiteDots": "Vòng tròn",
+      "basicBlackSquares": "Ô vuông đặc",
+      "basicWhiteSquares": "Ô vuông rỗng",
+      "diamondsGray": "Hình thoi",
+      "triangles": "Tam giác",
+      "zigZag": "Ziczac",
+      "waveline": "Sóng",
+      "checkered": "Ô cờ",
+      "sawtooth": "Răng cưa"
+    },
     "ok": "Đồng ý",
     "cancel": "Huỷ"
   }

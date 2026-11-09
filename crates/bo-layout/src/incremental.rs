@@ -351,6 +351,30 @@ impl IncrementalLayout {
         opts: LayoutOptions,
         changes: &BlockChanges,
     ) -> Result<Vec<usize>, LayoutError> {
+        let mut dirty = self.update_pages(doc, fonts, cache, opts, changes)?;
+        // Page colour and page borders (cheap) follow every update; pages whose
+        // decoration changed are redrawn too.
+        if !self.probe_mode {
+            if let Some(st) = self.st.as_mut() {
+                let changed = crate::page::decorate_pages(doc, &mut st.layout.pages);
+                if !changed.is_empty() {
+                    dirty.extend(changed);
+                    dirty.sort_unstable();
+                    dirty.dedup();
+                }
+            }
+        }
+        Ok(dirty)
+    }
+
+    fn update_pages(
+        &mut self,
+        doc: &Document,
+        fonts: &mut FontManager,
+        cache: &mut LayoutCache,
+        opts: LayoutOptions,
+        changes: &BlockChanges,
+    ) -> Result<Vec<usize>, LayoutError> {
         if fonts.is_empty() {
             return Err(LayoutError::NoFonts);
         }

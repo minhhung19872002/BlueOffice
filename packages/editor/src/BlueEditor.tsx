@@ -135,6 +135,7 @@ import {
   ListChecks,
   LockOpen,
   Unlink,
+  Frame,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -147,6 +148,7 @@ import { CommentsPanel, ReviewPanel } from './ReviewPanel';
 import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
 import { SignaturesPanel, SignDialog } from './SignaturePanels';
 import {
+  bytesToBase64,
   documentState,
   looksSigned,
   parseRemembered,
@@ -172,6 +174,13 @@ import {
 } from './DocDialogs';
 import { ColorPicker, FontFamilyPicker, FontSizeBox, SpacingMenu } from './FontControls';
 import { DefineListDialog, MultilevelMenu, SetNumberingDialog } from './ListDialogs';
+import {
+  PageBordersDialog,
+  StyleSetGallery,
+  ThemeGallery,
+  WatermarkDialog,
+  WatermarkMenu,
+} from './PageBackgroundDialogs';
 import { Rulers, type PageBox } from './Ruler';
 
 /** Options controlled by the embedding host (prompt §3.5). */
@@ -959,6 +968,22 @@ function EditorInner({
           fail('errors.image', e);
         }
       },
+    });
+    // Design: page borders and watermarks (dialogs), watermark removal.
+    r.register({
+      id: 'design.pageBorders',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'pageBorders' }),
+    });
+    r.register({
+      id: 'design.customWatermark',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'watermark' }),
+    });
+    r.register({
+      id: 'design.removeWatermark',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'setWatermark' }),
     });
     r.register({
       id: 'insert.pageBreak',
@@ -1904,6 +1929,46 @@ function EditorInner({
       ],
     },
     {
+      id: 'design',
+      label: t('ribbon.tabs.design'),
+      groups: [
+        {
+          id: 'documentFormatting',
+          label: t('ribbon.groups.documentFormatting'),
+          items: [
+            custom('design.themes', <ThemeGallery run={runCommand} disabled={noDoc} />),
+            custom('design.styleSets', <StyleSetGallery run={runCommand} disabled={noDoc} />),
+          ],
+        },
+        {
+          id: 'pageBackground',
+          label: t('ribbon.groups.pageBackground'),
+          items: [
+            custom(
+              'design.watermark',
+              <WatermarkMenu
+                run={runCommand}
+                disabled={noDoc}
+                onCustom={() => void registry.execute('design.customWatermark', store.getState())}
+              />,
+            ),
+            custom(
+              'design.pageColor',
+              <ColorPicker
+                kind="shading"
+                label={t('commands.design.pageColor')}
+                testId="page-color"
+                value={null}
+                disabled={noDoc}
+                onPick={(hex) => void runFocus({ cmd: 'setPageColor', color: hex })}
+              />,
+            ),
+            item('design.pageBorders', 'commands.design.pageBorders', <Frame size={ICON} />),
+          ],
+        },
+      ],
+    },
+    {
       id: 'layout',
       label: t('ribbon.tabs.layout'),
       groups: [
@@ -2335,6 +2400,19 @@ function EditorInner({
             )}
             {state.dialog === 'setNumbering' && (
               <SetNumberingDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'pageBorders' && (
+              <PageBordersDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'watermark' && (
+              <WatermarkDialog
+                run={runCommand}
+                onClose={closeDialog}
+                pickPicture={async () => {
+                  const f = await platform.files.openFile(['.png', '.jpg', '.jpeg']);
+                  return f ? { base64: bytesToBase64(f.bytes), name: f.name } : null;
+                }}
+              />
             )}
             {state.dialog === 'templates' && (
               <TemplateDialog

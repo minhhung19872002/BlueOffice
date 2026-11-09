@@ -348,6 +348,7 @@ mod tests {
                     items: vec![],
                     number: 1,
                     section: 0,
+                    decor: bo_layout::PageDecor::default(),
                 },
                 Page {
                     width: 100.0,
@@ -356,6 +357,7 @@ mod tests {
                     items: vec![],
                     number: 2,
                     section: 0,
+                    decor: bo_layout::PageDecor::default(),
                 },
             ],
         }

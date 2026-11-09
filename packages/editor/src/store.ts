@@ -69,6 +69,8 @@ export interface EditorState {
     | 'defineList'
     | 'setNumbering'
     | 'autoCorrect'
+    | 'pageBorders'
+    | 'watermark'
     | null;
   /** Format Painter: off, once (single click) or sticky (double click; Esc stops). */
   painter: 'off' | 'once' | 'sticky';

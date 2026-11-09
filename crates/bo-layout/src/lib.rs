@@ -24,17 +24,19 @@ mod drawing;
 mod flow;
 mod incremental;
 mod math;
+mod page;
 mod paragraph;
 mod style;
 mod types;
 
 pub use incremental::{IncrementalLayout, UpdateKind};
 pub use math::{layout_equation, EquationGlyphs, EquationRun};
+pub use page::{border_items, border_lines, border_width, ArtMotif};
 pub use paragraph::{FieldContext, LayoutCache};
 pub use style::author_color;
 pub use types::{
-    Fragment, GlyphPos, Layer, LayoutDocument, Line, LineSource, NoteKey, Page, PageItem, PathCmd,
-    ShapePath, SharedStr,
+    Fragment, GlyphPos, Layer, LayoutDocument, Line, LineSource, NoteKey, Page, PageDecor,
+    PageItem, PathCmd, ShapePath, SharedStr,
 };
 
 use bo_model::change::BlockChanges;

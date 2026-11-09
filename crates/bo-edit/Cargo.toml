@@ -17,6 +17,7 @@ unicode-segmentation.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+bo-drawingml = { path = "../bo-drawingml" }
 
 [lints]
 workspace = true

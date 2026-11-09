@@ -8,7 +8,8 @@ use crate::types::{Layer, Line, LineSource, PageItem, PathCmd, ShapePath};
 use crate::LayoutError;
 use bo_drawingml::geom::{eval_preset, rect_geometry, FillMode, Seg};
 use bo_model::slide::Guide;
-use bo_model::{Image, Shape, TextAnchor};
+use bo_model::{Image, Shape, ShapeArt, TextAnchor, TextPath};
+use bo_text::PathCmd as OutlineCmd;
 use std::sync::Arc;
 
 /// What a shape draws, relative to the top-left corner of its box.
@@ -107,6 +108,9 @@ pub(crate) fn shape_drawing(
             (cy + dx * sin + dy * cos) as f32,
         )
     };
+    if let Some(art) = &shape.art {
+        return Ok(art_drawing(ctx, img, shape, art, at, &tf));
+    }
     let mut paths = Vec::new();
     for p in &geom.paths {
         let segs: Vec<PathCmd> = p
@@ -163,6 +167,7 @@ pub(crate) fn shape_drawing(
                 sub: 0,
             },
             layer: layer_of(img),
+            alpha: 1.0,
         });
     }
     let Some(blocks) = &shape.text else {
@@ -190,4 +195,132 @@ pub(crate) fn shape_drawing(
         out.items.extend(band.items);
     }
     Ok(out)
+}
+
+/// Shape with decorative content (VML watermarks): a text path stretched over the
+/// box (ECMA-376 Part 4, §19.1.2.23 textpath `fitshape`) drawn as glyph outlines
+/// filled with the shape fill, or a picture fill (§19.1.2.11 imagedata) drawn as a
+/// picture; both with the fill opacity (§19.1.2.5 fill `opacity`).
+fn art_drawing(
+    ctx: &mut Ctx<'_>,
+    img: &Image,
+    shape: &Shape,
+    art: &ShapeArt,
+    at: u32,
+    tf: &dyn Fn(f64, f64) -> (f32, f32),
+) -> Drawing {
+    let (w, h) = (img.width.to_pt().max(0.0), img.height.to_pt().max(0.0));
+    let mut out = Drawing::default();
+    let mut alpha = f32::from(art.opacity.min(1000)) / 1000.0;
+    if let Some(media) = &art.picture {
+        // A washed-out picture is drawn faintly over the page.
+        if art.washout {
+            alpha *= WASHOUT_ALPHA;
+        }
+        out.items.push(PageItem::Image {
+            x: 0.0,
+            y: 0.0,
+            w,
+            h,
+            media: media.clone(),
+            crop: None,
+            rotation: crate::blocks::rotation_of(img),
+            layer: layer_of(img),
+            alpha,
+        });
+        return out;
+    }
+    let (Some(t), Some(fill)) = (&art.text, shape.fill) else {
+        return out;
+    };
+    let segs = text_path_outline(ctx, t, f64::from(w), f64::from(h), tf);
+    if segs.is_empty() {
+        return out;
+    }
+    out.items.push(PageItem::Shape {
+        x: 0.0,
+        y: 0.0,
+        w,
+        h,
+        paths: vec![ShapePath {
+            segs,
+            fill: Some(fill),
+            stroke: None,
+        }],
+        source: LineSource::TextBox {
+            para: 0,
+            at,
+            sub: 0,
+        },
+        layer: layer_of(img),
+        alpha,
+    });
+    out
+}
+
+/// Opacity of a washed-out picture (VML imagedata gain / blacklevel).
+pub(crate) const WASHOUT_ALPHA: f32 = 0.3;
+
+/// Glyph outlines of a text path stretched to fill the `w`×`h` box: the advance of
+/// the text spans the width and ascender-to-descender spans the height; `tf` maps
+/// box coordinates (flips, rotation).
+pub(crate) fn text_path_outline(
+    ctx: &mut Ctx<'_>,
+    t: &TextPath,
+    w: f64,
+    h: f64,
+    tf: &dyn Fn(f64, f64) -> (f32, f32),
+) -> Vec<PathCmd> {
+    let family = if t.font.is_empty() {
+        "Calibri"
+    } else {
+        t.font.as_str()
+    };
+    let Some(face) = ctx
+        .fonts
+        .resolve(family, t.bold, t.italic)
+        .or_else(|| ctx.fonts.resolve("Calibri", t.bold, t.italic))
+    else {
+        return Vec::new();
+    };
+    let text = t.text.replace(['\r', '\n'], " ");
+    let glyphs = ctx.fonts.shape(face, &text);
+    let info = ctx.fonts.info(face);
+    let (asc, desc) = (f64::from(info.ascender), f64::from(info.descender));
+    let advance: f64 = glyphs.iter().map(|g| f64::from(g.x_advance)).sum();
+    if advance <= 0.0 || asc - desc <= 0.0 {
+        return Vec::new();
+    }
+    let (sx, sy) = (w / advance, h / (asc - desc));
+    let mut segs = Vec::new();
+    let mut pen = 0.0f64;
+    for g in glyphs.iter() {
+        let ox = pen + f64::from(g.x_offset);
+        let oy = f64::from(g.y_offset);
+        // Font units, y up → box points, y down from the top of the box.
+        let p = |x: f32, y: f32| tf((ox + f64::from(x)) * sx, (asc - oy - f64::from(y)) * sy);
+        for c in ctx.fonts.outline(face, g.glyph_id) {
+            segs.push(match c {
+                OutlineCmd::MoveTo(x, y) => {
+                    let (x, y) = p(x, y);
+                    PathCmd::M(x, y)
+                }
+                OutlineCmd::LineTo(x, y) => {
+                    let (x, y) = p(x, y);
+                    PathCmd::L(x, y)
+                }
+                OutlineCmd::QuadTo(a, b, x, y) => {
+                    let ((a, b), (x, y)) = (p(a, b), p(x, y));
+                    PathCmd::Q(a, b, x, y)
+                }
+                OutlineCmd::CubicTo(a, b, c, d, x, y) => {
+                    let ((a, b), (c, d), (x, y)) = (p(a, b), p(c, d), p(x, y));
+                    PathCmd::C(a, b, c, d, x, y)
+                }
+                OutlineCmd::Close => PathCmd::Z,
+            });
+        }
+        pen += f64::from(g.x_advance);
+    }
+    segs
 }

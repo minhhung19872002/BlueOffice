@@ -26,6 +26,7 @@ mod cmd;
 pub(crate) mod collab;
 mod comments;
 mod inspect_cmd;
+mod paste_opts;
 mod pivot_cmd;
 mod png;
 mod print;

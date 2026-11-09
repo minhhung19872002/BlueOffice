@@ -9,7 +9,14 @@ export type ImeEvent =
   | { type: 'insert'; text: string }
   | { type: 'composition'; text: string }
   | { type: 'key'; key: string; ctrl: boolean; shift: boolean; alt: boolean }
-  | { type: 'paste'; text: string; html: string; internal: string };
+  | {
+      type: 'paste';
+      text: string;
+      html: string;
+      internal: string;
+      /** A picture on the clipboard (screenshots, pictures copied in other programs). */
+      image?: Blob;
+    };
 
 /** Custom clipboard type carrying the engine's lossless block format. */
 export const INTERNAL_MIME = 'application/x-blueoffice-blocks+json';
@@ -92,6 +99,10 @@ export class ImeInput {
         text: d?.getData('text/plain') ?? '',
         html: d?.getData('text/html') ?? '',
         internal: d?.getData(INTERNAL_MIME) ?? '',
+        image:
+          Array.from(d?.items ?? [])
+            .find((i) => i.kind === 'file' && i.type.startsWith('image/'))
+            ?.getAsFile() ?? undefined,
       });
     });
     parent.appendChild(ta);

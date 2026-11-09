@@ -147,7 +147,15 @@ import {
   PasswordDialog,
   SavePasswordPanel,
   SymbolPanel,
+  clipboardHistory,
+  type ClipItem,
 } from '@blueoffice/editor';
+import {
+  SheetClipboardUi,
+  sheetPasteCommand,
+  type SheetPasteBase,
+  type SheetPasteChoice,
+} from './pasteOptions';
 import { AnalysisDialog } from './analysis';
 import { ProtectSheetDialog, UnprotectDialog } from './protection';
 import { ScenarioDialog } from './scenarios';
@@ -433,6 +441,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [threads, setThreads] = useState<SheetThreadInfo[]>([]);
   /** Symbol picker panel (insert into the cell being edited, else the active cell). */
   const [symbolsOpen, setSymbolsOpen] = useState(false);
+  /** Clipboard history panel (Edit group launcher). */
+  const [clipPanel, setClipPanel] = useState(false);
+  /** The last paste of copied cells while its mode can change (paste options button). */
+  const [pasteUi, setPasteUi] = useState<{
+    n: number;
+    mode: SheetPasteChoice;
+    base: SheetPasteBase;
+    /** The selection the paste set: another selection ends the paste options. */
+    sel: Selection;
+  } | null>(null);
+  /** The last copy was a cut (pasted once: no paste options). */
+  const [lastCut, setLastCut] = useState(false);
   const pivotLabels = usePivotLabels();
 
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -1094,6 +1114,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       });
       const text = res?.text ?? '';
       setLastCopy(text);
+      setLastCut(cut);
+      clipboardHistory.push({ app: 'sheet', kind: 'cells', text });
       await platform.clipboard.writeText(text);
       setStatus(cut ? t('sheetEditor.cutDone') : t('sheetEditor.copied'));
     },
@@ -1124,12 +1146,78 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [host, selection, sheet, refreshInfo],
   );
 
+  /** Paste our own copied cells, then offer the other paste modes. */
+  const ownPaste = useCallback(async (): Promise<boolean> => {
+    if (!host) return false;
+    const r = rangeOf(selection);
+    const base: SheetPasteBase = { sheet, row: r.r0, col: r.c0, range: toRange(r) };
+    const res = await host.exec<{ range: SheetRange } | null>(sheetPasteCommand('all', base));
+    if (!res) return false;
+    const sel = span(
+      { row: res.range.r0, col: res.range.c0 },
+      { row: res.range.r1, col: res.range.c1 },
+    );
+    setSelection(sel);
+    await refreshInfo();
+    setPasteUi(lastCut ? null : (old) => ({ n: (old?.n ?? 0) + 1, mode: 'all', base, sel }));
+    return true;
+  }, [host, selection, sheet, refreshInfo, lastCut]);
+
+  /** Redo the last paste in another mode: undo it, paste again (one undo step overall). */
+  const switchPaste = useCallback(
+    async (choice: SheetPasteChoice) => {
+      const ui = pasteUi && pasteUi.sel === selection ? pasteUi : null;
+      if (!host || !ui || ui.mode === choice) return;
+      if (!(await host.undo())) return;
+      let res = await host.exec<{ range: SheetRange } | null>(sheetPasteCommand(choice, ui.base));
+      if (!res) {
+        res = await host.exec<{ range: SheetRange } | null>(sheetPasteCommand(ui.mode, ui.base));
+        choice = ui.mode;
+      }
+      if (res) {
+        const got = res.range;
+        const sel = span({ row: got.r0, col: got.c0 }, { row: got.r1, col: got.c1 });
+        setSelection(sel);
+        setPasteUi({ n: ui.n + 1, mode: choice, base: ui.base, sel });
+      }
+      await refreshInfo();
+    },
+    [host, pasteUi, selection, refreshInfo],
+  );
+
+  /** Paste text (tab-separated values) at the selection. */
+  const pasteTsv = useCallback(
+    async (text: string) => {
+      if (!host) return;
+      const rows = parseTsv(text);
+      if (!rows.length) return;
+      const r = rangeOf(selection);
+      await host.setInputs(sheet, pasteCells({ row: r.r0, col: r.c0 }, rows));
+      const lastRow = r.r0 + rows.length - 1;
+      const lastCol = r.c0 + Math.max(...rows.map((x) => x.length)) - 1;
+      setSelection(span({ row: r.r0, col: r.c0 }, { row: lastRow, col: lastCol }));
+      await refreshInfo();
+    },
+    [host, selection, sheet, refreshInfo],
+  );
+
+  /** Paste an item of the clipboard history: our latest copy as cells, others as text. */
+  const pasteItem = useCallback(
+    async (item: ClipItem) => {
+      if (item.app === 'sheet' && lastCopy !== null && norm(item.text) === norm(lastCopy)) {
+        if (await ownPaste()) return;
+      }
+      await pasteTsv(item.text);
+    },
+    [lastCopy, ownPaste, pasteTsv],
+  );
+
   const paste = useCallback(async () => {
     if (!host) return;
     const text = await platform.clipboard.readText();
     // Our own copy: paste the cell records (formats, adjusted formulas).
     if (lastCopy !== null && norm(text) === norm(lastCopy)) {
-      if (await internalPaste('all', false, false)) return;
+      if (await ownPaste()) return;
     }
     const rows = parseTsv(text);
     if (!rows.length) return;
@@ -1139,7 +1227,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     const lastCol = r.c0 + Math.max(...rows.map((x) => x.length)) - 1;
     setSelection(span({ row: r.r0, col: r.c0 }, { row: lastRow, col: lastCol }));
     await refreshInfo();
-  }, [host, platform, selection, sheet, refreshInfo, internalPaste, lastCopy]);
+  }, [host, platform, selection, sheet, refreshInfo, ownPaste, lastCopy]);
 
   /** One command per range of the selection, as one undo step when there are several. */
   const onAllRanges = useCallback(
@@ -2223,6 +2311,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           {
             id: 'clipboard',
             label: t('sheetEditor.groupEdit'),
+            launcher: {
+              id: 'edit.clipboardPanel',
+              label: t('clipHistory.open'),
+              onSelect: () => setClipPanel((o) => !o),
+            },
             items: [
               item('edit.paste', t('sheetEditor.paste'), <ClipboardPaste size={18} />),
               item(
@@ -3245,6 +3338,22 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           </div>
           <div style={{ width: content.w * scale, height: content.h * scale }} />
         </div>
+        <SheetClipboardUi
+          paste={pasteUi && pasteUi.sel === selection ? pasteUi : null}
+          anchor={() => {
+            const c = canvasRef.current?.getBoundingClientRect();
+            return c && selRect
+              ? { x: c.left + selRect.x + selRect.w, y: c.top + selRect.y + selRect.h }
+              : null;
+          }}
+          onChoose={(choice) => void switchPaste(choice).then(focusInput)}
+          panel={clipPanel}
+          onPasteItem={(item) => void pasteItem(item).then(focusInput)}
+          onClosePanel={() => {
+            setClipPanel(false);
+            focusInput();
+          }}
+        />
         {symbolsOpen && (
           <SymbolPanel
             fonts={[...new Set([fmt?.fontName, ...SYMBOL_FONTS].filter((f): f is string => !!f))]}

@@ -72,6 +72,8 @@ pub enum PasteMode {
     Merge,
     /// Unformatted text.
     Text,
+    /// The clipboard text (a URL or e-mail address) as a hyperlink (§17.16.22).
+    Link,
 }
 
 /// A footnote or endnote for the notes pane.
@@ -927,22 +929,22 @@ impl Session {
     ) -> Result<Selection> {
         let internal = internal.filter(|s| !s.is_empty());
         let html_src = html_src.filter(|s| !s.is_empty());
+        if mode == PasteMode::Link {
+            return self.paste_link(text.unwrap_or(""));
+        }
         if mode == PasteMode::Text {
             let t = match (text.filter(|t| !t.is_empty()), html_src, internal) {
                 (Some(t), _, _) => t.to_owned(),
                 (None, Some(h), _) => blocks_plain(&html::from_html(h)),
-                (None, None, Some(j)) => blocks_plain(
-                    &serde_json::from_str::<Vec<Block>>(j)
-                        .map_err(|e| EditError::Clipboard(e.to_string()))?,
-                ),
+                (None, None, Some(j)) => blocks_plain(&crate::paste::clip_blocks(j)?),
                 _ => String::new(),
             };
             return self.paste_text(&t);
         }
         let blocks: Vec<Block> = match (internal, html_src) {
-            (Some(j), _) => {
-                serde_json::from_str(j).map_err(|e| EditError::Clipboard(e.to_string()))?
-            }
+            // Our own copy, with the notes it references.
+            (Some(j), _) if mode == PasteMode::Keep => return self.paste_internal(j),
+            (Some(j), _) => crate::paste::clip_blocks(j)?,
             (None, Some(h)) => html::from_html(h),
             (None, None) => return self.paste_text(text.unwrap_or("")),
         };
@@ -975,8 +977,16 @@ impl Session {
                             (n, c)
                         })
                         .collect();
+                    // Lists stay lists (§17.3.1.19 numPr) when the destination knows them.
+                    let num = p
+                        .props
+                        .num
+                        .filter(|n| doc.numbering.nums.iter().any(|x| x.id == n.num_id));
                     Some(Block::Paragraph(Paragraph::new(
-                        ParaProps::default(),
+                        ParaProps {
+                            num,
+                            ..ParaProps::default()
+                        },
                         para::rebuild(atoms),
                     )))
                 }

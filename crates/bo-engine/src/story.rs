@@ -544,6 +544,7 @@ pub(crate) fn sub_command(
                 text: c.text,
                 html: c.html,
                 internal: c.internal,
+                png: None,
             });
         }
         Command::Paste {

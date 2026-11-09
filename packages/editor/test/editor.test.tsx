@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DocInfo, EditCommand, EditResult, Platform } from '@blueoffice/platform';
 import { BlueEditor } from '../src/BlueEditor';
@@ -227,6 +227,38 @@ describe('BlueEditor', () => {
     fireEvent.keyDown(window, { key: 's', ctrlKey: true });
     await waitFor(() => expect(p.saved).toEqual(['Tài liệu mới.docx']));
     await waitFor(() => expect(screen.queryByTestId('status-modified')).toBeNull());
+  });
+
+  it('offers paste options after a paste and opens the clipboard history', async () => {
+    const p = fakePlatform();
+    render(<BlueEditor platform={p} autosaveMs={0} />);
+    fireEvent.click(screen.getByTestId('new-document'));
+    await waitFor(() =>
+      expect(screen.getByTestId('doc-name').textContent).toBe('Tài liệu mới.docx'),
+    );
+    const ime = document.querySelector('textarea')!;
+    const data: Record<string, string> = { 'text/html': '<b>đậm</b>', 'text/plain': 'đậm' };
+    const e = new Event('paste', { bubbles: true, cancelable: true }) as Event & {
+      clipboardData: unknown;
+    };
+    e.clipboardData = { getData: (t: string) => data[t] ?? '', items: [] };
+    act(() => {
+      ime.dispatchEvent(e);
+    });
+    await waitFor(() =>
+      expect(p.commands).toContainEqual(expect.objectContaining({ cmd: 'paste', mode: 'keep' })),
+    );
+    fireEvent.click(await screen.findByTestId('paste-options'));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Chỉ văn bản thuần/ }));
+    await waitFor(() =>
+      expect(p.commands).toContainEqual(expect.objectContaining({ cmd: 'paste', mode: 'text' })),
+    );
+    const at = p.commands.findIndex((c) => c.cmd === 'paste' && c.mode === 'text');
+    expect(p.commands[at - 1]?.cmd).toBe('undo');
+    // Home › Clipboard launcher: the history panel with the default paste settings.
+    fireEvent.click(document.querySelector('[data-command="edit.clipboardPanel"]')!);
+    expect(await screen.findByTestId('clipboard-panel')).toBeTruthy();
+    expect(screen.getByTestId('paste-defaults')).toBeTruthy();
   });
 
   it('inserts a symbol found by its Vietnamese keyword from the Insert tab', async () => {

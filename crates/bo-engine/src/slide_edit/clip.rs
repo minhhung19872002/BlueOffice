@@ -45,6 +45,9 @@ pub struct Clip {
     pub pastes: usize,
     /// Design of the source deck for copied slides (pasting into another deck).
     pub source: Option<Box<SlideSource>>,
+    /// Theme colours and fonts of the source slide of copied shapes (pasting
+    /// with the source formatting kept).
+    pub look: Option<super::keep_source::SourceLook>,
 }
 
 /// What copied slides need from their deck to be pasted into another one: its

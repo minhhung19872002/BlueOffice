@@ -2962,5 +2962,60 @@
       "date": "Trường này cần một ngày (ví dụ 25/12/2026).",
       "password": "Mật khẩu chưa đúng."
     }
+  },
+  "pasteOptions": {
+    "button": "Tùy chọn dán",
+    "menu": "Dán dưới dạng",
+    "keep": "Giữ nguyên định dạng gốc",
+    "merge": "Theo định dạng xung quanh (giữ đậm, nghiêng, danh sách)",
+    "text": "Chỉ văn bản thuần",
+    "picture": "Dạng ảnh",
+    "link": "Dạng liên kết",
+    "setDefaults": "Thiết lập dán mặc định…",
+    "defaults": "Dán mặc định",
+    "fromSame": "Trong cùng tài liệu",
+    "fromOther": "Từ tài liệu, ứng dụng khác",
+    "fromPlain": "Văn bản thuần",
+    "linkWhenUrl": "Liên kết nếu là địa chỉ web hoặc e-mail",
+    "sheet": {
+      "all": "Tất cả",
+      "values": "Chỉ giá trị",
+      "formulas": "Chỉ công thức",
+      "formats": "Chỉ định dạng",
+      "transpose": "Đổi hàng thành cột",
+      "colWidths": "Tất cả, kèm độ rộng cột",
+      "noBorders": "Tất cả trừ đường viền"
+    },
+    "slide": {
+      "theme": "Dùng chủ đề của bản trình chiếu này",
+      "keep": "Giữ nguyên định dạng gốc",
+      "picture": "Dạng ảnh",
+      "text": "Chỉ văn bản thuần"
+    }
+  },
+  "clipHistory": {
+    "title": "Lịch sử bộ nhớ tạm",
+    "open": "Hiện lịch sử bộ nhớ tạm",
+    "clear": "Xóa hết",
+    "close": "Đóng",
+    "count": "{{count}}/{{max}} mục",
+    "empty": "Chưa sao chép gì. Nội dung bạn sao chép hoặc cắt trong BlueDoc, BlueSheet, BlueSlide sẽ hiện ở đây.",
+    "items": "Các mục đã sao chép",
+    "pasteItem": "Bấm để dán vào đây",
+    "pasteLabel": "Dán {{text}}",
+    "remove": "Bỏ {{text}}",
+    "app": {
+      "doc": "BlueDoc",
+      "sheet": "BlueSheet",
+      "slide": "BlueSlide"
+    },
+    "kind": {
+      "text": "Văn bản",
+      "formatted": "Văn bản có định dạng",
+      "cells": "Ô bảng tính",
+      "shapes": "Hình",
+      "slides": "Slide",
+      "picture": "Ảnh"
+    }
   }
 }

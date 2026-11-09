@@ -681,6 +681,10 @@ export type SheetCommand =
       skipBlanks?: boolean;
       /** Selected target: a copy repeats to fill it. */
       range?: SheetRange;
+      /** Give the destination columns the copied columns' widths. */
+      colWidths?: boolean;
+      /** Paste without cell borders. */
+      noBorders?: boolean;
     }
   | { cmd: 'pageSetup'; sheet: number }
   | { cmd: 'pivotSource'; sheet: number; range: SheetRange }

@@ -3,6 +3,7 @@ export {
   Ribbon,
   type RibbonGroup,
   type RibbonItem,
+  type RibbonLauncher,
   type RibbonProps,
   type RibbonTab,
 } from './Ribbon';

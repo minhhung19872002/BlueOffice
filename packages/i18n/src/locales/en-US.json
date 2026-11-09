@@ -2962,5 +2962,60 @@
       "date": "This field takes a date (for example 25/12/2026).",
       "password": "That password is not right."
     }
+  },
+  "pasteOptions": {
+    "button": "Paste options",
+    "menu": "Paste as",
+    "keep": "Keep the original look",
+    "merge": "Match the surrounding text (keeps bold, italic, lists)",
+    "text": "Plain text only",
+    "picture": "As a picture",
+    "link": "As a link",
+    "setDefaults": "Default paste settings…",
+    "defaults": "Default paste",
+    "fromSame": "Within this document",
+    "fromOther": "From other documents and apps",
+    "fromPlain": "Plain text",
+    "linkWhenUrl": "A link when it is a web or e-mail address",
+    "sheet": {
+      "all": "Everything",
+      "values": "Values only",
+      "formulas": "Formulas only",
+      "formats": "Formatting only",
+      "transpose": "Swap rows and columns",
+      "colWidths": "Everything, with column widths",
+      "noBorders": "Everything except borders"
+    },
+    "slide": {
+      "theme": "Use this presentation's theme",
+      "keep": "Keep the original look",
+      "picture": "As a picture",
+      "text": "Plain text only"
+    }
+  },
+  "clipHistory": {
+    "title": "Clipboard history",
+    "open": "Show clipboard history",
+    "clear": "Clear all",
+    "close": "Close",
+    "count": "{{count}} of {{max}} items",
+    "empty": "Nothing copied yet. What you copy or cut in BlueDoc, BlueSheet or BlueSlide shows up here.",
+    "items": "Copied items",
+    "pasteItem": "Click to paste here",
+    "pasteLabel": "Paste {{text}}",
+    "remove": "Remove {{text}}",
+    "app": {
+      "doc": "BlueDoc",
+      "sheet": "BlueSheet",
+      "slide": "BlueSlide"
+    },
+    "kind": {
+      "text": "Text",
+      "formatted": "Formatted text",
+      "cells": "Cells",
+      "shapes": "Shapes",
+      "slides": "Slides",
+      "picture": "Picture"
+    }
   }
 }

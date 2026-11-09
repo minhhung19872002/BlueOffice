@@ -736,7 +736,7 @@ fn list_marker(token: &str) -> Option<AutoList> {
 }
 
 /// Hyperlink target of a typed URL or e-mail address.
-fn link_target(w: &str) -> Option<String> {
+pub(crate) fn link_target(w: &str) -> Option<String> {
     let lower = w.to_lowercase();
     for scheme in ["http://", "https://", "ftp://", "mailto:"] {
         if lower.starts_with(scheme) && w.len() > scheme.len() {
@@ -893,7 +893,7 @@ fn replace_range(
 }
 
 /// Hyperlink look: §17.3.2.6 color and §17.3.2.40 u single.
-fn link_props(r: &mut RunProps, target: &str) {
+pub(crate) fn link_props(r: &mut RunProps, target: &str) {
     r.link = Some(target.to_owned());
     r.color = Color::from_hex("0563C1");
     r.underline = Some(Underline::Single);

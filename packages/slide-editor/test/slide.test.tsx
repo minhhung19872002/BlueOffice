@@ -603,6 +603,37 @@ describe('BlueSlideEditor', () => {
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'copySlides', indices: [0] }));
   });
 
+  it('offers paste options after pasting copied shapes (undo + paste again)', async () => {
+    const { p, engine, cmds } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    const overlay = screen.getByTestId('slide-overlay');
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    await screen.findByTestId('selection-box');
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    const write = p.clipboard.writeItems as unknown as ReturnType<typeof vi.fn>;
+    await waitFor(() => expect(write).toHaveBeenCalled());
+    const items = write.mock.calls[0]![0] as { text: string; html: string };
+    const e = new Event('paste', { bubbles: true }) as Event & { clipboardData: unknown };
+    e.clipboardData = {
+      getData: (t: string) => ({ 'text/html': items.html, 'text/plain': items.text })[t] ?? '',
+      items: [],
+    };
+    act(() => {
+      window.dispatchEvent(e);
+    });
+    fireEvent.click(await screen.findByTestId('paste-options'));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Giữ nguyên định dạng gốc/ }));
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'paste', keepSource: true }));
+    const at = cmds().findIndex((c) => c.cmd === 'paste' && 'keepSource' in c);
+    expect(cmds()[at - 1]).toEqual({ cmd: 'undo' });
+    fireEvent.click(await screen.findByTestId('paste-options'));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Dạng ảnh/ }));
+    await waitFor(() => expect(engine.slideInsertPicture).toHaveBeenCalled());
+    expect(cmds().filter((c) => c.cmd === 'undo')).toHaveLength(2);
+  });
+
   it('selects with a marquee and cycles shapes with Tab', async () => {
     const { p, cmds, st } = fakePlatform();
     render(<BlueSlideEditor platform={p} language="vi-VN" />);

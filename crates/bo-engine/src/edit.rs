@@ -647,6 +647,10 @@ pub struct ClipOut {
     pub html: String,
     /// BlueOffice internal form (lossless within the suite).
     pub internal: String,
+    /// Picture of the copied main-text content as laid out (PNG, base64), for
+    /// pasting as a picture.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub png: Option<String>,
 }
 
 /// Result of a command.
@@ -769,7 +773,14 @@ impl crate::Engine {
             Command::Click { page, x, y, .. } => Some((*page, *x, *y)),
             _ => None,
         };
+        // Copy / cut: a picture of the selection before it changes (paste as picture).
+        let picture = matches!(cmd, Command::Copy | Command::Cut)
+            .then(|| self.selection_picture())
+            .flatten();
         let mut r = self.command_inner(cmd, now)?;
+        if let Some(c) = r.clip.as_mut() {
+            c.png = picture;
+        }
         // A click on a shape reports it so the host can show its frame and handles.
         if let Some((page, x, y)) = click.filter(|_| r.drawing.is_none()) {
             r.drawing = self.drawing_hit(page, x, y);
@@ -1229,6 +1240,7 @@ impl crate::Engine {
                             text: c.text,
                             html: c.html,
                             internal: c.internal,
+                            png: None,
                         });
                     }
                     Command::Cut => {
@@ -1237,6 +1249,7 @@ impl crate::Engine {
                             text: c.text,
                             html: c.html,
                             internal: c.internal,
+                            png: None,
                         });
                     }
                     Command::Paste {

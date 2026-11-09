@@ -5,6 +5,8 @@ import {
   PasswordDialog,
   SavePasswordPanel,
   SymbolPanel,
+  clipboardHistory,
+  type ClipItem,
 } from '@blueoffice/editor';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
@@ -135,6 +137,12 @@ import { ChartDialog, type ChartDraft } from './ChartDialog';
 import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
 import { SlideController } from './controller';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
+import {
+  SlideClipboardUi,
+  selectionCorner,
+  slidePasteChoices,
+  type SlidePasteChoice,
+} from './pasteOptions';
 import { ExportDialog, slidePng, type ExportPngOptions } from './ExportDialog';
 import { MediaButtons } from './MediaLayer';
 import { advance, type ShowPos } from './player';
@@ -319,6 +327,18 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [commentsOpen, setCommentsOpen] = useState(false);
   /** Symbol picker panel (inserts into the text being edited, else a new text box). */
   const [symbolsOpen, setSymbolsOpen] = useState(false);
+  /** Clipboard history panel (Clipboard group launcher). */
+  const [clipPanel, setClipPanel] = useState(false);
+  /** Text and picture of the last shapes copied here (paste as picture / text). */
+  const [shapesCopy, setShapesCopy] = useState<{ text: string; png?: string } | null>(null);
+  /** The last paste of copied shapes while its mode can change (shown while its result
+   * is the latest one: any other command ends it). */
+  const [pasteUi, setPasteUi] = useState<{
+    n: number;
+    mode: SlidePasteChoice;
+    choices: SlidePasteChoice[];
+    result: SlideEditResult;
+  } | null>(null);
   const [previewToken, setPreviewToken] = useState(0);
   const [ribbonTab, setRibbonTab] = useState('home');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -668,6 +688,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     (r: SlideEditResult | null) => {
       const c = r?.clipboard;
       if (!c) return;
+      const kind = r?.clip === 'slides' ? 'slides' : 'shapes';
+      setShapesCopy(kind === 'shapes' ? { text: c.text, png: c.png } : null);
+      clipboardHistory.push({ app: 'slide', kind, text: c.text, png: c.png });
       const mark = ctrl.newClipMark(c.text);
       const html = `<div ${CLIP_MARK}="${mark}">${escapeHtml(c.text)}</div>`;
       try {
@@ -689,11 +712,58 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       const external = sys && (sys.image || sys.text?.trim()) && !ctrl.isOwnClip(mark, sys.text);
       if (!external) {
         // The engine refuses (noClip) when its clipboard is empty.
-        await ctrl.run({ cmd: 'paste' });
+        const r = await ctrl.run({ cmd: 'paste' });
+        if (r && !r.error && r.clip === 'shapes' && shapesCopy) {
+          setPasteUi((old) => ({
+            n: (old?.n ?? 0) + 1,
+            mode: 'theme',
+            choices: slidePasteChoices(shapesCopy),
+            result: r,
+          }));
+        }
         return;
       }
       if (sys.image) await ctrl.insertPicture(sys.image, 'clipboard.png');
       else if (sys.text) await ctrl.run({ cmd: 'insertTextBox', text: fromEditorText(sys.text) });
+    },
+    [ctrl, shapesCopy],
+  );
+
+  /** Redo the last shape paste in another mode: undo it, paste again (one undo step overall). */
+  const switchPaste = useCallback(
+    async (choice: SlidePasteChoice) => {
+      const ui = pasteUi && pasteUi.result === edit ? pasteUi : null;
+      const copy = shapesCopy;
+      if (!ui || !copy || ui.mode === choice) return;
+      const pasteAs = (c: SlidePasteChoice) =>
+        c === 'picture' && copy.png
+          ? ctrl.insertPicture(fromBase64(copy.png), 'clipboard.png')
+          : c === 'text'
+            ? ctrl.run({ cmd: 'insertTextBox', text: fromEditorText(copy.text) })
+            : ctrl.run({ cmd: 'paste', keepSource: c === 'keep' });
+      const undone = await ctrl.run({ cmd: 'undo' });
+      if (!undone || undone.error) return;
+      let r = await pasteAs(choice);
+      if (!r || r.error) {
+        r = await pasteAs(ui.mode);
+        choice = ui.mode;
+      }
+      if (r && !r.error) setPasteUi({ ...ui, n: ui.n + 1, mode: choice, result: r });
+    },
+    [ctrl, pasteUi, edit, shapesCopy],
+  );
+
+  /** Paste an item of the clipboard history: our latest shapes copy as shapes, else a
+   * picture (copies without text) or a text box. */
+  const pasteItem = useCallback(
+    async (item: ClipItem) => {
+      if (item.app === 'slide' && ctrl.isOwnClip(undefined, item.text)) {
+        await ctrl.run({ cmd: 'paste' });
+      } else if (item.png && !item.text.trim()) {
+        await ctrl.insertPicture(fromBase64(item.png), 'clipboard.png');
+      } else if (item.text.trim()) {
+        await ctrl.run({ cmd: 'insertTextBox', text: fromEditorText(item.text) });
+      }
     },
     [ctrl],
   );
@@ -1399,6 +1469,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           {
             id: 'clipboard',
             label: t('slideEditor.groupClipboard'),
+            launcher: {
+              id: 'edit.clipboardPanel',
+              label: t('clipHistory.open'),
+              onSelect: () => setClipPanel((o) => !o),
+            },
             items: [
               item('edit.paste', t('slideEditor.paste'), <ClipboardPaste size={18} />),
               item('edit.cut', t('slideEditor.cut'), <Scissors size={16} />, sm),
@@ -2136,6 +2211,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               </section>
             )}
           </div>
+          <SlideClipboardUi
+            paste={pasteUi && pasteUi.result === edit ? pasteUi : null}
+            anchor={selectionCorner}
+            onChoose={(c) => void switchPaste(c).catch(fail)}
+            panel={clipPanel}
+            onPasteItem={(item) => void pasteItem(item).catch(fail)}
+            onClosePanel={() => setClipPanel(false)}
+          />
           {symbolsOpen && (
             <SymbolPanel
               fonts={[...new Set([edit?.format.font, ...FONTS].filter((x): x is string => !!x))]}

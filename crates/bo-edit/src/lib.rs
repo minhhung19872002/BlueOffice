@@ -20,6 +20,7 @@ pub mod lists;
 pub mod merge;
 mod ops;
 pub mod para;
+mod paste;
 pub mod picture;
 pub mod revisions;
 pub mod section;
@@ -3435,7 +3436,7 @@ impl Session {
         self.paste_blocks_inner(blocks, false)
     }
 
-    fn paste_blocks_inner(
+    pub(crate) fn paste_blocks_inner(
         &mut self,
         blocks: Vec<Block>,
         keep_para_props: bool,
@@ -3473,6 +3474,7 @@ impl Session {
                 if keep_para_props {
                     q.props = ParaProps {
                         unknown: Vec::new(),
+                        num: q.props.num.or(p.props.num),
                         ..p.props.clone()
                     };
                 }
@@ -3487,6 +3489,7 @@ impl Session {
             let last_props = if keep_para_props {
                 ParaProps {
                     unknown: Vec::new(),
+                    num: last_src.props.num.or(p.props.num),
                     ..p.props.clone()
                 }
             } else {
@@ -3606,6 +3609,8 @@ impl Session {
 
 #[cfg(test)]
 mod feature_tests;
+#[cfg(test)]
+mod paste_tests;
 #[cfg(test)]
 mod table_tools_tests;
 #[cfg(test)]

@@ -118,7 +118,7 @@ function fakeHost() {
           return { text: rows.join('\r\n') };
         }
         case 'paste':
-          return null;
+          return { range: { r0: cmd.row, c0: cmd.col, r1: cmd.row, c1: cmd.col } };
         case 'flashFill':
           return cmd.col === 0 ? { found: false, filled: 0 } : { found: true, filled: 2 };
         case 'names':
@@ -523,6 +523,31 @@ describe('BlueSheetEditor', () => {
         [1, 1, 'd'],
       ]),
     );
+  });
+
+  it('offers paste options after pasting copied cells (undo + paste again)', async () => {
+    const { host, cells } = fakeHost();
+    const { p, clip } = platform(host);
+    cells.set('0,0', '7');
+    render(<BlueSheetEditor platform={p} language="vi-VN" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    const input = screen.getByLabelText('Ô đang nhập');
+    fireEvent.keyDown(input, { key: 'c', ctrlKey: true });
+    await waitFor(() => expect(clip.text).toBe('7'));
+    fireEvent.keyDown(input, { key: 'v', ctrlKey: true });
+    fireEvent.click(await screen.findByTestId('paste-options'));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Chỉ giá trị/ }));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({ cmd: 'paste', mode: 'values', row: 0, col: 0 }),
+      ),
+    );
+    expect(host.undo).toHaveBeenCalledTimes(1);
+    // Still offered for the same paste, with the new mode checked.
+    fireEvent.click(await screen.findByTestId('paste-options'));
+    expect(
+      screen.getByRole('menuitemradio', { name: /Chỉ giá trị/ }).getAttribute('aria-checked'),
+    ).toBe('true');
   });
 
   it('creates a pivot table and edits its areas from the field list', async () => {

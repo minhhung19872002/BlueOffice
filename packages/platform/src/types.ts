@@ -373,7 +373,8 @@ export interface FontChoice {
   available: boolean;
 }
 
-export type DocPasteMode = 'keep' | 'merge' | 'text';
+/** Paste modes of BlueDoc: `link` pastes a URL / e-mail address as a hyperlink. */
+export type DocPasteMode = 'keep' | 'merge' | 'text' | 'link';
 
 export interface FindOptions {
   matchCase?: boolean;
@@ -665,6 +666,8 @@ export interface ClipPayload {
   text: string;
   html: string;
   internal: string;
+  /** Picture of the copied content as laid out (PNG, base64; paste as picture). */
+  png?: string;
 }
 
 /** Result of an editing command. */
@@ -981,7 +984,9 @@ export type SlideCommand =
   | { cmd: 'textHit'; x: number; y: number; extend?: boolean }
   | { cmd: 'cellTextHit'; x: number; y: number }
   | { cmd: 'cellNext'; back?: boolean }
-  | { cmd: 'textExit' | 'copy' | 'cut' | 'paste' }
+  | { cmd: 'textExit' | 'copy' | 'cut' }
+  /** Paste the internal clipboard; `keepSource`: shapes keep the source slide's theme colours and fonts. */
+  | { cmd: 'paste'; keepSource?: boolean }
   | { cmd: 'copySlides' | 'cutSlides'; indices?: number[] }
   | { cmd: 'adjust'; index: number; x: number; y: number; merge?: boolean }
   | {

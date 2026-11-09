@@ -598,6 +598,13 @@ pub enum SheetCommand {
         /// is a multiple of the copied block.
         #[serde(default)]
         range: Option<Rng>,
+        /// Also give the destination columns the copied columns' widths
+        /// (§18.3.1.13 col `@width`).
+        #[serde(default)]
+        col_widths: bool,
+        /// Paste without cell borders (§18.8.4 border).
+        #[serde(default)]
+        no_borders: bool,
     },
     /// Page setup of a sheet (orientation, paper, scale, margins, print area).
     PageSetup {
@@ -2482,7 +2489,21 @@ impl SheetEngine {
                 transpose,
                 skip_blanks,
                 range,
-            } => self.paste(sheet, row, col, mode, transpose, skip_blanks, range),
+                col_widths,
+                no_borders,
+            } => {
+                let extras = self.paste_extras(sheet, col, transpose, col_widths, no_borders)?;
+                self.paste(
+                    sheet,
+                    row,
+                    col,
+                    mode,
+                    transpose,
+                    skip_blanks,
+                    range,
+                    &extras,
+                )
+            }
             C::PageSetup { sheet } => {
                 let ws = self.sheet(sheet)?;
                 let p = &ws.page_setup;
@@ -3043,6 +3064,7 @@ impl SheetEngine {
         transpose: bool,
         skip_blanks: bool,
         target: Option<Rng>,
+        extras: &super::paste_opts::PasteExtras,
     ) -> Result<Value> {
         let Some(clip) = self.clip.clone() else {
             return Ok(Value::Null);
@@ -3199,6 +3221,7 @@ impl SheetEngine {
                     }
                 }
             }
+            super::paste_opts::apply(wb, sheet, target, extras);
             Ok(json!({ "range": Rng::of(target) }))
         })?;
         if cut {

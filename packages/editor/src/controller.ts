@@ -7,6 +7,16 @@ import type {
   ClipboardAccess,
 } from '@blueoffice/platform';
 import { keyToCommand } from './keys';
+import { clipboardHistory, type ClipboardHistory, type ClipItem } from './clipboard/history';
+import {
+  DEFAULT_PASTE,
+  defaultChoice,
+  fromBase64,
+  toBase64,
+  type DocPasteChoice,
+  type DocPasteRecord,
+  type PasteDefaults,
+} from './clipboard/docPaste';
 
 /** What the controller needs from the view (DocumentView implements it). */
 export interface EditView {
@@ -29,6 +39,13 @@ export class DocController {
   private dragBusy = false;
   /** Last clip copied from this editor (internal format for lossless paste). */
   lastClip: ClipPayload | null = null;
+  /** The last paste while it can still be redone in another mode (paste options). */
+  lastPaste: DocPasteRecord | null = null;
+  /** Default paste modes (BlueEditor loads the user's). */
+  pasteDefaults: PasteDefaults = DEFAULT_PASTE;
+  /** Clipboard history copies are added to. */
+  history: ClipboardHistory = clipboardHistory;
+  private pasteListener: ((r: DocPasteRecord | null) => void) | null = null;
 
   constructor(
     private readonly engine: EngineHost,
@@ -52,8 +69,30 @@ export class DocController {
     this.onResult(r);
   }
 
-  /** Run a command after the previous ones (stamped with the host clock for revisions). */
+  /** Run a command after the previous ones (stamped with the host clock for revisions).
+   * Any other edit or click ends the chance to change the last paste's mode. */
   run(cmd: EditCommand): Promise<EditResult | null> {
+    this.setPaste(null);
+    return this.exec(cmd);
+  }
+
+  /** Default paste modes for new pastes. */
+  setPasteDefaults(d: PasteDefaults): void {
+    this.pasteDefaults = d;
+  }
+
+  /** Follow the last paste (paste options button). */
+  onPasteChange(listener: ((r: DocPasteRecord | null) => void) | null): void {
+    this.pasteListener = listener;
+  }
+
+  private setPaste(r: DocPasteRecord | null): void {
+    if (r === null && this.lastPaste === null) return;
+    this.lastPaste = r;
+    this.pasteListener?.(r);
+  }
+
+  private exec(cmd: EditCommand): Promise<EditResult | null> {
     const p = this.queue.then(async () => {
       try {
         return this.apply(await this.engine.command({ ...cmd, now: Date.now() }));
@@ -83,6 +122,11 @@ export class DocController {
 
   /** Insert a picture through the engine. */
   insertImage(bytes: Uint8Array, name: string): Promise<EditResult | null> {
+    this.setPaste(null);
+    return this.insertImageRaw(bytes, name);
+  }
+
+  private insertImageRaw(bytes: Uint8Array, name: string): Promise<EditResult | null> {
     const p = this.queue.then(async () => {
       try {
         return this.apply(await this.engine.insertImage(bytes, name));
@@ -134,25 +178,108 @@ export class DocController {
         if (c) void this.run(c);
         break;
       }
-      case 'paste':
-        void this.paste(e.text, e.html, e.internal);
+      case 'paste': {
+        const image = e.image;
+        if (image && !e.text && !e.html && !e.internal) {
+          void image
+            .arrayBuffer()
+            .then((b) => this.paste('', '', '', new Uint8Array(b)))
+            .catch((err: unknown) => this.onError(err));
+        } else void this.paste(e.text, e.html, e.internal);
         break;
+      }
       case 'composition':
         break;
     }
   }
 
-  /** Paste, preferring the lossless internal format of our own copies. */
-  paste(text: string, html: string, internal = ''): Promise<EditResult | null> {
-    const own =
-      !internal && this.lastClip && this.lastClip.text === text ? this.lastClip.internal : '';
-    return this.run({ cmd: 'paste', internal: internal || own, html, text });
+  /** Paste, preferring the lossless internal format of our own copies; the mode comes
+   * from the user's defaults for where the content comes from. */
+  paste(text: string, html: string, internal = '', image?: Uint8Array): Promise<EditResult | null> {
+    const own = !internal && this.lastClip && this.lastClip.text === text ? this.lastClip : null;
+    const ownInternal = internal || own?.internal || '';
+    return this.pasteRecord({
+      text,
+      html,
+      internal: ownInternal,
+      png: own?.png ?? (image ? toBase64(image) : undefined),
+      pictureOnly: !!image && !text && !html && !internal,
+      source: ownInternal ? 'same' : html ? 'other' : 'plain',
+      mode: 'keep',
+    });
+  }
+
+  /** Paste an item of the clipboard history. */
+  pasteItem(item: ClipItem): Promise<EditResult | null> {
+    const internal = item.internal ?? '';
+    return this.pasteRecord({
+      text: item.text,
+      html: item.html ?? '',
+      internal,
+      png: item.png,
+      pictureOnly: !item.text && !internal && !!item.png,
+      source:
+        internal && internal === this.lastClip?.internal
+          ? 'same'
+          : internal || item.html
+            ? 'other'
+            : 'plain',
+      mode: 'keep',
+    });
+  }
+
+  private async pasteRecord(rec: DocPasteRecord): Promise<EditResult | null> {
+    if (!rec.text && !rec.html && !rec.internal && !rec.png) return null;
+    this.setPaste(null);
+    rec.mode = defaultChoice(rec, this.pasteDefaults);
+    const r = await this.pasteAs(rec, rec.mode);
+    if (r && !r.error) this.setPaste(rec);
+    return r;
+  }
+
+  private pasteAs(rec: DocPasteRecord, mode: DocPasteChoice): Promise<EditResult | null> {
+    if (mode === 'picture') {
+      return rec.png
+        ? this.insertImageRaw(fromBase64(rec.png), 'clipboard.png')
+        : Promise.resolve(null);
+    }
+    return this.exec({
+      cmd: 'paste',
+      internal: rec.internal,
+      html: rec.html,
+      text: rec.text,
+      mode,
+    });
+  }
+
+  /** Redo the last paste in another mode: undo it, paste again (one undo step overall). */
+  async switchPaste(mode: DocPasteChoice): Promise<EditResult | null> {
+    const rec = this.lastPaste;
+    if (!rec || rec.mode === mode) return null;
+    const undone = await this.exec({ cmd: 'undo' });
+    if (!undone || undone.error) return undone;
+    const r = await this.pasteAs(rec, mode);
+    if (r && !r.error) {
+      this.setPaste({ ...rec, mode });
+      return r;
+    }
+    // Could not paste that way: put the paste back as it was.
+    await this.pasteAs(rec, rec.mode);
+    return r;
   }
 
   async copy(cut = false): Promise<void> {
     const r = await this.run({ cmd: cut ? 'cut' : 'copy' });
     if (!r?.clip || !r.clip.text) return;
     this.lastClip = r.clip;
+    this.history.push({
+      app: 'doc',
+      kind: r.clip.internal ? 'formatted' : 'text',
+      text: r.clip.text,
+      html: r.clip.html || undefined,
+      internal: r.clip.internal || undefined,
+      png: r.clip.png,
+    });
     try {
       await this.clipboard.writeHtml(r.clip.html, r.clip.text);
     } catch {
@@ -160,8 +287,16 @@ export class DocController {
     }
   }
 
-  /** Paste from the system clipboard (ribbon button). */
+  /** Paste from the system clipboard (ribbon button): text, HTML and pictures when the
+   * platform can read them, else plain text. */
   async pasteFromClipboard(): Promise<void> {
+    const all = await Promise.resolve()
+      .then(() => this.clipboard.read?.())
+      .catch(() => undefined);
+    if (all && (all.text || all.html || all.image)) {
+      await this.paste(all.text ?? '', all.html ?? '', '', all.image);
+      return;
+    }
     const text = await this.clipboard.readText().catch(() => '');
     await this.paste(text, '');
   }

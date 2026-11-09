@@ -31,6 +31,36 @@ export interface RibbonGroup {
   id: string;
   label: string;
   items: RibbonItem[];
+  /** Small button next to the group name opening the group's pane or dialog. */
+  launcher?: RibbonLauncher;
+}
+
+export interface RibbonLauncher {
+  /** Command id (e.g. `edit.clipboardPanel`). */
+  id: string;
+  /** Accessible name and tooltip. */
+  label: string;
+  onSelect: () => void;
+}
+
+function LauncherButton({ launcher, onDone }: { launcher: RibbonLauncher; onDone?: () => void }) {
+  return (
+    <button
+      type="button"
+      className={styles.launcher}
+      data-command={launcher.id}
+      data-launcher="true"
+      aria-label={launcher.label}
+      title={launcher.label}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => {
+        launcher.onSelect();
+        onDone?.();
+      }}
+    >
+      <span aria-hidden="true">⤡</span>
+    </button>
+  );
 }
 
 export interface RibbonTab {
@@ -125,6 +155,17 @@ function GroupMenu({ group, close }: { group: RibbonGroup; close: () => void }) 
           <RibbonButton key={i.id} item={i} mode="menu" onDone={close} />
         ),
       )}
+      {group.launcher && (
+        <RibbonButton
+          item={{
+            id: group.launcher.id,
+            label: group.launcher.label,
+            onSelect: group.launcher.onSelect,
+          }}
+          mode="menu"
+          onDone={close}
+        />
+      )}
     </div>
   );
 }
@@ -178,7 +219,10 @@ function RibbonGroupView({ group, level }: { group: RibbonGroup; level: Collapse
           ),
         )}
       </div>
-      <div className={styles.groupLabel}>{group.label}</div>
+      <div className={styles.groupLabel}>
+        {group.label}
+        {group.launcher && <LauncherButton launcher={group.launcher} />}
+      </div>
     </div>
   );
 }

@@ -24,6 +24,7 @@ mod analysis_cmd;
 mod cmd;
 pub(crate) mod collab;
 mod comments;
+mod paste_opts;
 mod pivot_cmd;
 mod png;
 mod print;

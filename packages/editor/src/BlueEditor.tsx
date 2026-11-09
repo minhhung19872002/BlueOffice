@@ -155,6 +155,7 @@ import { DocController } from './controller';
 import styles from './Editor.module.css';
 import { FindPanel } from './Panels';
 import { SymbolPanel } from './SymbolPanel';
+import { DocClipboardUi } from './clipboard/DocClipboardUi';
 import { CaptionPanel, CrossRefPanel, MergeFieldPanel } from './ReferencePanels';
 import { CommentsPanel, ReviewPanel } from './ReviewPanel';
 import { MarkupModeSelect, reviewersOf, ShowMarkupMenu } from './MarkupMenus';
@@ -280,6 +281,8 @@ function EditorInner({
   /** Clipboard contents read for Paste Special. */
   const pasteClip = useRef<{ text: string; html: string; internal: string } | null>(null);
   const [pasteAvail, setPasteAvail] = useState({ html: false, text: false });
+  /** Clipboard history panel (Home › Clipboard launcher). */
+  const [clipPanel, setClipPanel] = useState(false);
   const [equationTemplates, setEquationTemplates] = useState<{ id: string; linear: string }[]>([]);
   const dialogOpen = state.dialog;
   useEffect(() => {
@@ -1897,6 +1900,11 @@ function EditorInner({
         {
           id: 'clipboard',
           label: t('ribbon.groups.clipboard'),
+          launcher: {
+            id: 'edit.clipboardPanel',
+            label: t('clipHistory.open'),
+            onSelect: () => setClipPanel((o) => !o),
+          },
           items: [
             item('edit.paste', 'commands.edit.paste', <ClipboardPaste size={ICON} />),
             s('edit.cut', 'commands.edit.cut', <Scissors size={SMALL} />),
@@ -2781,6 +2789,15 @@ function EditorInner({
                 onClose={closePanel}
               />
             )}
+            <DocClipboardUi
+              controller={controller}
+              ready={state.engineReady}
+              view={view}
+              store={store}
+              panel={clipPanel}
+              onOpenPanel={() => setClipPanel(true)}
+              onClosePanel={() => setClipPanel(false)}
+            />
             {state.panel === 'symbols' && (
               <SymbolPanel
                 fonts={state.fonts.map((f) => f.name)}

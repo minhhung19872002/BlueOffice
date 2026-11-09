@@ -86,6 +86,12 @@ describe('DocController', () => {
     await c.copy();
     expect(written).toEqual(['<b>x</b>']);
     await c.pasteFromClipboard();
-    expect(sent.at(-1)).toEqual({ cmd: 'paste', internal: '[1]', html: '', text: 'x' });
+    expect(sent.at(-1)).toEqual({
+      cmd: 'paste',
+      internal: '[1]',
+      html: '',
+      text: 'x',
+      mode: 'keep',
+    });
   });
 });

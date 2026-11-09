@@ -4,7 +4,7 @@ Sinh tự động bởi `python scripts/parity-functions.py` từ danh mục hà
 (nhóm theo tài liệu hàm công khai) đối chiếu với các bảng `FUNCTIONS` trong `crates/bo-formula/src/functions/`.
 Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng ghi nguồn).
 
-**Tổng: 505/515 hàm (98 %).**
+**Tổng: 508/515 hàm (99 %).**
 
 | Nhóm | Đã có | Tổng |
 |---|---|---|
@@ -20,7 +20,7 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | Math & Trig | 80 | 80 |
 | Statistical | 110 | 110 |
 | Text | 46 | 46 |
-| Web | 0 | 3 |
+| Web | 3 | 3 |
 | BlueOffice | 1 | 1 |
 
 | Hàm | Nhóm | Trạng thái | Cài đặt |
@@ -536,7 +536,7 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | UPPER | Text | [x] | bo-formula |
 | VALUE | Text | [x] | bo-formula |
 | VALUETOTEXT | Text | [x] | bo-formula |
-| ENCODEURL | Web | [ ] |  |
-| FILTERXML | Web | [ ] |  |
-| WEBSERVICE | Web | [ ] |  |
+| ENCODEURL | Web | [x] | bo-formula |
+| FILTERXML | Web | [x] | bo-formula |
+| WEBSERVICE | Web | [x] | bo-formula |
 | BO.DOCSO | BlueOffice | [x] | bo-formula |

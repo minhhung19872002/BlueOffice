@@ -1,5 +1,5 @@
 /**
- * BlueSheet dialogs and popovers: sort, AutoFilter menu, conditional
+ * BlueSheet dialogs and popovers: AutoFilter menu, conditional
  * formatting, data validation, charts, find/replace, go to, paste special,
  * page setup, messages and a generic anchored menu. Every action goes through
  * the engine command bridge (`SheetHost.exec`).
@@ -14,12 +14,14 @@ import type {
   PageSetupInfo,
   PasteMode,
   SheetHost,
+  SheetIcon,
   SheetRange,
 } from '@blueoffice/platform';
 import { ChartTemplateList, Dialog, deleteChartTemplate, loadChartTemplates } from '@blueoffice/ui';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { layoutTexts } from './chartStyles';
-import { a1, colName } from './grid';
+import { a1 } from './grid';
+import { FilterExtras } from './sortFilter';
 import styles from './SheetEditor.module.css';
 
 interface Common {
@@ -208,207 +210,6 @@ export function ColorMenu({
   );
 }
 
-// ----------------------------------------------------------------- sort
-
-interface SortLevel {
-  col: number;
-  descending: boolean;
-  by?: 'value' | 'cellColor' | 'fontColor';
-  color?: string;
-}
-
-export function SortDialog({
-  host,
-  sheet,
-  range,
-  onClose,
-  onDone,
-  fail,
-}: Common & { range: SheetRange }) {
-  const { t } = useTranslation();
-  const [region, setRegion] = useState<SheetRange>(range);
-  const [header, setHeader] = useState(true);
-  const [levels, setLevels] = useState<SortLevel[]>([{ col: range.c0, descending: false }]);
-  const [names, setNames] = useState<string[]>([]);
-  const [leftToRight, setLeftToRight] = useState(false);
-  /** Colours present per key (column, or row when sorting left to right). */
-  const [colors, setColors] = useState<Record<number, { cell: string[]; font: string[] }>>({});
-
-  useEffect(() => {
-    void (async () => {
-      const r = await host.exec<SheetRange>({ cmd: 'region', sheet, range });
-      setRegion(r);
-      setLevels([{ col: Math.max(r.c0, Math.min(range.c0, r.c1)), descending: false }]);
-      const n: string[] = [];
-      for (let c = r.c0; c <= r.c1 && c < r.c0 + 200; c++) {
-        n.push((await host.cell(sheet, r.r0, c)).display);
-      }
-      setNames(n);
-    })().catch(fail);
-  }, [host, sheet, range, fail]);
-
-  const keyColors = (key: number) => {
-    if (colors[key]) return;
-    void host
-      .exec<{ cell: string[]; font: string[] }>({
-        cmd: 'sortColors',
-        sheet,
-        range: region,
-        key,
-        leftToRight,
-      })
-      .then((r) => r && setColors((c) => ({ ...c, [key]: r })))
-      .catch(fail);
-  };
-
-  const colLabel = (c: number) => {
-    if (leftToRight) return t('sheetEditor.sort.row', { n: c + 1 });
-    const name = names[c - region.c0];
-    return header && name ? name : t('sheetEditor.sort.column', { name: colName(c) });
-  };
-  const cols: number[] = [];
-  const [lo, hi] = leftToRight ? [region.r0, region.r1] : [region.c0, region.c1];
-  for (let c = lo; c <= hi && c < lo + 200; c++) cols.push(c);
-
-  const ok = async () => {
-    try {
-      await host.exec({
-        cmd: 'sort',
-        sheet,
-        range: region,
-        keys: levels,
-        hasHeader: header,
-        leftToRight,
-      });
-      await onDone();
-      onClose();
-    } catch (e) {
-      fail(e);
-    }
-  };
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(o) => !o && onClose()}
-      title={t('sheetEditor.sort.title')}
-      width={480}
-      testId="sort-dialog"
-      footer={<Buttons onCancel={onClose} onOk={() => void ok()} okId="sort-ok" />}
-    >
-      <p className={styles.hint}>
-        {a1({ row: region.r0, col: region.c0 })}:{a1({ row: region.r1, col: region.c1 })}
-      </p>
-      <label className={styles.check}>
-        <input type="checkbox" checked={header} onChange={(e) => setHeader(e.target.checked)} />
-        {leftToRight ? t('sheetEditor.sort.headerCol') : t('sheetEditor.sort.header')}
-      </label>
-      <label className={styles.check}>
-        <input
-          type="checkbox"
-          data-testid="sort-left-to-right"
-          checked={leftToRight}
-          onChange={(e) => {
-            const on = e.target.checked;
-            setLeftToRight(on);
-            setColors({});
-            setLevels([{ col: on ? region.r0 : region.c0, descending: false }]);
-          }}
-        />
-        {t('sheetEditor.sort.leftToRight')}
-      </label>
-      {levels.map((l, i) => (
-        <div key={i} className={styles.row}>
-          <span className={styles.levelLabel}>
-            {i === 0 ? t('sheetEditor.sort.by') : t('sheetEditor.sort.thenBy')}
-          </span>
-          <select
-            aria-label={t('sheetEditor.sort.columnLabel')}
-            data-testid={`sort-col-${i}`}
-            value={l.col}
-            onChange={(e) =>
-              setLevels(levels.map((x, j) => (j === i ? { ...x, col: Number(e.target.value) } : x)))
-            }
-          >
-            {cols.map((c) => (
-              <option key={c} value={c}>
-                {colLabel(c)}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label={t('sheetEditor.sort.order')}
-            data-testid={`sort-order-${i}`}
-            value={l.descending ? 'desc' : 'asc'}
-            onChange={(e) =>
-              setLevels(
-                levels.map((x, j) =>
-                  j === i ? { ...x, descending: e.target.value === 'desc' } : x,
-                ),
-              )
-            }
-          >
-            <option value="asc">{t('sheetEditor.sort.asc')}</option>
-            <option value="desc">{t('sheetEditor.sort.desc')}</option>
-          </select>
-          <select
-            aria-label={t('sheetEditor.sort.sortOn')}
-            data-testid={`sort-by-${i}`}
-            value={l.by ?? 'value'}
-            onChange={(e) => {
-              const by = e.target.value as SortLevel['by'];
-              keyColors(l.col);
-              setLevels(levels.map((x, j) => (j === i ? { ...x, by, color: undefined } : x)));
-            }}
-          >
-            <option value="value">{t('sheetEditor.sort.onValue')}</option>
-            <option value="cellColor">{t('sheetEditor.sort.onCellColor')}</option>
-            <option value="fontColor">{t('sheetEditor.sort.onFontColor')}</option>
-          </select>
-          {l.by && l.by !== 'value' && (
-            <select
-              aria-label={t('sheetEditor.sort.color')}
-              data-testid={`sort-color-${i}`}
-              value={l.color ?? ''}
-              onChange={(e) =>
-                setLevels(levels.map((x, j) => (j === i ? { ...x, color: e.target.value } : x)))
-              }
-            >
-              <option value="">—</option>
-              {(l.by === 'cellColor' ? colors[l.col]?.cell : colors[l.col]?.font)?.map((h) => (
-                <option key={h} value={h} style={{ background: `#${h}` }}>
-                  #{h}
-                </option>
-              ))}
-            </select>
-          )}
-          {levels.length > 1 && (
-            <button
-              type="button"
-              className={styles.btn}
-              onClick={() => setLevels(levels.filter((_, j) => j !== i))}
-            >
-              {t('sheetEditor.sort.remove')}
-            </button>
-          )}
-        </div>
-      ))}
-      <div className={styles.row}>
-        <button
-          type="button"
-          className={styles.btn}
-          disabled={levels.length >= 8}
-          onClick={() =>
-            setLevels([...levels, { col: leftToRight ? region.r0 : region.c0, descending: false }])
-          }
-        >
-          {t('sheetEditor.sort.addLevel')}
-        </button>
-      </div>
-    </Dialog>
-  );
-}
-
 // ----------------------------------------------------------------- AutoFilter menu
 
 type FilterDates = {
@@ -450,6 +251,8 @@ export function FilterMenu({
   const [values, setValues] = useState<{ text: string; checked: boolean }[]>([]);
   const [dates, setDates] = useState<FilterDates>([]);
   const [colors, setColors] = useState<{ cell: string[]; font: string[] }>({ cell: [], font: [] });
+  const [icons, setIcons] = useState<SheetIcon[]>([]);
+  const [top10, setTop10] = useState<{ top: boolean; percent: boolean; val: number } | null>(null);
   const [search, setSearch] = useState('');
   const [op, setOp] = useState('');
   const [arg, setArg] = useState('');
@@ -461,11 +264,15 @@ export function FilterMenu({
         dates?: FilterDates;
         dynamic?: string | null;
         colors?: { cell: string[]; font: string[] };
+        icons?: SheetIcon[];
+        top10?: { top: boolean; percent: boolean; val: number } | null;
       }>({ cmd: 'filterValues', sheet, col })
       .then((r) => {
         setValues(r.values);
         setDates(r.dates ?? []);
         if (r.colors) setColors(r.colors);
+        setIcons(r.icons ?? []);
+        setTop10(r.top10 ?? null);
         if (r.dynamic) setOp(`dyn:${r.dynamic}`);
       })
       .catch(fail);
@@ -598,6 +405,12 @@ export function FilterMenu({
             />
           )}
         </div>
+        <FilterExtras
+          key={top10 ? 'top10' : 'none'}
+          icons={icons}
+          top10={top10}
+          onFilter={(filter) => void run({ cmd: 'setFilter', sheet, col, filter })}
+        />
         {(colors.cell.length > 0 || colors.font.length > 1) && (
           <div className={styles.row} data-testid="filter-colors">
             <span>{t('sheetEditor.filter.byColor')}</span>

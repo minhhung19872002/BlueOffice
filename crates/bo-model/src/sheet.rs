@@ -1186,8 +1186,44 @@ pub struct AutoFilter {
     pub columns: Vec<FilterColumn>,
     /// Other attributes (xr:uid, …).
     pub attrs: Vec<RawAttr>,
-    /// Unknown children (sortState §18.3.1.92, extLst), anchored like other raw XML.
+    /// Unknown children (an unparsed sortState §18.3.1.92, extLst), anchored like other raw XML.
     pub unknown: Vec<RawXml>,
+    /// `sortState` (§18.3.1.92) the model represents exactly; written in its schema slot.
+    pub sort_state: Option<SortState>,
+}
+
+/// Sort settings remembered with a range (ECMA-376 Part 1, §18.3.1.92 `sortState`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct SortState {
+    /// `ref`: the sorted range (without the header).
+    pub range: CellRange,
+    /// `columnSort`: columns were sorted left to right.
+    pub column_sort: bool,
+    /// `caseSensitive`.
+    pub case_sensitive: bool,
+    /// `sortMethod` (§18.18.80 `ST_SortMethod`: `stroke`, `pinYin`, `none`).
+    pub sort_method: Option<String>,
+    /// `sortCondition` children (§18.3.1.91), most significant first.
+    pub conditions: Vec<SortCondition>,
+}
+
+/// One sort level (ECMA-376 Part 1, §18.3.1.91 `sortCondition`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct SortCondition {
+    /// `descending`.
+    pub descending: bool,
+    /// `sortBy` (§18.18.79 `ST_SortBy`: `value` (default), `cellColor`, `fontColor`, `icon`).
+    pub sort_by: Option<String>,
+    /// `ref`: the key column (row with `columnSort`) inside the sorted range.
+    pub range: CellRange,
+    /// `customList`: comma-separated custom sort order.
+    pub custom_list: Option<String>,
+    /// `dxfId`: differential format holding the colour of a colour sort.
+    pub dxf_id: Option<u32>,
+    /// `iconSet` (§18.18.42 `ST_IconSetType`) of an icon sort.
+    pub icon_set: Option<String>,
+    /// `iconId`: zero-based icon of `icon_set`.
+    pub icon_id: Option<u32>,
 }
 
 /// One filtered column (§18.3.2.7 `filterColumn`).
@@ -1264,7 +1300,15 @@ pub enum ColumnFilter {
         /// `cellColor` (default true): match the fill colour instead of the font colour.
         cell_color: bool,
     },
-    /// Any other criterion (iconFilter, extension elements, unknown attributes…)
+    /// `iconFilter` (§18.3.2.9): cells showing icon `icon_id` of conditional-format
+    /// icon set `icon_set`; without `icon_id`, cells showing no icon.
+    Icon {
+        /// `iconSet` (§18.18.42 `ST_IconSetType`).
+        icon_set: String,
+        /// `iconId`: zero-based icon of the set; `None` = no icon.
+        icon_id: Option<u32>,
+    },
+    /// Any other criterion (extension elements, unknown attributes…)
     /// kept as the verbatim child element.
     Raw(String),
 }

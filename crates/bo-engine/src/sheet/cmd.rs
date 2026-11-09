@@ -59,28 +59,46 @@ pub struct SortKeySpec {
     pub descending: bool,
     #[serde(default)]
     pub case_sensitive: bool,
-    /// `value` (default), `cellColor` or `fontColor` (§18.18.79 `ST_SortBy`).
+    /// `value` (default), `cellColor`, `fontColor` or `icon` (§18.18.79 `ST_SortBy`).
     #[serde(default)]
     pub by: Option<String>,
     /// `RRGGBB` of a colour key.
     #[serde(default)]
     pub color: Option<String>,
+    /// Icon set of an icon key (§18.18.42 `ST_IconSetType`).
+    #[serde(default)]
+    pub icon_set: Option<String>,
+    /// Zero-based icon of an icon key.
+    #[serde(default)]
+    pub icon_id: Option<u32>,
+    /// Custom order of a value key (§18.3.1.91 `sortCondition/@customList`).
+    #[serde(default)]
+    pub custom_list: Option<Vec<String>>,
 }
 
 impl SortKeySpec {
     fn key(&self) -> bo_sheet::sort::SortKey {
         use bo_sheet::sort::SortBy;
         let color = self.color.as_deref().and_then(bo_sheet::color::parse_hex);
-        let by = match (self.by.as_deref(), color) {
-            (Some("cellColor"), Some(c)) => SortBy::CellColor(c),
-            (Some("fontColor"), Some(c)) => SortBy::FontColor(c),
+        let by = match (self.by.as_deref(), color, &self.icon_set, self.icon_id) {
+            (Some("cellColor"), Some(c), ..) => SortBy::CellColor(c),
+            (Some("fontColor"), Some(c), ..) => SortBy::FontColor(c),
+            (Some("icon"), _, Some(set), Some(id)) => SortBy::Icon {
+                set: set.clone(),
+                id,
+            },
             _ => SortBy::Value,
         };
+        let custom_list = self
+            .custom_list
+            .clone()
+            .filter(|l| by == SortBy::Value && !l.is_empty());
         bo_sheet::sort::SortKey {
             col: self.col,
             descending: self.descending,
             case_sensitive: self.case_sensitive,
             by,
+            custom_list,
         }
     }
 }
@@ -112,6 +130,39 @@ pub struct FilterSpec {
     pub cell_color: Option<String>,
     /// Keep cells whose text has this colour (`RRGGBB`).
     pub font_color: Option<String>,
+    /// Keep the largest / smallest items (§18.3.2.10 `top10`).
+    pub top10: Option<Top10Spec>,
+    /// Keep cells showing a conditional-format icon (§18.3.2.9 `iconFilter`).
+    pub icon: Option<IconSpec>,
+}
+
+/// A top / bottom N filter (§18.3.2.10 `top10`).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Top10Spec {
+    /// Largest items (false: smallest).
+    #[serde(default = "yes")]
+    pub top: bool,
+    /// `val` is a percentage of the items.
+    #[serde(default)]
+    pub percent: bool,
+    /// Number (or percent) of items.
+    pub val: f64,
+}
+
+impl Eq for Top10Spec {}
+
+fn yes() -> bool {
+    true
+}
+
+/// An icon filter: icon `id` of conditional-format icon set `set`; no id = no icon.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IconSpec {
+    pub set: String,
+    #[serde(default)]
+    pub id: Option<u32>,
 }
 
 /// A year, or a month of a year, of a date filter.
@@ -387,6 +438,32 @@ pub enum SheetCommand {
         /// Sort columns left to right (key is a row).
         #[serde(default)]
         left_to_right: bool,
+    },
+    /// Built-in lists offered as custom sort orders.
+    SortLists,
+    /// Advanced filter: keep the rows of `list` that satisfy the criteria range,
+    /// hiding the others or copying them to `copy_to`.
+    AdvancedFilter {
+        /// 0-based sheet index of the list.
+        sheet: usize,
+        /// The list with its label row (a single cell: its current region).
+        list: Rng,
+        /// Sheet of the criteria range (default: the list's sheet).
+        #[serde(default)]
+        criteria_sheet: Option<usize>,
+        /// Criteria range with its label row.
+        criteria: Rng,
+        /// Copy the matching rows here instead of filtering in place.
+        #[serde(default)]
+        copy_to: Option<Rng>,
+        /// Unique records only.
+        #[serde(default)]
+        unique: bool,
+    },
+    /// Show every row hidden by an advanced filter or AutoFilter of the sheet.
+    ShowAllData {
+        /// 0-based sheet index.
+        sheet: usize,
     },
     /// The range sort / filter / chart would use for a selection (a single
     /// cell expands to its current region).
@@ -1538,9 +1615,10 @@ impl SheetEngine {
                     (range.r1, range.c1),
                 )
             }
-            C::ToggleFilter { sheet, .. } | C::SetFilter { sheet, .. } => {
-                check(ws(*sheet)?, A::AutoFilter)
-            }
+            C::ToggleFilter { sheet, .. }
+            | C::SetFilter { sheet, .. }
+            | C::ShowAllData { sheet }
+            | C::AdvancedFilter { sheet, .. } => check(ws(*sheet)?, A::AutoFilter),
             C::InsertChart { sheet, .. }
             | C::ChartDesign { sheet, .. }
             | C::EditChart { sheet, .. }
@@ -2225,6 +2303,14 @@ impl SheetEngine {
                     let keys: Vec<bo_sheet::sort::SortKey> =
                         keys.iter().map(SortKeySpec::key).collect();
                     bo_sheet::sort::sort_lines(wb, sheet, r, &keys, has_header, left_to_right, adj);
+                    super::sortfilter_cmd::record_sort_state(
+                        wb,
+                        sheet,
+                        r,
+                        &keys,
+                        has_header,
+                        left_to_right,
+                    );
                     Ok(serde_json::to_value(Rng::of(r)).unwrap_or(Value::Null))
                 })
             }
@@ -2237,8 +2323,26 @@ impl SheetEngine {
                 let r = current_region(self.sheet(sheet)?, range.range());
                 let (fills, fonts) =
                     bo_sheet::sort::line_colors(self.wb()?, sheet, r, key, left_to_right);
-                Ok(json!({ "cell": fills, "font": fonts }))
+                let icons = bo_sheet::sort::line_icons(self.wb()?, sheet, r, key, left_to_right);
+                Ok(json!({
+                    "cell": fills,
+                    "font": fonts,
+                    "icons": icons
+                        .iter()
+                        .map(|(set, id)| json!({ "set": set, "id": id }))
+                        .collect::<Vec<_>>(),
+                }))
             }
+            C::SortLists => Ok(Self::sort_lists()),
+            C::AdvancedFilter {
+                sheet,
+                list,
+                criteria_sheet,
+                criteria,
+                copy_to,
+                unique,
+            } => self.advanced_filter(sheet, list, criteria_sheet, criteria, copy_to, unique),
+            C::ShowAllData { sheet } => self.show_all_data(sheet),
             C::ToggleFilter { sheet, range } => {
                 let r = current_region(self.sheet(sheet)?, range.range());
                 self.edit(sheet, Recalc::All, |wb, _| {
@@ -2290,6 +2394,8 @@ impl SheetEngine {
                     Some(ColumnFilter::DateGroups { .. }) => "dates",
                     Some(ColumnFilter::Dynamic { .. }) => "dynamic",
                     Some(ColumnFilter::Color { .. }) => "color",
+                    Some(ColumnFilter::Top10 { .. }) => "top10",
+                    Some(ColumnFilter::Icon { .. }) => "icon",
                     Some(_) => "other",
                 };
                 let dates = bo_sheet::filter::column_dates(wb, ws, af, col_id);
@@ -2306,6 +2412,7 @@ impl SheetEngine {
                 );
                 let (cell_colors, font_colors) =
                     bo_sheet::sort::line_colors(wb, sheet, data, col, false);
+                let icons = bo_sheet::sort::line_icons(wb, sheet, data, col, false);
                 Ok(json!({
                     "kind": kind,
                     "values": values
@@ -2325,6 +2432,16 @@ impl SheetEngine {
                         _ => Value::Null,
                     },
                     "colors": { "cell": cell_colors, "font": font_colors },
+                    "icons": icons
+                        .iter()
+                        .map(|(set, id)| json!({ "set": set, "id": id }))
+                        .collect::<Vec<_>>(),
+                    "top10": match current {
+                        Some(ColumnFilter::Top10 { top, percent, val, .. }) => {
+                            json!({ "top": top, "percent": percent, "val": val })
+                        }
+                        _ => Value::Null,
+                    },
                 }))
             }
             C::SetFilter { sheet, col, filter } => {
@@ -2369,6 +2486,23 @@ impl SheetEngine {
                         Some(i as u32)
                     };
                     let crit = match filter {
+                        Some(FilterSpec { top10: Some(t), .. }) => Some(ColumnFilter::Top10 {
+                            top: t.top,
+                            percent: t.percent,
+                            val: if t.percent {
+                                t.val.clamp(0.0, 100.0)
+                            } else {
+                                t.val.max(0.0).floor()
+                            },
+                            filter_val: None,
+                        }),
+                        Some(FilterSpec {
+                            icon: Some(IconSpec { set, id }),
+                            ..
+                        }) => Some(ColumnFilter::Icon {
+                            icon_set: set,
+                            icon_id: id,
+                        }),
                         Some(FilterSpec {
                             dynamic: Some(kind),
                             ..

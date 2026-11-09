@@ -94,6 +94,8 @@ export const SHEET_READ_COMMANDS: ReadonlySet<string> = new Set([
   'formatState',
   'region',
   'filterValues',
+  'sortColors',
+  'sortLists',
   'validation',
   'charts',
   'find',

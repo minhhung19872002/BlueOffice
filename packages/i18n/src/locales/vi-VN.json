@@ -574,7 +574,16 @@
       "onValue": "Giá trị ô",
       "onCellColor": "Màu ô",
       "onFontColor": "Màu chữ",
-      "color": "Màu"
+      "color": "Màu",
+      "onIcon": "Biểu tượng định dạng",
+      "icon": "Biểu tượng",
+      "iconName": "{{set}} – biểu tượng {{n}}",
+      "customList": "Theo danh sách tuỳ chỉnh",
+      "listPreset": "Chọn danh sách có sẵn",
+      "listEntries": "Các mục của danh sách",
+      "listHint": "Mỗi mục một dòng, theo thứ tự mong muốn",
+      "onTop": "Đưa lên đầu",
+      "onBottom": "Đưa xuống cuối"
     },
     "filter": {
       "toggle": "Bộ lọc",
@@ -590,6 +599,20 @@
       "cellColor": "Màu ô {{color}}",
       "fontColor": "Màu chữ {{color}}",
       "month": "Tháng {{n}}",
+      "quarter": "Quý {{n}} (mọi năm)",
+      "monthAny": "Tháng {{n}} (mọi năm)",
+      "topN": "Nhóm giá trị:",
+      "topDir": "Lớn nhất hay nhỏ nhất",
+      "top": "Lớn nhất",
+      "bottom": "Nhỏ nhất",
+      "topCount": "Số lượng",
+      "topUnit": "Đơn vị",
+      "items": "giá trị",
+      "percent": "phần trăm",
+      "apply": "Lọc",
+      "period": "Lọc theo quý / tháng…",
+      "byIcon": "Lọc theo biểu tượng:",
+      "noIcon": "Không có biểu tượng",
       "dyn": {
         "today": "Hôm nay",
         "yesterday": "Hôm qua",
@@ -605,8 +628,23 @@
         "lastYear": "Năm trước",
         "yearToDate": "Từ đầu năm đến nay",
         "aboveAverage": "Trên trung bình",
-        "belowAverage": "Dưới trung bình"
+        "belowAverage": "Dưới trung bình",
+        "lastQuarter": "Quý trước",
+        "nextQuarter": "Quý sau",
+        "nextYear": "Năm sau"
       }
+    },
+    "adv": {
+      "title": "Lọc nâng cao",
+      "hint": "Hàng đầu vùng điều kiện là tên cột; các ô cùng hàng phải thoả đồng thời, các hàng khác nhau là phương án thay thế.",
+      "inPlace": "Lọc ngay trên vùng dữ liệu",
+      "copy": "Chép kết quả sang chỗ khác",
+      "list": "Vùng dữ liệu",
+      "criteria": "Vùng điều kiện",
+      "copyTo": "Chép tới",
+      "unique": "Bỏ các bản ghi trùng",
+      "badRange": "Địa chỉ vùng không hợp lệ.",
+      "showAll": "Hiện lại mọi hàng"
     },
     "cf": {
       "title": "Thêm quy tắc định dạng có điều kiện",

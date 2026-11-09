@@ -243,6 +243,24 @@ export interface FilterSpec {
   /** Keep cells filled with / written in this `RRGGBB` colour. */
   cellColor?: string;
   fontColor?: string;
+  /** Keep the largest (`top`, default) or smallest `val` items, or `val` percent of them. */
+  top10?: { top?: boolean; percent?: boolean; val: number };
+  /** Keep cells showing icon `id` of conditional-format icon set `set` (no `id`: no icon). */
+  icon?: { set: string; id?: number };
+}
+
+/** A conditional-format icon: icon set name and zero-based icon. */
+export interface SheetIcon {
+  set: string;
+  id: number;
+}
+
+/** Result of `advancedFilter`. */
+export interface AdvancedFilterResult {
+  matched: number;
+  hidden: number;
+  list: SheetRange;
+  extract: SheetRange | null;
 }
 
 /** One sort level; `col` is the key row when sorting left to right. */
@@ -250,9 +268,14 @@ export interface SortKeySpec {
   col: number;
   descending?: boolean;
   caseSensitive?: boolean;
-  by?: 'value' | 'cellColor' | 'fontColor';
+  by?: 'value' | 'cellColor' | 'fontColor' | 'icon';
   /** `RRGGBB` of a colour key. */
   color?: string;
+  /** Icon of an icon key. */
+  iconSet?: string;
+  iconId?: number;
+  /** Custom order of a value key (entries first, in this order). */
+  customList?: string[];
 }
 
 export type PasteMode = 'all' | 'values' | 'formats' | 'formulas';
@@ -605,6 +628,17 @@ export type SheetCommand =
       leftToRight?: boolean;
     }
   | { cmd: 'sortColors'; sheet: number; range: SheetRange; key: number; leftToRight?: boolean }
+  | { cmd: 'sortLists' }
+  | {
+      cmd: 'advancedFilter';
+      sheet: number;
+      list: SheetRange;
+      criteriaSheet?: number;
+      criteria: SheetRange;
+      copyTo?: SheetRange | null;
+      unique?: boolean;
+    }
+  | { cmd: 'showAllData'; sheet: number }
   | { cmd: 'region'; sheet: number; range: SheetRange }
   | { cmd: 'toggleFilter'; sheet: number; range: SheetRange }
   | { cmd: 'filterValues'; sheet: number; col: number }

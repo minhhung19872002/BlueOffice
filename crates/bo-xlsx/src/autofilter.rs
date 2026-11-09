@@ -1,9 +1,10 @@
 //! Worksheet AutoFilter (ECMA-376 Part 1, §18.3.1.2 `autoFilter`, §18.3.2 filter elements).
 //!
-//! Criteria the model represents (`filters` with plain values, `customFilters`,
-//! `top10`) are parsed; anything else (`dynamicFilter`, `colorFilter`,
-//! `iconFilter`, `dateGroupItem`, extra attributes) is kept as verbatim XML so the
-//! element round-trips losslessly.
+//! Criteria the model represents (`filters` with plain values or date groups,
+//! `customFilters`, `top10`, `dynamicFilter`, `colorFilter`, `iconFilter`) are
+//! parsed, as is a `sortState` (§18.3.1.92) the writer reproduces byte for byte;
+//! anything else (extension elements, extra attributes) is kept as verbatim XML so
+//! the element round-trips losslessly.
 
 use crate::xml::{
     a, a_opt, a_raw, a_true, attrs, capture, emit_ordered, fmt_f64, for_children, lname,
@@ -12,6 +13,7 @@ use crate::xml::{
 use crate::Result;
 use bo_model::sheet::{
     AutoFilter, CellRange, ColumnFilter, CustomFilter, DateGroup, FilterColumn, RawXml,
+    SortCondition, SortState,
 };
 use bo_opc::xml::XmlReader;
 use quick_xml::events::BytesStart;
@@ -48,6 +50,18 @@ pub(crate) fn read_auto_filter(
                 return Ok(());
             }
             // Malformed column (no colId): kept verbatim.
+        }
+        if name == "sortState" && af.sort_state.is_none() {
+            if let Some(ss) = parse_sort_state(&xml) {
+                // Only a state the writer reproduces exactly is modelled (lossless).
+                let mut again = String::new();
+                write_sort_state(&mut again, &ss);
+                if again == xml {
+                    af.sort_state = Some(ss);
+                    prev = name;
+                    return Ok(());
+                }
+            }
         }
         push_unknown(&mut unknown, &mut prev, AUTOFILTER_SCHEMA, &name, xml);
         Ok(())
@@ -190,6 +204,13 @@ fn parse_criterion(xml: &str) -> Option<ColumnFilter> {
             }
             ok.then_some(ColumnFilter::Custom { and, conditions })
         }
+        // §18.3.2.9 iconFilter
+        "iconFilter" if empty => {
+            let icon_set = take(&mut at, "iconSet")?;
+            let icon_id = take_u32(&mut at, "iconId");
+            at.is_empty()
+                .then_some(ColumnFilter::Icon { icon_set, icon_id })
+        }
         // §18.3.2.10 top10
         "top10" if empty => {
             let top = take_bool(&mut at, "top").unwrap_or(true);
@@ -212,7 +233,7 @@ pub(crate) fn write_auto_filter(out: &mut String, af: &AutoFilter) {
     out.push_str("<autoFilter");
     a(out, "ref", &af.range.to_string());
     a_raw(out, &af.attrs);
-    if af.columns.is_empty() && af.unknown.is_empty() {
+    if af.columns.is_empty() && af.unknown.is_empty() && af.sort_state.is_none() {
         out.push_str("/>");
         return;
     }
@@ -221,6 +242,10 @@ pub(crate) fn write_auto_filter(out: &mut String, af: &AutoFilter) {
         if slot == "filterColumn" {
             for fc in &af.columns {
                 write_filter_column(out, fc);
+            }
+        } else if slot == "sortState" {
+            if let Some(ss) = &af.sort_state {
+                write_sort_state(out, ss);
             }
         }
     });
@@ -330,9 +355,96 @@ fn write_filter_column(out: &mut String, fc: &FilterColumn) {
             }
             out.push_str("/>");
         }
+        ColumnFilter::Icon { icon_set, icon_id } => {
+            out.push_str("<iconFilter");
+            a(out, "iconSet", icon_set);
+            a_opt(out, "iconId", icon_id.as_ref());
+            out.push_str("/>");
+        }
         ColumnFilter::Raw(xml) => out.push_str(xml),
     }
     out.push_str("</filterColumn>");
+}
+
+/// §18.3.1.92 sortState / §18.3.1.91 sortCondition from captured XML; `None` when an
+/// attribute or child is not modelled.
+pub(crate) fn parse_sort_state(xml: &str) -> Option<SortState> {
+    let mut r = XmlReader::new(xml.as_bytes(), "sortState");
+    let (e, empty) = root(&mut r).ok()?;
+    if e.name().as_ref() != "sortState" {
+        return None;
+    }
+    let mut at = attrs(&e);
+    let mut ss = SortState {
+        range: CellRange::parse(&take(&mut at, "ref")?)?,
+        column_sort: take_bool(&mut at, "columnSort").unwrap_or(false),
+        case_sensitive: take_bool(&mut at, "caseSensitive").unwrap_or(false),
+        sort_method: take(&mut at, "sortMethod"),
+        conditions: Vec::new(),
+    };
+    if !at.is_empty() {
+        return None;
+    }
+    if !empty {
+        let mut ok = true;
+        for_children(&mut r, |r, c, empty| {
+            let mut ca = attrs(c);
+            if c.name().as_ref() != "sortCondition" || !empty {
+                ok = false;
+                let _ = capture(r, c, empty)?;
+                return Ok(());
+            }
+            let cond = SortCondition {
+                descending: take_bool(&mut ca, "descending").unwrap_or(false),
+                sort_by: take(&mut ca, "sortBy"),
+                range: take(&mut ca, "ref")
+                    .and_then(|s| CellRange::parse(&s))
+                    .unwrap_or_default(),
+                custom_list: take(&mut ca, "customList"),
+                dxf_id: take_u32(&mut ca, "dxfId"),
+                icon_set: take(&mut ca, "iconSet"),
+                icon_id: take_u32(&mut ca, "iconId"),
+            };
+            if ca.is_empty() {
+                ss.conditions.push(cond);
+            } else {
+                ok = false;
+            }
+            Ok(())
+        })
+        .ok()?;
+        if !ok {
+            return None;
+        }
+    }
+    Some(ss)
+}
+
+/// Write a `sortState` (§18.3.1.92) with its `sortCondition` children (§18.3.1.91),
+/// attributes in schema order.
+pub(crate) fn write_sort_state(out: &mut String, ss: &SortState) {
+    out.push_str("<sortState");
+    a_true(out, "columnSort", ss.column_sort);
+    a_true(out, "caseSensitive", ss.case_sensitive);
+    a_opt(out, "sortMethod", ss.sort_method.as_ref());
+    a(out, "ref", &ss.range.to_string());
+    if ss.conditions.is_empty() {
+        out.push_str("/>");
+        return;
+    }
+    out.push('>');
+    for c in &ss.conditions {
+        out.push_str("<sortCondition");
+        a_true(out, "descending", c.descending);
+        a_opt(out, "sortBy", c.sort_by.as_ref());
+        a(out, "ref", &c.range.to_string());
+        a_opt(out, "customList", c.custom_list.as_ref());
+        a_opt(out, "dxfId", c.dxf_id.as_ref());
+        a_opt(out, "iconSet", c.icon_set.as_ref());
+        a_opt(out, "iconId", c.icon_id.as_ref());
+        out.push_str("/>");
+    }
+    out.push_str("</sortState>");
 }
 
 #[cfg(test)]
@@ -380,7 +492,10 @@ mod tests {
                 max_val: None
             }
         );
-        assert_eq!(af.unknown.len(), 1);
+        assert_eq!(af.unknown.len(), 0);
+        let ss = af.sort_state.as_ref().unwrap();
+        assert_eq!(ss.range, CellRange::parse("A2:D10").unwrap());
+        assert_eq!(ss.conditions.len(), 1);
         assert_eq!(out, xml);
     }
 
@@ -418,5 +533,47 @@ mod tests {
         assert_eq!(out, raw);
         let (_, out) = rt(r#"<autoFilter ref="A1:B2"/>"#);
         assert_eq!(out, r#"<autoFilter ref="A1:B2"/>"#);
+    }
+
+    // source: ECMA-376 Part 1, §18.3.2.9 iconFilter, §18.3.1.92 sortState, §18.3.1.91 sortCondition
+    #[test]
+    fn icon_filter_and_sort_state() {
+        let xml = r#"<autoFilter ref="A1:C9"><filterColumn colId="1"><iconFilter iconSet="3Arrows" iconId="2"/></filterColumn><filterColumn colId="2"><iconFilter iconSet="3Flags"/></filterColumn><sortState caseSensitive="1" ref="A2:C9"><sortCondition descending="1" sortBy="icon" ref="B2:B9" iconSet="3Arrows" iconId="0"/><sortCondition ref="A2:A9" customList="Thấp,Vừa,Cao"/><sortCondition sortBy="cellColor" ref="C2:C9" dxfId="4"/></sortState></autoFilter>"#;
+        let (af, out) = rt(xml);
+        assert_eq!(
+            af.columns[0].filter,
+            ColumnFilter::Icon {
+                icon_set: "3Arrows".into(),
+                icon_id: Some(2)
+            }
+        );
+        assert_eq!(
+            af.columns[1].filter,
+            ColumnFilter::Icon {
+                icon_set: "3Flags".into(),
+                icon_id: None
+            }
+        );
+        let ss = af.sort_state.as_ref().unwrap();
+        assert!(ss.case_sensitive && !ss.column_sort);
+        assert_eq!(ss.conditions[0].sort_by.as_deref(), Some("icon"));
+        assert_eq!(ss.conditions[0].icon_id, Some(0));
+        assert!(ss.conditions[0].descending);
+        assert_eq!(
+            ss.conditions[1].custom_list.as_deref(),
+            Some("Thấp,Vừa,Cao")
+        );
+        assert_eq!(ss.conditions[2].dxf_id, Some(4));
+        assert_eq!(out, xml);
+        // Left-to-right state; a state with an unmodelled attribute order stays raw.
+        let lr = r#"<autoFilter ref="A1:D2"><sortState columnSort="1" ref="B1:D2"><sortCondition ref="B2:D2"/></sortState></autoFilter>"#;
+        let (af, out) = rt(lr);
+        assert!(af.sort_state.as_ref().unwrap().column_sort);
+        assert_eq!(out, lr);
+        let odd = r#"<autoFilter ref="A1:D2"><sortState ref="B1:D2" columnSort="1"><sortCondition ref="B2:D2"/></sortState></autoFilter>"#;
+        let (af, out) = rt(odd);
+        assert!(af.sort_state.is_none());
+        assert_eq!(af.unknown.len(), 1);
+        assert_eq!(out, odd);
     }
 }

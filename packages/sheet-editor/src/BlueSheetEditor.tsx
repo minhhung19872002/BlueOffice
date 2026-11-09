@@ -112,6 +112,7 @@ import {
   Grid3x3,
   ListFilter,
   FunnelX,
+  FunnelPlus,
   Calculator,
   Sigma,
   Group,
@@ -202,11 +203,11 @@ import {
   MessageDialog,
   PageSetupDialog,
   PasteSpecialDialog,
-  SortDialog,
   ValidationDialog,
   type MenuItem,
 } from './dialogs';
 import { FormatCellsDialog, type NumberPreset } from './FormatCellsDialog';
+import { AdvancedFilterDialog, SortDialog } from './sortFilter';
 import { PivotDialog, PivotPanel, pivotAt, pivotSelectionItems, usePivotLabels } from './pivot';
 import {
   PivotCalcDialog,
@@ -347,6 +348,7 @@ interface EditState {
 type DialogState =
   | { kind: 'format' }
   | { kind: 'sort' }
+  | { kind: 'advancedFilter' }
   | { kind: 'cf' }
   | { kind: 'dv' }
   | { kind: 'goalSeek' }
@@ -1931,6 +1933,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       shortcut: 'Ctrl+Shift+L',
       isChecked: () => !!summary?.autoFilter,
     });
+    add('data.advancedFilter', open({ kind: 'advancedFilter' }));
+    add('data.showAllData', (s) => exec({ cmd: 'showAllData', sheet: s.sheet }));
     add('data.validation', open({ kind: 'dv' }));
     add(
       'data.flashFill',
@@ -2868,6 +2872,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('data.sortDesc', t('sheetEditor.sortDesc'), <ArrowDownZA size={s} />, 'small'),
               item('data.sort', t('sheetEditor.sort.title'), <ArrowUpDown size={18} />),
               item('data.filter', t('sheetEditor.filter.toggle'), <Funnel size={18} />),
+              item('data.advancedFilter', t('sheetEditor.adv.title'), <FunnelPlus size={18} />),
+              item('data.showAllData', t('sheetEditor.adv.showAll'), <FunnelX size={18} />),
             ],
           },
           {
@@ -3850,6 +3856,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       )}
       {dialog?.kind === 'sort' && <SortDialog {...common} range={toRange(r)} />}
+      {dialog?.kind === 'advancedFilter' && <AdvancedFilterDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'cf' && <CfDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'dv' && <ValidationDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'dataTable' && <DataTableDialog {...common} range={toRange(r)} />}

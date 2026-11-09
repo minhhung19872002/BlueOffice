@@ -301,6 +301,31 @@ pub fn hidden_rows_at(
             Some(crate::color::cell_font_rgb(wb, cell).unwrap_or((0, 0, 0)))
         }
     };
+    // §18.3.2.9 iconFilter: icons the sheet's conditional formats show in the range.
+    let icons: std::collections::HashMap<(u32, u32), (String, usize)> = if af
+        .columns
+        .iter()
+        .any(|fc| matches!(fc.filter, ColumnFilter::Icon { .. }))
+    {
+        wb.sheets
+            .iter()
+            .position(|s| std::ptr::eq(s, ws))
+            .map(|sheet| {
+                crate::cf::evaluate(
+                    wb,
+                    sheet,
+                    first..last + 1,
+                    af.range.first.col..af.range.last.col + 1,
+                    Some(now),
+                )
+                .into_iter()
+                .filter_map(|(k, f)| f.icon.map(|i| (k, (i.set, i.index))))
+                .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        std::collections::HashMap::new()
+    };
     let mut hidden = Vec::new();
     for r in first..=last {
         let visible = af
@@ -375,6 +400,14 @@ pub fn hidden_rows_at(
                     },
                     ColumnFilter::Color { cell_color, .. } => {
                         want.is_some_and(|w| cell_rgb(cell, *cell_color) == Some(w))
+                    }
+                    ColumnFilter::Icon { icon_set, icon_id } => {
+                        match (icons.get(&(r, col)), icon_id) {
+                            (Some((set, i)), Some(id)) => set == icon_set && *i == *id as usize,
+                            // No `iconId`: the cells showing no icon.
+                            (None, None) => true,
+                            _ => false,
+                        }
                     }
                 }
             });
@@ -716,5 +749,37 @@ mod tests {
             }),
             vec![2, 4]
         );
+    }
+
+    // source: ECMA-376 Part 1, §18.3.2.9 iconFilter
+    #[test]
+    fn icon_filter() {
+        let mut wb = Workbook::new();
+        let ws = &mut wb.sheets[0];
+        ws.set_a1("A1", CellValue::Text("Điểm".into()));
+        for (i, v) in [5.0, 25.0, 12.0, 30.0, 8.0, 15.0].iter().enumerate() {
+            ws.set_cell(i as u32 + 1, 0, Cell::new(CellValue::Number(*v)));
+        }
+        ws.set_a1("A8", CellValue::Text("x".into()));
+        crate::sort::tests::arrows(&mut wb, "A2:A8");
+        let mk = |icon_id: Option<u32>| AutoFilter {
+            range: CellRange::parse("A1:A8").unwrap(),
+            columns: vec![FilterColumn {
+                col_id: 0,
+                filter: ColumnFilter::Icon {
+                    icon_set: "3Arrows".into(),
+                    icon_id,
+                },
+                ..FilterColumn::default()
+            }],
+            ..AutoFilter::default()
+        };
+        let hid = |f: &AutoFilter| hidden_rows(&wb, &wb.sheets[0], f, &Locale::VI_VN);
+        // Icon 0 (below 10): 5 (row 1) and 8 (row 5) stay.
+        assert_eq!(hid(&mk(Some(0))), vec![2, 3, 4, 6, 7]);
+        // Icon 2 (20 and up): 25 and 30.
+        assert_eq!(hid(&mk(Some(2))), vec![1, 3, 5, 6, 7]);
+        // No icon: only the text cell.
+        assert_eq!(hid(&mk(None)), vec![1, 2, 3, 4, 5, 6]);
     }
 }

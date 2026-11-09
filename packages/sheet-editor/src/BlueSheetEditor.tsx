@@ -79,6 +79,7 @@ import {
   LockOpen,
   MoveHorizontal,
   MoveVertical,
+  Omega,
   PaintBucket,
   Paintbrush,
   Palette,
@@ -141,6 +142,7 @@ import {
   MacroBanner,
   PasswordDialog,
   SavePasswordPanel,
+  SymbolPanel,
 } from '@blueoffice/editor';
 import { AnalysisDialog } from './analysis';
 import { ProtectSheetDialog, UnprotectDialog } from './protection';
@@ -239,6 +241,15 @@ type SecurityPanel =
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const ZOOMS = [0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 2];
+/** Fonts offered by the symbol picker besides the active cell's font. */
+const SYMBOL_FONTS = [
+  'Calibri',
+  'Arial',
+  'Times New Roman',
+  'Tahoma',
+  'Carlito',
+  'Liberation Sans',
+];
 /** Selections larger than this skip the status-bar statistics. */
 const STATS_LIMIT = 2_000;
 
@@ -402,11 +413,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   /** Threaded comments side panel ([MS-XLSX] threaded comments). */
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [threads, setThreads] = useState<SheetThreadInfo[]>([]);
+  /** Symbol picker panel (insert into the cell being edited, else the active cell). */
+  const [symbolsOpen, setSymbolsOpen] = useState(false);
   const pivotLabels = usePivotLabels();
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const barRef = useRef<HTMLInputElement>(null);
+  /** Input that last had the caret while editing (the symbol picker inserts there). */
+  const lastInput = useRef<'cell' | 'bar'>('cell');
   const glyphs = useMemo(() => (host ? new GlyphStore(host) : null), [host]);
   const renderSeq = useRef(0);
   const drag = useRef<Drag | null>(null);
@@ -1447,6 +1463,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
     // Insert
     add('insert.chart', popup('chart', 'insert.chart'), has);
+    add('insert.symbol', async () => setSymbolsOpen(true), has);
     add('insert.pivot', open({ kind: 'pivot' }), has);
     add('insert.table', (s) => exec({ cmd: 'createTable', sheet: s.sheet, range: rng(s) }), has);
     add(
@@ -1864,6 +1881,39 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       e.preventDefault();
       void startEdit(false, '');
     }
+  };
+
+  // Symbol picker: at the caret of the edit in progress, else appended to the active
+  // cell's content in a new in-place edit (committed with Enter as usual).
+  const insertSymbol = (char: string) => {
+    const el = lastInput.current === 'bar' ? barRef.current : inputRef.current;
+    const put = (base: string, start: number, end: number, pos: CellPos) => {
+      const text = base.slice(0, start) + char + base.slice(end);
+      const caret = start + char.length;
+      setEdit({ pos, text, inPlace: true });
+      setBarText(text);
+      if (inputRef.current) inputRef.current.value = text;
+      requestAnimationFrame(() => el?.setSelectionRange(caret, caret));
+    };
+    if (edit && el) {
+      const start = el.selectionStart ?? el.value.length;
+      put(
+        edit.text,
+        Math.min(start, edit.text.length),
+        Math.min(el.selectionEnd ?? start, edit.text.length),
+        edit.pos,
+      );
+      return;
+    }
+    if (!host) return;
+    const pos = selection.active;
+    void host
+      .cell(sheet, pos.row, pos.col)
+      .then((c) => {
+        lastInput.current = 'cell';
+        put(c.input, c.input.length, c.input.length, pos);
+      })
+      .catch(fail);
   };
 
   // Typing (including IME output) lands in the input and switches to edit mode.
@@ -2399,6 +2449,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               ),
             ],
           },
+          {
+            id: 'symbols',
+            label: t('ribbon.groups.symbols'),
+            items: [item('insert.symbol', t('commands.insert.symbol'), <Omega size={18} />)],
+          },
         ],
       },
       {
@@ -2770,9 +2825,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         <span className={styles.fx}>fx</span>
         <input
           className={styles.formulaInput}
+          ref={barRef}
           aria-label={t('sheetEditor.formulaBar')}
           value={barText}
           onFocus={() => {
+            lastInput.current = 'bar';
             if (!edit) setEdit({ pos: selection.active, text: barText, inPlace: true });
           }}
           onChange={(e) => {
@@ -3034,6 +3091,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             <input
               ref={inputRef}
               className={edit ? styles.cellEditorActive : styles.cellEditor}
+              onFocus={() => {
+                lastInput.current = 'cell';
+              }}
               aria-label={t('sheetEditor.cellEditor')}
               style={
                 activeRect
@@ -3062,6 +3122,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           </div>
           <div style={{ width: content.w * scale, height: content.h * scale }} />
         </div>
+        {symbolsOpen && (
+          <SymbolPanel
+            fonts={[...new Set([fmt?.fontName, ...SYMBOL_FONTS].filter((f): f is string => !!f))]}
+            font={fmt?.fontName}
+            onInsert={insertSymbol}
+            onClose={() => {
+              setSymbolsOpen(false);
+              focusInput();
+            }}
+          />
+        )}
         {commentsOpen && (
           <CommentThreads
             threads={threads.map((th) => ({ ...th, anchor: th.cell }))}

@@ -32,3 +32,23 @@ export {
 export * from './tokens';
 export * from './icons';
 export { getDensity, nextDensity, setDensity, useDensity, type Density } from './density';
+export {
+  SymbolPicker,
+  moveIndex as moveSymbolIndex,
+  type SymbolPickerLabels,
+  type SymbolPickerProps,
+} from './SymbolPicker';
+export {
+  SPECIAL_CHARACTERS,
+  VIETNAMESE_BLOCK,
+  foldText,
+  formatCodePoint,
+  loadRecentSymbols,
+  pushRecentSymbol,
+  searchSymbols,
+  symbolBlocks,
+  symbolEntry,
+  type SpecialCharacterId,
+  type SymbolBlock,
+  type SymbolEntry,
+} from './symbols/catalog';

@@ -229,6 +229,23 @@ describe('BlueEditor', () => {
     await waitFor(() => expect(screen.queryByTestId('status-modified')).toBeNull());
   });
 
+  it('inserts a symbol found by its Vietnamese keyword from the Insert tab', async () => {
+    const p = fakePlatform();
+    render(<BlueEditor platform={p} autosaveMs={0} />);
+    fireEvent.click(screen.getByTestId('new-document'));
+    await waitFor(() =>
+      expect(screen.getByTestId('doc-name').textContent).toBe('Tài liệu mới.docx'),
+    );
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chèn' }));
+    fireEvent.click(await waitFor(() => document.querySelector('[data-command="insert.symbol"]')!));
+    const search = await screen.findByTestId('symbol-search');
+    fireEvent.change(search, { target: { value: 'đồng' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    await waitFor(() => expect(p.commands).toContainEqual({ cmd: 'insertText', text: '₫' }));
+    fireEvent.keyDown(screen.getByTestId('symbol-panel'), { key: 'Escape' });
+    expect(screen.queryByTestId('symbol-panel')).toBeNull();
+  });
+
   it('opens the find panel and offers crash recovery', async () => {
     const p = fakePlatform();
     p.offline.get = async (k) =>

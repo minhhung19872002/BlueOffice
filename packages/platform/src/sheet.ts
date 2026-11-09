@@ -84,6 +84,14 @@ export interface RangeStats {
   average: number | null;
 }
 
+/** Result of the `flashFill` command. */
+export interface FlashFillResult {
+  /** A consistent, unambiguous pattern was found. */
+  found: boolean;
+  /** Cells filled. */
+  filled: number;
+}
+
 /** Engine error text of an edit refused by sheet protection. */
 export const SHEET_PROTECTED = 'sheet protected';
 /** Engine error text of a sheet operation refused by workbook protection. */
@@ -725,6 +733,11 @@ export type SheetCommand =
   | { cmd: 'setTabColor'; sheet: number; color?: string | null }
   | { cmd: 'batch'; cmds: SheetCommand[] }
   | { cmd: 'rangeStats'; sheet: number; ranges: SheetRange[] }
+  /**
+   * Flash Fill: learn a pattern from the filled cells of column `col` (the other columns of
+   * the block around the cell are the sources) and fill its empty cells below the examples.
+   */
+  | { cmd: 'flashFill'; sheet: number; row: number; col: number }
   /** What-if data table over `range` (headers included); input cells as A1 addresses. */
   | {
       cmd: 'dataTable';

@@ -119,6 +119,8 @@ function fakeHost() {
         }
         case 'paste':
           return null;
+        case 'flashFill':
+          return cmd.col === 0 ? { found: false, filled: 0 } : { found: true, filled: 2 };
         case 'names':
         case 'charts':
           return [];
@@ -445,6 +447,30 @@ describe('BlueSheetEditor', () => {
     await waitFor(() =>
       expect(host.exec).toHaveBeenCalledWith(expect.objectContaining({ cmd: 'toggleFilter' })),
     );
+  });
+
+  it('runs Flash Fill from Ctrl+E and the Data tab', async () => {
+    const { host } = fakeHost();
+    const { p } = platform(host);
+    render(<BlueSheetEditor platform={p} language="en-US" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    const input = screen.getByLabelText('Cell editor');
+    // A1 has no pattern in the fake host: the status bar says so.
+    fireEvent.keyDown(input, { key: 'e', ctrlKey: true });
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith({ cmd: 'flashFill', sheet: 0, row: 0, col: 0 }),
+    );
+    await screen.findByText(/Flash Fill found no pattern/);
+    // B1 from the ribbon.
+    const nameBox = screen.getByLabelText('Name box');
+    fireEvent.change(nameBox, { target: { value: 'B1' } });
+    fireEvent.keyDown(nameBox, { key: 'Enter' });
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Data' }));
+    fireEvent.click(await screen.findByText('Flash Fill'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith({ cmd: 'flashFill', sheet: 0, row: 0, col: 1 }),
+    );
+    await screen.findByText('Flash Fill filled 2 cells.');
   });
 
   it('opens find, go to and sort dialogs', async () => {

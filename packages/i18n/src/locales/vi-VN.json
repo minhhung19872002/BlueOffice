@@ -1016,6 +1016,11 @@
         "objects": "Sửa đối tượng (biểu đồ)"
       }
     },
+    "flashFill": {
+      "title": "Điền nhanh",
+      "done": "Điền nhanh đã điền {{count}} ô.",
+      "none": "Điền nhanh không nhận ra mẫu. Hãy nhập thêm một hai ví dụ rồi thử lại."
+    },
     "goalSeek": {
       "title": "Tìm giá trị đích",
       "target": "Ô đích",

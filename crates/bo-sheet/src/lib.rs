@@ -4,6 +4,7 @@
 //! * [`color`] — `CT_Color` resolution (rgb / theme + tint / indexed).
 //! * [`formula`] — the [`calc`] boundary implemented with `bo-formula` (recalculation,
 //!   reference adjustment for insert/delete, AutoFill and sort).
+//! * [`flashfill`] — Flash Fill: learn a text pattern from examples and fill a column.
 //! * [`geometry`] — column widths / row heights, offsets, hidden, merges, hit-testing.
 #![forbid(unsafe_code)]
 
@@ -14,6 +15,7 @@ pub mod chart;
 pub mod color;
 pub mod fill;
 pub mod filter;
+pub mod flashfill;
 pub mod formula;
 pub mod geometry;
 pub mod icons;

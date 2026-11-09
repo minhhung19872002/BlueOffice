@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 mod forms;
+mod picture;
 mod reader;
 mod shape;
 pub mod sigline;

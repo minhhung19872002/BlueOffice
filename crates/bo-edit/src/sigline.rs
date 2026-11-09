@@ -74,6 +74,7 @@ pub fn signature_line_image(line: SignatureLine, media: &str, width: i64, height
         crop: None,
         rotation: 0,
         description: String::new(),
+        format: None,
         shape: Some(Box::new(Shape {
             preset: "rect".into(),
             vml: true,

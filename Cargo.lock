@@ -795,6 +795,8 @@ dependencies = [
 name = "bo-raster"
 version = "0.1.0"
 dependencies = [
+ "bo-drawingml",
+ "bo-model",
  "bo-render",
  "bo-text",
  "png",

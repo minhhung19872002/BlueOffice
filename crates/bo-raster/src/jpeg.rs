@@ -436,3 +436,9 @@ mod tests {
         assert!(encode_jpeg(&px[..10], w as u32, h as u32, 90).is_none());
     }
 }
+
+/// [`encode_jpeg`] for a decoded [`crate::codecs::Rgba`] picture (alpha ignored: composite
+/// first).
+pub fn encode(img: &crate::codecs::Rgba, quality: u8) -> Option<Vec<u8>> {
+    encode_jpeg(&img.pixels, img.width, img.height, quality)
+}

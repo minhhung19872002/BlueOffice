@@ -9,6 +9,8 @@ import {
   SavePasswordPanel,
   SymbolPanel,
   clipboardHistory,
+  pictureTabLabels,
+  registerPictureCommands,
   type ClipItem,
 } from '@blueoffice/editor';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
@@ -36,7 +38,10 @@ import {
   StatusBar,
   TitleBar,
   useCommandSearchShortcut,
+  usePictureTools,
   useResolvedTheme,
+  toBase64 as pictureBase64,
+  PictureActionsHub,
   type RibbonTab,
   type ThemeSetting,
 } from '@blueoffice/ui';
@@ -213,6 +218,8 @@ export interface SlideEditorState extends MasterState {
   isChart?: boolean;
   /** The selection is one SmartArt. */
   isSmartArt?: boolean;
+  /** Every selected shape is a picture (picture tools, CORE-PIC-001). */
+  isPicture?: boolean;
   /** Transition kind of the current slide (`none` without one). */
   transition?: string;
 }
@@ -981,6 +988,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     [ctrl, baseName, current, count, engine, platform, t, fail],
   );
 
+  /** Actions of the picture tools tab (CORE-PIC-001), behind the `picture.*` commands. */
+  const [pictureHub] = useState(() => new PictureActionsHub());
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SlideEditorState>();
     const guard = async (f: () => Promise<unknown>) => {
@@ -1318,8 +1327,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isEnabled: deck,
       run: () =>
         guard(async () => {
-          const f = await platform.files.openFile(['.png', '.jpg', '.jpeg']);
-          if (f) await ctrl.insertPicture(f.bytes, f.name);
+          const f = await platform.files.openFile(['.png', '.jpg', '.jpeg', '.svg']);
+          // An SVG keeps its vector original next to a PNG drawn from it (CORE-PIC-001).
+          if (f && /\.svg$/i.test(f.name)) {
+            await ctrl.run({ cmd: 'pictureInsertSvg', data: pictureBase64(f.bytes), name: f.name });
+          } else if (f) await ctrl.insertPicture(f.bytes, f.name);
         }),
     });
     reg.register({
@@ -1411,6 +1423,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         master: t('slideEditor.master.newMaster'),
       }),
     });
+    // Picture tools (CORE-PIC-001): buttons of the "Picture tools" tab.
+    registerPictureCommands(
+      reg,
+      (st) => !!st.isPicture,
+      () => pictureHub.get(),
+    );
     return reg;
   }, [
     fail,
@@ -1438,6 +1456,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     pos.slide,
     runProtect,
     setProtectUi,
+    pictureHub,
   ]);
 
   const state: SlideEditorState = useMemo(() => {
@@ -1458,6 +1477,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       bandRow: edit?.table?.bandRow,
       isChart: s.length === 1 && s[0]?.kind === 'chart' && !!edit?.chart,
       isSmartArt: s.length === 1 && s[0]?.kind === 'smartart' && !!edit?.smartart,
+      isPicture: s.length > 0 && s.every((x) => x.kind === 'picture'),
       transition: edit?.transition?.kind ?? 'none',
       ...masterState(edit),
     };
@@ -1477,6 +1497,18 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     },
     [registry, state, run],
   );
+
+  // Picture tools tab (CORE-PIC-001) for the selected pictures.
+  const picture = usePictureTools({
+    labels: pictureTabLabels(t),
+    enabled: !!state.isPicture,
+    selectionKey: JSON.stringify([current, (edit?.selection ?? []).map((x) => x.id)]),
+    run: (c) => ctrl.run(c),
+    exec,
+    pickFile: () => platform.files.openFile(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg']),
+    shapes: true,
+    hub: pictureHub,
+  });
 
   // Shortcuts typed inside the shape text (format.*, edit.*).
   const textShortcut = useCallback(
@@ -2239,8 +2271,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           }))}
         />
       )}
+      {picture.dialogs}
       <CommandSearch
-        tabs={ribbonTabs}
+        tabs={picture.tab ? [...ribbonTabs, picture.tab] : ribbonTabs}
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         labels={{
@@ -2251,9 +2284,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       />
       {view !== 'show' && view !== 'presenter' && (
         <Ribbon
-          tabs={ribbonTabs}
+          tabs={picture.tab ? [...ribbonTabs, picture.tab] : ribbonTabs}
           moreLabel={t('ribbon.more')}
-          value={ribbonTabs.some((x) => x.id === ribbonTab) ? ribbonTab : 'home'}
+          value={
+            ribbonTabs.some((x) => x.id === ribbonTab) ||
+            (picture.tab && ribbonTab === picture.tab.id)
+              ? ribbonTab
+              : 'home'
+          }
           onValueChange={(v) => {
             setRibbonTab(v);
             // The pane belongs to the Transitions / Animations tabs.

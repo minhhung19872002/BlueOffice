@@ -1354,6 +1354,10 @@ fn with_src(mut img: Image, raw: Raw) -> Image {
     let fp = if img.shape.is_some() {
         crate::shape::shape_fingerprint(&img)
     } else {
+        // Adjustments and crop shape of the picture (CORE-PIC-001).
+        if let Some(p) = crate::picture::read(&raw.xml) {
+            img.format = (!p.format.is_plain()).then(|| Box::new(p.format));
+        }
         fingerprint(&img.anchor)
     };
     img.src = Some(Raw::new(raw.xml, fp));
@@ -1453,6 +1457,7 @@ fn drawing_shape(
             rotation,
             description: String::new(),
             shape: Some(Box::new(shape)),
+            format: None,
             src: None,
         }
     };
@@ -1508,6 +1513,7 @@ fn read_drawing_frame(
         rotation: 0,
         description: String::new(),
         shape: None,
+        format: None,
         src: None,
     };
     let mut anchor: Option<Anchor> = None;

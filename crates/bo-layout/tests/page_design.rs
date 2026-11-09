@@ -258,6 +258,7 @@ fn watermark(art: ShapeArt, w: f32, h: f32, rotation: i32) -> Run {
                 art: Some(Box::new(art)),
                 ..Shape::default()
             })),
+            format: None,
             src: None,
         }))],
     }

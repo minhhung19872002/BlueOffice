@@ -1066,6 +1066,9 @@ pub struct EditResult {
     /// Pictures for signing a line (`SignatureLineImages`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature_line_images: Option<crate::sigline::SignatureLineImages>,
+    /// The picture at the selection (picture tools commands, CORE-PIC-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub picture: Option<Box<crate::picture_tools::PictureInfo>>,
 }
 
 impl crate::Engine {
@@ -1081,6 +1084,10 @@ impl crate::Engine {
             .and_then(|n| n.as_f64());
         if let Some(sc) = crate::security::SecurityCommand::parse(&v) {
             let r = self.doc_security(sc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        if let Some(pc) = crate::picture_tools::PictureCommand::parse(&v) {
+            let r = self.doc_picture_command(pc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         let cmd: Command =
@@ -2127,6 +2134,7 @@ impl crate::Engine {
             admin_format: None,
             signature_lines: None,
             signature_line_images: None,
+            picture: None,
         })
     }
 }

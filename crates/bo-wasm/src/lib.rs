@@ -117,8 +117,8 @@ impl WasmEngine {
     /// Bytes of a media part referenced by an `image` command (empty when unknown).
     pub fn media(&self, name: &str) -> Vec<u8> {
         self.inner
-            .media(name)
-            .map(<[u8]>::to_vec)
+            .media_resolved(name)
+            .map(std::borrow::Cow::into_owned)
             .unwrap_or_default()
     }
 
@@ -161,7 +161,9 @@ impl WasmEngine {
     /// Bytes of an image referenced by an `image` display-list command.
     #[wasm_bindgen(js_name = imageBytes)]
     pub fn image_bytes(&self, id: &str) -> Option<Vec<u8>> {
-        self.inner.image_bytes(id).map(<[u8]>::to_vec)
+        self.inner
+            .media_resolved(id)
+            .map(std::borrow::Cow::into_owned)
     }
 
     /// Save the open presentation as `.pptx` bytes.

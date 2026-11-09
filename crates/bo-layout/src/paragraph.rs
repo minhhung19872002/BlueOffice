@@ -738,6 +738,7 @@ fn math_object(
         rotation: 0,
         description: "equation".into(),
         shape: None,
+        format: None,
         src: None,
     };
     Some((

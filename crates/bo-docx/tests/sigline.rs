@@ -169,6 +169,7 @@ fn new_line(media: &str, line: SignatureLine) -> Paragraph {
         crop: None,
         rotation: 0,
         description: String::new(),
+        format: None,
         shape: Some(Box::new(Shape {
             preset: "rect".into(),
             vml: true,

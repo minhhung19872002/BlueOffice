@@ -64,6 +64,7 @@ fn text_box(anchor: Option<Anchor>, preset: &str, text: &str) -> RunContent {
             anchor: TextAnchor::Center,
             ..Shape::default()
         })),
+        format: None,
         src: None,
     }))
 }

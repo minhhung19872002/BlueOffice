@@ -21,6 +21,7 @@ pub mod chart_design;
 mod clip_picture;
 pub mod collab;
 pub mod design;
+mod doc_picture;
 pub mod edit;
 pub mod equation;
 pub mod fonts;
@@ -35,6 +36,7 @@ pub mod nav;
 mod notes;
 mod page_layout;
 pub mod perm;
+pub mod picture_tools;
 pub mod proof;
 pub mod review;
 pub mod security;
@@ -1011,6 +1013,16 @@ impl Engine {
             .or_else(|| self.images.get(name).map(Vec::as_slice))
             // Slide media parts (video / audio clips played by the hosts).
             .or_else(|| self.pres.as_ref().and_then(|p| p.part_data(name)))
+    }
+
+    /// Bytes of a media part or of a derived picture id (`media#fx:…`: the picture
+    /// with its colour adjustments applied, PNG; CORE-PIC-001).
+    pub fn media_resolved(&self, name: &str) -> Option<std::borrow::Cow<'_, [u8]>> {
+        if let Some(b) = self.media(name) {
+            return Some(std::borrow::Cow::Borrowed(b));
+        }
+        let (base, _) = bo_model::picture::split_fx_id(name)?;
+        bo_raster::picfx::derive_id_png(self.media(base)?, name).map(std::borrow::Cow::Owned)
     }
 
     /// Set the mail-merge data source (CSV or XLSX); returns the number of records.

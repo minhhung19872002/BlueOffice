@@ -25,6 +25,7 @@ pub mod master;
 pub mod media;
 pub mod morph;
 pub mod ops;
+pub mod picture;
 pub mod rich;
 pub mod show;
 pub mod smartart;
@@ -1097,6 +1098,9 @@ pub struct SlideEditResult {
     /// The master view's pane, while it is open.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub master_view: Option<master::MasterViewOut>,
+    /// The selected picture (picture tools commands, CORE-PIC-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub picture: Option<Box<crate::picture_tools::PictureInfo>>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -3297,6 +3301,13 @@ impl Engine {
             let r = self.slide_master_command(cmd)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        if let Some(pc) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| picture::PictureCommand::parse(&v))
+        {
+            let r = self.slide_picture_command(pc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         let cmd: SlideCommand =
             serde_json::from_str(json).map_err(|e| EngineError::BadCommand(e.to_string()))?;
         let r = self.slide_command(cmd)?;
@@ -4607,6 +4618,7 @@ impl Engine {
             security: None,
             design: Some(master::design_out(pres, ed)),
             master_view: master::view_out(pres, ed),
+            picture: None,
         })
     }
 }

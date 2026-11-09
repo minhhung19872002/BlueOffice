@@ -2003,9 +2003,23 @@ pub struct Image {
     /// Shape / text box drawn instead of a picture.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shape: Option<Box<Shape>>,
+    /// Picture adjustments and crop shape (CORE-PIC-001).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<Box<crate::picture::PictureFormat>>,
     /// Original `w:drawing` XML.
     #[serde(skip)]
     pub src: Option<Raw>,
+}
+
+impl Image {
+    /// Image id the renderers draw: the media part, or a derived id carrying the
+    /// picture's adjustments and crop shape ([`crate::picture::display_id`]).
+    pub fn display_id(&self) -> String {
+        match &self.format {
+            Some(f) => crate::picture::display_id(&self.media, f, self.crop),
+            None => self.media.clone(),
+        }
+    }
 }
 
 /// Run content items (ECMA-376 Part 1, §17.3.3).

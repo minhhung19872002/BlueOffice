@@ -259,11 +259,14 @@ pub fn write_pdf_with_images(
                     let r = if let Some(r) = image_refs.get(image) {
                         *r
                     } else {
-                        let r = images.image(image).and_then(load_image).map(|img| {
-                            let id = alloc();
-                            write_image(&mut pdf, &mut alloc, id, &img);
-                            id
-                        });
+                        // Derived ids (`media#fx:…`) resolve to the adjusted picture (CORE-PIC-001).
+                        let r = bo_raster::picfx::resolve(images, image)
+                            .and_then(|b| load_image(&b))
+                            .map(|img| {
+                                let id = alloc();
+                                write_image(&mut pdf, &mut alloc, id, &img);
+                                id
+                            });
                         image_refs.insert(image.clone(), r);
                         r
                     };

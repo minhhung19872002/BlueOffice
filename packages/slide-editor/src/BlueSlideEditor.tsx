@@ -127,6 +127,12 @@ import { AnimationPane } from './AnimationPane';
 import { AudienceLink } from './audience';
 import { AudienceView } from './AudienceView';
 import { ChartDialog, type ChartDraft } from './ChartDialog';
+import {
+  SaveChartTemplateDialog,
+  layoutTexts,
+  slideChartDesignGroups,
+  slideGalleryLoader,
+} from './chartStyles';
 import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
 import { SlideController } from './controller';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
@@ -388,6 +394,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     };
   }, [engine, apply]);
   const run = useCallback((cmd: SlideCommand) => void ctrl.run(cmd), [ctrl]);
+  // Chart Design gallery of the selected chart (CORE-CHART-007), loaded when a menu opens.
+  const loadGallery = useMemo(() => slideGalleryLoader((cmd) => ctrl.run(cmd)), [ctrl]);
+  const [saveTemplate, setSaveTemplate] = useState(false);
 
   const load = useCallback(
     async (bytes: Uint8Array, name: string, password?: string) => {
@@ -743,13 +752,29 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     (d: ChartDraft) => {
       const mode = chartDialog?.mode;
       setChartDialog(null);
+      // A chosen chart template brings its type and formatting.
+      const tpl = d.template ? { template: d.template, texts: layoutTexts(t) } : {};
       if (mode === 'insert') {
-        run({ cmd: 'insertChart', kind: d.kind, title: d.title, legend: d.legend, data: d.data });
+        run({
+          cmd: 'insertChart',
+          kind: d.kind,
+          title: d.title,
+          legend: d.legend,
+          data: d.data,
+          ...tpl,
+        });
       } else {
-        run({ cmd: 'setChart', kind: d.kind, title: d.title, legend: d.legend, data: d.data });
+        run({
+          cmd: 'setChart',
+          kind: d.kind,
+          title: d.title,
+          legend: d.legend,
+          data: d.data,
+          ...tpl,
+        });
       }
     },
-    [chartDialog, run],
+    [chartDialog, run, t],
   );
 
   const exportPng = useCallback(
@@ -1751,6 +1776,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     ),
                   ],
                 },
+                ...slideChartDesignGroups({
+                  t,
+                  load: loadGallery,
+                  run,
+                  enabled: !!state.isChart,
+                  onSaveTemplate: () => setSaveTemplate(true),
+                }),
               ],
             },
           ]
@@ -1836,7 +1868,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         ],
       },
     ];
-  }, [t, registry, state, exec, edit]);
+  }, [t, registry, state, exec, edit, run, loadGallery, setSaveTemplate]);
 
   const revision = (i: number) => epoch * 1_000_000 + (revs[i] ?? 0);
   const canvas = (index: number, width: number, className?: string) => (
@@ -2287,6 +2319,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           initial={chartDialog.initial}
           onClose={() => setChartDialog(null)}
           onApply={applyChart}
+        />
+      )}
+      {saveTemplate && (
+        <SaveChartTemplateDialog
+          load={loadGallery}
+          onClose={() => setSaveTemplate(false)}
+          onSaved={(name) => setStatus(t('chartDesign.templateSaved', { name }))}
         />
       )}
       {exportOpen && (

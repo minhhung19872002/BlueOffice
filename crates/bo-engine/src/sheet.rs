@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 mod analysis_cmd;
+mod chart_design_cmd;
 mod cmd;
 pub(crate) mod collab;
 mod comments;

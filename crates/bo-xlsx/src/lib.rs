@@ -18,6 +18,7 @@
 
 mod autofilter;
 mod chart;
+mod chart_format;
 pub mod chart_write;
 pub mod chartex;
 mod csv;

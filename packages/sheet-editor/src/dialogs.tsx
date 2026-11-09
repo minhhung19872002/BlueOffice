@@ -10,13 +10,15 @@ import type {
   CfRuleSpec,
   CfStyle,
   ChartInfo,
+  ChartTemplate,
   PageSetupInfo,
   PasteMode,
   SheetHost,
   SheetRange,
 } from '@blueoffice/platform';
-import { Dialog } from '@blueoffice/ui';
+import { ChartTemplateList, Dialog, deleteChartTemplate, loadChartTemplates } from '@blueoffice/ui';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { layoutTexts } from './chartStyles';
 import { a1, colName } from './grid';
 import styles from './SheetEditor.module.css';
 
@@ -1147,6 +1149,9 @@ export function ChartDialog({
   const [legend, setLegend] = useState('r');
   const [xTitle, setXTitle] = useState('');
   const [yTitle, setYTitle] = useState('');
+  // Saved chart templates (CORE-CHART-007): one may replace the type and formatting.
+  const [templates, setTemplates] = useState(() => loadChartTemplates<ChartTemplate>());
+  const [template, setTemplate] = useState<string | null>(null);
 
   const show = (c: ChartInfo | undefined) => {
     if (!c) return;
@@ -1171,6 +1176,16 @@ export function ChartDialog({
   const ok = async () => {
     try {
       await host.exec({ cmd: 'editChart', sheet, index: sel, kind, title, legend, xTitle, yTitle });
+      const chosen = templates.find((x) => x.name === template);
+      if (chosen) {
+        await host.exec({
+          cmd: 'chartDesign',
+          sheet,
+          index: sel,
+          template: chosen,
+          texts: layoutTexts(t),
+        });
+      }
       await onDone();
       onClose();
     } catch (e) {
@@ -1215,6 +1230,21 @@ export function ChartDialog({
               ))}
             </select>
           </label>
+          <ChartTemplateList
+            templates={templates}
+            value={template}
+            onChange={setTemplate}
+            onDelete={(name) => {
+              setTemplates(deleteChartTemplate<ChartTemplate>(name));
+              if (template === name) setTemplate(null);
+            }}
+            labels={{
+              title: t('chartDesign.templates'),
+              none: t('chartDesign.noTemplates'),
+              noTemplate: t('chartDesign.noTemplate'),
+              remove: t('chartDesign.removeTemplate'),
+            }}
+          />
           <label>
             {t('sheetEditor.chart.chartTitle')}
             <input

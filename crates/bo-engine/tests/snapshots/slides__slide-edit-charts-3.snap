@@ -29,6 +29,6 @@ transform [1.000 0.000 0.000 1.000 144.0 81.0]
   text 14.0pt 281.5,366.1 #3c4043ff "T2"
   text 14.0pt 432.5,366.1 #3c4043ff "T3"
   text 14.0pt 583.5,366.1 #3c4043ff "T4"
-  path n=4 [137.5 94.4 590.5 264.5] stroke=#2e6db4ff w2.00
-  path n=4 [137.5 179.4 590.5 292.9] stroke=#f28c28ff w2.00
+  path n=4 [137.5 94.4 590.5 264.5] stroke=#2e6db4ff w2.25
+  path n=4 [137.5 179.4 590.5 292.9] stroke=#f28c28ff w2.25
 pop transform

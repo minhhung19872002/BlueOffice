@@ -583,7 +583,23 @@ export type SheetCommand =
   | { cmd: 'validation'; sheet: number; row: number; col: number }
   | { cmd: 'setValidation'; sheet: number; range: SheetRange; spec: ValidationSpec }
   | { cmd: 'setInputs'; sheet: number; cells: [number, number, string][]; validate?: boolean }
-  | { cmd: 'insertChart'; sheet: number; range: SheetRange; kind: string }
+  | {
+      cmd: 'insertChart';
+      sheet: number;
+      range: SheetRange;
+      kind: string;
+      /** Chart template to format the new chart with (CORE-CHART-007). */
+      template?: import('./chartDesign').ChartTemplate;
+      texts?: import('./chartDesign').ChartLayoutTexts;
+    }
+  /** Chart Design gallery (answer: `ChartGallery`). */
+  | { cmd: 'chartGallery'; sheet: number; index: number; width?: number; height?: number }
+  /** Applies a chart template / style / colour variation / quick layout. */
+  | ({ cmd: 'chartDesign'; sheet: number; index: number } & import('./chartDesign').ChartDesignSpec)
+  /** A template as a `.crtx` package (answer: `{ base64, name }`). */
+  | { cmd: 'chartTemplateExport'; template: import('./chartDesign').ChartTemplate }
+  /** The template of a `.crtx` package (answer: `ChartTemplate`). */
+  | { cmd: 'chartTemplateImport'; base64: string; name?: string }
   | { cmd: 'charts'; sheet: number }
   | {
       cmd: 'editChart';

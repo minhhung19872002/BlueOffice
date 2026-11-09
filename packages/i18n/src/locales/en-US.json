@@ -1984,6 +1984,62 @@
     "widthFixed": "Fixed",
     "align": "Table alignment"
   },
+  "chartDesign": {
+    "groupLayouts": "Chart layouts",
+    "groupStyles": "Chart styles",
+    "groupTemplates": "Template",
+    "tab": "Chart Design",
+    "styles": "Chart styles",
+    "colors": "Change colours",
+    "layouts": "Quick layout",
+    "loading": "Loading previews…",
+    "saveTemplate": "Save as template…",
+    "saveTemplateTitle": "Save chart template",
+    "templateName": "Template name",
+    "templateSaved": "Chart template \"{{name}}\" saved",
+    "fromTemplate": "From template: {{name}}",
+    "templates": "My templates",
+    "noTemplates": "No saved templates yet",
+    "noTemplate": "None (keep the formatting)",
+    "removeTemplate": "Delete template",
+    "exportTemplate": "Export template (.crtx)",
+    "importTemplate": "Import template (.crtx)…",
+    "titleText": "Chart title",
+    "xTitleText": "Axis title",
+    "yTitleText": "Axis title",
+    "style": {
+      "clean": "Clean",
+      "crisp": "Crisp",
+      "soft": "Soft",
+      "gradient": "Gradient",
+      "outline": "Outline",
+      "shadow": "Lifted",
+      "bold": "Bold",
+      "paper": "Paper",
+      "slate": "Slate",
+      "night": "Night",
+      "blueprint": "Blueprint",
+      "minimal": "Minimal"
+    },
+    "palette": {
+      "colorful": "Colourful (theme)",
+      "colorfulAlt": "Colourful, alternate (theme)",
+      "monoAccent1": "Monochrome, accent 1",
+      "monoAccent2": "Monochrome, accent 2",
+      "grey": "Greys",
+      "bluestar": "Bluestar",
+      "lotus": "Lotus",
+      "terrace": "Terraces"
+    },
+    "layout": {
+      "layout1": "Title and legend on the right",
+      "layout2": "Legend below with values",
+      "layout3": "Axis titles",
+      "layout4": "Legend on top with full grid",
+      "layout5": "Data table",
+      "layout6": "Labels instead of a legend"
+    }
+  },
   "templates": {
     "title": "New from template",
     "nd30": {

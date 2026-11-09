@@ -940,7 +940,12 @@ export type SlideCommand =
       data?: SlideChartData;
       legend?: SlideLegend;
       rect?: SlideRect;
+      /** Chart template to format the new chart with (CORE-CHART-007). */
+      template?: import('./chartDesign').ChartTemplate;
+      texts?: import('./chartDesign').ChartLayoutTexts;
     }
+  /** Chart Design gallery of the selected chart (answer in `chartGallery`). */
+  | { cmd: 'chartGallery'; id?: number; width?: number; height?: number }
   /** SmartArt (CORE-SMART-003/004): insert from the layout library, edit outline/layout, to shapes. */
   | {
       cmd: 'insertSmartArt';
@@ -959,7 +964,7 @@ export type SlideCommand =
       style?: SlideSmartArtStyle;
     }
   | { cmd: 'smartArtToShapes'; id?: number }
-  | {
+  | ({
       cmd: 'setChart';
       id?: number;
       kind?: SlideChartKind;
@@ -968,7 +973,7 @@ export type SlideCommand =
       /** `none` = no legend. */
       legend?: SlideLegend;
       data?: SlideChartData;
-    };
+    } & import('./chartDesign').ChartDesignSpec);
 
 /** Slide transition effects (ECMA-376 Part 1, §19.3.1.50 transition children). */
 /**
@@ -1407,6 +1412,8 @@ export interface SlideEditResult {
   media?: SlideMediaInfo[];
   /** The selected chart. */
   chart?: SlideChartInfo;
+  /** Answer of `chartGallery`. */
+  chartGallery?: import('./chartDesign').ChartGallery;
   /** The selected SmartArt. */
   smartart?: SlideSmartArtInfo;
   /** Answer of the `show` command. */

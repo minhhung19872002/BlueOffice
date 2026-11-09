@@ -1,4 +1,5 @@
 export type * from './types';
+export type * from './chartDesign';
 export { PASSWORD_REQUIRED, WRONG_PASSWORD } from './types';
 export {
   AnonymousSession,

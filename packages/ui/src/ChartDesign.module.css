@@ -1,0 +1,105 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 104px);
+  gap: 6px;
+  padding: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.preview {
+  all: unset;
+  box-sizing: border-box;
+  width: 104px;
+  height: 72px;
+  padding: 2px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius);
+  background: var(--bo-surface);
+  cursor: pointer;
+}
+
+.preview:hover,
+.preview:focus-visible {
+  border-color: var(--bo-accent);
+  box-shadow: 0 0 0 1px var(--bo-accent);
+}
+
+.preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.loading {
+  padding: 8px 10px;
+  color: var(--bo-text-muted);
+  font-size: 12px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  min-width: 220px;
+}
+
+.colorRow {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--bo-radius);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--bo-text);
+}
+
+.colorRow:hover,
+.colorRow:focus-visible {
+  background: var(--bo-hover);
+}
+
+.swatches {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.swatch {
+  width: 14px;
+  height: 14px;
+}
+
+.templates {
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius);
+  padding: 6px 8px;
+  margin: 8px 0 0;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.templateRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.templateName {
+  flex: 1;
+}
+
+.remove {
+  all: unset;
+  cursor: pointer;
+  padding: 0 4px;
+  color: var(--bo-text-muted);
+}
+
+.remove:hover {
+  color: var(--bo-text);
+}

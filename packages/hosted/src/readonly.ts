@@ -72,6 +72,8 @@ export const SLIDE_READ_COMMANDS: ReadonlySet<string> = new Set([
   'tableExit',
   // Slide show data (layers, effects): viewers present too.
   'show',
+  // Chart Design previews (CORE-CHART-007).
+  'chartGallery',
 ]);
 
 /** BlueSheet `exec` commands that only read. */
@@ -89,6 +91,9 @@ export const SHEET_READ_COMMANDS: ReadonlySet<string> = new Set([
   'pageSetup',
   'pivotSource',
   'pivots',
+  'chartGallery',
+  'chartTemplateExport',
+  'chartTemplateImport',
 ]);
 
 export const READ_ONLY_ERROR = 'session.readOnly';

@@ -2,6 +2,7 @@ import { useTranslation } from '@blueoffice/i18n';
 import type { BorderSpec, CellFormatState, StylePatch } from '@blueoffice/platform';
 import { Dialog } from '@blueoffice/ui';
 import { useState } from 'react';
+import { VERTICAL_TEXT, degreesToRotation, rotationToDegrees } from './orientation';
 import styles from './SheetEditor.module.css';
 
 export interface NumberPreset {
@@ -63,6 +64,7 @@ export function FormatCellsDialog({
     if (st.wrap !== initial.wrap) patch.wrap = st.wrap;
     if (st.indent !== initial.indent) patch.indent = st.indent;
     if (st.rotation !== initial.rotation) patch.rotation = st.rotation;
+    if (Boolean(st.shrink) !== Boolean(initial.shrink)) patch.shrink = Boolean(st.shrink);
     onApply(patch, borders);
   };
 
@@ -171,11 +173,34 @@ export function FormatCellsDialog({
             {t('sheetEditor.fmt.rotation')}
             <input
               type="number"
-              min={0}
-              max={180}
-              value={st.rotation}
-              onChange={(e) => set({ rotation: Number(e.target.value) || 0 })}
+              min={-90}
+              max={90}
+              data-testid="format-cells-rotation"
+              disabled={st.rotation === VERTICAL_TEXT}
+              value={rotationToDegrees(st.rotation)}
+              onChange={(e) =>
+                set({ rotation: degreesToRotation(Number(e.target.value) || 0, false) })
+              }
             />
+          </label>
+          <label className={styles.check}>
+            <input
+              type="checkbox"
+              data-testid="format-cells-vertical"
+              checked={st.rotation === VERTICAL_TEXT}
+              onChange={(e) => set({ rotation: degreesToRotation(0, e.target.checked) })}
+            />
+            {t('sheetEditor.fmt.verticalText')}
+          </label>
+          <label className={styles.check}>
+            <input
+              type="checkbox"
+              data-testid="format-cells-shrink"
+              checked={Boolean(st.shrink)}
+              disabled={st.wrap}
+              onChange={(e) => set({ shrink: e.target.checked })}
+            />
+            {t('sheetEditor.fmt.shrink')}
           </label>
           <label className={styles.check}>
             <input

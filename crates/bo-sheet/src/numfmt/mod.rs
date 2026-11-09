@@ -8,12 +8,18 @@
 //!   commas, `%`, scientific `E+ E- e+ e-`, fractions (`# ?/?`, `?/8`);
 //! * dates and times `y m d h s`, `AM/PM`, `A/P`, elapsed `[h] [m] [s]`,
 //!   fractional seconds `ss.00`, Buddhist years `bbbb`;
-//! * text `@`, literals (`"…"`, `\x`, plain characters), `_x` padding and `*x` fill;
+//! * text `@`, literals (`"…"`, `\x`, plain characters), `_x` padding (the width of
+//!   `x`, reported in [`Formatted::skips`]) and `*x` fill;
 //! * locale tags `[$-42A]`, currency tags `[$₫-42A]`, system date/time `[$-F800]` `[$-F400]`;
+//! * calendars: `[$-CCLLLL]` calendar byte (Hijri, Thai Buddhist, East Asian / Vietnamese
+//!   lunisolar — see [`calendar`]), `B1` / `B2` prefixes, era / sexagenary year `g`;
+//! * East Asian numerals `[DBNum1]`…`[DBNum4]` ([`dbnum`]);
 //! * `General`.
 
 mod builtin;
+pub mod calendar;
 mod date;
+pub mod dbnum;
 pub mod input;
 mod locale;
 
@@ -23,6 +29,8 @@ pub use date::{
 };
 pub use input::{parse_typed_date, TypedDate};
 pub use locale::Locale;
+
+use calendar::Calendar;
 
 use bo_model::sheet::CellValue;
 
@@ -77,6 +85,9 @@ pub struct Formatted {
     /// `*x` repeat fill: byte offset in `text` where the fill character `x`
     /// should be repeated to fill the cell width.
     pub fill: Option<(usize, char)>,
+    /// `_x` padding: byte offset in `text` of a placeholder space that should be
+    /// as wide as the character `x` (§18.8.31: "skip the width of the next character").
+    pub skips: Vec<(usize, char)>,
     /// The value cannot be shown with this format (negative date, out of range);
     /// renderers display `#` characters across the cell.
     pub invalid: bool,
@@ -87,6 +98,28 @@ impl Formatted {
         Formatted {
             text,
             ..Formatted::default()
+        }
+    }
+
+    /// `_x`: a placeholder space standing for the width of `x`.
+    fn skip(&mut self, c: char) {
+        self.skips.push((self.text.len(), c));
+        self.text.push(' ');
+    }
+
+    /// `*x`: remember where the fill character repeats.
+    fn fill_at(&mut self, c: char) {
+        self.fill = Some((self.text.len(), c));
+    }
+
+    /// Insert `s` at the start of the text, shifting the fill / skip offsets.
+    fn prepend(&mut self, s: &str) {
+        self.text.insert_str(0, s);
+        if let Some((p, c)) = self.fill {
+            self.fill = Some((p + s.len(), c));
+        }
+        for (p, _) in &mut self.skips {
+            *p += s.len();
         }
     }
 }
@@ -148,6 +181,8 @@ enum Tok {
         lower: bool,
     },
     Elapsed(Elapsed, u8),
+    /// `g`…`ggg`: era name; the sexagenary year name in a lunisolar calendar.
+    Era(u8),
 }
 
 impl Tok {
@@ -211,6 +246,10 @@ struct Section {
     color: Option<FmtColor>,
     cond: Option<Condition>,
     lcid: Option<u32>,
+    /// Calendar of the date parts (locale tag calendar byte or `B1`/`B2`).
+    calendar: calendar::Calendar,
+    /// `[DBNum1]`…`[DBNum4]` numeral style.
+    dbnum: Option<u8>,
     kind: Kind,
 }
 
@@ -308,6 +347,8 @@ fn parse_section(src: &str, locale_hint: &Locale) -> Section {
     let mut color = None;
     let mut cond = None;
     let mut lcid = None;
+    let mut cal = None;
+    let mut dbnum = None;
     let mut i = 0;
     let run = |i: usize, lower: char| -> usize {
         chars[i..]
@@ -367,7 +408,17 @@ fn parse_section(src: &str, locale_hint: &Locale) -> Section {
                     }
                     if let Ok(v) = u32::from_str_radix(id, 16) {
                         lcid = Some(v);
+                        // Bits 16–23: calendar identifier (Win32 CALID).
+                        if (v >> 16) & 0xFF != 0 {
+                            cal = Some(calendar::Calendar::from_tag(v, locale_hint.lcid));
+                        }
                     }
+                } else if let Some(n) = lower
+                    .strip_prefix("dbnum")
+                    .and_then(|n| n.parse::<u8>().ok())
+                    .filter(|n| (1..=4).contains(n))
+                {
+                    dbnum = Some(n);
                 } else if !lower.is_empty() && lower.chars().all(|c| c == 'h') {
                     toks.push(Tok::Elapsed(Elapsed::Hours, lower.len() as u8));
                 } else if !lower.is_empty() && lower.chars().all(|c| c == 'm') {
@@ -375,7 +426,7 @@ fn parse_section(src: &str, locale_hint: &Locale) -> Section {
                 } else if !lower.is_empty() && lower.chars().all(|c| c == 's') {
                     toks.push(Tok::Elapsed(Elapsed::Seconds, lower.len() as u8));
                 }
-                // Other tags ([DBNum1], [natnum], …) are ignored.
+                // Other tags ([natnum], …) are ignored.
             }
             '0' => {
                 toks.push(Tok::Digit(Digit::Zero));
@@ -464,6 +515,20 @@ fn parse_section(src: &str, locale_hint: &Locale) -> Section {
                 }));
                 i += n;
             }
+            // `B1` / `B2`: Gregorian / Hijri calendar for the section.
+            'b' | 'B' if matches!(chars.get(i + 1), Some('1' | '2')) => {
+                cal = Some(if chars[i + 1] == '2' {
+                    calendar::Calendar::Hijri
+                } else {
+                    calendar::Calendar::Gregorian
+                });
+                i += 2;
+            }
+            'g' | 'G' => {
+                let n = run(i, 'g');
+                toks.push(Tok::Era(n.min(3) as u8));
+                i += n;
+            }
             'b' | 'B' if run(i, 'b') >= 2 => {
                 let n = run(i, 'b');
                 toks.push(Tok::Buddhist(n as u8));
@@ -498,7 +563,7 @@ fn parse_section(src: &str, locale_hint: &Locale) -> Section {
 
     // System long date / time tags replace the section (§18.8.31 locale tags).
     if let Some(id) = lcid {
-        let sys = match id {
+        let sys = match id & 0xFFFF {
             0xF800 => Some(locale_hint.long_date),
             0xF400 => Some(locale_hint.long_time),
             _ => None,
@@ -512,6 +577,14 @@ fn parse_section(src: &str, locale_hint: &Locale) -> Section {
     }
 
     let is_date = toks.iter().any(Tok::is_date);
+    if !is_date {
+        // Era letters only mean something next to date parts.
+        for t in &mut toks {
+            if let Tok::Era(n) = *t {
+                *t = Tok::Lit("g".repeat(usize::from(n)));
+            }
+        }
+    }
     let kind = if is_date {
         resolve_date_tokens(&mut toks);
         Kind::Date
@@ -527,6 +600,8 @@ fn parse_section(src: &str, locale_hint: &Locale) -> Section {
         color,
         cond,
         lcid,
+        calendar: cal.unwrap_or_default(),
+        dbnum,
         kind,
     }
 }
@@ -737,19 +812,20 @@ impl NumberFormat {
                         text: "#".repeat(8),
                         invalid: true,
                         color: section.color,
-                        fill: None,
+                        ..Formatted::default()
                     };
                 }
                 render_date(section, v, opts)
             }
         };
-        if neg && !out.invalid && out.text.chars().any(|c| c.is_ascii_digit() && c != '0') {
-            out.text.insert(0, '-');
-            if let Some((p, c)) = out.fill {
-                out.fill = Some((p + 1, c));
-            }
-        } else if neg && section.kind == Kind::General {
-            out.text.insert(0, '-');
+        if neg
+            && ((!out.invalid && out.text.chars().any(|c| c.is_ascii_digit() && c != '0'))
+                || section.kind == Kind::General)
+        {
+            out.prepend("-");
+        }
+        if let (Some(style), false) = (section.dbnum, out.invalid) {
+            out = apply_dbnum(&out, section, style, opts);
         }
         out.color = section.color;
         out
@@ -760,6 +836,55 @@ impl NumberFormat {
 // Rendering
 // ---------------------------------------------------------------------------
 
+/// Rewrite the digits of a formatted value in the section's `[DBNum]` style,
+/// keeping the fill / skip markers on the same characters.
+fn apply_dbnum(out: &Formatted, s: &Section, style: u8, opts: &FormatOptions) -> Formatted {
+    let lcid = s.lcid.unwrap_or(opts.locale.lcid);
+    let date = s.kind == Kind::Date;
+    let conv = |t: &str| {
+        dbnum::apply(
+            t,
+            style,
+            lcid,
+            date,
+            opts.locale.decimal,
+            opts.locale.thousands,
+        )
+    };
+    // Split at the marker offsets so the markers survive the conversion.
+    let mut cuts: Vec<usize> = out.skips.iter().map(|(p, _)| *p).collect();
+    if let Some((p, _)) = out.fill {
+        cuts.push(p);
+    }
+    cuts.sort_unstable();
+    cuts.dedup();
+    let mut res = Formatted {
+        invalid: out.invalid,
+        color: out.color,
+        ..Formatted::default()
+    };
+    let mut start = 0;
+    for cut in cuts {
+        if cut < start || cut > out.text.len() || !out.text.is_char_boundary(cut) {
+            continue;
+        }
+        res.text.push_str(&conv(&out.text[start..cut]));
+        if let Some((_, c)) = out.fill.filter(|(p, _)| *p == cut) {
+            res.fill = Some((res.text.len(), c));
+        }
+        if let Some((_, c)) = out.skips.iter().find(|(p, _)| *p == cut) {
+            res.skips.push((res.text.len(), *c));
+            res.text.push(' ');
+            start = cut + 1;
+        } else {
+            start = cut;
+        }
+    }
+    res.text
+        .push_str(&conv(&out.text[start.min(out.text.len())..]));
+    res
+}
+
 fn render_text(s: &Section, text: &str, _opts: &FormatOptions) -> Formatted {
     let mut out = Formatted {
         color: s.color,
@@ -769,8 +894,8 @@ fn render_text(s: &Section, text: &str, _opts: &FormatOptions) -> Formatted {
         match t {
             Tok::Lit(l) => out.text.push_str(l),
             Tok::At | Tok::General => out.text.push_str(text),
-            Tok::Skip(_) => out.text.push(' '),
-            Tok::Fill(c) => out.fill = Some((out.text.len(), *c)),
+            Tok::Skip(c) => out.skip(*c),
+            Tok::Fill(c) => out.fill_at(*c),
             _ => {}
         }
     }
@@ -783,8 +908,8 @@ fn render_general_section(s: &Section, v: f64, opts: &FormatOptions) -> Formatte
         match t {
             Tok::General => out.text.push_str(&format_general(v, &opts.locale)),
             Tok::Lit(l) => out.text.push_str(l),
-            Tok::Skip(_) => out.text.push(' '),
-            Tok::Fill(c) => out.fill = Some((out.text.len(), *c)),
+            Tok::Skip(c) => out.skip(*c),
+            Tok::Fill(c) => out.fill_at(*c),
             _ => {}
         }
     }
@@ -1094,8 +1219,8 @@ fn render_number(s: &Section, v: f64, opts: &FormatOptions) -> Formatted {
             }
             Tok::Percent => out.text.push('%'),
             Tok::Lit(x) => out.text.push_str(x),
-            Tok::Skip(_) => out.text.push(' '),
-            Tok::Fill(c) => out.fill = Some((out.text.len(), *c)),
+            Tok::Skip(c) => out.skip(*c),
+            Tok::Fill(c) => out.fill_at(*c),
             Tok::Slash => out.text.push('/'),
             // Comma: grouping / scaling handled above; @ / General: no text here.
             _ => {}
@@ -1285,8 +1410,8 @@ fn render_fraction(s: &Section, v: f64, opts: &FormatOptions) -> Formatted {
                 let _ = l;
             }
             Tok::Lit(l) => out.text.push_str(l),
-            Tok::Skip(_) => out.text.push(' '),
-            Tok::Fill(c) => out.fill = Some((out.text.len(), *c)),
+            Tok::Skip(c) => out.skip(*c),
+            Tok::Fill(c) => out.fill_at(*c),
             Tok::Percent => out.text.push('%'),
             _ => {}
         }
@@ -1348,18 +1473,34 @@ fn render_date(s: &Section, v: f64, opts: &FormatOptions) -> Formatted {
         }
     };
     let elapsed_present = s.toks.iter().any(|t| matches!(t, Tok::Elapsed(..)));
+    // Year / month / day in the section's calendar (weekday and time are shared).
+    let cd = s.calendar.convert(dt.year, dt.month, dt.day);
+    let vi = s
+        .lcid
+        .filter(|l| l & 0xFFFF != 0)
+        .unwrap_or(opts.locale.lcid)
+        & 0xFFFF
+        == 0x42A;
     for t in &s.toks {
         match t {
             Tok::Year(n) | Tok::Buddhist(n) => {
                 let y = if matches!(t, Tok::Buddhist(_)) {
                     dt.year + 543
                 } else {
-                    dt.year
+                    cd.year
                 };
                 if *n <= 2 {
                     out.text.push_str(&format!("{:02}", y.rem_euclid(100)));
                 } else {
                     out.text.push_str(&format!("{y:04}"));
+                }
+            }
+            Tok::Month(n) if !matches!(s.calendar, Calendar::Gregorian | Calendar::Thai) => {
+                if *n <= 2 {
+                    out.text.push_str(&pad(u64::from(cd.month), *n));
+                } else {
+                    out.text
+                        .push_str(&calendar_month_name(s.calendar, cd, *n, vi));
                 }
             }
             Tok::Month(n) => {
@@ -1376,7 +1517,7 @@ fn render_date(s: &Section, v: f64, opts: &FormatOptions) -> Formatted {
             Tok::Day(n) => {
                 let w = dt.weekday as usize;
                 match n {
-                    1 | 2 => out.text.push_str(&pad(u64::from(dt.day), *n)),
+                    1 | 2 => out.text.push_str(&pad(u64::from(cd.day), *n)),
                     3 => out.text.push_str(names.days_short[w]),
                     _ => out.text.push_str(names.days[w]),
                 }
@@ -1424,13 +1565,50 @@ fn render_date(s: &Section, v: f64, opts: &FormatOptions) -> Formatted {
                 };
                 out.text.push_str(&pad(val, *n));
             }
+            Tok::Era(_) => match s.calendar {
+                Calendar::Lunar { .. } => {
+                    out.text.push_str(&calendar::sexagenary_year(cd.year, vi));
+                }
+                Calendar::Hijri => out.text.push_str("AH"),
+                Calendar::Gregorian | Calendar::Thai => {}
+            },
             Tok::Lit(l) => out.text.push_str(l),
-            Tok::Skip(_) => out.text.push(' '),
-            Tok::Fill(c) => out.fill = Some((out.text.len(), *c)),
+            Tok::Skip(c) => out.skip(*c),
+            Tok::Fill(c) => out.fill_at(*c),
             _ => {}
         }
     }
     out
+}
+
+/// `mmm` / `mmmm` / `mmmmm` month text in a Hijri or lunisolar section (own wording:
+/// Vietnamese "Giêng … Chạp" with "nhuận" for a leap month, otherwise 正月 … 十二月
+/// with the 閏 prefix; Hijri months use their transliterated names).
+fn calendar_month_name(cal: Calendar, cd: calendar::CalDate, n: u8, vi: bool) -> String {
+    let name = match cal {
+        Calendar::Hijri => calendar::hijri_month_name(cd.month).to_owned(),
+        _ if vi => {
+            let base = calendar::lunar_month_name_vi(cd.month);
+            let leap = if cd.leap { " nhuận" } else { "" };
+            if n >= 4 {
+                format!("tháng {base}{leap}")
+            } else {
+                format!("{base}{leap}")
+            }
+        }
+        _ => {
+            const CN: [&str; 12] = [
+                "正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二",
+            ];
+            let leap = if cd.leap { "閏" } else { "" };
+            format!("{leap}{}月", CN[(cd.month.clamp(1, 12) - 1) as usize])
+        }
+    };
+    if n == 5 {
+        name.chars().take(1).collect()
+    } else {
+        name
+    }
 }
 
 /// Format `value` with format `code`.
@@ -1485,3 +1663,5 @@ pub fn format_code(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_calendar;

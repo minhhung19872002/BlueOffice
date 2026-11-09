@@ -55,7 +55,7 @@ pub use parser::{
     parse, parse_with, ParseError, ParseOptions, RefStyle, MAX_FORMULA_CHARS, MAX_NESTING,
     MAX_TREE_DEPTH,
 };
-pub use provider::{CellProvider, TableInfo};
+pub use provider::{CellProvider, TableInfo, WebError, WebProvider};
 pub use reference::{CellAddr, RefKind, Reference, SheetRef};
 pub use shift::{
     adjust_for_change, adjust_for_move, offset_relative, MovedBlock, StructuralChange,

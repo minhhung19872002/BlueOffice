@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 regex.workspace = true
+quick-xml.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

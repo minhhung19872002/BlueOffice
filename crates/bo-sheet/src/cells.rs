@@ -33,6 +33,8 @@ impl<'a> ModelCells<'a> {
                 // Never read the system clock (unavailable on wasm32).
                 now: Some(now.unwrap_or(45_658.0)),
                 text_formatter: Some(crate::numfmt::text_function_format),
+                // Conditional formats / validation never fetch from the web.
+                web_provider: None,
             },
         }
     }

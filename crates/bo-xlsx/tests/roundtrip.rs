@@ -519,3 +519,28 @@ fn future_functions_get_storage_prefixes() {
     assert_eq!(f("A10"), "XLOOKUP(1,A2:A5,B2:B5)+LET(x,2,x*3)");
     assert_eq!(f("B10"), "SUM(FILTER(A2:A5,A2:A5>0))");
 }
+
+/// [MS-XLSX] 2.2.2: the web functions are future functions, stored as `_xlfn.ENCODEURL`,
+/// `_xlfn.WEBSERVICE` and `_xlfn.FILTERXML`, and read back without the prefix.
+#[test]
+fn web_functions_get_storage_prefixes() {
+    let mut wb = read_xlsx(&fixture()).unwrap();
+    let shown = "FILTERXML(WEBSERVICE(\"https://e.vn/?q=\"&ENCODEURL(A2)),\"//v\")";
+    wb.sheets[0].set_cell(10, 0, bo_model::sheet::Cell::default().with_formula(shown));
+    let out = write_xlsx(&wb).unwrap();
+    let xml = String::from_utf8(part(&out, "/xl/worksheets/sheet1.xml").unwrap()).unwrap();
+    assert!(xml.contains(
+        "<f>_xlfn.FILTERXML(_xlfn.WEBSERVICE(&quot;https://e.vn/?q=&quot;&amp;_xlfn.ENCODEURL(A2)),&quot;//v&quot;)</f>"
+    ) || xml.contains(
+        "<f>_xlfn.FILTERXML(_xlfn.WEBSERVICE(\"https://e.vn/?q=\"&amp;_xlfn.ENCODEURL(A2)),\"//v\")</f>"
+    ), "{xml}");
+    let back = read_xlsx(&out).unwrap();
+    let text = back.sheets[0]
+        .cell_a1("A11")
+        .unwrap()
+        .formula
+        .clone()
+        .unwrap()
+        .text;
+    assert_eq!(text, shown);
+}

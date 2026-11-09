@@ -9,20 +9,32 @@
 //! written back into the model.
 
 use crate::formula::{load, load_with, to_value, write_back};
-use bo_formula::DateSystem;
+use bo_formula::{DateSystem, WebProvider};
 use bo_model::sheet::Workbook;
+use std::sync::Arc;
 
 /// Live calculation state for one workbook.
 #[derive(Default)]
 pub struct LiveCalc {
     engine: Option<bo_formula::Workbook>,
     now: Option<f64>,
+    /// Fetcher for `WEBSERVICE`; `None` (default) keeps web access disabled.
+    web: Option<Arc<dyn WebProvider>>,
 }
 
 impl LiveCalc {
     /// Empty state (the first [`LiveCalc::rebuild`] loads the workbook).
     pub fn new() -> Self {
         LiveCalc::default()
+    }
+
+    /// Installs (or removes) the `WEBSERVICE` fetcher; takes effect at the next
+    /// recalculation (the function is volatile).
+    pub fn set_web_provider(&mut self, provider: Option<Arc<dyn WebProvider>>) {
+        self.web.clone_from(&provider);
+        if let Some(e) = self.engine.as_mut() {
+            e.set_web_provider(provider);
+        }
     }
 
     /// Serial date-time used by `NOW()`/`TODAY()`.
@@ -42,6 +54,7 @@ impl LiveCalc {
     /// formula result back.
     pub fn rebuild(&mut self, wb: &mut Workbook) {
         let mut fw = load(wb, self.now);
+        fw.set_web_provider(self.web.clone());
         fw.recalculate_all();
         for si in 0..wb.sheets.len() {
             let anchors: Vec<(u32, u32)> = wb.sheets[si]
@@ -66,6 +79,7 @@ impl LiveCalc {
     /// recalculate their dependents).
     pub fn rebuild_from_file(&mut self, wb: &mut Workbook) {
         let mut fw = load_with(wb, self.now, true);
+        fw.set_web_provider(self.web.clone());
         fw.recalculate();
         let mut by_sheet: Vec<Vec<(u32, u32)>> = vec![Vec::new(); wb.sheets.len()];
         for id in fw.last_recalculated() {

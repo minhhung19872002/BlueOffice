@@ -1816,6 +1816,46 @@
     "unsupported": "Bộ máy này không xuất được các tệp này",
     "done": "Đã xuất xong"
   },
+  "drawTools": {
+    "tab": "Vẽ",
+    "groupTools": "Công cụ",
+    "groupColor": "Màu mực",
+    "groupWidth": "Độ dày nét",
+    "groupRuler": "Thước",
+    "groupReplay": "Phát lại",
+    "select": "Chọn",
+    "pen": "Bút",
+    "highlighter": "Bút dạ quang",
+    "eraserStroke": "Tẩy cả nét",
+    "eraserPoint": "Tẩy từng điểm",
+    "ruler": "Thước",
+    "rulerAngle": "Góc thước",
+    "rulerLeft": "Xoay thước sang trái 15°",
+    "rulerRight": "Xoay thước sang phải 15°",
+    "replay": "Phát lại nét mực",
+    "replayAgain": "Phát lại từ đầu",
+    "replayProgress": "Tiến độ phát lại",
+    "stopReplay": "Dừng phát lại",
+    "layer": "Vùng vẽ nét mực",
+    "inkName": "Nét mực",
+    "colors": {
+      "black": "Đen",
+      "blue": "Xanh dương",
+      "red": "Đỏ",
+      "green": "Xanh lá",
+      "orange": "Cam",
+      "purple": "Tím",
+      "yellow": "Vàng",
+      "lime": "Xanh nõn chuối",
+      "pink": "Hồng",
+      "aqua": "Xanh ngọc"
+    },
+    "width": {
+      "fine": "Mảnh",
+      "medium": "Vừa",
+      "bold": "Đậm"
+    }
+  },
   "showTools": {
     "tab": "Trình chiếu",
     "groupStart": "Bắt đầu trình chiếu",

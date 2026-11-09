@@ -31,6 +31,8 @@ pub struct RenderOptions {
     /// `start..end` and, with `backdrop`, the background and the master and
     /// layout shapes under them (animated shapes get a layer of their own).
     pub layer: Option<ShapeRange>,
+    /// Leave out ink content parts (ink replay draws them itself).
+    pub hide_ink: bool,
 }
 
 /// Top-level shapes `start..end` of a slide, optionally over its backdrop.
@@ -1468,6 +1470,10 @@ fn draw_node(
             }
         }
         ShapeNode::Frame(f) => draw_frame(cx, f, frame, fonts, images, out),
+        // Ink content part ([MS-ODRAWXML] §1.3.2): drawn from its InkML part; the
+        // fallback is used only when the part cannot be read.
+        ShapeNode::Other(el)
+            if crate::ink::content_part(el).is_some_and(|cp| draw_ink(cx, cp, frame, out)) => {}
         // mc:AlternateContent (ECMA-376 Part 3, §10.2.1): a chartex choice is drawn
         // ([MS-ODRAWXML] 2.24), otherwise the fallback content.
         ShapeNode::Other(el) if el.local() == "AlternateContent" => {
@@ -1504,6 +1510,51 @@ fn draw_node(
         }
         ShapeNode::Other(_) => {}
     }
+}
+
+/// Draw an ink content part; false when its InkML part is missing or unreadable.
+fn draw_ink(
+    cx: &Ctx<'_>,
+    cp: &bo_model::slide::XmlElement,
+    frame: Frame,
+    out: &mut Vec<Command>,
+) -> bool {
+    use bo_drawingml::ink::{paint, InkDoc, Placement};
+    let Some(doc) = crate::ink::content_part_rid(cp)
+        .and_then(|rid| cx.image_part(rid))
+        .and_then(|part| cx.pres.part_data(&part))
+        .and_then(InkDoc::parse)
+    else {
+        return false;
+    };
+    if cx.opts.hide_ink {
+        return true;
+    }
+    let traces = doc.traces();
+    // The content part's frame is the ink's box ([MS-PPTX] p14:xfrm); without one
+    // the ink is placed at its own coordinates.
+    let placed = crate::ink::content_part_xfrm(cp)
+        .and_then(|x| frame.rect(&x).map(|r| (x, r)))
+        .and_then(|(x, r)| Some((frame.shape_aff(&x, r), Placement::fit(&traces, r.2, r.3)?)));
+    let (aff, place) = placed.unwrap_or((
+        frame.aff.then(Aff::translate(frame.off.0, frame.off.1)),
+        Placement {
+            min: frame.ch,
+            margin: (0.0, 0.0),
+            scale: frame.scale,
+        },
+    ));
+    for p in paint(&traces, &place) {
+        let a = (p.opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+        out.push(Command::Path {
+            segs: to_segs(&p.segs, aff),
+            fill: Some(Paint::Solid {
+                color: Rgba(p.color[0], p.color[1], p.color[2], a),
+            }),
+            stroke: None,
+        });
+    }
+    true
 }
 
 /// An element holding a paragraph with an equation (`a:p/a14:m`, [MS-ODRAWXML]).

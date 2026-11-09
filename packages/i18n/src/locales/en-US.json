@@ -1816,6 +1816,46 @@
     "unsupported": "This engine cannot export these files",
     "done": "Export finished"
   },
+  "drawTools": {
+    "tab": "Draw",
+    "groupTools": "Tools",
+    "groupColor": "Ink colour",
+    "groupWidth": "Stroke width",
+    "groupRuler": "Ruler",
+    "groupReplay": "Replay",
+    "select": "Select",
+    "pen": "Pen",
+    "highlighter": "Highlighter",
+    "eraserStroke": "Erase whole strokes",
+    "eraserPoint": "Erase points",
+    "ruler": "Ruler",
+    "rulerAngle": "Ruler angle",
+    "rulerLeft": "Turn ruler left 15°",
+    "rulerRight": "Turn ruler right 15°",
+    "replay": "Replay ink",
+    "replayAgain": "Replay from start",
+    "replayProgress": "Replay progress",
+    "stopReplay": "Stop replay",
+    "layer": "Ink drawing area",
+    "inkName": "Ink",
+    "colors": {
+      "black": "Black",
+      "blue": "Blue",
+      "red": "Red",
+      "green": "Green",
+      "orange": "Orange",
+      "purple": "Purple",
+      "yellow": "Yellow",
+      "lime": "Lime",
+      "pink": "Pink",
+      "aqua": "Aqua"
+    },
+    "width": {
+      "fine": "Fine",
+      "medium": "Medium",
+      "bold": "Bold"
+    }
+  },
   "showTools": {
     "tab": "Slide Show",
     "groupStart": "Start the show",

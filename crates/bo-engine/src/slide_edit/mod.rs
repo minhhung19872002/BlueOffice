@@ -21,6 +21,7 @@ pub mod effects;
 pub mod freeform;
 pub mod geom;
 pub mod guides;
+pub mod ink;
 mod inspect_cmd;
 pub mod keep_source;
 pub mod master;
@@ -1208,6 +1209,9 @@ pub struct SlideEditResult {
     /// Answer of `notesPages`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes_pages: Option<Vec<page_master::NotesPageOut>>,
+    /// Ink of the current slide (answer of `inkInfo` / `addInk` / `eraseInk`, CORE-INK-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ink: Option<ink::InkOut>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -1479,6 +1483,11 @@ fn next_shape_id(pres: &Presentation, slide: usize) -> u32 {
     bo_pptx::visit(&s.data.shapes, &mut |n| {
         if let Some(nv) = n.nv() {
             max = max.max(nv.id);
+        } else if let Some((id, _)) =
+            bo_pptx::ink::node_content_part(n).and_then(bo_pptx::ink::content_part_nv)
+        {
+            // Ink objects ([MS-PPTX] p14:cNvPr) share the slide's id space.
+            max = max.max(id);
         }
     });
     max + 1
@@ -3451,6 +3460,13 @@ impl Engine {
             let r = self.slide_media_command(mc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        if let Some(ic) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| ink::InkCommand::parse(&v))
+        {
+            let r = self.slide_ink_command(ic)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         if let Some(pc) = serde_json::from_str::<serde_json::Value>(json)
             .ok()
             .and_then(|v| picture::PictureCommand::parse(&v))
@@ -4868,6 +4884,7 @@ impl Engine {
             page_master: page_master::view_out(pres, ed),
             outline: None,
             notes_pages: None,
+            ink: None,
         })
     }
 }

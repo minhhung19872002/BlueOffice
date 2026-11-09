@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 mod content_types;
+pub mod custom;
 mod package;
 mod rels;
 pub mod xml;

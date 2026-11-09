@@ -138,6 +138,14 @@ pub fn insert(atoms: &mut Vec<Atom>, off: usize, new: Vec<Atom>) {
             _ => break,
         }
     }
+    // Content typed where an editable range starts goes inside it
+    // (ECMA-376 Part 1, §17.13.7.2 permStart).
+    while let Some((_, RunContent::Markup(r))) = atoms.get(i) {
+        if !is_perm_start(&r.xml) {
+            break;
+        }
+        i += 1;
+    }
     while let Some((_, RunContent::ControlStart(cc))) = atoms.get(i) {
         if !cc.block {
             open.push(i);
@@ -235,6 +243,16 @@ pub fn text_atoms(text: &str, props: &RunProps) -> Vec<Atom> {
     }
     flush(&mut buf, &mut out);
     out
+}
+
+/// `w:permStart` markup (§17.13.7.2), whatever the namespace prefix.
+fn is_perm_start(xml: &str) -> bool {
+    let t = xml.trim_start().trim_start_matches('<');
+    let name = t
+        .split(|c: char| c.is_whitespace() || c == '/' || c == '>')
+        .next()
+        .unwrap_or_default();
+    name.rsplit(':').next() == Some("permStart")
 }
 
 #[cfg(test)]

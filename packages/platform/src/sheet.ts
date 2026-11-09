@@ -533,6 +533,7 @@ export interface CellAt {
 
 /** A sheet editing command (`bo_engine::sheet::SheetCommand`). */
 export type SheetCommand =
+  | import('./security').SecurityCommand
   | { cmd: 'presets' }
   /** TCVN3 / VNI text → Unicode (legacy Vietnamese fonts); one undo step. */
   | { cmd: 'convertLegacyText' }

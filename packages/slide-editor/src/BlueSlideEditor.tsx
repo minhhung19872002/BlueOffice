@@ -1,6 +1,9 @@
 import { GlyphStore, ImageStore } from '@blueoffice/canvas-host';
 import {
   CommandRegistry,
+  FileProtectionUi,
+  ProtectionStatus,
+  useFileProtection,
   MacroBanner,
   PasswordDialog,
   SavePasswordPanel,
@@ -81,6 +84,7 @@ import {
   FileImage,
   Files,
   KeyRound,
+  Lock,
   FolderOpen,
   Group,
   Highlighter,
@@ -397,6 +401,17 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     };
   }, [engine, apply]);
   const run = useCallback((cmd: SlideCommand) => void ctrl.run(cmd), [ctrl]);
+  // CORE-SEC-001: final mark, password to modify, label.
+  const runSecurity = useCallback((cmd: SlideCommand) => ctrl.run(cmd), [ctrl]);
+  const protection = useFileProtection(runSecurity, (platform as Partial<Platform>).auth?.user);
+  const { run: runProtect, setUi: setProtectUi } = protection;
+  const protectionOpened = useRef(protection.opened);
+  useEffect(() => {
+    protectionOpened.current = protection.opened;
+  });
+  useEffect(() => {
+    if (epoch > 0) void protectionOpened.current();
+  }, [epoch]);
 
   // Symbol picker: typed into the shape text being edited (its textarea sends `setText`
   // on input, one undo step), else placed in a new text box.
@@ -861,6 +876,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       run: () => setSavePassword(true),
     });
     reg.register({
+      id: 'file.protect',
+      isEnabled: deck,
+      run: async () => {
+        await runProtect({ cmd: 'security' });
+        setProtectUi('panel');
+      },
+    });
+    reg.register({
       id: 'file.exportPdf',
       isEnabled: deck,
       run: () =>
@@ -1230,6 +1253,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     openChart,
     edit,
     pos.slide,
+    runProtect,
+    setProtectUi,
   ]);
 
   const state: SlideEditorState = useMemo(() => {
@@ -1391,6 +1416,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 <KeyRound size={16} />,
                 sm,
               ),
+              item('file.protect', t('protect.cmd.protect'), <Lock size={16} />, sm),
               item('file.exportPdf', t('slideEditor.exportPdf'), <FileDown size={16} />, sm),
               item('file.exportPng', t('slideEditor.exportPng'), <FileImage size={16} />, sm),
               item('file.print', t('slideEditor.print'), <Printer size={16} />, sm),
@@ -2013,6 +2039,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       {macroBanner && view === 'normal' && (
         <MacroBanner inline onDismiss={() => setMacroBanner(false)} />
       )}
+      {view === 'normal' && <FileProtectionUi app="slide" p={protection} name={fileName} />}
       {passwordPrompt && (
         <PasswordDialog
           name={passwordPrompt.name}
@@ -2378,10 +2405,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       {view !== 'show' && (
         <StatusBar
           left={
-            <span data-testid="slide-status">
-              {message ||
-                (count > 0 ? t('slideEditor.slideOf', { n: shown + 1, total: count }) : '')}
-            </span>
+            <>
+              <span data-testid="slide-status">
+                {message ||
+                  (count > 0 ? t('slideEditor.slideOf', { n: shown + 1, total: count }) : '')}
+              </span>
+              {count > 0 && <ProtectionStatus info={protection.info} />}
+            </>
           }
           right={
             <span>

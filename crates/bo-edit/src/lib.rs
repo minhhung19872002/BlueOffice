@@ -2381,6 +2381,84 @@ impl Session {
         true
     }
 
+    /// Revert the last transaction without keeping it for redo (an edit refused
+    /// after it was applied, e.g. by document protection). `false` when none.
+    pub fn discard_last(&mut self) -> bool {
+        let Some(t) = self.undo.pop() else {
+            return false;
+        };
+        let inv = t.inverse();
+        if inv.apply(&mut self.doc).is_err() {
+            self.undo.push(t);
+            return false;
+        }
+        crate::ops::record_ops(&inv.ops, &self.doc, &mut self.changes);
+        self.selection = t.before;
+        self.version += 1;
+        self.typing = false;
+        true
+    }
+
+    /// Number of transactions that can be undone.
+    pub fn history_len(&self) -> usize {
+        self.undo.len()
+    }
+
+    /// The next typed character starts a new undo step (no merging into the last one).
+    pub fn end_typing(&mut self) {
+        self.typing = false;
+    }
+
+    /// Insert zero-width markup around the selection (`start` at its start,
+    /// `end` at its end), e.g. a `w:permStart` / `w:permEnd` pair (ECMA-376
+    /// Part 1, §17.13.7). One undo step; the selection is kept.
+    pub fn wrap_selection(
+        &mut self,
+        start: bo_model::Raw,
+        end: bo_model::Raw,
+    ) -> Result<Selection> {
+        self.edit(|tx, sel| {
+            let (a, b) = sel.ordered();
+            // End first: in the same paragraph the start offset stays valid.
+            for (pos, raw, after) in [(b, end, true), (a, start, false)] {
+                let (path, p, mut atoms) = tx.atoms(pos.para)?;
+                let mut i = para::split_at(&mut atoms, pos.offset);
+                if after {
+                    // The end goes after other zero-width markup at the point.
+                    while atoms.get(i).is_some_and(|x| para::atom_len(&x.1) == 0) {
+                        i += 1;
+                    }
+                }
+                atoms.insert(i, (RunProps::default(), RunContent::Markup(raw)));
+                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            }
+            Ok(sel)
+        })
+    }
+
+    /// Remove the zero-width markup items `f` selects (by their XML) from every
+    /// body paragraph; one undo step. Returns how many were removed.
+    pub fn remove_markup(&mut self, f: &dyn Fn(&str) -> bool) -> Result<usize> {
+        let mut n = 0;
+        self.edit(|tx, sel| {
+            for path in tx.paths() {
+                let p = para_clone(tx.doc, &path)?;
+                let atoms = para::flatten(&p);
+                let before = atoms.len();
+                let kept: Vec<_> = atoms
+                    .into_iter()
+                    .filter(|(_, c)| !matches!(c, RunContent::Markup(r) if f(&r.xml)))
+                    .collect();
+                if kept.len() != before {
+                    n += before - kept.len();
+                    tx.replace_para(&path, para::with_atoms(&p, kept))?;
+                }
+            }
+            Ok(sel)
+        })?;
+        Ok(n)
+    }
+
     // -------------------------------------------------------------- text
 
     /// Type text at the selection. `\n` splits paragraphs; consecutive typing is one undo step per word.

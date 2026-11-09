@@ -28,7 +28,10 @@ pub mod media;
 pub mod merge;
 pub mod nav;
 mod notes;
+pub mod perm;
 pub mod review;
+pub mod security;
+mod security_cmd;
 pub mod sheet;
 pub mod slide_edit;
 pub mod smartart;
@@ -271,6 +274,10 @@ pub struct Engine {
     spell: spell::SpellState,
     /// AutoCorrect as you type (BlueDoc main text); off until a host sets options.
     autocorrect: Option<bo_edit::AutoCorrectOptions>,
+    /// Final mark, write protection, restricted editing, labels (CORE-SEC-001).
+    pub(crate) sec: security::FileSecurity,
+    /// Names of the current user for editable regions (kept across documents).
+    pub(crate) identity: Vec<String>,
 }
 
 impl Engine {
@@ -355,13 +362,16 @@ impl Engine {
         };
         if let Some((spec, deck_name)) = deck {
             match spec {
-                None => self.open_pptx(bytes, &deck_name)?,
+                None => {
+                    self.open_pptx(bytes, &deck_name)?;
+                    self.open_security(bytes);
+                }
                 Some(spec) => {
                     let pptx = bo_pptx::build::build_pptx(&spec)
                         .map_err(|e| EngineError::Format(e.to_string()))?;
-                    self.open_pptx(&pptx, &deck_name)?
+                    self.open_pptx(&pptx, &deck_name)?;
                 }
-            };
+            }
             self.macros = macros;
             // An encrypted deck is saved with the same password unless changed.
             self.save_password = if encrypted {
@@ -414,6 +424,7 @@ impl Engine {
         // the first undo step, reported in DocInfo (.doc converts while reading).
         if is_zip {
             self.command(edit::Command::ConvertLegacyText)?;
+            self.open_security(bytes);
         }
         self.macros = macros;
         // An encrypted document is saved with the same password unless changed.
@@ -470,6 +481,7 @@ impl Engine {
         self.hf = None;
         self.note = None;
         self.textbox = None;
+        self.sec = security::FileSecurity::default();
         self.page_markup.clear();
         self.refresh_markup(&mut Vec::new());
         self.info()
@@ -579,6 +591,9 @@ impl Engine {
     /// The document differs from the last opened/saved one. Only blocks changed since
     /// then are compared (every other part changes through ops that mark everything).
     fn is_modified(&self) -> bool {
+        if self.sec.dirty() {
+            return true;
+        }
         let (Some(saved), Some(s)) = (&self.saved_doc, &self.session) else {
             return self.session.is_some();
         };
@@ -609,6 +624,7 @@ impl Engine {
         self.saved_doc = self.session.as_ref().map(|s| s.doc().clone());
         self.unsaved = BlockChanges::default();
         self.slides.mark_saved();
+        self.sec.mark_saved();
     }
 
     /// Open a `.pptx` presentation (BlueSlide).
@@ -650,6 +666,7 @@ impl Engine {
         self.slide_collab = None;
         self.macros = false;
         self.save_password = None;
+        self.sec = security::FileSecurity::default();
         self.info()
     }
 
@@ -724,7 +741,7 @@ impl Engine {
     /// when one is set ([MS-OFFCRYPTO] §2.3.4.10 Agile Encryption).
     pub fn save_pptx(&self) -> Result<Vec<u8>> {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
-        let bytes = bo_pptx::write_pptx(pres)?;
+        let bytes = self.sec.apply(bo_pptx::write_pptx(pres)?)?;
         match &self.save_password {
             Some(pw) => {
                 bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))
@@ -939,7 +956,7 @@ impl Engine {
     pub fn save_docx(&self) -> Result<Vec<u8>> {
         // Hosts call `mark_saved` once the bytes are stored.
         let doc = self.document().ok_or(EngineError::NoDocument)?;
-        let bytes = bo_docx::write_docx(doc)?;
+        let bytes = self.sec.apply(bo_docx::write_docx(doc)?)?;
         match &self.save_password {
             Some(pw) => {
                 bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))

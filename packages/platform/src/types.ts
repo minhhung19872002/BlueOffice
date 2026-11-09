@@ -552,6 +552,7 @@ export type ListNumbering = { kind: 'restart'; value: number } | { kind: 'contin
 
 /** Editing command sent to the engine (JSON bridge, ADR-0008). */
 export type EditCommand =
+  | import('./security').SecurityCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
   | { cmd: 'setSelection'; selection: Selection }
@@ -713,6 +714,8 @@ export interface EditResult {
   autocorrect?: AutoCorrectOptions;
   /** The AutoCorrect rule applied after the typed character (undo reverts only it). */
   corrected?: AutoCorrectRule;
+  /** Protection state (security commands; after edits while regions are shown). */
+  security?: import('./security').SecurityInfo;
 }
 
 /** A replacement-list entry (mirrors `bo_edit::autocorrect::Replacement`). */
@@ -940,6 +943,7 @@ export type SlideTextFormat =
 
 /** Slide editing command (JSON bridge, ADR-0008). */
 export type SlideCommand =
+  | import('./security').SecurityCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
   /** Password for the next saves ([MS-OFFCRYPTO]); empty removes it. */
   | { cmd: 'setSavePassword'; password?: string }
@@ -1495,6 +1499,8 @@ export interface SlideEditResult {
   smartart?: SlideSmartArtInfo;
   /** Answer of the `show` command. */
   show?: SlideShowInfo;
+  /** Protection state (security commands, CORE-SEC-001). */
+  security?: import('./security').SecurityInfo;
 }
 
 // ---------------------------------------------------------------- services

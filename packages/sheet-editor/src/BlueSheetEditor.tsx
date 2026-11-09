@@ -21,9 +21,11 @@ import type {
   RangeStats,
   FlashFillResult,
   SheetPermissions,
+  SheetSecurityResult,
 } from '@blueoffice/platform';
 import {
   PASSWORD_REQUIRED,
+  SECURITY_ERRORS,
   SHEET_PROTECTED,
   WORKBOOK_PROTECTED,
   WRONG_PASSWORD,
@@ -142,6 +144,9 @@ import {
 } from 'react';
 import {
   CommandRegistry,
+  FileProtectionUi,
+  ProtectionStatus,
+  useFileProtection,
   MacroBanner,
   PasswordDialog,
   SavePasswordPanel,
@@ -473,6 +478,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         setStatus(t('sheetEditor.protection.workbookRefused'));
       else if (message.includes(WRONG_PROTECTION_PASSWORD))
         setStatus(t('sheetEditor.protection.wrongPassword'));
+      // CORE-SEC-001: the workbook is open read-only.
+      else if (message.includes(SECURITY_ERRORS.readOnly)) setStatus(t('protect.err.readOnly'));
       else setStatus(t('sheetEditor.error', { message }));
     },
     [t],
@@ -872,6 +879,32 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     },
     [host, refreshInfo, fail],
   );
+
+  // CORE-SEC-001: final mark, read-only recommendation, password to modify,
+  // labels, protected ranges.
+  const runSecurity = useCallback(
+    async (cmd: SheetCommand) => {
+      if (!host) return null;
+      try {
+        const r = await host.exec<SheetSecurityResult>(cmd);
+        await refreshInfo();
+        return r;
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+    [host, refreshInfo],
+  );
+  const protection = useFileProtection(runSecurity, (platform as Partial<Platform>).auth?.user);
+  const { run: runProtect, setUi: setProtectUi } = protection;
+  const protectionOpened = useRef(protection.opened);
+  useEffect(() => {
+    protectionOpened.current = protection.opened;
+  });
+  // Each opened workbook: identity, then the read-only prompt when it asks for one.
+  useEffect(() => {
+    if (loadSeq > 0) void protectionOpened.current();
+  }, [loadSeq]);
 
   const chooseSlicerItem = useCallback(
     (info: SlicerInfo, label: string, multi: boolean) => {
@@ -1395,6 +1428,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       { ...has, isChecked: (s) => s.structureLocked },
     );
     add('review.savePassword', async () => setSecurity({ kind: 'savePassword' }), has);
+    // CORE-SEC-001: final mark, write protection, label, protected ranges.
+    add(
+      'file.protect',
+      async () => {
+        await runProtect({ cmd: 'security' });
+        setProtectUi('panel');
+      },
+      has,
+    );
 
     // Cells, rows and columns
     const structural = (rows: boolean, remove: boolean) => async (s: SheetEditorState) => {
@@ -1778,6 +1820,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     pivotPanel,
     commentsOpen,
     activePivot,
+    runProtect,
+    setProtectUi,
   ]);
 
   const state: SheetEditorState | null = useMemo(
@@ -2672,6 +2716,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 <KeyRound size={s} />,
                 'small',
               ),
+              item('file.protect', t('protect.cmd.protect'), <ShieldCheck size={s} />, 'small'),
             ],
           },
         ],
@@ -2888,6 +2933,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       </div>
       {macroBanner && <MacroBanner inline onDismiss={() => setMacroBanner(false)} />}
+      <FileProtectionUi
+        app="sheet"
+        p={protection}
+        name={fileName}
+        sheet={sheet}
+        selectionRef={rangeA1(rangeOf(selection))}
+      />
       <div className={styles.workArea}>
         <div
           className={styles.scroller}
@@ -3319,16 +3371,19 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       </div>
       <StatusBar
         left={
-          <span data-testid="sheet-status">
-            {status ||
-              (painter
-                ? t('sheetEditor.painterActive')
-                : chart !== null
-                  ? t('sheetEditor.chart.selected')
-                  : edit
-                    ? t('sheetEditor.edit')
-                    : t('sheetEditor.ready'))}
-          </span>
+          <>
+            <span data-testid="sheet-status">
+              {status ||
+                (painter
+                  ? t('sheetEditor.painterActive')
+                  : chart !== null
+                    ? t('sheetEditor.chart.selected')
+                    : edit
+                      ? t('sheetEditor.edit')
+                      : t('sheetEditor.ready'))}
+            </span>
+            {info && <ProtectionStatus info={protection.info} />}
+          </>
         }
         right={
           <>

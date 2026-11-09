@@ -15,7 +15,12 @@ import type {
   StoredDocument,
   TableEdit,
 } from '@blueoffice/platform';
-import { PASSWORD_REQUIRED, WRONG_PASSWORD, updateNotice } from '@blueoffice/platform';
+import {
+  PASSWORD_REQUIRED,
+  WRONG_PASSWORD,
+  openProtection,
+  updateNotice,
+} from '@blueoffice/platform';
 import {
   Ribbon,
   CommandSearch,
@@ -160,6 +165,15 @@ import { CommentsPanel, ReviewPanel } from './ReviewPanel';
 import { MarkupModeSelect, reviewersOf, ShowMarkupMenu } from './MarkupMenus';
 import { ReviewingPane } from './ReviewingPane';
 import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
+import {
+  identityNames,
+  isProtectionRefusal,
+  refusalKey,
+  OpenProtectionDialog,
+  ProtectDialog,
+  ProtectionBar,
+  ProtectionStatus,
+} from './ProtectionPanels';
 import { SignaturesPanel, SignDialog } from './SignaturePanels';
 import {
   documentState,
@@ -325,11 +339,21 @@ function EditorInner({
         signatures: null,
         macroWarning: !!info.macros,
         legacyNotice: info.legacyConverted ?? 0,
+        security: null,
+        protectUi: null,
       });
       view.current?.setDocument(info);
       platform.window.setTitle(`${info.name} — ${t('app.doc')}`);
       // New revisions and comments are attributed to the signed-in user (fallback "BlueOffice").
       await controller.current?.run({ cmd: 'setAuthor', name: platform.auth.user?.name ?? '' });
+      // Editable regions (CORE-SEC-001) match the signed-in user's name / e-mail;
+      // a final or read-only file asks how to open it.
+      const sec = await controller.current?.run({
+        cmd: 'setIdentity',
+        names: identityNames(platform.auth.user),
+      });
+      if (sec?.security && openProtection(sec.security) !== 'none' && !sec.security.markedFinal)
+        store.setState({ protectUi: 'prompt' });
       // AutoCorrect as you type: the user's kept options, else the engine defaults.
       await controller.current?.run(autoCorrectCommand(loadAutoCorrect()));
       await controller.current?.run({ cmd: 'state' });
@@ -466,13 +490,18 @@ function EditorInner({
         // Find "highlight all": new boxes with a find, stale ones dropped after an edit.
         if (r.highlights) v.setFindHighlights(r.highlights);
         else if (r.dirty.length) v.setFindHighlights([]);
+        // Protection state; highlighted editable regions follow the text.
+        if (r.security) v.setRegionHighlights(r.security.regionRects ?? []);
         store.setState({
           edit: r,
           doc: r.info,
           ...(r.review ? { review: r.review } : {}),
           ...(r.merge ? { merge: r.merge } : {}),
+          ...(r.security ? { security: r.security } : {}),
         });
-        if (r.error) fail('errors.edit', r.error);
+        if (isProtectionRefusal(r.error))
+          store.setState({ status: { kind: 'info', key: refusalKey(r.error) } });
+        else if (r.error) fail('errors.edit', r.error);
       },
       (e) => fail('errors.edit', e),
     );
@@ -653,6 +682,28 @@ function EditorInner({
       isEnabled: hasDoc,
       isChecked: (s) => !!s.doc?.protected,
       run: () => store.setState({ panel: 'savePassword' }),
+    });
+    // CORE-SEC-001: final mark, write protection, label, restricted editing.
+    r.register({
+      id: 'file.protect',
+      isEnabled: hasDoc,
+      isChecked: (s) => !!s.security && (s.security.readOnly || !!s.security.protection?.enforced),
+      run: async () => {
+        await controller.current?.run({ cmd: 'security' });
+        store.setState({ protectUi: 'panel' });
+      },
+    });
+    r.register({
+      id: 'review.nextEditableRegion',
+      isEnabled: (s) => !!s.security?.regions?.some((g) => g.mine),
+      run: () => void controller.current?.run({ cmd: 'nextEditableRegion', forward: true }),
+    });
+    r.register({
+      id: 'review.showEditableRegions',
+      isEnabled: (s) => !!s.security?.regions?.length,
+      isChecked: (s) => !!s.security?.showRegions,
+      run: (s) =>
+        void controller.current?.run({ cmd: 'showEditableRegions', on: !s.security?.showRegions }),
     });
     r.register({
       id: 'file.saveAs',
@@ -1867,6 +1918,25 @@ function EditorInner({
           ],
         },
         {
+          id: 'protect',
+          label: t('protect.group'),
+          items: [
+            item('file.protect', 'protect.cmd.protect', <Lock size={ICON} />),
+            item(
+              'review.nextEditableRegion',
+              'protect.cmd.nextRegion',
+              <ShieldCheck size={ICON} />,
+              'small',
+            ),
+            item(
+              'review.showEditableRegions',
+              'protect.cmd.showRegions',
+              <ShieldCheck size={ICON} />,
+              'small',
+            ),
+          ],
+        },
+        {
           id: 'signature',
           label: t('ribbon.groups.signature'),
           items: [
@@ -2761,6 +2831,36 @@ function EditorInner({
                 </button>
               </div>
             )}
+            {state.security?.readOnly && (
+              <ProtectionBar
+                info={state.security}
+                onEdit={() => {
+                  const s = state.security;
+                  if (s?.markedFinal) void runCommand({ cmd: 'markFinal', on: false });
+                  else if (s?.writePassword) store.setState({ protectUi: 'prompt' });
+                  else void runCommand({ cmd: 'setReadOnly', on: false });
+                }}
+              />
+            )}
+            {state.protectUi === 'prompt' && state.security && (
+              <OpenProtectionDialog
+                info={state.security}
+                name={state.doc?.name ?? ''}
+                run={runCommand}
+                onDone={() => store.setState({ protectUi: null })}
+              />
+            )}
+            {state.protectUi === 'panel' && state.security && (
+              <ProtectDialog
+                app="doc"
+                info={state.security}
+                run={runCommand}
+                onClose={() => {
+                  store.setState({ protectUi: null });
+                  view.current?.focus();
+                }}
+              />
+            )}
             {state.macroWarning && (
               <div className={styles.macroBar} role="status" data-testid="macro-warning">
                 <span>{t('security.macroWarning')}</span>
@@ -2895,6 +2995,7 @@ function EditorInner({
             {state.doc?.protected && (
               <span data-testid="status-protected">{t('security.protected')}</span>
             )}
+            {state.doc && <ProtectionStatus info={state.security} />}
             {status.kind === 'busy' && <span>{t(status.key)}</span>}
             {status.kind === 'info' && (
               <span data-testid="status-info">{t(status.key, status.params)}</span>

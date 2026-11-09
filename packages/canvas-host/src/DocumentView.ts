@@ -89,6 +89,8 @@ export class DocumentView {
   private spelling: SpellMark[] = [];
   /** Find "highlight all" boxes (never printed). */
   private findMarks: SelRect[] = [];
+  /** Editable regions of a protected document the user may edit (CORE-SEC-001). */
+  private regionMarks: SelRect[] = [];
   private readonly ime: ImeInput;
   private slots: PageSlot[] = [];
   private lists = new Map<number, Promise<PageDisplayList>>();
@@ -141,7 +143,7 @@ export class DocumentView {
       const st = document.createElement('style');
       st.id = 'bo-caret-style';
       st.textContent =
-        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1.5px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(51,120,220,.32);pointer-events:none}.bo-find{position:absolute;background:rgba(255,200,0,.45);pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}.bo-spell.bo-grammar{background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%231a5fd0%27 stroke-width=%271%27/%3E%3C/svg%3E")}';
+        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1.5px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(51,120,220,.32);pointer-events:none}.bo-find{position:absolute;background:rgba(255,200,0,.45);pointer-events:none}.bo-region{position:absolute;background:rgba(255,236,150,.4);box-shadow:inset 0 -1px 0 rgba(170,130,0,.7);pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}.bo-spell.bo-grammar{background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%231a5fd0%27 stroke-width=%271%27/%3E%3C/svg%3E")}';
       document.head.appendChild(st);
     }
   }
@@ -232,6 +234,7 @@ export class DocumentView {
     for (const s of this.slots) s.overlay.replaceChildren();
     const k = PX_PER_PT * this.zoomValue;
     this.drawFindMarks(k);
+    this.drawRegionMarks(k);
     for (const r of rects) {
       const slot = this.slots[r.page];
       if (!slot) continue;
@@ -284,6 +287,24 @@ export class DocumentView {
       const d = document.createElement('div');
       d.className = 'bo-find';
       d.dataset.testid = 'find-highlight';
+      d.style.cssText = `left:${r.x * k}px;top:${r.y * k}px;width:${r.w * k}px;height:${r.h * k}px;`;
+      slot.overlay.appendChild(d);
+    }
+  }
+
+  /** Highlight the editable regions of a protected document; `[]` clears. */
+  setRegionHighlights(rects: SelRect[]): void {
+    this.regionMarks = rects;
+    this.setSelection(this.caret, this.lastRects, false);
+  }
+
+  private drawRegionMarks(k: number): void {
+    for (const r of this.regionMarks) {
+      const slot = this.slots[r.page];
+      if (!slot) continue;
+      const d = document.createElement('div');
+      d.className = 'bo-region';
+      d.dataset.testid = 'region-highlight';
       d.style.cssText = `left:${r.x * k}px;top:${r.y * k}px;width:${r.w * k}px;height:${r.h * k}px;`;
       slot.overlay.appendChild(d);
     }

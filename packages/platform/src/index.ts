@@ -12,6 +12,7 @@ export {
   updateNotice,
 } from './shared';
 export * from './sheet';
+export * from './security';
 export {
   OidcSession,
   fetchOidcConfig,

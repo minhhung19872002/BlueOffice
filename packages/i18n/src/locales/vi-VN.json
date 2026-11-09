@@ -1106,7 +1106,22 @@
     "count": "{{count}} kết quả",
     "none": "Không tìm thấy",
     "replaced": "Đã thay {{count}} chỗ",
-    "invalid": "Biểu thức không hợp lệ"
+    "invalid": "Biểu thức không hợp lệ",
+    "wildcards": "Dùng ký tự đại diện",
+    "highlightAll": "Tô sáng tất cả",
+    "highlighted": "Đã tô sáng {{count}} kết quả",
+    "special": "Đặc biệt",
+    "sp": {
+      "paragraph": "Dấu đoạn (^p)",
+      "tab": "Tab (^t)",
+      "lineBreak": "Ngắt dòng (^l)",
+      "pageBreak": "Ngắt trang (^m)",
+      "digit": "Chữ số bất kỳ (^#)",
+      "letter": "Chữ cái bất kỳ (^$)",
+      "anyChar": "Ký tự bất kỳ (^?)",
+      "caret": "Dấu mũ (^^)",
+      "found": "Văn bản tìm được (^&)"
+    }
   },
   "slideEditor": {
     "open": "Mở",

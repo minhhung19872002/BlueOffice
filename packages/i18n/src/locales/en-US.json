@@ -1106,7 +1106,22 @@
     "count": "{{count}} results",
     "none": "No results",
     "replaced": "Replaced {{count}}",
-    "invalid": "Invalid expression"
+    "invalid": "Invalid expression",
+    "wildcards": "Use wildcards",
+    "highlightAll": "Highlight all",
+    "highlighted": "{{count}} highlighted",
+    "special": "Special",
+    "sp": {
+      "paragraph": "Paragraph mark (^p)",
+      "tab": "Tab (^t)",
+      "lineBreak": "Manual line break (^l)",
+      "pageBreak": "Page break (^m)",
+      "digit": "Any digit (^#)",
+      "letter": "Any letter (^$)",
+      "anyChar": "Any character (^?)",
+      "caret": "Caret character (^^)",
+      "found": "Found text (^&)"
+    }
   },
   "slideEditor": {
     "open": "Open",

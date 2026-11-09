@@ -416,6 +416,9 @@ function EditorInner({
         measure();
         if (r.spelling) v.setSpelling(r.spelling);
         else if (r.dirty.length) refreshSpelling();
+        // Find "highlight all": new boxes with a find, stale ones dropped after an edit.
+        if (r.highlights) v.setFindHighlights(r.highlights);
+        else if (r.dirty.length) v.setFindHighlights([]);
         store.setState({
           edit: r,
           doc: r.info,
@@ -2281,6 +2284,7 @@ function EditorInner({
                 run={runCommand}
                 replace={state.panel === 'replace'}
                 onClose={closePanel}
+                onClearHighlights={() => view.current?.setFindHighlights([])}
               />
             )}
             {state.panel === 'review' && (

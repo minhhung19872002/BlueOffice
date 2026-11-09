@@ -1,5 +1,6 @@
 import { DocumentView } from '@blueoffice/canvas-host';
 import { SpellMenu, loadUserWords, saveUserWord } from './SpellMenu';
+import { AutoCorrectDialog, autoCorrectCommand, loadAutoCorrect } from './AutoCorrectDialog';
 import { createI18n, I18nextProvider, type Language } from '@blueoffice/i18n';
 import type {
   CharFormat,
@@ -30,6 +31,7 @@ import {
 import {
   AArrowDown,
   AArrowUp,
+  WandSparkles,
   AlignCenter,
   AlignJustify,
   AlignLeft,
@@ -307,6 +309,8 @@ function EditorInner({
       platform.window.setTitle(`${info.name} — ${t('app.doc')}`);
       // New revisions and comments are attributed to the signed-in user (fallback "BlueOffice").
       await controller.current?.run({ cmd: 'setAuthor', name: platform.auth.user?.name ?? '' });
+      // AutoCorrect as you type: the user's kept options, else the engine defaults.
+      await controller.current?.run(autoCorrectCommand(loadAutoCorrect()));
       await controller.current?.run({ cmd: 'state' });
       if (store.getState().fonts.length === 0) {
         const f = await controller.current?.run({ cmd: 'fontList' });
@@ -1193,6 +1197,11 @@ function EditorInner({
       },
     });
     r.register({
+      id: 'review.autoCorrect',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'autoCorrect' }),
+    });
+    r.register({
       id: 'review.grammar',
       isEnabled: hasDoc,
       isChecked: (s) => s.grammarOn,
@@ -1988,6 +1997,7 @@ function EditorInner({
           items: [
             item('review.spelling', 'commands.review.spelling', <SpellCheck size={ICON} />),
             item('review.grammar', 'commands.review.grammar', <SpellCheck2 size={ICON} />),
+            item('review.autoCorrect', 'commands.review.autoCorrect', <WandSparkles size={ICON} />),
           ],
         },
         {
@@ -2242,6 +2252,9 @@ function EditorInner({
                   });
                 }}
               />
+            )}
+            {state.dialog === 'autoCorrect' && (
+              <AutoCorrectDialog run={runCommand} onClose={closeDialog} />
             )}
             {state.dialog === 'control' && (
               <ControlDialog

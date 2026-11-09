@@ -173,6 +173,7 @@
       "convertLegacyText": "Chuyển chữ TCVN3/VNI sang Unicode",
       "spelling": "Kiểm tra chính tả khi gõ",
       "grammar": "Soát ngữ pháp và văn phong khi gõ",
+      "autoCorrect": "Tuỳ chọn tự động sửa…",
       "compare": "So sánh với bản gốc…",
       "combine": "Kết hợp bản sửa…"
     },
@@ -2174,5 +2175,31 @@
     "date": "Ngày",
     "locked": "Nội dung bị khoá",
     "apply": "Áp dụng"
+  },
+  "autoCorrect": {
+    "title": "Tự động sửa khi gõ",
+    "enabled": "Bật tự động sửa khi gõ",
+    "rules": "Quy tắc",
+    "replaceText": "Thay thế theo danh sách bên dưới",
+    "capitalizeSentences": "Viết hoa chữ cái đầu câu",
+    "capitalizeCells": "Viết hoa chữ cái đầu ô bảng",
+    "twoInitialCaps": "Sửa từ bị viết hoa hai chữ đầu (ĐIện → Điện)",
+    "smartQuotes": "Đổi dấu nháy thẳng thành nháy cong (“ ” ‘ ’)",
+    "dashes": "Đổi gạch nối thành gạch ngang (– —)",
+    "ordinals": "Nâng hậu tố số thứ tự tiếng Anh (1st)",
+    "fractions": "Đổi phân số thành ký tự (1/2 → ½)",
+    "autoLists": "Tự tạo danh sách khi đầu đoạn gõ “- ”, “* ”, “1. ”, “a) ”",
+    "autoLinks": "Tự tạo liên kết cho địa chỉ web và thư điện tử",
+    "entries": "Danh sách thay thế",
+    "from": "Khi gõ",
+    "to": "Đổi thành",
+    "add": "Thêm",
+    "remove": "Xoá",
+    "count": "{{count}} mục",
+    "exceptions": "Không viết hoa sau các chữ viết tắt (mỗi dòng một mục)",
+    "capsExceptions": "Giữ nguyên hai chữ hoa đầu cho các từ (mỗi dòng một mục)",
+    "reset": "Khôi phục mặc định",
+    "ok": "Đồng ý",
+    "cancel": "Huỷ"
   }
 }

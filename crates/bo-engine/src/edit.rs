@@ -463,6 +463,16 @@ pub enum Command {
         /// Linear form.
         linear: bool,
     },
+    /// AutoCorrect options (CORE-AUTOCORR-001): `options` replaces them, `reset`
+    /// restores the defaults; the result reports the current ones in `autocorrect`.
+    AutoCorrect {
+        /// New options.
+        #[serde(default)]
+        options: Option<Box<bo_edit::AutoCorrectOptions>>,
+        /// Restore the default options.
+        #[serde(default)]
+        reset: bool,
+    },
     /// Spelling as you type on or off.
     SetSpelling {
         /// On.
@@ -697,6 +707,12 @@ pub struct EditResult {
     /// Style gallery (`styleList`): paragraph and character styles of the document.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub styles: Option<Vec<crate::gallery::StyleEntry>>,
+    /// Current AutoCorrect options (`autoCorrect` command).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub autocorrect: Option<Box<bo_edit::AutoCorrectOptions>>,
+    /// The rule AutoCorrect applied after the typed character (one undo step).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub corrected: Option<bo_edit::autocorrect::Rule>,
     /// The Format Painter holds picked formatting.
     pub painter: bool,
 }
@@ -745,6 +761,24 @@ impl crate::Engine {
     }
 
     fn command_inner(&mut self, cmd: Command, now: Option<i64>) -> crate::Result<EditResult> {
+        if let Command::AutoCorrect { options, reset } = cmd {
+            if reset {
+                self.autocorrect = Some(bo_edit::AutoCorrectOptions::default());
+            } else if let Some(o) = options {
+                self.autocorrect = Some(*o);
+            }
+            // Until a host configures it, AutoCorrect is off (CLI, conversions, tests).
+            let current = self
+                .autocorrect
+                .clone()
+                .unwrap_or(bo_edit::AutoCorrectOptions {
+                    enabled: false,
+                    ..bo_edit::AutoCorrectOptions::default()
+                });
+            let mut r = self.query_result()?;
+            r.autocorrect = Some(Box::new(current));
+            return Ok(r);
+        }
         if let Some(mut r) = self.special_command(&cmd)? {
             // Header/footer and note editors mirror into the document: share it live.
             if r.collab.is_none() {
@@ -857,6 +891,7 @@ impl crate::Engine {
         );
         let mut targets = None;
         let mut new_note = None;
+        let mut corrected = None;
         {
             let layout = self.layout.document();
             let s = self
@@ -878,6 +913,7 @@ impl crate::Engine {
                     .map(|l| page_numbers(&l, n))
                     .unwrap_or_default()
             };
+            let autocorrect = self.autocorrect.as_ref();
             let before_version = s.version();
             let sel = s.selection();
             let cmd_kind = if matches!(cmd, Command::AcceptRevision { .. }) {
@@ -889,6 +925,7 @@ impl crate::Engine {
                 match cmd {
                     // Handled outside the session (view options, merge state).
                     Command::State
+                    | Command::AutoCorrect { .. }
                     | Command::Review
                     | Command::SetRevisionView { .. }
                     | Command::ShowFieldCodes { .. }
@@ -1072,6 +1109,11 @@ impl crate::Engine {
                     }
                     Command::InsertText { text } => {
                         s.insert_text(&text)?;
+                        // AutoCorrect after one typed character (its own undo step).
+                        let mut cs = text.chars();
+                        if let (Some(c), None, Some(o)) = (cs.next(), cs.next(), autocorrect) {
+                            corrected = s.autocorrect(o, c)?;
+                        }
                     }
                     Command::DeleteBackward => {
                         s.delete_backward()?;
@@ -1080,7 +1122,12 @@ impl crate::Engine {
                         s.delete_forward()?;
                     }
                     Command::SplitParagraph => {
+                        let n = s.paragraph_count();
                         s.split_paragraph()?;
+                        // Only a real break (Enter in an empty list item ends the list).
+                        if let Some(o) = autocorrect.filter(|_| s.paragraph_count() > n) {
+                            corrected = s.autocorrect_break(o)?;
+                        }
                     }
                     Command::FormatText { format } => {
                         s.format_text(&format)?;
@@ -1303,6 +1350,7 @@ impl crate::Engine {
             r.highlights = Some(self.match_rects(r.matches.as_deref().unwrap_or_default()));
         }
         r.targets = targets;
+        r.corrected = corrected;
         if note_cmd {
             r.notes = self.session.as_ref().map(bo_edit::Session::notes);
         }
@@ -1418,6 +1466,8 @@ impl crate::Engine {
             fonts: None,
             drawing: None,
             styles: None,
+            autocorrect: None,
+            corrected: None,
             painter: s.picked_format().is_some(),
         })
     }

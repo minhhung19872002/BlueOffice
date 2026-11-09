@@ -483,6 +483,8 @@ export type EditCommand =
   | { cmd: 'spellAt'; page: number; x: number; y: number }
   | { cmd: 'spellIgnore' | 'spellAddWord'; word: string }
   | { cmd: 'setSpelling'; on: boolean }
+  /** AutoCorrect as you type (CORE-AUTOCORR-001): set (`options`), restore defaults (`reset`) or query. */
+  | { cmd: 'autoCorrect'; options?: AutoCorrectOptions; reset?: boolean }
   /** Equations (CORE-MATH-007): insert from UnicodeMath / LaTeX, query, linear ↔ built-up. */
   | {
       cmd: 'insertEquation';
@@ -592,7 +594,50 @@ export interface EditResult {
   control?: ControlInfo;
   /** Equation templates (`equationTemplates`). */
   templates?: { id: string; linear: string }[];
+  /** Current AutoCorrect options (`autoCorrect`). */
+  autocorrect?: AutoCorrectOptions;
+  /** The AutoCorrect rule applied after the typed character (undo reverts only it). */
+  corrected?: AutoCorrectRule;
 }
+
+/** A replacement-list entry (mirrors `bo_edit::autocorrect::Replacement`). */
+export interface AutoCorrectEntry {
+  from: string;
+  to: string;
+}
+
+/** AutoCorrect options (mirrors `bo_edit::AutoCorrectOptions`). */
+export interface AutoCorrectOptions {
+  enabled: boolean;
+  replaceText: boolean;
+  capitalizeSentences: boolean;
+  capitalizeCells: boolean;
+  twoInitialCaps: boolean;
+  smartQuotes: boolean;
+  dashes: boolean;
+  ordinals: boolean;
+  fractions: boolean;
+  autoLists: boolean;
+  autoLinks: boolean;
+  entries: AutoCorrectEntry[];
+  /** Abbreviations after which no capital is forced. */
+  exceptions: string[];
+  /** Words that keep two initial capitals. */
+  capsExceptions: string[];
+}
+
+/** AutoCorrect rules (mirrors `bo_edit::autocorrect::Rule`). */
+export type AutoCorrectRule =
+  | 'replace'
+  | 'capitalize'
+  | 'capitalizeCell'
+  | 'twoCaps'
+  | 'smartQuote'
+  | 'dash'
+  | 'ordinal'
+  | 'fraction'
+  | 'list'
+  | 'link';
 
 /** Kinds of content control the editor inserts. */
 export type ControlKind = 'text' | 'richText' | 'checkbox' | 'dropDown' | 'comboBox' | 'date';

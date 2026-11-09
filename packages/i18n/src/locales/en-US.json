@@ -173,6 +173,7 @@
       "convertLegacyText": "Convert TCVN3/VNI text to Unicode",
       "spelling": "Check spelling as you type",
       "grammar": "Check grammar and style as you type",
+      "autoCorrect": "AutoCorrect options…",
       "compare": "Compare with original…",
       "combine": "Combine revisions…"
     },
@@ -2174,5 +2175,31 @@
     "date": "Date",
     "locked": "Contents locked",
     "apply": "Apply"
+  },
+  "autoCorrect": {
+    "title": "AutoCorrect as you type",
+    "enabled": "Correct text as you type",
+    "rules": "Rules",
+    "replaceText": "Replace text using the list below",
+    "capitalizeSentences": "Capitalize the first letter of sentences",
+    "capitalizeCells": "Capitalize the first letter of table cells",
+    "twoInitialCaps": "Fix words typed with two leading capitals (THe → The)",
+    "smartQuotes": "Turn straight quotes into curly quotes (“ ” ‘ ’)",
+    "dashes": "Turn hyphens into dashes (– —)",
+    "ordinals": "Raise ordinal suffixes (1st)",
+    "fractions": "Turn fractions into characters (1/2 → ½)",
+    "autoLists": "Start a list when a paragraph begins with “- ”, “* ”, “1. ” or “a) ”",
+    "autoLinks": "Turn web and e-mail addresses into links",
+    "entries": "Replacement list",
+    "from": "Typed",
+    "to": "Becomes",
+    "add": "Add",
+    "remove": "Remove",
+    "count": "{{count}} entries",
+    "exceptions": "No capital after these abbreviations (one per line)",
+    "capsExceptions": "Keep two leading capitals in these words (one per line)",
+    "reset": "Restore defaults",
+    "ok": "OK",
+    "cancel": "Cancel"
   }
 }

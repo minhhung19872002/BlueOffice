@@ -1367,6 +1367,8 @@ export type SlideCommand =
   | import('./security').SecurityCommand
   /** Slide masters, layouts, themes, slide size (SLIDE-MASTER-001). */
   | import('./slideMaster').SlideMasterCommand
+  /** Custom shows, show setup, timings, show links, kept ink (SLIDE-SHOW-001). */
+  | import('./slideShow').SlidePresentCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
   /** Check document (CORE-INSPECT-001) → `inspection`. */
   | InspectCommand
@@ -1735,6 +1737,8 @@ export interface SlideShowInfo {
   clicks: number;
   /** Shapes that start effects when clicked, with their boxes `[x, y, w, h]`. */
   triggers?: { shapeId: number; rect: [number, number, number, number] }[];
+  /** Shapes whose hyperlink the show follows (custom shows, jumps). */
+  links?: import('./slideShow').SlideShowLink[];
   media: SlideMediaInfo[];
   /** Morph from the previous slide ([MS-PPTX] p159:morph), when that is the transition. */
   morph?: SlideMorphInfo;
@@ -1936,6 +1940,8 @@ export interface SlideEditResult {
   smartart?: SlideSmartArtInfo;
   /** Answer of the `show` command. */
   show?: SlideShowInfo;
+  /** Custom shows, show setup, hidden slides and timings (Slide Show tab). */
+  presenting?: import('./slideShow').SlidePresentInfo;
   /** Protection state (security commands, CORE-SEC-001). */
   security?: import('./security').SecurityInfo;
   /** Slide size, theme and masters (Design tab). */
@@ -2391,4 +2397,6 @@ export interface Platform {
   updates?: UpdateService;
   /** Video encoding (WebCodecs where the browser / webview has it). */
   video?: VideoEncoding;
+  /** Other monitors for the audience screen (absent: a plain second window). */
+  displays?: import('./slideShow').DisplayService;
 }

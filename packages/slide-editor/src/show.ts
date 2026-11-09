@@ -3,7 +3,7 @@
  * slide into a box. No DOM; unit-tested.
  */
 
-export type ShowAction = 'next' | 'prev' | 'first' | 'last' | 'exit' | 'black' | null;
+export type ShowAction = 'next' | 'prev' | 'first' | 'last' | 'exit' | 'black' | 'white' | null;
 
 /** Keys of common presentation software and presentation remotes. */
 export function showAction(key: string): ShowAction {
@@ -33,6 +33,10 @@ export function showAction(key: string): ShowAction {
     case 'B':
     case '.':
       return 'black';
+    case 'w':
+    case 'W':
+    case ',':
+      return 'white';
     default:
       return null;
   }

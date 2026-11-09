@@ -28,6 +28,12 @@ import type {
   SlideTextEdit,
   SlideTransitionKind,
 } from '@blueoffice/platform';
+import {
+  DEFAULT_SHOW_SETUP,
+  type DisplayTarget,
+  type SlideLinkAction,
+  type SlideShowSetup,
+} from '@blueoffice/platform';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD } from '@blueoffice/platform';
 import {
   CommentThreads,
@@ -162,8 +168,36 @@ import { ExportVideoDialog } from './exportVideo';
 import { exportShow, type ShowExportRequest } from './video/export';
 import { ExportDocsDialog, exportPlan, type ExportDocsState } from './exportDocs';
 import { MediaButtons } from './MediaLayer';
-import { advance, type ShowPos } from './player';
+import type { ShowPos } from './player';
 import { fit, formatElapsed, showAction, step, type ShowAction } from './show';
+import { CustomShowsDialog } from './customShows';
+import { InkLayer, type PresenterTool } from './ink';
+import {
+  InactivityTimer,
+  NO_ZOOM,
+  RehearsalClock,
+  kioskAllows,
+  newRun,
+  playOrder,
+  runGoto,
+  runLink,
+  runPosOf,
+  runStep,
+  startAt,
+  toggleCover,
+  type RunPos,
+  type ShowRun,
+  type ZoomTransform,
+} from './presenting';
+import { SetupShowDialog } from './setupShow';
+import { slideShowTab } from './showTab';
+import {
+  EndShowDialog,
+  RehearsalBar,
+  ShowSurface,
+  SlideGrid,
+  type EndShowState,
+} from './showTools';
 import { ShowCache, ShowStage } from './ShowStage';
 import { SlideCanvas } from './SlideCanvas';
 import { zipStore } from './zip';
@@ -244,7 +278,8 @@ const RIBBON_TRANSITIONS: SlideTransitionKind[] = [
 ];
 const ENTRANCES: SlideAnimEffect[] = ['appear', 'fade', 'flyIn', 'wipe'];
 
-type Pos = ShowPos & { from: number | null };
+/** Show position; `at` = place in the playing order (SLIDE-SHOW-001). */
+type Pos = ShowPos & { from: number | null; at?: number };
 
 /** Dialog fields of an existing chart. */
 function chartDraftOf(c: SlideChartInfo): ChartDraft {
@@ -350,7 +385,32 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   } | null>(null);
   const [savePassword, setSavePassword] = useState(false);
   const [macroBanner, setMacroBanner] = useState(false);
-  const [pos, setPos] = useState<Pos>({ slide: 0, click: 0, enter: 'jump', from: null });
+  /**
+   * Show position with the playing order it moves in (SLIDE-SHOW-001), changed
+   * together; `base` = the order the show started with (a kiosk restarts on it).
+   */
+  const [play, setPlay] = useState<{ pos: Pos; run: ShowRun; base: number[] }>(() => ({
+    pos: { slide: 0, click: 0, enter: 'jump', from: null },
+    run: newRun([]),
+    base: [],
+  }));
+  const pos = play.pos;
+  const showRun = play.run;
+  const [white, setWhite] = useState(false);
+  const [tool, setTool] = useState<PresenterTool>('pointer');
+  const [zoom, setZoom] = useState<ZoomTransform>(NO_ZOOM);
+  const ink = useMemo(() => new InkLayer(), []);
+  const [inkRev, setInkRev] = useState(0);
+  const [gridOpen, setGridOpen] = useState(false);
+  /** Rehearse timings: the clock while rehearsing. */
+  const [clock, setClock] = useState<RehearsalClock | null>(null);
+  const rehearsing = clock !== null;
+  const [kioskOn, setKioskOn] = useState(false);
+  const [endState, setEndState] = useState<EndShowState | null>(null);
+  const [endKey, setEndKey] = useState(0);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [displayTarget, setDisplayTarget] = useState<DisplayTarget>({ kind: 'window' });
   const [paneOpen, setPaneOpen] = useState(false);
   /** Comments side panel ([MS-PPTX] modern comments). */
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -539,12 +599,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     };
   }, [engine, info, pos.slide, count, view]);
 
-  // Clock for the presenter view.
+  // Clock for the presenter view and the rehearsal timer.
   useEffect(() => {
-    if (view !== 'presenter') return;
+    if (view !== 'presenter' && !rehearsing) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [view]);
+  }, [view, rehearsing]);
 
   const goTo = useCallback(
     (i: number) => {
@@ -569,28 +629,61 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   useEffect(() => {
     if (!audience.open) return;
     if (view === 'show' || view === 'presenter') {
-      audience.update(pos.slide, black, false, pos.click, pos.enter);
+      audience.update(pos.slide, black, false, pos.click, pos.enter, {
+        white,
+        zoom,
+        ink: ink.strokes(pos.slide),
+      });
     } else {
       audience.update(current, false, true);
       audience.stop();
     }
-  }, [audience, view, current, black, pos]);
+  }, [audience, view, current, black, pos, white, zoom, ink, inkRev]);
+
+  const setup: SlideShowSetup = edit?.presenting?.setup ?? DEFAULT_SHOW_SETUP;
+  const customShows = edit?.presenting?.customShows;
 
   const startShow = useCallback(
-    (from: number, presenter: boolean) => {
+    (from: number, presenter: boolean, opts: { custom?: number; rehearse?: boolean } = {}) => {
       if (!count) return;
+      const pr = edit?.presenting;
+      const st = pr?.setup ?? DEFAULT_SHOW_SETUP;
+      let order = playOrder(count, {
+        setup: st,
+        customShows: pr?.customShows,
+        hidden: pr?.hidden,
+        custom: opts.custom ?? null,
+      });
+      if (order.length === 0) order = [Math.max(0, Math.min(from, count - 1))];
+      // A kiosk loops until Esc and restarts after inactivity (§19.2.1.17).
+      const kiosk = st.showType === 'kiosk' && !presenter && !opts.rehearse;
+      const at = opts.custom !== undefined ? 0 : startAt(order, from);
+      const first = order[at] ?? 0;
       setReturnView(view === 'show' || view === 'presenter' ? 'normal' : view);
-      const first = Math.max(0, Math.min(from, count - 1));
       setCurrent(first);
       showCache.clear();
-      setPos({ slide: first, click: 0, enter: 'transition', from: null });
+      setPlay({
+        pos: { at, slide: first, click: 0, enter: 'transition', from: null },
+        run: newRun(order, { loop: st.loop || kiosk, still: !st.animation }),
+        base: order,
+      });
       setBlack(false);
+      setWhite(false);
+      setTool('pointer');
+      setZoom(NO_ZOOM);
+      setGridOpen(false);
+      ink.clear();
+      setInkRev((n) => n + 1);
+      setKioskOn(kiosk);
+      setClock(opts.rehearse ? new RehearsalClock(Date.now()) : null);
       setStartedAt(Date.now());
       setNow(Date.now());
       setEditing(null);
-      setView(presenter ? 'presenter' : 'show');
+      // Browsed by one person: the slides play in the window (reading view).
+      const browse = st.showType === 'browse' && !presenter && !opts.rehearse;
+      setView(presenter ? 'presenter' : browse ? 'reading' : 'show');
     },
-    [count, view, showCache],
+    [count, view, showCache, edit, ink],
   );
 
   const endShow = useCallback(() => {
@@ -599,26 +692,134 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     setCurrent(n);
     run({ cmd: 'goTo', slide: n });
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-  }, [returnView, count, pos.slide, run]);
+    const timings = clock ? clock.finish(Date.now()) : null;
+    setClock(null);
+    setKioskOn(false);
+    setGridOpen(false);
+    setZoom(NO_ZOOM);
+    setTool('pointer');
+    setWhite(false);
+    const kept = timings && timings.length > 0 ? timings : null;
+    if (!ink.isEmpty() || kept) {
+      setEndKey((k) => k + 1);
+      setEndState({ ink: !ink.isEmpty(), timings: kept });
+    }
+  }, [returnView, count, pos.slide, run, ink, clock]);
 
-  /** Slide show navigation: clicks play the next effect, then the next slide. */
+  /** Keep (or drop) the show's ink and rehearsed timings: one undo step each. */
+  const finishEnd = useCallback(
+    (keep: { ink: boolean; timings: boolean }) => {
+      const st = endState;
+      setEndState(null);
+      if (!st) return;
+      if (keep.ink && st.ink && !ink.isEmpty()) {
+        run({ cmd: 'keepInk', ink: ink.toCommand(), name: t('showTools.inkName') });
+      }
+      if (keep.timings && st.timings) {
+        run({
+          cmd: 'setTimings',
+          timings: st.timings.map((x) => ({ slide: x.slide, ms: x.ms })),
+          useTimings: true,
+        });
+      }
+      ink.clear();
+      setInkRev((n) => n + 1);
+    },
+    [endState, ink, run, t],
+  );
+
+  /** A new place in the playing order; the slide left is the transition's outgoing one. */
+  const placed = useCallback(
+    (prev: Pos, next: RunPos): Pos => ({
+      ...next,
+      from: next.enter === 'transition' && prev.slide < count ? prev.slide : null,
+    }),
+    [count],
+  );
+
+  /** Slide show navigation: clicks play the next effect, then the next slide of the order. */
   const moveShow = useCallback(
     (a: ShowAction) => {
       setBlack(false);
+      setWhite(false);
+      if (a !== 'next' && a !== 'prev' && a !== 'first' && a !== 'last') return;
       const clicks = (i: number) => showCache.peek(i)?.clicks ?? 0;
-      setPos((p) => {
-        if (a === 'first') return { slide: 0, click: 0, enter: 'jump', from: null };
-        if (a === 'last') {
-          const last = Math.max(0, count - 1);
-          return { slide: last, click: clicks(last), enter: 'jump', from: null };
-        }
-        if (a !== 'next' && a !== 'prev') return p;
-        const n = advance(p, a, count, clicks);
-        return { ...n, from: n.enter === 'transition' ? p.slide : null };
+      setPlay((x) => {
+        const r0 = x.run.order.length ? x.run : newRun(Array.from({ length: count }, (_, i) => i));
+        const r = runStep(r0, runPosOf(x.pos, r0), a, count, clicks);
+        return { ...x, run: r.run, pos: placed(x.pos, r.pos) };
       });
     },
-    [count, showCache],
+    [count, showCache, placed],
   );
+
+  /** A shape's hyperlink in the show (custom shows, jumps, end). */
+  const followLink = useCallback(
+    (action: SlideLinkAction) => {
+      const clicks = (i: number) => showCache.peek(i)?.clicks ?? 0;
+      const r = runLink(
+        play.run,
+        runPosOf(play.pos, play.run),
+        action,
+        count,
+        clicks,
+        customShows ?? [],
+      );
+      if (r === 'end') endShow();
+      else setPlay((x) => ({ ...x, run: r.run, pos: placed(x.pos, r.pos) }));
+    },
+    [play, count, showCache, customShows, endShow, placed],
+  );
+
+  /** Go-to-slide grid: place `at` of the order. */
+  const gotoShow = useCallback(
+    (at: number) => {
+      const clicks = (i: number) => showCache.peek(i)?.clicks ?? 0;
+      setGridOpen(false);
+      setBlack(false);
+      setWhite(false);
+      setPlay((x) => {
+        const r = runGoto(x.run, runPosOf(x.pos, x.run), at, clicks);
+        return { ...x, run: r.run, pos: placed(x.pos, r.pos) };
+      });
+    },
+    [showCache, placed],
+  );
+
+  // Rehearsal: time each slide of the order.
+  useEffect(() => {
+    if (!clock) return;
+    // The end screen does not count for the last slide.
+    if (pos.slide < count) {
+      clock.resume(Date.now());
+      clock.enter(pos.slide, Date.now());
+    } else clock.pause(Date.now());
+  }, [clock, pos.slide, count]);
+
+  // Kiosk: restart after the inactivity period (§19.2.1.17 kiosk@restart).
+  const restartMs = setup.restartMs;
+  useEffect(() => {
+    if (!kioskOn || view !== 'show') return;
+    const timer = new InactivityTimer(restartMs, () => {
+      const clicks = (i: number) => showCache.peek(i)?.clicks ?? 0;
+      setPlay((x) => {
+        const fresh = newRun(x.base, { loop: true, still: x.run.still });
+        const r = runGoto(fresh, runPosOf(x.pos, fresh), 0, clicks);
+        return { ...x, run: { ...r.run, prev: null }, pos: placed(x.pos, r.pos) };
+      });
+    });
+    timer.start();
+    const poke = () => timer.poke();
+    window.addEventListener('pointermove', poke);
+    window.addEventListener('pointerdown', poke);
+    window.addEventListener('keydown', poke);
+    return () => {
+      timer.stop();
+      window.removeEventListener('pointermove', poke);
+      window.removeEventListener('pointerdown', poke);
+      window.removeEventListener('keydown', poke);
+    };
+  }, [kioskOn, view, showCache, restartMs, placed]);
 
   // Prefetch the next slide's show data (its click count decides what "next" does).
   useEffect(() => {
@@ -639,17 +840,21 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     (s: SlideShowInfo) => {
       const after = s.transition?.advanceAfterMs;
       if (autoTimer.current) clearTimeout(autoTimer.current);
+      // Rehearsing, or timings turned off in the setup (§19.2.1.30 useTimings): by hand.
+      if (clock || !setup.useTimings) return;
       if (!after || s.slide !== pos.slide || pos.click < s.clicks) return;
       autoTimer.current = setTimeout(() => moveShow('next'), after);
     },
-    [pos, moveShow],
+    [pos, moveShow, clock, setup.useTimings],
   );
   /** A mouse click in the show (ignored at the end of a slide whose advClick is off). */
   const clickShow = useCallback(() => {
     const s = showCache.peek(pos.slide);
+    // At a kiosk clicks do not move the show (timings and hyperlinks do).
+    if (kioskOn) return;
     if (s && s.transition && !s.transition.advanceOnClick && pos.click >= s.clicks) return;
     moveShow('next');
-  }, [showCache, pos, moveShow]);
+  }, [showCache, pos, moveShow, kioskOn]);
 
   // Full screen while the show runs.
   useEffect(() => {
@@ -659,11 +864,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   // Leaving full screen with the browser's own Esc ends the show too.
   useEffect(() => {
     const onFs = () => {
-      if (!document.fullscreenElement && view === 'show') setView(returnView);
+      if (!document.fullscreenElement && view === 'show') endShow();
     };
     document.addEventListener('fullscreenchange', onFs);
     return () => document.removeEventListener('fullscreenchange', onFs);
-  }, [view, returnView]);
+  }, [view, endShow]);
 
   const startEdit = useCallback(
     (shape: SlideShapeInfo, at?: { x: number; y: number }) => {
@@ -1075,7 +1280,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           if (v === 'reading') {
             // Reading view plays the slides like the show, in the window.
             showCache.clear();
-            setPos({ slide: s.current, click: 0, enter: 'transition', from: null });
+            setPlay((x) => ({
+              ...x,
+              run: newRun(Array.from({ length: count }, (_, i) => i)),
+              pos: { at: s.current, slide: s.current, click: 0, enter: 'transition', from: null },
+            }));
           } else if (view === 'reading') {
             const n = Math.min(pos.slide, Math.max(0, count - 1));
             setCurrent(n);
@@ -1156,8 +1365,28 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       run: (s) =>
         guard(async () => {
           await ctrl.idle();
-          await audience.start(s.current);
+          await audience.start(s.current, displayTarget);
           startShow(s.current, true);
+        }),
+    });
+
+    // Slide Show tab (SLIDE-SHOW-001).
+    reg.register({ id: 'show.customShows', isEnabled: deck, run: () => setCustomOpen(true) });
+    reg.register({ id: 'show.linkCustom', isEnabled: sel, run: () => setCustomOpen(true) });
+    reg.register({ id: 'show.setup', isEnabled: deck, run: () => setSetupOpen(true) });
+    reg.register({
+      id: 'show.rehearse',
+      isEnabled: deck,
+      run: () => startShow(0, false, { rehearse: true }),
+    });
+    reg.register({
+      id: 'show.useTimings',
+      isEnabled: deck,
+      isChecked: () => setup.useTimings,
+      run: () =>
+        run({
+          cmd: 'setShowSetup',
+          setup: { ...setup, useTimings: !setup.useTimings },
         }),
     });
 
@@ -1429,6 +1658,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     audience,
     showCache,
     count,
+    displayTarget,
+    setup,
     paneOpen,
     commentsOpen,
     newChart,
@@ -1495,12 +1726,58 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
       if (view === 'show' || view === 'presenter') {
+        // Presenter tools (BlueSlide's own keys): Ctrl+P pen, Ctrl+I highlighter,
+        // Ctrl+L laser, Ctrl+E eraser, Ctrl+A pointer, E clear ink, G grid, Z zoom.
+        if (!kioskOn) {
+          const k = e.key.toLowerCase();
+          const tools: Record<string, PresenterTool> = {
+            p: 'pen',
+            i: 'highlighter',
+            l: 'laser',
+            e: 'eraser',
+            a: 'pointer',
+          };
+          const pick = tools[k];
+          if ((e.ctrlKey || e.metaKey) && pick) {
+            e.preventDefault();
+            setTool(pick);
+            return;
+          }
+          if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+            if (k === 'e') {
+              e.preventDefault();
+              ink.clear(pos.slide);
+              setInkRev((n) => n + 1);
+              return;
+            }
+            if (k === 'g' || e.key === '-') {
+              e.preventDefault();
+              setGridOpen((g) => !g);
+              return;
+            }
+            if (k === 'z') {
+              e.preventDefault();
+              if (zoom.scale > 1) setZoom(NO_ZOOM);
+              else setTool((x) => (x === 'zoom' ? 'pointer' : 'zoom'));
+              return;
+            }
+          }
+        }
         const a = showAction(e.key);
         if (!a) return;
         e.preventDefault();
-        if (a === 'exit') endShow();
-        else if (a === 'black') setBlack((b) => !b);
-        else moveShow(a);
+        if (kioskOn && !kioskAllows(a)) return;
+        if (a === 'exit') {
+          // Esc first closes the grid, the zoom or the tool, then ends the show.
+          if (gridOpen) setGridOpen(false);
+          else if (zoom.scale > 1) setZoom(NO_ZOOM);
+          else if (tool !== 'pointer') setTool('pointer');
+          else endShow();
+        } else if (a === 'black' || a === 'white') {
+          const c = toggleCover(black ? 'black' : white ? 'white' : 'none', a);
+          setBlack(c === 'black');
+          setWhite(c === 'white');
+        } else if (!gridOpen) moveShow(a);
         return;
       }
       if (view === 'reading') {
@@ -1565,7 +1842,27 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [view, count, current, registry, exec, endShow, edit, run, startEdit, goTo, moveShow]);
+  }, [
+    view,
+    count,
+    current,
+    registry,
+    exec,
+    endShow,
+    edit,
+    run,
+    startEdit,
+    goTo,
+    moveShow,
+    kioskOn,
+    ink,
+    zoom,
+    tool,
+    gridOpen,
+    black,
+    white,
+    pos.slide,
+  ]);
 
   const ribbonTabs: RibbonTab[] = useMemo(() => {
     const item = (
@@ -1848,6 +2145,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           },
         ],
       },
+      slideShowTab(t, item, setup.useTimings),
       {
         id: 'review',
         label: t('ribbon.tabs.review'),
@@ -2109,7 +2407,18 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         ],
       },
     ];
-  }, [t, registry, state, exec, edit, run, loadGallery, setSaveTemplate, current]);
+  }, [
+    t,
+    registry,
+    state,
+    exec,
+    edit,
+    run,
+    loadGallery,
+    setSaveTemplate,
+    current,
+    setup.useTimings,
+  ]);
 
   const revision = (i: number) => epoch * 1_000_000 + (revs[i] ?? 0);
   const canvas = (index: number, width: number, className?: string) => (
@@ -2144,7 +2453,69 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       onIdle={onShowIdle}
       label={t('slideEditor.slideOf', { n: pos.slide + 1, total: count })}
       mediaLabels={mediaLabels}
+      still={showRun.still}
+      onLink={view === 'show' || view === 'presenter' ? followLink : undefined}
     />
+  );
+  /** The show's slide with the presenter tools over it. */
+  const surface = (width: number) => {
+    const page = info?.pages[pos.slide] ?? slideSize;
+    const height = page.width > 0 ? Math.round((width * page.height) / page.width) : 0;
+    const cover = black ? 'black' : white ? 'white' : 'none';
+    return (
+      <ShowSurface
+        width={width}
+        height={height}
+        slide={page}
+        index={pos.slide}
+        tool={tool}
+        onTool={setTool}
+        ink={ink}
+        onInk={() => setInkRev((n) => n + 1)}
+        zoom={zoom}
+        onZoom={setZoom}
+        cover={cover}
+        onCover={(c) => {
+          const next = toggleCover(cover, c);
+          setBlack(next === 'black');
+          setWhite(next === 'white');
+        }}
+        onGrid={() => setGridOpen(true)}
+        penColor={setup.penColor}
+      >
+        {showStage(width)}
+      </ShowSurface>
+    );
+  };
+  const showOverlays = (
+    <>
+      {gridOpen && (
+        <SlideGrid
+          order={showRun.order}
+          at={pos.at ?? 0}
+          thumb={(s, w) => canvas(s, w)}
+          onPick={gotoShow}
+          onClose={() => setGridOpen(false)}
+        />
+      )}
+      {clock && (
+        <RehearsalBar
+          slideMs={clock.current(now)}
+          totalMs={clock.total(now)}
+          paused={clock.paused}
+          onNext={() => moveShow('next')}
+          onPause={() => {
+            if (clock.paused) clock.resume(Date.now());
+            else clock.pause(Date.now());
+            setNow(Date.now());
+          }}
+          onRepeat={() => {
+            clock.repeat(Date.now());
+            setNow(Date.now());
+          }}
+        />
+      )}
+    </>
   );
 
   const shown = Math.min(current, Math.max(0, count - 1));
@@ -2203,6 +2574,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
 
   const main = fit(slideSize, { width: stage.width - 32, height: stage.height - 32 });
   const elapsed = formatElapsed(now - startedAt);
+  const nextInOrder = showRun.order[(pos.at ?? 0) + 1];
   const message = error
     ? t('slideEditor.error', { message: error })
     : refused
@@ -2561,21 +2933,23 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             moveShow('prev');
           }}
         >
-          {!black && pos.slide < count
-            ? showStage(
-                fit(slideSize, { width: window.innerWidth, height: window.innerHeight }).width,
-              )
-            : pos.slide >= count && <p className={styles.endText}>{t('slideEditor.end')}</p>}
+          {pos.slide < count ? (
+            surface(fit(slideSize, { width: window.innerWidth, height: window.innerHeight }).width)
+          ) : (
+            <p className={styles.endText}>{t('slideEditor.end')}</p>
+          )}
+          {showOverlays}
         </div>
       )}
       {view === 'presenter' && (
         <div className={styles.presenter}>
           <div className={styles.presenterMain} ref={stageRef}>
-            {pos.slide < count && !black ? (
-              showStage(main.width)
+            {pos.slide < count ? (
+              surface(main.width)
             ) : (
               <p className={styles.endText}>{t('slideEditor.end')}</p>
             )}
+            {showOverlays}
           </div>
           <aside className={styles.presenterSide}>
             <div className={styles.timer}>
@@ -2587,7 +2961,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               </span>
             </div>
             <h3>{t('slideEditor.next')}</h3>
-            {pos.slide + 1 < count ? canvas(pos.slide + 1, 280) : <p>{t('slideEditor.end')}</p>}
+            {nextInOrder !== undefined ? canvas(nextInOrder, 280) : <p>{t('slideEditor.end')}</p>}
             <h3>{t('slideEditor.notes')}</h3>
             <div className={styles.presenterNotes}>{notes || t('slideEditor.noNotes')}</div>
             <div className={styles.presenterButtons}>
@@ -2597,8 +2971,27 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               <button type="button" onClick={() => moveShow('next')}>
                 {t('slideEditor.next')}
               </button>
-              <button type="button" onClick={() => setBlack((b) => !b)}>
+              <button
+                type="button"
+                onClick={() => {
+                  setBlack((b) => !b);
+                  setWhite(false);
+                }}
+              >
                 {t('slideEditor.blackScreen')}
+              </button>
+              <button
+                type="button"
+                data-testid="presenter-white"
+                onClick={() => {
+                  setWhite((w) => !w);
+                  setBlack(false);
+                }}
+              >
+                {t('showTools.white')}
+              </button>
+              <button type="button" data-testid="presenter-grid" onClick={() => setGridOpen(true)}>
+                {t('showTools.grid')}
               </button>
               {!audience.open && platform.channel && (
                 <button type="button" onClick={() => exec('show.audience')}>
@@ -2654,6 +3047,44 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           onSaved={(name) => setStatus(t('chartDesign.templateSaved', { name }))}
         />
       )}
+      <CustomShowsDialog
+        open={customOpen}
+        shows={customShows ?? []}
+        count={count}
+        slideLabel={(i) => t('showTools.slideN', { n: i + 1 })}
+        canLink={state.hasSelection}
+        error={customOpen ? refused : undefined}
+        onClose={() => setCustomOpen(false)}
+        onSave={(id, name, slides) =>
+          run({ cmd: 'setCustomShow', ...(id !== undefined ? { id } : {}), name, slides })
+        }
+        onDelete={(id) => run({ cmd: 'deleteCustomShow', id })}
+        onPlay={(id) => {
+          setCustomOpen(false);
+          startShow(0, false, { custom: id });
+        }}
+        onLink={(id, ret) =>
+          run({ cmd: 'setShowLink', action: { kind: 'customShow', id, return: ret } })
+        }
+      />
+      {setupOpen && (
+        <SetupShowDialog
+          open
+          setup={setup}
+          customShows={customShows ?? []}
+          count={count}
+          displays={platform.displays?.capabilities()}
+          findScreens={platform.displays ? () => platform.displays!.screens() : undefined}
+          target={displayTarget}
+          onClose={() => setSetupOpen(false)}
+          onApply={(s, target) => {
+            setDisplayTarget(target);
+            setSetupOpen(false);
+            run({ cmd: 'setShowSetup', setup: s });
+          }}
+        />
+      )}
+      <EndShowDialog key={endKey} state={endState} onDone={finishEnd} />
       {exportOpen && (
         <ExportDialog
           open

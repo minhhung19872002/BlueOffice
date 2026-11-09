@@ -22,6 +22,7 @@ import { WebEngineHost } from './WebEngineHost';
 import { createWebSheetHost, webSheetTransport } from './WebSheetHost';
 import { WebSigning } from './signing';
 import { WebCodecsVideo } from '../webcodecs';
+import { WebDisplays, presentationReceiverBus } from './displays';
 
 export { WebSigning } from './signing';
 export type { SignatureBackend, WebSigningOptions } from './signing';
@@ -272,9 +273,11 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     window: new WebWindow(),
     offline: new IndexedDbCache(),
     shell: new WebShell(),
-    channel: (name: string) => new BroadcastBus(name),
+    // A page shown through the Presentation API talks over its presentation connection.
+    channel: (name: string) => presentationReceiverBus() ?? new BroadcastBus(name),
     sheet: createWebSheetHost(fonts, () => document.documentElement.lang || 'vi-VN'),
     signing,
     video: new WebCodecsVideo(),
+    displays: new WebDisplays(),
   };
 }

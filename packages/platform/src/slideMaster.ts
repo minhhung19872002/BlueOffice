@@ -78,6 +78,8 @@ export interface SlideDesignInfo {
   themes: SlideDesignChoice[];
   colorVariants: SlideDesignChoice[];
   fontVariants: SlideDesignChoice[];
+  /** `saveThemeFile`: the theme as a `.thmx` file, base64. */
+  themeFile?: string;
 }
 
 /** One entry of the master view's slide pane. */

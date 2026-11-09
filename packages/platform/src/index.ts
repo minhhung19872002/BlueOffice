@@ -21,6 +21,7 @@ export {
   updateNotice,
 } from './shared';
 export * from './sheet';
+export * from './fileVariants';
 export * from './security';
 export * from './slideMaster';
 export * from './slideViews';

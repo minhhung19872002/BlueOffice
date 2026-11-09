@@ -1050,6 +1050,21 @@ pub enum SheetCommand {
         #[serde(default)]
         page: usize,
     },
+    /// Apply the theme of a theme file (`.thmx`) or of another document, workbook or
+    /// presentation (base64 bytes; CORE-FMT-001). `{ok:false,error:"noTheme"}` when
+    /// the file has none.
+    ApplyThemeFile {
+        /// File bytes, base64.
+        file: String,
+    },
+    /// The workbook's theme as a `.thmx` file: `{ok, file}` (base64).
+    SaveThemeFile,
+    /// Package variant of the next saves by file extension (`xlsx`, `xlsm`, `xltx`,
+    /// `xltm`; CORE-FMT-001). A macro-free variant drops the VBA project on save.
+    SaveFormat {
+        /// File extension without the dot.
+        ext: String,
+    },
     /// Password for the next `.xlsx` saves ([MS-OFFCRYPTO]); empty/absent removes it.
     SetSavePassword {
         /// The password; `None` or empty saves unencrypted.
@@ -2041,6 +2056,31 @@ impl SheetEngine {
                 self.set_save_password(password.as_deref());
                 Ok(json!({ "ok": true }))
             }
+            C::ApplyThemeFile { file } => {
+                use base64::Engine as _;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(file.trim())
+                    .unwrap_or_default();
+                if self.apply_theme_file(&bytes)? {
+                    Ok(json!({ "ok": true }))
+                } else {
+                    Ok(json!({ "ok": false, "error": "noTheme" }))
+                }
+            }
+            C::SaveThemeFile => match self.theme_file() {
+                Ok(b) => {
+                    use base64::Engine as _;
+                    Ok(json!({
+                        "ok": true,
+                        "file": base64::engine::general_purpose::STANDARD.encode(b),
+                    }))
+                }
+                Err(_) => Ok(json!({ "ok": false, "error": "noTheme" })),
+            },
+            C::SaveFormat { ext } => match self.set_save_format(&ext) {
+                Ok(()) => Ok(json!({ "ok": true, "variant": self.info()?.variant })),
+                Err(_) => Ok(json!({ "ok": false, "error": "saveFormat" })),
+            },
             C::Protection { sheet } => {
                 let ws = self.sheet(sheet)?;
                 Ok(json!({

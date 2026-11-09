@@ -33,6 +33,11 @@ export interface DocInfo {
   legacyConverted?: number;
   /** Saved with a password ([MS-OFFCRYPTO]). */
   protected?: boolean;
+  /**
+   * Package variant the next save produces (`docx`, `dotm`, `ppsx`, …): the opened
+   * file's, by its main part's content type, unless `saveFormat` changed it.
+   */
+  variant?: string;
 }
 
 /** Error messages of `EngineHost.open` for protected files. */
@@ -735,6 +740,12 @@ export type EditCommand =
   | { cmd: 'mergePreview'; record: number | null }
   | { cmd: 'mergeToDocument' }
   | { cmd: 'setSavePassword'; password?: string }
+  /** Package variant of the next saves (`docx`, `docm`, `dotx`, `dotm`); error `saveFormat`. */
+  | { cmd: 'saveFormat'; ext: string }
+  /** Theme of a `.thmx` (or another document / workbook / deck), base64; error `noTheme`. */
+  | { cmd: 'applyThemeFile'; file: string }
+  /** The document's theme as a `.thmx` → `design.themeFile` (base64); error `noTheme`. */
+  | { cmd: 'saveThemeFile' }
   /** Design tab state (page colour, borders, watermark, themes, style sets). */
   | { cmd: 'design' }
   /** Page colour (§17.2.1 background), `RRGGBB`; absent removes it. */
@@ -889,6 +900,8 @@ export interface DesignState {
   styleSets: string[];
   /** Art border styles drawn with BlueOffice motifs. */
   artStyles: string[];
+  /** `saveThemeFile`: the theme as a `.thmx` file, base64. */
+  themeFile?: string;
 }
 
 /** A command plus the host clock (Unix ms) used to date new revisions and comments. */
@@ -1414,6 +1427,10 @@ export type SlideCommand =
   | { cmd: 'inspectFix'; fix: InspectFix }
   /** Password for the next saves ([MS-OFFCRYPTO]); empty removes it. */
   | { cmd: 'setSavePassword'; password?: string }
+  /** Package variant of the next saves (`pptx`, `pptm`, `potx`, `potm`, `ppsx`, `ppsm`). */
+  | { cmd: 'saveFormat'; ext: string }
+  /** The first master's theme as a `.thmx` → `design.themeFile` (base64). */
+  | { cmd: 'saveThemeFile' }
   | { cmd: 'undo' | 'redo' }
   /** New comment thread on the current slide, or a reply to thread `parent`. */
   | { cmd: 'addComment'; text: string; author?: string; date?: string; parent?: string }

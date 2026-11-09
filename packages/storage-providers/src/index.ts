@@ -4,6 +4,7 @@ import type {
   FileAccess,
   StoredDocument,
 } from '@blueoffice/platform';
+import { mimeFor } from '@blueoffice/platform';
 
 const LOCAL_PERMISSIONS = { edit: true, download: true, share: false } as const;
 
@@ -16,7 +17,7 @@ export class LocalStorageProvider implements DocumentStorage {
 
   constructor(
     private readonly files: FileAccess,
-    private readonly accept: string[] = ['.docx', '.txt', '.md'],
+    private readonly accept: string[] = ['.docx', '.docm', '.dotx', '.dotm', '.txt', '.md'],
   ) {}
 
   async open(ref?: DocumentRef): Promise<StoredDocument | null> {
@@ -49,11 +50,9 @@ export class LocalStorageProvider implements DocumentStorage {
   }
 }
 
+/** PDF, OOXML documents / templates / macro-enabled variants / slide shows, theme files. */
 function mime(name: string): string {
-  if (name.toLowerCase().endsWith('.pdf')) return 'application/pdf';
-  if (name.toLowerCase().endsWith('.docx'))
-    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  return 'application/octet-stream';
+  return mimeFor(name);
 }
 
 export * from './server';

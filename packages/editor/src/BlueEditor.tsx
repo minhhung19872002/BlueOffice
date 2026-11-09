@@ -25,7 +25,9 @@ import type {
 } from '@blueoffice/platform';
 import {
   PASSWORD_REQUIRED,
+  THEME_MIME,
   WRONG_PASSWORD,
+  openExtensions,
   openProtection,
   updateNotice,
 } from '@blueoffice/platform';
@@ -192,6 +194,8 @@ import { CommentsPanel, ReviewPanel } from './ReviewPanel';
 import { MarkupModeSelect, reviewersOf, ShowMarkupMenu } from './MarkupMenus';
 import { ReviewingPane } from './ReviewingPane';
 import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
+import { SaveAsTypeDialog, planOpen, saveName } from './FileVariants';
+import { fromBase64 } from './clipboard/docPaste';
 import {
   identityNames,
   isProtectionRefusal,
@@ -348,6 +352,11 @@ function EditorInner({
   const stored = useRef<StoredDocument | null>(null);
   /** Bytes of the opened file (its digital signatures are verified on them). */
   const openedBytes = useRef<Uint8Array | null>(null);
+  /** The template the open document was created from (CORE-FMT-001: "Edit template"). */
+  const templateFile = useRef<OpenedFile | null>(null);
+  /** "Save as" file type dialog, and the type it picked (for `file.saveAsType`). */
+  const [saveAsType, setSaveAsType] = useState(false);
+  const saveAsExt = useRef<string | null>(null);
   /** Signature line chosen in "sign a signature line", signed by the next "Ký số". */
   const pendingLine = useRef<LineChoice | null>(null);
   const signLineRef = useRef<((choice: LineChoice) => void) | null>(null);
@@ -445,13 +454,25 @@ function EditorInner({
   );
 
   const openFile = useCallback(
-    async (file: OpenedFile, doc?: StoredDocument, password?: string) => {
+    async (file: OpenedFile, doc?: StoredDocument, password?: string, editTemplate = false) => {
       store.setState({ status: { kind: 'busy', key: 'status.loading' } });
       try {
-        const info = await platform.engine.open(file.bytes, file.name, password);
-        stored.current = doc ?? null;
+        let info = await platform.engine.open(file.bytes, file.name, password);
+        // CORE-FMT-001: a template (.dotx / .dotm) starts a new, untitled document of the
+        // matching type, unless the user asked to edit the template itself.
+        const plan = planOpen(info.variant, info.name, editTemplate);
+        if (plan.saveAs) {
+          info = (await platform.engine.command({ cmd: 'saveFormat', ext: plan.saveAs })).info;
+        }
+        templateFile.current = plan.variant?.template ? file : null;
+        stored.current = plan.fromTemplate ? null : (doc ?? null);
         openedBytes.current = file.bytes;
         await loaded(info);
+        if (plan.fromTemplate) {
+          store.setState({
+            status: { kind: 'info', key: 'fileVariants.fromTemplate', params: { name: file.name } },
+          });
+        }
         // A signed file: show the verification status (ADR-0007).
         if (platform.signing && looksSigned(file.bytes)) {
           void platform.signing
@@ -491,6 +512,7 @@ function EditorInner({
       await platform.engine.init();
       stored.current = null;
       openedBytes.current = null;
+      templateFile.current = null;
       await loaded(await platform.engine.newDocument(t('app.newDocName')));
     } catch (e) {
       fail('errors.open', e);
@@ -787,13 +809,15 @@ function EditorInner({
       try {
         await controller.current?.idle();
         const bytes = await platform.engine.saveDocx();
-        const name = s.doc.name.replace(/\.(txt|md|doc|odt)$/i, '.docx');
-        // Files opened from another format (.doc, .odt, .txt) are saved as a new .docx.
-        const sameFormat = !!stored.current && /\.(docx|docm)$/i.test(stored.current.ref.name);
+        // Files opened from another format (.doc, .odt, .txt) are saved as a new .docx;
+        // documents, templates and macro-enabled files keep their type (CORE-FMT-001).
+        const name = saveName(s.doc.name, s.doc.variant, 'docx');
+        const sameFormat =
+          !!stored.current && stored.current.ref.name.toLowerCase() === name.toLowerCase();
         const doc =
           stored.current && !as && sameFormat
             ? await platform.storage.save(stored.current, bytes)
-            : await platform.storage.saveAs(name.endsWith('.docx') ? name : `${name}.docx`, bytes);
+            : await platform.storage.saveAs(name, bytes);
         if (!doc) {
           store.setState({ status: { kind: 'idle' } });
           return;
@@ -870,11 +894,32 @@ function EditorInner({
       run: (s) =>
         void controller.current?.run({ cmd: 'showEditableRegions', on: !s.security?.showRegions }),
     });
+    // Save as: the file type first (documents, templates, macro-enabled; CORE-FMT-001).
     r.register({
       id: 'file.saveAs',
       shortcut: 'Ctrl+Shift+S',
       isEnabled: hasDoc,
-      run: () => save(true),
+      run: () => setSaveAsType(true),
+    });
+    r.register({
+      id: 'file.saveAsType',
+      isEnabled: hasDoc,
+      run: async () => {
+        const ext = saveAsExt.current;
+        saveAsExt.current = null;
+        if (!ext) return;
+        await controller.current?.run({ cmd: 'saveFormat', ext });
+        await save(true);
+      },
+    });
+    // Reopen the template the document was created from, to edit the template itself.
+    r.register({
+      id: 'file.editTemplate',
+      isEnabled: () => !!templateFile.current,
+      run: async () => {
+        const f = templateFile.current;
+        if (f) await openFile(f, undefined, undefined, true);
+      },
     });
     r.register({
       id: 'file.exportPdf',
@@ -1248,6 +1293,47 @@ function EditorInner({
       id: 'design.removeWatermark',
       isEnabled: hasDoc,
       run: () => run({ cmd: 'setWatermark' }),
+    });
+    // Theme files (CORE-FMT-001): apply the theme of a .thmx (or another file), save ours.
+    r.register({
+      id: 'design.themeFile',
+      isEnabled: hasDoc,
+      run: async () => {
+        const f = await platform.files.openFile([
+          '.thmx',
+          ...openExtensions('doc'),
+          '.pptx',
+          '.xlsx',
+        ]);
+        if (!f) return;
+        const res = await controller.current?.run({
+          cmd: 'applyThemeFile',
+          file: bytesToBase64(f.bytes),
+        });
+        store.setState({
+          status: res?.error
+            ? { kind: 'info', key: 'fileVariants.noTheme' }
+            : { kind: 'info', key: 'fileVariants.themeApplied', params: { name: f.name } },
+        });
+      },
+    });
+    r.register({
+      id: 'design.saveThemeFile',
+      isEnabled: hasDoc,
+      run: async () => {
+        const res = await controller.current?.run({ cmd: 'saveThemeFile' });
+        const b64 = res?.design?.themeFile;
+        if (!b64) {
+          store.setState({ status: { kind: 'info', key: 'fileVariants.noTheme' } });
+          return;
+        }
+        const name = saveName(store.getState().doc?.name ?? 'theme', 'thmx', 'thmx');
+        const saved = await platform.files.saveFile(fromBase64(b64), name, THEME_MIME);
+        if (saved)
+          store.setState({
+            status: { kind: 'info', key: 'fileVariants.themeSaved', params: { name } },
+          });
+      },
     });
     r.register({
       id: 'insert.pageBreak',
@@ -2297,6 +2383,7 @@ function EditorInner({
             item('file.open', 'commands.file.open', <FolderOpen size={ICON} />),
             item('file.save', 'commands.file.save', <Save size={ICON} />),
             item('file.saveAs', 'commands.file.saveAs', <Save size={ICON} />),
+            item('file.editTemplate', 'fileVariants.editTemplate', <LayoutTemplate size={ICON} />),
             item('review.savePassword', 'commands.review.savePassword', <Lock size={ICON} />),
             item('file.openSample', 'commands.file.openSample', <FileText size={ICON} />),
           ],
@@ -2595,6 +2682,18 @@ function EditorInner({
           items: [
             custom('design.themes', <ThemeGallery run={runCommand} disabled={noDoc} />),
             custom('design.styleSets', <StyleSetGallery run={runCommand} disabled={noDoc} />),
+            item(
+              'design.themeFile',
+              'fileVariants.applyThemeFile',
+              <FolderOpen size={ICON} />,
+              'small',
+            ),
+            item(
+              'design.saveThemeFile',
+              'fileVariants.saveThemeFile',
+              <Save size={ICON} />,
+              'small',
+            ),
           ],
         },
         {
@@ -3634,6 +3733,18 @@ function EditorInner({
                 }}
               />
             )}
+            <SaveAsTypeDialog
+              open={saveAsType}
+              app="doc"
+              current={state.doc?.variant}
+              macros={state.doc?.macros}
+              onCancel={() => setSaveAsType(false)}
+              onConfirm={(ext) => {
+                setSaveAsType(false);
+                saveAsExt.current = ext;
+                void registry.execute('file.saveAsType', store.getState());
+              }}
+            />
             {state.macroWarning && (
               <div className={styles.macroBar} role="status" data-testid="macro-warning">
                 <span>{t('security.macroWarning')}</span>

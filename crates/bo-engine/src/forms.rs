@@ -87,6 +87,7 @@ pub(crate) fn gate(cmd: Command, s: &Session) -> Result<Command, &'static str> {
             | C::MergeData { .. }
             | C::MergePreview { .. }
             | C::SetSavePassword { .. }
+            | C::SaveFormat { .. }
             | C::Spelling { .. }
             | C::SpellAt { .. }
             | C::SpellIgnore { .. }

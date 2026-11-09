@@ -32,9 +32,13 @@ import {
   PASSWORD_REQUIRED,
   SECURITY_ERRORS,
   SHEET_PROTECTED,
+  THEME_MIME,
   WORKBOOK_PROTECTED,
   WRONG_PASSWORD,
   WRONG_PROTECTION_PASSWORD,
+  mimeFor,
+  openExtensions,
+  withExtension,
 } from '@blueoffice/platform';
 import {
   CommentThreads,
@@ -175,9 +179,14 @@ import {
   useFileProtection,
   MacroBanner,
   PasswordDialog,
+  SaveAsTypeDialog,
   SavePasswordPanel,
   SymbolPanel,
   clipboardHistory,
+  fromBase64,
+  planOpen,
+  saveName,
+  toBase64,
   type ClipItem,
 } from '@blueoffice/editor';
 import {
@@ -472,6 +481,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const decimal: ',' | '.' = i18n.language === 'en-US' ? '.' : ',';
 
   const [info, setInfo] = useState<WorkbookInfo | null>(null);
+  /** The template the open workbook was created from (CORE-FMT-001: "Edit template"). */
+  const [templateFile, setTemplateFile] = useState<PendingFile | null>(null);
+  /** "Save as" file type dialog. */
+  const [saveAsType, setSaveAsType] = useState(false);
   const [fileName, setFileName] = useState('');
   const [sheet, setSheet] = useState(0);
   const [selection, setSelection] = useState<Selection>(single({ row: 0, col: 0 }));
@@ -666,10 +679,28 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   /** Opens a file; an encrypted one ([MS-OFFCRYPTO]) asks for its password. */
   const openFile = useCallback(
-    async (f: PendingFile, password?: string): Promise<boolean> => {
+    async (f: PendingFile, password?: string, editTemplate = false): Promise<boolean> => {
       if (!host) return false;
       try {
-        await load(() => host.open(f.bytes, f.name, password), f.name);
+        // CORE-FMT-001: a template (.xltx / .xltm) starts a new, untitled workbook of the
+        // matching type unless the user asked to edit the template itself.
+        let fromTemplate = false;
+        let shown = f.name;
+        await load(async () => {
+          const wb = await host.open(f.bytes, f.name, password);
+          const plan = planOpen(wb.variant, f.name, editTemplate);
+          setTemplateFile(plan.variant?.template ? f : null);
+          if (!plan.saveAs) return wb;
+          await host.exec({ cmd: 'saveFormat', ext: plan.saveAs });
+          fromTemplate = true;
+          shown = plan.name;
+          return { ...wb, name: plan.name, variant: plan.saveAs };
+        }, f.name).then(() => {
+          if (fromTemplate) {
+            setFileName(shown);
+            setStatus(t('fileVariants.fromTemplate', { name: f.name }));
+          }
+        });
         return true;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -681,7 +712,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         throw e;
       }
     },
-    [host, load],
+    [host, load, t],
   );
 
   useEffect(() => {
@@ -1440,6 +1471,29 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   // ------------------------------------------------------------- commands
 
+  /** Save as the type picked in the "Save as" dialog (CORE-FMT-001). */
+  const saveAsTypeChosen = useCallback(
+    async (ext: string) => {
+      if (!host) return;
+      try {
+        const r = await host.exec<{ ok: boolean }>({ cmd: 'saveFormat', ext });
+        if (!r.ok) return;
+        const name = withExtension(fileName || t('sheetEditor.untitled'), ext);
+        setFileName(name);
+        await refreshInfo();
+        const saved = await platform.files.saveFile(
+          await host.save('xlsx', sheet),
+          name,
+          mimeFor(name),
+        );
+        if (saved) setStatus(t('sheetEditor.saved', { name: saved }));
+      } catch (e) {
+        fail(e);
+      }
+    },
+    [host, fileName, t, refreshInfo, platform, sheet, fail],
+  );
+
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SheetEditorState>();
     const guard = async (
@@ -1476,6 +1530,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         const f = await platform.files.openFile([
           '.xlsx',
           '.xlsm',
+          '.xltx',
+          '.xltm',
           '.xlsb',
           '.xls',
           '.ods',
@@ -1492,16 +1548,61 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       },
       { shortcut: 'Ctrl+O' },
     );
-    const baseName = () => fileName.replace(/\.(xlsx|xlsm|csv)$/i, '') || t('sheetEditor.untitled');
+    const baseName = () =>
+      fileName.replace(/\.(xlsx|xlsm|xltx|xltm|csv)$/i, '') || t('sheetEditor.untitled');
     const has = { isEnabled: (s: SheetEditorState) => s.hasWorkbook };
+    // The workbook keeps its type: .xlsx, .xlsm, .xltx or .xltm (CORE-FMT-001).
+    const saveWorkbook = async (s: SheetEditorState, variant?: string | null) => {
+      const bytes = await s.host.save('xlsx', s.sheet);
+      const name = saveName(baseName(), variant ?? info?.variant, 'xlsx');
+      const saved = await platform.files.saveFile(bytes, name, mimeFor(name) || XLSX_MIME);
+      if (saved) setStatus(t('sheetEditor.saved', { name: saved }));
+    };
+    add('file.save', (s) => saveWorkbook(s), { shortcut: 'Ctrl+S', ...has });
+    // Save as: the file type first.
+    add('file.saveAs', async () => setSaveAsType(true), { shortcut: 'Ctrl+Shift+S', ...has });
     add(
-      'file.save',
-      async (s) => {
-        const bytes = await s.host.save('xlsx', s.sheet);
-        const saved = await platform.files.saveFile(bytes, `${baseName()}.xlsx`, XLSX_MIME);
-        if (saved) setStatus(t('sheetEditor.saved', { name: saved }));
+      'file.editTemplate',
+      async () => {
+        if (templateFile) await openFile(templateFile, undefined, true);
       },
-      { shortcut: 'Ctrl+S', ...has },
+      { isEnabled: () => !!templateFile },
+    );
+    // Theme files (CORE-FMT-001): apply the theme of a .thmx (or another file), save ours.
+    add(
+      'file.themeFile',
+      async (s) => {
+        const f = await platform.files.openFile([
+          '.thmx',
+          ...openExtensions('sheet'),
+          '.docx',
+          '.pptx',
+        ]);
+        if (!f) return;
+        const r = await s.host.exec<{ ok: boolean }>({
+          cmd: 'applyThemeFile',
+          file: toBase64(f.bytes),
+        });
+        if (r.ok) await refreshInfo();
+        setStatus(
+          r.ok ? t('fileVariants.themeApplied', { name: f.name }) : t('fileVariants.noTheme'),
+        );
+      },
+      has,
+    );
+    add(
+      'file.saveThemeFile',
+      async (s) => {
+        const r = await s.host.exec<{ ok: boolean; file?: string }>({ cmd: 'saveThemeFile' });
+        if (!r.ok || !r.file) {
+          setStatus(t('fileVariants.noTheme'));
+          return;
+        }
+        const name = `${baseName()}.thmx`;
+        const saved = await platform.files.saveFile(fromBase64(r.file), name, THEME_MIME);
+        if (saved) setStatus(t('fileVariants.themeSaved', { name }));
+      },
+      has,
     );
     add(
       'file.saveCsv',
@@ -2237,6 +2338,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     load,
     platform,
     fileName,
+    templateFile,
     refreshInfo,
     copy,
     paste,
@@ -2684,6 +2786,25 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('file.new', t('sheetEditor.newWorkbook'), <FilePlus size={18} />),
               item('file.open', t('sheetEditor.open'), <FolderOpen size={18} />),
               item('file.save', t('sheetEditor.save'), <Save size={18} />),
+              item('file.saveAs', t('commands.file.saveAs'), <Save size={s} />, 'small'),
+              item(
+                'file.editTemplate',
+                t('fileVariants.editTemplate'),
+                <FolderOpen size={s} />,
+                'small',
+              ),
+              item(
+                'file.themeFile',
+                t('fileVariants.applyThemeFile'),
+                <FolderOpen size={s} />,
+                'small',
+              ),
+              item(
+                'file.saveThemeFile',
+                t('fileVariants.saveThemeFile'),
+                <Save size={s} />,
+                'small',
+              ),
               item('file.saveCsv', t('sheetEditor.saveCsv'), <Table2 size={s} />, 'small'),
               item('file.exportPdf', t('sheetEditor.exportPdf'), <FileDown size={s} />, 'small'),
               item('file.print', t('sheetEditor.print'), <Printer size={s} />, 'small'),
@@ -3701,6 +3822,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       </div>
       {macroBanner && <MacroBanner inline onDismiss={() => setMacroBanner(false)} />}
+      <SaveAsTypeDialog
+        open={saveAsType}
+        app="sheet"
+        current={info?.variant}
+        macros={info?.macros}
+        onCancel={() => setSaveAsType(false)}
+        onConfirm={(ext) => {
+          setSaveAsType(false);
+          void saveAsTypeChosen(ext);
+        }}
+      />
       <FileProtectionUi
         app="sheet"
         p={protection}

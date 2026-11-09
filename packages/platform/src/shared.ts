@@ -1,4 +1,5 @@
 /** Implementations shared by web and desktop. */
+import { variantMime } from './fileVariants';
 import type {
   AuthSession,
   ClipboardAccess,
@@ -184,7 +185,16 @@ export class FileAccessStorage implements DocumentStorage {
   readonly id = 'local';
   constructor(
     private readonly files: FileAccess,
-    private readonly accept: string[] = ['.docx', '.docm', '.doc', '.odt', '.txt', '.md'],
+    private readonly accept: string[] = [
+      '.docx',
+      '.docm',
+      '.dotx',
+      '.dotm',
+      '.doc',
+      '.odt',
+      '.txt',
+      '.md',
+    ],
   ) {}
   async open(_ref?: DocumentRef): Promise<StoredDocument | null> {
     const f = await this.files.openFile(this.accept);
@@ -212,9 +222,10 @@ export class FileAccessStorage implements DocumentStorage {
 
 export function mimeFor(name: string): string {
   const ext = name.toLowerCase().split('.').pop();
+  // Documents, templates, macro-enabled variants, slide shows, theme files (CORE-FMT-001).
+  const variant = variantMime(name);
+  if (variant) return variant;
   switch (ext) {
-    case 'docx':
-      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     case 'pdf':
       return 'application/pdf';
     case 'png':

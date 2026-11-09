@@ -497,6 +497,12 @@ pub enum Command {
         #[serde(default)]
         password: Option<String>,
     },
+    /// Package variant of the next saves by file extension (`docx`, `dotx`, `docm`,
+    /// `dotm`; CORE-FMT-001). A macro-free variant drops the VBA project on save.
+    SaveFormat {
+        /// File extension without the dot.
+        ext: String,
+    },
     /// Tab key: next (`back`: previous) table cell, else a tab character.
     Tab {
         /// Shift+Tab: move to the previous cell.
@@ -787,6 +793,15 @@ pub enum Command {
         /// Theme id (`ocean`, `bamboo`, `sunset`, `slate`).
         id: String,
     },
+    /// Apply the theme of a theme file (`.thmx`) or of another document, workbook or
+    /// presentation (base64 bytes) — colours, fonts and effects (CORE-FMT-001).
+    /// Refused with `noTheme` when the file has none.
+    ApplyThemeFile {
+        /// File bytes, base64.
+        file: String,
+    },
+    /// The document's theme as a `.thmx` file (`design.themeFile`, base64).
+    SaveThemeFile,
     /// Apply a paragraph-spacing style set.
     ApplyStyleSet {
         /// Style set id (`compact`, `balanced`, `airy`, `double`).
@@ -1247,6 +1262,13 @@ impl crate::Engine {
             Command::SetSavePassword { password } => {
                 self.set_save_password(password.as_deref());
             }
+            Command::SaveFormat { ext } => {
+                if self.set_save_format(ext).is_err() {
+                    let mut r = self.query_result()?;
+                    r.error = Some("saveFormat".into());
+                    return Ok(r);
+                }
+            }
             Command::MergeData { name, base64 } => {
                 match crate::merge::base64_decode(base64)
                     .ok_or_else(|| crate::EngineError::BadCommand("base64".into()))
@@ -1394,6 +1416,7 @@ impl crate::Engine {
                     | Command::NewFromTemplate { .. }
                     | Command::CheckAdminFormat
                     | Command::SetSavePassword { .. }
+                    | Command::SaveFormat { .. }
                     | Command::EquationTemplates
                     // Handled by `special_command`.
                     | Command::Spelling { .. }
@@ -1422,6 +1445,8 @@ impl crate::Engine {
                     | Command::SetPageBorders { .. }
                     | Command::SetWatermark { .. }
                     | Command::ApplyTheme { .. }
+                    | Command::ApplyThemeFile { .. }
+                    | Command::SaveThemeFile
                     | Command::ApplyStyleSet { .. }
                     | Command::InsertSignatureLine { .. }
                     | Command::SignatureLines

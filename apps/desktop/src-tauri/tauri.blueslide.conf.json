@@ -26,6 +26,51 @@
         "description": "Tương thích định dạng Microsoft PowerPoint (.pptx)",
         "role": "Editor",
         "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      },
+      {
+        "ext": [
+          "pptm"
+        ],
+        "name": "BlueSlide macro-enabled presentation",
+        "description": "Tương thích định dạng bản trình chiếu có macro (.pptm)",
+        "role": "Editor",
+        "mimeType": "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+      },
+      {
+        "ext": [
+          "potx"
+        ],
+        "name": "BlueSlide template",
+        "description": "Tương thích định dạng mẫu trình chiếu (.potx)",
+        "role": "Editor",
+        "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.template"
+      },
+      {
+        "ext": [
+          "potm"
+        ],
+        "name": "BlueSlide macro-enabled template",
+        "description": "Tương thích định dạng mẫu trình chiếu có macro (.potm)",
+        "role": "Editor",
+        "mimeType": "application/vnd.ms-powerpoint.template.macroEnabled.12"
+      },
+      {
+        "ext": [
+          "ppsx"
+        ],
+        "name": "BlueSlide slide show",
+        "description": "Tương thích định dạng trình chiếu tự chạy (.ppsx)",
+        "role": "Editor",
+        "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+      },
+      {
+        "ext": [
+          "ppsm"
+        ],
+        "name": "BlueSlide macro-enabled slide show",
+        "description": "Tương thích định dạng trình chiếu tự chạy có macro (.ppsm)",
+        "role": "Editor",
+        "mimeType": "application/vnd.ms-powerpoint.slideshow.macroEnabled.12"
       }
     ]
   },

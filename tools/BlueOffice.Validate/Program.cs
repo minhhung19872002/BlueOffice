@@ -39,7 +39,13 @@ if (inputs.Count == 0)
     return 2;
 }
 
-var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".docx", ".xlsx", ".pptx", ".docm", ".xlsm", ".pptm" };
+// Documents, templates, macro-enabled variants and slide shows (CORE-FMT-001); the SDK
+// checks the main part's content type against the package type when it opens one.
+var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+{
+    ".docx", ".docm", ".dotx", ".dotm", ".xlsx", ".xlsm", ".xltx", ".xltm",
+    ".pptx", ".pptm", ".potx", ".potm", ".ppsx", ".ppsm",
+};
 var files = inputs
     .SelectMany(p => Directory.Exists(p)
         ? Directory.EnumerateFiles(p, "*", SearchOption.AllDirectories)
@@ -75,8 +81,8 @@ return failed == 0 ? 0 : 1;
 static OpenXmlPackage OpenPackage(string file, Stream stream, bool editable) =>
     Path.GetExtension(file).ToLowerInvariant() switch
     {
-        ".docx" or ".docm" => WordprocessingDocument.Open(stream, editable),
-        ".xlsx" or ".xlsm" => SpreadsheetDocument.Open(stream, editable),
+        ".docx" or ".docm" or ".dotx" or ".dotm" => WordprocessingDocument.Open(stream, editable),
+        ".xlsx" or ".xlsm" or ".xltx" or ".xltm" => SpreadsheetDocument.Open(stream, editable),
         _ => PresentationDocument.Open(stream, editable),
     };
 

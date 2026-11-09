@@ -1,5 +1,11 @@
 export { Dialog, type DialogProps } from './Dialog';
 export {
+  FileTypeDialog,
+  type FileTypeDialogLabels,
+  type FileTypeDialogProps,
+  type FileTypeOption,
+} from './FileTypeDialog';
+export {
   Ribbon,
   type RibbonGroup,
   type RibbonItem,

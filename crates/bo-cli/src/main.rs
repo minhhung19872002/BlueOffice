@@ -69,10 +69,13 @@ enum Cmd {
         #[arg(long)]
         page: Option<usize>,
     },
-    /// Convert to another format.
+    /// Convert to another format. Templates / macro-enabled variants / slide shows
+    /// (`dotx`, `docm`, `xltm`, `ppsx`, …) re-type the package (macros are dropped for
+    /// macro-free types); `thmx` saves the file's theme as a theme file.
     Convert {
         input: PathBuf,
-        #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx", "xlsx", "gif", "png", "jpg", "svg", "zip"])]
+        #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx", "xlsx", "gif", "png", "jpg", "svg", "zip",
+            "docm", "dotx", "dotm", "xlsm", "xltx", "xltm", "pptm", "potx", "potm", "ppsx", "ppsm", "thmx"])]
         to: String,
         #[arg(long)]
         out: Option<PathBuf>,
@@ -552,6 +555,11 @@ fn run(cli: Cli) -> R {
             let bytes = std::fs::read(&input).map_err(|e| format!("{}: {e}", input.display()))?;
             let (loaded, facts) = convert::load(&bytes, password.as_deref())?;
             println!("format: {}", facts.format);
+            // CORE-FMT-001: document / template / macro-enabled / slide show, by the
+            // main part's content type.
+            if let Some(v) = bo_engine::variant::detect(&bytes) {
+                println!("variant: {}", v.ext());
+            }
             println!("encrypted: {}", facts.encrypted);
             println!("macros: {}", facts.has_macros);
             match loaded {
@@ -619,12 +627,11 @@ fn run(cli: Cli) -> R {
                 .and_then(|e| e.to_str())
                 .map(str::to_ascii_lowercase)
                 .unwrap_or_default();
-            if matches!(ext.as_str(), "xlsx" | "xlsm" | "pptx" | "pptm") {
-                let to = if ext.starts_with("xls") {
-                    "xlsx"
-                } else {
-                    "pptx"
-                };
+            let app =
+                bo_engine::variant::Variant::from_ext(&ext).map(bo_engine::variant::Variant::app);
+            if matches!(app, Some("sheet" | "slide")) {
+                // The writers keep the package variant (template, macros, slide show).
+                let to = if app == Some("sheet") { "xlsx" } else { "pptx" };
                 run_convert(
                     &input,
                     to,
@@ -799,6 +806,25 @@ fn run_convert(
         println!("{} ({} bytes)", out.display(), data.len());
         return Ok(());
     }
+    // CORE-FMT-001: a theme file from the input's theme part.
+    if to == "thmx" {
+        let theme = bo_engine::theme_file::theme_xml_of(&bytes)
+            .ok_or("the input has no theme part (§14.2.7)")?;
+        let data = bo_engine::variant::thmx_package(&theme)?;
+        let out = out.unwrap_or_else(|| input.with_extension("thmx"));
+        write_file(&out, &data)?;
+        println!("{} ({} bytes)", out.display(), data.len());
+        return Ok(());
+    }
+    // CORE-FMT-001: other variants are written as the base type, then re-typed.
+    let variant = bo_engine::variant::Variant::from_ext(to)
+        .filter(|_| !matches!(to, "docx" | "xlsx" | "pptx"));
+    let to = match variant.map(bo_engine::variant::Variant::app) {
+        Some("doc") => "docx",
+        Some("sheet") => "xlsx",
+        Some(_) => "pptx",
+        None => to,
+    };
     let (loaded, facts) = convert::load(&bytes, password)?;
     if facts.has_macros {
         eprintln!("note: the input contains macros; they are preserved where the output format allows and never executed");
@@ -891,6 +917,20 @@ fn run_convert(
         (_, other) => {
             return Err(format!("cannot convert {} to {other}", facts.format).into());
         }
+    };
+    let data = match variant {
+        Some(v) => {
+            let c = bo_engine::variant::convert(&data, v)?;
+            if c.macros_dropped {
+                eprintln!(
+                    "warning: .{} cannot hold macros; the VBA project was removed",
+                    v.ext()
+                );
+            }
+            out_ext = v.ext().to_owned();
+            c.bytes
+        }
+        None => data,
     };
     let data = if let Some(pw) = protect {
         if !matches!(to, "docx") {

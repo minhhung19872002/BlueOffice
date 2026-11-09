@@ -181,6 +181,16 @@ pub enum SlideCommand {
         /// The fix.
         fix: crate::inspect::Fix,
     },
+    /// The current deck's theme (first master) as a `.thmx` file (`design.themeFile`,
+    /// base64; CORE-FMT-001). Apply one with `applyTheme { file }`.
+    SaveThemeFile,
+    /// Package variant of the next saves by file extension (`pptx`, `pptm`, `potx`,
+    /// `potm`, `ppsx`, `ppsm`; CORE-FMT-001). A macro-free variant drops the VBA
+    /// project on save.
+    SaveFormat {
+        /// File extension without the dot.
+        ext: String,
+    },
     /// Password for the next `.pptx` saves ([MS-OFFCRYPTO] Agile Encryption);
     /// empty or absent removes it.
     SetSavePassword {
@@ -3395,6 +3405,29 @@ impl Engine {
             self.set_save_password(password.as_deref());
             return self.slide_command(SlideCommand::State);
         }
+        if let SlideCommand::SaveThemeFile = &cmd {
+            use base64::Engine as _;
+            let file = self.theme_file();
+            let mut r = self.slide_command(SlideCommand::State)?;
+            match file {
+                Ok(b) => {
+                    let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
+                    let mut d = master::design_out(pres, &self.slides);
+                    d.theme_file = Some(base64::engine::general_purpose::STANDARD.encode(b));
+                    r.design = Some(d);
+                }
+                Err(_) => r.error = Some("noTheme".into()),
+            }
+            return Ok(r);
+        }
+        if let SlideCommand::SaveFormat { ext } = &cmd {
+            let failed = self.set_save_format(ext).is_err();
+            let mut r = self.slide_command(SlideCommand::State)?;
+            if failed {
+                r.error = Some("saveFormat".into());
+            }
+            return Ok(r);
+        }
         if let Some(r) = self.slide_inspect_command(&cmd)? {
             return Ok(r);
         }
@@ -3429,6 +3462,8 @@ impl Engine {
             match cmd {
                 SlideCommand::State
                 | SlideCommand::SetSavePassword { .. }
+                | SlideCommand::SaveFormat { .. }
+                | SlideCommand::SaveThemeFile
                 | SlideCommand::Inspect
                 | SlideCommand::InspectRemove { .. }
                 | SlideCommand::InspectKeep { .. }

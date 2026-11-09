@@ -243,6 +243,56 @@ fn inspect_reports_format_encryption_and_macros() {
     assert!(sheet.contains("sheet: "), "{sheet}");
 }
 
+/// CORE-FMT-001: templates, macro-enabled variants, slide shows and theme files.
+#[test]
+fn convert_to_variants_and_theme_files() {
+    let dir = scratch("variants");
+    let cases = [
+        ("doc/phase1-sample.docx", "dotx"),
+        ("doc/phase1-sample.docx", "docm"),
+        ("sheet/values-1.xlsx", "xltm"),
+        ("slide/slide-text-bullets.pptx", "ppsx"),
+        ("slide/slide-text-bullets.pptx", "potm"),
+    ];
+    for (src, to) in cases {
+        let out = dir.join(format!("out.{to}"));
+        run(bin()
+            .arg("convert")
+            .arg(corpus(src))
+            .args(["--to", to])
+            .arg("--out")
+            .arg(&out));
+        let info = stdout(&run(bin().arg("inspect").arg(&out)));
+        assert!(info.contains(&format!("variant: {to}")), "{info}");
+        // Round trip keeps the variant.
+        let again = dir.join(format!("again.{to}"));
+        run(bin().arg("roundtrip").arg(&out).arg("--out").arg(&again));
+        let info = stdout(&run(bin().arg("inspect").arg(&again)));
+        assert!(info.contains(&format!("variant: {to}")), "{info}");
+    }
+    // A deck's theme as a theme file, applied nowhere but readable as one.
+    let thmx = dir.join("theme.thmx");
+    run(bin()
+        .arg("convert")
+        .arg(corpus("slide/slide-text-bullets.pptx"))
+        .args(["--to", "thmx"])
+        .arg("--out")
+        .arg(&thmx));
+    let bytes = std::fs::read(&thmx).unwrap();
+    let pkg = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+    assert!(pkg.part("/theme/theme/theme1.xml").is_some());
+    // A workbook cannot become a document.
+    let bad = bin()
+        .arg("convert")
+        .arg(corpus("sheet/values-1.xlsx"))
+        .args(["--to", "dotx"])
+        .arg("--out")
+        .arg(dir.join("bad.dotx"))
+        .output()
+        .unwrap();
+    assert!(!bad.status.success());
+}
+
 #[test]
 fn sign_and_verify_pdf_and_docx() {
     let dir = scratch("sign");

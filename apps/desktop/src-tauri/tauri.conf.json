@@ -48,6 +48,33 @@
         "description": "Tương thích định dạng Microsoft Word (.docx)",
         "role": "Editor",
         "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      },
+      {
+        "ext": [
+          "docm"
+        ],
+        "name": "BlueDoc macro-enabled document",
+        "description": "Tương thích định dạng tài liệu có macro (.docm)",
+        "role": "Editor",
+        "mimeType": "application/vnd.ms-word.document.macroEnabled.12"
+      },
+      {
+        "ext": [
+          "dotx"
+        ],
+        "name": "BlueDoc template",
+        "description": "Tương thích định dạng mẫu tài liệu (.dotx)",
+        "role": "Editor",
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+      },
+      {
+        "ext": [
+          "dotm"
+        ],
+        "name": "BlueDoc macro-enabled template",
+        "description": "Tương thích định dạng mẫu tài liệu có macro (.dotm)",
+        "role": "Editor",
+        "mimeType": "application/vnd.ms-word.template.macroEnabled.12"
       }
     ]
   },

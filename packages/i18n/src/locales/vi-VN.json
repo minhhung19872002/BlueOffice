@@ -2734,7 +2734,12 @@
     "resolved": "Đã xử lý",
     "none": "Chưa có chú thích",
     "count": "{{count}} chú thích",
-    "cancel": "Huỷ"
+    "cancel": "Huỷ",
+    "assignTo": "Giao cho",
+    "noMatches": "Không tìm thấy người phù hợp",
+    "people": "Người để nhắc tên",
+    "assignedTo": "Đã giao cho {{name}}",
+    "taskDone": "Đã giao cho {{name}} · hoàn thành"
   },
   "references": {
     "captionTitle": "Chèn tiêu đề hình/bảng",

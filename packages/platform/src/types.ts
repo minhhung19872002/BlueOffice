@@ -525,6 +525,10 @@ export interface CommentInfo {
   start: Pos | null;
   end: Pos | null;
   quote: string;
+  /** @mentions in `text` (CORE-COMMENT-001). */
+  mentions?: import('./people').Mention[];
+  /** Task assigned in the comment (complete when resolved). */
+  task?: import('./people').CommentTask | null;
 }
 
 /** An index entry to mark (mirrors `bo_edit::IndexMark`, §17.16.5.72 XE). */
@@ -711,8 +715,19 @@ export type EditCommand =
   /** Move the selected paragraphs up/down (a tracked move while tracking, §17.13.5.22/25). */
   | { cmd: 'moveParagraphs'; up: boolean }
   | { cmd: 'nextRevision'; forward: boolean }
-  | { cmd: 'addComment'; text: string }
-  | { cmd: 'replyComment'; id: number; text: string }
+  | {
+      cmd: 'addComment';
+      text: string;
+      mentions?: import('./people').Mention[];
+      task?: import('./people').CommentTask;
+    }
+  | {
+      cmd: 'replyComment';
+      id: number;
+      text: string;
+      mentions?: import('./people').Mention[];
+      task?: import('./people').CommentTask;
+    }
   | { cmd: 'resolveComment'; id: number; done: boolean }
   | { cmd: 'deleteComment' | 'selectComment'; id: number }
   | { cmd: 'nextComment'; forward: boolean }
@@ -1561,7 +1576,15 @@ export type SlideCommand =
   | { cmd: 'saveThemeFile' }
   | { cmd: 'undo' | 'redo' }
   /** New comment thread on the current slide, or a reply to thread `parent`. */
-  | { cmd: 'addComment'; text: string; author?: string; date?: string; parent?: string }
+  | {
+      cmd: 'addComment';
+      text: string;
+      author?: string;
+      date?: string;
+      parent?: string;
+      mentions?: import('./people').Mention[];
+      task?: import('./people').CommentTask;
+    }
   | { cmd: 'resolveComment'; id: string; done: boolean }
   | { cmd: 'deleteComment'; id: string }
   | { cmd: 'goTo'; slide: number }
@@ -2059,7 +2082,7 @@ export interface SlideThreadInfo {
   id: string;
   done: boolean;
   /** First comment, then the replies. */
-  comments: { id: string; author: string; date: string; text: string }[];
+  comments: import('./people').ThreadCommentInfo[];
 }
 
 export interface SlideEditResult {
@@ -2632,6 +2655,8 @@ export interface Platform {
   images?: import('./remoteImages').RemoteImages;
   /** Version history of the open file (hosted sessions; CORE-VERSION-001). */
   versions?: import('./versions').VersionHistory;
+  /** People to @mention in comments + their notifications (hosted sessions; CORE-COMMENT-001). */
+  people?: import('./people').PeopleDirectory;
   /** Text to speech for read aloud (absent where the platform cannot speak). */
   speech?: import('./speech').SpeechProvider;
 }

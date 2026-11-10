@@ -1,0 +1,96 @@
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.field textarea,
+.field input {
+  resize: vertical;
+  font: inherit;
+  padding: 4px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+}
+
+.picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 2px 0 0;
+  padding: 2px 0;
+  list-style: none;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 15%);
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.active {
+  background: var(--bo-accent-soft, #dbe9f7);
+}
+
+.name {
+  font-weight: 600;
+}
+
+.email,
+.none {
+  color: var(--bo-text-muted, #57606a);
+  font-size: 11px;
+}
+
+.none {
+  padding: 3px 8px;
+}
+
+.assign {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.assign select {
+  font: inherit;
+}
+
+.composer > button {
+  align-self: flex-end;
+  padding: 2px 8px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+
+.mention {
+  color: var(--bo-accent, #2e75b6);
+  font-weight: 600;
+}
+
+.task {
+  display: block;
+  color: var(--bo-text-muted, #57606a);
+  font-style: italic;
+}

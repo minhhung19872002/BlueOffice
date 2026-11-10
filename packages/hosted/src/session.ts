@@ -6,9 +6,12 @@
  * and by the desktop deep link (`bluedoc://open?host=…&file=…&token=…`).
  */
 import type {
+  CommentNoticeResult,
   DocumentStorage,
   FileVersion,
+  MentionCandidate,
   OpenedFile,
+  PeopleDirectory,
   Platform,
   StoredDocument,
   VersionHistory,
@@ -189,6 +192,65 @@ export function sessionVersions(
   };
 }
 
+/**
+ * People to @mention and comment notifications of the session file
+ * (docs/bohp.md §A3 `…/people`, `…/mentions`; CORE-COMMENT-001). A failing
+ * search offers nobody (the comment is still posted as text).
+ */
+export function sessionPeople(
+  api: string,
+  session: HostedSession,
+  fetchImpl: FetchLike,
+): PeopleDirectory {
+  const base = `${api}/api/sessions/${encodeURIComponent(session.sessionId)}`;
+  const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+  return {
+    search: async (query) => {
+      try {
+        const res = await fetchImpl(`${base}/people?q=${encodeURIComponent(query)}&limit=8`, {
+          headers: { 'x-session-token': session.sessionToken },
+        });
+        if (!res.ok) return [];
+        const body = (await res.json()) as { people?: unknown };
+        const list = Array.isArray(body.people) ? (body.people as Record<string, unknown>[]) : [];
+        return list
+          .filter((p) => typeof p.id === 'string' && typeof p.name === 'string')
+          .map((p): MentionCandidate => ({
+            id: p.id as string,
+            name: p.name as string,
+            email: str(p.email),
+            avatarUrl: str(p.avatarUrl),
+            source: p.source === 'collaborator' ? 'collaborator' : 'host',
+          }));
+      } catch {
+        return [];
+      }
+    },
+    notify: async (notice) => {
+      const res = await fetchImpl(`${base}/mentions`, {
+        method: 'POST',
+        headers: { 'x-session-token': session.sessionToken, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commentId: notice.commentId,
+          text: notice.text,
+          app: notice.app,
+          mentions: notice.mentions.map((m) => ({ id: m.id, name: m.name })),
+          ...(notice.assignee
+            ? { assignee: { id: notice.assignee.id, name: notice.assignee.name } }
+            : {}),
+        }),
+      });
+      if (!res.ok) throw new Error(`session.mentions ${res.status}`);
+      const r = (await res.json()) as Partial<CommentNoticeResult>;
+      return {
+        recipients: typeof r.recipients === 'number' ? r.recipients : 0,
+        host: r.host ?? 'none',
+        emails: typeof r.emails === 'number' ? r.emails : 0,
+      };
+    },
+  };
+}
+
 /** Editor actions reported to the host's audit log (docs/bohp.md §B `…/audit`). */
 export type AuditAction = 'print' | 'export' | 'download';
 
@@ -330,6 +392,7 @@ export function hostedPlatform(
     ...base,
     storage,
     versions: sessionVersions(api, session, mode, fetchImpl, opts.onRestored),
+    people: sessionPeople(api, session, fetchImpl),
     files: {
       openFile: base.files.openFile.bind(base.files),
       // Same-format saves go back to the host; other formats (PDF, CSV) go to the disk.

@@ -48,7 +48,7 @@ export interface SheetThreadInfo {
   cell: string;
   done: boolean;
   /** First comment, then the replies. */
-  comments: { id: string; author: string; date: string; text: string }[];
+  comments: import('./people').ThreadCommentInfo[];
 }
 
 export interface WorkbookInfo {
@@ -712,6 +712,8 @@ export type SheetCommand =
       author?: string;
       date?: string;
       parent?: string;
+      mentions?: import('./people').Mention[];
+      task?: import('./people').CommentTask;
     }
   | { cmd: 'resolveComment'; sheet: number; id: string; done: boolean }
   | { cmd: 'deleteComment'; sheet: number; id: string }

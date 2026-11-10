@@ -4234,6 +4234,7 @@ function EditorInner({
                 run={runCommand}
                 language={state.language}
                 onClose={closePanel}
+                people={platform.people}
               />
             )}
             <DocClipboardUi

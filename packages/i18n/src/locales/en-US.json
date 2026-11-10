@@ -2734,7 +2734,12 @@
     "resolved": "Resolved",
     "none": "No comments",
     "count": "{{count}} comments",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "assignTo": "Assign to",
+    "noMatches": "No matching people",
+    "people": "People to mention",
+    "assignedTo": "Assigned to {{name}}",
+    "taskDone": "Assigned to {{name}} · done"
   },
   "references": {
     "captionTitle": "Insert caption",

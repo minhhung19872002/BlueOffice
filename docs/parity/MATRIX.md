@@ -76,7 +76,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | So sánh / kết hợp | — | — | ✅ | — | ✅ | ✅ | — | compare::tests, compare_with_the_original_document, combine_two_reviewers_copies, review.spec | ✅ | so sánh với bản gốc → track changes (đoạn, từ, định dạng, bảng); kết hợp bản sửa của hai người (trộn 3 chiều theo đoạn/từ, theo tác giả) |
 | Mail merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | 🟡 | thiếu SQL, email, nhãn |
 | Chế độ xem (Read, Outline, Draft…) | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E doc-views | 🟡 | đọc, web, nháp, dàn ý, tập trung, ngăn điều hướng, ký hiệu định dạng (DOC-VIEW-001) |
-| Mẫu hành chính NĐ 30 | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | E2E, templates tests | ✅ | 8 mẫu + kiểm tra thể thức (DOC-TPL-001) |
+| Mẫu hành chính NĐ 30 | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | E2E, templates tests, admin_format.rs | ✅ | 8 mẫu + kiểm tra thể thức (DOC-TPL-001); kiểm tra tài liệu bất kỳ + sửa một/sửa tất cả (DOC-TPL-002) |
 | Phương trình | ✅ | 🟡 | ⬜ | ✅ | 🟡 | 🟡 | ✅ | corpus math-* | 🟡 | xem CORE |
 
 ## BlueSheet

@@ -19,6 +19,11 @@ import {
   registerPictureCommands,
   ReadAloudLink,
   registerReadAloudCommands,
+  registerTranslateCommands,
+  TranslateLink,
+  translatedName,
+  useTranslate,
+  type TranslateAction,
   saveName,
   taskPaneLabels,
   objectPlatform,
@@ -31,6 +36,14 @@ import {
   type SmartArtDraft,
 } from '@blueoffice/editor';
 import { slideReadRequest } from './readAloud';
+import {
+  applyDeckTexts,
+  editedSelection,
+  readDeckTexts,
+  spliceEdited,
+  translateDeckTexts,
+  translateSelectedShapes,
+} from './translate';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
   ClipboardContent,
@@ -152,6 +165,7 @@ import {
   ListOrdered,
   ListTree,
   NotebookText,
+  Languages,
   StickyNote,
   LogIn,
   LogOut,
@@ -460,6 +474,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const uiLang = i18n.language;
   useEffect(() => {
     readAloudLink.attach(readAloud);
+  });
+  // Translation (CORE-LANG-001): the commands reach the pane through a link.
+  const translate = useTranslate(platform.translation, platform.clipboard);
+  const [translateLink] = useState(() => new TranslateLink());
+  useEffect(() => {
+    translateLink.attach(translate);
   });
   const [readNotes, setReadNotes] = useState(() => {
     try {
@@ -1844,6 +1864,72 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       },
       current: () => readAloudLink.aloud(),
     });
+    registerTranslateCommands(reg, {
+      enabled: deck,
+      actions: { deck: 'review.translateDeck', shapes: 'review.translateShapes' },
+      begin: async (_s, action) => {
+        const exec = (c: SlideCommand) => ctrl.run(c);
+        const provider = platform.translation;
+        const editing = !!edit?.textEdit;
+        const shapes = edit?.selection ?? [];
+        const single = !editing && shapes.length === 1 ? shapes[0] : undefined;
+        const shapesAction: TranslateAction = {
+          id: 'shapes',
+          label: t('translate.actions.shapes'),
+          run: async ({ from, to, signal, onProgress }) => {
+            if (!provider) return;
+            const n = await translateSelectedShapes(exec, shapes, provider, from, to, {
+              signal,
+              onProgress,
+            });
+            return n ? t('translate.done.shapes', { count: n }) : t('translate.done.nothing');
+          },
+        };
+        const deckAction: TranslateAction = {
+          id: 'deck',
+          label: t('translate.actions.deck'),
+          run: async ({ from, to, signal, onProgress }) => {
+            if (!provider) return;
+            const texts = await readDeckTexts(
+              exec,
+              count,
+              edit?.slide ?? 0,
+              shapes.map((s) => s.id),
+            );
+            const { deck: done, count: n } = await translateDeckTexts(texts, provider, from, to, {
+              signal,
+              onProgress,
+            });
+            if (!n) return t('translate.done.nothing');
+            // The copy: the current state saved, opened as a new file, then rewritten.
+            const bytes = await engine.savePptx();
+            const name = translatedName(fileName || 'presentation.pptx', to, 'pptx');
+            await load(bytes, name);
+            await applyDeckTexts(exec, done);
+            return t('translate.done.deck', { name, count: n });
+          },
+        };
+        translateLink.open({
+          source: {
+            text: editing ? editedSelection(edit) : (single?.text ?? '').replace(/\v/g, '\n'),
+            ...(editing
+              ? {
+                  replace: (tr: string) => spliceEdited(exec, edit, tr, true),
+                  insert: (tr: string) => spliceEdited(exec, edit, tr, false),
+                }
+              : single
+                ? {
+                    replace: async (tr: string) => {
+                      await exec({ cmd: 'setText', id: single.id, text: tr });
+                    },
+                  }
+                : {}),
+          },
+          actions: shapes.length && !editing ? [shapesAction, deckAction] : [deckAction],
+          autoRun: action,
+        });
+      },
+    });
     reg.register({
       id: 'review.readAloudNotes',
       isEnabled: deck,
@@ -2035,6 +2121,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     return reg;
   }, [
     readAloudLink,
+    translateLink,
     readNotes,
     uiLang,
     fail,
@@ -2702,6 +2789,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 'review.readAloudNotes',
                 t('readAloud.withNotes'),
                 <NotebookText size={16} />,
+                sm,
+              ),
+            ],
+          },
+          {
+            id: 'language',
+            label: t('ribbon.groups.language'),
+            items: [
+              item('review.translate', t('commands.review.translate'), <Languages size={18} />),
+              item(
+                'review.translateDeck',
+                t('commands.review.translateDeck'),
+                <Languages size={16} />,
                 sm,
               ),
             ],
@@ -4045,6 +4145,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         />
       )}
       {readAloud.bar}
+      {translate.pane}
     </div>
   );
 }

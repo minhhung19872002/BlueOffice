@@ -324,6 +324,14 @@ import { PrintPanel } from './print/PrintPanel';
 import { useReadAloud, type ReadAloud } from './ReadAloudBar';
 import { registerReadAloudCommands } from './readAloudCommands';
 import { docReadRequest } from './docReadAloud';
+import { useTranslate, type TranslateAction } from './TranslatePane';
+import { TranslateLink, registerTranslateCommands } from './translateCommands';
+import {
+  docInsertAfter,
+  docSelectionText,
+  translateDocumentSegments,
+  translatedName,
+} from './docTranslate';
 import { demoted, promoted } from './outlineModel';
 import viewStyles from './Views.module.css';
 import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
@@ -421,6 +429,12 @@ function EditorInner({
   const readAloudRef = useRef<ReadAloud | null>(null);
   useEffect(() => {
     readAloudRef.current = readAloud;
+  });
+  // Translation (CORE-LANG-001): the commands reach the pane through a link.
+  const translate = useTranslate(platform.translation, platform.clipboard);
+  const [translateLink] = useState(() => new TranslateLink());
+  useEffect(() => {
+    translateLink.attach(translate);
   });
   const controller = useRef<DocController | null>(null);
   // Stop recording waits for keys typed just before it (queued in the controller).
@@ -1928,6 +1942,48 @@ function EditorInner({
       },
       current: () => readAloudRef.current,
     });
+    // Translation (CORE-LANG-001): the selection in a pane; the whole document into a copy.
+    const translateRun = async (c: EditCommand) => (await controller.current?.run(c)) ?? null;
+    const documentAction: TranslateAction = {
+      id: 'document',
+      label: i18nInstance.t('translate.actions.document'),
+      run: async ({ from, to, signal, onProgress }) => {
+        const provider = platform.translation;
+        if (!provider) return;
+        const segments = await translateDocumentSegments(translateRun, provider, from, to, {
+          signal,
+          onProgress,
+        });
+        if (!segments.length) return i18nInstance.t('translate.done.nothing');
+        // The copy: the current state saved, opened as a new untitled document, then rewritten.
+        const bytes = await platform.engine.saveDocx();
+        const name = translatedName(store.getState().doc?.name ?? 'document.docx', to);
+        await openFile({ bytes, name });
+        await controller.current?.run({ cmd: 'translationApply', segments });
+        return i18nInstance.t('translate.done.document', { name, count: segments.length });
+      },
+    };
+    registerTranslateCommands(r, {
+      enabled: hasDoc,
+      actions: { document: 'review.translateDocument' },
+      begin: async (_s, action) => {
+        const text = await docSelectionText(translateRun);
+        translateLink.open({
+          source: {
+            text,
+            replace: async (tr) => {
+              await run({ cmd: 'insertText', text: tr });
+            },
+            insert: async (tr) => {
+              await docInsertAfter(translateRun, tr);
+              view.current?.focus();
+            },
+          },
+          actions: [{ ...documentAction, label: i18nInstance.t('translate.actions.document') }],
+          autoRun: action,
+        });
+      },
+    });
     registerTrackingCommands(r, {
       hasDoc,
       run,
@@ -2456,6 +2512,7 @@ function EditorInner({
     pictureHub,
     objectHub,
     recorder,
+    translateLink,
   ]);
   /* eslint-enable react-hooks/refs */
 
@@ -3393,6 +3450,18 @@ function EditorInner({
           id: 'speech',
           label: t('ribbon.groups.speech'),
           items: [item('review.readAloud', 'commands.review.readAloud', <Volume2 size={ICON} />)],
+        },
+        {
+          id: 'language',
+          label: t('ribbon.groups.language'),
+          items: [
+            item('review.translate', 'commands.review.translate', <Languages size={ICON} />),
+            item(
+              'review.translateDocument',
+              'commands.review.translateDocument',
+              <FileText size={ICON} />,
+            ),
+          ],
         },
         {
           id: 'tracking',
@@ -4691,6 +4760,7 @@ function EditorInner({
         />
       )}
       {readAloud.bar}
+      {translate.pane}
       <FileBackstage
         app="doc"
         open={backstage}

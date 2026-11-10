@@ -119,3 +119,19 @@ export {
   textOf as smartArtTextOf,
   type SmartArtDraft,
 } from './SmartArtDialog';
+// Translation shared with BlueSheet / BlueSlide (CORE-LANG-001).
+export {
+  useTranslate,
+  type Translate,
+  type TranslateAction,
+  type TranslateOpen,
+  type TranslateRun,
+  type TranslateSource,
+} from './TranslatePane';
+export { TranslateLink, registerTranslateCommands } from './translateCommands';
+export {
+  docInsertAfter,
+  docSelectionText,
+  translateDocumentSegments,
+  translatedName,
+} from './docTranslate';

@@ -93,7 +93,8 @@
       "show": "Hiển thị",
       "mergeRules": "Trường & quy tắc",
       "mergeCreate": "Tạo",
-      "automation": "Tự động hóa"
+      "automation": "Tự động hóa",
+      "language": "Ngôn ngữ"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -281,7 +282,13 @@
       "lockTracking": "Khoá theo dõi thay đổi…",
       "moveParagraphUp": "Chuyển đoạn lên",
       "moveParagraphDown": "Chuyển đoạn xuống",
-      "versions": "Lịch sử phiên bản…"
+      "versions": "Lịch sử phiên bản…",
+      "translate": "Dịch",
+      "translateDocument": "Dịch tài liệu",
+      "translateCells": "Dịch ô chọn sang cột mới",
+      "translateCellsInPlace": "Dịch ô chọn tại chỗ",
+      "translateDeck": "Dịch bản trình chiếu",
+      "translateShapes": "Dịch các hình đã chọn"
     },
     "references": {
       "insertToc": "Mục lục",
@@ -5555,6 +5562,55 @@
       "review_versions": "Xem, so sánh và khôi phục các phiên bản trước.",
       "file_print": "Chọn trang, số bản, máy in và xem trước.",
       "file_exportPdf": "Lưu một bản PDF với thiết lập mặc định."
+    }
+  },
+  "translate": {
+    "title": "Dịch",
+    "close": "Đóng ngăn dịch",
+    "from": "Từ",
+    "to": "Sang",
+    "detect": "Tự nhận biết",
+    "swap": "Đổi chiều dịch",
+    "selection": "Văn bản đã chọn",
+    "noSelection": "Hãy chọn văn bản cần dịch, hoặc dịch toàn bộ bên dưới.",
+    "translate": "Dịch",
+    "result": "Bản dịch (sửa được trước khi dùng)",
+    "insert": "Chèn",
+    "replace": "Thay thế",
+    "copy": "Sao chép",
+    "cancel": "Hủy",
+    "working": "Đang dịch…",
+    "progress": "Đang dịch {{done}}/{{total}}…",
+    "unavailable": "Chưa có dịch vụ dịch. Quản trị viên cần cấu hình dịch vụ dịch trên máy chủ BlueOffice; khi chưa cấu hình, không có văn bản nào được gửi đi.",
+    "privacy": "Văn bản được gửi tới dịch vụ dịch do quản trị viên cấu hình.",
+    "languages": {
+      "vi": "Tiếng Việt",
+      "en": "Tiếng Anh"
+    },
+    "actions": {
+      "document": "Dịch toàn bộ tài liệu (tạo bản sao)",
+      "cellsNewColumn": "Dịch ô chọn sang cột mới",
+      "cellsInPlace": "Dịch ô chọn tại chỗ",
+      "deck": "Dịch toàn bộ bản trình chiếu (tạo bản sao)",
+      "shapes": "Dịch các hình đã chọn (tại chỗ)"
+    },
+    "done": {
+      "document": "Đã mở bản dịch “{{name}}” ({{count}} đoạn văn bản). Tài liệu gốc không thay đổi.",
+      "cells": "Đã dịch {{count}} ô.",
+      "deck": "Đã mở bản dịch “{{name}}” ({{count}} khối văn bản). Bản trình chiếu gốc không thay đổi.",
+      "nothing": "Không có văn bản nào cần dịch.",
+      "shapes": "Đã dịch {{count}} hình."
+    },
+    "errors": {
+      "unavailable": "Chưa có dịch vụ dịch (quản trị viên chưa cấu hình).",
+      "unauthorized": "Cần đăng nhập để dịch.",
+      "unsupportedLanguage": "Dịch vụ dịch không hỗ trợ ngôn ngữ này.",
+      "tooLarge": "Văn bản quá dài cho dịch vụ dịch.",
+      "rateLimited": "Dịch vụ dịch đang bận, hãy thử lại sau.",
+      "upstream": "Dịch vụ dịch gặp lỗi.",
+      "network": "Không kết nối được tới dịch vụ dịch.",
+      "cancelled": "Đã hủy dịch.",
+      "sameLanguage": "Văn bản đã ở ngôn ngữ đích."
     }
   }
 }

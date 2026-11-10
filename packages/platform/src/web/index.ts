@@ -23,6 +23,7 @@ import { createWebSheetHost, webSheetTransport } from './WebSheetHost';
 import { WebSigning } from './signing';
 import { WebCodecsVideo } from '../webcodecs';
 import { webSpeech } from '../speech';
+import { webMediaCapture } from '../mediaCapture';
 import { ServerTranslationProvider } from '../translation';
 import { WebDisplays, presentationReceiverBus } from './displays';
 import { FetchRemoteImages } from '../remoteImages';
@@ -289,6 +290,8 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     video: new WebCodecsVideo(),
     // W3C Web Speech API (read aloud, CORE-LANG-003).
     speech: webSpeech(),
+    // Microphone / camera through getUserMedia + MediaRecorder (recorded shows, SLIDE-REC-001).
+    media: webMediaCapture(),
     // Translation through the BlueOffice server (CORE-LANG-001): same origin unless
     // VITE_BO_TRANSLATE_URL names it, `off` = none. The server answers 404 (nothing is sent on)
     // until an administrator configures a translation service.

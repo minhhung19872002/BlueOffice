@@ -225,8 +225,31 @@ impl Engine {
                 steps: steps(&show.animations, show.clicks),
             };
             shown.push(i);
+            // A recorded narration's icon is hidden in the show (showWhenStopped="0").
+            let narration: Vec<u32> = show
+                .media
+                .iter()
+                .filter(|m| m.recorded == Some(super::record::RecKind::Narration))
+                .map(|m| m.id)
+                .collect();
             slides.push(SlideData {
-                layers: show.layers.into_iter().map(|l| l.page).collect(),
+                layers: show
+                    .layers
+                    .into_iter()
+                    .map(|l| {
+                        let hidden = !l.backdrop
+                            && !l.ids.is_empty()
+                            && l.ids.iter().all(|id| narration.contains(id));
+                        if hidden {
+                            bo_render::PageList {
+                                commands: Vec::new(),
+                                ..l.page
+                            }
+                        } else {
+                            l.page
+                        }
+                    })
+                    .collect(),
                 anims: show.animations,
                 transition: show.transition,
                 timing,

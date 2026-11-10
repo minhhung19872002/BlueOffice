@@ -1,4 +1,4 @@
-import type { EncodedVideoChunkData } from '@blueoffice/platform';
+import type { EncodedAudioChunkData, EncodedVideoChunkData } from '@blueoffice/platform';
 
 /**
  * Minimal MP4 writer for one H.264 video track (ISO/IEC 14496-12 ISO base media file format,
@@ -17,6 +17,34 @@ export interface Mp4Input {
   /** H.264 `AVCDecoderConfigurationRecord` (WebCodecs `decoderConfig.description`). */
   avcC: Uint8Array;
   chunks: EncodedVideoChunkData[];
+  /** Narration track (AAC-LC), if any. */
+  audio?: Mp4Audio;
+}
+
+/** An AAC-LC track (ISO/IEC 14496-3; `mp4a` sample entry with an `esds`, ISO/IEC 14496-14). */
+export interface Mp4Audio {
+  sampleRate: number;
+  channels: number;
+  /** `AudioSpecificConfig` (WebCodecs `decoderConfig.description`); built when absent. */
+  asc: Uint8Array | null;
+  chunks: EncodedAudioChunkData[];
+}
+
+/** ISO/IEC 14496-3 §1.6.3.4 samplingFrequencyIndex values. */
+const AAC_RATES = [
+  96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
+];
+
+/** `AudioSpecificConfig` of AAC-LC (audioObjectType 2) at `rate` with `channels`. */
+export function aacConfig(rate: number, channels: number): Uint8Array {
+  const i = Math.max(0, AAC_RATES.indexOf(rate));
+  return new Uint8Array([(2 << 3) | (i >> 1), ((i & 1) << 7) | ((channels & 15) << 3)]);
+}
+
+/** An MPEG-4 descriptor: tag, size (one byte, < 128), body (ISO/IEC 14496-1 §7.2.2). */
+function desc(tag: number, ...body: Part[]): number[] {
+  const b = concat(body);
+  return [tag, b.length, ...b];
 }
 
 const enc = new TextEncoder();
@@ -77,7 +105,7 @@ function sttsEntries(starts: number[], end: number): [number, number][] {
   return out;
 }
 
-function moov(input: Mp4Input, mdatDataOffset: number): Uint8Array {
+function moov(input: Mp4Input, mdatDataOffset: number, audioOffset: number): Uint8Array {
   const { width, height, chunks } = input;
   const { starts, end } = sampleTimes(chunks);
   const durMs = Math.round((end * 1000) / MP4_TIMESCALE);
@@ -94,7 +122,7 @@ function moov(input: Mp4Input, mdatDataOffset: number): Uint8Array {
     zeros(10),
     MATRIX,
     zeros(24),
-    u32(2),
+    u32(input.audio ? 3 : 2),
   );
   const tkhd = full(
     'tkhd',
@@ -177,10 +205,99 @@ function moov(input: Mp4Input, mdatDataOffset: number): Uint8Array {
   const stbl = box('stbl', stsd, stts, stss, stsc, stsz, stco);
   const minf = box('minf', vmhd, dinf, stbl);
   const mdia = box('mdia', mdhd, hdlr, minf);
-  return box('moov', mvhd, box('trak', tkhd, mdia));
+  const tracks = [box('trak', tkhd, mdia)];
+  if (input.audio) tracks.push(audioTrak(input.audio, durMs, audioOffset));
+  return box('moov', mvhd, ...tracks);
 }
 
-/** The MP4 file of an encoded H.264 track. */
+/** The sound track (§8.3 trak, `soun` handler, §12.2.2 smhd) of the AAC chunks, one chunk. */
+function audioTrak(a: Mp4Audio, durMs: number, offset: number): Uint8Array {
+  const rate = a.sampleRate;
+  const tick = (us: number) => Math.round((us * rate) / 1e6);
+  const starts = a.chunks.map((c) => tick(c.timestampUs));
+  const last = a.chunks[a.chunks.length - 1];
+  const end = last ? tick(last.timestampUs + (last.durationUs || (1024 * 1e6) / rate)) : 0;
+  const tkhd = full(
+    'tkhd',
+    0,
+    3,
+    u32(0),
+    u32(0),
+    u32(2), // track_ID
+    u32(0),
+    u32(durMs),
+    zeros(8),
+    u16(0),
+    u16(1), // alternate_group
+    u16(0x0100), // volume 1.0
+    u16(0),
+    MATRIX,
+    u32(0),
+    u32(0),
+  );
+  const mdhd = full('mdhd', 0, 0, u32(0), u32(0), u32(rate), u32(end), u16(0x55c4), u16(0));
+  const hdlr = full(
+    'hdlr',
+    0,
+    0,
+    u32(0),
+    Array.from(enc.encode('soun')),
+    zeros(12),
+    Array.from(enc.encode('BlueSlide narration\0')),
+  );
+  const smhd = full('smhd', 0, 0, u16(0), u16(0));
+  const dinf = box('dinf', full('dref', 0, 0, u32(1), full('url ', 0, 1)));
+  const asc = a.asc && a.asc.length ? a.asc : aacConfig(rate, a.channels);
+  // ES_Descriptor → DecoderConfigDescriptor (objectTypeIndication 0x40 = MPEG-4 audio,
+  // streamType 5 = audio) → DecoderSpecificInfo (the AudioSpecificConfig); SLConfig 2.
+  const esds = full(
+    'esds',
+    0,
+    0,
+    desc(
+      0x03,
+      u16(2),
+      [0],
+      desc(0x04, [0x40, 0x15], [0, 0, 0], u32(96_000), u32(96_000), desc(0x05, asc)),
+      desc(0x06, [0x02]),
+    ),
+  );
+  const mp4a = box(
+    'mp4a',
+    zeros(6),
+    u16(1),
+    zeros(8),
+    u16(a.channels),
+    u16(16),
+    u16(0),
+    u16(0),
+    u32(Math.min(rate, 0xffff) * 0x10000),
+    esds,
+  );
+  const stsd = full('stsd', 0, 0, u32(1), mp4a);
+  const runs = sttsEntries(starts, end);
+  const stts = full(
+    'stts',
+    0,
+    0,
+    u32(runs.length),
+    runs.flatMap(([n, d]) => [...u32(n), ...u32(d)]),
+  );
+  const stsc = full('stsc', 0, 0, u32(1), u32(1), u32(a.chunks.length), u32(1));
+  const stsz = full(
+    'stsz',
+    0,
+    0,
+    u32(0),
+    u32(a.chunks.length),
+    a.chunks.flatMap((c) => u32(c.data.length)),
+  );
+  const stco = full('stco', 0, 0, u32(1), u32(offset));
+  const stbl = box('stbl', stsd, stts, stsc, stsz, stco);
+  return box('trak', tkhd, box('mdia', mdhd, hdlr, box('minf', smhd, dinf, stbl)));
+}
+
+/** The MP4 file of an encoded H.264 track (and an AAC narration track). */
 export function muxMp4(input: Mp4Input): Uint8Array {
   const ftyp = box(
     'ftyp',
@@ -188,10 +305,12 @@ export function muxMp4(input: Mp4Input): Uint8Array {
     u32(0x200),
     Array.from(enc.encode('isomiso2avc1mp41')),
   );
-  // The moov size does not depend on the offset value: size it once, then fill it in.
-  const probe = moov(input, 0);
+  // The moov size does not depend on the offset values: size it once, then fill them in.
+  const probe = moov(input, 0, 0);
   const dataOffset = ftyp.length + probe.length + 8;
-  const media = concat(input.chunks.map((c) => c.data));
+  const video = concat(input.chunks.map((c) => c.data));
+  const audio = concat((input.audio?.chunks ?? []).map((c) => c.data));
+  const media = concat([video, audio]);
   const mdat = concat([u32(media.length + 8), Array.from(enc.encode('mdat')), media]);
-  return concat([ftyp, moov(input, dataOffset), mdat]);
+  return concat([ftyp, moov(input, dataOffset, dataOffset + video.length), mdat]);
 }

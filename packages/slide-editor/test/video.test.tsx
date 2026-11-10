@@ -41,7 +41,7 @@ function fakeEngine(frames: number) {
         fps: o.fps,
         frameCount: frames,
         durationMs: (frames * 1000) / o.fps,
-        slides: [{ startMs: 0, transitionMs: 0, lengthMs: (frames * 1000) / o.fps }],
+        slides: [{ slide: 0, startMs: 0, transitionMs: 0, lengthMs: (frames * 1000) / o.fps }],
       };
     }),
     videoFrame: vi.fn(async (i: number, png?: boolean) =>
@@ -320,7 +320,7 @@ describe('export video dialog', () => {
     expect(screen.getByText('Video (MP4)')).toBeTruthy();
     fireEvent.click(screen.getByTestId('export-video-ok'));
     await waitFor(() => expect(run).toHaveBeenCalled());
-    expect(run.mock.calls[0]![0]).toMatchObject({ format: 'video', fps: 30 });
+    expect(run.mock.calls[0]![0]).toMatchObject({ format: 'video', fps: 30, narration: true });
     act(() => h.report?.(5, 20));
     expect(screen.getByText('Frame 5 of 20')).toBeTruthy();
     expect(screen.getByTestId('export-video-progress').getAttribute('value')).toBe('0.25');

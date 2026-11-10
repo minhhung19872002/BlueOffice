@@ -361,6 +361,38 @@ fn rehearsed_timings_keep_advance_on_click() {
     assert_eq!(st["transition"]["advanceAfterMs"], 12345);
 }
 
+// The video export leaves out the narration icon (hidden in the show, showWhenStopped="0"):
+// a narrated slide's frame is the same as the slide's without the clip; its slide is named in
+// the timeline.
+#[test]
+fn video_frames_hide_the_narration_icon() {
+    use bo_engine::slide_edit::video::VideoOptions;
+    let opts = || VideoOptions {
+        width: 320,
+        fps: 4,
+        seconds_per_slide: 1.0,
+        ..VideoOptions::default()
+    };
+    let narration = format!(
+        r#"{{"cmd":"saveRecording","slides":[{{"slide":0,"durationMs":2000,"narration":{{"data":"{}","mime":"audio/wav"}}}}]}}"#,
+        b64(&wav())
+    );
+    let mut rec = open_bytes(&deck("slide-text-bullets.pptx"), "a.pptx");
+    run(&mut rec, &narration);
+    let mut plain = open_bytes(&deck("slide-text-bullets.pptx"), "b.pptx");
+    run(
+        &mut plain,
+        r#"{"cmd":"setTimings","timings":[{"slide":0,"ms":2000}],"useTimings":true}"#,
+    );
+    let a = rec.video_begin(opts()).unwrap();
+    let b = plain.video_begin(opts()).unwrap();
+    assert_eq!(a.slides[1].slide, 1);
+    assert_eq!(a.frame_count, b.frame_count);
+    assert_eq!(rec.video_frame(2).unwrap(), plain.video_frame(2).unwrap());
+    rec.video_end();
+    plain.video_end();
+}
+
 // Corpus decks written by `bo-cli sample-slides` (SLIDE-REC-001) read back with their
 // recordings; their XML is checked by OpenXmlValidator (`pnpm fidelity`).
 #[test]

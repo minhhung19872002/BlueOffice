@@ -128,6 +128,11 @@ export interface ShowStageProps {
   still?: boolean;
   /** Follow a shape's hyperlink (custom shows, jumps); without it links are not clickable. */
   onLink?: (action: SlideLinkAction) => void;
+  /**
+   * Play recorded narration and camera clips (§19.2.1.30 showNarration; SLIDE-REC-001); off:
+   * they neither play nor show.
+   */
+  narration?: boolean;
 }
 
 /** The transition sound playing (§19.3.1.42 sndAc), shared by the show's slides. */
@@ -186,6 +191,7 @@ export function ShowStage({
   mediaLabels,
   still = false,
   onLink,
+  narration = true,
 }: ShowStageProps) {
   const [show, setShow] = useState<SlideShowInfo | null>(null);
   /** Layer visibility and outgoing slide once the step started / ended (by step key). */
@@ -224,13 +230,17 @@ export function ShowStage({
   });
   // Clips hidden while not playing (SLIDE-MEDIA-001), by `slide:shapeId`.
   const [hiddenMedia, setHiddenMedia] = useState<Record<string, boolean>>({});
+  // Recorded clips left out when narrations are off.
+  const muted = new Set(
+    narration ? [] : (show?.media ?? []).filter((m) => m.recorded).map((m) => m.id),
+  );
   const layerHidden = (i: number) => {
     const l = show?.layers[i];
     return (
       !!l &&
       !l.backdrop &&
       l.ids.length > 0 &&
-      l.ids.every((id) => hiddenMedia[`${pos.slide}:${id}`] === true)
+      l.ids.every((id) => muted.has(id) || hiddenMedia[`${pos.slide}:${id}`] === true)
     );
   };
   const vis = current.vis.map(
@@ -440,24 +450,28 @@ export function ShowStage({
           ))}
         {ready &&
           media &&
-          show.media.map((m) => (
-            <ShowMediaClip
-              key={`${pos.slide}-${m.id}`}
-              engine={engine}
-              clip={m}
-              scale={width / (show.width || 1)}
-              slide={pos.slide}
-              click={pos.click}
-              stage={{ width, height }}
-              labels={mediaLabels}
-              onBookmark={(id, name) => playTrigger(id, name)}
-              onHidden={(id, hidden) =>
-                setHiddenMedia((h) =>
-                  h[`${pos.slide}:${id}`] === hidden ? h : { ...h, [`${pos.slide}:${id}`]: hidden },
-                )
-              }
-            />
-          ))}
+          show.media
+            .filter((m) => !muted.has(m.id))
+            .map((m) => (
+              <ShowMediaClip
+                key={`${pos.slide}-${m.id}`}
+                engine={engine}
+                clip={m}
+                scale={width / (show.width || 1)}
+                slide={pos.slide}
+                click={pos.click}
+                stage={{ width, height }}
+                labels={mediaLabels}
+                onBookmark={(id, name) => playTrigger(id, name)}
+                onHidden={(id, hidden) =>
+                  setHiddenMedia((h) =>
+                    h[`${pos.slide}:${id}`] === hidden
+                      ? h
+                      : { ...h, [`${pos.slide}:${id}`]: hidden },
+                  )
+                }
+              />
+            ))}
       </div>
       {ready &&
         media &&

@@ -77,6 +77,8 @@ import {
   notifyMentions,
   openExtensions,
   type DisplayTarget,
+  type MediaCaptureSession,
+  type SlideRecordingInput,
   type SlideLinkAction,
   type SlideShowSetup,
 } from '@blueoffice/platform';
@@ -290,6 +292,14 @@ import {
   type EndShowState,
 } from './showTools';
 import { ShowCache, ShowStage } from './ShowStage';
+import { ShowRecorder, recordingInput } from './recording';
+import {
+  CameraPreview,
+  DEFAULT_RECORD_OPTIONS,
+  RecordSetupDialog,
+  RecordingBar,
+  type RecordOptions,
+} from './recordTools';
 import { SlideCanvas } from './SlideCanvas';
 import { zipStore } from './zip';
 import styles from './SlideEditor.module.css';
@@ -606,6 +616,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   /** Rehearse timings: the clock while rehearsing. */
   const [clock, setClock] = useState<RehearsalClock | null>(null);
   const rehearsing = clock !== null;
+  /** Recording the show (SLIDE-REC-001): its options asked first, then the running recorder. */
+  const [recordAsk, setRecordAsk] = useState<{ from: number } | null>(null);
+  const [recOpts, setRecOpts] = useState<RecordOptions>(DEFAULT_RECORD_OPTIONS);
+  const [rec, setRec] = useState<{
+    recorder: ShowRecorder;
+    session: MediaCaptureSession | null;
+    opts: RecordOptions;
+    /** Whole recording time (pauses left out). */
+    total: RehearsalClock;
+    notice: string | null;
+  } | null>(null);
+  const [, setRecRev] = useState(0);
+  const recording = rec !== null;
   const [kioskOn, setKioskOn] = useState(false);
   const [endState, setEndState] = useState<EndShowState | null>(null);
   const [endKey, setEndKey] = useState(0);
@@ -869,10 +892,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
 
   // Clock for the presenter view and the rehearsal timer.
   useEffect(() => {
-    if (view !== 'presenter' && !rehearsing) return;
+    if (view !== 'presenter' && !rehearsing && !recording) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [view, rehearsing]);
+  }, [view, rehearsing, recording]);
 
   const goTo = useCallback(
     (i: number) => {
@@ -921,7 +944,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const customShows = edit?.presenting?.customShows;
 
   const startShow = useCallback(
-    (from: number, presenter: boolean, opts: { custom?: number; rehearse?: boolean } = {}) => {
+    (
+      from: number,
+      presenter: boolean,
+      opts: { custom?: number; rehearse?: boolean; record?: boolean } = {},
+    ) => {
       if (!count) return;
       const pr = edit?.presenting;
       const st = pr?.setup ?? DEFAULT_SHOW_SETUP;
@@ -933,7 +960,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       });
       if (order.length === 0) order = [Math.max(0, Math.min(from, count - 1))];
       // A kiosk loops until Esc and restarts after inactivity (§19.2.1.17).
-      const kiosk = st.showType === 'kiosk' && !presenter && !opts.rehearse;
+      const kiosk = st.showType === 'kiosk' && !presenter && !opts.rehearse && !opts.record;
       const at = opts.custom !== undefined ? 0 : startAt(order, from);
       const first = order[at] ?? 0;
       setReturnView(view === 'show' || view === 'presenter' ? 'normal' : view);
@@ -957,7 +984,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       setNow(Date.now());
       setEditing(null);
       // Browsed by one person: the slides play in the window (reading view).
-      const browse = st.showType === 'browse' && !presenter && !opts.rehearse;
+      const browse = st.showType === 'browse' && !presenter && !opts.rehearse && !opts.record;
       setView(presenter ? 'presenter' : browse ? 'reading' : 'show');
     },
     [count, view, showCache, edit, ink],
@@ -987,18 +1014,52 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     setTool('pointer');
     setWhite(false);
     const kept = timings && timings.length > 0 ? timings : null;
+    if (rec) {
+      // A recording: its ink, clicks and clips are saved together (SLIDE-REC-001).
+      setRec(null);
+      ink.setClock(null);
+      const o = rec.opts;
+      const aspect = rec.session?.aspect ?? null;
+      void rec.recorder.finish().then((takes) => {
+        if (!takes.length) return;
+        const slides: SlideRecordingInput[] = recordingInput(takes, (s) => ink.timed(s), {
+          narration: o.narration,
+          camera: o.camera,
+          corner: o.corner,
+          aspect,
+        });
+        setEndKey((k) => k + 1);
+        setEndState({
+          ink: false,
+          timings: null,
+          recording: { slides, totalMs: takes.reduce((s, x) => s + x.durationMs, 0) },
+        });
+      });
+      return;
+    }
     if (!ink.isEmpty() || kept) {
       setEndKey((k) => k + 1);
       setEndState({ ink: !ink.isEmpty(), timings: kept });
     }
-  }, [returnView, count, pos.slide, run, ink, clock]);
+  }, [returnView, count, pos.slide, run, ink, clock, rec]);
 
   /** Keep (or drop) the show's ink and rehearsed timings: one undo step each. */
   const finishEnd = useCallback(
-    (keep: { ink: boolean; timings: boolean }) => {
+    (keep: { ink: boolean; timings: boolean; recording?: boolean }) => {
       const st = endState;
       setEndState(null);
       if (!st) return;
+      if (keep.recording && st.recording) {
+        run({
+          cmd: 'saveRecording',
+          slides: st.recording.slides,
+          names: {
+            narration: t('showRecord.narrationName'),
+            camera: t('showRecord.cameraName'),
+            ink: t('showRecord.inkName'),
+          },
+        });
+      }
       if (keep.ink && st.ink && !ink.isEmpty()) {
         run({ cmd: 'keepInk', ink: ink.toCommand(), name: t('showTools.inkName') });
       }
@@ -1083,6 +1144,74 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     } else clock.pause(Date.now());
   }, [clock, pos.slide, count]);
 
+  // Recording (SLIDE-REC-001): one take per slide (a slide shown again is recorded again, its
+  // ink with it), the clicks that play its effects; the end screen stops the clock.
+  const recPrev = useRef<{ slide: number; click: number } | null>(null);
+  useEffect(() => {
+    if (!rec) {
+      recPrev.current = null;
+      return;
+    }
+    const r = rec.recorder;
+    const slide = pos.slide < count ? pos.slide : null;
+    let fresh = false;
+    if (r.state !== 'idle') fresh = r.enter(slide);
+    else if (slide !== null) {
+      r.start(slide);
+      fresh = true;
+    }
+    if (fresh && slide !== null) {
+      ink.clear(slide);
+      // Redrawn after this effect (the ink layer is not React state).
+      queueMicrotask(() => setInkRev((n) => n + 1));
+    }
+    const prev = recPrev.current;
+    if (prev && prev.slide === pos.slide && pos.click > prev.click && pos.enter === 'click') {
+      r.click();
+    }
+    recPrev.current = { slide: pos.slide, click: pos.click };
+    if (slide === null) rec.total.pause(Date.now());
+    else if (r.state === 'recording') rec.total.resume(Date.now());
+  }, [rec, pos.slide, pos.click, pos.enter, count, ink]);
+
+  /** Open the devices and start the show as a recording. */
+  const startRecording = useCallback(
+    async (from: number, o: RecordOptions) => {
+      setRecordAsk(null);
+      setRecOpts(o);
+      let session: MediaCaptureSession | null = null;
+      let notice: string | null = null;
+      if ((o.narration || o.camera) && platform.media) {
+        try {
+          session = await platform.media.open({ audio: o.narration, video: o.camera });
+        } catch {
+          notice = t('showRecord.denied');
+        }
+      }
+      const recorder = new ShowRecorder(session);
+      startShow(from, false, { record: true });
+      ink.setClock(() => recorder.inkTime());
+      setRec({
+        recorder,
+        session,
+        opts: {
+          ...o,
+          narration: o.narration && !!session?.audio,
+          camera: o.camera && !!session?.video,
+        },
+        total: new RehearsalClock(Date.now()),
+        notice,
+      });
+    },
+    [platform, ink, startShow, t],
+  );
+  // The recorder goes with the editor.
+  const recRef = useRef(rec);
+  useEffect(() => {
+    recRef.current = rec;
+  }, [rec]);
+  useEffect(() => () => recRef.current?.recorder.cancel(), []);
+
   // Kiosk: restart after the inactivity period (§19.2.1.17 kiosk@restart).
   const restartMs = setup.restartMs;
   useEffect(() => {
@@ -1127,12 +1256,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     (s: SlideShowInfo) => {
       const after = s.transition?.advanceAfterMs;
       if (autoTimer.current) clearTimeout(autoTimer.current);
-      // Rehearsing, or timings turned off in the setup (§19.2.1.30 useTimings): by hand.
-      if (clock || !setup.useTimings) return;
+      // Rehearsing, recording, or timings turned off in the setup (§19.2.1.30 useTimings): by
+      // hand.
+      if (clock || rec || !setup.useTimings) return;
       if (!after || s.slide !== pos.slide || pos.click < s.clicks) return;
       autoTimer.current = setTimeout(() => moveShow('next'), after);
     },
-    [pos, moveShow, clock, setup.useTimings],
+    [pos, moveShow, clock, rec, setup.useTimings],
   );
   /** A mouse click in the show (ignored at the end of a slide whose advClick is off). */
   const clickShow = useCallback(() => {
@@ -1418,9 +1548,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       signal: AbortSignal,
     ) => {
       await ctrl.idle();
-      const r = await exportShow(engine, platform.video, req, onProgress, signal);
+      const r = await exportShow(engine, platform.video, req, onProgress, signal, platform.media);
       await platform.files.saveFile(r.bytes, `${baseName()}.${r.ext}`, r.mime);
-      setStatus(t('slideEditor.videoExported'));
+      setStatus(t(r.audioDropped ? 'slideEditor.videoNoAudio' : 'slideEditor.videoExported'));
     },
     [ctrl, engine, platform, baseName, t],
   );
@@ -1765,6 +1895,41 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           cmd: 'setShowSetup',
           setup: { ...setup, useTimings: !setup.useTimings },
         }),
+    });
+    // Recording the show (SLIDE-REC-001).
+    reg.register({
+      id: 'show.recordFromCurrent',
+      isEnabled: deck,
+      run: (s) => setRecordAsk({ from: s.current }),
+    });
+    reg.register({
+      id: 'show.recordFromStart',
+      isEnabled: deck,
+      run: () => setRecordAsk({ from: 0 }),
+    });
+    const clearRec = (scope: 'current' | 'all', what: 'recording' | 'timings') => () =>
+      run({ cmd: 'clearRecording', scope, what });
+    reg.register({
+      id: 'show.clearTimingCurrent',
+      isEnabled: deck,
+      run: clearRec('current', 'timings'),
+    });
+    reg.register({ id: 'show.clearTimingAll', isEnabled: deck, run: clearRec('all', 'timings') });
+    reg.register({
+      id: 'show.clearRecordingCurrent',
+      isEnabled: deck,
+      run: clearRec('current', 'recording'),
+    });
+    reg.register({
+      id: 'show.clearRecordingAll',
+      isEnabled: deck,
+      run: clearRec('all', 'recording'),
+    });
+    reg.register({
+      id: 'show.playNarration',
+      isEnabled: deck,
+      isChecked: () => setup.narration,
+      run: () => run({ cmd: 'setShowSetup', setup: { ...setup, narration: !setup.narration } }),
     });
 
     // History and selection.
@@ -2853,7 +3018,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         ],
       },
       drawTab(t, item, draw.state),
-      slideShowTab(t, item, setup.useTimings),
+      slideShowTab(t, item, setup.useTimings, setup.narration),
       {
         id: 'review',
         label: t('ribbon.tabs.review'),
@@ -3213,6 +3378,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     setSaveTemplate,
     current,
     setup.useTimings,
+    setup.narration,
     loadWarpPreviews,
     draw.state,
     shortcutsVersion,
@@ -3316,6 +3482,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       mediaLabels={mediaLabels}
       still={showRun.still}
       onLink={view === 'show' || view === 'presenter' ? followLink : undefined}
+      narration={setup.narration && !recording}
     />
   );
   /** The show's slide with the presenter tools over it. */
@@ -3376,6 +3543,34 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           }}
         />
       )}
+      {rec && (
+        <RecordingBar
+          state={rec.recorder.state}
+          slideMs={rec.recorder.elapsed()}
+          totalMs={rec.total.total(now)}
+          notice={rec.notice}
+          onPause={() => {
+            const r = rec.recorder;
+            if (r.state === 'paused') {
+              r.resume();
+              rec.total.resume(Date.now());
+            } else {
+              r.pause();
+              rec.total.pause(Date.now());
+            }
+            setRecRev((n) => n + 1);
+            setNow(Date.now());
+          }}
+          onRestart={() => {
+            rec.recorder.restartSlide();
+            ink.clear(pos.slide);
+            setInkRev((n) => n + 1);
+            setNow(Date.now());
+          }}
+          onStop={endShow}
+        />
+      )}
+      {rec?.session?.video && <CameraPreview session={rec.session} corner={rec.opts.corner} />}
     </>
   );
 
@@ -4232,6 +4427,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         />
       )}
       <EndShowDialog key={endKey} state={endState} onDone={finishEnd} />
+      {recordAsk && (
+        <RecordSetupDialog
+          devices={platform.media?.available() ?? null}
+          initial={recOpts}
+          onCancel={() => setRecordAsk(null)}
+          onStart={(o) => void startRecording(recordAsk.from, o)}
+        />
+      )}
       {exportOpen && (
         <ExportDialog
           open

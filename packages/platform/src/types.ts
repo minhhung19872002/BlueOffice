@@ -1611,6 +1611,8 @@ export type SlideCommand =
   | import('./slideShow').SlidePresentCommand
   /** Draw tab ink: add, erase, read (CORE-INK-001). */
   | import('./slideInk').SlideInkCommand
+  /** Recorded slide shows: save / clear / read (SLIDE-REC-001). */
+  | import('./slideShow').SlideRecordCommand
   /** Spelling and grammar of the deck (CORE-SPELL-006). */
   | import('./spelling').SlideSpellCommand
   /** Compare with another version of the deck (CORE-VERSION-001) → `DeckCompareResult`. */
@@ -2000,6 +2002,8 @@ export interface SlideMediaInfo {
   link: string | null;
   /** How the clip plays (SLIDE-MEDIA-001). */
   playback?: import('./slideMedia').SlideMediaPlayback;
+  /** Narration / camera of a recorded show (SLIDE-REC-001). */
+  recorded?: 'narration' | 'camera';
 }
 
 /** What the slide show needs to play one slide. */
@@ -2249,6 +2253,8 @@ export interface SlideEditResult {
   notesPages?: import('./slideViews').SlideNotesPage[];
   /** Ink of the current slide (`inkInfo` / `addInk` / `eraseInk`, CORE-INK-001). */
   ink?: import('./slideInk').SlideInkInfo;
+  /** Recordings of the deck (answer of the recording commands, SLIDE-REC-001). */
+  recording?: { slides: import('./slideShow').SlideRecordingInfo[] };
 }
 
 // ---------------------------------------------------------------- services
@@ -2353,7 +2359,8 @@ export interface ShowVideoInfo {
   fps: number;
   frameCount: number;
   durationMs: number;
-  slides: { startMs: number; transitionMs: number; lengthMs: number }[];
+  /** Slides in the video (hidden slides left out): 0-based `slide`, its place on the timeline. */
+  slides: { slide: number; startMs: number; transitionMs: number; lengthMs: number }[];
 }
 
 /** Container and codec string of a video encoding (WebCodecs). */
@@ -2379,8 +2386,44 @@ export interface VideoEncoderSession {
   close(): void;
 }
 
+/** PCM audio read in blocks (a narration track of the video export). */
+export interface AudioSource {
+  sampleRate: number;
+  channels: number;
+  /** Length in sample frames. */
+  frames: number;
+  /** Frames `start..start + count` (one array per channel). */
+  read(start: number, count: number): Float32Array[];
+}
+
+/** One encoded audio frame. */
+export interface EncodedAudioChunkData {
+  data: Uint8Array;
+  timestampUs: number;
+  durationUs: number;
+}
+
+/** An encoded audio track: AAC-LC (MP4) or Opus (WebM). */
+export interface EncodedAudioTrack {
+  codec: 'aac' | 'opus';
+  sampleRate: number;
+  channels: number;
+  /** AAC `AudioSpecificConfig` / Opus `OpusHead`, when the encoder gives one. */
+  description: Uint8Array | null;
+  chunks: EncodedAudioChunkData[];
+}
+
 /** Video encoding of the platform (absent or `probe` → `null` where not available). */
 export interface VideoEncoding {
+  /**
+   * Encodes `source` for `container` (AAC for MP4, Opus for WebM); `null` when the platform
+   * has no such audio encoder (the video is then made without sound).
+   */
+  encodeAudio?(
+    container: 'mp4' | 'webm',
+    source: AudioSource,
+    signal?: AbortSignal,
+  ): Promise<EncodedAudioTrack | null>;
   probe(width: number, height: number, fps: number): Promise<VideoCodecChoice | null>;
   open(
     choice: VideoCodecChoice,
@@ -2723,4 +2766,6 @@ export interface Platform {
   speech?: import('./speech').SpeechProvider;
   /** Translation (absent where none is configured; CORE-LANG-001). */
   translation?: import('./translation').TranslationProvider;
+  /** Microphone / camera recording (absent where the platform has none; SLIDE-REC-001). */
+  media?: import('./mediaCapture').MediaCaptureService;
 }

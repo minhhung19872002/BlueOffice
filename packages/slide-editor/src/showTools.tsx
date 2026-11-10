@@ -1,5 +1,5 @@
 import { useTranslation } from '@blueoffice/i18n';
-import type { SlideInkStroke } from '@blueoffice/platform';
+import type { SlideInkStroke, SlideRecordingInput } from '@blueoffice/platform';
 import { Dialog } from '@blueoffice/ui';
 import {
   Crosshair,
@@ -422,6 +422,8 @@ export interface EndShowState {
   ink: boolean;
   /** Rehearsed timings to keep, if the show was a rehearsal. */
   timings: { slide: number; ms: number }[] | null;
+  /** A recorded show (SLIDE-REC-001): what `saveRecording` stores. */
+  recording?: { slides: SlideRecordingInput[]; totalMs: number } | null;
 }
 
 /** At the end of a show: keep the ink as shapes, keep the rehearsed timings. */
@@ -430,16 +432,18 @@ export function EndShowDialog({
   onDone,
 }: {
   state: EndShowState | null;
-  onDone: (keep: { ink: boolean; timings: boolean }) => void;
+  onDone: (keep: { ink: boolean; timings: boolean; recording?: boolean }) => void;
 }) {
   const { t } = useTranslation();
   const [ink, setInk] = useState(true);
   const [timings, setTimings] = useState(true);
+  const [recording, setRecording] = useState(true);
   const total = (state?.timings ?? []).reduce((s, x) => s + x.ms, 0);
+  const rec = state?.recording;
   return (
     <Dialog
       open={state !== null}
-      onOpenChange={(o) => !o && onDone({ ink: false, timings: false })}
+      onOpenChange={(o) => !o && onDone({ ink: false, timings: false, recording: false })}
       title={t('showTools.endTitle')}
       testId="end-show-dialog"
       footer={
@@ -447,11 +451,15 @@ export function EndShowDialog({
           <button
             type="button"
             data-testid="end-show-discard"
-            onClick={() => onDone({ ink: false, timings: false })}
+            onClick={() => onDone({ ink: false, timings: false, recording: false })}
           >
             {t('showTools.discard')}
           </button>
-          <button type="button" data-testid="end-show-ok" onClick={() => onDone({ ink, timings })}>
+          <button
+            type="button"
+            data-testid="end-show-ok"
+            onClick={() => onDone({ ink, timings, recording })}
+          >
             {t('showTools.keep')}
           </button>
         </>
@@ -478,6 +486,20 @@ export function EndShowDialog({
               onChange={(e) => setTimings(e.target.checked)}
             />
             {t('showTools.keepTimings', { total: formatElapsed(total) })}
+          </label>
+        )}
+        {rec && (
+          <label className={styles.row}>
+            <input
+              type="checkbox"
+              data-testid="end-keep-recording"
+              checked={recording}
+              onChange={(e) => setRecording(e.target.checked)}
+            />
+            {t('showRecord.keepRecording', {
+              n: rec.slides.length,
+              total: formatElapsed(rec.totalMs),
+            })}
           </label>
         )}
       </fieldset>

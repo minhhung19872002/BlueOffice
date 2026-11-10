@@ -1,6 +1,10 @@
 import type { RibbonTab } from '@blueoffice/ui';
 import {
   Cast,
+  Circle,
+  CircleOff,
+  Eraser,
+  Mic,
   Link2,
   ListVideo,
   MonitorPlay,
@@ -8,6 +12,7 @@ import {
   Presentation,
   Settings2,
   Timer,
+  TimerOff,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -28,6 +33,7 @@ export function slideShowTab(
   t: (key: string, o?: Record<string, unknown>) => string,
   item: Item,
   useTimings: boolean,
+  narration = false,
 ): RibbonTab {
   const sm = 'small' as const;
   return {
@@ -52,6 +58,41 @@ export function slideShowTab(
           item('show.rehearse', t('showTools.rehearse'), <Timer size={16} />, sm),
           item('show.useTimings', t('showTools.useTimings'), <Timer size={16} />, sm, useTimings),
           item('show.linkCustom', t('showTools.linkShape'), <Link2 size={16} />, sm),
+        ],
+      },
+      {
+        // Recording the show (SLIDE-REC-001).
+        id: 'showRecord',
+        label: t('showRecord.groupRecord'),
+        items: [
+          item('show.recordFromCurrent', t('showRecord.recordFromCurrent'), <Circle size={18} />),
+          item('show.recordFromStart', t('showRecord.recordFromStart'), <Circle size={16} />, sm),
+          item(
+            'show.playNarration',
+            t('showRecord.playNarration'),
+            <Mic size={16} />,
+            sm,
+            narration,
+          ),
+          item(
+            'show.clearRecordingCurrent',
+            t('showRecord.clearRecordingCurrent'),
+            <Eraser size={16} />,
+            sm,
+          ),
+          item(
+            'show.clearRecordingAll',
+            t('showRecord.clearRecordingAll'),
+            <CircleOff size={16} />,
+            sm,
+          ),
+          item(
+            'show.clearTimingCurrent',
+            t('showRecord.clearTimingCurrent'),
+            <TimerOff size={16} />,
+            sm,
+          ),
+          item('show.clearTimingAll', t('showRecord.clearTimingAll'), <TimerOff size={16} />, sm),
         ],
       },
       {

@@ -52,6 +52,7 @@ import { DesktopAuth, type DesktopScheme } from './auth';
 import { WebCodecsVideo } from '../webcodecs';
 import { FetchRemoteImages } from '../remoteImages';
 import { webSpeech } from '../speech';
+import { webMediaCapture } from '../mediaCapture';
 
 export { DesktopAuth, DESKTOP_OIDC_PATH, isOidcCallback } from './auth';
 export type { DesktopAuthOptions, DesktopScheme } from './auth';
@@ -747,6 +748,8 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
     video: new WebCodecsVideo(),
     // The webview's Web Speech API (WebView2: the Windows voices) for read aloud.
     speech: webSpeech(),
+    // Microphone / camera through getUserMedia + MediaRecorder (recorded shows, SLIDE-REC-001).
+    media: webMediaCapture(),
     displays: new DesktopDisplays(call),
     images: new FetchRemoteImages(),
   };

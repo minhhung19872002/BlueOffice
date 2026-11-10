@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collabPorts, collabUrls } from './ports.mjs';
+import { collabPorts, collabUrls, findBoCli } from './ports.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..', '..');
@@ -83,6 +83,10 @@ async function waitFor(url, what, timeoutMs = 240_000) {
   }
   throw new Error(`timed out waiting for ${what} (${url})`);
 }
+
+// Scheduled BlueScript runs (CORE-SCRIPT-004) need a built bo-cli with `script run`; without one
+// they stay switched off (collab-script-schedule.spec.ts then skips).
+const boCli = findBoCli(root);
 
 // Build both .NET projects first (sequentially: they share obj/ outputs of referenced projects).
 for (const project of ['tests/mock-bluedrive', 'apps/server/BlueOffice.Api']) {
@@ -158,6 +162,13 @@ run(
     // Desktop web view origins (Windows/Linux, macOS) for the deep-link E2E.
     Cors__Origins__0: 'http://tauri.localhost',
     Cors__Origins__1: 'tauri://localhost',
+    ...(boCli
+      ? {
+          BoCli__ExecutablePath: boCli,
+          Scripts__ScheduleEnabled: 'true',
+          Scripts__PollInterval: '00:00:02',
+        }
+      : {}),
   },
 );
 

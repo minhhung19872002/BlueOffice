@@ -37,10 +37,15 @@ test('BlueDoc styles pane: apply, float, dock back, tabs, keyboard, remembered',
   await expect(right).toHaveAttribute('aria-label', 'Kiểu');
   const items = right.getByTestId('style-item');
   await expect(items.first()).toBeVisible();
-  await expect(right.locator('[data-style-id="Normal"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(right.locator('[data-testid="style-item"][data-style-id="Normal"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   // Click applies the style to the caret paragraph.
-  await right.locator('[data-style-id="Heading1"]').click();
-  await expect(right.locator('[data-style-id="Heading1"]')).toHaveAttribute('aria-pressed', 'true');
+  await right.locator('[data-testid="style-item"][data-style-id="Heading1"]').click();
+  await expect(
+    right.locator('[data-testid="style-item"][data-style-id="Heading1"]'),
+  ).toHaveAttribute('aria-pressed', 'true');
 
   // The document view leaves room for the dock.
   const view = page.getByTestId('document-view');

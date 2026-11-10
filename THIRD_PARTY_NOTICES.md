@@ -62,7 +62,8 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | cryptoki (bo-sign, feature `pkcs11`, chỉ desktop) | 0.12.1 | Apache-2.0 | USB token qua PKCS#11 (FFI nằm trong crate, crate của ta vẫn `forbid(unsafe_code)`) |
 | p12-keystore (bo-sign, feature `pkcs12`) | 0.4.1 | MIT OR Apache-2.0 | Đọc file chứng thư `.p12` / `.pfx` (PKCS#12) |
 | serde, serde_json (bo-sign) | 1.0.229, 1.0.154 | MIT OR Apache-2.0 | Giao thức JSON ký số từ xa, báo cáo xác minh |
-| lopdf, rand (dev, bo-sign) | 0.38.0, 0.8.8 | MIT, Apache-2.0 OR MIT | Kiểm tra PDF đã ký, sinh khoá test |
+| lopdf | 0.38.0 | MIT | Mở PDF thành tài liệu BlueDoc (chỉ văn bản, `bo-engine::pdf_import`); kiểm tra PDF đã ký (dev, bo-sign) |
+| rand (dev, bo-sign) | 0.8.8 | Apache-2.0 OR MIT | Sinh khoá test |
 | yrs (bo-collab) | 0.25.0 | MIT | CRDT tương thích Yjs, giao thức y-sync/awareness |
 | insta (dev) | 1.49.0 | Apache-2.0 | Snapshot test |
 | proptest (dev) | 1.12.0 | MIT OR Apache-2.0 | Property-based test |
@@ -141,6 +142,10 @@ xem `assets/icons/library/README.md`.
   `scripts/gen-symbols.mjs` từ `UnicodeData.txt` + `Blocks.txt` của **Unicode Character Database 16.0.0**
   — © 1991-2024 Unicode, Inc., **Unicode License v3** (permissive; https://www.unicode.org/license.txt).
   Dùng cho bảng chọn ký hiệu (CORE-SYMBOL-001). Từ khoá tiếng Việt và nhãn ký tự đặc biệt do BlueOffice tự viết.
+- `crates/bo-encoding/src/cp_tables.rs`: nửa trên (0x80–0xFF) của 18 code page một byte (437, 737, 850, 852,
+  857, 860, 861, 863, 865, 866, 874, 1250, 1251, 1253–1257) để đọc bảng dBASE (CORE-FMT-004). Ánh xạ byte →
+  ký tự là của các tệp `MAPPINGS/VENDORS/MICSFT/{PC,WINDOWS}/CPnnn.TXT` — © Unicode, Inc., **Unicode License v3**;
+  bảng được xuất một lần bằng các codec `cpNNN` của CPython (vốn sinh từ chính các tệp ánh xạ đó), không chép mã nguồn.
 
 ## Từ điển chính tả
 

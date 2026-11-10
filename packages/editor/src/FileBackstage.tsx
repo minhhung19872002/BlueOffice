@@ -108,6 +108,10 @@ const COMMAND_LABELS: Record<string, string> = {
   'file.saveHtml': 'webFormats.saveHtml',
   'file.saveMht': 'webFormats.saveMht',
   'file.saveFlatXml': 'webFormats.saveFlatXml',
+  'file.saveEpub': 'webFormats.saveEpub',
+  'file.saveSlk': 'tabularFormats.saveSlk',
+  'file.saveDif': 'tabularFormats.saveDif',
+  'file.savePrn': 'tabularFormats.savePrn',
   'file.saveThemeFile': 'fileVariants.saveThemeFile',
   'design.saveThemeFile': 'fileVariants.saveThemeFile',
   'view.toggleLanguage': 'backstage.options.language',
@@ -175,6 +179,8 @@ export const OTHER_FORMATS: Record<VariantApp, readonly (readonly [string, strin
     ['file.saveHtml', 'html'],
     ['file.saveMht', 'mht'],
     ['file.saveFlatXml', 'xml'],
+    // EPUB 3 publication (CORE-FMT-004).
+    ['file.saveEpub', 'epub'],
   ],
   sheet: [
     ['file.saveCsv', 'csv'],
@@ -182,6 +188,10 @@ export const OTHER_FORMATS: Record<VariantApp, readonly (readonly [string, strin
     ['file.saveHtml', 'html'],
     ['file.saveMht', 'mht'],
     ['file.saveFlatXml', 'xml'],
+    // The current sheet as SYLK, DIF, formatted text (CORE-FMT-004).
+    ['file.saveSlk', 'slk'],
+    ['file.saveDif', 'dif'],
+    ['file.savePrn', 'prn'],
     ['file.saveThemeFile', 'thmx'],
   ],
   slide: [

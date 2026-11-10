@@ -492,6 +492,113 @@ fn convert_web_and_single_file_xml_formats() {
     }
 }
 
+/// CORE-FMT-004: SYLK, DIF, formatted text and dBASE tables in, SYLK / DIF /
+/// formatted text out, documents to EPUB; the workbooks made from the legacy files
+/// are valid packages.
+#[test]
+fn convert_secondary_formats() {
+    let dir = scratch("secondary-formats");
+    let conv = |src: &Path, to: &str, out: &Path| {
+        run(bin()
+            .arg("convert")
+            .arg(src)
+            .args(["--to", to])
+            .arg("--out")
+            .arg(out));
+        std::fs::read(out).unwrap()
+    };
+    let inspect = |p: &Path| stdout(&run(bin().arg("inspect").arg(p)));
+    let mut made = Vec::new();
+    for (file, format) in [
+        ("sheet/tabular-1-orders.slk", "slk"),
+        ("sheet/tabular-1-orders.dif", "dif"),
+        ("sheet/tabular-1-orders.prn", "prn"),
+        ("sheet/tabular-1-customers.dbf", "dbf"),
+    ] {
+        let src = corpus(file);
+        let report = inspect(&src);
+        assert!(report.contains(&format!("format: {format}")), "{report}");
+        let xlsx = dir.join(format!("from-{format}.xlsx"));
+        assert!(conv(&src, "xlsx", &xlsx).starts_with(b"PK"), "{format}");
+        assert!(inspect(&xlsx).contains("format: xlsx"));
+        made.push(xlsx);
+    }
+    // The values arrive: SYLK text with `;`, a dBASE record in Windows-1252.
+    let csv = String::from_utf8(conv(&made[0], "csv", &dir.join("orders.csv"))).unwrap();
+    assert!(csv.contains("\"Bút bi; xanh\";120;3500;420000"), "{csv}");
+    let csv = String::from_utf8(conv(&made[3], "csv", &dir.join("customers.csv"))).unwrap();
+    assert!(csv.contains("Café Crème;Zürich;12;4,5;"), "{csv}");
+    assert!(!csv.contains("Removed row"), "{csv}");
+    // A workbook to each text format, and from the legacy file directly.
+    let slk = conv(&made[0], "slk", &dir.join("orders.slk"));
+    assert!(slk.starts_with(b"ID;PBLUEOFFICE;N;E\r\n"));
+    assert!(String::from_utf8(slk)
+        .unwrap()
+        .contains(";ESUM(R[-4]C:R[-2]C)\r\n"));
+    assert!(conv(&made[1], "dif", &dir.join("orders.dif")).starts_with(b"TABLE\r\n0,1\r\n"));
+    // Text that fits Windows-1252 is written in it (what legacy readers expect):
+    // one byte per character, the same code as in Latin-1 for these letters.
+    let latin1 = |bytes: Vec<u8>| bytes.into_iter().map(char::from).collect::<String>();
+    let prn = latin1(conv(&made[3], "prn", &dir.join("customers.prn")));
+    assert!(prn.starts_with("NAME "), "{prn}");
+    assert!(prn.contains("Smørrebrød"), "{prn}");
+    let direct = conv(
+        &corpus("sheet/tabular-1-customers.dbf"),
+        "slk",
+        &dir.join("customers.slk"),
+    );
+    assert!(latin1(direct).contains("K\"Jalapeño\""));
+    // Default output name: the new extension next to the input.
+    let copy = dir.join("copy.xlsx");
+    std::fs::copy(&made[2], &copy).unwrap();
+    run(bin().arg("convert").arg(&copy).args(["--to", "dif"]));
+    assert!(dir.join("copy.dif").exists());
+
+    // A document as an EPUB publication; a workbook has none.
+    let epub = conv(
+        &corpus("doc/phase1-sample.docx"),
+        "epub",
+        &dir.join("sample.epub"),
+    );
+    assert_eq!(&epub[30..58], b"mimetypeapplication/epub+zip");
+    let out = bin()
+        .arg("convert")
+        .arg(&made[0])
+        .args(["--to", "epub", "--out"])
+        .arg(dir.join("no.epub"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+
+    // A PDF opens as a document of its text (best effort) and converts to .docx.
+    let pdf = conv(
+        &corpus("doc/phase1-sample.docx"),
+        "pdf",
+        &dir.join("sample.pdf"),
+    );
+    assert!(pdf.starts_with(b"%PDF-"));
+    assert!(inspect(&dir.join("sample.pdf")).contains("format: pdf"));
+    let from_pdf = dir.join("from-pdf.docx");
+    assert!(conv(&dir.join("sample.pdf"), "docx", &from_pdf).starts_with(b"PK"));
+    let txt = dir.join("from-pdf.txt");
+    conv(&from_pdf, "txt", &txt);
+    let original = dir.join("original.txt");
+    conv(&corpus("doc/phase1-sample.docx"), "txt", &original);
+    let first_word = std::fs::read_to_string(&original)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_owned();
+    assert!(std::fs::read_to_string(&txt).unwrap().contains(&first_word));
+    made.push(from_pdf);
+
+    // Every workbook (and the document) made from a legacy file is a well-formed package.
+    for p in &made {
+        run(bin().arg("validate").arg(p).args(["--openxml", "off"]));
+    }
+}
+
 /// CORE-API-001: `edit` fills a template from a JSON list of edits, `merge --each docx`
 /// writes one .docx per record, `inspect --json` is machine-readable.
 #[test]

@@ -489,6 +489,30 @@ describe('BlueSheetEditor', () => {
     await screen.findByRole('tab', { name: 'Sheet2' });
   });
 
+  it('saves the current sheet as SYLK, DIF and formatted text from File › Save as (CORE-FMT-004)', async () => {
+    const { host } = fakeHost();
+    const { p, saved } = platform(host);
+    render(<BlueSheetEditor platform={p} language="en-US" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    for (const ext of ['slk', 'dif', 'prn']) {
+      fireEvent.click(screen.getByTestId('file-tab'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Save as' }));
+      const entry = `[data-format=".${ext}"]`;
+      await waitFor(() => expect(document.querySelector(entry)).not.toBeNull());
+      fireEvent.click(document.querySelector(entry)!);
+      // The engine writes the format for the sheet on screen; the file takes its extension.
+      await waitFor(() => expect(host.save).toHaveBeenLastCalledWith(ext, 0));
+      await waitFor(() => expect(saved.at(-1)).toMatch(new RegExp(`\\.${ext}$`)));
+      await screen.findByText(/\(the current sheet only\)/);
+    }
+    expect(saved).toHaveLength(3);
+    // A document format, not offered for sheets.
+    fireEvent.click(screen.getByTestId('file-tab'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Save as' }));
+    await waitFor(() => expect(document.querySelector('[data-format=".slk"]')).not.toBeNull());
+    expect(document.querySelector('[data-format=".epub"]')).toBeNull();
+  }, 30_000);
+
   it('formats cells from the ribbon, shortcuts and the Format Cells dialog', async () => {
     const { host } = fakeHost();
     const { p } = platform(host);

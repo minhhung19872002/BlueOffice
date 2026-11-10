@@ -43,7 +43,7 @@ cargo run -p bo-cli -- blocks assets/blocks/doc  # sinh lại thư viện khối
 cargo run -p bo-cli -- roundtrip in.docx --out out.docx   # mở rồi lưu lại
 cargo test -p bo-docx --test corpus -- --nocapture       # % round-trip corpus
 cargo test -p bo-edit                          # gồm proptest undo/redo
-cargo run -p bo-cli -- convert in.xls --to xlsx          # doc/xls/xlsb/ppt/odt/ods/odp → OOXML, csv, pdf
+cargo run -p bo-cli -- convert in.xls --to xlsx          # doc/xls/xlsb/ppt/odt/ods/odp + slk/dif/prn/dbf + pdf (chỉ văn bản) → OOXML, csv, pdf; --to slk|dif|prn (một trang tính), --to epub (tài liệu)
 cargo run -p bo-cli -- inspect in.docx                   # định dạng, biến thể (dotx/xlsm/ppsx…), mã hoá, macro
 cargo run -p bo-cli -- convert in.docx --to html         # html (một tệp, ảnh data URI; workbook → bảng HTML) | mht (RFC 2557) | xml-flat (Flat OPC); đầu vào .html/.mht/Flat OPC/Excel XML 2003 nhận theo nội dung
 cargo run -p bo-cli -- convert in.docm --to dotx         # mẫu / có macro / trình chiếu (bỏ macro khi kiểu đích không chứa được); --to thmx: tệp chủ đề
@@ -103,7 +103,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.multi.yml u
 ## Sơ đồ crate
 ```
 bo-opc ◄─ bo-docx · bo-xlsx · bo-pptx (+ bo-drawingml) · bo-crypto · bo-sign      (đọc/ghi gói OOXML)
-bo-model (doc · sheet · slide) ◄─ bo-docx · bo-xlsx (+ Excel XML 2003) · bo-pptx · bo-binary (.doc/.xls/.xlsb/.ppt) · bo-odf · bo-encoding
+bo-model (doc · sheet · slide) ◄─ bo-docx · bo-xlsx (+ Excel XML 2003) · bo-pptx · bo-binary (.doc/.xls/.xlsb/.ppt) · bo-odf · bo-encoding · bo-tabular (.slk/.dif/.prn, đọc .dbf)
 bo-html (HTML/MHTML ↔ doc, bảng HTML ↔ sheet; không chạy script, không tải tài nguyên ngoài) · bo-opc::flat (Flat OPC)
 bo-text ◄─ bo-layout ◄─ bo-render ◄─ bo-raster (PNG), bo-pdf
 bo-edit (op khả nghịch, undo, track changes, fields, mail merge) · bo-formula ◄─ bo-sheet (lưới, định dạng số, CF/DV, chart)

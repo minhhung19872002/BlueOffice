@@ -387,6 +387,34 @@ describe('BlueEditor digital signatures', () => {
     });
   });
 
+  it('exports the document as an EPUB from File › Lưu thành (CORE-FMT-004)', async () => {
+    const p = fakePlatform();
+    const files: [string, string, number][] = [];
+    p.files.saveFile = async (bytes, name, mime) => {
+      files.push([name, mime ?? '', bytes.length]);
+      return name;
+    };
+    const command = p.engine.command;
+    p.engine.command = async (c) => {
+      const r = await command(c);
+      // The engine answers `exportFile` with the file as base64 ("PK").
+      return c.cmd === 'exportFile' ? { ...r, file: 'UEs=' } : r;
+    };
+    render(<BlueEditor platform={p} autosaveMs={0} />);
+    fireEvent.click(screen.getByTestId('new-document'));
+    await waitFor(() =>
+      expect(screen.getByTestId('doc-name').textContent).toBe('Tài liệu mới.docx'),
+    );
+    fireEvent.click(screen.getByTestId('file-tab'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Lưu thành' }));
+    await waitFor(() => expect(document.querySelector('[data-format=".epub"]')).not.toBeNull());
+    fireEvent.click(document.querySelector('[data-format=".epub"]')!);
+    await waitFor(() => expect(p.commands).toContainEqual({ cmd: 'exportFile', format: 'epub' }));
+    await waitFor(() => expect(files).toEqual([['Tài liệu mới.epub', 'application/epub+zip', 2]]));
+    // A copy in another format: the open document keeps its name and type.
+    expect(screen.getByTestId('doc-name').textContent).toBe('Tài liệu mới.docx');
+  }, 30_000);
+
   it('shows the table / picture / header-footer contextual tabs with the selection (CORE-UI-001)', async () => {
     const p = fakePlatform();
     let at: 'text' | 'table' | 'picture' | 'header' = 'text';

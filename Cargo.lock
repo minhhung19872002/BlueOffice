@@ -554,6 +554,7 @@ dependencies = [
  "bo-pptx",
  "bo-sheet",
  "bo-sign",
+ "bo-tabular",
  "bo-xlsx",
  "clap",
  "png",
@@ -684,10 +685,12 @@ dependencies = [
  "bo-sheet",
  "bo-sign",
  "bo-spell",
+ "bo-tabular",
  "bo-text",
  "bo-xlsx",
  "criterion",
  "insta",
+ "lopdf",
  "miniz_oxide 0.8.9",
  "png",
  "proptest",
@@ -722,6 +725,9 @@ dependencies = [
  "bo-sheet",
  "png",
  "proptest",
+ "quick-xml",
+ "thiserror 2.0.21",
+ "zip",
 ]
 
 [[package]]
@@ -920,6 +926,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo-tabular"
+version = "0.1.0"
+dependencies = [
+ "bo-encoding",
+ "bo-formula",
+ "bo-model",
+ "bo-sheet",
+ "proptest",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "bo-text"
 version = "0.1.0"
 dependencies = [
@@ -939,6 +957,7 @@ dependencies = [
  "bo-opc",
  "bo-sign",
  "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "serde",
  "serde_json",
  "wasm-bindgen",
@@ -2534,9 +2553,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
+ "wasm-bindgen",
 ]
 
 [[package]]

@@ -12,8 +12,11 @@ bo-encoding.workspace = true
 bo-sheet.workspace = true
 bo-formula.workspace = true
 base64 = "0.22"
+zip.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
+quick-xml.workspace = true
 bo-docx.workspace = true
 proptest.workspace = true
 png.workspace = true

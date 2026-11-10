@@ -160,7 +160,18 @@ export interface SheetView {
  * tables as a single-file web page; `xml`: Flat OPC
  * of the `.xlsx` package (CORE-FMT-003).
  */
-export type SheetSaveFormat = 'xlsx' | 'csv' | 'ods' | 'html' | 'html-sheet' | 'mht' | 'xml';
+export type SheetSaveFormat =
+  | 'xlsx'
+  | 'csv'
+  | 'ods'
+  | 'html'
+  | 'html-sheet'
+  | 'mht'
+  | 'xml'
+  // The given sheet as SYLK, DIF or formatted text, space delimited (CORE-FMT-004).
+  | 'slk'
+  | 'dif'
+  | 'prn';
 
 // ------------------------------------------------- editing commands (mirrors bo_engine::sheet::cmd)
 

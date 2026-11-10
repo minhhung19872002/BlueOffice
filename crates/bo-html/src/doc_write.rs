@@ -39,6 +39,10 @@ pub enum Images {
     DataUrl,
     /// Beside the page, referenced by `cid:` URLs (RFC 2392) — MHTML.
     Cid,
+    /// Beside the page as files, referenced by the relative URL `images/<name>` —
+    /// EPUB. Only the picture types every reading system shows (EPUB 3 core media
+    /// types: PNG, JPEG, GIF, SVG, WebP) are written; others leave their description.
+    File,
 }
 
 /// Options of [`write_html_with`].
@@ -73,6 +77,7 @@ pub fn write_html_with(doc: &Document, opts: &WriteOptions) -> (String, Vec<Reso
         used_char: BTreeSet::new(),
         notes: Vec::new(),
         depth: 0,
+        xml: false,
     };
     for s in &doc.sections {
         w.blocks(&s.blocks, None);
@@ -89,6 +94,88 @@ pub fn write_html_with(doc: &Document, opts: &WriteOptions) -> (String, Vec<Reso
     html.push_str(&body);
     html.push_str("</body>\n</html>\n");
     (html, w.resources)
+}
+
+/// A part of a document written as XHTML: from one top-level heading to the next.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Chapter {
+    /// Text of the heading that starts the chapter; `None` for what comes before
+    /// the first heading (or a document without headings).
+    pub title: Option<String>,
+    /// Content of `<body>`: well-formed XML (XHTML syntax of HTML).
+    pub body: String,
+}
+
+/// A document as XHTML chapters with a shared style sheet and picture files.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct XhtmlBook {
+    /// The style sheet all chapters use (CSS text).
+    pub css: String,
+    /// Chapters in reading order; at least one unless the document is empty.
+    pub chapters: Vec<Chapter>,
+    /// Pictures, referenced from the chapters by their [`Resource::url`]
+    /// (`images/<name>`).
+    pub resources: Vec<Resource>,
+}
+
+/// Markup of the HTML writer as XML: the two named character references it uses
+/// become numeric ones and characters XML 1.0 does not allow are dropped.
+fn xml_clean(body: &str) -> String {
+    body.replace("&nbsp;", "&#160;")
+        .replace("&shy;", "&#173;")
+        .chars()
+        .filter(|c| {
+            matches!(c, '\t' | '\n' | '\r' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..)
+        })
+        .collect()
+}
+
+/// The document as XHTML chapters (EPUB content documents): a new chapter starts
+/// at every paragraph of outline level 1 (Heading 1). Footnotes and endnotes close
+/// the chapter that refers to them.
+pub fn write_xhtml_chapters(doc: &Document) -> XhtmlBook {
+    let mut w = Writer {
+        doc,
+        images: Images::File,
+        resources: Vec::new(),
+        out: String::new(),
+        used_para: BTreeSet::new(),
+        used_char: BTreeSet::new(),
+        notes: Vec::new(),
+        depth: 0,
+        xml: true,
+    };
+    let mut chapters: Vec<Chapter> = Vec::new();
+    let mut title: Option<String> = None;
+    let mut close = |w: &mut Writer<'_>, title: &mut Option<String>| {
+        w.notes_section();
+        w.notes.clear();
+        let body = xml_clean(&std::mem::take(&mut w.out));
+        let title = title.take();
+        if title.is_some() || !body.trim().is_empty() {
+            chapters.push(Chapter { title, body });
+        }
+    };
+    for s in &doc.sections {
+        let mut start = 0;
+        for (i, b) in s.blocks.iter().enumerate() {
+            let Block::Paragraph(p) = b else { continue };
+            let text = p.plain_text();
+            if w.outline(p) == Some(0) && !text.trim().is_empty() {
+                w.blocks(&s.blocks[start..i], None);
+                close(&mut w, &mut title);
+                title = Some(xml_clean(text.trim()));
+                start = i;
+            }
+        }
+        w.blocks(&s.blocks[start..], None);
+    }
+    close(&mut w, &mut title);
+    XhtmlBook {
+        css: w.style_sheet(),
+        chapters,
+        resources: w.resources,
+    }
 }
 
 fn pt(twips: i32) -> String {
@@ -325,6 +412,8 @@ struct Writer<'a> {
     notes: Vec<Note<'a>>,
     /// Nesting of tables / text boxes / notes (bounded).
     depth: usize,
+    /// XHTML syntax: empty elements are closed (`<br/>`).
+    xml: bool,
 }
 
 /// Deepest nesting of tables and text boxes written.
@@ -524,13 +613,25 @@ impl<'a> Writer<'a> {
         (class, css)
     }
 
-    fn paragraph(&mut self, p: &'a Paragraph, note: Option<&str>) {
-        // Heading level: the outline level of the paragraph or of its style.
-        let outline = p.props.outline_level.or_else(|| {
+    /// Heading level: the outline level of the paragraph or of its style.
+    fn outline(&self, p: &Paragraph) -> Option<u8> {
+        p.props.outline_level.or_else(|| {
             self.para_style(p)
                 .and_then(|id| self.doc.styles.resolve_paragraph(id).0.outline_level)
-        });
-        let tag = match outline {
+        })
+    }
+
+    /// End of an empty element: `>` in HTML, `/>` in XHTML.
+    fn void(&self) -> &'static str {
+        if self.xml {
+            "/>"
+        } else {
+            ">"
+        }
+    }
+
+    fn paragraph(&mut self, p: &'a Paragraph, note: Option<&str>) {
+        let tag = match self.outline(p) {
             Some(l @ 0..=5) => ["h1", "h2", "h3", "h4", "h5", "h6"][usize::from(l)],
             _ => "p",
         };
@@ -568,7 +669,8 @@ impl<'a> Writer<'a> {
         }
         // An empty paragraph keeps its line; a final line break needs a second one to show.
         if self.out.len() == start || last_break {
-            self.out.push_str("<br>");
+            self.out.push_str("<br");
+            self.out.push_str(self.void());
         }
         if !boxes.is_empty() && self.depth < MAX_NESTING {
             self.depth += 1;
@@ -632,8 +734,14 @@ impl<'a> Writer<'a> {
             match c {
                 RunContent::Text(t) => body.push_str(&escape(t)),
                 RunContent::Tab => body.push('\t'),
-                RunContent::LineBreak | RunContent::ColumnBreak => body.push_str("<br>"),
-                RunContent::PageBreak => body.push_str("<br style=\"page-break-before:always\">"),
+                RunContent::LineBreak | RunContent::ColumnBreak => {
+                    body.push_str("<br");
+                    body.push_str(self.void());
+                }
+                RunContent::PageBreak => {
+                    body.push_str("<br style=\"page-break-before:always\"");
+                    body.push_str(self.void());
+                }
                 RunContent::NoBreakHyphen => body.push('\u{2011}'),
                 RunContent::SoftHyphen => body.push_str("&shy;"),
                 RunContent::Field { cached, .. } => body.push_str(&escape(cached)),
@@ -721,7 +829,10 @@ impl<'a> Writer<'a> {
             body.push_str(&escape(&img.description));
             return;
         };
-        let Some(info) = image::sniff(data) else {
+        let shown = image::sniff(data).filter(|i| {
+            self.images != Images::File || matches!(i.ext, "png" | "jpg" | "gif" | "svg" | "webp")
+        });
+        let Some(info) = shown else {
             // A format browsers do not show (EMF, WMF, TIFF, …): its description.
             body.push_str(&escape(&img.description));
             return;
@@ -732,7 +843,7 @@ impl<'a> Writer<'a> {
                 info.mime,
                 base64::engine::general_purpose::STANDARD.encode(data.as_slice())
             ),
-            Images::Cid => {
+            Images::Cid | Images::File => {
                 let existing = self
                     .resources
                     .iter()
@@ -740,7 +851,11 @@ impl<'a> Writer<'a> {
                     .map(|r| r.url.clone());
                 existing.unwrap_or_else(|| {
                     let name = format!("image{}.{}", self.resources.len() + 1, info.ext);
-                    let url = format!("cid:{name}@blueoffice");
+                    let url = if self.images == Images::File {
+                        format!("images/{name}")
+                    } else {
+                        format!("cid:{name}@blueoffice")
+                    };
                     self.resources.push(Resource {
                         url: url.clone(),
                         name,
@@ -757,13 +872,14 @@ impl<'a> Writer<'a> {
         );
         let _ = write!(
             body,
-            "<img src=\"{}\" width=\"{}\" height=\"{}\" style=\"width:{}pt;height:{}pt\" alt=\"{}\">",
+            "<img src=\"{}\" width=\"{}\" height=\"{}\" style=\"width:{}pt;height:{}pt\" alt=\"{}\"{}",
             escape_attr(&src),
             (w / 0.75).round().max(1.0),
             (h / 0.75).round().max(1.0),
             num(w),
             num(h),
-            escape_attr(&img.description)
+            escape_attr(&img.description),
+            self.void()
         );
     }
 
@@ -811,7 +927,12 @@ impl<'a> Writer<'a> {
         if !t.grid.is_empty() {
             self.out.push_str("<colgroup>");
             for g in &t.grid {
-                let _ = write!(self.out, "<col style=\"width:{}pt\">", pt(g.0));
+                let _ = write!(
+                    self.out,
+                    "<col style=\"width:{}pt\"{}",
+                    pt(g.0),
+                    self.void()
+                );
             }
             self.out.push_str("</colgroup>\n");
         }
@@ -939,8 +1060,11 @@ impl<'a> Writer<'a> {
         if self.notes.is_empty() {
             return;
         }
-        self.out
-            .push_str("<hr class=\"bo-notes-sep\">\n<div class=\"bo-notes\">\n");
+        let _ = write!(
+            self.out,
+            "<hr class=\"bo-notes-sep\"{}\n<div class=\"bo-notes\">\n",
+            self.void()
+        );
         let mut i = 0;
         while i < self.notes.len() && i < 100_000 {
             let key = self.notes[i].key.clone();

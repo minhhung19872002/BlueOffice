@@ -20,7 +20,9 @@
 //! charts; no font or proprietary converter was consulted.
 #![forbid(unsafe_code)]
 
+pub mod codepage;
 pub mod cp1252;
+mod cp_tables;
 mod tables;
 pub mod web;
 

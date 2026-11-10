@@ -121,11 +121,12 @@ export function variantMime(name: string): string | undefined {
 
 /**
  * Web and single-file XML formats (CORE-FMT-003): one HTML file, a single-file
- * web page (MHTML) and Flat OPC — the whole package as one XML file.
+ * web page (MHTML) and Flat OPC — the whole package as one XML file; and the EPUB 3
+ * export of documents (CORE-FMT-004).
  */
 export interface WebFormat {
   /** Format id of the engine (`exportFile`, `SheetHost.save`). */
-  id: 'html' | 'mht' | 'xml';
+  id: 'html' | 'mht' | 'xml' | 'epub';
   /** Extension of saved files, without the dot. */
   ext: string;
   mime: string;
@@ -137,6 +138,7 @@ export const WEB_FORMATS: readonly WebFormat[] = [
   { id: 'html', ext: 'html', mime: 'text/html', apps: ['doc', 'sheet'] },
   { id: 'mht', ext: 'mht', mime: 'multipart/related', apps: ['doc', 'sheet'] },
   { id: 'xml', ext: 'xml', mime: 'application/xml', apps: ['doc', 'sheet', 'slide'] },
+  { id: 'epub', ext: 'epub', mime: 'application/epub+zip', apps: ['doc'] },
 ];
 
 /** Web formats an app saves to. */
@@ -163,6 +165,7 @@ export const WEB_FORMAT_COMMANDS: Record<WebFormat['id'], string> = {
   html: 'file.saveHtml',
   mht: 'file.saveMht',
   xml: 'file.saveFlatXml',
+  epub: 'file.saveEpub',
 };
 
 /**
@@ -192,4 +195,34 @@ export function appOfXml(bytes: Uint8Array): VariantApp | undefined {
     return 'slide';
   }
   return undefined;
+}
+
+/**
+ * Legacy tabular formats of BlueSheet (CORE-FMT-004): SYLK, DIF and formatted text
+ * (space delimited) hold one sheet and are opened and saved; dBASE tables (`.dbf`)
+ * are opened only.
+ */
+export interface TabularFormat {
+  /** Format id of the engine (`SheetHost.save`). */
+  id: 'slk' | 'dif' | 'prn';
+  /** Extension of saved files, without the dot. */
+  ext: string;
+  mime: string;
+  /** Command of the format in the sheet editor's command registry. */
+  command: string;
+}
+
+export const TABULAR_FORMATS: readonly TabularFormat[] = [
+  { id: 'slk', ext: 'slk', mime: 'text/plain', command: 'file.saveSlk' },
+  { id: 'dif', ext: 'dif', mime: 'text/plain', command: 'file.saveDif' },
+  { id: 'prn', ext: 'prn', mime: 'text/plain', command: 'file.savePrn' },
+];
+
+/** Extensions (with the dot) of the legacy tabular files BlueSheet opens. */
+export const TABULAR_OPEN_EXTENSIONS: readonly string[] = ['.slk', '.sylk', '.dif', '.prn', '.dbf'];
+
+/** Whether a file name has the extension of a legacy tabular format. */
+export function isTabularFile(name: string): boolean {
+  const lower = name.toLowerCase();
+  return TABULAR_OPEN_EXTENSIONS.some((e) => lower.endsWith(e));
 }

@@ -128,7 +128,8 @@ function Tab(props: { id: string; active: boolean; onClick: () => void; children
 
 const fileIcon = (name: string): string => {
   const ext = name.toLowerCase().split('.').pop() ?? '';
-  if (['xlsx', 'xlsm', 'xls', 'xlsb', 'ods', 'csv'].includes(ext)) return '▦';
+  if (['xlsx', 'xlsm', 'xls', 'xlsb', 'ods', 'csv', 'slk', 'dif', 'prn', 'dbf'].includes(ext))
+    return '▦';
   if (['pptx', 'ppt', 'odp'].includes(ext)) return '▭';
   return '≡';
 };

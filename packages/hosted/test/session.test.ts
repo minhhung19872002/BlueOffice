@@ -75,6 +75,12 @@ describe('hosted session', () => {
     expect(appForFile('tự chạy.PPSM')).toBe('slide');
     expect(appForFile('mẫu.potx')).toBe('slide');
     expect(appForFile('mẫu.dotm')).toBe('doc');
+    // SYLK, DIF, formatted text and dBASE tables are workbooks (CORE-FMT-004);
+    // saved back to the host they become .xlsx.
+    for (const name of ['đơn hàng.slk', 'a.SYLK', 'b.dif', 'c.prn', 'khách.DBF']) {
+      expect(appForFile(name)).toBe('sheet');
+    }
+    expect(savedName('khách.dbf', 'sheet')).toBe('khách.xlsx');
     expect(savedName('bảng.xlsm', 'sheet')).toBe('bảng.xlsm');
     expect(savedName('mẫu.potx', 'slide')).toBe('mẫu.potx');
     expect(savedName('cũ.xls', 'sheet')).toBe('cũ.xlsx');

@@ -573,7 +573,7 @@ type WindowApp = 'doc' | 'sheet' | 'slide';
 
 /** Which editor opens a file (by extension). */
 export function appForPath(name: string): WindowApp {
-  if (/\.(xlsx|xlsm|xltx|xltm|xlsb|xls|ods|csv)$/i.test(name)) return 'sheet';
+  if (/\.(xlsx|xlsm|xltx|xltm|xlsb|xls|ods|csv|slk|sylk|dif|prn|dbf)$/i.test(name)) return 'sheet';
   if (/\.(pptx|pptm|potx|potm|ppsx|ppsm|ppt|odp)$/i.test(name)) return 'slide';
   return 'doc';
 }

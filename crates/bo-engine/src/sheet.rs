@@ -392,8 +392,13 @@ fn parse_number(s: &str, locale: &Locale) -> Option<f64> {
     v.is_finite().then_some(v * scale)
 }
 
+/// Most cells of the used range (rows × columns up to the last used cell) saved as
+/// CSV.
+const MAX_CSV_CELLS: u64 = 64_000_000;
+
 /// A workbook read from file bytes of any spreadsheet format BlueSheet opens (.csv, .xls,
-/// .xlsb, .ods, .xlsx/.xlsm); `name` gives the extension where the bytes do not.
+/// .xlsb, .ods, .xlsx/.xlsm, .slk, .dif, .prn, .dbf); `name` gives the extension where
+/// the bytes do not.
 pub(crate) fn read_workbook_bytes(bytes: &[u8], name: &str, locale: &Locale) -> Result<Workbook> {
     let lower = name.to_ascii_lowercase();
     let wb = if lower.ends_with(".csv") {
@@ -414,6 +419,10 @@ pub(crate) fn read_workbook_bytes(bytes: &[u8], name: &str, locale: &Locale) -> 
         from_legacy(&bo_binary::read_xlsb(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?)
     } else if bytes.starts_with(b"PK\x03\x04") {
         bo_xlsx::read_xlsx(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?
+    } else if let Some(kind) = bo_tabular::detect(bytes, name) {
+        // SYLK, DIF, formatted text and dBASE tables (CORE-FMT-004).
+        bo_tabular::read(bytes, kind, locale.decimal)
+            .map_err(|e| EngineError::Sheet(e.to_string()))?
     } else {
         // XML Spreadsheet 2003, HTML tables, MHTML (CORE-FMT-003).
         use crate::web_formats::WebKind;
@@ -1689,7 +1698,8 @@ impl SheetEngine {
     /// Serialises the workbook: `xlsx`, `csv` of `sheet`, `ods`, `html` (every sheet
     /// as an HTML table), `html-sheet` (only `sheet`), `mht` (that page as a
     /// single-file web page) or `xml` (Flat OPC of the
-    /// `.xlsx` package, not encrypted; CORE-FMT-003). Chart caches are refreshed
+    /// `.xlsx` package, not encrypted; CORE-FMT-003), `slk` / `dif` / `prn` of `sheet`
+    /// (CORE-FMT-004). Chart caches are refreshed
     /// from their ranges first (§21.2.2.120 `numCache`).
     pub fn save(&mut self, format: &str, sheet: usize) -> Result<Vec<u8>> {
         let locale = self.locale;
@@ -1745,7 +1755,18 @@ impl SheetEngine {
                 } else {
                     bo_xlsx::CsvOptions::default()
                 };
-                Ok(bo_xlsx::write_csv(self.sheet(sheet)?, &opts))
+                let ws = self.sheet(sheet)?;
+                // Every row is written out to the last used column: a few cells far
+                // apart would make a file of gigabytes.
+                let area = ws.used_range().map_or(0, |r| {
+                    (u64::from(r.last.row) + 1) * (u64::from(r.last.col) + 1)
+                });
+                if area > MAX_CSV_CELLS {
+                    return Err(EngineError::Sheet(format!(
+                        "the used range has {area} cells (CSV holds at most {MAX_CSV_CELLS})"
+                    )));
+                }
+                Ok(bo_xlsx::write_csv(ws, &opts))
             }
             // HTML tables: displayed text, cell formatting, merged cells.
             // `mht`: the same page of every sheet as a single-file web page (RFC 2557).
@@ -1764,6 +1785,13 @@ impl SheetEngine {
                 }
                 Ok(html.into_bytes())
             }
+            // Legacy text formats of one sheet (CORE-FMT-004): SYLK with formulas and
+            // basic formatting, DIF values, formatted space-delimited text.
+            "slk" | "sylk" => Ok(bo_tabular::write_sylk(wb, self.sheet(sheet)?)),
+            "dif" => bo_tabular::write_dif(self.sheet(sheet)?)
+                .map_err(|e| EngineError::Sheet(e.to_string())),
+            "prn" => bo_tabular::write_prn(wb, self.sheet(sheet)?, &self.locale)
+                .map_err(|e| EngineError::Sheet(e.to_string())),
             // ODF 1.3 spreadsheet: values, OpenFormula formulas, cell styles.
             "ods" => bo_odf::write_ods(&workbook_to_ods(wb, &self.locale))
                 .map_err(|e| EngineError::Sheet(e.to_string())),

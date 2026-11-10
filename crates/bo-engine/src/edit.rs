@@ -355,6 +355,13 @@ pub enum Command {
     },
     /// Accept every revision of the document.
     AcceptAllRevisions,
+    /// Document properties of the File › Info page (CORE-UI-002) in `docProperties`.
+    DocProperties,
+    /// Set the editable document properties (written when the file is next saved).
+    SetDocProperties {
+        /// Fields to change (absent: unchanged, empty: removed).
+        props: crate::props::PropsEdit,
+    },
     /// Check document (CORE-INSPECT-001): inspector, accessibility and
     /// compatibility report in `inspection`.
     Inspect,
@@ -1180,6 +1187,9 @@ pub struct EditResult {
     /// Check document report (`inspect` and the inspector commands).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inspection: Option<Box<crate::inspect::Report>>,
+    /// Document properties (`docProperties`, `setDocProperties`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_properties: Option<Box<crate::props::DocProperties>>,
     /// Whole-document spelling and grammar check (`proofCheck`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proof: Option<Box<crate::proof::ProofReport>>,
@@ -1636,6 +1646,8 @@ impl crate::Engine {
                     | Command::SignatureLineImages { .. }
                     | Command::SetSignatureLineStatus { .. }
                     | Command::Inspect
+                    | Command::DocProperties
+                    | Command::SetDocProperties { .. }
                     | Command::InspectRemove { .. }
                     | Command::InspectKeep { .. }
                     | Command::InspectFix { .. }
@@ -2369,6 +2381,7 @@ impl crate::Engine {
             autocorrect: None,
             corrected: None,
             inspection: None,
+            doc_properties: None,
             proof: None,
             proof_options: None,
             painter: s.picked_format().is_some(),

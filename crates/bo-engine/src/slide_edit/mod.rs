@@ -168,6 +168,13 @@ fn default_site_tolerance() -> f64 {
 pub enum SlideCommand {
     /// Current state, nothing changes.
     State,
+    /// Document properties of the File › Info page (CORE-UI-002) in `docProperties`.
+    DocProperties,
+    /// Set the editable document properties (written when the deck is next saved).
+    SetDocProperties {
+        /// Fields to change (absent: unchanged, empty: removed).
+        props: crate::props::PropsEdit,
+    },
     /// Check document (CORE-INSPECT-001): inspector, accessibility and
     /// compatibility report in `inspection`.
     Inspect,
@@ -1192,6 +1199,9 @@ pub struct SlideEditResult {
     /// Check document report (`inspect` and the inspector commands).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inspection: Option<Box<crate::inspect::Report>>,
+    /// Document properties (`docProperties`, `setDocProperties`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_properties: Option<Box<crate::props::DocProperties>>,
     /// Protection state (security commands, CORE-SEC-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security: Option<crate::security::SecurityInfo>,
@@ -3539,6 +3549,17 @@ impl Engine {
         if let Some(r) = self.slide_inspect_command(&cmd)? {
             return Ok(r);
         }
+        if let SlideCommand::SetDocProperties { props } = &cmd {
+            self.props.set(props);
+        }
+        if matches!(
+            cmd,
+            SlideCommand::DocProperties | SlideCommand::SetDocProperties { .. }
+        ) {
+            let mut r = self.slide_command(SlideCommand::State)?;
+            r.doc_properties = Some(Box::new(self.props.get().clone()));
+            return Ok(r);
+        }
         // New part names of a collaborating replica never clash with another's.
         let _salt = build::salt_names(
             self.slide_collab
@@ -3573,6 +3594,8 @@ impl Engine {
                 | SlideCommand::SaveFormat { .. }
                 | SlideCommand::SaveThemeFile
                 | SlideCommand::Inspect
+                | SlideCommand::DocProperties
+                | SlideCommand::SetDocProperties { .. }
                 | SlideCommand::InspectRemove { .. }
                 | SlideCommand::InspectKeep { .. }
                 | SlideCommand::InspectFix { .. } => {}
@@ -4895,6 +4918,7 @@ impl Engine {
             presenting: Some(present::present_out(pres)),
             comments: comments::comments_out(pres, slide),
             inspection: None,
+            doc_properties: None,
             security: None,
             design: Some(master::design_out(pres, ed)),
             master_view: master::view_out(pres, ed),

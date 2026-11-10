@@ -233,6 +233,14 @@ pub struct SolverConstraint {
 pub enum SheetCommand {
     /// Number formats, cell styles and chart types offered by the UI.
     Presets,
+    /// Document properties of the File › Info page (CORE-UI-002).
+    DocProperties,
+    /// Set the editable document properties (written when the workbook is next
+    /// saved); returns them.
+    SetDocProperties {
+        /// Fields to change (absent: unchanged, empty: removed).
+        props: crate::props::PropsEdit,
+    },
     /// Check document (CORE-INSPECT-001): inspector, accessibility and
     /// compatibility report (`bo_engine::inspect::Report`).
     Inspect,
@@ -2717,6 +2725,13 @@ impl SheetEngine {
                 Ok(json!({ "found": true, "filled": filled }))
             }
             C::Inspect => self.inspect_json(),
+            C::DocProperties => serde_json::to_value(self.props.get())
+                .map_err(|e| EngineError::Sheet(e.to_string())),
+            C::SetDocProperties { props } => {
+                self.props.set(&props);
+                serde_json::to_value(self.props.get())
+                    .map_err(|e| EngineError::Sheet(e.to_string()))
+            }
             C::InspectRemove { categories } => self.inspect_remove(&categories),
             C::InspectKeep { categories } => self.inspect_keep(&categories),
             C::Presets => Ok(json!({

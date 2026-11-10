@@ -317,6 +317,8 @@ pub struct SheetEngine {
     drawings_key: u64,
     /// Package parts the document inspector drops on the next save.
     scrub: crate::inspect::package::Scrub,
+    /// Core / extended document properties as read and edited (CORE-UI-002).
+    pub(crate) props: crate::props::PropsState,
     /// Final mark, labels and read-only state (CORE-SEC-001).
     pub(crate) sec: crate::security::FileSecurity,
     /// Protected ranges unlocked with their password: (sheet name, range name).
@@ -713,6 +715,7 @@ impl SheetEngine {
             drawings: Arc::default(),
             drawings_key: 0,
             scrub: crate::inspect::package::Scrub::default(),
+            props: crate::props::PropsState::default(),
             sec: crate::security::FileSecurity::default(),
             open_ranges: Vec::new(),
             identity: Vec::new(),
@@ -809,6 +812,7 @@ impl SheetEngine {
         self.macros = bo_binary::has_macros(bytes);
         self.file_variant = crate::variant::detect(bytes).or(self.file_variant);
         self.open_security(bytes);
+        self.props = crate::props::PropsState::read(bytes);
         self.save_password = if encrypted {
             password.map(str::to_owned)
         } else {
@@ -915,6 +919,7 @@ impl SheetEngine {
     fn install(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
         self.save_password = None;
         self.scrub = crate::inspect::package::Scrub::default();
+        self.props = crate::props::PropsState::default();
         self.macros = false;
         self.file_variant = Some(crate::variant::Variant::Xlsx);
         self.save_variant = None;
@@ -1632,6 +1637,7 @@ impl SheetEngine {
                     }
                     _ => bytes,
                 };
+                let bytes = self.props.apply(bytes)?;
                 let bytes = crate::inspect::package::scrub(&bytes, &self.scrub)?;
                 let bytes = self.sec.apply(bytes)?;
                 match &self.save_password {

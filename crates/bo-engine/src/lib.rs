@@ -47,6 +47,7 @@ pub mod picture_tools;
 pub mod print;
 pub mod proof;
 pub mod proof_text;
+pub mod props;
 pub mod review;
 pub mod security;
 mod security_cmd;
@@ -320,6 +321,8 @@ pub struct Engine {
     autocorrect: Option<bo_edit::AutoCorrectOptions>,
     /// Package parts the document inspector drops on the next save.
     scrub: inspect::package::Scrub,
+    /// Core / extended document properties as read and edited (CORE-UI-002).
+    pub(crate) props: props::PropsState,
     /// Final mark, write protection, restricted editing, labels (CORE-SEC-001).
     pub(crate) sec: security::FileSecurity,
     /// Names of the current user for editable regions (kept across documents).
@@ -419,6 +422,7 @@ impl Engine {
                 None => {
                     self.open_pptx(bytes, &deck_name)?;
                     self.open_security(bytes);
+                    self.props = props::PropsState::read(bytes);
                 }
                 Some(spec) => {
                     let pptx = bo_pptx::build::build_pptx(&spec)
@@ -483,6 +487,7 @@ impl Engine {
         if is_zip {
             self.command(edit::Command::ConvertLegacyText)?;
             self.open_security(bytes);
+            self.props = props::PropsState::read(bytes);
         }
         self.macros = macros;
         if is_zip {
@@ -560,6 +565,7 @@ impl Engine {
         self.print_cache.clear();
         self.refresh_markup(&mut Vec::new());
         self.scrub = inspect::package::Scrub::default();
+        self.props = props::PropsState::default();
         self.info()
     }
 
@@ -760,6 +766,7 @@ impl Engine {
         self.macros = false;
         self.save_password = None;
         self.scrub = inspect::package::Scrub::default();
+        self.props = props::PropsState::default();
         self.sec = security::FileSecurity::default();
         self.info()
     }
@@ -856,6 +863,7 @@ impl Engine {
             .or_else(|| slide_edit::page_master::assemble(pres, &self.slides));
         let bytes = bo_pptx::write_pptx(assembled.as_ref().unwrap_or(pres))?;
         let bytes = self.apply_variant(bytes)?;
+        let bytes = self.props.apply(bytes)?;
         let bytes = inspect::package::scrub(&bytes, &self.scrub)?;
         let bytes = self.sec.apply(bytes)?;
         match &self.save_password {
@@ -1114,6 +1122,7 @@ impl Engine {
         let doc = tracked.as_deref().unwrap_or(doc);
         let bytes = bo_docx::write_docx(doc)?;
         let bytes = self.apply_variant(bytes)?;
+        let bytes = self.props.apply(bytes)?;
         // Inspector removals of package parts (comment parts only once the comments are gone).
         let mut scrub = self.scrub.clone();
         scrub.comments &= doc.comments.is_empty();

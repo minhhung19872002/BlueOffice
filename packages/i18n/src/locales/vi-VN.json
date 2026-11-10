@@ -319,6 +319,7 @@
       "moveParagraphDown": "Chuyển đoạn xuống",
       "versions": "Lịch sử phiên bản…",
       "translate": "Dịch",
+      "thesaurus": "Từ đồng nghĩa",
       "translateDocument": "Dịch tài liệu",
       "translateCells": "Dịch ô chọn sang cột mới",
       "translateCellsInPlace": "Dịch ô chọn tại chỗ",
@@ -6050,6 +6051,35 @@
       "cancelled": "Đã hủy.",
       "empty": "Chưa có nội dung để xử lý.",
       "badAnswer": "Câu trả lời không đúng dạng cần có nên đã bị bỏ. Hãy thử lại."
+    }
+  },
+  "thesaurus": {
+    "title": "Từ đồng nghĩa",
+    "menu": "Từ đồng nghĩa",
+    "openPane": "Mở ngăn Từ đồng nghĩa…",
+    "search": "Tra từ đồng nghĩa",
+    "searchPlaceholder": "Nhập một từ tiếng Anh",
+    "lookUp": "Tra từ",
+    "lookUpChosen": "Tra từ đã chọn",
+    "replace": "Thay thế",
+    "insert": "Chèn",
+    "antonyms": "Trái nghĩa:",
+    "baseForm": "Dạng gốc: {{word}}",
+    "noWord": "Đặt con trỏ vào một từ hoặc nhập từ cần tra.",
+    "loading": "Đang tải từ điển đồng nghĩa…",
+    "searching": "Đang tìm…",
+    "notFound": "Không tìm thấy từ đồng nghĩa cho “{{word}}”. Hiện chỉ có từ điển tiếng Anh.",
+    "noSynonyms": "Không có từ đồng nghĩa",
+    "loadFailed": "Không tải được dữ liệu từ điển đồng nghĩa.",
+    "unavailable": "Nền tảng này không có từ điển đồng nghĩa.",
+    "replaced": "Đã thay “{{from}}” bằng “{{to}}”.",
+    "wordGone": "Không còn thấy từ “{{word}}” tại con trỏ.",
+    "credit": "Dữ liệu: Open English WordNet 2025 (CC BY 4.0).",
+    "pos": {
+      "n": "Danh từ",
+      "v": "Động từ",
+      "a": "Tính từ",
+      "r": "Trạng từ"
     }
   },
   "translate": {

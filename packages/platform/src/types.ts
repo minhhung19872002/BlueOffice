@@ -2849,6 +2849,8 @@ export interface Platform {
   speech?: import('./speech').SpeechProvider;
   /** Translation (absent where none is configured; CORE-LANG-001). */
   translation?: import('./translation').TranslationProvider;
+  /** Thesaurus, data loaded on first use (absent: none on this platform; CORE-THES-001). */
+  thesaurus?: import('./thesaurus').ThesaurusProvider;
   /** BlueAI assistant (absent: none on this platform; off unless an administrator enabled it; CORE-AI-001). */
   ai?: import('./ai').AiProvider;
   /** Folders and web pages for Get & Transform data (SHEET-PQ-001; absent: files only). */

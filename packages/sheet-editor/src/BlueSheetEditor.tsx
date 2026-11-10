@@ -207,6 +207,7 @@ import {
   LayoutGrid,
   RotateCcw,
   ArrowDownUp,
+  BookA,
 } from 'lucide-react';
 import { SplitPane } from './SplitPane';
 import {
@@ -255,10 +256,12 @@ import {
   registerTranslateCommands,
   TranslateLink,
   useTranslate,
+  useThesaurus,
   AiLink,
   registerAiCommands,
   useBlueAi,
   type TranslateAction,
+  ThesaurusLink,
   saveName,
   taskPaneLabels,
   toBase64,
@@ -278,6 +281,7 @@ import { cycleReference } from './formulaRef';
 import { sheetReadUnits } from './readAloud';
 import { sheetDictationTarget } from './dictation';
 import { asTextInput, translateCells, type CellTranslateMode } from './translate';
+import { cellWord } from './thesaurus';
 import { SHEET_AI_COMMANDS, SheetAiTargetLink, sheetAiFeatures } from './sheetAi';
 import { useSheetQueries } from './queries';
 import { useDataModel } from './dataModel';
@@ -1741,6 +1745,39 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [platform.translation, refreshInfo, t, translateLink],
   );
 
+  // Thesaurus (CORE-THES-001): the pane on the word of the active cell (a cell holding one word);
+  // a replacement writes the cell (one undoable edit) in the word's capitalisation.
+  const thesaurus = useThesaurus(platform.thesaurus);
+  const [thesaurusLink] = useState(() => new ThesaurusLink());
+  useEffect(() => {
+    thesaurusLink.attach(thesaurus);
+  });
+  const beginThesaurus = useCallback(
+    async (st: SheetEditorState) => {
+      const { row, col } = st.selection.active;
+      const at = { sheet: st.sheet, row, col };
+      const cell = await st.host.cell(at.sheet, row, col);
+      const word = cellWord(cell.input, cell.display);
+      thesaurusLink.open({
+        target: {
+          word: word ?? '',
+          ...(word
+            ? {
+                replace: async (text: string, expected: string) => {
+                  const now = await st.host.cell(at.sheet, at.row, at.col);
+                  if (cellWord(now.input, now.display) !== expected) return false;
+                  await st.host.setInputs(at.sheet, [[at.row, at.col, asTextInput(text)]]);
+                  await refreshInfo();
+                  return true;
+                },
+              }
+            : {}),
+        },
+      });
+    },
+    [refreshInfo, thesaurusLink],
+  );
+
   // BlueAI (CORE-AI-001): a task pane; its features read the selection of the moment they run.
   const ai = useBlueAi(platform.ai, platform.clipboard);
   const [aiLink] = useState(() => new AiLink());
@@ -2386,6 +2423,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         cellsNewColumn: 'review.translateCells',
         cellsInPlace: 'review.translateCellsInPlace',
       },
+    });
+    reg.register({
+      id: 'review.thesaurus',
+      shortcut: 'Shift+F7',
+      isEnabled: (st) => st.hasWorkbook,
+      run: beginThesaurus,
     });
     registerAiCommands(reg, {
       enabled: (st) => st.hasWorkbook,
@@ -3080,6 +3123,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     dictationLink,
     beginTranslate,
     beginAi,
+    beginThesaurus,
     aiLink,
     auditTrace,
     auditCalculate,
@@ -4592,6 +4636,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 <SpellCheck size={s} />,
                 'small',
               ),
+              item('review.thesaurus', t('commands.review.thesaurus'), <BookA size={s} />, 'small'),
             ],
           },
           {
@@ -5680,17 +5725,30 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   } satisfies TaskPaneDef,
                 ]
               : []),
+            ...(thesaurus.active
+              ? [
+                  {
+                    id: 'thesaurus',
+                    title: t('thesaurus.title'),
+                    icon: <BookA size={14} aria-hidden />,
+                    closeTestId: 'thesaurus-close',
+                    content: thesaurus.content,
+                  } satisfies TaskPaneDef,
+                ]
+              : []),
           ]}
           onClose={(id) =>
             id === 'queries'
               ? queries.closePane()
-              : id === 'ai'
-                ? ai.close()
-                : id === 'comments'
-                  ? setCommentsOpen(false)
-                  : id === 'script'
-                    ? setScriptOpen(false)
-                    : setVersionsOpen(false)
+              : id === 'thesaurus'
+                ? thesaurus.close()
+                : id === 'ai'
+                  ? ai.close()
+                  : id === 'comments'
+                    ? setCommentsOpen(false)
+                    : id === 'script'
+                      ? setScriptOpen(false)
+                      : setVersionsOpen(false)
           }
           labels={taskPaneLabels(t)}
           focusApp={focusInput}

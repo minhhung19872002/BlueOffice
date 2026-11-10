@@ -32,6 +32,10 @@ import {
   useBlueAi,
   translatedName,
   useTranslate,
+  thesaurusMenuEntry,
+  useThesaurus,
+  useThesaurusMenu,
+  ThesaurusLink,
   type TranslateAction,
   saveName,
   taskPaneLabels,
@@ -61,6 +65,7 @@ import {
   translateSelectedShapes,
 } from './translate';
 import { SLIDE_AI_COMMANDS, slideAiFeatures } from './slideAi';
+import { slideReplaceWord, slideWordAtCaret, wordInText } from './thesaurus';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
   ClipboardContent,
@@ -256,6 +261,7 @@ import {
   Maximize2,
   MessageSquare,
   FileCode2,
+  BookA,
 } from 'lucide-react';
 import { recordEngine, ScriptPane, ScriptRecorder, slideScriptHost } from '@blueoffice/script';
 import {
@@ -622,6 +628,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   useEffect(() => {
     aiLink.attach(ai);
   });
+  // Thesaurus (CORE-THES-001): a task pane and the text menu's submenu; the command reaches the
+  // pane through a ref.
+  const thesaurus = useThesaurus(platform.thesaurus);
+  const [thesaurusLink] = useState(() => new ThesaurusLink());
+  useEffect(() => {
+    thesaurusLink.attach(thesaurus);
+  });
+  const thesMenu = useThesaurusMenu(platform.thesaurus);
   const [readNotes, setReadNotes] = useState(() => {
     try {
       return localStorage.getItem('bo.readAloud.slideNotes') === '1';
@@ -2407,6 +2421,28 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           feature,
         }),
     });
+    // Thesaurus (CORE-THES-001): the word at the caret of the edited text; a replacement is one
+    // `setText` of the shape's text.
+    reg.register({
+      id: 'review.thesaurus',
+      shortcut: 'Shift+F7',
+      isEnabled: deck,
+      run: () => {
+        const exec = (c: SlideCommand) => ctrl.run(c);
+        const editing = !!edit?.textEdit;
+        thesaurusLink.open({
+          target: {
+            word: slideWordAtCaret(edit)?.word ?? '',
+            ...(editing
+              ? {
+                  replace: (text: string, word: string) => slideReplaceWord(exec, word, text),
+                  insert: (text: string) => spliceEdited(exec, edit, text, true),
+                }
+              : {}),
+          },
+        });
+      },
+    });
     registerTranslateCommands(reg, {
       enabled: deck,
       actions: { deck: 'review.translateDeck', shapes: 'review.translateShapes' },
@@ -2731,6 +2767,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     readAloudLink,
     dictationLink,
     translateLink,
+    thesaurusLink,
     aiLink,
     readNotes,
     uiLang,
@@ -3486,6 +3523,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 <SpellCheck size={18} />,
               ),
               item('review.spelling', t('commands.review.spelling'), <SpellCheck size={16} />, sm),
+              item('review.thesaurus', t('commands.review.thesaurus'), <BookA size={16} />, sm),
             ],
           },
           {
@@ -3870,12 +3908,32 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       (id) => exec(id),
     ),
   );
-  const slideMenu = useContextMenu<SlideMenu>(t('contextMenu.label'), (m) =>
-    resolveMenu(SLIDE_MENUS[m.context], menuLookup),
-  );
+  const slideMenu = useContextMenu<SlideMenu>(t('contextMenu.label'), (m) => {
+    const lines = resolveMenu(SLIDE_MENUS[m.context], menuLookup);
+    // Synonyms of the word at the caret of the edited text (CORE-THES-001).
+    const synonyms =
+      m.context === 'text' && editing
+        ? thesaurusMenuEntry(
+            thesMenu.state,
+            (key, o) => t(key, o ?? {}),
+            (text, word) => {
+              void slideReplaceWord((c) => ctrl.run(c), word, text);
+            },
+            () => exec('review.thesaurus'),
+          )
+        : null;
+    return synonyms ? [...lines, { separator: true } as const, synonyms] : lines;
+  });
+  /** Opens a menu; the text menu of an edited text first looks the word at the caret up. */
+  const openSlideMenu = (m: SlideMenu, word?: string | null) => {
+    thesMenu.prepare(
+      m.context === 'text' && editing ? (word ?? slideWordAtCaret(edit)?.word) : null,
+    );
+    slideMenu.open(m);
+  };
   useEffect(() => {
     ribbonTabsRef.current = allRibbonTabs;
-    slideMenuOpen.current = slideMenu.open;
+    slideMenuOpen.current = openSlideMenu;
   });
   const latestEdit = useRef(edit);
   useEffect(() => {
@@ -3889,7 +3947,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     setMini(null);
     const cur = latestEdit.current;
     if (editing && cur) {
-      slideMenu.open({ ...at, context: slideMenuContext(cur) });
+      // The text area has the caret the right click placed (the engine hears of it later).
+      const ta = e.target instanceof HTMLTextAreaElement ? e.target : null;
+      const word = ta ? wordInText(ta.value, ta.selectionStart, ta.selectionEnd)?.word : undefined;
+      openSlideMenu({ ...at, context: slideMenuContext(cur) }, word);
       return;
     }
     const box = slideRef.current?.getBoundingClientRect();
@@ -4700,9 +4761,21 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     } satisfies TaskPaneDef,
                   ]
                 : []),
+              ...(thesaurus.active && count > 0
+                ? [
+                    {
+                      id: 'thesaurus',
+                      title: t('thesaurus.title'),
+                      icon: <BookA size={14} aria-hidden />,
+                      closeTestId: 'thesaurus-close',
+                      content: thesaurus.content,
+                    } satisfies TaskPaneDef,
+                  ]
+                : []),
             ]}
             onClose={(id) => {
               if (id === 'ai') ai.close();
+              else if (id === 'thesaurus') thesaurus.close();
               else if (id === 'selection') setSelectionOpen(false);
               else if (id === 'animation') setPaneOpen(false);
               else if (id === 'comments') setCommentsOpen(false);

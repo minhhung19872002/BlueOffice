@@ -21,6 +21,15 @@ for (const lang of readdirSync(dicts)) {
     copyFileSync(join(dicts, lang, f), join(target, 'dictionaries', lang, f));
 }
 
+// Thesaurus data (assets/thesaurus/<lang>/*.json.gz, README; CORE-THES-001).
+const thes = join(root, 'assets', 'thesaurus');
+for (const lang of readdirSync(thes, { withFileTypes: true })) {
+  if (!lang.isDirectory()) continue;
+  mkdirSync(join(target, 'thesaurus', lang.name), { recursive: true });
+  for (const f of readdirSync(join(thes, lang.name)))
+    copyFileSync(join(thes, lang.name, f), join(target, 'thesaurus', lang.name, f));
+}
+
 mkdirSync(join(target, 'samples'), { recursive: true });
 copyFileSync(
   join(root, 'tests', 'corpus', 'doc', 'phase1-sample.docx'),

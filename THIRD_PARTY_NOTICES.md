@@ -150,3 +150,15 @@ xem `assets/icons/library/README.md`.
   UKACD (J Ross Beresford — phải kèm nguyên văn thông báo) và BSD (affix file từ Ispell). Toàn văn các thông báo nằm
   trong `assets/dictionaries/en_US/README_en_US.txt`, phân phối kèm từ điển. Dùng cho soát chính tả tiếng Anh (`bo-spell`).
 - Tiếng Việt: không dùng từ điển ngoài — `bo-spell::vi` kiểm tra theo quy tắc chính tả (tự cài).
+
+## Từ điển đồng nghĩa
+
+- `assets/thesaurus/en/en.json.gz` — dữ liệu rút gọn sinh bằng `scripts/build-thesaurus.mjs` từ
+  **Open English WordNet 2025** (https://github.com/globalwordnet/english-wordnet, bản phát hành `2025-edition`),
+  giấy phép **CC BY 4.0** (https://creativecommons.org/licenses/by/4.0/; ghi công: "Thesaurus data derived from
+  Open English WordNet 2025, licensed under CC BY 4.0"; thay đổi: chỉ giữ mục từ một từ viết thường, từ đồng
+  nghĩa, trái nghĩa, định nghĩa rút ngắn). Open English WordNet dựa trên Princeton WordNet — "WordNet 3.0
+  Copyright 2006 by Princeton University. All rights reserved." (giấy phép WordNet, cho phép kèm thông báo);
+  nguồn, phiên bản, cách sinh và toàn văn thông báo Princeton nằm trong `assets/thesaurus/en/README.md`, phân
+  phối kèm dữ liệu. Dùng cho ngăn / menu "Từ đồng nghĩa" (CORE-THES-001).
+- Tiếng Việt: chưa có dữ liệu (không có nguồn mở với giấy phép tương thích đã kiểm chứng).

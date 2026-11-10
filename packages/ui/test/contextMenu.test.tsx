@@ -151,4 +151,38 @@ describe('ContextMenu', () => {
     expect(isContextMenuKey({ key: 'ContextMenu', shiftKey: false, ...k })).toBe(true);
     expect(isContextMenuKey({ key: 'F10', shiftKey: false, ...k })).toBe(false);
   });
+
+  it('opens a submenu by pointer or arrows; its commands close the whole menu', () => {
+    const pick = vi.fn();
+    const onClose = vi.fn();
+    const items: MenuLine[] = [
+      entry('edit.copy'),
+      {
+        id: 'more',
+        label: 'More',
+        submenu: [{ heading: 'Words' }, { id: 'w.glad', label: 'glad', onSelect: pick }],
+        submenuTestId: 'sub',
+        onSelect: vi.fn(),
+      },
+    ];
+    render(<ContextMenu x={10} y={10} items={items} label="Menu" onClose={onClose} />);
+    const more = screen.getByText('More').closest('button')!;
+    expect(more.getAttribute('aria-haspopup')).toBe('menu');
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.mouseEnter(more);
+    expect(screen.getByTestId('sub')).toBeTruthy();
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    // Back with ArrowLeft (the parent menu stays open), in again with ArrowRight.
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(screen.queryByTestId('sub')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(screen.getByTestId('sub')).toBeTruthy();
+    // A click inside the submenu is not a click elsewhere.
+    fireEvent.mouseDown(screen.getByText('glad'));
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(pick).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

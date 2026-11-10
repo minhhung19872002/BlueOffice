@@ -96,7 +96,7 @@ fn page() -> PageSetup {
 }
 
 /// Width of the text column, twips.
-fn text_width() -> i32 {
+pub(crate) fn text_width() -> i32 {
     let p = page();
     p.width.0 - p.margin_left.0 - p.margin_right.0
 }
@@ -118,7 +118,7 @@ const SUMMARY_RULE: i32 = 1_701;
 // ---- paragraphs ----------------------------------------------------------------
 
 /// §17.3.2 run properties of a component: sz (half-points), b, i.
-fn run_props(size: u32, bold: bool, italic: bool) -> RunProps {
+pub(crate) fn run_props(size: u32, bold: bool, italic: bool) -> RunProps {
     RunProps {
         size: Some(HalfPoints(size)),
         bold: bold.then_some(true),
@@ -132,7 +132,7 @@ fn component_props(c: &Component) -> RunProps {
 }
 
 /// §17.3.1 paragraph: jc, spacing before/after (twips).
-fn para(runs: Vec<Run>, align: Alignment, before: i32) -> Block {
+pub(crate) fn para(runs: Vec<Run>, align: Alignment, before: i32) -> Block {
     Block::Paragraph(Paragraph::new(
         ParaProps {
             align: Some(align),
@@ -163,7 +163,7 @@ fn line_after(c: &Component, text: &str, before: i32) -> Block {
 }
 
 /// A centred line outside the component table (authority, "QUYẾT ĐỊNH:", "(Chữ ký)").
-fn centered(text: &str, size: u32, bold: bool, italic: bool) -> Block {
+pub(crate) fn centered(text: &str, size: u32, bold: bool, italic: bool) -> Block {
     para(
         vec![Run::text(text, run_props(size, bold, italic))],
         Alignment::Center,
@@ -171,7 +171,7 @@ fn centered(text: &str, size: u32, bold: bool, italic: bool) -> Block {
     )
 }
 
-fn empty(size: u32) -> Block {
+pub(crate) fn empty(size: u32) -> Block {
     para(
         vec![Run::text("", run_props(size, false, false))],
         Alignment::Center,
@@ -182,7 +182,7 @@ fn empty(size: u32) -> Block {
 /// Solid horizontal line of `len` twips centred in a container `width` twips wide: an
 /// empty paragraph with a top border (§17.3.1.24 pBdr, §17.3.1.42 top) between indents
 /// (§17.3.1.12 ind), 4 pt below the line above, 1 pt tall (§17.3.1.33 spacing exact).
-fn rule(width: i32, len: i32) -> Block {
+pub(crate) fn rule(width: i32, len: i32) -> Block {
     let side = ((width - len) / 2).max(0);
     Block::Paragraph(Paragraph::new(
         ParaProps {
@@ -203,12 +203,12 @@ fn rule(width: i32, len: i32) -> Block {
 }
 
 /// Body text segment: (text, bold, italic).
-type Seg<'a> = (&'a str, bool, bool);
+pub(crate) type Seg<'a> = (&'a str, bool, bool);
 
 /// Body paragraph (nội dung): justified, first line indented 1 cm, 6 pt after, 1.15
 /// lines, 14 pt (Phụ lục I: canh đều 2 lề, lùi đầu dòng 1–1,27 cm, cách đoạn ≥ 6 pt,
 /// dòng đơn đến 1,5 lines, cỡ chữ 13–14).
-fn body_runs(segs: &[Seg<'_>]) -> Block {
+pub(crate) fn body_runs(segs: &[Seg<'_>]) -> Block {
     let runs = segs
         .iter()
         .map(|(t, b, i)| Run::text(*t, run_props(BODY.preferred, *b, *i)))
@@ -234,7 +234,7 @@ fn body_bold(text: &str) -> Block {
     body_runs(&[(text, true, false)])
 }
 
-fn body_italic(text: &str) -> Block {
+pub(crate) fn body_italic(text: &str) -> Block {
     body_runs(&[(text, false, true)])
 }
 
@@ -256,7 +256,7 @@ fn nil() -> Border {
 
 /// A one-row layout table without borders (§17.4.39 tblBorders = nil) or cell margins
 /// (§17.4.42 tblCellMar), one cell per column.
-fn columns(widths: &[i32], cells: Vec<Vec<Block>>) -> Block {
+pub(crate) fn columns(widths: &[i32], cells: Vec<Vec<Block>>) -> Block {
     let cells = widths
         .iter()
         .zip(cells)
@@ -289,7 +289,7 @@ fn columns(widths: &[i32], cells: Vec<Vec<Block>>) -> Block {
 /// Header block (Mẫu 1.1 ô 1–4, 5b): issuing body, number and symbol (and the "V/v"
 /// summary of a công văn) on the left; national title, motto, place and date on the
 /// right.
-fn header(number: &str, summary: Option<&str>) -> Block {
+pub(crate) fn header(number: &str, summary: Option<&str>) -> Block {
     let right_w = text_width() - HEADER_LEFT;
     let mut left = vec![
         line(&nd30::CO_QUAN_CHU_QUAN, "[TÊN CQ, TC CHỦ QUẢN]"),
@@ -321,7 +321,7 @@ fn title(kind: &str, summary: &str) -> Vec<Block> {
 }
 
 /// "Kính gửi: …" (centred, 14 pt).
-fn kinh_gui(to: &str) -> Block {
+pub(crate) fn kinh_gui(to: &str) -> Block {
     para(
         vec![Run::text(
             format!("Kính gửi: {to}"),
@@ -334,7 +334,7 @@ fn kinh_gui(to: &str) -> Block {
 
 /// Signer block (ô 7a–7c): authority and title (one line per entry), signature/seal
 /// note, name; level with "Nơi nhận:".
-fn signer(titles: &[&str], note: &str) -> Vec<Block> {
+pub(crate) fn signer(titles: &[&str], note: &str) -> Vec<Block> {
     let mut v: Vec<Block> = titles
         .iter()
         .enumerate()
@@ -351,7 +351,7 @@ fn signer(titles: &[&str], note: &str) -> Vec<Block> {
 }
 
 /// Recipients (ô 9b).
-fn noi_nhan(first: &str) -> Vec<Block> {
+pub(crate) fn noi_nhan(first: &str) -> Vec<Block> {
     vec![
         line_after(&nd30::NOI_NHAN, "Nơi nhận:", 120),
         line(&nd30::NOI_NHAN_LIST, first),
@@ -361,7 +361,7 @@ fn noi_nhan(first: &str) -> Vec<Block> {
 }
 
 /// Recipients on the left, signer on the right.
-fn closing(first_recipient: &str) -> Vec<Block> {
+pub(crate) fn closing(first_recipient: &str) -> Vec<Block> {
     let sign = signer(
         &["[QUYỀN HẠN KÝ]", "[CHỨC VỤ CỦA NGƯỜI KÝ]"],
         "(Chữ ký, dấu)",

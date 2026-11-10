@@ -100,6 +100,8 @@ export interface EditorState {
     | 'adminFormat'
     | 'pageBorders'
     | 'watermark'
+    | 'saveBlock'
+    | 'blocksOrganizer'
     | 'checkDocument'
     | 'spellCheck'
     | 'language'

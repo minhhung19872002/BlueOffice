@@ -27,6 +27,7 @@ import type {
   ViewLayoutMode,
 } from '@blueoffice/platform';
 import {
+  BLOCK_STORE_KEY,
   PASSWORD_REQUIRED,
   THEME_MIME,
   WRONG_PASSWORD,
@@ -94,6 +95,7 @@ import {
   Grid2x2,
   Grid3x3,
   LayoutTemplate,
+  LibraryBig,
   Paintbrush,
   PanelBottom,
   PanelTop,
@@ -242,6 +244,13 @@ import {
 } from './TrackingControls';
 import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
 import { SaveAsTypeDialog, planOpen, saveName } from './FileVariants';
+import {
+  BlockGalleryMenu,
+  BlocksOrganizer,
+  blockErrorKey,
+  clearBlockPreviews,
+  SaveBlockDialog,
+} from './BuildingBlocks';
 import { fromBase64, toBase64 } from './clipboard/docPaste';
 import {
   identityNames,
@@ -791,8 +800,13 @@ function EditorInner({
           ...(r.merge ? { merge: r.merge } : {}),
           ...(r.security ? { security: r.security } : {}),
         });
+        // The user's building blocks file changed: keep it through the platform.
+        if (r.blocks?.store)
+          void platform.offline.put(BLOCK_STORE_KEY, fromBase64(r.blocks.store)).catch(() => {});
         if (isProtectionRefusal(r.error))
           store.setState({ status: { kind: 'info', key: refusalKey(r.error) } });
+        else if (blockErrorKey(r.error))
+          store.setState({ status: { kind: 'info', key: blockErrorKey(r.error) ?? '' } });
         else if (r.error)
           fail(formErrorKey(r.error) ?? reviewErrorKey(r.error) ?? 'errors.edit', r.error);
       },
@@ -809,6 +823,16 @@ function EditorInner({
           void controller.current?.run({ cmd: 'spellIgnore', word });
         const proof = loadProofOptions();
         if (proof) void controller.current?.run({ cmd: 'proofOptions', ...proof });
+        // The user's building blocks (a .dotx kept by the platform) for the galleries and F3.
+        void platform.offline
+          .get(BLOCK_STORE_KEY)
+          .then((bytes) =>
+            bytes?.length
+              ? platform.engine.command({ cmd: 'loadBlockStore', file: toBase64(bytes) })
+              : null,
+          )
+          // No document is open yet: the engine keeps the store and answers with an error.
+          .catch(() => {});
       },
       (e: unknown) => fail('errors.engine', e),
     );
@@ -2515,6 +2539,32 @@ function EditorInner({
         await run({ cmd: 'insertField', instr: 'PAGE' });
       },
     });
+    // Building blocks (§17.12 glossary document): save the selection, Organizer, F3.
+    r.register({
+      id: 'insert.saveBlock',
+      shortcut: 'Alt+F3',
+      isEnabled: (s) => {
+        const sel = s.edit?.selection;
+        return (
+          hasDoc(s) &&
+          !s.edit?.story &&
+          !!sel &&
+          (sel.anchor.p !== sel.focus.p || sel.anchor.o !== sel.focus.o)
+        );
+      },
+      run: () => store.setState({ dialog: 'saveBlock' }),
+    });
+    r.register({
+      id: 'insert.blocksOrganizer',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'blocksOrganizer' }),
+    });
+    r.register({
+      id: 'insert.autoText',
+      shortcut: 'F3',
+      isEnabled: (s) => hasDoc(s) && !s.edit?.story,
+      run: () => run({ cmd: 'expandAutoText' }),
+    });
     // Footnotes and endnotes (§17.11).
     r.register({
       id: 'insert.footnote',
@@ -2819,7 +2869,19 @@ function EditorInner({
   const noDoc = !state.doc;
   const focusDoc = () => view.current?.focus();
   const runFocus = (c: EditCommand) =>
-    (controller.current?.run(c) ?? Promise.resolve(null)).then(() => focusDoc());
+    (controller.current?.run(c) ?? Promise.resolve(null)).then((r) => {
+      focusDoc();
+      return r;
+    });
+  /** Page whose header / footer a gallery block replaces: the caret's. */
+  const blockPage = state.edit?.caret?.page ?? state.page;
+  /** A registry command at the bottom of a building block gallery. */
+  const blockAction = (id: string, key: string) => ({
+    id,
+    label: t(key),
+    disabled: !registry.isEnabled(id, state),
+    onSelect: () => void registry.execute(id, store.getState()),
+  });
   const tableTab: RibbonTab[] = fs?.table
     ? [
         {
@@ -3313,9 +3375,86 @@ function EditorInner({
           id: 'headerFooter',
           label: t('ribbon.groups.headerFooter'),
           items: [
-            item('insert.header', 'commands.insert.header', <PanelTop size={ICON} />),
-            item('insert.footer', 'commands.insert.footer', <PanelBottom size={ICON} />),
-            item('insert.pageNumber', 'commands.insert.pageNumber', <Hash size={ICON} />),
+            custom(
+              'insert.headerGallery',
+              <BlockGalleryMenu
+                groups={['header']}
+                label={t('commands.insert.header')}
+                icon={<PanelTop size={16} />}
+                testId="header-gallery"
+                disabled={noDoc}
+                run={runFocus}
+                query={queryCommand}
+                page={blockPage}
+                actions={[blockAction('insert.header', 'blocks.menu.editHeader')]}
+              />,
+            ),
+            custom(
+              'insert.footerGallery',
+              <BlockGalleryMenu
+                groups={['footer']}
+                label={t('commands.insert.footer')}
+                icon={<PanelBottom size={16} />}
+                testId="footer-gallery"
+                disabled={noDoc}
+                run={runFocus}
+                query={queryCommand}
+                page={blockPage}
+                actions={[blockAction('insert.footer', 'blocks.menu.editFooter')]}
+              />,
+            ),
+            custom(
+              'insert.pageNumberGallery',
+              <BlockGalleryMenu
+                groups={['pageNumber']}
+                label={t('commands.insert.pageNumber')}
+                icon={<Hash size={16} />}
+                testId="page-number-gallery"
+                disabled={noDoc}
+                run={runFocus}
+                query={queryCommand}
+                page={blockPage}
+                actions={[blockAction('insert.pageNumber', 'blocks.menu.pageNumberHere')]}
+              />,
+            ),
+          ],
+        },
+        {
+          id: 'buildingBlocks',
+          label: t('ribbon.groups.buildingBlocks'),
+          items: [
+            custom(
+              'insert.coverPageGallery',
+              <BlockGalleryMenu
+                groups={['coverPage']}
+                label={t('commands.insert.coverPage')}
+                icon={<LayoutTemplate size={16} />}
+                testId="cover-page-gallery"
+                disabled={noDoc}
+                run={runFocus}
+                query={queryCommand}
+                page={blockPage}
+                actions={[blockAction('insert.blocksOrganizer', 'commands.insert.blocksOrganizer')]}
+              />,
+            ),
+            custom(
+              'insert.buildingBlocks',
+              <BlockGalleryMenu
+                groups={['quickParts', 'textBox', 'table']}
+                label={t('commands.insert.buildingBlocks')}
+                icon={<LibraryBig size={16} />}
+                testId="building-blocks"
+                disabled={noDoc}
+                run={runFocus}
+                query={queryCommand}
+                page={blockPage}
+                actions={[
+                  blockAction('insert.autoText', 'commands.insert.autoText'),
+                  blockAction('insert.saveBlock', 'commands.insert.saveBlock'),
+                  blockAction('insert.blocksOrganizer', 'commands.insert.blocksOrganizer'),
+                ]}
+              />,
+            ),
           ],
         },
       ],
@@ -4713,6 +4852,17 @@ function EditorInner({
                 }}
                 onClose={closeDialog}
                 onContinue={(choice) => signLineRef.current?.(choice)}
+              />
+            )}
+            {state.dialog === 'saveBlock' && (
+              <SaveBlockDialog run={runCommand} query={queryCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'blocksOrganizer' && (
+              <BlocksOrganizer
+                run={runCommand}
+                query={queryCommand}
+                page={blockPage}
+                onClose={closeDialog}
               />
             )}
             {state.dialog === 'watermark' && (

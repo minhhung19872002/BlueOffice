@@ -15,6 +15,7 @@ use serde::Serialize;
 use std::cell::OnceCell;
 use std::collections::BTreeMap;
 
+pub mod blocks;
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
 pub mod chart_design;
@@ -337,6 +338,8 @@ pub struct Engine {
     show_marks: bool,
     /// Slide show video / GIF export in progress (BlueSlide).
     video: Option<Box<slide_edit::video::VideoSession>>,
+    /// Building blocks: the user's store, the shipped library, previews (BlueDoc).
+    blocks: blocks::BlockState,
 }
 
 impl Engine {

@@ -239,7 +239,7 @@ fn new_document_with_a_glossary() {
     let out = write_docx(&doc).unwrap();
     let pkg = Package::read(&out, &Limits::default()).unwrap();
     assert_eq!(
-        pkg.content_types().unwrap().get(GLOSSARY).as_deref(),
+        pkg.content_types().unwrap().get(GLOSSARY),
         Some(CT_GLOSSARY)
     );
     assert_eq!(

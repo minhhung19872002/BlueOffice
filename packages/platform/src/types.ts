@@ -656,6 +656,8 @@ export type EditCommand =
   | import('./speech').DocSpeechCommand
   | import('./translation').DocTranslateCommand
   | import('./docStyles').DocStyleCommand
+  /** Building blocks / AutoText (DOC-BB-001). */
+  | import('./buildingBlocks').BuildingBlockCommand
   | DocSmartArtCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
@@ -1130,6 +1132,8 @@ export interface EditResult {
   translation?: import('./translation').DocTextSegment[];
   /** Style management answer (style commands, DOC-STYLE-001). */
   styleMgr?: import('./docStyles').StyleMgrOut;
+  /** Building blocks answer (building block commands, DOC-BB-001). */
+  blocks?: import('./buildingBlocks').BlocksOut;
   /** Pictures for signing a line (`signatureLineImages`). */
   signatureLineImages?: SignatureLineImages;
 }

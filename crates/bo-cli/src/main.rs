@@ -26,6 +26,7 @@
 //! bo-cli merge <template.docx> <data.csv|xlsx|vcf|json> --to docx|pdf|zip --out <out> [--pattern "«Field»"]  # mail merge
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli templates <dir>                     # write the BlueDoc templates + thumbnails (assets/templates/doc)
+//! bo-cli blocks <dir>                        # write the BlueDoc building block library (assets/blocks/doc)
 //! bo-cli sample-big <out.docx> [--pages 300]  # §5 benchmark document (text + pictures)
 //! bo-cli sample-big <out.docx> --pages 1000 --rich  # + headings, tables, footnotes, fields (CORE-PERF-001)
 //! bo-cli sample-big-deck <out.pptx> [--slides 300 --videos 6 --video-kb 4096]  # pictures + video deck
@@ -35,6 +36,7 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod blocks;
 mod convert;
 mod corpus;
 mod fidelity;
@@ -214,6 +216,8 @@ enum Cmd {
     SampleSlides { dir: PathBuf },
     /// Write the built-in BlueDoc templates (.docx) and their thumbnails (.png).
     Templates { dir: PathBuf },
+    /// Write the BlueDoc building block library (.dotx) and its index.
+    Blocks { dir: PathBuf },
     /// Write the §5 benchmark document: about N A4 pages of text with inline pictures.
     SampleBig {
         out: PathBuf,
@@ -858,6 +862,13 @@ fn run(cli: Cli) -> R {
         }
         Cmd::Templates { dir } => {
             for (name, bytes) in templates::files()? {
+                let path = dir.join(name);
+                write_file(&path, &bytes)?;
+                println!("{}", path.display());
+            }
+        }
+        Cmd::Blocks { dir } => {
+            for (name, bytes) in blocks::files()? {
                 let path = dir.join(name);
                 write_file(&path, &bytes)?;
                 println!("{}", path.display());

@@ -442,13 +442,12 @@ impl Session {
                     // The caret goes after the block.
                     let mut after = prefix.clone();
                     after.push(insert_at + n);
-                    let caret = match first_para(tx.doc, &after) {
-                        Some(id) => id,
-                        None => {
-                            let mut last = prefix;
-                            last.push(insert_at + n - 1);
-                            first_para(tx.doc, &last).ok_or(EditError::BadPath)?
-                        }
+                    let caret = if let Some(id) = first_para(tx.doc, &after) {
+                        id
+                    } else {
+                        let mut last = prefix;
+                        last.push(insert_at + n - 1);
+                        first_para(tx.doc, &last).ok_or(EditError::BadPath)?
                     };
                     Ok(Selection::caret(Pos::new(caret, 0)))
                 }
@@ -653,7 +652,7 @@ mod tests {
         s.undo();
         assert_eq!(texts(s.doc()), ["TrướcSau"]);
         assert!(s.doc().style("Quote1").is_none());
-        assert!(s.doc().numbering.nums.is_empty());
+        assert_eq!(s.doc().numbering.nums.len(), 0);
     }
 
     #[test]

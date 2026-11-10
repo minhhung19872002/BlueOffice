@@ -11,7 +11,7 @@ use super::{
 use crate::reader::glossary::REL_GLOSSARY;
 use crate::{Result, CT_STYLES};
 use bo_model::glossary::{DocPart, Glossary};
-use bo_model::{fingerprint, Document, SourcePackage};
+use bo_model::{fingerprint, Block, Document, RunContent, SourcePackage};
 use bo_opc::xml::escape;
 use bo_opc::{Package, REL_STYLES};
 use std::fmt::Write as _;
@@ -25,7 +25,7 @@ const CT_NUMBERING: &str =
 const DEFAULT_PART: &str = "/word/glossary/document.xml";
 
 /// §17.12.5 docPart with §17.12.7 docPartPr and §17.12.6 docPartBody.
-fn doc_part_xml(w: &mut Writer<'_>, p: &DocPart) -> String {
+fn doc_part_xml(w: &mut Writer<'_>, p: &DocPart, from_source: bool) -> String {
     let pr = &p.props;
     // §17.12.13 name, §17.12.14 style, §17.12.3 category (name, gallery).
     let mut s = format!(
@@ -72,9 +72,50 @@ fn doc_part_xml(w: &mut Writer<'_>, p: &DocPart) -> String {
         let _ = write!(s, "<w:guid w:val=\"{}\"/>", escape(g));
     }
     s.push_str("</w:docPartPr><w:docPartBody>");
-    s.push_str(&w.blocks(&p.blocks));
+    if from_source {
+        s.push_str(&w.blocks(&p.blocks));
+    } else {
+        s.push_str(&w.blocks(&without_sources(&p.blocks)));
+    }
     s.push_str("</w:docPartBody></w:docPart>");
     s
+}
+
+/// `blocks` without their source XML: content of another package (or of no package)
+/// is regenerated, because its relationship ids belong to the part it was read from.
+fn without_sources(blocks: &[Block]) -> Vec<Block> {
+    let mut out = blocks.to_vec();
+    strip(&mut out);
+    out
+}
+
+fn strip(blocks: &mut [Block]) {
+    for b in blocks {
+        match b {
+            Block::Paragraph(p) => {
+                p.src = None;
+                for r in &mut p.runs {
+                    for c in &mut r.content {
+                        if let RunContent::Image(img) = c {
+                            img.src = None;
+                            if let Some(text) = img.shape.as_mut().and_then(|s| s.text.as_mut()) {
+                                strip(text);
+                            }
+                        }
+                    }
+                }
+            }
+            Block::Table(t) => {
+                t.src = None;
+                for row in &mut t.rows {
+                    for cell in &mut row.cells {
+                        strip(&mut cell.blocks);
+                    }
+                }
+            }
+            Block::Opaque(_) => {}
+        }
+    }
 }
 
 /// Remove the glossary of the source package (the document has none any more).
@@ -201,7 +242,7 @@ impl Writer<'_> {
         for p in &g.parts {
             match &p.src {
                 Some(raw) if from_source && p.unchanged() => body.push_str(&raw.xml),
-                _ => body.push_str(&doc_part_xml(self, p)),
+                _ => body.push_str(&doc_part_xml(self, p, from_source)),
             }
         }
         let xml = format!("{prefix}{body}{suffix}").into_bytes();

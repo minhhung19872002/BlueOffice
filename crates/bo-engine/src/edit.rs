@@ -1245,6 +1245,9 @@ pub struct EditResult {
     /// Style management answer (style commands, DOC-STYLE-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style_mgr: Option<Box<crate::doc_styles::StyleMgrOut>>,
+    /// Building blocks answer (building block commands, DOC-BB-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocks: Option<Box<crate::blocks::BlocksOut>>,
 }
 
 impl crate::Engine {
@@ -1281,6 +1284,10 @@ impl crate::Engine {
         }
         if let Some(sc) = crate::doc_styles::StyleCommand::parse(&v) {
             let r = self.doc_style_command(sc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        if let Some(bc) = crate::blocks::BlockCommand::parse(&v) {
+            let r = self.doc_block_command(bc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         if let Some(tc) = crate::translate::TranslateCommand::parse(&v) {
@@ -2426,6 +2433,7 @@ impl crate::Engine {
             speech: None,
             translation: None,
             style_mgr: None,
+            blocks: None,
         })
     }
 }

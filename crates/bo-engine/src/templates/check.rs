@@ -8,10 +8,24 @@
 //! table after it whose columns start with an upper-case title. Each deviation is an
 //! issue `<component>.<property>` (e.g. `quocHieu.size`, `tieuNgu.underline`,
 //! `page.marginLeft`); repeated deviations of one kind are counted, not repeated.
+//!
+//! Documents not made from the built-in templates are recognised too: the header block
+//! may have a spacer column (its right column starts at the cell of the national
+//! title), or be a stack of paragraphs without a table (the components are then found by
+//! their text and reported as misplaced); a signature block without a table is the last
+//! name-like line ("Nguyễn Văn An") below upper-case title lines.
+//!
+//! [`fix`] corrects the deviations that only need direct formatting or page setup
+//! (size, bold, italic, case, alignment, font, paper, margins, indent, spacing, line
+//! spacing, page number from page 2); missing or misplaced components and missing
+//! lines are left to the author.
 
 use super::nd30::{self, Area, Case, Component, Range, BODY, PAGE};
 use bo_edit::{effective_para, effective_run};
-use bo_model::{index, Alignment, Block, Document, LineSpacing, Paragraph, RunContent};
+use bo_model::{
+    index, Alignment, Block, Document, HalfPoints, LineSpacing, Paragraph, Run, RunContent,
+    Section, Twips,
+};
 use serde::Serialize;
 
 /// How serious a deviation is.
@@ -54,6 +68,8 @@ pub struct FormatIssue {
     pub text: Option<String>,
     /// Number of occurrences of this issue.
     pub count: usize,
+    /// [`fix`] can correct it (every occurrence).
+    pub fixable: bool,
 }
 
 /// Result of a check.
@@ -75,6 +91,14 @@ impl FormatReport {
 
 /// Check a document against the decree.
 pub fn check(doc: &Document) -> FormatReport {
+    let out = analyse(doc);
+    FormatReport {
+        issues: out.issues,
+        found: out.found.iter().map(|s| (*s).to_owned()).collect(),
+    }
+}
+
+fn analyse(doc: &Document) -> Out {
     let mut out = Out::default();
     check_page(doc, &mut out);
     check_font(doc, &mut out);
@@ -93,10 +117,7 @@ pub fn check(doc: &Document) -> FormatReport {
     check_missing(&mut out);
     check_body(doc, &entries, &roles, &mut out);
     check_page_number(doc, &mut out);
-    FormatReport {
-        issues: out.issues,
-        found: out.found.iter().map(|s| (*s).to_owned()).collect(),
-    }
+    out
 }
 
 // ---- issue collection ------------------------------------------------------------
@@ -105,6 +126,30 @@ pub fn check(doc: &Document) -> FormatReport {
 struct Out {
     issues: Vec<FormatIssue>,
     found: Vec<&'static str>,
+    /// Every occurrence of a paragraph issue: (issue id, body paragraph id).
+    hits: Vec<(String, usize)>,
+}
+
+/// Properties [`fix`] corrects with direct formatting or page setup.
+fn fixable(property: &str) -> bool {
+    matches!(
+        property,
+        "size"
+            | "bold"
+            | "italic"
+            | "case"
+            | "align"
+            | "font"
+            | "paper"
+            | "marginTop"
+            | "marginBottom"
+            | "marginLeft"
+            | "marginRight"
+            | "indent"
+            | "spacing"
+            | "lineSpacing"
+            | "firstPage"
+    )
 }
 
 /// What an issue is about.
@@ -128,6 +173,9 @@ impl Out {
             Severity::Error
         };
         let id = format!("{component}.{property}");
+        if let Some(para) = at.para {
+            self.hits.push((id.clone(), para));
+        }
         if let Some(i) = self
             .issues
             .iter_mut()
@@ -147,6 +195,7 @@ impl Out {
             section: at.section,
             text: at.text.map(excerpt),
             count: 1,
+            fixable: fixable(property),
         });
     }
 }
@@ -326,15 +375,17 @@ fn all_paragraphs(blocks: &[Block]) -> Vec<&Paragraph> {
 }
 
 /// Runs that show text (not only white space).
-fn text_runs(p: &Paragraph) -> impl Iterator<Item = &bo_model::Run> {
-    p.runs.iter().filter(|r| {
-        r.props.del.is_none()
-            && r.content.iter().any(|c| match c {
-                RunContent::Text(t) => !t.trim().is_empty(),
-                RunContent::Field { cached, .. } => !cached.trim().is_empty(),
-                _ => false,
-            })
-    })
+fn text_runs(p: &Paragraph) -> impl Iterator<Item = &Run> {
+    p.runs.iter().filter(|r| is_text_run(r))
+}
+
+fn is_text_run(r: &Run) -> bool {
+    r.props.del.is_none()
+        && r.content.iter().any(|c| match c {
+            RunContent::Text(t) => !t.trim().is_empty(),
+            RunContent::Field { cached, .. } => !cached.trim().is_empty(),
+            _ => false,
+        })
 }
 
 // ---- recognition --------------------------------------------------------------------
@@ -350,7 +401,12 @@ struct Entry<'d> {
     area: Area,
     /// Table cell `(section, block, row, cell)` for paragraphs of a top-level table.
     cell: Option<[usize; 4]>,
+    /// Signer column (its cell, or [`STACKED`] for a signature block without a table).
+    group: Option<[usize; 4]>,
 }
+
+/// Signer group of a signature block made of plain paragraphs.
+const STACKED: [usize; 4] = [usize::MAX; 4];
 
 impl Entry<'_> {
     fn top_level(&self) -> bool {
@@ -402,6 +458,26 @@ fn type_name(t: &str) -> bool {
         .replace("THOẢ", "THỎA")
         .replace("UỶ", "ỦY");
     nd30::TYPE_NAMES.contains(&u.as_str())
+}
+
+/// A signer's name: 2–7 words, each starting with a capital, not all capitals, no
+/// punctuation of a sentence or list ("Nguyễn Văn An").
+fn is_name(t: &str) -> bool {
+    let words: Vec<&str> = t.split_whitespace().collect();
+    (2..=7).contains(&words.len())
+        && !is_upper(t)
+        && words
+            .iter()
+            .all(|w| w.chars().next().is_some_and(char::is_uppercase))
+        && !t
+            .chars()
+            .any(|c| c.is_ascii_digit() || matches!(c, ':' | ';' | ',' | '.' | '(' | '-'))
+}
+
+/// A note of the signature block between the title and the name ("(Chữ ký, dấu)",
+/// "Đã ký").
+fn is_sign_note(t: &str) -> bool {
+    t.starts_with('(') || t.starts_with('[') || t.to_lowercase().starts_with("đã ký")
 }
 
 fn has_text(e: &Entry) -> bool {
@@ -510,7 +586,15 @@ fn entries(doc: &Document) -> Vec<Entry<'_>> {
             .max()
             .unwrap_or(0)
     });
-    paths
+    // The right column of the header starts at the cell of the national title (Mẫu 1.1
+    // ô 1; a spacer column may sit between the two), else at the second cell.
+    let header_split = header.map_or(1, |k| {
+        table_texts(k)
+            .iter()
+            .find(|(_, t)| is_quoc_hieu(t))
+            .map_or(1, |(c, _)| (*c).max(1))
+    });
+    let mut v: Vec<Entry> = paths
         .iter()
         .enumerate()
         .filter_map(|(id, path)| {
@@ -518,7 +602,7 @@ fn entries(doc: &Document) -> Vec<Entry<'_>> {
             let key = (path[0], path[1]);
             let cell = (path.len() > 2).then(|| [path[0], path[1], path[2], path[3]]);
             let area = if path.len() > 2 && Some(key) == header && header_cells > 1 {
-                if path[3] == 0 {
+                if path[3] < header_split {
                     Area::HeaderLeft
                 } else {
                     Area::HeaderRight
@@ -539,9 +623,44 @@ fn entries(doc: &Document) -> Vec<Entry<'_>> {
                 text: normalize(&p.plain_text()),
                 area,
                 cell,
+                group: if area == Area::Signature { cell } else { None },
             })
         })
-        .collect()
+        .collect();
+    if signature.is_none() {
+        stacked_signature(&mut v);
+    }
+    v
+}
+
+/// A signature block of plain paragraphs (Mẫu 1.1 ô 7a–7c without a layout table): the
+/// last name-like line and the upper-case title lines above it (notes such as "(Chữ
+/// ký, dấu)" and empty lines may sit between).
+fn stacked_signature(v: &mut [Entry]) {
+    let lines: Vec<usize> = (0..v.len())
+        .filter(|&i| v[i].top_level() && has_text(&v[i]))
+        .collect();
+    let Some(pos) = lines.iter().rposition(|&i| is_name(&v[i].text)) else {
+        return;
+    };
+    let mut first = None;
+    for &i in lines[..pos].iter().rev() {
+        let t = &v[i].text;
+        if is_upper(t) && !is_quoc_hieu(t) && !type_name(t) {
+            first = Some(i);
+        } else if !(first.is_none() && is_sign_note(t)) {
+            break;
+        }
+    }
+    let Some(first) = first else {
+        return;
+    };
+    for e in &mut v[first..=lines[pos]] {
+        if e.top_level() {
+            e.area = Area::Signature;
+            e.group = Some(STACKED);
+        }
+    }
 }
 
 /// The component of each entry (`None`: body text or unrecognised).
@@ -549,13 +668,20 @@ fn classify(entries: &[Entry]) -> Vec<Option<&'static Component>> {
     let mut roles: Vec<Option<&'static Component>> = vec![None; entries.len()];
     let mut title_seen = false;
     let mut summary_next = false;
-    let mut in_noi_nhan: Option<[usize; 4]> = None;
+    // Cell of the "Nơi nhận:" line (`Some(None)`: a top-level paragraph).
+    let mut in_noi_nhan: Option<Option<[usize; 4]>> = None;
+    let mut prev_noi_nhan = false;
+    // Without a header table the components above the type name are found by text.
+    let has_header = entries
+        .iter()
+        .any(|e| matches!(e.area, Area::HeaderLeft | Area::HeaderRight));
     for (i, e) in entries.iter().enumerate() {
         let t = e.text.as_str();
         if t.is_empty() {
             continue;
         }
-        let header = matches!(e.area, Area::HeaderLeft | Area::HeaderRight);
+        let header = matches!(e.area, Area::HeaderLeft | Area::HeaderRight)
+            || (!has_header && !title_seen && e.top_level());
         let role: Option<&'static Component> = if is_quoc_hieu(t) {
             Some(&nd30::QUOC_HIEU)
         } else if is_tieu_ngu(t) {
@@ -567,10 +693,10 @@ fn classify(entries: &[Entry]) -> Vec<Option<&'static Component>> {
         } else if header && is_date(t) {
             Some(&nd30::DIA_DANH)
         } else if t.starts_with("Nơi nhận") {
-            in_noi_nhan = e.cell;
+            in_noi_nhan = Some(e.cell);
             Some(&nd30::NOI_NHAN)
-        } else if in_noi_nhan.is_some()
-            && e.cell == in_noi_nhan
+        } else if in_noi_nhan == Some(e.cell)
+            && (e.cell.is_some() || prev_noi_nhan)
             && (t.starts_with('-') || t.starts_with('–'))
         {
             Some(&nd30::NOI_NHAN_LIST)
@@ -579,6 +705,7 @@ fn classify(entries: &[Entry]) -> Vec<Option<&'static Component>> {
         } else if e.area == Area::Body && !title_seen && e.top_level() && type_name(t) {
             title_seen = true;
             summary_next = true;
+            prev_noi_nhan = false;
             roles[i] = Some(&nd30::TEN_LOAI);
             continue;
         } else if summary_next && e.top_level() && !is_rule(e.p) {
@@ -587,6 +714,8 @@ fn classify(entries: &[Entry]) -> Vec<Option<&'static Component>> {
             None
         };
         summary_next = false;
+        prev_noi_nhan =
+            role.is_some_and(|r| r.id == nd30::NOI_NHAN.id || r.id == nd30::NOI_NHAN_LIST.id);
         roles[i] = role;
     }
     // Issuing body: the text lines of the left header column above the number.
@@ -594,6 +723,25 @@ fn classify(entries: &[Entry]) -> Vec<Option<&'static Component>> {
         .filter(|&i| entries[i].area == Area::HeaderLeft && has_text(&entries[i]))
         .take_while(|&i| roles[i].is_none())
         .collect();
+    // Without a header table: the upper-case lines above the number.
+    let left = if has_header {
+        left
+    } else {
+        let so = roles
+            .iter()
+            .position(|r| r.is_some_and(|r| r.id == nd30::SO_KY_HIEU.id))
+            .unwrap_or(0);
+        (0..so)
+            .filter(|&i| {
+                let e = &entries[i];
+                roles[i].is_none()
+                    && e.top_level()
+                    && has_text(e)
+                    && !is_rule(e.p)
+                    && is_upper(&e.text)
+            })
+            .collect()
+    };
     if let Some((&last, rest)) = left.split_last() {
         roles[last] = Some(&nd30::CO_QUAN);
         for &i in rest {
@@ -604,12 +752,12 @@ fn classify(entries: &[Entry]) -> Vec<Option<&'static Component>> {
     let mut cells: Vec<[usize; 4]> = entries
         .iter()
         .filter(|e| e.area == Area::Signature)
-        .filter_map(|e| e.cell)
+        .filter_map(|e| e.group)
         .collect();
     cells.dedup();
     for cell in cells {
         let lines: Vec<usize> = (0..entries.len())
-            .filter(|&i| entries[i].cell == Some(cell) && has_text(&entries[i]))
+            .filter(|&i| entries[i].group == Some(cell) && has_text(&entries[i]))
             .collect();
         let titles = lines
             .iter()
@@ -821,15 +969,20 @@ fn line_name(l: LineSpacing) -> String {
 // ---- page numbers ----------------------------------------------------------------------
 
 fn page_field(blocks: &[Block]) -> Option<&Paragraph> {
-    all_paragraphs(blocks).into_iter().find(|p| {
-        p.runs.iter().flat_map(|r| &r.content).any(|c| match c {
-            RunContent::Field { instr, .. } => instr
-                .split_whitespace()
-                .next()
-                .is_some_and(|w| w.eq_ignore_ascii_case("PAGE")),
-            RunContent::Opaque(r) => r.xml.contains(" PAGE ") || r.xml.contains(">PAGE<"),
-            _ => false,
-        })
+    all_paragraphs(blocks)
+        .into_iter()
+        .find(|p| is_page_field(p))
+}
+
+/// The paragraph shows a PAGE field (§17.16.5.43).
+fn is_page_field(p: &Paragraph) -> bool {
+    p.runs.iter().flat_map(|r| &r.content).any(|c| match c {
+        RunContent::Field { instr, .. } => instr
+            .split_whitespace()
+            .next()
+            .is_some_and(|w| w.eq_ignore_ascii_case("PAGE")),
+        RunContent::Opaque(r) => r.xml.contains(" PAGE ") || r.xml.contains(">PAGE<"),
+        _ => false,
     })
 }
 
@@ -892,10 +1045,281 @@ fn check_page_number(doc: &Document, out: &mut Out) {
     }
 }
 
+// ---- fixes -------------------------------------------------------------------------------
+
+/// The sections of `doc` with the fixable deviations corrected: every occurrence of the
+/// issues `ids` (`None`: all of them). Only direct formatting and page setup change, so
+/// the result can be applied as one undoable edit.
+pub fn fix(doc: &Document, ids: Option<&[String]>) -> Vec<Section> {
+    let out = analyse(doc);
+    let wanted = |id: &str| ids.is_none_or(|ids| ids.iter().any(|i| i == id));
+    let mut d = Document {
+        sections: doc.sections.clone(),
+        ..Document::default()
+    };
+    let paths = index::body_paragraphs(doc);
+    for issue in out.issues.iter().filter(|i| i.fixable && wanted(&i.id)) {
+        match issue.component.as_str() {
+            "page" => {
+                for s in &mut d.sections {
+                    fix_page(&mut s.page, &issue.property);
+                }
+            }
+            "font" => fix_fonts(doc, &mut d, &paths),
+            c if c == nd30::SO_TRANG.id => fix_page_number(doc, &mut d, &issue.property),
+            component => {
+                let rule = Rule::of(component);
+                let mut done: Vec<usize> = Vec::new();
+                for (_, para) in out.hits.iter().filter(|(id, _)| *id == issue.id) {
+                    if done.contains(para) {
+                        continue;
+                    }
+                    done.push(*para);
+                    let Some(path) = paths.get(*para) else {
+                        continue;
+                    };
+                    let (Some(orig), Some(p)) =
+                        (index::para_at(doc, path), index::para_at_mut(&mut d, path))
+                    else {
+                        continue;
+                    };
+                    fix_para(doc, orig, p, &rule, &issue.property);
+                }
+            }
+        }
+    }
+    d.sections
+}
+
+/// The rule a paragraph issue refers to: a component, or the body text.
+struct Rule {
+    size: Range<u32>,
+    preferred: u32,
+    bold: Option<bool>,
+    italic: Option<bool>,
+    align: Option<Alignment>,
+}
+
+impl Rule {
+    fn of(component: &str) -> Rule {
+        match nd30::COMPONENTS.iter().find(|c| c.id == component) {
+            Some(c) => Rule {
+                size: c.size,
+                preferred: c.preferred,
+                bold: c.bold,
+                italic: c.italic,
+                align: c.align,
+            },
+            None => Rule {
+                size: BODY.size,
+                preferred: BODY.preferred,
+                bold: None,
+                italic: None,
+                align: Some(BODY.align),
+            },
+        }
+    }
+}
+
+/// Correct `property` of paragraph `p` (a copy of `orig`, whose effective formatting is
+/// read from `doc`) by direct formatting (ECMA-376 Part 1, §17.3.1 pPr, §17.3.2 rPr).
+fn fix_para(doc: &Document, orig: &Paragraph, p: &mut Paragraph, rule: &Rule, property: &str) {
+    let runs = orig
+        .runs
+        .iter()
+        .zip(p.runs.iter_mut())
+        .filter(|(o, _)| is_text_run(o));
+    match property {
+        // NĐ 30/2020/NĐ-CP Phụ lục I, mục II: cỡ chữ of each component / of the body.
+        "size" => {
+            for (o, n) in runs {
+                let size = effective_run(doc, orig, &o.props).size.map_or(20, |h| h.0);
+                if !rule.size.contains(size) {
+                    n.props.size = Some(HalfPoints(rule.preferred));
+                }
+            }
+        }
+        // §17.3.2.1 b, §17.3.2.16 i.
+        "bold" | "italic" => {
+            let bold = property == "bold";
+            let Some(want) = (if bold { rule.bold } else { rule.italic }) else {
+                return;
+            };
+            for (o, n) in runs {
+                let r = effective_run(doc, orig, &o.props);
+                if bold && r.bold.unwrap_or(false) != want {
+                    n.props.bold = Some(want);
+                } else if !bold && r.italic.unwrap_or(false) != want {
+                    n.props.italic = Some(want);
+                }
+            }
+        }
+        // "In hoa": shown as capitals (§17.3.2.5 caps) without retyping the text.
+        "case" => {
+            for (_, n) in runs {
+                n.props.caps = Some(true);
+            }
+        }
+        // §17.3.1.13 jc.
+        "align" => p.props.align = rule.align.or(p.props.align),
+        // Phụ lục I, mục II.6: lùi đầu dòng 1–1,27 cm (§17.3.1.12 ind firstLine).
+        "indent" => p.props.indent_first_line = Some(Twips(BODY.preferred_first_line)),
+        // Cách đoạn tối thiểu 6 pt (§17.3.1.33 spacing after).
+        "spacing" => {
+            let before = effective_para(doc, &orig.props)
+                .space_before
+                .map_or(0, |t| t.0);
+            p.props.space_after = Some(Twips((BODY.min_paragraph_spacing - before).max(0)));
+        }
+        // Khoảng cách dòng: dòng đơn đến 1,5 lines (§17.3.1.33 spacing line).
+        "lineSpacing" => p.props.line_spacing = Some(LineSpacing::Auto(BODY.preferred_line)),
+        _ => {}
+    }
+}
+
+/// Phụ lục I, mục IV: A4 portrait and margins within range (§17.6.13 pgSz, §17.6.11
+/// pgMar); a margin out of range is moved to the nearest allowed value.
+fn fix_page(page: &mut bo_model::PageSetup, property: &str) {
+    let clamp = |t: &mut Twips, r: Range<f64>| {
+        let mm = nd30::twips_to_mm(t.0);
+        if mm < r.min - MARGIN_TOLERANCE {
+            *t = Twips(nd30::mm_to_twips(r.min));
+        } else if mm > r.max + MARGIN_TOLERANCE {
+            *t = Twips(nd30::mm_to_twips(r.max));
+        }
+    };
+    match property {
+        "paper" => {
+            page.width = Twips(nd30::mm_to_twips(PAGE.width));
+            page.height = Twips(nd30::mm_to_twips(PAGE.height));
+        }
+        "marginTop" => clamp(&mut page.margin_top, PAGE.top),
+        "marginBottom" => clamp(&mut page.margin_bottom, PAGE.bottom),
+        "marginLeft" => clamp(&mut page.margin_left, PAGE.left),
+        "marginRight" => clamp(&mut page.margin_right, PAGE.right),
+        _ => {}
+    }
+}
+
+/// Phụ lục I, mục I: phông chữ Times New Roman — named on every run that shows another
+/// font (§17.3.2.26 rFonts ascii / hAnsi).
+fn fix_fonts(doc: &Document, d: &mut Document, paths: &[Vec<usize>]) {
+    let fix = |orig: &Paragraph, p: &mut Paragraph| {
+        for (o, n) in orig.runs.iter().zip(p.runs.iter_mut()) {
+            if !is_text_run(o) {
+                continue;
+            }
+            let ok = run_fonts(doc, orig, &o.props).iter().all(|f| {
+                f.as_deref()
+                    .is_some_and(|f| f.eq_ignore_ascii_case(nd30::FONT))
+            });
+            if !ok {
+                n.props.font = Some(nd30::FONT.to_owned());
+                n.props.font_h_ansi = Some(nd30::FONT.to_owned());
+                n.props.theme_ascii = None;
+                n.props.theme_h_ansi = None;
+            }
+        }
+    };
+    for path in paths {
+        if let (Some(o), Some(p)) = (index::para_at(doc, path), index::para_at_mut(d, path)) {
+            fix(o, p);
+        }
+    }
+    for (s, ns) in doc.sections.iter().zip(d.sections.iter_mut()) {
+        for (o, n) in hf_parts(s).zip(hf_parts_mut(ns)) {
+            for (op, np) in all_paragraphs(o).into_iter().zip(all_paragraphs_mut(n)) {
+                fix(op, np);
+            }
+        }
+    }
+}
+
+fn hf_parts_mut(s: &mut Section) -> impl Iterator<Item = &mut Vec<Block>> {
+    [
+        &mut s.headers.default,
+        &mut s.headers.first,
+        &mut s.headers.even,
+        &mut s.footers.default,
+        &mut s.footers.first,
+        &mut s.footers.even,
+    ]
+    .into_iter()
+    .flatten()
+}
+
+fn all_paragraphs_mut(blocks: &mut [Block]) -> Vec<&mut Paragraph> {
+    let mut v = Vec::new();
+    for b in blocks {
+        match b {
+            Block::Paragraph(p) => v.push(p),
+            Block::Table(t) => {
+                for r in &mut t.rows {
+                    for c in &mut r.cells {
+                        v.extend(all_paragraphs_mut(&mut c.blocks));
+                    }
+                }
+            }
+            Block::Opaque(_) => {}
+        }
+    }
+    v
+}
+
+/// Phụ lục I, mục II (số trang): canh giữa lề trên, cỡ 13–14, không hiển thị ở trang
+/// thứ nhất (§17.10.6 titlePg with an empty first-page header).
+fn fix_page_number(doc: &Document, d: &mut Document, property: &str) {
+    let (Some(s), Some(ns)) = (doc.sections.first(), d.sections.first_mut()) else {
+        return;
+    };
+    let c = &nd30::SO_TRANG;
+    match property {
+        "align" | "size" => {
+            let Some(o) = s.headers.default.as_deref().and_then(page_field) else {
+                return;
+            };
+            let Some(p) = ns
+                .headers
+                .default
+                .as_deref_mut()
+                .and_then(|b| all_paragraphs_mut(b).into_iter().find(|p| is_page_field(p)))
+            else {
+                return;
+            };
+            if property == "align" {
+                p.props.align = Some(Alignment::Center);
+                return;
+            }
+            for (or, nr) in o.runs.iter().zip(p.runs.iter_mut()) {
+                let field = or
+                    .content
+                    .iter()
+                    .any(|x| matches!(x, RunContent::Field { .. }));
+                let size = effective_run(doc, o, &or.props).size.map_or(20, |h| h.0);
+                if field && !c.size.contains(size) {
+                    nr.props.size = Some(HalfPoints(c.preferred));
+                }
+            }
+        }
+        "firstPage" => {
+            ns.title_page = true;
+            if s.headers.first.as_deref().and_then(page_field).is_some()
+                || ns.headers.first.is_none()
+            {
+                ns.headers.first = Some(vec![Block::Paragraph(Paragraph::default())]);
+            }
+            // The first page keeps its footer.
+            if !s.title_page && ns.footers.first.is_none() {
+                ns.footers.first.clone_from(&ns.footers.default);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bo_model::{HalfPoints, Twips};
 
     fn report(d: &Document) -> Vec<String> {
         check(d).ids().into_iter().map(str::to_owned).collect()

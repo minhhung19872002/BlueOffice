@@ -48,17 +48,32 @@ pub fn build(id: &str) -> Option<Document> {
 }
 
 impl crate::Engine {
-    /// `checkAdminFormat`: the deviations of the open document from the decree.
+    /// `checkAdminFormat`: the deviations of the open document from the decree;
+    /// `fixAdminFormat`: correct the fixable ones (one undoable edit), then check again.
     pub(crate) fn template_command(
         &mut self,
         cmd: &crate::edit::Command,
     ) -> crate::Result<Option<crate::edit::EditResult>> {
-        if !matches!(cmd, crate::edit::Command::CheckAdminFormat) {
-            return Ok(None);
-        }
+        let (dirty, error) = match cmd {
+            crate::edit::Command::CheckAdminFormat => (Vec::new(), None),
+            crate::edit::Command::FixAdminFormat { ids } => {
+                let s = self
+                    .session
+                    .as_mut()
+                    .ok_or(crate::EngineError::NoDocument)?;
+                let sections = check::fix(s.doc(), ids.as_deref());
+                let comments = s.doc().comments.clone();
+                let error = s.replace_content(sections, comments).err();
+                (self.relayout()?, error.map(|e| e.to_string()))
+            }
+            _ => return Ok(None),
+        };
         let report = self.document().map(check::check);
-        let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+        let mut r = self.edit_result(dirty, (None, None, None), error)?;
         r.admin_format = report.map(Box::new);
+        if matches!(cmd, crate::edit::Command::FixAdminFormat { .. }) && r.collab.is_none() {
+            r.collab = self.collab_after_edit();
+        }
         Ok(Some(r))
     }
 }

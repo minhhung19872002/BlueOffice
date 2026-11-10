@@ -26,6 +26,7 @@ mod chart_design_cmd;
 mod cmd;
 pub(crate) mod collab;
 mod comments;
+mod compare_cmd;
 mod datatools_cmd;
 mod formctl_cmd;
 mod inspect_cmd;

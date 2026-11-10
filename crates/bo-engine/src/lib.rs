@@ -45,6 +45,7 @@ pub mod security;
 mod security_cmd;
 pub mod sheet;
 pub mod sigline;
+pub mod slide_compare;
 pub mod slide_edit;
 pub mod slide_export;
 pub mod smartart;

@@ -21,6 +21,7 @@ pub mod chart;
 pub mod chart_style;
 pub mod color;
 pub mod datatools;
+pub mod diff;
 pub mod errcheck;
 pub mod fill;
 pub mod filter;

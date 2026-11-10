@@ -28,7 +28,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Ngữ pháp/văn phong | all | — | 🟡 | ✅ | — | ✅ | 🟡 | — | bo-spell grammar, spelling.spec | 🟡 | BlueDoc gạch xanh: dấu cách, dấu câu, viết hoa đầu câu, lặp từ, ngoặc/nháy, kiểu dấu thanh; chưa phân tích cú pháp |
 | AutoCorrect | all | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | khi gõ trong thân văn bản BlueDoc (CORE-AUTOCORR-001); thiếu header/footer/text box |
 | Tìm/thay (regex, định dạng) | all | — | ✅ | ✅ | — | ✅ | ✅ | — | E2E | ✅ | ký tự đặc biệt ^p ^t…, wildcard, tô sáng tất cả (CORE-FIND-001) |
-| SmartArt | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | corpus smartart-*, diagram_layout, smartart.spec | 🟡 | hiển thị: fallback hoặc tự dựng (7 nhóm); tạo/sửa/đổi màu/chuyển hình: BlueSlide; Doc/Sheet chưa tạo |
+| SmartArt | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus smartart-*, diagram_layout, smartart.spec, smartart-doc-sheet.spec | ✅ | hiển thị: fallback hoặc tự dựng (7 nhóm); tạo/sửa qua ngăn văn bản, bố cục/màu/kiểu ở cả 3 app (CORE-SMART-005); chuyển thành hình chỉ BlueSlide |
 | Biểu đồ c: cơ bản (9 loại) | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | corpus charts-* | ✅ | một bộ vẽ chung cho Sheet/Slide/Doc; kiểu/màu/bố cục nhanh/mẫu biểu đồ (CORE-CHART-007, Sheet + Slide) |
 | Biểu đồ c: nâng cao (bubble, radar, stock, surface, 3D…) | all | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | — | corpus writer-charts-*, slide_show | 🟡 | 100 %, bubble, radar, stock HLC/OHLC, of-pie, tách miếng, surface (nhìn trên), 3D (cột/thanh/trụ/nón/kim tự tháp, đường, vùng, tròn, bề mặt; khối thật); thiếu VHLC/VOHLC |
 | Biểu đồ cx: (waterfall, treemap…) | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | corpus writer-chartex-*, slide-chartex-* | 🟡 | 7 loại đọc/vẽ ở mọi app; tạo trong BlueSheet; chưa regionMap |
@@ -51,9 +51,9 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | VBA | all | ✅ | — | — | ✅ | — | — | — | test | — (chủ ý) | giữ nguyên, cảnh báo, không chạy |
 | BlueScript / recorder | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Add-in | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
-| Dịch / đọc chính tả / đọc to | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
+| Dịch / đọc chính tả / đọc to | all | — | 🟡 | — | — | 🟡 | 🟡 | — | read-aloud tests (provider giả), speech.rs | 🟡 | đọc to + tô từ đang đọc ở 3 app qua `SpeechProvider` (CORE-LANG-003, Web Speech); chưa dịch, chưa đọc chính tả |
 | Định dạng mẫu/macro (.dotx…) | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | variants.rs, bo-cli tests | 🟡 | 14 biến thể theo content type, lưu thành giữ/bỏ VBA, mở mẫu thành tài liệu mới, .thmx (CORE-FMT-001); thiếu bỏ XLM macro |
-| PDF/A, PDF có thẻ | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | xuất PDF thường ✅ |
+| PDF/A, PDF có thẻ | all | — | — | ✅ | — | ✅ | ✅ | — | bo-pdf/tests/pdfa.rs, bo-engine/tests/pdf_export.rs | 🟡 | PDF/A-1b/2b/3b, cây cấu trúc, dấu trang từ đề mục/slide/sheet, hộp thoại Xuất PDF (CORE-FMT-002); chưa kiểm bằng veraPDF |
 | In nâng cao | all | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E print | 🟡 | |
 
 ## BlueDoc

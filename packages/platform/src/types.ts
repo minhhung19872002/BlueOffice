@@ -735,6 +735,12 @@ export type EditCommand =
   | { cmd: 'equationTemplates' }
   | { cmd: 'equation' }
   | { cmd: 'equationFormat'; linear: boolean }
+  /** Edit an equation in place (CORE-MATH-010): enter it, move / type / delete inside it, build up. */
+  | { cmd: 'mathEnter'; end?: boolean }
+  | { cmd: 'mathMove'; motion: MathMotion }
+  | { cmd: 'mathInsert'; text: string }
+  | { cmd: 'mathDelete'; back?: boolean }
+  | { cmd: 'mathAutobuild' }
   /** Grammar and style as you type (CORE-GRAM-001). */
   | { cmd: 'setGrammar'; on: boolean }
   | { cmd: 'grammarIgnore'; rule: string; text: string }
@@ -1119,6 +1125,8 @@ export interface EditResult {
   proofOptions?: ProofOptions;
   /** The equation the selection covers or the caret follows. */
   equation?: EquationInfo;
+  /** The caret inside an equation being edited in place (`caret` / `rects` show it). */
+  math?: MathState;
   /** The phonetic guide the selection covers or the caret follows. */
   ruby?: RubySpec;
   /** The content control around the caret. */
@@ -1336,6 +1344,23 @@ export interface ProtectionInfo {
 }
 
 /** An equation of the document as the equation editor shows it. */
+/** Caret motions inside an equation (`mathMove`). */
+export type MathMotion = 'left' | 'right' | 'home' | 'end' | 'next' | 'prev' | 'exit';
+
+/** The caret inside an equation (CORE-MATH-010). */
+export interface MathState {
+  /** Slot path: [structure index, slot index] per level. */
+  path: [number, number][];
+  /** Offset in the slot. */
+  offset: number;
+  /** A structure is selected (the next Backspace / Delete removes it). */
+  selected: boolean;
+  /** Box of the whole equation. */
+  zone: SelRect;
+  /** Empty slots (drawn as placeholders). */
+  placeholders: SelRect[];
+}
+
 export interface EquationInfo {
   /** UnicodeMath linear form. */
   linear: string;

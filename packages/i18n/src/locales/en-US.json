@@ -418,7 +418,8 @@
     },
     "equation": {
       "linear": "Linear format",
-      "professional": "Professional format"
+      "professional": "Professional format",
+      "editInPlace": "Edit equation in place"
     },
     "fields": {
       "toggleCodes": "Show field codes (Alt+F9)",

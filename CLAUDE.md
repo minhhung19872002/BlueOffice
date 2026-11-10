@@ -162,3 +162,4 @@ cung cấp).
 - [0010](docs/adr/0010-library-deviations-from-prompt.md) Thư viện khác prompt: cầu nối chuỗi JSON, serial date tự cài, không TanStack Query, CSS Modules một phần
 - [0011](docs/adr/0011-own-english-hyphenation-rules.md) Gạch nối tự động: quy tắc tiếng Anh tự viết (không tệp mẫu bên thứ ba), tiếng Việt chỉ ngắt ở dấu cách
 - [0012](docs/adr/0012-bluescript-quickjs-sandbox.md) BlueScript: QuickJS (WASM, MIT) trong Web Worker riêng, API qua cầu JSON allow-list, một lần chạy = một bước hoàn tác, script lưu theo người dùng
+- [0013](docs/adr/0013-math-caret-in-place-equation-editing.md) Sửa phương trình tại chỗ: con trỏ toán (vị trí phương trình + đường dẫn ô + offset) trong engine, sửa trên cây `bo_math::Node`, mỗi thay đổi một op thay đối tượng, hình học ô từ layout

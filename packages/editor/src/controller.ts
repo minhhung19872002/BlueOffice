@@ -28,6 +28,8 @@ export interface EditView {
     rects: EditResult['rects'],
     scrollIntoView?: boolean,
   ): void;
+  /** The equation being edited in place (drawn with the next selection). */
+  setMathMarks?(m: EditResult['math'] | null): void;
 }
 
 /**
@@ -63,6 +65,7 @@ export class DocController {
 
   private apply(r: EditResult): EditResult {
     if (r.dirty.length || r.info) this.view.refresh(r.info, r.dirty);
+    this.view.setMathMarks?.(r.math ?? null);
     this.view.setSelection(r.caret, r.rects);
     this.onResult(r);
     return r;

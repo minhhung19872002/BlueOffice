@@ -121,6 +121,12 @@ Công cụ fuzz (`fuzz/`, workspace riêng, không đóng gói vào sản phẩm
 
 Icon giao diện từ **Lucide** (ISC). Logo/favicon BlueOffice tự thiết kế.
 
+Thư viện biểu tượng chèn vào tài liệu (`assets/icons/library/`, 210 biểu tượng, lệnh "Biểu tượng" của
+BlueDoc / BlueSheet / BlueSlide) là **tác phẩm gốc của dự án BlueOffice (Bluestar)**: từng hình được vẽ
+bằng tay trên lưới 24 × 24 trong `scripts/gen-icon-library.mjs`, không sao chép, không dò nét từ bất kỳ
+bộ icon bên thứ ba hay phần mềm thương mại nào (kể cả Lucide). Không có ràng buộc giấy phép bên thứ ba;
+xem `assets/icons/library/README.md`.
+
 ## Dữ liệu đặc tả
 
 - `crates/bo-drawingml/src/presets.dsl`: 187 hình preset chuyển đổi cơ học từ phụ lục

@@ -74,6 +74,7 @@ pnpm dev                                       # http://localhost:5173/doc
 pnpm --filter @blueoffice/web build
 pnpm lint && pnpm typecheck && pnpm test       # test parity cần bo-cli (tự build nếu thiếu)
 pnpm license-check
+node scripts/gen-icon-library.mjs              # thư viện biểu tượng chèn (assets/icons/library + packages/ui/src/iconLibrary/data.json); sửa hình trong script rồi sinh lại
 pnpm --filter @blueoffice/e2e install-browsers && pnpm test:e2e   # cần web đã build + .NET 8; E2E_PORT=4391 nếu 4173 bận
 pnpm --filter @blueoffice/e2e test:collab      # chỉ E2E cộng tác (tự dựng api + BlueDrive giả lập + proxy; COLLAB_PORT)
 node tests/e2e/collab/stack.mjs                # stack cộng tác để thử tay (COLLAB_STACK_VERBOSE=1)

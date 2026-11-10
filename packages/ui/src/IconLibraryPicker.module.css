@@ -1,0 +1,139 @@
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  font-family: var(--bo-font, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--bo-text, #1b2430);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.close {
+  all: unset;
+  cursor: pointer;
+  padding: 0 6px;
+  font-size: 16px;
+  border-radius: var(--bo-radius, 4px);
+}
+
+.close:hover {
+  background: var(--bo-hover);
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--bo-focus, #1f6feb);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.search {
+  flex: 1 1 160px;
+  min-width: 120px;
+  padding: 3px 6px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: var(--bo-radius, 4px);
+  background: var(--bo-surface, #fff);
+  color: inherit;
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.field select {
+  max-width: 180px;
+}
+
+.grid {
+  height: 300px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  /* The drawings carry their own colours: keep a light ground in every theme. */
+  background: #fff;
+  outline: none;
+}
+
+.row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.cell {
+  box-sizing: border-box;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--bo-radius, 4px);
+}
+
+.cell:hover {
+  background: #eef2f7;
+}
+
+.cell[aria-selected='true'] {
+  background: #dce9fb;
+  border-color: var(--bo-accent, #1f6feb);
+}
+
+.cell:focus-visible {
+  outline: 2px solid var(--bo-focus, #1f6feb);
+  outline-offset: 1px;
+}
+
+.empty {
+  padding: 12px;
+  color: #5b6575;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status {
+  flex: 1;
+  color: var(--bo-text-muted, #5b6575);
+}
+
+.button,
+.primary {
+  padding: 4px 14px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: var(--bo-radius, 4px);
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+
+.primary {
+  background: var(--bo-accent, #1f6feb);
+  border-color: var(--bo-accent, #1f6feb);
+  color: var(--bo-brand-contrast, #fff);
+}
+
+.button:disabled,
+.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

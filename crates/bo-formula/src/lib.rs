@@ -49,7 +49,7 @@ pub use ast::{BinaryOp, Expr, StructItem, StructRef, UnaryOp};
 pub use date::DateSystem;
 pub use eval::{evaluate, EvalConfig, FormatInput, TextFormatter};
 pub use format::{format, format_reference, format_with};
-pub use functions::{function_names, is_volatile_function};
+pub use functions::{function_names, is_volatile_function, linear_fit};
 pub use lookupindex::ExactIndex;
 pub use numfmt::{format_number, format_text};
 pub use parser::{

@@ -429,6 +429,33 @@ fn last_of_feb(y: i64, m: u32, d: u32) -> bool {
     m == 2 && d == days_in_month(y, 2)
 }
 
+/// Days between two dates counting months of 30 days, as the `basis` of YEARFRAC and the
+/// bond functions defines them: `us` is basis 0 (US / NASD: the last day of February counts
+/// as the 30th, a 31st becomes the 30th), otherwise basis 4 (European: every 31st is the 30th).
+/// DAYS360 has its own US rule and does not use this.
+pub(crate) fn days_30_360(a: (i64, u32, u32), b: (i64, u32, u32), us: bool) -> i64 {
+    let ((y1, m1, d1), (y2, m2, d2)) = (a, b);
+    let (mut dd1, mut dd2) = (i64::from(d1), i64::from(d2));
+    if us {
+        if last_of_feb(y1, m1, d1) && last_of_feb(y2, m2, d2) {
+            dd2 = 30;
+        }
+        if last_of_feb(y1, m1, d1) {
+            dd1 = 30;
+        }
+        if dd2 == 31 && dd1 >= 30 {
+            dd2 = 30;
+        }
+        if dd1 == 31 {
+            dd1 = 30;
+        }
+    } else {
+        dd1 = dd1.min(30);
+        dd2 = dd2.min(30);
+    }
+    (y2 - y1) * 360 + (i64::from(m2) - i64::from(m1)) * 30 + (dd2 - dd1)
+}
+
 fn yearfrac(ctx: &mut Ctx, args: &[Value]) -> R {
     let a = serial(ctx, &args[0])?.floor();
     let b = serial(ctx, &args[1])?.floor();
@@ -445,27 +472,10 @@ pub(crate) fn year_frac(a: f64, b: f64, basis: i64, sys: DateSystem) -> Result<f
     let (a, b) = if a > b { (b, a) } else { (a, b) };
     let (y1, m1, d1) = serial_to_ymd(a, sys).ok_or(ErrorKind::Num)?;
     let (y2, m2, d2) = serial_to_ymd(b, sys).ok_or(ErrorKind::Num)?;
-    let thirty = |d1: i64, d2: i64| -> f64 {
-        ((y2 - y1) * 360 + (i64::from(m2) - i64::from(m1)) * 30 + (d2 - d1)) as f64 / 360.0
-    };
+    let thirty = |us: bool| days_30_360((y1, m1, d1), (y2, m2, d2), us) as f64 / 360.0;
     let r = match basis {
-        0 => {
-            // US (NASD) 30/360.
-            let (mut dd1, mut dd2) = (i64::from(d1), i64::from(d2));
-            if last_of_feb(y1, m1, d1) && last_of_feb(y2, m2, d2) {
-                dd2 = 30;
-            }
-            if last_of_feb(y1, m1, d1) {
-                dd1 = 30;
-            }
-            if dd2 == 31 && dd1 >= 30 {
-                dd2 = 30;
-            }
-            if dd1 == 31 {
-                dd1 = 30;
-            }
-            thirty(dd1, dd2)
-        }
+        // US (NASD) 30/360.
+        0 => thirty(true),
         1 => {
             let within_year = y1 == y2 || (y2 == y1 + 1 && (m1, d1) >= (m2, d2));
             if within_year {
@@ -485,7 +495,7 @@ pub(crate) fn year_frac(a: f64, b: f64, basis: i64, sys: DateSystem) -> Result<f
         }
         2 => (b - a) / 360.0,
         3 => (b - a) / 365.0,
-        _ => thirty(i64::from(d1).min(30), i64::from(d2).min(30)),
+        _ => thirty(false),
     };
     Ok(r)
 }

@@ -59,6 +59,7 @@ export * from './sheetDataTools';
 export * from './speech';
 export * from './windows';
 export * from './translation';
+export * from './ai';
 export * from './buildingBlocks';
 export * from './docStyles';
 export * from './queryData';

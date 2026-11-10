@@ -15,6 +15,8 @@ import {
   SavePasswordPanel,
   SmartArtDialog,
   SymbolPanel,
+  IconPanel,
+  insertSlideIcons,
   PrintPanel,
   clipboardHistory,
   pictureTabLabels,
@@ -27,6 +29,9 @@ import {
   useDictation,
   registerTranslateCommands,
   TranslateLink,
+  AiLink,
+  registerAiCommands,
+  useBlueAi,
   translatedName,
   useTranslate,
   type TranslateAction,
@@ -57,6 +62,7 @@ import {
   translateDeckTexts,
   translateSelectedShapes,
 } from './translate';
+import { SLIDE_AI_COMMANDS, slideAiFeatures } from './slideAi';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
   ClipboardContent,
@@ -614,6 +620,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   useEffect(() => {
     translateLink.attach(translate);
   });
+  // BlueAI (CORE-AI-001): a task pane; slides from an outline work without the provider.
+  const ai = useBlueAi(platform.ai, platform.clipboard);
+  const [aiLink] = useState(() => new AiLink());
+  useEffect(() => {
+    aiLink.attach(ai);
+  });
   const [readNotes, setReadNotes] = useState(() => {
     try {
       return localStorage.getItem('bo.readAloud.slideNotes') === '1';
@@ -719,6 +731,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [commentsOpen, setCommentsOpen] = useState(false);
   /** Symbol picker panel (inserts into the text being edited, else a new text box). */
   const [symbolsOpen, setSymbolsOpen] = useState(false);
+  const [iconsOpen, setIconsOpen] = useState(false);
   const [checkOpen, setCheckOpen] = useState(false);
   /** Version history / compare versions pane (CORE-VERSION-001). */
   const [versionsOpen, setVersionsOpen] = useState(false);
@@ -2359,6 +2372,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     // Insert.
     simple('insert.textBox', { cmd: 'insertTextBox', text: '' }, deck);
     reg.register({ id: 'insert.symbol', isEnabled: deck, run: async () => setSymbolsOpen(true) });
+    reg.register({ id: 'insert.icon', isEnabled: deck, run: async () => setIconsOpen(true) });
     reg.register({
       id: 'review.checkDocument',
       isEnabled: deck,
@@ -2392,6 +2406,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         await readAloudLink.aloud()?.start(req);
       },
       current: () => readAloudLink.aloud(),
+    });
+    registerAiCommands(reg, {
+      enabled: deck,
+      features: SLIDE_AI_COMMANDS,
+      isOff: () => aiLink.off,
+      begin: (_s, feature) =>
+        aiLink.open({
+          features: slideAiFeatures({
+            t: (key, options) => t(key, options ?? {}),
+            run: (c) => ctrl.run(c),
+          }),
+          feature,
+        }),
     });
     registerTranslateCommands(reg, {
       enabled: deck,
@@ -2720,6 +2747,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     readAloudLink,
     dictationLink,
     translateLink,
+    aiLink,
     readNotes,
     uiLang,
     fail,
@@ -3332,7 +3360,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           {
             id: 'symbols',
             label: t('ribbon.groups.symbols'),
-            items: [item('insert.symbol', t('commands.insert.symbol'), <Omega size={18} />)],
+            items: [
+              item('insert.symbol', t('commands.insert.symbol'), <Omega size={18} />),
+              item('insert.icon', t('commands.insert.icon'), <Shapes size={18} />),
+            ],
           },
           {
             id: 'shapes',
@@ -3498,6 +3529,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 sm,
               ),
             ],
+          },
+          {
+            id: 'ai',
+            label: t('ribbon.groups.ai'),
+            items: [item('ai.pane', t('commands.ai.pane'), <Sparkles size={18} />)],
           },
         ],
       },
@@ -4531,6 +4567,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               onClose={() => setSymbolsOpen(false)}
             />
           )}
+          {iconsOpen && (
+            <IconPanel
+              onInsert={(icons) => insertSlideIcons(ctrl, icons).catch(fail)}
+              onClose={() => setIconsOpen(false)}
+            />
+          )}
           <TaskPaneHost
             placement="flex"
             layout={paneLayout}
@@ -4673,9 +4715,21 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     } satisfies TaskPaneDef,
                   ]
                 : []),
+              ...(ai.active && count > 0
+                ? [
+                    {
+                      id: 'ai',
+                      title: t('ai.title'),
+                      icon: <Sparkles size={14} aria-hidden />,
+                      closeTestId: 'ai-close',
+                      content: ai.content,
+                    } satisfies TaskPaneDef,
+                  ]
+                : []),
             ]}
             onClose={(id) => {
-              if (id === 'selection') setSelectionOpen(false);
+              if (id === 'ai') ai.close();
+              else if (id === 'selection') setSelectionOpen(false);
               else if (id === 'animation') setPaneOpen(false);
               else if (id === 'comments') setCommentsOpen(false);
               else if (id === 'script') setScriptOpen(false);

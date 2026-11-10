@@ -432,6 +432,26 @@ Văn bản được gửi tới dịch vụ dịch do quản trị viên cấu h
 > **Hạn chế:** chưa có bộ dịch chạy ngay trên máy. BlueDoc chưa dịch đầu trang, chân trang, chú thích, bình luận,
 > hộp văn bản; BlueSlide chưa dịch bảng. Dịch cả tài liệu chưa hỏi xác nhận khi tệp đang có thay đổi chưa lưu.
 
+### 9.4. BlueAI
+
+Bấm **Xem lại › BlueAI** để mở ngăn **BlueAI**. Ngăn nêu rõ nội dung sẽ được gửi tới máy chủ nào và giới hạn ký tự
+mỗi yêu cầu; không có gì được gửi cho tới khi bạn bấm **Tạo**. Kết quả luôn hiện ở dạng **xem trước**: bấm nút áp dụng
+để dùng, **Sao chép** hoặc **Bỏ**.
+
+- **BlueDoc:** **Viết lại phần chọn** (giọng văn **Trang trọng (văn phong hành chính)**, **Ngắn gọn**, **Thân
+  thiện**), **Tóm tắt** phần chọn hoặc cả tài liệu, **Soạn nháp theo yêu cầu**; rồi **Thay thế phần chọn** hoặc
+  **Chèn** (một bước hoàn tác, được ghi nhận khi đang theo dõi thay đổi).
+- **BlueSlide:** **Trang chiếu từ dàn ý (không cần AI)** — gõ dàn ý, mỗi dòng không thụt lề là tiêu đề một trang, dòng
+  thụt lề hoặc bắt đầu bằng `-` là ý của trang đó; hoặc **Dàn ý trang chiếu từ chủ đề**; rồi **Tạo trang chiếu**.
+- **BlueSheet:** **Gợi ý công thức** từ mô tả (công thức được kiểm tra cú pháp, chỉ chèn khi bạn bấm **Chèn vào ô hiện
+  hành**) và **Phân tích dữ liệu** vùng chọn.
+
+BlueAI mặc định tắt; quản trị viên bật và chọn dịch vụ: [`../deploy/ai.md`](../deploy/ai.md). Khi tắt, chỉ **Trang
+chiếu từ dàn ý** dùng được.
+
+> **Hạn chế:** nội dung do AI tạo có thể sai, hãy đọc lại trước khi dùng. BlueOffice không kèm mô hình nào. Dàn ý chỉ
+> tạo trang tiêu đề + nội dung (chưa chọn bố cục, chưa có hình ảnh).
+
 ## 10. Tự động hóa bằng BlueScript
 
 BlueScript là công cụ viết kịch bản bằng JavaScript chạy trong vùng cách ly, thay cho macro.

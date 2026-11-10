@@ -119,6 +119,17 @@ export interface CalcState {
   circular: (AuditCell & { label: string })[];
 }
 
+/** Answer of `checkFormula`: does the text parse and are its functions known. */
+export interface FormulaCheck {
+  /** Parses and calls only built-in functions or defined names. */
+  ok: boolean;
+  /** The syntax error (`pos`: byte offset in the text). */
+  error: { message: string; pos: number } | null;
+  /** Functions the formula calls (upper case, in order of first use). */
+  functions: string[];
+  unknownFunctions: string[];
+}
+
 /** Auditing and calculation commands. */
 export type AuditCommand =
   /** Precedent (`dependents` false) or dependent arrows, `levels` deep → {@link TraceArrows}. */
@@ -132,6 +143,8 @@ export type AuditCommand =
     }
   /** Step-by-step evaluation → {@link EvalTrace} or `null`. */
   | { cmd: 'evaluateFormula'; sheet: number; row: number; col: number }
+  /** Syntax check of a formula text; nothing is written or calculated → {@link FormulaCheck}. */
+  | { cmd: 'checkFormula'; formula: string }
   /** Findings of a sheet → {@link ErrorFinding}[]. */
   | { cmd: 'errorCheck'; sheet: number; rules?: Partial<ErrorRules> }
   /** Ignore a finding (saved with the sheet); one undo step. */

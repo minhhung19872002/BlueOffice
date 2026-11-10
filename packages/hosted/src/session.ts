@@ -19,6 +19,7 @@ import type {
   VersionHistory,
 } from '@blueoffice/platform';
 import {
+  ServerAiProvider,
   ServerTranslationProvider,
   appOfXml,
   defaultDictation,
@@ -463,6 +464,13 @@ export function hostedPlatform(
     people: sessionPeople(api, session, fetchImpl),
     // Translation through the session's server (CORE-LANG-001; unavailable unless configured there).
     translation: new ServerTranslationProvider({
+      baseUrl: api,
+      session: session.sessionId,
+      headers: () => ({ 'x-session-token': session.sessionToken }),
+      fetch: (url, init) => fetchImpl(url, init),
+    }),
+    // BlueAI through the session's server (CORE-AI-001; off unless enabled there).
+    ai: new ServerAiProvider({
       baseUrl: api,
       session: session.sessionId,
       headers: () => ({ 'x-session-token': session.sessionToken }),

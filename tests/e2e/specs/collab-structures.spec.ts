@@ -14,7 +14,8 @@ import {
 
 async function words(f: FrameLocator): Promise<number> {
   const t = (await f.getByTestId('status-words').textContent()) ?? '';
-  return Number(/(\d+)/.exec(t)?.[1] ?? NaN);
+  // With a selection the bar shows "selected / total" (CORE-UI-007): the total is the last number.
+  return Number(t.match(/\d+/g)?.at(-1) ?? NaN);
 }
 
 /** Selects the first match of `text` through the find bar and closes it. */

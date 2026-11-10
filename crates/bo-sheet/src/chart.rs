@@ -2323,48 +2323,17 @@ struct Fit {
     c: Vec<f64>,
 }
 
-/// Least squares solution of the normal equations (small systems, Gaussian elimination).
-fn solve(mut m: Vec<Vec<f64>>, mut v: Vec<f64>) -> Option<Vec<f64>> {
-    let n = v.len();
-    for i in 0..n {
-        let p = (i..n).max_by(|a, b| m[*a][i].abs().total_cmp(&m[*b][i].abs()))?;
-        if m[p][i].abs() < 1e-12 {
-            return None;
-        }
-        m.swap(i, p);
-        v.swap(i, p);
-        for r in 0..n {
-            if r != i {
-                let f = m[r][i] / m[i][i];
-                let pivot = m[i].clone();
-                for (cell, p) in m[r].iter_mut().zip(&pivot).skip(i) {
-                    *cell -= f * p;
-                }
-                v[r] -= f * v[i];
-            }
-        }
-    }
-    Some((0..n).map(|i| v[i] / m[i][i]).collect())
-}
-
 impl Fit {
     fn new(t: &bo_model::sheet::Trendline, pts: &[(f64, f64)]) -> Option<Fit> {
         if pts.len() < 2 {
             return None;
         }
-        // Linear fit of (g(x), h(y)): returns (intercept, slope).
+        // Linear fit of (g(x), h(y)) by the LINEST solver: returns (intercept, slope).
         let line = |pts: &[(f64, f64)]| -> Option<(f64, f64)> {
-            let n = pts.len() as f64;
-            let (sx, sy) = pts.iter().fold((0.0, 0.0), |(a, b), (x, y)| (a + x, b + y));
-            let (sxx, sxy) = pts
-                .iter()
-                .fold((0.0, 0.0), |(a, b), (x, y)| (a + x * x, b + x * y));
-            let d = n * sxx - sx * sx;
-            if d.abs() < 1e-12 {
-                return None;
-            }
-            let b = (n * sxy - sx * sy) / d;
-            Some(((sy - b * sx) / n, b))
+            let x: Vec<Vec<f64>> = pts.iter().map(|(x, _)| vec![*x]).collect();
+            let y: Vec<f64> = pts.iter().map(|(_, y)| *y).collect();
+            let (m, b) = bo_formula::linear_fit(&x, &y)?;
+            Some((b, m[0]))
         };
         let c = match t.kind.as_str() {
             "exp" => {
@@ -2396,17 +2365,14 @@ impl Fit {
             }
             "poly" => {
                 let k = (t.order.clamp(2, 6) as usize).min(pts.len() - 1);
-                let m: Vec<Vec<f64>> = (0..=k)
-                    .map(|i| {
-                        (0..=k)
-                            .map(|j| pts.iter().map(|(x, _)| x.powi((i + j) as i32)).sum())
-                            .collect()
-                    })
+                // Polynomial: least squares on the powers x, x², …, xᵏ (LINEST with x^{1,2,…}).
+                let x: Vec<Vec<f64>> = pts
+                    .iter()
+                    .map(|(x, _)| (1..=k).map(|i| x.powi(i as i32)).collect())
                     .collect();
-                let v: Vec<f64> = (0..=k)
-                    .map(|i| pts.iter().map(|(x, y)| y * x.powi(i as i32)).sum())
-                    .collect();
-                solve(m, v)?
+                let y: Vec<f64> = pts.iter().map(|(_, y)| *y).collect();
+                let (m, b) = bo_formula::linear_fit(&x, &y)?;
+                std::iter::once(b).chain(m).collect()
             }
             "movingAvg" => Vec::new(),
             _ => {

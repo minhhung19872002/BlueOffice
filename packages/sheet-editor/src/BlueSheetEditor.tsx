@@ -47,6 +47,8 @@ import {
   CommentThreads,
   type MentionSubmit,
   Ribbon,
+  ribbonLabels,
+  RIBBON_CONTEXTS,
   CommandSearch,
   StatusBar,
   TitleBar,
@@ -342,6 +344,12 @@ import {
   type Selection,
 } from './grid';
 import styles from './SheetEditor.module.css';
+
+/**
+ * Contexts whose tab is activated when they appear (CORE-UI-001);
+ * the active cell moves through tables and sparklines while typing: those tabs only show.
+ */
+const AUTO_CONTEXTS = RIBBON_CONTEXTS.filter((c) => c !== 'table' && c !== 'sparkline');
 
 export interface BlueSheetEditorProps {
   platform: Platform;
@@ -3973,6 +3981,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (state?.sparkline) {
       tabs.push({
         id: 'sparkline',
+        context: 'sparkline',
         label: t('sparkline.tab'),
         groups: sparklineTabGroups(t, item),
       });
@@ -3981,6 +3990,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (state?.table) {
       tabs.push({
         id: 'tableDesign',
+        context: 'table',
         label: t('tableDesign.tab'),
         groups: tableDesignTabGroups(t, item, {
           table: state.table,
@@ -3993,6 +4003,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (smartArt !== null) {
       tabs.push({
         id: 'smartart',
+        context: 'smartArt',
         label: t('slideEditor.smartart.tab'),
         groups: [
           {
@@ -4012,6 +4023,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       ...tabs,
       {
         id: 'chartDesign',
+        context: 'chart',
         label: t('chartDesign.tab'),
         groups: chartDesignGroups({
           t,
@@ -4186,7 +4198,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           noResults: t('commandSearch.noResults'),
         }}
       />
-      <Ribbon tabs={ribbonTabs} moreLabel={t('ribbon.more')} />
+      <Ribbon tabs={ribbonTabs} labels={ribbonLabels(t)} autoActivate={AUTO_CONTEXTS} />
       {legacyNotice > 0 && (
         <div className={styles.macroBar} role="status" data-testid="legacy-notice">
           <span>{t('legacy.sheetConverted', { count: legacyNotice })}</span>

@@ -230,6 +230,7 @@ export function usePictureTools(host: PictureToolsHost): {
   const tab: RibbonTab | null = enabled
     ? {
         id: 'pictureFormat',
+        context: 'picture',
         label: l.tab,
         groups: [
           {

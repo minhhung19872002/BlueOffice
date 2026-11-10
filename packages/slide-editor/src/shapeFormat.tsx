@@ -145,6 +145,7 @@ export function shapeFormatTab<S extends ShapeToolState>({
   const anyMerge = mergeEntries.some((e) => e.enabled);
   return {
     id: 'shapeFormat',
+    context: 'shape',
     label: t('slideEditor.shapeTools.tab'),
     groups: [
       {

@@ -52,10 +52,21 @@ icon. Làm xen kẽ với `docs/parity/BACKLOG.md`.
   selection. *Xong khi:* không còn JSX từng nút; test cấu hình hợp lệ (id tồn tại trong registry).
 - [ ] **UI-RIBBON-002** (P0) Co giãn theo độ rộng (lớn → nhỏ → chỉ icon → thu nhóm vào nút thả xuống) với test 1920/1440/1280/
   1024/768. *Xong khi:* unit test mốc độ rộng + visual.
-- [ ] **UI-RIBBON-003** (P0) Chế độ ribbon Đầy đủ / Đơn giản (một hàng, lệnh ít dùng vào "…") / Tự ẩn; Ctrl+F1; nhớ lựa chọn.
-  *Xong khi:* E2E đổi chế độ ribbon.
-- [ ] **UI-RIBBON-004** (P0) Tab ngữ cảnh (nhãn nhóm "Công cụ bảng"…, cùng màu nhấn) hiện theo selection. *Xong khi:* E2E chọn
-  bảng hiện tab Thiết kế bảng/Bố cục bảng.
+- [~] **UI-RIBBON-003** (P0) Chế độ ribbon Đầy đủ / Đơn giản (một hàng, lệnh ít dùng vào "…") / Tự ẩn; Ctrl+F1; nhớ lựa chọn.
+  *Xong khi:* E2E đổi chế độ ribbon. **Đã có (CORE-UI-001):** `ribbonMode.ts` (`useRibbonPrefs`, nhớ `localStorage` `bo.ribbon`
+  có try/catch, dùng chung 3 app); nút "Ribbon đơn giản" + Thu gọn/Mở rộng ở cuối hàng tab; Đơn giản = một hàng ~40px, mỗi nhóm
+  giữ lệnh gắn `simplified` (mặc định 3 lệnh đầu) + "…" chứa phần còn lại, vẫn co giãn bằng `planRibbonLayout`; Ctrl+F1 / nhấp đúp
+  tab thu gọn chỉ còn hàng tab, nhấp tab hiện lệnh nổi trên tài liệu (đóng khi chạy lệnh, Esc, nhấp ngoài). Test
+  `ribbonContext.test.tsx`, E2E `ribbon-context.spec.ts`. Chưa có: chế độ Tự ẩn cả hàng tab; chọn lệnh `simplified` theo tần suất.
+- [x] **UI-RIBBON-004** (P0) Tab ngữ cảnh (nhãn nhóm "Công cụ bảng"…, cùng màu nhấn) hiện theo selection. *Xong khi:* E2E chọn
+  bảng hiện tab Thiết kế bảng/Bố cục bảng. **Đã có (CORE-UI-001):** `RibbonTab.context`
+  (`table` · `picture` · `chart` · `shape` · `headerFooter` · `smartArt` · `equation` · `ink` · `object` · `media` · `sparkline`,
+  `ribbonContext.ts`): tab ngữ cảnh xếp sau tab thường, theo từng nhóm có nhãn "Công cụ …" (`ribbon.context.*`) và dải màu nhấn
+  app; tự kích hoạt một lần khi ngữ cảnh xuất hiện (`autoActivate`; ngữ cảnh theo con trỏ — ô bảng, hình đang gõ chữ, sparkline —
+  chỉ hiện), ẩn khi bỏ chọn và quay về tab thường trước đó; cùng một `tablist` nên ←/→/Home/End tới được. BlueDoc: Bảng, Định dạng
+  ảnh, SmartArt, Đầu & chân trang (mới, lệnh `hf.close`); BlueSheet: Thiết kế bảng, Sparkline, SmartArt, Thiết kế biểu đồ;
+  BlueSlide: Hình, SmartArt, Biểu đồ, Bảng, Định dạng ảnh, Media. Test `ribbonContext.test.tsx` + test từng editor, E2E
+  `ribbon-context.spec.ts`. Tab phương trình / mực / đối tượng: khai báo được, chưa editor nào suy ra ngữ cảnh đó.
 - [ ] **UI-RIBBON-005** (P1) Nút tách, gallery có xem trước trực tiếp, nút mở hộp thoại nhóm ↘, tooltip giàu nội dung. *Xong
   khi:* test hover áp dụng tạm rồi hoàn tác.
 - [ ] **UI-RIBBON-DOC-001** (P0) Ribbon BlueDoc đủ tab §6.1 (Tệp, Trang đầu, Chèn, Vẽ, Thiết kế, Bố cục, Tham chiếu, Trộn thư,

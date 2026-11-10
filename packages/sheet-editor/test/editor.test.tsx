@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   PivotInfo,
@@ -358,6 +358,54 @@ describe('BlueSheetEditor', () => {
     expect(bar.textContent).toContain('macros');
     fireEvent.click(bar.querySelector('button')!);
     await waitFor(() => expect(screen.queryByTestId('macro-warning')).toBeNull());
+  });
+
+  it('shows the Table Design contextual tab while the active cell is in a table (CORE-UI-001)', async () => {
+    const { host } = fakeHost();
+    const exec = host.exec;
+    host.exec = (async (cmd: SheetCommand) =>
+      cmd.cmd === 'tables'
+        ? {
+            tables: [
+              {
+                index: 0,
+                id: 1,
+                name: 'Bang1',
+                range: { r0: 0, c0: 0, r1: 2, c1: 1 },
+                headerRow: true,
+                totalsRow: false,
+                filterButton: true,
+                style: null,
+                bandedRows: true,
+                bandedColumns: false,
+                firstColumn: false,
+                lastColumn: false,
+                columns: [],
+              },
+            ],
+            lastAuto: null,
+          }
+        : exec(cmd)) as SheetHost['exec'];
+    const { p } = platform(host);
+    render(<BlueSheetEditor platform={p} language="vi-VN" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    const ribbon = within(screen.getByTestId('ribbon'));
+    const active = () =>
+      ribbon.getAllByRole('tab').find((t) => t.getAttribute('aria-selected') === 'true')
+        ?.textContent;
+    // A1 is in the table: the tab shows under its header (cell context: Home stays active).
+    await waitFor(() => expect(ribbon.getByRole('tab', { name: 'Thiết kế bảng' })).toBeTruthy());
+    expect(document.querySelector('[data-context-group="table"]')!.textContent).toContain(
+      'Công cụ bảng',
+    );
+    expect(active()).toBe('Trang đầu');
+    fireEvent.mouseDown(ribbon.getByRole('tab', { name: 'Thiết kế bảng' }));
+    expect(active()).toBe('Thiết kế bảng');
+    // Leave the table (A4): the tab goes, back to Home.
+    const input = screen.getByLabelText('Ô đang nhập');
+    for (let i = 0; i < 3; i++) fireEvent.keyDown(input, { key: 'ArrowDown' });
+    await waitFor(() => expect(ribbon.queryByRole('tab', { name: 'Thiết kế bảng' })).toBeNull());
+    expect(active()).toBe('Trang đầu');
   });
 
   it('types Vietnamese text into the active cell and commits on Enter', async () => {

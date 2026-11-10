@@ -35,6 +35,8 @@ import {
 } from '@blueoffice/platform';
 import {
   Ribbon,
+  ribbonLabels,
+  RIBBON_CONTEXTS,
   CommandSearch,
   StatusBar,
   TitleBar,
@@ -313,6 +315,12 @@ import { docReadRequest } from './docReadAloud';
 import { demoted, promoted } from './outlineModel';
 import viewStyles from './Views.module.css';
 import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
+
+/**
+ * Contexts whose tab is activated when they appear (CORE-UI-001);
+ * the caret moves through table cells while typing: the Table tab only shows.
+ */
+const AUTO_CONTEXTS = RIBBON_CONTEXTS.filter((c) => c !== 'table');
 
 /** Options controlled by the embedding host (prompt §3.5). */
 export interface HostConfig {
@@ -2243,6 +2251,12 @@ function EditorInner({
       isChecked: (s) => !!s.edit?.story?.linked,
       run: (s) => run({ cmd: 'setHeaderLink', linked: !s.edit?.story?.linked }),
     });
+    // Leave the header/footer being edited (contextual tab, CORE-UI-001).
+    r.register({
+      id: 'hf.close',
+      isEnabled: (s) => s.edit?.story?.kind === 'header' || s.edit?.story?.kind === 'footer',
+      run: () => run({ cmd: 'closeHeaderFooter' }),
+    });
     r.register({
       id: 'insert.pageNumber',
       isEnabled: hasDoc,
@@ -2467,6 +2481,7 @@ function EditorInner({
     ? [
         {
           id: 'smartart',
+          context: 'smartArt',
           label: t('slideEditor.smartart.tab'),
           groups: [
             {
@@ -2494,6 +2509,7 @@ function EditorInner({
     ? [
         {
           id: 'table',
+          context: 'table',
           label: t('ribbon.tabs.table'),
           groups: [
             {
@@ -2624,6 +2640,41 @@ function EditorInner({
         },
       ]
     : [];
+
+  // Header & footer contextual tab (CORE-UI-001) while a header or footer is edited.
+  const storyKind = state.edit?.story?.kind;
+  const headerFooterTab: RibbonTab[] =
+    storyKind === 'header' || storyKind === 'footer'
+      ? [
+          {
+            id: 'headerFooter',
+            context: 'headerFooter',
+            label: t('ribbon.tabs.headerFooter'),
+            groups: [
+              {
+                id: 'hfInsert',
+                label: t('ribbon.groups.headerFooter'),
+                items: [
+                  item('insert.header', 'commands.insert.header', <PanelTop size={ICON} />),
+                  item('insert.footer', 'commands.insert.footer', <PanelBottom size={ICON} />),
+                  item('insert.pageNumber', 'commands.insert.pageNumber', <Hash size={ICON} />),
+                ],
+              },
+              {
+                id: 'hfOptions',
+                label: t('hf.section', { n: (state.edit?.story?.section ?? 0) + 1 }),
+                items: [item('hf.linkToPrevious', 'hf.linkToPrevious', <Link2 size={ICON} />)],
+              },
+              {
+                id: 'hfClose',
+                label: t('hf.close'),
+                items: [item('hf.close', 'hf.close', <X size={ICON} />)],
+              },
+            ],
+          },
+        ]
+      : [];
+  const contextTabs = [...tableTab, ...pictureTab, ...smartArtTab, ...headerFooterTab];
 
   const tabs: RibbonTab[] = [
     {
@@ -3543,7 +3594,7 @@ function EditorInner({
       {app === 'doc' ? (
         <>
           <CommandSearch
-            tabs={[...tabs, ...tableTab, ...pictureTab, ...smartArtTab]}
+            tabs={[...tabs, ...contextTabs]}
             open={searchOpen}
             onClose={() => {
               setSearchOpen(false);
@@ -3557,16 +3608,12 @@ function EditorInner({
           />
           {!(state.focusMode && state.doc) && (
             <Ribbon
-              tabs={[...tabs, ...tableTab, ...pictureTab, ...smartArtTab]}
-              value={
-                (tab === 'table' && !fs?.table) ||
-                (tab === 'pictureFormat' && !picture.tab) ||
-                (tab === 'smartart' && !fs?.smartArt)
-                  ? 'home'
-                  : tab
-              }
+              tabs={[...tabs, ...contextTabs]}
+              // A contextual tab whose object is no longer selected falls back in the ribbon.
+              value={tab}
               onValueChange={setTab}
-              moreLabel={t('ribbon.more')}
+              labels={ribbonLabels(t)}
+              autoActivate={AUTO_CONTEXTS}
             />
           )}
           <main

@@ -7,12 +7,33 @@ export {
 } from './FileTypeDialog';
 export {
   Ribbon,
+  ribbonLabels,
+  SIMPLIFIED_COUNT,
+  simplifiedItems,
   type RibbonGroup,
   type RibbonItem,
+  type RibbonLabels,
   type RibbonLauncher,
   type RibbonProps,
   type RibbonTab,
 } from './Ribbon';
+export {
+  arrangeTabs,
+  decideActiveTab,
+  EMPTY_TRACKER,
+  RIBBON_CONTEXTS,
+  type ActiveTabDecision,
+  type ContextTracker,
+  type RibbonContext,
+} from './ribbonContext';
+export {
+  getRibbonPrefs,
+  setRibbonPrefs,
+  toggleRibbonCollapsed,
+  toggleRibbonSimplified,
+  useRibbonPrefs,
+  type RibbonPrefs,
+} from './ribbonMode';
 export {
   planRibbonLayout,
   type CollapseLevel,

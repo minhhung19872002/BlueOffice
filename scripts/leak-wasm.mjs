@@ -13,7 +13,9 @@
 //   pnpm build:wasm
 //   node scripts/leak-wasm.mjs [cycles=100] [big.docx big.pptx …]
 // Extra files (e.g. `bo-cli sample-big --pages 1000 --rich`, `bo-cli sample-big-deck`) are
-// opened in one more `WasmEngine`: once each as warm-up, then `cycles` / 10 more opens.
+// opened in one more `WasmEngine`: twice each as warm-up (the heap reserved for a big file,
+// `bo-wasm/src/heap.rs`, may be taken a second time before the memory is twice its size),
+// then `cycles` / 10 more opens.
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -44,7 +46,7 @@ async function instance(tag) {
 }
 
 /** Open/close `cycles` documents in one instance; returns the memory samples. */
-async function run(kind, files, tag, more = cycles) {
+async function run(kind, files, tag, more, passes) {
   const { mod, memory } = await instance(tag);
   const sheet = kind === 'xlsx';
   const engine = sheet ? new mod.WasmSheet() : new mod.WasmEngine();
@@ -55,8 +57,9 @@ async function run(kind, files, tag, more = cycles) {
   const samples = [];
   let opened = 0;
   let failed = 0;
-  // Warm-up: every file once; then `cycles` more open/close.
-  const total = files.length + more;
+  // Warm-up: every file `passes` times; then `more` open/close.
+  const warmup = files.length * passes;
+  const total = warmup + more;
   for (let i = 0; i < total; i++) {
     const f = files[i % files.length];
     try {
@@ -76,7 +79,7 @@ async function run(kind, files, tag, more = cycles) {
     samples.push(memory());
   }
   engine.free();
-  const warm = samples[files.length - 1];
+  const warm = samples[warmup - 1];
   const last = samples[samples.length - 1];
   return {
     kind,
@@ -91,22 +94,22 @@ async function run(kind, files, tag, more = cycles) {
 }
 
 const kinds = [
-  ['docx', corpus('doc', '.docx'), cycles],
-  ['pptx', corpus('slide', '.pptx'), cycles],
-  ['xlsx', corpus('sheet', '.xlsx'), cycles],
+  ['docx', corpus('doc', '.docx'), cycles, 1],
+  ['pptx', corpus('slide', '.pptx'), cycles, 1],
+  ['xlsx', corpus('sheet', '.xlsx'), cycles, 1],
 ];
 const big = process.argv.slice(3).map((f) => ({ name: basename(f), bytes: readFileSync(f) }));
-if (big.length) kinds.push(['big', big, Math.max(1, Math.round(cycles / 10))]);
+if (big.length) kinds.push(['big', big, Math.max(1, Math.round(cycles / 10)), 2]);
 let ok = true;
-for (const [i, [kind, files, more]] of kinds.entries()) {
-  const r = await run(kind, files, i, more);
+for (const [i, [kind, files, more, passes]] of kinds.entries()) {
+  const r = await run(kind, files, i, more, passes);
   const grew = r.last - r.warm;
   const pass = grew <= slack;
   ok &&= pass;
   console.log(
-    `${kind}: ${r.files} + ${more} open/close (${r.opened} opened, ${r.failed} refused) ` +
+    `${kind}: ${passes} × ${r.files} + ${more} open/close (${r.opened} opened, ${r.failed} refused) ` +
       `memory base=${r.base.toFixed(1)} MB after-warm-up=${r.warm.toFixed(1)} MB ` +
-      `last=${r.last.toFixed(1)} MB growth=${grew.toFixed(1)} MB ${pass ? 'OK' : 'LEAK'}`,
+      `last=${r.last.toFixed(1)} MB peak=${r.peak.toFixed(1)} MB growth=${grew.toFixed(1)} MB ${pass ? 'OK' : 'LEAK'}`,
   );
 }
 process.exit(ok ? 0 : 1);

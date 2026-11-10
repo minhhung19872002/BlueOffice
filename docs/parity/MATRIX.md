@@ -44,7 +44,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Mô hình 3D | all | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
 | Cộng tác thời gian thực | all | — | ✅ | ✅ | — | ✅ | ✅ | ✅ | collab tests + E2E | ✅ | |
 | Comment luồng | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu @mention, giao việc |
-| Lịch sử phiên bản | all | — | ✅ | ✅ | — | ✅ | ✅ | — | server tests | 🟡 | thiếu so sánh |
+| Lịch sử phiên bản | all | — | ✅ | ✅ | — | ✅ | ✅ | — | server tests, bo-sheet diff, slide_compare, showChanges/compareVersions tests | 🟡 | so sánh Doc/Sheet/Slide + Hiện thay đổi (CORE-VERSION-001); chưa tách theo từng phiên bản trung gian |
 | Mật khẩu / bảo vệ | all | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | interop, protection.rs | 🟡 | + đánh dấu bản cuối, khuyến nghị chỉ đọc, vùng được sửa, nhãn độ mật (CORE-SEC-001); thiếu mật khẩu kiểu cũ w:hash |
 | Ký số | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | bo-sign, sigline.rs | 🟡 | + dòng chữ ký BlueDoc, nhiều chữ ký (CORE-SIGLINE-001); thiếu Sheet/Slide |
 | Kiểm tra tài liệu / tiếp cận | all | — | ✅ | ✅ | — | ✅ | ✅ | — | inspect.rs | 🟡 | rà soát nội dung, trợ năng, tương thích (CORE-INSPECT-001); thiếu ngăn bên, sửa nhanh Sheet |

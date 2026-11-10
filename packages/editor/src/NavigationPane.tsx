@@ -26,6 +26,8 @@ export interface NavigationPaneProps {
   /** Clear the "highlight all" boxes of the results tab. */
   onClearHighlights: () => void;
   onClose: () => void;
+  /** Inside a task pane (CORE-UI-006): the host draws the title bar and close button. */
+  embedded?: boolean;
 }
 
 const THUMB_WIDTH = 132;
@@ -37,20 +39,27 @@ const THUMB_WIDTH = 132;
 export function NavigationPane(p: NavigationPaneProps) {
   const { t } = useTranslation();
   const tabs: NavTab[] = ['headings', 'pages', 'results'];
+  const Root = p.embedded ? 'div' : 'aside';
   return (
-    <aside className={styles.nav} aria-label={t('views.nav.title')} data-testid="navigation-pane">
-      <div className={styles.navHeader}>
-        <strong>{t('views.nav.title')}</strong>
-        <button
-          type="button"
-          aria-label={t('views.nav.close')}
-          title={t('views.nav.close')}
-          onClick={p.onClose}
-          data-testid="navigation-close"
-        >
-          ×
-        </button>
-      </div>
+    <Root
+      className={p.embedded ? styles.navEmbedded : styles.nav}
+      aria-label={p.embedded ? undefined : t('views.nav.title')}
+      data-testid="navigation-pane"
+    >
+      {!p.embedded && (
+        <div className={styles.navHeader}>
+          <strong>{t('views.nav.title')}</strong>
+          <button
+            type="button"
+            aria-label={t('views.nav.close')}
+            title={t('views.nav.close')}
+            onClick={p.onClose}
+            data-testid="navigation-close"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <div className={styles.navTabs} role="tablist">
         {tabs.map((id) => (
           <button
@@ -71,7 +80,7 @@ export function NavigationPane(p: NavigationPaneProps) {
         {p.tab === 'pages' && <PageThumbnails {...p} />}
         {p.tab === 'results' && <Results {...p} />}
       </div>
-    </aside>
+    </Root>
   );
 }
 

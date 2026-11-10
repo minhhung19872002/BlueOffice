@@ -9,6 +9,7 @@
 }
 
 .normal {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -550,6 +551,10 @@ circle.handle {
   font-size: 12px;
 }
 
+.animPaneEmbedded {
+  font-size: 12px;
+}
+
 .animPaneHead {
   display: flex;
   align-items: center;
@@ -780,4 +785,72 @@ circle.handle {
 
 .animPainterOn {
   outline: 2px solid var(--bo-accent, #2f6fde);
+}
+
+/* Selection task pane (CORE-UI-006). */
+.selPane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-size: 12px;
+}
+
+.selTools {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--bo-border, #d0d7de);
+}
+
+.selTools button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+
+.selTools button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.selNote {
+  margin: 0;
+  padding: 6px 10px;
+  color: var(--bo-text-muted, #59636e);
+}
+
+.selList {
+  margin: 0;
+  padding: 2px 4px;
+  list-style: none;
+}
+
+.selItem {
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selItem:hover {
+  background: var(--bo-surface-2, #f3f5f7);
+}
+
+.selItem[aria-selected='true'] {
+  background: var(--bo-accent-subtle, rgb(47 111 214 / 12%));
+  font-weight: 600;
+}
+
+.selItem:focus-visible {
+  outline: 2px solid var(--bo-accent, #2f6fd6);
+  outline-offset: -2px;
 }

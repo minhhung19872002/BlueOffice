@@ -67,6 +67,8 @@ export interface CommentThreadsProps {
   onDelete: (threadId: string) => void;
   onSelect?: (threadId: string) => void;
   onClose: () => void;
+  /** Inside a task pane (CORE-UI-006): the host draws the title bar and close button. */
+  embedded?: boolean;
 }
 
 const when = (iso: string) => {
@@ -84,14 +86,21 @@ export function CommentThreads(props: CommentThreadsProps) {
     noMatches: labels.noMatches,
     people: labels.people,
   });
+  const Root = props.embedded ? 'div' : 'aside';
   return (
-    <aside className={styles.panel} aria-label={labels.title} data-testid="comment-threads">
-      <div className={styles.head}>
-        <strong>{labels.title}</strong>
-        <button type="button" onClick={props.onClose} aria-label={labels.close}>
-          ×
-        </button>
-      </div>
+    <Root
+      className={props.embedded ? styles.embedded : styles.panel}
+      aria-label={props.embedded ? undefined : labels.title}
+      data-testid="comment-threads"
+    >
+      {!props.embedded && (
+        <div className={styles.head}>
+          <strong>{labels.title}</strong>
+          <button type="button" onClick={props.onClose} aria-label={labels.close}>
+            ×
+          </button>
+        </div>
+      )}
       {props.newAnchor !== null && (
         <div className={styles.thread}>
           <div className={styles.anchor}>
@@ -153,6 +162,6 @@ export function CommentThreads(props: CommentThreadsProps) {
           )}
         </section>
       ))}
-    </aside>
+    </Root>
   );
 }

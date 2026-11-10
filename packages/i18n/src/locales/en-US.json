@@ -222,6 +222,7 @@
       "readMode": "Read mode",
       "focus": "Focus",
       "navigationPane": "Navigation pane",
+      "stylesPane": "Styles pane",
       "formattingMarks": "Formatting marks"
     },
     "review": {
@@ -2191,6 +2192,7 @@
     "applyAll": "Apply to every slide",
     "preview": "Preview",
     "animPane": "Effects pane",
+    "selectionPane": "Selection pane",
     "groupEntrance": "Entrance",
     "groupExit": "Exit",
     "groupPreview": "Preview",
@@ -5375,5 +5377,30 @@
     "cancel": "Cancel",
     "bookmarksSlides": "Create bookmarks from slide titles",
     "bookmarksSheets": "Create bookmarks from sheet names"
+  },
+  "taskPane": {
+    "dockLeft": "Dock left",
+    "dockRight": "Dock right",
+    "float": "Float as a window",
+    "close": "Close pane",
+    "resize": "Resize pane",
+    "move": "Drag to move; double-click to dock again",
+    "tabs": "Panes",
+    "styles": {
+      "title": "Styles",
+      "filter": "Filter styles",
+      "preview": "Show preview",
+      "loading": "Loading styles…",
+      "empty": "No matching styles.",
+      "paragraph": "Paragraph style",
+      "character": "Character style"
+    },
+    "selection": {
+      "title": "Selection",
+      "empty": "This slide has no objects yet.",
+      "hint": "The top object is listed first; Ctrl+click to add to the selection.",
+      "forward": "Bring forward",
+      "backward": "Send backward"
+    }
   }
 }

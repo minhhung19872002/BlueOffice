@@ -395,6 +395,26 @@ export interface FontChoice {
   available: boolean;
 }
 
+/** Style gallery entry (mirrors `bo_engine::gallery::StyleEntry`, ECMA-376 Part 1, §17.7.4.17). */
+export interface DocStyleEntry {
+  /** `w:styleId`, passed to `applyStyle`. */
+  id: string;
+  name: string;
+  kind: 'paragraph' | 'character';
+  /** §17.7.4.14 qFormat. */
+  quick: boolean;
+  preview: {
+    font: string;
+    /** Points. */
+    size: number;
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+    /** `RRGGBB`. */
+    color: string;
+  };
+}
+
 /** Paste modes of BlueDoc: `link` pastes a URL / e-mail address as a hyperlink. */
 export type DocPasteMode = 'keep' | 'merge' | 'text' | 'link';
 
@@ -692,7 +712,7 @@ export type EditCommand =
   /** Grammar and style as you type (CORE-GRAM-001). */
   | { cmd: 'setGrammar'; on: boolean }
   | { cmd: 'grammarIgnore'; rule: string; text: string }
-  | { cmd: 'closeHeaderFooter' | 'notes' | 'clearFormatting' | 'fontList' }
+  | { cmd: 'closeHeaderFooter' | 'notes' | 'clearFormatting' | 'fontList' | 'styleList' }
   | { cmd: 'pickFormat' | 'applyFormat' | 'cancelFormat' }
   | { cmd: 'insertField'; instr: string }
   | { cmd: 'insertNote'; endnote?: boolean; text?: string }
@@ -1032,6 +1052,8 @@ export interface EditResult {
   notes?: NoteInfo[];
   /** Font picker entries (`fontList`). */
   fonts?: FontChoice[];
+  /** Style gallery (`styleList`). */
+  styles?: DocStyleEntry[];
   /** The Format Painter holds picked formatting. */
   painter?: boolean;
   /** Check document report (`inspect` and the inspector commands). */

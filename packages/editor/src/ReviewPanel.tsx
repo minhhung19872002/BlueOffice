@@ -287,6 +287,7 @@ export function CommentsPanel({
   language,
   onClose,
   people,
+  embedded = false,
 }: {
   review: ReviewState | null;
   run: Run;
@@ -294,6 +295,8 @@ export function CommentsPanel({
   onClose: () => void;
   /** @mention picker + notifications (hosted sessions; CORE-COMMENT-001). */
   people?: PeopleDirectory | undefined;
+  /** Inside a task pane (CORE-UI-006): the host draws the title bar and close button. */
+  embedded?: boolean;
 }) {
   const { t } = useTranslation();
   const labels = (placeholder: string, submit: string): MentionComposerLabels => ({
@@ -316,18 +319,21 @@ export function CommentsPanel({
   const top = comments.filter((c) => root(c) === c.id);
   const repliesOf = (id: number) => comments.filter((c) => c.id !== id && root(c) === id);
 
+  const Root = embedded ? 'div' : 'aside';
   return (
-    <aside
-      className={styles.reviewPane}
-      aria-label={t('comments.title')}
+    <Root
+      className={embedded ? styles.reviewPaneEmbedded : styles.reviewPane}
+      aria-label={embedded ? undefined : t('comments.title')}
       data-testid="comments-pane"
     >
-      <div className={styles.reviewHeader}>
-        <strong>{t('comments.title')}</strong>
-        <button type="button" onClick={onClose} aria-label={t('find.close')}>
-          ✕
-        </button>
-      </div>
+      {!embedded && (
+        <div className={styles.reviewHeader}>
+          <strong>{t('comments.title')}</strong>
+          <button type="button" onClick={onClose} aria-label={t('find.close')}>
+            ✕
+          </button>
+        </div>
+      )}
       <div className={styles.panelRow}>
         <MentionComposer
           autoFocus
@@ -356,6 +362,6 @@ export function CommentsPanel({
           />
         ))}
       </ul>
-    </aside>
+    </Root>
   );
 }

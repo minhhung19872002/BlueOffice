@@ -9,6 +9,7 @@ import type {
   RevisionKind,
 } from '@blueoffice/platform';
 import { useTranslation } from '@blueoffice/i18n';
+import type { CSSProperties } from 'react';
 import { formatStamp } from './ReviewPanel';
 import { revisionDetail } from './TrackingControls';
 import styles from './ReviewingPane.module.css';
@@ -92,6 +93,7 @@ export function ReviewingPane({
   run,
   language,
   dock,
+  style,
   onDock,
   onClose,
 }: {
@@ -99,6 +101,8 @@ export function ReviewingPane({
   run: Run;
   language: string;
   dock: 'left' | 'bottom';
+  /** Room left for the docked task panes (CORE-UI-006). */
+  style?: CSSProperties;
   onDock: (dock: 'left' | 'bottom') => void;
   onClose: () => void;
 }) {
@@ -121,6 +125,7 @@ export function ReviewingPane({
     <aside
       className={`${styles.pane} ${dock === 'left' ? styles.left : styles.bottom}`}
       aria-label={t('markup.title')}
+      style={style}
       data-testid="reviewing-pane"
       data-dock={dock}
     >

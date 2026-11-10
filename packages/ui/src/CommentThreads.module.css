@@ -12,6 +12,17 @@
   font-size: 12px;
 }
 
+.embedded {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bo-surface-alt, #f3f5f7);
+  color: var(--bo-text, #1b1f24);
+  font-size: 12px;
+}
+
 .head {
   display: flex;
   align-items: center;

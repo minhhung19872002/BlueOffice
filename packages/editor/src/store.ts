@@ -26,6 +26,15 @@ export type Status =
   | { kind: 'info'; key: string; params?: Record<string, string> }
   | { kind: 'error'; key: string; message: string };
 
+/** BlueDoc task panes (CORE-UI-006): Styles, Comments, Version history (CORE-VERSION-001). */
+export type DocTaskPane = 'styles' | 'comments' | 'versions';
+
+/** `panes` with `id` shown (`on`) or hidden. */
+export function togglePane(panes: DocTaskPane[], id: DocTaskPane, on = !panes.includes(id)) {
+  const rest = panes.filter((p) => p !== id);
+  return on ? [...rest, id] : rest;
+}
+
 export interface EditorState {
   doc: DocInfo | null;
   page: number;
@@ -45,7 +54,6 @@ export interface EditorState {
     | 'replace'
     | 'symbols'
     | 'review'
-    | 'comments'
     | 'caption'
     | 'crossref'
     | 'merge'
@@ -86,8 +94,6 @@ export interface EditorState {
     | 'pageBorders'
     | 'watermark'
     | 'checkDocument'
-    /** Version history / compare with a version (CORE-VERSION-001). */
-    | 'versions'
     | 'spellCheck'
     | 'language'
     | 'columns'
@@ -138,6 +144,8 @@ export interface EditorState {
   focusMode: boolean;
   /** Navigation pane tab (null: closed). */
   navPane: 'headings' | 'pages' | 'results' | null;
+  /** Open task panes besides navigation (CORE-UI-006), in opening order. */
+  taskPanes: DocTaskPane[];
   /** Formatting marks (¶ · →) shown. */
   showMarks: boolean;
   /** Document outline (outline view, navigation pane headings). */
@@ -179,6 +187,7 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   viewMode: 'print',
   focusMode: false,
   navPane: null,
+  taskPanes: [],
   showMarks: false,
   outline: null,
   layoutVersion: 0,

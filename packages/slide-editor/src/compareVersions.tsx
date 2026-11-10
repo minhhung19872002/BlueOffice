@@ -34,6 +34,7 @@ export function SlideVersionsPane({
   openFile,
   onShow,
   onClose,
+  embedded = false,
 }: {
   engine: EngineHost;
   versions?: VersionHistory | undefined;
@@ -41,6 +42,8 @@ export function SlideVersionsPane({
   /** Shows a change of the open deck (its slide, its shape selected). */
   onShow: (slide: number, shapeId?: number) => void;
   onClose: () => void;
+  /** Inside a task pane (CORE-UI-006). */
+  embedded?: boolean;
 }) {
   const { t } = useTranslation();
   const compare = useCallback(
@@ -72,6 +75,7 @@ export function SlideVersionsPane({
         onShow(c.slide, removedShape ? undefined : c.shapeId);
       }}
       onClose={onClose}
+      embedded={embedded}
     />
   );
 }

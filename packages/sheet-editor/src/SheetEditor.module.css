@@ -410,6 +410,7 @@
 
 /* Grid + side panel (pivot table field list). */
 .workArea {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;

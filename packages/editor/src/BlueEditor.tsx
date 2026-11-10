@@ -1767,6 +1767,14 @@ function EditorInner({
       isEnabled: hasDoc,
       run: () => store.setState({ dialog: 'adminFormat' }),
     });
+    // Nghị định 30/2020: correct every fixable deviation (one undoable edit).
+    r.register({
+      id: 'review.fixAdminFormat',
+      isEnabled: hasDoc,
+      run: async () => {
+        await controller.current?.run({ cmd: 'fixAdminFormat' });
+      },
+    });
     r.register({
       id: 'review.grammar',
       isEnabled: hasDoc,

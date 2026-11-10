@@ -62,6 +62,7 @@ describe('administrative format check', () => {
                 para: 4,
                 text: 'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM',
                 count: 1,
+                fixable: true,
               },
               {
                 id: 'tieuNgu.underline',
@@ -72,6 +73,7 @@ describe('administrative format check', () => {
                 actual: 'no',
                 para: 5,
                 count: 1,
+                fixable: false,
               },
               {
                 id: 'page.marginLeft',
@@ -82,6 +84,7 @@ describe('administrative format check', () => {
                 actual: '25.0 mm',
                 section: 0,
                 count: 1,
+                fixable: true,
               },
             ],
           })
@@ -109,6 +112,64 @@ describe('administrative format check', () => {
     });
     fireEvent.click(screen.getByTestId('admin-format-recheck'));
     expect(commands.filter((c) => c.cmd === 'checkAdminFormat')).toHaveLength(2);
+  });
+
+  it('fixes one deviation, then all fixable ones', async () => {
+    const issue = (id: string, fixable: boolean, para?: number) => {
+      const [component = '', property = ''] = id.split('.');
+      return {
+        id,
+        component,
+        property,
+        severity: 'error' as const,
+        expected: 'yes',
+        actual: 'no',
+        count: 2,
+        fixable,
+        ...(para === undefined ? {} : { para }),
+      };
+    };
+    let issues = [
+      issue('page.marginTop', true),
+      issue('quocHieu.bold', true, 3),
+      issue('tieuNgu.underline', false, 4),
+      issue('soKyHieu.missing', false),
+    ];
+    const commands: EditCommand[] = [];
+    const run = vi.fn(async (c: EditCommand) => {
+      commands.push(c);
+      if (c.cmd === 'fixAdminFormat') {
+        issues = issues.filter((i) => !i.fixable || (c.ids !== undefined && !c.ids.includes(i.id)));
+      }
+      return report({ found: [], issues });
+    });
+    wrap(<AdminFormatDialog run={run} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('admin-format-issues')).toBeTruthy());
+    // Only fixable deviations offer "Sửa"; the footer counts them.
+    expect(screen.getAllByTestId('admin-format-fix')).toHaveLength(2);
+    expect(
+      document.querySelector('[data-issue="tieuNgu.underline"] [data-testid="admin-format-fix"]'),
+    ).toBeNull();
+    const all = screen.getByTestId('admin-format-fix-all');
+    expect(all.textContent).toBe('Sửa tất cả (2)');
+    expect(document.querySelector('[data-issue="quocHieu.bold"]')!.textContent).toContain('Lỗi');
+    expect(document.querySelector('[data-issue="quocHieu.bold"]')!.textContent).toContain('×2');
+
+    fireEvent.click(
+      document.querySelector('[data-issue="quocHieu.bold"] [data-testid="admin-format-fix"]')!,
+    );
+    await waitFor(() => expect(document.querySelector('[data-issue="quocHieu.bold"]')).toBeNull());
+    expect(commands.at(-1)).toEqual({ cmd: 'fixAdminFormat', ids: ['quocHieu.bold'] });
+    expect(screen.getByTestId('admin-format-summary').textContent).toContain('Hoàn tác');
+    expect(all.textContent).toBe('Sửa tất cả (1)');
+
+    fireEvent.click(all);
+    await waitFor(() => expect(document.querySelector('[data-issue="page.marginTop"]')).toBeNull());
+    expect(commands.at(-1)).toEqual({ cmd: 'fixAdminFormat' });
+    // What cannot be fixed stays listed; nothing is left to fix.
+    expect(screen.getByTestId('admin-format-summary').textContent).toContain('2');
+    expect(screen.getByTestId('admin-format-fix-all').hasAttribute('disabled')).toBe(true);
+    expect(screen.queryAllByTestId('admin-format-fix')).toHaveLength(0);
   });
 
   it('confirms a conforming document', async () => {

@@ -196,7 +196,10 @@
       "formProperties": "Form field options…",
       "dropCap": "Large initial",
       "signatureLine": "Signature line…",
-      "smartart": "SmartArt"
+      "smartart": "SmartArt",
+      "link": "Insert link",
+      "action": "Action settings",
+      "actionButtons": "Action buttons"
     },
     "layout": {
       "margins": "Margins",
@@ -388,6 +391,9 @@
       "shortcuts": "Customize shortcuts…",
       "customizeRibbon": "Customize the ribbon…",
       "customizeQat": "Customize the Quick Access Toolbar…"
+    },
+    "link": {
+      "remove": "Remove link"
     }
   },
   "status": {
@@ -6136,6 +6142,125 @@
       "error": "Error: {{message}}",
       "suggestions": "Suggestions",
       "help": "Aggregations SUM, AVERAGE, MIN, MAX, COUNT, COUNTROWS, DISTINCTCOUNT over Table[Column]; DIVIDE(a, b, alternate); CALCULATE(expression, FILTER(Table, condition), ALL(Table[Column])); RELATED(Table[Column]) in calculated columns; [Measure] reuses a measure."
+    }
+  },
+  "slideActions": {
+    "group": "Links",
+    "link": "Link",
+    "action": "Action",
+    "buttons": "Action buttons",
+    "removeLink": "Remove link",
+    "linkTitle": "Insert link",
+    "actionTitle": "Action settings",
+    "buttonsTitle": "Action buttons",
+    "buttonsHint": "A button is inserted with its usual action; change it in Insert › Action.",
+    "ok": "OK",
+    "cancel": "Cancel",
+    "open": "Open",
+    "linkTo": "Link to",
+    "scopeText": "Applies to the selected text: “{{text}}”",
+    "scopeShape": "Applies to the selected shape",
+    "scopeNone": "Select a shape or some text first.",
+    "locked": "This shape has an action of its own (it plays a clip or opens an embedded object), so it cannot take a link.",
+    "kind": {
+      "url": "Web page",
+      "place": "Place in this deck",
+      "show": "Custom show",
+      "mail": "E-mail",
+      "file": "File"
+    },
+    "address": "Address",
+    "urlHint": "Only addresses starting with http:// or https:// are opened in a show (after asking).",
+    "jump": {
+      "first": "First slide",
+      "prev": "Previous slide",
+      "next": "Next slide",
+      "last": "Last slide"
+    },
+    "noShows": "This deck has no custom shows yet.",
+    "showReturn": "Come back to the linking slide afterwards",
+    "mailAddress": "E-mail address",
+    "mailSubject": "Subject",
+    "filePath": "File path",
+    "fileHint": "A link to a file is kept in the deck, but BlueSlide does not open files during a show.",
+    "tooltip": "Screen tip",
+    "on": {
+      "click": "Mouse click",
+      "hover": "Mouse over"
+    },
+    "none": "None",
+    "hyperlinkTo": "Hyperlink to:",
+    "to": {
+      "next": "Next slide",
+      "prev": "Previous slide",
+      "first": "First slide",
+      "last": "Last slide",
+      "lastViewed": "Last slide viewed",
+      "end": "End show",
+      "slide": "Slide…",
+      "customShow": "Custom show…",
+      "url": "Web address…",
+      "file": "Other file…"
+    },
+    "hoverExternal": "A web address is never opened just by moving the pointer over it; the viewer has to click.",
+    "sound": "Play sound:",
+    "soundNone": "[No sound]",
+    "soundStop": "[Stop the sound playing]",
+    "soundFile": "Other sound (.wav file)…",
+    "builtin": {
+      "click": "Click",
+      "beep": "Beep",
+      "chime": "Chime",
+      "drum": "Drum"
+    },
+    "listen": "Listen",
+    "highlightClick": "Highlight click",
+    "highlightHover": "Highlight when the pointer is over it",
+    "neverRun": "The current action ({{what}}) is kept in the file, but BlueSlide never runs it. Pick another action to replace it.",
+    "blocked": {
+      "program": "run a program",
+      "macro": "run a macro",
+      "file": "open a file",
+      "presentation": "open another presentation",
+      "unknown": "unknown action",
+      "url": "address that is not allowed"
+    },
+    "button": {
+      "actionButtonBackPrevious": "Back / Previous",
+      "actionButtonForwardNext": "Forward / Next",
+      "actionButtonBeginning": "Beginning",
+      "actionButtonEnd": "End",
+      "actionButtonHome": "Home",
+      "actionButtonReturn": "Return",
+      "actionButtonInformation": "Information",
+      "actionButtonHelp": "Help",
+      "actionButtonDocument": "Document",
+      "actionButtonSound": "Sound",
+      "actionButtonMovie": "Movie",
+      "actionButtonBlank": "Blank"
+    },
+    "openTitle": "Open this address outside BlueSlide?",
+    "openMail": "Write a message to this address?",
+    "openHint": "The link comes from the presentation. Open it only if you trust this address.",
+    "blockedNotice": {
+      "program": "BlueSlide does not run programs from a presentation.",
+      "macro": "BlueSlide does not run macros from a presentation.",
+      "file": "BlueSlide does not open files from links in a presentation.",
+      "presentation": "BlueSlide does not open other presentations from a link.",
+      "scheme": "This kind of address may not be opened.",
+      "unknown": "This action is not supported, so it was not run.",
+      "noHost": "This address cannot be opened on this device."
+    },
+    "blockedHint": "The action is kept in the file as it is.",
+    "err": {
+      "noSelection": "Select a shape or some text first.",
+      "badLink": "The address or path is not valid.",
+      "badSound": "The sound must be a .wav file (8 MB at most).",
+      "noSlide": "That slide is no longer in the deck.",
+      "noCustomShow": "That custom show no longer exists.",
+      "unsafeAction": "BlueSlide does not create actions that run a program or a macro.",
+      "unsupportedLink": "Text in a table cell cannot take a link yet.",
+      "masterView": "Actions cannot be set in the master view."
     }
   }
 }

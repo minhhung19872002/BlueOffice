@@ -56,19 +56,125 @@ export interface SlidePresentInfo {
   timings: (number | null)[];
 }
 
-/** What a hyperlink does in the show (§21.1.2.3.5 hlinkClick `ppaction://` URLs). */
+/**
+ * What a hyperlink or action does (§21.1.2.3.5 hlinkClick, §21.1.2.3.6 hlinkHover;
+ * `ppaction://` URLs). `program`, `macro`, `file`, `presentation` and `unknown` are
+ * kept in the file and never run (docs/security.md).
+ */
 export type SlideLinkAction =
   | { kind: 'none' }
   | { kind: 'customShow'; id: number; return?: boolean }
   | { kind: 'slide'; slide: number }
-  | { kind: 'next' | 'prev' | 'first' | 'last' | 'lastViewed' | 'end' };
+  | { kind: 'next' | 'prev' | 'first' | 'last' | 'lastViewed' | 'end' }
+  /** A URL or mail address (external relationship). */
+  | { kind: 'url'; url: string }
+  /** Another presentation (`ppaction://hlinkpres`); `slide` is 1-based. */
+  | { kind: 'presentation'; path: string; slide?: number | null }
+  /** Another file (`ppaction://hlinkfile`). */
+  | { kind: 'file'; path: string }
+  | { kind: 'program'; path: string }
+  | { kind: 'macro'; name: string }
+  | { kind: 'unknown'; action: string };
 
-/** A shape whose hyperlink the show follows, with its box `[x, y, w, h]` (points). */
+/** What starts an action. */
+export type SlideActionTrigger = 'click' | 'hover';
+
+/**
+ * What a show may do with an action (`bo_engine::slide_edit::action::Safety`):
+ * follow it at once, open it after asking (http, https, mailto), or never.
+ */
+export type SlideActionSafety = 'internal' | 'external' | 'blocked';
+
+/** The sound of an action (§20.1.2.2.32 snd): an embedded WAV part, or "stop the sound". */
+export interface SlideActionSound {
+  stop: boolean;
+  /** Part name (bytes via `EngineHost.getMedia`). */
+  part: string | null;
+  name: string;
+  loop: boolean;
+}
+
+/**
+ * A hot area of the show: a shape or a piece of linked text, with its box
+ * `[x, y, w, h]` (points). The engine sends every field; fixtures may leave out
+ * the ones after `action` (a plain click link).
+ */
 export interface SlideShowLink {
   shapeId: number;
   rect: [number, number, number, number];
   action: SlideLinkAction;
+  on?: SlideActionTrigger;
+  /** A piece of text: its colour shows whether the link was followed. */
+  text?: boolean;
+  tooltip?: string;
+  /** Flash the area when the action runs (`highlightClick`). */
+  highlight?: boolean;
+  sound?: SlideActionSound;
+  safety?: SlideActionSafety;
+  /** Identity of the target (followed state). */
+  key?: string;
+  history?: boolean;
 }
+
+/** The sound of an action being set. */
+export type SlideActionSoundSpec =
+  | { kind: 'keep' }
+  | { kind: 'none' }
+  | { kind: 'stop' }
+  /** A WAV file, base64. */
+  | { kind: 'file'; name: string; data: string };
+
+/** An action being set on the selection. */
+export interface SlideActionSpec {
+  target: SlideLinkAction;
+  tooltip?: string | null;
+  highlight?: boolean;
+  /** Default: keep the sound. */
+  sound?: SlideActionSoundSpec;
+}
+
+/** One action of the selection, as the dialogs show it. */
+export interface SlideActionOut {
+  target: SlideLinkAction;
+  tooltip?: string;
+  highlight: boolean;
+  sound?: SlideActionSound;
+  safety: SlideActionSafety;
+  /** The shape's own action (a media clip, an embedded object): not editable. */
+  locked: boolean;
+}
+
+/** Answer of the `action*` commands (`SlideEditResult.action`). */
+export interface SlideActionInfo {
+  /** A text range, the selected shapes, or nothing to link. */
+  scope: 'text' | 'shape' | 'none';
+  click: SlideActionOut | null;
+  hover: SlideActionOut | null;
+  /** The selected text, or the text of the selected shape. */
+  text: string;
+  /** Title of every slide. */
+  slides: string[];
+}
+
+/** Hyperlinks and actions (SLIDE-ACTION-001, `bo_engine::slide_edit::action`). */
+export type SlideActionCommand =
+  | { cmd: 'actionInfo' }
+  | {
+      cmd: 'actionSet';
+      on?: SlideActionTrigger;
+      spec: SlideActionSpec;
+      /** `auto`: the selected text range if any, else the selected shapes. */
+      scope?: 'auto' | 'shape';
+    }
+  /** An action button (`actionButton*` preset) with its usual action. */
+  | {
+      cmd: 'actionButton';
+      preset: string;
+      rect?: { x: number; y: number; w: number; h: number };
+    }
+  /** A link was followed in the show (its text takes the followed colour). */
+  | { cmd: 'actionFollowed'; key: string }
+  | { cmd: 'actionResetFollowed' };
 
 /** One ink stroke in slide points. */
 export interface SlideInkStroke {

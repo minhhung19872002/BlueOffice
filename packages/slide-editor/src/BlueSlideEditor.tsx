@@ -85,7 +85,10 @@ import {
   type DisplayTarget,
   type MediaCaptureSession,
   type SlideRecordingInput,
-  type SlideLinkAction,
+  type SlideActionInfo,
+  type SlideActionSpec,
+  type SlideActionTrigger,
+  type SlideShowLink,
   type SlideShowSetup,
 } from '@blueoffice/platform';
 import {
@@ -224,6 +227,9 @@ import {
   Undo2,
   Ungroup,
   MessageSquareText,
+  MousePointerClick,
+  Link2,
+  Unlink,
   Shapes,
   Volume2,
   Mic,
@@ -240,6 +246,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
+import { ActionButtonsDialog, ActionDialog, LinkDialog, ShowLinkPrompt } from './actionDialogs';
+import { actionPolicy, isAllowedUrl, type ActionPolicy } from './actions';
 import { AnimationPane } from './AnimationPane';
 import { SelectionPane } from './SelectionPane';
 import { AudienceLink } from './audience';
@@ -498,6 +506,17 @@ function fromBase64(b64: string): Uint8Array {
   return out;
 }
 
+/** Play a WAV once (the "listen" button of the action dialog). */
+function playWav(wav: Uint8Array): void {
+  if (typeof Audio === 'undefined' || typeof URL.createObjectURL !== 'function') return;
+  const copy = new Uint8Array(wav.byteLength);
+  copy.set(wav);
+  const url = URL.createObjectURL(new Blob([copy.buffer], { type: 'audio/wav' }));
+  const el = new Audio(url);
+  el.addEventListener('ended', () => URL.revokeObjectURL(url));
+  void el.play()?.catch(() => URL.revokeObjectURL(url));
+}
+
 /** Line spacing multiples offered in the format bar (§21.1.2.2.10 lnSpc). */
 const LINE_SPACINGS = [1, 1.15, 1.5, 2, 2.5, 3];
 /** Typefaces offered in the format bar (any other typeface of the deck is kept). */
@@ -649,6 +668,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [endState, setEndState] = useState<EndShowState | null>(null);
   const [endKey, setEndKey] = useState(0);
   const [customOpen, setCustomOpen] = useState(false);
+  // Hyperlinks and actions (SLIDE-ACTION-001): the dialog open on the selection (with the
+  // text range it applies to), and what the show asks or tells about a link.
+  const [actionDialog, setActionDialog] = useState<{
+    kind: 'link' | 'action';
+    info: SlideActionInfo;
+    range: { id: number; start: number; end: number } | null;
+  } | null>(null);
+  const [actionButtonsOpen, setActionButtonsOpen] = useState(false);
+  const [linkAsk, setLinkAsk] = useState<{
+    policy: Extract<ActionPolicy, { kind: 'external' }>;
+    link: SlideShowLink;
+  } | null>(null);
+  const [linkNotice, setLinkNotice] = useState<{ reason: string; detail: string } | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [displayTarget, setDisplayTarget] = useState<DisplayTarget>({ kind: 'window' });
   const [paneOpen, setPaneOpen] = useState(false);
@@ -1002,6 +1034,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       const first = order[at] ?? 0;
       setReturnView(view === 'show' || view === 'presenter' ? 'normal' : view);
       setCurrent(first);
+      // A new show: no link is followed yet (their text is in the hyperlink colour).
+      void engine.slideCommand({ cmd: 'actionResetFollowed' }).catch(() => {});
+      setLinkAsk(null);
+      setLinkNotice(null);
       showCache.clear();
       setPlay({
         pos: { at, slide: first, click: 0, enter: 'transition', from: null },
@@ -1024,7 +1060,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       const browse = st.showType === 'browse' && !presenter && !opts.rehearse && !opts.record;
       setView(presenter ? 'presenter' : browse ? 'reading' : 'show');
     },
-    [count, view, showCache, edit, ink],
+    [count, view, showCache, edit, ink, engine],
   );
 
   // .ppsx / .ppsm open straight into the slide show (the deck itself opens normally).
@@ -1138,14 +1174,42 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     [count, showCache, placed],
   );
 
-  /** A shape's hyperlink in the show (custom shows, jumps, end). */
+  /** A followed text link takes the theme's followed colour the next time its slide shows. */
+  const markFollowed = useCallback(
+    (link: SlideShowLink) => {
+      if (!link.text || !link.key || link.history === false) return;
+      void engine
+        .slideCommand({ cmd: 'actionFollowed', key: link.key })
+        .then(() => showCache.stale())
+        .catch(() => {});
+    },
+    [engine, showCache],
+  );
+
+  /**
+   * An action of the show (SLIDE-ACTION-001, docs/security.md): jumps inside the deck run
+   * at once; a web or mail address is opened only after the user says so (and never
+   * because the pointer passed over it); programs, macros, files and unknown actions are
+   * never run — a click on one says so.
+   */
   const followLink = useCallback(
-    (action: SlideLinkAction) => {
+    (link: SlideShowLink) => {
+      const policy = actionPolicy(link);
+      const clicked = (link.on ?? 'click') === 'click';
+      if (policy.kind === 'blocked') {
+        if (clicked) setLinkNotice({ reason: policy.reason, detail: policy.detail });
+        return;
+      }
+      if (policy.kind === 'external') {
+        if (clicked) setLinkAsk({ policy, link });
+        return;
+      }
+      markFollowed(link);
       const clicks = (i: number) => showCache.peek(i)?.clicks ?? 0;
       const r = runLink(
         play.run,
         runPosOf(play.pos, play.run),
-        action,
+        link.action,
         count,
         clicks,
         customShows ?? [],
@@ -1153,7 +1217,61 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       if (r === 'end') endShow();
       else setPlay((x) => ({ ...x, run: r.run, pos: placed(x.pos, r.pos) }));
     },
-    [play, count, showCache, customShows, endShow, placed],
+    [play, count, showCache, customShows, endShow, placed, markFollowed],
+  );
+
+  /** "Open" in the show's prompt: the address goes to the host, checked once more. */
+  const openAskedLink = useCallback(() => {
+    const ask = linkAsk;
+    if (!ask) return;
+    setLinkAsk(null);
+    const url = ask.policy.url;
+    if (!isAllowedUrl(url)) {
+      setLinkNotice({ reason: 'scheme', detail: url });
+      return;
+    }
+    const shell = platform.shell;
+    if (!shell.openExternal) {
+      setLinkNotice({ reason: 'noHost', detail: url });
+      return;
+    }
+    markFollowed(ask.link);
+    void shell.openExternal(url).catch(() => setLinkNotice({ reason: 'noHost', detail: url }));
+  }, [linkAsk, platform, markFollowed]);
+
+  /** Insert › Link / Action: the dialog on the selection (a text range keeps its offsets). */
+  const openActionDialog = useCallback(
+    async (kind: 'link' | 'action') => {
+      const te = ctrl.last?.textEdit;
+      const range =
+        te && te.start !== te.end && !te.cell ? { id: te.id, start: te.start, end: te.end } : null;
+      const r = await ctrl.run({ cmd: 'actionInfo' });
+      if (r?.action) setActionDialog({ kind, info: r.action, range });
+    },
+    [ctrl],
+  );
+
+  /** Apply the dialog's actions; it stays open when the engine refuses one. */
+  const applyActions = useCallback(
+    async (changes: { on: SlideActionTrigger; spec: SlideActionSpec }[]) => {
+      const range = actionDialog?.range ?? null;
+      for (const c of changes) {
+        if (range) {
+          // The dialog took the focus: the text range is selected again.
+          await ctrl.run({ cmd: 'select', ids: [range.id] });
+          await ctrl.run({ cmd: 'textSelect', id: range.id, start: range.start, end: range.end });
+        }
+        const r = await ctrl.run({
+          cmd: 'actionSet',
+          on: c.on,
+          spec: c.spec,
+          scope: range ? 'auto' : 'shape',
+        });
+        if (!r || r.error) return;
+      }
+      setActionDialog(null);
+    },
+    [ctrl, actionDialog],
   );
 
   /** Go-to-slide grid: place `at` of the order. */
@@ -1914,6 +2032,34 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         }),
     });
 
+    // Hyperlinks and actions (SLIDE-ACTION-001).
+    reg.register({
+      id: 'insert.link',
+      shortcut: 'Ctrl+K',
+      isEnabled: sel,
+      run: () => guard(() => openActionDialog('link')),
+    });
+    reg.register({
+      id: 'insert.action',
+      isEnabled: sel,
+      run: () => guard(() => openActionDialog('action')),
+    });
+    reg.register({
+      id: 'insert.actionButtons',
+      isEnabled: deck,
+      run: () => setActionButtonsOpen(true),
+    });
+    reg.register({
+      id: 'link.remove',
+      isEnabled: sel,
+      run: () =>
+        run({
+          cmd: 'actionSet',
+          on: 'click',
+          spec: { target: { kind: 'none' }, sound: { kind: 'keep' } },
+        }),
+    });
+
     // Slide Show tab (SLIDE-SHOW-001).
     reg.register({ id: 'show.customShows', isEnabled: deck, run: () => setCustomOpen(true) });
     reg.register({ id: 'show.linkCustom', isEnabled: sel, run: () => setCustomOpen(true) });
@@ -2408,6 +2554,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     });
     return reg;
   }, [
+    openActionDialog,
     readAloudLink,
     dictationLink,
     translateLink,
@@ -2611,6 +2758,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if ((view === 'show' || view === 'presenter') && (linkAsk || linkNotice)) {
+        // The show waits for the answer about a link: Esc says no, other keys do nothing.
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setLinkAsk(null);
+          setLinkNotice(null);
+        }
+        return;
+      }
       if (view === 'show' || view === 'presenter') {
         // Presenter tools (BlueSlide's own keys): Ctrl+P pen, Ctrl+I highlighter,
         // Ctrl+L laser, Ctrl+E eraser, Ctrl+A pointer, E clear ink, G grid, Z zoom.
@@ -2745,6 +2901,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [
+    linkAsk,
+    linkNotice,
     view,
     count,
     current,
@@ -3018,6 +3176,16 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 <CornerDownRight size={16} />,
                 sm,
               ),
+            ],
+          },
+          {
+            id: 'links',
+            label: t('slideActions.group'),
+            items: [
+              item('insert.link', t('slideActions.link'), <Link2 size={18} />),
+              item('insert.action', t('slideActions.action'), <MousePointerClick size={18} />),
+              item('insert.actionButtons', t('slideActions.buttons'), <Play size={16} />, sm),
+              item('link.remove', t('slideActions.removeLink'), <Unlink size={16} />, sm),
             ],
           },
           {
@@ -3652,6 +3820,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         />
       )}
       {rec?.session?.video && <CameraPreview session={rec.session} corner={rec.opts.corner} />}
+      <ShowLinkPrompt
+        ask={linkAsk?.policy ?? null}
+        notice={linkNotice}
+        onOpen={openAskedLink}
+        onCancel={() => setLinkAsk(null)}
+        onDismiss={() => setLinkNotice(null)}
+      />
     </>
   );
 
@@ -4526,6 +4701,43 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             setDisplayTarget(target);
             setSetupOpen(false);
             run({ cmd: 'setShowSetup', setup: s });
+          }}
+        />
+      )}
+      {actionDialog?.kind === 'link' && (
+        <LinkDialog
+          info={actionDialog.info}
+          count={count}
+          customShows={customShows ?? []}
+          thumb={(i, w) => canvas(i, w)}
+          error={refused || undefined}
+          onClose={() => setActionDialog(null)}
+          onApply={(spec) => void applyActions([{ on: 'click', spec }])}
+          onRemove={() =>
+            void applyActions([
+              { on: 'click', spec: { target: { kind: 'none' }, sound: { kind: 'keep' } } },
+            ])
+          }
+        />
+      )}
+      {actionDialog?.kind === 'action' && (
+        <ActionDialog
+          info={actionDialog.info}
+          count={count}
+          customShows={customShows ?? []}
+          pickSound={() => platform.files.openFile(['.wav'])}
+          preview={playWav}
+          error={refused || undefined}
+          onClose={() => setActionDialog(null)}
+          onApply={(changes) => void applyActions(changes)}
+        />
+      )}
+      {actionButtonsOpen && (
+        <ActionButtonsDialog
+          onClose={() => setActionButtonsOpen(false)}
+          onPick={(preset) => {
+            setActionButtonsOpen(false);
+            run({ cmd: 'actionButton', preset });
           }}
         />
       )}

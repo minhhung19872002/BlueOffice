@@ -2,11 +2,14 @@ import { GlyphStore, ImageStore, renderPage } from '@blueoffice/canvas-host';
 import type {
   EngineHost,
   PageDisplayList,
-  SlideLinkAction,
+  SlideActionSound,
   SlideShowInfo,
+  SlideShowLink,
   SlideTransitionSound,
 } from '@blueoffice/platform';
 import { useEffect, useRef, useState } from 'react';
+import { hotAreas } from './actions';
+import actionStyles from './actions.module.css';
 import { showMediaCarry } from './mediaControl';
 import { ShowMediaClip } from './showMedia';
 import {
@@ -57,6 +60,14 @@ export class ShowCache {
   clear(): void {
     this.map.clear();
     this.done.clear();
+  }
+
+  /**
+   * The slides are drawn again the next time they are shown (a followed link
+   * changed colour); what is known about them stays until then.
+   */
+  stale(): void {
+    this.map.clear();
   }
 }
 
@@ -126,8 +137,12 @@ export interface ShowStageProps {
   mediaLabels?: { play: string; unsupported: string };
   /** Show without animation: every effect of the slide shown at once (§19.2.1.30 showAnimation). */
   still?: boolean;
-  /** Follow a shape's hyperlink (custom shows, jumps); without it links are not clickable. */
-  onLink?: (action: SlideLinkAction) => void;
+  /**
+   * Run the action of a hot area (a click or the pointer coming over a shape or a
+   * piece of linked text, SLIDE-ACTION-001); without it links are not followed.
+   * Its sound and highlight are played here.
+   */
+  onLink?: (link: SlideShowLink) => void;
   /**
    * Play recorded narration and camera clips (§19.2.1.30 showNarration; SLIDE-REC-001); off:
    * they neither play nor show.
@@ -173,6 +188,15 @@ function playTransitionSound(engine: EngineHost, sound: SlideTransitionSound | n
 }
 
 /**
+ * The sound of an action (§20.1.2.2.32 snd in hlinkClick / hlinkHover): the same
+ * player as the transition sounds, so a new sound replaces the one playing and
+ * `endSnd` stops it.
+ */
+export function playActionSound(engine: EngineHost, sound: SlideActionSound | undefined) {
+  if (sound) playTransitionSound(engine, { ...sound, loop: false });
+}
+
+/**
  * One slide of the slide show: its layers, the transition from the previous
  * slide and the effects of the current click step.
  */
@@ -194,6 +218,20 @@ export function ShowStage({
   narration = true,
 }: ShowStageProps) {
   const [show, setShow] = useState<SlideShowInfo | null>(null);
+  /** Hot area flashing after its action ran (`highlightClick`). */
+  const [flashed, setFlashed] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flash = (id: string) => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    setFlashed(id);
+    flashTimer.current = setTimeout(() => setFlashed(null), 220);
+  };
+  useEffect(
+    () => () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    },
+    [],
+  );
   /** Layer visibility and outgoing slide once the step started / ended (by step key). */
   const [phase, setPhase] = useState<{ key: string; vis: boolean[]; outgoing: boolean } | null>(
     null,
@@ -496,22 +534,41 @@ export function ShowStage({
       {ready &&
         media &&
         onLink &&
-        (show.links ?? []).map((l) => {
+        hotAreas(show.links ?? []).map((a) => {
           const k = width / (show.width || 1);
-          const [x, y, w, h] = l.rect;
+          const [x, y, w, h] = a.rect;
+          const act = (l: SlideShowLink) => {
+            if (l.highlight) flash(a.id);
+            playActionSound(engine, l.sound);
+            onLink(l);
+          };
           return (
             <button
-              key={`link-${l.shapeId}`}
+              key={`link-${a.id}`}
               type="button"
-              className={styles.showTrigger}
-              data-testid={`show-link-${l.shapeId}`}
-              data-action={l.action.kind}
-              style={{ left: x * k, top: y * k, width: w * k, height: h * k }}
-              onClick={(e) => {
-                // A hyperlink goes where it leads instead of advancing the show.
-                e.stopPropagation();
-                onLink(l.action);
+              className={`${styles.showTrigger} ${flashed === a.id ? actionStyles.flash : ''}`}
+              data-testid={`show-link-${a.id}`}
+              data-action={(a.click ?? a.hover)?.action.kind}
+              data-hover={a.hover?.action.kind}
+              title={a.title}
+              // A box that only reacts to hovering lets clicks advance the show.
+              style={{
+                left: x * k,
+                top: y * k,
+                width: w * k,
+                height: h * k,
+                cursor: a.click ? 'pointer' : 'default',
               }}
+              onMouseEnter={a.hover ? () => act(a.hover!) : undefined}
+              onClick={
+                a.click
+                  ? (e) => {
+                      // A hyperlink goes where it leads instead of advancing the show.
+                      e.stopPropagation();
+                      act(a.click!);
+                    }
+                  : undefined
+              }
             />
           );
         })}

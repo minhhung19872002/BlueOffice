@@ -222,9 +222,17 @@ impl LayoutCache {
     pub fn stats(&self) -> (u64, u64) {
         (self.hits, self.misses)
     }
-    /// Drop everything (e.g. after fonts change).
+    /// Drop everything (e.g. after fonts change, or when the document closes).
     pub fn clear(&mut self) {
-        self.map.clear();
+        self.map = HashMap::new();
+    }
+    /// Number of cached paragraph layouts (memory diagnostics).
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+    /// True when nothing is cached.
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
     }
 }
 

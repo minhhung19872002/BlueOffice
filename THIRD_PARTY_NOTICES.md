@@ -67,6 +67,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | insta (dev) | 1.49.0 | Apache-2.0 | Snapshot test |
 | proptest (dev) | 1.12.0 | MIT OR Apache-2.0 | Property-based test |
 | criterion (dev) | 0.8.2 | Apache-2.0 OR MIT | Benchmark |
+| stats_alloc (dev) | 0.1.10 | MIT | Đếm byte heap trong test rò rỉ bộ nhớ mở/đóng 100 tài liệu (CORE-PERF-001) |
 
 Công cụ fuzz (`fuzz/`, workspace riêng, không đóng gói vào sản phẩm, không chạy trong CI Windows):
 

@@ -989,6 +989,11 @@ pub struct GraphicFrame {
     pub content: GraphicContent,
     /// Unmodelled children (extLst).
     pub extra: Vec<Extra>,
+    /// The `mc:AlternateContent` (ECMA-376 Part 3, §10.2.1) the frame was read from, as
+    /// read: a 3D model ([MS-ODRAWXML] `am3d:model3d`) is a frame in a choice with a
+    /// picture fallback. The writer puts the frame back in its choice and keeps the rest.
+    #[serde(default)]
+    pub alt: Option<Box<XmlElement>>,
 }
 
 /// Element of a shape tree.

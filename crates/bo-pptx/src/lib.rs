@@ -18,6 +18,7 @@ pub mod diagram_layout;
 pub mod inherit;
 pub mod ink;
 mod mesh3d;
+pub mod model3d;
 pub mod ole;
 mod pml;
 mod read;

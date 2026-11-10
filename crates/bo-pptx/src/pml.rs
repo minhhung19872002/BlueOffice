@@ -194,6 +194,7 @@ pub fn parse_node(el: &XmlElement) -> ShapeNode {
                 uri: String::new(),
                 content: GraphicContent::Other(XmlElement::new("a:graphicData")),
                 extra: Vec::new(),
+                alt: None,
             };
             let mut ok = true;
             f.extra = walk(el, FRAME, |c| {
@@ -226,6 +227,17 @@ pub fn parse_node(el: &XmlElement) -> ShapeNode {
                 ShapeNode::Frame(Box::new(f))
             } else {
                 ShapeNode::Other(el.clone())
+            }
+        }
+        // A 3D model ([MS-ODRAWXML] am3d) in mc:AlternateContent: the frame of its choice,
+        // the wrapper kept for writing (ECMA-376 Part 3, §10.2.1).
+        _ if crate::model3d::alternate_model_frame(el).is_some() => {
+            match crate::model3d::alternate_model_frame(el).map(parse_node) {
+                Some(ShapeNode::Frame(mut f)) => {
+                    f.alt = Some(Box::new(el.clone()));
+                    ShapeNode::Frame(f)
+                }
+                _ => ShapeNode::Other(el.clone()),
             }
         }
         _ => ShapeNode::Other(el.clone()),
@@ -306,6 +318,18 @@ pub fn write_node(n: &ShapeNode) -> XmlElement {
             k.push_opt(c.style.as_ref().map(|x| write_style(x, "p:style")));
             k.extras(&c.extra);
             k.build(El::new("p:cxnSp"))
+        }
+        ShapeNode::Frame(f) if f.alt.is_some() => {
+            let Some(alt) = f.alt.as_deref() else {
+                return XmlElement::new("mc:AlternateContent");
+            };
+            let mut plain = f.clone();
+            plain.alt = None;
+            if crate::model3d::moved(f, alt) {
+                crate::model3d::sync_model_xfrm(&mut plain);
+            }
+            let el = write_node(&ShapeNode::Frame(plain));
+            crate::model3d::write_alternate(f, alt, &el)
         }
         ShapeNode::Frame(f) => {
             let gd = match &f.content {

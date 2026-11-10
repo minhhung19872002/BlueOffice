@@ -27,6 +27,7 @@ pub mod keep_source;
 pub mod master;
 pub mod media;
 pub mod media_playback;
+pub mod model3d;
 pub mod morph;
 pub mod ole;
 pub mod ops;
@@ -1244,6 +1245,12 @@ pub struct SlideEditResult {
     /// Ink of the current slide (answer of `inkInfo` / `addInk` / `eraseInk`, CORE-INK-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ink: Option<ink::InkOut>,
+    /// The selected 3D model (CORE-3DMODEL-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model3d: Option<model3d::Model3dOut>,
+    /// Answer of `model3dMesh`: the model's geometry for the interactive viewer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model3d_mesh: Option<model3d::MeshOut>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -1519,6 +1526,7 @@ fn kind_of(n: &ShapeNode) -> &'static str {
         ShapeNode::Frame(f) if matches!(f.content, bo_model::slide::GraphicContent::Table(_)) => {
             "table"
         }
+        n if model3d::is_model(n) => "model3d",
         n if chart::is_chart(n) => "chart",
         n if smartart::is_smartart(n) => "smartart",
         n if ole::is_ole(n) => "object",
@@ -3515,6 +3523,13 @@ impl Engine {
             let r = self.slide_media_command(mc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        if let Some(mc) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| model3d::Model3dCommand::parse(&v))
+        {
+            let r = self.slide_model3d_command(mc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         if let Some(ic) = serde_json::from_str::<serde_json::Value>(json)
             .ok()
             .and_then(|v| ink::InkCommand::parse(&v))
@@ -3742,7 +3757,9 @@ impl Engine {
                         }
                     } else {
                         ed.mutate(pres, &mut out, |tx, sel| {
-                            cmd_transform(tx, sel, transform, snap, tolerance)
+                            cmd_transform(tx, sel, transform, snap, tolerance)?;
+                            // A resized 3D model gets a picture of its new shape.
+                            model3d::refresh_resized(tx, sel)
                         });
                     }
                 }
@@ -4604,7 +4621,11 @@ impl Engine {
             ed.clamp(pres);
             ed.text = None;
             let mark = ed.history_mark();
-            if let Some((kind, _)) = media::media_kind(name) {
+            if bo_model3d::is_model_name(name) || bytes.starts_with(b"glTF") {
+                ed.mutate(pres, &mut out, |tx, sel| {
+                    model3d::cmd_insert_model(tx, sel, &bytes, name)
+                });
+            } else if let Some((kind, _)) = media::media_kind(name) {
                 let poster =
                     bo_raster::render_page_png(&media::poster_page(kind), &self.fonts, 2.0)
                         .unwrap_or_default();
@@ -4974,6 +4995,11 @@ impl Engine {
             outline: None,
             notes_pages: None,
             ink: None,
+            model3d: match items.as_slice() {
+                [one] => model3d::model_out(pres, slide, one.id),
+                _ => None,
+            },
+            model3d_mesh: None,
         })
     }
 }

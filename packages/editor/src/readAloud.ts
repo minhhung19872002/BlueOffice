@@ -68,7 +68,7 @@ export const READ_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
 
 // U+FFFC (object placeholder of the index text) and skipped text are spoken as spaces: the
 // spoken string keeps the unit's length so offsets map back one to one.
-function speakable(u: ReadUnit): string {
+export function speakable(u: ReadUnit): string {
   let t = u.text.replace(/￼/g, ' ');
   for (const r of u.skip ?? []) {
     const a = Math.max(0, r.start);

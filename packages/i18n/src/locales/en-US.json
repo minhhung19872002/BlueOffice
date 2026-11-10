@@ -185,6 +185,7 @@
       "pageBreak": "Page break",
       "sectionBreak": "Section break",
       "symbol": "Symbol",
+      "icon": "Icons",
       "header": "Header",
       "footer": "Footer",
       "pageNumber": "Page number",
@@ -240,6 +241,7 @@
       "outline": "Outline",
       "readMode": "Read mode",
       "focus": "Focus",
+      "focusedReader": "Focused reader",
       "navigationPane": "Navigation pane",
       "stylesPane": "Styles pane",
       "formattingMarks": "Formatting marks",
@@ -3814,6 +3816,22 @@
     "ok": "OK",
     "cancel": "Cancel"
   },
+  "iconLibrary": {
+    "title": "Insert icons",
+    "search": "Search by name or keyword",
+    "category": "Category",
+    "allCategories": "All categories",
+    "grid": "Icon library",
+    "loading": "Loading the icon library…",
+    "loadError": "The icon library could not be loaded",
+    "noResults": "No icon matches",
+    "found": "{{count}} icons",
+    "selected": "{{count}} selected",
+    "clear": "Clear selection",
+    "insert": "Insert",
+    "close": "Close",
+    "failed": "The icon could not be inserted"
+  },
   "symbolPicker": {
     "title": "Insert symbol",
     "symbolsTab": "Symbols",
@@ -5679,6 +5697,40 @@
       "upstream": "The speech recognition service failed.",
       "noTarget": "Place the caret where the text should go (a text box or a cell) and try again."
     }
+  },
+  "reader": {
+    "title": "Focused reader",
+    "tools": "Reading tools",
+    "close": "Close the reader (Esc)",
+    "textSize": "Text size",
+    "smaller": "Smaller text",
+    "larger": "Larger text",
+    "textSizeValue": "{{size}} px",
+    "wideSpacing": "Wide spacing",
+    "lineSpacing": "Line spacing",
+    "column": "Column width",
+    "columns": {
+      "narrow": "Narrow",
+      "medium": "Medium",
+      "wide": "Wide"
+    },
+    "theme": "Page colour",
+    "themes": {
+      "light": "Light",
+      "sepia": "Sepia",
+      "dark": "Dark"
+    },
+    "themeHighContrast": "The app's high-contrast theme is in use",
+    "lineFocus": "Line focus",
+    "lineFocusOff": "Off",
+    "lineFocusLines": "Lines: {{count}}",
+    "syllables": "Syllables",
+    "focus": "Hide tools",
+    "showTools": "Show reading tools",
+    "play": "Read aloud",
+    "stopReading": "Stop reading",
+    "text": "Text of {{name}}",
+    "empty": "The document has no text to read yet."
   },
   "readAloud": {
     "bar": "Read aloud controls",

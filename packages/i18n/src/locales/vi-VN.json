@@ -29,7 +29,8 @@
       "ink": "Công cụ mực",
       "object": "Công cụ đối tượng",
       "media": "Công cụ đa phương tiện",
-      "sparkline": "Công cụ biểu đồ thu nhỏ"
+      "sparkline": "Công cụ biểu đồ thu nhỏ",
+      "model3d": "Công cụ mô hình 3D"
     },
     "more": "Thêm lệnh",
     "tabs": {
@@ -2685,6 +2686,34 @@
         "ember": "Than hồng",
         "slate": "Đá phiến",
         "mono": "Thang xám"
+      }
+    },
+    "model3d": {
+      "insert": "Mô hình 3D",
+      "tab": "Mô hình 3D",
+      "groupViews": "Góc nhìn 3D",
+      "groupAdjust": "Điều chỉnh",
+      "groupAccess": "Trợ năng",
+      "rotate": "Kéo để xoay mô hình 3D (phím mũi tên cũng xoay được)",
+      "panZoom": "Dịch và thu phóng",
+      "panZoomHint": "Kéo để dịch mô hình, cuộn để thu phóng",
+      "zoomIn": "Phóng to",
+      "zoomOut": "Thu nhỏ",
+      "reset": "Đặt lại góc nhìn",
+      "altText": "Văn bản thay thế",
+      "altTextTitle": "Văn bản thay thế của mô hình 3D",
+      "altTextLabel": "Mô tả mô hình 3D cho người không nhìn thấy",
+      "presets": {
+        "front": "Phía trước",
+        "back": "Phía sau",
+        "left": "Bên trái",
+        "right": "Bên phải",
+        "top": "Từ trên xuống",
+        "bottom": "Từ dưới lên",
+        "aboveFrontLeft": "Trên, trước, trái",
+        "aboveFrontRight": "Trên, trước, phải",
+        "belowFrontLeft": "Dưới, trước, trái",
+        "belowFrontRight": "Dưới, trước, phải"
       }
     }
   },

@@ -1475,6 +1475,7 @@ export interface SlideShapeInfo {
     | 'table'
     | 'chart'
     | 'smartart'
+    | 'model3d'
     | 'object'
     | 'graphic';
   rect: SlideBox;
@@ -1611,6 +1612,8 @@ export type SlideCommand =
   | import('./slideShow').SlidePresentCommand
   /** Draw tab ink: add, erase, read (CORE-INK-001). */
   | import('./slideInk').SlideInkCommand
+  /** 3D models: view, presets, pan / zoom, alt text (CORE-3DMODEL-001). */
+  | import('./slideModel3d').SlideModel3dCommand
   /** Spelling and grammar of the deck (CORE-SPELL-006). */
   | import('./spelling').SlideSpellCommand
   /** Compare with another version of the deck (CORE-VERSION-001) → `DeckCompareResult`. */
@@ -2249,6 +2252,10 @@ export interface SlideEditResult {
   notesPages?: import('./slideViews').SlideNotesPage[];
   /** Ink of the current slide (`inkInfo` / `addInk` / `eraseInk`, CORE-INK-001). */
   ink?: import('./slideInk').SlideInkInfo;
+  /** The selected 3D model (CORE-3DMODEL-001). */
+  model3d?: import('./slideModel3d').SlideModel3dInfo;
+  /** Answer of `model3dMesh`. */
+  model3dMesh?: import('./slideModel3d').SlideModel3dMesh;
 }
 
 // ---------------------------------------------------------------- services
@@ -2294,8 +2301,9 @@ export interface EngineHost {
   /** Run a slide editing command (presentations). */
   slideCommand(cmd: SlideCommand): Promise<SlideEditResult>;
   /**
-   * Insert a PNG/JPEG picture on the current slide, or a video / audio clip when
-   * `name` has a media extension (`.mp4`, `.webm`, `.mp3`, `.wav`, …).
+   * Insert a PNG/JPEG picture on the current slide, a video / audio clip when
+   * `name` has a media extension (`.mp4`, `.webm`, `.mp3`, `.wav`, …), or a 3D model
+   * (`.glb`, `.gltf`, `.obj`, `.stl`, stored as GLB).
    */
   slideInsertPicture(bytes: Uint8Array, name: string): Promise<SlideEditResult>;
   /**

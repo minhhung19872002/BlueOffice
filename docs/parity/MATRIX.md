@@ -51,13 +51,15 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | Kiểm tra tài liệu / tiếp cận | all | — | ✅ | ✅ | — | ✅ | ✅ | — | inspect.rs | 🟡 | rà soát nội dung, trợ năng, tương thích (CORE-INSPECT-001); thiếu ngăn bên, sửa nhanh Sheet |
 | VBA | all | ✅ | — | — | ✅ | — | — | — | test | — (chủ ý) | giữ nguyên, cảnh báo, không chạy |
 | BlueScript / recorder | all | — | — | ✅ | — | ✅ | ✅ | ✅ | packages/script tests, bluescript.spec | 🟡 | sandbox QuickJS trong Worker, API Doc/Sheet/Slide, ngăn soạn mã, một lần chạy = một bước hoàn tác (CORE-SCRIPT-001); chưa recorder, chưa lưu trong tệp; chạy theo lịch trên máy chủ (QuickJS trong bo-cli, CORE-SCRIPT-004); chuyển VBA → bản nháp (CORE-SCRIPT-003) |
-| Add-in | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
+| Add-in | all | — | ✅ | ✅ | — | ✅ | 🟡 | — | addin-sdk, addins tests, AddinTests, addins.spec | 🟡 | CORE-ADDIN-001: iframe sandbox, quyền từng lệnh, danh mục tổ chức (mặc định tắt); thiếu trang quản trị, thử desktop |
 | BlueAI (provider LLM) | all | — | ✅ | ✅ | — | ✅ | ✅ | — | AiTests (.NET), ai tests, blueai.spec | ✅ | CORE-AI-001: mặc định tắt, qua máy chủ; viết lại/tóm tắt/soạn nháp, slide từ dàn ý, gợi ý công thức (kiểm bằng engine), phân tích |
 | Định dạng phụ (SYLK, DIF, PRN, DBF, EPUB, mở PDF) | all | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | bo-tabular, pdf_import, secondary-formats.spec | 🟡 | CORE-FMT-004; thiếu XPS, WPD/WPS, bố cục PDF |
 | Xem mã macro VBA (chỉ đọc) | all | ✅ | ✅ | — | ✅ | ✅ | ✅ | — | vba.rs, vba_view.rs, macro-viewer.spec | ✅ | CORE-VBA-002: không bao giờ chạy; chuyển sang bản nháp BlueScript |
 | Gợi ý thiết kế / Phân tích nhanh / biểu đồ đề xuất | Slide/Sheet | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | designer.rs, chart_recommend.rs, design-suggestions.spec | 🟡 | CORE-DESIGN-001: theo quy tắc; thiếu BlueAI, xem trước khi trỏ |
 | Từ đồng nghĩa | all | — | ✅ | ✅ | — | ✅ | ✅ | — | thesaurus tests, thesaurus.spec | 🟡 | CORE-THES-001: tiếng Anh (Open English WordNet); thiếu tiếng Việt (dữ liệu) |
 | Mực → hình / chữ / toán | Slide | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | ink_recognize, slide_ink_convert, ink-to-shape.spec | 🟡 | CORE-INK-002: hình cục bộ; chữ/toán cần provider |
+| Biểu đồ bản đồ | Sheet/Slide | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | maps corpus, map snapshot, sheet-map-chart.spec | 🟡 | CORE-CHART-006: cấp quốc gia (Natural Earth); thiếu dữ liệu tỉnh VN |
+| Sửa phương trình tại chỗ | Doc | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | math edit tests, equation-inline.spec | 🟡 | CORE-MATH-010: con trỏ toán, Tab, tự dựng; thiếu ngoài thân văn bản, chọn trong phương trình |
 | Trình đọc tập trung | Doc | — | ✅ | — | — | ✅ | ✅ | — | focused-reader.test, syllables.test, immersive-reader.spec | 🟡 | CORE-LANG-004: giãn chữ/dòng, nền, tô dòng, âm tiết tiếng Anh, đọc to; thiếu danh sách/định dạng, từ ghép Việt, Slide |
 | Thư viện biểu tượng | all | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | icon manifest tests, IconLibraryPicker test, icon-library.spec | ✅ | CORE-ICON-001: 210 icon tự vẽ, tìm Việt–Anh không dấu; Doc/Sheet lưu PNG, Slide lưu SVG |
 | Dịch / đọc chính tả / đọc to | all | — | 🟡 | ✅ | — | ✅ | ✅ | — | read-aloud tests, translate tests + translate.spec, TranslationTests (.NET) | 🟡 | đọc to + tô từ (CORE-LANG-003); dịch qua dịch vụ cấu hình được ở 3 app giữ định dạng (CORE-LANG-001); đọc chính tả qua bộ nhận dạng trình duyệt/dịch vụ cấu hình + lệnh dấu câu (CORE-LANG-002); chưa model cục bộ |

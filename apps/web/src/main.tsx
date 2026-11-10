@@ -26,13 +26,13 @@ import {
   registerServiceWorker,
 } from '@blueoffice/platform/web';
 import { BlueSheetEditor } from '@blueoffice/sheet-editor';
-import { BlueSlideEditor } from '@blueoffice/slide-editor';
+import { BlueSlideEditor, RemotePage, WatchView } from '@blueoffice/slide-editor';
 import { LocalStorageProvider } from '@blueoffice/storage-providers';
 import type { ThemeSetting } from '@blueoffice/ui';
 import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AccountChip, authText } from './Account';
-import { resolveRoute, type AppId } from './routes';
+import { presentRoute, resolveRoute, type AppId } from './routes';
 
 // The web app is only a shell: it builds the WebPlatform and embeds the editor.
 const base = import.meta.env.BASE_URL;
@@ -321,7 +321,35 @@ async function standalone(): Promise<void> {
   );
 }
 
-if (isEmbed) {
+/**
+ * The phone remote and the online presentation viewer (SLIDE-REMOTE-001): no sign-in, the
+ * token in the link is all they have (`docs/deploy/security.md`).
+ */
+function present(route: { kind: 'remote' | 'watch'; token: string }): void {
+  const options = { baseUrl: api };
+  // Vietnamese unless the link asks for English (?lang=en-US), like the editors.
+  const lang = language;
+  document.documentElement.lang = lang;
+  root.render(
+    <StrictMode>
+      {route.kind === 'remote' ? (
+        <RemotePage token={route.token} options={options} language={lang} />
+      ) : (
+        <WatchView
+          platform={createWebPlatform({ storage: (files) => new LocalStorageProvider(files) })}
+          token={route.token}
+          options={options}
+          language={lang}
+        />
+      )}
+    </StrictMode>,
+  );
+}
+
+const presenting = presentRoute(window.location.pathname, base);
+if (presenting) {
+  present(presenting);
+} else if (isEmbed) {
   void embed(createWebPlatform({ storage: (files) => new LocalStorageProvider(files) }));
 } else {
   void standalone();

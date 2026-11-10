@@ -305,6 +305,45 @@ chỉ có thể làm chặt hơn, không bao giờ nới lỏng).
 - Hạn chế: mở địa chỉ trong chế độ toàn màn hình khiến trình duyệt rời toàn màn hình (phiên chiếu kết thúc); liên kết
   trong ô bảng chưa bấm được khi chiếu.
 
+### 10.2 Điều khiển trình chiếu từ điện thoại & trình chiếu trực tuyến (SLIDE-REMOTE-001) — [Đã có]
+
+Cả hai đi qua chính máy chủ BlueOffice (`/api/present`, `apps/server/BlueOffice.Api/Presenting/`), không qua dịch vụ đám
+mây bên thứ ba; dùng được trong LAN / on-prem. Mặc định **bật** (`Present__Enabled=false` để tắt: mọi đường dẫn trả 404).
+
+- **Ai được tạo**: người dùng đã đăng nhập (JWT) hoặc phiên editor hợp lệ (`?session=` + `X-Session-Token`, như proxy
+  dịch / đọc chính tả). Người tạo nhận một *khoá người trình bày* 128 bit (`X-Present-Key`); mọi thao tác khác (tạo mã
+  ghép nối, thu hồi, phát trực tuyến, kết thúc) cần khoá này. Tối đa `Present__MaxPerOwner` (5) buổi cùng lúc / người.
+- **Token**: 128 bit ngẫu nhiên (`RandomNumberGenerator`, base64url 22 ký tự). Máy chủ chỉ giữ **băm SHA-256** của token
+  làm khoá tra cứu (không so sánh chuỗi bí mật từng ký tự). Token không bao giờ nằm trong *đường dẫn* API (chỉ header,
+  thân yêu cầu, hoặc query của WebSocket vì trình duyệt không đặt được header cho WebSocket) — log yêu cầu của Serilog
+  không ghi query string.
+- **Ghép nối điện thoại**: mã QR chứa liên kết `/remote/<mã>`; mã **dùng một lần**, hết hạn sau `Present__PairingTtl`
+  (5 phút). Điện thoại đổi mã lấy *khoá điện thoại* riêng; tạo mã mới hoặc bấm "Thu hồi" vô hiệu mã cũ và đóng kết nối
+  điện thoại (mã đóng 4401). Mỗi buổi chỉ có **một** người trình bày và **một** điện thoại; lệnh của điện thoại chỉ tới
+  đúng người trình bày đó.
+- **Lệnh từ điện thoại**: chỉ `next`, `prev`, `first`, `last`, `black`, `white`, `end`, `start`; máy chủ tự dựng lại thông
+  điệp (không chuyển tiếp nguyên văn), giới hạn `Present__CommandLimit` (40) lệnh / `Present__CommandWindow` (10 s).
+  Điện thoại nhận trạng thái do người trình bày gửi: số trang, ghi chú, ảnh thu nhỏ trang hiện tại / tiếp theo — không
+  nhận tệp trình chiếu.
+- **Trình chiếu trực tuyến**: người trình bày tải bản trình bày hiện tại lên (chỉ gói ZIP/OPC, tối đa
+  `Present__MaxDeckBytes`, mặc định 100 MB; phiên editor cần quyền **tải xuống** của tệp, không có thì 403). Người có
+  liên kết `/watch/<token>` tải đúng bản đó (`Cache-Control: no-store`) và chỉ **nhận** vị trí trình chiếu (trang, bước
+  hiệu ứng, màn hình đen/trắng, mực, phóng to); mọi thứ người xem gửi lên đều bị bỏ. Ghi chú và trạng thái của điện thoại
+  không gửi tới người xem. Tối đa `Present__MaxViewers` (200) người xem.
+- **Giới hạn tần suất**: đổi mã ghép nối, tải bản trình bày, vào xem: `Present__RequestLimit` (60) lần / phút / địa chỉ IP;
+  tạo buổi: cùng giới hạn theo người dùng. Thông điệp WebSocket của người trình bày tối đa `Present__MaxMessageBytes`
+  (1 MB, vì kèm ảnh thu nhỏ), của điện thoại / người xem gửi lên tối đa 4 KB; vượt thì đóng 1009.
+- **Kết thúc & hết hạn**: người trình bày kết thúc (hoặc đóng editor) → mọi token hết hiệu lực, điện thoại và người xem
+  nhận `ended` (mã đóng 4410). Buổi tự kết thúc sau `Present__MaxLifetime` (12 giờ) hoặc khi người trình bày mất kết
+  nối quá `Present__IdleTimeout` (30 phút). Mọi thứ nằm trong bộ nhớ, khởi động lại máy chủ là mất.
+- Hạn chế: liên kết trực tuyến cho người xem **toàn bộ bản trình bày** (họ tải tệp để vẽ bằng cùng engine WASM) — giao
+  diện không cho chuyển trang, nhưng người có kỹ thuật có thể đọc trước các trang sau. Bài cần giữ kín nội dung trước
+  khi chiếu thì không nên phát trực tuyến. Nhiều instance `api`: mọi `/api/present` phải tới cùng một instance
+  (`deploy/web/nginx-multi.conf` gửi về `api-1`).
+- Test: `apps/server/BlueOffice.Tests/PresentTests.cs` (ghép nối, chuyển lệnh, hết hạn, thu hồi, quyền, giới hạn),
+  `packages/platform/test/remoteShow.test.ts`, `qr.test.ts`, `packages/slide-editor/test/remote.test.tsx`, E2E
+  `tests/e2e/specs/collab-remote.spec.ts` (hai trình duyệt: người trình bày + điện thoại; người xem trực tuyến).
+
 ## 11. Chữ ký số
 
 - [Đã có — qua `bo-cli`] `crates/bo-sign` (ADR-0007): PAdES baseline B-B cho PDF (`pdf.rs`, cập nhật tăng dần

@@ -27,6 +27,7 @@ import { webMediaCapture } from '../mediaCapture';
 import { ServerAiProvider } from '../ai';
 import { ServerTranslationProvider } from '../translation';
 import { assetThesaurus } from '../thesaurus';
+import { ServerRemoteShow } from '../remoteShow';
 import { defaultDictation } from '../dictation';
 import { defaultHandwriting } from '../handwriting';
 import { WebDisplays, presentationReceiverBus } from './displays';
@@ -431,6 +432,19 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
       });
       return handwriting ? { handwriting } : {};
     })(),
+    // Phone remote and online presentation through the BlueOffice server (SLIDE-REMOTE-001): same
+    // origin unless VITE_BO_PRESENT_URL names it, `off` = none.
+    ...(env.VITE_BO_PRESENT_URL !== 'off'
+      ? {
+          remoteShow: new ServerRemoteShow({
+            baseUrl: env.VITE_BO_PRESENT_URL ?? '',
+            headers: async (): Promise<Record<string, string>> => {
+              const token = await (opts.auth?.getAccessToken() ?? Promise.resolve(null));
+              return token ? { Authorization: `Bearer ${token}` } : {};
+            },
+          }),
+        }
+      : {}),
     displays: new WebDisplays(),
     images: new FetchRemoteImages(),
     // Get & Transform (SHEET-PQ-001): folders from a directory picker; web pages through the

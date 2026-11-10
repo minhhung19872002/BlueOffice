@@ -10,7 +10,31 @@ export { SlideOverlay, type SlideOverlayProps, type TextEditing } from './SlideO
 export * from './editing';
 export * from './show';
 export { AudienceLink, type AudienceMsg } from './audience';
-export { AudienceView, type AudienceViewProps } from './AudienceView';
+export {
+  AudienceScreen,
+  AudienceView,
+  type AudienceScreenProps,
+  type AudienceViewProps,
+} from './AudienceView';
+export { RemotePage, type RemotePageProps } from './RemotePage';
+export { WatchView, type WatchViewProps } from './WatchView';
+export {
+  OnlineDialog,
+  QrCode,
+  RemoteDialog,
+  appBase,
+  isLocalOnly,
+  slideThumbnail,
+  useRemotePresenting,
+} from './remotePresenting';
+export {
+  CaptionDialog,
+  CaptionOverlay,
+  CaptionTrack,
+  DEFAULT_CAPTIONS,
+  useLiveCaptions,
+  type CaptionSettings,
+} from './captions';
 export * from './player';
 export { ALL_TRANSITIONS, morphLayers, rectsPolygon, TRANSITION_GROUPS } from './transitionFx';
 export { filterRects, playFrames, trackProgress } from './effectFx';

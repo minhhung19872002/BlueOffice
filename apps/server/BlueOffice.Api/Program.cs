@@ -9,6 +9,7 @@ using BlueOffice.Api.Files;
 using BlueOffice.Api.Dictation;
 using BlueOffice.Api.Handwriting;
 using BlueOffice.Api.Jobs;
+using BlueOffice.Api.Presenting;
 using BlueOffice.Api.Rest;
 using BlueOffice.Api.Scripts;
 using BlueOffice.Api.Sessions;
@@ -107,6 +108,9 @@ builder.Services.AddHandwriting(config);
 
 // BlueAI proxy (CORE-AI-001): off unless AI:Enabled is set (docs/deploy/ai.md).
 builder.Services.AddAi(config);
+
+// Remote control from a phone and online presentation (SLIDE-REMOTE-001; docs/deploy/security.md).
+builder.Services.AddPresent(config);
 builder.Services.AddSingleton<CollabMaintenanceService>();
 if (serveApi)
 {
@@ -221,6 +225,7 @@ app.MapTranslation();
 app.MapDictation();
 app.MapHandwriting();
 app.MapAi();
+app.MapPresent();
 
 app.Run();
 

@@ -9,6 +9,19 @@ const LEGACY: Record<string, AppId> = {
 };
 
 /**
+ * Phone remote (`/remote/<pairing code>`) and online presentation viewer (`/watch/<link token>`)
+ * pages of BlueSlide (SLIDE-REMOTE-001); `null` for other paths.
+ */
+export function presentRoute(
+  pathname: string,
+  base = '/',
+): { kind: 'remote' | 'watch'; token: string } | null {
+  const rel = pathname.startsWith(base) ? pathname.slice(base.length) : pathname.replace(/^\//, '');
+  const m = /^(remote|watch)\/([A-Za-z0-9_-]{16,64})\/?$/.exec(rel);
+  return m ? { kind: m[1] as 'remote' | 'watch', token: m[2]! } : null;
+}
+
+/**
  * Map a pathname to an app (`/doc`, `/sheet`, `/slide`); `/` opens BlueDoc.
  * Legacy routes return a `redirect` to the canonical path.
  */

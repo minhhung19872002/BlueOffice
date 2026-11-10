@@ -2897,4 +2897,9 @@ export interface Platform {
   handwriting?: import('./handwriting').HandwritingProvider;
   /** Microphone / camera recording (absent where the platform has none; SLIDE-REC-001). */
   media?: import('./mediaCapture').MediaCaptureService;
+  /**
+   * Phone remote and online presentation through the BlueOffice server (absent: no server;
+   * SLIDE-REMOTE-001). Off unless the server has it turned on (`available()`).
+   */
+  remoteShow?: import('./remoteShow').ServerRemoteShow;
 }

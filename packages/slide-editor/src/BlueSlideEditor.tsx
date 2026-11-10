@@ -108,6 +108,7 @@ import {
   type SlideShowLink,
   type SlideShowSetup,
   type VbaProjectInfo,
+  type RemoteAction,
 } from '@blueoffice/platform';
 import {
   CommentThreads,
@@ -285,6 +286,19 @@ import { actionPolicy, isAllowedUrl, type ActionPolicy } from './actions';
 import { AnimationPane } from './AnimationPane';
 import { SelectionPane } from './SelectionPane';
 import { AudienceLink } from './audience';
+import {
+  CaptionDialog,
+  CaptionOverlay,
+  DEFAULT_CAPTIONS,
+  useLiveCaptions,
+  type CaptionSettings,
+} from './captions';
+import {
+  OnlineDialog,
+  RemoteDialog,
+  slideThumbnail,
+  useRemotePresenting,
+} from './remotePresenting';
 import { AudienceView } from './AudienceView';
 import { ChartDialog, type ChartDraft } from './ChartDialog';
 import {
@@ -1396,6 +1410,132 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     [showCache, placed],
   );
 
+  // Phone remote and online presentation (SLIDE-REMOTE-001): commands from the paired phone
+  // drive the show like the keyboard; the phone and the viewers get the show's state.
+  const showing = view === 'show' || view === 'presenter';
+  const remoteCommand = (a: RemoteAction) => {
+    if (a === 'start') {
+      if (!showing) startShow(current, false);
+      return;
+    }
+    if (!showing) return;
+    if (a === 'end') endShow();
+    else if (a === 'black' || a === 'white') {
+      const c = toggleCover(black ? 'black' : white ? 'white' : 'none', a);
+      setBlack(c === 'black');
+      setWhite(c === 'white');
+    } else moveShow(a);
+  };
+  const remote = useRemotePresenting({
+    provider: platform.remoteShow,
+    deck: async () => {
+      await ctrl.idle();
+      return { name: fileName || 'deck.pptx', bytes: await engine.savePptx() };
+    },
+    onCommand: remoteCommand,
+  });
+  const [remoteOpen, setRemoteOpen] = useState(false);
+  const [onlineOpen, setOnlineOpen] = useState(false);
+  const remoteState = remote.state;
+  const remoteSend = remote.send;
+  const phoneOn = remoteState.paired || remoteState.phone;
+  // The phone's view: slide, notes, thumbnails of this and the next slide, timer.
+  const remoteThumbs = useRef(new Map<string, Promise<string | null>>());
+  useEffect(() => {
+    if (!phoneOn || !count) return;
+    let cancelled = false;
+    const slide = showing ? Math.min(pos.slide, count - 1) : Math.min(current, count - 1);
+    const at = showing ? (pos.at ?? 0) : slide;
+    const order = showing ? showRun.order : [];
+    const next = showing ? order[at + 1] : slide + 1 < count ? slide + 1 : undefined;
+    const thumb = (i: number | undefined) => {
+      if (i === undefined || i >= count) return Promise.resolve(null);
+      const k = `${epoch}:${revs[i] ?? 0}:${i}`;
+      let p = remoteThumbs.current.get(k);
+      if (!p) {
+        p = slideThumbnail(engine, glyphs, images, i, 360).catch(() => null);
+        remoteThumbs.current.set(k, p);
+        if (remoteThumbs.current.size > 64)
+          remoteThumbs.current.delete(remoteThumbs.current.keys().next().value!);
+      }
+      return p;
+    };
+    void Promise.all([engine.getSlideNotes(slide).catch(() => ''), thumb(slide), thumb(next)]).then(
+      ([n, cur, nxt]) => {
+        if (cancelled) return;
+        remoteSend({
+          type: 'remote',
+          showing,
+          slide,
+          total: count,
+          at: at + 1,
+          of: showing ? order.length : count,
+          click: showing ? pos.click : 0,
+          clicks: showCache.peek(slide)?.clicks ?? 0,
+          black,
+          white,
+          ended: showing && pos.slide >= count,
+          notes: n,
+          current: cur,
+          next: nxt,
+          startedAt: showing ? startedAt : null,
+        });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    phoneOn,
+    remoteState.phone,
+    showing,
+    pos,
+    current,
+    count,
+    black,
+    white,
+    showRun,
+    epoch,
+    revs,
+    engine,
+    glyphs,
+    images,
+    showCache,
+    startedAt,
+    remoteSend,
+  ]);
+  // Viewers of the online presentation follow the show (the same message as the audience screen).
+  const onlineOn = remoteState.online !== null;
+  useEffect(() => {
+    if (!onlineOn) return;
+    remoteSend({
+      type: 'show',
+      live: showing,
+      slide: showing ? pos.slide : current,
+      black: showing && black,
+      ended: showing && pos.slide >= count,
+      click: showing ? pos.click : 0,
+      enter: showing ? pos.enter : 'jump',
+      tools: { white: showing && white, zoom, ink: showing ? ink.strokes(pos.slide) : [] },
+      ...(showing && pos.zoom ? { zoom: pos.zoom } : {}),
+    });
+  }, [onlineOn, showing, pos, current, black, white, zoom, ink, inkRev, count, remoteSend]);
+
+  // Live subtitles (SLIDE-REMOTE-001): speech → text through the platform's dictation provider.
+  const [captionSettings, setCaptionSettings] = useState<CaptionSettings>(() => ({
+    ...DEFAULT_CAPTIONS,
+    lang: uiLang === 'en-US' ? 'en-US' : 'vi-VN',
+  }));
+  const [captionsOpen, setCaptionsOpen] = useState(false);
+  const captions = useLiveCaptions({
+    dictation: platform.dictation,
+    translation: platform.translation,
+    settings: captionSettings,
+    active: captionSettings.enabled && showing,
+  });
+  const captionsEnabled = captionSettings.enabled;
+  const captionsAvailable = captions.available;
+
   // Rehearsal: time each slide of the order.
   useEffect(() => {
     if (!clock) return;
@@ -2199,6 +2339,28 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           startShow(s.current, true);
         }),
     });
+    // Phone remote, online presentation, live subtitles (SLIDE-REMOTE-001).
+    reg.register({
+      id: 'show.remote',
+      isEnabled: deck,
+      // The dialog asks for a pairing code when it opens.
+      run: () => setRemoteOpen(true),
+    });
+    reg.register({ id: 'show.online', isEnabled: deck, run: () => setOnlineOpen(true) });
+    reg.register({
+      id: 'show.captions',
+      isEnabled: deck,
+      isChecked: () => captionsEnabled && captionsAvailable === true,
+      run: () => {
+        if (captionsAvailable === false) setCaptionsOpen(true);
+        else setCaptionSettings((c) => ({ ...c, enabled: !c.enabled }));
+      },
+    });
+    reg.register({
+      id: 'show.captionSettings',
+      isEnabled: deck,
+      run: () => setCaptionsOpen(true),
+    });
 
     // Hyperlinks and actions (SLIDE-ACTION-001).
     reg.register({
@@ -2857,6 +3019,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     count,
     displayTarget,
     setup,
+    captionsEnabled,
+    captionsAvailable,
     paneOpen,
     selectionOpen,
     designOpen,
@@ -3588,7 +3752,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         ],
       },
       drawTab(t, item, draw.state, draw.handwriting),
-      slideShowTab(t, item, setup.useTimings, setup.narration),
+      slideShowTab(t, item, setup.useTimings, setup.narration, captionSettings.enabled),
       {
         id: 'review',
         label: t('ribbon.tabs.review'),
@@ -3992,6 +4156,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     current,
     setup.useTimings,
     setup.narration,
+    captionSettings.enabled,
     loadWarpPreviews,
     draw.state,
     draw.handwriting,
@@ -4208,6 +4373,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         />
       )}
       {rec?.session?.video && <CameraPreview session={rec.session} corner={rec.opts.corner} />}
+      {captionSettings.enabled && <CaptionOverlay captions={captions} settings={captionSettings} />}
       <ShowLinkPrompt
         ask={linkAsk?.policy ?? null}
         notice={linkNotice}
@@ -5194,6 +5360,30 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           run({ cmd: 'setShowLink', action: { kind: 'customShow', id, return: ret } })
         }
       />
+      {remoteOpen && (
+        <RemoteDialog
+          state={remoteState}
+          onPair={() => void remote.pair()}
+          onRevoke={() => void remote.revoke()}
+          onClose={() => setRemoteOpen(false)}
+        />
+      )}
+      {onlineOpen && (
+        <OnlineDialog
+          state={remoteState}
+          onStart={() => void remote.startOnline()}
+          onEnd={() => void remote.endOnline()}
+          onClose={() => setOnlineOpen(false)}
+        />
+      )}
+      {captionsOpen && (
+        <CaptionDialog
+          settings={captionSettings}
+          captions={captions}
+          onChange={setCaptionSettings}
+          onClose={() => setCaptionsOpen(false)}
+        />
+      )}
       {setupOpen && (
         <SetupShowDialog
           open

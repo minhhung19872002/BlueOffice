@@ -132,6 +132,7 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | Trình chiếu + Presenter | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | E2E, slide_present.rs | 🟡 | custom show, tập dượt, bút/laser, phóng, kiosk (SLIDE-SHOW-001); thiếu thuyết minh |
 | Ghi thuyết trình / xuất video | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | — | slide_video.rs, video.test, slide_record.rs, slide-record.spec | 🟡 | ghi thuyết minh/camera/nét vẽ/thời gian vào .pptx, phát lại (SLIDE-REC-001); xuất MP4/WebM có tiếng + camera (web), GIF/PNG mọi nơi; desktop chưa thử thiết bị thật |
 | Xuất PDF/PNG | — | ✅ | — | — | ✅ | ✅ | — | tests, slide_export.rs | 🟡 | + handout 1–9, trang ghi chú, JPEG/SVG, gói (SLIDE-EXPORT-002); thiếu media liên kết |
+| Điều khiển từ điện thoại, chiếu trực tuyến, phụ đề trực tiếp | — | ✅ | ✅ | — | ✅ | ✅ | ✅ | PresentTests, qr/remote tests, collab-remote.spec | ✅ | SLIDE-REMOTE-001 |
 | Album ảnh, slide từ dàn ý, dùng lại slide | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | slide_album.rs, slide_reuse.rs, slide-album.spec | ✅ | SLIDE-ALBUM-001 |
 | Hyperlink & action | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | — | slide_action.rs, actions tests, slide-actions.spec | 🟡 | SLIDE-ACTION-001: hình + chữ, click/hover, nút hành động, âm thanh, chính sách an toàn; thiếu ô bảng, mailto desktop, menu chuột phải |
 | SmartArt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus, smartart.spec | ✅ | chèn từ thư viện bố cục, ngăn văn bản, bố cục/màu/kiểu, chuyển thành hình |

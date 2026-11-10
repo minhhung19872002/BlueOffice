@@ -126,3 +126,36 @@ describe('view-mode guard', () => {
     expect(engine.calls.at(-1)).toBe('state');
   });
 });
+
+describe('background queries', () => {
+  it('are read-only, so they neither mark a session dirty nor are refused in view mode', async () => {
+    const { DOC_READ_COMMANDS, SLIDE_READ_COMMANDS } = await import('../src/readonly');
+    for (const cmd of [
+      'spelling',
+      'spellAt',
+      'outline',
+      'wordCount',
+      'styleList',
+      'styleDetails',
+    ]) {
+      expect(DOC_READ_COMMANDS.has(cmd), cmd).toBe(true);
+    }
+    for (const cmd of ['vbaProject', 'designIdeas', 'actionInfo', 'inkInfo']) {
+      expect(SLIDE_READ_COMMANDS.has(cmd), cmd).toBe(true);
+    }
+  });
+});
+
+describe('dirty tracking', () => {
+  it('a spelling query after a save leaves the session clean; an edit makes it dirty', async () => {
+    const { DirtyState, trackDirty } = await import('../src/dirty');
+    const engine = new Engine();
+    const state = new DirtyState();
+    const p = trackDirty({ engine } as unknown as Platform, state);
+    await p.engine.command({ cmd: 'spelling' } as never);
+    await p.engine.command({ cmd: 'wordCount' } as never);
+    expect(state.dirty).toBe(false);
+    await p.engine.command({ cmd: 'insertText', text: 'a' } as never);
+    expect(state.dirty).toBe(true);
+  });
+});

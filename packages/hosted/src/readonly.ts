@@ -59,6 +59,16 @@ export const DOC_READ_COMMANDS: ReadonlySet<string> = new Set([
   'proofOptions',
   // Author, identity, AutoCorrect, state and fonts in one call (CORE-MISC-003).
   'openSetup',
+  // Background queries of the editor (spelling marks, navigation pane, status bar word
+  // count, style pane) and the macro viewer: they run after a save too, so counting
+  // them as edits made a just-saved session dirty again.
+  'spelling',
+  'spellAt',
+  'outline',
+  'wordCount',
+  'styleList',
+  'styleDetails',
+  'vbaProject',
 ]);
 
 /**
@@ -105,6 +115,14 @@ export const SLIDE_READ_COMMANDS: ReadonlySet<string> = new Set([
   'reuseClose',
   // An empty deck for a photo album: a file, the open deck is untouched.
   'newDeck',
+  // Queries: macro viewer, design ideas (previews only), hyperlink / ink / 3D model
+  // information, the undo depth.
+  'vbaProject',
+  'designIdeas',
+  'actionInfo',
+  'inkInfo',
+  'model3dMesh',
+  'historyLen',
 ]);
 
 /** BlueSheet `exec` commands that only read. */

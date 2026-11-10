@@ -544,6 +544,7 @@ dependencies = [
  "bo-crypto",
  "bo-docx",
  "bo-engine",
+ "bo-html",
  "bo-math",
  "bo-model",
  "bo-model3d",
@@ -668,6 +669,7 @@ dependencies = [
  "bo-encoding",
  "bo-engine",
  "bo-formula",
+ "bo-html",
  "bo-layout",
  "bo-math",
  "bo-model",
@@ -706,6 +708,20 @@ dependencies = [
  "proptest",
  "quick-xml",
  "regex",
+]
+
+[[package]]
+name = "bo-html"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bo-docx",
+ "bo-encoding",
+ "bo-formula",
+ "bo-model",
+ "bo-sheet",
+ "png",
+ "proptest",
 ]
 
 [[package]]
@@ -770,6 +786,7 @@ dependencies = [
 name = "bo-opc"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "proptest",
  "quick-xml",
  "thiserror 2.0.21",

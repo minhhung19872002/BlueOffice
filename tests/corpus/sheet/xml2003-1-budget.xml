@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+  <Author>BlueOffice corpus</Author>
+ </DocumentProperties>
+ <ExcelWorkbook xmlns="urn:schemas-microsoft-com:office:excel">
+  <WindowHeight>9000</WindowHeight>
+  <ProtectStructure>False</ProtectStructure>
+ </ExcelWorkbook>
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Bottom"/>
+   <Borders/>
+   <Font ss:FontName="Arial" x:Family="Swiss" ss:Size="10" ss:Color="#000000"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <Style ss:ID="sHead">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#1F4E79"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Left" ss:LineStyle="Dash" ss:Weight="1"/>
+    <Border ss:Position="Right" ss:LineStyle="Double" ss:Weight="3"/>
+   </Borders>
+   <Font ss:FontName="Arial" ss:Size="12" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#1F4E79" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="sMoney">
+   <NumberFormat ss:Format="#,##0.00"/>
+  </Style>
+  <Style ss:ID="sTotal" ss:Parent="sMoney">
+   <Font ss:FontName="Arial" ss:Size="10" ss:Bold="1" ss:Italic="1" ss:Underline="Single"/>
+   <Interior ss:Color="#FFF2CC" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="sPct">
+   <NumberFormat ss:Format="Percent"/>
+   <Alignment ss:Horizontal="Right" ss:Indent="1"/>
+  </Style>
+  <Style ss:ID="sDate">
+   <NumberFormat ss:Format="Short Date"/>
+  </Style>
+  <Style ss:ID="sRot">
+   <Alignment ss:Rotate="-45"/>
+   <Font ss:FontName="Times New Roman" ss:Size="9" ss:StrikeThrough="1" ss:VerticalAlign="Superscript"/>
+  </Style>
+  <Style ss:ID="sCol">
+   <Interior ss:Color="#E2EFDA" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ <Names>
+  <NamedRange ss:Name="Thue_suat" ss:RefersTo="=Tham_so!R2C2"/>
+  <NamedRange ss:Name="Bang_chi" ss:RefersTo="='Ngân sách'!R2C1:R4C3" ss:Hidden="1"/>
+ </Names>
+ <Worksheet ss:Name="Ngân sách">
+  <Names>
+   <NamedRange ss:Name="Print_Area" ss:RefersTo="='Ngân sách'!R1C1:R6C4"/>
+   <NamedRange ss:Name="Tong_cuc_bo" ss:RefersTo="='Ngân sách'!R5C2"/>
+  </Names>
+  <Table ss:ExpandedColumnCount="5" ss:ExpandedRowCount="8" x:FullColumns="1" x:FullRows="1" ss:DefaultRowHeight="13.5">
+   <Column ss:Width="120" ss:AutoFitWidth="0"/>
+   <Column ss:Width="75" ss:Span="1"/>
+   <Column ss:Index="5" ss:Hidden="1" ss:StyleID="sCol"/>
+   <Row ss:Height="30" ss:AutoFitHeight="0">
+    <Cell ss:StyleID="sHead"><Data ss:Type="String">Khoản mục</Data></Cell>
+    <Cell ss:StyleID="sHead"><Data ss:Type="String">Kế hoạch</Data></Cell>
+    <Cell ss:StyleID="sHead"><Data ss:Type="String">Thực tế</Data></Cell>
+    <Cell ss:StyleID="sHead"><Data ss:Type="String">Tỷ lệ</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">Lương &amp; thưởng</Data></Cell>
+    <Cell ss:StyleID="sMoney"><Data ss:Type="Number">120000000</Data></Cell>
+    <Cell ss:StyleID="sMoney"><Data ss:Type="Number">118500000.5</Data></Cell>
+    <Cell ss:StyleID="sPct" ss:Formula="=RC[-1]/RC[-2]"><Data ss:Type="Number">0.9875000041666667</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">Thuê văn phòng</Data></Cell>
+    <Cell ss:StyleID="sMoney"><Data ss:Type="Number">30000000</Data></Cell>
+    <Cell ss:StyleID="sMoney"><Data ss:Type="Number">33000000</Data></Cell>
+    <Cell ss:StyleID="sPct" ss:Formula="=RC[-1]/RC[-2]"><Data ss:Type="Number">1.1</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><ss:Data ss:Type="String" xmlns="http://www.w3.org/TR/REC-html40"><B>Tiếp thị</B> <Font html:Color="#FF0000">(mới)</Font></ss:Data></Cell>
+    <Cell ss:StyleID="sMoney"><Data ss:Type="Number">15000000</Data></Cell>
+    <Cell ss:StyleID="sMoney"><Data ss:Type="Number">9000000</Data></Cell>
+    <Cell ss:StyleID="sPct" ss:Formula="=RC[-1]/RC[-2]"><Data ss:Type="Number">0.6</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="sTotal"><Data ss:Type="String">Tổng</Data></Cell>
+    <Cell ss:StyleID="sTotal" ss:Formula="=SUM(R[-3]C:R[-1]C)"><Data ss:Type="Number">165000000</Data></Cell>
+    <Cell ss:StyleID="sTotal" ss:Formula="=SUM(R2C3:R4C3)"><Data ss:Type="Number">160500000.5</Data></Cell>
+    <Cell ss:StyleID="sPct" ss:Formula="=IF(RC[-2]=0,0,RC[-1]/RC[-2])"><Data ss:Type="Number">0.9727272757575757</Data></Cell>
+   </Row>
+   <Row ss:Index="7" ss:StyleID="sCol">
+    <Cell ss:MergeAcross="2" ss:MergeDown="1" ss:HRef="https://example.test/bao-cao"><Data ss:Type="String">Ghi chú gộp ô</Data></Cell>
+    <Cell ss:StyleID="sRot"><Data ss:Type="String">xoay</Data></Cell>
+   </Row>
+   <Row ss:Hidden="1">
+    <Cell ss:Index="4" ss:Formula="=Thue_suat*R5C2"><Data ss:Type="Number">16500000</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <Selected/>
+  </WorksheetOptions>
+ </Worksheet>
+ <Worksheet ss:Name="Tham_so">
+  <Table>
+   <Row>
+    <Cell><Data ss:Type="String">Tham số</Data></Cell>
+    <Cell><Data ss:Type="String">Giá trị</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">Thuế suất</Data></Cell>
+    <Cell ss:StyleID="sPct"><Data ss:Type="Number">0.1</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">Ngày lập</Data></Cell>
+    <Cell ss:StyleID="sDate"><Data ss:Type="DateTime">2024-03-15T00:00:00.000</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">Đã duyệt</Data></Cell>
+    <Cell><Data ss:Type="Boolean">1</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">Lỗi</Data></Cell>
+    <Cell ss:Formula="=1/0"><Data ss:Type="Error">#DIV/0!</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">Mã (chuỗi số)</Data></Cell>
+    <Cell><Data ss:Type="String">00123</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+ <Worksheet ss:Name="Ẩn">
+  <Table>
+   <Row>
+    <Cell><Data ss:Type="String">không hiện</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <Visible>SheetHidden</Visible>
+  </WorksheetOptions>
+ </Worksheet>
+</Workbook>

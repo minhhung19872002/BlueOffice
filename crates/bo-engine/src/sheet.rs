@@ -415,7 +415,30 @@ pub(crate) fn read_workbook_bytes(bytes: &[u8], name: &str, locale: &Locale) -> 
     } else if bytes.starts_with(b"PK\x03\x04") {
         bo_xlsx::read_xlsx(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?
     } else {
-        return Err(EngineError::Unsupported(name.to_owned()));
+        // XML Spreadsheet 2003, HTML tables, MHTML (CORE-FMT-003).
+        use crate::web_formats::WebKind;
+        match crate::web_formats::detect(bytes, name) {
+            Some(WebKind::XmlSpreadsheet) => bo_xlsx::read_xml_spreadsheet(bytes)
+                .map_err(|e| EngineError::Sheet(e.to_string()))?,
+            Some(WebKind::Html) => bo_html::read_workbook_html(bytes),
+            Some(WebKind::Mht) => {
+                let archive = bo_html::mht::parse(bytes);
+                let root = archive
+                    .root
+                    .and_then(|i| archive.parts.get(i))
+                    .ok_or_else(|| EngineError::Sheet("the MHTML file has no HTML page".into()))?;
+                bo_html::sheet::read_workbook_html_str(&bo_encoding::web::decode_html(
+                    &root.data,
+                    root.charset.as_deref(),
+                ))
+            }
+            Some(WebKind::FlatOpc) => {
+                let zip = crate::web_formats::flat_package(bytes)?
+                    .ok_or_else(|| EngineError::Unsupported(name.to_owned()))?;
+                bo_xlsx::read_xlsx(&zip).map_err(|e| EngineError::Sheet(e.to_string()))?
+            }
+            None => return Err(EngineError::Unsupported(name.to_owned())),
+        }
     };
     Ok(wb)
 }
@@ -847,6 +870,9 @@ impl SheetEngine {
         let plain = crate::decrypt_package(bytes, password)?;
         let encrypted = plain.is_some();
         let bytes = plain.as_deref().unwrap_or(bytes);
+        // Flat OPC (CORE-FMT-003) opens as the package it describes.
+        let flat = crate::web_formats::flat_package(bytes)?;
+        let bytes = flat.as_deref().unwrap_or(bytes);
         let info = self.open_plain(bytes, name)?;
         self.macros = bo_binary::has_macros(bytes);
         self.file_variant = crate::variant::detect(bytes).or(self.file_variant);
@@ -1660,11 +1686,14 @@ impl SheetEngine {
         Ok(())
     }
 
-    /// Serialises the workbook (`xlsx` or `csv` of `sheet`). Chart caches are
-    /// refreshed from their ranges first (§21.2.2.120 `numCache`).
+    /// Serialises the workbook: `xlsx`, `csv` of `sheet`, `ods`, `html` (every sheet
+    /// as an HTML table), `html-sheet` (only `sheet`), `mht` (that page as a
+    /// single-file web page) or `xml` (Flat OPC of the
+    /// `.xlsx` package, not encrypted; CORE-FMT-003). Chart caches are refreshed
+    /// from their ranges first (§21.2.2.120 `numCache`).
     pub fn save(&mut self, format: &str, sheet: usize) -> Result<Vec<u8>> {
         let locale = self.locale;
-        if format == "xlsx" {
+        if matches!(format, "xlsx" | "xml") {
             if let Some(wb) = self.wb.as_mut() {
                 if wb
                     .sheets
@@ -1687,7 +1716,7 @@ impl SheetEngine {
         }
         let wb = self.wb()?;
         match format {
-            "xlsx" => {
+            "xlsx" | "xml" => {
                 let bytes =
                     bo_xlsx::write_xlsx(wb).map_err(|e| EngineError::Sheet(e.to_string()))?;
                 let bytes = match self.save_variant {
@@ -1699,6 +1728,10 @@ impl SheetEngine {
                 let bytes = self.props.apply(bytes)?;
                 let bytes = crate::inspect::package::scrub(&bytes, &self.scrub)?;
                 let bytes = self.sec.apply(bytes)?;
+                if format == "xml" {
+                    return bo_opc::flat::zip_to_flat(&bytes)
+                        .map_err(|e| EngineError::Format(e.to_string()));
+                }
                 match &self.save_password {
                     // [MS-OFFCRYPTO] §2.3.4.10 Agile Encryption (AES-256 / SHA-512).
                     Some(pw) => bo_crypto::encrypt(&bytes, pw)
@@ -1713,6 +1746,23 @@ impl SheetEngine {
                     bo_xlsx::CsvOptions::default()
                 };
                 Ok(bo_xlsx::write_csv(self.sheet(sheet)?, &opts))
+            }
+            // HTML tables: displayed text, cell formatting, merged cells.
+            // `mht`: the same page of every sheet as a single-file web page (RFC 2557).
+            "html" | "html-sheet" | "mht" => {
+                let only = (format == "html-sheet").then_some(sheet);
+                if only.is_some() {
+                    self.sheet(sheet)?;
+                }
+                let title = self
+                    .name
+                    .rsplit_once('.')
+                    .map_or(self.name.as_str(), |(b, _)| b);
+                let html = bo_html::write_workbook_html(wb, only, &self.locale, title);
+                if format == "mht" {
+                    return Ok(bo_html::write_mht_page(&html, &[]));
+                }
+                Ok(html.into_bytes())
             }
             // ODF 1.3 spreadsheet: values, OpenFormula formulas, cell styles.
             "ods" => bo_odf::write_ods(&workbook_to_ods(wb, &self.locale))

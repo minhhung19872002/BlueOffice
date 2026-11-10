@@ -45,6 +45,7 @@ bo-text ◄── bo-layout ◄─┼── bo-render ◄── bo-raster
 | `bo-opc` | OPC: content types, relationships, part; giữ part không hiểu; chống zip bomb, giới hạn độ sâu XML |
 | `bo-docx` · `bo-xlsx` · `bo-pptx` | WordprocessingML / SpreadsheetML / PresentationML ↔ model, round-trip lossless (ADR-0005) |
 | `bo-drawingml` | DrawingML: màu, theme, 187 preset shape, fill/line/text, chart |
+| `bo-html` | HTML / MHTML (RFC 2557) ↔ tài liệu, bảng HTML ↔ bảng tính; bộ phân tích HTML khoan dung, bỏ script, không tải tài nguyên ngoài (CORE-FMT-003). Flat OPC ở `bo_opc::flat`, Excel XML 2003 ở `bo_xlsx::xml2003` |
 | `bo-binary` · `bo-odf` · `bo-encoding` · `bo-crypto` | `.doc/.xls/.xlsb/.ppt` (đọc), ODF 1.3, TCVN3/VNI → Unicode, [MS-OFFCRYPTO] |
 | `bo-text` | FontManager, fallback metric-compatible, shaping rustybuzz, cache, outline |
 | `bo-layout` | Dàn trang: phân trang, bảng, ảnh, header/footer, cột, footnote, field |

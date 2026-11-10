@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<ss:Workbook xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:x="urn:schemas-microsoft-com:office:excel">
+ <x:ExcelWorkbook>
+  <x:Date1904/>
+ </x:ExcelWorkbook>
+ <ss:Styles>
+  <ss:Style ss:ID="d">
+   <ss:NumberFormat ss:Format="yyyy\-mm\-dd\ hh:mm"/>
+  </ss:Style>
+  <ss:Style ss:ID="g" ss:Parent="d">
+   <ss:Interior ss:Color="#C0C0C0" ss:Pattern="Gray50" ss:PatternColor="#FF0000"/>
+  </ss:Style>
+ </ss:Styles>
+ <ss:Worksheet ss:Name="Lịch">
+  <ss:Table ss:StyleID="d">
+   <ss:Row ss:Index="3">
+    <ss:Cell ss:Index="2"><ss:Data ss:Type="DateTime">1904-01-02T12:00:00.000</ss:Data></ss:Cell>
+    <ss:Cell ss:StyleID="g"><ss:Data ss:Type="DateTime">2020-02-29T00:00:00.000</ss:Data></ss:Cell>
+    <ss:Cell ss:Index="16384"><ss:Data ss:Type="Number">1</ss:Data></ss:Cell>
+    <ss:Cell><ss:Data ss:Type="Number">2</ss:Data></ss:Cell>
+   </ss:Row>
+   <ss:Row ss:Span="2"/>
+   <ss:Row>
+    <ss:Cell ss:Formula="=R[-4]C[1]+1" ss:ArrayRange="RC:R[1]C"><ss:Data ss:Type="Number">2.5</ss:Data></ss:Cell>
+   </ss:Row>
+  </ss:Table>
+ </ss:Worksheet>
+ <ss:Worksheet ss:Name="Lịch">
+  <ss:Table/>
+ </ss:Worksheet>
+</ss:Workbook>

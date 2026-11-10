@@ -5801,7 +5801,10 @@
       "csv": "CSV (comma delimited)",
       "thmx": "Theme file",
       "png": "PNG picture of each slide",
-      "gif": "Animation / video"
+      "gif": "Animation / video",
+      "html": "Web page (.html, single file)",
+      "mht": "Single-file web page (.mht)",
+      "xml": "XML document (Flat OPC, .xml)"
     },
     "print": {
       "preview": "Print… (preview and settings)"
@@ -6457,6 +6460,16 @@
       "unsupportedLink": "Text in a table cell cannot take a link yet.",
       "masterView": "Actions cannot be set in the master view."
     }
+  },
+  "webFormats": {
+    "saveHtml": "Save as web page (.html)",
+    "saveMht": "Save as single-file web page (.mht)",
+    "saveFlatXml": "Save as XML document (.xml)",
+    "saved": "Saved “{{name}}”.",
+    "failed": "This format could not be saved.",
+    "describeHtml": "One HTML file with its pictures embedded. Opens in any web browser.",
+    "describeMht": "The page and its pictures in one file (MHTML).",
+    "describeXml": "The whole document package in one XML file (Flat OPC)."
   },
   "docStyles": {
     "dialog": {

@@ -4,7 +4,7 @@ import type { DocProperties, RecentFile } from '@blueoffice/platform';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FileBackstage, type FileBackstageProps } from '../src/FileBackstage';
+import { FileBackstage, OTHER_FORMATS, type FileBackstageProps } from '../src/FileBackstage';
 
 afterEach(cleanup);
 
@@ -132,6 +132,51 @@ describe('FileBackstage', () => {
     fireEvent.click(nav('Lưu thành'));
     fireEvent.click(document.querySelector('[data-format=".pdf"]')!);
     expect(run).toHaveBeenCalledWith('file.exportPdf');
+  });
+
+  it('offers the web and XML formats of each app on Save As (CORE-FMT-003)', () => {
+    // What every app lists beside its document types.
+    expect(OTHER_FORMATS.doc.map(([, ext]) => ext)).toEqual(['pdf', 'html', 'mht', 'xml']);
+    expect(OTHER_FORMATS.sheet.map(([, ext]) => ext)).toEqual([
+      'csv',
+      'pdf',
+      'html',
+      'mht',
+      'xml',
+      'thmx',
+    ]);
+    // A presentation has Flat OPC but no HTML page set.
+    expect(OTHER_FORMATS.slide.map(([, ext]) => ext)).toEqual(['pdf', 'png', 'gif', 'xml', 'thmx']);
+    const web = ['file.saveHtml', 'file.saveMht', 'file.saveFlatXml'];
+    const registered = new Set(['file.exportPdf', ...web]);
+    const { run } = setup({
+      commands: { has: (id) => registered.has(id), enabled: () => true, run: vi.fn() },
+    });
+    fireEvent.click(nav('Lưu thành'));
+    const formats = Array.from(document.querySelectorAll('[data-format]')).map(
+      (b) => (b as HTMLElement).dataset.format,
+    );
+    expect(formats.slice(4)).toEqual(['.pdf', '.html', '.mht', '.xml']);
+    // Labels come from both locales' `backstage.formats`.
+    expect(screen.getByText('Trang web (.html, một tệp)')).toBeTruthy();
+    expect(screen.getByText('Trang web một tệp (.mht)')).toBeTruthy();
+    expect(screen.getByText('Tài liệu XML (Flat OPC, .xml)')).toBeTruthy();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('runs the command of a web format', () => {
+    const run = vi.fn();
+    const registered = new Set(['file.saveHtml', 'file.saveMht', 'file.saveFlatXml']);
+    const { onClose } = setup({
+      commands: { has: (id) => registered.has(id), enabled: () => true, run },
+    });
+    fireEvent.click(nav('Lưu thành'));
+    fireEvent.click(document.querySelector('[data-format=".mht"]')!);
+    expect(onClose).toHaveBeenCalled();
+    expect(run).toHaveBeenCalledWith('file.saveMht');
+    fireEvent.click(nav('Lưu thành'));
+    fireEvent.click(document.querySelector('[data-format=".xml"]')!);
+    expect(run).toHaveBeenLastCalledWith('file.saveFlatXml');
   });
 
   it('pins a recent file, keeps it first and stores it for the user', async () => {

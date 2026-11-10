@@ -96,8 +96,12 @@ impl Package {
         Some((xml_total, other))
     }
 
-    /// Read a package from ZIP bytes.
+    /// Read a package from ZIP bytes, or from a Flat OPC document
+    /// ([`crate::flat`], sniffed by its `pkg:package` root).
     pub fn read(bytes: &[u8], limits: &Limits) -> Result<Package> {
+        if crate::flat::is_flat_opc(bytes) {
+            return crate::flat::read_flat(bytes, limits);
+        }
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;
         if zip.len() > limits.max_entries {
             return Err(OpcError::LimitExceeded(format!("{} entries", zip.len())));

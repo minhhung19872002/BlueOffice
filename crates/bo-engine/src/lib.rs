@@ -69,6 +69,7 @@ pub mod theme_file;
 pub mod translate;
 pub mod variant;
 pub mod views;
+pub mod web_formats;
 
 /// Installed OS fonts (native hosts, see [`Engine::set_system_fonts`]).
 #[cfg(not(target_arch = "wasm32"))]
@@ -408,11 +409,23 @@ impl Engine {
         let plain = decrypt_package(bytes, password)?;
         let encrypted = plain.is_some();
         let bytes = plain.as_deref().unwrap_or(bytes);
+        // Flat OPC (one XML file holding the package, CORE-FMT-003) opens as the
+        // package it describes; saving writes the ZIP package.
+        let flat = web_formats::flat_package(bytes)?;
+        let from_flat = flat.is_some();
+        let bytes = flat.as_deref().unwrap_or(bytes);
         let macros = bo_binary::has_macros(bytes);
         let is_zip = bytes.starts_with(b"PK\x03\x04");
         // Decks: `.pptx`, and `.ppt` / `.odp` converted to PresentationML.
         let deck = if is_zip && bo_pptx::is_pptx(bytes) {
-            Some((None, name.to_owned()))
+            Some((
+                None,
+                if from_flat {
+                    with_ext(name, "pptx")
+                } else {
+                    name.to_owned()
+                },
+            ))
         } else if is_zip && bo_odf::detect_mimetype(bytes).as_deref() == Some(bo_odf::MIME_ODP) {
             let d = bo_odf::read_odp_deck(bytes).map_err(|e| EngineError::Format(e.to_string()))?;
             Some((Some(legacy_slides::odp_deck(&d)), with_ext(name, "pptx")))
@@ -462,6 +475,11 @@ impl Engine {
                 }
                 _ => return Err(EngineError::Unsupported(name.to_owned())),
             }
+        } else if let Some(kind) = web_formats::detect(bytes, name) {
+            // HTML and MHTML (CORE-FMT-003): scripts are dropped, nothing is fetched.
+            let mut d = web_formats::read_web_document(bytes, kind)?;
+            media::convert_media(&mut d, &mut self.fonts);
+            d
         } else if lower.ends_with(".txt")
             || lower.ends_with(".md")
             || std::str::from_utf8(bytes).is_ok()
@@ -470,11 +488,12 @@ impl Engine {
         } else {
             return Err(EngineError::Unsupported(name.to_owned()));
         };
-        // Legacy and ODF documents are saved as .docx.
+        // Legacy, ODF, web and Flat OPC documents are saved as .docx.
         let name = match lower.rsplit_once('.') {
-            Some((_, "doc" | "odt")) => {
-                format!("{}.docx", name.rsplit_once('.').map_or(name, |(b, _)| b))
+            Some((_, "doc" | "odt" | "html" | "htm" | "xhtml" | "mht" | "mhtml")) => {
+                with_ext(name, "docx")
             }
+            Some((_, "xml")) if from_flat => with_ext(name, "docx"),
             _ => name.to_owned(),
         };
         self.load(doc, &name)?;
@@ -883,6 +902,17 @@ impl Engine {
     /// Save the open presentation as `.pptx`, encrypted with the save password
     /// when one is set ([MS-OFFCRYPTO] §2.3.4.10 Agile Encryption).
     pub fn save_pptx(&self) -> Result<Vec<u8>> {
+        let bytes = self.pptx_package()?;
+        match &self.save_password {
+            Some(pw) => {
+                bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))
+            }
+            None => Ok(bytes),
+        }
+    }
+
+    /// The `.pptx` package of the open presentation, not encrypted.
+    pub(crate) fn pptx_package(&self) -> Result<Vec<u8>> {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
         // While the master view is open the deck's slides are set aside.
         let assembled = slide_edit::master::assemble(pres, &self.slides)
@@ -891,13 +921,7 @@ impl Engine {
         let bytes = self.apply_variant(bytes)?;
         let bytes = self.props.apply(bytes)?;
         let bytes = inspect::package::scrub(&bytes, &self.scrub)?;
-        let bytes = self.sec.apply(bytes)?;
-        match &self.save_password {
-            Some(pw) => {
-                bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))
-            }
-            None => Ok(bytes),
-        }
+        self.sec.apply(bytes)
     }
 
     /// Image sources for backends: the document's media parts, then slide images.
@@ -1149,6 +1173,17 @@ impl Engine {
     /// encrypted with the save password when one is set ([MS-OFFCRYPTO] §2.3.4.10).
     pub fn save_docx(&self) -> Result<Vec<u8>> {
         // Hosts call `mark_saved` once the bytes are stored.
+        let bytes = self.docx_package()?;
+        match &self.save_password {
+            Some(pw) => {
+                bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))
+            }
+            None => Ok(bytes),
+        }
+    }
+
+    /// The `.docx` package of the open document, not encrypted.
+    pub(crate) fn docx_package(&self) -> Result<Vec<u8>> {
         let doc = self.document().ok_or(EngineError::NoDocument)?;
         // §17.15.1.89 trackRevisions follows the session's track-changes mode.
         let tracked = self
@@ -1163,13 +1198,7 @@ impl Engine {
         let mut scrub = self.scrub.clone();
         scrub.comments &= doc.comments.is_empty();
         let bytes = inspect::package::scrub(&bytes, &scrub)?;
-        let bytes = self.sec.apply(bytes)?;
-        match &self.save_password {
-            Some(pw) => {
-                bo_crypto::encrypt(&bytes, pw).map_err(|e| EngineError::Crypto(e.to_string()))
-            }
-            None => Ok(bytes),
-        }
+        self.sec.apply(bytes)
     }
 }
 

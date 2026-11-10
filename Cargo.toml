@@ -47,6 +47,8 @@ criterion = { version = "0.8", default-features = false }
 png = "0.18"
 regex = { version = "1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
 bo-edit = { path = "crates/bo-edit" }
+bo-encoding = { path = "crates/bo-encoding" }
+bo-html = { path = "crates/bo-html" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

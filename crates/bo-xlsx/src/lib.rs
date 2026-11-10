@@ -39,12 +39,14 @@ mod threaded;
 pub mod timeline;
 mod write;
 mod xml;
+pub mod xml2003;
 mod xmlpatch;
 
 pub use csv::{read_csv, write_csv, CsvOptions};
 pub use read::{read_xlsx, read_xlsx_with_limits, theme_colors};
 pub use write::write_xlsx;
 pub use xml::canonicalize_xml;
+pub use xml2003::{is_xml_spreadsheet, read_xml_spreadsheet};
 
 /// Errors produced while reading or writing spreadsheets.
 #[derive(Debug, thiserror::Error)]

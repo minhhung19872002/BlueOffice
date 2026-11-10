@@ -8,9 +8,9 @@ publish = false
 
 [dependencies]
 bo-model.workspace = true
+unicode-normalization.workspace = true
 
 [dev-dependencies]
-unicode-normalization.workspace = true
 proptest.workspace = true
 
 [lints]

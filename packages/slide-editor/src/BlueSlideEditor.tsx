@@ -82,6 +82,9 @@ import {
   mimeFor,
   notifyMentions,
   openExtensions,
+  WEB_FORMAT_COMMANDS,
+  webFormats,
+  webOpenExtensions,
   type DisplayTarget,
   type MediaCaptureSession,
   type SlideRecordingInput,
@@ -460,7 +463,7 @@ export interface SlideEditorState
 
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 /** File name without the extension of a deck variant (CORE-FMT-001). */
-const deckBase = (name: string) => name.replace(/\.(pptx|pptm|potx|potm|ppsx|ppsm)$/i, '');
+const deckBase = (name: string) => name.replace(/\.(pptx|pptm|potx|potm|ppsx|ppsm|xml)$/i, '');
 
 /** Files offered by "Insert video / audio" (played when the platform has the codec). */
 const MEDIA_FILES = [
@@ -1855,7 +1858,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       shortcut: 'Ctrl+O',
       run: () =>
         guard(async () => {
-          const f = await platform.files.openFile([...openExtensions('slide'), '.ppt', '.odp']);
+          const f = await platform.files.openFile([
+            ...openExtensions('slide'),
+            '.ppt',
+            '.odp',
+            // Flat OPC (CORE-FMT-003).
+            ...webOpenExtensions('slide'),
+          ]);
           if (f) await load(f.bytes, f.name);
         }),
     });
@@ -1897,6 +1906,24 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           if (saved) setStatus(t('fileVariants.themeSaved', { name }));
         }),
     });
+    // The presentation as Flat OPC, one XML file (CORE-FMT-003).
+    for (const f of webFormats('slide')) {
+      reg.register({
+        id: WEB_FORMAT_COMMANDS[f.id],
+        isEnabled: deck,
+        run: () =>
+          guard(async () => {
+            const r = await ctrl.run({ cmd: 'exportFile', format: 'xml' });
+            if (!r?.file) {
+              setStatus(t('webFormats.failed'));
+              return;
+            }
+            const name = `${base()}.${f.ext}`;
+            const saved = await platform.files.saveFile(fromBase64(r.file), name, f.mime);
+            if (saved) setStatus(t('webFormats.saved', { name: saved }));
+          }),
+      });
+    }
     reg.register({
       id: 'file.savePassword',
       isEnabled: deck,

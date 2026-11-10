@@ -29,10 +29,13 @@ import type {
 import {
   PASSWORD_REQUIRED,
   THEME_MIME,
+  WEB_FORMAT_COMMANDS,
   WRONG_PASSWORD,
   openExtensions,
   openProtection,
   updateNotice,
+  webFormats,
+  withExtension,
 } from '@blueoffice/platform';
 import {
   Ribbon,
@@ -1150,6 +1153,31 @@ function EditorInner({
       isEnabled: hasDoc,
       run: () => exportPdf(),
     });
+    // Web page, single-file web page and Flat OPC (CORE-FMT-003): a copy in another
+    // format; the open document keeps its name and type.
+    for (const f of webFormats('doc')) {
+      r.register({
+        id: WEB_FORMAT_COMMANDS[f.id],
+        isEnabled: hasDoc,
+        run: async () => {
+          try {
+            const res = await controller.current?.run({ cmd: 'exportFile', format: f.id });
+            if (!res?.file) {
+              store.setState({ status: { kind: 'info', key: 'webFormats.failed' } });
+              return;
+            }
+            const name = withExtension(store.getState().doc?.name ?? 'document', f.ext);
+            const saved = await platform.files.saveFile(fromBase64(res.file), name, f.mime);
+            if (saved)
+              store.setState({
+                status: { kind: 'info', key: 'webFormats.saved', params: { name: saved } },
+              });
+          } catch (e) {
+            fail('errors.save', e);
+          }
+        },
+      });
+    }
     // PDF/A, tagged PDF and bookmarks from headings (CORE-FMT-002).
     exportPdfWith.current = (c: PdfExport) => void exportPdf(c);
     r.register({

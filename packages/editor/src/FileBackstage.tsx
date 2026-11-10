@@ -102,6 +102,9 @@ const COMMAND_LABELS: Record<string, string> = {
   'file.exportVideo': 'slideEditor.exportVideo',
   'file.exportDocs': 'slideExport.title',
   'file.saveCsv': 'sheetEditor.saveCsv',
+  'file.saveHtml': 'webFormats.saveHtml',
+  'file.saveMht': 'webFormats.saveMht',
+  'file.saveFlatXml': 'webFormats.saveFlatXml',
   'file.saveThemeFile': 'fileVariants.saveThemeFile',
   'design.saveThemeFile': 'fileVariants.saveThemeFile',
   'view.toggleLanguage': 'backstage.options.language',
@@ -163,16 +166,26 @@ export const BACKSTAGE_COMMANDS: Record<
 
 /** Other output formats of each app, beside its document types: (command, extension). */
 export const OTHER_FORMATS: Record<VariantApp, readonly (readonly [string, string])[]> = {
-  doc: [['file.exportPdf', 'pdf']],
+  doc: [
+    ['file.exportPdf', 'pdf'],
+    // Web page, single-file web page, Flat OPC (CORE-FMT-003).
+    ['file.saveHtml', 'html'],
+    ['file.saveMht', 'mht'],
+    ['file.saveFlatXml', 'xml'],
+  ],
   sheet: [
     ['file.saveCsv', 'csv'],
     ['file.exportPdf', 'pdf'],
+    ['file.saveHtml', 'html'],
+    ['file.saveMht', 'mht'],
+    ['file.saveFlatXml', 'xml'],
     ['file.saveThemeFile', 'thmx'],
   ],
   slide: [
     ['file.exportPdf', 'pdf'],
     ['file.exportPng', 'png'],
     ['file.exportVideo', 'gif'],
+    ['file.saveFlatXml', 'xml'],
     ['design.saveThemeFile', 'thmx'],
   ],
 };

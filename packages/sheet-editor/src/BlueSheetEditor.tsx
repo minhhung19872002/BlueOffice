@@ -41,6 +41,9 @@ import {
   mimeFor,
   notifyMentions,
   openExtensions,
+  WEB_FORMAT_COMMANDS,
+  webFormats,
+  webOpenExtensions,
   withExtension,
 } from '@blueoffice/platform';
 import {
@@ -1961,6 +1964,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           '.xls',
           '.ods',
           '.csv',
+          // XML Spreadsheet 2003, Flat OPC, HTML tables (CORE-FMT-003).
+          ...webOpenExtensions('sheet'),
         ]);
         if (!f) return;
         setStatus(t('sheetEditor.loading'));
@@ -1974,7 +1979,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       { shortcut: 'Ctrl+O' },
     );
     const baseName = () =>
-      fileName.replace(/\.(xlsx|xlsm|xltx|xltm|csv)$/i, '') || t('sheetEditor.untitled');
+      fileName.replace(/\.(xlsx|xlsm|xltx|xltm|csv|xml|html?|mht|mhtml)$/i, '') ||
+      t('sheetEditor.untitled');
     const has = { isEnabled: (s: SheetEditorState) => s.hasWorkbook };
     // The workbook keeps its type: .xlsx, .xlsm, .xltx or .xltm (CORE-FMT-001).
     const saveWorkbook = async (s: SheetEditorState, variant?: string | null) => {
@@ -2038,6 +2044,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       },
       has,
     );
+    // The workbook as HTML tables, a single-file web page or Flat OPC (CORE-FMT-003).
+    for (const f of webFormats('sheet')) {
+      add(
+        WEB_FORMAT_COMMANDS[f.id],
+        async (s) => {
+          const bytes = await s.host.save(f.id, s.sheet);
+          const saved = await platform.files.saveFile(bytes, `${baseName()}.${f.ext}`, f.mime);
+          if (saved) setStatus(t('webFormats.saved', { name: saved }));
+        },
+        has,
+      );
+    }
     add(
       'file.exportPdf',
       async (s) => {

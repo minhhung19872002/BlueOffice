@@ -18,7 +18,12 @@ import type {
   StoredDocument,
   VersionHistory,
 } from '@blueoffice/platform';
-import { ServerTranslationProvider, defaultDictation, variantOf } from '@blueoffice/platform';
+import {
+  ServerTranslationProvider,
+  appOfXml,
+  defaultDictation,
+  variantOf,
+} from '@blueoffice/platform';
 import type { SessionMode } from './mode';
 import { OfflineError, reach, type OfflineSaves } from './offline';
 
@@ -66,6 +71,14 @@ export const appForFile = (name: string): HostedApp => {
   if (['ppt', 'odp'].includes(ext)) return 'slide';
   return 'doc';
 };
+
+/**
+ * [`appForFile`] looking into the file when its name does not say: an `.xml` file is a
+ * Flat OPC document, workbook or presentation, or an XML Spreadsheet 2003 workbook
+ * (CORE-FMT-003).
+ */
+export const appForFileContent = (name: string, bytes: Uint8Array): HostedApp =>
+  (name.toLowerCase().endsWith('.xml') ? appOfXml(bytes) : undefined) ?? appForFile(name);
 
 /** `""` (same origin) or an absolute server URL without the trailing slash. */
 export const serverBase = (url: string): string => url.trim().replace(/\/+$/, '');

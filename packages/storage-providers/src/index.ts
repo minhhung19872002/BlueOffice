@@ -4,7 +4,7 @@ import type {
   FileAccess,
   StoredDocument,
 } from '@blueoffice/platform';
-import { mimeFor } from '@blueoffice/platform';
+import { mimeFor, webOpenExtensions } from '@blueoffice/platform';
 
 const LOCAL_PERMISSIONS = { edit: true, download: true, share: false } as const;
 
@@ -17,7 +17,16 @@ export class LocalStorageProvider implements DocumentStorage {
 
   constructor(
     private readonly files: FileAccess,
-    private readonly accept: string[] = ['.docx', '.docm', '.dotx', '.dotm', '.txt', '.md'],
+    private readonly accept: string[] = [
+      '.docx',
+      '.docm',
+      '.dotx',
+      '.dotm',
+      '.txt',
+      '.md',
+      // Web pages and Flat OPC (CORE-FMT-003).
+      ...webOpenExtensions('doc'),
+    ],
   ) {}
 
   async open(ref?: DocumentRef): Promise<StoredDocument | null> {

@@ -44,6 +44,7 @@ export * from './slideInk';
 export { WebCodecsVideo, VIDEO_CODECS, bitrateFor, hasWebCodecs } from './webcodecs';
 export * from './sheetDataTools';
 export * from './speech';
+export * from './translation';
 export {
   OidcSession,
   fetchOidcConfig,

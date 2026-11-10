@@ -167,3 +167,13 @@ xem `assets/icons/library/README.md`.
   nguồn, phiên bản, cách sinh và toàn văn thông báo Princeton nằm trong `assets/thesaurus/en/README.md`, phân
   phối kèm dữ liệu. Dùng cho ngăn / menu "Từ đồng nghĩa" (CORE-THES-001).
 - Tiếng Việt: chưa có dữ liệu (không có nguồn mở với giấy phép tương thích đã kiểm chứng).
+
+## Ranh giới bản đồ
+
+- `assets/maps/world/countries.bin` — ranh giới quốc gia rút gọn sinh bằng `scripts/build-world-map.mjs` từ
+  **Natural Earth 1:50m Admin 0 – Countries, phiên bản 5.1.1** (https://www.naturalearthdata.com/), **public
+  domain** ("All versions of Natural Earth raster + vector map data found on this website are in the public
+  domain."; không cần xin phép, không bắt buộc ghi công — vẫn ghi: "Made with Natural Earth."). Nguồn, mã
+  SHA-256 của tệp tải về và cách sinh: `assets/maps/README.md`. Dùng cho biểu đồ bản đồ (CORE-CHART-006).
+- Ranh giới tỉnh/thành Việt Nam: chưa có dữ liệu (cần bộ dữ liệu có giấy phép được phê duyệt,
+  `assets/maps/vn-provinces/README.md`).

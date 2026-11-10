@@ -16,6 +16,7 @@ use bo_model::sheet::{
 use bo_render::{Command, Paint, PathSeg, Rgba, Stroke};
 
 mod look;
+mod map;
 mod three_d;
 
 use look::Look;
@@ -132,6 +133,16 @@ pub fn refresh_caches(wb: &mut Workbook, locale: &Locale) {
                         s.values = vals;
                     }
                 }
+                // A map of categories caches its value texts too.
+                if let (Some(m), Some(s)) = (
+                    c.map.as_ref().filter(|m| m.categorical),
+                    c.plots.first().and_then(|p| p.series.first()),
+                ) {
+                    let texts = map::value_texts(wb, si, s, m, locale);
+                    if let Some(m) = c.map.as_mut() {
+                        m.text_values = texts;
+                    }
+                }
                 c
             })
             .collect();
@@ -174,6 +185,7 @@ pub const CHART_TYPES: &[&str] = &[
     "pareto",
     "boxWhisker",
     "funnel",
+    "regionMap",
     "column3D",
     "clusteredColumn3D",
     "stackedColumn3D",
@@ -276,6 +288,7 @@ pub fn type_name(c: &Chart) -> &'static str {
         ChartKind::Pareto => "pareto",
         ChartKind::BoxWhisker => "boxWhisker",
         ChartKind::Funnel => "funnel",
+        ChartKind::RegionMap => "regionMap",
         ChartKind::Other(_) => "column",
     }
 }
@@ -347,6 +360,7 @@ pub fn plot_for(kind: &str) -> ChartPlot {
         "pareto" => (ChartKind::Pareto, None, None, None, false),
         "boxWhisker" => (ChartKind::BoxWhisker, None, None, Some("exclusive"), false),
         "funnel" => (ChartKind::Funnel, None, None, None, false),
+        "regionMap" => (ChartKind::RegionMap, None, None, None, false),
         _ => (ChartKind::Bar, Some("col"), Some("clustered"), None, false),
     };
     ChartPlot {
@@ -379,7 +393,7 @@ fn shape_series(kind: &str, plot: &mut ChartPlot) {
         }
         "stock" | "stockUpDown" => plot.series.truncate(4),
         // One series: waterfall, funnel, pareto, histogram, treemap and sunburst.
-        "waterfall" | "funnel" | "pareto" | "histogram" | "treemap" | "sunburst" => {
+        "waterfall" | "funnel" | "pareto" | "histogram" | "treemap" | "sunburst" | "regionMap" => {
             plot.series.truncate(1);
         }
         "explodedPie" => {
@@ -515,7 +529,38 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
     view_for_type(&mut chart);
     let mut data = chart.clone();
     refresh_one(wb, sheet, &mut data);
+    init_map(wb, sheet, &mut data);
     Some(data)
+}
+
+/// Gives a region map without map options its defaults for its data (CORE-CHART-006): the area level
+/// from the location names (countries, else provinces), a map of categories when the values are
+/// texts, labels where they fit. Other charts are left alone.
+pub fn init_map(wb: &Workbook, sheet: usize, chart: &mut Chart) {
+    if chart.map.is_some() || chart.plots.first().map(|p| &p.kind) != Some(&ChartKind::RegionMap) {
+        return;
+    }
+    let mut opts = bo_model::sheet::MapOptions {
+        labels: Some("bestFitOnly".into()),
+        culture_language: "vi-VN".into(),
+        culture_region: "VN".into(),
+        // The bundled boundaries' source (public domain).
+        attribution: "Natural Earth".into(),
+        ..Default::default()
+    };
+    if let Some(s) = chart.plots.first().and_then(|p| p.series.first()) {
+        let (_, cats, vals) = series_data(wb, sheet, s, &Locale::EN_US);
+        opts.level = Some(match crate::geo::guess_level(&cats) {
+            crate::geo::MapLevel::Country => "countryRegion".into(),
+            crate::geo::MapLevel::Province => "state".into(),
+        });
+        let texts = map::value_texts(wb, sheet, s, &opts, &Locale::EN_US);
+        if vals.iter().all(Option::is_none) && texts.iter().any(|t| !t.trim().is_empty()) {
+            opts.categorical = true;
+            opts.text_values = texts;
+        }
+    }
+    chart.map = Some(opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -1169,6 +1214,26 @@ fn draw_body(
             idx += 1;
         }
         plots.push((p, v));
+    }
+    // Region maps (CORE-CHART-006) draw their own legend: a colour scale or categories.
+    if let Some((p, ss)) = plots
+        .first()
+        .filter(|(p, _)| p.kind == ChartKind::RegionMap)
+    {
+        let series = p.series.first().zip(ss.first());
+        map::draw(
+            wb,
+            sheet,
+            chart,
+            series,
+            [6.0, top, w - 6.0, h - 6.0],
+            font,
+            locale,
+            color,
+            label,
+            out,
+        );
+        return;
     }
     let pie = plots.first().is_some_and(|(p, _)| pie_like(&p.kind));
     let surface = plots

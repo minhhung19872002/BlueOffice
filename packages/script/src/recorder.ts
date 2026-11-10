@@ -141,6 +141,9 @@ export const SHEET_READ: ReadonlySet<string> = new Set([
   'historyLen',
   'mergeHistory',
   'setSelection',
+  // Map chart boundary datasets (CORE-CHART-006): engine set-up, not document edits.
+  'mapDatasets',
+  'registerMapDataset',
 ]);
 
 export type RecorderEvent = { type: 'start' } | { type: 'stop'; source: string };

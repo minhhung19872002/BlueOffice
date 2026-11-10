@@ -685,6 +685,49 @@ pub enum SheetCommand {
         #[serde(default)]
         y_title: Option<String>,
     },
+    /// Changes the options of a region map (CORE-CHART-006); absent fields keep their value, `""`
+    /// clears an optional one (automatic).
+    SetChartMap {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based index of the chart in the sheet.
+        index: usize,
+        /// `mercator`, `miller`, `robinson`, `albers`, `""` = automatic.
+        #[serde(default)]
+        projection: Option<String>,
+        /// Area level (`ST_GeoMappingLevel`), `""` = automatic.
+        #[serde(default)]
+        level: Option<String>,
+        /// Region labels: `none`, `bestFitOnly`, `showAll`.
+        #[serde(default)]
+        labels: Option<String>,
+        /// Colour scale: `sequential` (two colours) or `diverging` (three colours).
+        #[serde(default)]
+        scale: Option<String>,
+        /// Colours `RRGGBB` of the lowest, middle and highest values (`""` = default).
+        #[serde(default)]
+        min_color: Option<String>,
+        /// Middle colour of a diverging scale.
+        #[serde(default)]
+        mid_color: Option<String>,
+        /// Colour of the highest value.
+        #[serde(default)]
+        max_color: Option<String>,
+    },
+    /// Registers a boundary dataset for map charts (`dataset.json`, the GeoJSON / TopoJSON text and
+    /// the optional aliases text, read by the host from a dataset folder such as
+    /// `assets/maps/vn-provinces/`).
+    RegisterMapDataset {
+        /// Text of `dataset.json`.
+        manifest: String,
+        /// Text of the boundary file it names.
+        boundaries: String,
+        /// Text of the alias file.
+        #[serde(default)]
+        aliases: Option<String>,
+    },
+    /// The registered map boundary datasets.
+    MapDatasets,
     /// Removes a chart (charts read from the file lose their drawing anchor and parts).
     DeleteChart {
         /// 0-based sheet index.
@@ -1747,6 +1790,46 @@ fn bad(msg: impl Into<String>) -> EngineError {
     EngineError::Sheet(msg.into())
 }
 
+/// Map options of a region map for the UI (CORE-CHART-006), with `status` `needsDataset` when the
+/// map is of provinces and no registered boundary dataset matches its locations.
+fn map_info(
+    wb: Option<&bo_model::sheet::Workbook>,
+    sheet: usize,
+    c: &bo_model::sheet::Chart,
+) -> Value {
+    if c.plots.first().map(|p| &p.kind) != Some(&bo_model::sheet::ChartKind::RegionMap) {
+        return Value::Null;
+    }
+    let m = c.map.clone().unwrap_or_default();
+    let hex = |c: &Option<bo_model::sheet::ChartColor>| match c {
+        Some(bo_model::sheet::ChartColor::Rgb(v)) => Value::String(format!("{v:06X}")),
+        _ => Value::Null,
+    };
+    let level = bo_sheet::geo::MapLevel::of_chartex(m.level.as_deref());
+    let names = match (wb, c.plots.first().and_then(|p| p.series.first())) {
+        (Some(wb), Some(s)) => {
+            bo_sheet::chart::series_data(wb, sheet, s, &bo_sheet::numfmt::Locale::EN_US).1
+        }
+        _ => Vec::new(),
+    };
+    let status = if bo_sheet::geo::provider_for(level, &names).is_some() {
+        "ok"
+    } else {
+        "needsDataset"
+    };
+    json!({
+        "projection": m.projection,
+        "level": m.level,
+        "labels": m.labels,
+        "scale": if m.scale.diverging { "diverging" } else { "sequential" },
+        "categorical": m.categorical,
+        "minColor": hex(&m.scale.min),
+        "midColor": hex(&m.scale.mid),
+        "maxColor": hex(&m.scale.max),
+        "status": status,
+    })
+}
+
 fn non_empty(c: &Cell) -> bool {
     !matches!(c.value, CellValue::Empty) || c.formula.is_some()
 }
@@ -2023,6 +2106,7 @@ impl SheetEngine {
             C::InsertChart { sheet, .. }
             | C::ChartDesign { sheet, .. }
             | C::EditChart { sheet, .. }
+            | C::SetChartMap { sheet, .. }
             | C::DeleteChart { sheet, .. }
             | C::MoveChart { sheet, .. }
             | C::InsertFormControl { sheet, .. }
@@ -3501,6 +3585,7 @@ impl SheetEngine {
                                 "to": c.to.map_or([c.from.row + 15, c.from.col + 8], |t| [t.row, t.col]),
                                 "series": c.plots.iter().map(|p| p.series.len()).sum::<usize>(),
                                 "editable": true,
+                                "map": map_info(self.wb().ok(), sheet, c),
                             })
                         })
                         .collect(),
@@ -3536,8 +3621,98 @@ impl SheetEngine {
                     c.y_title = opt(t);
                 }
                 c.dirty = true;
+                // A chart turned into a region map gets map options for its data (CORE-CHART-006).
+                let mut c = c.clone();
+                bo_sheet::chart::init_map(wb, sheet, &mut c);
+                wb.sheets[sheet].charts[index] = c;
                 Ok(json!({ "ok": true }))
             }),
+            C::SetChartMap {
+                sheet,
+                index,
+                projection,
+                level,
+                labels,
+                scale,
+                min_color,
+                mid_color,
+                max_color,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                let mut c = wb.sheets[sheet]
+                    .charts
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| bad("no such chart"))?;
+                if c.plots.first().map(|p| &p.kind) != Some(&bo_model::sheet::ChartKind::RegionMap) {
+                    return Err(bad("not a map chart"));
+                }
+                bo_sheet::chart::init_map(wb, sheet, &mut c);
+                let m = c.map.get_or_insert_with(Default::default);
+                let pick = |v: String, allowed: &[&str]| -> std::result::Result<Option<String>, EngineError> {
+                    match v.trim() {
+                        "" => Ok(None),
+                        x if allowed.contains(&x) => Ok(Some(x.to_owned())),
+                        x => Err(bad(format!("unknown map option '{x}'"))),
+                    }
+                };
+                if let Some(p) = projection {
+                    m.projection = pick(p, &bo_xlsx::chartex_map::PROJECTIONS)?;
+                }
+                if let Some(l) = level {
+                    m.level = pick(l, &bo_xlsx::chartex_map::LEVELS)?;
+                }
+                if let Some(l) = labels {
+                    m.labels = pick(l, &bo_xlsx::chartex_map::LABEL_LAYOUTS)?;
+                }
+                if let Some(s) = scale {
+                    m.scale.diverging = match s.as_str() {
+                        "diverging" => true,
+                        "sequential" => false,
+                        other => return Err(bad(format!("unknown colour scale '{other}'"))),
+                    };
+                }
+                let color = |v: String| -> std::result::Result<Option<bo_model::sheet::ChartColor>, EngineError> {
+                    let t = v.trim().trim_start_matches('#');
+                    if t.is_empty() {
+                        return Ok(None);
+                    }
+                    u32::from_str_radix(t, 16)
+                        .ok()
+                        .filter(|_| t.len() == 6)
+                        .map(|v| Some(bo_model::sheet::ChartColor::Rgb(v)))
+                        .ok_or_else(|| bad(format!("bad colour '{v}'")))
+                };
+                if let Some(v) = min_color {
+                    m.scale.min = color(v)?;
+                }
+                if let Some(v) = mid_color {
+                    m.scale.mid = color(v)?;
+                }
+                if let Some(v) = max_color {
+                    m.scale.max = color(v)?;
+                }
+                c.dirty = true;
+                wb.sheets[sheet].charts[index] = c;
+                Ok(json!({ "ok": true }))
+            }),
+            C::RegisterMapDataset {
+                manifest,
+                boundaries,
+                aliases,
+            } => {
+                let m = bo_sheet::geo::dataset::Manifest::parse(&manifest).map_err(bad)?;
+                let b = bo_sheet::geo::dataset::build(&m, &boundaries, aliases.as_deref())
+                    .map_err(bad)?;
+                let n = b.regions.len();
+                bo_sheet::geo::register(std::sync::Arc::new(b));
+                Ok(json!({ "id": m.id, "regions": n }))
+            }
+            C::MapDatasets => Ok(Value::Array(
+                bo_sheet::geo::registered()
+                    .iter()
+                    .map(|p| json!({ "id": p.id(), "country": p.country(), "regions": p.regions().len() }))
+                    .collect(),
+            )),
             C::DeleteChart { sheet, index } => self.edit(sheet, Recalc::No, |wb, _| {
                 if bo_xlsx::chart_write::remove_chart(wb, sheet, index) {
                     Ok(json!({ "ok": true }))
@@ -5013,6 +5188,76 @@ mod tests {
         assert_eq!(e.cell(0, 3, 2).unwrap().input, "không");
         let back = reopen(&mut e);
         assert_eq!(back.workbook().unwrap().sheets[0].data_validations.len(), 1);
+    }
+
+    // source: [MS-ODRAWXML] chartex regionMap (CT_Geography, CT_ValueColors) — CORE-CHART-006.
+    #[test]
+    fn map_chart_insert_options_save_and_datasets() {
+        let mut e = engine();
+        let data = [
+            ["Quốc gia", "Dân số"],
+            ["Việt Nam", "98"],
+            ["Nhật Bản", "124"],
+            ["Pháp", "68"],
+        ];
+        for (r, row) in data.iter().enumerate() {
+            for (c, v) in row.iter().enumerate() {
+                e.set_input(0, r as u32, c as u32, v).unwrap();
+            }
+        }
+        let i = run(
+            &mut e,
+            json!({ "cmd": "insertChart", "sheet": 0, "range": rng(0, 0, 3, 1), "kind": "regionMap" }),
+        );
+        assert_eq!(i["index"], 0);
+        let list = run(&mut e, json!({ "cmd": "charts", "sheet": 0 }));
+        assert_eq!(list[0]["kind"], "regionMap");
+        assert_eq!(list[0]["map"]["level"], "countryRegion");
+        assert_eq!(list[0]["map"]["status"], "ok");
+        run(
+            &mut e,
+            json!({ "cmd": "setChartMap", "sheet": 0, "index": 0, "projection": "robinson",
+            "labels": "showAll", "scale": "diverging", "maxColor": "#123456" }),
+        );
+        assert!(e
+            .exec_json(
+                &json!({ "cmd": "setChartMap", "sheet": 0, "index": 0, "projection": "flat" })
+                    .to_string()
+            )
+            .is_err());
+        let mut back = reopen(&mut e);
+        let list = run(&mut back, json!({ "cmd": "charts", "sheet": 0 }));
+        let m = &list[0]["map"];
+        assert_eq!(
+            (
+                m["projection"].clone(),
+                m["labels"].clone(),
+                m["scale"].clone(),
+                m["maxColor"].clone()
+            ),
+            (
+                json!("robinson"),
+                json!("showAll"),
+                json!("diverging"),
+                json!("123456")
+            )
+        );
+        // Provinces: no dataset is registered for these names.
+        run(
+            &mut back,
+            json!({ "cmd": "setChartMap", "sheet": 0, "index": 0, "level": "state" }),
+        );
+        let list = run(&mut back, json!({ "cmd": "charts", "sheet": 0 }));
+        assert_eq!(list[0]["map"]["status"], "needsDataset");
+        // A bad dataset is refused with its reason.
+        let err = back
+            .exec_json(
+                &json!({ "cmd": "registerMapDataset", "manifest": "{}", "boundaries": "{}" })
+                    .to_string(),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("dataset.json"), "{err}");
+        assert!(run(&mut back, json!({ "cmd": "mapDatasets" })).is_array());
     }
 
     #[test]

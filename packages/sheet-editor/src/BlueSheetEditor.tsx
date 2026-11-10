@@ -299,6 +299,7 @@ import {
 } from './pasteOptions';
 import { AnalysisDialog } from './analysis';
 import { QuickAnalysis, RecommendedChartsDialog } from './quickAnalysis';
+import { registerMapDatasets } from './mapDatasets';
 import {
   ConsolidateDialog,
   InvalidCircles,
@@ -1771,6 +1772,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     },
     [platform.translation, refreshInfo, t, translateLink],
   );
+
+  // Map chart boundary datasets found next to the app (CORE-CHART-006), registered once per engine.
+  // The engine directly, not the recorded host: this is no user action.
+  useEffect(() => {
+    if (platform.sheet) void registerMapDatasets(platform.sheet, platform.mapDatasets);
+  }, [platform.sheet, platform.mapDatasets]);
 
   // Thesaurus (CORE-THES-001): the pane on the word of the active cell (a cell holding one word);
   // a replacement writes the cell (one undoable edit) in the word's capitalisation.

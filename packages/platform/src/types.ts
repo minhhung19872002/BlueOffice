@@ -2887,6 +2887,8 @@ export interface Platform {
   translation?: import('./translation').TranslationProvider;
   /** Thesaurus, data loaded on first use (absent: none on this platform; CORE-THES-001). */
   thesaurus?: import('./thesaurus').ThesaurusProvider;
+  /** Boundary datasets of map charts (absent: the bundled world only; CORE-CHART-006). */
+  mapDatasets?: import('./mapDatasets').MapDatasetSource;
   /** BlueAI assistant (absent: none on this platform; off unless an administrator enabled it; CORE-AI-001). */
   ai?: import('./ai').AiProvider;
   /** Folders and web pages for Get & Transform data (SHEET-PQ-001; absent: files only). */

@@ -10,6 +10,7 @@ import type {
   CfRuleSpec,
   CfStyle,
   ChartInfo,
+  ChartMapOptions,
   ChartTemplate,
   PasteMode,
   SheetHost,
@@ -26,6 +27,7 @@ import {
   iconCount,
 } from './cfRules';
 import { layoutTexts } from './chartStyles';
+import { MapChartOptions, mapOptionsOf } from './mapChart';
 import { FilterExtras } from './sortFilter';
 import styles from './SheetEditor.module.css';
 
@@ -938,6 +940,7 @@ export const CHART_TYPES = [
   'pareto',
   'boxWhisker',
   'funnel',
+  'regionMap',
   'column3D',
   'clusteredColumn3D',
   'stackedColumn3D',
@@ -975,6 +978,8 @@ export function ChartDialog({
   const [legend, setLegend] = useState('r');
   const [xTitle, setXTitle] = useState('');
   const [yTitle, setYTitle] = useState('');
+  // Region map options (CORE-CHART-006).
+  const [mapOpts, setMapOpts] = useState<ChartMapOptions>(() => mapOptionsOf(null));
   // Saved chart templates (CORE-CHART-007): one may replace the type and formatting.
   const [templates, setTemplates] = useState(() => loadChartTemplates<ChartTemplate>());
   const [template, setTemplate] = useState<string | null>(null);
@@ -986,6 +991,7 @@ export function ChartDialog({
     setLegend(c.legend ?? 'none');
     setXTitle(c.xTitle ?? '');
     setYTitle(c.yTitle ?? '');
+    setMapOpts(mapOptionsOf(c.map));
   };
   useEffect(() => {
     void host
@@ -1002,6 +1008,8 @@ export function ChartDialog({
   const ok = async () => {
     try {
       await host.exec({ cmd: 'editChart', sheet, index: sel, kind, title, legend, xTitle, yTitle });
+      if (kind === 'regionMap')
+        await host.exec({ cmd: 'setChartMap', sheet, index: sel, ...mapOpts });
       const chosen = templates.find((x) => x.name === template);
       if (chosen) {
         await host.exec({
@@ -1097,6 +1105,13 @@ export function ChartDialog({
             {t('sheetEditor.chart.yTitle')}
             <input value={yTitle} onChange={(e) => setYTitle(e.target.value)} />
           </label>
+          {kind === 'regionMap' && (
+            <MapChartOptions
+              value={mapOpts}
+              info={charts.find((c) => c.index === sel)?.map}
+              onChange={setMapOpts}
+            />
+          )}
         </div>
       )}
     </Dialog>

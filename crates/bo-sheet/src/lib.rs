@@ -31,6 +31,7 @@ pub mod filter;
 pub mod flashfill;
 pub mod formctl;
 pub mod formula;
+pub mod geo;
 pub mod geometry;
 pub mod headerfooter;
 pub mod icons;

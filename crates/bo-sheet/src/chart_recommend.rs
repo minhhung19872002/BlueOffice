@@ -4,6 +4,7 @@
 //! The data are read like [`crate::chart::new_chart`] reads them: a header row when the first
 //! row holds text, leading label columns (text or dates), then one value series per numeric
 //! column. The rules:
+//! - one column of country names and one series → a region map;
 //! - several label columns (a hierarchy) → treemap, sunburst;
 //! - dates or years as labels (a time series) → line, then column / area;
 //! - numbers only, two or more columns → scatter (first column = X);
@@ -48,6 +49,9 @@ pub struct DataShape {
     pub positive: bool,
     /// Longest label, in characters.
     pub label_len: usize,
+    /// The labels are countries / regions of the world (most of them name one, CORE-CHART-006).
+    #[serde(default)]
+    pub places: bool,
 }
 
 /// One recommended chart type.
@@ -59,7 +63,7 @@ pub struct Recommendation {
     /// Rank, 0–100 (higher first).
     pub score: u32,
     /// Why (a key the UI words): `trend`, `compare`, `parts`, `relationship`,
-    /// `manyCategories`, `hierarchy`, `composition`, `default`.
+    /// `manyCategories`, `hierarchy`, `composition`, `geography`, `default`.
     pub reason: &'static str,
 }
 
@@ -152,6 +156,17 @@ pub fn shape_of(wb: &Workbook, sheet: usize, range: CellRange) -> Option<DataSha
             LabelKind::Text
         }
     };
+    // Country names: at least two labels and four in five of them name a country.
+    let places = label_cols == 1 && labels == LabelKind::Text && {
+        let names: Vec<String> = (r0..=range.last.row)
+            .filter_map(|r| ws.cell(r, c0 - 1))
+            .map(|cell| text_of(&cell.value))
+            .filter(|t| !t.trim().is_empty())
+            .collect();
+        let w = crate::geo::world::world();
+        let hits = names.iter().filter(|n| w.find(n).is_some()).count();
+        names.len() >= 2 && hits * 5 >= names.len() * 4
+    };
     let label_len = (r0..=range.last.row)
         .filter_map(|r| ws.cell(r, c0.saturating_sub(1)).filter(|_| label_cols > 0))
         .map(|cell| text_of(&cell.value).chars().count())
@@ -165,6 +180,7 @@ pub fn shape_of(wb: &Workbook, sheet: usize, range: CellRange) -> Option<DataSha
         series,
         positive: positive && any_positive,
         label_len,
+        places,
     })
 }
 
@@ -178,6 +194,9 @@ pub fn rules(s: &DataShape) -> Vec<Recommendation> {
             reason,
         });
     };
+    if s.places && s.series == 1 {
+        add("regionMap", 96, "geography");
+    }
     if s.label_cols >= 2 && s.positive {
         add("treemap", 95, "hierarchy");
         add("sunburst", 90, "hierarchy");
@@ -263,6 +282,7 @@ mod tests {
             series,
             positive,
             label_len: 6,
+            places: false,
         }
     }
 
@@ -375,6 +395,19 @@ mod tests {
             &[n(5.0), n(4.0)],
         ]);
         assert_eq!(recommend(&xy, 0, all(4, 2), 6)[0].kind, "scatter");
+        // A column of country names and numbers: a region map (names in Vietnamese or English).
+        let countries = book(&[
+            &[t("Quốc gia"), t("Dân số")],
+            &[t("Việt Nam"), n(98.0)],
+            &[t("Nhật Bản"), n(124.0)],
+            &[t("Brazil"), n(203.0)],
+        ]);
+        let r = recommend(&countries, 0, all(4, 2), 6);
+        assert_eq!((r[0].kind, r[0].reason), ("regionMap", "geography"));
+        // Provinces are not countries: no map recommended without their dataset.
+        assert!(!recommend(&tree, 0, all(4, 3), 6)
+            .iter()
+            .any(|r| r.kind == "regionMap"));
         // Text only: nothing to plot.
         let words = book(&[&[t("a"), t("b")], &[t("c"), t("d")]]);
         assert_eq!(recommend(&words, 0, all(2, 2), 6), Vec::new());

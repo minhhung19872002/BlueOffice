@@ -140,7 +140,7 @@ pub(crate) const CONTROL_WORDS: &[(&str, &str)] = &[
 ];
 
 /// Replaces `\word` by its character (a space right after the word is consumed).
-fn expand_control_words(src: &str) -> String {
+pub(crate) fn expand_control_words(src: &str) -> String {
     let chars: Vec<char> = src.chars().collect();
     let mut out = String::with_capacity(src.len());
     let mut i = 0;

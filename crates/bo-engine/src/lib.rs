@@ -38,6 +38,7 @@ mod guid;
 pub mod inspect;
 mod legacy_slides;
 pub mod markup;
+pub mod math_edit;
 pub mod media;
 pub mod merge;
 pub mod merge_cmd;
@@ -355,6 +356,8 @@ pub struct Engine {
     video: Option<Box<slide_edit::video::VideoSession>>,
     /// Building blocks: the user's store, the shipped library, previews (BlueDoc).
     blocks: blocks::BlockState,
+    /// The caret inside an equation being edited in place (BlueDoc, CORE-MATH-010).
+    math: Option<math_edit::MathCaret>,
 }
 
 impl Engine {

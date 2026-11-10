@@ -41,8 +41,9 @@ pub use markup::{
     balloon_height, page_markup, stack_balloons, Balloon, ChangeBar, Mark, MarkFilter, MarkKind,
     MarkupStyle, PageMarkup, BALLOON_GAP, MAX_HIDDEN_REVIEWERS,
 };
-pub use math::{layout_equation, EquationGlyphs, EquationRun};
+pub use math::{layout_equation, EquationGeometry, EquationGlyphs, EquationRun, MathSlotBox};
 pub use page::{border_items, border_lines, border_width, ArtMotif};
+pub use paragraph::equation_geometry;
 pub use paragraph::{FieldContext, LayoutCache};
 pub use sigline::signature_line_page;
 pub use style::{author_color, para_props};

@@ -7,6 +7,7 @@
 //!   [`to_omml`].
 #![forbid(unsafe_code)]
 
+pub mod edit;
 pub mod latex;
 pub mod linear;
 pub mod omml;

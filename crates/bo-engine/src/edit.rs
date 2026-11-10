@@ -737,6 +737,32 @@ pub enum Command {
         /// Linear form.
         linear: bool,
     },
+    /// Put the caret into the equation at (or just before) the caret to edit it in place
+    /// (CORE-MATH-010): at the start of the zone, or its end with `end`.
+    MathEnter {
+        /// At the end of the zone.
+        #[serde(default)]
+        end: bool,
+    },
+    /// Move the caret inside the equation being edited (also: arrows, Home / End, Tab while it is in one).
+    MathMove {
+        /// How it moves.
+        motion: crate::math_edit::MathMotion,
+    },
+    /// Type into the current slot of the equation as math text (also: `insertText` while in one).
+    MathInsert {
+        /// The text.
+        text: String,
+    },
+    /// Backspace (`back`) / Delete inside the equation: a character, else select then delete the
+    /// structure (also: `deleteBackward` / `deleteForward` while in one).
+    MathDelete {
+        /// Backspace.
+        #[serde(default)]
+        back: bool,
+    },
+    /// Build up the linear text typed before the caret (what a space does while typing).
+    MathAutobuild,
     /// AutoCorrect options (CORE-AUTOCORR-001): `options` replaces them, `reset`
     /// restores the defaults; the result reports the current ones in `autocorrect`.
     AutoCorrect {
@@ -1265,6 +1291,9 @@ pub struct EditResult {
     /// Building blocks answer (building block commands, DOC-BB-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocks: Option<Box<crate::blocks::BlocksOut>>,
+    /// The caret inside an equation (CORE-MATH-010); `caret` / `rects` then show it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub math: Option<crate::math_edit::MathState>,
 }
 
 impl crate::Engine {
@@ -1375,7 +1404,14 @@ impl crate::Engine {
         let picture = matches!(cmd, Command::Copy | Command::Cut)
             .then(|| self.selection_picture())
             .flatten();
+        // Editing inside an equation (CORE-MATH-010).
+        if let Some(r) = self.math_command(&cmd)? {
+            return Ok(r);
+        }
         let mut r = self.command_inner(cmd, now)?;
+        if self.math.is_some() {
+            self.math_decorate(&mut r);
+        }
         if let Some(c) = r.clip.as_mut() {
             c.png = picture;
         }
@@ -1696,6 +1732,12 @@ impl crate::Engine {
                     | Command::SetSavePassword { .. }
                     | Command::SaveFormat { .. }
                     | Command::EquationTemplates
+                    // Outside an equation (handled by `math_command` inside one).
+                    | Command::MathEnter { .. }
+                    | Command::MathMove { .. }
+                    | Command::MathInsert { .. }
+                    | Command::MathDelete { .. }
+                    | Command::MathAutobuild
                     // Handled by `special_command`.
                     | Command::Spelling { .. }
                     | Command::SpellAt { .. }
@@ -2493,6 +2535,7 @@ impl crate::Engine {
             style_mgr: None,
             word_count: None,
             blocks: None,
+            math: None,
         })
     }
 }

@@ -1539,6 +1539,18 @@ impl Writer<'_> {
             });
         let root = with_namespace(&root, "w14", W14_NS);
         let mut s = root;
+        let part = self
+            .pkg
+            .related_part(main, crate::reader::REL_COMMENTS)?
+            .unwrap_or_else(|| "/word/comments.xml".into());
+        // Hyperlinks (mentions) and pictures of comments are relationships of the
+        // comments part (OPC §9.3), not of the main document.
+        let comment_rels = Rels {
+            part: part.clone(),
+            list: self.pkg.relationships(&part)?,
+            changed: false,
+        };
+        let main_rels = std::mem::replace(&mut self.rels, comment_rels);
         for c in &doc.comments {
             let _ = write!(
                 s,
@@ -1579,12 +1591,13 @@ impl Writer<'_> {
             s.push_str("</w:comment>");
         }
         s.push_str("</w:comments>");
-        let part = self
-            .pkg
-            .related_part(main, crate::reader::REL_COMMENTS)?
-            .unwrap_or_else(|| "/word/comments.xml".into());
+        let comment_rels = std::mem::replace(&mut self.rels, main_rels);
+        if comment_rels.changed {
+            self.pkg.set_relationships(&part, &comment_rels.list);
+        }
         self.pkg.add_part(&part, CT_COMMENTS, s.into_bytes())?;
         self.rels.id_for(crate::reader::REL_COMMENTS, &part, false);
+        self.write_people_and_tasks(main)?;
 
         // [MS-DOCX] §2.5.2 commentsEx: one entry per comment with a paraId.
         let mut ext = format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w15:commentsEx xmlns:w15=\"{W15_NS}\" xmlns:mc=\"{MC_NS}\" mc:Ignorable=\"w15\">");
@@ -1639,6 +1652,46 @@ impl Writer<'_> {
                 .add_part(&part, CT_COMMENTS_IDS, ids.into_bytes())?;
             self.rels
                 .id_for(crate::reader::REL_COMMENTS_IDS, &part, false);
+        }
+        Ok(())
+    }
+
+    /// [MS-DOCX] people part extended with newly mentioned persons, and the
+    /// BlueOffice comment tasks part (see `crate::mentions`).
+    fn write_people_and_tasks(&mut self, main: &str) -> Result<()> {
+        use crate::mentions::{people_xml, tasks_xml, CT_PEOPLE, CT_TASKS, REL_PEOPLE, REL_TASKS};
+        let comments = &self.doc.comments;
+        let mut persons = crate::mentions::mentioned(comments);
+        for t in comments.iter().filter_map(|c| c.task.as_ref()) {
+            if !persons.iter().any(|p| p.name == t.assignee.name) {
+                persons.push(t.assignee.clone());
+            }
+        }
+        let people_part = self.pkg.related_part(main, REL_PEOPLE)?;
+        let existing = people_part
+            .as_ref()
+            .and_then(|p| self.pkg.part(p))
+            .map(|p| String::from_utf8_lossy(&p.data).into_owned());
+        if let Some(xml) = people_xml(existing.as_deref(), &persons) {
+            let part = people_part.unwrap_or_else(|| "/word/people.xml".into());
+            self.pkg.add_part(&part, CT_PEOPLE, xml.into_bytes())?;
+            self.rels.id_for(REL_PEOPLE, &part, false);
+        }
+        let tasks_part = self.pkg.related_part(main, REL_TASKS)?;
+        match (tasks_xml(comments), tasks_part) {
+            (Some(xml), part) => {
+                let part = part.unwrap_or_else(|| "/word/blueoffice/commentTasks.xml".into());
+                self.pkg.add_part(&part, CT_TASKS, xml.into_bytes())?;
+                self.rels.id_for(REL_TASKS, &part, false);
+            }
+            (None, Some(part)) => {
+                // Every task is gone: drop the part and its relationship.
+                self.pkg.remove_part(&part);
+                let before = self.rels.list.len();
+                self.rels.list.retain(|r| r.rel_type != REL_TASKS);
+                self.rels.changed |= self.rels.list.len() != before;
+            }
+            (None, None) => {}
         }
         Ok(())
     }

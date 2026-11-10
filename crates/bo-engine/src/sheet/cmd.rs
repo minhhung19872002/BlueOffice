@@ -290,6 +290,12 @@ pub enum SheetCommand {
         /// Thread replied to.
         #[serde(default)]
         parent: Option<String>,
+        /// @mentions in `text` (UTF-16 ranges; CORE-COMMENT-001).
+        #[serde(default)]
+        mentions: Vec<bo_model::mention::Mention>,
+        /// Task assigned to a mentioned person.
+        #[serde(default)]
+        task: Option<bo_model::mention::CommentTask>,
     },
     /// Resolve (`done`) or reopen a thread.
     ResolveComment {
@@ -2073,14 +2079,18 @@ impl SheetEngine {
                 author,
                 date,
                 parent,
+                mentions,
+                task,
             } => {
-                let id = self.add_comment(
+                let id = self.add_comment_with(
                     sheet,
                     CellRef::new(row, col),
                     &text,
                     &author,
                     date.as_deref(),
                     parent.as_deref(),
+                    &mentions,
+                    task,
                 )?;
                 Ok(json!({ "id": id }))
             }

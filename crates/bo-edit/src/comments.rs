@@ -5,6 +5,9 @@
 use crate::para;
 use crate::Pos;
 use bo_model::index::{body_paragraphs, para_at};
+use bo_model::mention::{
+    mailto, utf16_len, utf16_range, valid_mentions, CommentTask, Mention, MentionPerson,
+};
 use bo_model::{Block, Comment, Document, Paragraph, Raw, Run, RunContent, RunProps};
 use serde::Serialize;
 
@@ -33,6 +36,53 @@ pub struct CommentInfo {
     pub end: Option<Pos>,
     /// Commented text (shortened).
     pub quote: String,
+    /// @mentions in `text` (`mailto:` hyperlinks "@Name", UTF-16 ranges).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<Mention>,
+    /// Task assigned in the comment (complete when the thread is resolved).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<CommentTask>,
+}
+
+/// Mentions of a comment: `mailto:` hyperlink runs "@Name", located in its text.
+pub(crate) fn mentions_of(c: &Comment, text: &str) -> Vec<Mention> {
+    let mut out = Vec::new();
+    let mut from = 0usize;
+    for b in &c.blocks {
+        let Block::Paragraph(p) = b else { continue };
+        let mut i = 0;
+        while i < p.runs.len() {
+            let link = p.runs[i].props.link.clone();
+            // Consecutive runs of the same hyperlink form one mention.
+            let mut label = String::new();
+            let mut j = i;
+            while j < p.runs.len() && p.runs[j].props.link == link {
+                label.push_str(&p.runs[j].plain_text());
+                j += 1;
+            }
+            i = j;
+            let Some(email) = link.as_deref().and_then(mailto) else {
+                continue;
+            };
+            let Some(name) = label.strip_prefix('@') else {
+                continue;
+            };
+            let Some(at) = text[from..].find(&label).map(|k| k + from) else {
+                continue;
+            };
+            from = at + label.len();
+            out.push(Mention {
+                person: MentionPerson {
+                    id: String::new(),
+                    name: name.trim().to_owned(),
+                    email: Some(email),
+                },
+                start: utf16_len(&text[..at]),
+                length: utf16_len(&label),
+            });
+        }
+    }
+    out
 }
 
 /// Positions of every comment mark in the main text: id → (start, end, reference).
@@ -96,12 +146,15 @@ pub fn list(doc: &Document) -> Vec<CommentInfo> {
             let a = anchors.get(&c.id).copied().unwrap_or_default();
             let start = a[0].or(a[2]);
             let end = a[1].or(a[2]).or(start);
+            let text = c.text();
             CommentInfo {
                 id: c.id,
                 author: c.author.clone(),
                 initials: c.initials.clone(),
                 date: c.date.clone(),
-                text: c.text(),
+                mentions: mentions_of(c, &text),
+                task: c.task.clone(),
+                text,
                 done: c.done,
                 parent: c.parent_para_id.as_ref().and_then(|pid| {
                     doc.comments
@@ -147,13 +200,48 @@ pub(crate) fn new_para_id(doc: &Document, seed: &impl std::hash::Hash) -> String
     }
 }
 
+/// Runs of one line of a new comment: plain text, and each mention with an
+/// e-mail address as a `mailto:` hyperlink (§17.16.22) "@Name".
+fn line_runs(line: &str, at: usize, mentions: &[(std::ops::Range<usize>, &Mention)]) -> Vec<Run> {
+    let mut runs = Vec::new();
+    let mut pos = 0;
+    for (r, m) in mentions {
+        if r.start < at || r.end > at + line.len() {
+            continue;
+        }
+        let (a, b) = (r.start - at, r.end - at);
+        if a > pos {
+            runs.push(Run::text(&line[pos..a], RunProps::default()));
+        }
+        let props = RunProps {
+            link: m.person.email.as_ref().map(|e| format!("mailto:{e}")),
+            ..RunProps::default()
+        };
+        runs.push(Run::text(&line[a..b], props));
+        pos = b;
+    }
+    if pos < line.len() {
+        runs.push(Run::text(&line[pos..], RunProps::default()));
+    }
+    runs
+}
+
 /// Comment content: one paragraph per line, the first starting with the
-/// annotation reference mark (§17.13.4.1 annotationRef).
-pub(crate) fn content(text: &str) -> Vec<Block> {
-    text.replace("\r\n", "\n")
-        .split('\n')
+/// annotation reference mark (§17.13.4.1 annotationRef); `mentions` index the
+/// text in UTF-16 code units.
+pub(crate) fn content(text: &str, mentions: &[Mention]) -> Vec<Block> {
+    let text = text.replace("\r\n", "\n");
+    let valid = valid_mentions(&text, mentions);
+    let ranges: Vec<(std::ops::Range<usize>, &Mention)> = valid
+        .iter()
+        .filter_map(|m| Some((utf16_range(&text, m.start, m.length)?, m)))
+        .collect();
+    let mut at = 0;
+    text.split('\n')
         .enumerate()
         .map(|(i, line)| {
+            let start = at;
+            at += line.len() + 1;
             let mut runs = Vec::new();
             if i == 0 {
                 runs.push(Run {
@@ -164,9 +252,7 @@ pub(crate) fn content(text: &str) -> Vec<Block> {
                     content: vec![RunContent::Opaque(Raw::new("<w:annotationRef/>", 0))],
                 });
             }
-            if !line.is_empty() {
-                runs.push(Run::text(line, RunProps::default()));
-            }
+            runs.extend(line_runs(line, start, &ranges));
             Block::Paragraph(Paragraph::new(
                 bo_model::ParaProps {
                     style: Some("CommentText".into()),
@@ -213,6 +299,7 @@ pub(crate) fn thread_ids(doc: &Document, id: i32) -> Vec<i32> {
 }
 
 /// New comment record.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn make(
     doc: &Document,
     id: i32,
@@ -220,16 +307,19 @@ pub(crate) fn make(
     date: Option<&str>,
     text: &str,
     parent: Option<&Comment>,
+    mentions: &[Mention],
+    task: Option<CommentTask>,
 ) -> Comment {
     Comment {
         id,
         author: author.to_owned(),
         initials: Some(initials(author)),
         date: date.map(str::to_owned),
-        blocks: content(text),
+        blocks: content(text, mentions),
         para_id: Some(new_para_id(doc, &(id, author, date, text))),
         parent_para_id: parent.and_then(|p| p.para_id.clone()),
         done: false,
         durable_id: None,
+        task,
     }
 }

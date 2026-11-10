@@ -2121,6 +2121,17 @@ impl Session {
 
     /// Comment on the selection (the word at the caret when collapsed); returns its id.
     pub fn add_comment(&mut self, text: &str) -> Result<i32> {
+        self.add_comment_with(text, &[], None)
+    }
+
+    /// [`Self::add_comment`] with @mentions (UTF-16 ranges of `text`) and an
+    /// assigned task (CORE-COMMENT-001).
+    pub fn add_comment_with(
+        &mut self,
+        text: &str,
+        mentions: &[bo_model::mention::Mention],
+        task: Option<bo_model::mention::CommentTask>,
+    ) -> Result<i32> {
         let sel = if self.selection.is_collapsed() {
             self.word_at(self.selection.focus)
         } else {
@@ -2135,6 +2146,8 @@ impl Session {
             self.clock.as_deref(),
             text,
             None,
+            mentions,
+            task,
         );
         self.edit(|tx, sel| {
             let mut list = tx.doc.comments.clone();
@@ -2155,6 +2168,17 @@ impl Session {
 
     /// Reply to a comment (anchored next to it); returns the reply's id.
     pub fn reply_comment(&mut self, parent: i32, text: &str) -> Result<i32> {
+        self.reply_comment_with(parent, text, &[], None)
+    }
+
+    /// [`Self::reply_comment`] with @mentions and an assigned task.
+    pub fn reply_comment_with(
+        &mut self,
+        parent: i32,
+        text: &str,
+        mentions: &[bo_model::mention::Mention],
+        task: Option<bo_model::mention::CommentTask>,
+    ) -> Result<i32> {
         let Some(pi) = self.doc.comments.iter().position(|c| c.id == parent) else {
             return Err(EditError::Unsupported(format!("no comment {parent}")));
         };
@@ -2172,6 +2196,8 @@ impl Session {
             self.clock.as_deref(),
             text,
             Some(&list[pi]),
+            mentions,
+            task,
         );
         // Replies follow the thread they belong to.
         let thread = comments::thread_ids(&self.doc, parent);

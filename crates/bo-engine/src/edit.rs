@@ -386,6 +386,12 @@ pub enum Command {
     AddComment {
         /// Comment text.
         text: String,
+        /// @mentions in `text` (UTF-16 ranges; CORE-COMMENT-001).
+        #[serde(default)]
+        mentions: Vec<bo_model::mention::Mention>,
+        /// Task assigned to a mentioned person.
+        #[serde(default)]
+        task: Option<bo_model::mention::CommentTask>,
     },
     /// Reply to comment `id` ([MS-DOCX] threading).
     ReplyComment {
@@ -393,6 +399,12 @@ pub enum Command {
         id: i32,
         /// Reply text.
         text: String,
+        /// @mentions in `text`.
+        #[serde(default)]
+        mentions: Vec<bo_model::mention::Mention>,
+        /// Task assigned to a mentioned person.
+        #[serde(default)]
+        task: Option<bo_model::mention::CommentTask>,
     },
     /// Mark a thread resolved or open again.
     ResolveComment {
@@ -1996,11 +2008,21 @@ impl crate::Engine {
                     Command::NextRevision { forward } => {
                         extra.1 = Some(usize::from(s.select_revision(forward).is_some()));
                     }
-                    Command::AddComment { text } => {
-                        extra.1 = Some(s.add_comment(&text)?.max(0) as usize);
+                    Command::AddComment {
+                        text,
+                        mentions,
+                        task,
+                    } => {
+                        extra.1 = Some(s.add_comment_with(&text, &mentions, task)?.max(0) as usize);
                     }
-                    Command::ReplyComment { id, text } => {
-                        extra.1 = Some(s.reply_comment(id, &text)?.max(0) as usize);
+                    Command::ReplyComment {
+                        id,
+                        text,
+                        mentions,
+                        task,
+                    } => {
+                        extra.1 =
+                            Some(s.reply_comment_with(id, &text, &mentions, task)?.max(0) as usize);
                     }
                     Command::ResolveComment { id, done } => s.resolve_comment(id, done)?,
                     Command::DeleteComment { id } => s.delete_comment(id)?,

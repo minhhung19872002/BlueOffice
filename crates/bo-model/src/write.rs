@@ -378,6 +378,9 @@ pub struct Comment {
     pub done: bool,
     /// `w16cid:durableId` ([MS-DOCX] §2.6.x commentsIds), kept when present.
     pub durable_id: Option<String>,
+    /// Task assigned in the comment (BlueOffice comment tasks part, see [`crate::mention`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<crate::mention::CommentTask>,
 }
 
 impl Comment {

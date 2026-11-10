@@ -788,6 +788,12 @@ pub enum SlideCommand {
         /// Thread replied to.
         #[serde(default)]
         parent: Option<String>,
+        /// @mentions in `text` (UTF-16 ranges; CORE-COMMENT-001).
+        #[serde(default)]
+        mentions: Vec<bo_model::mention::Mention>,
+        /// Task assigned to a mentioned person.
+        #[serde(default)]
+        task: Option<bo_model::mention::CommentTask>,
     },
     /// Resolve (`done`) or reopen a thread of the current slide.
     ResolveComment {
@@ -4390,15 +4396,19 @@ impl Engine {
                     author,
                     date,
                     parent,
+                    mentions,
+                    task,
                 } => {
                     ed.mutate(pres, &mut out, |tx, sel| {
-                        comments::cmd_add(
+                        comments::cmd_add_with(
                             tx,
                             sel.slide,
                             &text,
                             &author,
                             date.as_deref(),
                             parent.as_deref(),
+                            &mentions,
+                            task.clone(),
                         )
                     });
                 }

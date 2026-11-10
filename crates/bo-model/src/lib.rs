@@ -15,6 +15,7 @@ pub mod diagram;
 pub mod field;
 pub mod form;
 pub mod index;
+pub mod mention;
 pub mod ole;
 pub mod picture;
 pub mod run_fx;

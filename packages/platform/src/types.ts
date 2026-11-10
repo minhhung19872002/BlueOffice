@@ -1476,6 +1476,7 @@ export interface SlideShapeInfo {
     | 'chart'
     | 'smartart'
     | 'model3d'
+    | 'zoom'
     | 'object'
     | 'graphic';
   rect: SlideBox;
@@ -1616,6 +1617,8 @@ export type SlideCommand =
   | import('./slideShow').SlideRecordCommand
   /** 3D models: view, presets, pan / zoom, alt text (CORE-3DMODEL-001). */
   | import('./slideModel3d').SlideModel3dCommand
+  /** Slide, section and summary zooms (SLIDE-ZOOM-001). */
+  | import('./slideZoom').SlideZoomCommand
   /** Spelling and grammar of the deck (CORE-SPELL-006). */
   | import('./spelling').SlideSpellCommand
   /** Compare with another version of the deck (CORE-VERSION-001) → `DeckCompareResult`. */
@@ -2262,6 +2265,8 @@ export interface SlideEditResult {
   model3d?: import('./slideModel3d').SlideModel3dInfo;
   /** Answer of `model3dMesh`. */
   model3dMesh?: import('./slideModel3d').SlideModel3dMesh;
+  /** The selected zoom (SLIDE-ZOOM-001). */
+  zoom?: import('./slideZoom').SlideZoomInfo;
 }
 
 // ---------------------------------------------------------------- services

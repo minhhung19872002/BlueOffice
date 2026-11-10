@@ -1,0 +1,15 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 24.0]
+  text 44.0pt 7.2,57.4 #000000ff "Tổng "
+  text 44.0pt 101.7,57.4 #000000ff "quan"
+pop transform
+transform [1.000 0.000 0.000 1.000 57.6 208.8]
+  image /ppt/media/zoom-9a1d600464fedd33.png 0.0,0.0 409.7x230.5 crop=None
+  path n=5 [0.0 0.0 409.7 230.5] stroke=#bfbfbfff w0.25
+  image /ppt/media/zoom-1325ce126d6408ab.png 435.1,0.0 409.7x230.5 crop=None
+  path n=5 [435.1 0.0 844.8 230.5] stroke=#bfbfbfff w0.25
+pop transform

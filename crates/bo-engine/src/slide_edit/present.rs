@@ -221,6 +221,19 @@ pub enum LinkAction {
     LastViewed,
     /// End the show.
     End,
+    /// A zoom (SLIDE-ZOOM-001, [MS-PPTX] §2.8.3.1): play `slides` (a slide, or a section's
+    /// slides), zooming in from the zoom's box; with `ret`, come back to the zoom's slide
+    /// afterwards.
+    Zoom {
+        /// 0-based slides in playing order.
+        slides: Vec<usize>,
+        /// `zmPr@returnToParent`.
+        #[serde(default, rename = "return")]
+        ret: bool,
+        /// `zmPr@transitionDur` in ms; `None`: the destination's own transition.
+        #[serde(default)]
+        transition_ms: Option<u32>,
+    },
 }
 
 /// A shape with a hyperlink the show follows when clicked.
@@ -456,6 +469,7 @@ pub fn links_out(pres: &Presentation, slide: usize) -> Vec<LinkOut> {
             });
         }
     }
+    out.extend(super::zoom::show_links(pres, slide, &placed));
     out
 }
 
@@ -942,7 +956,7 @@ fn nv_mut(n: &mut ShapeNode) -> Option<&mut NonVisual> {
 fn action_url(a: &LinkAction) -> Option<String> {
     let jump = |j: &str| Some(format!("ppaction://hlinkshowjump?jump={j}"));
     match a {
-        LinkAction::None | LinkAction::Slide { .. } => None,
+        LinkAction::None | LinkAction::Slide { .. } | LinkAction::Zoom { .. } => None,
         LinkAction::CustomShow { id, ret } => Some(format!(
             "ppaction://customshow?id={id}{}",
             if *ret { "&return=true" } else { "" }
@@ -966,7 +980,7 @@ pub fn cmd_set_show_link(tx: &mut Tx<'_>, sel: &SlideSel, action: &LinkAction) -
             return refuse("noCustomShow");
         }
     }
-    if matches!(action, LinkAction::Slide { .. }) {
+    if matches!(action, LinkAction::Slide { .. } | LinkAction::Zoom { .. }) {
         return refuse("unsupportedLink");
     }
     let url = action_url(action);

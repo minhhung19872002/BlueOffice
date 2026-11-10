@@ -1828,6 +1828,14 @@ fn draw_frame(
                 draw_node(cx, &node, Frame::root(), fonts, images, &mut cmds);
             }
         }
+        // Zoom ([MS-PPTX] §2.8.3.1 CT_ZoomObjectProperties): each object's image
+        // (`p166:blipFill`) with its outline (`p166:spPr`). A slide or section zoom fills the
+        // frame; a summary zoom's objects sit at their boxes, relative to the frame.
+        GraphicContent::Other(_) if crate::zoom::is_zoom(f) => {
+            for node in crate::zoom::object_pictures(f) {
+                draw_node(cx, &node, Frame::root(), fonts, images, &mut cmds);
+            }
+        }
         // 3D model ([MS-ODRAWXML] am3d:model3d): the rendered view — the fallback picture
         // of its mc:AlternateContent, else `raster/blip` — fills the frame. BlueOffice
         // renders both again whenever the view changes (bo_model3d::raster).

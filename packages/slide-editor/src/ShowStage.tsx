@@ -18,7 +18,8 @@ import {
   type Frames,
   type ShowPos,
 } from './player';
-import { morphLayers } from './transitionFx';
+import { morphLayers, type TransitionPlan } from './transitionFx';
+import { zoomFrames, type ZoomMove } from './presenting';
 import { SlideCanvas } from './SlideCanvas';
 import styles from './SlideEditor.module.css';
 
@@ -135,6 +136,24 @@ export interface ShowStageProps {
   narration?: boolean;
 }
 
+/** Transition into the slide; a zoom (SLIDE-ZOOM-001) replaces the slide's own. */
+function stagePlan(
+  show: SlideShowInfo | null,
+  slide: number,
+  zoom: ZoomMove | undefined,
+): TransitionPlan {
+  if (zoom && show) {
+    const f = zoomFrames(zoom, show.width, show.height);
+    return {
+      duration: zoom.ms,
+      incoming: f.incoming,
+      outgoing: f.outgoing,
+      outgoingOnTop: zoom.out,
+    };
+  }
+  return transitionPlan(show?.transition ?? null, slide);
+}
+
 /** The transition sound playing (§19.3.1.42 sndAc), shared by the show's slides. */
 let transitionAudio: { el: HTMLAudioElement; url: string } | null = null;
 
@@ -209,7 +228,8 @@ export function ShowStage({
   const size = show ?? slide;
   const height = size.width > 0 ? Math.round((width * size.height) / size.width) : 0;
   const ready = show !== null && show.slide === pos.slide;
-  const key = `${pos.slide}:${pos.click}:${pos.enter}:${from ?? ''}`;
+  const zoomKey = pos.zoom ? `${pos.zoom.out ? 'out' : 'in'}${pos.zoom.rect.join(',')}` : '';
+  const key = `${pos.slide}:${pos.click}:${pos.enter}:${from ?? ''}:${zoomKey}`;
   const playing = !still && pos.enter !== 'jump';
   // Without animation the slide shows with every effect played.
   const atClick = still && show && show.slide === pos.slide ? show.clicks : pos.click;
@@ -310,7 +330,7 @@ export function ShowStage({
       if (cancelled) return;
       let delay = 0;
       if (pos.enter === 'transition') {
-        const t = transitionPlan(show.transition, pos.slide);
+        const t = stagePlan(show, pos.slide, pos.zoom);
         if (media) playTransitionSound(engine, show.transition?.sound ?? null);
         if (t.duration > 0) {
           const opts = { duration: t.duration, easing: 'ease-in-out', fill: 'both' as const };
@@ -323,7 +343,7 @@ export function ShowStage({
             if (a) anims.push(a);
           }
           // Morph: the overlay's shapes move from the previous slide to this one.
-          if (show.transition?.kind === 'morph' && show.morph) {
+          if (!pos.zoom && show.transition?.kind === 'morph' && show.morph) {
             morphLayers(show.morph, show.width, show.height).forEach((l, i) => {
               const a = animate(morphRefs.current[i], l.frames, opts);
               if (a) anims.push(a);
@@ -372,7 +392,19 @@ export function ShowStage({
       for (const a of anims) a.cancel();
       for (const a of endless) a.cancel();
     };
-  }, [show, pos.slide, pos.click, pos.enter, playing, hasOutgoing, key, media, engine, atClick]);
+  }, [
+    show,
+    pos.slide,
+    pos.click,
+    pos.enter,
+    pos.zoom,
+    playing,
+    hasOutgoing,
+    key,
+    media,
+    engine,
+    atClick,
+  ]);
 
   return (
     <div
@@ -383,6 +415,7 @@ export function ShowStage({
       data-click={pos.click}
       data-clicks={show?.clicks ?? 0}
       data-transition={show?.transition?.kind ?? 'none'}
+      data-zoom={pos.zoom ? (pos.zoom.out ? 'out' : 'in') : undefined}
       role="img"
       aria-label={label}
     >
@@ -391,7 +424,7 @@ export function ShowStage({
           ref={outgoingRef}
           className={styles.showLayer}
           style={{
-            zIndex: transitionPlan(show?.transition ?? null, pos.slide).outgoingOnTop ? 2 : 0,
+            zIndex: stagePlan(show, pos.slide, pos.zoom).outgoingOnTop ? 2 : 0,
           }}
         >
           <SlideCanvas
@@ -496,21 +529,23 @@ export function ShowStage({
       {ready &&
         media &&
         onLink &&
-        (show.links ?? []).map((l) => {
+        (show.links ?? []).map((l, i) => {
           const k = width / (show.width || 1);
           const [x, y, w, h] = l.rect;
+          // A summary zoom has one link per section on the same shape.
+          const zoom = l.action.kind === 'zoom';
           return (
             <button
-              key={`link-${l.shapeId}`}
+              key={`link-${l.shapeId}-${i}`}
               type="button"
               className={styles.showTrigger}
-              data-testid={`show-link-${l.shapeId}`}
+              data-testid={zoom ? `show-link-${l.shapeId}-${i}` : `show-link-${l.shapeId}`}
               data-action={l.action.kind}
               style={{ left: x * k, top: y * k, width: w * k, height: h * k }}
               onClick={(e) => {
                 // A hyperlink goes where it leads instead of advancing the show.
                 e.stopPropagation();
-                onLink(l.action);
+                onLink(l.action.kind === 'zoom' ? { ...l.action, rect: l.rect } : l.action);
               }}
             />
           );

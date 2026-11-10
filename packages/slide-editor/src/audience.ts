@@ -18,6 +18,8 @@ export type AudienceMsg =
       enter?: 'transition' | 'click' | 'jump';
       /** Presenter tools mirrored on the audience screen (SLIDE-SHOW-001). */
       tools?: AudienceTools;
+      /** Zoom transition into / out of a zoom (SLIDE-ZOOM-001). */
+      zoom?: import('./presenting').ZoomMove;
     };
 
 /** White screen, zoom (x, y as fractions of the stage) and the slide's ink. */
@@ -120,6 +122,7 @@ export class AudienceLink {
     click?: number,
     enter?: 'transition' | 'click' | 'jump',
     tools?: AudienceTools,
+    zoom?: import('./presenting').ZoomMove,
   ): void {
     this.state = { slide, black, ended, click };
     this.bus?.post({
@@ -130,6 +133,7 @@ export class AudienceLink {
       click,
       enter,
       tools,
+      zoom,
     } satisfies AudienceMsg);
   }
 

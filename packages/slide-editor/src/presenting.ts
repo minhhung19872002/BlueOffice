@@ -57,18 +57,39 @@ export function startAt(order: number[], slide: number): number {
 
 export type Enter = 'transition' | 'click' | 'jump';
 
+/**
+ * A zoom transition (SLIDE-ZOOM-001): into the target from the zoom's box `rect` (slide
+ * points), or back out of it (`out`) when the show returns to the zoom's slide.
+ */
+export interface ZoomMove {
+  rect: [number, number, number, number];
+  /** Duration (ms). */
+  ms: number;
+  out: boolean;
+}
+
 /** Position in a running show: `at` = place in the order (`order.length`: end screen). */
 export interface RunPos {
   at: number;
   slide: number;
   click: number;
   enter: Enter;
+  /** Entering with a zoom transition instead of the slide's own (with `enter: 'transition'`). */
+  zoom?: ZoomMove;
+}
+
+/** Where a show started from a hyperlink or zoom comes back to. */
+export interface RunBack {
+  order: number[];
+  at: number;
+  /** Came from a zoom: zoom back out of its box. */
+  zoom?: { rect: [number, number, number, number]; ms: number };
 }
 
 export interface ShowRun {
   order: number[];
-  /** Orders to come back to after custom shows started with "return". */
-  back: { order: number[]; at: number }[];
+  /** Orders to come back to after custom shows and zooms started with "return". */
+  back: RunBack[];
   /** Start again after the last slide (setup loop, kiosk). */
   loop: boolean;
   /** No animations: slides show with every effect played, without transitions. */
@@ -145,12 +166,14 @@ export function runStep(
       if (back) {
         const r: ShowRun = { ...run, order: back.order, back: run.back.slice(0, -1) };
         const slide = back.order[back.at] ?? 0;
-        return moved(r, {
+        const p: RunPos = {
           at: back.at,
           slide,
           click: clicks(slide),
           enter: run.still ? 'jump' : 'transition',
-        });
+        };
+        if (back.zoom && !run.still) p.zoom = { ...back.zoom, out: true };
+        return moved(r, p);
       }
       if (run.loop) return moved(run, arrive(run, 0, clicks, 'transition'));
       return moved(run, end(run, count));
@@ -201,6 +224,8 @@ export function runLink(
       const at = run.order.indexOf(action.slide);
       return at < 0 ? { run, pos } : runGoto(run, pos, at, clicks);
     }
+    case 'zoom':
+      return runZoom(run, pos, action, count, clicks);
     case 'customShow': {
       const cs = customShows.find((s) => s.id === action.id);
       const order = cs?.slides.filter((i) => i >= 0 && i < count) ?? [];
@@ -214,6 +239,96 @@ export function runLink(
       return { run: r, pos: arrive(r, 0, clicks, 'transition') };
     }
   }
+}
+
+/** Zoom transition of a zoom link (`null`: the target's own transition). */
+function zoomIn(
+  action: Extract<SlideLinkAction, { kind: 'zoom' }>,
+  still: boolean,
+): ZoomMove | undefined {
+  const ms = action.transitionMs;
+  if (still || ms === null || ms === undefined || !action.rect) return undefined;
+  return { rect: action.rect, ms, out: false };
+}
+
+/**
+ * Follow a zoom (SLIDE-ZOOM-001, [MS-PPTX] §2.8.3.1 `zmPr`): play the target slide or the
+ * section's slides. With `returnToParent` the show comes back to the zoom's slide after
+ * them (its effects all shown), zooming back out; without it the show goes on from the
+ * target in the playing order (or, for slides left out of it, from the target and then the
+ * slides after the zoom's slide).
+ */
+export function runZoom(
+  run: ShowRun,
+  pos: RunPos,
+  action: Extract<SlideLinkAction, { kind: 'zoom' }>,
+  count: number,
+  clicks: (slide: number) => number,
+): { run: ShowRun; pos: RunPos } {
+  const slides = action.slides.filter((i) => Number.isInteger(i) && i >= 0 && i < count);
+  if (slides.length === 0 || pos.at >= run.order.length) return { run, pos };
+  const zoom = zoomIn(action, run.still);
+  const withZoom = (p: RunPos): RunPos => (zoom ? { ...p, zoom } : p);
+  if (action.return ?? true) {
+    const back: RunBack = { order: run.order, at: pos.at };
+    if (action.rect && action.transitionMs !== null && action.transitionMs !== undefined) {
+      back.zoom = { rect: action.rect, ms: action.transitionMs };
+    }
+    const r: ShowRun = { ...run, order: slides, back: [...run.back, back], prev: pos.at };
+    return { run: r, pos: withZoom(arrive(r, 0, clicks, 'transition')) };
+  }
+  const at = run.order.indexOf(slides[0]!);
+  if (at >= 0) {
+    const g = runGoto(run, pos, at, clicks);
+    return { run: g.run, pos: withZoom(g.pos) };
+  }
+  const order = [...slides, ...run.order.slice(pos.at + 1)];
+  const r: ShowRun = { ...run, order, prev: pos.at };
+  return { run: r, pos: withZoom(arrive(r, 0, clicks, 'transition')) };
+}
+
+/**
+ * Keyframes of a zoom transition on a stage of `w` × `h` slide points (transform origin at
+ * the top-left corner). In: the target grows out of the zoom's box while the zoom's slide
+ * grows past the stage and fades; out: the reverse.
+ */
+export function zoomFrames(
+  z: ZoomMove,
+  w: number,
+  h: number,
+): { incoming: Record<string, string | number>[]; outgoing: Record<string, string | number>[] } {
+  const [x, y, rw, rh] = z.rect;
+  const sx = rw > 0 && w > 0 ? rw / w : 1;
+  const sy = rh > 0 && h > 0 ? rh / h : 1;
+  const r = (v: number) => Math.round(v * 1e4) / 1e4;
+  // The target slide drawn inside the box.
+  const small = `translate(${r((x / w) * 100)}%, ${r((y / h) * 100)}%) scale(${r(sx)}, ${r(sy)})`;
+  // The zoom's slide blown up so the box fills the stage.
+  const big = `translate(${r((-x / rw) * 100)}%, ${r((-y / rh) * 100)}%) scale(${r(1 / sx)}, ${r(1 / sy)})`;
+  const id = 'translate(0%, 0%) scale(1, 1)';
+  const o = { transformOrigin: '0 0' };
+  if (!z.out) {
+    return {
+      incoming: [
+        { ...o, transform: small, opacity: 0 },
+        { ...o, transform: id, opacity: 1 },
+      ],
+      outgoing: [
+        { ...o, transform: id, opacity: 1 },
+        { ...o, transform: big, opacity: 0 },
+      ],
+    };
+  }
+  return {
+    incoming: [
+      { ...o, transform: big, opacity: 0 },
+      { ...o, transform: id, opacity: 1 },
+    ],
+    outgoing: [
+      { ...o, transform: id, opacity: 1 },
+      { ...o, transform: small, opacity: 0 },
+    ],
+  };
 }
 
 // ------------------------------------------------------------------ kiosk

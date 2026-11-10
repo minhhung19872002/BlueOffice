@@ -26,8 +26,8 @@ export type Status =
   | { kind: 'info'; key: string; params?: Record<string, string> }
   | { kind: 'error'; key: string; message: string };
 
-/** BlueDoc task panes (CORE-UI-006): Styles, Comments, Version history (CORE-VERSION-001). */
-export type DocTaskPane = 'styles' | 'comments' | 'versions';
+/** BlueDoc task panes (CORE-UI-006): Styles, Comments, Version history (CORE-VERSION-001), BlueScript (CORE-SCRIPT-001). */
+export type DocTaskPane = 'styles' | 'comments' | 'versions' | 'script';
 
 /** `panes` with `id` shown (`on`) or hidden. */
 export function togglePane(panes: DocTaskPane[], id: DocTaskPane, on = !panes.includes(id)) {

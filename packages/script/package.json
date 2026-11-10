@@ -1,0 +1,38 @@
+{
+  "name": "@blueoffice/script",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "BlueScript (CORE-SCRIPT-001): sandboxed automation scripts (QuickJS in a Web Worker) with an object API for BlueDoc, BlueSheet and BlueSlide.",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@blueoffice/i18n": "workspace:*",
+    "@blueoffice/platform": "workspace:*",
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+    "quickjs-emscripten-core": "0.32.0"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@blueoffice/engine-wasm": "workspace:*",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^26.6.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "happy-dom": "^21.0.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

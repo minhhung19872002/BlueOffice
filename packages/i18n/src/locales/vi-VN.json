@@ -92,7 +92,8 @@
       "views": "Kiểu xem",
       "show": "Hiển thị",
       "mergeRules": "Trường & quy tắc",
-      "mergeCreate": "Tạo"
+      "mergeCreate": "Tạo",
+      "automation": "Tự động hóa"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -223,7 +224,8 @@
       "focus": "Tập trung",
       "navigationPane": "Ngăn điều hướng",
       "stylesPane": "Ngăn kiểu",
-      "formattingMarks": "Ký hiệu định dạng"
+      "formattingMarks": "Ký hiệu định dạng",
+      "scriptEditor": "Trình soạn BlueScript"
     },
     "review": {
       "readAloud": "Đọc to",
@@ -5401,6 +5403,41 @@
       "hint": "Đối tượng trên cùng ở đầu danh sách; Ctrl+nhấp để chọn thêm.",
       "forward": "Đưa lên một lớp",
       "backward": "Đưa xuống một lớp"
+    }
+  },
+  "script": {
+    "title": "BlueScript",
+    "run": "Chạy",
+    "runHint": "Chạy script (Ctrl+Enter)",
+    "stop": "Dừng",
+    "save": "Lưu",
+    "delete": "Xóa",
+    "newScript": "Script mới",
+    "savedList": "Script đã lưu",
+    "name": "Tên script",
+    "untitled": "Script chưa đặt tên",
+    "savedAs": "Đã lưu “{{name}}”.",
+    "code": "Mã script",
+    "suggestions": "Gợi ý",
+    "output": "Kết quả",
+    "clear": "Xóa kết quả",
+    "noDocument": "Hãy mở một tệp trước.",
+    "status": {
+      "running": "Đang chạy…",
+      "done": "Xong sau {{ms}} ms ({{calls}} lệnh gọi API)."
+    },
+    "error": {
+      "syntax": "Lỗi cú pháp",
+      "error": "Lỗi script",
+      "timeout": "Đã dừng: hết thời gian cho phép.",
+      "memory": "Đã dừng: vượt giới hạn bộ nhớ.",
+      "cancelled": "Đã dừng.",
+      "limit": "Đã dừng: quá nhiều lệnh gọi API."
+    },
+    "sample": {
+      "doc": "// BlueScript – tự động hóa BlueDoc. Ctrl+Space: gợi ý, Ctrl+Enter: chạy.\nconst paras = await doc.paragraphs;\nconsole.log('Số đoạn:', paras.length);\nconst hits = await doc.find('BlueOffice');\nconsole.log('Số kết quả:', hits.length);\n",
+      "sheet": "// BlueScript – tự động hóa BlueSheet. Ctrl+Space: gợi ý, Ctrl+Enter: chạy.\nconst r = sheet.range('A1:B3');\nconsole.log(await r.values);\n// await r.format({ bold: true });\n",
+      "slide": "// BlueScript – tự động hóa BlueSlide. Ctrl+Space: gợi ý, Ctrl+Enter: chạy.\nfor (const s of await presentation.slides) {\n  const shapes = await s.shapes;\n  console.log('Trang', s.index + 1, shapes.map((x) => x.text).filter(Boolean));\n}\n"
     }
   }
 }

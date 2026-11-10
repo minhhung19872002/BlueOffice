@@ -177,7 +177,9 @@ import {
   ImagePlus,
   ScanText,
   Volume2,
+  SquareTerminal,
 } from 'lucide-react';
+import { ScriptPane, sheetScriptHost } from '@blueoffice/script';
 import {
   useCallback,
   useEffect,
@@ -549,6 +551,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [pdfOptions, setPdfOptions] = useState(false);
   const [fileName, setFileName] = useState('');
   const [sheet, setSheet] = useState(0);
+  /** The sheet shown now (read by BlueScript runs). */
+  const sheetNow = useRef(sheet);
+  useEffect(() => {
+    sheetNow.current = sheet;
+  }, [sheet]);
   const [selection, setSelection] = useState<Selection>(single({ row: 0, col: 0 }));
   const [scroll, setScroll] = useState({ x: 0, y: 0 });
   const [size, setSize] = useState({ w: 800, h: 500 });
@@ -622,6 +629,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [commentsOpen, setCommentsOpen] = useState(false);
   // Show Changes / version history pane (CORE-VERSION-001).
   const [versionsOpen, setVersionsOpen] = useState(false);
+  /** BlueScript pane (CORE-SCRIPT-001). */
+  const [scriptOpen, setScriptOpen] = useState(false);
   // Task pane layout of BlueSheet, remembered per app (CORE-UI-006).
   const [paneLayout, setPaneLayout] = useTaskPaneLayout('sheet');
   const [threads, setThreads] = useState<SheetThreadInfo[]>([]);
@@ -2114,6 +2123,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       ...has,
       isChecked: () => versionsOpen,
     });
+    add('script.editor', async () => setScriptOpen((o) => !o), {
+      ...has,
+      isChecked: () => scriptOpen,
+    });
 
     // Insert
     add('insert.chart', popup('chart', 'insert.chart'), has);
@@ -2667,6 +2680,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     pivotPanel,
     commentsOpen,
     versionsOpen,
+    scriptOpen,
     activePivot,
     formList,
     formSel,
@@ -3980,6 +3994,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             ],
           },
           ...sheetViewTabGroups(t, item),
+          {
+            id: 'automation',
+            label: t('ribbon.groups.automation'),
+            items: [
+              item('script.editor', t('commands.view.scriptEditor'), <SquareTerminal size={18} />),
+            ],
+          },
         ],
       },
     ];
@@ -4774,8 +4795,38 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   } satisfies TaskPaneDef,
                 ]
               : []),
+            ...(scriptOpen
+              ? [
+                  {
+                    id: 'script',
+                    title: t('script.title'),
+                    icon: <SquareTerminal size={14} aria-hidden />,
+                    content: (
+                      <ScriptPane
+                        app="sheet"
+                        host={() =>
+                          host && info
+                            ? sheetScriptHost({
+                                host,
+                                activeSheet: () => sheetNow.current,
+                                decimal,
+                                onEnd: refreshInfo,
+                              })
+                            : null
+                        }
+                      />
+                    ),
+                  } satisfies TaskPaneDef,
+                ]
+              : []),
           ]}
-          onClose={(id) => (id === 'comments' ? setCommentsOpen(false) : setVersionsOpen(false))}
+          onClose={(id) =>
+            id === 'comments'
+              ? setCommentsOpen(false)
+              : id === 'script'
+                ? setScriptOpen(false)
+                : setVersionsOpen(false)
+          }
           labels={taskPaneLabels(t)}
           focusApp={focusInput}
         />

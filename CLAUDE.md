@@ -104,6 +104,7 @@ bo-collab (Yrs: y-sync, awareness, undo cục bộ) ◄─ bo-wasm (WasmCollab)
 ```
 Package TS: `platform` (PAL, `EngineHost`, `SheetHost`) → `canvas-host`, `ui`, `i18n` → `editor` (BlueDoc + `CommandRegistry`),
 `sheet-editor`, `slide-editor` → `apps/web` (`/doc` `/sheet` `/slide`, nhúng `/edit`), `apps/desktop`;
+`script` (BlueScript: sandbox QuickJS trong worker, API `doc`/`workbook`/`presentation`, pane `script.editor`; ADR-0012),
 `collab` (client WebSocket + binding doc/sheet/slide), `hosted` (mở file từ host: phiên server, lưu thành version,
 cộng tác, chế độ chỉ xem — dùng chung cho web nhúng và desktop deep link), `editor-sdk` (host ↔ iframe), `storage-providers`, `engine-wasm` (sinh tự động).
 
@@ -149,3 +150,4 @@ cung cấp).
 - [0009](docs/adr/0009-npgsql-postgresql-license.md) Chấp nhận Npgsql (PostgreSQL License, kiểu BSD) cho server
 - [0010](docs/adr/0010-library-deviations-from-prompt.md) Thư viện khác prompt: cầu nối chuỗi JSON, serial date tự cài, không TanStack Query, CSS Modules một phần
 - [0011](docs/adr/0011-own-english-hyphenation-rules.md) Gạch nối tự động: quy tắc tiếng Anh tự viết (không tệp mẫu bên thứ ba), tiếng Việt chỉ ngắt ở dấu cách
+- [0012](docs/adr/0012-bluescript-quickjs-sandbox.md) BlueScript: QuickJS (WASM, MIT) trong Web Worker riêng, API qua cầu JSON allow-list, một lần chạy = một bước hoàn tác, script lưu theo người dùng

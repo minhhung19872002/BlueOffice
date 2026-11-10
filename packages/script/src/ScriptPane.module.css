@@ -1,0 +1,129 @@
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  min-height: 0;
+  padding: 8px 10px;
+  color: var(--bo-text);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.row select,
+.row input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+}
+
+.row button,
+.consoleHead button {
+  padding: 2px 8px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.row button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.code {
+  flex: 3;
+  min-height: 160px;
+  resize: vertical;
+  padding: 6px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.hints {
+  margin: 0;
+  padding: 2px 0;
+  max-height: 160px;
+  overflow: auto;
+  list-style: none;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+}
+
+.hints li {
+  display: flex;
+  gap: 8px;
+  padding: 1px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.hints small {
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activeHint {
+  background: var(--bo-accent-soft, rgba(37, 99, 235, 0.15));
+}
+
+.consoleHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.console {
+  flex: 2;
+  min-height: 80px;
+  margin: 0;
+  padding: 4px 6px;
+  overflow: auto;
+  list-style: none;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.status {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.warn {
+  color: #b45309;
+}
+
+.error {
+  color: #dc2626;
+}
+
+.log,
+.info {
+  color: inherit;
+}

@@ -10,7 +10,7 @@
 //! `colItems` lines in step with the cells written.
 
 mod calc;
-mod compute;
+pub(crate) mod compute;
 mod group;
 pub mod style;
 
@@ -70,6 +70,9 @@ pub struct PivotLabels {
     /// filters (`today`, `thisMonth`, …); set by the engine from its clock.
     #[serde(skip)]
     pub today: Option<f64>,
+    /// Locale of shown texts (table slicers filtering data model pivot tables).
+    #[serde(skip)]
+    pub locale: Option<crate::numfmt::Locale>,
 }
 
 impl Default for PivotLabels {
@@ -97,6 +100,7 @@ impl Default for PivotLabels {
             months_field: "Months".into(),
             group: "Group{n}".into(),
             today: None,
+            locale: None,
         }
     }
 }
@@ -357,7 +361,7 @@ pub fn cache_fields(names: &[String], records: &[Vec<CellValue>]) -> Vec<PivotCa
 /// with an inline 8-byte prefix, so most comparisons do not read the strings. A
 /// column of a million distinct texts needs no allocation per record beyond its
 /// key, and no per-comparison key.
-fn distinct_items(records: &[Vec<CellValue>], i: usize) -> Vec<CellValue> {
+pub(crate) fn distinct_items(records: &[Vec<CellValue>], i: usize) -> Vec<CellValue> {
     use std::borrow::Cow;
     /// Lower-cased item key, borrowed when the text is already lower-case ASCII.
     fn key(s: &str) -> Cow<'_, str> {
@@ -516,7 +520,7 @@ pub fn cache_source(wb: &Workbook, cache: &PivotCache) -> Option<(usize, CellRan
     Some((si, CellRange::parse(cache.source_ref.as_deref()?)?))
 }
 
-fn date_system(wb: &Workbook) -> DateSystem {
+pub(crate) fn date_system(wb: &Workbook) -> DateSystem {
     if wb.date1904 {
         DateSystem::Date1904
     } else {
@@ -555,17 +559,32 @@ fn render(
     index: usize,
     labels: &PivotLabels,
 ) -> Result<(), String> {
-    let pt = wb.sheets[sheet]
+    let cache_id = wb.sheets[sheet]
         .pivots
         .get(index)
-        .cloned()
+        .map(|p| p.cache_id)
         .ok_or("no such pivot table")?;
+    // A pivot table over the data model: its cache is rebuilt from the model first.
+    let model = if crate::datamodel::pivot::is_model_cache(wb, cache_id) {
+        Some(crate::datamodel::pivot::sync(wb, cache_id)?)
+    } else {
+        None
+    };
+    let pt = wb.sheets[sheet].pivots[index].clone();
     let cache = wb
         .pivot_caches
         .iter()
         .find(|c| c.cache_id == pt.cache_id)
         .ok_or("pivot cache missing")?;
-    let lay = layout_in(cache, &PivotSpec::of(&pt), labels, date_system(wb))?;
+    let lay = match &model {
+        Some(m) => {
+            let mut spec = PivotSpec::of(&pt);
+            m.effective_spec(wb, &mut spec, labels);
+            compute::Engine::with_measures(cache, &spec, labels, date_system(wb), Some(m))?
+                .layout()?
+        }
+        None => layout_in(cache, &PivotSpec::of(&pt), labels, date_system(wb))?,
+    };
     let value_fmt: Vec<u32> = pt.values.iter().map(|d| value_format(cache, d)).collect();
     let label_fmt: Vec<u32> = cache
         .fields
@@ -766,19 +785,7 @@ pub fn create_pivot(
         dirty: true,
         ..PivotCache::default()
     });
-    let existing: Vec<String> = wb
-        .sheets
-        .iter()
-        .flat_map(|s| s.pivots.iter().map(|p| p.name.to_lowercase()))
-        .collect();
-    let mut n = 1;
-    let name = loop {
-        let name = format!("{}{n}", labels.name);
-        if !existing.contains(&name.to_lowercase()) {
-            break name;
-        }
-        n += 1;
-    };
+    let name = new_pivot_name(wb, labels);
     let mut pt = PivotTable {
         name,
         cache_id,
@@ -807,8 +814,44 @@ pub fn create_pivot(
     Ok(index)
 }
 
+/// An unused pivot table name (`labels.name` and a number).
+pub(crate) fn new_pivot_name(wb: &Workbook, labels: &PivotLabels) -> String {
+    let existing: Vec<String> = wb
+        .sheets
+        .iter()
+        .flat_map(|s| s.pivots.iter().map(|p| p.name.to_lowercase()))
+        .collect();
+    let mut n = 1;
+    loop {
+        let name = format!("{}{n}", labels.name);
+        if !existing.contains(&name.to_lowercase()) {
+            break name;
+        }
+        n += 1;
+    }
+}
+
+/// Write pivot `index` of `sheet` into its cells (crate-wide entry of the renderer).
+pub(crate) fn render_pivot(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    labels: &PivotLabels,
+) -> Result<(), String> {
+    render(wb, sheet, index, labels)
+}
+
+/// Grouping, calculated fields / items and source changes are not available over the
+/// data model.
+fn refuse_model(wb: &Workbook, cache_id: u32) -> Result<(), String> {
+    if crate::datamodel::pivot::is_model_cache(wb, cache_id) {
+        return Err("not available for a pivot table over the data model".into());
+    }
+    Ok(())
+}
+
 /// Every pivot table using cache `cache_id`: `(sheet, index)`.
-fn users(wb: &Workbook, cache_id: u32) -> Vec<(usize, usize)> {
+pub(crate) fn users(wb: &Workbook, cache_id: u32) -> Vec<(usize, usize)> {
     wb.sheets
         .iter()
         .enumerate()
@@ -823,7 +866,7 @@ fn users(wb: &Workbook, cache_id: u32) -> Vec<(usize, usize)> {
 }
 
 /// Re-point a pivot table after the cache fields changed (`remap`: old → new).
-fn remap_pivot(pt: &mut PivotTable, remap: &dyn Fn(u32) -> Option<u32>, new_len: usize) {
+pub(crate) fn remap_pivot(pt: &mut PivotTable, remap: &dyn Fn(u32) -> Option<u32>, new_len: usize) {
     pt.rows = pt.rows.iter().filter_map(|f| remap(*f)).collect();
     pt.cols = pt.cols.iter().filter_map(|f| remap(*f)).collect();
     pt.values = pt
@@ -957,6 +1000,16 @@ fn refresh_cache(
         .iter()
         .position(|c| c.cache_id == cache_id)
         .ok_or("pivot cache missing")?;
+    if crate::datamodel::pivot::is_model_cache(wb, cache_id) {
+        // Rebuilt from the model by every render.
+        if let Some(keep) = keep {
+            *keep = Some((ci, wb.pivot_caches[ci].clone()));
+        }
+        for (s, i) in users(wb, cache_id) {
+            render(wb, s, i, labels)?;
+        }
+        return Ok(());
+    }
     let (si, range) = cache_source(wb, &wb.pivot_caches[ci]).ok_or("pivot source not found")?;
     let (names, records) = source_data(&wb.sheets[si], range, labels)?;
     let formats = source_formats(wb, si, range);
@@ -1236,6 +1289,7 @@ pub fn group_field(
     labels: &PivotLabels,
 ) -> Result<(), String> {
     let cache_id = ensure_records(wb, sheet, index, labels)?;
+    refuse_model(wb, cache_id)?;
     let sys = date_system(wb);
     {
         let cache = cache_mut(wb, cache_id)?;
@@ -1420,6 +1474,7 @@ pub fn set_calculated_field(
     labels: &PivotLabels,
 ) -> Result<u32, String> {
     let cache_id = ensure_records(wb, sheet, index, labels)?;
+    refuse_model(wb, cache_id)?;
     let name = name.trim();
     if name.is_empty() {
         return Err("the field needs a name".into());
@@ -1533,6 +1588,7 @@ pub fn set_calculated_item(
     labels: &PivotLabels,
 ) -> Result<(), String> {
     let cache_id = ensure_records(wb, sheet, index, labels)?;
+    refuse_model(wb, cache_id)?;
     let name = name.trim();
     if name.is_empty() {
         return Err("the item needs a name".into());
@@ -1792,6 +1848,7 @@ pub fn group_items(
     labels: &PivotLabels,
 ) -> Result<u32, String> {
     let cache_id = ensure_records(wb, sheet, index, labels)?;
+    refuse_model(wb, cache_id)?;
     let cache = cache_mut(wb, cache_id)?;
     if cache.calculated_items.iter().any(|c| c.field == field) {
         return Err("a field with calculated items cannot be grouped".into());
@@ -1881,6 +1938,7 @@ pub fn delete_pivot(wb: &mut Workbook, sheet: usize, index: usize) -> Result<(),
             .retain(|p| p.name != pt.part && p.name != rels);
     }
     if users(wb, pt.cache_id).is_empty() {
+        crate::datamodel::pivot::forget_cache(wb, pt.cache_id);
         if let Some(ci) = wb
             .pivot_caches
             .iter()
@@ -1994,6 +2052,7 @@ pub fn change_source(
     if range.rows() < 2 {
         return Err("empty source".into());
     }
+    refuse_model(wb, cache_id)?;
     for (s, i) in users(wb, cache_id) {
         let p = &wb.sheets[s].pivots[i];
         if s == src_sheet && overlaps(occupied(p), range) {

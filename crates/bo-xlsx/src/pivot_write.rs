@@ -234,7 +234,9 @@ pub fn cache_definition_xml(cache: &PivotCache, records_rid: &str, date1904: boo
     a(&mut out, "xmlns", SML_NS);
     a(&mut out, "xmlns:r", R_NS);
     a(&mut out, "r:id", records_rid);
-    a(&mut out, "refreshOnLoad", "1");
+    if !cache.model {
+        a(&mut out, "refreshOnLoad", "1");
+    }
     a(&mut out, "createdVersion", "3");
     a(&mut out, "refreshedVersion", "3");
     a(&mut out, "minRefreshableVersion", "3");

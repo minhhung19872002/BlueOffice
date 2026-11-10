@@ -854,6 +854,7 @@ version = "0.1.0"
 dependencies = [
  "bo-formula",
  "bo-model",
+ "bo-opc",
  "bo-render",
  "bo-text",
  "bo-xlsx",

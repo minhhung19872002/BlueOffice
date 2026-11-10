@@ -1941,6 +1941,9 @@ impl SheetEngine {
         if let Some(qc) = super::query_cmd::QueryCommand::parse(&v) {
             return Ok(self.query_command_checked(qc?)?.to_string());
         }
+        if let Some(mc) = super::model_cmd::ModelCommand::parse(&v) {
+            return Ok(self.model_command_checked(mc?)?.to_string());
+        }
         let cmd: SheetCommand =
             serde_json::from_value(v).map_err(|e| bad(format!("bad command: {e}")))?;
         if !self.sec.read_only {

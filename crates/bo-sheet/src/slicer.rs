@@ -249,6 +249,13 @@ pub fn select(
             }
             wb.sheets[sheet].slicers[index].dirty = true;
             apply_table_filters(wb, table_id, locale);
+            // Pivot tables over the data model follow the slicers of model tables.
+            if let Some((si, ti)) = find_table(wb, table_id) {
+                let name = wb.sheets[si].tables[ti].name.clone();
+                let mut l = labels.clone();
+                l.locale = Some(*locale);
+                crate::datamodel::pivot::render_for_table(wb, &name, &l)?;
+            }
         }
     }
     Ok(())

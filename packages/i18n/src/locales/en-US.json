@@ -1097,6 +1097,8 @@
       "location": "Top-left cell",
       "badRef": "Invalid cell or range reference.",
       "panelTitle": "Pivot table fields",
+      "modelMeasure": "Measure",
+      "modelSource": "Data model",
       "chooseFields": "Choose fields to add to the report:",
       "dragHint": "Drag fields between the areas below:",
       "areas": {
@@ -6064,5 +6066,76 @@
     "importInvalid": "The file is not a BlueOffice customization file.",
     "importWrongApp": "This customization file is for another app.",
     "importNewer": "The file was made by a newer version of BlueOffice."
+  },
+  "sheetModel": {
+    "group": "Data model",
+    "ribbon": {
+      "tables": "Manage model",
+      "relationships": "Relationships",
+      "measures": "Measures",
+      "pivot": "Pivot table from model"
+    },
+    "noModel": "Add tables to the data model first.",
+    "created": "Pivot table created from the data model.",
+    "close": "Close",
+    "tables": {
+      "title": "Data model tables",
+      "hint": "Choose the tables the model uses. Tables loaded by queries are listed too.",
+      "none": "The workbook has no tables. Format a range as a table first.",
+      "rows": "{{n}} rows",
+      "query": "Query: {{name}}",
+      "missing": "{{name}} (not found)",
+      "columns": "Columns: {{list}}"
+    },
+    "foreign": {
+      "title": "Data model of other software (read only)",
+      "hint": "Kept unchanged when the file is saved; BlueSheet does not use it.",
+      "model": "Binary data model {{name}} ({{size}} bytes)",
+      "connection": "Connection {{name}}",
+      "customXml": "Custom XML item {{name}}"
+    },
+    "rel": {
+      "title": "Relationships",
+      "none": "No relationships yet.",
+      "from": "Table",
+      "fromColumn": "Column",
+      "to": "Related table",
+      "toColumn": "Related column",
+      "active": "Active",
+      "inactive": "inactive",
+      "add": "New relationship",
+      "edit": "Edit",
+      "delete": "Delete",
+      "save": "Save",
+      "cancel": "Cancel",
+      "summary": "{{many}}[{{manyColumn}}] (many) → {{one}}[{{oneColumn}}] (one)",
+      "unmatched": "{{n}} values have no match.",
+      "card": {
+        "manyToOne": "Many to one",
+        "oneToMany": "One to many (the sides are swapped when saved)",
+        "oneToOne": "One to one",
+        "manyToMany": "Many to many: not supported, one column needs distinct values"
+      }
+    },
+    "measure": {
+      "title": "Measures and calculated columns",
+      "kind": "Kind",
+      "kindMeasure": "Measure",
+      "kindColumn": "Calculated column",
+      "name": "Name",
+      "table": "Table",
+      "expression": "Formula",
+      "format": "Number format",
+      "new": "New",
+      "edit": "Edit",
+      "delete": "Delete",
+      "save": "Save",
+      "none": "No measures or calculated columns yet.",
+      "ok": "No errors.",
+      "errorAt": "Error at character {{pos}}: {{message}}",
+      "error": "Error: {{message}}",
+      "suggestions": "Suggestions",
+      "help": "Aggregations SUM, AVERAGE, MIN, MAX, COUNT, COUNTROWS, DISTINCTCOUNT over Table[Column]; DIVIDE(a, b, alternate); CALCULATE(expression, FILTER(Table, condition), ALL(Table[Column])); RELATED(Table[Column]) in calculated columns; [Measure] reuses a measure."
+    }
   }
 }

@@ -45,6 +45,55 @@ pub(crate) struct Acc {
     prod: f64,
     min: f64,
     max: f64,
+    /// Error of a data model measure (`0`: none, see [`err_code`]).
+    err: u8,
+}
+
+/// Code of an error stored in an [`Acc`] (a data model measure's result).
+fn err_code(e: &CellError) -> u8 {
+    match e {
+        CellError::Null => 1,
+        CellError::Div0 => 2,
+        CellError::Value => 3,
+        CellError::Ref => 4,
+        CellError::Name => 5,
+        CellError::Num => 6,
+        CellError::NA => 7,
+        _ => 8,
+    }
+}
+
+fn code_err(c: u8) -> CellError {
+    match c {
+        1 => CellError::Null,
+        2 => CellError::Div0,
+        3 => CellError::Value,
+        4 => CellError::Ref,
+        5 => CellError::Name,
+        6 => CellError::Num,
+        7 => CellError::NA,
+        _ => CellError::Calc,
+    }
+}
+
+/// A constraint of a report cell on one cache field, handed to a [`MeasureSource`].
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FieldFilter {
+    /// Cache field.
+    pub field: u32,
+    /// Values kept (or dropped, `exclude`).
+    pub values: Vec<CellValue>,
+    /// Drop `values` instead of keeping them.
+    pub exclude: bool,
+}
+
+/// Values of data model measures (`datamodel::pivot`): a data field over a measure
+/// field takes, in every report cell, the measure evaluated in the cell's filters.
+pub(crate) trait MeasureSource {
+    /// Cache field `field` is a measure.
+    fn is_measure(&self, field: u32) -> bool;
+    /// Value of measure field `field` under `filters`.
+    fn measure(&self, field: u32, filters: &[FieldFilter]) -> CellValue;
 }
 
 impl Default for Acc {
@@ -57,11 +106,29 @@ impl Default for Acc {
             prod: 1.0,
             min: f64::INFINITY,
             max: f64::NEG_INFINITY,
+            err: 0,
         }
     }
 }
 
 impl Acc {
+    /// An aggregate holding a measure's value (blank: no values).
+    fn of_value(v: &CellValue) -> Acc {
+        match v {
+            CellValue::Number(n) => Acc::of_number(*n),
+            CellValue::Error(e) => Acc {
+                count: 1,
+                err: err_code(e),
+                ..Acc::default()
+            },
+            CellValue::Empty => Acc::default(),
+            _ => Acc {
+                count: 1,
+                ..Acc::default()
+            },
+        }
+    }
+
     /// An aggregate holding the single number `v` (a calculated item's result).
     fn of_number(v: f64) -> Acc {
         Acc {
@@ -72,6 +139,7 @@ impl Acc {
             prod: v,
             min: v,
             max: v,
+            err: 0,
         }
     }
 
@@ -105,6 +173,9 @@ impl Acc {
     fn result(&self, f: PivotFunction) -> CellValue {
         if self.count == 0 {
             return CellValue::Empty;
+        }
+        if self.err != 0 {
+            return CellValue::Error(code_err(self.err));
         }
         let n = self.nums as f64;
         let var = |pop: bool| {
@@ -209,6 +280,8 @@ enum Axis {
 enum Measure {
     Plain(usize),
     Calc(CalcField, Vec<(u32, usize)>),
+    /// A data model measure: its slot holds the measure's value (filled after aggregation).
+    Model(usize),
 }
 
 /// A record that passed the filters, with its row and column item keys.
@@ -347,6 +420,8 @@ pub(crate) struct Engine<'a> {
     cells: Cells,
     row_children: HashMap<Vec<u32>, Vec<u32>>,
     col_children: HashMap<Vec<u32>, Vec<u32>>,
+    /// Data model measures (a pivot table over the workbook data model).
+    model: Option<&'a dyn MeasureSource>,
 }
 
 impl<'a> Engine<'a> {
@@ -355,6 +430,17 @@ impl<'a> Engine<'a> {
         spec: &'a PivotSpec,
         labels: &'a PivotLabels,
         sys: DateSystem,
+    ) -> Result<Engine<'a>, String> {
+        Self::with_measures(cache, spec, labels, sys, None)
+    }
+
+    /// [`Engine::new`] for a pivot table over the data model.
+    pub(crate) fn with_measures(
+        cache: &'a PivotCache,
+        spec: &'a PivotSpec,
+        labels: &'a PivotLabels,
+        sys: DateSystem,
+        model: Option<&'a dyn MeasureSource>,
     ) -> Result<Engine<'a>, String> {
         let nf = cache.fields.len() as u32;
         let used = spec
@@ -372,6 +458,9 @@ impl<'a> Engine<'a> {
             if cache.fields[*f as usize].formula.is_some() {
                 return Err("a calculated field can only be a value field".into());
             }
+            if model.is_some_and(|m| m.is_measure(*f)) {
+                return Err("a measure can only be a value field".into());
+            }
         }
         // Item indexes are only looked up for the axis and page fields (and the base
         // fields of their discrete groups): a field of a million distinct values that
@@ -388,6 +477,16 @@ impl<'a> Engine<'a> {
             if let Some(b) = cache.fields[f as usize].group.as_ref().and_then(|g| g.base) {
                 if let Some(x) = indexed.get_mut(b as usize) {
                     *x = true;
+                }
+            }
+        }
+        // Over the data model, hidden items of any field filter the records.
+        if model.is_some() {
+            for (i, o) in spec.fields.iter().enumerate() {
+                if !o.hidden.is_empty() {
+                    if let Some(x) = indexed.get_mut(i) {
+                        *x = true;
+                    }
                 }
             }
         }
@@ -416,6 +515,12 @@ impl<'a> Engine<'a> {
         let mut measures = Vec::with_capacity(spec.values.len());
         for d in &spec.values {
             let field = &cache.fields[d.field as usize];
+            if model.is_some_and(|m| m.is_measure(d.field)) {
+                // Its own slot (never shared with a plain field): records add nothing to it.
+                slot_fields.push(d.field);
+                measures.push(Measure::Model(slot_fields.len() - 1));
+                continue;
+            }
             if let Some(formula) = &field.formula {
                 let c = calc::compile(formula, &cache.fields)?;
                 let slots = c
@@ -439,6 +544,7 @@ impl<'a> Engine<'a> {
             cells: HashMap::new(),
             row_children: HashMap::new(),
             col_children: HashMap::new(),
+            model,
         })
     }
 
@@ -459,6 +565,18 @@ impl<'a> Engine<'a> {
             Some(g) if g.range.is_some() || !g.discrete.is_empty() => &g.items,
             _ => &fld.items,
         }
+    }
+
+    /// Header caption of field `f`: its name; over the data model, the column of
+    /// `Table[Column]`.
+    fn field_caption(&self, f: u32) -> String {
+        let n = &self.cache.fields[f as usize].name;
+        if self.model.is_some() {
+            if let Some((_, c)) = n.split_once('[') {
+                return c.strip_suffix(']').unwrap_or(c).to_owned();
+            }
+        }
+        n.clone()
     }
 
     fn grouped(&self, f: u32) -> bool {
@@ -503,6 +621,9 @@ impl<'a> Engine<'a> {
 
     fn add(&self, accs: &mut [Acc], rec: &[CellValue]) {
         for (s, f) in self.slot_fields.iter().enumerate() {
+            if self.model.is_some_and(|m| m.is_measure(*f)) {
+                continue;
+            }
             accs[s].add(self.value(rec, *f));
         }
     }
@@ -515,6 +636,7 @@ impl<'a> Engine<'a> {
     fn result(&self, vi: usize, accs: &[Acc]) -> CellValue {
         match &self.measures[vi] {
             Measure::Plain(s) => accs[*s].result(self.spec.values[vi].function),
+            Measure::Model(s) => accs[*s].result(PivotFunction::Sum),
             Measure::Calc(c, slots) => {
                 if slots.iter().all(|(_, s)| accs[*s].count == 0) {
                     return CellValue::Empty;
@@ -554,11 +676,20 @@ impl<'a> Engine<'a> {
             .filter(|f| !f.selected.is_empty())
             .map(|f| (f.field, key_set(f.field, &f.selected)))
             .collect();
-        let hidden: Vec<(u32, HashSet<u32>)> = self
-            .spec
-            .rows
+        // Over the data model, hidden items filter every field (slicers, filters of
+        // fields not on an axis); otherwise only the axis fields.
+        let all: Vec<u32> = if self.model.is_some() {
+            (0..self.cache.fields.len() as u32).collect()
+        } else {
+            self.spec
+                .rows
+                .iter()
+                .chain(&self.spec.cols)
+                .copied()
+                .collect()
+        };
+        let hidden: Vec<(u32, HashSet<u32>)> = all
             .iter()
-            .chain(&self.spec.cols)
             .filter_map(|f| {
                 let h = &self.spec.field(*f).hidden;
                 (!h.is_empty()).then(|| (*f, key_set(*f, h)))
@@ -833,6 +964,72 @@ impl<'a> Engine<'a> {
         }
         self.cells = cells;
         self.apply_calc_items();
+        self.apply_model_measures();
+    }
+
+    /// Data model measures: every report cell gets the measure evaluated with the
+    /// cell's items, the report filters and the hidden items as filters.
+    fn apply_model_measures(&mut self) {
+        let Some(model) = self.model else {
+            return;
+        };
+        let slots: Vec<(usize, u32)> = self
+            .measures
+            .iter()
+            .filter_map(|m| match m {
+                Measure::Model(s) => Some((*s, self.slot_fields[*s])),
+                _ => None,
+            })
+            .collect();
+        if slots.is_empty() {
+            return;
+        }
+        let mut base: Vec<FieldFilter> = Vec::new();
+        for f in &self.spec.filters {
+            if !f.selected.is_empty() {
+                base.push(FieldFilter {
+                    field: f.field,
+                    values: f.selected.clone(),
+                    exclude: false,
+                });
+            }
+        }
+        for (i, o) in self.spec.fields.iter().enumerate() {
+            if !o.hidden.is_empty() {
+                base.push(FieldFilter {
+                    field: i as u32,
+                    values: o.hidden.clone(),
+                    exclude: true,
+                });
+            }
+        }
+        let keys: Vec<CellKey> = self.cells.keys().cloned().collect();
+        for key in keys {
+            let mut ctx = base.clone();
+            for (fields, items) in [(&self.spec.rows, &key.0), (&self.spec.cols, &key.1)] {
+                for (f, x) in fields.iter().zip(items.iter()) {
+                    let v = self
+                        .items(*f)
+                        .get(*x as usize)
+                        .cloned()
+                        .unwrap_or(CellValue::Empty);
+                    ctx.push(FieldFilter {
+                        field: *f,
+                        values: vec![v],
+                        exclude: false,
+                    });
+                }
+            }
+            let values: Vec<(usize, Acc)> = slots
+                .iter()
+                .map(|(s, f)| (*s, Acc::of_value(&model.measure(*f, &ctx))))
+                .collect();
+            if let Some(accs) = self.cells.get_mut(&key) {
+                for (s, a) in values {
+                    accs[s] = a;
+                }
+            }
+        }
     }
 
     /// Calculated items (§18.10.1.8): for every report cell under an item of
@@ -1418,11 +1615,8 @@ impl<'a> Engine<'a> {
         // Report filters (page fields).
         for (i, f) in spec.filters.iter().enumerate() {
             let i = i as u32;
-            out.cells.push((
-                i,
-                0,
-                CellValue::Text(self.cache.fields[f.field as usize].name.clone()),
-            ));
+            out.cells
+                .push((i, 0, CellValue::Text(self.field_caption(f.field))));
             let sel = match f.selected.as_slice() {
                 [] => CellValue::Text(labels.all.clone()),
                 [CellValue::Empty] => CellValue::Text(labels.blank.clone()),
@@ -1431,7 +1625,7 @@ impl<'a> Engine<'a> {
             };
             out.cells.push((i, 1, sel));
         }
-        let field_name = |f: u32| CellValue::Text(self.cache.fields[f as usize].name.clone());
+        let field_name = |f: u32| CellValue::Text(self.field_caption(f));
         // Header rows.
         if n > 0 {
             put(&mut out, 0, 0, CellValue::Text(caption.clone()));

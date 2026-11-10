@@ -1097,6 +1097,8 @@
       "location": "Ô bắt đầu",
       "badRef": "Địa chỉ ô hoặc vùng không hợp lệ.",
       "panelTitle": "Trường của bảng tổng hợp",
+      "modelMeasure": "Số đo",
+      "modelSource": "Mô hình dữ liệu",
       "chooseFields": "Chọn trường để thêm vào báo cáo:",
       "dragHint": "Kéo trường giữa các vùng bên dưới:",
       "areas": {
@@ -6064,5 +6066,76 @@
     "importInvalid": "Tệp không phải cấu hình tùy biến BlueOffice.",
     "importWrongApp": "Tệp cấu hình này dành cho ứng dụng khác.",
     "importNewer": "Tệp được tạo bởi phiên bản BlueOffice mới hơn."
+  },
+  "sheetModel": {
+    "group": "Mô hình dữ liệu",
+    "ribbon": {
+      "tables": "Quản lý mô hình",
+      "relationships": "Quan hệ",
+      "measures": "Số đo",
+      "pivot": "Bảng tổng hợp từ mô hình"
+    },
+    "noModel": "Hãy thêm bảng vào mô hình dữ liệu trước.",
+    "created": "Đã tạo bảng tổng hợp từ mô hình dữ liệu.",
+    "close": "Đóng",
+    "tables": {
+      "title": "Bảng trong mô hình dữ liệu",
+      "hint": "Chọn các bảng mô hình dùng. Bảng do truy vấn nạp vào cũng có ở đây.",
+      "none": "Sổ làm việc chưa có bảng. Hãy định dạng một vùng thành bảng trước.",
+      "rows": "{{n}} dòng",
+      "query": "Truy vấn: {{name}}",
+      "missing": "{{name}} (không tìm thấy)",
+      "columns": "Cột: {{list}}"
+    },
+    "foreign": {
+      "title": "Mô hình dữ liệu của phần mềm khác (chỉ đọc)",
+      "hint": "Được giữ nguyên khi lưu tệp; BlueSheet không dùng tới.",
+      "model": "Mô hình dữ liệu nhị phân {{name}} ({{size}} byte)",
+      "connection": "Kết nối {{name}}",
+      "customXml": "Mục XML tùy chỉnh {{name}}"
+    },
+    "rel": {
+      "title": "Quan hệ",
+      "none": "Chưa có quan hệ nào.",
+      "from": "Bảng",
+      "fromColumn": "Cột",
+      "to": "Bảng liên quan",
+      "toColumn": "Cột liên quan",
+      "active": "Đang dùng",
+      "inactive": "không dùng",
+      "add": "Quan hệ mới",
+      "edit": "Sửa",
+      "delete": "Xóa",
+      "save": "Lưu",
+      "cancel": "Hủy",
+      "summary": "{{many}}[{{manyColumn}}] (nhiều) → {{one}}[{{oneColumn}}] (một)",
+      "unmatched": "{{n}} giá trị không có dòng tương ứng.",
+      "card": {
+        "manyToOne": "Nhiều – một",
+        "oneToMany": "Một – nhiều (hai phía được đổi chỗ khi lưu)",
+        "oneToOne": "Một – một",
+        "manyToMany": "Nhiều – nhiều: chưa hỗ trợ, một cột phải có giá trị không trùng"
+      }
+    },
+    "measure": {
+      "title": "Số đo và cột tính toán",
+      "kind": "Loại",
+      "kindMeasure": "Số đo",
+      "kindColumn": "Cột tính toán",
+      "name": "Tên",
+      "table": "Bảng",
+      "expression": "Công thức",
+      "format": "Định dạng số",
+      "new": "Mới",
+      "edit": "Sửa",
+      "delete": "Xóa",
+      "save": "Lưu",
+      "none": "Chưa có số đo hay cột tính toán nào.",
+      "ok": "Không có lỗi.",
+      "errorAt": "Lỗi ở ký tự {{pos}}: {{message}}",
+      "error": "Lỗi: {{message}}",
+      "suggestions": "Gợi ý",
+      "help": "Hàm tổng hợp SUM, AVERAGE, MIN, MAX, COUNT, COUNTROWS, DISTINCTCOUNT trên Bảng[Cột]; DIVIDE(a, b, giá trị thay thế); CALCULATE(biểu thức, FILTER(Bảng, điều kiện), ALL(Bảng[Cột])); RELATED(Bảng[Cột]) trong cột tính toán; [Số đo] dùng lại một số đo."
+    }
   }
 }

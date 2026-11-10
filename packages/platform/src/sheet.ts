@@ -598,8 +598,16 @@ export interface PivotInfo {
   /** Cells taken by the report, report filters included. */
   area: SheetRange;
   source: string | null;
+  /** The source is the workbook data model (fields are `Table[Column]` or `[Measure]`). */
+  model?: boolean;
   fields: {
     name: string;
+    /** Data model: table of the field (`null` for a measure). */
+    table?: string | null;
+    /** Data model: column (or measure) name. */
+    column?: string | null;
+    /** Data model: a measure (value field only). */
+    measure?: boolean;
     items: string[];
     /** Formula of a calculated field. */
     formula: string | null;
@@ -674,6 +682,8 @@ export type SheetCommand =
   | DataToolsCommand
   /** Get & Transform data (SHEET-PQ-001). */
   | import('./sheetQuery').SheetQueryCommand
+  /** Data model: tables, relationships, measures (SHEET-DM-001). */
+  | import('./sheetModel').SheetModelCommand
   /** Formula auditing and calculation (SHEET-AUDIT-001). */
   | import('./audit').AuditCommand
   /** Spelling and grammar of text cells (CORE-SPELL-006). */

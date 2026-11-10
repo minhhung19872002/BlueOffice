@@ -428,6 +428,38 @@ fn slide_size_change_reaches_the_other_peer() {
 }
 
 #[test]
+fn slide_design_idea_reaches_the_other_peer() {
+    // CORE-DESIGN-001: moved / cropped shapes and the new accent shapes converge.
+    big_stack(|| {
+        let (mut a, mut b) = deck_pair("slide-notes-basic.pptx");
+        a.cmd(&json!({"cmd":"goTo","slide":1}));
+        let r = a.cmd(&json!({"cmd":"designIdeas"}));
+        let id = r["designIdeas"]["ideas"][1]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        a.cmd(&json!({"cmd":"designApply","idea":id}));
+        settle(&mut a, &mut b);
+        let accents = |p: &Peer| {
+            p.engine.presentation().unwrap().slides[1]
+                .data
+                .shapes
+                .iter()
+                .filter(|n| {
+                    n.nv()
+                        .is_some_and(|nv| nv.name.starts_with("Design Accent"))
+                })
+                .count()
+        };
+        assert!(accents(&b) > 0);
+        assert_eq!(
+            a.engine.presentation().unwrap().slides[1],
+            b.engine.presentation().unwrap().slides[1]
+        );
+    });
+}
+
+#[test]
 fn slide_presence_names_the_current_slide() {
     big_stack(|| {
         let (mut a, _b) = deck_pair("slide-edit-slides.pptx");

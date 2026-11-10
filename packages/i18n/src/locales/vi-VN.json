@@ -122,7 +122,8 @@
       "customWatermark": "Hình mờ tuỳ chỉnh…",
       "removeWatermark": "Gỡ hình mờ",
       "themes": "Chủ đề",
-      "styleSets": "Giãn cách đoạn"
+      "styleSets": "Giãn cách đoạn",
+      "ideas": "Gợi ý thiết kế"
     },
     "file": {
       "open": "Mở tệp",
@@ -188,7 +189,8 @@
       "styleTitle": "Tiêu đề",
       "styleHeading1": "Đề mục 1",
       "styleHeading2": "Đề mục 2",
-      "painter": "Sao định dạng"
+      "painter": "Sao định dạng",
+      "quickAnalysis": "Phân tích nhanh"
     },
     "insert": {
       "table": "Bảng",
@@ -220,7 +222,8 @@
       "coverPage": "Trang bìa",
       "saveBlock": "Lưu vùng chọn thành khối dựng sẵn…",
       "blocksOrganizer": "Quản lý khối dựng sẵn…",
-      "autoText": "Chèn khối có tên vừa gõ trước con trỏ"
+      "autoText": "Chèn khối có tên vừa gõ trước con trỏ",
+      "chartRecommended": "Biểu đồ đề xuất"
     },
     "layout": {
       "margins": "Lề",
@@ -7095,6 +7098,112 @@
       "bodyOnly": "Hãy đóng đầu trang, chân trang, chú thích hoặc hộp văn bản trước: khối dựng sẵn được chèn vào thân văn bản.",
       "badFile": "Không đọc được tệp khối dựng sẵn.",
       "failed": "Không thể thay đổi khối dựng sẵn."
+    }
+  },
+  "designIdeas": {
+    "command": "Gợi ý thiết kế",
+    "group": "Gợi ý",
+    "title": "Gợi ý thiết kế",
+    "loading": "Đang chuẩn bị bố cục…",
+    "empty": "Trang chiếu chưa có gì để sắp xếp. Thêm tiêu đề, văn bản, hình ảnh, biểu đồ hoặc bảng để nhận gợi ý bố cục.",
+    "masterView": "Đóng chế độ xem trang cái để dùng gợi ý thiết kế.",
+    "intro": "Bấm vào một bố cục để áp dụng; nội dung của bạn giữ nguyên.",
+    "apply": "Áp dụng bố cục {{n}}",
+    "kind": {
+      "titleOnly": "Chỉ có tiêu đề",
+      "section": "Trang tiêu đề hoặc đầu phần",
+      "bullets": "Tiêu đề và văn bản",
+      "longText": "Nhiều chữ",
+      "pictures": "Hình ảnh",
+      "visual": "Biểu đồ, bảng hoặc đồ họa"
+    }
+  },
+  "quickAnalysis": {
+    "button": "Phân tích nhanh",
+    "title": "Phân tích nhanh vùng chọn",
+    "loading": "Đang xem dữ liệu…",
+    "close": "Đóng",
+    "tabs": {
+      "formatting": "Định dạng",
+      "charts": "Biểu đồ",
+      "totals": "Tổng",
+      "tables": "Bảng",
+      "sparklines": "Biểu đồ nhỏ"
+    },
+    "tabHint": {
+      "formatting": "Làm nổi bật các số bằng định dạng có điều kiện.",
+      "charts": "Các biểu đồ hợp với dữ liệu này, phù hợp nhất trước.",
+      "totals": "Thêm một hàng hoặc cột tổng cạnh vùng chọn.",
+      "tables": "Chuyển dữ liệu thành bảng hoặc tóm tắt bằng bảng tổng hợp.",
+      "sparklines": "Biểu đồ nhỏ trong cột bên phải mỗi hàng."
+    },
+    "fmt": {
+      "dataBar": "Thanh dữ liệu",
+      "colorScale": "Thang màu",
+      "iconSet": "Bộ biểu tượng",
+      "greaterThan": "Trên trung bình",
+      "top10": "10 % cao nhất",
+      "clear": "Xóa định dạng"
+    },
+    "fmtHint": {
+      "dataBar": "Mỗi ô có một thanh dài theo giá trị của ô.",
+      "colorScale": "Tô màu ô từ thấp (đỏ) qua giữa (vàng) đến cao (xanh).",
+      "iconSet": "Mũi tên chỉ giá trị cao, trung bình và thấp.",
+      "greaterThan": "Làm nổi bật các giá trị lớn hơn trung bình.",
+      "top10": "Làm nổi bật 10 % giá trị cao nhất.",
+      "clear": "Bỏ định dạng có điều kiện của vùng chọn."
+    },
+    "charts": {
+      "none": "Vùng chọn không có số để vẽ biểu đồ."
+    },
+    "reason": {
+      "trend": "Cho thấy giá trị thay đổi theo thời gian.",
+      "compare": "So sánh giá trị của một vài nhóm.",
+      "parts": "Cho thấy các phần tạo nên tổng thể.",
+      "relationship": "Cho thấy mối liên hệ giữa hai dãy số.",
+      "manyCategories": "So sánh nhiều nhóm hoặc nhãn dài.",
+      "hierarchy": "Cho thấy các nhóm và phần con của chúng.",
+      "composition": "So sánh tổng và thành phần của từng tổng.",
+      "default": "Biểu đồ dùng chung cho nhiều loại dữ liệu."
+    },
+    "recommended": {
+      "command": "Biểu đồ đề xuất",
+      "title": "Biểu đồ đề xuất",
+      "hint": "Chọn một biểu đồ cho dữ liệu đã chọn; trỏ vào biểu đồ để xem lý do đề xuất."
+    },
+    "totals": {
+      "rows": {
+        "sum": "Hàng tổng",
+        "average": "Hàng trung bình",
+        "count": "Hàng đếm",
+        "percent": "Hàng % tổng",
+        "running": "Hàng lũy kế"
+      },
+      "cols": {
+        "sum": "Cột tổng",
+        "average": "Cột trung bình",
+        "count": "Cột đếm",
+        "percent": "Cột % tổng",
+        "running": "Cột lũy kế"
+      },
+      "label": {
+        "sum": "Tổng",
+        "average": "Trung bình",
+        "count": "Số lượng",
+        "percent": "% tổng",
+        "running": "Lũy kế"
+      },
+      "notFree": "Các ô cạnh vùng chọn đang có dữ liệu; hãy xóa chúng trước.",
+      "noNumbers": "Vùng chọn không có số để tính tổng."
+    },
+    "tables": {
+      "table": "Bảng",
+      "pivot": "Bảng tổng hợp"
+    },
+    "spark": {
+      "line": "Đường",
+      "column": "Cột",
+      "stacked": "Thắng/thua"
     }
   }
 }

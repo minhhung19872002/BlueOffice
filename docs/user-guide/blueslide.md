@@ -126,6 +126,11 @@ lượng (giây)**, **Dùng nền của đích**, **Đổi ảnh**, **Ảnh xem 
     dung).
   - **Màu nền**, **Đặt lại nền**, **Ẩn đồ hoạ nền**.
 - **Bố cục của trang chiếu này:** chọn bố cục khác cho slide hiện tại.
+- **Gợi ý › Gợi ý thiết kế:** ngăn bên phải đề xuất 4–8 cách sắp xếp lại slide hiện tại theo nội dung của nó
+  (chỉ có tiêu đề, trang tiêu đề / đầu phần, tiêu đề và văn bản, nhiều chữ, hình ảnh, một biểu đồ / bảng / đồ họa),
+  kèm ảnh xem trước. Bấm một bố cục để áp dụng (một bước **Hoàn tác**): các hình có sẵn được dời và đổi cỡ, ảnh được
+  cắt cho vừa khung mà không méo, có thể thêm vài hình nhấn màu theo chủ đề (tên **Design Accent …**); không thêm
+  chữ hay ảnh mới. Áp dụng bố cục khác sẽ thay các hình nhấn cũ.
 
 > **Hạn chế:** đổi kích thước trang chiếu chưa co cỡ chữ theo.
 

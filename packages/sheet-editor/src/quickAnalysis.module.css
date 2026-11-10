@@ -1,0 +1,124 @@
+/* BlueSheet Quick Analysis (CORE-DESIGN-001): the button at the selection's corner, its panel
+   of tabs and the recommended chart previews — BlueOffice's own look. */
+
+.button {
+  position: absolute;
+  z-index: 6;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--bo-border, #c8ccd4);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-sheet-accent, #1f7a4d);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 15%);
+}
+
+.button:hover,
+.button[aria-expanded='true'] {
+  background: var(--bo-hover, #eef3f0);
+}
+
+.panel {
+  position: absolute;
+  z-index: 7;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  border: 1px solid var(--bo-border, #c8ccd4);
+  border-radius: 6px;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text, #1d2128);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 18%);
+  font: 12px var(--bo-font-ui, system-ui, sans-serif);
+}
+
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--bo-border, #c8ccd4);
+}
+
+.tab,
+.tabActive {
+  flex: 1;
+  padding: 7px 4px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tabActive {
+  border-bottom-color: var(--bo-sheet-accent, #1f7a4d);
+  font-weight: 600;
+}
+
+.body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px;
+  min-height: 72px;
+}
+
+.tile {
+  width: 64px;
+  min-height: 58px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 2px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.tile:hover,
+.tile:focus-visible,
+.chart:hover,
+.chart:focus-visible {
+  border-color: var(--bo-sheet-accent, #1f7a4d);
+  background: var(--bo-hover, #eef3f0);
+}
+
+.hint {
+  margin: 0;
+  padding: 6px 10px 8px;
+  color: var(--bo-text-muted, #5f6672);
+  font-size: 11px;
+}
+
+.charts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--bo-border, #c8ccd4);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chart img {
+  display: block;
+}

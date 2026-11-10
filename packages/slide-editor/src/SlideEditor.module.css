@@ -1021,3 +1021,38 @@ circle.handle {
 .zoomDuration input {
   width: 56px;
 }
+
+/* Design suggestions pane (CORE-DESIGN-001). */
+.designIdeas {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.designIdeasHint {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--bo-text-muted, #5f6672);
+}
+
+.designIdeasList {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.designIdea {
+  padding: 3px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  cursor: pointer;
+  line-height: 0;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 18%);
+}
+
+.designIdea:hover,
+.designIdea:focus-visible {
+  border-color: var(--bo-slide-accent, #c2185b);
+}

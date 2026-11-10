@@ -1659,6 +1659,8 @@ export type SlideCommand =
   | import('./slideModel3d').SlideModel3dCommand
   /** Slide, section and summary zooms (SLIDE-ZOOM-001). */
   | import('./slideZoom').SlideZoomCommand
+  /** Design suggestions of the current slide (CORE-DESIGN-001). */
+  | import('./designIdeas').SlideDesignCommand
   /** Spelling and grammar of the deck (CORE-SPELL-006). */
   | import('./spelling').SlideSpellCommand
   /** Compare with another version of the deck (CORE-VERSION-001) → `DeckCompareResult`. */
@@ -2317,6 +2319,8 @@ export interface SlideEditResult {
   action?: import('./slideShow').SlideActionInfo;
   /** The selected zoom (SLIDE-ZOOM-001). */
   zoom?: import('./slideZoom').SlideZoomInfo;
+  /** Answer of `designIdeas` (CORE-DESIGN-001). */
+  designIdeas?: import('./designIdeas').SlideDesignIdeas;
 }
 
 // ---------------------------------------------------------------- services

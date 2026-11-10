@@ -720,6 +720,8 @@ export type SheetCommand =
   | InspectCommand
   /** Sparklines (SHEET-SPARK-001). */
   | SparklineCommand
+  /** Quick Analysis and recommended charts (CORE-DESIGN-001), read only. */
+  | import('./designIdeas').QuickAnalysisCommand
   /** Checkboxes and pictures in cells, IMAGE pictures (SHEET-CELL-001). */
   | import('./cellMedia').CellMediaCommand
   /** Tables (SHEET-TABLE-001). */

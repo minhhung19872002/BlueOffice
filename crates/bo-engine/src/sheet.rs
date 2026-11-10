@@ -42,6 +42,7 @@ mod print_cmd;
 mod print_job;
 pub mod protect;
 pub mod query_cmd;
+mod quick_cmd;
 mod scenario_cmd;
 mod security_cmd;
 mod smartart_cmd;

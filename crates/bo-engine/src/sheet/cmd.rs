@@ -1949,6 +1949,10 @@ impl SheetEngine {
         if let Some(mc) = super::model_cmd::ModelCommand::parse(&v) {
             return Ok(self.model_command_checked(mc?)?.to_string());
         }
+        // Quick Analysis and recommended charts (CORE-DESIGN-001): read only.
+        if let Some(qc) = super::quick_cmd::QuickCommand::parse(&v) {
+            return Ok(self.quick_command(&qc)?.to_string());
+        }
         let cmd: SheetCommand =
             serde_json::from_value(v).map_err(|e| bad(format!("bad command: {e}")))?;
         if !self.sec.read_only {

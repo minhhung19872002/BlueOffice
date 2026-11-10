@@ -31,6 +31,7 @@ import {
   Pencil,
   Pin,
   Proportions,
+  Sparkles,
   SquareDashed,
   Trash,
   Type,
@@ -428,6 +429,15 @@ export function designTab(
           ),
         ],
       },
+      ...(state.masterView
+        ? []
+        : [
+            {
+              id: 'designIdeas',
+              label: t('designIdeas.group'),
+              items: [item('design.ideas', t('designIdeas.command'), <Sparkles size={18} />)],
+            },
+          ]),
       {
         id: 'designCustomize',
         label: t('slideEditor.design.groupCustomize'),

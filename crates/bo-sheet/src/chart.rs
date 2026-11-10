@@ -438,9 +438,10 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
     };
     let header =
         range.rows() > 1 && (range.first.col..=range.last.col).any(|c| is_text(range.first.row, c));
+    // Text or dates in the first column are the categories (a date axis for dates).
     let cat_col = range.cols() > 1
         && (range.first.row + u32::from(header)..=range.last.row)
-            .all(|r| is_text(r, range.first.col) || ws.cell(r, range.first.col).is_none());
+            .all(|r| crate::chart_recommend::is_label(wb, ws, r, range.first.col));
     let r0 = range.first.row + u32::from(header);
     // Treemap / sunburst: every leading text column is a level of the categories.
     let text_cols = if matches!(kind, "treemap" | "sunburst") && cat_col {
@@ -481,8 +482,14 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
             ..ChartSeries::default()
         });
     }
-    // Bubble data: X in the first column (when it holds numbers), then (Y, size) pairs.
-    if first_plot_kind == "bubble" && !cat_col && plot.series.len() >= 3 {
+    // Bubble data: X in the first column (when it holds numbers), then (Y, size) pairs;
+    // scatter data: X in the first column, one Y series per other column.
+    let xy = match first_plot_kind {
+        "bubble" => plot.series.len() >= 3,
+        "scatter" => plot.series.len() >= 2,
+        _ => false,
+    };
+    if xy && !cat_col {
         let x = plot.series.remove(0);
         for s in &mut plot.series {
             s.cat_ref.clone_from(&x.val_ref);

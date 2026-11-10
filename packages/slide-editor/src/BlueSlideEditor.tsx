@@ -14,12 +14,16 @@ import {
   pictureTabLabels,
   planOpen,
   registerPictureCommands,
+  ReadAloudLink,
+  registerReadAloudCommands,
   saveName,
   objectPlatform,
   objectToolsLabels,
   registerObjectCommands,
+  useReadAloud,
   type ClipItem,
 } from '@blueoffice/editor';
+import { slideReadRequest } from './readAloud';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
   ClipboardContent,
@@ -167,6 +171,7 @@ import {
   Ungroup,
   MessageSquareText,
   Shapes,
+  Volume2,
 } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimationPane } from './AnimationPane';
@@ -416,6 +421,20 @@ function useSize(): [(el: HTMLElement | null) => void, { width: number; height: 
 function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideEditorProps) {
   const { t, i18n } = useTranslation();
   const engine = platform.engine;
+  // Read aloud (CORE-LANG-003): the commands reach the hook through a ref.
+  const readAloud = useReadAloud(platform.speech, 'text');
+  const [readAloudLink] = useState(() => new ReadAloudLink());
+  const uiLang = i18n.language;
+  useEffect(() => {
+    readAloudLink.attach(readAloud);
+  });
+  const [readNotes, setReadNotes] = useState(() => {
+    try {
+      return localStorage.getItem('bo.readAloud.slideNotes') === '1';
+    } catch {
+      return false;
+    }
+  });
   const theme = useResolvedTheme(themeSetting);
   const [info, setInfo] = useState<DocInfo | null>(null);
   /** The open deck has macros (kept, never run): show the warning bar. */
@@ -1727,6 +1746,33 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChecked: () => asYouType,
       run: async () => toggleSpelling(),
     });
+    registerReadAloudCommands(reg, {
+      enabled: deck,
+      begin: async () => {
+        const req = await slideReadRequest({
+          run: (c) => ctrl.run(c),
+          edit,
+          withNotes: readNotes,
+          fallbackLang: uiLang || 'vi-VN',
+        });
+        await readAloudLink.aloud()?.start(req);
+      },
+      current: () => readAloudLink.aloud(),
+    });
+    reg.register({
+      id: 'review.readAloudNotes',
+      isEnabled: deck,
+      isChecked: () => readNotes,
+      run: async () => {
+        const on = !readNotes;
+        setReadNotes(on);
+        try {
+          localStorage.setItem('bo.readAloud.slideNotes', on ? '1' : '0');
+        } catch {
+          // Storage unavailable: the choice lasts for this session.
+        }
+      },
+    });
     reg.register({
       id: 'review.comments',
       isEnabled: deck,
@@ -1883,6 +1929,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     });
     return reg;
   }, [
+    readAloudLink,
+    readNotes,
+    uiLang,
     fail,
     fileName,
     saveDeck,
@@ -2495,6 +2544,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 <SpellCheck size={18} />,
               ),
               item('review.spelling', t('commands.review.spelling'), <SpellCheck size={16} />, sm),
+            ],
+          },
+          {
+            id: 'speech',
+            label: t('ribbon.groups.speech'),
+            items: [
+              item('review.readAloud', t('commands.review.readAloud'), <Volume2 size={18} />),
+              item(
+                'review.readAloudNotes',
+                t('readAloud.withNotes'),
+                <NotebookText size={16} />,
+                sm,
+              ),
             ],
           },
         ],
@@ -3683,6 +3745,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           }
         />
       )}
+      {readAloud.bar}
     </div>
   );
 }

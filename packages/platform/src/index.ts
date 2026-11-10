@@ -40,6 +40,7 @@ export * from './slideShow';
 export * from './slideInk';
 export { WebCodecsVideo, VIDEO_CODECS, bitrateFor, hasWebCodecs } from './webcodecs';
 export * from './sheetDataTools';
+export * from './speech';
 export {
   OidcSession,
   fetchOidcConfig,

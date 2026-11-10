@@ -415,7 +415,7 @@ pub fn alternate_model_frame(el: &XmlElement) -> Option<&XmlElement> {
         })
 }
 
-fn set_xfrm(el: &mut XmlElement, x: &bo_model::slide::Xfrm) {
+pub(crate) fn set_xfrm(el: &mut XmlElement, x: &bo_model::slide::Xfrm) {
     // The picture's spPr / a:xfrm (or am3d:spPr / a:xfrm), replaced in place.
     for c in &mut el.children {
         if let XmlNode::Element(sp) = c {
@@ -435,7 +435,7 @@ fn set_xfrm(el: &mut XmlElement, x: &bo_model::slide::Xfrm) {
     }
 }
 
-fn set_cnv(el: &mut XmlElement, nv: &NonVisual) {
+pub(crate) fn set_cnv(el: &mut XmlElement, nv: &NonVisual) {
     fn go(e: &mut XmlElement, nv: &NonVisual) -> bool {
         if e.local() == "cNvPr" {
             e.attrs.retain(|(k, _)| k != "name" && k != "descr");
@@ -523,7 +523,7 @@ fn alternate_model_frame_in(choice: &XmlElement) -> bool {
     })
 }
 
-fn parse_xfrm_of_pic(pic: &XmlElement) -> Option<bo_model::slide::Xfrm> {
+pub(crate) fn parse_xfrm_of_pic(pic: &XmlElement) -> Option<bo_model::slide::Xfrm> {
     let sp = pic.elements().find(|e| e.local() == "spPr")?;
     sp.elements().find(|e| e.name == "a:xfrm").map(parse_xfrm)
 }

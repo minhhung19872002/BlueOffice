@@ -45,6 +45,7 @@ pub mod table;
 pub mod text;
 pub mod video;
 pub mod views;
+pub mod zoom;
 
 use crate::{DocInfo, Engine, EngineError};
 use bo_model::slide::{Fill, Presentation, Rel, ShapeNode, TextBody, TextRun, Xfrm};
@@ -1255,6 +1256,9 @@ pub struct SlideEditResult {
     /// Answer of `model3dMesh`: the model's geometry for the interactive viewer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model3d_mesh: Option<model3d::MeshOut>,
+    /// The selected zoom (SLIDE-ZOOM-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<zoom::ZoomOut>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -1312,6 +1316,8 @@ pub struct SlideEditor {
     master: Option<master::MasterView>,
     /// The notes or handout master view is open (SLIDE-VIEW-001).
     page: Option<page_master::PageView>,
+    /// What each zoom's target looked like when last seen (SLIDE-ZOOM-001): key → fingerprint.
+    zoom_seen: std::collections::HashMap<String, u64>,
 }
 
 #[derive(Default)]
@@ -1531,6 +1537,7 @@ fn kind_of(n: &ShapeNode) -> &'static str {
             "table"
         }
         n if model3d::is_model(n) => "model3d",
+        n if zoom::is_zoom(n) => "zoom",
         n if chart::is_chart(n) => "chart",
         n if smartart::is_smartart(n) => "smartart",
         n if ole::is_ole(n) => "object",
@@ -3534,6 +3541,13 @@ impl Engine {
             let r = self.slide_model3d_command(mc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        if let Some(zc) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| zoom::ZoomCommand::parse(&v))
+        {
+            let r = self.slide_zoom_command(&zc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         if let Some(ic) = serde_json::from_str::<serde_json::Value>(json)
             .ok()
             .and_then(|v| ink::InkCommand::parse(&v))
@@ -4566,6 +4580,7 @@ impl Engine {
             }
             ed.master_sync(pres, &mut out, mark, history);
             ed.sections_sync(pres, mark, history);
+            ed.zoom_sync(pres, &mut out, mark, history, fonts);
             ed.clamp(pres);
         }
         let copied = out.copied.take();
@@ -5013,6 +5028,10 @@ impl Engine {
                 _ => None,
             },
             model3d_mesh: None,
+            zoom: match items.as_slice() {
+                [one] => zoom::zoom_out(pres, slide, one.id),
+                _ => None,
+            },
         })
     }
 }

@@ -30,6 +30,7 @@ mod three_d;
 pub mod transitions;
 mod wordart;
 mod write;
+pub mod zoom;
 
 pub use pml::{parse_csld, parse_node, visit, write_csld, write_node, URI_TABLE};
 pub use read::read_pptx;

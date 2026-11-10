@@ -278,7 +278,10 @@ fn pdf_opens_as_text_document() {
     assert_eq!(words.len(), 120);
     assert_eq!(got, words);
     let lines = text.matches('\n').count();
-    assert!(lines > source.matches('\n').count(), "one paragraph per PDF line");
+    assert!(
+        lines > source.matches('\n').count(),
+        "one paragraph per PDF line"
+    );
     // Each PDF page after the first starts a new page.
     let breaks = back.document().unwrap().sections[0]
         .blocks

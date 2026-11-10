@@ -648,6 +648,8 @@ function EditorInner({
         templateFile.current = plan.variant?.template ? file : null;
         stored.current = plan.fromTemplate ? null : (doc ?? null);
         openedBytes.current = file.bytes;
+        // Another document: its blocks (keys `doc:N`) are not the previous one's.
+        clearBlockPreviews();
         await loaded(info);
         if (plan.fromTemplate) {
           store.setState({

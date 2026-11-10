@@ -81,10 +81,31 @@ export const BLOCK_STORE_KEY = 'blueoffice.building-blocks.dotx';
 
 /** Galleries a block list shows for a ribbon gallery. */
 export const BLOCK_GALLERY_GROUPS = {
-  quickParts: ['docParts', 'autoTxt', 'custQuickParts', 'custAutoTxt', 'custom1', 'custom2', 'custom3', 'custom4', 'custom5', 'eq', 'bib', 'watermarks'],
+  quickParts: [
+    'docParts',
+    'autoTxt',
+    'custQuickParts',
+    'custAutoTxt',
+    'custom1',
+    'custom2',
+    'custom3',
+    'custom4',
+    'custom5',
+    'eq',
+    'bib',
+    'watermarks',
+  ],
   header: ['hdrs', 'custHdrs'],
   footer: ['ftrs', 'custFtrs'],
-  pageNumber: ['pgNumT', 'pgNumB', 'pgNum', 'pgNumMargins', 'custPgNum', 'custPgNumT', 'custPgNumB'],
+  pageNumber: [
+    'pgNumT',
+    'pgNumB',
+    'pgNum',
+    'pgNumMargins',
+    'custPgNum',
+    'custPgNumT',
+    'custPgNumB',
+  ],
   coverPage: ['coverPg', 'custCoverPg'],
   textBox: ['txtBox', 'custTxtBox'],
   table: ['tbls', 'custTbls'],

@@ -71,25 +71,24 @@ export function clearBlockPreviews(): void {
 
 /** Picture of a block drawn by the engine (`buildingBlockPreview`); its text until it arrives. */
 export function BlockPreview({ block, query }: { block: BlockInfo; query: Run }) {
-  const [png, setPng] = useState<string | null>(previewCache.get(cacheKey(block)) ?? null);
+  const id = cacheKey(block);
+  const blockKey = block.key;
+  // The picture fetched for this block; the cache answers at once when it has it.
+  const [loaded, setLoaded] = useState<{ id: string; png: string } | null>(null);
   useEffect(() => {
-    const cached = previewCache.get(cacheKey(block));
-    if (cached) {
-      setPng(cached);
-      return;
-    }
+    if (previewCache.has(id)) return;
     let live = true;
-    setPng(null);
-    void query({ cmd: 'buildingBlockPreview', key: block.key }).then((r) => {
+    void query({ cmd: 'buildingBlockPreview', key: blockKey }).then((r) => {
       const p = r?.blocks?.preview;
       if (!p) return;
-      previewCache.set(cacheKey(block), p);
-      if (live) setPng(p);
+      previewCache.set(id, p);
+      if (live) setLoaded({ id, png: p });
     });
     return () => {
       live = false;
     };
-  }, [block, query]);
+  }, [id, blockKey, query]);
+  const png = previewCache.get(id) ?? (loaded?.id === id ? loaded.png : null);
   return png ? (
     <img
       className={own.preview}
@@ -360,7 +359,11 @@ export function SaveBlockDialog({
   }, [query]);
   const categories = [...new Set((list ?? []).map((b) => b.category))].sort();
   const save = async () => {
-    const r = await run({ cmd: 'saveBuildingBlock', spec: { ...spec, name: spec.name.trim() }, store });
+    const r = await run({
+      cmd: 'saveBuildingBlock',
+      spec: { ...spec, name: spec.name.trim() },
+      store,
+    });
     if (r?.error) {
       setError(r.error);
       return;

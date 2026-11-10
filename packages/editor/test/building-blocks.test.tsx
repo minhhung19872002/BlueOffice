@@ -65,14 +65,19 @@ const LIST: BlockInfo[] = [
 ];
 
 /** An engine double: answers the list and previews, records what else is sent. */
-function engine(list: BlockInfo[] = LIST, answer: (c: EditCommand) => Partial<EditResult> = () => ({})) {
+function engine(
+  list: BlockInfo[] = LIST,
+  answer: (c: EditCommand) => Partial<EditResult> = () => ({}),
+) {
   const sent: EditCommand[] = [];
   const reply = async (c: EditCommand): Promise<EditResult> => {
     if (c.cmd === 'buildingBlocks') return { blocks: { list } } as EditResult;
     if (c.cmd === 'buildingBlockPreview')
       return { blocks: { list, preview: `PNG-${c.key}` } } as EditResult;
     if (c.cmd === 'copy')
-      return { clip: { text: 'Kính gửi: Ban Giám đốc, công ty\nDòng hai', html: '', internal: '' } } as EditResult;
+      return {
+        clip: { text: 'Kính gửi: Ban Giám đốc, công ty\nDòng hai', html: '', internal: '' },
+      } as EditResult;
     sent.push(c);
     return { blocks: { list }, ...answer(c) } as EditResult;
   };
@@ -107,7 +112,14 @@ describe('building block helpers', () => {
     expect(blockErrorKey('noAutoText')).toBe('blocks.errors.noAutoText');
     expect(blockErrorKey('something else')).toBeNull();
     expect(blockErrorKey(null)).toBeNull();
-    for (const e of ['noBlock', 'badName', 'emptySelection', 'builtinBlock', 'noAutoText', 'bodyOnly'])
+    for (const e of [
+      'noBlock',
+      'badName',
+      'emptySelection',
+      'builtinBlock',
+      'noAutoText',
+      'bodyOnly',
+    ])
       expect(vi18n.exists(blockErrorKey(e) ?? '')).toBe(true);
     for (const g of Object.keys(BLOCK_GALLERY_GROUPS))
       expect(vi18n.exists(`blocks.groups.${g}`)).toBe(true);

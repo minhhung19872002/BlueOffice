@@ -281,7 +281,7 @@ impl crate::Engine {
             })(),
         };
         let dirty = self.relayout()?;
-        let mut r: EditResult = self.edit_result(dirty, (None, None, None), res.err())?;
+        let mut r: EditResult = self.story_result(dirty, res.err())?;
         r.collab = self.collab_after_edit();
         let mut v = serde_json::to_value(&r).unwrap_or_default();
         if let Some(o) = v.as_object_mut() {

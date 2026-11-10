@@ -542,7 +542,7 @@ impl Engine {
         } else {
             dirty
         };
-        let mut r = self.edit_result(dirty, (None, None, None), error)?;
+        let mut r = self.story_result(dirty, error)?;
         r.merge = self.merge_state();
         r.merge_out = Some(Box::new(out));
         Ok(Some(r))

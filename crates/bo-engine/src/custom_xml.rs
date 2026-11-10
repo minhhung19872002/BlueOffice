@@ -127,7 +127,7 @@ impl crate::Engine {
         };
         let parts = s.custom_xml_parts();
         let dirty = self.relayout()?;
-        let mut r = self.edit_result(dirty, (None, None, None), res.err())?;
+        let mut r = self.story_result(dirty, res.err())?;
         r.custom_xml = Some(parts);
         r.collab = self.collab_after_edit();
         Ok(r)

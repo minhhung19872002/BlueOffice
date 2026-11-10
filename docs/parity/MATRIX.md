@@ -6,16 +6,17 @@ Cập nhật sau mỗi hạng mục BACKLOG.
 
 ## Tổng hợp (theo hàng tính năng bên dưới; ✅ = 1, 🟡 = 0,5)
 
-Tính lại khi rà soát định kỳ 2026-11-10 (lần 4, sau 51 mục) từ cột Trạng thái. Fidelity (`pnpm fidelity`, 2026-11-10): .docx 81 file,
-98,8 % hợp lệ sau khi lưu (1 lỗi đã biết); .xlsx 148 file, 98,0 % (3 đã biết); .pptx 64 file, 100 %; ảnh mốc tự sinh 293 trang, 0 vượt
-ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ chữ/độ dày nét/nền có trong file — CORE-CHART-007) và thêm trang cho corpus mới.
+Tính lại khi rà soát định kỳ 2026-11-10 (lần 5, sau 63 mục `[x]`) từ cột Trạng thái (hàng "— (chủ ý)" không tính). Fidelity (`pnpm fidelity`,
+2026-11-10): .docx 86 file, 98,8 % hợp lệ sau khi lưu (1 lỗi đã biết); .xlsx 161 file, 98,1 % (3 đã biết); .pptx 64 file, 100 %; ảnh mốc tự
+sinh 311 trang — 15 trang vượt ngưỡng đều do thay đổi có chủ đích (data bar gradient 2006, kiểu bảng, slicer, in tiêu đề hàng/cột + header/footer,
+tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chưa có ảnh mốc từ phần mềm tham chiếu.
 
 | App / nhóm | Hàng | Điểm | % |
 |---|---|---|---|
-| Chung (CORE) | 31 | 12,5 | 40 % |
-| BlueDoc (DOC) | 18 | 11 | 61 % |
-| BlueSheet (SHEET) | 20 | 11 | 55 % |
-| BlueSlide (SLIDE) | 12 | 7,5 | 62 % |
+| Chung (CORE) | 34 | 18,5 | 54 % |
+| BlueDoc (DOC) | 18 | 12,5 | 69 % |
+| BlueSheet (SHEET) | 21 | 12 | 57 % |
+| BlueSlide (SLIDE) | 12 | 8 | 67 % |
 | Hàm bảng tính | 515 hàm | 508 | 98,6 % (`functions.md`) |
 
 ## Chung

@@ -344,7 +344,7 @@ impl Engine {
             }
             dirty = self.relayout()?;
         }
-        let mut r = self.edit_result(dirty, (None, None, None), error)?;
+        let mut r = self.story_result(dirty, error)?;
         r.design = self.design_state().map(Box::new);
         if matches!(cmd, Command::SaveThemeFile) {
             use base64::Engine as _;

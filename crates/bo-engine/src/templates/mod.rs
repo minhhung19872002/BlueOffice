@@ -69,7 +69,7 @@ impl crate::Engine {
             _ => return Ok(None),
         };
         let report = self.document().map(check::check);
-        let mut r = self.edit_result(dirty, (None, None, None), error)?;
+        let mut r = self.story_result(dirty, error)?;
         r.admin_format = report.map(Box::new);
         if matches!(cmd, crate::edit::Command::FixAdminFormat { .. }) && r.collab.is_none() {
             r.collab = self.collab_after_edit();

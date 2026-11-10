@@ -28,7 +28,7 @@ impl crate::Engine {
     }
 
     fn inspect_result(&mut self, dirty: Vec<usize>, error: Option<String>) -> Result<EditResult> {
-        let mut r = self.edit_result(dirty, (None, None, None), error)?;
+        let mut r = self.story_result(dirty, error)?;
         r.inspection = Some(Box::new(self.inspect_document()?));
         if r.collab.is_none() {
             r.collab = self.collab_after_edit();

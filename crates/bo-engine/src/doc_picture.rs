@@ -250,7 +250,7 @@ impl crate::Engine {
             error = Some(e);
         }
         let dirty = self.relayout()?;
-        let mut r = self.edit_result(dirty, (None, None, None), error)?;
+        let mut r = self.story_result(dirty, error)?;
         r.picture = self.doc_picture_info(previews, report).map(Box::new);
         r.collab = self.collab_after_edit();
         Ok(r)

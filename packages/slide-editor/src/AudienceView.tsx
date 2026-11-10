@@ -1,7 +1,7 @@
 import { GlyphStore, ImageStore } from '@blueoffice/canvas-host';
 import { useTranslation } from '@blueoffice/i18n';
-import type { DocInfo, Platform } from '@blueoffice/platform';
-import { useEffect, useMemo, useState } from 'react';
+import type { DocInfo, EngineHost, Platform } from '@blueoffice/platform';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { fromBase64, isAudienceMsg, type AudienceMsg, type AudienceTools } from './audience';
 import { InkStrokes, zoomCss } from './showTools';
 import toolStyles from './showTools.module.css';
@@ -90,17 +90,71 @@ export function AudienceView({ platform, channel }: AudienceViewProps) {
     };
   }, [platform, channel, engine]);
 
+  return (
+    <AudienceScreen
+      engine={engine}
+      glyphs={glyphs}
+      images={images}
+      cache={cache}
+      info={info}
+      show={show}
+      tools={tools}
+      pos={pos}
+      size={size}
+      testId="audience-view"
+    />
+  );
+}
+
+export interface AudienceScreenProps {
+  engine: EngineHost;
+  glyphs: GlyphStore;
+  images: ImageStore;
+  cache: ShowCache;
+  /** The deck once opened. */
+  info: DocInfo | null;
+  show: { slide: number; black: boolean; ended: boolean };
+  tools: AudienceTools | null;
+  pos: ShowPos & { from: number | null };
+  size: { width: number; height: number };
+  /** Shown instead of the slide (the presenter has not started yet). */
+  waiting?: string | null;
+  testId: string;
+  /** Over the slide (captions of an online presentation). */
+  children?: ReactNode;
+}
+
+/** The followed slide (audience screen, online presentation viewers). */
+export function AudienceScreen({
+  engine,
+  glyphs,
+  images,
+  cache,
+  info,
+  show,
+  tools,
+  pos,
+  size,
+  waiting,
+  testId,
+  children,
+}: AudienceScreenProps) {
+  const { t } = useTranslation();
   const count = info?.pageCount ?? 0;
   const page = info?.pages[Math.min(show.slide, Math.max(0, count - 1))] ?? {
     width: 960,
     height: 540,
   };
   const box = fit(page, size);
-  const visible = info && !show.ended && !show.black && show.slide < count;
+  const visible = info && !waiting && !show.ended && !show.black && show.slide < count;
   return (
-    <div className={`bo-root ${styles.show}`} data-app="slide" data-testid="audience-view">
+    <div className={`bo-root ${styles.show}`} data-app="slide" data-testid={testId}>
       {!info ? (
         <p className={styles.endText}>{t('slideEditor.audienceWaiting')}</p>
+      ) : waiting ? (
+        <p className={styles.endText} data-testid="audience-waiting">
+          {waiting}
+        </p>
       ) : visible ? (
         <div
           className={toolStyles.surface}
@@ -142,6 +196,7 @@ export function AudienceView({ platform, channel }: AudienceViewProps) {
           <p className={styles.endText}>{t('slideEditor.end')}</p>
         )
       )}
+      {children}
     </div>
   );
 }

@@ -1,0 +1,215 @@
+/* Phone remote, online presentation and live captions (SLIDE-REMOTE-001). */
+
+.muted {
+  margin: 0 0 8px;
+  color: var(--bo-text-muted, #555);
+  font-size: 13px;
+}
+
+.error {
+  margin: 0 0 8px;
+  color: var(--bo-danger, #b42318);
+  font-size: 13px;
+}
+
+.warn {
+  margin: 4px 0 0;
+  color: #8a5300;
+  font-size: 12px;
+}
+
+.status {
+  margin: 8px 0 0;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.pairing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.qr {
+  display: block;
+  border: 1px solid #ddd;
+}
+
+.link {
+  word-break: break-all;
+  font-size: 12px;
+  text-align: center;
+}
+
+.row {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.urlField {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ phone remote page */
+
+.phone {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+  background: #101418;
+  color: #f2f4f7;
+  font:
+    15px/1.4 system-ui,
+    sans-serif;
+}
+
+.phoneHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.phoneHead h1 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.thumbs {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.thumb {
+  margin: 0;
+}
+
+.thumb img,
+.thumbEmpty {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #000;
+  border-radius: 4px;
+}
+
+.thumb figcaption {
+  font-size: 12px;
+  color: #b7c0cc;
+}
+
+.notes {
+  flex: 1;
+  min-height: 60px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: #1b2128;
+  white-space: pre-wrap;
+}
+
+.buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.buttons button {
+  min-height: 56px;
+  border: 0;
+  border-radius: 10px;
+  background: #2b3540;
+  color: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  touch-action: manipulation;
+}
+
+.buttons button.primary {
+  background: #1d6fd8;
+  min-height: 96px;
+  font-size: 22px;
+}
+
+.buttons button[aria-pressed='true'] {
+  outline: 2px solid #f2f4f7;
+}
+
+.buttons button:disabled {
+  opacity: 0.45;
+}
+
+.banner {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #3a2a10;
+  color: #ffd79a;
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------------------ live captions */
+
+.captions {
+  position: fixed;
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+  max-width: min(90%, 1100px);
+  padding: 0.25em 0.6em;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 78%);
+  color: #fff;
+  line-height: 1.35;
+  text-align: center;
+  pointer-events: none;
+}
+
+.captionsBottom {
+  bottom: 4%;
+}
+
+.captionsTop {
+  top: 4%;
+}
+
+.captionsSmall {
+  font-size: clamp(14px, 2.2vh, 26px);
+}
+
+.captionsMedium {
+  font-size: clamp(16px, 3.2vh, 36px);
+}
+
+.captionsLarge {
+  font-size: clamp(20px, 4.6vh, 52px);
+}
+
+.interim {
+  opacity: 0.7;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 10px;
+  align-items: center;
+  font-size: 13px;
+}

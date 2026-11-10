@@ -20,6 +20,7 @@ import type {
 } from '@blueoffice/platform';
 import {
   ServerAiProvider,
+  ServerRemoteShow,
   ServerTranslationProvider,
   appOfXml,
   defaultDictation,
@@ -493,6 +494,12 @@ export function hostedPlatform(
       return dictation ? { dictation } : {};
     })(),
     ...(mode.editable ? { scriptSchedules: sessionScriptSchedules(api, session, fetchImpl) } : {}),
+    // Phone remote and online presentation with the session's secret (SLIDE-REMOTE-001).
+    remoteShow: new ServerRemoteShow({
+      baseUrl: api,
+      session: session.sessionId,
+      headers: () => ({ 'x-session-token': session.sessionToken }),
+    }),
     files: {
       openFile: base.files.openFile.bind(base.files),
       // Same-format saves go back to the host; other formats (PDF, CSV) go to the disk.

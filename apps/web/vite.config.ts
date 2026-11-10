@@ -6,11 +6,12 @@ import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
 
 // `BLUEOFFICE_API_PROXY=http://localhost:5000 pnpm dev|preview`: the web shell
 // and the BlueOffice server on one origin, like deploy/web/nginx.conf
-// (`/api`, `/hosting`, `/collab` WebSocket); used by the collaboration E2E.
+// (`/api` with the `/api/present` WebSockets, `/hosting`, `/collab` WebSocket); used by the
+// collaboration E2E.
 const api = process.env.BLUEOFFICE_API_PROXY;
 const proxy: Record<string, ProxyOptions> | undefined = api
   ? {
-      '/api': { target: api, changeOrigin: true },
+      '/api': { target: api, changeOrigin: true, ws: true },
       '/hosting': { target: api, changeOrigin: true },
       '/collab': { target: api, changeOrigin: true, ws: true },
     }

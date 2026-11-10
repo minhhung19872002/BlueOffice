@@ -1,5 +1,6 @@
 import type { RibbonTab } from '@blueoffice/ui';
 import {
+  Captions,
   Cast,
   Circle,
   CircleOff,
@@ -10,7 +11,9 @@ import {
   MonitorPlay,
   Play,
   Presentation,
+  Radio,
   Settings2,
+  Smartphone,
   Timer,
   TimerOff,
 } from 'lucide-react';
@@ -34,6 +37,7 @@ export function slideShowTab(
   item: Item,
   useTimings: boolean,
   narration = false,
+  captions = false,
 ): RibbonTab {
   const sm = 'small' as const;
   return {
@@ -99,6 +103,28 @@ export function slideShowTab(
         id: 'showScreens',
         label: t('showTools.groupScreens'),
         items: [item('show.audience', t('showTools.audience'), <Cast size={18} />)],
+      },
+      {
+        // Phone remote, online presentation, live subtitles (SLIDE-REMOTE-001).
+        id: 'showRemote',
+        label: t('remoteShow.groupRemote'),
+        items: [
+          item('show.remote', t('remoteShow.remoteControl'), <Smartphone size={18} />),
+          item('show.online', t('remoteShow.online'), <Radio size={16} />, sm),
+          item(
+            'show.captions',
+            t('remoteShow.captionsToggle'),
+            <Captions size={16} />,
+            sm,
+            captions,
+          ),
+          item(
+            'show.captionSettings',
+            t('remoteShow.captionSettings'),
+            <Settings2 size={16} />,
+            sm,
+          ),
+        ],
       },
     ],
   };

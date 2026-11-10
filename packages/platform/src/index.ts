@@ -66,6 +66,8 @@ export * from './buildingBlocks';
 export * from './docStyles';
 export * from './queryData';
 export * from './dictation';
+export * from './remoteShow';
+export * from './qr';
 export * from './mediaCapture';
 // Both modules have a WAV encoder; the package's is the recorder's (`dictation` keeps its own).
 export { encodeWav } from './mediaCapture';

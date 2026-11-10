@@ -152,6 +152,7 @@ import {
   Italic,
   KeyRound,
   Languages,
+  Sparkles,
   Link2,
   List,
   ListIndentDecrease,
@@ -389,6 +390,9 @@ import { useDictation, type Dictation } from './DictationBar';
 import { registerDictationCommands } from './dictationCommands';
 import { docDictationTarget } from './docDictation';
 import { useTranslate, type TranslateAction } from './TranslatePane';
+import { useBlueAi } from './AiPane';
+import { AiLink, registerAiCommands } from './aiCommands';
+import { DOC_AI_COMMANDS, docAiFeatures } from './docAi';
 import { TranslateLink, registerTranslateCommands } from './translateCommands';
 import {
   docInsertAfter,
@@ -546,6 +550,12 @@ function EditorInner({
   const [translateLink] = useState(() => new TranslateLink());
   useEffect(() => {
     translateLink.attach(translate);
+  });
+  // BlueAI (CORE-AI-001): a task pane; the commands reach it through a link.
+  const ai = useBlueAi(platform.ai, platform.clipboard);
+  const [aiLink] = useState(() => new AiLink());
+  useEffect(() => {
+    aiLink.attach(ai);
   });
   const controller = useRef<DocController | null>(null);
   // Stop recording waits for keys typed just before it (queued in the controller).
@@ -2341,6 +2351,21 @@ function EditorInner({
         });
       },
     });
+    // BlueAI (CORE-AI-001): the pane on a feature; results are applied from its preview only.
+    registerAiCommands(r, {
+      enabled: hasDoc,
+      features: DOC_AI_COMMANDS,
+      isOff: () => aiLink.off,
+      begin: (_s, feature) =>
+        aiLink.open({
+          features: docAiFeatures({
+            t: (key, options) => i18nInstance.t(key, options ?? {}),
+            run: translateRun,
+            focus: () => view.current?.focus(),
+          }),
+          feature,
+        }),
+    });
     registerTrackingCommands(r, {
       hasDoc,
       run,
@@ -2953,6 +2978,7 @@ function EditorInner({
     objectHub,
     recorder,
     translateLink,
+    aiLink,
   ]);
   /* eslint-enable react-hooks/refs */
 
@@ -4146,6 +4172,11 @@ function EditorInner({
           ],
         },
         {
+          id: 'ai',
+          label: t('ribbon.groups.ai'),
+          items: [item('ai.pane', 'commands.ai.pane', <Sparkles size={ICON} />)],
+        },
+        {
           id: 'tracking',
           label: t('ribbon.groups.tracking'),
           items: [
@@ -4411,6 +4442,7 @@ function EditorInner({
     state.showRuler && !!state.doc && !state.focusMode && state.viewMode !== 'outline';
   const closeTaskPane = (id: string) => {
     if (id === 'navigation') store.setState({ navPane: null });
+    else if (id === 'ai') ai.close();
     else
       store.setState({
         taskPanes: togglePane(store.getState().taskPanes, id as DocTaskPane, false),
@@ -4553,6 +4585,15 @@ function EditorInner({
         ),
       });
     }
+  }
+  if (ai.active && state.doc) {
+    paneDefs.push({
+      id: 'ai',
+      title: t('ai.title'),
+      icon: <Sparkles size={14} aria-hidden />,
+      closeTestId: 'ai-close',
+      content: ai.content,
+    });
   }
   const insets = taskPaneInsets(paneLayout, paneDefs);
   const reviewingDock = state.doc ? state.reviewingPane : null;

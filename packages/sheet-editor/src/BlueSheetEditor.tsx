@@ -255,6 +255,9 @@ import {
   registerTranslateCommands,
   TranslateLink,
   useTranslate,
+  AiLink,
+  registerAiCommands,
+  useBlueAi,
   type TranslateAction,
   saveName,
   taskPaneLabels,
@@ -275,6 +278,7 @@ import { cycleReference } from './formulaRef';
 import { sheetReadUnits } from './readAloud';
 import { sheetDictationTarget } from './dictation';
 import { asTextInput, translateCells, type CellTranslateMode } from './translate';
+import { SHEET_AI_COMMANDS, SheetAiTargetLink, sheetAiFeatures } from './sheetAi';
 import { useSheetQueries } from './queries';
 import { useDataModel } from './dataModel';
 import {
@@ -1737,6 +1741,26 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [platform.translation, refreshInfo, t, translateLink],
   );
 
+  // BlueAI (CORE-AI-001): a task pane; its features read the selection of the moment they run.
+  const ai = useBlueAi(platform.ai, platform.clipboard);
+  const [aiLink] = useState(() => new AiLink());
+  const [aiTarget] = useState(() => new SheetAiTargetLink());
+  useEffect(() => {
+    aiLink.attach(ai);
+  });
+  const beginAi = useCallback(
+    (_st: SheetEditorState, feature?: string) =>
+      aiLink.open({
+        features: sheetAiFeatures({
+          t: (key, options) => t(key, options ?? {}),
+          target: () => aiTarget.get(),
+          changed: refreshInfo,
+        }),
+        feature,
+      }),
+    [aiLink, aiTarget, refreshInfo, t],
+  );
+
   /** Every range of the selection (multi-range with Ctrl), the current one last. */
   const allRanges = useMemo(() => [...extra, rangeOf(selection)], [extra, selection]);
 
@@ -2362,6 +2386,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         cellsNewColumn: 'review.translateCells',
         cellsInPlace: 'review.translateCellsInPlace',
       },
+    });
+    registerAiCommands(reg, {
+      enabled: (st) => st.hasWorkbook,
+      features: SHEET_AI_COMMANDS,
+      isOff: () => aiLink.off,
+      begin: beginAi,
     });
     // CORE-SEC-001: final mark, write protection, label, protected ranges.
     add(
@@ -3049,6 +3079,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     readAloudLink,
     dictationLink,
     beginTranslate,
+    beginAi,
+    aiLink,
     auditTrace,
     auditCalculate,
     removeArrows,
@@ -3167,6 +3199,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       tableAuto,
     ],
   );
+  useEffect(() => {
+    aiTarget.set(
+      state?.hasWorkbook
+        ? {
+            host: state.host,
+            sheet: state.sheet,
+            range: rangeOf(state.selection),
+            active: state.selection.active,
+          }
+        : null,
+    );
+  }, [aiTarget, state]);
   const run = useCallback(
     (id: string) => {
       if (state) void registry.execute(id, state);
@@ -4576,6 +4620,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               ),
             ],
           },
+          {
+            id: 'ai',
+            label: t('ribbon.groups.ai'),
+            items: [item('ai.pane', t('commands.ai.pane'), <Sparkles size={18} />)],
+          },
         ],
       },
       {
@@ -5620,15 +5669,28 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 ]
               : []),
             ...(queries.pane ? [queries.pane] : []),
+            ...(ai.active
+              ? [
+                  {
+                    id: 'ai',
+                    title: t('ai.title'),
+                    icon: <Sparkles size={14} aria-hidden />,
+                    closeTestId: 'ai-close',
+                    content: ai.content,
+                  } satisfies TaskPaneDef,
+                ]
+              : []),
           ]}
           onClose={(id) =>
             id === 'queries'
               ? queries.closePane()
-              : id === 'comments'
-                ? setCommentsOpen(false)
-                : id === 'script'
-                  ? setScriptOpen(false)
-                  : setVersionsOpen(false)
+              : id === 'ai'
+                ? ai.close()
+                : id === 'comments'
+                  ? setCommentsOpen(false)
+                  : id === 'script'
+                    ? setScriptOpen(false)
+                    : setVersionsOpen(false)
           }
           labels={taskPaneLabels(t)}
           focusApp={focusInput}

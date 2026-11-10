@@ -5,6 +5,8 @@
 //! * `errorCheck`, `ignoreError`, `resetIgnoredErrors` — error checking
 //!   ([`bo_sheet::errcheck`], ECMA-376 Part 1, §18.3.1.51 `ignoredErrors`);
 //! * `watchValues` — rows of the watch window;
+//! * `checkFormula` — does a formula text parse, and are its functions known (used
+//!   to vet a formula suggested from outside before it is offered; CORE-AI-001);
 //! * `calcOptions`, `setCalcOptions`, `calculate` — calculation mode, iteration
 //!   and precision (§18.2.2 `calcPr`), calculate now / calculate sheet.
 //!
@@ -55,6 +57,9 @@ pub enum AuditCommand {
     },
     /// Step-by-step evaluation of a cell's formula, `null` without one.
     EvaluateFormula { sheet: usize, row: u32, col: u32 },
+    /// Syntax check of a formula text, nothing is changed or evaluated:
+    /// `{ ok, error: { message, pos } | null, functions, unknownFunctions }`.
+    CheckFormula { formula: String },
     /// Error-checking findings of a sheet (row-major): `[{ row, col, rule, … }]`.
     ErrorCheck {
         sheet: usize,
@@ -95,6 +100,7 @@ impl AuditCommand {
         const NAMES: &[&str] = &[
             "traceArrows",
             "evaluateFormula",
+            "checkFormula",
             "errorCheck",
             "ignoreError",
             "resetIgnoredErrors",
@@ -168,6 +174,46 @@ fn formula_cells(wb: &Workbook, a: &Area) -> Vec<CellId> {
     }
 }
 
+/// `checkFormula`: parses `formula` and lists the functions it calls; a function is
+/// unknown when it is neither built in nor a defined name of the workbook.
+fn check_formula(wb: &Workbook, formula: &str) -> Value {
+    match bo_formula::parse(formula) {
+        Err(e) => json!({
+            "ok": false,
+            "error": { "message": e.message, "pos": e.pos },
+            "functions": [],
+            "unknownFunctions": [],
+        }),
+        Ok(expr) => {
+            let mut called: Vec<String> = Vec::new();
+            expr.walk(&mut |e| {
+                if let Expr::Call { name, .. } = e {
+                    if !called.contains(name) {
+                        called.push(name.clone());
+                    }
+                }
+            });
+            let builtin = bo_formula::function_names();
+            let unknown: Vec<&String> = called
+                .iter()
+                .filter(|n| {
+                    builtin.binary_search(&n.as_str()).is_err()
+                        && !wb
+                            .defined_names
+                            .iter()
+                            .any(|d| d.name.eq_ignore_ascii_case(n))
+                })
+                .collect();
+            json!({
+                "ok": unknown.is_empty(),
+                "error": null,
+                "functions": called,
+                "unknownFunctions": unknown,
+            })
+        }
+    }
+}
+
 fn has_error(wb: &Workbook, a: &Area) -> bool {
     a.is_single()
         && wb
@@ -199,6 +245,7 @@ impl SheetEngine {
             AuditCommand::EvaluateFormula { sheet, row, col } => {
                 self.evaluate_formula(sheet, row, col)
             }
+            AuditCommand::CheckFormula { formula } => Ok(check_formula(self.wb()?, &formula)),
             AuditCommand::ErrorCheck { sheet, rules } => {
                 let wb = self.wb()?;
                 self.sheet(sheet)?;
@@ -519,6 +566,32 @@ mod tests {
                 json!({"sheet": 1, "row": 0, "col": 0}),
             ]
         );
+    }
+
+    #[test]
+    fn check_formula_reports_syntax_and_unknown_functions() {
+        let mut e = engine(&[(0, "A1", "5")], &["Sheet1"]);
+        let ok = run(
+            &mut e,
+            &json!({"cmd": "checkFormula", "formula": "=SUM(A1:A3)/COUNT(A1:A3)"}),
+        );
+        assert_eq!(ok["ok"], json!(true));
+        assert_eq!(ok["functions"], json!(["SUM", "COUNT"]));
+        assert!(ok["error"].is_null());
+        let syntax = run(
+            &mut e,
+            &json!({"cmd": "checkFormula", "formula": "=SUM(A1:A3"}),
+        );
+        assert_eq!(syntax["ok"], json!(false));
+        assert!(syntax["error"]["message"].is_string());
+        let unknown = run(
+            &mut e,
+            &json!({"cmd": "checkFormula", "formula": "=NOSUCHFUNCTION(A1)+SUM(A1)"}),
+        );
+        assert_eq!(unknown["ok"], json!(false));
+        assert_eq!(unknown["unknownFunctions"], json!(["NOSUCHFUNCTION"]));
+        // Nothing was written or evaluated.
+        assert_eq!(e.cell(0, 0, 0).unwrap().input, "5");
     }
 
     #[test]

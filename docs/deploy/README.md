@@ -5,7 +5,8 @@ An toàn thông tin (hồ sơ cấp độ): [security.md](security.md) ·
 Giao thức tích hợp BlueDrive: [../bohp.md](../bohp.md) · Ký số (ký từ xa, dấu thời gian, USB token, Root CA):
 [remote-signing.md](remote-signing.md) · REST API cho hệ thống khác (mặc định tắt): [rest-api.md](rest-api.md) ·
 Dịch văn bản (mặc định tắt): [translation.md](translation.md) ·
-Đọc chính tả (mặc định tắt): [dictation.md](dictation.md).
+Đọc chính tả (mặc định tắt): [dictation.md](dictation.md) ·
+BlueAI — trợ lý dùng mô hình ngôn ngữ do quản trị viên cấu hình (mặc định tắt): [ai.md](ai.md).
 
 ## 1. Thành phần
 

@@ -24,6 +24,7 @@ import { WebSigning } from './signing';
 import { WebCodecsVideo } from '../webcodecs';
 import { webSpeech } from '../speech';
 import { webMediaCapture } from '../mediaCapture';
+import { ServerAiProvider } from '../ai';
 import { ServerTranslationProvider } from '../translation';
 import { defaultDictation } from '../dictation';
 import { WebDisplays, presentationReceiverBus } from './displays';
@@ -327,6 +328,20 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
       ? {
           translation: new ServerTranslationProvider({
             baseUrl: env.VITE_BO_TRANSLATE_URL ?? '',
+            headers: async (): Promise<Record<string, string>> => {
+              const token = await (opts.auth?.getAccessToken() ?? Promise.resolve(null));
+              return token ? { Authorization: `Bearer ${token}` } : {};
+            },
+          }),
+        }
+      : {}),
+    // BlueAI through the BlueOffice server (CORE-AI-001): same origin unless VITE_BO_AI_URL names
+    // it, `off` = none. The server answers 404 (nothing is sent on) until an administrator
+    // enables BlueAI there; the editors then show it as turned off.
+    ...(env.VITE_BO_AI_URL !== 'off'
+      ? {
+          ai: new ServerAiProvider({
+            baseUrl: env.VITE_BO_AI_URL ?? '',
             headers: async (): Promise<Record<string, string>> => {
               const token = await (opts.auth?.getAccessToken() ?? Promise.resolve(null));
               return token ? { Authorization: `Bearer ${token}` } : {};

@@ -356,6 +356,27 @@ fn merge_bare(ws: &Worksheet, b: Worksheet) -> Worksheet {
     }
 }
 
+/// The cell-anchored objects of the shared bare sheet `b` that row/column changes move but
+/// that have no row/column-id form (unlike [`BareAt`]): notes and threaded comments
+/// (§18.7.3, [MS-XLSX] `CT_ThreadedComment`), form controls (anchor, linked cell, input
+/// range), sparklines, slicer / timeline / SmartArt frames, scenarios and page breaks.
+fn restore_placed(ws: &mut Worksheet, b: &Worksheet) {
+    ws.comments.clone_from(&b.comments);
+    ws.threaded_comments.clone_from(&b.threaded_comments);
+    ws.form_controls.clone_from(&b.form_controls);
+    ws.sparkline_groups.clone_from(&b.sparkline_groups);
+    ws.slicers.clone_from(&b.slicers);
+    ws.timelines.clone_from(&b.timelines);
+    ws.diagrams.clone_from(&b.diagrams);
+    ws.scenarios.clone_from(&b.scenarios);
+    ws.page_setup
+        .row_breaks
+        .clone_from(&b.page_setup.row_breaks);
+    ws.page_setup
+        .col_breaks
+        .clone_from(&b.page_setup.col_breaks);
+}
+
 /// Model cells compared cheaply: a formula's cached value does not count.
 fn same(a: &Cell, b: &Cell) -> bool {
     a.formula == b.formula
@@ -1461,6 +1482,18 @@ impl SheetEngine {
                     r.map_err(|e| EngineError::Sheet(e.to_string()))?;
                 }
                 touched_sheets.insert(sk.clone());
+            }
+            // Objects of a `sh:<sheet>` sent with these row/column changes already sit
+            // where the sender's rows and columns put them: keep the sender's placement
+            // rather than shifting them a second time.
+            for (sk, e) in &shared {
+                if !change.meta.contains_key(&format!("sh:{sk}"))
+                    || !axis_hit.iter().any(|(s, _)| s == sk)
+                {
+                    continue;
+                }
+                let Some(&si) = idx.get(sk) else { continue };
+                restore_placed(&mut wb.sheets[si], &e.w);
             }
         }
         // Cells to reconcile: changed ones, and every shared cell of a

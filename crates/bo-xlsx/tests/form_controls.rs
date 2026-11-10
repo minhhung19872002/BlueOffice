@@ -390,6 +390,54 @@ fn changed_controls_are_patched() {
     assert_eq!(by_id(&again, 1030).checked, CheckState::Checked);
 }
 
+// source: [MS-XLSX] controlPr/anchor (CT_ObjectAnchor, xdr:from / xdr:to); VML x:Anchor
+#[test]
+fn moved_controls_get_their_anchors_patched() {
+    let src = fixture();
+    let mut wb = read_xlsx(&src).unwrap();
+    let moved = ControlAnchor {
+        from: CellRef::new(7, 5),
+        from_off: (47_625, 19_050),
+        to: CellRef::new(7, 7),
+        to_off: (95_250, 171_450),
+    };
+    let ax = ControlAnchor {
+        from: CellRef::new(23, 1),
+        to: CellRef::new(25, 3),
+        ..ControlAnchor::default()
+    };
+    for c in &mut wb.sheets[0].form_controls {
+        match c.shape_id {
+            // Not marked dirty: rows / columns inserted only move the anchor.
+            1026 => c.anchor = moved,
+            1050 => c.anchor = ax,
+            _ => {}
+        }
+    }
+    let out = write_xlsx(&wb).unwrap();
+    let b = parts(&out);
+    let sheet = String::from_utf8(part(&b, "/xl/worksheets/sheet1.xml").unwrap()).unwrap();
+    assert!(sheet
+        .contains("<from><xdr:col>5</xdr:col><xdr:colOff>47625</xdr:colOff><xdr:row>7</xdr:row>"));
+    let vml = String::from_utf8(part(&b, "/xl/drawings/vmlDrawing1.vml").unwrap()).unwrap();
+    assert!(
+        vml.contains("<x:Anchor>5, 5, 7, 2, 7, 10, 7, 18</x:Anchor>"),
+        "{vml}"
+    );
+    assert!(vml.contains("<x:Anchor>1, 0, 23, 0, 3, 0, 25, 0</x:Anchor>"));
+    // Untouched controls keep their anchors and parts.
+    assert!(vml.contains(&anchor(2)));
+    let a = parts(&src);
+    assert_eq!(
+        part(&b, "/xl/ctrlProps/ctrlProp3.xml"),
+        part(&a, "/xl/ctrlProps/ctrlProp3.xml")
+    );
+    let again = read_xlsx(&out).unwrap();
+    assert_eq!(by_id(&again, 1026).anchor, moved);
+    assert_eq!(by_id(&again, 1050).anchor, ax);
+    assert_eq!(by_id(&again, 1027).anchor, by_id(&wb, 1027).anchor);
+}
+
 #[test]
 fn removed_controls_leave_the_package() {
     let src = fixture();

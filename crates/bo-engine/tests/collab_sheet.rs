@@ -483,3 +483,43 @@ fn panes_frozen_during_a_row_insert_follow_the_rows() {
     assert_eq!(pane(&a), pane(&b));
     assert_eq!(pane(&a), Some((3.0, 0.0, Some("A4".into()))));
 }
+
+// source: [MS-XLSX] controlPr/anchor, fmlaLink; x14:sparkline xm:sqref / xm:f
+#[test]
+fn controls_and_sparklines_shift_once_with_a_row_insert_from_the_same_peer() {
+    let (mut a, mut b) = pair(&[(0, 0, "1"), (0, 1, "2")]);
+    settle(&mut a, &mut b);
+    a.exec(r#"{"cmd":"insertFormControl","sheet":0,"kind":"checkBox","row":2,"col":1}"#);
+    a.exec(r#"{"cmd":"formatFormControl","sheet":0,"index":0,"spec":{"link":"$D$5"}}"#);
+    a.exec(r#"{"cmd":"sparklineInsert","sheet":0,"type":"line","data":"A1:B1","location":{"r0":0,"c0":2,"r1":0,"c1":2}}"#);
+    settle(&mut a, &mut b);
+    // A inserts two rows at the top; B receives the shifted objects and the rows at once.
+    a.structural(true, 0, 2, false);
+    settle(&mut a, &mut b);
+    let placed = |p: &Peer| {
+        let ws = &p.engine.workbook().unwrap().sheets[0];
+        let c = &ws.form_controls[0];
+        let s = &ws.sparkline_groups[0].sparklines[0];
+        (
+            c.anchor.from.to_string(),
+            c.link.clone(),
+            s.location.to_string(),
+            s.formula.clone(),
+        )
+    };
+    assert_eq!(
+        placed(&a),
+        (
+            "B5".to_owned(),
+            Some("$D$7".to_owned()),
+            "C3".to_owned(),
+            Some("Sheet1!A3:B3".to_owned())
+        )
+    );
+    assert_eq!(placed(&b), placed(&a));
+    // B inserts a column: A follows.
+    b.structural(false, 0, 1, false);
+    settle(&mut a, &mut b);
+    assert_eq!(placed(&a).0, "C5");
+    assert_eq!(placed(&a), placed(&b));
+}

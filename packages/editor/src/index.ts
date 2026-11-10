@@ -54,3 +54,11 @@ export {
   type ProofWalkActions,
   type WalkIssue,
 } from './ProofWalkDialog';
+// SmartArt dialog shared with BlueSheet / BlueSlide (CORE-SMART-005).
+export {
+  SMARTART_LAYOUTS,
+  SmartArtDialog,
+  itemsOf as smartArtItemsOf,
+  textOf as smartArtTextOf,
+  type SmartArtDraft,
+} from './SmartArtDialog';

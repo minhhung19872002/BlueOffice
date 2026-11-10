@@ -7,7 +7,7 @@ import type {
 } from '@blueoffice/platform';
 import { Dialog } from '@blueoffice/ui';
 import { useState } from 'react';
-import styles from './SlideEditor.module.css';
+import styles from './SmartArtDialog.module.css';
 
 export const SMARTART_LAYOUTS: SlideSmartArtLayout[] = [
   'list',
@@ -52,7 +52,10 @@ export interface SmartArtDraft {
   style: SlideSmartArtStyle;
 }
 
-/** Insert a SmartArt or edit the selected one: layout and the text pane (an indented outline). */
+/**
+ * Insert a SmartArt or edit the selected one: layout and the text pane (an indented outline).
+ * Shared by BlueSlide, BlueDoc and BlueSheet (CORE-SMART-003/005).
+ */
 export function SmartArtDialog({
   mode,
   initial,
@@ -95,7 +98,7 @@ export function SmartArtDialog({
         </>
       }
     >
-      <div className={styles.chartForm}>
+      <div className={styles.form}>
         <fieldset>
           <legend>{t('slideEditor.smartart.layout')}</legend>
           {SMARTART_LAYOUTS.map((l) => (

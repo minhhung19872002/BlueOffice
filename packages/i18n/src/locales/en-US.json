@@ -164,7 +164,8 @@
       "formDropDown": "Drop-down form field",
       "formProperties": "Form field options…",
       "dropCap": "Large initial",
-      "signatureLine": "Signature line…"
+      "signatureLine": "Signature line…",
+      "smartart": "SmartArt"
     },
     "layout": {
       "margins": "Margins",
@@ -358,7 +359,8 @@
     "edit": "Could not do that: {{message}}",
     "image": "Could not insert the picture: {{message}}",
     "sign": "Could not sign: {{message}}",
-    "verify": "Could not verify the signatures: {{message}}"
+    "verify": "Could not verify the signatures: {{message}}",
+    "smartArt": "The SmartArt could not be inserted or changed."
   },
   "placeholder": {
     "sheet": "BlueSheet (spreadsheets) is developed in Phase 3.",
@@ -1719,6 +1721,9 @@
       "increase": "Increase",
       "selected": "Control {{name}} selected",
       "designHint": "Drag to move · Enter or double-click for settings · Delete to remove · Esc to deselect"
+    },
+    "smartArt": {
+      "delete": "Delete SmartArt"
     }
   },
   "recovery": {

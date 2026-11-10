@@ -164,7 +164,8 @@
       "formDropDown": "Danh sách chọn (biểu mẫu)",
       "formProperties": "Tuỳ chọn trường biểu mẫu…",
       "dropCap": "Chữ hoa đầu đoạn",
-      "signatureLine": "Dòng chữ ký…"
+      "signatureLine": "Dòng chữ ký…",
+      "smartart": "SmartArt"
     },
     "layout": {
       "margins": "Lề",
@@ -358,7 +359,8 @@
     "edit": "Không thực hiện được: {{message}}",
     "image": "Không chèn được ảnh: {{message}}",
     "sign": "Không ký được: {{message}}",
-    "verify": "Không kiểm tra được chữ ký: {{message}}"
+    "verify": "Không kiểm tra được chữ ký: {{message}}",
+    "smartArt": "Không chèn hoặc sửa được SmartArt."
   },
   "placeholder": {
     "sheet": "BlueSheet (bảng tính) sẽ được phát triển ở Phase 3.",
@@ -1719,6 +1721,9 @@
       "increase": "Tăng",
       "selected": "Đang chọn điều khiển {{name}}",
       "designHint": "Kéo để di chuyển · Enter hoặc nhấp đúp để thiết lập · Delete để xoá · Esc để thôi chọn"
+    },
+    "smartArt": {
+      "delete": "Xoá SmartArt"
     }
   },
   "recovery": {

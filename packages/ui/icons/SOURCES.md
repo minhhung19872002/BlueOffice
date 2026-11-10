@@ -251,6 +251,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `slide.duplicate` | Lucide (ISC) `CopyPlus` |
 | `slide.new` | Lucide (ISC) `SquarePlus` |
 | `slide.paste` | Lucide (ISC) `ClipboardPaste` |
+| `smartart.delete` | Lucide (ISC) `Trash` |
 | `smartart.edit` | Lucide (ISC) `Pencil` |
 | `smartart.toShapes` | Lucide (ISC) `Shapes` |
 | `style.heading1` | Lucide (ISC) `Heading1` |

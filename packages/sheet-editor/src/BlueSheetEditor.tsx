@@ -7,6 +7,7 @@ import type {
   BorderSpec,
   CellFormatState,
   ChartInfo,
+  SheetSmartArtInfo,
   PasteMode,
   PivotInfo,
   Platform,
@@ -141,6 +142,8 @@ import {
   TextWrap,
   Trash,
   Trash2,
+  Network,
+  Pencil,
   Underline,
   Undo2,
   ZoomIn,
@@ -182,6 +185,7 @@ import {
   PasswordDialog,
   SaveAsTypeDialog,
   SavePasswordPanel,
+  SmartArtDialog,
   SymbolPanel,
   clipboardHistory,
   fromBase64,
@@ -189,6 +193,7 @@ import {
   saveName,
   toBase64,
   type ClipItem,
+  type SmartArtDraft,
 } from '@blueoffice/editor';
 import {
   SheetClipboardUi,
@@ -330,6 +335,8 @@ export interface SheetEditorState {
   fmt: CellFormatState | null;
   /** Selected chart (click on a chart). */
   chart: number | null;
+  /** Selected SmartArt diagram (CORE-SMART-005). */
+  smartArt: number | null;
   /** Pivot table containing the active cell. */
   pivot: number | null;
   /** Every range of a multi-range (Ctrl) selection, the current one last. */
@@ -473,6 +480,8 @@ type Drag =
 esize, sizing) a chart: anchors in cells. */
   | {
       kind: 'chart';
+      /** A SmartArt diagram instead of a chart (CORE-SMART-005). */
+      smart?: boolean;
       index: number;
       resize: boolean;
       start: CellPos;
@@ -552,6 +561,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [guide, setGuide] = useState<{ x?: number; y?: number } | null>(null);
   const [cursor, setCursor] = useState('cell');
   const [chart, setChart] = useState<number | null>(null);
+  /** Selected SmartArt diagram, its anchors and on-screen box (px) (CORE-SMART-005). */
+  const [smartArt, setSmartArt] = useState<number | null>(null);
+  const [smartInfo, setSmartInfo] = useState<SheetSmartArtInfo | null>(null);
+  const [smartBox, setSmartBox] = useState<Rect | null>(null);
+  const [smartArtDialog, setSmartArtDialog] = useState<{
+    mode: 'insert' | 'edit';
+    index: number | null;
+    initial: SmartArtDraft;
+  } | null>(null);
   /** "Save as template…" of the selected chart is open. */
   const [saveTemplate, setSaveTemplate] = useState(false);
   const [pivots, setPivots] = useState<{ sheet: number; list: PivotInfo[] }>({
@@ -924,6 +942,29 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     };
   }, [host, chart, sheet, view, px, revision]);
 
+  // Selected SmartArt: anchors and selection box.
+  useEffect(() => {
+    if (!host || smartArt === null) return;
+    let cancelled = false;
+    void (async () => {
+      const a = await host
+        .exec<SheetSmartArtInfo>({ cmd: 'smartArtInfo', sheet, index: smartArt })
+        .catch(() => null);
+      if (cancelled) return;
+      if (!a) {
+        setSmartArt(null);
+        return;
+      }
+      const r = await host.rangeRect(view, a.from[0], a.from[1], a.to[0] - 1, a.to[1] - 1);
+      if (cancelled) return;
+      setSmartInfo(a);
+      setSmartBox(px(r));
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, smartArt, sheet, view, px, revision]);
+
   // Timelines of the sheet: a strip of periods over the grid.
   const [timelines, setTimelines] = useState<{ info: TimelineInfo; rect: Rect }[]>([]);
   const timelineAnchor = useRef<number | null>(null);
@@ -1088,6 +1129,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       }
     },
     [host, refreshInfo, fail],
+  );
+
+  /** Open the SmartArt dialog on diagram `index` of sheet `sh` (CORE-SMART-005). */
+  const openSmartArt = useCallback(
+    async (sh: number, index: number) => {
+      if (!host) return;
+      const a = await host
+        .exec<SheetSmartArtInfo>({ cmd: 'smartArtInfo', sheet: sh, index })
+        .catch(() => null);
+      if (!a) return;
+      setSmartArtDialog({
+        mode: 'edit',
+        index,
+        initial: { layout: a.layout, items: a.items, colors: a.colors, style: a.style },
+      });
+    },
+    [host],
   );
 
   // Workbook views (SHEET-VIEW-001): view type, show formulas, temporary views.
@@ -1698,6 +1756,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           setChart(null);
           return;
         }
+        if (s.smartArt !== null) {
+          await exec({ cmd: 'deleteSmartArt', sheet: s.sheet, index: s.smartArt });
+          setSmartArt(null);
+          return;
+        }
         await clearSelection();
       },
       { shortcut: 'Delete' },
@@ -1911,6 +1974,41 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
     // Insert
     add('insert.chart', popup('chart', 'insert.chart'), has);
+    // SmartArt (CORE-SMART-005): the BlueSlide layout library over cells from the active one.
+    add(
+      'insert.smartart',
+      async () =>
+        setSmartArtDialog({
+          mode: 'insert',
+          index: null,
+          initial: {
+            layout: 'process',
+            items: [1, 2, 3].map((n) => ({
+              text: t('slideEditor.smartart.sampleItem', { n }),
+              level: 0,
+            })),
+            colors: 'colorful',
+            style: 'fill',
+          },
+        }),
+      has,
+    );
+    add(
+      'smartart.edit',
+      async (s) => {
+        if (s.smartArt !== null) await openSmartArt(s.sheet, s.smartArt);
+      },
+      { isEnabled: (s) => s.smartArt !== null },
+    );
+    add(
+      'smartart.delete',
+      async (s) => {
+        if (s.smartArt === null) return;
+        await exec({ cmd: 'deleteSmartArt', sheet: s.sheet, index: s.smartArt });
+        setSmartArt(null);
+      },
+      { isEnabled: (s) => s.smartArt !== null },
+    );
     add('insert.symbol', async () => setSymbolsOpen(true), has);
     add('insert.pivot', open({ kind: 'pivot' }), has);
     add('insert.table', (s) => exec({ cmd: 'createTable', sheet: s.sheet, range: rng(s) }), has);
@@ -2378,6 +2476,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('formulas.calcFull', () => auditCalculate('full'), { shortcut: 'Ctrl+Alt+F9' });
     return reg;
   }, [
+    openSmartArt,
     auditTrace,
     auditCalculate,
     removeArrows,
@@ -2432,6 +2531,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             hasWorkbook: !!info,
             fmt,
             chart,
+            smartArt,
             pivot: activePivot?.index ?? null,
             ranges: allRanges,
             sheetProtected: !!info?.sheets[sheet]?.protected,
@@ -2448,6 +2548,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       info,
       fmt,
       chart,
+      smartArt,
       activePivot?.index,
       allRanges,
       sparkGroup,
@@ -2609,6 +2710,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (!hit || !host) return;
     const last = info?.sheets[sheet];
     setChart(null);
+    setSmartArt(null);
     setFormSel(null);
     const multi = (e.ctrlKey || e.metaKey) && !e.shiftKey;
     // Ctrl+click / Ctrl+drag starts another range of a multi-range selection.
@@ -2631,6 +2733,22 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       if (at) setGuide(rows ? { y: at.y * scale } : { x: at.x * scale });
     } else if (hit.kind === 'filterButton') {
       setFilterMenu({ col: hit.col, x: e.clientX, y: e.clientY + 4 });
+    } else if (hit.kind === 'smartArt') {
+      setSmartArt(hit.index);
+      const a = await host
+        .exec<SheetSmartArtInfo>({ cmd: 'smartArtInfo', sheet, index: hit.index })
+        .catch(() => null);
+      if (a) {
+        drag.current = {
+          kind: 'chart',
+          smart: true,
+          index: hit.index,
+          resize: false,
+          start: { row: hit.row, col: hit.col },
+          from: a.from,
+          to: a.to,
+        };
+      }
     } else if (hit.kind === 'chart') {
       setChart(hit.index);
       const list = await host.exec<ChartInfo[]>({ cmd: 'charts', sheet });
@@ -2681,7 +2799,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     }
     if (d?.kind === 'chart') {
       const hit = await hitAt(e);
-      if (!hit || (hit.kind !== 'cell' && hit.kind !== 'chart') || !host) return;
+      if (!hit || (hit.kind !== 'cell' && hit.kind !== 'chart' && hit.kind !== 'smartArt') || !host)
+        return;
       const dr = d.resize ? 0 : Math.max(hit.row - d.start.row, -d.from[0]);
       const dc = d.resize ? 0 : Math.max(hit.col - d.start.col, -d.from[1]);
       const from: [number, number] = [d.from[0] + dr, d.from[1] + dc];
@@ -2716,7 +2835,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           ? 'col-resize'
           : hit?.kind === 'rowEdge'
             ? 'row-resize'
-            : hit?.kind === 'filterButton' || hit?.kind === 'chart'
+            : hit?.kind === 'filterButton' || hit?.kind === 'chart' || hit?.kind === 'smartArt'
               ? 'pointer'
               : painter
                 ? 'copy'
@@ -2751,7 +2870,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       chartTarget.current = null;
       setFillRect(null);
       if (target) {
-        void exec({ cmd: 'moveChart', sheet, index: d.index, from: target.from, to: target.to });
+        void exec({
+          cmd: d.smart ? 'moveSmartArt' : 'moveChart',
+          sheet,
+          index: d.index,
+          from: target.from,
+          to: target.to,
+        });
       }
     } else if (d.kind === 'fill') {
       const target = fillTo.current;
@@ -2795,6 +2920,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       void exec({ cmd: 'autofit', sheet, rows, first, last });
     } else if (hit.kind === 'chart') {
       setDialog({ kind: 'chart', index: hit.index });
+    } else if (hit.kind === 'smartArt') {
+      void openSmartArt(sheet, hit.index);
     } else if (hit.kind === 'cell') {
       void startEdit(true);
     }
@@ -3101,6 +3228,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             label: t('sheetEditor.groupCharts'),
             items: [
               item('insert.chart', t('sheetEditor.chart.insert'), <ChartColumn size={18} />),
+              item('insert.smartart', t('slideEditor.smartart.button'), <Network size={18} />),
               item('insert.sparklines', t('sparkline.insert'), <ChartSpline size={18} />),
               item(
                 'review.comments',
@@ -3659,6 +3787,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         }),
       });
     }
+    // SmartArt contextual tab (CORE-SMART-005) while a diagram is selected.
+    if (smartArt !== null) {
+      tabs.push({
+        id: 'smartart',
+        label: t('slideEditor.smartart.tab'),
+        groups: [
+          {
+            id: 'smartartEdit',
+            label: t('slideEditor.smartart.group'),
+            items: [
+              item('smartart.edit', t('slideEditor.smartart.textPane'), <Pencil size={18} />),
+              item('smartart.delete', t('sheetEditor.smartArt.delete'), <Trash2 size={18} />),
+            ],
+          },
+        ],
+      });
+    }
     // Chart Design contextual tab (CORE-CHART-007) while a chart is selected.
     if (chart === null) return tabs;
     return [
@@ -3703,6 +3848,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     state,
     run,
     chart,
+    smartArt,
     sheet,
     loadGallery,
     exec,
@@ -4032,6 +4178,32 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                       start: { row: chartInfo.to[0], col: chartInfo.to[1] },
                       from: chartInfo.from,
                       to: chartInfo.to,
+                    };
+                  }}
+                />
+              </div>
+            )}
+            {smartArt !== null && smartBox && smartInfo && (
+              <div
+                className={styles.chartSelection}
+                data-testid="smartart-selection"
+                style={{ left: smartBox.x, top: smartBox.y, width: smartBox.w, height: smartBox.h }}
+              >
+                <div
+                  className={styles.chartHandle}
+                  data-testid="smartart-resize"
+                  title={t('sheetEditor.chart.resize')}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    drag.current = {
+                      kind: 'chart',
+                      smart: true,
+                      index: smartArt,
+                      resize: true,
+                      start: { row: smartInfo.to[0], col: smartInfo.to[1] },
+                      from: smartInfo.from,
+                      to: smartInfo.to,
                     };
                   }}
                 />
@@ -4811,6 +4983,32 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       )}
       {dialog?.kind === 'chart' && <ChartDialog {...common} index={dialog.index} />}
+      {smartArtDialog && (
+        <SmartArtDialog
+          mode={smartArtDialog.mode}
+          initial={smartArtDialog.initial}
+          onClose={() => {
+            setSmartArtDialog(null);
+            focusInput();
+          }}
+          onApply={(d) => {
+            const { mode, index } = smartArtDialog;
+            setSmartArtDialog(null);
+            const at: [number, number] = [selection.active.row, selection.active.col];
+            void exec<{ index: number }>(
+              mode === 'insert' || index === null
+                ? { cmd: 'insertSmartArt', sheet, from: at, ...d }
+                : { cmd: 'setSmartArt', sheet, index, ...d },
+            ).then((r) => {
+              if (r) {
+                setChart(null);
+                setSmartArt(r.index);
+              }
+            });
+            focusInput();
+          }}
+        />
+      )}
       {saveTemplate && chart !== null && (
         <SaveChartTemplateDialog
           load={loadGallery}

@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { initSync, WasmCollab, WasmEngine } from '@blueoffice/engine-wasm';
 import {
   collabDocHost,
@@ -269,5 +269,67 @@ describe('BlueSlide collaboration over bo-collab', () => {
     await a.slides.slideCommand({ cmd: 'select', ids: [second] } as { cmd: string });
     await settle(a, b, 'slides');
     expect(seen.at(-1)?.[0]).toMatchObject({ name: 'An', slide: 0 });
+  });
+
+  // SLIDE-ALBUM-001: a photo album is many commands joined by `historyLen` … `mergeHistory`.
+  it('commands joined into one undo step are one collaborative undo step', async () => {
+    const deck = readFileSync(join(root, 'tests', 'corpus', 'slide', 'slide-edit-arrange.pptx'));
+    const a = peer(61, 'An');
+    const b = peer(62, 'Bình');
+    await a.slides.seed();
+    await a.slides.open(deck, 'deck.pptx');
+    connect(a, b, 'slides');
+    await b.slides.open(deck, 'deck.pptx');
+    await settle(a, b, 'slides');
+    const count = (p: Peer) => (JSON.parse(p.engine.info()) as { pageCount: number }).pageCount;
+    const n = count(a);
+    // The replica groups undo steps by time: let a second pass at every look at the clock,
+    // and let a frame of the other user arrive between the commands.
+    let now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => (now += 1000));
+    const between = async () => {
+      await b.slides.slideCommand({ cmd: 'selectNext' });
+      await settle(a, b, 'slides');
+    };
+    const box = { cmd: 'insertTextBox', text: 'Ảnh', rect: { x: 10, y: 10, w: 100, h: 30 } };
+    try {
+      // Separate commands: each is its own undo step.
+      await a.slides.slideCommand({ cmd: 'addSlide' });
+      await between();
+      await a.slides.slideCommand(box);
+      await between();
+      expect(count(a)).toBe(n + 1);
+      await a.slides.slideCommand({ cmd: 'undo' });
+      expect(count(a)).toBe(n + 1);
+      await a.slides.slideCommand({ cmd: 'undo' });
+      expect(count(a)).toBe(n);
+      await settle(a, b, 'slides');
+      // The same commands as a batch: one undo takes all of it back, on both sides.
+      const start = (await a.slides.slideCommand({ cmd: 'historyLen' })) as SlideResult & {
+        history: number;
+      };
+      await a.slides.slideCommand({ cmd: 'addSlide' });
+      await between();
+      await a.slides.slideCommand(box);
+      await between();
+      await a.slides.slideCommand({ cmd: 'mergeHistory', since: start.history } as {
+        cmd: string;
+      });
+      await settle(a, b, 'slides');
+      expect([count(a), count(b)]).toEqual([n + 1, n + 1]);
+      await a.slides.slideCommand({ cmd: 'undo' });
+      await settle(a, b, 'slides');
+      expect([count(a), count(b)]).toEqual([n, n]);
+      // An edit after the batch is a step of its own again.
+      await a.slides.slideCommand({ cmd: 'redo' });
+      await between();
+      await a.slides.slideCommand({ cmd: 'addSlide' });
+      await between();
+      expect(count(a)).toBe(n + 2);
+      await a.slides.slideCommand({ cmd: 'undo' });
+      expect(count(a)).toBe(n + 1);
+    } finally {
+      clock.mockRestore();
+    }
   });
 });

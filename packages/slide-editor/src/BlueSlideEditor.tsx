@@ -198,12 +198,14 @@ import {
   Group,
   Highlighter,
   ImagePlus,
+  Images,
   IndentDecrease,
   IndentIncrease,
   Italic,
   LayoutGrid,
   List,
   ListOrdered,
+  ListPlus,
   ListTree,
   NotebookText,
   Languages,
@@ -285,6 +287,7 @@ import { SlideCheckDocumentDialog } from './inspect';
 import { SlideController } from './controller';
 import { SlideSpellDialog, SlideSpellLayer, useSlideSpelling } from './spelling';
 import { SlideVersionsPane } from './compareVersions';
+import { useAlbumTools } from './album/useAlbumTools';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
 import {
   SlideClipboardUi,
@@ -985,6 +988,21 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     },
     [engine, images, platform, t, ctrl],
   );
+
+  // Photo album, slides from an outline, reuse slides (SLIDE-ALBUM-001).
+  const albumTools = useAlbumTools({
+    t,
+    platform,
+    engine: platform.engine,
+    ctrl,
+    load,
+    hasDeck: count > 0,
+    modified,
+    slideSize,
+    setStatus,
+    fail,
+  });
+  const { openAlbum, pickOutline, toggleReuse, closeReuse, reuseOpen: reusePaneOpen } = albumTools;
 
   useEffect(() => {
     platform.window.setTitle(t('appTitle.slide'));
@@ -2291,6 +2309,16 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     // Slides.
     simple('slide.new', { cmd: 'addSlide' }, deck, 'Ctrl+M');
     simple('slide.duplicate', { cmd: 'duplicateSlide' }, deck);
+    // SLIDE-ALBUM-001: photo album (also without a deck: it can start a new one),
+    // slides from an outline file, reuse slides of another presentation.
+    reg.register({ id: 'insert.photoAlbum', run: async () => openAlbum() });
+    reg.register({ id: 'slide.fromOutline', isEnabled: deck, run: () => guard(pickOutline) });
+    reg.register({
+      id: 'slide.reuse',
+      isEnabled: deck,
+      isChecked: () => reusePaneOpen,
+      run: async () => toggleReuse(),
+    });
     simple('slide.delete', { cmd: 'deleteSlide' }, deck);
 
     // Text formatting.
@@ -2767,6 +2795,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     windowPaired,
     windowSync,
     versionsOpen,
+    openAlbum,
+    pickOutline,
+    toggleReuse,
+    reusePaneOpen,
     scriptOpen,
     newChart,
     openSmartArt,
@@ -3215,6 +3247,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             label: t('slideEditor.groupSlides'),
             items: [
               item('slide.new', t('slideEditor.newSlide'), <SquarePlus size={18} />),
+              item(
+                'slide.fromOutline',
+                t('slideEditor.outlineImport.command'),
+                <ListPlus size={16} />,
+                sm,
+              ),
+              item('slide.reuse', t('slideEditor.reuse.command'), <FileStack size={16} />, sm),
               item('slide.duplicate', t('slideEditor.duplicateSlide'), <CopyPlus size={16} />, sm),
               item('slide.delete', t('slideEditor.deleteSlide'), <Trash size={16} />, sm),
               item('slide.copy', t('slideEditor.copySlide'), <Files size={16} />, sm),
@@ -3327,7 +3366,16 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           {
             id: 'slides',
             label: t('slideEditor.groupSlides'),
-            items: [item('slide.new', t('slideEditor.newSlide'), <SquarePlus size={18} />)],
+            items: [
+              item('slide.new', t('slideEditor.newSlide'), <SquarePlus size={18} />),
+              item(
+                'slide.fromOutline',
+                t('slideEditor.outlineImport.command'),
+                <ListPlus size={16} />,
+                sm,
+              ),
+              item('slide.reuse', t('slideEditor.reuse.command'), <FileStack size={16} />, sm),
+            ],
           },
           {
             id: 'text',
@@ -3381,6 +3429,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             label: t('slideEditor.groupMedia'),
             items: [
               item('insert.picture', t('slideEditor.picture'), <ImagePlus size={18} />),
+              item('insert.photoAlbum', t('slideEditor.album.command'), <Images size={18} />),
               item('insert.table', t('slideEditor.table'), <Table size={18} />),
               item('insert.chart', t('slideEditor.chart'), <ChartColumn size={18} />),
               item('object.insert', t('commands.object.insert'), <FileSpreadsheet size={18} />),
@@ -4663,6 +4712,16 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     } satisfies TaskPaneDef,
                   ]
                 : []),
+              ...(reusePaneOpen
+                ? [
+                    {
+                      id: 'reuse',
+                      title: t('slideEditor.reuse.title'),
+                      icon: <FileStack size={14} aria-hidden />,
+                      content: albumTools.reusePane,
+                    } satisfies TaskPaneDef,
+                  ]
+                : []),
               ...(scriptOpen
                 ? [
                     {
@@ -4707,6 +4766,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               else if (id === 'animation') setPaneOpen(false);
               else if (id === 'comments') setCommentsOpen(false);
               else if (id === 'script') setScriptOpen(false);
+              else if (id === 'reuse') closeReuse();
               else setVersionsOpen(false);
             }}
             labels={taskPaneLabels(t)}
@@ -4917,6 +4977,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           onApply={applySmartArt}
         />
       )}
+      {albumTools.dialogs}
       {zoomDialog && (
         <ZoomInsertDialog
           kind={zoomDialog}

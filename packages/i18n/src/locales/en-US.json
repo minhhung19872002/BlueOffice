@@ -2801,6 +2801,66 @@
         "belowFrontLeft": "Below front left",
         "belowFrontRight": "Below front right"
       }
+    },
+    "album": {
+      "command": "Photo album",
+      "title": "Photo album",
+      "add": "Add pictures…",
+      "empty": "No pictures yet.",
+      "summary": "{{pictures}} picture(s) on {{slides}} slide(s)",
+      "pictures": "Pictures of the album, in order",
+      "moveUp": "Move {{name}} up",
+      "moveDown": "Move {{name}} down",
+      "remove": "Remove {{name}}",
+      "layout": "Pictures per slide",
+      "layouts": {
+        "fit": "One picture, as large as the slide",
+        "one": "One picture",
+        "two": "Two pictures",
+        "four": "Four pictures"
+      },
+      "frame": "Picture frame",
+      "frames": {
+        "rect": "Rectangle",
+        "rounded": "Rounded corners",
+        "outline": "Thin outline"
+      },
+      "titles": "Slide title above the pictures",
+      "captions": "Caption under each picture (file name)",
+      "target": "Put the album",
+      "targetAppend": "After the current slide",
+      "targetNew": "In a new presentation",
+      "name": "Album name",
+      "defaultTitle": "Photo album",
+      "unsaved": "The open presentation has unsaved changes; a new presentation replaces it in this window.",
+      "create": "Create album",
+      "doneSkipped": "Album created: {{pictures}} picture(s) on {{slides}} slide(s). Not readable as pictures: {{skipped}}."
+    },
+    "outlineImport": {
+      "command": "Slides from outline",
+      "title": "Slides from an outline",
+      "from": "File: {{name}}",
+      "hint": "Top-level headings become slide titles, the levels below become bullets. The slides are added after the current slide.",
+      "preview": "Slides the outline gives",
+      "untitled": "(no title)",
+      "empty": "This file has no text to make slides from.",
+      "unreadable": "This file could not be read as a document or as text.",
+      "insert": "Add {{count}} slide(s)"
+    },
+    "reuse": {
+      "command": "Reuse slides",
+      "title": "Reuse slides",
+      "close": "Close",
+      "open": "Open a presentation…",
+      "hint": "Open another presentation to pick slides from it.",
+      "reading": "Reading the presentation…",
+      "unreadable": "This file could not be read as a presentation.",
+      "source": "{{name}} — {{count}} slide(s)",
+      "slides": "Slides of the other presentation",
+      "slideN": "Slide {{n}}",
+      "keepSource": "Keep source formatting",
+      "insert": "Insert selected ({{count}})",
+      "insertAll": "Insert all"
     }
   },
   "review": {

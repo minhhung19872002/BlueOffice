@@ -1658,6 +1658,8 @@ export type SlideCommand =
   | import('./spelling').SlideSpellCommand
   /** Compare with another version of the deck (CORE-VERSION-001) → `DeckCompareResult`. */
   | import('./versions').CompareDeckCommand
+  /** Reuse slides of another deck (SLIDE-ALBUM-001) → `reuse`. */
+  | import('./slideReuse').SlideReuseCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
   /** File › Info document properties (CORE-UI-002) → `docProperties`. */
   | import('./docProperties').DocPropertiesCommand
@@ -2294,6 +2296,8 @@ export interface SlideEditResult {
   pageMaster?: import('./slideViews').SlidePageMasterInfo;
   /** Answer of `outline` / `applyOutline`. */
   outline?: import('./slideViews').SlideOutlineSlide[];
+  /** Answer of `reuseOpen`: the slides of the deck to reuse (SLIDE-ALBUM-001). */
+  reuse?: import('./slideReuse').SlideReuseSource | null;
   /** Answer of `notesPages`. */
   notesPages?: import('./slideViews').SlideNotesPage[];
   /** Ink of the current slide (`inkInfo` / `addInk` / `eraseInk`, CORE-INK-001). */
@@ -2499,6 +2503,12 @@ export interface OpenedFile {
 export interface FileAccess {
   /** Ask the user for a file; resolves `null` when cancelled. */
   openFile(accept: string[]): Promise<OpenedFile | null>;
+  /**
+   * Ask the user for several files at once (photo album); resolves `[]` when
+   * cancelled. Absent where the host has no multi-file picker: callers add
+   * files one by one with `openFile`.
+   */
+  openFiles?(accept: string[]): Promise<OpenedFile[]>;
   /** Save bytes; returns the saved path/name or `null` when cancelled. */
   saveFile(bytes: Uint8Array, suggestedName: string, mime: string): Promise<string | null>;
   /** Desktop: read a file by its absolute path (recent files). */

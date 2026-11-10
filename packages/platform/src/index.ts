@@ -42,6 +42,7 @@ export * from './security';
 export * from './docProperties';
 export * from './slideMaster';
 export * from './slideViews';
+export type * from './slideReuse';
 export * from './slideShow';
 export * from './slideInk';
 export * from './slideModel3d';

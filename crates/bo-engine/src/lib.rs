@@ -318,6 +318,8 @@ pub struct Engine {
     slide_collab: Option<slide_edit::collab::SlideCollab>,
     /// Slide clipboard (kept across decks of this engine).
     slide_clip: Option<slide_edit::clip::Clip>,
+    /// Deck read by `reuseOpen`, the source of `reuseSlides` (SLIDE-ALBUM-001).
+    slide_reuse: Option<Box<bo_model::slide::Presentation>>,
     /// Counts opened presentations (clipboard origin).
     deck_seq: u64,
     /// Open header/footer editor (BlueDoc).

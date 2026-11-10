@@ -20,3 +20,9 @@ export { ChartDialog, parseValue, fromGrid, CHART_KINDS, type ChartDraft } from 
 export { ExportDialog, slidePng, PNG_SCALES } from './ExportDialog';
 export { MediaButtons, MediaClip, canPlay } from './MediaLayer';
 export { crc32, zipStore } from './zip';
+export * from './album/album';
+export * from './album/outlineImport';
+export { unzipEntries } from './album/unzip';
+export { AlbumDialog, moved, type AlbumRequest, type AlbumTarget } from './album/AlbumDialog';
+export { OutlineDialog } from './album/OutlineDialog';
+export { ReusePane, REUSE_FILES } from './album/ReusePane';

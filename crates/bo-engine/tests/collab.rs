@@ -1363,3 +1363,53 @@ fn the_footnote_continuation_notice_reaches_a_late_joiner() {
         Some(&notice)
     );
 }
+
+// SLIDE-ALBUM-001: slides reused from another deck (pictures, imported design) are
+// shared like any other edit, and one collaborative undo removes them on both sides.
+#[test]
+fn reused_slides_converge_and_undo_on_both_peers() {
+    big_stack(|| {
+        use base64::Engine as _;
+        let (mut a, mut b) = deck_pair("slide-shapes-presets.pptx", "slide-shapes-presets.pptx");
+        let before = a.engine.presentation().unwrap().clone();
+        let src = std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/corpus/slide/slide-images-crop.pptx"),
+        )
+        .unwrap();
+        let open = format!(
+            r#"{{"cmd":"reuseOpen","name":"nguon.pptx","base64":"{}"}}"#,
+            base64::engine::general_purpose::STANDARD.encode(&src)
+        );
+        // Reading the source shares nothing.
+        let r: serde_json::Value =
+            serde_json::from_str(&a.engine.slide_command_json(&open).unwrap()).unwrap();
+        assert!(r.get("collab").is_none());
+        a.slide(r#"{"cmd":"reuseSlides","indices":[0],"keepSource":true}"#);
+        settle(&mut a, &mut b);
+        let pa = a.engine.presentation().unwrap();
+        assert_eq!(pa, b.engine.presentation().unwrap());
+        assert_eq!(pa.slides.len(), before.slides.len() + 1);
+        let source = bo_pptx::read_pptx(&src).unwrap();
+        assert_eq!(
+            bo_engine::slide_edit::clip::plain_text(&pa.slides[1].data.shapes),
+            bo_engine::slide_edit::clip::plain_text(&source.slides[0].data.shapes)
+        );
+        // The pictures' media parts arrived at the other peer and its file is valid.
+        let back = bo_pptx::read_pptx(&b.engine.save_pptx().unwrap()).unwrap();
+        assert_eq!(back.slides.len(), before.slides.len() + 1);
+        assert!(back.parts.len() > before.parts.len());
+        // One collaborative undo on A (through the replica) removes the slide on both sides.
+        assert!(a.replica.undo());
+        a.pull();
+        settle(&mut a, &mut b);
+        assert_eq!(
+            a.engine.presentation().unwrap().slides.len(),
+            before.slides.len()
+        );
+        assert_eq!(
+            a.engine.presentation().unwrap(),
+            b.engine.presentation().unwrap()
+        );
+    });
+}

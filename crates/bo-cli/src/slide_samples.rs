@@ -2578,7 +2578,10 @@ pub fn big_deck(slides: usize, videos: usize, video_kb: usize, distinct: usize) 
 pub fn decks() -> Vec<(&'static str, Vec<u8>)> {
     let mut v = base_decks();
     let edited = crate::slide_edits::decks(&v, &sample_png());
+    // Photo album, slides from an outline, reused slides (SLIDE-ALBUM-001).
+    let album = crate::slide_album::decks(&v, &sample_png());
     v.extend(edited);
+    v.extend(album);
     v
 }
 

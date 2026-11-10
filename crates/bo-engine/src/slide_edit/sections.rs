@@ -308,7 +308,7 @@ pub fn sections_out(pres: &Presentation) -> Vec<SectionOut> {
 
 /// A new section id: a GUID in braces (the form of [MS-PPTX] CT_Section `id`),
 /// derived from `seed` and unique among `taken`.
-fn new_id(taken: &[&str], seed: &str) -> String {
+pub(super) fn new_id(taken: &[&str], seed: &str) -> String {
     // FNV-1a of the seed, then SplitMix64.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in seed.bytes() {
@@ -341,7 +341,7 @@ fn new_id(taken: &[&str], seed: &str) -> String {
 
 /// Give every slide a unique `p:sldId@id` (§19.2.1.34: 256 ≤ id < 2 147 483 648)
 /// so the section list can name it; new slides have none until saved.
-fn assign_ids(tx: &mut Tx<'_>) -> R<()> {
+pub(super) fn assign_ids(tx: &mut Tx<'_>) -> R<()> {
     let mut next = tx
         .pres
         .slides

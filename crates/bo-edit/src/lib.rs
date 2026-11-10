@@ -39,6 +39,7 @@ pub mod section;
 pub mod shapes;
 pub mod sigline;
 pub mod smartart;
+pub mod styles;
 pub mod table;
 pub mod table_tools;
 pub mod translate;

@@ -46,7 +46,7 @@ fn picture_paths(pres: &Presentation, sel: &SlideSel) -> Vec<Vec<usize>> {
 }
 
 /// Part name of relationship `rid` of a slide.
-fn rel_part(pres: &Presentation, slide: usize, rid: &str) -> Option<String> {
+pub(super) fn rel_part(pres: &Presentation, slide: usize, rid: &str) -> Option<String> {
     let s = pres.slides.get(slide)?;
     s.info
         .rels
@@ -153,7 +153,7 @@ fn part_referenced(pres: &Presentation, name: &str) -> bool {
 }
 
 /// Add a picture part; returns its name.
-fn add_part(tx: &mut Tx<'_>, data: Vec<u8>, ext: &str, mime: &str) -> R<String> {
+pub(super) fn add_part(tx: &mut Tx<'_>, data: Vec<u8>, ext: &str, mime: &str) -> R<String> {
     let part = build::unique_part(tx.pres, "/ppt/media/image", ext);
     let at = tx.pres.parts.len();
     tx.op(SlideOp::Parts {

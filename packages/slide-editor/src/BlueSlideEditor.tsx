@@ -319,6 +319,15 @@ import { EditPointsOverlay } from './editPoints';
 import { registerShapeTools, shapeFormatTab } from './shapeFormat';
 import { Model3dLayer } from './model3d/Model3dLayer';
 import {
+  ZoomInsertDialog,
+  insertCommand as zoomInsertCommand,
+  registerZoomCommands,
+  zoomInsertItems,
+  zoomTab,
+  type ZoomInsertKind,
+  type ZoomState,
+} from './zoom';
+import {
   Model3dAltTextDialog,
   Model3dIcon,
   model3dTab,
@@ -412,7 +421,8 @@ export function slideMenuContext(r: {
   return 'shape';
 }
 
-export interface SlideEditorState extends MasterState, SectionState, PageMasterState, Model3dState {
+export interface SlideEditorState
+  extends MasterState, SectionState, PageMasterState, Model3dState, ZoomState {
   hasDeck: boolean;
   current: number;
   hasSelection: boolean;
@@ -699,6 +709,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   // Pan & zoom is on for one model (off once another object is selected).
   const [panZoomFor, setPanZoomFor] = useState<number | null>(null);
   const [model3dAlt, setModel3dAlt] = useState(false);
+  // Zooms (SLIDE-ZOOM-001): the Insert › Zoom picker.
+  const [zoomDialog, setZoomDialog] = useState<ZoomInsertKind | null>(null);
   const [chartDialog, setChartDialog] = useState<{
     mode: 'insert' | 'edit';
     initial: ChartDraft;
@@ -969,11 +981,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   useEffect(() => {
     if (!audience.open) return;
     if (view === 'show' || view === 'presenter') {
-      audience.update(pos.slide, black, false, pos.click, pos.enter, {
-        white,
-        zoom,
-        ink: ink.strokes(pos.slide),
-      });
+      audience.update(
+        pos.slide,
+        black,
+        false,
+        pos.click,
+        pos.enter,
+        {
+          white,
+          zoom,
+          ink: ink.strokes(pos.slide),
+        },
+        pos.zoom,
+      );
     } else {
       audience.update(current, false, true);
       audience.stop();
@@ -2416,6 +2436,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         setPanZoomFor((id) => (id !== null && id === s.model3dId ? null : (s.model3dId ?? null))),
       openAltText: () => setModel3dAlt(true),
     });
+    // Zooms (SLIDE-ZOOM-001).
+    registerZoomCommands(reg, run, {
+      openInsert: (k) => setZoomDialog(k),
+      pickImage: () =>
+        void guard(async () => {
+          const f = await platform.files.openFile(['.png', '.jpg', '.jpeg', '.gif']);
+          if (f) await ctrl.run({ cmd: 'zoomImage', data: pictureBase64(f.bytes) });
+        }),
+    });
     // SLIDE-VIEW-001: notes / handout master views (edited in the normal view) and sections.
     registerPageMasterCommands(reg, (cmd) => {
       if (cmd.cmd === 'pageMasterView' && cmd.on) setView('normal');
@@ -2517,6 +2546,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isPicture: s.length > 0 && s.every((x) => x.kind === 'picture'),
       isModel3d: s.length === 1 && s[0]?.kind === 'model3d' && !!edit?.model3d,
       model3dId: edit?.model3d?.id,
+      isZoom: s.length === 1 && s[0]?.kind === 'zoom' && !!edit?.zoom,
+      zoom: edit?.zoom,
       panZoom3d:
         s.length === 1 && s[0]?.kind === 'model3d' && panZoomFor === (edit?.model3d?.id ?? null),
       transition: edit?.transition?.kind ?? 'none',
@@ -3061,6 +3092,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('insert.model3d', t('slideEditor.model3d.insert'), <Model3dIcon />),
             ],
           },
+          {
+            id: 'zoomInsert',
+            label: t('slideEditor.zoom.group'),
+            items: zoomInsertItems(t, item),
+          },
         ],
       },
       designTab(t, item, edit?.design, state, current, run),
@@ -3281,6 +3317,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           ]
         : []),
       ...(state.isModel3d ? [model3dTab(t, item)] : []),
+      ...(state.isZoom ? [zoomTab(t, item, edit?.zoom, run)] : []),
       ...(state.isSmartArt
         ? [
             {
@@ -4492,6 +4529,25 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           initial={smartArtDialog.initial}
           onClose={() => setSmartArtDialog(null)}
           onApply={applySmartArt}
+        />
+      )}
+      {zoomDialog && (
+        <ZoomInsertDialog
+          kind={zoomDialog}
+          count={count}
+          sections={edit?.sections ?? []}
+          thumb={(i) => canvas(i, 112)}
+          t={t}
+          onClose={() => setZoomDialog(null)}
+          onInsert={(picked) => {
+            const c = zoomInsertCommand(zoomDialog, picked, {
+              title: t('slideEditor.zoom.summaryTitle'),
+              summary: t('slideEditor.zoom.summarySection'),
+              section: t('slideEditor.zoom.sectionN'),
+              first: t('slideEditor.sections.firstSection'),
+            });
+            if (c) run(c);
+          }}
         />
       )}
       {model3dAlt && (

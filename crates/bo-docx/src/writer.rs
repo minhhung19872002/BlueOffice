@@ -1321,8 +1321,21 @@ impl Writer<'_> {
                 return Ok(());
             }
         }
+        let existing = self.pkg.related_part(main, REL_STYLES)?;
+        // Root start tag of the source part: its namespace declarations serve the
+        // styles written back verbatim (ECMA-376 Part 1, §17.7.4.18 styles).
+        let root = existing
+            .as_deref()
+            .and_then(|p| self.pkg.part(p))
+            .and_then(|p| {
+                let x = String::from_utf8_lossy(&p.data).into_owned();
+                let at = find_element(&x, "w:styles")?;
+                let end = at + x[at..].find('>')?;
+                Some(x[at..end].trim_end_matches('/').to_owned() + ">")
+            })
+            .unwrap_or_else(|| format!("<w:styles xmlns:w=\"{W_NS}\">"));
         let mut s = format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:styles xmlns:w=\"{W_NS}\"><w:docDefaults><w:rPrDefault><w:rPr>{}</w:rPr></w:rPrDefault><w:pPrDefault><w:pPr>{}</w:pPr></w:pPrDefault></w:docDefaults>",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n{root}<w:docDefaults><w:rPrDefault><w:rPr>{}</w:rPr></w:rPrDefault><w:pPrDefault><w:pPr>{}</w:pPr></w:pPrDefault></w:docDefaults>",
             ordered(RPR_ORDER, rpr_children(&doc.default_run)),
             ordered(PPR_ORDER, ppr_children(&doc.default_para))
         );
@@ -1330,22 +1343,47 @@ impl Writer<'_> {
             s.push_str(&l.xml);
         }
         for st in &doc.styles.styles {
+            // An unchanged style goes back as it was read (unknown content kept).
+            if let Some(src) = st
+                .src
+                .as_ref()
+                .filter(|r| r.fingerprint == st.content_fingerprint())
+            {
+                s.push_str(&src.xml);
+                continue;
+            }
             let kind = match st.kind {
                 StyleKind::Paragraph => "paragraph",
                 StyleKind::Character => "character",
                 StyleKind::Table => "table",
                 StyleKind::Numbering => "numbering",
             };
+            // §17.7.4.17 CT_Style child order: name, aliases, basedOn, next, link,
+            // autoRedefine, hidden, uiPriority, semiHidden, unhideWhenUsed, qFormat,
+            // locked, personal…, rsid, pPr, rPr, tblPr, trPr, tcPr, tblStylePr*.
+            let extra = |slot: u8| -> String {
+                st.extra
+                    .iter()
+                    .filter(|r| style_child_slot(&r.xml) == slot)
+                    .map(|r| r.xml.to_string())
+                    .collect()
+            };
             let _ = write!(
                 s,
-                "<w:style w:type=\"{kind}\"{} w:styleId=\"{}\"><w:name w:val=\"{}\"/>",
+                "<w:style w:type=\"{kind}\"{}{} w:styleId=\"{}\"><w:name w:val=\"{}\"/>{}",
                 if st.is_default {
                     " w:default=\"1\""
                 } else {
                     ""
                 },
+                if st.custom {
+                    " w:customStyle=\"1\""
+                } else {
+                    ""
+                },
                 escape(&st.id),
-                escape(&st.name)
+                escape(&st.name),
+                extra(0)
             );
             if let Some(b) = &st.based_on {
                 let _ = write!(s, "<w:basedOn w:val=\"{}\"/>", escape(b));
@@ -1356,9 +1394,25 @@ impl Writer<'_> {
             if let Some(l) = &st.linked {
                 let _ = write!(s, "<w:link w:val=\"{}\"/>", escape(l));
             }
+            if st.auto_redefine {
+                s.push_str("<w:autoRedefine/>");
+            }
+            if st.hidden {
+                s.push_str("<w:hidden/>");
+            }
+            if let Some(p) = st.ui_priority {
+                let _ = write!(s, "<w:uiPriority w:val=\"{p}\"/>");
+            }
+            if st.semi_hidden {
+                s.push_str("<w:semiHidden/>");
+            }
+            if st.unhide_when_used {
+                s.push_str("<w:unhideWhenUsed/>");
+            }
             if st.quick {
                 s.push_str("<w:qFormat/>");
             }
+            s.push_str(&extra(1));
             let ppr = ordered(PPR_ORDER, ppr_children(&st.ppr));
             if !ppr.is_empty() {
                 let _ = write!(s, "<w:pPr>{ppr}</w:pPr>");
@@ -1374,10 +1428,10 @@ impl Writer<'_> {
                     ordered(TBLPR_ORDER, tblpr_children(t))
                 );
             }
+            s.push_str(&extra(2));
             s.push_str("</w:style>");
         }
         s.push_str("</w:styles>");
-        let existing = self.pkg.related_part(main, REL_STYLES)?;
         let part = existing.unwrap_or_else(|| "/word/styles.xml".into());
         self.pkg.add_part(&part, CT_STYLES, s.into_bytes())?;
         self.rels.id_for(REL_STYLES, &part, false);
@@ -2067,6 +2121,19 @@ fn with_background(prefix: &str, color: Option<bo_model::Color>) -> String {
         s.insert_str(at, &format!("<w:background w:color=\"{}\"/>", c.to_hex()));
     }
     s
+}
+
+/// Where an unmodelled `w:style` child goes (§17.7.4.17 CT_Style order): 0 right after
+/// `w:name` (`w:aliases`), 2 after `w:tblPr` (`w:trPr`, `w:tcPr`, `w:tblStylePr`),
+/// 1 before `w:pPr` (`w:locked`, `w:personal*`, `w:rsid`, anything else).
+fn style_child_slot(xml: &str) -> u8 {
+    let n = xml.trim_start_matches('<');
+    let n = n.split([' ', '/', '>']).next().unwrap_or("");
+    match n.rsplit(':').next().unwrap_or(n) {
+        "aliases" => 0,
+        "trPr" | "tcPr" | "tblStylePr" => 2,
+        _ => 1,
+    }
 }
 
 /// Add `xmlns:{prefix}` to a root start tag that does not declare it.

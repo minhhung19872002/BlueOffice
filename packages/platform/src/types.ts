@@ -403,6 +403,17 @@ export interface DocStyleEntry {
   kind: 'paragraph' | 'character';
   /** §17.7.4.14 qFormat. */
   quick: boolean;
+  /** §17.7.4.19 uiPriority. */
+  uiPriority?: number;
+  /** Not hidden / semi-hidden (§17.7.4.16, §17.7.4.20 unhideWhenUsed once used). */
+  recommended?: boolean;
+  /** The content uses it. */
+  inUse?: boolean;
+  /** Linked character style shown with this paragraph style (§17.7.4.6 link). */
+  linked?: string;
+  basedOn?: string;
+  /** Default of its type (cannot be deleted). */
+  isDefault?: boolean;
   preview: {
     font: string;
     /** Points. */
@@ -644,6 +655,7 @@ export type EditCommand =
   | import('./ole').OleCommand
   | import('./speech').DocSpeechCommand
   | import('./translation').DocTranslateCommand
+  | import('./docStyles').DocStyleCommand
   | DocSmartArtCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
@@ -1123,6 +1135,8 @@ export interface EditResult {
   speech?: import('./speech').DocSpeechInfo;
   /** Text segments of the body paragraphs (`translationSegments`, CORE-LANG-001). */
   translation?: import('./translation').DocTextSegment[];
+  /** Style management answer (style commands, DOC-STYLE-001). */
+  styleMgr?: import('./docStyles').StyleMgrOut;
   /** Pictures for signing a line (`signatureLineImages`). */
   signatureLineImages?: SignatureLineImages;
 }
@@ -1483,6 +1497,7 @@ export interface SlideShapeInfo {
     | 'chart'
     | 'smartart'
     | 'model3d'
+    | 'zoom'
     | 'object'
     | 'graphic';
   rect: SlideBox;
@@ -1623,6 +1638,8 @@ export type SlideCommand =
   | import('./slideShow').SlideRecordCommand
   /** 3D models: view, presets, pan / zoom, alt text (CORE-3DMODEL-001). */
   | import('./slideModel3d').SlideModel3dCommand
+  /** Slide, section and summary zooms (SLIDE-ZOOM-001). */
+  | import('./slideZoom').SlideZoomCommand
   /** Spelling and grammar of the deck (CORE-SPELL-006). */
   | import('./spelling').SlideSpellCommand
   /** Compare with another version of the deck (CORE-VERSION-001) → `DeckCompareResult`. */
@@ -2273,6 +2290,8 @@ export interface SlideEditResult {
   model3d?: import('./slideModel3d').SlideModel3dInfo;
   /** Answer of `model3dMesh`. */
   model3dMesh?: import('./slideModel3d').SlideModel3dMesh;
+  /** The selected zoom (SLIDE-ZOOM-001). */
+  zoom?: import('./slideZoom').SlideZoomInfo;
 }
 
 // ---------------------------------------------------------------- services

@@ -171,6 +171,8 @@ export interface ShowPos {
   click: number;
   /** How the stage reaches this position: play the transition, play one click, or jump. */
   enter: 'transition' | 'click' | 'jump';
+  /** A zoom transition instead of the slide's own (SLIDE-ZOOM-001). */
+  zoom?: import('./presenting').ZoomMove;
 }
 
 /**

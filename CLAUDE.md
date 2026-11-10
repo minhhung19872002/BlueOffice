@@ -54,6 +54,8 @@ BO_WRITE_CORPUS=1 cargo test -p bo-xlsx --test corpus    # sinh lại corpus she
 cargo bench -p bo-formula                                # 1 triệu ô / 100k công thức
 cargo run -p bo-cli -- sample-big out/big.docx           # .docx 300 trang có ảnh (đo §5); sample-big-sheet → .xlsx 1 triệu ô
 node scripts/bench-open-wasm.mjs <docx> <xlsx>           # thời gian mở + bộ nhớ WASM
+cargo run -p bo-cli -- sample-big out/big-1000.docx --pages 1000 --rich   # + bảng, chú thích, trường; sample-big-deck out/deck-300.pptx (ảnh + video) — docs/perf/open-perf.md
+cargo test --release -p bo-engine --test open_close_leak # heap sau mở/đóng 100 tài liệu; WASM: node scripts/leak-wasm.mjs 100 [tệp lớn…]
 cargo test -p bo-engine --test fuzz_smoke                # fuzz smoke (corpus đột biến, chạy được trên MSVC)
 pnpm fidelity                                            # round-trip corpus + OpenXmlValidator → docs/fidelity-report.md
 cargo run -p bo-cli -- validate <file-or-dir> [--json] [--openxml auto|require|off] [--choice]   # OPC cấu trúc + OpenXmlValidator (--choice: cả nhánh mc:Choice)

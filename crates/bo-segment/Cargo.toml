@@ -1,0 +1,12 @@
+[package]
+name = "bo-segment"
+description = "Interactive graph-cut picture segmentation (background removal) for BlueOffice."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

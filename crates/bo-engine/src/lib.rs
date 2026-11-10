@@ -50,6 +50,7 @@ mod page_layout;
 pub mod pdf_export;
 pub mod pdf_import;
 pub mod perm;
+pub mod picture_bg;
 pub mod picture_tools;
 pub mod print;
 pub mod proof;

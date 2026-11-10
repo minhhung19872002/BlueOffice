@@ -5,8 +5,8 @@
 //! everything else in it is kept.
 
 use bo_drawingml::dom::{parse, write_element, El};
-use bo_drawingml::picture::{read_fx, write_fx};
-use bo_model::picture::PictureFormat;
+use bo_drawingml::picture::{read_background_removal, read_fx, write_background_removal, write_fx};
+use bo_model::picture::{PictureFormat, RemovedBackground};
 use bo_model::slide::{XmlElement, XmlNode};
 
 /// Picture properties found in a drawing's XML.
@@ -62,6 +62,11 @@ fn props_of(pic: &XmlElement) -> PicProps {
             p.embed = embed_of(blip);
             let kids: Vec<XmlElement> = blip.elements().cloned().collect();
             p.format.fx = read_fx(&kids);
+            // CORE-PIC-002: the original picture of a removed background is named by its
+            // relationship id here; the reader and writer resolve it to the media part.
+            p.format.removal = read_background_removal(&kids).and_then(|(rid, settings)| {
+                rid.map(|original| Box::new(RemovedBackground { original, settings }))
+            });
         }
         if let Some(r) = fill.elements().find(|e| e.local() == "srcRect") {
             let v = |n: &str| {
@@ -92,13 +97,26 @@ pub(crate) fn read(xml: &str) -> Option<PicProps> {
     find(&root, "pic").map(props_of)
 }
 
+/// What [`patch`] does with the background removal of a picture (CORE-PIC-002).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Layer<'a> {
+    /// Leave the markup as it is (e.g. an original BlueOffice does not decode).
+    Keep,
+    /// The removal of the format, with the original picture's relationship id.
+    Set(&'a str),
+    /// No removal.
+    Clear,
+}
+
 /// The drawing XML with the picture's blip embed, adjustments, crop and shape
-/// replaced (`None` when the XML holds no picture).
+/// replaced (`None` when the XML holds no picture); `layer` says what happens to the
+/// background removal.
 pub(crate) fn patch(
     xml: &str,
     embed: Option<&str>,
     format: &PictureFormat,
     crop: Option<[i32; 4]>,
+    layer: Layer<'_>,
 ) -> Option<String> {
     let mut root = parse(xml.as_bytes(), "drawing").ok()?;
     let pic = find_mut(&mut root, "pic")?;
@@ -117,6 +135,11 @@ pub(crate) fn patch(
         }
         let mut kids: Vec<XmlElement> = blip.elements().cloned().collect();
         write_fx(&mut kids, &format.fx);
+        match (layer, format.removal.as_deref()) {
+            (Layer::Keep, _) => {}
+            (Layer::Set(r), Some(b)) => write_background_removal(&mut kids, Some((r, &b.settings))),
+            _ => write_background_removal(&mut kids, None),
+        }
         blip.children = kids.into_iter().map(XmlNode::Element).collect();
         // §20.1.8.55 srcRect follows the blip (CT_BlipFillProperties).
         fill.children
@@ -158,10 +181,17 @@ pub(crate) fn patch(
     Some(out)
 }
 
-/// Children of `a:blip` for a new picture (written by the generator).
-pub(crate) fn blip_children_xml(format: &PictureFormat) -> String {
+/// Children of `a:blip` for a new picture (written by the generator); `layer` as in
+/// [`patch`].
+pub(crate) fn blip_children_xml(format: &PictureFormat, layer: Option<&str>) -> String {
     let mut kids = Vec::new();
     write_fx(&mut kids, &format.fx);
+    write_background_removal(
+        &mut kids,
+        layer
+            .zip(format.removal.as_deref())
+            .map(|(r, b)| (r, &b.settings)),
+    );
     let mut out = String::new();
     for k in &kids {
         write_element(k, &mut out);
@@ -185,8 +215,16 @@ mod tests {
                 ..PictureFx::default()
             },
             shape: Some("ellipse".into()),
+            ..PictureFormat::default()
         };
-        let out = patch(XML, Some("rId9"), &f, Some([10_000, 0, 10_000, 0])).unwrap();
+        let out = patch(
+            XML,
+            Some("rId9"),
+            &f,
+            Some([10_000, 0, 10_000, 0]),
+            Layer::Clear,
+        )
+        .unwrap();
         assert!(
             out.contains(r#"<a:blip r:embed="rId9"><a:grayscl/><a:lum bright="20000"/><a:extLst>"#),
             "{out}"
@@ -200,7 +238,44 @@ mod tests {
         assert_eq!(p.format, f);
         assert_eq!(p.crop, Some([10_000, 0, 10_000, 0]));
         // Reset: back to the source markup.
-        let back = patch(&out, Some("rId5"), &PictureFormat::default(), None).unwrap();
+        let back = patch(
+            &out,
+            Some("rId5"),
+            &PictureFormat::default(),
+            None,
+            Layer::Clear,
+        )
+        .unwrap();
+        // CORE-PIC-002: a removal BlueOffice set is written, read back, and kept as it is when
+        // the caller says so (an original it does not model).
+        let removed = PictureFormat {
+            removal: Some(Box::new(RemovedBackground {
+                original: "unused".into(),
+                settings: bo_model::picture::BackgroundRemoval {
+                    rect: [1000, 2000, 99_000, 98_000],
+                    marks: vec![],
+                },
+            })),
+            ..PictureFormat::default()
+        };
+        let with = patch(XML, None, &removed, None, Layer::Set("rId8")).unwrap();
+        assert!(with.contains(r#"<a14:imgLayer r:embed="rId8"><a14:imgEffect><a14:backgroundRemoval t="2000" b="98000" l="1000" r="99000"/>"#), "{with}");
+        let r = read(&with).unwrap().format.removal.unwrap();
+        assert_eq!(
+            (r.original.as_str(), r.settings.rect),
+            ("rId8", [1000, 2000, 99_000, 98_000])
+        );
+        let kept = patch(
+            &with,
+            None,
+            &PictureFormat::default(),
+            Some([5000, 0, 0, 0]),
+            Layer::Keep,
+        )
+        .unwrap();
+        assert!(kept.contains("a14:backgroundRemoval") && kept.contains("srcRect"));
+        let cleared = patch(&with, None, &PictureFormat::default(), None, Layer::Clear).unwrap();
+        assert!(!cleared.contains("imgLayer"), "{cleared}");
         assert_eq!(read(&back).unwrap(), read(XML).unwrap());
     }
 }

@@ -206,13 +206,53 @@ pub struct PictureFormat {
     /// Preset shape other than `rect`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shape: Option<String>,
+    /// Background removed (CORE-PIC-002): the media part shows the result, the
+    /// original picture and the removal settings are kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub removal: Option<Box<RemovedBackground>>,
 }
 
 impl PictureFormat {
     /// Nothing differs from a plain picture.
     pub fn is_plain(&self) -> bool {
-        self.fx.is_identity() && self.shape.as_deref().is_none_or(|s| s == "rect")
+        self.fx.is_identity()
+            && self.shape.as_deref().is_none_or(|s| s == "rect")
+            && self.removal.is_none()
     }
+}
+
+/// A picture whose background was removed: the original media part (the
+/// [MS-ODRAWXML] `a14:imgLayer@r:embed` of the blip) and the settings.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RemovedBackground {
+    /// Media part of the original picture.
+    pub original: String,
+    /// Settings ([MS-ODRAWXML] `a14:backgroundRemoval`).
+    pub settings: BackgroundRemoval,
+}
+
+/// [MS-ODRAWXML] `a14:backgroundRemoval` (CT_PictureEffectBackgroundRemoval): the
+/// rectangle holding the foreground and the user's marks, in 1/1000 % of the
+/// picture's width / height (ST_PositiveFixedPercentage).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BackgroundRemoval {
+    /// Left, top, right, bottom edges of the rectangle.
+    pub rect: [i32; 4],
+    /// Marks, in order.
+    pub marks: Vec<BackgroundMark>,
+}
+
+/// A mark line of a background removal ([MS-ODRAWXML] `a14:foregroundMark` /
+/// `a14:backgroundMark`, CT_PictureEffectBackgroundRemovalMark: `x1 y1 x2 y2`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BackgroundMark {
+    /// Foreground mark (keep) rather than background mark (remove).
+    pub keep: bool,
+    /// x1, y1, x2, y2.
+    pub line: [i32; 4],
 }
 
 /// Clip of a derived picture: the preset shape over the visible (cropped) area.
@@ -354,6 +394,7 @@ mod tests {
                 ..PictureFx::default()
             },
             shape: Some("ellipse".into()),
+            ..PictureFormat::default()
         };
         let id = display_id("/m.png", &f, Some([10_000, 0, 10_000, 0]));
         assert_eq!(id, "/m.png#fx:g;shape=ellipse@10000,0,10000,0");

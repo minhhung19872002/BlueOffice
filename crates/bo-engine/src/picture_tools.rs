@@ -3,6 +3,7 @@
 //! settings and reports, and the picture of an SVG (PNG fallback drawn from its
 //! converted shapes).
 
+use crate::picture_bg::{BackgroundPreview, RemovalSpec};
 use base64::Engine as _;
 use bo_drawingml::svg::{PathSeg as SvgSeg, SvgDoc};
 use bo_model::picture::{visible_size, PictureFx};
@@ -46,6 +47,14 @@ pub struct PictureInfo {
     /// Result of the last "Compress pictures".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compressed: Option<CompressReport>,
+    /// The background can be removed (a raster picture).
+    pub removable: bool,
+    /// Settings of the removed background (CORE-PIC-002), when it was removed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub removal: Option<RemovalSpec>,
+    /// Preview of the "Remove background" mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<BackgroundPreview>,
 }
 
 /// What "Compress pictures" did.
@@ -149,6 +158,13 @@ pub enum PictureCommand {
     },
     /// Convert the selected SVG picture into shapes.
     PictureToShapes,
+    /// Preview of removing the background of the selected picture (CORE-PIC-002):
+    /// the proposed removal tinted; the document is not changed.
+    PictureBackgroundPreview(RemovalSpec),
+    /// Remove the background of the selected picture (one undo step): the picture
+    /// shows a PNG with alpha, the original stays in the file ("Reset picture"
+    /// restores it).
+    PictureRemoveBackground(RemovalSpec),
     /// Insert an SVG picture (with a PNG fallback).
     PictureInsertSvg {
         /// SVG document, base64.
@@ -216,6 +232,7 @@ pub fn info(
         width,
         height,
         ppi: (ppi * 10.0).round() / 10.0,
+        removable: crate::picture_bg::removable(bytes),
         ..PictureInfo::default()
     }
 }

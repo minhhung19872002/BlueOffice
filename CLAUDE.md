@@ -60,6 +60,7 @@ cargo run -p bo-cli -- sample-slides tests/corpus/slide  # sinh lại corpus sli
 cargo run -p bo-cli -- convert deck.pptx --to gif        # trình chiếu → GIF động (bo_engine::slide_edit::video; web: MP4/WebM qua WebCodecs)
 BO_WRITE_CORPUS=1 cargo test -p bo-xlsx --test corpus    # sinh lại corpus sheet
 cargo bench -p bo-formula                                # 1 triệu ô / 100k công thức
+node scripts/bench-bg-wasm.mjs 512                       # xoá nền ảnh (CORE-PIC-002) trong bản WASM release, ngân sách < 1,5 s
 cargo run -p bo-cli -- sample-big out/big.docx           # .docx 300 trang có ảnh (đo §5); sample-big-sheet → .xlsx 1 triệu ô
 node scripts/bench-open-wasm.mjs <docx> <xlsx>           # thời gian mở + bộ nhớ WASM
 cargo run -p bo-cli -- sample-big out/big-1000.docx --pages 1000 --rich   # + bảng, chú thích, trường; sample-big-deck out/deck-300.pptx (ảnh + video) — docs/perf/open-perf.md
@@ -112,6 +113,7 @@ bo-html (HTML/MHTML ↔ doc, bảng HTML ↔ sheet; không chạy script, không
 bo-text ◄─ bo-layout ◄─ bo-render ◄─ bo-raster (PNG), bo-pdf
 bo-edit (op khả nghịch, undo, track changes, fields, mail merge) · bo-formula ◄─ bo-sheet (lưới, định dạng số, CF/DV, chart)
 bo-query (Lấy & biến đổi dữ liệu: nguồn CSV/JSON/XML/sổ/thư mục/web + ngôn ngữ bước JSON; docs/spec-notes/sheet-queries.md) ◄─ bo-engine (lệnh `query*`)
+bo-segment (xoá nền ảnh: graph cut họ GrabCut, max-flow Boykov–Kolmogorov tự viết, GMM; trait `SegmentationProvider`) ◄─ bo-engine (`picture_bg`: lệnh `pictureBackgroundPreview`/`pictureRemoveBackground`, ô `cellImage*Background`)
 bo-engine (facade: Engine doc+slide, SheetEngine) ◄─ bo-wasm (web) · bo-cli · apps/desktop/src-tauri
 bo-collab (Yrs: y-sync, awareness, undo cục bộ) ◄─ bo-wasm (WasmCollab)
 bo-script (BlueScript headless: QuickJS-ng/rquickjs + bundle API của packages/script, cầu engine đồng bộ) ◄─ bo-cli (`script run`)

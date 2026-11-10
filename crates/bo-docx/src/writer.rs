@@ -762,24 +762,45 @@ impl Writer<'_> {
     /// Source XML of an unmoved picture, patched when its media, adjustments, crop or
     /// crop shape changed (CORE-PIC-001); everything else in it is kept.
     fn patched_picture(&mut self, xml: &str, img: &Image) -> String {
-        let Some(p) = crate::picture::read(xml) else {
+        let Some(mut p) = crate::picture::read(xml) else {
             return xml.to_owned();
         };
         let format = img.format.as_deref().cloned().unwrap_or_default();
-        let target = p.embed.as_deref().and_then(|id| {
+        let resolve = |id: &str| {
             self.rels
                 .list
                 .iter()
                 .find(|r| r.id == id)
                 .map(|r| bo_opc::resolve_target(&self.rels.part, &r.target))
-        });
+        };
+        let target = p.embed.as_deref().and_then(resolve);
+        // The original picture of a removed background, as a media part (CORE-PIC-002). One the
+        // model does not hold (e.g. an HD Photo the reader skips) is not BlueOffice's: its markup
+        // stays as it is.
+        let mut foreign = false;
+        if let Some(r) = p.format.removal.as_mut() {
+            r.original = resolve(&r.original).unwrap_or_default();
+            foreign = !self.doc.media.contains_key(&r.original);
+        }
+        if foreign {
+            p.format.removal = None;
+        }
         let media_changed = target.is_some_and(|t| t != img.media) && !img.media.is_empty();
         let crop = img.crop.filter(|c| c.iter().any(|v| *v != 0));
         if !media_changed && p.format == format && p.crop == crop {
             return xml.to_owned();
         }
         let embed = media_changed.then(|| self.rels.id_for(REL_IMAGE, &img.media, false));
-        crate::picture::patch(xml, embed.as_deref(), &format, crop)
+        let rid = format
+            .removal
+            .as_ref()
+            .map(|r| self.rels.id_for(REL_IMAGE, &r.original, false));
+        let layer = match (&rid, foreign) {
+            (Some(r), _) => crate::picture::Layer::Set(r),
+            (None, true) => crate::picture::Layer::Keep,
+            (None, false) => crate::picture::Layer::Clear,
+        };
+        crate::picture::patch(xml, embed.as_deref(), &format, crop, layer)
             .unwrap_or_else(|| xml.to_owned())
     }
 
@@ -859,10 +880,15 @@ impl Writer<'_> {
         };
         // §20.1.8.13 blip children (colour transforms, a14 effects) and the
         // §20.1.9.18 prstGeom the picture is cropped to (CORE-PIC-001).
+        let layer = img
+            .format
+            .as_deref()
+            .and_then(|f| f.removal.as_ref())
+            .map(|r| self.rels.id_for(REL_IMAGE, &r.original, false));
         let fx = img
             .format
             .as_deref()
-            .map(crate::picture::blip_children_xml)
+            .map(|f| crate::picture::blip_children_xml(f, layer.as_deref()))
             .unwrap_or_default();
         let prst = escape(
             img.format

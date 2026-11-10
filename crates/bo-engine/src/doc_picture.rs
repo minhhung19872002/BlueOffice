@@ -7,7 +7,9 @@ use crate::edit::EditResult;
 use crate::picture_tools::{self as pt, CompressReport, PictureCommand, PictureInfo, EMU_PER_PX};
 use crate::{EngineError, Result};
 use bo_edit::picture_tools::MediaSwap;
-use bo_model::picture::{aspect_crop, aspect_ratio, fill_crop, fit_size, PictureFormat, PCT};
+use bo_model::picture::{
+    aspect_crop, aspect_ratio, fill_crop, fit_size, PictureFormat, RemovedBackground, PCT,
+};
 use bo_model::{Emu, Image};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -50,6 +52,7 @@ impl crate::Engine {
         }
         let mut previews = Vec::new();
         let mut report = None;
+        let mut background = None;
         let read_only = self.sec.read_only;
         let picture = self
             .session
@@ -59,10 +62,31 @@ impl crate::Engine {
             .as_ref()
             .and_then(|p| self.doc_media_pixels(&p.media));
         let mut error: Option<String> = None;
+        // CORE-PIC-002: the picture a background removal works on (the original when the
+        // background was removed before).
+        let source = picture.as_ref().and_then(|p| {
+            let doc = self.document()?;
+            p.format
+                .as_ref()
+                .and_then(|f| f.removal.as_ref())
+                .and_then(|r| {
+                    doc.media
+                        .get(&r.original)
+                        .map(|d| (r.original.clone(), d.clone()))
+                })
+                .filter(|(_, d)| crate::picture_bg::removable(d))
+                .or_else(|| {
+                    doc.media
+                        .get(&p.media)
+                        .map(|d| (p.media.clone(), d.clone()))
+                })
+        });
         let s = self.session.as_mut().ok_or(EngineError::NoDocument)?;
         let edits = !matches!(
             cmd,
-            PictureCommand::PictureInfo | PictureCommand::PicturePreviews { .. }
+            PictureCommand::PictureInfo
+                | PictureCommand::PicturePreviews { .. }
+                | PictureCommand::PictureBackgroundPreview(_)
         );
         let res: std::result::Result<(), String> = if read_only && edits {
             Err(crate::security::READ_ONLY.into())
@@ -218,6 +242,10 @@ impl crate::Engine {
                                         img.height.0 as f64,
                                     );
                                     img.crop = c.iter().any(|v| *v != 0).then_some(c);
+                                    // A removed background belonged to the old picture.
+                                    let mut f = format_of(img);
+                                    f.removal = None;
+                                    set_format(img, f);
                                     if !name.is_empty() {
                                         img.description.clone_from(&name);
                                     }
@@ -238,9 +266,41 @@ impl crate::Engine {
                         } else {
                             recrop(img, None);
                         }
+                        // A removed background comes back (CORE-PIC-002).
+                        if let Some(r) = img.format.as_ref().and_then(|f| f.removal.as_ref()) {
+                            img.media = r.original.clone();
+                        }
                         img.format = None;
                     }))
                 }),
+                PictureCommand::PictureBackgroundPreview(spec) => {
+                    background = source.as_ref().and_then(|(_, d)| {
+                        crate::picture_bg::preview(d, &spec, &crate::picture_bg::clock_ms)
+                    });
+                    background
+                        .as_ref()
+                        .map(|_| ())
+                        .ok_or_else(|| "noPicture".to_owned())
+                }
+                PictureCommand::PictureRemoveBackground(spec) => match &source {
+                    None => Err("noPicture".into()),
+                    Some((original, data)) => match crate::picture_bg::remove(data, &spec) {
+                        None => Err("badImage".into()),
+                        Some(png) => {
+                            let media = s.new_media_name("png");
+                            let original = original.clone();
+                            run(s.update_picture(Some((media, Arc::new(png))), |img| {
+                                let mut f = format_of(img);
+                                // [MS-ODRAWXML] a14:imgLayer (original) + a14:backgroundRemoval.
+                                f.removal = Some(Box::new(RemovedBackground {
+                                    original,
+                                    settings: spec.settings(),
+                                }));
+                                set_format(img, f);
+                            }))
+                        }
+                    },
+                },
                 PictureCommand::PictureToShapes | PictureCommand::PictureInsertSvg { .. } => {
                     Err("unsupported".into())
                 }
@@ -251,7 +311,13 @@ impl crate::Engine {
         }
         let dirty = self.relayout()?;
         let mut r = self.story_result(dirty, error)?;
-        r.picture = self.doc_picture_info(previews, report).map(Box::new);
+        r.picture = self
+            .doc_picture_info(previews, report)
+            .map(|mut i| {
+                i.background = background;
+                i
+            })
+            .map(Box::new);
         r.collab = self.collab_after_edit();
         Ok(r)
     }
@@ -284,6 +350,10 @@ impl crate::Engine {
         );
         i.previews = previews;
         i.compressed = report;
+        i.removal = f
+            .removal
+            .as_ref()
+            .map(|r| crate::picture_bg::RemovalSpec::from_settings(&r.settings));
         Some(i)
     }
 }

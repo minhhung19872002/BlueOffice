@@ -10,6 +10,7 @@ using BlueOffice.Api.Scripts;
 using BlueOffice.Api.Sessions;
 using BlueOffice.Api.Signing;
 using BlueOffice.Api.Translation;
+using BlueOffice.Api.WebData;
 using BlueOffice.Domain;
 using BlueOffice.Infrastructure;
 using BlueOffice.Infrastructure.Data;
@@ -85,6 +86,8 @@ else
 
 builder.Services.AddSingleton<RoomManager>();
 builder.Services.AddRevocationProxy(config);
+// Web pages of Get & Transform queries (SHEET-PQ-001): off unless WebData:Enabled (docs/deploy/web-data.md).
+builder.Services.AddWebDataProxy(config);
 
 // Translation proxy (CORE-LANG-001): off unless Translation:Provider is configured (docs/deploy/translation.md).
 builder.Services.AddTranslation(config);
@@ -193,6 +196,7 @@ app.MapSessionEndpoints();
 app.MapScriptScheduleEndpoints();
 app.MapHostBrowseEndpoints();
 app.MapRevocationProxy();
+app.MapWebDataProxy();
 app.MapTranslation();
 
 app.Run();

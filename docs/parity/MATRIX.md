@@ -53,6 +53,9 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | BlueScript / recorder | all | — | — | ✅ | — | ✅ | ✅ | ✅ | packages/script tests, bluescript.spec | 🟡 | sandbox QuickJS trong Worker, API Doc/Sheet/Slide, ngăn soạn mã, một lần chạy = một bước hoàn tác (CORE-SCRIPT-001); chưa recorder, chưa lưu trong tệp |
 | Add-in | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | BlueAI (provider LLM) | all | — | ✅ | ✅ | — | ✅ | ✅ | — | AiTests (.NET), ai tests, blueai.spec | ✅ | CORE-AI-001: mặc định tắt, qua máy chủ; viết lại/tóm tắt/soạn nháp, slide từ dàn ý, gợi ý công thức (kiểm bằng engine), phân tích |
+| Định dạng phụ (SYLK, DIF, PRN, DBF, EPUB, mở PDF) | all | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | bo-tabular, pdf_import, secondary-formats.spec | 🟡 | CORE-FMT-004; thiếu XPS, WPD/WPS, bố cục PDF |
+| Xem mã macro VBA (chỉ đọc) | all | ✅ | ✅ | — | ✅ | ✅ | ✅ | — | vba.rs, vba_view.rs, macro-viewer.spec | ✅ | CORE-VBA-002: không bao giờ chạy; chuyển sang bản nháp BlueScript |
+| Gợi ý thiết kế / Phân tích nhanh / biểu đồ đề xuất | Slide/Sheet | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | designer.rs, chart_recommend.rs, design-suggestions.spec | 🟡 | CORE-DESIGN-001: theo quy tắc; thiếu BlueAI, xem trước khi trỏ |
 | Trình đọc tập trung | Doc | — | ✅ | — | — | ✅ | ✅ | — | focused-reader.test, syllables.test, immersive-reader.spec | 🟡 | CORE-LANG-004: giãn chữ/dòng, nền, tô dòng, âm tiết tiếng Anh, đọc to; thiếu danh sách/định dạng, từ ghép Việt, Slide |
 | Thư viện biểu tượng | all | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | icon manifest tests, IconLibraryPicker test, icon-library.spec | ✅ | CORE-ICON-001: 210 icon tự vẽ, tìm Việt–Anh không dấu; Doc/Sheet lưu PNG, Slide lưu SVG |
 | Dịch / đọc chính tả / đọc to | all | — | 🟡 | ✅ | — | ✅ | ✅ | — | read-aloud tests, translate tests + translate.spec, TranslationTests (.NET) | 🟡 | đọc to + tô từ (CORE-LANG-003); dịch qua dịch vụ cấu hình được ở 3 app giữ định dạng (CORE-LANG-001); đọc chính tả qua bộ nhận dạng trình duyệt/dịch vụ cấu hình + lệnh dấu câu (CORE-LANG-002); chưa model cục bộ |
@@ -127,6 +130,7 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | Trình chiếu + Presenter | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | E2E, slide_present.rs | 🟡 | custom show, tập dượt, bút/laser, phóng, kiosk (SLIDE-SHOW-001); thiếu thuyết minh |
 | Ghi thuyết trình / xuất video | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | — | slide_video.rs, video.test, slide_record.rs, slide-record.spec | 🟡 | ghi thuyết minh/camera/nét vẽ/thời gian vào .pptx, phát lại (SLIDE-REC-001); xuất MP4/WebM có tiếng + camera (web), GIF/PNG mọi nơi; desktop chưa thử thiết bị thật |
 | Xuất PDF/PNG | — | ✅ | — | — | ✅ | ✅ | — | tests, slide_export.rs | 🟡 | + handout 1–9, trang ghi chú, JPEG/SVG, gói (SLIDE-EXPORT-002); thiếu media liên kết |
+| Album ảnh, slide từ dàn ý, dùng lại slide | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | slide_album.rs, slide_reuse.rs, slide-album.spec | ✅ | SLIDE-ALBUM-001 |
 | Hyperlink & action | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | — | slide_action.rs, actions tests, slide-actions.spec | 🟡 | SLIDE-ACTION-001: hình + chữ, click/hover, nút hành động, âm thanh, chính sách an toàn; thiếu ô bảng, mailto desktop, menu chuột phải |
 | SmartArt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus, smartart.spec | ✅ | chèn từ thư viện bố cục, ngăn văn bản, bố cục/màu/kiểu, chuyển thành hình |
 | Comment hiện đại | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |

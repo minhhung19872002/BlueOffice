@@ -25,16 +25,33 @@ pub const DOC_XML_FACTOR: u64 = 36;
 pub const DOC_MEDIA_FACTOR: u64 = 3;
 
 /// Make about `bytes` of heap available with a single memory grow.
+///
+/// Skipped once the memory is at least twice that size: it then already served a file
+/// of that size, whose memory went back to the allocator's pool when it closed (or goes
+/// back when the file it replaces is dropped). Reserving again would ask for one more
+/// contiguous block that the pool, fragmented by what stays alive, may not have, and
+/// grow the memory at every open (CORE-PERF-001: opening big files alternately).
 pub fn reserve(bytes: u64) {
     let n = usize::try_from(bytes)
         .unwrap_or(MAX_RESERVE)
         .min(MAX_RESERVE);
-    if n < MIN_RESERVE || !cfg!(target_arch = "wasm32") {
+    if n < MIN_RESERVE || !cfg!(target_arch = "wasm32") || memory_bytes() >= n.saturating_mul(2) {
         return;
     }
     let mut block: Vec<u8> = Vec::new();
     // Failure only means the memory could not grow that far: open anyway.
     let _ = block.try_reserve_exact(n);
+}
+
+/// Current size of the WebAssembly memory in bytes.
+#[cfg(target_arch = "wasm32")]
+fn memory_bytes() -> usize {
+    core::arch::wasm32::memory_size::<0>().saturating_mul(65_536)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn memory_bytes() -> usize {
+    0
 }
 
 /// [`reserve`] for an OOXML package whose XML parts total `xml` bytes: `factor`

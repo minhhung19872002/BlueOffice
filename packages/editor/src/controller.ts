@@ -346,8 +346,29 @@ export class DocController {
     await this.paste(text, '');
   }
 
-  /** Wait for queued commands. */
-  idle(): Promise<unknown> {
-    return this.queue;
+  private readonly operations = new Set<Promise<unknown>>();
+
+  /**
+   * Track an edit made of several commands sent one after the other (an icon insertion:
+   * picture, sharp picture, history merge): `idle()` waits for all of it, so a save in
+   * between does not write half of it and leave the document modified.
+   * The operation must not wait for `idle()` itself.
+   */
+  operation<T>(op: Promise<T>): Promise<T> {
+    const tracked: Promise<unknown> = op
+      .catch(() => undefined)
+      .finally(() => this.operations.delete(tracked));
+    this.operations.add(tracked);
+    return op;
+  }
+
+  /** Wait for queued commands and tracked operations. */
+  async idle(): Promise<void> {
+    // An operation queues its next command only once the previous one is done.
+    for (;;) {
+      const queue = this.queue;
+      await Promise.all([queue, ...this.operations]);
+      if (queue === this.queue && this.operations.size === 0) return;
+    }
   }
 }

@@ -5814,7 +5814,8 @@ function EditorInner({
                   const c = controller.current;
                   if (!c) return;
                   try {
-                    await insertDocIcons(c, icons);
+                    // A save waits for the whole insertion (CORE-ICON-001).
+                    await c.operation(insertDocIcons(c, icons));
                   } catch (e) {
                     fail('errors.image', e);
                   }

@@ -204,7 +204,7 @@ impl Walk {
 }
 
 /// Every block container of a document: section bodies, headers/footers, notes.
-fn containers(doc: &Document) -> Vec<&[Block]> {
+pub(crate) fn containers(doc: &Document) -> Vec<&[Block]> {
     let mut out: Vec<&[Block]> = Vec::new();
     for s in &doc.sections {
         out.push(&s.blocks);

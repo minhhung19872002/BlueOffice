@@ -55,6 +55,10 @@ pub enum RevKind {
     RowFormat,
     /// §17.13.5.33 tblGridChange (column widths)
     TableGrid,
+    /// An equation edited (ADR-0015 addendum): an Office Math zone marked deleted (§17.13.5.14
+    /// del) directly followed by its edited version marked inserted (§17.13.5.18 ins) by the same
+    /// author — listed, accepted and rejected as one change (`id` is the deletion's).
+    Equation,
 }
 
 /// Where a revision outside the main text lives: a header or footer of a section
@@ -334,8 +338,107 @@ fn list_main(doc: &Document) -> Vec<RevisionItem> {
         add(k, &info, s, e, "", &[]);
     }
     merge_move_halves(doc, &mut out);
+    merge_equation_halves(doc, &mut out);
     out.sort_by_key(|i| i.start);
     out
+}
+
+/// The deleted and inserted halves of an edited equation are one item.
+fn merge_equation_halves(doc: &Document, out: &mut Vec<RevisionItem>) {
+    for (del, ins) in equation_pairs(doc) {
+        let Some(e) = out
+            .iter()
+            .position(|i| i.id == ins && i.kind == RevKind::Insert)
+        else {
+            continue;
+        };
+        let Some(d) = out
+            .iter()
+            .position(|i| i.id == del && i.kind == RevKind::Delete)
+        else {
+            continue;
+        };
+        let end = out[e].end;
+        let it = &mut out[d];
+        it.kind = RevKind::Equation;
+        it.end = it.end.max(end);
+        out.remove(e);
+    }
+}
+
+/// Edited equations of `doc` (every story): `(deletion id, insertion id)` of each Office Math zone
+/// (§22.1.2.77 oMath / §22.1.2.78 oMathPara) marked deleted and directly followed by a zone marked
+/// inserted by the same author (ADR-0015 addendum). Only whole revisions pair: each id must mark
+/// that one zone alone.
+pub(crate) fn equation_pairs(doc: &Document) -> Vec<(i32, i32)> {
+    fn walk(blocks: &[Block], out: &mut Vec<(i32, i32)>, uses: &mut Vec<i32>) {
+        for b in blocks {
+            match b {
+                Block::Paragraph(p) => {
+                    let atoms: Vec<Atom> = para::flatten(p)
+                        .into_iter()
+                        .filter(|a| para::atom_len(&a.1) > 0)
+                        .collect();
+                    for a in &atoms {
+                        for m in [&a.0.ins, &a.0.del].into_iter().flatten() {
+                            uses.push(m.info.id);
+                        }
+                    }
+                    for m in p.props.mark_ins.iter().chain(&p.props.mark_del) {
+                        uses.push(m.info.id);
+                    }
+                    let math = |a: &Atom| {
+                        matches!(&a.1, bo_model::RunContent::Markup(r)
+                            if bo_model::index::is_math_xml(&r.xml))
+                    };
+                    for w in atoms.windows(2) {
+                        let (a, b) = (&w[0], &w[1]);
+                        let (Some(d), None, None, Some(i)) =
+                            (&a.0.del, &a.0.ins, &b.0.del, &b.0.ins)
+                        else {
+                            continue;
+                        };
+                        if math(a)
+                            && math(b)
+                            && !d.moved
+                            && !i.moved
+                            && d.info.author == i.info.author
+                            && d.info.id != i.info.id
+                        {
+                            out.push((d.info.id, i.info.id));
+                        }
+                    }
+                }
+                Block::Table(t) => {
+                    for row in &t.rows {
+                        for c in &row.cells {
+                            walk(&c.blocks, out, uses);
+                        }
+                    }
+                }
+                Block::Opaque(_) => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut uses = Vec::new();
+    for c in crate::moves::containers(doc) {
+        walk(c, &mut out, &mut uses);
+    }
+    out.retain(|(d, i)| {
+        uses.iter().filter(|u| *u == d).count() == 1 && uses.iter().filter(|u| *u == i).count() == 1
+    });
+    out
+}
+
+/// `ids` with the other halves of the edited equations they belong to.
+pub(crate) fn with_equation_halves(doc: &Document, ids: &mut std::collections::HashSet<i32>) {
+    for (d, i) in equation_pairs(doc) {
+        if ids.contains(&d) || ids.contains(&i) {
+            ids.insert(d);
+            ids.insert(i);
+        }
+    }
 }
 
 /// One item per half of a named move: a file gives every element its own id

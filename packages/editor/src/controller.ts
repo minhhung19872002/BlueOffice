@@ -32,6 +32,18 @@ export interface EditView {
   setMathMarks?(m: EditResult['math'] | null): void;
 }
 
+/** Engine error of a click / `mathEnter` on an equation that cannot be edited in place (it is
+ * selected instead; ADR-0015 addendum). */
+export const MATH_UNSUPPORTED = 'mathUnsupported';
+
+/** The selection is exactly an equation (not the caret after one) and no equation is being
+ * edited in place: Enter / a double click open the equation dialog for it. */
+export function equationSelected(r: EditResult | null | undefined): boolean {
+  if (!r?.equation || r.math) return false;
+  const { anchor, focus } = r.selection;
+  return anchor.p !== focus.p || anchor.o !== focus.o;
+}
+
 /**
  * Sends editing commands to the engine one at a time (the engine is the
  * single source of truth), applies each result to the view and reports it.
@@ -54,6 +66,10 @@ export class DocController {
   private pasteListener: ((r: DocPasteRecord | null) => void) | null = null;
   /** Last repeatable edit (F4, CORE-UI-004). */
   readonly repeats = new RepeatTracker<EditCommand>(DOC_REPEATABLE);
+  /** Opens the equation dialog for the selected equation (double click, Enter). */
+  onEquationDialog: (() => void) | null = null;
+  /** The last result applied. */
+  private last: EditResult | null = null;
 
   constructor(
     private readonly engine: EngineHost,
@@ -67,6 +83,7 @@ export class DocController {
     if (r.dirty.length || r.info) this.view.refresh(r.info, r.dirty);
     this.view.setMathMarks?.(r.math ?? null);
     this.view.setSelection(r.caret, r.rects);
+    this.last = r;
     this.onResult(r);
     return r;
   }
@@ -75,6 +92,7 @@ export class DocController {
   external(r: EditResult): void {
     if (r.dirty.length || r.info) this.view.refresh(r.info, r.dirty);
     this.view.setSelection(r.caret, r.rects, false);
+    this.last = r;
     this.onResult(r);
   }
 
@@ -182,6 +200,9 @@ export class DocController {
         y: e.y,
         extend: e.shift,
         count: e.count,
+      }).then((r) => {
+        // A double click on an equation (the engine selects it) opens the equation dialog.
+        if (e.count === 2 && !e.shift && equationSelected(r)) this.onEquationDialog?.();
       });
     } else if (e.type === 'drag') {
       this.drag({ cmd: 'dragTo', page: e.page, x: e.x, y: e.y });
@@ -195,6 +216,11 @@ export class DocController {
         break;
       case 'key': {
         const c = keyToCommand(e);
+        // Enter on a selected equation edits it in the equation dialog.
+        if (c?.cmd === 'splitParagraph' && this.onEquationDialog && equationSelected(this.last)) {
+          this.onEquationDialog();
+          break;
+        }
         if (c) void this.run(c);
         break;
       }

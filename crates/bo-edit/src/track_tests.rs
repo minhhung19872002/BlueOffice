@@ -568,3 +568,68 @@ fn tracked_merge_insert_row_shade_reject_restores_original() {
     s.resolve_revisions(None, false).unwrap();
     same(s.doc(), &original).unwrap();
 }
+
+// source: ECMA-376 Part 1, §17.13.5.14 del / §17.13.5.18 ins on an Office Math zone (§22.1.2.77);
+// ADR-0015 addendum (an equation edited in place is one revision of the whole equation).
+#[test]
+fn tracked_equation_replacement_is_one_revision() {
+    const M: &str = r#"xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math""#;
+    let old = format!("<m:oMath {M}><m:r><m:t>a</m:t></m:r></m:oMath>");
+    let original = Document {
+        sections: vec![Section::new(vec![para("x ")])],
+        ..Document::default()
+    };
+    let mut s = Session::new(original);
+    s.set_selection(Selection::caret(Pos::new(0, 2)));
+    s.insert_equation(&old).unwrap();
+    let base = s.doc().clone();
+    s.set_track_changes(true);
+    s.set_author("An");
+    let at = Pos::new(0, 2);
+    // Each in-place edit: the first marks the original deleted and inserts the edit after it,
+    // the next ones change that (own) insertion.
+    let mut cur = at;
+    for t in ["ab", "abc", "abcd"] {
+        cur = s
+            .replace_equation(
+                cur,
+                &format!("<m:oMath {M}><m:r><m:t>{t}</m:t></m:r></m:oMath>"),
+                true,
+            )
+            .unwrap();
+    }
+    assert_eq!(cur, Pos::new(0, 2 + 3));
+    assert_eq!(s.equation_at(at).as_deref(), Some(old.as_str()));
+    assert!(s.equation_deleted(at));
+    assert!(!s.equation_deleted(cur));
+    assert!(s.equation_at(cur).unwrap().contains("abcd"));
+    let revs = s.revisions();
+    assert_eq!(revs.len(), 1, "{revs:?}");
+    assert_eq!(revs[0].kind, RevKind::Equation);
+    assert_eq!((revs[0].start, revs[0].end), (at, Pos::new(0, 8)));
+    // A deleted equation is not edited.
+    assert!(s.replace_equation(at, &old, false).is_err());
+    // Resolving the one listed id resolves both halves.
+    let id = revs[0].id;
+    let mut accepted = Session::new(s.doc().clone());
+    assert_eq!(accepted.resolve_revisions(Some(&[id]), true).unwrap(), 1);
+    assert_eq!(accepted.revisions().len(), 0);
+    assert!(accepted.equation_at(at).unwrap().contains("abcd"));
+    assert_eq!(
+        accepted.para_text(0).unwrap().matches('\u{FFFC}').count(),
+        1
+    );
+    s.resolve_revisions(Some(&[id]), false).unwrap();
+    assert_eq!(s.revisions().len(), 0);
+    same(s.doc(), &base).unwrap();
+    // A deletion and an insertion that are not one zone each are listed apart.
+    let mut s = Session::new(base);
+    s.set_track_changes(true);
+    s.set_selection(Selection {
+        anchor: Pos::new(0, 0),
+        focus: Pos::new(0, 5),
+    });
+    s.insert_text("y").unwrap();
+    let kinds: Vec<_> = s.revisions().iter().map(|r| r.kind).collect();
+    assert!(!kinds.contains(&RevKind::Equation), "{kinds:?}");
+}

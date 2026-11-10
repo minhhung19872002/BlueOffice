@@ -2969,7 +2969,8 @@
       "cellDelete": "Deleted cells",
       "cellMerge": "Merged/split cells",
       "rowFormat": "Row properties",
-      "tableGrid": "Column widths"
+      "tableGrid": "Column widths",
+      "equation": "Equation edited"
     },
     "story": {
       "header": "Header",
@@ -3709,6 +3710,7 @@
   "equation": {
     "title": "Insert equation",
     "editTitle": "Edit equation",
+    "inPlaceUnsupported": "This equation has formatting that in-place editing cannot keep. Double-click it or press Enter to edit it in the equation box.",
     "input": "Equation",
     "syntax": "Syntax",
     "unicodeMath": "UnicodeMath (linear)",

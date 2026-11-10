@@ -3,7 +3,9 @@ import { copyFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const outDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fidelity', 'output');
+const here = dirname(fileURLToPath(import.meta.url));
+const outDir = join(here, '..', '..', 'fidelity', 'output');
+const corpus = join(here, '..', '..', 'corpus', 'doc', 'math-06-unsupported.docx');
 
 // CORE-MATH-010: edit an equation in place — click into a slot, type, Tab, autobuild, Backspace,
 // undo, save and reopen.
@@ -104,5 +106,98 @@ test('edits an equation in place', async ({ page }) => {
   await page.getByRole('tab', { name: 'Chèn' }).click();
   await cmd(page, 'insert.equation').click();
   await expect(page.getByTestId('equation-input')).toHaveValue(linear);
+  expect(errors).toEqual([]);
+});
+
+test('with track changes an in-place edit is one revision; rejecting it restores the equation', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/doc');
+  await page.getByTestId('new-document').click();
+  await expect(page.getByTestId('caret')).toBeVisible();
+  await page.keyboard.insertText('Ta có ');
+  await page.getByRole('tab', { name: 'Chèn' }).click();
+  await cmd(page, 'insert.equation').click();
+  const dialog = page.getByTestId('equation-dialog');
+  await dialog.getByTestId('equation-input').fill('a/b');
+  await dialog.getByTestId('equation-ok').click();
+  await expect(dialog).toHaveCount(0);
+
+  // Track changes on, then edit the equation in place: several keys, one change.
+  await page.getByRole('tab', { name: 'Xem lại' }).click();
+  await cmd(page, 'review.trackChanges').click();
+  await expect(cmd(page, 'review.trackChanges')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('tab', { name: 'Chèn' }).click();
+  await cmd(page, 'equation.editInPlace').click();
+  await expect(page.getByTestId('bo-math-zone')).toBeVisible();
+  await page.keyboard.type('+c');
+  await page.keyboard.type('+x^2 ');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('bo-math-zone')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Xem lại' }).click();
+  await cmd(page, 'review.pane').click();
+  await expect(page.getByTestId('review-pane')).toBeVisible();
+  await expect(page.getByTestId('revision-count')).toHaveText('1 thay đổi');
+  await expect(page.getByTestId('revision')).toHaveCount(1);
+  await expect(page.getByTestId('revision').first()).toContainText('Sửa phương trình');
+
+  // Kept for validation (bo-cli validate tests/fidelity/output/web-equation-tracked.docx).
+  const download = page.waitForEvent('download');
+  await page.keyboard.press('Control+s');
+  const path = await (await download).path();
+  mkdirSync(outDir, { recursive: true });
+  copyFileSync(path, join(outDir, 'web-equation-tracked.docx'));
+
+  // Reject: the original equation, no change left.
+  await page.getByTestId('revision').first().getByRole('button', { name: 'Từ chối' }).click();
+  await expect(page.getByTestId('revision-count')).toHaveText('0 thay đổi');
+  await page.keyboard.press('Control+End');
+  await page.getByRole('tab', { name: 'Chèn' }).click();
+  await cmd(page, 'insert.equation').click();
+  await expect(dialog.getByTestId('equation-input')).toHaveValue('a/b');
+  await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});
+
+test('an equation the in-place editor cannot keep is selected, not rewritten', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/doc');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Mở tệp từ máy' }).click();
+  await (await chooser).setFiles(corpus);
+  await expect(page1(page)).toHaveAttribute('data-rendered', 'true');
+  // The first paragraph starts with an equation with a grouping character (m:groupChr).
+  await page.keyboard.press('Control+Home');
+  const start = await box(page, 'caret');
+  await page.mouse.click(start.x + 4, start.y + start.height / 2);
+  await expect(page.getByTestId('status-info')).toHaveText(
+    'Phương trình này có định dạng mà chế độ sửa tại chỗ không giữ được. Nhấp đúp hoặc nhấn Enter để sửa trong hộp phương trình.',
+  );
+  await expect(page.getByTestId('bo-math-zone')).toHaveCount(0);
+  await expect(page.locator('.bo-sel')).toHaveCount(1);
+  // Typing does not replace or rewrite it.
+  const words = await page.getByTestId('status-words').textContent();
+  await page.keyboard.type('q');
+  await expect(page.getByTestId('bo-math-zone')).toHaveCount(0);
+  await expect(page.getByTestId('status-words')).toHaveText(words ?? '');
+  // Enter opens the equation dialog for it; so does a double click.
+  await page.keyboard.press('Enter');
+  const dialog = page.getByTestId('equation-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId('equation-input')).toHaveValue(/a\+b\+c/);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await page.mouse.dblclick(start.x + 4, start.y + start.height / 2);
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  // Saved, the equation's markup is unchanged.
+  const download = page.waitForEvent('download');
+  await page.keyboard.press('Control+s');
+  const saved = await (await download).path();
+  mkdirSync(outDir, { recursive: true });
+  copyFileSync(saved, join(outDir, 'web-equation-unsupported.docx'));
   expect(errors).toEqual([]);
 });

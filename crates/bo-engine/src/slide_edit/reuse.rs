@@ -70,12 +70,9 @@ impl crate::Engine {
             .get("width")
             .and_then(serde_json::Value::as_f64)
             .map_or(DEFAULT_WIDTH, |w| (w as f32).clamp(32.0, 1024.0));
-        let src = match crate::slide_compare::read_deck(&bytes) {
-            Ok(p) => p,
-            Err(_) => {
-                self.slide_reuse = None;
-                return Ok(serde_json::json!({ "error": "reuseRead" }).to_string());
-            }
+        let Ok(src) = crate::slide_compare::read_deck(&bytes) else {
+            self.slide_reuse = None;
+            return Ok(serde_json::json!({ "error": "reuseRead" }).to_string());
         };
         let mut images = BTreeMap::new();
         let mut slides = Vec::with_capacity(src.slides.len());

@@ -166,6 +166,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `insert.media` | Lucide (ISC) `Clapperboard` |
 | `insert.pageBreak` | Lucide (ISC) `SquareSplitVertical` |
 | `insert.pageNumber` | Lucide (ISC) `Hash` |
+| `insert.photoAlbum` | Lucide (ISC) `Images` |
 | `insert.picture` | Lucide (ISC) `ImagePlus` |
 | `insert.pivot` | Lucide (ISC) `TableProperties` |
 | `insert.rect` | Lucide (ISC) `Square` |
@@ -254,8 +255,10 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `slide.cut` | Lucide (ISC) `Scissors` |
 | `slide.delete` | Lucide (ISC) `Trash` |
 | `slide.duplicate` | Lucide (ISC) `CopyPlus` |
+| `slide.fromOutline` | Lucide (ISC) `ListPlus` |
 | `slide.new` | Lucide (ISC) `SquarePlus` |
 | `slide.paste` | Lucide (ISC) `ClipboardPaste` |
+| `slide.reuse` | Lucide (ISC) `FileStack` |
 | `smartart.delete` | Lucide (ISC) `Trash` |
 | `smartart.edit` | Lucide (ISC) `Pencil` |
 | `smartart.toShapes` | Lucide (ISC) `Shapes` |

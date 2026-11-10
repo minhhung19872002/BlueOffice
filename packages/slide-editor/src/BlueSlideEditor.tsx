@@ -992,13 +992,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     setStatus,
     fail,
   });
-  const {
-    openAlbum,
-    pickOutline,
-    toggleReuse,
-    closeReuse,
-    reuseOpen: reusePaneOpen,
-  } = albumTools;
+  const { openAlbum, pickOutline, toggleReuse, closeReuse, reuseOpen: reusePaneOpen } = albumTools;
 
   useEffect(() => {
     platform.window.setTitle(t('appTitle.slide'));

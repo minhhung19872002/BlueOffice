@@ -1259,6 +1259,10 @@ pub struct Table {
     pub attrs: Vec<RawAttr>,
     /// Unknown children (sortState, extLst).
     pub unknown: Vec<RawXml>,
+    /// Relationships of the table part (query table §18.12, …), targets as absolute
+    /// part names; the parts stay in [`Opaque::parts`].
+    #[serde(default)]
+    pub rels: Vec<OpaqueRel>,
 }
 
 /// A table column (§18.5.1.3 `tableColumn`).

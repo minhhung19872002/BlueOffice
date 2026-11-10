@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- BlueOffice test fixture: one row per <order>. -->
+<orders xmlns="urn:example:orders" generated="2024-03-01">
+  <order id="1001" status="paid">
+    <customer>Công ty An Bình</customer>
+    <date>2024-02-01</date>
+    <total>1250000</total>
+    <ship><city>Hà Nội</city><zip>100000</zip></ship>
+  </order>
+  <order id="1002" status="open">
+    <customer>Minh &amp; Cộng sự</customer>
+    <date>2024-02-03</date>
+    <total>480000</total>
+    <ship><city>Đà Nẵng</city></ship>
+  </order>
+  <order id="1003" status="paid">
+    <customer>Hợp tác xã Hoà Phát</customer>
+    <date>2024-02-10</date>
+    <total>2100000</total>
+    <ship><city>Hà Nội</city><zip>100000</zip></ship>
+  </order>
+</orders>

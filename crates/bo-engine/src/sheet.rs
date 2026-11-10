@@ -40,6 +40,7 @@ mod print;
 mod print_cmd;
 mod print_job;
 pub mod protect;
+pub mod query_cmd;
 mod scenario_cmd;
 mod security_cmd;
 mod smartart_cmd;
@@ -341,6 +342,8 @@ pub struct SheetEngine {
     print_cache: crate::print::PreviewCache,
     /// PDF/A part, tagged PDF and bookmarks of `export_pdf` (CORE-FMT-002).
     pub(crate) pdf_export: bo_pdf::ExportChoices,
+    /// Bytes of Get & Transform sources provided by the host (SHEET-PQ-001).
+    query_sources: query_cmd::QuerySources,
 }
 
 impl Default for SheetEngine {
@@ -386,6 +389,34 @@ fn parse_number(s: &str, locale: &Locale) -> Option<f64> {
     }
     .or_else(|| t.parse::<f64>().ok().filter(|_| valid(t)))?;
     v.is_finite().then_some(v * scale)
+}
+
+/// A workbook read from file bytes of any spreadsheet format BlueSheet opens (.csv, .xls,
+/// .xlsb, .ods, .xlsx/.xlsm); `name` gives the extension where the bytes do not.
+pub(crate) fn read_workbook_bytes(bytes: &[u8], name: &str, locale: &Locale) -> Result<Workbook> {
+    let lower = name.to_ascii_lowercase();
+    let wb = if lower.ends_with(".csv") {
+        let opts = if locale.decimal == ',' {
+            bo_xlsx::CsvOptions::vi_vn()
+        } else {
+            bo_xlsx::CsvOptions::default()
+        };
+        let ws = bo_xlsx::read_csv(bytes, &opts).map_err(|e| EngineError::Sheet(e.to_string()))?;
+        let mut wb = Workbook::new();
+        wb.sheets = vec![ws];
+        wb
+    } else if matches!(bo_binary::detect(bytes), Some(bo_binary::LegacyKind::Xls)) {
+        from_legacy(&bo_binary::read_xls(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?)
+    } else if bo_odf::detect_mimetype(bytes).as_deref() == Some(bo_odf::MIME_ODS) {
+        from_ods(&bo_odf::read_ods(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?)
+    } else if lower.ends_with(".xlsb") {
+        from_legacy(&bo_binary::read_xlsb(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?)
+    } else if bytes.starts_with(b"PK\x03\x04") {
+        bo_xlsx::read_xlsx(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?
+    } else {
+        return Err(EngineError::Unsupported(name.to_owned()));
+    };
+    Ok(wb)
 }
 
 /// Legacy `.xls` / `.xlsb` workbook ([MS-XLS], [MS-XLSB] via `bo-binary`) →
@@ -730,6 +761,7 @@ impl SheetEngine {
             web_images: cell_media_cmd::WebImages::default(),
             print_cache: crate::print::PreviewCache::default(),
             pdf_export: bo_pdf::ExportChoices::default(),
+            query_sources: query_cmd::QuerySources::default(),
         }
     }
 
@@ -848,31 +880,7 @@ impl SheetEngine {
     }
 
     fn open_plain(&mut self, bytes: &[u8], name: &str) -> Result<WorkbookInfo> {
-        let lower = name.to_ascii_lowercase();
-        let wb = if lower.ends_with(".csv") {
-            let opts = if self.locale.decimal == ',' {
-                bo_xlsx::CsvOptions::vi_vn()
-            } else {
-                bo_xlsx::CsvOptions::default()
-            };
-            let ws =
-                bo_xlsx::read_csv(bytes, &opts).map_err(|e| EngineError::Sheet(e.to_string()))?;
-            let mut wb = Workbook::new();
-            wb.sheets = vec![ws];
-            wb
-        } else if matches!(bo_binary::detect(bytes), Some(bo_binary::LegacyKind::Xls)) {
-            from_legacy(&bo_binary::read_xls(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?)
-        } else if bo_odf::detect_mimetype(bytes).as_deref() == Some(bo_odf::MIME_ODS) {
-            from_ods(&bo_odf::read_ods(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?)
-        } else if lower.ends_with(".xlsb") {
-            from_legacy(
-                &bo_binary::read_xlsb(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?,
-            )
-        } else if bytes.starts_with(b"PK\x03\x04") {
-            bo_xlsx::read_xlsx(bytes).map_err(|e| EngineError::Sheet(e.to_string()))?
-        } else {
-            return Err(EngineError::Unsupported(name.to_owned()));
-        };
+        let wb = read_workbook_bytes(bytes, name, &self.locale)?;
         self.load_opened(wb, name)?;
         self.convert_legacy_text()?;
         self.info()
@@ -1666,6 +1674,8 @@ impl SheetEngine {
                 }
                 // Form controls agree with their linked cells in the saved file.
                 bo_sheet::formctl::sync_from_links(wb);
+                // Connections and query tables of the Get & Transform queries (§18.12–13).
+                query_cmd::sync_ecma_parts(wb);
                 // Manual calculation with calcPr/@calcOnSave (§18.2.2): calculate first.
                 let calc = bo_sheet::calcopts::CalcSettings::read(wb);
                 if calc.calc_on_save && self.live.needs_calculation() {

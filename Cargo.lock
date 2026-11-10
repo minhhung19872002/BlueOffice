@@ -674,6 +674,7 @@ dependencies = [
  "bo-opc",
  "bo-pdf",
  "bo-pptx",
+ "bo-query",
  "bo-raster",
  "bo-render",
  "bo-sheet",
@@ -793,6 +794,20 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "unicode-linebreak",
+]
+
+[[package]]
+name = "bo-query"
+version = "0.1.0"
+dependencies = [
+ "bo-encoding",
+ "bo-formula",
+ "bo-model",
+ "bo-opc",
+ "bo-xlsx",
+ "quick-xml",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

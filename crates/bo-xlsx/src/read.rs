@@ -184,7 +184,18 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
             for id in table_ids {
                 if let Some(abs) = links.get(&format!("table:{id}")) {
                     if let Some(p) = pkg.part(abs) {
-                        ws.tables.push(read_table(&p.data, abs)?);
+                        let mut t = read_table(&p.data, abs)?;
+                        // Relationships of the table part (§18.12 query tables).
+                        t.rels = pkg
+                            .relationships(abs)
+                            .unwrap_or_default()
+                            .iter()
+                            .map(|r| opaque_rel(abs, r))
+                            .collect();
+                        if !t.rels.is_empty() {
+                            mark(&rels_part_name(abs));
+                        }
+                        ws.tables.push(t);
                         mark(abs);
                     }
                 }

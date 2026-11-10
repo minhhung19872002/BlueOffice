@@ -91,3 +91,10 @@
     transform: translateY(-4px);
   }
 }
+
+.heading {
+  padding: 6px 8px 2px;
+  font-size: var(--bo-font-size-11, 11px);
+  font-weight: 600;
+  color: var(--bo-text-muted);
+}

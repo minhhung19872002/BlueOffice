@@ -98,7 +98,54 @@ export {
   type CommandSearchLabels,
   type CommandSearchProps,
 } from './CommandSearch';
-export { flattenRibbon, normalize, searchCommands, type SearchEntry } from './searchRank';
+export {
+  flattenRibbon,
+  loadRecentCommands,
+  normalize,
+  pushRecentCommand,
+  relatedCommands,
+  searchCommands,
+  type SearchEntry,
+} from './searchRank';
+export {
+  ContextMenu,
+  isContextMenuKey,
+  isEntry,
+  menuPointOf,
+  type ContextMenuProps,
+  type MenuEntry,
+  type MenuLine,
+} from './ContextMenu';
+export {
+  CONTEXT_MENUS,
+  DOC_MENUS,
+  SHEET_MENUS,
+  SLIDE_MENUS,
+  registryMenuLookup,
+  resolveMenu,
+  ribbonMenuLookup,
+  type DocMenuContext,
+  type MenuLookup,
+  type MenuSpec,
+  type SheetMenuContext,
+  type SlideMenuContext,
+} from './contextMenus';
+export {
+  assignKeyTips,
+  keyTipHit,
+  keyTipMatches,
+  KEYTIP_OVERRIDES,
+  type KeyTipEntry,
+} from './keyTips';
+export { KeyTipsLayer, type KeyTipsLayerProps } from './KeyTipsLayer';
+export {
+  MINI_CLOSE_AT,
+  MINI_FADE_FROM,
+  MiniToolbar,
+  miniOpacity,
+  rectDistance,
+  type MiniToolbarProps,
+} from './MiniToolbar';
 export {
   CHART_TEMPLATES_KEY,
   ChartColorsMenu,

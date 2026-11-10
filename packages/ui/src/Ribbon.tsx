@@ -31,6 +31,7 @@ import {
   type RibbonContext,
 } from './ribbonContext';
 import { setRibbonPrefs, toggleRibbonCollapsed, useRibbonPrefs } from './ribbonMode';
+import { KeyTipsLayer } from './KeyTipsLayer';
 
 export interface RibbonItem {
   /** Command id from the command registry (e.g. `file.open`). */
@@ -133,6 +134,10 @@ export interface RibbonProps {
    * File screen (`Backstage`) instead of a ribbon tab.
    */
   fileMenu?: RibbonFileMenu;
+  /** Alt / F10 KeyTips (CORE-UI-004); on by default. */
+  keyTips?: boolean;
+  /** KeyTip codes by id (`tab:<id>`, `file`, command ids) replacing the derived ones. */
+  keyTipOverrides?: Readonly<Record<string, string>>;
 }
 
 export interface RibbonFileMenu {
@@ -540,6 +545,8 @@ export function Ribbon({
   simplified: forceSimplified,
   autoActivate,
   fileMenu,
+  keyTips = true,
+  keyTipOverrides,
 }: RibbonProps) {
   // Measured widths survive re-renders; the map is mutated in layout effects only.
   const [cache] = useState<WidthCache>(() => new Map());
@@ -642,6 +649,7 @@ export function Ribbon({
       key={t.id}
       value={t.id}
       className={styles.tab}
+      data-tab={t.id}
       data-context={t.context}
       // Runs before the tab activates on mouse down: was it the shown tab already?
       onMouseDown={() => {
@@ -662,6 +670,7 @@ export function Ribbon({
     </Tabs.Trigger>
   );
   const showBody = !collapsed || peek;
+  const stripTabs = [...arranged.plain, ...arranged.contexts.flatMap((c) => c.tabs)];
   // Running a command from the ribbon shown over the document closes it.
   const onBodyClick = (e: ReactMouseEvent) => {
     if (!peek) return;
@@ -747,6 +756,18 @@ export function Ribbon({
           )}
           {trailing}
         </div>
+        {keyTips && (
+          <KeyTipsLayer
+            root={root}
+            tabs={stripTabs}
+            file={fileMenu ? { label: fileMenu.label, onOpen: fileMenu.onOpen } : undefined}
+            overrides={keyTipOverrides}
+            onTab={(id) => {
+              select(id);
+              if (collapsed) setPeek(true);
+            }}
+          />
+        )}
         {showBody && (
           <div
             ref={setBodyEl}

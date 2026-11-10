@@ -2938,7 +2938,30 @@ pub struct Style {
     pub rpr: RunProps,
     /// Table properties (`w:tblPr`) of a table style.
     pub tblpr: Option<TableProps>,
-    /// Original `w:style` XML.
+    /// §17.7.4.19 uiPriority: sort order in the style lists (lower first; absent = last).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_priority: Option<u32>,
+    /// §17.7.4.16 semiHidden: hidden from the main style lists.
+    #[serde(default)]
+    pub semi_hidden: bool,
+    /// §17.7.4.20 unhideWhenUsed: `semiHidden` is dropped once the style is used.
+    #[serde(default)]
+    pub unhide_when_used: bool,
+    /// §17.7.4.4 hidden: never shown in the user interface.
+    #[serde(default)]
+    pub hidden: bool,
+    /// §17.7.4.2 autoRedefine: direct formatting of a paragraph updates the style.
+    #[serde(default)]
+    pub auto_redefine: bool,
+    /// §17.7.4.17 `w:customStyle`: user-defined (not a latent built-in) style.
+    #[serde(default)]
+    pub custom: bool,
+    /// Children of `w:style` the model does not cover (`w:aliases`, `w:locked`,
+    /// `w:rsid`, `w:tblStylePr`, `w:trPr`, `w:tcPr`, …) kept verbatim, in source order.
+    #[serde(skip)]
+    pub extra: Vec<Raw>,
+    /// Original `w:style` XML; its fingerprint is [`Style::content_fingerprint`] at
+    /// read time, so an unchanged style is written back byte for byte.
     #[serde(skip)]
     pub src: Option<Raw>,
 }
@@ -2958,8 +2981,37 @@ impl Style {
             ppr: ParaProps::default(),
             rpr: RunProps::default(),
             tblpr: None,
+            ui_priority: None,
+            semi_hidden: false,
+            unhide_when_used: false,
+            hidden: false,
+            auto_redefine: false,
+            custom: false,
+            extra: Vec::new(),
             src: None,
         }
+    }
+
+    /// Fingerprint of everything modelled (not [`Style::src`]): equal to the source's
+    /// when the style was not changed since it was read.
+    pub fn content_fingerprint(&self) -> u64 {
+        fingerprint(&(
+            (&self.id, &self.name, self.kind, &self.based_on, &self.next),
+            (
+                &self.linked,
+                self.is_default,
+                self.quick,
+                &self.ppr,
+                &self.rpr,
+            ),
+            (
+                &self.tblpr,
+                self.ui_priority,
+                self.semi_hidden,
+                self.unhide_when_used,
+            ),
+            (self.hidden, self.auto_redefine, self.custom, &self.extra),
+        ))
     }
 }
 

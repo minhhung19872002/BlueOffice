@@ -453,13 +453,21 @@ fn read_style<'a>(r: &mut XmlReader<'a>, e: &BytesStart<'a>, before: usize) -> R
     let mut st = Style::new(&id, &id, kind);
     st.quick = false;
     st.is_default = attr(e, b"default").is_some_and(|v| v == "1" || v == "true");
-    children(r, |r, e, s, _| {
+    st.custom = attr(e, b"customStyle").is_some_and(|v| on_off_value(&v));
+    children(r, |r, e, s, at| {
         match name(e).as_slice() {
             b"name" => st.name = attr(e, b"val").unwrap_or_default(),
             b"basedOn" => st.based_on = attr(e, b"val"),
             b"next" => st.next = attr(e, b"val"),
             b"link" => st.linked = attr(e, b"val"),
             b"qFormat" => st.quick = on_off(e),
+            // §17.7.4.19 uiPriority, §17.7.4.16 semiHidden, §17.7.4.20 unhideWhenUsed,
+            // §17.7.4.4 hidden, §17.7.4.2 autoRedefine.
+            b"uiPriority" => st.ui_priority = int(e, b"val").map(|v| v as u32),
+            b"semiHidden" => st.semi_hidden = on_off(e),
+            b"unhideWhenUsed" => st.unhide_when_used = on_off(e),
+            b"hidden" => st.hidden = on_off(e),
+            b"autoRedefine" => st.auto_redefine = on_off(e),
             b"pPr" if s => {
                 st.ppr = read_ppr(r, None)?;
                 return Ok(true);
@@ -472,11 +480,17 @@ fn read_style<'a>(r: &mut XmlReader<'a>, e: &BytesStart<'a>, before: usize) -> R
                 st.tblpr = Some(read_tblpr(r)?);
                 return Ok(true);
             }
-            _ => return Ok(!s),
+            b"pPr" | b"rPr" | b"tblPr" => {}
+            // Anything else (aliases, locked, rsid, tblStylePr, trPr, tcPr, …) verbatim.
+            _ => {
+                st.extra.push(capture(r, s, at)?);
+                return Ok(true);
+            }
         }
         Ok(!s)
     })?;
-    st.src = Some(Raw::new(r.slice(before, r.pos()), 0));
+    let fp = st.content_fingerprint();
+    st.src = Some(Raw::new(r.slice(before, r.pos()), fp));
     Ok(st)
 }
 

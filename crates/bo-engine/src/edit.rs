@@ -1242,6 +1242,9 @@ pub struct EditResult {
     /// Text segments of the body paragraphs (`translationSegments`, CORE-LANG-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub translation: Option<Vec<bo_edit::translate::TextSegment>>,
+    /// Style management answer (style commands, DOC-STYLE-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style_mgr: Option<Box<crate::doc_styles::StyleMgrOut>>,
 }
 
 impl crate::Engine {
@@ -1274,6 +1277,10 @@ impl crate::Engine {
         // Embedded and linked workbooks (CORE-EMBED-001).
         if let Some(oc) = crate::ole::OleCommand::parse(&v) {
             let r = self.doc_ole_command(oc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        if let Some(sc) = crate::doc_styles::StyleCommand::parse(&v) {
+            let r = self.doc_style_command(sc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         if let Some(tc) = crate::translate::TranslateCommand::parse(&v) {
@@ -2418,6 +2425,7 @@ impl crate::Engine {
             custom_xml: None,
             speech: None,
             translation: None,
+            style_mgr: None,
         })
     }
 }

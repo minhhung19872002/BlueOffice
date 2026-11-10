@@ -282,6 +282,17 @@ export {
   type PictureToolsInfo,
 } from './usePictureTools';
 export {
+  BackgroundRemovalMode,
+  MARK_RADIUS,
+  graphCutProvider,
+  type BackgroundMarkValue,
+  type BackgroundPreviewValue,
+  type BackgroundPriorValue,
+  type BackgroundRemovalLabels,
+  type RemovalSpecValue,
+  type SegmentationProvider,
+} from './BackgroundRemoval';
+export {
   EditObjectDialog,
   InsertObjectDialog,
   OBJECT_COMMANDS,

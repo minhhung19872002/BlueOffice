@@ -5047,6 +5047,15 @@
     "toShapes": "Chuyển thành hình",
     "adjust": "Tinh chỉnh…",
     "insertSvg": "Ảnh SVG…",
+    "removeBackground": "Xoá nền",
+    "markKeep": "Đánh dấu vùng giữ lại",
+    "markRemove": "Đánh dấu vùng xoá bỏ",
+    "undoMark": "Bỏ dấu vừa vẽ",
+    "discardChanges": "Huỷ thay đổi",
+    "keepChanges": "Giữ thay đổi",
+    "computing": "Đang tách nền…",
+    "kept": "Giữ lại {{percent}}% ảnh; phần tô màu tím sẽ bị xoá",
+    "bgCanvas": "Ảnh xem trước: vẽ lên ảnh để đánh dấu; phím mũi tên di chuyển con trỏ, Space đánh dấu tại con trỏ",
     "preset": {
       "sharp": {
         "soften50": "Làm mềm 50%",

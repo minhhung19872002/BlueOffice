@@ -77,6 +77,16 @@ export function pictureTabLabels(t: T): PictureTabLabels {
     current: (i) => t('pictureTools.current', i),
     saved: (size) => t('pictureTools.saved', { size }),
     nothingSaved: k('nothingSaved'),
+    // CORE-PIC-002 background removal mode.
+    removeBackground: k('removeBackground'),
+    markKeep: k('markKeep'),
+    markRemove: k('markRemove'),
+    undoMark: k('undoMark'),
+    discard: k('discardChanges'),
+    keepChanges: k('keepChanges'),
+    computing: k('computing'),
+    kept: (percent) => t('pictureTools.kept', { percent }),
+    canvas: k('bgCanvas'),
   };
 }
 

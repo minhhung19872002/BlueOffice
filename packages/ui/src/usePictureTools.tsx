@@ -1,6 +1,7 @@
 import {
   Contrast,
   Crop,
+  Eraser,
   FileImage,
   ImageDown,
   ImageMinus,
@@ -24,6 +25,13 @@ import {
   type PictureToolsLabels,
 } from './PictureTools';
 import type { RibbonTab } from './Ribbon';
+import {
+  BackgroundRemovalMode,
+  type BackgroundPreviewValue,
+  type BackgroundRemovalLabels,
+  type RemovalSpecValue,
+  type SegmentationProvider,
+} from './BackgroundRemoval';
 
 /**
  * The "Picture format" contextual tab of BlueDoc and BlueSlide (CORE-PIC-001), built from the
@@ -49,7 +57,8 @@ export type PictureToolsCommand =
       all?: boolean;
     }
   | { cmd: 'pictureChange'; data: string; name?: string }
-  | { cmd: 'pictureReset'; size?: boolean };
+  | { cmd: 'pictureReset'; size?: boolean }
+  | ({ cmd: 'pictureBackgroundPreview' | 'pictureRemoveBackground' } & RemovalSpecValue);
 
 /** What the tools read from a command result. */
 export interface PictureToolsInfo {
@@ -63,10 +72,16 @@ export interface PictureToolsInfo {
   svg: boolean;
   previews?: string[];
   compressed?: { pictures: number; before: number; after: number };
+  /** The background can be removed (CORE-PIC-002). */
+  removable?: boolean;
+  /** Settings of the removed background, when it was removed. */
+  removal?: RemovalSpecValue;
+  /** Preview of the "Remove background" mode. */
+  background?: BackgroundPreviewValue;
 }
 
 /** Labels of the tab (on top of the gallery and dialog labels). */
-export interface PictureTabLabels extends PictureToolsLabels {
+export interface PictureTabLabels extends PictureToolsLabels, BackgroundRemovalLabels {
   tab: string;
   groupAdjust: string;
   groupSize: string;
@@ -80,6 +95,7 @@ export interface PictureTabLabels extends PictureToolsLabels {
 
 /** Registry command ids of the picture tools buttons. */
 export const PICTURE_COMMANDS = [
+  'picture.removeBackground',
   'picture.change',
   'picture.reset',
   'picture.resetSize',
@@ -113,6 +129,8 @@ export interface PictureToolsHost {
   onError?: (code: string) => void;
   /** Receives the actions of the registry commands (after each render). */
   hub?: PictureActionsHub;
+  /** Starting estimate of the background removal (default: the engine's graph cut). */
+  segmentation?: SegmentationProvider;
 }
 
 /**
@@ -140,7 +158,7 @@ export function toBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-type Dialogs = 'adjust' | 'crop' | 'compress' | null;
+type Dialogs = 'adjust' | 'crop' | 'compress' | 'background' | null;
 
 /** The picture format tab, its dialogs and the actions of its registry commands. */
 export function usePictureTools(host: PictureToolsHost): {
@@ -181,8 +199,15 @@ export function usePictureTools(host: PictureToolsHost): {
     [info?.bytes, fxKey, host.selectionKey],
   );
   const setFx = (f: PictureFxValue) => void send({ cmd: 'pictureFx', fx: f });
+  // Previews of the background removal do not replace the tools' picture info.
+  const previewBackground = useCallback(async (spec: RemovalSpecValue) => {
+    const r = await hostRef.current.run({ cmd: 'pictureBackgroundPreview', ...spec });
+    if (r?.error) hostRef.current.onError?.(r.error);
+    return r?.picture?.background ?? null;
+  }, []);
 
   const actions: PictureActions = {
+    'picture.removeBackground': () => setDialog('background'),
     'picture.change': () => {
       void (async () => {
         const f = await hostRef.current.pickFile();
@@ -237,6 +262,15 @@ export function usePictureTools(host: PictureToolsHost): {
             id: 'pictureAdjust',
             label: l.groupAdjust,
             items: [
+              {
+                ...button(
+                  'picture.removeBackground',
+                  l.removeBackground,
+                  <Eraser size={18} aria-hidden="true" />,
+                  'large',
+                ),
+                enabled: enabled && info?.removable !== false,
+              },
               {
                 id: 'picture.corrections',
                 label: l.corrections,
@@ -328,6 +362,20 @@ export function usePictureTools(host: PictureToolsHost): {
   const close = () => setDialog(null);
   const dialogs = (
     <>
+      {dialog === 'background' && (
+        <BackgroundRemovalMode
+          open
+          labels={l}
+          initial={info?.removal ?? null}
+          provider={host.segmentation}
+          preview={previewBackground}
+          onKeep={(spec) => {
+            close();
+            void send({ cmd: 'pictureRemoveBackground', ...spec, source: false });
+          }}
+          onDiscard={close}
+        />
+      )}
       {dialog === 'adjust' && (
         <PictureAdjustDialog open fx={fx} labels={l} onApply={setFx} onClose={close} />
       )}

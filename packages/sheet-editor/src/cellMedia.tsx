@@ -158,8 +158,17 @@ export interface CellMediaDeps {
   pickFile: (accept: string[]) => Promise<{ name: string; bytes: Uint8Array } | null>;
   /** Open the alternative-text dialog for the picture of a cell. */
   openAltText: (d: AltTextTarget) => void;
+  /** Open the background removal mode for the picture of a cell (CORE-PIC-002). */
+  openBackground: (d: CellPictureTarget) => void;
   /** Report an error to the user. */
   fail: (e: unknown) => void;
+}
+
+/** A cell holding a stored picture. */
+export interface CellPictureTarget {
+  sheet: number;
+  row: number;
+  col: number;
 }
 
 /** The picture whose alternative text is edited. */
@@ -183,7 +192,7 @@ export interface CellMediaEditorState {
 /**
  * Registers the commands: `insert.checkbox`, `cell.removeCheckbox`, `cell.toggleCheckbox`
  * (Space, handled by the editor only on checkbox cells), `insert.pictureInCell`,
- * `cell.pictureAltText`.
+ * `cell.pictureAltText`, `cell.pictureRemoveBackground` (CORE-PIC-002).
  */
 export function registerCellMediaCommands<S>(
   add: AddCommand<S>,
@@ -254,6 +263,18 @@ export function registerCellMediaCommands<S>(
         alt: img.alt ?? '',
         decorative: img.decorative,
       });
+    },
+    has,
+  );
+  add(
+    'cell.pictureRemoveBackground',
+    async (s) => {
+      const v = view(s);
+      const { row, col } = v.active;
+      const img = (await mediaState(v.host, v.sheet, row, col))?.image;
+      // Only stored pictures (an IMAGE picture is fetched again from its URL).
+      if (img?.kind !== 'local') return;
+      deps.openBackground({ sheet: v.sheet, row, col });
     },
     has,
   );

@@ -1,0 +1,80 @@
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tool[aria-pressed='true'] {
+  border-color: var(--bo-accent);
+  background: var(--bo-accent-soft, var(--bo-surface));
+  font-weight: 600;
+}
+
+.area {
+  position: relative;
+  max-width: 100%;
+  margin: 0 auto;
+  border: 1px solid var(--bo-border);
+  background: repeating-conic-gradient(var(--bo-surface) 0 25%, var(--bo-border) 0 50%) 0 0 / 16px
+    16px;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.area:focus-visible {
+  outline: 2px solid var(--bo-accent);
+  outline-offset: 2px;
+}
+
+.picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.keep {
+  stroke: #2e9d4c;
+  stroke-opacity: 0.85;
+}
+
+.remove {
+  stroke: #d0342c;
+  stroke-opacity: 0.85;
+}
+
+.cursor {
+  fill: none;
+  stroke: var(--bo-text);
+  stroke-width: 0.004;
+  opacity: 0;
+}
+
+.area:focus-visible .cursor {
+  opacity: 1;
+}
+
+.status {
+  margin: 8px 0 0;
+  color: var(--bo-text-muted);
+  font-size: 12px;
+}

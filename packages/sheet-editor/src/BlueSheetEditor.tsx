@@ -222,6 +222,7 @@ import {
   type SheetSplit,
 } from './sheetSplit';
 import { recordSheetHost, ScriptPane, ScriptRecorder, sheetScriptHost } from '@blueoffice/script';
+import { sheetSelection, useAddins } from '@blueoffice/addins';
 import {
   useCallback,
   useEffect,
@@ -669,6 +670,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     sheetNow.current = sheet;
   }, [sheet]);
   const [selection, setSelection] = useState<Selection>(single({ row: 0, col: 0 }));
+  /** The selection now (read by add-ins, CORE-ADDIN-001). */
+  const selectionNow = useRef(selection);
+  useEffect(() => {
+    selectionNow.current = selection;
+  }, [selection]);
   const [scroll, setScroll] = useState({ x: 0, y: 0 });
   const [size, setSize] = useState({ w: 800, h: 500 });
   const [content, setContent] = useState({ w: 2000, h: 4000 });
@@ -3244,6 +3250,32 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     modelPivot,
   ]);
 
+  // Add-ins of the organisation catalogue (CORE-ADDIN-001): ribbon commands, task panes.
+  // Their calls go through the BlueScript API (ADR-0012) on the host the UI uses.
+  const selRange = rangeOf(selection);
+  const addins = useAddins({
+    app: 'sheet',
+    catalog: platform.addins,
+    registry,
+    host: () =>
+      host && info
+        ? sheetScriptHost({
+            host,
+            activeSheet: () => sheetNow.current,
+            decimal,
+            onEnd: refreshInfo,
+          })
+        : null,
+    selection: (h) =>
+      sheetSelection(h, {
+        sheet: sheetNow.current,
+        sheetName: sheetName ?? '',
+        range: rangeOf(selectionNow.current),
+        active: selectionNow.current.active,
+      }),
+    selectionKey: `${sheet}:${selRange.r0},${selRange.c0},${selRange.r1},${selRange.c1}:${selection.active.row},${selection.active.col}`,
+    documentKey: revision,
+  });
   // Saved scripts on a shortcut / the Quick Access Toolbar (CORE-SCRIPT-002).
   const scriptBindings = useScriptBindings({
     app: 'sheet',
@@ -4930,8 +4962,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       ),
     focusInput,
   );
+  // Ribbon with the add-ins' commands and the Add-in tab (CORE-ADDIN-001).
+  const shownTabs = addins.applyTabs(ribbonTabs);
   useEffect(() => {
-    ribbonTabsRef.current = ribbonTabs;
+    ribbonTabsRef.current = shownTabs;
   });
 
   const r = rangeOf(selection);
@@ -5062,7 +5096,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           ribbonCustom.below
             ? []
             : ribbonCustom.quickAccess(
-                ribbonTabs,
+                shownTabs,
                 scriptBindings.quickAccess.map((sc) => ({
                   id: `script.run.${sc.id}`,
                   icon: 'script.run',
@@ -5075,7 +5109,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         }
       />
       <CommandSearch
-        tabs={ribbonTabs}
+        tabs={shownTabs}
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         labels={{
@@ -5085,7 +5119,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         }}
       />
       <Ribbon
-        tabs={ribbonTabs}
+        tabs={shownTabs}
         labels={ribbonLabels(t)}
         autoActivate={AUTO_CONTEXTS}
         fileMenu={{
@@ -5099,7 +5133,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         <QuickAccessBar
           below
           label={ribbonCustom.qatLabel}
-          items={ribbonCustom.quickAccess(ribbonTabs)}
+          items={ribbonCustom.quickAccess(shownTabs)}
         />
       )}
       <FileBackstage
@@ -5828,19 +5862,22 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   } satisfies TaskPaneDef,
                 ]
               : []),
+            ...(info ? addins.panes : []),
           ]}
           onClose={(id) =>
-            id === 'queries'
-              ? queries.closePane()
-              : id === 'thesaurus'
-                ? thesaurus.close()
-                : id === 'ai'
-                  ? ai.close()
-                  : id === 'comments'
-                    ? setCommentsOpen(false)
-                    : id === 'script'
-                      ? setScriptOpen(false)
-                      : setVersionsOpen(false)
+            addins.close(id)
+              ? undefined
+              : id === 'queries'
+                ? queries.closePane()
+                : id === 'thesaurus'
+                  ? thesaurus.close()
+                  : id === 'ai'
+                    ? ai.close()
+                    : id === 'comments'
+                      ? setCommentsOpen(false)
+                      : id === 'script'
+                        ? setScriptOpen(false)
+                        : setVersionsOpen(false)
           }
           labels={taskPaneLabels(t)}
           focusApp={focusInput}
@@ -6059,6 +6096,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       {sheetMenu.element}
       {shortcuts.element}
       {ribbonCustom.element}
+      {addins.element}
       {tabMenu && (
         <ColorMenu
           x={tabMenu.x}

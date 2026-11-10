@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BlueOffice.Api.Addins;
 using BlueOffice.Api.Ai;
 using BlueOffice.Api.Audit;
 using BlueOffice.Api.Auth;
@@ -112,6 +113,8 @@ builder.Services.AddAi(config);
 
 // Remote control from a phone and online presentation (SLIDE-REMOTE-001; docs/deploy/security.md).
 builder.Services.AddPresent(config);
+// Add-in catalogue (CORE-ADDIN-001): off unless Addins:Enabled is set (docs/deploy/addins.md).
+builder.Services.AddAddins(config);
 builder.Services.AddSingleton<CollabMaintenanceService>();
 if (serveApi)
 {
@@ -236,6 +239,7 @@ app.MapDictation();
 app.MapHandwriting();
 app.MapAi();
 app.MapPresent();
+app.MapAddins();
 
 app.Run();
 

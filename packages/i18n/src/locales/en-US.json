@@ -120,6 +120,9 @@
     "comingLater": "Coming in a later release"
   },
   "commands": {
+    "addins": {
+      "manage": "Manage add-ins"
+    },
     "ai": {
       "pane": "BlueAI",
       "rewrite": "BlueAI: rewrite the selection",
@@ -7364,5 +7367,38 @@
     "small": "Small",
     "medium": "Medium",
     "large": "Large"
+  },
+  "addins": {
+    "tab": "Add-ins",
+    "group": "Add-ins",
+    "manage": "Manage add-ins",
+    "paneTitle": "Organisation add-ins",
+    "loading": "Loading the add-in catalogue…",
+    "empty": "Your administrator has not published any add-in for this application.",
+    "install": "Install",
+    "uninstall": "Uninstall",
+    "open": "Open",
+    "installed": "Installed",
+    "publisher": "{{publisher}} · version {{version}}",
+    "trusted": "Marked trusted by the administrator",
+    "failed": "Could not complete the action: {{message}}",
+    "frameTitle": "Add-in {{name}}",
+    "permissionsTitle": "Permissions",
+    "consent": {
+      "title": "Install {{name}}?",
+      "intro": "This add-in is provided by {{publisher}} and loaded from {{origin}}. If you install it, it may:",
+      "none": "It needs no permission on your documents.",
+      "note": "You can uninstall it at any time; its data stored on this device is then deleted.",
+      "accept": "Allow and install",
+      "cancel": "Cancel"
+    },
+    "perm": {
+      "readDocument": "Read all content of the open document",
+      "writeDocument": "Change the open document (each change can be undone)",
+      "selection": "Read and change the selection, read the selected content",
+      "ribbon": "Add command buttons to the ribbon",
+      "storage": "Store its own data on this device",
+      "network": "Connect to {{origin}}"
+    }
   }
 }

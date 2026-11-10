@@ -359,7 +359,8 @@ mây bên thứ ba; dùng được trong LAN / on-prem. Mặc định **bật** 
 
 - CSP (`apps/desktop/src-tauri/tauri.conf.json` → `app.security.csp`): `default-src 'self'`, `script-src 'self'
   'wasm-unsafe-eval'` (không `unsafe-inline` cho script), `img-src 'self' data: blob:`, `connect-src` cho IPC,
-  `https:`/`wss:` (server BlueOffice) và localhost; `style-src` có `'unsafe-inline'`.
+  `https:`/`wss:` (server BlueOffice) và localhost; `style-src` có `'unsafe-inline'`; `frame-src` cho khung
+  add-in (§12A).
 - Capability tối thiểu (`capabilities/default.json`): `core:default`, đặt tiêu đề/focus cửa sổ, `dialog:default`,
   `deep-link:default` — không bật plugin `fs`/`shell`/`http` của Tauri.
 - Lệnh native tự viết trong `src/main.rs` (`#![forbid(unsafe_code)]`): khoá cache offline thành tên file hex, không bao giờ
@@ -370,6 +371,47 @@ mây bên thứ ba; dùng được trong LAN / on-prem. Mặc định **bật** 
 - Hạn chế: lệnh `read_file(path)` đọc **bất kỳ đường dẫn** mà webview yêu cầu (dùng cho mở file/deep link) — an toàn
   dựa vào CSP chỉ cho script đóng gói; token host sau đăng nhập không lưu vào kho khoá hệ điều hành; gói cài đặt chưa
   ký Authenticode trong repo [Vận hành: ký khi phát hành].
+
+## 12A. Add-in web (CORE-ADDIN-001) — [Đã có], mặc định tắt
+
+Thiết kế: [ADR-0014](../adr/0014-web-addins.md); hướng dẫn quản trị: [addins.md](addins.md).
+
+- **Tắt mặc định**: mọi route `/api/addins*`, `/api/admin/addins*` trả 404 cho tới khi quản trị viên đặt
+  `Addins__Enabled=true`; editor không hiện tab Add-in, không tải trang ngoài nào.
+- **Chỉ quản trị viên phát hành**: `PUT /api/admin/addins/{id}` cần token OIDC có vai trò `Addins:AdminRole`
+  (mặc định `blueoffice-admin`, trong claim `roles`/`role`/`groups` hoặc `realm_access.roles` của Keycloak); token của
+  host và API key không được. Manifest được kiểm theo cùng quy tắc với client (`AddinManifestValidator.cs` ↔
+  `packages/addin-sdk/src/manifest.ts`); `Addins__ApprovedOrigins__N` giới hạn origin trang add-in và `network:`;
+  `http://localhost` chỉ khi `Addins__AllowLoopbackOrigins=true` (phát triển). Mỗi lần phát hành / gỡ / cài ghi một
+  dòng log `BlueOffice.Audit.Addins`.
+- **Đồng ý khi cài**: hộp thoại liệt kê mọi quyền của manifest; server chỉ nhận cài đặt khi danh sách quyền đồng ý
+  khớp đúng manifest (không cài một phần). Gỡ cài đặt xoá bản ghi cài đặt và dữ liệu `storage` của add-in trên máy.
+- **Cách ly khung**: trang add-in nằm trong `<iframe sandbox="allow-scripts allow-forms">` — không `allow-same-origin`
+  (origin mờ: không đọc được cookie, `localStorage`, IndexedDB của chính nó hay của BlueOffice), không
+  `allow-top-navigation`, `allow-popups`, `allow-downloads`, `allow-modals`. Chỉ add-in quản trị viên đánh dấu
+  `trusted` mới có `allow-same-origin` (vẫn khác origin với editor). Thuộc tính `csp` (CSP Embedded Enforcement) bắt
+  buộc `default-src`/`script-src` = các origin của manifest (+ origin editor cho `/addin-sdk/v1.js`),
+  `connect-src` = các quyền `network:` (không có thì `'none'`), `frame-src 'none'`, `object-src 'none'`,
+  `form-action 'none'`, `base-uri 'none'`; trang add-in phải chấp nhận chính sách (`Allow-CSP-From`). `allow` tắt
+  camera, micro, vị trí, đọc clipboard, USB/serial/HID/Bluetooth, thanh toán. `referrerpolicy="strict-origin"`.
+- **Mọi thông điệp là không tin cậy**: chỉ nhận `message` có `source` đúng `contentWindow` của khung; kiểm lược đồ
+  (`parseRequest`: thẻ giao thức, phiên bản, JSON-RPC 2.0, tên method, tham số là JSON thuần ≤ 2 MB, ≤ 16 tham số);
+  method không có trong bảng `METHOD_PERMISSIONS` hoặc thuộc ứng dụng khác → `-32601`; thiếu quyền → `-32001` kèm
+  danh sách quyền thiếu; chưa bắt tay `addin.hello` → `-32006`; giới hạn tốc độ token bucket (20 lệnh/giây, burst 60)
+  → `-32002`. Lệnh được xử lý tuần tự.
+- **Không có API thứ hai**: lệnh tài liệu là đúng các method allow-list của BlueScript (ADR-0012), đi qua cầu lệnh
+  engine như thao tác tay (hoàn tác, bảo vệ tài liệu, cộng tác áp dụng); mỗi lệnh sửa = một bước hoàn tác. Đọc cả
+  tài liệu cần `read-document`; `selection` chỉ cho vùng chọn và nội dung đang chọn; lệnh thô `*.command` cần cả
+  `read-document` và `write-document`. Sự kiện không mang nội dung (`selectionChanged` cần `selection`,
+  `documentChanged` cần `read-document`, `command` cần `ui:ribbon`).
+- **Lưu trữ riêng**: `storage.*` ghi vào một mục `blueoffice.addin.storage.<id>` duy nhất của add-in (khoá do host
+  chọn theo id manifest, add-in không đặt được tên mục) — add-in không đọc được dữ liệu của add-in khác; ≤ 1 MB,
+  ≤ 500 khoá; gỡ cài đặt xoá mục này.
+- Desktop: cùng khung sandbox trong WebView2; CSP của ứng dụng thêm `frame-src 'self' https: http://localhost:*
+  http://127.0.0.1:*` (chỉ cho khung add-in; script ứng dụng vẫn `'self'`).
+- Hạn chế: trang add-in có thể tự điều hướng *bên trong* khung sang trang khác (trình duyệt không chặn được bằng
+  sandbox/CSP); trang mới vẫn chỉ có đúng các quyền đã cấp. Firefox không thực thi thuộc tính `csp`. Thông điệp gửi
+  vào khung dùng `targetOrigin '*'` vì origin mờ không gọi tên được.
 
 ## 13. Chuỗi cung ứng phần mềm
 
@@ -415,6 +457,8 @@ mây bên thứ ba; dùng được trong LAN / on-prem. Mặc định **bật** 
 | Không tải tài nguyên ngoài | Đã có | không có HTTP client trong `crates/`; `bo-docx/src/reader.rs`, `bo-pptx/src/render.rs` |
 | Hành động trong trình chiếu: chương trình/macro/tệp không bao giờ chạy, URL ngoài phải hỏi | Đã có | §10.1; `crates/bo-engine/src/slide_edit/action.rs`, `packages/slide-editor/src/actions.ts` |
 | Chữ ký số PAdES/OOXML | Đã có (CLI; chưa B-T, chưa kiểm chuỗi CA) | `crates/bo-sign`; ADR-0007 |
+| Add-in: tắt mặc định, chỉ quản trị viên phát hành, đồng ý quyền khi cài | Đã có | `Api/Addins/AddinEndpoints.cs`; test `AddinTests.cs` |
+| Add-in: khung sandbox + CSP, kiểm quyền từng lệnh, giới hạn tốc độ, lưu trữ riêng | Đã có | `packages/addins/src/{bridge,frame,storage}.ts`; test `packages/addins/test/`, `tests/e2e/specs/addins.spec.ts` |
 | Desktop CSP + capability tối thiểu | Đã có | `apps/desktop/src-tauri/tauri.conf.json`, `capabilities/default.json` |
 | Ghi log tập trung (stdout) + OTel | Đã có / Vận hành gom log | `Program.cs` (Serilog), `Common/HealthAndTelemetry.cs` |
 | Kiểm soát giấy phép/nguồn dependency | Đã có | `deny.toml`, `pnpm license-check` |

@@ -120,6 +120,9 @@
     "comingLater": "Sẽ có ở phiên bản sau"
   },
   "commands": {
+    "addins": {
+      "manage": "Quản lý add-in"
+    },
     "ai": {
       "pane": "BlueAI",
       "rewrite": "BlueAI: viết lại phần chọn",
@@ -7364,5 +7367,38 @@
     "small": "Nhỏ",
     "medium": "Vừa",
     "large": "Lớn"
+  },
+  "addins": {
+    "tab": "Add-in",
+    "group": "Add-in",
+    "manage": "Quản lý add-in",
+    "paneTitle": "Add-in của tổ chức",
+    "loading": "Đang tải danh mục add-in…",
+    "empty": "Quản trị viên chưa phát hành add-in nào cho ứng dụng này.",
+    "install": "Cài đặt",
+    "uninstall": "Gỡ cài đặt",
+    "open": "Mở",
+    "installed": "Đã cài",
+    "publisher": "{{publisher}} · phiên bản {{version}}",
+    "trusted": "Được quản trị viên đánh dấu tin cậy",
+    "failed": "Không thực hiện được: {{message}}",
+    "frameTitle": "Add-in {{name}}",
+    "permissionsTitle": "Quyền",
+    "consent": {
+      "title": "Cài đặt {{name}}?",
+      "intro": "Add-in này do {{publisher}} cung cấp, tải từ {{origin}}. Nếu cài đặt, nó sẽ được phép:",
+      "none": "Không cần quyền nào trên tài liệu.",
+      "note": "Bạn có thể gỡ cài đặt bất cứ lúc nào; dữ liệu add-in lưu trên máy này sẽ bị xóa.",
+      "accept": "Cho phép và cài đặt",
+      "cancel": "Hủy"
+    },
+    "perm": {
+      "readDocument": "Đọc toàn bộ nội dung tài liệu đang mở",
+      "writeDocument": "Sửa nội dung tài liệu đang mở (mỗi lần sửa hoàn tác được)",
+      "selection": "Đọc và thay đổi vùng chọn, đọc nội dung đang chọn",
+      "ribbon": "Thêm nút lệnh vào dải lệnh",
+      "storage": "Lưu dữ liệu riêng của add-in trên máy này",
+      "network": "Kết nối tới {{origin}}"
+    }
   }
 }

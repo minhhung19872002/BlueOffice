@@ -261,6 +261,7 @@ import {
   BookA,
 } from 'lucide-react';
 import { docScriptHost, recordEngine, ScriptPane, ScriptRecorder } from '@blueoffice/script';
+import { docSelection, useAddins } from '@blueoffice/addins';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import { CommandRegistry } from './commands';
@@ -3099,6 +3100,17 @@ function EditorInner({
         : null,
     [store, runCommand],
   );
+  // Add-ins of the organisation catalogue (CORE-ADDIN-001): ribbon commands, task panes.
+  // Their calls go through the BlueScript API (ADR-0012), without moving the focus.
+  const addins = useAddins({
+    app: 'doc',
+    catalog: platform.addins,
+    registry,
+    host: () => (store.getState().doc ? docScriptHost({ run: runCommand }) : null),
+    selection: docSelection,
+    selectionKey: JSON.stringify(state.edit?.selection ?? null),
+    documentKey: state.layoutVersion,
+  });
   // Saved scripts on a shortcut / the Quick Access Toolbar (CORE-SCRIPT-002).
   const scriptBindings = useScriptBindings({
     app: 'doc',
@@ -4512,6 +4524,7 @@ function EditorInner({
   const rulersOn =
     state.showRuler && !!state.doc && !state.focusMode && state.viewMode !== 'outline';
   const closeTaskPane = (id: string) => {
+    if (addins.close(id)) return;
     if (id === 'navigation') store.setState({ navPane: null });
     else if (id === 'ai') ai.close();
     else if (id === 'thesaurus') thesaurus.close();
@@ -4678,6 +4691,7 @@ function EditorInner({
       content: thesaurus.content,
     });
   }
+  if (state.doc) paneDefs.push(...addins.panes);
   const insets = taskPaneInsets(paneLayout, paneDefs);
   const reviewingDock = state.doc ? state.reviewingPane : null;
   const sideLeft = insets.left + (reviewingDock === 'left' ? REVIEWING_SIZE.left : 0);
@@ -4778,7 +4792,7 @@ function EditorInner({
   };
   const docMenu = useContextMenu<DocMenu>(t('contextMenu.label'), docMenuLines, focusDoc);
   useEffect(() => {
-    ribbonTabsRef.current = allRibbonTabs;
+    ribbonTabsRef.current = addins.applyTabs(allRibbonTabs);
   });
   const openDocMenu = docMenu.open;
   const prepareSynonyms = thesMenu.prepare;
@@ -5010,7 +5024,7 @@ function EditorInner({
           {!(state.focusMode && state.doc) && (
             <Ribbon
               // File commands live on the File screen (CORE-UI-002); search still finds them.
-              tabs={[...tabs.filter((x) => x.id !== 'file'), ...contextTabs]}
+              tabs={addins.applyTabs([...tabs.filter((x) => x.id !== 'file'), ...contextTabs])}
               // A contextual tab whose object is no longer selected falls back in the ribbon.
               value={tab}
               onValueChange={setTab}
@@ -5678,6 +5692,7 @@ function EditorInner({
             )}
             {shortcuts.element}
             {ribbonCustom.element}
+            {addins.element}
             {state.legacyNotice > 0 && (
               <div
                 className={styles.macroBar}

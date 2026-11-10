@@ -1,8 +1,9 @@
 import react from '@vitejs/plugin-react';
 import { createHash } from 'node:crypto';
 import { readdirSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
-import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
+import { join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { build, defineConfig, type Plugin, type ProxyOptions } from 'vite';
 
 // `BLUEOFFICE_API_PROXY=http://localhost:5000 pnpm dev|preview`: the web shell
 // and the BlueOffice server on one origin, like deploy/web/nginx.conf
@@ -68,8 +69,46 @@ function serviceWorker(): Plugin {
   };
 }
 
+/**
+ * Add-in SDK for add-in pages (CORE-ADDIN-001): `packages/addin-sdk/src/browser.ts`
+ * built on its own as a classic script, `addin-sdk/v1.js` (global
+ * `BlueOfficeAddin`), so pages on other origins load it with a plain
+ * `<script src>` (no CORS, no bundler).
+ */
+function addinSdk(): Plugin {
+  let outDir = '';
+  return {
+    name: 'blueoffice-addin-sdk',
+    apply: 'build',
+    configResolved(c) {
+      outDir = resolve(c.root, c.build.outDir);
+    },
+    async closeBundle() {
+      await build({
+        configFile: false,
+        publicDir: false,
+        logLevel: 'warn',
+        build: {
+          outDir: join(outDir, 'addin-sdk'),
+          emptyOutDir: false,
+          target: 'es2020',
+          sourcemap: false,
+          lib: {
+            entry: fileURLToPath(
+              new URL('../../packages/addin-sdk/src/browser.ts', import.meta.url),
+            ),
+            formats: ['iife'],
+            name: 'BlueOfficeAddin',
+            fileName: () => 'v1.js',
+          },
+        },
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), serviceWorker()],
+  plugins: [react(), serviceWorker(), addinSdk()],
   worker: { format: 'es' },
   server: { port: 5173, strictPort: true, ...(proxy ? { proxy } : {}) },
   preview: proxy ? { proxy } : {},

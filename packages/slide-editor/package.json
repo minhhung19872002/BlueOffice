@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@blueoffice/addins": "workspace:*",
     "@blueoffice/canvas-host": "workspace:*",
     "@blueoffice/editor": "workspace:*",
     "@blueoffice/i18n": "workspace:*",

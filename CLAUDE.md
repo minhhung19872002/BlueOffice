@@ -119,6 +119,8 @@ bo-script (BlueScript headless: QuickJS-ng/rquickjs + bundle API của packages/
 Package TS: `platform` (PAL, `EngineHost`, `SheetHost`) → `canvas-host`, `ui`, `i18n` → `editor` (BlueDoc + `CommandRegistry`),
 `sheet-editor`, `slide-editor` → `apps/web` (`/doc` `/sheet` `/slide`, nhúng `/edit`), `apps/desktop`;
 `script` (BlueScript: sandbox QuickJS trong worker, API `doc`/`workbook`/`presentation`, pane `script.editor`; ADR-0012),
+`addin-sdk` (manifest + giao thức JSON-RPC postMessage + client cho trang add-in, build `addin-sdk/v1.js`) →
+`addins` (khung sandbox, cầu kiểm quyền lên API BlueScript, `useAddins` cho ba editor; ADR-0014),
 `collab` (client WebSocket + binding doc/sheet/slide), `hosted` (mở file từ host: phiên server, lưu thành version,
 cộng tác, chế độ chỉ xem — dùng chung cho web nhúng và desktop deep link), `editor-sdk` (host ↔ iframe), `storage-providers`, `engine-wasm` (sinh tự động).
 
@@ -166,3 +168,4 @@ cung cấp).
 - [0011](docs/adr/0011-own-english-hyphenation-rules.md) Gạch nối tự động: quy tắc tiếng Anh tự viết (không tệp mẫu bên thứ ba), tiếng Việt chỉ ngắt ở dấu cách
 - [0012](docs/adr/0012-bluescript-quickjs-sandbox.md) BlueScript: QuickJS (WASM, MIT) trong Web Worker riêng, API qua cầu JSON allow-list, một lần chạy = một bước hoàn tác, script lưu theo người dùng
 - [0013](docs/adr/0013-headless-bluescript-runtime.md) BlueScript headless trên server: QuickJS-ng (`rquickjs`, MIT) trong `bo-cli script run`, chạy đúng bundle API của trình duyệt, lịch chạy lưu phiên bản mới (`Scripts:ScheduleEnabled` mặc định tắt)
+- [0014](docs/adr/0014-web-addins.md) Add-in web: iframe sandbox + CSP, JSON-RPC qua postMessage, quyền kiểm từng lệnh, dùng lại API BlueScript, danh mục tổ chức trên server (mặc định tắt)

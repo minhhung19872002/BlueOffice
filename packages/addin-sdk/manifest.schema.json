@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bluestar.vn/schemas/blueoffice-addin-manifest-1.json",
+  "title": "BlueOffice add-in manifest",
+  "description": "Manifest of a BlueOffice web add-in (CORE-ADDIN-001, ADR-0014). Checked by validateManifest() in @blueoffice/addin-sdk and by the server when an administrator publishes it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifestVersion",
+    "id",
+    "name",
+    "version",
+    "publisher",
+    "startUrl",
+    "allowedOrigins",
+    "permissions",
+    "apps"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "manifestVersion": { "const": 1 },
+    "id": {
+      "description": "Lower-case reverse domain name, e.g. vn.example.hello.",
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62})(?:\\.[a-z0-9](?:[a-z0-9-]{0,62}))+$"
+    },
+    "name": { "$ref": "#/$defs/localized100" },
+    "description": { "$ref": "#/$defs/localized1000" },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d{0,8})\\.(0|[1-9]\\d{0,8})\\.(0|[1-9]\\d{0,8})(?:-[0-9A-Za-z.-]{1,40})?$"
+    },
+    "publisher": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "icon": {
+      "description": "Icon URL on one of allowedOrigins.",
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048
+    },
+    "startUrl": {
+      "description": "Page loaded in the task pane, on one of allowedOrigins.",
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048
+    },
+    "allowedOrigins": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/origin" }
+    },
+    "permissions": {
+      "type": "array",
+      "maxItems": 30,
+      "uniqueItems": true,
+      "items": {
+        "anyOf": [
+          {
+            "enum": ["read-document", "write-document", "selection", "ui:ribbon", "storage"]
+          },
+          {
+            "type": "string",
+            "pattern": "^network:(https://[^/?#\\s]+|http://(localhost|127\\.0\\.0\\.1)(:\\d+)?)$"
+          }
+        ]
+      }
+    },
+    "apps": { "$ref": "#/$defs/apps" },
+    "ribbon": {
+      "description": "Needs the ui:ribbon permission.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commands"],
+      "properties": {
+        "tab": {
+          "description": "Ribbon tab id (home, insert, review, view …); absent or unknown: the Add-in tab.",
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]{0,39}$"
+        },
+        "group": { "$ref": "#/$defs/localized60" },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label", "action"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$" },
+              "label": { "$ref": "#/$defs/localized60" },
+              "tooltip": { "$ref": "#/$defs/localized200" },
+              "action": { "enum": ["openPane", "event"] },
+              "apps": { "$ref": "#/$defs/apps" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "origin": {
+      "type": "string",
+      "pattern": "^(https://[^/?#\\s]+|http://(localhost|127\\.0\\.0\\.1)(:\\d+)?)$"
+    },
+    "apps": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["doc", "sheet", "slide"] }
+    },
+    "localized60": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vi", "en"],
+      "properties": {
+        "vi": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "en": { "type": "string", "minLength": 1, "maxLength": 60 }
+      }
+    },
+    "localized100": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vi", "en"],
+      "properties": {
+        "vi": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "en": { "type": "string", "minLength": 1, "maxLength": 100 }
+      }
+    },
+    "localized200": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vi", "en"],
+      "properties": {
+        "vi": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "en": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "localized1000": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vi", "en"],
+      "properties": {
+        "vi": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "en": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    }
+  }
+}

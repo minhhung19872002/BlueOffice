@@ -40,6 +40,11 @@ public abstract class BlueOfficeDbContext(DbContextOptions options) : DbContext(
 
     /// <summary>Run history of scheduled scripts (CORE-SCRIPT-004).</summary>
     public DbSet<ScriptRun> ScriptRuns => Set<ScriptRun>();
+    /// <summary>Organisation add-in catalogue (CORE-ADDIN-001).</summary>
+    public DbSet<AddinEntry> Addins => Set<AddinEntry>();
+
+    /// <summary>Per-user add-in installs (CORE-ADDIN-001).</summary>
+    public DbSet<AddinInstall> AddinInstalls => Set<AddinInstall>();
 
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -120,6 +125,27 @@ public abstract class BlueOfficeDbContext(DbContextOptions options) : DbContext(
             e.Property(x => x.Error).HasMaxLength(2000);
             e.Property(x => x.Logs).HasMaxLength(8000);
             e.Property(x => x.Version).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<AddinEntry>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(128);
+            e.Property(x => x.Version).HasMaxLength(64);
+            e.Property(x => x.Name).HasMaxLength(100);
+            e.Property(x => x.Apps).HasMaxLength(32);
+            e.Property(x => x.PublishedBy).HasMaxLength(320);
+        });
+
+        modelBuilder.Entity<AddinInstall>(e =>
+        {
+            e.HasIndex(x => new { x.AddinId, x.UserKey }).IsUnique();
+            e.HasIndex(x => x.UserKey);
+            e.Property(x => x.Id).HasMaxLength(32);
+            e.Property(x => x.AddinId).HasMaxLength(128);
+            e.Property(x => x.UserKey).HasMaxLength(600);
+            e.Property(x => x.Permissions).HasMaxLength(4000);
+            e.Property(x => x.Version).HasMaxLength(64);
         });
 
         modelBuilder.Entity<Storage.CollabLogEntry>(e =>

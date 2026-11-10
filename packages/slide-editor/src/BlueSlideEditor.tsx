@@ -271,6 +271,7 @@ import {
   BookA,
 } from 'lucide-react';
 import { recordEngine, ScriptPane, ScriptRecorder, slideScriptHost } from '@blueoffice/script';
+import { slideSelection, useAddins } from '@blueoffice/addins';
 import {
   useCallback,
   useEffect,
@@ -3057,6 +3058,18 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     recorder,
   ]);
 
+  // Add-ins of the organisation catalogue (CORE-ADDIN-001): ribbon commands, task panes.
+  // Their calls go through the BlueScript API (ADR-0012), without moving the focus.
+  const selectedShapes = (edit?.selection ?? []).map((x) => x.id);
+  const addins = useAddins({
+    app: 'slide',
+    catalog: platform.addins,
+    registry,
+    host: () => (count > 0 ? slideScriptHost({ run: runResult }) : null),
+    selection: async () => slideSelection(edit?.slide ?? current, selectedShapes),
+    selectionKey: `${edit?.slide ?? current}:${selectedShapes.join(',')}`,
+    documentKey: `${epoch}:${revs.join(',')}`,
+  });
   // Saved scripts on a shortcut / the Quick Access Toolbar (CORE-SCRIPT-002).
   const scriptBindings = useScriptBindings({
     app: 'slide',
@@ -4164,7 +4177,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   ]);
 
   // Context menus (CORE-UI-003): shape, picture, table, chart, text, thumbnail, empty slide.
-  const allRibbonTabs = [...ribbonTabs, ...extraTabs];
+  // With the add-ins' commands and the Add-in tab (CORE-ADDIN-001).
+  const allRibbonTabs = addins.applyTabs([...ribbonTabs, ...extraTabs]);
   const menuLookup = ribbonMenuLookup(
     allRibbonTabs,
     registryMenuLookup(
@@ -4528,7 +4542,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             ribbonCustom.below
               ? []
               : ribbonCustom.quickAccess(
-                  [...ribbonTabs, ...extraTabs],
+                  allRibbonTabs,
                   scriptBindings.quickAccess.map((sc) => ({
                     id: `script.run.${sc.id}`,
                     icon: 'script.run',
@@ -4556,8 +4570,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       )}
       {shortcuts.element}
       {ribbonCustom.element}
+      {addins.element}
       <CommandSearch
-        tabs={[...ribbonTabs, ...extraTabs]}
+        tabs={allRibbonTabs}
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         labels={{
@@ -4568,7 +4583,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       />
       {view !== 'show' && view !== 'presenter' && (
         <Ribbon
-          tabs={[...ribbonTabs, ...extraTabs]}
+          tabs={allRibbonTabs}
           labels={ribbonLabels(t)}
           autoActivate={AUTO_CONTEXTS}
           fileMenu={{
@@ -4590,7 +4605,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         <QuickAccessBar
           below
           label={ribbonCustom.qatLabel}
-          items={ribbonCustom.quickAccess([...ribbonTabs, ...extraTabs])}
+          items={ribbonCustom.quickAccess(allRibbonTabs)}
         />
       )}
       <FileBackstage
@@ -5076,8 +5091,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     } satisfies TaskPaneDef,
                   ]
                 : []),
+              ...(count > 0 ? addins.panes : []),
             ]}
             onClose={(id) => {
+              if (addins.close(id)) return;
               if (id === 'ai') ai.close();
               else if (id === 'thesaurus') thesaurus.close();
               else if (id === 'selection') setSelectionOpen(false);

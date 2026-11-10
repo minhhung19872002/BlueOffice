@@ -6,7 +6,7 @@
 //! 3 actual/365, 4 European 30/360. Coupon dates step back from maturity by 12/frequency
 //! months, keeping month ends when maturity is a month end.
 
-use super::datetime::year_frac;
+use super::datetime::{days_30_360, year_frac};
 use super::{f, flatten, num, opt_bool, opt_num, s, FnSpec};
 use crate::date::{days_in_month, serial_to_ymd, ymd_to_serial, DateSystem};
 use crate::eval::{Ctx, R};
@@ -101,32 +101,7 @@ fn is_month_end(date: f64, sys: DateSystem) -> Result<bool, ErrorKind> {
 /// Days from `a` to `b` under `basis` (30/360 variants count months of 30 days).
 fn day_count(a: f64, b: f64, basis: i64, sys: DateSystem) -> Result<f64, ErrorKind> {
     match basis {
-        0 | 4 => {
-            let (y1, m1, d1) = ymd(a, sys)?;
-            let (y2, m2, d2) = ymd(b, sys)?;
-            let (mut d1, mut d2) = (i64::from(d1), i64::from(d2));
-            if basis == 0 {
-                // NASD: a last day of February counts as the 30th.
-                let feb_end =
-                    |y: i64, m: u32, d: i64| m == 2 && d == i64::from(days_in_month(y, 2));
-                if feb_end(y1, m1, d1) && feb_end(y2, m2, d2) {
-                    d2 = 30;
-                }
-                if feb_end(y1, m1, d1) {
-                    d1 = 30;
-                }
-                if d2 == 31 && d1 >= 30 {
-                    d2 = 30;
-                }
-                if d1 == 31 {
-                    d1 = 30;
-                }
-            } else {
-                d1 = d1.min(30);
-                d2 = d2.min(30);
-            }
-            Ok(((y2 - y1) * 360 + (i64::from(m2) - i64::from(m1)) * 30 + (d2 - d1)) as f64)
-        }
+        0 | 4 => Ok(days_30_360(ymd(a, sys)?, ymd(b, sys)?, basis == 0) as f64),
         _ => Ok(b - a),
     }
 }

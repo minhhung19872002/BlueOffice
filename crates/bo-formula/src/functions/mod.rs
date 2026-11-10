@@ -24,6 +24,7 @@ mod lookup_more;
 mod math;
 mod math_more;
 pub(crate) mod regression;
+pub use regression::linear_fit;
 pub(crate) mod stats;
 mod text;
 mod text_more;

@@ -104,6 +104,9 @@ pub(crate) struct Fit {
     pub(crate) df: f64,
     pub(crate) ss_reg: f64,
     pub(crate) ss_resid: f64,
+    /// Some column (an x variable, or the constant) was a linear combination of the others
+    /// and was dropped (coefficient 0).
+    pub(crate) collinear: bool,
 }
 
 /// Inverse of a symmetric matrix by Gauss–Jordan elimination; columns whose pivot vanishes are
@@ -227,7 +230,34 @@ pub(crate) fn least_squares(d: &Data, constant: bool) -> Result<Fit, ErrorKind> 
         df,
         ss_reg,
         ss_resid,
+        collinear: dropped.iter().any(|x| *x),
     })
+}
+
+/// Ordinary least squares with a constant: coefficients of the `x` variables (one row of
+/// values per observation) and the intercept, from the same solver as `LINEST`. `None` when
+/// there are no observations, the rows differ in length, or a variable is a linear
+/// combination of the others (LINEST would report a coefficient of 0 for it). Shared with
+/// chart trend lines (`bo-sheet`) so both give the same numbers.
+pub fn linear_fit(x: &[Vec<f64>], y: &[f64]) -> Option<(Vec<f64>, f64)> {
+    let k = x.first().map_or(0, Vec::len);
+    if y.is_empty() || x.len() != y.len() || k == 0 || x.iter().any(|r| r.len() != k) {
+        return None;
+    }
+    if x.iter().flatten().chain(y).any(|v| !v.is_finite()) {
+        return None;
+    }
+    let d = Data {
+        y: y.to_vec(),
+        x: x.to_vec(),
+        k,
+        by_row: false,
+    };
+    let fit = least_squares(&d, true).ok()?;
+    if fit.collinear {
+        return None;
+    }
+    Some((fit.m, fit.b))
 }
 
 /// The LINEST layout: coefficients in reverse variable order then the constant; with `stats`
@@ -726,4 +756,59 @@ fn forecast_ets_stat(ctx: &mut Ctx, args: &[Value]) -> R {
         _ => return Err(ErrorKind::Num),
     };
     num(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::linear_fit;
+
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
+    }
+
+    #[test]
+    fn linear_fit_matches_the_closed_form() {
+        // y = 2x + 1 exactly.
+        let x: Vec<Vec<f64>> = (1..=5).map(|i| vec![f64::from(i)]).collect();
+        let y: Vec<f64> = (1..=5).map(|i| 2.0 * f64::from(i) + 1.0).collect();
+        let (m, b) = linear_fit(&x, &y).unwrap();
+        assert!(close(m[0], 2.0) && close(b, 1.0), "{m:?} {b}");
+        // Noisy data: slope Sxy/Sxx and intercept ȳ − m·x̄ computed by hand.
+        // x = 1..4, y = 1, 3, 2, 5 → x̄ = 2.5, ȳ = 2.75, Sxy = 5.5, Sxx = 5.
+        let x: Vec<Vec<f64>> = (1..=4).map(|i| vec![f64::from(i)]).collect();
+        let (m, b) = linear_fit(&x, &[1.0, 3.0, 2.0, 5.0]).unwrap();
+        assert!(close(m[0], 1.1) && close(b, 2.75 - 1.1 * 2.5), "{m:?} {b}");
+    }
+
+    #[test]
+    fn polynomial_terms_recover_the_coefficients() {
+        // y = 3 − 2x + 0.5x² on x = 0..5.
+        let x: Vec<Vec<f64>> = (0..6)
+            .map(|i| {
+                let v = f64::from(i);
+                vec![v, v * v]
+            })
+            .collect();
+        let y: Vec<f64> = x.iter().map(|r| 3.0 - 2.0 * r[0] + 0.5 * r[1]).collect();
+        let (m, b) = linear_fit(&x, &y).unwrap();
+        assert!(
+            close(b, 3.0) && close(m[0], -2.0) && close(m[1], 0.5),
+            "{m:?} {b}"
+        );
+    }
+
+    #[test]
+    fn degenerate_inputs_have_no_fit() {
+        // Every x the same: the slope is not determined.
+        let x = vec![vec![2.0]; 4];
+        assert!(linear_fit(&x, &[1.0, 2.0, 3.0, 4.0]).is_none());
+        // The second variable is twice the first.
+        let x: Vec<Vec<f64>> = (1..=5)
+            .map(|i| vec![f64::from(i), 2.0 * f64::from(i)])
+            .collect();
+        assert!(linear_fit(&x, &[1.0, 2.0, 2.0, 4.0, 5.0]).is_none());
+        assert!(linear_fit(&[], &[]).is_none());
+        assert!(linear_fit(&[vec![1.0]], &[1.0, 2.0]).is_none());
+        assert!(linear_fit(&[vec![f64::NAN], vec![1.0]], &[1.0, 2.0]).is_none());
+    }
 }

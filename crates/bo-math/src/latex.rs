@@ -13,7 +13,7 @@
 //! * spacing commands (`\, \; \: \! \quad \qquad ~`) are dropped (the layout spaces operators itself).
 
 use crate::unicode_math::{merge, CONTROL_WORDS, FUNCTIONS, LIMIT_FUNCTIONS};
-use crate::{Node, Style};
+use crate::{Node, Pr, Style};
 
 /// Parses LaTeX math into a tree.
 #[must_use]
@@ -29,7 +29,7 @@ pub fn parse(src: &str) -> Vec<Node> {
         if p.i == before {
             // A stray closing token: keep it as text.
             if let Some(Tok::Char(c)) = p.t.get(p.i) {
-                out.push(Node::Run(c.to_string(), Style::Math));
+                out.push(Node::run(c.to_string(), Style::Math));
             }
             p.i += 1;
         }
@@ -288,6 +288,7 @@ impl Parser {
                     _ => self.scripted(),
                 };
                 return vec![Node::Nary {
+                    pr: Pr::default(),
                     chr,
                     sub,
                     sup,
@@ -304,9 +305,9 @@ impl Parser {
         let (sub, sup) = self.scripts();
         let sup = match (primes.is_empty(), sup) {
             (true, s) => s,
-            (false, None) => Some(vec![Node::Run(primes, Style::Math)]),
+            (false, None) => Some(vec![Node::run(primes, Style::Math)]),
             (false, Some(mut s)) => {
-                s.insert(0, Node::Run(primes, Style::Math));
+                s.insert(0, Node::run(primes, Style::Math));
                 Some(merge(s))
             }
         };
@@ -314,12 +315,17 @@ impl Parser {
             return base;
         }
         // A function name with a script: lim_{x\to0} is a limit, \log_2 a subscripted name.
-        if let [Node::Func { name, arg }] = base.as_slice() {
+        if let [Node::Func { name, arg, .. }] = base.as_slice() {
             if arg.is_empty() {
                 return vec![self.function_with(name.clone(), sub, sup)];
             }
         }
-        vec![Node::Scripts { base, sub, sup }]
+        vec![Node::Scripts {
+            pr: Pr::default(),
+            base,
+            sub,
+            sup,
+        }]
     }
 
     fn scripts(&mut self) -> (Option<Vec<Node>>, Option<Vec<Node>>) {
@@ -354,7 +360,7 @@ impl Parser {
         if let Some(Tok::Char(c)) = self.peek() {
             let c = *c;
             self.i += 1;
-            return vec![Node::Run(c.to_string(), Style::Math)];
+            return vec![Node::run(c.to_string(), Style::Math)];
         }
         self.atom()
     }
@@ -367,12 +373,13 @@ impl Parser {
         sup: Option<Vec<Node>>,
     ) -> Node {
         let is_limit =
-            matches!(name.as_slice(), [Node::Run(n, _)] if LIMIT_FUNCTIONS.contains(&n.as_str()));
+            matches!(name.as_slice(), [Node::Run(n, ..)] if LIMIT_FUNCTIONS.contains(&n.as_str()));
         let mut head = name;
         let mut sub = sub;
         if is_limit {
             if let Some(lim) = sub.take() {
                 head = vec![Node::Limit {
+                    pr: Pr::default(),
                     base: head,
                     lim,
                     upper: false,
@@ -381,13 +388,18 @@ impl Parser {
         }
         if sub.is_some() || sup.is_some() {
             head = vec![Node::Scripts {
+                pr: Pr::default(),
                 base: head,
                 sub,
                 sup,
             }];
         }
         let arg = self.function_arg();
-        Node::Func { name: head, arg }
+        Node::Func {
+            pr: Pr::default(),
+            name: head,
+            arg,
+        }
     }
 
     fn function_arg(&mut self) -> Vec<Node> {
@@ -430,9 +442,9 @@ impl Parser {
                         break;
                     }
                 }
-                vec![Node::Run(t, Style::Math)]
+                vec![Node::run(t, Style::Math)]
             }
-            Tok::Char('-') => vec![Node::Run("−".into(), Style::Math)],
+            Tok::Char('-') => vec![Node::run("−", Style::Math)],
             // (x), [x], |x|: brackets that pair up at the same group level grow around their
             // content (as typed in an equation editor; \left … \right does the same explicitly).
             Tok::Char(c @ ('(' | '[' | '|')) => {
@@ -450,17 +462,18 @@ impl Parser {
                         let content = inner.seq();
                         self.i = j + 1;
                         vec![Node::Delim {
+                            pr: Pr::default(),
                             open: Some(c),
                             close: Some(close),
                             parts: vec![content],
                         }]
                     }
-                    None => vec![Node::Run(c.to_string(), Style::Math)],
+                    None => vec![Node::run(c.to_string(), Style::Math)],
                 }
             }
-            Tok::Char(c) => vec![Node::Run(c.to_string(), Style::Math)],
+            Tok::Char(c) => vec![Node::run(c.to_string(), Style::Math)],
             Tok::Cmd(name) => self.command(&name),
-            Tok::Raw(r) => vec![Node::Run(r, Style::Normal)],
+            Tok::Raw(r) => vec![Node::run(r, Style::Normal)],
         }
     }
 
@@ -471,6 +484,7 @@ impl Parser {
                 let num = self.argument();
                 let den = self.argument();
                 vec![Node::Frac {
+                    pr: Pr::default(),
                     num,
                     den,
                     bar: true,
@@ -480,9 +494,11 @@ impl Parser {
                 let num = self.argument();
                 let den = self.argument();
                 vec![Node::Delim {
+                    pr: Pr::default(),
                     open: Some('('),
                     close: Some(')'),
                     parts: vec![vec![Node::Frac {
+                        pr: Pr::default(),
                         num,
                         den,
                         bar: false,
@@ -509,7 +525,11 @@ impl Parser {
                     None
                 };
                 let body = self.argument();
-                vec![Node::Rad { deg, body }]
+                vec![Node::Rad {
+                    pr: Pr::default(),
+                    deg,
+                    body,
+                }]
             }
             "left" => {
                 let open = self.delimiter();
@@ -521,6 +541,7 @@ impl Parser {
                     None
                 };
                 vec![Node::Delim {
+                    pr: Pr::default(),
                     open,
                     close,
                     parts: vec![inner],
@@ -538,35 +559,50 @@ impl Parser {
                 if name == "operatorname" {
                     let arg = self.function_arg();
                     return vec![Node::Func {
-                        name: vec![Node::Run(text, Style::Upright)],
+                        pr: Pr::default(),
+                        name: vec![Node::run(text, Style::Upright)],
                         arg,
                     }];
                 }
-                vec![Node::Run(text, style)]
+                vec![Node::run(text, style)]
             }
             "underline" => {
                 let base = self.argument();
-                vec![Node::Bar { top: false, base }]
+                vec![Node::Bar {
+                    pr: Pr::default(),
+                    top: false,
+                    base,
+                }]
             }
             n if ACCENTS.iter().any(|(a, _)| *a == n) => {
                 let chr = ACCENTS.iter().find(|(a, _)| *a == n).and_then(|(_, c)| *c);
                 let base = self.argument();
                 vec![match chr {
-                    Some(chr) => Node::Accent { chr, base },
-                    None => Node::Bar { top: true, base },
+                    Some(chr) => Node::Accent {
+                        pr: Pr::default(),
+                        chr,
+                        base,
+                    },
+                    None => Node::Bar {
+                        pr: Pr::default(),
+                        top: true,
+                        base,
+                    },
                 }]
             }
             n if FUNCTIONS.contains(&n) => {
                 // Scripts are handled by `scripted` (it rebuilds the function with its limit).
                 if matches!(self.peek(), Some(Tok::Char('_' | '^'))) {
                     return vec![Node::Func {
-                        name: vec![Node::Run(n.to_owned(), Style::Upright)],
+                        pr: Pr::default(),
+                        name: vec![Node::run(n.to_owned(), Style::Upright)],
                         arg: Vec::new(),
                     }];
                 }
                 let arg = self.function_arg();
                 vec![Node::Func {
-                    name: vec![Node::Run(n.to_owned(), Style::Upright)],
+                    pr: Pr::default(),
+                    name: vec![Node::run(n.to_owned(), Style::Upright)],
                     arg,
                 }]
             }
@@ -574,9 +610,9 @@ impl Parser {
             "displaystyle" | "textstyle" | "limits" | "nolimits" | "big" | "Big" | "bigg"
             | "Bigg" | "bigl" | "bigr" | "Bigl" | "Bigr" => Vec::new(),
             n => match symbol(n) {
-                Some(s) => vec![Node::Run(s.to_owned(), Style::Math)],
+                Some(s) => vec![Node::run(s.to_owned(), Style::Math)],
                 // Unknown command: keep its name as text so nothing typed is lost.
-                None => vec![Node::Run(format!("\\{n}"), Style::Normal)],
+                None => vec![Node::run(format!("\\{n}"), Style::Normal)],
             },
         }
     }
@@ -714,6 +750,7 @@ impl Parser {
         match env.as_str() {
             // Value and condition of each case, an em space apart.
             "cases" => vec![Node::Delim {
+                pr: Pr::default(),
                 open: Some('{'),
                 close: None,
                 parts: vec![vec![Node::EqArray(
@@ -722,13 +759,14 @@ impl Parser {
                             let mut row = Vec::new();
                             for (k, cell) in r.into_iter().enumerate() {
                                 if k > 0 {
-                                    row.push(Node::Run("\u{2003}".into(), Style::Math));
+                                    row.push(Node::run("\u{2003}", Style::Math));
                                 }
                                 row.extend(cell);
                             }
                             merge(row)
                         })
                         .collect(),
+                    Pr::default(),
                 )]],
             }],
             "aligned" | "align" | "align*" | "gathered" | "split" | "array" | "eqnarray" => {
@@ -736,12 +774,14 @@ impl Parser {
                     rows.into_iter()
                         .map(|r| merge(r.into_iter().flatten().collect()))
                         .collect(),
+                    Pr::default(),
                 )]
             }
             _ => {
-                let m = Node::Matrix(rows);
+                let m = Node::Matrix(rows, Pr::default());
                 match delims {
                     Some((open, close)) => vec![Node::Delim {
+                        pr: Pr::default(),
                         open,
                         close,
                         parts: vec![vec![m]],

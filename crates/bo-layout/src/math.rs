@@ -1299,8 +1299,11 @@ pub(crate) fn slot_ids(root: &XmlElement) -> HashMap<usize, usize> {
                     }
                 }
             }
-            "acc" | "bar" => args(el, &["e"], ids),
-            // Containers (box, groupChr, …): their content.
+            // ECMA-376 Part 1, §22.1.2 groupChr, box, borderBox, phant: the base; sPre: subscript,
+            // superscript, base (CORE-MATH-010).
+            "acc" | "bar" | "groupChr" | "box" | "borderBox" | "phant" => args(el, &["e"], ids),
+            "sPre" => args(el, &["sub", "sup", "e"], ids),
+            // Containers (the zone, arguments): their content.
             _ => {
                 for c in el.elements() {
                     node(c, ids);

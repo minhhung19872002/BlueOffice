@@ -358,44 +358,36 @@ fn refused(r: &EditResult) -> bool {
     r.error.as_deref() == Some(super::MATH_UNSUPPORTED) && r.math.is_none()
 }
 
-// source: ECMA-376 Part 1, §22.1.2 (OMML elements the in-place model has no node for: box,
-// groupChr, sPre, borderBox, phant; the run property scr, WordprocessingML w:rPr in m:r, control
-// properties ctrlPr; oMathParaPr and several oMath in one oMathPara).
+// source: ECMA-376 Part 1, §22.1.2 (OMML the in-place model still does not keep: several oMath in
+// one oMathPara, a tracked change inside the zone, argument properties argPr, a run with other
+// content than m:t, a hidden radical degree with content).
 #[test]
 fn unsupported_markup_is_not_edited_in_place() {
     let m =
         |inner: &str| format!(r#"<m:oMath xmlns:m="{NS_M}" xmlns:w="{NS_W}">{inner}</m:oMath>"#);
     let r = |t: &str| format!("<m:r><m:t>{t}</m:t></m:r>");
     let cases = [
-        m(&format!("<m:box><m:e>{}</m:e></m:box>", r("x"))),
-        m(&format!(
-            r#"<m:groupChr><m:groupChrPr><m:chr m:val="⏟"/></m:groupChrPr><m:e>{}</m:e></m:groupChr>"#,
-            r("ab")
-        )),
-        m(&format!(
-            "<m:sPre><m:sub>{}</m:sub><m:sup>{}</m:sup><m:e>{}</m:e></m:sPre>",
-            r("1"),
-            r("2"),
-            r("X")
-        )),
-        m(&format!("<m:borderBox><m:e>{}</m:e></m:borderBox>", r("y"))),
-        m(&format!("<m:phant><m:e>{}</m:e></m:phant>", r("z"))),
-        m(r#"<m:r><w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/></w:rPr><m:t>x</m:t></m:r>"#),
-        m(r#"<m:r><m:rPr><m:scr m:val="script"/></m:rPr><m:t>L</m:t></m:r>"#),
-        m(&format!(
-            "<m:f><m:fPr><m:ctrlPr><w:rPr><w:i/></w:rPr></m:ctrlPr></m:fPr><m:num>{}</m:num><m:den>{}</m:den></m:f>",
-            r("1"),
-            r("2")
-        )),
-        format!(
-            r#"<m:oMathPara xmlns:m="{NS_M}"><m:oMathParaPr><m:jc m:val="left"/></m:oMathParaPr><m:oMath>{}</m:oMath></m:oMathPara>"#,
-            r("q")
-        ),
         format!(
             r#"<m:oMathPara xmlns:m="{NS_M}"><m:oMath>{}</m:oMath><m:oMath>{}</m:oMath></m:oMathPara>"#,
             r("a"),
             r("b")
         ),
+        m(&format!(
+            r#"{}<w:ins w:id="7" w:author="An" w:date="2026-11-11T00:00:00Z">{}</w:ins>"#,
+            r("a"),
+            r("b")
+        )),
+        m(&format!(
+            r#"<m:f><m:num><m:argPr><m:argSz m:val="-1"/></m:argPr>{}</m:num><m:den>{}</m:den></m:f>"#,
+            r("1"),
+            r("2")
+        )),
+        m("<m:r><m:t>x</m:t><w:br/><m:t>y</m:t></m:r>"),
+        m(&format!(
+            r#"<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg>{}</m:deg><m:e>{}</m:e></m:rad>"#,
+            r("3"),
+            r("x")
+        )),
     ];
     for xml in &cases {
         let (mut e, at) = open_with(xml);
@@ -458,6 +450,215 @@ fn unsupported_markup_is_not_edited_in_place() {
         assert_eq!(eq_xml(&e, at), before, "{xml}");
         // Saved unchanged.
         assert_eq!(saved_omml(&e), before, "{xml}");
+    }
+}
+
+/// The math font on a run as other applications write it (ECMA-376 Part 1, §17.3.2.26 rFonts).
+const FONT: &str =
+    r#"<w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/><w:i/></w:rPr>"#;
+
+// source: ECMA-376 Part 1, §22.1.2 (box, groupChr, sPre, borderBox, phant; m:rPr scr, w:rPr in m:r,
+// ctrlPr; oMathParaPr) — kept by the tree since ADR-0015 addendum C.
+#[test]
+fn foreign_style_equations_are_edited_in_place_and_keep_their_properties() {
+    let m =
+        |inner: &str| format!(r#"<m:oMath xmlns:m="{NS_M}" xmlns:w="{NS_W}">{inner}</m:oMath>"#);
+    let r = |t: &str| format!("<m:r>{FONT}<m:t>{t}</m:t></m:r>");
+    let ctrl = format!("<m:ctrlPr>{FONT}</m:ctrlPr>");
+    let cases = [
+        m(&format!(
+            "<m:box><m:boxPr>{ctrl}</m:boxPr><m:e>{}</m:e></m:box>",
+            r("x")
+        )),
+        m(&format!(
+            r#"<m:groupChr><m:groupChrPr><m:chr m:val="⏟"/>{ctrl}</m:groupChrPr><m:e>{}</m:e></m:groupChr>"#,
+            r("ab")
+        )),
+        m(&format!(
+            "<m:sPre><m:sub>{}</m:sub><m:sup>{}</m:sup><m:e>{}</m:e></m:sPre>",
+            r("1"),
+            r("2"),
+            r("X")
+        )),
+        m(&format!("<m:borderBox><m:e>{}</m:e></m:borderBox>", r("y"))),
+        m(&format!("<m:phant><m:e>{}</m:e></m:phant>", r("z"))),
+        m(&r("x")),
+        m(r#"<m:r><m:rPr><m:scr m:val="script"/></m:rPr><m:t>L</m:t></m:r>"#),
+        m(&format!(
+            r#"<m:f><m:fPr><m:type m:val="skw"/>{ctrl}</m:fPr><m:num>{}</m:num><m:den>{}</m:den></m:f>"#,
+            r("1"),
+            r("2")
+        )),
+        m(&format!(
+            r#"<m:nary><m:naryPr><m:chr m:val="∑"/><m:grow m:val="1"/>{ctrl}</m:naryPr><m:sub>{}</m:sub><m:sup>{}</m:sup><m:e>{}</m:e></m:nary>"#,
+            r("k"),
+            r("n"),
+            r("k")
+        )),
+        format!(
+            r#"<m:oMathPara xmlns:m="{NS_M}" xmlns:w="{NS_W}"><m:oMathParaPr><m:jc m:val="left"/></m:oMathParaPr><m:oMath>{}</m:oMath></m:oMathPara>"#,
+            r("q")
+        ),
+    ];
+    for xml in &cases {
+        let (mut e, at) = open_with(xml);
+        let before = eq_xml(&e, at);
+        assert!(super::lossless(&before), "{before}");
+        let r = run(&mut e, Command::MathEnter { end: true });
+        assert!(r.math.is_some(), "{xml}");
+        typed(&mut e, "c");
+        // What the tree model gives for the same edit (independently: read, insert, write).
+        let mut nodes = bo_math::from_omml(&before).unwrap();
+        let end = bo_math::edit::zone_end(&nodes, true);
+        bo_math::edit::insert_text(&mut nodes, &end, "c").unwrap();
+        let want = super::Zone::of(&before).xml(&nodes);
+        let saved = saved_omml(&e);
+        assert!(bo_math::read::same_omml(&saved, &want), "{saved}\n{want}");
+        // Every property element of the original is still there.
+        for keep in [
+            "<m:ctrlPr>",
+            r#"<m:scr m:val="script"/>"#,
+            r#"<m:jc m:val="left"/>"#,
+            r#"<m:type m:val="skw"/>"#,
+            r#"<m:grow m:val="1"/>"#,
+            r#"<m:chr m:val="⏟"/>"#,
+        ] {
+            assert_eq!(
+                saved.matches(keep).count(),
+                before.matches(keep).count(),
+                "{keep}: {saved}"
+            );
+        }
+        // The typed character is in a run with the math font when the zone has one.
+        if before.contains("w:rFonts") {
+            assert!(saved.contains("c</m:t>"), "{saved}");
+            let last_run = &saved[saved.rfind("<m:r>").unwrap()..];
+            assert!(last_run.contains("w:rFonts"), "{saved}");
+        }
+    }
+}
+
+// source: UnicodeMath build-up (UTN #28) in an equation written with the math font on every run:
+// the built structure takes control properties with that font (ECMA-376 Part 1, §22.1.2 ctrlPr),
+// its runs the font; the untouched fraction is written back byte for byte.
+#[test]
+fn autobuild_in_a_foreign_equation_keeps_the_math_font() {
+    let r = |t: &str| format!("<m:r>{FONT}<m:t>{t}</m:t></m:r>");
+    let frac = format!(
+        "<m:f><m:fPr><m:ctrlPr>{FONT}</m:ctrlPr></m:fPr><m:num>{}</m:num><m:den>{}</m:den></m:f>",
+        r("a"),
+        r("b")
+    );
+    let xml = format!(
+        r#"<m:oMath xmlns:m="{NS_M}" xmlns:w="{NS_W}">{frac}{}</m:oMath>"#,
+        r("=")
+    );
+    let (mut e, _) = open_with(&xml);
+    run(&mut e, Command::MathEnter { end: true });
+    typed(&mut e, "x^2 ");
+    let saved = saved_omml(&e);
+    assert!(saved.contains(&frac), "{saved}");
+    assert!(
+        saved.contains(&format!(
+            "<m:sSup><m:sSupPr><m:ctrlPr>{FONT}</m:ctrlPr></m:sSupPr><m:e>{}</m:e><m:sup>{}</m:sup></m:sSup>",
+            r("x"),
+            r("2")
+        )),
+        "{saved}"
+    );
+    assert_eq!(linear(&mut e), "a/b=x^2");
+    // Backspace twice removes the built structure; the rest is as it was.
+    run(&mut e, Command::DeleteBackward);
+    run(&mut e, Command::DeleteBackward);
+    let saved = saved_omml(&e);
+    assert!(saved.contains(&format!("{frac}{}", r("="))), "{saved}");
+    assert!(!saved.contains("sSup"), "{saved}");
+}
+
+/// Equations starting a paragraph of a corpus file: (paragraph, OMML).
+fn corpus_equations(name: &str) -> (Engine, Vec<(usize, String)>) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/doc")
+        .join(name);
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&std::fs::read(path).unwrap(), name).unwrap();
+    let s = e.session.as_ref().unwrap();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while let Some(text) = s.para_text(i) {
+        if text.starts_with('\u{FFFC}') {
+            if let Some(xml) = s.equation_at(bo_edit::Pos::new(i, 0)) {
+                out.push((i, xml));
+            }
+        }
+        i += 1;
+    }
+    (e, out)
+}
+
+#[test]
+fn corpus_foreign_style_is_edited_in_place_and_unsupported_is_not() {
+    let (_, eqs) = corpus_equations("math-06-unsupported.docx");
+    assert_eq!(eqs.len(), 4);
+    for (_, xml) in &eqs {
+        assert!(!super::lossless(xml), "{xml}");
+    }
+    let (mut e, eqs) = corpus_equations("math-07-foreign-style.docx");
+    assert_eq!(eqs.len(), 7);
+    for (_, xml) in &eqs {
+        assert!(super::lossless(xml), "{xml}");
+    }
+    // Every one enters and takes typing; the saved file keeps the math font on every run.
+    for (para, _) in eqs.iter().rev() {
+        let s = e.session.as_mut().unwrap();
+        s.set_selection(bo_edit::Selection::caret(bo_edit::Pos::new(*para, 0)));
+        let r = run(&mut e, Command::MathEnter { end: true });
+        assert!(r.math.is_some(), "paragraph {para}");
+        typed(&mut e, "q");
+        run(
+            &mut e,
+            Command::MathMove {
+                motion: MathMotion::Exit,
+            },
+        );
+    }
+    let document = |bytes: &[u8]| {
+        let pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).unwrap();
+        String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap()
+    };
+    let original = document(
+        &std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/corpus/doc/math-07-foreign-style.docx"),
+        )
+        .unwrap(),
+    );
+    let doc = document(&e.save_docx().unwrap());
+    // Every math run (each split at its end) has the math font.
+    let runs: Vec<&str> = doc
+        .split("<m:r>")
+        .skip(1)
+        .map(|r| r.split("</m:r>").next().unwrap())
+        .collect();
+    assert!(runs.len() > 30, "{}", runs.len());
+    for r in &runs {
+        assert!(r.contains("<w:rFonts "), "{r}");
+    }
+    assert_eq!(doc.matches("q</m:t>").count(), 7, "{doc}");
+    for keep in [
+        "<m:ctrlPr>",
+        "<m:grow ",
+        "<m:mcs>",
+        "<m:scr ",
+        "<m:jc ",
+        "<m:opEmu ",
+        "<m:show ",
+    ] {
+        assert_eq!(
+            doc.matches(keep).count(),
+            original.matches(keep).count(),
+            "{keep}"
+        );
     }
 }
 

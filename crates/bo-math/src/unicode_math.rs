@@ -16,7 +16,7 @@
 //!
 //! Spaces separate operands and are not kept; `-` becomes the minus sign `−` (U+2212).
 
-use crate::{Node, Style};
+use crate::{Node, Pr, Style};
 
 /// Parses UnicodeMath into a tree.
 #[must_use]
@@ -28,7 +28,7 @@ pub fn parse(src: &str) -> Vec<Node> {
     let mut out = p.seq(&[]);
     // Stray closing characters at the top level are kept as text.
     while p.i < p.c.len() {
-        out.push(Node::Run(p.c[p.i].to_string(), Style::Math));
+        out.push(Node::run(p.c[p.i].to_string(), Style::Math));
         p.i += 1;
         out.extend(p.seq(&[]));
     }
@@ -233,13 +233,13 @@ impl Parser {
             if OPERATORS.contains(c) {
                 self.i += 1;
                 let op = if c == '-' { '−' } else { c };
-                out.push(Node::Run(op.to_string(), Style::Math));
+                out.push(Node::run(op.to_string(), Style::Math));
                 continue;
             }
             if matches!(c, '/' | '¦' | '_' | '^') {
                 // An operator with no operand before it: keep the character.
                 self.i += 1;
-                out.push(Node::Run(c.to_string(), Style::Math));
+                out.push(Node::run(c.to_string(), Style::Math));
                 continue;
             }
             let before = self.i;
@@ -259,6 +259,7 @@ impl Parser {
             self.i += 1;
             let den = self.factors(stop);
             num = vec![Node::Frac {
+                pr: Pr::default(),
                 num: strip(num),
                 den: strip(den),
                 bar: c == '/',
@@ -296,14 +297,17 @@ impl Parser {
             self.i += 1;
             base = vec![match c {
                 '\u{305}' => Node::Bar {
+                    pr: Pr::default(),
                     top: true,
                     base: strip(base),
                 },
                 '\u{332}' => Node::Bar {
+                    pr: Pr::default(),
                     top: false,
                     base: strip(base),
                 },
                 _ => Node::Accent {
+                    pr: Pr::default(),
                     chr: c,
                     base: strip(base),
                 },
@@ -323,7 +327,7 @@ impl Parser {
                 3 => "‴".to_owned(),
                 _ => primes,
             };
-            sup = Some(vec![Node::Run(p, Style::Math)]);
+            sup = Some(vec![Node::run(p, Style::Math)]);
         }
         loop {
             match self.peek() {
@@ -342,6 +346,7 @@ impl Parser {
             return base;
         }
         vec![Node::Scripts {
+            pr: Pr::default(),
             base: strip(base),
             sub,
             sup,
@@ -353,7 +358,7 @@ impl Parser {
         match self.peek() {
             Some(c @ ('-' | '+' | '−' | '±')) => {
                 self.i += 1;
-                let mut v = vec![Node::Run(
+                let mut v = vec![Node::run(
                     if c == '-' { '−' } else { c }.to_string(),
                     Style::Math,
                 )];
@@ -383,8 +388,8 @@ impl Parser {
                 self.i += 1;
                 self.skip_spaces();
                 let deg = match c {
-                    '∛' => Some(vec![Node::Run("3".into(), Style::Math)]),
-                    '∜' => Some(vec![Node::Run("4".into(), Style::Math)]),
+                    '∛' => Some(vec![Node::run("3", Style::Math)]),
+                    '∜' => Some(vec![Node::run("4", Style::Math)]),
                     _ => None,
                 };
                 if c == '√' && self.peek() == Some('(') {
@@ -396,18 +401,21 @@ impl Parser {
                         let body = self.seq(&[')']);
                         self.eat(')');
                         return vec![Node::Rad {
+                            pr: Pr::default(),
                             deg: Some(merge(first)),
                             body: merge(body),
                         }];
                     }
                     self.eat(')');
                     return vec![Node::Rad {
+                        pr: Pr::default(),
                         deg: None,
                         body: merge(first),
                     }];
                 }
                 let body = strip(self.factor(stop));
                 vec![Node::Rad {
+                    pr: Pr::default(),
                     deg,
                     body: merge(body),
                 }]
@@ -445,6 +453,7 @@ impl Parser {
                     Vec::new()
                 };
                 vec![Node::Nary {
+                    pr: Pr::default(),
                     chr: c,
                     sub,
                     sup,
@@ -455,7 +464,7 @@ impl Parser {
                 self.i += 1;
                 self.skip_spaces();
                 if !self.eat('(') {
-                    return vec![Node::Run(c.to_string(), Style::Math)];
+                    return vec![Node::run(c.to_string(), Style::Math)];
                 }
                 let mut rows: Vec<Vec<Vec<Node>>> = vec![vec![]];
                 loop {
@@ -476,13 +485,14 @@ impl Parser {
                     }
                 }
                 if c == '■' {
-                    vec![Node::Matrix(rows)]
+                    vec![Node::Matrix(rows, Pr::default())]
                 } else {
                     // Equation array: `&` marks alignment points, the cells of a row join.
                     vec![Node::EqArray(
                         rows.into_iter()
                             .map(|r| merge(r.into_iter().flatten().collect()))
                             .collect(),
+                        Pr::default(),
                     )]
                 }
             }
@@ -496,7 +506,7 @@ impl Parser {
                     }
                     t.push(ch);
                 }
-                vec![Node::Run(t, Style::Normal)]
+                vec![Node::run(t, Style::Normal)]
             }
             c if c.is_ascii_digit() => {
                 let mut t = String::new();
@@ -511,7 +521,7 @@ impl Parser {
                         break;
                     }
                 }
-                vec![Node::Run(t, Style::Math)]
+                vec![Node::run(t, Style::Math)]
             }
             c if c.is_ascii_alphabetic() => {
                 let start = self.i;
@@ -530,18 +540,18 @@ impl Parser {
                     return self.function(name, stop);
                 }
                 self.i += 1;
-                vec![Node::Run(c.to_string(), Style::Math)]
+                vec![Node::run(c.to_string(), Style::Math)]
             }
             _ => {
                 self.i += 1;
-                vec![Node::Run(c.to_string(), Style::Math)]
+                vec![Node::run(c.to_string(), Style::Math)]
             }
         }
     }
 
     /// `name` (already consumed), its scripts or limit, and its argument.
     fn function(&mut self, name: &str, stop: &[char]) -> Vec<Node> {
-        let mut head = vec![Node::Run(name.to_owned(), Style::Upright)];
+        let mut head = vec![Node::run(name.to_owned(), Style::Upright)];
         let limit = LIMIT_FUNCTIONS.contains(&name);
         let (mut sub, mut sup) = (None, None);
         loop {
@@ -560,6 +570,7 @@ impl Parser {
         if limit {
             if let Some(lim) = sub.take() {
                 head = vec![Node::Limit {
+                    pr: Pr::default(),
                     base: head,
                     lim,
                     upper: false,
@@ -568,6 +579,7 @@ impl Parser {
         }
         if sub.is_some() || sup.is_some() {
             head = vec![Node::Scripts {
+                pr: Pr::default(),
                 base: head,
                 sub,
                 sup,
@@ -592,6 +604,7 @@ impl Parser {
             _ => Vec::new(),
         };
         vec![Node::Func {
+            pr: Pr::default(),
             name: head,
             arg: merge(arg),
         }]
@@ -608,6 +621,7 @@ impl Parser {
                 Some(c) if c == close => {
                     self.i += 1;
                     return Node::Delim {
+                        pr: Pr::default(),
                         open,
                         close: Some(close),
                         parts,
@@ -615,6 +629,7 @@ impl Parser {
                 }
                 _ => {
                     return Node::Delim {
+                        pr: Pr::default(),
                         open,
                         close: None,
                         parts,
@@ -641,6 +656,7 @@ fn strip(nodes: Vec<Node>) -> Vec<Node> {
         open: Some('('),
         close: Some(')'),
         parts,
+        ..
     }] = nodes.as_slice()
     {
         if parts.len() == 1 {
@@ -650,12 +666,13 @@ fn strip(nodes: Vec<Node>) -> Vec<Node> {
     merge(nodes)
 }
 
-/// Joins neighbouring runs of the same style (one `m:r` per stretch of text).
+/// Joins neighbouring runs of the same style and run properties (one `m:r` per stretch of text).
 pub(crate) fn merge(nodes: Vec<Node>) -> Vec<Node> {
     let mut out: Vec<Node> = Vec::with_capacity(nodes.len());
     for n in nodes {
-        if let (Some(Node::Run(prev, ps)), Node::Run(t, s)) = (out.last_mut(), &n) {
-            if ps == s && *s != Style::Upright {
+        if let (Some(Node::Run(prev, ps, pp)), Node::Run(t, s, p)) = (out.last_mut(), &n) {
+            // The formatting compared, not how the modelled values were read.
+            if ps == s && *s != Style::Upright && pp.math.kids == p.math.kids && pp.text == p.text {
                 prev.push_str(t);
                 continue;
             }

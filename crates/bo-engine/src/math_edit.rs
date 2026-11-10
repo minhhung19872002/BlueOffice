@@ -71,24 +71,52 @@ pub struct MathState {
 /// keep (ADR-0015 addendum); it is selected instead, for the equation dialog.
 pub const MATH_UNSUPPORTED: &str = "mathUnsupported";
 
-/// The equation at `at`: its tree and whether it is a display equation.
-fn read(s: &bo_edit::Session, at: Pos) -> Option<(Vec<Node>, bool)> {
+/// What is around the tree of a zone: inline (`m:oMath`) or display (`m:oMathPara`), and the
+/// display properties (`m:oMathParaPr`, ECMA-376 Part 1, §22.1.2.79) to keep.
+#[derive(Debug, Clone)]
+struct Zone {
+    display: bool,
+    para_pr: Option<String>,
+}
+
+impl Zone {
+    fn of(xml: &str) -> Zone {
+        Zone {
+            display: crate::equation::is_display(xml),
+            para_pr: bo_math::read::para_props(xml),
+        }
+    }
+
+    /// The zone holding `nodes`.
+    fn xml(&self, nodes: &[Node]) -> String {
+        crate::equation::wrap_with(
+            &bo_math::to_omml(nodes),
+            self.display,
+            self.para_pr.as_deref(),
+        )
+    }
+}
+
+/// The equation at `at`: its tree and its zone.
+fn read(s: &bo_edit::Session, at: Pos) -> Option<(Vec<Node>, Zone)> {
     let xml = s.equation_at(at)?;
-    Some((bo_math::from_omml(&xml)?, crate::equation::is_display(&xml)))
+    Some((bo_math::from_omml(&xml)?, Zone::of(&xml)))
 }
 
 /// The zone is written back unchanged by the in-place model: reading it into the tree and writing
 /// the tree again (as the first in-place edit does) gives the same markup (`bo_math::read::
-/// same_omml`). Zones with anything the tree does not hold (`m:box`, `m:groupChr`, `m:sPre`,
-/// `m:borderBox`, `m:phant`, `w:rPr` / `m:ctrlPr` formatting, other run properties, …) are not.
+/// same_omml`). The tree keeps run properties (`m:rPr`, `w:rPr`), structure properties (with
+/// `m:ctrlPr`) and the display properties verbatim (ADR-0015 addendum C); zones with what it still
+/// does not hold — several `m:oMath` in one `m:oMathPara`, tracked changes or bookmarks inside the
+/// zone, argument properties (`m:argPr`), runs with other content than `m:t`, a hidden degree or
+/// limit with content — are not.
 #[must_use]
 pub fn lossless(xml: &str) -> bool {
     let Some(mut nodes) = bo_math::from_omml(xml) else {
         return false;
     };
     me::normalize(&mut nodes);
-    let again = crate::equation::wrap(&bo_math::to_omml(&nodes), crate::equation::is_display(xml));
-    bo_math::read::same_omml(xml, &again)
+    bo_math::read::same_omml(xml, &Zone::of(xml).xml(&nodes))
 }
 
 /// The equation at `at` can be edited in place (`Some(false)`: there is one, but not editable —
@@ -365,7 +393,7 @@ impl crate::Engine {
             let Some((gpage, ox, base)) = nav::object_origin(self.layout.document(), at) else {
                 continue;
             };
-            let Some(geo) = self.math_geometry(at, &nodes, display) else {
+            let Some(geo) = self.math_geometry(at, &nodes, &display) else {
                 continue;
             };
             let (lx, ly) = (x - ox, y - base);
@@ -405,13 +433,13 @@ impl crate::Engine {
         &mut self,
         at: Pos,
         nodes: &[Node],
-        display: bool,
+        display: &Zone,
     ) -> Option<bo_layout::EquationGeometry> {
         let s = self.session.as_ref()?;
         let doc = s.doc();
         let paths = bo_model::index::body_paragraphs(doc);
         let para = bo_model::index::para_at(doc, paths.get(at.para)?)?;
-        let xml = crate::equation::wrap(&bo_math::to_omml(nodes), display);
+        let xml = display.xml(nodes);
         bo_layout::equation_geometry(doc, &mut self.fonts, para, at.offset, &xml)
     }
 
@@ -443,7 +471,7 @@ impl crate::Engine {
     fn math_write(
         &mut self,
         mut nodes: Vec<Node>,
-        display: bool,
+        display: &Zone,
         pos: &MathPos,
         group: bool,
     ) -> crate::Result<EditResult> {
@@ -451,7 +479,7 @@ impl crate::Engine {
             return self.query_result();
         };
         me::normalize(&mut nodes);
-        let xml = crate::equation::wrap(&bo_math::to_omml(&nodes), display);
+        let xml = display.xml(&nodes);
         let res = self
             .session
             .as_mut()
@@ -499,14 +527,14 @@ impl crate::Engine {
                 if let Some(s) = self.session.as_mut() {
                     s.end_math_group();
                 }
-                return self.math_write(nodes, display, &p, false);
+                return self.math_write(nodes, &display, &p, false);
             }
         }
         let Some(p) = me::insert_text(&mut nodes, &pos, text) else {
             return self.query_result();
         };
         let group = single && text != " " && !m.selected;
-        self.math_write(nodes, display, &p, group)
+        self.math_write(nodes, &display, &p, group)
     }
 
     fn math_build(&mut self) -> crate::Result<EditResult> {
@@ -518,7 +546,7 @@ impl crate::Engine {
         };
         let pos = me::clamp(&nodes, &m.pos);
         match me::autobuild(&mut nodes, &pos) {
-            Some(p) => self.math_write(nodes, display, &p, false),
+            Some(p) => self.math_write(nodes, &display, &p, false),
             None => self.math_result(Vec::new()),
         }
     }
@@ -533,12 +561,12 @@ impl crate::Engine {
         let pos = me::clamp(&nodes, &m.pos);
         if m.selected {
             return match me::delete_selected(&mut nodes, &pos) {
-                Some(p) => self.math_write(nodes, display, &p, false),
+                Some(p) => self.math_write(nodes, &display, &p, false),
                 None => self.math_result(Vec::new()),
             };
         }
         match me::delete(&mut nodes, &pos, back) {
-            Some(Deleted::Char(p)) => self.math_write(nodes, display, &p, true),
+            Some(Deleted::Char(p)) => self.math_write(nodes, &display, &p, true),
             Some(Deleted::Select(p)) => {
                 self.set_math(m.at, p);
                 if let Some(c) = self.math.as_mut() {
@@ -591,7 +619,7 @@ impl crate::Engine {
         let Some((page, ox, base)) = nav::object_origin(self.layout.document(), m.at) else {
             return;
         };
-        let Some(geo) = self.math_geometry(m.at, &nodes, display) else {
+        let Some(geo) = self.math_geometry(m.at, &nodes, &display) else {
             return;
         };
         let Some(slot) = me::slot_index(&nodes, &pos.path).and_then(|i| geo.slots.get(i)) else {

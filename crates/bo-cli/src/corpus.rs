@@ -1858,25 +1858,46 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         sect: s.clone(),
         ..Doc::default()
     }));
-    // Equations with markup the in-place editor does not model (CORE-MATH-010, ADR-0015 addendum):
-    // each starts its paragraph, so clicking it is refused and its markup kept. ECMA-376 Part 1,
-    // §22.1.2 groupChr, box, sPre, borderBox, phant, a run with WordprocessingML run properties
-    // (w:rPr in m:r) and control properties (m:ctrlPr).
+    // Equations with markup the in-place editor still does not keep (CORE-MATH-010, ADR-0015
+    // addenda A and C): each starts its paragraph, so clicking it is refused and its markup kept.
+    // ECMA-376 Part 1, §22.1.2 argPr (argument size), a run holding a break (w:br) between its
+    // texts, a hidden radical degree with content (degHide), two oMath in one oMathPara.
     let lead = |eq: &str, label: &str| {
         format!(
             r#"<w:p>{}<w:r><w:t xml:space="preserve"> {label}</w:t></w:r></w:p>"#,
             math(eq)
         )
     };
-    v.push(("math-06-unsupported.docx", "math", "Phương trình có phần tử ngoài mô hình sửa tại chỗ (ngoặc nhóm, hộp, chỉ số trước, khung, ẩn, định dạng run): bấm vào chỉ chọn, giữ nguyên OMML", Doc {
+    v.push(("math-06-unsupported.docx", "math", "Phương trình có phần tử mô hình sửa tại chỗ chưa giữ được (cỡ đối số, ngắt dòng trong run, bậc căn ẩn có nội dung, hai vùng toán trong một đoạn toán): bấm vào chỉ chọn, giữ nguyên OMML", Doc {
         body: [
-            lead(&format!(r#"<m:groupChr><m:groupChrPr><m:chr m:val="⏟"/></m:groupChrPr><m:e>{}</m:e></m:groupChr>"#, mr("a+b+c")), "ngoặc nhóm"),
-            lead(&format!("<m:box><m:e>{}</m:e></m:box>", mr("x=1")), "hộp"),
-            lead(&format!("<m:sPre><m:sub>{}</m:sub><m:sup>{}</m:sup><m:e>{}</m:e></m:sPre>", mr("6"), mr("14"), mr("C")), "chỉ số trước"),
-            lead(&format!("<m:borderBox><m:e>{}</m:e></m:borderBox>", mr("E=mc²")), "khung"),
-            lead(&format!("<m:phant><m:e>{}</m:e></m:phant>{}", mr("y"), mr("z")), "ẩn"),
-            lead(r#"<m:r><w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/></w:rPr><m:t>f(x)</m:t></m:r>"#, "định dạng run"),
-            lead(&format!(r#"<m:f><m:fPr><m:ctrlPr><w:rPr><w:i/></w:rPr></m:ctrlPr></m:fPr><m:num>{}</m:num><m:den>{}</m:den></m:f>"#, mr("1"), mr("2")), "thuộc tính điều khiển"),
+            lead(&format!(r#"<m:f><m:num><m:argPr><m:argSz m:val="-1"/></m:argPr>{}</m:num><m:den>{}</m:den></m:f>"#, mr("a+b+c"), mr("2")), "cỡ đối số"),
+            lead("<m:r><m:t>x=1</m:t><w:br/><m:t>y=2</m:t></m:r>", "ngắt dòng trong run"),
+            lead(&format!(r#"<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg>{}</m:deg><m:e>{}</m:e></m:rad>"#, mr("3"), mr("x")), "bậc căn ẩn"),
+            format!(r#"<w:p><m:oMathPara><m:oMath>{}</m:oMath><m:oMath>{}</m:oMath></m:oMathPara></w:p>"#, mr("a=1"), mr("b=2")),
+        ]
+        .concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+    // Equations in the style other office applications write (CORE-MATH-010, ADR-0015 addendum C):
+    // the math font on every run (w:rPr, ECMA-376 Part 1, §17.3.2.26 rFonts), control properties
+    // (m:ctrlPr) in every structure, non-default structure properties (§22.1.2 fPr type, dPr
+    // begChr / sepChr / endChr / grow, naryPr limLoc / grow / supHide, mPr mcs, accPr chr, barPr
+    // pos), the run properties scr / sty, display properties (oMathParaPr jc) and groupChr, box,
+    // borderBox, phant, sPre. Each starts its paragraph; all are edited in place.
+    let font = r#"<w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/><w:i/></w:rPr>"#;
+    let upright = r#"<w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/></w:rPr>"#;
+    let fr = |t: &str| format!(r#"<m:r>{font}<m:t>{t}</m:t></m:r>"#);
+    let ctrl = format!("<m:ctrlPr>{font}</m:ctrlPr>");
+    v.push(("math-07-foreign-style.docx", "math", "Phương trình kiểu ứng dụng khác ghi: phông toán trên mọi run, m:ctrlPr, thuộc tính cấu trúc khác mặc định, ngoặc nhóm, hộp, khung, ẩn, chỉ số trước; sửa tại chỗ giữ nguyên thuộc tính", Doc {
+        body: [
+            lead(&[fr("y="), format!(r#"<m:f><m:fPr>{ctrl}</m:fPr><m:num>{}</m:num><m:den>{}</m:den></m:f>"#, fr("a+b"), fr("c")), fr("+"), format!(r#"<m:sSup><m:sSupPr>{ctrl}</m:sSupPr><m:e>{}</m:e><m:sup>{}</m:sup></m:sSup>"#, fr("x"), fr("2"))].concat(), "phân số, chỉ số"),
+            lead(&[format!(r#"<m:nary><m:naryPr><m:chr m:val="∑"/><m:limLoc m:val="subSup"/><m:grow m:val="1"/><m:supHide m:val="1"/>{ctrl}</m:naryPr><m:sub>{}</m:sub><m:sup/><m:e>{}</m:e></m:nary>"#, fr("k∈S"), fr("k")), fr("="), format!(r#"<m:f><m:fPr><m:type m:val="lin"/>{ctrl}</m:fPr><m:num>{}</m:num><m:den>{}</m:den></m:f>"#, fr("n"), fr("2"))].concat(), "tổng, phân số tuyến tính"),
+            lead(&[format!(r#"<m:d><m:dPr><m:begChr m:val="⟨"/><m:sepChr m:val=","/><m:endChr m:val="⟩"/><m:grow m:val="1"/>{ctrl}</m:dPr><m:e>{}</m:e><m:e>{}</m:e></m:d>"#, fr("u"), fr("v")), fr("+"), format!(r#"<m:func><m:funcPr>{ctrl}</m:funcPr><m:fName><m:r><m:rPr><m:sty m:val="p"/></m:rPr>{upright}<m:t>sin</m:t></m:r></m:fName><m:e>{}</m:e></m:func>"#, fr("θ")), fr("+"), r#"<m:r><m:rPr><m:scr m:val="script"/><m:sty m:val="i"/></m:rPr><w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/><w:color w:val="C00000"/></w:rPr><m:t>L</m:t></m:r>"#.to_owned()].concat(), "ngoặc, hàm, chữ viết tay"),
+            lead(&[format!(r#"<m:m><m:mPr><m:mcs><m:mc><m:mcPr><m:count m:val="2"/><m:mcJc m:val="center"/></m:mcPr></m:mc></m:mcs>{ctrl}</m:mPr><m:mr><m:e>{}</m:e><m:e>{}</m:e></m:mr><m:mr><m:e>{}</m:e><m:e>{}</m:e></m:mr></m:m>"#, fr("1"), fr("0"), fr("0"), fr("1")), format!(r#"<m:acc><m:accPr><m:chr m:val="⃗"/>{ctrl}</m:accPr><m:e>{}</m:e></m:acc>"#, fr("v")), format!(r#"<m:bar><m:barPr><m:pos m:val="bot"/>{ctrl}</m:barPr><m:e>{}</m:e></m:bar>"#, fr("w"))].concat(), "ma trận, dấu, gạch dưới"),
+            lead(&[format!(r#"<m:groupChr><m:groupChrPr><m:chr m:val="⏟"/>{ctrl}</m:groupChrPr><m:e>{}</m:e></m:groupChr>"#, fr("a+b+c")), format!(r#"<m:box><m:boxPr><m:opEmu m:val="1"/>{ctrl}</m:boxPr><m:e>{}</m:e></m:box>"#, fr("=="))].concat(), "ngoặc nhóm, hộp"),
+            lead(&[format!(r#"<m:borderBox><m:borderBoxPr>{ctrl}</m:borderBoxPr><m:e>{}</m:e></m:borderBox>"#, fr("E=mc²")), format!(r#"<m:phant><m:phantPr><m:show m:val="0"/>{ctrl}</m:phantPr><m:e>{}</m:e></m:phant>"#, fr("y")), format!(r#"<m:sPre><m:sPrePr>{ctrl}</m:sPrePr><m:sub>{}</m:sub><m:sup>{}</m:sup><m:e>{}</m:e></m:sPre>"#, fr("6"), fr("14"), fr("C"))].concat(), "khung, ẩn, chỉ số trước"),
+            format!(r#"<w:p><m:oMathPara><m:oMathParaPr><m:jc m:val="left"/></m:oMathParaPr><m:oMath>{}<m:rad><m:radPr><m:degHide m:val="1"/>{ctrl}</m:radPr><m:deg/><m:e>{}</m:e></m:rad></m:oMath></m:oMathPara></w:p>"#, fr("e="), fr("2")),
         ]
         .concat(),
         sect: s.clone(),

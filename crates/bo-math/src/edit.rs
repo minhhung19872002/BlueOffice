@@ -12,7 +12,7 @@
 //! written OMML lists them — layout reports slot geometry in that order.
 
 use crate::unicode_math::{expand_control_words, merge, parse};
-use crate::{Node, Style};
+use crate::{Node, Pr, RunPr, Style, XmlElement};
 
 /// One step down the tree: structure `item` of the current slot, its slot `slot`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -44,28 +44,36 @@ impl MathPos {
 /// (§22.1.2.110–112); radical degree, radicand (§22.1.2.88); n-ary lower limit, upper limit, operand
 /// (§22.1.2.70); delimiter parts (§22.1.2.24); function name, argument (§22.1.2.39); limit base, limit
 /// (§22.1.2.54/56); matrix cells row by row (§22.1.2.60); equation array rows (§22.1.2.34); accent and
-/// bar base (§22.1.2.1, §22.1.2.7). A run has none.
+/// bar base (§22.1.2.1, §22.1.2.7); the base of a grouping character, box, border box and phantom; the
+/// subscript, superscript and base of pre-scripts (§22.1.2 groupChr, box, borderBox, phant, sPre). A run
+/// has none.
 #[must_use]
 pub fn slots(n: &Node) -> Vec<&Vec<Node>> {
     match n {
         Node::Run(..) => Vec::new(),
         Node::Frac { num, den, .. } => vec![num, den],
-        Node::Scripts { base, sub, sup } => std::iter::once(base)
+        Node::Scripts { base, sub, sup, .. } => std::iter::once(base)
             .chain(sub.iter())
             .chain(sup.iter())
             .collect(),
-        Node::Rad { deg, body } => deg.iter().chain(std::iter::once(body)).collect(),
+        Node::Rad { deg, body, .. } => deg.iter().chain(std::iter::once(body)).collect(),
         Node::Nary { sub, sup, body, .. } => sub
             .iter()
             .chain(sup.iter())
             .chain(std::iter::once(body))
             .collect(),
         Node::Delim { parts, .. } => parts.iter().collect(),
-        Node::Func { name, arg } => vec![name, arg],
+        Node::Func { name, arg, .. } => vec![name, arg],
         Node::Limit { base, lim, .. } => vec![base, lim],
-        Node::Matrix(rows) => rows.iter().flatten().collect(),
-        Node::EqArray(rows) => rows.iter().collect(),
-        Node::Accent { base, .. } | Node::Bar { base, .. } => vec![base],
+        Node::Matrix(rows, _) => rows.iter().flatten().collect(),
+        Node::EqArray(rows, _) => rows.iter().collect(),
+        Node::Accent { base, .. }
+        | Node::Bar { base, .. }
+        | Node::GroupChr { base, .. }
+        | Node::Boxed { base, .. }
+        | Node::BorderBox { base, .. }
+        | Node::Phantom { base, .. } => vec![base],
+        Node::PreScripts { sub, sup, base, .. } => vec![sub, sup, base],
     }
 }
 
@@ -74,22 +82,28 @@ pub fn slots_mut(n: &mut Node) -> Vec<&mut Vec<Node>> {
     match n {
         Node::Run(..) => Vec::new(),
         Node::Frac { num, den, .. } => vec![num, den],
-        Node::Scripts { base, sub, sup } => std::iter::once(base)
+        Node::Scripts { base, sub, sup, .. } => std::iter::once(base)
             .chain(sub.iter_mut())
             .chain(sup.iter_mut())
             .collect(),
-        Node::Rad { deg, body } => deg.iter_mut().chain(std::iter::once(body)).collect(),
+        Node::Rad { deg, body, .. } => deg.iter_mut().chain(std::iter::once(body)).collect(),
         Node::Nary { sub, sup, body, .. } => sub
             .iter_mut()
             .chain(sup.iter_mut())
             .chain(std::iter::once(body))
             .collect(),
         Node::Delim { parts, .. } => parts.iter_mut().collect(),
-        Node::Func { name, arg } => vec![name, arg],
+        Node::Func { name, arg, .. } => vec![name, arg],
         Node::Limit { base, lim, .. } => vec![base, lim],
-        Node::Matrix(rows) => rows.iter_mut().flatten().collect(),
-        Node::EqArray(rows) => rows.iter_mut().collect(),
-        Node::Accent { base, .. } | Node::Bar { base, .. } => vec![base],
+        Node::Matrix(rows, _) => rows.iter_mut().flatten().collect(),
+        Node::EqArray(rows, _) => rows.iter_mut().collect(),
+        Node::Accent { base, .. }
+        | Node::Bar { base, .. }
+        | Node::GroupChr { base, .. }
+        | Node::Boxed { base, .. }
+        | Node::BorderBox { base, .. }
+        | Node::Phantom { base, .. } => vec![base],
+        Node::PreScripts { sub, sup, base, .. } => vec![sub, sup, base],
     }
 }
 
@@ -97,7 +111,7 @@ pub fn slots_mut(n: &mut Node) -> Vec<&mut Vec<Node>> {
 #[must_use]
 pub fn item_len(n: &Node) -> usize {
     match n {
-        Node::Run(t, _) => t.chars().count(),
+        Node::Run(t, ..) => t.chars().count(),
         _ => 1,
     }
 }
@@ -330,6 +344,7 @@ pub fn zone_end(root: &[Node], end: bool) -> MathPos {
 /// Insert `text` at `pos` as math text: into the run at the caret (the one before it at a boundary),
 /// else as a new run. Returns the caret after the text.
 pub fn insert_text(root: &mut Vec<Node>, pos: &MathPos, text: &str) -> Option<MathPos> {
+    let fmt = ambient(root, pos);
     let s = slot_mut(root, &pos.path)?;
     if pos.offset > slot_len(s) {
         return None;
@@ -354,14 +369,72 @@ pub fn insert_text(root: &mut Vec<Node>, pos: &MathPos, text: &str) -> Option<Ma
     }
     match target {
         Some((i, c)) => {
-            if let Some(Node::Run(t, _)) = s.get_mut(i) {
+            if let Some(Node::Run(t, ..)) = s.get_mut(i) {
                 let b = t.char_indices().nth(c).map_or(t.len(), |(b, _)| b);
                 t.insert_str(b, text);
             }
         }
-        None => s.insert(index, Node::Run(text.to_owned(), Style::Math)),
+        None => s.insert(
+            index,
+            Node::Run(text.to_owned(), Style::Math, RunPr::text_only(fmt)),
+        ),
     }
     Some(MathPos::new(pos.path.clone(), pos.offset + n))
+}
+
+/// The text formatting (`w:rPr`, ECMA-376 Part 1, §17.3.2.28) for a run typed at `pos` where no run
+/// is next to the caret: that of the nearest run of the slot, else the control properties of the
+/// enclosing structure (§22.1.2 ctrlPr), else of the slots around it, else of any run of the zone —
+/// so the math font of the document carries over.
+#[must_use]
+pub fn ambient(root: &[Node], pos: &MathPos) -> Option<XmlElement> {
+    fn fmt(n: &Node) -> Option<&XmlElement> {
+        match n {
+            Node::Run(_, _, p) => p.text.as_ref(),
+            _ => None,
+        }
+    }
+    fn run_fmt(s: &[Node], before: usize) -> Option<&XmlElement> {
+        let split = before.min(s.len());
+        s[..split]
+            .iter()
+            .rev()
+            .find_map(fmt)
+            .or_else(|| s[split..].iter().find_map(fmt))
+    }
+    fn any(s: &[Node]) -> Option<&XmlElement> {
+        s.iter().find_map(|n| match n {
+            Node::Run(_, _, p) => p.text.as_ref(),
+            _ => n
+                .pr()
+                .and_then(crate::Pr::ctrl_rpr)
+                .or_else(|| slots(n).into_iter().find_map(|v| any(v))),
+        })
+    }
+    // Item index of the caret in each slot along the path.
+    let mut levels: Vec<(&[Node], usize)> = Vec::new();
+    let mut s = root;
+    for st in &pos.path {
+        levels.push((s, st.item));
+        s = s
+            .get(st.item)
+            .and_then(|n| slots(n).get(st.slot).copied())
+            .map_or(&[][..], Vec::as_slice);
+    }
+    let here = after(s, pos.offset).map_or(s.len(), |(i, _)| i);
+    if let Some(f) = run_fmt(s, here) {
+        return Some(f.clone());
+    }
+    for (slot, item) in levels.iter().rev() {
+        let ctrl = slot
+            .get(*item)
+            .and_then(Node::pr)
+            .and_then(crate::Pr::ctrl_rpr);
+        if let Some(f) = ctrl.or_else(|| run_fmt(slot, *item)) {
+            return Some(f.clone());
+        }
+    }
+    any(root).cloned()
 }
 
 /// Result of Backspace / Delete inside an equation.
@@ -387,7 +460,7 @@ pub fn delete(root: &mut Vec<Node>, pos: &MathPos, back: bool) -> Option<Deleted
     };
     match near {
         Some((i, Some(c))) => {
-            if let Some(Node::Run(t, _)) = s.get_mut(i) {
+            if let Some(Node::Run(t, ..)) = s.get_mut(i) {
                 if let Some((b, ch)) = t.char_indices().nth(c) {
                     t.replace_range(b..b + ch.len_utf8(), "");
                 }
@@ -467,9 +540,10 @@ pub fn autobuild(root: &mut Vec<Node>, pos: &MathPos) -> Option<MathPos> {
     let s = slot_mut(root, &pos.path)?;
     let (i, c) = before(s, pos.offset)?;
     let c = c?;
-    let Node::Run(t, Style::Math) = &s[i] else {
+    let Node::Run(t, Style::Math, typed_pr) = &s[i] else {
         return None;
     };
+    let typed_pr = typed_pr.clone();
     let split = t.char_indices().nth(c + 1).map_or(t.len(), |(b, _)| b);
     let (typed, rest) = (t[..split].to_owned(), t[split..].to_owned());
     let start = item_start(s, i);
@@ -480,8 +554,9 @@ pub fn autobuild(root: &mut Vec<Node>, pos: &MathPos) -> Option<MathPos> {
     let expanded = expand_control_words(&typed);
     let mut built = if scripted {
         let mut v = parse(&format!("{HOLE}{expanded}"));
+        dress(&mut v, &typed_pr);
         match v.first_mut() {
-            Some(Node::Scripts { base, .. }) if matches!(base.as_slice(), [Node::Run(h, _)] if h == &HOLE.to_string()) =>
+            Some(Node::Scripts { base, .. }) if matches!(base.as_slice(), [Node::Run(h, ..)] if h == &HOLE.to_string()) =>
             {
                 *base = vec![s[i - 1].clone()];
             }
@@ -489,7 +564,9 @@ pub fn autobuild(root: &mut Vec<Node>, pos: &MathPos) -> Option<MathPos> {
         }
         v
     } else {
-        parse(&expanded)
+        let mut v = parse(&expanded);
+        dress(&mut v, &typed_pr);
+        v
     };
     let structure = built.iter().any(|n| !matches!(n, Node::Run(..)));
     if !structure {
@@ -497,7 +574,7 @@ pub fn autobuild(root: &mut Vec<Node>, pos: &MathPos) -> Option<MathPos> {
             return None;
         }
         // Only symbols changed (`\alpha` → α): keep the text as typed otherwise.
-        built = vec![Node::Run(expanded, Style::Math)];
+        built = vec![Node::Run(expanded, Style::Math, typed_pr.clone())];
     }
     let first = if scripted { i - 1 } else { i };
     let base_off = if scripted { start - 1 } else { start };
@@ -518,16 +595,35 @@ pub fn autobuild(root: &mut Vec<Node>, pos: &MathPos) -> Option<MathPos> {
     };
     let mut tail = built;
     if !rest.is_empty() {
-        tail.push(Node::Run(rest, Style::Math));
+        tail.push(Node::Run(rest, Style::Math, typed_pr));
     }
     s.splice(first..=i, tail);
     Some(caret)
 }
 
+/// Formatting of what autobuild made from text typed into a run with `typed`: every run takes that
+/// run's formatting (its style set anew, [`RunPr::inherit`]), every structure control properties with
+/// its `w:rPr` ([`Pr::with_ctrl`], ECMA-376 Part 1, §22.1.2 ctrlPr), so the math font of the
+/// document is kept.
+fn dress(nodes: &mut [Node], typed: &RunPr) {
+    for n in nodes {
+        if let Node::Run(_, _, p) = n {
+            *p = typed.inherit();
+            continue;
+        }
+        if let Some(pr) = n.pr_mut() {
+            *pr = Pr::with_ctrl(typed.text.as_ref());
+        }
+        for s in slots_mut(n) {
+            dress(s, typed);
+        }
+    }
+}
+
 /// The tree as it reads back after being written: adjacent math runs of every slot joined, empty runs
 /// dropped, empty radical degrees and n-ary limits hidden (`degHide`, `subHide`, `supHide`).
 pub fn normalize(nodes: &mut Vec<Node>) {
-    nodes.retain(|n| !matches!(n, Node::Run(t, _) if t.is_empty()));
+    nodes.retain(|n| !matches!(n, Node::Run(t, ..) if t.is_empty()));
     for n in nodes.iter_mut() {
         match n {
             Node::Rad { deg, .. } if deg.as_ref().is_some_and(Vec::is_empty) => *deg = None,
@@ -555,7 +651,7 @@ mod tests {
     use super::*;
 
     fn r(t: &str) -> Node {
-        Node::Run(t.into(), Style::Math)
+        Node::run(t, Style::Math)
     }
 
     fn p(steps: &[(usize, usize)], offset: usize) -> MathPos {
@@ -732,6 +828,7 @@ mod tests {
             num: vec![],
             den: vec![],
             bar: true,
+            pr: Pr::default(),
         }];
         let at = insert_text(&mut e, &p(&[(0, 0)], 0), "x").unwrap();
         assert_eq!(at, p(&[(0, 0)], 1));
@@ -788,7 +885,8 @@ mod tests {
             root,
             vec![Node::Rad {
                 deg: None,
-                body: vec![]
+                body: vec![],
+                pr: Pr::default(),
             }]
         );
         assert_eq!(at, p(&[(0, 0)], 0));
@@ -833,6 +931,7 @@ mod tests {
             Node::Rad {
                 deg: Some(vec![]),
                 body: vec![r("x")],
+                pr: Pr::default(),
             },
         ];
         normalize(&mut v);

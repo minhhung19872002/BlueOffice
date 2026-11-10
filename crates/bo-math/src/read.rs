@@ -1,8 +1,9 @@
 //! Office Math Markup (ECMA-376 Part 1, §22.1) → [`Node`] tree, for editing an equation of a document and
-//! showing it in the linear format. Elements without a [`Node`] shape (`m:box`, `m:groupChr`, `m:sPre`,
-//! `m:borderBox`, `m:phant`) keep their content; property elements are read for the values the tree holds.
+//! showing it in the linear format. Property elements are read for the values the tree holds and kept
+//! verbatim ([`crate::Pr`], [`crate::RunPr`]); other containers give their content.
 
-use crate::{Node, Style};
+use crate::omml::{node_managed, run_managed, sigs, write_el};
+use crate::{Node, Pr, RunPr, Style};
 use bo_model::slide::{XmlElement, XmlNode};
 
 /// The equation of an `m:oMath` / `m:oMathPara` element (`None` when the XML does not parse).
@@ -182,39 +183,96 @@ fn first_char(s: Option<&str>, default: char) -> Option<char> {
     }
 }
 
+/// `el` without whitespace-only text (indentation between elements), for keeping it verbatim.
+fn clean(el: &XmlElement) -> XmlElement {
+    XmlElement {
+        name: el.name.clone(),
+        attrs: el.attrs.clone(),
+        children: el
+            .children
+            .iter()
+            .filter_map(|c| match c {
+                XmlNode::Element(e) => Some(XmlNode::Element(clean(e))),
+                XmlNode::Text(t) if t.trim().is_empty() && el.local() != "t" => None,
+                XmlNode::Text(t) => Some(XmlNode::Text(t.clone())),
+            })
+            .collect(),
+    }
+}
+
+/// The children of the property element `name` of `el`, verbatim (CORE-MATH-010).
+fn kids_of(el: &XmlElement, name: &str) -> Vec<XmlElement> {
+    kid(el, name)
+        .map(|p| p.elements().map(clean).collect())
+        .unwrap_or_default()
+}
+
+fn pr_of(el: &XmlElement, name: &str) -> Pr {
+    Pr {
+        kids: kids_of(el, name),
+        read: None,
+    }
+}
+
+/// The prefix of a qualified name (`m` of `m:r`).
+fn prefix(name: &str) -> &str {
+    name.rsplit_once(':').map_or("", |(p, _)| p)
+}
+
+/// A run (§22.1.2.98 r): its `m:t` text, its math run properties (`m:rPr`, the prefix of the run:
+/// sty p = upright, nor = ordinary text) and its WordprocessingML run properties (`w:rPr`).
+fn run(el: &XmlElement) -> Node {
+    let t: String = el
+        .elements()
+        .filter(|e| e.local() == "t")
+        .map(text)
+        .collect();
+    let mine = prefix(&el.name);
+    let rprs = || el.elements().filter(|e| e.local() == "rPr");
+    let mrpr = rprs().find(|e| prefix(&e.name) == mine);
+    let wrpr = rprs().find(|e| prefix(&e.name) != mine);
+    let style = if mrpr.and_then(|p| kid(p, "nor")).is_some() {
+        Style::Normal
+    } else if mrpr
+        .and_then(|p| kid(p, "sty"))
+        .and_then(val)
+        .is_some_and(|v| v == "p")
+    {
+        Style::Upright
+    } else {
+        Style::Math
+    };
+    let math = Pr {
+        kids: mrpr
+            .map(|p| p.elements().map(clean).collect())
+            .unwrap_or_default(),
+        read: Some(sigs(&run_managed(style))),
+    };
+    Node::Run(
+        t,
+        style,
+        RunPr {
+            math,
+            text: wrpr.map(clean),
+        },
+    )
+}
+
 fn node(el: &XmlElement) -> Vec<Node> {
-    let n = match el.local() {
+    let mut n = match el.local() {
         l if l.ends_with("Pr") => return Vec::new(),
-        // §22.1.2.98 r: m:t text, sty p = upright, nor = ordinary text.
-        "r" => {
-            let t: String = el
-                .elements()
-                .filter(|e| e.local() == "t")
-                .map(text)
-                .collect();
-            let rpr = kid(el, "rPr");
-            let style = if rpr.and_then(|p| kid(p, "nor")).is_some() {
-                Style::Normal
-            } else if rpr
-                .and_then(|p| kid(p, "sty"))
-                .and_then(val)
-                .is_some_and(|v| v == "p")
-            {
-                Style::Upright
-            } else {
-                Style::Math
-            };
-            Node::Run(t, style)
-        }
+        "r" => return vec![run(el)],
         "f" => Node::Frac {
             num: arg(el, "num"),
             den: arg(el, "den"),
             bar: prop(el, "fPr", "type") != Some("noBar"),
+            pr: pr_of(el, "fPr"),
         },
         "sSup" | "sSub" | "sSubSup" => Node::Scripts {
             base: arg(el, "e"),
             sub: kid(el, "sub").map(children),
             sup: kid(el, "sup").map(children),
+            pr: pr_of(el, &format!("{}Pr", el.local())),
         },
         "rad" => Node::Rad {
             deg: if on(el, "radPr", "degHide") {
@@ -223,6 +281,7 @@ fn node(el: &XmlElement) -> Vec<Node> {
                 kid(el, "deg").map(children).filter(|d| !d.is_empty())
             },
             body: arg(el, "e"),
+            pr: pr_of(el, "radPr"),
         },
         "nary" => Node::Nary {
             chr: first_char(prop(el, "naryPr", "chr"), '∫').unwrap_or('∫'),
@@ -233,6 +292,7 @@ fn node(el: &XmlElement) -> Vec<Node> {
                 .then(|| arg(el, "sup"))
                 .filter(|v| !v.is_empty()),
             body: arg(el, "e"),
+            pr: pr_of(el, "naryPr"),
         },
         "d" => Node::Delim {
             open: first_char(prop(el, "dPr", "begChr"), '('),
@@ -242,15 +302,18 @@ fn node(el: &XmlElement) -> Vec<Node> {
                 .filter(|e| e.local() == "e")
                 .map(children)
                 .collect(),
+            pr: pr_of(el, "dPr"),
         },
         "func" => Node::Func {
             name: arg(el, "fName"),
             arg: arg(el, "e"),
+            pr: pr_of(el, "funcPr"),
         },
         "limLow" | "limUpp" => Node::Limit {
             base: arg(el, "e"),
             lim: arg(el, "lim"),
             upper: el.local() == "limUpp",
+            pr: pr_of(el, &format!("{}Pr", el.local())),
         },
         "m" => Node::Matrix(
             el.elements()
@@ -262,25 +325,72 @@ fn node(el: &XmlElement) -> Vec<Node> {
                         .collect()
                 })
                 .collect(),
+            pr_of(el, "mPr"),
         ),
         "eqArr" => Node::EqArray(
             el.elements()
                 .filter(|e| e.local() == "e")
                 .map(children)
                 .collect(),
+            pr_of(el, "eqArrPr"),
         ),
         "acc" => Node::Accent {
             chr: first_char(prop(el, "accPr", "chr"), '\u{302}').unwrap_or('\u{302}'),
             base: arg(el, "e"),
+            pr: pr_of(el, "accPr"),
         },
         "bar" => Node::Bar {
             top: prop(el, "barPr", "pos") == Some("top"),
             base: arg(el, "e"),
+            pr: pr_of(el, "barPr"),
         },
-        // Containers and the shapes without a node: their content.
+        // ECMA-376 Part 1, §22.1.2 groupChr, box, borderBox, phant: properties and a base.
+        "groupChr" => Node::GroupChr {
+            base: arg(el, "e"),
+            pr: pr_of(el, "groupChrPr"),
+        },
+        "box" => Node::Boxed {
+            base: arg(el, "e"),
+            pr: pr_of(el, "boxPr"),
+        },
+        "borderBox" => Node::BorderBox {
+            base: arg(el, "e"),
+            pr: pr_of(el, "borderBoxPr"),
+        },
+        "phant" => Node::Phantom {
+            base: arg(el, "e"),
+            pr: pr_of(el, "phantPr"),
+        },
+        // §22.1.2 sPre: scripts before the base.
+        "sPre" => Node::PreScripts {
+            sub: arg(el, "sub"),
+            sup: arg(el, "sup"),
+            base: arg(el, "e"),
+            pr: pr_of(el, "sPrePr"),
+        },
+        // Containers: their content.
         _ => return children(el),
     };
+    let read = sigs(&node_managed(&n));
+    if let Some(pr) = n.pr_mut() {
+        pr.read = Some(read);
+    }
     vec![n]
+}
+
+/// The display properties of an `m:oMathPara` zone (`m:oMathParaPr`, ECMA-376 Part 1, §22.1.2.79:
+/// justification), as XML, to write back around the edited equation; `None` for an inline zone or
+/// none.
+#[must_use]
+pub fn para_props(xml: &str) -> Option<String> {
+    let el = bo_drawingml::dom::parse(xml.as_bytes(), "/word/document.xml").ok()?;
+    if el.local() != "oMathPara" {
+        return None;
+    }
+    let p = kid(&el, "oMathParaPr")?;
+    let mut s = String::new();
+    write_el(&mut s, &clean(p));
+    Some(s)
 }
 
 #[cfg(test)]

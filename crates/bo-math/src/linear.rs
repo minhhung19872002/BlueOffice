@@ -21,7 +21,7 @@ pub fn to_linear(nodes: &[Node]) -> String {
 
 fn starts_with_letter(n: &Node) -> bool {
     match n {
-        Node::Run(t, _) => t.chars().next().is_some_and(char::is_alphanumeric),
+        Node::Run(t, ..) => t.chars().next().is_some_and(char::is_alphanumeric),
         _ => false,
     }
 }
@@ -30,17 +30,17 @@ fn starts_with_letter(n: &Node) -> bool {
 fn atomic(nodes: &[Node]) -> bool {
     match nodes {
         // One character, or a number.
-        [Node::Run(t, Style::Math)] => {
+        [Node::Run(t, Style::Math, _)] => {
             t.chars().count() == 1 || t.chars().all(|c| c.is_ascii_digit() || c == '.')
         }
         // Literal text and function names read back whole; brackets, radicals and arrays delimit
         // themselves.
         []
-        | [Node::Run(_, Style::Normal | Style::Upright)
+        | [Node::Run(_, Style::Normal | Style::Upright, _)
         | Node::Delim { .. }
         | Node::Rad { .. }
-        | Node::Matrix(_)
-        | Node::EqArray(_)] => true,
+        | Node::Matrix(_, _)
+        | Node::EqArray(_, _)] => true,
         _ => false,
     }
 }
@@ -68,27 +68,27 @@ fn scripts(s: &mut String, sub: Option<&Vec<Node>>, sup: Option<&Vec<Node>>) {
 
 fn write(s: &mut String, n: &Node) {
     match n {
-        Node::Run(t, Style::Normal) => {
+        Node::Run(t, Style::Normal, _) => {
             s.push('"');
             s.push_str(t);
             s.push('"');
         }
-        Node::Run(t, _) => s.push_str(t),
-        Node::Frac { num, den, bar } => {
+        Node::Run(t, ..) => s.push_str(t),
+        Node::Frac { num, den, bar, .. } => {
             operand(s, num);
             s.push(if *bar { '/' } else { '¦' });
             operand(s, den);
         }
-        Node::Scripts { base, sub, sup } => {
+        Node::Scripts { base, sub, sup, .. } => {
             operand(s, base);
             scripts(s, sub.as_ref(), sup.as_ref());
         }
-        Node::Rad { deg, body } => match deg {
-            Some(d) if matches!(d.as_slice(), [Node::Run(t, _)] if t == "3") => {
+        Node::Rad { deg, body, .. } => match deg {
+            Some(d) if matches!(d.as_slice(), [Node::Run(t, ..)] if t == "3") => {
                 s.push('∛');
                 operand(s, body);
             }
-            Some(d) if matches!(d.as_slice(), [Node::Run(t, _)] if t == "4") => {
+            Some(d) if matches!(d.as_slice(), [Node::Run(t, ..)] if t == "4") => {
                 s.push('∜');
                 operand(s, body);
             }
@@ -109,6 +109,7 @@ fn write(s: &mut String, n: &Node) {
             sub,
             sup,
             body,
+            ..
         } => {
             s.push(*chr);
             scripts(s, sub.as_ref(), sup.as_ref());
@@ -117,7 +118,9 @@ fn write(s: &mut String, n: &Node) {
                 operand(s, body);
             }
         }
-        Node::Delim { open, close, parts } => {
+        Node::Delim {
+            open, close, parts, ..
+        } => {
             if let Some(o) = open {
                 s.push(*o);
             }
@@ -131,14 +134,16 @@ fn write(s: &mut String, n: &Node) {
                 s.push(*c);
             }
         }
-        Node::Func { name, arg } => {
+        Node::Func { name, arg, .. } => {
             s.push_str(&to_linear(name));
             if !arg.is_empty() {
                 s.push(' ');
                 // lim / max / min read the whole term that follows; other functions one operand.
                 let limit = match name.as_slice() {
                     [Node::Limit { .. }] => true,
-                    [Node::Run(t, _)] => crate::unicode_math::LIMIT_FUNCTIONS.contains(&t.as_str()),
+                    [Node::Run(t, ..)] => {
+                        crate::unicode_math::LIMIT_FUNCTIONS.contains(&t.as_str())
+                    }
                     _ => false,
                 };
                 if limit {
@@ -148,12 +153,14 @@ fn write(s: &mut String, n: &Node) {
                 }
             }
         }
-        Node::Limit { base, lim, upper } => {
+        Node::Limit {
+            base, lim, upper, ..
+        } => {
             s.push_str(&to_linear(base));
             s.push(if *upper { '^' } else { '_' });
             operand(s, lim);
         }
-        Node::Matrix(rows) => {
+        Node::Matrix(rows, _) => {
             s.push_str("■(");
             for (i, r) in rows.iter().enumerate() {
                 if i > 0 {
@@ -168,7 +175,7 @@ fn write(s: &mut String, n: &Node) {
             }
             s.push(')');
         }
-        Node::EqArray(rows) => {
+        Node::EqArray(rows, _) => {
             s.push_str("█(");
             for (i, r) in rows.iter().enumerate() {
                 if i > 0 {
@@ -178,13 +185,44 @@ fn write(s: &mut String, n: &Node) {
             }
             s.push(')');
         }
-        Node::Accent { chr, base } => {
+        Node::Accent { chr, base, .. } => {
             operand(s, base);
             s.push(*chr);
         }
-        Node::Bar { top, base } => {
+        Node::Bar { top, base, .. } => {
             operand(s, base);
             s.push(if *top { '\u{305}' } else { '\u{332}' });
+        }
+        // UTN #28 operators for these: the grouping character, □ box, ▭ border box, ⟡ phantom, each
+        // before its operand; pre-scripts as scripts of an empty base before the base.
+        Node::GroupChr { base, pr } => {
+            let chr = pr
+                .kids
+                .iter()
+                .find(|k| k.local() == "chr")
+                .and_then(|k| k.attrs.iter().find(|(n, _)| n.ends_with("val")))
+                .and_then(|(_, v)| v.chars().next())
+                .unwrap_or('⏟');
+            s.push(chr);
+            operand(s, base);
+        }
+        Node::Boxed { base, .. } => {
+            s.push('□');
+            operand(s, base);
+        }
+        Node::BorderBox { base, .. } => {
+            s.push('▭');
+            operand(s, base);
+        }
+        Node::Phantom { base, .. } => {
+            s.push('⟡');
+            operand(s, base);
+        }
+        Node::PreScripts { sub, sup, base, .. } => {
+            s.push('(');
+            scripts(s, Some(sub), Some(sup));
+            s.push(')');
+            operand(s, base);
         }
     }
 }

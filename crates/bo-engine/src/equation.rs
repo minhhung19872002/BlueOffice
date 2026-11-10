@@ -30,6 +30,19 @@ pub fn wrap(omath: &str, display: bool) -> String {
     }
 }
 
+/// [`wrap`], a display zone keeping its properties (`m:oMathParaPr`, ECMA-376 Part 1, §22.1.2.79, as
+/// XML) when it had some.
+#[must_use]
+pub fn wrap_with(omath: &str, display: bool, para_pr: Option<&str>) -> String {
+    match (display, para_pr) {
+        (true, Some(pr)) => format!(
+            r#"<m:oMathPara xmlns:m="{}">{pr}{omath}</m:oMathPara>"#,
+            bo_math::omml::NS
+        ),
+        _ => wrap(omath, display),
+    }
+}
+
 /// OMML of an equation typed as UnicodeMath (or LaTeX when `latex`).
 #[must_use]
 pub fn build(text: &str, latex: bool, display: bool) -> String {
@@ -78,7 +91,9 @@ pub fn is_display(xml: &str) -> bool {
 /// The linear text when the zone is shown in the linear form (one ordinary math run), else `None`.
 fn linear_text(nodes: &[Node]) -> Option<&str> {
     match nodes {
-        [Node::Run(t, Style::Math)] if t.chars().any(|c| "/^_√▒■█(".contains(c)) => Some(t),
+        [Node::Run(t, Style::Math, _)] if t.chars().any(|c| "/^_√▒■█(".contains(c)) => {
+            Some(t)
+        }
         _ => None,
     }
 }
@@ -108,7 +123,7 @@ pub fn reformat(xml: &str, linear: bool) -> Option<String> {
         (true, None) => {
             let text = bo_math::to_linear(&nodes);
             Some(wrap(
-                &bo_math::to_omml(&[Node::Run(text, Style::Math)]),
+                &bo_math::to_omml(&[Node::run(text, Style::Math)]),
                 display,
             ))
         }

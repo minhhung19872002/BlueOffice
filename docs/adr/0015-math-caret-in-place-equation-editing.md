@@ -65,11 +65,44 @@ sửa qua hộp thoại dạng tuyến tính (UnicodeMath / LaTeX, `bo-math`). C
   phương trình, hoặc nhấp đúp vào phương trình (engine chọn nó), mở hộp thoại phương trình (`insert.equation`) như cũ.
   Mũi tên đi qua phương trình như trước.
 - Hệ quả: phương trình do BlueDoc tạo (hộp thoại, mẫu, LaTeX) luôn sửa tại chỗ được; phương trình do ứng dụng khác viết
-  thường có `w:rPr` (phông toán) trong từng run và `m:ctrlPr` nên chỉ sửa qua hộp thoại cho tới khi cây mô hình hóa
-  được các thuộc tính đó.
+  (`w:rPr` phông toán trong từng run, `m:ctrlPr`, …) sửa tại chỗ được từ phụ lục C — danh sách phần tử bị từ chối ở
+  trên được thu hẹp ở đó.
 - Kiểm thử: `math_edit::tests::unsupported_markup_is_not_edited_in_place` (mỗi phần tử: mathEnter, nhấp, gõ, mũi tên,
   lưu — XML không đổi), `supported_equations_still_enter`, corpus `tests/corpus/doc/math-06-unsupported.docx`, E2E
   `equation-inline.spec.ts`.
+
+### C. Cây giữ thuộc tính: phương trình do ứng dụng khác viết cũng sửa tại chỗ (2026-11-11)
+- Quyết định của chủ dự án: cây phương trình giữ những gì ứng dụng khác viết, để phần A chỉ còn từ chối thứ thật sự
+  chưa mô hình hóa. `bo_math::Node` nay có:
+  - mỗi run `Node::Run(text, style, RunPr)`: `RunPr.math` = các con của `m:rPr` (lit, nor, scr, sty, brk, aln) nguyên
+    văn, `RunPr.text` = phần tử `w:rPr` nguyên văn (phông toán, cỡ, màu, đậm…; con lạ giữ nguyên);
+  - mỗi cấu trúc trường `pr: Pr` = các con của phần tử thuộc tính (`m:fPr`, `m:dPr`, `m:naryPr`, `m:radPr`,
+    `m:mPr`/`m:mcs`, `m:eqArrPr`, `m:accPr`, `m:barPr`, `m:funcPr`, `m:limLowPr`, `m:sSupPr`…) **kể cả `m:ctrlPr`**,
+    nguyên văn theo thứ tự trong tệp;
+  - cấu trúc mới `GroupChr`, `Boxed` (`m:box`), `BorderBox`, `Phantom` (`m:phant`), `PreScripts` (`m:sPre`): ô là cơ số
+    (sPre: chỉ số dưới, trên, cơ số — đúng thứ tự XML); layout đã vẽ chúng, nay đánh số ô (`slot_ids`) nên đi con trỏ,
+    gõ, xóa, nhấp như mọi cấu trúc;
+  - `m:oMathParaPr` của vùng hiển thị giữ nguyên (`read::para_props`, `equation::wrap_with`).
+- Giá trị mô hình hóa (thanh phân số, ký tự ngoặc, chr / ẩn cận của n-ary, ẩn bậc căn, dấu, vị trí gạch, kiểu run) vẫn
+  là trường của nút; `Pr.read` lưu chữ ký của chúng lúc đọc. Khi ghi: giá trị không đổi → các con ghi lại nguyên văn
+  (byte như tệp nếu tệp viết theo dạng chuẩn của bộ ghi); đổi (vd. xóa hết cận dưới → `subHide`) → chỉ phần tử của giá
+  trị đó được đặt / thêm đúng vị trí theo thứ tự lược đồ / bỏ, phần còn lại giữ (`limLoc`, `grow`, `ctrlPr`…).
+  `Pr::default()` (cấu trúc tạo trong BlueDoc) ghi đúng dạng chuẩn cũ — OMML do BlueDoc tạo không đổi byte nào.
+- Quy tắc sửa: gõ vào run → vào chính run đó (giữ `w:rPr`, `m:rPr`); run mới ở ô không có run cạnh con trỏ lấy `w:rPr`
+  của run gần nhất trong ô, rồi `m:ctrlPr` của cấu trúc bao, rồi của run bất kỳ trong vùng (`edit::ambient`); autobuild:
+  run tạo ra lấy định dạng của run đang gõ (kiểu đặt lại theo `Style`, `RunPr::inherit`), cấu trúc tạo ra có
+  `m:ctrlPr` chứa `w:rPr` đó (`Pr::with_ctrl`); xóa không đụng thuộc tính láng giềng; hai run liền nhau chỉ gộp khi cùng
+  kiểu và cùng thuộc tính.
+- Vẫn từ chối (so `same_omml` thấy khác): nhiều `m:oMath` trong một `m:oMathPara`, `w:ins`/`w:del`/bookmark bên trong
+  vùng, `m:argPr`, run có nội dung khác `m:t` (`w:br`, `w:t`…), bậc căn / cận ẩn mà có nội dung. Corpus
+  `math-06-unsupported.docx` nay chỉ chứa các trường hợp này; `math-07-foreign-style.docx` chứa phương trình kiểu ứng
+  dụng khác (phông toán mọi run, `m:ctrlPr`, thuộc tính khác mặc định, groupChr/box/borderBox/phant/sPre,
+  `m:oMathParaPr`) — đều sửa tại chỗ.
+- Kiểm thử: `bo-math/tests/foreign_style.rs` (round-trip đúng byte, gõ, ô rỗng, autobuild, xóa, đổi giá trị đặt tại
+  chỗ, 5 cấu trúc mới: điều hướng + round-trip), `bo-engine` `math_edit::tests::foreign_style_equations_are_edited_in_
+  place_and_keep_their_properties`, `autobuild_in_a_foreign_equation_keeps_the_math_font`,
+  `corpus_foreign_style_is_edited_in_place_and_unsupported_is_not`, `unsupported_markup_is_not_edited_in_place`; E2E
+  `equation-inline.spec.ts` (mở `math-07`, sửa tại chỗ, XML lưu giữ `w:rFonts` trên mọi run).
 
 ### B. Theo dõi thay đổi: một revision cho cả phương trình
 - Cách ghi (cái `bo-edit` vốn có và round-trip được): revision nằm trên `RunProps` của nguyên tử phương trình, nên

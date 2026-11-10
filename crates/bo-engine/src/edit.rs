@@ -1239,6 +1239,9 @@ pub struct EditResult {
     /// Read-aloud text and highlight rectangles (`speechText`, `speechRects`, CORE-LANG-003).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speech: Option<Box<crate::speech::SpeechInfo>>,
+    /// Text segments of the body paragraphs (`translationSegments`, CORE-LANG-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation: Option<Vec<bo_edit::translate::TextSegment>>,
 }
 
 impl crate::Engine {
@@ -1271,6 +1274,10 @@ impl crate::Engine {
         // Embedded and linked workbooks (CORE-EMBED-001).
         if let Some(oc) = crate::ole::OleCommand::parse(&v) {
             let r = self.doc_ole_command(oc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        if let Some(tc) = crate::translate::TranslateCommand::parse(&v) {
+            let r = self.doc_translate_command(tc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         if let Some(sc) = crate::speech::SpeechCommand::parse(&v) {
@@ -2410,6 +2417,7 @@ impl crate::Engine {
             picture: None,
             custom_xml: None,
             speech: None,
+            translation: None,
         })
     }
 }

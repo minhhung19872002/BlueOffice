@@ -79,14 +79,31 @@ icon. Làm xen kẽ với `docs/parity/BACKLOG.md`.
 
 ## Màn hình Tệp (§7)
 
-- [ ] **UI-FILE-001** (P0) Màn hình Tệp toàn trang: cột trái (Quay lại, Trang chủ, Mới, Mở, Thông tin, Lưu, Lưu thành, Lịch sử
-  phiên bản, In, Chia sẻ, Xuất, Đóng, Tài khoản, Phản hồi, Tùy chọn), Esc quay lại. *Xong khi:* E2E mở màn hình Tệp.
-- [ ] **UI-FILE-002** (P1) Trang chủ/Mới: mẫu nổi bật (mẫu hành chính VN tự soạn), tìm mẫu, gần đây/ghim/được chia sẻ.
-- [ ] **UI-FILE-003** (P1) Thông tin: thuộc tính, bảo vệ, kiểm tra tài liệu, phiên bản.
-- [ ] **UI-FILE-004** (P1) In: thiết lập bên trái + xem trước có điều hướng/zoom bên phải.
-- [ ] **UI-FILE-005** (P1) Xuất: PDF/PDF-A, định dạng khác, video (BlueSlide).
-- [ ] **UI-FILE-006** (P1) Tùy chọn: hộp thoại danh mục (Chung, Hiển thị, Soát lỗi, Lưu, Ngôn ngữ, Khả năng tiếp cận, Nâng cao,
-  Tùy biến ribbon, Thanh truy cập nhanh, Bổ trợ, Bảo mật).
+- [p] **UI-FILE-001** (P0) Màn hình Tệp toàn trang: cột trái (Quay lại, Trang chủ, Mới, Mở, Thông tin, Lưu, Lưu thành, Lịch sử
+  phiên bản, In, Chia sẻ, Xuất, Đóng, Tài khoản, Phản hồi, Tùy chọn), Esc quay lại. *Xong khi:* E2E mở màn hình Tệp. **Đã có
+  (CORE-UI-002):** `Backstage` (`packages/ui/src/Backstage.tsx`, dialog toàn cửa sổ, cột điều hướng phím mũi tên/Home/End, Esc
+  và Quay lại đóng) + `FileBackstage` (`packages/editor`) dùng chung cho 3 app, nút Tệp đầu dải tab (`Ribbon.fileMenu`; tab Tệp
+  cũ của BlueDoc chuyển vào đây, Tìm lệnh vẫn thấy); Mới, Mở, Thông tin, Lưu, Lưu thành, In, Chia sẻ, Xuất, Đóng (khi host có),
+  Tùy chọn; lệnh trang chạy sau khi đóng màn hình. Test `ui/test/backstage.test.tsx`, `editor/test/file-backstage.test.tsx`, E2E
+  `file-backstage.spec.ts`. *Thiếu:* Trang chủ, Tài khoản, Phản hồi; Lịch sử phiên bản là lệnh trong Thông tin.
+- [p] **UI-FILE-002** (P1) Trang chủ/Mới: mẫu nổi bật (mẫu hành chính VN tự soạn), tìm mẫu, gần đây/ghim/được chia sẻ. **Đã có:**
+  Mới (trống, mở hộp mẫu DOC-TPL-001); Mở: đã ghim + gần đây (ghim/bỏ ghim lưu theo người dùng qua `shell.getSetting`/
+  `setSetting`, web: `localStorage`), mở theo đường dẫn khi nền tảng có `openPath`, duyệt máy này. *Thiếu:* lưới mẫu nổi bật ngay
+  trên trang, tìm mẫu, được chia sẻ / BlueDrive.
+- [x] **UI-FILE-003** (P1) Thông tin: thuộc tính, bảo vệ, kiểm tra tài liệu, phiên bản. **Đã có:** thuộc tính sửa được (tiêu đề,
+  chủ đề, tác giả, từ khóa, ghi chú, thể loại, trạng thái, đơn vị, người quản lý) + chỉ đọc (người lưu, ngày tạo/sửa, số lần sửa)
+  qua lệnh `docProperties`/`setDocProperties` (`bo_engine::props`, core.xml/app.xml, docx/xlsx/pptx, test round-trip
+  `crates/bo-engine/tests/props.rs`); nút Bảo vệ tệp, Lưu kèm mật khẩu, Kiểm tra tài liệu, Lịch sử phiên bản, Ký số. E2E sửa tiêu
+  đề → lưu → mở lại.
+- [p] **UI-FILE-004** (P1) In: thiết lập bên trái + xem trước có điều hướng/zoom bên phải. **Đã có:** trang In mở bảng In
+  (CORE-PRINT-001, thiết lập + xem trước) và In ngay. *Thiếu:* bảng In nằm ngay trong trang (hiện là hộp thoại).
+- [p] **UI-FILE-005** (P1) Xuất: PDF/PDF-A, định dạng khác, video (BlueSlide). **Đã có:** trang Xuất (PDF, PDF/A…, PDF có ký
+  số, PNG, video/ảnh động, tài liệu phát tay, CSV, tệp chủ đề — lệnh có sẵn của từng app); Lưu thành liệt kê mọi kiểu tài liệu +
+  định dạng khác. *Thiếu:* chọn thư mục/đích lưu trong trang.
+- [p] **UI-FILE-006** (P1) Tùy chọn: hộp thoại danh mục (Chung, Hiển thị, Soát lỗi, Lưu, Ngôn ngữ, Khả năng tiếp cận, Nâng cao,
+  Tùy biến ribbon, Thanh truy cập nhanh, Bổ trợ, Bảo mật). **Đã có:** trang Tùy chọn của màn hình Tệp gom các thiết lập đang có
+  (ngôn ngữ giao diện, sáng/tối/tương phản cao, mật độ — app không có lệnh `view.density` thì chọn ngay trong trang, tự động sửa,
+  soát chính tả khi gõ, ngôn ngữ soát lỗi, kiểm tra cập nhật). *Thiếu:* hộp thoại danh mục đầy đủ.
 
 ## Thành phần tương tác (§8)
 

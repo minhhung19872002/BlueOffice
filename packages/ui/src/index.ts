@@ -14,6 +14,7 @@ export {
   type RibbonItem,
   type RibbonLabels,
   type RibbonLauncher,
+  type RibbonFileMenu,
   type RibbonProps,
   type RibbonTab,
 } from './Ribbon';
@@ -209,3 +210,28 @@ export {
   type TaskPaneSide,
   type TaskPaneStorage,
 } from './TaskPanes';
+export {
+  Backstage,
+  BackstageCommands,
+  BackstageFiles,
+  BackstageFormats,
+  BackstageProperties,
+  backstagePage,
+  navTarget,
+  type BackstageCommand,
+  type BackstageField,
+  type BackstageFile,
+  type BackstageFormat,
+  type BackstageLabels,
+  type BackstageProps,
+  type BackstageSection,
+} from './Backstage';
+export {
+  loadPinned,
+  pinnedKey,
+  savePinned,
+  togglePinned,
+  usePinnedFiles,
+  type PinnedFile,
+  type SettingStore,
+} from './pinnedFiles';

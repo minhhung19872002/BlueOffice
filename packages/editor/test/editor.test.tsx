@@ -351,7 +351,7 @@ describe('BlueEditor digital signatures', () => {
     await waitFor(() =>
       expect(screen.getByTestId('signature-bar').dataset.state).toBe('untrusted'),
     );
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Tệp' }));
+    fireEvent.click(screen.getByTestId('file-tab'));
     fireEvent.click(document.querySelector('[data-command="file.sign"]')!);
     await waitFor(() => expect(screen.getByTestId('sign-dialog')).toBeTruthy());
     fireEvent.click(screen.getByTestId('sign-submit'));

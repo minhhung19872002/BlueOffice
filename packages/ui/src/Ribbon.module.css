@@ -35,6 +35,16 @@
     opacity var(--bo-duration-fast, 120ms) var(--bo-ease, ease);
 }
 
+/* File button (CORE-UI-002): opens the File screen, styled as a tab. */
+.fileTab {
+  font-weight: 600;
+}
+
+.fileTab:focus-visible {
+  outline: 2px solid var(--bo-focus);
+  outline-offset: -2px;
+}
+
 .tab:hover {
   opacity: 1;
   background: rgba(255, 255, 255, 0.08);

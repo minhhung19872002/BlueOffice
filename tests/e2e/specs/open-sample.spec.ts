@@ -77,9 +77,14 @@ test('exports a PDF', async ({ page }) => {
   await page.goto('/doc');
   await page.getByTestId('open-sample').click();
   await expect(page.locator('.bo-page[data-page="1"]')).toHaveAttribute('data-rendered', 'true');
-  await page.getByRole('tab', { name: 'Tệp' }).click();
+  // File screen (CORE-UI-002) › Export.
+  await page.getByTestId('file-tab').click();
+  await page
+    .getByRole('navigation', { name: 'Tệp' })
+    .getByRole('button', { name: 'Xuất', exact: true })
+    .click();
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Xuất PDF', exact: true }).click();
+  await page.locator('[data-testid="backstage"] [data-command="file.exportPdf"]').click();
   const d = await download;
   expect(d.suggestedFilename()).toBe('phase1-sample.pdf');
 });

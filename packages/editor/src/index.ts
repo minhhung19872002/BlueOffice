@@ -4,6 +4,15 @@ export { BlueEditor, type BlueEditorProps, type HostConfig } from './BlueEditor'
 export { CommandRegistry, type Command } from './commands';
 export { MacroBanner, PasswordDialog, SavePasswordPanel } from './SecurityPanels';
 export { SaveAsTypeDialog, planOpen, saveName, type OpenPlan } from './FileVariants';
+export {
+  BACKSTAGE_COMMANDS,
+  FileBackstage,
+  OTHER_FORMATS,
+  type BackstageCommandAccess,
+  type BackstagePageId,
+  type BackstagePropertiesAccess,
+  type FileBackstageProps,
+} from './FileBackstage';
 export { PdfExportDialog, type PdfExportDialogProps } from './PdfExportDialog';
 export {
   FileProtectionUi,

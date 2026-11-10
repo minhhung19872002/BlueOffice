@@ -2201,7 +2201,7 @@ fn merge_records() -> Vec<[&'static str; 4]> {
 /// A photo-like `w × h` RGB PNG: a gradient tinted by `seed` plus low-amplitude
 /// pseudo-random noise, so that it compresses like a real picture rather than a
 /// flat colour (benchmark input, not part of the round-trip corpus).
-fn photo_png(w: u32, h: u32, seed: u32) -> Vec<u8> {
+pub(crate) fn photo_png(w: u32, h: u32, seed: u32) -> Vec<u8> {
     let mut out = Vec::new();
     let mut state = seed.wrapping_mul(2_654_435_761).max(1);
     let tint = seed.wrapping_mul(37).to_le_bytes();
@@ -2278,6 +2278,132 @@ pub fn big_document(
     Doc {
         body,
         sect: sect(""),
+        images,
+        ..Doc::default()
+    }
+    .build()
+}
+
+/// Realistic long document for CORE-PERF-001 ("`.docx` 1 000 trang mở < 8 s"): about
+/// `pages` A4 pages of blocks of four justified paragraphs with one footnote (ECMA-376
+/// Part 1, §17.11.14 footnoteReference) followed alternately by a 3 × 5 table
+/// (§17.4.38 tbl) with a numbered caption (§17.16.5.56 SEQ) or an inline picture
+/// (cycling through `distinct` image parts), a chapter heading (Heading1,
+/// §17.3.1.20 outlineLvl) every 20 pages, a header and a footer with PAGE / NUMPAGES
+/// fields (§17.16.5.43 / §17.16.5.38). Generated for benchmarks, never committed.
+pub fn big_document_rich(pages: usize, distinct: usize) -> Result<Vec<u8>, bo_opc::OpcError> {
+    let distinct = distinct.max(1);
+    let (cx, cy) = (2_880_000_i64, 2_160_000_i64); // 8 cm × 6 cm in EMU
+    let mut body = String::new();
+    let mut notes = String::new();
+    let mut pic_id = 0_u32;
+    let mut table_no = 0_u32;
+    // ECMA-376 Part 1, §17.3.1.13 jc; §17.3.1.12 ind
+    let jc = r#"<w:pPr><w:jc w:val="both"/><w:ind w:firstLine="567"/></w:pPr>"#;
+    // One unit (four paragraphs + a table or a picture, one footnote) fills about 5/8 of
+    // an A4 page (measured: 1 600 units = 1 000 pages).
+    let units = pages * 8 / 5;
+    for k in 0..units {
+        if k % 32 == 0 {
+            // ECMA-376 Part 1, §17.3.1.27 pStyle
+            body.push_str(&format!(
+                r#"<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Chương {}. Báo cáo giả định</w:t></w:r></w:p>"#,
+                k / 32 + 1
+            ));
+        }
+        let note = k + 1;
+        for j in 0..4 {
+            let i = k * 4 + j;
+            let fref = if j == 1 {
+                format!(
+                    r#"<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="{note}"/></w:r>"#
+                )
+            } else {
+                String::new()
+            };
+            body.push_str(&format!(
+                r#"<w:p>{jc}<w:r><w:t xml:space="preserve">{} {} {}</w:t></w:r>{fref}<w:r><w:t xml:space="preserve"> {} {}</w:t></w:r></w:p>"#,
+                i + 1,
+                VI[i % VI.len()],
+                VI[(i + 1) % VI.len()],
+                VI[(i + 2) % VI.len()],
+                VI[(i + 3) % VI.len()],
+            ));
+        }
+        // ECMA-376 Part 1, §17.11.10 footnote
+        notes.push_str(&format!(
+            r#"<w:footnote w:id="{note}"><w:p><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r><w:t xml:space="preserve"> Ghi chú {note}: {}</w:t></w:r></w:p></w:footnote>"#,
+            VI[k % VI.len()]
+        ));
+        if k % 2 == 0 {
+            table_no += 1;
+            body.push_str(&format!(
+                r#"<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t xml:space="preserve">Bảng </w:t></w:r>{}<w:r><w:t xml:space="preserve">. Số liệu kỳ {}</w:t></w:r></w:p>"#,
+                field_simple(r"SEQ Bang \* ARABIC", &table_no.to_string()),
+                k + 1
+            ));
+            // ECMA-376 Part 1, §17.4.49 tblHeader
+            let mut rows = vec![row(
+                "<w:tblHeader/>",
+                &[
+                    cell(3000, "", "Đơn vị"),
+                    cell(3000, "", "Kế hoạch"),
+                    cell(3000, "", "Thực hiện"),
+                ],
+            )];
+            for r in 0..4 {
+                let v = (k * 7 + r * 13) % 1000;
+                rows.push(row(
+                    "",
+                    &[
+                        cell(3000, "", &format!("Phòng {}", r + 1)),
+                        cell(3000, "", &format!("{}.000", v + 100)),
+                        cell(3000, "", &format!("{}.500", v + 90)),
+                    ],
+                ));
+            }
+            body.push_str(&table(&[3000, 3000, 3000], &rows, ""));
+        } else {
+            pic_id += 1;
+            let rid = format!("rIdImg{}", (pic_id as usize - 1) % distinct + 1);
+            body.push_str(&format!(
+                r#"<w:p><w:pPr><w:jc w:val="center"/></w:pPr>{}</w:p>"#,
+                inline_pic(pic_id, &rid, cx, cy, "", "")
+            ));
+        }
+    }
+    let images = (0..distinct)
+        .map(|k| {
+            let seed = u32::try_from(k).unwrap_or(0) + 1;
+            (format!("rIdImg{seed}"), photo_png(640, 480, seed))
+        })
+        .collect();
+    Doc {
+        body,
+        sect: sect(
+            &[
+                hdr_ref("header", "default", "rId10"),
+                hdr_ref("footer", "default", "rId11"),
+            ]
+            .concat(),
+        ),
+        hf: vec![
+            (
+                "rId10".into(),
+                "header",
+                p("CÔNG TY GIẢ ĐỊNH – Báo cáo tổng hợp"),
+            ),
+            (
+                "rId11".into(),
+                "footer",
+                format!(
+                    r#"<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t xml:space="preserve">Trang </w:t></w:r>{}<w:r><w:t>/</w:t></w:r>{}</w:p>"#,
+                    field_complex("PAGE", "1"),
+                    field_simple("NUMPAGES", "1")
+                ),
+            ),
+        ],
+        footnotes: Some(notes),
         images,
         ..Doc::default()
     }

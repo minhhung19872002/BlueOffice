@@ -2286,6 +2286,90 @@ fn replace_in_part(pkg: &[u8], part: &str, from: &str, to: &str) -> Vec<u8> {
     p.write().unwrap_or_else(|_| pkg.to_vec())
 }
 
+/// Benchmark deck of CORE-PERF-001 ("`.pptx` 300 slide có video mở < 5 s"): `slides`
+/// title-and-content slides with three bullets and a picture (cycling through
+/// `distinct` photo-like PNG parts), speaker notes on every tenth slide, and
+/// `videos` slides showing an embedded video (§19.3.1.37 pic with `a:videoFile`,
+/// §20.1.3.6, and the `p14:media` extension) of `video_kb` KiB each. The video parts
+/// are an `ftyp` box followed by incompressible pseudo-random bytes: open time is
+/// measured, not decoding. Generated for benchmarks, never committed.
+pub fn big_deck(slides: usize, videos: usize, video_kb: usize, distinct: usize) -> Vec<u8> {
+    let distinct = distinct.max(1);
+    let every = slides.checked_div(videos).map_or(usize::MAX, |n| n.max(1));
+    let mut parts: Parts = (0..distinct)
+        .map(|k| {
+            let seed = u32::try_from(k).unwrap_or(0) + 101;
+            (
+                format!("/ppt/media/image{}.png", k + 1),
+                String::new(),
+                crate::corpus::photo_png(800, 600, seed),
+            )
+        })
+        .collect();
+    let mut video_n = 0;
+    let mut specs = Vec::with_capacity(slides);
+    for i in 0..slides {
+        let bullets = body(
+            "",
+            &(para(&format!("Nội dung {} – mục tiêu và kết quả", i + 1))
+                + &para_lvl(1, "Số liệu giả định của quý")
+                + &para("Kế hoạch tiếp theo")),
+        );
+        let mut s = content_slide(&format!("Trang trình chiếu {}", i + 1), &bullets);
+        let img = i % distinct + 1;
+        if i % every == every - 1 && video_n < videos {
+            video_n += 1;
+            let target = format!("../media/media{video_n}.mp4");
+            s.shapes.push_str(&format!(
+                r#"<p:pic><p:nvPicPr><p:cNvPr id="4" name="clip{video_n}.mp4"><a:hlinkClick r:id="" action="ppaction://media"/></p:cNvPr><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr><a:videoFile r:link="rId2"/><p:extLst><p:ext uri="{{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}}"><p14:media xmlns:p14="{P14}" r:embed="rId3"/></p:ext></p:extLst></p:nvPr></p:nvPicPr><p:blipFill><a:blip r:embed="rId4"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>{}{}</p:spPr></p:pic>"#,
+                xfrm(7 * IN, 2 * IN, 5 * IN, 3 * IN),
+                prst("rect")
+            ));
+            s.rels = vec![
+                r("rId2", "video", &target),
+                r(
+                    "rId3",
+                    "http://schemas.microsoft.com/office/2007/relationships/media",
+                    &target,
+                ),
+                r("rId4", "image", &format!("../media/image{img}.png")),
+            ];
+            let mut bytes = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom".to_vec();
+            let mut state = u32::try_from(video_n)
+                .unwrap_or(1)
+                .wrapping_mul(2_654_435_761)
+                | 1;
+            bytes.extend((0..video_kb * 1024).map(|_| {
+                // xorshift32: incompressible like real video
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                state.to_le_bytes()[0]
+            }));
+            parts.push((
+                format!("/ppt/media/media{video_n}.mp4"),
+                String::new(),
+                bytes,
+            ));
+        } else {
+            s.shapes.push_str(&pic(
+                4,
+                &format!("Picture {}", i + 1),
+                "rId2",
+                (7 * IN, 2 * IN, 4 * IN, 3 * IN),
+                "",
+                &prst("rect"),
+            ));
+            s.rels = vec![r("rId2", "image", &format!("../media/image{img}.png"))];
+        }
+        if i % 10 == 0 {
+            s.notes = Some(format!("Ghi chú người trình bày cho trang {}", i + 1));
+        }
+        specs.push(s);
+    }
+    build(&specs, &parts, THEME_BLUE)
+}
+
 /// Every corpus deck: (file name, bytes) — generated decks plus decks
 /// edited through the slide edit API (`slide_edits`).
 pub fn decks() -> Vec<(&'static str, Vec<u8>)> {

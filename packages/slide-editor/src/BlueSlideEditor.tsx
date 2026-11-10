@@ -3028,6 +3028,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     glyphs,
     images,
     revision: epoch * 1_000_000 + (revs[drawShown] ?? 0),
+    // Ink → text / math (CORE-INK-002).
+    ...(platform.handwriting ? { handwriting: platform.handwriting } : {}),
+    lang: uiLang,
+    notify: setStatus,
   });
   const extraTabs = [...(picture.tab ? [picture.tab] : []), ...mediaTools.tabs];
 
@@ -3583,7 +3587,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           },
         ],
       },
-      drawTab(t, item, draw.state),
+      drawTab(t, item, draw.state, draw.handwriting),
       slideShowTab(t, item, setup.useTimings, setup.narration),
       {
         id: 'review',
@@ -3990,6 +3994,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     setup.narration,
     loadWarpPreviews,
     draw.state,
+    draw.handwriting,
     shortcutsVersion,
   ]);
 

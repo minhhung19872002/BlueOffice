@@ -2893,6 +2893,8 @@ export interface Platform {
   dataSources?: import('./sheetQuery').QueryDataSources;
   /** Speech to text for dictation (absent where the platform cannot listen; CORE-LANG-002). */
   dictation?: import('./dictation').DictationProvider;
+  /** Handwriting recognition for ink → text / math (absent: none here; CORE-INK-002). */
+  handwriting?: import('./handwriting').HandwritingProvider;
   /** Microphone / camera recording (absent where the platform has none; SLIDE-REC-001). */
   media?: import('./mediaCapture').MediaCaptureService;
 }

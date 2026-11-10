@@ -1967,6 +1967,30 @@
     "stopReplay": "Dừng phát lại",
     "layer": "Vùng vẽ nét mực",
     "inkName": "Nét mực",
+    "lasso": "Chọn nét vẽ (vòng chọn)",
+    "groupConvert": "Chuyển đổi",
+    "inkToShape": "Chuyển nét vẽ thành hình",
+    "autoShape": "Tự chuyển thành hình khi vẽ",
+    "inkToText": "Chuyển nét vẽ thành chữ",
+    "inkToMath": "Chuyển nét vẽ thành phương trình",
+    "picked": "{{count}} nét vẽ đã chọn",
+    "noInk": "Trang chiếu này chưa có nét vẽ nào.",
+    "noShapes": "Không nhận ra hình nào; nét vẽ được giữ nguyên.",
+    "converted": "Đã chuyển {{count}} hình; {{kept}} nét vẽ giữ nguyên.",
+    "recognized": "Đã nhận dạng: {{text}}",
+    "handwriting": {
+      "noText": "Chưa chuyển được thành chữ: trình duyệt này không có bộ nhận dạng chữ viết tay và máy chủ chưa được quản trị viên cấu hình dịch vụ nhận dạng.",
+      "noMath": "Chưa chuyển được thành phương trình: máy chủ chưa được quản trị viên cấu hình dịch vụ nhận dạng công thức viết tay.",
+      "errors": {
+        "unavailable": "Dịch vụ nhận dạng chữ viết tay không dùng được.",
+        "unsupportedLanguage": "Dịch vụ nhận dạng chưa hỗ trợ ngôn ngữ này.",
+        "unauthorized": "Bạn không có quyền dùng dịch vụ nhận dạng chữ viết tay.",
+        "tooLarge": "Quá nhiều nét vẽ để nhận dạng một lần; hãy chọn ít nét hơn.",
+        "rateLimited": "Dịch vụ nhận dạng đang bận, hãy thử lại sau.",
+        "upstream": "Dịch vụ nhận dạng gặp lỗi.",
+        "empty": "Không nhận dạng được chữ nào từ nét vẽ."
+      }
+    },
     "colors": {
       "black": "Đen",
       "blue": "Xanh dương",

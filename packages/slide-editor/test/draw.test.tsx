@@ -1,9 +1,25 @@
 // @vitest-environment happy-dom
-import type { SlideInkObject, SlideInkStrokeIn } from '@blueoffice/platform';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { GlyphStore, ImageStore } from '@blueoffice/canvas-host';
+import {
+  FakeHandwritingProvider,
+  type SlideCommand,
+  type SlideEditResult,
+  type SlideInkObject,
+  type SlideInkStrokeIn,
+} from '@blueoffice/platform';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DrawLayer } from '../src/draw/DrawLayer';
-import { DRAW_COMMANDS, applyDrawCommand, isChecked } from '../src/draw/drawTab';
+import {
+  CONVERT_COMMANDS,
+  DRAW_COMMANDS,
+  DrawActionsHub,
+  applyDrawCommand,
+  drawEnabled,
+  drawTab,
+  isChecked,
+  useDrawTools,
+} from '../src/draw/drawTab';
 import {
   INITIAL_DRAW,
   MIN_STEP,
@@ -13,6 +29,9 @@ import {
   StrokeRecorder,
   brushOf,
   edgeDistance,
+  handwritingStrokes,
+  insidePolygon,
+  lassoPick,
   previewWidth,
   projectOnEdge,
   replayTimeline,
@@ -299,5 +318,274 @@ describe('DrawLayer', () => {
     fireEvent.pointerDown(layer, { button: 0, clientX: 240, clientY: 145, pointerId: 2 });
     fireEvent.pointerMove(layer, { clientX: 250, clientY: 150, pointerId: 2 });
     expect(onRuler).toHaveBeenLastCalledWith({ x: 500, y: 280, angle: 0 });
+  });
+});
+
+describe('ink conversion (CORE-INK-002)', () => {
+  const square = (id: number, x: number, y: number): SlideInkObject => ({
+    id,
+    name: `Ink ${id}`,
+    rect: [x, y, 20, 20],
+    strokes: [
+      stroke(
+        [
+          [x, y, 2],
+          [x + 20, y, 2],
+          [x + 20, y + 20, 2],
+          [x, y + 20, 2],
+        ],
+        [5000, 5010, 5020, 5030],
+      ),
+    ],
+  });
+
+  it('picks ink with a lasso or a click', () => {
+    const objects = [square(2, 10, 10), square(3, 200, 200)];
+    expect(
+      insidePolygon(
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 10],
+        ],
+        [5, 5],
+      ),
+    ).toBe(true);
+    expect(
+      insidePolygon(
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 10],
+        ],
+        [15, 5],
+      ),
+    ).toBe(false);
+    const lasso: [number, number][] = [
+      [0, 0],
+      [60, 0],
+      [60, 60],
+      [0, 60],
+    ];
+    expect(lassoPick(objects, lasso)).toEqual([2]);
+    expect(
+      lassoPick(objects, [
+        [0, 0],
+        [400, 0],
+        [400, 400],
+        [0, 400],
+      ]),
+    ).toEqual([2, 3]);
+    // A click on a stroke picks its object.
+    expect(lassoPick(objects, [[220, 205]])).toEqual([3]);
+    expect(lassoPick(objects, [[100, 100]])).toEqual([]);
+  });
+
+  it('hands the picked strokes to the recogniser with times from their start', () => {
+    const objects = [square(2, 10, 10), square(3, 200, 200)];
+    const s = handwritingStrokes(objects, [3]);
+    expect(s).toHaveLength(1);
+    expect(s[0]!.points[0]).toEqual([200, 200]);
+    expect(s[0]!.times).toEqual([0, 10, 20, 30]);
+    expect(handwritingStrokes(objects, [])).toHaveLength(2);
+  });
+
+  it('toggles the automatic mode with the pen', () => {
+    let s = applyDrawCommand(INITIAL_DRAW, 'draw.autoShape', SLIDE);
+    expect(s.autoShape).toBe(true);
+    expect(s.tool).toBe('pen');
+    expect(isChecked(s, 'draw.autoShape')).toBe(true);
+    s = applyDrawCommand(s, 'draw.autoShape', SLIDE);
+    expect(s.autoShape).toBe(false);
+    expect(applyDrawCommand(INITIAL_DRAW, 'draw.lasso', SLIDE).tool).toBe('lasso');
+  });
+
+  it('disables ink → text / math without a recogniser and says why', () => {
+    const t = (k: string) => k;
+    const item = (id: string, label: string) => ({
+      id,
+      label,
+      icon: null,
+      onSelect: () => {},
+    });
+    const items = (hw: { text: boolean; math: boolean }) =>
+      drawTab(t, item, INITIAL_DRAW, hw).groups.find((g) => g.id === 'drawConvert')!.items;
+    const none = items({ text: false, math: false });
+    expect(none.map((i) => i.id)).toEqual([...CONVERT_COMMANDS]);
+    expect(none.find((i) => i.id === 'draw.inkToText')!.tooltip).toBe(
+      'drawTools.handwriting.noText',
+    );
+    expect(none.find((i) => i.id === 'draw.inkToMath')!.tooltip).toBe(
+      'drawTools.handwriting.noMath',
+    );
+    expect(none.find((i) => i.id === 'draw.inkToShape')!.tooltip).toBeUndefined();
+    const both = items({ text: true, math: true });
+    expect(both.every((i) => i.tooltip === undefined)).toBe(true);
+    const a = {
+      state: INITIAL_DRAW,
+      enabled: true,
+      handwriting: { text: false, math: true },
+      run: () => {},
+    };
+    expect(drawEnabled(a, 'draw.inkToShape')).toBe(true);
+    expect(drawEnabled(a, 'draw.inkToText')).toBe(false);
+    expect(drawEnabled(a, 'draw.inkToMath')).toBe(true);
+    expect(drawEnabled({ ...a, enabled: false }, 'draw.inkToShape')).toBe(false);
+  });
+});
+
+describe('useDrawTools conversion commands', () => {
+  type Tools = ReturnType<typeof useDrawTools>;
+  const objects: SlideInkObject[] = [
+    {
+      id: 7,
+      name: 'Ink 7',
+      rect: [10, 10, 40, 20],
+      strokes: [
+        stroke([
+          [10, 10, 2],
+          [50, 30, 2],
+        ]),
+      ],
+    },
+  ];
+
+  function mount(opts: { handwriting?: FakeHandwritingProvider; converted?: unknown }) {
+    const hub = new DrawActionsHub();
+    const cmds: SlideCommand[] = [];
+    const notes: string[] = [];
+    const run = vi.fn(async (c: SlideCommand) => {
+      cmds.push(c);
+      const converted =
+        c.cmd === 'inkToShapes'
+          ? (opts.converted ?? { shapes: [{ id: 9, kind: 'rectangle' }], kept: 0 })
+          : c.cmd === 'inkToText' || c.cmd === 'inkToMath'
+            ? { shapes: [{ id: 9, kind: c.cmd === 'inkToText' ? 'text' : 'math' }], kept: 0 }
+            : c.cmd === 'addInk' && 'autoShape' in c && c.autoShape
+              ? {
+                  shapes: [
+                    { id: 'attachTo' in c ? 12 : 11, kind: 'attachTo' in c ? 'arrow' : 'line' },
+                  ],
+                  kept: 0,
+                }
+              : undefined;
+      return {
+        ink: { objects, ...(converted ? { converted } : {}) },
+      } as unknown as SlideEditResult;
+    });
+    const ref: { current: Tools | null } = { current: null };
+    function Harness() {
+      const tools = useDrawTools({
+        t: (k, o) => (o ? `${k} ${JSON.stringify(o)}` : k),
+        hub,
+        enabled: true,
+        slide: 0,
+        size: SLIDE,
+        run,
+        glyphs: {} as GlyphStore,
+        images: {} as ImageStore,
+        revision: 0,
+        ...(opts.handwriting ? { handwriting: opts.handwriting } : {}),
+        lang: 'vi-VN',
+        notify: (m) => notes.push(m),
+      });
+      ref.current = tools;
+      return <div>{tools.layer}</div>;
+    }
+    render(<Harness />);
+    return { hub, cmds, notes, ref };
+  }
+
+  it('converts ink to shapes and reports what stayed ink', async () => {
+    const { hub, cmds, notes } = mount({ converted: { shapes: [], kept: 1 } });
+    await waitFor(() => expect(hub.get()).not.toBeNull());
+    act(() => hub.get()!.run('draw.inkToShape'));
+    await waitFor(() => expect(notes).toEqual(['drawTools.noShapes']));
+    expect(cmds).toContainEqual({ cmd: 'inkToShapes', ids: [] });
+  });
+
+  it('keeps ink → text / math disabled with no provider', async () => {
+    const { hub } = mount({});
+    await waitFor(() => expect(hub.get()).not.toBeNull());
+    expect(drawEnabled(hub.get()!, 'draw.inkToText')).toBe(false);
+    expect(drawEnabled(hub.get()!, 'draw.inkToMath')).toBe(false);
+  });
+
+  it('recognises handwriting and replaces the ink', async () => {
+    const p = new FakeHandwritingProvider({ text: true, math: true, languages: [] });
+    p.answers.push({ text: 'Xin chào' }, { text: '\\frac{a}{b}', format: 'latex' });
+    const { hub, cmds, notes } = mount({ handwriting: p });
+    await waitFor(() => expect(drawEnabled(hub.get()!, 'draw.inkToText')).toBe(true));
+    act(() => hub.get()!.run('draw.inkToText'));
+    await waitFor(() =>
+      expect(cmds).toContainEqual({ cmd: 'inkToText', ids: [], text: 'Xin chào' }),
+    );
+    expect(p.requests[0]!.mode).toBe('text');
+    expect(p.requests[0]!.lang).toBe('vi-VN');
+    expect(p.requests[0]!.strokes[0]!.points).toEqual([
+      [10, 10],
+      [50, 30],
+    ]);
+    act(() => hub.get()!.run('draw.inkToMath'));
+    await waitFor(() =>
+      expect(cmds).toContainEqual({ cmd: 'inkToMath', ids: [], text: '\\frac{a}{b}', latex: true }),
+    );
+    expect(notes.at(-1)).toContain('drawTools.recognized');
+    // A failure is reported, nothing is replaced.
+    p.error = 'rateLimited';
+    const before = cmds.length;
+    act(() => hub.get()!.run('draw.inkToText'));
+    await waitFor(() => expect(notes.at(-1)).toBe('drawTools.handwriting.errors.rateLimited'));
+    expect(cmds.slice(before).some((c) => c.cmd === 'inkToText')).toBe(false);
+  });
+
+  it('draws in the automatic mode and joins arrowheads to the line', async () => {
+    const { hub, cmds } = mount({});
+    await waitFor(() => expect(hub.get()).not.toBeNull());
+    act(() => hub.get()!.run('draw.autoShape'));
+    const layer = await waitFor(() => screen.getByTestId('draw-layer'));
+    layer.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 480, height: 270, right: 480, bottom: 270 }) as DOMRect;
+    const draw = (pts: [number, number][], id: number) => {
+      fireEvent.pointerDown(layer, {
+        button: 0,
+        clientX: pts[0]![0],
+        clientY: pts[0]![1],
+        pointerId: id,
+      });
+      for (const p of pts.slice(1))
+        fireEvent.pointerMove(layer, { clientX: p[0], clientY: p[1], pointerId: id });
+      fireEvent.pointerUp(layer, {
+        clientX: pts.at(-1)![0],
+        clientY: pts.at(-1)![1],
+        pointerId: id,
+      });
+    };
+    draw(
+      [
+        [10, 10],
+        [60, 10],
+        [110, 10],
+      ],
+      1,
+    );
+    await waitFor(() => expect(cmds.filter((c) => c.cmd === 'addInk')).toHaveLength(1));
+    const first = cmds.find((c) => c.cmd === 'addInk')!;
+    expect(first).toMatchObject({ autoShape: true });
+    expect('attachTo' in first).toBe(false);
+    draw(
+      [
+        [110, 10],
+        [100, 5],
+      ],
+      2,
+    );
+    await waitFor(() => expect(cmds.filter((c) => c.cmd === 'addInk')).toHaveLength(2));
+    expect(cmds.filter((c) => c.cmd === 'addInk')[1]).toMatchObject({
+      autoShape: true,
+      attachTo: 11,
+    });
   });
 });

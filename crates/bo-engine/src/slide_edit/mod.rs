@@ -25,6 +25,8 @@ pub mod freeform;
 pub mod geom;
 pub mod guides;
 pub mod ink;
+mod ink_convert;
+pub mod ink_recognize;
 mod inspect_cmd;
 pub mod keep_source;
 pub mod master;

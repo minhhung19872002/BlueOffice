@@ -35,6 +35,39 @@ pub enum InkCommand {
         /// Base name of the object (default "Ink").
         #[serde(default)]
         name: String,
+        /// Automatic shapes (CORE-INK-002): a recognised stroke is added as
+        /// the matching preset shape instead of ink.
+        #[serde(default)]
+        auto_shape: bool,
+        /// With `auto_shape`: a line shape (made from ink just before) the
+        /// stroke may be an arrowhead of.
+        #[serde(default)]
+        attach_to: Option<u32>,
+    },
+    /// Convert ink to preset shapes (CORE-INK-002; one undo step).
+    InkToShapes {
+        /// Ink objects (`cNvPr@id`); empty = all ink of the slide.
+        #[serde(default)]
+        ids: Vec<u32>,
+    },
+    /// Replace ink with a text box holding recognised handwriting.
+    InkToText {
+        /// Ink objects; empty = all ink of the slide.
+        #[serde(default)]
+        ids: Vec<u32>,
+        /// The recognised text.
+        text: String,
+    },
+    /// Replace ink with an equation (UnicodeMath, or LaTeX when `latex`).
+    InkToMath {
+        /// Ink objects; empty = all ink of the slide.
+        #[serde(default)]
+        ids: Vec<u32>,
+        /// The recognised equation.
+        text: String,
+        /// `text` is LaTeX rather than UnicodeMath.
+        #[serde(default)]
+        latex: bool,
     },
     /// Erase along a path of the current slide (one undo step).
     EraseInk {
@@ -49,7 +82,14 @@ pub enum InkCommand {
 }
 
 /// Command names of [`InkCommand`].
-pub const COMMANDS: &[&str] = &["inkInfo", "addInk", "eraseInk"];
+pub const COMMANDS: &[&str] = &[
+    "inkInfo",
+    "addInk",
+    "eraseInk",
+    "inkToShapes",
+    "inkToText",
+    "inkToMath",
+];
 
 impl InkCommand {
     /// Parses a JSON command when it is an ink command.
@@ -103,6 +143,10 @@ pub struct InkOut {
     /// The slide drawn without ink (`inkInfo` with `backdrop`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backdrop: Option<bo_render::PageList>,
+    /// What a conversion made (`inkToShapes` / `inkToText` / `inkToMath`,
+    /// `addInk` with `autoShape`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub converted: Option<super::ink_convert::InkConverted>,
 }
 
 /// One ink object (content part).
@@ -139,23 +183,23 @@ pub struct InkStrokeOut {
 }
 
 /// An ink object found on a slide.
-struct Obj {
+pub(super) struct Obj {
     /// Index in the spTree.
-    index: usize,
-    id: u32,
+    pub(super) index: usize,
+    pub(super) id: u32,
     name: String,
     rid: String,
     part: String,
-    doc: InkDoc,
-    traces: Vec<Trace>,
-    place: Placement,
+    pub(super) doc: InkDoc,
+    pub(super) traces: Vec<Trace>,
+    pub(super) place: Placement,
     /// Frame origin (points).
     off: (f64, f64),
     ext: (f64, f64),
 }
 
 impl Obj {
-    fn slide_tips(&self, t: &Trace) -> Vec<bo_drawingml::ink::TipAt> {
+    pub(super) fn slide_tips(&self, t: &Trace) -> Vec<bo_drawingml::ink::TipAt> {
         tips(t, &self.place)
             .into_iter()
             .map(|mut p| {
@@ -168,7 +212,7 @@ impl Obj {
 }
 
 /// Top-level ink objects of a slide (ink inside groups is drawn, not edited).
-fn objects(pres: &Presentation, slide: usize) -> Vec<Obj> {
+pub(super) fn objects(pres: &Presentation, slide: usize) -> Vec<Obj> {
     let Some(s) = pres.slides.get(slide) else {
         return Vec::new();
     };
@@ -259,10 +303,11 @@ pub fn ink_out(pres: &Presentation, slide: usize) -> InkOut {
     InkOut {
         objects,
         backdrop: None,
+        converted: None,
     }
 }
 
-fn emu(pt: f64) -> i64 {
+pub(super) fn emu(pt: f64) -> i64 {
     (pt * EMU_PT).round() as i64
 }
 
@@ -546,9 +591,20 @@ pub fn cmd_erase(
                 }
             }
         }
-        if !changed {
-            continue;
+        if changed {
+            put_doc(tx, slide, &o, &doc)?;
         }
+    }
+    sel.ids.clear();
+    Ok(())
+}
+
+/// Write back an ink object whose traces changed: removed (with its
+/// relationship and part) when nothing is left, else its part rewritten and
+/// its frame shrunk to the remaining ink at the same scale. Returns whether
+/// the object was removed.
+pub(super) fn put_doc(tx: &mut Tx<'_>, slide: usize, o: &Obj, doc: &InkDoc) -> R<bool> {
+    {
         let traces = doc.traces();
         if traces.iter().all(|t| t.samples.is_empty()) {
             // Nothing left: the object, its relationship and its part go.
@@ -556,12 +612,12 @@ pub fn cmd_erase(
             let rid = o.rid.clone();
             tx.fields(slide, |f| f.rels.retain(|r| r.id != rid))?;
             super::picture::drop_if_unused(tx, &o.part)?;
-            continue;
+            return Ok(true);
         }
         super::chart::put_part(tx, &o.part, Some(CONTENT_TYPE), doc.to_bytes())?;
         // Keep the remaining ink where it was: same scale, frame shrunk to it.
         let Some((np, nsize)) = Placement::natural(&traces) else {
-            continue;
+            return Ok(false);
         };
         let s = o.place.scale;
         let off = (
@@ -572,7 +628,7 @@ pub fn cmd_erase(
         let Some(ShapeNode::Other(mut el)) =
             tx.pres.slides[slide].data.shapes.get(o.index).cloned()
         else {
-            continue;
+            return Ok(false);
         };
         bo_pptx::ink::set_content_part_frame(
             &mut el,
@@ -606,8 +662,7 @@ pub fn cmd_erase(
         }
         tx.replace_node(slide, &[o.index], ShapeNode::Other(el))?;
     }
-    sel.ids.clear();
-    Ok(())
+    Ok(false)
 }
 
 impl crate::Engine {
@@ -620,6 +675,7 @@ impl crate::Engine {
         );
         let mut out = Outcome::default();
         let mut backdrop = false;
+        let mut converted = None;
         {
             let pres = self.pres.as_mut().ok_or(EngineError::NoDocument)?;
             let ed = &mut self.slides;
@@ -632,8 +688,47 @@ impl crate::Engine {
             } else {
                 match cmd {
                     InkCommand::InkInfo { backdrop: b } => backdrop = b,
-                    InkCommand::AddInk { stroke, name } => {
-                        ed.mutate(pres, &mut out, |tx, sel| cmd_add(tx, sel, &stroke, &name));
+                    InkCommand::AddInk {
+                        stroke,
+                        name,
+                        auto_shape,
+                        attach_to,
+                    } => {
+                        ed.mutate(pres, &mut out, |tx, sel| {
+                            if auto_shape {
+                                converted =
+                                    super::ink_convert::cmd_add_auto(tx, sel, &stroke, attach_to)?;
+                                if converted.is_some() {
+                                    return Ok(());
+                                }
+                            }
+                            cmd_add(tx, sel, &stroke, &name)
+                        });
+                    }
+                    InkCommand::InkToShapes { ids } => {
+                        ed.mutate(pres, &mut out, |tx, sel| {
+                            converted = Some(super::ink_convert::cmd_to_shapes(tx, sel, &ids)?);
+                            Ok(())
+                        });
+                    }
+                    InkCommand::InkToText { ids, text } => {
+                        ed.mutate(pres, &mut out, |tx, sel| {
+                            converted =
+                                Some(super::ink_convert::cmd_to_text(tx, sel, &ids, &text, None)?);
+                            Ok(())
+                        });
+                    }
+                    InkCommand::InkToMath { ids, text, latex } => {
+                        ed.mutate(pres, &mut out, |tx, sel| {
+                            converted = Some(super::ink_convert::cmd_to_text(
+                                tx,
+                                sel,
+                                &ids,
+                                &text,
+                                Some(latex),
+                            )?);
+                            Ok(())
+                        });
                     }
                     InkCommand::EraseInk {
                         points,
@@ -652,6 +747,9 @@ impl crate::Engine {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
         let slide = self.slides.sel.slide;
         let mut ink = ink_out(pres, slide);
+        if r.error.is_none() {
+            ink.converted = converted;
+        }
         if backdrop {
             let opts = bo_pptx::RenderOptions {
                 hide_ink: true,

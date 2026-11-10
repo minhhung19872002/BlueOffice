@@ -56,6 +56,7 @@ import { assetThesaurus } from '../thesaurus';
 import { fromBase64 } from '../web/signing';
 import type { PickedFolder, QueryDataSources } from '../sheetQuery';
 import { webDictation } from '../dictation';
+import { webHandwriting } from '../handwriting';
 import { webMediaCapture } from '../mediaCapture';
 
 export { DesktopAuth, DESKTOP_OIDC_PATH, isOidcCallback } from './auth';
@@ -795,6 +796,15 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
     ...((): Pick<Platform, 'dictation'> => {
       const dictation = webDictation();
       return dictation ? { dictation } : {};
+    })(),
+    // The webview's Handwriting Recognition API when it has one (CORE-INK-002); without it the
+    // ink → text / math commands say they are unavailable.
+    ...((): Pick<Platform, 'handwriting'> => {
+      const handwriting = webHandwriting(
+        globalThis,
+        () => document.documentElement.lang || 'vi-VN',
+      );
+      return handwriting ? { handwriting } : {};
     })(),
     // Microphone / camera through getUserMedia + MediaRecorder (recorded shows, SLIDE-REC-001).
     media: webMediaCapture(),

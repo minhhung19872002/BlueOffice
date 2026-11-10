@@ -99,3 +99,18 @@
 .replayProgress {
   width: 120px;
 }
+
+/* Lasso selection of ink (CORE-INK-002). */
+.lasso {
+  fill: rgba(45, 108, 223, 0.08);
+  stroke: #2d6cdf;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.picked {
+  fill: none;
+  stroke: #2d6cdf;
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}

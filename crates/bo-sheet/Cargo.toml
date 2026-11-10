@@ -17,6 +17,11 @@ unicode-normalization.workspace = true
 [dev-dependencies]
 bo-xlsx.workspace = true
 serde_json.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "big_sheet"
+harness = false
 
 [lints]
 workspace = true

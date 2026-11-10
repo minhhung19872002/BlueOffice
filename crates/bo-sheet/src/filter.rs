@@ -10,7 +10,7 @@
 //! colour filters (§18.3.2.1) are evaluated too. Criteria kept as raw XML are
 //! not evaluated (rows stay visible).
 
-use crate::numfmt::Locale;
+use crate::numfmt::{format_code, FormatOptions, Locale, NumberFormat};
 use crate::render::format_cell;
 use bo_model::sheet::{
     AutoFilter, Cell, CellValue, ColumnFilter, CustomFilter, DateGroup, Fill, RowInfo, Workbook,
@@ -326,91 +326,131 @@ pub fn hidden_rows_at(
     } else {
         std::collections::HashMap::new()
     };
+    // Displayed text: number formats parsed once per style (not once per cell).
+    let mut formats: std::collections::HashMap<u32, NumberFormat> =
+        std::collections::HashMap::new();
+    let fopts = FormatOptions {
+        locale: *locale,
+        date1904: wb.date1904,
+    };
+    let mut display = |cell: Option<&Cell>| -> String {
+        let Some(cell) = cell else {
+            return String::new();
+        };
+        formats
+            .entry(cell.style)
+            .or_insert_with(|| {
+                let id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
+                NumberFormat::parse_with(&format_code(&wb.styles, id, locale), locale)
+            })
+            .format(&cell.value, &fopts)
+            .text
+    };
+    // Value lists, lower-cased once.
+    let value_sets: Vec<std::collections::HashSet<String>> = af
+        .columns
+        .iter()
+        .map(|fc| match &fc.filter {
+            ColumnFilter::Values { values, .. } | ColumnFilter::DateGroups { values, .. } => {
+                values.iter().map(|v| v.to_lowercase()).collect()
+            }
+            _ => std::collections::HashSet::new(),
+        })
+        .collect();
+    let empty = CellValue::Empty;
     let mut hidden = Vec::new();
     for r in first..=last {
-        let visible = af
+        let mut visible = true;
+        for (((fc, th), want), set) in af
             .columns
             .iter()
             .zip(&thresholds)
             .zip(&colors)
-            .all(|((fc, th), want)| {
-                let col = af.range.first.col + fc.col_id;
-                let cell = ws.cell(r, col);
-                let value = cell.map_or(CellValue::Empty, |c| c.value.clone());
-                let text = cell
-                    .map(|c| format_cell(wb, c, locale).text)
-                    .unwrap_or_default();
-                let blank = text.is_empty();
-                match &fc.filter {
-                    ColumnFilter::None | ColumnFilter::Raw(_) => true,
-                    ColumnFilter::Values {
-                        values,
-                        blank: show_blank,
-                    } => {
-                        if blank {
-                            *show_blank
-                        } else {
-                            values
-                                .iter()
-                                .any(|v| v.to_lowercase() == text.to_lowercase())
-                        }
-                    }
-                    ColumnFilter::Custom { and, conditions } => {
-                        let mut it = conditions.iter().map(|c| custom_match(c, &value, &text));
-                        if *and {
-                            it.all(|b| b)
-                        } else {
-                            conditions.is_empty() || it.any(|b| b)
-                        }
-                    }
-                    ColumnFilter::Top10 { .. } => match (th, &value) {
-                        (Some((true, cut)), CellValue::Number(n)) => n >= cut,
-                        (Some((false, cut)), CellValue::Number(n)) => n <= cut,
-                        _ => false,
-                    },
-                    ColumnFilter::DateGroups {
-                        values,
-                        blank: show_blank,
-                        groups,
-                    } => {
-                        if blank {
-                            *show_blank
-                        } else {
-                            values
-                                .iter()
-                                .any(|v| v.to_lowercase() == text.to_lowercase())
-                                || date_of(wb, &value)
-                                    .is_some_and(|d| groups.iter().any(|g| in_group(wb, d, g)))
-                        }
-                    }
-                    ColumnFilter::Dynamic { kind, .. } => match (kind.as_str(), &value) {
-                        ("aboveAverage" | "belowAverage", CellValue::Number(n)) => match th {
-                            Some((true, avg)) => n > avg,
-                            Some((false, avg)) => n < avg,
-                            None => false,
-                        },
-                        ("null", _) => true,
-                        (k, v) => match date_of(wb, v) {
-                            Some(d) => match dynamic_range(k, now, wb.date1904) {
-                                Some((a, b)) => d >= a && d < b,
-                                None => period_match(k, d, wb.date1904).unwrap_or(true),
-                            },
-                            None => false,
-                        },
-                    },
-                    ColumnFilter::Color { cell_color, .. } => {
-                        want.is_some_and(|w| cell_rgb(cell, *cell_color) == Some(w))
-                    }
-                    ColumnFilter::Icon { icon_set, icon_id } => {
-                        match (icons.get(&(r, col)), icon_id) {
-                            (Some((set, i)), Some(id)) => set == icon_set && *i == *id as usize,
-                            // No `iconId`: the cells showing no icon.
-                            (None, None) => true,
-                            _ => false,
-                        }
+            .zip(&value_sets)
+        {
+            let col = af.range.first.col + fc.col_id;
+            let cell = ws.cell(r, col);
+            let value = cell.map_or(&empty, |c| &c.value);
+            let ok = match &fc.filter {
+                ColumnFilter::None | ColumnFilter::Raw(_) => true,
+                ColumnFilter::Values {
+                    blank: show_blank, ..
+                } => {
+                    let text = display(cell);
+                    if text.is_empty() {
+                        *show_blank
+                    } else {
+                        set.contains(&text.to_lowercase())
                     }
                 }
-            });
+                ColumnFilter::Custom { and, conditions } => {
+                    // The text is only needed by conditions not compared as numbers.
+                    let numeric = |c: &CustomFilter| {
+                        matches!(value, CellValue::Number(_)) && c.val.trim().parse::<f64>().is_ok()
+                    };
+                    let text = if conditions.iter().all(numeric) {
+                        String::new()
+                    } else {
+                        display(cell)
+                    };
+                    let mut it = conditions.iter().map(|c| custom_match(c, value, &text));
+                    if *and {
+                        it.all(|b| b)
+                    } else {
+                        conditions.is_empty() || it.any(|b| b)
+                    }
+                }
+                ColumnFilter::Top10 { .. } => match (th, value) {
+                    (Some((true, cut)), CellValue::Number(n)) => n >= cut,
+                    (Some((false, cut)), CellValue::Number(n)) => n <= cut,
+                    _ => false,
+                },
+                ColumnFilter::DateGroups {
+                    blank: show_blank,
+                    groups,
+                    ..
+                } => {
+                    let text = display(cell);
+                    if text.is_empty() {
+                        *show_blank
+                    } else {
+                        set.contains(&text.to_lowercase())
+                            || date_of(wb, value)
+                                .is_some_and(|d| groups.iter().any(|g| in_group(wb, d, g)))
+                    }
+                }
+                ColumnFilter::Dynamic { kind, .. } => match (kind.as_str(), value) {
+                    ("aboveAverage" | "belowAverage", CellValue::Number(n)) => match th {
+                        Some((true, avg)) => n > avg,
+                        Some((false, avg)) => n < avg,
+                        None => false,
+                    },
+                    ("null", _) => true,
+                    (k, v) => match date_of(wb, v) {
+                        Some(d) => match dynamic_range(k, now, wb.date1904) {
+                            Some((a, b)) => d >= a && d < b,
+                            None => period_match(k, d, wb.date1904).unwrap_or(true),
+                        },
+                        None => false,
+                    },
+                },
+                ColumnFilter::Color { cell_color, .. } => {
+                    want.is_some_and(|w| cell_rgb(cell, *cell_color) == Some(w))
+                }
+                ColumnFilter::Icon { icon_set, icon_id } => {
+                    match (icons.get(&(r, col)), icon_id) {
+                        (Some((set, i)), Some(id)) => set == icon_set && *i == *id as usize,
+                        // No `iconId`: the cells showing no icon.
+                        (None, None) => true,
+                        _ => false,
+                    }
+                }
+            };
+            if !ok {
+                visible = false;
+                break;
+            }
+        }
         if !visible {
             hidden.push(r);
         }
@@ -519,7 +559,7 @@ pub fn column_dates(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bo_model::sheet::{CellRange, FilterColumn};
+    use bo_model::sheet::{CellRange, CellRef, FilterColumn};
 
     fn wb() -> Workbook {
         let mut wb = Workbook::new();
@@ -781,5 +821,161 @@ mod tests {
         assert_eq!(hid(&mk(Some(2))), vec![1, 3, 5, 6, 7]);
         // No icon: only the text cell.
         assert_eq!(hid(&mk(None)), vec![1, 2, 3, 4, 5, 6]);
+    }
+
+    /// The cached number formats and lazily built texts give the rows a cell-by-cell
+    /// evaluation with `format_cell` gives: value lists on formatted numbers and on
+    /// text, custom conditions on numbers and with wildcards, AND / OR, blanks.
+    #[test]
+    fn hidden_rows_match_naive_evaluation() {
+        let mut wb = Workbook::new();
+        // Style 1: two decimals (built-in 2, `0.00`); style 2: percent (built-in 10).
+        for id in [2, 10] {
+            wb.styles.cell_xfs.push(bo_model::sheet::CellXf {
+                num_fmt_id: id,
+                ..bo_model::sheet::CellXf::default()
+            });
+        }
+        let words = [
+            "Hà Nội",
+            "hà nội",
+            "Huế",
+            "Cần Thơ",
+            "Đà Nẵng",
+            "x1",
+            "X2",
+            "",
+        ];
+        let ws = &mut wb.sheets[0];
+        let n = 4000u32;
+        let mut s = 11u64;
+        let mut rnd = |m: u64| {
+            s = s.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            (s >> 33) % m
+        };
+        for c in 0..3 {
+            ws.set_cell(0, c, Cell::new(CellValue::Text(format!("H{c}"))));
+        }
+        for r in 1..=n {
+            let w = words[rnd(8) as usize];
+            if !w.is_empty() {
+                ws.set_cell(r, 0, Cell::new(CellValue::Text(w.into())));
+            }
+            let v = rnd(400) as f64 / 4.0;
+            ws.set_cell(
+                r,
+                1,
+                Cell::new(CellValue::Number(v)).with_style(rnd(3) as u32),
+            );
+            if rnd(5) > 0 {
+                ws.set_cell(r, 2, Cell::new(CellValue::Number(rnd(100) as f64)));
+            } else {
+                ws.set_cell(
+                    r,
+                    2,
+                    Cell::new(CellValue::Text(words[rnd(8) as usize].into())),
+                );
+            }
+        }
+        let cond = |op: &str, val: &str| CustomFilter {
+            operator: Some(op.into()),
+            val: val.into(),
+        };
+        let filters = [
+            (
+                0,
+                ColumnFilter::Values {
+                    values: vec!["HÀ NỘI".into(), "Huế".into()],
+                    blank: true,
+                },
+            ),
+            (
+                1,
+                ColumnFilter::Values {
+                    values: vec!["12.50".into(), "25".into(), "5000.00%".into()],
+                    blank: false,
+                },
+            ),
+            (
+                1,
+                ColumnFilter::Custom {
+                    and: true,
+                    conditions: vec![cond("greaterThan", "20"), cond("lessThanOrEqual", "70.5")],
+                },
+            ),
+            (
+                2,
+                ColumnFilter::Custom {
+                    and: false,
+                    conditions: vec![cond("lessThan", "10"), cond("equal", "x*")],
+                },
+            ),
+            (
+                0,
+                ColumnFilter::Custom {
+                    and: true,
+                    conditions: vec![cond("notEqual", "h*")],
+                },
+            ),
+        ];
+        let range = CellRange::new(CellRef::new(0, 0), CellRef::new(n, 2));
+        // Single columns, then all of them together.
+        let mut cases: Vec<Vec<(u32, ColumnFilter)>> =
+            filters.iter().map(|f| vec![f.clone()]).collect();
+        cases.push(vec![
+            filters[0].clone(),
+            filters[2].clone(),
+            filters[3].clone(),
+        ]);
+        for case in cases {
+            let af = AutoFilter {
+                range,
+                columns: case
+                    .iter()
+                    .map(|(col_id, filter)| FilterColumn {
+                        col_id: *col_id,
+                        filter: filter.clone(),
+                        ..FilterColumn::default()
+                    })
+                    .collect(),
+                ..AutoFilter::default()
+            };
+            let ws = &wb.sheets[0];
+            let naive: Vec<u32> = (1..=n)
+                .filter(|&r| {
+                    !case.iter().all(|(col, f)| {
+                        let cell = ws.cell(r, *col);
+                        let value = cell.map_or(CellValue::Empty, |c| c.value.clone());
+                        let text = cell
+                            .map(|c| format_cell(&wb, c, &Locale::VI_VN).text)
+                            .unwrap_or_default();
+                        match f {
+                            ColumnFilter::Values { values, blank } => {
+                                if text.is_empty() {
+                                    *blank
+                                } else {
+                                    values
+                                        .iter()
+                                        .any(|v| v.to_lowercase() == text.to_lowercase())
+                                }
+                            }
+                            ColumnFilter::Custom { and, conditions } => {
+                                let mut it =
+                                    conditions.iter().map(|c| custom_match(c, &value, &text));
+                                if *and {
+                                    it.all(|b| b)
+                                } else {
+                                    it.any(|b| b)
+                                }
+                            }
+                            _ => true,
+                        }
+                    })
+                })
+                .collect();
+            let got = hidden_rows_at(&wb, ws, &af, &Locale::VI_VN, Some(45_000.0));
+            assert_eq!(got, naive, "{case:?}");
+            assert!(!got.is_empty() && got.len() < n as usize, "{case:?}");
+        }
     }
 }

@@ -61,5 +61,9 @@ harness = false
 name = "doc_typing"
 harness = false
 
+[[bench]]
+name = "sheet_big"
+harness = false
+
 [lints]
 workspace = true

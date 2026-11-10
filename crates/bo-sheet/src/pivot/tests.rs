@@ -1653,3 +1653,170 @@ fn values_on_rows() {
         )
     );
 }
+
+// ------------------------------------------- report totals vs. a naive computation
+
+/// A random list: region (text, 5 values), year (number, 4 values), kind (text,
+/// 3 values), amount (integer, so that sums are exact in any order), some blanks.
+fn random_list(n: u32) -> Workbook {
+    let regions = ["Bắc", "Trung", "Nam", "Tây Nguyên", "Đông Nam Bộ"];
+    let kinds = ["A", "B", "C"];
+    let mut wb = Workbook::new();
+    let ws = &mut wb.sheets[0];
+    ws.name = "Data".into();
+    for (c, h) in ["Vùng", "Năm", "Loại", "Số tiền"].iter().enumerate() {
+        ws.set_cell(0, c as u32, Cell::new(CellValue::Text((*h).into())));
+    }
+    let mut s = 3u64;
+    let mut rnd = |m: u64| {
+        s = s
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (s >> 33) % m
+    };
+    for r in 1..=n {
+        ws.set_cell(
+            r,
+            0,
+            Cell::new(CellValue::Text(regions[rnd(5) as usize].into())),
+        );
+        ws.set_cell(r, 1, Cell::new(CellValue::Number(2020.0 + rnd(4) as f64)));
+        ws.set_cell(
+            r,
+            2,
+            Cell::new(CellValue::Text(kinds[rnd(3) as usize].into())),
+        );
+        if rnd(10) > 0 {
+            ws.set_cell(r, 3, Cell::new(CellValue::Number(rnd(1000) as f64 - 200.0)));
+        }
+    }
+    wb.sheets.push(Worksheet::new("Pivot"));
+    wb
+}
+
+/// Naive aggregate of the amounts of the records matching `pred`:
+/// (sum, count, min, max).
+fn naive(ws: &Worksheet, n: u32, pred: impl Fn(&str, f64) -> bool) -> (f64, f64, f64, f64) {
+    let mut out = (0.0, 0.0, f64::INFINITY, f64::NEG_INFINITY);
+    for r in 1..=n {
+        let region = text(ws, &CellRef::new(r, 0).to_string());
+        let year = match ws.cell(r, 1).map(|c| &c.value) {
+            Some(CellValue::Number(y)) => *y,
+            _ => f64::NAN,
+        };
+        if !pred(&region, year) {
+            continue;
+        }
+        if let Some(CellValue::Number(v)) = ws.cell(r, 3).map(|c| &c.value) {
+            out.0 += v;
+            out.1 += 1.0;
+            out.2 = out.2.min(*v);
+            out.3 = out.3.max(*v);
+        }
+    }
+    out
+}
+
+fn num(ws: &Worksheet, r: u32, c: u32) -> f64 {
+    match ws.cell(r, c).map(|c| &c.value) {
+        Some(CellValue::Number(v)) => *v,
+        _ => f64::NAN,
+    }
+}
+
+/// Every cell, row total, column total and the grand total of a rows × columns
+/// report equals the naive aggregate of its records, for sum, count, min and max.
+#[test]
+fn report_cells_equal_naive_aggregates() {
+    let n = 5000;
+    for (function, pick) in [
+        (PivotFunction::Sum, 0),
+        (PivotFunction::Count, 1),
+        (PivotFunction::Min, 2),
+        (PivotFunction::Max, 3),
+    ] {
+        let mut wb = random_list(n);
+        let spec = PivotSpec {
+            rows: vec![0],
+            cols: vec![1],
+            values: vec![sum_of(3, function)],
+            ..PivotSpec::default()
+        };
+        let source = CellRange::new(CellRef::new(0, 0), CellRef::new(n, 3));
+        create_pivot(
+            &mut wb,
+            0,
+            source,
+            1,
+            CellRef::new(0, 0),
+            &spec,
+            &PivotLabels::default(),
+        )
+        .unwrap();
+        let (data, rep) = (&wb.sheets[0], &wb.sheets[1]);
+        let loc = rep.pivots[0].location;
+        let pick = |a: (f64, f64, f64, f64)| [a.0, a.1, a.2, a.3][pick];
+        // Row 1: column items then "Grand Total"; column A: row items then "Grand Total".
+        let header = loc.first.row + 1;
+        let cols: Vec<(u32, String)> = (loc.first.col + 1..=loc.last.col)
+            .map(|c| (c, text(rep, &CellRef::new(header, c).to_string())))
+            .collect();
+        let rows: Vec<(u32, String)> = (header + 1..=loc.last.row)
+            .map(|r| (r, text(rep, &CellRef::new(r, loc.first.col).to_string())))
+            .collect();
+        assert_eq!(cols.len(), 5, "4 years + grand total");
+        assert_eq!(rows.len(), 6, "5 regions + grand total");
+        let mut checked = 0;
+        for (r, region) in &rows {
+            for (c, year) in &cols {
+                let want = naive(data, n, |reg, y| {
+                    (region == "Grand Total" || reg == region)
+                        && (year == "Grand Total" || y.to_string() == *year)
+                });
+                assert_eq!(
+                    num(rep, *r, *c),
+                    pick(want),
+                    "{function:?} {region} / {year}"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 30);
+    }
+}
+
+/// Subtotals of the outer row field and the grand total of a two-level report
+/// equal the naive sums; a refresh after the source changes recomputes them.
+#[test]
+fn nested_subtotals_equal_naive_sums_and_refresh() {
+    let n = 3000;
+    let mut wb = random_list(n);
+    let spec = PivotSpec {
+        rows: vec![0, 2],
+        values: vec![sum_of(3, PivotFunction::Sum)],
+        ..PivotSpec::default()
+    };
+    let source = CellRange::new(CellRef::new(0, 0), CellRef::new(n, 3));
+    let labels = PivotLabels::default();
+    create_pivot(&mut wb, 0, source, 1, CellRef::new(0, 0), &spec, &labels).unwrap();
+    let check = |wb: &Workbook| {
+        let (data, rep) = (&wb.sheets[0], &wb.sheets[1]);
+        let loc = rep.pivots[0].location;
+        let mut subtotals = 0;
+        for r in loc.first.row..=loc.last.row {
+            let label = text(rep, &CellRef::new(r, loc.first.col).to_string());
+            let value = num(rep, r, loc.last.col);
+            if label == "Grand Total" {
+                assert_eq!(value, naive(data, n, |_, _| true).0);
+            } else if let Some(region) = label.strip_suffix(" Total") {
+                assert_eq!(value, naive(data, n, |reg, _| reg == region).0, "{region}");
+                subtotals += 1;
+            }
+        }
+        assert_eq!(subtotals, 5);
+    };
+    check(&wb);
+    wb.sheets[0].set_cell(1, 3, Cell::new(CellValue::Number(123_456.0)));
+    refresh_pivot(&mut wb, 1, 0, &labels).unwrap();
+    check(&wb);
+}

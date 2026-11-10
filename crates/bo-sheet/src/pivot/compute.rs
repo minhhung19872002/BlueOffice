@@ -232,6 +232,9 @@ type CellKey = (Vec<u32>, Vec<u32>);
 
 type Cells = HashMap<CellKey, Vec<Acc>>;
 
+/// Full row and column item paths of a record (borrowed from its [`Path`]).
+type LeafKey<'p> = (&'p [u32], &'p [u32]);
+
 /// One line of the row axis.
 #[derive(Debug, Clone)]
 struct Line {
@@ -370,10 +373,32 @@ impl<'a> Engine<'a> {
                 return Err("a calculated field can only be a value field".into());
             }
         }
+        // Item indexes are only looked up for the axis and page fields (and the base
+        // fields of their discrete groups): a field of a million distinct values that
+        // is only summed needs none.
+        let mut indexed = vec![false; cache.fields.len()];
+        for f in spec
+            .rows
+            .iter()
+            .chain(&spec.cols)
+            .copied()
+            .chain(spec.filters.iter().map(|f| f.field))
+        {
+            indexed[f as usize] = true;
+            if let Some(b) = cache.fields[f as usize].group.as_ref().and_then(|g| g.base) {
+                if let Some(x) = indexed.get_mut(b as usize) {
+                    *x = true;
+                }
+            }
+        }
         let index = cache
             .fields
             .iter()
-            .map(|f| {
+            .zip(&indexed)
+            .map(|(f, used)| {
+                if !used {
+                    return HashMap::new();
+                }
                 f.items
                     .iter()
                     .enumerate()
@@ -539,21 +564,53 @@ impl<'a> Engine<'a> {
                 (!h.is_empty()).then(|| (*f, key_set(*f, h)))
             })
             .collect();
-        let mut out = Vec::new();
-        for (ri, rec) in self.cache.records.iter().enumerate() {
-            if !pages.iter().all(|(f, s)| s.contains(&self.item(rec, *f))) {
+        let mut out = Vec::with_capacity(self.cache.records.len());
+        let mut memo: HashMap<(u32, &'a str), u32> = HashMap::new();
+        let cache: &'a PivotCache = self.cache;
+        for (ri, rec) in cache.records.iter().enumerate() {
+            let rec: &'a [CellValue] = rec;
+            if !pages
+                .iter()
+                .all(|(f, s)| s.contains(&self.item_memo(rec, *f, &mut memo)))
+            {
                 continue;
             }
-            if hidden.iter().any(|(f, s)| s.contains(&self.item(rec, *f))) {
+            if hidden
+                .iter()
+                .any(|(f, s)| s.contains(&self.item_memo(rec, *f, &mut memo)))
+            {
                 continue;
             }
-            out.push(Path {
-                rec: ri,
-                row: self.spec.rows.iter().map(|f| self.item(rec, *f)).collect(),
-                col: self.spec.cols.iter().map(|f| self.item(rec, *f)).collect(),
-            });
+            let mut key = |fields: &[u32]| -> Vec<u32> {
+                fields
+                    .iter()
+                    .map(|f| self.item_memo(rec, *f, &mut memo))
+                    .collect()
+            };
+            let row = key(&self.spec.rows);
+            let col = key(&self.spec.cols);
+            out.push(Path { rec: ri, row, col });
         }
         out
+    }
+
+    /// [`Engine::item`] remembering the item of every distinct text of a field, so
+    /// that records do not each build a lower-cased item key.
+    fn item_memo(
+        &self,
+        rec: &'a [CellValue],
+        f: u32,
+        memo: &mut HashMap<(u32, &'a str), u32>,
+    ) -> u32 {
+        if let CellValue::Text(s) = self.value(rec, f) {
+            if let Some(x) = memo.get(&(f, s.as_str())) {
+                return *x;
+            }
+            let x = self.item(rec, f);
+            memo.insert((f, s.as_str()), x);
+            return x;
+        }
+        self.item(rec, f)
     }
 
     /// Numeric result of data field `vi` (`None` when blank or not a number).
@@ -739,16 +796,38 @@ impl<'a> Engine<'a> {
     }
 
     /// Aggregate every (row prefix, column prefix) pair.
+    ///
+    /// Records are first summed per (full row path, full column path) — borrowed
+    /// keys, no allocation per record — and the leaf aggregates are then merged into
+    /// every prefix (subtotals and grand totals).
     fn aggregate(&mut self, paths: &[Path]) {
-        let mut cells: Cells = HashMap::new();
+        // Leaves in order of first appearance, so that totals add up the same way on
+        // every run.
+        let mut at: HashMap<LeafKey<'_>, usize> = HashMap::new();
+        let mut leaves: Vec<(LeafKey<'_>, Vec<Acc>)> = Vec::new();
         for p in paths {
             let rec = &self.cache.records[p.rec];
-            for lr in 0..=p.row.len() {
-                for lc in 0..=p.col.len() {
-                    let slot = cells
-                        .entry((p.row[..lr].to_vec(), p.col[..lc].to_vec()))
-                        .or_insert_with(|| self.new_accs());
-                    self.add(slot, rec);
+            let key = (p.row.as_slice(), p.col.as_slice());
+            let i = *at.entry(key).or_insert_with(|| {
+                leaves.push((key, self.new_accs()));
+                leaves.len() - 1
+            });
+            self.add(&mut leaves[i].1, rec);
+        }
+        let mut cells: Cells = HashMap::new();
+        for ((row, col), accs) in leaves {
+            for lr in 0..=row.len() {
+                for lc in 0..=col.len() {
+                    match cells.entry((row[..lr].to_vec(), col[..lc].to_vec())) {
+                        std::collections::hash_map::Entry::Occupied(mut e) => {
+                            for (a, b) in e.get_mut().iter_mut().zip(&accs) {
+                                a.merge(b);
+                            }
+                        }
+                        std::collections::hash_map::Entry::Vacant(e) => {
+                            e.insert(accs.clone());
+                        }
+                    }
                 }
             }
         }

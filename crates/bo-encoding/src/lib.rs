@@ -365,6 +365,23 @@ pub fn convert_document_runs(doc: &mut Document) -> usize {
     count
 }
 
+/// Whether [`convert_workbook`] can convert anything: a legacy font in the
+/// stylesheet or on a rich-text run. Cheap (no allocation), so that opening a big
+/// workbook does not snapshot it for a conversion that changes nothing.
+pub fn workbook_has_legacy_fonts(wb: &bo_model::sheet::Workbook) -> bool {
+    use bo_model::sheet::CellValue;
+    let legacy = |name: Option<&str>| name.and_then(legacy_from_font).is_some();
+    wb.styles.fonts.iter().any(|f| legacy(f.name.as_deref()))
+        || wb.sheets.iter().any(|ws| {
+            ws.cells.values().any(|c| match &c.value {
+                CellValue::RichText(runs) => runs
+                    .iter()
+                    .any(|r| legacy(r.font.as_ref().and_then(|f| f.name.as_deref()))),
+                _ => false,
+            })
+        })
+}
+
 /// Converts the text of every cell (and rich-text run) of `wb` shown in a
 /// legacy Vietnamese font (cell format font, §18.8.22 font / §18.8.45 xf; run
 /// font §18.4.7 rPr) and switches those fonts to [`REPLACEMENT_FONT`]. Returns

@@ -173,6 +173,29 @@ pub fn caret_rect(layout: &LayoutDocument, pos: Pos) -> Option<CaretRect> {
     })
 }
 
+/// Vertical extent of the paragraph holding `pos` on the page of its caret:
+/// `x` is the left edge of its lines, `y`/`h` span from the top of its first
+/// line to the bottom of its last line on that page (presence bars).
+pub fn paragraph_band(layout: &LayoutDocument, pos: Pos) -> Option<CaretRect> {
+    let lines = body_lines(layout);
+    let (_, page, _) = line_of(&lines, pos)?;
+    let (mut x, mut top, mut bottom) = (f32::MAX, f32::MAX, f32::MIN);
+    for &(pi, l) in &lines {
+        if pi != page || body_id(l) != Some(pos.para) || l.rotation.is_some() {
+            continue;
+        }
+        x = x.min(l.carets.first().map_or(0.0, |c| c.1));
+        top = top.min(l.top);
+        bottom = bottom.max(l.top + l.height);
+    }
+    (top <= bottom).then_some(CaretRect {
+        page,
+        x,
+        y: top,
+        h: bottom - top,
+    })
+}
+
 /// Axis-aligned box of a rectangle of a rotated line.
 fn rotated_rect(
     r: &bo_layout::LineRotation,

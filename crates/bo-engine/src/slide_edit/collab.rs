@@ -28,10 +28,10 @@
 
 use super::ops::{PresFields, SlideOp};
 use super::{Outcome, SlideEditResult};
-use crate::collab::{order, Blob, CollabChange, TextDelta, TextOp};
+use crate::collab::{fingerprint, order, Blob, CollabChange, TextDelta, TextOp};
 use crate::{Engine, EngineError};
 use bo_model::slide::{
-    Extra, Presentation, RawPart, Rel, ShapeNode, Slide, SlideLayout, SlideMaster, Theme,
+    Extra, Presentation, RawPart, Rel, ShapeNode, Slide, SlideLayout, SlideMaster, SlideSize, Theme,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -45,6 +45,9 @@ pub struct SlideCollabOut {
     /// Key of the selected object (`"<slide>/<shape>"`) for presence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shape: Option<String>,
+    /// Key of the current slide (`p:sldId@id`) for presence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slide: Option<String>,
 }
 
 /// Where a collaborator's selected object is.
@@ -92,6 +95,8 @@ struct Parts {
     themes: Vec<Theme>,
     rels: Vec<Rel>,
     extra: Vec<Extra>,
+    /// Slide and notes page size (§19.2.1.39 sldSz, §19.2.1.23 notesSz).
+    size: (SlideSize, SlideSize),
 }
 
 impl Parts {
@@ -102,6 +107,7 @@ impl Parts {
             themes: p.themes.clone(),
             rels: p.info.rels.clone(),
             extra: p.extra.clone(),
+            size: (p.slide_size.clone(), p.notes_size.clone()),
         }
     }
 
@@ -139,12 +145,13 @@ impl Parts {
             "pp".into(),
             serde_json::to_string(&(&self.rels, &self.extra)),
         );
+        put("ps".into(), serde_json::to_string(&self.size));
         m
     }
 }
 
 fn is_part_key(k: &str) -> bool {
-    k == "pp" || k.starts_with("sm:") || k.starts_with("sl:") || k.starts_with("th:")
+    k == "pp" || k == "ps" || k.starts_with("sm:") || k.starts_with("sl:") || k.starts_with("th:")
 }
 
 /// Shared keys of the deck's layouts, masters and themes (index-aligned).
@@ -319,7 +326,10 @@ fn decode_parts(meta: &BTreeMap<String, String>, cur: &PresFields, keys: &PartKe
 pub struct SlideCollab {
     joining: bool,
     slides: BTreeMap<String, Shadow>,
-    known_parts: BTreeSet<String>,
+    /// Package parts every replica has, with the fingerprint last shared: a
+    /// part rewritten in place (comments, SmartArt, an embedded workbook) is
+    /// shared again.
+    known_parts: BTreeMap<String, (usize, u64)>,
     client: u64,
     counter: u32,
     /// Shared presentation parts (`meta`) and what the deck had at the last comparison.
@@ -460,7 +470,11 @@ impl SlideCollab {
         SlideCollab {
             joining: !seed,
             slides: BTreeMap::new(),
-            known_parts: pres.parts.iter().map(|p| p.name.clone()).collect(),
+            known_parts: pres
+                .parts
+                .iter()
+                .map(|p| (p.name.clone(), fingerprint(&p.data)))
+                .collect(),
             client,
             counter: 0,
             meta: BTreeMap::new(),
@@ -618,7 +632,8 @@ impl SlideCollab {
             self.seen = Some(parts);
         }
         for p in &pres.parts {
-            if self.known_parts.insert(p.name.clone()) {
+            let f = fingerprint(&p.data);
+            if self.known_parts.insert(p.name.clone(), f) != Some(f) {
                 ch.blobs.insert(
                     p.name.clone(),
                     Some(Blob::encode(p.content_type.as_deref(), &p.data)),
@@ -785,11 +800,17 @@ impl Engine {
         }
         let change = c.local_change(pres);
         let sel = &self.slides.sel;
-        let shape = match (pres.slides.get(sel.slide), sel.ids.first()) {
+        let cur = pres.slides.get(sel.slide);
+        let shape = match (cur, sel.ids.first()) {
             (Some(s), Some(id)) => Some(format!("{}/{id}", s.slide_id)),
             _ => None,
         };
-        Some(SlideCollabOut { change, shape })
+        let slide = cur.map(|s| s.slide_id.to_string());
+        Some(SlideCollabOut {
+            change,
+            shape,
+            slide,
+        })
     }
 
     /// Apply remote slide entries (`WasmCollab.takeRemote`).
@@ -805,20 +826,38 @@ impl Engine {
                 let Some((ct, data)) = v.as_deref().and_then(Blob::decode) else {
                     continue;
                 };
-                c.known_parts.insert(name.clone());
-                if pres.part_data(name).is_none() {
-                    let op = SlideOp::Parts {
+                c.known_parts.insert(name.clone(), fingerprint(&data));
+                let at = pres.parts.iter().position(|p| p.name == *name);
+                if at.is_some_and(|i| pres.parts[i].data == data) {
+                    continue;
+                }
+                let part = RawPart {
+                    name: name.clone(),
+                    content_type: ct,
+                    data,
+                };
+                // A part rewritten in place keeps its slot (and its content type).
+                let op = match at {
+                    Some(i) => SlideOp::Parts {
+                        index: i,
+                        remove: vec![pres.parts[i].clone()],
+                        insert: vec![RawPart {
+                            content_type: pres.parts[i].content_type.clone().or(part.content_type),
+                            ..part
+                        }],
+                    },
+                    None => SlideOp::Parts {
                         index: pres.parts.len(),
                         remove: Vec::new(),
-                        insert: vec![RawPart {
-                            name: name.clone(),
-                            content_type: ct,
-                            data,
-                        }],
-                    };
-                    if op.apply(pres).is_err() {
-                        out.error = Some("parts".into());
-                    }
+                        insert: vec![part],
+                    },
+                };
+                if op.apply(pres).is_err() {
+                    out.error = Some("parts".into());
+                }
+                if at.is_some() {
+                    // What the slides draw from it (SmartArt, comments) changed.
+                    out.all = true;
                 }
             }
             // Masters, layouts, themes (before the slides that use them).
@@ -842,14 +881,19 @@ impl Engine {
                     .and_then(|j| serde_json::from_str::<(Vec<Rel>, Vec<Extra>)>(j).ok())
                     .unwrap_or_else(|| (before.rels.clone(), before.extra.clone()));
                 let (layouts, masters, themes, keys) = decode_parts(&c.meta, &before, &c.keys);
+                let (slide_size, notes_size) = c
+                    .meta
+                    .get("ps")
+                    .and_then(|j| serde_json::from_str::<(SlideSize, SlideSize)>(j).ok())
+                    .unwrap_or_else(|| (before.slide_size.clone(), before.notes_size.clone()));
                 let after = PresFields {
                     rels,
                     extra,
                     layouts,
                     masters,
                     themes,
-                    slide_size: before.slide_size.clone(),
-                    notes_size: before.notes_size.clone(),
+                    slide_size,
+                    notes_size,
                 };
                 if after != before {
                     let op = SlideOp::Pres {
@@ -924,6 +968,17 @@ impl Engine {
             .iter()
             .map(|k| {
                 let (slide, id) = k.split_once('/')?;
+                if id.is_empty() {
+                    // `"<slide>/"`: only the slide (no object selected).
+                    let index = pres
+                        .slides
+                        .iter()
+                        .position(|s| s.slide_id.to_string() == slide)?;
+                    return Some(PeerShape {
+                        slide: index,
+                        rect: super::geom::BoxR::default(),
+                    });
+                }
                 let id: u32 = id.parse().ok()?;
                 let index = pres
                     .slides

@@ -361,6 +361,7 @@ export const LUCIDE_ICONS: Record<string, IconSpec> = {
   'insert.slicer': lucide(ListFilter),
   'insert.smartart': lucide(Network),
   'insert.symbol': lucide(Omega),
+  'insert.icon': lucide(Shapes),
   'insert.table': lucide(Table),
   'insert.textBox': lucide(Type),
   'insert.triangle': lucide(Triangle),

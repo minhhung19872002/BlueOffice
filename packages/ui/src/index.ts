@@ -151,6 +151,23 @@ export {
   type SymbolEntry,
 } from './symbols/catalog';
 export {
+  IconLibraryPicker,
+  type IconLibraryLabels,
+  type IconLibraryPickerProps,
+  type IconPick,
+} from './IconLibraryPicker';
+export {
+  iconLocale,
+  loadIconLibrary,
+  searchIcons,
+  type IconLibrary,
+  type IconLibraryCategory,
+  type IconLibraryEntry,
+  type IconLibraryManifest,
+  type IconLocale,
+} from './iconLibrary/catalog';
+export { svgToPng } from './iconLibrary/raster';
+export {
   QuickAccessBar,
   TitleBar,
   type QuickAccessItem,

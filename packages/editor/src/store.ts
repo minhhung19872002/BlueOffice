@@ -61,6 +61,7 @@ export interface EditorState {
     | 'find'
     | 'replace'
     | 'symbols'
+    | 'icons'
     | 'review'
     | 'caption'
     | 'crossref'

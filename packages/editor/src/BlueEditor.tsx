@@ -248,6 +248,7 @@ import {
   SquareTerminal,
   FileCode2,
   CircleDot,
+  Shapes,
   AppWindow,
   LayoutGrid,
   Rows2,
@@ -262,6 +263,8 @@ import { DocController, type EditView } from './controller';
 import styles from './Editor.module.css';
 import { FindPanel } from './Panels';
 import { SymbolPanel } from './SymbolPanel';
+import { IconPanel } from './IconPanel';
+import { insertDocIcons } from './insertIcons';
 import { DocClipboardUi } from './clipboard/DocClipboardUi';
 import { CaptionPanel, CrossRefPanel, MergeFieldPanel } from './ReferencePanels';
 import { CommentsPanel, ReviewPanel } from './ReviewPanel';
@@ -1818,6 +1821,11 @@ function EditorInner({
       id: 'insert.symbol',
       isEnabled: hasDoc,
       run: () => store.setState({ panel: 'symbols' }),
+    });
+    r.register({
+      id: 'insert.icon',
+      isEnabled: hasDoc,
+      run: () => store.setState({ panel: 'icons' }),
     });
     r.register({
       id: 'insert.field',
@@ -3657,6 +3665,7 @@ function EditorInner({
           label: t('ribbon.groups.symbols'),
           items: [
             item('insert.symbol', 'commands.insert.symbol', <Omega size={ICON} />),
+            item('insert.icon', 'commands.insert.icon', <Shapes size={ICON} />),
             item('insert.dropCap', 'commands.insert.dropCap', <Type size={ICON} />),
           ],
         },
@@ -5606,6 +5615,20 @@ function EditorInner({
                 font={state.edit?.format?.font ?? undefined}
                 onInsert={(sym) => {
                   void controller.current?.run({ cmd: 'insertText', text: sym });
+                }}
+                onClose={closePanel}
+              />
+            )}
+            {state.panel === 'icons' && (
+              <IconPanel
+                onInsert={async (icons) => {
+                  const c = controller.current;
+                  if (!c) return;
+                  try {
+                    await insertDocIcons(c, icons);
+                  } catch (e) {
+                    fail('errors.image', e);
+                  }
                 }}
                 onClose={closePanel}
               />

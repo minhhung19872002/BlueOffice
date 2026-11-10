@@ -1,0 +1,5872 @@
+{
+ "version": 1,
+ "license": "Original work of the BlueOffice project (Bluestar), drawn for this library. Not derived from any third-party icon set.",
+ "grid": 24,
+ "categories": [
+  {
+   "id": "arrows",
+   "name": {
+    "vi": "Mũi tên",
+    "en": "Arrows"
+   }
+  },
+  {
+   "id": "people",
+   "name": {
+    "vi": "Con người",
+    "en": "People"
+   }
+  },
+  {
+   "id": "business",
+   "name": {
+    "vi": "Kinh doanh",
+    "en": "Business"
+   }
+  },
+  {
+   "id": "communication",
+   "name": {
+    "vi": "Liên lạc",
+    "en": "Communication"
+   }
+  },
+  {
+   "id": "technology",
+   "name": {
+    "vi": "Công nghệ",
+    "en": "Technology"
+   }
+  },
+  {
+   "id": "education",
+   "name": {
+    "vi": "Giáo dục",
+    "en": "Education"
+   }
+  },
+  {
+   "id": "medical",
+   "name": {
+    "vi": "Y tế",
+    "en": "Medical"
+   }
+  },
+  {
+   "id": "transport",
+   "name": {
+    "vi": "Giao thông",
+    "en": "Transport"
+   }
+  },
+  {
+   "id": "weather",
+   "name": {
+    "vi": "Thời tiết",
+    "en": "Weather"
+   }
+  },
+  {
+   "id": "nature",
+   "name": {
+    "vi": "Thiên nhiên",
+    "en": "Nature"
+   }
+  },
+  {
+   "id": "food",
+   "name": {
+    "vi": "Ẩm thực",
+    "en": "Food"
+   }
+  },
+  {
+   "id": "buildings",
+   "name": {
+    "vi": "Công trình",
+    "en": "Buildings"
+   }
+  },
+  {
+   "id": "signs",
+   "name": {
+    "vi": "Ký hiệu",
+    "en": "Signs and symbols"
+   }
+  },
+  {
+   "id": "charts",
+   "name": {
+    "vi": "Biểu đồ",
+    "en": "Charts"
+   }
+  },
+  {
+   "id": "admin",
+   "name": {
+    "vi": "Hành chính",
+    "en": "Administration"
+   }
+  }
+ ],
+ "icons": [
+  {
+   "id": "arrow-right",
+   "category": "arrows",
+   "file": "arrow-right.svg",
+   "name": {
+    "vi": "Mũi tên phải",
+    "en": "Arrow right"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "phải",
+     "tiếp",
+     "sang phải",
+     "mui ten",
+     "phai",
+     "tiep",
+     "sang phai",
+     "mui ten phai"
+    ],
+    "en": [
+     "arrow",
+     "right",
+     "next",
+     "forward"
+    ]
+   }
+  },
+  {
+   "id": "arrow-left",
+   "category": "arrows",
+   "file": "arrow-left.svg",
+   "name": {
+    "vi": "Mũi tên trái",
+    "en": "Arrow left"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "trái",
+     "lùi",
+     "quay lại",
+     "mui ten",
+     "trai",
+     "lui",
+     "quay lai",
+     "mui ten trai"
+    ],
+    "en": [
+     "arrow",
+     "left",
+     "back",
+     "previous"
+    ]
+   }
+  },
+  {
+   "id": "arrow-up",
+   "category": "arrows",
+   "file": "arrow-up.svg",
+   "name": {
+    "vi": "Mũi tên lên",
+    "en": "Arrow up"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "lên",
+     "tăng",
+     "mui ten",
+     "len",
+     "tang",
+     "mui ten len"
+    ],
+    "en": [
+     "arrow",
+     "up",
+     "increase"
+    ]
+   }
+  },
+  {
+   "id": "arrow-down",
+   "category": "arrows",
+   "file": "arrow-down.svg",
+   "name": {
+    "vi": "Mũi tên xuống",
+    "en": "Arrow down"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "xuống",
+     "giảm",
+     "tải về",
+     "mui ten",
+     "xuong",
+     "giam",
+     "tai ve",
+     "mui ten xuong"
+    ],
+    "en": [
+     "arrow",
+     "down",
+     "decrease",
+     "download"
+    ]
+   }
+  },
+  {
+   "id": "arrow-up-right",
+   "category": "arrows",
+   "file": "arrow-up-right.svg",
+   "name": {
+    "vi": "Mũi tên chéo lên",
+    "en": "Arrow up right"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "chéo",
+     "lên",
+     "tăng trưởng",
+     "mui ten",
+     "cheo",
+     "len",
+     "tang truong",
+     "mui ten cheo len"
+    ],
+    "en": [
+     "arrow",
+     "diagonal",
+     "up",
+     "growth"
+    ]
+   }
+  },
+  {
+   "id": "arrow-down-right",
+   "category": "arrows",
+   "file": "arrow-down-right.svg",
+   "name": {
+    "vi": "Mũi tên chéo xuống",
+    "en": "Arrow down right"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "chéo",
+     "xuống",
+     "giảm",
+     "mui ten",
+     "cheo",
+     "xuong",
+     "giam",
+     "mui ten cheo xuong"
+    ],
+    "en": [
+     "arrow",
+     "diagonal",
+     "down",
+     "decline"
+    ]
+   }
+  },
+  {
+   "id": "arrows-left-right",
+   "category": "arrows",
+   "file": "arrows-left-right.svg",
+   "name": {
+    "vi": "Mũi tên hai chiều ngang",
+    "en": "Arrows left and right"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "hai chiều",
+     "ngang",
+     "trao đổi",
+     "mui ten",
+     "hai chieu",
+     "trao doi",
+     "mui ten hai chieu ngang"
+    ],
+    "en": [
+     "arrow",
+     "both",
+     "horizontal",
+     "exchange",
+     "swap"
+    ]
+   }
+  },
+  {
+   "id": "arrows-up-down",
+   "category": "arrows",
+   "file": "arrows-up-down.svg",
+   "name": {
+    "vi": "Mũi tên hai chiều dọc",
+    "en": "Arrows up and down"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "hai chiều",
+     "dọc",
+     "lên xuống",
+     "mui ten",
+     "hai chieu",
+     "doc",
+     "len xuong",
+     "mui ten hai chieu doc"
+    ],
+    "en": [
+     "arrow",
+     "both",
+     "vertical",
+     "up",
+     "down"
+    ]
+   }
+  },
+  {
+   "id": "arrow-turn-right",
+   "category": "arrows",
+   "file": "arrow-turn-right.svg",
+   "name": {
+    "vi": "Mũi tên rẽ phải",
+    "en": "Arrow turn right"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "rẽ",
+     "quẹo",
+     "chuyển hướng",
+     "mui ten",
+     "re",
+     "queo",
+     "chuyen huong",
+     "mui ten re phai"
+    ],
+    "en": [
+     "arrow",
+     "turn",
+     "bend",
+     "redirect"
+    ]
+   }
+  },
+  {
+   "id": "arrow-return",
+   "category": "arrows",
+   "file": "arrow-return.svg",
+   "name": {
+    "vi": "Mũi tên quay lại",
+    "en": "Arrow return"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "quay lại",
+     "hoàn tác",
+     "trở về",
+     "mui ten",
+     "quay lai",
+     "hoan tac",
+     "tro ve",
+     "mui ten quay lai"
+    ],
+    "en": [
+     "arrow",
+     "return",
+     "undo",
+     "u-turn",
+     "back"
+    ]
+   }
+  },
+  {
+   "id": "arrows-rotate",
+   "category": "arrows",
+   "file": "arrows-rotate.svg",
+   "name": {
+    "vi": "Mũi tên xoay vòng",
+    "en": "Arrows rotate"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "xoay",
+     "làm mới",
+     "lặp lại",
+     "chu trình",
+     "mui ten",
+     "lam moi",
+     "lap lai",
+     "chu trinh",
+     "mui ten xoay vong"
+    ],
+    "en": [
+     "arrow",
+     "rotate",
+     "refresh",
+     "repeat",
+     "cycle"
+    ]
+   }
+  },
+  {
+   "id": "chevrons-right",
+   "category": "arrows",
+   "file": "chevrons-right.svg",
+   "name": {
+    "vi": "Mũi tên kép",
+    "en": "Double chevron"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "kép",
+     "tiến trình",
+     "bước tiếp",
+     "mui ten",
+     "kep",
+     "tien trinh",
+     "buoc tiep",
+     "mui ten kep"
+    ],
+    "en": [
+     "chevron",
+     "double",
+     "process",
+     "step",
+     "next"
+    ]
+   }
+  },
+  {
+   "id": "arrows-expand",
+   "category": "arrows",
+   "file": "arrows-expand.svg",
+   "name": {
+    "vi": "Mũi tên bốn hướng",
+    "en": "Arrows four directions"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "bốn hướng",
+     "di chuyển",
+     "mở rộng",
+     "mui ten",
+     "bon huong",
+     "di chuyen",
+     "mo rong",
+     "mui ten bon huong"
+    ],
+    "en": [
+     "arrow",
+     "four",
+     "move",
+     "expand",
+     "directions"
+    ]
+   }
+  },
+  {
+   "id": "arrow-circle-right",
+   "category": "arrows",
+   "file": "arrow-circle-right.svg",
+   "name": {
+    "vi": "Mũi tên trong vòng tròn",
+    "en": "Arrow in circle"
+   },
+   "keywords": {
+    "vi": [
+     "mũi tên",
+     "vòng tròn",
+     "tiếp tục",
+     "đi tới",
+     "mui ten",
+     "vong tron",
+     "tiep tuc",
+     "di toi",
+     "mui ten trong vong tron"
+    ],
+    "en": [
+     "arrow",
+     "circle",
+     "continue",
+     "go"
+    ]
+   }
+  },
+  {
+   "id": "person",
+   "category": "people",
+   "file": "person.svg",
+   "name": {
+    "vi": "Người",
+    "en": "Person"
+   },
+   "keywords": {
+    "vi": [
+     "người",
+     "cá nhân",
+     "người dùng",
+     "nhân viên",
+     "nguoi",
+     "ca nhan",
+     "nguoi dung",
+     "nhan vien"
+    ],
+    "en": [
+     "person",
+     "user",
+     "individual",
+     "employee"
+    ]
+   }
+  },
+  {
+   "id": "people",
+   "category": "people",
+   "file": "people.svg",
+   "name": {
+    "vi": "Hai người",
+    "en": "Two people"
+   },
+   "keywords": {
+    "vi": [
+     "người",
+     "hai người",
+     "nhóm",
+     "đồng nghiệp",
+     "nguoi",
+     "hai nguoi",
+     "nhom",
+     "dong nghiep"
+    ],
+    "en": [
+     "people",
+     "two",
+     "group",
+     "colleagues"
+    ]
+   }
+  },
+  {
+   "id": "team",
+   "category": "people",
+   "file": "team.svg",
+   "name": {
+    "vi": "Nhóm người",
+    "en": "Team"
+   },
+   "keywords": {
+    "vi": [
+     "nhóm",
+     "đội",
+     "tập thể",
+     "phòng ban",
+     "nhân sự",
+     "nhom",
+     "doi",
+     "tap the",
+     "phong ban",
+     "nhan su",
+     "nhom nguoi"
+    ],
+    "en": [
+     "team",
+     "group",
+     "staff",
+     "department",
+     "crew"
+    ]
+   }
+  },
+  {
+   "id": "person-add",
+   "category": "people",
+   "file": "person-add.svg",
+   "name": {
+    "vi": "Thêm người",
+    "en": "Add person"
+   },
+   "keywords": {
+    "vi": [
+     "thêm người",
+     "tuyển dụng",
+     "thành viên mới",
+     "them nguoi",
+     "tuyen dung",
+     "thanh vien moi"
+    ],
+    "en": [
+     "add person",
+     "recruit",
+     "new member",
+     "invite"
+    ]
+   }
+  },
+  {
+   "id": "person-check",
+   "category": "people",
+   "file": "person-check.svg",
+   "name": {
+    "vi": "Người đã xác nhận",
+    "en": "Person confirmed"
+   },
+   "keywords": {
+    "vi": [
+     "người",
+     "xác nhận",
+     "duyệt",
+     "điểm danh",
+     "nguoi",
+     "xac nhan",
+     "duyet",
+     "diem danh",
+     "nguoi da xac nhan"
+    ],
+    "en": [
+     "person",
+     "confirmed",
+     "approved",
+     "attendance"
+    ]
+   }
+  },
+  {
+   "id": "id-card",
+   "category": "people",
+   "file": "id-card.svg",
+   "name": {
+    "vi": "Thẻ căn cước",
+    "en": "Identity card"
+   },
+   "keywords": {
+    "vi": [
+     "thẻ",
+     "căn cước",
+     "chứng minh",
+     "thẻ nhân viên",
+     "danh tính",
+     "the",
+     "can cuoc",
+     "chung minh",
+     "the nhan vien",
+     "danh tinh",
+     "the can cuoc"
+    ],
+    "en": [
+     "id",
+     "card",
+     "identity",
+     "badge",
+     "employee card"
+    ]
+   }
+  },
+  {
+   "id": "presenter",
+   "category": "people",
+   "file": "presenter.svg",
+   "name": {
+    "vi": "Người thuyết trình",
+    "en": "Presenter"
+   },
+   "keywords": {
+    "vi": [
+     "thuyết trình",
+     "giảng viên",
+     "báo cáo viên",
+     "đào tạo",
+     "thuyet trinh",
+     "giang vien",
+     "bao cao vien",
+     "dao tao",
+     "nguoi thuyet trinh"
+    ],
+    "en": [
+     "presenter",
+     "speaker",
+     "trainer",
+     "lecture"
+    ]
+   }
+  },
+  {
+   "id": "meeting",
+   "category": "people",
+   "file": "meeting.svg",
+   "name": {
+    "vi": "Cuộc họp",
+    "en": "Meeting"
+   },
+   "keywords": {
+    "vi": [
+     "họp",
+     "cuộc họp",
+     "hội nghị",
+     "thảo luận",
+     "hop",
+     "cuoc hop",
+     "hoi nghi",
+     "thao luan"
+    ],
+    "en": [
+     "meeting",
+     "conference",
+     "discussion",
+     "table"
+    ]
+   }
+  },
+  {
+   "id": "accessibility",
+   "category": "people",
+   "file": "accessibility.svg",
+   "name": {
+    "vi": "Trợ năng",
+    "en": "Accessibility"
+   },
+   "keywords": {
+    "vi": [
+     "trợ năng",
+     "tiếp cận",
+     "hình người",
+     "khuyết tật",
+     "tro nang",
+     "tiep can",
+     "hinh nguoi",
+     "khuyet tat"
+    ],
+    "en": [
+     "accessibility",
+     "human figure",
+     "inclusive"
+    ]
+   }
+  },
+  {
+   "id": "worker",
+   "category": "people",
+   "file": "worker.svg",
+   "name": {
+    "vi": "Công nhân",
+    "en": "Worker"
+   },
+   "keywords": {
+    "vi": [
+     "công nhân",
+     "kỹ sư",
+     "lao động",
+     "xây dựng",
+     "bảo hộ",
+     "cong nhan",
+     "ky su",
+     "lao dong",
+     "xay dung",
+     "bao ho"
+    ],
+    "en": [
+     "worker",
+     "engineer",
+     "labour",
+     "construction",
+     "helmet"
+    ]
+   }
+  },
+  {
+   "id": "user-circle",
+   "category": "people",
+   "file": "user-circle.svg",
+   "name": {
+    "vi": "Ảnh đại diện",
+    "en": "Avatar"
+   },
+   "keywords": {
+    "vi": [
+     "ảnh đại diện",
+     "tài khoản",
+     "hồ sơ cá nhân",
+     "anh dai dien",
+     "tai khoan",
+     "ho so ca nhan"
+    ],
+    "en": [
+     "avatar",
+     "account",
+     "profile",
+     "user"
+    ]
+   }
+  },
+  {
+   "id": "briefcase",
+   "category": "business",
+   "file": "briefcase.svg",
+   "name": {
+    "vi": "Cặp tài liệu",
+    "en": "Briefcase"
+   },
+   "keywords": {
+    "vi": [
+     "cặp",
+     "công việc",
+     "kinh doanh",
+     "nghề nghiệp",
+     "cap",
+     "cong viec",
+     "nghe nghiep",
+     "cap tai lieu"
+    ],
+    "en": [
+     "briefcase",
+     "work",
+     "business",
+     "job",
+     "career"
+    ]
+   }
+  },
+  {
+   "id": "banknote",
+   "category": "business",
+   "file": "banknote.svg",
+   "name": {
+    "vi": "Tiền giấy",
+    "en": "Banknote"
+   },
+   "keywords": {
+    "vi": [
+     "tiền",
+     "tiền mặt",
+     "thanh toán",
+     "lương",
+     "tien",
+     "tien mat",
+     "thanh toan",
+     "luong",
+     "tien giay"
+    ],
+    "en": [
+     "money",
+     "cash",
+     "banknote",
+     "payment",
+     "salary"
+    ]
+   }
+  },
+  {
+   "id": "coins",
+   "category": "business",
+   "file": "coins.svg",
+   "name": {
+    "vi": "Đồng xu",
+    "en": "Coins"
+   },
+   "keywords": {
+    "vi": [
+     "xu",
+     "tiền",
+     "tiết kiệm",
+     "tài chính",
+     "ngân sách",
+     "tien",
+     "tiet kiem",
+     "tai chinh",
+     "ngan sach",
+     "dong xu"
+    ],
+    "en": [
+     "coins",
+     "money",
+     "savings",
+     "finance",
+     "budget"
+    ]
+   }
+  },
+  {
+   "id": "wallet",
+   "category": "business",
+   "file": "wallet.svg",
+   "name": {
+    "vi": "Ví tiền",
+    "en": "Wallet"
+   },
+   "keywords": {
+    "vi": [
+     "ví",
+     "tiền",
+     "chi tiêu",
+     "thanh toán",
+     "vi",
+     "tien",
+     "chi tieu",
+     "thanh toan",
+     "vi tien"
+    ],
+    "en": [
+     "wallet",
+     "money",
+     "spending",
+     "payment"
+    ]
+   }
+  },
+  {
+   "id": "credit-card",
+   "category": "business",
+   "file": "credit-card.svg",
+   "name": {
+    "vi": "Thẻ ngân hàng",
+    "en": "Bank card"
+   },
+   "keywords": {
+    "vi": [
+     "thẻ",
+     "ngân hàng",
+     "tín dụng",
+     "thanh toán",
+     "the",
+     "ngan hang",
+     "tin dung",
+     "thanh toan",
+     "the ngan hang"
+    ],
+    "en": [
+     "card",
+     "bank",
+     "credit",
+     "debit",
+     "payment"
+    ]
+   }
+  },
+  {
+   "id": "target",
+   "category": "business",
+   "file": "target.svg",
+   "name": {
+    "vi": "Mục tiêu",
+    "en": "Target"
+   },
+   "keywords": {
+    "vi": [
+     "mục tiêu",
+     "đích",
+     "chỉ tiêu",
+     "kế hoạch",
+     "muc tieu",
+     "dich",
+     "chi tieu",
+     "ke hoach"
+    ],
+    "en": [
+     "target",
+     "goal",
+     "objective",
+     "aim",
+     "bullseye"
+    ]
+   }
+  },
+  {
+   "id": "calculator",
+   "category": "business",
+   "file": "calculator.svg",
+   "name": {
+    "vi": "Máy tính bỏ túi",
+    "en": "Calculator"
+   },
+   "keywords": {
+    "vi": [
+     "máy tính",
+     "tính toán",
+     "kế toán",
+     "phép tính",
+     "may tinh",
+     "tinh toan",
+     "ke toan",
+     "phep tinh",
+     "may tinh bo tui"
+    ],
+    "en": [
+     "calculator",
+     "compute",
+     "accounting",
+     "math"
+    ]
+   }
+  },
+  {
+   "id": "shopping-cart",
+   "category": "business",
+   "file": "shopping-cart.svg",
+   "name": {
+    "vi": "Giỏ hàng",
+    "en": "Shopping cart"
+   },
+   "keywords": {
+    "vi": [
+     "giỏ hàng",
+     "mua sắm",
+     "bán hàng",
+     "đơn hàng",
+     "gio hang",
+     "mua sam",
+     "ban hang",
+     "don hang"
+    ],
+    "en": [
+     "cart",
+     "shopping",
+     "sales",
+     "order",
+     "purchase"
+    ]
+   }
+  },
+  {
+   "id": "price-tag",
+   "category": "business",
+   "file": "price-tag.svg",
+   "name": {
+    "vi": "Nhãn giá",
+    "en": "Price tag"
+   },
+   "keywords": {
+    "vi": [
+     "nhãn",
+     "giá",
+     "khuyến mãi",
+     "giảm giá",
+     "nhan",
+     "gia",
+     "khuyen mai",
+     "giam gia",
+     "nhan gia"
+    ],
+    "en": [
+     "tag",
+     "price",
+     "label",
+     "sale",
+     "discount"
+    ]
+   }
+  },
+  {
+   "id": "trophy",
+   "category": "business",
+   "file": "trophy.svg",
+   "name": {
+    "vi": "Cúp",
+    "en": "Trophy"
+   },
+   "keywords": {
+    "vi": [
+     "cúp",
+     "giải thưởng",
+     "chiến thắng",
+     "thành tích",
+     "cup",
+     "giai thuong",
+     "chien thang",
+     "thanh tich"
+    ],
+    "en": [
+     "trophy",
+     "award",
+     "winner",
+     "achievement",
+     "cup"
+    ]
+   }
+  },
+  {
+   "id": "balance-scale",
+   "category": "business",
+   "file": "balance-scale.svg",
+   "name": {
+    "vi": "Cán cân",
+    "en": "Balance scale"
+   },
+   "keywords": {
+    "vi": [
+     "cán cân",
+     "công lý",
+     "pháp luật",
+     "so sánh",
+     "cân bằng",
+     "can can",
+     "cong ly",
+     "phap luat",
+     "so sanh",
+     "can bang"
+    ],
+    "en": [
+     "scale",
+     "balance",
+     "justice",
+     "law",
+     "compare"
+    ]
+   }
+  },
+  {
+   "id": "light-bulb",
+   "category": "business",
+   "file": "light-bulb.svg",
+   "name": {
+    "vi": "Bóng đèn",
+    "en": "Light bulb"
+   },
+   "keywords": {
+    "vi": [
+     "bóng đèn",
+     "ý tưởng",
+     "sáng kiến",
+     "giải pháp",
+     "bong den",
+     "y tuong",
+     "sang kien",
+     "giai phap"
+    ],
+    "en": [
+     "bulb",
+     "idea",
+     "innovation",
+     "solution",
+     "tip"
+    ]
+   }
+  },
+  {
+   "id": "gift",
+   "category": "business",
+   "file": "gift.svg",
+   "name": {
+    "vi": "Hộp quà",
+    "en": "Gift"
+   },
+   "keywords": {
+    "vi": [
+     "quà",
+     "quà tặng",
+     "khuyến mãi",
+     "phần thưởng",
+     "qua",
+     "qua tang",
+     "khuyen mai",
+     "phan thuong",
+     "hop qua"
+    ],
+    "en": [
+     "gift",
+     "present",
+     "bonus",
+     "reward"
+    ]
+   }
+  },
+  {
+   "id": "key",
+   "category": "business",
+   "file": "key.svg",
+   "name": {
+    "vi": "Chìa khoá",
+    "en": "Key"
+   },
+   "keywords": {
+    "vi": [
+     "chìa khoá",
+     "khoá",
+     "bảo mật",
+     "quyền truy cập",
+     "chia khoa",
+     "khoa",
+     "bao mat",
+     "quyen truy cap"
+    ],
+    "en": [
+     "key",
+     "lock",
+     "security",
+     "access"
+    ]
+   }
+  },
+  {
+   "id": "mail",
+   "category": "communication",
+   "file": "mail.svg",
+   "name": {
+    "vi": "Thư",
+    "en": "Mail"
+   },
+   "keywords": {
+    "vi": [
+     "thư",
+     "email",
+     "thư điện tử",
+     "phong bì",
+     "thu",
+     "thu dien tu",
+     "phong bi"
+    ],
+    "en": [
+     "mail",
+     "email",
+     "envelope",
+     "letter",
+     "message"
+    ]
+   }
+  },
+  {
+   "id": "mail-open",
+   "category": "communication",
+   "file": "mail-open.svg",
+   "name": {
+    "vi": "Thư đã mở",
+    "en": "Open mail"
+   },
+   "keywords": {
+    "vi": [
+     "thư",
+     "đã mở",
+     "đã đọc",
+     "email",
+     "thu",
+     "da mo",
+     "da doc",
+     "thu da mo"
+    ],
+    "en": [
+     "mail",
+     "open",
+     "read",
+     "email"
+    ]
+   }
+  },
+  {
+   "id": "phone",
+   "category": "communication",
+   "file": "phone.svg",
+   "name": {
+    "vi": "Điện thoại",
+    "en": "Phone"
+   },
+   "keywords": {
+    "vi": [
+     "điện thoại",
+     "gọi",
+     "liên hệ",
+     "đường dây nóng",
+     "dien thoai",
+     "goi",
+     "lien he",
+     "duong day nong"
+    ],
+    "en": [
+     "phone",
+     "call",
+     "contact",
+     "hotline",
+     "telephone"
+    ]
+   }
+  },
+  {
+   "id": "chat",
+   "category": "communication",
+   "file": "chat.svg",
+   "name": {
+    "vi": "Lời nhắn",
+    "en": "Chat bubble"
+   },
+   "keywords": {
+    "vi": [
+     "tin nhắn",
+     "trò chuyện",
+     "bình luận",
+     "ý kiến",
+     "tin nhan",
+     "tro chuyen",
+     "binh luan",
+     "y kien",
+     "loi nhan"
+    ],
+    "en": [
+     "chat",
+     "message",
+     "comment",
+     "speech",
+     "bubble"
+    ]
+   }
+  },
+  {
+   "id": "chats",
+   "category": "communication",
+   "file": "chats.svg",
+   "name": {
+    "vi": "Trao đổi",
+    "en": "Conversation"
+   },
+   "keywords": {
+    "vi": [
+     "trao đổi",
+     "thảo luận",
+     "hội thoại",
+     "phản hồi",
+     "trao doi",
+     "thao luan",
+     "hoi thoai",
+     "phan hoi"
+    ],
+    "en": [
+     "conversation",
+     "discussion",
+     "dialogue",
+     "feedback"
+    ]
+   }
+  },
+  {
+   "id": "megaphone",
+   "category": "communication",
+   "file": "megaphone.svg",
+   "name": {
+    "vi": "Loa thông báo",
+    "en": "Megaphone"
+   },
+   "keywords": {
+    "vi": [
+     "loa",
+     "thông báo",
+     "tuyên truyền",
+     "quảng cáo",
+     "thong bao",
+     "tuyen truyen",
+     "quang cao",
+     "loa thong bao"
+    ],
+    "en": [
+     "megaphone",
+     "announcement",
+     "promotion",
+     "broadcast"
+    ]
+   }
+  },
+  {
+   "id": "bell",
+   "category": "communication",
+   "file": "bell.svg",
+   "name": {
+    "vi": "Chuông",
+    "en": "Bell"
+   },
+   "keywords": {
+    "vi": [
+     "chuông",
+     "thông báo",
+     "nhắc nhở",
+     "cảnh báo",
+     "chuong",
+     "thong bao",
+     "nhac nho",
+     "canh bao"
+    ],
+    "en": [
+     "bell",
+     "notification",
+     "reminder",
+     "alert"
+    ]
+   }
+  },
+  {
+   "id": "send",
+   "category": "communication",
+   "file": "send.svg",
+   "name": {
+    "vi": "Gửi đi",
+    "en": "Send"
+   },
+   "keywords": {
+    "vi": [
+     "gửi",
+     "máy bay giấy",
+     "chuyển đi",
+     "phát hành",
+     "gui",
+     "may bay giay",
+     "chuyen di",
+     "phat hanh",
+     "gui di"
+    ],
+    "en": [
+     "send",
+     "paper plane",
+     "submit",
+     "dispatch"
+    ]
+   }
+  },
+  {
+   "id": "globe",
+   "category": "communication",
+   "file": "globe.svg",
+   "name": {
+    "vi": "Địa cầu",
+    "en": "Globe"
+   },
+   "keywords": {
+    "vi": [
+     "địa cầu",
+     "thế giới",
+     "quốc tế",
+     "internet",
+     "web",
+     "dia cau",
+     "the gioi",
+     "quoc te"
+    ],
+    "en": [
+     "globe",
+     "world",
+     "international",
+     "internet",
+     "web"
+    ]
+   }
+  },
+  {
+   "id": "link",
+   "category": "communication",
+   "file": "link.svg",
+   "name": {
+    "vi": "Liên kết",
+    "en": "Link"
+   },
+   "keywords": {
+    "vi": [
+     "liên kết",
+     "đường dẫn",
+     "kết nối",
+     "xích",
+     "lien ket",
+     "duong dan",
+     "ket noi",
+     "xich"
+    ],
+    "en": [
+     "link",
+     "url",
+     "connect",
+     "chain",
+     "hyperlink"
+    ]
+   }
+  },
+  {
+   "id": "share",
+   "category": "communication",
+   "file": "share.svg",
+   "name": {
+    "vi": "Chia sẻ",
+    "en": "Share"
+   },
+   "keywords": {
+    "vi": [
+     "chia sẻ",
+     "phân phối",
+     "mạng lưới",
+     "kết nối",
+     "chia se",
+     "phan phoi",
+     "mang luoi",
+     "ket noi"
+    ],
+    "en": [
+     "share",
+     "distribute",
+     "network",
+     "connect"
+    ]
+   }
+  },
+  {
+   "id": "video-call",
+   "category": "communication",
+   "file": "video-call.svg",
+   "name": {
+    "vi": "Họp trực tuyến",
+    "en": "Video call"
+   },
+   "keywords": {
+    "vi": [
+     "họp trực tuyến",
+     "video",
+     "máy quay",
+     "hội nghị truyền hình",
+     "hop truc tuyen",
+     "may quay",
+     "hoi nghi truyen hinh"
+    ],
+    "en": [
+     "video call",
+     "online meeting",
+     "camera",
+     "conference"
+    ]
+   }
+  },
+  {
+   "id": "newspaper",
+   "category": "communication",
+   "file": "newspaper.svg",
+   "name": {
+    "vi": "Báo chí",
+    "en": "Newspaper"
+   },
+   "keywords": {
+    "vi": [
+     "báo",
+     "tin tức",
+     "bản tin",
+     "truyền thông",
+     "bao",
+     "tin tuc",
+     "ban tin",
+     "truyen thong",
+     "bao chi"
+    ],
+    "en": [
+     "newspaper",
+     "news",
+     "bulletin",
+     "media",
+     "press"
+    ]
+   }
+  },
+  {
+   "id": "laptop",
+   "category": "technology",
+   "file": "laptop.svg",
+   "name": {
+    "vi": "Máy tính xách tay",
+    "en": "Laptop"
+   },
+   "keywords": {
+    "vi": [
+     "máy tính xách tay",
+     "laptop",
+     "làm việc từ xa",
+     "may tinh xach tay",
+     "lam viec tu xa"
+    ],
+    "en": [
+     "laptop",
+     "notebook",
+     "computer",
+     "remote work"
+    ]
+   }
+  },
+  {
+   "id": "desktop",
+   "category": "technology",
+   "file": "desktop.svg",
+   "name": {
+    "vi": "Màn hình máy tính",
+    "en": "Desktop monitor"
+   },
+   "keywords": {
+    "vi": [
+     "màn hình",
+     "máy tính để bàn",
+     "máy vi tính",
+     "man hinh",
+     "may tinh de ban",
+     "may vi tinh",
+     "man hinh may tinh"
+    ],
+    "en": [
+     "monitor",
+     "desktop",
+     "computer",
+     "screen",
+     "display"
+    ]
+   }
+  },
+  {
+   "id": "smartphone",
+   "category": "technology",
+   "file": "smartphone.svg",
+   "name": {
+    "vi": "Điện thoại thông minh",
+    "en": "Smartphone"
+   },
+   "keywords": {
+    "vi": [
+     "điện thoại",
+     "di động",
+     "ứng dụng",
+     "smartphone",
+     "dien thoai",
+     "di dong",
+     "ung dung",
+     "dien thoai thong minh"
+    ],
+    "en": [
+     "smartphone",
+     "mobile",
+     "app",
+     "cell phone"
+    ]
+   }
+  },
+  {
+   "id": "tablet",
+   "category": "technology",
+   "file": "tablet.svg",
+   "name": {
+    "vi": "Máy tính bảng",
+    "en": "Tablet"
+   },
+   "keywords": {
+    "vi": [
+     "máy tính bảng",
+     "tablet",
+     "thiết bị",
+     "may tinh bang",
+     "thiet bi"
+    ],
+    "en": [
+     "tablet",
+     "device",
+     "pad"
+    ]
+   }
+  },
+  {
+   "id": "printer",
+   "category": "technology",
+   "file": "printer.svg",
+   "name": {
+    "vi": "Máy in",
+    "en": "Printer"
+   },
+   "keywords": {
+    "vi": [
+     "máy in",
+     "in ấn",
+     "bản in",
+     "văn phòng",
+     "may in",
+     "in an",
+     "ban in",
+     "van phong"
+    ],
+    "en": [
+     "printer",
+     "print",
+     "hard copy",
+     "office"
+    ]
+   }
+  },
+  {
+   "id": "wifi",
+   "category": "technology",
+   "file": "wifi.svg",
+   "name": {
+    "vi": "Wi-Fi",
+    "en": "Wi-Fi"
+   },
+   "keywords": {
+    "vi": [
+     "wifi",
+     "mạng không dây",
+     "sóng",
+     "kết nối",
+     "mang khong day",
+     "song",
+     "ket noi",
+     "wi-fi"
+    ],
+    "en": [
+     "wifi",
+     "wireless",
+     "network",
+     "signal",
+     "connection"
+    ]
+   }
+  },
+  {
+   "id": "cloud",
+   "category": "technology",
+   "file": "cloud.svg",
+   "name": {
+    "vi": "Đám mây",
+    "en": "Cloud"
+   },
+   "keywords": {
+    "vi": [
+     "đám mây",
+     "lưu trữ",
+     "điện toán đám mây",
+     "dam may",
+     "luu tru",
+     "dien toan dam may"
+    ],
+    "en": [
+     "cloud",
+     "storage",
+     "cloud computing"
+    ]
+   }
+  },
+  {
+   "id": "database",
+   "category": "technology",
+   "file": "database.svg",
+   "name": {
+    "vi": "Cơ sở dữ liệu",
+    "en": "Database"
+   },
+   "keywords": {
+    "vi": [
+     "cơ sở dữ liệu",
+     "dữ liệu",
+     "lưu trữ",
+     "kho dữ liệu",
+     "co so du lieu",
+     "du lieu",
+     "luu tru",
+     "kho du lieu"
+    ],
+    "en": [
+     "database",
+     "data",
+     "storage",
+     "warehouse"
+    ]
+   }
+  },
+  {
+   "id": "server",
+   "category": "technology",
+   "file": "server.svg",
+   "name": {
+    "vi": "Máy chủ",
+    "en": "Server"
+   },
+   "keywords": {
+    "vi": [
+     "máy chủ",
+     "hạ tầng",
+     "trung tâm dữ liệu",
+     "may chu",
+     "ha tang",
+     "trung tam du lieu"
+    ],
+    "en": [
+     "server",
+     "infrastructure",
+     "data centre",
+     "hosting"
+    ]
+   }
+  },
+  {
+   "id": "chip",
+   "category": "technology",
+   "file": "chip.svg",
+   "name": {
+    "vi": "Vi xử lý",
+    "en": "Processor chip"
+   },
+   "keywords": {
+    "vi": [
+     "vi xử lý",
+     "chip",
+     "bán dẫn",
+     "phần cứng",
+     "vi xu ly",
+     "ban dan",
+     "phan cung"
+    ],
+    "en": [
+     "chip",
+     "processor",
+     "cpu",
+     "semiconductor",
+     "hardware"
+    ]
+   }
+  },
+  {
+   "id": "mouse",
+   "category": "technology",
+   "file": "mouse.svg",
+   "name": {
+    "vi": "Chuột máy tính",
+    "en": "Computer mouse"
+   },
+   "keywords": {
+    "vi": [
+     "chuột",
+     "nhấp",
+     "thiết bị ngoại vi",
+     "chuot",
+     "nhap",
+     "thiet bi ngoai vi",
+     "chuot may tinh"
+    ],
+    "en": [
+     "mouse",
+     "click",
+     "peripheral"
+    ]
+   }
+  },
+  {
+   "id": "keyboard",
+   "category": "technology",
+   "file": "keyboard.svg",
+   "name": {
+    "vi": "Bàn phím",
+    "en": "Keyboard"
+   },
+   "keywords": {
+    "vi": [
+     "bàn phím",
+     "gõ",
+     "nhập liệu",
+     "ban phim",
+     "go",
+     "nhap lieu"
+    ],
+    "en": [
+     "keyboard",
+     "typing",
+     "input"
+    ]
+   }
+  },
+  {
+   "id": "camera",
+   "category": "technology",
+   "file": "camera.svg",
+   "name": {
+    "vi": "Máy ảnh",
+    "en": "Camera"
+   },
+   "keywords": {
+    "vi": [
+     "máy ảnh",
+     "chụp ảnh",
+     "hình ảnh",
+     "may anh",
+     "chup anh",
+     "hinh anh"
+    ],
+    "en": [
+     "camera",
+     "photo",
+     "picture",
+     "photography"
+    ]
+   }
+  },
+  {
+   "id": "gear",
+   "category": "technology",
+   "file": "gear.svg",
+   "name": {
+    "vi": "Bánh răng",
+    "en": "Gear"
+   },
+   "keywords": {
+    "vi": [
+     "bánh răng",
+     "cài đặt",
+     "thiết lập",
+     "cấu hình",
+     "kỹ thuật",
+     "banh rang",
+     "cai dat",
+     "thiet lap",
+     "cau hinh",
+     "ky thuat"
+    ],
+    "en": [
+     "gear",
+     "settings",
+     "configuration",
+     "engineering",
+     "cog"
+    ]
+   }
+  },
+  {
+   "id": "lock",
+   "category": "technology",
+   "file": "lock.svg",
+   "name": {
+    "vi": "Ổ khoá",
+    "en": "Lock"
+   },
+   "keywords": {
+    "vi": [
+     "ổ khoá",
+     "bảo mật",
+     "an toàn",
+     "mật khẩu",
+     "o khoa",
+     "bao mat",
+     "an toan",
+     "mat khau"
+    ],
+    "en": [
+     "lock",
+     "security",
+     "safe",
+     "password",
+     "private"
+    ]
+   }
+  },
+  {
+   "id": "shield-check",
+   "category": "technology",
+   "file": "shield-check.svg",
+   "name": {
+    "vi": "Khiên bảo vệ",
+    "en": "Shield"
+   },
+   "keywords": {
+    "vi": [
+     "khiên",
+     "bảo vệ",
+     "an toàn",
+     "bảo hiểm",
+     "tin cậy",
+     "khien",
+     "bao ve",
+     "an toan",
+     "bao hiem",
+     "tin cay",
+     "khien bao ve"
+    ],
+    "en": [
+     "shield",
+     "protection",
+     "safety",
+     "insurance",
+     "trusted"
+    ]
+   }
+  },
+  {
+   "id": "search",
+   "category": "technology",
+   "file": "search.svg",
+   "name": {
+    "vi": "Kính lúp",
+    "en": "Magnifier"
+   },
+   "keywords": {
+    "vi": [
+     "kính lúp",
+     "tìm kiếm",
+     "tra cứu",
+     "phóng to",
+     "kinh lup",
+     "tim kiem",
+     "tra cuu",
+     "phong to"
+    ],
+    "en": [
+     "search",
+     "magnifier",
+     "find",
+     "look up",
+     "zoom"
+    ]
+   }
+  },
+  {
+   "id": "headphones",
+   "category": "technology",
+   "file": "headphones.svg",
+   "name": {
+    "vi": "Tai nghe",
+    "en": "Headphones"
+   },
+   "keywords": {
+    "vi": [
+     "tai nghe",
+     "hỗ trợ",
+     "tổng đài",
+     "âm thanh",
+     "ho tro",
+     "tong dai",
+     "am thanh"
+    ],
+    "en": [
+     "headphones",
+     "support",
+     "call centre",
+     "audio"
+    ]
+   }
+  },
+  {
+   "id": "book-open",
+   "category": "education",
+   "file": "book-open.svg",
+   "name": {
+    "vi": "Sách mở",
+    "en": "Open book"
+   },
+   "keywords": {
+    "vi": [
+     "sách",
+     "đọc",
+     "học tập",
+     "tài liệu",
+     "giáo trình",
+     "sach",
+     "doc",
+     "hoc tap",
+     "tai lieu",
+     "giao trinh",
+     "sach mo"
+    ],
+    "en": [
+     "book",
+     "open",
+     "read",
+     "study",
+     "textbook"
+    ]
+   }
+  },
+  {
+   "id": "book",
+   "category": "education",
+   "file": "book.svg",
+   "name": {
+    "vi": "Quyển sách",
+    "en": "Book"
+   },
+   "keywords": {
+    "vi": [
+     "sách",
+     "quyển sách",
+     "sổ tay",
+     "thư viện",
+     "sach",
+     "quyen sach",
+     "so tay",
+     "thu vien"
+    ],
+    "en": [
+     "book",
+     "closed",
+     "manual",
+     "library"
+    ]
+   }
+  },
+  {
+   "id": "graduation-cap",
+   "category": "education",
+   "file": "graduation-cap.svg",
+   "name": {
+    "vi": "Mũ tốt nghiệp",
+    "en": "Graduation cap"
+   },
+   "keywords": {
+    "vi": [
+     "mũ cử nhân",
+     "tốt nghiệp",
+     "đại học",
+     "học vị",
+     "mu cu nhan",
+     "tot nghiep",
+     "dai hoc",
+     "hoc vi",
+     "mu tot nghiep"
+    ],
+    "en": [
+     "graduation",
+     "cap",
+     "degree",
+     "university",
+     "graduate"
+    ]
+   }
+  },
+  {
+   "id": "pencil",
+   "category": "education",
+   "file": "pencil.svg",
+   "name": {
+    "vi": "Bút chì",
+    "en": "Pencil"
+   },
+   "keywords": {
+    "vi": [
+     "bút chì",
+     "viết",
+     "chỉnh sửa",
+     "soạn thảo",
+     "but chi",
+     "viet",
+     "chinh sua",
+     "soan thao"
+    ],
+    "en": [
+     "pencil",
+     "write",
+     "edit",
+     "draft"
+    ]
+   }
+  },
+  {
+   "id": "ruler",
+   "category": "education",
+   "file": "ruler.svg",
+   "name": {
+    "vi": "Thước kẻ",
+    "en": "Ruler"
+   },
+   "keywords": {
+    "vi": [
+     "thước",
+     "đo",
+     "kích thước",
+     "thiết kế",
+     "thuoc",
+     "do",
+     "kich thuoc",
+     "thiet ke",
+     "thuoc ke"
+    ],
+    "en": [
+     "ruler",
+     "measure",
+     "dimension",
+     "design"
+    ]
+   }
+  },
+  {
+   "id": "blackboard",
+   "category": "education",
+   "file": "blackboard.svg",
+   "name": {
+    "vi": "Bảng lớp học",
+    "en": "Blackboard"
+   },
+   "keywords": {
+    "vi": [
+     "bảng",
+     "lớp học",
+     "giảng dạy",
+     "bài giảng",
+     "bang",
+     "lop hoc",
+     "giang day",
+     "bai giang",
+     "bang lop hoc"
+    ],
+    "en": [
+     "blackboard",
+     "classroom",
+     "teaching",
+     "lesson"
+    ]
+   }
+  },
+  {
+   "id": "flask",
+   "category": "education",
+   "file": "flask.svg",
+   "name": {
+    "vi": "Bình thí nghiệm",
+    "en": "Flask"
+   },
+   "keywords": {
+    "vi": [
+     "bình thí nghiệm",
+     "hoá học",
+     "khoa học",
+     "nghiên cứu",
+     "binh thi nghiem",
+     "hoa hoc",
+     "khoa hoc",
+     "nghien cuu"
+    ],
+    "en": [
+     "flask",
+     "chemistry",
+     "science",
+     "research",
+     "lab"
+    ]
+   }
+  },
+  {
+   "id": "certificate",
+   "category": "education",
+   "file": "certificate.svg",
+   "name": {
+    "vi": "Bằng chứng nhận",
+    "en": "Certificate"
+   },
+   "keywords": {
+    "vi": [
+     "bằng",
+     "chứng chỉ",
+     "chứng nhận",
+     "giấy khen",
+     "bang",
+     "chung chi",
+     "chung nhan",
+     "giay khen",
+     "bang chung nhan"
+    ],
+    "en": [
+     "certificate",
+     "diploma",
+     "award",
+     "credential"
+    ]
+   }
+  },
+  {
+   "id": "atom",
+   "category": "education",
+   "file": "atom.svg",
+   "name": {
+    "vi": "Nguyên tử",
+    "en": "Atom"
+   },
+   "keywords": {
+    "vi": [
+     "nguyên tử",
+     "vật lý",
+     "khoa học",
+     "hạt nhân",
+     "nguyen tu",
+     "vat ly",
+     "khoa hoc",
+     "hat nhan"
+    ],
+    "en": [
+     "atom",
+     "physics",
+     "science",
+     "nuclear"
+    ]
+   }
+  },
+  {
+   "id": "notebook",
+   "category": "education",
+   "file": "notebook.svg",
+   "name": {
+    "vi": "Sổ ghi chép",
+    "en": "Notebook"
+   },
+   "keywords": {
+    "vi": [
+     "sổ",
+     "vở",
+     "ghi chép",
+     "nhật ký",
+     "so",
+     "vo",
+     "ghi chep",
+     "nhat ky",
+     "so ghi chep"
+    ],
+    "en": [
+     "notebook",
+     "notes",
+     "journal",
+     "diary"
+    ]
+   }
+  },
+  {
+   "id": "palette",
+   "category": "education",
+   "file": "palette.svg",
+   "name": {
+    "vi": "Bảng màu",
+    "en": "Palette"
+   },
+   "keywords": {
+    "vi": [
+     "bảng màu",
+     "mỹ thuật",
+     "hội hoạ",
+     "thiết kế",
+     "bang mau",
+     "my thuat",
+     "hoi hoa",
+     "thiet ke"
+    ],
+    "en": [
+     "palette",
+     "art",
+     "painting",
+     "design",
+     "colours"
+    ]
+   }
+  },
+  {
+   "id": "compass-drawing",
+   "category": "education",
+   "file": "compass-drawing.svg",
+   "name": {
+    "vi": "Com-pa",
+    "en": "Drawing compass"
+   },
+   "keywords": {
+    "vi": [
+     "com-pa",
+     "hình học",
+     "toán học",
+     "vẽ kỹ thuật",
+     "hinh hoc",
+     "toan hoc",
+     "ve ky thuat"
+    ],
+    "en": [
+     "compass",
+     "geometry",
+     "mathematics",
+     "drafting"
+    ]
+   }
+  },
+  {
+   "id": "heart",
+   "category": "medical",
+   "file": "heart.svg",
+   "name": {
+    "vi": "Trái tim",
+    "en": "Heart"
+   },
+   "keywords": {
+    "vi": [
+     "trái tim",
+     "tim",
+     "yêu thích",
+     "sức khoẻ",
+     "trai tim",
+     "yeu thich",
+     "suc khoe"
+    ],
+    "en": [
+     "heart",
+     "love",
+     "favourite",
+     "health"
+    ]
+   }
+  },
+  {
+   "id": "heart-pulse",
+   "category": "medical",
+   "file": "heart-pulse.svg",
+   "name": {
+    "vi": "Nhịp tim",
+    "en": "Heartbeat"
+   },
+   "keywords": {
+    "vi": [
+     "nhịp tim",
+     "điện tim",
+     "tim mạch",
+     "sức khoẻ",
+     "nhip tim",
+     "dien tim",
+     "tim mach",
+     "suc khoe"
+    ],
+    "en": [
+     "heartbeat",
+     "pulse",
+     "cardiology",
+     "health",
+     "ecg"
+    ]
+   }
+  },
+  {
+   "id": "medical-cross",
+   "category": "medical",
+   "file": "medical-cross.svg",
+   "name": {
+    "vi": "Chữ thập y tế",
+    "en": "Medical cross"
+   },
+   "keywords": {
+    "vi": [
+     "chữ thập",
+     "y tế",
+     "cấp cứu",
+     "bệnh viện",
+     "chu thap",
+     "y te",
+     "cap cuu",
+     "benh vien",
+     "chu thap y te"
+    ],
+    "en": [
+     "cross",
+     "medical",
+     "emergency",
+     "hospital",
+     "health"
+    ]
+   }
+  },
+  {
+   "id": "first-aid-kit",
+   "category": "medical",
+   "file": "first-aid-kit.svg",
+   "name": {
+    "vi": "Túi cứu thương",
+    "en": "First aid kit"
+   },
+   "keywords": {
+    "vi": [
+     "cứu thương",
+     "sơ cứu",
+     "túi thuốc",
+     "y tế",
+     "cuu thuong",
+     "so cuu",
+     "tui thuoc",
+     "y te",
+     "tui cuu thuong"
+    ],
+    "en": [
+     "first aid",
+     "kit",
+     "emergency",
+     "medical bag"
+    ]
+   }
+  },
+  {
+   "id": "pill",
+   "category": "medical",
+   "file": "pill.svg",
+   "name": {
+    "vi": "Viên thuốc",
+    "en": "Pill"
+   },
+   "keywords": {
+    "vi": [
+     "thuốc",
+     "viên thuốc",
+     "dược",
+     "đơn thuốc",
+     "thuoc",
+     "vien thuoc",
+     "duoc",
+     "don thuoc"
+    ],
+    "en": [
+     "pill",
+     "medicine",
+     "drug",
+     "pharmacy",
+     "prescription"
+    ]
+   }
+  },
+  {
+   "id": "syringe",
+   "category": "medical",
+   "file": "syringe.svg",
+   "name": {
+    "vi": "Ống tiêm",
+    "en": "Syringe"
+   },
+   "keywords": {
+    "vi": [
+     "ống tiêm",
+     "tiêm chủng",
+     "vắc-xin",
+     "kim tiêm",
+     "ong tiem",
+     "tiem chung",
+     "vac-xin",
+     "kim tiem"
+    ],
+    "en": [
+     "syringe",
+     "vaccine",
+     "injection",
+     "needle"
+    ]
+   }
+  },
+  {
+   "id": "stethoscope",
+   "category": "medical",
+   "file": "stethoscope.svg",
+   "name": {
+    "vi": "Ống nghe",
+    "en": "Stethoscope"
+   },
+   "keywords": {
+    "vi": [
+     "ống nghe",
+     "bác sĩ",
+     "khám bệnh",
+     "phòng khám",
+     "ong nghe",
+     "bac si",
+     "kham benh",
+     "phong kham"
+    ],
+    "en": [
+     "stethoscope",
+     "doctor",
+     "examination",
+     "clinic"
+    ]
+   }
+  },
+  {
+   "id": "thermometer",
+   "category": "medical",
+   "file": "thermometer.svg",
+   "name": {
+    "vi": "Nhiệt kế",
+    "en": "Thermometer"
+   },
+   "keywords": {
+    "vi": [
+     "nhiệt kế",
+     "nhiệt độ",
+     "sốt",
+     "đo nhiệt",
+     "nhiet ke",
+     "nhiet do",
+     "sot",
+     "do nhiet"
+    ],
+    "en": [
+     "thermometer",
+     "temperature",
+     "fever"
+    ]
+   }
+  },
+  {
+   "id": "tooth",
+   "category": "medical",
+   "file": "tooth.svg",
+   "name": {
+    "vi": "Răng",
+    "en": "Tooth"
+   },
+   "keywords": {
+    "vi": [
+     "răng",
+     "nha khoa",
+     "nha sĩ",
+     "răng miệng",
+     "rang",
+     "nha si",
+     "rang mieng"
+    ],
+    "en": [
+     "tooth",
+     "dental",
+     "dentist",
+     "oral care"
+    ]
+   }
+  },
+  {
+   "id": "bandage",
+   "category": "medical",
+   "file": "bandage.svg",
+   "name": {
+    "vi": "Băng cá nhân",
+    "en": "Bandage"
+   },
+   "keywords": {
+    "vi": [
+     "băng",
+     "băng cá nhân",
+     "vết thương",
+     "sơ cứu",
+     "bang",
+     "bang ca nhan",
+     "vet thuong",
+     "so cuu"
+    ],
+    "en": [
+     "bandage",
+     "plaster",
+     "wound",
+     "first aid"
+    ]
+   }
+  },
+  {
+   "id": "eye",
+   "category": "medical",
+   "file": "eye.svg",
+   "name": {
+    "vi": "Con mắt",
+    "en": "Eye"
+   },
+   "keywords": {
+    "vi": [
+     "mắt",
+     "nhìn",
+     "thị lực",
+     "nhãn khoa",
+     "xem",
+     "mat",
+     "nhin",
+     "thi luc",
+     "nhan khoa",
+     "con mat"
+    ],
+    "en": [
+     "eye",
+     "view",
+     "vision",
+     "ophthalmology",
+     "watch"
+    ]
+   }
+  },
+  {
+   "id": "blood-drop",
+   "category": "medical",
+   "file": "blood-drop.svg",
+   "name": {
+    "vi": "Giọt máu",
+    "en": "Blood drop"
+   },
+   "keywords": {
+    "vi": [
+     "máu",
+     "giọt máu",
+     "hiến máu",
+     "xét nghiệm",
+     "mau",
+     "giot mau",
+     "hien mau",
+     "xet nghiem"
+    ],
+    "en": [
+     "blood",
+     "drop",
+     "donation",
+     "test"
+    ]
+   }
+  },
+  {
+   "id": "clipboard-medical",
+   "category": "medical",
+   "file": "clipboard-medical.svg",
+   "name": {
+    "vi": "Bệnh án",
+    "en": "Medical record"
+   },
+   "keywords": {
+    "vi": [
+     "bệnh án",
+     "hồ sơ bệnh nhân",
+     "phiếu khám",
+     "benh an",
+     "ho so benh nhan",
+     "phieu kham"
+    ],
+    "en": [
+     "medical record",
+     "patient chart",
+     "clipboard"
+    ]
+   }
+  },
+  {
+   "id": "car",
+   "category": "transport",
+   "file": "car.svg",
+   "name": {
+    "vi": "Ô tô",
+    "en": "Car"
+   },
+   "keywords": {
+    "vi": [
+     "ô tô",
+     "xe hơi",
+     "xe con",
+     "phương tiện",
+     "o to",
+     "xe hoi",
+     "phuong tien"
+    ],
+    "en": [
+     "car",
+     "automobile",
+     "vehicle"
+    ]
+   }
+  },
+  {
+   "id": "bus",
+   "category": "transport",
+   "file": "bus.svg",
+   "name": {
+    "vi": "Xe buýt",
+    "en": "Bus"
+   },
+   "keywords": {
+    "vi": [
+     "xe buýt",
+     "xe khách",
+     "giao thông công cộng",
+     "xe buyt",
+     "xe khach",
+     "giao thong cong cong"
+    ],
+    "en": [
+     "bus",
+     "coach",
+     "public transport"
+    ]
+   }
+  },
+  {
+   "id": "truck",
+   "category": "transport",
+   "file": "truck.svg",
+   "name": {
+    "vi": "Xe tải",
+    "en": "Truck"
+   },
+   "keywords": {
+    "vi": [
+     "xe tải",
+     "vận chuyển",
+     "giao hàng",
+     "hậu cần",
+     "xe tai",
+     "van chuyen",
+     "giao hang",
+     "hau can"
+    ],
+    "en": [
+     "truck",
+     "lorry",
+     "delivery",
+     "shipping",
+     "logistics"
+    ]
+   }
+  },
+  {
+   "id": "motorbike",
+   "category": "transport",
+   "file": "motorbike.svg",
+   "name": {
+    "vi": "Xe máy",
+    "en": "Motorbike"
+   },
+   "keywords": {
+    "vi": [
+     "xe máy",
+     "mô tô",
+     "xe gắn máy",
+     "giao hàng",
+     "xe may",
+     "mo to",
+     "xe gan may",
+     "giao hang"
+    ],
+    "en": [
+     "motorbike",
+     "motorcycle",
+     "scooter",
+     "delivery"
+    ]
+   }
+  },
+  {
+   "id": "bicycle",
+   "category": "transport",
+   "file": "bicycle.svg",
+   "name": {
+    "vi": "Xe đạp",
+    "en": "Bicycle"
+   },
+   "keywords": {
+    "vi": [
+     "xe đạp",
+     "đạp xe",
+     "thể thao",
+     "xe dap",
+     "dap xe",
+     "the thao"
+    ],
+    "en": [
+     "bicycle",
+     "bike",
+     "cycling",
+     "sport"
+    ]
+   }
+  },
+  {
+   "id": "airplane",
+   "category": "transport",
+   "file": "airplane.svg",
+   "name": {
+    "vi": "Máy bay",
+    "en": "Airplane"
+   },
+   "keywords": {
+    "vi": [
+     "máy bay",
+     "hàng không",
+     "chuyến bay",
+     "du lịch",
+     "may bay",
+     "hang khong",
+     "chuyen bay",
+     "du lich"
+    ],
+    "en": [
+     "airplane",
+     "plane",
+     "flight",
+     "aviation",
+     "travel"
+    ]
+   }
+  },
+  {
+   "id": "ship",
+   "category": "transport",
+   "file": "ship.svg",
+   "name": {
+    "vi": "Tàu thuỷ",
+    "en": "Ship"
+   },
+   "keywords": {
+    "vi": [
+     "tàu thuỷ",
+     "tàu biển",
+     "hàng hải",
+     "cảng",
+     "tau thuy",
+     "tau bien",
+     "hang hai",
+     "cang"
+    ],
+    "en": [
+     "ship",
+     "boat",
+     "vessel",
+     "maritime",
+     "port"
+    ]
+   }
+  },
+  {
+   "id": "train",
+   "category": "transport",
+   "file": "train.svg",
+   "name": {
+    "vi": "Tàu hoả",
+    "en": "Train"
+   },
+   "keywords": {
+    "vi": [
+     "tàu hoả",
+     "xe lửa",
+     "đường sắt",
+     "tàu điện",
+     "tau hoa",
+     "xe lua",
+     "duong sat",
+     "tau dien"
+    ],
+    "en": [
+     "train",
+     "railway",
+     "rail",
+     "metro"
+    ]
+   }
+  },
+  {
+   "id": "fuel-pump",
+   "category": "transport",
+   "file": "fuel-pump.svg",
+   "name": {
+    "vi": "Trạm xăng",
+    "en": "Fuel pump"
+   },
+   "keywords": {
+    "vi": [
+     "xăng",
+     "trạm xăng",
+     "nhiên liệu",
+     "đổ xăng",
+     "xang",
+     "tram xang",
+     "nhien lieu",
+     "do xang"
+    ],
+    "en": [
+     "fuel",
+     "petrol",
+     "gas station",
+     "pump"
+    ]
+   }
+  },
+  {
+   "id": "map-pin",
+   "category": "transport",
+   "file": "map-pin.svg",
+   "name": {
+    "vi": "Ghim vị trí",
+    "en": "Map pin"
+   },
+   "keywords": {
+    "vi": [
+     "vị trí",
+     "địa điểm",
+     "ghim bản đồ",
+     "địa chỉ",
+     "vi tri",
+     "dia diem",
+     "ghim ban do",
+     "dia chi",
+     "ghim vi tri"
+    ],
+    "en": [
+     "pin",
+     "location",
+     "place",
+     "map marker",
+     "address"
+    ]
+   }
+  },
+  {
+   "id": "map",
+   "category": "transport",
+   "file": "map.svg",
+   "name": {
+    "vi": "Bản đồ",
+    "en": "Map"
+   },
+   "keywords": {
+    "vi": [
+     "bản đồ",
+     "chỉ đường",
+     "lộ trình",
+     "địa lý",
+     "ban do",
+     "chi duong",
+     "lo trinh",
+     "dia ly"
+    ],
+    "en": [
+     "map",
+     "directions",
+     "route",
+     "geography"
+    ]
+   }
+  },
+  {
+   "id": "traffic-light",
+   "category": "transport",
+   "file": "traffic-light.svg",
+   "name": {
+    "vi": "Đèn giao thông",
+    "en": "Traffic light"
+   },
+   "keywords": {
+    "vi": [
+     "đèn giao thông",
+     "đèn tín hiệu",
+     "trạng thái",
+     "den giao thong",
+     "den tin hieu",
+     "trang thai"
+    ],
+    "en": [
+     "traffic light",
+     "signal",
+     "status"
+    ]
+   }
+  },
+  {
+   "id": "rocket",
+   "category": "transport",
+   "file": "rocket.svg",
+   "name": {
+    "vi": "Tên lửa",
+    "en": "Rocket"
+   },
+   "keywords": {
+    "vi": [
+     "tên lửa",
+     "khởi động",
+     "ra mắt",
+     "khởi nghiệp",
+     "ten lua",
+     "khoi dong",
+     "ra mat",
+     "khoi nghiep"
+    ],
+    "en": [
+     "rocket",
+     "launch",
+     "startup",
+     "release"
+    ]
+   }
+  },
+  {
+   "id": "ambulance",
+   "category": "transport",
+   "file": "ambulance.svg",
+   "name": {
+    "vi": "Xe cứu thương",
+    "en": "Ambulance"
+   },
+   "keywords": {
+    "vi": [
+     "xe cứu thương",
+     "cấp cứu",
+     "115",
+     "xe cuu thuong",
+     "cap cuu"
+    ],
+    "en": [
+     "ambulance",
+     "emergency",
+     "rescue"
+    ]
+   }
+  },
+  {
+   "id": "sun",
+   "category": "weather",
+   "file": "sun.svg",
+   "name": {
+    "vi": "Mặt trời",
+    "en": "Sun"
+   },
+   "keywords": {
+    "vi": [
+     "mặt trời",
+     "nắng",
+     "ban ngày",
+     "thời tiết",
+     "mat troi",
+     "nang",
+     "ban ngay",
+     "thoi tiet"
+    ],
+    "en": [
+     "sun",
+     "sunny",
+     "day",
+     "weather"
+    ]
+   }
+  },
+  {
+   "id": "moon",
+   "category": "weather",
+   "file": "moon.svg",
+   "name": {
+    "vi": "Mặt trăng",
+    "en": "Moon"
+   },
+   "keywords": {
+    "vi": [
+     "mặt trăng",
+     "trăng",
+     "ban đêm",
+     "tối",
+     "mat trang",
+     "trang",
+     "ban dem",
+     "toi"
+    ],
+    "en": [
+     "moon",
+     "night",
+     "dark",
+     "crescent"
+    ]
+   }
+  },
+  {
+   "id": "cloud-sun",
+   "category": "weather",
+   "file": "cloud-sun.svg",
+   "name": {
+    "vi": "Trời nhiều mây",
+    "en": "Partly cloudy"
+   },
+   "keywords": {
+    "vi": [
+     "nhiều mây",
+     "nắng nhẹ",
+     "mây",
+     "thời tiết",
+     "nhieu may",
+     "nang nhe",
+     "may",
+     "thoi tiet",
+     "troi nhieu may"
+    ],
+    "en": [
+     "partly cloudy",
+     "cloud",
+     "sun",
+     "weather"
+    ]
+   }
+  },
+  {
+   "id": "rain",
+   "category": "weather",
+   "file": "rain.svg",
+   "name": {
+    "vi": "Mưa",
+    "en": "Rain"
+   },
+   "keywords": {
+    "vi": [
+     "mưa",
+     "trời mưa",
+     "mưa rào",
+     "thời tiết",
+     "mua",
+     "troi mua",
+     "mua rao",
+     "thoi tiet"
+    ],
+    "en": [
+     "rain",
+     "rainy",
+     "shower",
+     "weather"
+    ]
+   }
+  },
+  {
+   "id": "storm",
+   "category": "weather",
+   "file": "storm.svg",
+   "name": {
+    "vi": "Dông sét",
+    "en": "Thunderstorm"
+   },
+   "keywords": {
+    "vi": [
+     "dông",
+     "sét",
+     "bão",
+     "sấm chớp",
+     "dong",
+     "set",
+     "bao",
+     "sam chop",
+     "dong set"
+    ],
+    "en": [
+     "storm",
+     "thunder",
+     "lightning",
+     "tempest"
+    ]
+   }
+  },
+  {
+   "id": "snowflake",
+   "category": "weather",
+   "file": "snowflake.svg",
+   "name": {
+    "vi": "Bông tuyết",
+    "en": "Snowflake"
+   },
+   "keywords": {
+    "vi": [
+     "tuyết",
+     "bông tuyết",
+     "lạnh",
+     "mùa đông",
+     "tuyet",
+     "bong tuyet",
+     "lanh",
+     "mua dong"
+    ],
+    "en": [
+     "snow",
+     "snowflake",
+     "cold",
+     "winter",
+     "freeze"
+    ]
+   }
+  },
+  {
+   "id": "wind",
+   "category": "weather",
+   "file": "wind.svg",
+   "name": {
+    "vi": "Gió",
+    "en": "Wind"
+   },
+   "keywords": {
+    "vi": [
+     "gió",
+     "gió thổi",
+     "không khí",
+     "thời tiết",
+     "gio",
+     "gio thoi",
+     "khong khi",
+     "thoi tiet"
+    ],
+    "en": [
+     "wind",
+     "breeze",
+     "air",
+     "weather"
+    ]
+   }
+  },
+  {
+   "id": "umbrella",
+   "category": "weather",
+   "file": "umbrella.svg",
+   "name": {
+    "vi": "Cái ô",
+    "en": "Umbrella"
+   },
+   "keywords": {
+    "vi": [
+     "ô",
+     "dù",
+     "che mưa",
+     "bảo hiểm",
+     "o",
+     "du",
+     "che mua",
+     "bao hiem",
+     "cai o"
+    ],
+    "en": [
+     "umbrella",
+     "rain cover",
+     "insurance"
+    ]
+   }
+  },
+  {
+   "id": "rainbow",
+   "category": "weather",
+   "file": "rainbow.svg",
+   "name": {
+    "vi": "Cầu vồng",
+    "en": "Rainbow"
+   },
+   "keywords": {
+    "vi": [
+     "cầu vồng",
+     "sau mưa",
+     "màu sắc",
+     "cau vong",
+     "sau mua",
+     "mau sac"
+    ],
+    "en": [
+     "rainbow",
+     "colours",
+     "after rain"
+    ]
+   }
+  },
+  {
+   "id": "water-drop",
+   "category": "weather",
+   "file": "water-drop.svg",
+   "name": {
+    "vi": "Giọt nước",
+    "en": "Water drop"
+   },
+   "keywords": {
+    "vi": [
+     "giọt nước",
+     "nước",
+     "độ ẩm",
+     "chất lỏng",
+     "giot nuoc",
+     "nuoc",
+     "do am",
+     "chat long"
+    ],
+    "en": [
+     "water",
+     "drop",
+     "humidity",
+     "liquid"
+    ]
+   }
+  },
+  {
+   "id": "sunrise",
+   "category": "weather",
+   "file": "sunrise.svg",
+   "name": {
+    "vi": "Bình minh",
+    "en": "Sunrise"
+   },
+   "keywords": {
+    "vi": [
+     "bình minh",
+     "mặt trời mọc",
+     "buổi sáng",
+     "binh minh",
+     "mat troi moc",
+     "buoi sang"
+    ],
+    "en": [
+     "sunrise",
+     "dawn",
+     "morning"
+    ]
+   }
+  },
+  {
+   "id": "tree",
+   "category": "nature",
+   "file": "tree.svg",
+   "name": {
+    "vi": "Cây xanh",
+    "en": "Tree"
+   },
+   "keywords": {
+    "vi": [
+     "cây",
+     "cây xanh",
+     "môi trường",
+     "rừng",
+     "cay",
+     "cay xanh",
+     "moi truong",
+     "rung"
+    ],
+    "en": [
+     "tree",
+     "green",
+     "environment",
+     "forest"
+    ]
+   }
+  },
+  {
+   "id": "pine-tree",
+   "category": "nature",
+   "file": "pine-tree.svg",
+   "name": {
+    "vi": "Cây thông",
+    "en": "Pine tree"
+   },
+   "keywords": {
+    "vi": [
+     "cây thông",
+     "rừng thông",
+     "giáng sinh",
+     "cay thong",
+     "rung thong",
+     "giang sinh"
+    ],
+    "en": [
+     "pine",
+     "fir",
+     "conifer",
+     "christmas tree"
+    ]
+   }
+  },
+  {
+   "id": "leaf",
+   "category": "nature",
+   "file": "leaf.svg",
+   "name": {
+    "vi": "Chiếc lá",
+    "en": "Leaf"
+   },
+   "keywords": {
+    "vi": [
+     "lá",
+     "lá cây",
+     "sinh thái",
+     "hữu cơ",
+     "xanh",
+     "la",
+     "la cay",
+     "sinh thai",
+     "huu co",
+     "chiec la"
+    ],
+    "en": [
+     "leaf",
+     "ecology",
+     "organic",
+     "green",
+     "eco"
+    ]
+   }
+  },
+  {
+   "id": "flower",
+   "category": "nature",
+   "file": "flower.svg",
+   "name": {
+    "vi": "Bông hoa",
+    "en": "Flower"
+   },
+   "keywords": {
+    "vi": [
+     "hoa",
+     "bông hoa",
+     "mùa xuân",
+     "trang trí",
+     "bong hoa",
+     "mua xuan",
+     "trang tri"
+    ],
+    "en": [
+     "flower",
+     "blossom",
+     "spring",
+     "decoration"
+    ]
+   }
+  },
+  {
+   "id": "mountain",
+   "category": "nature",
+   "file": "mountain.svg",
+   "name": {
+    "vi": "Ngọn núi",
+    "en": "Mountain"
+   },
+   "keywords": {
+    "vi": [
+     "núi",
+     "đồi núi",
+     "phong cảnh",
+     "đỉnh cao",
+     "nui",
+     "doi nui",
+     "phong canh",
+     "dinh cao",
+     "ngon nui"
+    ],
+    "en": [
+     "mountain",
+     "hill",
+     "landscape",
+     "peak",
+     "summit"
+    ]
+   }
+  },
+  {
+   "id": "waves",
+   "category": "nature",
+   "file": "waves.svg",
+   "name": {
+    "vi": "Sóng nước",
+    "en": "Waves"
+   },
+   "keywords": {
+    "vi": [
+     "sóng",
+     "nước",
+     "biển",
+     "sông",
+     "song",
+     "nuoc",
+     "bien",
+     "song nuoc"
+    ],
+    "en": [
+     "waves",
+     "water",
+     "sea",
+     "river"
+    ]
+   }
+  },
+  {
+   "id": "fire",
+   "category": "nature",
+   "file": "fire.svg",
+   "name": {
+    "vi": "Ngọn lửa",
+    "en": "Fire"
+   },
+   "keywords": {
+    "vi": [
+     "lửa",
+     "cháy",
+     "nóng",
+     "phòng cháy chữa cháy",
+     "lua",
+     "chay",
+     "nong",
+     "phong chay chua chay",
+     "ngon lua"
+    ],
+    "en": [
+     "fire",
+     "flame",
+     "hot",
+     "burn",
+     "fire safety"
+    ]
+   }
+  },
+  {
+   "id": "paw",
+   "category": "nature",
+   "file": "paw.svg",
+   "name": {
+    "vi": "Dấu chân thú",
+    "en": "Paw print"
+   },
+   "keywords": {
+    "vi": [
+     "dấu chân",
+     "thú cưng",
+     "động vật",
+     "chó mèo",
+     "dau chan",
+     "thu cung",
+     "dong vat",
+     "cho meo",
+     "dau chan thu"
+    ],
+    "en": [
+     "paw",
+     "pet",
+     "animal",
+     "dog",
+     "cat"
+    ]
+   }
+  },
+  {
+   "id": "fish",
+   "category": "nature",
+   "file": "fish.svg",
+   "name": {
+    "vi": "Con cá",
+    "en": "Fish"
+   },
+   "keywords": {
+    "vi": [
+     "cá",
+     "thuỷ sản",
+     "hải sản",
+     "biển",
+     "ca",
+     "thuy san",
+     "hai san",
+     "bien",
+     "con ca"
+    ],
+    "en": [
+     "fish",
+     "seafood",
+     "aquatic",
+     "sea"
+    ]
+   }
+  },
+  {
+   "id": "sprout",
+   "category": "nature",
+   "file": "sprout.svg",
+   "name": {
+    "vi": "Mầm cây",
+    "en": "Sprout"
+   },
+   "keywords": {
+    "vi": [
+     "mầm",
+     "mầm cây",
+     "tăng trưởng",
+     "khởi đầu",
+     "nông nghiệp",
+     "mam",
+     "mam cay",
+     "tang truong",
+     "khoi dau",
+     "nong nghiep"
+    ],
+    "en": [
+     "sprout",
+     "seedling",
+     "growth",
+     "start",
+     "agriculture"
+    ]
+   }
+  },
+  {
+   "id": "lotus",
+   "category": "nature",
+   "file": "lotus.svg",
+   "name": {
+    "vi": "Hoa sen",
+    "en": "Lotus"
+   },
+   "keywords": {
+    "vi": [
+     "hoa sen",
+     "sen",
+     "thanh cao",
+     "Việt Nam",
+     "viet nam"
+    ],
+    "en": [
+     "lotus",
+     "flower",
+     "vietnam",
+     "purity"
+    ]
+   }
+  },
+  {
+   "id": "coffee",
+   "category": "food",
+   "file": "coffee.svg",
+   "name": {
+    "vi": "Tách cà phê",
+    "en": "Coffee cup"
+   },
+   "keywords": {
+    "vi": [
+     "cà phê",
+     "tách",
+     "giải lao",
+     "đồ uống",
+     "ca phe",
+     "tach",
+     "giai lao",
+     "do uong",
+     "tach ca phe"
+    ],
+    "en": [
+     "coffee",
+     "cup",
+     "break",
+     "drink"
+    ]
+   }
+  },
+  {
+   "id": "glass",
+   "category": "food",
+   "file": "glass.svg",
+   "name": {
+    "vi": "Ly nước",
+    "en": "Glass of water"
+   },
+   "keywords": {
+    "vi": [
+     "ly",
+     "cốc",
+     "nước",
+     "đồ uống",
+     "coc",
+     "nuoc",
+     "do uong",
+     "ly nuoc"
+    ],
+    "en": [
+     "glass",
+     "cup",
+     "water",
+     "drink"
+    ]
+   }
+  },
+  {
+   "id": "rice-bowl",
+   "category": "food",
+   "file": "rice-bowl.svg",
+   "name": {
+    "vi": "Bát cơm",
+    "en": "Rice bowl"
+   },
+   "keywords": {
+    "vi": [
+     "cơm",
+     "bát cơm",
+     "đũa",
+     "bữa ăn",
+     "com",
+     "bat com",
+     "dua",
+     "bua an"
+    ],
+    "en": [
+     "rice",
+     "bowl",
+     "chopsticks",
+     "meal"
+    ]
+   }
+  },
+  {
+   "id": "noodle-bowl",
+   "category": "food",
+   "file": "noodle-bowl.svg",
+   "name": {
+    "vi": "Tô phở",
+    "en": "Noodle bowl"
+   },
+   "keywords": {
+    "vi": [
+     "phở",
+     "mì",
+     "bún",
+     "tô",
+     "món nước",
+     "pho",
+     "mi",
+     "bun",
+     "to",
+     "mon nuoc",
+     "to pho"
+    ],
+    "en": [
+     "noodle",
+     "pho",
+     "soup",
+     "bowl"
+    ]
+   }
+  },
+  {
+   "id": "apple",
+   "category": "food",
+   "file": "apple.svg",
+   "name": {
+    "vi": "Quả táo",
+    "en": "Apple"
+   },
+   "keywords": {
+    "vi": [
+     "táo",
+     "trái cây",
+     "hoa quả",
+     "dinh dưỡng",
+     "tao",
+     "trai cay",
+     "hoa qua",
+     "dinh duong",
+     "qua tao"
+    ],
+    "en": [
+     "apple",
+     "fruit",
+     "nutrition",
+     "healthy"
+    ]
+   }
+  },
+  {
+   "id": "cake",
+   "category": "food",
+   "file": "cake.svg",
+   "name": {
+    "vi": "Bánh kem",
+    "en": "Cake"
+   },
+   "keywords": {
+    "vi": [
+     "bánh kem",
+     "sinh nhật",
+     "kỷ niệm",
+     "tiệc",
+     "banh kem",
+     "sinh nhat",
+     "ky niem",
+     "tiec"
+    ],
+    "en": [
+     "cake",
+     "birthday",
+     "anniversary",
+     "party"
+    ]
+   }
+  },
+  {
+   "id": "fork-knife",
+   "category": "food",
+   "file": "fork-knife.svg",
+   "name": {
+    "vi": "Dao nĩa",
+    "en": "Fork and knife"
+   },
+   "keywords": {
+    "vi": [
+     "dao nĩa",
+     "nhà hàng",
+     "ăn uống",
+     "bữa ăn",
+     "dao nia",
+     "nha hang",
+     "an uong",
+     "bua an"
+    ],
+    "en": [
+     "fork",
+     "knife",
+     "restaurant",
+     "dining",
+     "meal"
+    ]
+   }
+  },
+  {
+   "id": "pizza",
+   "category": "food",
+   "file": "pizza.svg",
+   "name": {
+    "vi": "Bánh pizza",
+    "en": "Pizza slice"
+   },
+   "keywords": {
+    "vi": [
+     "pizza",
+     "đồ ăn nhanh",
+     "tiệc",
+     "do an nhanh",
+     "tiec",
+     "banh pizza"
+    ],
+    "en": [
+     "pizza",
+     "fast food",
+     "slice",
+     "party"
+    ]
+   }
+  },
+  {
+   "id": "ice-cream",
+   "category": "food",
+   "file": "ice-cream.svg",
+   "name": {
+    "vi": "Kem ốc quế",
+    "en": "Ice cream"
+   },
+   "keywords": {
+    "vi": [
+     "kem",
+     "kem ốc quế",
+     "tráng miệng",
+     "mùa hè",
+     "kem oc que",
+     "trang mieng",
+     "mua he"
+    ],
+    "en": [
+     "ice cream",
+     "cone",
+     "dessert",
+     "summer"
+    ]
+   }
+  },
+  {
+   "id": "wine-glass",
+   "category": "food",
+   "file": "wine-glass.svg",
+   "name": {
+    "vi": "Ly rượu",
+    "en": "Wine glass"
+   },
+   "keywords": {
+    "vi": [
+     "ly rượu",
+     "tiệc",
+     "chúc mừng",
+     "liên hoan",
+     "ly ruou",
+     "tiec",
+     "chuc mung",
+     "lien hoan"
+    ],
+    "en": [
+     "wine",
+     "glass",
+     "toast",
+     "celebration",
+     "party"
+    ]
+   }
+  },
+  {
+   "id": "bottle",
+   "category": "food",
+   "file": "bottle.svg",
+   "name": {
+    "vi": "Chai nước",
+    "en": "Bottle"
+   },
+   "keywords": {
+    "vi": [
+     "chai",
+     "bình nước",
+     "đồ uống",
+     "binh nuoc",
+     "do uong",
+     "chai nuoc"
+    ],
+    "en": [
+     "bottle",
+     "water bottle",
+     "drink"
+    ]
+   }
+  },
+  {
+   "id": "fried-egg",
+   "category": "food",
+   "file": "fried-egg.svg",
+   "name": {
+    "vi": "Trứng ốp la",
+    "en": "Fried egg"
+   },
+   "keywords": {
+    "vi": [
+     "trứng",
+     "trứng ốp la",
+     "bữa sáng",
+     "trung",
+     "trung op la",
+     "bua sang"
+    ],
+    "en": [
+     "egg",
+     "fried egg",
+     "breakfast"
+    ]
+   }
+  },
+  {
+   "id": "home",
+   "category": "buildings",
+   "file": "home.svg",
+   "name": {
+    "vi": "Ngôi nhà",
+    "en": "Home"
+   },
+   "keywords": {
+    "vi": [
+     "nhà",
+     "nhà ở",
+     "trang chủ",
+     "gia đình",
+     "nha",
+     "nha o",
+     "trang chu",
+     "gia dinh",
+     "ngoi nha"
+    ],
+    "en": [
+     "home",
+     "house",
+     "residence",
+     "family"
+    ]
+   }
+  },
+  {
+   "id": "office-building",
+   "category": "buildings",
+   "file": "office-building.svg",
+   "name": {
+    "vi": "Toà nhà văn phòng",
+    "en": "Office building"
+   },
+   "keywords": {
+    "vi": [
+     "toà nhà",
+     "văn phòng",
+     "công ty",
+     "trụ sở",
+     "cơ quan",
+     "toa nha",
+     "van phong",
+     "cong ty",
+     "tru so",
+     "co quan",
+     "toa nha van phong"
+    ],
+    "en": [
+     "office",
+     "building",
+     "company",
+     "headquarters"
+    ]
+   }
+  },
+  {
+   "id": "factory",
+   "category": "buildings",
+   "file": "factory.svg",
+   "name": {
+    "vi": "Nhà máy",
+    "en": "Factory"
+   },
+   "keywords": {
+    "vi": [
+     "nhà máy",
+     "xưởng",
+     "sản xuất",
+     "công nghiệp",
+     "nha may",
+     "xuong",
+     "san xuat",
+     "cong nghiep"
+    ],
+    "en": [
+     "factory",
+     "plant",
+     "manufacturing",
+     "industry"
+    ]
+   }
+  },
+  {
+   "id": "hospital",
+   "category": "buildings",
+   "file": "hospital.svg",
+   "name": {
+    "vi": "Bệnh viện",
+    "en": "Hospital"
+   },
+   "keywords": {
+    "vi": [
+     "bệnh viện",
+     "phòng khám",
+     "y tế",
+     "cơ sở y tế",
+     "benh vien",
+     "phong kham",
+     "y te",
+     "co so y te"
+    ],
+    "en": [
+     "hospital",
+     "clinic",
+     "medical centre",
+     "healthcare"
+    ]
+   }
+  },
+  {
+   "id": "school",
+   "category": "buildings",
+   "file": "school.svg",
+   "name": {
+    "vi": "Trường học",
+    "en": "School"
+   },
+   "keywords": {
+    "vi": [
+     "trường học",
+     "nhà trường",
+     "giáo dục",
+     "học đường",
+     "truong hoc",
+     "nha truong",
+     "giao duc",
+     "hoc duong"
+    ],
+    "en": [
+     "school",
+     "education",
+     "campus",
+     "academy"
+    ]
+   }
+  },
+  {
+   "id": "bank",
+   "category": "buildings",
+   "file": "bank.svg",
+   "name": {
+    "vi": "Ngân hàng",
+    "en": "Bank"
+   },
+   "keywords": {
+    "vi": [
+     "ngân hàng",
+     "kho bạc",
+     "tài chính",
+     "cơ quan nhà nước",
+     "ngan hang",
+     "kho bac",
+     "tai chinh",
+     "co quan nha nuoc"
+    ],
+    "en": [
+     "bank",
+     "treasury",
+     "finance",
+     "institution",
+     "government"
+    ]
+   }
+  },
+  {
+   "id": "store",
+   "category": "buildings",
+   "file": "store.svg",
+   "name": {
+    "vi": "Cửa hàng",
+    "en": "Store"
+   },
+   "keywords": {
+    "vi": [
+     "cửa hàng",
+     "cửa tiệm",
+     "bán lẻ",
+     "quầy",
+     "cua hang",
+     "cua tiem",
+     "ban le",
+     "quay"
+    ],
+    "en": [
+     "store",
+     "shop",
+     "retail",
+     "market"
+    ]
+   }
+  },
+  {
+   "id": "pagoda",
+   "category": "buildings",
+   "file": "pagoda.svg",
+   "name": {
+    "vi": "Ngôi chùa",
+    "en": "Pagoda"
+   },
+   "keywords": {
+    "vi": [
+     "chùa",
+     "đền",
+     "đình",
+     "di tích",
+     "văn hoá",
+     "chua",
+     "den",
+     "dinh",
+     "di tich",
+     "van hoa",
+     "ngoi chua"
+    ],
+    "en": [
+     "pagoda",
+     "temple",
+     "heritage",
+     "culture"
+    ]
+   }
+  },
+  {
+   "id": "bridge",
+   "category": "buildings",
+   "file": "bridge.svg",
+   "name": {
+    "vi": "Cây cầu",
+    "en": "Bridge"
+   },
+   "keywords": {
+    "vi": [
+     "cầu",
+     "cây cầu",
+     "hạ tầng",
+     "kết nối",
+     "cau",
+     "cay cau",
+     "ha tang",
+     "ket noi"
+    ],
+    "en": [
+     "bridge",
+     "infrastructure",
+     "connection"
+    ]
+   }
+  },
+  {
+   "id": "warehouse",
+   "category": "buildings",
+   "file": "warehouse.svg",
+   "name": {
+    "vi": "Nhà kho",
+    "en": "Warehouse"
+   },
+   "keywords": {
+    "vi": [
+     "kho",
+     "nhà kho",
+     "kho hàng",
+     "lưu kho",
+     "nha kho",
+     "kho hang",
+     "luu kho"
+    ],
+    "en": [
+     "warehouse",
+     "storage",
+     "depot",
+     "inventory"
+    ]
+   }
+  },
+  {
+   "id": "door",
+   "category": "buildings",
+   "file": "door.svg",
+   "name": {
+    "vi": "Cánh cửa",
+    "en": "Door"
+   },
+   "keywords": {
+    "vi": [
+     "cửa",
+     "cánh cửa",
+     "lối vào",
+     "lối ra",
+     "cua",
+     "canh cua",
+     "loi vao",
+     "loi ra"
+    ],
+    "en": [
+     "door",
+     "entrance",
+     "exit",
+     "entry"
+    ]
+   }
+  },
+  {
+   "id": "check-circle",
+   "category": "signs",
+   "file": "check-circle.svg",
+   "name": {
+    "vi": "Dấu tích tròn",
+    "en": "Check mark"
+   },
+   "keywords": {
+    "vi": [
+     "dấu tích",
+     "đạt",
+     "hoàn thành",
+     "đồng ý",
+     "đúng",
+     "dau tich",
+     "dat",
+     "hoan thanh",
+     "dong y",
+     "dung",
+     "dau tich tron"
+    ],
+    "en": [
+     "check",
+     "done",
+     "complete",
+     "approve",
+     "correct",
+     "ok"
+    ]
+   }
+  },
+  {
+   "id": "x-circle",
+   "category": "signs",
+   "file": "x-circle.svg",
+   "name": {
+    "vi": "Dấu gạch chéo tròn",
+    "en": "Cross mark"
+   },
+   "keywords": {
+    "vi": [
+     "dấu chéo",
+     "sai",
+     "không đạt",
+     "từ chối",
+     "huỷ",
+     "dau cheo",
+     "khong dat",
+     "tu choi",
+     "huy",
+     "dau gach cheo tron"
+    ],
+    "en": [
+     "cross",
+     "wrong",
+     "fail",
+     "reject",
+     "cancel",
+     "error"
+    ]
+   }
+  },
+  {
+   "id": "warning",
+   "category": "signs",
+   "file": "warning.svg",
+   "name": {
+    "vi": "Cảnh báo",
+    "en": "Warning"
+   },
+   "keywords": {
+    "vi": [
+     "cảnh báo",
+     "chú ý",
+     "nguy hiểm",
+     "lưu ý",
+     "canh bao",
+     "chu y",
+     "nguy hiem",
+     "luu y"
+    ],
+    "en": [
+     "warning",
+     "caution",
+     "danger",
+     "attention",
+     "alert"
+    ]
+   }
+  },
+  {
+   "id": "info-circle",
+   "category": "signs",
+   "file": "info-circle.svg",
+   "name": {
+    "vi": "Thông tin",
+    "en": "Information"
+   },
+   "keywords": {
+    "vi": [
+     "thông tin",
+     "ghi chú",
+     "hướng dẫn",
+     "chú thích",
+     "thong tin",
+     "ghi chu",
+     "huong dan",
+     "chu thich"
+    ],
+    "en": [
+     "information",
+     "info",
+     "note",
+     "guide",
+     "help"
+    ]
+   }
+  },
+  {
+   "id": "question-circle",
+   "category": "signs",
+   "file": "question-circle.svg",
+   "name": {
+    "vi": "Dấu hỏi",
+    "en": "Question mark"
+   },
+   "keywords": {
+    "vi": [
+     "dấu hỏi",
+     "câu hỏi",
+     "trợ giúp",
+     "hỏi đáp",
+     "dau hoi",
+     "cau hoi",
+     "tro giup",
+     "hoi dap"
+    ],
+    "en": [
+     "question",
+     "help",
+     "faq",
+     "ask",
+     "unknown"
+    ]
+   }
+  },
+  {
+   "id": "prohibited",
+   "category": "signs",
+   "file": "prohibited.svg",
+   "name": {
+    "vi": "Biển cấm",
+    "en": "Prohibited"
+   },
+   "keywords": {
+    "vi": [
+     "cấm",
+     "không được",
+     "nghiêm cấm",
+     "hạn chế",
+     "cam",
+     "khong duoc",
+     "nghiem cam",
+     "han che",
+     "bien cam"
+    ],
+    "en": [
+     "prohibited",
+     "forbidden",
+     "no",
+     "ban",
+     "restricted"
+    ]
+   }
+  },
+  {
+   "id": "star",
+   "category": "signs",
+   "file": "star.svg",
+   "name": {
+    "vi": "Ngôi sao",
+    "en": "Star"
+   },
+   "keywords": {
+    "vi": [
+     "ngôi sao",
+     "sao",
+     "nổi bật",
+     "đánh giá",
+     "yêu thích",
+     "ngoi sao",
+     "noi bat",
+     "danh gia",
+     "yeu thich"
+    ],
+    "en": [
+     "star",
+     "favourite",
+     "rating",
+     "featured",
+     "highlight"
+    ]
+   }
+  },
+  {
+   "id": "flag",
+   "category": "signs",
+   "file": "flag.svg",
+   "name": {
+    "vi": "Lá cờ",
+    "en": "Flag"
+   },
+   "keywords": {
+    "vi": [
+     "cờ",
+     "lá cờ",
+     "đánh dấu",
+     "cột mốc",
+     "mục tiêu",
+     "co",
+     "la co",
+     "danh dau",
+     "cot moc",
+     "muc tieu"
+    ],
+    "en": [
+     "flag",
+     "mark",
+     "milestone",
+     "goal"
+    ]
+   }
+  },
+  {
+   "id": "stop-sign",
+   "category": "signs",
+   "file": "stop-sign.svg",
+   "name": {
+    "vi": "Biển dừng",
+    "en": "Stop sign"
+   },
+   "keywords": {
+    "vi": [
+     "dừng",
+     "dừng lại",
+     "biển báo",
+     "ngăn chặn",
+     "dung",
+     "dung lai",
+     "bien bao",
+     "ngan chan",
+     "bien dung"
+    ],
+    "en": [
+     "stop",
+     "halt",
+     "sign",
+     "block"
+    ]
+   }
+  },
+  {
+   "id": "plus",
+   "category": "signs",
+   "file": "plus.svg",
+   "name": {
+    "vi": "Dấu cộng",
+    "en": "Plus"
+   },
+   "keywords": {
+    "vi": [
+     "cộng",
+     "thêm",
+     "bổ sung",
+     "tạo mới",
+     "cong",
+     "them",
+     "bo sung",
+     "tao moi",
+     "dau cong"
+    ],
+    "en": [
+     "plus",
+     "add",
+     "new",
+     "create"
+    ]
+   }
+  },
+  {
+   "id": "minus",
+   "category": "signs",
+   "file": "minus.svg",
+   "name": {
+    "vi": "Dấu trừ",
+    "en": "Minus"
+   },
+   "keywords": {
+    "vi": [
+     "trừ",
+     "bớt",
+     "giảm",
+     "xoá bớt",
+     "tru",
+     "bot",
+     "giam",
+     "xoa bot",
+     "dau tru"
+    ],
+    "en": [
+     "minus",
+     "subtract",
+     "remove",
+     "less"
+    ]
+   }
+  },
+  {
+   "id": "thumbs-up",
+   "category": "signs",
+   "file": "thumbs-up.svg",
+   "name": {
+    "vi": "Tán thành",
+    "en": "Thumbs up"
+   },
+   "keywords": {
+    "vi": [
+     "thích",
+     "tán thành",
+     "đồng ý",
+     "khen ngợi",
+     "tốt",
+     "thich",
+     "tan thanh",
+     "dong y",
+     "khen ngoi",
+     "tot"
+    ],
+    "en": [
+     "thumbs up",
+     "like",
+     "agree",
+     "praise",
+     "good"
+    ]
+   }
+  },
+  {
+   "id": "bookmark",
+   "category": "signs",
+   "file": "bookmark.svg",
+   "name": {
+    "vi": "Dấu trang",
+    "en": "Bookmark"
+   },
+   "keywords": {
+    "vi": [
+     "dấu trang",
+     "đánh dấu",
+     "lưu lại",
+     "dau trang",
+     "danh dau",
+     "luu lai"
+    ],
+    "en": [
+     "bookmark",
+     "save",
+     "mark"
+    ]
+   }
+  },
+  {
+   "id": "pushpin",
+   "category": "signs",
+   "file": "pushpin.svg",
+   "name": {
+    "vi": "Đinh ghim",
+    "en": "Pushpin"
+   },
+   "keywords": {
+    "vi": [
+     "ghim",
+     "đinh ghim",
+     "ghi nhớ",
+     "cố định",
+     "dinh ghim",
+     "ghi nho",
+     "co dinh"
+    ],
+    "en": [
+     "pin",
+     "pushpin",
+     "remember",
+     "fixed",
+     "sticky"
+    ]
+   }
+  },
+  {
+   "id": "clock",
+   "category": "signs",
+   "file": "clock.svg",
+   "name": {
+    "vi": "Đồng hồ",
+    "en": "Clock"
+   },
+   "keywords": {
+    "vi": [
+     "đồng hồ",
+     "thời gian",
+     "giờ",
+     "thời hạn",
+     "dong ho",
+     "thoi gian",
+     "gio",
+     "thoi han"
+    ],
+    "en": [
+     "clock",
+     "time",
+     "hour",
+     "deadline",
+     "schedule"
+    ]
+   }
+  },
+  {
+   "id": "hourglass",
+   "category": "signs",
+   "file": "hourglass.svg",
+   "name": {
+    "vi": "Đồng hồ cát",
+    "en": "Hourglass"
+   },
+   "keywords": {
+    "vi": [
+     "đồng hồ cát",
+     "chờ",
+     "thời hạn",
+     "tiến độ",
+     "dong ho cat",
+     "cho",
+     "thoi han",
+     "tien do"
+    ],
+    "en": [
+     "hourglass",
+     "wait",
+     "deadline",
+     "pending",
+     "timer"
+    ]
+   }
+  },
+  {
+   "id": "trash",
+   "category": "signs",
+   "file": "trash.svg",
+   "name": {
+    "vi": "Thùng rác",
+    "en": "Trash bin"
+   },
+   "keywords": {
+    "vi": [
+     "thùng rác",
+     "xoá",
+     "huỷ bỏ",
+     "loại bỏ",
+     "thung rac",
+     "xoa",
+     "huy bo",
+     "loai bo"
+    ],
+    "en": [
+     "trash",
+     "bin",
+     "delete",
+     "remove",
+     "discard"
+    ]
+   }
+  },
+  {
+   "id": "power",
+   "category": "signs",
+   "file": "power.svg",
+   "name": {
+    "vi": "Nút nguồn",
+    "en": "Power"
+   },
+   "keywords": {
+    "vi": [
+     "nguồn",
+     "bật tắt",
+     "khởi động",
+     "năng lượng",
+     "nguon",
+     "bat tat",
+     "khoi dong",
+     "nang luong",
+     "nut nguon"
+    ],
+    "en": [
+     "power",
+     "on",
+     "off",
+     "start",
+     "energy"
+    ]
+   }
+  },
+  {
+   "id": "lightning",
+   "category": "signs",
+   "file": "lightning.svg",
+   "name": {
+    "vi": "Tia chớp",
+    "en": "Lightning"
+   },
+   "keywords": {
+    "vi": [
+     "tia chớp",
+     "điện",
+     "nhanh",
+     "năng lượng",
+     "tia chop",
+     "dien",
+     "nang luong"
+    ],
+    "en": [
+     "lightning",
+     "bolt",
+     "electricity",
+     "fast",
+     "energy"
+    ]
+   }
+  },
+  {
+   "id": "bar-chart",
+   "category": "charts",
+   "file": "bar-chart.svg",
+   "name": {
+    "vi": "Biểu đồ cột",
+    "en": "Bar chart"
+   },
+   "keywords": {
+    "vi": [
+     "biểu đồ cột",
+     "thống kê",
+     "số liệu",
+     "báo cáo",
+     "bieu do cot",
+     "thong ke",
+     "so lieu",
+     "bao cao"
+    ],
+    "en": [
+     "bar chart",
+     "column",
+     "statistics",
+     "figures",
+     "report"
+    ]
+   }
+  },
+  {
+   "id": "line-chart",
+   "category": "charts",
+   "file": "line-chart.svg",
+   "name": {
+    "vi": "Biểu đồ đường",
+    "en": "Line chart"
+   },
+   "keywords": {
+    "vi": [
+     "biểu đồ đường",
+     "xu hướng",
+     "diễn biến",
+     "bieu do duong",
+     "xu huong",
+     "dien bien"
+    ],
+    "en": [
+     "line chart",
+     "trend",
+     "progress",
+     "graph"
+    ]
+   }
+  },
+  {
+   "id": "pie-chart",
+   "category": "charts",
+   "file": "pie-chart.svg",
+   "name": {
+    "vi": "Biểu đồ tròn",
+    "en": "Pie chart"
+   },
+   "keywords": {
+    "vi": [
+     "biểu đồ tròn",
+     "tỷ lệ",
+     "cơ cấu",
+     "phần trăm",
+     "bieu do tron",
+     "ty le",
+     "co cau",
+     "phan tram"
+    ],
+    "en": [
+     "pie chart",
+     "share",
+     "proportion",
+     "percentage"
+    ]
+   }
+  },
+  {
+   "id": "donut-chart",
+   "category": "charts",
+   "file": "donut-chart.svg",
+   "name": {
+    "vi": "Biểu đồ vành khuyên",
+    "en": "Doughnut chart"
+   },
+   "keywords": {
+    "vi": [
+     "biểu đồ vành khuyên",
+     "tỷ lệ",
+     "cơ cấu",
+     "bieu do vanh khuyen",
+     "ty le",
+     "co cau"
+    ],
+    "en": [
+     "doughnut chart",
+     "donut",
+     "ring",
+     "proportion"
+    ]
+   }
+  },
+  {
+   "id": "area-chart",
+   "category": "charts",
+   "file": "area-chart.svg",
+   "name": {
+    "vi": "Biểu đồ vùng",
+    "en": "Area chart"
+   },
+   "keywords": {
+    "vi": [
+     "biểu đồ vùng",
+     "miền",
+     "tích luỹ",
+     "bieu do vung",
+     "mien",
+     "tich luy"
+    ],
+    "en": [
+     "area chart",
+     "cumulative",
+     "volume"
+    ]
+   }
+  },
+  {
+   "id": "growth",
+   "category": "charts",
+   "file": "growth.svg",
+   "name": {
+    "vi": "Tăng trưởng",
+    "en": "Growth"
+   },
+   "keywords": {
+    "vi": [
+     "tăng trưởng",
+     "tăng",
+     "phát triển",
+     "doanh thu",
+     "tang truong",
+     "tang",
+     "phat trien"
+    ],
+    "en": [
+     "growth",
+     "increase",
+     "rise",
+     "revenue",
+     "up"
+    ]
+   }
+  },
+  {
+   "id": "decline",
+   "category": "charts",
+   "file": "decline.svg",
+   "name": {
+    "vi": "Sụt giảm",
+    "en": "Decline"
+   },
+   "keywords": {
+    "vi": [
+     "sụt giảm",
+     "giảm",
+     "đi xuống",
+     "thua lỗ",
+     "sut giam",
+     "giam",
+     "di xuong",
+     "thua lo"
+    ],
+    "en": [
+     "decline",
+     "decrease",
+     "fall",
+     "loss",
+     "down"
+    ]
+   }
+  },
+  {
+   "id": "table",
+   "category": "charts",
+   "file": "table.svg",
+   "name": {
+    "vi": "Bảng số liệu",
+    "en": "Data table"
+   },
+   "keywords": {
+    "vi": [
+     "bảng",
+     "bảng số liệu",
+     "lưới",
+     "danh sách",
+     "bang",
+     "bang so lieu",
+     "luoi",
+     "danh sach"
+    ],
+    "en": [
+     "table",
+     "grid",
+     "data",
+     "list",
+     "spreadsheet"
+    ]
+   }
+  },
+  {
+   "id": "gantt",
+   "category": "charts",
+   "file": "gantt.svg",
+   "name": {
+    "vi": "Biểu đồ tiến độ",
+    "en": "Gantt chart"
+   },
+   "keywords": {
+    "vi": [
+     "tiến độ",
+     "kế hoạch",
+     "lịch trình",
+     "dự án",
+     "tien do",
+     "ke hoach",
+     "lich trinh",
+     "du an",
+     "bieu do tien do"
+    ],
+    "en": [
+     "gantt",
+     "schedule",
+     "timeline",
+     "project",
+     "plan"
+    ]
+   }
+  },
+  {
+   "id": "org-chart",
+   "category": "charts",
+   "file": "org-chart.svg",
+   "name": {
+    "vi": "Sơ đồ tổ chức",
+    "en": "Organisation chart"
+   },
+   "keywords": {
+    "vi": [
+     "sơ đồ tổ chức",
+     "cơ cấu",
+     "phòng ban",
+     "phân cấp",
+     "so do to chuc",
+     "co cau",
+     "phong ban",
+     "phan cap"
+    ],
+    "en": [
+     "org chart",
+     "organisation",
+     "hierarchy",
+     "structure"
+    ]
+   }
+  },
+  {
+   "id": "flowchart",
+   "category": "charts",
+   "file": "flowchart.svg",
+   "name": {
+    "vi": "Lưu đồ",
+    "en": "Flowchart"
+   },
+   "keywords": {
+    "vi": [
+     "lưu đồ",
+     "quy trình",
+     "sơ đồ",
+     "các bước",
+     "luu do",
+     "quy trinh",
+     "so do",
+     "cac buoc"
+    ],
+    "en": [
+     "flowchart",
+     "process",
+     "workflow",
+     "diagram",
+     "steps"
+    ]
+   }
+  },
+  {
+   "id": "gauge",
+   "category": "charts",
+   "file": "gauge.svg",
+   "name": {
+    "vi": "Đồng hồ chỉ số",
+    "en": "Gauge"
+   },
+   "keywords": {
+    "vi": [
+     "chỉ số",
+     "KPI",
+     "hiệu suất",
+     "đo lường",
+     "chi so",
+     "kpi",
+     "hieu suat",
+     "do luong",
+     "dong ho chi so"
+    ],
+    "en": [
+     "gauge",
+     "kpi",
+     "performance",
+     "meter",
+     "dashboard"
+    ]
+   }
+  },
+  {
+   "id": "scatter-chart",
+   "category": "charts",
+   "file": "scatter-chart.svg",
+   "name": {
+    "vi": "Biểu đồ phân tán",
+    "en": "Scatter chart"
+   },
+   "keywords": {
+    "vi": [
+     "biểu đồ phân tán",
+     "tương quan",
+     "điểm dữ liệu",
+     "bieu do phan tan",
+     "tuong quan",
+     "diem du lieu"
+    ],
+    "en": [
+     "scatter chart",
+     "correlation",
+     "points",
+     "plot"
+    ]
+   }
+  },
+  {
+   "id": "funnel",
+   "category": "charts",
+   "file": "funnel.svg",
+   "name": {
+    "vi": "Phễu",
+    "en": "Funnel"
+   },
+   "keywords": {
+    "vi": [
+     "phễu",
+     "lọc",
+     "sàng lọc",
+     "chuyển đổi",
+     "pheu",
+     "loc",
+     "sang loc",
+     "chuyen doi"
+    ],
+    "en": [
+     "funnel",
+     "filter",
+     "conversion",
+     "pipeline"
+    ]
+   }
+  },
+  {
+   "id": "presentation-chart",
+   "category": "charts",
+   "file": "presentation-chart.svg",
+   "name": {
+    "vi": "Bảng trình chiếu",
+    "en": "Presentation board"
+   },
+   "keywords": {
+    "vi": [
+     "trình chiếu",
+     "thuyết trình",
+     "báo cáo",
+     "màn chiếu",
+     "trinh chieu",
+     "thuyet trinh",
+     "bao cao",
+     "man chieu",
+     "bang trinh chieu"
+    ],
+    "en": [
+     "presentation",
+     "slide",
+     "board",
+     "report",
+     "screen"
+    ]
+   }
+  },
+  {
+   "id": "document",
+   "category": "admin",
+   "file": "document.svg",
+   "name": {
+    "vi": "Văn bản",
+    "en": "Document"
+   },
+   "keywords": {
+    "vi": [
+     "văn bản",
+     "tài liệu",
+     "công văn",
+     "giấy tờ",
+     "van ban",
+     "tai lieu",
+     "cong van",
+     "giay to"
+    ],
+    "en": [
+     "document",
+     "paper",
+     "file",
+     "text",
+     "letter"
+    ]
+   }
+  },
+  {
+   "id": "documents",
+   "category": "admin",
+   "file": "documents.svg",
+   "name": {
+    "vi": "Bộ tài liệu",
+    "en": "Documents"
+   },
+   "keywords": {
+    "vi": [
+     "tài liệu",
+     "bản sao",
+     "hồ sơ",
+     "nhiều văn bản",
+     "tai lieu",
+     "ban sao",
+     "ho so",
+     "nhieu van ban",
+     "bo tai lieu"
+    ],
+    "en": [
+     "documents",
+     "copies",
+     "papers",
+     "files"
+    ]
+   }
+  },
+  {
+   "id": "round-seal",
+   "category": "admin",
+   "file": "round-seal.svg",
+   "name": {
+    "vi": "Con dấu tròn",
+    "en": "Round seal"
+   },
+   "keywords": {
+    "vi": [
+     "con dấu",
+     "dấu tròn",
+     "đóng dấu",
+     "dấu đỏ",
+     "xác nhận",
+     "con dau",
+     "dau tron",
+     "dong dau",
+     "dau do",
+     "xac nhan",
+     "con dau tron"
+    ],
+    "en": [
+     "seal",
+     "round stamp",
+     "official",
+     "red stamp",
+     "certified"
+    ]
+   }
+  },
+  {
+   "id": "rubber-stamp",
+   "category": "admin",
+   "file": "rubber-stamp.svg",
+   "name": {
+    "vi": "Dấu đóng",
+    "en": "Rubber stamp"
+   },
+   "keywords": {
+    "vi": [
+     "dấu",
+     "đóng dấu",
+     "phê duyệt",
+     "duyệt",
+     "dau",
+     "dong dau",
+     "phe duyet",
+     "duyet",
+     "dau dong"
+    ],
+    "en": [
+     "stamp",
+     "rubber stamp",
+     "approve",
+     "approval"
+    ]
+   }
+  },
+  {
+   "id": "signature",
+   "category": "admin",
+   "file": "signature.svg",
+   "name": {
+    "vi": "Chữ ký",
+    "en": "Signature"
+   },
+   "keywords": {
+    "vi": [
+     "chữ ký",
+     "ký tên",
+     "ký duyệt",
+     "ký nháy",
+     "chu ky",
+     "ky ten",
+     "ky duyet",
+     "ky nhay"
+    ],
+    "en": [
+     "signature",
+     "sign",
+     "autograph",
+     "approve"
+    ]
+   }
+  },
+  {
+   "id": "signed-document",
+   "category": "admin",
+   "file": "signed-document.svg",
+   "name": {
+    "vi": "Văn bản đã ký",
+    "en": "Signed document"
+   },
+   "keywords": {
+    "vi": [
+     "văn bản đã ký",
+     "ký văn bản",
+     "ký số",
+     "ban hành",
+     "van ban da ky",
+     "ky van ban",
+     "ky so",
+     "ban hanh"
+    ],
+    "en": [
+     "signed document",
+     "sign off",
+     "e-signature",
+     "issue"
+    ]
+   }
+  },
+  {
+   "id": "calendar",
+   "category": "admin",
+   "file": "calendar.svg",
+   "name": {
+    "vi": "Lịch",
+    "en": "Calendar"
+   },
+   "keywords": {
+    "vi": [
+     "lịch",
+     "ngày tháng",
+     "lịch công tác",
+     "lịch hẹn",
+     "lich",
+     "ngay thang",
+     "lich cong tac",
+     "lich hen"
+    ],
+    "en": [
+     "calendar",
+     "date",
+     "schedule",
+     "appointment"
+    ]
+   }
+  },
+  {
+   "id": "calendar-check",
+   "category": "admin",
+   "file": "calendar-check.svg",
+   "name": {
+    "vi": "Lịch đã xác nhận",
+    "en": "Calendar confirmed"
+   },
+   "keywords": {
+    "vi": [
+     "lịch",
+     "xác nhận ngày",
+     "đã hẹn",
+     "đúng hạn",
+     "lich",
+     "xac nhan ngay",
+     "da hen",
+     "dung han",
+     "lich da xac nhan"
+    ],
+    "en": [
+     "calendar",
+     "confirmed",
+     "booked",
+     "on time"
+    ]
+   }
+  },
+  {
+   "id": "clipboard-list",
+   "category": "admin",
+   "file": "clipboard-list.svg",
+   "name": {
+    "vi": "Bảng ghi chép",
+    "en": "Clipboard"
+   },
+   "keywords": {
+    "vi": [
+     "bảng ghi",
+     "danh sách",
+     "biên bản",
+     "ghi chép",
+     "bang ghi",
+     "danh sach",
+     "bien ban",
+     "ghi chep",
+     "bang ghi chep"
+    ],
+    "en": [
+     "clipboard",
+     "list",
+     "minutes",
+     "notes"
+    ]
+   }
+  },
+  {
+   "id": "checklist",
+   "category": "admin",
+   "file": "checklist.svg",
+   "name": {
+    "vi": "Danh mục kiểm tra",
+    "en": "Checklist"
+   },
+   "keywords": {
+    "vi": [
+     "danh mục kiểm tra",
+     "việc cần làm",
+     "nghiệm thu",
+     "rà soát",
+     "danh muc kiem tra",
+     "viec can lam",
+     "nghiem thu",
+     "ra soat"
+    ],
+    "en": [
+     "checklist",
+     "to-do",
+     "tasks",
+     "acceptance",
+     "review"
+    ]
+   }
+  },
+  {
+   "id": "folder",
+   "category": "admin",
+   "file": "folder.svg",
+   "name": {
+    "vi": "Thư mục",
+    "en": "Folder"
+   },
+   "keywords": {
+    "vi": [
+     "thư mục",
+     "cặp hồ sơ",
+     "lưu trữ",
+     "thu muc",
+     "cap ho so",
+     "luu tru"
+    ],
+    "en": [
+     "folder",
+     "directory",
+     "files"
+    ]
+   }
+  },
+  {
+   "id": "folder-open",
+   "category": "admin",
+   "file": "folder-open.svg",
+   "name": {
+    "vi": "Thư mục mở",
+    "en": "Open folder"
+   },
+   "keywords": {
+    "vi": [
+     "thư mục mở",
+     "hồ sơ",
+     "mở hồ sơ",
+     "thu muc mo",
+     "ho so",
+     "mo ho so"
+    ],
+    "en": [
+     "open folder",
+     "case file",
+     "dossier"
+    ]
+   }
+  },
+  {
+   "id": "archive-box",
+   "category": "admin",
+   "file": "archive-box.svg",
+   "name": {
+    "vi": "Hộp lưu trữ",
+    "en": "Archive box"
+   },
+   "keywords": {
+    "vi": [
+     "lưu trữ",
+     "hộp hồ sơ",
+     "kho lưu trữ",
+     "văn thư",
+     "luu tru",
+     "hop ho so",
+     "kho luu tru",
+     "van thu",
+     "hop luu tru"
+    ],
+    "en": [
+     "archive",
+     "box",
+     "records",
+     "storage"
+    ]
+   }
+  },
+  {
+   "id": "contract",
+   "category": "admin",
+   "file": "contract.svg",
+   "name": {
+    "vi": "Hợp đồng",
+    "en": "Contract"
+   },
+   "keywords": {
+    "vi": [
+     "hợp đồng",
+     "thoả thuận",
+     "cam kết",
+     "giao kết",
+     "hop dong",
+     "thoa thuan",
+     "cam ket",
+     "giao ket"
+    ],
+    "en": [
+     "contract",
+     "agreement",
+     "deal",
+     "commitment"
+    ]
+   }
+  },
+  {
+   "id": "medal",
+   "category": "admin",
+   "file": "medal.svg",
+   "name": {
+    "vi": "Huân chương",
+    "en": "Medal"
+   },
+   "keywords": {
+    "vi": [
+     "huân chương",
+     "huy chương",
+     "khen thưởng",
+     "thi đua",
+     "huan chuong",
+     "huy chuong",
+     "khen thuong",
+     "thi dua"
+    ],
+    "en": [
+     "medal",
+     "award",
+     "honour",
+     "commendation"
+    ]
+   }
+  },
+  {
+   "id": "gavel",
+   "category": "admin",
+   "file": "gavel.svg",
+   "name": {
+    "vi": "Búa quyết định",
+    "en": "Gavel"
+   },
+   "keywords": {
+    "vi": [
+     "búa",
+     "quyết định",
+     "phán quyết",
+     "pháp lý",
+     "nghị quyết",
+     "bua",
+     "quyet dinh",
+     "phan quyet",
+     "phap ly",
+     "nghi quyet",
+     "bua quyet dinh"
+    ],
+    "en": [
+     "gavel",
+     "decision",
+     "ruling",
+     "legal",
+     "resolution"
+    ]
+   }
+  },
+  {
+   "id": "inbox",
+   "category": "admin",
+   "file": "inbox.svg",
+   "name": {
+    "vi": "Công văn đến",
+    "en": "Incoming mail"
+   },
+   "keywords": {
+    "vi": [
+     "công văn đến",
+     "hộp thư đến",
+     "tiếp nhận",
+     "cong van den",
+     "hop thu den",
+     "tiep nhan"
+    ],
+    "en": [
+     "inbox",
+     "incoming",
+     "received",
+     "intake"
+    ]
+   }
+  },
+  {
+   "id": "outbox",
+   "category": "admin",
+   "file": "outbox.svg",
+   "name": {
+    "vi": "Công văn đi",
+    "en": "Outgoing mail"
+   },
+   "keywords": {
+    "vi": [
+     "công văn đi",
+     "hộp thư đi",
+     "phát hành",
+     "gửi đi",
+     "cong van di",
+     "hop thu di",
+     "phat hanh",
+     "gui di"
+    ],
+    "en": [
+     "outbox",
+     "outgoing",
+     "sent",
+     "dispatch"
+    ]
+   }
+  },
+  {
+   "id": "paperclip",
+   "category": "admin",
+   "file": "paperclip.svg",
+   "name": {
+    "vi": "Kẹp giấy",
+    "en": "Paperclip"
+   },
+   "keywords": {
+    "vi": [
+     "kẹp giấy",
+     "đính kèm",
+     "phụ lục",
+     "tệp kèm",
+     "kep giay",
+     "dinh kem",
+     "phu luc",
+     "tep kem"
+    ],
+    "en": [
+     "paperclip",
+     "attachment",
+     "attach",
+     "appendix"
+    ]
+   }
+  },
+  {
+   "id": "form",
+   "category": "admin",
+   "file": "form.svg",
+   "name": {
+    "vi": "Biểu mẫu",
+    "en": "Form"
+   },
+   "keywords": {
+    "vi": [
+     "biểu mẫu",
+     "mẫu đơn",
+     "tờ khai",
+     "phiếu",
+     "bieu mau",
+     "mau don",
+     "to khai",
+     "phieu"
+    ],
+    "en": [
+     "form",
+     "application",
+     "declaration",
+     "template"
+    ]
+   }
+  },
+  {
+   "id": "fountain-pen",
+   "category": "admin",
+   "file": "fountain-pen.svg",
+   "name": {
+    "vi": "Bút ký",
+    "en": "Fountain pen"
+   },
+   "keywords": {
+    "vi": [
+     "bút ký",
+     "bút máy",
+     "ký kết",
+     "viết",
+     "but ky",
+     "but may",
+     "ky ket",
+     "viet"
+    ],
+    "en": [
+     "fountain pen",
+     "pen",
+     "signing",
+     "write"
+    ]
+   }
+  },
+  {
+   "id": "report",
+   "category": "admin",
+   "file": "report.svg",
+   "name": {
+    "vi": "Báo cáo",
+    "en": "Report"
+   },
+   "keywords": {
+    "vi": [
+     "báo cáo",
+     "tổng kết",
+     "thống kê",
+     "số liệu",
+     "bao cao",
+     "tong ket",
+     "thong ke",
+     "so lieu"
+    ],
+    "en": [
+     "report",
+     "summary",
+     "statistics",
+     "review"
+    ]
+   }
+  }
+ ]
+}

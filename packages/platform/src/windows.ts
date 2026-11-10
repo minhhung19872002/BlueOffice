@@ -7,9 +7,9 @@
  *    window sizes stay aligned proportionally;
  *  - the roster of open windows (who can be paired), over the platform's window channel
  *    (`Platform.channel`: BroadcastChannel on the web, Tauri events on the desktop);
- *  - "New Window": the same document in a second window. The document is handed over
- *    through the offline cache and both windows then join a local session on the window
- *    channel (`@blueoffice/hosted` `joinWindowSession`), so edits appear in both.
+ *  - "New Window" (web): the same document in a second window. The document is handed
+ *    over through the offline cache and both windows then join a local session on the
+ *    window channel (`@blueoffice/hosted` `joinWindowSession`), so edits appear in both.
  */
 import type { MessageBus, OfflineCache, Platform } from './types';
 
@@ -135,18 +135,17 @@ export class SyncScroll {
   }
 
   /**
-   * This view scrolled: the fraction to send (already converted to the peer's frame), or
-   * `null` when the scroll is the echo of a remote one.
+   * This view scrolled: its position to send (the peer adds its own distance), or `null`
+   * when the scroll is the echo of a remote one.
    */
   local(m: ScrollMetrics): ScrollFraction | null {
     const a = this.applied;
     if (a && Math.abs(a.top - m.top) <= 1 && Math.abs(a.left - m.left) <= 1) return null;
     this.applied = null;
-    const me = scrollFraction(m);
-    return { fx: me.fx - this.offset.fx, fy: me.fy - this.offset.fy };
+    return scrollFraction(m);
   }
 
-  /** The peer scrolled to `f` (in this view's frame once the offset is added). */
+  /** The peer scrolled to `f`: where this view goes (the peer's position + the distance). */
   remote(f: ScrollFraction, m: ScrollMetrics): { top: number; left: number } {
     const to = fractionToScroll(f, m, this.offset);
     this.applied = to;
@@ -172,6 +171,8 @@ export type WindowMessage =
   /** Start / stop side by side with `to`; `f` is the sender's position. */
   | { t: 'pair'; from: string; to: string; on: boolean; f: ScrollFraction }
   | { t: 'paired'; from: string; to: string; f: ScrollFraction }
+  /** Synchronous scrolling on / off for the pair (both windows follow). */
+  | { t: 'sync'; from: string; to: string; on: boolean; f: ScrollFraction }
   | { t: 'scroll'; from: string; to: string; f: ScrollFraction }
   | { t: 'reset'; from: string; to: string; f: ScrollFraction };
 
@@ -275,13 +276,30 @@ export class WindowLink {
     this.stop();
   }
 
-  /** Synchronous scrolling on / off while side by side (this window only sends when on). */
+  /**
+   * Synchronous scrolling on / off while side by side, in both windows. Scrolling apart
+   * and turning it on again keeps the new distance.
+   */
   setSynchronous(on: boolean): void {
     if (on === this.syncOn) return;
+    this.applySynchronous(on, this.lastPeer);
+    const to = this.partner;
+    if (to)
+      this.bus.post({
+        t: 'sync',
+        from: this.me.id,
+        to,
+        on,
+        f: this.fraction(),
+      } satisfies WindowMessage);
+  }
+
+  private applySynchronous(on: boolean, theirs: ScrollFraction): void {
     this.syncOn = on;
-    // Scrolling apart and turning it on again keeps the new distance.
+    this.lastPeer = theirs;
     const t = this.target();
-    if (on && t) this.sync.pair(t.metrics(), this.lastPeer);
+    if (on && t) this.sync.pair(t.metrics(), theirs);
+    for (const f of this.listeners.paired) f(this.pairedWith);
   }
 
   /** Both windows go to the same relative position. */
@@ -312,6 +330,7 @@ export class WindowLink {
 
   private start(peerId: string, theirs: ScrollFraction): void {
     this.partner = peerId;
+    this.syncOn = true;
     this.lastPeer = theirs;
     const t = this.target();
     if (t) {
@@ -385,6 +404,10 @@ export class WindowLink {
         if (t) this.sync.pair(t.metrics(), m.f);
         break;
       }
+      case 'sync':
+        if (m.to !== this.me.id || this.partner !== m.from) return;
+        this.applySynchronous(m.on, m.f);
+        break;
       case 'scroll':
       case 'reset': {
         if (m.to !== this.me.id || this.partner !== m.from) return;
@@ -431,27 +454,24 @@ export async function dropWindowDocument(cache: OfflineCache, id: string): Promi
   await Promise.all([cache.delete(bytesKey(id)), cache.delete(nameKey(id))]);
 }
 
-/** The URL (web) or app query (desktop) of a window of session `id`. */
+/** The URL of a window of session `id`: this page with the session parameter. */
 export function windowSessionUrl(
-  kind: Platform['kind'],
-  app: WindowApp,
   id: string,
   location: { pathname: string; search: string },
 ): string {
-  const q = new URLSearchParams(kind === 'desktop' ? '' : location.search);
-  if (kind === 'desktop') q.set('app', app);
+  const q = new URLSearchParams(location.search);
   q.set(WINDOW_PARAM, id);
-  return `${kind === 'desktop' ? '' : location.pathname}?${q.toString()}`;
+  return `${location.pathname}?${q.toString()}`;
 }
 
 /**
- * "New Window": hands the document to a new local session, opens a second window on it and
- * moves this window into the same session (it reloads from the handed-over document, so the
- * undo history of this window starts over). Returns the session id.
+ * "New Window" (web): hands the document to a new local session, opens a second window on
+ * it and moves this window into the same session (it reloads from the handed-over document,
+ * so the undo history of this window starts over). Returns the session id. The desktop
+ * shell has one native engine for all its windows and cannot show a document twice.
  */
 export async function openDocumentWindow(
-  platform: Pick<Platform, 'kind' | 'offline' | 'window'>,
-  app: WindowApp,
+  platform: Pick<Platform, 'offline' | 'window'>,
   file: { bytes: Uint8Array; name: string },
   env: {
     location: { pathname: string; search: string };
@@ -462,7 +482,7 @@ export async function openDocumentWindow(
 ): Promise<string> {
   const id = env.id ?? newWindowId();
   await stashWindowDocument(platform.offline, id, file);
-  const url = windowSessionUrl(platform.kind, app, id, env.location);
+  const url = windowSessionUrl(id, env.location);
   await platform.window.openNew(url);
   const navigate = env.navigate ?? ((u: string) => globalThis.location.assign(u));
   navigate(url);

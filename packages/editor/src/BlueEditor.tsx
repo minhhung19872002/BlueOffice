@@ -2804,6 +2804,7 @@ function EditorInner({
   }, [
     platform,
     store,
+    activeView,
     sampleUrl,
     openFile,
     newDocument,

@@ -129,7 +129,7 @@ export function useWindowTools(o: WindowToolsOptions): WindowTools {
       await p.window.openNew(`${window.location.pathname}${window.location.search}`);
       return;
     }
-    await openDocumentWindow(p, app, file, { location: window.location });
+    await openDocumentWindow(p, file, { location: window.location });
   }, [app, t]);
 
   const arrangeAll = useCallback(async () => {
@@ -144,7 +144,11 @@ export function useWindowTools(o: WindowToolsOptions): WindowTools {
 
   const sideBySide = useCallback(() => {
     const l = link.current;
-    if (!l) return;
+    if (!l) {
+      // No window channel on this platform: there is nothing to compare with.
+      opts.current.notify(t('windows.noOtherWindow'));
+      return;
+    }
     if (l.pairedWith) {
       l.unpair();
       return;

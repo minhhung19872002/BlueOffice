@@ -57,6 +57,8 @@ export function StatusBar({ left, right, customize }: StatusBarProps) {
       role="status"
       data-testid="status-bar"
       className={styles.bar}
+      // Fixed by the design system (also asserted by tests): 24px.
+      style={{ height: 24, minHeight: 24 }}
       tabIndex={customize ? -1 : undefined}
       aria-haspopup={customize ? 'menu' : undefined}
       onContextMenu={(e) => {

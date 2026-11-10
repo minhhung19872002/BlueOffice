@@ -86,7 +86,7 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 
 | Tính năng | Đọc | Hiển thị | Tạo/sửa | Round-trip | Web | Desktop | Cộng tác | Test | Trạng thái | Ghi chú |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Hàm (515) | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | functions.md | 🟡 | 508/515 (thiếu Cube 7; WEBSERVICE cần provider) |
+| Hàm (515) | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | functions.md | 🟡 | 508/515 tính được; 7 hàm Cube giữ công thức + giá trị cache (không có nguồn OLAP, gõ mới → #NAME?); RTD giữ giá trị cache; WEBSERVICE cần provider |
 | Mảng động, LET, LAMBDA | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |
 | @, trim ref, liên kết ngoài | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
 | Định dạng số | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu [DBNum], lịch âm |

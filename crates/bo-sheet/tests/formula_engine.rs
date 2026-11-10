@@ -251,3 +251,51 @@ fn autofill_and_sort_translate_formulas() {
     assert_eq!(value(&wb, 0, "B1"), num(10.0));
     assert_eq!(value(&wb, 0, "B3"), num(30.0));
 }
+
+/// Cube functions and RTD (ECMA-376 Part 1, §18.17.7) read data BlueSheet cannot
+/// reach: the result saved in the file is kept, and cells depending on it use it.
+#[test]
+fn external_data_formulas_keep_their_saved_result() {
+    let mut wb = empty_book();
+    let mut ws = Worksheet::new("Sheet1");
+    let saved = |v: CellValue, f: &str| Cell::new(v).with_formula(f);
+    ws.set_cell(
+        0,
+        0,
+        saved(
+            num(1250.5),
+            r#"CUBEVALUE("Sales","[Measures].[Amount]","[Date].[2025]")"#,
+        ),
+    );
+    ws.set_cell(
+        1,
+        0,
+        saved(
+            CellValue::Text("All".into()),
+            r#"CUBEMEMBER("Sales","[Product].[All]")"#,
+        ),
+    );
+    ws.set_cell(2, 0, saved(num(7.0), r#"RTD("srv.prog","","topic")"#));
+    // Nested in an expression, and lower case as typed.
+    ws.set_cell(3, 0, saved(num(3.0), "IFERROR(cubesetcount(B9),0)+1"));
+    // No saved result (typed here): evaluated, and there is no connection.
+    set_formula(&mut ws, "A5", r#"CUBEVALUE("Sales","[Measures].[Amount]")"#);
+    // Only the text mentions a cube function: an ordinary formula.
+    ws.set_cell(5, 0, saved(num(99.0), r#"LEN("CUBEVALUE(")"#));
+    set_formula(&mut ws, "B1", "A1*2");
+    set_formula(&mut ws, "B2", r#"A2&"!""#);
+    wb.sheets.push(ws);
+
+    BoFormula::new().recalculate(&mut wb);
+    assert_eq!(value(&wb, 0, "A1"), num(1250.5));
+    assert_eq!(value(&wb, 0, "A2"), CellValue::Text("All".into()));
+    assert_eq!(value(&wb, 0, "A3"), num(7.0));
+    assert_eq!(value(&wb, 0, "A4"), num(3.0));
+    assert_eq!(value(&wb, 0, "A5"), CellValue::Error(CellError::Name));
+    assert_eq!(value(&wb, 0, "A6"), num(10.0));
+    assert_eq!(value(&wb, 0, "B1"), num(2501.0));
+    assert_eq!(value(&wb, 0, "B2"), CellValue::Text("All!".into()));
+    // The formulas themselves are untouched.
+    assert!(text(&wb, 0, "A1").starts_with("CUBEVALUE("));
+    assert!(text(&wb, 0, "A3").starts_with("RTD("));
+}

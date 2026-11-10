@@ -58,6 +58,10 @@ CATALOG = {
 # Implemented elsewhere than FUNCTIONS tables (parser-level or engine-level).
 SPECIAL = {"LAMBDA", "LET", "TRUE", "FALSE"}
 
+# No data source to calculate from: the formula and the result saved in the file are kept
+# (bo-sheet `external_data_formula`); a formula typed here evaluates to #NAME?.
+KEPT = set("CUBEKPIMEMBER CUBEMEMBER CUBEMEMBERPROPERTY CUBERANKEDMEMBER CUBESET CUBESETCOUNT CUBEVALUE".split())
+
 
 def implemented():
     names = set()
@@ -89,6 +93,9 @@ def main():
             ok = n in have
             total += 1
             done += ok
+            if not ok and n in KEPT:
+                rows.append(f"| {n} | {group} | [p] | giữ công thức + giá trị cache (bo-sheet) |")
+                continue
             rows.append(f"| {n} | {group} | {'[x]' if ok else '[ ]'} | {'bo-formula' if ok else ''} |")
     extra = sorted(have - {n for v in CATALOG.values() for n in v.split()})
     out = [

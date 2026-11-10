@@ -135,6 +135,47 @@ fn formula_text<'f>(
     Some(std::borrow::Cow::Owned(format(&moved)))
 }
 
+/// Whether formula `text` calls a function whose data lives outside the workbook:
+/// the cube functions and `RTD` (ECMA-376 Part 1, §18.17.7). BlueSheet has no OLAP
+/// connection or real-time data server, so such a cell keeps the result saved in
+/// the file (`<v>`, §18.3.1.96) instead of turning into an error on recalculation.
+pub(crate) fn external_data_formula(text: &str) -> bool {
+    const NAMES: [&str; 8] = [
+        "CUBEKPIMEMBER",
+        "CUBEMEMBER",
+        "CUBEMEMBERPROPERTY",
+        "CUBERANKEDMEMBER",
+        "CUBESET",
+        "CUBESETCOUNT",
+        "CUBEVALUE",
+        "RTD",
+    ];
+    // Cheap rejection first: this runs for every formula of the workbook.
+    let upper = |needle: &[u8]| {
+        text.as_bytes()
+            .windows(needle.len())
+            .any(|w| w.eq_ignore_ascii_case(needle))
+    };
+    if !upper(b"CUBE") && !upper(b"RTD") {
+        return false;
+    }
+    let Ok(expr) = parse(text) else {
+        return false;
+    };
+    let mut found = false;
+    expr.walk(&mut |e| {
+        if let bo_formula::Expr::Call { name, .. } = e {
+            found |= NAMES.contains(&name.as_str());
+        }
+    });
+    found
+}
+
+/// Whether `cell` is an external-data formula with a saved result to keep.
+pub(crate) fn keeps_saved_result(cell: &Cell, text: &str) -> bool {
+    !matches!(cell.value, CellValue::Empty) && external_data_formula(text)
+}
+
 pub(crate) fn array_range(f: &bo_model::sheet::Formula) -> Option<CellRange> {
     match &f.kind {
         FormulaKind::Array { range } => CellRange::parse(range),
@@ -242,9 +283,13 @@ pub(crate) fn load_with(
                     } else {
                         None
                     };
-                    let ok = text.is_some_and(|t| fw.load_formula(si, r, c, &t, cached).is_ok());
+                    let ok = text.is_some_and(|t| {
+                        !keeps_saved_result(cell, &t)
+                            && fw.load_formula(si, r, c, &t, cached).is_ok()
+                    });
                     if !ok {
-                        // Unparsable formula: keep its cached value as a constant.
+                        // Unparsable or external-data formula: keep its cached value
+                        // as a constant.
                         fw.set_value(si, r, c, to_value(&cell.value, system));
                     }
                 }

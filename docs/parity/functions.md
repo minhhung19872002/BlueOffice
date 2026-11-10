@@ -67,13 +67,13 @@ Test: bảng giá trị trong `crates/bo-formula/tests/` (giá trị kỳ vọng
 | VARP | Compatibility | [x] | bo-formula |
 | WEIBULL | Compatibility | [x] | bo-formula |
 | ZTEST | Compatibility | [x] | bo-formula |
-| CUBEKPIMEMBER | Cube | [ ] |  |
-| CUBEMEMBER | Cube | [ ] |  |
-| CUBEMEMBERPROPERTY | Cube | [ ] |  |
-| CUBERANKEDMEMBER | Cube | [ ] |  |
-| CUBESET | Cube | [ ] |  |
-| CUBESETCOUNT | Cube | [ ] |  |
-| CUBEVALUE | Cube | [ ] |  |
+| CUBEKPIMEMBER | Cube | [p] | giữ công thức + giá trị cache (bo-sheet) |
+| CUBEMEMBER | Cube | [p] | giữ công thức + giá trị cache (bo-sheet) |
+| CUBEMEMBERPROPERTY | Cube | [p] | giữ công thức + giá trị cache (bo-sheet) |
+| CUBERANKEDMEMBER | Cube | [p] | giữ công thức + giá trị cache (bo-sheet) |
+| CUBESET | Cube | [p] | giữ công thức + giá trị cache (bo-sheet) |
+| CUBESETCOUNT | Cube | [p] | giữ công thức + giá trị cache (bo-sheet) |
+| CUBEVALUE | Cube | [p] | giữ công thức + giá trị cache (bo-sheet) |
 | DAVERAGE | Database | [x] | bo-formula |
 | DCOUNT | Database | [x] | bo-formula |
 | DCOUNTA | Database | [x] | bo-formula |
